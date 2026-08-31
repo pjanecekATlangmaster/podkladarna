@@ -6,6 +6,12 @@ function parseApiError(res, text) {
       "nebo nahrajte soubory přes http://IP_NAS:8672 bez HTTPS proxy."
     );
   }
+  if (res.status === 503) {
+    return (
+      "Server je zaneprázdněn – fronta generování je plná. " +
+      "Počkejte na dokončení běžících jobů a zkuste to znovu."
+    );
+  }
   if (res.status === 502 || res.status === 504) {
     return (
       `Proxy timeout (HTTP ${res.status}). LAZ soubory jsou velké – ` +
@@ -71,6 +77,7 @@ async function loadPresets() {
 
 async function loadJobs() {
   const data = await api("/api/jobs");
+  updateWorkerStatus(data);
   const list = document.getElementById("jobs-list");
   list.innerHTML = "";
   for (const job of data.jobs) {
@@ -78,9 +85,15 @@ async function loadJobs() {
     div.className = "job-item";
     if (job.id === selectedJobId) div.classList.add("selected");
     div.dataset.id = job.id;
+    let queueLabel = "";
+    if (job.queue_position === 0) {
+      queueLabel = " · právě běží";
+    } else if (job.queue_position) {
+      queueLabel = ` · fronta #${job.queue_position}`;
+    }
     div.innerHTML = `
       <strong>${escapeHtml(job.name)}</strong>
-      <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}</div>
+      <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}</div>
       <div class="status">${job.preset_id} · ${job.created_at.slice(0, 19)}</div>
       ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
     `;
@@ -88,6 +101,22 @@ async function loadJobs() {
     list.appendChild(div);
   }
   if (selectedJobId) await refreshLog();
+}
+
+function updateWorkerStatus(data) {
+  const el = document.getElementById("worker-status");
+  if (!el) return;
+  if (data.busy) {
+    const q = data.queue_size || 0;
+    const maxQ = data.max_queue_size || "?";
+    el.textContent =
+      `Generování běží` +
+      (q ? ` · ${q} job${q === 1 ? "" : "ů"} ve frontě (max ${maxQ})` : "");
+    el.classList.add("busy");
+  } else {
+    el.textContent = "Server volný – lze spustit nové generování";
+    el.classList.remove("busy");
+  }
 }
 
 function escapeHtml(s) {

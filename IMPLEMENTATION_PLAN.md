@@ -25,7 +25,31 @@
 - **Bez Redis** – zbytečné pro domácí NAS.
 - **mem_limit:** 8–12 GB (NAS má 24 GB – dost headroom).
 - **processes=2** v pullauta.ini (batch / větší oblasti).
-- **TEMP_RETENTION_DAYS=7** – automatické mazání starých temp.
+- **JOB_RETENTION_DAYS=30** – mazání celých hotových/selhaných jobů (DB + disk).
+- **TEMP_RETENTION_DAYS=7** – *zatím jen env proměnná, neimplementováno* – viz backlog níže.
+
+### Backlog – úklid disk u jobů (odloženo)
+
+> **2026-08:** Neimplementovat dřív, než bude jasné, jak reálně probíhají iterace (v1.5).
+
+Struktura jobu na disku: `input/` (LAZ + ZABAGED) → `work/lidar/` (PDAL, `merged.laz`) → `work/temp/` (KP rastry, největší) → `output/` (ZIP).
+
+| Co ponechat | Proč |
+|-------------|------|
+| `input/` | znovu bez uploadu; jediný zdroj pravdy |
+| `work/lidar/merged.laz` | opakovat KP bez PDAL |
+| `work/zabaged_clean.zip` | vektorová fáze bez re-clean |
+| `work/temp/` | rychlé iterace parametrů KP (`savetempfolders`) – **největší** |
+| `output/` | finální produkt; pro iteraci nepotřeba |
+
+**Aktuální chování:** každý nový běh v `run_job.py` smaže `work/temp/` a jede znovu od `merged.laz`. Checkbox „Uložit temp“ nechá temp po dokončení na disku; do ZIP jdou z temp jen DXF.
+
+**Rozhodnutí:** samostatné mazání `work/temp/` (podle `TEMP_RETENTION_DAYS`) nebo selektivní úklid `work/` u hotových jobů **odložit** – až uvidíme reálný workflow iterací (Regenerovat / Re-render / Expert panel).
+
+**Kandidátní implementace později:**
+- [ ] Po X dnech u `status=done`: smazat jen `work/temp/`, ponechat `input/` + `output/` + `merged.laz`
+- [ ] Volba v UI: „Udržet temp pro iterace“ vs. „Uvolnit místo po stažení“
+- [ ] v1.5 iterace: nemazat temp mezi refine/rerender běhy stejného jobu
 
 ---
 
@@ -199,6 +223,7 @@ podkladarna_oom/
 - [ ] Uložené vlastní presety (JSON v SQLite)
 - [ ] Náhled PNG v job detailu
 - [ ] **OOM balíček** – viz sekce výše (`podkladarna_oom.zip`)
+- [ ] **Úklid disk** – až po ověření iterací; viz backlog „úklid disk u jobů“ v Architektuře
 
 ### v2 – Rozšíření
 - [ ] **Generování `.omap`** s relativními cestami – viz sekce výše

@@ -61,12 +61,14 @@
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
         <p id="form-error" class="form-error hidden" role="alert"></p>
         <p class="hint">LAZ soubory jsou velké (stovky MB). Přes doménu musí reverse proxy povolit velký upload – viz DEPLOY.md. Test: <code>http://IP_NAS:8672</code>.</p>
-        <p class="hint">Generování obvykle trvá 5–30 minut. v1.1 přidá stažení podkladů z mapy.</p>
+        <p class="hint">Generování obvykle trvá 5–30 minut. Můžete zavřít stránku – job běží na serveru.</p>
+        <p class="hint">V jeden okamžik běží jen jedno generování; další joby čekají ve frontě. Hotové joby se po 30 dnech automaticky mažou.</p>
       </form>
     </section>
 
     <section class="card">
       <h2>Joby</h2>
+      <p id="worker-status" class="worker-status">Načítám stav serveru…</p>
       <div id="jobs-list" class="jobs-list"></div>
       <div id="job-detail" class="job-detail hidden">
         <h3 id="detail-title"></h3>

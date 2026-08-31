@@ -5,7 +5,7 @@ import traceback
 
 from app import db
 from app.pipeline.run_job import run_job_pipeline
-from app.settings import JOBS_DIR
+from app.settings import JOBS_DIR, MAX_CONCURRENT_LIDAR, MAX_QUEUE_SIZE
 
 _lock = threading.Lock()
 _running: str | None = None
@@ -21,16 +21,48 @@ def current_job_id() -> str | None:
 
 
 def queue_size() -> int:
-    return len(_queue)
+    with _lock:
+        return len(_queue)
+
+
+def queue_snapshot() -> dict:
+    with _lock:
+        return {
+            "busy": _running is not None,
+            "current": _running,
+            "queued": list(_queue),
+            "queue_size": len(_queue),
+            "max_concurrent": MAX_CONCURRENT_LIDAR,
+            "max_queue_size": MAX_QUEUE_SIZE,
+        }
+
+
+def queue_position(job_id: str) -> int | None:
+    """0 = právě běží, 1+ = pozice ve frontě, None = není ve frontě."""
+    with _lock:
+        if _running == job_id:
+            return 0
+        if job_id in _queue:
+            return _queue.index(job_id) + 1
+    return None
+
+
+def can_accept_job() -> bool:
+    with _lock:
+        return len(_queue) < MAX_QUEUE_SIZE
 
 
 def enqueue(job_id: str) -> None:
     global _running
     with _lock:
+        if len(_queue) >= MAX_QUEUE_SIZE and _running is not None:
+            raise RuntimeError("Fronta je plná")
         if _running is not None:
             if job_id not in _queue:
+                if len(_queue) >= MAX_QUEUE_SIZE:
+                    raise RuntimeError("Fronta je plná")
                 _queue.append(job_id)
-            db.update_job(job_id, status="queued")
+            db.update_job(job_id, status="queued", phase="waiting")
             return
         _running = job_id
     db.update_job(job_id, status="running", phase="starting")
@@ -45,6 +77,7 @@ def _start_next() -> None:
             next_id = _queue.pop(0)
             _running = next_id
     if next_id:
+        db.update_job(next_id, status="running", phase="starting")
         threading.Thread(target=_run, args=(next_id,), daemon=True).start()
 
 

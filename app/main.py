@@ -11,8 +11,9 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import db, worker
+from app.cleanup import purge_old_jobs, start_cleanup_scheduler
 from app.pipeline.ini_builder import load_presets
-from app.settings import DEFAULT_OPTIONS, JOBS_DIR
+from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, JOBS_DIR, MAX_QUEUE_SIZE
 
 logger = logging.getLogger("podkladarna")
 
@@ -50,6 +51,10 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 def startup() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     db.init_db()
+    removed = purge_old_jobs()
+    if removed:
+        logger.info("Startup cleanup: removed %s old job(s)", removed)
+    start_cleanup_scheduler(CLEANUP_INTERVAL_HOURS)
 
 
 @app.exception_handler(RequestValidationError)
@@ -86,7 +91,12 @@ def api_presets():
 
 @app.get("/api/jobs")
 def api_list_jobs():
-    return {"jobs": db.list_jobs(), "busy": worker.is_busy(), "current": worker.current_job_id()}
+    jobs = db.list_jobs()
+    for job in jobs:
+        pos = worker.queue_position(job["id"])
+        if pos is not None:
+            job["queue_position"] = pos
+    return {"jobs": jobs, **worker.queue_snapshot()}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -154,6 +164,13 @@ async def api_create_job(request: Request):
     if preset_id not in presets:
         raise HTTPException(400, f"Neznamy preset: {preset_id}")
 
+    if worker.is_busy() and not worker.can_accept_job():
+        raise HTTPException(
+            503,
+            f"Fronta je plná (max {MAX_QUEUE_SIZE} čekajících jobů). "
+            "Počkejte na dokončení běžících generování.",
+        )
+
     dmr_uploads = _upload_files(form, "dmr_files")
     dmp_uploads = _upload_files(form, "dmp_files")
     zabaged_uploads = _upload_files(form, "zabaged_file")
@@ -212,13 +229,12 @@ async def api_create_job(request: Request):
                 shutil.copyfileobj(zabaged_file.file, out)
             log(f"OK {zpath.name} ({zpath.stat().st_size / 1e6:.1f} MB)")
 
-        if worker.is_busy():
-            db.update_job(job_id, status="queued")
-            log("Job ve fronte – ceka na dokonceni predchoziho.")
-        else:
-            worker.enqueue(job_id)
+        worker.enqueue(job_id)
+        pos = worker.queue_position(job_id)
+        if pos and pos > 0:
+            log(f"Job ve fronte – pozice {pos}.")
 
-        logger.info("Job %s created and queued", job_id)
+        logger.info("Job %s enqueued (queue_pos=%s)", job_id, pos)
         return db.get_job(job_id)
     except Exception as exc:
         tb = traceback.format_exc()
@@ -237,8 +253,7 @@ def api_start_job(job_id: str):
         raise HTTPException(404, "Job nenalezen")
     if job["status"] == "running":
         return job
-    if worker.is_busy():
-        db.update_job(job_id, status="queued")
-        return db.get_job(job_id)
+    if worker.is_busy() and not worker.can_accept_job():
+        raise HTTPException(503, f"Fronta je plná (max {MAX_QUEUE_SIZE}).")
     worker.enqueue(job_id)
     return db.get_job(job_id)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -85,10 +86,30 @@ def get_job(job_id: str) -> dict[str, Any]:
     return _row_to_job(row)
 
 
-def list_jobs() -> list[dict[str, Any]]:
+def list_jobs(limit: int = 100) -> list[dict[str, Any]]:
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 100").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
     return [_row_to_job(r) for r in rows]
+
+
+def delete_job(job_id: str) -> bool:
+    """Smaže job z DB i disk (input/work/output). Neprovádí se pro běžící job."""
+    job_dir = JOBS_DIR / job_id
+    with connect() as conn:
+        row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if not row:
+            return False
+        if row["status"] in ("running", "queued"):
+            return False
+        conn.execute("DELETE FROM job_logs WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        conn.commit()
+    if job_dir.exists():
+        shutil.rmtree(job_dir, ignore_errors=True)
+    return True
 
 
 def update_job(job_id: str, **fields: Any) -> None:
