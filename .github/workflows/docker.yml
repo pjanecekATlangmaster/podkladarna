@@ -61,3 +61,13 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Set GHCR package visibility to public
+        if: github.event_name != 'pull_request'
+        run: |
+          gh api --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            /user/packages/container/podkladarna \
+            -f visibility=public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

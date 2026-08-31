@@ -3,7 +3,7 @@
 #
 # Použití:
 #   cd /volume1/docker/podkladarna
-#   cp .env.example .env    # GHCR_OWNER, GHCR_TOKEN (PAT read:packages)
+#   cp .env.example .env
 #   chmod +x deploy-nas.sh
 #   ./deploy-nas.sh
 #
@@ -43,26 +43,25 @@ echo "Složka:  $SCRIPT_DIR"
 echo "Image:   $IMAGE"
 echo ""
 
-if [ "${GHCR_OWNER}" = "owner" ] || [ -z "${GHCR_OWNER}" ]; then
-  echo "Chyba: nastavte GHCR_OWNER v souboru .env (lowercase, např. pjanecekatlangmaster)" >&2
-  exit 1
-fi
+case "$GHCR_OWNER" in
+  owner|""|vase_github_uzivatelske_jmeno|vase_github_*|*placeholder*)
+    echo "Chyba: nastavte GHCR_OWNER v .env (lowercase)." >&2
+    echo "Příklad: GHCR_OWNER=pjanecekatlangmaster" >&2
+    exit 1
+    ;;
+esac
 
-if [ -z "${GHCR_TOKEN:-}" ]; then
-  echo "Chyba: GHCR_TOKEN je povinný (privátní image)." >&2
-  echo "Vytvořte GitHub PAT s oprávněním read:packages a vložte do .env" >&2
-  exit 1
+if [ -n "${GHCR_TOKEN:-}" ]; then
+  echo "Přihlašuji se do ghcr.io jako ${GHCR_USER}..."
+  printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 fi
-
-echo "Přihlašuji se do ghcr.io jako ${GHCR_USER}..."
-printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 
 echo ""
 echo "1/3 Stahuji image..."
 if ! docker pull "$IMAGE"; then
   echo ""
   echo "Pull selhal pro: $IMAGE" >&2
-  echo "Ověřte GHCR_OWNER (lowercase), GHCR_TOKEN a že Actions build proběhl." >&2
+  echo "Ověřte GHCR_OWNER (lowercase) a že Actions build proběhl." >&2
   exit 1
 fi
 

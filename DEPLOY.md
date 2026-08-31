@@ -37,17 +37,16 @@ Port **8672** nemusí být otevřený na routeru směrem ven — stačí reverse
    export GHCR_OWNER=vase_github_jmeno
    ```
 
-První push na `main`/`master` spustí workflow. Image na NAS:
+První push na `main`/`master` spustí workflow. Veřejný image na NAS:
 
 ```bash
 # Image je vždy lowercase:
-# ghcr.io/pjanecekatlangmaster/podkladarna:latest
-
-docker login ghcr.io -u pjanecekatlangmaster -p <PAT s read:packages>
 docker pull ghcr.io/pjanecekatlangmaster/podkladarna:latest
 ```
 
-**Poznámka:** Repozitář je privátní → bez `docker login` dostanete `manifest unknown`.
+Workflow po buildu nastaví balíček GHCR jako **veřejný** (login na NAS není potřeba).
+
+Jednorázově ručně (pokud by workflow selhal): GitHub → **Packages** → `podkladarna` → **Package settings** → **Change visibility** → Public.
 
 ---
 
@@ -59,7 +58,7 @@ Např. `/volume1/docker/podkladarna/`:
 podkladarna/
   deploy-nas.sh           # skript pro aktualizaci
   docker-compose.nas.yml  # compose bez buildu (jen GHCR image)
-  .env                    # GHCR_OWNER, volitelně GHCR_TOKEN
+  .env                    # GHCR_OWNER=pjanecekatlangmaster
   data/                   # jobs, cache, SQLite (vytvoří se samo)
 ```
 
@@ -81,7 +80,9 @@ cd /volume1/docker/podkladarna
 ./deploy-nas.sh
 ```
 
-Skript: přihlášení do GHCR (pokud je `GHCR_TOKEN`) → `docker pull` → zastavení starého kontejneru → spuštění nového → health check na portu 8672.
+Skript: `docker pull` → zastavení starého kontejneru → spuštění nového → health check na portu 8672.
+
+**Důležité:** V `.env` nastavte `GHCR_OWNER=pjanecekatlangmaster` (ne placeholder z `.env.example`).
 
 Konkrétní tag místo `latest`:
 
@@ -171,8 +172,6 @@ Router: forward **443** (a volitelně **80**) na **vnitřní IP NAS**, ne na jin
 
 ```env
 GHCR_OWNER=pjanecekatlangmaster
-GHCR_USER=pjanecekatlangmaster
-GHCR_TOKEN=ghp_xxxxxxxx
 ```
 
 `GHCR_OWNER` musí být **lowercase** – GHCR ukládá image jako `ghcr.io/pjanecekatlangmaster/podkladarna`.
