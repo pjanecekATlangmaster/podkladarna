@@ -56,7 +56,8 @@ Např. `/volume1/docker/podkladarna/`:
 
 ```
 podkladarna/
-  deploy-nas.sh           # skript pro aktualizaci
+  deploy-nas.sh           # první deploy / chytrý restart (přeskočí pokud beze změny)
+  update-nas.sh           # **aktualizace** – vždy stop, smazat, pull, start
   docker-compose.nas.yml  # compose bez buildu (jen GHCR image)
   .env                    # GHCR_OWNER=pjanecekatlangmaster
   data/                   # jobs, cache, SQLite (vytvoří se samo)
@@ -68,28 +69,39 @@ Soubory zkopírujte z repozitáře (stačí tyto čtyři + složka `data`).
 
 ```bash
 cd /volume1/docker/podkladarna
-cp .env.example .env          # upravte GHCR_OWNER
-chmod +x deploy-nas.sh
+```bash
+cp .env.example .env
+chmod +x deploy-nas.sh update-nas.sh
 ./deploy-nas.sh
+```
 ```
 
 ### Aktualizace po novém buildu v GHCR
 
 ```bash
 cd /volume1/docker/podkladarna
-./deploy-nas.sh
+chmod +x update-nas.sh
+sudo ./update-nas.sh
 ```
 
-Skript stáhne image **jen jednou** (`compose pull`) a:
-- pokud je lokální verze stejná a kontejner běží → **nic nedělá**
-- pokud je na GHCR nová verze → restart
-- `./deploy-nas.sh --force` vynutí restart i bez nové verze
+`update-nas.sh` **vždy**:
+1. zastaví a smaže kontejner `podkladarna`
+2. smaže staré image `ghcr.io/.../podkladarna`
+3. stáhne nový image z GHCR
+4. spustí nový kontejner
+5. ověří health check
 
-Konkrétní tag místo `latest`:
+Data v `./data` (joby, SQLite) **zůstávají**.
+
+Chytrý režim (přeskočí pokud už běží aktuální verze): `./deploy-nas.sh`
+
+Konkrétní tag:
 
 ```bash
-./deploy-nas.sh v1.0.0
+./update-nas.sh v1.0.0
 ```
+
+Starý image ponechat (např. rollback): `./update-nas.sh --keep-image`
 
 Ručně (bez skriptu):
 
