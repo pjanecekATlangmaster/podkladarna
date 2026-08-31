@@ -129,12 +129,38 @@ $COMPOSE $COMPOSE_FILE ps
 
 if command -v curl >/dev/null 2>&1; then
   echo ""
-  echo "Health check http://127.0.0.1:8672/ ..."
-  CODE="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8672/ || true)"
-  if [ "$CODE" = "200" ]; then
-    echo "OK (HTTP $CODE)"
-  else
-    echo "Varování: HTTP $CODE – zkontrolujte logy: $COMPOSE $COMPOSE_FILE logs --tail=50 podkladarna" >&2
+  echo "Health check http://127.0.0.1:8672/ (až 90 s)..."
+  READY=false
+  TRIES=45
+  while [ "$TRIES" -gt 0 ]; do
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8672/ 2>/dev/null || echo 000)"
+    if [ "$CODE" = "200" ]; then
+      echo "OK (HTTP $CODE)"
+      READY=true
+      break
+    fi
+
+    RESTARTS="$(docker inspect --format='{{.RestartCount}}' podkladarna 2>/dev/null || echo 0)"
+    if [ "${RESTARTS:-0}" -gt 0 ] 2>/dev/null; then
+      echo "Kontejner se restartuje (RestartCount=${RESTARTS}) – pravděpodobně spadl při startu." >&2
+      $COMPOSE $COMPOSE_FILE logs --tail=80 podkladarna
+      exit 1
+    fi
+
+    if ! docker ps -q -f name=^podkladarna$ -f status=running | grep -q .; then
+      echo "Kontejner neběží – logy:" >&2
+      $COMPOSE $COMPOSE_FILE logs --tail=80 podkladarna
+      exit 1
+    fi
+
+    TRIES=$((TRIES - 1))
+    sleep 2
+  done
+
+  if [ "$READY" = false ]; then
+    echo "Varování: HTTP ${CODE:-000} po 90 s – aplikace ještě neodpovídá." >&2
+    echo "Poslední logy:" >&2
+    $COMPOSE $COMPOSE_FILE logs --tail=80 podkladarna
     exit 1
   fi
 else

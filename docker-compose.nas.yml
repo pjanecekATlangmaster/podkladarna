@@ -13,3 +13,9 @@ services:
       - MAX_CONCURRENT_LIDAR=1
       - TEMP_RETENTION_DAYS=7
     mem_limit: 12g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8672/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
