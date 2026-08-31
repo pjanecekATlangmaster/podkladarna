@@ -17,7 +17,7 @@ KLAD_QUERY_URL = (
 )
 OPENZU_DMR = "https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/{mapnom}.zip"
 OPENZU_DMP = "https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/{mapnom}.zip"
-USER_AGENT = "Podkladarna/1.1 (https://github.com/pjanecekATlangmaster/podkladarna)"
+USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladarna)"
 MAX_SHEETS = 8
 CROP_BUFFER_M = 30.0
 QUERY_TIMEOUT_S = 30

@@ -89,6 +89,10 @@ select {
   font: inherit;
 }
 
+select:invalid {
+  color: var(--muted);
+}
+
 fieldset {
   border: 1px solid var(--border);
   border-radius: 8px;

@@ -28,7 +28,9 @@
 
         <label>
           Typ mapy
-          <select name="preset_id" id="preset_id"></select>
+          <select name="preset_id" id="preset_id" required>
+            <option value="" selected disabled>Vyberte typ mapy</option>
+          </select>
         </label>
 
         <fieldset class="mode-toggle">
@@ -110,7 +112,7 @@
 
   <footer>
     <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
-    · Podkladárna v1.1
+    · Podkladárna v1.2
   </footer>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="/static/app.js"></script>

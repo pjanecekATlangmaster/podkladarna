@@ -51,7 +51,7 @@ def _form_str(form, key: str, default: str = "") -> str:
         return default
     return str(val)
 
-app = FastAPI(title="Podkladarna", version="1.1.0")
+app = FastAPI(title="Podkladarna", version="1.2.0")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -205,8 +205,10 @@ async def api_create_job(request: Request):
     if not name:
         raise HTTPException(400, "Chybi nazev jobu")
 
-    preset_id = _form_str(form, "preset_id", "sprint_2m")
+    preset_id = _form_str(form, "preset_id").strip()
     presets = load_presets()
+    if not preset_id:
+        raise HTTPException(400, "Chybí typ mapy.")
     if preset_id not in presets:
         raise HTTPException(400, f"Neznamy preset: {preset_id}")
 

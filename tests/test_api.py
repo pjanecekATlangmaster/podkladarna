@@ -48,6 +48,19 @@ def test_create_job_multipart(client):
     assert any("Nahravam DMR5G.laz" in ln for ln in lines)
 
 
+def test_create_job_rejects_missing_preset(client):
+    r = client.post(
+        "/api/jobs",
+        data={"name": "bez-presetu"},
+        files=[
+            ("dmr_files", ("a.laz", b"dmr", "application/octet-stream")),
+            ("dmp_files", ("b.laz", b"dmp", "application/octet-stream")),
+        ],
+    )
+    assert r.status_code == 400
+    assert "typ mapy" in r.json()["detail"].lower()
+
+
 def test_create_job_rejects_missing_dmr(client):
     r = client.post(
         "/api/jobs",

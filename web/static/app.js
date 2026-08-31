@@ -67,12 +67,19 @@ async function loadPresets() {
   const data = await api("/api/presets");
   const sel = document.getElementById("preset_id");
   sel.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Vyberte typ mapy";
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  sel.appendChild(placeholder);
   for (const [id, p] of Object.entries(data)) {
     const opt = document.createElement("option");
     opt.value = id;
     opt.textContent = p.label || id;
     sel.appendChild(opt);
   }
+  sel.value = "";
 }
 
 async function loadJobs() {
@@ -166,6 +173,11 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   const btn = document.getElementById("submit-btn");
   clearFormError();
   const mode = currentSourceMode();
+  if (!form.preset_id.value) {
+    showFormError("Vyberte typ mapy.");
+    form.preset_id.focus();
+    return;
+  }
   if (mode === "map" && !document.getElementById("bbox-input").value) {
     showFormError("Nakreslete výřez na mapě (dva protilehlé rohy).");
     return;
