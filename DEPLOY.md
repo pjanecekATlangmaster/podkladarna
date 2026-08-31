@@ -131,7 +131,7 @@ LAZ data mají často **100–500 MB+**. Výchozí nginx limit na Synology je ~*
 
 **Rychlý test:** nahrajte přes **`http://192.168.x.x:8672`** (bez reverse proxy). Pokud funguje, chybí limit na proxy.
 
-**Trvalá opraha (HTTPS)** – zkopírujte z repa `deploy/synology-nginx-upload.conf` na NAS:
+**Trvalá oprava (HTTPS)** – zkopírujte z repa `deploy/synology-nginx-upload.conf` na NAS:
 
 ```bash
 sudo cp deploy/synology-nginx-upload.conf /etc/nginx/conf.d/proxy_podkladarna.conf
