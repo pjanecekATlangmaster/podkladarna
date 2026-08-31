@@ -57,7 +57,8 @@ Např. `/volume1/docker/podkladarna/`:
 ```
 podkladarna/
   deploy-nas.sh           # první deploy / chytrý restart (přeskočí pokud beze změny)
-  update-nas.sh           # **aktualizace** – vždy stop, smazat, pull, start
+  update-nas.sh           # aktualizace (digest check, volitelně smaže starý image)
+  nas-lib.sh              # sdílené funkce (digest, health check)
   docker-compose.nas.yml  # compose bez buildu (jen GHCR image)
   .env                    # GHCR_OWNER=pjanecekatlangmaster
   data/                   # jobs, cache, SQLite (vytvoří se samo)
@@ -84,16 +85,15 @@ chmod +x update-nas.sh
 sudo ./update-nas.sh
 ```
 
-`update-nas.sh` **vždy**:
-1. zastaví a smaže kontejner `podkladarna`
-2. smaže staré image `ghcr.io/.../podkladarna`
-3. stáhne nový image z GHCR
-4. spustí nový kontejner
-5. ověří health check
+`update-nas.sh` **chytrý režim** (výchozí):
+- porovná **digest** lokálního image s GHCR (`docker manifest inspect`)
+- stejný digest + běžící kontejner → **nic nestahuje** (~350 MB ušetřeno)
+- stejný digest, kontejner neběží → restart bez pull
+- nový digest → stop, smazat starý image, pull, start
 
-Data v `./data` (joby, SQLite) **zůstávají**.
+Vynucení plného stažení: `./update-nas.sh --force`
 
-Chytrý režim (přeskočí pokud už běží aktuální verze): `./deploy-nas.sh`
+`deploy-nas.sh` – stejná logika digestu, ale **nesmaže** starý image před pull (šetrnější).
 
 Konkrétní tag:
 
