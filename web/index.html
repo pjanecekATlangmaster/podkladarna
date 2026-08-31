@@ -59,6 +59,8 @@
         </fieldset>
 
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
+        <p id="form-error" class="form-error hidden" role="alert"></p>
+        <p class="hint">LAZ soubory jsou velké (stovky MB). Přes doménu musí reverse proxy povolit velký upload – viz DEPLOY.md. Test: <code>http://IP_NAS:8672</code>.</p>
         <p class="hint">Generování obvykle trvá 5–30 minut. v1.1 přidá stažení podkladů z mapy.</p>
       </form>
     </section>

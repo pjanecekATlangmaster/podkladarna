@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
+import traceback
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import db, worker
 from app.pipeline.ini_builder import load_presets
 from app.settings import DEFAULT_OPTIONS, JOBS_DIR
+
+logger = logging.getLogger("podkladarna")
 
 
 def _form_bool(value: str) -> bool:
@@ -25,7 +30,19 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.on_event("startup")
 def startup() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     db.init_db()
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception):
+    logger.exception("Unhandled error")
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -98,8 +115,14 @@ async def api_create_job(
     if preset_id not in presets:
         raise HTTPException(400, f"Neznamy preset: {preset_id}")
 
-    if not dmr_files or not dmp_files:
-        raise HTTPException(400, "Nahrajte alespon jeden DMR a jeden DMP soubor (LAZ/LAS)")
+    dmr_uploads = [f for f in dmr_files if f.filename]
+    dmp_uploads = [f for f in dmp_files if f.filename]
+    if not dmr_uploads or not dmp_uploads:
+        raise HTTPException(
+            400,
+            "Nahrajte alespon jeden DMR a jeden DMP soubor (LAZ/LAS). "
+            "Pri uploadu pres HTTPS zkontrolujte limit velikosti na reverse proxy.",
+        )
 
     options = {
         **DEFAULT_OPTIONS,
@@ -110,34 +133,51 @@ async def api_create_job(
         "savetempfolders": _form_bool(savetempfolders),
     }
     job = db.create_job(name, preset_id, options)
-    job_dir = JOBS_DIR / job["id"]
+    job_id = job["id"]
+    job_dir = JOBS_DIR / job_id
 
-    async def save_uploads(files: list[UploadFile], dest: Path) -> None:
-        dest.mkdir(parents=True, exist_ok=True)
-        for i, uf in enumerate(files):
-            if not uf.filename:
-                continue
-            target = dest / uf.filename
-            if target.exists():
-                target = dest / f"{i}_{uf.filename}"
-            with target.open("wb") as out:
-                shutil.copyfileobj(uf.file, out)
+    def log(msg: str) -> None:
+        db.append_log(job_id, msg)
 
-    await save_uploads(dmr_files, job_dir / "input" / "dmr")
-    await save_uploads(dmp_files, job_dir / "input" / "dmp")
-    if zabaged_file and zabaged_file.filename:
-        zdest = job_dir / "input" / "zabaged"
-        zdest.mkdir(parents=True, exist_ok=True)
-        zpath = zdest / (zabaged_file.filename or "Zabaged_full.zip")
-        with zpath.open("wb") as out:
-            shutil.copyfileobj(zabaged_file.file, out)
+    try:
+        async def save_uploads(files: list[UploadFile], dest: Path) -> None:
+            dest.mkdir(parents=True, exist_ok=True)
+            for i, uf in enumerate(files):
+                if not uf.filename:
+                    continue
+                target = dest / uf.filename
+                if target.exists():
+                    target = dest / f"{i}_{uf.filename}"
+                log(f"Nahravam {uf.filename} …")
+                with target.open("wb") as out:
+                    shutil.copyfileobj(uf.file, out)
+                log(f"OK {uf.filename} ({target.stat().st_size / 1e6:.1f} MB)")
 
-    if worker.is_busy():
-        db.update_job(job["id"], status="queued")
-    else:
-        worker.enqueue(job["id"])
+        await save_uploads(dmr_uploads, job_dir / "input" / "dmr")
+        await save_uploads(dmp_uploads, job_dir / "input" / "dmp")
+        if zabaged_file and zabaged_file.filename:
+            zdest = job_dir / "input" / "zabaged"
+            zdest.mkdir(parents=True, exist_ok=True)
+            zpath = zdest / (zabaged_file.filename or "Zabaged_full.zip")
+            log(f"Nahravam {zpath.name} …")
+            with zpath.open("wb") as out:
+                shutil.copyfileobj(zabaged_file.file, out)
+            log(f"OK {zpath.name} ({zpath.stat().st_size / 1e6:.1f} MB)")
 
-    return db.get_job(job["id"])
+        if worker.is_busy():
+            db.update_job(job_id, status="queued")
+            log("Job ve fronte – ceka na dokonceni predchoziho.")
+        else:
+            worker.enqueue(job_id)
+
+        return db.get_job(job_id)
+    except Exception as exc:
+        tb = traceback.format_exc()
+        log(f"CHYBA pri vytvareni jobu: {exc}")
+        log(tb)
+        db.update_job(job_id, status="failed", phase="upload", error=str(exc))
+        logger.exception("Job %s upload failed", job_id)
+        raise HTTPException(500, f"Nahrani selhalo: {exc}") from exc
 
 
 @app.post("/api/jobs/{job_id}/start")

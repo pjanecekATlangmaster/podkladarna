@@ -1,8 +1,52 @@
+function parseApiError(res, text) {
+  if (res.status === 413) {
+    return (
+      "Soubor je příliš velký pro reverse proxy (HTTP 413). " +
+      "Na Synology zvyšte client_max_body_size v nginx (viz DEPLOY.md), " +
+      "nebo nahrajte soubory přes http://IP_NAS:8672 bez HTTPS proxy."
+    );
+  }
+  if (res.status === 502 || res.status === 504) {
+    return (
+      `Proxy timeout (HTTP ${res.status}). LAZ soubory jsou velké – ` +
+      "prodlužte timeout reverse proxy nebo uploadujte přímo na port 8672."
+    );
+  }
+  try {
+    const data = JSON.parse(text);
+    if (Array.isArray(data.detail)) {
+      return data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+    }
+    if (typeof data.detail === "string") {
+      return data.detail;
+    }
+  } catch (_) {
+    /* not JSON */
+  }
+  const trimmed = (text || "").trim();
+  if (trimmed.includes("Request Entity Too Large")) {
+    return parseApiError({ status: 413 }, text);
+  }
+  return trimmed.slice(0, 800) || res.statusText || `HTTP ${res.status}`;
+}
+
+function showFormError(message) {
+  const el = document.getElementById("form-error");
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+
+function clearFormError() {
+  const el = document.getElementById("form-error");
+  el.textContent = "";
+  el.classList.add("hidden");
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    throw new Error(parseApiError(res, text));
   }
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) return res.json();
@@ -32,11 +76,13 @@ async function loadJobs() {
   for (const job of data.jobs) {
     const div = document.createElement("div");
     div.className = "job-item";
+    if (job.id === selectedJobId) div.classList.add("selected");
     div.dataset.id = job.id;
     div.innerHTML = `
       <strong>${escapeHtml(job.name)}</strong>
       <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}</div>
       <div class="status">${job.preset_id} · ${job.created_at.slice(0, 19)}</div>
+      ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
     `;
     div.onclick = () => selectJob(job.id);
     list.appendChild(div);
@@ -71,6 +117,7 @@ async function selectJob(id) {
   }
   document.getElementById("detail-log").textContent = "";
   await refreshLog();
+  await loadJobs();
 }
 
 async function refreshLog() {
@@ -88,8 +135,9 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
   const btn = document.getElementById("submit-btn");
+  clearFormError();
   btn.disabled = true;
-  btn.textContent = "Odesílám…";
+  btn.textContent = "Nahrávám soubory… (může trvat minuty)";
   try {
     const fd = new FormData(form);
     fd.set("run_vectors", form.run_vectors.checked ? "true" : "false");
@@ -99,9 +147,11 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     fd.set("savetempfolders", form.savetempfolders.checked ? "true" : "false");
     const job = await api("/api/jobs", { method: "POST", body: fd });
     await loadJobs();
-    selectJob(job.id);
+    await selectJob(job.id);
   } catch (err) {
+    showFormError(err.message);
     alert(err.message);
+    await loadJobs();
   } finally {
     btn.disabled = false;
     btn.textContent = "Spustit generování";

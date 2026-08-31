@@ -125,6 +125,25 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
 
 Certifikát: Let’s Encrypt pro `podkladarna.kibos.link` (Synology certifikát).
 
+### Upload velkých LAZ souborů (důležité)
+
+LAZ data mají často **100–500 MB+**. Výchozí nginx limit na Synology je ~**1 MB** → upload přes HTTPS spadne hned (popup, **žádný log jobu**).
+
+**Rychlý test:** nahrajte přes **`http://192.168.x.x:8672`** (bez reverse proxy). Pokud funguje, chybí limit na proxy.
+
+**Trvalá oprava** – SSH na NAS, soubor např. `/etc/nginx/conf.d/proxy_podkladarna.conf`:
+
+```nginx
+client_max_body_size 0;
+proxy_read_timeout 3600s;
+proxy_send_timeout 3600s;
+proxy_request_buffering off;
+```
+
+Pak: `sudo nginx -t && sudo synosystemctl restart nginx` (nebo restart Web Station / reverse proxy dle verze DSM).
+
+Alternativa v DSM 7: **Ovládací panel → Přihlašovací portál → Rozšířené → Reverse proxy → Upravit → Vlastní záhlaví** nepomůže na velikost těla – nutná úprava nginx výše.
+
 ---
 
 ## 5. Router / DNS (kibos.link)
