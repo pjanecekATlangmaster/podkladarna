@@ -7,14 +7,38 @@
 #   chmod +x deploy-nas.sh
 #   ./deploy-nas.sh
 #
-# Volitelně: ./deploy-nas.sh v1.0.0   (místo tagu latest)
+# Volitelně:
+#   ./deploy-nas.sh v1.0.0      # konkrétní tag
+#   ./deploy-nas.sh --force     # vynutit restart i bez nové verze
 
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-TAG="${1:-latest}"
+TAG="latest"
+FORCE=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force|-f)
+      FORCE=true
+      shift
+      ;;
+    -h|--help)
+      echo "Použití: $0 [--force] [tag]"
+      exit 0
+      ;;
+    -*)
+      echo "Neznámý parametr: $1" >&2
+      exit 1
+      ;;
+    *)
+      TAG="$1"
+      shift
+      ;;
+  esac
+done
 
 if [ -f .env ]; then
   # shellcheck disable=SC1091
@@ -28,6 +52,7 @@ GHCR_OWNER="$(printf '%s' "${GHCR_OWNER:-OWNER}" | tr '[:upper:]' '[:lower:]')"
 GHCR_USER="$(printf '%s' "${GHCR_USER:-$GHCR_OWNER}" | tr '[:upper:]' '[:lower:]')"
 IMAGE="ghcr.io/${GHCR_OWNER}/podkladarna:${TAG}"
 COMPOSE="docker compose"
+COMPOSE_FILE="-f docker-compose.nas.yml"
 
 if ! $COMPOSE version >/dev/null 2>&1; then
   if command -v docker-compose >/dev/null 2>&1; then
@@ -56,28 +81,51 @@ if [ -n "${GHCR_TOKEN:-}" ]; then
   printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
 fi
 
+RUNNING_ID="$(docker inspect --format='{{.Image}}' podkladarna 2>/dev/null || true)"
+LOCAL_ID="$(docker image inspect "$IMAGE" --format='{{.Id}}' 2>/dev/null || true)"
+CONTAINER_RUNNING="$(docker ps -q -f name=^podkladarna$ 2>/dev/null || true)"
+
+if [ "$FORCE" = false ] && [ -n "$CONTAINER_RUNNING" ] && [ -n "$RUNNING_ID" ] && [ "$RUNNING_ID" = "$LOCAL_ID" ]; then
+  echo "Lokální image je aktuální a kontejner běží – pull přeskakuji."
+  echo "Pro vynucený restart: $0 --force"
+  echo ""
+  echo "Stav kontejneru:"
+  $COMPOSE $COMPOSE_FILE ps
+  exit 0
+fi
+
 echo ""
-echo "1/3 Stahuji image..."
-if ! docker pull "$IMAGE"; then
+echo "1/3 Kontrola / stažení image (jen pokud je novější)..."
+export GHCR_OWNER
+export IMAGE_TAG="$TAG"
+if ! $COMPOSE $COMPOSE_FILE pull; then
   echo ""
   echo "Pull selhal pro: $IMAGE" >&2
   echo "Ověřte GHCR_OWNER (lowercase) a že Actions build proběhl." >&2
   exit 1
 fi
 
+NEW_ID="$(docker image inspect "$IMAGE" --format='{{.Id}}' 2>/dev/null || true)"
+
+if [ "$FORCE" = false ] && [ -n "$CONTAINER_RUNNING" ] && [ -n "$RUNNING_ID" ] && [ "$RUNNING_ID" = "$NEW_ID" ]; then
+  echo "Remote image beze změny – restart přeskakuji."
+  echo ""
+  echo "Stav kontejneru:"
+  $COMPOSE $COMPOSE_FILE ps
+  exit 0
+fi
+
 echo ""
 echo "2/3 Zastavuji starý kontejner..."
-$COMPOSE -f docker-compose.nas.yml down --remove-orphans
+$COMPOSE $COMPOSE_FILE down --remove-orphans
 
 echo ""
 echo "3/3 Spouštím nový kontejner..."
-export GHCR_OWNER
-export IMAGE_TAG="$TAG"
-$COMPOSE -f docker-compose.nas.yml up -d --no-build --pull always
+$COMPOSE $COMPOSE_FILE up -d --no-build
 
 echo ""
 echo "Stav kontejneru:"
-$COMPOSE -f docker-compose.nas.yml ps
+$COMPOSE $COMPOSE_FILE ps
 
 if command -v curl >/dev/null 2>&1; then
   echo ""
@@ -86,7 +134,7 @@ if command -v curl >/dev/null 2>&1; then
   if [ "$CODE" = "200" ]; then
     echo "OK (HTTP $CODE)"
   else
-    echo "Varování: HTTP $CODE – zkontrolujte logy: $COMPOSE -f docker-compose.nas.yml logs --tail=50 podkladarna" >&2
+    echo "Varování: HTTP $CODE – zkontrolujte logy: $COMPOSE $COMPOSE_FILE logs --tail=50 podkladarna" >&2
     exit 1
   fi
 else

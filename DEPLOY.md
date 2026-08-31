@@ -80,9 +80,10 @@ cd /volume1/docker/podkladarna
 ./deploy-nas.sh
 ```
 
-Skript: `docker pull` → zastavení starého kontejneru → spuštění nového → health check na portu 8672.
-
-**Důležité:** V `.env` nastavte `GHCR_OWNER=pjanecekatlangmaster` (ne placeholder z `.env.example`).
+Skript stáhne image **jen jednou** (`compose pull`) a:
+- pokud je lokální verze stejná a kontejner běží → **nic nedělá**
+- pokud je na GHCR nová verze → restart
+- `./deploy-nas.sh --force` vynutí restart i bez nové verze
 
 Konkrétní tag místo `latest`:
 

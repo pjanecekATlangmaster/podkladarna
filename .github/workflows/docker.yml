@@ -64,7 +64,10 @@ jobs:
 
       - name: Set GHCR package visibility to public
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         run: |
+          # Balíček musí existovat po pushi; při 404 nastavte ručně v GitHub → Packages
+          sleep 5
           gh api --method PATCH \
             -H "Accept: application/vnd.github+json" \
             /user/packages/container/podkladarna \
