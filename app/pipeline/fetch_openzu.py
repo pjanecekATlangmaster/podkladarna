@@ -23,6 +23,12 @@ CROP_BUFFER_M = 30.0
 QUERY_TIMEOUT_S = 30
 DOWNLOAD_TIMEOUT_S = 180
 
+# Obdélník Česka + cca 15 km (listy SM5 u hranic).
+CZ_WEST = 11.85
+CZ_SOUTH = 48.35
+CZ_EAST = 19.10
+CZ_NORTH = 51.25
+
 
 class FetchError(RuntimeError):
     pass
@@ -39,10 +45,13 @@ def parse_bbox(raw: str) -> tuple[float, float, float, float]:
         raise FetchError("Bbox obsahuje nečíselnou hodnotu") from exc
     if west >= east or south >= north:
         raise FetchError("Bbox je invertedý – west < east a south < north")
-    if not (11.0 <= west <= 19.5 and 11.0 <= east <= 19.5):
-        raise FetchError("Bbox je mimo Česko (zeměpisná délka)")
-    if not (48.0 <= south <= 51.6 and 48.0 <= north <= 51.6):
-        raise FetchError("Bbox je mimo Česko (zeměpisná šířka)")
+    if (
+        west < CZ_WEST
+        or east > CZ_EAST
+        or south < CZ_SOUTH
+        or north > CZ_NORTH
+    ):
+        raise FetchError("Bbox je mimo Česko")
     return west, south, east, north
 
 

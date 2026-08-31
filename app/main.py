@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import shutil
 import traceback
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.pipeline.fetch_openzu import (
 )
 from app.pipeline.ini_builder import load_presets
 from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, JOBS_DIR, MAX_QUEUE_SIZE
+from app.tiles import TileError, fetch_tile
 from app.tool_env import tool_status
 
 logger = logging.getLogger("podkladarna")
@@ -54,7 +56,9 @@ def _form_str(form, key: str, default: str = "") -> str:
 app = FastAPI(title="Podkladarna", version="1.2.0")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Minimální image (conda) často nezná .svg → nginx nosniff logo nenačte.
+mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("image/png", ".png")
 
 
 @app.on_event("startup")
@@ -322,6 +326,34 @@ async def api_create_job(request: Request):
         raise HTTPException(500, f"Nahrani selhalo: {exc}") from exc
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    png = STATIC_DIR / "logo.png"
+    if png.is_file():
+        return FileResponse(png, media_type="image/png")
+    svg = STATIC_DIR / "logo.svg"
+    if svg.is_file():
+        return FileResponse(svg, media_type="image/svg+xml")
+    raise HTTPException(404, "Logo nenalezeno")
+
+
+@app.get("/tiles/{z}/{x}/{y}.png", include_in_schema=False)
+def map_tile(z: int, x: int, y: int):
+    try:
+        path = fetch_tile(z, x, y)
+    except TileError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type="image/png",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "CDN-Cache-Control": "public, max-age=604800",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @app.post("/api/jobs/{job_id}/start")
 def api_start_job(job_id: str):
     try:
@@ -334,3 +366,6 @@ def api_start_job(job_id: str):
         raise HTTPException(503, f"Fronta je plná (max {MAX_QUEUE_SIZE}).")
     worker.enqueue(job_id)
     return db.get_job(job_id)
+
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

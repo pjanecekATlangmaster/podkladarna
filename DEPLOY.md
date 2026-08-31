@@ -137,6 +137,21 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
 
 Certifikát: Let’s Encrypt pro `podkladarna.kibos.link` (Synology certifikát).
 
+### Cloudflare (kibos.link)
+
+Oranžový proxy rozbíjí mapu, i když `http://IP_NAS:8672` funguje: **Rocket Loader** přepíše Leaflet a SRI/skript spadne. WAF / Bot Fight umí zahodit i dlaždice.
+
+V Cloudflare u této domény vypněte:
+
+- Speed → Optimization → **Rocket Loader**
+- Speed → **Auto Minify** u JavaScriptu
+- Scrape Shield → **Email Address Obfuscation**
+- Speed → **Polish / Mirage** (logo a PNG dlaždice)
+
+Volitelně Cache Rule: `/static/*` a `/tiles/*` cache on, Skip Bot Fight.
+
+Aplikace Leaflet servíruje sama (`data-cfasync="false"`). Dlaždice jdou nejdřív na OSM (jako lokální náhled), při chybě přes `/tiles/` na NAS.
+
 ### Upload velkých LAZ souborů (důležité)
 
 LAZ data mají často **100–500 MB+**. Výchozí nginx limit na Synology je ~**1 MB** → upload přes HTTPS spadne hned (popup, **žádný log jobu**).

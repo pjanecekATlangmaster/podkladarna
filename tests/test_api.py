@@ -99,6 +99,22 @@ def test_index_html(client):
     assert "Podkladárna" in r.text
     html = r.text
     assert "bbox-map" in html
+    assert "/static/logo.png" in html
+    assert "/static/leaflet/leaflet.js" in html
+    assert "unpkg.com" not in html
     assert 'name="output_zabaged_clean"' in html
     assert 'name="output_zabaged_clean" checked' not in html
     assert 'name="savetempfolders" checked' not in html
+
+
+def test_logo_png(client):
+    r = client.get("/static/logo.png")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("image/png")
+    assert len(r.content) > 100
+
+
+def test_favicon(client):
+    r = client.get("/favicon.ico")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/png")

@@ -1,8 +1,8 @@
 #!/bin/sh
 # Aktualizace nasazené Podkladárny na Synology NAS
 #
-# Chytrý režim: pokud je digest stejný jako na GHCR, nestahuje znovu ~350 MB.
-# Vynucení: ./update-nas.sh --force
+# Nejdřív pull (Docker znovu stáhne jen změněné vrstvy), teprve pak restart.
+# Stejný digest → nic nestahuje. Vynucení: ./update-nas.sh --force
 #
 # Použití:
 #   cd /volume1/docker/podkladarna
@@ -13,13 +13,12 @@ set -eu
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/nas-lib.sh"
 
 TAG="latest"
-KEEP_IMAGE=false
 FORCE=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep-image)
-      KEEP_IMAGE=true
+      # Zpětná kompatibilita – image se před pullem už nemaže.
       shift
       ;;
     --force|-f)
@@ -27,8 +26,9 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     -h|--help)
-      echo "Použití: $0 [--force] [--keep-image] [tag]"
-      echo "  Bez --force: přeskočí pull pokud je image stejný (digest sha256:…)"
+      echo "Použití: $0 [--force] [tag]"
+      echo "  Bez --force: přeskočí pull, pokud je digest stejný jako na GHCR."
+      echo "  Pull nemaže staré vrstvy – Docker stáhne jen rozdíl."
       exit 0
       ;;
     -*)
@@ -77,42 +77,24 @@ if [ "$NAS_UPDATE_ACTION" = restart ]; then
   exit 0
 fi
 
-echo "1/5 Zastavuji starý kontejner..."
-$COMPOSE $COMPOSE_FILE down --remove-orphans 2>/dev/null || true
-docker rm -f podkladarna 2>/dev/null || true
-nas_remove_compose_network
-
-if [ "$KEEP_IMAGE" = false ]; then
-  echo ""
-  echo "2/5 Mažu staré image podkladarna..."
-  OLD_IDS="$(docker images "ghcr.io/${GHCR_OWNER}/podkladarna" -q 2>/dev/null | sort -u || true)"
-  if [ -n "$OLD_IDS" ]; then
-    echo "$OLD_IDS" | while read -r img_id; do
-      [ -n "$img_id" ] || continue
-      docker rmi -f "$img_id" 2>/dev/null || true
-    done
-  fi
-  docker image prune -f >/dev/null 2>&1 || true
-else
-  echo ""
-  echo "2/5 Starý image ponechán (--keep-image)"
-fi
-
-echo ""
-echo "3/5 Stahuji nový image z GHCR..."
+echo "1/3 Stahuji image (nezměněné vrstvy zůstanou)..."
 if ! docker pull "$IMAGE"; then
   echo "Pull selhal: $IMAGE" >&2
   exit 1
 fi
 
 echo ""
-echo "4/5 Spouštím nový kontejner..."
+echo "2/3 Restartuji kontejner..."
+$COMPOSE $COMPOSE_FILE down --remove-orphans 2>/dev/null || true
+docker rm -f podkladarna 2>/dev/null || true
+nas_remove_compose_network
 $COMPOSE $COMPOSE_FILE up -d --no-build --pull never
 
 echo ""
-echo "5/5 Kontrola..."
+echo "3/3 Kontrola..."
 $COMPOSE $COMPOSE_FILE ps
 nas_health_check "$COMPOSE" "$COMPOSE_FILE" || exit 1
+docker image prune -f >/dev/null 2>&1 || true
 
 echo ""
 echo "Update dokončen."

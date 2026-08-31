@@ -235,6 +235,21 @@ function syncSourceMode() {
 let bboxMap = null;
 let bboxCorners = [];
 
+const CZ = { south: 48.35, west: 11.85, north: 51.25, east: 19.1 };
+
+function czBounds() {
+  return L.latLngBounds([CZ.south, CZ.west], [CZ.north, CZ.east]);
+}
+
+function inCzechia(latlng) {
+  return (
+    latlng.lat >= CZ.south &&
+    latlng.lat <= CZ.north &&
+    latlng.lng >= CZ.west &&
+    latlng.lng <= CZ.east
+  );
+}
+
 function initBboxMap() {
   document.querySelectorAll("input[name=source_mode]").forEach((elRadio) => {
     elRadio.addEventListener("change", syncSourceMode);
@@ -243,16 +258,44 @@ function initBboxMap() {
   if (clearBtn) clearBtn.addEventListener("click", clearBbox);
   syncSourceMode();
   const el = document.getElementById("bbox-map");
-  if (!el || typeof L === "undefined") return;
-  bboxMap = L.map(el, { scrollWheelZoom: true }).setView([49.8, 15.5], 7);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  if (!el) return;
+  if (typeof L === "undefined") {
+    setSheetInfo("Mapová knihovna se nenačetla (Leaflet).", "err");
+    return;
+  }
+  const bounds = czBounds();
+  bboxMap = L.map(el, {
+    scrollWheelZoom: true,
+    maxBounds: bounds,
+    maxBoundsViscosity: 1.0,
+    minZoom: 6,
+    worldCopyJump: false,
+  }).setView([49.8, 15.5], 7);
+  const tileOpts = {
     maxZoom: 18,
+    noWrap: true,
+    bounds,
     attribution: "&copy; OpenStreetMap",
-  }).addTo(bboxMap);
+  };
+  // Přes Cloudflare OSM často padá (Referer / Rocket Loader).
+  // Lokální náhled na NAS: OSM přímo. Záloha: proxy /tiles/ přes origin.
+  const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", tileOpts);
+  let usedProxy = false;
+  osm.on("tileerror", () => {
+    if (usedProxy) return;
+    usedProxy = true;
+    bboxMap.removeLayer(osm);
+    L.tileLayer("/tiles/{z}/{x}/{y}.png", tileOpts).addTo(bboxMap);
+  });
+  osm.addTo(bboxMap);
   bboxMap.on("click", onMapClick);
 }
 
 function onMapClick(e) {
+  if (!inCzechia(e.latlng)) {
+    setSheetInfo("Výřez jen na území Česka.", "err");
+    return;
+  }
   if (bboxCorners.length >= 2) {
     clearBbox();
   }
@@ -264,7 +307,7 @@ function onMapClick(e) {
   if (bboxCorners.length === 2) {
     const b = L.latLngBounds(bboxCorners[0], bboxCorners[1]);
     L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
-    bboxMap.fitBounds(b, { padding: [20, 20] });
+    bboxMap.fitBounds(b, { padding: [20, 20], maxZoom: 14 });
     const west = b.getWest();
     const south = b.getSouth();
     const east = b.getEast();

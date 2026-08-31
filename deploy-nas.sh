@@ -7,7 +7,7 @@
 #
 # Volitelně:
 #   ./deploy-nas.sh --force     # vynutit pull + restart
-#   ./update-nas.sh             # plná aktualizace s mazáním starého image
+#   ./update-nas.sh             # aktualizace (pull jen změněné vrstvy)
 
 set -eu
 

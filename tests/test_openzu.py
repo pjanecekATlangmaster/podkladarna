@@ -16,6 +16,10 @@ def test_parse_bbox_ok():
 def test_parse_bbox_rejects_outside_cz():
     with pytest.raises(FetchError, match="mimo Česko"):
         parse_bbox("0,0,1,1")
+    with pytest.raises(FetchError, match="mimo Česko"):
+        parse_bbox("16.35,48.18,16.40,48.22")
+    with pytest.raises(FetchError, match="mimo Česko"):
+        parse_bbox("19.5,50.0,19.6,50.1")
 
 
 def test_parse_bbox_rejects_inverted():

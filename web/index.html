@@ -4,13 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Podkladárna</title>
-  <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+  <link rel="icon" href="/static/logo.png" type="image/png" />
   <link rel="stylesheet" href="/static/style.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="/static/leaflet/leaflet.css" />
 </head>
 <body>
   <header class="header">
-    <img src="/static/logo.svg" alt="" class="logo" width="48" height="48" />
+    <img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" />
     <div>
       <h1>Podkladárna</h1>
       <p class="tagline">LiDAR + ZABAGED → podklady pro OpenOrienteering Mapper</p>
@@ -46,7 +46,7 @@
         </fieldset>
 
         <div id="map-mode">
-          <p class="hint">Klikněte dva protilehlé rohy. Stáhne se DMR, DMP i ZABAGED ze stejného výřezu.</p>
+          <p class="hint">Klikněte dva protilehlé rohy. Stáhne se DMR, DMP i ZABAGED ze stejného výřezu. Mapa je omezená na Česko.</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>
           <p id="sheet-info" class="sheet-info">Nakreslete obdélník dvěma kliknutími.</p>
           <input type="hidden" name="bbox" id="bbox-input" value="" />
@@ -114,7 +114,7 @@
     <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
     · Podkladárna v1.2
   </footer>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js"></script>
+  <script data-cfasync="false" src="/static/leaflet/leaflet.js"></script>
+  <script data-cfasync="false" src="/static/app.js"></script>
 </body>
 </html>

@@ -42,29 +42,30 @@ nas_ghcr_login() {
   fi
 }
 
-# Lokální digest (sha256:…) z RepoDigests
-nas_local_digest() {
+# Lokální digest(y) z RepoDigests (index i platforma).
+nas_local_digests() {
   _image="$1"
-  _d="$(docker image inspect "$_image" --format='{{index .RepoDigests 0}}' 2>/dev/null || true)"
-  case "$_d" in
-    *@sha256:*)
-      printf '%s\n' "$_d" | sed 's/.*@//'
-      ;;
-    *)
-      _id="$(docker image inspect "$_image" --format='{{.Id}}' 2>/dev/null || true)"
-      case "$_id" in
-        sha256:*)
-          printf '%s\n' "$_id" | sed 's/^sha256:/sha256:/'
-          ;;
-      esac
-      ;;
-  esac
+  docker image inspect "$_image" --format '{{json .RepoDigests}}' 2>/dev/null \
+    | tr ',' '\n' | sed -n 's/.*@\(sha256:[a-fA-F0-9]*\).*/\1/p' || true
 }
 
-# Remote digest bez stažení vrstev (manifest inspect)
-nas_remote_digest() {
+# Všechny digest z remote manifestu (tag/index i architektura).
+# --verbose dá Descriptor.digest = to, co Docker ukládá do RepoDigests.
+nas_remote_digests() {
   _image="$1"
-  docker manifest inspect "$_image" 2>/dev/null | sed -n 's/^[[:space:]]*"digest"[[:space:]]*:[[:space:]]*"\(sha256:[^"]*\)".*/\1/p' | head -1
+  _raw="$(docker manifest inspect --verbose "$_image" 2>/dev/null || docker manifest inspect "$_image" 2>/dev/null || true)"
+  printf '%s\n' "$_raw" | sed -n 's/.*"digest"[[:space:]]*:[[:space:]]*"\(sha256:[a-fA-F0-9]*\)".*/\1/p' | sort -u
+}
+
+nas_digest_match() {
+  _image="$1"
+  _ld="$(nas_local_digests "$_image")"
+  _rd="$(nas_remote_digests "$_image")"
+  [ -n "$_ld" ] && [ -n "$_rd" ] || return 1
+  for _l in $_ld; do
+    printf '%s\n' "$_rd" | grep -F -x "$_l" >/dev/null 2>&1 && return 0
+  done
+  return 1
 }
 
 nas_container_running() {
@@ -110,8 +111,8 @@ nas_health_check() {
 nas_check_up_to_date() {
   _image="$1"
   _force="${2:-false}"
-  _local="$(nas_local_digest "$_image")"
-  _remote="$(nas_remote_digest "$_image")"
+  _local="$(nas_local_digests "$_image" | tr '\n' ' ')"
+  _remote="$(nas_remote_digests "$_image" | tr '\n' ' ')"
   NAS_UPDATE_ACTION=pull
 
   echo "Lokální:  ${_local:-<žádný image>}"
@@ -130,7 +131,7 @@ nas_check_up_to_date() {
     return 0
   fi
 
-  if [ -n "$_local" ] && [ "$_local" = "$_remote" ] && nas_container_running; then
+  if nas_digest_match "$_image" && nas_container_running; then
     echo ""
     echo "Image beze změny a kontejner běží – stahování přeskakuji."
     echo "Vynutit: $0 --force"
@@ -138,7 +139,7 @@ nas_check_up_to_date() {
     return 0
   fi
 
-  if [ -n "$_local" ] && [ "$_local" = "$_remote" ]; then
+  if nas_digest_match "$_image"; then
     echo ""
     echo "Image beze změny – pull přeskakuji, jen restart kontejneru."
     NAS_UPDATE_ACTION=restart
@@ -146,7 +147,7 @@ nas_check_up_to_date() {
   fi
 
   echo ""
-  echo "Nová verze image – stahuji pull."
+  echo "Nová verze image – stahuji pull (nezměněné vrstvy zůstanou v cache)."
   NAS_UPDATE_ACTION=pull
   return 0
 }
