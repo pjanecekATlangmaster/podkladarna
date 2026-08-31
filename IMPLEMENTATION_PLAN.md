@@ -106,8 +106,9 @@ bbox (mapa, WGS84)
 - DMP OK: až bude na openzu (2027); do té doby DMP1G
 
 ### ZABAGED
-- **v1.1:** upload (Geoprohlížeč) – spolehlivé
-- **v2:** WFS po vrstvách, varování při limitu 1000 prvků
+- **v1.1:** stejný bbox jako LiDAR → ArcGIS REST `ZABAGED_POLOHOPIS` (stránkování, shapefile ZIP)
+- Ruční ZIP z Geoprohlížeče zůstává jako přepsání
+- Celostátní GPKG z ATOM (~6 GB) se nestahuje
 
 ### OSM
 - **Backlog** – preset Zahraničí; v ČR ne kombinovat s ZABAGED do PNG
@@ -211,11 +212,13 @@ podkladarna_oom/
 - Ne vše jde do `.omap` automaticky (symbolika ZABAGED, barvy ISOM) – minimum: podklad + vrstevnice + vektory jako editovatelné vrstvy
 - Fallback vždy ponechat: `podkladarna_oom.zip` bez `.omap` (v1.5)
 
-- [ ] `pipeline/fetch_openzu.py` – bbox → MAPNOM → download → cache
-- [ ] Leaflet mapa + bbox v UI
-- [ ] Režim: ◉ obdélník na mapě / ○ upload
-- [ ] PDAL crop na bbox
-- [ ] Odhad času v UI (ne velikost stažení)
+### Auto-stahování ČÚZK (v1.1)
+
+- [x] `pipeline/fetch_openzu.py` – bbox → MAPNOM → download → cache
+- [x] Leaflet mapa + bbox v UI
+- [x] Režim: ◉ obdélník na mapě / ○ upload
+- [x] PDAL crop na bbox
+- [x] Odhad času v UI (ne velikost stažení)
 
 ### v1.5 – Iterace (KarttaGUI light)
 - [ ] Po done: Regenerovat zeleň, Re-render, Přidat vektory později
@@ -227,7 +230,7 @@ podkladarna_oom/
 
 ### v2 – Rozšíření
 - [ ] **Generování `.omap`** s relativními cestami – viz sekce výše
-- [ ] WFS ZABAGED (malé oblasti, limit 1000 varování)
+- [x] WFS/AGS ZABAGED (malé oblasti; AGS stránkování 2000)
 - [ ] Batch: více SM5 + pngmerge / dxfmerge
 - [ ] contoursonly / vegeonly / cliffsonly
 - [ ] OSM preset (Caorle / zahraničí)
@@ -314,4 +317,4 @@ DELETE /api/jobs/{id}
 
 ---
 
-*Poslední aktualizace: 2026-08-31 (OOM export v1.5 / .omap v2)*
+*Poslední aktualizace: 2026-08-31 (v1.1 auto-stahování ČÚZK)*

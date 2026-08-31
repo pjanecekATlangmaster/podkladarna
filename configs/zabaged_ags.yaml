@@ -1,0 +1,31 @@
+# ArcGIS REST: ZABAGED_POLOHOPIS MapServer
+# https://ags.cuzk.gov.cz/arcgis/rest/services/ZABAGED_POLOHOPIS/MapServer
+# Hodnota = layer id, klíč = název shapefile jako z Geoprohlížeče / zabaged_layers.yaml
+
+service: https://ags.cuzk.gov.cz/arcgis/rest/services/ZABAGED_POLOHOPIS/MapServer
+layers:
+  BudovaJednotlivaNeboBlokBudov: 99
+  KulnaSklenikFoliovnikPristresek: 105
+  ArealUceloveZastavby: 114
+  RozvalinaZricenina: 103
+  VezovitaStavba: 100
+  VodniPlocha: 132
+  VodniTok: 93
+  SilniceDalnice: 79
+  Cesta: 83
+  Most: 73
+  Ulice: 84
+  Pesina: 82
+  LanovaDrahaLyzarskyVlek: 72
+  StozarLanoveDrahy: 61
+  KrizSloupKulturnihoVyznamu: 24
+  MohylaPomnikNahrobek: 25
+  StupenSraz: 95
+  Zed: 39
+  ElektrickeVedeni: 88
+  Hrbitov: 116
+  ParkovisteOdpocivka: 123
+  SkupinaBalvanu: 13
+  OsamelyBalvanSkalaSkalniSuk: 10
+  Zabrana: 54
+  OvocnySadZahrada: 135

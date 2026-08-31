@@ -44,7 +44,7 @@ def test_create_job_multipart(client):
     log = client.get(f"/api/jobs/{job['id']}/log")
     assert log.status_code == 200
     lines = [x["line"] for x in log.json()["lines"]]
-    assert any("Prijato: DMR=1" in ln for ln in lines)
+    assert any("DMR=1" in ln for ln in lines)
     assert any("Nahravam DMR5G.laz" in ln for ln in lines)
 
 
@@ -81,3 +81,4 @@ def test_index_html(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "Podkladárna" in r.text
+    assert "bbox-map" in r.text

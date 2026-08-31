@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("test", "up", "down", "smoke", "e2e", "e2e-upload", "all", "logs")]
+    [ValidateSet("test", "up", "down", "run", "smoke", "e2e", "e2e-upload", "all", "logs")]
     [string]$Action = "test"
 )
 
@@ -16,8 +16,9 @@ switch ($Action) {
         Ensure-DevDeps
         python -m pytest tests/ -v
     }
-    "up" {
-        docker compose -f docker-compose.dev.yml up --build
+    "run" {
+        $env:PODKLADARNA_DATA = Join-Path $Root "data"
+        python -m uvicorn app.main:app --host 127.0.0.1 --port 8672 --reload
     }
     "down" {
         docker compose -f docker-compose.dev.yml down

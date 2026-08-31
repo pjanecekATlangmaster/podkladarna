@@ -12,8 +12,16 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import db, worker
 from app.cleanup import purge_old_jobs, start_cleanup_scheduler
+from app.pipeline.fetch_openzu import (
+    FetchError,
+    MAX_SHEETS,
+    estimate_minutes,
+    parse_bbox,
+    query_sm5_sheets,
+)
 from app.pipeline.ini_builder import load_presets
 from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, JOBS_DIR, MAX_QUEUE_SIZE
+from app.tool_env import tool_status
 
 logger = logging.getLogger("podkladarna")
 
@@ -30,6 +38,8 @@ def _upload_files(form, key: str) -> list[UploadFile]:
             continue
         if not hasattr(value, "read"):
             continue
+        if not (getattr(value, "filename", None) or "").strip():
+            continue
         # filename může být None u některých klientů – řeší se při ukládání
         files.append(value)
     return files
@@ -41,7 +51,7 @@ def _form_str(form, key: str, default: str = "") -> str:
         return default
     return str(val)
 
-app = FastAPI(title="Podkladarna", version="1.0.0")
+app = FastAPI(title="Podkladarna", version="1.1.0")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -55,6 +65,15 @@ def startup() -> None:
     if removed:
         logger.info("Startup cleanup: removed %s old job(s)", removed)
     start_cleanup_scheduler(CLEANUP_INTERVAL_HOURS)
+    tools = tool_status()
+    missing = [name for name, path in tools.items() if not path]
+    logger.info("Nástroje: %s", tools)
+    if missing:
+        logger.warning(
+            "Chybí %s – pipeline na tomto stroji nepoběží. "
+            "Windows: OSGeo4W + pullauta.exe, nebo docker compose -f docker-compose.dev.yml up",
+            ", ".join(missing),
+        )
 
 
 @app.exception_handler(RequestValidationError)
@@ -86,6 +105,30 @@ def api_presets():
     return {
         k: {"id": k, "label": v.get("label", k), **v}
         for k, v in presets.items()
+    }
+
+
+@app.get("/api/sheets")
+def api_sheets(bbox: str):
+    """bbox=west,south,east,north (WGS84) → listy SM5 + odhad času."""
+    try:
+        west, south, east, north = parse_bbox(bbox)
+        sheets = query_sm5_sheets(west, south, east, north)
+    except FetchError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    names = [s["mapnom"] for s in sheets]
+    too_large = len(sheets) > MAX_SHEETS
+    return {
+        "sheets": sheets,
+        "count": len(sheets),
+        "max_sheets": MAX_SHEETS,
+        "too_large": too_large,
+        "estimate_minutes": estimate_minutes(len(sheets)) if sheets and not too_large else None,
+        "label": (
+            f"Protíná listy: {', '.join(names)} ({len(sheets)})"
+            if sheets
+            else "Výřez neprotíná žádný list SM5"
+        ),
     }
 
 
@@ -138,11 +181,14 @@ def api_health():
 
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     usage = shutil.disk_usage(JOBS_DIR)
+    tools = tool_status()
     return {
         "ok": True,
         "data_dir": str(JOBS_DIR),
         "disk_free_gb": round(usage.free / 1e9, 2),
         "busy": worker.is_busy(),
+        "tools": tools,
+        "pipeline_ready": all(tools.values()),
     }
 
 
@@ -171,12 +217,35 @@ async def api_create_job(request: Request):
             "Počkejte na dokončení běžících generování.",
         )
 
+    source_mode = _form_str(form, "source_mode").strip().lower()
+    bbox_raw = _form_str(form, "bbox").strip()
+    bbox: tuple[float, float, float, float] | None = None
+    if source_mode == "map" or (not source_mode and bbox_raw):
+        source_mode = "map"
+        if not bbox_raw:
+            raise HTTPException(400, "Chybí výřez na mapě (bbox).")
+        try:
+            bbox = parse_bbox(bbox_raw)
+            sheets = query_sm5_sheets(*bbox)
+        except FetchError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if not sheets:
+            raise HTTPException(400, "Výřez neprotíná žádný list SM5.")
+        if len(sheets) > MAX_SHEETS:
+            names = ", ".join(s["mapnom"] for s in sheets)
+            raise HTTPException(
+                400,
+                f"Výřez je moc velký ({len(sheets)} listů SM5, max {MAX_SHEETS}): {names}",
+            )
+    else:
+        source_mode = "upload"
+
     dmr_uploads = _upload_files(form, "dmr_files")
     dmp_uploads = _upload_files(form, "dmp_files")
     zabaged_uploads = _upload_files(form, "zabaged_file")
     zabaged_file = zabaged_uploads[0] if zabaged_uploads else None
 
-    if not dmr_uploads or not dmp_uploads:
+    if source_mode == "upload" and (not dmr_uploads or not dmp_uploads):
         field_names = sorted(form.keys())
         raise HTTPException(
             400,
@@ -191,7 +260,11 @@ async def api_create_job(request: Request):
         "output_dxf": _form_bool(_form_str(form, "output_dxf", "true")),
         "output_zabaged_clean": _form_bool(_form_str(form, "output_zabaged_clean", "true")),
         "savetempfolders": _form_bool(_form_str(form, "savetempfolders", "true")),
+        "source_mode": source_mode,
     }
+    if bbox:
+        options["bbox_wgs84"] = list(bbox)
+        options["sm5_sheets"] = [s["mapnom"] for s in sheets]
     job = db.create_job(name, preset_id, options)
     job_id = job["id"]
     job_dir = JOBS_DIR / job_id
@@ -200,8 +273,9 @@ async def api_create_job(request: Request):
         db.append_log(job_id, msg)
 
     log(
-        f"Prijato: DMR={len(dmr_uploads)}, DMP={len(dmp_uploads)}, "
+        f"Prijato: rezim={source_mode}, DMR={len(dmr_uploads)}, DMP={len(dmp_uploads)}, "
         f"ZABAGED={'ano' if zabaged_file else 'ne'}"
+        + (f", listy={','.join(options.get('sm5_sheets') or [])}" if bbox else "")
     )
 
     try:
@@ -217,8 +291,9 @@ async def api_create_job(request: Request):
                     shutil.copyfileobj(uf.file, out)
                 log(f"OK {target.name} ({target.stat().st_size / 1e6:.1f} MB)")
 
-        await save_uploads(dmr_uploads, job_dir / "input" / "dmr")
-        await save_uploads(dmp_uploads, job_dir / "input" / "dmp")
+        if source_mode == "upload":
+            await save_uploads(dmr_uploads, job_dir / "input" / "dmr")
+            await save_uploads(dmp_uploads, job_dir / "input" / "dmp")
         if zabaged_file:
             zdest = job_dir / "input" / "zabaged"
             zdest.mkdir(parents=True, exist_ok=True)

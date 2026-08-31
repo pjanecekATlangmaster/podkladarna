@@ -1,15 +1,22 @@
 from __future__ import annotations
 
-import re
 import shutil
 import subprocess
 from pathlib import Path
 
 
+from app.pipeline.fetch_openzu import CROP_BUFFER_M
+from app.tool_env import gis_subprocess_env, which_tool
+
+
 def find_tool(name: str) -> str:
-    path = shutil.which(name)
+    path = which_tool(name)
     if not path:
-        raise RuntimeError(f"Required tool not found in PATH: {name}")
+        raise RuntimeError(
+            f"Nástroj '{name}' není v PATH. Na Windows nainstalujte OSGeo4W "
+            f"(C:\\OSGeo4W\\bin\\{name}.exe) nebo spusťte plný stack: "
+            "docker compose -f docker-compose.dev.yml up --build"
+        )
     return path
 
 
@@ -28,6 +35,7 @@ def run_cmd(
         check=False,
         text=True,
         capture_output=True,
+        env=gis_subprocess_env(cmd[0] if cmd else None),
     )
     if result.stdout and log:
         for ln in result.stdout.strip().splitlines()[-5:]:
@@ -45,6 +53,7 @@ def merge_dmr_dmp(
     dmp_files: list[Path],
     work_dir: Path,
     log: callable | None = None,
+    crop_bounds: tuple[float, float, float, float] | None = None,
 ) -> Path:
     if not dmr_files:
         raise FileNotFoundError("Chybí alespoň jeden soubor DMR 5G (LAZ/LAS)")
@@ -102,11 +111,30 @@ def merge_dmr_dmp(
 
     run_cmd([pdal, "merge", str(ground), str(veg), str(merged)], log=log)
 
+    if crop_bounds:
+        xmin, ymin, xmax, ymax = crop_bounds
+        cropped = work_dir / "merged_crop.laz"
+        if log:
+            log(f"PDAL crop bbox 5514 + {CROP_BUFFER_M:.0f} m: [{xmin:.1f},{xmax:.1f}] x [{ymin:.1f},{ymax:.1f}]")
+        run_cmd(
+            [
+                pdal,
+                "translate",
+                str(merged),
+                str(cropped),
+                "crop",
+                f"--filters.crop.bounds=([{xmin},{xmax}],[{ymin},{ymax}])",
+            ],
+            log=log,
+        )
+        merged = cropped
+
     info = subprocess.run(
         [pdal, "info", str(merged), "--stats"],
         capture_output=True,
         text=True,
         check=False,
+        env=gis_subprocess_env(pdal),
     )
     if log:
         tail = (info.stdout or info.stderr)[-600:]

@@ -6,6 +6,7 @@ RUN mamba install -y -c conda-forge \
     pdal \
     python=3.11 \
     gdal \
+    pyproj \
     pyyaml \
     curl \
     && mamba clean -afy

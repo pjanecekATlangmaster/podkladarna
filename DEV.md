@@ -67,6 +67,7 @@ python scripts/smoke_e2e.py --wait-minutes 45   # testdata/ → celé kolečko
 
 ```powershell
 .\scripts\dev.ps1 test        # pytest (~2 s)
+.\scripts\dev.ps1 run         # uvicorn na Windows (OSGeo4W PDAL + pullauta.exe)
 .\scripts\dev.ps1 up          # docker compose dev
 .\scripts\dev.ps1 smoke       # fake upload (API)
 .\scripts\dev.ps1 e2e-upload  # testdata → upload

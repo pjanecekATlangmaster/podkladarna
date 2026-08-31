@@ -4,17 +4,24 @@ import shutil
 import zipfile
 from pathlib import Path
 
+from app.pipeline.fetch_openzu import crop_bounds_5514, fetch_lidar_for_bbox
+from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import write_pullauta_ini
-from app.pipeline.prepare_lidar import merge_dmr_dmp
+from app.pipeline.prepare_lidar import merge_dmr_dmp, run_cmd
 from app.pipeline.prepare_zabaged import clean_zabaged
-from app.pipeline.prepare_lidar import run_cmd
 from app.settings import PULLAUTA_BIN
 
 
 def _collect_glob(folder: Path, patterns: tuple[str, ...]) -> list[Path]:
     files: list[Path] = []
+    seen: set[str] = set()
     for pat in patterns:
-        files.extend(sorted(folder.glob(pat)))
+        for path in sorted(folder.glob(pat)):
+            key = str(path.resolve()).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            files.append(path)
     return files
 
 
@@ -30,6 +37,14 @@ def run_job_pipeline(
     work_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    bbox = options.get("bbox_wgs84")
+    crop = None
+    if bbox:
+        west, south, east, north = bbox
+        log("=== Fáze: stahování LiDAR (openzu) ===")
+        fetch_lidar_for_bbox((west, south, east, north), input_dir / "dmr", input_dir / "dmp", log)
+        crop = crop_bounds_5514(west, south, east, north)
+
     dmr_files = _collect_glob(input_dir / "dmr", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
     dmp_files = _collect_glob(input_dir / "dmp", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
     zabaged_src = input_dir / "zabaged" / "Zabaged_full.zip"
@@ -37,8 +52,15 @@ def run_job_pipeline(
         zips = list((input_dir / "zabaged").glob("*.zip"))
         zabaged_src = zips[0] if zips else zabaged_src
 
+    if bbox and not zabaged_src.exists():
+        log("=== Fáze: stahování ZABAGED (ArcGIS) ===")
+        zabaged_src = input_dir / "zabaged" / "Zabaged_ags.zip"
+        fetch_zabaged_for_bbox((west, south, east, north), zabaged_src, log)
+
     log("=== Fáze: prepare LiDAR ===")
-    merged = merge_dmr_dmp(dmr_files, dmp_files, work_dir / "lidar", log=log)
+    merged = merge_dmr_dmp(
+        dmr_files, dmp_files, work_dir / "lidar", log=log, crop_bounds=crop
+    )
 
     zabaged_clean = work_dir / "zabaged_clean.zip"
     has_zabaged = zabaged_src.exists()

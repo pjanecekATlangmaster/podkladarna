@@ -165,15 +165,32 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   const form = e.target;
   const btn = document.getElementById("submit-btn");
   clearFormError();
+  const mode = currentSourceMode();
+  if (mode === "map" && !document.getElementById("bbox-input").value) {
+    showFormError("Nakreslete výřez na mapě (dva protilehlé rohy).");
+    return;
+  }
+  if (mode === "upload") {
+    const dmr = form.dmr_files.files;
+    const dmp = form.dmp_files.files;
+    if (!dmr.length || !dmp.length) {
+      showFormError("Nahrajte DMR i DMP (LAZ/LAS).");
+      return;
+    }
+  }
   btn.disabled = true;
-  btn.textContent = "Nahrávám soubory… (může trvat minuty)";
+  btn.textContent = mode === "map" ? "Zakládám job…" : "Nahrávám soubory… (může trvat minuty)";
   try {
     const fd = new FormData(form);
+    fd.set("source_mode", mode);
     fd.set("run_vectors", form.run_vectors.checked ? "true" : "false");
     fd.set("output_png", form.output_png.checked ? "true" : "false");
     fd.set("output_dxf", form.output_dxf.checked ? "true" : "false");
     fd.set("output_zabaged_clean", form.output_zabaged_clean.checked ? "true" : "false");
     fd.set("savetempfolders", form.savetempfolders.checked ? "true" : "false");
+    if (mode === "upload") {
+      fd.delete("bbox");
+    }
     const job = await api("/api/jobs", { method: "POST", body: fd });
     await loadJobs();
     await selectJob(job.id);
@@ -187,6 +204,106 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   }
 });
 
+function currentSourceMode() {
+  const checked = document.querySelector("input[name=source_mode]:checked");
+  return checked ? checked.value : "map";
+}
+
+function syncSourceMode() {
+  const mode = currentSourceMode();
+  document.getElementById("map-mode").classList.toggle("hidden", mode !== "map");
+  document.getElementById("upload-mode").classList.toggle("hidden", mode !== "upload");
+  if (mode === "map") {
+    setTimeout(() => {
+      if (bboxMap) bboxMap.invalidateSize();
+    }, 50);
+  }
+}
+
+let bboxMap = null;
+let bboxCorners = [];
+
+function initBboxMap() {
+  document.querySelectorAll("input[name=source_mode]").forEach((elRadio) => {
+    elRadio.addEventListener("change", syncSourceMode);
+  });
+  const clearBtn = document.getElementById("bbox-clear");
+  if (clearBtn) clearBtn.addEventListener("click", clearBbox);
+  syncSourceMode();
+  const el = document.getElementById("bbox-map");
+  if (!el || typeof L === "undefined") return;
+  bboxMap = L.map(el, { scrollWheelZoom: true }).setView([49.8, 15.5], 7);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18,
+    attribution: "&copy; OpenStreetMap",
+  }).addTo(bboxMap);
+  bboxMap.on("click", onMapClick);
+}
+
+function onMapClick(e) {
+  if (bboxCorners.length >= 2) {
+    clearBbox();
+  }
+  bboxCorners.push(e.latlng);
+  if (bboxCorners.length === 1) {
+    setSheetInfo("Druhý roh výřezu…", "");
+    L.circleMarker(e.latlng, { radius: 5, color: "#cc00cc" }).addTo(bboxMap);
+  }
+  if (bboxCorners.length === 2) {
+    const b = L.latLngBounds(bboxCorners[0], bboxCorners[1]);
+    L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
+    bboxMap.fitBounds(b, { padding: [20, 20] });
+    const west = b.getWest();
+    const south = b.getSouth();
+    const east = b.getEast();
+    const north = b.getNorth();
+    document.getElementById("bbox-input").value = [west, south, east, north].join(",");
+    lookupSheets();
+  }
+}
+
+function clearBbox() {
+  bboxCorners = [];
+  document.getElementById("bbox-input").value = "";
+  if (bboxMap) {
+    bboxMap.eachLayer((layer) => {
+      if (layer instanceof L.Rectangle || layer instanceof L.CircleMarker) {
+        bboxMap.removeLayer(layer);
+      }
+    });
+  }
+  setSheetInfo("Nakreslete obdélník dvěma kliknutími.", "");
+}
+
+function setSheetInfo(text, cls) {
+  const el = document.getElementById("sheet-info");
+  el.textContent = text;
+  el.className = "sheet-info" + (cls ? " " + cls : "");
+}
+
+async function lookupSheets() {
+  const bbox = document.getElementById("bbox-input").value;
+  if (!bbox) return;
+  setSheetInfo("Zjišťuji mapové listy SM5…", "");
+  try {
+    const data = await api(`/api/sheets?bbox=${encodeURIComponent(bbox)}`);
+    if (!data.count) {
+      setSheetInfo(data.label, "err");
+      return;
+    }
+    if (data.too_large) {
+      setSheetInfo(
+        `${data.label}. Zmenšete výřez (max ${data.max_sheets} listů).`,
+        "warn"
+      );
+      return;
+    }
+    setSheetInfo(`${data.label}. Odhad: cca ${data.estimate_minutes} min.`, "ok");
+  } catch (err) {
+    setSheetInfo(err.message, "err");
+  }
+}
+
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
@@ -195,3 +312,4 @@ function startPolling() {
 }
 
 loadPresets().then(loadJobs).then(startPolling);
+initBboxMap();

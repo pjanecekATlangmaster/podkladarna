@@ -33,9 +33,9 @@ chmod +x deploy-nas.sh
 
 | Soubor | Popis |
 |--------|--------|
-| DMR 5G LAZ | model reliéfu |
-| DMP 1G LAZ | model povrchu (vegetace, budovy) |
-| ZABAGED ZIP | volitelně, Shapefile z Geoprohlížeče |
+| DMR 5G LAZ | z mapy (openzu) nebo ruční upload |
+| DMP 1G LAZ | z mapy (openzu) nebo ruční upload |
+| ZABAGED | z mapy (ArcGIS REST) nebo volitelný ZIP |
 
 ## Presety
 
