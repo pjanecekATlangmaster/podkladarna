@@ -22,6 +22,26 @@ Ověří: health, presety, multipart upload, log jobu, chybové stavy.
 
 ---
 
+## Testovací data (`testdata/`)
+
+V repu jsou malé soubory pro celé kolečko (~2,5 MB):
+
+- `DMR5G.laz`, `DMP1G.laz`, `Zabaged.zip`
+
+```powershell
+.\scripts\dev.ps1 up           # terminál 1 – Docker dev
+.\scripts\dev.ps1 e2e-upload   # terminál 2 – jen upload
+.\scripts\dev.ps1 e2e          # celá pipeline + čekání na ZIP (~5–30 min)
+```
+
+Nebo ručně:
+
+```powershell
+python scripts/smoke_e2e.py --wait-minutes 45
+```
+
+---
+
 ## 2. Lokální Docker (plná pipeline)
 
 Vyžaduje Docker Desktop (WSL2).
@@ -37,11 +57,8 @@ docker compose -f docker-compose.dev.yml up --build
 Smoke test proti běžící instanci:
 
 ```powershell
-# jen upload (fake LAZ, pipeline spadne – OK pro test API)
-python scripts/smoke_e2e.py
-
-# celá pipeline se Šance daty (dlouhé)
-python scripts/smoke_e2e.py --data-dir D:\Downloads\karttapullautin-x86_64-win\sance --wait-minutes 30
+python scripts/smoke_e2e.py --fake              # jen API upload
+python scripts/smoke_e2e.py --wait-minutes 45   # testdata/ → celé kolečko
 ```
 
 ---
@@ -49,10 +66,12 @@ python scripts/smoke_e2e.py --data-dir D:\Downloads\karttapullautin-x86_64-win\s
 ## 3. Skript `scripts/dev.ps1`
 
 ```powershell
-.\scripts\dev.ps1 test      # pytest
-.\scripts\dev.ps1 up        # docker compose dev
-.\scripts\dev.ps1 smoke     # smoke_e2e proti localhost:8672
-.\scripts\dev.ps1 all         # test → build → smoke upload
+.\scripts\dev.ps1 test        # pytest (~2 s)
+.\scripts\dev.ps1 up          # docker compose dev
+.\scripts\dev.ps1 smoke       # fake upload (API)
+.\scripts\dev.ps1 e2e-upload  # testdata → upload
+.\scripts\dev.ps1 e2e         # testdata → celá pipeline
+.\scripts\dev.ps1 all         # pytest → docker → e2e
 ```
 
 ---

@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("test", "up", "down", "smoke", "all", "logs")]
+    [ValidateSet("test", "up", "down", "smoke", "e2e", "e2e-upload", "all", "logs")]
     [string]$Action = "test"
 )
 
@@ -24,17 +24,25 @@ switch ($Action) {
     }
     "smoke" {
         Ensure-DevDeps
-        python scripts/smoke_e2e.py --base http://127.0.0.1:8672
+        python scripts/smoke_e2e.py --fake
+    }
+    "e2e-upload" {
+        Ensure-DevDeps
+        python scripts/smoke_e2e.py --base http://127.0.0.1:8672 --data-dir testdata
+    }
+    "e2e" {
+        Ensure-DevDeps
+        python scripts/smoke_e2e.py --base http://127.0.0.1:8672 --data-dir testdata --wait-minutes 45
     }
     "all" {
         Ensure-DevDeps
         python -m pytest tests/ -v
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         docker compose -f docker-compose.dev.yml up --build -d
-        Start-Sleep -Seconds 15
-        python scripts/smoke_e2e.py --base http://127.0.0.1:8672
+        Start-Sleep -Seconds 20
+        python scripts/smoke_e2e.py --base http://127.0.0.1:8672 --data-dir testdata --wait-minutes 45
         $code = $LASTEXITCODE
-        docker compose -f docker-compose.dev.yml logs --tail=30
+        docker compose -f docker-compose.dev.yml logs --tail=50
         exit $code
     }
     "logs" {
