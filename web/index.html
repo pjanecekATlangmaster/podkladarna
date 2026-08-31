@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Podkladárna</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <img src="/static/logo.svg" alt="" class="logo" width="48" height="48" />
+    <div>
+      <h1>Podkladárna</h1>
+      <p class="tagline">LiDAR + ZABAGED → podklady pro OpenOrienteering Mapper</p>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card">
+      <h2>Nový job</h2>
+      <form id="job-form">
+        <label>
+          Název
+          <input type="text" name="name" required placeholder="např. Šance sprint" />
+        </label>
+
+        <label>
+          Typ mapy
+          <select name="preset_id" id="preset_id"></select>
+        </label>
+
+        <fieldset class="uploads">
+          <legend>Podklady (ČÚZK)</legend>
+          <label class="file">
+            <span>DMR 5G – model reliéfu</span>
+            <input type="file" name="dmr_files" accept=".laz,.las,.LAZ,.LAS" multiple required />
+            <small>LAZ/LAS, lze více dlaždic</small>
+          </label>
+          <label class="file">
+            <span>DMP 1G – model povrchu</span>
+            <input type="file" name="dmp_files" accept=".laz,.las,.LAZ,.LAS" multiple required />
+            <small>Vegetace a budovy, stejný výřez jako DMR</small>
+          </label>
+          <label class="file">
+            <span>ZABAGED – polohopis (volitelné)</span>
+            <input type="file" name="zabaged_file" accept=".zip" />
+            <small>Shapefile ZIP z Geoprohlížeče</small>
+          </label>
+        </fieldset>
+
+        <fieldset class="options">
+          <legend>Výstup</legend>
+          <label><input type="checkbox" name="run_vectors" checked /> Vektory do PNG (vyžaduje ZABAGED)</label>
+          <label><input type="checkbox" name="output_png" checked /> PNG kontrolní mapa</label>
+          <label><input type="checkbox" name="output_dxf" checked /> DXF vrstevnice a srázy</label>
+          <label><input type="checkbox" name="output_zabaged_clean" checked /> Vyčištěný ZABAGED ZIP</label>
+          <label><input type="checkbox" name="savetempfolders" checked /> Uložit temp (pro pozdější iterace)</label>
+        </fieldset>
+
+        <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
+        <p class="hint">Generování obvykle trvá 5–30 minut. v1.1 přidá stažení podkladů z mapy.</p>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Joby</h2>
+      <div id="jobs-list" class="jobs-list"></div>
+      <div id="job-detail" class="job-detail hidden">
+        <h3 id="detail-title"></h3>
+        <p id="detail-status"></p>
+        <pre id="detail-log" class="log"></pre>
+        <div class="actions">
+          <a id="detail-download" class="btn" href="#" download>Stáhnout ZIP</a>
+          <a id="detail-preview" class="btn" href="#" target="_blank">Náhled PNG</a>
+        </div>
+        <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
+    · Podkladárna v1.0
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

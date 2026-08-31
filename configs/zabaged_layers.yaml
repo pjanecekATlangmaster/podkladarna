@@ -1,0 +1,26 @@
+layers:
+  - BudovaJednotlivaNeboBlokBudov
+  - KulnaSklenikFoliovnikPristresek
+  - ArealUceloveZastavby
+  - RozvalinaZricenina
+  - VezovitaStavba
+  - VodniPlocha
+  - VodniTok
+  - SilniceDalnice
+  - Cesta
+  - Most
+  - Ulice
+  - Pesina
+  - LanovaDrahaLyzarskyVlek
+  - StozarLanoveDrahy
+  - KrizSloupKulturnihoVyznamu
+  - MohylaPomnikNahrobek
+  - StupenSraz
+  - Zed
+  - ElektrickeVedeni
+  - Hrbitov
+  - ParkovisteOdpocivka
+  - SkupinaBalvanu
+  - OsamelyBalvanSkalaSkalniSuk
+  - Zabrana
+  - OvocnySadZahrada

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Podkladárna">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fff4"/>
+      <stop offset="100%" stop-color="#eef6ff"/>
+    </linearGradient>
+  </defs>
+  <!-- map patch background -->
+  <rect width="128" height="128" rx="24" fill="url(#bg)"/>
+  <!-- open white -->
+  <path d="M8 88 L48 72 L72 96 L8 112 Z" fill="#ffffff" stroke="#ddd" stroke-width="1"/>
+  <!-- forest green -->
+  <path d="M52 20 C72 18 98 32 108 58 C112 78 96 98 76 108 C58 116 38 108 28 88 C18 68 32 24 52 20 Z" fill="#228b22" opacity="0.85"/>
+  <path d="M60 36 C76 34 92 48 96 64 C98 78 86 92 72 96 C58 100 44 88 42 72 C40 54 48 38 60 36 Z" fill="#9acd32" opacity="0.7"/>
+  <!-- brown contour -->
+  <path d="M20 70 Q44 62 64 68 T108 74" fill="none" stroke="#8b4513" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M16 92 Q48 82 80 88 T120 94" fill="none" stroke="#8b4513" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  <!-- water blue -->
+  <ellipse cx="98" cy="98" rx="14" ry="9" fill="#0066cc" opacity="0.75"/>
+  <!-- control circle purple -->
+  <circle cx="64" cy="64" r="22" fill="none" stroke="#cc00cc" stroke-width="4"/>
+  <!-- lantern pole -->
+  <line x1="64" y1="48" x2="64" y2="78" stroke="#1a1a1a" stroke-width="3" stroke-linecap="round"/>
+  <!-- orange-white flag (triangle) -->
+  <path d="M64 48 L78 54 L64 60 Z" fill="#ffffff" stroke="#ff6600" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="64" cy="78" r="3" fill="#ff6600"/>
+</svg>

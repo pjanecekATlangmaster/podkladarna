@@ -1,0 +1,39 @@
+sprint_2m:
+  label: "Sprint 1:4000 · 2 m"
+  contour_interval: 2
+  basemapinterval: 0.5
+  scalefactor: 0.4
+  formline: 0
+  smoothing: 0.7
+  processes: 2
+  vectorconf: zabaged.txt
+
+sprint_2_5m:
+  label: "Sprint 1:4000 · 2,5 m"
+  contour_interval: 2.5
+  basemapinterval: 0.625
+  scalefactor: 0.4
+  formline: 0
+  smoothing: 0.7
+  processes: 2
+  vectorconf: zabaged.txt
+
+forest_7500:
+  label: "Lesní 1:7500 · 5 m"
+  contour_interval: 5
+  basemapinterval: 1.25
+  scalefactor: 0.75
+  formline: 2
+  smoothing: 0.7
+  processes: 2
+  vectorconf: zabaged.txt
+
+forest_10000:
+  label: "Lesní 1:10000 · 5 m"
+  contour_interval: 5
+  basemapinterval: 1.25
+  scalefactor: 1.0
+  formline: 2
+  smoothing: 0.7
+  processes: 2
+  vectorconf: zabaged.txt

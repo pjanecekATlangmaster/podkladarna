@@ -1,0 +1,17 @@
+services:
+  podkladarna:
+    image: ghcr.io/${GHCR_OWNER:-OWNER}/podkladarna:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: podkladarna
+    restart: unless-stopped
+    ports:
+      - "8672:8672"
+    volumes:
+      - ./data:/data
+    environment:
+      - PODKLADARNA_DATA=/data
+      - MAX_CONCURRENT_LIDAR=1
+      - TEMP_RETENTION_DAYS=7
+    mem_limit: 12g
