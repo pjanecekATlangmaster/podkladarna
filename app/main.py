@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import traceback
 from pathlib import Path
-
-import yaml
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import db, worker
 from app.pipeline.ini_builder import load_presets
@@ -19,8 +17,23 @@ from app.settings import DEFAULT_OPTIONS, JOBS_DIR
 logger = logging.getLogger("podkladarna")
 
 
-def _form_bool(value: str) -> bool:
-    return value.lower() in ("true", "1", "yes", "on")
+def _form_bool(value: str | None) -> bool:
+    return str(value or "").lower() in ("true", "1", "yes", "on")
+
+
+def _upload_files(form, key: str) -> list[UploadFile]:
+    files: list[UploadFile] = []
+    for item in form.getlist(key):
+        if isinstance(item, UploadFile) and item.filename:
+            files.append(item)
+    return files
+
+
+def _form_str(form, key: str, default: str = "") -> str:
+    val = form.get(key)
+    if val is None:
+        return default
+    return str(val)
 
 app = FastAPI(title="Podkladarna", version="1.0.0")
 
@@ -36,7 +49,13 @@ def startup() -> None:
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    logger.warning("Validation error: %s", exc.errors())
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(_request: Request, exc: StarletteHTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 
 @app.exception_handler(Exception)
@@ -98,39 +117,58 @@ def api_preview(job_id: str):
     return FileResponse(png)
 
 
+@app.get("/api/health")
+def api_health():
+    import shutil
+
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    usage = shutil.disk_usage(JOBS_DIR)
+    return {
+        "ok": True,
+        "data_dir": str(JOBS_DIR),
+        "disk_free_gb": round(usage.free / 1e9, 2),
+        "busy": worker.is_busy(),
+    }
+
+
 @app.post("/api/jobs")
-async def api_create_job(
-    name: str = Form(...),
-    preset_id: str = Form("sprint_2m"),
-    run_vectors: str = Form("true"),
-    output_png: str = Form("true"),
-    output_dxf: str = Form("true"),
-    output_zabaged_clean: str = Form("true"),
-    savetempfolders: str = Form("true"),
-    dmr_files: list[UploadFile] = File(default=[]),
-    dmp_files: list[UploadFile] = File(default=[]),
-    zabaged_file: UploadFile | None = File(default=None),
-):
+async def api_create_job(request: Request):
+    logger.info("POST /api/jobs – cteni multipart form")
+    try:
+        form = await request.form()
+    except Exception as exc:
+        logger.exception("Multipart form parse failed")
+        raise HTTPException(400, f"Nepodarilo se precist upload: {exc}") from exc
+
+    name = _form_str(form, "name").strip()
+    if not name:
+        raise HTTPException(400, "Chybi nazev jobu")
+
+    preset_id = _form_str(form, "preset_id", "sprint_2m")
     presets = load_presets()
     if preset_id not in presets:
         raise HTTPException(400, f"Neznamy preset: {preset_id}")
 
-    dmr_uploads = [f for f in dmr_files if f.filename]
-    dmp_uploads = [f for f in dmp_files if f.filename]
+    dmr_uploads = _upload_files(form, "dmr_files")
+    dmp_uploads = _upload_files(form, "dmp_files")
+    zabaged_uploads = _upload_files(form, "zabaged_file")
+    zabaged_file = zabaged_uploads[0] if zabaged_uploads else None
+
     if not dmr_uploads or not dmp_uploads:
+        field_names = sorted(form.keys())
         raise HTTPException(
             400,
-            "Nahrajte alespon jeden DMR a jeden DMP soubor (LAZ/LAS). "
-            "Pri uploadu pres HTTPS zkontrolujte limit velikosti na reverse proxy.",
+            f"Chybi DMR nebo DMP soubor. Prijata pole: {field_names}. "
+            "Ocekavam dmr_files a dmp_files s LAZ/LAS.",
         )
 
     options = {
         **DEFAULT_OPTIONS,
-        "run_vectors": _form_bool(run_vectors),
-        "output_png": _form_bool(output_png),
-        "output_dxf": _form_bool(output_dxf),
-        "output_zabaged_clean": _form_bool(output_zabaged_clean),
-        "savetempfolders": _form_bool(savetempfolders),
+        "run_vectors": _form_bool(_form_str(form, "run_vectors", "true")),
+        "output_png": _form_bool(_form_str(form, "output_png", "true")),
+        "output_dxf": _form_bool(_form_str(form, "output_dxf", "true")),
+        "output_zabaged_clean": _form_bool(_form_str(form, "output_zabaged_clean", "true")),
+        "savetempfolders": _form_bool(_form_str(form, "savetempfolders", "true")),
     }
     job = db.create_job(name, preset_id, options)
     job_id = job["id"]
@@ -139,26 +177,31 @@ async def api_create_job(
     def log(msg: str) -> None:
         db.append_log(job_id, msg)
 
+    log(
+        f"Prijato: DMR={len(dmr_uploads)}, DMP={len(dmp_uploads)}, "
+        f"ZABAGED={'ano' if zabaged_file else 'ne'}"
+    )
+
     try:
         async def save_uploads(files: list[UploadFile], dest: Path) -> None:
             dest.mkdir(parents=True, exist_ok=True)
             for i, uf in enumerate(files):
                 if not uf.filename:
                     continue
-                target = dest / uf.filename
+                target = dest / Path(uf.filename).name
                 if target.exists():
-                    target = dest / f"{i}_{uf.filename}"
-                log(f"Nahravam {uf.filename} …")
+                    target = dest / f"{i}_{Path(uf.filename).name}"
+                log(f"Nahravam {target.name} …")
                 with target.open("wb") as out:
                     shutil.copyfileobj(uf.file, out)
-                log(f"OK {uf.filename} ({target.stat().st_size / 1e6:.1f} MB)")
+                log(f"OK {target.name} ({target.stat().st_size / 1e6:.1f} MB)")
 
         await save_uploads(dmr_uploads, job_dir / "input" / "dmr")
         await save_uploads(dmp_uploads, job_dir / "input" / "dmp")
         if zabaged_file and zabaged_file.filename:
             zdest = job_dir / "input" / "zabaged"
             zdest.mkdir(parents=True, exist_ok=True)
-            zpath = zdest / (zabaged_file.filename or "Zabaged_full.zip")
+            zpath = zdest / Path(zabaged_file.filename).name
             log(f"Nahravam {zpath.name} …")
             with zpath.open("wb") as out:
                 shutil.copyfileobj(zabaged_file.file, out)
@@ -170,6 +213,7 @@ async def api_create_job(
         else:
             worker.enqueue(job_id)
 
+        logger.info("Job %s created and queued", job_id)
         return db.get_job(job_id)
     except Exception as exc:
         tb = traceback.format_exc()
