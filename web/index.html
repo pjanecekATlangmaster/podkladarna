@@ -46,10 +46,11 @@
         </fieldset>
 
         <div id="map-mode">
-          <p class="hint">Klikněte dva protilehlé rohy. Stáhne se DMR, DMP i ZABAGED ze stejného výřezu. Mapa je omezená na Česko.</p>
+          <p class="hint">Klikněte dva protilehlé rohy, nebo klikněte na hotový job vpravo – výřez se načte na mapu. Listy SM5 zůstanou v cache, sloučený LAZ z předchozího jobu se znovu použije. Mapa je omezená na Česko, výřez nejvýše 5 × 5 km.</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>
           <p id="sheet-info" class="sheet-info">Nakreslete obdélník dvěma kliknutími.</p>
           <input type="hidden" name="bbox" id="bbox-input" value="" />
+          <input type="hidden" name="reuse_job_id" id="reuse-job-id" value="" />
           <button type="button" class="btn" id="bbox-clear">Vymazat výběr</button>
         </div>
 
@@ -82,13 +83,13 @@
           <label><input type="checkbox" name="output_png" checked /> PNG kontrolní mapa</label>
           <label><input type="checkbox" name="output_dxf" checked /> DXF vrstevnice a srázy</label>
           <label><input type="checkbox" name="output_zabaged_clean" /> Vyčištěný ZABAGED ZIP</label>
-          <label><input type="checkbox" name="savetempfolders" /> Uložit temp (pro pozdější iterace)</label>
+          <label><input type="checkbox" name="savetempfolders" /> Uložit temp KP (makevege / makecliffs u stejného jobu)</label>
         </fieldset>
 
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
         <p id="form-error" class="form-error hidden" role="alert"></p>
         <p class="hint">LAZ soubory jsou velké (stovky MB). Přes doménu musí reverse proxy povolit velký upload – viz DEPLOY.md. Test: <code>http://IP_NAS:8672</code>.</p>
-        <p class="hint">Generování obvykle trvá 5–30 minut. Můžete zavřít stránku – job běží na serveru.</p>
+        <p class="hint">Generování u sprintu obvykle trvá 2–6 minut (lesní mapa o něco víc). Můžete zavřít stránku – job běží na serveru.</p>
         <p class="hint">V jeden okamžik běží jen jedno generování; další joby čekají ve frontě. Hotové joby se po 30 dnech automaticky mažou.</p>
       </form>
     </section>
@@ -100,6 +101,7 @@
       <div id="job-detail" class="job-detail hidden">
         <h3 id="detail-title"></h3>
         <p id="detail-status"></p>
+        <p id="detail-timing" class="hint"></p>
         <pre id="detail-log" class="log"></pre>
         <div class="actions">
           <a id="detail-download" class="btn" href="#" download>Stáhnout ZIP</a>

@@ -6,7 +6,13 @@ from urllib.error import HTTPError
 
 import pytest
 
-from app.pipeline.fetch_openzu import FetchError, parse_bbox, query_sm5_sheets
+from app.pipeline.fetch_openzu import (
+    FetchError,
+    bbox_exceeds_limit,
+    bbox_size_km,
+    parse_bbox,
+    query_sm5_sheets,
+)
 
 
 def test_parse_bbox_ok():
@@ -25,6 +31,26 @@ def test_parse_bbox_rejects_outside_cz():
 def test_parse_bbox_rejects_inverted():
     with pytest.raises(FetchError, match="inverted"):
         parse_bbox("14.5,50.1,14.4,50.0")
+
+
+def test_bbox_size_small_ok():
+    width_km, height_km = bbox_size_km(14.40, 50.08, 14.42, 50.09)
+    assert 1.0 < width_km < 2.0
+    assert 0.8 < height_km < 1.5
+    assert not bbox_exceeds_limit(14.40, 50.08, 14.42, 50.09)
+
+
+def test_bbox_size_over_5km():
+    # ~14 × 22 km, pořád v obálce Česka
+    assert bbox_exceeds_limit(14.0, 49.5, 14.2, 49.7)
+
+
+def test_estimate_minutes_is_a_few_minutes():
+    from app.pipeline.fetch_openzu import estimate_minutes
+
+    assert estimate_minutes(1) == 2
+    assert estimate_minutes(4) == 5
+    assert estimate_minutes(8) == 9
 
 
 def test_query_sm5_sheets_parses_arcgis(monkeypatch):
@@ -64,8 +90,12 @@ def test_api_sheets(client, monkeypatch):
     body = r.json()
     assert body["count"] == 1
     assert body["sheets"][0]["mapnom"] == "PRAH77"
-    assert body["estimate_minutes"] == 9
+    assert body["estimate_minutes"] == 2
     assert "PRAH77" in body["label"]
+    assert body["too_large"] is False
+    assert body["max_km"] == 5.0
+    assert body["width_km"] < 5
+    assert body["height_km"] < 5
 
 
 def test_api_sheets_rejects_bad_bbox(client):
@@ -106,6 +136,47 @@ def test_create_job_from_map_bbox(client, monkeypatch):
     text = "\n".join(x["line"] for x in log)
     assert "rezim=map" in text
     assert "PRAH77" in text
+
+
+def test_api_sheets_too_large(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    r = client.get("/api/sheets", params={"bbox": "14.0,49.5,14.2,49.7"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["too_large"] is True
+    assert body["too_large_reason"] == "size"
+    assert body["estimate_minutes"] is None
+    assert "5" in body["hint"]
+    assert "moc velký" in body["hint"]
+
+
+def test_create_job_map_too_large(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "moc-velky",
+            "preset_id": "sprint_2m",
+            "source_mode": "map",
+            "bbox": "14.0,49.5,14.2,49.7",
+        },
+    )
+    assert r.status_code == 400
+    detail = r.json()["detail"].lower()
+    assert "moc velk" in detail
+    assert "5" in r.json()["detail"]
 
 
 def test_create_job_map_without_bbox(client):

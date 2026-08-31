@@ -87,6 +87,8 @@ def test_create_job_with_zabaged(client):
     job = r.json()
     assert job["options"]["output_zabaged_clean"] is False
     assert job["options"]["savetempfolders"] is False
+    assert "duration_s" in job
+    assert "started_at" in job
     job_id = job["id"]
     log_lines = client.get(f"/api/jobs/{job_id}/log").json()["lines"]
     text = "\n".join(x["line"] for x in log_lines)
@@ -118,3 +120,20 @@ def test_favicon(client):
     r = client.get("/favicon.ico")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("image/png")
+
+
+def test_copy_reusable_lidar(data_dir):
+    import app.db as db
+
+    db.init_db()
+    src = db.create_job("stary", "sprint_2m", {"bbox_wgs84": [14.4, 50.08, 14.42, 50.09]})
+    dest = db.create_job("novy", "sprint_2m", {})
+    lidar = db.JOBS_DIR / src["id"] / "work" / "lidar"
+    lidar.mkdir(parents=True, exist_ok=True)
+    (lidar / "merged_crop.laz").write_bytes(b"x" * 2000)
+    copied = db.copy_reusable_work(src["id"], dest["id"])
+    assert any("merged_crop.laz" in name for name in copied)
+    assert (db.JOBS_DIR / dest["id"] / "work" / "lidar" / "merged_crop.laz").exists()
+    assert db.get_job(src["id"])["has_reusable_lidar"] is True
+    assert db.bbox_close(src["options"]["bbox_wgs84"], [14.4, 50.08, 14.42, 50.09])
+

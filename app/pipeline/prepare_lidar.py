@@ -5,8 +5,64 @@ import subprocess
 from pathlib import Path
 
 
-from app.pipeline.fetch_openzu import CROP_BUFFER_M
 from app.tool_env import gis_subprocess_env, which_tool
+
+
+def kp_grid_scale_m(scalefactor: float) -> float:
+    """Karttapullautin: scale = 2 * scalefactor (buňka heightmapy v metrech)."""
+    return 2.0 * float(scalefactor)
+
+
+def kp_safe_crop_bounds(
+    bounds: tuple[float, float, float, float],
+    scalefactor: float,
+    extra_inset_m: float = 0.0,
+) -> tuple[float, float, float, float]:
+    """Ořízne bbox tak, aby KP neindexoval mimo heightmapu.
+
+    V contours.rs: idx = ((y - ymin) / scale + 0.5) as usize.
+    U scalefactor 0.4 (sprint, scale 0.8 m) floating point umí idx == výšku pole.
+    """
+    xmin, ymin, xmax, ymax = bounds
+    inset = kp_grid_scale_m(scalefactor) * 0.51 + 0.05 + extra_inset_m
+    if xmax - xmin > 2 * inset + 20:
+        xmin += inset
+        xmax -= inset
+    if ymax - ymin > 2 * inset + 20:
+        ymin += inset
+        ymax -= inset
+    return xmin, ymin, xmax, ymax
+
+
+def is_kp_heightmap_oob(exc: BaseException) -> bool:
+    parts = [str(exc), str(getattr(exc, "stderr", "") or ""), str(getattr(exc, "stdout", "") or "")]
+    text = "\n".join(parts).lower()
+    return "index out of bounds" in text
+
+
+def crop_laz(
+    src: Path,
+    dest: Path,
+    bounds: tuple[float, float, float, float],
+    log: callable | None = None,
+) -> Path:
+    xmin, ymin, xmax, ymax = bounds
+    if log:
+        log(
+            f"PDAL crop bbox 5514: [{xmin:.1f},{xmax:.1f}] x [{ymin:.1f},{ymax:.1f}]"
+        )
+    run_cmd(
+        [
+            find_tool("pdal"),
+            "translate",
+            str(src),
+            str(dest),
+            "crop",
+            f"--filters.crop.bounds=([{xmin},{xmax}],[{ymin},{ymax}])",
+        ],
+        log=log,
+    )
+    return dest
 
 
 def find_tool(name: str) -> str:
@@ -54,6 +110,7 @@ def merge_dmr_dmp(
     work_dir: Path,
     log: callable | None = None,
     crop_bounds: tuple[float, float, float, float] | None = None,
+    scalefactor: float | None = None,
 ) -> Path:
     if not dmr_files:
         raise FileNotFoundError("Chybí alespoň jeden soubor DMR 5G (LAZ/LAS)")
@@ -113,21 +170,12 @@ def merge_dmr_dmp(
 
     if crop_bounds:
         xmin, ymin, xmax, ymax = crop_bounds
+        if scalefactor is not None:
+            xmin, ymin, xmax, ymax = kp_safe_crop_bounds(
+                (xmin, ymin, xmax, ymax), scalefactor
+            )
         cropped = work_dir / "merged_crop.laz"
-        if log:
-            log(f"PDAL crop bbox 5514 + {CROP_BUFFER_M:.0f} m: [{xmin:.1f},{xmax:.1f}] x [{ymin:.1f},{ymax:.1f}]")
-        run_cmd(
-            [
-                pdal,
-                "translate",
-                str(merged),
-                str(cropped),
-                "crop",
-                f"--filters.crop.bounds=([{xmin},{xmax}],[{ymin},{ymax}])",
-            ],
-            log=log,
-        )
-        merged = cropped
+        merged = crop_laz(merged, cropped, (xmin, ymin, xmax, ymax), log=log)
 
     info = subprocess.run(
         [pdal, "info", str(merged), "--stats"],

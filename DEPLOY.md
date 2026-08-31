@@ -93,6 +93,10 @@ sudo ./update-nas.sh
 
 Vynucení plného stažení: `./update-nas.sh --force`
 
+Aktualizace **nepoužívá** `docker compose down` napřímo na běžící kontejner. Nejdřív ho zastaví přes `synowebapi` (stejně jako Stop v Container Manageru), aby DSM neposílal mail „kontejner byl ukončen nečekaně“. Skripty na NAS (`nas-lib.sh`, `update-nas.sh`, `deploy-nas.sh`) je potřeba zkopírovat z repozitáře – v image nejsou.
+
+Kdyby mail pořád chodil, v DSM: **Ovládací panel → Oznámení → Pravidla** a u Container Manageru vypnout „Neočekávaně zastaveno“. Ruční `docker compose down` ten mail pořád spustí.
+
 `deploy-nas.sh` – stejná logika digestu, ale **nesmaže** starý image před pull (šetrnější).
 
 Konkrétní tag:

@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import zipfile
 from pathlib import Path
 
 from app.pipeline.fetch_openzu import crop_bounds_5514, fetch_lidar_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
-from app.pipeline.ini_builder import write_pullauta_ini
-from app.pipeline.prepare_lidar import merge_dmr_dmp, run_cmd
+from app.pipeline.ini_builder import load_presets, write_pullauta_ini
+from app.pipeline.prepare_lidar import (
+    crop_laz,
+    is_kp_heightmap_oob,
+    kp_safe_crop_bounds,
+    merge_dmr_dmp,
+    run_cmd,
+)
 from app.pipeline.prepare_zabaged import clean_zabaged
 from app.settings import PULLAUTA_BIN
 
@@ -41,8 +48,6 @@ def run_job_pipeline(
     crop = None
     if bbox:
         west, south, east, north = bbox
-        log("=== Fáze: stahování LiDAR (openzu) ===")
-        fetch_lidar_for_bbox((west, south, east, north), input_dir / "dmr", input_dir / "dmp", log)
         crop = crop_bounds_5514(west, south, east, north)
 
     dmr_files = _collect_glob(input_dir / "dmr", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
@@ -52,15 +57,47 @@ def run_job_pipeline(
         zips = list((input_dir / "zabaged").glob("*.zip"))
         zabaged_src = zips[0] if zips else zabaged_src
 
-    if bbox and not zabaged_src.exists():
-        log("=== Fáze: stahování ZABAGED (ArcGIS) ===")
-        zabaged_src = input_dir / "zabaged" / "Zabaged_ags.zip"
-        fetch_zabaged_for_bbox((west, south, east, north), zabaged_src, log)
+    lidar_work = work_dir / "lidar"
+    merged_existing = None
+    for name in ("merged_crop.laz", "merged_crop_retry.laz", "merged.laz"):
+        candidate = lidar_work / name
+        if candidate.exists() and candidate.stat().st_size > 1000:
+            merged_existing = candidate
+            break
 
-    log("=== Fáze: prepare LiDAR ===")
-    merged = merge_dmr_dmp(
-        dmr_files, dmp_files, work_dir / "lidar", log=log, crop_bounds=crop
+    if bbox:
+        west, south, east, north = bbox
+        if merged_existing or (dmr_files and dmp_files):
+            log("LiDAR už je v jobu (iterace) – stahování openzu přeskakuji")
+        else:
+            log("=== Fáze: stahování LiDAR (openzu) ===")
+            fetch_lidar_for_bbox((west, south, east, north), input_dir / "dmr", input_dir / "dmp", log)
+            dmr_files = _collect_glob(input_dir / "dmr", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
+            dmp_files = _collect_glob(input_dir / "dmp", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
+
+        if not zabaged_src.exists():
+            log("=== Fáze: stahování ZABAGED (ArcGIS) ===")
+            zabaged_src = input_dir / "zabaged" / "Zabaged_ags.zip"
+            fetch_zabaged_for_bbox((west, south, east, north), zabaged_src, log)
+        elif options.get("reused_from"):
+            log(f"ZABAGED z jobu {options['reused_from']} – stahování přeskakuji")
+
+    scalefactor = float(
+        options.get("scalefactor") or load_presets()[preset_id]["scalefactor"]
     )
+    if merged_existing:
+        log(f"Používám už sloučený LAZ ({merged_existing.name}) – PDAL merge přeskakuji")
+        merged = merged_existing
+    else:
+        log("=== Fáze: prepare LiDAR ===")
+        merged = merge_dmr_dmp(
+            dmr_files,
+            dmp_files,
+            lidar_work,
+            log=log,
+            crop_bounds=crop,
+            scalefactor=scalefactor,
+        )
 
     zabaged_clean = work_dir / "zabaged_clean.zip"
     has_zabaged = zabaged_src.exists()
@@ -78,7 +115,24 @@ def run_job_pipeline(
         shutil.rmtree(temp_dir)
 
     log("=== Fáze: Karttapullautin LiDAR ===")
-    run_cmd([PULLAUTA_BIN, str(merged.resolve())], cwd=kp_cwd, log=log)
+    try:
+        run_cmd([PULLAUTA_BIN, str(merged.resolve())], cwd=kp_cwd, log=log)
+    except subprocess.CalledProcessError as exc:
+        if not crop or not is_kp_heightmap_oob(exc):
+            raise
+        log(
+            "Karttapullautin spadl na okraji heightmapy (bug KP, index mimo pole). "
+            "Zkouším znovu s menším ořezem…"
+        )
+        uncropped = work_dir / "lidar" / "merged.laz"
+        src = uncropped if uncropped.exists() else merged
+        tight = kp_safe_crop_bounds(crop, scalefactor, extra_inset_m=2.0)
+        merged = crop_laz(
+            src, work_dir / "lidar" / "merged_crop_retry.laz", tight, log
+        )
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        run_cmd([PULLAUTA_BIN, str(merged.resolve())], cwd=kp_cwd, log=log)
 
     if not (temp_dir / "vegetation.pgw").exists():
         raise RuntimeError("LiDAR nedokoncil temp/vegetation.pgw")

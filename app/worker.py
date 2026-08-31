@@ -65,7 +65,7 @@ def enqueue(job_id: str) -> None:
             db.update_job(job_id, status="queued", phase="waiting")
             return
         _running = job_id
-    db.update_job(job_id, status="running", phase="starting")
+    db.update_job(job_id, status="running", phase="starting", started_at=db._utcnow())
     threading.Thread(target=_run, args=(job_id,), daemon=True).start()
 
 
@@ -77,7 +77,7 @@ def _start_next() -> None:
             next_id = _queue.pop(0)
             _running = next_id
     if next_id:
-        db.update_job(next_id, status="running", phase="starting")
+        db.update_job(next_id, status="running", phase="starting", started_at=db._utcnow())
         threading.Thread(target=_run, args=(next_id,), daemon=True).start()
 
 

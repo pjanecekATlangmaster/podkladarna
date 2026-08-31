@@ -46,6 +46,9 @@ def init_db() -> None:
             )
             """
         )
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(jobs)").fetchall()]
+        if "started_at" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN started_at TEXT")
         conn.commit()
 
 
@@ -69,8 +72,8 @@ def create_job(name: str, preset_id: str, options: dict[str, Any]) -> dict[str, 
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO jobs (id, name, preset_id, status, phase, options_json, error, created_at, updated_at)
-            VALUES (?, ?, ?, 'pending', NULL, ?, NULL, ?, ?)
+            INSERT INTO jobs (id, name, preset_id, status, phase, options_json, error, created_at, updated_at, started_at)
+            VALUES (?, ?, ?, 'pending', NULL, ?, NULL, ?, ?, NULL)
             """,
             (job_id, name, preset_id, json.dumps(options), now, now),
         )
@@ -121,6 +124,79 @@ def update_job(job_id: str, **fields: Any) -> None:
         conn.commit()
 
 
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _job_duration_s(row: sqlite3.Row) -> int | None:
+    status = row["status"]
+    if status in ("pending", "queued"):
+        return None
+    keys = row.keys()
+    started = _parse_iso(row["started_at"] if "started_at" in keys else None)
+    start = started or _parse_iso(row["created_at"])
+    if start is None:
+        return None
+    if status == "running":
+        end = datetime.now(timezone.utc)
+    else:
+        end = _parse_iso(row["updated_at"])
+    if end is None:
+        return None
+    return max(0, int((end - start).total_seconds()))
+
+
+def _job_paths(job_id: str) -> dict[str, bool]:
+    job_dir = JOBS_DIR / job_id
+    lidar = job_dir / "work" / "lidar"
+    temp = job_dir / "work" / "temp"
+    dmr = job_dir / "input" / "dmr"
+    has_laz = False
+    for folder in (lidar, dmr):
+        if not folder.is_dir():
+            continue
+        if any(p.suffix.lower() in {".laz", ".las"} for p in folder.iterdir() if p.is_file()):
+            has_laz = True
+            break
+    has_temp = temp.is_dir() and any(temp.iterdir())
+    return {"has_reusable_lidar": has_laz, "has_temp": has_temp}
+
+
+def copy_reusable_work(src_id: str, dest_id: str) -> list[str]:
+    """Zkopíruje vstupní LAZ / sloučený crop a ZABAGED do nového jobu."""
+    copied: list[str] = []
+    src = JOBS_DIR / src_id
+    dest = JOBS_DIR / dest_id
+    for rel in ("input/dmr", "input/dmp", "input/zabaged", "work/lidar"):
+        s, d = src / rel, dest / rel
+        if not s.is_dir():
+            continue
+        files = [p for p in s.iterdir() if p.is_file()]
+        if not files:
+            continue
+        d.mkdir(parents=True, exist_ok=True)
+        for path in files:
+            shutil.copy2(path, d / path.name)
+            copied.append(f"{rel}/{path.name}")
+    return copied
+
+
+def bbox_close(
+    a: list | tuple, b: list | tuple, eps: float = 1e-5
+) -> bool:
+    if not a or not b or len(a) != 4 or len(b) != 4:
+        return False
+    return all(abs(float(x) - float(y)) < eps for x, y in zip(a, b, strict=True))
+
+
 def append_log(job_id: str, line: str) -> None:
     log_file = JOBS_DIR / job_id / "log.txt"
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -145,6 +221,9 @@ def get_logs(job_id: str, after_id: int = 0) -> list[dict[str, Any]]:
 
 def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
     job_dir = JOBS_DIR / row["id"]
+    keys = row.keys()
+    started_at = row["started_at"] if "started_at" in keys else None
+    paths = _job_paths(row["id"])
     return {
         "id": row["id"],
         "name": row["name"],
@@ -155,6 +234,9 @@ def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
         "error": row["error"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+        "started_at": started_at,
+        "duration_s": _job_duration_s(row),
         "has_output": (job_dir / "output" / "podkladarna_output.zip").exists(),
         "has_preview": (job_dir / "output" / "pullautus.png").exists(),
+        **paths,
     }

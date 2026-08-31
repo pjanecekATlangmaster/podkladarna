@@ -6,6 +6,8 @@ services:
       dockerfile: Dockerfile
     container_name: podkladarna
     restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
     network_mode: bridge
     ports:
       - "8672:8672"

@@ -152,6 +152,41 @@ nas_check_up_to_date() {
   return 0
 }
 
+# DSM posílá mail „kontejner ukončen nečekaně“, když stop jde přes docker CLI.
+# synowebapi to udělá stejně jako tlačítko Stop v Container Manageru.
+nas_synology_stop_container() {
+  _name="${1:-podkladarna}"
+  if ! nas_container_running; then
+    return 0
+  fi
+  if ! command -v synowebapi >/dev/null 2>&1; then
+    echo "synowebapi není k dispozici – stop přes docker (DSM může poslat mail)."
+    return 1
+  fi
+  echo "Zastavuji ${_name} přes Synology API (bez mailu o neočekávaném stopu)..."
+  synowebapi --exec api=SYNO.Docker.Container version=1 method=stop "name=\"${_name}\"" >/dev/null 2>&1 || \
+    synowebapi --exec api=SYNO.Docker.Container version=1 method=stop name="\"${_name}\"" >/dev/null 2>&1 || \
+    return 1
+  _tries=30
+  while [ "$_tries" -gt 0 ]; do
+    nas_container_running || return 0
+    _tries=$((_tries - 1))
+    sleep 1
+  done
+  echo "Varování: kontejner ${_name} po synowebapi stále běží." >&2
+  return 1
+}
+
+nas_recreate_container() {
+  _compose="$1"
+  _compose_file="$2"
+  nas_synology_stop_container podkladarna || true
+  $_compose $_compose_file down --remove-orphans 2>/dev/null || true
+  docker rm -f podkladarna 2>/dev/null || true
+  nas_remove_compose_network
+  $_compose $_compose_file up -d --no-build --pull never
+}
+
 # Po přechodu na network_mode: bridge zbývá starý compose bridge bez NAT.
 nas_remove_compose_network() {
   docker network ls --format '{{.Name}}' 2>/dev/null | grep -E '^podkladarna(_default)?$' | while read -r n; do

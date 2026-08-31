@@ -15,7 +15,10 @@ from app import db, worker
 from app.cleanup import purge_old_jobs, start_cleanup_scheduler
 from app.pipeline.fetch_openzu import (
     FetchError,
+    MAX_BBOX_KM,
     MAX_SHEETS,
+    bbox_exceeds_limit,
+    bbox_size_km,
     estimate_minutes,
     parse_bbox,
     query_sm5_sheets,
@@ -117,22 +120,53 @@ def api_sheets(bbox: str):
     """bbox=west,south,east,north (WGS84) → listy SM5 + odhad času."""
     try:
         west, south, east, north = parse_bbox(bbox)
+    except FetchError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    width_km, height_km = bbox_size_km(west, south, east, north)
+    if bbox_exceeds_limit(west, south, east, north):
+        return {
+            "sheets": [],
+            "count": 0,
+            "max_sheets": MAX_SHEETS,
+            "width_km": round(width_km, 2),
+            "height_km": round(height_km, 2),
+            "max_km": MAX_BBOX_KM,
+            "too_large": True,
+            "too_large_reason": "size",
+            "estimate_minutes": None,
+            "label": f"Výřez {width_km:.1f} × {height_km:.1f} km",
+            "hint": (
+                f"Výřez {width_km:.1f} × {height_km:.1f} km je moc velký "
+                f"(max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km). Zmenšete ho."
+            ),
+        }
+    try:
         sheets = query_sm5_sheets(west, south, east, north)
     except FetchError as exc:
         raise HTTPException(400, str(exc)) from exc
     names = [s["mapnom"] for s in sheets]
-    too_large = len(sheets) > MAX_SHEETS
+    sheets_too_big = len(sheets) > MAX_SHEETS
+    hint = (
+        f"{', '.join(names)} ({len(sheets)}). Zmenšete výřez (max {MAX_SHEETS} listů SM5)."
+        if sheets_too_big
+        else None
+    )
     return {
         "sheets": sheets,
         "count": len(sheets),
         "max_sheets": MAX_SHEETS,
-        "too_large": too_large,
-        "estimate_minutes": estimate_minutes(len(sheets)) if sheets and not too_large else None,
+        "width_km": round(width_km, 2),
+        "height_km": round(height_km, 2),
+        "max_km": MAX_BBOX_KM,
+        "too_large": sheets_too_big,
+        "too_large_reason": "sheets" if sheets_too_big else None,
+        "estimate_minutes": estimate_minutes(len(sheets)) if sheets and not sheets_too_big else None,
         "label": (
             f"Protíná listy: {', '.join(names)} ({len(sheets)})"
             if sheets
             else "Výřez neprotíná žádný list SM5"
         ),
+        "hint": hint,
     }
 
 
@@ -232,6 +266,16 @@ async def api_create_job(request: Request):
             raise HTTPException(400, "Chybí výřez na mapě (bbox).")
         try:
             bbox = parse_bbox(bbox_raw)
+        except FetchError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        width_km, height_km = bbox_size_km(*bbox)
+        if bbox_exceeds_limit(*bbox):
+            raise HTTPException(
+                400,
+                f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
+                f"max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km).",
+            )
+        try:
             sheets = query_sm5_sheets(*bbox)
         except FetchError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -271,12 +315,28 @@ async def api_create_job(request: Request):
     if bbox:
         options["bbox_wgs84"] = list(bbox)
         options["sm5_sheets"] = [s["mapnom"] for s in sheets]
+    reuse_id = _form_str(form, "reuse_job_id").strip()
+    if reuse_id and bbox:
+        try:
+            prev = db.get_job(reuse_id)
+        except KeyError:
+            prev = None
+        prev_bbox = (prev or {}).get("options", {}).get("bbox_wgs84")
+        if prev and prev.get("has_reusable_lidar") and db.bbox_close(prev_bbox or [], bbox):
+            options["reused_from"] = reuse_id
     job = db.create_job(name, preset_id, options)
     job_id = job["id"]
     job_dir = JOBS_DIR / job_id
 
     def log(msg: str) -> None:
         db.append_log(job_id, msg)
+
+    if options.get("reused_from"):
+        copied = db.copy_reusable_work(options["reused_from"], job_id)
+        log(
+            f"Iterace z jobu {options['reused_from']}: kopíruji {len(copied)} souborů "
+            "(LiDAR/ZABAGED, bez ČÚZK). Temp Karttapullautinu se z LAZ sestaví znovu."
+        )
 
     log(
         f"Prijato: rezim={source_mode}, DMR={len(dmr_uploads)}, DMP={len(dmp_uploads)}, "

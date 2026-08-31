@@ -19,6 +19,7 @@ OPENZU_DMR = "https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/{mapnom}.zip"
 OPENZU_DMP = "https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/{mapnom}.zip"
 USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladarna)"
 MAX_SHEETS = 8
+MAX_BBOX_KM = 5.0
 CROP_BUFFER_M = 30.0
 QUERY_TIMEOUT_S = 30
 DOWNLOAD_TIMEOUT_S = 180
@@ -55,8 +56,23 @@ def parse_bbox(raw: str) -> tuple[float, float, float, float]:
     return west, south, east, north
 
 
+def bbox_size_km(
+    west: float, south: float, east: float, north: float
+) -> tuple[float, float]:
+    """Šířka a výška výřezu v km (S-JTSK, bez crop bufferu)."""
+    xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north, buffer_m=0)
+    return (xmax - xmin) / 1000.0, (ymax - ymin) / 1000.0
+
+
+def bbox_exceeds_limit(west: float, south: float, east: float, north: float) -> bool:
+    width_km, height_km = bbox_size_km(west, south, east, north)
+    return width_km > MAX_BBOX_KM or height_km > MAX_BBOX_KM
+
+
 def estimate_minutes(sheet_count: int) -> int:
-    return 5 + max(sheet_count, 1) * 4
+    """Hrubý odhad. Listy SM5 jsou v cache, Karttapullautin u sprintu běží jednotky minut."""
+    n = max(sheet_count, 1)
+    return max(2, 1 + n)
 
 
 def query_sm5_sheets(west: float, south: float, east: float, north: float) -> list[dict]:
@@ -120,6 +136,12 @@ def fetch_lidar_for_bbox(
     log: callable | None = None,
 ) -> list[str]:
     west, south, east, north = bbox
+    if bbox_exceeds_limit(west, south, east, north):
+        width_km, height_km = bbox_size_km(west, south, east, north)
+        raise FetchError(
+            f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
+            f"max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km)."
+        )
     sheets = query_sm5_sheets(west, south, east, north)
     if not sheets:
         raise FetchError("Výřez neprotíná žádný list SM5")

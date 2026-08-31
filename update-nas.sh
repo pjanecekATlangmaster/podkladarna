@@ -68,9 +68,7 @@ fi
 
 if [ "$NAS_UPDATE_ACTION" = restart ]; then
   echo "1/2 Restart kontejneru (bez pull)..."
-  $COMPOSE $COMPOSE_FILE down --remove-orphans
-  nas_remove_compose_network
-  $COMPOSE $COMPOSE_FILE up -d --no-build --pull never
+  nas_recreate_container "$COMPOSE" "$COMPOSE_FILE"
   $COMPOSE $COMPOSE_FILE ps
   nas_health_check "$COMPOSE" "$COMPOSE_FILE" || exit 1
   echo "Update dokončen (bez stažení image)."
@@ -85,10 +83,7 @@ fi
 
 echo ""
 echo "2/3 Restartuji kontejner..."
-$COMPOSE $COMPOSE_FILE down --remove-orphans 2>/dev/null || true
-docker rm -f podkladarna 2>/dev/null || true
-nas_remove_compose_network
-$COMPOSE $COMPOSE_FILE up -d --no-build --pull never
+nas_recreate_container "$COMPOSE" "$COMPOSE_FILE"
 
 echo ""
 echo "3/3 Kontrola..."

@@ -62,6 +62,11 @@ async function api(path, opts = {}) {
 let selectedJobId = null;
 let logAfter = 0;
 let pollTimer = null;
+let bboxMap = null;
+let bboxCorners = [];
+let bboxRect = null;
+let bboxAllowed = false;
+let lastSheets = null;
 
 async function loadPresets() {
   const data = await api("/api/presets");
@@ -98,16 +103,29 @@ async function loadJobs() {
     } else if (job.queue_position) {
       queueLabel = ` · fronta #${job.queue_position}`;
     }
+    let timing = "";
+    if (job.status === "done" || job.status === "failed") {
+      const dur = formatDuration(job.duration_s);
+      if (dur) timing = ` · ${dur}`;
+    }
     div.innerHTML = `
       <strong>${escapeHtml(job.name)}</strong>
-      <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}</div>
-      <div class="status">${job.preset_id} · ${job.created_at.slice(0, 19)}</div>
+      <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}${timing}</div>
+      <div class="status">${job.preset_id} · ${escapeHtml(formatWhen(job.created_at))}</div>
       ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
     `;
     div.onclick = () => selectJob(job.id);
     list.appendChild(div);
   }
-  if (selectedJobId) await refreshLog();
+  if (selectedJobId) {
+    const selected = data.jobs.find((j) => j.id === selectedJobId);
+    const timingEl = document.getElementById("detail-timing");
+    if (selected && timingEl) {
+      timingEl.textContent = jobTimingText(selected);
+      timingEl.classList.toggle("hidden", !timingEl.textContent);
+    }
+    await refreshLog();
+  }
 }
 
 function updateWorkerStatus(data) {
@@ -126,6 +144,36 @@ function updateWorkerStatus(data) {
   }
 }
 
+function formatDuration(seconds) {
+  if (seconds == null || seconds < 0) return "";
+  const s = Math.round(Number(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h) return `${h} h ${m} min`;
+  if (m) return sec ? `${m} min ${sec} s` : `${m} min`;
+  return `${sec} s`;
+}
+
+function formatWhen(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 19).replace("T", " ");
+  return d.toLocaleString("cs-CZ", { dateStyle: "short", timeStyle: "medium" });
+}
+
+function jobTimingText(job) {
+  const start = formatWhen(job.started_at || job.created_at);
+  const dur = formatDuration(job.duration_s);
+  if (job.status === "done" || job.status === "failed") {
+    return [start ? `Start ${start}` : "", dur ? `trvání ${dur}` : ""].filter(Boolean).join(" · ");
+  }
+  if (job.status === "running" && dur) {
+    return `${start ? `Od ${start} · ` : ""}běží ${dur}`;
+  }
+  return start ? `Zařazeno ${start}` : "";
+}
+
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -140,6 +188,12 @@ async function selectJob(id) {
   document.getElementById("detail-title").textContent = job.name;
   document.getElementById("detail-status").textContent =
     `Stav: ${job.status} · preset: ${job.preset_id}` + (job.error ? ` · ${job.error}` : "");
+  const timingEl = document.getElementById("detail-timing");
+  if (timingEl) {
+    timingEl.textContent = jobTimingText(job);
+    timingEl.classList.toggle("hidden", !timingEl.textContent);
+  }
+  applyJobToForm(job);
   document.getElementById("detail-download").href = `/api/jobs/${id}/download`;
   document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
   document.getElementById("detail-preview").href = `/api/jobs/${id}/preview.png`;
@@ -178,9 +232,18 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     form.preset_id.focus();
     return;
   }
-  if (mode === "map" && !document.getElementById("bbox-input").value) {
-    showFormError("Nakreslete výřez na mapě (dva protilehlé rohy).");
-    return;
+  if (mode === "map") {
+    if (!document.getElementById("bbox-input").value) {
+      showFormError("Nakreslete výřez na mapě (dva protilehlé rohy).");
+      return;
+    }
+    if (!bboxAllowed) {
+      showFormError(
+        (lastSheets && lastSheets.hint) ||
+          "Výřez je moc velký nebo ještě není ověřený. Max 5 × 5 km."
+      );
+      return;
+    }
   }
   if (mode === "upload") {
     const dmr = form.dmr_files.files;
@@ -231,9 +294,6 @@ function syncSourceMode() {
     }, 50);
   }
 }
-
-let bboxMap = null;
-let bboxCorners = [];
 
 const CZ = { south: 48.35, west: 11.85, north: 51.25, east: 19.1 };
 
@@ -306,20 +366,81 @@ function onMapClick(e) {
   }
   if (bboxCorners.length === 2) {
     const b = L.latLngBounds(bboxCorners[0], bboxCorners[1]);
-    L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
+    bboxRect = L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
     bboxMap.fitBounds(b, { padding: [20, 20], maxZoom: 14 });
     const west = b.getWest();
     const south = b.getSouth();
     const east = b.getEast();
     const north = b.getNorth();
     document.getElementById("bbox-input").value = [west, south, east, north].join(",");
+    setReuseJob("");
     lookupSheets();
   }
 }
 
-function clearBbox() {
+function styleBboxRect(tooLarge) {
+  if (!bboxRect) return;
+  bboxRect.setStyle({
+    color: tooLarge ? "#ff6600" : "#cc00cc",
+    weight: 2,
+    fillOpacity: 0.15,
+  });
+}
+
+function setReuseJob(id) {
+  const el = document.getElementById("reuse-job-id");
+  if (el) el.value = id || "";
+}
+
+function applyJobToForm(job) {
+  const form = document.getElementById("job-form");
+  if (!form) return;
+  const preset = form.preset_id;
+  if (job.preset_id && [...preset.options].some((o) => o.value === job.preset_id)) {
+    preset.value = job.preset_id;
+  }
+  const opts = job.options || {};
+  ["run_vectors", "output_png", "output_dxf", "output_zabaged_clean", "savetempfolders"].forEach((name) => {
+    if (form[name] && typeof opts[name] === "boolean") {
+      form[name].checked = opts[name];
+    }
+  });
+  const bbox = opts.bbox_wgs84;
+  if (Array.isArray(bbox) && bbox.length === 4) {
+    const mapRadio = document.querySelector("input[name=source_mode][value=map]");
+    if (mapRadio) {
+      mapRadio.checked = true;
+      syncSourceMode();
+    }
+    applyBbox(bbox[0], bbox[1], bbox[2], bbox[3], {
+      reuseJobId: job.has_reusable_lidar ? job.id : "",
+    });
+  } else {
+    setReuseJob("");
+  }
+}
+
+function applyBbox(west, south, east, north, extra = {}) {
+  if (!bboxMap || typeof L === "undefined") return;
+  clearBbox({ keepReuse: true });
+  setReuseJob(extra.reuseJobId || "");
+  const sw = L.latLng(south, west);
+  const ne = L.latLng(north, east);
+  bboxCorners = [sw, ne];
+  const b = L.latLngBounds(sw, ne);
+  bboxRect = L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
+  bboxMap.fitBounds(b, { padding: [24, 24], maxZoom: 14 });
+  document.getElementById("bbox-input").value = [west, south, east, north].join(",");
+  lookupSheets();
+}
+
+function clearBbox(opts = {}) {
   bboxCorners = [];
+  bboxRect = null;
+  bboxAllowed = false;
+  lastSheets = null;
   document.getElementById("bbox-input").value = "";
+  if (!opts.keepReuse) setReuseJob("");
   if (bboxMap) {
     bboxMap.eachLayer((layer) => {
       if (layer instanceof L.Rectangle || layer instanceof L.CircleMarker) {
@@ -339,22 +460,38 @@ function setSheetInfo(text, cls) {
 async function lookupSheets() {
   const bbox = document.getElementById("bbox-input").value;
   if (!bbox) return;
+  bboxAllowed = false;
+  lastSheets = null;
   setSheetInfo("Zjišťuji mapové listy SM5…", "");
   try {
     const data = await api(`/api/sheets?bbox=${encodeURIComponent(bbox)}`);
-    if (!data.count) {
-      setSheetInfo(data.label, "err");
-      return;
-    }
+    lastSheets = data;
     if (data.too_large) {
+      styleBboxRect(true);
       setSheetInfo(
-        `${data.label}. Zmenšete výřez (max ${data.max_sheets} listů).`,
+        data.hint || `Výřez je moc velký (max ${data.max_km} × ${data.max_km} km). Zmenšete ho.`,
         "warn"
       );
       return;
     }
-    setSheetInfo(`${data.label}. Odhad: cca ${data.estimate_minutes} min.`, "ok");
+    if (!data.count) {
+      styleBboxRect(false);
+      setSheetInfo(data.label, "err");
+      return;
+    }
+    styleBboxRect(false);
+    bboxAllowed = true;
+    const size = `${data.width_km} × ${data.height_km} km`;
+    const reuseId = (document.getElementById("reuse-job-id") || {}).value;
+    const extra = reuseId
+      ? " Iterace: LiDAR a ZABAGED z předchozího jobu, bez stahování ČÚZK."
+      : "";
+    setSheetInfo(
+      `${data.label} · ${size}. Odhad: cca ${data.estimate_minutes} min.${extra}`,
+      "ok"
+    );
   } catch (err) {
+    styleBboxRect(true);
     setSheetInfo(err.message, "err");
   }
 }
