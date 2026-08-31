@@ -136,7 +136,57 @@ prepare → lidar → vectors? → done
 
 **Parametry „Upravit“ (10 polí):** contour_interval, basemapinterval, scalefactor, formline, smoothing, greenshades, processes, depression_length, savetempfolders, vectorconf.
 
-### v1.1 – Auto-stahování (priorita uživatele)
+**Výstup v1.0 (aktuální):** `podkladarna_output.zip` – PNG + PGW, `temp/*.dxf`, `zabaged_clean.zip` (ruční import do OOM).
+
+### v1.5 – Balíček pro OpenOrienteering Mapper
+**Cíl:** ke stažení nabídnout ZIP připravený tak, aby šel v OOM otevřít bez hledání souborů.
+
+- [ ] **`podkladarna_oom.zip`** (volitelný checkbox / druhé tlačítko „Stáhnout pro OOM“)
+- [ ] Pevná struktura složek s **relativními cesty** uvnitř archivu:
+
+```
+podkladarna_oom/
+  README_OOM.txt              # krátký návod (pořadí importu, měřítko, CRS)
+  metadata.json               # preset, contour_interval, scalefactor, EPSG:5514
+  basemap/
+    pullautus.png
+    pullautus.pgw
+  relief/                     # volitelně pullautus_depr.*
+    pullautus_depr.png
+    pullautus_depr.pgw
+  karttapullautin/
+    contours.dxf              # nebo temp/contours.dxf, cliffs.dxf, …
+    basemap.dxf
+    …
+  vectors/
+    Budova.shp + .dbf/.shx/.prj …
+    Cesta.shp
+    …                           # rozbalené z zabaged_clean.zip
+```
+
+- [ ] `README_OOM.txt`: doporučený postup (georeferencovaný PNG jako podklad → DXF vrstevnice jako template → SHP vektory)
+- [ ] V UI: volba „Jen surový ZIP“ vs. „ZIP pro OOM“
+
+**Poznámka:** V1.5 ještě **negeneruje `.omap`** – uživatel otevře/importuje vrstvy v OOM; všechny soubory ale sedí v jednom balíčku se stabilní strukturou.
+
+### v2 – Soubor `.omap` s provázanými vrstvami
+**Cíl:** po rozbalení ZIPu (nebo přímo ke stažení) **hotový `.omap`**, kde jsou cesty relativní vůči umístění souboru mapy.
+
+- [ ] Generátor `pipeline/build_oom_map.py` – XML `.omap` dle formátu OpenOrienteering Mapper
+- [ ] V `.omap` odkazovat relativně, např.:
+  - `basemap/pullautus.png` + georeferencing z PGW
+  - templates → `karttapullautin/*.dxf`
+  - vektorové vrstvy → `vectors/*.shp` (OOM import / symbolické propojení dle možností formátu)
+- [ ] Ke stažení **`podkladarna_oom_bundle.zip`**: `.omap` + všechny datové soubory ve stejném stromu
+- [ ] Uživatel: rozbalit → dvojklik / OOM „Open“ → mapa s načtenými podklady
+- [ ] Ošetřit měřítko mapy a CRS (EPSG:5514 / S-JTSK) podle presetu
+- [ ] Smoke test: otevření v aktuální verzi OOM na Windows
+
+**Omezení / rizika (v2):**
+- Formát `.omap` se může lišit mezi verzemi OOM – generovat pro cílovou verzi (např. 0.6.x+)
+- Ne vše jde do `.omap` automaticky (symbolika ZABAGED, barvy ISOM) – minimum: podklad + vrstevnice + vektory jako editovatelné vrstvy
+- Fallback vždy ponechat: `podkladarna_oom.zip` bez `.omap` (v1.5)
+
 - [ ] `pipeline/fetch_openzu.py` – bbox → MAPNOM → download → cache
 - [ ] Leaflet mapa + bbox v UI
 - [ ] Režim: ◉ obdélník na mapě / ○ upload
@@ -148,8 +198,10 @@ prepare → lidar → vectors? → done
 - [ ] Expert panel – všechny INI skupiny (Contours / Vegetation / Cliffs / Processing / Optional)
 - [ ] Uložené vlastní presety (JSON v SQLite)
 - [ ] Náhled PNG v job detailu
+- [ ] **OOM balíček** – viz sekce výše (`podkladarna_oom.zip`)
 
 ### v2 – Rozšíření
+- [ ] **Generování `.omap`** s relativními cestami – viz sekce výše
 - [ ] WFS ZABAGED (malé oblasti, limit 1000 varování)
 - [ ] Batch: více SM5 + pngmerge / dxfmerge
 - [ ] contoursonly / vegeonly / cliffsonly
@@ -175,6 +227,7 @@ podkladarna/
       fetch_openzu.py         # v1.1
       ini_builder.py
       run_job.py
+      build_oom_map.py          # v2 – generátor .omap
     web/static/
       index.html
       app.js
@@ -195,7 +248,9 @@ GET    /api/jobs
 GET    /api/jobs/{id}
 POST   /api/jobs/{id}/start   # v1.0 upload; v1.1 bbox nebo upload
 GET    /api/jobs/{id}/log
-GET    /api/jobs/{id}/download
+GET    /api/jobs/{id}/download              # podkladarna_output.zip (v1.0)
+GET    /api/jobs/{id}/download/oom          # v1.5 – podkladarna_oom.zip
+GET    /api/jobs/{id}/download/oom-bundle   # v2 – .omap + data
 POST   /api/jobs/{id}/vectors # v1.5 – přidat ZABAGED později
 POST   /api/jobs/{id}/refine/vegetation   # v1.5
 POST   /api/jobs/{id}/rerender            # v1.5
@@ -234,4 +289,4 @@ DELETE /api/jobs/{id}
 
 ---
 
-*Poslední aktualizace: 2026-08-31*
+*Poslední aktualizace: 2026-08-31 (OOM export v1.5 / .omap v2)*

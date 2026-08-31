@@ -6,6 +6,8 @@ Výstup: PNG + DXF + vyčištěný ZABAGED ZIP pro **OpenOrienteering Mapper**.
 
 ## Rychlý start (Synology / Docker)
 
+**Lokální vývoj a testy:** viz **[DEV.md](./DEV.md)** – pytest + docker compose dev, deploy na NAS až potom.
+
 ```bash
 # Upravte ghcr.io/OWNER/podkladarna v docker-compose.yml
 docker compose up -d --build

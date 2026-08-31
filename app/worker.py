@@ -25,6 +25,7 @@ def queue_size() -> int:
 
 
 def enqueue(job_id: str) -> None:
+    global _running
     with _lock:
         if _running is not None:
             if job_id not in _queue:
@@ -32,10 +33,12 @@ def enqueue(job_id: str) -> None:
             db.update_job(job_id, status="queued")
             return
         _running = job_id
+    db.update_job(job_id, status="running", phase="starting")
     threading.Thread(target=_run, args=(job_id,), daemon=True).start()
 
 
 def _start_next() -> None:
+    global _running
     next_id: str | None = None
     with _lock:
         if _queue:
@@ -46,6 +49,7 @@ def _start_next() -> None:
 
 
 def _run(job_id: str) -> None:
+    global _running
     job_dir = JOBS_DIR / job_id
 
     def log(msg: str) -> None:
@@ -71,7 +75,6 @@ def _run(job_id: str) -> None:
         db.update_job(job_id, status="failed", phase="error", error=str(exc))
     finally:
         with _lock:
-            global _running
             if _running == job_id:
                 _running = None
         _start_next()

@@ -22,10 +22,15 @@ def _form_bool(value: str | None) -> bool:
 
 
 def _upload_files(form, key: str) -> list[UploadFile]:
+    """Vrátí nahrané soubory pro dané pole (robustní vůči TestClient i prohlížeči)."""
     files: list[UploadFile] = []
-    for item in form.getlist(key):
-        if isinstance(item, UploadFile) and item.filename:
-            files.append(item)
+    for field_name, value in form.multi_items():
+        if field_name != key:
+            continue
+        if not hasattr(value, "read"):
+            continue
+        # filename může být None u některých klientů – řeší se při ukládání
+        files.append(value)
     return files
 
 
@@ -186,11 +191,10 @@ async def api_create_job(request: Request):
         async def save_uploads(files: list[UploadFile], dest: Path) -> None:
             dest.mkdir(parents=True, exist_ok=True)
             for i, uf in enumerate(files):
-                if not uf.filename:
-                    continue
-                target = dest / Path(uf.filename).name
+                raw_name = uf.filename or f"upload_{i}.bin"
+                target = dest / Path(raw_name).name
                 if target.exists():
-                    target = dest / f"{i}_{Path(uf.filename).name}"
+                    target = dest / f"{i}_{Path(raw_name).name}"
                 log(f"Nahravam {target.name} …")
                 with target.open("wb") as out:
                     shutil.copyfileobj(uf.file, out)
@@ -198,10 +202,11 @@ async def api_create_job(request: Request):
 
         await save_uploads(dmr_uploads, job_dir / "input" / "dmr")
         await save_uploads(dmp_uploads, job_dir / "input" / "dmp")
-        if zabaged_file and zabaged_file.filename:
+        if zabaged_file:
             zdest = job_dir / "input" / "zabaged"
             zdest.mkdir(parents=True, exist_ok=True)
-            zpath = zdest / Path(zabaged_file.filename).name
+            zname = Path(zabaged_file.filename or "Zabaged_full.zip").name
+            zpath = zdest / zname
             log(f"Nahravam {zpath.name} …")
             with zpath.open("wb") as out:
                 shutil.copyfileobj(zabaged_file.file, out)

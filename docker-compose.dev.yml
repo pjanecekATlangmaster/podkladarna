@@ -1,0 +1,29 @@
+# Lokální vývoj – stejný stack jako NAS, ale s hot-reload a mountem zdrojáků
+services:
+  podkladarna:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: podkladarna-dev
+    ports:
+      - "8672:8672"
+    volumes:
+      - ./data:/data
+      - ./app:/app/app
+      - ./web:/app/web
+      - ./configs:/app/configs
+    environment:
+      - PODKLADARNA_DATA=/data
+      - MAX_CONCURRENT_LIDAR=1
+      - TEMP_RETENTION_DAYS=7
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8672"
+      - --app-dir
+      - /app
+      - --reload
+    mem_limit: 12g
