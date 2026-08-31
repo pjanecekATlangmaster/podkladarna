@@ -105,40 +105,48 @@ nas_health_check() {
   return 1
 }
 
-# Vypíše stav a vrátí 0 pokud pull není potřeba (stejný digest + běží)
-# Vrátí 1 pokud je potřeba pull/restart
+# Nastaví NAS_UPDATE_ACTION=skip|restart|pull. Vždy return 0
+# (nesmí vracet 1/2 – volající skripty mají set -e a hned by skončily).
 nas_check_up_to_date() {
   _image="$1"
   _force="${2:-false}"
   _local="$(nas_local_digest "$_image")"
   _remote="$(nas_remote_digest "$_image")"
+  NAS_UPDATE_ACTION=pull
 
   echo "Lokální:  ${_local:-<žádný image>}"
   echo "Remote:   ${_remote:-<manifest nedostupný>}"
 
   if [ "$_force" = true ]; then
-    return 1
+    echo ""
+    echo "Vynucený update (--force) – stahuji pull."
+    NAS_UPDATE_ACTION=pull
+    return 0
   fi
 
   if [ -z "$_remote" ]; then
     echo "Nepodařilo se načíst remote manifest – pokračuji pull."
-    return 1
+    NAS_UPDATE_ACTION=pull
+    return 0
   fi
 
   if [ -n "$_local" ] && [ "$_local" = "$_remote" ] && nas_container_running; then
     echo ""
     echo "Image beze změny a kontejner běží – stahování přeskakuji."
     echo "Vynutit: $0 --force"
+    NAS_UPDATE_ACTION=skip
     return 0
   fi
 
   if [ -n "$_local" ] && [ "$_local" = "$_remote" ]; then
     echo ""
     echo "Image beze změny – pull přeskakuji, jen restart kontejneru."
-    return 2
+    NAS_UPDATE_ACTION=restart
+    return 0
   fi
 
   echo ""
-  echo "Nová verze image – bude stažen pull."
-  return 1
+  echo "Nová verze image – stahuji pull."
+  NAS_UPDATE_ACTION=pull
+  return 0
 }

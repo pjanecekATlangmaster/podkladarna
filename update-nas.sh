@@ -60,14 +60,13 @@ export GHCR_OWNER
 export IMAGE_TAG="$TAG"
 
 nas_check_up_to_date "$IMAGE" "$FORCE"
-CHECK=$?
 
-if [ "$CHECK" -eq 0 ]; then
+if [ "$NAS_UPDATE_ACTION" = skip ]; then
   $COMPOSE $COMPOSE_FILE ps
   exit 0
 fi
 
-if [ "$CHECK" -eq 2 ]; then
+if [ "$NAS_UPDATE_ACTION" = restart ]; then
   echo "1/2 Restart kontejneru (bez pull)..."
   $COMPOSE $COMPOSE_FILE down --remove-orphans
   $COMPOSE $COMPOSE_FILE up -d --no-build --pull never
