@@ -7,14 +7,17 @@ RUN mamba install -y -c conda-forge \
     python=3.11 \
     gdal \
     pyyaml \
+    curl \
     && mamba clean -afy
 
-ARG KP_VERSION=v2.12.0
+ARG KP_VERSION=v2.12.1
 RUN curl -fsSL -o /tmp/kp.tgz \
     "https://github.com/karttapullautin/karttapullautin/releases/download/${KP_VERSION}/karttapullautin-x86_64-linux.tar.gz" \
     && mkdir -p /tmp/kp \
     && tar xzf /tmp/kp.tgz -C /tmp/kp \
-    && find /tmp/kp -type f -name pullauta -executable -exec install -m 755 {} /usr/local/bin/pullauta \; \
+    && KP_BIN="$(find /tmp/kp -type f -name pullauta | head -n1)" \
+    && test -n "$KP_BIN" \
+    && install -m 755 "$KP_BIN" /usr/local/bin/pullauta \
     && rm -rf /tmp/kp /tmp/kp.tgz \
     && test -x /usr/local/bin/pullauta
 
