@@ -65,6 +65,7 @@ fi
 if [ "$NAS_UPDATE_ACTION" = restart ]; then
   echo "Restart bez pull..."
   $COMPOSE $COMPOSE_FILE down --remove-orphans
+  nas_remove_compose_network
   $COMPOSE $COMPOSE_FILE up -d --no-build --pull never
   $COMPOSE $COMPOSE_FILE ps
   nas_health_check "$COMPOSE" "$COMPOSE_FILE" || exit 1
@@ -82,6 +83,7 @@ fi
 echo ""
 echo "2/3 Zastavuji starý kontejner..."
 $COMPOSE $COMPOSE_FILE down --remove-orphans
+nas_remove_compose_network
 
 echo ""
 echo "3/3 Spouštím nový kontejner..."

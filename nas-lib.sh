@@ -150,3 +150,13 @@ nas_check_up_to_date() {
   NAS_UPDATE_ACTION=pull
   return 0
 }
+
+# Po přechodu na network_mode: bridge zbývá starý compose bridge bez NAT.
+nas_remove_compose_network() {
+  docker network ls --format '{{.Name}}' 2>/dev/null | grep -E '^podkladarna(_default)?$' | while read -r n; do
+    [ -n "$n" ] || continue
+    echo "Mažu starou síť $n..."
+    docker network rm "$n" 2>/dev/null || true
+  done
+  return 0
+}

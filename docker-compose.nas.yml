@@ -4,6 +4,9 @@ services:
     image: ghcr.io/${GHCR_OWNER}/podkladarna:${IMAGE_TAG:-latest}
     container_name: podkladarna
     restart: unless-stopped
+    # Synology: compose bridge (podkladarna_default) často bez NAT/DNS.
+    # Výchozí docker0 (bridge) má odchozí internet.
+    network_mode: bridge
     ports:
       - "8672:8672"
     volumes:
