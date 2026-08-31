@@ -84,7 +84,10 @@ def test_create_job_with_zabaged(client):
         ],
     )
     assert r.status_code == 200, r.text
-    job_id = r.json()["id"]
+    job = r.json()
+    assert job["options"]["output_zabaged_clean"] is False
+    assert job["options"]["savetempfolders"] is False
+    job_id = job["id"]
     log_lines = client.get(f"/api/jobs/{job_id}/log").json()["lines"]
     text = "\n".join(x["line"] for x in log_lines)
     assert "ZABAGED=ano" in text
@@ -94,4 +97,8 @@ def test_index_html(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "Podkladárna" in r.text
-    assert "bbox-map" in r.text
+    html = r.text
+    assert "bbox-map" in html
+    assert 'name="output_zabaged_clean"' in html
+    assert 'name="output_zabaged_clean" checked' not in html
+    assert 'name="savetempfolders" checked' not in html

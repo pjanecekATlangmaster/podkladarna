@@ -260,8 +260,8 @@ async def api_create_job(request: Request):
         "run_vectors": _form_bool(_form_str(form, "run_vectors", "true")),
         "output_png": _form_bool(_form_str(form, "output_png", "true")),
         "output_dxf": _form_bool(_form_str(form, "output_dxf", "true")),
-        "output_zabaged_clean": _form_bool(_form_str(form, "output_zabaged_clean", "true")),
-        "savetempfolders": _form_bool(_form_str(form, "savetempfolders", "true")),
+        "output_zabaged_clean": _form_bool(_form_str(form, "output_zabaged_clean", "false")),
+        "savetempfolders": _form_bool(_form_str(form, "savetempfolders", "false")),
         "source_mode": source_mode,
     }
     if bbox:

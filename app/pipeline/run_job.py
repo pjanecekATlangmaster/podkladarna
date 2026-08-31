@@ -114,7 +114,7 @@ def _package_output(
             for p in sorted(temp.glob("*.dxf")):
                 zf.write(p, f"temp/{p.name}")
 
-        if options.get("output_zabaged_clean", True) and zabaged_clean and zabaged_clean.exists():
+        if options.get("output_zabaged_clean", False) and zabaged_clean and zabaged_clean.exists():
             zf.write(zabaged_clean, "zabaged_clean.zip")
 
     for name in ("pullautus.png", "pullautus.pgw"):

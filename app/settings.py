@@ -31,6 +31,6 @@ DEFAULT_OPTIONS = {
     "run_vectors": True,
     "output_png": True,
     "output_dxf": True,
-    "output_zabaged_clean": True,
-    "savetempfolders": True,
+    "output_zabaged_clean": False,
+    "savetempfolders": False,
 }
