@@ -7,7 +7,6 @@ Výstup: PNG + DXF + vyčištěný ZABAGED ZIP pro **OpenOrienteering Mapper**.
 ## Rychlý start (Synology / Docker)
 
 ```bash
-cd podkladarna
 # Upravte ghcr.io/OWNER/podkladarna v docker-compose.yml
 docker compose up -d --build
 ```
@@ -20,12 +19,12 @@ Kompletní návod: **[DEPLOY.md](./DEPLOY.md)**
 
 - Port kontejneru: **8672** (reverse proxy na NAS, ne nutně otevřený na routeru)
 - DNS/router: veškerý veřejný provoz → **Synology NAS**
-- Image: `ghcr.io/<github_user>/podkladarna:latest`
+- Image: `ghcr.io/pjanecekatlangmaster/podkladarna:latest` (lowercase)
 
 ```bash
-cp .env.example .env   # GHCR_OWNER=vase_jmeno
-docker compose pull
-docker compose up -d
+cp .env.example .env
+chmod +x deploy-nas.sh
+./deploy-nas.sh
 ```
 
 ## Vstup

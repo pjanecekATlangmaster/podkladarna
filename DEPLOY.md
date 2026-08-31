@@ -37,12 +37,17 @@ Port **8672** nemusí být otevřený na routeru směrem ven — stačí reverse
    export GHCR_OWNER=vase_github_jmeno
    ```
 
-První push na `main` spustí workflow. Image pak na NAS:
+První push na `main`/`master` spustí workflow. Image na NAS:
 
 ```bash
-docker login ghcr.io -u <github_user> -p <PAT s read:packages>
-docker pull ghcr.io/<github_user>/podkladarna:latest
+# Image je vždy lowercase:
+# ghcr.io/pjanecekatlangmaster/podkladarna:latest
+
+docker login ghcr.io -u pjanecekatlangmaster -p <PAT s read:packages>
+docker pull ghcr.io/pjanecekatlangmaster/podkladarna:latest
 ```
+
+**Poznámka:** Repozitář je privátní → bez `docker login` dostanete `manifest unknown`.
 
 ---
 
@@ -52,15 +57,45 @@ Např. `/volume1/docker/podkladarna/`:
 
 ```
 podkladarna/
-  docker-compose.yml    # zkopírovat z repa
-  data/                 # jobs, cache, SQLite (vytvoří se samo)
+  deploy-nas.sh           # skript pro aktualizaci
+  docker-compose.nas.yml  # compose bez buildu (jen GHCR image)
+  .env                    # GHCR_OWNER, volitelně GHCR_TOKEN
+  data/                   # jobs, cache, SQLite (vytvoří se samo)
 ```
+
+Soubory zkopírujte z repozitáře (stačí tyto čtyři + složka `data`).
+
+### První nasazení
 
 ```bash
 cd /volume1/docker/podkladarna
-# upravit image v compose na ghcr.io/VAS_USER/podkladarna:latest
-docker compose pull
-docker compose up -d
+cp .env.example .env          # upravte GHCR_OWNER
+chmod +x deploy-nas.sh
+./deploy-nas.sh
+```
+
+### Aktualizace po novém buildu v GHCR
+
+```bash
+cd /volume1/docker/podkladarna
+./deploy-nas.sh
+```
+
+Skript: přihlášení do GHCR (pokud je `GHCR_TOKEN`) → `docker pull` → zastavení starého kontejneru → spuštění nového → health check na portu 8672.
+
+Konkrétní tag místo `latest`:
+
+```bash
+./deploy-nas.sh v1.0.0
+```
+
+Ručně (bez skriptu):
+
+```bash
+cd /volume1/docker/podkladarna
+docker compose -f docker-compose.nas.yml pull
+docker compose -f docker-compose.nas.yml down
+docker compose -f docker-compose.nas.yml up -d
 ```
 
 Ověření lokálně na NAS:
@@ -135,8 +170,12 @@ Router: forward **443** (a volitelně **80**) na **vnitřní IP NAS**, ne na jin
 ## Env soubor (volitelně `.env` vedle compose)
 
 ```env
-GHCR_OWNER=vase_github_jmeno
+GHCR_OWNER=pjanecekatlangmaster
+GHCR_USER=pjanecekatlangmaster
+GHCR_TOKEN=ghp_xxxxxxxx
 ```
+
+`GHCR_OWNER` musí být **lowercase** – GHCR ukládá image jako `ghcr.io/pjanecekatlangmaster/podkladarna`.
 
 ```yaml
 # docker-compose už používá ${GHCR_OWNER:-OWNER}
