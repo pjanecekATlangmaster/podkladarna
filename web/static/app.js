@@ -90,8 +90,18 @@ async function loadPresets() {
 async function loadJobs() {
   const data = await api("/api/jobs");
   updateWorkerStatus(data);
+  parkJobDetail();
   const list = document.getElementById("jobs-list");
   list.innerHTML = "";
+
+  let justPicked = false;
+  if (!selectedJobId && data.jobs.length) {
+    const running = data.jobs.find((j) => j.status === "running");
+    selectedJobId = (running || data.jobs[0]).id;
+    logAfter = 0;
+    justPicked = true;
+  }
+
   for (const job of data.jobs) {
     const div = document.createElement("div");
     div.className = "job-item";
@@ -114,18 +124,70 @@ async function loadJobs() {
       <div class="status">${job.preset_id} · ${escapeHtml(formatWhen(job.created_at))}</div>
       ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
     `;
-    div.onclick = () => selectJob(job.id);
+    div.onclick = (e) => {
+      if (e.target.closest(".job-detail")) return;
+      selectJob(job.id);
+    };
     list.appendChild(div);
   }
-  if (selectedJobId) {
+
+  const selectedEl = selectedJobId
+    ? list.querySelector(`[data-id="${CSS.escape(selectedJobId)}"]`)
+    : null;
+  if (selectedEl) {
+    attachJobDetail(selectedEl);
     const selected = data.jobs.find((j) => j.id === selectedJobId);
-    const timingEl = document.getElementById("detail-timing");
-    if (selected && timingEl) {
-      timingEl.textContent = jobTimingText(selected);
-      timingEl.classList.toggle("hidden", !timingEl.textContent);
+    if (selected) {
+      document.getElementById("detail-status").textContent =
+        `Stav: ${selected.status} · preset: ${selected.preset_id}` +
+        (selected.error ? ` · ${selected.error}` : "");
+      const timingEl = document.getElementById("detail-timing");
+      if (timingEl) {
+        timingEl.textContent = jobTimingText(selected);
+        timingEl.classList.toggle("hidden", !timingEl.textContent);
+      }
+      document.getElementById("detail-download").href = `/api/jobs/${selected.id}/download`;
+      document.getElementById("detail-download").classList.toggle("hidden", !selected.has_output);
+      document.getElementById("detail-preview").href = `/api/jobs/${selected.id}/preview.png`;
+      document.getElementById("detail-preview").classList.toggle("hidden", !selected.has_preview);
+      const img = document.getElementById("detail-img");
+      if (selected.has_preview) {
+        if (img.classList.contains("hidden")) {
+          img.src = `/api/jobs/${selected.id}/preview.png?t=${Date.now()}`;
+        }
+        img.classList.remove("hidden");
+      } else {
+        img.classList.add("hidden");
+      }
+    }
+    if (justPicked) {
+      await fillJobDetail(selectedJobId, { applyForm: false });
     }
     await refreshLog();
+  } else {
+    selectedJobId = null;
+    jobDetailEl().classList.add("hidden");
   }
+}
+
+function jobDetailEl() {
+  return document.getElementById("job-detail");
+}
+
+function parkJobDetail() {
+  const detail = jobDetailEl();
+  const holder = document.getElementById("job-detail-holder");
+  if (detail && holder && detail.parentElement !== holder) {
+    holder.appendChild(detail);
+  }
+}
+
+function attachJobDetail(jobEl) {
+  const detail = jobDetailEl();
+  if (!detail || !jobEl) return;
+  jobEl.appendChild(detail);
+  jobEl.classList.add("expanded");
+  detail.classList.remove("hidden");
 }
 
 function updateWorkerStatus(data) {
@@ -180,10 +242,7 @@ function escapeHtml(s) {
   }[c]));
 }
 
-async function selectJob(id) {
-  selectedJobId = id;
-  logAfter = 0;
-  document.getElementById("job-detail").classList.remove("hidden");
+async function fillJobDetail(id, { applyForm = false } = {}) {
   const job = await api(`/api/jobs/${id}`);
   document.getElementById("detail-title").textContent = job.name;
   document.getElementById("detail-status").textContent =
@@ -193,7 +252,7 @@ async function selectJob(id) {
     timingEl.textContent = jobTimingText(job);
     timingEl.classList.toggle("hidden", !timingEl.textContent);
   }
-  applyJobToForm(job);
+  if (applyForm) applyJobToForm(job);
   document.getElementById("detail-download").href = `/api/jobs/${id}/download`;
   document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
   document.getElementById("detail-preview").href = `/api/jobs/${id}/preview.png`;
@@ -205,9 +264,18 @@ async function selectJob(id) {
   } else {
     img.classList.add("hidden");
   }
-  document.getElementById("detail-log").textContent = "";
-  await refreshLog();
-  await loadJobs();
+  return job;
+}
+
+async function selectJob(id) {
+  const same = selectedJobId === id;
+  selectedJobId = id;
+  if (!same) {
+    logAfter = 0;
+    document.getElementById("detail-log").textContent = "";
+  }
+  await fillJobDetail(id, { applyForm: true });
+  if (!same) await loadJobs();
 }
 
 async function refreshLog() {
@@ -267,7 +335,6 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
       fd.delete("bbox");
     }
     const job = await api("/api/jobs", { method: "POST", body: fd });
-    await loadJobs();
     await selectJob(job.id);
   } catch (err) {
     showFormError(err.message);

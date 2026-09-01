@@ -98,16 +98,18 @@
       <h2>Joby</h2>
       <p id="worker-status" class="worker-status">Načítám stav serveru…</p>
       <div id="jobs-list" class="jobs-list"></div>
-      <div id="job-detail" class="job-detail hidden">
-        <h3 id="detail-title"></h3>
-        <p id="detail-status"></p>
-        <p id="detail-timing" class="hint"></p>
-        <pre id="detail-log" class="log"></pre>
-        <div class="actions">
-          <a id="detail-download" class="btn" href="#" download>Stáhnout ZIP</a>
-          <a id="detail-preview" class="btn" href="#" target="_blank">Náhled PNG</a>
+      <div id="job-detail-holder">
+        <div id="job-detail" class="job-detail hidden">
+          <h3 id="detail-title"></h3>
+          <p id="detail-status"></p>
+          <p id="detail-timing" class="hint"></p>
+          <pre id="detail-log" class="log"></pre>
+          <div class="actions">
+            <a id="detail-download" class="btn" href="#" download>Stáhnout ZIP</a>
+            <a id="detail-preview" class="btn" href="#" target="_blank">Otevřít PNG</a>
+          </div>
+          <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />
         </div>
-        <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />
       </div>
     </section>
   </main>

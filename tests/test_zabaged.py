@@ -74,7 +74,7 @@ def test_vectorconf_sports_before_settlement_catchall():
     lines = [
         ln.strip()
         for ln in (CONFIG_DIR / "zabaged.txt").read_text(encoding="utf-8").splitlines()
-        if ln.strip() and not ln.startswith("#")
+        if ln.strip()
     ]
     for ln in lines:
         parts = ln.split("|")
@@ -87,19 +87,15 @@ def test_vectorconf_sports_before_settlement_catchall():
     assert any("vrstva=ZeleznicniVlecka" in ln and ln.startswith("railway|515|") for ln in lines)
     assert not any("vrstva=Metro" in ln for ln in lines)
     assert not any("|509." in ln for ln in lines)
-    assert any("typ_pudy_k=UZ" in ln for ln in lines)
     assert any("vrstva=ParkovisteOdpocivka" in ln for ln in lines)
     garages = next(i for i, ln in enumerate(lines) if "typzast_p=skupinové garáže" in ln)
     assert garages < catchall
     assert any("vrstva=TrvalyTravniPorost" in ln and ln.startswith("farm|401|") for ln in lines)
-    assert any(
-        "vrstva=LesniPudaSKrovinatymPorostem" in ln and ln.startswith("farm|401|") for ln in lines
-    )
     assert any("typ_pudy_k=OR" in ln and ln.startswith("farm|401|") for ln in lines)
-    assert any(
-        "vrstva=OrnaPudaAOstatniDaleNespecifikovanePlochy" in ln and ln.startswith("farm|401|")
-        for ln in lines
-    )
+    assert not any("vrstva=LesniPudaSKrovinatymPorostem" in ln for ln in lines)
+    assert not any("vrstva=UdrzovanaZelen" in ln for ln in lines)
+    assert not any("typ_pudy_k=UZ" in ln for ln in lines)
+    assert not any("vrstva=OrnaPudaAOstatniDaleNespecifikovanePlochy" in ln for ln in lines)
     shelter = next(i for i, ln in enumerate(lines) if "podtypob_p=přístřešek" in ln)
     podtyp_all = next(i for i, ln in enumerate(lines) if ln.endswith("podtypob_p!="))
     assert shelter < podtyp_all

@@ -16,12 +16,8 @@ farm|401|typzast_p=kynologické cvičiště
 farm|401|typzast_p=střelnice
 farm|401|typzast_p=zábavní park
 farm|401|typzast_p=výstaviště
-farm|401|typ_pudy_k=UZ
-farm|401|vrstva=UdrzovanaZelen
 farm|401|typ_pudy_k=OR
-farm|401|vrstva=OrnaPudaAOstatniDaleNespecifikovanePlochy
 farm|401|vrstva=TrvalyTravniPorost
-farm|401|vrstva=LesniPudaSKrovinatymPorostem
 parking|529|typ_k=P
 parking|529|typ_k=O
 parking|529|vrstva=ParkovisteOdpocivka
@@ -44,10 +40,8 @@ blackline|414|vrstva=SkupinaBalvanu
 blackline|414|vrstva=LiniovaVegetace
 fence|524|typzed_p=zeď opěrná
 fence|524|vrstva=HradbaVal
-# ISSprOM 509.1 — KP kreslí jen 515 (kolej s bílým jádrem)
 railway|515|vrstva=ZeleznicniTrat
 railway|515|vrstva=ZeleznicniVlecka
-# ISSprOM 509.2 — KP 516 (tenká černá navrch silnice; 509.2 KP nezná)
 tramway|516|vrstva=TramvajovaDraha
 railway|515T|vrstva=Most&kod_zelez!=
 railway|515T|vrstva=Tunel&kod_zelez!=

@@ -107,6 +107,9 @@ def test_index_html(client):
     assert 'name="output_zabaged_clean"' in html
     assert 'name="output_zabaged_clean" checked' not in html
     assert 'name="savetempfolders" checked' not in html
+    assert "job-detail" in html
+    assert "job-detail-holder" in html
+    assert "jobs-list" in html
 
 
 def test_logo_png(client):

@@ -188,6 +188,24 @@ legend {
   box-shadow: 0 0 0 1px var(--purple);
 }
 
+.job-item.expanded {
+  cursor: default;
+}
+
+.job-item .job-detail {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border);
+}
+
+.job-item .job-detail h3 {
+  display: none;
+}
+
+#job-detail-holder {
+  display: none;
+}
+
 .job-item .status.error {
   color: #a00;
   margin-top: 0.25rem;
@@ -223,7 +241,7 @@ legend {
   color: #d4d4d4;
   padding: 0.75rem;
   border-radius: 6px;
-  max-height: 320px;
+  max-height: 180px;
   overflow: auto;
   font-size: 0.78rem;
   white-space: pre-wrap;
@@ -233,9 +251,13 @@ legend {
 
 .preview-img {
   max-width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  object-position: top left;
   margin-top: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 6px;
+  background: #fafcf8;
 }
 
 .actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; }
