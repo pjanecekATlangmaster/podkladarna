@@ -44,10 +44,11 @@ blackline|414|vrstva=SkupinaBalvanu
 blackline|414|vrstva=LiniovaVegetace
 fence|524|typzed_p=zeď opěrná
 fence|524|vrstva=HradbaVal
-railway|515|vrstva=TramvajovaDraha
+# ISSprOM 509.1 — KP kreslí jen 515 (kolej s bílým jádrem)
 railway|515|vrstva=ZeleznicniTrat
 railway|515|vrstva=ZeleznicniVlecka
-railway|515|vrstva=Metro
+# ISSprOM 509.2 — KP 516 (tenká černá navrch silnice; 509.2 KP nezná)
+tramway|516|vrstva=TramvajovaDraha
 railway|515T|vrstva=Most&kod_zelez!=
 railway|515T|vrstva=Tunel&kod_zelez!=
 road-path|507T|vrstva=Lavka

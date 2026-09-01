@@ -82,7 +82,11 @@ def test_vectorconf_sports_before_settlement_catchall():
     sports = next(i for i, ln in enumerate(lines) if "typzast_p=stadión" in ln)
     catchall = next(i for i, ln in enumerate(lines) if ln.endswith("typzast_p!="))
     assert sports < catchall
-    assert any("vrstva=TramvajovaDraha" in ln for ln in lines)
+    assert any("vrstva=TramvajovaDraha" in ln and ln.startswith("tramway|516|") for ln in lines)
+    assert any("vrstva=ZeleznicniTrat" in ln and ln.startswith("railway|515|") for ln in lines)
+    assert any("vrstva=ZeleznicniVlecka" in ln and ln.startswith("railway|515|") for ln in lines)
+    assert not any("vrstva=Metro" in ln for ln in lines)
+    assert not any("|509." in ln for ln in lines)
     assert any("typ_pudy_k=UZ" in ln for ln in lines)
     assert any("vrstva=ParkovisteOdpocivka" in ln for ln in lines)
     garages = next(i for i, ln in enumerate(lines) if "typzast_p=skupinové garáže" in ln)
