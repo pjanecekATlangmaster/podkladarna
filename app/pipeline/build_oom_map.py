@@ -33,6 +33,12 @@ def build_oom_map_xml(
     for idx, (label, relpath, visible) in enumerate(templates):
         template_blocks.append(_template_xml(idx, label, relpath, open_layer=visible))
     templates_xml = "\n".join(template_blocks)
+    template_refs = "\n".join(
+        f'                    <ref template="{i}" visible="true" opacity="1"/>'
+        for i in range(len(templates))
+    )
+    if template_refs:
+        template_refs += "\n"
     front = max(0, len(templates) - 1)
     safe_name = html.escape(map_name)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -62,7 +68,7 @@ def build_oom_map_xml(
             <map_view zoom="1" position_x="0" position_y="0">
                 <map opacity="1" visible="true"/>
                 <templates count="{len(templates)}">
-{"".join(f'                    <ref template="{i}" visible="true" opacity="1"/>\n' for i in range(len(templates)))}                </templates>
+{template_refs}                </templates>
             </map_view>
         </view>
     </barrier>
