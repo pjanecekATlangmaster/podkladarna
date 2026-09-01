@@ -42,6 +42,190 @@ nas_ghcr_login() {
   fi
 }
 
+nas_github_token() {
+  printf '%s' "${GH_TOKEN:-${GITHUB_TOKEN:-${GHCR_TOKEN:-}}}"
+}
+
+nas_github_repo() {
+  printf '%s' "${GITHUB_REPO:-${GHCR_OWNER}/podkladarna}"
+}
+
+nas_github_branch() {
+  printf '%s' "${GITHUB_BRANCH:-master}"
+}
+
+# První "key": "value" po rozsekaní JSON (stačí pro GitHub REST).
+nas_json_str() {
+  _json="$1"
+  _key="$2"
+  printf '%s' "$_json" | tr '{},' '\n' | sed -n "s/^[[:space:]]*\"${_key}\":[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" | head -n 1
+}
+
+nas_github_api() {
+  # $1 = cesta /repos/...  → NAS_GH_HTTP + NAS_GH_BODY
+  _path="$1"
+  NAS_GH_HTTP=000
+  NAS_GH_BODY=""
+  if ! command -v curl >/dev/null 2>&1; then
+    return 1
+  fi
+  _url="https://api.github.com${_path}"
+  _tok="$(nas_github_token)"
+  _tmp="$(mktemp /tmp/podkladarna-gh.XXXXXX 2>/dev/null || mktemp)"
+  if [ -n "$_tok" ]; then
+    NAS_GH_HTTP="$(curl -sS -o "$_tmp" -w '%{http_code}' \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      -H "Authorization: Bearer ${_tok}" \
+      "$_url" 2>/dev/null || echo 000)"
+  else
+    NAS_GH_HTTP="$(curl -sS -o "$_tmp" -w '%{http_code}' \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "$_url" 2>/dev/null || echo 000)"
+  fi
+  NAS_GH_BODY="$(cat "$_tmp" 2>/dev/null || true)"
+  rm -f "$_tmp"
+  [ "$NAS_GH_HTTP" = "200" ]
+}
+
+nas_github_head_sha() {
+  _repo="$(nas_github_repo)"
+  _branch="$(nas_github_branch)"
+  nas_github_api "/repos/${_repo}/commits/${_branch}" || return 1
+  nas_json_str "$NAS_GH_BODY" sha
+}
+
+nas_github_latest_docker_run() {
+  _repo="$(nas_github_repo)"
+  _branch="$(nas_github_branch)"
+  nas_github_api "/repos/${_repo}/actions/workflows/docker.yml/runs?branch=${_branch}&per_page=1" || return 1
+  NAS_GH_RUN_STATUS="$(nas_json_str "$NAS_GH_BODY" status)"
+  NAS_GH_RUN_CONCLUSION="$(nas_json_str "$NAS_GH_BODY" conclusion)"
+  NAS_GH_RUN_SHA="$(nas_json_str "$NAS_GH_BODY" head_sha)"
+  NAS_GH_RUN_URL="$(nas_json_str "$NAS_GH_BODY" html_url)"
+}
+
+nas_run_is_active() {
+  case "${1:-}" in
+    queued|in_progress|waiting|pending|requested) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Počká, až workflow docker.yml dokončí build pro aktuální HEAD větve.
+# Přeskočí se pro jiný tag než latest, --no-wait, nebo když API nejde.
+# 0 = můžeme tahat GHCR; 1 = build selhal / timeout.
+nas_wait_for_gh_build() {
+  _do_wait="${1:-true}"
+  _tag="${2:-latest}"
+
+  if [ "$_do_wait" = false ] || [ "${NAS_SKIP_BUILD_WAIT:-}" = "1" ]; then
+    echo "Čekání na GitHub Actions přeskočeno."
+    return 0
+  fi
+  if [ "$_tag" != "latest" ]; then
+    echo "Tag ${_tag} – na Actions pro latest nečekám."
+    return 0
+  fi
+
+  _max="${NAS_BUILD_WAIT_MAX_SEC:-2400}"
+  _tok="$(nas_github_token)"
+  if [ -n "${NAS_BUILD_WAIT_POLL_SEC:-}" ]; then
+    _poll="$NAS_BUILD_WAIT_POLL_SEC"
+  elif [ -n "$_tok" ]; then
+    _poll=15
+  else
+    # Anonymní GitHub API: 60 req/hod. 45 s × 40 min se vejde.
+    _poll=45
+  fi
+  _repo="$(nas_github_repo)"
+  _branch="$(nas_github_branch)"
+
+  echo "GitHub Actions: ${_repo} (${_branch}, docker.yml)"
+  if [ -z "$_tok" ]; then
+    echo "Bez tokenu – veřejné API, interval ${_poll}s."
+  fi
+
+  if ! _head="$(nas_github_head_sha)" || [ -z "$_head" ]; then
+    echo "Varování: GitHub API ${NAS_GH_HTTP:-?} – čekání na build přeskakuji."
+    echo "  Zkontrolujte GITHUB_REPO (${_repo}) a síť z NAS."
+    return 0
+  fi
+  echo "HEAD ${_branch}: ${_head}"
+
+  _digest_before="$(nas_remote_digests "ghcr.io/${GHCR_OWNER}/podkladarna:${_tag}" | tr '\n' ' ')"
+  _started="$(date +%s)"
+  _announced=""
+
+  while :; do
+    _now="$(date +%s)"
+    _elapsed=$((_now - _started))
+    if [ "$_elapsed" -ge "$_max" ]; then
+      echo "Timeout (${_max} s): GitHub Actions pořád nedokončilo image." >&2
+      [ -n "${NAS_GH_RUN_URL:-}" ] && echo "  ${NAS_GH_RUN_URL}" >&2
+      echo "  Po dokončení znovu $0, nebo $0 --no-wait pro aktuální GHCR." >&2
+      return 1
+    fi
+
+    NAS_GH_RUN_STATUS=""
+    NAS_GH_RUN_CONCLUSION=""
+    NAS_GH_RUN_SHA=""
+    NAS_GH_RUN_URL=""
+    if ! nas_github_latest_docker_run; then
+      if [ "${NAS_GH_HTTP:-}" = "403" ] || [ "${NAS_GH_HTTP:-}" = "429" ]; then
+        echo "  GitHub rate limit (${NAS_GH_HTTP}) – čekám 60 s..."
+        sleep 60
+        continue
+      fi
+      echo "Varování: Actions API ${NAS_GH_HTTP:-?} – čekání přeskakuji."
+      return 0
+    fi
+
+    _short="$(printf '%s' "${NAS_GH_RUN_SHA:-????????}" | cut -c1-7)"
+    if [ -z "$NAS_GH_RUN_SHA" ]; then
+      echo "  [${_elapsed}s] čekám, až GitHub založí běh pro HEAD..."
+    elif [ "$NAS_GH_RUN_SHA" != "$_head" ]; then
+      if nas_run_is_active "$NAS_GH_RUN_STATUS"; then
+        echo "  [${_elapsed}s] ještě běží starší build ${_short} (${NAS_GH_RUN_STATUS}) – čekám na HEAD..."
+      else
+        echo "  [${_elapsed}s] poslední běh je ${_short}, HEAD je novější – čekám na nový build..."
+      fi
+    elif nas_run_is_active "$NAS_GH_RUN_STATUS"; then
+      if [ "$_announced" != "$NAS_GH_RUN_URL" ]; then
+        echo "Build běží (${NAS_GH_RUN_STATUS}): ${NAS_GH_RUN_URL}"
+        _announced="$NAS_GH_RUN_URL"
+      else
+        echo "  [${_elapsed}s] ${NAS_GH_RUN_STATUS}..."
+      fi
+    elif [ "$NAS_GH_RUN_STATUS" = "completed" ]; then
+      if [ "$NAS_GH_RUN_CONCLUSION" = "success" ]; then
+        echo "Build dokončen (${_short})."
+        _i=0
+        while [ "$_i" -lt 12 ]; do
+          _digest_now="$(nas_remote_digests "ghcr.io/${GHCR_OWNER}/podkladarna:${_tag}" | tr '\n' ' ')"
+          if [ -n "$_digest_now" ] && [ "$_digest_now" != "$_digest_before" ]; then
+            echo "GHCR má nový digest."
+            return 0
+          fi
+          # Stejný digest může být cache hit – po chvíli jdeme dál.
+          _i=$((_i + 1))
+          [ "$_i" -ge 3 ] && [ -n "$_digest_now" ] && break
+          sleep 5
+        done
+        echo "GHCR je připravené (digest se nezměnil, nebo se ještě projeví při pull)."
+        return 0
+      fi
+      echo "Build selhal (${NAS_GH_RUN_CONCLUSION:-unknown}): ${NAS_GH_RUN_URL}" >&2
+      return 1
+    else
+      echo "  [${_elapsed}s] neočekávaný status ${NAS_GH_RUN_STATUS:-?} – čekám..."
+    fi
+
+    sleep "$_poll"
+  done
+}
+
 # Lokální digest(y) z RepoDigests (index i platforma).
 nas_local_digests() {
   _image="$1"

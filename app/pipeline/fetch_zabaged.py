@@ -62,6 +62,7 @@ def fetch_zabaged_for_bbox(
                 if log:
                     log(f"  skip (prazdne): {name}")
                 continue
+            tag_features_with_layer(gj, name)
             geojson_path = stage / f"{name}.geojson"
             geojson_path.write_text(json.dumps(gj), encoding="utf-8")
             shp = stage / f"{name}.shp"
@@ -125,6 +126,17 @@ def query_layer_geojson(
         raise FetchError(f"ZABAGED vrstva {layer_id}: příliš mnoho prvků (>{MAX_PAGES * PAGE_SIZE})")
 
     return {"type": "FeatureCollection", "features": features}
+
+
+def tag_features_with_layer(gj: dict, layer_name: str) -> dict:
+    """Karttapullautin matchuje atributy, ne název SHP – `vrstva` drží jméno vrstvy."""
+    for feat in gj.get("features") or []:
+        props = feat.get("properties")
+        if not isinstance(props, dict):
+            props = {}
+            feat["properties"] = props
+        props["vrstva"] = layer_name
+    return gj
 
 
 def _ogr2ogr_shp(

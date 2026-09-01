@@ -9,6 +9,8 @@ layers:
   ArealUceloveZastavby: 114
   RozvalinaZricenina: 103
   VezovitaStavba: 100
+  StavebniObjektZakryty: 104
+  Tribuna: 110
   VodniPlocha: 132
   VodniTok: 93
   SilniceDalnice: 79
@@ -16,12 +18,22 @@ layers:
   Most: 73
   Ulice: 84
   Pesina: 82
+  Lavka: 67
+  Tunel: 74
+  Podjezd: 77
+  TramvajovaDraha: 71
+  ZeleznicniTrat: 75
+  ZeleznicniVlecka: 76
+  Koleiste: 122
+  ArealZeleznicniStanice: 121
+  Metro: 70
   LanovaDrahaLyzarskyVlek: 72
   StozarLanoveDrahy: 61
   KrizSloupKulturnihoVyznamu: 24
   MohylaPomnikNahrobek: 25
   StupenSraz: 95
   Zed: 39
+  HradbaVal: 38
   ElektrickeVedeni: 88
   Hrbitov: 116
   ParkovisteOdpocivka: 123
@@ -29,3 +41,7 @@ layers:
   OsamelyBalvanSkalaSkalniSuk: 10
   Zabrana: 54
   OvocnySadZahrada: 135
+  UdrzovanaZelen: 134
+  OstatniPlochaVSidlech: 115
+  VyznamnyStromLesik: 14
+  LiniovaVegetace: 15

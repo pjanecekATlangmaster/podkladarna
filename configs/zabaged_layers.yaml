@@ -4,6 +4,8 @@ layers:
   - ArealUceloveZastavby
   - RozvalinaZricenina
   - VezovitaStavba
+  - StavebniObjektZakryty
+  - Tribuna
   - VodniPlocha
   - VodniTok
   - SilniceDalnice
@@ -11,12 +13,22 @@ layers:
   - Most
   - Ulice
   - Pesina
+  - Lavka
+  - Tunel
+  - Podjezd
+  - TramvajovaDraha
+  - ZeleznicniTrat
+  - ZeleznicniVlecka
+  - Koleiste
+  - ArealZeleznicniStanice
+  - Metro
   - LanovaDrahaLyzarskyVlek
   - StozarLanoveDrahy
   - KrizSloupKulturnihoVyznamu
   - MohylaPomnikNahrobek
   - StupenSraz
   - Zed
+  - HradbaVal
   - ElektrickeVedeni
   - Hrbitov
   - ParkovisteOdpocivka
@@ -24,3 +36,7 @@ layers:
   - OsamelyBalvanSkalaSkalniSuk
   - Zabrana
   - OvocnySadZahrada
+  - UdrzovanaZelen
+  - OstatniPlochaVSidlech
+  - VyznamnyStromLesik
+  - LiniovaVegetace

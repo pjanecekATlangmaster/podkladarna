@@ -7,6 +7,7 @@
 #
 # Volitelně:
 #   ./deploy-nas.sh --force     # vynutit pull + restart
+#   ./deploy-nas.sh --no-wait   # nečekat na GitHub Actions
 #   ./update-nas.sh             # aktualizace (pull jen změněné vrstvy)
 
 set -eu
@@ -15,6 +16,7 @@ set -eu
 
 TAG="latest"
 FORCE=false
+WAIT_BUILD=true
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -22,8 +24,13 @@ while [ $# -gt 0 ]; do
       FORCE=true
       shift
       ;;
+    --no-wait)
+      WAIT_BUILD=false
+      shift
+      ;;
     -h|--help)
-      echo "Použití: $0 [--force] [tag]"
+      echo "Použití: $0 [--force] [--no-wait] [tag]"
+      echo "  Výchozí: počká na dokončení GitHub Actions (docker.yml) pro latest."
       echo "  Pro vynucenou aktualizaci viz také: ./update-nas.sh --force"
       exit 0
       ;;
@@ -54,6 +61,8 @@ nas_ghcr_login
 
 export GHCR_OWNER
 export IMAGE_TAG="$TAG"
+
+nas_wait_for_gh_build "$WAIT_BUILD" "$TAG" || exit 1
 
 nas_check_up_to_date "$IMAGE" "$FORCE"
 

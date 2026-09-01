@@ -86,10 +86,13 @@ sudo ./update-nas.sh
 ```
 
 `update-nas.sh` **chytrý režim** (výchozí):
+- počká na doběhnutí GitHub Actions workflow `docker.yml` pro aktuální `master` (až 40 min)
 - porovná **digest** lokálního image s GHCR (`docker manifest inspect`)
 - stejný digest + běžící kontejner → **nic nestahuje** (~350 MB ušetřeno)
 - stejný digest, kontejner neběží → restart bez pull
-- nový digest → stop, smazat starý image, pull, start
+- nový digest → stop, pull, start
+
+Repo je veřejné, takže čekání na Actions nepotřebuje token (anonymní API, poll 45 s). Volitelný `GH_TOKEN` zrychlí poll na 15 s. Přeskočit čekání: `./update-nas.sh --no-wait`
 
 Vynucení plného stažení: `./update-nas.sh --force`
 
