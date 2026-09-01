@@ -91,6 +91,19 @@ def test_vectorconf_sports_before_settlement_catchall():
     assert any(
         "vrstva=LesniPudaSKrovinatymPorostem" in ln and ln.startswith("farm|401|") for ln in lines
     )
+    assert any("typ_pudy_k=OR" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert any(
+        "vrstva=OrnaPudaAOstatniDaleNespecifikovanePlochy" in ln and ln.startswith("farm|401|")
+        for ln in lines
+    )
+    shelter = next(i for i, ln in enumerate(lines) if "podtypob_p=přístřešek" in ln)
+    podtyp_all = next(i for i, ln in enumerate(lines) if ln.endswith("podtypob_p!="))
+    assert shelter < podtyp_all
+    assert lines[shelter].startswith("parking|529|")
+    assert any(ln.startswith("road-path|503T|") and "vrstva=Most" in ln for ln in lines)
+    assert any(ln.startswith("road-path|504T|") and "vrstva=Podjezd" in ln for ln in lines)
+    assert not any("vrstva=Tunel" in ln and ln.startswith("blackline|") for ln in lines)
+    assert not any("vrstva=Podjezd" in ln and ln.startswith("blackline|") for ln in lines)
 
 
 def test_drop_oversized_ostatni_plocha():

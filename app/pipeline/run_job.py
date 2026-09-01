@@ -79,8 +79,6 @@ def run_job_pipeline(
             log("=== Fáze: stahování ZABAGED (ArcGIS) ===")
             zabaged_src = input_dir / "zabaged" / "Zabaged_ags.zip"
             fetch_zabaged_for_bbox((west, south, east, north), zabaged_src, log)
-        elif options.get("reused_from"):
-            log(f"ZABAGED z jobu {options['reused_from']} – stahování přeskakuji")
 
     scalefactor = float(
         options.get("scalefactor") or load_presets()[preset_id]["scalefactor"]

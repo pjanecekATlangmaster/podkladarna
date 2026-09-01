@@ -131,9 +131,14 @@ def test_copy_reusable_lidar(data_dir):
     lidar = db.JOBS_DIR / src["id"] / "work" / "lidar"
     lidar.mkdir(parents=True, exist_ok=True)
     (lidar / "merged_crop.laz").write_bytes(b"x" * 2000)
+    zabaged = db.JOBS_DIR / src["id"] / "input" / "zabaged"
+    zabaged.mkdir(parents=True, exist_ok=True)
+    (zabaged / "Zabaged_ags.zip").write_bytes(b"old-zip")
     copied = db.copy_reusable_work(src["id"], dest["id"])
     assert any("merged_crop.laz" in name for name in copied)
     assert (db.JOBS_DIR / dest["id"] / "work" / "lidar" / "merged_crop.laz").exists()
+    assert not any("zabaged" in name for name in copied)
+    assert not (db.JOBS_DIR / dest["id"] / "input" / "zabaged" / "Zabaged_ags.zip").exists()
     assert db.get_job(src["id"])["has_reusable_lidar"] is True
     assert db.bbox_close(src["options"]["bbox_wgs84"], [14.4, 50.08, 14.42, 50.09])
 

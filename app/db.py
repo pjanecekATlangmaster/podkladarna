@@ -171,11 +171,11 @@ def _job_paths(job_id: str) -> dict[str, bool]:
 
 
 def copy_reusable_work(src_id: str, dest_id: str) -> list[str]:
-    """Zkopíruje vstupní LAZ / sloučený crop a ZABAGED do nového jobu."""
+    """Zkopíruje vstupní LAZ / sloučený crop. ZABAGED se vždy stahuje znovu."""
     copied: list[str] = []
     src = JOBS_DIR / src_id
     dest = JOBS_DIR / dest_id
-    for rel in ("input/dmr", "input/dmp", "input/zabaged", "work/lidar"):
+    for rel in ("input/dmr", "input/dmp", "work/lidar"):
         s, d = src / rel, dest / rel
         if not s.is_dir():
             continue

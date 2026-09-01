@@ -335,7 +335,7 @@ async def api_create_job(request: Request):
         copied = db.copy_reusable_work(options["reused_from"], job_id)
         log(
             f"Iterace z jobu {options['reused_from']}: kopíruji {len(copied)} souborů "
-            "(LiDAR/ZABAGED, bez ČÚZK). Temp Karttapullautinu se z LAZ sestaví znovu."
+            "(jen LiDAR). ZABAGED se stáhne znovu, temp Karttapullautinu z LAZ taky."
         )
 
     log(

@@ -38,6 +38,7 @@ layers:
   - OvocnySadZahrada
   - UdrzovanaZelen
   - OstatniPlochaVSidlech
+  - OrnaPudaAOstatniDaleNespecifikovanePlochy
   - TrvalyTravniPorost
   - LesniPudaSKrovinatymPorostem
   - VyznamnyStromLesik
