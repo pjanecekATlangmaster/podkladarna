@@ -17,6 +17,11 @@ def test_presets(client):
     presets = r.json()
     assert "sprint_2m" in presets
     assert "forest_7500" in presets
+    assert "mtbo_10000" in presets
+    assert "mtbo_15000" in presets
+    assert presets["mtbo_10000"]["label"] == "MTBO 1:10000 · 5 m"
+    assert presets["mtbo_15000"]["scalefactor"] == 1.5
+    assert presets["mtbo_10000"]["group"] == "MTBO"
 
 
 def test_create_job_multipart(client):

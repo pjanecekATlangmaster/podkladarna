@@ -3,6 +3,7 @@
 # every half-interval line as a full contour).
 sprint_2m:
   label: "Sprint 1:4000 · 2 m"
+  group: Sprint
   contour_interval: 2
   indexcontours: 10
   basemapinterval: 0.5
@@ -16,6 +17,7 @@ sprint_2m:
 
 sprint_2_5m:
   label: "Sprint 1:4000 · 2,5 m"
+  group: Sprint
   contour_interval: 2.5
   indexcontours: 12.5
   basemapinterval: 0.625
@@ -28,6 +30,7 @@ sprint_2_5m:
 
 forest_7500:
   label: "Lesní 1:7500 · 5 m"
+  group: Lesní
   contour_interval: 5
   basemapinterval: 1.25
   scalefactor: 0.75
@@ -40,9 +43,34 @@ forest_7500:
 
 forest_10000:
   label: "Lesní 1:10000 · 5 m"
+  group: Lesní
   contour_interval: 5
   basemapinterval: 1.25
   scalefactor: 1.0
+  formline: 2
+  smoothing: 0.7
+  processes: 2
+  vectorconf: zabaged_forest.txt
+  buildingcolor: "0,0,0"
+
+mtbo_10000:
+  label: "MTBO 1:10000 · 5 m"
+  group: MTBO
+  contour_interval: 5
+  basemapinterval: 1.25
+  scalefactor: 1.0
+  formline: 2
+  smoothing: 0.7
+  processes: 2
+  vectorconf: zabaged_forest.txt
+  buildingcolor: "0,0,0"
+
+mtbo_15000:
+  label: "MTBO 1:15000 · 5 m"
+  group: MTBO
+  contour_interval: 5
+  basemapinterval: 1.25
+  scalefactor: 1.5
   formline: 2
   smoothing: 0.7
   processes: 2

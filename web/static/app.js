@@ -79,11 +79,24 @@ async function loadPresets() {
   placeholder.disabled = true;
   placeholder.selected = true;
   sel.appendChild(placeholder);
+  const groups = new Map();
   for (const [id, p] of Object.entries(data)) {
-    const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = p.label || id;
-    sel.appendChild(opt);
+    const name = p.group || "";
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push([id, p]);
+  }
+  for (const [name, items] of groups) {
+    const parent = name ? document.createElement("optgroup") : sel;
+    if (name) {
+      parent.label = name;
+      sel.appendChild(parent);
+    }
+    for (const [id, p] of items) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = p.label || id;
+      parent.appendChild(opt);
+    }
   }
   sel.value = "";
 }

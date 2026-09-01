@@ -61,3 +61,19 @@ def test_write_pullauta_ini_forest_scales_interval(tmp_path: Path):
     assert ini10000["contour_interval"] == "5"
     assert ini10000["buildingcolor"] == "0,0,0"
     assert ini10000["vectorconf"] == "zabaged_forest.txt"
+
+
+def test_write_pullauta_ini_mtbo_scales(tmp_path: Path):
+    path10 = write_pullauta_ini(tmp_path / "m10", "mtbo_10000")
+    ini10 = _ini_map(path10.read_text(encoding="utf-8"))
+    assert ini10["scalefactor"] == "1.0"
+    assert ini10["contour_interval"] == "5"
+    assert ini10["formline"] == "2"
+    assert ini10["vectorconf"] == "zabaged_forest.txt"
+    assert ini10["buildingcolor"] == "0,0,0"
+
+    path15 = write_pullauta_ini(tmp_path / "m15", "mtbo_15000")
+    ini15 = _ini_map(path15.read_text(encoding="utf-8"))
+    assert ini15["scalefactor"] == "1.5"
+    assert float(ini15["contour_interval"]) == round(5 / 1.5, 6)
+    assert ini15["vectorconf"] == "zabaged_forest.txt"
