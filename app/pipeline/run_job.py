@@ -114,6 +114,7 @@ def run_job_pipeline(
                 "formline=",
                 "indexcontours=",
                 "buildingcolor=",
+                "vectorconf=",
             )
         ):
             log(f"  {line}")

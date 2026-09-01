@@ -60,9 +60,13 @@ def write_pullauta_ini(
     contour_interval = _ini_number(
         kp_contour_interval(ground_interval, scalefactor, formline)
     )
+    vectorconf = Path(str(preset.get("vectorconf", "zabaged.txt"))).name
+    src_conf = CONFIG_DIR / vectorconf
+    if not src_conf.is_file():
+        raise FileNotFoundError(f"Chybí vectorconf: {src_conf}")
 
     overrides: dict[str, str | int | float] = {
-        "vectorconf": preset.get("vectorconf", "zabaged.txt"),
+        "vectorconf": vectorconf,
         "contour_interval": contour_interval,
         "basemapinterval": opts.get("basemapinterval", preset["basemapinterval"]),
         "scalefactor": scalefactor,
@@ -124,5 +128,5 @@ def write_pullauta_ini(
     ini_path = work_dir / "pullauta.ini"
     ini_path.write_text("\n".join(out) + "\n", encoding="utf-8")
 
-    shutil.copy2(CONFIG_DIR / "zabaged.txt", work_dir / "zabaged.txt")
+    shutil.copy2(src_conf, work_dir / vectorconf)
     return ini_path

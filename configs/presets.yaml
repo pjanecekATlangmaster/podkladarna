@@ -34,7 +34,7 @@ forest_7500:
   formline: 2
   smoothing: 0.7
   processes: 2
-  vectorconf: zabaged.txt
+  vectorconf: zabaged_forest.txt
   # ISOM 2017-2 symbol 521: black (or 60% fill)
   buildingcolor: "0,0,0"
 
@@ -46,5 +46,5 @@ forest_10000:
   formline: 2
   smoothing: 0.7
   processes: 2
-  vectorconf: zabaged.txt
+  vectorconf: zabaged_forest.txt
   buildingcolor: "0,0,0"

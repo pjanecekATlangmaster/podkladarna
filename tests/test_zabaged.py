@@ -106,6 +106,32 @@ def test_vectorconf_sports_before_settlement_catchall():
     assert not any("vrstva=Podjezd" in ln and ln.startswith("blackline|") for ln in lines)
 
 
+def _vectorconf_lines(name: str) -> list[str]:
+    from app.settings import CONFIG_DIR
+
+    lines = [
+        ln.strip()
+        for ln in (CONFIG_DIR / name).read_text(encoding="utf-8").splitlines()
+        if ln.strip()
+    ]
+    for ln in lines:
+        parts = ln.split("|")
+        assert len(parts) == 3, ln
+    return lines
+
+
+def test_forest_vectorconf_501_ochre_and_502_brown_road():
+    lines = _vectorconf_lines("zabaged_forest.txt")
+    assert any("vrstva=ParkovisteOdpocivka" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert any("vrstva=OstatniPlochaVSidlech" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert any("silnice!=" in ln and ln.startswith("road-path|503|") for ln in lines)
+    assert any(
+        "typulice_p=ulice nesjízdná v sídle" in ln and ln.startswith("road-path|503|")
+        for ln in lines
+    )
+    assert not any("vrstva=ParkovisteOdpocivka" in ln and "|529|" in ln for ln in lines)
+
+
 def test_drop_oversized_ostatni_plocha():
     gj = {
         "type": "FeatureCollection",
