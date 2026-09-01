@@ -2,7 +2,7 @@
 
 Webová služba pro generování orientačních podkladů z **ČÚZK LiDAR** (DMR 5G + DMP 1G) a **ZABAGED** pomocí [Karttapullautin](https://github.com/karttapullautin/karttapullautin).
 
-Výstup: PNG + DXF a dva ZIP — surový a **ZIP pro OOM** (složky pro OpenOrienteering Mapper).
+Výstup: jeden ZIP pro OpenOrienteering Mapper (`podkladarna_output.zip`).
 
 ## Rychlý start (Synology / Docker)
 
@@ -31,11 +31,7 @@ chmod +x deploy-nas.sh
 
 ## Vstup
 
-| Soubor | Popis |
-|--------|--------|
-| DMR 5G LAZ | z mapy (openzu) nebo ruční upload |
-| DMP 1G LAZ | z mapy (openzu) nebo ruční upload |
-| ZABAGED | z mapy (ArcGIS REST) nebo volitelný ZIP |
+Výřez na mapě (Česko, max 5 × 5 km). LiDAR i ZABAGED se stahují do sdílené cache (`data/cache/`), ne do jednotlivých jobů.
 
 ## Presety
 

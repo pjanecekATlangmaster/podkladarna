@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from app import settings
+from app.download_cache import is_fresh, read_meta, write_meta, zabaged_cache_dir
 from app.pipeline.fetch_openzu import (
     DOWNLOAD_TIMEOUT_S,
     FetchError,
@@ -34,10 +35,19 @@ def _ags_config() -> dict:
 
 def fetch_zabaged_for_bbox(
     bbox: tuple[float, float, float, float],
-    dest_zip: Path,
     log: callable | None = None,
 ) -> Path:
-    """Stáhne vybrané vrstvy ZABAGED pro WGS84 bbox a uloží shapefile ZIP."""
+    """Stáhne ZABAGED pro WGS84 bbox do sdílené cache (ne do jobu)."""
+    cfg_path = settings.CONFIG_DIR / "zabaged_ags.yaml"
+    cache_dir = zabaged_cache_dir(bbox, cfg_path)
+    dest_zip = cache_dir / "Zabaged_ags.zip"
+    if is_fresh(cache_dir, dest_zip, settings.ZABAGED_CACHE_MAX_AGE_DAYS, min_size=500):
+        if log:
+            meta = read_meta(cache_dir) or {}
+            age = (meta.get("downloaded_at") or "?")[:10]
+            log(f"ZABAGED cache ({cache_dir.name}, staženo {age})")
+        return dest_zip
+
     ogr2ogr = which_tool("ogr2ogr")
     if not ogr2ogr:
         raise FetchError(
@@ -51,7 +61,7 @@ def fetch_zabaged_for_bbox(
     service = cfg["service"].rstrip("/")
     layers: dict[str, int] = cfg["layers"]
 
-    stage = dest_zip.parent / "_zabaged_ags_stage"
+    stage = cache_dir / "_stage"
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
@@ -83,15 +93,21 @@ def fetch_zabaged_for_bbox(
         if kept == 0:
             raise FetchError("ZABAGED v tomto výřezu nemá žádné použitelné vrstvy")
 
-        dest_zip.parent.mkdir(parents=True, exist_ok=True)
+        cache_dir.mkdir(parents=True, exist_ok=True)
         if dest_zip.exists():
             dest_zip.unlink()
         with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in stage.iterdir():
                 if f.is_file() and f.suffix.lower() != ".geojson":
                     zf.write(f, f.name)
+        write_meta(
+            cache_dir,
+            source="zabaged_ags",
+            bbox_wgs84=list(bbox),
+            layers=kept,
+        )
         if log:
-            log(f"ZABAGED ZIP: {kept} vrstev, {dest_zip.stat().st_size / 1e3:.0f} kB")
+            log(f"ZABAGED: {kept} vrstev, {dest_zip.stat().st_size / 1e3:.0f} kB")
         return dest_zip
     finally:
         shutil.rmtree(stage, ignore_errors=True)

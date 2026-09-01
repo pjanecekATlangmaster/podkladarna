@@ -381,11 +381,6 @@ function jobTimingText(job) {
 function setJobActionLinks(job) {
   document.getElementById("detail-download").href = `/api/jobs/${job.id}/download`;
   document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
-  const oom = document.getElementById("detail-download-oom");
-  if (oom) {
-    oom.href = `/api/jobs/${job.id}/download/oom`;
-    oom.classList.toggle("hidden", !job.has_oom);
-  }
   document.getElementById("detail-preview").href = `/api/jobs/${job.id}/preview.png`;
   document.getElementById("detail-preview").classList.toggle("hidden", !job.has_preview);
 }
@@ -454,46 +449,26 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   const form = e.target;
   const btn = document.getElementById("submit-btn");
   clearFormError();
-  const mode = currentSourceMode();
   if (!form.preset_id.value) {
     showFormError("Vyberte typ mapy.");
     form.preset_id.focus();
     return;
   }
-  if (mode === "map") {
-    if (!document.getElementById("bbox-input").value) {
-      showFormError("Nakreslete výřez na mapě (dva protilehlé rohy).");
-      return;
-    }
-    if (!bboxAllowed) {
-      showFormError(
-        (lastSheets && lastSheets.hint) ||
-          "Výřez je moc velký nebo ještě není ověřený. Max 5 × 5 km."
-      );
-      return;
-    }
+  if (!document.getElementById("bbox-input").value) {
+    showFormError("Nakreslete výřez na mapě (dva protilehlé rohy).");
+    return;
   }
-  if (mode === "upload") {
-    const dmr = form.dmr_files.files;
-    const dmp = form.dmp_files.files;
-    if (!dmr.length || !dmp.length) {
-      showFormError("Nahrajte DMR i DMP (LAZ/LAS).");
-      return;
-    }
+  if (!bboxAllowed) {
+    showFormError(
+      (lastSheets && lastSheets.hint) ||
+        "Výřez je moc velký nebo ještě není ověřený. Max 5 × 5 km."
+    );
+    return;
   }
   btn.disabled = true;
-  btn.textContent = mode === "map" ? "Zakládám job…" : "Nahrávám soubory… (může trvat minuty)";
+  btn.textContent = "Zakládám job…";
   try {
     const fd = new FormData(form);
-    fd.set("source_mode", mode);
-    fd.set("run_vectors", form.run_vectors.checked ? "true" : "false");
-    fd.set("output_png", form.output_png.checked ? "true" : "false");
-    fd.set("output_dxf", form.output_dxf.checked ? "true" : "false");
-    fd.set("output_zabaged_clean", form.output_zabaged_clean.checked ? "true" : "false");
-    fd.set("savetempfolders", form.savetempfolders.checked ? "true" : "false");
-    if (mode === "upload") {
-      fd.delete("bbox");
-    }
     const job = await api("/api/jobs", { method: "POST", body: fd });
     await selectJob(job.id);
   } catch (err) {
@@ -505,22 +480,6 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     btn.textContent = "Spustit generování";
   }
 });
-
-function currentSourceMode() {
-  const checked = document.querySelector("input[name=source_mode]:checked");
-  return checked ? checked.value : "map";
-}
-
-function syncSourceMode() {
-  const mode = currentSourceMode();
-  document.getElementById("map-mode").classList.toggle("hidden", mode !== "map");
-  document.getElementById("upload-mode").classList.toggle("hidden", mode !== "upload");
-  if (mode === "map") {
-    setTimeout(() => {
-      if (bboxMap) bboxMap.invalidateSize();
-    }, 50);
-  }
-}
 
 const CZ = { south: 48.35, west: 11.85, north: 51.25, east: 19.1 };
 
@@ -538,12 +497,8 @@ function inCzechia(latlng) {
 }
 
 function initBboxMap() {
-  document.querySelectorAll("input[name=source_mode]").forEach((elRadio) => {
-    elRadio.addEventListener("change", syncSourceMode);
-  });
   const clearBtn = document.getElementById("bbox-clear");
   if (clearBtn) clearBtn.addEventListener("click", clearBbox);
-  syncSourceMode();
   const el = document.getElementById("bbox-map");
   if (!el) return;
   if (typeof L === "undefined") {
@@ -627,18 +582,8 @@ function applyJobToForm(job) {
     preset.value = job.preset_id;
   }
   const opts = job.options || {};
-  ["run_vectors", "output_png", "output_dxf", "output_zabaged_clean", "savetempfolders"].forEach((name) => {
-    if (form[name] && typeof opts[name] === "boolean") {
-      form[name].checked = opts[name];
-    }
-  });
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {
-    const mapRadio = document.querySelector("input[name=source_mode][value=map]");
-    if (mapRadio) {
-      mapRadio.checked = true;
-      syncSourceMode();
-    }
     applyBbox(bbox[0], bbox[1], bbox[2], bbox[3], {
       reuseJobId: job.has_reusable_lidar ? job.id : "",
     });

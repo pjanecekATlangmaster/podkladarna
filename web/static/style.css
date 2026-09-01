@@ -10,6 +10,7 @@
   --text: #1a1a1a;
   --muted: #5a5a5a;
   --border: #d8ddd0;
+  --page-max: min(1720px, 96vw);
 }
 
 * { box-sizing: border-box; }
@@ -26,7 +27,7 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1rem 1.5rem;
+  padding: 1rem clamp(1rem, 2vw, 2rem);
   background: linear-gradient(135deg, #fff 0%, #eef8e8 55%, #f3e8f7 100%);
   border-bottom: 3px solid var(--purple);
 }
@@ -53,15 +54,21 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 1rem;
-  padding: 1rem 1.5rem 2rem;
-  max-width: 1280px;
+  grid-template-columns: 1.35fr 0.65fr;
+  gap: 1.25rem;
+  padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
+  max-width: var(--page-max);
   margin: 0 auto;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .layout { grid-template-columns: 1fr; }
+}
+
+@media (min-width: 1101px) {
+  #bbox-map { height: 420px; }
+  .preview-img { max-height: 320px; }
+  .log { max-height: 240px; }
 }
 
 .card {
@@ -324,16 +331,16 @@ legend {
   font-size: 0.8rem;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .jobs-card { max-height: 70vh; }
 }
 
 .site-footer {
   text-align: center;
-  padding: 1.25rem 1.5rem 2rem;
+  padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
   font-size: 0.82rem;
   color: var(--muted);
-  max-width: 1280px;
+  max-width: var(--page-max);
   margin: 0 auto;
 }
 

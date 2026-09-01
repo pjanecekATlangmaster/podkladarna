@@ -185,6 +185,11 @@ podkladarna_oom/
     contours.dxf              # nebo temp/contours.dxf, cliffs.dxf, …
     basemap.dxf
     …
+  references/                 # v1.6 – referenční podklady (jen pro OOM, ne do finální mapy)
+    orthophoto.png + .pgw     # ČÚZK WMS
+    osm.png + .pgw            # OpenStreetMap dlaždice
+    hillshade_dmr5g.png + .pgw  # GDAL hillshade z DMR 5G (az 315°, alt 45°)
+  podkladarna.omap            # v1.6 – minimální OOM soubor s načtenými šablonami
   vectors/
     Budova.shp + .dbf/.shx/.prj …
     Cesta.shp
@@ -192,18 +197,17 @@ podkladarna_oom/
 ```
 
 - [x] `README_OOM.txt`: doporučený postup (georeferencovaný PNG jako podklad → DXF vrstevnice jako template → SHP vektory)
+- [x] Referenční podklady: ortofoto ČÚZK, OSM, hillshade DMR 5G (315°/45°)
+- [x] Základní `podkladarna.omap` s georeferencovanými šablonami
 - [x] V UI: surový ZIP i „ZIP pro OOM“
 
-**Poznámka:** V1.5 ještě **negeneruje `.omap`** – uživatel otevře/importuje vrstvy v OOM; všechny soubory ale sedí v jednom balíčku se stabilní strukturou.
+**Poznámka:** `.omap` zatím obsahuje rasterové šablony; DXF/SHP a plná symbolika ISOM jsou stále v2.
 
 ### v2 – Soubor `.omap` s provázanými vrstvami
 **Cíl:** po rozbalení ZIPu (nebo přímo ke stažení) **hotový `.omap`**, kde jsou cesty relativní vůči umístění souboru mapy.
 
-- [ ] Generátor `pipeline/build_oom_map.py` – XML `.omap` dle formátu OpenOrienteering Mapper
-- [ ] V `.omap` odkazovat relativně, např.:
-  - `basemap/pullautus.png` + georeferencing z PGW
-  - templates → `karttapullautin/*.dxf`
-  - vektorové vrstvy → `vectors/*.shp` (OOM import / symbolické propojení dle možností formátu)
+- [x] Generátor `pipeline/build_oom_map.py` – základní `.omap` s raster šablonami
+- [ ] V `.omap` odkazovat relativně i na DXF/SHP vrstvy
 - [ ] Ke stažení **`podkladarna_oom_bundle.zip`**: `.omap` + všechny datové soubory ve stejném stromu
 - [ ] Uživatel: rozbalit → dvojklik / OOM „Open“ → mapa s načtenými podklady
 - [ ] Ošetřit měřítko mapy a CRS (EPSG:5514 / S-JTSK) podle presetu

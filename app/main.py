@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-import shutil
 import traceback
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, UploadFile
@@ -24,15 +23,11 @@ from app.pipeline.fetch_openzu import (
     query_sm5_sheets,
 )
 from app.pipeline.ini_builder import load_presets
-from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, JOBS_DIR, MAX_QUEUE_SIZE
+from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE
 from app.tiles import TileError, fetch_tile
 from app.tool_env import tool_status
 
 logger = logging.getLogger("podkladarna")
-
-
-def _form_bool(value: str | None) -> bool:
-    return str(value or "").lower() in ("true", "1", "yes", "on")
 
 
 def _upload_files(form, key: str) -> list[UploadFile]:
@@ -208,16 +203,23 @@ def api_job_log(job_id: str, after: int = 0):
 
 @app.get("/api/jobs/{job_id}/download/oom")
 def api_download_oom(job_id: str):
-    zip_path = JOBS_DIR / job_id / "output" / "podkladarna_oom.zip"
-    if not zip_path.exists():
-        raise HTTPException(404, "OOM balicek jeste neni pripraven")
-    return FileResponse(zip_path, filename=f"podkladarna_{job_id}_oom.zip")
+    """Zpětná kompatibilita – stejný balíček jako /download."""
+    return api_download(job_id)
+
+
+def _output_zip_path(job_id: str) -> Path | None:
+    out = JOBS_DIR / job_id / "output"
+    for name in ("podkladarna_output.zip", "podkladarna_oom.zip"):
+        path = out / name
+        if path.is_file():
+            return path
+    return None
 
 
 @app.get("/api/jobs/{job_id}/download")
 def api_download(job_id: str):
-    zip_path = JOBS_DIR / job_id / "output" / "podkladarna_output.zip"
-    if not zip_path.exists():
+    zip_path = _output_zip_path(job_id)
+    if not zip_path:
         raise HTTPException(404, "Vystup jeste neni pripraven")
     return FileResponse(zip_path, filename=f"podkladarna_{job_id}.zip")
 
@@ -235,11 +237,13 @@ def api_health():
     import shutil
 
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     usage = shutil.disk_usage(JOBS_DIR)
     tools = tool_status()
     return {
         "ok": True,
-        "data_dir": str(JOBS_DIR),
+        "data_dir": str(JOBS_DIR.parent),
+        "downloads_dir": str(DOWNLOADS_DIR),
         "disk_free_gb": round(usage.free / 1e9, 2),
         "busy": worker.is_busy(),
         "tools": tools,
@@ -274,66 +278,49 @@ async def api_create_job(request: Request):
             "Počkejte na dokončení běžících generování.",
         )
 
-    source_mode = _form_str(form, "source_mode").strip().lower()
     bbox_raw = _form_str(form, "bbox").strip()
-    bbox: tuple[float, float, float, float] | None = None
-    if source_mode == "map" or (not source_mode and bbox_raw):
-        source_mode = "map"
-        if not bbox_raw:
-            raise HTTPException(400, "Chybí výřez na mapě (bbox).")
-        try:
-            bbox = parse_bbox(bbox_raw)
-        except FetchError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        width_km, height_km = bbox_size_km(*bbox)
-        if bbox_exceeds_limit(*bbox):
-            raise HTTPException(
-                400,
-                f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
-                f"max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km).",
-            )
-        try:
-            sheets = query_sm5_sheets(*bbox)
-        except FetchError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        if not sheets:
-            raise HTTPException(400, "Výřez neprotíná žádný list SM5.")
-        if len(sheets) > MAX_SHEETS:
-            names = ", ".join(s["mapnom"] for s in sheets)
-            raise HTTPException(
-                400,
-                f"Výřez je moc velký ({len(sheets)} listů SM5, max {MAX_SHEETS}): {names}",
-            )
-    else:
-        source_mode = "upload"
+    if not bbox_raw:
+        raise HTTPException(400, "Chybí výřez na mapě (bbox).")
+    try:
+        bbox = parse_bbox(bbox_raw)
+    except FetchError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    width_km, height_km = bbox_size_km(*bbox)
+    if bbox_exceeds_limit(*bbox):
+        raise HTTPException(
+            400,
+            f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
+            f"max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km).",
+        )
+    try:
+        sheets = query_sm5_sheets(*bbox)
+    except FetchError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not sheets:
+        raise HTTPException(400, "Výřez neprotíná žádný list SM5.")
+    if len(sheets) > MAX_SHEETS:
+        names = ", ".join(s["mapnom"] for s in sheets)
+        raise HTTPException(
+            400,
+            f"Výřez je moc velký ({len(sheets)} listů SM5, max {MAX_SHEETS}): {names}",
+        )
 
     dmr_uploads = _upload_files(form, "dmr_files")
     dmp_uploads = _upload_files(form, "dmp_files")
-    zabaged_uploads = _upload_files(form, "zabaged_file")
-    zabaged_file = zabaged_uploads[0] if zabaged_uploads else None
-
-    if source_mode == "upload" and (not dmr_uploads or not dmp_uploads):
-        field_names = sorted(form.keys())
+    if dmr_uploads or dmp_uploads or _upload_files(form, "zabaged_file"):
         raise HTTPException(
             400,
-            f"Chybi DMR nebo DMP soubor. Prijata pole: {field_names}. "
-            "Ocekavam dmr_files a dmp_files s LAZ/LAS.",
+            "Ruční upload podkladů není podporován – použijte výřez na mapě (ČÚZK open data).",
         )
 
     options = {
         **DEFAULT_OPTIONS,
-        "run_vectors": _form_bool(_form_str(form, "run_vectors", "true")),
-        "output_png": _form_bool(_form_str(form, "output_png", "true")),
-        "output_dxf": _form_bool(_form_str(form, "output_dxf", "true")),
-        "output_zabaged_clean": _form_bool(_form_str(form, "output_zabaged_clean", "false")),
-        "savetempfolders": _form_bool(_form_str(form, "savetempfolders", "false")),
-        "source_mode": source_mode,
+        "source_mode": "map",
+        "bbox_wgs84": list(bbox),
+        "sm5_sheets": [s["mapnom"] for s in sheets],
     }
-    if bbox:
-        options["bbox_wgs84"] = list(bbox)
-        options["sm5_sheets"] = [s["mapnom"] for s in sheets]
     reuse_id = _form_str(form, "reuse_job_id").strip()
-    if reuse_id and bbox:
+    if reuse_id:
         try:
             prev = db.get_job(reuse_id)
         except KeyError:
@@ -352,41 +339,14 @@ async def api_create_job(request: Request):
         copied = db.copy_reusable_work(options["reused_from"], job_id)
         log(
             f"Iterace z jobu {options['reused_from']}: kopíruji {len(copied)} souborů "
-            "(jen LiDAR). ZABAGED se stáhne znovu, temp Karttapullautinu z LAZ taky."
+            "(sloučený LAZ). LiDAR a ZABAGED se berou ze sdílené cache."
         )
 
     log(
-        f"Prijato: rezim={source_mode}, DMR={len(dmr_uploads)}, DMP={len(dmp_uploads)}, "
-        f"ZABAGED={'ano' if zabaged_file else 'ne'}"
-        + (f", listy={','.join(options.get('sm5_sheets') or [])}" if bbox else "")
+        f"Prijato: listy={','.join(options['sm5_sheets'])}, preset={preset_id}"
     )
 
     try:
-        async def save_uploads(files: list[UploadFile], dest: Path) -> None:
-            dest.mkdir(parents=True, exist_ok=True)
-            for i, uf in enumerate(files):
-                raw_name = uf.filename or f"upload_{i}.bin"
-                target = dest / Path(raw_name).name
-                if target.exists():
-                    target = dest / f"{i}_{Path(raw_name).name}"
-                log(f"Nahravam {target.name} …")
-                with target.open("wb") as out:
-                    shutil.copyfileobj(uf.file, out)
-                log(f"OK {target.name} ({target.stat().st_size / 1e6:.1f} MB)")
-
-        if source_mode == "upload":
-            await save_uploads(dmr_uploads, job_dir / "input" / "dmr")
-            await save_uploads(dmp_uploads, job_dir / "input" / "dmp")
-        if zabaged_file:
-            zdest = job_dir / "input" / "zabaged"
-            zdest.mkdir(parents=True, exist_ok=True)
-            zname = Path(zabaged_file.filename or "Zabaged_full.zip").name
-            zpath = zdest / zname
-            log(f"Nahravam {zpath.name} …")
-            with zpath.open("wb") as out:
-                shutil.copyfileobj(zabaged_file.file, out)
-            log(f"OK {zpath.name} ({zpath.stat().st_size / 1e6:.1f} MB)")
-
         worker.enqueue(job_id)
         pos = worker.queue_position(job_id)
         if pos and pos > 0:

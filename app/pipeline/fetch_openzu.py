@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import urllib.error
 import urllib.parse
@@ -10,6 +9,12 @@ import zipfile
 from pathlib import Path
 
 from app import settings
+from app.download_cache import (
+    is_fresh,
+    lidar_sheet_dir,
+    read_meta,
+    write_meta,
+)
 
 KLAD_QUERY_URL = (
     "https://ags.cuzk.gov.cz/arcgis/rest/services/"
@@ -131,10 +136,9 @@ def crop_bounds_5514(
 
 def fetch_lidar_for_bbox(
     bbox: tuple[float, float, float, float],
-    dest_dmr: Path,
-    dest_dmp: Path,
     log: callable | None = None,
-) -> list[str]:
+) -> tuple[list[Path], list[Path], list[str]]:
+    """Vrátí cesty k LAZ v sdílené cache (stáhne jen chybějící / zastaralé listy)."""
     west, south, east, north = bbox
     if bbox_exceeds_limit(west, south, east, north):
         width_km, height_km = bbox_size_km(west, south, east, north)
@@ -151,27 +155,29 @@ def fetch_lidar_for_bbox(
             f"Výřez je moc velký ({len(sheets)} listů SM5, max {MAX_SHEETS}): {names}"
         )
 
-    dest_dmr.mkdir(parents=True, exist_ok=True)
-    dest_dmp.mkdir(parents=True, exist_ok=True)
     names = [s["mapnom"] for s in sheets]
     if log:
         log(f"Protíná listy: {', '.join(names)} ({len(names)})")
 
+    dmr_paths: list[Path] = []
+    dmp_paths: list[Path] = []
     for mapnom in names:
         dmr = _cached_laz(mapnom, "DMR5G", OPENZU_DMR.format(mapnom=mapnom), log)
         dmp = _cached_laz(mapnom, "DMP1G", OPENZU_DMP.format(mapnom=mapnom), log)
-        _link_or_copy(dmr, dest_dmr / f"{mapnom}_dmr.laz")
-        _link_or_copy(dmp, dest_dmp / f"{mapnom}_dmp.laz")
-    return names
+        dmr_paths.append(dmr)
+        dmp_paths.append(dmp)
+    return dmr_paths, dmp_paths, names
 
 
 def _cached_laz(mapnom: str, kind: str, url: str, log: callable | None) -> Path:
-    folder = settings.CACHE_DIR / "sm5" / mapnom
+    folder = lidar_sheet_dir(mapnom)
     folder.mkdir(parents=True, exist_ok=True)
     laz = folder / f"{kind}.laz"
-    if laz.exists() and laz.stat().st_size > 1000:
+    if is_fresh(folder, laz, settings.LIDAR_CACHE_MAX_AGE_DAYS):
         if log:
-            log(f"Cache hit {mapnom} {kind}")
+            meta = read_meta(folder) or {}
+            age = meta.get("downloaded_at", "?")[:10]
+            log(f"LiDAR cache {mapnom} {kind} (staženo {age})")
         return laz
 
     zpath = folder / f"{kind}.zip"
@@ -179,6 +185,7 @@ def _cached_laz(mapnom: str, kind: str, url: str, log: callable | None) -> Path:
         log(f"Stahuji {kind} {mapnom} …")
     _http_download(url, zpath)
     _extract_laz(zpath, laz)
+    write_meta(folder, kind=kind, mapnom=mapnom, url=url, source="openzu")
     if log:
         log(f"OK {laz.name} ({laz.stat().st_size / 1e6:.1f} MB)")
     return laz
@@ -195,16 +202,6 @@ def _extract_laz(zpath: Path, dest_laz: Path) -> None:
     if dest_laz.stat().st_size < 1000:
         dest_laz.unlink(missing_ok=True)
         raise FetchError(f"Rozbalený {dest_laz.name} je podezřele malý")
-
-
-def _link_or_copy(src: Path, dst: Path) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    if dst.exists():
-        dst.unlink()
-    try:
-        os.link(src, dst)
-    except OSError:
-        shutil.copy2(src, dst)
 
 
 def _request(url: str, timeout: int) -> urllib.request.Request:

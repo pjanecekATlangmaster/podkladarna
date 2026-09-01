@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.settings import DB_PATH, JOBS_DIR
+from app.settings import DB_PATH, DOWNLOADS_DIR, JOBS_DIR
 
 
 def _utcnow() -> str:
@@ -19,6 +19,7 @@ def _utcnow() -> str:
 def init_db() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.execute(
             """
@@ -66,7 +67,7 @@ def create_job(name: str, preset_id: str, options: dict[str, Any]) -> dict[str, 
     job_id = uuid.uuid4().hex[:12]
     now = _utcnow()
     job_dir = JOBS_DIR / job_id
-    for sub in ("input/dmr", "input/dmp", "input/zabaged", "work", "output"):
+    for sub in ("work", "output"):
         (job_dir / sub).mkdir(parents=True, exist_ok=True)
 
     with connect() as conn:
@@ -158,34 +159,31 @@ def _job_paths(job_id: str) -> dict[str, bool]:
     job_dir = JOBS_DIR / job_id
     lidar = job_dir / "work" / "lidar"
     temp = job_dir / "work" / "temp"
-    dmr = job_dir / "input" / "dmr"
     has_laz = False
-    for folder in (lidar, dmr):
-        if not folder.is_dir():
-            continue
-        if any(p.suffix.lower() in {".laz", ".las"} for p in folder.iterdir() if p.is_file()):
-            has_laz = True
-            break
+    if lidar.is_dir():
+        has_laz = any(
+            p.suffix.lower() in {".laz", ".las"} for p in lidar.iterdir() if p.is_file()
+        )
     has_temp = temp.is_dir() and any(temp.iterdir())
     return {"has_reusable_lidar": has_laz, "has_temp": has_temp}
 
 
 def copy_reusable_work(src_id: str, dest_id: str) -> list[str]:
-    """Zkopíruje vstupní LAZ / sloučený crop. ZABAGED se vždy stahuje znovu."""
+    """Zkopíruje sloučený LAZ z předchozího jobu (iterace). Vstupní data jsou ve sdílené cache."""
     copied: list[str] = []
     src = JOBS_DIR / src_id
     dest = JOBS_DIR / dest_id
-    for rel in ("input/dmr", "input/dmp", "work/lidar"):
-        s, d = src / rel, dest / rel
-        if not s.is_dir():
-            continue
-        files = [p for p in s.iterdir() if p.is_file()]
-        if not files:
-            continue
-        d.mkdir(parents=True, exist_ok=True)
-        for path in files:
-            shutil.copy2(path, d / path.name)
-            copied.append(f"{rel}/{path.name}")
+    rel = "work/lidar"
+    s, d = src / rel, dest / rel
+    if not s.is_dir():
+        return copied
+    files = [p for p in s.iterdir() if p.is_file()]
+    if not files:
+        return copied
+    d.mkdir(parents=True, exist_ok=True)
+    for path in files:
+        shutil.copy2(path, d / path.name)
+        copied.append(f"{rel}/{path.name}")
     return copied
 
 
@@ -219,6 +217,11 @@ def get_logs(job_id: str, after_id: int = 0) -> list[dict[str, Any]]:
     return [{"id": r["id"], "line": r["line"], "at": r["created_at"]} for r in rows]
 
 
+def _job_has_output(job_dir: Path) -> bool:
+    out = job_dir / "output"
+    return (out / "podkladarna_output.zip").is_file() or (out / "podkladarna_oom.zip").is_file()
+
+
 def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
     job_dir = JOBS_DIR / row["id"]
     keys = row.keys()
@@ -236,8 +239,8 @@ def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
         "updated_at": row["updated_at"],
         "started_at": started_at,
         "duration_s": _job_duration_s(row),
-        "has_output": (job_dir / "output" / "podkladarna_output.zip").exists(),
-        "has_oom": (job_dir / "output" / "podkladarna_oom.zip").exists(),
+        "has_output": _job_has_output(job_dir),
+        "has_oom": _job_has_output(job_dir),
         "has_preview": (job_dir / "output" / "pullautus.png").exists(),
         **paths,
     }

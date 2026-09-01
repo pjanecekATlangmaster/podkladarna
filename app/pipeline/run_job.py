@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import zipfile
 from pathlib import Path
 
 from app.pipeline.fetch_openzu import crop_bounds_5514, fetch_lidar_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import load_presets, write_pullauta_ini
-from app.pipeline.package_oom import OOM_ZIP_NAME, build_oom_zip, oom_metadata
+from app.pipeline.package_oom import (
+    OUTPUT_ZIP_NAME,
+    build_oom_zip,
+    oom_metadata,
+    prepare_oom_map,
+)
+from app.pipeline.reference_layers import build_reference_layers
 from app.pipeline.prepare_lidar import (
     crop_laz,
     is_kp_heightmap_oob,
@@ -20,19 +25,6 @@ from app.pipeline.prepare_zabaged import clean_zabaged
 from app.settings import PULLAUTA_BIN
 
 
-def _collect_glob(folder: Path, patterns: tuple[str, ...]) -> list[Path]:
-    files: list[Path] = []
-    seen: set[str] = set()
-    for pat in patterns:
-        for path in sorted(folder.glob(pat)):
-            key = str(path.resolve()).lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            files.append(path)
-    return files
-
-
 def run_job_pipeline(
     job_dir: Path,
     preset_id: str,
@@ -40,7 +32,6 @@ def run_job_pipeline(
     log: callable,
     job_name: str = "",
 ) -> None:
-    input_dir = job_dir / "input"
     work_dir = job_dir / "work"
     output_dir = job_dir / "output"
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -52,12 +43,9 @@ def run_job_pipeline(
         west, south, east, north = bbox
         crop = crop_bounds_5514(west, south, east, north)
 
-    dmr_files = _collect_glob(input_dir / "dmr", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
-    dmp_files = _collect_glob(input_dir / "dmp", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
-    zabaged_src = input_dir / "zabaged" / "Zabaged_full.zip"
-    if not zabaged_src.exists():
-        zips = list((input_dir / "zabaged").glob("*.zip"))
-        zabaged_src = zips[0] if zips else zabaged_src
+    dmr_files: list[Path] = []
+    dmp_files: list[Path] = []
+    zabaged_src: Path | None = None
 
     lidar_work = work_dir / "lidar"
     merged_existing = None
@@ -69,18 +57,14 @@ def run_job_pipeline(
 
     if bbox:
         west, south, east, north = bbox
-        if merged_existing or (dmr_files and dmp_files):
-            log("LiDAR už je v jobu (iterace) – stahování openzu přeskakuji")
+        if not merged_existing:
+            log("=== Fáze: stažená data (LiDAR) ===")
+            dmr_files, dmp_files, _ = fetch_lidar_for_bbox((west, south, east, north), log)
         else:
-            log("=== Fáze: stahování LiDAR (openzu) ===")
-            fetch_lidar_for_bbox((west, south, east, north), input_dir / "dmr", input_dir / "dmp", log)
-            dmr_files = _collect_glob(input_dir / "dmr", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
-            dmp_files = _collect_glob(input_dir / "dmp", ("*.laz", "*.las", "*.LAZ", "*.LAS"))
+            log("Používám sloučený LAZ z předchozího běhu – openzu přeskakuji")
 
-        if not zabaged_src.exists():
-            log("=== Fáze: stahování ZABAGED (ArcGIS) ===")
-            zabaged_src = input_dir / "zabaged" / "Zabaged_ags.zip"
-            fetch_zabaged_for_bbox((west, south, east, north), zabaged_src, log)
+        log("=== Fáze: stažená data (ZABAGED) ===")
+        zabaged_src = fetch_zabaged_for_bbox((west, south, east, north), log)
 
     scalefactor = float(
         options.get("scalefactor") or load_presets()[preset_id]["scalefactor"]
@@ -100,7 +84,7 @@ def run_job_pipeline(
         )
 
     zabaged_clean = work_dir / "zabaged_clean.zip"
-    has_zabaged = zabaged_src.exists()
+    has_zabaged = zabaged_src is not None and zabaged_src.is_file()
     if has_zabaged:
         log("=== Fáze: prepare ZABAGED ===")
         clean_zabaged(zabaged_src, zabaged_clean, log=log)
@@ -149,9 +133,13 @@ def run_job_pipeline(
     if not (temp_dir / "vegetation.pgw").exists():
         raise RuntimeError("LiDAR nedokoncil temp/vegetation.pgw")
 
-    if options.get("run_vectors", True) and has_zabaged:
-        log("=== Fáze: Karttapullautin vektory ===")
-        run_cmd([PULLAUTA_BIN, str(zabaged_clean.resolve())], cwd=kp_cwd, log=log)
+    if not has_zabaged or not zabaged_clean.is_file():
+        raise RuntimeError(
+            "ZABAGED (polohopis) není k dispozici – bez něj nelze dokončit mapu."
+        )
+
+    log("=== Fáze: Karttapullautin vektory ===")
+    run_cmd([PULLAUTA_BIN, str(zabaged_clean.resolve())], cwd=kp_cwd, log=log)
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(
@@ -176,38 +164,59 @@ def _package_output(
     preset_id: str,
     job_name: str = "",
 ) -> None:
-    zip_path = output_dir / "podkladarna_output.zip"
+    zip_path = output_dir / OUTPUT_ZIP_NAME
     if zip_path.exists():
         zip_path.unlink()
 
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name in ("pullautus.png", "pullautus.pgw", "pullautus_depr.png", "pullautus_depr.pgw"):
-            p = kp_cwd / name
-            if options.get("output_png", True) and p.exists():
-                zf.write(p, name)
-
-        temp = kp_cwd / "temp"
-        if options.get("output_dxf", True) and temp.exists():
-            for p in sorted(temp.glob("*.dxf")):
-                zf.write(p, f"temp/{p.name}")
-
-        if options.get("output_zabaged_clean", False) and zabaged_clean and zabaged_clean.exists():
-            zf.write(zabaged_clean, "zabaged_clean.zip")
-
     presets = load_presets()
     preset = presets.get(preset_id, {})
-    oom_path = output_dir / OOM_ZIP_NAME
+    job_dir = kp_cwd.parent
+    reference_dir = kp_cwd / "references"
+    ref_layers: list[str] = []
+    bbox = options.get("bbox_wgs84")
+    if bbox and (kp_cwd / "pullautus.png").is_file() and (kp_cwd / "pullautus.pgw").is_file():
+        log("=== Fáze: referenční podklady pro OOM ===")
+        try:
+            built = build_reference_layers(
+                job_dir,
+                tuple(bbox),
+                kp_cwd / "pullautus.png",
+                kp_cwd / "pullautus.pgw",
+                reference_dir,
+                log=log,
+            )
+            ref_layers = [p.name for p in built.values()]
+        except Exception as exc:
+            log(f"Referenční podklady: přeskočeno ({exc})")
+
+    meta = oom_metadata(preset_id, preset, options, job_name, reference_layers=ref_layers or None)
+    omap_path = None
+    if bbox:
+        omap_path = prepare_oom_map(
+            kp_cwd,
+            output_dir / "podkladarna.omap",
+            map_name=job_name or preset_id,
+            scale=meta["scale"],
+            bbox_wgs84=tuple(bbox),
+            reference_dir=reference_dir if ref_layers else None,
+        )
+
+    zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None
     build_oom_zip(
         kp_cwd,
-        oom_path,
-        zabaged_clean=zabaged_clean if zabaged_clean and zabaged_clean.exists() else None,
-        metadata=oom_metadata(preset_id, preset, options, job_name),
+        zip_path,
+        zabaged_clean=zabaged,
+        metadata=meta,
+        reference_dir=reference_dir if ref_layers else None,
+        omap_path=omap_path,
+        include_zabaged_archive=bool(options.get("output_zabaged_clean", False) and zabaged),
+        include_png=bool(options.get("output_png", True)),
+        include_dxf=bool(options.get("output_dxf", True)),
     )
-    log(f"OOM: {oom_path.name} ({oom_path.stat().st_size / 1e6:.2f} MB)")
 
     for name in ("pullautus.png", "pullautus.pgw"):
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)
 
-    log(f"Vystup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")
+    log(f"Výstup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")

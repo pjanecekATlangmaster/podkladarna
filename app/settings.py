@@ -18,6 +18,7 @@ else:
     DATA_ROOT = Path("/data")
 JOBS_DIR = DATA_ROOT / "jobs"
 CACHE_DIR = DATA_ROOT / "cache"
+DOWNLOADS_DIR = CACHE_DIR
 DB_PATH = DATA_ROOT / "podkladarna.db"
 
 PULLAUTA_BIN = resolve_pullauta()
@@ -26,11 +27,13 @@ MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "10"))
 JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "30"))
 TEMP_RETENTION_DAYS = int(os.environ.get("TEMP_RETENTION_DAYS", "7"))
 CLEANUP_INTERVAL_HOURS = int(os.environ.get("CLEANUP_INTERVAL_HOURS", "24"))
+LIDAR_CACHE_MAX_AGE_DAYS = int(os.environ.get("LIDAR_CACHE_MAX_AGE_DAYS", "180"))
+ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "30"))
 
 DEFAULT_OPTIONS = {
     "run_vectors": True,
     "output_png": True,
     "output_dxf": True,
     "output_zabaged_clean": False,
-    "savetempfolders": False,
+    "savetempfolders": False,  # budoucí expert režim / API iterace
 }

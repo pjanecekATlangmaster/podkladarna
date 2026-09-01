@@ -9,6 +9,7 @@ def test_health(client):
     body = r.json()
     assert body["ok"] is True
     assert "disk_free_gb" in body
+    assert "downloads_dir" in body
 
 
 def test_presets(client):
@@ -24,81 +25,49 @@ def test_presets(client):
     assert presets["mtbo_10000"]["group"] == "MTBO"
 
 
-def test_create_job_multipart(client):
+def test_create_job_rejects_laz_upload(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
     r = client.post(
         "/api/jobs",
         data={
-            "name": "test-upload",
+            "name": "upload",
             "preset_id": "sprint_2m",
-            "run_vectors": "false",
-            "output_png": "true",
-            "output_dxf": "true",
-            "output_zabaged_clean": "false",
-            "savetempfolders": "true",
+            "bbox": "14.40,50.08,14.42,50.09",
         },
         files=[
             ("dmr_files", ("DMR5G.laz", b"fake-laz-dmr", "application/octet-stream")),
             ("dmp_files", ("DMP1G.laz", b"fake-laz-dmp", "application/octet-stream")),
         ],
     )
-    assert r.status_code == 200, r.text
-    job = r.json()
-    assert job["id"]
-    assert job["status"] in ("running", "queued", "failed")
-    assert job["has_oom"] is False
-
-    log = client.get(f"/api/jobs/{job['id']}/log")
-    assert log.status_code == 200
-    lines = [x["line"] for x in log.json()["lines"]]
-    assert any("DMR=1" in ln for ln in lines)
-    assert any("Nahravam DMR5G.laz" in ln for ln in lines)
+    assert r.status_code == 400
+    assert "upload" in r.json()["detail"].lower()
 
 
 def test_create_job_rejects_missing_preset(client):
     r = client.post(
         "/api/jobs",
-        data={"name": "bez-presetu"},
-        files=[
-            ("dmr_files", ("a.laz", b"dmr", "application/octet-stream")),
-            ("dmp_files", ("b.laz", b"dmp", "application/octet-stream")),
-        ],
+        data={
+            "name": "bez-presetu",
+            "bbox": "14.40,50.08,14.42,50.09",
+        },
     )
     assert r.status_code == 400
     assert "typ mapy" in r.json()["detail"].lower()
 
 
-def test_create_job_rejects_missing_dmr(client):
+def test_create_job_rejects_missing_bbox(client):
     r = client.post(
         "/api/jobs",
-        data={"name": "bez-dmr", "preset_id": "sprint_2m"},
-        files=[
-            ("dmp_files", ("DMP1G.laz", b"x", "application/octet-stream")),
-        ],
+        data={"name": "bez-vyrezu", "preset_id": "sprint_2m"},
     )
     assert r.status_code == 400
-    assert "DMR" in r.json()["detail"]
-
-
-def test_create_job_with_zabaged(client):
-    r = client.post(
-        "/api/jobs",
-        data={"name": "se-zabaged", "preset_id": "sprint_2m", "run_vectors": "false"},
-        files=[
-            ("dmr_files", ("a.laz", b"dmr", "application/octet-stream")),
-            ("dmp_files", ("b.laz", b"dmp", "application/octet-stream")),
-            ("zabaged_file", ("Zabaged.zip", b"PK\x03\x04", "application/zip")),
-        ],
-    )
-    assert r.status_code == 200, r.text
-    job = r.json()
-    assert job["options"]["output_zabaged_clean"] is False
-    assert job["options"]["savetempfolders"] is False
-    assert "duration_s" in job
-    assert "started_at" in job
-    job_id = job["id"]
-    log_lines = client.get(f"/api/jobs/{job_id}/log").json()["lines"]
-    text = "\n".join(x["line"] for x in log_lines)
-    assert "ZABAGED=ano" in text
+    assert "bbox" in r.json()["detail"].lower() or "výřez" in r.json()["detail"].lower()
 
 
 def test_index_html(client):
@@ -110,14 +79,12 @@ def test_index_html(client):
     assert "/static/logo.png" in html
     assert "/static/leaflet/leaflet.js" in html
     assert "unpkg.com" not in html
-    assert 'name="output_zabaged_clean"' in html
-    assert 'name="output_zabaged_clean" checked' not in html
-    assert 'name="savetempfolders" checked' not in html
+    assert 'name="run_vectors"' not in html
+    assert 'name="zabaged_file"' not in html
+    assert 'name="dmr_files"' not in html
     assert "job-detail" in html
     assert "job-detail-holder" in html
     assert "jobs-list" in html
-    assert "detail-download-oom" in html
-    assert "ZIP pro OOM" in html
     assert "Podkladárna v1.5" in html
     assert "jobs-live" in html
     assert "jobs-finished-bar" in html
@@ -139,9 +106,20 @@ def test_licence_page(client):
     assert "Petr Janeček" in html
 
 
-def test_download_oom_missing(client):
-    r = client.get("/api/jobs/missing/download/oom")
-    assert r.status_code == 404
+def test_download_oom_redirects_to_main_zip(client, tmp_path, monkeypatch):
+    """Starší URL /download/oom vrací stejný balíček jako /download."""
+    from app import db, main
+
+    job_id = "oomlegacy"
+    out = tmp_path / "jobs" / job_id / "output"
+    out.mkdir(parents=True)
+    (out / "podkladarna_output.zip").write_bytes(b"zip")
+    monkeypatch.setattr(main, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "JOBS_DIR", tmp_path / "jobs")
+
+    r = client.get(f"/api/jobs/{job_id}/download/oom")
+    assert r.status_code == 200
+    assert r.content == b"zip"
 
 
 def test_logo_png(client):
@@ -176,4 +154,3 @@ def test_copy_reusable_lidar(data_dir):
     assert not (db.JOBS_DIR / dest["id"] / "input" / "zabaged" / "Zabaged_ags.zip").exists()
     assert db.get_job(src["id"])["has_reusable_lidar"] is True
     assert db.bbox_close(src["options"]["bbox_wgs84"], [14.4, 50.08, 14.42, 50.09])
-

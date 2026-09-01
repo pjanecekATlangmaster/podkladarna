@@ -33,20 +33,8 @@
           </select>
         </label>
 
-        <fieldset class="mode-toggle">
-          <legend>Zdroj LiDARu</legend>
-          <label class="radio">
-            <input type="radio" name="source_mode" value="map" checked />
-            Obdélník na mapě (ČÚZK open data)
-          </label>
-          <label class="radio">
-            <input type="radio" name="source_mode" value="upload" />
-            Nahrát LAZ/LAS ručně
-          </label>
-        </fieldset>
-
         <div id="map-mode">
-          <p class="hint">Klikněte dva protilehlé rohy, nebo klikněte na hotový job vpravo – výřez se načte na mapu. Listy SM5 a sloučený LAZ z předchozího jobu se znovu použijí, ZABAGED (polohopis) se stáhne vždy znovu. Mapa je omezená na Česko, výřez nejvýše 5 × 5 km.</p>
+          <p class="hint">Klikněte dva protilehlé rohy, nebo klikněte na hotový job vpravo – výřez se načte na mapu. LiDAR i ZABAGED se stáhnou z ČÚZK do sdílené cache (u stejného výřezu znovu nestahují). Sloučený LAZ z předchozího jobu se při iteraci znovu použije. Mapa je omezená na Česko, výřez nejvýše 5 × 5 km.</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>
           <p id="sheet-info" class="sheet-info">Nakreslete obdélník dvěma kliknutími.</p>
           <input type="hidden" name="bbox" id="bbox-input" value="" />
@@ -54,41 +42,8 @@
           <button type="button" class="btn" id="bbox-clear">Vymazat výběr</button>
         </div>
 
-        <fieldset class="uploads hidden" id="upload-mode">
-          <legend>Podklady (ČÚZK)</legend>
-          <label class="file">
-            <span>DMR 5G – model reliéfu</span>
-            <input type="file" name="dmr_files" accept=".laz,.las,.LAZ,.LAS" multiple />
-            <small>LAZ/LAS, lze více dlaždic</small>
-          </label>
-          <label class="file">
-            <span>DMP 1G – model povrchu</span>
-            <input type="file" name="dmp_files" accept=".laz,.las,.LAZ,.LAS" multiple />
-            <small>Vegetace a budovy, stejný výřez jako DMR</small>
-          </label>
-        </fieldset>
-
-        <fieldset class="uploads">
-          <legend>Polohopis (volitelně ručně)</legend>
-          <label class="file">
-            <span>Vlastní ZABAGED ZIP</span>
-            <input type="file" name="zabaged_file" accept=".zip" />
-            <small>Při obdélníku na mapě se stáhne sám. Sem jen vlastní ZIP jako náhrada, nebo při ručním uploadu LAZ.</small>
-          </label>
-        </fieldset>
-
-        <fieldset class="options">
-          <legend>Výstup</legend>
-          <label><input type="checkbox" name="run_vectors" checked /> Vektory do PNG (vyžaduje ZABAGED)</label>
-          <label><input type="checkbox" name="output_png" checked /> PNG kontrolní mapa</label>
-          <label><input type="checkbox" name="output_dxf" checked /> DXF vrstevnice a srázy</label>
-          <label><input type="checkbox" name="output_zabaged_clean" /> Vyčištěný ZABAGED ZIP</label>
-          <label><input type="checkbox" name="savetempfolders" /> Uložit temp KP (makevege / makecliffs u stejného jobu)</label>
-        </fieldset>
-
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
         <p id="form-error" class="form-error hidden" role="alert"></p>
-        <p class="hint">LAZ soubory jsou velké (stovky MB). Přes HTTPS proxy může nahrávání selhat – zkuste přímý port 8672 na NAS.</p>
         <p class="hint">Sprint obvykle 2–6 minut, lesní mapa o něco víc. Stránku můžete zavřít – job běží na serveru.</p>
         <p class="hint">Najednou běží jen jedno generování; další joby čekají ve frontě. Hotové joby se po 30 dnech smažou.</p>
       </form>
@@ -114,8 +69,7 @@
           <p id="detail-timing" class="hint"></p>
           <pre id="detail-log" class="log"></pre>
           <div class="actions">
-            <a id="detail-download" class="btn" href="#" download>Stáhnout ZIP</a>
-            <a id="detail-download-oom" class="btn" href="#" download>ZIP pro OOM</a>
+            <a id="detail-download" class="btn primary" href="#" download>Stáhnout ZIP</a>
             <a id="detail-preview" class="btn" href="#" target="_blank">Otevřít PNG</a>
           </div>
           <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />

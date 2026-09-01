@@ -122,20 +122,18 @@ def test_create_job_from_map_bbox(client, monkeypatch):
         data={
             "name": "sance-mapa",
             "preset_id": "sprint_2m",
-            "source_mode": "map",
             "bbox": "14.40,50.08,14.42,50.09",
-            "run_vectors": "false",
         },
     )
     assert r.status_code == 200, r.text
     job = r.json()
     assert job["options"]["source_mode"] == "map"
+    assert job["options"]["run_vectors"] is True
     assert job["options"]["sm5_sheets"] == ["PRAH77"]
     assert job["options"]["bbox_wgs84"][0] == pytest.approx(14.40)
     log = client.get(f"/api/jobs/{job['id']}/log").json()["lines"]
     text = "\n".join(x["line"] for x in log)
-    assert "rezim=map" in text
-    assert "PRAH77" in text
+    assert "listy=PRAH77" in text
 
 
 def test_api_sheets_too_large(client, monkeypatch):
@@ -182,10 +180,33 @@ def test_create_job_map_too_large(client, monkeypatch):
 def test_create_job_map_without_bbox(client):
     r = client.post(
         "/api/jobs",
-        data={"name": "bez-vyrezu", "preset_id": "sprint_2m", "source_mode": "map"},
+        data={"name": "bez-vyrezu", "preset_id": "sprint_2m"},
     )
     assert r.status_code == 400
     assert "bbox" in r.json()["detail"].lower() or "výřez" in r.json()["detail"].lower()
+
+
+def test_create_job_rejects_zabaged_upload(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "zabaged-upload",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+        },
+        files=[
+            ("zabaged_file", ("Zabaged.zip", b"PK\x03\x04", "application/zip")),
+        ],
+    )
+    assert r.status_code == 400
+    assert "upload" in r.json()["detail"].lower()
 
 
 def test_query_http_error(monkeypatch):
