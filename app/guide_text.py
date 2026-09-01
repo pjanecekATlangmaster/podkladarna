@@ -13,6 +13,7 @@ WEB_ABOUT_HTML = """
   <li>DXF vrstevnice a srázy, shapefile ZABAGED, návod <code>README_OOM.txt</code></li>
 </ul>
 <p><strong>Jak na to:</strong> nakreslete obdélník (max 5×5&nbsp;km), vyberte typ mapy, spusťte generování.
+  Sprint obvykle 2–6 minut, lesní mapa déle; stránku mezitím můžete zavřít.
   Po dokončení stáhněte ZIP. V OOM otevřete <code>podkladarna.omap</code> a dle návodu
   doladíte symboliku. Do OCADu jde import DXF/SHP/PNG, ne přímo <code>.omap</code>.</p>
 <p><strong>Proč fronta a limity:</strong> server zvládne jen jedno generování najednou a běží na domácím NAS.
@@ -21,7 +22,6 @@ WEB_ABOUT_HTML = """
   kdo ještě ne – férovější sdílení pro více mapmakerů. Ověření podle IP není spolehlivé
   (VPN, sdílená Wi‑Fi).</p>
 <p><strong>Uchování:</strong> hotové joby na serveru držíme <strong>48 hodin</strong> – ZIP si uložte lokálně.</p>
-<p class="hint">Data: ČÚZK (CC BY 4.0). Při publikaci mapy uveďte zdroj. Viz také <a href="/licence">licence</a>.</p>
 """
 
 ZIP_ABOUT_TXT = """Podkladárna – co je v tomto balíčku

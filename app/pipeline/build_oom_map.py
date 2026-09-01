@@ -3,30 +3,24 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
+from app.pipeline.crs_5514 import (
+    CRS_LABEL,
+    CRS_PROJ4,
+    GEOGRAPHIC_CRS_PROJ4,
+    projected_to_wgs84,
+)
+from app.pipeline.oom_georef import oom_north_angles
 from app.pipeline.oom_symbols import colors_and_symbols_xml, symbol_set_path
 
-# OOM používá vlastní +towgs84 pro EPSG:5514 (issue #542). Holé „EPSG:5514“ vede
-# k jiné transformaci než u GDAL/ČÚZK a posunu vektorů vůči georeferencovaným PNG.
-CRS_PROJ4 = (
-    "+proj=krovak +lat_0=49.5 +lon_0=24.83333333333333 "
-    "+alpha=30.28813972222222 +k=0.9999 +x_0=0 +y_0=0 +ellps=bessel "
-    "+towgs84=542.5,89.2,456.9,5.517,2.275,5.516,6.96 +pm=greenwich +units=m +no_defs"
-)
-CRS_LABEL = "EPSG:5514"
-GEOGRAPHIC_CRS_PROJ4 = "+proj=latlong +datum=WGS84"
-
-
-def projected_to_wgs84(x: float, y: float) -> tuple[float, float]:
-    from pyproj import Transformer
-
-    transformer = Transformer.from_crs(
-        CRS_PROJ4,
-        GEOGRAPHIC_CRS_PROJ4,
-        always_xy=True,
-    )
-    lon, lat = transformer.transform(x, y)
-    return float(lat), float(lon)
-
+# Zpětná kompatibilita importů z build_oom_map.
+__all__ = [
+    "CRS_LABEL",
+    "CRS_PROJ4",
+    "GEOGRAPHIC_CRS_PROJ4",
+    "build_oom_map_xml",
+    "projected_to_wgs84",
+    "write_oom_map",
+]
 
 def _template_xml(
     idx: int,
@@ -51,6 +45,8 @@ def build_oom_map_xml(
     ref_y: float,
     ref_lat: float,
     ref_lon: float,
+    declination: float,
+    grivation: float,
     templates: list[tuple[str, str, bool] | tuple[str, str, bool, float]],
     preset_id: str,
 ) -> str:
@@ -79,7 +75,7 @@ def build_oom_map_xml(
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
     <notes>Podkladárna – {safe_name}</notes>
-    <georeferencing scale="{scale}" auxiliary_scale_factor="1">
+    <georeferencing scale="{scale}" auxiliary_scale_factor="1" declination="{declination:.2f}" grivation="{grivation:.2f}">
         <projected_crs id="EPSG">
             <spec language="PROJ.4">{crs}</spec>
             <parameter>5514</parameter>
@@ -126,7 +122,11 @@ def write_oom_map(
     ref_lon: float,
     templates: list[tuple[str, str, bool] | tuple[str, str, bool, float]],
     preset_id: str,
+    declination: float | None = None,
+    grivation: float | None = None,
 ) -> Path:
+    if declination is None or grivation is None:
+        declination, grivation = oom_north_angles(ref_x, ref_y)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(
         build_oom_map_xml(
@@ -136,6 +136,8 @@ def write_oom_map(
             ref_y=ref_y,
             ref_lat=ref_lat,
             ref_lon=ref_lon,
+            declination=declination,
+            grivation=grivation,
             templates=templates,
             preset_id=preset_id,
         ),

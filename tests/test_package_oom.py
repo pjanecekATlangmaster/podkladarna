@@ -103,7 +103,9 @@ def test_prepare_oom_map_minimal(tmp_path):
     assert CRS_PROJ4 in xml
     assert "<geographic_crs" in xml
     assert "ref_point_deg" in xml
-    assert 'declination="0"' not in xml
+    assert 'declination="' in xml
+    assert 'grivation="' in xml
+    assert 'grivation="0.00"' not in xml
     assert "<ref_point x=\"-699999.500000\" y=\"-1050000.500000\"/>" in xml
     assert '<symbols count="' in xml
     assert '<line_symbol' in xml

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import subprocess
 import tempfile
 import urllib.parse
@@ -9,6 +10,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.prepare_lidar import find_tool, run_cmd
@@ -118,12 +120,18 @@ def _hillshade_laz_candidates(job_dir: Path) -> list[Path]:
         return []
     seen: set[Path] = set()
     ordered: list[Path] = []
-    for pattern in ("dmr_ground_*.laz", "ground_merged.laz"):
+    # Nejdřív ořezaný merge – nejmenší a přesně odpovídá výřezu jobu.
+    for name in ("merged_crop.laz", "merged_crop_retry.laz", "ground_merged.laz"):
+        path = lidar / name
+        if path.is_file() and path.stat().st_size > 1000 and path not in seen:
+            seen.add(path)
+            ordered.append(path)
+    for pattern in ("dmr_ground_*.laz",):
         for path in sorted(lidar.glob(pattern)):
             if path.is_file() and path.stat().st_size > 1000 and path not in seen:
                 seen.add(path)
                 ordered.append(path)
-    for name in ("merged_crop.laz", "merged_crop_retry.laz", "merged.laz"):
+    for name in ("merged.laz",):
         path = lidar / name
         if path.is_file() and path.stat().st_size > 1000 and path not in seen:
             seen.add(path)
@@ -144,30 +152,32 @@ def _align_to_template(
     tw, th = _target_size(width, height)
     gdalwarp = _gdal_tool("gdalwarp")
     dest_png.parent.mkdir(parents=True, exist_ok=True)
-    run_cmd(
-        [
-            gdalwarp,
-            "-t_srs",
-            "EPSG:5514",
-            "-te",
-            str(xmin),
-            str(ymin),
-            str(xmax),
-            str(ymax),
-            "-ts",
-            str(tw),
-            str(th),
-            "-r",
-            "bilinear",
-            "-of",
-            "PNG",
-            "-overwrite",
-            str(src),
-            str(dest_png),
-        ],
-        log=log,
-    )
-    _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, tw, th)
+    cmd = [
+        gdalwarp,
+        "-t_srs",
+        CRS_PROJ4,
+        "-te",
+        str(xmin),
+        str(ymin),
+        str(xmax),
+        str(ymax),
+        "-ts",
+        str(tw),
+        str(th),
+        "-tap",
+        "-r",
+        "bilinear",
+        "-of",
+        "PNG",
+        "-overwrite",
+        str(src),
+        str(dest_png),
+    ]
+    run_cmd(cmd, log=log)
+    if tw == width and th == height:
+        shutil.copy2(template_pgw, dest_pgw)
+    else:
+        _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, tw, th)
 
 
 def _laz_needs_ground_filter(laz: Path) -> bool:
@@ -208,7 +218,8 @@ def _pdal_dem_from_laz(
             "type": "writers.gdal",
             "filename": str(dest_tif),
             "resolution": resolution_m,
-            "output_type": "float32",
+            "output_type": "idw",
+            "data_type": "float32",
             "gdaldriver": "GTiff",
             "nodata": -9999,
         }
@@ -324,7 +335,7 @@ def fetch_orthophoto_wms(
             "-of",
             "PNG",
             "-a_srs",
-            "EPSG:5514",
+            CRS_PROJ4,
             "-a_ullr",
             str(xmin),
             str(ymax),

@@ -9,7 +9,7 @@ sprint_2m:
   basemapinterval: 0.5
   scalefactor: 0.4
   formline: 0
-  smoothing: 0.7
+  smoothing: 0.85
   processes: 2
   vectorconf: zabaged.txt
   # ISSprOM 2019-2 symbol 521: black outline, black 50% fill
@@ -23,7 +23,7 @@ sprint_2_5m:
   basemapinterval: 0.625
   scalefactor: 0.4
   formline: 0
-  smoothing: 0.7
+  smoothing: 0.85
   processes: 2
   vectorconf: zabaged.txt
   buildingcolor: "128,128,128"
@@ -35,7 +35,7 @@ forest_7500:
   basemapinterval: 1.25
   scalefactor: 0.75
   formline: 2
-  smoothing: 0.7
+  smoothing: 0.85
   processes: 2
   vectorconf: zabaged_forest.txt
   # ISOM 2017-2 symbol 521: black (or 60% fill)
@@ -48,7 +48,7 @@ forest_10000:
   basemapinterval: 1.25
   scalefactor: 1.0
   formline: 2
-  smoothing: 0.7
+  smoothing: 0.85
   processes: 2
   vectorconf: zabaged_forest.txt
   buildingcolor: "0,0,0"
@@ -60,7 +60,7 @@ mtbo_10000:
   basemapinterval: 1.25
   scalefactor: 1.0
   formline: 2
-  smoothing: 0.7
+  smoothing: 0.85
   processes: 2
   vectorconf: zabaged_forest.txt
   buildingcolor: "0,0,0"
@@ -72,7 +72,7 @@ mtbo_15000:
   basemapinterval: 1.25
   scalefactor: 1.5
   formline: 2
-  smoothing: 0.7
+  smoothing: 0.85
   processes: 2
   vectorconf: zabaged_forest.txt
   buildingcolor: "0,0,0"

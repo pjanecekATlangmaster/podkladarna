@@ -82,6 +82,8 @@ def test_build_oom_map_xml_contains_templates():
         ref_y=1200000.0,
         ref_lat=50.0,
         ref_lon=14.5,
+        declination=5.15,
+        grivation=13.02,
         preset_id="forest_10000",
         templates=[
             ("Ortofoto", "references/orthophoto.png", True),
@@ -94,6 +96,8 @@ def test_build_oom_map_xml_contains_templates():
     assert "basemap/pullautus.png" in xml
     assert 'scale="10000"' in xml
     assert "ref_point_deg" in xml
+    assert 'declination="5.15"' in xml
+    assert 'grivation="13.02"' in xml
     assert '<symbols count="' in xml
     assert 'code="101"' in xml
 
