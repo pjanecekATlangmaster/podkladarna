@@ -34,6 +34,7 @@ def test_write_pullauta_ini_converts_sprint_interval(tmp_path: Path):
     assert ini["scalefactor"] == "0.4"
     assert ini["formline"] == "0"
     assert ini["indexcontours"] == "10"
+    assert ini["buildingcolor"] == "128,128,128"
 
 
 def test_write_pullauta_ini_sprint_2_5m(tmp_path: Path):
@@ -41,13 +42,16 @@ def test_write_pullauta_ini_sprint_2_5m(tmp_path: Path):
     ini = _ini_map(path.read_text(encoding="utf-8"))
     assert ini["contour_interval"] == "12.5"
     assert ini["indexcontours"] == "12.5"
+    assert ini["buildingcolor"] == "128,128,128"
 
 
 def test_write_pullauta_ini_forest_scales_interval(tmp_path: Path):
     path = write_pullauta_ini(tmp_path, "forest_7500")
     ini = _ini_map(path.read_text(encoding="utf-8"))
     assert float(ini["contour_interval"]) == round(5 / 0.75, 6)
+    assert ini["buildingcolor"] == "0,0,0"
 
     path10000 = write_pullauta_ini(tmp_path / "f10", "forest_10000")
     ini10000 = _ini_map(path10000.read_text(encoding="utf-8"))
     assert ini10000["contour_interval"] == "5"
+    assert ini10000["buildingcolor"] == "0,0,0"

@@ -76,6 +76,9 @@ def write_pullauta_ini(
         "vegeonly": 0,
         "contoursonly": 0,
         "cliffsonly": 0,
+        "buildingcolor": opts.get(
+            "buildingcolor", preset.get("buildingcolor", "0,0,0")
+        ),
     }
     indexcontours = opts.get("indexcontours", preset.get("indexcontours"))
     if indexcontours is not None:

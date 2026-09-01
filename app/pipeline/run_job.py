@@ -107,7 +107,15 @@ def run_job_pipeline(
     ini_path = write_pullauta_ini(work_dir, preset_id, options)
     log(f"INI: {ini_path.name}")
     for line in ini_path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        if line.startswith(("contour_interval=", "scalefactor=", "formline=", "indexcontours=")):
+        if line.startswith(
+            (
+                "contour_interval=",
+                "scalefactor=",
+                "formline=",
+                "indexcontours=",
+                "buildingcolor=",
+            )
+        ):
             log(f"  {line}")
 
     kp_cwd = work_dir
