@@ -60,6 +60,7 @@ async function api(path, opts = {}) {
 }
 
 let selectedJobId = null;
+let selectedJobStatus = null;
 let logAfter = 0;
 let pollTimer = null;
 let bboxMap = null;
@@ -138,6 +139,7 @@ async function loadJobs() {
     attachJobDetail(selectedEl);
     const selected = data.jobs.find((j) => j.id === selectedJobId);
     if (selected) {
+      selectedJobStatus = selected.status;
       document.getElementById("detail-status").textContent =
         `Stav: ${selected.status} · preset: ${selected.preset_id}` +
         (selected.error ? ` · ${selected.error}` : "");
@@ -166,6 +168,7 @@ async function loadJobs() {
     await refreshLog();
   } else {
     selectedJobId = null;
+    selectedJobStatus = null;
     jobDetailEl().classList.add("hidden");
   }
 }
@@ -244,6 +247,7 @@ function escapeHtml(s) {
 
 async function fillJobDetail(id, { applyForm = false } = {}) {
   const job = await api(`/api/jobs/${id}`);
+  selectedJobStatus = job.status;
   document.getElementById("detail-title").textContent = job.name;
   document.getElementById("detail-status").textContent =
     `Stav: ${job.status} · preset: ${job.preset_id}` + (job.error ? ` · ${job.error}` : "");
@@ -286,7 +290,9 @@ async function refreshLog() {
     pre.textContent += line.line + "\n";
     logAfter = line.id;
   }
-  pre.scrollTop = pre.scrollHeight;
+  if (selectedJobStatus === "running") {
+    pre.scrollTop = pre.scrollHeight;
+  }
 }
 
 document.getElementById("job-form").addEventListener("submit", async (e) => {
