@@ -17,7 +17,6 @@ from app.tiles import fetch_tile
 # Kartografický standard (GDAL výchozí): světlo ze severozápadu, 45° nad obzorem.
 HILLSHADE_AZIMUTH = 315
 HILLSHADE_ALTITUDE = 45
-HILLSHADE_RESOLUTION_M = 1.0
 MAX_REF_PIXELS = 4096
 WEB_MERCATOR_HALF = 20037508.342789244
 
@@ -98,6 +97,40 @@ def _write_pgw_for_extent(
     ).write(dest_pgw)
 
 
+def _dem_resolution_m(template_png: Path, template_pgw: Path) -> float:
+    """Rozlišení DEM v metrech – sladěné s cílovým PNG (max MAX_REF_PIXELS)."""
+    xmin, ymin, xmax, ymax, width, height = _template_extent(template_png, template_pgw)
+    tw, th = _target_size(width, height)
+    res = max((xmax - xmin) / tw, (ymax - ymin) / th)
+    return max(0.25, min(res, 8.0))
+
+
+def _template_bounds(
+    template_png: Path, template_pgw: Path
+) -> tuple[float, float, float, float]:
+    xmin, ymin, xmax, ymax, _, _ = _template_extent(template_png, template_pgw)
+    return xmin, ymin, xmax, ymax
+
+
+def _hillshade_laz_candidates(job_dir: Path) -> list[Path]:
+    lidar = job_dir / "work" / "lidar"
+    if not lidar.is_dir():
+        return []
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for pattern in ("dmr_ground_*.laz", "ground_merged.laz"):
+        for path in sorted(lidar.glob(pattern)):
+            if path.is_file() and path.stat().st_size > 1000 and path not in seen:
+                seen.add(path)
+                ordered.append(path)
+    for name in ("merged_crop.laz", "merged_crop_retry.laz", "merged.laz"):
+        path = lidar / name
+        if path.is_file() and path.stat().st_size > 1000 and path not in seen:
+            seen.add(path)
+            ordered.append(path)
+    return ordered
+
+
 def _align_to_template(
     src: Path,
     template_png: Path,
@@ -137,36 +170,50 @@ def _align_to_template(
     _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, tw, th)
 
 
+def _laz_needs_ground_filter(laz: Path) -> bool:
+    """Sloučený LAZ (DMR+DMP) potřebuje odfiltrovat vegetaci; čistý ground ne."""
+    return laz.name.lower() in (
+        "merged.laz",
+        "merged_crop.laz",
+        "merged_crop_retry.laz",
+    )
+
+
 def _pdal_dem_from_laz(
     laz: Path,
     bounds: tuple[float, float, float, float],
     dest_tif: Path,
     *,
+    resolution_m: float,
     log: callable | None = None,
 ) -> Path:
     xmin, ymin, xmax, ymax = bounds
     pdal = find_tool("pdal")
-    pipeline = {
-        "pipeline": [
-            str(laz),
-            {
-                "type": "filters.crop",
-                "bounds": f"([{xmin},{xmax}],[{ymin},{ymax}])",
-            },
+    steps: list[object] = [
+        str(laz),
+        {
+            "type": "filters.crop",
+            "bounds": f"([{xmin},{xmax}],[{ymin},{ymax}])",
+        },
+    ]
+    if _laz_needs_ground_filter(laz):
+        steps.append(
             {
                 "type": "filters.range",
                 "limits": "Classification[2:2]",
-            },
-            {
-                "type": "writers.gdal",
-                "filename": str(dest_tif),
-                "resolution": HILLSHADE_RESOLUTION_M,
-                "output_type": "float32",
-                "gdaldriver": "GTiff",
-                "nodata": -9999,
-            },
-        ]
-    }
+            }
+        )
+    steps.append(
+        {
+            "type": "writers.gdal",
+            "filename": str(dest_tif),
+            "resolution": resolution_m,
+            "output_type": "float32",
+            "gdaldriver": "GTiff",
+            "nodata": -9999,
+        }
+    )
+    pipeline = {"pipeline": steps}
     dest_tif.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as tmp:
         json.dump(pipeline, tmp)
@@ -180,7 +227,6 @@ def _pdal_dem_from_laz(
 
 def build_hillshade_from_dmr(
     dmr_laz: Path,
-    bounds_5514: tuple[float, float, float, float],
     template_png: Path,
     template_pgw: Path,
     dest_png: Path,
@@ -193,7 +239,18 @@ def build_hillshade_from_dmr(
     work = dest_png.parent
     dem_tif = work / "_dem.tif"
     shade_tif = work / "_hillshade.tif"
-    _pdal_dem_from_laz(dmr_laz, bounds_5514, dem_tif, log=log)
+    crop = _template_bounds(template_png, template_pgw)
+    resolution_m = _dem_resolution_m(template_png, template_pgw)
+    if log:
+        log(
+            f"Hillshade: zdroj {dmr_laz.name}, DEM {resolution_m:.2f} m/px "
+            f"(výřez dle pullautus.pgw)"
+        )
+    _pdal_dem_from_laz(
+        dmr_laz, crop, dem_tif, resolution_m=resolution_m, log=log
+    )
+    if not dem_tif.is_file() or dem_tif.stat().st_size < 500:
+        raise RuntimeError(f"PDAL nevytvořil DEM ({dem_tif.name})")
     gdaldem = _gdal_tool("gdaldem")
     run_cmd(
         [
@@ -386,20 +443,8 @@ def build_osm_reference(
 
 
 def _find_dmr_ground_laz(job_dir: Path) -> Path | None:
-    lidar = job_dir / "work" / "lidar"
-    if not lidar.is_dir():
-        return None
-    for pattern in ("ground_merged.laz", "dmr_ground_*.laz"):
-        for path in sorted(lidar.glob(pattern)):
-            if path.is_file() and path.stat().st_size > 1000:
-                return path
-    for name in ("merged_crop_retry.laz", "merged_crop.laz", "merged.laz"):
-        path = lidar / name
-        if path.is_file() and path.stat().st_size > 1000:
-            return path
-    dmr_dir = job_dir / "input" / "dmr"
-    files = sorted(dmr_dir.glob("*.laz")) + sorted(dmr_dir.glob("*.LAZ"))
-    return files[0] if files else None
+    candidates = _hillshade_laz_candidates(job_dir)
+    return candidates[0] if candidates else None
 
 
 def build_reference_layers(
@@ -421,15 +466,30 @@ def build_reference_layers(
 
     hill_png = out_dir / "hillshade_dmr5g.png"
     hill_pgw = out_dir / "hillshade_dmr5g.pgw"
-    dmr = _find_dmr_ground_laz(job_dir)
-    try:
-        if dmr and build_hillshade_from_dmr(
-            dmr, bounds, template_png, template_pgw, hill_png, hill_pgw, log=log
-        ):
-            built["hillshade"] = hill_png
-    except Exception as exc:
-        if log:
-            log(f"Hillshade: přeskočeno ({exc})")
+    laz_candidates = _hillshade_laz_candidates(job_dir)
+    if log and not laz_candidates:
+        log("Hillshade: nenalezen LAZ v work/lidar")
+    hill_ok = False
+    for laz in laz_candidates:
+        try:
+            if build_hillshade_from_dmr(
+                laz, template_png, template_pgw, hill_png, hill_pgw, log=log
+            ):
+                built["hillshade"] = hill_png
+                hill_ok = True
+                break
+        except subprocess.CalledProcessError as exc:
+            if log:
+                log(f"Hillshade ({laz.name}): přeskočeno ({exc})")
+                err = (exc.stderr or exc.stdout or "").strip()
+                if err:
+                    for line in err.splitlines()[-8:]:
+                        log(line)
+        except Exception as exc:
+            if log:
+                log(f"Hillshade ({laz.name}): přeskočeno ({exc})")
+    if log and laz_candidates and not hill_ok:
+        log("Hillshade: žádný LAZ zdroj neuspěl")
 
     ortho_png = out_dir / "orthophoto.png"
     ortho_pgw = out_dir / "orthophoto.pgw"
@@ -443,7 +503,7 @@ def build_reference_layers(
             log(f"Ortofoto: přeskočeno ({exc})")
 
     osm_png = out_dir / "osm.png"
-    osm_pgw = out_dir / "osm.png".with_suffix(".pgw")
+    osm_pgw = (out_dir / "osm.png").with_suffix(".pgw")
     try:
         if build_osm_reference(
             bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log

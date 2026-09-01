@@ -173,11 +173,12 @@ def _package_output(
     job_dir = kp_cwd.parent
     reference_dir = kp_cwd / "references"
     ref_layers: list[str] = []
+    built_refs: dict[str, Path] = {}
     bbox = options.get("bbox_wgs84")
     if bbox and (kp_cwd / "pullautus.png").is_file() and (kp_cwd / "pullautus.pgw").is_file():
         log("=== Fáze: referenční podklady pro OOM ===")
         try:
-            build_reference_layers(
+            built_refs = build_reference_layers(
                 job_dir,
                 tuple(bbox),
                 kp_cwd / "pullautus.png",
@@ -187,7 +188,9 @@ def _package_output(
             )
         except Exception as exc:
             log(f"Referenční podklady: přeskočeno ({exc})")
-        if reference_dir.is_dir():
+        if built_refs:
+            ref_layers = sorted(p.name for p in built_refs.values())
+        elif reference_dir.is_dir():
             ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
 
     meta = oom_metadata(preset_id, preset, options, job_name, reference_layers=ref_layers or None)
@@ -200,7 +203,7 @@ def _package_output(
             scale=meta["scale"],
             preset_id=preset_id,
             bbox_wgs84=tuple(bbox),
-            reference_dir=reference_dir if reference_dir.is_dir() else None,
+            built_refs=built_refs or None,
         )
 
     zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None

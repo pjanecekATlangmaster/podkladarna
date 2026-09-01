@@ -14,6 +14,13 @@ OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
 OOM_MAP_NAME = "podkladarna.omap"
 
+# (klíč z build_reference_layers, popisek, cesta v ZIPu, průhlednost v OOM)
+OOM_REFERENCE_TEMPLATES: tuple[tuple[str, str, str, float], ...] = (
+    ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0),
+    ("osm", "OpenStreetMap", "references/osm.png", 0.85),
+    ("hillshade", "Hillshade DMR 5G", "references/hillshade_dmr5g.png", 0.55),
+)
+
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
     return int(round(float(scalefactor) * 10000))
@@ -108,6 +115,22 @@ def _add_shapefiles_from_zip(zf: zipfile.ZipFile, src_zip: Path, dest_dir: str) 
     return n
 
 
+def collect_oom_templates(
+    kp_cwd: Path,
+    built_refs: dict[str, Path] | None = None,
+) -> list[tuple[str, str, bool, float]]:
+    """Šablony pro .omap – jen vrstvy, které se skutečně vygenerovaly."""
+    templates: list[tuple[str, str, bool, float]] = []
+    if built_refs:
+        for key, label, relpath, opacity in OOM_REFERENCE_TEMPLATES:
+            path = built_refs.get(key)
+            if path and path.is_file():
+                templates.append((label, relpath, True, opacity))
+    if (kp_cwd / "pullautus.png").is_file():
+        templates.append(("Karttapullautin", "basemap/pullautus.png", True, 1.0))
+    return templates
+
+
 def prepare_oom_map(
     kp_cwd: Path,
     dest: Path,
@@ -116,7 +139,7 @@ def prepare_oom_map(
     scale: int,
     preset_id: str,
     bbox_wgs84: tuple[float, float, float, float],
-    reference_dir: Path | None,
+    built_refs: dict[str, Path] | None = None,
 ) -> Path | None:
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
@@ -132,18 +155,7 @@ def prepare_oom_map(
         ref_x = (xmin + xmax) / 2
         ref_y = (ymin + ymax) / 2
     ref_lat, ref_lon = projected_to_wgs84(ref_x, ref_y)
-    templates: list[tuple[str, str, bool]] = []
-    if reference_dir and reference_dir.is_dir():
-        order = (
-            ("Ortofoto ČÚZK", "references/orthophoto.png"),
-            ("OpenStreetMap", "references/osm.png"),
-            ("Hillshade DMR 5G", "references/hillshade_dmr5g.png"),
-        )
-        for label, relpath in order:
-            if (reference_dir / Path(relpath).name).is_file():
-                templates.append((label, relpath, True))
-    if (kp_cwd / "pullautus.png").is_file():
-        templates.append(("Karttapullautin", "basemap/pullautus.png", True))
+    templates = collect_oom_templates(kp_cwd, built_refs)
     if not templates:
         return None
     return write_oom_map(

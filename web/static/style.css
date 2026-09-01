@@ -194,6 +194,9 @@ legend {
   border-color: var(--green);
   color: #fff;
   font-weight: 600;
+}
+
+#submit-btn {
   margin-top: 0.5rem;
 }
 
@@ -290,7 +293,17 @@ legend {
   background: #fafcf8;
 }
 
-.actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; }
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.actions .btn {
+  margin: 0;
+}
 
 .worker-status {
   font-size: 0.9rem;

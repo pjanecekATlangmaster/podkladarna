@@ -7,6 +7,7 @@ from pathlib import Path
 from app.pipeline.build_oom_map import CRS_PROJ4
 from app.pipeline.package_oom import (
     build_oom_zip,
+    collect_oom_templates,
     map_scale_from_scalefactor,
     oom_metadata,
     oom_readme,
@@ -93,7 +94,7 @@ def test_prepare_oom_map_minimal(tmp_path):
         scale=4000,
         preset_id="sprint_2m",
         bbox_wgs84=(14.4, 50.08, 14.42, 50.09),
-        reference_dir=None,
+        built_refs=None,
     )
     assert out == dest
     xml = dest.read_text(encoding="utf-8")
@@ -106,3 +107,17 @@ def test_prepare_oom_map_minimal(tmp_path):
     assert "<ref_point x=\"-699999.500000\" y=\"-1050000.500000\"/>" in xml
     assert '<symbols count="' in xml
     assert '<line_symbol' in xml
+
+
+def test_collect_oom_templates_with_refs(tmp_path):
+    kp = tmp_path / "work"
+    refs = kp / "references"
+    refs.mkdir(parents=True)
+    (refs / "hillshade_dmr5g.png").write_bytes(b"x")
+    (kp / "pullautus.png").write_bytes(b"x")
+    built = {"hillshade": refs / "hillshade_dmr5g.png"}
+    templates = collect_oom_templates(kp, built)
+    assert len(templates) == 2
+    assert templates[0][1] == "references/hillshade_dmr5g.png"
+    assert templates[0][3] == 0.55
+    assert templates[1][1] == "basemap/pullautus.png"

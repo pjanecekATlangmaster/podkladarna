@@ -51,14 +51,21 @@ def build_oom_map_xml(
     ref_y: float,
     ref_lat: float,
     ref_lon: float,
-    templates: list[tuple[str, str, bool]],
+    templates: list[tuple[str, str, bool] | tuple[str, str, bool, float]],
     preset_id: str,
 ) -> str:
     """.omap s referenčními šablonami a oficiální symbolikou IOF (ISSprOM / ISOM)."""
     colors_xml, symbols_xml = colors_and_symbols_xml(symbol_set_path(preset_id, scale))
     template_blocks = []
-    for idx, (label, relpath, visible) in enumerate(templates):
-        template_blocks.append(_template_xml(idx, label, relpath, open_layer=visible))
+    for idx, item in enumerate(templates):
+        if len(item) == 3:
+            label, relpath, visible = item
+            opacity = 1.0
+        else:
+            label, relpath, visible, opacity = item
+        template_blocks.append(
+            _template_xml(idx, label, relpath, open_layer=visible, opacity=opacity)
+        )
     templates_xml = "\n".join(template_blocks)
     template_refs = "\n".join(
         f'                    <ref template="{i}" visible="true" opacity="1"/>'
@@ -117,7 +124,7 @@ def write_oom_map(
     ref_y: float,
     ref_lat: float,
     ref_lon: float,
-    templates: list[tuple[str, str, bool]],
+    templates: list[tuple[str, str, bool] | tuple[str, str, bool, float]],
     preset_id: str,
 ) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)

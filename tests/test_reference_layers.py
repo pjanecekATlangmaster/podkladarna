@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.pipeline.build_oom_map import build_oom_map_xml, write_oom_map
 from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.reference_layers import (
@@ -38,6 +40,38 @@ def test_pgw_roundtrip(tmp_path):
     got = read_pgw(pgw)
     assert got.pixel_x == 0.5
     assert got.origin_x == 100.0
+
+
+def test_osm_pgw_path(tmp_path):
+    out_dir = tmp_path / "references"
+    out_dir.mkdir()
+    osm_pgw = (out_dir / "osm.png").with_suffix(".pgw")
+    assert osm_pgw.name == "osm.pgw"
+
+
+def test_laz_needs_ground_filter():
+    from app.pipeline.reference_layers import _laz_needs_ground_filter
+
+    assert _laz_needs_ground_filter(Path("dmr_ground_0.laz")) is False
+    assert _laz_needs_ground_filter(Path("merged_crop.laz")) is True
+
+
+def test_dem_resolution_m(tmp_path):
+    from app.pipeline.georef import PgwGeoref
+    from app.pipeline.reference_layers import _dem_resolution_m
+
+    mini_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
+        b"\x08\x02\x00\x00\x00\x26\x93\x09\x29\x00\x00\x00\x12IDATx\x9cc\x60\x60"
+        b"\x60\x00\x00\x00\x04\x00\x01\x5c\xcd\xff\x69\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    png = tmp_path / "t.png"
+    png.write_bytes(mini_png)
+    pgw = tmp_path / "t.pgw"
+    PgwGeoref(1.0, 0.0, 0.0, -1.0, 0.0, 4.0).write(pgw)
+    res = _dem_resolution_m(png, pgw)
+    assert 0.25 <= res <= 8.0
+    assert abs(res - 1.0) < 0.01
 
 
 def test_build_oom_map_xml_contains_templates():
