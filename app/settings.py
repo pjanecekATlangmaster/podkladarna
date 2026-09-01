@@ -28,6 +28,11 @@ JOB_RETENTION_HOURS = int(os.environ.get("JOB_RETENTION_HOURS", "48"))
 JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))  # legacy; použijte JOB_RETENTION_HOURS
 MAX_ACTIVE_JOBS_PER_IP = int(os.environ.get("MAX_ACTIVE_JOBS_PER_IP", "2"))
 MAX_JOBS_PER_IP_HOUR = int(os.environ.get("MAX_JOBS_PER_IP_HOUR", "10"))
+JOB_TIMEOUT_MINUTES = int(os.environ.get("JOB_TIMEOUT_MINUTES", "90"))
+if os.environ.get("JOB_TIMEOUT_SECONDS"):
+    JOB_TIMEOUT_SECONDS = max(1, int(os.environ["JOB_TIMEOUT_SECONDS"]))
+else:
+    JOB_TIMEOUT_SECONDS = max(60, JOB_TIMEOUT_MINUTES * 60)
 TRUST_PROXY_HEADERS = os.environ.get("TRUST_PROXY_HEADERS", "1").lower() in (
     "1",
     "true",

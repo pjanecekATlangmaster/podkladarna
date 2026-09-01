@@ -1,6 +1,6 @@
 # Podkladárna
 
-Webová služba pro generování orientačních podkladů z **ČÚZK LiDAR** (DMR 5G + DMP 1G) a **ZABAGED** pomocí [Karttapullautin](https://github.com/karttapullautin/karttapullautin).
+Webová služba pro generování orientačních podkladů z **ČÚZK LiDAR** (DMR 5G + DMP OK) a **ZABAGED** pomocí [Karttapullautin](https://github.com/karttapullautin/karttapullautin).
 
 Výstup: jeden ZIP pro OpenOrienteering Mapper (`podkladarna_output.zip`).
 
@@ -62,6 +62,6 @@ uvicorn app.main:app --reload --app-dir .
 
 Podkladárna je pod **[MIT](./LICENSE)** (© 2026 Petr Janeček).
 
-Výstupy vznikají z otevřených dat **ČÚZK** (DMR 5G, DMP 1G, ZABAGED®, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs))
+Výstupy vznikají z otevřených dat **ČÚZK** (DMR 5G, DMP OK, ZABAGED®, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs))
 a z [Karttapullautin](https://github.com/karttapullautin/karttapullautin) (GPL-3.0).
 Přehled zdrojů a podmínek: **[LICENSES.md](./LICENSES.md)**.

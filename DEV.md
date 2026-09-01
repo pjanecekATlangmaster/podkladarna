@@ -26,7 +26,7 @@ Ověří: health, presety, multipart upload, log jobu, chybové stavy.
 
 V repu jsou malé soubory pro celé kolečko (~2,5 MB):
 
-- `DMR5G.laz`, `DMP1G.laz`, `Zabaged.zip`
+- `DMR5G.laz`, `DMP1G.laz` (lokální test), `Zabaged.zip` — produkce stahuje DMP OK z openzu
 
 ```powershell
 .\scripts\dev.ps1 up           # terminál 1 – Docker dev

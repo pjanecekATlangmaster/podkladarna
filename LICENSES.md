@@ -10,7 +10,7 @@ vlastní podmínky. Při dalším šíření mapy je potřeba uvést zejména Č
 LiDAR a polohopis se stahují jako otevřená data Zeměměřického úřadu / ČÚZK:
 
 - [DMR 5G](https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/) — digitální model reliéfu
-- [DMP 1G](https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/) — digitální model povrchu
+- [DMP OK](https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/) — digitální model povrchu (obrazová korelace)
 - [ZABAGED®](https://geoportal.cuzk.gov.cz/) — polohopis (ArcGIS REST / Geoprohlížeč)
 
 Licence: [Creative Commons Uveďte původ 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs).

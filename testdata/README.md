@@ -5,7 +5,7 @@ Malý výřez pro lokální E2E test pipeline (PDAL → pullauta → ZIP).
 | Soubor | Popis |
 |--------|--------|
 | `DMR5G.laz` | model reliéfu |
-| `DMP1G.laz` | model povrchu |
+| `DMP1G.laz` | model povrchu (lokální test; produkce stahuje DMP OK z openzu) |
 | `Zabaged.zip` | ZABAGED shapefile |
 
 ## Použití

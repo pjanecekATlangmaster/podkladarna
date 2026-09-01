@@ -20,6 +20,9 @@ from app.tiles import fetch_tile
 HILLSHADE_AZIMUTH = 315
 HILLSHADE_ALTITUDE = 45
 MAX_REF_PIXELS = 4096
+# DMR 5G má ~0,5 m mezi body – jemnější raster dělá díry a kostičkovaný hillshade.
+HILLSHADE_DEM_MIN_M = 1.0
+HILLSHADE_DEM_MAX_M = 2.5
 WEB_MERCATOR_HALF = 20037508.342789244
 
 ORTOFOTO_WMS = (
@@ -107,6 +110,12 @@ def _dem_resolution_m(template_png: Path, template_pgw: Path) -> float:
     return max(0.25, min(res, 8.0))
 
 
+def _hillshade_dem_resolution_m(template_png: Path, template_pgw: Path) -> float:
+    """Rozlišení DEM pro hillshade – hrubší než pullautus, aby raster nebyl děravý."""
+    res = _dem_resolution_m(template_png, template_pgw)
+    return max(HILLSHADE_DEM_MIN_M, min(res, HILLSHADE_DEM_MAX_M))
+
+
 def _template_bounds(
     template_png: Path, template_pgw: Path
 ) -> tuple[float, float, float, float]:
@@ -146,6 +155,7 @@ def _align_to_template(
     dest_png: Path,
     dest_pgw: Path,
     *,
+    resample: str = "bilinear",
     log: callable | None = None,
 ) -> None:
     xmin, ymin, xmax, ymax, width, height = _template_extent(template_png, template_pgw)
@@ -165,7 +175,7 @@ def _align_to_template(
         str(tw),
         str(th),
         "-r",
-        "bilinear",
+        resample,
         "-of",
         "PNG",
         "-overwrite",
@@ -186,6 +196,25 @@ def _laz_needs_ground_filter(laz: Path) -> bool:
         "merged_crop.laz",
         "merged_crop_retry.laz",
     )
+
+
+def _pdal_dem_output_type(laz: Path) -> str:
+    """Interpolace rasteru z bodů – max je stabilnější než idw u DMR 5G."""
+    return "max"
+
+
+def _fill_dem_nodata(src: Path, dest: Path, *, log: callable | None = None) -> Path:
+    """Vyplní malé díry v DEM před hillshade (pokud je k dispozici gdal_fillnodata)."""
+    for name in ("gdal_fillnodata.py", "gdal_fillnodata"):
+        try:
+            tool = _gdal_tool(name)
+        except RuntimeError:
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        run_cmd([tool, str(src), str(dest), "-md", "24"], log=log)
+        return dest
+    shutil.copy2(src, dest)
+    return dest
 
 
 def _pdal_dem_from_laz(
@@ -217,7 +246,7 @@ def _pdal_dem_from_laz(
             "type": "writers.gdal",
             "filename": str(dest_tif),
             "resolution": resolution_m,
-            "output_type": "idw",
+            "output_type": _pdal_dem_output_type(laz),
             "data_type": "float32",
             "gdaldriver": "GTiff",
             "nodata": -9999,
@@ -248,9 +277,10 @@ def build_hillshade_from_dmr(
         return False
     work = dest_png.parent
     dem_tif = work / "_dem.tif"
+    dem_filled = work / "_dem_filled.tif"
     shade_tif = work / "_hillshade.tif"
     crop = _template_bounds(template_png, template_pgw)
-    resolution_m = _dem_resolution_m(template_png, template_pgw)
+    resolution_m = _hillshade_dem_resolution_m(template_png, template_pgw)
     if log:
         log(
             f"Hillshade: zdroj {dmr_laz.name}, DEM {resolution_m:.2f} m/px "
@@ -261,25 +291,34 @@ def build_hillshade_from_dmr(
     )
     if not dem_tif.is_file() or dem_tif.stat().st_size < 500:
         raise RuntimeError(f"PDAL nevytvořil DEM ({dem_tif.name})")
+    _fill_dem_nodata(dem_tif, dem_filled, log=log)
     gdaldem = _gdal_tool("gdaldem")
     run_cmd(
         [
             gdaldem,
             "hillshade",
-            str(dem_tif),
+            str(dem_filled),
             str(shade_tif),
             "-az",
             str(HILLSHADE_AZIMUTH),
             "-alt",
             str(HILLSHADE_ALTITUDE),
-            "-compute_edges",
             "-of",
             "GTiff",
         ],
         log=log,
     )
-    _align_to_template(shade_tif, template_png, template_pgw, dest_png, dest_pgw, log=log)
+    _align_to_template(
+        shade_tif,
+        template_png,
+        template_pgw,
+        dest_png,
+        dest_pgw,
+        resample="cubic",
+        log=log,
+    )
     dem_tif.unlink(missing_ok=True)
+    dem_filled.unlink(missing_ok=True)
     shade_tif.unlink(missing_ok=True)
     if log:
         log(

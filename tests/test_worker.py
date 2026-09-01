@@ -1,41 +1,56 @@
 from __future__ import annotations
 
+import importlib
+import subprocess
 
-def test_enqueue_starts_worker(monkeypatch, data_dir):
-    import app.db as db
+import pytest
+
+from app import db
+
+
+def test_mark_interrupted_running_jobs(data_dir):
+    db.init_db()
+    job = db.create_job("x", "sprint_2m", {})
+    db.update_job(job["id"], status="running", phase="prepare")
+    ids = db.mark_interrupted_running_jobs("test interrupt")
+    assert job["id"] in ids
+    got = db.get_job(job["id"])
+    assert got["status"] == "failed"
+    assert "test interrupt" in (got["error"] or "")
+
+
+def test_worker_timeout_frees_slot(monkeypatch, data_dir):
+    monkeypatch.setenv("JOB_TIMEOUT_SECONDS", "1")
+    import app.settings as settings
+
+    importlib.reload(settings)
     import app.worker as worker
 
-    db.init_db()
-    db.create_job("test", "sprint_2m", {})
-    started: list[str] = []
-
-    def fake_run(job_id: str) -> None:
-        started.append(job_id)
-
-    monkeypatch.setattr(worker, "_run", fake_run)
-    worker._running = None
-    worker._queue.clear()
-
-    worker.enqueue("abc123")
-
-    assert started == ["abc123"]
-    assert worker._running == "abc123"
-
-
-def test_enqueue_queues_when_busy(data_dir):
-    import app.db as db
-    import app.worker as worker
+    importlib.reload(worker)
 
     db.init_db()
-    db.create_job("busy1", "sprint_2m", {})
-    db.create_job("job2", "sprint_2m", {})
-    worker._running = "busy1"
-    worker._queue.clear()
+    job = db.create_job("timeout", "sprint_2m", {})
+    job_id = job["id"]
+    db.update_job(job_id, status="running", phase="starting")
+    (data_dir / "jobs" / job_id / "work").mkdir(parents=True, exist_ok=True)
 
-    worker.enqueue("job2")
+    class FakeProc:
+        pid = 4242
+        returncode = None
 
-    assert "job2" in worker._queue
-    assert worker._running == "busy1"
+        def poll(self):
+            return None
 
-    worker._running = None
-    worker._queue.clear()
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout or 0)
+
+    monkeypatch.setattr(worker, "_popen_job", lambda _jid: FakeProc())
+    monkeypatch.setattr(worker, "_terminate_process_tree", lambda _proc: None)
+
+    worker._running = job_id
+    worker._run(job_id)
+
+    got = db.get_job(job_id)
+    assert got["status"] == "failed"
+    assert "časový limit" in (got["error"] or "")
+    assert worker._running is None

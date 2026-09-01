@@ -3,7 +3,7 @@
 WEB_ABOUT_HTML = """
 <p>
   <strong>Podkladárna</strong> je domácí služba pro orientační mapy: z výřezu na mapě
-  stáhne data ČÚZK (LiDAR DMR/DMP a polohopis ZABAGED), zpracuje je programem
+  stáhne data ČÚZK (LiDAR DMR 5G + DMP OK a polohopis ZABAGED), zpracuje je programem
   Karttapullautin a připraví balíček pro
   <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a>.
 </p>
@@ -51,7 +51,7 @@ případně export z OOM do OCD (v8–12).
 
 Právní
 ------
-Data ČÚZK (DMR 5G, DMP 1G, ZABAGED®, ortofoto) – licence CC BY 4.0.
+Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto) – licence CC BY 4.0.
 Při šíření mapy uveďte: „Zdroj: ČÚZK, [rok]“. OSM © přispěvatelé (ODbL).
 Reliéf: Karttapullautin (GPL-3.0).
 

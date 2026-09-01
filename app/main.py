@@ -66,6 +66,9 @@ mimetypes.add_type("image/png", ".png")
 def startup() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     db.init_db()
+    interrupted = worker.recover_after_restart()
+    if interrupted:
+        logger.info("Recovered %s interrupted job(s): %s", len(interrupted), interrupted)
     removed = purge_old_jobs()
     if removed:
         logger.info("Startup cleanup: removed %s old job(s)", removed)

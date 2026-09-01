@@ -99,13 +99,14 @@ bbox (mapa, WGS84)
      query bbox → MAPNOM[] (např. PRAH77)
   → download:
      https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/{MAPNOM}.zip
-     https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/{MAPNOM}.zip
+     https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/{MAPNOM}.zip
+     (fallback: DMP1G, pokud DMP OK na listu ještě není)
   → unzip → PDAL merge → crop bbox (+ buffer 30 m) → class fix
 ```
 
 - Cache stažených listů: `/data/cache/sm5/{MAPNOM}/`
 - UI: „Protíná listy: PRAH77, PRAH78 (4 listy)“ – ne velikosti v MB
-- DMP OK: až bude na openzu (2027); do té doby DMP1G
+- DMP OK: primární model povrchu (obrazová korelace, 0,2 m); DMP 1G jen záloha
 
 ### ZABAGED
 - **v1.1:** stejný bbox jako LiDAR → ArcGIS REST `ZABAGED_POLOHOPIS` (stránkování, shapefile ZIP)
@@ -240,7 +241,7 @@ podkladarna_oom/
 - [ ] Batch: více SM5 + pngmerge / dxfmerge
 - [ ] contoursonly / vegeonly / cliffsonly
 - [ ] OSM preset (Caorle / zahraničí)
-- [ ] DMP OK místo DMP1G
+- [x] DMP OK místo DMP1G (primární zdroj, fallback na DMP 1G)
 
 ---
 

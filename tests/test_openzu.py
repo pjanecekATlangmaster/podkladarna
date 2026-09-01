@@ -216,3 +216,41 @@ def test_query_http_error(monkeypatch):
     monkeypatch.setattr("app.pipeline.fetch_openzu.urllib.request.urlopen", boom)
     with pytest.raises(FetchError, match="HTTP 500"):
         query_sm5_sheets(14.4, 50.08, 14.42, 50.09)
+
+
+def test_cached_dmp_laz_prefers_dmpok(tmp_path, monkeypatch):
+    from app import settings
+    from app.download_cache import write_meta
+    from app.pipeline.fetch_openzu import _cached_dmp_laz
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    folder = tmp_path / "lidar" / "sm5" / "PRAH77"
+    folder.mkdir(parents=True)
+    dmpok = folder / "DMPOK.laz"
+    dmpok.write_bytes(b"x" * 2000)
+    write_meta(folder, downloaded_at="2026-01-01T00:00:00+00:00")
+
+    got = _cached_dmp_laz("PRAH77", log=None)
+    assert got == dmpok
+
+
+def test_cached_dmp_laz_falls_back_to_dmp1g(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    from app import settings
+    from app.download_cache import write_meta
+    from app.pipeline.fetch_openzu import FetchError, _cached_dmp_laz
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    folder = tmp_path / "lidar" / "sm5" / "PRAH77"
+    folder.mkdir(parents=True)
+    dmp1g = folder / "DMP1G.laz"
+    dmp1g.write_bytes(b"y" * 2000)
+    write_meta(folder, downloaded_at=datetime.now(timezone.utc).isoformat())
+
+    def fail_dmpok(*args, **kwargs):
+        raise FetchError("HTTP 404")
+
+    monkeypatch.setattr("app.pipeline.fetch_openzu._cached_laz", fail_dmpok)
+    got = _cached_dmp_laz("PRAH77", log=None)
+    assert got == dmp1g

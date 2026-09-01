@@ -152,6 +152,30 @@ def update_job(job_id: str, **fields: Any) -> None:
         conn.commit()
 
 
+def mark_interrupted_running_jobs(reason: str) -> list[str]:
+    """Po restartu serveru – joby „running“ v DB uvolní frontu."""
+    now = _utcnow()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id FROM jobs WHERE status = 'running'",
+        ).fetchall()
+        ids = [row["id"] for row in rows]
+        if not ids:
+            return []
+        conn.execute(
+            """
+            UPDATE jobs
+            SET status = 'failed', phase = 'error', error = ?, updated_at = ?
+            WHERE status = 'running'
+            """,
+            (reason, now),
+        )
+        conn.commit()
+    for job_id in ids:
+        append_log(job_id, f"CHYBA: {reason}")
+    return ids
+
+
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
         return None

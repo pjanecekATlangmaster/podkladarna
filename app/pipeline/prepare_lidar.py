@@ -115,7 +115,9 @@ def merge_dmr_dmp(
     if not dmr_files:
         raise FileNotFoundError("Chybí alespoň jeden soubor DMR 5G (LAZ/LAS)")
     if not dmp_files:
-        raise FileNotFoundError("Chybí alespoň jeden soubor DMP 1G (LAZ/LAS)")
+        raise FileNotFoundError(
+            "Chybí alespoň jeden soubor modelu povrchu (DMP OK / DMP 1G, LAZ/LAS)"
+        )
 
     pdal = find_tool("pdal")
     work_dir.mkdir(parents=True, exist_ok=True)

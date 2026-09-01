@@ -21,7 +21,8 @@ KLAD_QUERY_URL = (
     "KladyMapovychListu/MapServer/24/query"
 )
 OPENZU_DMR = "https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/{mapnom}.zip"
-OPENZU_DMP = "https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/{mapnom}.zip"
+OPENZU_DMPOK = "https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/{mapnom}.zip"
+OPENZU_DMP1G = "https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/{mapnom}.zip"
 USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladarna)"
 MAX_SHEETS = 8
 MAX_BBOX_KM = 5.0
@@ -163,10 +164,40 @@ def fetch_lidar_for_bbox(
     dmp_paths: list[Path] = []
     for mapnom in names:
         dmr = _cached_laz(mapnom, "DMR5G", OPENZU_DMR.format(mapnom=mapnom), log)
-        dmp = _cached_laz(mapnom, "DMP1G", OPENZU_DMP.format(mapnom=mapnom), log)
+        dmp = _cached_dmp_laz(mapnom, log)
         dmr_paths.append(dmr)
         dmp_paths.append(dmp)
     return dmr_paths, dmp_paths, names
+
+
+def _cached_dmp_laz(mapnom: str, log: callable | None) -> Path:
+    """Model povrchu: primárně DMP OK (obrazová korelace), záloha DMP 1G."""
+    folder = lidar_sheet_dir(mapnom)
+    dmpok = folder / "DMPOK.laz"
+    if is_fresh(folder, dmpok, settings.LIDAR_CACHE_MAX_AGE_DAYS):
+        if log:
+            meta = read_meta(folder) or {}
+            age = meta.get("downloaded_at", "?")[:10]
+            log(f"LiDAR cache {mapnom} DMPOK (staženo {age})")
+        return dmpok
+
+    try:
+        return _cached_laz(
+            mapnom, "DMPOK", OPENZU_DMPOK.format(mapnom=mapnom), log
+        )
+    except FetchError as exc:
+        dmp1g = folder / "DMP1G.laz"
+        if is_fresh(folder, dmp1g, settings.LIDAR_CACHE_MAX_AGE_DAYS):
+            if log:
+                log(
+                    f"DMP OK {mapnom} nedostupný ({exc}) – používám cache DMP 1G"
+                )
+            return dmp1g
+        if log:
+            log(f"DMP OK {mapnom} nedostupný ({exc}) – zkouším DMP 1G …")
+        return _cached_laz(
+            mapnom, "DMP1G", OPENZU_DMP1G.format(mapnom=mapnom), log
+        )
 
 
 def _cached_laz(mapnom: str, kind: str, url: str, log: callable | None) -> Path:

@@ -58,7 +58,7 @@ def test_laz_needs_ground_filter():
 
 def test_dem_resolution_m(tmp_path):
     from app.pipeline.georef import PgwGeoref
-    from app.pipeline.reference_layers import _dem_resolution_m
+    from app.pipeline.reference_layers import _dem_resolution_m, _hillshade_dem_resolution_m
 
     mini_png = (
         b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
@@ -72,6 +72,15 @@ def test_dem_resolution_m(tmp_path):
     res = _dem_resolution_m(png, pgw)
     assert 0.25 <= res <= 8.0
     assert abs(res - 1.0) < 0.01
+    hill = _hillshade_dem_resolution_m(png, pgw)
+    assert hill == 1.0
+
+
+def test_pdal_dem_output_type():
+    from app.pipeline.reference_layers import _pdal_dem_output_type
+
+    assert _pdal_dem_output_type(Path("dmr_ground_0.laz")) == "max"
+    assert _pdal_dem_output_type(Path("merged_crop.laz")) == "max"
 
 
 def test_build_oom_map_xml_contains_templates():

@@ -88,7 +88,7 @@ def oom_readme(meta: dict) -> str:
         "4. File → Import… → vectors/*.shp (ZABAGED). Symboliku přiřaďte ručně.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
-        "Data: ČÚZK (DMR 5G, DMP 1G, ZABAGED®, ortofoto), CC BY 4.0. "
+        "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto), CC BY 4.0. "
         "OSM © přispěvatelé (ODbL). Při šíření mapy uveďte zdroj: ČÚZK, [rok].\n"
         "Reliéf a vegetace: Karttapullautin (GPL-3.0).\n"
     )
