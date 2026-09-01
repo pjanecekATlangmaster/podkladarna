@@ -12,6 +12,31 @@ def load_presets() -> dict:
     return yaml.safe_load((CONFIG_DIR / "presets.yaml").read_text(encoding="utf-8"))
 
 
+def kp_contour_interval(ground_m: float, scalefactor: float, formline: float) -> float:
+    """Convert metres-on-ground contour interval to Karttapullautin's INI value.
+
+    KP always generates contours at ``contour_interval / 2 * scalefactor``.
+    With ``formline > 0`` every other line is a formline, so main contours
+    land at ``contour_interval * scalefactor``. With ``formline = 0`` every
+    half-interval line is drawn as a full contour.
+    """
+    sf = float(scalefactor)
+    if sf <= 0:
+        sf = 1.0
+    ground = float(ground_m)
+    if float(formline) > 0:
+        return ground / sf
+    return 2.0 * ground / sf
+
+
+def _ini_number(value: float) -> int | float:
+    rounded = round(float(value), 6)
+    as_int = round(rounded)
+    if abs(rounded - as_int) < 1e-9:
+        return int(as_int)
+    return rounded
+
+
 def write_pullauta_ini(
     work_dir: Path,
     preset_id: str,
@@ -29,12 +54,19 @@ def write_pullauta_ini(
     else:
         lines = []
 
+    scalefactor = opts.get("scalefactor", preset["scalefactor"])
+    formline = opts.get("formline", preset["formline"])
+    ground_interval = opts.get("contour_interval", preset["contour_interval"])
+    contour_interval = _ini_number(
+        kp_contour_interval(ground_interval, scalefactor, formline)
+    )
+
     overrides: dict[str, str | int | float] = {
         "vectorconf": preset.get("vectorconf", "zabaged.txt"),
-        "contour_interval": opts.get("contour_interval", preset["contour_interval"]),
+        "contour_interval": contour_interval,
         "basemapinterval": opts.get("basemapinterval", preset["basemapinterval"]),
-        "scalefactor": opts.get("scalefactor", preset["scalefactor"]),
-        "formline": opts.get("formline", preset["formline"]),
+        "scalefactor": scalefactor,
+        "formline": formline,
         "smoothing": opts.get("smoothing", preset.get("smoothing", 0.7)),
         "processes": opts.get("processes", preset.get("processes", 2)),
         "output_dxf": 1 if opts.get("output_dxf", True) else 0,
@@ -45,6 +77,9 @@ def write_pullauta_ini(
         "contoursonly": 0,
         "cliffsonly": 0,
     }
+    indexcontours = opts.get("indexcontours", preset.get("indexcontours"))
+    if indexcontours is not None:
+        overrides["indexcontours"] = indexcontours
 
     disabled_keys = {"waterelevation", "buildingsclass"}
     out: list[str] = []

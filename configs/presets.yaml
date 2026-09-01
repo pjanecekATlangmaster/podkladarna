@@ -1,6 +1,10 @@
+# contour_interval is metres on the ground. ini_builder converts it for
+# Karttapullautin (interval is multiplied by scalefactor; formline=0 draws
+# every half-interval line as a full contour).
 sprint_2m:
   label: "Sprint 1:4000 · 2 m"
   contour_interval: 2
+  indexcontours: 10
   basemapinterval: 0.5
   scalefactor: 0.4
   formline: 0
@@ -11,6 +15,7 @@ sprint_2m:
 sprint_2_5m:
   label: "Sprint 1:4000 · 2,5 m"
   contour_interval: 2.5
+  indexcontours: 12.5
   basemapinterval: 0.625
   scalefactor: 0.4
   formline: 0

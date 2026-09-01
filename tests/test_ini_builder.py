@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from app.pipeline.ini_builder import kp_contour_interval, write_pullauta_ini
+
+
+def _ini_map(text: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, val = stripped.split("=", 1)
+        out[key.strip()] = val.strip()
+    return out
+
+
+def test_kp_contour_interval_sprint_no_formlines():
+    # formline=0 → KP draws every half-interval line as a full contour
+    assert kp_contour_interval(2, 0.4, 0) == 10
+    assert kp_contour_interval(2.5, 0.4, 0) == 12.5
+
+
+def test_kp_contour_interval_forest_with_formlines():
+    assert kp_contour_interval(5, 1.0, 2) == 5
+    assert abs(kp_contour_interval(5, 0.75, 2) - (5 / 0.75)) < 1e-9
+
+
+def test_write_pullauta_ini_converts_sprint_interval(tmp_path: Path):
+    path = write_pullauta_ini(tmp_path, "sprint_2m")
+    ini = _ini_map(path.read_text(encoding="utf-8"))
+    assert ini["contour_interval"] == "10"
+    assert ini["scalefactor"] == "0.4"
+    assert ini["formline"] == "0"
+    assert ini["indexcontours"] == "10"
+
+
+def test_write_pullauta_ini_sprint_2_5m(tmp_path: Path):
+    path = write_pullauta_ini(tmp_path, "sprint_2_5m")
+    ini = _ini_map(path.read_text(encoding="utf-8"))
+    assert ini["contour_interval"] == "12.5"
+    assert ini["indexcontours"] == "12.5"
+
+
+def test_write_pullauta_ini_forest_scales_interval(tmp_path: Path):
+    path = write_pullauta_ini(tmp_path, "forest_7500")
+    ini = _ini_map(path.read_text(encoding="utf-8"))
+    assert float(ini["contour_interval"]) == round(5 / 0.75, 6)
+
+    path10000 = write_pullauta_ini(tmp_path / "f10", "forest_10000")
+    ini10000 = _ini_map(path10000.read_text(encoding="utf-8"))
+    assert ini10000["contour_interval"] == "5"
