@@ -164,7 +164,6 @@ def _align_to_template(
         "-ts",
         str(tw),
         str(th),
-        "-tap",
         "-r",
         "bilinear",
         "-of",
