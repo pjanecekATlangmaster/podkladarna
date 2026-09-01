@@ -45,6 +45,7 @@ def test_create_job_multipart(client):
     job = r.json()
     assert job["id"]
     assert job["status"] in ("running", "queued", "failed")
+    assert job["has_oom"] is False
 
     log = client.get(f"/api/jobs/{job['id']}/log")
     assert log.status_code == 200
@@ -115,6 +116,32 @@ def test_index_html(client):
     assert "job-detail" in html
     assert "job-detail-holder" in html
     assert "jobs-list" in html
+    assert "detail-download-oom" in html
+    assert "ZIP pro OOM" in html
+    assert "Podkladárna v1.5" in html
+    assert "jobs-live" in html
+    assert "jobs-finished-bar" in html
+    assert 'href="/licence"' in html
+    assert "creativecommons.org/licenses/by/4.0" in html
+    assert "DEPLOY.md" not in html
+
+
+def test_licence_page(client):
+    r = client.get("/licence")
+    assert r.status_code == 200
+    html = r.text
+    assert "MIT" in html
+    assert "ČÚZK" in html
+    assert "ZABAGED" in html
+    assert "Karttapullautin" in html
+    assert "Leaflet" in html
+    assert "OpenStreetMap" in html
+    assert "Petr Janeček" in html
+
+
+def test_download_oom_missing(client):
+    r = client.get("/api/jobs/missing/download/oom")
+    assert r.status_code == 404
 
 
 def test_logo_png(client):

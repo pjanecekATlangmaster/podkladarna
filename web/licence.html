@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Licence – Podkladárna</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <a href="/"><img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" /></a>
+    <div>
+      <h1>Licence a zdroje</h1>
+      <p class="tagline"><a href="/">← zpět na Podkladárnu</a></p>
+    </div>
+  </header>
+
+  <main class="licence-page">
+    <p>
+      <strong>Podkladárna</strong> (web, API, pipeline) je svobodný software pod licencí
+      <a href="https://opensource.org/license/mit" target="_blank" rel="noopener">MIT</a>,
+      © 2026 Petr Janeček.
+      Zdrojový kód:
+      <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">GitHub</a>.
+    </p>
+    <p>
+      Výstup jobu (PNG, DXF, shapefile) vzniká z dat ČÚZK a z Karttapullautinu.
+      Při dalším použití mapy je nutné uvést zdroje níže.
+    </p>
+
+    <h2>Data ČÚZK</h2>
+    <p>
+      Digitální model reliéfu <strong>DMR 5G</strong>, model povrchu <strong>DMP 1G</strong>
+      a polohopis <strong>ZABAGED®</strong> poskytuje Zeměměřický úřad / ČÚZK jako otevřená data
+      pod <a href="https://creativecommons.org/licenses/by/4.0/deed.cs" target="_blank" rel="noopener">CC BY 4.0</a>.
+    </p>
+    <ul>
+      <li><a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">Geoportál ČÚZK</a></li>
+      <li><a href="https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/" target="_blank" rel="noopener">openzu – DMR 5G</a></li>
+      <li><a href="https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/" target="_blank" rel="noopener">openzu – DMP 1G</a></li>
+      <li>
+        <a href="https://www.cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/Podminky-poskytovani-prostorovych-dat-CUZK.aspx" target="_blank" rel="noopener">Podmínky poskytování prostorových dat ČÚZK</a>
+      </li>
+    </ul>
+    <p>Na tiskových výstupech: <strong>ČÚZK, [rok]</strong> (rok podle aktuálnosti dat).</p>
+
+    <h2>Karttapullautin</h2>
+    <p>
+      Reliéf, vegetace, vrstevnice a srázy kreslí
+      <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
+      (<a href="https://github.com/karttapullautin/karttapullautin/blob/master/LICENSE" target="_blank" rel="noopener">GPL-3.0</a>).
+      Docker image obsahuje binárku <code>pullauta</code>; zdroj je u upstreamu.
+    </p>
+
+    <h2>Mapa výřezu</h2>
+    <ul>
+      <li>Dlaždice: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> přispěvatelé (ODbL)</li>
+      <li>Knihovna: <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a> (BSD-2-Clause)</li>
+    </ul>
+
+    <h2>Další nástroje</h2>
+    <ul>
+      <li><a href="https://pdal.io/" target="_blank" rel="noopener">PDAL</a> (BSD) – zpracování LiDARu</li>
+      <li><a href="https://gdal.org/" target="_blank" rel="noopener">GDAL</a> (MIT/X) – vektory ZABAGED</li>
+      <li>
+        Cílový editor (není součástí služby):
+        <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a> (GPL-3.0)
+      </li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <p><a href="/">Podkladárna</a> v1.5 · licence MIT</p>
+  </footer>
+</body>
+</html>

@@ -62,7 +62,11 @@ async function api(path, opts = {}) {
 let selectedJobId = null;
 let selectedJobStatus = null;
 let logAfter = 0;
+let logSettledForJob = null;
 let pollTimer = null;
+let finishedPage = 0;
+let focusFinishedJobId = null;
+const FINISHED_PAGE_SIZE = 8;
 let bboxMap = null;
 let bboxCorners = [];
 let bboxRect = null;
@@ -101,58 +105,180 @@ async function loadPresets() {
   sel.value = "";
 }
 
+function jobIsLive(status) {
+  return status === "running" || status === "queued" || status === "pending";
+}
+
+function jobItemHeadHtml(job) {
+  let queueLabel = "";
+  if (job.queue_position === 0) {
+    queueLabel = " · právě běží";
+  } else if (job.queue_position) {
+    queueLabel = ` · fronta #${job.queue_position}`;
+  }
+  let timing = "";
+  if (job.status === "done" || job.status === "failed") {
+    const dur = formatDuration(job.duration_s);
+    if (dur) timing = ` · ${dur}`;
+  }
+  return `
+    <strong>${escapeHtml(job.name)}</strong>
+    <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}${timing}</div>
+    <div class="status">${job.preset_id} · ${escapeHtml(formatWhen(job.created_at))}</div>
+    ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
+  `;
+}
+
+function splitJobs(jobs) {
+  const live = [];
+  const finished = [];
+  for (const job of jobs) {
+    if (jobIsLive(job.status)) live.push(job);
+    else finished.push(job);
+  }
+  return { live, finished };
+}
+
+function jobItemEl(jobId) {
+  return document.querySelector(`.job-item[data-id="${CSS.escape(jobId)}"]`);
+}
+
+function upsertJobItem(list, job, order) {
+  const detail = jobDetailEl();
+  let div = jobItemEl(job.id);
+  if (!div) {
+    div = document.createElement("div");
+    div.className = "job-item";
+    div.dataset.id = job.id;
+    const head = document.createElement("div");
+    head.className = "job-item-head";
+    div.appendChild(head);
+    div.onclick = (e) => {
+      if (e.target.closest(".job-detail")) return;
+      selectJob(job.id);
+    };
+  }
+  div.classList.toggle("selected", job.id === selectedJobId);
+  div.classList.toggle("expanded", job.id === selectedJobId);
+  let head = div.querySelector(":scope > .job-item-head");
+  if (!head) {
+    head = document.createElement("div");
+    head.className = "job-item-head";
+    div.insertBefore(head, detail && div.contains(detail) ? detail : div.firstChild);
+  }
+  const html = jobItemHeadHtml(job);
+  if (head._html !== html) {
+    head.innerHTML = html;
+    head._html = html;
+  }
+  const at = [...list.children].indexOf(div);
+  const want = order.findIndex((j) => j.id === job.id);
+  if (at !== want) {
+    list.insertBefore(div, list.children[want] || null);
+  }
+}
+
+function syncJobsList(liveJobs, finishedJobs) {
+  const liveList = document.getElementById("jobs-live");
+  const doneList = document.getElementById("jobs-list");
+  if (!liveList || !doneList) return;
+  const detail = jobDetailEl();
+  const visibleIds = new Set([...liveJobs, ...finishedJobs].map((j) => j.id));
+  for (const job of liveJobs) upsertJobItem(liveList, job, liveJobs);
+  for (const job of finishedJobs) upsertJobItem(doneList, job, finishedJobs);
+  for (const list of [liveList, doneList]) {
+    for (const child of [...list.children]) {
+      if (visibleIds.has(child.dataset.id)) continue;
+      if (detail && child.contains(detail)) parkJobDetail();
+      child.remove();
+    }
+  }
+  liveList.classList.toggle("hidden", liveJobs.length === 0);
+}
+
+function updateFinishedPager(total) {
+  const bar = document.getElementById("jobs-finished-bar");
+  const prev = document.getElementById("jobs-prev");
+  const next = document.getElementById("jobs-next");
+  const label = document.getElementById("jobs-finished-label");
+  const pageLabel = document.getElementById("jobs-page-label");
+  if (!bar || !prev || !next || !label || !pageLabel) return;
+  const pages = Math.max(1, Math.ceil(total / FINISHED_PAGE_SIZE) || 1);
+  if (finishedPage > pages - 1) finishedPage = pages - 1;
+  if (finishedPage < 0) finishedPage = 0;
+  if (!total) {
+    bar.classList.add("hidden");
+    return;
+  }
+  bar.classList.remove("hidden");
+  const from = finishedPage * FINISHED_PAGE_SIZE + 1;
+  const to = Math.min(total, (finishedPage + 1) * FINISHED_PAGE_SIZE);
+  label.textContent = `Hotové ${from}–${to} z ${total}`;
+  pageLabel.textContent = pages > 1 ? `${finishedPage + 1} / ${pages}` : "";
+  prev.disabled = finishedPage <= 0;
+  next.disabled = finishedPage >= pages - 1;
+  prev.classList.toggle("hidden", pages <= 1);
+  next.classList.toggle("hidden", pages <= 1);
+}
+
+function initJobsPager() {
+  const prev = document.getElementById("jobs-prev");
+  const next = document.getElementById("jobs-next");
+  if (prev) {
+    prev.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (finishedPage <= 0) return;
+      finishedPage -= 1;
+      loadJobs();
+    });
+  }
+  if (next) {
+    next.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      finishedPage += 1;
+      loadJobs();
+    });
+  }
+}
+
 async function loadJobs() {
   const data = await api("/api/jobs");
   updateWorkerStatus(data);
-  parkJobDetail();
-  const list = document.getElementById("jobs-list");
-  list.innerHTML = "";
 
   let justPicked = false;
   if (!selectedJobId && data.jobs.length) {
     const running = data.jobs.find((j) => j.status === "running");
     selectedJobId = (running || data.jobs[0]).id;
     logAfter = 0;
+    logSettledForJob = null;
     justPicked = true;
   }
 
-  for (const job of data.jobs) {
-    const div = document.createElement("div");
-    div.className = "job-item";
-    if (job.id === selectedJobId) div.classList.add("selected");
-    div.dataset.id = job.id;
-    let queueLabel = "";
-    if (job.queue_position === 0) {
-      queueLabel = " · právě běží";
-    } else if (job.queue_position) {
-      queueLabel = ` · fronta #${job.queue_position}`;
-    }
-    let timing = "";
-    if (job.status === "done" || job.status === "failed") {
-      const dur = formatDuration(job.duration_s);
-      if (dur) timing = ` · ${dur}`;
-    }
-    div.innerHTML = `
-      <strong>${escapeHtml(job.name)}</strong>
-      <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}${timing}</div>
-      <div class="status">${job.preset_id} · ${escapeHtml(formatWhen(job.created_at))}</div>
-      ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
-    `;
-    div.onclick = (e) => {
-      if (e.target.closest(".job-detail")) return;
-      selectJob(job.id);
-    };
-    list.appendChild(div);
+  const { live, finished } = splitJobs(data.jobs);
+  const focusId = focusFinishedJobId || (justPicked ? selectedJobId : null);
+  if (focusId) {
+    const i = finished.findIndex((j) => j.id === focusId);
+    if (i >= 0) finishedPage = Math.floor(i / FINISHED_PAGE_SIZE);
+    focusFinishedJobId = null;
   }
+  const pages = Math.max(1, Math.ceil(finished.length / FINISHED_PAGE_SIZE) || 1);
+  if (finishedPage > pages - 1) finishedPage = pages - 1;
+  if (finishedPage < 0) finishedPage = 0;
+  const start = finishedPage * FINISHED_PAGE_SIZE;
+  const pageJobs = finished.slice(start, start + FINISHED_PAGE_SIZE);
+  updateFinishedPager(finished.length);
+  syncJobsList(live, pageJobs);
 
-  const selectedEl = selectedJobId
-    ? list.querySelector(`[data-id="${CSS.escape(selectedJobId)}"]`)
-    : null;
-  if (selectedEl) {
-    attachJobDetail(selectedEl);
-    const selected = data.jobs.find((j) => j.id === selectedJobId);
-    if (selected) {
-      selectedJobStatus = selected.status;
+  const selectedEl = selectedJobId ? jobItemEl(selectedJobId) : null;
+  const selected = data.jobs.find((j) => j.id === selectedJobId);
+  if (selectedEl && selected) {
+    const alreadyOpen = jobDetailEl()?.parentElement === selectedEl;
+    if (!alreadyOpen) attachJobDetail(selectedEl);
+    selectedJobStatus = selected.status;
+    const liveJob = jobIsLive(selected.status);
+    if (liveJob || logSettledForJob !== selected.id) {
       document.getElementById("detail-status").textContent =
         `Stav: ${selected.status} · preset: ${selected.preset_id}` +
         (selected.error ? ` · ${selected.error}` : "");
@@ -161,10 +287,7 @@ async function loadJobs() {
         timingEl.textContent = jobTimingText(selected);
         timingEl.classList.toggle("hidden", !timingEl.textContent);
       }
-      document.getElementById("detail-download").href = `/api/jobs/${selected.id}/download`;
-      document.getElementById("detail-download").classList.toggle("hidden", !selected.has_output);
-      document.getElementById("detail-preview").href = `/api/jobs/${selected.id}/preview.png`;
-      document.getElementById("detail-preview").classList.toggle("hidden", !selected.has_preview);
+      setJobActionLinks(selected);
       const img = document.getElementById("detail-img");
       if (selected.has_preview) {
         if (img.classList.contains("hidden")) {
@@ -174,15 +297,18 @@ async function loadJobs() {
       } else {
         img.classList.add("hidden");
       }
+      if (justPicked) {
+        await fillJobDetail(selectedJobId, { applyForm: false });
+      }
+      await refreshLog();
     }
-    if (justPicked) {
-      await fillJobDetail(selectedJobId, { applyForm: false });
-    }
-    await refreshLog();
   } else {
-    selectedJobId = null;
-    selectedJobStatus = null;
+    parkJobDetail();
     jobDetailEl().classList.add("hidden");
+    if (!selected) {
+      selectedJobId = null;
+      selectedJobStatus = null;
+    }
   }
 }
 
@@ -252,6 +378,18 @@ function jobTimingText(job) {
   return start ? `Zařazeno ${start}` : "";
 }
 
+function setJobActionLinks(job) {
+  document.getElementById("detail-download").href = `/api/jobs/${job.id}/download`;
+  document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
+  const oom = document.getElementById("detail-download-oom");
+  if (oom) {
+    oom.href = `/api/jobs/${job.id}/download/oom`;
+    oom.classList.toggle("hidden", !job.has_oom);
+  }
+  document.getElementById("detail-preview").href = `/api/jobs/${job.id}/preview.png`;
+  document.getElementById("detail-preview").classList.toggle("hidden", !job.has_preview);
+}
+
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -270,10 +408,7 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
     timingEl.classList.toggle("hidden", !timingEl.textContent);
   }
   if (applyForm) applyJobToForm(job);
-  document.getElementById("detail-download").href = `/api/jobs/${id}/download`;
-  document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
-  document.getElementById("detail-preview").href = `/api/jobs/${id}/preview.png`;
-  document.getElementById("detail-preview").classList.toggle("hidden", !job.has_preview);
+  setJobActionLinks(job);
   const img = document.getElementById("detail-img");
   if (job.has_preview) {
     img.src = `/api/jobs/${id}/preview.png?t=${Date.now()}`;
@@ -289,6 +424,8 @@ async function selectJob(id) {
   selectedJobId = id;
   if (!same) {
     logAfter = 0;
+    logSettledForJob = null;
+    focusFinishedJobId = id;
     document.getElementById("detail-log").textContent = "";
   }
   await fillJobDetail(id, { applyForm: true });
@@ -297,15 +434,19 @@ async function selectJob(id) {
 
 async function refreshLog() {
   if (!selectedJobId) return;
+  if (logSettledForJob === selectedJobId) return;
   const data = await api(`/api/jobs/${selectedJobId}/log?after=${logAfter}`);
   const pre = document.getElementById("detail-log");
+  const hadNew = data.lines.length > 0;
   for (const line of data.lines) {
     pre.textContent += line.line + "\n";
     logAfter = line.id;
   }
-  if (selectedJobStatus === "running") {
-    pre.scrollTop = pre.scrollHeight;
+  if (jobIsLive(selectedJobStatus)) {
+    if (hadNew) pre.scrollTop = pre.scrollHeight;
+    return;
   }
+  logSettledForJob = selectedJobId;
 }
 
 document.getElementById("job-form").addEventListener("submit", async (e) => {
@@ -421,7 +562,7 @@ function initBboxMap() {
     maxZoom: 18,
     noWrap: true,
     bounds,
-    attribution: "&copy; OpenStreetMap",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   };
   // Přes Cloudflare OSM často padá (Referer / Rocket Loader).
   // Lokální náhled na NAS: OSM přímo. Záloha: proxy /tiles/ přes origin.
@@ -590,4 +731,5 @@ function startPolling() {
 }
 
 loadPresets().then(loadJobs).then(startPolling);
+initJobsPager();
 initBboxMap();

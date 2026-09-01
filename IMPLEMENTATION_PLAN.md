@@ -61,6 +61,8 @@ Struktura jobu na disku: `input/` (LAZ + ZABAGED) → `work/lidar/` (PDAL, `merg
 | Sprint 2,5 m | 1:4000 | 2,5 m | 0.4 | 2.5 | 0.625 | 0 |
 | Lesní 1:7500 | 1:7500 | 5 m | 0.75 | 5 | 1.25 | 2 |
 | Lesní 1:10000 | 1:10000 | 5 m | 1.0 | 5 | 1.25 | 2 |
+| MTBO 1:10000 | 1:10000 | 5 m | 1.0 | 5 | 1.25 | 2 |
+| MTBO 1:15000 | 1:15000 | 5 m | 1.5 | 5 | 1.25 | 2 |
 
 Vzorec: `scalefactor = měřítko / 10000`.
 
@@ -166,8 +168,8 @@ prepare → lidar → vectors? → done
 ### v1.5 – Balíček pro OpenOrienteering Mapper
 **Cíl:** ke stažení nabídnout ZIP připravený tak, aby šel v OOM otevřít bez hledání souborů.
 
-- [ ] **`podkladarna_oom.zip`** (volitelný checkbox / druhé tlačítko „Stáhnout pro OOM“)
-- [ ] Pevná struktura složek s **relativními cesty** uvnitř archivu:
+- [x] **`podkladarna_oom.zip`** (druhé tlačítko „ZIP pro OOM“)
+- [x] Pevná struktura složek s **relativními cesty** uvnitř archivu:
 
 ```
 podkladarna_oom/
@@ -189,8 +191,8 @@ podkladarna_oom/
     …                           # rozbalené z zabaged_clean.zip
 ```
 
-- [ ] `README_OOM.txt`: doporučený postup (georeferencovaný PNG jako podklad → DXF vrstevnice jako template → SHP vektory)
-- [ ] V UI: volba „Jen surový ZIP“ vs. „ZIP pro OOM“
+- [x] `README_OOM.txt`: doporučený postup (georeferencovaný PNG jako podklad → DXF vrstevnice jako template → SHP vektory)
+- [x] V UI: surový ZIP i „ZIP pro OOM“
 
 **Poznámka:** V1.5 ještě **negeneruje `.omap`** – uživatel otevře/importuje vrstvy v OOM; všechny soubory ale sedí v jednom balíčku se stabilní strukturou.
 
@@ -224,8 +226,8 @@ podkladarna_oom/
 - [ ] Po done: Regenerovat zeleň, Re-render, Přidat vektory později
 - [ ] Expert panel – všechny INI skupiny (Contours / Vegetation / Cliffs / Processing / Optional)
 - [ ] Uložené vlastní presety (JSON v SQLite)
-- [ ] Náhled PNG v job detailu
-- [ ] **OOM balíček** – viz sekce výše (`podkladarna_oom.zip`)
+- [x] Náhled PNG v job detailu
+- [x] **OOM balíček** – viz sekce výše (`podkladarna_oom.zip`)
 - [ ] **Úklid disk** – až po ověření iterací; viz backlog „úklid disk u jobů“ v Architektuře
 
 ### v2 – Rozšíření
@@ -317,4 +319,4 @@ DELETE /api/jobs/{id}
 
 ---
 
-*Poslední aktualizace: 2026-08-31 (v1.1 auto-stahování ČÚZK)*
+*Poslední aktualizace: 2026-09-01 (v1.5 ZIP pro OOM)*

@@ -89,7 +89,7 @@ def get_job(job_id: str) -> dict[str, Any]:
     return _row_to_job(row)
 
 
-def list_jobs(limit: int = 100) -> list[dict[str, Any]]:
+def list_jobs(limit: int = 250) -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?",
@@ -237,6 +237,7 @@ def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
         "started_at": started_at,
         "duration_s": _job_duration_s(row),
         "has_output": (job_dir / "output" / "podkladarna_output.zip").exists(),
+        "has_oom": (job_dir / "output" / "podkladarna_oom.zip").exists(),
         "has_preview": (job_dir / "output" / "pullautus.png").exists(),
         **paths,
     }

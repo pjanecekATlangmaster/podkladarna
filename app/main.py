@@ -56,7 +56,7 @@ def _form_str(form, key: str, default: str = "") -> str:
         return default
     return str(val)
 
-app = FastAPI(title="Podkladarna", version="1.2.0")
+app = FastAPI(title="Podkladarna", version="1.5.0")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 # Minimální image (conda) často nezná .svg → nginx nosniff logo nenačte.
@@ -100,9 +100,18 @@ async def unhandled_exception_handler(_request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
+WEB_DIR = STATIC_DIR.parent
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
-    html = (STATIC_DIR.parent / "index.html").read_text(encoding="utf-8")
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    return HTMLResponse(html)
+
+
+@app.get("/licence", response_class=HTMLResponse)
+def licence_page() -> HTMLResponse:
+    html = (WEB_DIR / "licence.html").read_text(encoding="utf-8")
     return HTMLResponse(html)
 
 
@@ -195,6 +204,14 @@ def api_job_log(job_id: str, after: int = 0):
     except KeyError:
         raise HTTPException(404, "Job nenalezen")
     return {"lines": db.get_logs(job_id, after)}
+
+
+@app.get("/api/jobs/{job_id}/download/oom")
+def api_download_oom(job_id: str):
+    zip_path = JOBS_DIR / job_id / "output" / "podkladarna_oom.zip"
+    if not zip_path.exists():
+        raise HTTPException(404, "OOM balicek jeste neni pripraven")
+    return FileResponse(zip_path, filename=f"podkladarna_{job_id}_oom.zip")
 
 
 @app.get("/api/jobs/{job_id}/download")

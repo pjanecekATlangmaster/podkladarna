@@ -104,6 +104,13 @@ def test_vectorconf_sports_before_settlement_catchall():
     assert any(ln.startswith("road-path|504T|") and "vrstva=Podjezd" in ln for ln in lines)
     assert not any("vrstva=Tunel" in ln and ln.startswith("blackline|") for ln in lines)
     assert not any("vrstva=Podjezd" in ln and ln.startswith("blackline|") for ln in lines)
+    hedge = next(i for i, ln in enumerate(lines) if "typveg_p=živý plot" in ln)
+    trees = next(i for i, ln in enumerate(lines) if "typveg_p=stromořadí" in ln)
+    veg_all = next(i for i, ln in enumerate(lines) if ln.endswith("vrstva=LiniovaVegetace"))
+    assert hedge < veg_all
+    assert trees < veg_all
+    assert lines[hedge].startswith("fence|524|")
+    assert lines[trees].startswith("blackline|414|")
 
 
 def _vectorconf_lines(name: str) -> list[str]:
@@ -130,6 +137,13 @@ def test_forest_vectorconf_501_ochre_and_502_brown_road():
         for ln in lines
     )
     assert not any("vrstva=ParkovisteOdpocivka" in ln and "|529|" in ln for ln in lines)
+    hedge = next(i for i, ln in enumerate(lines) if "typveg_p=živý plot" in ln)
+    trees = next(i for i, ln in enumerate(lines) if "typveg_p=stromořadí" in ln)
+    veg_all = next(i for i, ln in enumerate(lines) if ln.endswith("vrstva=LiniovaVegetace"))
+    assert hedge < veg_all
+    assert trees < veg_all
+    assert lines[hedge].startswith("fence|524|")
+    assert lines[trees].startswith("blackline|414|")
 
 
 def test_drop_oversized_ostatni_plocha():

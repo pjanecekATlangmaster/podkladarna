@@ -2,7 +2,7 @@
 
 Webová služba pro generování orientačních podkladů z **ČÚZK LiDAR** (DMR 5G + DMP 1G) a **ZABAGED** pomocí [Karttapullautin](https://github.com/karttapullautin/karttapullautin).
 
-Výstup: PNG + DXF + vyčištěný ZABAGED ZIP pro **OpenOrienteering Mapper**.
+Výstup: PNG + DXF a dva ZIP — surový a **ZIP pro OOM** (složky pro OpenOrienteering Mapper).
 
 ## Rychlý start (Synology / Docker)
 
@@ -41,6 +41,7 @@ chmod +x deploy-nas.sh
 
 - Sprint 1:4000 · 2 m / 2,5 m
 - Lesní 1:7500 / 1:10 000 · 5 m
+- MTBO 1:10 000 / 1:15 000 · 5 m
 
 ## Logo
 
@@ -49,7 +50,7 @@ chmod +x deploy-nas.sh
 
 ## Plán
 
-Viz [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) – v1.1 auto-stahování openzu, v1.5 iterace zeleně.
+Viz [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) – v1.5 ZIP pro OOM, v2 `.omap`.
 
 ## Lokální vývoj (bez Docker)
 
@@ -63,4 +64,8 @@ uvicorn app.main:app --reload --app-dir .
 
 ## Licence
 
-Karttapullautin – viz upstream. Podkladárna – váš projekt.
+Podkladárna je pod **[MIT](./LICENSE)** (© 2026 Petr Janeček).
+
+Výstupy vznikají z otevřených dat **ČÚZK** (DMR 5G, DMP 1G, ZABAGED®, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs))
+a z [Karttapullautin](https://github.com/karttapullautin/karttapullautin) (GPL-3.0).
+Přehled zdrojů a podmínek: **[LICENSES.md](./LICENSES.md)**.

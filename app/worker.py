@@ -98,6 +98,7 @@ def _run(job_id: str) -> None:
             job["preset_id"],
             job["options"],
             log,
+            job_name=job["name"],
         )
         db.update_job(job_id, status="done", phase="done")
         log("Status: done")

@@ -8,6 +8,7 @@ from pathlib import Path
 from app.pipeline.fetch_openzu import crop_bounds_5514, fetch_lidar_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import load_presets, write_pullauta_ini
+from app.pipeline.package_oom import OOM_ZIP_NAME, build_oom_zip, oom_metadata
 from app.pipeline.prepare_lidar import (
     crop_laz,
     is_kp_heightmap_oob,
@@ -37,6 +38,7 @@ def run_job_pipeline(
     preset_id: str,
     options: dict,
     log: callable,
+    job_name: str = "",
 ) -> None:
     input_dir = job_dir / "input"
     work_dir = job_dir / "work"
@@ -152,7 +154,15 @@ def run_job_pipeline(
         run_cmd([PULLAUTA_BIN, str(zabaged_clean.resolve())], cwd=kp_cwd, log=log)
 
     log("=== Fáze: baleni vystupu ===")
-    _package_output(kp_cwd, output_dir, zabaged_clean if has_zabaged else None, options, log)
+    _package_output(
+        kp_cwd,
+        output_dir,
+        zabaged_clean if has_zabaged else None,
+        options,
+        log,
+        preset_id=preset_id,
+        job_name=job_name,
+    )
     log("Hotovo.")
 
 
@@ -162,6 +172,9 @@ def _package_output(
     zabaged_clean: Path | None,
     options: dict,
     log: callable,
+    *,
+    preset_id: str,
+    job_name: str = "",
 ) -> None:
     zip_path = output_dir / "podkladarna_output.zip"
     if zip_path.exists():
@@ -180,6 +193,17 @@ def _package_output(
 
         if options.get("output_zabaged_clean", False) and zabaged_clean and zabaged_clean.exists():
             zf.write(zabaged_clean, "zabaged_clean.zip")
+
+    presets = load_presets()
+    preset = presets.get(preset_id, {})
+    oom_path = output_dir / OOM_ZIP_NAME
+    build_oom_zip(
+        kp_cwd,
+        oom_path,
+        zabaged_clean=zabaged_clean if zabaged_clean and zabaged_clean.exists() else None,
+        metadata=oom_metadata(preset_id, preset, options, job_name),
+    )
+    log(f"OOM: {oom_path.name} ({oom_path.stat().st_size / 1e6:.2f} MB)")
 
     for name in ("pullautus.png", "pullautus.pgw"):
         src = kp_cwd / name

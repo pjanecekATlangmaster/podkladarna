@@ -88,16 +88,25 @@
 
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
         <p id="form-error" class="form-error hidden" role="alert"></p>
-        <p class="hint">LAZ soubory jsou velké (stovky MB). Přes doménu musí reverse proxy povolit velký upload – viz DEPLOY.md. Test: <code>http://IP_NAS:8672</code>.</p>
-        <p class="hint">Generování u sprintu obvykle trvá 2–6 minut (lesní mapa o něco víc). Můžete zavřít stránku – job běží na serveru.</p>
-        <p class="hint">V jeden okamžik běží jen jedno generování; další joby čekají ve frontě. Hotové joby se po 30 dnech automaticky mažou.</p>
+        <p class="hint">LAZ soubory jsou velké (stovky MB). Přes HTTPS proxy může nahrávání selhat – zkuste přímý port 8672 na NAS.</p>
+        <p class="hint">Sprint obvykle 2–6 minut, lesní mapa o něco víc. Stránku můžete zavřít – job běží na serveru.</p>
+        <p class="hint">Najednou běží jen jedno generování; další joby čekají ve frontě. Hotové joby se po 30 dnech smažou.</p>
       </form>
     </section>
 
-    <section class="card">
+    <section class="card jobs-card">
       <h2>Joby</h2>
       <p id="worker-status" class="worker-status">Načítám stav serveru…</p>
-      <div id="jobs-list" class="jobs-list"></div>
+      <div id="jobs-live" class="jobs-list"></div>
+      <div id="jobs-finished-bar" class="jobs-finished-bar hidden">
+        <span id="jobs-finished-label">Hotové</span>
+        <div class="jobs-pager">
+          <button type="button" class="btn" id="jobs-prev">Novější</button>
+          <span id="jobs-page-label"></span>
+          <button type="button" class="btn" id="jobs-next">Starší</button>
+        </div>
+      </div>
+      <div id="jobs-list" class="jobs-list jobs-list-scroll"></div>
       <div id="job-detail-holder">
         <div id="job-detail" class="job-detail hidden">
           <h3 id="detail-title"></h3>
@@ -106,6 +115,7 @@
           <pre id="detail-log" class="log"></pre>
           <div class="actions">
             <a id="detail-download" class="btn" href="#" download>Stáhnout ZIP</a>
+            <a id="detail-download-oom" class="btn" href="#" download>ZIP pro OOM</a>
             <a id="detail-preview" class="btn" href="#" target="_blank">Otevřít PNG</a>
           </div>
           <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />
@@ -114,9 +124,20 @@
     </section>
   </main>
 
-  <footer>
-    <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
-    · Podkladárna v1.2
+  <footer class="site-footer">
+    <p>
+      Podkladárna v1.5 ·
+      <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
+      · <a href="/licence">licence MIT</a>
+    </p>
+    <p class="footer-sources">
+      Data: <a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">ČÚZK</a>
+      (DMR 5G, DMP 1G, ZABAGED®,
+      <a href="https://creativecommons.org/licenses/by/4.0/deed.cs" target="_blank" rel="noopener">CC BY 4.0</a>)
+      · <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a> (GPL-3.0)
+      · mapa © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
+      · <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>
+    </p>
   </footer>
   <script data-cfasync="false" src="/static/leaflet/leaflet.js"></script>
   <script data-cfasync="false" src="/static/app.js"></script>
