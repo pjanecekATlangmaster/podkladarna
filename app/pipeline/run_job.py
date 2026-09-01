@@ -177,7 +177,7 @@ def _package_output(
     if bbox and (kp_cwd / "pullautus.png").is_file() and (kp_cwd / "pullautus.pgw").is_file():
         log("=== Fáze: referenční podklady pro OOM ===")
         try:
-            built = build_reference_layers(
+            build_reference_layers(
                 job_dir,
                 tuple(bbox),
                 kp_cwd / "pullautus.png",
@@ -185,9 +185,10 @@ def _package_output(
                 reference_dir,
                 log=log,
             )
-            ref_layers = [p.name for p in built.values()]
         except Exception as exc:
             log(f"Referenční podklady: přeskočeno ({exc})")
+        if reference_dir.is_dir():
+            ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
 
     meta = oom_metadata(preset_id, preset, options, job_name, reference_layers=ref_layers or None)
     omap_path = None
@@ -197,8 +198,9 @@ def _package_output(
             output_dir / "podkladarna.omap",
             map_name=job_name or preset_id,
             scale=meta["scale"],
+            preset_id=preset_id,
             bbox_wgs84=tuple(bbox),
-            reference_dir=reference_dir if ref_layers else None,
+            reference_dir=reference_dir if reference_dir.is_dir() else None,
         )
 
     zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None
@@ -207,7 +209,7 @@ def _package_output(
         zip_path,
         zabaged_clean=zabaged,
         metadata=meta,
-        reference_dir=reference_dir if ref_layers else None,
+        reference_dir=reference_dir if reference_dir and reference_dir.is_dir() else None,
         omap_path=omap_path,
         include_zabaged_archive=bool(options.get("output_zabaged_clean", False) and zabaged),
         include_png=bool(options.get("output_png", True)),

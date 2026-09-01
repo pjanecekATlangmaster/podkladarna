@@ -16,7 +16,12 @@ services:
     environment:
       - PODKLADARNA_DATA=/data
       - MAX_CONCURRENT_LIDAR=1
-      - TEMP_RETENTION_DAYS=7
+      - JOB_RETENTION_HOURS=48
+      - MAX_ACTIVE_JOBS_PER_IP=2
+      - MAX_JOBS_PER_IP_HOUR=10
+      - TRUST_PROXY_HEADERS=1
+      # Vaše veřejná IP bez limitů (doplňte před nasazením):
+      - RATE_LIMIT_EXEMPT_IPS=78.80.94.188
     mem_limit: 12g
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8672/"]

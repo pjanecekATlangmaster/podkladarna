@@ -4,8 +4,10 @@ import json
 import zipfile
 from pathlib import Path
 
-from app.pipeline.build_oom_map import write_oom_map
+from app.guide_text import ZIP_ABOUT_TXT
+from app.pipeline.build_oom_map import projected_to_wgs84, write_oom_map
 from app.pipeline.fetch_openzu import crop_bounds_5514
+from app.pipeline.georef import projected_center_from_raster
 from app.pipeline.reference_layers import HILLSHADE_ALTITUDE, HILLSHADE_AZIMUTH, reference_metadata
 
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
@@ -59,6 +61,7 @@ def oom_readme(meta: dict) -> str:
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"
         "=================================================\n\n"
+        "Nejprve přečtěte CO_JE_PODKLADARNA.txt v kořeni ZIPu.\n\n"
         f"Typ mapy: {label}\n"
         f"Měřítko: 1:{scale}\n"
         f"Ekvidistance: {interval_txt}\n"
@@ -68,8 +71,9 @@ def oom_readme(meta: dict) -> str:
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
-        "1. Rozbalte ZIP. Otevřete podkladarna.omap – načte referenční vrstvy.\n"
-        "   Nebo File → New (EPSG:5514, měřítko dle metadata.json) a Template → Open…\n"
+        "1. Rozbalte celý ZIP do jedné složky. Otevřete podkladarna.omap – načte symboliku\n"
+        "   a referenční podklady ze složky references/ (ortofoto, hillshade, OSM).\n"
+        "   Pokud OOM hlásí chybějící soubor, zkontrolujte, že references/ leží vedle .omap.\n"
         "2. Pořadí podkladů (zdola): ortofoto → OSM → hillshade → Karttapullautin PNG.\n"
         "   Referenční vrstvy nejsou součástí finální mapy – jen pro kreslení.\n"
         "3. File → Import… → karttapullautin/*.dxf (vrstevnice, srázy).\n"
@@ -110,13 +114,24 @@ def prepare_oom_map(
     *,
     map_name: str,
     scale: int,
+    preset_id: str,
     bbox_wgs84: tuple[float, float, float, float],
     reference_dir: Path | None,
 ) -> Path | None:
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
-    ref_x = (xmin + xmax) / 2
-    ref_y = (ymin + ymax) / 2
+    pullautus_png = kp_cwd / "pullautus.png"
+    pullautus_pgw = kp_cwd / "pullautus.pgw"
+    if pullautus_png.is_file() and pullautus_pgw.is_file():
+        try:
+            ref_x, ref_y = projected_center_from_raster(pullautus_png, pullautus_pgw)
+        except ValueError:
+            ref_x = (xmin + xmax) / 2
+            ref_y = (ymin + ymax) / 2
+    else:
+        ref_x = (xmin + xmax) / 2
+        ref_y = (ymin + ymax) / 2
+    ref_lat, ref_lon = projected_to_wgs84(ref_x, ref_y)
     templates: list[tuple[str, str, bool]] = []
     if reference_dir and reference_dir.is_dir():
         order = (
@@ -137,7 +152,10 @@ def prepare_oom_map(
         scale=scale,
         ref_x=ref_x,
         ref_y=ref_y,
+        ref_lat=ref_lat,
+        ref_lon=ref_lon,
         templates=templates,
+        preset_id=preset_id,
     )
 
 
@@ -158,6 +176,7 @@ def build_oom_zip(
         dest_zip.unlink()
 
     with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("CO_JE_PODKLADARNA.txt", ZIP_ABOUT_TXT)
         if omap_path and omap_path.is_file():
             zf.write(omap_path, OOM_MAP_NAME)
         zf.writestr("README_OOM.txt", oom_readme(metadata))

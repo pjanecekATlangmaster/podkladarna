@@ -90,6 +90,33 @@ def get_job(job_id: str) -> dict[str, Any]:
     return _row_to_job(row)
 
 
+def count_active_jobs_for_ip(client_ip: str) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) FROM jobs
+            WHERE status IN ('pending', 'queued', 'running')
+              AND json_extract(options_json, '$.client_ip') = ?
+            """,
+            (client_ip,),
+        ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def count_jobs_for_ip_since(client_ip: str, since: datetime) -> int:
+    since_s = since.isoformat()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) FROM jobs
+            WHERE json_extract(options_json, '$.client_ip') = ?
+              AND created_at >= ?
+            """,
+            (client_ip, since_s),
+        ).fetchone()
+    return int(row[0]) if row else 0
+
+
 def list_jobs(limit: int = 250) -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(

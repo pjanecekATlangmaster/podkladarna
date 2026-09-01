@@ -76,6 +76,8 @@ def test_index_html(client):
     assert "Podkladárna" in r.text
     html = r.text
     assert "bbox-map" in html
+    assert "Co je Podkladárna" in html
+    assert "48 hodin" in html
     assert "/static/logo.png" in html
     assert "/static/leaflet/leaflet.js" in html
     assert "unpkg.com" not in html

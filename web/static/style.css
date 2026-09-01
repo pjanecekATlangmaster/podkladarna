@@ -56,9 +56,32 @@ body {
   display: grid;
   grid-template-columns: 1.35fr 0.65fr;
   gap: 1.25rem;
-  padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
+  padding: 0 clamp(1rem, 2vw, 2rem) 2rem;
   max-width: var(--page-max);
   margin: 0 auto;
+}
+
+.layout-full {
+  max-width: var(--page-max);
+  margin: 0 auto 1.25rem;
+  padding: 0 clamp(1rem, 2vw, 2rem);
+}
+
+.about-card h2 {
+  margin-top: 0;
+}
+
+.about-body ul {
+  margin: 0.5rem 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.about-body li {
+  margin: 0.35rem 0;
+}
+
+.about-body p {
+  margin: 0.6rem 0;
 }
 
 @media (max-width: 1100px) {

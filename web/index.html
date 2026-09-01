@@ -17,7 +17,13 @@
     </div>
   </header>
 
-  <main class="layout">
+  <main>
+    <section class="card about-card layout-full">
+      <h2>Co je Podkladárna?</h2>
+      <div class="about-body"><!-- PODKLADARNA_ABOUT --></div>
+    </section>
+
+    <div class="layout">
     <section class="card">
       <h2>Nový job</h2>
       <form id="job-form">
@@ -45,7 +51,7 @@
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
         <p id="form-error" class="form-error hidden" role="alert"></p>
         <p class="hint">Sprint obvykle 2–6 minut, lesní mapa o něco víc. Stránku můžete zavřít – job běží na serveru.</p>
-        <p class="hint">Najednou běží jen jedno generování; další joby čekají ve frontě. Hotové joby se po 30 dnech smažou.</p>
+        <p class="hint">Najednou běží jen jedno generování; další joby čekají ve frontě (priorita pro ty, kdo nemají plné sloty). Hotové joby na serveru držíme 48 hodin – ZIP si uložte.</p>
       </form>
     </section>
 
@@ -76,6 +82,7 @@
         </div>
       </div>
     </section>
+    </div>
   </main>
 
   <footer class="site-footer">

@@ -4,6 +4,7 @@ import json
 import zipfile
 from pathlib import Path
 
+from app.pipeline.build_oom_map import CRS_PROJ4
 from app.pipeline.package_oom import (
     build_oom_zip,
     map_scale_from_scalefactor,
@@ -49,6 +50,7 @@ def test_build_oom_zip_layout(tmp_path: Path):
     with zipfile.ZipFile(dest) as zf:
         names = set(zf.namelist())
     assert "README_OOM.txt" in names
+    assert "CO_JE_PODKLADARNA.txt" in names
     assert "metadata.json" in names
     assert "basemap/pullautus.png" in names
     assert "basemap/pullautus.pgw" in names
@@ -72,16 +74,35 @@ def test_build_oom_zip_layout(tmp_path: Path):
 def test_prepare_oom_map_minimal(tmp_path):
     kp = tmp_path / "work"
     kp.mkdir()
-    (kp / "pullautus.png").write_bytes(b"png")
-    (kp / "pullautus.pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+    # 2×2 px PNG – stačí pro projected_center_from_raster
+    mini_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02\x00\x00\x00\x02"
+        b"\x08\x02\x00\x00\x00\xfd\xd4\x9a\x73\x00\x00\x00\x12IDATx\x9cc\x60\x60"
+        b"\x60\x00\x00\x00\x04\x00\x01\x5c\xcd\xff\x69\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    (kp / "pullautus.png").write_bytes(mini_png)
+    (kp / "pullautus.pgw").write_text(
+        "0.5\n0\n0\n-0.5\n-700000\n-1050000\n",
+        encoding="utf-8",
+    )
     dest = tmp_path / "podkladarna.omap"
     out = prepare_oom_map(
         kp,
         dest,
         map_name="test",
         scale=4000,
+        preset_id="sprint_2m",
         bbox_wgs84=(14.4, 50.08, 14.42, 50.09),
         reference_dir=None,
     )
     assert out == dest
-    assert "basemap/pullautus.png" in dest.read_text(encoding="utf-8")
+    xml = dest.read_text(encoding="utf-8")
+    assert "basemap/pullautus.png" in xml
+    assert "+proj=krovak" in xml
+    assert CRS_PROJ4 in xml
+    assert "<geographic_crs" in xml
+    assert "ref_point_deg" in xml
+    assert 'declination="0"' not in xml
+    assert "<ref_point x=\"-699999.500000\" y=\"-1050000.500000\"/>" in xml
+    assert '<symbols count="' in xml
+    assert '<line_symbol' in xml

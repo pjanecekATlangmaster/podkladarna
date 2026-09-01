@@ -154,6 +154,10 @@ def _pdal_dem_from_laz(
                 "bounds": f"([{xmin},{xmax}],[{ymin},{ymax}])",
             },
             {
+                "type": "filters.range",
+                "limits": "Classification[2:2]",
+            },
+            {
                 "type": "writers.gdal",
                 "filename": str(dest_tif),
                 "resolution": HILLSHADE_RESOLUTION_M,
@@ -383,10 +387,16 @@ def build_osm_reference(
 
 def _find_dmr_ground_laz(job_dir: Path) -> Path | None:
     lidar = job_dir / "work" / "lidar"
-    for name in ("ground_merged.laz", "merged_crop.laz", "merged.laz"):
-        p = lidar / name
-        if p.is_file() and p.stat().st_size > 1000:
-            return p
+    if not lidar.is_dir():
+        return None
+    for pattern in ("ground_merged.laz", "dmr_ground_*.laz"):
+        for path in sorted(lidar.glob(pattern)):
+            if path.is_file() and path.stat().st_size > 1000:
+                return path
+    for name in ("merged_crop_retry.laz", "merged_crop.laz", "merged.laz"):
+        path = lidar / name
+        if path.is_file() and path.stat().st_size > 1000:
+            return path
     dmr_dir = job_dir / "input" / "dmr"
     files = sorted(dmr_dir.glob("*.laz")) + sorted(dmr_dir.glob("*.LAZ"))
     return files[0] if files else None

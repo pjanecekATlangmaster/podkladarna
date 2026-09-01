@@ -8,20 +8,27 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app import db
-from app.settings import JOB_RETENTION_DAYS, JOBS_DIR
+from app.settings import JOB_RETENTION_DAYS, JOB_RETENTION_HOURS, JOBS_DIR
 
 logger = logging.getLogger("podkladarna.cleanup")
 
 _cleanup_started = False
 
 
-def purge_old_jobs(retention_days: int | None = None) -> int:
-    """Smaže hotové/selhané joby starší než retention_days. Vrací počet smazaných."""
-    days = retention_days if retention_days is not None else JOB_RETENTION_DAYS
-    if days <= 0:
+def purge_old_jobs(retention_hours: int | None = None) -> int:
+    """Smaže hotové/selhané joby starší než retention_hours. Vrací počet smazaných."""
+    hours = retention_hours
+    if hours is None:
+        if JOB_RETENTION_HOURS > 0:
+            hours = JOB_RETENTION_HOURS
+        elif JOB_RETENTION_DAYS > 0:
+            hours = JOB_RETENTION_DAYS * 24
+        else:
+            return 0
+    if hours <= 0:
         return 0
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     removed = 0
 
     for job in db.list_jobs(limit=500):

@@ -12,6 +12,13 @@ function parseApiError(res, text) {
       "Počkejte na dokončení běžících jobů a zkuste to znovu."
     );
   }
+  if (res.status === 429) {
+    try {
+      const data = JSON.parse(text);
+      if (data.detail) return String(data.detail);
+    } catch (_) { /* fall through */ }
+    return "Limit jobů z vaší sítě – počkejte na dokončení běžících generování.";
+  }
   if (res.status === 502 || res.status === 504) {
     return (
       `Proxy timeout (HTTP ${res.status}). LAZ soubory jsou velké – ` +

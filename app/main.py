@@ -12,6 +12,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import db, worker
 from app.cleanup import purge_old_jobs, start_cleanup_scheduler
+from app.client_ip import client_ip
+from app.guide_text import WEB_ABOUT_HTML
+from app.rate_limit import check_create_job
 from app.pipeline.fetch_openzu import (
     FetchError,
     MAX_BBOX_KM,
@@ -101,6 +104,7 @@ WEB_DIR = STATIC_DIR.parent
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    html = html.replace("<!-- PODKLADARNA_ABOUT -->", WEB_ABOUT_HTML)
     return HTMLResponse(html)
 
 
@@ -313,11 +317,17 @@ async def api_create_job(request: Request):
             "Ruční upload podkladů není podporován – použijte výřez na mapě (ČÚZK open data).",
         )
 
+    remote_ip = client_ip(request)
+    limit_msg = check_create_job(remote_ip)
+    if limit_msg:
+        raise HTTPException(429, limit_msg)
+
     options = {
         **DEFAULT_OPTIONS,
         "source_mode": "map",
         "bbox_wgs84": list(bbox),
         "sm5_sheets": [s["mapnom"] for s in sheets],
+        "client_ip": remote_ip,
     }
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:

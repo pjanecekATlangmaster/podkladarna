@@ -5,6 +5,7 @@ import traceback
 
 from app import db
 from app.pipeline.run_job import run_job_pipeline
+from app.rate_limit import queue_priority_key
 from app.settings import JOBS_DIR, MAX_CONCURRENT_LIDAR, MAX_QUEUE_SIZE
 
 _lock = threading.Lock()
@@ -69,12 +70,20 @@ def enqueue(job_id: str) -> None:
     threading.Thread(target=_run, args=(job_id,), daemon=True).start()
 
 
+def _pop_next_queued() -> str | None:
+    if not _queue:
+        return None
+    best = min(_queue, key=queue_priority_key)
+    _queue.remove(best)
+    return best
+
+
 def _start_next() -> None:
     global _running
     next_id: str | None = None
     with _lock:
         if _queue:
-            next_id = _queue.pop(0)
+            next_id = _pop_next_queued()
             _running = next_id
     if next_id:
         db.update_job(next_id, status="running", phase="starting", started_at=db._utcnow())
