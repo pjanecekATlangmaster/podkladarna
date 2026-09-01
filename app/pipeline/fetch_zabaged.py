@@ -22,6 +22,9 @@ from app.tool_env import gis_subprocess_env, which_tool
 
 PAGE_SIZE = 2000
 MAX_PAGES = 25
+# KP kreslí 529 (parking) přes 401. Celoměstské zbytky vrstvy 115
+# (řád km²) by jinak přemalovaly louky a křoviny na zpevněnou plochu.
+MAX_OSTATNI_PLOCHA_M2 = 1_000_000.0
 
 
 def _ags_config() -> dict:
@@ -57,6 +60,12 @@ def fetch_zabaged_for_bbox(
     try:
         for name, layer_id in layers.items():
             gj = query_layer_geojson(service, int(layer_id), west, south, east, north)
+            if name == "OstatniPlochaVSidlech":
+                n_before = len(gj.get("features") or [])
+                drop_oversized_ostatni_plocha(gj)
+                n_dropped = n_before - len(gj.get("features") or [])
+                if log and n_dropped:
+                    log(f"  OstatniPlochaVSidlech: vynechano {n_dropped} obrich polygonu")
             n = len(gj.get("features") or [])
             if n <= 0:
                 if log:
@@ -126,6 +135,22 @@ def query_layer_geojson(
         raise FetchError(f"ZABAGED vrstva {layer_id}: příliš mnoho prvků (>{MAX_PAGES * PAGE_SIZE})")
 
     return {"type": "FeatureCollection", "features": features}
+
+
+def drop_oversized_ostatni_plocha(
+    gj: dict,
+    max_area_m2: float = MAX_OSTATNI_PLOCHA_M2,
+) -> dict:
+    """Zahodí celoměstské polygony 115, které po ořezu vyplní celý podklad 529."""
+    kept = []
+    for feat in gj.get("features") or []:
+        props = feat.get("properties") or {}
+        area = props.get("Shape_Area", props.get("shape_area"))
+        if isinstance(area, (int, float)) and area > max_area_m2:
+            continue
+        kept.append(feat)
+    gj["features"] = kept
+    return gj
 
 
 def tag_features_with_layer(gj: dict, layer_name: str) -> dict:

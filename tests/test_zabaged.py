@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.pipeline.fetch_zabaged import query_layer_geojson, tag_features_with_layer
+from app.pipeline.fetch_zabaged import (
+    drop_oversized_ostatni_plocha,
+    query_layer_geojson,
+    tag_features_with_layer,
+)
 
 
 def test_query_layer_paginates(monkeypatch):
@@ -83,4 +87,22 @@ def test_vectorconf_sports_before_settlement_catchall():
     assert any("vrstva=ParkovisteOdpocivka" in ln for ln in lines)
     garages = next(i for i, ln in enumerate(lines) if "typzast_p=skupinové garáže" in ln)
     assert garages < catchall
+    assert any("vrstva=TrvalyTravniPorost" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert any(
+        "vrstva=LesniPudaSKrovinatymPorostem" in ln and ln.startswith("farm|401|") for ln in lines
+    )
+
+
+def test_drop_oversized_ostatni_plocha():
+    gj = {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": {"Shape_Area": 160_356}, "geometry": None},
+            {"type": "Feature", "properties": {"Shape_Area": 13_727_609}, "geometry": None},
+            {"type": "Feature", "properties": {"fid_zbg": "no-area"}, "geometry": None},
+        ],
+    }
+    drop_oversized_ostatni_plocha(gj)
+    areas = [f["properties"].get("Shape_Area") for f in gj["features"]]
+    assert areas == [160_356, None]
 
