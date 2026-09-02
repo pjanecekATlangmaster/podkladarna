@@ -120,10 +120,9 @@ def test_vectorconf_sports_before_settlement_catchall():
     assert garages < catchall
     assert any("vrstva=TrvalyTravniPorost" in ln and ln.startswith("farm|401|") for ln in lines)
     assert any("typ_pudy_k=OR" in ln and ln.startswith("farm|401|") for ln in lines)
-    assert not any("vrstva=LesniPudaSKrovinatymPorostem" in ln for ln in lines)
-    assert not any("vrstva=UdrzovanaZelen" in ln for ln in lines)
-    assert not any("typ_pudy_k=UZ" in ln for ln in lines)
-    assert not any("vrstva=OrnaPudaAOstatniDaleNespecifikovanePlochy" in ln for ln in lines)
+    assert any("vrstva=LesniPudaSKrovinatymPorostem" in ln and ln.startswith("farm|405|") for ln in lines)
+    assert any("vrstva=UdrzovanaZelen" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert any("vrstva=OrnaPudaAOstatniDaleNespecifikovanePlochy" in ln and ln.startswith("farm|401|") for ln in lines)
     shelter = next(i for i, ln in enumerate(lines) if "podtypob_p=přístřešek" in ln)
     podtyp_all = next(i for i, ln in enumerate(lines) if ln.endswith("podtypob_p!="))
     assert shelter < podtyp_all
@@ -155,16 +154,16 @@ def _vectorconf_lines(name: str) -> list[str]:
     return lines
 
 
-def test_forest_vectorconf_501_ochre_and_502_brown_road():
+def test_forest_vectorconf_parking_and_roads():
     lines = _vectorconf_lines("zabaged_forest.txt")
-    assert any("vrstva=ParkovisteOdpocivka" in ln and ln.startswith("farm|401|") for ln in lines)
-    assert any("vrstva=OstatniPlochaVSidlech" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert any("vrstva=ParkovisteOdpocivka" in ln and ln.startswith("parking|529|") for ln in lines)
+    assert any("vrstva=OstatniPlochaVSidlech" in ln and ln.startswith("parking|529|") for ln in lines)
     assert any("silnice!=" in ln and ln.startswith("road-path|503|") for ln in lines)
     assert any(
         "typulice_p=ulice nesjízdná v sídle" in ln and ln.startswith("road-path|503|")
         for ln in lines
     )
-    assert not any("vrstva=ParkovisteOdpocivka" in ln and "|529|" in ln for ln in lines)
+    assert not any("vrstva=ParkovisteOdpocivka" in ln and ln.startswith("farm|401|") for ln in lines)
     hedge = next(i for i, ln in enumerate(lines) if "typveg_p=živý plot" in ln)
     trees = next(i for i, ln in enumerate(lines) if "typveg_p=stromořadí" in ln)
     veg_all = next(i for i, ln in enumerate(lines) if ln.endswith("vrstva=LiniovaVegetace"))

@@ -90,3 +90,59 @@ def test_oom_code_railway_maps_to_509_1():
         scale=4000,
     )
     assert code == "509.1"
+    assert symbol_index_for_code("sprint_2m", 4000, code) is not None
+
+
+def test_oom_code_railway_forest_maps_to_509():
+    code = oom_code_for_vectorconf_rule(
+        "railway",
+        "515",
+        "ZeleznicniTrat",
+        preset_id="forest_10000",
+        scale=10000,
+    )
+    assert code == "509"
+    assert symbol_index_for_code("forest_10000", 10000, code) is not None
+
+
+def test_oom_code_road_forest_maps_to_503():
+    code = oom_code_for_vectorconf_rule(
+        "road-path",
+        "503",
+        "SilniceDalnice",
+        preset_id="forest_10000",
+        scale=10000,
+    )
+    assert code == "503"
+    assert symbol_index_for_code("forest_10000", 10000, code) is not None
+
+
+def test_oom_code_skupina_balvanu_maps_to_207():
+    code = oom_code_for_vectorconf_rule(
+        "blackline",
+        "414",
+        "SkupinaBalvanu",
+        preset_id="sprint_2m",
+        scale=4000,
+    )
+    assert code == "207"
+    assert symbol_index_for_code("sprint_2m", 4000, code) is not None
+
+
+def test_oom_code_parking_forest_maps_to_501_1():
+    code = oom_code_for_vectorconf_rule(
+        "parking",
+        "529",
+        "ParkovisteOdpocivka",
+        preset_id="forest_10000",
+        scale=10000,
+    )
+    assert code == "501.1"
+    assert symbol_index_for_code("forest_10000", 10000, code) is not None
+
+
+def test_oom_code_dxf_cliffs_small_preset_specific():
+    from app.pipeline.oom_symbol_map import oom_code_for_dxf
+
+    assert oom_code_for_dxf("cliffs_small.dxf", preset_id="sprint_2m") == "202.1"
+    assert oom_code_for_dxf("cliffs_small.dxf", preset_id="forest_10000") == "202"

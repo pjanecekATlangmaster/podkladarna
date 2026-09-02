@@ -409,7 +409,7 @@ def build_dxf_object_part(
 
     objects: list[str] = []
     for zip_name, path in sorted(dxf_map.items()):
-        code = oom_code_for_dxf(zip_name)
+        code = oom_code_for_dxf(zip_name, preset_id=preset_id)
         if not code:
             continue
         symbol_index = symbol_index_for_code(preset_id, scale, code)
