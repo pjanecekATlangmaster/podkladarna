@@ -73,7 +73,7 @@ def write_pullauta_ini(
         "formline": formline,
         "smoothing": opts.get("smoothing", preset.get("smoothing", 0.7)),
         "processes": opts.get("processes", preset.get("processes", 2)),
-        "output_dxf": 1 if opts.get("output_dxf", True) else 0,
+        "output_dxf": 0,
         "savetempfolders": 1 if opts.get("savetempfolders", False) else 0,
         "savetempfiles": 1 if opts.get("savetempfolders", False) else 0,
         "batch": 0,

@@ -140,6 +140,8 @@ def merge_dmr_dmp(
 
     veg_parts: list[Path] = []
     for i, dmp in enumerate(dmp_files):
+        if log:
+            log(f"DMP zdroj {i + 1}/{len(dmp_files)}: {dmp.name}")
         out = work_dir / f"dmp_veg_{i}.laz"
         run_cmd(
             [

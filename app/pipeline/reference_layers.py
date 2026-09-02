@@ -28,15 +28,96 @@ WEB_MERCATOR_HALF = 20037508.342789244
 ORTOFOTO_WMS = (
     "https://ags.cuzk.gov.cz/arcgis1/services/ORTOFOTO/MapServer/WMSServer"
 )
+HILLSHADE_WMS = (
+    "https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer"
+)
+ZTM_WMS = "https://ags.cuzk.gov.cz/arcgis1/services/ZTM/MapServer/WMSServer"
+DMPOK_WMS = (
+    "https://ags.cuzk.gov.cz/arcgis2/services/dmp_obrazova_korelace/ImageServer/WMSServer"
+)
+DMPOK_PREVIEW_LAYER = "dmp_obrazova_korelace:TintedHillshadeContinuous"
+# (klíč v built_refs, WMS layer, výstupní soubor, popisek OOM, průhlednost, viditelná v OOM)
+HILLSHADE_VARIANTS: tuple[tuple[str, str, str, str, float, bool], ...] = (
+    (
+        "hillshade",
+        "dmr5g:GrayscaleHillshade",
+        "hillshade_dmr5g.png",
+        "Hillshade DMR 5G",
+        0.55,
+        True,
+    ),
+    (
+        "hillshade_z10",
+        "dmr5g:GrayscaleHillshadeZ10",
+        "hillshade_dmr5g_z10.png",
+        "Hillshade DMR 5G Z10",
+        0.50,
+        False,
+    ),
+    (
+        "hillshade_z20",
+        "dmr5g:GrayscaleHillshadeZ20",
+        "hillshade_dmr5g_z20.png",
+        "Hillshade DMR 5G Z20",
+        0.45,
+        False,
+    ),
+)
 
 
 def reference_metadata() -> dict:
     return {
-        "hillshade_azimuth_deg": HILLSHADE_AZIMUTH,
-        "hillshade_altitude_deg": HILLSHADE_ALTITUDE,
-        "hillshade_source": "DMR 5G (ground)",
-        "hillshade_tool": "gdaldem hillshade",
+        "hillshade_source": "ČÚZK DMR 5G WMS",
+        "hillshade_variants": [v[2] for v in HILLSHADE_VARIANTS],
+        "hillshade_tool": "WMS ImageServer",
+        "map_layers": ["osm.png", "mapa_ztm.png"],
+        "dmpok_preview": "dmpok_nahled.png",
     }
+
+
+def fetch_cuzk_wms_png(
+    wms_url: str,
+    layer: str,
+    bounds_5514: tuple[float, float, float, float],
+    template_png: Path,
+    template_pgw: Path,
+    dest_png: Path,
+    dest_pgw: Path,
+    *,
+    label: str,
+    log: callable | None = None,
+) -> bool:
+    """Stáhne PNG+PGW z ČÚZK WMS ve S-JTSK (EPSG:5514)."""
+    xmin, ymin, xmax, ymax = bounds_5514
+    _, _, _, _, width, height = _template_extent(template_png, template_pgw)
+    tw, th = _target_size(width, height)
+    params = {
+        "service": "WMS",
+        "request": "GetMap",
+        "version": "1.3.0",
+        "layers": layer,
+        "styles": "default",
+        "crs": "EPSG:5514",
+        "bbox": f"{xmin},{ymin},{xmax},{ymax}",
+        "width": str(tw),
+        "height": str(th),
+        "format": "image/png",
+        "transparent": "false",
+    }
+    url = wms_url + "?" + urllib.parse.urlencode(params)
+    if log:
+        log(f"Stahuji {label} ČÚZK WMS ({tw}×{th} px)…")
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = resp.read()
+    if len(data) < 500 or data[:8] != b"\x89PNG\r\n\x1a\n":
+        return False
+    dest_png.parent.mkdir(parents=True, exist_ok=True)
+    dest_png.write_bytes(data)
+    _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, tw, th)
+    if log:
+        log(f"{label}: {dest_png.name}")
+    return True
 
 
 def _gdal_tool(name: str) -> str:
@@ -328,6 +409,31 @@ def build_hillshade_from_dmr(
     return True
 
 
+def fetch_hillshade_wms(
+    bounds_5514: tuple[float, float, float, float],
+    template_png: Path,
+    template_pgw: Path,
+    dest_png: Path,
+    dest_pgw: Path,
+    *,
+    layer: str,
+    label: str,
+    log: callable | None = None,
+) -> bool:
+    """Stáhne hotový hillshade z ČÚZK WMS (DMR 5G ImageServer)."""
+    return fetch_cuzk_wms_png(
+        HILLSHADE_WMS,
+        layer,
+        bounds_5514,
+        template_png,
+        template_pgw,
+        dest_png,
+        dest_pgw,
+        label=label,
+        log=log,
+    )
+
+
 def fetch_orthophoto_wms(
     bounds_5514: tuple[float, float, float, float],
     template_png: Path,
@@ -513,33 +619,6 @@ def build_reference_layers(
     bounds = crop_bounds_5514(west, south, east, north)
     built: dict[str, Path] = {}
 
-    hill_png = out_dir / "hillshade_dmr5g.png"
-    hill_pgw = out_dir / "hillshade_dmr5g.pgw"
-    laz_candidates = _hillshade_laz_candidates(job_dir)
-    if log and not laz_candidates:
-        log("Hillshade: nenalezen LAZ v work/lidar")
-    hill_ok = False
-    for laz in laz_candidates:
-        try:
-            if build_hillshade_from_dmr(
-                laz, template_png, template_pgw, hill_png, hill_pgw, log=log
-            ):
-                built["hillshade"] = hill_png
-                hill_ok = True
-                break
-        except subprocess.CalledProcessError as exc:
-            if log:
-                log(f"Hillshade ({laz.name}): přeskočeno ({exc})")
-                err = (exc.stderr or exc.stdout or "").strip()
-                if err:
-                    for line in err.splitlines()[-8:]:
-                        log(line)
-        except Exception as exc:
-            if log:
-                log(f"Hillshade ({laz.name}): přeskočeno ({exc})")
-    if log and laz_candidates and not hill_ok:
-        log("Hillshade: žádný LAZ zdroj neuspěl")
-
     ortho_png = out_dir / "orthophoto.png"
     ortho_pgw = out_dir / "orthophoto.pgw"
     try:
@@ -552,7 +631,7 @@ def build_reference_layers(
             log(f"Ortofoto: přeskočeno ({exc})")
 
     osm_png = out_dir / "osm.png"
-    osm_pgw = (out_dir / "osm.png").with_suffix(".pgw")
+    osm_pgw = osm_png.with_suffix(".pgw")
     try:
         if build_osm_reference(
             bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log
@@ -560,6 +639,67 @@ def build_reference_layers(
             built["osm"] = osm_png
     except Exception as exc:
         if log:
-            log(f"OSM podklad: přeskočeno ({exc})")
+            log(f"OpenStreetMap: přeskočeno ({exc})")
+
+    ztm_png = out_dir / "mapa_ztm.png"
+    ztm_pgw = ztm_png.with_suffix(".pgw")
+    try:
+        if fetch_cuzk_wms_png(
+            ZTM_WMS,
+            "0",
+            bounds,
+            template_png,
+            template_pgw,
+            ztm_png,
+            ztm_pgw,
+            label="Základní topografická mapa ČR (ZTM)",
+            log=log,
+        ):
+            built["ztm"] = ztm_png
+    except Exception as exc:
+        if log:
+            log(f"Mapa ZTM: přeskočeno ({exc})")
+
+    dmpok_png = out_dir / "dmpok_nahled.png"
+    dmpok_pgw = dmpok_png.with_suffix(".pgw")
+    try:
+        if fetch_cuzk_wms_png(
+            DMPOK_WMS,
+            DMPOK_PREVIEW_LAYER,
+            bounds,
+            template_png,
+            template_pgw,
+            dmpok_png,
+            dmpok_pgw,
+            label="Náhled DMP OK",
+            log=log,
+        ):
+            built["dmpok"] = dmpok_png
+    except Exception as exc:
+        if log:
+            log(f"Náhled DMP OK: přeskočeno ({exc})")
+
+    hill_ok = False
+    for key, wms_layer, filename, label, _opacity, _visible in HILLSHADE_VARIANTS:
+        dest_png = out_dir / filename
+        dest_pgw = dest_png.with_suffix(".pgw")
+        try:
+            if fetch_hillshade_wms(
+                bounds,
+                template_png,
+                template_pgw,
+                dest_png,
+                dest_pgw,
+                layer=wms_layer,
+                label=label,
+                log=log,
+            ):
+                built[key] = dest_png
+                hill_ok = True
+        except Exception as exc:
+            if log:
+                log(f"{label}: přeskočeno ({exc})")
+    if log and not hill_ok:
+        log("Hillshade: WMS ČÚZK nevrátil žádnou vrstvu")
 
     return built

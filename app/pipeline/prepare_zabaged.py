@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from app.pipeline.crs_5514 import write_prj
 from app.settings import CONFIG_DIR
 from app.tool_env import gis_subprocess_env, which_tool
 
@@ -74,6 +75,11 @@ def clean_zabaged(
     if kept == 0:
         shutil.rmtree(stage)
         raise RuntimeError("ZABAGED ZIP neobsahuje zadne pouzitelne vrstvy")
+
+    # Starsi cache i cizi ZIPy nesou ESRI .prj bez TOWGS84 – v OOM by vektory
+    # sedely vedle georeferencovaneho PNG.
+    for shp in stage.glob("*.shp"):
+        write_prj(shp)
 
     if out_zip.exists():
         out_zip.unlink()

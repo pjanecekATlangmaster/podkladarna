@@ -30,7 +30,8 @@ def test_build_oom_zip_layout(tmp_path: Path):
     (kp / "pullautus_depr.png").write_bytes(b"depr")
     temp = kp / "temp"
     temp.mkdir()
-    (temp / "out.dxf").write_text("dxf", encoding="utf-8")
+    (temp / "out2.dxf").write_text("contours", encoding="utf-8")
+    (temp / "contours03.dxf").write_text("huge", encoding="utf-8")
 
     zabaged = tmp_path / "zabaged_clean.zip"
     with zipfile.ZipFile(zabaged, "w") as zf:
@@ -56,7 +57,8 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "basemap/pullautus.png" in names
     assert "basemap/pullautus.pgw" in names
     assert "relief/pullautus_depr.png" in names
-    assert "karttapullautin/out.dxf" in names
+    assert "karttapullautin/contours.dxf" in names
+    assert "karttapullautin/contours03.dxf" not in names
     assert "vectors/Cesta.shp" in names
     assert "vectors/Cesta.shx" in names
     payload = json.loads(zipfile.ZipFile(dest).read("metadata.json"))
@@ -67,7 +69,7 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "EPSG:5514" in readme
     assert "1:4000" in readme
     assert "ČÚZK" in readme
-    assert "315" in readme
+    assert "WMS" in readme
     assert "podkladarna.omap" in readme
     assert oom_readme(meta).startswith("Podkladárna")
 

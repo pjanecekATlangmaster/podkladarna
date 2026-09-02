@@ -7,6 +7,7 @@ from pathlib import Path
 from app.pipeline.fetch_openzu import crop_bounds_5514, fetch_lidar_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import load_presets, write_pullauta_ini
+from app.pipeline.karttapullautin_dxf import prune_heavy_intermediate_dxf
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     build_oom_zip,
@@ -48,20 +49,19 @@ def run_job_pipeline(
     zabaged_src: Path | None = None
 
     lidar_work = work_dir / "lidar"
+    reused_from = options.get("reused_from")
     merged_existing = None
-    for name in ("merged_crop.laz", "merged_crop_retry.laz", "merged.laz"):
-        candidate = lidar_work / name
-        if candidate.exists() and candidate.stat().st_size > 1000:
-            merged_existing = candidate
-            break
+    if reused_from:
+        for name in ("merged_crop.laz", "merged_crop_retry.laz", "merged.laz"):
+            candidate = lidar_work / name
+            if candidate.exists() and candidate.stat().st_size > 1000:
+                merged_existing = candidate
+                break
 
     if bbox:
         west, south, east, north = bbox
-        if not merged_existing:
-            log("=== Fáze: stažená data (LiDAR) ===")
-            dmr_files, dmp_files, _ = fetch_lidar_for_bbox((west, south, east, north), log)
-        else:
-            log("Používám sloučený LAZ z předchozího běhu – openzu přeskakuji")
+        log("=== Fáze: stažená data (LiDAR) ===")
+        dmr_files, dmp_files, _ = fetch_lidar_for_bbox((west, south, east, north), log)
 
         log("=== Fáze: stažená data (ZABAGED) ===")
         zabaged_src = fetch_zabaged_for_bbox((west, south, east, north), log)
@@ -69,8 +69,11 @@ def run_job_pipeline(
     scalefactor = float(
         options.get("scalefactor") or load_presets()[preset_id]["scalefactor"]
     )
-    if merged_existing:
-        log(f"Používám už sloučený LAZ ({merged_existing.name}) – PDAL merge přeskakuji")
+    if reused_from and merged_existing:
+        log(
+            f"Iterace z jobu {reused_from}: používám sloučený LAZ "
+            f"({merged_existing.name}) – PDAL merge přeskakuji"
+        )
         merged = merged_existing
     else:
         log("=== Fáze: prepare LiDAR ===")
@@ -132,6 +135,8 @@ def run_job_pipeline(
 
     if not (temp_dir / "vegetation.pgw").exists():
         raise RuntimeError("LiDAR nedokoncil temp/vegetation.pgw")
+
+    prune_heavy_intermediate_dxf(temp_dir, log=log)
 
     if not has_zabaged or not zabaged_clean.is_file():
         raise RuntimeError(

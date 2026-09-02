@@ -1,10 +1,38 @@
 from __future__ import annotations
 
+import math
+from pathlib import Path
+
+from app.pipeline.crs_5514 import CRS_PROJ4, CRS_WKT, write_prj
 from app.pipeline.fetch_zabaged import (
     drop_oversized_ostatni_plocha,
     query_layer_geojson,
     tag_features_with_layer,
 )
+
+
+def test_prj_matches_omap_crs_without_datum_shift():
+    """Posun vektorů vůči PNG v OOM vzniká, když .prj a .omap nemají stejný datum."""
+    from pyproj import CRS, Transformer
+
+    src = CRS.from_wkt(CRS_WKT)
+    assert src.is_bound, "TOWGS84 se neuplatnil – PROJ nahradil datum oficiálním"
+
+    to_map = Transformer.from_crs(src, CRS.from_proj4(CRS_PROJ4), always_xy=True)
+    for x, y in [(-727883.2, -1047876.8), (-726353.3, -1048899.7), (-902000.0, -1050000.0)]:
+        mx, my = to_map.transform(x, y)
+        assert math.hypot(mx - x, my - y) < 0.001
+
+
+def test_write_prj_overwrites_esri_prj(tmp_path: Path):
+    shp = tmp_path / "Budova.shp"
+    shp.write_bytes(b"")
+    prj = shp.with_suffix(".prj")
+    prj.write_text('PROJCS["S-JTSK_Krovak_East_North",...]', encoding="utf-8")
+
+    assert write_prj(shp) == prj
+    assert "TOWGS84[542.5,89.2,456.9" in prj.read_text(encoding="utf-8")
+    assert "AUTHORITY" not in prj.read_text(encoding="utf-8")
 
 
 def test_query_layer_paginates(monkeypatch):

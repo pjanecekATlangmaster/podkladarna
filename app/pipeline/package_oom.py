@@ -4,22 +4,28 @@ import json
 import zipfile
 from pathlib import Path
 
+from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.guide_text import ZIP_ABOUT_TXT
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.georef import projected_center_from_raster
-from app.pipeline.reference_layers import HILLSHADE_ALTITUDE, HILLSHADE_AZIMUTH, reference_metadata
+from app.pipeline.reference_layers import HILLSHADE_VARIANTS, reference_metadata
 
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
 OOM_MAP_NAME = "podkladarna.omap"
 
-# (klíč z build_reference_layers, popisek, cesta v ZIPu, průhlednost v OOM)
-OOM_REFERENCE_TEMPLATES: tuple[tuple[str, str, str, float], ...] = (
-    ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0),
-    ("osm", "OpenStreetMap", "references/osm.png", 0.85),
-    ("hillshade", "Hillshade DMR 5G", "references/hillshade_dmr5g.png", 0.55),
+# (klíč z build_reference_layers, popisek, cesta v ZIPu, průhlednost, viditelná v OOM)
+OOM_REFERENCE_TEMPLATES: tuple[tuple[str, str, str, float, bool], ...] = (
+    ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0, True),
+    ("osm", "OpenStreetMap", "references/osm.png", 0.85, True),
+    ("ztm", "Základní mapa ČÚZK (ZTM)", "references/mapa_ztm.png", 0.88, True),
+    ("dmpok", "Náhled DMP OK", "references/dmpok_nahled.png", 0.65, False),
+    *(
+        (key, label, f"references/{filename}", opacity, visible)
+        for key, _layer, filename, label, opacity, visible in HILLSHADE_VARIANTS
+    ),
 )
 
 
@@ -74,18 +80,20 @@ def oom_readme(meta: dict) -> str:
         f"Měřítko: 1:{scale}\n"
         f"Ekvidistance: {interval_txt}\n"
         "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n\n"
-        f"Stínovaný reliéf DMR 5G: azimut {HILLSHADE_AZIMUTH}°, "
-        f"výška slunce {HILLSHADE_ALTITUDE}° (kartografický standard GDAL).\n"
+        f"Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
+        "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM) a náhled DMP OK.\n"
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete podkladarna.omap – načte symboliku\n"
         "   a referenční podklady ze složky references/ (ortofoto, hillshade, OSM).\n"
         "   Pokud OOM hlásí chybějící soubor, zkontrolujte, že references/ leží vedle .omap.\n"
-        "2. Pořadí podkladů (zdola): ortofoto → OSM → hillshade → Karttapullautin PNG.\n"
+        "2. Pořadí podkladů (zdola): ortofoto → OSM / ZTM → náhled DMP OK → hillshade → Karttapullautin PNG.\n"
         "   Referenční vrstvy nejsou součástí finální mapy – jen pro kreslení.\n"
-        "3. File → Import… → karttapullautin/*.dxf (vrstevnice, srázy).\n"
-        "4. File → Import… → vectors/*.shp (ZABAGED). Symboliku přiřaďte ručně.\n\n"
+        "3. File → Import… → karttapullautin/contours.dxf (vrstevnice), cliffs_*.dxf (srázy), dotknolls.dxf.\n"
+        "4. File → Import… → vectors/*.shp (ZABAGED). Symboliku přiřaďte ručně.\n"
+        "   Soubory .prj nechte vedle .shp – nesou stejný S-JTSK jako .omap.\n"
+        "   Bez nich OOM vektory posune o desítky centimetrů vůči PNG.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto), CC BY 4.0. "
@@ -123,10 +131,10 @@ def collect_oom_templates(
     """Šablony pro .omap – jen vrstvy, které se skutečně vygenerovaly."""
     templates: list[tuple[str, str, bool, float]] = []
     if built_refs:
-        for key, label, relpath, opacity in OOM_REFERENCE_TEMPLATES:
+        for key, label, relpath, opacity, visible in OOM_REFERENCE_TEMPLATES:
             path = built_refs.get(key)
             if path and path.is_file():
-                templates.append((label, relpath, True, opacity))
+                templates.append((label, relpath, visible, opacity))
     if (kp_cwd / "pullautus.png").is_file():
         templates.append(("Karttapullautin", "basemap/pullautus.png", True, 1.0))
     return templates
@@ -211,8 +219,8 @@ def build_oom_zip(
                     zf.write(pgw, f"references/{pgw.name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
-            for path in sorted(temp.glob("*.dxf")):
-                zf.write(path, f"karttapullautin/{path.name}")
+            for zip_name, src in sorted(collect_dxf_for_zip(temp).items()):
+                zf.write(src, f"karttapullautin/{zip_name}")
         if zabaged_clean and zabaged_clean.is_file():
             _add_shapefiles_from_zip(zf, zabaged_clean, "vectors")
             if include_zabaged_archive:

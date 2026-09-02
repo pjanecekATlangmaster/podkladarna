@@ -5,8 +5,7 @@ from pathlib import Path
 from app.pipeline.build_oom_map import build_oom_map_xml, write_oom_map
 from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.reference_layers import (
-    HILLSHADE_ALTITUDE,
-    HILLSHADE_AZIMUTH,
+    HILLSHADE_VARIANTS,
     _pick_osm_zoom,
     _write_osm_vrt,
     reference_metadata,
@@ -15,8 +14,11 @@ from app.pipeline.reference_layers import (
 
 def test_reference_metadata():
     meta = reference_metadata()
-    assert meta["hillshade_azimuth_deg"] == 315
-    assert meta["hillshade_altitude_deg"] == 45
+    assert meta["hillshade_source"] == "ČÚZK DMR 5G WMS"
+    assert meta["hillshade_tool"] == "WMS ImageServer"
+    assert len(meta["hillshade_variants"]) == len(HILLSHADE_VARIANTS)
+    assert "osm.png" in meta["map_layers"]
+    assert meta["dmpok_preview"] == "dmpok_nahled.png"
 
 
 def test_pick_osm_zoom_small_bbox():

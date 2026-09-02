@@ -12,6 +12,7 @@ import yaml
 
 from app import settings
 from app.download_cache import is_fresh, read_meta, write_meta, zabaged_cache_dir
+from app.pipeline.crs_5514 import write_prj
 from app.pipeline.fetch_openzu import (
     DOWNLOAD_TIMEOUT_S,
     FetchError,
@@ -86,6 +87,7 @@ def fetch_zabaged_for_bbox(
             geojson_path.write_text(json.dumps(gj), encoding="utf-8")
             shp = stage / f"{name}.shp"
             _ogr2ogr_shp(ogr2ogr, geojson_path, shp, (xmin, ymin, xmax, ymax))
+            write_prj(shp)
             geojson_path.unlink(missing_ok=True)
             if log:
                 log(f"  OK {name}: {n} prvku")
