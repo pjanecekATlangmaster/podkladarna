@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import struct
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
+from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
     oom_code_for_dxf,
     oom_code_for_vectorconf_rule,
@@ -12,25 +14,122 @@ from app.pipeline.oom_symbol_map import (
 )
 from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
 
+# ('point', x, y) | ('line', [(x, y), ...], close)
+_WkbPart = tuple[str, object]
+
+
+def _wkb_read_points(buf: bytes, offset: int, fmt: str, n: int) -> tuple[list[tuple[float, float]], int]:
+    pts: list[tuple[float, float]] = []
+    for _ in range(n):
+        x, y = struct.unpack_from(fmt + "dd", buf, offset)
+        offset += 16
+        pts.append((x, y))
+    return pts, offset
+
+
+def _wkb_parts(buf: bytes, offset: int = 0) -> tuple[list[_WkbPart], int]:
+    byte_order = buf[offset]
+    fmt = "<" if byte_order == 1 else ">"
+    offset += 1
+    geom_type, = struct.unpack_from(fmt + "I", buf, offset)
+    offset += 4
+    base_type = geom_type % 1000
+    parts: list[_WkbPart] = []
+
+    if base_type == 1:
+        x, y = struct.unpack_from(fmt + "dd", buf, offset)
+        parts.append(("point", x, y))
+        offset += 16
+    elif base_type == 2:
+        n, = struct.unpack_from(fmt + "I", buf, offset)
+        offset += 4
+        pts, offset = _wkb_read_points(buf, offset, fmt, n)
+        parts.append(("line", pts, False))
+    elif base_type == 3:
+        nr, = struct.unpack_from(fmt + "I", buf, offset)
+        offset += 4
+        for ri in range(nr):
+            n, = struct.unpack_from(fmt + "I", buf, offset)
+            offset += 4
+            pts, offset = _wkb_read_points(buf, offset, fmt, n)
+            if ri == 0:
+                parts.append(("line", pts, True))
+    elif base_type == 5:
+        ng, = struct.unpack_from(fmt + "I", buf, offset)
+        offset += 4
+        for _ in range(ng):
+            sub, offset = _wkb_parts(buf, offset)
+            parts.extend(sub)
+    elif base_type == 6:
+        ng, = struct.unpack_from(fmt + "I", buf, offset)
+        offset += 4
+        for _ in range(ng):
+            sub, offset = _wkb_parts(buf, offset)
+            for part in sub:
+                if part[0] == "line" and part[2]:
+                    parts.append(part)
+    return parts, offset
+
+
+def _geom_parts_to_objects(
+    parts: list[_WkbPart],
+    symbol_index: int,
+    *,
+    ref_x: float,
+    ref_y: float,
+    scale: int,
+    grivation_deg: float,
+) -> list[str]:
+    out: list[str] = []
+    for part in parts:
+        if part[0] == "point":
+            _, x, y = part
+            mx, my = projected_to_map_coord(
+                float(x),
+                float(y),
+                ref_x=ref_x,
+                ref_y=ref_y,
+                scale=scale,
+                grivation_deg=grivation_deg,
+            )
+            out.append(_point_object(symbol_index, mx, my))
+        elif part[0] == "line":
+            _, pts, close = part
+            coords = [
+                projected_to_map_coord(
+                    float(x),
+                    float(y),
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                )
+                for x, y in pts  # type: ignore[union-attr]
+            ]
+            obj = _path_object(symbol_index, coords, close=bool(close))
+            if obj:
+                out.append(obj)
+    return out
+
+
+def _pyogrio_layer_rows(path: Path, *, layer: str | None = None):
+    import pyogrio.raw as pyogrio_raw
+
+    fields, geoms, _crs, _geom_types = pyogrio_raw.read(path, layer=layer)
+    if geoms is None:
+        return
+    field_names = list(fields)
+    n = len(geoms)
+    for i in range(n):
+        props = {name: fields[name][i] for name in field_names}
+        yield props, geoms[i]
+
 
 @dataclass
 class OomObjectPart:
     name: str
     objects_xml: str
     count: int
-
-
-def projected_to_map_coord(
-    x: float,
-    y: float,
-    *,
-    ref_x: float,
-    ref_y: float,
-    scale: int,
-) -> tuple[int, int]:
-    """Nativní souřadnice OOM (0,001 mm na papíře)."""
-    fac = 1_000_000.0 / float(scale)
-    return round((x - ref_x) * fac), round((y - ref_y) * fac)
 
 
 def _fmt(x: int, y: int, flags: int = 0) -> str:
@@ -75,6 +174,7 @@ def _geom_objects(
     ref_x: float,
     ref_y: float,
     scale: int,
+    grivation_deg: float,
     ogr,
 ) -> list[str]:
     from osgeo import ogr as ogr_mod
@@ -85,14 +185,24 @@ def _geom_objects(
     def line_coords(line) -> list[tuple[int, int]]:
         return [
             projected_to_map_coord(
-                line.GetX(i), line.GetY(i), ref_x=ref_x, ref_y=ref_y, scale=scale
+                line.GetX(i),
+                line.GetY(i),
+                ref_x=ref_x,
+                ref_y=ref_y,
+                scale=scale,
+                grivation_deg=grivation_deg,
             )
             for i in range(line.GetPointCount())
         ]
 
     if gtype in (ogr_mod.wkbPoint, ogr_mod.wkbPoint25D):
         mx, my = projected_to_map_coord(
-            geom.GetX(), geom.GetY(), ref_x=ref_x, ref_y=ref_y, scale=scale
+            geom.GetX(),
+            geom.GetY(),
+            ref_x=ref_x,
+            ref_y=ref_y,
+            scale=scale,
+            grivation_deg=grivation_deg,
         )
         obj = _point_object(symbol_index, mx, my)
         if obj:
@@ -159,12 +269,18 @@ def build_zabaged_object_parts(
     scale: int,
     ref_x: float,
     ref_y: float,
+    grivation_deg: float,
     work_dir: Path,
 ) -> list[OomObjectPart]:
+    use_ogr = True
     try:
         from osgeo import ogr
     except ImportError:
-        return []
+        use_ogr = False
+        try:
+            import pyogrio.raw  # noqa: F401
+        except ImportError:
+            return []
 
     rules = load_vectorconf(vectorconf_name)
     stage = work_dir / "_oom_objects"
@@ -185,43 +301,75 @@ def build_zabaged_object_parts(
         shp_path = _extract_shp_from_zip(zabaged_clean, shp_name, stage / layer_name)
         if not shp_path:
             continue
-        ds = ogr.Open(str(shp_path))
-        if not ds:
-            continue
-        layer = ds.GetLayer()
-        if not layer:
-            continue
         objects: list[str] = []
-        for feature in layer:
-            props = feature_props(feature, layer_name=layer_name)
-            rule = match_feature(props, rules)
-            if not rule:
+        if use_ogr:
+            ds = ogr.Open(str(shp_path))
+            if not ds:
                 continue
-            code = oom_code_for_vectorconf_rule(
-                rule.symbol_name,
-                rule.kp_code,
-                layer_name,
-                preset_id=preset_id,
-                scale=scale,
-            )
-            if not code:
+            layer = ds.GetLayer()
+            if not layer:
                 continue
-            symbol_index = symbol_index_for_code(preset_id, scale, code)
-            if symbol_index is None:
-                continue
-            geom = feature.GetGeometryRef()
-            if geom is None:
-                continue
-            objects.extend(
-                _geom_objects(
-                    geom,
-                    symbol_index,
-                    ref_x=ref_x,
-                    ref_y=ref_y,
+            for feature in layer:
+                props = feature_props(feature, layer_name=layer_name)
+                rule = match_feature(props, rules)
+                if not rule:
+                    continue
+                code = oom_code_for_vectorconf_rule(
+                    rule.symbol_name,
+                    rule.kp_code,
+                    layer_name,
+                    preset_id=preset_id,
                     scale=scale,
-                    ogr=ogr,
                 )
-            )
+                if not code:
+                    continue
+                symbol_index = symbol_index_for_code(preset_id, scale, code)
+                if symbol_index is None:
+                    continue
+                geom = feature.GetGeometryRef()
+                if geom is None:
+                    continue
+                objects.extend(
+                    _geom_objects(
+                        geom,
+                        symbol_index,
+                        ref_x=ref_x,
+                        ref_y=ref_y,
+                        scale=scale,
+                        grivation_deg=grivation_deg,
+                        ogr=ogr,
+                    )
+                )
+        else:
+            for props, wkb in _pyogrio_layer_rows(shp_path):
+                if "vrstva" not in props:
+                    props["vrstva"] = layer_name
+                rule = match_feature(props, rules)
+                if not rule:
+                    continue
+                code = oom_code_for_vectorconf_rule(
+                    rule.symbol_name,
+                    rule.kp_code,
+                    layer_name,
+                    preset_id=preset_id,
+                    scale=scale,
+                )
+                if not code:
+                    continue
+                symbol_index = symbol_index_for_code(preset_id, scale, code)
+                if symbol_index is None:
+                    continue
+                geom_parts, _ = _wkb_parts(wkb)
+                objects.extend(
+                    _geom_parts_to_objects(
+                        geom_parts,
+                        symbol_index,
+                        ref_x=ref_x,
+                        ref_y=ref_y,
+                        scale=scale,
+                        grivation_deg=grivation_deg,
+                    )
+                )
         if objects:
             parts.append(
                 OomObjectPart(
@@ -240,11 +388,17 @@ def build_dxf_object_part(
     scale: int,
     ref_x: float,
     ref_y: float,
+    grivation_deg: float,
 ) -> OomObjectPart | None:
+    use_ogr = True
     try:
         from osgeo import ogr
     except ImportError:
-        return None
+        use_ogr = False
+        try:
+            import pyogrio.raw  # noqa: F401
+        except ImportError:
+            return None
 
     temp = kp_cwd / "temp"
     if not temp.is_dir():
@@ -261,27 +415,45 @@ def build_dxf_object_part(
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             continue
-        ds = ogr.Open(str(path))
-        if not ds:
-            continue
-        for i in range(ds.GetLayerCount()):
-            layer = ds.GetLayerByIndex(i)
-            if not layer:
+        if use_ogr:
+            ds = ogr.Open(str(path))
+            if not ds:
                 continue
-            for feature in layer:
-                geom = feature.GetGeometryRef()
-                if geom is None:
+            for i in range(ds.GetLayerCount()):
+                layer = ds.GetLayerByIndex(i)
+                if not layer:
                     continue
-                objects.extend(
-                    _geom_objects(
-                        geom,
-                        symbol_index,
-                        ref_x=ref_x,
-                        ref_y=ref_y,
-                        scale=scale,
-                        ogr=ogr,
+                for feature in layer:
+                    geom = feature.GetGeometryRef()
+                    if geom is None:
+                        continue
+                    objects.extend(
+                        _geom_objects(
+                            geom,
+                            symbol_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            ogr=ogr,
+                        )
                     )
-                )
+        else:
+            import pyogrio
+
+            for layer_name, _layer_type in pyogrio.list_layers(path):
+                for _props, wkb in _pyogrio_layer_rows(path, layer=layer_name):
+                    geom_parts, _ = _wkb_parts(wkb)
+                    objects.extend(
+                        _geom_parts_to_objects(
+                            geom_parts,
+                            symbol_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                        )
+                    )
     if not objects:
         return None
     return OomObjectPart(

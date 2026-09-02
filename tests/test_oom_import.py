@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from app.pipeline.oom_import import feature_props, projected_to_map_coord
+from app.pipeline.oom_coords import projected_to_map_coord
+from app.pipeline.oom_import import feature_props
 from app.pipeline.oom_symbol_map import oom_code_for_vectorconf_rule, symbol_index_for_code
 from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
 
@@ -32,11 +33,32 @@ def test_feature_props_uses_getfield_not_items():
     assert props["vrstva"] == "Cesta"
 
 
-def test_projected_to_map_coord_scale_4000():
-    # 1 m východně od ref → 250 nativních jednotek (0,25 mm na papíře při 1:4000)
-    x, y = projected_to_map_coord(1.0, 0.0, ref_x=0.0, ref_y=0.0, scale=4000)
-    assert x == 250
+def test_projected_to_map_coord_at_ref():
+    x, y = projected_to_map_coord(
+        100.0,
+        200.0,
+        ref_x=100.0,
+        ref_y=200.0,
+        scale=4000,
+        grivation_deg=13.0,
+    )
+    assert x == 0
     assert y == 0
+
+
+def test_projected_to_map_coord_east_with_grivation():
+    # 1 m východně, grivation 0 → 250 nativních jednotek na ose X
+    x0, y0 = projected_to_map_coord(
+        1.0, 0.0, ref_x=0.0, ref_y=0.0, scale=4000, grivation_deg=0.0
+    )
+    assert x0 == 250
+    assert y0 == 0
+    # Se grivací se osa mapy natočí – Y už není 0
+    x1, y1 = projected_to_map_coord(
+        1.0, 0.0, ref_x=0.0, ref_y=0.0, scale=4000, grivation_deg=13.0
+    )
+    assert x1 != 250 or y1 != 0
+    assert abs(x1) > 200
 
 
 def test_vectorconf_match_building():

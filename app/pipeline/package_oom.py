@@ -15,6 +15,7 @@ from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.georef import projected_center_from_raster
+from app.pipeline.oom_georef import oom_north_angles
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.reference_layers import reference_metadata
 
@@ -142,6 +143,7 @@ def prepare_oom_map(
         ref_x = (xmin + xmax) / 2
         ref_y = (ymin + ymax) / 2
     ref_lat, ref_lon = projected_to_wgs84(ref_x, ref_y)
+    _, grivation = oom_north_angles(ref_x, ref_y)
     templates = collect_oom_templates(
         kp_cwd,
         built_refs=built_refs,
@@ -159,6 +161,7 @@ def prepare_oom_map(
             scale=scale,
             ref_x=ref_x,
             ref_y=ref_y,
+            grivation_deg=grivation,
         )
         if dxf_part:
             object_parts.append(dxf_part)
@@ -171,6 +174,7 @@ def prepare_oom_map(
                 scale=scale,
                 ref_x=ref_x,
                 ref_y=ref_y,
+                grivation_deg=grivation,
                 work_dir=kp_cwd.parent,
             )
         )
