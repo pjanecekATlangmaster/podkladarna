@@ -139,6 +139,18 @@ def _extract_shp_from_zip(zabaged_clean: Path, shp_name: str, dest_dir: Path) ->
     return shp if shp.is_file() else None
 
 
+def feature_props(feature, *, layer_name: str) -> dict[str, object]:
+    props: dict[str, object] = {}
+    for i in range(feature.GetFieldCount()):
+        name = feature.GetFieldDefnRef(i).GetName()
+        if not name:
+            continue
+        props[name] = feature.GetField(i)
+    if "vrstva" not in props:
+        props["vrstva"] = layer_name
+    return props
+
+
 def build_zabaged_object_parts(
     zabaged_clean: Path,
     *,
@@ -181,10 +193,7 @@ def build_zabaged_object_parts(
             continue
         objects: list[str] = []
         for feature in layer:
-            props = feature.items()
-            props = {k: v for k, v in props if k}
-            if "vrstva" not in props:
-                props["vrstva"] = layer_name
+            props = feature_props(feature, layer_name=layer_name)
             rule = match_feature(props, rules)
             if not rule:
                 continue

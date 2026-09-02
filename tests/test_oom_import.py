@@ -1,8 +1,35 @@
 from __future__ import annotations
 
-from app.pipeline.oom_import import projected_to_map_coord
+from app.pipeline.oom_import import feature_props, projected_to_map_coord
 from app.pipeline.oom_symbol_map import oom_code_for_vectorconf_rule, symbol_index_for_code
 from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
+
+
+def test_feature_props_uses_getfield_not_items():
+    class _Defn:
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        def GetName(self) -> str:
+            return self._name
+
+    class _Feature:
+        def __init__(self, fields: list[tuple[str, object]]) -> None:
+            self._fields = fields
+
+        def GetFieldCount(self) -> int:
+            return len(self._fields)
+
+        def GetFieldDefnRef(self, i: int) -> _Defn:
+            return _Defn(self._fields[i][0])
+
+        def GetField(self, i: int) -> object:
+            return self._fields[i][1]
+
+    feat = _Feature([("druhbud", "ano"), ("typulice_p", "ulice sjízdná v sídle")])
+    props = feature_props(feat, layer_name="Cesta")
+    assert props["druhbud"] == "ano"
+    assert props["vrstva"] == "Cesta"
 
 
 def test_projected_to_map_coord_scale_4000():
