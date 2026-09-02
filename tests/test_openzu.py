@@ -45,12 +45,32 @@ def test_bbox_size_over_5km():
     assert bbox_exceeds_limit(14.0, 49.5, 14.2, 49.7)
 
 
-def test_estimate_minutes_is_a_few_minutes():
-    from app.pipeline.fetch_openzu import estimate_minutes
+def test_estimate_minutes_accounts_for_dmpok(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
 
-    assert estimate_minutes(1) == 2
-    assert estimate_minutes(4) == 5
-    assert estimate_minutes(8) == 9
+    from app import settings
+    from app.download_cache import write_meta
+    from app.pipeline.fetch_openzu import dmpok_cached_mapnoms, estimate_minutes, estimate_note
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    names = ["PRAH03", "PRAH04", "PRAH13", "PRAH14"]
+    assert estimate_minutes(names) == 5 * 2 + 4 * 5
+
+    folder = tmp_path / "lidar" / "sm5" / "PRAH03"
+    folder.mkdir(parents=True)
+    (folder / "DMPOK.laz").write_bytes(b"x" * 2000)
+    write_meta(folder, downloaded_at=datetime.now(timezone.utc).isoformat())
+    assert dmpok_cached_mapnoms(names) == {"PRAH03"}
+    assert estimate_minutes(names) == 5 * 2 + 3 * 5
+    assert estimate_note(names).startswith("Stahuje se DMP OK")
+
+    for mapnom in names:
+        f = tmp_path / "lidar" / "sm5" / mapnom
+        f.mkdir(parents=True, exist_ok=True)
+        (f / "DMPOK.laz").write_bytes(b"x" * 2000)
+        write_meta(f, downloaded_at=datetime.now(timezone.utc).isoformat())
+    assert estimate_minutes(names) == 5 * 2
+    assert estimate_note(names) == "DMP OK v cache."
 
 
 def test_query_sm5_sheets_parses_arcgis(monkeypatch):
@@ -90,7 +110,8 @@ def test_api_sheets(client, monkeypatch):
     body = r.json()
     assert body["count"] == 1
     assert body["sheets"][0]["mapnom"] == "PRAH77"
-    assert body["estimate_minutes"] == 2
+    assert body["estimate_minutes"] == 9
+    assert body["estimate_note"]
     assert "PRAH77" in body["label"]
     assert body["too_large"] is False
     assert body["max_km"] == 5.0

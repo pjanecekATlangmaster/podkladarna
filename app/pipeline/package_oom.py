@@ -6,27 +6,21 @@ from pathlib import Path
 
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.guide_text import ZIP_ABOUT_TXT
+from app.pipeline.oom_import import (
+    OomObjectPart,
+    build_dxf_object_part,
+    build_zabaged_object_parts,
+)
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.georef import projected_center_from_raster
-from app.pipeline.reference_layers import HILLSHADE_VARIANTS, reference_metadata
+from app.pipeline.oom_layers import collect_oom_templates
+from app.pipeline.reference_layers import reference_metadata
 
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
 OOM_MAP_NAME = "podkladarna.omap"
-
-# (klíč z build_reference_layers, popisek, cesta v ZIPu, průhlednost, viditelná v OOM)
-OOM_REFERENCE_TEMPLATES: tuple[tuple[str, str, str, float, bool], ...] = (
-    ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0, True),
-    ("osm", "OpenStreetMap", "references/osm.png", 0.85, True),
-    ("ztm", "Základní mapa ČÚZK (ZTM)", "references/mapa_ztm.png", 0.88, True),
-    ("dmpok", "Náhled DMP OK", "references/dmpok_nahled.png", 0.65, False),
-    *(
-        (key, label, f"references/{filename}", opacity, visible)
-        for key, _layer, filename, label, opacity, visible in HILLSHADE_VARIANTS
-    ),
-)
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
@@ -85,15 +79,12 @@ def oom_readme(meta: dict) -> str:
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
-        "1. Rozbalte celý ZIP do jedné složky. Otevřete podkladarna.omap – načte symboliku\n"
-        "   a referenční podklady ze složky references/ (ortofoto, hillshade, OSM).\n"
-        "   Pokud OOM hlásí chybějící soubor, zkontrolujte, že references/ leží vedle .omap.\n"
-        "2. Pořadí podkladů (zdola): ortofoto → OSM / ZTM → náhled DMP OK → hillshade → Karttapullautin PNG.\n"
-        "   Referenční vrstvy nejsou součástí finální mapy – jen pro kreslení.\n"
-        "3. File → Import… → karttapullautin/contours.dxf (vrstevnice), cliffs_*.dxf (srázy), dotknolls.dxf.\n"
-        "4. File → Import… → vectors/*.shp (ZABAGED). Symboliku přiřaďte ručně.\n"
-        "   Soubory .prj nechte vedle .shp – nesou stejný S-JTSK jako .omap.\n"
-        "   Bez nich OOM vektory posune o desítky centimetrů vůči PNG.\n\n"
+        "1. Rozbalte celý ZIP do jedné složky. Otevřete podkladarna.omap.\n"
+        "   Mapa obsahuje editovatelné objekty (vrstevnice, ZABAGED, …).\n"
+        "2. Kontrolní PNG z Karttapullautinu je poloprůhledná šablona – lze vypnout v okně šablon.\n"
+        "3. Referenční podklady (ortofoto, OSM, ZTM, hillshade) jsou pod ním.\n"
+        "4. Shapefile ZABAGED (vectors/) jsou v ZIPu pro ruční práci mimo OOM.\n"
+        "   DXF z Karttapullautinu (karttapullautin/) slouží jako záloha pro import.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto), CC BY 4.0. "
@@ -124,22 +115,6 @@ def _add_shapefiles_from_zip(zf: zipfile.ZipFile, src_zip: Path, dest_dir: str) 
     return n
 
 
-def collect_oom_templates(
-    kp_cwd: Path,
-    built_refs: dict[str, Path] | None = None,
-) -> list[tuple[str, str, bool, float]]:
-    """Šablony pro .omap – jen vrstvy, které se skutečně vygenerovaly."""
-    templates: list[tuple[str, str, bool, float]] = []
-    if built_refs:
-        for key, label, relpath, opacity, visible in OOM_REFERENCE_TEMPLATES:
-            path = built_refs.get(key)
-            if path and path.is_file():
-                templates.append((label, relpath, visible, opacity))
-    if (kp_cwd / "pullautus.png").is_file():
-        templates.append(("Karttapullautin", "basemap/pullautus.png", True, 1.0))
-    return templates
-
-
 def prepare_oom_map(
     kp_cwd: Path,
     dest: Path,
@@ -149,6 +124,9 @@ def prepare_oom_map(
     preset_id: str,
     bbox_wgs84: tuple[float, float, float, float],
     built_refs: dict[str, Path] | None = None,
+    zabaged_clean: Path | None = None,
+    vectorconf_name: str = "zabaged.txt",
+    include_dxf: bool = True,
 ) -> Path | None:
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
@@ -164,9 +142,39 @@ def prepare_oom_map(
         ref_x = (xmin + xmax) / 2
         ref_y = (ymin + ymax) / 2
     ref_lat, ref_lon = projected_to_wgs84(ref_x, ref_y)
-    templates = collect_oom_templates(kp_cwd, built_refs)
+    templates = collect_oom_templates(
+        kp_cwd,
+        built_refs=built_refs,
+        include_dxf=include_dxf,
+        include_dxf_templates=False,
+    )
     if not templates:
         return None
+
+    object_parts: list[OomObjectPart] = []
+    if include_dxf:
+        dxf_part = build_dxf_object_part(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+        )
+        if dxf_part:
+            object_parts.append(dxf_part)
+    if zabaged_clean and zabaged_clean.is_file():
+        object_parts.extend(
+            build_zabaged_object_parts(
+                zabaged_clean,
+                vectorconf_name=vectorconf_name,
+                preset_id=preset_id,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                work_dir=kp_cwd.parent,
+            )
+        )
+
     return write_oom_map(
         dest,
         map_name=map_name,
@@ -176,6 +184,7 @@ def prepare_oom_map(
         ref_lat=ref_lat,
         ref_lon=ref_lon,
         templates=templates,
+        object_parts=object_parts or None,
         preset_id=preset_id,
     )
 

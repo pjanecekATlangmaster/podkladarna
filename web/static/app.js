@@ -666,7 +666,9 @@ async function lookupSheets() {
       ? " Iterace: LiDAR z předchozího jobu, ZABAGED se stáhne znovu."
       : "";
     setSheetInfo(
-      `${data.label} · ${size}. Odhad: cca ${data.estimate_minutes} min.${extra}`,
+      `${data.label} · ${size}. Odhad: cca ${data.estimate_minutes} min${
+        data.estimate_note ? ` (${data.estimate_note})` : ""
+      }.${extra}`,
       "ok"
     );
   } catch (err) {

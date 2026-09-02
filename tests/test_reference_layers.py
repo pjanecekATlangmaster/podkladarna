@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.pipeline.build_oom_map import build_oom_map_xml, write_oom_map
+from app.pipeline.oom_layers import OomTemplate
 from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.reference_layers import (
     HILLSHADE_VARIANTS,
@@ -97,8 +98,8 @@ def test_build_oom_map_xml_contains_templates():
         grivation=13.02,
         preset_id="forest_10000",
         templates=[
-            ("Ortofoto", "references/orthophoto.png", True),
-            ("KP", "basemap/pullautus.png", True),
+            OomTemplate("image", "Ortofoto", "references/orthophoto.png"),
+            OomTemplate("image", "KP", "basemap/pullautus.png"),
         ],
     )
     assert "+proj=krovak" in xml
@@ -124,7 +125,7 @@ def test_write_oom_map_file(tmp_path):
         ref_lat=50.0,
         ref_lon=14.5,
         preset_id="sprint_2m",
-        templates=[("KP", "basemap/pullautus.png", True)],
+        templates=[OomTemplate("image", "KP", "basemap/pullautus.png")],
     )
     assert dest.is_file()
     assert "Šance" in dest.read_text(encoding="utf-8")

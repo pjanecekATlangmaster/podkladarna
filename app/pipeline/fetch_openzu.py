@@ -75,10 +75,41 @@ def bbox_exceeds_limit(west: float, south: float, east: float, north: float) -> 
     return width_km > MAX_BBOX_KM or height_km > MAX_BBOX_KM
 
 
-def estimate_minutes(sheet_count: int) -> int:
-    """Hrubý odhad. Listy SM5 jsou v cache, Karttapullautin u sprintu běží jednotky minut."""
-    n = max(sheet_count, 1)
-    return max(2, 1 + n)
+def estimate_minutes(sheet_names: list[str]) -> int:
+    """Hrubý odhad délky jobu v minutách.
+
+    DMP OK je řádově větší a hustší než DMP 1G – PDAL i Karttapullautin trvají
+    zhruba dvakrát déle i z cache. Bez cache přibývá stažení ~350 MB na list.
+    """
+    n = max(len(sheet_names), 1)
+    cached = dmpok_cached_mapnoms(sheet_names)
+    base = max(2, 1 + n)
+    minutes = base * 2
+    minutes += (n - len(cached)) * 5
+    return minutes
+
+
+def dmpok_cached_mapnoms(mapnoms: list[str]) -> set[str]:
+    """Listy SM5, u kterých je v cache čerstvý DMPOK.laz."""
+    cached: set[str] = set()
+    for mapnom in mapnoms:
+        folder = lidar_sheet_dir(mapnom)
+        if is_fresh(folder, folder / "DMPOK.laz", settings.LIDAR_CACHE_MAX_AGE_DAYS):
+            cached.add(mapnom)
+    return cached
+
+
+def estimate_note(sheet_names: list[str]) -> str | None:
+    """Krátká poznámka k odhadu (cache DMP OK / první stažení)."""
+    if not sheet_names:
+        return None
+    cached = dmpok_cached_mapnoms(sheet_names)
+    missing = len(sheet_names) - len(cached)
+    if missing <= 0:
+        return "DMP OK v cache."
+    if missing == len(sheet_names):
+        return f"První běh: stahuje se DMP OK ({missing} listů, ~350 MB/list)."
+    return f"Stahuje se DMP OK pro {missing} list(ů) (~350 MB/list), ostatní z cache."
 
 
 def query_sm5_sheets(west: float, south: float, east: float, north: float) -> list[dict]:

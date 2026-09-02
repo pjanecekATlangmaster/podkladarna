@@ -10,9 +10,10 @@ from app.pipeline.crs_5514 import (
     projected_to_wgs84,
 )
 from app.pipeline.oom_georef import oom_north_angles
+from app.pipeline.oom_import import OomObjectPart
+from app.pipeline.oom_layers import OomTemplate
 from app.pipeline.oom_symbols import colors_and_symbols_xml, symbol_set_path
 
-# Zpětná kompatibilita importů z build_oom_map.
 __all__ = [
     "CRS_LABEL",
     "CRS_PROJ4",
@@ -22,19 +23,65 @@ __all__ = [
     "write_oom_map",
 ]
 
-def _template_xml(
-    idx: int,
-    name: str,
-    relpath: str,
-    *,
-    open_layer: bool = False,
-    opacity: float = 1.0,
-) -> str:
-    open_attr = "true" if open_layer else "false"
+
+def _template_xml(tmpl: OomTemplate) -> str:
+    open_attr = "true" if tmpl.visible else "false"
+    fname = html.escape(tmpl.filename)
+    relpath = html.escape(tmpl.relpath)
+    group_attr = (
+        f' group="{tmpl.group}"' if tmpl.group is not None else ""
+    )
+    if tmpl.kind == "ogr":
+        return (
+            f'            <template type="OgrTemplate" open="{open_attr}"'
+            f' name="{fname}" path="{relpath}" relpath="{relpath}"'
+            f' georef="true"{group_attr}/>'
+        )
     crs = html.escape(CRS_PROJ4)
-    return f"""            <template type="TemplateImage" open="{open_attr}" name="{html.escape(name)}" path="{html.escape(relpath)}" relpath="{html.escape(relpath)}" georef="true" opacity="{opacity:.2f}">
-                <crs_spec>{crs}</crs_spec>
-            </template>"""
+    return (
+        f'            <template type="TemplateImage" open="{open_attr}"'
+        f' name="{fname}" path="{relpath}" relpath="{relpath}"'
+        f' georef="true"{group_attr}>\n'
+        f"                <crs_spec>{crs}</crs_spec>\n"
+        f"            </template>"
+    )
+
+
+def _parts_xml(parts: list[OomObjectPart]) -> tuple[str, int]:
+    if not parts:
+        return (
+            '        <parts count="1" current="0">\n'
+            '            <part name="Mapa">\n'
+            '                <objects count="0"/>\n'
+            "            </part>\n"
+            "        </parts>",
+            0,
+        )
+    blocks: list[str] = []
+    total = 0
+    for part in parts:
+        total += part.count
+        if part.objects_xml:
+            blocks.append(
+                f'            <part name="{html.escape(part.name)}">\n'
+                f'                <objects count="{part.count}">\n'
+                f"{part.objects_xml}\n"
+                "                </objects>\n"
+                "            </part>"
+            )
+        else:
+            blocks.append(
+                f'            <part name="{html.escape(part.name)}">\n'
+                f'                <objects count="0"/>\n'
+                "            </part>"
+            )
+    current = len(parts) - 1
+    return (
+        f'        <parts count="{len(parts)}" current="{current}">\n'
+        + "\n".join(blocks)
+        + "\n        </parts>",
+        total,
+    )
 
 
 def build_oom_map_xml(
@@ -47,28 +94,21 @@ def build_oom_map_xml(
     ref_lon: float,
     declination: float,
     grivation: float,
-    templates: list[tuple[str, str, bool] | tuple[str, str, bool, float]],
+    templates: list[OomTemplate],
+    object_parts: list[OomObjectPart] | None = None,
     preset_id: str,
 ) -> str:
-    """.omap s referenčními šablonami a oficiální symbolikou IOF (ISSprOM / ISOM)."""
+    """.omap s kontrolním PNG a editovatelnými objekty mapy."""
     colors_xml, symbols_xml = colors_and_symbols_xml(symbol_set_path(preset_id, scale))
-    template_blocks = []
-    for idx, item in enumerate(templates):
-        if len(item) == 3:
-            label, relpath, visible = item
-            opacity = 1.0
-        else:
-            label, relpath, visible, opacity = item
-        template_blocks.append(
-            _template_xml(idx, label, relpath, open_layer=visible, opacity=opacity)
-        )
-    templates_xml = "\n".join(template_blocks)
+    templates_xml = "\n".join(_template_xml(t) for t in templates)
     template_refs = "\n".join(
-        f'                    <ref template="{i}" visible="true" opacity="1"/>'
-        for i in range(len(templates))
+        f'                    <ref template="{i}" visible="{"true" if t.visible else "false"}"'
+        f' opacity="{t.opacity:.2f}"/>'
+        for i, t in enumerate(templates)
     )
     if template_refs:
         template_refs += "\n"
+    parts_xml, _ = _parts_xml(object_parts or [])
     front = max(0, len(templates) - 1)
     safe_name = html.escape(map_name)
     crs = html.escape(CRS_PROJ4)
@@ -89,11 +129,7 @@ def build_oom_map_xml(
     {colors_xml}
     <barrier version="6" required="0.6.0">
         {symbols_xml}
-        <parts count="1" current="0">
-            <part name="Default">
-                <objects count="0"/>
-            </part>
-        </parts>
+{parts_xml}
         <templates count="{len(templates)}" first_front_template="{front}">
 {templates_xml}
             <defaults meters_per_pixel="0" dpi="0" scale="0"/>
@@ -120,8 +156,9 @@ def write_oom_map(
     ref_y: float,
     ref_lat: float,
     ref_lon: float,
-    templates: list[tuple[str, str, bool] | tuple[str, str, bool, float]],
+    templates: list[OomTemplate],
     preset_id: str,
+    object_parts: list[OomObjectPart] | None = None,
     declination: float | None = None,
     grivation: float | None = None,
 ) -> Path:
@@ -139,6 +176,7 @@ def write_oom_map(
             declination=declination,
             grivation=grivation,
             templates=templates,
+            object_parts=object_parts,
             preset_id=preset_id,
         ),
         encoding="utf-8",

@@ -21,6 +21,7 @@ from app.pipeline.fetch_openzu import (
     MAX_SHEETS,
     bbox_exceeds_limit,
     bbox_size_km,
+    estimate_note,
     estimate_minutes,
     parse_bbox,
     query_sm5_sheets,
@@ -171,7 +172,8 @@ def api_sheets(bbox: str):
         "max_km": MAX_BBOX_KM,
         "too_large": sheets_too_big,
         "too_large_reason": "sheets" if sheets_too_big else None,
-        "estimate_minutes": estimate_minutes(len(sheets)) if sheets and not sheets_too_big else None,
+        "estimate_minutes": estimate_minutes(names) if sheets and not sheets_too_big else None,
+        "estimate_note": estimate_note(names) if sheets and not sheets_too_big else None,
         "label": (
             f"Protíná listy: {', '.join(names)} ({len(sheets)})"
             if sheets

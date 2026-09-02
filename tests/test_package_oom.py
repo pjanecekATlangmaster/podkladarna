@@ -5,9 +5,9 @@ import zipfile
 from pathlib import Path
 
 from app.pipeline.build_oom_map import CRS_PROJ4
+from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.package_oom import (
     build_oom_zip,
-    collect_oom_templates,
     map_scale_from_scalefactor,
     oom_metadata,
     oom_readme,
@@ -109,6 +109,8 @@ def test_prepare_oom_map_minimal(tmp_path):
     assert 'grivation="' in xml
     assert 'grivation="0.00"' not in xml
     assert "<ref_point x=\"-699999.500000\" y=\"-1050000.500000\"/>" in xml
+    assert 'name="pullautus.png"' in xml
+    assert 'type="TemplateImage"' in xml
     assert '<symbols count="' in xml
     assert '<line_symbol' in xml
 
@@ -120,8 +122,35 @@ def test_collect_oom_templates_with_refs(tmp_path):
     (refs / "hillshade_dmr5g.png").write_bytes(b"x")
     (kp / "pullautus.png").write_bytes(b"x")
     built = {"hillshade": refs / "hillshade_dmr5g.png"}
-    templates = collect_oom_templates(kp, built)
+    templates = collect_oom_templates(kp, built_refs=built)
     assert len(templates) == 2
-    assert templates[0][1] == "references/hillshade_dmr5g.png"
-    assert templates[0][3] == 0.55
-    assert templates[1][1] == "basemap/pullautus.png"
+    assert templates[0].relpath == "references/hillshade_dmr5g.png"
+    assert templates[0].opacity == 0.55
+    assert templates[1].relpath == "basemap/pullautus.png"
+    assert templates[1].visible is True
+    assert templates[1].opacity == 0.45
+
+
+def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
+    kp = tmp_path / "work"
+    kp.mkdir()
+    (kp / "pullautus.png").write_bytes(b"x")
+    temp = kp / "temp"
+    temp.mkdir()
+    (temp / "out2.dxf").write_text("0\nSECTION\n", encoding="utf-8")
+    templates = collect_oom_templates(kp, include_dxf_templates=True)
+    dxf = [t for t in templates if t.kind == "ogr"]
+    assert len(dxf) == 1
+    assert dxf[0].relpath == "karttapullautin/contours.dxf"
+    assert dxf[0].visible is False
+
+
+def test_collect_oom_templates_png_is_control_overlay(tmp_path):
+    kp = tmp_path / "work"
+    kp.mkdir()
+    (kp / "pullautus.png").write_bytes(b"x")
+    templates = collect_oom_templates(kp)
+    png = [t for t in templates if t.relpath == "basemap/pullautus.png"]
+    assert len(png) == 1
+    assert png[0].opacity == 0.45
+    assert all(t.kind != "ogr" for t in templates)

@@ -199,8 +199,10 @@ def _package_output(
             ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
 
     meta = oom_metadata(preset_id, preset, options, job_name, reference_layers=ref_layers or None)
+    zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None
     omap_path = None
     if bbox:
+        vectorconf = Path(str(preset.get("vectorconf", "zabaged.txt"))).name
         omap_path = prepare_oom_map(
             kp_cwd,
             output_dir / "podkladarna.omap",
@@ -209,9 +211,11 @@ def _package_output(
             preset_id=preset_id,
             bbox_wgs84=tuple(bbox),
             built_refs=built_refs or None,
+            zabaged_clean=zabaged,
+            vectorconf_name=vectorconf,
+            include_dxf=bool(options.get("output_dxf", True)),
         )
 
-    zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None
     build_oom_zip(
         kp_cwd,
         zip_path,
