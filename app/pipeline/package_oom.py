@@ -20,6 +20,7 @@ from app.pipeline.oom_import import (
 )
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.reference_layers import reference_metadata
+from app.pipeline.vegetation_gdal import build_vegetation_parts
 
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
@@ -85,11 +86,14 @@ def oom_readme(meta: dict) -> str:
         "Doporučený postup v OOM\n"
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete podkladarna.omap.\n"
-        "   Mapa obsahuje editovatelné objekty (vrstevnice, ZABAGED, …).\n"
-        "2. Kontrolní PNG z Karttapullautinu je poloprůhledná šablona – lze vypnout v okně šablon.\n"
-        "3. Referenční podklady (ortofoto, OSM, ZTM, hillshade) jsou pod ním.\n"
+        "   Mapa obsahuje editovatelné objekty (vrstevnice, zeleň, ZABAGED, …).\n"
+        "2. Kontrolní PNG z Karttapullautinu je poloprůhledná šablona nad mapou.\n"
+        "   Ortofoto a další reference jsou ve výchozím stavu vypnuté – zapněte je v okně šablon.\n"
+        "3. Deprese: šablona „Karttapullautin deprese“ (ve výchozím stavu vypnutá).\n"
         "4. Shapefile ZABAGED (vectors/) jsou v ZIPu pro ruční práci mimo OOM.\n"
-        "   Vrstevnice PDAL/GDAL jsou v contours/; srázy a knolíky z Karttapullautinu v karttapullautin/.\n"
+        "   Vrstevnice PDAL/GDAL jsou v contours/; zeleň KP (polygony) ve vegetation/;\n"
+        "   srázy a knolíky z Karttapullautinu v karttapullautin/\n"
+        "   a zároveň jako editovatelné objekty v mapě.\n"
         "   OSM pěšiny (bez duplicit se ZABAGED) v osm_paths/ a jako objekty 507.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
@@ -137,6 +141,7 @@ def prepare_oom_map(
     formline: float = 0,
     indexcontours_m: float | None = None,
 ) -> Path | None:
+    del formline
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
     pullautus_png = kp_cwd / "pullautus.png"
@@ -162,6 +167,17 @@ def prepare_oom_map(
         return None
 
     object_parts: list[OomObjectPart] = []
+    # Zeleň pod vrstevnicemi (kreslí se dříve).
+    object_parts.extend(
+        build_vegetation_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+        )
+    )
     object_parts.extend(
         build_gdal_contour_parts(
             kp_cwd,
@@ -171,7 +187,7 @@ def prepare_oom_map(
             ref_y=ref_y,
             grivation_deg=grivation,
             interval_m=float(contour_interval_m or 5),
-            formline=float(formline or 0),
+            formline=0,
             index_m=float(indexcontours_m) if indexcontours_m else None,
         )
     )
@@ -274,6 +290,17 @@ def build_oom_zip(
                     ".cpg",
                 }:
                     zf.write(path, f"contours/{path.name}")
+        vege_dir = kp_cwd / "vegetation"
+        if vege_dir.is_dir():
+            for path in sorted(vege_dir.iterdir()):
+                if path.is_file() and path.suffix.lower() in {
+                    ".shp",
+                    ".shx",
+                    ".dbf",
+                    ".prj",
+                    ".cpg",
+                }:
+                    zf.write(path, f"vegetation/{path.name}")
         osm_dir = kp_cwd / "osm_paths"
         if osm_dir.is_dir():
             gj = osm_dir / "paths.geojson"

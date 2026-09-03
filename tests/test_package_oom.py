@@ -129,7 +129,7 @@ def test_prepare_oom_map_minimal(tmp_path):
     assert '<symbols count="' in xml
     assert '<line_symbol' in xml
     assert 'parts count="1"' in xml
-    assert 'first_front_template="1"' in xml
+    assert 'first_front_template="0"' in xml
 
 
 def test_collect_oom_templates_with_refs(tmp_path):
@@ -142,10 +142,10 @@ def test_collect_oom_templates_with_refs(tmp_path):
     templates = collect_oom_templates(kp, built_refs=built)
     assert len(templates) == 2
     assert templates[0].relpath == "references/hillshade_dmr5g.png"
-    assert templates[0].opacity == 0.55
+    assert templates[0].visible is False
     assert templates[1].relpath == "basemap/pullautus.png"
     assert templates[1].visible is True
-    assert templates[1].opacity == 1.0
+    assert templates[1].opacity == 0.65
 
 
 def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
@@ -169,8 +169,19 @@ def test_collect_oom_templates_png_is_control_overlay(tmp_path):
     templates = collect_oom_templates(kp)
     png = [t for t in templates if t.relpath == "basemap/pullautus.png"]
     assert len(png) == 1
-    assert png[0].opacity == 1.0
+    assert png[0].opacity == 0.65
+    assert png[0].visible is True
     assert all(t.kind != "ogr" for t in templates)
+
+
+def test_first_front_puts_kp_above_map():
+    from app.pipeline.oom_layers import OomTemplate, first_front_template_index
+
+    templates = [
+        OomTemplate("image", "ortho", "references/orthophoto.png", visible=False),
+        OomTemplate("image", "kp", "basemap/pullautus.png", visible=True, opacity=0.65),
+    ]
+    assert first_front_template_index(templates) == 1
 
 
 def test_oom_map_shows_all_objects_in_one_part(tmp_path):
@@ -203,4 +214,4 @@ def test_oom_map_shows_all_objects_in_one_part(tmp_path):
     assert 'parts count="1"' in xml
     assert 'part name="Mapa"' in xml
     assert 'objects count="2"' in xml
-    assert 'first_front_template="1"' in xml
+    assert 'first_front_template="0"' in xml

@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import math
 import urllib.error
+import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 from zipfile import ZipFile
@@ -16,11 +18,18 @@ from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import OomObjectPart, _path_object, _pyogrio_layer_rows, _wkb_parts
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 
+# Veřejná zrcadla – hlavní DE často hlásí 504; rotujeme rychle.
 OVERPASS_URLS = (
-    "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.openstreetmap.ru/api/interpreter",
 )
-QUERY_TIMEOUT_S = 60
+# Stejné jako Export na openstreetmap.org – celý bbox, filtrujeme path/footway.
+OSM_API_MAP_URL = "https://api.openstreetmap.org/api/0.6/map"
+# HTTP timeout na jeden pokus (krátký, ať při 504 stihneme další zrcadlo).
+QUERY_TIMEOUT_S = 25
+OVERPASS_QL_TIMEOUT_S = 20
+OSM_API_TIMEOUT_S = 45
 
 # Vrstvy ZABAGED, vůči kterým bereme OSM jako duplicitní.
 ZABAGED_PATH_LAYERS = frozenset(
@@ -46,21 +55,54 @@ SKIP_FOOTWAY = frozenset({"sidewalk", "crossing"})
 def _overpass_ql(south: float, west: float, north: float, east: float) -> str:
     bbox = f"{south},{west},{north},{east}"
     return (
-        "[out:json][timeout:45];"
-        f'('
+        f"[out:json][timeout:{OVERPASS_QL_TIMEOUT_S}];"
+        f"("
         f'way["highway"="path"]({bbox});'
         f'way["highway"="footway"]({bbox});'
         f");out geom;"
     )
 
 
-def fetch_osm_path_elements(
-    bbox_wgs84: tuple[float, float, float, float],
+def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
+    """Vyfiltruje path/footway z OSM API map call (.osm XML = Export na osm.org)."""
+    root = ET.fromstring(xml_text)
+    nodes: dict[str, tuple[float, float]] = {}
+    for node in root.findall("node"):
+        nid = node.get("id")
+        lat = node.get("lat")
+        lon = node.get("lon")
+        if nid is None or lat is None or lon is None:
+            continue
+        nodes[nid] = (float(lat), float(lon))
+
+    elements: list[dict] = []
+    for way in root.findall("way"):
+        tags = {t.get("k"): t.get("v") for t in way.findall("tag") if t.get("k")}
+        if (tags.get("highway") or "").lower() not in {"path", "footway"}:
+            continue
+        geometry: list[dict] = []
+        for nd in way.findall("nd"):
+            ref = nd.get("ref")
+            if ref is None or ref not in nodes:
+                continue
+            lat, lon = nodes[ref]
+            geometry.append({"lat": lat, "lon": lon})
+        if len(geometry) < 2:
+            continue
+        elements.append({"type": "way", "tags": tags, "geometry": geometry})
+    return elements
+
+
+def _fetch_overpass(
+    west: float,
+    south: float,
+    east: float,
+    north: float,
     *,
     log=None,
-) -> list[dict]:
-    west, south, east, north = bbox_wgs84
-    body = _overpass_ql(south, west, north, east).encode("utf-8")
+) -> tuple[list[dict] | None, Exception | None]:
+    ql = _overpass_ql(south, west, north, east)
+    body = urllib.parse.urlencode({"data": ql}).encode("utf-8")
     last_err: Exception | None = None
     for url in OVERPASS_URLS:
         req = urllib.request.Request(
@@ -81,15 +123,68 @@ def fetch_osm_path_elements(
                 if e.get("type") == "way" and e.get("geometry")
             ]
             if log:
-                log(f"OSM Overpass: {len(elements)} way (path/footway)")
-            return elements
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+                host = url.split("/")[2]
+                log(f"OSM Overpass ({host}): {len(elements)} way (path/footway)")
+            return elements, None
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+            OSError,
+        ) as exc:
             last_err = exc
             if log:
                 log(f"OSM Overpass {url}: {exc}")
+    return None, last_err
+
+
+def _fetch_osm_api_map(
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    *,
+    log=None,
+) -> list[dict]:
+    """Export z openstreetmap.org – API map call, pak filtr path/footway."""
+    bbox = f"{west},{south},{east},{north}"
+    url = f"{OSM_API_MAP_URL}?bbox={bbox}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=OSM_API_TIMEOUT_S) as resp:
+        xml_text = resp.read().decode("utf-8")
+    elements = parse_osm_api_map_xml(xml_text)
     if log:
-        log(f"OSM pěšiny: Overpass selhal ({last_err})")
-    return []
+        log(f"OSM API map: {len(elements)} way (path/footway)")
+    return elements
+
+
+def fetch_osm_path_elements(
+    bbox_wgs84: tuple[float, float, float, float],
+    *,
+    log=None,
+) -> list[dict]:
+    west, south, east, north = bbox_wgs84
+    elements, last_err = _fetch_overpass(west, south, east, north, log=log)
+    if elements is not None:
+        return elements
+    try:
+        if log:
+            log("OSM Overpass selhal – zkouším Export API (api.openstreetmap.org)…")
+        return _fetch_osm_api_map(west, south, east, north, log=log)
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        ET.ParseError,
+        OSError,
+    ) as exc:
+        if log:
+            log(
+                f"OSM pěšiny: Overpass ({last_err}) i API map ({exc}) selhaly "
+                "– job pokračuje bez nich"
+            )
+        return []
 
 
 def _way_skip_reason(tags: dict) -> str | None:

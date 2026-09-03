@@ -32,15 +32,26 @@ class OomTemplate:
 
 
 OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
-    ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0, True),
-    ("osm", "OpenStreetMap", "references/osm.png", 0.85, True),
-    ("ztm", "Základní mapa ČÚZK (ZTM)", "references/mapa_ztm.png", 0.88, True),
+    # Výchozí vypnuté – jinak překryjí KP zeleň a mate při otevření.
+    ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0, False),
+    ("osm", "OpenStreetMap", "references/osm.png", 0.85, False),
+    ("ztm", "Základní mapa ČÚZK (ZTM)", "references/mapa_ztm.png", 0.88, False),
     ("dmpok", "Náhled DMP OK", "references/dmpok_nahled.png", 0.65, False),
     *(
-        (key, label, f"references/{filename}", opacity, visible)
-        for key, _layer, filename, label, opacity, visible in HILLSHADE_VARIANTS
+        (key, label, f"references/{filename}", opacity, False)
+        for key, _layer, filename, label, opacity, _visible in HILLSHADE_VARIANTS
     ),
 )
+
+
+def first_front_template_index(templates: list[OomTemplate]) -> int:
+    """První šablona nad mapou: KP PNG musí být nad bílým papírem, ne pod ním."""
+    for i, tmpl in enumerate(templates):
+        if tmpl.relpath.startswith("basemap/") or tmpl.relpath.startswith("relief/"):
+            return i
+        if tmpl.group == GROUP_KP:
+            return i
+    return len(templates)
 
 
 def collect_oom_templates(
@@ -50,7 +61,7 @@ def collect_oom_templates(
     include_dxf: bool = True,
     include_dxf_templates: bool = False,
 ) -> list[OomTemplate]:
-    """Šablony zdola nahoru. PNG z Karttapullautinu = kontrolní podklad.
+    """Šablony zdola nahoru. KP PNG patří nad mapu (first_front_template_index).
 
     Vektory KP a ZABAGED jdou do .omap jako editovatelné objekty (viz oom_import).
     """
@@ -75,10 +86,11 @@ def collect_oom_templates(
         templates.append(
             OomTemplate(
                 "image",
-                "Karttapullautin (zeleň, vrstevnice, srázy)",
+                "Karttapullautin (zeleň / náhled)",
                 "basemap/pullautus.png",
                 visible=True,
-                opacity=1.0,
+                # Poloprůhledné, ať jdou vidět objekty mapy i zeleň.
+                opacity=0.65,
                 group=GROUP_KP,
             )
         )
@@ -91,7 +103,7 @@ def collect_oom_templates(
                 "Karttapullautin deprese",
                 "relief/pullautus_depr.png",
                 visible=False,
-                opacity=1.0,
+                opacity=0.65,
                 group=GROUP_KP,
             )
         )

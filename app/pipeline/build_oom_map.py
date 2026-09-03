@@ -11,7 +11,7 @@ from app.pipeline.crs_5514 import (
 )
 from app.pipeline.oom_georef import oom_north_angles
 from app.pipeline.oom_import import OomObjectPart
-from app.pipeline.oom_layers import OomTemplate
+from app.pipeline.oom_layers import OomTemplate, first_front_template_index
 from app.pipeline.oom_symbols import colors_and_symbols_xml, symbol_set_path
 
 __all__ = [
@@ -98,8 +98,8 @@ def build_oom_map_xml(
     if template_refs:
         template_refs += "\n"
     parts_xml, _ = _parts_xml(object_parts or [])
-    # Všechny šablony pod mapou – jinak bílá mapa překryje zeleň/deprese.
-    front = len(templates)
+    # Reference pod mapou; KP PNG nad mapou (jinak bílý papír zeleň schová).
+    front = first_front_template_index(templates)
     safe_name = html.escape(map_name)
     crs = html.escape(CRS_PROJ4)
     return f"""<?xml version="1.0" encoding="UTF-8"?>

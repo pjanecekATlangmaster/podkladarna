@@ -79,6 +79,7 @@ def _geom_parts_to_objects(
     ref_y: float,
     scale: int,
     grivation_deg: float,
+    as_area: bool = False,
 ) -> list[str]:
     out: list[str] = []
     for part in parts:
@@ -106,7 +107,12 @@ def _geom_parts_to_objects(
                 )
                 for x, y in pts  # type: ignore[union-attr]
             ]
-            obj = _path_object(symbol_index, coords, close=bool(close))
+            if as_area or close:
+                obj = _area_object(symbol_index, coords) if as_area else _path_object(
+                    symbol_index, coords, close=True
+                )
+            else:
+                obj = _path_object(symbol_index, coords, close=False)
             if obj:
                 out.append(obj)
     return out
@@ -162,6 +168,24 @@ def _path_object(
     body = ";".join(pts) + ";"
     return (
         f'            <object type="1" symbol="{symbol_index}">\n'
+        f'                <coords count="{len(pts)}">{body}</coords>\n'
+        f'                <pattern rotation="0"><coord x="0" y="0"/></pattern>\n'
+        f"            </object>"
+    )
+
+
+def _area_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
+    if len(coords) < 3:
+        return ""
+    pts = [_fmt(x, y) for x, y in coords]
+    x0, y0 = coords[0]
+    if coords[-1] != coords[0]:
+        pts.append(_fmt(x0, y0, 18))
+    else:
+        pts[-1] = _fmt(x0, y0, 18)
+    body = ";".join(pts) + ";"
+    return (
+        f'            <object type="2" symbol="{symbol_index}">\n'
         f'                <coords count="{len(pts)}">{body}</coords>\n'
         f'                <pattern rotation="0"><coord x="0" y="0"/></pattern>\n'
         f"            </object>"

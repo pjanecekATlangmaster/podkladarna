@@ -28,6 +28,7 @@ from app.pipeline.prepare_lidar import (
     run_cmd,
 )
 from app.pipeline.prepare_zabaged import clean_zabaged
+from app.pipeline.vegetation_gdal import generate_job_vegetation
 from app.settings import PULLAUTA_BIN
 
 
@@ -163,6 +164,8 @@ def run_job_pipeline(
         log=log,
     )
 
+    generate_job_vegetation(work_dir, log=log)
+
     if not has_zabaged or not zabaged_clean.is_file():
         raise RuntimeError(
             "ZABAGED (polohopis) není k dispozici – bez něj nelze dokončit mapu."
@@ -243,6 +246,9 @@ def _package_output(
     omap_path = None
     if bbox:
         vectorconf = Path(str(preset.get("vectorconf", "zabaged.txt"))).name
+        indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
+        if indexcontours_m is None and meta.get("contour_interval_m") is not None:
+            indexcontours_m = 5 * float(meta["contour_interval_m"])
         omap_path = prepare_oom_map(
             kp_cwd,
             output_dir / "podkladarna.omap",
@@ -255,8 +261,8 @@ def _package_output(
             vectorconf_name=vectorconf,
             include_dxf=bool(options.get("output_dxf", True)),
             contour_interval_m=meta.get("contour_interval_m"),
-            formline=float(meta.get("formline") or 0),
-            indexcontours_m=preset.get("indexcontours"),
+            formline=0,
+            indexcontours_m=indexcontours_m,
         )
 
     build_oom_zip(
@@ -275,5 +281,24 @@ def _package_output(
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)
+    # Stejná struktura jako v ZIPu, ať jde otevřít i output/podkladarna.omap.
+    if omap_path and omap_path.is_file():
+        for folder, names in (
+            ("basemap", ("pullautus.png", "pullautus.pgw")),
+            ("relief", ("pullautus_depr.png", "pullautus_depr.pgw")),
+        ):
+            dest_dir = output_dir / folder
+            for name in names:
+                src = kp_cwd / name
+                if src.is_file():
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dest_dir / name)
+        refs_src = kp_cwd / "references"
+        if refs_src.is_dir():
+            refs_dst = output_dir / "references"
+            refs_dst.mkdir(parents=True, exist_ok=True)
+            for path in refs_src.glob("*"):
+                if path.is_file() and path.suffix.lower() in {".png", ".pgw"}:
+                    shutil.copy2(path, refs_dst / path.name)
 
     log(f"Výstup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")

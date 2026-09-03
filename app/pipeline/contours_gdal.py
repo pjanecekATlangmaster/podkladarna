@@ -23,22 +23,21 @@ def contour_oom_code(
     elev: float,
     *,
     interval_m: float,
-    formline: float,
-    index_m: float | None,
+    formline: float = 0,
+    index_m: float | None = None,
 ) -> str:
-    """101 hlavní, 102 index (jen na hlavní ekvidistanci), 103 formline."""
+    """101 běžná plná, 102 index (typicky každá 5.).
+
+    Pomocné (103, přerušované) do OOM neexportujeme – KP formline zůstává
+    jen pro rastrový náhled. Parametr ``formline`` je ignorován (kompatibilita).
+    """
+    del formline
 
     def on_step(step: float) -> bool:
         if step <= 0:
             return False
         return abs(elev - round(elev / step) * step) < 0.05
 
-    if formline > 0:
-        if on_step(interval_m):
-            if index_m and on_step(index_m):
-                return "102"
-            return "101"
-        return "103"
     if index_m and on_step(index_m) and on_step(interval_m):
         return "102"
     return "101"
@@ -130,7 +129,9 @@ def generate_contours_shapefile(
     sf = float(scalefactor) if scalefactor else 1.0
     cell_m = _CELL_M_AT_SF1 * sf
     window_m = _SMOOTH_WINDOW_M_AT_SF1 * sf
-    step = float(interval_m) / 2.0 if float(formline) > 0 else float(interval_m)
+    # OOM: jen plná ekvidistance (+ index). Formline (poloviční krok) necháváme KP PNG.
+    del formline
+    step = float(interval_m)
     work = dest_shp.parent
     work.mkdir(parents=True, exist_ok=True)
     dem_raw = work / "dem_raw.tif"
@@ -184,17 +185,18 @@ def generate_job_contours(
     else:
         raise RuntimeError("Chybí extent pro GDAL vrstevnice (PNG/PGW nebo crop)")
     dest = work_dir / "contours" / "contours.shp"
+    del formline
     if log:
         log(
-            f"Vrstevnice GDAL: interval {interval_m:g} m, "
-            f"formline={formline:g}, DEM {_CELL_M_AT_SF1 * scalefactor:g} m"
+            f"Vrstevnice GDAL: interval {interval_m:g} m "
+            f"(bez formline do OOM), DEM {_CELL_M_AT_SF1 * scalefactor:g} m"
         )
     return generate_contours_shapefile(
         laz,
         bounds,
         dest,
         interval_m=interval_m,
-        formline=formline,
+        formline=0,
         scalefactor=scalefactor,
         log=log,
     )
@@ -250,18 +252,18 @@ def build_gdal_contour_parts(
     ref_y: float,
     grivation_deg: float,
     interval_m: float,
-    formline: float,
-    index_m: float | None,
+    formline: float = 0,
+    index_m: float | None = None,
 ) -> list[OomObjectPart]:
+    del formline
     shp = work_dir / "contours" / "contours.shp"
     if not shp.is_file():
         return []
 
-    grouped: dict[str, list[str]] = {"101": [], "102": [], "103": []}
+    grouped: dict[str, list[str]] = {"101": [], "102": []}
     names = {
         "101": "Vrstevnice (GDAL)",
         "102": "Indexové vrstevnice (GDAL)",
-        "103": "Pomocné vrstevnice (GDAL)",
     }
     for props, wkb in _iter_contour_rows(shp):
         elev = _elev_from_props(props)
@@ -271,7 +273,7 @@ def build_gdal_contour_parts(
             code = contour_oom_code(
                 elev,
                 interval_m=interval_m,
-                formline=formline,
+                formline=0,
                 index_m=index_m,
             )
         symbol_index = symbol_index_for_code(preset_id, scale, code)
@@ -299,7 +301,7 @@ def build_gdal_contour_parts(
         )
 
     parts: list[OomObjectPart] = []
-    for code in ("101", "103", "102"):
+    for code in ("101", "102"):
         objects = grouped[code]
         if objects:
             parts.append(

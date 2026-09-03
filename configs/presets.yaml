@@ -1,6 +1,8 @@
 # contour_interval is metres on the ground. ini_builder converts it for
 # Karttapullautin (interval is multiplied by scalefactor; formline=0 draws
 # every half-interval line as a full contour).
+# OOM vrstevnice (GDAL) vždy plná ekvidistance + indexcontours (bez 103 formline);
+# formline v presetu ovlivňuje jen KP rastrový náhled.
 sprint_2m:
   label: "Sprint 1:4000 · 2 m"
   group: Sprint
@@ -32,6 +34,7 @@ forest_7500:
   label: "Lesní 1:7500 · 5 m"
   group: Lesní
   contour_interval: 5
+  indexcontours: 25
   basemapinterval: 1.25
   scalefactor: 0.75
   formline: 2
@@ -45,6 +48,7 @@ forest_10000:
   label: "Lesní 1:10000 · 5 m"
   group: Lesní
   contour_interval: 5
+  indexcontours: 25
   basemapinterval: 1.25
   scalefactor: 1.0
   formline: 2
@@ -57,6 +61,7 @@ mtbo_10000:
   label: "MTBO 1:10000 · 5 m"
   group: MTBO
   contour_interval: 5
+  indexcontours: 25
   basemapinterval: 1.25
   scalefactor: 1.0
   formline: 2
@@ -69,6 +74,7 @@ mtbo_15000:
   label: "MTBO 1:15000 · 5 m"
   group: MTBO
   contour_interval: 5
+  indexcontours: 25
   basemapinterval: 1.25
   scalefactor: 1.5
   formline: 2
