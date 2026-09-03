@@ -11,7 +11,6 @@ GROUP_REFERENCE = 1
 GROUP_KP = 2
 
 DXF_LABELS: dict[str, str] = {
-    "contours.dxf": "Vrstevnice (DXF)",
     "cliffs_small.dxf": "Srázy malé (DXF)",
     "cliffs_large.dxf": "Srázy velké (DXF)",
     "dotknolls.dxf": "Knolíky (DXF)",

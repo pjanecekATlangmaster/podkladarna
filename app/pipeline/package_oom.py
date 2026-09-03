@@ -46,7 +46,9 @@ def oom_metadata(
         "crs": "EPSG:5514",
         "scale": map_scale_from_scalefactor(sf),
         "scalefactor": sf,
-        "contour_interval_m": preset.get("contour_interval"),
+        "contour_interval_m": options.get(
+            "contour_interval", preset.get("contour_interval")
+        ),
         "formline": options.get("formline", preset.get("formline")),
         **reference_metadata(),
     }
@@ -260,8 +262,6 @@ def build_oom_zip(
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
             for zip_name, src in sorted(collect_dxf_for_zip(temp).items()):
-                if zip_name == "contours.dxf":
-                    continue
                 zf.write(src, f"karttapullautin/{zip_name}")
         contours_dir = kp_cwd / "contours"
         if contours_dir.is_dir():

@@ -5,9 +5,8 @@ from pathlib import Path
 from app.pipeline.prepare_lidar import run_cmd
 from app.settings import PULLAUTA_BIN
 
-# Zdroj v temp/ → název v ZIPu (karttapullautin/). Pořadí = priorita.
+# Zdroj v temp/ → název v ZIPu (karttapullautin/). Vrstevnice jdou z GDAL, ne z KP.
 DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
-    ("out2.dxf", "contours.dxf"),
     ("dotknolls.dxf", "dotknolls.dxf"),
     ("c1g.dxf", "cliffs_small.dxf"),
     ("c2g.dxf", "cliffs_large.dxf"),
@@ -16,7 +15,9 @@ DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
 )
 
 # Mezivýstupy – do ZIPu nepatří (contours03 = 0,3 m, obrovský).
-DXF_SKIP_NAMES = frozenset({"contours03.dxf", "out.dxf"})
+DXF_SKIP_NAMES = frozenset(
+    {"contours03.dxf", "out.dxf", "out2.dxf", "basemap.dxf"}
+)
 
 
 def _bin_path(temp_dir: Path, dxf_name: str) -> Path:

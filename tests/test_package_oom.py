@@ -22,6 +22,16 @@ def test_map_scale_from_scalefactor():
     assert map_scale_from_scalefactor(1.5) == 15000
 
 
+def test_oom_metadata_uses_interval_override():
+    meta = oom_metadata(
+        "forest_10000",
+        {"label": "Les", "contour_interval": 5, "scalefactor": 1, "formline": 2},
+        {"scalefactor": 1, "contour_interval": 2.5, "formline": 2},
+    )
+    assert meta["contour_interval_m"] == 2.5
+    assert meta["scale"] == 10000
+
+
 def test_build_oom_zip_layout(tmp_path: Path):
     kp = tmp_path / "work"
     kp.mkdir()
@@ -142,11 +152,11 @@ def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
     (kp / "pullautus.png").write_bytes(b"x")
     temp = kp / "temp"
     temp.mkdir()
-    (temp / "out2.dxf").write_text("0\nSECTION\n", encoding="utf-8")
+    (temp / "c1g.dxf").write_text("0\nSECTION\n", encoding="utf-8")
     templates = collect_oom_templates(kp, include_dxf_templates=True)
     dxf = [t for t in templates if t.kind == "ogr"]
     assert len(dxf) == 1
-    assert dxf[0].relpath == "karttapullautin/contours.dxf"
+    assert dxf[0].relpath == "karttapullautin/cliffs_small.dxf"
     assert dxf[0].visible is False
 
 

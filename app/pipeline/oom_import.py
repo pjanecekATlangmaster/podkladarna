@@ -418,8 +418,6 @@ def build_dxf_object_part(
 
     objects: list[str] = []
     for zip_name, path in sorted(dxf_map.items()):
-        if zip_name == "contours.dxf":
-            continue
         code = oom_code_for_dxf(zip_name, preset_id=preset_id)
         if not code:
             continue

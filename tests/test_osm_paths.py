@@ -5,6 +5,7 @@ from app.pipeline.osm_paths import (
     polyline_length,
     sample_polyline,
     osm_way_to_5514,
+    unique_polyline_parts,
     _SegmentIndex,
 )
 
@@ -28,9 +29,30 @@ def test_filter_drops_line_on_zabaged():
     zab = [[(0.0, 0.0), (100.0, 0.0)]]
     osm_dup = [[(1.0, 1.0), (80.0, 2.0)]]
     osm_new = [[(0.0, 80.0), (40.0, 80.0)]]
-    kept, dropped = filter_osm_against_zabaged(osm_dup + osm_new, zab, near_m=12, overlap_drop=0.55)
+    kept, dropped = filter_osm_against_zabaged(osm_dup + osm_new, zab, near_m=12)
     assert dropped >= 1
-    assert any(abs(line[0][1] - 80) < 1 for line in kept)
+    assert any(abs(pt[1] - 80) < 1 for line in kept for pt in line)
+
+
+def test_filter_keeps_forest_tail_of_road_way():
+    zab = [[(0.0, 0.0), (100.0, 0.0)]]
+    # 80 m po silnici, pak 40 m do lesa
+    osm = [[(0.0, 1.0), (80.0, 1.0), (80.0, 41.0)]]
+    kept, dropped = filter_osm_against_zabaged(osm, zab, near_m=12)
+    assert dropped == 0
+    assert len(kept) == 1
+    assert polyline_length(kept[0]) >= 20
+    assert all(y > 10 for _, y in kept[0][1:])
+
+
+def test_unique_parts_splits_middle_overlap():
+    index = _SegmentIndex()
+    index.add_line([(40.0, 0.0), (60.0, 0.0)])
+    line = [(0.0, 0.0), (100.0, 0.0)]
+    parts = unique_polyline_parts(line, index, near_m=5, sample_m=10)
+    assert len(parts) == 2
+    assert polyline_length(parts[0]) > 20
+    assert polyline_length(parts[1]) > 20
 
 
 def test_overlap_high_when_coincident():

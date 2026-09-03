@@ -246,6 +246,30 @@ def _zabaged_path_lines(zabaged_clean: Path) -> list[list[tuple[float, float]]]:
     return lines
 
 
+def unique_polyline_parts(
+    osm_pts: list[tuple[float, float]],
+    index: _SegmentIndex,
+    *,
+    near_m: float = NEAR_M,
+    sample_m: float = SAMPLE_M,
+) -> list[list[tuple[float, float]]]:
+    """Úseky OSM linie, které neleží u ZABAGED. Celou way kvůli kusu u silnice nesekáme."""
+    samples = sample_polyline(osm_pts, sample_m)
+    if len(samples) < 2:
+        return []
+    parts: list[list[tuple[float, float]]] = []
+    current: list[tuple[float, float]] = []
+    for x, y in samples:
+        if index.nearest(x, y) > near_m:
+            current.append((x, y))
+        elif current:
+            parts.append(current)
+            current = []
+    if current:
+        parts.append(current)
+    return [p for p in parts if len(p) >= 2]
+
+
 def filter_osm_against_zabaged(
     osm_lines: list[list[tuple[float, float]]],
     zabaged_lines: list[list[tuple[float, float]]],
@@ -253,6 +277,11 @@ def filter_osm_against_zabaged(
     near_m: float = NEAR_M,
     overlap_drop: float = OVERLAP_DROP,
 ) -> tuple[list[list[tuple[float, float]]], int]:
+    # overlap_drop: dřív práh pro celou way; pořezání překrytých úseků ho nepotřebuje.
+    _ = overlap_drop
+    if not zabaged_lines:
+        kept = [line for line in osm_lines if polyline_length(line) >= MIN_LENGTH_M]
+        return kept, len(osm_lines) - len(kept)
     index = _SegmentIndex()
     for line in zabaged_lines:
         index.add_line(line)
@@ -262,10 +291,15 @@ def filter_osm_against_zabaged(
         if polyline_length(line) < MIN_LENGTH_M:
             dropped += 1
             continue
-        if zabaged_lines and overlap_fraction(line, index, near_m=near_m) >= overlap_drop:
+        parts = [
+            p
+            for p in unique_polyline_parts(line, index, near_m=near_m)
+            if polyline_length(p) >= MIN_LENGTH_M
+        ]
+        if not parts:
             dropped += 1
             continue
-        kept.append(line)
+        kept.extend(parts)
     return kept, dropped
 
 

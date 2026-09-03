@@ -10,27 +10,31 @@ from app.pipeline.karttapullautin_dxf import (
 from app.pipeline.package_oom import build_oom_zip, oom_metadata
 
 
-def test_collect_dxf_prefers_out2_as_contours(tmp_path: Path):
+def test_collect_dxf_skips_kp_contours(tmp_path: Path):
     temp = tmp_path / "temp"
     temp.mkdir()
     (temp / "out2.dxf").write_text("contour lines", encoding="utf-8")
+    (temp / "dotknolls.dxf").write_text("knoll points", encoding="utf-8")
+    (temp / "c1g.dxf").write_text("small cliffs", encoding="utf-8")
     (temp / "contours03.dxf").write_text("x" * 5000, encoding="utf-8")
-    (temp / "out.dxf").write_text("intermediate", encoding="utf-8")
 
     got = collect_dxf_for_zip(temp)
-    assert "contours.dxf" in got
-    assert got["contours.dxf"].name == "out2.dxf"
-    assert "contours03.dxf" not in got
+    assert "contours.dxf" not in got
+    assert got["dotknolls.dxf"].name == "dotknolls.dxf"
+    assert got["cliffs_small.dxf"].name == "c1g.dxf"
 
 
-def test_prune_removes_contours03(tmp_path: Path):
+def test_prune_removes_kp_contour_dxf(tmp_path: Path):
     temp = tmp_path / "temp"
     temp.mkdir()
     huge = temp / "contours03.dxf"
     huge.write_text("x" * 2000, encoding="utf-8")
+    out2 = temp / "out2.dxf"
+    out2.write_text("contours", encoding="utf-8")
 
     prune_heavy_intermediate_dxf(temp)
     assert not huge.exists()
+    assert not out2.exists()
 
 
 def test_build_oom_zip_skips_contours03(tmp_path: Path):
