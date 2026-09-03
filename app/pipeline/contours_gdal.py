@@ -200,6 +200,36 @@ def generate_job_contours(
     )
 
 
+def _iter_contour_rows(shp: Path):
+    """(props, wkb) – v Docker image je osgeo/GDAL, pyogrio tam není."""
+    try:
+        from osgeo import ogr
+    except ImportError:
+        ogr = None
+    if ogr is not None:
+        ds = ogr.Open(str(shp))
+        if ds:
+            layer = ds.GetLayer(0)
+            if layer is not None:
+                for feature in layer:
+                    geom = feature.GetGeometryRef()
+                    if geom is None:
+                        continue
+                    props: dict[str, object] = {}
+                    for i in range(feature.GetFieldCount()):
+                        defn = feature.GetFieldDefnRef(i)
+                        if defn:
+                            props[defn.GetName()] = feature.GetField(i)
+                    yield props, bytes(geom.ExportToWkb())
+                return
+    try:
+        import pyogrio
+    except ImportError:
+        return
+    for layer_name, _t in pyogrio.list_layers(shp):
+        yield from _pyogrio_layer_rows(shp, layer=layer_name)
+
+
 def _elev_from_props(props: dict) -> float | None:
     for key in ("elev", "ELEV", "elevation", "HEIGHT"):
         if key not in props:
@@ -226,10 +256,6 @@ def build_gdal_contour_parts(
     shp = work_dir / "contours" / "contours.shp"
     if not shp.is_file():
         return []
-    try:
-        import pyogrio
-    except ImportError:
-        return []
 
     grouped: dict[str, list[str]] = {"101": [], "102": [], "103": []}
     names = {
@@ -237,41 +263,40 @@ def build_gdal_contour_parts(
         "102": "Indexové vrstevnice (GDAL)",
         "103": "Pomocné vrstevnice (GDAL)",
     }
-    for layer_name, _t in pyogrio.list_layers(shp):
-        for props, wkb in _pyogrio_layer_rows(shp, layer=layer_name):
-            elev = _elev_from_props(props)
-            if elev is None:
-                code = "101"
-            else:
-                code = contour_oom_code(
-                    elev,
-                    interval_m=interval_m,
-                    formline=formline,
-                    index_m=index_m,
-                )
-            symbol_index = symbol_index_for_code(preset_id, scale, code)
-            if symbol_index is None:
-                symbol_index = symbol_index_for_code(preset_id, scale, "101")
-            if symbol_index is None:
-                continue
-            geom_parts, _ = _wkb_parts(wkb)
-            smoothed: list = []
-            for part in geom_parts:
-                if part[0] == "line":
-                    pts = chaikin(list(part[1]))  # type: ignore[arg-type]
-                    smoothed.append(("line", pts, part[2]))
-                else:
-                    smoothed.append(part)
-            grouped[code if code in grouped else "101"].extend(
-                _geom_parts_to_objects(
-                    smoothed,
-                    symbol_index,
-                    ref_x=ref_x,
-                    ref_y=ref_y,
-                    scale=scale,
-                    grivation_deg=grivation_deg,
-                )
+    for props, wkb in _iter_contour_rows(shp):
+        elev = _elev_from_props(props)
+        if elev is None:
+            code = "101"
+        else:
+            code = contour_oom_code(
+                elev,
+                interval_m=interval_m,
+                formline=formline,
+                index_m=index_m,
             )
+        symbol_index = symbol_index_for_code(preset_id, scale, code)
+        if symbol_index is None:
+            symbol_index = symbol_index_for_code(preset_id, scale, "101")
+        if symbol_index is None:
+            continue
+        geom_parts, _ = _wkb_parts(wkb)
+        smoothed: list = []
+        for part in geom_parts:
+            if part[0] == "line":
+                pts = chaikin(list(part[1]))  # type: ignore[arg-type]
+                smoothed.append(("line", pts, part[2]))
+            else:
+                smoothed.append(part)
+        grouped[code if code in grouped else "101"].extend(
+            _geom_parts_to_objects(
+                smoothed,
+                symbol_index,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                scale=scale,
+                grivation_deg=grivation_deg,
+            )
+        )
 
     parts: list[OomObjectPart] = []
     for code in ("101", "103", "102"):

@@ -48,7 +48,9 @@ def _template_xml(tmpl: OomTemplate) -> str:
 
 
 def _parts_xml(parts: list[OomObjectPart]) -> tuple[str, int]:
-    if not parts:
+    """Jedna část mapy – Mapper zobrazuje jen current part, ne všechny naráz."""
+    nonempty = [p for p in parts if p.objects_xml and p.count]
+    if not nonempty:
         return (
             '        <parts count="1" current="0">\n'
             '            <part name="Mapa">\n'
@@ -57,29 +59,16 @@ def _parts_xml(parts: list[OomObjectPart]) -> tuple[str, int]:
             "        </parts>",
             0,
         )
-    blocks: list[str] = []
-    total = 0
-    for part in parts:
-        total += part.count
-        if part.objects_xml:
-            blocks.append(
-                f'            <part name="{html.escape(part.name)}">\n'
-                f'                <objects count="{part.count}">\n'
-                f"{part.objects_xml}\n"
-                "                </objects>\n"
-                "            </part>"
-            )
-        else:
-            blocks.append(
-                f'            <part name="{html.escape(part.name)}">\n'
-                f'                <objects count="0"/>\n'
-                "            </part>"
-            )
-    current = len(parts) - 1
+    total = sum(p.count for p in nonempty)
+    objects_xml = "\n".join(p.objects_xml for p in nonempty)
     return (
-        f'        <parts count="{len(parts)}" current="{current}">\n'
-        + "\n".join(blocks)
-        + "\n        </parts>",
+        '        <parts count="1" current="0">\n'
+        '            <part name="Mapa">\n'
+        f'                <objects count="{total}">\n'
+        f"{objects_xml}\n"
+        "                </objects>\n"
+        "            </part>\n"
+        "        </parts>",
         total,
     )
 
@@ -109,7 +98,8 @@ def build_oom_map_xml(
     if template_refs:
         template_refs += "\n"
     parts_xml, _ = _parts_xml(object_parts or [])
-    front = max(0, len(templates) - 1)
+    # Všechny šablony pod mapou – jinak bílá mapa překryje zeleň/deprese.
+    front = len(templates)
     safe_name = html.escape(map_name)
     crs = html.escape(CRS_PROJ4)
     return f"""<?xml version="1.0" encoding="UTF-8"?>

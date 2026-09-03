@@ -128,6 +128,8 @@ def test_prepare_oom_map_minimal(tmp_path):
     assert 'type="TemplateImage"' in xml
     assert '<symbols count="' in xml
     assert '<line_symbol' in xml
+    assert 'parts count="1"' in xml
+    assert 'first_front_template="1"' in xml
 
 
 def test_collect_oom_templates_with_refs(tmp_path):
@@ -143,7 +145,7 @@ def test_collect_oom_templates_with_refs(tmp_path):
     assert templates[0].opacity == 0.55
     assert templates[1].relpath == "basemap/pullautus.png"
     assert templates[1].visible is True
-    assert templates[1].opacity == 0.45
+    assert templates[1].opacity == 1.0
 
 
 def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
@@ -167,5 +169,38 @@ def test_collect_oom_templates_png_is_control_overlay(tmp_path):
     templates = collect_oom_templates(kp)
     png = [t for t in templates if t.relpath == "basemap/pullautus.png"]
     assert len(png) == 1
-    assert png[0].opacity == 0.45
+    assert png[0].opacity == 1.0
     assert all(t.kind != "ogr" for t in templates)
+
+
+def test_oom_map_shows_all_objects_in_one_part(tmp_path):
+    from app.pipeline.build_oom_map import write_oom_map
+    from app.pipeline.oom_import import OomObjectPart
+    from app.pipeline.oom_layers import OomTemplate
+
+    dest = tmp_path / "m.omap"
+    dummy = (
+        '            <object type="1" symbol="0">\n'
+        '                <coords count="2">0 0;1 1;</coords>\n'
+        "            </object>"
+    )
+    write_oom_map(
+        dest,
+        map_name="t",
+        scale=10000,
+        ref_x=0,
+        ref_y=0,
+        ref_lat=50,
+        ref_lon=14,
+        templates=[OomTemplate("image", "png", "basemap/pullautus.png")],
+        preset_id="forest_10000",
+        object_parts=[
+            OomObjectPart("Vrstevnice", dummy, 1),
+            OomObjectPart("OSM pěšiny", dummy, 1),
+        ],
+    )
+    xml = dest.read_text(encoding="utf-8")
+    assert 'parts count="1"' in xml
+    assert 'part name="Mapa"' in xml
+    assert 'objects count="2"' in xml
+    assert 'first_front_template="1"' in xml

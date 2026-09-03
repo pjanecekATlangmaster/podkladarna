@@ -71,27 +71,27 @@ def collect_oom_templates(
                     )
                 )
 
+    if (kp_cwd / "pullautus.png").is_file():
+        templates.append(
+            OomTemplate(
+                "image",
+                "Karttapullautin (zeleň, vrstevnice, srázy)",
+                "basemap/pullautus.png",
+                visible=True,
+                opacity=1.0,
+                group=GROUP_KP,
+            )
+        )
+
     depr = kp_cwd / "pullautus_depr.png"
     if depr.is_file():
         templates.append(
             OomTemplate(
                 "image",
-                "Karttapullautin reliéf",
+                "Karttapullautin deprese",
                 "relief/pullautus_depr.png",
                 visible=False,
-                opacity=0.75,
-                group=GROUP_KP,
-            )
-        )
-
-    if (kp_cwd / "pullautus.png").is_file():
-        templates.append(
-            OomTemplate(
-                "image",
-                "Karttapullautin (PNG – kontrola)",
-                "basemap/pullautus.png",
-                visible=True,
-                opacity=0.45,
+                opacity=1.0,
                 group=GROUP_KP,
             )
         )
