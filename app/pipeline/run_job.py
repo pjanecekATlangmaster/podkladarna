@@ -8,7 +8,10 @@ from app.pipeline.contours_gdal import generate_job_contours
 from app.pipeline.fetch_openzu import crop_bounds_5514, fetch_lidar_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import load_presets, write_pullauta_ini
-from app.pipeline.karttapullautin_dxf import prune_heavy_intermediate_dxf
+from app.pipeline.karttapullautin_dxf import (
+    DXF_SKIP_AFTER_VECTORS,
+    prune_heavy_intermediate_dxf,
+)
 from app.pipeline.osm_paths import prepare_osm_paths
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
@@ -167,6 +170,9 @@ def run_job_pipeline(
 
     log("=== Fáze: Karttapullautin vektory ===")
     run_cmd([PULLAUTA_BIN, str(zabaged_clean.resolve())], cwd=kp_cwd, log=log)
+    prune_heavy_intermediate_dxf(
+        temp_dir, log=log, names=DXF_SKIP_AFTER_VECTORS
+    )
 
     if bbox:
         log("=== Fáze: OSM pěšiny ===")

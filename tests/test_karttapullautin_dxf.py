@@ -4,6 +4,7 @@ import zipfile
 from pathlib import Path
 
 from app.pipeline.karttapullautin_dxf import (
+    DXF_SKIP_AFTER_VECTORS,
     collect_dxf_for_zip,
     prune_heavy_intermediate_dxf,
 )
@@ -24,17 +25,34 @@ def test_collect_dxf_skips_kp_contours(tmp_path: Path):
     assert got["cliffs_small.dxf"].name == "c1g.dxf"
 
 
-def test_prune_removes_kp_contour_dxf(tmp_path: Path):
+def test_prune_after_lidar_keeps_out2(tmp_path: Path):
     temp = tmp_path / "temp"
     temp.mkdir()
     huge = temp / "contours03.dxf"
     huge.write_text("x" * 2000, encoding="utf-8")
     out2 = temp / "out2.dxf"
     out2.write_text("contours", encoding="utf-8")
+    out2_bin = temp / "out2.dxf.bin"
+    out2_bin.write_bytes(b"bin")
 
     prune_heavy_intermediate_dxf(temp)
     assert not huge.exists()
+    assert out2.exists()
+    assert out2_bin.exists()
+
+
+def test_prune_after_vectors_removes_out2(tmp_path: Path):
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    out2 = temp / "out2.dxf"
+    out2.write_text("contours", encoding="utf-8")
+    (temp / "out2.dxf.bin").write_bytes(b"bin")
+    (temp / "dotknolls.dxf").write_text("knoll points", encoding="utf-8")
+
+    prune_heavy_intermediate_dxf(temp, names=DXF_SKIP_AFTER_VECTORS)
     assert not out2.exists()
+    assert not (temp / "out2.dxf.bin").exists()
+    assert (temp / "dotknolls.dxf").exists()
 
 
 def test_build_oom_zip_skips_contours03(tmp_path: Path):

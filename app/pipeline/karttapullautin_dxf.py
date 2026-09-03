@@ -14,10 +14,10 @@ DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("c2.dxf", "cliffs_large.dxf"),
 )
 
-# Mezivýstupy – do ZIPu nepatří (contours03 = 0,3 m, obrovský).
-DXF_SKIP_NAMES = frozenset(
-    {"contours03.dxf", "out.dxf", "out2.dxf", "basemap.dxf"}
-)
+# Po LiDARu: 0,3 m a mezikřivky. out2.dxf.bin musí zůstat – KP ho čte při ZABAGED PNG.
+DXF_SKIP_AFTER_LIDAR = frozenset({"contours03.dxf", "out.dxf"})
+# Po vektorech už PNG existuje; KP vrstevnice do ZIPu nejdou.
+DXF_SKIP_AFTER_VECTORS = frozenset({"out2.dxf", "basemap.dxf"})
 
 
 def _bin_path(temp_dir: Path, dxf_name: str) -> Path:
@@ -57,11 +57,16 @@ def collect_dxf_for_zip(temp_dir: Path, *, log: callable | None = None) -> dict[
     return collected
 
 
-def prune_heavy_intermediate_dxf(temp_dir: Path, *, log: callable | None = None) -> None:
+def prune_heavy_intermediate_dxf(
+    temp_dir: Path,
+    *,
+    log: callable | None = None,
+    names: frozenset[str] | None = None,
+) -> None:
     """Smaže z temp/ obří nebo zbytečné DXF (úspora místa po běhu KP)."""
     if not temp_dir.is_dir():
         return
-    for name in DXF_SKIP_NAMES:
+    for name in names or DXF_SKIP_AFTER_LIDAR:
         path = temp_dir / name
         if path.is_file():
             size_mb = path.stat().st_size / 1e6
