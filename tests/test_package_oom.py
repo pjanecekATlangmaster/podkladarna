@@ -31,6 +31,10 @@ def test_build_oom_zip_layout(tmp_path: Path):
     temp = kp / "temp"
     temp.mkdir()
     (temp / "out2.dxf").write_text("contours", encoding="utf-8")
+    contours = kp / "contours"
+    contours.mkdir()
+    (contours / "contours.shp").write_bytes(b"shp")
+    (contours / "contours.shx").write_bytes(b"shx")
     (temp / "contours03.dxf").write_text("huge", encoding="utf-8")
 
     zabaged = tmp_path / "zabaged_clean.zip"
@@ -57,7 +61,8 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "basemap/pullautus.png" in names
     assert "basemap/pullautus.pgw" in names
     assert "relief/pullautus_depr.png" in names
-    assert "karttapullautin/contours.dxf" in names
+    assert "contours/contours.shp" in names
+    assert "karttapullautin/contours.dxf" not in names
     assert "karttapullautin/contours03.dxf" not in names
     assert "vectors/Cesta.shp" in names
     assert "vectors/Cesta.shx" in names

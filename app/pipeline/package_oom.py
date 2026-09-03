@@ -6,16 +6,18 @@ from pathlib import Path
 
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.guide_text import ZIP_ABOUT_TXT
-from app.pipeline.oom_import import (
-    OomObjectPart,
-    build_dxf_object_part,
-    build_zabaged_object_parts,
-)
+from app.pipeline.contours_gdal import build_gdal_contour_parts
+from app.pipeline.osm_paths import build_osm_path_parts
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.georef import projected_center_from_raster
 from app.pipeline.oom_georef import oom_north_angles
+from app.pipeline.oom_import import (
+    OomObjectPart,
+    build_dxf_object_part,
+    build_zabaged_object_parts,
+)
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.reference_layers import reference_metadata
 
@@ -85,7 +87,8 @@ def oom_readme(meta: dict) -> str:
         "2. Kontrolní PNG z Karttapullautinu je poloprůhledná šablona – lze vypnout v okně šablon.\n"
         "3. Referenční podklady (ortofoto, OSM, ZTM, hillshade) jsou pod ním.\n"
         "4. Shapefile ZABAGED (vectors/) jsou v ZIPu pro ruční práci mimo OOM.\n"
-        "   DXF z Karttapullautinu (karttapullautin/) slouží jako záloha pro import.\n\n"
+        "   Vrstevnice PDAL/GDAL jsou v contours/; srázy a knolíky z Karttapullautinu v karttapullautin/.\n"
+        "   OSM pěšiny (bez duplicit se ZABAGED) v osm_paths/ a jako objekty 507.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto), CC BY 4.0. "
@@ -128,6 +131,9 @@ def prepare_oom_map(
     zabaged_clean: Path | None = None,
     vectorconf_name: str = "zabaged.txt",
     include_dxf: bool = True,
+    contour_interval_m: float | None = None,
+    formline: float = 0,
+    indexcontours_m: float | None = None,
 ) -> Path | None:
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
@@ -154,6 +160,19 @@ def prepare_oom_map(
         return None
 
     object_parts: list[OomObjectPart] = []
+    object_parts.extend(
+        build_gdal_contour_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            interval_m=float(contour_interval_m or 5),
+            formline=float(formline or 0),
+            index_m=float(indexcontours_m) if indexcontours_m else None,
+        )
+    )
     if include_dxf:
         dxf_part = build_dxf_object_part(
             kp_cwd,
@@ -178,7 +197,15 @@ def prepare_oom_map(
                 work_dir=kp_cwd.parent,
             )
         )
-
+    osm_parts = build_osm_path_parts(
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+    )
+    object_parts.extend(osm_parts)
     return write_oom_map(
         dest,
         map_name=map_name,
@@ -233,7 +260,25 @@ def build_oom_zip(
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
             for zip_name, src in sorted(collect_dxf_for_zip(temp).items()):
+                if zip_name == "contours.dxf":
+                    continue
                 zf.write(src, f"karttapullautin/{zip_name}")
+        contours_dir = kp_cwd / "contours"
+        if contours_dir.is_dir():
+            for path in sorted(contours_dir.iterdir()):
+                if path.is_file() and path.suffix.lower() in {
+                    ".shp",
+                    ".shx",
+                    ".dbf",
+                    ".prj",
+                    ".cpg",
+                }:
+                    zf.write(path, f"contours/{path.name}")
+        osm_dir = kp_cwd / "osm_paths"
+        if osm_dir.is_dir():
+            gj = osm_dir / "paths.geojson"
+            if gj.is_file():
+                zf.write(gj, "osm_paths/paths.geojson")
         if zabaged_clean and zabaged_clean.is_file():
             _add_shapefiles_from_zip(zf, zabaged_clean, "vectors")
             if include_zabaged_archive:

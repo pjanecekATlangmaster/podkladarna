@@ -47,6 +47,18 @@ def write_prj(shp: Path) -> Path:
     return prj
 
 
+def wgs84_to_projected(lat: float, lon: float) -> tuple[float, float]:
+    from pyproj import Transformer
+
+    transformer = Transformer.from_crs(
+        GEOGRAPHIC_CRS_PROJ4,
+        CRS_PROJ4,
+        always_xy=True,
+    )
+    x, y = transformer.transform(lon, lat)
+    return float(x), float(y)
+
+
 def projected_to_wgs84(x: float, y: float) -> tuple[float, float]:
     from pyproj import Transformer
 

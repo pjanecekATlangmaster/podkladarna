@@ -4,10 +4,12 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from app.pipeline.contours_gdal import generate_job_contours
 from app.pipeline.fetch_openzu import crop_bounds_5514, fetch_lidar_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import load_presets, write_pullauta_ini
 from app.pipeline.karttapullautin_dxf import prune_heavy_intermediate_dxf
+from app.pipeline.osm_paths import prepare_osm_paths
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     build_oom_zip,
@@ -138,6 +140,26 @@ def run_job_pipeline(
 
     prune_heavy_intermediate_dxf(temp_dir, log=log)
 
+    log("=== Fáze: vrstevnice PDAL/GDAL ===")
+    preset = load_presets()[preset_id]
+    generate_job_contours(
+        work_dir,
+        merged,
+        interval_m=float(
+            options["contour_interval"]
+            if options.get("contour_interval") is not None
+            else preset["contour_interval"]
+        ),
+        formline=float(
+            options["formline"]
+            if options.get("formline") is not None
+            else preset.get("formline") or 0
+        ),
+        scalefactor=scalefactor,
+        crop_bounds=crop,
+        log=log,
+    )
+
     if not has_zabaged or not zabaged_clean.is_file():
         raise RuntimeError(
             "ZABAGED (polohopis) není k dispozici – bez něj nelze dokončit mapu."
@@ -145,6 +167,18 @@ def run_job_pipeline(
 
     log("=== Fáze: Karttapullautin vektory ===")
     run_cmd([PULLAUTA_BIN, str(zabaged_clean.resolve())], cwd=kp_cwd, log=log)
+
+    if bbox:
+        log("=== Fáze: OSM pěšiny ===")
+        try:
+            prepare_osm_paths(
+                work_dir,
+                tuple(bbox),
+                zabaged_clean if has_zabaged else None,
+                log=log,
+            )
+        except Exception as exc:
+            log(f"OSM pěšiny: přeskočeno ({exc})")
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(
@@ -214,6 +248,9 @@ def _package_output(
             zabaged_clean=zabaged,
             vectorconf_name=vectorconf,
             include_dxf=bool(options.get("output_dxf", True)),
+            contour_interval_m=meta.get("contour_interval_m"),
+            formline=float(meta.get("formline") or 0),
+            indexcontours_m=preset.get("indexcontours"),
         )
 
     build_oom_zip(

@@ -106,8 +106,24 @@ def _stage_from_output(src: Path, work: Path, *, include_refs: bool) -> dict:
         temp.mkdir()
         for path in sorted(dxf_src.glob("*.dxf")):
             temp_name = _DXF_ZIP_TO_TEMP.get(path.name)
-            if temp_name:
+            if temp_name and path.name != "contours.dxf":
                 shutil.copy2(path, temp / temp_name)
+
+    contours_src = src / "contours"
+    if contours_src.is_dir():
+        dest_c = work / "contours"
+        dest_c.mkdir(exist_ok=True)
+        for path in contours_src.iterdir():
+            if path.is_file():
+                shutil.copy2(path, dest_c / path.name)
+
+    osm_src = src / "osm_paths"
+    if osm_src.is_dir():
+        dest_o = work / "osm_paths"
+        dest_o.mkdir(exist_ok=True)
+        gj = osm_src / "paths.geojson"
+        if gj.is_file():
+            shutil.copy2(gj, dest_o / "paths.geojson")
 
     built_refs: dict[str, Path] | None = None
     if include_refs:
@@ -172,6 +188,9 @@ def rebuild_oom(
         zabaged_clean=meta.get("_zabaged"),
         vectorconf_name=vectorconf,
         include_dxf=True,
+        contour_interval_m=meta.get("contour_interval_m"),
+        formline=float(meta.get("formline") or preset.get("formline") or 0),
+        indexcontours_m=preset.get("indexcontours"),
     )
     if out is None:
         raise RuntimeError("prepare_oom_map nevrátil soubor – chybí šablony?")

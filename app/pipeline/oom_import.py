@@ -112,16 +112,25 @@ def _geom_parts_to_objects(
     return out
 
 
-def _pyogrio_layer_rows(path: Path, *, layer: str | None = None):
+def _pyogrio_layer_rows(path: Path, *, layer: str | None = None, force_2d: bool = True):
+    """Iteruje (props, wkb) přes pyogrio.raw.read (API 0.13+: meta, fids, geoms, fields)."""
     import pyogrio.raw as pyogrio_raw
 
-    fields, geoms, _crs, _geom_types = pyogrio_raw.read(path, layer=layer)
+    meta, _fids, geoms, field_arrays = pyogrio_raw.read(
+        path, layer=layer, force_2d=force_2d
+    )
     if geoms is None:
         return
-    field_names = list(fields)
+    raw_fields = meta.get("fields")
+    field_names = [str(n) for n in raw_fields] if raw_fields is not None else []
+    arrays = list(field_arrays) if field_arrays is not None else []
     n = len(geoms)
     for i in range(n):
-        props = {name: fields[name][i] for name in field_names}
+        props = {
+            name: arrays[j][i]
+            for j, name in enumerate(field_names)
+            if j < len(arrays)
+        }
         yield props, geoms[i]
 
 
@@ -409,6 +418,8 @@ def build_dxf_object_part(
 
     objects: list[str] = []
     for zip_name, path in sorted(dxf_map.items()):
+        if zip_name == "contours.dxf":
+            continue
         code = oom_code_for_dxf(zip_name, preset_id=preset_id)
         if not code:
             continue
