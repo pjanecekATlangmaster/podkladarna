@@ -50,45 +50,56 @@ def test_filter_drops_line_on_zabaged():
     zab = [[(0.0, 0.0), (100.0, 0.0)]]
     osm_dup = [[(1.0, 1.0), (80.0, 2.0)]]
     osm_new = [[(0.0, 80.0), (40.0, 80.0)]]
-    kept, dropped = filter_osm_against_zabaged(osm_dup + osm_new, zab, near_m=12)
+    kept, dropped = filter_osm_against_zabaged(osm_dup + osm_new, zab)
     assert dropped >= 1
     assert any(abs(pt[1] - 80) < 1 for line in kept for pt in line)
 
 
-def test_filter_drops_parallel_path_within_near_m():
-    """Paralelní OSM ~15 m od ZABAGED musí zmizet (dřív near=12 to propouštěl)."""
+def test_filter_drops_coincident_centerline():
+    """OSM prakticky přes ZABAGED (stejná střednice) musí zmizet."""
     zab = [[(0.0, 0.0), (200.0, 0.0)]]
-    osm = [[(0.0, 15.0), (200.0, 15.0)]]
-    kept, dropped = filter_osm_against_zabaged(osm, zab, near_m=25, overlap_drop=0.45)
+    osm = [[(0.0, 2.0), (200.0, 2.0)]]
+    kept, dropped = filter_osm_against_zabaged(osm, zab)
     assert dropped == 1
     assert kept == []
+
+
+def test_filter_keeps_parallel_distinct_path():
+    """Paralelní pěšina ~15 m vedle silnice není duplicita střednice – nechat."""
+    zab = [[(0.0, 0.0), (200.0, 0.0)]]
+    osm = [[(0.0, 15.0), (200.0, 15.0)]]
+    kept, dropped = filter_osm_against_zabaged(osm, zab)
+    assert dropped == 0
+    assert len(kept) == 1
 
 
 def test_filter_keeps_forest_tail_of_road_way():
     zab = [[(0.0, 0.0), (100.0, 0.0)]]
     # 80 m po silnici, pak 40 m do lesa
     osm = [[(0.0, 1.0), (80.0, 1.0), (80.0, 41.0)]]
-    kept, dropped = filter_osm_against_zabaged(osm, zab, near_m=12)
+    kept, dropped = filter_osm_against_zabaged(osm, zab)
     assert dropped == 0
     assert len(kept) == 1
-    assert polyline_length(kept[0]) >= 20
-    assert all(y > 10 for _, y in kept[0][1:])
+    assert polyline_length(kept[0]) >= 12
+    # Ocas do lesa (sever), ne zbytek podél silnice.
+    assert kept[0][-1][1] >= 30
+    assert sum(1 for _, y in kept[0] if y > 10) >= len(kept[0]) // 2
 
 
 def test_unique_parts_splits_middle_overlap():
     index = _SegmentIndex()
     index.add_line([(40.0, 0.0), (60.0, 0.0)])
     line = [(0.0, 0.0), (100.0, 0.0)]
-    parts = unique_polyline_parts(line, index, near_m=5, sample_m=10)
+    parts = unique_polyline_parts(line, index, near_m=6, sample_m=5)
     assert len(parts) == 2
-    assert polyline_length(parts[0]) > 20
-    assert polyline_length(parts[1]) > 20
+    assert polyline_length(parts[0]) > 12
+    assert polyline_length(parts[1]) > 12
 
 
 def test_overlap_high_when_coincident():
     index = _SegmentIndex()
     index.add_line([(0.0, 0.0), (100.0, 0.0)])
-    frac = overlap_fraction([(0.0, 1.0), (100.0, 1.0)], index, near_m=12)
+    frac = overlap_fraction([(0.0, 1.0), (100.0, 1.0)], index, near_m=6)
     assert frac > 0.9
 
 

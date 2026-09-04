@@ -49,9 +49,14 @@ ZABAGED_PATH_LAYERS = frozenset(
         "Zabrana",
     }
 )
-NEAR_M = 25.0
-OVERLAP_DROP = 0.45
-SAMPLE_M = 10.0
+NEAR_M = 25.0  # zpětná kompatibilita testů / starších volání
+# Stejná středová čára (ne „něco v okolí“): OSM a ZABAGED přes sebe.
+MATCH_M = 6.0
+COVER_DROP = 0.70
+# Min. |cos| úhlu tečen – paralelní i protisměr; kolmá cesta se neshoduje.
+MIN_DIR_DOT = 0.5
+OVERLAP_DROP = 0.45  # alias COVER_DROP pro stará volání
+SAMPLE_M = 5.0
 MIN_LENGTH_M = 12.0
 GRID_M = 30.0
 SKIP_FOOTWAY = frozenset({"sidewalk", "crossing"})
@@ -302,7 +307,7 @@ class _SegmentIndex:
                     self.cells[(ii, jj)].append(seg)
 
     def nearest(self, x: float, y: float, *, max_m: float | None = None) -> float:
-        """Vzdálenost k nejbližšímu segmentu; prohledá buňky do max_m (ne jen 3×3)."""
+        """Vzdálenost k nejbližšímu segmentu; prohledá buňky do max_m."""
         i = int(math.floor(x / self.cell_m))
         j = int(math.floor(y / self.cell_m))
         radius = 1
@@ -315,21 +320,118 @@ class _SegmentIndex:
                     best = min(best, _point_seg_dist(x, y, ax, ay, bx, by))
         return best
 
+    def on_centerline(
+        self,
+        x: float,
+        y: float,
+        tx: float,
+        ty: float,
+        *,
+        match_m: float = MATCH_M,
+        min_dir_dot: float = MIN_DIR_DOT,
+    ) -> bool:
+        """True, když bod leží na ZABAGED střednici se stejným směrem (ne kolmá křižovatka)."""
+        i = int(math.floor(x / self.cell_m))
+        j = int(math.floor(y / self.cell_m))
+        radius = max(1, int(math.ceil(match_m / self.cell_m)))
+        tang = math.hypot(tx, ty)
+        ux, uy = (tx / tang, ty / tang) if tang > 1e-9 else (0.0, 0.0)
+        for di in range(-radius, radius + 1):
+            for dj in range(-radius, radius + 1):
+                for ax, ay, bx, by in self.cells.get((i + di, j + dj), ()):
+                    if _point_seg_dist(x, y, ax, ay, bx, by) > match_m:
+                        continue
+                    sx, sy = bx - ax, by - ay
+                    sl = math.hypot(sx, sy)
+                    if sl < 1e-9:
+                        if ux == 0.0 and uy == 0.0:
+                            return True
+                        continue
+                    # |cos| – stejný i opačný směr střednice.
+                    if abs((ux * sx + uy * sy) / sl) >= min_dir_dot or (
+                        ux == 0.0 and uy == 0.0
+                    ):
+                        return True
+        return False
+
+
+def _sample_tangents(
+    samples: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Jednotková tečna v každém vzorku (dopředná / zpětná na koncích)."""
+    n = len(samples)
+    out: list[tuple[float, float]] = []
+    for i in range(n):
+        if i + 1 < n:
+            dx = samples[i + 1][0] - samples[i][0]
+            dy = samples[i + 1][1] - samples[i][1]
+        elif i > 0:
+            dx = samples[i][0] - samples[i - 1][0]
+            dy = samples[i][1] - samples[i - 1][1]
+        else:
+            dx, dy = 0.0, 0.0
+        L = math.hypot(dx, dy)
+        out.append((dx / L, dy / L) if L > 1e-9 else (0.0, 0.0))
+    return out
+
+
+def centerline_cover_fraction(
+    osm_pts: list[tuple[float, float]],
+    index: _SegmentIndex,
+    *,
+    match_m: float = MATCH_M,
+    sample_m: float = SAMPLE_M,
+) -> float:
+    """Podíl délky OSM, který leží na stejné střednici jako ZABAGED."""
+    samples = sample_polyline(osm_pts, sample_m)
+    if not samples:
+        return 0.0
+    tangents = _sample_tangents(samples)
+    hit = sum(
+        1
+        for (x, y), (tx, ty) in zip(samples, tangents)
+        if index.on_centerline(x, y, tx, ty, match_m=match_m)
+    )
+    return hit / len(samples)
+
 
 def overlap_fraction(
     osm_pts: list[tuple[float, float]],
     index: _SegmentIndex,
     *,
-    near_m: float = NEAR_M,
+    near_m: float = MATCH_M,
     sample_m: float = SAMPLE_M,
 ) -> float:
-    samples = sample_polyline(osm_pts, sample_m)
-    if not samples:
-        return 0.0
-    near = sum(
-        1 for x, y in samples if index.nearest(x, y, max_m=near_m) <= near_m
+    """Zpětná kompatibilita – teď = pokrytí střednicí (near_m = match poloměr)."""
+    return centerline_cover_fraction(
+        osm_pts, index, match_m=near_m, sample_m=sample_m
     )
-    return near / len(samples)
+
+
+def unique_polyline_parts(
+    osm_pts: list[tuple[float, float]],
+    index: _SegmentIndex,
+    *,
+    near_m: float = MATCH_M,
+    sample_m: float = SAMPLE_M,
+) -> list[list[tuple[float, float]]]:
+    """Úseky OSM mimo ZABAGED střednici (např. ocas pěšiny do lesa)."""
+    samples = sample_polyline(osm_pts, sample_m)
+    if len(samples) < 2:
+        return []
+    tangents = _sample_tangents(samples)
+    parts: list[list[tuple[float, float]]] = []
+    current: list[tuple[float, float]] = []
+    for (x, y), (tx, ty) in zip(samples, tangents):
+        on_zab = index.on_centerline(x, y, tx, ty, match_m=near_m)
+        if not on_zab:
+            current.append((x, y))
+        elif current:
+            parts.append(current)
+            current = []
+    if current:
+        parts.append(current)
+    return [p for p in parts if len(p) >= 2]
 
 
 def _iter_line_parts_from_shp(shp_ref: str | Path):
@@ -435,37 +537,14 @@ def _zabaged_path_lines(zabaged_clean: Path, *, log=None) -> list[list[tuple[flo
     return lines
 
 
-def unique_polyline_parts(
-    osm_pts: list[tuple[float, float]],
-    index: _SegmentIndex,
-    *,
-    near_m: float = NEAR_M,
-    sample_m: float = SAMPLE_M,
-) -> list[list[tuple[float, float]]]:
-    """Úseky OSM linie, které neleží u ZABAGED. Celou way kvůli kusu u silnice nesekáme."""
-    samples = sample_polyline(osm_pts, sample_m)
-    if len(samples) < 2:
-        return []
-    parts: list[list[tuple[float, float]]] = []
-    current: list[tuple[float, float]] = []
-    for x, y in samples:
-        if index.nearest(x, y, max_m=near_m) > near_m:
-            current.append((x, y))
-        elif current:
-            parts.append(current)
-            current = []
-    if current:
-        parts.append(current)
-    return [p for p in parts if len(p) >= 2]
-
-
 def filter_osm_against_zabaged(
     osm_lines: list[list[tuple[float, float]]],
     zabaged_lines: list[list[tuple[float, float]]],
     *,
-    near_m: float = NEAR_M,
-    overlap_drop: float = OVERLAP_DROP,
+    near_m: float = MATCH_M,
+    overlap_drop: float = COVER_DROP,
 ) -> tuple[list[list[tuple[float, float]]], int]:
+    """Nechá OSM jen mimo ZABAGED střednici (shoda směru + ≤ match_m)."""
     if not zabaged_lines:
         kept = [line for line in osm_lines if polyline_length(line) >= MIN_LENGTH_M]
         return kept, len(osm_lines) - len(kept)
@@ -478,15 +557,15 @@ def filter_osm_against_zabaged(
         if polyline_length(line) < MIN_LENGTH_M:
             dropped += 1
             continue
-        # Skoro celá way na ZABAGED → rovnou pryč (šetří unique_polyline_parts).
-        if overlap_fraction(line, index, near_m=near_m) >= max(overlap_drop, 0.85):
+        # Stejná střednice po (skoro) celé délce → pryč.
+        if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
             dropped += 1
             continue
         parts = [
             p
             for p in unique_polyline_parts(line, index, near_m=near_m)
             if polyline_length(p) >= MIN_LENGTH_M
-            and overlap_fraction(p, index, near_m=near_m) < overlap_drop
+            and centerline_cover_fraction(p, index, match_m=near_m) < overlap_drop
         ]
         if not parts:
             dropped += 1
@@ -499,10 +578,10 @@ def filter_osm_items_against_zabaged(
     osm_items: list[tuple[list[tuple[float, float]], str]],
     zabaged_lines: list[list[tuple[float, float]]],
     *,
-    near_m: float = NEAR_M,
-    overlap_drop: float = OVERLAP_DROP,
+    near_m: float = MATCH_M,
+    overlap_drop: float = COVER_DROP,
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
-    """Dedup proti ZABAGED se zachováním highway tagu u každého úseku."""
+    """Dedup střednicí se zachováním highway tagu u každého úseku."""
     if not zabaged_lines:
         kept = [
             (pts, hw)
@@ -519,14 +598,14 @@ def filter_osm_items_against_zabaged(
         if polyline_length(line) < MIN_LENGTH_M:
             dropped += 1
             continue
-        if overlap_fraction(line, index, near_m=near_m) >= max(overlap_drop, 0.85):
+        if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
             dropped += 1
             continue
         parts = [
             p
             for p in unique_polyline_parts(line, index, near_m=near_m)
             if polyline_length(p) >= MIN_LENGTH_M
-            and overlap_fraction(p, index, near_m=near_m) < overlap_drop
+            and centerline_cover_fraction(p, index, match_m=near_m) < overlap_drop
         ]
         if not parts:
             dropped += 1
