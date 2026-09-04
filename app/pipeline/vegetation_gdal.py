@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.pipeline.crs_5514 import CRS_PROJ4, CRS_WKT, write_prj
 from app.pipeline.georef import read_pgw
 from app.pipeline.oom_import import (
     OomObjectPart,
@@ -127,8 +128,10 @@ def generate_vegetation_shapefile(
     mem_drv = gdal.GetDriverByName("MEM")
     class_ds = mem_drv.Create("", width, height, 1, gdal.GDT_Byte)
     class_ds.SetGeoTransform(geotransform)
+    # Bez ImportFromEPSG – v Dockeru často chybí PROJ data (/opt/conda/share/proj).
     srs = osr.SpatialReference()
-    srs.ImportFromEPSG(5514)
+    if srs.ImportFromWkt(CRS_WKT) != 0:
+        srs.ImportFromProj4(CRS_PROJ4)
     class_ds.SetProjection(srs.ExportToWkt())
     band = class_ds.GetRasterBand(1)
     band.WriteArray(np.asarray(classified, dtype=np.uint8))
@@ -174,6 +177,7 @@ def generate_vegetation_shapefile(
 
     if not dest_shp.is_file():
         return None
+    write_prj(dest_shp)
     if log:
         log(f"Zeleň vektory: {n_kept} polygonů → {dest_shp.name}")
     return dest_shp

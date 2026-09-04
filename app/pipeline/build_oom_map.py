@@ -25,7 +25,8 @@ __all__ = [
 
 
 def _template_xml(tmpl: OomTemplate) -> str:
-    open_attr = "true" if tmpl.visible else "false"
+    # open = načtená v panelu podkladů; visible v <view> řídí kreslení.
+    open_attr = "true" if tmpl.loaded else "false"
     fname = html.escape(tmpl.filename)
     relpath = html.escape(tmpl.relpath)
     group_attr = (
@@ -47,10 +48,15 @@ def _template_xml(tmpl: OomTemplate) -> str:
     )
 
 
-def _parts_xml(parts: list[OomObjectPart]) -> tuple[str, int]:
-    """Jedna část mapy – Mapper zobrazuje jen current part, ne všechny naráz."""
+def _parts_xml(
+    parts: list[OomObjectPart],
+    *,
+    hidden_parts: list[OomObjectPart] | None = None,
+) -> tuple[str, int]:
+    """Hlavní část current=0; skryté části (např. KP DXF) až za ní – Mapper kreslí jen current."""
     nonempty = [p for p in parts if p.objects_xml and p.count]
-    if not nonempty:
+    hidden = [p for p in (hidden_parts or []) if p.objects_xml and p.count]
+    if not nonempty and not hidden:
         return (
             '        <parts count="1" current="0">\n'
             '            <part name="Mapa">\n'
@@ -59,15 +65,43 @@ def _parts_xml(parts: list[OomObjectPart]) -> tuple[str, int]:
             "        </parts>",
             0,
         )
-    total = sum(p.count for p in nonempty)
-    objects_xml = "\n".join(p.objects_xml for p in nonempty)
+
+    blocks: list[str] = []
+    total = 0
+    if nonempty:
+        n = sum(p.count for p in nonempty)
+        total += n
+        objects_xml = "\n".join(p.objects_xml for p in nonempty)
+        blocks.append(
+            '            <part name="Mapa">\n'
+            f'                <objects count="{n}">\n'
+            f"{objects_xml}\n"
+            "                </objects>\n"
+            "            </part>"
+        )
+    else:
+        blocks.append(
+            '            <part name="Mapa">\n'
+            '                <objects count="0"/>\n'
+            "            </part>"
+        )
+
+    for part in hidden:
+        total += part.count
+        safe = html.escape(part.name)
+        blocks.append(
+            f'            <part name="{safe}">\n'
+            f'                <objects count="{part.count}">\n'
+            f"{part.objects_xml}\n"
+            "                </objects>\n"
+            "            </part>"
+        )
+
+    count = len(blocks)
+    body = "\n".join(blocks)
     return (
-        '        <parts count="1" current="0">\n'
-        '            <part name="Mapa">\n'
-        f'                <objects count="{total}">\n'
-        f"{objects_xml}\n"
-        "                </objects>\n"
-        "            </part>\n"
+        f'        <parts count="{count}" current="0">\n'
+        f"{body}\n"
         "        </parts>",
         total,
     )
@@ -85,6 +119,7 @@ def build_oom_map_xml(
     grivation: float,
     templates: list[OomTemplate],
     object_parts: list[OomObjectPart] | None = None,
+    hidden_object_parts: list[OomObjectPart] | None = None,
     preset_id: str,
 ) -> str:
     """.omap s kontrolním PNG a editovatelnými objekty mapy."""
@@ -97,14 +132,19 @@ def build_oom_map_xml(
     )
     if template_refs:
         template_refs += "\n"
-    parts_xml, _ = _parts_xml(object_parts or [])
+    parts_xml, _ = _parts_xml(
+        object_parts or [],
+        hidden_parts=hidden_object_parts,
+    )
     # Reference pod mapou; KP PNG nad mapou (jinak bílý papír zeleň schová).
     front = first_front_template_index(templates)
     safe_name = html.escape(map_name)
     crs = html.escape(CRS_PROJ4)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
-    <notes>Podkladárna – {safe_name}</notes>
+    <notes>Podkladárna – {safe_name}
+Výchozí pohled: vektorová mapa (křivky/polygony). PNG podklady jsou vypnuté –
+zapni je v Šablony → Nastavení šablon.</notes>
     <georeferencing scale="{scale}" auxiliary_scale_factor="1" declination="{declination:.2f}" grivation="{grivation:.2f}">
         <projected_crs id="EPSG">
             <spec language="PROJ.4">{crs}</spec>
@@ -149,6 +189,7 @@ def write_oom_map(
     templates: list[OomTemplate],
     preset_id: str,
     object_parts: list[OomObjectPart] | None = None,
+    hidden_object_parts: list[OomObjectPart] | None = None,
     declination: float | None = None,
     grivation: float | None = None,
 ) -> Path:
@@ -167,6 +208,7 @@ def write_oom_map(
             grivation=grivation,
             templates=templates,
             object_parts=object_parts,
+            hidden_object_parts=hidden_object_parts,
             preset_id=preset_id,
         ),
         encoding="utf-8",

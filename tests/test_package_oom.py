@@ -144,9 +144,9 @@ def test_collect_oom_templates_with_refs(tmp_path):
     assert templates[0].relpath == "references/hillshade_dmr5g.png"
     assert templates[0].visible is False
     assert templates[1].relpath == "basemap/pullautus.png"
-    assert templates[1].visible is True
+    assert templates[1].visible is False
     assert templates[1].opacity == 0.65
-
+    assert templates[1].loaded is True
 
 def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
     kp = tmp_path / "work"
@@ -160,6 +160,7 @@ def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
     assert len(dxf) == 1
     assert dxf[0].relpath == "karttapullautin/cliffs_small.dxf"
     assert dxf[0].visible is False
+    assert dxf[0].loaded is True
 
 
 def test_collect_oom_templates_png_is_control_overlay(tmp_path):
@@ -170,7 +171,7 @@ def test_collect_oom_templates_png_is_control_overlay(tmp_path):
     png = [t for t in templates if t.relpath == "basemap/pullautus.png"]
     assert len(png) == 1
     assert png[0].opacity == 0.65
-    assert png[0].visible is True
+    assert png[0].visible is False
     assert all(t.kind != "ogr" for t in templates)
 
 
@@ -179,12 +180,12 @@ def test_first_front_puts_kp_above_map():
 
     templates = [
         OomTemplate("image", "ortho", "references/orthophoto.png", visible=False),
-        OomTemplate("image", "kp", "basemap/pullautus.png", visible=True, opacity=0.65),
+        OomTemplate("image", "kp", "basemap/pullautus.png", visible=False, opacity=0.65),
     ]
     assert first_front_template_index(templates) == 1
 
 
-def test_oom_map_shows_all_objects_in_one_part(tmp_path):
+def test_oom_map_shows_main_objects_in_one_part(tmp_path):
     from app.pipeline.build_oom_map import write_oom_map
     from app.pipeline.oom_import import OomObjectPart
     from app.pipeline.oom_layers import OomTemplate
@@ -203,7 +204,7 @@ def test_oom_map_shows_all_objects_in_one_part(tmp_path):
         ref_y=0,
         ref_lat=50,
         ref_lon=14,
-        templates=[OomTemplate("image", "png", "basemap/pullautus.png")],
+        templates=[OomTemplate("image", "png", "basemap/pullautus.png", visible=False)],
         preset_id="forest_10000",
         object_parts=[
             OomObjectPart("Vrstevnice", dummy, 1),
@@ -215,3 +216,33 @@ def test_oom_map_shows_all_objects_in_one_part(tmp_path):
     assert 'part name="Mapa"' in xml
     assert 'objects count="2"' in xml
     assert 'first_front_template="0"' in xml
+    assert 'visible="false"' in xml
+
+
+def test_oom_map_keeps_png_templates_loaded_but_hidden(tmp_path):
+    from app.pipeline.build_oom_map import write_oom_map
+    from app.pipeline.oom_layers import OomTemplate
+
+    dest = tmp_path / "m.omap"
+    write_oom_map(
+        dest,
+        map_name="t",
+        scale=10000,
+        ref_x=0,
+        ref_y=0,
+        ref_lat=50,
+        ref_lon=14,
+        templates=[
+            OomTemplate(
+                "image", "ortho", "references/orthophoto.png", visible=False
+            ),
+            OomTemplate(
+                "image", "png", "basemap/pullautus.png", visible=False, opacity=0.65
+            ),
+        ],
+        preset_id="forest_10000",
+    )
+    xml = dest.read_text(encoding="utf-8")
+    assert 'open="true" name="pullautus.png"' in xml
+    assert 'open="true" name="orthophoto.png"' in xml
+    assert xml.count('visible="false"') >= 2

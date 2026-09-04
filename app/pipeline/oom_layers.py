@@ -11,8 +11,8 @@ GROUP_REFERENCE = 1
 GROUP_KP = 2
 
 DXF_LABELS: dict[str, str] = {
-    "cliffs_small.dxf": "Srázy malé (DXF)",
-    "cliffs_large.dxf": "Srázy velké (DXF)",
+    "cliffs_small.dxf": "Zemní srázy (DXF)",
+    "cliffs_large.dxf": "Nepřekonatelné srázy (DXF)",
     "dotknolls.dxf": "Knolíky (DXF)",
 }
 
@@ -25,6 +25,8 @@ class OomTemplate:
     visible: bool = True
     opacity: float = 1.0
     group: int | None = None
+    # open= v .omap: šablona je v seznamu podkladů (i když visible=false).
+    loaded: bool = True
 
     @property
     def filename(self) -> str:
@@ -45,7 +47,7 @@ OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
 
 
 def first_front_template_index(templates: list[OomTemplate]) -> int:
-    """První šablona nad mapou: KP PNG musí být nad bílým papírem, ne pod ním."""
+    """První šablona nad mapou: až uživatel zapne KP PNG, má být nad papírem."""
     for i, tmpl in enumerate(templates):
         if tmpl.relpath.startswith("basemap/") or tmpl.relpath.startswith("relief/"):
             return i
@@ -88,8 +90,8 @@ def collect_oom_templates(
                 "image",
                 "Karttapullautin (zeleň / náhled)",
                 "basemap/pullautus.png",
-                visible=True,
-                # Poloprůhledné, ať jdou vidět objekty mapy i zeleň.
+                # Výchozí pohled = vektorová mapa; PNG si zapneš při kontrole.
+                visible=False,
                 opacity=0.65,
                 group=GROUP_KP,
             )
@@ -120,6 +122,7 @@ def collect_oom_templates(
                         visible=False,
                         opacity=1.0,
                         group=GROUP_KP,
+                        loaded=True,
                     )
                 )
 

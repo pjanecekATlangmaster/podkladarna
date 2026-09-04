@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import struct
 import zipfile
 from dataclasses import dataclass
@@ -16,6 +17,93 @@ from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
 
 # ('point', x, y) | ('line', [(x, y), ...], close)
 _WkbPart = tuple[str, object]
+
+_CLIFF_DXF_NAMES = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
+_TAG_SIDE_OFFSET_M = 2.0
+
+
+def orient_polyline_tags_downhill(
+    pts: list[tuple[float, float]],
+    *,
+    elev_at,
+    to_map,
+    offset_m: float = _TAG_SIDE_OFFSET_M,
+) -> list[tuple[float, float]]:
+    """Otočí lomenou čáru tak, aby tagy OOM (vlevo od směru) mířily ze svahu dolů.
+
+    ``elev_at(x, y)`` → výška v metrech (projected), ``to_map(x, y)`` → map mm.
+    """
+    if len(pts) < 2 or elev_at is None or to_map is None:
+        return pts
+    a, b = pts[0], pts[-1]
+    mx = (a[0] + b[0]) / 2.0
+    my = (a[1] + b[1]) / 2.0
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy)
+    if length < 1e-6:
+        return pts
+    nx, ny = -dy / length, dx / length
+    p_left = (mx + nx * offset_m, my + ny * offset_m)
+    p_right = (mx - nx * offset_m, my - ny * offset_m)
+    e_left = elev_at(*p_left)
+    e_right = elev_at(*p_right)
+    if e_left is None or e_right is None:
+        return pts
+    downhill = p_left if e_left <= e_right else p_right
+    am = to_map(a[0], a[1])
+    bm = to_map(b[0], b[1])
+    dm = to_map(downhill[0], downhill[1])
+    # Kladný cross = downhill je vlevo od am→bm v mapových souřadnicích.
+    cross = (bm[0] - am[0]) * (dm[1] - am[1]) - (bm[1] - am[1]) * (dm[0] - am[0])
+    if cross >= 0:
+        return pts
+    return list(reversed(pts))
+
+
+class _DemElev:
+    """Vzorkování výšky z GeoTIFF (GDAL)."""
+
+    def __init__(self, path: Path):
+        from osgeo import gdal
+
+        self._ds = gdal.Open(str(path))
+        if self._ds is None:
+            raise RuntimeError(f"Nelze otevřít DEM: {path}")
+        self._gt = self._ds.GetGeoTransform()
+        self._band = self._ds.GetRasterBand(1)
+        self._nodata = self._band.GetNoDataValue()
+        self._w = self._ds.RasterXSize
+        self._h = self._ds.RasterYSize
+
+    def __call__(self, x: float, y: float) -> float | None:
+        gt = self._gt
+        # Affine inverse for north-up / south-up without rotation.
+        det = gt[1] * gt[5] - gt[2] * gt[4]
+        if abs(det) < 1e-18:
+            return None
+        px = (gt[5] * (x - gt[0]) - gt[2] * (y - gt[3])) / det
+        py = (-gt[4] * (x - gt[0]) + gt[1] * (y - gt[3])) / det
+        col, row = int(px), int(py)
+        if col < 0 or row < 0 or col >= self._w or row >= self._h:
+            return None
+        val = float(self._band.ReadAsArray(col, row, 1, 1)[0][0])
+        if self._nodata is not None and abs(val - float(self._nodata)) < 1e-6:
+            return None
+        if math.isnan(val):
+            return None
+        return val
+
+
+def _load_dem_elev(work_dir: Path):
+    dem = work_dir / "contours" / "dem_smooth.tif"
+    if not dem.is_file():
+        dem = work_dir / "contours" / "dem_filled.tif"
+    if not dem.is_file():
+        return None
+    try:
+        return _DemElev(dem)
+    except Exception:
+        return None
 
 
 def _wkb_read_points(buf: bytes, offset: int, fmt: str, n: int) -> tuple[list[tuple[float, float]], int]:
@@ -80,33 +168,32 @@ def _geom_parts_to_objects(
     scale: int,
     grivation_deg: float,
     as_area: bool = False,
+    elev_at=None,
 ) -> list[str]:
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        return projected_to_map_coord(
+            x,
+            y,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            scale=scale,
+            grivation_deg=grivation_deg,
+        )
+
     out: list[str] = []
     for part in parts:
         if part[0] == "point":
             _, x, y = part
-            mx, my = projected_to_map_coord(
-                float(x),
-                float(y),
-                ref_x=ref_x,
-                ref_y=ref_y,
-                scale=scale,
-                grivation_deg=grivation_deg,
-            )
+            mx, my = to_map(float(x), float(y))
             out.append(_point_object(symbol_index, mx, my))
         elif part[0] == "line":
             _, pts, close = part
-            coords = [
-                projected_to_map_coord(
-                    float(x),
-                    float(y),
-                    ref_x=ref_x,
-                    ref_y=ref_y,
-                    scale=scale,
-                    grivation_deg=grivation_deg,
+            proj = [(float(x), float(y)) for x, y in pts]  # type: ignore[union-attr]
+            if elev_at is not None and not close and len(proj) >= 2:
+                proj = orient_polyline_tags_downhill(
+                    proj, elev_at=elev_at, to_map=to_map
                 )
-                for x, y in pts  # type: ignore[union-attr]
-            ]
+            coords = [to_map(x, y) for x, y in proj]
             if as_area or close:
                 obj = _area_object(symbol_index, coords) if as_area else _path_object(
                     symbol_index, coords, close=True
@@ -209,34 +296,31 @@ def _geom_objects(
     scale: int,
     grivation_deg: float,
     ogr,
+    elev_at=None,
 ) -> list[str]:
     from osgeo import ogr as ogr_mod
 
     gtype = geom.GetGeometryType()
     out: list[str] = []
 
-    def line_coords(line) -> list[tuple[int, int]]:
-        return [
-            projected_to_map_coord(
-                line.GetX(i),
-                line.GetY(i),
-                ref_x=ref_x,
-                ref_y=ref_y,
-                scale=scale,
-                grivation_deg=grivation_deg,
-            )
-            for i in range(line.GetPointCount())
-        ]
-
-    if gtype in (ogr_mod.wkbPoint, ogr_mod.wkbPoint25D):
-        mx, my = projected_to_map_coord(
-            geom.GetX(),
-            geom.GetY(),
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        return projected_to_map_coord(
+            x,
+            y,
             ref_x=ref_x,
             ref_y=ref_y,
             scale=scale,
             grivation_deg=grivation_deg,
         )
+
+    def line_coords(line) -> list[tuple[int, int]]:
+        proj = [(line.GetX(i), line.GetY(i)) for i in range(line.GetPointCount())]
+        if elev_at is not None and len(proj) >= 2:
+            proj = orient_polyline_tags_downhill(proj, elev_at=elev_at, to_map=to_map)
+        return [to_map(x, y) for x, y in proj]
+
+    if gtype in (ogr_mod.wkbPoint, ogr_mod.wkbPoint25D):
+        mx, my = to_map(geom.GetX(), geom.GetY())
         obj = _point_object(symbol_index, mx, my)
         if obj:
             out.append(obj)
@@ -441,6 +525,7 @@ def build_dxf_object_part(
         return None
 
     objects: list[str] = []
+    elev_at = _load_dem_elev(kp_cwd)
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(zip_name, preset_id=preset_id)
         if not code:
@@ -448,6 +533,7 @@ def build_dxf_object_part(
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             continue
+        cliff_elev = elev_at if zip_name in _CLIFF_DXF_NAMES else None
         if use_ogr:
             ds = ogr.Open(str(path))
             if not ds:
@@ -469,6 +555,7 @@ def build_dxf_object_part(
                             scale=scale,
                             grivation_deg=grivation_deg,
                             ogr=ogr,
+                            elev_at=cliff_elev,
                         )
                     )
         else:
@@ -485,6 +572,7 @@ def build_dxf_object_part(
                             ref_y=ref_y,
                             scale=scale,
                             grivation_deg=grivation_deg,
+                            elev_at=cliff_elev,
                         )
                     )
     if not objects:

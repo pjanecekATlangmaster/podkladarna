@@ -48,14 +48,15 @@ _LAYER_OOM_CODE: dict[str, str] = {
 
 _DXF_OOM_CODE_SPRINT: dict[str, str] = {
     "contours.dxf": "101",
-    "cliffs_small.dxf": "202.1",
+    # KP c2g = častější terénní stupeň → zemní sráz; c3g = vysoký → 201
+    "cliffs_small.dxf": "104",
     "cliffs_large.dxf": "201",
     "dotknolls.dxf": "109",
 }
 
 _DXF_OOM_CODE_FOREST: dict[str, str] = {
     "contours.dxf": "101",
-    "cliffs_small.dxf": "202",
+    "cliffs_small.dxf": "104",
     "cliffs_large.dxf": "201",
     "dotknolls.dxf": "109",
 }

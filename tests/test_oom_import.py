@@ -144,5 +144,31 @@ def test_oom_code_parking_forest_maps_to_501_1():
 def test_oom_code_dxf_cliffs_small_preset_specific():
     from app.pipeline.oom_symbol_map import oom_code_for_dxf
 
-    assert oom_code_for_dxf("cliffs_small.dxf", preset_id="sprint_2m") == "202.1"
-    assert oom_code_for_dxf("cliffs_small.dxf", preset_id="forest_10000") == "202"
+    assert oom_code_for_dxf("cliffs_small.dxf", preset_id="sprint_2m") == "104"
+    assert oom_code_for_dxf("cliffs_small.dxf", preset_id="forest_10000") == "104"
+    assert oom_code_for_dxf("cliffs_large.dxf", preset_id="forest_10000") == "201"
+
+
+def test_orient_polyline_tags_downhill_flips_when_needed():
+    from app.pipeline.oom_import import orient_polyline_tags_downhill
+
+    pts = [(0.0, 0.0), (10.0, 0.0)]
+
+    def to_map(x, y):
+        return (int(x * 100), int(y * 100))
+
+    def elev_lower_on_plus_y(x, y):
+        # Vlevo od 0→10 (+Y) je níž → bez otočení (tagy vlevo).
+        return -y
+
+    assert (
+        orient_polyline_tags_downhill(pts, elev_at=elev_lower_on_plus_y, to_map=to_map)
+        == pts
+    )
+
+    def elev_lower_on_minus_y(x, y):
+        return y
+
+    assert orient_polyline_tags_downhill(
+        pts, elev_at=elev_lower_on_minus_y, to_map=to_map
+    ) == list(reversed(pts))
