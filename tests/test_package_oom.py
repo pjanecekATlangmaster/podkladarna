@@ -148,6 +148,20 @@ def test_collect_oom_templates_with_refs(tmp_path):
     assert templates[1].opacity == 0.65
     assert templates[1].loaded is True
 
+
+def test_collect_oom_templates_osm_hidden_by_default(tmp_path):
+    kp = tmp_path / "work"
+    refs = kp / "references"
+    refs.mkdir(parents=True)
+    osm = refs / "osm.png"
+    osm.write_bytes(b"x")
+    (kp / "pullautus.png").write_bytes(b"x")
+    templates = collect_oom_templates(kp, built_refs={"osm": osm})
+    osm_t = [t for t in templates if t.relpath == "references/osm.png"]
+    assert len(osm_t) == 1
+    assert osm_t[0].visible is False
+    assert osm_t[0].opacity == 0.55
+
 def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
     kp = tmp_path / "work"
     kp.mkdir()

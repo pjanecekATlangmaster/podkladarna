@@ -33,7 +33,7 @@ _FOREST_ROAD_KP_TO_OOM: dict[str, str] = {
 
 # Výjimky podle vrstvy ZABAGED (blackline má víc významů).
 _LAYER_OOM_CODE: dict[str, str] = {
-    "StupenSraz": "201",
+    "StupenSraz": "104",
     "SkupinaBalvanu": "207",
     "LiniovaVegetace": "416",
     "ElektrickeVedeni": "510",
@@ -48,16 +48,16 @@ _LAYER_OOM_CODE: dict[str, str] = {
 
 _DXF_OOM_CODE_SPRINT: dict[str, str] = {
     "contours.dxf": "101",
-    # KP c2g = častější terénní stupeň → zemní sráz; c3g = vysoký → 201
+    # KP c2g/c3g → zemní sráz 104 (201 jen ručně při mapování)
     "cliffs_small.dxf": "104",
-    "cliffs_large.dxf": "201",
+    "cliffs_large.dxf": "104",
     "dotknolls.dxf": "109",
 }
 
 _DXF_OOM_CODE_FOREST: dict[str, str] = {
     "contours.dxf": "101",
     "cliffs_small.dxf": "104",
-    "cliffs_large.dxf": "201",
+    "cliffs_large.dxf": "104",
     "dotknolls.dxf": "109",
 }
 

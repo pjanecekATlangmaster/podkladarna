@@ -8,8 +8,9 @@ from app.pipeline.fetch_openzu import USER_AGENT
 from app.settings import CACHE_DIR
 
 TILE_SOURCES = (
-    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    # Carto je spolehlivější pro serverové stahování; OSM.org často odmítá boty.
     "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+    "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
 )
 TILE_TIMEOUT_S = 20
 

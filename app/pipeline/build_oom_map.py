@@ -143,8 +143,8 @@ def build_oom_map_xml(
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
     <notes>Podkladárna – {safe_name}
-Výchozí pohled: vektorová mapa (křivky/polygony). PNG podklady jsou vypnuté –
-zapni je v Šablony → Nastavení šablon.</notes>
+Výchozí pohled: jen vektorová mapa. Vrstevnice 101/102 jsou zamčené.
+PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.</notes>
     <georeferencing scale="{scale}" auxiliary_scale_factor="1" declination="{declination:.2f}" grivation="{grivation:.2f}">
         <projected_crs id="EPSG">
             <spec language="PROJ.4">{crs}</spec>

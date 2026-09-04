@@ -12,7 +12,7 @@ GROUP_KP = 2
 
 DXF_LABELS: dict[str, str] = {
     "cliffs_small.dxf": "Zemní srázy (DXF)",
-    "cliffs_large.dxf": "Nepřekonatelné srázy (DXF)",
+    "cliffs_large.dxf": "Zemní srázy strmější (DXF)",
     "dotknolls.dxf": "Knolíky (DXF)",
 }
 
@@ -34,9 +34,9 @@ class OomTemplate:
 
 
 OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
-    # Výchozí vypnuté – jinak překryjí KP zeleň a mate při otevření.
+    # Všechny PNG vypnuté – výchozí pohled = jen vektorové objekty mapy.
     ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0, False),
-    ("osm", "OpenStreetMap", "references/osm.png", 0.85, False),
+    ("osm", "OpenStreetMap", "references/osm.png", 0.55, False),
     ("ztm", "Základní mapa ČÚZK (ZTM)", "references/mapa_ztm.png", 0.88, False),
     ("dmpok", "Náhled DMP OK", "references/dmpok_nahled.png", 0.65, False),
     *(

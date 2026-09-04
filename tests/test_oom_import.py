@@ -146,7 +146,7 @@ def test_oom_code_dxf_cliffs_small_preset_specific():
 
     assert oom_code_for_dxf("cliffs_small.dxf", preset_id="sprint_2m") == "104"
     assert oom_code_for_dxf("cliffs_small.dxf", preset_id="forest_10000") == "104"
-    assert oom_code_for_dxf("cliffs_large.dxf", preset_id="forest_10000") == "201"
+    assert oom_code_for_dxf("cliffs_large.dxf", preset_id="forest_10000") == "104"
 
 
 def test_orient_polyline_tags_downhill_flips_when_needed():

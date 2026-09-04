@@ -6,7 +6,7 @@ from app.pipeline.prepare_lidar import run_cmd
 from app.settings import PULLAUTA_BIN
 
 # Zdroj v temp/ → název v ZIPu (karttapullautin/). Vrstevnice jdou z GDAL, ne z KP.
-# Rust KP: c2g = menší (cliff1) → ISOM 202; c3g = větší (cliff2) → ISOM 201.
+# Rust KP: c2g = menší (cliff1), c3g = větší (cliff2); obojí → ISOM 104 v OOM.
 # První shoda vyhrává; c1g/c2 jsou legacy aliasy.
 DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("dotknolls.dxf", "dotknolls.dxf"),

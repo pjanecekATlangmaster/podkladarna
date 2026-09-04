@@ -8,6 +8,9 @@ from app.settings import CONFIG_DIR
 
 OOM_DIR = CONFIG_DIR / "oom"
 
+# Vrstevnice GDAL – zamčené, ať se při editaci omylem nepohnou.
+_PROTECTED_SYMBOL_CODES = frozenset({"101", "102"})
+
 
 def symbol_set_path(preset_id: str, scale: int) -> Path:
     """Vrátí oficiální OOM symbol set (OpenOrienteering/mapper, GPL)."""
@@ -33,5 +36,25 @@ def _load_fragments(path_str: str) -> tuple[str, str]:
     return colors.group(0), symbols.group(0)
 
 
+def protect_symbol_codes(symbols_xml: str, codes: frozenset[str] | set[str]) -> str:
+    """Nastaví is_protected=\"true\" u symbolů s danými ISOM kódy."""
+
+    def _patch(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        code = match.group(1)
+        if code not in codes:
+            return tag
+        if re.search(r'\bis_protected="', tag):
+            return re.sub(r'\bis_protected="[^"]*"', 'is_protected="true"', tag)
+        return tag[:-1] + ' is_protected="true">'
+
+    return re.sub(
+        r'<symbol\b[^>]*\bcode="([^"]+)"[^>]*/?>',
+        _patch,
+        symbols_xml,
+    )
+
+
 def colors_and_symbols_xml(symbol_set: Path) -> tuple[str, str]:
-    return _load_fragments(str(symbol_set.resolve()))
+    colors, symbols = _load_fragments(str(symbol_set.resolve()))
+    return colors, protect_symbol_codes(symbols, _PROTECTED_SYMBOL_CODES)

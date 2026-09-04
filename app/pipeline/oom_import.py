@@ -251,6 +251,7 @@ def _path_object(
     pts = [_fmt(x, y) for x, y in coords]
     if close:
         x0, y0 = coords[0]
+        # OOM PathObject: uzavření = opakovaný první bod s flagem 18.
         pts.append(_fmt(x0, y0, 18))
     body = ";".join(pts) + ";"
     return (
@@ -262,21 +263,16 @@ def _path_object(
 
 
 def _area_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
+    """Plocha v OOM = PathObject (type=1), ne type=2 (ten v Mapperu neexistuje)."""
     if len(coords) < 3:
         return ""
-    pts = [_fmt(x, y) for x, y in coords]
-    x0, y0 = coords[0]
-    if coords[-1] != coords[0]:
-        pts.append(_fmt(x0, y0, 18))
-    else:
-        pts[-1] = _fmt(x0, y0, 18)
-    body = ";".join(pts) + ";"
-    return (
-        f'            <object type="2" symbol="{symbol_index}">\n'
-        f'                <coords count="{len(pts)}">{body}</coords>\n'
-        f'                <pattern rotation="0"><coord x="0" y="0"/></pattern>\n'
-        f"            </object>"
-    )
+    # Odstraň duplicitní uzavírací bod z polygonize – _path_object ho doplní s flagem.
+    ring = list(coords)
+    if len(ring) >= 2 and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    if len(ring) < 3:
+        return ""
+    return _path_object(symbol_index, ring, close=True)
 
 
 def _point_object(symbol_index: int, x: int, y: int) -> str:

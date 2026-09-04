@@ -26,6 +26,18 @@ def test_colors_and_symbols_xml():
     assert "line_symbol" in symbols
 
 
+def test_contour_symbols_are_protected():
+    path = symbol_set_path("forest_10000", 10000)
+    _, symbols = colors_and_symbols_xml(path)
+    for code in ("101", "102"):
+        m = __import__("re").search(
+            rf'<symbol\b[^>]*\bcode="{code}"[^>]*>',
+            symbols,
+        )
+        assert m is not None
+        assert 'is_protected="true"' in m.group(0)
+
+
 def test_symbol_set_missing(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         "app.pipeline.oom_symbols.OOM_DIR",

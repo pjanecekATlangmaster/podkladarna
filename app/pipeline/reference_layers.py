@@ -28,6 +28,8 @@ WEB_MERCATOR_HALF = 20037508.342789244
 ORTOFOTO_WMS = (
     "https://ags.cuzk.gov.cz/arcgis1/services/ORTOFOTO/MapServer/WMSServer"
 )
+# Veřejný OSM WMS (fallback, když dlaždice selžou / jsou blokované).
+OSM_WMS = "https://ows.terrestris.de/osm/service"
 HILLSHADE_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer"
 )
@@ -556,6 +558,91 @@ def _write_osm_vrt(
     vrt_path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _lonlat_to_mercator(lon: float, lat: float) -> tuple[float, float]:
+    x = lon * WEB_MERCATOR_HALF / 180.0
+    lat_c = max(min(lat, 85.05112878), -85.05112878)
+    y = math.log(math.tan(math.pi / 4.0 + math.radians(lat_c) / 2.0)) * (
+        WEB_MERCATOR_HALF / math.pi
+    )
+    return x, y
+
+
+def _build_osm_from_wms(
+    bbox_wgs84: tuple[float, float, float, float],
+    template_png: Path,
+    template_pgw: Path,
+    dest_png: Path,
+    dest_pgw: Path,
+    *,
+    log: callable | None = None,
+) -> bool:
+    """OSM přes veřejný WMS (Terrestris) – robustnější než dlaždice v Dockeru."""
+    west, south, east, north = bbox_wgs84
+    xmin, ymax = _lonlat_to_mercator(west, north)
+    xmax, ymin = _lonlat_to_mercator(east, south)
+    if xmax <= xmin or ymax <= ymin:
+        return False
+    _, _, _, _, width, height = _template_extent(template_png, template_pgw)
+    tw, th = _target_size(width, height)
+    params = {
+        "SERVICE": "WMS",
+        "REQUEST": "GetMap",
+        "VERSION": "1.1.1",
+        "LAYERS": "OSM-WMS",
+        "STYLES": "",
+        "SRS": "EPSG:3857",
+        "BBOX": f"{xmin},{ymin},{xmax},{ymax}",
+        "WIDTH": str(tw),
+        "HEIGHT": str(th),
+        "FORMAT": "image/png",
+        "TRANSPARENT": "false",
+    }
+    url = OSM_WMS + "?" + urllib.parse.urlencode(params)
+    if log:
+        log(f"OSM WMS fallback ({tw}×{th} px)…")
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = resp.read()
+    if len(data) < 500 or data[:8] != b"\x89PNG\r\n\x1a\n":
+        return False
+    work = dest_png.parent / "_osm_wms"
+    work.mkdir(parents=True, exist_ok=True)
+    raw_png = work / "osm_3857.png"
+    raw_png.write_bytes(data)
+    # World file pro Web Mercator (střed pixelu).
+    pixel_x = (xmax - xmin) / tw
+    pixel_y = (ymax - ymin) / th
+    (work / "osm_3857.pgw").write_text(
+        f"{pixel_x}\n0.0\n0.0\n{-pixel_y}\n{xmin + pixel_x / 2}\n{ymax - pixel_y / 2}\n",
+        encoding="ascii",
+    )
+    # GDAL potřebuje SRS – VRT s EPSG:3857.
+    vrt = work / "osm_3857.vrt"
+    vrt.write_text(
+        "\n".join(
+            [
+                f'<VRTDataset rasterXSize="{tw}" rasterYSize="{th}">',
+                f"  <GeoTransform>{xmin}, {pixel_x}, 0, {ymax}, 0, {-pixel_y}</GeoTransform>",
+                "  <SRS>EPSG:3857</SRS>",
+                '  <VRTRasterBand dataType="Byte" band="1">',
+                "    <SimpleSource>",
+                f'      <SourceFilename relativeToVRT="0">{raw_png.as_posix()}</SourceFilename>',
+                "      <SourceBand>1</SourceBand>",
+                f'      <SrcRect xOff="0" yOff="0" xSize="{tw}" ySize="{th}"/>',
+                f'      <DstRect xOff="0" yOff="0" xSize="{tw}" ySize="{th}"/>',
+                "    </SimpleSource>",
+                "  </VRTRasterBand>",
+                "</VRTDataset>",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _align_to_template(vrt, template_png, template_pgw, dest_png, dest_pgw, log=log)
+    if log:
+        log(f"OSM podklad: {dest_png.name} (WMS, © OpenStreetMap)")
+    return dest_png.is_file() and dest_png.stat().st_size > 500
+
+
 def build_osm_reference(
     bbox_wgs84: tuple[float, float, float, float],
     template_png: Path,
@@ -566,35 +653,45 @@ def build_osm_reference(
     log: callable | None = None,
 ) -> bool:
     west, south, east, north = bbox_wgs84
-    z = _pick_osm_zoom(west, south, east, north)
-    x0, y1 = _lon_lat_to_tile(west, north, z)
-    x1, y0 = _lon_lat_to_tile(east, south, z)
-    tiles: list[tuple[Path, int, int]] = []
-    work = dest_png.parent / "_osm_tiles"
-    work.mkdir(parents=True, exist_ok=True)
-    for x in range(x0, x1 + 1):
-        for y in range(y0, y1 + 1):
-            try:
-                src = fetch_tile(z, x, y)
-            except Exception:
-                continue
-            dest = work / f"{z}_{x}_{y}.png"
-            if not dest.exists():
-                dest.write_bytes(src.read_bytes())
-            tiles.append((dest, x, y))
-    if not tiles:
-        return False
-    if log:
-        log(f"OSM dlaždice: zoom {z}, {len(tiles)} ks")
-    vrt = work / "mosaic.vrt"
-    _write_osm_vrt(tiles, z, x0, y0, vrt)
-    raw_tif = work / "mosaic_3857.tif"
-    gdaltranslate = _gdal_tool("gdal_translate")
-    run_cmd([gdaltranslate, str(vrt), str(raw_tif), "-of", "GTiff"], log=log)
-    _align_to_template(raw_tif, template_png, template_pgw, dest_png, dest_pgw, log=log)
-    if log:
-        log(f"OSM podklad: {dest_png.name} (© OpenStreetMap)")
-    return True
+    try:
+        z = _pick_osm_zoom(west, south, east, north)
+        x0, y1 = _lon_lat_to_tile(west, north, z)
+        x1, y0 = _lon_lat_to_tile(east, south, z)
+        tiles: list[tuple[Path, int, int]] = []
+        work = dest_png.parent / "_osm_tiles"
+        work.mkdir(parents=True, exist_ok=True)
+        for x in range(x0, x1 + 1):
+            for y in range(y0, y1 + 1):
+                try:
+                    src = fetch_tile(z, x, y)
+                except Exception:
+                    continue
+                dest = work / f"{z}_{x}_{y}.png"
+                if not dest.exists():
+                    dest.write_bytes(src.read_bytes())
+                tiles.append((dest, x, y))
+        if tiles:
+            if log:
+                log(f"OSM dlaždice: zoom {z}, {len(tiles)} ks")
+            vrt = work / "mosaic.vrt"
+            _write_osm_vrt(tiles, z, x0, y0, vrt)
+            raw_tif = work / "mosaic_3857.tif"
+            gdaltranslate = _gdal_tool("gdal_translate")
+            run_cmd([gdaltranslate, str(vrt), str(raw_tif), "-of", "GTiff"], log=log)
+            _align_to_template(
+                raw_tif, template_png, template_pgw, dest_png, dest_pgw, log=log
+            )
+            if dest_png.is_file() and dest_png.stat().st_size > 500:
+                if log:
+                    log(f"OSM podklad: {dest_png.name} (© OpenStreetMap)")
+                return True
+    except Exception as exc:
+        if log:
+            log(f"OSM dlaždice selhaly ({exc}), zkouším WMS…")
+
+    return _build_osm_from_wms(
+        bbox_wgs84, template_png, template_pgw, dest_png, dest_pgw, log=log
+    )
 
 
 def _find_dmr_ground_laz(job_dir: Path) -> Path | None:
