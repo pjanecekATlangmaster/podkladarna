@@ -7,11 +7,13 @@ import traceback
 
 from app import db
 from app.pipeline.run_job import run_job_pipeline
+from app.proj_env import ensure_proj_data
 from app.settings import JOBS_DIR
 
 
 def run_job(job_id: str) -> int:
     job_dir = JOBS_DIR / job_id
+    ensure_proj_data()
 
     def log(msg: str) -> None:
         db.append_log(job_id, msg)

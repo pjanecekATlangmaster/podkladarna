@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.pipeline.crs_5514 import CRS_PROJ4, CRS_WKT, write_prj
+from app.pipeline.crs_5514 import write_prj
 from app.pipeline.georef import read_pgw
 from app.pipeline.oom_import import (
     OomObjectPart,
@@ -11,6 +11,7 @@ from app.pipeline.oom_import import (
     _wkb_parts,
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.proj_env import ensure_proj_data
 
 # KP palette (lightgreentone=200) → ISOM plochy.
 # Třída v rastru: 0 pozadí, 1 open land, 2–4 zeleně.
@@ -77,8 +78,9 @@ def generate_vegetation_shapefile(
     log=None,
 ) -> Path | None:
     """Klasifikuje KP vegetation.png a polygonizuje do shapefile (atribut code)."""
+    ensure_proj_data()
     try:
-        from osgeo import gdal, ogr, osr
+        from osgeo import gdal, ogr
         import numpy as np
     except ImportError:
         if log:
@@ -125,21 +127,18 @@ def generate_vegetation_shapefile(
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
 
+    # Bez SRS v GDAL vrstvě – ImportFromEPSG/proj_identify v Dockeru padá na PROJ DB.
+    # Souřadnice jsou S-JTSK metry; .prj doplníme až po zápisu (write_prj).
     mem_drv = gdal.GetDriverByName("MEM")
     class_ds = mem_drv.Create("", width, height, 1, gdal.GDT_Byte)
     class_ds.SetGeoTransform(geotransform)
-    # Bez ImportFromEPSG – v Dockeru často chybí PROJ data (/opt/conda/share/proj).
-    srs = osr.SpatialReference()
-    if srs.ImportFromWkt(CRS_WKT) != 0:
-        srs.ImportFromProj4(CRS_PROJ4)
-    class_ds.SetProjection(srs.ExportToWkt())
     band = class_ds.GetRasterBand(1)
     band.WriteArray(np.asarray(classified, dtype=np.uint8))
     band.SetNoDataValue(0)
 
     driver = ogr.GetDriverByName("ESRI Shapefile")
     out_ds = driver.CreateDataSource(str(dest_shp))
-    layer = out_ds.CreateLayer("vegetation", srs, ogr.wkbPolygon)
+    layer = out_ds.CreateLayer("vegetation", None, ogr.wkbPolygon)
     layer.CreateField(ogr.FieldDefn("cls", ogr.OFTInteger))
     layer.CreateField(ogr.FieldDefn("code", ogr.OFTString))
 
@@ -196,26 +195,39 @@ def generate_job_vegetation(work_dir: Path, *, log=None) -> Path | None:
 
 
 def _iter_vege_rows(shp: Path):
+    """Čte SHP bez načítání .prj (PROJ identify v Dockeru padá)."""
+    ensure_proj_data()
     try:
         from osgeo import ogr
     except ImportError:
         ogr = None
     if ogr is not None:
-        ds = ogr.Open(str(shp))
-        if ds:
-            layer = ds.GetLayer(0)
-            if layer is not None:
-                for feature in layer:
-                    geom = feature.GetGeometryRef()
-                    if geom is None:
-                        continue
-                    props: dict[str, object] = {}
-                    for i in range(feature.GetFieldCount()):
-                        defn = feature.GetFieldDefnRef(i)
-                        if defn:
-                            props[defn.GetName()] = feature.GetField(i)
-                    yield props, bytes(geom.ExportToWkb())
-                return
+        prj = shp.with_suffix(".prj")
+        prj_aside: Path | None = None
+        if prj.is_file():
+            prj_aside = prj.with_suffix(".prj.aside")
+            prj_aside.unlink(missing_ok=True)
+            prj.rename(prj_aside)
+        try:
+            ds = ogr.Open(str(shp))
+            if ds:
+                layer = ds.GetLayer(0)
+                if layer is not None:
+                    for feature in layer:
+                        geom = feature.GetGeometryRef()
+                        if geom is None:
+                            continue
+                        props: dict[str, object] = {}
+                        for i in range(feature.GetFieldCount()):
+                            defn = feature.GetFieldDefnRef(i)
+                            if defn:
+                                props[defn.GetName()] = feature.GetField(i)
+                        yield props, bytes(geom.ExportToWkb())
+                    return
+        finally:
+            if prj_aside is not None and prj_aside.is_file():
+                prj.unlink(missing_ok=True)
+                prj_aside.rename(prj)
     try:
         import pyogrio
     except ImportError:

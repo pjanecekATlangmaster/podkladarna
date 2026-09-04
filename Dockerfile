@@ -6,6 +6,7 @@ RUN mamba install -y -c conda-forge \
     pdal \
     python=3.11 \
     gdal \
+    proj \
     pyproj \
     pyyaml \
     curl \
@@ -35,6 +36,8 @@ ENV PODKLADARNA_DATA=/data
 ENV PULLAUTA_BIN=/usr/local/bin/pullauta
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+# pyproj/GDAL: conda proj.db (zajistí ensure_proj_data i za běhu)
+ENV PROJ_NETWORK=OFF
 
 EXPOSE 8672
 
