@@ -17,6 +17,28 @@ from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 _CELL_M_AT_SF1 = 2.0
 _SMOOTH_WINDOW_M_AT_SF1 = 4.0
 _CHAIKIN_ITERS = 1
+# Sprint (sf≈0.4): dřív window ~1,6 m → zubaté křivky; držet vyhlazení jako u lesa.
+_SPRINT_SF_MAX = 0.55
+_SPRINT_CELL_MIN_M = 1.0
+_SPRINT_SMOOTH_MIN_M = 4.0
+_SPRINT_CHAIKIN_ITERS = 2
+
+
+def contour_dem_params(
+    scalefactor: float,
+    interval_m: float,
+) -> tuple[float, float, int]:
+    """(cell_m, smooth_window_m, chaikin_iters) podle měřítka / ekvidistance."""
+    sf = float(scalefactor) if scalefactor else 1.0
+    interval = max(float(interval_m), 0.1)
+    if sf <= _SPRINT_SF_MAX:
+        cell_m = max(_SPRINT_CELL_MIN_M, _CELL_M_AT_SF1 * sf)
+        # ~2× ekvidistance, nejméně jako lesní baseline (4 m).
+        window_m = max(_SPRINT_SMOOTH_MIN_M, 2.0 * interval)
+        return cell_m, window_m, _SPRINT_CHAIKIN_ITERS
+    cell_m = _CELL_M_AT_SF1 * sf
+    window_m = _SMOOTH_WINDOW_M_AT_SF1 * sf
+    return cell_m, window_m, _CHAIKIN_ITERS
 
 
 def contour_oom_code(
@@ -126,9 +148,7 @@ def generate_contours_shapefile(
     scalefactor: float,
     log=None,
 ) -> Path:
-    sf = float(scalefactor) if scalefactor else 1.0
-    cell_m = _CELL_M_AT_SF1 * sf
-    window_m = _SMOOTH_WINDOW_M_AT_SF1 * sf
+    cell_m, window_m, _chaikin = contour_dem_params(scalefactor, interval_m)
     # OOM: jen plná ekvidistance (+ index). Formline (poloviční krok) necháváme KP PNG.
     del formline
     step = float(interval_m)
@@ -186,10 +206,11 @@ def generate_job_contours(
         raise RuntimeError("Chybí extent pro GDAL vrstevnice (PNG/PGW nebo crop)")
     dest = work_dir / "contours" / "contours.shp"
     del formline
+    cell_m, window_m, _ = contour_dem_params(scalefactor, interval_m)
     if log:
         log(
             f"Vrstevnice GDAL: interval {interval_m:g} m "
-            f"(bez formline do OOM), DEM {_CELL_M_AT_SF1 * scalefactor:g} m"
+            f"(bez formline do OOM), DEM {cell_m:g} m, smooth {window_m:g} m"
         )
     return generate_contours_shapefile(
         laz,
@@ -282,10 +303,13 @@ def build_gdal_contour_parts(
         if symbol_index is None:
             continue
         geom_parts, _ = _wkb_parts(wkb)
+        chaikin_iters = (
+            _SPRINT_CHAIKIN_ITERS if float(interval_m) < 4.0 else _CHAIKIN_ITERS
+        )
         smoothed: list = []
         for part in geom_parts:
             if part[0] == "line":
-                pts = chaikin(list(part[1]))  # type: ignore[arg-type]
+                pts = chaikin(list(part[1]), iterations=chaikin_iters)  # type: ignore[arg-type]
                 smoothed.append(("line", pts, part[2]))
             else:
                 smoothed.append(part)

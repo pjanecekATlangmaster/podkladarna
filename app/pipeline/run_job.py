@@ -5,7 +5,11 @@ import subprocess
 from pathlib import Path
 
 from app.pipeline.contours_gdal import generate_job_contours
-from app.pipeline.fetch_openzu import crop_bounds_5514, fetch_lidar_for_bbox
+from app.pipeline.fetch_openzu import (
+    crop_bounds_5514,
+    fetch_lidar_for_bbox,
+    query_sm5_union_bounds_5514,
+)
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import load_presets, write_pullauta_ini
 from app.pipeline.karttapullautin_dxf import (
@@ -22,8 +26,9 @@ from app.pipeline.package_oom import (
 from app.pipeline.reference_layers import build_reference_layers
 from app.pipeline.prepare_lidar import (
     crop_laz,
+    ensure_contains_bounds,
     is_kp_heightmap_oob,
-    kp_safe_crop_bounds,
+    kp_pad_crop_bounds,
     merge_dmr_dmp,
     run_cmd,
 )
@@ -127,13 +132,31 @@ def run_job_pipeline(
             raise
         log(
             "Karttapullautin spadl na okraji heightmapy (bug KP, index mimo pole). "
-            "Zkouším znovu s menším ořezem…"
+            "Zkouším znovu s větším ořezem (celé listy SM5)…"
         )
         uncropped = work_dir / "lidar" / "merged.laz"
         src = uncropped if uncropped.exists() else merged
-        tight = kp_safe_crop_bounds(crop, scalefactor, extra_inset_m=2.0)
+        # Nikdy nezmenšovat pod výběr uživatele (+ buffer) – jen rozšířit.
+        wider = kp_pad_crop_bounds(crop, scalefactor, extra_pad_m=50.0)
+        sheet_names = list(options.get("sm5_sheets") or [])
+        try:
+            sheet_bounds = (
+                query_sm5_union_bounds_5514(sheet_names) if sheet_names else None
+            )
+        except Exception as sheet_exc:
+            sheet_bounds = None
+            if log:
+                log(f"SM5 envelope: přeskočeno ({sheet_exc})")
+        if sheet_bounds is not None:
+            wider = ensure_contains_bounds(sheet_bounds, wider)
+            if log:
+                log(
+                    "Ořez LAZ na sjednocení listů SM5 "
+                    f"({', '.join(sheet_names) or '?'})"
+                )
+        wider = ensure_contains_bounds(wider, crop)
         merged = crop_laz(
-            src, work_dir / "lidar" / "merged_crop_retry.laz", tight, log
+            src, work_dir / "lidar" / "merged_crop_retry.laz", wider, log=log
         )
         if temp_dir.exists():
             shutil.rmtree(temp_dir)

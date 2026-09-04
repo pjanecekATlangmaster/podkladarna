@@ -43,6 +43,15 @@ def test_filter_drops_line_on_zabaged():
     assert any(abs(pt[1] - 80) < 1 for line in kept for pt in line)
 
 
+def test_filter_drops_parallel_path_within_near_m():
+    """Paralelní OSM ~15 m od ZABAGED musí zmizet (dřív near=12 to propouštěl)."""
+    zab = [[(0.0, 0.0), (200.0, 0.0)]]
+    osm = [[(0.0, 15.0), (200.0, 15.0)]]
+    kept, dropped = filter_osm_against_zabaged(osm, zab, near_m=25, overlap_drop=0.45)
+    assert dropped == 1
+    assert kept == []
+
+
 def test_filter_keeps_forest_tail_of_road_way():
     zab = [[(0.0, 0.0), (100.0, 0.0)]]
     # 80 m po silnici, pak 40 m do lesa

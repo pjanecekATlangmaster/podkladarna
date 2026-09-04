@@ -44,8 +44,8 @@ ZABAGED_PATH_LAYERS = frozenset(
         "Zabrana",
     }
 )
-NEAR_M = 12.0
-OVERLAP_DROP = 0.55
+NEAR_M = 25.0
+OVERLAP_DROP = 0.45
 SAMPLE_M = 10.0
 MIN_LENGTH_M = 20.0
 GRID_M = 30.0
@@ -281,12 +281,16 @@ class _SegmentIndex:
                 for jj in range(j0, j1 + 1):
                     self.cells[(ii, jj)].append(seg)
 
-    def nearest(self, x: float, y: float) -> float:
+    def nearest(self, x: float, y: float, *, max_m: float | None = None) -> float:
+        """Vzdálenost k nejbližšímu segmentu; prohledá buňky do max_m (ne jen 3×3)."""
         i = int(math.floor(x / self.cell_m))
         j = int(math.floor(y / self.cell_m))
+        radius = 1
+        if max_m is not None and max_m > 0:
+            radius = max(1, int(math.ceil(max_m / self.cell_m)))
         best = float("inf")
-        for di in (-1, 0, 1):
-            for dj in (-1, 0, 1):
+        for di in range(-radius, radius + 1):
+            for dj in range(-radius, radius + 1):
                 for ax, ay, bx, by in self.cells.get((i + di, j + dj), ()):
                     best = min(best, _point_seg_dist(x, y, ax, ay, bx, by))
         return best
@@ -302,40 +306,99 @@ def overlap_fraction(
     samples = sample_polyline(osm_pts, sample_m)
     if not samples:
         return 0.0
-    near = sum(1 for x, y in samples if index.nearest(x, y) <= near_m)
+    near = sum(
+        1 for x, y in samples if index.nearest(x, y, max_m=near_m) <= near_m
+    )
     return near / len(samples)
 
 
+def _iter_line_parts_from_shp(shp_ref: str | Path):
+    for _props, wkb in _pyogrio_layer_rows(shp_ref):
+        parts, _ = _wkb_parts(wkb)
+        for part in parts:
+            if part[0] == "line":
+                pts = [(float(x), float(y)) for x, y in part[1]]  # type: ignore[misc]
+                if len(pts) >= 2:
+                    yield pts
+
+
+def _zabaged_shp_members(zabaged_clean: Path) -> list[tuple[str, str]]:
+    """[(kanonický název vrstvy, cesta uvnitř ZIPu k .shp), ...]."""
+    wanted = {name.lower(): name for name in ZABAGED_PATH_LAYERS}
+    found: dict[str, str] = {}
+    with ZipFile(zabaged_clean) as zf:
+        for name in zf.namelist():
+            path = Path(name)
+            if path.suffix.lower() != ".shp":
+                continue
+            canon = wanted.get(path.stem.lower())
+            if canon is None:
+                continue
+            # Preferuj soubor přímo v kořeni ZIPu.
+            prev = found.get(canon)
+            if prev is None or "/" not in name.replace("\\", "/"):
+                found[canon] = name
+    return [(canon, member) for canon, member in sorted(found.items())]
+
+
 def _zabaged_path_lines(zabaged_clean: Path) -> list[list[tuple[float, float]]]:
+    """Načte ZABAGED cesty/pěšiny pro dedup – nejdřív /vsizip/, pak extrakce."""
     lines: list[list[tuple[float, float]]] = []
     try:
         import pyogrio.raw  # noqa: F401
     except ImportError:
         return lines
-    with ZipFile(zabaged_clean) as zf:
-        names = zf.namelist()
-    import tempfile
+
+    members = _zabaged_shp_members(zabaged_clean)
+    if not members:
+        return lines
+
+    zip_posix = zabaged_clean.resolve().as_posix()
+    for _canon, member in members:
+        vsi = f"/vsizip/{zip_posix}/{member.replace(chr(92), '/')}"
+        try:
+            lines.extend(_iter_line_parts_from_shp(vsi))
+        except Exception:
+            continue
+
+    if lines:
+        return lines
+
+    # Fallback: rozbalit do temp (starší pyogrio / problematické vsizip).
     import shutil
+    import tempfile
 
     stage = Path(tempfile.mkdtemp(prefix="osm_zab_"))
     try:
         with ZipFile(zabaged_clean) as zf:
-            for n in names:
-                stem = Path(n).stem
-                if stem not in ZABAGED_PATH_LAYERS:
-                    continue
-                dest = stage / Path(n).name
-                dest.write_bytes(zf.read(n))
+            names = set(zf.namelist())
+            for _canon, member in members:
+                stem = Path(member).stem
+                parent = str(Path(member).parent).replace("\\", "/")
+                for n in names:
+                    nn = n.replace("\\", "/")
+                    if parent not in (".", "") and not nn.startswith(parent + "/"):
+                        if "/" in nn:
+                            continue
+                    if Path(nn).stem.lower() != stem.lower():
+                        continue
+                    if Path(nn).suffix.lower() not in {
+                        ".shp",
+                        ".shx",
+                        ".dbf",
+                        ".prj",
+                        ".cpg",
+                    }:
+                        continue
+                    dest = stage / Path(nn).name
+                    dest.write_bytes(zf.read(n))
         for shp in stage.glob("*.shp"):
-            if shp.stem not in ZABAGED_PATH_LAYERS:
+            if shp.stem.lower() not in {n.lower() for n in ZABAGED_PATH_LAYERS}:
                 continue
-            for _props, wkb in _pyogrio_layer_rows(shp):
-                parts, _ = _wkb_parts(wkb)
-                for part in parts:
-                    if part[0] == "line":
-                        pts = list(part[1])  # type: ignore[arg-type]
-                        if len(pts) >= 2:
-                            lines.append([(float(x), float(y)) for x, y in pts])
+            try:
+                lines.extend(_iter_line_parts_from_shp(shp))
+            except Exception:
+                continue
     finally:
         shutil.rmtree(stage, ignore_errors=True)
     return lines
@@ -355,7 +418,7 @@ def unique_polyline_parts(
     parts: list[list[tuple[float, float]]] = []
     current: list[tuple[float, float]] = []
     for x, y in samples:
-        if index.nearest(x, y) > near_m:
+        if index.nearest(x, y, max_m=near_m) > near_m:
             current.append((x, y))
         elif current:
             parts.append(current)
@@ -372,8 +435,6 @@ def filter_osm_against_zabaged(
     near_m: float = NEAR_M,
     overlap_drop: float = OVERLAP_DROP,
 ) -> tuple[list[list[tuple[float, float]]], int]:
-    # overlap_drop: dřív práh pro celou way; pořezání překrytých úseků ho nepotřebuje.
-    _ = overlap_drop
     if not zabaged_lines:
         kept = [line for line in osm_lines if polyline_length(line) >= MIN_LENGTH_M]
         return kept, len(osm_lines) - len(kept)
@@ -386,10 +447,15 @@ def filter_osm_against_zabaged(
         if polyline_length(line) < MIN_LENGTH_M:
             dropped += 1
             continue
+        # Skoro celá way na ZABAGED → rovnou pryč (šetří unique_polyline_parts).
+        if overlap_fraction(line, index, near_m=near_m) >= max(overlap_drop, 0.85):
+            dropped += 1
+            continue
         parts = [
             p
             for p in unique_polyline_parts(line, index, near_m=near_m)
             if polyline_length(p) >= MIN_LENGTH_M
+            and overlap_fraction(p, index, near_m=near_m) < overlap_drop
         ]
         if not parts:
             dropped += 1
@@ -419,6 +485,11 @@ def prepare_osm_paths(
         zabaged_lines = _zabaged_path_lines(zabaged_clean)
         if log:
             log(f"OSM dedup: {len(zabaged_lines)} ZABAGED linií (cesty/pěšiny)")
+        if not zabaged_lines and log:
+            log(
+                "OSM dedup: varování – ZABAGED ZIP je, ale 0 cestovních linií; "
+                "OSM pěšiny se neoříznou proti ZABAGED"
+            )
     kept, dropped = filter_osm_against_zabaged(osm_lines, zabaged_lines)
     if log:
         log(

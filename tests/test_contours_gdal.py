@@ -1,4 +1,4 @@
-from app.pipeline.contours_gdal import chaikin, contour_oom_code
+from app.pipeline.contours_gdal import chaikin, contour_dem_params, contour_oom_code
 from app.pipeline.vegetation_gdal import rgb_to_vege_class, vege_class_to_oom_code
 
 
@@ -19,6 +19,25 @@ def test_chaikin_keeps_ends():
     assert out[0] == (0.0, 0.0)
     assert out[-1] == (10.0, 10.0)
     assert len(out) > len(pts)
+
+
+def test_contour_dem_params_sprint_smoother_than_scaled():
+    cell, window, iters = contour_dem_params(0.4, 2.0)
+    assert cell == 1.0
+    assert window >= 4.0
+    assert iters == 2
+    _cell25, window25, _ = contour_dem_params(0.4, 2.5)
+    assert window25 >= 5.0
+
+
+def test_contour_dem_params_forest_unchanged():
+    cell, window, iters = contour_dem_params(1.0, 5.0)
+    assert cell == 2.0
+    assert window == 4.0
+    assert iters == 1
+    cell75, window75, _ = contour_dem_params(0.75, 5.0)
+    assert abs(cell75 - 1.5) < 1e-9
+    assert abs(window75 - 3.0) < 1e-9
 
 
 def test_rgb_to_vege_class_kp_palette():

@@ -139,6 +139,40 @@ def query_sm5_sheets(west: float, south: float, east: float, north: float) -> li
     return sheets
 
 
+def query_sm5_union_bounds_5514(
+    mapnoms: list[str],
+) -> tuple[float, float, float, float] | None:
+    """Envelope sjednocení listů SM5 v EPSG:5514 (pro ořez LAZ ≥ výběr uživatele)."""
+    names = sorted({(n or "").strip().upper() for n in mapnoms if (n or "").strip()})
+    if not names:
+        return None
+    # ArcGIS WHERE: MAPNOM IN ('A','B')
+    quoted = ",".join("'" + n.replace("'", "''") + "'" for n in names)
+    params = {
+        "where": f"MAPNOM IN ({quoted})",
+        "outFields": "MAPNOM",
+        "returnGeometry": "true",
+        "outSR": "5514",
+        "f": "json",
+    }
+    url = KLAD_QUERY_URL + "?" + urllib.parse.urlencode(params)
+    data = _http_json(url, timeout=QUERY_TIMEOUT_S)
+    if data.get("error"):
+        raise FetchError(f"ArcGIS klad SM5 (bounds): {data['error']}")
+    xs: list[float] = []
+    ys: list[float] = []
+    for feat in data.get("features") or []:
+        geom = feat.get("geometry") or {}
+        for ring in geom.get("rings") or []:
+            for pt in ring:
+                if len(pt) >= 2:
+                    xs.append(float(pt[0]))
+                    ys.append(float(pt[1]))
+    if not xs or not ys:
+        return None
+    return min(xs), min(ys), max(xs), max(ys)
+
+
 def wgs84_to_5514(lon: float, lat: float) -> tuple[float, float]:
     from pyproj import Transformer
 

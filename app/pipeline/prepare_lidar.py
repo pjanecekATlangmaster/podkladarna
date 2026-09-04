@@ -13,25 +13,49 @@ def kp_grid_scale_m(scalefactor: float) -> float:
     return 2.0 * float(scalefactor)
 
 
+def expand_crop_bounds(
+    bounds: tuple[float, float, float, float],
+    pad_m: float,
+) -> tuple[float, float, float, float]:
+    """Rozšíří bbox o pad_m na všechny strany (nikdy nezmenšuje)."""
+    xmin, ymin, xmax, ymax = bounds
+    pad = max(0.0, float(pad_m))
+    return xmin - pad, ymin - pad, xmax + pad, ymax + pad
+
+
+def ensure_contains_bounds(
+    outer: tuple[float, float, float, float],
+    inner: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """Vrátí envelope, který pokrývá outer i inner."""
+    return (
+        min(outer[0], inner[0]),
+        min(outer[1], inner[1]),
+        max(outer[2], inner[2]),
+        max(outer[3], inner[3]),
+    )
+
+
+def kp_pad_crop_bounds(
+    bounds: tuple[float, float, float, float],
+    scalefactor: float,
+    extra_pad_m: float = 0.0,
+) -> tuple[float, float, float, float]:
+    """Rozšíří ořez ven o ~1 buňku KP (+ extra), ať okraj heightmapy leží mimo výběr.
+
+    Nikdy nezmenšuje – výřez uživatele musí zůstat uvnitř.
+    """
+    pad = kp_grid_scale_m(scalefactor) + 0.05 + max(0.0, float(extra_pad_m))
+    return expand_crop_bounds(bounds, pad)
+
+
+# Zpětná kompatibilita: dřívější inset by zmenšoval výběr – teď jen pad ven.
 def kp_safe_crop_bounds(
     bounds: tuple[float, float, float, float],
     scalefactor: float,
     extra_inset_m: float = 0.0,
 ) -> tuple[float, float, float, float]:
-    """Ořízne bbox tak, aby KP neindexoval mimo heightmapu.
-
-    V contours.rs: idx = ((y - ymin) / scale + 0.5) as usize.
-    U scalefactor 0.4 (sprint, scale 0.8 m) floating point umí idx == výšku pole.
-    """
-    xmin, ymin, xmax, ymax = bounds
-    inset = kp_grid_scale_m(scalefactor) * 0.51 + 0.05 + extra_inset_m
-    if xmax - xmin > 2 * inset + 20:
-        xmin += inset
-        xmax -= inset
-    if ymax - ymin > 2 * inset + 20:
-        ymin += inset
-        ymax -= inset
-    return xmin, ymin, xmax, ymax
+    return kp_pad_crop_bounds(bounds, scalefactor, extra_pad_m=extra_inset_m)
 
 
 def is_kp_heightmap_oob(exc: BaseException) -> bool:
@@ -175,7 +199,7 @@ def merge_dmr_dmp(
     if crop_bounds:
         xmin, ymin, xmax, ymax = crop_bounds
         if scalefactor is not None:
-            xmin, ymin, xmax, ymax = kp_safe_crop_bounds(
+            xmin, ymin, xmax, ymax = kp_pad_crop_bounds(
                 (xmin, ymin, xmax, ymax), scalefactor
             )
         cropped = work_dir / "merged_crop.laz"

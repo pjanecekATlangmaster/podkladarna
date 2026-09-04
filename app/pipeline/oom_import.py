@@ -205,12 +205,12 @@ def _geom_parts_to_objects(
     return out
 
 
-def _pyogrio_layer_rows(path: Path, *, layer: str | None = None, force_2d: bool = True):
+def _pyogrio_layer_rows(path: Path | str, *, layer: str | None = None, force_2d: bool = True):
     """Iteruje (props, wkb) přes pyogrio.raw.read (API 0.13+: meta, fids, geoms, fields)."""
     import pyogrio.raw as pyogrio_raw
 
     meta, _fids, geoms, field_arrays = pyogrio_raw.read(
-        path, layer=layer, force_2d=force_2d
+        str(path), layer=layer, force_2d=force_2d
     )
     if geoms is None:
         return
