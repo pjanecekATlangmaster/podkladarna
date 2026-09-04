@@ -162,6 +162,21 @@ def test_collect_oom_templates_osm_hidden_by_default(tmp_path):
     assert osm_t[0].visible is False
     assert osm_t[0].opacity == 0.55
 
+
+def test_collect_oom_templates_katastr_hidden_by_default(tmp_path):
+    kp = tmp_path / "work"
+    refs = kp / "references"
+    refs.mkdir(parents=True)
+    km = refs / "katastr.png"
+    km.write_bytes(b"x")
+    (kp / "pullautus.png").write_bytes(b"x")
+    templates = collect_oom_templates(kp, built_refs={"katastr": km})
+    km_t = [t for t in templates if t.relpath == "references/katastr.png"]
+    assert len(km_t) == 1
+    assert km_t[0].label == "Katastrální mapa"
+    assert km_t[0].visible is False
+    assert km_t[0].opacity == 0.9
+
 def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
     kp = tmp_path / "work"
     kp.mkdir()

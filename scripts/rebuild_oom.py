@@ -141,6 +141,7 @@ def _stage_from_output(src: Path, work: Path, *, include_refs: bool) -> dict:
                 "orthophoto.png": "orthophoto",
                 "osm.png": "osm",
                 "mapa_ztm.png": "ztm",
+                "katastr.png": "katastr",
                 "dmpok_nahled.png": "dmpok",
                 "hillshade_dmr5g.png": "hillshade",
                 "hillshade_dmr5g_z10.png": "hillshade_z10",

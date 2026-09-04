@@ -81,7 +81,7 @@ def oom_readme(meta: dict) -> str:
         f"Ekvidistance: {interval_txt}\n"
         "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n\n"
         f"Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
-        "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM) a náhled DMP OK.\n"
+        "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa a náhled DMP OK.\n"
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"

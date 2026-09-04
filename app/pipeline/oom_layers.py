@@ -38,6 +38,7 @@ OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
     ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0, False),
     ("osm", "OpenStreetMap", "references/osm.png", 0.55, False),
     ("ztm", "Základní mapa ČÚZK (ZTM)", "references/mapa_ztm.png", 0.88, False),
+    ("katastr", "Katastrální mapa", "references/katastr.png", 0.9, False),
     ("dmpok", "Náhled DMP OK", "references/dmpok_nahled.png", 0.65, False),
     *(
         (key, label, f"references/{filename}", opacity, False)

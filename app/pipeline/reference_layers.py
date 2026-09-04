@@ -34,6 +34,9 @@ HILLSHADE_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer"
 )
 ZTM_WMS = "https://ags.cuzk.gov.cz/arcgis1/services/ZTM/MapServer/WMSServer"
+# Veřejná WMS katastrální mapy (KN) – https://services.cuzk.gov.cz/wms/local-km-wms.asp
+KM_WMS = "https://services.cuzk.gov.cz/wms/local-km-wms.asp"
+KM_LAYER = "KN"
 DMPOK_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmp_obrazova_korelace/ImageServer/WMSServer"
 )
@@ -72,7 +75,7 @@ def reference_metadata() -> dict:
         "hillshade_source": "ČÚZK DMR 5G WMS",
         "hillshade_variants": [v[2] for v in HILLSHADE_VARIANTS],
         "hillshade_tool": "WMS ImageServer",
-        "map_layers": ["osm.png", "mapa_ztm.png"],
+        "map_layers": ["osm.png", "mapa_ztm.png", "katastr.png"],
         "dmpok_preview": "dmpok_nahled.png",
     }
 
@@ -756,6 +759,25 @@ def build_reference_layers(
     except Exception as exc:
         if log:
             log(f"Mapa ZTM: přeskočeno ({exc})")
+
+    km_png = out_dir / "katastr.png"
+    km_pgw = km_png.with_suffix(".pgw")
+    try:
+        if fetch_cuzk_wms_png(
+            KM_WMS,
+            KM_LAYER,
+            bounds,
+            template_png,
+            template_pgw,
+            km_png,
+            km_pgw,
+            label="Katastrální mapa",
+            log=log,
+        ):
+            built["katastr"] = km_png
+    except Exception as exc:
+        if log:
+            log(f"Katastrální mapa: přeskočeno ({exc})")
 
     dmpok_png = out_dir / "dmpok_nahled.png"
     dmpok_pgw = dmpok_png.with_suffix(".pgw")

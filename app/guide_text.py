@@ -9,7 +9,7 @@ WEB_ABOUT_HTML = """
 </p>
 <p><strong>Co dostanete ve ZIPu:</strong></p>
 <ul>
-  <li><code>podkladarna.omap</code> – mapový soubor s podklady (ortofoto, OSM, ZTM, DMP OK, hillshade, reliéf)</li>
+  <li><code>podkladarna.omap</code> – mapový soubor s podklady (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, návod <code>README_OOM.txt</code></li>
 </ul>
 <p><strong>Jak na to:</strong> nakreslete obdélník (max 5×5&nbsp;km), vyberte typ mapy, spusťte generování.
@@ -37,7 +37,7 @@ Co je uvnitř
 - contours/            … vrstevnice z PDAL/GDAL (shapefile)
 - osm_paths/           … pěšiny z OpenStreetMap (ODbL), bez duplicit se ZABAGED
 - vectors/             … polohopis ZABAGED (shapefile)
-- references/          … ortofoto, OSM, ZTM, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
+- references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM
 - metadata.json        … měřítko, preset, CRS
 

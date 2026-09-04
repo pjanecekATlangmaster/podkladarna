@@ -19,6 +19,7 @@ def test_reference_metadata():
     assert meta["hillshade_tool"] == "WMS ImageServer"
     assert len(meta["hillshade_variants"]) == len(HILLSHADE_VARIANTS)
     assert "osm.png" in meta["map_layers"]
+    assert "katastr.png" in meta["map_layers"]
     assert meta["dmpok_preview"] == "dmpok_nahled.png"
 
 
