@@ -8,7 +8,6 @@ from app.pipeline.contours_gdal import generate_job_contours
 from app.pipeline.fetch_openzu import (
     crop_bounds_5514,
     fetch_lidar_for_bbox,
-    query_sm5_union_bounds_5514,
 )
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import load_presets, write_pullauta_ini
@@ -35,6 +34,10 @@ from app.pipeline.prepare_lidar import (
 from app.pipeline.prepare_zabaged import clean_zabaged
 from app.pipeline.vegetation_gdal import generate_job_vegetation
 from app.settings import PULLAUTA_BIN
+
+# Po pádu KP na okraji heightmapy jen mírně rozšířit ořez (nikdy celá SM5).
+# Celé listy by zvětšily territory mimo ZABAGED a sprint by trval desítky minut.
+_KP_OOB_EXTRA_PADS_M = (50.0, 150.0, 300.0, 600.0)
 
 
 def run_job_pipeline(
@@ -130,37 +133,35 @@ def run_job_pipeline(
     except subprocess.CalledProcessError as exc:
         if not crop or not is_kp_heightmap_oob(exc):
             raise
-        log(
-            "Karttapullautin spadl na okraji heightmapy (bug KP, index mimo pole). "
-            "Zkouším znovu s větším ořezem (celé listy SM5)…"
-        )
         uncropped = work_dir / "lidar" / "merged.laz"
         src = uncropped if uncropped.exists() else merged
-        # Nikdy nezmenšovat pod výběr uživatele (+ buffer) – jen rozšířit.
-        wider = kp_pad_crop_bounds(crop, scalefactor, extra_pad_m=50.0)
-        sheet_names = list(options.get("sm5_sheets") or [])
-        try:
-            sheet_bounds = (
-                query_sm5_union_bounds_5514(sheet_names) if sheet_names else None
+        last_exc: BaseException = exc
+        recovered = False
+        for extra_pad in _KP_OOB_EXTRA_PADS_M:
+            wider = kp_pad_crop_bounds(crop, scalefactor, extra_pad_m=extra_pad)
+            wider = ensure_contains_bounds(wider, crop)
+            log(
+                "Karttapullautin spadl na okraji heightmapy (bug KP). "
+                f"Zkouším znovu s ořezem +{extra_pad:g} m (bez rozšíření na SM5)…"
             )
-        except Exception as sheet_exc:
-            sheet_bounds = None
-            if log:
-                log(f"SM5 envelope: přeskočeno ({sheet_exc})")
-        if sheet_bounds is not None:
-            wider = ensure_contains_bounds(sheet_bounds, wider)
-            if log:
-                log(
-                    "Ořez LAZ na sjednocení listů SM5 "
-                    f"({', '.join(sheet_names) or '?'})"
-                )
-        wider = ensure_contains_bounds(wider, crop)
-        merged = crop_laz(
-            src, work_dir / "lidar" / "merged_crop_retry.laz", wider, log=log
-        )
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir)
-        run_cmd([PULLAUTA_BIN, str(merged.resolve())], cwd=kp_cwd, log=log)
+            merged = crop_laz(
+                src,
+                work_dir / "lidar" / f"merged_crop_retry_{int(extra_pad)}.laz",
+                wider,
+                log=log,
+            )
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            try:
+                run_cmd([PULLAUTA_BIN, str(merged.resolve())], cwd=kp_cwd, log=log)
+                recovered = True
+                break
+            except subprocess.CalledProcessError as retry_exc:
+                last_exc = retry_exc
+                if not is_kp_heightmap_oob(retry_exc):
+                    raise
+        if not recovered:
+            raise last_exc
 
     if not (temp_dir / "vegetation.pgw").exists():
         raise RuntimeError("LiDAR nedokoncil temp/vegetation.pgw")

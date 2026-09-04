@@ -36,6 +36,9 @@ def test_write_osm_vrt(tmp_path):
     text = vrt.read_text(encoding="utf-8")
     assert "EPSG:3857" in text
     assert "SimpleSource" in text
+    assert 'band="3"' in text
+    assert "<ColorInterp>Red</ColorInterp>" in text
+    assert text.count("<SourceBand>") == 3
 
 
 def test_pgw_roundtrip(tmp_path):

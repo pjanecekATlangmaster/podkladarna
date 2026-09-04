@@ -29,6 +29,16 @@ def test_kp_safe_crop_is_expand_alias():
     assert xmax > 2002.0
 
 
+def test_kp_oob_pads_stay_near_user_crop():
+    """Retry pad musí zůstat u výběru – ne skok na celé SM5 (km)."""
+    crop = (0.0, 0.0, 2000.0, 1000.0)
+    for extra in (50.0, 150.0, 300.0, 600.0):
+        xmin, ymin, xmax, ymax = kp_pad_crop_bounds(crop, 0.4, extra_pad_m=extra)
+        assert xmin >= -extra - 2.0
+        assert xmax <= 2000.0 + extra + 2.0
+        assert (xmax - xmin) < 4000.0
+
+
 def test_expand_and_ensure_contains():
     assert expand_crop_bounds((0.0, 0.0, 10.0, 10.0), 5.0) == (-5.0, -5.0, 15.0, 15.0)
     assert ensure_contains_bounds((-100.0, -50.0, 0.0, 0.0), (0.0, 0.0, 10.0, 20.0)) == (

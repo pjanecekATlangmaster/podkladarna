@@ -24,6 +24,18 @@ def test_skip_sidewalk_and_crossing():
     assert _way_skip_reason({"highway": "footway", "footway": "crossing"})
     assert _way_skip_reason({"highway": "path"}) is None
     assert _way_skip_reason({"highway": "footway"}) is None
+    assert _way_skip_reason({"highway": "track"}) is None
+    assert _way_skip_reason({"highway": "bridleway"}) is None
+    assert _way_skip_reason({"highway": "cycleway"}) is None
+    assert _way_skip_reason({"highway": "cycleway", "foot": "no"})
+
+
+def test_osm_oom_code_track_vs_path():
+    from app.pipeline.osm_paths import osm_oom_code
+
+    assert osm_oom_code("path", "sprint_2m") == "507"
+    assert osm_oom_code("track", "sprint_2m") == "506"
+    assert osm_oom_code("track", "forest_10000") == "504"
 
 
 def test_osm_way_to_5514_skips_sidewalk():
@@ -139,11 +151,15 @@ def test_parse_osm_api_map_xml_keeps_paths_only():
         <nd ref="1"/><nd ref="3"/>
         <tag k="highway" v="footway"/><tag k="footway" v="sidewalk"/>
       </way>
+      <way id="13">
+        <nd ref="1"/><nd ref="2"/>
+        <tag k="highway" v="track"/>
+      </way>
     </osm>
     """
     got = parse_osm_api_map_xml(xml)
-    assert len(got) == 2
-    assert {e["tags"]["highway"] for e in got} == {"path", "footway"}
+    assert len(got) == 3
+    assert {e["tags"]["highway"] for e in got} == {"path", "footway", "track"}
     assert len(got[0]["geometry"]) == 2
 
 

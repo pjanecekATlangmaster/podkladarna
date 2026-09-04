@@ -224,7 +224,8 @@ def prepare_oom_map(
         ref_y=ref_y,
         grivation_deg=grivation,
     )
-    object_parts.extend(osm_parts)
+    if osm_parts:
+        object_parts.extend(osm_parts)
     return write_oom_map(
         dest,
         map_name=map_name,

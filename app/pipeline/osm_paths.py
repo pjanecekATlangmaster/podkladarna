@@ -1,4 +1,4 @@
-"""OSM pěšiny (path/footway) do OOM, bez duplicit se ZABAGED cestami."""
+"""OSM pěšiny a lesní cesty do OOM, bez duplicit se ZABAGED."""
 
 from __future__ import annotations
 
@@ -24,12 +24,17 @@ OVERPASS_URLS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.openstreetmap.ru/api/interpreter",
 )
-# Stejné jako Export na openstreetmap.org – celý bbox, filtrujeme path/footway.
+# Stejné jako Export na openstreetmap.org – celý bbox, filtrujeme relevantní highway.
 OSM_API_MAP_URL = "https://api.openstreetmap.org/api/0.6/map"
 # HTTP timeout na jeden pokus (krátký, ať při 504 stihneme další zrcadlo).
 QUERY_TIMEOUT_S = 25
-OVERPASS_QL_TIMEOUT_S = 20
+OVERPASS_QL_TIMEOUT_S = 25
 OSM_API_TIMEOUT_S = 45
+
+# path/footway nestačí – v ČR je spousta použitelných cest jako track/bridleway.
+OSM_HIGHWAYS = frozenset(
+    {"path", "footway", "steps", "bridleway", "cycleway", "track"}
+)
 
 # Vrstvy ZABAGED, vůči kterým bereme OSM jako duplicitní.
 ZABAGED_PATH_LAYERS = frozenset(
@@ -47,24 +52,25 @@ ZABAGED_PATH_LAYERS = frozenset(
 NEAR_M = 25.0
 OVERLAP_DROP = 0.45
 SAMPLE_M = 10.0
-MIN_LENGTH_M = 20.0
+MIN_LENGTH_M = 12.0
 GRID_M = 30.0
 SKIP_FOOTWAY = frozenset({"sidewalk", "crossing"})
+SKIP_CYCLEWAY = frozenset({"sidewalk", "crossing", "lane", "share_busway", "track"})
 
 
 def _overpass_ql(south: float, west: float, north: float, east: float) -> str:
     bbox = f"{south},{west},{north},{east}"
+    # Jedna regex vrstva – méně Overpass zátěže než 6 samostatných way[...].
+    hw = "|".join(sorted(OSM_HIGHWAYS))
     return (
         f"[out:json][timeout:{OVERPASS_QL_TIMEOUT_S}];"
-        f"("
-        f'way["highway"="path"]({bbox});'
-        f'way["highway"="footway"]({bbox});'
-        f");out geom;"
+        f'way["highway"~"^({hw})$"]({bbox});'
+        f"out geom;"
     )
 
 
 def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
-    """Vyfiltruje path/footway z OSM API map call (.osm XML = Export na osm.org)."""
+    """Vyfiltruje relevantní highway z OSM API map call (.osm XML)."""
     root = ET.fromstring(xml_text)
     nodes: dict[str, tuple[float, float]] = {}
     for node in root.findall("node"):
@@ -78,7 +84,7 @@ def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
     elements: list[dict] = []
     for way in root.findall("way"):
         tags = {t.get("k"): t.get("v") for t in way.findall("tag") if t.get("k")}
-        if (tags.get("highway") or "").lower() not in {"path", "footway"}:
+        if (tags.get("highway") or "").lower() not in OSM_HIGHWAYS:
             continue
         geometry: list[dict] = []
         for nd in way.findall("nd"):
@@ -91,7 +97,6 @@ def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
             continue
         elements.append({"type": "way", "tags": tags, "geometry": geometry})
     return elements
-
 
 def _fetch_overpass(
     west: float,
@@ -124,7 +129,7 @@ def _fetch_overpass(
             ]
             if log:
                 host = url.split("/")[2]
-                log(f"OSM Overpass ({host}): {len(elements)} way (path/footway)")
+                log(f"OSM Overpass ({host}): {len(elements)} way")
             return elements, None
         except (
             urllib.error.HTTPError,
@@ -147,7 +152,7 @@ def _fetch_osm_api_map(
     *,
     log=None,
 ) -> list[dict]:
-    """Export z openstreetmap.org – API map call, pak filtr path/footway."""
+    """Export z openstreetmap.org – API map call, pak filtr highway typů."""
     bbox = f"{west},{south},{east},{north}"
     url = f"{OSM_API_MAP_URL}?bbox={bbox}"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -155,7 +160,7 @@ def _fetch_osm_api_map(
         xml_text = resp.read().decode("utf-8")
     elements = parse_osm_api_map_xml(xml_text)
     if log:
-        log(f"OSM API map: {len(elements)} way (path/footway)")
+        log(f"OSM API map: {len(elements)} way ({'/'.join(sorted(OSM_HIGHWAYS))})")
     return elements
 
 
@@ -190,14 +195,29 @@ def fetch_osm_path_elements(
 def _way_skip_reason(tags: dict) -> str | None:
     if (tags.get("footway") or "").lower() in SKIP_FOOTWAY:
         return "chodník/přejezd"
+    if (tags.get("cycleway") or "").lower() in SKIP_CYCLEWAY:
+        return "cyklo pruh/chodník"
     if (tags.get("area") or "").lower() == "yes":
         return "area"
     if (tags.get("indoor") or "").lower() == "yes":
         return "indoor"
     hw = (tags.get("highway") or "").lower()
-    if hw not in {"path", "footway"}:
+    if hw not in OSM_HIGHWAYS:
         return "highway"
+    # Čistě silniční cycleway u silnice – ne pěšina v lese.
+    if hw == "cycleway" and (tags.get("foot") or "").lower() in {"no", "private"}:
+        return "cycleway bez pěších"
     return None
+
+
+def osm_oom_code(highway: str, preset_id: str) -> str:
+    """ISOM/ISSprOM kód podle OSM highway."""
+    hw = (highway or "path").lower()
+    sprint = preset_id.startswith("sprint")
+    if hw == "track":
+        # Lesní / polní cesta (vozová) – ne úzká pěšina.
+        return "506" if sprint else "504"
+    return "507"
 
 
 def osm_way_to_5514(element: dict) -> list[tuple[float, float]] | None:
@@ -341,30 +361,22 @@ def _zabaged_shp_members(zabaged_clean: Path) -> list[tuple[str, str]]:
     return [(canon, member) for canon, member in sorted(found.items())]
 
 
-def _zabaged_path_lines(zabaged_clean: Path) -> list[list[tuple[float, float]]]:
-    """Načte ZABAGED cesty/pěšiny pro dedup – nejdřív /vsizip/, pak extrakce."""
+def _zabaged_path_lines(zabaged_clean: Path, *, log=None) -> list[list[tuple[float, float]]]:
+    """Načte ZABAGED cesty/pěšiny pro dedup – extrakce do temp (spolehlivější než /vsizip/)."""
     lines: list[list[tuple[float, float]]] = []
     try:
         import pyogrio.raw  # noqa: F401
     except ImportError:
+        if log:
+            log("OSM dedup: pyogrio není k dispozici")
         return lines
 
     members = _zabaged_shp_members(zabaged_clean)
     if not members:
+        if log:
+            log("OSM dedup: v ZABAGED ZIPu nejsou vrstvy cest/pěšin")
         return lines
 
-    zip_posix = zabaged_clean.resolve().as_posix()
-    for _canon, member in members:
-        vsi = f"/vsizip/{zip_posix}/{member.replace(chr(92), '/')}"
-        try:
-            lines.extend(_iter_line_parts_from_shp(vsi))
-        except Exception:
-            continue
-
-    if lines:
-        return lines
-
-    # Fallback: rozbalit do temp (starší pyogrio / problematické vsizip).
     import shutil
     import tempfile
 
@@ -374,12 +386,8 @@ def _zabaged_path_lines(zabaged_clean: Path) -> list[list[tuple[float, float]]]:
             names = set(zf.namelist())
             for _canon, member in members:
                 stem = Path(member).stem
-                parent = str(Path(member).parent).replace("\\", "/")
                 for n in names:
                     nn = n.replace("\\", "/")
-                    if parent not in (".", "") and not nn.startswith(parent + "/"):
-                        if "/" in nn:
-                            continue
                     if Path(nn).stem.lower() != stem.lower():
                         continue
                     if Path(nn).suffix.lower() not in {
@@ -391,16 +399,39 @@ def _zabaged_path_lines(zabaged_clean: Path) -> list[list[tuple[float, float]]]:
                     }:
                         continue
                     dest = stage / Path(nn).name
-                    dest.write_bytes(zf.read(n))
-        for shp in stage.glob("*.shp"):
+                    if not dest.exists():
+                        dest.write_bytes(zf.read(n))
+        for shp in sorted(stage.glob("*.shp")):
             if shp.stem.lower() not in {n.lower() for n in ZABAGED_PATH_LAYERS}:
                 continue
             try:
+                before = len(lines)
                 lines.extend(_iter_line_parts_from_shp(shp))
-            except Exception:
+                if log:
+                    log(
+                        f"OSM dedup: {shp.stem} → {len(lines) - before} linií"
+                    )
+            except Exception as exc:
+                if log:
+                    log(f"OSM dedup: {shp.name} selhalo ({exc})")
                 continue
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+    if not lines:
+        # Poslední pokus: /vsizip/ (když extrakce sidecars selže).
+        zip_posix = zabaged_clean.resolve().as_posix()
+        for canon, member in members:
+            vsi = f"/vsizip/{zip_posix}/{member.replace(chr(92), '/')}"
+            try:
+                before = len(lines)
+                lines.extend(_iter_line_parts_from_shp(vsi))
+                if log and len(lines) > before:
+                    log(f"OSM dedup: {canon} (/vsizip/) → {len(lines) - before} linií")
+            except Exception as exc:
+                if log:
+                    log(f"OSM dedup: {canon} /vsizip/ selhalo ({exc})")
+                continue
     return lines
 
 
@@ -464,6 +495,46 @@ def filter_osm_against_zabaged(
     return kept, dropped
 
 
+def filter_osm_items_against_zabaged(
+    osm_items: list[tuple[list[tuple[float, float]], str]],
+    zabaged_lines: list[list[tuple[float, float]]],
+    *,
+    near_m: float = NEAR_M,
+    overlap_drop: float = OVERLAP_DROP,
+) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
+    """Dedup proti ZABAGED se zachováním highway tagu u každého úseku."""
+    if not zabaged_lines:
+        kept = [
+            (pts, hw)
+            for pts, hw in osm_items
+            if polyline_length(pts) >= MIN_LENGTH_M
+        ]
+        return kept, len(osm_items) - len(kept)
+    index = _SegmentIndex()
+    for line in zabaged_lines:
+        index.add_line(line)
+    kept: list[tuple[list[tuple[float, float]], str]] = []
+    dropped = 0
+    for line, hw in osm_items:
+        if polyline_length(line) < MIN_LENGTH_M:
+            dropped += 1
+            continue
+        if overlap_fraction(line, index, near_m=near_m) >= max(overlap_drop, 0.85):
+            dropped += 1
+            continue
+        parts = [
+            p
+            for p in unique_polyline_parts(line, index, near_m=near_m)
+            if polyline_length(p) >= MIN_LENGTH_M
+            and overlap_fraction(p, index, near_m=near_m) < overlap_drop
+        ]
+        if not parts:
+            dropped += 1
+            continue
+        kept.extend((p, hw) for p in parts)
+    return kept, dropped
+
+
 def prepare_osm_paths(
     work_dir: Path,
     bbox_wgs84: tuple[float, float, float, float],
@@ -472,17 +543,18 @@ def prepare_osm_paths(
     log=None,
 ) -> Path | None:
     elements = fetch_osm_path_elements(bbox_wgs84, log=log)
-    osm_lines: list[list[tuple[float, float]]] = []
+    osm_items: list[tuple[list[tuple[float, float]], str]] = []
     skipped = 0
     for el in elements:
         pts = osm_way_to_5514(el)
         if pts is None:
             skipped += 1
             continue
-        osm_lines.append(pts)
+        hw = ((el.get("tags") or {}).get("highway") or "path").lower()
+        osm_items.append((pts, hw))
     zabaged_lines: list[list[tuple[float, float]]] = []
     if zabaged_clean and zabaged_clean.is_file():
-        zabaged_lines = _zabaged_path_lines(zabaged_clean)
+        zabaged_lines = _zabaged_path_lines(zabaged_clean, log=log)
         if log:
             log(f"OSM dedup: {len(zabaged_lines)} ZABAGED linií (cesty/pěšiny)")
         if not zabaged_lines and log:
@@ -490,11 +562,15 @@ def prepare_osm_paths(
                 "OSM dedup: varování – ZABAGED ZIP je, ale 0 cestovních linií; "
                 "OSM pěšiny se neoříznou proti ZABAGED"
             )
-    kept, dropped = filter_osm_against_zabaged(osm_lines, zabaged_lines)
+    kept, dropped = filter_osm_items_against_zabaged(osm_items, zabaged_lines)
     if log:
+        by_hw: dict[str, int] = defaultdict(int)
+        for _pts, hw in kept:
+            by_hw[hw] += 1
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(by_hw.items())) or "—"
         log(
-            f"OSM pěšiny: {len(kept)} ponecháno, {dropped} duplicit/krátkých, "
-            f"{skipped} přeskočeno (tag)"
+            f"OSM cesty: {len(kept)} ponecháno ({summary}), "
+            f"{dropped} duplicit/krátkých, {skipped} přeskočeno (tag)"
         )
     dest_dir = work_dir / "osm_paths"
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -503,13 +579,13 @@ def prepare_osm_paths(
         "features": [
             {
                 "type": "Feature",
-                "properties": {"source": "osm", "highway": "path"},
+                "properties": {"source": "osm", "highway": hw},
                 "geometry": {
                     "type": "LineString",
                     "coordinates": [[x, y] for x, y in line],
                 },
             }
-            for line in kept
+            for line, hw in kept
         ],
     }
     out = dest_dir / "paths.geojson"
@@ -529,16 +605,25 @@ def build_osm_path_parts(
     gj_path = work_dir / "osm_paths" / "paths.geojson"
     if not gj_path.is_file():
         return []
-    code = "507"
-    symbol_index = symbol_index_for_code(preset_id, scale, code)
-    if symbol_index is None:
-        return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
     objects: list[str] = []
+    symbol_cache: dict[str, int | None] = {}
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
         if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        hw = str((feat.get("properties") or {}).get("highway") or "path")
+        code = osm_oom_code(hw, preset_id)
+        if code not in symbol_cache:
+            symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
+        symbol_index = symbol_cache[code]
+        if symbol_index is None:
+            # Fallback na pěšinu, když symbol set kód nemá.
+            if "507" not in symbol_cache:
+                symbol_cache["507"] = symbol_index_for_code(preset_id, scale, "507")
+            symbol_index = symbol_cache["507"]
+        if symbol_index is None:
             continue
         mapped = [
             projected_to_map_coord(
@@ -558,7 +643,7 @@ def build_osm_path_parts(
         return []
     return [
         OomObjectPart(
-            name="OSM pěšiny",
+            name="OSM cesty",
             objects_xml="\n".join(objects),
             count=len(objects),
         )

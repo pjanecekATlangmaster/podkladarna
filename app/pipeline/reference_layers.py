@@ -535,29 +535,34 @@ def _write_osm_vrt(
     y0: int,
     vrt_path: Path,
 ) -> None:
+    """RGB VRT (3 pásma) – jednopásmové VRT zbarví OSM do šeda."""
     width_px = (max(t[1] for t in tiles) - x0 + 1) * 256
     height_px = (max(t[2] for t in tiles) - y0 + 1) * 256
     ulx, _, _, uly = _mercator_tile_bounds(z, x0, y0)
     pixel = (2 * WEB_MERCATOR_HALF / (1 << z)) / 256
     lines = [
         f'<VRTDataset rasterXSize="{width_px}" rasterYSize="{height_px}">',
-        f'  <GeoTransform>{ulx}, {pixel}, 0, {uly}, 0, {-pixel}</GeoTransform>',
-        '  <SRS>EPSG:3857</SRS>',
-        '  <VRTRasterBand dataType="Byte" band="1">',
+        f"  <GeoTransform>{ulx}, {pixel}, 0, {uly}, 0, {-pixel}</GeoTransform>",
+        "  <SRS>EPSG:3857</SRS>",
     ]
-    for path, x, y in tiles:
-        dx = (x - x0) * 256
-        dy = (y - y0) * 256
-        lines.extend(
-            [
-                "    <SimpleSource>",
-                f'      <SourceFilename relativeToVRT="0">{path.as_posix()}</SourceFilename>',
-                '      <SrcRect xOff="0" yOff="0" xSize="256" ySize="256"/>',
-                f'      <DstRect xOff="{dx}" yOff="{dy}" xSize="256" ySize="256"/>',
-                "    </SimpleSource>",
-            ]
-        )
-    lines.extend(["  </VRTRasterBand>", "</VRTDataset>"])
+    for band, color in ((1, "Red"), (2, "Green"), (3, "Blue")):
+        lines.append(f'  <VRTRasterBand dataType="Byte" band="{band}">')
+        lines.append(f"    <ColorInterp>{color}</ColorInterp>")
+        for path, x, y in tiles:
+            dx = (x - x0) * 256
+            dy = (y - y0) * 256
+            lines.extend(
+                [
+                    "    <SimpleSource>",
+                    f'      <SourceFilename relativeToVRT="0">{path.as_posix()}</SourceFilename>',
+                    f"      <SourceBand>{band}</SourceBand>",
+                    '      <SrcRect xOff="0" yOff="0" xSize="256" ySize="256"/>',
+                    f'      <DstRect xOff="{dx}" yOff="{dy}" xSize="256" ySize="256"/>',
+                    "    </SimpleSource>",
+                ]
+            )
+        lines.append("  </VRTRasterBand>")
+    lines.append("</VRTDataset>")
     vrt_path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -621,20 +626,28 @@ def _build_osm_from_wms(
     )
     # GDAL potřebuje SRS – VRT s EPSG:3857.
     vrt = work / "osm_3857.vrt"
+    band_blocks: list[str] = []
+    for band, color in ((1, "Red"), (2, "Green"), (3, "Blue")):
+        band_blocks.extend(
+            [
+                f'  <VRTRasterBand dataType="Byte" band="{band}">',
+                f"    <ColorInterp>{color}</ColorInterp>",
+                "    <SimpleSource>",
+                f'      <SourceFilename relativeToVRT="0">{raw_png.as_posix()}</SourceFilename>',
+                f"      <SourceBand>{band}</SourceBand>",
+                f'      <SrcRect xOff="0" yOff="0" xSize="{tw}" ySize="{th}"/>',
+                f'      <DstRect xOff="0" yOff="0" xSize="{tw}" ySize="{th}"/>',
+                "    </SimpleSource>",
+                "  </VRTRasterBand>",
+            ]
+        )
     vrt.write_text(
         "\n".join(
             [
                 f'<VRTDataset rasterXSize="{tw}" rasterYSize="{th}">',
                 f"  <GeoTransform>{xmin}, {pixel_x}, 0, {ymax}, 0, {-pixel_y}</GeoTransform>",
                 "  <SRS>EPSG:3857</SRS>",
-                '  <VRTRasterBand dataType="Byte" band="1">',
-                "    <SimpleSource>",
-                f'      <SourceFilename relativeToVRT="0">{raw_png.as_posix()}</SourceFilename>',
-                "      <SourceBand>1</SourceBand>",
-                f'      <SrcRect xOff="0" yOff="0" xSize="{tw}" ySize="{th}"/>',
-                f'      <DstRect xOff="0" yOff="0" xSize="{tw}" ySize="{th}"/>',
-                "    </SimpleSource>",
-                "  </VRTRasterBand>",
+                *band_blocks,
                 "</VRTDataset>",
             ]
         ),
