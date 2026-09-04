@@ -25,6 +25,17 @@ def test_collect_dxf_skips_kp_contours(tmp_path: Path):
     assert got["cliffs_small.dxf"].name == "c1g.dxf"
 
 
+def test_collect_dxf_rust_cliffs_c2g_small_c3g_large(tmp_path: Path):
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    (temp / "c2g.dxf").write_text("small cliffs cliff1", encoding="utf-8")
+    (temp / "c3g.dxf").write_text("large cliffs cliff2", encoding="utf-8")
+
+    got = collect_dxf_for_zip(temp)
+    assert got["cliffs_small.dxf"].name == "c2g.dxf"
+    assert got["cliffs_large.dxf"].name == "c3g.dxf"
+
+
 def test_prune_after_lidar_keeps_out2(tmp_path: Path):
     temp = tmp_path / "temp"
     temp.mkdir()
