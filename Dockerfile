@@ -12,9 +12,11 @@ RUN mamba install -y -c conda-forge \
     curl \
     && mamba clean -afy
 
-ARG KP_VERSION=v2.12.1
-RUN curl -fsSL -o /tmp/kp.tgz \
-    "https://github.com/karttapullautin/karttapullautin/releases/download/${KP_VERSION}/karttapullautin-x86_64-linux.tar.gz" \
+# Patched KP (heightmap OOB clamp) until upstream merges
+# https://github.com/karttapullautin/karttapullautin/pull/271
+ARG KP_VERSION=v2.15.0-oob1
+ARG KP_DOWNLOAD_URL=https://github.com/pjanecekATlangmaster/karttapullautin/releases/download/${KP_VERSION}/karttapullautin-x86_64-linux.tar.gz
+RUN curl -fsSL -o /tmp/kp.tgz "${KP_DOWNLOAD_URL}" \
     && mkdir -p /tmp/kp \
     && tar xzf /tmp/kp.tgz -C /tmp/kp \
     && KP_BIN="$(find /tmp/kp -type f -name pullauta | head -n1)" \

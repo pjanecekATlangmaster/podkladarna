@@ -16,10 +16,35 @@ def _ini_map(text: str) -> dict[str, str]:
     return out
 
 
+def test_kp_contour_interval_matches_ground_halfinterval():
+    """INI value must satisfy: contour_interval/2 * scalefactor == ground metres."""
+    for ground, sf, formline in (
+        (2.0, 0.4, 0),
+        (2.5, 0.4, 0),
+        (5.0, 1.0, 2),
+        (5.0, 0.75, 2),
+        (5.0, 1.5, 2),
+    ):
+        ini = kp_contour_interval(ground, sf, formline)
+        half = ini / 2.0 * sf
+        if formline > 0:
+            assert abs(half * 2 - ground) < 1e-9
+        else:
+            assert abs(half - ground) < 1e-9
+
+
 def test_kp_contour_interval_sprint_no_formlines():
     # formline=0 → KP draws every half-interval line as a full contour
     assert kp_contour_interval(2, 0.4, 0) == 10
     assert kp_contour_interval(2.5, 0.4, 0) == 12.5
+
+
+def test_write_pullauta_ini_sprint_basemap_disabled(tmp_path: Path):
+    path = write_pullauta_ini(tmp_path, "sprint_2_5m")
+    ini = _ini_map(path.read_text(encoding="utf-8"))
+    assert ini["basemapinterval"] == "0"
+    # formline=0 → every half-interval line is a full contour at 2.5 m
+    assert float(ini["contour_interval"]) / 2.0 * float(ini["scalefactor"]) == 2.5
 
 
 def test_kp_contour_interval_forest_with_formlines():

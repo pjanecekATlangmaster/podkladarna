@@ -8,7 +8,9 @@ sprint_2m:
   group: Sprint
   contour_interval: 2
   indexcontours: 10
-  basemapinterval: 0.5
+  # KP basemapinterval is metres on the DEM (not scaled). Keep 0 so the
+  # preview is not flooded with sub-metre raw contours (default KP).
+  basemapinterval: 0
   scalefactor: 0.4
   formline: 0
   smoothing: 0.85
@@ -22,7 +24,7 @@ sprint_2_5m:
   group: Sprint
   contour_interval: 2.5
   indexcontours: 12.5
-  basemapinterval: 0.625
+  basemapinterval: 0
   scalefactor: 0.4
   formline: 0
   smoothing: 0.85
