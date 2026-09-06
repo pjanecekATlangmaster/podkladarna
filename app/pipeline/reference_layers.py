@@ -43,10 +43,11 @@ ORTOFOTO_WMS = (
 # Veřejný OSM WMS (poslední fallback – méně detailní než XYZ dlaždice).
 OSM_WMS = "https://ows.terrestris.de/osm/service"
 # Preferované XYZ zdroje pro barevný Mapnik styl (GDAL WMS driver).
+# openstreetmap.de občas vrací 404 na okrajové dlaždice → GDAL padá.
 OSM_XYZ_URLS = (
-    "https://tile.openstreetmap.de/${z}/${x}/${y}.png",
     "https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png",
     "https://tile.openstreetmap.org/${z}/${x}/${y}.png",
+    "https://tile.openstreetmap.de/${z}/${x}/${y}.png",
 )
 HILLSHADE_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer"
@@ -736,6 +737,9 @@ def _write_osm_xyz_wms_xml(path: Path, server_url: str) -> None:
                 "  <BlockSizeX>256</BlockSizeX>",
                 "  <BlockSizeY>256</BlockSizeY>",
                 "  <BandsCount>3</BandsCount>",
+                # Chybějící / rate-limit dlaždice → prázdný blok místo pádu gdalwarp.
+                "  <ZeroBlockHttpCodes>204,404,429,500,502,503,504</ZeroBlockHttpCodes>",
+                "  <ZeroBlockOnServerException>true</ZeroBlockOnServerException>",
                 f"  <UserAgent>{USER_AGENT}</UserAgent>",
                 "  <Cache/>",
                 "</GDAL_WMS>",
