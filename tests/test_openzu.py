@@ -157,6 +157,32 @@ def test_create_job_from_map_bbox(client, monkeypatch):
     assert "listy=PRAH77" in text
 
 
+def test_create_job_uses_client_sm5_sheets_without_arcgis(client, monkeypatch):
+    import app.db as db
+    import app.main as main
+
+    def boom(*_a, **_k):
+        raise AssertionError("query_sm5_sheets se nemá volat, když UI pošle listy")
+
+    monkeypatch.setattr(main, "query_sm5_sheets", boom)
+    monkeypatch.setattr(
+        main.worker,
+        "enqueue",
+        lambda job_id: db.update_job(job_id, status="queued", phase="waiting"),
+    )
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "rychly",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "sm5_sheets": "PRAH77,PRAH78",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["options"]["sm5_sheets"] == ["PRAH77", "PRAH78"]
+
+
 def test_api_sheets_too_large(client, monkeypatch):
     import app.main as main
 

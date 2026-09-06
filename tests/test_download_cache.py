@@ -7,6 +7,7 @@ from app.download_cache import (
     bbox_cache_key,
     is_fresh,
     lidar_sheet_dir,
+    references_cache_dir,
     write_meta,
     zabaged_cache_dir,
 )
@@ -51,4 +52,16 @@ def test_zabaged_cache_dir_includes_config_version(tmp_path: Path, monkeypatch):
     bbox = (14.4, 50.08, 14.42, 50.09)
     path = zabaged_cache_dir(bbox, cfg)
     assert path.parent.name == "zabaged"
+    assert path.name.startswith("14.4000_50.0800_14.4200_50.0900_")
+
+
+def test_references_cache_dir_includes_sizes(tmp_path: Path, monkeypatch):
+    from app import settings
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    bbox = (14.4, 50.08, 14.42, 50.09)
+    path = references_cache_dir(bbox, ref_wh=(2048, 1536), osm_wh=(4096, 3072))
+    assert path.parent.name == "references"
+    assert "r2048x1536" in path.name
+    assert "o4096x3072" in path.name
     assert path.name.startswith("14.4000_50.0800_14.4200_50.0900_")

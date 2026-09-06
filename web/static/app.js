@@ -646,6 +646,8 @@ function clearBbox(opts = {}) {
   bboxAllowed = false;
   lastSheets = null;
   document.getElementById("bbox-input").value = "";
+  const sheetsInput = document.getElementById("sm5-sheets-input");
+  if (sheetsInput) sheetsInput.value = "";
   if (!opts.keepReuse) setReuseJob("");
   if (bboxMap) {
     bboxMap.eachLayer((layer) => {
@@ -668,6 +670,8 @@ async function lookupSheets() {
   if (!bbox) return;
   bboxAllowed = false;
   lastSheets = null;
+  const sheetsInput = document.getElementById("sm5-sheets-input");
+  if (sheetsInput) sheetsInput.value = "";
   setSheetInfo("Zjišťuji mapové listy SM5…", "");
   try {
     const data = await api(`/api/sheets?bbox=${encodeURIComponent(bbox)}`);
@@ -687,6 +691,9 @@ async function lookupSheets() {
     }
     styleBboxRect(false);
     bboxAllowed = true;
+    if (sheetsInput && Array.isArray(data.sheets)) {
+      sheetsInput.value = data.sheets.map((s) => s.mapnom).filter(Boolean).join(",");
+    }
     const size = `${data.width_km} × ${data.height_km} km`;
     const reuseId = (document.getElementById("reuse-job-id") || {}).value;
     const extra = reuseId

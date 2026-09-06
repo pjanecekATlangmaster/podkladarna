@@ -103,3 +103,20 @@ def zabaged_cache_dir(bbox: tuple[float, float, float, float], config_path: Path
     key = bbox_cache_key(bbox)
     ver = config_version(config_path)
     return settings.DOWNLOADS_DIR / "zabaged" / f"{key}_{ver}"
+
+
+def references_cache_dir(
+    bbox: tuple[float, float, float, float],
+    *,
+    ref_wh: tuple[int, int],
+    osm_wh: tuple[int, int],
+) -> Path:
+    """Sdílená cache referenčních PNG (orto, OSM, ZTM, …) podle výřezu a rozlišení."""
+    key = bbox_cache_key(bbox)
+    rw, rh = ref_wh
+    ow, oh = osm_wh
+    return (
+        settings.DOWNLOADS_DIR
+        / "references"
+        / f"{key}_r{rw}x{rh}_o{ow}x{oh}"
+    )

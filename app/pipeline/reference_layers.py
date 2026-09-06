@@ -10,10 +10,18 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.download_cache import (
+    is_fresh,
+    link_or_copy,
+    read_meta,
+    references_cache_dir,
+    write_meta,
+)
 from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.settings import REF_CACHE_MAX_AGE_DAYS
 from app.tiles import fetch_tile
 
 # Kartografický standard (GDAL výchozí): světlo ze severozápadu, 45° nad obzorem.
@@ -864,6 +872,97 @@ def _find_dmr_ground_laz(job_dir: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
+def _ref_png_key(filename: str) -> str | None:
+    mapping = {
+        "orthophoto.png": "orthophoto",
+        "osm.png": "osm",
+        "mapa_ztm.png": "ztm",
+        "katastr.png": "katastr",
+        "dmpok_nahled.png": "dmpok",
+    }
+    for key, _layer, name, _label, _op, _vis in HILLSHADE_VARIANTS:
+        mapping[name] = key
+    return mapping.get(filename)
+
+
+def _try_load_references_cache(
+    cache_dir: Path,
+    out_dir: Path,
+    *,
+    log: callable | None = None,
+) -> dict[str, Path] | None:
+    """Vrátí built_refs z cache, nebo None při miss."""
+    primary = cache_dir / "orthophoto.png"
+    if not primary.is_file():
+        primary = cache_dir / "osm.png"
+    if not is_fresh(
+        cache_dir, primary, REF_CACHE_MAX_AGE_DAYS, min_size=500
+    ):
+        return None
+    built: dict[str, Path] = {}
+    for png in sorted(cache_dir.glob("*.png")):
+        key = _ref_png_key(png.name)
+        if not key:
+            continue
+        dest = out_dir / png.name
+        link_or_copy(png, dest)
+        pgw = png.with_suffix(".pgw")
+        if pgw.is_file():
+            link_or_copy(pgw, dest.with_suffix(".pgw"))
+        if dest.is_file() and dest.stat().st_size > 500:
+            built[key] = dest
+    if not built:
+        return None
+    if log:
+        age = None
+        meta = read_meta(cache_dir)
+        if meta:
+            from app.download_cache import age_days
+
+            age = age_days(meta.get("downloaded_at"))
+        age_s = f", stáří {age:.1f} d" if age is not None else ""
+        log(
+            f"Referenční PNG: cache hit ({len(built)} vrstev{age_s}) "
+            f"← {cache_dir.name}"
+        )
+    return built
+
+
+def _store_references_cache(
+    cache_dir: Path,
+    out_dir: Path,
+    built: dict[str, Path],
+    *,
+    bbox_wgs84: tuple[float, float, float, float],
+    ref_wh: tuple[int, int],
+    osm_wh: tuple[int, int],
+    log: callable | None = None,
+) -> None:
+    if not built:
+        return
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    stored = 0
+    for path in built.values():
+        if not path.is_file():
+            continue
+        shutil.copy2(path, cache_dir / path.name)
+        pgw = path.with_suffix(".pgw")
+        if pgw.is_file():
+            shutil.copy2(pgw, cache_dir / pgw.name)
+        stored += 1
+    write_meta(
+        cache_dir,
+        kind="references",
+        bbox_wgs84=list(bbox_wgs84),
+        ref_wh=list(ref_wh),
+        osm_wh=list(osm_wh),
+        layers=sorted(built.keys()),
+        files=stored,
+    )
+    if log:
+        log(f"Referenční PNG: uloženo do cache ({stored} vrstev) → {cache_dir.name}")
+
+
 def build_reference_layers(
     job_dir: Path,
     bbox_wgs84: tuple[float, float, float, float],
@@ -879,6 +978,15 @@ def build_reference_layers(
     out_dir.mkdir(parents=True, exist_ok=True)
     west, south, east, north = bbox_wgs84
     bounds = crop_bounds_5514(west, south, east, north)
+
+    _, _, _, _, tw0, th0 = _template_extent(template_png, template_pgw)
+    ref_wh = _target_size(tw0, th0)
+    osm_wh = _osm_target_size(template_png, template_pgw)[:2]
+    cache_dir = references_cache_dir(bbox_wgs84, ref_wh=ref_wh, osm_wh=osm_wh)
+    cached = _try_load_references_cache(cache_dir, out_dir, log=log)
+    if cached is not None:
+        return cached
+
     built: dict[str, Path] = {}
 
     ortho_png = out_dir / "orthophoto.png"
@@ -982,5 +1090,19 @@ def build_reference_layers(
                 log(f"{label}: přeskočeno ({exc})")
     if log and not hill_ok:
         log("Hillshade: WMS ČÚZK nevrátil žádnou vrstvu")
+
+    try:
+        _store_references_cache(
+            cache_dir,
+            out_dir,
+            built,
+            bbox_wgs84=bbox_wgs84,
+            ref_wh=ref_wh,
+            osm_wh=osm_wh,
+            log=log,
+        )
+    except Exception as exc:
+        if log:
+            log(f"Referenční PNG: cache zápis selhal ({exc})")
 
     return built

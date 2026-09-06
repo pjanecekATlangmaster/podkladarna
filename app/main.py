@@ -307,10 +307,24 @@ async def api_create_job(request: Request):
             f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
             f"max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km).",
         )
-    try:
-        sheets = query_sm5_sheets(*bbox)
-    except FetchError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    # Listy SM5: preferuj výsledek z /api/sheets (UI už ověřilo) – ušetří další ArcGIS call.
+    sheets: list[dict] = []
+    sheets_raw = _form_str(form, "sm5_sheets").strip()
+    if sheets_raw:
+        seen_noms: set[str] = set()
+        for part in sheets_raw.replace(";", ",").split(","):
+            mapnom = part.strip().upper()
+            if not mapnom or mapnom in seen_noms:
+                continue
+            if not all(c.isalnum() or c in "-_" for c in mapnom):
+                continue
+            seen_noms.add(mapnom)
+            sheets.append({"mapnom": mapnom, "name": mapnom})
+    if not sheets:
+        try:
+            sheets = query_sm5_sheets(*bbox)
+        except FetchError as exc:
+            raise HTTPException(400, str(exc)) from exc
     if not sheets:
         raise HTTPException(400, "Výřez neprotíná žádný list SM5.")
     if len(sheets) > MAX_SHEETS:
@@ -374,16 +388,15 @@ async def api_create_job(request: Request):
             options["reused_from"] = reuse_id
     job = db.create_job(name, preset_id, options)
     job_id = job["id"]
-    job_dir = JOBS_DIR / job_id
 
     def log(msg: str) -> None:
         db.append_log(job_id, msg)
 
+    # Kopie LAZ z předchozího jobu běží až ve workeru (run_job_pipeline),
+    # ať odpověď „job založen“ nepřijde až po dlouhém copy.
     if options.get("reused_from"):
-        copied = db.copy_reusable_work(options["reused_from"], job_id)
         log(
-            f"Iterace z jobu {options['reused_from']}: kopíruji {len(copied)} souborů "
-            "(sloučený LAZ). LiDAR a ZABAGED se berou ze sdílené cache."
+            f"Iterace z jobu {options['reused_from']}: LAZ se zkopíruje na začátku běhu."
         )
 
     log(
