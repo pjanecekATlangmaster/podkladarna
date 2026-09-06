@@ -1,4 +1,4 @@
-"""OSM pěšiny, studny a hřiště do OOM (bez duplicit cest se ZABAGED)."""
+"""OSM pěšiny, studny, hřiště a (u sprintu) lavičky do OOM (bez duplicit cest se ZABAGED)."""
 
 from __future__ import annotations
 
@@ -81,16 +81,22 @@ def _overpass_ql(south: float, west: float, north: float, east: float) -> str:
         f'way["man_made"="water_well"]({bbox});'
         f'node["man_made"="water_well"]({bbox});'
         f'way["leisure"="playground"]({bbox});'
+        f'node["amenity"="bench"]({bbox});'
+        f'way["amenity"="bench"]({bbox});'
         f");"
         f"out geom;"
     )
 
 
 def classify_osm_feature(tags: dict) -> tuple[str, str] | None:
-    """(kind, OOM kód) pro studny / hřiště; jinak None."""
+    """(kind, OOM kód) pro studny / hřiště / lavičky; jinak None."""
     leisure = (tags.get("leisure") or "").lower()
     man_made = (tags.get("man_made") or "").lower()
     building = (tags.get("building") or "").lower()
+    amenity = (tags.get("amenity") or "").lower()
+    if amenity == "bench":
+        # ISSprOM 531 (×); do lesní mapy se nepromítá (viz build_osm_feature_parts).
+        return "bench", "531"
     if leisure == "playground":
         # ISSprOM/ISOM nemá symbol hřiště – otevřený terén.
         return "playground", "401"
@@ -103,7 +109,7 @@ def classify_osm_feature(tags: dict) -> tuple[str, str] | None:
 
 
 def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
-    """Vyfiltruje highway + studny/hřiště z OSM API map call (.osm XML)."""
+    """Vyfiltruje highway + studny/hřiště/lavičky z OSM API map call (.osm XML)."""
     root = ET.fromstring(xml_text)
     nodes: dict[str, tuple[float, float]] = {}
     node_tags: dict[str, dict] = {}
@@ -787,6 +793,13 @@ def osm_feature_to_5514(
             pts.append(wgs84_to_projected(float(lat), float(lon)))
     if not pts:
         return None
+    # Bodové symboly (lavička 531) – vždy jeden bod (těžiště).
+    if kind == "bench":
+        if len(pts) == 1:
+            return kind, code, pts
+        cx = sum(p[0] for p in pts) / len(pts)
+        cy = sum(p[1] for p in pts) / len(pts)
+        return kind, code, [(cx, cy)]
     # Uzavřený ring → plocha; jinak bod (těžiště / jediný uzel).
     if len(pts) >= 3:
         if pts[0] != pts[-1]:
@@ -979,11 +992,16 @@ def build_osm_feature_parts(
         "401": "OSM hřiště",
         "521": "OSM studniční objekty",
         "311": "OSM studny",
+        "531": "OSM lavičky",
     }
+    sprint = preset_id.startswith("sprint")
     symbol_cache: dict[str, int | None] = {}
     for feat in data.get("features") or []:
         props = feat.get("properties") or {}
         code = str(props.get("oom_code") or "")
+        # Lavičky jen do sprintu (ISSprOM 531).
+        if code == "531" and not sprint:
+            continue
         geom = feat.get("geometry") or {}
         gtype = geom.get("type")
         if code not in symbol_cache:
@@ -1027,7 +1045,7 @@ def build_osm_feature_parts(
             if obj:
                 grouped[code].append(obj)
     parts: list[OomObjectPart] = []
-    for code in ("521", "311", "401"):
+    for code in ("521", "311", "401", "531"):
         objects = grouped.get(code) or []
         if objects:
             parts.append(

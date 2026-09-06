@@ -39,7 +39,21 @@ def test_classify_osm_well_and_playground():
     )
     assert classify_osm_feature({"man_made": "water_well"}) == ("water_well", "311")
     assert classify_osm_feature({"leisure": "playground"}) == ("playground", "401")
+    assert classify_osm_feature({"amenity": "bench"}) == ("bench", "531")
     assert classify_osm_feature({"highway": "path"}) is None
+
+
+def test_osm_bench_to_point():
+    el = {
+        "type": "node",
+        "tags": {"amenity": "bench"},
+        "lat": 50.083,
+        "lon": 14.325,
+    }
+    kind, code, pts = osm_feature_to_5514(el)
+    assert kind == "bench"
+    assert code == "531"
+    assert len(pts) == 1
 
 
 def test_osm_feature_closed_well_building():
