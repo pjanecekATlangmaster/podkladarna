@@ -40,13 +40,41 @@
         </label>
 
         <label>
-          Strmé změny reliéfu (Karttapullautin)
+          Výška vegetace (Karttapullautin)
+          <select name="kp_vege_height" id="kp_vege_height">
+            <option value="1.5">1,5 m – nízká</option>
+            <option value="2" selected>2 m – výchozí</option>
+            <option value="2.5">2,5 m</option>
+            <option value="3">3 m – vysoká</option>
+          </select>
+        </label>
+        <p class="hint">Ovlivní výpočet zeleně z LiDARu (<code>greenhigh</code>). Nižší hodnota bere víc nízkého porostu jako vegetaci.</p>
+
+        <label>
+          Strmé změny reliéfu – symbol
           <select name="kp_cliff_symbol" id="kp_cliff_symbol">
             <option value="earth_bank" selected>Zemní srázek (104)</option>
             <option value="rock_face">Skála / nesjízdný sráz (201)</option>
           </select>
         </label>
-        <p class="hint">Automaticky nejde spolehlivě rozlišit hlínu od skály – zvolte podle místní znalosti. Výchozí je srázek.</p>
+        <p class="hint">Automaticky nejde spolehlivě rozlišit hlínu od skály – zvolte podle místní znalosti.</p>
+
+        <label>
+          Citlivost srázů / skal
+          <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
+            <option value="low">Méně citlivé (méně srázů)</option>
+            <option value="normal" selected>Výchozí</option>
+            <option value="high">Citlivější</option>
+            <option value="very_high">Velmi citlivé (více drobných srázů)</option>
+          </select>
+        </label>
+        <p class="hint">Jak přísně Karttapullautin hledá strmé skoky v DMR. Výchozí odpovídá dosavadnímu nastavení Podkladárny.</p>
+
+        <label class="checkbox-row">
+          <input type="checkbox" name="kp_osm_furniture" id="kp_osm_furniture" value="1" />
+          OSM lavičky, tabule, lampy a podobné (531)
+        </label>
+        <p class="hint">Výchozí vypnuto. Studny, prameny, mokřady a cesty se berou vždy. Dřevěný chodník jako běžná pěšina.</p>
 
         <div id="map-mode">
           <p class="hint">Klikněte dva protilehlé rohy, nebo klikněte na hotový job vpravo – výřez se načte na mapu. LiDAR i ZABAGED se stáhnou z ČÚZK do sdílené cache (u stejného výřezu znovu nestahují). Sloučený LAZ z předchozího jobu se při iteraci znovu použije. Mapa je omezená na Česko, výřez nejvýše 5 × 5 km.</p>

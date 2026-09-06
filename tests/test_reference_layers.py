@@ -25,7 +25,35 @@ def test_reference_metadata():
 
 def test_pick_osm_zoom_small_bbox():
     z = _pick_osm_zoom(14.4, 50.08, 14.42, 50.09)
-    assert 12 <= z <= 18
+    assert 12 <= z <= 19
+
+
+def test_osm_target_size_finer_than_template(tmp_path):
+    from app.pipeline.georef import PgwGeoref
+    from app.pipeline.reference_layers import _osm_target_size
+
+    # Hrubá KP šablona (200×200 px na ~1 km) → OSM má být jemnější.
+    mini_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\xc8\x00\x00\x00\xc8"
+        b"\x08\x02\x00\x00\x00\xa2\x8c\x5a\x8e\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f"
+        b"\x00\x01\x01\x01\x00\x18\xdd\x8d\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    # Fix: use valid small PNG then fake extent via pgw only – size from PNG IHDR.
+    # Use 4x4 PNG with pgw spanning 1000m so template is tiny vs ground.
+    mini_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
+        b"\x08\x02\x00\x00\x00\x26\x93\x09\x29\x00\x00\x00\x12IDATx\x9cc\x60\x60"
+        b"\x60\x00\x00\x00\x04\x00\x01\x5c\xcd\xff\x69\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    png = tmp_path / "t.png"
+    png.write_bytes(mini_png)
+    pgw = tmp_path / "t.pgw"
+    # 4 px across 1000 m → template 4×4; OSM should request much larger.
+    PgwGeoref(250.0, 0.0, 0.0, -250.0, 0.0, 1000.0).write(pgw)
+    tw, th, mpp = _osm_target_size(png, pgw)
+    assert tw >= 100 and th >= 100
+    assert mpp <= 2.0
+    assert max(tw, th) <= 8192
 
 
 def test_write_osm_vrt(tmp_path):

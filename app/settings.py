@@ -59,4 +59,10 @@ DEFAULT_OPTIONS = {
     "savetempfolders": False,  # budoucí expert režim / API iterace
     # KP c2g/c3g: earth_bank=104 (srázek), rock_face=201 (skála/nesjízdný sráz).
     "kp_cliff_symbol": "earth_bank",
+    # KP greenhigh (m) – výška vegetace pro výpočet zeleně.
+    "kp_vege_height": 2.0,
+    # Citlivost detekce srázů: low | normal | high | very_high.
+    "kp_cliff_sensitivity": "normal",
+    # OSM lavičky, tabule, lampy, stoly (531) – default vypnuto.
+    "kp_osm_furniture": False,
 }

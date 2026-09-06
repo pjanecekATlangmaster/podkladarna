@@ -20,6 +20,10 @@ from app.tiles import fetch_tile
 HILLSHADE_AZIMUTH = 315
 HILLSHADE_ALTITUDE = 45
 MAX_REF_PIXELS = 4096
+# OSM podklad – vyšší strop, ať jdou ulice čitelně (ne jen velikost KP šablony).
+MAX_OSM_REF_PIXELS = 8192
+# Cílové rozlišení OSM v metrech/px (nejjemnější, co se vejde do MAX_OSM_REF_PIXELS).
+_OSM_MPP_CANDIDATES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
 # DMR 5G má ~0,5 m mezi body – jemnější raster dělá díry a kostičkovaný hillshade.
 HILLSHADE_DEM_MIN_M = 1.0
 HILLSHADE_DEM_MAX_M = 2.5
@@ -165,6 +169,30 @@ def _target_size(width: int, height: int, max_px: int = MAX_REF_PIXELS) -> tuple
     return max(1, int(round(width * scale))), max(1, int(round(height * scale)))
 
 
+def _osm_target_size(
+    template_png: Path,
+    template_pgw: Path,
+    *,
+    max_px: int = MAX_OSM_REF_PIXELS,
+) -> tuple[int, int, float]:
+    """Velikost OSM PNG podle extentu šablony – max detail pod limitem pixelů."""
+    xmin, ymin, xmax, ymax, _, _ = _template_extent(template_png, template_pgw)
+    width_m = abs(xmax - xmin)
+    height_m = abs(ymax - ymin)
+    for mpp in _OSM_MPP_CANDIDATES:
+        tw = max(1, int(round(width_m / mpp)))
+        th = max(1, int(round(height_m / mpp)))
+        if max(tw, th) <= max_px:
+            return tw, th, mpp
+    tw, th = _target_size(
+        max(1, int(round(width_m))),
+        max(1, int(round(height_m))),
+        max_px=max_px,
+    )
+    mpp = max(width_m / tw, height_m / th)
+    return tw, th, mpp
+
+
 def _template_extent(template_png: Path, template_pgw: Path) -> tuple[float, float, float, float, int, int]:
     georef = read_pgw(template_pgw)
     width, height = _raster_size(template_png)
@@ -248,10 +276,15 @@ def _align_to_template(
     dest_pgw: Path,
     *,
     resample: str = "bilinear",
+    max_px: int | None = None,
+    out_size: tuple[int, int] | None = None,
     log: callable | None = None,
 ) -> None:
     xmin, ymin, xmax, ymax, width, height = _template_extent(template_png, template_pgw)
-    tw, th = _target_size(width, height)
+    if out_size is not None:
+        tw, th = out_size
+    else:
+        tw, th = _target_size(width, height, max_px=max_px or MAX_REF_PIXELS)
     gdalwarp = _gdal_tool("gdalwarp")
     dest_png.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -526,10 +559,10 @@ def _mercator_tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, 
 
 def _pick_osm_zoom(west: float, south: float, east: float, north: float) -> int:
     width_m = max(abs(east - west), abs(north - south)) * 111_000
-    for z in range(18, 11, -1):
+    for z in range(19, 11, -1):
         res = 156543.03 * math.cos(math.radians((south + north) / 2)) / (1 << z)
         px = width_m / max(res, 1)
-        if px <= MAX_REF_PIXELS * 1.2:
+        if px <= MAX_OSM_REF_PIXELS * 1.2:
             return z
     return 12
 
@@ -596,8 +629,7 @@ def _build_osm_from_wms(
     xmax, ymin = _lonlat_to_mercator(east, south)
     if xmax <= xmin or ymax <= ymin:
         return False
-    _, _, _, _, width, height = _template_extent(template_png, template_pgw)
-    tw, th = _target_size(width, height)
+    tw, th, mpp = _osm_target_size(template_png, template_pgw)
     params = {
         "SERVICE": "WMS",
         "REQUEST": "GetMap",
@@ -613,7 +645,7 @@ def _build_osm_from_wms(
     }
     url = OSM_WMS + "?" + urllib.parse.urlencode(params)
     if log:
-        log(f"OSM WMS fallback ({tw}×{th} px)…")
+        log(f"OSM WMS fallback ({tw}×{th} px, ~{mpp:.2f} m/px)…")
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=120) as resp:
         data = resp.read()
@@ -659,7 +691,15 @@ def _build_osm_from_wms(
         ),
         encoding="utf-8",
     )
-    _align_to_template(vrt, template_png, template_pgw, dest_png, dest_pgw, log=log)
+    _align_to_template(
+        vrt,
+        template_png,
+        template_pgw,
+        dest_png,
+        dest_pgw,
+        out_size=(tw, th),
+        log=log,
+    )
     if log:
         log(f"OSM podklad: {dest_png.name} (WMS, © OpenStreetMap)")
     return dest_png.is_file() and dest_png.stat().st_size > 500
@@ -709,6 +749,7 @@ def _build_osm_from_xyz(
 ) -> bool:
     """Stáhne barevné OSM XYZ přes GDAL (spolehlivější než ruční urllib v Dockeru)."""
     del bbox_wgs84  # extent bere _align_to_template z PNG šablony
+    tw, th, mpp = _osm_target_size(template_png, template_pgw)
     work = dest_png.parent / "_osm_xyz"
     work.mkdir(parents=True, exist_ok=True)
     for url in OSM_XYZ_URLS:
@@ -717,7 +758,10 @@ def _build_osm_from_xyz(
             _write_osm_xyz_wms_xml(xml, url)
             if log:
                 host = url.split("/")[2]
-                log(f"OSM XYZ dlaždice ({host})…")
+                log(
+                    f"OSM XYZ dlaždice ({host}) → {tw}×{th} px "
+                    f"(~{mpp:.2f} m/px)…"
+                )
             _align_to_template(
                 xml,
                 template_png,
@@ -725,6 +769,7 @@ def _build_osm_from_xyz(
                 dest_png,
                 dest_pgw,
                 resample="cubic",
+                out_size=(tw, th),
                 log=log,
             )
         except Exception as exc:
@@ -791,7 +836,13 @@ def build_osm_reference(
             gdaltranslate = _gdal_tool("gdal_translate")
             run_cmd([gdaltranslate, str(vrt), str(raw_tif), "-of", "GTiff"], log=log)
             _align_to_template(
-                raw_tif, template_png, template_pgw, dest_png, dest_pgw, log=log
+                raw_tif,
+                template_png,
+                template_pgw,
+                dest_png,
+                dest_pgw,
+                out_size=_osm_target_size(template_png, template_pgw)[:2],
+                log=log,
             )
             if dest_png.is_file() and dest_png.stat().st_size > 500:
                 if log:

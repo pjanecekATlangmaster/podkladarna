@@ -117,6 +117,21 @@ def test_oom_code_road_forest_maps_to_503():
     assert symbol_index_for_code("forest_10000", 10000, code) is not None
 
 
+def test_oom_code_ulice_sprint_maps_to_line_not_area():
+    """ISSprOM 501.11 je plocha – ulice musí jít do liniového footprintu."""
+    code = oom_code_for_vectorconf_rule(
+        "road-path",
+        "503",
+        "Ulice",
+        preset_id="sprint_2m",
+        scale=4000,
+    )
+    assert code == "501.17"
+    assert symbol_index_for_code("sprint_2m", 4000, code) is not None
+    # Nesmí to být plošný 501.11.
+    assert code != "501.11"
+
+
 def test_oom_code_skupina_balvanu_maps_to_207():
     code = oom_code_for_vectorconf_rule(
         "blackline",

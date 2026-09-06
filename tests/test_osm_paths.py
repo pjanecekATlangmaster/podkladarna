@@ -38,8 +38,11 @@ def test_classify_osm_well_and_playground():
         "521",
     )
     assert classify_osm_feature({"man_made": "water_well"}) == ("water_well", "311")
+    assert classify_osm_feature({"amenity": "fountain"}) == ("water_well", "311")
+    assert classify_osm_feature({"natural": "spring"}) == ("spring", "312")
     assert classify_osm_feature({"leisure": "playground"}) == ("playground", "401")
     assert classify_osm_feature({"amenity": "bench"}) == ("bench", "531")
+    assert classify_osm_feature({"highway": "street_lamp"}) == ("lamp", "531")
     assert classify_osm_feature({"tourism": "information", "information": "board"}) == (
         "info_board",
         "531",
@@ -49,12 +52,23 @@ def test_classify_osm_well_and_playground():
         "cave_entrance",
         "203.1",
     )
-    assert classify_osm_feature({"highway": "footway", "footway": "boardwalk"}) == (
-        "boardwalk",
-        "512.1",
-    )
+    # Dřevěný chodník → cesta, ne samostatný feature.
+    assert classify_osm_feature({"highway": "footway", "footway": "boardwalk"}) is None
+    assert classify_osm_feature({"man_made": "boardwalk"}) is None
     assert classify_osm_feature({"highway": "path"}) is None
     assert classify_osm_feature({"tourism": "information", "building": "yes"}) is None
+
+
+def test_boardwalk_maps_as_path():
+    assert _way_skip_reason({"highway": "footway", "footway": "boardwalk"}) is None
+    assert _way_skip_reason({"man_made": "boardwalk"}) is None
+    el = {
+        "tags": {"highway": "footway", "footway": "boardwalk"},
+        "geometry": [{"lat": 50.0, "lon": 14.4}, {"lat": 50.001, "lon": 14.4}],
+    }
+    pts = osm_way_to_5514(el)
+    assert pts is not None
+    assert len(pts) >= 2
 
 
 def test_feature_oom_code_preset():
@@ -62,8 +76,15 @@ def test_feature_oom_code_preset():
 
     assert feature_oom_code("cave_entrance", "sprint_2m") == "203.1"
     assert feature_oom_code("cave_entrance", "forest_10000") == "203.2"
-    assert feature_oom_code("boardwalk", "sprint_2m") == "512.1"
-    assert feature_oom_code("boardwalk", "forest_10000") == "512"
+    assert feature_oom_code("spring", "forest_10000") == "312"
+
+
+def test_osm_oom_code_paths_only():
+    from app.pipeline.osm_paths import osm_oom_code
+
+    assert osm_oom_code("path", "sprint_2m") == "507"
+    assert osm_oom_code("track", "sprint_2m") == "506"
+    assert osm_oom_code("track", "forest_10000") == "504"
 
 
 def test_osm_bench_to_point():

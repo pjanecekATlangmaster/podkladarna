@@ -106,3 +106,35 @@ def test_write_pullauta_ini_mtbo_scales(tmp_path: Path):
     assert float(ini15["contour_interval"]) == round(5 / 1.5, 6)
     assert ini15["indexcontours"] == "25"
     assert ini15["vectorconf"] == "zabaged_forest.txt"
+
+
+def test_write_pullauta_ini_default_vege_and_cliff(tmp_path: Path):
+    path = write_pullauta_ini(tmp_path, "sprint_2m")
+    ini = _ini_map(path.read_text(encoding="utf-8"))
+    assert ini["greenhigh"] == "2"
+    assert ini["cliff1"] == "1.4"
+    assert ini["cliff2"] == "2.8"
+
+
+def test_write_pullauta_ini_vege_height_and_cliff_sensitivity(tmp_path: Path):
+    path = write_pullauta_ini(
+        tmp_path,
+        "forest_10000",
+        {"kp_vege_height": 3.0, "kp_cliff_sensitivity": "high"},
+    )
+    ini = _ini_map(path.read_text(encoding="utf-8"))
+    assert ini["greenhigh"] == "3"
+    assert ini["cliff1"] == "1.15"
+    assert ini["cliff2"] == "2"
+
+
+def test_write_pullauta_ini_invalid_vege_falls_back(tmp_path: Path):
+    path = write_pullauta_ini(
+        tmp_path,
+        "sprint_2m",
+        {"kp_vege_height": 9.9, "kp_cliff_sensitivity": "nope"},
+    )
+    ini = _ini_map(path.read_text(encoding="utf-8"))
+    assert ini["greenhigh"] == "2"
+    assert ini["cliff1"] == "1.4"
+    assert ini["cliff2"] == "2.8"

@@ -26,7 +26,13 @@ from app.pipeline.fetch_openzu import (
     parse_bbox,
     query_sm5_sheets,
 )
-from app.pipeline.ini_builder import load_presets
+from app.pipeline.ini_builder import (
+    KP_CLIFF_SENSITIVITY,
+    KP_VEGE_HEIGHT_CHOICES,
+    load_presets,
+    resolve_cliff_sensitivity,
+    resolve_vege_height,
+)
 from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE
 from app.tiles import TileError, fetch_tile
 from app.tool_env import tool_status
@@ -337,6 +343,26 @@ async def api_create_job(request: Request):
     cliff_raw = _form_str(form, "kp_cliff_symbol").strip().lower()
     if cliff_raw in {"earth_bank", "rock_face"}:
         options["kp_cliff_symbol"] = cliff_raw
+    vege_raw = _form_str(form, "kp_vege_height").strip()
+    if vege_raw:
+        try:
+            vh = float(vege_raw.replace(",", "."))
+        except ValueError:
+            vh = None
+        if vh is not None and any(abs(vh - c) < 1e-6 for c in KP_VEGE_HEIGHT_CHOICES):
+            options["kp_vege_height"] = resolve_vege_height({"kp_vege_height": vh})
+    sens_raw = _form_str(form, "kp_cliff_sensitivity").strip().lower()
+    if sens_raw in KP_CLIFF_SENSITIVITY:
+        options["kp_cliff_sensitivity"] = resolve_cliff_sensitivity(
+            {"kp_cliff_sensitivity": sens_raw}
+        )
+    furniture_raw = _form_str(form, "kp_osm_furniture").strip().lower()
+    options["kp_osm_furniture"] = furniture_raw in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:
@@ -361,7 +387,11 @@ async def api_create_job(request: Request):
         )
 
     log(
-        f"Prijato: listy={','.join(options['sm5_sheets'])}, preset={preset_id}"
+        f"Prijato: listy={','.join(options['sm5_sheets'])}, preset={preset_id}, "
+        f"vege={options.get('kp_vege_height', 2.0)} m, "
+        f"srázy={options.get('kp_cliff_sensitivity', 'normal')}/"
+        f"{options.get('kp_cliff_symbol', 'earth_bank')}, "
+        f"nábytek/lampy={'ano' if options.get('kp_osm_furniture') else 'ne'}"
     )
 
     try:

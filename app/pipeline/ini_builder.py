@@ -7,6 +7,20 @@ import yaml
 
 from app.settings import CONFIG_DIR
 
+# greenhigh (m) – body nad touto výškou jdou do „high“ vegetace.
+KP_VEGE_HEIGHT_CHOICES = (1.5, 2.0, 2.5, 3.0)
+KP_VEGE_HEIGHT_DEFAULT = 2.0
+
+# cliff1/cliff2 – min. výškový skok; nižší = citlivější (více srázů).
+# „normal“ = současný pullauta.base.ini (1.4 / 2.8).
+KP_CLIFF_SENSITIVITY: dict[str, tuple[float, float]] = {
+    "low": (1.8, 3.4),
+    "normal": (1.4, 2.8),
+    "high": (1.15, 2.0),
+    "very_high": (0.95, 1.7),
+}
+KP_CLIFF_SENSITIVITY_DEFAULT = "normal"
+
 
 def load_presets() -> dict:
     return yaml.safe_load((CONFIG_DIR / "presets.yaml").read_text(encoding="utf-8"))
@@ -37,6 +51,26 @@ def _ini_number(value: float) -> int | float:
     return rounded
 
 
+def resolve_vege_height(options: dict | None) -> float:
+    raw = (options or {}).get("kp_vege_height", KP_VEGE_HEIGHT_DEFAULT)
+    try:
+        h = float(raw)
+    except (TypeError, ValueError):
+        return KP_VEGE_HEIGHT_DEFAULT
+    for choice in KP_VEGE_HEIGHT_CHOICES:
+        if abs(h - choice) < 1e-6:
+            return choice
+    return KP_VEGE_HEIGHT_DEFAULT
+
+
+def resolve_cliff_sensitivity(options: dict | None) -> str:
+    raw = str((options or {}).get("kp_cliff_sensitivity") or KP_CLIFF_SENSITIVITY_DEFAULT)
+    key = raw.strip().lower()
+    if key in KP_CLIFF_SENSITIVITY:
+        return key
+    return KP_CLIFF_SENSITIVITY_DEFAULT
+
+
 def write_pullauta_ini(
     work_dir: Path,
     preset_id: str,
@@ -65,6 +99,10 @@ def write_pullauta_ini(
     if not src_conf.is_file():
         raise FileNotFoundError(f"Chybí vectorconf: {src_conf}")
 
+    vege_h = resolve_vege_height(opts)
+    cliff_key = resolve_cliff_sensitivity(opts)
+    cliff1, cliff2 = KP_CLIFF_SENSITIVITY[cliff_key]
+
     overrides: dict[str, str | int | float] = {
         "vectorconf": vectorconf,
         "contour_interval": contour_interval,
@@ -83,6 +121,9 @@ def write_pullauta_ini(
         "buildingcolor": opts.get(
             "buildingcolor", preset.get("buildingcolor", "0,0,0")
         ),
+        "greenhigh": _ini_number(vege_h),
+        "cliff1": _ini_number(cliff1),
+        "cliff2": _ini_number(cliff2),
     }
     indexcontours = opts.get("indexcontours", preset.get("indexcontours"))
     if indexcontours is not None:

@@ -17,11 +17,12 @@ _SYMBOL_NAME_TO_OOM: dict[str, str] = {
     "blackline": "416",
 }
 
+# KP vectorconf → ISSprOM: 501.11 je PLOCHA; ulice musí být liniový footprint.
 _SPRINT_ROAD_KP_TO_OOM: dict[str, str] = {
-    "503": "501.11",
-    "504": "506",
-    "505": "505.1",
-    "507": "507",
+    "503": "501.17",  # sjízdná ulice / silnice (~2 m, heavy traffic line)
+    "504": "506",  # nesjízdná / úzká
+    "505": "505.1",  # cesta
+    "507": "507",  # pěšina
 }
 
 _FOREST_ROAD_KP_TO_OOM: dict[str, str] = {

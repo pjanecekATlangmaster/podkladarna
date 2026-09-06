@@ -207,6 +207,18 @@ legend {
   color: var(--muted);
 }
 
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.checkbox-row input {
+  margin-top: 0.2rem;
+}
+
 .form-error {
   color: #a00;
   background: #fff0f0;

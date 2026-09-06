@@ -595,6 +595,26 @@ function applyJobToForm(job) {
       cliff.value = cliffVal;
     }
   }
+  const vege = form.kp_vege_height;
+  if (vege) {
+    const raw = (job.options || {}).kp_vege_height;
+    const vegeVal = raw == null || raw === "" ? "2" : String(raw);
+    const match = [...vege.options].find(
+      (o) => Math.abs(parseFloat(o.value) - parseFloat(vegeVal)) < 1e-6
+    );
+    if (match) vege.value = match.value;
+  }
+  const sens = form.kp_cliff_sensitivity;
+  if (sens) {
+    const sensVal = (job.options || {}).kp_cliff_sensitivity || "normal";
+    if ([...sens.options].some((o) => o.value === sensVal)) {
+      sens.value = sensVal;
+    }
+  }
+  const furniture = form.kp_osm_furniture;
+  if (furniture) {
+    furniture.checked = Boolean((job.options || {}).kp_osm_furniture);
+  }
   const opts = job.options || {};
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {
