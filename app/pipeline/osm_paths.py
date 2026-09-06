@@ -40,8 +40,9 @@ OSM_API_TIMEOUT_S = 45
 
 # path/footway nestačí – v ČR je spousta použitelných cest jako track/bridleway.
 # Ulice/silnice bereme ze ZABAGED (přesnější), ne z OSM.
+# pedestrian = náměstí / pěší zóny (hlavně sprint).
 OSM_HIGHWAYS = frozenset(
-    {"path", "footway", "steps", "bridleway", "cycleway", "track"}
+    {"path", "footway", "steps", "bridleway", "cycleway", "track", "pedestrian"}
 )
 
 # Vrstvy ZABAGED, vůči kterým bereme OSM jako duplicitní.
@@ -55,6 +56,17 @@ ZABAGED_PATH_LAYERS = frozenset(
         "Most",
         "Podjezd",
         "Zabrana",
+    }
+)
+# Priorita OSM: ořezávat jen proti pevným komunikacím (ne proti Pesina/Cesta).
+ZABAGED_PATH_LAYERS_PRIORITY = frozenset(
+    {
+        "Ulice",
+        "SilniceDalnice",
+        "Lavka",
+        "Most",
+        "Podjezd",
+        "Tunel",
     }
 )
 NEAR_M = 25.0  # zpětná kompatibilita testů / starších volání
@@ -78,6 +90,7 @@ def _overpass_ql(
     east: float,
     *,
     include_furniture: bool = False,
+    osm_priority: bool = False,
 ) -> str:
     bbox = f"{south},{west},{north},{east}"
     # Jedna regex vrstva – méně Overpass zátěže než 6 samostatných way[...].
@@ -102,7 +115,7 @@ def _overpass_ql(
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
     ]
-    if include_furniture:
+    if include_furniture or osm_priority:
         parts.extend(
             [
                 f'node["amenity"="bench"]({bbox});',
@@ -119,6 +132,25 @@ def _overpass_ql(
                 f'way["amenity"="bbq"]({bbox});',
             ]
         )
+    if osm_priority:
+        # Sprint / urban: ploty, zdi, brány, přístřešky, pomníky, fitness…
+        parts.extend(
+            [
+                f'way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]({bbox});',
+                f'node["barrier"~"^(gate|bollard|stile|cycle_barrier|block|lift_gate)$"]({bbox});',
+                f'way["barrier"~"^(gate|bollard|stile|cycle_barrier|block|lift_gate)$"]({bbox});',
+                f'node["historic"~"^(memorial|monument)$"]({bbox});',
+                f'way["historic"~"^(memorial|monument)$"]({bbox});',
+                f'node["man_made"="cross"]({bbox});',
+                f'node["amenity"="shelter"]({bbox});',
+                f'way["amenity"="shelter"]({bbox});',
+                f'node["man_made"="canopy"]({bbox});',
+                f'way["man_made"="canopy"]({bbox});',
+                f'node["leisure"="fitness_station"]({bbox});',
+                f'way["leisure"="fitness_station"]({bbox});',
+                f'node["natural"="tree"]["denotation"~"^(landmark|natural_monument)$"]({bbox});',
+            ]
+        )
     return (
         f"[out:json][timeout:{OVERPASS_QL_TIMEOUT_S}];"
         f"("
@@ -131,6 +163,10 @@ def _overpass_ql(
 _INFO_BOARD_VALUES = frozenset({"board", "map", "trail_board"})
 # Povrch / výplň hřiště – ne křížek (pokrývá leisure=playground).
 _PLAYGROUND_SURFACE = frozenset({"sandpit", "no"})
+_BARRIER_LINES = frozenset({"fence", "wall", "hedge", "retaining_wall"})
+_BARRIER_POINTS = frozenset(
+    {"gate", "bollard", "stile", "cycle_barrier", "block", "lift_gate"}
+)
 # Volitelné umělé objekty (form kp_osm_furniture). Herní prvky sem nepatří.
 _FURNITURE_KINDS = frozenset(
     {
@@ -139,6 +175,19 @@ _FURNITURE_KINDS = frozenset(
         "lamp",
         "picnic_table",
         "firepit",
+    }
+)
+# Jen při kp_osm_priority (sprint urban pack).
+_PRIORITY_KINDS = frozenset(
+    {
+        "fence",
+        "wall",
+        "hedge",
+        "barrier_point",
+        "memorial",
+        "shelter",
+        "fitness",
+        "landmark_tree",
     }
 )
 _POINT_FEATURE_KINDS = frozenset(
@@ -152,8 +201,14 @@ _POINT_FEATURE_KINDS = frozenset(
         "picnic_table",
         "firepit",
         "playground_equipment",
+        "barrier_point",
+        "memorial",
+        "shelter",
+        "fitness",
+        "landmark_tree",
     }
 )
+_LINE_FEATURE_KINDS = frozenset({"fence", "wall", "hedge"})
 
 
 def _is_boardwalk(tags: dict) -> bool:
@@ -171,6 +226,7 @@ def classify_osm_feature(
 
     Dřevěný chodník sem nepatří – mapuje se jako běžná pěšina.
     Nábytek/lampy (FURNITURE) filtruje prepare podle include_furniture.
+    PRIORITY pack (ploty, pomníky, …) filtruje prepare podle osm_priority.
     Lampy → 530 (kolečko); lavičky/ohniště/herní prvky/… → 531 (křížek).
     """
     leisure = (tags.get("leisure") or "").lower()
@@ -182,6 +238,9 @@ def classify_osm_feature(
     natural = (tags.get("natural") or "").lower()
     highway = (tags.get("highway") or "").lower()
     playground = (tags.get("playground") or "").lower()
+    barrier = (tags.get("barrier") or "").lower()
+    historic = (tags.get("historic") or "").lower()
+    denotation = (tags.get("denotation") or "").lower()
     is_node = geom == "node"
 
     if amenity == "bench":
@@ -200,6 +259,22 @@ def classify_osm_feature(
         return "playground_equipment", "531"
     if leisure == "playground" and is_node:
         return "playground_equipment", "531"
+    if leisure == "fitness_station":
+        return "fitness", "531"
+    if barrier in _BARRIER_LINES:
+        if barrier in {"wall", "retaining_wall"}:
+            return "wall", "513.2"
+        if barrier == "hedge":
+            return "hedge", "518"
+        return "fence", "518"
+    if barrier in _BARRIER_POINTS:
+        return "barrier_point", "531"
+    if historic in {"memorial", "monument"} or man_made == "cross":
+        return "memorial", "526"
+    if amenity == "shelter" or man_made == "canopy":
+        return "shelter", "522"
+    if natural == "tree" and denotation in {"landmark", "natural_monument"}:
+        return "landmark_tree", "417"
     if (
         tourism == "information" or information in _INFO_BOARD_VALUES
     ) and information not in {"office", "visitor_centre", "visitor_center"}:
@@ -228,6 +303,12 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     sprint = preset_id.startswith("sprint")
     if kind == "cave_entrance":
         return "203.1" if sprint else "203.2"
+    if kind == "fence":
+        return "518" if sprint else "516"
+    if kind == "wall":
+        return "513.2" if sprint else "513"
+    if kind == "hedge":
+        return "518" if sprint else "416"
     if stored_code:
         return stored_code
     defaults = {
@@ -238,6 +319,11 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "firepit": "531",
         # ISSprOM/ISOM prominent man-made × – na sprintu stejně (čitelné na žluté ploše hřiště).
         "playground_equipment": "531",
+        "barrier_point": "531",
+        "fitness": "531",
+        "memorial": "526",
+        "shelter": "522",
+        "landmark_tree": "417",
         "wetland": "308",
         "playground": "401",
         "pitch": "401",
@@ -305,10 +391,16 @@ def _fetch_overpass(
     north: float,
     *,
     include_furniture: bool = False,
+    osm_priority: bool = False,
     log=None,
 ) -> tuple[list[dict] | None, Exception | None]:
     ql = _overpass_ql(
-        south, west, north, east, include_furniture=include_furniture
+        south,
+        west,
+        north,
+        east,
+        include_furniture=include_furniture,
+        osm_priority=osm_priority,
     )
     body = urllib.parse.urlencode({"data": ql}).encode("utf-8")
     last_err: Exception | None = None
@@ -378,6 +470,7 @@ def fetch_osm_path_elements(
     bbox_wgs84: tuple[float, float, float, float],
     *,
     include_furniture: bool = False,
+    osm_priority: bool = False,
     log=None,
 ) -> list[dict]:
     west, south, east, north = bbox_wgs84
@@ -387,6 +480,7 @@ def fetch_osm_path_elements(
         east,
         north,
         include_furniture=include_furniture,
+        osm_priority=osm_priority,
         log=log,
     )
     if elements is not None:
@@ -449,6 +543,7 @@ def highway_width_rank(highway: str) -> int:
         "track": 40,
         "bridleway": 30,
         "cycleway": 25,
+        "pedestrian": 20,
         "path": 10,
         "footway": 10,
         "steps": 5,
@@ -693,9 +788,14 @@ def unique_polyline_parts(
     return [p for p in parts if len(p) >= 2]
 
 
-def _zabaged_shp_members(zabaged_clean: Path) -> list[tuple[str, str]]:
+def _zabaged_shp_members(
+    zabaged_clean: Path,
+    *,
+    layers: frozenset[str] | None = None,
+) -> list[tuple[str, str]]:
     """[(kanonický název vrstvy, cesta uvnitř ZIPu k .shp), ...]."""
-    wanted = {name.lower(): name for name in ZABAGED_PATH_LAYERS}
+    layer_set = layers if layers is not None else ZABAGED_PATH_LAYERS
+    wanted = {name.lower(): name for name in layer_set}
     found: dict[str, str] = {}
     with ZipFile(zabaged_clean) as zf:
         for name in zf.namelist():
@@ -766,7 +866,12 @@ def _iter_line_parts_from_shp(shp_ref: str | Path):
             yield pts
 
 
-def _zabaged_path_lines(zabaged_clean: Path, *, log=None) -> list[list[tuple[float, float]]]:
+def _zabaged_path_lines(
+    zabaged_clean: Path,
+    *,
+    log=None,
+    layers: frozenset[str] | None = None,
+) -> list[list[tuple[float, float]]]:
     """Načte ZABAGED cesty/pěšiny pro dedup – extrakce do temp (spolehlivější než /vsizip/)."""
     lines: list[list[tuple[float, float]]] = []
     try:
@@ -783,7 +888,7 @@ def _zabaged_path_lines(zabaged_clean: Path, *, log=None) -> list[list[tuple[flo
                 log("OSM dedup: chybí pyogrio i GDAL/OGR – dedup proti ZABAGED vypnut")
             return lines
 
-    members = _zabaged_shp_members(zabaged_clean)
+    members = _zabaged_shp_members(zabaged_clean, layers=layers)
     if not members:
         if log:
             log("OSM dedup: v ZABAGED ZIPu nejsou vrstvy cest/pěšin")
@@ -949,6 +1054,11 @@ def osm_feature_to_5514(
             pts.append(wgs84_to_projected(float(lat), float(lon)))
     if not pts:
         return None
+    # Ploty / zdi / živé ploty – celá linie (i uzavřený ring jako LineString).
+    if kind in _LINE_FEATURE_KINDS:
+        if len(pts) < 2:
+            return None
+        return kind, code, pts
     # Bodové symboly – vždy jeden bod (těžiště).
     if kind in _POINT_FEATURE_KINDS:
         if len(pts) == 1:
@@ -988,10 +1098,16 @@ def prepare_osm_paths(
     zabaged_clean: Path | None,
     *,
     include_furniture: bool = False,
+    osm_priority: bool = False,
     log=None,
 ) -> Path | None:
+    # Priorita OSM ⇒ i nábytek/lampy (Karel: jeden checkbox = maximum urban detail).
+    want_furniture = include_furniture or osm_priority
     elements = fetch_osm_path_elements(
-        bbox_wgs84, include_furniture=include_furniture, log=log
+        bbox_wgs84,
+        include_furniture=want_furniture,
+        osm_priority=osm_priority,
+        log=log,
     )
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     features: list[dict] = []
@@ -1002,7 +1118,10 @@ def prepare_osm_paths(
         classified = classify_osm_feature(tags, geom=el_geom)
         if classified:
             kind, _code = classified
-            if kind in _FURNITURE_KINDS and not include_furniture:
+            if kind in _FURNITURE_KINDS and not want_furniture:
+                skipped += 1
+                continue
+            if kind in _PRIORITY_KINDS and not osm_priority:
                 skipped += 1
                 continue
             feat = osm_feature_to_5514(el)
@@ -1011,7 +1130,12 @@ def prepare_osm_paths(
                 continue
             kind, code, pts = feat
             closed = len(pts) >= 3 and pts[0] == pts[-1]
-            if closed and kind not in _POINT_FEATURE_KINDS:
+            if kind in _LINE_FEATURE_KINDS and len(pts) >= 2:
+                geometry = {
+                    "type": "LineString",
+                    "coordinates": [[x, y] for x, y in pts],
+                }
+            elif closed and kind not in _POINT_FEATURE_KINDS:
                 coords = [[x, y] for x, y in pts]
                 geometry = {"type": "Polygon", "coordinates": [coords]}
             else:
@@ -1040,10 +1164,18 @@ def prepare_osm_paths(
             hw = "path"
         osm_items.append((pts, hw))
     zabaged_lines: list[list[tuple[float, float]]] = []
+    dedup_layers = (
+        ZABAGED_PATH_LAYERS_PRIORITY if osm_priority else ZABAGED_PATH_LAYERS
+    )
     if zabaged_clean and zabaged_clean.is_file():
-        zabaged_lines = _zabaged_path_lines(zabaged_clean, log=log)
+        zabaged_lines = _zabaged_path_lines(
+            zabaged_clean, log=log, layers=dedup_layers
+        )
         if log:
-            log(f"OSM dedup: {len(zabaged_lines)} ZABAGED linií (cesty/pěšiny)")
+            mode = "priorita OSM (jen silnice/ulice)" if osm_priority else "standard"
+            log(
+                f"OSM dedup ({mode}): {len(zabaged_lines)} ZABAGED linií"
+            )
         if not zabaged_lines and log:
             log(
                 "OSM dedup: varování – ZABAGED ZIP je, ale 0 cestovních linií; "
@@ -1181,6 +1313,14 @@ def build_osm_feature_parts(
         "firepit": "OSM ohniště",
         "wetland": "OSM mokřad",
         "cave_entrance": "OSM vstup do jeskyně",
+        "fence": "OSM ploty",
+        "wall": "OSM zdi",
+        "hedge": "OSM živé ploty",
+        "barrier_point": "OSM brány/sloupky",
+        "memorial": "OSM pomníky",
+        "shelter": "OSM přístřešky",
+        "fitness": "OSM fitness",
+        "landmark_tree": "OSM významné stromy",
     }
     kind_order = (
         "water_well_building",
@@ -1191,11 +1331,19 @@ def build_osm_feature_parts(
         "playground_equipment",
         "wetland",
         "cave_entrance",
+        "fence",
+        "wall",
+        "hedge",
+        "shelter",
+        "memorial",
+        "landmark_tree",
         "info_board",
         "bench",
         "lamp",
         "picnic_table",
         "firepit",
+        "barrier_point",
+        "fitness",
     )
     symbol_cache: dict[str, int | None] = {}
     for feat in data.get("features") or []:

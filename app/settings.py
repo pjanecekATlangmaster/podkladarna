@@ -68,4 +68,6 @@ DEFAULT_OPTIONS = {
     # OSM lavičky/ohniště/tabule (531), lampy (530) – default vypnuto.
     # Herní prvky na hřišti (531) se berou vždy.
     "kp_osm_furniture": False,
+    # Sprint urban: maximum OSM (ploty, brány, pomníky, …) + slabší dedup pěšin.
+    "kp_osm_priority": False,
 }

@@ -377,6 +377,15 @@ async def api_create_job(request: Request):
         "yes",
         "on",
     }
+    priority_raw = _form_str(form, "kp_osm_priority").strip().lower()
+    options["kp_osm_priority"] = priority_raw in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if options["kp_osm_priority"]:
+        options["kp_osm_furniture"] = True
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:
@@ -404,7 +413,8 @@ async def api_create_job(request: Request):
         f"vege={options.get('kp_vege_height', 2.0)} m, "
         f"srázy={options.get('kp_cliff_sensitivity', 'normal')}/"
         f"{options.get('kp_cliff_symbol', 'earth_bank')}, "
-        f"nábytek/lampy={'ano' if options.get('kp_osm_furniture') else 'ne'}"
+        f"nábytek/lampy={'ano' if options.get('kp_osm_furniture') else 'ne'}, "
+        f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}"
     )
 
     try:

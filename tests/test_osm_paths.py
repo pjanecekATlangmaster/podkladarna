@@ -62,6 +62,21 @@ def test_classify_osm_well_and_playground():
         {"playground": "climbingframe"}, geom="node"
     ) == ("playground_equipment", "531")
     assert classify_osm_feature({"playground": "sandpit"}, geom="way") is None
+    assert classify_osm_feature({"barrier": "fence"}) == ("fence", "518")
+    assert classify_osm_feature({"barrier": "wall"}) == ("wall", "513.2")
+    assert classify_osm_feature({"barrier": "gate"}, geom="node") == (
+        "barrier_point",
+        "531",
+    )
+    assert classify_osm_feature({"historic": "memorial"}, geom="node") == (
+        "memorial",
+        "526",
+    )
+    assert classify_osm_feature({"amenity": "shelter"}) == ("shelter", "522")
+    assert classify_osm_feature({"leisure": "fitness_station"}) == ("fitness", "531")
+    assert classify_osm_feature(
+        {"natural": "tree", "denotation": "landmark"}, geom="node"
+    ) == ("landmark_tree", "417")
     assert classify_osm_feature({"natural": "wetland"}) == ("wetland", "308")
     assert classify_osm_feature({"natural": "cave_entrance"}) == (
         "cave_entrance",
@@ -96,6 +111,22 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("bench", "sprint_2m") == "531"
     assert feature_oom_code("firepit", "forest_10000") == "531"
     assert feature_oom_code("playground_equipment", "forest_7500") == "531"
+    assert feature_oom_code("fence", "sprint_2m") == "518"
+    assert feature_oom_code("fence", "forest_10000") == "516"
+    assert feature_oom_code("wall", "sprint_2m") == "513.2"
+    assert feature_oom_code("hedge", "forest_10000") == "416"
+
+
+def test_osm_priority_overpass_includes_barriers():
+    from app.pipeline.osm_paths import _overpass_ql
+
+    ql = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=True)
+    assert "barrier" in ql
+    assert 'amenity"="bench"' in ql
+    assert "fitness_station" in ql
+    ql_off = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=False)
+    assert "fitness_station" not in ql_off
+    assert "barrier" not in ql_off
 
 
 def test_osm_oom_code_paths_only():

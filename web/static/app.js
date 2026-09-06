@@ -615,6 +615,10 @@ function applyJobToForm(job) {
   if (furniture) {
     furniture.checked = Boolean((job.options || {}).kp_osm_furniture);
   }
+  const priority = form.kp_osm_priority;
+  if (priority) {
+    priority.checked = Boolean((job.options || {}).kp_osm_priority);
+  }
   const opts = job.options || {};
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {

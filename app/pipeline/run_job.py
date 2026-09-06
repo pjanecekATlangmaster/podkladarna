@@ -221,6 +221,7 @@ def run_job_pipeline(
                 tuple(bbox),
                 zabaged_clean if has_zabaged else None,
                 include_furniture=bool(options.get("kp_osm_furniture")),
+                osm_priority=bool(options.get("kp_osm_priority")),
                 log=log,
             )
         except Exception as exc:
