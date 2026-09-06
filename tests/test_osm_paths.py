@@ -41,12 +41,27 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"amenity": "fountain"}) == ("water_well", "311")
     assert classify_osm_feature({"natural": "spring"}) == ("spring", "312")
     assert classify_osm_feature({"leisure": "playground"}) == ("playground", "401")
+    assert classify_osm_feature(
+        {"leisure": "pitch", "sport": "basketball"}
+    ) == ("pitch", "401")
     assert classify_osm_feature({"amenity": "bench"}) == ("bench", "531")
-    assert classify_osm_feature({"highway": "street_lamp"}) == ("lamp", "531")
+    assert classify_osm_feature({"highway": "street_lamp"}) == ("lamp", "530")
     assert classify_osm_feature({"tourism": "information", "information": "board"}) == (
         "info_board",
         "531",
     )
+    assert classify_osm_feature({"leisure": "firepit"}) == ("firepit", "531")
+    assert classify_osm_feature({"amenity": "bbq"}) == ("firepit", "531")
+    assert classify_osm_feature(
+        {"playground": "swing"}, geom="node"
+    ) == ("playground_equipment", "531")
+    assert classify_osm_feature(
+        {"leisure": "playground"}, geom="node"
+    ) == ("playground_equipment", "531")
+    assert classify_osm_feature(
+        {"playground": "climbingframe"}, geom="node"
+    ) == ("playground_equipment", "531")
+    assert classify_osm_feature({"playground": "sandpit"}, geom="way") is None
     assert classify_osm_feature({"natural": "wetland"}) == ("wetland", "308")
     assert classify_osm_feature({"natural": "cave_entrance"}) == (
         "cave_entrance",
@@ -77,6 +92,10 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("cave_entrance", "sprint_2m") == "203.1"
     assert feature_oom_code("cave_entrance", "forest_10000") == "203.2"
     assert feature_oom_code("spring", "forest_10000") == "312"
+    assert feature_oom_code("lamp", "sprint_2m") == "530"
+    assert feature_oom_code("bench", "sprint_2m") == "531"
+    assert feature_oom_code("firepit", "forest_10000") == "531"
+    assert feature_oom_code("playground_equipment", "forest_7500") == "531"
 
 
 def test_osm_oom_code_paths_only():

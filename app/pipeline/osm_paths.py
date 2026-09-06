@@ -92,6 +92,12 @@ def _overpass_ql(
         f'node["natural"="spring"]({bbox});',
         f'way["natural"="spring"]({bbox});',
         f'way["leisure"="playground"]({bbox});',
+        f'way["leisure"="pitch"]({bbox});',
+        f'node["leisure"="pitch"]({bbox});',
+        # Herní prvky vždy (křížek 531) – ne za checkboxem nábytku.
+        f'node["leisure"="playground"]({bbox});',
+        f'node["playground"]({bbox});',
+        f'way["playground"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
@@ -107,6 +113,10 @@ def _overpass_ql(
                 f'node["information"~"^(board|map|trail_board)$"]({bbox});',
                 f'way["information"~"^(board|map|trail_board)$"]({bbox});',
                 f'node["highway"="street_lamp"]({bbox});',
+                f'node["leisure"="firepit"]({bbox});',
+                f'way["leisure"="firepit"]({bbox});',
+                f'node["amenity"="bbq"]({bbox});',
+                f'way["amenity"="bbq"]({bbox});',
             ]
         )
     return (
@@ -119,7 +129,18 @@ def _overpass_ql(
 
 
 _INFO_BOARD_VALUES = frozenset({"board", "map", "trail_board"})
-_FURNITURE_KINDS = frozenset({"bench", "info_board", "lamp", "picnic_table"})
+# Povrch / výplň hřiště – ne křížek (pokrývá leisure=playground).
+_PLAYGROUND_SURFACE = frozenset({"sandpit", "no"})
+# Volitelné umělé objekty (form kp_osm_furniture). Herní prvky sem nepatří.
+_FURNITURE_KINDS = frozenset(
+    {
+        "bench",
+        "info_board",
+        "lamp",
+        "picnic_table",
+        "firepit",
+    }
+)
 _POINT_FEATURE_KINDS = frozenset(
     {
         "bench",
@@ -129,6 +150,8 @@ _POINT_FEATURE_KINDS = frozenset(
         "spring",
         "lamp",
         "picnic_table",
+        "firepit",
+        "playground_equipment",
     }
 )
 
@@ -141,11 +164,14 @@ def _is_boardwalk(tags: dict) -> bool:
     )
 
 
-def classify_osm_feature(tags: dict) -> tuple[str, str] | None:
+def classify_osm_feature(
+    tags: dict, *, geom: str = "way"
+) -> tuple[str, str] | None:
     """(kind, výchozí OOM kód) – kód může přepsat feature_oom_code podle presetu.
 
     Dřevěný chodník sem nepatří – mapuje se jako běžná pěšina.
     Nábytek/lampy (FURNITURE) filtruje prepare podle include_furniture.
+    Lampy → 530 (kolečko); lavičky/ohniště/herní prvky/… → 531 (křížek).
     """
     leisure = (tags.get("leisure") or "").lower()
     man_made = (tags.get("man_made") or "").lower()
@@ -155,13 +181,25 @@ def classify_osm_feature(tags: dict) -> tuple[str, str] | None:
     information = (tags.get("information") or "").lower()
     natural = (tags.get("natural") or "").lower()
     highway = (tags.get("highway") or "").lower()
+    playground = (tags.get("playground") or "").lower()
+    is_node = geom == "node"
 
     if amenity == "bench":
         return "bench", "531"
     if leisure == "picnic_table":
         return "picnic_table", "531"
     if highway == "street_lamp":
-        return "lamp", "531"
+        return "lamp", "530"
+    if leisure == "firepit" or amenity == "bbq":
+        return "firepit", "531"
+    # Herní prvek (houpačka, skluzavka, …) nebo bodové hřiště → křížek.
+    # Pískoviště apod. přeskočit – je to povrch uvnitř leisure=playground.
+    if playground:
+        if playground in _PLAYGROUND_SURFACE:
+            return None
+        return "playground_equipment", "531"
+    if leisure == "playground" and is_node:
+        return "playground_equipment", "531"
     if (
         tourism == "information" or information in _INFO_BOARD_VALUES
     ) and information not in {"office", "visitor_centre", "visitor_center"}:
@@ -176,6 +214,8 @@ def classify_osm_feature(tags: dict) -> tuple[str, str] | None:
         return "spring", "312"
     if leisure == "playground":
         return "playground", "401"
+    if leisure == "pitch":
+        return "pitch", "401"
     if man_made == "water_well" or amenity == "fountain":
         if building and building not in {"no", "false", "0"}:
             return "water_well_building", "521"
@@ -193,10 +233,14 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     defaults = {
         "bench": "531",
         "info_board": "531",
-        "lamp": "531",
+        "lamp": "530",
         "picnic_table": "531",
+        "firepit": "531",
+        # ISSprOM/ISOM prominent man-made × – na sprintu stejně (čitelné na žluté ploše hřiště).
+        "playground_equipment": "531",
         "wetland": "308",
         "playground": "401",
+        "pitch": "401",
         "water_well": "311",
         "water_well_building": "521",
         "spring": "312",
@@ -222,7 +266,7 @@ def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
 
     elements: list[dict] = []
     for nid, tags in node_tags.items():
-        if not classify_osm_feature(tags):
+        if not classify_osm_feature(tags, geom="node"):
             continue
         lat, lon = nodes[nid]
         elements.append(
@@ -237,7 +281,7 @@ def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
         tags = {t.get("k"): t.get("v") for t in way.findall("tag") if t.get("k")}
         hw = (tags.get("highway") or "").lower()
         is_path = hw in OSM_HIGHWAYS or _is_boardwalk(tags)
-        is_feat = classify_osm_feature(tags) is not None
+        is_feat = classify_osm_feature(tags, geom="way") is not None
         if not is_path and not is_feat:
             continue
         geometry: list[dict] = []
@@ -885,7 +929,8 @@ def osm_feature_to_5514(
 ) -> tuple[str, str, list[tuple[float, float]]] | None:
     """(kind, oom_code, ring_or_point) v S-JTSK, nebo None."""
     tags = element.get("tags") or {}
-    classified = classify_osm_feature(tags)
+    geom = "node" if element.get("type") == "node" else "way"
+    classified = classify_osm_feature(tags, geom=geom)
     if not classified:
         return None
     kind, code = classified
@@ -953,7 +998,8 @@ def prepare_osm_paths(
     skipped = 0
     for el in elements:
         tags = el.get("tags") or {}
-        classified = classify_osm_feature(tags)
+        el_geom = "node" if el.get("type") == "node" else "way"
+        classified = classify_osm_feature(tags, geom=el_geom)
         if classified:
             kind, _code = classified
             if kind in _FURNITURE_KINDS and not include_furniture:
@@ -1122,7 +1168,9 @@ def build_osm_feature_parts(
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     names = {
-        "playground": "OSM hřiště",
+        "playground": "OSM hřiště (401)",
+        "pitch": "OSM sportoviště (401)",
+        "playground_equipment": "OSM herní prvky (531 ×)",
         "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
         "spring": "OSM prameny",
@@ -1130,6 +1178,7 @@ def build_osm_feature_parts(
         "info_board": "OSM informační tabule",
         "lamp": "OSM lampy",
         "picnic_table": "OSM stoly",
+        "firepit": "OSM ohniště",
         "wetland": "OSM mokřad",
         "cave_entrance": "OSM vstup do jeskyně",
     }
@@ -1138,12 +1187,15 @@ def build_osm_feature_parts(
         "water_well",
         "spring",
         "playground",
+        "pitch",
+        "playground_equipment",
         "wetland",
         "cave_entrance",
         "info_board",
         "bench",
         "lamp",
         "picnic_table",
+        "firepit",
     )
     symbol_cache: dict[str, int | None] = {}
     for feat in data.get("features") or []:

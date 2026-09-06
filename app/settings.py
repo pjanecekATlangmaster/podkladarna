@@ -65,6 +65,7 @@ DEFAULT_OPTIONS = {
     "kp_vege_height": 2.0,
     # Citlivost detekce srázů: low | normal | high | very_high.
     "kp_cliff_sensitivity": "normal",
-    # OSM lavičky, tabule, lampy, stoly (531) – default vypnuto.
+    # OSM lavičky/ohniště/tabule (531), lampy (530) – default vypnuto.
+    # Herní prvky na hřišti (531) se berou vždy.
     "kp_osm_furniture": False,
 }
