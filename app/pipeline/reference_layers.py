@@ -28,8 +28,14 @@ WEB_MERCATOR_HALF = 20037508.342789244
 ORTOFOTO_WMS = (
     "https://ags.cuzk.gov.cz/arcgis1/services/ORTOFOTO/MapServer/WMSServer"
 )
-# Veřejný OSM WMS (fallback, když dlaždice selžou / jsou blokované).
+# Veřejný OSM WMS (poslední fallback – méně detailní než XYZ dlaždice).
 OSM_WMS = "https://ows.terrestris.de/osm/service"
+# Preferované XYZ zdroje pro barevný Mapnik styl (GDAL WMS driver).
+OSM_XYZ_URLS = (
+    "https://tile.openstreetmap.de/${z}/${x}/${y}.png",
+    "https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png",
+    "https://tile.openstreetmap.org/${z}/${x}/${y}.png",
+)
 HILLSHADE_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer"
 )
@@ -659,6 +665,82 @@ def _build_osm_from_wms(
     return dest_png.is_file() and dest_png.stat().st_size > 500
 
 
+def _write_osm_xyz_wms_xml(path: Path, server_url: str) -> None:
+    """GDAL WMS/TMS XML – barevné OSM dlaždice (Mapnik), ne šedý Terrestris WMS."""
+    path.write_text(
+        "\n".join(
+            [
+                "<GDAL_WMS>",
+                '  <Service name="TMS">',
+                f"    <ServerUrl>{server_url}</ServerUrl>",
+                "  </Service>",
+                "  <DataWindow>",
+                "    <UpperLeftX>-20037508.342789244</UpperLeftX>",
+                "    <UpperLeftY>20037508.342789244</UpperLeftY>",
+                "    <LowerRightX>20037508.342789244</LowerRightX>",
+                "    <LowerRightY>-20037508.342789244</LowerRightY>",
+                "    <TileLevel>19</TileLevel>",
+                "    <TileCountX>1</TileCountX>",
+                "    <TileCountY>1</TileCountY>",
+                "    <YOrigin>top</YOrigin>",
+                "  </DataWindow>",
+                "  <Projection>EPSG:3857</Projection>",
+                "  <BlockSizeX>256</BlockSizeX>",
+                "  <BlockSizeY>256</BlockSizeY>",
+                "  <BandsCount>3</BandsCount>",
+                f"  <UserAgent>{USER_AGENT}</UserAgent>",
+                "  <Cache/>",
+                "</GDAL_WMS>",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _build_osm_from_xyz(
+    bbox_wgs84: tuple[float, float, float, float],
+    template_png: Path,
+    template_pgw: Path,
+    dest_png: Path,
+    dest_pgw: Path,
+    *,
+    log: callable | None = None,
+) -> bool:
+    """Stáhne barevné OSM XYZ přes GDAL (spolehlivější než ruční urllib v Dockeru)."""
+    del bbox_wgs84  # extent bere _align_to_template z PNG šablony
+    work = dest_png.parent / "_osm_xyz"
+    work.mkdir(parents=True, exist_ok=True)
+    for url in OSM_XYZ_URLS:
+        xml = work / "osm_xyz.xml"
+        try:
+            _write_osm_xyz_wms_xml(xml, url)
+            if log:
+                host = url.split("/")[2]
+                log(f"OSM XYZ dlaždice ({host})…")
+            _align_to_template(
+                xml,
+                template_png,
+                template_pgw,
+                dest_png,
+                dest_pgw,
+                resample="cubic",
+                log=log,
+            )
+        except Exception as exc:
+            if log:
+                log(f"OSM XYZ {url.split('/')[2]}: {exc}")
+            continue
+        if dest_png.is_file() and dest_png.stat().st_size > 20_000:
+            # Jednopásmový / prázdný výstup odmítnout.
+            head = dest_png.read_bytes()[:32]
+            if head[:8] == b"\x89PNG\r\n\x1a\n" and head[25] in (2, 6, 3):
+                if log:
+                    log(f"OSM podklad: {dest_png.name} (XYZ, © OpenStreetMap)")
+                return True
+    return False
+
+
 def build_osm_reference(
     bbox_wgs84: tuple[float, float, float, float],
     template_png: Path,
@@ -668,12 +750,23 @@ def build_osm_reference(
     *,
     log: callable | None = None,
 ) -> bool:
+    # 1) GDAL XYZ (barevný Mapnik) – preferováno
+    try:
+        if _build_osm_from_xyz(
+            bbox_wgs84, template_png, template_pgw, dest_png, dest_pgw, log=log
+        ):
+            return True
+    except Exception as exc:
+        if log:
+            log(f"OSM XYZ selhal ({exc})")
+
     west, south, east, north = bbox_wgs84
     try:
         z = _pick_osm_zoom(west, south, east, north)
         x0, y1 = _lon_lat_to_tile(west, north, z)
         x1, y0 = _lon_lat_to_tile(east, south, z)
         tiles: list[tuple[Path, int, int]] = []
+        failed = 0
         work = dest_png.parent / "_osm_tiles"
         work.mkdir(parents=True, exist_ok=True)
         for x in range(x0, x1 + 1):
@@ -681,11 +774,14 @@ def build_osm_reference(
                 try:
                     src = fetch_tile(z, x, y)
                 except Exception:
+                    failed += 1
                     continue
                 dest = work / f"{z}_{x}_{y}.png"
                 if not dest.exists():
                     dest.write_bytes(src.read_bytes())
                 tiles.append((dest, x, y))
+        if log and failed:
+            log(f"OSM dlaždice: {failed} stažení selhalo (zoom {z})")
         if tiles:
             if log:
                 log(f"OSM dlaždice: zoom {z}, {len(tiles)} ks")
@@ -705,6 +801,8 @@ def build_osm_reference(
         if log:
             log(f"OSM dlaždice selhaly ({exc}), zkouším WMS…")
 
+    if log:
+        log("OSM: poslední fallback Terrestris WMS (méně detailní)")
     return _build_osm_from_wms(
         bbox_wgs84, template_png, template_pgw, dest_png, dest_pgw, log=log
     )

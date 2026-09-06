@@ -374,6 +374,35 @@ def feature_props(feature, *, layer_name: str) -> dict[str, object]:
     return props
 
 
+def _ogr_line_parts_5514(geom) -> list[list[tuple[float, float]]]:
+    if geom is None:
+        return []
+    name = geom.GetGeometryName()
+    out: list[list[tuple[float, float]]] = []
+    if name == "LINESTRING":
+        pts = [
+            (float(geom.GetX(i)), float(geom.GetY(i)))
+            for i in range(geom.GetPointCount())
+        ]
+        if len(pts) >= 2:
+            out.append(pts)
+    elif name in {"MULTILINESTRING", "GEOMETRYCOLLECTION"}:
+        for i in range(geom.GetGeometryCount()):
+            out.extend(_ogr_line_parts_5514(geom.GetGeometryRef(i)))
+    return out
+
+
+def _wkb_line_parts_5514(wkb: bytes) -> list[list[tuple[float, float]]]:
+    parts, _ = _wkb_parts(wkb)
+    out: list[list[tuple[float, float]]] = []
+    for part in parts:
+        if part[0] == "line":
+            pts = [(float(x), float(y)) for x, y in part[1]]  # type: ignore[misc]
+            if len(pts) >= 2:
+                out.append(pts)
+    return out
+
+
 def build_zabaged_object_parts(
     zabaged_clean: Path,
     *,
@@ -403,6 +432,15 @@ def build_zabaged_object_parts(
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
 
+    # Cesta (širší) má přednost před Pesina na stejné střednici.
+    from app.pipeline.osm_paths import (
+        COVER_DROP,
+        MATCH_M,
+        _SegmentIndex,
+        centerline_cover_fraction,
+    )
+
+    wider_paths = _SegmentIndex()
     parts: list[OomObjectPart] = []
     with zipfile.ZipFile(zabaged_clean) as zf:
         shp_names = sorted(
@@ -442,6 +480,17 @@ def build_zabaged_object_parts(
                 geom = feature.GetGeometryRef()
                 if geom is None:
                     continue
+                line_parts = _ogr_line_parts_5514(geom)
+                if layer_name == "Pesina" and line_parts:
+                    if all(
+                        centerline_cover_fraction(pts, wider_paths, match_m=MATCH_M)
+                        >= COVER_DROP
+                        for pts in line_parts
+                    ):
+                        continue
+                if layer_name == "Cesta":
+                    for pts in line_parts:
+                        wider_paths.add_line(pts)
                 objects.extend(
                     _geom_objects(
                         geom,
@@ -472,6 +521,17 @@ def build_zabaged_object_parts(
                 symbol_index = symbol_index_for_code(preset_id, scale, code)
                 if symbol_index is None:
                     continue
+                line_parts = _wkb_line_parts_5514(wkb)
+                if layer_name == "Pesina" and line_parts:
+                    if all(
+                        centerline_cover_fraction(pts, wider_paths, match_m=MATCH_M)
+                        >= COVER_DROP
+                        for pts in line_parts
+                    ):
+                        continue
+                if layer_name == "Cesta":
+                    for pts in line_parts:
+                        wider_paths.add_line(pts)
                 geom_parts, _ = _wkb_parts(wkb)
                 objects.extend(
                     _geom_parts_to_objects(

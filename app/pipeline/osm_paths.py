@@ -1,4 +1,4 @@
-"""OSM pěšiny a lesní cesty do OOM, bez duplicit se ZABAGED."""
+"""OSM pěšiny, studny a hřiště do OOM (bez duplicit cest se ZABAGED)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,14 @@ from zipfile import ZipFile
 from app.pipeline.crs_5514 import wgs84_to_projected
 from app.pipeline.fetch_openzu import USER_AGENT
 from app.pipeline.oom_coords import projected_to_map_coord
-from app.pipeline.oom_import import OomObjectPart, _path_object, _pyogrio_layer_rows, _wkb_parts
+from app.pipeline.oom_import import (
+    OomObjectPart,
+    _area_object,
+    _path_object,
+    _point_object,
+    _pyogrio_layer_rows,
+    _wkb_parts,
+)
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 
 # Veřejná zrcadla – hlavní DE často hlásí 504; rotujeme rychle.
@@ -69,15 +76,37 @@ def _overpass_ql(south: float, west: float, north: float, east: float) -> str:
     hw = "|".join(sorted(OSM_HIGHWAYS))
     return (
         f"[out:json][timeout:{OVERPASS_QL_TIMEOUT_S}];"
+        f"("
         f'way["highway"~"^({hw})$"]({bbox});'
+        f'way["man_made"="water_well"]({bbox});'
+        f'node["man_made"="water_well"]({bbox});'
+        f'way["leisure"="playground"]({bbox});'
+        f");"
         f"out geom;"
     )
 
 
+def classify_osm_feature(tags: dict) -> tuple[str, str] | None:
+    """(kind, OOM kód) pro studny / hřiště; jinak None."""
+    leisure = (tags.get("leisure") or "").lower()
+    man_made = (tags.get("man_made") or "").lower()
+    building = (tags.get("building") or "").lower()
+    if leisure == "playground":
+        # ISSprOM/ISOM nemá symbol hřiště – otevřený terén.
+        return "playground", "401"
+    if man_made == "water_well":
+        # Studniční domek → budova; samotná studna → 311.
+        if building and building not in {"no", "false", "0"}:
+            return "water_well_building", "521"
+        return "water_well", "311"
+    return None
+
+
 def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
-    """Vyfiltruje relevantní highway z OSM API map call (.osm XML)."""
+    """Vyfiltruje highway + studny/hřiště z OSM API map call (.osm XML)."""
     root = ET.fromstring(xml_text)
     nodes: dict[str, tuple[float, float]] = {}
+    node_tags: dict[str, dict] = {}
     for node in root.findall("node"):
         nid = node.get("id")
         lat = node.get("lat")
@@ -85,11 +114,29 @@ def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
         if nid is None or lat is None or lon is None:
             continue
         nodes[nid] = (float(lat), float(lon))
+        tags = {t.get("k"): t.get("v") for t in node.findall("tag") if t.get("k")}
+        if tags:
+            node_tags[nid] = tags
 
     elements: list[dict] = []
+    for nid, tags in node_tags.items():
+        if not classify_osm_feature(tags):
+            continue
+        lat, lon = nodes[nid]
+        elements.append(
+            {
+                "type": "node",
+                "tags": tags,
+                "lat": lat,
+                "lon": lon,
+            }
+        )
     for way in root.findall("way"):
         tags = {t.get("k"): t.get("v") for t in way.findall("tag") if t.get("k")}
-        if (tags.get("highway") or "").lower() not in OSM_HIGHWAYS:
+        hw = (tags.get("highway") or "").lower()
+        is_path = hw in OSM_HIGHWAYS
+        is_feat = classify_osm_feature(tags) is not None
+        if not is_path and not is_feat:
             continue
         geometry: list[dict] = []
         for nd in way.findall("nd"):
@@ -98,7 +145,9 @@ def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
                 continue
             lat, lon = nodes[ref]
             geometry.append({"lat": lat, "lon": lon})
-        if len(geometry) < 2:
+        if is_path and len(geometry) < 2:
+            continue
+        if is_feat and len(geometry) < 1:
             continue
         elements.append({"type": "way", "tags": tags, "geometry": geometry})
     return elements
@@ -130,11 +179,15 @@ def _fetch_overpass(
             elements = [
                 e
                 for e in (data.get("elements") or [])
-                if e.get("type") == "way" and e.get("geometry")
+                if e.get("type") in {"way", "node"}
+                and (
+                    e.get("geometry")
+                    or (e.get("type") == "node" and e.get("lat") is not None)
+                )
             ]
             if log:
                 host = url.split("/")[2]
-                log(f"OSM Overpass ({host}): {len(elements)} way")
+                log(f"OSM Overpass ({host}): {len(elements)} prvků")
             return elements, None
         except (
             urllib.error.HTTPError,
@@ -165,7 +218,10 @@ def _fetch_osm_api_map(
         xml_text = resp.read().decode("utf-8")
     elements = parse_osm_api_map_xml(xml_text)
     if log:
-        log(f"OSM API map: {len(elements)} way ({'/'.join(sorted(OSM_HIGHWAYS))})")
+        log(
+            f"OSM API map: {len(elements)} prvků "
+            f"(cesty + studny/hřiště)"
+        )
     return elements
 
 
@@ -223,6 +279,48 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         # Lesní / polní cesta (vozová) – ne úzká pěšina.
         return "506" if sprint else "504"
     return "507"
+
+
+def highway_width_rank(highway: str) -> int:
+    """Vyšší = širší / preferovanější při překryvu střednic."""
+    hw = (highway or "path").lower()
+    return {
+        "track": 40,
+        "bridleway": 30,
+        "cycleway": 25,
+        "path": 10,
+        "footway": 10,
+        "steps": 5,
+    }.get(hw, 10)
+
+
+def dedup_osm_prefer_wider(
+    items: list[tuple[list[tuple[float, float]], str]],
+    *,
+    match_m: float = MATCH_M,
+    cover_drop: float = COVER_DROP,
+) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
+    """OSM×OSM: při shodné střednici nechá širší (track > path/footway)."""
+    ordered = sorted(
+        items,
+        key=lambda it: (
+            -highway_width_rank(it[1]),
+            -polyline_length(it[0]),
+        ),
+    )
+    kept: list[tuple[list[tuple[float, float]], str]] = []
+    index = _SegmentIndex()
+    dropped = 0
+    for pts, hw in ordered:
+        if polyline_length(pts) < MIN_LENGTH_M:
+            dropped += 1
+            continue
+        if kept and centerline_cover_fraction(pts, index, match_m=match_m) >= cover_drop:
+            dropped += 1
+            continue
+        kept.append((pts, hw))
+        index.add_line(pts)
+    return kept, dropped
 
 
 def osm_way_to_5514(element: dict) -> list[tuple[float, float]] | None:
@@ -434,16 +532,6 @@ def unique_polyline_parts(
     return [p for p in parts if len(p) >= 2]
 
 
-def _iter_line_parts_from_shp(shp_ref: str | Path):
-    for _props, wkb in _pyogrio_layer_rows(shp_ref):
-        parts, _ = _wkb_parts(wkb)
-        for part in parts:
-            if part[0] == "line":
-                pts = [(float(x), float(y)) for x, y in part[1]]  # type: ignore[misc]
-                if len(pts) >= 2:
-                    yield pts
-
-
 def _zabaged_shp_members(zabaged_clean: Path) -> list[tuple[str, str]]:
     """[(kanonický název vrstvy, cesta uvnitř ZIPu k .shp), ...]."""
     wanted = {name.lower(): name for name in ZABAGED_PATH_LAYERS}
@@ -463,15 +551,76 @@ def _zabaged_shp_members(zabaged_clean: Path) -> list[tuple[str, str]]:
     return [(canon, member) for canon, member in sorted(found.items())]
 
 
+def _iter_line_parts_from_shp(shp_ref: str | Path):
+    """Výtěž linií ze SHP – pyogrio, jinak GDAL/OGR (Docker image má OGR)."""
+    try:
+        import pyogrio.raw  # noqa: F401
+
+        use_pyogrio = True
+    except ImportError:
+        use_pyogrio = False
+
+    if use_pyogrio:
+        for _props, wkb in _pyogrio_layer_rows(shp_ref):
+            parts, _ = _wkb_parts(wkb)
+            for part in parts:
+                if part[0] == "line":
+                    pts = [(float(x), float(y)) for x, y in part[1]]  # type: ignore[misc]
+                    if len(pts) >= 2:
+                        yield pts
+        return
+
+    try:
+        from osgeo import ogr
+    except ImportError:
+        return
+
+    ds = ogr.Open(str(shp_ref))
+    if not ds:
+        return
+    layer = ds.GetLayer(0)
+    if layer is None:
+        return
+
+    def emit(geom) -> list[list[tuple[float, float]]]:
+        if geom is None:
+            return []
+        name = geom.GetGeometryName()
+        out: list[list[tuple[float, float]]] = []
+        if name == "LINESTRING":
+            pts = [
+                (float(geom.GetX(i)), float(geom.GetY(i)))
+                for i in range(geom.GetPointCount())
+            ]
+            if len(pts) >= 2:
+                out.append(pts)
+        elif name in {"MULTILINESTRING", "GEOMETRYCOLLECTION"}:
+            for i in range(geom.GetGeometryCount()):
+                out.extend(emit(geom.GetGeometryRef(i)))
+        return out
+
+    for feature in layer:
+        geom = feature.GetGeometryRef()
+        for pts in emit(geom):
+            yield pts
+
+
 def _zabaged_path_lines(zabaged_clean: Path, *, log=None) -> list[list[tuple[float, float]]]:
     """Načte ZABAGED cesty/pěšiny pro dedup – extrakce do temp (spolehlivější než /vsizip/)."""
     lines: list[list[tuple[float, float]]] = []
     try:
         import pyogrio.raw  # noqa: F401
+
+        backend = "pyogrio"
     except ImportError:
-        if log:
-            log("OSM dedup: pyogrio není k dispozici")
-        return lines
+        try:
+            from osgeo import ogr  # noqa: F401
+
+            backend = "ogr"
+        except ImportError:
+            if log:
+                log("OSM dedup: chybí pyogrio i GDAL/OGR – dedup proti ZABAGED vypnut")
+            return lines
 
     members = _zabaged_shp_members(zabaged_clean)
     if not members:
@@ -511,7 +660,7 @@ def _zabaged_path_lines(zabaged_clean: Path, *, log=None) -> list[list[tuple[flo
                 lines.extend(_iter_line_parts_from_shp(shp))
                 if log:
                     log(
-                        f"OSM dedup: {shp.stem} → {len(lines) - before} linií"
+                        f"OSM dedup ({backend}): {shp.stem} → {len(lines) - before} linií"
                     )
             except Exception as exc:
                 if log:
@@ -614,6 +763,46 @@ def filter_osm_items_against_zabaged(
     return kept, dropped
 
 
+def osm_feature_to_5514(
+    element: dict,
+) -> tuple[str, str, list[tuple[float, float]]] | None:
+    """(kind, oom_code, ring_or_point) v S-JTSK, nebo None."""
+    tags = element.get("tags") or {}
+    classified = classify_osm_feature(tags)
+    if not classified:
+        return None
+    kind, code = classified
+    pts: list[tuple[float, float]] = []
+    if element.get("type") == "node":
+        lat, lon = element.get("lat"), element.get("lon")
+        if lat is None or lon is None:
+            return None
+        pts = [wgs84_to_projected(float(lat), float(lon))]
+    else:
+        for node in element.get("geometry") or []:
+            lat = node.get("lat")
+            lon = node.get("lon")
+            if lat is None or lon is None:
+                continue
+            pts.append(wgs84_to_projected(float(lat), float(lon)))
+    if not pts:
+        return None
+    # Uzavřený ring → plocha; jinak bod (těžiště / jediný uzel).
+    if len(pts) >= 3:
+        if pts[0] != pts[-1]:
+            # téměř uzavřený?
+            if math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1.5:
+                pts = pts[:-1] + [pts[0]]
+            else:
+                pts.append(pts[0])
+        return kind, code, pts
+    if len(pts) == 1:
+        return kind, code, pts
+    # krátká linie → střed
+    mid = len(pts) // 2
+    return kind, code, [pts[mid]]
+
+
 def prepare_osm_paths(
     work_dir: Path,
     bbox_wgs84: tuple[float, float, float, float],
@@ -623,8 +812,36 @@ def prepare_osm_paths(
 ) -> Path | None:
     elements = fetch_osm_path_elements(bbox_wgs84, log=log)
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
+    features: list[dict] = []
     skipped = 0
     for el in elements:
+        tags = el.get("tags") or {}
+        if classify_osm_feature(tags):
+            feat = osm_feature_to_5514(el)
+            if feat is None:
+                skipped += 1
+                continue
+            kind, code, pts = feat
+            closed = len(pts) >= 3 and pts[0] == pts[-1]
+            geom_type = "Polygon" if closed else "Point"
+            if geom_type == "Polygon":
+                coords = [[x, y] for x, y in pts]
+                geometry = {"type": "Polygon", "coordinates": [coords]}
+            else:
+                x, y = pts[0]
+                geometry = {"type": "Point", "coordinates": [x, y]}
+            features.append(
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "source": "osm",
+                        "kind": kind,
+                        "oom_code": code,
+                    },
+                    "geometry": geometry,
+                }
+            )
+            continue
         pts = osm_way_to_5514(el)
         if pts is None:
             skipped += 1
@@ -642,6 +859,8 @@ def prepare_osm_paths(
                 "OSM pěšiny se neoříznou proti ZABAGED"
             )
     kept, dropped = filter_osm_items_against_zabaged(osm_items, zabaged_lines)
+    kept, dropped_self = dedup_osm_prefer_wider(kept)
+    dropped += dropped_self
     if log:
         by_hw: dict[str, int] = defaultdict(int)
         for _pts, hw in kept:
@@ -649,8 +868,16 @@ def prepare_osm_paths(
         summary = ", ".join(f"{k}={v}" for k, v in sorted(by_hw.items())) or "—"
         log(
             f"OSM cesty: {len(kept)} ponecháno ({summary}), "
-            f"{dropped} duplicit/krátkých, {skipped} přeskočeno (tag)"
+            f"{dropped} duplicit/krátkých"
+            + (f" (z toho {dropped_self} OSM×OSM širší>užší)" if dropped_self else "")
+            + f", {skipped} přeskočeno (tag)"
         )
+        by_feat: dict[str, int] = defaultdict(int)
+        for feat in features:
+            by_feat[str((feat.get("properties") or {}).get("kind") or "?")] += 1
+        if features:
+            feat_summary = ", ".join(f"{k}={v}" for k, v in sorted(by_feat.items()))
+            log(f"OSM objekty: {len(features)} ({feat_summary})")
     dest_dir = work_dir / "osm_paths"
     dest_dir.mkdir(parents=True, exist_ok=True)
     gj = {
@@ -669,7 +896,12 @@ def prepare_osm_paths(
     }
     out = dest_dir / "paths.geojson"
     out.write_text(json.dumps(gj), encoding="utf-8")
-    return out if kept else None
+    feat_out = dest_dir / "features.geojson"
+    feat_out.write_text(
+        json.dumps({"type": "FeatureCollection", "features": features}),
+        encoding="utf-8",
+    )
+    return out if kept else (feat_out if features else None)
 
 
 def build_osm_path_parts(
@@ -727,3 +959,82 @@ def build_osm_path_parts(
             count=len(objects),
         )
     ]
+
+
+def build_osm_feature_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+) -> list[OomObjectPart]:
+    gj_path = work_dir / "osm_paths" / "features.geojson"
+    if not gj_path.is_file():
+        return []
+    data = json.loads(gj_path.read_text(encoding="utf-8"))
+    grouped: dict[str, list[str]] = defaultdict(list)
+    names = {
+        "401": "OSM hřiště",
+        "521": "OSM studniční objekty",
+        "311": "OSM studny",
+    }
+    symbol_cache: dict[str, int | None] = {}
+    for feat in data.get("features") or []:
+        props = feat.get("properties") or {}
+        code = str(props.get("oom_code") or "")
+        geom = feat.get("geometry") or {}
+        gtype = geom.get("type")
+        if code not in symbol_cache:
+            symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
+        symbol_index = symbol_cache[code]
+        if symbol_index is None:
+            continue
+        if gtype == "Point":
+            coords = geom.get("coordinates") or []
+            if len(coords) < 2:
+                continue
+            mx, my = projected_to_map_coord(
+                float(coords[0]),
+                float(coords[1]),
+                ref_x=ref_x,
+                ref_y=ref_y,
+                scale=scale,
+                grivation_deg=grivation_deg,
+            )
+            # Budova/studna jako bod: 311; 521 area symbol as point is weak – still OK.
+            obj = _point_object(symbol_index, mx, my)
+            if obj:
+                grouped[code].append(obj)
+        elif gtype == "Polygon":
+            rings = geom.get("coordinates") or []
+            if not rings:
+                continue
+            ring = rings[0]
+            mapped = [
+                projected_to_map_coord(
+                    float(x),
+                    float(y),
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                )
+                for x, y in ring
+            ]
+            obj = _area_object(symbol_index, mapped)
+            if obj:
+                grouped[code].append(obj)
+    parts: list[OomObjectPart] = []
+    for code in ("521", "311", "401"):
+        objects = grouped.get(code) or []
+        if objects:
+            parts.append(
+                OomObjectPart(
+                    name=names.get(code, f"OSM {code}"),
+                    objects_xml="\n".join(objects),
+                    count=len(objects),
+                )
+            )
+    return parts

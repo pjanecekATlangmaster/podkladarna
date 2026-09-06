@@ -7,7 +7,7 @@ from pathlib import Path
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.guide_text import ZIP_ABOUT_TXT
 from app.pipeline.contours_gdal import build_gdal_contour_parts
-from app.pipeline.osm_paths import build_osm_path_parts
+from app.pipeline.osm_paths import build_osm_feature_parts, build_osm_path_parts
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
@@ -226,6 +226,16 @@ def prepare_oom_map(
     )
     if osm_parts:
         object_parts.extend(osm_parts)
+    osm_feat = build_osm_feature_parts(
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+    )
+    if osm_feat:
+        object_parts.extend(osm_feat)
     return write_oom_map(
         dest,
         map_name=map_name,

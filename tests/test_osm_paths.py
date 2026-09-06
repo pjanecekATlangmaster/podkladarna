@@ -7,8 +7,10 @@ import urllib.error
 from app.pipeline.osm_paths import (
     OVERPASS_URLS,
     _way_skip_reason,
+    classify_osm_feature,
     fetch_osm_path_elements,
     filter_osm_against_zabaged,
+    osm_feature_to_5514,
     overlap_fraction,
     parse_osm_api_map_xml,
     polyline_length,
@@ -30,12 +32,54 @@ def test_skip_sidewalk_and_crossing():
     assert _way_skip_reason({"highway": "cycleway", "foot": "no"})
 
 
-def test_osm_oom_code_track_vs_path():
-    from app.pipeline.osm_paths import osm_oom_code
+def test_classify_osm_well_and_playground():
+    assert classify_osm_feature({"man_made": "water_well", "building": "yes"}) == (
+        "water_well_building",
+        "521",
+    )
+    assert classify_osm_feature({"man_made": "water_well"}) == ("water_well", "311")
+    assert classify_osm_feature({"leisure": "playground"}) == ("playground", "401")
+    assert classify_osm_feature({"highway": "path"}) is None
 
-    assert osm_oom_code("path", "sprint_2m") == "507"
-    assert osm_oom_code("track", "sprint_2m") == "506"
-    assert osm_oom_code("track", "forest_10000") == "504"
+
+def test_osm_feature_closed_well_building():
+    el = {
+        "type": "way",
+        "tags": {"building": "yes", "man_made": "water_well"},
+        "geometry": [
+            {"lat": 50.083, "lon": 14.325},
+            {"lat": 50.0831, "lon": 14.325},
+            {"lat": 50.0831, "lon": 14.3252},
+            {"lat": 50.083, "lon": 14.3252},
+            {"lat": 50.083, "lon": 14.325},
+        ],
+    }
+    kind, code, pts = osm_feature_to_5514(el)
+    assert kind == "water_well_building"
+    assert code == "521"
+    assert len(pts) >= 4
+    assert pts[0] == pts[-1]
+
+
+def test_dedup_osm_prefers_track_over_path():
+    from app.pipeline.osm_paths import dedup_osm_prefer_wider
+
+    track = ([(0.0, 0.0), (200.0, 0.0)], "track")
+    path = ([(0.0, 2.0), (200.0, 2.0)], "path")
+    kept, dropped = dedup_osm_prefer_wider([path, track])
+    assert dropped == 1
+    assert len(kept) == 1
+    assert kept[0][1] == "track"
+
+
+def test_dedup_osm_keeps_parallel_distinct():
+    from app.pipeline.osm_paths import dedup_osm_prefer_wider
+
+    track = ([(0.0, 0.0), (200.0, 0.0)], "track")
+    path = ([(0.0, 20.0), (200.0, 20.0)], "path")
+    kept, dropped = dedup_osm_prefer_wider([path, track])
+    assert dropped == 0
+    assert len(kept) == 2
 
 
 def test_osm_way_to_5514_skips_sidewalk():

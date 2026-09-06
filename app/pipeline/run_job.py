@@ -202,7 +202,7 @@ def run_job_pipeline(
     )
 
     if bbox:
-        log("=== Fáze: OSM pěšiny ===")
+        log("=== Fáze: OSM pěšiny a objekty ===")
         try:
             prepare_osm_paths(
                 work_dir,
@@ -211,7 +211,7 @@ def run_job_pipeline(
                 log=log,
             )
         except Exception as exc:
-            log(f"OSM pěšiny: přeskočeno ({exc})")
+            log(f"OSM: přeskočeno ({exc})")
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(
