@@ -35,7 +35,7 @@ Co je uvnitř
 - basemap/             … reliéf a vegetace z LiDARu (Karttapullautin)
 - karttapullautin/     … srázy a knolíky (DXF)
 - contours/            … vrstevnice z PDAL/GDAL (shapefile)
-- osm_paths/           … pěšiny z OpenStreetMap (ODbL), studny, hřiště; u sprintu i lavičky; bez duplicit cest se ZABAGED
+- osm_paths/           … pěšiny z OpenStreetMap (ODbL), studny, hřiště, tabule, mokřad, dřevěné chodníky, jeskyně; u sprintu i lavičky; bez duplicit cest se ZABAGED
 - vectors/             … polohopis ZABAGED (shapefile)
 - references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM

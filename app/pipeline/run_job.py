@@ -287,6 +287,7 @@ def _package_output(
             contour_interval_m=meta.get("contour_interval_m"),
             formline=0,
             indexcontours_m=indexcontours_m,
+            cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
         )
 
     build_oom_zip(

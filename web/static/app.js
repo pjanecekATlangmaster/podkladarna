@@ -588,6 +588,13 @@ function applyJobToForm(job) {
   if (job.preset_id && [...preset.options].some((o) => o.value === job.preset_id)) {
     preset.value = job.preset_id;
   }
+  const cliff = form.kp_cliff_symbol;
+  if (cliff) {
+    const cliffVal = (job.options || {}).kp_cliff_symbol || "earth_bank";
+    if ([...cliff.options].some((o) => o.value === cliffVal)) {
+      cliff.value = cliffVal;
+    }
+  }
   const opts = job.options || {};
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {

@@ -562,6 +562,7 @@ def build_dxf_object_part(
     ref_x: float,
     ref_y: float,
     grivation_deg: float,
+    cliff_symbol: str = "earth_bank",
 ) -> OomObjectPart | None:
     use_ogr = True
     try:
@@ -583,7 +584,9 @@ def build_dxf_object_part(
     objects: list[str] = []
     elev_at = _load_dem_elev(kp_cwd)
     for zip_name, path in sorted(dxf_map.items()):
-        code = oom_code_for_dxf(zip_name, preset_id=preset_id)
+        code = oom_code_for_dxf(
+            zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
+        )
         if not code:
             continue
         symbol_index = symbol_index_for_code(preset_id, scale, code)
@@ -633,8 +636,13 @@ def build_dxf_object_part(
                     )
     if not objects:
         return None
+    cliff_label = (
+        "skály (201)"
+        if cliff_symbol == "rock_face"
+        else "zemní srázy (104)"
+    )
     return OomObjectPart(
-        name="Karttapullautin – vektory",
+        name=f"Karttapullautin – vektory ({cliff_label})",
         objects_xml="\n".join(objects),
         count=len(objects),
     )

@@ -40,7 +40,30 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"man_made": "water_well"}) == ("water_well", "311")
     assert classify_osm_feature({"leisure": "playground"}) == ("playground", "401")
     assert classify_osm_feature({"amenity": "bench"}) == ("bench", "531")
+    assert classify_osm_feature({"tourism": "information", "information": "board"}) == (
+        "info_board",
+        "531",
+    )
+    assert classify_osm_feature({"natural": "wetland"}) == ("wetland", "308")
+    assert classify_osm_feature({"natural": "cave_entrance"}) == (
+        "cave_entrance",
+        "203.1",
+    )
+    assert classify_osm_feature({"highway": "footway", "footway": "boardwalk"}) == (
+        "boardwalk",
+        "512.1",
+    )
     assert classify_osm_feature({"highway": "path"}) is None
+    assert classify_osm_feature({"tourism": "information", "building": "yes"}) is None
+
+
+def test_feature_oom_code_preset():
+    from app.pipeline.osm_paths import feature_oom_code
+
+    assert feature_oom_code("cave_entrance", "sprint_2m") == "203.1"
+    assert feature_oom_code("cave_entrance", "forest_10000") == "203.2"
+    assert feature_oom_code("boardwalk", "sprint_2m") == "512.1"
+    assert feature_oom_code("boardwalk", "forest_10000") == "512"
 
 
 def test_osm_bench_to_point():

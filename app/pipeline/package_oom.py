@@ -141,6 +141,7 @@ def prepare_oom_map(
     contour_interval_m: float | None = None,
     formline: float = 0,
     indexcontours_m: float | None = None,
+    cliff_symbol: str = "earth_bank",
 ) -> Path | None:
     del formline
     west, south, east, north = bbox_wgs84
@@ -200,6 +201,7 @@ def prepare_oom_map(
             ref_x=ref_x,
             ref_y=ref_y,
             grivation_deg=grivation,
+            cliff_symbol=cliff_symbol,
         )
         if dxf_part:
             object_parts.append(dxf_part)

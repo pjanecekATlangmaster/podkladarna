@@ -1,4 +1,4 @@
-"""OSM pěšiny, studny, hřiště a (u sprintu) lavičky do OOM (bez duplicit cest se ZABAGED)."""
+"""OSM pěšiny a objekty (studny, hřiště, lavičky, tabule, mokřad, …) do OOM."""
 
 from __future__ import annotations
 
@@ -83,20 +83,54 @@ def _overpass_ql(south: float, west: float, north: float, east: float) -> str:
         f'way["leisure"="playground"]({bbox});'
         f'node["amenity"="bench"]({bbox});'
         f'way["amenity"="bench"]({bbox});'
+        f'node["tourism"="information"]({bbox});'
+        f'way["tourism"="information"]({bbox});'
+        f'node["information"~"^(board|map|trail_board)$"]({bbox});'
+        f'way["information"~"^(board|map|trail_board)$"]({bbox});'
+        f'way["natural"="wetland"]({bbox});'
+        f'node["natural"="cave_entrance"]({bbox});'
+        f'way["natural"="cave_entrance"]({bbox});'
+        f'way["footway"="boardwalk"]({bbox});'
+        f'way["man_made"="boardwalk"]({bbox});'
         f");"
         f"out geom;"
     )
 
 
+_INFO_BOARD_VALUES = frozenset({"board", "map", "trail_board"})
+_POINT_FEATURE_KINDS = frozenset(
+    {"bench", "info_board", "cave_entrance", "water_well"}
+)
+
+
 def classify_osm_feature(tags: dict) -> tuple[str, str] | None:
-    """(kind, OOM kód) pro studny / hřiště / lavičky; jinak None."""
+    """(kind, výchozí OOM kód) – kód může přepsat feature_oom_code podle presetu."""
     leisure = (tags.get("leisure") or "").lower()
     man_made = (tags.get("man_made") or "").lower()
     building = (tags.get("building") or "").lower()
     amenity = (tags.get("amenity") or "").lower()
+    tourism = (tags.get("tourism") or "").lower()
+    information = (tags.get("information") or "").lower()
+    natural = (tags.get("natural") or "").lower()
+    footway = (tags.get("footway") or "").lower()
+    bridge = (tags.get("bridge") or "").lower()
+
     if amenity == "bench":
         # ISSprOM 531 (×); do lesní mapy se nepromítá (viz build_osm_feature_parts).
         return "bench", "531"
+    if (
+        tourism == "information" or information in _INFO_BOARD_VALUES
+    ) and information not in {"office", "visitor_centre", "visitor_center"}:
+        # Infocentrum/budova ne – jen tabule/mapy (531 ×).
+        if building and building not in {"no", "false", "0"}:
+            return None
+        return "info_board", "531"
+    if natural == "wetland":
+        return "wetland", "308"
+    if natural == "cave_entrance":
+        return "cave_entrance", "203.1"
+    if footway == "boardwalk" or man_made == "boardwalk" or bridge == "boardwalk":
+        return "boardwalk", "512.1"
     if leisure == "playground":
         # ISSprOM/ISOM nemá symbol hřiště – otevřený terén.
         return "playground", "401"
@@ -108,8 +142,29 @@ def classify_osm_feature(tags: dict) -> tuple[str, str] | None:
     return None
 
 
+def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
+    """OOM kód podle druhu objektu a presetu (sprint vs les)."""
+    sprint = preset_id.startswith("sprint")
+    if kind == "cave_entrance":
+        return "203.1" if sprint else "203.2"
+    if kind == "boardwalk":
+        # Spojitá dřevěná lávka: liniový most (ne ISOM 512.2 bodová lávka).
+        return "512.1" if sprint else "512"
+    if stored_code:
+        return stored_code
+    defaults = {
+        "bench": "531",
+        "info_board": "531",
+        "wetland": "308",
+        "playground": "401",
+        "water_well": "311",
+        "water_well_building": "521",
+    }
+    return defaults.get(kind, stored_code or "")
+
+
 def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
-    """Vyfiltruje highway + studny/hřiště/lavičky z OSM API map call (.osm XML)."""
+    """Vyfiltruje highway + OSM objekty z OSM API map call (.osm XML)."""
     root = ET.fromstring(xml_text)
     nodes: dict[str, tuple[float, float]] = {}
     node_tags: dict[str, dict] = {}
@@ -793,13 +848,28 @@ def osm_feature_to_5514(
             pts.append(wgs84_to_projected(float(lat), float(lon)))
     if not pts:
         return None
-    # Bodové symboly (lavička 531) – vždy jeden bod (těžiště).
-    if kind == "bench":
+    # Dřevěný chodník – otevřená linie.
+    if kind == "boardwalk":
+        if len(pts) < 2:
+            return None
+        return kind, code, pts
+    # Bodové symboly – vždy jeden bod (těžiště).
+    if kind in _POINT_FEATURE_KINDS:
         if len(pts) == 1:
             return kind, code, pts
         cx = sum(p[0] for p in pts) / len(pts)
         cy = sum(p[1] for p in pts) / len(pts)
         return kind, code, [(cx, cy)]
+    # Mokřad – jen uzavřená plocha.
+    if kind == "wetland":
+        if len(pts) < 3:
+            return None
+        if pts[0] != pts[-1]:
+            if math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1.5:
+                pts = pts[:-1] + [pts[0]]
+            else:
+                pts.append(pts[0])
+        return kind, code, pts
     # Uzavřený ring → plocha; jinak bod (těžiště / jediný uzel).
     if len(pts) >= 3:
         if pts[0] != pts[-1]:
@@ -835,14 +905,19 @@ def prepare_osm_paths(
                 skipped += 1
                 continue
             kind, code, pts = feat
-            closed = len(pts) >= 3 and pts[0] == pts[-1]
-            geom_type = "Polygon" if closed else "Point"
-            if geom_type == "Polygon":
-                coords = [[x, y] for x, y in pts]
-                geometry = {"type": "Polygon", "coordinates": [coords]}
+            if kind == "boardwalk" and len(pts) >= 2:
+                geometry = {
+                    "type": "LineString",
+                    "coordinates": [[x, y] for x, y in pts],
+                }
             else:
-                x, y = pts[0]
-                geometry = {"type": "Point", "coordinates": [x, y]}
+                closed = len(pts) >= 3 and pts[0] == pts[-1]
+                if closed and kind not in _POINT_FEATURE_KINDS:
+                    coords = [[x, y] for x, y in pts]
+                    geometry = {"type": "Polygon", "coordinates": [coords]}
+                else:
+                    x, y = pts[0]
+                    geometry = {"type": "Point", "coordinates": [x, y]}
             features.append(
                 {
                     "type": "Feature",
@@ -988,19 +1063,39 @@ def build_osm_feature_parts(
         return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
     grouped: dict[str, list[str]] = defaultdict(list)
+    kind_codes: dict[str, str] = {}
     names = {
-        "401": "OSM hřiště",
-        "521": "OSM studniční objekty",
-        "311": "OSM studny",
-        "531": "OSM lavičky",
+        "playground": "OSM hřiště",
+        "water_well_building": "OSM studniční objekty",
+        "water_well": "OSM studny",
+        "bench": "OSM lavičky",
+        "info_board": "OSM informační tabule",
+        "wetland": "OSM mokřad",
+        "boardwalk": "OSM dřevěný chodník",
+        "cave_entrance": "OSM vstup do jeskyně",
     }
+    kind_order = (
+        "water_well_building",
+        "water_well",
+        "playground",
+        "wetland",
+        "boardwalk",
+        "cave_entrance",
+        "info_board",
+        "bench",
+    )
     sprint = preset_id.startswith("sprint")
     symbol_cache: dict[str, int | None] = {}
     for feat in data.get("features") or []:
         props = feat.get("properties") or {}
-        code = str(props.get("oom_code") or "")
-        # Lavičky jen do sprintu (ISSprOM 531).
-        if code == "531" and not sprint:
+        kind = str(props.get("kind") or "")
+        if not kind:
+            continue
+        # Lavičky jen do sprintu.
+        if kind == "bench" and not sprint:
+            continue
+        code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
+        if not code:
             continue
         geom = feat.get("geometry") or {}
         gtype = geom.get("type")
@@ -1021,10 +1116,29 @@ def build_osm_feature_parts(
                 scale=scale,
                 grivation_deg=grivation_deg,
             )
-            # Budova/studna jako bod: 311; 521 area symbol as point is weak – still OK.
             obj = _point_object(symbol_index, mx, my)
             if obj:
-                grouped[code].append(obj)
+                grouped[kind].append(obj)
+                kind_codes[kind] = code
+        elif gtype == "LineString":
+            coords = geom.get("coordinates") or []
+            if len(coords) < 2:
+                continue
+            mapped = [
+                projected_to_map_coord(
+                    float(x),
+                    float(y),
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                )
+                for x, y in coords
+            ]
+            obj = _path_object(symbol_index, mapped)
+            if obj:
+                grouped[kind].append(obj)
+                kind_codes[kind] = code
         elif gtype == "Polygon":
             rings = geom.get("coordinates") or []
             if not rings:
@@ -1043,14 +1157,15 @@ def build_osm_feature_parts(
             ]
             obj = _area_object(symbol_index, mapped)
             if obj:
-                grouped[code].append(obj)
+                grouped[kind].append(obj)
+                kind_codes[kind] = code
     parts: list[OomObjectPart] = []
-    for code in ("521", "311", "401", "531"):
-        objects = grouped.get(code) or []
+    for kind in kind_order:
+        objects = grouped.get(kind) or []
         if objects:
             parts.append(
                 OomObjectPart(
-                    name=names.get(code, f"OSM {code}"),
+                    name=names.get(kind, f"OSM {kind_codes.get(kind, kind)}"),
                     objects_xml="\n".join(objects),
                     count=len(objects),
                 )

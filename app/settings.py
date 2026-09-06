@@ -57,4 +57,6 @@ DEFAULT_OPTIONS = {
     "output_dxf": True,
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace
+    # KP c2g/c3g: earth_bank=104 (srázek), rock_face=201 (skála/nesjízdný sráz).
+    "kp_cliff_symbol": "earth_bank",
 }

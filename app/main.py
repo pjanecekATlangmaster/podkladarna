@@ -334,6 +334,9 @@ async def api_create_job(request: Request):
         "sm5_sheets": [s["mapnom"] for s in sheets],
         "client_ip": remote_ip,
     }
+    cliff_raw = _form_str(form, "kp_cliff_symbol").strip().lower()
+    if cliff_raw in {"earth_bank", "rock_face"}:
+        options["kp_cliff_symbol"] = cliff_raw
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:

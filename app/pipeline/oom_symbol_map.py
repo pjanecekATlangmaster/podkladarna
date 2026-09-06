@@ -48,7 +48,7 @@ _LAYER_OOM_CODE: dict[str, str] = {
 
 _DXF_OOM_CODE_SPRINT: dict[str, str] = {
     "contours.dxf": "101",
-    # KP c2g/c3g → zemní sráz 104 (201 jen ručně při mapování)
+    # KP c2g/c3g → default 104; volba rock_face → 201 (viz oom_code_for_dxf).
     "cliffs_small.dxf": "104",
     "cliffs_large.dxf": "104",
     "dotknolls.dxf": "109",
@@ -60,6 +60,10 @@ _DXF_OOM_CODE_FOREST: dict[str, str] = {
     "cliffs_large.dxf": "104",
     "dotknolls.dxf": "109",
 }
+
+_CLIFF_DXF = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
+KP_CLIFF_EARTH_BANK = "earth_bank"
+KP_CLIFF_ROCK_FACE = "rock_face"
 
 
 def _is_sprint(preset_id: str) -> bool:
@@ -130,6 +134,15 @@ def oom_code_for_vectorconf_rule(
     return None
 
 
-def oom_code_for_dxf(filename: str, *, preset_id: str) -> str | None:
+def oom_code_for_dxf(
+    filename: str,
+    *,
+    preset_id: str,
+    cliff_symbol: str = KP_CLIFF_EARTH_BANK,
+) -> str | None:
+    if filename in _CLIFF_DXF:
+        if cliff_symbol == KP_CLIFF_ROCK_FACE:
+            return "201"
+        return "104"
     table = _DXF_OOM_CODE_SPRINT if _is_sprint(preset_id) else _DXF_OOM_CODE_FOREST
     return table.get(filename)
