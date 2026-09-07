@@ -156,6 +156,30 @@ def test_oom_code_parking_forest_maps_to_501_1():
     assert symbol_index_for_code("forest_10000", 10000, code) is not None
 
 
+def test_oom_code_orchard_garden_maps_to_olive_520():
+    """ZABAGED OvocnySadZahrada → oliva (KP 527 / OOM 520), ne tečkovaný sad 413."""
+    for symbol_name, kp in (("farm", "413"), ("settlement", "527")):
+        code = oom_code_for_vectorconf_rule(
+            symbol_name,
+            kp,
+            "OvocnySadZahrada",
+            preset_id="sprint_2m",
+            scale=4000,
+        )
+        assert code == "520", (symbol_name, kp, code)
+    assert (
+        oom_code_for_vectorconf_rule(
+            "settlement",
+            "527",
+            "OvocnySadZahrada",
+            preset_id="forest_10000",
+            scale=10000,
+        )
+        == "520"
+    )
+    assert symbol_index_for_code("sprint_2m", 4000, "520") is not None
+
+
 def test_oom_code_dxf_cliffs_small_preset_specific():
     from app.pipeline.oom_symbol_map import oom_code_for_dxf
 

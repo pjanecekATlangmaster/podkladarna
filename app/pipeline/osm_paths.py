@@ -85,6 +85,12 @@ GRID_M = 30.0
 SKIP_FOOTWAY = frozenset({"sidewalk", "crossing"})
 SKIP_CYCLEWAY = frozenset({"sidewalk", "crossing", "lane", "share_busway", "track"})
 
+# Plochy → OOM zpevněná (501 / 501.1), ne žlutá 401.
+# leisure=track = běžecká dráha (ne highway=track).
+OSM_PAVED_AREA_LEISURE = frozenset(
+    {"playground", "pitch", "track", "sports_centre", "ice_rink", "multi"}
+)
+
 
 def _overpass_ql(
     south: float,
@@ -100,6 +106,7 @@ def _overpass_ql(
     bbox = f"{south},{west},{north},{east}"
     # Jedna regex vrstva – méně Overpass zátěže než 6 samostatných way[...].
     hw = "|".join(sorted(OSM_HIGHWAYS))
+    paved = "|".join(sorted(OSM_PAVED_AREA_LEISURE))
     parts = [
         f'way["highway"~"^({hw})$"]({bbox});',
         f'way["man_made"="boardwalk"]({bbox});',
@@ -109,9 +116,7 @@ def _overpass_ql(
         f'way["amenity"="fountain"]({bbox});',
         f'node["natural"="spring"]({bbox});',
         f'way["natural"="spring"]({bbox});',
-        f'way["leisure"="playground"]({bbox});',
-        f'way["leisure"="pitch"]({bbox});',
-        f'node["leisure"="pitch"]({bbox});',
+        f'way["leisure"~"^({paved})$"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
@@ -171,7 +176,7 @@ def _overpass_ql(
 
 
 _INFO_BOARD_VALUES = frozenset({"board", "map", "trail_board"})
-# Povrch / výplň hřiště – ne křížek (pokrývá leisure=playground).
+# Povrch / výplň uvnitř leisure=playground – ne samostatný křížek.
 _PLAYGROUND_SURFACE = frozenset({"sandpit", "no"})
 _BARRIER_LINES = frozenset({"fence", "wall", "hedge", "retaining_wall"})
 _BARRIER_POINTS = frozenset(
@@ -181,6 +186,8 @@ _BARRIER_POINTS = frozenset(
 _BENCH_KINDS = frozenset({"bench", "info_board", "picnic_table", "firepit"})
 _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
+# Plochy z OSM_PAVED_AREA_LEISURE → kind playground | pitch (oba 501).
+_PAVED_AREA_KINDS = frozenset({"playground", "pitch"})
 # Jen při kp_osm_priority (hlavně sprint urban pack).
 _PRIORITY_KINDS = frozenset(
     {
@@ -291,10 +298,14 @@ def classify_osm_feature(
         return "cave_entrance", "203.1"
     if natural == "spring":
         return "spring", "312"
-    if leisure == "playground":
-        return "playground", "501"
-    if leisure == "pitch":
-        return "pitch", "401"
+    # Hřiště / sportoviště / dráha / … = zpevněná plocha (501), ne žlutá 401.
+    if leisure in OSM_PAVED_AREA_LEISURE:
+        if building and building not in {"no", "false", "0"}:
+            return None
+        if is_node:
+            return None
+        kind = "playground" if leisure == "playground" else "pitch"
+        return kind, "501"
     if man_made == "water_well" or amenity == "fountain":
         if building and building not in {"no", "false", "0"}:
             return "water_well_building", "521"
@@ -313,10 +324,10 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "513.2" if sprint else "513"
     if kind == "hedge":
         return "518" if sprint else "416"
-    if kind == "playground":
-        # Dětské hřiště = zpevněná plocha (ne žlutá 401 – splyne se ZABAGED).
+    if kind in _PAVED_AREA_KINDS:
+        # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
         return "501" if sprint else "501.1"
-    if stored_code and kind != "playground":
+    if stored_code:
         return stored_code
     defaults = {
         "bench": "531",
@@ -324,9 +335,8 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "lamp": "530",
         "picnic_table": "531",
         "firepit": "531",
-        # ISSprOM/ISOM prominent man-made × – na sprintu stejně (čitelné na žluté ploše hřiště).
+        # ISSprOM/ISOM prominent man-made ×.
         "playground_equipment": "531",
-        "pitch_marker": "531",
         "barrier_point": "531",
         "fitness": "531",
         "memorial": "526",
@@ -334,7 +344,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "landmark_tree": "417",
         "wetland": "308",
         "playground": "501",
-        "pitch": "401",
+        "pitch": "501",
         "water_well": "311",
         "water_well_building": "521",
         "spring": "312",
@@ -546,6 +556,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     """ISOM/ISSprOM kód podle OSM highway."""
     hw = (highway or "path").lower()
     sprint = preset_id.startswith("sprint")
+    if hw == "steps":
+        # ISSprOM: footprint schodiště; ISOM: 532 Stairway (v sadě je).
+        return "532.7" if sprint else "532"
     if hw == "track":
         # Lesní / polní cesta (vozová) – ne úzká pěšina.
         return "506" if sprint else "504"
@@ -557,12 +570,13 @@ def highway_width_rank(highway: str) -> int:
     hw = (highway or "path").lower()
     return {
         "track": 40,
+        # Schody > pěšina: při souběhu OSM×OSM nechat schody, ne 507.
+        "steps": 35,
         "bridleway": 30,
         "cycleway": 25,
         "pedestrian": 20,
         "path": 10,
         "footway": 10,
-        "steps": 5,
     }.get(hw, 10)
 
 
@@ -1012,12 +1026,20 @@ def filter_osm_items_against_zabaged(
     near_m: float = MATCH_M,
     overlap_drop: float = COVER_DROP,
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
-    """Dedup střednicí se zachováním highway tagu u každého úseku."""
+    """Dedup střednicí se zachováním highway tagu u každého úseku.
+
+    ``highway=steps`` se proti ZABAGED neořezává – schody mají zůstat i při
+    souběhu s Pesina/Cesta (jinak by zmizely a zůstala jen „cesta“).
+    """
+    def _min_len(hw: str) -> float:
+        # Krátké schody ve městě; běžné cesty dál 12 m.
+        return 4.0 if hw == "steps" else MIN_LENGTH_M
+
     if not zabaged_lines:
         kept = [
             (pts, hw)
             for pts, hw in osm_items
-            if polyline_length(pts) >= MIN_LENGTH_M
+            if polyline_length(pts) >= _min_len(hw)
         ]
         return kept, len(osm_items) - len(kept)
     index = _SegmentIndex()
@@ -1026,8 +1048,12 @@ def filter_osm_items_against_zabaged(
     kept: list[tuple[list[tuple[float, float]], str]] = []
     dropped = 0
     for line, hw in osm_items:
-        if polyline_length(line) < MIN_LENGTH_M:
+        min_len = _min_len(hw)
+        if polyline_length(line) < min_len:
             dropped += 1
+            continue
+        if hw == "steps":
+            kept.append((line, hw))
             continue
         if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
             dropped += 1
@@ -1035,7 +1061,7 @@ def filter_osm_items_against_zabaged(
         parts = [
             p
             for p in unique_polyline_parts(line, index, near_m=near_m)
-            if polyline_length(p) >= MIN_LENGTH_M
+            if polyline_length(p) >= min_len
             and centerline_cover_fraction(p, index, match_m=near_m) < overlap_drop
         ]
         if not parts:
@@ -1177,27 +1203,6 @@ def prepare_osm_paths(
                     "geometry": geometry,
                 }
             )
-            # Sportoviště (pitch): žlutá 401 splyne se ZABAGED → středový křížek.
-            # Dětské hřiště je zpevněná plocha (501) – středový křížek ne.
-            if kind == "pitch" and geometry.get("type") == "Polygon" and len(pts) >= 3:
-                ring = pts[:-1] if pts[0] == pts[-1] else pts
-                if ring:
-                    cx = sum(p[0] for p in ring) / len(ring)
-                    cy = sum(p[1] for p in ring) / len(ring)
-                    features.append(
-                        {
-                            "type": "Feature",
-                            "properties": {
-                                "source": "osm",
-                                "kind": "pitch_marker",
-                                "oom_code": "531",
-                            },
-                            "geometry": {
-                                "type": "Point",
-                                "coordinates": [cx, cy],
-                            },
-                        }
-                    )
             continue
         pts = osm_way_to_5514(el)
         if pts is None:
@@ -1279,9 +1284,14 @@ def prepare_osm_paths(
     return out if kept else (feat_out if features else None)
 
 
-def highway_to_zabaged_vrstva(highway: str) -> str:
-    """Mapování OSM highway → ZABAGED vrstva pro KP vectorconf (vrstva=…)."""
+def highway_to_zabaged_vrstva(highway: str) -> str | None:
+    """Mapování OSM highway → ZABAGED vrstva pro KP vectorconf (vrstva=…).
+
+    ``None`` = neposílat do KP PNG (schody KP neumí – jen OOM 532).
+    """
     hw = (highway or "path").lower()
+    if hw == "steps":
+        return None
     if hw == "track":
         return "Cesta"  # KP road-path|505
     return "Pesina"  # KP road-path|507
@@ -1299,11 +1309,14 @@ def paths_geojson_for_kp(paths_gj: dict) -> dict:
             continue
         props = feat.get("properties") or {}
         hw = str(props.get("highway") or "path")
+        vrstva = highway_to_zabaged_vrstva(hw)
+        if not vrstva:
+            continue
         features.append(
             {
                 "type": "Feature",
                 "properties": {
-                    "vrstva": highway_to_zabaged_vrstva(hw),
+                    "vrstva": vrstva,
                     "highway": hw,
                     "source": "osm",
                 },
@@ -1475,9 +1488,8 @@ def build_osm_feature_parts(
     kind_codes: dict[str, str] = {}
     names = {
         "playground": "OSM hřiště (501 zpevněná)",
-        "pitch": "OSM sportoviště (401)",
+        "pitch": "OSM sportoviště (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
-        "pitch_marker": "OSM sportoviště střed (531 ×)",
         "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
         "spring": "OSM prameny",
@@ -1503,7 +1515,6 @@ def build_osm_feature_parts(
         "spring",
         "playground",
         "pitch",
-        "pitch_marker",
         "playground_equipment",
         "wetland",
         "cave_entrance",

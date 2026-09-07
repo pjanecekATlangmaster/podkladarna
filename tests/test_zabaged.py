@@ -123,6 +123,10 @@ def test_vectorconf_sports_before_settlement_catchall():
     assert any("vrstva=LesniPudaSKrovinatymPorostem" in ln and ln.startswith("farm|405|") for ln in lines)
     assert any("vrstva=UdrzovanaZelen" in ln and ln.startswith("farm|401|") for ln in lines)
     assert any("vrstva=OrnaPudaAOstatniDaleNespecifikovanePlochy" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert any(
+        "vrstva=OvocnySadZahrada" in ln and ln.startswith("settlement|527|") for ln in lines
+    )
+    assert not any("vrstva=OvocnySadZahrada" in ln and "|413|" in ln for ln in lines)
     shelter = next(i for i, ln in enumerate(lines) if "podtypob_p=přístřešek" in ln)
     podtyp_all = next(i for i, ln in enumerate(lines) if ln.endswith("podtypob_p!="))
     assert shelter < podtyp_all

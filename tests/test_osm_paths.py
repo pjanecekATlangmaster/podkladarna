@@ -43,7 +43,15 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"leisure": "playground"}) == ("playground", "501")
     assert classify_osm_feature(
         {"leisure": "pitch", "sport": "basketball"}
-    ) == ("pitch", "401")
+    ) == ("pitch", "501")
+    assert classify_osm_feature({"leisure": "track"}) == ("pitch", "501")
+    assert classify_osm_feature({"leisure": "sports_centre"}) == ("pitch", "501")
+    assert classify_osm_feature(
+        {"leisure": "sports_centre", "building": "yes"}
+    ) is None
+    assert classify_osm_feature({"leisure": "ice_rink"}) == ("pitch", "501")
+    assert classify_osm_feature({"leisure": "multi"}) == ("pitch", "501")
+    assert classify_osm_feature({"leisure": "pitch"}, geom="node") is None
     assert classify_osm_feature({"amenity": "bench"}) == ("bench", "531")
     assert classify_osm_feature({"highway": "street_lamp"}) == ("lamp", "530")
     assert classify_osm_feature({"tourism": "information", "information": "board"}) == (
@@ -117,7 +125,8 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("hedge", "forest_10000") == "416"
     assert feature_oom_code("playground", "sprint_2m") == "501"
     assert feature_oom_code("playground", "forest_7500") == "501.1"
-    assert feature_oom_code("pitch_marker", "sprint_2m") == "531"
+    assert feature_oom_code("pitch", "sprint_2m") == "501"
+    assert feature_oom_code("pitch", "forest_10000") == "501.1"
 
 
 def test_osm_priority_overpass_includes_barriers():
@@ -126,6 +135,10 @@ def test_osm_priority_overpass_includes_barriers():
     ql = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=True)
     assert "barrier" in ql
     assert "fitness_station" in ql
+    assert "playground" in ql
+    assert "pitch" in ql
+    assert "sports_centre" in ql
+    assert "ice_rink" in ql
     assert 'amenity"="bench"' not in ql
     assert "street_lamp" not in ql
     assert 'node["playground"]' not in ql
@@ -180,6 +193,61 @@ def test_osm_oom_code_paths_only():
     assert osm_oom_code("path", "sprint_2m") == "507"
     assert osm_oom_code("track", "sprint_2m") == "506"
     assert osm_oom_code("track", "forest_10000") == "504"
+    assert osm_oom_code("steps", "sprint_2m") == "532.7"
+    assert osm_oom_code("steps", "forest_10000") == "532"
+
+
+def test_dedup_osm_prefers_steps_over_path():
+    from app.pipeline.osm_paths import dedup_osm_prefer_wider
+
+    steps = ([(0.0, 0.0), (200.0, 0.0)], "steps")
+    path = ([(0.0, 2.0), (200.0, 2.0)], "path")
+    kept, dropped = dedup_osm_prefer_wider([path, steps])
+    assert dropped == 1
+    assert len(kept) == 1
+    assert kept[0][1] == "steps"
+
+
+def test_filter_keeps_steps_on_zabaged():
+    from app.pipeline.osm_paths import filter_osm_items_against_zabaged
+
+    zab = [[(0.0, 0.0), (100.0, 0.0)]]
+    steps = ([(1.0, 1.0), (80.0, 2.0)], "steps")
+    path = ([(1.0, 1.0), (80.0, 2.0)], "path")
+    kept_s, drop_s = filter_osm_items_against_zabaged([steps], zab)
+    kept_p, drop_p = filter_osm_items_against_zabaged([path], zab)
+    assert drop_s == 0 and len(kept_s) == 1 and kept_s[0][1] == "steps"
+    assert drop_p >= 1 and not kept_p
+
+
+def test_paths_geojson_for_kp_skips_steps():
+    from app.pipeline.osm_paths import highway_to_zabaged_vrstva, paths_geojson_for_kp
+
+    assert highway_to_zabaged_vrstva("steps") is None
+    gj = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"highway": "steps"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[0, 0], [10, 0]],
+                },
+            },
+            {
+                "type": "Feature",
+                "properties": {"highway": "path"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[0, 1], [10, 1]],
+                },
+            },
+        ],
+    }
+    out = paths_geojson_for_kp(gj)
+    assert len(out["features"]) == 1
+    assert out["features"][0]["properties"]["highway"] == "path"
 
 
 def test_osm_bench_to_point():

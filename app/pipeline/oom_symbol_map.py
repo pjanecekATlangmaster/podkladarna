@@ -39,7 +39,7 @@ _LAYER_OOM_CODE: dict[str, str] = {
     "LiniovaVegetace": "416",
     "ElektrickeVedeni": "510",
     "LesniPudaSKrovinatymPorostem": "405",
-    "OvocnySadZahrada": "413",
+    "OvocnySadZahrada": "520",  # KP oliva 527 → OOM 520 (ne 413 sad)
     "VyznamnyStromLesik": "417",
     "MohylaPomnikNahrobek": "526",
     "KrizSloupKulturnihoVyznamu": "526",
@@ -65,6 +65,8 @@ _DXF_OOM_CODE_FOREST: dict[str, str] = {
 _CLIFF_DXF = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
 KP_CLIFF_EARTH_BANK = "earth_bank"
 KP_CLIFF_ROCK_FACE = "rock_face"
+# Hustý shluk KP čárek → kamenitý povrch (plocha), ne 206 (bod).
+KP_CLIFF_DENSE_CODE = "210"
 
 
 def _is_sprint(preset_id: str) -> bool:
