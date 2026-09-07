@@ -83,8 +83,11 @@ OVERLAP_DROP = 0.45  # alias COVER_DROP pro stará volání
 SAMPLE_M = 5.0
 MIN_LENGTH_M = 12.0
 GRID_M = 30.0
-SKIP_FOOTWAY = frozenset({"sidewalk", "crossing"})
+# crossing vždy pryč; sidewalk jen v lese (na sprintu bereme jako chodník).
+SKIP_FOOTWAY_ALWAYS = frozenset({"crossing"})
 SKIP_CYCLEWAY = frozenset({"sidewalk", "crossing", "lane", "share_busway", "track"})
+# Zpětná kompatibilita testů / starších importů.
+SKIP_FOOTWAY = frozenset({"sidewalk", "crossing"})
 
 # Plochy → OOM zpevněná (501 / 501.1), ne žlutá 401.
 # leisure=track = běžecká dráha (ne highway=track).
@@ -565,13 +568,15 @@ def fetch_osm_path_elements(
         return []
 
 
-def _way_skip_reason(tags: dict) -> str | None:
+def _way_skip_reason(tags: dict, *, allow_sidewalk: bool = False) -> str | None:
     footway = (tags.get("footway") or "").lower()
     # Dřevěný chodník mapujeme jako pěšinu (ne jako most).
     if _is_boardwalk(tags):
         return None
-    if footway in SKIP_FOOTWAY:
-        return "chodník/přejezd"
+    if footway in SKIP_FOOTWAY_ALWAYS:
+        return "přejezd"
+    if footway == "sidewalk" and not allow_sidewalk:
+        return "chodník"
     if (tags.get("cycleway") or "").lower() in SKIP_CYCLEWAY:
         return "cyklo pruh/chodník"
     if (tags.get("area") or "").lower() == "yes":
@@ -597,6 +602,7 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     if hw == "track":
         # Lesní / polní cesta (vozová) – ne úzká pěšina.
         return "506" if sprint else "504"
+    # sidewalk / footway / path / … → úzká pěšina (ISSprOM nemá lineární „zpevněný chodník“).
     return "507"
 
 
@@ -610,6 +616,8 @@ def highway_width_rank(highway: str) -> int:
         "bridleway": 30,
         "cycleway": 25,
         "pedestrian": 20,
+        # Chodník mírně nad obecnou pěšinou (stejná střednice).
+        "sidewalk": 12,
         "path": 10,
         "footway": 10,
     }.get(hw, 10)
@@ -644,9 +652,11 @@ def dedup_osm_prefer_wider(
     return kept, dropped
 
 
-def osm_way_to_5514(element: dict) -> list[tuple[float, float]] | None:
+def osm_way_to_5514(
+    element: dict, *, allow_sidewalk: bool = False
+) -> list[tuple[float, float]] | None:
     tags = element.get("tags") or {}
-    if _way_skip_reason(tags):
+    if _way_skip_reason(tags, allow_sidewalk=allow_sidewalk):
         return None
     pts: list[tuple[float, float]] = []
     for node in element.get("geometry") or []:
@@ -1259,12 +1269,15 @@ def filter_osm_items_against_zabaged(
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
     """Dedup střednicí se zachováním highway tagu u každého úseku.
 
-    ``highway=steps`` se proti ZABAGED neořezává – schody mají zůstat i při
-    souběhu s Pesina/Cesta (jinak by zmizely a zůstala jen „cesta“).
+    ``highway=steps`` a ``sidewalk`` se proti ZABAGED neořezávají – mají zůstat
+    i při souběhu s Ulice/Pesina (jinak by zmizely vedle silnice).
     """
     def _min_len(hw: str) -> float:
-        # Krátké schody ve městě; běžné cesty dál 12 m.
-        return 4.0 if hw == "steps" else MIN_LENGTH_M
+        # Krátké schody / chodníky ve městě; běžné cesty dál 12 m.
+        return 4.0 if hw in {"steps", "sidewalk"} else MIN_LENGTH_M
+
+    def _keep_vs_zabaged(hw: str) -> bool:
+        return hw in {"steps", "sidewalk"}
 
     if not zabaged_lines:
         kept = [
@@ -1283,7 +1296,7 @@ def filter_osm_items_against_zabaged(
         if polyline_length(line) < min_len:
             dropped += 1
             continue
-        if hw == "steps":
+        if _keep_vs_zabaged(hw):
             kept.append((line, hw))
             continue
         if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
@@ -1388,6 +1401,7 @@ def prepare_osm_paths(
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     features: list[dict] = []
     skipped = 0
+    allow_sidewalk = str(preset_id).startswith("sprint")
     for el in elements:
         tags = el.get("tags") or {}
         el_geom = "node" if el.get("type") == "node" else "way"
@@ -1435,12 +1449,14 @@ def prepare_osm_paths(
                 }
             )
             continue
-        pts = osm_way_to_5514(el)
+        pts = osm_way_to_5514(el, allow_sidewalk=allow_sidewalk)
         if pts is None:
             skipped += 1
             continue
         hw = ((el.get("tags") or {}).get("highway") or "").lower()
-        if not hw and _is_boardwalk(tags):
+        if allow_sidewalk and (tags.get("footway") or "").lower() == "sidewalk":
+            hw = "sidewalk"
+        elif not hw and _is_boardwalk(tags):
             hw = "footway"
         if not hw:
             hw = "path"
@@ -1535,6 +1551,7 @@ def highway_to_zabaged_vrstva(highway: str) -> str | None:
         return None
     if hw == "track":
         return "Cesta"  # KP road-path|505
+    # sidewalk / footway / path → KP pěšina (507)
     return "Pesina"  # KP road-path|507
 
 

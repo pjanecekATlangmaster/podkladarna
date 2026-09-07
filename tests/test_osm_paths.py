@@ -24,8 +24,19 @@ from app.pipeline.osm_paths import (
 
 
 def test_skip_sidewalk_and_crossing():
+    # Les / default: chodník i přejezd pryč.
     assert _way_skip_reason({"highway": "footway", "footway": "sidewalk"})
     assert _way_skip_reason({"highway": "footway", "footway": "crossing"})
+    # Sprint: chodník bereme, přejezd ne.
+    assert (
+        _way_skip_reason(
+            {"highway": "footway", "footway": "sidewalk"}, allow_sidewalk=True
+        )
+        is None
+    )
+    assert _way_skip_reason(
+        {"highway": "footway", "footway": "crossing"}, allow_sidewalk=True
+    )
     assert _way_skip_reason({"highway": "path"}) is None
     assert _way_skip_reason({"highway": "footway"}) is None
     assert _way_skip_reason({"highway": "track"}) is None
@@ -353,6 +364,23 @@ def test_osm_way_to_5514_skips_sidewalk():
         "geometry": [{"lat": 50.0, "lon": 14.4}, {"lat": 50.001, "lon": 14.4}],
     }
     assert osm_way_to_5514(el) is None
+    assert osm_way_to_5514(el, allow_sidewalk=True) is not None
+
+
+def test_filter_keeps_sidewalk_on_zabaged():
+    from app.pipeline.osm_paths import filter_osm_items_against_zabaged
+
+    zab = [[(0.0, 0.0), (100.0, 0.0)]]
+    sidewalk = ([(1.0, 1.0), (80.0, 2.0)], "sidewalk")
+    kept, dropped = filter_osm_items_against_zabaged([sidewalk], zab)
+    assert dropped == 0 and len(kept) == 1 and kept[0][1] == "sidewalk"
+
+
+def test_osm_oom_code_sidewalk():
+    from app.pipeline.osm_paths import highway_to_zabaged_vrstva, osm_oom_code
+
+    assert osm_oom_code("sidewalk", "sprint_2m") == "507"
+    assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
 
 
 def test_filter_drops_line_on_zabaged():
