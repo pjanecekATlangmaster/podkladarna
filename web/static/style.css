@@ -10,6 +10,7 @@
   --text: #1a1a1a;
   --muted: #5a5a5a;
   --border: #d8ddd0;
+  --page-pad-x: clamp(1rem, 2vw, 2rem);
   --page-max: min(1720px, 96vw);
 }
 
@@ -23,13 +24,27 @@ body {
   line-height: 1.5;
 }
 
+/* Společná šířka obsahu: hlavička, about, dva sloupce, patička. */
+.page-wrap {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--page-pad-x);
+  padding-right: var(--page-pad-x);
+}
+
 .header {
+  background: linear-gradient(135deg, #fff 0%, #eef8e8 55%, #f3e8f7 100%);
+  border-bottom: 3px solid var(--purple);
+}
+
+.header-inner {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1rem clamp(1rem, 2vw, 2rem);
-  background: linear-gradient(135deg, #fff 0%, #eef8e8 55%, #f3e8f7 100%);
-  border-bottom: 3px solid var(--purple);
+  padding-top: 1rem;
+  padding-bottom: 1rem;
 }
 
 .logo {
@@ -52,19 +67,19 @@ body {
   font-size: 0.95rem;
 }
 
+main.page-wrap {
+  padding-top: 1.25rem;
+  padding-bottom: 2rem;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 1.35fr 0.65fr;
   gap: 1.25rem;
-  padding: 0 clamp(1rem, 2vw, 2rem) 2rem;
-  max-width: var(--page-max);
-  margin: 0 auto;
 }
 
-.layout-full {
-  max-width: var(--page-max);
-  margin: 0 auto 1.25rem;
-  padding: 0 clamp(1rem, 2vw, 2rem);
+.about-card {
+  margin-bottom: 1.25rem;
 }
 
 .about-card h2 {
@@ -409,11 +424,10 @@ legend {
 
 .site-footer {
   text-align: center;
-  padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
+  padding-top: 1.25rem;
+  padding-bottom: 2rem;
   font-size: 0.82rem;
   color: var(--muted);
-  max-width: var(--page-max);
-  margin: 0 auto;
 }
 
 .site-footer p { margin: 0.3rem 0; }
