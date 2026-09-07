@@ -219,6 +219,30 @@ legend {
   margin-top: 0.2rem;
 }
 
+.advanced-options {
+  margin: 0.75rem 0 1rem;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.advanced-options > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--brown);
+  list-style: disclosure-closed;
+}
+
+.advanced-options[open] > summary {
+  margin-bottom: 0.35rem;
+}
+
+.advanced-options .checkbox-row {
+  margin: 0.45rem 0 0.15rem;
+  font-weight: 500;
+}
+
 .form-error {
   color: #a00;
   background: #fff0f0;

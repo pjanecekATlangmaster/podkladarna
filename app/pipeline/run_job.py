@@ -220,8 +220,13 @@ def run_job_pipeline(
                 work_dir,
                 tuple(bbox),
                 zabaged_clean if has_zabaged else None,
-                include_furniture=bool(options.get("kp_osm_furniture")),
+                include_benches=bool(options.get("kp_osm_benches")),
+                include_lamps=bool(options.get("kp_osm_lamps")),
+                include_playground_equipment=bool(
+                    options.get("kp_osm_playground_equipment")
+                ),
                 osm_priority=bool(options.get("kp_osm_priority")),
+                preset_id=preset_id,
                 log=log,
             )
         except Exception as exc:

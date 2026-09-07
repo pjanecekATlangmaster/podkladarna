@@ -581,6 +581,22 @@ function setReuseJob(id) {
   if (el) el.value = id || "";
 }
 
+function updateOsmHintsForPreset(presetId) {
+  const hint = document.getElementById("osm-priority-hint");
+  if (!hint) return;
+  const id = (presetId || "").toString();
+  if (id.startsWith("sprint")) {
+    hint.textContent =
+      "Sprint: ploty, zdi, brány, přístřešky, pomníky, pěší zóny; slabší ořez pěšin vůči ZABAGED. Budovy a silnice zůstávají ze ZABAGED.";
+  } else if (id.startsWith("forest") || id.startsWith("mtbo")) {
+    hint.textContent =
+      "Les / MTBO: priorita OSM je spíš urban pack (ploty, brány…) – v lese často zbytečné. Pěšiny, studny, hřiště bereme vždy. Lampy/lavičky v rozšířených nastaveních.";
+  } else {
+    hint.textContent =
+      "Pro sprint: ploty, zdi, brány, přístřešky, pomníky, pěší zóny; slabší ořez pěšin vůči ZABAGED. V lese spíš vypnout – urban pack může být hlučný. Budovy a silnice zůstávají ze ZABAGED.";
+  }
+}
+
 function applyJobToForm(job) {
   const form = document.getElementById("job-form");
   if (!form) return;
@@ -611,14 +627,31 @@ function applyJobToForm(job) {
       sens.value = sensVal;
     }
   }
-  const furniture = form.kp_osm_furniture;
-  if (furniture) {
-    furniture.checked = Boolean((job.options || {}).kp_osm_furniture);
+  const benches = form.kp_osm_benches;
+  if (benches) {
+    const opts = job.options || {};
+    benches.checked = Boolean(
+      opts.kp_osm_benches || opts.kp_osm_furniture
+    );
+  }
+  const lamps = form.kp_osm_lamps;
+  if (lamps) {
+    const opts = job.options || {};
+    lamps.checked = Boolean(opts.kp_osm_lamps || opts.kp_osm_furniture);
+  }
+  const playEq = form.kp_osm_playground_equipment;
+  if (playEq) {
+    playEq.checked = Boolean(
+      (job.options || {}).kp_osm_playground_equipment
+    );
   }
   const priority = form.kp_osm_priority;
   if (priority) {
-    priority.checked = Boolean((job.options || {}).kp_osm_priority);
+    const opts = job.options || {};
+    priority.checked =
+      opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
   }
+  updateOsmHintsForPreset((job.preset_id || "").toString());
   const opts = job.options || {};
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {
@@ -725,3 +758,10 @@ function startPolling() {
 loadPresets().then(loadJobs).then(startPolling);
 initJobsPager();
 initBboxMap();
+(() => {
+  const preset = document.getElementById("preset_id") || document.querySelector('[name="preset_id"]');
+  if (!preset) return;
+  const sync = () => updateOsmHintsForPreset(preset.value);
+  preset.addEventListener("change", sync);
+  sync();
+})();

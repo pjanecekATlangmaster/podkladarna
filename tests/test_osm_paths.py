@@ -115,6 +115,8 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("fence", "forest_10000") == "516"
     assert feature_oom_code("wall", "sprint_2m") == "513.2"
     assert feature_oom_code("hedge", "forest_10000") == "416"
+    assert feature_oom_code("playground_marker", "forest_7500") == "531"
+    assert feature_oom_code("pitch_marker", "sprint_2m") == "531"
 
 
 def test_osm_priority_overpass_includes_barriers():
@@ -122,12 +124,21 @@ def test_osm_priority_overpass_includes_barriers():
 
     ql = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=True)
     assert "barrier" in ql
-    assert 'amenity"="bench"' in ql
     assert "fitness_station" in ql
+    assert 'amenity"="bench"' not in ql
+    assert "street_lamp" not in ql
+    assert 'node["playground"]' not in ql
+    ql_eq = _overpass_ql(
+        50.0, 14.0, 50.1, 14.1, include_playground_equipment=True
+    )
+    assert 'node["playground"]' in ql_eq
+    ql_b = _overpass_ql(50.0, 14.0, 50.1, 14.1, include_benches=True)
+    assert 'amenity"="bench"' in ql_b
+    ql_l = _overpass_ql(50.0, 14.0, 50.1, 14.1, include_lamps=True)
+    assert "street_lamp" in ql_l
     ql_off = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=False)
     assert "fitness_station" not in ql_off
     assert "barrier" not in ql_off
-
 
 def test_osm_oom_code_paths_only():
     from app.pipeline.osm_paths import osm_oom_code

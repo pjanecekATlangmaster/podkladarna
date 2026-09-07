@@ -317,9 +317,10 @@ def build_oom_zip(
                     zf.write(path, f"vegetation/{path.name}")
         osm_dir = kp_cwd / "osm_paths"
         if osm_dir.is_dir():
-            gj = osm_dir / "paths.geojson"
-            if gj.is_file():
-                zf.write(gj, "osm_paths/paths.geojson")
+            for name in ("paths.geojson", "features.geojson"):
+                gj = osm_dir / name
+                if gj.is_file():
+                    zf.write(gj, f"osm_paths/{name}")
         if zabaged_clean and zabaged_clean.is_file():
             _add_shapefiles_from_zip(zf, zabaged_clean, "vectors")
             if include_zabaged_archive:

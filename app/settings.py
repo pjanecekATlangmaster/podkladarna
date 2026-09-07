@@ -65,9 +65,10 @@ DEFAULT_OPTIONS = {
     "kp_vege_height": 2.0,
     # Citlivost detekce srázů: low | normal | high | very_high.
     "kp_cliff_sensitivity": "normal",
-    # OSM lavičky/ohniště/tabule (531), lampy (530) – default vypnuto.
-    # Herní prvky na hřišti (531) se berou vždy.
-    "kp_osm_furniture": False,
-    # Sprint urban: maximum OSM (ploty, brány, pomníky, …) + slabší dedup pěšin.
-    "kp_osm_priority": False,
+    # OSM volitelné objekty – default vypnuto (rozšířená nastavení).
+    "kp_osm_benches": False,
+    "kp_osm_lamps": False,
+    "kp_osm_playground_equipment": False,
+    # Priorita OSM (urban pack) – dočasně default zapnuto kvůli testování.
+    "kp_osm_priority": True,
 }

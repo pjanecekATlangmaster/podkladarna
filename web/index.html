@@ -71,16 +71,28 @@
         <p class="hint">Jak přísně Karttapullautin hledá strmé skoky v DMR. Výchozí odpovídá dosavadnímu nastavení Podkladárny.</p>
 
         <label class="checkbox-row">
-          <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" />
-          Priorita OSM (sprint / urban detail)
+          <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />
+          Priorita OSM (hlavně sprint / urban)
         </label>
-        <p class="hint">Doporučeno pro sprint. Maximum z OSM: ploty, zdi, brány, přístřešky, pomníky, fitness, pěší zóny; zapne i lavičky/lampy; pěšiny se neořezávají proti ZABAGED Pesina/Cesta (jen proti silnicím/ulicím). Budovy a silnice zůstávají ze ZABAGED.</p>
+        <p class="hint" id="osm-priority-hint">Pro sprint: ploty, zdi, brány, přístřešky, pomníky, pěší zóny; slabší ořez pěšin vůči ZABAGED. V lese spíš vypnout – urban pack může být hlučný. Budovy a silnice zůstávají ze ZABAGED.</p>
 
-        <label class="checkbox-row">
-          <input type="checkbox" name="kp_osm_furniture" id="kp_osm_furniture" value="1" />
-          OSM lavičky, ohniště, tabule (531), lampy (530)
-        </label>
-        <p class="hint">Výchozí vypnuto (při prioritě OSM se zapne samo). Studny, prameny, mokřady, plocha hřiště/sportoviště, herní prvky (531) a cesty se berou vždy. Dřevěný chodník jako běžná pěšina.</p>
+        <details class="advanced-options" id="osm-advanced">
+          <summary>Rozšířená nastavení OSM</summary>
+          <p class="hint">Default vše vypnuto. Lampy a lavičky dávají smysl hlavně ve sprintu; herní prvky i na okraji lesa / u chat.</p>
+          <label class="checkbox-row">
+            <input type="checkbox" name="kp_osm_benches" id="kp_osm_benches" value="1" />
+            Lavičky, stoly, ohniště, tabule (531)
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" name="kp_osm_lamps" id="kp_osm_lamps" value="1" />
+            Lampy (530 kolečko) — spíš sprint
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" name="kp_osm_playground_equipment" id="kp_osm_playground_equipment" value="1" />
+            Herní prvky na hřišti (531 ×)
+          </label>
+          <p class="hint">Plocha hřiště/sportoviště, studny, prameny, mokřady a pěšiny se berou vždy. Dřevěný chodník jako běžná pěšina.</p>
+        </details>
 
         <div id="map-mode">
           <p class="hint">Klikněte dva protilehlé rohy, nebo klikněte na hotový job vpravo – výřez se načte na mapu. LiDAR i ZABAGED se stáhnou z ČÚZK do sdílené cache (u stejného výřezu znovu nestahují). Sloučený LAZ z předchozího jobu se při iteraci znovu použije. Mapa je omezená na Česko, výřez nejvýše 5 × 5 km.</p>

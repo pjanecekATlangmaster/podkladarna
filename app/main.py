@@ -370,22 +370,19 @@ async def api_create_job(request: Request):
         options["kp_cliff_sensitivity"] = resolve_cliff_sensitivity(
             {"kp_cliff_sensitivity": sens_raw}
         )
-    furniture_raw = _form_str(form, "kp_osm_furniture").strip().lower()
-    options["kp_osm_furniture"] = furniture_raw in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    priority_raw = _form_str(form, "kp_osm_priority").strip().lower()
-    options["kp_osm_priority"] = priority_raw in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    if options["kp_osm_priority"]:
-        options["kp_osm_furniture"] = True
+    def _opt_bool(key: str) -> bool:
+        return _form_str(form, key).strip().lower() in {"1", "true", "yes", "on"}
+
+    options["kp_osm_benches"] = _opt_bool("kp_osm_benches")
+    options["kp_osm_lamps"] = _opt_bool("kp_osm_lamps")
+    options["kp_osm_playground_equipment"] = _opt_bool(
+        "kp_osm_playground_equipment"
+    )
+    options["kp_osm_priority"] = _opt_bool("kp_osm_priority")
+    # Zpětná kompatibilita starého checkboxu.
+    if _opt_bool("kp_osm_furniture"):
+        options["kp_osm_benches"] = True
+        options["kp_osm_lamps"] = True
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:
@@ -413,7 +410,9 @@ async def api_create_job(request: Request):
         f"vege={options.get('kp_vege_height', 2.0)} m, "
         f"srázy={options.get('kp_cliff_sensitivity', 'normal')}/"
         f"{options.get('kp_cliff_symbol', 'earth_bank')}, "
-        f"nábytek/lampy={'ano' if options.get('kp_osm_furniture') else 'ne'}, "
+        f"lavičky={'ano' if options.get('kp_osm_benches') else 'ne'}, "
+        f"lampy={'ano' if options.get('kp_osm_lamps') else 'ne'}, "
+        f"herní prvky={'ano' if options.get('kp_osm_playground_equipment') else 'ne'}, "
         f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}"
     )
 

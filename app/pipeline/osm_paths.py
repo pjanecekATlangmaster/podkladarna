@@ -89,7 +89,9 @@ def _overpass_ql(
     north: float,
     east: float,
     *,
-    include_furniture: bool = False,
+    include_benches: bool = False,
+    include_lamps: bool = False,
+    include_playground_equipment: bool = False,
     osm_priority: bool = False,
 ) -> str:
     bbox = f"{south},{west},{north},{east}"
@@ -107,15 +109,19 @@ def _overpass_ql(
         f'way["leisure"="playground"]({bbox});',
         f'way["leisure"="pitch"]({bbox});',
         f'node["leisure"="pitch"]({bbox});',
-        # Herní prvky vždy (křížek 531) – ne za checkboxem nábytku.
-        f'node["leisure"="playground"]({bbox});',
-        f'node["playground"]({bbox});',
-        f'way["playground"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
     ]
-    if include_furniture or osm_priority:
+    if include_playground_equipment:
+        parts.extend(
+            [
+                f'node["leisure"="playground"]({bbox});',
+                f'node["playground"]({bbox});',
+                f'way["playground"]({bbox});',
+            ]
+        )
+    if include_benches:
         parts.extend(
             [
                 f'node["amenity"="bench"]({bbox});',
@@ -125,15 +131,16 @@ def _overpass_ql(
                 f'way["tourism"="information"]({bbox});',
                 f'node["information"~"^(board|map|trail_board)$"]({bbox});',
                 f'way["information"~"^(board|map|trail_board)$"]({bbox});',
-                f'node["highway"="street_lamp"]({bbox});',
                 f'node["leisure"="firepit"]({bbox});',
                 f'way["leisure"="firepit"]({bbox});',
                 f'node["amenity"="bbq"]({bbox});',
                 f'way["amenity"="bbq"]({bbox});',
             ]
         )
+    if include_lamps:
+        parts.append(f'node["highway"="street_lamp"]({bbox});')
     if osm_priority:
-        # Sprint / urban: ploty, zdi, brány, přístřešky, pomníky, fitness…
+        # Hlavně sprint / urban: ploty, zdi, brány, přístřešky, pomníky, fitness…
         parts.extend(
             [
                 f'way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]({bbox});',
@@ -167,17 +174,11 @@ _BARRIER_LINES = frozenset({"fence", "wall", "hedge", "retaining_wall"})
 _BARRIER_POINTS = frozenset(
     {"gate", "bollard", "stile", "cycle_barrier", "block", "lift_gate"}
 )
-# Volitelné umělé objekty (form kp_osm_furniture). Herní prvky sem nepatří.
-_FURNITURE_KINDS = frozenset(
-    {
-        "bench",
-        "info_board",
-        "lamp",
-        "picnic_table",
-        "firepit",
-    }
-)
-# Jen při kp_osm_priority (sprint urban pack).
+# Volitelné skupiny (rozšířená nastavení).
+_BENCH_KINDS = frozenset({"bench", "info_board", "picnic_table", "firepit"})
+_LAMP_KINDS = frozenset({"lamp"})
+_PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
+# Jen při kp_osm_priority (hlavně sprint urban pack).
 _PRIORITY_KINDS = frozenset(
     {
         "fence",
@@ -225,8 +226,8 @@ def classify_osm_feature(
     """(kind, výchozí OOM kód) – kód může přepsat feature_oom_code podle presetu.
 
     Dřevěný chodník sem nepatří – mapuje se jako běžná pěšina.
-    Nábytek/lampy (FURNITURE) filtruje prepare podle include_furniture.
-    PRIORITY pack (ploty, pomníky, …) filtruje prepare podle osm_priority.
+    Nábytek filtruje prepare podle include_benches / include_lamps /
+    include_playground_equipment. PRIORITY pack (ploty, pomníky, …) podle osm_priority.
     Lampy → 530 (kolečko); lavičky/ohniště/herní prvky/… → 531 (křížek).
     """
     leisure = (tags.get("leisure") or "").lower()
@@ -319,6 +320,8 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "firepit": "531",
         # ISSprOM/ISOM prominent man-made × – na sprintu stejně (čitelné na žluté ploše hřiště).
         "playground_equipment": "531",
+        "playground_marker": "531",
+        "pitch_marker": "531",
         "barrier_point": "531",
         "fitness": "531",
         "memorial": "526",
@@ -390,7 +393,9 @@ def _fetch_overpass(
     east: float,
     north: float,
     *,
-    include_furniture: bool = False,
+    include_benches: bool = False,
+    include_lamps: bool = False,
+    include_playground_equipment: bool = False,
     osm_priority: bool = False,
     log=None,
 ) -> tuple[list[dict] | None, Exception | None]:
@@ -399,7 +404,9 @@ def _fetch_overpass(
         west,
         north,
         east,
-        include_furniture=include_furniture,
+        include_benches=include_benches,
+        include_lamps=include_lamps,
+        include_playground_equipment=include_playground_equipment,
         osm_priority=osm_priority,
     )
     body = urllib.parse.urlencode({"data": ql}).encode("utf-8")
@@ -469,7 +476,9 @@ def _fetch_osm_api_map(
 def fetch_osm_path_elements(
     bbox_wgs84: tuple[float, float, float, float],
     *,
-    include_furniture: bool = False,
+    include_benches: bool = False,
+    include_lamps: bool = False,
+    include_playground_equipment: bool = False,
     osm_priority: bool = False,
     log=None,
 ) -> list[dict]:
@@ -479,7 +488,9 @@ def fetch_osm_path_elements(
         south,
         east,
         north,
-        include_furniture=include_furniture,
+        include_benches=include_benches,
+        include_lamps=include_lamps,
+        include_playground_equipment=include_playground_equipment,
         osm_priority=osm_priority,
         log=log,
     )
@@ -1097,15 +1108,18 @@ def prepare_osm_paths(
     bbox_wgs84: tuple[float, float, float, float],
     zabaged_clean: Path | None,
     *,
-    include_furniture: bool = False,
+    include_benches: bool = False,
+    include_lamps: bool = False,
+    include_playground_equipment: bool = False,
     osm_priority: bool = False,
+    preset_id: str = "",
     log=None,
 ) -> Path | None:
-    # Priorita OSM ⇒ i nábytek/lampy (Karel: jeden checkbox = maximum urban detail).
-    want_furniture = include_furniture or osm_priority
     elements = fetch_osm_path_elements(
         bbox_wgs84,
-        include_furniture=want_furniture,
+        include_benches=include_benches,
+        include_lamps=include_lamps,
+        include_playground_equipment=include_playground_equipment,
         osm_priority=osm_priority,
         log=log,
     )
@@ -1118,7 +1132,13 @@ def prepare_osm_paths(
         classified = classify_osm_feature(tags, geom=el_geom)
         if classified:
             kind, _code = classified
-            if kind in _FURNITURE_KINDS and not want_furniture:
+            if kind in _BENCH_KINDS and not include_benches:
+                skipped += 1
+                continue
+            if kind in _LAMP_KINDS and not include_lamps:
+                skipped += 1
+                continue
+            if kind in _PLAYGROUND_EQUIPMENT_KINDS and not include_playground_equipment:
                 skipped += 1
                 continue
             if kind in _PRIORITY_KINDS and not osm_priority:
@@ -1152,6 +1172,35 @@ def prepare_osm_paths(
                     "geometry": geometry,
                 }
             )
+            # Lesní mapa: žlutá 401 splyne se ZABAGED open land → středový křížek.
+            if (
+                kind in {"playground", "pitch"}
+                and geometry.get("type") == "Polygon"
+                and len(pts) >= 3
+            ):
+                ring = pts[:-1] if pts[0] == pts[-1] else pts
+                if ring:
+                    cx = sum(p[0] for p in ring) / len(ring)
+                    cy = sum(p[1] for p in ring) / len(ring)
+                    marker_kind = (
+                        "playground_marker"
+                        if kind == "playground"
+                        else "pitch_marker"
+                    )
+                    features.append(
+                        {
+                            "type": "Feature",
+                            "properties": {
+                                "source": "osm",
+                                "kind": marker_kind,
+                                "oom_code": "531",
+                            },
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [cx, cy],
+                            },
+                        }
+                    )
             continue
         pts = osm_way_to_5514(el)
         if pts is None:
@@ -1172,10 +1221,16 @@ def prepare_osm_paths(
             zabaged_clean, log=log, layers=dedup_layers
         )
         if log:
-            mode = "priorita OSM (jen silnice/ulice)" if osm_priority else "standard"
-            log(
-                f"OSM dedup ({mode}): {len(zabaged_lines)} ZABAGED linií"
-            )
+            sprint = str(preset_id).startswith("sprint")
+            if osm_priority:
+                mode = (
+                    "priorita OSM / sprint urban"
+                    if sprint
+                    else "priorita OSM (i v lese – urban pack)"
+                )
+            else:
+                mode = "standard"
+            log(f"OSM dedup ({mode}): {len(zabaged_lines)} ZABAGED linií")
         if not zabaged_lines and log:
             log(
                 "OSM dedup: varování – ZABAGED ZIP je, ale 0 cestovních linií; "
@@ -1303,6 +1358,8 @@ def build_osm_feature_parts(
         "playground": "OSM hřiště (401)",
         "pitch": "OSM sportoviště (401)",
         "playground_equipment": "OSM herní prvky (531 ×)",
+        "playground_marker": "OSM hřiště střed (531 ×)",
+        "pitch_marker": "OSM sportoviště střed (531 ×)",
         "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
         "spring": "OSM prameny",
@@ -1328,6 +1385,8 @@ def build_osm_feature_parts(
         "spring",
         "playground",
         "pitch",
+        "playground_marker",
+        "pitch_marker",
         "playground_equipment",
         "wetland",
         "cave_entrance",
