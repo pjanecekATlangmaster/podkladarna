@@ -56,6 +56,51 @@ def test_osm_target_size_finer_than_template(tmp_path):
     assert max(tw, th) <= 8192
 
 
+def test_ref_target_size_finer_than_kp_template(tmp_path):
+    from app.pipeline.georef import PgwGeoref
+    from app.pipeline.reference_layers import _ref_target_size, _osm_target_size
+
+    mini_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
+        b"\x08\x02\x00\x00\x00\x26\x93\x09\x29\x00\x00\x00\x12IDATx\x9cc\x60\x60"
+        b"\x60\x00\x00\x00\x04\x00\x01\x5c\xcd\xff\x69\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    png = tmp_path / "t.png"
+    png.write_bytes(mini_png)
+    pgw = tmp_path / "t.pgw"
+    # 4 px / 1000 m = KP ~250 m/px. Orto má jít na 0,25 m/px.
+    PgwGeoref(250.0, 0.0, 0.0, -250.0, 0.0, 1000.0).write(pgw)
+    tw, th, mpp = _ref_target_size(png, pgw)
+    osm_tw, osm_th, osm_mpp = _osm_target_size(png, pgw)
+    assert mpp <= 0.25
+    assert tw >= osm_tw and th >= osm_th
+    assert mpp <= osm_mpp
+    assert max(tw, th) <= 8192
+    assert tw == 4000 and th == 4000
+
+
+def test_split_pixel_grid_stays_under_wms_limit():
+    from app.pipeline.reference_layers import WMS_MAX_GETMAP_PX, _split_pixel_grid
+
+    assert _split_pixel_grid(4000, 3000) == [(0, 0, 4000, 3000)]
+    tiles = _split_pixel_grid(6000, 3000)
+    assert tiles == [(0, 0, 4000, 3000), (4000, 0, 6000, 3000)]
+    for x0, y0, x1, y1 in tiles:
+        assert x1 - x0 <= WMS_MAX_GETMAP_PX
+        assert y1 - y0 <= WMS_MAX_GETMAP_PX
+
+
+def test_pixel_window_bounds_top_left_is_north():
+    from app.pipeline.reference_layers import _pixel_window_bounds
+
+    bounds = (0.0, 0.0, 100.0, 50.0)
+    xmin, ymin, xmax, ymax = _pixel_window_bounds(bounds, 100, 50, (0, 0, 40, 10))
+    assert abs(xmin - 0.0) < 1e-9
+    assert abs(xmax - 40.0) < 1e-9
+    assert abs(ymax - 50.0) < 1e-9
+    assert abs(ymin - 40.0) < 1e-9
+
+
 def test_write_osm_vrt(tmp_path):
     tile = tmp_path / "t.png"
     tile.write_bytes(b"x")

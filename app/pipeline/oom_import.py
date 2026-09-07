@@ -6,9 +6,12 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.pipeline.cliff_merge import merge_cliff_ticks
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
+    KP_CLIFF_DENSE_CODE,
+    KP_CLIFF_ROCK_FACE,
     oom_code_for_dxf,
     oom_code_for_vectorconf_rule,
     symbol_index_for_code,
@@ -554,6 +557,33 @@ def build_zabaged_object_parts(
     return parts
 
 
+def _collect_dxf_line_parts(path: Path, *, use_ogr: bool) -> list[list[tuple[float, float]]]:
+    """Všechny LINESTRING z DXF (KP srázy = spousta 2bodových úseček)."""
+    out: list[list[tuple[float, float]]] = []
+    if use_ogr:
+        from osgeo import ogr
+
+        ds = ogr.Open(str(path))
+        if not ds:
+            return out
+        for i in range(ds.GetLayerCount()):
+            layer = ds.GetLayerByIndex(i)
+            if not layer:
+                continue
+            for feature in layer:
+                geom = feature.GetGeometryRef()
+                if geom is None:
+                    continue
+                out.extend(_ogr_line_parts_5514(geom))
+        return out
+    import pyogrio
+
+    for layer_name, _layer_type in pyogrio.list_layers(path):
+        for _props, wkb in _pyogrio_layer_rows(path, layer=layer_name):
+            out.extend(_wkb_line_parts_5514(wkb))
+    return out
+
+
 def build_dxf_object_part(
     kp_cwd: Path,
     *,
@@ -583,6 +613,9 @@ def build_dxf_object_part(
 
     objects: list[str] = []
     elev_at = _load_dem_elev(kp_cwd)
+    cliff_ticks: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    cliff_line_code: str | None = None
+    had_dense_polys = False
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -592,7 +625,16 @@ def build_dxf_object_part(
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             continue
-        cliff_elev = elev_at if zip_name in _CLIFF_DXF_NAMES else None
+        if zip_name in _CLIFF_DXF_NAMES:
+            cliff_line_code = code
+            for pts in _collect_dxf_line_parts(path, use_ogr=use_ogr):
+                if len(pts) == 2:
+                    cliff_ticks.append((pts[0], pts[1]))
+                elif len(pts) > 2:
+                    # Už slepená linie – nechat jako řetěz 2bodových úseků.
+                    for i in range(1, len(pts)):
+                        cliff_ticks.append((pts[i - 1], pts[i]))
+            continue
         if use_ogr:
             ds = ogr.Open(str(path))
             if not ds:
@@ -614,7 +656,6 @@ def build_dxf_object_part(
                             scale=scale,
                             grivation_deg=grivation_deg,
                             ogr=ogr,
-                            elev_at=cliff_elev,
                         )
                     )
         else:
@@ -631,16 +672,53 @@ def build_dxf_object_part(
                             ref_y=ref_y,
                             scale=scale,
                             grivation_deg=grivation_deg,
-                            elev_at=cliff_elev,
                         )
                     )
+
+    if cliff_ticks and cliff_line_code:
+        line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
+        as_polygons = cliff_symbol == KP_CLIFF_ROCK_FACE
+        merged = merge_cliff_ticks(cliff_ticks, as_polygons=as_polygons)
+        if line_index is not None:
+            line_parts = [("line", pts, False) for pts in merged.lines]
+            objects.extend(
+                _geom_parts_to_objects(
+                    line_parts,
+                    line_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    elev_at=elev_at,
+                )
+            )
+        if merged.polygons:
+            poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_DENSE_CODE)
+            if poly_index is not None:
+                had_dense_polys = True
+                poly_parts = [("line", ring, True) for ring in merged.polygons]
+                objects.extend(
+                    _geom_parts_to_objects(
+                        poly_parts,
+                        poly_index,
+                        ref_x=ref_x,
+                        ref_y=ref_y,
+                        scale=scale,
+                        grivation_deg=grivation_deg,
+                        as_area=True,
+                    )
+                )
+
     if not objects:
         return None
-    cliff_label = (
-        "skály (201)"
-        if cliff_symbol == "rock_face"
-        else "zemní srázy (104)"
-    )
+    if cliff_symbol == KP_CLIFF_ROCK_FACE:
+        cliff_label = (
+            "skály (201 + kamenitý povrch 210)"
+            if had_dense_polys
+            else "skály (201)"
+        )
+    else:
+        cliff_label = "zemní srázy (104)"
     return OomObjectPart(
         name=f"Karttapullautin – vektory ({cliff_label})",
         objects_xml="\n".join(objects),

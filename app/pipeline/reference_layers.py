@@ -27,10 +27,15 @@ from app.tiles import fetch_tile
 # Kartografický standard (GDAL výchozí): světlo ze severozápadu, 45° nad obzorem.
 HILLSHADE_AZIMUTH = 315
 HILLSHADE_ALTITUDE = 45
-MAX_REF_PIXELS = 4096
-# OSM podklad – vyšší strop, ať jdou ulice čitelně (ne jen velikost KP šablony).
+# Strop výstupního referenčního PNG (orto/ZTM/katastr/hillshade). KP šablona je ~1 m/px.
+MAX_REF_PIXELS = 8192
+# ČÚZK WMS MaxWidth/MaxHeight = 4096 – nad tím skládáme dlaždice.
+WMS_MAX_GETMAP_PX = 4000
+# OSM podklad – stejný strop, ať jdou ulice čitelně (ne jen velikost KP šablony).
 MAX_OSM_REF_PIXELS = 8192
-# Cílové rozlišení OSM v metrech/px (nejjemnější, co se vejde do MAX_OSM_REF_PIXELS).
+# Cílové rozlišení v metrech/px (nejjemnější, co se vejde do stropu pixelů).
+# Ortofoto ČÚZK je nativně ~0,20 m; 0,25 m je praktický kompromis vůči WMS/OOM.
+_REF_MPP_CANDIDATES = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
 _OSM_MPP_CANDIDATES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
 # DMR 5G má ~0,5 m mezi body – jemnější raster dělá díry a kostičkovaný hillshade.
 HILLSHADE_DEM_MIN_M = 1.0
@@ -112,36 +117,23 @@ def fetch_cuzk_wms_png(
     log: callable | None = None,
 ) -> bool:
     """Stáhne PNG+PGW z ČÚZK WMS ve S-JTSK (EPSG:5514)."""
-    xmin, ymin, xmax, ymax = bounds_5514
-    _, _, _, _, width, height = _template_extent(template_png, template_pgw)
-    tw, th = _target_size(width, height)
-    params = {
-        "service": "WMS",
-        "request": "GetMap",
-        "version": "1.3.0",
-        "layers": layer,
-        "styles": "default",
-        "crs": "EPSG:5514",
-        "bbox": f"{xmin},{ymin},{xmax},{ymax}",
-        "width": str(tw),
-        "height": str(th),
-        "format": "image/png",
-        "transparent": "false",
-    }
-    url = wms_url + "?" + urllib.parse.urlencode(params)
+    tw, th, mpp = _ref_target_size(template_png, template_pgw)
     if log:
-        log(f"Stahuji {label} ČÚZK WMS ({tw}×{th} px)…")
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = resp.read()
-    if len(data) < 500 or data[:8] != b"\x89PNG\r\n\x1a\n":
-        return False
-    dest_png.parent.mkdir(parents=True, exist_ok=True)
-    dest_png.write_bytes(data)
-    _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, tw, th)
-    if log:
+        log(f"Stahuji {label} ČÚZK WMS ({tw}×{th} px, ~{mpp:.2f} m/px)…")
+    ok = _download_wms_raster(
+        wms_url,
+        layer,
+        bounds_5514,
+        dest_png,
+        dest_pgw,
+        width=tw,
+        height=th,
+        image_format="image/png",
+        log=log,
+    )
+    if ok and log:
         log(f"{label}: {dest_png.name}")
-    return True
+    return ok
 
 
 def _gdal_tool(name: str) -> str:
@@ -178,17 +170,18 @@ def _target_size(width: int, height: int, max_px: int = MAX_REF_PIXELS) -> tuple
     return max(1, int(round(width * scale))), max(1, int(round(height * scale)))
 
 
-def _osm_target_size(
+def _extent_target_size(
     template_png: Path,
     template_pgw: Path,
     *,
-    max_px: int = MAX_OSM_REF_PIXELS,
+    max_px: int,
+    mpp_candidates: tuple[float, ...],
 ) -> tuple[int, int, float]:
-    """Velikost OSM PNG podle extentu šablony – max detail pod limitem pixelů."""
+    """Velikost PNG podle extentu šablony – max detail pod limitem pixelů."""
     xmin, ymin, xmax, ymax, _, _ = _template_extent(template_png, template_pgw)
     width_m = abs(xmax - xmin)
     height_m = abs(ymax - ymin)
-    for mpp in _OSM_MPP_CANDIDATES:
+    for mpp in mpp_candidates:
         tw = max(1, int(round(width_m / mpp)))
         th = max(1, int(round(height_m / mpp)))
         if max(tw, th) <= max_px:
@@ -200,6 +193,276 @@ def _osm_target_size(
     )
     mpp = max(width_m / tw, height_m / th)
     return tw, th, mpp
+
+
+def _ref_target_size(
+    template_png: Path,
+    template_pgw: Path,
+    *,
+    max_px: int = MAX_REF_PIXELS,
+) -> tuple[int, int, float]:
+    """Ortofoto / ZTM / katastr / hillshade – jemnější než KP šablona (~1 m/px)."""
+    return _extent_target_size(
+        template_png,
+        template_pgw,
+        max_px=max_px,
+        mpp_candidates=_REF_MPP_CANDIDATES,
+    )
+
+
+def _osm_target_size(
+    template_png: Path,
+    template_pgw: Path,
+    *,
+    max_px: int = MAX_OSM_REF_PIXELS,
+) -> tuple[int, int, float]:
+    """Velikost OSM PNG podle extentu šablony – max detail pod limitem pixelů."""
+    return _extent_target_size(
+        template_png,
+        template_pgw,
+        max_px=max_px,
+        mpp_candidates=_OSM_MPP_CANDIDATES,
+    )
+
+
+def _split_pixel_grid(
+    width: int, height: int, max_px: int = WMS_MAX_GETMAP_PX
+) -> list[tuple[int, int, int, int]]:
+    """Dlaždice (x0, y0, x1, y1) v pixelech; x1/y1 jsou exkluzivní."""
+    tiles: list[tuple[int, int, int, int]] = []
+    y = 0
+    while y < height:
+        th = min(max_px, height - y)
+        x = 0
+        while x < width:
+            tw = min(max_px, width - x)
+            tiles.append((x, y, x + tw, y + th))
+            x += tw
+        y += th
+    return tiles
+
+
+def _wms_getmap_url(
+    wms_url: str,
+    layer: str,
+    xmin: float,
+    ymin: float,
+    xmax: float,
+    ymax: float,
+    width: int,
+    height: int,
+    image_format: str,
+) -> str:
+    params = {
+        "service": "WMS",
+        "request": "GetMap",
+        "version": "1.3.0",
+        "layers": layer,
+        "styles": "default",
+        "crs": "EPSG:5514",
+        "bbox": f"{xmin},{ymin},{xmax},{ymax}",
+        "width": str(width),
+        "height": str(height),
+        "format": image_format,
+        "transparent": "false",
+    }
+    return wms_url + "?" + urllib.parse.urlencode(params)
+
+
+def _http_get_bytes(url: str, timeout: int = 120) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def _is_png(data: bytes) -> bool:
+    return len(data) >= 500 and data[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def _is_jpeg(data: bytes) -> bool:
+    return len(data) >= 500 and data[:2] == b"\xff\xd8"
+
+
+def _pixel_window_bounds(
+    bounds_5514: tuple[float, float, float, float],
+    full_w: int,
+    full_h: int,
+    window: tuple[int, int, int, int],
+) -> tuple[float, float, float, float]:
+    xmin, ymin, xmax, ymax = bounds_5514
+    x0, y0, x1, y1 = window
+    pixel_x = (xmax - xmin) / full_w
+    pixel_y = (ymax - ymin) / full_h
+    return (
+        xmin + x0 * pixel_x,
+        ymax - y1 * pixel_y,
+        xmin + x1 * pixel_x,
+        ymax - y0 * pixel_y,
+    )
+
+
+def _write_image_bytes(path: Path, data: bytes, image_format: str) -> bool:
+    if image_format == "image/jpeg":
+        if not _is_jpeg(data):
+            return False
+    elif not _is_png(data):
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return True
+
+
+def _jpeg_to_georef_png(
+    src_jpg: Path,
+    dest_png: Path,
+    bounds_5514: tuple[float, float, float, float],
+    *,
+    log: callable | None = None,
+) -> None:
+    xmin, ymin, xmax, ymax = bounds_5514
+    gdaltranslate = _gdal_tool("gdal_translate")
+    dest_png.parent.mkdir(parents=True, exist_ok=True)
+    run_cmd(
+        [
+            gdaltranslate,
+            str(src_jpg),
+            str(dest_png),
+            "-of",
+            "PNG",
+            "-a_srs",
+            CRS_PROJ4,
+            "-a_ullr",
+            str(xmin),
+            str(ymax),
+            str(xmax),
+            str(ymin),
+        ],
+        log=log,
+    )
+
+
+def _mosaic_wms_tiles(
+    tiles: list[tuple[Path, int, int, int, int]],
+    bounds_5514: tuple[float, float, float, float],
+    dest_png: Path,
+    dest_pgw: Path,
+    width: int,
+    height: int,
+    *,
+    log: callable | None = None,
+) -> bool:
+    """Složí WMS dlaždice (PNG/JPEG + world file) do cílového PNG+PGW."""
+    xmin, ymin, xmax, ymax = bounds_5514
+    gdalwarp = _gdal_tool("gdalwarp")
+    dest_png.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        gdalwarp,
+        "-s_srs",
+        CRS_PROJ4,
+        "-t_srs",
+        CRS_PROJ4,
+        "-te",
+        str(xmin),
+        str(ymin),
+        str(xmax),
+        str(ymax),
+        "-ts",
+        str(width),
+        str(height),
+        "-r",
+        "near",
+        "-of",
+        "PNG",
+        "-overwrite",
+        *[str(path) for path, *_ in tiles],
+        str(dest_png),
+    ]
+    run_cmd(cmd, log=log)
+    if not dest_png.is_file() or dest_png.stat().st_size < 500:
+        return False
+    _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, width, height)
+    return True
+
+
+def _download_wms_raster(
+    wms_url: str,
+    layer: str,
+    bounds_5514: tuple[float, float, float, float],
+    dest_png: Path,
+    dest_pgw: Path,
+    *,
+    width: int,
+    height: int,
+    image_format: str,
+    log: callable | None = None,
+) -> bool:
+    """GetMap; nad WMS_MAX_GETMAP_PX stáhne dlaždice a složí je GDAL."""
+    xmin, ymin, xmax, ymax = bounds_5514
+    dest_png.parent.mkdir(parents=True, exist_ok=True)
+    windows = _split_pixel_grid(width, height)
+    if len(windows) == 1:
+        url = _wms_getmap_url(
+            wms_url, layer, xmin, ymin, xmax, ymax, width, height, image_format
+        )
+        data = _http_get_bytes(url)
+        if image_format == "image/jpeg":
+            tmp = dest_png.parent / f"_{dest_png.stem}.jpg"
+            if not _write_image_bytes(tmp, data, image_format):
+                return False
+            _jpeg_to_georef_png(tmp, dest_png, bounds_5514, log=log)
+            tmp.unlink(missing_ok=True)
+        else:
+            if not _write_image_bytes(dest_png, data, image_format):
+                return False
+        _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, width, height)
+        return dest_png.is_file() and dest_png.stat().st_size > 500
+
+    if log:
+        log(f"WMS {layer}: {len(windows)} dlaždic (limit {WMS_MAX_GETMAP_PX} px)…")
+    work = dest_png.parent / f"_{dest_png.stem}_wms_tiles"
+    work.mkdir(parents=True, exist_ok=True)
+    ext = ".jpg" if image_format == "image/jpeg" else ".png"
+    tiles: list[tuple[Path, int, int, int, int]] = []
+    try:
+        for i, window in enumerate(windows):
+            x0, y0, x1, y1 = window
+            bxmin, bymin, bxmax, bymax = _pixel_window_bounds(
+                bounds_5514, width, height, window
+            )
+            tw, th = x1 - x0, y1 - y0
+            url = _wms_getmap_url(
+                wms_url, layer, bxmin, bymin, bxmax, bymax, tw, th, image_format
+            )
+            data = _http_get_bytes(url)
+            tile_path = work / f"t{i}{ext}"
+            if not _write_image_bytes(tile_path, data, image_format):
+                return False
+            _write_pgw_for_extent(
+                tile_path.with_suffix(".pgw"),
+                bxmin,
+                bymin,
+                bxmax,
+                bymax,
+                tw,
+                th,
+            )
+            if ext == ".jpg":
+                # GDAL u JPEG hledá .jgw / .wld, ne .pgw.
+                pgw = tile_path.with_suffix(".pgw")
+                shutil.copy2(pgw, tile_path.with_suffix(".jgw"))
+                shutil.copy2(pgw, tile_path.with_suffix(".wld"))
+            tiles.append((tile_path, x0, y0, x1, y1))
+        return _mosaic_wms_tiles(
+            tiles,
+            bounds_5514,
+            dest_png,
+            dest_pgw,
+            width,
+            height,
+            log=log,
+        )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def _template_extent(template_png: Path, template_pgw: Path) -> tuple[float, float, float, float, int, int]:
@@ -496,56 +759,23 @@ def fetch_orthophoto_wms(
     *,
     log: callable | None = None,
 ) -> bool:
-    xmin, ymin, xmax, ymax = bounds_5514
-    _, _, _, _, width, height = _template_extent(template_png, template_pgw)
-    tw, th = _target_size(width, height)
-    params = {
-        "service": "WMS",
-        "request": "GetMap",
-        "version": "1.3.0",
-        "layers": "0",
-        "styles": "default",
-        "crs": "EPSG:5514",
-        "bbox": f"{xmin},{ymin},{xmax},{ymax}",
-        "width": str(tw),
-        "height": str(th),
-        "format": "image/jpeg",
-        "transparent": "false",
-    }
-    url = ORTOFOTO_WMS + "?" + urllib.parse.urlencode(params)
+    tw, th, mpp = _ref_target_size(template_png, template_pgw)
     if log:
-        log(f"Stahuji ortofoto ČÚZK ({tw}×{th} px)…")
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = resp.read()
-    if len(data) < 500:
-        return False
-    tmp = dest_png.parent / "_ortho.jpg"
-    tmp.write_bytes(data)
-    gdaltranslate = _gdal_tool("gdal_translate")
-    dest_png.parent.mkdir(parents=True, exist_ok=True)
-    run_cmd(
-        [
-            gdaltranslate,
-            str(tmp),
-            str(dest_png),
-            "-of",
-            "PNG",
-            "-a_srs",
-            CRS_PROJ4,
-            "-a_ullr",
-            str(xmin),
-            str(ymax),
-            str(xmax),
-            str(ymin),
-        ],
+        log(f"Stahuji ortofoto ČÚZK ({tw}×{th} px, ~{mpp:.2f} m/px)…")
+    ok = _download_wms_raster(
+        ORTOFOTO_WMS,
+        "0",
+        bounds_5514,
+        dest_png,
+        dest_pgw,
+        width=tw,
+        height=th,
+        image_format="image/jpeg",
         log=log,
     )
-    tmp.unlink(missing_ok=True)
-    _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, tw, th)
-    if log:
+    if ok and log:
         log(f"Ortofoto: {dest_png.name}")
-    return True
+    return ok
 
 
 def _lon_lat_to_tile(lon: float, lat: float, zoom: int) -> tuple[int, int]:
@@ -983,8 +1213,7 @@ def build_reference_layers(
     west, south, east, north = bbox_wgs84
     bounds = crop_bounds_5514(west, south, east, north)
 
-    _, _, _, _, tw0, th0 = _template_extent(template_png, template_pgw)
-    ref_wh = _target_size(tw0, th0)
+    ref_wh = _ref_target_size(template_png, template_pgw)[:2]
     osm_wh = _osm_target_size(template_png, template_pgw)[:2]
     cache_dir = references_cache_dir(bbox_wgs84, ref_wh=ref_wh, osm_wh=osm_wh)
     cached = _try_load_references_cache(cache_dir, out_dir, log=log)
