@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 .vendor/
+agent-tools/
+local_test/
+pullauta.ini
