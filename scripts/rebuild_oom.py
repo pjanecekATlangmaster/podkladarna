@@ -3,7 +3,7 @@
 
 Nepotřebuje LiDAR, Karttapullautin ani stahování dat – jen:
   basemap/pullautus.png + .pgw
-  vectors/*.shp (+ .dbf, .shx, …)
+  zabaged/*.shp (+ .dbf, .shx, …)
   karttapullautin/*.dxf (volitelně)
 
 Příklad:
@@ -54,12 +54,12 @@ def _bbox_wgs84_from_raster(png: Path, pgw: Path) -> tuple[float, float, float, 
     return min(lons), min(lats), max(lons), max(lats)
 
 
-def _zip_vectors(vectors_dir: Path, dest_zip: Path) -> None:
+def _zip_shapefiles(shp_dir: Path, dest_zip: Path) -> None:
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
     if dest_zip.exists():
         dest_zip.unlink()
     with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(vectors_dir.iterdir()):
+        for path in sorted(shp_dir.iterdir()):
             if path.is_file():
                 zf.write(path, path.name)
 
@@ -93,10 +93,13 @@ def _stage_from_output(src: Path, work: Path, *, include_refs: bool) -> dict:
         if depr_pgw.is_file():
             shutil.copy2(depr_pgw, work / "pullautus_depr.pgw")
 
-    vectors = src / "vectors"
+    # Nové ZIPy: zabaged/; starší rozbalené výstupy: vectors/
+    zabaged_dir = src / "zabaged"
+    if not (zabaged_dir.is_dir() and any(zabaged_dir.glob("*.shp"))):
+        zabaged_dir = src / "vectors"
     zabaged_zip = work / "zabaged_clean.zip"
-    if vectors.is_dir() and any(vectors.glob("*.shp")):
-        _zip_vectors(vectors, zabaged_zip)
+    if zabaged_dir.is_dir() and any(zabaged_dir.glob("*.shp")):
+        _zip_shapefiles(zabaged_dir, zabaged_zip)
     else:
         zabaged_zip = None
 
@@ -213,7 +216,7 @@ def main() -> None:
     parser.add_argument(
         "source",
         type=Path,
-        help="Rozbalená složka výstupního ZIPu (s basemap/, vectors/, …)",
+        help="Rozbalená složka výstupního ZIPu (s basemap/, zabaged/, …)",
     )
     parser.add_argument(
         "-o",

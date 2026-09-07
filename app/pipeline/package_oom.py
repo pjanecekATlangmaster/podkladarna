@@ -104,13 +104,12 @@ def oom_readme(meta: dict) -> str:
         "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
         "   v Šablony → Nastavení šablon (Template Setup).\n"
         "3. Deprese: šablona „Karttapullautin deprese“.\n"
-        "4. Shapefile ZABAGED (vectors/) jsou v ZIPu pro ruční práci mimo OOM.\n"
-        "   Vrstevnice PDAL/GDAL jsou v contours/ spolu s dem_filled.tif (nehlazený\n"
-        "   výškový model 1 m, podle něj se měří výška srázů);\n"
+        "4. Shapefile ZABAGED (zabaged/) jsou v ZIPu pro ruční práci mimo OOM.\n"
+        "   Vrstevnice PDAL/GDAL jsou v contours/;\n"
         "   zeleň KP (polygony) ve vegetation/;\n"
         "   srázy a knolíky z Karttapullautinu v karttapullautin/\n"
         "   a zároveň jako editovatelné objekty v mapě.\n"
-        "   OSM pěšiny (bez duplicit se ZABAGED) v osm_paths/ a jako objekty 507.\n\n"
+        "   OSM pěšiny (geojson + shapefile OSM_cesty) v osm_paths/ a jako objekty 507.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto), CC BY 4.0. "
@@ -128,12 +127,15 @@ def _write_if_exists(zf: zipfile.ZipFile, src: Path, arcname: str) -> bool:
 
 def _add_shapefiles_from_zip(zf: zipfile.ZipFile, src_zip: Path, dest_dir: str) -> int:
     n = 0
+    keep = {".shp", ".shx", ".dbf", ".prj", ".cpg"}
     with zipfile.ZipFile(src_zip) as src:
         for info in src.infolist():
             if info.is_dir():
                 continue
             name = Path(info.filename).name
             if not name or name.startswith("."):
+                continue
+            if Path(name).suffix.lower() not in keep:
                 continue
             data = src.read(info)
             zf.writestr(f"{dest_dir}/{name}", data)
@@ -351,11 +353,6 @@ def build_oom_zip(
                     ".cpg",
                 }:
                     zf.write(path, f"contours/{path.name}")
-            # Nehlazený DEM – podle něj se měří výška srázů, hodí se na kontrolu
-            # a na ladění prahů mimo pipeline.
-            _write_if_exists(
-                zf, contours_dir / "dem_filled.tif", "contours/dem_filled.tif"
-            )
         vege_dir = kp_cwd / "vegetation"
         if vege_dir.is_dir():
             for path in sorted(vege_dir.iterdir()):
@@ -373,11 +370,13 @@ def build_oom_zip(
                 gj = osm_dir / name
                 if gj.is_file():
                     zf.write(gj, f"osm_paths/{name}")
+        # osm_kp.zip je vstup pro Karttapullautin; do výstupu rozbalit SHP
+        # stejně jako zabaged/ – ať jde importovat bez vnořeného ZIPu.
         osm_kp = kp_cwd / "osm_kp.zip"
         if osm_kp.is_file():
-            zf.write(osm_kp, "osm_paths/osm_kp.zip")
+            _add_shapefiles_from_zip(zf, osm_kp, "osm_paths")
         if zabaged_clean and zabaged_clean.is_file():
-            _add_shapefiles_from_zip(zf, zabaged_clean, "vectors")
+            _add_shapefiles_from_zip(zf, zabaged_clean, "zabaged")
             if include_zabaged_archive:
                 zf.write(zabaged_clean, "zabaged_clean.zip")
 

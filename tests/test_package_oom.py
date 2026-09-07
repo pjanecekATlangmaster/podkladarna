@@ -53,6 +53,14 @@ def test_build_oom_zip_layout(tmp_path: Path):
         zf.writestr("nested/Cesta.shx", b"shx")
         zf.writestr("nested/Cesta.dbf", b"dbf")
 
+    osm_kp = kp / "osm_kp.zip"
+    with zipfile.ZipFile(osm_kp, "w") as zf:
+        zf.writestr("OSM_cesty.shp", b"oshp")
+        zf.writestr("OSM_cesty.shx", b"oshx")
+        zf.writestr("OSM_cesty.dbf", b"odbf")
+        zf.writestr("OSM_cesty.prj", b"oprj")
+        zf.writestr("readme.txt", b"ignore")
+
     dest = tmp_path / "out" / "podkladarna_oom.zip"
     meta = oom_metadata(
         "sprint_2m",
@@ -72,22 +80,32 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "basemap/pullautus.pgw" in names
     assert "relief/pullautus_depr.png" in names
     assert "contours/contours.shp" in names
+    assert "contours/dem_filled.tif" not in names
     assert "karttapullautin/contours.dxf" not in names
     assert "karttapullautin/contours03.dxf" not in names
-    assert "vectors/Cesta.shp" in names
-    assert "vectors/Cesta.shx" in names
+    assert "zabaged/Cesta.shp" in names
+    assert "zabaged/Cesta.shx" in names
+    assert "vectors/Cesta.shp" not in names
+    assert "osm_paths/osm_kp.zip" not in names
+    assert "osm_paths/OSM_cesty.shp" in names
+    assert "osm_paths/OSM_cesty.prj" in names
+    assert "osm_paths/readme.txt" not in names
+    readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
+    assert "zabaged/" in readme
+    assert "vectors/" not in readme
+    about = zipfile.ZipFile(dest).read("CO_JE_PODKLADARNA.txt").decode("utf-8")
+    assert "zabaged/" in about
+    assert "vectors/" not in about
     payload = json.loads(zipfile.ZipFile(dest).read("metadata.json"))
     assert payload["crs"] == "EPSG:5514"
     assert payload["scale"] == 4000
     assert payload["preset_id"] == "sprint_2m"
-    readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
     assert "EPSG:5514" in readme
     assert "1:4000" in readme
     assert "ČÚZK" in readme
     assert "WMS" in readme
     assert "podkladarna.omap" in readme
     assert oom_readme(meta).startswith("Podkladárna")
-
 
 def test_prepare_oom_map_minimal(tmp_path):
     kp = tmp_path / "work"

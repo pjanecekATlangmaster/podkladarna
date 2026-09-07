@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 
 from app.pipeline.geom_diff import rings_to_polygon_wkb
-from app.pipeline.oom_import import _extract_shp_from_zip, _pyogrio_layer_rows
+from app.pipeline.oom_import import _extract_shp_from_zip
 
 # Plochy, které se do OOM kreslí jinak než KP žlutá – z KP 401 se odečtou.
 _SUBTRACT_ZABAGED_LAYERS = (
@@ -48,10 +48,36 @@ def _zabaged_layer_wkbs(
         shp = _extract_shp_from_zip(zabaged_clean, shp_name, stage / layer)
         if not shp:
             continue
-        for _props, wkb in _pyogrio_layer_rows(shp):
-            if wkb:
-                out.append(bytes(wkb))
+        out.extend(_shp_wkbs(shp))
     return out
+
+
+def _shp_wkbs(shp: Path) -> list[bytes]:
+    """WKB z SHP – v Docker image je osgeo/GDAL, pyogrio tam není."""
+    try:
+        from osgeo import ogr
+    except ImportError:
+        ogr = None
+    if ogr is not None:
+        ds = ogr.Open(str(shp))
+        if ds:
+            layer = ds.GetLayer(0)
+            if layer is not None:
+                out: list[bytes] = []
+                for feature in layer:
+                    geom = feature.GetGeometryRef()
+                    if geom is None:
+                        continue
+                    out.append(bytes(geom.ExportToWkb()))
+                return out
+    try:
+        from app.pipeline.oom_import import _pyogrio_layer_rows
+    except ImportError:
+        return []
+    try:
+        return [bytes(wkb) for _props, wkb in _pyogrio_layer_rows(shp) if wkb]
+    except ImportError:
+        return []
 
 
 def _osm_farmland_wkbs(work_dir: Path) -> list[bytes]:
