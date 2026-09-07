@@ -6,7 +6,9 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.pipeline.cliff_merge import merge_cliff_ticks
+from app.pipeline.cliff_height import filter_by_drop
+from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
+from app.pipeline.cliff_merge import merge_cliff_ticks, min_line_length_m
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
@@ -77,6 +79,16 @@ class _DemElev:
         self._nodata = self._band.GetNoDataValue()
         self._w = self._ds.RasterXSize
         self._h = self._ds.RasterYSize
+        # Měření výšky srázů dělá desetitisíce vzorků; po pixelech přes GDAL by
+        # to bylo o řád pomalejší než držet celý rastr v paměti.
+        self._grid = None
+        # 16M pixelů = 64 MB ve float32, což pokryje 4×4 km po metru. Větší
+        # rastr radši číst po pixelech než si sáhnout na paměť kontejneru.
+        if self._w * self._h <= 16_000_000:
+            try:
+                self._grid = self._band.ReadAsArray().astype("float32")
+            except Exception:
+                self._grid = None
 
     def __call__(self, x: float, y: float) -> float | None:
         gt = self._gt
@@ -89,7 +101,10 @@ class _DemElev:
         col, row = int(px), int(py)
         if col < 0 or row < 0 or col >= self._w or row >= self._h:
             return None
-        val = float(self._band.ReadAsArray(col, row, 1, 1)[0][0])
+        if self._grid is not None:
+            val = float(self._grid[row, col])
+        else:
+            val = float(self._band.ReadAsArray(col, row, 1, 1)[0][0])
         if self._nodata is not None and abs(val - float(self._nodata)) < 1e-6:
             return None
         if math.isnan(val):
@@ -97,16 +112,41 @@ class _DemElev:
         return val
 
 
+_dem_cache: dict[Path, "_DemElev | None"] = {}
+_dem_cache_dir: Path | None = None
+
+
+def _first_dem(work_dir: Path, names: tuple[str, ...]):
+    """Rastr se drží celý v paměti, tak stejný soubor otevírat jen jednou.
+
+    Cache platí pro jeden job – při přechodu jinam se zahodí, jinak by ve worker
+    procesu zůstaly viset desítky MB po každé zpracované mapě.
+    """
+    global _dem_cache_dir
+    if _dem_cache_dir != work_dir:
+        _dem_cache.clear()
+        _dem_cache_dir = work_dir
+    for name in names:
+        dem = work_dir / "contours" / name
+        if not dem.is_file():
+            continue
+        if dem not in _dem_cache:
+            try:
+                _dem_cache[dem] = _DemElev(dem)
+            except Exception:
+                _dem_cache[dem] = None
+        if _dem_cache[dem] is not None:
+            return _dem_cache[dem]
+    return None
+
+
 def _load_dem_elev(work_dir: Path):
-    dem = work_dir / "contours" / "dem_smooth.tif"
-    if not dem.is_file():
-        dem = work_dir / "contours" / "dem_filled.tif"
-    if not dem.is_file():
-        return None
-    try:
-        return _DemElev(dem)
-    except Exception:
-        return None
+    return _first_dem(work_dir, ("dem_smooth.tif", "dem_filled.tif"))
+
+
+def _load_cliff_dem(work_dir: Path):
+    """Na měření srázu je potřeba nehlazený model – smooth schod rozmázne."""
+    return _first_dem(work_dir, ("dem_filled.tif", "dem_raw.tif", "dem_smooth.tif"))
 
 
 def _wkb_read_points(buf: bytes, offset: int, fmt: str, n: int) -> tuple[list[tuple[float, float]], int]:
@@ -172,6 +212,7 @@ def _geom_parts_to_objects(
     grivation_deg: float,
     as_area: bool = False,
     elev_at=None,
+    clip_bounds: Bounds | None = None,
 ) -> list[str]:
     def to_map(x: float, y: float) -> tuple[int, int]:
         return projected_to_map_coord(
@@ -187,24 +228,37 @@ def _geom_parts_to_objects(
     for part in parts:
         if part[0] == "point":
             _, x, y = part
+            if clip_bounds is not None and not point_inside(
+                float(x), float(y), clip_bounds
+            ):
+                continue
             mx, my = to_map(float(x), float(y))
             out.append(_point_object(symbol_index, mx, my))
         elif part[0] == "line":
             _, pts, close = part
             proj = [(float(x), float(y)) for x, y in pts]  # type: ignore[union-attr]
-            if elev_at is not None and not close and len(proj) >= 2:
-                proj = orient_polyline_tags_downhill(
-                    proj, elev_at=elev_at, to_map=to_map
-                )
-            coords = [to_map(x, y) for x, y in proj]
-            if as_area or close:
-                obj = _area_object(symbol_index, coords) if as_area else _path_object(
-                    symbol_index, coords, close=True
-                )
+            closed_shape = as_area or close
+            if clip_bounds is None:
+                pieces = [proj]
+            elif closed_shape:
+                ring = clip_ring(proj, clip_bounds)
+                pieces = [ring] if len(ring) >= 3 else []
             else:
-                obj = _path_object(symbol_index, coords, close=False)
-            if obj:
-                out.append(obj)
+                pieces = clip_polyline(proj, clip_bounds)
+            for piece in pieces:
+                if elev_at is not None and not close and len(piece) >= 2:
+                    piece = orient_polyline_tags_downhill(
+                        piece, elev_at=elev_at, to_map=to_map
+                    )
+                coords = [to_map(x, y) for x, y in piece]
+                if closed_shape:
+                    obj = _area_object(symbol_index, coords) if as_area else _path_object(
+                        symbol_index, coords, close=True
+                    )
+                else:
+                    obj = _path_object(symbol_index, coords, close=False)
+                if obj:
+                    out.append(obj)
     return out
 
 
@@ -296,50 +350,30 @@ def _geom_objects(
     grivation_deg: float,
     ogr,
     elev_at=None,
+    clip_bounds: Bounds | None = None,
 ) -> list[str]:
+    """Rozloží OGR geometrii na díly a předá je společné cestě do OOM."""
     from osgeo import ogr as ogr_mod
 
     gtype = geom.GetGeometryType()
-    out: list[str] = []
+    parts: list[_WkbPart] = []
 
-    def to_map(x: float, y: float) -> tuple[int, int]:
-        return projected_to_map_coord(
-            x,
-            y,
-            ref_x=ref_x,
-            ref_y=ref_y,
-            scale=scale,
-            grivation_deg=grivation_deg,
-        )
-
-    def line_coords(line) -> list[tuple[int, int]]:
-        proj = [(line.GetX(i), line.GetY(i)) for i in range(line.GetPointCount())]
-        if elev_at is not None and len(proj) >= 2:
-            proj = orient_polyline_tags_downhill(proj, elev_at=elev_at, to_map=to_map)
-        return [to_map(x, y) for x, y in proj]
+    def ring_pts(line) -> list[tuple[float, float]]:
+        return [(line.GetX(i), line.GetY(i)) for i in range(line.GetPointCount())]
 
     if gtype in (ogr_mod.wkbPoint, ogr_mod.wkbPoint25D):
-        mx, my = to_map(geom.GetX(), geom.GetY())
-        obj = _point_object(symbol_index, mx, my)
-        if obj:
-            out.append(obj)
+        parts.append(("point", geom.GetX(), geom.GetY()))
     elif gtype in (ogr_mod.wkbLineString, ogr_mod.wkbLineString25D):
-        obj = _path_object(symbol_index, line_coords(geom))
-        if obj:
-            out.append(obj)
+        parts.append(("line", ring_pts(geom), False))
     elif gtype in (ogr_mod.wkbMultiLineString, ogr_mod.wkbMultiLineString25D):
         for i in range(geom.GetGeometryCount()):
             sub = geom.GetGeometryRef(i)
             if sub:
-                obj = _path_object(symbol_index, line_coords(sub))
-                if obj:
-                    out.append(obj)
+                parts.append(("line", ring_pts(sub), False))
     elif gtype in (ogr_mod.wkbPolygon, ogr_mod.wkbPolygon25D):
         ring = geom.GetGeometryRef(0)
         if ring:
-            obj = _path_object(symbol_index, line_coords(ring), close=True)
-            if obj:
-                out.append(obj)
+            parts.append(("line", ring_pts(ring), True))
     elif gtype in (ogr_mod.wkbMultiPolygon, ogr_mod.wkbMultiPolygon25D):
         for i in range(geom.GetGeometryCount()):
             poly = geom.GetGeometryRef(i)
@@ -347,10 +381,18 @@ def _geom_objects(
                 continue
             ring = poly.GetGeometryRef(0)
             if ring:
-                obj = _path_object(symbol_index, line_coords(ring), close=True)
-                if obj:
-                    out.append(obj)
-    return out
+                parts.append(("line", ring_pts(ring), True))
+
+    return _geom_parts_to_objects(
+        parts,
+        symbol_index,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        scale=scale,
+        grivation_deg=grivation_deg,
+        elev_at=elev_at,
+        clip_bounds=clip_bounds,
+    )
 
 
 def _extract_shp_from_zip(zabaged_clean: Path, shp_name: str, dest_dir: Path) -> Path | None:
@@ -416,6 +458,7 @@ def build_zabaged_object_parts(
     ref_y: float,
     grivation_deg: float,
     work_dir: Path,
+    clip_bounds: Bounds | None = None,
 ) -> list[OomObjectPart]:
     use_ogr = True
     try:
@@ -502,6 +545,7 @@ def build_zabaged_object_parts(
                         ref_y=ref_y,
                         scale=scale,
                         grivation_deg=grivation_deg,
+                        clip_bounds=clip_bounds,
                         ogr=ogr,
                     )
                 )
@@ -544,6 +588,7 @@ def build_zabaged_object_parts(
                         ref_y=ref_y,
                         scale=scale,
                         grivation_deg=grivation_deg,
+                        clip_bounds=clip_bounds,
                     )
                 )
         if objects:
@@ -593,6 +638,7 @@ def build_dxf_object_part(
     ref_y: float,
     grivation_deg: float,
     cliff_symbol: str = "earth_bank",
+    clip_bounds: Bounds | None = None,
 ) -> OomObjectPart | None:
     use_ogr = True
     try:
@@ -616,6 +662,7 @@ def build_dxf_object_part(
     cliff_ticks: list[tuple[tuple[float, float], tuple[float, float]]] = []
     cliff_line_code: str | None = None
     had_dense_polys = False
+    drop_stats: dict[str, int] = {}
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -655,6 +702,7 @@ def build_dxf_object_part(
                             ref_y=ref_y,
                             scale=scale,
                             grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
                             ogr=ogr,
                         )
                     )
@@ -672,15 +720,25 @@ def build_dxf_object_part(
                             ref_y=ref_y,
                             scale=scale,
                             grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
                         )
                     )
 
     if cliff_ticks and cliff_line_code:
         line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
         as_polygons = cliff_symbol == KP_CLIFF_ROCK_FACE
-        merged = merge_cliff_ticks(cliff_ticks, as_polygons=as_polygons)
+        merged = merge_cliff_ticks(
+            cliff_ticks,
+            as_polygons=as_polygons,
+            min_line_m=min_line_length_m(scale),
+        )
+        # KP výšku srázu nezapisuje, tak si ji doměříme z DEM a nízké schody
+        # zahodíme. Bez DEM projde všechno – není podle čeho rozhodovat.
+        cliff_lines, drop_stats = filter_by_drop(
+            merged.lines, _load_cliff_dem(kp_cwd)
+        )
         if line_index is not None:
-            line_parts = [("line", pts, False) for pts in merged.lines]
+            line_parts = [("line", pts, False) for pts in cliff_lines]
             objects.extend(
                 _geom_parts_to_objects(
                     line_parts,
@@ -689,6 +747,7 @@ def build_dxf_object_part(
                     ref_y=ref_y,
                     scale=scale,
                     grivation_deg=grivation_deg,
+                    clip_bounds=clip_bounds,
                     elev_at=elev_at,
                 )
             )
@@ -705,6 +764,7 @@ def build_dxf_object_part(
                         ref_y=ref_y,
                         scale=scale,
                         grivation_deg=grivation_deg,
+                        clip_bounds=clip_bounds,
                         as_area=True,
                     )
                 )
@@ -719,6 +779,10 @@ def build_dxf_object_part(
         )
     else:
         cliff_label = "zemní srázy (104)"
+    if drop_stats.get("zahozeno"):
+        cliff_label += f", {drop_stats['zahozeno']} nízkých zahozeno dle DEM"
+    elif drop_stats.get("nezmereno"):
+        cliff_label += ", výška nezměřena (chybí DEM)"
     return OomObjectPart(
         name=f"Karttapullautin – vektory ({cliff_label})",
         objects_xml="\n".join(objects),

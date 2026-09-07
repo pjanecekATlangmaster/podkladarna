@@ -17,6 +17,7 @@ from zipfile import ZipFile
 
 from app.pipeline.crs_5514 import wgs84_to_projected, write_prj
 from app.pipeline.fetch_openzu import USER_AGENT
+from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import (
     OomObjectPart,
@@ -1653,6 +1654,7 @@ def build_osm_path_parts(
     ref_x: float,
     ref_y: float,
     grivation_deg: float,
+    clip_bounds: Bounds | None = None,
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "paths.geojson"
     if not gj_path.is_file():
@@ -1677,20 +1679,23 @@ def build_osm_path_parts(
             symbol_index = symbol_cache["507"]
         if symbol_index is None:
             continue
-        mapped = [
-            projected_to_map_coord(
-                float(x),
-                float(y),
-                ref_x=ref_x,
-                ref_y=ref_y,
-                scale=scale,
-                grivation_deg=grivation_deg,
-            )
-            for x, y in coords
-        ]
-        obj = _path_object(symbol_index, mapped)
-        if obj:
-            objects.append(obj)
+        line = [(float(x), float(y)) for x, y in coords]
+        pieces = clip_polyline(line, clip_bounds) if clip_bounds else [line]
+        for piece in pieces:
+            mapped = [
+                projected_to_map_coord(
+                    x,
+                    y,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                )
+                for x, y in piece
+            ]
+            obj = _path_object(symbol_index, mapped)
+            if obj:
+                objects.append(obj)
     if not objects:
         return []
     return [
@@ -1710,6 +1715,7 @@ def build_osm_feature_parts(
     ref_x: float,
     ref_y: float,
     grivation_deg: float,
+    clip_bounds: Bounds | None = None,
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
     if not gj_path.is_file():
@@ -1768,6 +1774,20 @@ def build_osm_feature_parts(
         "fitness",
     )
     symbol_cache: dict[str, int | None] = {}
+
+    def to_map(pts):
+        return [
+            projected_to_map_coord(
+                x,
+                y,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                scale=scale,
+                grivation_deg=grivation_deg,
+            )
+            for x, y in pts
+        ]
+
     for feat in data.get("features") or []:
         props = feat.get("properties") or {}
         kind = str(props.get("kind") or "")
@@ -1787,14 +1807,10 @@ def build_osm_feature_parts(
             coords = geom.get("coordinates") or []
             if len(coords) < 2:
                 continue
-            mx, my = projected_to_map_coord(
-                float(coords[0]),
-                float(coords[1]),
-                ref_x=ref_x,
-                ref_y=ref_y,
-                scale=scale,
-                grivation_deg=grivation_deg,
-            )
+            x, y = float(coords[0]), float(coords[1])
+            if clip_bounds and not point_inside(x, y, clip_bounds):
+                continue
+            mx, my = to_map([(x, y)])[0]
             obj = _point_object(symbol_index, mx, my)
             if obj:
                 grouped[kind].append(obj)
@@ -1803,38 +1819,22 @@ def build_osm_feature_parts(
             coords = geom.get("coordinates") or []
             if len(coords) < 2:
                 continue
-            mapped = [
-                projected_to_map_coord(
-                    float(x),
-                    float(y),
-                    ref_x=ref_x,
-                    ref_y=ref_y,
-                    scale=scale,
-                    grivation_deg=grivation_deg,
-                )
-                for x, y in coords
-            ]
-            obj = _path_object(symbol_index, mapped)
-            if obj:
-                grouped[kind].append(obj)
-                kind_codes[kind] = code
+            line = [(float(x), float(y)) for x, y in coords]
+            for piece in clip_polyline(line, clip_bounds) if clip_bounds else [line]:
+                obj = _path_object(symbol_index, to_map(piece))
+                if obj:
+                    grouped[kind].append(obj)
+                    kind_codes[kind] = code
         elif gtype == "Polygon":
             rings = geom.get("coordinates") or []
             if not rings:
                 continue
-            ring = rings[0]
-            mapped = [
-                projected_to_map_coord(
-                    float(x),
-                    float(y),
-                    ref_x=ref_x,
-                    ref_y=ref_y,
-                    scale=scale,
-                    grivation_deg=grivation_deg,
-                )
-                for x, y in ring
-            ]
-            obj = _area_object(symbol_index, mapped)
+            ring = [(float(x), float(y)) for x, y in rings[0]]
+            if clip_bounds:
+                ring = clip_ring(ring, clip_bounds)
+                if not ring:
+                    continue
+            obj = _area_object(symbol_index, to_map(ring))
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code

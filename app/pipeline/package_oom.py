@@ -11,6 +11,7 @@ from app.pipeline.osm_paths import build_osm_feature_parts, build_osm_path_parts
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
+from app.pipeline.geom_clip import expand
 from app.pipeline.georef import projected_center_from_raster
 from app.pipeline.oom_georef import oom_north_angles
 from app.pipeline.oom_import import (
@@ -25,6 +26,8 @@ from app.pipeline.vegetation_gdal import build_vegetation_parts
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
 OOM_MAP_NAME = "podkladarna.omap"
+# Kolik nechat za objednanou hranicí, ať u kraje mapy nechybí kus prvku.
+CLIP_MARGIN_M = 25.0
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
@@ -92,7 +95,9 @@ def oom_readme(meta: dict) -> str:
         "   v Šablony → Nastavení šablon (Template Setup).\n"
         "3. Deprese: šablona „Karttapullautin deprese“.\n"
         "4. Shapefile ZABAGED (vectors/) jsou v ZIPu pro ruční práci mimo OOM.\n"
-        "   Vrstevnice PDAL/GDAL jsou v contours/; zeleň KP (polygony) ve vegetation/;\n"
+        "   Vrstevnice PDAL/GDAL jsou v contours/ spolu s dem_filled.tif (nehlazený\n"
+        "   výškový model 1 m, podle něj se měří výška srázů);\n"
+        "   zeleň KP (polygony) ve vegetation/;\n"
         "   srázy a knolíky z Karttapullautinu v karttapullautin/\n"
         "   a zároveň jako editovatelné objekty v mapě.\n"
         "   OSM pěšiny (bez duplicit se ZABAGED) v osm_paths/ a jako objekty 507.\n\n"
@@ -159,6 +164,12 @@ def prepare_oom_map(
         ref_y = (ymin + ymax) / 2
     ref_lat, ref_lon = projected_to_wgs84(ref_x, ref_y)
     _, grivation = oom_north_angles(ref_x, ref_y)
+    # KP i LiDAR se počítají na širším výřezu, než uživatel objednal. Bez ořezu
+    # by se do mapy dostaly artefakty z okraje dat, kde už žádný LiDAR není.
+    # xmin..ymax má v sobě CROP_BUFFER_M navíc, tady chceme přesný výběr.
+    clip_bounds = expand(
+        crop_bounds_5514(west, south, east, north, buffer_m=0.0), CLIP_MARGIN_M
+    )
     templates = collect_oom_templates(
         kp_cwd,
         built_refs=built_refs,
@@ -202,6 +213,7 @@ def prepare_oom_map(
             ref_y=ref_y,
             grivation_deg=grivation,
             cliff_symbol=cliff_symbol,
+            clip_bounds=clip_bounds,
         )
         if dxf_part:
             object_parts.append(dxf_part)
@@ -216,6 +228,7 @@ def prepare_oom_map(
                 ref_y=ref_y,
                 grivation_deg=grivation,
                 work_dir=kp_cwd.parent,
+                clip_bounds=clip_bounds,
             )
         )
     osm_parts = build_osm_path_parts(
@@ -225,6 +238,7 @@ def prepare_oom_map(
         ref_x=ref_x,
         ref_y=ref_y,
         grivation_deg=grivation,
+        clip_bounds=clip_bounds,
     )
     if osm_parts:
         object_parts.extend(osm_parts)
@@ -235,6 +249,7 @@ def prepare_oom_map(
         ref_x=ref_x,
         ref_y=ref_y,
         grivation_deg=grivation,
+        clip_bounds=clip_bounds,
     )
     if osm_feat:
         object_parts.extend(osm_feat)
@@ -304,6 +319,11 @@ def build_oom_zip(
                     ".cpg",
                 }:
                     zf.write(path, f"contours/{path.name}")
+            # Nehlazený DEM – podle něj se měří výška srázů, hodí se na kontrolu
+            # a na ladění prahů mimo pipeline.
+            _write_if_exists(
+                zf, contours_dir / "dem_filled.tif", "contours/dem_filled.tif"
+            )
         vege_dir = kp_cwd / "vegetation"
         if vege_dir.is_dir():
             for path in sorted(vege_dir.iterdir()):

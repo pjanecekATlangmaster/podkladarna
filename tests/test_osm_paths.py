@@ -7,6 +7,8 @@ import urllib.error
 from app.pipeline.osm_paths import (
     OVERPASS_URLS,
     _way_skip_reason,
+    build_osm_feature_parts,
+    build_osm_path_parts,
     classify_osm_feature,
     fetch_osm_path_elements,
     filter_osm_against_zabaged,
@@ -513,3 +515,85 @@ def test_fetch_osm_falls_back_to_api_map():
     assert got[0]["tags"]["highway"] == "path"
     assert any("api.openstreetmap.org" in u for u in calls)
     assert len(calls) == len(OVERPASS_URLS) + 1
+
+
+def _write_osm_geojson(work_dir, name, features):
+    out = work_dir / "osm_paths"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / name).write_text(
+        json.dumps({"type": "FeatureCollection", "features": features}),
+        encoding="utf-8",
+    )
+
+
+def _build_kwargs():
+    return dict(preset_id="isom2017", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+
+
+def test_osm_paths_are_clipped_to_map_bounds(tmp_path):
+    # Cesta vede z výřezu ven; po ořezu má zůstat jen kus uvnitř.
+    _write_osm_geojson(
+        tmp_path,
+        "paths.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {"highway": "path"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[-500.0, 0.0], [500.0, 0.0]],
+                },
+            }
+        ],
+    )
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=7):
+        full = build_osm_path_parts(tmp_path, **_build_kwargs())
+        clipped = build_osm_path_parts(
+            tmp_path, **_build_kwargs(), clip_bounds=(-100.0, -100.0, 100.0, 100.0)
+        )
+    assert full and clipped
+    assert clipped[0].count == 1
+    assert "-50000 0;50000 0;" in full[0].objects_xml
+    assert "-10000 0;10000 0;" in clipped[0].objects_xml
+
+
+def test_osm_path_fully_outside_bounds_is_dropped(tmp_path):
+    _write_osm_geojson(
+        tmp_path,
+        "paths.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {"highway": "path"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[400.0, 400.0], [500.0, 500.0]],
+                },
+            }
+        ],
+    )
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=7):
+        got = build_osm_path_parts(
+            tmp_path, **_build_kwargs(), clip_bounds=(-100.0, -100.0, 100.0, 100.0)
+        )
+    assert got == []
+
+
+def test_osm_point_feature_outside_bounds_is_dropped(tmp_path):
+    _write_osm_geojson(
+        tmp_path,
+        "features.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {"kind": "spring", "oom_code": "312"},
+                "geometry": {"type": "Point", "coordinates": [inside, 0.0]},
+            }
+            for inside in (0.0, 900.0)
+        ],
+    )
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=7):
+        got = build_osm_feature_parts(
+            tmp_path, **_build_kwargs(), clip_bounds=(-100.0, -100.0, 100.0, 100.0)
+        )
+    assert sum(p.count for p in got) == 1
