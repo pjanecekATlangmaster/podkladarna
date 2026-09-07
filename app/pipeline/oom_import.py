@@ -183,8 +183,9 @@ def _wkb_parts(buf: bytes, offset: int = 0) -> tuple[list[_WkbPart], int]:
             n, = struct.unpack_from(fmt + "I", buf, offset)
             offset += 4
             pts, offset = _wkb_read_points(buf, offset, fmt, n)
-            if ri == 0:
-                parts.append(("line", pts, True))
+            # Vnitřní prstence jdou hned za obrysem – ZABAGED tak vyřezává
+            # třeba les z louky a bez díry by plocha les přikryla.
+            parts.append(("line", pts, True) if ri == 0 else ("hole", pts))
     elif base_type == 5:
         ng, = struct.unpack_from(fmt + "I", buf, offset)
         offset += 4
@@ -197,7 +198,7 @@ def _wkb_parts(buf: bytes, offset: int = 0) -> tuple[list[_WkbPart], int]:
         for _ in range(ng):
             sub, offset = _wkb_parts(buf, offset)
             for part in sub:
-                if part[0] == "line" and part[2]:
+                if part[0] == "hole" or (part[0] == "line" and part[2]):
                     parts.append(part)
     return parts, offset
 
@@ -225,7 +226,13 @@ def _geom_parts_to_objects(
         )
 
     out: list[str] = []
-    for part in parts:
+    index = 0
+    while index < len(parts):
+        part = parts[index]
+        index += 1
+        if part[0] == "hole":
+            # Díra bez obrysu před sebou nedává smysl – zahodit.
+            continue
         if part[0] == "point":
             _, x, y = part
             if clip_bounds is not None and not point_inside(
@@ -234,31 +241,49 @@ def _geom_parts_to_objects(
                 continue
             mx, my = to_map(float(x), float(y))
             out.append(_point_object(symbol_index, mx, my))
-        elif part[0] == "line":
-            _, pts, close = part
-            proj = [(float(x), float(y)) for x, y in pts]  # type: ignore[union-attr]
-            closed_shape = as_area or close
-            if clip_bounds is None:
-                pieces = [proj]
-            elif closed_shape:
-                ring = clip_ring(proj, clip_bounds)
-                pieces = [ring] if len(ring) >= 3 else []
+            continue
+        if part[0] != "line":
+            continue
+
+        _, pts, close = part
+        proj = [(float(x), float(y)) for x, y in pts]  # type: ignore[union-attr]
+        closed_shape = as_area or close
+        holes: list[list[tuple[float, float]]] = []
+        while index < len(parts) and parts[index][0] == "hole":
+            if closed_shape:
+                holes.append(
+                    [(float(x), float(y)) for x, y in parts[index][1]]  # type: ignore[misc]
+                )
+            index += 1
+
+        if clip_bounds is None:
+            pieces = [proj]
+        elif closed_shape:
+            ring = clip_ring(proj, clip_bounds)
+            pieces = [ring] if len(ring) >= 3 else []
+            holes = [
+                clipped
+                for clipped in (clip_ring(hole, clip_bounds) for hole in holes)
+                if len(clipped) >= 3
+            ]
+        else:
+            pieces = clip_polyline(proj, clip_bounds)
+
+        for piece in pieces:
+            if elev_at is not None and not close and len(piece) >= 2:
+                piece = orient_polyline_tags_downhill(
+                    piece, elev_at=elev_at, to_map=to_map
+                )
+            coords = [to_map(x, y) for x, y in piece]
+            if closed_shape:
+                rings = [coords] + [
+                    [to_map(x, y) for x, y in hole] for hole in holes
+                ]
+                obj = _area_object_with_holes(symbol_index, rings)
             else:
-                pieces = clip_polyline(proj, clip_bounds)
-            for piece in pieces:
-                if elev_at is not None and not close and len(piece) >= 2:
-                    piece = orient_polyline_tags_downhill(
-                        piece, elev_at=elev_at, to_map=to_map
-                    )
-                coords = [to_map(x, y) for x, y in piece]
-                if closed_shape:
-                    obj = _area_object(symbol_index, coords) if as_area else _path_object(
-                        symbol_index, coords, close=True
-                    )
-                else:
-                    obj = _path_object(symbol_index, coords, close=False)
-                if obj:
-                    out.append(obj)
+                obj = _path_object(symbol_index, coords)
+            if obj:
+                out.append(obj)
     return out
 
 
@@ -297,19 +322,7 @@ def _fmt(x: int, y: int, flags: int = 0) -> str:
     return f"{x} {y}"
 
 
-def _path_object(
-    symbol_index: int,
-    coords: list[tuple[int, int]],
-    *,
-    close: bool = False,
-) -> str:
-    if len(coords) < 2:
-        return ""
-    pts = [_fmt(x, y) for x, y in coords]
-    if close:
-        x0, y0 = coords[0]
-        # OOM PathObject: uzavření = opakovaný první bod s flagem 18.
-        pts.append(_fmt(x0, y0, 18))
+def _object_xml(symbol_index: int, pts: list[str]) -> str:
     body = ";".join(pts) + ";"
     return (
         f'            <object type="1" symbol="{symbol_index}">\n'
@@ -319,17 +332,36 @@ def _path_object(
     )
 
 
-def _area_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
-    """Plocha v OOM = PathObject (type=1), ne type=2 (ten v Mapperu neexistuje)."""
-    if len(coords) < 3:
+def _path_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
+    if len(coords) < 2:
         return ""
-    # Odstraň duplicitní uzavírací bod z polygonize – _path_object ho doplní s flagem.
-    ring = list(coords)
-    if len(ring) >= 2 and ring[0] == ring[-1]:
-        ring = ring[:-1]
-    if len(ring) < 3:
+    return _object_xml(symbol_index, [_fmt(x, y) for x, y in coords])
+
+
+def _area_object_with_holes(
+    symbol_index: int, rings: list[list[tuple[int, int]]]
+) -> str:
+    """Plocha v OOM = PathObject (type=1), prstence oddělené bodem s flagem 18.
+
+    Díra se v Mapperu vykreslí průhledně, takže se pod ní objeví bílé pozadí.
+    Les se proto z okolní plochy musí vyříznout – kreslit na něj vlastní
+    symbol nejde, bílá v ISOM žádný symbol nemá.
+    """
+    pts: list[str] = []
+    for index, coords in enumerate(rings):
+        # Duplicitní uzavírací bod z polygonize pryč – doplníme si ho s flagem.
+        ring = list(coords)
+        if len(ring) >= 2 and ring[0] == ring[-1]:
+            ring = ring[:-1]
+        if len(ring) < 3:
+            if index == 0:
+                return ""
+            continue
+        pts.extend(_fmt(x, y) for x, y in ring)
+        pts.append(_fmt(ring[0][0], ring[0][1], 18))
+    if not pts:
         return ""
-    return _path_object(symbol_index, ring, close=True)
+    return _object_xml(symbol_index, pts)
 
 
 def _point_object(symbol_index: int, x: int, y: int) -> str:
@@ -338,6 +370,18 @@ def _point_object(symbol_index: int, x: int, y: int) -> str:
         f'                <coords count="1">{_fmt(x, y)};</coords>\n'
         f"            </object>"
     )
+
+
+def _polygon_parts(poly, ring_pts) -> list[_WkbPart]:
+    """Obrys + díry jednoho OGR polygonu, ve stejném pořadí jako z WKB."""
+    parts: list[_WkbPart] = []
+    for i in range(poly.GetGeometryCount()):
+        ring = poly.GetGeometryRef(i)
+        if not ring:
+            continue
+        pts = ring_pts(ring)
+        parts.append(("line", pts, True) if i == 0 else ("hole", pts))
+    return parts
 
 
 def _geom_objects(
@@ -371,17 +415,12 @@ def _geom_objects(
             if sub:
                 parts.append(("line", ring_pts(sub), False))
     elif gtype in (ogr_mod.wkbPolygon, ogr_mod.wkbPolygon25D):
-        ring = geom.GetGeometryRef(0)
-        if ring:
-            parts.append(("line", ring_pts(ring), True))
+        parts.extend(_polygon_parts(geom, ring_pts))
     elif gtype in (ogr_mod.wkbMultiPolygon, ogr_mod.wkbMultiPolygon25D):
         for i in range(geom.GetGeometryCount()):
             poly = geom.GetGeometryRef(i)
-            if not poly:
-                continue
-            ring = poly.GetGeometryRef(0)
-            if ring:
-                parts.append(("line", ring_pts(ring), True))
+            if poly:
+                parts.extend(_polygon_parts(poly, ring_pts))
 
     return _geom_parts_to_objects(
         parts,

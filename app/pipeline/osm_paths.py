@@ -21,7 +21,7 @@ from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_insid
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import (
     OomObjectPart,
-    _area_object,
+    _area_object_with_holes,
     _path_object,
     _point_object,
     _pyogrio_layer_rows,
@@ -1835,15 +1835,16 @@ def build_osm_feature_parts(
                     grouped[kind].append(obj)
                     kind_codes[kind] = code
         elif gtype == "Polygon":
-            rings = geom.get("coordinates") or []
-            if not rings:
+            raw_rings = geom.get("coordinates") or []
+            if not raw_rings:
                 continue
-            ring = [(float(x), float(y)) for x, y in rings[0]]
+            rings = [[(float(x), float(y)) for x, y in r] for r in raw_rings]
             if clip_bounds:
-                ring = clip_ring(ring, clip_bounds)
-                if not ring:
+                rings = [clip_ring(r, clip_bounds) for r in rings]
+                if len(rings[0]) < 3:
                     continue
-            obj = _area_object(symbol_index, to_map(ring))
+                rings = [rings[0]] + [r for r in rings[1:] if len(r) >= 3]
+            obj = _area_object_with_holes(symbol_index, [to_map(r) for r in rings])
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
