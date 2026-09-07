@@ -28,6 +28,13 @@ OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
 OOM_MAP_NAME = "podkladarna.omap"
 # Kolik nechat za objednanou hranicí, ať u kraje mapy nechybí kus prvku.
 CLIP_MARGIN_M = 25.0
+# Louka / parková zeleň pod KP vegetací – jinak 401 překryje hustníky z LiDARu.
+_ZABAGED_UNDER_VEGETATION = frozenset(
+    {
+        "TrvalyTravniPorost",
+        "UdrzovanaZelen",
+    }
+)
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
@@ -180,7 +187,29 @@ def prepare_oom_map(
         return None
 
     object_parts: list[OomObjectPart] = []
-    # Zeleň pod vrstevnicemi (kreslí se dříve).
+    zabaged_under: list[OomObjectPart] = []
+    zabaged_rest: list[OomObjectPart] = []
+    if zabaged_clean and zabaged_clean.is_file():
+        for part in build_zabaged_object_parts(
+            zabaged_clean,
+            vectorconf_name=vectorconf_name,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            work_dir=kp_cwd.parent,
+            clip_bounds=clip_bounds,
+        ):
+            layer = part.name.removeprefix("ZABAGED – ").strip()
+            if layer in _ZABAGED_UNDER_VEGETATION:
+                zabaged_under.append(part)
+            else:
+                zabaged_rest.append(part)
+
+    # Louky/zeleň ze ZABAGED pod KP (hustníky z LiDARu musí zůstat vidět).
+    object_parts.extend(zabaged_under)
+    # KP zeleň pod vrstevnicemi.
     object_parts.extend(
         build_vegetation_parts(
             kp_cwd,
@@ -217,20 +246,7 @@ def prepare_oom_map(
         )
         if dxf_part:
             object_parts.append(dxf_part)
-    if zabaged_clean and zabaged_clean.is_file():
-        object_parts.extend(
-            build_zabaged_object_parts(
-                zabaged_clean,
-                vectorconf_name=vectorconf_name,
-                preset_id=preset_id,
-                scale=scale,
-                ref_x=ref_x,
-                ref_y=ref_y,
-                grivation_deg=grivation,
-                work_dir=kp_cwd.parent,
-                clip_bounds=clip_bounds,
-            )
-        )
+    object_parts.extend(zabaged_rest)
     osm_parts = build_osm_path_parts(
         kp_cwd,
         preset_id=preset_id,

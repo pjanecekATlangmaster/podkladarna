@@ -38,7 +38,6 @@ _LAYER_OOM_CODE: dict[str, str] = {
     "SkupinaBalvanu": "207",
     "LiniovaVegetace": "416",
     "ElektrickeVedeni": "510",
-    "LesniPudaSKrovinatymPorostem": "405",
     "OvocnySadZahrada": "520",  # KP oliva 527 → OOM 520 (ne 413 sad)
     "VyznamnyStromLesik": "417",
     "MohylaPomnikNahrobek": "526",
