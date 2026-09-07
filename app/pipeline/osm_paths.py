@@ -119,9 +119,9 @@ def _overpass_ql(
         f'way["natural"="spring"]({bbox});',
         f'way["leisure"~"^({paved})$"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
-        # Vodní nádrž → OOM 301 (nepřekonatelné vodní těleso).
-        f'way["landuse"="reservoir"]({bbox});',
-        f'way["natural"="water"]["water"~"^(reservoir|basin)$"]({bbox});',
+        # Vodní plochy → OOM 301 (nepřekonatelné). ČÚZK často nemá celou nádrž.
+        f'way["natural"="water"]({bbox});',
+        f'way["landuse"~"^(reservoir|basin)$"]({bbox});',
         # Zemědělská půda → 401; dedup proti ZABAGED OrnaPuda (priorita ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
@@ -312,9 +312,12 @@ def classify_osm_feature(
         return "cave_entrance", "203.1"
     if natural == "spring":
         return "spring", "312"
-    # Vodní nádrž / basin → nepřekonatelné vodní těleso (301).
-    if landuse == "reservoir" or (
-        natural == "water" and water in {"reservoir", "basin"}
+    # Vodní plocha / nádrž / basin → nepřekonatelné vodní těleso (301).
+    # Stačí natural=water (v ČR často bez water=reservoir); ořez proti VodniPlocha.
+    if (
+        natural == "water"
+        or landuse in {"reservoir", "basin"}
+        or water in {"reservoir", "basin", "pond", "lake", "lagoon", "oxbow", "moat"}
     ):
         if is_node:
             return None
@@ -1201,6 +1204,12 @@ def filter_osm_area_features_against_zabaged(
             dropped += 1
             continue
         kept.append(feat)
+    if log and dropped:
+        log(
+            f"OSM plocha dedup: {dropped} oříznuto (ZABAGED priorita: "
+            + ", ".join(sorted(needed))
+            + ")"
+        )
     return kept, dropped
 
 

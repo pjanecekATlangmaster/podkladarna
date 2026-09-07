@@ -97,8 +97,9 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature(
         {"natural": "water", "water": "basin"}
     ) == ("water_body", "301")
+    assert classify_osm_feature({"natural": "water"}) == ("water_body", "301")
+    assert classify_osm_feature({"landuse": "basin"}) == ("water_body", "301")
     assert classify_osm_feature({"landuse": "farmland"}) == ("farmland", "401")
-    assert classify_osm_feature({"natural": "water"}) is None
     assert classify_osm_feature({"natural": "cave_entrance"}) == (
         "cave_entrance",
         "203.1",
@@ -181,6 +182,7 @@ def test_osm_priority_overpass_includes_barriers():
     assert "ice_rink" in ql
     assert "reservoir" in ql
     assert "farmland" in ql
+    assert 'natural"="water"' in ql
     assert 'amenity"="bench"' not in ql
     assert "street_lamp" not in ql
     assert 'node["playground"]' not in ql
