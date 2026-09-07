@@ -86,6 +86,17 @@ def test_classify_osm_well_and_playground():
         {"natural": "tree", "denotation": "landmark"}, geom="node"
     ) == ("landmark_tree", "417")
     assert classify_osm_feature({"natural": "wetland"}) == ("wetland", "308")
+    assert classify_osm_feature(
+        {"landuse": "reservoir"}
+    ) == ("water_body", "301")
+    assert classify_osm_feature(
+        {"natural": "water", "water": "reservoir"}
+    ) == ("water_body", "301")
+    assert classify_osm_feature(
+        {"natural": "water", "water": "basin"}
+    ) == ("water_body", "301")
+    assert classify_osm_feature({"landuse": "farmland"}) == ("farmland", "401")
+    assert classify_osm_feature({"natural": "water"}) is None
     assert classify_osm_feature({"natural": "cave_entrance"}) == (
         "cave_entrance",
         "203.1",
@@ -127,6 +138,33 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("playground", "forest_7500") == "501.1"
     assert feature_oom_code("pitch", "sprint_2m") == "501"
     assert feature_oom_code("pitch", "forest_10000") == "501.1"
+    assert feature_oom_code("water_body", "sprint_2m") == "301"
+    assert feature_oom_code("farmland", "forest_7500") == "401"
+
+
+def test_point_in_ring_and_farmland_dedup():
+    from app.pipeline.osm_paths import (
+        _point_in_ring,
+        filter_osm_area_features_against_zabaged,
+    )
+
+    square = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0), (0.0, 0.0)]
+    assert _point_in_ring(50.0, 50.0, square)
+    assert not _point_in_ring(150.0, 50.0, square)
+
+    # Bez ZABAGED ZIP se plochy nechají.
+    feat_in = {
+        "type": "Feature",
+        "properties": {"kind": "farmland", "oom_code": "401"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+                [[10.0, 10.0], [20.0, 10.0], [20.0, 20.0], [10.0, 20.0], [10.0, 10.0]]
+            ],
+        },
+    }
+    kept, dropped = filter_osm_area_features_against_zabaged([feat_in], None)
+    assert dropped == 0 and kept == [feat_in]
 
 
 def test_osm_priority_overpass_includes_barriers():
@@ -139,6 +177,8 @@ def test_osm_priority_overpass_includes_barriers():
     assert "pitch" in ql
     assert "sports_centre" in ql
     assert "ice_rink" in ql
+    assert "reservoir" in ql
+    assert "farmland" in ql
     assert 'amenity"="bench"' not in ql
     assert "street_lamp" not in ql
     assert 'node["playground"]' not in ql

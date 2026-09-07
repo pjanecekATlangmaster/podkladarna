@@ -118,6 +118,11 @@ def _overpass_ql(
         f'way["natural"="spring"]({bbox});',
         f'way["leisure"~"^({paved})$"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
+        # Vodní nádrž → OOM 301 (nepřekonatelné vodní těleso).
+        f'way["landuse"="reservoir"]({bbox});',
+        f'way["natural"="water"]["water"~"^(reservoir|basin)$"]({bbox});',
+        # Zemědělská půda → 401; dedup proti ZABAGED OrnaPuda (priorita ZABAGED).
+        f'way["landuse"="farmland"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
     ]
@@ -188,6 +193,12 @@ _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
 # Plochy z OSM_PAVED_AREA_LEISURE → kind playground | pitch (oba 501).
 _PAVED_AREA_KINDS = frozenset({"playground", "pitch"})
+# OSM plochy s ořezem proti ZABAGED (priorita ZABAGED).
+_OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
+    "farmland": frozenset({"OrnaPudaAOstatniDaleNespecifikovanePlochy"}),
+    "water_body": frozenset({"VodniPlocha"}),
+}
+_CLOSED_AREA_KINDS = frozenset({"wetland", "water_body", "farmland"}) | _PAVED_AREA_KINDS
 # Jen při kp_osm_priority (hlavně sprint urban pack).
 _PRIORITY_KINDS = frozenset(
     {
@@ -252,6 +263,8 @@ def classify_osm_feature(
     barrier = (tags.get("barrier") or "").lower()
     historic = (tags.get("historic") or "").lower()
     denotation = (tags.get("denotation") or "").lower()
+    landuse = (tags.get("landuse") or "").lower()
+    water = (tags.get("water") or "").lower()
     is_node = geom == "node"
 
     if amenity == "bench":
@@ -298,6 +311,18 @@ def classify_osm_feature(
         return "cave_entrance", "203.1"
     if natural == "spring":
         return "spring", "312"
+    # Vodní nádrž / basin → nepřekonatelné vodní těleso (301).
+    if landuse == "reservoir" or (
+        natural == "water" and water in {"reservoir", "basin"}
+    ):
+        if is_node:
+            return None
+        return "water_body", "301"
+    # Zemědělská půda (žlutá 401) – při souběhu se ZABAGED OrnaPuda se ořeže.
+    if landuse == "farmland":
+        if is_node:
+            return None
+        return "farmland", "401"
     # Hřiště / sportoviště / dráha / … = zpevněná plocha (501), ne žlutá 401.
     if leisure in OSM_PAVED_AREA_LEISURE:
         if building and building not in {"no", "false", "0"}:
@@ -327,6 +352,10 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind in _PAVED_AREA_KINDS:
         # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
         return "501" if sprint else "501.1"
+    if kind == "water_body":
+        return "301"
+    if kind == "farmland":
+        return "401"
     if stored_code:
         return stored_code
     defaults = {
@@ -343,6 +372,8 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "shelter": "522",
         "landmark_tree": "417",
         "wetland": "308",
+        "water_body": "301",
+        "farmland": "401",
         "playground": "501",
         "pitch": "501",
         "water_well": "311",
@@ -982,6 +1013,196 @@ def _zabaged_path_lines(
     return lines
 
 
+def _iter_polygon_rings_from_shp(shp_ref: str | Path):
+    """Vnější prstence polygonů ze SHP (S-JTSK)."""
+    try:
+        import pyogrio.raw  # noqa: F401
+
+        use_pyogrio = True
+    except ImportError:
+        use_pyogrio = False
+
+    if use_pyogrio:
+        for _props, wkb in _pyogrio_layer_rows(shp_ref):
+            parts, _ = _wkb_parts(wkb)
+            for part in parts:
+                # Polygon exterior = closed line ring (viz _wkb_parts base_type 3).
+                if part[0] == "line" and len(part) >= 3 and part[2]:
+                    ring = [(float(x), float(y)) for x, y in part[1]]  # type: ignore[misc]
+                    if len(ring) >= 3:
+                        yield ring
+        return
+
+    try:
+        from osgeo import ogr
+    except ImportError:
+        return
+
+    ds = ogr.Open(str(shp_ref))
+    if not ds:
+        return
+    layer = ds.GetLayer(0)
+    if layer is None:
+        return
+
+    def emit(geom) -> list[list[tuple[float, float]]]:
+        if geom is None:
+            return []
+        name = geom.GetGeometryName()
+        out: list[list[tuple[float, float]]] = []
+        if name == "POLYGON":
+            ring = geom.GetGeometryRef(0)
+            if ring is not None:
+                pts = [
+                    (float(ring.GetX(i)), float(ring.GetY(i)))
+                    for i in range(ring.GetPointCount())
+                ]
+                if len(pts) >= 3:
+                    out.append(pts)
+        elif name in {"MULTIPOLYGON", "GEOMETRYCOLLECTION"}:
+            for i in range(geom.GetGeometryCount()):
+                out.extend(emit(geom.GetGeometryRef(i)))
+        return out
+
+    for feature in layer:
+        geom = feature.GetGeometryRef()
+        for ring in emit(geom):
+            yield ring
+
+
+def _zabaged_polygons(
+    zabaged_clean: Path,
+    *,
+    layers: frozenset[str],
+    log=None,
+) -> list[list[tuple[float, float]]]:
+    """Načte polygonové vrstvy ZABAGED pro ořez OSM ploch."""
+    polys: list[list[tuple[float, float]]] = []
+    if not layers:
+        return polys
+    members = _zabaged_shp_members(zabaged_clean, layers=layers)
+    if not members:
+        return polys
+
+    import shutil
+    import tempfile
+
+    stage = Path(tempfile.mkdtemp(prefix="osm_zab_poly_"))
+    try:
+        with ZipFile(zabaged_clean) as zf:
+            names = set(zf.namelist())
+            for _canon, member in members:
+                stem = Path(member).stem
+                for n in names:
+                    nn = n.replace("\\", "/")
+                    if Path(nn).stem.lower() != stem.lower():
+                        continue
+                    if Path(nn).suffix.lower() not in {
+                        ".shp",
+                        ".shx",
+                        ".dbf",
+                        ".prj",
+                        ".cpg",
+                    }:
+                        continue
+                    dest = stage / Path(nn).name
+                    if not dest.exists():
+                        dest.write_bytes(zf.read(n))
+        want = {n.lower() for n in layers}
+        for shp in sorted(stage.glob("*.shp")):
+            if shp.stem.lower() not in want:
+                continue
+            try:
+                before = len(polys)
+                polys.extend(_iter_polygon_rings_from_shp(shp))
+                if log:
+                    log(
+                        f"OSM plocha dedup: {shp.stem} → {len(polys) - before} polygonů"
+                    )
+            except Exception as exc:
+                if log:
+                    log(f"OSM plocha dedup: {shp.name} selhalo ({exc})")
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    return polys
+
+
+def _point_in_ring(x: float, y: float, ring: list[tuple[float, float]]) -> bool:
+    """Ray casting; ring může být otevřený i uzavřený."""
+    n = len(ring)
+    if n < 3:
+        return False
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if ((yi > y) != (yj > y)) and (
+            x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-15) + xi
+        ):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _ring_centroid(ring: list[tuple[float, float]]) -> tuple[float, float]:
+    pts = ring[:-1] if len(ring) >= 2 and ring[0] == ring[-1] else ring
+    if not pts:
+        return 0.0, 0.0
+    return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+
+
+def filter_osm_area_features_against_zabaged(
+    features: list[dict],
+    zabaged_clean: Path | None,
+    *,
+    log=None,
+) -> tuple[list[dict], int]:
+    """Zahodí OSM plochy, jejichž těžiště leží v prioritní ZABAGED vrstvě."""
+    if not zabaged_clean or not zabaged_clean.is_file():
+        return features, 0
+    needed: set[str] = set()
+    for feat in features:
+        kind = str((feat.get("properties") or {}).get("kind") or "")
+        needed |= set(_OSM_AREA_DEDUP_LAYERS.get(kind) or ())
+    if not needed:
+        return features, 0
+    polys_by_layer: dict[str, list[list[tuple[float, float]]]] = {}
+    for layer in sorted(needed):
+        polys_by_layer[layer] = _zabaged_polygons(
+            zabaged_clean, layers=frozenset({layer}), log=log
+        )
+    kept: list[dict] = []
+    dropped = 0
+    for feat in features:
+        props = feat.get("properties") or {}
+        kind = str(props.get("kind") or "")
+        layers = _OSM_AREA_DEDUP_LAYERS.get(kind)
+        geom = feat.get("geometry") or {}
+        if not layers or geom.get("type") != "Polygon":
+            kept.append(feat)
+            continue
+        coords = (geom.get("coordinates") or [[]])[0] or []
+        if len(coords) < 3:
+            dropped += 1
+            continue
+        ring = [(float(x), float(y)) for x, y in coords]
+        cx, cy = _ring_centroid(ring)
+        covered = False
+        for layer in layers:
+            for poly in polys_by_layer.get(layer) or []:
+                if _point_in_ring(cx, cy, poly):
+                    covered = True
+                    break
+            if covered:
+                break
+        if covered:
+            dropped += 1
+            continue
+        kept.append(feat)
+    return kept, dropped
+
+
 def filter_osm_against_zabaged(
     osm_lines: list[list[tuple[float, float]]],
     zabaged_lines: list[list[tuple[float, float]]],
@@ -1108,8 +1329,8 @@ def osm_feature_to_5514(
         cx = sum(p[0] for p in pts) / len(pts)
         cy = sum(p[1] for p in pts) / len(pts)
         return kind, code, [(cx, cy)]
-    # Mokřad – jen uzavřená plocha.
-    if kind == "wetland":
+    # Mokřad / nádrž / orná / hřiště – jen uzavřená plocha.
+    if kind in _CLOSED_AREA_KINDS:
         if len(pts) < 3:
             return None
         if pts[0] != pts[-1]:
@@ -1241,6 +1462,9 @@ def prepare_osm_paths(
     kept, dropped = filter_osm_items_against_zabaged(osm_items, zabaged_lines)
     kept, dropped_self = dedup_osm_prefer_wider(kept)
     dropped += dropped_self
+    features, dropped_areas = filter_osm_area_features_against_zabaged(
+        features, zabaged_clean, log=log
+    )
     if log:
         by_hw: dict[str, int] = defaultdict(int)
         for _pts, hw in kept:
@@ -1255,9 +1479,16 @@ def prepare_osm_paths(
         by_feat: dict[str, int] = defaultdict(int)
         for feat in features:
             by_feat[str((feat.get("properties") or {}).get("kind") or "?")] += 1
-        if features:
-            feat_summary = ", ".join(f"{k}={v}" for k, v in sorted(by_feat.items()))
-            log(f"OSM objekty: {len(features)} ({feat_summary})")
+        if features or dropped_areas:
+            feat_summary = (
+                ", ".join(f"{k}={v}" for k, v in sorted(by_feat.items())) or "—"
+            )
+            extra = (
+                f", {dropped_areas} ploch oříznuto (ZABAGED priorita)"
+                if dropped_areas
+                else ""
+            )
+            log(f"OSM objekty: {len(features)} ({feat_summary}){extra}")
     dest_dir = work_dir / "osm_paths"
     dest_dir.mkdir(parents=True, exist_ok=True)
     gj = {
@@ -1490,6 +1721,8 @@ def build_osm_feature_parts(
         "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
+        "water_body": "OSM vodní nádrž (301)",
+        "farmland": "OSM zemědělská půda (401)",
         "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
         "spring": "OSM prameny",
@@ -1513,6 +1746,8 @@ def build_osm_feature_parts(
         "water_well_building",
         "water_well",
         "spring",
+        "water_body",
+        "farmland",
         "playground",
         "pitch",
         "playground_equipment",
