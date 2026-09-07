@@ -8,12 +8,20 @@ from pathlib import Path
 
 from app.pipeline.cliff_height import filter_by_drop
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
-from app.pipeline.cliff_merge import merge_cliff_ticks, min_line_length_m
+from app.pipeline.cliff_merge import (
+    merge_cliff_ticks,
+    min_line_length_m,
+    polyline_to_strip_ring,
+)
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
+    KP_CLIFF_206_CODE,
     KP_CLIFF_DENSE_CODE,
+    KP_CLIFF_EARTH_BANK,
+    KP_CLIFF_OFF,
     KP_CLIFF_ROCK_FACE,
+    KP_CLIFF_SYMBOL_206,
     oom_code_for_dxf,
     oom_code_for_vectorconf_rule,
     symbol_index_for_code,
@@ -692,7 +700,8 @@ def build_dxf_object_part(
     temp = kp_cwd / "temp"
     if not temp.is_dir():
         return None
-    dxf_map = collect_dxf_for_zip(temp)
+    include_cliffs = cliff_symbol != KP_CLIFF_OFF
+    dxf_map = collect_dxf_for_zip(temp, include_cliffs=include_cliffs)
     if not dxf_map:
         return None
 
@@ -763,9 +772,11 @@ def build_dxf_object_part(
                         )
                     )
 
-    if cliff_ticks and cliff_line_code:
-        line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
-        as_polygons = cliff_symbol == KP_CLIFF_ROCK_FACE
+    if cliff_ticks and cliff_line_code and cliff_symbol != KP_CLIFF_OFF:
+        as_polygons = cliff_symbol in (
+            KP_CLIFF_ROCK_FACE,
+            KP_CLIFF_SYMBOL_206,
+        )
         merged = merge_cliff_ticks(
             cliff_ticks,
             as_polygons=as_polygons,
@@ -776,48 +787,79 @@ def build_dxf_object_part(
         cliff_lines, drop_stats = filter_by_drop(
             merged.lines, _load_cliff_dem(kp_cwd)
         )
-        if line_index is not None:
-            line_parts = [("line", pts, False) for pts in cliff_lines]
-            objects.extend(
-                _geom_parts_to_objects(
-                    line_parts,
-                    line_index,
-                    ref_x=ref_x,
-                    ref_y=ref_y,
-                    scale=scale,
-                    grivation_deg=grivation_deg,
-                    clip_bounds=clip_bounds,
-                    elev_at=elev_at,
-                )
-            )
-        if merged.polygons:
-            poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_DENSE_CODE)
+        if cliff_symbol == KP_CLIFF_SYMBOL_206:
+            poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_206_CODE)
             if poly_index is not None:
-                had_dense_polys = True
-                poly_parts = [("line", ring, True) for ring in merged.polygons]
+                poly_rings = list(merged.polygons)
+                for pts in cliff_lines:
+                    ring = polyline_to_strip_ring(pts)
+                    if ring:
+                        poly_rings.append(ring)
+                if poly_rings:
+                    had_dense_polys = True
+                    poly_parts = [("line", ring, True) for ring in poly_rings]
+                    objects.extend(
+                        _geom_parts_to_objects(
+                            poly_parts,
+                            poly_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                            as_area=True,
+                        )
+                    )
+        else:
+            line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
+            if line_index is not None:
+                line_parts = [("line", pts, False) for pts in cliff_lines]
                 objects.extend(
                     _geom_parts_to_objects(
-                        poly_parts,
-                        poly_index,
+                        line_parts,
+                        line_index,
                         ref_x=ref_x,
                         ref_y=ref_y,
                         scale=scale,
                         grivation_deg=grivation_deg,
                         clip_bounds=clip_bounds,
-                        as_area=True,
+                        elev_at=elev_at,
                     )
                 )
+            if merged.polygons:
+                poly_index = symbol_index_for_code(
+                    preset_id, scale, KP_CLIFF_DENSE_CODE
+                )
+                if poly_index is not None:
+                    had_dense_polys = True
+                    poly_parts = [("line", ring, True) for ring in merged.polygons]
+                    objects.extend(
+                        _geom_parts_to_objects(
+                            poly_parts,
+                            poly_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                            as_area=True,
+                        )
+                    )
 
     if not objects:
         return None
-    if cliff_symbol == KP_CLIFF_ROCK_FACE:
+    if cliff_symbol == KP_CLIFF_SYMBOL_206:
+        cliff_label = "skály (206 plocha)"
+    elif cliff_symbol == KP_CLIFF_ROCK_FACE:
         cliff_label = (
             "skály (201 + kamenitý povrch 210)"
             if had_dense_polys
             else "skály (201)"
         )
-    else:
+    elif cliff_symbol == KP_CLIFF_EARTH_BANK:
         cliff_label = "zemní srázy (104)"
+    else:
+        cliff_label = "Karttapullautin"
     if drop_stats.get("zahozeno"):
         cliff_label += f", {drop_stats['zahozeno']} nízkých zahozeno dle DEM"
     elif drop_stats.get("nezmereno"):

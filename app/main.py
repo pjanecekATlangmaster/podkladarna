@@ -355,7 +355,7 @@ async def api_create_job(request: Request):
         "client_ip": remote_ip,
     }
     cliff_raw = _form_str(form, "kp_cliff_symbol").strip().lower()
-    if cliff_raw in {"earth_bank", "rock_face"}:
+    if cliff_raw in {"earth_bank", "rock_face", "symbol_206", "off"}:
         options["kp_cliff_symbol"] = cliff_raw
     vege_raw = _form_str(form, "kp_vege_height").strip()
     if vege_raw:

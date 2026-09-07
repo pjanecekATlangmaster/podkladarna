@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from app.pipeline.crs_5514 import write_prj
@@ -44,7 +45,11 @@ _CLASS_NAMES: dict[str, str] = {
 }
 
 _MIN_AREA_M2 = 12.0
-_SIMPLIFY_M = 1.0
+# Po zapnutí yellow_smoothing jsou hrany méně „pixelové“ – mírně vyšší simplify.
+_SIMPLIFY_M = 1.5
+# Velké KP 401 se v OOM těžko editují → rozřezat mřížkou na menší objekty.
+_YELLOW_SPLIT_CELL_M = 50.0
+_YELLOW_SPLIT_MIN_AREA_M2 = 2000.0
 
 
 def rgb_to_vege_class(r: int, g: int, b: int) -> int:
@@ -147,30 +152,41 @@ def generate_vegetation_shapefile(
 
     gdal.Polygonize(band, band, layer, 0, [], callback=None)
 
+    kept: list[tuple[int, str, object]] = []
     to_delete: list[int] = []
     for feature in layer:
         cls = int(feature.GetField("cls") or 0)
         code = vege_class_to_oom_code(cls)
         fid = feature.GetFID()
+        to_delete.append(fid)
         if not code:
-            to_delete.append(fid)
             continue
         geom = feature.GetGeometryRef()
         if geom is None:
-            to_delete.append(fid)
             continue
         simplified = geom.SimplifyPreserveTopology(_SIMPLIFY_M)
         if simplified is None or simplified.IsEmpty():
-            to_delete.append(fid)
             continue
-        if float(simplified.GetArea()) < _MIN_AREA_M2:
-            to_delete.append(fid)
-            continue
-        feature.SetGeometry(simplified)
-        feature.SetField("code", code)
-        layer.SetFeature(feature)
+        pieces = (
+            split_yellow_polygon(simplified)
+            if code == "401"
+            else [simplified]
+        )
+        for piece in pieces:
+            if piece is None or piece.IsEmpty():
+                continue
+            if float(piece.GetArea()) < _MIN_AREA_M2:
+                continue
+            kept.append((cls, code, piece.Clone()))
     for fid in to_delete:
         layer.DeleteFeature(fid)
+    for cls, code, geom in kept:
+        feat = ogr.Feature(layer.GetLayerDefn())
+        feat.SetField("cls", cls)
+        feat.SetField("code", code)
+        feat.SetGeometry(geom)
+        layer.CreateFeature(feat)
+        feat = None
 
     n_kept = layer.GetFeatureCount()
     out_ds = None
@@ -183,6 +199,87 @@ def generate_vegetation_shapefile(
     if log:
         log(f"Zeleň vektory: {n_kept} polygonů → {dest_shp.name}")
     return dest_shp
+
+
+def split_yellow_polygon(
+    geom,
+    *,
+    cell_m: float = _YELLOW_SPLIT_CELL_M,
+    min_area_m2: float = _YELLOW_SPLIT_MIN_AREA_M2,
+):
+    """Rozřeže velkou KP žlutou mřížkou; malé polygony nechá beze změny.
+
+    Výsledek jsou samostatné plochy (snadnější mazání/úpravy v OOM) se
+    zachovaným vnějším tvarem – řezy jdou jen vnitřkem.
+    """
+    try:
+        from osgeo import ogr
+    except ImportError:
+        return [geom]
+    if geom is None or geom.IsEmpty():
+        return []
+    try:
+        area = float(geom.GetArea())
+    except Exception:
+        return [geom]
+    if area < min_area_m2 or cell_m <= 0:
+        return [geom]
+
+    minx, maxx, miny, maxy = geom.GetEnvelope()
+    # Zarovnat mřížku na násobky cell_m, ať sousední polygony sedí na stejných řezech.
+    x0 = math.floor(minx / cell_m) * cell_m
+    y0 = math.floor(miny / cell_m) * cell_m
+    out: list = []
+    y = y0
+    while y < maxy - 1e-9:
+        x = x0
+        y1 = y + cell_m
+        while x < maxx - 1e-9:
+            x1 = x + cell_m
+            ring = ogr.Geometry(ogr.wkbLinearRing)
+            ring.AddPoint(x, y)
+            ring.AddPoint(x1, y)
+            ring.AddPoint(x1, y1)
+            ring.AddPoint(x, y1)
+            ring.AddPoint(x, y)
+            cell = ogr.Geometry(ogr.wkbPolygon)
+            cell.AddGeometry(ring)
+            try:
+                inter = geom.Intersection(cell)
+            except Exception:
+                inter = None
+            if inter is not None and not inter.IsEmpty():
+                out.extend(_explode_area_geoms(inter, min_area=_MIN_AREA_M2))
+            x = x1
+        y = y1
+    return out or [geom]
+
+
+def _explode_area_geoms(geom, *, min_area: float) -> list:
+    from osgeo import ogr
+
+    out: list = []
+
+    def keep(g) -> None:
+        if g is None or g.IsEmpty():
+            return
+        try:
+            if float(g.GetArea()) < min_area:
+                return
+        except Exception:
+            return
+        gtype = g.GetGeometryType() % 1000
+        if gtype == 3:  # Polygon
+            out.append(g.Clone())
+        elif gtype == 6:  # MultiPolygon
+            for i in range(g.GetGeometryCount()):
+                keep(g.GetGeometryRef(i))
+        elif gtype == 7:  # GeometryCollection
+            for i in range(g.GetGeometryCount()):
+                keep(g.GetGeometryRef(i))
+
+    keep(geom)
+    return out
 
 
 def generate_job_vegetation(work_dir: Path, *, log=None) -> Path | None:

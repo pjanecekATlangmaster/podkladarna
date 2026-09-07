@@ -342,6 +342,7 @@ def _package_output(
                 cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
             )
 
+        cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
         build_oom_zip(
             kp_cwd,
             zip_path,
@@ -354,6 +355,7 @@ def _package_output(
             ),
             include_png=bool(options.get("output_png", True)),
             include_dxf=bool(options.get("output_dxf", True)),
+            include_cliffs=cliff_symbol != "off",
         )
     else:
         log("=== Fáze: jen PNG náhled (ZIP/OOM přeskočeno) ===")

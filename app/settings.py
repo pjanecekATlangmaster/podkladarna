@@ -61,7 +61,7 @@ DEFAULT_OPTIONS = {
     "output_dxf": True,
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace
-    # KP c2g/c3g: earth_bank=104 (srázek), rock_face=201 (skála/nesjízdný sráz).
+    # KP c2g/c3g: earth_bank=104, rock_face=201(+210), symbol_206=206 plocha, off=přeskočit.
     "kp_cliff_symbol": "earth_bank",
     # KP greenhigh (m) – výška vegetace pro výpočet zeleně.
     "kp_vege_height": 2.0,

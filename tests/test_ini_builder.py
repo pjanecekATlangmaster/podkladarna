@@ -128,6 +128,17 @@ def test_write_pullauta_ini_vege_height_and_cliff_sensitivity(tmp_path: Path):
     assert ini["cliff2"] == "2"
 
 
+def test_write_pullauta_ini_cliff_symbol_off_raises_thresholds(tmp_path: Path):
+    path = write_pullauta_ini(
+        tmp_path,
+        "sprint_2m",
+        {"kp_cliff_symbol": "off", "kp_cliff_sensitivity": "very_high"},
+    )
+    ini = _ini_map(path.read_text(encoding="utf-8"))
+    assert ini["cliff1"] == "50"
+    assert ini["cliff2"] == "50"
+
+
 def test_write_pullauta_ini_invalid_vege_falls_back(tmp_path: Path):
     path = write_pullauta_ini(
         tmp_path,

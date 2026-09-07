@@ -45,13 +45,20 @@ def ensure_text_dxf(
     return None
 
 
-def collect_dxf_for_zip(temp_dir: Path, *, log: callable | None = None) -> dict[str, Path]:
+def collect_dxf_for_zip(
+    temp_dir: Path,
+    *,
+    log: callable | None = None,
+    include_cliffs: bool = True,
+) -> dict[str, Path]:
     """Soubory pro karttapullautin/ ve výstupním ZIPu (zip_name → cesta)."""
     if not temp_dir.is_dir():
         return {}
     collected: dict[str, Path] = {}
     for src_name, zip_name in DXF_PRODUCTS:
         if zip_name in collected:
+            continue
+        if not include_cliffs and zip_name.startswith("cliffs_"):
             continue
         path = ensure_text_dxf(temp_dir, src_name, log=log)
         if path:

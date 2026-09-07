@@ -57,11 +57,13 @@
           <select name="kp_cliff_symbol" id="kp_cliff_symbol">
             <option value="earth_bank" selected>Zemní srázek (104)</option>
             <option value="rock_face">Skála / nesjízdný sráz (201)</option>
+            <option value="symbol_206">Obří balvan / skála (206, plocha)</option>
+            <option value="off">Nevykreslovat (ani nepočítat)</option>
           </select>
         </label>
-        <p class="hint">Hlína vs. skála z LiDARu nejde spolehlivě poznat. Čárky se slepí do linií, ať jdou v OOM editovat. U skály navíc vznikne plocha 210 (kamenitý povrch) jen tam, kde je skalní pole opravdu plošné – stěny a osamocené srázky zůstanou linií 201. Nálezy kratší než ~0,6 mm na mapě (6 m při 1:10 000) se zahazují – mapař by je stejně nekreslil a jen by zaplevelily OOM.</p>
+        <p class="hint" id="cliff-symbol-hint">Hlína vs. skála z LiDARu nejde spolehlivě poznat. Čárky se slepí do linií, ať jdou v OOM editovat. U skály navíc vznikne plocha 210 (kamenitý povrch) jen tam, kde je skalní pole opravdu plošné – stěny a osamocené srázky zůstanou linií 201. Volba 206 kreslí nálezy jako plochy ISOM 206 (plan shape). „Nevykreslovat“ přeskočí výpočet i objekty v OOM. Nálezy kratší než ~0,6 mm na mapě (6 m při 1:10 000) se zahazují.</p>
 
-        <label>
+        <label id="cliff-sensitivity-label">
           Citlivost srázů / skal
           <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
             <option value="low">Méně citlivé (méně srázů)</option>
@@ -70,7 +72,7 @@
             <option value="very_high">Velmi citlivé (více drobných srázů)</option>
           </select>
         </label>
-        <p class="hint">Jak přísně Karttapullautin hledá strmé skoky v DMR. Výchozí odpovídá dosavadnímu nastavení Podkladárny.</p>
+        <p class="hint" id="cliff-sensitivity-hint">Jak přísně Karttapullautin hledá strmé skoky v DMR. Výchozí odpovídá dosavadnímu nastavení Podkladárny.</p>
 
         <label class="checkbox-row">
           <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />

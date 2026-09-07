@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from app.pipeline.cliff_merge import merge_cliff_ticks
+from app.pipeline.cliff_merge import merge_cliff_ticks, polyline_to_strip_ring
 from app.pipeline.oom_symbol_map import KP_CLIFF_DENSE_CODE, symbol_index_for_code
 
 
@@ -190,3 +190,16 @@ def test_trace_ring_keeps_hole_as_separate_clockwise_ring():
 def test_dense_symbol_exists_in_both_sets():
     assert symbol_index_for_code("sprint_2m", 4000, KP_CLIFF_DENSE_CODE) is not None
     assert symbol_index_for_code("forest_10000", 10000, KP_CLIFF_DENSE_CODE) is not None
+
+
+def test_symbol_206_exists_in_both_sets():
+    assert symbol_index_for_code("sprint_2m", 4000, "206") is not None
+    assert symbol_index_for_code("forest_10000", 10000, "206") is not None
+
+
+def test_polyline_to_strip_ring_makes_closed_area():
+    ring = polyline_to_strip_ring([(0.0, 0.0), (10.0, 0.0)], half_width_m=1.5)
+    assert ring is not None
+    assert ring[0] == ring[-1]
+    assert len(ring) >= 5
+    assert _ring_area(ring) == pytest.approx(30.0, abs=0.5)

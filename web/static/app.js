@@ -597,6 +597,22 @@ function updateOsmHintsForPreset(presetId) {
   }
 }
 
+function updateCliffControls() {
+  const cliff = document.getElementById("kp_cliff_symbol");
+  const sens = document.getElementById("kp_cliff_sensitivity");
+  const sensLabel = document.getElementById("cliff-sensitivity-label");
+  const sensHint = document.getElementById("cliff-sensitivity-hint");
+  if (!cliff || !sens) return;
+  const off = cliff.value === "off";
+  sens.disabled = off;
+  if (sensLabel) sensLabel.style.opacity = off ? "0.45" : "";
+  if (sensHint) {
+    sensHint.textContent = off
+      ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
+      : "Jak přísně Karttapullautin hledá strmé skoky v DMR. Výchozí odpovídá dosavadnímu nastavení Podkladárny.";
+  }
+}
+
 function applyJobToForm(job) {
   const form = document.getElementById("job-form");
   if (!form) return;
@@ -627,6 +643,7 @@ function applyJobToForm(job) {
       sens.value = sensVal;
     }
   }
+  updateCliffControls();
   const benches = form.kp_osm_benches;
   if (benches) {
     const opts = job.options || {};
@@ -770,4 +787,10 @@ initBboxMap();
   const sync = () => updateOsmHintsForPreset(preset.value);
   preset.addEventListener("change", sync);
   sync();
+})();
+(() => {
+  const cliff = document.getElementById("kp_cliff_symbol");
+  if (!cliff) return;
+  cliff.addEventListener("change", updateCliffControls);
+  updateCliffControls();
 })();

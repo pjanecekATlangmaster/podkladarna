@@ -20,6 +20,8 @@ KP_CLIFF_SENSITIVITY: dict[str, tuple[float, float]] = {
     "very_high": (0.95, 1.7),
 }
 KP_CLIFF_SENSITIVITY_DEFAULT = "normal"
+# Při kp_cliff_symbol=off KP makecliffs skoro nic nenajde (nemá nocliffs).
+KP_CLIFF_OFF_THRESHOLDS = (50.0, 50.0)
 
 
 def load_presets() -> dict:
@@ -100,8 +102,12 @@ def write_pullauta_ini(
         raise FileNotFoundError(f"Chybí vectorconf: {src_conf}")
 
     vege_h = resolve_vege_height(opts)
-    cliff_key = resolve_cliff_sensitivity(opts)
-    cliff1, cliff2 = KP_CLIFF_SENSITIVITY[cliff_key]
+    cliff_symbol = str(opts.get("kp_cliff_symbol") or "earth_bank").strip().lower()
+    if cliff_symbol == "off":
+        cliff1, cliff2 = KP_CLIFF_OFF_THRESHOLDS
+    else:
+        cliff_key = resolve_cliff_sensitivity(opts)
+        cliff1, cliff2 = KP_CLIFF_SENSITIVITY[cliff_key]
 
     overrides: dict[str, str | int | float] = {
         "vectorconf": vectorconf,

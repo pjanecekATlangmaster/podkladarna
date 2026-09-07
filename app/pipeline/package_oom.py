@@ -312,6 +312,7 @@ def build_oom_zip(
     include_zabaged_archive: bool = False,
     include_png: bool = True,
     include_dxf: bool = True,
+    include_cliffs: bool = True,
 ) -> Path:
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
     if dest_zip.exists():
@@ -340,7 +341,9 @@ def build_oom_zip(
                     zf.write(pgw, f"references/{pgw.name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
-            for zip_name, src in sorted(collect_dxf_for_zip(temp).items()):
+            for zip_name, src in sorted(
+                collect_dxf_for_zip(temp, include_cliffs=include_cliffs).items()
+            ):
                 zf.write(src, f"karttapullautin/{zip_name}")
         contours_dir = kp_cwd / "contours"
         if contours_dir.is_dir():

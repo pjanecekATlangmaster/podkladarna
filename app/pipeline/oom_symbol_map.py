@@ -64,8 +64,20 @@ _DXF_OOM_CODE_FOREST: dict[str, str] = {
 _CLIFF_DXF = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
 KP_CLIFF_EARTH_BANK = "earth_bank"
 KP_CLIFF_ROCK_FACE = "rock_face"
-# Hustý shluk KP čárek → kamenitý povrch (plocha), ne 206 (bod).
+# ISOM 206 = Gigantic boulder / massive cliff (area, plan shape).
+KP_CLIFF_SYMBOL_206 = "symbol_206"
+KP_CLIFF_OFF = "off"
+KP_CLIFF_SYMBOL_CHOICES = frozenset(
+    {
+        KP_CLIFF_EARTH_BANK,
+        KP_CLIFF_ROCK_FACE,
+        KP_CLIFF_SYMBOL_206,
+        KP_CLIFF_OFF,
+    }
+)
+# Hustý shluk KP čárek u rock_face → kamenitý povrch (210).
 KP_CLIFF_DENSE_CODE = "210"
+KP_CLIFF_206_CODE = "206"
 
 
 def _is_sprint(preset_id: str) -> bool:
@@ -143,8 +155,12 @@ def oom_code_for_dxf(
     cliff_symbol: str = KP_CLIFF_EARTH_BANK,
 ) -> str | None:
     if filename in _CLIFF_DXF:
+        if cliff_symbol == KP_CLIFF_OFF:
+            return None
         if cliff_symbol == KP_CLIFF_ROCK_FACE:
             return "201"
+        if cliff_symbol == KP_CLIFF_SYMBOL_206:
+            return KP_CLIFF_206_CODE
         return "104"
     table = _DXF_OOM_CODE_SPRINT if _is_sprint(preset_id) else _DXF_OOM_CODE_FOREST
     return table.get(filename)
