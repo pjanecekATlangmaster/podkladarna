@@ -110,7 +110,7 @@ def test_classify_osm_well_and_playground():
     ) == ("water_body", "301")
     assert classify_osm_feature({"natural": "water"}) == ("water_body", "301")
     assert classify_osm_feature({"landuse": "basin"}) == ("water_body", "301")
-    assert classify_osm_feature({"landuse": "farmland"}) == ("farmland", "401")
+    assert classify_osm_feature({"landuse": "farmland"}) == ("farmland", "412")
     assert classify_osm_feature({"natural": "cave_entrance"}) == (
         "cave_entrance",
         "203.1",
@@ -153,7 +153,7 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("pitch", "sprint_2m") == "501"
     assert feature_oom_code("pitch", "forest_10000") == "501.1"
     assert feature_oom_code("water_body", "sprint_2m") == "301"
-    assert feature_oom_code("farmland", "forest_7500") == "401"
+    assert feature_oom_code("farmland", "forest_7500") == "412"
 
 
 def test_point_in_ring_and_farmland_dedup():
@@ -169,7 +169,7 @@ def test_point_in_ring_and_farmland_dedup():
     # Bez ZABAGED ZIP se plochy nechají.
     feat_in = {
         "type": "Feature",
-        "properties": {"kind": "farmland", "oom_code": "401"},
+        "properties": {"kind": "farmland", "oom_code": "412"},
         "geometry": {
             "type": "Polygon",
             "coordinates": [

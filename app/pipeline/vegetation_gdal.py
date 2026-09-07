@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.pipeline.crs_5514 import write_prj
+from app.pipeline.geom_diff import difference_polygon_wkb, union_polygon_wkbs
 from app.pipeline.georef import read_pgw
 from app.pipeline.oom_import import (
     OomObjectPart,
@@ -15,6 +16,8 @@ from app.proj_env import ensure_proj_data
 
 # KP palette (lightgreentone=200) → ISOM plochy.
 # Třída v rastru: 0 pozadí, 1 open land, 2–4 zeleně.
+# Žlutá (401) se do OOM bere z KP, ale před zápisem se z ní odečtou plochy
+# ZABAGED/OSM kreslené jinak (louka, parková zeleň, orná 412) – jinak dvojité 401.
 _RGB_TO_CLASS: dict[tuple[int, int, int], int] = {
     (255, 219, 166): 1,  # yellow → 401
     (200, 254, 200): 2,  # nejsvětlejší → 406
@@ -244,11 +247,13 @@ def build_vegetation_parts(
     ref_x: float,
     ref_y: float,
     grivation_deg: float,
+    subtract_wkbs: list[bytes] | None = None,
 ) -> list[OomObjectPart]:
     shp = work_dir / "vegetation" / "vegetation.shp"
     if not shp.is_file():
         return []
 
+    mask = union_polygon_wkbs(subtract_wkbs or [])
     grouped: dict[str, list[str]] = {code: [] for code in _CLASS_TO_CODE.values()}
     for props, wkb in _iter_vege_rows(shp):
         code = str(props.get("code") or "")
@@ -264,18 +269,22 @@ def build_vegetation_parts(
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             continue
-        geom_parts, _ = _wkb_parts(wkb)
-        grouped[code].extend(
-            _geom_parts_to_objects(
-                geom_parts,
-                symbol_index,
-                ref_x=ref_x,
-                ref_y=ref_y,
-                scale=scale,
-                grivation_deg=grivation_deg,
-                as_area=True,
+        pieces = [wkb]
+        if code == "401" and mask is not None and wkb:
+            pieces = difference_polygon_wkb(bytes(wkb), mask)
+        for piece in pieces:
+            geom_parts, _ = _wkb_parts(piece)
+            grouped[code].extend(
+                _geom_parts_to_objects(
+                    geom_parts,
+                    symbol_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    as_area=True,
+                )
             )
-        )
 
     parts: list[OomObjectPart] = []
     for code in ("401", "406", "408", "410"):

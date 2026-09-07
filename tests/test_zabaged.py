@@ -119,11 +119,11 @@ def test_vectorconf_sports_before_settlement_catchall():
     garages = next(i for i, ln in enumerate(lines) if "typzast_p=skupinové garáže" in ln)
     assert garages < catchall
     assert any("vrstva=TrvalyTravniPorost" in ln and ln.startswith("farm|401|") for ln in lines)
-    assert any("typ_pudy_k=OR" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert not any("typ_pudy_k=OR" in ln for ln in lines)
     assert not any("LesniPudaSKrovinatymPorostem" in ln for ln in lines)
     assert not any("|405|" in ln for ln in lines)
     assert any("vrstva=UdrzovanaZelen" in ln and ln.startswith("farm|401|") for ln in lines)
-    assert any("vrstva=OrnaPudaAOstatniDaleNespecifikovanePlochy" in ln and ln.startswith("farm|401|") for ln in lines)
+    assert not any("OrnaPudaAOstatniDaleNespecifikovanePlochy" in ln for ln in lines)
     assert any(
         "vrstva=OvocnySadZahrada" in ln and ln.startswith("settlement|527|") for ln in lines
     )

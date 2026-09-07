@@ -125,7 +125,7 @@ def _overpass_ql(
         # Vodní plochy → OOM 301 (nepřekonatelné). ČÚZK často nemá celou nádrž.
         f'way["natural"="water"]({bbox});',
         f'way["landuse"~"^(reservoir|basin)$"]({bbox});',
-        # Zemědělská půda → 401; dedup proti ZABAGED OrnaPuda (priorita ZABAGED).
+        # Obdělávaná půda → ISOM 412 (zdroj OSM, ne ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
@@ -198,8 +198,8 @@ _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
 # Plochy z OSM_PAVED_AREA_LEISURE → kind playground | pitch (oba 501).
 _PAVED_AREA_KINDS = frozenset({"playground", "pitch"})
 # OSM plochy s ořezem proti ZABAGED (priorita ZABAGED).
+# farmland (412) se neořezává – zdroj je OSM, OrnaPuda se do OOM neimportuje.
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
-    "farmland": frozenset({"OrnaPudaAOstatniDaleNespecifikovanePlochy"}),
     "water_body": frozenset({"VodniPlocha"}),
 }
 _CLOSED_AREA_KINDS = frozenset({"wetland", "water_body", "farmland"}) | _PAVED_AREA_KINDS
@@ -325,11 +325,11 @@ def classify_osm_feature(
         if is_node:
             return None
         return "water_body", "301"
-    # Zemědělská půda (žlutá 401) – při souběhu se ZABAGED OrnaPuda se ořeže.
+    # Obdělávaná půda (ISOM 412) – kreslí se z OSM, pod KP vegetací.
     if landuse == "farmland":
         if is_node:
             return None
-        return "farmland", "401"
+        return "farmland", "412"
     # Hřiště / sportoviště / dráha / … = zpevněná plocha (501), ne žlutá 401.
     if leisure in OSM_PAVED_AREA_LEISURE:
         if building and building not in {"no", "false", "0"}:
@@ -362,7 +362,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind == "water_body":
         return "301"
     if kind == "farmland":
-        return "401"
+        return "412"
     if stored_code:
         return stored_code
     defaults = {
@@ -380,7 +380,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "landmark_tree": "417",
         "wetland": "308",
         "water_body": "301",
-        "farmland": "401",
+        "farmland": "412",
         "playground": "501",
         "pitch": "501",
         "water_well": "311",
@@ -1754,7 +1754,7 @@ def build_osm_feature_parts(
         "pitch": "OSM sportoviště (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
-        "farmland": "OSM zemědělská půda (401)",
+        "farmland": "OSM obdělávaná půda (412)",
         "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
         "spring": "OSM prameny",

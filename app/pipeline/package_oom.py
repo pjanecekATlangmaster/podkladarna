@@ -20,6 +20,7 @@ from app.pipeline.oom_import import (
     build_zabaged_object_parts,
 )
 from app.pipeline.oom_layers import collect_oom_templates
+from app.pipeline.open_land_subtract import collect_kp401_subtract_wkbs
 from app.pipeline.reference_layers import reference_metadata
 from app.pipeline.vegetation_gdal import build_vegetation_parts
 
@@ -35,6 +36,8 @@ _ZABAGED_UNDER_VEGETATION = frozenset(
         "UdrzovanaZelen",
     }
 )
+# Obdělávaná půda z OSM (412) taky pod KP – hustníky zůstanou navrch.
+_OSM_UNDER_VEGETATION_MARK = "(412)"
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
@@ -207,9 +210,30 @@ def prepare_oom_map(
             else:
                 zabaged_rest.append(part)
 
-    # Louky/zeleň ze ZABAGED pod KP (hustníky z LiDARu musí zůstat vidět).
+    # Louky/zeleň ze ZABAGED + OSM 412 pod KP (hustníky z LiDARu musí zůstat vidět).
     object_parts.extend(zabaged_under)
-    # KP zeleň pod vrstevnicemi.
+    osm_feat = build_osm_feature_parts(
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+        clip_bounds=clip_bounds,
+    )
+    osm_under: list[OomObjectPart] = []
+    osm_feat_rest: list[OomObjectPart] = []
+    for part in osm_feat:
+        if _OSM_UNDER_VEGETATION_MARK in part.name:
+            osm_under.append(part)
+        else:
+            osm_feat_rest.append(part)
+    object_parts.extend(osm_under)
+    # KP zeleň (+ 401 s odečtem ZABAGED/OSM ploch) pod vrstevnicemi.
+    subtract_wkbs = collect_kp401_subtract_wkbs(
+        zabaged_clean=zabaged_clean if zabaged_clean and zabaged_clean.is_file() else None,
+        work_dir=kp_cwd,
+    )
     object_parts.extend(
         build_vegetation_parts(
             kp_cwd,
@@ -218,6 +242,7 @@ def prepare_oom_map(
             ref_x=ref_x,
             ref_y=ref_y,
             grivation_deg=grivation,
+            subtract_wkbs=subtract_wkbs or None,
         )
     )
     object_parts.extend(
@@ -258,17 +283,8 @@ def prepare_oom_map(
     )
     if osm_parts:
         object_parts.extend(osm_parts)
-    osm_feat = build_osm_feature_parts(
-        kp_cwd,
-        preset_id=preset_id,
-        scale=scale,
-        ref_x=ref_x,
-        ref_y=ref_y,
-        grivation_deg=grivation,
-        clip_bounds=clip_bounds,
-    )
-    if osm_feat:
-        object_parts.extend(osm_feat)
+    if osm_feat_rest:
+        object_parts.extend(osm_feat_rest)
     return write_oom_map(
         dest,
         map_name=map_name,
