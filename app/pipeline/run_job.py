@@ -145,23 +145,42 @@ def run_job_pipeline(
     except subprocess.CalledProcessError as exc:
         if not crop or not is_kp_heightmap_oob(exc):
             raise
-        uncropped = work_dir / "lidar" / "merged.laz"
-        src = uncropped if uncropped.exists() else merged
+        # Early-crop už neukládá plný merged.laz – širší ořez znovu z listů SM5
+        # (nebo fallback crop z existujícího LAZ, pokud listy nejsou k dispozici).
         last_exc: BaseException = exc
         recovered = False
         for extra_pad in _KP_OOB_EXTRA_PADS_M:
-            wider = kp_pad_crop_bounds(crop, scalefactor, extra_pad_m=extra_pad)
-            wider = ensure_contains_bounds(wider, crop)
             log(
                 "Karttapullautin spadl na okraji heightmapy (bug KP). "
                 f"Zkouším znovu s ořezem +{extra_pad:g} m (bez rozšíření na SM5)…"
             )
-            merged = crop_laz(
-                src,
-                work_dir / "lidar" / f"merged_crop_retry_{int(extra_pad)}.laz",
-                wider,
-                log=log,
-            )
+            retry_name = f"merged_crop_retry_{int(extra_pad)}.laz"
+            if dmr_files and dmp_files:
+                merged = merge_dmr_dmp(
+                    dmr_files,
+                    dmp_files,
+                    lidar_work,
+                    log=log,
+                    crop_bounds=crop,
+                    scalefactor=scalefactor,
+                    extra_pad_m=extra_pad,
+                    output_name=retry_name,
+                )
+            else:
+                wider = kp_pad_crop_bounds(crop, scalefactor, extra_pad_m=extra_pad)
+                wider = ensure_contains_bounds(wider, crop)
+                src = merged
+                for name in ("merged.laz", "merged_crop.laz"):
+                    candidate = lidar_work / name
+                    if candidate.exists() and candidate.stat().st_size > 1000:
+                        src = candidate
+                        break
+                merged = crop_laz(
+                    src,
+                    lidar_work / retry_name,
+                    wider,
+                    log=log,
+                )
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
             try:
