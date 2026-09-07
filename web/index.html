@@ -94,6 +94,15 @@
           <p class="hint">Plocha hřiště/sportoviště, studny, prameny, mokřady a pěšiny se berou vždy. Dřevěný chodník jako běžná pěšina.</p>
         </details>
 
+        <label>
+          Výstup
+          <select name="output_mode" id="output_mode">
+            <option value="png_zip" selected>PNG náhled + ZIP pro OOM (výchozí)</option>
+            <option value="png">Jen PNG náhled (bez ZIPu)</option>
+          </select>
+        </label>
+        <p class="hint">ZIP = editovatelné vektory pro OOM (GDAL, ZABAGED, OSM, DXF…) – částečně jiné zdroje než PNG. PNG z Karttapullautinu je hlavně rychlý náhled na webu, ne hotová mapa.</p>
+
         <div id="map-mode">
           <p class="hint">Klikněte dva protilehlé rohy, nebo klikněte na hotový job vpravo – výřez se načte na mapu. LiDAR i ZABAGED se stáhnou z ČÚZK do sdílené cache (u stejného výřezu znovu nestahují). Sloučený LAZ z předchozího jobu se při iteraci znovu použije. Mapa je omezená na Česko, výřez nejvýše 5 × 5 km.</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>

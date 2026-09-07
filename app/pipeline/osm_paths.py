@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
+import subprocess
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,7 +15,7 @@ from collections import defaultdict
 from pathlib import Path
 from zipfile import ZipFile
 
-from app.pipeline.crs_5514 import wgs84_to_projected
+from app.pipeline.crs_5514 import wgs84_to_projected, write_prj
 from app.pipeline.fetch_openzu import USER_AGENT
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import (
@@ -24,7 +27,7 @@ from app.pipeline.oom_import import (
     _wkb_parts,
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
-
+from app.tool_env import gis_subprocess_env, which_tool
 # Veřejná zrcadla – hlavní DE často hlásí 504; rotujeme rychle.
 OVERPASS_URLS = (
     "https://overpass.kumi.systems/api/interpreter",
@@ -289,7 +292,7 @@ def classify_osm_feature(
     if natural == "spring":
         return "spring", "312"
     if leisure == "playground":
-        return "playground", "401"
+        return "playground", "501"
     if leisure == "pitch":
         return "pitch", "401"
     if man_made == "water_well" or amenity == "fountain":
@@ -310,7 +313,10 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "513.2" if sprint else "513"
     if kind == "hedge":
         return "518" if sprint else "416"
-    if stored_code:
+    if kind == "playground":
+        # Dětské hřiště = zpevněná plocha (ne žlutá 401 – splyne se ZABAGED).
+        return "501" if sprint else "501.1"
+    if stored_code and kind != "playground":
         return stored_code
     defaults = {
         "bench": "531",
@@ -320,7 +326,6 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "firepit": "531",
         # ISSprOM/ISOM prominent man-made × – na sprintu stejně (čitelné na žluté ploše hřiště).
         "playground_equipment": "531",
-        "playground_marker": "531",
         "pitch_marker": "531",
         "barrier_point": "531",
         "fitness": "531",
@@ -328,7 +333,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "shelter": "522",
         "landmark_tree": "417",
         "wetland": "308",
-        "playground": "401",
+        "playground": "501",
         "pitch": "401",
         "water_well": "311",
         "water_well_building": "521",
@@ -1172,27 +1177,19 @@ def prepare_osm_paths(
                     "geometry": geometry,
                 }
             )
-            # Lesní mapa: žlutá 401 splyne se ZABAGED open land → středový křížek.
-            if (
-                kind in {"playground", "pitch"}
-                and geometry.get("type") == "Polygon"
-                and len(pts) >= 3
-            ):
+            # Sportoviště (pitch): žlutá 401 splyne se ZABAGED → středový křížek.
+            # Dětské hřiště je zpevněná plocha (501) – středový křížek ne.
+            if kind == "pitch" and geometry.get("type") == "Polygon" and len(pts) >= 3:
                 ring = pts[:-1] if pts[0] == pts[-1] else pts
                 if ring:
                     cx = sum(p[0] for p in ring) / len(ring)
                     cy = sum(p[1] for p in ring) / len(ring)
-                    marker_kind = (
-                        "playground_marker"
-                        if kind == "playground"
-                        else "pitch_marker"
-                    )
                     features.append(
                         {
                             "type": "Feature",
                             "properties": {
                                 "source": "osm",
-                                "kind": marker_kind,
+                                "kind": "pitch_marker",
                                 "oom_code": "531",
                             },
                             "geometry": {
@@ -1282,6 +1279,128 @@ def prepare_osm_paths(
     return out if kept else (feat_out if features else None)
 
 
+def highway_to_zabaged_vrstva(highway: str) -> str:
+    """Mapování OSM highway → ZABAGED vrstva pro KP vectorconf (vrstva=…)."""
+    hw = (highway or "path").lower()
+    if hw == "track":
+        return "Cesta"  # KP road-path|505
+    return "Pesina"  # KP road-path|507
+
+
+def paths_geojson_for_kp(paths_gj: dict) -> dict:
+    """GeoJSON pro KP: u každé linie `vrstva=Pesina|Cesta` (match vectorconf)."""
+    features: list[dict] = []
+    for feat in paths_gj.get("features") or []:
+        geom = feat.get("geometry") or {}
+        if geom.get("type") != "LineString":
+            continue
+        coords = geom.get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        props = feat.get("properties") or {}
+        hw = str(props.get("highway") or "path")
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "vrstva": highway_to_zabaged_vrstva(hw),
+                    "highway": hw,
+                    "source": "osm",
+                },
+                "geometry": {"type": "LineString", "coordinates": coords},
+            }
+        )
+    return {"type": "FeatureCollection", "features": features}
+
+
+def write_osm_kp_zip(
+    work_dir: Path,
+    *,
+    log=None,
+) -> Path | None:
+    """Sestaví plochý SHP ZIP pro Karttapullautin (druhý ZIP vedle ZABAGED).
+
+    Čte už dedupované ``osm_paths/paths.geojson``. Při chybě ogr2ogr vrátí None –
+    PNG zůstane jen ze ZABAGED, OOM OSM objekty beze změny.
+    """
+    paths_gj = work_dir / "osm_paths" / "paths.geojson"
+    if not paths_gj.is_file():
+        return None
+    try:
+        data = json.loads(paths_gj.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    kp_gj = paths_geojson_for_kp(data)
+    n = len(kp_gj["features"])
+    if n == 0:
+        if log:
+            log("OSM→KP PNG: žádné cesty po dedupu")
+        return None
+
+    ogr2ogr = which_tool("ogr2ogr")
+    if not ogr2ogr:
+        if log:
+            log("OSM→KP PNG: chybí ogr2ogr – cesty jen do OOM, ne na PNG")
+        return None
+
+    dest_zip = work_dir / "osm_kp.zip"
+    stage = Path(tempfile.mkdtemp(prefix="osm_kp_"))
+    try:
+        gj_path = stage / "osm_paths_kp.geojson"
+        gj_path.write_text(json.dumps(kp_gj), encoding="utf-8")
+        shp = stage / "OSM_cesty.shp"
+        cmd = [
+            ogr2ogr,
+            "-f",
+            "ESRI Shapefile",
+            "-overwrite",
+            "-s_srs",
+            "EPSG:5514",
+            "-t_srs",
+            "EPSG:5514",
+            "-lco",
+            "ENCODING=UTF-8",
+            "-nlt",
+            "LINESTRING",
+            str(shp),
+            str(gj_path),
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=gis_subprocess_env(ogr2ogr),
+        )
+        if result.returncode != 0 or not shp.is_file():
+            err = (result.stderr or result.stdout or "ogr2ogr failed").strip()
+            if log:
+                log(f"OSM→KP PNG: ogr2ogr selhal ({err[:200]})")
+            return None
+        write_prj(shp)
+        if dest_zip.exists():
+            dest_zip.unlink()
+        with ZipFile(dest_zip, "w") as zf:
+            for path in stage.iterdir():
+                if path.suffix.lower() in {
+                    ".shp",
+                    ".shx",
+                    ".dbf",
+                    ".prj",
+                    ".cpg",
+                }:
+                    zf.write(path, path.name)
+        by_v: dict[str, int] = defaultdict(int)
+        for feat in kp_gj["features"]:
+            by_v[str((feat.get("properties") or {}).get("vrstva") or "?")] += 1
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(by_v.items()))
+        if log:
+            log(f"OSM→KP PNG: {n} linií ({summary}) → {dest_zip.name}")
+        return dest_zip
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
 def build_osm_path_parts(
     work_dir: Path,
     *,
@@ -1355,10 +1474,9 @@ def build_osm_feature_parts(
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     names = {
-        "playground": "OSM hřiště (401)",
+        "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (401)",
         "playground_equipment": "OSM herní prvky (531 ×)",
-        "playground_marker": "OSM hřiště střed (531 ×)",
         "pitch_marker": "OSM sportoviště střed (531 ×)",
         "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
@@ -1385,7 +1503,6 @@ def build_osm_feature_parts(
         "spring",
         "playground",
         "pitch",
-        "playground_marker",
         "pitch_marker",
         "playground_equipment",
         "wetland",

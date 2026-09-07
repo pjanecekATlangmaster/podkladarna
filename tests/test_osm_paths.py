@@ -40,7 +40,7 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"man_made": "water_well"}) == ("water_well", "311")
     assert classify_osm_feature({"amenity": "fountain"}) == ("water_well", "311")
     assert classify_osm_feature({"natural": "spring"}) == ("spring", "312")
-    assert classify_osm_feature({"leisure": "playground"}) == ("playground", "401")
+    assert classify_osm_feature({"leisure": "playground"}) == ("playground", "501")
     assert classify_osm_feature(
         {"leisure": "pitch", "sport": "basketball"}
     ) == ("pitch", "401")
@@ -115,7 +115,8 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("fence", "forest_10000") == "516"
     assert feature_oom_code("wall", "sprint_2m") == "513.2"
     assert feature_oom_code("hedge", "forest_10000") == "416"
-    assert feature_oom_code("playground_marker", "forest_7500") == "531"
+    assert feature_oom_code("playground", "sprint_2m") == "501"
+    assert feature_oom_code("playground", "forest_7500") == "501.1"
     assert feature_oom_code("pitch_marker", "sprint_2m") == "531"
 
 
@@ -139,6 +140,39 @@ def test_osm_priority_overpass_includes_barriers():
     ql_off = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=False)
     assert "fitness_station" not in ql_off
     assert "barrier" not in ql_off
+
+def test_highway_to_zabaged_vrstva():
+    from app.pipeline.osm_paths import highway_to_zabaged_vrstva, paths_geojson_for_kp
+
+    assert highway_to_zabaged_vrstva("track") == "Cesta"
+    assert highway_to_zabaged_vrstva("path") == "Pesina"
+    assert highway_to_zabaged_vrstva("footway") == "Pesina"
+    gj = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"highway": "track"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[0, 0], [10, 0]],
+                },
+            },
+            {
+                "type": "Feature",
+                "properties": {"highway": "path"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[0, 1], [10, 1]],
+                },
+            },
+        ],
+    }
+    out = paths_geojson_for_kp(gj)
+    assert len(out["features"]) == 2
+    assert out["features"][0]["properties"]["vrstva"] == "Cesta"
+    assert out["features"][1]["properties"]["vrstva"] == "Pesina"
+
 
 def test_osm_oom_code_paths_only():
     from app.pipeline.osm_paths import osm_oom_code

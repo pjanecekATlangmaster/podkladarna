@@ -56,6 +56,8 @@ REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))
 DEFAULT_OPTIONS = {
     "run_vectors": True,
     "output_png": True,
+    # ZIP pro OOM (vektory + .omap). False = jen PNG náhled na webu.
+    "output_zip": True,
     "output_dxf": True,
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace

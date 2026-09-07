@@ -321,6 +321,9 @@ def build_oom_zip(
                 gj = osm_dir / name
                 if gj.is_file():
                     zf.write(gj, f"osm_paths/{name}")
+        osm_kp = kp_cwd / "osm_kp.zip"
+        if osm_kp.is_file():
+            zf.write(osm_kp, "osm_paths/osm_kp.zip")
         if zabaged_clean and zabaged_clean.is_file():
             _add_shapefiles_from_zip(zf, zabaged_clean, "vectors")
             if include_zabaged_archive:

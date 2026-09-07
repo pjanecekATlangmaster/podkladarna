@@ -7,6 +7,12 @@ WEB_ABOUT_HTML = """
   Karttapullautin a připraví balíček pro
   <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a>.
 </p>
+<p><strong>PNG náhled vs ZIP:</strong> na webu uvidíte PNG z Karttapullautinu
+  (reliéf/vegetace + ZABAGED a po dedupu i OSM cesty). PNG je hlavně rychlý
+  náhled a volitelná šablona – <em>není</em> hotová mapa. ZIP pro OOM skládá
+  editovatelné vektory z více zdrojů (vrstevnice GDAL, zeleň, ZABAGED, OSM objekty,
+  DXF srázů, referenční ortofoto/OSM/ZTM…). Část obsahu se tedy v PNG a ve ZIPu
+  nepřekrývá 1:1. Výchozí je PNG + ZIP; můžete zvolit jen PNG náhled.</p>
 <p><strong>Co dostanete ve ZIPu:</strong></p>
 <ul>
   <li><code>podkladarna.omap</code> – mapový soubor s podklady (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
@@ -14,8 +20,9 @@ WEB_ABOUT_HTML = """
 </ul>
 <p><strong>Jak na to:</strong> nakreslete obdélník (max 5×5&nbsp;km), vyberte typ mapy, spusťte generování.
   Sprint obvykle 2–6 minut, lesní mapa déle; stránku mezitím můžete zavřít.
-  Po dokončení stáhněte ZIP. V OOM otevřete <code>podkladarna.omap</code> a dle návodu
-  doladíte symboliku. Do OCADu jde import DXF/SHP/PNG, ne přímo <code>.omap</code>.</p>
+  Po dokončení stáhněte ZIP (pokud jste ho nechali generovat). V OOM otevřete
+  <code>podkladarna.omap</code> a dle návodu doladíte symboliku. Do OCADu jde import
+  DXF/SHP/PNG, ne přímo <code>.omap</code>.</p>
 <p><strong>Proč fronta a limity:</strong> server zvládne jen jedno generování najednou a běží na domácím NAS.
   Z jedné sítě (IP) mohou současně běžet nebo čekat nejvýše <strong>2 joby</strong>,
   za hodinu nejvýše <strong>10</strong>. Kdo už oba sloty využil, ustoupí ve frontě tomu,
@@ -28,6 +35,8 @@ ZIP_ABOUT_TXT = """Podkladárna – co je v tomto balíčku
 ==================================
 
 Tento ZIP vygenerovala služba Podkladárna (LiDAR + ZABAGED → podklad pro orientační mapu).
+PNG z Karttapullautinu na webu je hlavně náhled – editovatelné vektory a .omap jsou zde ve ZIPu
+a skládají se z více zdrojů (ne 1:1 s PNG).
 
 Co je uvnitř
 ------------
@@ -35,7 +44,7 @@ Co je uvnitř
 - basemap/             … reliéf a vegetace z LiDARu (Karttapullautin)
 - karttapullautin/     … srázy a knolíky (DXF)
 - contours/            … vrstevnice z PDAL/GDAL (shapefile)
-- osm_paths/           … pěšiny z OpenStreetMap (ODbL), studny/prameny, mokřad, jeskyně, hřiště/sportoviště; volitelně lavičky / lampy / herní prvky; při prioritě OSM (hlavně sprint) ploty/zdi/brány/… a slabší ořez proti ZABAGED
+- osm_paths/           … pěšiny z OpenStreetMap (ODbL) – po dedupu i do KP PNG; studny/prameny, mokřad, jeskyně, hřiště/sportoviště; volitelně lavičky / lampy / herní prvky; při prioritě OSM (hlavně sprint) ploty/zdi/brány/…
 - vectors/             … polohopis ZABAGED (shapefile)
 - references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM

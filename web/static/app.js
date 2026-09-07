@@ -651,6 +651,12 @@ function applyJobToForm(job) {
     priority.checked =
       opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
   }
+  const outMode = form.output_mode;
+  if (outMode) {
+    const opts = job.options || {};
+    const wantZip = opts.output_zip == null ? true : Boolean(opts.output_zip);
+    outMode.value = wantZip ? "png_zip" : "png";
+  }
   updateOsmHintsForPreset((job.preset_id || "").toString());
   const opts = job.options || {};
   const bbox = opts.bbox_wgs84;

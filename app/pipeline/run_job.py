@@ -16,7 +16,7 @@ from app.pipeline.karttapullautin_dxf import (
     DXF_SKIP_AFTER_VECTORS,
     prune_heavy_intermediate_dxf,
 )
-from app.pipeline.osm_paths import prepare_osm_paths
+from app.pipeline.osm_paths import prepare_osm_paths, write_osm_kp_zip
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     build_oom_zip,
@@ -207,19 +207,14 @@ def run_job_pipeline(
             "ZABAGED (polohopis) není k dispozici – bez něj nelze dokončit mapu."
         )
 
-    log("=== Fáze: Karttapullautin vektory ===")
-    run_cmd([PULLAUTA_BIN, str(zabaged_clean.resolve())], cwd=kp_cwd, log=log)
-    prune_heavy_intermediate_dxf(
-        temp_dir, log=log, names=DXF_SKIP_AFTER_VECTORS
-    )
-
+    osm_kp_zip: Path | None = None
     if bbox:
-        log("=== Fáze: OSM pěšiny a objekty ===")
+        log("=== Fáze: OSM pěšiny a objekty (před KP PNG) ===")
         try:
             prepare_osm_paths(
                 work_dir,
                 tuple(bbox),
-                zabaged_clean if has_zabaged else None,
+                zabaged_clean,
                 include_benches=bool(options.get("kp_osm_benches")),
                 include_lamps=bool(options.get("kp_osm_lamps")),
                 include_playground_equipment=bool(
@@ -229,8 +224,22 @@ def run_job_pipeline(
                 preset_id=preset_id,
                 log=log,
             )
+            osm_kp_zip = write_osm_kp_zip(work_dir, log=log)
         except Exception as exc:
             log(f"OSM: přeskočeno ({exc})")
+            osm_kp_zip = None
+
+    log("=== Fáze: Karttapullautin vektory ===")
+    kp_vector_cmd = [PULLAUTA_BIN, str(zabaged_clean.resolve())]
+    if osm_kp_zip and osm_kp_zip.is_file():
+        kp_vector_cmd.append(str(osm_kp_zip.resolve()))
+        log(f"KP PNG: ZABAGED + OSM cesty ({osm_kp_zip.name})")
+    else:
+        log("KP PNG: jen ZABAGED (bez OSM cest)")
+    run_cmd(kp_vector_cmd, cwd=kp_cwd, log=log)
+    prune_heavy_intermediate_dxf(
+        temp_dir, log=log, names=DXF_SKIP_AFTER_VECTORS
+    )
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(
@@ -259,6 +268,7 @@ def _package_output(
     if zip_path.exists():
         zip_path.unlink()
 
+    want_zip = bool(options.get("output_zip", True))
     presets = load_presets()
     preset = presets.get(preset_id, {})
     job_dir = kp_cwd.parent
@@ -266,60 +276,68 @@ def _package_output(
     ref_layers: list[str] = []
     built_refs: dict[str, Path] = {}
     bbox = options.get("bbox_wgs84")
-    if bbox and (kp_cwd / "pullautus.png").is_file() and (kp_cwd / "pullautus.pgw").is_file():
-        log("=== Fáze: referenční podklady pro OOM ===")
-        try:
-            built_refs = build_reference_layers(
-                job_dir,
-                tuple(bbox),
-                kp_cwd / "pullautus.png",
-                kp_cwd / "pullautus.pgw",
-                reference_dir,
-                log=log,
-            )
-        except Exception as exc:
-            log(f"Referenční podklady: přeskočeno ({exc})")
-        if built_refs:
-            ref_layers = sorted(p.name for p in built_refs.values())
-        elif reference_dir.is_dir():
-            ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
-
-    meta = oom_metadata(preset_id, preset, options, job_name, reference_layers=ref_layers or None)
-    zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None
     omap_path = None
-    if bbox:
-        vectorconf = Path(str(preset.get("vectorconf", "zabaged.txt"))).name
-        indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
-        if indexcontours_m is None and meta.get("contour_interval_m") is not None:
-            indexcontours_m = 5 * float(meta["contour_interval_m"])
-        omap_path = prepare_oom_map(
-            kp_cwd,
-            output_dir / "podkladarna.omap",
-            map_name=job_name or preset_id,
-            scale=meta["scale"],
-            preset_id=preset_id,
-            bbox_wgs84=tuple(bbox),
-            built_refs=built_refs or None,
-            zabaged_clean=zabaged,
-            vectorconf_name=vectorconf,
-            include_dxf=bool(options.get("output_dxf", True)),
-            contour_interval_m=meta.get("contour_interval_m"),
-            formline=0,
-            indexcontours_m=indexcontours_m,
-            cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
-        )
+    zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None
 
-    build_oom_zip(
-        kp_cwd,
-        zip_path,
-        zabaged_clean=zabaged,
-        metadata=meta,
-        reference_dir=reference_dir if reference_dir and reference_dir.is_dir() else None,
-        omap_path=omap_path,
-        include_zabaged_archive=bool(options.get("output_zabaged_clean", False) and zabaged),
-        include_png=bool(options.get("output_png", True)),
-        include_dxf=bool(options.get("output_dxf", True)),
-    )
+    if want_zip:
+        if bbox and (kp_cwd / "pullautus.png").is_file() and (kp_cwd / "pullautus.pgw").is_file():
+            log("=== Fáze: referenční podklady pro OOM ===")
+            try:
+                built_refs = build_reference_layers(
+                    job_dir,
+                    tuple(bbox),
+                    kp_cwd / "pullautus.png",
+                    kp_cwd / "pullautus.pgw",
+                    reference_dir,
+                    log=log,
+                )
+            except Exception as exc:
+                log(f"Referenční podklady: přeskočeno ({exc})")
+            if built_refs:
+                ref_layers = sorted(p.name for p in built_refs.values())
+            elif reference_dir.is_dir():
+                ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
+
+        meta = oom_metadata(
+            preset_id, preset, options, job_name, reference_layers=ref_layers or None
+        )
+        if bbox:
+            vectorconf = Path(str(preset.get("vectorconf", "zabaged.txt"))).name
+            indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
+            if indexcontours_m is None and meta.get("contour_interval_m") is not None:
+                indexcontours_m = 5 * float(meta["contour_interval_m"])
+            omap_path = prepare_oom_map(
+                kp_cwd,
+                output_dir / "podkladarna.omap",
+                map_name=job_name or preset_id,
+                scale=meta["scale"],
+                preset_id=preset_id,
+                bbox_wgs84=tuple(bbox),
+                built_refs=built_refs or None,
+                zabaged_clean=zabaged,
+                vectorconf_name=vectorconf,
+                include_dxf=bool(options.get("output_dxf", True)),
+                contour_interval_m=meta.get("contour_interval_m"),
+                formline=0,
+                indexcontours_m=indexcontours_m,
+                cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
+            )
+
+        build_oom_zip(
+            kp_cwd,
+            zip_path,
+            zabaged_clean=zabaged,
+            metadata=meta,
+            reference_dir=reference_dir if reference_dir and reference_dir.is_dir() else None,
+            omap_path=omap_path,
+            include_zabaged_archive=bool(
+                options.get("output_zabaged_clean", False) and zabaged
+            ),
+            include_png=bool(options.get("output_png", True)),
+            include_dxf=bool(options.get("output_dxf", True)),
+        )
+    else:
+        log("=== Fáze: jen PNG náhled (ZIP/OOM přeskočeno) ===")
 
     for name in ("pullautus.png", "pullautus.pgw"):
         src = kp_cwd / name
@@ -345,4 +363,10 @@ def _package_output(
                 if path.is_file() and path.suffix.lower() in {".png", ".pgw"}:
                     shutil.copy2(path, refs_dst / path.name)
 
-    log(f"Výstup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")
+    if want_zip and zip_path.is_file():
+        log(f"Výstup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")
+    elif (output_dir / "pullautus.png").is_file():
+        png = output_dir / "pullautus.png"
+        log(f"Výstup: jen PNG náhled ({png.stat().st_size / 1e6:.2f} MB)")
+    else:
+        log("Výstup: žádný ZIP ani PNG")

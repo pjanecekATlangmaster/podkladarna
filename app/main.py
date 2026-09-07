@@ -383,6 +383,13 @@ async def api_create_job(request: Request):
     if _opt_bool("kp_osm_furniture"):
         options["kp_osm_benches"] = True
         options["kp_osm_lamps"] = True
+    mode_raw = _form_str(form, "output_mode").strip().lower()
+    if mode_raw in {"png", "png_only"}:
+        options["output_zip"] = False
+    elif mode_raw in {"png_zip", "zip", "both", ""}:
+        options["output_zip"] = True
+    elif _form_str(form, "output_zip").strip():
+        options["output_zip"] = _opt_bool("output_zip")
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:
@@ -413,7 +420,8 @@ async def api_create_job(request: Request):
         f"lavičky={'ano' if options.get('kp_osm_benches') else 'ne'}, "
         f"lampy={'ano' if options.get('kp_osm_lamps') else 'ne'}, "
         f"herní prvky={'ano' if options.get('kp_osm_playground_equipment') else 'ne'}, "
-        f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}"
+        f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}, "
+        f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"
     )
 
     try:
