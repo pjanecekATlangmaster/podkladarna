@@ -78,7 +78,13 @@
           <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />
           Priorita OSM (hlavně sprint / urban)
         </label>
-        <p class="hint" id="osm-priority-hint">Pro sprint: ploty, zdi, brány, přístřešky, pomníky, pěší zóny; slabší ořez pěšin vůči ZABAGED. V lese spíš vypnout – urban pack může být hlučný. Budovy a silnice zůstávají ze ZABAGED.</p>
+        <p class="hint" id="osm-priority-hint">Pro sprint: ploty, zdi, brány, přístřešky, pomníky, pěší zóny. Na sprintu mají OSM pěšiny v OOM přednost před ZABAGED Pesina/Cesta (PNG beze změny). V lese spíš vypnout urban pack – může být hlučný. Budovy a silnice zůstávají ze ZABAGED.</p>
+
+        <label class="checkbox-row">
+          <input type="checkbox" name="sprint_courtyard_olive" id="sprint_courtyard_olive" value="1" checked />
+          Sprint: nepřístupné dvory v budovách vyplnit olivou (520)
+        </label>
+        <p class="hint">Když má šedá budova (521) uzavřený polygon s dírou uprostřed (dvůr bez průchodu), díru vykreslí olivou a překryje detaily uvnitř. Platí jen u sprintových presetů.</p>
 
         <details class="advanced-options" id="osm-advanced">
           <summary>Rozšířená nastavení OSM</summary>
@@ -105,7 +111,13 @@
             <option value="png">Jen PNG náhled (bez ZIPu)</option>
           </select>
         </label>
-        <p class="hint">ZIP = editovatelné vektory pro OOM (GDAL, ZABAGED, OSM, DXF…) – částečně jiné zdroje než PNG. PNG z Karttapullautinu je hlavně rychlý náhled na webu, ne hotová mapa.</p>
+        <p class="hint">PNG je rychlý rastrový náhled z Karttapullautinu (pro web) – oproti ZIPu / <code>.omap</code> postrádá spoustu detailů a editovatelných vrstev. ZIP je podklad pro kreslení v OOM: vektory (vrstevnice, zeleň, ZABAGED, OSM, srázy…), případně referenční PNG šablony.</p>
+
+        <label class="checkbox-row">
+          <input type="checkbox" name="output_references" id="output_references" value="1" checked />
+          Referenční PNG podklady (orto, OSM, ZTM, katastr, hillshade, DMP)
+        </label>
+        <p class="hint">Stáhne se z ČÚZK/OSM a přibalí do ZIPu jako šablony v OOM. Vypnutím zrychlíš job a zmenšíš ZIP – vektory a KP náhled zůstanou.</p>
 
         <div id="map-mode">
           <p class="hint">Klikněte dva protilehlé rohy, nebo klikněte na hotový job vpravo – výřez se načte na mapu. LiDAR i ZABAGED se stáhnou z ČÚZK do sdílené cache (u stejného výřezu znovu nestahují). Sloučený LAZ z předchozího jobu se při iteraci znovu použije. Mapa je omezená na Česko, výřez nejvýše 5 × 5 km.</p>

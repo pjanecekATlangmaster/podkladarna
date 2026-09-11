@@ -62,7 +62,7 @@ ZABAGED_PATH_LAYERS = frozenset(
         "Zabrana",
     }
 )
-# Priorita OSM: ořezávat jen proti pevným komunikacím (ne proti Pesina/Cesta).
+# Priorita OSM / sprint: ořezávat OSM jen proti pevným komunikacím (ne Pesina/Cesta).
 ZABAGED_PATH_LAYERS_PRIORITY = frozenset(
     {
         "Ulice",
@@ -73,6 +73,8 @@ ZABAGED_PATH_LAYERS_PRIORITY = frozenset(
         "Tunel",
     }
 )
+# Sprint OOM: tyto ZABAGED vrstvy ustoupí OSM (KP PNG beze změny).
+ZABAGED_PATH_LAYERS_OSM_FIRST = frozenset({"Pesina", "Cesta", "Zabrana"})
 NEAR_M = 25.0  # zpětná kompatibilita testů / starších volání
 # Stejná středová čára (ne „něco v okolí“): OSM a ZABAGED přes sebe.
 MATCH_M = 6.0
@@ -127,6 +129,9 @@ def _overpass_ql(
         f'way["landuse"~"^(reservoir|basin)$"]({bbox});',
         # Obdělávaná půda → ISOM 412 (zdroj OSM, ne ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
+        # Zahrady → oliva 520 (vč. multipolygon relation s dírou na dům).
+        f'way["leisure"="garden"]({bbox});',
+        f'relation["type"="multipolygon"]["leisure"="garden"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
     ]
@@ -202,7 +207,9 @@ _PAVED_AREA_KINDS = frozenset({"playground", "pitch"})
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
     "water_body": frozenset({"VodniPlocha"}),
 }
-_CLOSED_AREA_KINDS = frozenset({"wetland", "water_body", "farmland"}) | _PAVED_AREA_KINDS
+_CLOSED_AREA_KINDS = frozenset(
+    {"wetland", "water_body", "farmland", "garden"}
+) | _PAVED_AREA_KINDS
 # Jen při kp_osm_priority (hlavně sprint urban pack).
 _PRIORITY_KINDS = frozenset(
     {
@@ -330,6 +337,11 @@ def classify_osm_feature(
         if is_node:
             return None
         return "farmland", "412"
+    # Zahrada (ISSprOM/ISOM 520 oliva) – nepřístupné / soukromé plochy.
+    if leisure == "garden":
+        if is_node:
+            return None
+        return "garden", "520"
     # Hřiště / sportoviště / dráha / … = zpevněná plocha (501), ne žlutá 401.
     if leisure in OSM_PAVED_AREA_LEISURE:
         if building and building not in {"no", "false", "0"}:
@@ -363,6 +375,8 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "301"
     if kind == "farmland":
         return "412"
+    if kind == "garden":
+        return "520"
     if stored_code:
         return stored_code
     defaults = {
@@ -381,6 +395,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "wetland": "308",
         "water_body": "301",
         "farmland": "412",
+        "garden": "520",
         "playground": "501",
         "pitch": "501",
         "water_well": "311",
@@ -480,10 +495,17 @@ def _fetch_overpass(
             elements = [
                 e
                 for e in (data.get("elements") or [])
-                if e.get("type") in {"way", "node"}
-                and (
-                    e.get("geometry")
-                    or (e.get("type") == "node" and e.get("lat") is not None)
+                if (
+                    e.get("type") in {"way", "node"}
+                    and (
+                        e.get("geometry")
+                        or (e.get("type") == "node" and e.get("lat") is not None)
+                    )
+                )
+                or (
+                    e.get("type") == "relation"
+                    and (e.get("tags") or {}).get("leisure") == "garden"
+                    and e.get("members")
                 )
             ]
             if log:
@@ -570,6 +592,9 @@ def fetch_osm_path_elements(
 
 def _way_skip_reason(tags: dict, *, allow_sidewalk: bool = False) -> str | None:
     footway = (tags.get("footway") or "").lower()
+    railway = (tags.get("railway") or "").lower()
+    if railway in {"subway", "subway_entrance"}:
+        return "metro"
     # Dřevěný chodník mapujeme jako pěšinu (ne jako most).
     if _is_boardwalk(tags):
         return None
@@ -1315,12 +1340,132 @@ def filter_osm_items_against_zabaged(
     return kept, dropped
 
 
+def filter_lines_against_centerlines(
+    lines: list[list[tuple[float, float]]],
+    blockers: list[list[tuple[float, float]]],
+    *,
+    near_m: float = MATCH_M,
+    overlap_drop: float = COVER_DROP,
+    min_length_m: float = MIN_LENGTH_M,
+) -> tuple[list[list[tuple[float, float]]], int]:
+    """Nechá z ``lines`` jen úseky mimo střednice ``blockers`` (invertovaný dedup)."""
+    if not blockers:
+        kept = [ln for ln in lines if polyline_length(ln) >= min_length_m]
+        return kept, len(lines) - len(kept)
+    index = _SegmentIndex()
+    for line in blockers:
+        index.add_line(line)
+    kept: list[list[tuple[float, float]]] = []
+    dropped = 0
+    for line in lines:
+        if polyline_length(line) < min_length_m:
+            dropped += 1
+            continue
+        if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
+            dropped += 1
+            continue
+        parts = [
+            p
+            for p in unique_polyline_parts(line, index, near_m=near_m)
+            if polyline_length(p) >= min_length_m
+            and centerline_cover_fraction(p, index, match_m=near_m) < overlap_drop
+        ]
+        if not parts:
+            dropped += 1
+            continue
+        kept.extend(parts)
+    return kept, dropped
+
+
+def load_osm_path_lines(work_dir: Path) -> list[list[tuple[float, float]]]:
+    """Načte dedupované OSM cesty z ``work/osm_paths/paths.geojson``."""
+    gj_path = work_dir / "osm_paths" / "paths.geojson"
+    if not gj_path.is_file():
+        return []
+    try:
+        data = json.loads(gj_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    out: list[list[tuple[float, float]]] = []
+    for feat in data.get("features") or []:
+        geom = feat.get("geometry") or {}
+        if geom.get("type") != "LineString":
+            continue
+        coords = geom.get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        out.append([(float(x), float(y)) for x, y in coords])
+    return out
+
+
+def _close_ring_5514(
+    pts: list[tuple[float, float]],
+) -> list[tuple[float, float]] | None:
+    if len(pts) < 3:
+        return None
+    out = list(pts)
+    if out[0] != out[-1]:
+        if math.hypot(out[0][0] - out[-1][0], out[0][1] - out[-1][1]) < 1.5:
+            out = out[:-1] + [out[0]]
+        else:
+            out.append(out[0])
+    return out if len(out) >= 4 else None
+
+
+def _nodes_geometry_to_5514(geometry: list[dict] | None) -> list[tuple[float, float]]:
+    pts: list[tuple[float, float]] = []
+    for node in geometry or []:
+        lat = node.get("lat")
+        lon = node.get("lon")
+        if lat is None or lon is None:
+            continue
+        pts.append(wgs84_to_projected(float(lat), float(lon)))
+    return pts
+
+
+def osm_area_polygons_5514(
+    element: dict,
+) -> list[list[list[tuple[float, float]]]]:
+    """Uzavřené plochy z way nebo multipolygon relation → seznam [outer, *holes]."""
+    el_type = element.get("type")
+    if el_type == "way":
+        ring = _close_ring_5514(_nodes_geometry_to_5514(element.get("geometry")))
+        return [[ring]] if ring else []
+    if el_type != "relation":
+        return []
+    outers: list[list[tuple[float, float]]] = []
+    inners: list[list[tuple[float, float]]] = []
+    for mem in element.get("members") or []:
+        if mem.get("type") != "way":
+            continue
+        ring = _close_ring_5514(_nodes_geometry_to_5514(mem.get("geometry")))
+        if not ring:
+            continue
+        role = (mem.get("role") or "outer").lower()
+        if role == "inner":
+            inners.append(ring)
+        else:
+            outers.append(ring)
+    if not outers:
+        return []
+    if len(outers) == 1:
+        return [[outers[0]] + inners]
+    # Více outerů: díry nepřiřazujeme (vzácné) – každý outer zvlášť.
+    return [[outer] for outer in outers]
+
+
 def osm_feature_to_5514(
     element: dict,
 ) -> tuple[str, str, list[tuple[float, float]]] | None:
     """(kind, oom_code, ring_or_point) v S-JTSK, nebo None."""
     tags = element.get("tags") or {}
+    # Metro / podzemní dráha – do podkladu nepatří.
+    railway = (tags.get("railway") or "").lower()
+    if railway in {"subway", "subway_entrance"}:
+        return None
     geom = "node" if element.get("type") == "node" else "way"
+    if element.get("type") == "relation":
+        geom = "way"
     classified = classify_osm_feature(tags, geom=geom)
     if not classified:
         return None
@@ -1331,13 +1476,10 @@ def osm_feature_to_5514(
         if lat is None or lon is None:
             return None
         pts = [wgs84_to_projected(float(lat), float(lon))]
+    elif element.get("type") == "relation":
+        return None  # plochy z relation řeší osm_area_rings_5514
     else:
-        for node in element.get("geometry") or []:
-            lat = node.get("lat")
-            lon = node.get("lon")
-            if lat is None or lon is None:
-                continue
-            pts.append(wgs84_to_projected(float(lat), float(lon)))
+        pts = _nodes_geometry_to_5514(element.get("geometry"))
     if not pts:
         return None
     # Ploty / zdi / živé ploty – celá linie (i uzavřený ring jako LineString).
@@ -1352,7 +1494,7 @@ def osm_feature_to_5514(
         cx = sum(p[0] for p in pts) / len(pts)
         cy = sum(p[1] for p in pts) / len(pts)
         return kind, code, [(cx, cy)]
-    # Mokřad / nádrž / orná / hřiště – jen uzavřená plocha.
+    # Mokřad / nádrž / orná / hřiště / zahrada – jen uzavřená plocha.
     if kind in _CLOSED_AREA_KINDS:
         if len(pts) < 3:
             return None
@@ -1404,7 +1546,14 @@ def prepare_osm_paths(
     allow_sidewalk = str(preset_id).startswith("sprint")
     for el in elements:
         tags = el.get("tags") or {}
+        # Metro do podkladu nepatří (ani jako cesta, ani jako objekt).
+        railway = (tags.get("railway") or "").lower()
+        if railway in {"subway", "subway_entrance"}:
+            skipped += 1
+            continue
         el_geom = "node" if el.get("type") == "node" else "way"
+        if el.get("type") == "relation":
+            el_geom = "way"
         classified = classify_osm_feature(tags, geom=el_geom)
         if classified:
             kind, _code = classified
@@ -1419,6 +1568,26 @@ def prepare_osm_paths(
                 continue
             if kind in _PRIORITY_KINDS and not osm_priority:
                 skipped += 1
+                continue
+            if kind in _CLOSED_AREA_KINDS:
+                polygons = osm_area_polygons_5514(el)
+                if not polygons:
+                    skipped += 1
+                    continue
+                code = classified[1]
+                for rings in polygons:
+                    coords = [[[x, y] for x, y in ring] for ring in rings]
+                    features.append(
+                        {
+                            "type": "Feature",
+                            "properties": {
+                                "source": "osm",
+                                "kind": kind,
+                                "oom_code": code,
+                            },
+                            "geometry": {"type": "Polygon", "coordinates": coords},
+                        }
+                    )
                 continue
             feat = osm_feature_to_5514(el)
             if feat is None:
@@ -1449,6 +1618,9 @@ def prepare_osm_paths(
                 }
             )
             continue
+        if el.get("type") == "relation":
+            skipped += 1
+            continue
         pts = osm_way_to_5514(el, allow_sidewalk=allow_sidewalk)
         if pts is None:
             skipped += 1
@@ -1462,21 +1634,22 @@ def prepare_osm_paths(
             hw = "path"
         osm_items.append((pts, hw))
     zabaged_lines: list[list[tuple[float, float]]] = []
+    sprint = str(preset_id).startswith("sprint")
+    # Sprint: OSM má přednost před Pesina/Cesta – neořezávat OSM proti nim.
     dedup_layers = (
-        ZABAGED_PATH_LAYERS_PRIORITY if osm_priority else ZABAGED_PATH_LAYERS
+        ZABAGED_PATH_LAYERS_PRIORITY
+        if (osm_priority or sprint)
+        else ZABAGED_PATH_LAYERS
     )
     if zabaged_clean and zabaged_clean.is_file():
         zabaged_lines = _zabaged_path_lines(
             zabaged_clean, log=log, layers=dedup_layers
         )
         if log:
-            sprint = str(preset_id).startswith("sprint")
-            if osm_priority:
-                mode = (
-                    "priorita OSM / sprint urban"
-                    if sprint
-                    else "priorita OSM (i v lese – urban pack)"
-                )
+            if sprint:
+                mode = "sprint (OSM > Pesina/Cesta)"
+            elif osm_priority:
+                mode = "priorita OSM (i v lese – urban pack)"
             else:
                 mode = "standard"
             log(f"OSM dedup ({mode}): {len(zabaged_lines)} ZABAGED linií")
@@ -1755,6 +1928,7 @@ def build_osm_feature_parts(
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
         "farmland": "OSM obdělávaná půda (412)",
+        "garden": "OSM zahrady (520 oliva)",
         "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
         "spring": "OSM prameny",
@@ -1780,6 +1954,7 @@ def build_osm_feature_parts(
         "spring",
         "water_body",
         "farmland",
+        "garden",
         "playground",
         "pitch",
         "playground_equipment",

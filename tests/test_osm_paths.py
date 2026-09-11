@@ -111,6 +111,8 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"natural": "water"}) == ("water_body", "301")
     assert classify_osm_feature({"landuse": "basin"}) == ("water_body", "301")
     assert classify_osm_feature({"landuse": "farmland"}) == ("farmland", "412")
+    assert classify_osm_feature({"leisure": "garden"}) == ("garden", "520")
+    assert classify_osm_feature({"leisure": "garden"}, geom="node") is None
     assert classify_osm_feature({"natural": "cave_entrance"}) == (
         "cave_entrance",
         "203.1",
@@ -120,6 +122,57 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"man_made": "boardwalk"}) is None
     assert classify_osm_feature({"highway": "path"}) is None
     assert classify_osm_feature({"tourism": "information", "building": "yes"}) is None
+
+
+def test_skip_subway():
+    assert _way_skip_reason({"railway": "subway"}) == "metro"
+    assert _way_skip_reason({"highway": "path", "railway": "subway"}) == "metro"
+    assert osm_feature_to_5514(
+        {
+            "type": "way",
+            "tags": {"railway": "subway"},
+            "geometry": [{"lat": 50.0, "lon": 14.4}, {"lat": 50.001, "lon": 14.4}],
+        }
+    ) is None
+
+
+def test_garden_multipolygon_keeps_inner_hole():
+    from app.pipeline.osm_paths import osm_area_polygons_5514
+
+    # Mimic Overpass out geom for relation 14172772 (outer + inner).
+    el = {
+        "type": "relation",
+        "tags": {"leisure": "garden", "type": "multipolygon"},
+        "members": [
+            {
+                "type": "way",
+                "role": "outer",
+                "geometry": [
+                    {"lat": 50.0, "lon": 14.40},
+                    {"lat": 50.0, "lon": 14.41},
+                    {"lat": 50.01, "lon": 14.41},
+                    {"lat": 50.01, "lon": 14.40},
+                    {"lat": 50.0, "lon": 14.40},
+                ],
+            },
+            {
+                "type": "way",
+                "role": "inner",
+                "geometry": [
+                    {"lat": 50.002, "lon": 14.402},
+                    {"lat": 50.002, "lon": 14.404},
+                    {"lat": 50.004, "lon": 14.404},
+                    {"lat": 50.004, "lon": 14.402},
+                    {"lat": 50.002, "lon": 14.402},
+                ],
+            },
+        ],
+    }
+    polys = osm_area_polygons_5514(el)
+    assert len(polys) == 1
+    assert len(polys[0]) == 2
+    assert polys[0][0][0] == polys[0][0][-1]
+    assert polys[0][1][0] == polys[0][1][-1]
 
 
 def test_boardwalk_maps_as_path():
@@ -152,6 +205,8 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("playground", "forest_7500") == "501.1"
     assert feature_oom_code("pitch", "sprint_2m") == "501"
     assert feature_oom_code("pitch", "forest_10000") == "501.1"
+    assert feature_oom_code("garden", "sprint_2m") == "520"
+    assert feature_oom_code("garden", "forest_10000") == "520"
     assert feature_oom_code("water_body", "sprint_2m") == "301"
     assert feature_oom_code("farmland", "forest_7500") == "412"
 
@@ -274,6 +329,46 @@ def test_filter_keeps_steps_on_zabaged():
     assert drop_s == 0 and len(kept_s) == 1 and kept_s[0][1] == "steps"
     assert drop_p >= 1 and not kept_p
 
+
+def test_filter_zabaged_yields_to_osm_centerline():
+    """Sprint OOM: ZABAGED Pesina ustoupí stejné OSM střednici."""
+    from app.pipeline.osm_paths import filter_lines_against_centerlines
+
+    osm = [[(0.0, 0.0), (200.0, 0.0)]]
+    zab_dup = [[(1.0, 1.0), (180.0, 2.0)]]
+    zab_new = [[(0.0, 40.0), (100.0, 40.0)]]
+    kept, dropped = filter_lines_against_centerlines(zab_dup + zab_new, osm)
+    assert dropped >= 1
+    assert any(abs(pt[1] - 40) < 1 for line in kept for pt in line)
+    assert not any(abs(pt[1]) < 5 for line in kept for pt in line)
+
+
+def test_load_osm_path_lines(tmp_path):
+    from app.pipeline.osm_paths import load_osm_path_lines
+
+    dest = tmp_path / "osm_paths"
+    dest.mkdir()
+    (dest / "paths.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"highway": "path"},
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[0, 0], [10, 0]],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    lines = load_osm_path_lines(tmp_path)
+    assert len(lines) == 1
+    assert lines[0][0] == (0.0, 0.0)
 
 def test_paths_geojson_for_kp_skips_steps():
     from app.pipeline.osm_paths import highway_to_zabaged_vrstva, paths_geojson_for_kp

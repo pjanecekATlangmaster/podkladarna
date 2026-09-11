@@ -7,7 +7,11 @@ from pathlib import Path
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.guide_text import ZIP_ABOUT_TXT
 from app.pipeline.contours_gdal import build_gdal_contour_parts
-from app.pipeline.osm_paths import build_osm_feature_parts, build_osm_path_parts
+from app.pipeline.osm_paths import (
+    build_osm_feature_parts,
+    build_osm_path_parts,
+    load_osm_path_lines,
+)
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
@@ -38,6 +42,8 @@ _ZABAGED_UNDER_VEGETATION = frozenset(
 )
 # Obdělávaná půda z OSM (412) taky pod KP – hustníky zůstanou navrch.
 _OSM_UNDER_VEGETATION_MARK = "(412)"
+# Dvory v budovách (oliva 520) až navrch – překryjí detaily uvnitř dvorů.
+_COURTYARD_OLIVE_MARK = "dvory (oliva 520)"
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
@@ -159,6 +165,7 @@ def prepare_oom_map(
     formline: float = 0,
     indexcontours_m: float | None = None,
     cliff_symbol: str = "earth_bank",
+    courtyard_olive: bool = False,
 ) -> Path | None:
     del formline
     west, south, east, north = bbox_wgs84
@@ -194,6 +201,10 @@ def prepare_oom_map(
     object_parts: list[OomObjectPart] = []
     zabaged_under: list[OomObjectPart] = []
     zabaged_rest: list[OomObjectPart] = []
+    courtyard_olive_parts: list[OomObjectPart] = []
+    prefer_osm_paths = (
+        load_osm_path_lines(kp_cwd) if preset_id.startswith("sprint") else []
+    )
     if zabaged_clean and zabaged_clean.is_file():
         for part in build_zabaged_object_parts(
             zabaged_clean,
@@ -205,7 +216,12 @@ def prepare_oom_map(
             grivation_deg=grivation,
             work_dir=kp_cwd.parent,
             clip_bounds=clip_bounds,
+            courtyard_olive=courtyard_olive,
+            prefer_osm_path_lines=prefer_osm_paths or None,
         ):
+            if _COURTYARD_OLIVE_MARK in part.name:
+                courtyard_olive_parts.append(part)
+                continue
             layer = part.name.removeprefix("ZABAGED – ").strip()
             if layer in _ZABAGED_UNDER_VEGETATION:
                 zabaged_under.append(part)
@@ -287,6 +303,8 @@ def prepare_oom_map(
         object_parts.extend(osm_parts)
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
+    # Oliva dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
+    object_parts.extend(courtyard_olive_parts)
     return write_oom_map(
         dest,
         map_name=map_name,

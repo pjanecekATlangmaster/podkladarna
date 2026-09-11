@@ -495,6 +495,52 @@ def _wkb_line_parts_5514(wkb: bytes) -> list[list[tuple[float, float]]]:
     return out
 
 
+def _hole_rings_as_area_objects(
+    parts: list[_WkbPart],
+    symbol_index: int,
+    *,
+    ref_x: float,
+    ref_y: float,
+    scale: int,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+) -> list[str]:
+    """Každou díru polygonu vykreslí jako samostatnou plnou plochu (např. oliva 520)."""
+
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        return projected_to_map_coord(
+            x,
+            y,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            scale=scale,
+            grivation_deg=grivation_deg,
+        )
+
+    out: list[str] = []
+    index = 0
+    while index < len(parts):
+        part = parts[index]
+        index += 1
+        if part[0] != "line" or not part[2]:
+            continue
+        holes: list[list[tuple[float, float]]] = []
+        while index < len(parts) and parts[index][0] == "hole":
+            holes.append(
+                [(float(x), float(y)) for x, y in parts[index][1]]  # type: ignore[misc]
+            )
+            index += 1
+        for hole in holes:
+            ring = clip_ring(hole, clip_bounds) if clip_bounds is not None else hole
+            if len(ring) < 3:
+                continue
+            coords = [to_map(x, y) for x, y in ring]
+            obj = _area_object_with_holes(symbol_index, [coords])
+            if obj:
+                out.append(obj)
+    return out
+
+
 def build_zabaged_object_parts(
     zabaged_clean: Path,
     *,
@@ -506,6 +552,8 @@ def build_zabaged_object_parts(
     grivation_deg: float,
     work_dir: Path,
     clip_bounds: Bounds | None = None,
+    courtyard_olive: bool = False,
+    prefer_osm_path_lines: list[list[tuple[float, float]]] | None = None,
 ) -> list[OomObjectPart]:
     use_ogr = True
     try:
@@ -529,9 +577,22 @@ def build_zabaged_object_parts(
     from app.pipeline.osm_paths import (
         COVER_DROP,
         MATCH_M,
+        MIN_LENGTH_M,
+        ZABAGED_PATH_LAYERS_OSM_FIRST,
         _SegmentIndex,
         centerline_cover_fraction,
+        filter_lines_against_centerlines,
     )
+
+    fill_courtyards = bool(courtyard_olive) and preset_id.startswith("sprint")
+    olive_index = (
+        symbol_index_for_code(preset_id, scale, "520") if fill_courtyards else None
+    )
+    courtyard_objects: list[str] = []
+
+    # Sprint OOM: ZABAGED Pesina/Cesta ustoupí OSM (PNG beze změny).
+    osm_first = bool(prefer_osm_path_lines) and preset_id.startswith("sprint")
+    osm_blockers = prefer_osm_path_lines if osm_first else None
 
     wider_paths = _SegmentIndex()
     parts: list[OomObjectPart] = []
@@ -540,8 +601,40 @@ def build_zabaged_object_parts(
             Path(n).name for n in zf.namelist() if n.lower().endswith(".shp")
         )
 
+    def _emit_line_objects(
+        line_parts: list[list[tuple[float, float]]],
+        symbol_index: int,
+    ) -> list[str]:
+        return _geom_parts_to_objects(
+            [("line", pts, False) for pts in line_parts],
+            symbol_index,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            scale=scale,
+            grivation_deg=grivation_deg,
+            clip_bounds=clip_bounds,
+        )
+
+    def _filter_vs_osm(
+        line_parts: list[list[tuple[float, float]]],
+        layer_name: str,
+    ) -> list[list[tuple[float, float]]]:
+        if not osm_blockers or layer_name not in ZABAGED_PATH_LAYERS_OSM_FIRST:
+            return line_parts
+        kept, _dropped = filter_lines_against_centerlines(
+            line_parts,
+            osm_blockers,
+            near_m=MATCH_M,
+            overlap_drop=COVER_DROP,
+            min_length_m=MIN_LENGTH_M,
+        )
+        return kept
+
     for shp_name in shp_names:
         layer_name = Path(shp_name).stem
+        # Metro (ZABAGED an012) a stanice metra do orienťáckého podkladu nepatří.
+        if layer_name in {"Metro", "StaniceMetra"}:
+            continue
         shp_path = _extract_shp_from_zip(zabaged_clean, shp_name, stage / layer_name)
         if not shp_path:
             continue
@@ -574,6 +667,7 @@ def build_zabaged_object_parts(
                 if geom is None:
                     continue
                 line_parts = _ogr_line_parts_5514(geom)
+                line_parts = _filter_vs_osm(line_parts, layer_name)
                 if layer_name == "Pesina" and line_parts:
                     if all(
                         centerline_cover_fraction(pts, wider_paths, match_m=MATCH_M)
@@ -581,21 +675,45 @@ def build_zabaged_object_parts(
                         for pts in line_parts
                     ):
                         continue
-                if layer_name == "Cesta":
-                    for pts in line_parts:
-                        wider_paths.add_line(pts)
-                objects.extend(
-                    _geom_objects(
-                        geom,
-                        symbol_index,
-                        ref_x=ref_x,
-                        ref_y=ref_y,
-                        scale=scale,
-                        grivation_deg=grivation_deg,
-                        clip_bounds=clip_bounds,
-                        ogr=ogr,
+                if (
+                    osm_first
+                    and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
+                ):
+                    if not line_parts:
+                        continue
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                else:
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(
+                        _geom_objects(
+                            geom,
+                            symbol_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                            ogr=ogr,
+                        )
                     )
-                )
+                if fill_courtyards and olive_index is not None and code == "521":
+                    # Budova s dírou = nepřístupný dvůr → plná oliva přes detaily uvnitř.
+                    courtyard_objects.extend(
+                        _hole_rings_as_area_objects(
+                            _geom_to_parts(geom),
+                            olive_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                        )
+                    )
         else:
             for props, wkb in _pyogrio_layer_rows(shp_path):
                 if "vrstva" not in props:
@@ -616,6 +734,7 @@ def build_zabaged_object_parts(
                 if symbol_index is None:
                     continue
                 line_parts = _wkb_line_parts_5514(wkb)
+                line_parts = _filter_vs_osm(line_parts, layer_name)
                 if layer_name == "Pesina" and line_parts:
                     if all(
                         centerline_cover_fraction(pts, wider_paths, match_m=MATCH_M)
@@ -623,21 +742,45 @@ def build_zabaged_object_parts(
                         for pts in line_parts
                     ):
                         continue
-                if layer_name == "Cesta":
-                    for pts in line_parts:
-                        wider_paths.add_line(pts)
-                geom_parts, _ = _wkb_parts(wkb)
-                objects.extend(
-                    _geom_parts_to_objects(
-                        geom_parts,
-                        symbol_index,
-                        ref_x=ref_x,
-                        ref_y=ref_y,
-                        scale=scale,
-                        grivation_deg=grivation_deg,
-                        clip_bounds=clip_bounds,
+                if (
+                    osm_first
+                    and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
+                ):
+                    if not line_parts:
+                        continue
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                else:
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    geom_parts, _ = _wkb_parts(wkb)
+                    objects.extend(
+                        _geom_parts_to_objects(
+                            geom_parts,
+                            symbol_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                        )
                     )
-                )
+                if fill_courtyards and olive_index is not None and code == "521":
+                    geom_parts, _ = _wkb_parts(wkb)
+                    courtyard_objects.extend(
+                        _hole_rings_as_area_objects(
+                            geom_parts,
+                            olive_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                        )
+                    )
         if objects:
             parts.append(
                 OomObjectPart(
@@ -646,6 +789,33 @@ def build_zabaged_object_parts(
                     count=len(objects),
                 )
             )
+    if courtyard_objects:
+        parts.append(
+            OomObjectPart(
+                name="ZABAGED – dvory (oliva 520)",
+                objects_xml="\n".join(courtyard_objects),
+                count=len(courtyard_objects),
+            )
+        )
+    return parts
+
+
+def _geom_to_parts(geom) -> list[_WkbPart]:
+    """OGR geometrie → stejné parts jako WKB (obrys + díry)."""
+    gtype = geom.GetGeometryType() % 1000
+    parts: list[_WkbPart] = []
+
+    def ring_pts(ring) -> list[tuple[float, float]]:
+        n = ring.GetPointCount()
+        return [(ring.GetX(i), ring.GetY(i)) for i in range(n)]
+
+    if gtype == 3:
+        parts.extend(_polygon_parts(geom, ring_pts))
+    elif gtype == 6:
+        for i in range(geom.GetGeometryCount()):
+            poly = geom.GetGeometryRef(i)
+            if poly is not None:
+                parts.extend(_polygon_parts(poly, ring_pts))
     return parts
 
 
