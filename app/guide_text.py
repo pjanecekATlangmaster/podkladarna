@@ -7,6 +7,12 @@ WEB_ABOUT_HTML = """
   Karttapullautin a připraví balíček pro
   <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a>.
 </p>
+<p><strong>Kvalita podkladu:</strong> výsledek je jen tak dobrý jako vstupní data.
+  LiDAR, ZABAGED ani OpenStreetMap nejsou dokonalé – něco chybí, něco je
+  nejednoznačné (např. duplicitní silnice na mostě, neúplné budovy, různé
+  značení cest) a automatika to vždycky nerozsoudí. Vygenerovaný
+  <code>.omap</code> / ZIP je <em>pracovní podklad</em>, ne hotová mapa;
+  v OOM s ním ještě počítejte s ruční prací.</p>
 <p><strong>PNG náhled vs ZIP:</strong> na webu uvidíte PNG z Karttapullautinu
   (reliéf/vegetace + ZABAGED a po dedupu i OSM cesty). PNG je hlavně rychlý
   náhled a volitelná šablona – <em>není</em> hotová mapa. ZIP pro OOM skládá
@@ -35,6 +41,14 @@ ZIP_ABOUT_TXT = """Podkladárna – co je v tomto balíčku
 ==================================
 
 Tento ZIP vygenerovala služba Podkladárna (LiDAR + ZABAGED → podklad pro orientační mapu).
+
+Kvalita podkladu
+----------------
+Výsledek je jen tak dobrý jako vstupní data. LiDAR, ZABAGED ani OpenStreetMap
+nejsou dokonalé – něco chybí, něco je nejednoznačné a automatika to vždycky
+nerozsoudí. Tento balíček je pracovní podklad, ne hotová mapa; v OOM s ním
+ještě počítejte s ruční prací.
+
 PNG z Karttapullautinu na webu je hlavně náhled – editovatelné vektory a .omap jsou zde ve ZIPu
 a skládají se z více zdrojů (ne 1:1 s PNG).
 

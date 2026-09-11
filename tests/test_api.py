@@ -182,7 +182,9 @@ def test_index_html(client):
     assert "PNG náhled" in html
     assert 'name="output_mode"' in html
     assert 'name="output_references"' in html
+    assert 'id="output_references" value="1" checked' in html
     assert 'name="sprint_courtyard_olive"' in html
+    assert "Kvalita podkladu" in html
     assert "/static/logo.png" in html
     assert "/static/leaflet/leaflet.js" in html
     assert "unpkg.com" not in html
