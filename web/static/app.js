@@ -583,17 +583,40 @@ function setReuseJob(id) {
 
 function updateOsmHintsForPreset(presetId) {
   const hint = document.getElementById("osm-priority-hint");
-  if (!hint) return;
+  const courtyardWrap = document.getElementById("courtyard-olive-wrap");
   const id = (presetId || "").toString();
-  if (id.startsWith("sprint")) {
+  const sprint = id.startsWith("sprint");
+  if (courtyardWrap) {
+    courtyardWrap.hidden = id !== "" && !sprint;
+  }
+  if (!hint) return;
+  if (sprint) {
     hint.textContent =
-      "Sprint: ploty, zdi, brány, přístřešky, pomníky, pěší zóny; slabší ořez pěšin vůči ZABAGED. Budovy a silnice zůstávají ze ZABAGED.";
+      "Sprint: stáhne ploty, zdi, brány, přístřešky, pomníky, fitness… Budovy ze ZABAGED (nebo OSM budovy při prioritě / mezerách). Zdroj cest nastav výše.";
   } else if (id.startsWith("forest") || id.startsWith("mtbo")) {
     hint.textContent =
-      "Les / MTBO: priorita OSM je spíš urban pack (ploty, brány…) – v lese často zbytečné. Pěšiny, studny, hřiště bereme vždy. Lampy/lavičky v rozšířených nastaveních.";
+      "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Pěšiny řeší „Zdroj cest“. Studny, hřiště a podobné objekty se berou podle nastavení níže.";
   } else {
     hint.textContent =
-      "Pro sprint: ploty, zdi, brány, přístřešky, pomníky, pěší zóny; slabší ořez pěšin vůči ZABAGED. V lese spíš vypnout – urban pack může být hlučný. Budovy a silnice zůstávají ze ZABAGED.";
+      "Urban pack z OSM (ploty, zdi, brány, pomníky…). Na sprintu užitečné; v lese / MTBO často vypnout. Zdroj cest nastav výše.";
+  }
+  updatePathSourceHint();
+}
+
+function updatePathSourceHint() {
+  const hint = document.getElementById("path-source-hint");
+  const sel = document.getElementById("path_source");
+  if (!hint || !sel) return;
+  const v = sel.value || "mixed";
+  if (v === "zabaged") {
+    hint.textContent =
+      "V omap jen cesty ze ZABAGED. OSM cesty se stejně stáhnou do ZIPu (osm_paths/) pro případný ruční import.";
+  } else if (v === "osm") {
+    hint.textContent =
+      "V omap jen cesty a silnice z OSM (včetně residential/primary…). ZABAGED cesty zůstanou ve ZIPu (zabaged/) pro ruční import.";
+  } else {
+    hint.textContent =
+      "Mix ZABAGED + OSM s dedupem. Při nepřesném souběhu (často MTBO) můžou zbýt zdvojeniny — pak zkus jen ZABAGED nebo jen OSM. Nevybraný zdroj zůstane ve ZIPu pro ruční import.";
   }
 }
 
@@ -609,7 +632,7 @@ function updateCliffControls() {
   if (sensHint) {
     sensHint.textContent = off
       ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
-      : "Jak přísně Karttapullautin hledá strmé skoky v DMR. Výchozí odpovídá dosavadnímu nastavení Podkladárny.";
+      : "Jak přísně Karttapullautin hledá strmé skoky v DMR.";
   }
 }
 
@@ -667,6 +690,13 @@ function applyJobToForm(job) {
     const opts = job.options || {};
     priority.checked =
       opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
+  }
+  const pathSource = form.path_source;
+  if (pathSource) {
+    const val = (job.options || {}).path_source || "mixed";
+    if ([...pathSource.options].some((o) => o.value === val)) {
+      pathSource.value = val;
+    }
   }
   const courtyard = form.sprint_courtyard_olive;
   if (courtyard) {
@@ -801,6 +831,12 @@ initBboxMap();
   const sync = () => updateOsmHintsForPreset(preset.value);
   preset.addEventListener("change", sync);
   sync();
+})();
+(() => {
+  const pathSource = document.getElementById("path_source");
+  if (!pathSource) return;
+  pathSource.addEventListener("change", updatePathSourceHint);
+  updatePathSourceHint();
 })();
 (() => {
   const cliff = document.getElementById("kp_cliff_symbol");

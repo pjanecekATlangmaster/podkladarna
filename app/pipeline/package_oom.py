@@ -8,9 +8,13 @@ from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.guide_text import ZIP_ABOUT_TXT
 from app.pipeline.contours_gdal import build_gdal_contour_parts
 from app.pipeline.osm_paths import (
+    PATH_SOURCE_MIXED,
+    PATH_SOURCE_OSM,
+    PATH_SOURCE_ZABAGED,
     build_osm_feature_parts,
     build_osm_path_parts,
     load_osm_path_lines,
+    resolve_path_source,
 )
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
@@ -74,6 +78,7 @@ def oom_metadata(
     }
     if reference_layers:
         meta["reference_layers"] = reference_layers
+    meta["path_source"] = resolve_path_source(options.get("path_source"))
     return meta
 
 
@@ -91,6 +96,16 @@ def oom_readme(meta: dict) -> str:
             + "\n".join(f"- {name}" for name in refs)
             + "\n"
         )
+    path_source = resolve_path_source(meta.get("path_source"))
+    path_source_labels = {
+        PATH_SOURCE_MIXED: "mix ZABAGED + OSM (dedup proti duplicitám)",
+        PATH_SOURCE_ZABAGED: "jen ZABAGED (OSM cesty ve složce osm_paths/)",
+        PATH_SOURCE_OSM: "jen OSM včetně silnic (ZABAGED cesty ve složce zabaged/)",
+    }
+    path_source_block = (
+        f"\nZdroj cest: {path_source_labels.get(path_source, path_source)}\n"
+        "Nepoužitý zdroj cest zůstává ve ZIPu pro ruční import v OOM.\n"
+    )
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"
         "=================================================\n\n"
@@ -101,7 +116,7 @@ def oom_readme(meta: dict) -> str:
         "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n\n"
         f"Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
         "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa a náhled DMP OK.\n"
-        f"{ref_block}\n"
+        f"{ref_block}{path_source_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete podkladarna.omap.\n"
@@ -166,8 +181,10 @@ def prepare_oom_map(
     indexcontours_m: float | None = None,
     cliff_symbol: str = "earth_bank",
     courtyard_olive: bool = False,
+    path_source: str = PATH_SOURCE_MIXED,
 ) -> Path | None:
     del formline
+    path_source = resolve_path_source(path_source)
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
     pullautus_png = kp_cwd / "pullautus.png"
@@ -202,9 +219,9 @@ def prepare_oom_map(
     zabaged_under: list[OomObjectPart] = []
     zabaged_rest: list[OomObjectPart] = []
     courtyard_olive_parts: list[OomObjectPart] = []
-    prefer_osm_paths = (
-        load_osm_path_lines(kp_cwd) if preset_id.startswith("sprint") else []
-    )
+    prefer_osm_paths: list[list[tuple[float, float]]] = []
+    if path_source == PATH_SOURCE_MIXED and preset_id.startswith("sprint"):
+        prefer_osm_paths = load_osm_path_lines(kp_cwd)
     if zabaged_clean and zabaged_clean.is_file():
         for part in build_zabaged_object_parts(
             zabaged_clean,
@@ -218,6 +235,7 @@ def prepare_oom_map(
             clip_bounds=clip_bounds,
             courtyard_olive=courtyard_olive,
             prefer_osm_path_lines=prefer_osm_paths or None,
+            omit_path_layers=path_source == PATH_SOURCE_OSM,
         ):
             if _COURTYARD_OLIVE_MARK in part.name:
                 courtyard_olive_parts.append(part)
@@ -290,17 +308,18 @@ def prepare_oom_map(
         if dxf_part:
             object_parts.append(dxf_part)
     object_parts.extend(zabaged_rest)
-    osm_parts = build_osm_path_parts(
-        kp_cwd,
-        preset_id=preset_id,
-        scale=scale,
-        ref_x=ref_x,
-        ref_y=ref_y,
-        grivation_deg=grivation,
-        clip_bounds=clip_bounds,
-    )
-    if osm_parts:
-        object_parts.extend(osm_parts)
+    if path_source != PATH_SOURCE_ZABAGED:
+        osm_parts = build_osm_path_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            clip_bounds=clip_bounds,
+        )
+        if osm_parts:
+            object_parts.extend(osm_parts)
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
     # Oliva dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.

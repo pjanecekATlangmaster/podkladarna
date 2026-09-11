@@ -316,6 +316,34 @@ def test_osm_oom_code_paths_only():
     assert osm_oom_code("track", "forest_10000") == "504"
     assert osm_oom_code("steps", "sprint_2m") == "532.7"
     assert osm_oom_code("steps", "forest_10000") == "532"
+    assert osm_oom_code("residential", "sprint_2m") == "501.17"
+    assert osm_oom_code("residential", "forest_10000") == "503"
+
+
+def test_resolve_path_source_and_highway_set():
+    from app.pipeline.osm_paths import (
+        OSM_ROAD_HIGHWAYS,
+        resolve_path_source,
+        osm_highway_set,
+    )
+
+    assert resolve_path_source(None) == "mixed"
+    assert resolve_path_source("OSM") == "osm"
+    assert resolve_path_source("garbage") == "mixed"
+    hw_osm = osm_highway_set("osm")
+    assert "residential" in hw_osm
+    assert "path" in hw_osm
+    assert "residential" not in osm_highway_set("mixed")
+    assert OSM_ROAD_HIGHWAYS <= hw_osm
+
+
+def test_overpass_ql_includes_roads_when_path_source_osm():
+    from app.pipeline.osm_paths import _overpass_ql
+
+    ql = _overpass_ql(50.0, 14.0, 50.1, 14.1, path_source="osm")
+    assert "residential" in ql
+    ql_mixed = _overpass_ql(50.0, 14.0, 50.1, 14.1, path_source="mixed")
+    assert "residential" not in ql_mixed
 
 
 def test_dedup_osm_prefers_steps_over_path():

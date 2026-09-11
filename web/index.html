@@ -29,104 +29,129 @@
     <section class="card">
       <h2>Nový job</h2>
       <form id="job-form">
-        <label>
-          Název
-          <input type="text" name="name" required placeholder="např. Šance sprint" />
-        </label>
-
-        <label>
-          Typ mapy
-          <select name="preset_id" id="preset_id" required>
-            <option value="" selected disabled>Vyberte typ mapy</option>
-          </select>
-        </label>
-
-        <label>
-          Výška vegetace (Karttapullautin)
-          <select name="kp_vege_height" id="kp_vege_height">
-            <option value="1.5">1,5 m – nízká</option>
-            <option value="2" selected>2 m – výchozí</option>
-            <option value="2.5">2,5 m</option>
-            <option value="3">3 m – vysoká</option>
-          </select>
-        </label>
-        <p class="hint">Ovlivní výpočet zeleně z LiDARu (<code>greenhigh</code>). Nižší hodnota bere víc nízkého porostu jako vegetaci.</p>
-
-        <label>
-          Strmé změny reliéfu – symbol
-          <select name="kp_cliff_symbol" id="kp_cliff_symbol">
-            <option value="earth_bank" selected>Zemní srázek (104)</option>
-            <option value="rock_face">Skála / nesjízdný sráz (201)</option>
-            <option value="symbol_206">Obří balvan / skála (206, plocha)</option>
-            <option value="off">Nevykreslovat (ani nepočítat)</option>
-          </select>
-        </label>
-        <p class="hint" id="cliff-symbol-hint">Hlína vs. skála z LiDARu nejde spolehlivě poznat. Čárky se slepí do linií, ať jdou v OOM editovat. U skály navíc vznikne plocha 210 (kamenitý povrch) jen tam, kde je skalní pole opravdu plošné – stěny a osamocené srázky zůstanou linií 201. Volba 206 kreslí nálezy jako plochy ISOM 206 (plan shape). „Nevykreslovat“ přeskočí výpočet i objekty v OOM. Nálezy kratší než ~0,6 mm na mapě (6 m při 1:10 000) se zahazují.</p>
-
-        <label id="cliff-sensitivity-label">
-          Citlivost srázů / skal
-          <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
-            <option value="low">Méně citlivé (méně srázů)</option>
-            <option value="normal" selected>Výchozí</option>
-            <option value="high">Citlivější</option>
-            <option value="very_high">Velmi citlivé (více drobných srázů)</option>
-          </select>
-        </label>
-        <p class="hint" id="cliff-sensitivity-hint">Jak přísně Karttapullautin hledá strmé skoky v DMR. Výchozí odpovídá dosavadnímu nastavení Podkladárny.</p>
-
-        <label class="checkbox-row">
-          <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />
-          Priorita OSM (hlavně sprint / urban)
-        </label>
-        <p class="hint" id="osm-priority-hint">Pro sprint: ploty, zdi, brány, přístřešky, pomníky, pěší zóny. Na sprintu mají OSM pěšiny v OOM přednost před ZABAGED Pesina/Cesta (PNG beze změny). V lese spíš vypnout urban pack – může být hlučný. Budovy a silnice zůstávají ze ZABAGED.</p>
-
-        <label class="checkbox-row">
-          <input type="checkbox" name="sprint_courtyard_olive" id="sprint_courtyard_olive" value="1" checked />
-          Sprint: nepřístupné dvory v budovách vyplnit olivou (520)
-        </label>
-        <p class="hint">Když má šedá budova (521) uzavřený polygon s dírou uprostřed (dvůr bez průchodu), díru vykreslí olivou a překryje detaily uvnitř. Platí jen u sprintových presetů.</p>
-
-        <details class="advanced-options" id="osm-advanced">
-          <summary>Rozšířená nastavení OSM</summary>
-          <p class="hint">Default vše vypnuto. Lampy a lavičky dávají smysl hlavně ve sprintu; herní prvky i na okraji lesa / u chat.</p>
-          <label class="checkbox-row">
-            <input type="checkbox" name="kp_osm_benches" id="kp_osm_benches" value="1" />
-            Lavičky, stoly, ohniště, tabule (531)
+        <div class="form-section">
+          <h3 class="form-section-title">Základ</h3>
+          <label>
+            Název
+            <input type="text" name="name" required placeholder="např. Šance sprint" />
           </label>
-          <label class="checkbox-row">
-            <input type="checkbox" name="kp_osm_lamps" id="kp_osm_lamps" value="1" />
-            Lampy (530 kolečko) — spíš sprint
+
+          <label>
+            Typ mapy
+            <select name="preset_id" id="preset_id" required>
+              <option value="" selected disabled>Vyberte typ mapy</option>
+            </select>
           </label>
-          <label class="checkbox-row">
-            <input type="checkbox" name="kp_osm_playground_equipment" id="kp_osm_playground_equipment" value="1" />
-            Herní prvky na hřišti (531 ×)
-          </label>
-          <p class="hint">Plocha hřiště/sportoviště (pitch, dráha, …) jako zpevněná 501; vodní nádrž 301; zemědělská půda 401 (priorita ZABAGED orná); studny, prameny, mokřady a pěšiny se berou vždy. Dřevěný chodník jako běžná pěšina.</p>
-        </details>
+        </div>
 
-        <label>
-          Výstup
-          <select name="output_mode" id="output_mode">
-            <option value="png_zip" selected>PNG náhled + ZIP pro OOM (výchozí)</option>
-            <option value="png">Jen PNG náhled (bez ZIPu)</option>
-          </select>
-        </label>
-        <p class="hint">PNG je rychlý rastrový náhled z Karttapullautinu (pro web) – oproti ZIPu / <code>.omap</code> postrádá spoustu detailů a editovatelných vrstev. ZIP je podklad pro kreslení v OOM: vektory (vrstevnice, zeleň, ZABAGED, OSM, srázy…), případně referenční PNG šablony.</p>
-
-        <label class="checkbox-row">
-          <input type="checkbox" name="output_references" id="output_references" value="1" checked />
-          Referenční PNG podklady (orto, OSM, ZTM, katastr, hillshade, DMP)
-        </label>
-        <p class="hint">Stáhne se z ČÚZK/OSM a přibalí do ZIPu jako šablony v OOM. Vypnutím zrychlíš job a zmenšíš ZIP – vektory a KP náhled zůstanou.</p>
-
-        <div id="map-mode">
-          <p class="hint">Klikněte dva protilehlé rohy, nebo klikněte na hotový job vpravo – výřez se načte na mapu. LiDAR i ZABAGED se stáhnou z ČÚZK do sdílené cache (u stejného výřezu znovu nestahují). Sloučený LAZ z předchozího jobu se při iteraci znovu použije. Mapa je omezená na Česko, výřez nejvýše 5 × 5 km.</p>
+        <div class="form-section" id="map-mode">
+          <h3 class="form-section-title">Výřez</h3>
+          <p class="hint">Dva protilehlé rohy, nebo klik na hotový job vpravo. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozího jobu se při iteraci znovu použije. Jen Česko, max 5 × 5 km.</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>
           <p id="sheet-info" class="sheet-info">Nakreslete obdélník dvěma kliknutími.</p>
           <input type="hidden" name="bbox" id="bbox-input" value="" />
           <input type="hidden" name="reuse_job_id" id="reuse-job-id" value="" />
           <input type="hidden" name="sm5_sheets" id="sm5-sheets-input" value="" />
           <button type="button" class="btn" id="bbox-clear">Vymazat výběr</button>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Reliéf a vegetace</h3>
+          <label>
+            Výška vegetace (Karttapullautin)
+            <select name="kp_vege_height" id="kp_vege_height">
+              <option value="1.5">1,5 m – nízká</option>
+              <option value="2" selected>2 m – výchozí</option>
+              <option value="2.5">2,5 m</option>
+              <option value="3">3 m – vysoká</option>
+            </select>
+          </label>
+          <p class="hint">LiDAR zeleň (<code>greenhigh</code>). Nižší hodnota = víc nízkého porostu jako vegetace.</p>
+
+          <label>
+            Strmé změny reliéfu – symbol
+            <select name="kp_cliff_symbol" id="kp_cliff_symbol">
+              <option value="earth_bank" selected>Zemní srázek (104)</option>
+              <option value="rock_face">Skála / nesjízdný sráz (201)</option>
+              <option value="symbol_206">Obří balvan / skála (206, plocha)</option>
+              <option value="off">Nevykreslovat (ani nepočítat)</option>
+            </select>
+          </label>
+          <p class="hint" id="cliff-symbol-hint">Hlína vs. skála z LiDARu nejde spolehlivě poznat. Čárky se slepí do editovatelných linií. U skály (201) může vzniknout i plocha 210 tam, kde je skalní pole opravdu plošné. Volba 206 = plochy ISOM 206. Nálezy kratší než ~0,6 mm na mapě se zahazují.</p>
+
+          <label id="cliff-sensitivity-label">
+            Citlivost srázů / skal
+            <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
+              <option value="low">Méně citlivé (méně srázů)</option>
+              <option value="normal" selected>Výchozí</option>
+              <option value="high">Citlivější</option>
+              <option value="very_high">Velmi citlivé (více drobných srázů)</option>
+            </select>
+          </label>
+          <p class="hint" id="cliff-sensitivity-hint">Jak přísně Karttapullautin hledá strmé skoky v DMR.</p>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Cesty a OSM</h3>
+          <label>
+            Zdroj cest v omap
+            <select name="path_source" id="path_source">
+              <option value="mixed" selected>Mix ZABAGED + OSM (výchozí)</option>
+              <option value="zabaged">Jen ZABAGED</option>
+              <option value="osm">Jen OpenStreetMap (včetně silnic)</option>
+            </select>
+          </label>
+          <p class="hint" id="path-source-hint">Co se nakreslí jako cesty. Mix dělá dedup; při nepřesném souběhu (často MTBO) můžou zbýt zdvojeniny. Jen jeden zdroj = čistší mapa; druhý zůstane ve ZIPu (<code>zabaged/</code> nebo <code>osm_paths/</code>) pro ruční import.</p>
+
+          <label class="checkbox-row">
+            <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />
+            OSM detaily – ploty, zdi, brány, pomníky…
+          </label>
+          <p class="hint" id="osm-priority-hint">Urban pack z OSM (ne volba zdroje cest). Na sprintu užitečné; v lese / MTBO často zbytečné až hlučné. Budovy a silnice bereme ze ZABAGED (u „Jen OSM“ silnice z OSM).</p>
+
+          <div id="courtyard-olive-wrap">
+            <label class="checkbox-row">
+              <input type="checkbox" name="sprint_courtyard_olive" id="sprint_courtyard_olive" value="1" checked />
+              Sprint: nepřístupné dvory v budovách vyplnit olivou (520)
+            </label>
+            <p class="hint">Díra uprostřed budovy (521) → oliva přes detaily uvnitř. Jen sprintové typy mapy.</p>
+          </div>
+
+          <details class="advanced-options" id="osm-advanced">
+            <summary>Další objekty OSM (volitelné)</summary>
+            <p class="hint">Default vypnuto. Lampy a lavičky spíš ve sprintu; herní prvky i u chat / okraje lesa.</p>
+            <label class="checkbox-row">
+              <input type="checkbox" name="kp_osm_benches" id="kp_osm_benches" value="1" />
+              Lavičky, stoly, ohniště, tabule (531)
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="kp_osm_lamps" id="kp_osm_lamps" value="1" />
+              Lampy (530 kolečko)
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="kp_osm_playground_equipment" id="kp_osm_playground_equipment" value="1" />
+              Herní prvky na hřišti (531 ×)
+            </label>
+            <p class="hint">Hřiště/sportoviště jako zpevněná 501, voda 301, orná 412, studny/prameny/mokřady a pěšiny vždy (podle zdroje cest). Dřevěný chodník = pěšina.</p>
+          </details>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Výstup</h3>
+          <label>
+            Formát
+            <select name="output_mode" id="output_mode">
+              <option value="png_zip" selected>PNG náhled + ZIP pro OOM (výchozí)</option>
+              <option value="png">Jen PNG náhled (bez ZIPu)</option>
+            </select>
+          </label>
+          <p class="hint">PNG = rychlý rastrový náhled. ZIP = vektory a <code>.omap</code> pro kreslení v OOM.</p>
+
+          <label class="checkbox-row">
+            <input type="checkbox" name="output_references" id="output_references" value="1" checked />
+            Referenční PNG šablony (orto, OSM, ZTM, katastr, hillshade, DMP)
+          </label>
+          <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP.</p>
         </div>
 
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>

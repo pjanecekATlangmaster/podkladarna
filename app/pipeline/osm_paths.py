@@ -43,11 +43,49 @@ OVERPASS_QL_TIMEOUT_S = 25
 OSM_API_TIMEOUT_S = 45
 
 # path/footway nestačí – v ČR je spousta použitelných cest jako track/bridleway.
-# Ulice/silnice bereme ze ZABAGED (přesnější), ne z OSM.
+# Ulice/silnice bereme ze ZABAGED (přesnější), ne z OSM – kromě režimu path_source=osm.
 # pedestrian = náměstí / pěší zóny (hlavně sprint).
 OSM_HIGHWAYS = frozenset(
     {"path", "footway", "steps", "bridleway", "cycleway", "track", "pedestrian"}
 )
+# Jen režim „pouze OSM“: silnice a ulice taky z OSM (ZABAGED cesty v omap vypnout).
+OSM_ROAD_HIGHWAYS = frozenset(
+    {
+        "motorway",
+        "motorway_link",
+        "trunk",
+        "trunk_link",
+        "primary",
+        "primary_link",
+        "secondary",
+        "secondary_link",
+        "tertiary",
+        "tertiary_link",
+        "unclassified",
+        "residential",
+        "living_street",
+        "service",
+        "road",
+    }
+)
+
+PATH_SOURCE_MIXED = "mixed"
+PATH_SOURCE_ZABAGED = "zabaged"
+PATH_SOURCE_OSM = "osm"
+PATH_SOURCE_CHOICES = frozenset(
+    {PATH_SOURCE_MIXED, PATH_SOURCE_ZABAGED, PATH_SOURCE_OSM}
+)
+
+
+def resolve_path_source(raw: str | None) -> str:
+    val = (raw or PATH_SOURCE_MIXED).strip().lower()
+    return val if val in PATH_SOURCE_CHOICES else PATH_SOURCE_MIXED
+
+
+def osm_highway_set(path_source: str = PATH_SOURCE_MIXED) -> frozenset[str]:
+    if resolve_path_source(path_source) == PATH_SOURCE_OSM:
+        return OSM_HIGHWAYS | OSM_ROAD_HIGHWAYS
+    return OSM_HIGHWAYS
 
 # Vrstvy ZABAGED, vůči kterým bereme OSM jako duplicitní.
 ZABAGED_PATH_LAYERS = frozenset(
@@ -62,6 +100,8 @@ ZABAGED_PATH_LAYERS = frozenset(
         "Zabrana",
     }
 )
+# Při path_source=osm vynechat z OOM (zůstanou ve ZIPu zabaged/ pro ruční import).
+ZABAGED_OMIT_PATH_LAYERS = ZABAGED_PATH_LAYERS | frozenset({"Tunel"})
 # Priorita OSM / sprint: ořezávat OSM jen proti pevným komunikacím (ne Pesina/Cesta).
 ZABAGED_PATH_LAYERS_PRIORITY = frozenset(
     {
@@ -108,10 +148,11 @@ def _overpass_ql(
     include_lamps: bool = False,
     include_playground_equipment: bool = False,
     osm_priority: bool = False,
+    path_source: str = PATH_SOURCE_MIXED,
 ) -> str:
     bbox = f"{south},{west},{north},{east}"
     # Jedna regex vrstva – méně Overpass zátěže než 6 samostatných way[...].
-    hw = "|".join(sorted(OSM_HIGHWAYS))
+    hw = "|".join(sorted(osm_highway_set(path_source)))
     paved = "|".join(sorted(OSM_PAVED_AREA_LEISURE))
     parts = [
         f'way["highway"~"^({hw})$"]({bbox});',
@@ -457,8 +498,13 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     return defaults.get(kind, stored_code or "")
 
 
-def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
+def parse_osm_api_map_xml(
+    xml_text: str,
+    *,
+    highways: frozenset[str] | None = None,
+) -> list[dict]:
     """Vyfiltruje highway + OSM objekty z OSM API map call (.osm XML)."""
+    hw_set = highways if highways is not None else OSM_HIGHWAYS
     root = ET.fromstring(xml_text)
     nodes: dict[str, tuple[float, float]] = {}
     node_tags: dict[str, dict] = {}
@@ -489,7 +535,7 @@ def parse_osm_api_map_xml(xml_text: str) -> list[dict]:
     for way in root.findall("way"):
         tags = {t.get("k"): t.get("v") for t in way.findall("tag") if t.get("k")}
         hw = (tags.get("highway") or "").lower()
-        is_path = hw in OSM_HIGHWAYS or _is_boardwalk(tags)
+        is_path = hw in hw_set or _is_boardwalk(tags)
         is_feat = classify_osm_feature(tags, geom="way") is not None
         if not is_path and not is_feat:
             continue
@@ -517,6 +563,7 @@ def _fetch_overpass(
     include_lamps: bool = False,
     include_playground_equipment: bool = False,
     osm_priority: bool = False,
+    path_source: str = PATH_SOURCE_MIXED,
     log=None,
 ) -> tuple[list[dict] | None, Exception | None]:
     ql = _overpass_ql(
@@ -528,6 +575,7 @@ def _fetch_overpass(
         include_lamps=include_lamps,
         include_playground_equipment=include_playground_equipment,
         osm_priority=osm_priority,
+        path_source=path_source,
     )
     body = urllib.parse.urlencode({"data": ql}).encode("utf-8")
     last_err: Exception | None = None
@@ -583,6 +631,7 @@ def _fetch_osm_api_map(
     east: float,
     north: float,
     *,
+    path_source: str = PATH_SOURCE_MIXED,
     log=None,
 ) -> list[dict]:
     """Export z openstreetmap.org – API map call, pak filtr highway typů."""
@@ -591,7 +640,9 @@ def _fetch_osm_api_map(
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=OSM_API_TIMEOUT_S) as resp:
         xml_text = resp.read().decode("utf-8")
-    elements = parse_osm_api_map_xml(xml_text)
+    elements = parse_osm_api_map_xml(
+        xml_text, highways=osm_highway_set(path_source)
+    )
     if log:
         log(
             f"OSM API map: {len(elements)} prvků "
@@ -607,6 +658,7 @@ def fetch_osm_path_elements(
     include_lamps: bool = False,
     include_playground_equipment: bool = False,
     osm_priority: bool = False,
+    path_source: str = PATH_SOURCE_MIXED,
     log=None,
 ) -> list[dict]:
     west, south, east, north = bbox_wgs84
@@ -619,6 +671,7 @@ def fetch_osm_path_elements(
         include_lamps=include_lamps,
         include_playground_equipment=include_playground_equipment,
         osm_priority=osm_priority,
+        path_source=path_source,
         log=log,
     )
     if elements is not None:
@@ -626,7 +679,9 @@ def fetch_osm_path_elements(
     try:
         if log:
             log("OSM Overpass selhal – zkouším Export API (api.openstreetmap.org)…")
-        return _fetch_osm_api_map(west, south, east, north, log=log)
+        return _fetch_osm_api_map(
+            west, south, east, north, path_source=path_source, log=log
+        )
     except (
         urllib.error.HTTPError,
         urllib.error.URLError,
@@ -642,7 +697,12 @@ def fetch_osm_path_elements(
         return []
 
 
-def _way_skip_reason(tags: dict, *, allow_sidewalk: bool = False) -> str | None:
+def _way_skip_reason(
+    tags: dict,
+    *,
+    allow_sidewalk: bool = False,
+    highways: frozenset[str] = OSM_HIGHWAYS,
+) -> str | None:
     footway = (tags.get("footway") or "").lower()
     railway = (tags.get("railway") or "").lower()
     if railway in {"subway", "subway_entrance"}:
@@ -661,7 +721,7 @@ def _way_skip_reason(tags: dict, *, allow_sidewalk: bool = False) -> str | None:
     if (tags.get("indoor") or "").lower() == "yes":
         return "indoor"
     hw = (tags.get("highway") or "").lower()
-    if hw not in OSM_HIGHWAYS:
+    if hw not in highways:
         return "highway"
     # Čistě silniční cycleway u silnice – ne pěšina v lese.
     if hw == "cycleway" and (tags.get("foot") or "").lower() in {"no", "private"}:
@@ -673,6 +733,8 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     """ISOM/ISSprOM kód podle OSM highway."""
     hw = (highway or "path").lower()
     sprint = preset_id.startswith("sprint")
+    if hw in OSM_ROAD_HIGHWAYS:
+        return "501.17" if sprint else "503"
     if hw == "steps":
         # ISSprOM: footprint schodiště; ISOM: 532 Stairway (v sadě je).
         return "532.7" if sprint else "532"
@@ -689,6 +751,24 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
 def highway_width_rank(highway: str) -> int:
     """Vyšší = širší / preferovanější při překryvu střednic."""
     hw = (highway or "path").lower()
+    if hw in OSM_ROAD_HIGHWAYS:
+        return {
+            "motorway": 62,
+            "motorway_link": 61,
+            "trunk": 60,
+            "trunk_link": 59,
+            "primary": 58,
+            "primary_link": 57,
+            "secondary": 56,
+            "secondary_link": 55,
+            "tertiary": 54,
+            "tertiary_link": 53,
+            "unclassified": 52,
+            "residential": 51,
+            "living_street": 50,
+            "service": 50,
+            "road": 50,
+        }.get(hw, 52)
     return {
         "track": 40,
         # Schody > pěšina: při souběhu OSM×OSM nechat schody, ne 507.
@@ -733,10 +813,13 @@ def dedup_osm_prefer_wider(
 
 
 def osm_way_to_5514(
-    element: dict, *, allow_sidewalk: bool = False
+    element: dict,
+    *,
+    allow_sidewalk: bool = False,
+    highways: frozenset[str] = OSM_HIGHWAYS,
 ) -> list[tuple[float, float]] | None:
     tags = element.get("tags") or {}
-    if _way_skip_reason(tags, allow_sidewalk=allow_sidewalk):
+    if _way_skip_reason(tags, allow_sidewalk=allow_sidewalk, highways=highways):
         return None
     pts: list[tuple[float, float]] = []
     for node in element.get("geometry") or []:
@@ -1548,6 +1631,33 @@ def osm_feature_to_5514(
     return kind, code, [pts[mid]]
 
 
+def write_zabaged_omitting_layers(
+    src_zip: Path,
+    dest_zip: Path,
+    omit_layers: frozenset[str],
+) -> Path:
+    """Zkopíruje ZABAGED ZIP bez sidecarů vrstev z ``omit_layers`` (stem shp)."""
+    omit_stems = {name.lower() for name in omit_layers}
+    keep_suffixes = {".shp", ".shx", ".dbf", ".prj", ".cpg"}
+    if dest_zip.exists():
+        dest_zip.unlink()
+    with ZipFile(src_zip) as src, ZipFile(dest_zip, "w") as dest:
+        for info in src.infolist():
+            if info.is_dir():
+                continue
+            name = Path(info.filename).name
+            if not name or name.startswith("."):
+                continue
+            suffix = Path(name).suffix.lower()
+            if suffix not in keep_suffixes:
+                dest.writestr(info, src.read(info))
+                continue
+            if Path(name).stem.lower() in omit_stems:
+                continue
+            dest.writestr(info, src.read(info))
+    return dest_zip
+
+
 def prepare_osm_paths(
     work_dir: Path,
     bbox_wgs84: tuple[float, float, float, float],
@@ -1557,15 +1667,19 @@ def prepare_osm_paths(
     include_lamps: bool = False,
     include_playground_equipment: bool = False,
     osm_priority: bool = False,
+    path_source: str = PATH_SOURCE_MIXED,
     preset_id: str = "",
     log=None,
 ) -> Path | None:
+    path_source = resolve_path_source(path_source)
+    highways = osm_highway_set(path_source)
     elements = fetch_osm_path_elements(
         bbox_wgs84,
         include_benches=include_benches,
         include_lamps=include_lamps,
         include_playground_equipment=include_playground_equipment,
         osm_priority=osm_priority,
+        path_source=path_source,
         log=log,
     )
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
@@ -1649,7 +1763,9 @@ def prepare_osm_paths(
         if el.get("type") == "relation":
             skipped += 1
             continue
-        pts = osm_way_to_5514(el, allow_sidewalk=allow_sidewalk)
+        pts = osm_way_to_5514(
+            el, allow_sidewalk=allow_sidewalk, highways=highways
+        )
         if pts is None:
             skipped += 1
             continue
@@ -1663,13 +1779,24 @@ def prepare_osm_paths(
         osm_items.append((pts, hw))
     zabaged_lines: list[list[tuple[float, float]]] = []
     sprint = str(preset_id).startswith("sprint")
-    # Sprint: OSM má přednost před Pesina/Cesta – neořezávat OSM proti nim.
-    dedup_layers = (
-        ZABAGED_PATH_LAYERS_PRIORITY
-        if (osm_priority or sprint)
-        else ZABAGED_PATH_LAYERS
-    )
-    if zabaged_clean and zabaged_clean.is_file():
+    if path_source in {PATH_SOURCE_OSM, PATH_SOURCE_ZABAGED}:
+        if log:
+            if path_source == PATH_SOURCE_OSM:
+                log(
+                    "OSM dedup: path_source=osm – bez ořezu proti ZABAGED cestám"
+                )
+            else:
+                log(
+                    "OSM dedup: path_source=zabaged – OSM jen do ZIP, "
+                    "bez dedup proti ZABAGED"
+                )
+    elif zabaged_clean and zabaged_clean.is_file():
+        # Sprint: OSM má přednost před Pesina/Cesta – neořezávat OSM proti nim.
+        dedup_layers = (
+            ZABAGED_PATH_LAYERS_PRIORITY
+            if (osm_priority or sprint)
+            else ZABAGED_PATH_LAYERS
+        )
         zabaged_lines = _zabaged_path_lines(
             zabaged_clean, log=log, layers=dedup_layers
         )
@@ -1750,6 +1877,8 @@ def highway_to_zabaged_vrstva(highway: str) -> str | None:
     hw = (highway or "path").lower()
     if hw == "steps":
         return None
+    if hw in OSM_ROAD_HIGHWAYS:
+        return "Ulice"  # KP road-path|503
     if hw == "track":
         return "Cesta"  # KP road-path|505
     # sidewalk / footway / path → KP pěšina (507)

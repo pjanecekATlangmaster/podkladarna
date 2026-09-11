@@ -33,6 +33,7 @@ from app.pipeline.ini_builder import (
     resolve_cliff_sensitivity,
     resolve_vege_height,
 )
+from app.pipeline.osm_paths import resolve_path_source
 from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE
 from app.tiles import TileError, fetch_tile
 from app.tool_env import tool_status
@@ -379,6 +380,7 @@ async def api_create_job(request: Request):
         "kp_osm_playground_equipment"
     )
     options["kp_osm_priority"] = _opt_bool("kp_osm_priority")
+    options["path_source"] = resolve_path_source(_form_str(form, "path_source"))
     options["sprint_courtyard_olive"] = _opt_bool("sprint_courtyard_olive")
     # Zpětná kompatibilita starého checkboxu.
     if _opt_bool("kp_osm_furniture"):
@@ -423,6 +425,7 @@ async def api_create_job(request: Request):
         f"lampy={'ano' if options.get('kp_osm_lamps') else 'ne'}, "
         f"herní prvky={'ano' if options.get('kp_osm_playground_equipment') else 'ne'}, "
         f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}, "
+        f"zdroj cest={options.get('path_source', 'mixed')}, "
         f"dvory oliva={'ano' if options.get('sprint_courtyard_olive', True) else 'ne'}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"

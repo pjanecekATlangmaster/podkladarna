@@ -111,6 +111,54 @@ def test_create_job_skips_reference_pngs(client, monkeypatch):
     assert r2.json()["options"]["output_references"] is True
 
 
+def test_create_job_path_source(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+
+    default = client.post(
+        "/api/jobs",
+        data={
+            "name": "paths-default",
+            "preset_id": "mtbo_10000",
+            "bbox": "14.40,50.08,14.42,50.09",
+        },
+    )
+    assert default.status_code == 200
+    assert default.json()["options"]["path_source"] == "mixed"
+
+    osm = client.post(
+        "/api/jobs",
+        data={
+            "name": "paths-osm",
+            "preset_id": "mtbo_10000",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "path_source": "osm",
+        },
+    )
+    assert osm.status_code == 200
+    assert osm.json()["options"]["path_source"] == "osm"
+
+    bad = client.post(
+        "/api/jobs",
+        data={
+            "name": "paths-bad",
+            "preset_id": "mtbo_10000",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "path_source": "invalid",
+        },
+    )
+    assert bad.status_code == 200
+    assert bad.json()["options"]["path_source"] == "mixed"
+
+
 def test_create_job_sprint_courtyard_olive(client, monkeypatch):
     import app.main as main
 
@@ -184,6 +232,13 @@ def test_index_html(client):
     assert 'name="output_references"' in html
     assert 'id="output_references" value="1" checked' in html
     assert 'name="sprint_courtyard_olive"' in html
+    assert 'name="path_source"' in html
+    assert 'value="mixed" selected' in html
+    assert "Mix ZABAGED + OSM" in html
+    assert "form-section-title" in html
+    assert "Zdroj cest v omap" in html
+    assert "OSM detaily" in html
+    assert "courtyard-olive-wrap" in html
     assert "Kvalita podkladu" in html
     assert "/static/logo.png" in html
     assert "/static/leaflet/leaflet.js" in html

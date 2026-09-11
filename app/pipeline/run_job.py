@@ -16,7 +16,15 @@ from app.pipeline.karttapullautin_dxf import (
     DXF_SKIP_AFTER_VECTORS,
     prune_heavy_intermediate_dxf,
 )
-from app.pipeline.osm_paths import prepare_osm_paths, write_osm_kp_zip
+from app.pipeline.osm_paths import (
+    PATH_SOURCE_OSM,
+    PATH_SOURCE_ZABAGED,
+    prepare_osm_paths,
+    resolve_path_source,
+    write_osm_kp_zip,
+    write_zabaged_omitting_layers,
+    ZABAGED_OMIT_PATH_LAYERS,
+)
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     build_oom_zip,
@@ -226,7 +234,16 @@ def run_job_pipeline(
             "ZABAGED (polohopis) není k dispozici – bez něj nelze dokončit mapu."
         )
 
+    path_source = resolve_path_source(options.get("path_source"))
+    path_source_labels = {
+        "mixed": "mix ZABAGED + OSM",
+        "zabaged": "jen ZABAGED",
+        "osm": "jen OSM (včetně silnic)",
+    }
+    log(f"Zdroj cest: {path_source_labels.get(path_source, path_source)}")
+
     osm_kp_zip: Path | None = None
+    zabaged_kp: Path | None = None
     if bbox:
         log("=== Fáze: OSM pěšiny a objekty (před KP PNG) ===")
         try:
@@ -240,17 +257,36 @@ def run_job_pipeline(
                     options.get("kp_osm_playground_equipment")
                 ),
                 osm_priority=bool(options.get("kp_osm_priority")),
+                path_source=path_source,
                 preset_id=preset_id,
                 log=log,
             )
-            osm_kp_zip = write_osm_kp_zip(work_dir, log=log)
+            if path_source != PATH_SOURCE_ZABAGED:
+                osm_kp_zip = write_osm_kp_zip(work_dir, log=log)
         except Exception as exc:
             log(f"OSM: přeskočeno ({exc})")
             osm_kp_zip = None
 
     log("=== Fáze: Karttapullautin vektory ===")
-    kp_vector_cmd = [PULLAUTA_BIN, str(zabaged_clean.resolve())]
-    if osm_kp_zip and osm_kp_zip.is_file():
+    kp_zabaged = zabaged_clean
+    if path_source == PATH_SOURCE_OSM:
+        zabaged_kp = work_dir / "zabaged_kp.zip"
+        write_zabaged_omitting_layers(
+            zabaged_clean, zabaged_kp, ZABAGED_OMIT_PATH_LAYERS
+        )
+        kp_zabaged = zabaged_kp
+    kp_vector_cmd = [PULLAUTA_BIN, str(kp_zabaged.resolve())]
+    if path_source == PATH_SOURCE_ZABAGED:
+        log("KP PNG: jen ZABAGED (path_source=zabaged)")
+    elif path_source == PATH_SOURCE_OSM:
+        if osm_kp_zip and osm_kp_zip.is_file():
+            kp_vector_cmd.append(str(osm_kp_zip.resolve()))
+            log(
+                f"KP PNG: ZABAGED bez cest + OSM cesty/silnice ({osm_kp_zip.name})"
+            )
+        else:
+            log("KP PNG: ZABAGED bez cest (OSM cesty chybí)")
+    elif osm_kp_zip and osm_kp_zip.is_file():
         kp_vector_cmd.append(str(osm_kp_zip.resolve()))
         log(f"KP PNG: ZABAGED + OSM cesty ({osm_kp_zip.name})")
     else:
@@ -349,6 +385,7 @@ def _package_output(
                 indexcontours_m=indexcontours_m,
                 cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
                 courtyard_olive=bool(options.get("sprint_courtyard_olive", True)),
+                path_source=resolve_path_source(options.get("path_source")),
             )
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")

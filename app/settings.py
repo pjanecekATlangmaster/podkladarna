@@ -75,6 +75,8 @@ DEFAULT_OPTIONS = {
     "kp_osm_playground_equipment": False,
     # Priorita OSM (urban pack) – dočasně default zapnuto kvůli testování.
     "kp_osm_priority": True,
+    # Zdroj cest: mixed | zabaged | osm (viz path_source v osm_paths.py).
+    "path_source": "mixed",
     # Sprint: nepřístupné dvory uvnitř budov (díry v 521) vyplnit olivou 520.
     "sprint_courtyard_olive": True,
 }
