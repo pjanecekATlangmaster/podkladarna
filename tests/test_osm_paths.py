@@ -472,10 +472,23 @@ def test_filter_keeps_sidewalk_on_zabaged():
 
 
 def test_osm_oom_code_sidewalk():
-    from app.pipeline.osm_paths import highway_to_zabaged_vrstva, osm_oom_code
+    from app.pipeline.osm_paths import (
+        highway_to_zabaged_vrstva,
+        osm_oom_code,
+        sprint_line_highway,
+    )
 
-    assert osm_oom_code("sidewalk", "sprint_2m") == "507"
+    assert osm_oom_code("sidewalk", "sprint_2m") == "501.6"
+    assert osm_oom_code("sidewalk", "forest_10000") == "507"
     assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
+    # way/613443110: footway + asphalt bez footway=sidewalk → sprint chodník.
+    assert (
+        sprint_line_highway(
+            {"highway": "footway", "surface": "asphalt"}, "footway"
+        )
+        == "sidewalk"
+    )
+    assert sprint_line_highway({"highway": "footway"}, "footway") == "footway"
 
 
 def test_filter_drops_line_on_zabaged():
@@ -505,17 +518,16 @@ def test_filter_keeps_parallel_distinct_path():
     assert len(kept) == 1
 
 
-def test_filter_keeps_forest_tail_of_road_way():
+def test_filter_keeps_partial_overlap_whole_way():
+    """Částečný souběh se silnicí ≠ shodná cesta – celou OSM linii nechat (vč. konců)."""
     zab = [[(0.0, 0.0), (100.0, 0.0)]]
-    # 80 m po silnici, pak 40 m do lesa
+    # 80 m po silnici, pak 40 m do lesa (~67 % cover < COVER_DROP).
     osm = [[(0.0, 1.0), (80.0, 1.0), (80.0, 41.0)]]
     kept, dropped = filter_osm_against_zabaged(osm, zab)
     assert dropped == 0
     assert len(kept) == 1
-    assert polyline_length(kept[0]) >= 12
-    # Ocas do lesa (sever), ne zbytek podél silnice.
-    assert kept[0][-1][1] >= 30
-    assert sum(1 for _, y in kept[0] if y > 10) >= len(kept[0]) // 2
+    assert kept[0] == osm[0]
+    assert abs(polyline_length(kept[0]) - 120.0) < 1e-6
 
 
 def test_unique_parts_splits_middle_overlap():

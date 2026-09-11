@@ -252,6 +252,41 @@ def _is_boardwalk(tags: dict) -> bool:
     )
 
 
+# Zpevněný povrch – ve sprintu kreslíme jako chodník (501.6), ne jako 507.
+_PAVED_SURFACES = frozenset(
+    {
+        "asphalt",
+        "paved",
+        "concrete",
+        "paving_stones",
+        "sett",
+        "cobblestone",
+        "concrete:plates",
+        "concrete:lanes",
+        "chipseal",
+    }
+)
+
+
+def _is_paved_surface(tags: dict) -> bool:
+    surface = (tags.get("surface") or "").lower()
+    if not surface:
+        return False
+    if surface in _PAVED_SURFACES:
+        return True
+    # „asphalt;paving_stones“ apod.
+    return any(part.strip() in _PAVED_SURFACES for part in surface.split(";"))
+
+
+def sprint_line_highway(tags: dict, highway: str) -> str:
+    """Sprint: explicitní sidewalk i zpevněný footway → vnitřní druh ``sidewalk``."""
+    hw = (highway or "").lower()
+    footway = (tags.get("footway") or "").lower()
+    if footway == "sidewalk" or (hw == "footway" and _is_paved_surface(tags)):
+        return "sidewalk"
+    return hw or "path"
+
+
 def classify_osm_feature(
     tags: dict, *, geom: str = "way"
 ) -> tuple[str, str] | None:
@@ -627,7 +662,10 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     if hw == "track":
         # Lesní / polní cesta (vozová) – ne úzká pěšina.
         return "506" if sprint else "504"
-    # sidewalk / footway / path / … → úzká pěšina (ISSprOM nemá lineární „zpevněný chodník“).
+    if sprint and hw == "sidewalk":
+        # Zpevněný chodník = footprint zpevněné plochy (ne přerušovaná 507).
+        return "501.6"
+    # footway / path / … → úzká pěšina.
     return "507"
 
 
@@ -1255,7 +1293,7 @@ def filter_osm_against_zabaged(
     near_m: float = MATCH_M,
     overlap_drop: float = COVER_DROP,
 ) -> tuple[list[list[tuple[float, float]]], int]:
-    """Nechá OSM jen mimo ZABAGED střednici (shoda směru + ≤ match_m)."""
+    """Zahodí jen celé OSM linie se shodnou střednicí ZABAGED; konce neořezává."""
     if not zabaged_lines:
         kept = [line for line in osm_lines if polyline_length(line) >= MIN_LENGTH_M]
         return kept, len(osm_lines) - len(kept)
@@ -1268,20 +1306,11 @@ def filter_osm_against_zabaged(
         if polyline_length(line) < MIN_LENGTH_M:
             dropped += 1
             continue
-        # Stejná střednice po (skoro) celé délce → pryč.
+        # Jen celá shoda střednice → pryč. Částečný souběh (konec u silnice) nechat.
         if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
             dropped += 1
             continue
-        parts = [
-            p
-            for p in unique_polyline_parts(line, index, near_m=near_m)
-            if polyline_length(p) >= MIN_LENGTH_M
-            and centerline_cover_fraction(p, index, match_m=near_m) < overlap_drop
-        ]
-        if not parts:
-            dropped += 1
-            continue
-        kept.extend(parts)
+        kept.append(line)
     return kept, dropped
 
 
@@ -1292,10 +1321,10 @@ def filter_osm_items_against_zabaged(
     near_m: float = MATCH_M,
     overlap_drop: float = COVER_DROP,
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
-    """Dedup střednicí se zachováním highway tagu u každého úseku.
+    """Dedup celých střednic se zachováním highway tagu.
 
-    ``highway=steps`` a ``sidewalk`` se proti ZABAGED neořezávají – mají zůstat
-    i při souběhu s Ulice/Pesina (jinak by zmizely vedle silnice).
+    Neořezává konce / úseky – jen zahodí linii, když je skoro celá shodná
+    se ZABAGED. ``steps`` a ``sidewalk`` se proti ZABAGED nefiltrují.
     """
     def _min_len(hw: str) -> float:
         # Krátké schody / chodníky ve městě; běžné cesty dál 12 m.
@@ -1327,16 +1356,7 @@ def filter_osm_items_against_zabaged(
         if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
             dropped += 1
             continue
-        parts = [
-            p
-            for p in unique_polyline_parts(line, index, near_m=near_m)
-            if polyline_length(p) >= min_len
-            and centerline_cover_fraction(p, index, match_m=near_m) < overlap_drop
-        ]
-        if not parts:
-            dropped += 1
-            continue
-        kept.extend((p, hw) for p in parts)
+        kept.append((line, hw))
     return kept, dropped
 
 
@@ -1348,7 +1368,7 @@ def filter_lines_against_centerlines(
     overlap_drop: float = COVER_DROP,
     min_length_m: float = MIN_LENGTH_M,
 ) -> tuple[list[list[tuple[float, float]]], int]:
-    """Nechá z ``lines`` jen úseky mimo střednice ``blockers`` (invertovaný dedup)."""
+    """Zahodí jen celé linie se shodnou střednicí ``blockers``; konce neořezává."""
     if not blockers:
         kept = [ln for ln in lines if polyline_length(ln) >= min_length_m]
         return kept, len(lines) - len(kept)
@@ -1364,16 +1384,7 @@ def filter_lines_against_centerlines(
         if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
             dropped += 1
             continue
-        parts = [
-            p
-            for p in unique_polyline_parts(line, index, near_m=near_m)
-            if polyline_length(p) >= min_length_m
-            and centerline_cover_fraction(p, index, match_m=near_m) < overlap_drop
-        ]
-        if not parts:
-            dropped += 1
-            continue
-        kept.extend(parts)
+        kept.append(line)
     return kept, dropped
 
 
@@ -1626,11 +1637,11 @@ def prepare_osm_paths(
             skipped += 1
             continue
         hw = ((el.get("tags") or {}).get("highway") or "").lower()
-        if allow_sidewalk and (tags.get("footway") or "").lower() == "sidewalk":
-            hw = "sidewalk"
-        elif not hw and _is_boardwalk(tags):
+        if not hw and _is_boardwalk(tags):
             hw = "footway"
-        if not hw:
+        if allow_sidewalk:
+            hw = sprint_line_highway(tags, hw)
+        elif not hw:
             hw = "path"
         osm_items.append((pts, hw))
     zabaged_lines: list[list[tuple[float, float]]] = []
