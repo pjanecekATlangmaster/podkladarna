@@ -58,6 +58,8 @@ DEFAULT_OPTIONS = {
     "output_png": True,
     # ZIP pro OOM (vektory + .omap). False = jen PNG náhled na webu.
     "output_zip": True,
+    # Ortofoto / OSM / ZTM / katastr / hillshade / DMP – stahovat a dát do ZIPu.
+    "output_references": True,
     "output_dxf": True,
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace
@@ -73,4 +75,6 @@ DEFAULT_OPTIONS = {
     "kp_osm_playground_equipment": False,
     # Priorita OSM (urban pack) – dočasně default zapnuto kvůli testování.
     "kp_osm_priority": True,
+    # Sprint: nepřístupné dvory uvnitř budov (díry v 521) vyplnit olivou 520.
+    "sprint_courtyard_olive": True,
 }

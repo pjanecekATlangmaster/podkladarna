@@ -73,6 +73,83 @@ def test_create_job_output_mode_png_only(client, monkeypatch):
     assert r.json()["options"]["output_zip"] is False
 
 
+def test_create_job_skips_reference_pngs(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "no-refs",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "output_mode": "png_zip",
+            # checkbox vypnutý = pole chybí
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["options"]["output_references"] is False
+
+    r2 = client.post(
+        "/api/jobs",
+        data={
+            "name": "with-refs",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "output_mode": "png_zip",
+            "output_references": "1",
+        },
+    )
+    assert r2.status_code == 200
+    assert r2.json()["options"]["output_references"] is True
+
+
+def test_create_job_sprint_courtyard_olive(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    off = client.post(
+        "/api/jobs",
+        data={
+            "name": "no-olive",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "output_mode": "png_zip",
+            "output_references": "1",
+        },
+    )
+    assert off.status_code == 200
+    assert off.json()["options"]["sprint_courtyard_olive"] is False
+
+    on = client.post(
+        "/api/jobs",
+        data={
+            "name": "olive",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "output_mode": "png_zip",
+            "output_references": "1",
+            "sprint_courtyard_olive": "1",
+        },
+    )
+    assert on.status_code == 200
+    assert on.json()["options"]["sprint_courtyard_olive"] is True
+
+
 def test_create_job_rejects_missing_preset(client):
     r = client.post(
         "/api/jobs",
@@ -104,6 +181,8 @@ def test_index_html(client):
     assert "48 hodin" in html
     assert "PNG náhled" in html
     assert 'name="output_mode"' in html
+    assert 'name="output_references"' in html
+    assert 'name="sprint_courtyard_olive"' in html
     assert "/static/logo.png" in html
     assert "/static/leaflet/leaflet.js" in html
     assert "unpkg.com" not in html

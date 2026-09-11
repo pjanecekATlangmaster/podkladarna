@@ -379,6 +379,7 @@ async def api_create_job(request: Request):
         "kp_osm_playground_equipment"
     )
     options["kp_osm_priority"] = _opt_bool("kp_osm_priority")
+    options["sprint_courtyard_olive"] = _opt_bool("sprint_courtyard_olive")
     # Zpětná kompatibilita starého checkboxu.
     if _opt_bool("kp_osm_furniture"):
         options["kp_osm_benches"] = True
@@ -390,6 +391,7 @@ async def api_create_job(request: Request):
         options["output_zip"] = True
     elif _form_str(form, "output_zip").strip():
         options["output_zip"] = _opt_bool("output_zip")
+    options["output_references"] = _opt_bool("output_references")
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:
@@ -421,6 +423,8 @@ async def api_create_job(request: Request):
         f"lampy={'ano' if options.get('kp_osm_lamps') else 'ne'}, "
         f"herní prvky={'ano' if options.get('kp_osm_playground_equipment') else 'ne'}, "
         f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}, "
+        f"dvory oliva={'ano' if options.get('sprint_courtyard_olive', True) else 'ne'}, "
+        f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"
     )
 

@@ -299,7 +299,13 @@ def _package_output(
     zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None
 
     if want_zip:
-        if bbox and (kp_cwd / "pullautus.png").is_file() and (kp_cwd / "pullautus.pgw").is_file():
+        want_refs = bool(options.get("output_references", True))
+        if (
+            want_refs
+            and bbox
+            and (kp_cwd / "pullautus.png").is_file()
+            and (kp_cwd / "pullautus.pgw").is_file()
+        ):
             log("=== Fáze: referenční podklady pro OOM ===")
             try:
                 built_refs = build_reference_layers(
@@ -316,6 +322,8 @@ def _package_output(
                 ref_layers = sorted(p.name for p in built_refs.values())
             elif reference_dir.is_dir():
                 ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
+        elif not want_refs:
+            log("=== Fáze: referenční PNG přeskočeny (volba v GUI) ===")
 
         meta = oom_metadata(
             preset_id, preset, options, job_name, reference_layers=ref_layers or None
@@ -340,6 +348,7 @@ def _package_output(
                 formline=0,
                 indexcontours_m=indexcontours_m,
                 cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
+                courtyard_olive=bool(options.get("sprint_courtyard_olive", True)),
             )
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
@@ -348,7 +357,11 @@ def _package_output(
             zip_path,
             zabaged_clean=zabaged,
             metadata=meta,
-            reference_dir=reference_dir if reference_dir and reference_dir.is_dir() else None,
+            reference_dir=(
+                reference_dir
+                if want_refs and reference_dir and reference_dir.is_dir()
+                else None
+            ),
             omap_path=omap_path,
             include_zabaged_archive=bool(
                 options.get("output_zabaged_clean", False) and zabaged
@@ -376,13 +389,14 @@ def _package_output(
                 if src.is_file():
                     dest_dir.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(src, dest_dir / name)
-        refs_src = kp_cwd / "references"
-        if refs_src.is_dir():
-            refs_dst = output_dir / "references"
-            refs_dst.mkdir(parents=True, exist_ok=True)
-            for path in refs_src.glob("*"):
-                if path.is_file() and path.suffix.lower() in {".png", ".pgw"}:
-                    shutil.copy2(path, refs_dst / path.name)
+        if bool(options.get("output_references", True)):
+            refs_src = kp_cwd / "references"
+            if refs_src.is_dir():
+                refs_dst = output_dir / "references"
+                refs_dst.mkdir(parents=True, exist_ok=True)
+                for path in refs_src.glob("*"):
+                    if path.is_file() and path.suffix.lower() in {".png", ".pgw"}:
+                        shutil.copy2(path, refs_dst / path.name)
 
     if want_zip and zip_path.is_file():
         log(f"Výstup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")

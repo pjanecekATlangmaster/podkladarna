@@ -668,11 +668,25 @@ function applyJobToForm(job) {
     priority.checked =
       opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
   }
+  const courtyard = form.sprint_courtyard_olive;
+  if (courtyard) {
+    const opts = job.options || {};
+    courtyard.checked =
+      opts.sprint_courtyard_olive == null
+        ? true
+        : Boolean(opts.sprint_courtyard_olive);
+  }
   const outMode = form.output_mode;
   if (outMode) {
     const opts = job.options || {};
     const wantZip = opts.output_zip == null ? true : Boolean(opts.output_zip);
     outMode.value = wantZip ? "png_zip" : "png";
+  }
+  const outRefs = form.output_references;
+  if (outRefs) {
+    const opts = job.options || {};
+    outRefs.checked =
+      opts.output_references == null ? true : Boolean(opts.output_references);
   }
   updateOsmHintsForPreset((job.preset_id || "").toString());
   const opts = job.options || {};

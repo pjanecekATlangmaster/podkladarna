@@ -105,3 +105,22 @@ def test_open_line_is_untouched_by_hole_logic():
     objects = _geom_parts_to_objects(parts, 7, **MAP_KW)
     assert len(objects) == 1
     assert " 18;" not in objects[0]
+
+
+def test_building_holes_become_olive_area_objects():
+    from app.pipeline.oom_import import _hole_rings_as_area_objects
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    olive = symbol_index_for_code("sprint_2m", 4000, "520")
+    assert olive is not None
+    parts, _ = _wkb_parts(_wkb_polygon([_square(0, 0, 100), _square(20, 20, 30)]))
+    # Budova zůstane s dírou; oliva = plná plocha z díry.
+    building = _geom_parts_to_objects(parts, 40, **{**MAP_KW, "scale": 4000})
+    olive_objs = _hole_rings_as_area_objects(
+        parts, olive, **{**MAP_KW, "scale": 4000}
+    )
+    assert len(building) == 1
+    assert building[0].count(" 18;") == 2
+    assert len(olive_objs) == 1
+    assert olive_objs[0].count(" 18;") == 1
+    assert f'symbol="{olive}"' in olive_objs[0]
