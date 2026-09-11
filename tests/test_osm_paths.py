@@ -61,7 +61,7 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"leisure": "sports_centre"}) == ("pitch", "501")
     assert classify_osm_feature(
         {"leisure": "sports_centre", "building": "yes"}
-    ) is None
+    ) == ("building", "521")
     assert classify_osm_feature({"leisure": "ice_rink"}) == ("pitch", "501")
     assert classify_osm_feature({"leisure": "multi"}) == ("pitch", "501")
     assert classify_osm_feature({"leisure": "pitch"}, geom="node") is None
@@ -121,7 +121,15 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"highway": "footway", "footway": "boardwalk"}) is None
     assert classify_osm_feature({"man_made": "boardwalk"}) is None
     assert classify_osm_feature({"highway": "path"}) is None
-    assert classify_osm_feature({"tourism": "information", "building": "yes"}) is None
+    # way/1097076511 kavárna + way/1097076512 building=yes → 521
+    assert classify_osm_feature({"building": "yes"}) == ("building", "521")
+    assert classify_osm_feature(
+        {"amenity": "cafe", "building": "yes", "cuisine": "coffee_shop"}
+    ) == ("building", "521")
+    assert classify_osm_feature(
+        {"tourism": "information", "building": "yes"}
+    ) == ("building", "521")
+    assert classify_osm_feature({"building": "yes"}, geom="node") is None
 
 
 def test_skip_subway():
@@ -242,6 +250,8 @@ def test_osm_priority_overpass_includes_barriers():
     ql = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=True)
     assert "barrier" in ql
     assert "fitness_station" in ql
+    assert 'way["building"]' in ql
+    assert 'relation["type"="multipolygon"]["building"]' in ql
     assert "playground" in ql
     assert "pitch" in ql
     assert "sports_centre" in ql
@@ -263,6 +273,7 @@ def test_osm_priority_overpass_includes_barriers():
     ql_off = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=False)
     assert "fitness_station" not in ql_off
     assert "barrier" not in ql_off
+    assert 'way["building"]' not in ql_off
 
 def test_highway_to_zabaged_vrstva():
     from app.pipeline.osm_paths import highway_to_zabaged_vrstva, paths_geojson_for_kp

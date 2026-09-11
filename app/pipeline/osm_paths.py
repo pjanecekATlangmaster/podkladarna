@@ -178,6 +178,9 @@ def _overpass_ql(
                 f'node["leisure"="fitness_station"]({bbox});',
                 f'way["leisure"="fitness_station"]({bbox});',
                 f'node["natural"="tree"]["denotation"~"^(landmark|natural_monument)$"]({bbox});',
+                # Budovy z OSM (kavárna/kiosk s building=yes), dedup proti ZABAGED.
+                f'way["building"]({bbox});',
+                f'relation["type"="multipolygon"]["building"]({bbox});',
             ]
         )
     return (
@@ -206,9 +209,16 @@ _PAVED_AREA_KINDS = frozenset({"playground", "pitch"})
 # farmland (412) se neořezává – zdroj je OSM, OrnaPuda se do OOM neimportuje.
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
     "water_body": frozenset({"VodniPlocha"}),
+    # OSM budovy jen tam, kde ZABAGED budovu nemá (kavárna, kiosk, …).
+    "building": frozenset(
+        {"BudovaJednotlivaNeboBlokBudov", "KulnaSklenikFoliovnikPristresek"}
+    ),
+    "water_well_building": frozenset(
+        {"BudovaJednotlivaNeboBlokBudov", "KulnaSklenikFoliovnikPristresek"}
+    ),
 }
 _CLOSED_AREA_KINDS = frozenset(
-    {"wetland", "water_body", "farmland", "garden"}
+    {"wetland", "water_body", "farmland", "garden", "building", "water_well_building"}
 ) | _PAVED_AREA_KINDS
 # Jen při kp_osm_priority (hlavně sprint urban pack).
 _PRIORITY_KINDS = frozenset(
@@ -250,6 +260,11 @@ def _is_boardwalk(tags: dict) -> bool:
         or (tags.get("man_made") or "").lower() == "boardwalk"
         or (tags.get("bridge") or "").lower() == "boardwalk"
     )
+
+
+def _is_osm_building(tags: dict) -> bool:
+    building = (tags.get("building") or "").lower()
+    return bool(building) and building not in {"no", "false", "0"}
 
 
 # Zpevněný povrch – ve sprintu kreslíme jako chodník (501.6), ne jako 507.
@@ -299,7 +314,6 @@ def classify_osm_feature(
     """
     leisure = (tags.get("leisure") or "").lower()
     man_made = (tags.get("man_made") or "").lower()
-    building = (tags.get("building") or "").lower()
     amenity = (tags.get("amenity") or "").lower()
     tourism = (tags.get("tourism") or "").lower()
     information = (tags.get("information") or "").lower()
@@ -348,9 +362,9 @@ def classify_osm_feature(
     if (
         tourism == "information" or information in _INFO_BOARD_VALUES
     ) and information not in {"office", "visitor_centre", "visitor_center"}:
-        if building and building not in {"no", "false", "0"}:
-            return None
-        return "info_board", "531"
+        # Budova s tabulemi → 521 (ne křížek); jinak info board.
+        if not _is_osm_building(tags):
+            return "info_board", "531"
     if natural == "wetland":
         return "wetland", "308"
     if natural == "cave_entrance":
@@ -378,17 +392,19 @@ def classify_osm_feature(
             return None
         return "garden", "520"
     # Hřiště / sportoviště / dráha / … = zpevněná plocha (501), ne žlutá 401.
-    if leisure in OSM_PAVED_AREA_LEISURE:
-        if building and building not in {"no", "false", "0"}:
-            return None
+    # S building=* jde o budovu (521), ne o zpevněnou plochu – dřív se zahodilo.
+    if leisure in OSM_PAVED_AREA_LEISURE and not _is_osm_building(tags):
         if is_node:
             return None
         kind = "playground" if leisure == "playground" else "pitch"
         return kind, "501"
     if man_made == "water_well" or amenity == "fountain":
-        if building and building not in {"no", "false", "0"}:
+        if _is_osm_building(tags):
             return "water_well_building", "521"
         return "water_well", "311"
+    # OSM budova (kavárna/kiosk/building=yes) → 521; ZABAGED má přednost v dedupu.
+    if not is_node and _is_osm_building(tags):
+        return "building", "521"
     return None
 
 
@@ -433,6 +449,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "garden": "520",
         "playground": "501",
         "pitch": "501",
+        "building": "521",
         "water_well": "311",
         "water_well_building": "521",
         "spring": "312",
@@ -1940,6 +1957,7 @@ def build_osm_feature_parts(
         "water_body": "OSM vodní nádrž (301)",
         "farmland": "OSM obdělávaná půda (412)",
         "garden": "OSM zahrady (520 oliva)",
+        "building": "OSM budovy (521)",
         "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
         "spring": "OSM prameny",
@@ -1960,6 +1978,7 @@ def build_osm_feature_parts(
         "landmark_tree": "OSM významné stromy",
     }
     kind_order = (
+        "building",
         "water_well_building",
         "water_well",
         "spring",
