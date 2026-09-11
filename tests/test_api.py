@@ -225,7 +225,7 @@ def test_index_html(client):
     assert "Podkladárna" in r.text
     html = r.text
     assert "bbox-map" in html
-    assert "Co je Podkladárna" in html
+    assert "O co jde" in html
     assert "48 hodin" in html
     assert "PNG náhled" in html
     assert 'name="output_mode"' in html
@@ -239,7 +239,9 @@ def test_index_html(client):
     assert "Zdroj cest v omap" in html
     assert "OSM detaily" in html
     assert "courtyard-olive-wrap" in html
-    assert "Kvalita podkladu" in html
+    assert "pracovní podklad" in html
+    assert "jasně danými" in html
+    assert "postaru" in html
     assert "/static/logo.png" in html
     assert "/static/leaflet/leaflet.js" in html
     assert "unpkg.com" not in html

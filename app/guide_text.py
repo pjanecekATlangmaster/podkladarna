@@ -2,39 +2,44 @@
 
 WEB_ABOUT_HTML = """
 <p>
-  <strong>Podkladárna</strong> je domácí služba pro orientační mapy: z výřezu na mapě
-  stáhne data ČÚZK (LiDAR DMR 5G + DMP OK a polohopis ZABAGED), zpracuje je programem
-  Karttapullautin a připraví balíček pro
+  Chtěl jsem vyzkoušet, jestli už jdou podklady pro orientační mapy
+  skládat automaticky. Program vznikl s pomocí AI, samotné generování
+  ale běží postaru, jasně danými algoritmy. Stáhnou se data ČÚZK,
+  Karttapullautin je zpracuje a složí se balíček do
   <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a>.
 </p>
-<p><strong>Kvalita podkladu:</strong> výsledek je jen tak dobrý jako vstupní data.
-  LiDAR, ZABAGED ani OpenStreetMap nejsou dokonalé – něco chybí, něco je
-  nejednoznačné (např. duplicitní silnice na mostě, neúplné budovy, různé
-  značení cest) a automatika to vždycky nerozsoudí. Vygenerovaný
-  <code>.omap</code> / ZIP je <em>pracovní podklad</em>, ne hotová mapa;
-  v OOM s ním ještě počítejte s ruční prací.</p>
-<p><strong>PNG náhled vs ZIP:</strong> na webu uvidíte PNG z Karttapullautinu
-  (reliéf/vegetace + ZABAGED a po dedupu i OSM cesty). PNG je hlavně rychlý
-  náhled a volitelná šablona – <em>není</em> hotová mapa. ZIP pro OOM skládá
-  editovatelné vektory z více zdrojů (vrstevnice GDAL, zeleň, ZABAGED, OSM objekty,
-  DXF srázů, referenční ortofoto/OSM/ZTM…). Část obsahu se tedy v PNG a ve ZIPu
-  nepřekrývá 1:1. Výchozí je PNG + ZIP; můžete zvolit jen PNG náhled.</p>
-<p><strong>Co dostanete ve ZIPu:</strong></p>
+<p>
+  Z výřezu na mapě si Podkladárna stáhne LiDAR (DMR 5G + DMP OK) a polohopis
+  ZABAGED. Výsledek je jen tak dobrý, jaká jsou data: něco chybí, něco je
+  dvakrát (třeba silnice na mostě) a automatika to vždycky nerozsoudí.
+  Berte to jako <em>pracovní podklad</em>, ne hotovou mapu. V OOM s tím
+  ještě budete kreslit.
+</p>
+<p>
+  Na webu uvidíte PNG z Karttapullautinu, spíš rychlý náhled než finální kresbu.
+  ZIP skládá editovatelné vektory z víc zdrojů (vrstevnice, zeleň, ZABAGED, OSM,
+  DXF srázů, referenční orto…), takže PNG a ZIP nevypadají úplně stejně.
+  Výchozí je PNG + ZIP; můžete nechat jen náhled.
+</p>
+<p>Ve ZIPu je mimo jiné:</p>
 <ul>
-  <li><code>podkladarna.omap</code> – mapový soubor s podklady (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
+  <li><code>podkladarna.omap</code> – otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, návod <code>README_OOM.txt</code></li>
 </ul>
-<p><strong>Jak na to:</strong> nakreslete obdélník (max 5×5&nbsp;km), vyberte typ mapy, spusťte generování.
-  Sprint obvykle 2–6 minut, lesní mapa déle; stránku mezitím můžete zavřít.
-  Po dokončení stáhněte ZIP (pokud jste ho nechali generovat). V OOM otevřete
-  <code>podkladarna.omap</code> a dle návodu doladíte symboliku. Do OCADu jde import
-  DXF/SHP/PNG, ne přímo <code>.omap</code>.</p>
-<p><strong>Proč fronta a limity:</strong> server zvládne jen jedno generování najednou a běží na domácím NAS.
-  Z jedné sítě (IP) mohou současně běžet nebo čekat nejvýše <strong>2 joby</strong>,
-  za hodinu nejvýše <strong>10</strong>. Kdo už oba sloty využil, ustoupí ve frontě tomu,
-  kdo ještě ne – férovější sdílení pro více mapmakerů. Ověření podle IP není spolehlivé
-  (VPN, sdílená Wi‑Fi).</p>
-<p><strong>Uchování:</strong> hotové joby na serveru držíme <strong>48 hodin</strong> – ZIP si uložte lokálně.</p>
+<p>
+  Nakreslete obdélník (max 5 × 5&nbsp;km), vyberte typ mapy a spusťte generování.
+  Sprint bývá hotový za 2–6 minut, lesní mapa trvá déle. Stránku mezitím
+  můžete zavřít. Po dokončení stáhněte ZIP (pokud jste ho nechali generovat),
+  v OOM otevřete <code>podkladarna.omap</code> a podle návodu doladíte symboliku.
+  OCAD soubor <code>.omap</code> neotevře, DXF/SHP/PNG ano.
+</p>
+<p>
+  Běží to na domácím NAS, takže najednou jede jen jeden job. Z jedné sítě
+  můžou současně běžet nebo čekat nejvýš <strong>2 joby</strong>, za hodinu
+  <strong>10</strong>. Kdo má oba sloty plné, ve frontě ustoupí tomu, kdo
+  ještě nic nespustil. Podle IP to není stoprocentní (VPN, sdílená Wi‑Fi).
+  Hotové joby držíme <strong>48 hodin</strong>, ZIP si uložte u sebe.
+</p>
 """
 
 ZIP_ABOUT_TXT = """Podkladárna – co je v tomto balíčku
@@ -42,12 +47,17 @@ ZIP_ABOUT_TXT = """Podkladárna – co je v tomto balíčku
 
 Tento ZIP vygenerovala služba Podkladárna (LiDAR + ZABAGED → podklad pro orientační mapu).
 
+Proč Podkladárna
+----------------
+Chtěl jsem vyzkoušet, jestli už jdou podklady pro orientační mapy skládat
+automaticky. Program vznikl s pomocí AI, samotné generování ale běží postaru,
+jasně danými algoritmy.
+
 Kvalita podkladu
 ----------------
-Výsledek je jen tak dobrý jako vstupní data. LiDAR, ZABAGED ani OpenStreetMap
-nejsou dokonalé – něco chybí, něco je nejednoznačné a automatika to vždycky
-nerozsoudí. Tento balíček je pracovní podklad, ne hotová mapa; v OOM s ním
-ještě počítejte s ruční prací.
+Výsledek je jen tak dobrý, jaká jsou data. V LiDARu, ZABAGEDu i OSM něco chybí,
+něco je dvakrát a automatika to vždycky nerozsoudí. Tento balíček je pracovní
+podklad, ne hotová mapa; v OOM s ním ještě budete kreslit.
 
 PNG z Karttapullautinu na webu je hlavně náhled – editovatelné vektory a .omap jsou zde ve ZIPu
 a skládají se z více zdrojů (ne 1:1 s PNG).

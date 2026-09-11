@@ -86,17 +86,26 @@ main.page-wrap {
   margin-top: 0;
 }
 
+.about-body {
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+
 .about-body ul {
-  margin: 0.5rem 0 0.75rem;
+  margin: 0.35rem 0 0.85rem;
   padding-left: 1.25rem;
 }
 
 .about-body li {
-  margin: 0.35rem 0;
+  margin: 0.3rem 0;
 }
 
 .about-body p {
-  margin: 0.6rem 0;
+  margin: 0.7rem 0;
+}
+
+.about-body p:first-child {
+  margin-top: 0.35rem;
 }
 
 @media (max-width: 1100px) {
