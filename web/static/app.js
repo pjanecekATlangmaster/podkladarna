@@ -592,13 +592,13 @@ function updateOsmHintsForPreset(presetId) {
   if (!hint) return;
   if (sprint) {
     hint.textContent =
-      "Sprint: stáhne ploty, zdi, brány, přístřešky, pomníky, fitness… Budovy ze ZABAGED (nebo OSM budovy při prioritě / mezerách). Zdroj cest nastav výše.";
+      "Sprint: stáhne ploty, zdi, brány, přístřešky, pomníky, fitness… Budovy ze ZABAGED (nebo OSM budovy při prioritě / mezerách).";
   } else if (id.startsWith("forest") || id.startsWith("mtbo")) {
     hint.textContent =
-      "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Pěšiny řeší „Zdroj cest“. Studny, hřiště a podobné objekty se berou podle nastavení níže.";
+      "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Studny, hřiště a podobné objekty se berou podle nastavení níže.";
   } else {
     hint.textContent =
-      "Urban pack z OSM (ploty, zdi, brány, pomníky…). Na sprintu užitečné; v lese / MTBO často vypnout. Zdroj cest nastav výše.";
+      "Urban pack z OSM (ploty, zdi, brány, pomníky…). Na sprintu užitečné; v lese / MTBO často vypnout.";
   }
 }
 
