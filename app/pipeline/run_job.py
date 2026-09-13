@@ -17,6 +17,7 @@ from app.pipeline.karttapullautin_dxf import (
     prune_heavy_intermediate_dxf,
 )
 from app.pipeline.osm_paths import (
+    PATH_SOURCE_MIXED,
     PATH_SOURCE_OSM,
     PATH_SOURCE_ZABAGED,
     prepare_osm_paths,
