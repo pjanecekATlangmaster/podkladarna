@@ -234,16 +234,8 @@ def run_job_pipeline(
             "ZABAGED (polohopis) není k dispozici – bez něj nelze dokončit mapu."
         )
 
-    path_source = resolve_path_source(options.get("path_source"))
-    path_source_labels = {
-        "mixed": "mix ZABAGED + OSM",
-        "zabaged": "jen ZABAGED",
-        "osm": "jen OSM (včetně silnic)",
-    }
-    log(f"Zdroj cest: {path_source_labels.get(path_source, path_source)}")
-
     osm_kp_zip: Path | None = None
-    zabaged_kp: Path | None = None
+    kp_zabaged = zabaged_clean
     if bbox:
         log("=== Fáze: OSM pěšiny a objekty (před KP PNG) ===")
         try:
@@ -257,36 +249,17 @@ def run_job_pipeline(
                     options.get("kp_osm_playground_equipment")
                 ),
                 osm_priority=bool(options.get("kp_osm_priority")),
-                path_source=path_source,
                 preset_id=preset_id,
                 log=log,
             )
-            if path_source != PATH_SOURCE_ZABAGED:
-                osm_kp_zip = write_osm_kp_zip(work_dir, log=log)
+            osm_kp_zip = write_osm_kp_zip(work_dir, log=log)
         except Exception as exc:
             log(f"OSM: přeskočeno ({exc})")
             osm_kp_zip = None
 
     log("=== Fáze: Karttapullautin vektory ===")
-    kp_zabaged = zabaged_clean
-    if path_source == PATH_SOURCE_OSM:
-        zabaged_kp = work_dir / "zabaged_kp.zip"
-        write_zabaged_omitting_layers(
-            zabaged_clean, zabaged_kp, ZABAGED_OMIT_PATH_LAYERS
-        )
-        kp_zabaged = zabaged_kp
     kp_vector_cmd = [PULLAUTA_BIN, str(kp_zabaged.resolve())]
-    if path_source == PATH_SOURCE_ZABAGED:
-        log("KP PNG: jen ZABAGED (path_source=zabaged)")
-    elif path_source == PATH_SOURCE_OSM:
-        if osm_kp_zip and osm_kp_zip.is_file():
-            kp_vector_cmd.append(str(osm_kp_zip.resolve()))
-            log(
-                f"KP PNG: ZABAGED bez cest + OSM cesty/silnice ({osm_kp_zip.name})"
-            )
-        else:
-            log("KP PNG: ZABAGED bez cest (OSM cesty chybí)")
-    elif osm_kp_zip and osm_kp_zip.is_file():
+    if osm_kp_zip and osm_kp_zip.is_file():
         kp_vector_cmd.append(str(osm_kp_zip.resolve()))
         log(f"KP PNG: ZABAGED + OSM cesty ({osm_kp_zip.name})")
     else:
@@ -364,29 +337,40 @@ def _package_output(
         meta = oom_metadata(
             preset_id, preset, options, job_name, reference_layers=ref_layers or None
         )
+        omap_paths: list[Path] = []
         if bbox:
             vectorconf = Path(str(preset.get("vectorconf", "zabaged.txt"))).name
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
-            omap_path = prepare_oom_map(
-                kp_cwd,
-                output_dir / "podkladarna.omap",
-                map_name=job_name or preset_id,
-                scale=meta["scale"],
-                preset_id=preset_id,
-                bbox_wgs84=tuple(bbox),
-                built_refs=built_refs or None,
-                zabaged_clean=zabaged,
-                vectorconf_name=vectorconf,
-                include_dxf=bool(options.get("output_dxf", True)),
-                contour_interval_m=meta.get("contour_interval_m"),
-                formline=0,
-                indexcontours_m=indexcontours_m,
-                cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
-                courtyard_olive=bool(options.get("sprint_courtyard_olive", True)),
-                path_source=resolve_path_source(options.get("path_source")),
-            )
+            
+            variants = [
+                ("podkladarna-cesty_zabaged.omap", PATH_SOURCE_ZABAGED),
+                ("podkladarna-cesty_osm.omap", PATH_SOURCE_OSM),
+                ("podkladarna-kombinace.omap", PATH_SOURCE_MIXED),
+            ]
+            
+            for variant_name, path_src in variants:
+                omap_p = prepare_oom_map(
+                    kp_cwd,
+                    output_dir / variant_name,
+                    map_name=job_name or preset_id,
+                    scale=meta["scale"],
+                    preset_id=preset_id,
+                    bbox_wgs84=tuple(bbox),
+                    built_refs=built_refs or None,
+                    zabaged_clean=zabaged,
+                    vectorconf_name=vectorconf,
+                    include_dxf=bool(options.get("output_dxf", True)),
+                    contour_interval_m=meta.get("contour_interval_m"),
+                    formline=0,
+                    indexcontours_m=indexcontours_m,
+                    cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
+                    courtyard_olive=bool(options.get("sprint_courtyard_olive", True)),
+                    path_source=path_src,
+                )
+                if omap_p:
+                    omap_paths.append(omap_p)
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
         build_oom_zip(
@@ -399,7 +383,7 @@ def _package_output(
                 if want_refs and reference_dir and reference_dir.is_dir()
                 else None
             ),
-            omap_path=omap_path,
+            omap_paths=omap_paths,
             include_zabaged_archive=bool(
                 options.get("output_zabaged_clean", False) and zabaged
             ),
@@ -414,8 +398,8 @@ def _package_output(
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)
-    # Stejná struktura jako v ZIPu, ať jde otevřít i output/podkladarna.omap.
-    if omap_path and omap_path.is_file():
+    # Stejná struktura jako v ZIPu, ať jde otevřít i output/podkladarna-*.omap.
+    if want_zip and omap_paths:
         for folder, names in (
             ("basemap", ("pullautus.png", "pullautus.pgw")),
             ("relief", ("pullautus_depr.png", "pullautus_depr.pgw")),

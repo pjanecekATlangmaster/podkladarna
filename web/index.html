@@ -92,22 +92,12 @@
         </div>
 
         <div class="form-section">
-          <h3 class="form-section-title">Cesty a OSM</h3>
-          <label>
-            Zdroj cest v omap
-            <select name="path_source" id="path_source">
-              <option value="mixed" selected>Mix ZABAGED + OSM (výchozí)</option>
-              <option value="zabaged">Jen ZABAGED</option>
-              <option value="osm">Jen OpenStreetMap (včetně silnic)</option>
-            </select>
-          </label>
-          <p class="hint" id="path-source-hint">Co se nakreslí jako cesty. Mix dělá dedup; při nepřesném souběhu (často MTBO) můžou zbýt zdvojeniny. Jen jeden zdroj = čistší mapa; druhý zůstane ve ZIPu (<code>zabaged/</code> nebo <code>osm_paths/</code>) pro ruční import.</p>
-
+          <h3 class="form-section-title">OSM detaily</h3>
           <label class="checkbox-row">
             <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />
             OSM detaily – ploty, zdi, brány, pomníky…
           </label>
-          <p class="hint" id="osm-priority-hint">Urban pack z OSM (ne volba zdroje cest). Na sprintu užitečné; v lese / MTBO často zbytečné až hlučné. Budovy a silnice bereme ze ZABAGED (u „Jen OSM“ silnice z OSM).</p>
+          <p class="hint" id="osm-priority-hint">Urban pack z OSM. Na sprintu užitečné; v lese / MTBO často zbytečné až hlučné. Budovy a silnice bereme vždy ze ZABAGED.</p>
 
           <div id="courtyard-olive-wrap">
             <label class="checkbox-row">

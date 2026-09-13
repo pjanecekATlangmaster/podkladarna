@@ -23,14 +23,14 @@ WEB_ABOUT_HTML = """
 </p>
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
-  <li><code>podkladarna.omap</code> – otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
+  <li><code>podkladarna-*.omap</code> – 3 varianty cest (jen ZABAGED, jen OSM, mix), otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
   Nakreslete obdélník (max 5 × 5&nbsp;km), vyberte typ mapy a spusťte generování.
   Sprint bývá hotový za 2–6 minut, lesní mapa trvá déle. Stránku mezitím
   můžete zavřít. Po dokončení stáhněte ZIP (pokud jste ho nechali generovat),
-  v OOM otevřete <code>podkladarna.omap</code> a podle návodu doladíte symboliku.
+  v OOM otevřete vybraný <code>podkladarna-*.omap</code> a podle návodu doladíte symboliku.
   OCAD soubor <code>.omap</code> neotevře, DXF/SHP/PNG ano.
 </p>
 <p>
@@ -64,7 +64,7 @@ a skládají se z více zdrojů (ne 1:1 s PNG).
 
 Co je uvnitř
 ------------
-- podkladarna.omap     … otevřete v OpenOrienteering Mapper (OOM)
+- podkladarna-*.omap   … 3 varianty cest, otevřete v OpenOrienteering Mapper (OOM)
 - basemap/             … reliéf a vegetace z LiDARu (Karttapullautin)
 - karttapullautin/     … srázy a knolíky (DXF)
 - contours/            … vrstevnice z PDAL/GDAL (shapefile)
@@ -77,7 +77,7 @@ Co je uvnitř
 Co s tím
 --------
 1. Nainstalujte OOM (openorienteering.org).
-2. Rozbalte ZIP. Dvojklik na podkladarna.omap nebo File → Open.
+2. Rozbalte ZIP. Dvojklik na vybraný podkladarna-*.omap nebo File → Open.
 3. Importujte DXF a SHP dle README_OOM.txt a přiřaďte symboliku ISOM/ISSOM.
 4. Kreslete mapu. Referenční vrstvy po dokončení vypněte nebo smažte.
 

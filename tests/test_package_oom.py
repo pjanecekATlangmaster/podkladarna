@@ -104,7 +104,7 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "1:4000" in readme
     assert "ČÚZK" in readme
     assert "WMS" in readme
-    assert "podkladarna.omap" in readme
+    assert "podkladarna-*.omap" in readme
     assert oom_readme(meta).startswith("Podkladárna")
 
 def test_prepare_oom_map_minimal(tmp_path):

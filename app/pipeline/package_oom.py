@@ -96,16 +96,6 @@ def oom_readme(meta: dict) -> str:
             + "\n".join(f"- {name}" for name in refs)
             + "\n"
         )
-    path_source = resolve_path_source(meta.get("path_source"))
-    path_source_labels = {
-        PATH_SOURCE_MIXED: "mix ZABAGED + OSM (dedup proti duplicitám)",
-        PATH_SOURCE_ZABAGED: "jen ZABAGED (OSM cesty ve složce osm_paths/)",
-        PATH_SOURCE_OSM: "jen OSM včetně silnic (ZABAGED cesty ve složce zabaged/)",
-    }
-    path_source_block = (
-        f"\nZdroj cest: {path_source_labels.get(path_source, path_source)}\n"
-        "Nepoužitý zdroj cest zůstává ve ZIPu pro ruční import v OOM.\n"
-    )
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"
         "=================================================\n\n"
@@ -116,10 +106,10 @@ def oom_readme(meta: dict) -> str:
         "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n\n"
         f"Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
         "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa a náhled DMP OK.\n"
-        f"{ref_block}{path_source_block}\n"
+        f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
-        "1. Rozbalte celý ZIP do jedné složky. Otevřete podkladarna.omap.\n"
+        "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný podkladarna-*.omap.\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, srázy, …).\n"
         "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
         "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
@@ -317,6 +307,7 @@ def prepare_oom_map(
             ref_y=ref_y,
             grivation_deg=grivation,
             clip_bounds=clip_bounds,
+            path_source=path_source,
         )
         if osm_parts:
             object_parts.extend(osm_parts)
@@ -345,7 +336,7 @@ def build_oom_zip(
     zabaged_clean: Path | None,
     metadata: dict,
     reference_dir: Path | None = None,
-    omap_path: Path | None = None,
+    omap_paths: list[Path] | None = None,
     include_zabaged_archive: bool = False,
     include_png: bool = True,
     include_dxf: bool = True,
@@ -357,8 +348,10 @@ def build_oom_zip(
 
     with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("CO_JE_PODKLADARNA.txt", ZIP_ABOUT_TXT)
-        if omap_path and omap_path.is_file():
-            zf.write(omap_path, OOM_MAP_NAME)
+        if omap_paths:
+            for omap_path in omap_paths:
+                if omap_path.is_file():
+                    zf.write(omap_path, omap_path.name)
         zf.writestr("README_OOM.txt", oom_readme(metadata))
         zf.writestr(
             "metadata.json",

@@ -600,24 +600,6 @@ function updateOsmHintsForPreset(presetId) {
     hint.textContent =
       "Urban pack z OSM (ploty, zdi, brány, pomníky…). Na sprintu užitečné; v lese / MTBO často vypnout. Zdroj cest nastav výše.";
   }
-  updatePathSourceHint();
-}
-
-function updatePathSourceHint() {
-  const hint = document.getElementById("path-source-hint");
-  const sel = document.getElementById("path_source");
-  if (!hint || !sel) return;
-  const v = sel.value || "mixed";
-  if (v === "zabaged") {
-    hint.textContent =
-      "V omap jen cesty ze ZABAGED. OSM cesty se stejně stáhnou do ZIPu (osm_paths/) pro případný ruční import.";
-  } else if (v === "osm") {
-    hint.textContent =
-      "V omap jen cesty a silnice z OSM (včetně residential/primary…). ZABAGED cesty zůstanou ve ZIPu (zabaged/) pro ruční import.";
-  } else {
-    hint.textContent =
-      "Mix ZABAGED + OSM s dedupem. Při nepřesném souběhu (často MTBO) můžou zbýt zdvojeniny — pak zkus jen ZABAGED nebo jen OSM. Nevybraný zdroj zůstane ve ZIPu pro ruční import.";
-  }
 }
 
 function updateCliffControls() {
@@ -690,13 +672,6 @@ function applyJobToForm(job) {
     const opts = job.options || {};
     priority.checked =
       opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
-  }
-  const pathSource = form.path_source;
-  if (pathSource) {
-    const val = (job.options || {}).path_source || "mixed";
-    if ([...pathSource.options].some((o) => o.value === val)) {
-      pathSource.value = val;
-    }
   }
   const courtyard = form.sprint_courtyard_olive;
   if (courtyard) {
@@ -831,12 +806,6 @@ initBboxMap();
   const sync = () => updateOsmHintsForPreset(preset.value);
   preset.addEventListener("change", sync);
   sync();
-})();
-(() => {
-  const pathSource = document.getElementById("path_source");
-  if (!pathSource) return;
-  pathSource.addEventListener("change", updatePathSourceHint);
-  updatePathSourceHint();
 })();
 (() => {
   const cliff = document.getElementById("kp_cliff_symbol");

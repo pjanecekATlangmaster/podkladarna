@@ -1667,19 +1667,17 @@ def prepare_osm_paths(
     include_lamps: bool = False,
     include_playground_equipment: bool = False,
     osm_priority: bool = False,
-    path_source: str = PATH_SOURCE_MIXED,
     preset_id: str = "",
     log=None,
-) -> Path | None:
-    path_source = resolve_path_source(path_source)
-    highways = osm_highway_set(path_source)
+) -> None:
+    highways = osm_highway_set(PATH_SOURCE_OSM)
     elements = fetch_osm_path_elements(
         bbox_wgs84,
         include_benches=include_benches,
         include_lamps=include_lamps,
         include_playground_equipment=include_playground_equipment,
         osm_priority=osm_priority,
-        path_source=path_source,
+        path_source=PATH_SOURCE_OSM,
         log=log,
     )
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
@@ -1779,18 +1777,7 @@ def prepare_osm_paths(
         osm_items.append((pts, hw))
     zabaged_lines: list[list[tuple[float, float]]] = []
     sprint = str(preset_id).startswith("sprint")
-    if path_source in {PATH_SOURCE_OSM, PATH_SOURCE_ZABAGED}:
-        if log:
-            if path_source == PATH_SOURCE_OSM:
-                log(
-                    "OSM dedup: path_source=osm – bez ořezu proti ZABAGED cestám"
-                )
-            else:
-                log(
-                    "OSM dedup: path_source=zabaged – OSM jen do ZIP, "
-                    "bez dedup proti ZABAGED"
-                )
-    elif zabaged_clean and zabaged_clean.is_file():
+    if zabaged_clean and zabaged_clean.is_file():
         # Sprint: OSM má přednost před Pesina/Cesta – neořezávat OSM proti nim.
         dedup_layers = (
             ZABAGED_PATH_LAYERS_PRIORITY
@@ -1813,23 +1800,33 @@ def prepare_osm_paths(
                 "OSM dedup: varování – ZABAGED ZIP je, ale 0 cestovních linií; "
                 "OSM pěšiny se neoříznou proti ZABAGED"
             )
-    kept, dropped = filter_osm_items_against_zabaged(osm_items, zabaged_lines)
-    kept, dropped_self = dedup_osm_prefer_wider(kept)
-    dropped += dropped_self
+
+    # 1. Varianta OSM (všechny cesty vč. silnic, bez ořezu proti ZABAGED)
+    kept_osm, dropped_self_osm = dedup_osm_prefer_wider(osm_items)
+
+    # 2. Varianta MIXED (jen pěšiny, ořez proti ZABAGED)
+    mixed_highways = osm_highway_set(PATH_SOURCE_MIXED)
+    osm_items_mixed = [(pts, hw) for pts, hw in osm_items if hw in mixed_highways]
+    kept_mixed, dropped_mixed = filter_osm_items_against_zabaged(osm_items_mixed, zabaged_lines)
+    kept_mixed, dropped_self_mixed = dedup_osm_prefer_wider(kept_mixed)
+    dropped_mixed += dropped_self_mixed
+
     features, dropped_areas = filter_osm_area_features_against_zabaged(
         features, zabaged_clean, log=log
     )
     if log:
         by_hw: dict[str, int] = defaultdict(int)
-        for _pts, hw in kept:
+        for _pts, hw in kept_mixed:
             by_hw[hw] += 1
         summary = ", ".join(f"{k}={v}" for k, v in sorted(by_hw.items())) or "—"
         log(
-            f"OSM cesty: {len(kept)} ponecháno ({summary}), "
-            f"{dropped} duplicit/krátkých"
-            + (f" (z toho {dropped_self} OSM×OSM širší>užší)" if dropped_self else "")
+            f"OSM cesty (mix): {len(kept_mixed)} ponecháno ({summary}), "
+            f"{dropped_mixed} duplicit/krátkých"
+            + (f" (z toho {dropped_self_mixed} OSM×OSM širší>užší)" if dropped_self_mixed else "")
             + f", {skipped} přeskočeno (tag)"
         )
+        log(f"OSM cesty (jen OSM): {len(kept_osm)} ponecháno (bez ZABAGED dedup)")
+        
         by_feat: dict[str, int] = defaultdict(int)
         for feat in features:
             by_feat[str((feat.get("properties") or {}).get("kind") or "?")] += 1
@@ -1843,30 +1840,37 @@ def prepare_osm_paths(
                 else ""
             )
             log(f"OSM objekty: {len(features)} ({feat_summary}){extra}")
+    
     dest_dir = work_dir / "osm_paths"
     dest_dir.mkdir(parents=True, exist_ok=True)
-    gj = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": {"source": "osm", "highway": hw},
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": [[x, y] for x, y in line],
-                },
-            }
-            for line, hw in kept
-        ],
-    }
-    out = dest_dir / "paths.geojson"
-    out.write_text(json.dumps(gj), encoding="utf-8")
+    
+    def write_geojson(kept_list, filename):
+        gj = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"source": "osm", "highway": hw},
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[x, y] for x, y in line],
+                    },
+                }
+                for line, hw in kept_list
+            ],
+        }
+        (dest_dir / filename).write_text(json.dumps(gj), encoding="utf-8")
+
+    write_geojson(kept_mixed, "paths_mixed.geojson")
+    write_geojson(kept_osm, "paths_osm.geojson")
+    # Zpětná kompatibilita (např. pro testy)
+    write_geojson(kept_mixed, "paths.geojson")
+
     feat_out = dest_dir / "features.geojson"
     feat_out.write_text(
         json.dumps({"type": "FeatureCollection", "features": features}),
         encoding="utf-8",
     )
-    return out if kept else (feat_out if features else None)
 
 
 def highway_to_zabaged_vrstva(highway: str) -> str | None:
@@ -1921,12 +1925,15 @@ def write_osm_kp_zip(
 ) -> Path | None:
     """Sestaví plochý SHP ZIP pro Karttapullautin (druhý ZIP vedle ZABAGED).
 
-    Čte už dedupované ``osm_paths/paths.geojson``. Při chybě ogr2ogr vrátí None –
+    Čte už dedupované ``osm_paths/paths_mixed.geojson``. Při chybě ogr2ogr vrátí None –
     PNG zůstane jen ze ZABAGED, OOM OSM objekty beze změny.
     """
-    paths_gj = work_dir / "osm_paths" / "paths.geojson"
+    paths_gj = work_dir / "osm_paths" / "paths_mixed.geojson"
     if not paths_gj.is_file():
-        return None
+        # Zpětná kompatibilita pro starší joby
+        paths_gj = work_dir / "osm_paths" / "paths.geojson"
+        if not paths_gj.is_file():
+            return None
     try:
         data = json.loads(paths_gj.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -2011,10 +2018,15 @@ def build_osm_path_parts(
     ref_y: float,
     grivation_deg: float,
     clip_bounds: Bounds | None = None,
+    path_source: str = PATH_SOURCE_MIXED,
 ) -> list[OomObjectPart]:
-    gj_path = work_dir / "osm_paths" / "paths.geojson"
+    filename = "paths_osm.geojson" if path_source == PATH_SOURCE_OSM else "paths_mixed.geojson"
+    gj_path = work_dir / "osm_paths" / filename
     if not gj_path.is_file():
-        return []
+        # Fallback for older jobs
+        gj_path = work_dir / "osm_paths" / "paths.geojson"
+        if not gj_path.is_file():
+            return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
