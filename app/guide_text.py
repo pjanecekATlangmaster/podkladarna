@@ -23,13 +23,14 @@ WEB_ABOUT_HTML = """
 </p>
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
-  <li><code>podkladarna-*.omap</code> – 9 souborů (sprint/les/mtbo × ZABAGED/OSM/mix cest), otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
+  <li><code>podkladarna-*.omap</code> – podle měřítka 3 nebo 6 souborů (sprint, nebo les+MTBO) × 3 zdroje cest; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
-  Nakreslete obdélník (max 5 × 5&nbsp;km), vyberte typ mapy a spusťte generování.
-  Sprint bývá hotový za 2–6 minut, lesní mapa trvá déle. Stránku mezitím
-  můžete zavřít. Po dokončení stáhněte ZIP (pokud jste ho nechali generovat),
+  Nakreslete obdélník (max 5 × 5&nbsp;km), vyberte <strong>měřítko</strong> a
+  <strong>ekvidistanci</strong> a spusťte generování. PNG na webu je jen náhled;
+  do ZIPu jdou omapy pro příslušné disciplíny. Stránku mezitím můžete zavřít.
+  Po dokončení stáhněte ZIP (pokud jste ho nechali generovat),
   v OOM otevřete vybraný <code>podkladarna-*.omap</code> a podle návodu doladíte symboliku.
   OCAD soubor <code>.omap</code> neotevře, DXF/SHP/PNG ano.
 </p>
@@ -39,6 +40,10 @@ WEB_ABOUT_HTML = """
   <strong>10</strong>. Kdo má oba sloty plné, ve frontě ustoupí tomu, kdo
   ještě nic nespustil. Podle IP to není stoprocentní (VPN, sdílená Wi‑Fi).
   Hotové joby držíme <strong>48 hodin</strong>, ZIP si uložte u sebe.
+</p>
+<p>
+  Podkladárna je experiment — ocení
+  <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">zpětnou vazbu a připomínky (GitHub Issues)</a>.
 </p>
 """
 
@@ -64,7 +69,7 @@ a skládají se z více zdrojů (ne 1:1 s PNG).
 
 Co je uvnitř
 ------------
-- podkladarna-*.omap   … 9 souborů (sprint/les/mtbo × ZABAGED/OSM/mix), otevřete v OpenOrienteering Mapper (OOM)
+- podkladarna-*.omap   … podle měřítka 3 nebo 6 souborů (sprint, nebo les+MTBO × ZABAGED/OSM/mix), otevřete v OpenOrienteering Mapper (OOM)
 - basemap/             … reliéf a vegetace z LiDARu (Karttapullautin)
 - karttapullautin/     … srázy a knolíky (DXF)
 - contours/            … vrstevnice z PDAL/GDAL (shapefile)
@@ -83,6 +88,11 @@ Co s tím
 
 OCAD neotevře .omap – použijte DXF, SHP nebo georeferencované PNG+PGW,
 případně export z OOM do OCD (v8–12).
+
+Zpětná vazba
+------------
+Podkladárna je experiment — ocení zpětnou vazbu a připomínky:
+https://github.com/pjanecekATlangmaster/podkladarna/issues
 
 Právní
 ------

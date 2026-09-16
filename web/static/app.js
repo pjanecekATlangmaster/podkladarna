@@ -79,37 +79,173 @@ let bboxCorners = [];
 let bboxRect = null;
 let bboxAllowed = false;
 let lastSheets = null;
+let mapOptions = {
+  scales: [4000, 7500, 10000, 15000],
+  contours_by_scale: {
+    4000: [2, 2.5, 5],
+    7500: [2, 2.5, 5],
+    10000: [5],
+    15000: [5],
+  },
+  default_contour_by_scale: {
+    4000: 2.5,
+    7500: 5,
+    10000: 5,
+    15000: 5,
+  },
+};
 
-async function loadPresets() {
-  const data = await api("/api/presets");
-  const sel = document.getElementById("preset_id");
-  sel.innerHTML = "";
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "Vyberte typ mapy";
-  placeholder.disabled = true;
-  placeholder.selected = true;
-  sel.appendChild(placeholder);
-  const groups = new Map();
-  for (const [id, p] of Object.entries(data)) {
-    const name = p.group || "";
-    if (!groups.has(name)) groups.set(name, []);
-    groups.get(name).push([id, p]);
+function formatContourLabel(meters) {
+  const n = Number(meters);
+  if (Number.isInteger(n)) return `${n} m`;
+  return `${String(n).replace(".", ",")} m`;
+}
+
+function disciplinesForScale(scale) {
+  const s = Number(scale);
+  if (s === 4000) {
+    return {
+      count: 3,
+      text: "3× .omap: jen sprint (ISSprOM) × 3 zdroje cest",
+    };
   }
-  for (const [name, items] of groups) {
-    const parent = name ? document.createElement("optgroup") : sel;
-    if (name) {
-      parent.label = name;
-      sel.appendChild(parent);
+  if (s === 7500) {
+    return {
+      count: 6,
+      text: "6× .omap: les + MTBO (oba 1:7500) × 3 zdroje cest — bez sprintu",
+    };
+  }
+  if (s === 10000) {
+    return {
+      count: 6,
+      text: "6× .omap: les + MTBO (1:10000) × 3 zdroje cest",
+    };
+  }
+  if (s === 15000) {
+    return {
+      count: 6,
+      text: "6× .omap: les + MTBO (1:15000) × 3 zdroje cest",
+    };
+  }
+  return { count: 0, text: "Vyberte měřítko — ukáže se, kolik omapů vznikne." };
+}
+
+function jobScaleLabel(job) {
+  const opts = job.options || {};
+  let scale = opts.map_scale != null ? Number(opts.map_scale) : NaN;
+  if (!Number.isFinite(scale) && opts.scalefactor != null) {
+    scale = Math.round(Number(opts.scalefactor) * 10000);
+  }
+  let contour = opts.contour_interval != null ? Number(opts.contour_interval) : NaN;
+  if (Number.isFinite(scale) && mapOptions.scales.includes(scale)) {
+    if (!Number.isFinite(contour)) {
+      contour = Number(mapOptions.default_contour_by_scale[scale]);
     }
-    for (const [id, p] of items) {
+    const cTxt = Number.isInteger(contour)
+      ? String(contour)
+      : String(contour).replace(".", ",");
+    return `1:${scale} · ${cTxt} m`;
+  }
+  return job.preset_id || "?";
+}
+
+function rebuildContourOptions(preferred) {
+  const scaleSel = document.getElementById("map_scale");
+  const contourSel = document.getElementById("contour_interval");
+  if (!scaleSel || !contourSel) return;
+  const scale = Number(scaleSel.value);
+  const allowed = mapOptions.contours_by_scale[scale] || [];
+  const fallback = mapOptions.default_contour_by_scale[scale];
+  let keep = preferred != null ? Number(preferred) : Number(contourSel.value);
+  if (!allowed.some((c) => Math.abs(c - keep) < 1e-6)) {
+    keep = fallback;
+  }
+  contourSel.innerHTML = "";
+  if (!scaleSel.value) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.disabled = true;
+    opt.selected = true;
+    opt.textContent = "Nejdřív vyberte měřítko";
+    contourSel.appendChild(opt);
+    contourSel.disabled = true;
+  } else {
+    contourSel.disabled = false;
+    for (const c of allowed) {
       const opt = document.createElement("option");
-      opt.value = id;
-      opt.textContent = p.label || id;
-      parent.appendChild(opt);
+      opt.value = String(c);
+      let label = formatContourLabel(c);
+      if (scale === 4000 && Math.abs(c - 5) < 1e-6) {
+        label += " (výjimečně)";
+      }
+      if (Math.abs(c - fallback) < 1e-6) {
+        label += " – výchozí";
+      }
+      opt.textContent = label;
+      contourSel.appendChild(opt);
+    }
+    const match = [...contourSel.options].find(
+      (o) => Math.abs(Number(o.value) - keep) < 1e-6
+    );
+    contourSel.value = match ? match.value : String(fallback);
+  }
+  updateOutputHints();
+}
+
+function updateOutputHints() {
+  const scaleSel = document.getElementById("map_scale");
+  const discHint = document.getElementById("output-disciplines-hint");
+  const scaleHint = document.getElementById("map-scale-hint");
+  const contourHint = document.getElementById("contour-hint");
+  const scale = scaleSel ? Number(scaleSel.value) : NaN;
+  const info = disciplinesForScale(scale);
+  if (discHint) discHint.textContent = info.text;
+  if (scaleHint) {
+    if (scale === 4000) {
+      scaleHint.textContent =
+        "Sprintový podklad (ISSprOM). Do ZIPu jen sprintové omapy; PNG je náhled.";
+    } else if (scale === 7500) {
+      scaleHint.textContent =
+        "Les + MTBO na 1:7500 (MTBO sprinty výjimečně). Sprint se negeneruje. PNG je jen náhled.";
+    } else if (scale === 10000 || scale === 15000) {
+      scaleHint.textContent =
+        "Les + MTBO na zvoleném měřítku. Sprint se negeneruje. PNG je jen náhled.";
+    } else {
+      scaleHint.textContent =
+        "Určuje, které disciplíny se vygenerují do ZIPu a měřítko omapů / PNG náhledu.";
     }
   }
-  sel.value = "";
+  if (contourHint) {
+    if (scale === 4000) {
+      contourHint.textContent =
+        "U 1:4000: 2 m / 2,5 m / 5 m (5 m výjimečně). Platí pro omapy i kontury.";
+    } else if (scale === 7500) {
+      contourHint.textContent =
+        "U 1:7500: 2 / 2,5 / 5 m. Platí pro všechny generované omapy.";
+    } else if (scale === 10000 || scale === 15000) {
+      contourHint.textContent = "U tohoto měřítka jen 5 m.";
+    } else {
+      contourHint.textContent =
+        "Nabídka závisí na měřítku (u 1:4000 je 5 m výjimečná).";
+    }
+  }
+}
+
+async function loadMapOptions() {
+  try {
+    const data = await api("/api/map_options");
+    if (data && data.scales) mapOptions = data;
+  } catch (_) {
+    /* použij vestavěné defaulty */
+  }
+  const scaleSel = document.getElementById("map_scale");
+  if (scaleSel && !scaleSel.value) {
+    scaleSel.value = "10000";
+  }
+  rebuildContourOptions();
+  if (scaleSel) {
+    scaleSel.addEventListener("change", () => rebuildContourOptions());
+  }
 }
 
 function jobIsLive(status) {
@@ -131,7 +267,7 @@ function jobItemHeadHtml(job) {
   return `
     <strong>${escapeHtml(job.name)}</strong>
     <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}${timing}</div>
-    <div class="status">${job.preset_id} · ${escapeHtml(formatWhen(job.created_at))}</div>
+    <div class="status">${escapeHtml(jobScaleLabel(job))} · ${escapeHtml(formatWhen(job.created_at))}</div>
     ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
   `;
 }
@@ -287,7 +423,7 @@ async function loadJobs() {
     const liveJob = jobIsLive(selected.status);
     if (liveJob || logSettledForJob !== selected.id) {
       document.getElementById("detail-status").textContent =
-        `Stav: ${selected.status} · preset: ${selected.preset_id}` +
+        `Stav: ${selected.status} · ${jobScaleLabel(selected)}` +
         (selected.error ? ` · ${selected.error}` : "");
       const timingEl = document.getElementById("detail-timing");
       if (timingEl) {
@@ -403,7 +539,7 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
   selectedJobStatus = job.status;
   document.getElementById("detail-title").textContent = job.name;
   document.getElementById("detail-status").textContent =
-    `Stav: ${job.status} · preset: ${job.preset_id}` + (job.error ? ` · ${job.error}` : "");
+    `Stav: ${job.status} · ${jobScaleLabel(job)}` + (job.error ? ` · ${job.error}` : "");
   const timingEl = document.getElementById("detail-timing");
   if (timingEl) {
     timingEl.textContent = jobTimingText(job);
@@ -456,9 +592,14 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   const form = e.target;
   const btn = document.getElementById("submit-btn");
   clearFormError();
-  if (!form.preset_id.value) {
-    showFormError("Vyberte typ mapy.");
-    form.preset_id.focus();
+  if (!form.map_scale || !form.map_scale.value) {
+    showFormError("Vyberte měřítko.");
+    if (form.map_scale) form.map_scale.focus();
+    return;
+  }
+  if (!form.contour_interval || !form.contour_interval.value) {
+    showFormError("Vyberte ekvidistanci.");
+    if (form.contour_interval) form.contour_interval.focus();
     return;
   }
   if (!document.getElementById("bbox-input").value) {
@@ -581,20 +722,19 @@ function setReuseJob(id) {
   if (el) el.value = id || "";
 }
 
-function updateOsmHintsForPreset(presetId) {
+function updateOsmHintsForScale(scale) {
   const hint = document.getElementById("osm-priority-hint");
-  const id = (presetId || "").toString();
-  const sprint = id.startsWith("sprint");
   if (!hint) return;
-  if (sprint) {
+  const s = Number(scale);
+  if (s === 4000) {
     hint.textContent =
-      "Sprint: stáhne ploty, zdi, brány, přístřešky, pomníky, fitness… Budovy ze ZABAGED (nebo OSM budovy při prioritě / mezerách).";
-  } else if (id.startsWith("forest") || id.startsWith("mtbo")) {
+      "Sprintový výřez: stáhne ploty, zdi, brány, přístřešky, pomníky… Budovy ze ZABAGED.";
+  } else if (s === 7500 || s === 10000 || s === 15000) {
     hint.textContent =
-      "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Studny, hřiště a podobné objekty se berou podle nastavení níže.";
+      "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Studny a hřiště podle nastavení níže.";
   } else {
     hint.textContent =
-      "Urban pack z OSM (ploty, zdi, brány, pomníky…). Na sprintu užitečné; v lese / MTBO často vypnout.";
+      "Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintu užitečné; v lese často vypnout.";
   }
 }
 
@@ -617,10 +757,25 @@ function updateCliffControls() {
 function applyJobToForm(job) {
   const form = document.getElementById("job-form");
   if (!form) return;
-  const preset = form.preset_id;
-  if (job.preset_id && [...preset.options].some((o) => o.value === job.preset_id)) {
-    preset.value = job.preset_id;
+  const opts = job.options || {};
+  let scale = opts.map_scale != null ? Number(opts.map_scale) : NaN;
+  if (!Number.isFinite(scale) && opts.scalefactor != null) {
+    scale = Math.round(Number(opts.scalefactor) * 10000);
   }
+  if (!Number.isFinite(scale) && job.preset_id) {
+    const pid = String(job.preset_id);
+    if (pid.startsWith("sprint")) scale = 4000;
+    else if (pid === "forest_7500") scale = 7500;
+    else if (pid.includes("15000")) scale = 15000;
+    else scale = 10000;
+  }
+  const scaleSel = form.map_scale;
+  if (scaleSel && Number.isFinite(scale)) {
+    const match = [...scaleSel.options].find((o) => Number(o.value) === scale);
+    if (match) scaleSel.value = match.value;
+  }
+  rebuildContourOptions(opts.contour_interval);
+  updateOsmHintsForScale(scaleSel ? scaleSel.value : scale);
   const cliff = form.kp_cliff_symbol;
   if (cliff) {
     const cliffVal = (job.options || {}).kp_cliff_symbol || "earth_bank";
@@ -647,31 +802,25 @@ function applyJobToForm(job) {
   updateCliffControls();
   const benches = form.kp_osm_benches;
   if (benches) {
-    const opts = job.options || {};
     benches.checked = Boolean(
       opts.kp_osm_benches || opts.kp_osm_furniture
     );
   }
   const lamps = form.kp_osm_lamps;
   if (lamps) {
-    const opts = job.options || {};
     lamps.checked = Boolean(opts.kp_osm_lamps || opts.kp_osm_furniture);
   }
   const playEq = form.kp_osm_playground_equipment;
   if (playEq) {
-    playEq.checked = Boolean(
-      (job.options || {}).kp_osm_playground_equipment
-    );
+    playEq.checked = Boolean(opts.kp_osm_playground_equipment);
   }
   const priority = form.kp_osm_priority;
   if (priority) {
-    const opts = job.options || {};
     priority.checked =
       opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
   }
   const courtyard = form.sprint_courtyard_olive;
   if (courtyard) {
-    const opts = job.options || {};
     courtyard.checked =
       opts.sprint_courtyard_olive == null
         ? true
@@ -679,18 +828,14 @@ function applyJobToForm(job) {
   }
   const outMode = form.output_mode;
   if (outMode) {
-    const opts = job.options || {};
     const wantZip = opts.output_zip == null ? true : Boolean(opts.output_zip);
     outMode.value = wantZip ? "png_zip" : "png";
   }
   const outRefs = form.output_references;
   if (outRefs) {
-    const opts = job.options || {};
     outRefs.checked =
       opts.output_references == null ? true : Boolean(opts.output_references);
   }
-  updateOsmHintsForPreset((job.preset_id || "").toString());
-  const opts = job.options || {};
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {
     applyBbox(bbox[0], bbox[1], bbox[2], bbox[3], {
@@ -793,14 +938,14 @@ function startPolling() {
   }, 2500);
 }
 
-loadPresets().then(loadJobs).then(startPolling);
+loadMapOptions().then(loadJobs).then(startPolling);
 initJobsPager();
 initBboxMap();
 (() => {
-  const preset = document.getElementById("preset_id") || document.querySelector('[name="preset_id"]');
-  if (!preset) return;
-  const sync = () => updateOsmHintsForPreset(preset.value);
-  preset.addEventListener("change", sync);
+  const scaleSel = document.getElementById("map_scale");
+  if (!scaleSel) return;
+  const sync = () => updateOsmHintsForScale(scaleSel.value);
+  scaleSel.addEventListener("change", sync);
   sync();
 })();
 (() => {

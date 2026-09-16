@@ -36,13 +36,27 @@ from app.settings import APP_VERSION
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
 OOM_MAP_NAME = "podkladarna.omap"
-# 3 zdroje cest × 3 disciplíny → 9 omap v ZIPu.
+# Zdroje cest × disciplíny (počet disciplín závisí na měřítku).
 OOM_PATH_VARIANTS: tuple[tuple[str, str], ...] = (
     ("cesty_zabaged", PATH_SOURCE_ZABAGED),
     ("cesty_osm", PATH_SOURCE_OSM),
     ("kombinace", PATH_SOURCE_MIXED),
 )
 OOM_DISCIPLINE_ORDER: tuple[str, ...] = ("sprint", "les", "mtbo")
+MAP_SCALES: tuple[int, ...] = (4000, 7500, 10000, 15000)
+# Povolené ekvidistance (m) podle zvoleného měřítka.
+CONTOURS_BY_SCALE: dict[int, tuple[float, ...]] = {
+    4000: (2.0, 2.5, 5.0),
+    7500: (2.0, 2.5, 5.0),
+    10000: (5.0,),
+    15000: (5.0,),
+}
+DEFAULT_CONTOUR_BY_SCALE: dict[int, float] = {
+    4000: 2.5,
+    7500: 5.0,
+    10000: 5.0,
+    15000: 5.0,
+}
 # Kolik nechat za objednanou hranicí, ať u kraje mapy nechybí kus prvku.
 CLIP_MARGIN_M = 25.0
 # Louka / parková zeleň pod KP vegetací – jinak 401 překryje hustníky z LiDARu.
@@ -62,51 +76,227 @@ def map_scale_from_scalefactor(scalefactor: float) -> int:
     return int(round(float(scalefactor) * 10000))
 
 
+def parse_map_scale(raw: object) -> int | None:
+    """Vrátí jedno z MAP_SCALES, nebo None."""
+    if raw is None or raw == "":
+        return None
+    try:
+        if isinstance(raw, str):
+            text = raw.strip().lower().replace(" ", "")
+            if text.startswith("1:"):
+                text = text[2:]
+            value = int(round(float(text.replace(",", "."))))
+        else:
+            value = int(round(float(raw)))
+    except (TypeError, ValueError):
+        return None
+    return value if value in MAP_SCALES else None
+
+
+def parse_contour_interval(raw: object) -> float | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        if isinstance(raw, str):
+            value = float(raw.strip().replace(",", ".").replace("m", ""))
+        else:
+            value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    # Normalizuj 2.50 → 2.5 apod.
+    for known in (2.0, 2.5, 5.0):
+        if abs(value - known) < 1e-6:
+            return known
+    return None
+
+
+def allowed_contours_for_scale(map_scale: int) -> tuple[float, ...]:
+    return CONTOURS_BY_SCALE.get(int(map_scale), (5.0,))
+
+
+def default_contour_for_scale(map_scale: int) -> float:
+    return DEFAULT_CONTOUR_BY_SCALE.get(int(map_scale), 5.0)
+
+
+def _pick_preset(preferred: str, fallbacks: tuple[str, ...], presets: dict) -> str:
+    if not presets or preferred in presets:
+        return preferred
+    for fb in fallbacks:
+        if fb in presets:
+            return fb
+    return preferred
+
+
+def map_scale_from_preset_id(preset_id: str, presets: dict | None = None) -> int:
+    """Odhad měřítka ze starého preset_id (zpětná kompatibilita)."""
+    presets = presets or {}
+    pid = (preset_id or "").strip()
+    if pid.startswith("sprint"):
+        return 4000
+    if pid == "forest_7500":
+        return 7500
+    if pid.startswith("mtbo") and "15000" in pid:
+        return 15000
+    if pid in presets:
+        try:
+            return map_scale_from_scalefactor(float(presets[pid].get("scalefactor", 1)))
+        except (TypeError, ValueError):
+            pass
+    return 10000
+
+
+def resolve_omap_job(
+    map_scale: object,
+    contour_interval: object = None,
+    *,
+    presets: dict | None = None,
+    preset_id_fallback: str | None = None,
+) -> dict:
+    """Z měřítka + ekvidistance odvodí KP preset a seznam omap disciplín.
+
+    Vrací dict:
+      map_scale, preset_id, scalefactor, contour_interval, indexcontours,
+      disciplines: [(tag, preset_id, scale), ...]
+
+    Raises:
+      ValueError: neplatné měřítko nebo nepovolená ekvidistance.
+    """
+    presets = presets or {}
+    scale = parse_map_scale(map_scale)
+    if scale is None and preset_id_fallback:
+        scale = map_scale_from_preset_id(preset_id_fallback, presets)
+    if scale is None:
+        raise ValueError("Neplatné nebo chybějící měřítko (4000 / 7500 / 10000 / 15000).")
+
+    allowed = allowed_contours_for_scale(scale)
+    contour = parse_contour_interval(contour_interval)
+    if contour is None:
+        if preset_id_fallback and preset_id_fallback in presets:
+            try:
+                contour = parse_contour_interval(
+                    presets[preset_id_fallback].get("contour_interval")
+                )
+            except Exception:
+                contour = None
+        if contour is None or contour not in allowed:
+            contour = default_contour_for_scale(scale)
+    if contour not in allowed:
+        allowed_txt = ", ".join(
+            str(int(c)) if float(c).is_integer() else str(c).replace(".", ",")
+            for c in allowed
+        )
+        raise ValueError(
+            f"Pro měřítko 1:{scale} je ekvidistance {contour} m nepovolená "
+            f"(povolené: {allowed_txt} m)."
+        )
+
+    indexcontours = 5.0 * float(contour)
+    scalefactor = scale / 10000.0
+
+    if scale == 4000:
+        if abs(contour - 2.5) < 1e-6:
+            kp_preset = _pick_preset(
+                "sprint_2_5m", ("sprint_2m", "sprint_2_5m"), presets
+            )
+        else:
+            kp_preset = _pick_preset(
+                "sprint_2m", ("sprint_2m", "sprint_2_5m"), presets
+            )
+        disciplines = [("sprint", kp_preset, 4000)]
+    elif scale == 7500:
+        forest_id = _pick_preset(
+            "forest_7500", ("forest_7500", "forest_10000"), presets
+        )
+        mtbo_id = _pick_preset(
+            "mtbo_10000", ("mtbo_10000", "mtbo_15000"), presets
+        )
+        kp_preset = forest_id
+        disciplines = [
+            ("les", forest_id, 7500),
+            ("mtbo", mtbo_id, 7500),
+        ]
+    elif scale == 10000:
+        forest_id = _pick_preset(
+            "forest_10000", ("forest_10000", "forest_7500"), presets
+        )
+        mtbo_id = _pick_preset(
+            "mtbo_10000", ("mtbo_10000", "mtbo_15000"), presets
+        )
+        kp_preset = forest_id
+        disciplines = [
+            ("les", forest_id, 10000),
+            ("mtbo", mtbo_id, 10000),
+        ]
+    else:  # 15000
+        forest_id = _pick_preset(
+            "forest_10000", ("forest_10000", "forest_7500"), presets
+        )
+        mtbo_id = _pick_preset(
+            "mtbo_15000", ("mtbo_15000", "mtbo_10000"), presets
+        )
+        kp_preset = mtbo_id
+        disciplines = [
+            ("les", forest_id, 15000),
+            ("mtbo", mtbo_id, 15000),
+        ]
+
+    return {
+        "map_scale": scale,
+        "preset_id": kp_preset,
+        "scalefactor": scalefactor,
+        "contour_interval": float(contour),
+        "indexcontours": indexcontours,
+        "disciplines": disciplines,
+    }
+
+
 def resolve_discipline_presets(
     selected_preset_id: str,
     presets: dict | None = None,
-) -> list[tuple[str, str]]:
-    """Vrátí [(tag, preset_id), ...] pro sprint / les / mtbo.
-
-    Vybraný preset určuje konkrétní variantu měřítka/ekvidistance v dané
-    disciplíně; ostatní disciplíny berou výchozí preset.
-    """
-    selected = (selected_preset_id or "sprint_2m").strip()
+    *,
+    map_scale: object = None,
+    contour_interval: object = None,
+) -> list[tuple[str, str, int]]:
+    """Vrátí [(tag, preset_id, scale), ...] podle měřítka (ne vždy všechny disciplíny)."""
     presets = presets or {}
-
-    if selected.startswith("sprint"):
-        sprint_id = selected
-    else:
-        sprint_id = "sprint_2m"
-    if selected.startswith("forest"):
-        forest_id = selected
-    else:
-        forest_id = "forest_10000"
-    if selected.startswith("mtbo"):
-        mtbo_id = selected
-    else:
-        mtbo_id = "mtbo_10000"
-
-    def _pick(preferred: str, fallbacks: tuple[str, ...]) -> str:
-        if not presets or preferred in presets:
-            return preferred
-        for fb in fallbacks:
-            if fb in presets:
-                return fb
-        return preferred
-
-    sprint_id = _pick(sprint_id, ("sprint_2m", "sprint_2_5m"))
-    forest_id = _pick(forest_id, ("forest_10000", "forest_7500"))
-    mtbo_id = _pick(mtbo_id, ("mtbo_10000", "mtbo_15000"))
-    return [
-        ("sprint", sprint_id),
-        ("les", forest_id),
-        ("mtbo", mtbo_id),
-    ]
+    resolved = resolve_omap_job(
+        map_scale,
+        contour_interval,
+        presets=presets,
+        preset_id_fallback=selected_preset_id,
+    )
+    return list(resolved["disciplines"])
 
 
 def omap_variant_filename(discipline_tag: str, path_tag: str) -> str:
     return f"podkladarna-{discipline_tag}-{path_tag}.omap"
+
+
+def job_scale_label(options: dict | None, preset_id: str = "") -> str:
+    """Text pro seznam jobů: „1:10000 · 5 m“."""
+    opts = options or {}
+    scale = parse_map_scale(opts.get("map_scale"))
+    if scale is None and opts.get("scalefactor") is not None:
+        try:
+            scale = map_scale_from_scalefactor(float(opts["scalefactor"]))
+            if scale not in MAP_SCALES:
+                scale = None
+        except (TypeError, ValueError):
+            scale = None
+    if scale is None and preset_id:
+        scale = map_scale_from_preset_id(preset_id)
+    contour = parse_contour_interval(opts.get("contour_interval"))
+    if contour is None and scale is not None:
+        contour = default_contour_for_scale(scale)
+    if scale is None:
+        return preset_id or "?"
+    if contour is None:
+        return f"1:{scale}"
+    if float(contour).is_integer():
+        c_txt = str(int(contour))
+    else:
+        c_txt = str(contour).replace(".", ",")
+    return f"1:{scale} · {c_txt} m"
 
 
 def oom_metadata(
@@ -166,7 +356,7 @@ def oom_readme(meta: dict) -> str:
         "Doporučený postup v OOM\n"
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný podkladarna-*.omap\n"
-        "   (9 souborů: sprint/les/mtbo × cesty_zabaged/cesty_osm/kombinace).\n"
+        "   (sprint a/nebo les/mtbo × cesty_zabaged/cesty_osm/kombinace – podle měřítka).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, srázy, …).\n"
         "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
         "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
@@ -182,7 +372,9 @@ def oom_readme(meta: dict) -> str:
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto), CC BY 4.0. "
         "OSM © přispěvatelé (ODbL). Při šíření mapy uveďte zdroj: ČÚZK, [rok].\n"
-        "Reliéf a vegetace: Karttapullautin (GPL-3.0).\n"
+        "Reliéf a vegetace: Karttapullautin (GPL-3.0).\n\n"
+        "Podkladárna je experiment — zpětná vazba a připomínky:\n"
+        "https://github.com/pjanecekATlangmaster/podkladarna/issues\n"
     )
 
 
