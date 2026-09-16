@@ -220,6 +220,15 @@ def merge_isom_overlay_into_mtbo(
     extras_to_append: list[str] = []
     part_id_map: dict[int, int] = {}  # ISOM symbol id → new/existing id
 
+    _ISOM_TO_MTBO_SPOTCOLOR = {
+        0: 0,   # Purple
+        2: 1,   # Black
+        3: 17,  # Green
+        5: 9,   # Blue
+        6: 6,   # Brown
+        32: 21, # Yellow
+    }
+
     def ensure_isom_color(isom_pri: int) -> int:
         nonlocal next_pri
         if isom_pri in color_map:
@@ -233,6 +242,11 @@ def merge_isom_overlay_into_mtbo(
             f'priority="{next_pri}"',
             src,
             count=1,
+        )
+        new_xml = re.sub(
+            r'\bspotcolor="(\d+)"',
+            lambda m: f'spotcolor="{_ISOM_TO_MTBO_SPOTCOLOR.get(int(m.group(1)), m.group(1))}"',
+            new_xml,
         )
         extra_colors.append(new_xml)
         color_map[isom_pri] = next_pri
