@@ -355,19 +355,19 @@ def prepare_oom_map(
         if dxf_part:
             object_parts.append(dxf_part)
     object_parts.extend(zabaged_rest)
-    if path_source != PATH_SOURCE_ZABAGED:
-        osm_parts = build_osm_path_parts(
-            kp_cwd,
-            preset_id=preset_id,
-            scale=scale,
-            ref_x=ref_x,
-            ref_y=ref_y,
-            grivation_deg=grivation,
-            clip_bounds=clip_bounds,
-            path_source=path_source,
-        )
-        if osm_parts:
-            object_parts.extend(osm_parts)
+    # OSM cesty / u režimu jen-ZABAGED aspoň krátké lávky (ČÚZK je často nemá).
+    osm_parts = build_osm_path_parts(
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+        clip_bounds=clip_bounds,
+        path_source=path_source,
+    )
+    if osm_parts:
+        object_parts.extend(osm_parts)
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
     # Oliva dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.

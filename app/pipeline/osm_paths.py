@@ -124,6 +124,11 @@ MIN_DIR_DOT = 0.5
 OVERLAP_DROP = 0.45  # alias COVER_DROP pro stará volání
 SAMPLE_M = 5.0
 MIN_LENGTH_M = 12.0
+# Krátké lávky / spojky (např. OSM footway + bridge=yes ~4 m) jinak zmizí.
+MIN_LENGTH_SHORT_M = 2.0
+MIN_LENGTH_FOOT_M = 3.0
+# Syntetický highway po načtení OSM (bridge=* na way).
+OSM_BRIDGE_HIGHWAY = "bridge"
 GRID_M = 30.0
 # crossing vždy pryč; sidewalk jen v lese (na sprintu bereme jako chodník).
 SKIP_FOOTWAY_ALWAYS = frozenset({"crossing"})
@@ -314,6 +319,24 @@ def _is_boardwalk(tags: dict) -> bool:
         or (tags.get("man_made") or "").lower() == "boardwalk"
         or (tags.get("bridge") or "").lower() == "boardwalk"
     )
+
+
+def _is_osm_bridge(tags: dict) -> bool:
+    """OSM bridge=* (ne boardwalk) – i krátké lávky chceme v mapě."""
+    if _is_boardwalk(tags):
+        return False
+    bridge = (tags.get("bridge") or "").lower()
+    return bool(bridge) and bridge not in {"no", "false", "0"}
+
+
+def path_min_length_m(highway: str) -> float:
+    """Min. délka střednice před zahozením (krátké lávky/schody/spojky)."""
+    hw = (highway or "path").lower()
+    if hw in {"steps", "sidewalk", OSM_BRIDGE_HIGHWAY}:
+        return MIN_LENGTH_SHORT_M
+    if hw in {"footway", "path", "cycleway", "bridleway", "pedestrian"}:
+        return MIN_LENGTH_FOOT_M
+    return MIN_LENGTH_M
 
 
 def _is_osm_building(tags: dict) -> bool:
@@ -840,6 +863,13 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         if mtbo:
             return "529"
         return "501.1"
+    if hw == OSM_BRIDGE_HIGHWAY:
+        # Les/sprint: 512 Bridge; MTBO 512 je skrytý bod → lávka jako pěšina.
+        if mtbo:
+            return "834"
+        if sprint:
+            return "512.1"
+        return "512"
     if mtbo:
         # footway / path / cycleway → Path: medium riding
         return "834"
@@ -872,6 +902,8 @@ def highway_width_rank(highway: str) -> int:
         "track": 40,
         # Schody > pěšina: při souběhu OSM×OSM nechat schody, ne 507.
         "steps": 35,
+        # Lávka nad obecnou pěšinou (souběh se stezkou).
+        OSM_BRIDGE_HIGHWAY: 32,
         "bridleway": 30,
         "cycleway": 25,
         "pedestrian": 20,
@@ -900,7 +932,7 @@ def dedup_osm_prefer_wider(
     index = _SegmentIndex()
     dropped = 0
     for pts, hw in ordered:
-        if polyline_length(pts) < MIN_LENGTH_M:
+        if polyline_length(pts) < path_min_length_m(hw):
             dropped += 1
             continue
         if kept and centerline_cover_fraction(pts, index, match_m=match_m) >= cover_drop:
@@ -1523,20 +1555,17 @@ def filter_osm_items_against_zabaged(
     """Dedup celých střednic se zachováním highway tagu.
 
     Neořezává konce / úseky – jen zahodí linii, když je skoro celá shodná
-    se ZABAGED. ``steps`` a ``sidewalk`` se proti ZABAGED nefiltrují.
+    se ZABAGED. ``steps``, ``sidewalk`` a lávky (``bridge``) se proti
+    ZABAGED nefiltrují.
     """
-    def _min_len(hw: str) -> float:
-        # Krátké schody / chodníky ve městě; běžné cesty dál 12 m.
-        return 4.0 if hw in {"steps", "sidewalk"} else MIN_LENGTH_M
-
     def _keep_vs_zabaged(hw: str) -> bool:
-        return hw in {"steps", "sidewalk"}
+        return hw in {"steps", "sidewalk", OSM_BRIDGE_HIGHWAY}
 
     if not zabaged_lines:
         kept = [
             (pts, hw)
             for pts, hw in osm_items
-            if polyline_length(pts) >= _min_len(hw)
+            if polyline_length(pts) >= path_min_length_m(hw)
         ]
         return kept, len(osm_items) - len(kept)
     index = _SegmentIndex()
@@ -1545,8 +1574,7 @@ def filter_osm_items_against_zabaged(
     kept: list[tuple[list[tuple[float, float]], str]] = []
     dropped = 0
     for line, hw in osm_items:
-        min_len = _min_len(hw)
-        if polyline_length(line) < min_len:
+        if polyline_length(line) < path_min_length_m(hw):
             dropped += 1
             continue
         if _keep_vs_zabaged(hw):
@@ -1874,6 +1902,9 @@ def prepare_osm_paths(
             hw = sprint_line_highway(tags, hw)
         elif not hw:
             hw = "path"
+        # Krátké lávky (bridge=yes) – syntetický typ, ať nepadnou na 12 m filtr.
+        if _is_osm_bridge(tags):
+            hw = OSM_BRIDGE_HIGHWAY
         # Uzavřená pěší zóna i bez area=yes → zpevněná plocha (ne střednicová pěšina).
         if hw == "pedestrian" and len(pts) >= 3:
             ring = list(pts)
@@ -1917,8 +1948,8 @@ def prepare_osm_paths(
     # 1. Varianta OSM (všechny cesty vč. silnic, bez ořezu proti ZABAGED)
     kept_osm, dropped_self_osm = dedup_osm_prefer_wider(osm_items)
 
-    # 2. Varianta MIXED (jen pěšiny, ořez proti ZABAGED)
-    mixed_highways = osm_highway_set(PATH_SOURCE_MIXED)
+    # 2. Varianta MIXED (jen pěšiny + lávky, ořez proti ZABAGED)
+    mixed_highways = osm_highway_set(PATH_SOURCE_MIXED) | frozenset({OSM_BRIDGE_HIGHWAY})
     osm_items_mixed = [(pts, hw) for pts, hw in osm_items if hw in mixed_highways]
     kept_mixed, dropped_mixed = filter_osm_items_against_zabaged(osm_items_mixed, zabaged_lines)
     kept_mixed, dropped_self_mixed = dedup_osm_prefer_wider(kept_mixed)
@@ -1976,6 +2007,11 @@ def prepare_osm_paths(
 
     write_geojson(kept_mixed, "paths_mixed.geojson")
     write_geojson(kept_osm, "paths_osm.geojson")
+    # Lávky i do režimu jen-ZABAGED (krátké OSM bridge často v ČÚZK chybí).
+    write_geojson(
+        [(pts, hw) for pts, hw in kept_osm if hw == OSM_BRIDGE_HIGHWAY],
+        "paths_bridges.geojson",
+    )
     # Zpětná kompatibilita (např. pro testy)
     write_geojson(kept_mixed, "paths.geojson")
 
@@ -1998,6 +2034,8 @@ def highway_to_zabaged_vrstva(highway: str) -> str | None:
         return "Ulice"  # KP road-path|503
     if hw == "track":
         return "Cesta"  # KP road-path|505
+    if hw == OSM_BRIDGE_HIGHWAY:
+        return "Lavka"  # KP road-path|506
     # sidewalk / footway / path → KP pěšina (506)
     return "Pesina"  # KP road-path|506
 
@@ -2133,7 +2171,12 @@ def build_osm_path_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = PATH_SOURCE_MIXED,
 ) -> list[OomObjectPart]:
-    filename = "paths_osm.geojson" if path_source == PATH_SOURCE_OSM else "paths_mixed.geojson"
+    if path_source == PATH_SOURCE_ZABAGED:
+        filename = "paths_bridges.geojson"
+    elif path_source == PATH_SOURCE_OSM:
+        filename = "paths_osm.geojson"
+    else:
+        filename = "paths_mixed.geojson"
     gj_path = work_dir / "osm_paths" / filename
     if not gj_path.is_file():
         # Fallback for older jobs
@@ -2182,9 +2225,14 @@ def build_osm_path_parts(
                 objects.append(obj)
     if not objects:
         return []
+    part_name = (
+        "OSM lávky"
+        if path_source == PATH_SOURCE_ZABAGED
+        else "OSM cesty"
+    )
     return [
         OomObjectPart(
-            name="OSM cesty",
+            name=part_name,
             objects_xml="\n".join(objects),
             count=len(objects),
         )

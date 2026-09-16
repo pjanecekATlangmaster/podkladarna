@@ -534,6 +534,46 @@ def test_filter_keeps_sidewalk_on_zabaged():
     assert dropped == 0 and len(kept) == 1 and kept[0][1] == "sidewalk"
 
 
+def test_short_osm_bridge_is_kept():
+    """way/551847479: footway + bridge ~4 m – nesmí spadnout na filtr 12 m."""
+    from app.pipeline.osm_paths import (
+        OSM_BRIDGE_HIGHWAY,
+        _is_osm_bridge,
+        dedup_osm_prefer_wider,
+        filter_osm_items_against_zabaged,
+        highway_to_zabaged_vrstva,
+        osm_oom_code,
+        path_min_length_m,
+    )
+
+    assert _is_osm_bridge({"highway": "footway", "bridge": "yes"})
+    assert not _is_osm_bridge({"highway": "footway", "bridge": "no"})
+    assert not _is_osm_bridge({"highway": "footway", "bridge": "boardwalk"})
+    assert path_min_length_m(OSM_BRIDGE_HIGHWAY) <= 2.0
+    assert path_min_length_m("footway") <= 3.0
+
+    # ~4.4 m lávka (jako Motol) + delší pěšina mimo filtr.
+    bridge = ([(0.0, 0.0), (4.4, 0.0)], OSM_BRIDGE_HIGHWAY)
+    path = ([(0.0, 20.0), (40.0, 20.0)], "path")
+    kept, dropped = dedup_osm_prefer_wider([bridge, path])
+    assert dropped == 0
+    assert {hw for _pts, hw in kept} == {OSM_BRIDGE_HIGHWAY, "path"}
+
+    # Pod limitem pěšiny (~3 m) stále pryč.
+    tiny = ([(0.0, 40.0), (2.5, 40.0)], "path")
+    kept_t, dropped_t = dedup_osm_prefer_wider([tiny])
+    assert dropped_t == 1 and not kept_t
+
+    zab = [[(0.0, 0.0), (100.0, 0.0)]]
+    kept_b, drop_b = filter_osm_items_against_zabaged([bridge], zab)
+    assert drop_b == 0 and len(kept_b) == 1 and kept_b[0][1] == OSM_BRIDGE_HIGHWAY
+
+    assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "forest_10000") == "512"
+    assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "sprint_2m") == "512.1"
+    assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "mtbo_10000") == "834"
+    assert highway_to_zabaged_vrstva(OSM_BRIDGE_HIGHWAY) == "Lavka"
+
+
 def test_osm_oom_code_sidewalk():
     from app.pipeline.osm_paths import (
         highway_to_zabaged_vrstva,
