@@ -807,8 +807,8 @@ def _way_skip_reason(
 def osm_oom_code(highway: str, preset_id: str) -> str:
     """ISOM/ISSprOM/ISMTBOM kód podle OSM highway.
 
-    Postupně podle velikosti 503→504→505→506; nezřetelnou 507 nepoužíváme
-    (to nejmenší v OSM stejně typicky není).
+    Les/sprint: 503→504→505→506 (bez nezřetelné 507).
+    MTBO: silnice 502; cesty 831/833, pěšiny 834 (ISOM 504–507 jsou v sadě skryté).
     """
     hw = (highway or "path").lower()
     sprint = preset_id.startswith("sprint")
@@ -817,25 +817,28 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         if sprint:
             return "501.17"
         if mtbo:
-            return "504"  # ISMTBOM Road
+            return "502"  # ISMTBOM Major road / paved
         return "503"
     if hw == "steps":
-        # ISSprOM: footprint schodiště; ISOM: 532 Stairway; ISMTBOM schody nemá.
+        # ISSprOM: footprint schodiště; ISOM: 532 Stairway; ISMTBOM: 843.
         if sprint:
             return "532.7"
         if mtbo:
-            return "506"
+            return "843"
         return "532"
     if hw == "track":
         # Lesní / polní cesta (vozová) – ne úzká pěšina.
         if sprint:
             return "505.1"
         if mtbo:
-            return "505"  # ISMTBOM Vehicle track
+            return "833"  # Track: medium riding
         return "504"
     if sprint and hw == "sidewalk":
         # Zpevněný chodník = footprint zpevněné plochy (ne přerušovaná pěšina).
         return "501.6"
+    if mtbo:
+        # footway / path / cycleway → Path: medium riding
+        return "834"
     # footway / path / … → small footpath 506 (ne nezřetelná 507).
     return "506"
 
@@ -2157,10 +2160,13 @@ def build_osm_path_parts(
             symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
         symbol_index = symbol_cache[code]
         if symbol_index is None:
-            # Fallback na malou pěšinu 506 (507 nezřetelnou nepoužíváme).
-            if "506" not in symbol_cache:
-                symbol_cache["506"] = symbol_index_for_code(preset_id, scale, "506")
-            symbol_index = symbol_cache["506"]
+            # Fallback: les/sprint 506; MTBO Path medium 834 (504–507 jsou skryté).
+            fallback = "834" if preset_id.startswith("mtbo") else "506"
+            if fallback not in symbol_cache:
+                symbol_cache[fallback] = symbol_index_for_code(
+                    preset_id, scale, fallback
+                )
+            symbol_index = symbol_cache[fallback]
         if symbol_index is None:
             continue
         line = [(float(x), float(y)) for x, y in coords]

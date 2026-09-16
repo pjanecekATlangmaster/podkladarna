@@ -337,10 +337,10 @@ def test_osm_oom_code_paths_only():
     assert osm_oom_code("steps", "forest_10000") == "532"
     assert osm_oom_code("residential", "sprint_2m") == "501.17"
     assert osm_oom_code("residential", "forest_10000") == "503"
-    assert osm_oom_code("residential", "mtbo_10000") == "504"
-    assert osm_oom_code("track", "mtbo_10000") == "505"
-    assert osm_oom_code("path", "mtbo_10000") == "506"
-    assert osm_oom_code("steps", "mtbo_10000") == "506"
+    assert osm_oom_code("residential", "mtbo_10000") == "502"
+    assert osm_oom_code("track", "mtbo_10000") == "833"
+    assert osm_oom_code("path", "mtbo_10000") == "834"
+    assert osm_oom_code("steps", "mtbo_10000") == "843"
     assert osm_oom_code("path", "forest_10000") == "506"
 
 

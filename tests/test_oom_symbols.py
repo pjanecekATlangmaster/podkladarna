@@ -47,6 +47,46 @@ def test_contour_symbols_are_protected():
         assert 'is_protected="true"' in m.group(0)
 
 
+def test_mtbo_embedded_symbols_are_unhidden():
+    """ISMTBOM má skryté legacy 504–507 i vegetaci – v .omap musí jít kreslit."""
+    path = symbol_set_path("mtbo_10000", 10000)
+    raw = path.read_text(encoding="utf-8")
+    assert 'is_hidden="true"' in raw
+    _, symbols = colors_and_symbols_xml(path)
+    assert "is_hidden" not in symbols
+    for code in ("502", "831", "833", "834", "408", "410"):
+        assert f'code="{code}"' in symbols
+
+
+def test_mtbo_overlays_isom_earth_bank_knoll_farmland():
+    """MTBO bere z ISOM zemní sráz, kopeček a obdělávané pole (správný typ/vzhled)."""
+    path = symbol_set_path("mtbo_10000", 10000)
+    _, symbols = colors_and_symbols_xml(path)
+    earth = __import__("re").search(
+        r'<symbol\b[^>]*\bcode="104"[^>]*>.*?</symbol>',
+        symbols,
+        __import__("re").DOTALL,
+    )
+    assert earth is not None
+    assert 'type="2"' in earth.group(0)  # line, ne point Slope line
+    assert "Earth bank" in earth.group(0) or "line_symbol" in earth.group(0)
+
+    knoll = __import__("re").search(
+        r'<symbol\b[^>]*\bcode="109"[^>]*>',
+        symbols,
+    )
+    assert knoll is not None
+    assert 'type="1"' in knoll.group(0)  # point knoll
+
+    farm = __import__("re").search(
+        r'<symbol\b[^>]*\bcode="415"[^>]*>',
+        symbols,
+    )
+    assert farm is not None
+    # Combined cultivated land z ISOM 412.
+    assert 'type="16"' in farm.group(0) or "Cultivated" in symbols
+
+
 def test_mtbo_building_is_gray_not_solid_black():
     """ISMTBOM 526 Building = Black 70 % (šedá), ne plná černá."""
     import re

@@ -46,13 +46,14 @@ _FOREST_ROAD_KP_TO_OOM: dict[str, str] = {
     "507": "506",  # legacy – nezřetelnou pěšinu nekreslíme
 }
 
-# ISMTBOM: řada cest je posunutá o +1 vůči ISOM (504 Road, 505 track, …).
+# ISMTBOM: silnice 502/503; cesty/pěšiny řada 831–838 (track/path × rychlost).
+# Legacy ISOM 504–507 jsou v sadě is_hidden a v OOM se nevykreslí.
 _MTBO_ROAD_KP_TO_OOM: dict[str, str] = {
-    "503": "504",
-    "504": "505",
-    "505": "506",
-    "506": "506",
-    "507": "506",  # legacy – Small path 507 nepoužívat
+    "503": "502",  # silnice / sjízdná → Major road
+    "504": "831",  # širší nesjízdná → Track: fast riding
+    "505": "833",  # cesta → Track: medium riding
+    "506": "834",  # pěšina → Path: medium riding
+    "507": "834",  # legacy
 }
 
 # Výjimky podle vrstvy ZABAGED (blackline má víc významů).
@@ -78,8 +79,8 @@ _LAYER_OOM_CODE_MTBO: dict[str, str] = {
     "VyznamnyStromLesik": "418",
     "MohylaPomnikNahrobek": "537",
     "KrizSloupKulturnihoVyznamu": "537",
-    # ISOM 204 Boulder → ISMTBOM 206 Boulder (204 je rocky pit).
-    "OsamelyBalvanSkalaSkalniSuk": "206",
+    # ISOM 204 Boulder → přebíráme vzhled z ISOM (v MTBO 204 je rocky pit).
+    "OsamelyBalvanSkalaSkalniSuk": "204",
     "VezovitaStavba": "535",
 }
 

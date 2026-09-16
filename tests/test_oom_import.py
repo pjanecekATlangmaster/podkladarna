@@ -96,7 +96,7 @@ def test_oom_code_building_mtbo_maps_to_526():
     assert code != "521"
 
 
-def test_oom_code_road_mtbo_maps_to_504():
+def test_oom_code_road_mtbo_maps_to_502():
     code = oom_code_for_vectorconf_rule(
         "road-path",
         "503",
@@ -104,8 +104,29 @@ def test_oom_code_road_mtbo_maps_to_504():
         preset_id="mtbo_10000",
         scale=10000,
     )
-    assert code == "504"
+    assert code == "502"
     assert symbol_index_for_code("mtbo_10000", 10000, code) is not None
+
+
+def test_oom_code_path_mtbo_uses_riding_series():
+    track = oom_code_for_vectorconf_rule(
+        "road-path",
+        "505",
+        "Cesta",
+        preset_id="mtbo_10000",
+        scale=10000,
+    )
+    path = oom_code_for_vectorconf_rule(
+        "road-path",
+        "506",
+        "Pesina",
+        preset_id="mtbo_10000",
+        scale=10000,
+    )
+    assert track == "833"
+    assert path == "834"
+    assert symbol_index_for_code("mtbo_10000", 10000, track) is not None
+    assert symbol_index_for_code("mtbo_10000", 10000, path) is not None
 
 
 def test_oom_code_railway_mtbo_maps_to_515():
