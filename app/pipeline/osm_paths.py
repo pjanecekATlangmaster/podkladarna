@@ -123,10 +123,10 @@ COVER_DROP = 0.70
 MIN_DIR_DOT = 0.5
 OVERLAP_DROP = 0.45  # alias COVER_DROP pro stará volání
 SAMPLE_M = 5.0
-MIN_LENGTH_M = 12.0
-# Krátké lávky / spojky (např. OSM footway + bridge=yes ~4 m) jinak zmizí.
-MIN_LENGTH_SHORT_M = 2.0
-MIN_LENGTH_FOOT_M = 3.0
+MIN_LENGTH_M = 1.0
+# Společný práh – odřízne jen drobný šum, ne krátké lávky/spojky.
+MIN_LENGTH_SHORT_M = 1.0
+MIN_LENGTH_FOOT_M = 1.0
 # Syntetický highway po načtení OSM (bridge=* na way).
 OSM_BRIDGE_HIGHWAY = "bridge"
 GRID_M = 30.0
@@ -920,7 +920,12 @@ def dedup_osm_prefer_wider(
     match_m: float = MATCH_M,
     cover_drop: float = COVER_DROP,
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
-    """OSM×OSM: při shodné střednici nechá širší (track > path/footway)."""
+    """OSM×OSM: při shodné střednici nechá širší (track > path/footway).
+
+    Lávky (``bridge``) se nikdy nezahazují kvůli překryvu – krátký most
+    (~4 m) sdílí uzel s navazující cestou a při ``MATCH_M`` 6 m by celý
+    spadl jako „duplicit“ širšího tracku (Motol way/551847479).
+    """
     ordered = sorted(
         items,
         key=lambda it: (
@@ -935,7 +940,11 @@ def dedup_osm_prefer_wider(
         if polyline_length(pts) < path_min_length_m(hw):
             dropped += 1
             continue
-        if kept and centerline_cover_fraction(pts, index, match_m=match_m) >= cover_drop:
+        if (
+            hw != OSM_BRIDGE_HIGHWAY
+            and kept
+            and centerline_cover_fraction(pts, index, match_m=match_m) >= cover_drop
+        ):
             dropped += 1
             continue
         kept.append((pts, hw))
@@ -1945,10 +1954,17 @@ def prepare_osm_paths(
                 "OSM pěšiny se neoříznou proti ZABAGED"
             )
 
-    # 1. Varianta OSM (všechny cesty vč. silnic, bez ořezu proti ZABAGED)
-    kept_osm, dropped_self_osm = dedup_osm_prefer_wider(osm_items)
+    # 1. Varianta OSM: všechny cesty vč. silnic, bez ořezu proti ZABAGED
+    #    i bez OSM×OSM dedupu (ten je jen u kombinace – jinak krátká lávka
+    #    u delšího tracku zmizí, Motol way/551847479).
+    kept_osm = [
+        (pts, hw)
+        for pts, hw in osm_items
+        if polyline_length(pts) >= path_min_length_m(hw)
+    ]
+    dropped_short_osm = len(osm_items) - len(kept_osm)
 
-    # 2. Varianta MIXED (jen pěšiny + lávky, ořez proti ZABAGED)
+    # 2. Varianta MIXED: pěšiny + lávky, ořez proti ZABAGED + OSM×OSM širší>užší
     mixed_highways = osm_highway_set(PATH_SOURCE_MIXED) | frozenset({OSM_BRIDGE_HIGHWAY})
     osm_items_mixed = [(pts, hw) for pts, hw in osm_items if hw in mixed_highways]
     kept_mixed, dropped_mixed = filter_osm_items_against_zabaged(osm_items_mixed, zabaged_lines)
@@ -1969,8 +1985,12 @@ def prepare_osm_paths(
             + (f" (z toho {dropped_self_mixed} OSM×OSM širší>užší)" if dropped_self_mixed else "")
             + f", {skipped} přeskočeno (tag)"
         )
-        log(f"OSM cesty (jen OSM): {len(kept_osm)} ponecháno (bez ZABAGED dedup)")
-        
+        log(
+            f"OSM cesty (jen OSM): {len(kept_osm)} ponecháno "
+            f"(bez ZABAGED/OSM×OSM dedup"
+            + (f", {dropped_short_osm} krátkých" if dropped_short_osm else "")
+            + ")"
+        )
         by_feat: dict[str, int] = defaultdict(int)
         for feat in features:
             by_feat[str((feat.get("properties") or {}).get("kind") or "?")] += 1

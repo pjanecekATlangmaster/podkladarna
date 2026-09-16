@@ -549,8 +549,9 @@ def test_short_osm_bridge_is_kept():
     assert _is_osm_bridge({"highway": "footway", "bridge": "yes"})
     assert not _is_osm_bridge({"highway": "footway", "bridge": "no"})
     assert not _is_osm_bridge({"highway": "footway", "bridge": "boardwalk"})
-    assert path_min_length_m(OSM_BRIDGE_HIGHWAY) <= 2.0
-    assert path_min_length_m("footway") <= 3.0
+    assert path_min_length_m(OSM_BRIDGE_HIGHWAY) <= 1.0
+    assert path_min_length_m("footway") <= 1.0
+    assert path_min_length_m("track") <= 1.0
 
     # ~4.4 m lávka (jako Motol) + delší pěšina mimo filtr.
     bridge = ([(0.0, 0.0), (4.4, 0.0)], OSM_BRIDGE_HIGHWAY)
@@ -559,8 +560,15 @@ def test_short_osm_bridge_is_kept():
     assert dropped == 0
     assert {hw for _pts, hw in kept} == {OSM_BRIDGE_HIGHWAY, "path"}
 
-    # Pod limitem pěšiny (~3 m) stále pryč.
-    tiny = ([(0.0, 40.0), (2.5, 40.0)], "path")
+    # Motol: krátký most sdílí uzel s dlouhým trackem – MATCH_M 6 m > délka mostu,
+    # dřív track (vyšší rank) most „překryl“ a zahodil.
+    track = ([(4.4, 0.0), (200.0, 0.0)], "track")
+    kept_m, dropped_m = dedup_osm_prefer_wider([bridge, track])
+    assert dropped_m == 0
+    assert {hw for _pts, hw in kept_m} == {OSM_BRIDGE_HIGHWAY, "track"}
+
+    # Pod limitem 1 m stále pryč.
+    tiny = ([(0.0, 40.0), (0.5, 40.0)], "path")
     kept_t, dropped_t = dedup_osm_prefer_wider([tiny])
     assert dropped_t == 1 and not kept_t
 
