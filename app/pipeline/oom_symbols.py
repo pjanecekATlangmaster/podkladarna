@@ -238,7 +238,8 @@ def merge_isom_overlay_into_mtbo(
 
     def ensure_isom_color(isom_pri: int) -> int:
         if isom_pri in _ISOM_TO_MTBO_COLOR_PRIORITY:
-            return _ISOM_TO_MTBO_COLOR_PRIORITY[isom_pri]
+            color_map[isom_pri] = _ISOM_TO_MTBO_COLOR_PRIORITY[isom_pri]
+            return color_map[isom_pri]
         
         nonlocal next_pri
         if isom_pri in color_map:
