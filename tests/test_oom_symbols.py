@@ -107,6 +107,33 @@ def test_mtbo_building_is_gray_not_solid_black():
     )
 
 
+def test_symbol_color_refs_exist_in_palette():
+    """Po přesunu Lower brown (layering) musí footprinty odkazovat na existující barvy."""
+    import re
+
+    for preset, scale in (
+        ("sprint_2m", 4000),
+        ("mtbo_10000", 10000),
+        ("mtbo_15000", 15000),
+    ):
+        text = symbol_set_path(preset, scale).read_text(encoding="utf-8")
+        priorities = {
+            int(m.group(1))
+            for m in re.finditer(r'<color\b[^>]*\bpriority="(\d+)"', text)
+        }
+        missing: set[tuple[str, int]] = set()
+        for sm in re.finditer(r"<symbol\b.*?</symbol>", text, re.DOTALL):
+            code_m = re.search(r'\bcode="([^"]+)"', sm.group(0))
+            code = code_m.group(1) if code_m else "?"
+            for cm in re.finditer(
+                r'\b(?:inner_|outer_)?color="(\d+)"', sm.group(0)
+            ):
+                c = int(cm.group(1))
+                if c not in priorities:
+                    missing.add((code, c))
+        assert not missing, f"{preset}: dangling color refs {sorted(missing)[:20]}"
+
+
 def test_symbol_set_missing(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         "app.pipeline.oom_symbols.OOM_DIR",
