@@ -922,9 +922,11 @@ def dedup_osm_prefer_wider(
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
     """OSM×OSM: při shodné střednici nechá širší (track > path/footway).
 
-    Lávky (``bridge``) se nikdy nezahazují kvůli překryvu – krátký most
-    (~4 m) sdílí uzel s navazující cestou a při ``MATCH_M`` 6 m by celý
-    spadl jako „duplicit“ širšího tracku (Motol way/551847479).
+    Překryv se měří vůči **jedné** už ponechané linii (paralelní duplicita),
+    ne vůči celé síti – jinak krátká spojka mezi dvěma cestami (Motol
+    way/806853877 ~28 m) zmizí, protože ``MATCH_M`` ji „přikryje“ jen uzly.
+
+    Lávky (``bridge``) se kvůli překryvu nikdy nezahazují.
     """
     ordered = sorted(
         items,
@@ -934,21 +936,26 @@ def dedup_osm_prefer_wider(
         ),
     )
     kept: list[tuple[list[tuple[float, float]], str]] = []
-    index = _SegmentIndex()
     dropped = 0
     for pts, hw in ordered:
         if polyline_length(pts) < path_min_length_m(hw):
             dropped += 1
             continue
-        if (
-            hw != OSM_BRIDGE_HIGHWAY
-            and kept
-            and centerline_cover_fraction(pts, index, match_m=match_m) >= cover_drop
-        ):
-            dropped += 1
-            continue
+        if hw != OSM_BRIDGE_HIGHWAY and kept:
+            max_cover = 0.0
+            for kpts, _khw in kept:
+                idx = _SegmentIndex()
+                idx.add_line(kpts)
+                max_cover = max(
+                    max_cover,
+                    centerline_cover_fraction(pts, idx, match_m=match_m),
+                )
+                if max_cover >= cover_drop:
+                    break
+            if max_cover >= cover_drop:
+                dropped += 1
+                continue
         kept.append((pts, hw))
-        index.add_line(pts)
     return kept, dropped
 
 

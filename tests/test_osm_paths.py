@@ -567,6 +567,22 @@ def test_short_osm_bridge_is_kept():
     assert dropped_m == 0
     assert {hw for _pts, hw in kept_m} == {OSM_BRIDGE_HIGHWAY, "track"}
 
+    # Motol way/806853877: krátká spojka (~28 m) mezi dvěma delšími tracky.
+    # Union sítě by ji „přikryl“ jen uzly; vůči jedné linii cover << práh.
+    left = ([(0.0, 0.0), (30.0, 0.0)], "track")
+    link = ([(30.0, 0.0), (58.0, 0.0)], "track")
+    right = ([(58.0, 0.0), (200.0, 0.0)], "track")
+    kept_l, dropped_l = dedup_osm_prefer_wider([left, link, right])
+    assert dropped_l == 0
+    assert len(kept_l) == 3
+
+    # Paralelní duplicita (stejná střednice) se pořád zahodí.
+    wide = ([(0.0, 0.0), (100.0, 0.0)], "track")
+    narrow = ([(0.0, 1.0), (100.0, 1.0)], "path")
+    kept_d, dropped_d = dedup_osm_prefer_wider([wide, narrow])
+    assert dropped_d == 1
+    assert len(kept_d) == 1 and kept_d[0][1] == "track"
+
     # Pod limitem 1 m stále pryč.
     tiny = ([(0.0, 40.0), (0.5, 40.0)], "path")
     kept_t, dropped_t = dedup_osm_prefer_wider([tiny])
