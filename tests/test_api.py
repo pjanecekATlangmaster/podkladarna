@@ -261,7 +261,9 @@ def test_index_html(client):
     assert "Podkladárna v1.8" in html
     assert 'id="whats-new"' in html
     assert "github.com/pjanecekATlangmaster/podkladarna/issues" in html
-    assert "zpětnou vazbu" in html
+    assert "Petr Janeček" in html
+    assert "janecek@datais.cz" in html
+    assert "podkladarna.kibos.link" in html
     assert "jobs-live" in html
     assert "jobs-finished-bar" in html
     assert 'href="/licence"' in html
