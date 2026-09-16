@@ -42,14 +42,8 @@ WEB_ABOUT_HTML = """
   Hotové joby držíme <strong>48 hodin</strong>, ZIP si uložte u sebe.
 </p>
 <p>
-  Autorem Podkladárny jsem já, <strong>Petr Janeček</strong>
-  (<a href="https://podkladarna.kibos.link" target="_blank" rel="noopener">podkladarna.kibos.link</a>).
-  Budu vděčný za dotazy, připomínky i podněty k vylepšení —
-  napište na
-  <a href="mailto:janecek@datais.cz">janecek@datais.cz</a>
-  nebo volejte <a href="tel:+420733575541">733&nbsp;575&nbsp;541</a>.
-  Technické hlášení můžete také založit na
-  <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">GitHub Issues</a>.
+  Podkladárna je experiment — ocení
+  <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">zpětnou vazbu a připomínky (GitHub Issues)</a>.
 </p>
 """
 

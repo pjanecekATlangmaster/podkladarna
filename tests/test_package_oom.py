@@ -159,6 +159,10 @@ def test_build_oom_zip_layout(tmp_path: Path):
     about = zipfile.ZipFile(dest).read("CO_JE_PODKLADARNA.txt").decode("utf-8")
     assert "zabaged/" in about
     assert "vectors/" not in about
+    assert "Petr Janeček" in about
+    assert "janecek@datais.cz" in about
+    assert "733 575 541" in about
+    assert "podkladarna.kibos.link" in about
     payload = json.loads(zipfile.ZipFile(dest).read("metadata.json"))
     assert payload["crs"] == "EPSG:5514"
     assert payload["scale"] == 4000
