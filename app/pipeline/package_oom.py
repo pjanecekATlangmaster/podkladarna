@@ -31,6 +31,7 @@ from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.open_land_subtract import collect_kp401_subtract_wkbs
 from app.pipeline.reference_layers import reference_metadata
 from app.pipeline.vegetation_gdal import build_vegetation_parts
+from app.settings import APP_VERSION
 
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
@@ -119,6 +120,7 @@ def oom_metadata(
     sf = float(options.get("scalefactor", preset.get("scalefactor", 1)))
     meta = {
         "name": job_name,
+        "app_version": APP_VERSION,
         "preset_id": preset_id,
         "label": preset.get("label", preset_id),
         "crs": "EPSG:5514",

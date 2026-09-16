@@ -46,7 +46,7 @@ Výřez na mapě (Česko, max 5 × 5 km). LiDAR i ZABAGED se stahují do sdílen
 
 ## Plán
 
-Viz [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) – v1.5 ZIP pro OOM, v2 `.omap`.
+Viz [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) – aktuálně **v1.7** (9× `.omap` ve ZIPu).
 
 ## Lokální vývoj (bez Docker)
 

@@ -200,7 +200,7 @@ def test_index_html(client):
     assert "job-detail" in html
     assert "job-detail-holder" in html
     assert "jobs-list" in html
-    assert "Podkladárna v1.5" in html
+    assert "Podkladárna v1.7" in html
     assert "jobs-live" in html
     assert "jobs-finished-bar" in html
     assert 'href="/licence"' in html

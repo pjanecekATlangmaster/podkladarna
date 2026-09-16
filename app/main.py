@@ -34,7 +34,7 @@ from app.pipeline.ini_builder import (
     resolve_vege_height,
 )
 from app.pipeline.osm_paths import resolve_path_source
-from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE
+from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE, APP_VERSION
 from app.tiles import TileError, fetch_tile
 from app.tool_env import tool_status
 
@@ -62,7 +62,7 @@ def _form_str(form, key: str, default: str = "") -> str:
         return default
     return str(val)
 
-app = FastAPI(title="Podkladarna", version="1.5.0")
+app = FastAPI(title="Podkladarna", version=APP_VERSION)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 # Minimální image (conda) často nezná .svg → nginx nosniff logo nenačte.
