@@ -13,6 +13,7 @@ import yaml
 from app.settings import APP_ROOT, APP_VERSION, CONFIG_DIR
 
 WHATS_NEW_PATH = CONFIG_DIR / "whats_new.yaml"
+# Soubor generuje CI (scripts/generate_whats_new.py) z git log před Docker buildem.
 ENTRY_DAYS = 30
 # < 6 h → hot (červená, rozbaleno); < 2 d → warm; < 7 d → mild; jinak calm (zelená, sbaleno)
 HOT_HOURS = 6

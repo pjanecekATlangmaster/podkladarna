@@ -20,6 +20,9 @@ jobs:
         working-directory: .
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Historie pro „co je nového“ (git log ~30 dní).
+          fetch-depth: 0
 
       - name: Detect app directory
         id: paths
@@ -27,9 +30,11 @@ jobs:
           if [ -f Dockerfile ]; then
             echo "context=." >> "$GITHUB_OUTPUT"
             echo "file=./Dockerfile" >> "$GITHUB_OUTPUT"
+            echo "root=." >> "$GITHUB_OUTPUT"
           elif [ -f podkladarna/Dockerfile ]; then
             echo "context=./podkladarna" >> "$GITHUB_OUTPUT"
             echo "file=./podkladarna/Dockerfile" >> "$GITHUB_OUTPUT"
+            echo "root=./podkladarna" >> "$GITHUB_OUTPUT"
           else
             echo "Dockerfile not found"; exit 1
           fi
@@ -55,6 +60,10 @@ jobs:
       - name: Build timestamp
         id: buildtime
         run: echo "iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate whats_new from git
+        working-directory: ${{ steps.paths.outputs.root }}
+        run: python3 scripts/generate_whats_new.py --released-at "${{ steps.buildtime.outputs.iso }}"
 
       - name: Build and push
         uses: docker/build-push-action@v6
