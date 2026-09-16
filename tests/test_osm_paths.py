@@ -124,6 +124,21 @@ def test_classify_osm_well_and_playground():
         "cave_entrance",
         "203.1",
     )
+    assert classify_osm_feature({"amenity": "hunting_stand"}, geom="node") == (
+        "hunting_stand",
+        "531",
+    )
+    assert classify_osm_feature({"man_made": "water_tower"}, geom="node") == (
+        "water_tower",
+        "524",
+    )
+    assert classify_osm_feature({"man_made": "water_tower"}, geom="way") == (
+        "water_tower",
+        "524",
+    )
+    assert classify_osm_feature(
+        {"man_made": "water_tower", "building": "yes"}, geom="way"
+    ) == ("water_tower", "524")
     # Dřevěný chodník → cesta, ne samostatný feature.
     assert classify_osm_feature({"highway": "footway", "footway": "boardwalk"}) is None
     assert classify_osm_feature({"man_made": "boardwalk"}) is None
@@ -234,6 +249,12 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("farmland", "mtbo_10000") == "415"
     assert feature_oom_code("cave_entrance", "mtbo_10000") == "205"
     assert feature_oom_code("lamp", "mtbo_10000") == "539"
+    assert feature_oom_code("hunting_stand", "forest_10000") == "531"
+    assert feature_oom_code("hunting_stand", "mtbo_10000") == "539"
+    assert feature_oom_code("hunting_stand", "sprint_2m") == "531"
+    assert feature_oom_code("water_tower", "forest_10000") == "524"
+    assert feature_oom_code("water_tower", "mtbo_10000") == "535"
+    assert feature_oom_code("water_tower", "sprint_2m") == "524"
 
 
 def test_point_in_ring_and_farmland_dedup():
@@ -292,7 +313,9 @@ def test_osm_priority_overpass_includes_barriers():
     ql_off = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=False)
     assert "fitness_station" not in ql_off
     assert "barrier" not in ql_off
-    assert 'way["building"]' not in ql_off
+    # Budovy vždy (doplnky), i bez priority.
+    assert 'way["building"]' in ql_off
+    assert 'relation["type"="multipolygon"]["building"]' in ql_off
 
 def test_highway_to_zabaged_vrstva():
     from app.pipeline.osm_paths import highway_to_zabaged_vrstva, paths_geojson_for_kp

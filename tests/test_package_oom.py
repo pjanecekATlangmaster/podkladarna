@@ -149,6 +149,7 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "zabaged/Cesta.shp" in names
     assert "zabaged/Cesta.shx" in names
     assert "vectors/Cesta.shp" not in names
+    assert "doplnky/README.txt" in names
     assert "osm_paths/osm_kp.zip" not in names
     assert "osm_paths/OSM_cesty.shp" in names
     assert "osm_paths/OSM_cesty.prj" in names

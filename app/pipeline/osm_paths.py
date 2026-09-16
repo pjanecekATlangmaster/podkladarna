@@ -183,6 +183,10 @@ def _overpass_ql(
         f'relation["type"="multipolygon"]["leisure"="garden"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
+        # Posed / vodojem (les + MTBO; ve sprintu taky OK).
+        f'node["amenity"="hunting_stand"]({bbox});',
+        f'node["man_made"="water_tower"]({bbox});',
+        f'way["man_made"="water_tower"]({bbox});',
     ]
     if include_playground_equipment:
         parts.extend(
@@ -210,6 +214,13 @@ def _overpass_ql(
         )
     if include_lamps:
         parts.append(f'node["highway"="street_lamp"]({bbox});')
+    # Budovy vždy (doplnky/osm_budovy.geojson) – ne do auto OOM.
+    parts.extend(
+        [
+            f'way["building"]({bbox});',
+            f'relation["type"="multipolygon"]["building"]({bbox});',
+        ]
+    )
     if osm_priority:
         # Hlavně sprint / urban: ploty, zdi, brány, přístřešky, pomníky, fitness…
         parts.extend(
@@ -227,9 +238,6 @@ def _overpass_ql(
                 f'node["leisure"="fitness_station"]({bbox});',
                 f'way["leisure"="fitness_station"]({bbox});',
                 f'node["natural"="tree"]["denotation"~"^(landmark|natural_monument)$"]({bbox});',
-                # Budovy z OSM (kavárna/kiosk s building=yes), dedup proti ZABAGED.
-                f'way["building"]({bbox});',
-                f'relation["type"="multipolygon"]["building"]({bbox});',
             ]
         )
     return (
@@ -258,24 +266,9 @@ _PAVED_AREA_KINDS = frozenset({"playground", "pitch", "pedestrian_area"})
 # farmland (412) se neořezává – zdroj je OSM, OrnaPuda se do OOM neimportuje.
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
     "water_body": frozenset({"VodniPlocha"}),
-    # OSM budovy jen tam, kde ZABAGED budovu nemá (kavárna, kiosk, …).
-    "building": frozenset(
-        {
-            "BudovaJednotlivaNeboBlokBudov",
-            "KulnaSklenikFoliovnikPristresek",
-            "Hrad",
-            "Zamek",
-        }
-    ),
-    "water_well_building": frozenset(
-        {
-            "BudovaJednotlivaNeboBlokBudov",
-            "KulnaSklenikFoliovnikPristresek",
-            "Hrad",
-            "Zamek",
-        }
-    ),
 }
+# Budovy z OSM jen do doplnky/ – ne do auto OOM features.geojson.
+_OSM_BUILDING_KINDS = frozenset({"building", "water_well_building"})
 _CLOSED_AREA_KINDS = frozenset(
     {"wetland", "water_body", "farmland", "garden", "building", "water_well_building"}
 ) | _PAVED_AREA_KINDS
@@ -308,6 +301,8 @@ _POINT_FEATURE_KINDS = frozenset(
         "shelter",
         "fitness",
         "landmark_tree",
+        "hunting_stand",
+        "water_tower",
     }
 )
 _LINE_FEATURE_KINDS = frozenset({"fence", "wall", "hedge"})
@@ -494,6 +489,12 @@ def classify_osm_feature(
         if _is_osm_building(tags):
             return "water_well_building", "521"
         return "water_well", "311"
+    # Posed (amenity=hunting_stand) → ISOM 531 × / MTBO 539.
+    if amenity == "hunting_stand":
+        return "hunting_stand", "531"
+    # Vodojem / vysoká věž – vždy bod (i když je to way), ne plocha budovy.
+    if man_made == "water_tower":
+        return "water_tower", "524"
     # OSM budova (kavárna/kiosk/building=yes) → 521; ZABAGED má přednost v dedupu.
     if not is_node and _is_osm_building(tags):
         return "building", "521"
@@ -554,6 +555,12 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "539" if mtbo else "522"
     if kind == "landmark_tree":
         return "418" if mtbo else "417"
+    if kind == "hunting_stand":
+        # ISOM/ISSprOM 531 ×; ISMTBOM 531 = Firing range → 539.
+        return "539" if mtbo else "531"
+    if kind == "water_tower":
+        # ISOM/ISSprOM 524 High tower; ISMTBOM 524 = High fence → 535.
+        return "535" if mtbo else "524"
     if kind in {
         "bench",
         "info_board",
@@ -578,6 +585,8 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "playground_equipment": "531",
         "barrier_point": "531",
         "fitness": "531",
+        "hunting_stand": "531",
+        "water_tower": "524",
         "memorial": "526",
         "shelter": "522",
         "landmark_tree": "417",
@@ -2045,6 +2054,22 @@ def prepare_osm_paths(
     # Zpětná kompatibilita (např. pro testy)
     write_geojson(kept_mixed, "paths.geojson")
 
+    # OSM budovy → doplnky (ne do auto OOM).
+    building_feats = [
+        f
+        for f in features
+        if str((f.get("properties") or {}).get("kind") or "") in _OSM_BUILDING_KINDS
+    ]
+    features = [
+        f
+        for f in features
+        if str((f.get("properties") or {}).get("kind") or "") not in _OSM_BUILDING_KINDS
+    ]
+    (dest_dir / "buildings.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": building_feats}),
+        encoding="utf-8",
+    )
+
     feat_out = dest_dir / "features.geojson"
     feat_out.write_text(
         json.dumps({"type": "FeatureCollection", "features": features}),
@@ -2278,11 +2303,17 @@ def build_osm_feature_parts(
     ref_y: float,
     grivation_deg: float,
     clip_bounds: Bounds | None = None,
+    aopk_tree_points: list[tuple[float, float]] | None = None,
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
     if not gj_path.is_file():
         return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
+    feats = list(data.get("features") or [])
+    if aopk_tree_points:
+        from app.pipeline.aopk_trees import filter_osm_landmark_trees_near_aopk
+
+        feats, _dropped = filter_osm_landmark_trees_near_aopk(feats, aopk_tree_points)
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     names = {
@@ -2293,8 +2324,6 @@ def build_osm_feature_parts(
         "water_body": "OSM vodní nádrž (301)",
         "farmland": "OSM obdělávaná půda (412)",
         "garden": "OSM zahrady (520 oliva)",
-        "building": "OSM budovy (521)",
-        "water_well_building": "OSM studniční objekty",
         "water_well": "OSM studny",
         "spring": "OSM prameny",
         "bench": "OSM lavičky",
@@ -2312,10 +2341,10 @@ def build_osm_feature_parts(
         "shelter": "OSM přístřešky",
         "fitness": "OSM fitness",
         "landmark_tree": "OSM významné stromy",
+        "hunting_stand": "OSM posedy (531 ×)",
+        "water_tower": "OSM vodojemy / vysoké věže (524)",
     }
     kind_order = (
-        "building",
-        "water_well_building",
         "water_well",
         "spring",
         "water_body",
@@ -2333,6 +2362,8 @@ def build_osm_feature_parts(
         "shelter",
         "memorial",
         "landmark_tree",
+        "water_tower",
+        "hunting_stand",
         "info_board",
         "bench",
         "lamp",
@@ -2356,10 +2387,10 @@ def build_osm_feature_parts(
             for x, y in pts
         ]
 
-    for feat in data.get("features") or []:
+    for feat in feats:
         props = feat.get("properties") or {}
         kind = str(props.get("kind") or "")
-        if not kind:
+        if not kind or kind in _OSM_BUILDING_KINDS:
             continue
         code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
         if not code:

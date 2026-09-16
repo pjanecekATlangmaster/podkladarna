@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.guide_text import ZIP_ABOUT_TXT
+from app.pipeline.aopk_trees import build_aopk_tree_parts, load_aopk_tree_points
 from app.pipeline.contours_gdal import build_gdal_contour_parts
 from app.pipeline.osm_paths import (
     PATH_SOURCE_MIXED,
@@ -30,8 +31,32 @@ from app.pipeline.oom_import import (
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.open_land_subtract import collect_kp401_subtract_wkbs
 from app.pipeline.reference_layers import reference_metadata
+from app.pipeline.ruian_buildings import (
+    ZABAGED_OMIT_BUILDING_LAYERS,
+    build_ruian_building_parts,
+)
 from app.pipeline.vegetation_gdal import build_vegetation_parts
 from app.settings import APP_VERSION
+
+DOPLNKY_README = """Doplňky pro ruční import v OpenOrienteering Mapper
+=================================================
+
+Výchozí budovy v .omap jsou z RÚIAN (INSPIRE StavebniObjekt).
+ZABAGED a OSM budovy sem dáváme pro případné ruční doplnění.
+
+zabaged_budovy/
+  Shapefile vrstev Budova*, Kulna*, StavebniObjektZakryty, Hrad, Zamek.
+
+osm_budovy.geojson
+  OSM polygony building=* (EPSG:5514).
+
+Jak importovat v OOM
+--------------------
+1. File → Import map… / Importovat mapová data (nebo otevřít SHP/GeoJSON).
+2. Přiřaďte symbol budovy: 521 (les/sprint) nebo 526 (MTBO).
+3. Uložte změny do své pracovní mapy.
+
+"""
 
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
@@ -357,12 +382,14 @@ def oom_readme(meta: dict) -> str:
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný podkladarna-*.omap\n"
         "   (sprint a/nebo les/mtbo × cesty_zabaged/cesty_osm/kombinace – podle měřítka).\n"
-        "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, srázy, …).\n"
+        "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, RÚIAN budovy, srázy, …).\n"
         "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
         "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
         "   v Šablony → Nastavení šablon (Template Setup).\n"
         "3. Deprese: šablona „Karttapullautin deprese“.\n"
-        "4. Shapefile ZABAGED (zabaged/) jsou v ZIPu pro ruční práci mimo OOM.\n"
+        "4. Budovy v .omap jsou z RÚIAN (INSPIRE). ZABAGED/OSM budovy jsou v doplnky/\n"
+        "   pro ruční import (viz doplnky/README.txt). Shapefile ZABAGED (zabaged/)\n"
+        "   jsou v ZIPu i pro ruční práci mimo OOM.\n"
         "   Vrstevnice PDAL/GDAL jsou v contours/;\n"
         "   zeleň KP (polygony) ve vegetation/;\n"
         "   srázy a knolíky z Karttapullautinu v karttapullautin/\n"
@@ -370,7 +397,8 @@ def oom_readme(meta: dict) -> str:
         "   OSM pěšiny (geojson + shapefile OSM_cesty) v osm_paths/ a jako objekty 506.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
-        "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto), CC BY 4.0. "
+        "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
+        "AOPK památné stromy (CC BY 4.0). "
         "OSM © přispěvatelé (ODbL). Při šíření mapy uveďte zdroj: ČÚZK, [rok].\n"
         "Reliéf a vegetace: Karttapullautin (GPL-3.0).\n\n"
         "Podkladárna je experiment — zpětná vazba a připomínky:\n"
@@ -385,9 +413,16 @@ def _write_if_exists(zf: zipfile.ZipFile, src: Path, arcname: str) -> bool:
     return False
 
 
-def _add_shapefiles_from_zip(zf: zipfile.ZipFile, src_zip: Path, dest_dir: str) -> int:
+def _add_shapefiles_from_zip(
+    zf: zipfile.ZipFile,
+    src_zip: Path,
+    dest_dir: str,
+    *,
+    only_layers: frozenset[str] | set[str] | None = None,
+) -> int:
     n = 0
     keep = {".shp", ".shx", ".dbf", ".prj", ".cpg"}
+    only = {name.lower() for name in only_layers} if only_layers else None
     with zipfile.ZipFile(src_zip) as src:
         for info in src.infolist():
             if info.is_dir():
@@ -396,6 +431,8 @@ def _add_shapefiles_from_zip(zf: zipfile.ZipFile, src_zip: Path, dest_dir: str) 
             if not name or name.startswith("."):
                 continue
             if Path(name).suffix.lower() not in keep:
+                continue
+            if only is not None and Path(name).stem.lower() not in only:
                 continue
             data = src.read(info)
             zf.writestr(f"{dest_dir}/{name}", data)
@@ -421,6 +458,8 @@ def prepare_oom_map(
     cliff_symbol: str = "earth_bank",
     courtyard_olive: bool = False,
     path_source: str = PATH_SOURCE_MIXED,
+    ruian_buildings: Path | None = None,
+    aopk_trees: Path | None = None,
 ) -> Path | None:
     del formline
     path_source = resolve_path_source(path_source)
@@ -472,9 +511,10 @@ def prepare_oom_map(
             grivation_deg=grivation,
             work_dir=kp_cwd.parent,
             clip_bounds=clip_bounds,
-            courtyard_olive=courtyard_olive,
+            courtyard_olive=False,  # oliva dvorů jen z RÚIAN
             prefer_osm_path_lines=prefer_osm_paths or None,
             omit_path_layers=path_source == PATH_SOURCE_OSM,
+            omit_layers=ZABAGED_OMIT_BUILDING_LAYERS,
         ):
             if _COURTYARD_OLIVE_MARK in part.name:
                 courtyard_olive_parts.append(part)
@@ -487,6 +527,7 @@ def prepare_oom_map(
 
     # Louky/zeleň ze ZABAGED + OSM 412 pod KP (hustníky z LiDARu musí zůstat vidět).
     object_parts.extend(zabaged_under)
+    aopk_pts = load_aopk_tree_points(aopk_trees)
     osm_feat = build_osm_feature_parts(
         kp_cwd,
         preset_id=preset_id,
@@ -495,6 +536,7 @@ def prepare_oom_map(
         ref_y=ref_y,
         grivation_deg=grivation,
         clip_bounds=clip_bounds,
+        aopk_tree_points=aopk_pts or None,
     )
     osm_under: list[OomObjectPart] = []
     osm_feat_rest: list[OomObjectPart] = []
@@ -547,6 +589,22 @@ def prepare_oom_map(
         if dxf_part:
             object_parts.append(dxf_part)
     object_parts.extend(zabaged_rest)
+    # RÚIAN budovy (jediný auto zdroj 521/526) + oliva dvorů z děr.
+    if ruian_buildings and ruian_buildings.is_file():
+        for part in build_ruian_building_parts(
+            ruian_buildings,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            clip_bounds=clip_bounds,
+            courtyard_olive=courtyard_olive,
+        ):
+            if _COURTYARD_OLIVE_MARK in part.name:
+                courtyard_olive_parts.append(part)
+            else:
+                object_parts.append(part)
     # OSM cesty / u režimu jen-ZABAGED aspoň krátké lávky (ČÚZK je často nemá).
     osm_parts = build_osm_path_parts(
         kp_cwd,
@@ -562,6 +620,18 @@ def prepare_oom_map(
         object_parts.extend(osm_parts)
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
+    if aopk_trees and aopk_trees.is_file():
+        object_parts.extend(
+            build_aopk_tree_parts(
+                aopk_trees,
+                preset_id=preset_id,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                grivation_deg=grivation,
+                clip_bounds=clip_bounds,
+            )
+        )
     # Oliva dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
     object_parts.extend(courtyard_olive_parts)
     return write_oom_map(
@@ -648,7 +718,7 @@ def build_oom_zip(
                     zf.write(path, f"vegetation/{path.name}")
         osm_dir = kp_cwd / "osm_paths"
         if osm_dir.is_dir():
-            for name in ("paths.geojson", "features.geojson"):
+            for name in ("paths.geojson", "features.geojson", "buildings.geojson"):
                 gj = osm_dir / name
                 if gj.is_file():
                     zf.write(gj, f"osm_paths/{name}")
@@ -661,5 +731,17 @@ def build_oom_zip(
             _add_shapefiles_from_zip(zf, zabaged_clean, "zabaged")
             if include_zabaged_archive:
                 zf.write(zabaged_clean, "zabaged_clean.zip")
+        # Ruční doplňky: ZABAGED + OSM budovy (ne v auto .omap).
+        zf.writestr("doplnky/README.txt", DOPLNKY_README)
+        if zabaged_clean and zabaged_clean.is_file():
+            _add_shapefiles_from_zip(
+                zf,
+                zabaged_clean,
+                "doplnky/zabaged_budovy",
+                only_layers=ZABAGED_OMIT_BUILDING_LAYERS,
+            )
+        osm_budovy = kp_cwd / "osm_paths" / "buildings.geojson"
+        if osm_budovy.is_file():
+            zf.write(osm_budovy, "doplnky/osm_budovy.geojson")
 
     return dest_zip

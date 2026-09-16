@@ -12,12 +12,18 @@ LiDAR a polohopis se stahují jako otevřená data Zeměměřického úřadu / �
 - [DMR 5G](https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/) — digitální model reliéfu
 - [DMP OK](https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/) — digitální model povrchu (obrazová korelace)
 - [ZABAGED®](https://geoportal.cuzk.gov.cz/) — polohopis (ArcGIS REST / Geoprohlížeč)
+- [RÚIAN / INSPIRE](https://ags.cuzk.gov.cz/arcgis/rest/services/RUIAN/MapServer) — budovy (`StavebniObjekt`) pro OOM
 
 Licence: [Creative Commons Uveďte původ 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs).
 
 Podmínky ČÚZK: [Podmínky poskytování prostorových dat](https://www.cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/Podminky-poskytovani-prostorovych-dat-CUZK.aspx).
 
 Citace na tiskových výstupech: **ČÚZK, [rok]** (rok = aktuálnost použitých dat).
+
+## AOPK památné stromy (CC BY 4.0)
+
+[Památné stromy – jedinci](https://gis.nature.cz/arcgis/rest/services/PamatneStromy/PamatneStromy/MapServer)
+(Agentura ochrany přírody a krajiny ČR). Licence CC BY 4.0; při šíření uveďte AOPK ČR.
 
 ## Karttapullautin (GPL-3.0)
 

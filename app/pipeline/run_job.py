@@ -6,10 +6,12 @@ from pathlib import Path
 
 from app import db
 from app.pipeline.contours_gdal import generate_job_contours
+from app.pipeline.fetch_aopk import fetch_aopk_trees_for_bbox
 from app.pipeline.fetch_openzu import (
     crop_bounds_5514,
     fetch_lidar_for_bbox,
 )
+from app.pipeline.fetch_ruian import fetch_ruian_buildings_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.ini_builder import load_presets, write_pullauta_ini
 from app.pipeline.karttapullautin_dxf import (
@@ -336,7 +338,20 @@ def _package_output(
             preset_id, preset, options, job_name, reference_layers=ref_layers or None
         )
         omap_paths: list[Path] = []
+        ruian_path: Path | None = None
+        aopk_path: Path | None = None
         if bbox:
+            log("=== Fáze: RÚIAN budovy + AOPK památné stromy ===")
+            try:
+                ruian_path = fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
+            except Exception as exc:
+                log(f"RÚIAN budovy: přeskočeno ({exc})")
+                ruian_path = None
+            try:
+                aopk_path = fetch_aopk_trees_for_bbox(tuple(bbox), log=log)
+            except Exception as exc:
+                log(f"AOPK stromy: přeskočeno ({exc})")
+                aopk_path = None
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
@@ -375,6 +390,8 @@ def _package_output(
                         cliff_symbol=cliff_symbol,
                         courtyard_olive=courtyard_olive,
                         path_source=path_src,
+                        ruian_buildings=ruian_path,
+                        aopk_trees=aopk_path,
                     )
                     if omap_p:
                         omap_paths.append(omap_p)

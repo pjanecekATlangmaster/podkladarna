@@ -17,14 +17,14 @@ WEB_ABOUT_HTML = """
 </p>
 <p>
   Na webu uvidíte PNG z Karttapullautinu, spíš rychlý náhled než finální kresbu.
-  ZIP skládá editovatelné vektory z víc zdrojů (vrstevnice, zeleň, ZABAGED, OSM,
-  DXF srázů, referenční orto…), takže PNG a ZIP nevypadají úplně stejně.
+  ZIP skládá editovatelné vektory z víc zdrojů (vrstevnice, zeleň, ZABAGED, RÚIAN,
+  OSM, AOPK, DXF srázů, referenční orto…), takže PNG a ZIP nevypadají úplně stejně.
   Výchozí je PNG + ZIP; můžete nechat jen náhled.
 </p>
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
   <li><code>podkladarna-*.omap</code> – podle měřítka 3 nebo 6 souborů (sprint, nebo les+MTBO) × 3 zdroje cest; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
-  <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, návod <code>README_OOM.txt</code></li>
+  <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, budovy z RÚIAN, památné stromy AOPK, doplňky ZABAGED/OSM budov, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
   Nakreslete obdélník (max 5 × 5&nbsp;km), vyberte <strong>měřítko</strong> a
@@ -75,6 +75,7 @@ Co je uvnitř
 - contours/            … vrstevnice z PDAL/GDAL (shapefile)
 - osm_paths/           … pěšiny z OpenStreetMap (ODbL) – geojson + shapefile OSM_cesty (po dedupu i do KP PNG); chodníky (footway=sidewalk / zpevněný footway) ve všech disciplínách; v OOM přednost OSM před ZABAGED Pesina/Cesta; studny/prameny, mokřad, jeskyně, hřiště/sportoviště, zahrady (oliva); volitelně lavičky / lampy / herní prvky; při prioritě OSM ploty/zdi/brány/…
 - zabaged/             … polohopis ZABAGED (shapefile)
+- doplnky/             … ZABAGED a OSM budovy pro ruční import (výchozí budovy v .omap jsou z RÚIAN)
 - references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM
 - metadata.json        … měřítko, preset, CRS
@@ -104,8 +105,9 @@ https://github.com/pjanecekATlangmaster/podkladarna/issues
 
 Právní
 ------
-Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto) – licence CC BY 4.0.
-Při šíření mapy uveďte: „Zdroj: ČÚZK, [rok]“. OSM © přispěvatelé (ODbL).
+Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto) – licence CC BY 4.0.
+Při šíření mapy uveďte: „Zdroj: ČÚZK, [rok]“. AOPK památné stromy (CC BY 4.0).
+OSM © přispěvatelé (ODbL).
 Reliéf: Karttapullautin (GPL-3.0).
 
 """

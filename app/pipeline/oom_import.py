@@ -555,6 +555,7 @@ def build_zabaged_object_parts(
     courtyard_olive: bool = False,
     prefer_osm_path_lines: list[list[tuple[float, float]]] | None = None,
     omit_path_layers: bool = False,
+    omit_layers: frozenset[str] | set[str] | None = None,
 ) -> list[OomObjectPart]:
     use_ogr = True
     try:
@@ -634,10 +635,13 @@ def build_zabaged_object_parts(
         )
         return kept
 
+    skip_layers = frozenset(omit_layers or ())
     for shp_name in shp_names:
         layer_name = Path(shp_name).stem
         # Metro (ZABAGED an012) a stanice metra do orienťáckého podkladu nepatří.
         if layer_name in {"Metro", "StaniceMetra"}:
+            continue
+        if layer_name in skip_layers:
             continue
         if omit_path_layers and layer_name in ZABAGED_OMIT_PATH_LAYERS:
             continue
