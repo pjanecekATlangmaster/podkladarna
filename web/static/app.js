@@ -175,9 +175,6 @@ function rebuildContourOptions(preferred) {
       const opt = document.createElement("option");
       opt.value = String(c);
       let label = formatContourLabel(c);
-      if (scale === 4000 && Math.abs(c - 5) < 1e-6) {
-        label += " (výjimečně)";
-      }
       if (Math.abs(c - fallback) < 1e-6) {
         label += " – výchozí";
       }
@@ -195,38 +192,21 @@ function rebuildContourOptions(preferred) {
 function updateOutputHints() {
   const scaleSel = document.getElementById("map_scale");
   const discHint = document.getElementById("output-disciplines-hint");
-  const scaleHint = document.getElementById("map-scale-hint");
   const contourHint = document.getElementById("contour-hint");
   const scale = scaleSel ? Number(scaleSel.value) : NaN;
   const info = disciplinesForScale(scale);
   if (discHint) discHint.textContent = info.text;
-  if (scaleHint) {
-    if (scale === 4000) {
-      scaleHint.textContent =
-        "Sprintový podklad (ISSprOM). Do ZIPu jen sprintové omapy; PNG je náhled.";
-    } else if (scale === 7500) {
-      scaleHint.textContent =
-        "Les + MTBO na 1:7500 (MTBO sprinty výjimečně). Sprint se negeneruje. PNG je jen náhled.";
-    } else if (scale === 10000 || scale === 15000) {
-      scaleHint.textContent =
-        "Les + MTBO na zvoleném měřítku. Sprint se negeneruje. PNG je jen náhled.";
-    } else {
-      scaleHint.textContent =
-        "Určuje, které disciplíny se vygenerují do ZIPu a měřítko omapů / PNG náhledu.";
-    }
-  }
   if (contourHint) {
     if (scale === 4000) {
       contourHint.textContent =
-        "U 1:4000: 2 m / 2,5 m / 5 m (5 m výjimečně). Platí pro omapy i kontury.";
+        "U 1:4000: 2 m / 2,5 m / 5 m. Platí pro omapy i kontury.";
     } else if (scale === 7500) {
       contourHint.textContent =
         "U 1:7500: 2 / 2,5 / 5 m. Platí pro všechny generované omapy.";
     } else if (scale === 10000 || scale === 15000) {
       contourHint.textContent = "U tohoto měřítka jen 5 m.";
     } else {
-      contourHint.textContent =
-        "Nabídka závisí na měřítku (u 1:4000 je 5 m výjimečná).";
+      contourHint.textContent = "Nabídka závisí na měřítku.";
     }
   }
 }
@@ -244,7 +224,10 @@ async function loadMapOptions() {
   }
   rebuildContourOptions();
   if (scaleSel) {
-    scaleSel.addEventListener("change", () => rebuildContourOptions());
+    scaleSel.addEventListener("change", () => {
+      const scale = Number(scaleSel.value);
+      rebuildContourOptions(mapOptions.default_contour_by_scale[scale]);
+    });
   }
 }
 
