@@ -17,20 +17,18 @@ from app.pipeline.karttapullautin_dxf import (
     prune_heavy_intermediate_dxf,
 )
 from app.pipeline.osm_paths import (
-    PATH_SOURCE_MIXED,
-    PATH_SOURCE_OSM,
-    PATH_SOURCE_ZABAGED,
     prepare_osm_paths,
-    resolve_path_source,
     write_osm_kp_zip,
-    write_zabaged_omitting_layers,
-    ZABAGED_OMIT_PATH_LAYERS,
 )
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
+    OOM_PATH_VARIANTS,
     build_oom_zip,
+    map_scale_from_scalefactor,
     oom_metadata,
+    omap_variant_filename,
     prepare_oom_map,
+    resolve_discipline_presets,
 )
 from app.pipeline.reference_layers import build_reference_layers
 from app.pipeline.prepare_lidar import (
@@ -340,38 +338,47 @@ def _package_output(
         )
         omap_paths: list[Path] = []
         if bbox:
-            vectorconf = Path(str(preset.get("vectorconf", "zabaged.txt"))).name
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
-            
-            variants = [
-                ("podkladarna-cesty_zabaged.omap", PATH_SOURCE_ZABAGED),
-                ("podkladarna-cesty_osm.omap", PATH_SOURCE_OSM),
-                ("podkladarna-kombinace.omap", PATH_SOURCE_MIXED),
-            ]
-            
-            for variant_name, path_src in variants:
-                omap_p = prepare_oom_map(
-                    kp_cwd,
-                    output_dir / variant_name,
-                    map_name=job_name or preset_id,
-                    scale=meta["scale"],
-                    preset_id=preset_id,
-                    bbox_wgs84=tuple(bbox),
-                    built_refs=built_refs or None,
-                    zabaged_clean=zabaged,
-                    vectorconf_name=vectorconf,
-                    include_dxf=bool(options.get("output_dxf", True)),
-                    contour_interval_m=meta.get("contour_interval_m"),
-                    formline=0,
-                    indexcontours_m=indexcontours_m,
-                    cliff_symbol=str(options.get("kp_cliff_symbol") or "earth_bank"),
-                    courtyard_olive=bool(options.get("sprint_courtyard_olive", True)),
-                    path_source=path_src,
+            courtyard_olive = bool(options.get("sprint_courtyard_olive", True))
+            cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
+            include_dxf = bool(options.get("output_dxf", True))
+            contour_interval_m = meta.get("contour_interval_m")
+
+            for disc_tag, disc_preset_id in resolve_discipline_presets(
+                preset_id, presets
+            ):
+                disc_preset = presets.get(disc_preset_id, {})
+                vectorconf = Path(
+                    str(disc_preset.get("vectorconf", "zabaged.txt"))
+                ).name
+                scale = map_scale_from_scalefactor(
+                    float(disc_preset.get("scalefactor", 1.0))
                 )
-                if omap_p:
-                    omap_paths.append(omap_p)
+                for path_tag, path_src in OOM_PATH_VARIANTS:
+                    variant_name = omap_variant_filename(disc_tag, path_tag)
+                    log(f"OOM: {variant_name} ({disc_preset_id}, {path_src})")
+                    omap_p = prepare_oom_map(
+                        kp_cwd,
+                        output_dir / variant_name,
+                        map_name=job_name or disc_preset_id,
+                        scale=scale,
+                        preset_id=disc_preset_id,
+                        bbox_wgs84=tuple(bbox),
+                        built_refs=built_refs or None,
+                        zabaged_clean=zabaged,
+                        vectorconf_name=vectorconf,
+                        include_dxf=include_dxf,
+                        contour_interval_m=contour_interval_m,
+                        formline=0,
+                        indexcontours_m=indexcontours_m,
+                        cliff_symbol=cliff_symbol,
+                        courtyard_olive=courtyard_olive,
+                        path_source=path_src,
+                    )
+                    if omap_p:
+                        omap_paths.append(omap_p)
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
         build_oom_zip(

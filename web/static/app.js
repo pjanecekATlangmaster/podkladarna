@@ -583,12 +583,8 @@ function setReuseJob(id) {
 
 function updateOsmHintsForPreset(presetId) {
   const hint = document.getElementById("osm-priority-hint");
-  const courtyardWrap = document.getElementById("courtyard-olive-wrap");
   const id = (presetId || "").toString();
   const sprint = id.startsWith("sprint");
-  if (courtyardWrap) {
-    courtyardWrap.hidden = id !== "" && !sprint;
-  }
   if (!hint) return;
   if (sprint) {
     hint.textContent =

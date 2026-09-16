@@ -586,14 +586,16 @@ def build_zabaged_object_parts(
         filter_lines_against_centerlines,
     )
 
-    fill_courtyards = bool(courtyard_olive) and preset_id.startswith("sprint")
+    fill_courtyards = bool(courtyard_olive)
+    olive_code = "527" if preset_id.startswith("mtbo") else "520"
     olive_index = (
-        symbol_index_for_code(preset_id, scale, "520") if fill_courtyards else None
+        symbol_index_for_code(preset_id, scale, olive_code) if fill_courtyards else None
     )
     courtyard_objects: list[str] = []
+    building_codes = frozenset({"521", "526"})
 
-    # Sprint OOM: ZABAGED Pesina/Cesta ustoupí OSM (PNG beze změny).
-    osm_first = bool(prefer_osm_path_lines) and preset_id.startswith("sprint")
+    # OSM pěšiny/cesty mají přednost před ZABAGED na stejné střednici (všechny disciplíny).
+    osm_first = bool(prefer_osm_path_lines)
     osm_blockers = prefer_osm_path_lines if osm_first else None
 
     wider_paths = _SegmentIndex()
@@ -705,7 +707,7 @@ def build_zabaged_object_parts(
                             ogr=ogr,
                         )
                     )
-                if fill_courtyards and olive_index is not None and code == "521":
+                if fill_courtyards and olive_index is not None and code in building_codes:
                     # Budova s dírou = nepřístupný dvůr → plná oliva přes detaily uvnitř.
                     courtyard_objects.extend(
                         _hole_rings_as_area_objects(
@@ -772,7 +774,7 @@ def build_zabaged_object_parts(
                             clip_bounds=clip_bounds,
                         )
                     )
-                if fill_courtyards and olive_index is not None and code == "521":
+                if fill_courtyards and olive_index is not None and code in building_codes:
                     geom_parts, _ = _wkb_parts(wkb)
                     courtyard_objects.extend(
                         _hole_rings_as_area_objects(
@@ -796,7 +798,7 @@ def build_zabaged_object_parts(
     if courtyard_objects:
         parts.append(
             OomObjectPart(
-                name="ZABAGED – dvory (oliva 520)",
+                name="ZABAGED – dvory (oliva)",
                 objects_xml="\n".join(courtyard_objects),
                 count=len(courtyard_objects),
             )

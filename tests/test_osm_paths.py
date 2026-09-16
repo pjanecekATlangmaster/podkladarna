@@ -542,7 +542,8 @@ def test_osm_oom_code_sidewalk():
     )
 
     assert osm_oom_code("sidewalk", "sprint_2m") == "501.6"
-    assert osm_oom_code("sidewalk", "forest_10000") == "506"
+    assert osm_oom_code("sidewalk", "forest_10000") == "501.1"
+    assert osm_oom_code("sidewalk", "mtbo_10000") == "529"
     assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
     # way/613443110: footway + asphalt bez footway=sidewalk → sprint chodník.
     assert (

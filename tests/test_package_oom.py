@@ -15,6 +15,41 @@ from app.pipeline.package_oom import (
 )
 
 
+def test_resolve_discipline_presets_and_filenames():
+    from app.pipeline.ini_builder import load_presets
+    from app.pipeline.package_oom import (
+        OOM_PATH_VARIANTS,
+        omap_variant_filename,
+        resolve_discipline_presets,
+    )
+
+    presets = load_presets()
+    assert resolve_discipline_presets("sprint_2_5m", presets) == [
+        ("sprint", "sprint_2_5m"),
+        ("les", "forest_10000"),
+        ("mtbo", "mtbo_10000"),
+    ]
+    assert resolve_discipline_presets("forest_7500", presets) == [
+        ("sprint", "sprint_2m"),
+        ("les", "forest_7500"),
+        ("mtbo", "mtbo_10000"),
+    ]
+    assert resolve_discipline_presets("mtbo_15000", presets) == [
+        ("sprint", "sprint_2m"),
+        ("les", "forest_10000"),
+        ("mtbo", "mtbo_15000"),
+    ]
+    names = [
+        omap_variant_filename(d, p)
+        for d, _ in resolve_discipline_presets("sprint_2m", presets)
+        for p, _ in OOM_PATH_VARIANTS
+    ]
+    assert len(names) == 9
+    assert "podkladarna-sprint-kombinace.omap" in names
+    assert "podkladarna-les-cesty_zabaged.omap" in names
+    assert "podkladarna-mtbo-cesty_osm.omap" in names
+
+
 def test_map_scale_from_scalefactor():
     assert map_scale_from_scalefactor(0.4) == 4000
     assert map_scale_from_scalefactor(0.75) == 7500
@@ -105,6 +140,7 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "ČÚZK" in readme
     assert "WMS" in readme
     assert "podkladarna-*.omap" in readme
+    assert "9 souborů" in readme
     assert oom_readme(meta).startswith("Podkladárna")
 
 def test_prepare_oom_map_minimal(tmp_path):

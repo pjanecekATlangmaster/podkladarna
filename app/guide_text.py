@@ -23,7 +23,7 @@ WEB_ABOUT_HTML = """
 </p>
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
-  <li><code>podkladarna-*.omap</code> – 3 varianty cest (jen ZABAGED, jen OSM, mix), otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
+  <li><code>podkladarna-*.omap</code> – 9 souborů (sprint/les/mtbo × ZABAGED/OSM/mix cest), otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
@@ -64,11 +64,11 @@ a skládají se z více zdrojů (ne 1:1 s PNG).
 
 Co je uvnitř
 ------------
-- podkladarna-*.omap   … 3 varianty cest, otevřete v OpenOrienteering Mapper (OOM)
+- podkladarna-*.omap   … 9 souborů (sprint/les/mtbo × ZABAGED/OSM/mix), otevřete v OpenOrienteering Mapper (OOM)
 - basemap/             … reliéf a vegetace z LiDARu (Karttapullautin)
 - karttapullautin/     … srázy a knolíky (DXF)
 - contours/            … vrstevnice z PDAL/GDAL (shapefile)
-- osm_paths/           … pěšiny z OpenStreetMap (ODbL) – geojson + shapefile OSM_cesty (po dedupu i do KP PNG); na sprintu i chodníky (footway=sidewalk) a v OOM přednost před ZABAGED Pesina/Cesta; studny/prameny, mokřad, jeskyně, hřiště/sportoviště, zahrady (520 oliva); volitelně lavičky / lampy / herní prvky; při prioritě OSM (hlavně sprint) ploty/zdi/brány/…
+- osm_paths/           … pěšiny z OpenStreetMap (ODbL) – geojson + shapefile OSM_cesty (po dedupu i do KP PNG); chodníky (footway=sidewalk / zpevněný footway) ve všech disciplínách; v OOM přednost OSM před ZABAGED Pesina/Cesta; studny/prameny, mokřad, jeskyně, hřiště/sportoviště, zahrady (oliva); volitelně lavičky / lampy / herní prvky; při prioritě OSM ploty/zdi/brány/…
 - zabaged/             … polohopis ZABAGED (shapefile)
 - references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM

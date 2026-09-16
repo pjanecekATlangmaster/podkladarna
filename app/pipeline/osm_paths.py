@@ -833,9 +833,13 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         if mtbo:
             return "833"  # Track: medium riding
         return "504"
-    if sprint and hw == "sidewalk":
-        # Zpevněný chodník = footprint zpevněné plochy (ne přerušovaná pěšina).
-        return "501.6"
+    if hw == "sidewalk":
+        # Sprint: footprint 501.6; MTBO zpevněná 529; ISOM 529 = jiný symbol → 501.1.
+        if sprint:
+            return "501.6"
+        if mtbo:
+            return "529"
+        return "501.1"
     if mtbo:
         # footway / path / cycleway → Path: medium riding
         return "834"
@@ -1778,7 +1782,8 @@ def prepare_osm_paths(
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     features: list[dict] = []
     skipped = 0
-    allow_sidewalk = str(preset_id).startswith("sprint")
+    # Chodník / zpevněný footway bereme ve všech disciplínách (symbolika se liší).
+    allow_sidewalk = True
     for el in elements:
         tags = el.get("tags") or {}
         # Metro do podkladu nepatří (ani jako cesta, ani jako objekt).
@@ -1895,25 +1900,14 @@ def prepare_osm_paths(
                 continue
         osm_items.append((pts, hw))
     zabaged_lines: list[list[tuple[float, float]]] = []
-    sprint = str(preset_id).startswith("sprint")
     if zabaged_clean and zabaged_clean.is_file():
-        # Sprint: OSM má přednost před Pesina/Cesta – neořezávat OSM proti nim.
-        dedup_layers = (
-            ZABAGED_PATH_LAYERS_PRIORITY
-            if (osm_priority or sprint)
-            else ZABAGED_PATH_LAYERS
-        )
+        # Stejný dedup pro všechny disciplíny: OSM > Pesina/Cesta (Ulice zůstává).
+        dedup_layers = ZABAGED_PATH_LAYERS_PRIORITY
         zabaged_lines = _zabaged_path_lines(
             zabaged_clean, log=log, layers=dedup_layers
         )
         if log:
-            if sprint:
-                mode = "sprint (OSM > Pesina/Cesta)"
-            elif osm_priority:
-                mode = "priorita OSM (i v lese – urban pack)"
-            else:
-                mode = "standard"
-            log(f"OSM dedup ({mode}): {len(zabaged_lines)} ZABAGED linií")
+            log(f"OSM dedup (OSM > Pesina/Cesta): {len(zabaged_lines)} ZABAGED linií")
         if not zabaged_lines and log:
             log(
                 "OSM dedup: varování – ZABAGED ZIP je, ale 0 cestovních linií; "

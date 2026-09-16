@@ -35,6 +35,13 @@ from app.pipeline.vegetation_gdal import build_vegetation_parts
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
 OOM_MAP_NAME = "podkladarna.omap"
+# 3 zdroje cest × 3 disciplíny → 9 omap v ZIPu.
+OOM_PATH_VARIANTS: tuple[tuple[str, str], ...] = (
+    ("cesty_zabaged", PATH_SOURCE_ZABAGED),
+    ("cesty_osm", PATH_SOURCE_OSM),
+    ("kombinace", PATH_SOURCE_MIXED),
+)
+OOM_DISCIPLINE_ORDER: tuple[str, ...] = ("sprint", "les", "mtbo")
 # Kolik nechat za objednanou hranicí, ať u kraje mapy nechybí kus prvku.
 CLIP_MARGIN_M = 25.0
 # Louka / parková zeleň pod KP vegetací – jinak 401 překryje hustníky z LiDARu.
@@ -46,12 +53,59 @@ _ZABAGED_UNDER_VEGETATION = frozenset(
 )
 # Obdělávaná půda z OSM (412) taky pod KP – hustníky zůstanou navrch.
 _OSM_UNDER_VEGETATION_MARK = "(412)"
-# Dvory v budovách (oliva 520) až navrch – překryjí detaily uvnitř dvorů.
-_COURTYARD_OLIVE_MARK = "dvory (oliva 520)"
+# Dvory v budovách (oliva) až navrch – překryjí detaily uvnitř dvorů.
+_COURTYARD_OLIVE_MARK = "dvory (oliva)"
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
     return int(round(float(scalefactor) * 10000))
+
+
+def resolve_discipline_presets(
+    selected_preset_id: str,
+    presets: dict | None = None,
+) -> list[tuple[str, str]]:
+    """Vrátí [(tag, preset_id), ...] pro sprint / les / mtbo.
+
+    Vybraný preset určuje konkrétní variantu měřítka/ekvidistance v dané
+    disciplíně; ostatní disciplíny berou výchozí preset.
+    """
+    selected = (selected_preset_id or "sprint_2m").strip()
+    presets = presets or {}
+
+    if selected.startswith("sprint"):
+        sprint_id = selected
+    else:
+        sprint_id = "sprint_2m"
+    if selected.startswith("forest"):
+        forest_id = selected
+    else:
+        forest_id = "forest_10000"
+    if selected.startswith("mtbo"):
+        mtbo_id = selected
+    else:
+        mtbo_id = "mtbo_10000"
+
+    def _pick(preferred: str, fallbacks: tuple[str, ...]) -> str:
+        if not presets or preferred in presets:
+            return preferred
+        for fb in fallbacks:
+            if fb in presets:
+                return fb
+        return preferred
+
+    sprint_id = _pick(sprint_id, ("sprint_2m", "sprint_2_5m"))
+    forest_id = _pick(forest_id, ("forest_10000", "forest_7500"))
+    mtbo_id = _pick(mtbo_id, ("mtbo_10000", "mtbo_15000"))
+    return [
+        ("sprint", sprint_id),
+        ("les", forest_id),
+        ("mtbo", mtbo_id),
+    ]
+
+
+def omap_variant_filename(discipline_tag: str, path_tag: str) -> str:
+    return f"podkladarna-{discipline_tag}-{path_tag}.omap"
 
 
 def oom_metadata(
@@ -109,7 +163,8 @@ def oom_readme(meta: dict) -> str:
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
-        "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný podkladarna-*.omap.\n"
+        "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný podkladarna-*.omap\n"
+        "   (9 souborů: sprint/les/mtbo × cesty_zabaged/cesty_osm/kombinace).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, srázy, …).\n"
         "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
         "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
@@ -210,7 +265,7 @@ def prepare_oom_map(
     zabaged_rest: list[OomObjectPart] = []
     courtyard_olive_parts: list[OomObjectPart] = []
     prefer_osm_paths: list[list[tuple[float, float]]] = []
-    if path_source == PATH_SOURCE_MIXED and preset_id.startswith("sprint"):
+    if path_source == PATH_SOURCE_MIXED:
         prefer_osm_paths = load_osm_path_lines(kp_cwd)
     if zabaged_clean and zabaged_clean.is_file():
         for part in build_zabaged_object_parts(
