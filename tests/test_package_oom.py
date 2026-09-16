@@ -15,39 +15,67 @@ from app.pipeline.package_oom import (
 )
 
 
-def test_resolve_discipline_presets_and_filenames():
+def test_resolve_omap_job_by_scale():
     from app.pipeline.ini_builder import load_presets
     from app.pipeline.package_oom import (
         OOM_PATH_VARIANTS,
         omap_variant_filename,
         resolve_discipline_presets,
+        resolve_omap_job,
     )
 
     presets = load_presets()
-    assert resolve_discipline_presets("sprint_2_5m", presets) == [
-        ("sprint", "sprint_2_5m"),
-        ("les", "forest_10000"),
-        ("mtbo", "mtbo_10000"),
+
+    sprint = resolve_omap_job(4000, 2.5, presets=presets)
+    assert sprint["preset_id"] == "sprint_2_5m"
+    assert sprint["disciplines"] == [("sprint", "sprint_2_5m", 4000)]
+    assert sprint["indexcontours"] == 12.5
+
+    sprint5 = resolve_omap_job(4000, 5, presets=presets)
+    assert sprint5["preset_id"] == "sprint_2m"
+    assert sprint5["contour_interval"] == 5.0
+
+    s7500 = resolve_omap_job(7500, 5, presets=presets)
+    assert s7500["preset_id"] == "forest_7500"
+    assert s7500["disciplines"] == [
+        ("les", "forest_7500", 7500),
+        ("mtbo", "mtbo_10000", 7500),
     ]
-    assert resolve_discipline_presets("forest_7500", presets) == [
-        ("sprint", "sprint_2m"),
-        ("les", "forest_7500"),
-        ("mtbo", "mtbo_10000"),
+
+    s10 = resolve_omap_job(10000, 5, presets=presets)
+    assert [d[0] for d in s10["disciplines"]] == ["les", "mtbo"]
+    assert all(d[2] == 10000 for d in s10["disciplines"])
+
+    s15 = resolve_omap_job(15000, 5, presets=presets)
+    assert s15["preset_id"] == "mtbo_15000"
+    assert s15["disciplines"] == [
+        ("les", "forest_10000", 15000),
+        ("mtbo", "mtbo_15000", 15000),
     ]
-    assert resolve_discipline_presets("mtbo_15000", presets) == [
-        ("sprint", "sprint_2m"),
-        ("les", "forest_10000"),
-        ("mtbo", "mtbo_15000"),
-    ]
+
+    try:
+        resolve_omap_job(10000, 2.5, presets=presets)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+    # Fallback ze starého preset_id
+    via_preset = resolve_omap_job(
+        None, None, presets=presets, preset_id_fallback="forest_7500"
+    )
+    assert via_preset["map_scale"] == 7500
+    assert via_preset["contour_interval"] == 5.0
+
     names = [
         omap_variant_filename(d, p)
-        for d, _ in resolve_discipline_presets("sprint_2m", presets)
+        for d, _, _ in resolve_discipline_presets(
+            "sprint_2m", presets, map_scale=4000, contour_interval=2
+        )
         for p, _ in OOM_PATH_VARIANTS
     ]
-    assert len(names) == 9
+    assert len(names) == 3
     assert "podkladarna-sprint-kombinace.omap" in names
-    assert "podkladarna-les-cesty_zabaged.omap" in names
-    assert "podkladarna-mtbo-cesty_osm.omap" in names
+    assert not any(n.startswith("podkladarna-les-") for n in names)
 
 
 def test_map_scale_from_scalefactor():
@@ -140,7 +168,8 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "ČÚZK" in readme
     assert "WMS" in readme
     assert "podkladarna-*.omap" in readme
-    assert "9 souborů" in readme
+    assert "cesty_zabaged/cesty_osm/kombinace" in readme
+    assert "github.com/pjanecekATlangmaster/podkladarna/issues" in readme
     assert oom_readme(meta).startswith("Podkladárna")
 
 def test_prepare_oom_map_minimal(tmp_path):

@@ -24,7 +24,6 @@ from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     OOM_PATH_VARIANTS,
     build_oom_zip,
-    map_scale_from_scalefactor,
     oom_metadata,
     omap_variant_filename,
     prepare_oom_map,
@@ -346,19 +345,19 @@ def _package_output(
             include_dxf = bool(options.get("output_dxf", True))
             contour_interval_m = meta.get("contour_interval_m")
 
-            for disc_tag, disc_preset_id in resolve_discipline_presets(
-                preset_id, presets
+            for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
+                preset_id,
+                presets,
+                map_scale=options.get("map_scale"),
+                contour_interval=options.get("contour_interval"),
             ):
                 disc_preset = presets.get(disc_preset_id, {})
                 vectorconf = Path(
                     str(disc_preset.get("vectorconf", "zabaged.txt"))
                 ).name
-                scale = map_scale_from_scalefactor(
-                    float(disc_preset.get("scalefactor", 1.0))
-                )
                 for path_tag, path_src in OOM_PATH_VARIANTS:
                     variant_name = omap_variant_filename(disc_tag, path_tag)
-                    log(f"OOM: {variant_name} ({disc_preset_id}, {path_src})")
+                    log(f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src})")
                     omap_p = prepare_oom_map(
                         kp_cwd,
                         output_dir / variant_name,

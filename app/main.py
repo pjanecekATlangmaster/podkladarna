@@ -33,10 +33,16 @@ from app.pipeline.ini_builder import (
     resolve_cliff_sensitivity,
     resolve_vege_height,
 )
-from app.pipeline.osm_paths import resolve_path_source
+from app.pipeline.package_oom import (
+    CONTOURS_BY_SCALE,
+    DEFAULT_CONTOUR_BY_SCALE,
+    MAP_SCALES,
+    resolve_omap_job,
+)
 from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE, APP_VERSION
 from app.tiles import TileError, fetch_tile
 from app.tool_env import tool_status
+from app.whats_new import whats_new_payload
 
 logger = logging.getLogger("podkladarna")
 
@@ -132,6 +138,26 @@ def api_presets():
         k: {"id": k, "label": v.get("label", k), **v}
         for k, v in presets.items()
     }
+
+
+@app.get("/api/map_options")
+def api_map_options():
+    """Měřítka a povolené ekvidistance pro GUI (bez „typu mapy“)."""
+    return {
+        "scales": list(MAP_SCALES),
+        "contours_by_scale": {
+            str(scale): list(vals) for scale, vals in CONTOURS_BY_SCALE.items()
+        },
+        "default_contour_by_scale": {
+            str(scale): val for scale, val in DEFAULT_CONTOUR_BY_SCALE.items()
+        },
+    }
+
+
+@app.get("/api/whats_new")
+def api_whats_new():
+    """Stáří posledního buildu + větší změny za 30 dní (box nad formulářem)."""
+    return whats_new_payload()
 
 
 @app.get("/api/sheets")
@@ -263,6 +289,7 @@ def api_health():
     tools = tool_status()
     return {
         "ok": True,
+        "version": APP_VERSION,
         "data_dir": str(JOBS_DIR.parent),
         "downloads_dir": str(DOWNLOADS_DIR),
         "disk_free_gb": round(usage.free / 1e9, 2),
@@ -285,10 +312,30 @@ async def api_create_job(request: Request):
     if not name:
         raise HTTPException(400, "Chybi nazev jobu")
 
-    preset_id = _form_str(form, "preset_id").strip()
     presets = load_presets()
-    if not preset_id:
-        raise HTTPException(400, "Chybí typ mapy.")
+    map_scale_raw = _form_str(form, "map_scale").strip()
+    contour_raw = _form_str(form, "contour_interval").strip()
+    preset_id = _form_str(form, "preset_id").strip()
+    try:
+        if map_scale_raw:
+            resolved = resolve_omap_job(
+                map_scale_raw,
+                contour_raw or None,
+                presets=presets,
+            )
+        elif preset_id:
+            # Zpětná kompatibilita starých klientů / iterace z jobu s preset_id.
+            resolved = resolve_omap_job(
+                None,
+                contour_raw or None,
+                presets=presets,
+                preset_id_fallback=preset_id,
+            )
+        else:
+            raise HTTPException(400, "Chybí měřítko mapy.")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    preset_id = resolved["preset_id"]
     if preset_id not in presets:
         raise HTTPException(400, f"Neznamy preset: {preset_id}")
 
@@ -359,6 +406,10 @@ async def api_create_job(request: Request):
         "bbox_wgs84": list(bbox),
         "sm5_sheets": [s["mapnom"] for s in sheets],
         "client_ip": remote_ip,
+        "map_scale": resolved["map_scale"],
+        "scalefactor": resolved["scalefactor"],
+        "contour_interval": resolved["contour_interval"],
+        "indexcontours": resolved["indexcontours"],
     }
     cliff_raw = _form_str(form, "kp_cliff_symbol").strip().lower()
     if cliff_raw in {"earth_bank", "rock_face", "symbol_206", "off"}:
@@ -421,7 +472,9 @@ async def api_create_job(request: Request):
         )
 
     log(
-        f"Prijato: listy={','.join(options['sm5_sheets'])}, preset={preset_id}, "
+        f"Prijato: listy={','.join(options['sm5_sheets'])}, "
+        f"1:{resolved['map_scale']} · {resolved['contour_interval']} m "
+        f"(preset={preset_id}), "
         f"vege={options.get('kp_vege_height', 2.0)} m, "
         f"srázy={options.get('kp_cliff_sensitivity', 'normal')}/"
         f"{options.get('kp_cliff_symbol', 'earth_bank')}, "

@@ -26,7 +26,18 @@
     </section>
 
     <div class="layout">
-    <section class="card">
+    <section class="card job-form-card">
+      <details class="whats-new" id="whats-new" hidden>
+        <summary class="whats-new-summary">
+          <span class="whats-new-badge" id="whats-new-badge">Novinky</span>
+          <span class="whats-new-title" id="whats-new-title">Co je nového</span>
+          <span class="whats-new-meta" id="whats-new-meta"></span>
+        </summary>
+        <div class="whats-new-body">
+          <p class="whats-new-lead" id="whats-new-lead"></p>
+          <ul class="whats-new-list" id="whats-new-list"></ul>
+        </div>
+      </details>
       <h2>Nový job</h2>
       <form id="job-form">
         <div class="form-section">
@@ -37,11 +48,24 @@
           </label>
 
           <label>
-            Typ mapy
-            <select name="preset_id" id="preset_id" required>
-              <option value="" selected disabled>Vyberte typ mapy</option>
+            Měřítko
+            <select name="map_scale" id="map_scale" required>
+              <option value="" selected disabled>Vyberte měřítko</option>
+              <option value="4000">1:4000 (sprint)</option>
+              <option value="7500">1:7500</option>
+              <option value="10000">1:10000</option>
+              <option value="15000">1:15000</option>
             </select>
           </label>
+          <p class="hint" id="map-scale-hint">Určuje, které disciplíny se vygenerují do ZIPu a měřítko omapů / PNG náhledu.</p>
+
+          <label>
+            Ekvidistance
+            <select name="contour_interval" id="contour_interval" required>
+              <option value="" selected disabled>Nejdřív vyberte měřítko</option>
+            </select>
+          </label>
+          <p class="hint" id="contour-hint">Nabídka závisí na měřítku (u 1:4000 je 5&nbsp;m výjimečná).</p>
         </div>
 
         <div class="form-section" id="map-mode">
@@ -97,7 +121,7 @@
             <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />
             OSM detaily – ploty, zdi, brány, pomníky…
           </label>
-          <p class="hint" id="osm-priority-hint">Urban pack z OSM. Na sprintu užitečné; v lese / MTBO často zbytečné až hlučné. Budovy a silnice bereme vždy ze ZABAGED.</p>
+          <p class="hint" id="osm-priority-hint">Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintového výřezu užitečné; v lese často zbytečné. Budovy a silnice bereme ze ZABAGED.</p>
 
           <div id="courtyard-olive-wrap">
             <label class="checkbox-row">
@@ -135,7 +159,12 @@
               <option value="png">Jen PNG náhled (bez ZIPu)</option>
             </select>
           </label>
-          <p class="hint">PNG = rychlý rastrový náhled. ZIP = 9× <code>.omap</code> (sprint/les/mtbo × zdroje cest) + vektory pro OOM.</p>
+          <p class="hint" id="output-omap-hint">
+            <strong>PNG</strong> je jen rychlý rastrový náhled (Karttapullautin), ne finální mapa.
+            <strong>ZIP</strong> obsahuje několik <code>.omap</code> souborů podle měřítka
+            (disciplíny × 3 zdroje cest: ZABAGED / OSM / kombinace) plus vektory pro OOM.
+          </p>
+          <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="output_references" id="output_references" value="1" checked />
@@ -181,8 +210,9 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.7 ·
+      Podkladárna v1.8.1 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
+      · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence MIT</a>
     </p>
     <p class="footer-sources">

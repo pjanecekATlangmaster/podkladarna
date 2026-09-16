@@ -152,6 +152,60 @@ def test_create_job_sprint_courtyard_olive(client, monkeypatch):
     assert on.json()["options"]["sprint_courtyard_olive"] is True
 
 
+def test_map_options(client):
+    r = client.get("/api/map_options")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["scales"] == [4000, 7500, 10000, 15000]
+    assert body["contours_by_scale"]["4000"] == [2.0, 2.5, 5.0]
+    assert body["contours_by_scale"]["10000"] == [5.0]
+    assert body["default_contour_by_scale"]["4000"] == 2.5
+
+
+def test_create_job_with_map_scale(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "scale-job",
+            "map_scale": "10000",
+            "contour_interval": "5",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "output_mode": "png_zip",
+            "output_references": "1",
+            "sprint_courtyard_olive": "1",
+            "kp_osm_priority": "1",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["preset_id"] == "forest_10000"
+    assert body["options"]["map_scale"] == 10000
+    assert body["options"]["contour_interval"] == 5.0
+    assert body["options"]["scalefactor"] == 1.0
+
+    bad = client.post(
+        "/api/jobs",
+        data={
+            "name": "bad-contour",
+            "map_scale": "10000",
+            "contour_interval": "2.5",
+            "bbox": "14.40,50.08,14.42,50.09",
+        },
+    )
+    assert bad.status_code == 400
+    assert "ekvidistance" in bad.json()["detail"].lower()
+
+
 def test_create_job_rejects_missing_preset(client):
     r = client.post(
         "/api/jobs",
@@ -161,13 +215,14 @@ def test_create_job_rejects_missing_preset(client):
         },
     )
     assert r.status_code == 400
-    assert "typ mapy" in r.json()["detail"].lower()
+    detail = r.json()["detail"].lower()
+    assert "měřítko" in detail or "meritko" in detail
 
 
 def test_create_job_rejects_missing_bbox(client):
     r = client.post(
         "/api/jobs",
-        data={"name": "bez-vyrezu", "preset_id": "sprint_2m"},
+        data={"name": "bez-vyrezu", "map_scale": "4000", "contour_interval": "2.5"},
     )
     assert r.status_code == 400
     assert "bbox" in r.json()["detail"].lower() or "výřez" in r.json()["detail"].lower()
@@ -182,6 +237,9 @@ def test_index_html(client):
     assert "O co jde" in html
     assert "48 hodin" in html
     assert "PNG náhled" in html
+    assert 'name="map_scale"' in html
+    assert 'name="contour_interval"' in html
+    assert 'name="preset_id"' not in html
     assert 'name="output_mode"' in html
     assert 'name="output_references"' in html
     assert 'id="output_references" value="1" checked' in html
@@ -200,13 +258,16 @@ def test_index_html(client):
     assert "job-detail" in html
     assert "job-detail-holder" in html
     assert "jobs-list" in html
-    assert "Podkladárna v1.7" in html
+    assert "Podkladárna v1.8" in html
+    assert 'id="whats-new"' in html
+    assert "github.com/pjanecekATlangmaster/podkladarna/issues" in html
+    assert "zpětnou vazbu" in html
     assert "jobs-live" in html
     assert "jobs-finished-bar" in html
     assert 'href="/licence"' in html
     assert "creativecommons.org/licenses/by/4.0" in html
     assert "DEPLOY.md" not in html
-
+    assert "output-disciplines-hint" in html
 
 def test_licence_page(client):
     r = client.get("/licence")

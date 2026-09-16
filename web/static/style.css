@@ -133,6 +133,142 @@ main.page-wrap {
   padding-bottom: 0.35rem;
 }
 
+.whats-new {
+  margin: -0.25rem -0.35rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #f7faf4;
+  overflow: hidden;
+}
+
+.whats-new[hidden] {
+  display: none !important;
+}
+
+.whats-new-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.45rem 0.75rem;
+  padding: 0.7rem 0.85rem;
+  font-weight: 600;
+}
+
+.whats-new-summary::-webkit-details-marker {
+  display: none;
+}
+
+.whats-new-summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.whats-new[open] .whats-new-summary::before {
+  content: "▾";
+}
+
+.whats-new-badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: #e4eadc;
+  color: #334;
+}
+
+.whats-new-title {
+  flex: 1 1 auto;
+}
+
+.whats-new-meta {
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.whats-new-body {
+  padding: 0 0.85rem 0.85rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.whats-new-lead {
+  margin: 0.65rem 0 0.4rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.whats-new-list {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.whats-new-list li {
+  margin: 0.45rem 0;
+  font-size: 0.92rem;
+}
+
+.whats-new-list strong {
+  display: inline;
+}
+
+.whats-new-date {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin-right: 0.35rem;
+}
+
+/* Stáří buildu → výraznost */
+.whats-new.tone-hot {
+  border-color: #c62828;
+  background: linear-gradient(180deg, #ffe8e6 0%, #fff5f4 100%);
+  box-shadow: 0 0 0 1px rgba(198, 40, 40, 0.25), 0 4px 14px rgba(198, 40, 40, 0.12);
+}
+
+.whats-new.tone-hot .whats-new-badge {
+  background: #c62828;
+  color: #fff;
+}
+
+.whats-new.tone-hot .whats-new-summary {
+  color: #7f1d1d;
+}
+
+.whats-new.tone-warm {
+  border-color: #ef6c00;
+  background: linear-gradient(180deg, #fff0e0 0%, #fffaf3 100%);
+}
+
+.whats-new.tone-warm .whats-new-badge {
+  background: #ef6c00;
+  color: #fff;
+}
+
+.whats-new.tone-mild {
+  border-color: #c9a227;
+  background: #fffceb;
+}
+
+.whats-new.tone-mild .whats-new-badge {
+  background: #c9a227;
+  color: #1a1a1a;
+}
+
+.whats-new.tone-calm {
+  border-color: #7cb342;
+  background: #f3faf0;
+}
+
+.whats-new.tone-calm .whats-new-badge {
+  background: #2e7d32;
+  color: #fff;
+}
+
 label {
   display: block;
   margin: 0.75rem 0;
