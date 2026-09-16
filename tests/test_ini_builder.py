@@ -98,7 +98,7 @@ def test_write_pullauta_ini_mtbo_scales(tmp_path: Path):
     assert ini10["indexcontours"] == "25"
     assert ini10["formline"] == "2"
     assert ini10["vectorconf"] == "zabaged_forest.txt"
-    assert ini10["buildingcolor"] == "0,0,0"
+    assert ini10["buildingcolor"] == "102,102,102"
 
     path15 = write_pullauta_ini(tmp_path / "m15", "mtbo_15000")
     ini15 = _ini_map(path15.read_text(encoding="utf-8"))
@@ -106,6 +106,7 @@ def test_write_pullauta_ini_mtbo_scales(tmp_path: Path):
     assert float(ini15["contour_interval"]) == round(5 / 1.5, 6)
     assert ini15["indexcontours"] == "25"
     assert ini15["vectorconf"] == "zabaged_forest.txt"
+    assert ini15["buildingcolor"] == "102,102,102"
 
 
 def test_write_pullauta_ini_default_vege_and_cliff(tmp_path: Path):

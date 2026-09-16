@@ -120,7 +120,7 @@ def oom_readme(meta: dict) -> str:
         "   zeleň KP (polygony) ve vegetation/;\n"
         "   srázy a knolíky z Karttapullautinu v karttapullautin/\n"
         "   a zároveň jako editovatelné objekty v mapě.\n"
-        "   OSM pěšiny (geojson + shapefile OSM_cesty) v osm_paths/ a jako objekty 507.\n\n"
+        "   OSM pěšiny (geojson + shapefile OSM_cesty) v osm_paths/ a jako objekty 506.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, ortofoto), CC BY 4.0. "

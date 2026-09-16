@@ -225,16 +225,40 @@ def test_download_oom_redirects_to_main_zip(client, tmp_path, monkeypatch):
     """Starší URL /download/oom vrací stejný balíček jako /download."""
     from app import db, main
 
-    job_id = "oomlegacy"
-    out = tmp_path / "jobs" / job_id / "output"
-    out.mkdir(parents=True)
-    (out / "podkladarna_output.zip").write_bytes(b"zip")
     monkeypatch.setattr(main, "JOBS_DIR", tmp_path / "jobs")
     monkeypatch.setattr(db, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "jobs.sqlite")
+    db.init_db()
+    job = db.create_job("Nusle MTBO", "mtbo_10000", {})
+    job_id = job["id"]
+    out = tmp_path / "jobs" / job_id / "output"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "podkladarna_output.zip").write_bytes(b"zip")
 
     r = client.get(f"/api/jobs/{job_id}/download/oom")
     assert r.status_code == 200
     assert r.content == b"zip"
+    cd = r.headers.get("content-disposition", "")
+    assert "podkladarna" in cd
+    assert "nusle" in cd.casefold() and "mtbo" in cd.casefold()
+    assert job_id not in cd
+
+
+def test_zip_download_filename_uses_project_name(tmp_path, monkeypatch):
+    from app import db
+
+    monkeypatch.setattr(db, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "jobs.sqlite")
+    db.init_db()
+    a = db.create_job("Nusle", "forest_10000", {})
+    b = db.create_job("Nusle", "forest_10000", {})
+    c = db.create_job("Jiný", "forest_10000", {})
+    assert db.zip_download_filename(a["id"], a["name"]) == "podkladarna-nusle.zip"
+    assert db.zip_download_filename(b["id"], b["name"]) == "podkladarna-nusle-2.zip"
+    assert db.zip_download_filename(c["id"], c["name"]) == "podkladarna-jiný.zip"
+    assert db.safe_zip_stem("a/b:c*?.zip") == "abc.zip"
+    assert db.safe_zip_stem("") == "podkladarna"
+    assert db.zip_download_filename("x", "") == "podkladarna.zip"
 
 
 def test_logo_png(client):

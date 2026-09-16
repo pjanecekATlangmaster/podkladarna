@@ -70,7 +70,8 @@ mtbo_10000:
   smoothing: 0.85
   processes: 2
   vectorconf: zabaged_forest.txt
-  buildingcolor: "0,0,0"
+  # ISMTBOM 521: black / black 60 % (ne plná černá jako lesní ISOM).
+  buildingcolor: "102,102,102"
 
 mtbo_15000:
   label: "MTBO 1:15000 · 5 m"
@@ -83,4 +84,4 @@ mtbo_15000:
   smoothing: 0.85
   processes: 2
   vectorconf: zabaged_forest.txt
-  buildingcolor: "0,0,0"
+  buildingcolor: "102,102,102"

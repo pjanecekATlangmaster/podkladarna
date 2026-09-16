@@ -237,7 +237,12 @@ def api_download(job_id: str):
     zip_path = _output_zip_path(job_id)
     if not zip_path:
         raise HTTPException(404, "Vystup jeste neni pripraven")
-    return FileResponse(zip_path, filename=f"podkladarna_{job_id}.zip")
+    try:
+        job = db.get_job(job_id)
+        filename = db.zip_download_filename(job_id, job["name"])
+    except KeyError:
+        filename = db.zip_download_filename(job_id, job_id)
+    return FileResponse(zip_path, filename=filename)
 
 
 @app.get("/api/jobs/{job_id}/preview.png")

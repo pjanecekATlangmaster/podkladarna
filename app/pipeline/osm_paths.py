@@ -164,6 +164,9 @@ def _overpass_ql(
         f'node["natural"="spring"]({bbox});',
         f'way["natural"="spring"]({bbox});',
         f'way["leisure"~"^({paved})$"]({bbox});',
+        # Pěší zóna / náměstí jako plocha (ne linie).
+        f'way["highway"="pedestrian"]["area"="yes"]({bbox});',
+        f'relation["type"="multipolygon"]["highway"="pedestrian"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
         # Vodní plochy → OOM 301 (nepřekonatelné). ČÚZK často nemá celou nádrž.
         f'way["natural"="water"]({bbox});',
@@ -244,8 +247,8 @@ _BARRIER_POINTS = frozenset(
 _BENCH_KINDS = frozenset({"bench", "info_board", "picnic_table", "firepit"})
 _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
-# Plochy z OSM_PAVED_AREA_LEISURE → kind playground | pitch (oba 501).
-_PAVED_AREA_KINDS = frozenset({"playground", "pitch"})
+# Plochy z OSM_PAVED_AREA_LEISURE / pěší zóna → kind playground | pitch | pedestrian_area (501).
+_PAVED_AREA_KINDS = frozenset({"playground", "pitch", "pedestrian_area"})
 # OSM plochy s ořezem proti ZABAGED (priorita ZABAGED).
 # farmland (412) se neořezává – zdroj je OSM, OrnaPuda se do OOM neimportuje.
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
@@ -341,6 +344,16 @@ def sprint_line_highway(tags: dict, highway: str) -> str:
     if footway == "sidewalk" or (hw == "footway" and _is_paved_surface(tags)):
         return "sidewalk"
     return hw or "path"
+
+
+def _is_pedestrian_area_tags(tags: dict) -> bool:
+    """Pěší zóna / náměstí jako plocha (highway=pedestrian + area nebo multipolygon)."""
+    if (tags.get("highway") or "").lower() != "pedestrian":
+        return False
+    area = (tags.get("area") or "").lower()
+    if area in {"yes", "true", "1"}:
+        return True
+    return (tags.get("type") or "").lower() == "multipolygon"
 
 
 def classify_osm_feature(
@@ -439,6 +452,11 @@ def classify_osm_feature(
             return None
         kind = "playground" if leisure == "playground" else "pitch"
         return kind, "501"
+    # Pěší zóna / náměstí (area) → zpevněná 501; linie bez area zůstane cestou.
+    if _is_pedestrian_area_tags(tags) and not is_node:
+        if _is_osm_building(tags):
+            return "building", "521"
+        return "pedestrian_area", "501"
     if man_made == "water_well" or amenity == "fountain":
         if _is_osm_building(tags):
             return "water_well_building", "521"
@@ -450,25 +468,71 @@ def classify_osm_feature(
 
 
 def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
-    """OOM kód podle druhu objektu a presetu (sprint vs les)."""
+    """OOM kód podle druhu objektu a presetu (sprint / les / MTBO)."""
     sprint = preset_id.startswith("sprint")
+    mtbo = preset_id.startswith("mtbo")
     if kind == "cave_entrance":
-        return "203.1" if sprint else "203.2"
+        if sprint:
+            return "203.1"
+        if mtbo:
+            return "205"
+        return "203.2"
     if kind == "fence":
-        return "518" if sprint else "516"
+        if sprint:
+            return "518"
+        if mtbo:
+            return "522"
+        return "516"
     if kind == "wall":
-        return "513.2" if sprint else "513"
+        if sprint:
+            return "513.2"
+        if mtbo:
+            return "521"  # ISMTBOM Stone wall
+        return "513"
     if kind == "hedge":
         return "518" if sprint else "416"
     if kind in _PAVED_AREA_KINDS:
         # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
-        return "501" if sprint else "501.1"
+        if sprint:
+            return "501"
+        if mtbo:
+            return "529"
+        return "501.1"
     if kind == "water_body":
         return "301"
     if kind == "farmland":
-        return "412"
+        # ISOM 412 Cultivated land; ISMTBOM 412 = Orchard → 415.
+        return "415" if mtbo else "412"
     if kind == "garden":
-        return "520"
+        # ISOM/ISSprOM 520 oliva; ISMTBOM 527 Settlement.
+        return "527" if mtbo else "520"
+    if kind == "building" or kind == "water_well_building":
+        return "526" if mtbo else "521"
+    if kind == "water_well":
+        return "312" if mtbo else "311"
+    if kind == "spring":
+        return "313" if mtbo else "312"
+    if kind == "wetland":
+        return "310" if mtbo else "308"
+    if kind == "memorial":
+        return "537" if mtbo else "526"
+    if kind == "shelter":
+        # ISOM canopy 522; ISMTBOM 522 = Fence → special man-made.
+        return "539" if mtbo else "522"
+    if kind == "landmark_tree":
+        return "418" if mtbo else "417"
+    if kind in {
+        "bench",
+        "info_board",
+        "lamp",
+        "picnic_table",
+        "firepit",
+        "playground_equipment",
+        "barrier_point",
+        "fitness",
+    }:
+        # ISOM 530/531; ISMTBOM ty kódy znamenají něco jiného → 539.
+        return "539" if mtbo else ("530" if kind == "lamp" else "531")
     if stored_code:
         return stored_code
     defaults = {
@@ -490,6 +554,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "garden": "520",
         "playground": "501",
         "pitch": "501",
+        "pedestrian_area": "501",
         "building": "521",
         "water_well": "311",
         "water_well_building": "521",
@@ -730,22 +795,39 @@ def _way_skip_reason(
 
 
 def osm_oom_code(highway: str, preset_id: str) -> str:
-    """ISOM/ISSprOM kód podle OSM highway."""
+    """ISOM/ISSprOM/ISMTBOM kód podle OSM highway.
+
+    Postupně podle velikosti 503→504→505→506; nezřetelnou 507 nepoužíváme
+    (to nejmenší v OSM stejně typicky není).
+    """
     hw = (highway or "path").lower()
     sprint = preset_id.startswith("sprint")
+    mtbo = preset_id.startswith("mtbo")
     if hw in OSM_ROAD_HIGHWAYS:
-        return "501.17" if sprint else "503"
+        if sprint:
+            return "501.17"
+        if mtbo:
+            return "504"  # ISMTBOM Road
+        return "503"
     if hw == "steps":
-        # ISSprOM: footprint schodiště; ISOM: 532 Stairway (v sadě je).
-        return "532.7" if sprint else "532"
+        # ISSprOM: footprint schodiště; ISOM: 532 Stairway; ISMTBOM schody nemá.
+        if sprint:
+            return "532.7"
+        if mtbo:
+            return "506"
+        return "532"
     if hw == "track":
         # Lesní / polní cesta (vozová) – ne úzká pěšina.
-        return "506" if sprint else "504"
+        if sprint:
+            return "505.1"
+        if mtbo:
+            return "505"  # ISMTBOM Vehicle track
+        return "504"
     if sprint and hw == "sidewalk":
-        # Zpevněný chodník = footprint zpevněné plochy (ne přerušovaná 507).
+        # Zpevněný chodník = footprint zpevněné plochy (ne přerušovaná pěšina).
         return "501.6"
-    # footway / path / … → úzká pěšina.
-    return "507"
+    # footway / path / … → small footpath 506 (ne nezřetelná 507).
+    return "506"
 
 
 def highway_width_rank(highway: str) -> int:
@@ -1774,6 +1856,30 @@ def prepare_osm_paths(
             hw = sprint_line_highway(tags, hw)
         elif not hw:
             hw = "path"
+        # Uzavřená pěší zóna i bez area=yes → zpevněná plocha (ne střednicová pěšina).
+        if hw == "pedestrian" and len(pts) >= 3:
+            ring = list(pts)
+            if ring[0] != ring[-1]:
+                if math.hypot(ring[0][0] - ring[-1][0], ring[0][1] - ring[-1][1]) < 1.5:
+                    ring = ring[:-1] + [ring[0]]
+                else:
+                    ring = []
+            if len(ring) >= 4 and ring[0] == ring[-1]:
+                features.append(
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "source": "osm",
+                            "kind": "pedestrian_area",
+                            "oom_code": "501",
+                        },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[[x, y] for x, y in ring]],
+                        },
+                    }
+                )
+                continue
         osm_items.append((pts, hw))
     zabaged_lines: list[list[tuple[float, float]]] = []
     sprint = str(preset_id).startswith("sprint")
@@ -1885,8 +1991,8 @@ def highway_to_zabaged_vrstva(highway: str) -> str | None:
         return "Ulice"  # KP road-path|503
     if hw == "track":
         return "Cesta"  # KP road-path|505
-    # sidewalk / footway / path → KP pěšina (507)
-    return "Pesina"  # KP road-path|507
+    # sidewalk / footway / path → KP pěšina (506)
+    return "Pesina"  # KP road-path|506
 
 
 def paths_geojson_for_kp(paths_gj: dict) -> dict:
@@ -2041,10 +2147,10 @@ def build_osm_path_parts(
             symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
         symbol_index = symbol_cache[code]
         if symbol_index is None:
-            # Fallback na pěšinu, když symbol set kód nemá.
-            if "507" not in symbol_cache:
-                symbol_cache["507"] = symbol_index_for_code(preset_id, scale, "507")
-            symbol_index = symbol_cache["507"]
+            # Fallback na malou pěšinu 506 (507 nezřetelnou nepoužíváme).
+            if "506" not in symbol_cache:
+                symbol_cache["506"] = symbol_index_for_code(preset_id, scale, "506")
+            symbol_index = symbol_cache["506"]
         if symbol_index is None:
             continue
         line = [(float(x), float(y)) for x, y in coords]
@@ -2094,6 +2200,7 @@ def build_osm_feature_parts(
     names = {
         "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (501 zpevněná)",
+        "pedestrian_area": "OSM pěší zóny (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
         "farmland": "OSM obdělávaná půda (412)",
@@ -2128,6 +2235,7 @@ def build_osm_feature_parts(
         "garden",
         "playground",
         "pitch",
+        "pedestrian_area",
         "playground_equipment",
         "wetland",
         "cave_entrance",

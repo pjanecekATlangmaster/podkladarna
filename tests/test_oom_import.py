@@ -81,6 +81,45 @@ def test_oom_code_building_maps_to_521():
     assert symbol_index_for_code("sprint_2m", 4000, code) == 141
 
 
+def test_oom_code_building_mtbo_maps_to_526():
+    """ISMTBOM budova je 526 (Black 70 %), ne ISOM 521."""
+    code = oom_code_for_vectorconf_rule(
+        "building",
+        "526",
+        "Budova",
+        preset_id="mtbo_10000",
+        scale=10000,
+    )
+    assert code == "526"
+    assert symbol_index_for_code("mtbo_10000", 10000, code) is not None
+    # 521 v ISMTBOM je zeď – nesmí se použít pro budovu.
+    assert code != "521"
+
+
+def test_oom_code_road_mtbo_maps_to_504():
+    code = oom_code_for_vectorconf_rule(
+        "road-path",
+        "503",
+        "SilniceDalnice",
+        preset_id="mtbo_10000",
+        scale=10000,
+    )
+    assert code == "504"
+    assert symbol_index_for_code("mtbo_10000", 10000, code) is not None
+
+
+def test_oom_code_railway_mtbo_maps_to_515():
+    code = oom_code_for_vectorconf_rule(
+        "railway",
+        "515",
+        "ZeleznicniTrat",
+        preset_id="mtbo_10000",
+        scale=10000,
+    )
+    assert code == "515"
+    assert symbol_index_for_code("mtbo_10000", 10000, code) is not None
+
+
 def test_oom_code_railway_maps_to_509_1():
     code = oom_code_for_vectorconf_rule(
         "railway",

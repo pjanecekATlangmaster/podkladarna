@@ -16,6 +16,12 @@ def symbol_set_path(preset_id: str, scale: int) -> Path:
     """Vrátí oficiální OOM symbol set (OpenOrienteering/mapper, GPL)."""
     if preset_id.startswith("sprint"):
         path = OOM_DIR / "ISSprOM_2019_4000.omap"
+    elif preset_id.startswith("mtbo"):
+        # ISMTBOM: základní 1:15000; 1:10000 je 1.5× zvětšení (viz OOM README).
+        if scale >= 15000:
+            path = OOM_DIR / "ISMTBOM_15000.omap"
+        else:
+            path = OOM_DIR / "ISMTBOM_10000.omap"
     elif scale >= 15000:
         path = OOM_DIR / "ISOM_2017-2_15000.omap"
     else:

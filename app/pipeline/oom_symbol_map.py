@@ -17,19 +17,42 @@ _SYMBOL_NAME_TO_OOM: dict[str, str] = {
     "blackline": "416",
 }
 
+# ISMTBOM 2022 – čísla man-made se liší od ISOM (budova 526, ne 521).
+_SYMBOL_NAME_TO_OOM_MTBO: dict[str, str] = {
+    "building": "526",
+    "farm": "401",
+    "settlement": "527",
+    "water": "301",
+    "waterway": "306",
+    "power line": "516",
+    "blackline": "416",
+}
+
 # KP vectorconf → ISSprOM: 501.11 je PLOCHA; ulice musí být liniový footprint.
+# Nezřetelnou 507 nepoužíváme – nejmenší je 506.
 _SPRINT_ROAD_KP_TO_OOM: dict[str, str] = {
     "503": "501.17",  # sjízdná ulice / silnice (~2 m, heavy traffic line)
     "504": "506",  # nesjízdná / úzká
     "505": "505.1",  # cesta
-    "507": "507",  # pěšina
+    "506": "506",  # pěšina (small unpaved)
+    "507": "506",  # legacy KP 507 → 506
 }
 
 _FOREST_ROAD_KP_TO_OOM: dict[str, str] = {
     "503": "503",
     "504": "504",
     "505": "505",
-    "507": "507",
+    "506": "506",
+    "507": "506",  # legacy – nezřetelnou pěšinu nekreslíme
+}
+
+# ISMTBOM: řada cest je posunutá o +1 vůči ISOM (504 Road, 505 track, …).
+_MTBO_ROAD_KP_TO_OOM: dict[str, str] = {
+    "503": "504",
+    "504": "505",
+    "505": "506",
+    "506": "506",
+    "507": "506",  # legacy – Small path 507 nepoužívat
 }
 
 # Výjimky podle vrstvy ZABAGED (blackline má víc významů).
@@ -44,6 +67,20 @@ _LAYER_OOM_CODE: dict[str, str] = {
     "KrizSloupKulturnihoVyznamu": "526",
     "OsamelyBalvanSkalaSkalniSuk": "204",
     "VezovitaStavba": "524",
+}
+
+_LAYER_OOM_CODE_MTBO: dict[str, str] = {
+    "StupenSraz": "104",
+    "SkupinaBalvanu": "207",
+    "LiniovaVegetace": "416",
+    "ElektrickeVedeni": "516",
+    "OvocnySadZahrada": "527",
+    "VyznamnyStromLesik": "418",
+    "MohylaPomnikNahrobek": "537",
+    "KrizSloupKulturnihoVyznamu": "537",
+    # ISOM 204 Boulder → ISMTBOM 206 Boulder (204 je rocky pit).
+    "OsamelyBalvanSkalaSkalniSuk": "206",
+    "VezovitaStavba": "535",
 }
 
 _DXF_OOM_CODE_SPRINT: dict[str, str] = {
@@ -84,6 +121,10 @@ def _is_sprint(preset_id: str) -> bool:
     return preset_id.startswith("sprint")
 
 
+def _is_mtbo(preset_id: str) -> bool:
+    return preset_id.startswith("mtbo")
+
+
 @lru_cache(maxsize=8)
 def _code_to_index(symbol_set: Path) -> dict[str, int]:
     text = symbol_set.read_text(encoding="utf-8")
@@ -102,15 +143,28 @@ def symbol_index_for_code(preset_id: str, scale: int, code: str) -> int | None:
 
 
 def _layer_oom_code(layer: str, preset_id: str) -> str | None:
-    code = _LAYER_OOM_CODE.get(layer)
+    table = _LAYER_OOM_CODE_MTBO if _is_mtbo(preset_id) else _LAYER_OOM_CODE
+    code = table.get(layer)
     if code:
         return code
     if layer == "Zed":
-        return "513.2" if _is_sprint(preset_id) else "513"
+        if _is_sprint(preset_id):
+            return "513.2"
+        if _is_mtbo(preset_id):
+            return "521"  # Stone wall
+        return "513"
     if layer == "HradbaVal":
-        return "518" if _is_sprint(preset_id) else "513"
+        if _is_sprint(preset_id):
+            return "518"
+        if _is_mtbo(preset_id):
+            return "521"
+        return "513"
     if layer == "RozvalinaZricenina":
-        return "521" if _is_sprint(preset_id) else "523"
+        if _is_sprint(preset_id):
+            return "521"
+        if _is_mtbo(preset_id):
+            return "530"
+        return "523"
     return None
 
 
@@ -128,19 +182,41 @@ def oom_code_for_vectorconf_rule(
 
     kp = kp_code.rstrip("Tt")
     if symbol_name == "road-path":
-        road_map = _SPRINT_ROAD_KP_TO_OOM if _is_sprint(preset_id) else _FOREST_ROAD_KP_TO_OOM
+        if _is_sprint(preset_id):
+            road_map = _SPRINT_ROAD_KP_TO_OOM
+        elif _is_mtbo(preset_id):
+            road_map = _MTBO_ROAD_KP_TO_OOM
+        else:
+            road_map = _FOREST_ROAD_KP_TO_OOM
         return road_map.get(kp)
     if symbol_name == "railway":
-        return "509.1" if _is_sprint(preset_id) else "509"
+        if _is_sprint(preset_id):
+            return "509.1"
+        if _is_mtbo(preset_id):
+            return "515"
+        return "509"
     if symbol_name == "tramway":
-        return "509.2" if _is_sprint(preset_id) else "509"
+        if _is_sprint(preset_id):
+            return "509.2"
+        if _is_mtbo(preset_id):
+            return "515"
+        return "509"
     if symbol_name == "parking":
-        return "501" if _is_sprint(preset_id) else "501.1"
+        if _is_sprint(preset_id):
+            return "501"
+        if _is_mtbo(preset_id):
+            return "529"
+        return "501.1"
     if symbol_name == "fence":
-        return "518" if _is_sprint(preset_id) else "516"
+        if _is_sprint(preset_id):
+            return "518"
+        if _is_mtbo(preset_id):
+            return "522"
+        return "516"
 
     known = _code_to_index(symbol_set_path(preset_id, scale))
-    mapped = _SYMBOL_NAME_TO_OOM.get(symbol_name)
+    name_map = _SYMBOL_NAME_TO_OOM_MTBO if _is_mtbo(preset_id) else _SYMBOL_NAME_TO_OOM
+    mapped = name_map.get(symbol_name)
     if mapped and mapped in known:
         return mapped
     if kp in known:

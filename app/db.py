@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sqlite3
 import uuid
@@ -124,6 +125,44 @@ def list_jobs(limit: int = 250) -> list[dict[str, Any]]:
             (limit,),
         ).fetchall()
     return [_row_to_job(r) for r in rows]
+
+
+_ZIP_FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def safe_zip_stem(name: str) -> str:
+    """Název projektu → slug pro .zip (bez náhodných id)."""
+    s = _ZIP_FORBIDDEN.sub("", (name or "").strip())
+    s = s.casefold()
+    s = re.sub(r"[\s_]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-.")
+    if not s or s == "podkladarna":
+        return "podkladarna"
+    return s[:120]
+
+
+def zip_download_filename(job_id: str, job_name: str) -> str:
+    """Soubor ke stažení: podkladarna-<projekt>.zip; při shodě …-2, …-3."""
+    stem = safe_zip_stem(job_name)
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id, name FROM jobs ORDER BY created_at ASC"
+        ).fetchall()
+    same: list[str] = []
+    for row in rows:
+        if safe_zip_stem(str(row["name"])) == stem:
+            same.append(str(row["id"]))
+    try:
+        n = same.index(job_id) + 1
+    except ValueError:
+        n = 1
+    if stem == "podkladarna":
+        base = "podkladarna"
+    else:
+        base = f"podkladarna-{stem}"
+    if n <= 1:
+        return f"{base}.zip"
+    return f"{base}-{n}.zip"
 
 
 def delete_job(job_id: str) -> bool:
