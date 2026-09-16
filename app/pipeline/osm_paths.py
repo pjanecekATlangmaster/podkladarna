@@ -344,7 +344,7 @@ def _is_osm_building(tags: dict) -> bool:
     return bool(building) and building not in {"no", "false", "0"}
 
 
-# Zpevněný povrch – ve sprintu kreslíme jako chodník (501.6), ne jako 507.
+# Zpevněný povrch – ve sprintu kreslíme jako chodník (501.1), ne jako 507.
 _PAVED_SURFACES = frozenset(
     {
         "asphalt",
@@ -837,8 +837,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     sprint = preset_id.startswith("sprint")
     mtbo = preset_id.startswith("mtbo")
     if hw in OSM_ROAD_HIGHWAYS:
+        # Sprint: 501.17 footprint (lower brown) na podkladu mizí → 501.1 černá.
         if sprint:
-            return "501.17"
+            return "501.1"
         if mtbo:
             return "502"  # ISMTBOM Major road / paved
         return "503"
@@ -851,15 +852,17 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return "532"
     if hw == "track":
         # Lesní / polní cesta (vozová) – ne úzká pěšina.
+        # Sprint: 505.1 je footprint (lower brown) – v OOM na podkladu nevidět.
         if sprint:
-            return "505.1"
+            return "506"
         if mtbo:
             return "833"  # Track: medium riding
         return "504"
     if hw == "sidewalk":
-        # Sprint: footprint 501.6; MTBO zpevněná 529; ISOM 529 = jiný symbol → 501.1.
+        # Sprint: 501.6 footprint nevidět (lower brown) → 501.1 černá hrana.
+        # MTBO zpevněná 529; ISOM 529 = jiný symbol → 501.1.
         if sprint:
-            return "501.6"
+            return "501.1"
         if mtbo:
             return "529"
         return "501.1"

@@ -28,12 +28,12 @@ _SYMBOL_NAME_TO_OOM_MTBO: dict[str, str] = {
     "blackline": "416",
 }
 
-# KP vectorconf → ISSprOM: 501.11 je PLOCHA; ulice musí být liniový footprint.
-# Nezřetelnou 507 nepoužíváme – nejmenší je 506.
+# KP vectorconf → ISSprOM: footprint 501.5–505.2 (lower brown) na podkladu mizí.
+# Kreslíme černé linie 501.1 / 506, ať je podklad v OOM vidět.
 _SPRINT_ROAD_KP_TO_OOM: dict[str, str] = {
-    "503": "501.17",  # sjízdná ulice / silnice (~2 m, heavy traffic line)
+    "503": "501.1",  # sjízdná ulice / silnice – černá hrana (ne 501.17 footprint)
     "504": "506",  # nesjízdná / úzká
-    "505": "505.1",  # cesta
+    "505": "506",  # cesta (ne 505.1 footprint)
     "506": "506",  # pěšina (small unpaved)
     "507": "506",  # legacy KP 507 → 506
 }

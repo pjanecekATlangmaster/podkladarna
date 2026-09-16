@@ -331,11 +331,11 @@ def test_osm_oom_code_paths_only():
     from app.pipeline.osm_paths import osm_oom_code
 
     assert osm_oom_code("path", "sprint_2m") == "506"
-    assert osm_oom_code("track", "sprint_2m") == "505.1"
+    assert osm_oom_code("track", "sprint_2m") == "506"
     assert osm_oom_code("track", "forest_10000") == "504"
     assert osm_oom_code("steps", "sprint_2m") == "532.7"
     assert osm_oom_code("steps", "forest_10000") == "532"
-    assert osm_oom_code("residential", "sprint_2m") == "501.17"
+    assert osm_oom_code("residential", "sprint_2m") == "501.1"
     assert osm_oom_code("residential", "forest_10000") == "503"
     assert osm_oom_code("residential", "mtbo_10000") == "502"
     assert osm_oom_code("track", "mtbo_10000") == "833"
@@ -605,9 +605,11 @@ def test_osm_oom_code_sidewalk():
         sprint_line_highway,
     )
 
-    assert osm_oom_code("sidewalk", "sprint_2m") == "501.6"
+    assert osm_oom_code("sidewalk", "sprint_2m") == "501.1"
     assert osm_oom_code("sidewalk", "forest_10000") == "501.1"
     assert osm_oom_code("sidewalk", "mtbo_10000") == "529"
+    assert osm_oom_code("track", "sprint_2m") == "506"
+    assert osm_oom_code("residential", "sprint_2m") == "501.1"
     assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
     # way/613443110: footway + asphalt bez footway=sidewalk → sprint chodník.
     assert (
