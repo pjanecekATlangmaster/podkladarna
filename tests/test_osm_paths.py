@@ -71,6 +71,14 @@ def test_classify_osm_well_and_playground():
         {"type": "multipolygon", "highway": "pedestrian"}
     ) == ("pedestrian_area", "501")
     assert classify_osm_feature({"highway": "pedestrian"}) is None
+    assert classify_osm_feature({"amenity": "parking"}) == ("parking", "501")
+    assert classify_osm_feature(
+        {"amenity": "parking", "parking": "street_side"}
+    ) == ("parking", "501")
+    assert classify_osm_feature({"amenity": "parking"}, geom="node") is None
+    assert classify_osm_feature(
+        {"amenity": "parking", "building": "yes"}
+    ) == ("building", "521")
     assert classify_osm_feature({"leisure": "pitch"}, geom="node") is None
     assert classify_osm_feature({"amenity": "bench"}) == ("bench", "531")
     assert classify_osm_feature({"highway": "street_lamp"}) == ("lamp", "530")
@@ -237,6 +245,9 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("pitch", "forest_10000") == "501.1"
     assert feature_oom_code("pedestrian_area", "sprint_2m") == "501"
     assert feature_oom_code("pedestrian_area", "forest_10000") == "501.1"
+    assert feature_oom_code("parking", "sprint_2m") == "501"
+    assert feature_oom_code("parking", "forest_10000") == "501.1"
+    assert feature_oom_code("parking", "mtbo_10000") == "529"
     assert feature_oom_code("garden", "sprint_2m") == "520"
     assert feature_oom_code("garden", "forest_10000") == "520"
     assert feature_oom_code("water_body", "sprint_2m") == "301"
@@ -290,6 +301,8 @@ def test_osm_priority_overpass_includes_barriers():
     assert "fitness_station" in ql
     assert 'way["building"]' in ql
     assert 'relation["type"="multipolygon"]["building"]' in ql
+    assert 'way["amenity"="parking"]' in ql
+    assert 'relation["type"="multipolygon"]["amenity"="parking"]' in ql
     assert "playground" in ql
     assert "pitch" in ql
     assert 'highway"="pedestrian"]["area"="yes"' in ql
@@ -354,11 +367,11 @@ def test_osm_oom_code_paths_only():
     from app.pipeline.osm_paths import osm_oom_code
 
     assert osm_oom_code("path", "sprint_2m") == "506"
-    assert osm_oom_code("track", "sprint_2m") == "506"
+    assert osm_oom_code("track", "sprint_2m") == "505.1"
     assert osm_oom_code("track", "forest_10000") == "504"
     assert osm_oom_code("steps", "sprint_2m") == "532.7"
     assert osm_oom_code("steps", "forest_10000") == "532"
-    assert osm_oom_code("residential", "sprint_2m") == "501.1"
+    assert osm_oom_code("residential", "sprint_2m") == "501.17"
     assert osm_oom_code("residential", "forest_10000") == "503"
     assert osm_oom_code("residential", "mtbo_10000") == "502"
     assert osm_oom_code("track", "mtbo_10000") == "833"
@@ -628,11 +641,11 @@ def test_osm_oom_code_sidewalk():
         sprint_line_highway,
     )
 
-    assert osm_oom_code("sidewalk", "sprint_2m") == "501.1"
+    assert osm_oom_code("sidewalk", "sprint_2m") == "501.6"
     assert osm_oom_code("sidewalk", "forest_10000") == "501.1"
     assert osm_oom_code("sidewalk", "mtbo_10000") == "529"
-    assert osm_oom_code("track", "sprint_2m") == "506"
-    assert osm_oom_code("residential", "sprint_2m") == "501.1"
+    assert osm_oom_code("track", "sprint_2m") == "505.1"
+    assert osm_oom_code("residential", "sprint_2m") == "501.17"
     assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
     # way/613443110: footway + asphalt bez footway=sidewalk → sprint chodník.
     assert (

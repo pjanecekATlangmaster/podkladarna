@@ -169,6 +169,9 @@ def _overpass_ql(
         f'node["natural"="spring"]({bbox});',
         f'way["natural"="spring"]({bbox});',
         f'way["leisure"~"^({paved})$"]({bbox});',
+        # Parkoviště → zpevněná plocha 501 (stejně jako hřiště).
+        f'way["amenity"="parking"]({bbox});',
+        f'relation["type"="multipolygon"]["amenity"="parking"]({bbox});',
         # Pěší zóna / náměstí jako plocha (ne linie).
         f'way["highway"="pedestrian"]["area"="yes"]({bbox});',
         f'relation["type"="multipolygon"]["highway"="pedestrian"]({bbox});',
@@ -260,12 +263,13 @@ _BARRIER_POINTS = frozenset(
 _BENCH_KINDS = frozenset({"bench", "info_board", "picnic_table", "firepit"})
 _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
-# Plochy z OSM_PAVED_AREA_LEISURE / pěší zóna → kind playground | pitch | pedestrian_area (501).
-_PAVED_AREA_KINDS = frozenset({"playground", "pitch", "pedestrian_area"})
+# Plochy z OSM_PAVED_AREA_LEISURE / pěší zóna / parkoviště → kind … (501).
+_PAVED_AREA_KINDS = frozenset({"playground", "pitch", "pedestrian_area", "parking"})
 # OSM plochy s ořezem proti ZABAGED (priorita ZABAGED).
 # farmland (412) se neořezává – zdroj je OSM, OrnaPuda se do OOM neimportuje.
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
     "water_body": frozenset({"VodniPlocha"}),
+    "parking": frozenset({"ParkovisteOdpocivka"}),
 }
 # Budovy z OSM jen do doplnky/ – ne do auto OOM features.geojson.
 _OSM_BUILDING_KINDS = frozenset({"building", "water_well_building"})
@@ -339,7 +343,7 @@ def _is_osm_building(tags: dict) -> bool:
     return bool(building) and building not in {"no", "false", "0"}
 
 
-# Zpevněný povrch – ve sprintu kreslíme jako chodník (501.1), ne jako 507.
+# Zpevněný povrch – ve sprintu kreslíme jako chodník (501.6), ne jako 507.
 _PAVED_SURFACES = frozenset(
     {
         "asphalt",
@@ -480,6 +484,11 @@ def classify_osm_feature(
             return None
         kind = "playground" if leisure == "playground" else "pitch"
         return kind, "501"
+    # Parkoviště (vč. street_side) → zpevněná 501; budova garáže zůstane 521.
+    if amenity == "parking" and not _is_osm_building(tags):
+        if is_node:
+            return None
+        return "parking", "501"
     # Pěší zóna / náměstí (area) → zpevněná 501; linie bez area zůstane cestou.
     if _is_pedestrian_area_tags(tags) and not is_node:
         if _is_osm_building(tags):
@@ -597,6 +606,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "playground": "501",
         "pitch": "501",
         "pedestrian_area": "501",
+        "parking": "501",
         "building": "521",
         "water_well": "311",
         "water_well_building": "521",
@@ -846,9 +856,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     sprint = preset_id.startswith("sprint")
     mtbo = preset_id.startswith("mtbo")
     if hw in OSM_ROAD_HIGHWAYS:
-        # Sprint: 501.17 footprint (lower brown) na podkladu mizí → 501.1 černá.
+        # Sprint: ISSprOM 501.17 (heavy traffic footprint ~2 m).
         if sprint:
-            return "501.1"
+            return "501.17"
         if mtbo:
             return "502"  # ISMTBOM Major road / paved
         return "503"
@@ -861,17 +871,17 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return "532"
     if hw == "track":
         # Lesní / polní cesta (vozová) – ne úzká pěšina.
-        # Sprint: 505.1 je footprint (lower brown) – v OOM na podkladu nevidět.
+        # Sprint: ISSprOM 505.1 (unpaved footprint 1.4 m).
         if sprint:
-            return "506"
+            return "505.1"
         if mtbo:
             return "833"  # Track: medium riding
         return "504"
     if hw == "sidewalk":
-        # Sprint: 501.6 footprint nevidět (lower brown) → 501.1 černá hrana.
+        # Sprint: ISSprOM 501.6 (light traffic footprint 1.4 m).
         # MTBO zpevněná 529; ISOM 529 = jiný symbol → 501.1.
         if sprint:
-            return "501.1"
+            return "501.6"
         if mtbo:
             return "529"
         return "501.1"
@@ -2320,6 +2330,7 @@ def build_osm_feature_parts(
         "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (501 zpevněná)",
         "pedestrian_area": "OSM pěší zóny (501 zpevněná)",
+        "parking": "OSM parkoviště (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
         "farmland": "OSM obdělávaná půda (412)",
@@ -2353,6 +2364,7 @@ def build_osm_feature_parts(
         "playground",
         "pitch",
         "pedestrian_area",
+        "parking",
         "playground_equipment",
         "wetland",
         "cave_entrance",
