@@ -66,7 +66,6 @@ building|526|vrstva=KulnaSklenikFoliovnikPristresek
 building|526|vrstva=StavebniObjektZakryty
 building|526|vrstva=Hrad
 building|526|vrstva=Zamek
-# Významný strom / lesík → OOM 417 (MTBO 418 přes _LAYER_OOM_CODE).
 blackline|417|vrstva=VyznamnyStromLesik
 road-path|503|vrstva=SilniceDalnice
 road-path|503|vrstva=Ulice
