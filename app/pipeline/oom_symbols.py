@@ -229,7 +229,17 @@ def merge_isom_overlay_into_mtbo(
         32: 21, # Yellow
     }
 
+    _ISOM_TO_MTBO_COLOR_PRIORITY = {
+        0: 0, 1: 14, 2: 1, 3: 17, 4: 14, 5: 9, 6: 6, 7: 2, 8: 2, 9: 3,
+        10: 11, 11: 4, 12: 4, 13: 5, 14: 9, 15: 10, 16: 10, 17: 8, 18: 7, 19: 14,
+        20: 12, 21: 13, 22: 14, 23: 15, 24: 11, 25: 16, 26: 17, 27: 18, 28: 19, 29: 20,
+        30: 21, 31: 1, 32: 21, 33: 22, 34: 23, 35: 24,
+    }
+
     def ensure_isom_color(isom_pri: int) -> int:
+        if isom_pri in _ISOM_TO_MTBO_COLOR_PRIORITY:
+            return _ISOM_TO_MTBO_COLOR_PRIORITY[isom_pri]
+        
         nonlocal next_pri
         if isom_pri in color_map:
             return color_map[isom_pri]
