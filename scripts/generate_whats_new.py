@@ -54,18 +54,127 @@ def _is_merge(sha: str) -> bool:
     return len(parents) > 2
 
 
-def _clean_subject(subject: str) -> str:
-    text = " ".join(subject.split()).strip()
-    text = re.sub(
+def _looks_czech(text: str) -> bool:
+    if re.search(r"[áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]", text):
+        return True
+    return bool(
+        re.search(
+            r"(?i)\b(oprava|přidán|nahrazen|úprava|mapa|vrstevnic|měřítko|"
+            r"ekvidistanc|podklad|budov|cest[ay]|symbol)\b",
+            text,
+        )
+    )
+
+
+# Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
+_TITLE_CS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(r"(?i)generate whats-new|whats-new changelog|age-styled whats-new"),
+        "Přehled novinek v boxu nad formulářem",
+    ),
+    (
+        re.compile(r"(?i)map-type preset|scale and contour select"),
+        "Měřítko a ekvidistance místo typu mapy",
+    ),
+    (
+        re.compile(r"(?i)short OSM bridges|footbridges"),
+        "Krátké OSM lávky a mosty už se nezahazují",
+    ),
+    (
+        re.compile(r"(?i)color_map|ensure_isom_color|black vegetation"),
+        "Oprava barev vegetace v MTBO omapu",
+    ),
+    (
+        re.compile(r"(?i)symbol layering|401 vs ISOM|paved area"),
+        "Oprava vrstev symbolů (401 / zpevněné plochy)",
+    ),
+    (
+        re.compile(r"(?i)spot colors|importing ISOM symbols to MTBO"),
+        "Oprava barev při importu ISOM symbolů do MTBO",
+    ),
+    (
+        re.compile(r"(?i)nine-omap|9 omaps|discipline × path|path source"),
+        "Více omapů podle disciplíny a zdroje cest",
+    ),
+    (
+        re.compile(r"(?i)MTBO omap symbols|831-838|ISOM overlays"),
+        "MTBO: správné cesty 831–838 a ISOM překryvy",
+    ),
+    (
+        re.compile(r"(?i)Hrad and Zámek|Hrad and Zamek"),
+        "ZABAGED Hrad a Zámek jako budovy",
+    ),
+    (
+        re.compile(r"(?i)discipline symbol sets|drop path 507"),
+        "Symbolové sady podle disciplíny, bez pěšiny 507",
+    ),
+    (
+        re.compile(r"(?i)PATH_SOURCE_MIXED"),
+        "Oprava importu zdroje cest (mix)",
+    ),
+    (
+        re.compile(r"(?i)path source variants of \.omap|all path source"),
+        "Tři varianty cest v omap souborech",
+    ),
+    (
+        re.compile(r"(?i)bump app version"),
+        "Posunutí čísla verze aplikace",
+    ),
+    (
+        re.compile(r"(?i)remove scratch|_tmp_"),
+        "Úklid dočasných souborů",
+    ),
+]
+
+_PREFIX_CS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?i)^fix(\([^)]*\))?:\s*"), "Oprava: "),
+    (re.compile(r"(?i)^feat(\([^)]*\))?:\s*"), "Novinka: "),
+    (re.compile(r"(?i)^add(ed)?\b[:\s]*"), "Přidáno: "),
+    (re.compile(r"(?i)^fix(ed|es|ing)?\b[:\s]*"), "Oprava: "),
+    (re.compile(r"(?i)^replace\b[:\s]*"), "Úprava: "),
+    (re.compile(r"(?i)^update\b[:\s]*"), "Aktualizace: "),
+    (re.compile(r"(?i)^remove\b[:\s]*"), "Odstranění: "),
+    (re.compile(r"(?i)^refactor(\([^)]*\))?:\s*"), "Refaktor: "),
+    (re.compile(r"(?i)^docs(\([^)]*\))?:\s*"), "Dokumentace: "),
+]
+
+
+def to_czech_title(subject: str) -> str:
+    """Převod commit subjectu do krátkého českého nadpisu pro box."""
+    text = " ".join(subject.split()).strip().rstrip(".")
+    if not text:
+        return ""
+    for pat, cs in _TITLE_CS:
+        if pat.search(text):
+            return cs
+    if _looks_czech(text):
+        text = re.sub(
+            r"^(feat|fix|docs|refactor|perf|build|style)(\([^)]*\))?:\s*",
+            "",
+            text,
+            flags=re.I,
+        )
+        return text[0].upper() + text[1:] if text else ""
+    for pat, prefix in _PREFIX_CS:
+        if pat.search(text):
+            rest = pat.sub("", text).strip()
+            if rest:
+                rest = rest[0].upper() + rest[1:]
+            return f"{prefix}{rest}".rstrip(": ").rstrip(".")
+    # Obecný anglický subject – jemně označit jako změnu.
+    cleaned = re.sub(
         r"^(feat|fix|docs|refactor|perf|build|style)(\([^)]*\))?:\s*",
         "",
         text,
         flags=re.I,
     )
-    if text:
-        text = text[0].upper() + text[1:]
-    return text
+    if cleaned:
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    return f"Změna: {cleaned}".rstrip(".")
 
+
+def _clean_subject(subject: str) -> str:
+    return to_czech_title(subject)
 
 def collect_entries(
     *,
@@ -105,19 +214,12 @@ def collect_entries(
         if key in seen_titles:
             continue
         seen_titles.add(key)
-        body_lines = [
-            ln.strip()
-            for ln in body.splitlines()
-            if ln.strip() and not ln.strip().startswith("Co-authored-by:")
-        ]
-        body_txt = " ".join(body_lines[:4]).strip()
-        if len(body_txt) > 280:
-            body_txt = body_txt[:277].rstrip() + "…"
+        # Do boxu stačí český nadpis; anglická těla commitů vynecháme.
         try:
             day = datetime.fromisoformat(when.replace("Z", "+00:00")).date().isoformat()
         except ValueError:
             day = when[:10]
-        entries.append({"date": day, "title": title, "body": body_txt})
+        entries.append({"date": day, "title": title, "body": ""})
         if len(entries) >= max_entries:
             break
     return entries

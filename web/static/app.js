@@ -947,6 +947,7 @@ async function loadWhatsNew() {
     const title = document.getElementById("whats-new-title");
     const meta = document.getElementById("whats-new-meta");
     const lead = document.getElementById("whats-new-lead");
+    const disclaimer = document.getElementById("whats-new-disclaimer");
     const list = document.getElementById("whats-new-list");
     const tone = data.tone || "calm";
     box.classList.remove("tone-hot", "tone-warm", "tone-mild", "tone-calm");
@@ -961,11 +962,16 @@ async function loadWhatsNew() {
         ? `nasazeno ${data.age_label}`
         : "";
     }
+    if (disclaimer) {
+      disclaimer.textContent =
+        data.disclaimer ||
+        "Jde o nový build s opravami a úpravami. Může se stát, že se při tom něco jiného rozbilo.";
+    }
     if (lead) {
       const n = (data.entries || []).length;
       const days = data.entry_days || 30;
       lead.textContent = n
-        ? `Větší změny za posledních ${days} dní (${n}):`
+        ? `Změny za posledních ${days} dní (scrollujte pro další):`
         : `Za posledních ${days} dní nejsou v přehledu žádné větší změny.`;
     }
     if (list) {
@@ -979,9 +985,6 @@ async function loadWhatsNew() {
         strong.textContent = entry.title || "";
         li.appendChild(date);
         li.appendChild(strong);
-        if (entry.body) {
-          li.appendChild(document.createTextNode(` — ${entry.body}`));
-        }
         list.appendChild(li);
       }
     }

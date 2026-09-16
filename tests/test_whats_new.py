@@ -5,6 +5,16 @@ from datetime import datetime, timedelta, timezone
 from app.whats_new import whats_new_payload
 
 
+def test_whats_new_payload_includes_czech_disclaimer(monkeypatch):
+    released = datetime(2026, 9, 16, 16, 0, tzinfo=timezone.utc)
+    monkeypatch.setenv("PODKLADARNA_BUILT_AT", released.isoformat())
+    payload = whats_new_payload(now=released + timedelta(hours=1))
+    assert "rozbilo" in payload["disclaimer"]
+    if payload["entries"]:
+        # Po překladu by nadpis neměl být holý anglický "Replace …"
+        assert not payload["entries"][0]["title"].startswith("Replace ")
+
+
 def test_whats_new_payload_hot_when_fresh(monkeypatch):
     released = datetime(2026, 9, 16, 16, 0, tzinfo=timezone.utc)
     monkeypatch.setenv("PODKLADARNA_BUILT_AT", released.isoformat())
@@ -46,9 +56,13 @@ def test_api_whats_new(client, monkeypatch):
     assert "tone" in body
     assert "entries" in body
     assert "version" in body
+    assert "disclaimer" in body
+    assert "rozbilo" in body["disclaimer"]
 
 
 def test_index_has_whats_new_box(client):
     html = client.get("/").text
     assert 'id="whats-new"' in html
     assert "whats-new-list" in html
+    assert "whats-new-disclaimer" in html
+    assert "whats-new-scroll" in html

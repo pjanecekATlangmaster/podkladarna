@@ -197,19 +197,39 @@ main.page-wrap {
 }
 
 .whats-new-lead {
-  margin: 0.65rem 0 0.4rem;
-  font-size: 0.9rem;
+  margin: 0.35rem 0 0.35rem;
+  font-size: 0.85rem;
   color: var(--muted);
 }
 
+.whats-new-disclaimer {
+  margin: 0.65rem 0 0.35rem;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.whats-new.tone-hot .whats-new-disclaimer {
+  color: #7f1d1d;
+}
+
+.whats-new-scroll {
+  max-height: 7.5rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+  margin-top: 0.15rem;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
 .whats-new-list {
-  margin: 0;
+  margin: 0.35rem 0 0;
   padding-left: 1.1rem;
 }
 
 .whats-new-list li {
-  margin: 0.45rem 0;
-  font-size: 0.92rem;
+  margin: 0.28rem 0;
+  font-size: 0.88rem;
+  line-height: 1.3;
 }
 
 .whats-new-list strong {

@@ -131,6 +131,15 @@ def _format_age_cs(age: timedelta) -> str:
     return f"před {days} dny"
 
 
+def _translate_entry_title(title: str) -> str:
+    """České nadpisy i pro už vygenerovaný anglický YAML."""
+    try:
+        from scripts.generate_whats_new import to_czech_title
+    except Exception:
+        return title
+    return to_czech_title(title) or title
+
+
 def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
     now_utc = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     released = resolve_released_at(now_utc)
@@ -150,15 +159,14 @@ def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
                 continue
             if d.date() < cutoff:
                 continue
-            title = str(item.get("title") or "").strip()
-            body = " ".join(str(item.get("body") or "").split()).strip()
+            title = _translate_entry_title(str(item.get("title") or "").strip())
             if not title:
                 continue
             entries_out.append(
                 {
                     "date": d.date().isoformat(),
                     "title": title,
-                    "body": body,
+                    "body": "",
                 }
             )
 
@@ -170,6 +178,11 @@ def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
         "tone": tone["tone"],
         "open": tone["open"],
         "label": tone["label"],
+        "disclaimer": (
+            "Jde o nový build s opravami a úpravami. "
+            "Může se stát, že se při tom něco jiného rozbilo — "
+            "když narazíte na problém, napište prosím do Issues."
+        ),
         "entries": entries_out,
         "entry_days": ENTRY_DAYS,
     }
