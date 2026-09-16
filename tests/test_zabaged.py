@@ -178,6 +178,19 @@ def test_forest_vectorconf_parking_and_roads():
     assert lines[trees].startswith("blackline|414|")
 
 
+def test_vectorconf_zamek_hrad_as_building_areal_olive():
+    """Zámek/Hrad = budova; Areál účelové zástavby (vč. areálu zámku) = oliva."""
+    for name in ("zabaged.txt", "zabaged_forest.txt"):
+        lines = _vectorconf_lines(name)
+        assert any(ln.startswith("building|526|vrstva=Zamek") for ln in lines)
+        assert any(ln.startswith("building|526|vrstva=Hrad") for ln in lines)
+        assert any(
+            ln.startswith("settlement|527|vrstva=ArealUceloveZastavby") for ln in lines
+        )
+        # Areál zámku nemá vlastní building pravidlo – zůstává olivou přes typzast/vrstva.
+        assert not any("areál zámku" in ln and ln.startswith("building|") for ln in lines)
+
+
 def test_drop_oversized_ostatni_plocha():
     gj = {
         "type": "FeatureCollection",

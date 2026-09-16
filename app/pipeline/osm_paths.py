@@ -255,10 +255,20 @@ _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
     "water_body": frozenset({"VodniPlocha"}),
     # OSM budovy jen tam, kde ZABAGED budovu nemá (kavárna, kiosk, …).
     "building": frozenset(
-        {"BudovaJednotlivaNeboBlokBudov", "KulnaSklenikFoliovnikPristresek"}
+        {
+            "BudovaJednotlivaNeboBlokBudov",
+            "KulnaSklenikFoliovnikPristresek",
+            "Hrad",
+            "Zamek",
+        }
     ),
     "water_well_building": frozenset(
-        {"BudovaJednotlivaNeboBlokBudov", "KulnaSklenikFoliovnikPristresek"}
+        {
+            "BudovaJednotlivaNeboBlokBudov",
+            "KulnaSklenikFoliovnikPristresek",
+            "Hrad",
+            "Zamek",
+        }
     ),
 }
 _CLOSED_AREA_KINDS = frozenset(
