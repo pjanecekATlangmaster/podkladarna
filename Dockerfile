@@ -34,6 +34,9 @@ COPY configs ./configs
 COPY app ./app
 COPY web ./web
 
+ARG BUILD_DATE=
+ENV PODKLADARNA_BUILT_AT=${BUILD_DATE}
+
 ENV PODKLADARNA_DATA=/data
 ENV PULLAUTA_BIN=/usr/local/bin/pullauta
 ENV PYTHONUNBUFFERED=1

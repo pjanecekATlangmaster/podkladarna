@@ -42,6 +42,7 @@ from app.pipeline.package_oom import (
 from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE, APP_VERSION
 from app.tiles import TileError, fetch_tile
 from app.tool_env import tool_status
+from app.whats_new import whats_new_payload
 
 logger = logging.getLogger("podkladarna")
 
@@ -151,6 +152,12 @@ def api_map_options():
             str(scale): val for scale, val in DEFAULT_CONTOUR_BY_SCALE.items()
         },
     }
+
+
+@app.get("/api/whats_new")
+def api_whats_new():
+    """Stáří posledního buildu + větší změny za 30 dní (box nad formulářem)."""
+    return whats_new_payload()
 
 
 @app.get("/api/sheets")
@@ -282,6 +289,7 @@ def api_health():
     tools = tool_status()
     return {
         "ok": True,
+        "version": APP_VERSION,
         "data_dir": str(JOBS_DIR.parent),
         "downloads_dir": str(DOWNLOADS_DIR),
         "disk_free_gb": round(usage.free / 1e9, 2),

@@ -1,0 +1,36 @@
+# Co je nového – box nad formulářem jobu.
+# Při každém ostrém nasazení důležitých změn aktualizuj released_at (ISO 8601).
+# Do entries piš větší změny; UI ukáže jen položky za posledních 30 dní.
+
+released_at: "2026-09-16T18:00:00+02:00"
+
+entries:
+  - date: "2026-09-16"
+    title: "Měřítko a ekvidistance místo typu mapy"
+    body: >
+      Ve formuláři už není „typ mapy“ (sprint/les/MTBO). Volíte měřítko
+      (1:4000–1:15000) a ekvidistanci; ZIP dostane omapy pro odpovídající
+      disciplíny (sprint jen u 1:4000, jinak les + MTBO). PNG zůstává jen náhled.
+
+  - date: "2026-09-16"
+    title: "Více .omap podle zdroje cest"
+    body: >
+      Do ZIPu jdou varianty cest ZABAGED / OSM / kombinace. Dedup a oliva ve
+      dvoře jsou sjednocené napříč disciplínami; chodníky mapují na 501.6 / 501.1 / 529.
+
+  - date: "2026-09-16"
+    title: "MTBO symbolika (ISMTBOM)"
+    body: >
+      MTBO omap používá oficiální ISMTBOM sadu, cesty 831–838, budovy 526
+      a vybrané ISOM překryvy (vegetace, srázy…).
+
+  - date: "2026-09-13"
+    title: "Tři varianty cest v omapu"
+    body: >
+      Job umí vygenerovat omap jen ze ZABAGED, jen z OSM, nebo kombinaci.
+
+  - date: "2026-09-11"
+    title: "Nový úvod na webu"
+    body: >
+      Text „O co jde“ je přepsaný srozumitelněji; Podkladárna zůstává pracovním
+      podkladem, ne hotovou mapou.

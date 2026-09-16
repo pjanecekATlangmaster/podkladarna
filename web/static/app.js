@@ -938,6 +938,60 @@ function startPolling() {
   }, 2500);
 }
 
+async function loadWhatsNew() {
+  const box = document.getElementById("whats-new");
+  if (!box) return;
+  try {
+    const data = await api("/api/whats_new");
+    const badge = document.getElementById("whats-new-badge");
+    const title = document.getElementById("whats-new-title");
+    const meta = document.getElementById("whats-new-meta");
+    const lead = document.getElementById("whats-new-lead");
+    const list = document.getElementById("whats-new-list");
+    const tone = data.tone || "calm";
+    box.classList.remove("tone-hot", "tone-warm", "tone-mild", "tone-calm");
+    box.classList.add(`tone-${tone}`);
+    box.open = Boolean(data.open);
+    if (badge) badge.textContent = data.label || "Novinky";
+    if (title) {
+      title.textContent = `v${data.version || "?"} · Co je nového`;
+    }
+    if (meta) {
+      meta.textContent = data.age_label
+        ? `nasazeno ${data.age_label}`
+        : "";
+    }
+    if (lead) {
+      const n = (data.entries || []).length;
+      const days = data.entry_days || 30;
+      lead.textContent = n
+        ? `Větší změny za posledních ${days} dní (${n}):`
+        : `Za posledních ${days} dní nejsou v přehledu žádné větší změny.`;
+    }
+    if (list) {
+      list.innerHTML = "";
+      for (const entry of data.entries || []) {
+        const li = document.createElement("li");
+        const date = document.createElement("span");
+        date.className = "whats-new-date";
+        date.textContent = entry.date || "";
+        const strong = document.createElement("strong");
+        strong.textContent = entry.title || "";
+        li.appendChild(date);
+        li.appendChild(strong);
+        if (entry.body) {
+          li.appendChild(document.createTextNode(` — ${entry.body}`));
+        }
+        list.appendChild(li);
+      }
+    }
+    box.hidden = false;
+  } catch (_) {
+    box.hidden = true;
+  }
+}
+
+loadWhatsNew();
 loadMapOptions().then(loadJobs).then(startPolling);
 initJobsPager();
 initBboxMap();

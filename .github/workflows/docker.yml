@@ -52,6 +52,10 @@ jobs:
             type=sha,prefix=
             type=ref,event=tag
 
+      - name: Build timestamp
+        id: buildtime
+        run: echo "iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -61,6 +65,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_DATE=${{ steps.buildtime.outputs.iso }}
 
       - name: Set GHCR package visibility to public
         if: github.event_name != 'pull_request'
