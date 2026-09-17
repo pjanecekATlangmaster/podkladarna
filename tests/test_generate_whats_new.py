@@ -12,6 +12,12 @@ def test_to_czech_title_known_phrases():
     )
     assert "vegetace" in veg.casefold() or veg.startswith("Oprava")
     assert to_czech_title("fix: something broke").startswith("Oprava:")
+    # Anglické „symbol“ nesmí vypnout překlad (dřív false positive v _looks_czech).
+    bridge = to_czech_title(
+        "Draw sprint OSM bridges as the connecting path symbol, not 512.1."
+    )
+    assert "most" in bridge.casefold()
+    assert not bridge.startswith("Draw")
 
 
 def test_collect_entries_from_git():
@@ -35,6 +41,18 @@ def test_collect_entries_from_git():
                 "Odstranění",
                 "Dokumentace",
                 "Refaktor",
+                "Sprint",
+                "Budovy",
+                "Krátké",
+                "MTBO",
+                "Více",
+                "Tři",
+                "Symbolové",
+                "ZABAGED",
+                "Přehled",
+                "Měřítko",
+                "Posunutí",
+                "Úklid",
             )
         )
 

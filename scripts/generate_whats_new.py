@@ -57,10 +57,11 @@ def _is_merge(sha: str) -> bool:
 def _looks_czech(text: str) -> bool:
     if re.search(r"[áčďéěíňóřšťúůýžÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]", text):
         return True
+    # Jen výrazy typické pro češtinu (ne anglické „symbol“ / „map“).
     return bool(
         re.search(
-            r"(?i)\b(oprava|přidán|nahrazen|úprava|mapa|vrstevnic|měřítko|"
-            r"ekvidistanc|podklad|budov|cest[ay]|symbol)\b",
+            r"(?i)\b(oprava|přidán|nahrazen|úprava|vrstevnic|měřítko|"
+            r"ekvidistanc|podklad|budov|cest[ay]|omap[yu]?|zabaged|ruian)\b",
             text,
         )
     )
@@ -79,6 +80,26 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(r"(?i)short OSM bridges|footbridges"),
         "Krátké OSM lávky a mosty už se nezahazují",
+    ),
+    (
+        re.compile(r"(?i)sprint OSM bridges|connecting path symbol|not 512\.1"),
+        "Sprint: mosty jako navazující cesta (ne značka 512.1)",
+    ),
+    (
+        re.compile(r"(?i)Lower brown above yellow|paved roads stay visible"),
+        "Sprint: zpevněné cesty znovu vidět nad žlutou",
+    ),
+    (
+        re.compile(r"(?i)paved-area symbol colors|Lower brown priority remapping"),
+        "Oprava barev zpevněných ploch (Lower brown)",
+    ),
+    (
+        re.compile(r"(?i)ISSprOM road footprints|OSM parking as paved"),
+        "Sprint: footprinty ulic z klíče a OSM parkoviště jako 501",
+    ),
+    (
+        re.compile(r"(?i)RÚIAN buildings|AOPK trees|manual doplnky"),
+        "Budovy z RÚIAN, AOPK stromy a doplňky ZABAGED/OSM",
     ),
     (
         re.compile(r"(?i)color_map|ensure_isom_color|black vegetation"),
