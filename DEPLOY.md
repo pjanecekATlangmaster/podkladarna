@@ -44,6 +44,10 @@ První push na `main`/`master` spustí workflow. Veřejný image na NAS:
 docker pull ghcr.io/pjanecekatlangmaster/podkladarna:latest
 ```
 
+CI drží **Docker layer cache** (`:buildcache` na GHCR + GitHub Actions cache).
+Těžká vrstva PDAL/GDAL (~350 MB) se při běžné změně kódu nepřestaví a na NAS
+se znovu nestahuje — jen menší vrstvy (app, configs, případně KP).
+
 Workflow po buildu nastaví balíček GHCR jako **veřejný** (login na NAS není potřeba).
 
 Jednorázově ručně (pokud by workflow selhal): GitHub → **Packages** → `podkladarna` → **Package settings** → **Change visibility** → Public.

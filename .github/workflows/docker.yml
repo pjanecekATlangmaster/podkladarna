@@ -57,6 +57,16 @@ jobs:
             type=sha,prefix=
             type=ref,event=tag
 
+      - name: Image name (lowercase) + buildcache ref
+        id: image
+        run: |
+          img="$(echo 'ghcr.io/${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "name=$img" >> "$GITHUB_OUTPUT"
+          echo "cache=${img}:buildcache" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build timestamp
         id: buildtime
         run: echo "iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
@@ -76,6 +86,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             BUILD_DATE=${{ steps.buildtime.outputs.iso }}
+          # Stejný mamba/PDAL/GDAL layer → stejný digest → NAS nestahuje ~350 MB znovu.
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ steps.image.outputs.cache }}
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ steps.image.outputs.cache }},mode=max
 
       - name: Set GHCR package visibility to public
         if: github.event_name != 'pull_request'
