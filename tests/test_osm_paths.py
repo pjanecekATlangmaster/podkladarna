@@ -71,6 +71,22 @@ def test_classify_osm_well_and_playground():
         {"type": "multipolygon", "highway": "pedestrian"}
     ) == ("pedestrian_area", "501")
     assert classify_osm_feature({"highway": "pedestrian"}) is None
+    # relation/19273440: area:highway=footway + paving_stones → zpevněná plocha.
+    assert classify_osm_feature(
+        {
+            "type": "multipolygon",
+            "area:highway": "footway",
+            "surface": "paving_stones",
+        }
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature(
+        {"area:highway": "footway"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature(
+        {"area:highway": "path", "surface": "asphalt"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature({"area:highway": "path"}) is None
+    assert classify_osm_feature({"area:highway": "residential"}) is None
     assert classify_osm_feature({"amenity": "parking"}) == ("parking", "501")
     assert classify_osm_feature(
         {"amenity": "parking", "parking": "street_side"}
@@ -307,6 +323,7 @@ def test_osm_priority_overpass_includes_barriers():
     assert "pitch" in ql
     assert 'highway"="pedestrian"]["area"="yes"' in ql
     assert 'relation["type"="multipolygon"]["highway"="pedestrian"]' in ql
+    assert "area:highway" in ql
     assert "sports_centre" in ql
     assert "ice_rink" in ql
     assert "reservoir" in ql
@@ -664,6 +681,97 @@ def test_osm_oom_code_sidewalk():
         == "sidewalk"
     )
     assert sprint_line_highway({"highway": "footway"}, "footway") == "footway"
+    # way/373900933: highway=pedestrian + paving_stones → zpevněná, ne pěšina.
+    assert (
+        sprint_line_highway(
+            {"highway": "pedestrian", "surface": "paving_stones"}, "pedestrian"
+        )
+        == "sidewalk"
+    )
+    assert sprint_line_highway({"highway": "pedestrian"}, "pedestrian") == "sidewalk"
+
+
+def test_pedestrian_plaza_polygon_area_yes():
+    """way/111722935 Tilleho náměstí: area=yes + paving_stones → plocha 501, ne linie."""
+    from app.pipeline.osm_paths import (
+        classify_osm_feature,
+        feature_oom_code,
+        osm_area_polygons_5514,
+    )
+
+    tags = {
+        "highway": "pedestrian",
+        "area": "yes",
+        "surface": "paving_stones",
+        "name": "Tilleho náměstí",
+    }
+    assert classify_osm_feature(tags) == ("pedestrian_area", "501")
+    assert feature_oom_code("pedestrian_area", "sprint_2m") == "501"
+    # Velký uzavřený ring (náměstí) → jeden polygon.
+    el = {
+        "type": "way",
+        "tags": tags,
+        "geometry": [
+            {"lat": 50.0750, "lon": 14.4000},
+            {"lat": 50.0750, "lon": 14.4015},
+            {"lat": 50.0758, "lon": 14.4015},
+            {"lat": 50.0758, "lon": 14.4000},
+            {"lat": 50.0750, "lon": 14.4000},
+        ],
+    }
+    polys = osm_area_polygons_5514(el)
+    assert len(polys) == 1
+    assert len(polys[0][0]) >= 4
+    assert polys[0][0][0] == polys[0][0][-1]
+
+
+def test_area_highway_footway_multipolygon():
+    """relation/19273440: area:highway=footway + díry → zpevněná 501 se inner holes."""
+    from app.pipeline.osm_paths import (
+        classify_osm_feature,
+        feature_oom_code,
+        osm_area_polygons_5514,
+    )
+
+    tags = {
+        "type": "multipolygon",
+        "area:highway": "footway",
+        "surface": "paving_stones",
+    }
+    assert classify_osm_feature(tags) == ("pedestrian_area", "501")
+    assert feature_oom_code("pedestrian_area", "sprint_2m") == "501"
+    assert feature_oom_code("pedestrian_area", "forest_10000") == "501.1"
+    el = {
+        "type": "relation",
+        "tags": tags,
+        "members": [
+            {
+                "type": "way",
+                "role": "outer",
+                "geometry": [
+                    {"lat": 50.0, "lon": 14.40},
+                    {"lat": 50.0, "lon": 14.41},
+                    {"lat": 50.01, "lon": 14.41},
+                    {"lat": 50.01, "lon": 14.40},
+                    {"lat": 50.0, "lon": 14.40},
+                ],
+            },
+            {
+                "type": "way",
+                "role": "inner",
+                "geometry": [
+                    {"lat": 50.002, "lon": 14.402},
+                    {"lat": 50.002, "lon": 14.404},
+                    {"lat": 50.004, "lon": 14.404},
+                    {"lat": 50.004, "lon": 14.402},
+                    {"lat": 50.002, "lon": 14.402},
+                ],
+            },
+        ],
+    }
+    polys = osm_area_polygons_5514(el)
+    assert len(polys) == 1
+    assert len(polys[0]) == 2  # outer + one hole
 
 
 def test_filter_drops_line_on_zabaged():

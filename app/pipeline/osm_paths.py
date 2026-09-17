@@ -166,6 +166,10 @@ SKIP_FOOTWAY = frozenset({"sidewalk", "crossing"})
 OSM_PAVED_AREA_LEISURE = frozenset(
     {"playground", "pitch", "track", "sports_centre", "ice_rink", "multi"}
 )
+# area:highway=* – obrys plochy chodníku / pěší (micromapping vedle střednice).
+_AREA_HIGHWAY_WALK = frozenset(
+    {"footway", "pedestrian", "path", "steps", "cycleway"}
+)
 
 
 def _overpass_ql(
@@ -184,6 +188,7 @@ def _overpass_ql(
     # Jedna regex vrstva – méně Overpass zátěže než 6 samostatných way[...].
     hw = "|".join(sorted(osm_highway_set(path_source)))
     paved = "|".join(sorted(OSM_PAVED_AREA_LEISURE))
+    area_hw = "|".join(sorted(_AREA_HIGHWAY_WALK))
     parts = [
         f'way["highway"~"^({hw})$"]({bbox});',
         f'way["man_made"="boardwalk"]({bbox});',
@@ -200,6 +205,9 @@ def _overpass_ql(
         # Pěší zóna / náměstí jako plocha (ne linie).
         f'way["highway"="pedestrian"]["area"="yes"]({bbox});',
         f'relation["type"="multipolygon"]["highway"="pedestrian"]({bbox});',
+        # Plocha chodníku / pěší (area:highway) – micromapping, vč. děr (relation).
+        f'way["area:highway"~"^({area_hw})$"]({bbox});',
+        f'relation["type"="multipolygon"]["area:highway"~"^({area_hw})$"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
         # Vodní plochy → OOM 301 (nepřekonatelné). ČÚZK často nemá celou nádrž.
         f'way["natural"="water"]({bbox});',
@@ -396,10 +404,13 @@ def _is_paved_surface(tags: dict) -> bool:
 
 
 def sprint_line_highway(tags: dict, highway: str) -> str:
-    """Sprint: explicitní sidewalk i zpevněný footway → vnitřní druh ``sidewalk``."""
+    """Sidewalk / zpevněný footway / pěší zóna → vnitřní druh ``sidewalk`` (zpevněná)."""
     hw = (highway or "").lower()
     footway = (tags.get("footway") or "").lower()
     if footway == "sidewalk" or (hw == "footway" and _is_paved_surface(tags)):
+        return "sidewalk"
+    # highway=pedestrian (i liniová pěší zóna) – typicky zpevněná; surface=paving_stones apod.
+    if hw == "pedestrian":
         return "sidewalk"
     return hw or "path"
 
@@ -412,6 +423,17 @@ def _is_pedestrian_area_tags(tags: dict) -> bool:
     if area in {"yes", "true", "1"}:
         return True
     return (tags.get("type") or "").lower() == "multipolygon"
+
+
+def _is_area_highway_paved_tags(tags: dict) -> bool:
+    """area:highway=footway|… – plocha chodníku; zpevněný surface, nebo typicky chodník/pěší."""
+    ah = (tags.get("area:highway") or "").lower()
+    if ah not in _AREA_HIGHWAY_WALK:
+        return False
+    if _is_paved_surface(tags):
+        return True
+    # Chodník / pěší zóna je skoro vždy zpevněná i bez surface=*.
+    return ah in {"footway", "pedestrian"}
 
 
 def classify_osm_feature(
@@ -519,6 +541,9 @@ def classify_osm_feature(
     if _is_pedestrian_area_tags(tags) and not is_node:
         if _is_osm_building(tags):
             return "building", "521"
+        return "pedestrian_area", "501"
+    # area:highway=footway (+ surface) – plocha chodníku (např. relation/19273440).
+    if _is_area_highway_paved_tags(tags) and not is_node:
         return "pedestrian_area", "501"
     if man_made == "water_well" or amenity == "fountain":
         if _is_osm_building(tags):
@@ -747,8 +772,9 @@ def _fetch_overpass(
                 )
                 or (
                     e.get("type") == "relation"
-                    and (e.get("tags") or {}).get("leisure") == "garden"
                     and e.get("members")
+                    and classify_osm_feature(e.get("tags") or {}, geom="way")
+                    is not None
                 )
             ]
             if log:
@@ -1971,7 +1997,8 @@ def prepare_osm_paths(
         if _is_osm_bridge(tags):
             hw = bridge_highway(hw or "path")
         # Uzavřená pěší zóna i bez area=yes → zpevněná plocha (ne střednicová pěšina).
-        if path_draw_highway(hw) == "pedestrian" and len(pts) >= 3:
+        # Kontrola podle tagů – sprint_line_highway už pedestrian přemapuje na sidewalk.
+        if (tags.get("highway") or "").lower() == "pedestrian" and len(pts) >= 3:
             ring = list(pts)
             if ring[0] != ring[-1]:
                 if math.hypot(ring[0][0] - ring[-1][0], ring[0][1] - ring[-1][1]) < 1.5:
