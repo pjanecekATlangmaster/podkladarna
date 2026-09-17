@@ -12,10 +12,10 @@ RUN mamba install -y -c conda-forge \
     curl \
     && mamba clean -afy
 
-# Patched KP (heightmap OOB clamp) until upstream merges
-# https://github.com/karttapullautin/karttapullautin/pull/271
-ARG KP_VERSION=v2.15.0-oob2
-ARG KP_DOWNLOAD_URL=https://github.com/pjanecekATlangmaster/karttapullautin/releases/download/${KP_VERSION}/karttapullautin-x86_64-linux.tar.gz
+# Oficiální KP v2.15.1 obsahuje OOB clamp (PR #271).
+# https://github.com/karttapullautin/karttapullautin/releases/tag/v2.15.1
+ARG KP_VERSION=v2.15.1
+ARG KP_DOWNLOAD_URL=https://github.com/karttapullautin/karttapullautin/releases/download/${KP_VERSION}/karttapullautin-x86_64-linux.tar.gz
 RUN curl -fsSL -o /tmp/kp.tgz "${KP_DOWNLOAD_URL}" \
     && mkdir -p /tmp/kp \
     && tar xzf /tmp/kp.tgz -C /tmp/kp \
