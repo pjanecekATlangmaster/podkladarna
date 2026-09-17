@@ -45,6 +45,28 @@ def test_whats_new_filters_old_entries(monkeypatch):
     assert all(e["date"] >= "2026-08-17" for e in payload["entries"])
 
 
+def test_whats_new_entries_lead_matches_listed_span(monkeypatch):
+    from app.whats_new import _entries_lead_cs
+
+    assert "posledního dne" in _entries_lead_cs(
+        [{"date": "2026-09-16", "title": "x"}], window_days=30
+    )
+    assert "4 dní" in _entries_lead_cs(
+        [
+            {"date": "2026-09-13", "title": "a"},
+            {"date": "2026-09-16", "title": "b"},
+        ],
+        window_days=30,
+    )
+    assert "30 dní" in _entries_lead_cs([], window_days=30)
+
+    released = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+    monkeypatch.setenv("PODKLADARNA_BUILT_AT", released.isoformat())
+    payload = whats_new_payload(now=released + timedelta(hours=1))
+    assert "entries_lead" in payload
+    assert payload["entries_lead"]
+
+
 def test_api_whats_new(client, monkeypatch):
     monkeypatch.setenv(
         "PODKLADARNA_BUILT_AT",
@@ -55,6 +77,7 @@ def test_api_whats_new(client, monkeypatch):
     body = r.json()
     assert "tone" in body
     assert "entries" in body
+    assert "entries_lead" in body
     assert "version" in body
     assert "disclaimer" in body
     assert "rozbilo" in body["disclaimer"]

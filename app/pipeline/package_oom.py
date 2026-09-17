@@ -411,7 +411,8 @@ def oom_readme(meta: dict) -> str:
         "3. Deprese: šablona „Karttapullautin deprese“.\n"
         "4. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
         "   RUIAN_budovy.shp ve zabaged/. Celé osm/ a zabaged/ jsou SHP pro ruční skládání.\n"
-        "   KP PNG náhledy ve složce kp/; vrstevnice, vegetace, srázy a knolly ve složce base/.\n\n"
+        "   KP PNG náhledy ve složce kp/; ve složce base/: vrstevnice GDAL\n"
+        "   (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy, knolly.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
@@ -709,7 +710,13 @@ def build_oom_zip(
                     ".prj",
                     ".cpg",
                 }:
-                    zf.write(path, f"base/{path.name}")
+                    # Odlišit od KP DXF (contours_kp.dxf).
+                    stem = path.stem.lower()
+                    if stem == "contours":
+                        arc = f"base/contours_gdal{path.suffix.lower()}"
+                    else:
+                        arc = f"base/{path.name}"
+                    zf.write(path, arc)
         vege_dir = kp_cwd / "vegetation"
         if vege_dir.is_dir():
             for path in sorted(vege_dir.iterdir()):

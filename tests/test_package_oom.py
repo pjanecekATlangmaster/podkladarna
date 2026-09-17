@@ -163,7 +163,9 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "kp/pullautus.png" in names
     assert "kp/pullautus.pgw" in names
     assert "kp/pullautus_depr.png" in names
-    assert "base/contours.shp" in names
+    assert "base/contours_gdal.shp" in names
+    assert "base/contours_kp.dxf" in names
+    assert "base/contours.shp" not in names
     assert "contours/dem_filled.tif" not in names
     assert "kp/contours.dxf" not in names
     assert "base/contours.dxf" not in names

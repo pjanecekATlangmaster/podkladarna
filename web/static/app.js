@@ -951,11 +951,11 @@ async function loadWhatsNew() {
         "Jde o nový build s opravami a úpravami. Může se stát, že se při tom něco jiného rozbilo.";
     }
     if (lead) {
-      const n = (data.entries || []).length;
-      const days = data.entry_days || 30;
-      lead.textContent = n
-        ? `Změny za posledních ${days} dní (scrollujte pro další):`
-        : `Za posledních ${days} dní nejsou v přehledu žádné větší změny.`;
+      lead.textContent =
+        data.entries_lead ||
+        ((data.entries || []).length
+          ? "Nedávné změny (scrollujte pro další):"
+          : "V přehledu nejsou žádné větší změny.");
     }
     if (list) {
       list.innerHTML = "";

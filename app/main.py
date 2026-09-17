@@ -156,7 +156,7 @@ def api_map_options():
 
 @app.get("/api/whats_new")
 def api_whats_new():
-    """Stáří posledního buildu + větší změny za 30 dní (box nad formulářem)."""
+    """Stáří posledního buildu + větší změny (box nad formulářem)."""
     return whats_new_payload()
 
 

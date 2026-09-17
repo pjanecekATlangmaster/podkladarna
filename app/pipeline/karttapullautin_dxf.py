@@ -5,7 +5,8 @@ from pathlib import Path
 from app.pipeline.prepare_lidar import run_cmd
 from app.settings import PULLAUTA_BIN
 
-# Zdroj v temp/ → název v ZIPu (kp/). Vrstevnice jdou z GDAL, ne z KP.
+# Zdroj v temp/ → název v ZIPu (base/). Vrstevnice KP → contours_kp.dxf;
+# GDAL vrstevnice jdou zvlášť jako contours_gdal.* (SHP).
 # Rust KP: c2g = menší (cliff1), c3g = větší (cliff2); obojí → ISOM 104 v OOM.
 # První shoda vyhrává; c1g/c2 jsou legacy aliasy.
 DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
@@ -16,9 +17,14 @@ DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("c2.dxf", "cliffs_large.dxf"),
 )
 
+# KP vrstevnice (out2) – jen do ZIPu jako zdroj, ne do omap objektů.
+DXF_CONTOUR_PRODUCTS: tuple[tuple[str, str], ...] = (
+    ("out2.dxf", "contours_kp.dxf"),
+)
+
 # Po LiDARu: 0,3 m a mezikřivky. out2.dxf.bin musí zůstat – KP ho čte při ZABAGED PNG.
 DXF_SKIP_AFTER_LIDAR = frozenset({"contours03.dxf", "out.dxf"})
-# Po vektorech už PNG existuje; KP vrstevnice do ZIPu nejdou.
+# Po zabalení ZIPu: KP vrstevnice už máme jako base/contours_kp.dxf.
 DXF_SKIP_AFTER_VECTORS = frozenset({"out2.dxf", "basemap.dxf"})
 
 
@@ -50,12 +56,16 @@ def collect_dxf_for_zip(
     *,
     log: callable | None = None,
     include_cliffs: bool = True,
+    include_contours: bool = True,
 ) -> dict[str, Path]:
-    """Soubory pro kp/ ve výstupním ZIPu (zip_name → cesta)."""
+    """Soubory pro base/ ve výstupním ZIPu (zip_name → cesta)."""
     if not temp_dir.is_dir():
         return {}
     collected: dict[str, Path] = {}
-    for src_name, zip_name in DXF_PRODUCTS:
+    products = list(DXF_PRODUCTS)
+    if include_contours:
+        products = list(DXF_CONTOUR_PRODUCTS) + products
+    for src_name, zip_name in products:
         if zip_name in collected:
             continue
         if not include_cliffs and zip_name.startswith("cliffs_"):

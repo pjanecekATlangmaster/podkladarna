@@ -24,7 +24,7 @@ WEB_ABOUT_HTML = """
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
   <li><code>podkladarna-*.omap</code> – podle měřítka 2 nebo 4 soubory (sprint, nebo les+MTBO) × 2 zdroje cest (ZABAGED / OSM); otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
-  <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
+  <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>) i KP (<code>contours_kp.dxf</code>) ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
   Nakreslete obdélník (max 5 × 5&nbsp;km), vyberte <strong>měřítko</strong> a
@@ -71,7 +71,7 @@ Co je uvnitř
 ------------
 - podkladarna-*.omap   … podle měřítka 2 nebo 4 soubory (sprint, nebo les+MTBO × ZABAGED/OSM), otevřete v OpenOrienteering Mapper (OOM)
 - kp/                  … PNG náhledy Karttapullautin (zeleň + deprese)
-- base/                … vrstevnice, vegetace, srázy/knolly (DXF)
+- base/                … vrstevnice GDAL (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy/knolly
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, …)
 - zabaged/             … polohopis ZABAGED (shapefile včetně budov + RUIAN_budovy.shp; výchozí budovy v .omap jsou z OSM)
 - references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)

@@ -9,9 +9,10 @@ from app.pipeline.karttapullautin_dxf import (
     prune_heavy_intermediate_dxf,
 )
 from app.pipeline.package_oom import build_oom_zip, oom_metadata
+from app.pipeline.oom_symbol_map import oom_code_for_dxf
 
 
-def test_collect_dxf_skips_kp_contours(tmp_path: Path):
+def test_collect_dxf_includes_kp_contours(tmp_path: Path):
     temp = tmp_path / "temp"
     temp.mkdir()
     (temp / "out2.dxf").write_text("contour lines", encoding="utf-8")
@@ -20,9 +21,20 @@ def test_collect_dxf_skips_kp_contours(tmp_path: Path):
     (temp / "contours03.dxf").write_text("x" * 5000, encoding="utf-8")
 
     got = collect_dxf_for_zip(temp)
+    assert got["contours_kp.dxf"].name == "out2.dxf"
     assert "contours.dxf" not in got
+    assert "contours03.dxf" not in got
     assert got["dotknolls.dxf"].name == "dotknolls.dxf"
     assert got["cliffs_small.dxf"].name == "c1g.dxf"
+
+    without = collect_dxf_for_zip(temp, include_contours=False)
+    assert "contours_kp.dxf" not in without
+
+
+def test_kp_contours_dxf_not_mapped_into_oom_objects():
+    """contours_kp.dxf je jen zdroj v ZIPu – do omap objektů nepatří (GDAL má 101)."""
+    assert oom_code_for_dxf("contours_kp.dxf", preset_id="forest_10000") is None
+    assert oom_code_for_dxf("contours_kp.dxf", preset_id="sprint_2m") is None
 
 
 def test_collect_dxf_rust_cliffs_c2g_small_c3g_large(tmp_path: Path):
@@ -66,7 +78,7 @@ def test_prune_after_vectors_removes_out2(tmp_path: Path):
     assert (temp / "dotknolls.dxf").exists()
 
 
-def test_build_oom_zip_skips_contours03(tmp_path: Path):
+def test_build_oom_zip_includes_contours_kp_not_03(tmp_path: Path):
     kp = tmp_path / "work"
     kp.mkdir()
     (kp / "pullautus.png").write_bytes(b"png")
@@ -82,12 +94,9 @@ def test_build_oom_zip_skips_contours03(tmp_path: Path):
 
     with zipfile.ZipFile(dest) as zf:
         names = set(zf.namelist())
+    assert "base/contours_kp.dxf" in names
     assert "base/contours.dxf" not in names
     assert "base/contours03.dxf" not in names
     assert "base/out.dxf" not in names
     assert "kp/contours.dxf" not in names
     assert "kp/contours03.dxf" not in names
-    assert "kp/out.dxf" not in names
-    assert "karttapullautin/contours.dxf" not in names
-    assert "karttapullautin/contours03.dxf" not in names
-    assert "karttapullautin/out.dxf" not in names

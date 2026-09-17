@@ -280,9 +280,7 @@ def run_job_pipeline(
     else:
         log("KP PNG: jen ZABAGED (bez OSM cest)")
     run_cmd(kp_vector_cmd, cwd=kp_cwd, log=log)
-    prune_heavy_intermediate_dxf(
-        temp_dir, log=log, names=DXF_SKIP_AFTER_VECTORS
-    )
+    # out2.dxf necháme do zabalení ZIPu (base/contours_kp.dxf), teprve potom smažeme.
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(
@@ -293,6 +291,9 @@ def run_job_pipeline(
         log,
         preset_id=preset_id,
         job_name=job_name,
+    )
+    prune_heavy_intermediate_dxf(
+        temp_dir, log=log, names=DXF_SKIP_AFTER_VECTORS
     )
     log("Hotovo.")
 

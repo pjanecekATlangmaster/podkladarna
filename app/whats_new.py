@@ -140,6 +140,28 @@ def _translate_entry_title(title: str) -> str:
     return to_czech_title(title) or title
 
 
+def _entries_lead_cs(entries: list[dict[str, str]], *, window_days: int) -> str:
+    """Popisek podle skutečného rozsahu položek (ne vždy „30 dní“)."""
+    if not entries:
+        return f"Za posledních {window_days} dní nejsou v přehledu žádné větší změny."
+    dates = sorted({e["date"] for e in entries if e.get("date")})
+    if not dates:
+        return "Nedávné změny (scrollujte pro další):"
+    if len(dates) == 1 or dates[0] == dates[-1]:
+        return "Změny z posledního dne (scrollujte pro další):"
+    try:
+        d0 = date.fromisoformat(dates[0])
+        d1 = date.fromisoformat(dates[-1])
+        span = (d1 - d0).days + 1
+    except ValueError:
+        span = window_days
+    if span <= 1:
+        return "Změny z posledního dne (scrollujte pro další):"
+    if span <= 7:
+        return f"Změny za posledních {span} dní (scrollujte pro další):"
+    return f"Změny za posledních {window_days} dní (scrollujte pro další):"
+
+
 def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
     now_utc = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     released = resolve_released_at(now_utc)
@@ -185,4 +207,5 @@ def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
         ),
         "entries": entries_out,
         "entry_days": ENTRY_DAYS,
+        "entries_lead": _entries_lead_cs(entries_out, window_days=ENTRY_DAYS),
     }
