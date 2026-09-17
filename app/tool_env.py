@@ -9,6 +9,7 @@ APP_ROOT = Path(__file__).resolve().parent.parent
 
 _OSGEO_CANDIDATES = (
     os.environ.get("OSGEO4W_ROOT") or "",
+    r"C:\QGIS",
     r"C:\OSGeo4W",
     r"C:\OSGeo4W64",
 )

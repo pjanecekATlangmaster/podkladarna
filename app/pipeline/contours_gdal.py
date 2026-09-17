@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from app.pipeline.georef import png_pixel_size, read_pgw
@@ -13,15 +14,19 @@ from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.prepare_lidar import find_tool, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 
-# Vyladěno na job forest 1:10000 (srovnání KP vs GDAL).
-_CELL_M_AT_SF1 = 2.0
-_SMOOTH_WINDOW_M_AT_SF1 = 4.0
-_CHAIKIN_ITERS = 1
-# Sprint (sf≈0.4): dřív window ~1,6 m → zubaté křivky; držet vyhlazení jako u lesa.
+# Les: jemnější DEM (1 m) + blur 6 m (spojuje útržky) + Chaikin 2
+# + post: stitch blízkých konců / drop krátkých zbytků.
+_CELL_M_AT_SF1 = 1.0
+_SMOOTH_WINDOW_M_AT_SF1 = 6.0
+_CHAIKIN_ITERS = 2
+# Sprint (sf≈0.4): dřív window ~1,6 m → zubaté křivky; držet vyhlazení.
 _SPRINT_SF_MAX = 0.55
 _SPRINT_CELL_MIN_M = 1.0
 _SPRINT_SMOOTH_MIN_M = 4.0
 _SPRINT_CHAIKIN_ITERS = 2
+# Post-processing linií (metry v terénu).
+_MIN_CONTOUR_LEN_M = 15.0
+_STITCH_GAP_FACTOR = 1.1  # × smooth window
 
 
 def contour_dem_params(
@@ -33,12 +38,23 @@ def contour_dem_params(
     interval = max(float(interval_m), 0.1)
     if sf <= _SPRINT_SF_MAX:
         cell_m = max(_SPRINT_CELL_MIN_M, _CELL_M_AT_SF1 * sf)
-        # ~2× ekvidistance, nejméně jako lesní baseline (4 m).
         window_m = max(_SPRINT_SMOOTH_MIN_M, 2.0 * interval)
         return cell_m, window_m, _SPRINT_CHAIKIN_ITERS
-    cell_m = _CELL_M_AT_SF1 * sf
-    window_m = _SMOOTH_WINDOW_M_AT_SF1 * sf
+    cell_m = max(_SPRINT_CELL_MIN_M, _CELL_M_AT_SF1 * sf)
+    window_m = max(_SMOOTH_WINDOW_M_AT_SF1 * sf, _SPRINT_SMOOTH_MIN_M)
     return cell_m, window_m, _CHAIKIN_ITERS
+
+
+def contour_line_params(
+    scalefactor: float,
+    interval_m: float,
+) -> tuple[float, float]:
+    """(min_length_m, stitch_gap_m) – čištění linií po gdal_contour."""
+    _cell, window_m, _ = contour_dem_params(scalefactor, interval_m)
+    interval = max(float(interval_m), 0.1)
+    min_len = max(_MIN_CONTOUR_LEN_M, 2.5 * interval)
+    gap = max(6.0, _STITCH_GAP_FACTOR * window_m)
+    return min_len, gap
 
 
 def contour_oom_code(
@@ -82,6 +98,141 @@ def chaikin(
     return pts
 
 
+def polyline_length_m(pts: list[tuple[float, float]]) -> float:
+    total = 0.0
+    for i in range(len(pts) - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        total += math.hypot(x1 - x0, y1 - y0)
+    return total
+
+
+def _endpoints_close(
+    a: tuple[float, float], b: tuple[float, float], gap_m: float
+) -> bool:
+    return math.hypot(a[0] - b[0], a[1] - b[1]) <= gap_m
+
+
+def is_closed_polyline(
+    pts: list[tuple[float, float]], *, tol_m: float = 0.75
+) -> bool:
+    if len(pts) < 4:
+        return False
+    return _endpoints_close(pts[0], pts[-1], tol_m)
+
+
+def stitch_open_polylines(
+    lines: list[list[tuple[float, float]]],
+    *,
+    gap_m: float,
+) -> list[list[tuple[float, float]]]:
+    """Spojí otevřené linie stejné výšky, jejichž konce jsou do ``gap_m``.
+
+    Uzavřené prstence nechá beze změny. Po spojení uzavře linii, pokud
+    její vlastní konce padnou do mezery.
+    """
+    if gap_m <= 0 or not lines:
+        return [list(p) for p in lines if len(p) >= 2]
+
+    closed: list[list[tuple[float, float]]] = []
+    open_lines: list[list[tuple[float, float]]] = []
+    for raw in lines:
+        pts = list(raw)
+        if len(pts) < 2:
+            continue
+        if is_closed_polyline(pts):
+            if pts[0] != pts[-1]:
+                pts = pts + [pts[0]]
+            closed.append(pts)
+        else:
+            open_lines.append(pts)
+
+    changed = True
+    while changed and len(open_lines) > 1:
+        changed = False
+        best: tuple[float, int, int, str, str] | None = None
+        for i in range(len(open_lines)):
+            for j in range(i + 1, len(open_lines)):
+                a, b = open_lines[i], open_lines[j]
+                candidates = (
+                    (
+                        math.hypot(a[0][0] - b[0][0], a[0][1] - b[0][1]),
+                        "start",
+                        "start",
+                    ),
+                    (
+                        math.hypot(a[0][0] - b[-1][0], a[0][1] - b[-1][1]),
+                        "start",
+                        "end",
+                    ),
+                    (
+                        math.hypot(a[-1][0] - b[0][0], a[-1][1] - b[0][1]),
+                        "end",
+                        "start",
+                    ),
+                    (
+                        math.hypot(a[-1][0] - b[-1][0], a[-1][1] - b[-1][1]),
+                        "end",
+                        "end",
+                    ),
+                )
+                for dist, ea, eb in candidates:
+                    if dist > gap_m:
+                        continue
+                    if best is None or dist < best[0]:
+                        best = (dist, i, j, ea, eb)
+        if best is None:
+            break
+        _dist, i, j, ea, eb = best
+        a = open_lines[i]
+        b = open_lines[j]
+        if ea == "start":
+            a = list(reversed(a))
+        if eb == "end":
+            b = list(reversed(b))
+        merged = a + b[1:] if _endpoints_close(a[-1], b[0], gap_m) else a + b
+        open_lines.pop(j)
+        open_lines.pop(i)
+        open_lines.append(merged)
+        changed = True
+
+    out = closed
+    for pts in open_lines:
+        if len(pts) >= 3 and _endpoints_close(pts[0], pts[-1], gap_m):
+            if pts[0] != pts[-1]:
+                pts = pts + [pts[0]]
+        out.append(pts)
+    return out
+
+
+def filter_short_polylines(
+    lines: list[list[tuple[float, float]]],
+    *,
+    min_length_m: float,
+) -> list[list[tuple[float, float]]]:
+    if min_length_m <= 0:
+        return lines
+    kept: list[list[tuple[float, float]]] = []
+    for pts in lines:
+        if len(pts) < 2:
+            continue
+        if polyline_length_m(pts) < min_length_m:
+            continue
+        kept.append(pts)
+    return kept
+
+
+def refine_contour_polylines(
+    lines: list[list[tuple[float, float]]],
+    *,
+    min_length_m: float,
+    stitch_gap_m: float,
+) -> list[list[tuple[float, float]]]:
+    """Stitch → drop krátkých (před Chaikinem)."""
+    stitched = stitch_open_polylines(lines, gap_m=stitch_gap_m)
+    return filter_short_polylines(stitched, min_length_m=min_length_m)
+
+
 def _extent_from_pullautus(png: Path, pgw: Path) -> tuple[float, float, float, float]:
     georef = read_pgw(pgw)
     width, height = png_pixel_size(png)
@@ -100,9 +251,12 @@ def _smooth_dem(
     window_m: float,
     log,
 ) -> Path:
+    """Average na okno, lehký mid-average, cubicspline na jemnou buňku."""
     gdalwarp = find_tool("gdalwarp")
     coarse_m = max(cell_m * 2.0, float(window_m))
+    mid_m = max(cell_m * 1.5, float(window_m) * 0.55)
     coarse = dest.with_name(dest.stem + "_coarse.tif")
+    mid = dest.with_name(dest.stem + "_mid.tif")
     run_cmd(
         [
             gdalwarp,
@@ -123,6 +277,22 @@ def _smooth_dem(
         [
             gdalwarp,
             "-r",
+            "average",
+            "-tr",
+            str(mid_m),
+            str(mid_m),
+            "-of",
+            "GTiff",
+            "-overwrite",
+            str(coarse),
+            str(mid),
+        ],
+        log=log,
+    )
+    run_cmd(
+        [
+            gdalwarp,
+            "-r",
             "cubicspline",
             "-tr",
             str(cell_m),
@@ -130,7 +300,7 @@ def _smooth_dem(
             "-of",
             "GTiff",
             "-overwrite",
-            str(coarse),
+            str(mid),
             str(dest),
         ],
         log=log,
@@ -148,7 +318,7 @@ def generate_contours_shapefile(
     scalefactor: float,
     log=None,
 ) -> Path:
-    cell_m, window_m, _chaikin = contour_dem_params(scalefactor, interval_m)
+    cell_m, window_m, _ = contour_dem_params(scalefactor, interval_m)
     # OOM: jen plná ekvidistance (+ index). Formline (poloviční krok) necháváme KP PNG.
     del formline
     step = float(interval_m)
@@ -157,9 +327,7 @@ def generate_contours_shapefile(
     dem_raw = work / "dem_raw.tif"
     dem_filled = work / "dem_filled.tif"
     dem_smooth = work / "dem_smooth.tif"
-    _pdal_dem_from_laz(
-        laz, bounds, dem_raw, resolution_m=cell_m, log=log
-    )
+    _pdal_dem_from_laz(laz, bounds, dem_raw, resolution_m=cell_m, log=log)
     _fill_dem_nodata(dem_raw, dem_filled, log=log)
     _smooth_dem(
         dem_filled, dem_smooth, cell_m=cell_m, window_m=window_m, log=log
@@ -206,11 +374,13 @@ def generate_job_contours(
         raise RuntimeError("Chybí extent pro GDAL vrstevnice (PNG/PGW nebo crop)")
     dest = work_dir / "contours" / "contours.shp"
     del formline
-    cell_m, window_m, _ = contour_dem_params(scalefactor, interval_m)
+    cell_m, window_m, iters = contour_dem_params(scalefactor, interval_m)
+    min_len, gap = contour_line_params(scalefactor, interval_m)
     if log:
         log(
             f"Vrstevnice GDAL: interval {interval_m:g} m "
-            f"(bez formline do OOM), DEM {cell_m:g} m, smooth {window_m:g} m"
+            f"(bez formline do OOM), DEM {cell_m:g} m, smooth {window_m:g} m, "
+            f"Chaikin {iters}, min_délka {min_len:g} m, stitch {gap:g} m"
         )
     return generate_contours_shapefile(
         laz,
@@ -275,6 +445,7 @@ def build_gdal_contour_parts(
     interval_m: float,
     formline: float = 0,
     index_m: float | None = None,
+    scalefactor: float | None = None,
 ) -> list[OomObjectPart]:
     del formline
     shp = work_dir / "contours" / "contours.shp"
@@ -286,6 +457,12 @@ def build_gdal_contour_parts(
         "101": "Vrstevnice (GDAL)",
         "102": "Indexové vrstevnice (GDAL)",
     }
+    if scalefactor is None:
+        scalefactor = float(scale) / 10000.0 if scale else 1.0
+    _cell, _window, chaikin_iters = contour_dem_params(scalefactor, interval_m)
+    min_len, stitch_gap = contour_line_params(scalefactor, interval_m)
+
+    by_key: dict[tuple[str, float | None], list[list[tuple[float, float]]]] = {}
     for props, wkb in _iter_contour_rows(shp):
         elev = _elev_from_props(props)
         if elev is None:
@@ -297,23 +474,31 @@ def build_gdal_contour_parts(
                 formline=0,
                 index_m=index_m,
             )
+        geom_parts, _ = _wkb_parts(wkb)
+        bucket = by_key.setdefault((code if code in grouped else "101", elev), [])
+        for part in geom_parts:
+            if part[0] == "line" and len(part[1]) >= 2:
+                bucket.append(list(part[1]))  # type: ignore[arg-type]
+
+    for (code, _elev), lines in by_key.items():
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             symbol_index = symbol_index_for_code(preset_id, scale, "101")
         if symbol_index is None:
             continue
-        geom_parts, _ = _wkb_parts(wkb)
-        chaikin_iters = (
-            _SPRINT_CHAIKIN_ITERS if float(interval_m) < 4.0 else _CHAIKIN_ITERS
+        refined = refine_contour_polylines(
+            lines, min_length_m=min_len, stitch_gap_m=stitch_gap
         )
         smoothed: list = []
-        for part in geom_parts:
-            if part[0] == "line":
-                pts = chaikin(list(part[1]), iterations=chaikin_iters)  # type: ignore[arg-type]
-                smoothed.append(("line", pts, part[2]))
-            else:
-                smoothed.append(part)
-        grouped[code if code in grouped else "101"].extend(
+        for pts in refined:
+            pts = chaikin(pts, iterations=chaikin_iters)
+            if len(pts) < 2:
+                continue
+            closed = is_closed_polyline(pts)
+            smoothed.append(("line", pts, closed))
+        if not smoothed:
+            continue
+        grouped[code].extend(
             _geom_parts_to_objects(
                 smoothed,
                 symbol_index,
