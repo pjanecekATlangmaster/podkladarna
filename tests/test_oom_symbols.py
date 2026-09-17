@@ -108,7 +108,7 @@ def test_mtbo_building_is_gray_not_solid_black():
 
 
 def test_symbol_color_refs_exist_in_palette():
-    """Po přesunu Lower brown (layering) musí footprinty odkazovat na existující barvy."""
+    """Footprinty/zpevněné plochy musí odkazovat na existující barvy v sadě."""
     import re
 
     for preset, scale in (
@@ -132,6 +132,29 @@ def test_symbol_color_refs_exist_in_palette():
                 if c not in priorities:
                     missing.add((code, c))
         assert not missing, f"{preset}: dangling color refs {sorted(missing)[:20]}"
+
+
+def test_issprom_lower_brown_above_yellow():
+    """ISSprOM: Lower brown (ulice 501.x) musí být nad žlutou 401, jinak cesty zmizí."""
+    import re
+
+    text = symbol_set_path("sprint_2m", 4000).read_text(encoding="utf-8")
+    by_name: dict[str, int] = {}
+    for m in re.finditer(
+        r'<color\b[^>]*\bpriority="(\d+)"[^>]*\bname="([^"]+)"', text
+    ):
+        by_name[m.group(2)] = int(m.group(1))
+    # Nižší priority = výše ve výkresu.
+    assert by_name["Lower brown 50%"] < by_name["Yellow 100%"]
+    assert by_name["Lower brown 30%"] < by_name["Yellow 100%"]
+    assert by_name["Black below lower light brown"] < by_name["Yellow 100%"]
+    # Footprint ulice používá tyto barvy.
+    road = re.search(
+        r'<symbol[^>]*\bcode="501.17"[^>]*>.*?</symbol>', text, re.DOTALL
+    )
+    assert road is not None
+    assert 'color="13"' in road.group(0)
+    assert 'color="15"' in road.group(0)
 
 
 def test_symbol_set_missing(tmp_path: Path, monkeypatch):
