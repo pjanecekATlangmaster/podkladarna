@@ -163,10 +163,12 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "kp/pullautus.png" in names
     assert "kp/pullautus.pgw" in names
     assert "kp/pullautus_depr.png" in names
-    assert "base/contours/contours.shp" in names
+    assert "base/contours.shp" in names
     assert "contours/dem_filled.tif" not in names
     assert "kp/contours.dxf" not in names
     assert "base/contours.dxf" not in names
+    assert "base/contours/contours.shp" not in names
+    assert "base/vegetation/vegetation.shp" not in names
     assert "karttapullautin/contours.dxf" not in names
     assert "karttapullautin/contours03.dxf" not in names
     assert "zabaged/Cesta.shp" in names
@@ -181,7 +183,7 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "osm/budovy/OSM_budovy.shp" not in names
     assert "zabaged/budovy/" not in "".join(names)
     assert "osm/README.txt" in names
-    assert "osm/geojson/features.geojson" in names
+    assert "osm/geojson/features.geojson" not in names
     assert "osm/readme.txt" not in names
     readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
     assert "zabaged/" in readme

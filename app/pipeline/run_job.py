@@ -356,7 +356,7 @@ def _package_output(
         ruian_path: Path | None = None
         aopk_path: Path | None = None
         if bbox:
-            log("=== Fáze: RÚIAN budovy + AOPK památné stromy ===")
+            log("=== Fáze: RÚIAN budovy (zabaged/) + AOPK památné stromy ===")
             try:
                 ruian_path = fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
             except Exception as exc:
@@ -405,7 +405,6 @@ def _package_output(
                         cliff_symbol=cliff_symbol,
                         courtyard_olive=courtyard_olive,
                         path_source=path_src,
-                        ruian_buildings=ruian_path,
                         aopk_trees=aopk_path,
                     )
                     if omap_p:
@@ -427,6 +426,7 @@ def _package_output(
                 options.get("output_zabaged_clean", False) and zabaged
             ),
             include_png=bool(options.get("output_png", True)),
+            ruian_buildings=ruian_path,
             include_dxf=bool(options.get("output_dxf", True)),
             include_cliffs=cliff_symbol != "off",
         )

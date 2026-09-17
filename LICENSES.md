@@ -12,7 +12,7 @@ LiDAR a polohopis se stahují jako otevřená data Zeměměřického úřadu / �
 - [DMR 5G](https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/) — digitální model reliéfu
 - [DMP OK](https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/) — digitální model povrchu (obrazová korelace)
 - [ZABAGED®](https://geoportal.cuzk.gov.cz/) — polohopis (ArcGIS REST / Geoprohlížeč)
-- [RÚIAN / INSPIRE](https://ags.cuzk.gov.cz/arcgis/rest/services/RUIAN/MapServer) — budovy (`StavebniObjekt`) pro OOM
+- [RÚIAN / INSPIRE](https://ags.cuzk.gov.cz/arcgis/rest/services/RUIAN/MapServer) — budovy (`StavebniObjekt`) jako SHP podklad ve `zabaged/`
 
 Licence: [Creative Commons Uveďte původ 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs).
 

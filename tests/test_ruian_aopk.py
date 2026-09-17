@@ -182,7 +182,7 @@ def test_aopk_dedup_osm_landmark_tree():
     assert "bench" in kinds
 
 
-def test_build_osm_feature_parts_skips_buildings(tmp_path: Path):
+def test_build_osm_feature_parts_includes_buildings(tmp_path: Path):
     from app.pipeline.osm_paths import build_osm_feature_parts
 
     osm = tmp_path / "osm_paths"
@@ -230,11 +230,11 @@ def test_build_osm_feature_parts_skips_buildings(tmp_path: Path):
         grivation_deg=0.0,
     )
     names = " ".join(p.name for p in parts)
-    assert "budov" not in names.lower()
+    assert "budov" in names.lower()
     assert any("studn" in p.name.lower() for p in parts)
 
 
-def test_doplnky_in_oom_zip(tmp_path: Path):
+def test_doplnky_in_oom_zip(tmp_path: Path, monkeypatch):
     kp = tmp_path / "kp"
     kp.mkdir()
     (kp / "pullautus.png").write_bytes(b"png")
@@ -246,6 +246,24 @@ def test_doplnky_in_oom_zip(tmp_path: Path):
     (osm / "buildings.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": []}),
         encoding="utf-8",
+    )
+    ruian_gj = tmp_path / "ruian.geojson"
+    ruian_gj.write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}),
+        encoding="utf-8",
+    )
+
+    def _fake_ruian_shp(geojson_path, dest_dir, *, log=None):
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shp = dest_dir / "RUIAN_budovy.shp"
+        shp.write_bytes(b"shp")
+        for ext in (".shx", ".dbf", ".prj"):
+            (dest_dir / f"RUIAN_budovy{ext}").write_bytes(b"x")
+        return shp
+
+    monkeypatch.setattr(
+        "app.pipeline.package_oom.write_ruian_buildings_shapefile",
+        _fake_ruian_shp,
     )
     zab = tmp_path / "zabaged.zip"
     with zipfile.ZipFile(zab, "w") as zf:
@@ -266,14 +284,16 @@ def test_doplnky_in_oom_zip(tmp_path: Path):
         metadata={"scale": 4000, "label": "test"},
         include_png=False,
         include_dxf=False,
+        ruian_buildings=ruian_gj,
     )
     with zipfile.ZipFile(out) as zf:
         names = set(zf.namelist())
     assert "doplnky/README.txt" not in names
-    assert "osm/geojson/budovy.geojson" in names
+    assert "osm/geojson/budovy.geojson" not in names
     assert "osm/README.txt" in names
     assert any(n.startswith("zabaged/") and "Budova" in n for n in names)
     assert not any(n.startswith("zabaged/budovy/") for n in names)
     assert any("BudovaJednotlivaNeboBlokBudov.shp" in n for n in names)
+    assert "zabaged/RUIAN_budovy.shp" in names
     assert "OSM_budovy" in DOPLNKY_README
     assert "zabaged/" in DOPLNKY_README

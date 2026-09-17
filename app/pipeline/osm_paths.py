@@ -22,6 +22,7 @@ from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import (
     OomObjectPart,
     _area_object_with_holes,
+    _hole_rings_as_area_objects,
     _path_object,
     _point_object,
     _pyogrio_layer_rows,
@@ -295,7 +296,7 @@ _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
     "water_body": frozenset({"VodniPlocha"}),
     "parking": frozenset({"ParkovisteOdpocivka"}),
 }
-# Budovy z OSM jen do osm/budovy.geojson – ne do auto OOM features.geojson.
+# Budovy z OSM do auto OOM i do osm/OSM_budovy.shp (ruční import).
 _OSM_BUILDING_KINDS = frozenset({"building", "water_well_building"})
 _CLOSED_AREA_KINDS = frozenset(
     {"wetland", "water_body", "farmland", "garden", "building", "water_well_building"}
@@ -2094,16 +2095,11 @@ def prepare_osm_paths(
     # Zpětná kompatibilita (např. pro testy)
     write_geojson(kept_mixed, "paths.geojson")
 
-    # OSM budovy → osm/budovy.geojson (ne do auto OOM).
+    # OSM budovy: v features.geojson (auto OOM) i buildings.geojson (SHP do osm/).
     building_feats = [
         f
         for f in features
         if str((f.get("properties") or {}).get("kind") or "") in _OSM_BUILDING_KINDS
-    ]
-    features = [
-        f
-        for f in features
-        if str((f.get("properties") or {}).get("kind") or "") not in _OSM_BUILDING_KINDS
     ]
     (dest_dir / "buildings.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": building_feats}),
@@ -2578,6 +2574,7 @@ def build_osm_feature_parts(
     grivation_deg: float,
     clip_bounds: Bounds | None = None,
     aopk_tree_points: list[tuple[float, float]] | None = None,
+    courtyard_olive: bool = False,
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
     if not gj_path.is_file():
@@ -2590,7 +2587,10 @@ def build_osm_feature_parts(
         feats, _dropped = filter_osm_landmark_trees_near_aopk(feats, aopk_tree_points)
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
+    courtyard_objects: list[str] = []
     names = {
+        "building": "OSM budovy",
+        "water_well_building": "OSM budovy (studny)",
         "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (501 zpevněná)",
         "pedestrian_area": "OSM pěší zóny (501 zpevněná)",
@@ -2620,6 +2620,8 @@ def build_osm_feature_parts(
         "water_tower": "OSM vodojemy / vysoké věže (524)",
     }
     kind_order = (
+        "building",
+        "water_well_building",
         "water_well",
         "spring",
         "water_body",
@@ -2649,6 +2651,11 @@ def build_osm_feature_parts(
         "fitness",
     )
     symbol_cache: dict[str, int | None] = {}
+    mtbo = preset_id.startswith("mtbo")
+    olive_code = "527" if mtbo else "520"
+    olive_index = (
+        symbol_index_for_code(preset_id, scale, olive_code) if courtyard_olive else None
+    )
 
     def to_map(pts):
         return [
@@ -2666,7 +2673,7 @@ def build_osm_feature_parts(
     for feat in feats:
         props = feat.get("properties") or {}
         kind = str(props.get("kind") or "")
-        if not kind or kind in _OSM_BUILDING_KINDS:
+        if not kind:
             continue
         code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
         if not code:
@@ -2714,6 +2721,27 @@ def build_osm_feature_parts(
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
+            if (
+                olive_index is not None
+                and kind in _OSM_BUILDING_KINDS
+                and len(rings) > 1
+            ):
+                outer = rings[0]
+                holes = rings[1:]
+                hole_parts: list = [("line", outer, True)]
+                for h in holes:
+                    hole_parts.append(("hole", h))
+                courtyard_objects.extend(
+                    _hole_rings_as_area_objects(
+                        hole_parts,
+                        olive_index,
+                        ref_x=ref_x,
+                        ref_y=ref_y,
+                        scale=scale,
+                        grivation_deg=grivation_deg,
+                        clip_bounds=None,
+                    )
+                )
     parts: list[OomObjectPart] = []
     for kind in kind_order:
         objects = grouped.get(kind) or []
@@ -2725,4 +2753,12 @@ def build_osm_feature_parts(
                     count=len(objects),
                 )
             )
+    if courtyard_objects:
+        parts.append(
+            OomObjectPart(
+                name="OSM – dvory (oliva)",
+                objects_xml="\n".join(courtyard_objects),
+                count=len(courtyard_objects),
+            )
+        )
     return parts

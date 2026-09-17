@@ -1,4 +1,4 @@
-"""RÚIAN budovy → OOM objekty (521 / MTBO 526) + oliva dvorů z děr."""
+"""RÚIAN budovy → SHP podklad (zabaged/) + volitelně OOM části."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from app.pipeline.oom_import import (
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 
-# ZABAGED vrstvy budov – v OOM je nahrazuje RÚIAN; v ZIPu zůstanou ve zabaged/ mezi ostatními.
+# ZABAGED vrstvy budov – v OOM nahrazuje OSM; v ZIPu zůstanou ve zabaged/ (+ RÚIAN SHP).
 ZABAGED_OMIT_BUILDING_LAYERS = frozenset(
     {
         "BudovaJednotlivaNeboBlokBudov",
@@ -24,6 +24,34 @@ ZABAGED_OMIT_BUILDING_LAYERS = frozenset(
         "Zamek",
     }
 )
+
+
+def write_ruian_buildings_shapefile(
+    geojson_path: Path,
+    dest_dir: Path,
+    *,
+    log=None,
+) -> Path | None:
+    """RÚIAN GeoJSON → SHP do dest_dir (např. pro zabaged/RUIAN_budovy.shp)."""
+    if not geojson_path.is_file():
+        return None
+    try:
+        data = json.loads(geojson_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    feats = list(data.get("features") or [])
+    if not feats:
+        return None
+    from app.pipeline.osm_paths import _geojson_to_shapefile
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shp = dest_dir / "RUIAN_budovy.shp"
+    ok = _geojson_to_shapefile(
+        feats, shp, nlt="POLYGON", log=log, label="RÚIAN budovy"
+    )
+    if ok and log:
+        log(f"RÚIAN budovy→SHP: {len(feats)} polygonů → {dest_dir.name}/")
+    return shp if ok else None
 
 
 def _geojson_polygon_parts(geom: dict) -> list | None:
