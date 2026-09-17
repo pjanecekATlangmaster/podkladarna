@@ -176,13 +176,13 @@ def test_build_oom_map_xml_contains_templates():
         preset_id="forest_10000",
         templates=[
             OomTemplate("image", "Ortofoto", "references/orthophoto.png"),
-            OomTemplate("image", "KP", "basemap/pullautus.png"),
+            OomTemplate("image", "KP", "kp/pullautus.png"),
         ],
     )
     assert "+proj=krovak" in xml
     assert "<parameter>5514</parameter>" in xml
     assert "references/orthophoto.png" in xml
-    assert "basemap/pullautus.png" in xml
+    assert "kp/pullautus.png" in xml
     assert 'scale="10000"' in xml
     assert "ref_point_deg" in xml
     assert 'declination="5.15"' in xml
@@ -202,7 +202,7 @@ def test_write_oom_map_file(tmp_path):
         ref_lat=50.0,
         ref_lon=14.5,
         preset_id="sprint_2m",
-        templates=[OomTemplate("image", "KP", "basemap/pullautus.png")],
+        templates=[OomTemplate("image", "KP", "kp/pullautus.png")],
     )
     assert dest.is_file()
     assert "Šance" in dest.read_text(encoding="utf-8")

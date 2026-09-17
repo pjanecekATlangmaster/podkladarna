@@ -269,9 +269,12 @@ def test_doplnky_in_oom_zip(tmp_path: Path):
     )
     with zipfile.ZipFile(out) as zf:
         names = set(zf.namelist())
-    assert "doplnky/README.txt" in names
-    assert "doplnky/osm_budovy.geojson" in names
-    assert any(n.startswith("doplnky/zabaged_budovy/") for n in names)
+    assert "doplnky/README.txt" not in names
+    assert "osm/geojson/budovy.geojson" in names
+    assert "osm/README_budovy.txt" in names or "osm/README.txt" in names
+    assert any(n.startswith("zabaged/budovy/") for n in names)
+    assert "zabaged/README_budovy.txt" in names
     assert any("BudovaJednotlivaNeboBlokBudov.shp" in n for n in names)
-    assert not any("doplnky/zabaged_budovy/Pesina.shp" in n for n in names)
-    assert DOPLNKY_README.strip().startswith("Doplňky")
+    assert not any("zabaged/budovy/Pesina.shp" in n for n in names)
+    assert "osm/" in DOPLNKY_README
+    assert "zabaged/budovy/" in DOPLNKY_README

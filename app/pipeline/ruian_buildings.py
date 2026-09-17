@@ -14,7 +14,7 @@ from app.pipeline.oom_import import (
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 
-# ZABAGED vrstvy budov – v OOM je nahrazuje RÚIAN; zůstanou v doplnky/.
+# ZABAGED vrstvy budov – v OOM je nahrazuje RÚIAN; zůstanou v zabaged/budovy/.
 ZABAGED_OMIT_BUILDING_LAYERS = frozenset(
     {
         "BudovaJednotlivaNeboBlokBudov",

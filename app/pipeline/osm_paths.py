@@ -241,7 +241,7 @@ def _overpass_ql(
         )
     if include_lamps:
         parts.append(f'node["highway"="street_lamp"]({bbox});')
-    # Budovy vždy (doplnky/osm_budovy.geojson) – ne do auto OOM.
+    # Budovy vždy (osm/budovy.geojson) – ne do auto OOM.
     parts.extend(
         [
             f'way["building"]({bbox});',
@@ -295,7 +295,7 @@ _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
     "water_body": frozenset({"VodniPlocha"}),
     "parking": frozenset({"ParkovisteOdpocivka"}),
 }
-# Budovy z OSM jen do doplnky/ – ne do auto OOM features.geojson.
+# Budovy z OSM jen do osm/budovy.geojson – ne do auto OOM features.geojson.
 _OSM_BUILDING_KINDS = frozenset({"building", "water_well_building"})
 _CLOSED_AREA_KINDS = frozenset(
     {"wetland", "water_body", "farmland", "garden", "building", "water_well_building"}
@@ -2094,7 +2094,7 @@ def prepare_osm_paths(
     # Zpětná kompatibilita (např. pro testy)
     write_geojson(kept_mixed, "paths.geojson")
 
-    # OSM budovy → doplnky (ne do auto OOM).
+    # OSM budovy → osm/budovy.geojson (ne do auto OOM).
     building_feats = [
         f
         for f in features
@@ -2171,14 +2171,18 @@ def write_osm_kp_zip(
 ) -> Path | None:
     """Sestaví plochý SHP ZIP pro Karttapullautin (druhý ZIP vedle ZABAGED).
 
-    Čte už dedupované ``osm_paths/paths_mixed.geojson``. Při chybě ogr2ogr vrátí None –
-    PNG zůstane jen ze ZABAGED, OOM OSM objekty beze změny.
+    Čte hustší ``osm_paths/paths_osm.geojson`` (ne mixed/dedup). Při chybě ogr2ogr
+    vrátí None – PNG zůstane jen ze ZABAGED, OOM OSM objekty beze změny.
     """
-    paths_gj = work_dir / "osm_paths" / "paths_mixed.geojson"
+    paths_gj = work_dir / "osm_paths" / "paths_osm.geojson"
     if not paths_gj.is_file():
         # Zpětná kompatibilita pro starší joby
-        paths_gj = work_dir / "osm_paths" / "paths.geojson"
-        if not paths_gj.is_file():
+        for fallback in ("paths_mixed.geojson", "paths.geojson"):
+            candidate = work_dir / "osm_paths" / fallback
+            if candidate.is_file():
+                paths_gj = candidate
+                break
+        else:
             return None
     try:
         data = json.loads(paths_gj.read_text(encoding="utf-8"))
@@ -2188,7 +2192,7 @@ def write_osm_kp_zip(
     n = len(kp_gj["features"])
     if n == 0:
         if log:
-            log("OSM→KP PNG: žádné cesty po dedupu")
+            log("OSM→KP PNG: žádné cesty")
         return None
 
     ogr2ogr = which_tool("ogr2ogr")
@@ -2253,6 +2257,236 @@ def write_osm_kp_zip(
         return dest_zip
     finally:
         shutil.rmtree(stage, ignore_errors=True)
+
+
+# Ruční skládání mapy (jako zabaged/): kind → (stem SHP, popis, výchozí ISOM kód).
+OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
+    "water_well": ("OSM_studny", "studny / kašny", "311"),
+    "spring": ("OSM_prameny", "prameny", "312"),
+    "water_body": ("OSM_voda", "vodní plochy", "301"),
+    "farmland": ("OSM_orna", "obdělávaná půda", "412"),
+    "garden": ("OSM_zahrady", "zahrady (oliva)", "520"),
+    "playground": ("OSM_hriste", "hřiště (zpevněná)", "501"),
+    "pitch": ("OSM_sport", "sportoviště (zpevněná)", "501"),
+    "pedestrian_area": ("OSM_pesi_zony", "pěší zóny (zpevněná)", "501"),
+    "parking": ("OSM_parkoviste", "parkoviště (zpevněná)", "501"),
+    "playground_equipment": ("OSM_herni_prvky", "herní prvky", "531"),
+    "wetland": ("OSM_mokrad", "mokřad", "308"),
+    "cave_entrance": ("OSM_jeskyne", "vstup do jeskyně", "203.2"),
+    "fence": ("OSM_ploty", "ploty", "516"),
+    "wall": ("OSM_zdi", "zdi", "513"),
+    "hedge": ("OSM_zive_ploty", "živé ploty", "416"),
+    "shelter": ("OSM_pristresky", "přístřešky", "522"),
+    "memorial": ("OSM_pomniky", "pomníky", "526"),
+    "landmark_tree": ("OSM_stromy", "významné stromy", "417"),
+    "water_tower": ("OSM_veze", "vodojemy / vysoké věže", "524"),
+    "hunting_stand": ("OSM_posedy", "posedy", "531"),
+    "info_board": ("OSM_tabule", "informační tabule", "531"),
+    "bench": ("OSM_lavicky", "lavičky", "531"),
+    "lamp": ("OSM_lampy", "lampy", "530"),
+    "picnic_table": ("OSM_stoly", "stoly", "531"),
+    "firepit": ("OSM_ohniste", "ohniště", "531"),
+    "barrier_point": ("OSM_brany", "brány / sloupky", "531"),
+    "fitness": ("OSM_fitness", "fitness", "531"),
+}
+
+
+def _shapefile_nlt(features: list[dict]) -> str:
+    types = {
+        str((f.get("geometry") or {}).get("type") or "")
+        for f in features
+        if f.get("geometry")
+    }
+    types.discard("")
+    if types <= {"Point", "MultiPoint"}:
+        return "POINT"
+    if types <= {"LineString", "MultiLineString"}:
+        return "LINESTRING"
+    if types <= {"Polygon", "MultiPolygon"}:
+        return "POLYGON"
+    return "GEOMETRY"
+
+
+def _geojson_to_shapefile(
+    features: list[dict],
+    dest_shp: Path,
+    *,
+    nlt: str,
+    log=None,
+    label: str = "OSM",
+) -> bool:
+    """Zapíše Feature list do SHP (EPSG:5514). Při chybě/ogr2ogr vrátí False."""
+    if not features:
+        return False
+    ogr2ogr = which_tool("ogr2ogr")
+    if not ogr2ogr:
+        if log:
+            log(f"{label}→SHP: chybí ogr2ogr")
+        return False
+    dest_shp.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix="osm_shp_"))
+    try:
+        gj_path = stage / "layer.geojson"
+        gj_path.write_text(
+            json.dumps({"type": "FeatureCollection", "features": features}),
+            encoding="utf-8",
+        )
+        staged = stage / dest_shp.name
+        cmd = [
+            ogr2ogr,
+            "-f",
+            "ESRI Shapefile",
+            "-overwrite",
+            "-s_srs",
+            "EPSG:5514",
+            "-t_srs",
+            "EPSG:5514",
+            "-lco",
+            "ENCODING=UTF-8",
+            "-nlt",
+            nlt,
+            str(staged),
+            str(gj_path),
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=gis_subprocess_env(ogr2ogr),
+        )
+        if result.returncode != 0 or not staged.is_file():
+            err = (result.stderr or result.stdout or "ogr2ogr failed").strip()
+            if log:
+                log(f"{label}→SHP: ogr2ogr selhal ({err[:200]})")
+            return False
+        write_prj(staged)
+        for path in stage.iterdir():
+            if path.suffix.lower() in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                shutil.copy2(path, dest_shp.parent / path.name)
+        return dest_shp.is_file()
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def write_osm_buildings_shapefile(
+    work_dir: Path,
+    *,
+    log=None,
+) -> Path | None:
+    """Převede ``osm_paths/buildings.geojson`` na SHP pro import v OOM (CRT dialog)."""
+    gj = work_dir / "osm_paths" / "buildings.geojson"
+    if not gj.is_file():
+        return None
+    try:
+        data = json.loads(gj.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    feats = list(data.get("features") or [])
+    if not feats:
+        return None
+    dest_dir = work_dir / "osm_paths" / "budovy"
+    shp = dest_dir / "OSM_budovy.shp"
+    ok = _geojson_to_shapefile(
+        feats, shp, nlt="POLYGON", log=log, label="OSM budovy"
+    )
+    if ok and log:
+        log(f"OSM budovy→SHP: {len(feats)} polygonů → osm_paths/budovy/")
+    return shp if ok else None
+
+
+def write_osm_manual_shapefiles(
+    work_dir: Path,
+    *,
+    log=None,
+) -> int:
+    """SHP vrstvy pro ruční skládání mapy (obdoba zabaged/).
+
+    Cesty, objekty (posedy, studny, …) a budovy → ``osm_paths/manual/`` (+ budovy/).
+    """
+    dest = work_dir / "osm_paths" / "manual"
+    dest.mkdir(parents=True, exist_ok=True)
+    written = 0
+
+    paths_gj = work_dir / "osm_paths" / "paths_osm.geojson"
+    if not paths_gj.is_file():
+        paths_gj = work_dir / "osm_paths" / "paths.geojson"
+    if paths_gj.is_file():
+        try:
+            pdata = json.loads(paths_gj.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pdata = {}
+        pfeats = list(pdata.get("features") or [])
+        if pfeats and _geojson_to_shapefile(
+            pfeats,
+            dest / "OSM_cesty.shp",
+            nlt="LINESTRING",
+            log=log,
+            label="OSM cesty",
+        ):
+            written += 1
+
+    feat_gj = work_dir / "osm_paths" / "features.geojson"
+    by_kind: dict[str, list[dict]] = defaultdict(list)
+    if feat_gj.is_file():
+        try:
+            fdata = json.loads(feat_gj.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            fdata = {}
+        for feat in fdata.get("features") or []:
+            kind = str((feat.get("properties") or {}).get("kind") or "")
+            if not kind or kind in _OSM_BUILDING_KINDS:
+                continue
+            by_kind[kind].append(feat)
+
+    for kind, feats in sorted(by_kind.items()):
+        spec = OSM_MANUAL_LAYER_SPECS.get(kind)
+        stem = spec[0] if spec else f"OSM_{kind}"
+        nlt = _shapefile_nlt(feats)
+        if _geojson_to_shapefile(
+            feats,
+            dest / f"{stem}.shp",
+            nlt=nlt,
+            log=log,
+            label=f"OSM {kind}",
+        ):
+            written += 1
+
+    if write_osm_buildings_shapefile(work_dir, log=log):
+        written += 1
+
+    readme = dest / "README.txt"
+    lines = [
+        "OSM vrstvy pro ruční skládání mapy (obdoba zabaged/)",
+        "====================================================",
+        "",
+        "Importuj vybrané SHP do OOM (File → Importovat…) a přiřaď symbol.",
+        "Objekty už jsou i v .omap; sem patří pro volné poskládání / doladění.",
+        "",
+        "Vrstva              Typ        Doporučený symbol (les/sprint; MTBO se liší)",
+        "-----              ---        ---------------------------------------------",
+        "OSM_cesty          linie      506 (pěšina) / 501.* silnice – dle highway",
+        "OSM_budovy/        polygony   521 (les/sprint) nebo 526 (MTBO)",
+    ]
+    for kind, feats in sorted(by_kind.items()):
+        spec = OSM_MANUAL_LAYER_SPECS.get(kind)
+        if spec:
+            stem, desc, code = spec
+        else:
+            stem, desc, code = f"OSM_{kind}", kind, "?"
+        nlt = _shapefile_nlt(feats)
+        geom = {"POINT": "body", "LINESTRING": "linie", "POLYGON": "polygony"}.get(
+            nlt, "smíšené"
+        )
+        lines.append(f"{stem:<18} {geom:<10} {code}  ({desc})")
+    lines.append("")
+    lines.append("Souřadnice: EPSG:5514 (S-JTSK).")
+    lines.append("")
+    readme.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    if log:
+        log(f"OSM ruční vrstvy: {written} SHP → osm_paths/manual/")
+    return written
 
 
 def build_osm_path_parts(

@@ -82,6 +82,9 @@ def test_build_oom_zip_skips_contours03(tmp_path: Path):
 
     with zipfile.ZipFile(dest) as zf:
         names = set(zf.namelist())
+    assert "kp/contours.dxf" not in names
+    assert "kp/contours03.dxf" not in names
+    assert "kp/out.dxf" not in names
     assert "karttapullautin/contours.dxf" not in names
     assert "karttapullautin/contours03.dxf" not in names
     assert "karttapullautin/out.dxf" not in names

@@ -105,26 +105,26 @@ function disciplinesForScale(scale) {
   const s = Number(scale);
   if (s === 4000) {
     return {
-      count: 3,
-      text: "3× .omap: jen sprint (ISSprOM) × 3 zdroje cest",
+      count: 2,
+      text: "2× .omap: jen sprint (ISSprOM) × 2 zdroje cest (ZABAGED / OSM)",
     };
   }
   if (s === 7500) {
     return {
-      count: 6,
-      text: "6× .omap: les + MTBO (oba 1:7500) × 3 zdroje cest — bez sprintu",
+      count: 4,
+      text: "4× .omap: les + MTBO (oba 1:7500) × 2 zdroje cest — bez sprintu",
     };
   }
   if (s === 10000) {
     return {
-      count: 6,
-      text: "6× .omap: les + MTBO (1:10000) × 3 zdroje cest",
+      count: 4,
+      text: "4× .omap: les + MTBO (1:10000) × 2 zdroje cest",
     };
   }
   if (s === 15000) {
     return {
-      count: 6,
-      text: "6× .omap: les + MTBO (1:15000) × 3 zdroje cest",
+      count: 4,
+      text: "4× .omap: les + MTBO (1:15000) × 2 zdroje cest",
     };
   }
   return { count: 0, text: "Vyberte měřítko — ukáže se, kolik omapů vznikne." };

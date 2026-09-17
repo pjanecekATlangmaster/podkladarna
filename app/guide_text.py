@@ -23,8 +23,8 @@ WEB_ABOUT_HTML = """
 </p>
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
-  <li><code>podkladarna-*.omap</code> – podle měřítka 3 nebo 6 souborů (sprint, nebo les+MTBO) × 3 zdroje cest; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
-  <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, budovy z RÚIAN, památné stromy AOPK, doplňky ZABAGED/OSM budov, návod <code>README_OOM.txt</code></li>
+  <li><code>podkladarna-*.omap</code> – podle měřítka 2 nebo 4 soubory (sprint, nebo les+MTBO) × 2 zdroje cest (ZABAGED / OSM); otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
+  <li>DXF srázy, shapefile vrstevnic (GDAL) a ZABAGED, budovy z RÚIAN, památné stromy AOPK, volitelné budovy v <code>osm/budovy</code> a <code>zabaged/budovy</code>, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
   Nakreslete obdélník (max 5 × 5&nbsp;km), vyberte <strong>měřítko</strong> a
@@ -69,13 +69,10 @@ a skládají se z více zdrojů (ne 1:1 s PNG).
 
 Co je uvnitř
 ------------
-- podkladarna-*.omap   … podle měřítka 3 nebo 6 souborů (sprint, nebo les+MTBO × ZABAGED/OSM/mix), otevřete v OpenOrienteering Mapper (OOM)
-- basemap/             … reliéf a vegetace z LiDARu (Karttapullautin)
-- karttapullautin/     … srázy a knolíky (DXF)
-- contours/            … vrstevnice z PDAL/GDAL (shapefile)
-- osm_paths/           … pěšiny z OpenStreetMap (ODbL) – geojson + shapefile OSM_cesty (po dedupu i do KP PNG); chodníky (footway=sidewalk / zpevněný footway) ve všech disciplínách; v OOM přednost OSM před ZABAGED Pesina/Cesta; studny/prameny, mokřad, jeskyně, hřiště/sportoviště, zahrady (oliva); volitelně lavičky / lampy / herní prvky; při prioritě OSM ploty/zdi/brány/…
-- zabaged/             … polohopis ZABAGED (shapefile)
-- doplnky/             … ZABAGED a OSM budovy pro ruční import (výchozí budovy v .omap jsou z RÚIAN)
+- podkladarna-*.omap   … podle měřítka 2 nebo 4 soubory (sprint, nebo les+MTBO × ZABAGED/OSM), otevřete v OpenOrienteering Mapper (OOM)
+- kp/                  … Karttapullautin: PNG náhledy (zeleň + deprese), srázy/knolly (DXF), vrstevnice, vegetace
+- osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, … + budovy/); geojson záloha v osm/geojson/
+- zabaged/             … polohopis ZABAGED (shapefile) + zabaged/budovy/ pro ruční import (výchozí budovy v .omap jsou z RÚIAN)
 - references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM
 - metadata.json        … měřítko, preset, CRS

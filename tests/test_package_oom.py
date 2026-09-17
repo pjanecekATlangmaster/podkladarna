@@ -73,8 +73,10 @@ def test_resolve_omap_job_by_scale():
         )
         for p, _ in OOM_PATH_VARIANTS
     ]
-    assert len(names) == 3
-    assert "podkladarna-sprint-kombinace.omap" in names
+    assert len(names) == 2
+    assert "podkladarna-sprint-cesty_osm.omap" in names
+    assert "podkladarna-sprint-cesty_zabaged.omap" in names
+    assert "podkladarna-sprint-kombinace.omap" not in names
     assert not any(n.startswith("podkladarna-les-") for n in names)
 
 
@@ -124,6 +126,27 @@ def test_build_oom_zip_layout(tmp_path: Path):
         zf.writestr("OSM_cesty.prj", b"oprj")
         zf.writestr("readme.txt", b"ignore")
 
+    manual = kp / "osm_paths" / "manual"
+    manual.mkdir(parents=True)
+    (manual / "README.txt").write_text("OSM vrstvy\n", encoding="utf-8")
+    (manual / "OSM_cesty.shp").write_bytes(b"cesty")
+    (manual / "OSM_cesty.shx").write_bytes(b"cesty")
+    (manual / "OSM_cesty.dbf").write_bytes(b"cesty")
+    (manual / "OSM_cesty.prj").write_bytes(b"cesty")
+    (manual / "OSM_posedy.shp").write_bytes(b"posedy")
+    (manual / "OSM_posedy.shx").write_bytes(b"posedy")
+    (manual / "OSM_posedy.dbf").write_bytes(b"posedy")
+    (manual / "OSM_posedy.prj").write_bytes(b"posedy")
+    budovy = kp / "osm_paths" / "budovy"
+    budovy.mkdir(parents=True)
+    (budovy / "OSM_budovy.shp").write_bytes(b"bud")
+    (budovy / "OSM_budovy.shx").write_bytes(b"bud")
+    (budovy / "OSM_budovy.dbf").write_bytes(b"bud")
+    (budovy / "OSM_budovy.prj").write_bytes(b"bud")
+    (kp / "osm_paths" / "features.geojson").write_text(
+        '{"type":"FeatureCollection","features":[]}', encoding="utf-8"
+    )
+
     dest = tmp_path / "out" / "podkladarna_oom.zip"
     meta = oom_metadata(
         "sprint_2m",
@@ -139,21 +162,27 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "README_OOM.txt" in names
     assert "CO_JE_PODKLADARNA.txt" in names
     assert "metadata.json" in names
-    assert "basemap/pullautus.png" in names
-    assert "basemap/pullautus.pgw" in names
-    assert "relief/pullautus_depr.png" in names
-    assert "contours/contours.shp" in names
+    assert "kp/pullautus.png" in names
+    assert "kp/pullautus.pgw" in names
+    assert "kp/pullautus_depr.png" in names
+    assert "kp/contours/contours.shp" in names
     assert "contours/dem_filled.tif" not in names
+    assert "kp/contours.dxf" not in names
     assert "karttapullautin/contours.dxf" not in names
     assert "karttapullautin/contours03.dxf" not in names
     assert "zabaged/Cesta.shp" in names
     assert "zabaged/Cesta.shx" in names
     assert "vectors/Cesta.shp" not in names
-    assert "doplnky/README.txt" in names
-    assert "osm_paths/osm_kp.zip" not in names
-    assert "osm_paths/OSM_cesty.shp" in names
-    assert "osm_paths/OSM_cesty.prj" in names
-    assert "osm_paths/readme.txt" not in names
+    assert "doplnky/README.txt" not in names
+    assert "osm/osm_kp.zip" not in names
+    assert "osm/OSM_cesty.shp" in names
+    assert "osm/OSM_cesty.prj" in names
+    assert "osm/OSM_posedy.shp" in names
+    assert "osm/budovy/OSM_budovy.shp" in names
+    assert "osm/README.txt" in names
+    assert "osm/README_budovy.txt" in names
+    assert "osm/geojson/features.geojson" in names
+    assert "osm/readme.txt" not in names
     readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
     assert "zabaged/" in readme
     assert "vectors/" not in readme
@@ -173,7 +202,8 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "ČÚZK" in readme
     assert "WMS" in readme
     assert "podkladarna-*.omap" in readme
-    assert "cesty_zabaged/cesty_osm/kombinace" in readme
+    assert "cesty_zabaged/cesty_osm" in readme
+    assert "kombinace" not in readme
     assert "github.com/pjanecekATlangmaster/podkladarna/issues" in readme
     assert oom_readme(meta).startswith("Podkladárna")
 
@@ -203,7 +233,7 @@ def test_prepare_oom_map_minimal(tmp_path):
     )
     assert out == dest
     xml = dest.read_text(encoding="utf-8")
-    assert "basemap/pullautus.png" in xml
+    assert "kp/pullautus.png" in xml
     assert "+proj=krovak" in xml
     assert CRS_PROJ4 in xml
     assert "<geographic_crs" in xml
@@ -231,7 +261,7 @@ def test_collect_oom_templates_with_refs(tmp_path):
     assert len(templates) == 2
     assert templates[0].relpath == "references/hillshade_dmr5g.png"
     assert templates[0].visible is False
-    assert templates[1].relpath == "basemap/pullautus.png"
+    assert templates[1].relpath == "kp/pullautus.png"
     assert templates[1].visible is False
     assert templates[1].opacity == 0.65
     assert templates[1].loaded is True
@@ -275,7 +305,7 @@ def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
     templates = collect_oom_templates(kp, include_dxf_templates=True)
     dxf = [t for t in templates if t.kind == "ogr"]
     assert len(dxf) == 1
-    assert dxf[0].relpath == "karttapullautin/cliffs_small.dxf"
+    assert dxf[0].relpath == "kp/cliffs_small.dxf"
     assert dxf[0].visible is False
     assert dxf[0].loaded is True
 
@@ -285,7 +315,7 @@ def test_collect_oom_templates_png_is_control_overlay(tmp_path):
     kp.mkdir()
     (kp / "pullautus.png").write_bytes(b"x")
     templates = collect_oom_templates(kp)
-    png = [t for t in templates if t.relpath == "basemap/pullautus.png"]
+    png = [t for t in templates if t.relpath == "kp/pullautus.png"]
     assert len(png) == 1
     assert png[0].opacity == 0.65
     assert png[0].visible is False
@@ -297,7 +327,7 @@ def test_first_front_puts_kp_above_map():
 
     templates = [
         OomTemplate("image", "ortho", "references/orthophoto.png", visible=False),
-        OomTemplate("image", "kp", "basemap/pullautus.png", visible=False, opacity=0.65),
+        OomTemplate("image", "kp", "kp/pullautus.png", visible=False, opacity=0.65),
     ]
     assert first_front_template_index(templates) == 1
 
@@ -321,7 +351,7 @@ def test_oom_map_shows_main_objects_in_one_part(tmp_path):
         ref_y=0,
         ref_lat=50,
         ref_lon=14,
-        templates=[OomTemplate("image", "png", "basemap/pullautus.png", visible=False)],
+        templates=[OomTemplate("image", "png", "kp/pullautus.png", visible=False)],
         preset_id="forest_10000",
         object_parts=[
             OomObjectPart("Vrstevnice", dummy, 1),
@@ -354,7 +384,7 @@ def test_oom_map_keeps_png_templates_loaded_but_hidden(tmp_path):
                 "image", "ortho", "references/orthophoto.png", visible=False
             ),
             OomTemplate(
-                "image", "png", "basemap/pullautus.png", visible=False, opacity=0.65
+                "image", "png", "kp/pullautus.png", visible=False, opacity=0.65
             ),
         ],
         preset_id="forest_10000",

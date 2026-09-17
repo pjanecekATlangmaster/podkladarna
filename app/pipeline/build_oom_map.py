@@ -53,7 +53,7 @@ def _parts_xml(
     *,
     hidden_parts: list[OomObjectPart] | None = None,
 ) -> tuple[str, int]:
-    """Hlavní část current=0; skryté části (např. KP DXF) až za ní – Mapper kreslí jen current."""
+    """Hlavní část current=0; skryté části až za ní (např. pomocné importy)."""
     nonempty = [p for p in parts if p.objects_xml and p.count]
     hidden = [p for p in (hidden_parts or []) if p.objects_xml and p.count]
     if not nonempty and not hidden:

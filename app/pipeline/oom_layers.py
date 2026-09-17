@@ -8,7 +8,8 @@ from app.pipeline.reference_layers import HILLSHADE_VARIANTS
 
 # Skupiny v okně šablon OOM (atribut group=).
 GROUP_REFERENCE = 1
-GROUP_KP = 2
+GROUP_OSM = 2
+GROUP_KP_PNG = 3
 
 DXF_LABELS: dict[str, str] = {
     "cliffs_small.dxf": "Zemní srázy (DXF)",
@@ -36,7 +37,6 @@ class OomTemplate:
 OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
     # Všechny PNG vypnuté – výchozí pohled = jen vektorové objekty mapy.
     ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0, False),
-    ("osm", "OpenStreetMap", "references/osm.png", 0.55, False),
     ("ztm", "Základní mapa ČÚZK (ZTM)", "references/mapa_ztm.png", 0.88, False),
     ("katastr", "Katastrální mapa", "references/katastr.png", 0.9, False),
     ("dmpok", "Náhled DMP OK", "references/dmpok_nahled.png", 0.65, False),
@@ -46,13 +46,21 @@ OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
     ),
 )
 
+OOM_OSM_REF_SPEC = (
+    "osm",
+    "OpenStreetMap",
+    "references/osm.png",
+    0.55,
+    False,
+)
+
 
 def first_front_template_index(templates: list[OomTemplate]) -> int:
     """První šablona nad mapou: až uživatel zapne KP PNG, má být nad papírem."""
     for i, tmpl in enumerate(templates):
-        if tmpl.relpath.startswith("basemap/") or tmpl.relpath.startswith("relief/"):
+        if tmpl.relpath.startswith("kp/"):
             return i
-        if tmpl.group == GROUP_KP:
+        if tmpl.group == GROUP_KP_PNG:
             return i
     return len(templates)
 
@@ -84,17 +92,30 @@ def collect_oom_templates(
                         group=GROUP_REFERENCE,
                     )
                 )
+        key, label, relpath, opacity, visible = OOM_OSM_REF_SPEC
+        path = built_refs.get(key)
+        if path and path.is_file():
+            templates.append(
+                OomTemplate(
+                    "image",
+                    label,
+                    relpath,
+                    visible=visible,
+                    opacity=opacity,
+                    group=GROUP_OSM,
+                )
+            )
 
     if (kp_cwd / "pullautus.png").is_file():
         templates.append(
             OomTemplate(
                 "image",
                 "Karttapullautin (zeleň / náhled)",
-                "basemap/pullautus.png",
+                "kp/pullautus.png",
                 # Výchozí pohled = vektorová mapa; PNG si zapneš při kontrole.
                 visible=False,
                 opacity=0.65,
-                group=GROUP_KP,
+                group=GROUP_KP_PNG,
             )
         )
 
@@ -104,10 +125,10 @@ def collect_oom_templates(
             OomTemplate(
                 "image",
                 "Karttapullautin deprese",
-                "relief/pullautus_depr.png",
+                "kp/pullautus_depr.png",
                 visible=False,
                 opacity=0.65,
-                group=GROUP_KP,
+                group=GROUP_KP_PNG,
             )
         )
 
@@ -119,10 +140,10 @@ def collect_oom_templates(
                     OomTemplate(
                         "ogr",
                         DXF_LABELS.get(zip_name, zip_name),
-                        f"karttapullautin/{zip_name}",
+                        f"kp/{zip_name}",
                         visible=False,
                         opacity=1.0,
-                        group=GROUP_KP,
+                        group=GROUP_KP_PNG,
                         loaded=True,
                     )
                 )

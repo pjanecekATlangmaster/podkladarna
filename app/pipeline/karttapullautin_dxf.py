@@ -5,7 +5,7 @@ from pathlib import Path
 from app.pipeline.prepare_lidar import run_cmd
 from app.settings import PULLAUTA_BIN
 
-# Zdroj v temp/ → název v ZIPu (karttapullautin/). Vrstevnice jdou z GDAL, ne z KP.
+# Zdroj v temp/ → název v ZIPu (kp/). Vrstevnice jdou z GDAL, ne z KP.
 # Rust KP: c2g = menší (cliff1), c3g = větší (cliff2); obojí → ISOM 104 v OOM.
 # První shoda vyhrává; c1g/c2 jsou legacy aliasy.
 DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
@@ -51,7 +51,7 @@ def collect_dxf_for_zip(
     log: callable | None = None,
     include_cliffs: bool = True,
 ) -> dict[str, Path]:
-    """Soubory pro karttapullautin/ ve výstupním ZIPu (zip_name → cesta)."""
+    """Soubory pro kp/ ve výstupním ZIPu (zip_name → cesta)."""
     if not temp_dir.is_dir():
         return {}
     collected: dict[str, Path] = {}

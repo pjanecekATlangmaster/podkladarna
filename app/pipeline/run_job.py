@@ -19,8 +19,11 @@ from app.pipeline.karttapullautin_dxf import (
     prune_heavy_intermediate_dxf,
 )
 from app.pipeline.osm_paths import (
+    ZABAGED_OMIT_PATH_LAYERS,
     prepare_osm_paths,
     write_osm_kp_zip,
+    write_osm_manual_shapefiles,
+    write_zabaged_omitting_layers,
 )
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
@@ -253,15 +256,27 @@ def run_job_pipeline(
                 log=log,
             )
             osm_kp_zip = write_osm_kp_zip(work_dir, log=log)
+            write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
             log(f"OSM: přeskočeno ({exc})")
             osm_kp_zip = None
 
     log("=== Fáze: Karttapullautin vektory ===")
+    # OSM cesty jsou hustší než ZABAGED – do KP bereme plné OSM a ZABAGED cesty vynecháme.
+    if osm_kp_zip and osm_kp_zip.is_file():
+        kp_zabaged_no_paths = work_dir / "zabaged_kp_no_paths.zip"
+        try:
+            write_zabaged_omitting_layers(
+                zabaged_clean, kp_zabaged_no_paths, ZABAGED_OMIT_PATH_LAYERS
+            )
+            kp_zabaged = kp_zabaged_no_paths
+            log("KP PNG: OSM cesty (ZABAGED cesty vynechány – jsou chudé)")
+        except Exception as exc:
+            log(f"KP PNG: ZABAGED bez cest selhalo ({exc}) – beru plný ZABAGED + OSM")
+            kp_zabaged = zabaged_clean
     kp_vector_cmd = [PULLAUTA_BIN, str(kp_zabaged.resolve())]
     if osm_kp_zip and osm_kp_zip.is_file():
         kp_vector_cmd.append(str(osm_kp_zip.resolve()))
-        log(f"KP PNG: ZABAGED + OSM cesty ({osm_kp_zip.name})")
     else:
         log("KP PNG: jen ZABAGED (bez OSM cest)")
     run_cmd(kp_vector_cmd, cwd=kp_cwd, log=log)
@@ -425,8 +440,15 @@ def _package_output(
     # Stejná struktura jako v ZIPu, ať jde otevřít i output/podkladarna-*.omap.
     if want_zip and omap_paths:
         for folder, names in (
-            ("basemap", ("pullautus.png", "pullautus.pgw")),
-            ("relief", ("pullautus_depr.png", "pullautus_depr.pgw")),
+            (
+                "kp",
+                (
+                    "pullautus.png",
+                    "pullautus.pgw",
+                    "pullautus_depr.png",
+                    "pullautus_depr.pgw",
+                ),
+            ),
         ):
             dest_dir = output_dir / folder
             for name in names:
