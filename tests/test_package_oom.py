@@ -137,12 +137,10 @@ def test_build_oom_zip_layout(tmp_path: Path):
     (manual / "OSM_posedy.shx").write_bytes(b"posedy")
     (manual / "OSM_posedy.dbf").write_bytes(b"posedy")
     (manual / "OSM_posedy.prj").write_bytes(b"posedy")
-    budovy = kp / "osm_paths" / "budovy"
-    budovy.mkdir(parents=True)
-    (budovy / "OSM_budovy.shp").write_bytes(b"bud")
-    (budovy / "OSM_budovy.shx").write_bytes(b"bud")
-    (budovy / "OSM_budovy.dbf").write_bytes(b"bud")
-    (budovy / "OSM_budovy.prj").write_bytes(b"bud")
+    (manual / "OSM_budovy.shp").write_bytes(b"bud")
+    (manual / "OSM_budovy.shx").write_bytes(b"bud")
+    (manual / "OSM_budovy.dbf").write_bytes(b"bud")
+    (manual / "OSM_budovy.prj").write_bytes(b"bud")
     (kp / "osm_paths" / "features.geojson").write_text(
         '{"type":"FeatureCollection","features":[]}', encoding="utf-8"
     )
@@ -165,9 +163,10 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "kp/pullautus.png" in names
     assert "kp/pullautus.pgw" in names
     assert "kp/pullautus_depr.png" in names
-    assert "kp/contours/contours.shp" in names
+    assert "base/contours/contours.shp" in names
     assert "contours/dem_filled.tif" not in names
     assert "kp/contours.dxf" not in names
+    assert "base/contours.dxf" not in names
     assert "karttapullautin/contours.dxf" not in names
     assert "karttapullautin/contours03.dxf" not in names
     assert "zabaged/Cesta.shp" in names
@@ -178,9 +177,10 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "osm/OSM_cesty.shp" in names
     assert "osm/OSM_cesty.prj" in names
     assert "osm/OSM_posedy.shp" in names
-    assert "osm/budovy/OSM_budovy.shp" in names
+    assert "osm/OSM_budovy.shp" in names
+    assert "osm/budovy/OSM_budovy.shp" not in names
+    assert "zabaged/budovy/" not in "".join(names)
     assert "osm/README.txt" in names
-    assert "osm/README_budovy.txt" in names
     assert "osm/geojson/features.geojson" in names
     assert "osm/readme.txt" not in names
     readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
@@ -305,7 +305,7 @@ def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
     templates = collect_oom_templates(kp, include_dxf_templates=True)
     dxf = [t for t in templates if t.kind == "ogr"]
     assert len(dxf) == 1
-    assert dxf[0].relpath == "kp/cliffs_small.dxf"
+    assert dxf[0].relpath == "base/cliffs_small.dxf"
     assert dxf[0].visible is False
     assert dxf[0].loaded is True
 

@@ -140,7 +140,7 @@ def collect_oom_templates(
                     OomTemplate(
                         "ogr",
                         DXF_LABELS.get(zip_name, zip_name),
-                        f"kp/{zip_name}",
+                        f"base/{zip_name}",
                         visible=False,
                         opacity=1.0,
                         group=GROUP_KP_PNG,

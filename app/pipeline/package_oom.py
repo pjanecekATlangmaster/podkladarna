@@ -40,11 +40,10 @@ from app.settings import APP_VERSION
 
 DOPLNKY_OSM_README = """OSM budovy (ruční import)
 ========================
-Složka budovy/ (shapefile OSM_budovy) – v OOM dialog přiřazení symbolu.
+Soubor OSM_budovy.shp ve složce osm/ – v OOM dialog přiřazení symbolu.
 Všem polygonům dej 521 (les/sprint) nebo 526 (MTBO).
 
 Výchozí budovy v .omap jsou z RÚIAN; toto je volitelný doplněk.
-Ostatní OSM vrstvy (cesty, posedy, …) jsou v nadřazené složce osm/ – viz README.txt.
 """
 
 OSM_FOLDER_README = """OSM – vrstvy pro ruční skládání mapy
@@ -53,26 +52,26 @@ Stejný účel jako složka zabaged/: vyber SHP a importuj do OOM
 (File → Importovat…) s přiřazením symbolu.
 
 Objekty už jsou i v .omap; tady je máš jako zdroj pro volné poskládání.
+Včetně OSM_budovy.shp (výchozí budovy v .omap jsou z RÚIAN).
 
-Doporučené symboly (les/sprint; MTBO se u některých liší) jsou v README.txt
-uvnitř jobu (osm_paths/manual/) a u budov v README_budovy.txt.
+Doporučené symboly jsou v README.txt uvnitř jobu (osm_paths/manual/).
 
 Souřadnice: EPSG:5514 (S-JTSK).
 """
 
-DOPLNKY_ZABAGED_README = """ZABAGED budovy (ruční import)
-=============================
-Složka budovy/ – shapefile vrstev Budova*, Kulna*, StavebniObjektZakryty, Hrad, Zamek.
-Výchozí budovy v .omap jsou z RÚIAN; toto je volitelný doplněk.
+DOPLNKY_ZABAGED_README = """ZABAGED budovy
+==============
+Vrstvy Budova*, Kulna*, StavebniObjektZakryty, Hrad, Zamek jsou přímo ve složce
+zabaged/ mezi ostatními SHP. Výchozí budovy v .omap jsou z RÚIAN.
 
-V OOM: File → Importovat… → všem vrstvám symbol 521 (les/sprint) nebo 526 (MTBO).
+V OOM: File → Importovat… → symbol 521 (les/sprint) nebo 526 (MTBO).
 """
 
 # Zpětná kompatibilita testů / starších odkazů.
 DOPLNKY_README = (
     "Budovy pro ruční import jsou u svých zdrojů:\n"
-    "  osm/ (SHP vrstvy) + osm/budovy/\n"
-    "  zabaged/budovy/\n"
+    "  osm/OSM_budovy.shp (mezi ostatními OSM vrstvami)\n"
+    "  zabaged/ (vrstvy Budova* atd. mezi ostatními SHP)\n"
     "\n"
     + DOPLNKY_OSM_README
     + "\n"
@@ -407,12 +406,11 @@ def oom_readme(meta: dict) -> str:
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, RÚIAN budovy, srázy, …).\n"
         "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
         "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
-        "   v Šablony → Nastavení šablon (Template Setup); KP PNG jsou ve složce kp/.\n"
+        "   v Šablony → Nastavení šablon (Template Setup); KP PNG náhledy jsou ve složce kp/.\n"
         "3. Deprese: šablona „Karttapullautin deprese“.\n"
-        "4. Budovy v .omap jsou z RÚIAN (INSPIRE). Volitelné budovy: osm/budovy/\n"
-        "   a zabaged/budovy/. Celé osm/ a zabaged/ jsou SHP pro ruční skládání mapy.\n"
-        "   Shapefile ZABAGED (zabaged/) jsou v ZIPu i pro práci mimo OOM.\n"
-        "   KP vektory a náhledy (PNG, vrstevnice, zeleň, srázy, knolly) ve složce kp/.\n\n"
+        "4. Budovy v .omap jsou z RÚIAN (INSPIRE). Volitelné budovy: osm/OSM_budovy.shp\n"
+        "   a vrstvy Budova* ve zabaged/. Celé osm/ a zabaged/ jsou SHP pro ruční skládání.\n"
+        "   KP PNG náhledy ve složce kp/; vrstevnice, vegetace, srázy a knolly ve složce base/.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
@@ -711,7 +709,7 @@ def build_oom_zip(
             for zip_name, src in sorted(
                 collect_dxf_for_zip(temp, include_cliffs=include_cliffs).items()
             ):
-                zf.write(src, f"kp/{zip_name}")
+                zf.write(src, f"base/{zip_name}")
         contours_dir = kp_cwd / "contours"
         if contours_dir.is_dir():
             for path in sorted(contours_dir.iterdir()):
@@ -722,7 +720,7 @@ def build_oom_zip(
                     ".prj",
                     ".cpg",
                 }:
-                    zf.write(path, f"kp/contours/{path.name}")
+                    zf.write(path, f"base/contours/{path.name}")
         vege_dir = kp_cwd / "vegetation"
         if vege_dir.is_dir():
             for path in sorted(vege_dir.iterdir()):
@@ -733,7 +731,7 @@ def build_oom_zip(
                     ".prj",
                     ".cpg",
                 }:
-                    zf.write(path, f"kp/vegetation/{path.name}")
+                    zf.write(path, f"base/vegetation/{path.name}")
         osm_dir = kp_cwd / "osm_paths"
         # SHP pro ruční skládání (jako zabaged/) – primární obsah osm/.
         manual_dir = osm_dir / "manual"
@@ -752,6 +750,7 @@ def build_oom_zip(
                     zf.write(path, f"osm/{path.name}")
         else:
             zf.writestr("osm/README.txt", OSM_FOLDER_README)
+        # Budovy: OSM_budovy.shp z osm_paths/budovy/ → přímo do osm/ (ne podsložka).
         budovy_shp = osm_dir / "budovy"
         if budovy_shp.is_dir():
             for path in sorted(budovy_shp.iterdir()):
@@ -762,8 +761,7 @@ def build_oom_zip(
                     ".prj",
                     ".cpg",
                 }:
-                    zf.write(path, f"osm/budovy/{path.name}")
-            zf.writestr("osm/README_budovy.txt", DOPLNKY_OSM_README)
+                    zf.write(path, f"osm/{path.name}")
         # GeoJSON záloha (GIS); OOM raději SHP výše.
         if osm_dir.is_dir():
             for name, arc in (
@@ -780,15 +778,9 @@ def build_oom_zip(
         if osm_kp.is_file() and not (manual_dir / "OSM_cesty.shp").is_file():
             _add_shapefiles_from_zip(zf, osm_kp, "osm")
         if zabaged_clean and zabaged_clean.is_file():
+            # Včetně Budova* – mezi ostatními vrstvami (ne samostatná podsložka).
             _add_shapefiles_from_zip(zf, zabaged_clean, "zabaged")
             if include_zabaged_archive:
                 zf.write(zabaged_clean, "zabaged_clean.zip")
-            _add_shapefiles_from_zip(
-                zf,
-                zabaged_clean,
-                "zabaged/budovy",
-                only_layers=ZABAGED_OMIT_BUILDING_LAYERS,
-            )
-            zf.writestr("zabaged/README_budovy.txt", DOPLNKY_ZABAGED_README)
 
     return dest_zip

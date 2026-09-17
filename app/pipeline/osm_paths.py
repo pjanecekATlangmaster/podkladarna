@@ -2385,13 +2385,13 @@ def write_osm_buildings_shapefile(
     feats = list(data.get("features") or [])
     if not feats:
         return None
-    dest_dir = work_dir / "osm_paths" / "budovy"
+    dest_dir = work_dir / "osm_paths" / "manual"
     shp = dest_dir / "OSM_budovy.shp"
     ok = _geojson_to_shapefile(
         feats, shp, nlt="POLYGON", log=log, label="OSM budovy"
     )
     if ok and log:
-        log(f"OSM budovy→SHP: {len(feats)} polygonů → osm_paths/budovy/")
+        log(f"OSM budovy→SHP: {len(feats)} polygonů → osm_paths/manual/")
     return shp if ok else None
 
 
@@ -2466,7 +2466,7 @@ def write_osm_manual_shapefiles(
         "Vrstva              Typ        Doporučený symbol (les/sprint; MTBO se liší)",
         "-----              ---        ---------------------------------------------",
         "OSM_cesty          linie      506 (pěšina) / 501.* silnice – dle highway",
-        "OSM_budovy/        polygony   521 (les/sprint) nebo 526 (MTBO)",
+        "OSM_budovy         polygony   521 (les/sprint) nebo 526 (MTBO)",
     ]
     for kind, feats in sorted(by_kind.items()):
         spec = OSM_MANUAL_LAYER_SPECS.get(kind)
