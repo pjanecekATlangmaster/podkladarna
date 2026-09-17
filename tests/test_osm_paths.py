@@ -575,9 +575,11 @@ def test_short_osm_bridge_is_kept():
     from app.pipeline.osm_paths import (
         OSM_BRIDGE_HIGHWAY,
         _is_osm_bridge,
+        bridge_highway,
         dedup_osm_prefer_wider,
         filter_osm_items_against_zabaged,
         highway_to_zabaged_vrstva,
+        is_bridge_highway,
         osm_oom_code,
         path_min_length_m,
     )
@@ -585,23 +587,26 @@ def test_short_osm_bridge_is_kept():
     assert _is_osm_bridge({"highway": "footway", "bridge": "yes"})
     assert not _is_osm_bridge({"highway": "footway", "bridge": "no"})
     assert not _is_osm_bridge({"highway": "footway", "bridge": "boardwalk"})
+    assert bridge_highway("footway") == "bridge:footway"
+    assert is_bridge_highway("bridge:sidewalk")
     assert path_min_length_m(OSM_BRIDGE_HIGHWAY) <= 1.0
+    assert path_min_length_m("bridge:footway") <= 1.0
     assert path_min_length_m("footway") <= 1.0
     assert path_min_length_m("track") <= 1.0
 
     # ~4.4 m lávka (jako Motol) + delší pěšina mimo filtr.
-    bridge = ([(0.0, 0.0), (4.4, 0.0)], OSM_BRIDGE_HIGHWAY)
+    bridge = ([(0.0, 0.0), (4.4, 0.0)], bridge_highway("footway"))
     path = ([(0.0, 20.0), (40.0, 20.0)], "path")
     kept, dropped = dedup_osm_prefer_wider([bridge, path])
     assert dropped == 0
-    assert {hw for _pts, hw in kept} == {OSM_BRIDGE_HIGHWAY, "path"}
+    assert {hw for _pts, hw in kept} == {"bridge:footway", "path"}
 
     # Motol: krátký most sdílí uzel s dlouhým trackem – MATCH_M 6 m > délka mostu,
     # dřív track (vyšší rank) most „překryl“ a zahodil.
     track = ([(4.4, 0.0), (200.0, 0.0)], "track")
     kept_m, dropped_m = dedup_osm_prefer_wider([bridge, track])
     assert dropped_m == 0
-    assert {hw for _pts, hw in kept_m} == {OSM_BRIDGE_HIGHWAY, "track"}
+    assert {hw for _pts, hw in kept_m} == {"bridge:footway", "track"}
 
     # Motol way/806853877: krátká spojka (~28 m) mezi dvěma delšími tracky.
     # Union sítě by ji „přikryl“ jen uzly; vůči jedné linii cover << práh.
@@ -626,12 +631,16 @@ def test_short_osm_bridge_is_kept():
 
     zab = [[(0.0, 0.0), (100.0, 0.0)]]
     kept_b, drop_b = filter_osm_items_against_zabaged([bridge], zab)
-    assert drop_b == 0 and len(kept_b) == 1 and kept_b[0][1] == OSM_BRIDGE_HIGHWAY
+    assert drop_b == 0 and len(kept_b) == 1 and kept_b[0][1] == "bridge:footway"
 
     assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "forest_10000") == "512"
-    assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "sprint_2m") == "512.1"
+    assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "sprint_2m") == "506"
+    assert osm_oom_code("bridge:footway", "sprint_2m") == "506"
+    assert osm_oom_code("bridge:sidewalk", "sprint_2m") == "501.6"
+    assert osm_oom_code("bridge:residential", "sprint_2m") == "501.17"
     assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "mtbo_10000") == "834"
     assert highway_to_zabaged_vrstva(OSM_BRIDGE_HIGHWAY) == "Lavka"
+    assert highway_to_zabaged_vrstva("bridge:footway") == "Lavka"
 
 
 def test_osm_oom_code_sidewalk():

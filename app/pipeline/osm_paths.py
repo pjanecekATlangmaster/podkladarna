@@ -128,7 +128,31 @@ MIN_LENGTH_M = 1.0
 MIN_LENGTH_SHORT_M = 1.0
 MIN_LENGTH_FOOT_M = 1.0
 # Syntetický highway po načtení OSM (bridge=* na way).
+# Hodnota ``bridge`` nebo ``bridge:<base>`` (base = původní highway pro značku).
 OSM_BRIDGE_HIGHWAY = "bridge"
+
+
+def is_bridge_highway(highway: str) -> bool:
+    hw = (highway or "").lower()
+    return hw == OSM_BRIDGE_HIGHWAY or hw.startswith(f"{OSM_BRIDGE_HIGHWAY}:")
+
+
+def bridge_highway(base_highway: str) -> str:
+    """Ulož most s původním highway (sprint kreslí jako navazující cestu)."""
+    base = (base_highway or "path").lower() or "path"
+    if is_bridge_highway(base):
+        base = "path"
+    return f"{OSM_BRIDGE_HIGHWAY}:{base}"
+
+
+def path_draw_highway(highway: str) -> str:
+    """Highway pro OOM značku (u mostu vrátí původní typ cesty)."""
+    hw = (highway or "path").lower()
+    if hw.startswith(f"{OSM_BRIDGE_HIGHWAY}:"):
+        return hw.split(":", 1)[1] or "path"
+    if hw == OSM_BRIDGE_HIGHWAY:
+        return "path"
+    return hw or "path"
 GRID_M = 30.0
 # crossing vždy pryč; sidewalk jen v lese (na sprintu bereme jako chodník).
 SKIP_FOOTWAY_ALWAYS = frozenset({"crossing"})
@@ -331,9 +355,10 @@ def _is_osm_bridge(tags: dict) -> bool:
 def path_min_length_m(highway: str) -> float:
     """Min. délka střednice před zahozením (krátké lávky/schody/spojky)."""
     hw = (highway or "path").lower()
-    if hw in {"steps", "sidewalk", OSM_BRIDGE_HIGHWAY}:
+    if is_bridge_highway(hw) or hw in {"steps", "sidewalk"}:
         return MIN_LENGTH_SHORT_M
-    if hw in {"footway", "path", "cycleway", "bridleway", "pedestrian"}:
+    draw = path_draw_highway(hw)
+    if draw in {"footway", "path", "cycleway", "bridleway", "pedestrian"}:
         return MIN_LENGTH_FOOT_M
     return MIN_LENGTH_M
 
@@ -885,12 +910,13 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         if mtbo:
             return "529"
         return "501.1"
-    if hw == OSM_BRIDGE_HIGHWAY:
-        # Les/sprint: 512 Bridge; MTBO 512 je skrytý bod → lávka jako pěšina.
+    if is_bridge_highway(hw):
+        # Sprint: speciální most (512.x) se prakticky nepoužívá – stejná značka
+        # jako navazující cesta (footway/ulice/chodník).
+        if sprint:
+            return osm_oom_code(path_draw_highway(hw), preset_id)
         if mtbo:
             return "834"
-        if sprint:
-            return "512.1"
         return "512"
     if mtbo:
         # footway / path / cycleway → Path: medium riding
@@ -902,6 +928,8 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
 def highway_width_rank(highway: str) -> int:
     """Vyšší = širší / preferovanější při překryvu střednic."""
     hw = (highway or "path").lower()
+    if is_bridge_highway(hw):
+        return 32
     if hw in OSM_ROAD_HIGHWAYS:
         return {
             "motorway": 62,
@@ -924,8 +952,6 @@ def highway_width_rank(highway: str) -> int:
         "track": 40,
         # Schody > pěšina: při souběhu OSM×OSM nechat schody, ne 507.
         "steps": 35,
-        # Lávka nad obecnou pěšinou (souběh se stezkou).
-        OSM_BRIDGE_HIGHWAY: 32,
         "bridleway": 30,
         "cycleway": 25,
         "pedestrian": 20,
@@ -963,7 +989,7 @@ def dedup_osm_prefer_wider(
         if polyline_length(pts) < path_min_length_m(hw):
             dropped += 1
             continue
-        if hw != OSM_BRIDGE_HIGHWAY and kept:
+        if not is_bridge_highway(hw) and kept:
             max_cover = 0.0
             for kpts, _khw in kept:
                 idx = _SegmentIndex()
@@ -1597,7 +1623,7 @@ def filter_osm_items_against_zabaged(
     ZABAGED nefiltrují.
     """
     def _keep_vs_zabaged(hw: str) -> bool:
-        return hw in {"steps", "sidewalk", OSM_BRIDGE_HIGHWAY}
+        return is_bridge_highway(hw) or hw in {"steps", "sidewalk"}
 
     if not zabaged_lines:
         kept = [
@@ -1940,11 +1966,11 @@ def prepare_osm_paths(
             hw = sprint_line_highway(tags, hw)
         elif not hw:
             hw = "path"
-        # Krátké lávky (bridge=yes) – syntetický typ, ať nepadnou na 12 m filtr.
+        # Krátké lávky (bridge=yes) – zachovej typ cesty pro sprint značku.
         if _is_osm_bridge(tags):
-            hw = OSM_BRIDGE_HIGHWAY
+            hw = bridge_highway(hw or "path")
         # Uzavřená pěší zóna i bez area=yes → zpevněná plocha (ne střednicová pěšina).
-        if hw == "pedestrian" and len(pts) >= 3:
+        if path_draw_highway(hw) == "pedestrian" and len(pts) >= 3:
             ring = list(pts)
             if ring[0] != ring[-1]:
                 if math.hypot(ring[0][0] - ring[-1][0], ring[0][1] - ring[-1][1]) < 1.5:
@@ -1995,7 +2021,11 @@ def prepare_osm_paths(
 
     # 2. Varianta MIXED: pěšiny + lávky, ořez proti ZABAGED + OSM×OSM širší>užší
     mixed_highways = osm_highway_set(PATH_SOURCE_MIXED) | frozenset({OSM_BRIDGE_HIGHWAY})
-    osm_items_mixed = [(pts, hw) for pts, hw in osm_items if hw in mixed_highways]
+    osm_items_mixed = [
+        (pts, hw)
+        for pts, hw in osm_items
+        if path_draw_highway(hw) in mixed_highways or is_bridge_highway(hw)
+    ]
     kept_mixed, dropped_mixed = filter_osm_items_against_zabaged(osm_items_mixed, zabaged_lines)
     kept_mixed, dropped_self_mixed = dedup_osm_prefer_wider(kept_mixed)
     dropped_mixed += dropped_self_mixed
@@ -2058,7 +2088,7 @@ def prepare_osm_paths(
     write_geojson(kept_osm, "paths_osm.geojson")
     # Lávky i do režimu jen-ZABAGED (krátké OSM bridge často v ČÚZK chybí).
     write_geojson(
-        [(pts, hw) for pts, hw in kept_osm if hw == OSM_BRIDGE_HIGHWAY],
+        [(pts, hw) for pts, hw in kept_osm if is_bridge_highway(hw)],
         "paths_bridges.geojson",
     )
     # Zpětná kompatibilita (např. pro testy)
@@ -2099,7 +2129,7 @@ def highway_to_zabaged_vrstva(highway: str) -> str | None:
         return "Ulice"  # KP road-path|503
     if hw == "track":
         return "Cesta"  # KP road-path|505
-    if hw == OSM_BRIDGE_HIGHWAY:
+    if is_bridge_highway(hw):
         return "Lavka"  # KP road-path|506
     # sidewalk / footway / path → KP pěšina (506)
     return "Pesina"  # KP road-path|506
