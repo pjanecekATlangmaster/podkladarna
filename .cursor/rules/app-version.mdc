@@ -1,0 +1,12 @@
+---
+description: Pravidla verzování Podkladárny (APP_VERSION)
+alwaysApply: true
+---
+
+# Verze aplikace
+
+- `APP_VERSION` žije v `app/settings.py`; synchronizuj i patičku ve `web/index.html` (`Podkladárna vX.Y.Z`).
+- Po smysluplném balíku změn verzi posuň v rámci stejného commitu (nebo hned s ním).
+- **Menší změny** (opravy, drobnosti): patch `X.Y.Z` → `X.Y.Z+1` (např. 1.9.0 → 1.9.1).
+- **Větší změny** (nové chování, přestavba výstupu/GUI): minor `X.Y.Z` → `X.(Y+1).0` (např. 1.8.2 → 1.9.0).
+- Commit subject ve stylu `Bump app version to X.Y.Z.` — **nesmí** se objevit v boxu „Co je nového“ (filtruje `scripts/generate_whats_new.py`).

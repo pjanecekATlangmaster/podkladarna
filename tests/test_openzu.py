@@ -42,7 +42,35 @@ def test_bbox_size_small_ok():
     assert not bbox_exceeds_limit(14.40, 50.08, 14.42, 50.09)
 
 
-def test_bbox_size_over_5km():
+def test_bbox_area_limit_allows_six_by_six_shape():
+    """Limit je plocha ~36 km² (obsah výřezu), ne max strana 5 km."""
+    from app.pipeline.fetch_openzu import MAX_BBOX_AREA_KM2, bbox_area_km2
+
+    # ~14 × 22 km – daleko přes limit plochy
+    assert bbox_exceeds_limit(14.0, 49.5, 14.2, 49.7)
+    # Malý výřez OK
+    assert not bbox_exceeds_limit(14.40, 50.08, 14.42, 50.09)
+
+    # ~6 × 6 km kolem WGS (obsah ≈ 36 km²)
+    lon0, lat0 = 14.42, 50.08
+    dlon, dlat = 0.0839, 0.0539
+    box6 = (lon0 - dlon / 2, lat0 - dlat / 2, lon0 + dlon / 2, lat0 + dlat / 2)
+    w6, h6 = bbox_size_km(*box6)
+    a6 = bbox_area_km2(*box6)
+    assert 5.7 <= w6 <= 6.3
+    assert 5.7 <= h6 <= 6.3
+    assert a6 <= MAX_BBOX_AREA_KM2 + 0.5
+    assert not bbox_exceeds_limit(*box6)
+
+    # ~8 × 4 km – pod 36 km²
+    dlon8, dlat4 = 0.1118, 0.0360
+    box84 = (lon0 - dlon8 / 2, lat0 - dlat4 / 2, lon0 + dlon8 / 2, lat0 + dlat4 / 2)
+    a84 = bbox_area_km2(*box84)
+    assert a84 <= MAX_BBOX_AREA_KM2
+    assert not bbox_exceeds_limit(*box84)
+
+
+def test_bbox_size_over_area_limit():
     # ~14 × 22 km, pořád v obálce Česka
     assert bbox_exceeds_limit(14.0, 49.5, 14.2, 49.7)
 
@@ -123,12 +151,25 @@ def test_api_sheets(client, monkeypatch):
     assert body["count"] == 1
     assert body["sheets"][0]["mapnom"] == "PRAH77"
     assert body["estimate_minutes"] == 9
+    assert body["estimate_minutes_with_refs"] == 9 + 5
     assert body["estimate_note"]
     assert "PRAH77" in body["label"]
     assert body["too_large"] is False
-    assert body["max_km"] == 5.0
+    assert body["max_km"] == 6.0
+    assert body["max_area_km2"] == 36.0
     assert body["width_km"] < 5
     assert body["height_km"] < 5
+
+
+def test_estimate_minutes_adds_reference_pngs(tmp_path, monkeypatch):
+    from app import settings
+    from app.pipeline.fetch_openzu import REF_PNG_ESTIMATE_MINUTES, estimate_minutes
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    names = ["PRAH03"]
+    base = estimate_minutes(names)
+    with_refs = estimate_minutes(names, include_references=True)
+    assert with_refs == base + REF_PNG_ESTIMATE_MINUTES
 
 
 def test_api_sheets_rejects_bad_bbox(client):
@@ -209,7 +250,7 @@ def test_api_sheets_too_large(client, monkeypatch):
     assert body["too_large"] is True
     assert body["too_large_reason"] == "size"
     assert body["estimate_minutes"] is None
-    assert "5" in body["hint"]
+    assert "36" in body["hint"]
     assert "moc velký" in body["hint"]
 
 
@@ -233,7 +274,7 @@ def test_create_job_map_too_large(client, monkeypatch):
     assert r.status_code == 400
     detail = r.json()["detail"].lower()
     assert "moc velk" in detail
-    assert "5" in r.json()["detail"]
+    assert "36" in r.json()["detail"]
 
 
 def test_create_job_map_without_bbox(client):

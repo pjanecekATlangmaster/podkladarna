@@ -17,8 +17,11 @@ from app.guide_text import WEB_ABOUT_HTML
 from app.rate_limit import check_create_job
 from app.pipeline.fetch_openzu import (
     FetchError,
+    MAX_BBOX_AREA_KM2,
     MAX_BBOX_KM,
     MAX_SHEETS,
+    REF_PNG_ESTIMATE_MINUTES,
+    bbox_area_km2,
     bbox_exceeds_limit,
     bbox_size_km,
     estimate_note,
@@ -168,6 +171,7 @@ def api_sheets(bbox: str):
     except FetchError as exc:
         raise HTTPException(400, str(exc)) from exc
     width_km, height_km = bbox_size_km(west, south, east, north)
+    area_km2 = bbox_area_km2(west, south, east, north)
     if bbox_exceeds_limit(west, south, east, north):
         return {
             "sheets": [],
@@ -175,14 +179,18 @@ def api_sheets(bbox: str):
             "max_sheets": MAX_SHEETS,
             "width_km": round(width_km, 2),
             "height_km": round(height_km, 2),
+            "area_km2": round(area_km2, 1),
             "max_km": MAX_BBOX_KM,
+            "max_area_km2": MAX_BBOX_AREA_KM2,
             "too_large": True,
             "too_large_reason": "size",
             "estimate_minutes": None,
-            "label": f"Výřez {width_km:.1f} × {height_km:.1f} km",
+            "estimate_minutes_with_refs": None,
+            "label": f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.0f} km²)",
             "hint": (
-                f"Výřez {width_km:.1f} × {height_km:.1f} km je moc velký "
-                f"(max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km). Zmenšete ho."
+                f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.0f} km²) je moc velký "
+                f"(max {MAX_BBOX_AREA_KM2:.0f} km², např. {MAX_BBOX_KM:.0f}×{MAX_BBOX_KM:.0f} "
+                f"nebo 8×4,5 km). Zmenšete ho."
             ),
         }
     try:
@@ -196,16 +204,26 @@ def api_sheets(bbox: str):
         if sheets_too_big
         else None
     )
+    est = estimate_minutes(names) if sheets and not sheets_too_big else None
+    est_refs = (
+        estimate_minutes(names, include_references=True)
+        if sheets and not sheets_too_big
+        else None
+    )
     return {
         "sheets": sheets,
         "count": len(sheets),
         "max_sheets": MAX_SHEETS,
         "width_km": round(width_km, 2),
         "height_km": round(height_km, 2),
+        "area_km2": round(area_km2, 1),
         "max_km": MAX_BBOX_KM,
+        "max_area_km2": MAX_BBOX_AREA_KM2,
+        "ref_png_estimate_minutes": REF_PNG_ESTIMATE_MINUTES,
         "too_large": sheets_too_big,
         "too_large_reason": "sheets" if sheets_too_big else None,
-        "estimate_minutes": estimate_minutes(names) if sheets and not sheets_too_big else None,
+        "estimate_minutes": est,
+        "estimate_minutes_with_refs": est_refs,
         "estimate_note": estimate_note(names) if sheets and not sheets_too_big else None,
         "label": (
             f"Protíná listy: {', '.join(names)} ({len(sheets)})"
@@ -355,10 +373,11 @@ async def api_create_job(request: Request):
         raise HTTPException(400, str(exc)) from exc
     width_km, height_km = bbox_size_km(*bbox)
     if bbox_exceeds_limit(*bbox):
+        area = bbox_area_km2(*bbox)
         raise HTTPException(
             400,
             f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
-            f"max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km).",
+            f"{area:.0f} km²; max {MAX_BBOX_AREA_KM2:.0f} km²).",
         )
     # Listy SM5: preferuj výsledek z /api/sheets (UI už ověřilo) – ušetří další ArcGIS call.
     sheets: list[dict] = []

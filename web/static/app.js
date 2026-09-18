@@ -602,7 +602,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   if (!bboxAllowed) {
     showFormError(
       (lastSheets && lastSheets.hint) ||
-        "Výřez je moc velký nebo ještě není ověřený. Max 5 × 5 km."
+        "Výřez je moc velký nebo ještě není ověřený. Max cca 36 km² (např. 6×6 km)."
     );
     return;
   }
@@ -620,7 +620,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   } finally {
     jobSubmitInFlight = false;
     btn.disabled = false;
-    btn.textContent = "Spustit generování";
+    updateSubmitButtonLabel();
   }
 });
 
@@ -872,6 +872,7 @@ function clearBbox(opts = {}) {
     });
   }
   setSheetInfo("Nakreslete obdélník dvěma kliknutími.", "");
+  updateSubmitButtonLabel();
 }
 
 function setSheetInfo(text, cls) {
@@ -880,11 +881,33 @@ function setSheetInfo(text, cls) {
   el.className = "sheet-info" + (cls ? " " + cls : "");
 }
 
+function selectedEstimateMinutes() {
+  if (!lastSheets || lastSheets.estimate_minutes == null) return null;
+  const refs = document.getElementById("output_references");
+  const wantRefs = !refs || refs.checked;
+  if (wantRefs && lastSheets.estimate_minutes_with_refs != null) {
+    return lastSheets.estimate_minutes_with_refs;
+  }
+  return lastSheets.estimate_minutes;
+}
+
+function updateSubmitButtonLabel() {
+  const btn = document.getElementById("submit-btn");
+  if (!btn || jobSubmitInFlight) return;
+  const mins = selectedEstimateMinutes();
+  if (mins != null && bboxAllowed) {
+    btn.textContent = `Spustit generování (~${mins} min)`;
+  } else {
+    btn.textContent = "Spustit generování";
+  }
+}
+
 async function lookupSheets() {
   const bbox = document.getElementById("bbox-input").value;
   if (!bbox) return;
   bboxAllowed = false;
   lastSheets = null;
+  updateSubmitButtonLabel();
   const sheetsInput = document.getElementById("sm5-sheets-input");
   if (sheetsInput) sheetsInput.value = "";
   setSheetInfo("Zjišťuji mapové listy SM5…", "");
@@ -894,14 +917,17 @@ async function lookupSheets() {
     if (data.too_large) {
       styleBboxRect(true);
       setSheetInfo(
-        data.hint || `Výřez je moc velký (max ${data.max_km} × ${data.max_km} km). Zmenšete ho.`,
+        data.hint ||
+          `Výřez je moc velký (max ${data.max_area_km2 || 36} km²). Zmenšete ho.`,
         "warn"
       );
+      updateSubmitButtonLabel();
       return;
     }
     if (!data.count) {
       styleBboxRect(false);
       setSheetInfo(data.label, "err");
+      updateSubmitButtonLabel();
       return;
     }
     styleBboxRect(false);
@@ -910,19 +936,14 @@ async function lookupSheets() {
       sheetsInput.value = data.sheets.map((s) => s.mapnom).filter(Boolean).join(",");
     }
     const size = `${data.width_km} × ${data.height_km} km`;
-    const reuseId = (document.getElementById("reuse-job-id") || {}).value;
-    const extra = reuseId
-      ? " Iterace: LiDAR z předchozího jobu, ZABAGED se stáhne znovu."
-      : "";
-    setSheetInfo(
-      `${data.label} · ${size}. Odhad: cca ${data.estimate_minutes} min${
-        data.estimate_note ? ` (${data.estimate_note})` : ""
-      }.${extra}`,
-      "ok"
-    );
+    const area =
+      data.area_km2 != null ? ` (${data.area_km2} km²)` : "";
+    setSheetInfo(`${data.label} · ${size}${area}.`, "ok");
+    updateSubmitButtonLabel();
   } catch (err) {
     styleBboxRect(true);
     setSheetInfo(err.message, "err");
+    updateSubmitButtonLabel();
   }
 }
 
@@ -993,6 +1014,11 @@ loadWhatsNew();
 loadMapOptions().then(loadJobs).then(startPolling);
 initJobsPager();
 initBboxMap();
+(() => {
+  const refs = document.getElementById("output_references");
+  if (refs) refs.addEventListener("change", updateSubmitButtonLabel);
+  updateSubmitButtonLabel();
+})();
 (() => {
   const scaleSel = document.getElementById("map_scale");
   if (!scaleSel) return;

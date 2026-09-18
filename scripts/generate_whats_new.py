@@ -30,8 +30,9 @@ _SKIP_SUBJECT = re.compile(
     r"tmp\b|"
     r"cursor:\s*apply local changes|"
     r"apply local changes for cloud agent|"
-    r"chore(\([^)]*\))?:\s*(deps|lock|gitignore)|"
+    r"chore(\([^)]*\))?:\s*(deps|lock|gitignore|version)\b|"
     r"ci(\([^)]*\))?:"
+    r"|bump\s+(the\s+)?(app\s+)?version\b"
     r")"
 )
 _SKIP_SHA_PARENTS = True  # merge commity (2+ rodiče) pryč
@@ -136,10 +137,6 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(r"(?i)path source variants of \.omap|all path source"),
         "Tři varianty cest v omap souborech",
-    ),
-    (
-        re.compile(r"(?i)bump app version"),
-        "Posunutí čísla verze aplikace",
     ),
     (
         re.compile(r"(?i)remove scratch|_tmp_"),

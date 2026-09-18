@@ -35,7 +35,7 @@ WEB_ABOUT_HTML = """
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>) i KP (<code>contours_kp.dxf</code>) ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
-  Nakreslete obdélník (max 5 × 5&nbsp;km), vyberte <strong>měřítko</strong> a
+  Nakreslete obdélník (max cca 36&nbsp;km², např. 6×6&nbsp;km), vyberte <strong>měřítko</strong> a
   <strong>ekvidistanci</strong> a spusťte generování. PNG na webu je jen náhled;
   do ZIPu jdou omapy pro příslušné disciplíny. Stránku mezitím můžete zavřít.
   Po dokončení stáhněte ZIP (pokud jste ho nechali generovat),

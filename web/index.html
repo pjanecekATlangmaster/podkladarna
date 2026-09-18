@@ -72,7 +72,7 @@
 
         <div class="form-section" id="map-mode">
           <h3 class="form-section-title">Výřez</h3>
-          <p class="hint">Dva protilehlé rohy, nebo klik na hotový job vpravo. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozího jobu se při iteraci znovu použije. Jen Česko, max 5 × 5 km.</p>
+          <p class="hint">Dva protilehlé rohy, nebo klik na hotový job vpravo. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozího jobu se při iteraci znovu použije. Jen Česko, max cca 36&nbsp;km² (např. 6×6 nebo 8×4,5&nbsp;km).</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>
           <p id="sheet-info" class="sheet-info">Nakreslete obdélník dvěma kliknutími.</p>
           <input type="hidden" name="bbox" id="bbox-input" value="" />
@@ -163,8 +163,8 @@
           </label>
           <p class="hint" id="output-omap-hint">
             <strong>PNG</strong> je jen rychlý rastrový náhled (Karttapullautin), ne finální mapa.
-            <strong>ZIP</strong> obsahuje několik <code>.omap</code> souborů podle měřítka
-            (disciplíny × 2 zdroje cest: ZABAGED / OSM) plus vektory pro OOM.
+            <strong>ZIP</strong> obsahuje <code>.omap</code> soubory podle měřítka
+            (sprint, nebo les+MTBO; cesty z OSM) plus vektory pro OOM.
           </p>
           <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
 
@@ -224,7 +224,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.8.1 ·
+      Podkladárna v1.9.0 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence MIT</a>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import urllib.error
 import urllib.parse
@@ -24,12 +25,17 @@ OPENZU_DMR = "https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/{mapnom}.zip"
 OPENZU_DMPOK = "https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/{mapnom}.zip"
 OPENZU_DMP1G = "https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/{mapnom}.zip"
 USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladarna)"
-MAX_SHEETS = 8
-MAX_BBOX_KM = 5.0
+MAX_SHEETS = 16
+# Plocha výřezu (km²) – např. 6×6, 8×4,5; ne tvrdý strop na jednu stranu.
+MAX_BBOX_AREA_KM2 = 36.0
+# Zpětná kompatibilita / odkaz v textech („cca 6 km“).
+MAX_BBOX_KM = 6.0
 CROP_BUFFER_M = 30.0
 # Polohopis (ZABAGED/OSM/RÚIAN/AOPK) stahovat s přesahu přes AOI –
 # LiDAR/KP mají ~CROP_BUFFER_M + KP pad; radši přesah než holé kraje.
 VECTOR_FETCH_BUFFER_M = 80.0
+# Referenční PNG (orto/OSM/ZTM/…) – hrubý příplatek k odhadu jobu.
+REF_PNG_ESTIMATE_MINUTES = 5
 QUERY_TIMEOUT_S = 30
 DOWNLOAD_TIMEOUT_S = 180
 
@@ -65,30 +71,68 @@ def parse_bbox(raw: str) -> tuple[float, float, float, float]:
     return west, south, east, north
 
 
+def _bbox_corners_5514(
+    west: float, south: float, east: float, north: float
+) -> list[tuple[float, float]]:
+    """Čtyři rohy WGS bboxu v S-JTSK (SW, SE, NE, NW)."""
+    return [
+        wgs84_to_5514(west, south),
+        wgs84_to_5514(east, south),
+        wgs84_to_5514(east, north),
+        wgs84_to_5514(west, north),
+    ]
+
+
+def bbox_area_km2(
+    west: float, south: float, east: float, north: float
+) -> float:
+    """Plocha výřezu v km² (shoelace na projektovaných rozích – obsah mapy)."""
+    sw, se, ne, nw = _bbox_corners_5514(west, south, east, north)
+    pts = (sw, se, ne, nw, sw)
+    twice = 0.0
+    for i in range(4):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        twice += x0 * y1 - x1 * y0
+    return abs(twice) * 0.5 / 1_000_000.0
+
+
 def bbox_size_km(
     west: float, south: float, east: float, north: float
 ) -> tuple[float, float]:
-    """Šířka a výška výřezu v km (S-JTSK, bez crop bufferu)."""
-    xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north, buffer_m=0)
-    return (xmax - xmin) / 1000.0, (ymax - ymin) / 1000.0
+    """Šířka a výška výřezu v km (průměr protilehlých hran v S-JTSK)."""
+    sw, se, ne, nw = _bbox_corners_5514(west, south, east, north)
+
+    def _len_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+        return math.hypot(a[0] - b[0], a[1] - b[1]) / 1000.0
+
+    width_km = (_len_km(sw, se) + _len_km(nw, ne)) / 2.0
+    height_km = (_len_km(sw, nw) + _len_km(se, ne)) / 2.0
+    return width_km, height_km
 
 
 def bbox_exceeds_limit(west: float, south: float, east: float, north: float) -> bool:
-    width_km, height_km = bbox_size_km(west, south, east, north)
-    return width_km > MAX_BBOX_KM or height_km > MAX_BBOX_KM
+    return bbox_area_km2(west, south, east, north) > MAX_BBOX_AREA_KM2 + 1e-6
 
 
-def estimate_minutes(sheet_names: list[str]) -> int:
+def estimate_minutes(
+    sheet_names: list[str],
+    *,
+    include_references: bool = False,
+) -> int:
     """Hrubý odhad délky jobu v minutách.
 
     DMP OK je řádově větší a hustší než DMP 1G – PDAL i Karttapullautin trvají
     zhruba dvakrát déle i z cache. Bez cache přibývá stažení ~350 MB na list.
+    Referenční PNG (orto, OSM, …) přidají několik minut.
     """
     n = max(len(sheet_names), 1)
     cached = dmpok_cached_mapnoms(sheet_names)
     base = max(2, 1 + n)
     minutes = base * 2
     minutes += (n - len(cached)) * 5
+    if include_references:
+        minutes += REF_PNG_ESTIMATE_MINUTES
     return minutes
 
 
@@ -239,9 +283,10 @@ def fetch_lidar_for_bbox(
     west, south, east, north = bbox
     if bbox_exceeds_limit(west, south, east, north):
         width_km, height_km = bbox_size_km(west, south, east, north)
+        area = bbox_area_km2(west, south, east, north)
         raise FetchError(
             f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
-            f"max {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} km)."
+            f"{area:.0f} km²; max {MAX_BBOX_AREA_KM2:.0f} km²)."
         )
     sheets = query_sm5_sheets(west, south, east, north)
     if not sheets:

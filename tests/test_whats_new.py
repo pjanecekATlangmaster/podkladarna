@@ -67,6 +67,15 @@ def test_whats_new_entries_lead_matches_listed_span(monkeypatch):
     assert payload["entries_lead"]
 
 
+def test_whats_new_skips_version_bump_commits():
+    from scripts.generate_whats_new import _SKIP_SUBJECT
+
+    assert _SKIP_SUBJECT.search("Bump app version to 1.9.0")
+    assert _SKIP_SUBJECT.search("bump the app version")
+    assert _SKIP_SUBJECT.search("chore: version 1.9.0")
+    assert not _SKIP_SUBJECT.search("Prefer vector overflow past AOI")
+
+
 def test_api_whats_new(client, monkeypatch):
     monkeypatch.setenv(
         "PODKLADARNA_BUILT_AT",
