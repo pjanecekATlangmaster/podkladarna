@@ -400,13 +400,76 @@ def test_osm_oom_code_paths_only():
     assert osm_oom_code("track", "forest_10000") == "504"
     assert osm_oom_code("steps", "sprint_2m") == "532.7"
     assert osm_oom_code("steps", "forest_10000") == "532"
+    # Legacy highway bez tagů → rank 1 (road_2).
     assert osm_oom_code("residential", "sprint_2m") == "501.17"
     assert osm_oom_code("residential", "forest_10000") == "503"
-    assert osm_oom_code("residential", "mtbo_10000") == "502"
+    assert osm_oom_code("residential", "mtbo_10000") == "503"
+    assert osm_oom_code("road_4", "sprint_2m") == "501.19"
+    assert osm_oom_code("road_3", "forest_10000") == "502"
+    assert osm_oom_code("road_3", "mtbo_10000") == "502"
+    assert osm_oom_code("road_1", "forest_10000") == "504"
     assert osm_oom_code("track", "mtbo_10000") == "833"
+    assert osm_oom_code("track_fast", "mtbo_10000") == "831"
+    assert osm_oom_code("track_slow", "forest_10000") == "506"
     assert osm_oom_code("path", "mtbo_10000") == "834"
     assert osm_oom_code("steps", "mtbo_10000") == "843"
     assert osm_oom_code("path", "forest_10000") == "506"
+
+
+def test_refine_osm_road_examples():
+    """Barrandov příklady: tertiary/residential/unclassified → širší footprint."""
+    from app.pipeline.osm_paths import osm_oom_code, refine_path_highway
+
+    # way/4087923 Tréglova
+    t_tregl = {
+        "highway": "tertiary",
+        "surface": "asphalt",
+        "lanes": "2",
+        "maxspeed": "50",
+    }
+    assert refine_path_highway(t_tregl, "tertiary") == "road_4"
+    assert osm_oom_code("road_4", "sprint_2m") == "501.19"
+
+    # way/4087936 Grussova
+    t_gruss = {
+        "highway": "residential",
+        "surface": "asphalt",
+        "lanes": "2",
+        "parking:both": "separate",
+    }
+    assert refine_path_highway(t_gruss, "residential") == "road_3"
+    assert osm_oom_code("road_3", "sprint_2m") == "501.18"
+
+    # way/11648222 Lamačova
+    t_lamac = {
+        "highway": "residential",
+        "surface": "asphalt",
+        "maxspeed": "30",
+    }
+    assert refine_path_highway(t_lamac, "residential") == "road_3"
+    assert osm_oom_code("road_3", "sprint_2m") == "501.18"
+
+    # way/25864414 unclassified asphalt
+    t_unc = {
+        "highway": "unclassified",
+        "surface": "asphalt",
+        "maxspeed": "30",
+    }
+    assert refine_path_highway(t_unc, "unclassified") == "road_3"
+    assert osm_oom_code("road_3", "sprint_2m") == "501.18"
+
+    assert refine_path_highway({"highway": "service"}, "service") == "road_1"
+    assert osm_oom_code("road_1", "sprint_2m") == "501.16"
+    assert refine_path_highway(
+        {"highway": "track", "tracktype": "grade1"}, "track"
+    ) == "track_fast"
+    assert refine_path_highway(
+        {"highway": "track", "surface": "asphalt"}, "track"
+    ) == "track_fast"
+    assert refine_path_highway(
+        {"highway": "track", "tracktype": "grade5"}, "track"
+    ) == "track_slow"
+    assert refine_path_highway({"highway": "track"}, "track") == "track"
 
 
 def test_resolve_path_source_and_highway_set():

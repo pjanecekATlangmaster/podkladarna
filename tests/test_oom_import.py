@@ -178,7 +178,7 @@ def test_oom_code_road_forest_maps_to_503():
 
 
 def test_oom_code_ulice_sprint_maps_to_issprom_footprint():
-    """Sjízdná ulice ve sprintu = ISSprOM 501.17 (heavy traffic footprint), ne hrana 501.1."""
+    """Sjízdná ulice ve sprintu = ISSprOM 501.18 (heavy ~3 m), ne hrana 501.1."""
     code = oom_code_for_vectorconf_rule(
         "road-path",
         "503",
@@ -186,7 +186,7 @@ def test_oom_code_ulice_sprint_maps_to_issprom_footprint():
         preset_id="sprint_2m",
         scale=4000,
     )
-    assert code == "501.17"
+    assert code == "501.18"
     assert symbol_index_for_code("sprint_2m", 4000, code) is not None
     assert code != "501.1"
 

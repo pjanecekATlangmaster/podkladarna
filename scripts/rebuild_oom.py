@@ -78,7 +78,11 @@ def _stage_from_output(src: Path, work: Path, *, include_refs: bool) -> dict:
     png_src = src / "basemap" / "pullautus.png"
     pgw_src = src / "basemap" / "pullautus.pgw"
     if not png_src.is_file() or not pgw_src.is_file():
-        raise FileNotFoundError("Chybí basemap/pullautus.png nebo .pgw")
+        # Novější ZIP layout: kp/ místo basemap/
+        png_src = src / "kp" / "pullautus.png"
+        pgw_src = src / "kp" / "pullautus.pgw"
+    if not png_src.is_file() or not pgw_src.is_file():
+        raise FileNotFoundError("Chybí basemap/ nebo kp/ pullautus.png/.pgw")
 
     if work.exists():
         shutil.rmtree(work)
@@ -87,9 +91,11 @@ def _stage_from_output(src: Path, work: Path, *, include_refs: bool) -> dict:
     shutil.copy2(png_src, work / "pullautus.png")
     shutil.copy2(pgw_src, work / "pullautus.pgw")
     depr = src / "relief" / "pullautus_depr.png"
+    if not depr.is_file():
+        depr = png_src.parent / "pullautus_depr.png"
     if depr.is_file():
         shutil.copy2(depr, work / "pullautus_depr.png")
-        depr_pgw = src / "relief" / "pullautus_depr.pgw"
+        depr_pgw = depr.with_suffix(".pgw")
         if depr_pgw.is_file():
             shutil.copy2(depr_pgw, work / "pullautus_depr.pgw")
 
@@ -104,6 +110,8 @@ def _stage_from_output(src: Path, work: Path, *, include_refs: bool) -> dict:
         zabaged_zip = None
 
     dxf_src = src / "karttapullautin"
+    if not dxf_src.is_dir():
+        dxf_src = src / "base"
     if dxf_src.is_dir():
         temp = work / "temp"
         temp.mkdir()
@@ -111,6 +119,14 @@ def _stage_from_output(src: Path, work: Path, *, include_refs: bool) -> dict:
             temp_name = _DXF_ZIP_TO_TEMP.get(path.name)
             if temp_name and path.name != "contours.dxf":
                 shutil.copy2(path, temp / temp_name)
+            # Nový layout: cliffs_*.dxf / dotknolls.dxf už mají KP jména.
+            elif path.name in {
+                "cliffs_small.dxf",
+                "cliffs_large.dxf",
+                "dotknolls.dxf",
+                "contours_kp.dxf",
+            }:
+                shutil.copy2(path, temp / path.name)
 
     contours_src = src / "contours"
     if contours_src.is_dir():

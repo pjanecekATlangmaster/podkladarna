@@ -86,6 +86,15 @@ def test_mtbo_overlays_isom_earth_bank_knoll_farmland():
     # Combined cultivated land z ISOM 412.
     assert 'type="16"' in farm.group(0) or "Cultivated" in symbols
 
+    # 416: vzhled ISOM 416.1 (zelená čárkovaná), ne tečkovaná 416.
+    veg = __import__("re").search(
+        r'<symbol\b[^>]*\bcode="416"[^>]*>.*?</symbol>',
+        symbols,
+        __import__("re").DOTALL,
+    )
+    assert veg is not None
+    assert "green dashed" in veg.group(0).lower() or "dashed" in veg.group(0).lower()
+
 
 def test_mtbo_building_is_gray_not_solid_black():
     """ISMTBOM 526 Building = Black 70 % (šedá), ne plná černá."""

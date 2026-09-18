@@ -69,6 +69,38 @@ OSM_ROAD_HIGHWAYS = frozenset(
         "road",
     }
 )
+# Syntetické šířky po refine (rank 0→road_1 … rank 3→road_4).
+ROAD_DRAW_HIGHWAYS = frozenset({f"road_{i}" for i in range(1, 5)})
+TRACK_DRAW_HIGHWAYS = frozenset({"track", "track_fast", "track_slow"})
+# highway base → výchozí rank 0–3 (před lanes/surface).
+_ROAD_BASE_RANK: dict[str, int] = {
+    "motorway": 3,
+    "motorway_link": 3,
+    "trunk": 3,
+    "trunk_link": 3,
+    "primary": 3,
+    "primary_link": 3,
+    "secondary": 2,
+    "secondary_link": 2,
+    "tertiary": 2,
+    "tertiary_link": 2,
+    "unclassified": 1,
+    "residential": 1,
+    "living_street": 1,
+    "road": 1,
+    "service": 0,
+}
+_PAVED_ROAD_BUMP = frozenset(
+    {
+        "residential",
+        "unclassified",
+        "living_street",
+        "tertiary",
+        "tertiary_link",
+        "secondary",
+        "secondary_link",
+    }
+)
 
 PATH_SOURCE_MIXED = "mixed"
 PATH_SOURCE_ZABAGED = "zabaged"
@@ -421,6 +453,79 @@ def sprint_line_highway(tags: dict, highway: str) -> str:
     if hw == "pedestrian":
         return "sidewalk"
     return hw or "path"
+
+
+def _lanes_total(tags: dict) -> int | None:
+    """Počet jízdních pruhů (lanes, nebo forward+backward)."""
+    raw = (tags.get("lanes") or "").strip()
+    if raw:
+        try:
+            n = int(float(raw.replace(",", ".")))
+            if n > 0:
+                return n
+        except ValueError:
+            pass
+    fwd = (tags.get("lanes:forward") or "").strip()
+    back = (tags.get("lanes:backward") or "").strip()
+    if not fwd and not back:
+        return None
+    total = 0
+    for part in (fwd, back):
+        if not part:
+            continue
+        try:
+            total += int(float(part.replace(",", ".")))
+        except ValueError:
+            return None
+    return total if total > 0 else None
+
+
+def road_width_rank(tags: dict, highway: str) -> int:
+    """Rank 0–3 → sprint footprint 1.4/2/3/4 m (heavy).
+
+    Base z OSM highway; +1 při lanes≥2, jinak +1 u zpevněného surface u běžných ulic.
+    """
+    hw = path_draw_highway(highway).lower()
+    if hw in ROAD_DRAW_HIGHWAYS:
+        try:
+            return max(0, min(3, int(hw.split("_", 1)[1]) - 1))
+        except ValueError:
+            return 1
+    base = _ROAD_BASE_RANK.get(hw, 1)
+    lanes = _lanes_total(tags)
+    if lanes is not None and lanes >= 2:
+        base += 1
+    elif _is_paved_surface(tags) and hw in _PAVED_ROAD_BUMP:
+        base += 1
+    return max(0, min(3, base))
+
+
+def refine_track_highway(tags: dict) -> str:
+    """tracktype / surface → track_fast | track | track_slow."""
+    tt = (tags.get("tracktype") or "").lower()
+    if tt == "grade1" or _is_paved_surface(tags):
+        return "track_fast"
+    if tt in {"grade4", "grade5"}:
+        return "track_slow"
+    # grade2/3 i netagované → stejné chování jako dřívější „track“.
+    return "track"
+
+
+def refine_path_highway(tags: dict, highway: str) -> str:
+    """Silnice → road_1..road_4; track → track_fast/track/track_slow; jinak beze změny."""
+    hw = (highway or "path").lower() or "path"
+    draw = path_draw_highway(hw)
+    if draw in OSM_ROAD_HIGHWAYS:
+        rank = road_width_rank(tags, draw)
+        return f"road_{rank + 1}"
+    if draw == "track":
+        return refine_track_highway(tags)
+    return hw
+
+
+def is_road_draw_highway(highway: str) -> bool:
+    draw = path_draw_highway(highway)
+    return draw in OSM_ROAD_HIGHWAYS or draw in ROAD_DRAW_HIGHWAYS
 
 
 def _is_pedestrian_area_tags(tags: dict) -> bool:
@@ -920,56 +1025,78 @@ def _way_skip_reason(
 
 
 def osm_oom_code(highway: str, preset_id: str) -> str:
-    """ISOM/ISSprOM/ISMTBOM kód podle OSM highway.
+    """ISOM/ISSprOM/ISMTBOM kód podle OSM highway (vč. road_1..4 / track_*).
 
-    Les/sprint: 503→504→505→506 (bez nezřetelné 507).
-    MTBO: silnice 502; cesty 831/833, pěšiny 834 (ISOM 504–507 jsou v sadě skryté).
+    Sprint heavy footprint: 501.16–501.19 (1.4–4 m).
+    Les: 502 široká / 503 silnice / 504 vozová.
+    MTBO: 502 major / 503 minor; track 831/833, pěšiny 834.
     """
-    hw = (highway or "path").lower()
+    raw = highway or "path"
     sprint = preset_id.startswith("sprint")
     mtbo = preset_id.startswith("mtbo")
-    if hw in OSM_ROAD_HIGHWAYS:
-        # Sprint: ISSprOM 501.17 (heavy traffic footprint ~2 m).
+
+    if is_bridge_highway(raw):
+        # Sprint: stejná značka jako navazující cesta; les 512; MTBO 834.
         if sprint:
-            return "501.17"
+            return osm_oom_code(path_draw_highway(raw), preset_id)
         if mtbo:
-            return "502"  # ISMTBOM Major road / paved
-        return "503"
+            return "834"
+        return "512"
+
+    hw = path_draw_highway(raw)
+
+    # Legacy OSM road names (starší geojson) → rank podle base (bez tagů).
+    if hw in OSM_ROAD_HIGHWAYS:
+        hw = f"road_{road_width_rank({}, hw) + 1}"
+
+    if hw in ROAD_DRAW_HIGHWAYS:
+        try:
+            rank = int(hw.split("_", 1)[1]) - 1
+        except ValueError:
+            rank = 1
+        rank = max(0, min(3, rank))
+        if sprint:
+            return ("501.16", "501.17", "501.18", "501.19")[rank]
+        if mtbo:
+            return "502" if rank >= 2 else "503"
+        return "502" if rank >= 2 else ("504" if rank == 0 else "503")
+
     if hw == "steps":
-        # ISSprOM: footprint schodiště; ISOM: 532 Stairway; ISMTBOM: 843.
         if sprint:
             return "532.7"
         if mtbo:
             return "843"
         return "532"
-    if hw == "track":
-        # Lesní / polní cesta (vozová) – ne úzká pěšina.
-        # Sprint: ISSprOM 505.1 (unpaved footprint 1.4 m).
+
+    if hw in TRACK_DRAW_HIGHWAYS:
+        if hw == "track_fast":
+            if sprint:
+                return "505.1"
+            if mtbo:
+                return "831"
+            return "504"
+        if hw == "track_slow":
+            if sprint:
+                return "506"
+            if mtbo:
+                return "834"
+            return "506"
+        # track (medium / netagované)
         if sprint:
             return "505.1"
         if mtbo:
-            return "833"  # Track: medium riding
+            return "833"
         return "504"
+
     if hw == "sidewalk":
-        # Sprint: ISSprOM 501.6 (light traffic footprint 1.4 m).
-        # MTBO zpevněná 529; ISOM 529 = jiný symbol → 501.1.
         if sprint:
             return "501.6"
         if mtbo:
             return "529"
         return "501.1"
-    if is_bridge_highway(hw):
-        # Sprint: speciální most (512.x) se prakticky nepoužívá – stejná značka
-        # jako navazující cesta (footway/ulice/chodník).
-        if sprint:
-            return osm_oom_code(path_draw_highway(hw), preset_id)
-        if mtbo:
-            return "834"
-        return "512"
+
     if mtbo:
-        # footway / path / cycleway → Path: medium riding
         return "834"
-    # footway / path / … → small footpath 506 (ne nezřetelná 507).
     return "506"
 
 
@@ -978,7 +1105,13 @@ def highway_width_rank(highway: str) -> int:
     hw = (highway or "path").lower()
     if is_bridge_highway(hw):
         return 32
-    if hw in OSM_ROAD_HIGHWAYS:
+    draw = path_draw_highway(hw)
+    if draw in ROAD_DRAW_HIGHWAYS:
+        try:
+            return 50 + int(draw.split("_", 1)[1])
+        except ValueError:
+            return 52
+    if draw in OSM_ROAD_HIGHWAYS:
         return {
             "motorway": 62,
             "motorway_link": 61,
@@ -995,19 +1128,19 @@ def highway_width_rank(highway: str) -> int:
             "living_street": 50,
             "service": 50,
             "road": 50,
-        }.get(hw, 52)
+        }.get(draw, 52)
     return {
+        "track_fast": 42,
         "track": 40,
-        # Schody > pěšina: při souběhu OSM×OSM nechat schody, ne 507.
+        "track_slow": 38,
         "steps": 35,
         "bridleway": 30,
         "cycleway": 25,
         "pedestrian": 20,
-        # Chodník mírně nad obecnou pěšinou (stejná střednice).
         "sidewalk": 12,
         "path": 10,
         "footway": 10,
-    }.get(hw, 10)
+    }.get(draw, 10)
 
 
 def dedup_osm_prefer_wider(
@@ -2014,6 +2147,8 @@ def prepare_osm_paths(
             hw = sprint_line_highway(tags, hw)
         elif not hw:
             hw = "path"
+        # Šířka silnice / track podle lanes + surface (road_1..4, track_*).
+        hw = refine_path_highway(tags, hw)
         # Krátké lávky (bridge=yes) – zachovej typ cesty pro sprint značku.
         if _is_osm_bridge(tags):
             hw = bridge_highway(hw or "path")
@@ -2166,14 +2301,14 @@ def highway_to_zabaged_vrstva(highway: str) -> str | None:
 
     ``None`` = neposílat do KP PNG (schody KP neumí – jen OOM 532).
     """
-    hw = (highway or "path").lower()
+    hw = path_draw_highway(highway or "path")
     if hw == "steps":
         return None
-    if hw in OSM_ROAD_HIGHWAYS:
+    if hw in OSM_ROAD_HIGHWAYS or hw in ROAD_DRAW_HIGHWAYS:
         return "Ulice"  # KP road-path|503
-    if hw == "track":
+    if hw in TRACK_DRAW_HIGHWAYS:
         return "Cesta"  # KP road-path|505
-    if is_bridge_highway(hw):
+    if is_bridge_highway(highway or ""):
         return "Lavka"  # KP road-path|506
     # sidewalk / footway / path → KP pěšina (506)
     return "Pesina"  # KP road-path|506

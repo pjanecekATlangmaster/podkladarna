@@ -23,7 +23,7 @@ _MTBO_ISOM_OVERLAY: dict[str, str] = {
     "409": "409",
     "410": "410",  # Vegetation: fight
     "415": "412",  # Cultivated land (ISOM 412 → náš farmland kód 415)
-    "416": "416",  # Distinct vegetation boundary
+    "416": "416.1",  # Distinct vegetation boundary – zelená čárkovaná (čitelnější než tečkovaná 416)
     "522": "516",  # Fence
     "530": "523",  # Ruin
     "537": "526",  # Cairn (ISOM 526; v MTBO 526 = budova)
