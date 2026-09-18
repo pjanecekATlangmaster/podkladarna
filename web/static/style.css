@@ -490,7 +490,22 @@ legend {
   border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
-  background: #fafcf8;
+  background: #fff;
+}
+
+.jobs-block-live .job-item {
+  background: #fffaf3;
+  border-color: #ecd9b8;
+}
+
+.jobs-block-finished .job-item {
+  background: #f3f7f2;
+  border-color: #d5e2d4;
+}
+
+.jobs-block-finished .job-item[data-status="failed"] {
+  background: #faf4f4;
+  border-color: #e5d0d0;
 }
 
 .job-item:hover { border-color: var(--purple); }
@@ -500,7 +515,9 @@ legend {
   color: var(--muted);
 }
 
-.status-running { color: var(--orange); font-weight: 600; }
+.status-running,
+.status-queued,
+.status-pending { color: var(--orange); font-weight: 600; }
 .status-done { color: var(--green); font-weight: 600; }
 .status-failed { color: #c00; font-weight: 600; }
 
@@ -556,27 +573,59 @@ legend {
   flex-direction: column;
   max-height: calc(100vh - 7.5rem);
   min-height: 0;
+  gap: 0.75rem;
+}
+
+.jobs-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem 0.7rem 0.75rem;
+  min-height: 0;
+}
+
+.jobs-block-live {
+  background: #fff8ef;
+  border-color: #e8d2b0;
+  flex: 0 0 auto;
+}
+
+.jobs-block-finished {
+  background: #eef5ec;
+  border-color: #c9dbc6;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.jobs-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  flex-wrap: wrap;
+}
+
+.jobs-block-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text);
+  border: none;
+  padding: 0;
+}
+
+.jobs-empty {
+  margin: 0.15rem 0 0.25rem;
+  font-size: 0.85rem;
 }
 
 .jobs-list-scroll {
   overflow-y: auto;
   min-height: 5rem;
   padding-right: 0.2rem;
-}
-
-.jobs-finished-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin: 0.85rem 0 0.45rem;
-  flex-wrap: wrap;
-}
-
-.jobs-finished-bar span {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--muted);
+  flex: 1 1 auto;
 }
 
 .jobs-pager {

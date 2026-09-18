@@ -183,16 +183,28 @@
     <section class="card jobs-card">
       <h2>Joby</h2>
       <p id="worker-status" class="worker-status">Načítám stav serveru…</p>
-      <div id="jobs-live" class="jobs-list"></div>
-      <div id="jobs-finished-bar" class="jobs-finished-bar hidden">
-        <span id="jobs-finished-label">Hotové</span>
-        <div class="jobs-pager">
-          <button type="button" class="btn" id="jobs-prev">Novější</button>
-          <span id="jobs-page-label"></span>
-          <button type="button" class="btn" id="jobs-next">Starší</button>
+
+      <div class="jobs-block jobs-block-live">
+        <div class="jobs-block-head">
+          <h3 class="jobs-block-title">Běžící a fronta</h3>
         </div>
+        <p id="jobs-live-empty" class="jobs-empty hint">Teď nic neběží.</p>
+        <div id="jobs-live" class="jobs-list"></div>
       </div>
-      <div id="jobs-list" class="jobs-list jobs-list-scroll"></div>
+
+      <div class="jobs-block jobs-block-finished">
+        <div class="jobs-block-head" id="jobs-finished-bar">
+          <h3 class="jobs-block-title" id="jobs-finished-label">Hotové</h3>
+          <div class="jobs-pager">
+            <button type="button" class="btn" id="jobs-prev">Novější</button>
+            <span id="jobs-page-label"></span>
+            <button type="button" class="btn" id="jobs-next">Starší</button>
+          </div>
+        </div>
+        <p id="jobs-finished-empty" class="jobs-empty hint hidden">Zatím žádné hotové joby.</p>
+        <div id="jobs-list" class="jobs-list jobs-list-scroll"></div>
+      </div>
+
       <div id="job-detail-holder">
         <div id="job-detail" class="job-detail hidden">
           <h3 id="detail-title"></h3>

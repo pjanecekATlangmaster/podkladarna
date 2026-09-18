@@ -286,6 +286,7 @@ function upsertJobItem(list, job, order) {
   }
   div.classList.toggle("selected", job.id === selectedJobId);
   div.classList.toggle("expanded", job.id === selectedJobId);
+  div.dataset.status = job.status || "";
   let head = div.querySelector(":scope > .job-item-head");
   if (!head) {
     head = document.createElement("div");
@@ -307,6 +308,8 @@ function upsertJobItem(list, job, order) {
 function syncJobsList(liveJobs, finishedJobs) {
   const liveList = document.getElementById("jobs-live");
   const doneList = document.getElementById("jobs-list");
+  const liveEmpty = document.getElementById("jobs-live-empty");
+  const doneEmpty = document.getElementById("jobs-finished-empty");
   if (!liveList || !doneList) return;
   const detail = jobDetailEl();
   const visibleIds = new Set([...liveJobs, ...finishedJobs].map((j) => j.id));
@@ -320,6 +323,8 @@ function syncJobsList(liveJobs, finishedJobs) {
     }
   }
   liveList.classList.toggle("hidden", liveJobs.length === 0);
+  if (liveEmpty) liveEmpty.classList.toggle("hidden", liveJobs.length > 0);
+  if (doneEmpty) doneEmpty.classList.toggle("hidden", finishedJobs.length > 0);
 }
 
 function updateFinishedPager(total) {
@@ -333,10 +338,12 @@ function updateFinishedPager(total) {
   if (finishedPage > pages - 1) finishedPage = pages - 1;
   if (finishedPage < 0) finishedPage = 0;
   if (!total) {
-    bar.classList.add("hidden");
+    label.textContent = "Hotové";
+    pageLabel.textContent = "";
+    prev.classList.add("hidden");
+    next.classList.add("hidden");
     return;
   }
-  bar.classList.remove("hidden");
   const from = finishedPage * FINISHED_PAGE_SIZE + 1;
   const to = Math.min(total, (finishedPage + 1) * FINISHED_PAGE_SIZE);
   label.textContent = `Hotové ${from}–${to} z ${total}`;
