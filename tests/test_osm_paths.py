@@ -87,6 +87,16 @@ def test_classify_osm_well_and_playground():
     ) == ("pedestrian_area", "501")
     assert classify_osm_feature({"area:highway": "path"}) is None
     assert classify_osm_feature({"area:highway": "residential"}) is None
+    # way/180964461: tram railway=platform → zpevněná plocha.
+    assert classify_osm_feature(
+        {
+            "railway": "platform",
+            "public_transport": "platform",
+            "tram": "yes",
+        }
+    ) == ("platform", "501")
+    assert classify_osm_feature({"highway": "platform"}) == ("platform", "501")
+    assert classify_osm_feature({"railway": "platform"}, geom="node") is None
     assert classify_osm_feature({"amenity": "parking"}) == ("parking", "501")
     assert classify_osm_feature(
         {"amenity": "parking", "parking": "street_side"}
@@ -324,6 +334,8 @@ def test_osm_priority_overpass_includes_barriers():
     assert 'highway"="pedestrian"]["area"="yes"' in ql
     assert 'relation["type"="multipolygon"]["highway"="pedestrian"]' in ql
     assert "area:highway" in ql
+    assert 'railway"="platform"' in ql
+    assert "public_transport" in ql
     assert "sports_centre" in ql
     assert "ice_rink" in ql
     assert "reservoir" in ql
@@ -772,6 +784,40 @@ def test_area_highway_footway_multipolygon():
     polys = osm_area_polygons_5514(el)
     assert len(polys) == 1
     assert len(polys[0]) == 2  # outer + one hole
+
+
+def test_tram_platform_as_paved_area():
+    """way/180964461: railway=platform (4 rohy, neuzavřené) → plocha 501."""
+    from app.pipeline.osm_paths import (
+        classify_osm_feature,
+        feature_oom_code,
+        osm_area_polygons_5514,
+    )
+
+    tags = {
+        "railway": "platform",
+        "public_transport": "platform",
+        "tram": "yes",
+        "tactile_paving": "yes",
+    }
+    assert classify_osm_feature(tags) == ("platform", "501")
+    assert feature_oom_code("platform", "sprint_2m") == "501"
+    assert feature_oom_code("platform", "forest_10000") == "501.1"
+    el = {
+        "type": "way",
+        "tags": tags,
+        "geometry": [
+            {"lat": 50.0750, "lon": 14.4000},
+            {"lat": 50.0750, "lon": 14.4004},
+            {"lat": 50.0751, "lon": 14.4004},
+            {"lat": 50.0751, "lon": 14.4000},
+        ],
+    }
+    polys = osm_area_polygons_5514(el)
+    assert len(polys) == 1
+    ring = polys[0][0]
+    assert len(ring) >= 4
+    assert ring[0] == ring[-1]
 
 
 def test_filter_drops_line_on_zabaged():

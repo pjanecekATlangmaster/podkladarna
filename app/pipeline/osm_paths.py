@@ -208,6 +208,12 @@ def _overpass_ql(
         # Plocha chodníku / pěší (area:highway) – micromapping, vč. děr (relation).
         f'way["area:highway"~"^({area_hw})$"]({bbox});',
         f'relation["type"="multipolygon"]["area:highway"~"^({area_hw})$"]({bbox});',
+        # Nástupiště (tram/vlak/bus) → zpevněná plocha 501.
+        f'way["railway"="platform"]({bbox});',
+        f'way["public_transport"="platform"]({bbox});',
+        f'way["highway"="platform"]({bbox});',
+        f'relation["type"="multipolygon"]["railway"="platform"]({bbox});',
+        f'relation["type"="multipolygon"]["public_transport"="platform"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
         # Vodní plochy → OOM 301 (nepřekonatelné). ČÚZK často nemá celou nádrž.
         f'way["natural"="water"]({bbox});',
@@ -296,8 +302,10 @@ _BARRIER_POINTS = frozenset(
 _BENCH_KINDS = frozenset({"bench", "info_board", "picnic_table", "firepit"})
 _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
-# Plochy z OSM_PAVED_AREA_LEISURE / pěší zóna / parkoviště → kind … (501).
-_PAVED_AREA_KINDS = frozenset({"playground", "pitch", "pedestrian_area", "parking"})
+# Plochy z OSM_PAVED_AREA_LEISURE / pěší zóna / parkoviště / nástupiště → kind … (501).
+_PAVED_AREA_KINDS = frozenset(
+    {"playground", "pitch", "pedestrian_area", "parking", "platform"}
+)
 # OSM plochy s ořezem proti ZABAGED (priorita ZABAGED).
 # farmland (412) se neořezává – zdroj je OSM, OrnaPuda se do OOM neimportuje.
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
@@ -436,6 +444,15 @@ def _is_area_highway_paved_tags(tags: dict) -> bool:
     return ah in {"footway", "pedestrian"}
 
 
+def _is_platform_area_tags(tags: dict) -> bool:
+    """Tram/vlak/bus nástupiště jako zpevněná plocha (railway/public_transport/highway=platform)."""
+    if (tags.get("railway") or "").lower() == "platform":
+        return True
+    if (tags.get("public_transport") or "").lower() == "platform":
+        return True
+    return (tags.get("highway") or "").lower() == "platform"
+
+
 def classify_osm_feature(
     tags: dict, *, geom: str = "way"
 ) -> tuple[str, str] | None:
@@ -545,6 +562,9 @@ def classify_osm_feature(
     # area:highway=footway (+ surface) – plocha chodníku (např. relation/19273440).
     if _is_area_highway_paved_tags(tags) and not is_node:
         return "pedestrian_area", "501"
+    # Nástupiště (tram/vlak/bus) → zpevněná 501 (např. way/180964461).
+    if _is_platform_area_tags(tags) and not is_node:
+        return "platform", "501"
     if man_made == "water_well" or amenity == "fountain":
         if _is_osm_building(tags):
             return "water_well_building", "521"
@@ -658,6 +678,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "pitch": "501",
         "pedestrian_area": "501",
         "parking": "501",
+        "platform": "501",
         "building": "521",
         "water_well": "311",
         "water_well_building": "521",
@@ -2293,6 +2314,7 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "pitch": ("OSM_sport", "sportoviště (zpevněná)", "501"),
     "pedestrian_area": ("OSM_pesi_zony", "pěší zóny (zpevněná)", "501"),
     "parking": ("OSM_parkoviste", "parkoviště (zpevněná)", "501"),
+    "platform": ("OSM_nastupiste", "nástupiště (zpevněná)", "501"),
     "playground_equipment": ("OSM_herni_prvky", "herní prvky", "531"),
     "wetland": ("OSM_mokrad", "mokřad", "308"),
     "cave_entrance": ("OSM_jeskyne", "vstup do jeskyně", "203.2"),
@@ -2622,6 +2644,7 @@ def build_osm_feature_parts(
         "pitch": "OSM sportoviště (501 zpevněná)",
         "pedestrian_area": "OSM pěší zóny (501 zpevněná)",
         "parking": "OSM parkoviště (501 zpevněná)",
+        "platform": "OSM nástupiště (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
         "farmland": "OSM obdělávaná půda (412)",
@@ -2658,6 +2681,7 @@ def build_osm_feature_parts(
         "pitch",
         "pedestrian_area",
         "parking",
+        "platform",
         "playground_equipment",
         "wetland",
         "cave_entrance",
