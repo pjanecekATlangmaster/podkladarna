@@ -1193,11 +1193,25 @@ def test_osm_point_feature_outside_bounds_is_dropped(tmp_path):
 def test_classify_power_line_major_minor():
     assert classify_osm_feature({"power": "minor_line"}) == ("power_line", "510")
     assert classify_osm_feature({"power": "line"}) == ("power_line", "510")
+    # way/109399296: 110 kV, 1 okruh, wires=single → obyčejné vedení 510
+    assert classify_osm_feature(
+        {
+            "power": "line",
+            "voltage": "110000",
+            "cables": "3",
+            "circuits": "1",
+            "wires": "single",
+        }
+    ) == ("power_line", "510")
+    assert classify_osm_feature({"power": "line", "voltage": "110000;22000"}) == (
+        "power_line",
+        "510",
+    )
     assert classify_osm_feature({"power": "line", "voltage": "220000"}) == (
         "power_line_major",
         "511",
     )
-    assert classify_osm_feature({"power": "line", "voltage": "110000;22000"}) == (
+    assert classify_osm_feature({"power": "line", "voltage": "400000"}) == (
         "power_line_major",
         "511",
     )
@@ -1224,6 +1238,24 @@ def test_dash_indices_near_supports():
     supports = [(10.05, 0.1)]
     assert _dash_indices_near_supports(pts, supports) == [1]
     assert _dash_indices_near_supports(pts, [(50.0, 50.0)]) == []
+
+
+def test_props_for_shapefile_stringifies_dash_indices():
+    from app.pipeline.osm_paths import _props_for_shapefile
+
+    props = _props_for_shapefile(
+        {
+            "kind": "power_line",
+            "oom_code": "510",
+            "dash_indices": [1, 3],
+            "nested": {"x": 1},
+            "empty": None,
+        }
+    )
+    assert props["dash_indices"] == "1,3"
+    assert props["kind"] == "power_line"
+    assert "nested" not in props
+    assert "empty" not in props
 
 
 def test_power_line_dash_point_in_oom(tmp_path):

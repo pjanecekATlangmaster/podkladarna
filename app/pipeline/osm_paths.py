@@ -393,7 +393,8 @@ _LINE_FEATURE_KINDS = frozenset(
 )
 # Sloupy/stožáry OSM → DashPoint na vedení (MapCoord flag 32).
 POWER_SUPPORT_MATCH_M = 1.5
-POWER_MAJOR_VOLTAGE_V = 110_000
+# ISOM 511 = velké stožárové vedení; 110 kV distribuční (ČEZ) = 510.
+POWER_MAJOR_VOLTAGE_V = 220_000
 ZABAGED_OMIT_WHEN_OSM_POWER = frozenset({"ElektrickeVedeni"})
 
 
@@ -2675,6 +2676,21 @@ def _shapefile_nlt(features: list[dict]) -> str:
     return "GEOMETRY"
 
 
+def _props_for_shapefile(props: dict | None) -> dict:
+    """DBF/SHP nezná IntegerList – seznamy (dash_indices) → CSV string."""
+    out: dict = {}
+    for key, val in (props or {}).items():
+        if isinstance(val, (list, tuple)):
+            out[key] = ",".join(str(v) for v in val)
+        elif isinstance(val, dict):
+            continue
+        elif val is None:
+            continue
+        else:
+            out[key] = val
+    return out
+
+
 def _geojson_to_shapefile(
     features: list[dict],
     dest_shp: Path,
@@ -2694,9 +2710,19 @@ def _geojson_to_shapefile(
     dest_shp.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix="osm_shp_"))
     try:
+        safe_feats = [
+            {
+                **feat,
+                "properties": _props_for_shapefile(feat.get("properties")),
+            }
+            for feat in features
+            if isinstance(feat, dict)
+        ]
+        if not safe_feats:
+            return False
         gj_path = stage / "layer.geojson"
         gj_path.write_text(
-            json.dumps({"type": "FeatureCollection", "features": features}),
+            json.dumps({"type": "FeatureCollection", "features": safe_feats}),
             encoding="utf-8",
         )
         staged = stage / dest_shp.name
@@ -2711,6 +2737,8 @@ def _geojson_to_shapefile(
             "EPSG:5514",
             "-lco",
             "ENCODING=UTF-8",
+            "-mapFieldType",
+            "IntegerList=String,RealList=String,StringList=String",
             "-nlt",
             nlt,
             str(staged),
