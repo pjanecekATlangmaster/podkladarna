@@ -330,6 +330,10 @@ def _fmt(x: int, y: int, flags: int = 0) -> str:
     return f"{x} {y}"
 
 
+# OpenOrienteering MapCoord::DashPoint – fousy sloupů na vedení / dash symbol.
+MAP_COORD_DASH_POINT = 32
+
+
 def _object_xml(symbol_index: int, pts: list[str]) -> str:
     body = ";".join(pts) + ";"
     return (
@@ -340,10 +344,20 @@ def _object_xml(symbol_index: int, pts: list[str]) -> str:
     )
 
 
-def _path_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
+def _path_object(
+    symbol_index: int,
+    coords: list[tuple[int, int] | tuple[int, int, int]],
+) -> str:
+    """LineString v OOM. Volitelný 3. prvek souřadnice = MapCoord flags (např. DashPoint 32)."""
     if len(coords) < 2:
         return ""
-    return _object_xml(symbol_index, [_fmt(x, y) for x, y in coords])
+    pts: list[str] = []
+    for c in coords:
+        if len(c) >= 3:
+            pts.append(_fmt(int(c[0]), int(c[1]), int(c[2])))
+        else:
+            pts.append(_fmt(int(c[0]), int(c[1])))
+    return _object_xml(symbol_index, pts)
 
 
 def _area_object_with_holes(

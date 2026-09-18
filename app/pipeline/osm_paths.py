@@ -20,6 +20,7 @@ from app.pipeline.fetch_openzu import USER_AGENT
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import (
+    MAP_COORD_DASH_POINT,
     OomObjectPart,
     _area_object_with_holes,
     _hole_rings_as_area_objects,
@@ -263,6 +264,9 @@ def _overpass_ql(
         f'node["amenity"="hunting_stand"]({bbox});',
         f'node["man_made"="water_tower"]({bbox});',
         f'way["man_made"="water_tower"]({bbox});',
+        # Elektrické vedení + sloupy (DashPoint fousy v OOM).
+        f'way["power"~"^(line|minor_line)$"]({bbox});',
+        f'node["power"~"^(tower|pole)$"]({bbox});',
     ]
     if include_playground_equipment:
         parts.extend(
@@ -384,7 +388,13 @@ _POINT_FEATURE_KINDS = frozenset(
         "water_tower",
     }
 )
-_LINE_FEATURE_KINDS = frozenset({"fence", "wall", "hedge"})
+_LINE_FEATURE_KINDS = frozenset(
+    {"fence", "wall", "hedge", "power_line", "power_line_major"}
+)
+# Sloupy/stožáry OSM → DashPoint na vedení (MapCoord flag 32).
+POWER_SUPPORT_MATCH_M = 1.5
+POWER_MAJOR_VOLTAGE_V = 110_000
+ZABAGED_OMIT_WHEN_OSM_POWER = frozenset({"ElektrickeVedeni"})
 
 
 def _is_boardwalk(tags: dict) -> bool:
@@ -560,6 +570,82 @@ def _is_platform_area_tags(tags: dict) -> bool:
     return (tags.get("highway") or "").lower() == "platform"
 
 
+def _max_voltage_v(tags: dict) -> int | None:
+    """Nejvyšší voltage=* v voltech (``110000;22000`` → 110000)."""
+    raw = (tags.get("voltage") or "").strip()
+    if not raw:
+        return None
+    best: int | None = None
+    for part in raw.replace(",", ";").split(";"):
+        part = part.strip().lower().replace(" ", "")
+        if not part:
+            continue
+        mult = 1
+        if part.endswith("kv"):
+            part = part[:-2]
+            mult = 1000
+        elif part.endswith("v"):
+            part = part[:-1]
+        try:
+            val = int(float(part) * mult)
+        except ValueError:
+            continue
+        if val > 0 and (best is None or val > best):
+            best = val
+    return best
+
+
+def _int_tag(tags: dict, key: str) -> int | None:
+    raw = (tags.get(key) or "").strip()
+    if not raw:
+        return None
+    try:
+        n = int(float(raw.split(";")[0].strip()))
+    except ValueError:
+        return None
+    return n if n > 0 else None
+
+
+def _is_major_power_line(tags: dict) -> bool:
+    """Major = vysoké napětí / víc okruhů / víc fází; minor_line vždy ne."""
+    power = (tags.get("power") or "").lower()
+    if power == "minor_line":
+        return False
+    if power != "line":
+        return False
+    voltage = _max_voltage_v(tags)
+    if voltage is not None and voltage >= POWER_MAJOR_VOLTAGE_V:
+        return True
+    circuits = _int_tag(tags, "circuits")
+    if circuits is not None and circuits >= 2:
+        return True
+    cables = _int_tag(tags, "cables")
+    if cables is not None and cables >= 6:
+        return True
+    return False
+
+
+def _dash_indices_near_supports(
+    pts: list[tuple[float, float]],
+    supports: list[tuple[float, float]],
+    *,
+    match_m: float = POWER_SUPPORT_MATCH_M,
+) -> list[int]:
+    """Indexy vrcholů way blízko power=tower/pole."""
+    if not pts or not supports:
+        return []
+    match_m2 = match_m * match_m
+    out: list[int] = []
+    for i, (x, y) in enumerate(pts):
+        for sx, sy in supports:
+            dx = x - sx
+            dy = y - sy
+            if dx * dx + dy * dy <= match_m2:
+                out.append(i)
+                break
+    return out
+
+
 def classify_osm_feature(
     tags: dict, *, geom: str = "way"
 ) -> tuple[str, str] | None:
@@ -682,6 +768,12 @@ def classify_osm_feature(
     # Vodojem / vysoká věž – vždy bod (i když je to way), ne plocha budovy.
     if man_made == "water_tower":
         return "water_tower", "524"
+    # Elektrické vedení (OSM) – major/minor; sloupy se neklasifikují (jen DashPoint).
+    power = (tags.get("power") or "").lower()
+    if power in {"line", "minor_line"} and not is_node:
+        if _is_major_power_line(tags):
+            return "power_line_major", "511"
+        return "power_line", "510"
     # OSM budova (kavárna/kiosk/building=yes) → 521; ZABAGED má přednost v dedupu.
     if not is_node and _is_osm_building(tags):
         return "building", "521"
@@ -712,6 +804,12 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "513"
     if kind == "hedge":
         return "518" if sprint else "416"
+    if kind == "power_line_major":
+        # ISOM/ISSprOM 511; ISMTBOM 517 Major power line.
+        return "517" if mtbo else "511"
+    if kind == "power_line":
+        # ISOM/ISSprOM 510; ISMTBOM 516 Power line.
+        return "516" if mtbo else "510"
     if kind in _PAVED_AREA_KINDS:
         # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
         if sprint:
@@ -790,6 +888,8 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "water_well": "311",
         "water_well_building": "521",
         "spring": "312",
+        "power_line": "510",
+        "power_line_major": "511",
     }
     return defaults.get(kind, stored_code or "")
 
@@ -817,7 +917,9 @@ def parse_osm_api_map_xml(
 
     elements: list[dict] = []
     for nid, tags in node_tags.items():
-        if not classify_osm_feature(tags, geom="node"):
+        power = (tags.get("power") or "").lower()
+        keep_support = power in {"tower", "pole"}
+        if not classify_osm_feature(tags, geom="node") and not keep_support:
             continue
         lat, lon = nodes[nid]
         elements.append(
@@ -2074,6 +2176,22 @@ def write_zabaged_omitting_layers(
     return dest_zip
 
 
+def osm_features_have_power_lines(work_dir: Path) -> bool:
+    """True, pokud features.geojson obsahuje OSM elektrické vedení."""
+    gj_path = work_dir / "osm_paths" / "features.geojson"
+    if not gj_path.is_file():
+        return False
+    try:
+        data = json.loads(gj_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    for feat in data.get("features") or []:
+        kind = str((feat.get("properties") or {}).get("kind") or "")
+        if kind in {"power_line", "power_line_major"}:
+            return True
+    return False
+
+
 def prepare_osm_paths(
     work_dir: Path,
     bbox_wgs84: tuple[float, float, float, float],
@@ -2099,6 +2217,18 @@ def prepare_osm_paths(
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     features: list[dict] = []
     skipped = 0
+    # Sloupy/stožáry pro DashPoint na vedení (nejsou samostatné OOM objekty).
+    power_supports: list[tuple[float, float]] = []
+    for el in elements:
+        if el.get("type") != "node":
+            continue
+        tags = el.get("tags") or {}
+        if (tags.get("power") or "").lower() not in {"tower", "pole"}:
+            continue
+        lat, lon = el.get("lat"), el.get("lon")
+        if lat is None or lon is None:
+            continue
+        power_supports.append(wgs84_to_projected(float(lat), float(lon)))
     # Chodník / zpevněný footway bereme ve všech disciplínách (symbolika se liší).
     allow_sidewalk = True
     for el in elements:
@@ -2107,6 +2237,9 @@ def prepare_osm_paths(
         railway = (tags.get("railway") or "").lower()
         if railway in {"subway", "subway_entrance"}:
             skipped += 1
+            continue
+        # power=tower/pole – jen podklady pro DashPoint, ne samostatný symbol.
+        if (tags.get("power") or "").lower() in {"tower", "pole"}:
             continue
         el_geom = "node" if el.get("type") == "node" else "way"
         if el.get("type") == "relation":
@@ -2166,14 +2299,19 @@ def prepare_osm_paths(
             else:
                 x, y = pts[0]
                 geometry = {"type": "Point", "coordinates": [x, y]}
+            props: dict = {
+                "source": "osm",
+                "kind": kind,
+                "oom_code": code,
+            }
+            if kind in {"power_line", "power_line_major"} and len(pts) >= 2:
+                dash = _dash_indices_near_supports(pts, power_supports)
+                if dash:
+                    props["dash_indices"] = dash
             features.append(
                 {
                     "type": "Feature",
-                    "properties": {
-                        "source": "osm",
-                        "kind": kind,
-                        "oom_code": code,
-                    },
+                    "properties": props,
                     "geometry": geometry,
                 }
             )
@@ -2503,6 +2641,8 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "fence": ("OSM_ploty", "ploty", "516"),
     "wall": ("OSM_zdi", "zdi", "513"),
     "hedge": ("OSM_zive_ploty", "živé ploty", "416"),
+    "power_line": ("OSM_vedeni", "elektrické vedení", "510"),
+    "power_line_major": ("OSM_vedeni_velke", "velké elektrické vedení", "511"),
     "shelter": ("OSM_pristresky", "přístřešky", "522"),
     "memorial": ("OSM_pomniky", "pomníky", "526"),
     "landmark_tree": ("OSM_stromy", "významné stromy", "417"),
@@ -2843,6 +2983,8 @@ def build_osm_feature_parts(
         "fence": "OSM ploty",
         "wall": "OSM zdi",
         "hedge": "OSM živé ploty",
+        "power_line": "OSM elektrické vedení (510)",
+        "power_line_major": "OSM velké elektrické vedení (511)",
         "barrier_point": "OSM brány/sloupky",
         "memorial": "OSM pomníky",
         "shelter": "OSM přístřešky",
@@ -2870,6 +3012,8 @@ def build_osm_feature_parts(
         "fence",
         "wall",
         "hedge",
+        "power_line",
+        "power_line_major",
         "shelter",
         "memorial",
         "landmark_tree",
@@ -2935,8 +3079,40 @@ def build_osm_feature_parts(
             if len(coords) < 2:
                 continue
             line = [(float(x), float(y)) for x, y in coords]
+            dash_raw = props.get("dash_indices") or []
+            dash_pts: list[tuple[float, float]] = []
+            if isinstance(dash_raw, list):
+                for idx in dash_raw:
+                    try:
+                        i = int(idx)
+                    except (TypeError, ValueError):
+                        continue
+                    if 0 <= i < len(line):
+                        dash_pts.append(line[i])
+            match_m2 = POWER_SUPPORT_MATCH_M * POWER_SUPPORT_MATCH_M
             for piece in clip_polyline(line, clip_bounds) if clip_bounds else [line]:
-                obj = _path_object(symbol_index, to_map(piece))
+                mapped: list[tuple[int, int] | tuple[int, int, int]] = []
+                for x, y in piece:
+                    mx, my = projected_to_map_coord(
+                        x,
+                        y,
+                        ref_x=ref_x,
+                        ref_y=ref_y,
+                        scale=scale,
+                        grivation_deg=grivation_deg,
+                    )
+                    flags = 0
+                    for dx, dy in dash_pts:
+                        ddx = x - dx
+                        ddy = y - dy
+                        if ddx * ddx + ddy * ddy <= match_m2:
+                            flags = MAP_COORD_DASH_POINT
+                            break
+                    if flags:
+                        mapped.append((mx, my, flags))
+                    else:
+                        mapped.append((mx, my))
+                obj = _path_object(symbol_index, mapped)
                 if obj:
                     grouped[kind].append(obj)
                     kind_codes[kind] = code

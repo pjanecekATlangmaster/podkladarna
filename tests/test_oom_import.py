@@ -300,3 +300,11 @@ def test_orient_polyline_tags_downhill_flips_when_needed():
     assert orient_polyline_tags_downhill(
         pts, elev_at=elev_lower_on_minus_y, to_map=to_map
     ) == list(reversed(pts))
+
+
+def test_path_object_dash_point_flag():
+    from app.pipeline.oom_import import MAP_COORD_DASH_POINT, _path_object
+
+    xml = _path_object(7, [(0, 0), (1000, 0, MAP_COORD_DASH_POINT), (2000, 0)])
+    assert 'symbol="7"' in xml
+    assert "0 0;1000 0 32;2000 0;" in xml

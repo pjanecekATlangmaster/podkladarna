@@ -12,9 +12,11 @@ from app.pipeline.osm_paths import (
     PATH_SOURCE_MIXED,
     PATH_SOURCE_OSM,
     PATH_SOURCE_ZABAGED,
+    ZABAGED_OMIT_WHEN_OSM_POWER,
     build_osm_feature_parts,
     build_osm_path_parts,
     load_osm_path_lines,
+    osm_features_have_power_lines,
     resolve_path_source,
 )
 from app.pipeline.build_oom_map import write_oom_map
@@ -518,6 +520,9 @@ def prepare_oom_map(
     if path_source == PATH_SOURCE_MIXED:
         prefer_osm_paths = load_osm_path_lines(kp_cwd)
     if zabaged_clean and zabaged_clean.is_file():
+        omit = set(ZABAGED_OMIT_BUILDING_LAYERS)
+        if osm_features_have_power_lines(kp_cwd):
+            omit |= set(ZABAGED_OMIT_WHEN_OSM_POWER)
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,
@@ -531,7 +536,7 @@ def prepare_oom_map(
             courtyard_olive=False,  # oliva dvorů z OSM budov
             prefer_osm_path_lines=prefer_osm_paths or None,
             omit_path_layers=path_source == PATH_SOURCE_OSM,
-            omit_layers=ZABAGED_OMIT_BUILDING_LAYERS,
+            omit_layers=omit,
         ):
             if _COURTYARD_OLIVE_MARK in part.name:
                 courtyard_olive_parts.append(part)

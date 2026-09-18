@@ -319,6 +319,12 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("water_tower", "forest_10000") == "524"
     assert feature_oom_code("water_tower", "mtbo_10000") == "535"
     assert feature_oom_code("water_tower", "sprint_2m") == "524"
+    assert feature_oom_code("power_line", "forest_10000") == "510"
+    assert feature_oom_code("power_line", "sprint_2m") == "510"
+    assert feature_oom_code("power_line", "mtbo_10000") == "516"
+    assert feature_oom_code("power_line_major", "forest_10000") == "511"
+    assert feature_oom_code("power_line_major", "sprint_2m") == "511"
+    assert feature_oom_code("power_line_major", "mtbo_10000") == "517"
 
 
 def test_point_in_ring_and_farmland_dedup():
@@ -1182,3 +1188,88 @@ def test_osm_point_feature_outside_bounds_is_dropped(tmp_path):
             tmp_path, **_build_kwargs(), clip_bounds=(-100.0, -100.0, 100.0, 100.0)
         )
     assert sum(p.count for p in got) == 1
+
+
+def test_classify_power_line_major_minor():
+    assert classify_osm_feature({"power": "minor_line"}) == ("power_line", "510")
+    assert classify_osm_feature({"power": "line"}) == ("power_line", "510")
+    assert classify_osm_feature({"power": "line", "voltage": "220000"}) == (
+        "power_line_major",
+        "511",
+    )
+    assert classify_osm_feature({"power": "line", "voltage": "110000;22000"}) == (
+        "power_line_major",
+        "511",
+    )
+    assert classify_osm_feature({"power": "line", "circuits": "2"}) == (
+        "power_line_major",
+        "511",
+    )
+    assert classify_osm_feature({"power": "line", "cables": "6"}) == (
+        "power_line_major",
+        "511",
+    )
+    assert classify_osm_feature({"power": "minor_line", "voltage": "220000"}) == (
+        "power_line",
+        "510",
+    )
+    assert classify_osm_feature({"power": "tower"}, geom="node") is None
+    assert classify_osm_feature({"power": "pole"}, geom="node") is None
+
+
+def test_dash_indices_near_supports():
+    from app.pipeline.osm_paths import _dash_indices_near_supports
+
+    pts = [(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)]
+    supports = [(10.05, 0.1)]
+    assert _dash_indices_near_supports(pts, supports) == [1]
+    assert _dash_indices_near_supports(pts, [(50.0, 50.0)]) == []
+
+
+def test_power_line_dash_point_in_oom(tmp_path):
+    _write_osm_geojson(
+        tmp_path,
+        "features.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {
+                    "kind": "power_line",
+                    "oom_code": "510",
+                    "dash_indices": [1],
+                },
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[0.0, 0.0], [10.0, 0.0], [20.0, 0.0]],
+                },
+            }
+        ],
+    )
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=42):
+        got = build_osm_feature_parts(tmp_path, **_build_kwargs())
+    assert got
+    xml = got[0].objects_xml
+    # Střední uzel (tower) má MapCoord DashPoint flag 32.
+    assert "1000 0 32;" in xml or " 32;" in xml
+    assert 'symbol="42"' in xml
+
+
+def test_osm_features_have_power_lines(tmp_path):
+    from app.pipeline.osm_paths import osm_features_have_power_lines
+
+    assert osm_features_have_power_lines(tmp_path) is False
+    _write_osm_geojson(
+        tmp_path,
+        "features.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {"kind": "power_line_major"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[0.0, 0.0], [1.0, 0.0]],
+                },
+            }
+        ],
+    )
+    assert osm_features_have_power_lines(tmp_path) is True
