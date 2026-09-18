@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.pipeline.cliff_height import filter_by_drop
+from app.pipeline.fetch_zabaged import ostatni_plocha_too_large
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.cliff_merge import (
     merge_cliff_ticks,
@@ -509,6 +510,30 @@ def _wkb_line_parts_5514(wkb: bytes) -> list[list[tuple[float, float]]]:
     return out
 
 
+def _wkb_area_m2(wkb: bytes) -> float | None:
+    """Plocha polygonů z WKB (shoelace); None když nejde spočítat."""
+    try:
+        parts, _ = _wkb_parts(wkb)
+    except Exception:
+        return None
+    total = 0.0
+    found = False
+    for part in parts:
+        if part[0] != "line" or not part[2]:
+            continue
+        pts = part[1]
+        if not isinstance(pts, list) or len(pts) < 3:
+            continue
+        a = 0.0
+        for i in range(len(pts) - 1):
+            x1, y1 = float(pts[i][0]), float(pts[i][1])
+            x2, y2 = float(pts[i + 1][0]), float(pts[i + 1][1])
+            a += x1 * y2 - x2 * y1
+        total += abs(a) * 0.5
+        found = True
+    return total if found else None
+
+
 def _hole_rings_as_area_objects(
     parts: list[_WkbPart],
     symbol_index: int,
@@ -672,6 +697,15 @@ def build_zabaged_object_parts(
                 continue
             for feature in layer:
                 props = feature_props(feature, layer_name=layer_name)
+                if layer_name == "OstatniPlochaVSidlech":
+                    geom_probe = feature.GetGeometryRef()
+                    geom_area = (
+                        float(geom_probe.GetArea())
+                        if geom_probe is not None
+                        else None
+                    )
+                    if ostatni_plocha_too_large(props, geom_area_m2=geom_area):
+                        continue
                 rule = match_feature(props, rules)
                 if not rule:
                     continue
@@ -742,6 +776,10 @@ def build_zabaged_object_parts(
             for props, wkb in _pyogrio_layer_rows(shp_path):
                 if "vrstva" not in props:
                     props["vrstva"] = layer_name
+                if layer_name == "OstatniPlochaVSidlech" and ostatni_plocha_too_large(
+                    props, geom_area_m2=_wkb_area_m2(wkb)
+                ):
+                    continue
                 rule = match_feature(props, rules)
                 if not rule:
                     continue

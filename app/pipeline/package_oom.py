@@ -610,7 +610,7 @@ def prepare_oom_map(
             else:
                 zabaged_rest.append(part)
 
-    # Nejspodnější podklad: zpevněné plochy ze ZABAGED (529), pak louky…
+    # Nejspodnější podklad: zpevněné plochy ze ZABAGED (501), pak louky…
     object_parts.extend(zabaged_base_paved)
     # Louky/zeleň ze ZABAGED + OSM 412 pod KP (hustníky z LiDARu musí zůstat vidět).
     object_parts.extend(zabaged_under)

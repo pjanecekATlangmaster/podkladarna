@@ -203,16 +203,36 @@ def test_oom_code_skupina_balvanu_maps_to_207():
     assert symbol_index_for_code("sprint_2m", 4000, code) is not None
 
 
-def test_oom_code_parking_forest_maps_to_501_1():
+def test_oom_code_parking_forest_maps_to_501_under_roads():
+    """Zpevněná plocha musí mít nižší CRT index než silnice (503 @ ~117)."""
+    for vrstva in ("ParkovisteOdpocivka", "OstatniPlochaVSidlech"):
+        code = oom_code_for_vectorconf_rule(
+            "parking",
+            "529",
+            vrstva,
+            preset_id="forest_10000",
+            scale=10000,
+        )
+        assert code == "501", (vrstva, code)
+        idx = symbol_index_for_code("forest_10000", 10000, code)
+        road_idx = symbol_index_for_code("forest_10000", 10000, "503")
+        assert idx is not None and road_idx is not None
+        assert idx < road_idx, (idx, road_idx)
+
+
+def test_oom_code_parking_mtbo_maps_to_501_0_under_roads():
     code = oom_code_for_vectorconf_rule(
         "parking",
         "529",
-        "ParkovisteOdpocivka",
-        preset_id="forest_10000",
+        "OstatniPlochaVSidlech",
+        preset_id="mtbo_10000",
         scale=10000,
     )
-    assert code == "501.1"
-    assert symbol_index_for_code("forest_10000", 10000, code) is not None
+    assert code == "501.0"
+    idx = symbol_index_for_code("mtbo_10000", 10000, code)
+    road_idx = symbol_index_for_code("mtbo_10000", 10000, "503")
+    assert idx is not None and road_idx is not None
+    assert idx < road_idx, (idx, road_idx)
 
 
 def test_oom_code_orchard_garden_maps_to_olive_520():

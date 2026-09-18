@@ -192,9 +192,12 @@ def test_vectorconf_zamek_hrad_as_building_areal_olive():
 
 
 def test_drop_oversized_ostatni_plocha():
+    from app.pipeline.fetch_zabaged import MAX_OSTATNI_PLOCHA_M2
+
     gj = {
         "type": "FeatureCollection",
         "features": [
+            {"type": "Feature", "properties": {"Shape_Area": 12_000}, "geometry": None},
             {"type": "Feature", "properties": {"Shape_Area": 160_356}, "geometry": None},
             {"type": "Feature", "properties": {"Shape_Area": 371_249}, "geometry": None},
             {"type": "Feature", "properties": {"Shape_Area": 13_727_609}, "geometry": None},
@@ -203,6 +206,15 @@ def test_drop_oversized_ostatni_plocha():
     }
     drop_oversized_ostatni_plocha(gj)
     areas = [f["properties"].get("Shape_Area") for f in gj["features"]]
-    # Pod 1 km² necháme (i sídlištní zbytky); zahodí se jen celoměstské km².
-    assert areas == [160_356, 371_249, None]
+    # Nad ~5 ha (sídlištní zbytky / Veltrusy) zahodit – přes 502/503 stejně přelezou.
+    assert MAX_OSTATNI_PLOCHA_M2 == 50_000.0
+    assert areas == [12_000, None]
+
+
+def test_ostatni_plocha_too_large_uses_geom_area():
+    from app.pipeline.fetch_zabaged import ostatni_plocha_too_large
+
+    assert not ostatni_plocha_too_large({}, geom_area_m2=10_000)
+    assert ostatni_plocha_too_large({}, geom_area_m2=80_000)
+    assert ostatni_plocha_too_large({"Shape_Area": 90_000}, geom_area_m2=1_000)
 

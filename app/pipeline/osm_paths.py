@@ -136,6 +136,8 @@ ZABAGED_PATH_LAYERS = frozenset(
 )
 # Při path_source=osm vynechat z OOM (zůstanou ve ZIPu zabaged/ pro ruční import).
 ZABAGED_OMIT_PATH_LAYERS = ZABAGED_PATH_LAYERS | frozenset({"Tunel"})
+# Do KP PNG ne – parking|529 překreslí silnice; v OOM zůstane jako spodní podklad.
+ZABAGED_OMIT_FROM_KP = frozenset({"OstatniPlochaVSidlech"})
 # Priorita OSM / sprint: ořezávat OSM jen proti pevným komunikacím (ne Pesina/Cesta).
 ZABAGED_PATH_LAYERS_PRIORITY = frozenset(
     {
@@ -811,6 +813,13 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind == "power_line":
         # ISOM/ISSprOM 510; ISMTBOM 516 Power line.
         return "516" if mtbo else "510"
+    if kind == "parking":
+        # Stejně jako ZABAGED Ostatní plocha – CRT pod silnicemi (ne 529/501.1).
+        if sprint:
+            return "501"
+        if mtbo:
+            return "501.0"
+        return "501"
     if kind in _PAVED_AREA_KINDS:
         # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
         if sprint:

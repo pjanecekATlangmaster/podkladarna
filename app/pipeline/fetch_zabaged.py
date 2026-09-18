@@ -26,9 +26,9 @@ from app.tool_env import gis_subprocess_env, which_tool
 
 PAGE_SIZE = 2000
 MAX_PAGES = 25
-# KP kreslí 529 (parking) přes 401. Celoměstské zbytky vrstvy 115
-# (řád km²) by jinak přemalovaly louky a křoviny na zpevněnou plochu.
-MAX_OSTATNI_PLOCHA_M2 = 1_000_000.0
+# KP kreslí 529 (parking) přes silnice; v OOM CRT ani 501 nezaručí spodní vrstvu
+# u velkých blobů. Malá parkoviště (~ha) necháme, sídlištní zbytky zahodíme.
+MAX_OSTATNI_PLOCHA_M2 = 50_000.0
 
 
 def _ags_config() -> dict:
@@ -167,16 +167,61 @@ def drop_oversized_ostatni_plocha(
     gj: dict,
     max_area_m2: float = MAX_OSTATNI_PLOCHA_M2,
 ) -> dict:
-    """Zahodí celoměstské polygony 115, které po ořezu vyplní celý podklad 529."""
+    """Zahodí velké polygony vrstvy 115 – přes silnice stejně nejde spolehlivě dostat."""
     kept = []
     for feat in gj.get("features") or []:
-        props = feat.get("properties") or {}
-        area = props.get("Shape_Area", props.get("shape_area"))
-        if isinstance(area, (int, float)) and area > max_area_m2:
+        if ostatni_plocha_too_large(
+            feat.get("properties") or {},
+            geom_area_m2=_geojson_area_m2(feat.get("geometry")),
+            max_area_m2=max_area_m2,
+        ):
             continue
         kept.append(feat)
     gj["features"] = kept
     return gj
+
+
+def ostatni_plocha_too_large(
+    props: dict,
+    *,
+    geom_area_m2: float | None = None,
+    max_area_m2: float = MAX_OSTATNI_PLOCHA_M2,
+) -> bool:
+    """True = polygon zahodit (Shape_Area nebo plocha geometrie nad limitem)."""
+    area = props.get("Shape_Area", props.get("shape_area"))
+    if isinstance(area, (int, float)) and area > max_area_m2:
+        return True
+    if geom_area_m2 is not None and geom_area_m2 > max_area_m2:
+        return True
+    return False
+
+
+def _geojson_area_m2(geometry: object) -> float | None:
+    if not isinstance(geometry, dict):
+        return None
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if not coords:
+        return None
+
+    def _ring_area(ring: list) -> float:
+        if not ring or len(ring) < 3:
+            return 0.0
+        a = 0.0
+        for i in range(len(ring) - 1):
+            x1, y1 = float(ring[i][0]), float(ring[i][1])
+            x2, y2 = float(ring[i + 1][0]), float(ring[i + 1][1])
+            a += x1 * y2 - x2 * y1
+        return abs(a) * 0.5
+
+    try:
+        if gtype == "Polygon":
+            return _ring_area(coords[0])
+        if gtype == "MultiPolygon":
+            return sum(_ring_area(poly[0]) for poly in coords if poly)
+    except (TypeError, ValueError, IndexError):
+        return None
+    return None
 
 
 def tag_features_with_layer(gj: dict, layer_name: str) -> dict:

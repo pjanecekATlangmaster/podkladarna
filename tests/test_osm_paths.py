@@ -299,8 +299,8 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("pedestrian_area", "sprint_2m") == "501"
     assert feature_oom_code("pedestrian_area", "forest_10000") == "501.1"
     assert feature_oom_code("parking", "sprint_2m") == "501"
-    assert feature_oom_code("parking", "forest_10000") == "501.1"
-    assert feature_oom_code("parking", "mtbo_10000") == "529"
+    assert feature_oom_code("parking", "forest_10000") == "501"
+    assert feature_oom_code("parking", "mtbo_10000") == "501.0"
     assert feature_oom_code("garden", "sprint_2m") == "520"
     assert feature_oom_code("garden", "forest_10000") == "520"
     assert feature_oom_code("water_body", "sprint_2m") == "301"
@@ -325,6 +325,29 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("power_line_major", "forest_10000") == "511"
     assert feature_oom_code("power_line_major", "sprint_2m") == "511"
     assert feature_oom_code("power_line_major", "mtbo_10000") == "517"
+
+
+def test_zabaged_omit_ostatni_from_kp(tmp_path):
+    """Ostatní plocha zůstane v OOM, ale do KP ZIP nepatří (jinak 529 přes silnice)."""
+    from zipfile import ZipFile
+
+    from app.pipeline.osm_paths import ZABAGED_OMIT_FROM_KP, write_zabaged_omitting_layers
+
+    assert "OstatniPlochaVSidlech" in ZABAGED_OMIT_FROM_KP
+    src = tmp_path / "zabaged.zip"
+    with ZipFile(src, "w") as zf:
+        for stem in ("Ulice", "OstatniPlochaVSidlech", "Budova"):
+            for suf in (".shp", ".shx", ".dbf", ".prj"):
+                zf.writestr(f"{stem}{suf}", b"x")
+        zf.writestr("readme.txt", b"keep")
+    dest = tmp_path / "kp.zip"
+    write_zabaged_omitting_layers(src, dest, ZABAGED_OMIT_FROM_KP)
+    with ZipFile(dest) as zf:
+        names = set(zf.namelist())
+    assert "Ulice.shp" in names
+    assert "Budova.shp" in names
+    assert "readme.txt" in names
+    assert not any(n.startswith("OstatniPlochaVSidlech") for n in names)
 
 
 def test_point_in_ring_and_farmland_dedup():

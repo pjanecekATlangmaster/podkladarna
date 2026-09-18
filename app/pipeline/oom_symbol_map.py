@@ -203,11 +203,13 @@ def oom_code_for_vectorconf_rule(
             return "515"
         return "509"
     if symbol_name == "parking":
+        # Zpevněná plocha musí být v CRT POD silnicemi (nižší symbol id).
+        # Forest 501.1 / MTBO 529 sedí nad road-path → Ostatní plocha překryje Ulice.
         if _is_sprint(preset_id):
             return "501"
         if _is_mtbo(preset_id):
-            return "529"
-        return "501.1"
+            return "501.0"
+        return "501"
     if symbol_name == "fence":
         if _is_sprint(preset_id):
             return "518"

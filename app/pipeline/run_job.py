@@ -19,6 +19,7 @@ from app.pipeline.karttapullautin_dxf import (
     prune_heavy_intermediate_dxf,
 )
 from app.pipeline.osm_paths import (
+    ZABAGED_OMIT_FROM_KP,
     ZABAGED_OMIT_PATH_LAYERS,
     prepare_osm_paths,
     write_osm_kp_zip,
@@ -263,16 +264,23 @@ def run_job_pipeline(
 
     log("=== Fáze: Karttapullautin vektory ===")
     # OSM cesty jsou hustší než ZABAGED – do KP bereme plné OSM a ZABAGED cesty vynecháme.
+    # OstatniPlochaVSidlech do KP ne – parking|529 přemaluje silnice; v OOM zůstane podklad 501.
+    omit_for_kp = set(ZABAGED_OMIT_FROM_KP)
     if osm_kp_zip and osm_kp_zip.is_file():
-        kp_zabaged_no_paths = work_dir / "zabaged_kp_no_paths.zip"
+        omit_for_kp |= set(ZABAGED_OMIT_PATH_LAYERS)
+    if omit_for_kp:
+        kp_zabaged_filtered = work_dir / "zabaged_kp_filtered.zip"
         try:
             write_zabaged_omitting_layers(
-                zabaged_clean, kp_zabaged_no_paths, ZABAGED_OMIT_PATH_LAYERS
+                zabaged_clean, kp_zabaged_filtered, frozenset(omit_for_kp)
             )
-            kp_zabaged = kp_zabaged_no_paths
-            log("KP PNG: OSM cesty (ZABAGED cesty vynechány – jsou chudé)")
+            kp_zabaged = kp_zabaged_filtered
+            if osm_kp_zip and osm_kp_zip.is_file():
+                log("KP PNG: OSM cesty (ZABAGED cesty + Ostatní plocha vynechány)")
+            else:
+                log("KP PNG: Ostatní plocha vynechána (zůstává v OOM pod silnicemi)")
         except Exception as exc:
-            log(f"KP PNG: ZABAGED bez cest selhalo ({exc}) – beru plný ZABAGED + OSM")
+            log(f"KP PNG: filtrovaný ZABAGED selhal ({exc}) – beru plný ZABAGED")
             kp_zabaged = zabaged_clean
     kp_vector_cmd = [PULLAUTA_BIN, str(kp_zabaged.resolve())]
     if osm_kp_zip and osm_kp_zip.is_file():
