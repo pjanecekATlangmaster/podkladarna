@@ -112,13 +112,28 @@ def test_api_rate_limit_429(client, monkeypatch):
         "enqueue",
         lambda job_id: db.update_job(job_id, status="queued", phase="waiting"),
     )
-    payload = {
-        "name": "limit-test",
-        "preset_id": "sprint_2m",
-        "bbox": "14.40,50.08,14.42,50.09",
-    }
-    for i in range(2):
-        r = client.post("/api/jobs", data={**payload, "name": f"limit-{i}"})
+    # Různé bboxy – stejný výřez by deduplikace vrátila existující job (200).
+    bboxes = (
+        "14.40,50.08,14.42,50.09",
+        "14.41,50.08,14.43,50.09",
+        "14.42,50.08,14.44,50.09",
+    )
+    for i, bbox in enumerate(bboxes[:2]):
+        r = client.post(
+            "/api/jobs",
+            data={
+                "name": f"limit-{i}",
+                "preset_id": "sprint_2m",
+                "bbox": bbox,
+            },
+        )
         assert r.status_code == 200, r.text
-    r = client.post("/api/jobs", data={**payload, "name": "limit-3"})
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "limit-3",
+            "preset_id": "sprint_2m",
+            "bbox": bboxes[2],
+        },
+    )
     assert r.status_code == 429
