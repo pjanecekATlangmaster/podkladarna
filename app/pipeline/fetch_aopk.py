@@ -13,7 +13,7 @@ from app.download_cache import (
     read_meta,
     write_meta,
 )
-from app.pipeline.fetch_openzu import FetchError
+from app.pipeline.fetch_openzu import FetchError, VECTOR_FETCH_BUFFER_M, expand_bbox_wgs84
 from app.pipeline.fetch_zabaged import query_layer_geojson
 
 AOPK_TREES_SERVICE = (
@@ -35,7 +35,8 @@ def fetch_aopk_trees_for_bbox(
     log=None,
 ) -> Path | None:
     """Stáhne AOPK památné stromy (body, GeoJSON EPSG:5514). Při chybě None."""
-    cache_dir = aopk_cache_dir(bbox)
+    fetch_bbox = expand_bbox_wgs84(bbox, VECTOR_FETCH_BUFFER_M)
+    cache_dir = aopk_cache_dir(fetch_bbox)
     dest = cache_dir / AOPK_GEOJSON_NAME
     max_age = settings.AOPK_CACHE_MAX_AGE_DAYS
     if is_fresh(cache_dir, dest, max_age, min_size=20):
@@ -45,7 +46,7 @@ def fetch_aopk_trees_for_bbox(
             log(f"AOPK stromy cache ({cache_dir.name}, staženo {age})")
         return dest
 
-    west, south, east, north = bbox
+    west, south, east, north = fetch_bbox
     try:
         gj = query_layer_geojson(
             AOPK_TREES_SERVICE,
@@ -70,7 +71,7 @@ def fetch_aopk_trees_for_bbox(
     write_meta(
         cache_dir,
         source="aopk_ags",
-        bbox_wgs84=list(bbox),
+        bbox_wgs84=list(fetch_bbox),
         features=n,
     )
     if log:

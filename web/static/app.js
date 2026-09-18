@@ -570,8 +570,11 @@ async function refreshLog() {
   logSettledForJob = selectedJobId;
 }
 
+let jobSubmitInFlight = false;
+
 document.getElementById("job-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (jobSubmitInFlight) return;
   const form = e.target;
   const btn = document.getElementById("submit-btn");
   clearFormError();
@@ -596,6 +599,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     );
     return;
   }
+  jobSubmitInFlight = true;
   btn.disabled = true;
   btn.textContent = "Zakládám job…";
   try {
@@ -607,6 +611,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     alert(err.message);
     await loadJobs();
   } finally {
+    jobSubmitInFlight = false;
     btn.disabled = false;
     btn.textContent = "Spustit generování";
   }

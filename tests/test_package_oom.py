@@ -73,9 +73,10 @@ def test_resolve_omap_job_by_scale():
         )
         for p, _ in OOM_PATH_VARIANTS
     ]
-    assert len(names) == 2
-    assert "podkladarna-sprint-cesty_osm.omap" in names
-    assert "podkladarna-sprint-cesty_zabaged.omap" in names
+    assert len(names) == 1
+    assert names == ["podkladarna-sprint.omap"]
+    assert "podkladarna-sprint-cesty_zabaged.omap" not in names
+    assert "podkladarna-sprint-cesty_osm.omap" not in names
     assert "podkladarna-sprint-kombinace.omap" not in names
     assert not any(n.startswith("podkladarna-les-") for n in names)
 
@@ -206,11 +207,11 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "ČÚZK" in readme
     assert "WMS" in readme
     assert "podkladarna-*.omap" in readme
-    assert "cesty_zabaged/cesty_osm" in readme
+    assert "cesty_zabaged/cesty_osm" not in readme
     assert "kombinace" not in readme
+    assert "Fialový obdélník" in readme or "fialový" in readme.lower()
     assert "github.com/pjanecekATlangmaster/podkladarna/issues" in readme
     assert oom_readme(meta).startswith("Podkladárna")
-
 def test_prepare_oom_map_minimal(tmp_path):
     kp = tmp_path / "work"
     kp.mkdir()

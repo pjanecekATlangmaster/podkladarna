@@ -27,6 +27,9 @@ USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladar
 MAX_SHEETS = 8
 MAX_BBOX_KM = 5.0
 CROP_BUFFER_M = 30.0
+# Polohopis (ZABAGED/OSM/RÚIAN/AOPK) stahovat s přesahu přes AOI –
+# LiDAR/KP mají ~CROP_BUFFER_M + KP pad; radši přesah než holé kraje.
+VECTOR_FETCH_BUFFER_M = 80.0
 QUERY_TIMEOUT_S = 30
 DOWNLOAD_TIMEOUT_S = 180
 
@@ -198,6 +201,34 @@ def crop_bounds_5514(
         max(xs) + buffer_m,
         max(ys) + buffer_m,
     )
+
+
+def expand_bbox_wgs84(
+    bbox: tuple[float, float, float, float],
+    buffer_m: float,
+) -> tuple[float, float, float, float]:
+    """Rozšíří WGS84 bbox o buffer_m (přes EPSG:5514) pro stažení vektorů."""
+    if buffer_m <= 0:
+        return bbox
+    west, south, east, north = bbox
+    xmin, ymin, xmax, ymax = crop_bounds_5514(
+        west, south, east, north, buffer_m=buffer_m
+    )
+    from pyproj import Transformer
+
+    to_wgs = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+    lons: list[float] = []
+    lats: list[float] = []
+    for x, y in (
+        (xmin, ymin),
+        (xmax, ymin),
+        (xmax, ymax),
+        (xmin, ymax),
+    ):
+        lon, lat = to_wgs.transform(x, y)
+        lons.append(float(lon))
+        lats.append(float(lat))
+    return min(lons), min(lats), max(lons), max(lats)
 
 
 def fetch_lidar_for_bbox(

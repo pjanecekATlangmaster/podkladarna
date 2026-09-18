@@ -8,8 +8,10 @@ import pytest
 
 from app.pipeline.fetch_openzu import (
     FetchError,
+    VECTOR_FETCH_BUFFER_M,
     bbox_exceeds_limit,
     bbox_size_km,
+    expand_bbox_wgs84,
     parse_bbox,
     query_sm5_sheets,
 )
@@ -43,6 +45,16 @@ def test_bbox_size_small_ok():
 def test_bbox_size_over_5km():
     # ~14 × 22 km, pořád v obálce Česka
     assert bbox_exceeds_limit(14.0, 49.5, 14.2, 49.7)
+
+
+def test_expand_bbox_wgs84_adds_buffer():
+    bbox = (14.40, 50.08, 14.42, 50.09)
+    expanded = expand_bbox_wgs84(bbox, VECTOR_FETCH_BUFFER_M)
+    assert expanded[0] < bbox[0]
+    assert expanded[1] < bbox[1]
+    assert expanded[2] > bbox[2]
+    assert expanded[3] > bbox[3]
+    assert expand_bbox_wgs84(bbox, 0) == bbox
 
 
 def test_estimate_minutes_accounts_for_dmpok(tmp_path, monkeypatch):

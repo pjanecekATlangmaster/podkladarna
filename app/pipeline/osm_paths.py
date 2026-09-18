@@ -16,7 +16,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 from app.pipeline.crs_5514 import wgs84_to_projected, write_prj
-from app.pipeline.fetch_openzu import USER_AGENT
+from app.pipeline.fetch_openzu import USER_AGENT, VECTOR_FETCH_BUFFER_M, expand_bbox_wgs84
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import (
@@ -2205,8 +2205,9 @@ def prepare_osm_paths(
     log=None,
 ) -> None:
     highways = osm_highway_set(PATH_SOURCE_OSM)
+    fetch_bbox = expand_bbox_wgs84(bbox_wgs84, VECTOR_FETCH_BUFFER_M)
     elements = fetch_osm_path_elements(
-        bbox_wgs84,
+        fetch_bbox,
         include_benches=include_benches,
         include_lamps=include_lamps,
         include_playground_equipment=include_playground_equipment,

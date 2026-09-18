@@ -73,6 +73,43 @@ def test_create_job_output_mode_png_only(client, monkeypatch):
     assert r.json()["options"]["output_zip"] is False
 
 
+def test_create_job_dedupes_same_bbox_while_active(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    data = {
+        "name": "dup-a",
+        "map_scale": "4000",
+        "contour_interval": "2.5",
+        "bbox": "14.40,50.08,14.42,50.09",
+        "sm5_sheets": "PRAH77",
+        "output_mode": "png_zip",
+        "output_references": "1",
+        "sprint_courtyard_olive": "1",
+    }
+    first = client.post("/api/jobs", data=data)
+    assert first.status_code == 200
+    job1 = first.json()
+    second = client.post("/api/jobs", data={**data, "name": "dup-b"})
+    assert second.status_code == 200
+    job2 = second.json()
+    assert job2["id"] == job1["id"]
+    # Jiná volba = nový job.
+    third = client.post(
+        "/api/jobs",
+        data={**data, "name": "dup-c", "output_mode": "png"},
+    )
+    assert third.status_code == 200
+    assert third.json()["id"] != job1["id"]
+
+
 def test_create_job_skips_reference_pngs(client, monkeypatch):
     import app.main as main
 

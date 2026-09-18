@@ -13,7 +13,7 @@ from app.download_cache import (
     read_meta,
     write_meta,
 )
-from app.pipeline.fetch_openzu import FetchError
+from app.pipeline.fetch_openzu import FetchError, VECTOR_FETCH_BUFFER_M, expand_bbox_wgs84
 from app.pipeline.fetch_zabaged import query_layer_geojson
 
 RUIAN_SERVICE = (
@@ -33,7 +33,8 @@ def fetch_ruian_buildings_for_bbox(
     log=None,
 ) -> Path | None:
     """Stáhne RÚIAN StavebniObjekt (GeoJSON EPSG:5514) do cache. Při chybě None."""
-    cache_dir = ruian_cache_dir(bbox)
+    fetch_bbox = expand_bbox_wgs84(bbox, VECTOR_FETCH_BUFFER_M)
+    cache_dir = ruian_cache_dir(fetch_bbox)
     dest = cache_dir / RUIAN_GEOJSON_NAME
     max_age = settings.RUIAN_CACHE_MAX_AGE_DAYS
     if is_fresh(cache_dir, dest, max_age, min_size=50):
@@ -43,7 +44,7 @@ def fetch_ruian_buildings_for_bbox(
             log(f"RÚIAN budovy cache ({cache_dir.name}, staženo {age})")
         return dest
 
-    west, south, east, north = bbox
+    west, south, east, north = fetch_bbox
     try:
         gj = query_layer_geojson(
             RUIAN_SERVICE,
@@ -68,7 +69,7 @@ def fetch_ruian_buildings_for_bbox(
     write_meta(
         cache_dir,
         source="ruian_ags",
-        bbox_wgs84=list(bbox),
+        bbox_wgs84=list(fetch_bbox),
         features=n,
     )
     if log:

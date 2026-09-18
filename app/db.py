@@ -285,6 +285,55 @@ def bbox_close(
     return all(abs(float(x) - float(y)) < eps for x, y in zip(a, b, strict=True))
 
 
+def find_duplicate_active_job(
+    options: dict[str, Any],
+    *,
+    within_minutes: int = 5,
+) -> dict[str, Any] | None:
+    """Stejný job (výřez + klíčové volby) už běží/čeká – typicky dvojklik Spustit."""
+
+    def _fp(opts: dict[str, Any]) -> tuple:
+        bbox = opts.get("bbox_wgs84") or []
+        return (
+            tuple(round(float(x), 5) for x in bbox) if len(bbox) == 4 else (),
+            str(opts.get("map_scale") or ""),
+            str(opts.get("contour_interval") or ""),
+            bool(opts.get("output_zip", True)),
+            bool(opts.get("output_references", True)),
+            bool(opts.get("sprint_courtyard_olive", True)),
+            str(opts.get("kp_cliff_symbol") or "earth_bank"),
+            str(opts.get("kp_cliff_sensitivity") or "normal"),
+            str(opts.get("kp_vege_height") or ""),
+            bool(opts.get("kp_osm_benches")),
+            bool(opts.get("kp_osm_lamps")),
+            bool(opts.get("kp_osm_playground_equipment")),
+            bool(opts.get("kp_osm_priority")),
+            str(opts.get("client_ip") or ""),
+        )
+
+    want = _fp(options)
+    if not want[0]:
+        return None
+    since = datetime.now(timezone.utc).timestamp() - max(1, within_minutes) * 60
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE status IN ('pending', 'queued', 'running')
+            ORDER BY created_at DESC
+            LIMIT 80
+            """
+        ).fetchall()
+    for row in rows:
+        job = _row_to_job(row)
+        created = _parse_iso(job.get("created_at") or "")
+        if created is None or created.timestamp() < since:
+            continue
+        if _fp(job.get("options") or {}) == want:
+            return job
+    return None
+
+
 def append_log(job_id: str, line: str) -> None:
     log_file = JOBS_DIR / job_id / "log.txt"
     log_file.parent.mkdir(parents=True, exist_ok=True)

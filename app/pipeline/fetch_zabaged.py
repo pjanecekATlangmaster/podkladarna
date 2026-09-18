@@ -18,7 +18,9 @@ from app.pipeline.fetch_openzu import (
     FetchError,
     QUERY_TIMEOUT_S,
     USER_AGENT,
+    VECTOR_FETCH_BUFFER_M,
     crop_bounds_5514,
+    expand_bbox_wgs84,
 )
 from app.tool_env import gis_subprocess_env, which_tool
 
@@ -38,9 +40,10 @@ def fetch_zabaged_for_bbox(
     bbox: tuple[float, float, float, float],
     log: callable | None = None,
 ) -> Path:
-    """Stáhne ZABAGED pro WGS84 bbox do sdílené cache (ne do jobu)."""
+    """Stáhne ZABAGED pro WGS84 bbox (+ VECTOR_FETCH_BUFFER_M) do sdílené cache."""
     cfg_path = settings.CONFIG_DIR / "zabaged_ags.yaml"
-    cache_dir = zabaged_cache_dir(bbox, cfg_path)
+    fetch_bbox = expand_bbox_wgs84(bbox, VECTOR_FETCH_BUFFER_M)
+    cache_dir = zabaged_cache_dir(fetch_bbox, cfg_path)
     dest_zip = cache_dir / "Zabaged_ags.zip"
     if is_fresh(cache_dir, dest_zip, settings.ZABAGED_CACHE_MAX_AGE_DAYS, min_size=500):
         if log:
@@ -56,8 +59,10 @@ def fetch_zabaged_for_bbox(
             "Windows: OSGeo4W, nebo docker compose -f docker-compose.dev.yml up"
         )
 
-    west, south, east, north = bbox
-    xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
+    west, south, east, north = fetch_bbox
+    xmin, ymin, xmax, ymax = crop_bounds_5514(
+        west, south, east, north, buffer_m=0.0
+    )
     cfg = _ags_config()
     service = cfg["service"].rstrip("/")
     layers: dict[str, int] = cfg["layers"]
@@ -105,11 +110,14 @@ def fetch_zabaged_for_bbox(
         write_meta(
             cache_dir,
             source="zabaged_ags",
-            bbox_wgs84=list(bbox),
+            bbox_wgs84=list(fetch_bbox),
             layers=kept,
         )
         if log:
-            log(f"ZABAGED: {kept} vrstev, {dest_zip.stat().st_size / 1e3:.0f} kB")
+            log(
+                f"ZABAGED: {kept} vrstev (+{VECTOR_FETCH_BUFFER_M:.0f} m přesah), "
+                f"{dest_zip.stat().st_size / 1e3:.0f} kB"
+            )
         return dest_zip
     finally:
         shutil.rmtree(stage, ignore_errors=True)

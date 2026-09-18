@@ -113,7 +113,7 @@ main.page-wrap {
 }
 
 @media (min-width: 1101px) {
-  #bbox-map { height: 420px; }
+  #bbox-map { height: 840px; }
   .preview-img { max-height: 320px; }
   .log { max-height: 240px; }
 }
@@ -339,7 +339,7 @@ legend {
 }
 
 #bbox-map {
-  height: 340px;
+  height: 680px;
   border-radius: 8px;
   border: 1px solid var(--border);
   margin: 0.5rem 0;

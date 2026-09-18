@@ -3,15 +3,23 @@
 WEB_ABOUT_HTML = """
 <p>
   Chtěl jsem vyzkoušet, jestli už jdou podklady pro orientační mapy
-  skládat automaticky. Program vznikl s pomocí AI, samotné generování
-  ale běží postaru, jasně danými algoritmy. Stáhnou se data ČÚZK,
-  Karttapullautin je zpracuje a složí se balíček do
-  <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a>.
+  skládat automaticky. Inspirací bylo
+  <a href="https://mapant.net/" target="_blank" rel="noopener">mapant.net</a>
+  a projekt
+  <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
+  – myšlenka se ale posunula od rastrového náhledu k editovatelným podkladům
+  přímo v
+  <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapperu</a>.
+  Program vznikl s pomocí AI, samotné generování ale běží postaru,
+  jasně danými algoritmy.
 </p>
 <p>
-  Z výřezu na mapě si Podkladárna stáhne LiDAR (DMR 5G + DMP OK) a polohopis
-  ZABAGED. Výsledek je jen tak dobrý, jaká jsou data: něco chybí, něco je
-  dvakrát (třeba silnice na mostě) a automatika to vždycky nerozsoudí.
+  Z výřezu na mapě si Podkladárna stáhne LiDAR (DMR&nbsp;5G + DMP&nbsp;OK),
+  polohopis ZABAGED a doplňky z OSM (cesty, plochy, budovy…) i další zdroje.
+  Karttapullautin připraví reliéf a zeleň jako rychlý PNG náhled; hlavní
+  výstup jsou vektory ve <code>.omap</code> pro OOM – podle měřítka
+  (cesty z OSM). Data nejsou dokonalá a automatika je jen skládá dohromady:
+  něco chybí, něco se překrývá a ne všechno sedí napoprvé.
   Berte to jako <em>pracovní podklad</em>, ne hotovou mapu. V OOM s tím
   ještě budete kreslit.
 </p>
@@ -23,7 +31,7 @@ WEB_ABOUT_HTML = """
 </p>
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
-  <li><code>podkladarna-*.omap</code> – podle měřítka 2 nebo 4 soubory (sprint, nebo les+MTBO) × 2 zdroje cest (ZABAGED / OSM); otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
+  <li><code>podkladarna-*.omap</code> – podle měřítka 1 nebo 2 soubory (sprint, nebo les+MTBO); cesty z OSM; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>) i KP (<code>contours_kp.dxf</code>) ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
@@ -50,26 +58,29 @@ WEB_ABOUT_HTML = """
 ZIP_ABOUT_TXT = """Podkladárna – co je v tomto balíčku
 ==================================
 
-Tento ZIP vygenerovala služba Podkladárna (LiDAR + ZABAGED → podklad pro orientační mapu).
+Tento ZIP vygenerovala služba Podkladárna (LiDAR + ZABAGED + OSM → podklad pro OOM).
 
 Proč Podkladárna
 ----------------
 Chtěl jsem vyzkoušet, jestli už jdou podklady pro orientační mapy skládat
-automaticky. Program vznikl s pomocí AI, samotné generování ale běží postaru,
-jasně danými algoritmy.
+automaticky. Inspirací bylo mapant.net a Karttapullautin; myšlenka se ale
+posunula k editovatelným podkladům v OpenOrienteering Mapperu, ne jen
+k rastrovému náhledu. Program vznikl s pomocí AI, samotné generování ale
+běží postaru, jasně danými algoritmy.
 
 Kvalita podkladu
 ----------------
-Výsledek je jen tak dobrý, jaká jsou data. V LiDARu, ZABAGEDu i OSM něco chybí,
-něco je dvakrát a automatika to vždycky nerozsoudí. Tento balíček je pracovní
-podklad, ne hotová mapa; v OOM s ním ještě budete kreslit.
+Hlavní výstup jsou vektory ve .omap (cesty, plochy, budovy, vrstevnice…);
+PNG z Karttapullautinu je hlavně náhled. Data ČÚZK i OSM nejsou dokonalá
+a automatika je jen skládá dohromady – něco chybí, něco se překrývá.
+Tento balíček je pracovní podklad, ne hotová mapa; v OOM s ním ještě
+budete kreslit.
 
-PNG z Karttapullautinu na webu je hlavně náhled – editovatelné vektory a .omap jsou zde ve ZIPu
-a skládají se z více zdrojů (ne 1:1 s PNG).
+PNG a ZIP nevypadají 1:1 – editovatelné vrstvy se skládají z více zdrojů.
 
 Co je uvnitř
 ------------
-- podkladarna-*.omap   … podle měřítka 2 nebo 4 soubory (sprint, nebo les+MTBO × ZABAGED/OSM), otevřete v OpenOrienteering Mapper (OOM)
+- podkladarna-*.omap   … podle měřítka 1 nebo 2 soubory (sprint, nebo les+MTBO; cesty OSM), otevřete v OpenOrienteering Mapper (OOM)
 - kp/                  … PNG náhledy Karttapullautin (zeleň + deprese)
 - base/                … vrstevnice GDAL (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy/knolly
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, …)

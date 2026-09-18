@@ -27,10 +27,13 @@ from app.pipeline.georef import projected_center_from_raster
 from app.pipeline.oom_georef import oom_north_angles
 from app.pipeline.oom_import import (
     OomObjectPart,
+    _path_object,
     build_dxf_object_part,
     build_zabaged_object_parts,
 )
+from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_layers import collect_oom_templates
+from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.open_land_subtract import collect_kp401_subtract_wkbs
 from app.pipeline.reference_layers import reference_metadata
 from app.pipeline.ruian_buildings import (
@@ -85,9 +88,8 @@ OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
 OOM_MAP_NAME = "podkladarna.omap"
 # Zdroje cest × disciplíny (počet disciplín závisí na měřítku).
-# Bez kombinace – jen ZABAGED a OSM (KP PNG bere hustší OSM cesty).
+# V .omap jen OSM cesty; ZABAGED cesty zůstávají ve zabaged/ pro ruční import.
 OOM_PATH_VARIANTS: tuple[tuple[str, str], ...] = (
-    ("cesty_zabaged", PATH_SOURCE_ZABAGED),
     ("cesty_osm", PATH_SOURCE_OSM),
 )
 OOM_DISCIPLINE_ORDER: tuple[str, ...] = ("sprint", "les", "mtbo")
@@ -317,8 +319,57 @@ def resolve_discipline_presets(
     return list(resolved["disciplines"])
 
 
-def omap_variant_filename(discipline_tag: str, path_tag: str) -> str:
-    return f"podkladarna-{discipline_tag}-{path_tag}.omap"
+def omap_variant_filename(discipline_tag: str, path_tag: str = "") -> str:
+    # Jediný auto zdroj cest je OSM – bez přípony cesty_*.
+    del path_tag
+    return f"podkladarna-{discipline_tag}.omap"
+
+
+def build_aoi_boundary_part(
+    bbox_wgs84: tuple[float, float, float, float],
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+) -> OomObjectPart | None:
+    """Fialový obdélník vybraného AOI (uvnitř = výběr, vně = přesah)."""
+    # ISOM/ISSprOM 708 = Out-of-bounds boundary (purple);
+    # ISMTBOM 708 je crossing point → 705 Marked route.
+    code = "705" if preset_id.startswith("mtbo") else "708"
+    symbol_index = symbol_index_for_code(preset_id, scale, code)
+    if symbol_index is None:
+        return None
+    xmin, ymin, xmax, ymax = crop_bounds_5514(
+        *bbox_wgs84, buffer_m=0.0
+    )
+    ring = [
+        (xmin, ymin),
+        (xmax, ymin),
+        (xmax, ymax),
+        (xmin, ymax),
+        (xmin, ymin),
+    ]
+    map_coords = [
+        projected_to_map_coord(
+            x,
+            y,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            scale=scale,
+            grivation_deg=grivation_deg,
+        )
+        for x, y in ring
+    ]
+    obj = _path_object(symbol_index, map_coords)
+    if not obj:
+        return None
+    return OomObjectPart(
+        name="AOI – vybraný výřez",
+        objects_xml=obj,
+        count=1,
+    )
 
 
 def job_scale_label(options: dict | None, preset_id: str = "") -> str:
@@ -405,14 +456,15 @@ def oom_readme(meta: dict) -> str:
         "Doporučený postup v OOM\n"
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný podkladarna-*.omap\n"
-        "   (sprint a/nebo les/mtbo × cesty_zabaged/cesty_osm – podle měřítka).\n"
+        "   (sprint a/nebo les/mtbo – podle měřítka; cesty z OSM).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
+        "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
         "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
         "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
         "   v Šablony → Nastavení šablon (Template Setup); KP PNG náhledy jsou ve složce kp/.\n"
         "3. Deprese: šablona „Karttapullautin deprese“.\n"
         "4. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
-        "   RUIAN_budovy.shp ve zabaged/. Celé osm/ a zabaged/ jsou SHP pro ruční skládání.\n"
+        "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
         "   KP PNG náhledy ve složce kp/; ve složce base/: vrstevnice GDAL\n"
         "   (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy, knolly.\n\n"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
@@ -644,6 +696,16 @@ def prepare_oom_map(
         )
     # Oliva dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
     object_parts.extend(courtyard_olive_parts)
+    aoi_part = build_aoi_boundary_part(
+        bbox_wgs84,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+    )
+    if aoi_part:
+        object_parts.append(aoi_part)
     return write_oom_map(
         dest,
         map_name=map_name,
