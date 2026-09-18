@@ -2,6 +2,16 @@ from __future__ import annotations
 
 import time
 
+from app.settings import APP_VERSION
+
+
+def test_index_cache_busts_static_assets(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert f'/static/app.js?v={APP_VERSION}' in html
+    assert f'/static/style.css?v={APP_VERSION}' in html
+
 
 def test_health(client):
     r = client.get("/api/health")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import mimetypes
 import traceback
+import urllib.parse
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -125,6 +126,10 @@ WEB_DIR = STATIC_DIR.parent
 def index() -> HTMLResponse:
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("<!-- PODKLADARNA_ABOUT -->", WEB_ABOUT_HTML)
+    # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
+    v = urllib.parse.quote(APP_VERSION, safe="")
+    html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
+    html = html.replace('src="/static/app.js"', f'src="/static/app.js?v={v}"')
     return HTMLResponse(html)
 
 
