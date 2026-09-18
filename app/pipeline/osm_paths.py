@@ -187,11 +187,13 @@ def path_draw_highway(highway: str) -> str:
         return "path"
     return hw or "path"
 GRID_M = 30.0
-# crossing vždy pryč; sidewalk jen v lese (na sprintu bereme jako chodník).
-SKIP_FOOTWAY_ALWAYS = frozenset({"crossing"})
+# crossing / přechody bereme (pod silnicemi); dřív se zahazovaly.
+SKIP_FOOTWAY_ALWAYS = frozenset()
 SKIP_CYCLEWAY = frozenset({"sidewalk", "crossing", "lane", "share_busway", "track"})
-# Zpětná kompatibilita testů / starších importů.
-SKIP_FOOTWAY = frozenset({"sidewalk", "crossing"})
+# Zpětná kompatibilita testů / starších importů (sidewalk jen když allow_sidewalk=False).
+SKIP_FOOTWAY = frozenset({"sidewalk"})
+# Lineární railway=platform (2 uzly) → buffer na plochu.
+PLATFORM_LINE_HALF_WIDTH_M = 1.5
 
 # Plochy → OOM zpevněná (501 / 501.1), ne žlutá 401.
 # leisure=track = běžecká dráha (ne highway=track).
@@ -1895,6 +1897,39 @@ def _close_ring_5514(
     return out if len(out) >= 4 else None
 
 
+def _line_buffer_ring_5514(
+    pts: list[tuple[float, float]],
+    *,
+    half_width_m: float = PLATFORM_LINE_HALF_WIDTH_M,
+) -> list[tuple[float, float]] | None:
+    """Obdélníkový / pásový buffer kolem linie (lineární nástupiště = 2 uzly)."""
+    if len(pts) < 2 or half_width_m <= 0:
+        return None
+    left: list[tuple[float, float]] = []
+    right: list[tuple[float, float]] = []
+    n = len(pts)
+    for i in range(n):
+        if i == 0:
+            dx = pts[1][0] - pts[0][0]
+            dy = pts[1][1] - pts[0][1]
+        elif i == n - 1:
+            dx = pts[i][0] - pts[i - 1][0]
+            dy = pts[i][1] - pts[i - 1][1]
+        else:
+            dx = (pts[i][0] - pts[i - 1][0]) + (pts[i + 1][0] - pts[i][0])
+            dy = (pts[i][1] - pts[i - 1][1]) + (pts[i + 1][1] - pts[i][1])
+        length = math.hypot(dx, dy) or 1.0
+        nx = -dy / length * half_width_m
+        ny = dx / length * half_width_m
+        x, y = pts[i]
+        left.append((x + nx, y + ny))
+        right.append((x - nx, y - ny))
+    ring = left + list(reversed(right))
+    if ring[0] != ring[-1]:
+        ring.append(ring[0])
+    return ring if len(ring) >= 4 else None
+
+
 def _nodes_geometry_to_5514(geometry: list[dict] | None) -> list[tuple[float, float]]:
     pts: list[tuple[float, float]] = []
     for node in geometry or []:
@@ -1908,11 +1943,20 @@ def _nodes_geometry_to_5514(geometry: list[dict] | None) -> list[tuple[float, fl
 
 def osm_area_polygons_5514(
     element: dict,
+    *,
+    buffer_line_m: float | None = None,
 ) -> list[list[list[tuple[float, float]]]]:
-    """Uzavřené plochy z way nebo multipolygon relation → seznam [outer, *holes]."""
+    """Uzavřené plochy z way nebo multipolygon relation → seznam [outer, *holes].
+
+    ``buffer_line_m``: když way nejde uzavřít (např. 2uzlové nástupiště),
+    udělej pásový buffer kolem střednice.
+    """
     el_type = element.get("type")
     if el_type == "way":
-        ring = _close_ring_5514(_nodes_geometry_to_5514(element.get("geometry")))
+        pts = _nodes_geometry_to_5514(element.get("geometry"))
+        ring = _close_ring_5514(pts)
+        if not ring and buffer_line_m and len(pts) >= 2:
+            ring = _line_buffer_ring_5514(pts, half_width_m=buffer_line_m)
         return [[ring]] if ring else []
     if el_type != "relation":
         return []
@@ -2083,7 +2127,10 @@ def prepare_osm_paths(
                 skipped += 1
                 continue
             if kind in _CLOSED_AREA_KINDS:
-                polygons = osm_area_polygons_5514(el)
+                buf = (
+                    PLATFORM_LINE_HALF_WIDTH_M if kind == "platform" else None
+                )
+                polygons = osm_area_polygons_5514(el, buffer_line_m=buf)
                 if not polygons:
                     skipped += 1
                     continue

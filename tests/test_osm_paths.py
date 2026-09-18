@@ -24,18 +24,23 @@ from app.pipeline.osm_paths import (
 
 
 def test_skip_sidewalk_and_crossing():
-    # Les / default: chodník i přejezd pryč.
+    # Les / default: chodník pryč (allow_sidewalk=False); přechody bereme.
     assert _way_skip_reason({"highway": "footway", "footway": "sidewalk"})
-    assert _way_skip_reason({"highway": "footway", "footway": "crossing"})
-    # Sprint: chodník bereme, přejezd ne.
+    assert (
+        _way_skip_reason({"highway": "footway", "footway": "crossing"}) is None
+    )
+    # Sprint: chodník i přechod (footway=crossing) bereme – kreslí se pod silnicemi.
     assert (
         _way_skip_reason(
             {"highway": "footway", "footway": "sidewalk"}, allow_sidewalk=True
         )
         is None
     )
-    assert _way_skip_reason(
-        {"highway": "footway", "footway": "crossing"}, allow_sidewalk=True
+    assert (
+        _way_skip_reason(
+            {"highway": "footway", "footway": "crossing"}, allow_sidewalk=True
+        )
+        is None
     )
     assert _way_skip_reason({"highway": "path"}) is None
     assert _way_skip_reason({"highway": "footway"}) is None
@@ -43,6 +48,28 @@ def test_skip_sidewalk_and_crossing():
     assert _way_skip_reason({"highway": "bridleway"}) is None
     assert _way_skip_reason({"highway": "cycleway"}) is None
     assert _way_skip_reason({"highway": "cycleway", "foot": "no"})
+
+
+def test_footway_crossing_kept_as_path():
+    """way/1449452795, way/204833422: footway=crossing → ne zahodit."""
+    assert (
+        osm_way_to_5514(
+            {
+                "type": "way",
+                "tags": {
+                    "highway": "footway",
+                    "footway": "crossing",
+                    "surface": "asphalt",
+                },
+                "geometry": [
+                    {"lat": 50.034, "lon": 14.375},
+                    {"lat": 50.0341, "lon": 14.3751},
+                ],
+            },
+            allow_sidewalk=True,
+        )
+        is not None
+    )
 
 
 def test_classify_osm_well_and_playground():
@@ -880,6 +907,35 @@ def test_tram_platform_as_paved_area():
     assert len(polys) == 1
     ring = polys[0][0]
     assert len(ring) >= 4
+    assert ring[0] == ring[-1]
+
+
+def test_tram_platform_two_node_line_buffered():
+    """way/180964510: railway=platform jen 2 uzly → pásový buffer na plochu."""
+    from app.pipeline.osm_paths import (
+        PLATFORM_LINE_HALF_WIDTH_M,
+        osm_area_polygons_5514,
+    )
+
+    el = {
+        "type": "way",
+        "tags": {
+            "railway": "platform",
+            "public_transport": "platform",
+            "tram": "yes",
+        },
+        "geometry": [
+            {"lat": 50.03410, "lon": 14.37500},
+            {"lat": 50.03415, "lon": 14.37520},
+        ],
+    }
+    assert osm_area_polygons_5514(el) == []
+    polys = osm_area_polygons_5514(
+        el, buffer_line_m=PLATFORM_LINE_HALF_WIDTH_M
+    )
+    assert len(polys) == 1
+    ring = polys[0][0]
+    assert len(ring) >= 5  # left×2 + right×2 + close
     assert ring[0] == ring[-1]
 
 
