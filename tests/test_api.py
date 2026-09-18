@@ -305,7 +305,7 @@ def test_index_html(client):
     assert "job-detail" in html
     assert "job-detail-holder" in html
     assert "jobs-list" in html
-    assert "Podkladárna v1.8" in html
+    assert f"Podkladárna v{APP_VERSION}" in html
     assert 'id="whats-new"' in html
     assert "github.com/pjanecekATlangmaster/podkladarna/issues" in html
     assert "zpětnou vazbu" in html

@@ -117,6 +117,14 @@ _ZABAGED_UNDER_VEGETATION = frozenset(
         "UdrzovanaZelen",
     }
 )
+# Zpevněné „Ostatní plocha v sídlech“ / parkoviště jako nejspodnější podklad
+# (pod loukami, vegetací i silnicemi) – jinak 529 přemaluje Ulice/Cesta.
+_ZABAGED_BASE_PAVED = frozenset(
+    {
+        "OstatniPlochaVSidlech",
+        "ParkovisteOdpocivka",
+    }
+)
 # Obdělávaná půda z OSM (412) taky pod KP – hustníky zůstanou navrch.
 _OSM_UNDER_VEGETATION_MARK = "(412)"
 # Dvory v budovách (oliva) až navrch – překryjí detaily uvnitř dvorů.
@@ -566,6 +574,7 @@ def prepare_oom_map(
 
     object_parts: list[OomObjectPart] = []
     zabaged_under: list[OomObjectPart] = []
+    zabaged_base_paved: list[OomObjectPart] = []
     zabaged_rest: list[OomObjectPart] = []
     courtyard_olive_parts: list[OomObjectPart] = []
     prefer_osm_paths: list[list[tuple[float, float]]] = []
@@ -596,9 +605,13 @@ def prepare_oom_map(
             layer = part.name.removeprefix("ZABAGED – ").strip()
             if layer in _ZABAGED_UNDER_VEGETATION:
                 zabaged_under.append(part)
+            elif layer in _ZABAGED_BASE_PAVED:
+                zabaged_base_paved.append(part)
             else:
                 zabaged_rest.append(part)
 
+    # Nejspodnější podklad: zpevněné plochy ze ZABAGED (529), pak louky…
+    object_parts.extend(zabaged_base_paved)
     # Louky/zeleň ze ZABAGED + OSM 412 pod KP (hustníky z LiDARu musí zůstat vidět).
     object_parts.extend(zabaged_under)
     aopk_pts = load_aopk_tree_points(aopk_trees)

@@ -196,11 +196,13 @@ def test_drop_oversized_ostatni_plocha():
         "type": "FeatureCollection",
         "features": [
             {"type": "Feature", "properties": {"Shape_Area": 160_356}, "geometry": None},
+            {"type": "Feature", "properties": {"Shape_Area": 371_249}, "geometry": None},
             {"type": "Feature", "properties": {"Shape_Area": 13_727_609}, "geometry": None},
             {"type": "Feature", "properties": {"fid_zbg": "no-area"}, "geometry": None},
         ],
     }
     drop_oversized_ostatni_plocha(gj)
     areas = [f["properties"].get("Shape_Area") for f in gj["features"]]
-    assert areas == [160_356, None]
+    # Pod 1 km² necháme (i sídlištní zbytky); zahodí se jen celoměstské km².
+    assert areas == [160_356, 371_249, None]
 

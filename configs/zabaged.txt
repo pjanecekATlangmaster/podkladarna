@@ -72,7 +72,6 @@ road-path|503|vrstva=Ulice
 road-path|505|vrstva=Cesta
 road-path|507|vrstva=Pesina
 road-path|507|vrstva=Zabrana
-road-path|507|vrstva=OstatniPlochaVSidlech
 settlement|527|vrstva=ArealUceloveZastavby
 settlement|527|vrstva=OvocnySadZahrada
 farm|401|vrstva=TrvalyTravniPorost
