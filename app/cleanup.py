@@ -13,7 +13,7 @@ from app.settings import JOB_RETENTION_DAYS, JOB_RETENTION_HOURS, JOBS_DIR
 logger = logging.getLogger("podkladarna.cleanup")
 
 _cleanup_started = False
-_last_pageview_purge = 0.0
+_last_pageview_purge: float | None = None
 _pageview_purge_lock = threading.Lock()
 # Při otevření webu / výpisu jobů; ne při každém pollu.
 PAGEVIEW_PURGE_MIN_INTERVAL_S = 60.0
@@ -65,7 +65,11 @@ def maybe_purge_old_jobs(
     global _last_pageview_purge
     now = time.monotonic()
     with _pageview_purge_lock:
-        if now - _last_pageview_purge < min_interval_s:
+        # None = ještě neběželo (ne 0.0 – monotonic na CI často začíná u nuly).
+        if (
+            _last_pageview_purge is not None
+            and now - _last_pageview_purge < min_interval_s
+        ):
             return 0
         _last_pageview_purge = now
     return purge_old_jobs()

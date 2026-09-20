@@ -62,7 +62,7 @@ def _looks_czech(text: str) -> bool:
     return bool(
         re.search(
             r"(?i)\b(oprava|přidán|nahrazen|úprava|vrstevnic|měřítko|"
-            r"ekvidistanc|podklad|budov|cest[ay]|omap[yu]?|zabaged|ruian)\b",
+            r"ekvidistanc|podklad|budov|cest[ay]|zabaged|ruian)\b",
             text,
         )
     )
@@ -141,6 +141,19 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
         re.compile(r"(?i)remove scratch|_tmp_"),
         "Úklid dočasných souborů",
+    ),
+    (
+        re.compile(
+            r"(?i)omap files from the map title|purge old jobs on page load|"
+            r"license outputs as CC BY"
+        ),
+        "Omap podle názvu mapy, úklid jobů při otevření webu a CC BY u výstupu",
+    ),
+    (
+        re.compile(
+            r"(?i)Drop large settlement paved|OstatniPlocha|paved areas that cover roads"
+        ),
+        "Velké Ostatní plochy v sídlech se zahazují (nepřekrývají silnice)",
     ),
 ]
 

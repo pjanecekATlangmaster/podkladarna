@@ -33,14 +33,25 @@ def test_purge_old_jobs_removes_expired(tmp_path, monkeypatch):
 
 
 def test_maybe_purge_throttles(monkeypatch):
+    """Řídíme monotonic – na CI často začíná u 0 a 0.0 ≠ „dávno“."""
     calls = {"n": 0}
+    clock = {"t": 10_000.0}
 
     def fake_purge(**_kwargs):
         calls["n"] += 1
         return 0
 
     monkeypatch.setattr("app.cleanup.purge_old_jobs", fake_purge)
-    monkeypatch.setattr("app.cleanup._last_pageview_purge", 0.0)
-    assert maybe_purge_old_jobs(min_interval_s=3600) == 0
+    monkeypatch.setattr("app.cleanup.time.monotonic", lambda: clock["t"])
+    monkeypatch.setattr("app.cleanup._last_pageview_purge", None)
+
     assert maybe_purge_old_jobs(min_interval_s=3600) == 0
     assert calls["n"] == 1
+
+    clock["t"] += 10
+    assert maybe_purge_old_jobs(min_interval_s=3600) == 0
+    assert calls["n"] == 1
+
+    clock["t"] += 3600
+    assert maybe_purge_old_jobs(min_interval_s=3600) == 0
+    assert calls["n"] == 2
