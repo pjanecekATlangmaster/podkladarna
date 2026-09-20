@@ -395,7 +395,9 @@ def _package_output(
                     str(disc_preset.get("vectorconf", "zabaged.txt"))
                 ).name
                 for path_tag, path_src in OOM_PATH_VARIANTS:
-                    variant_name = omap_variant_filename(disc_tag, path_tag)
+                    variant_name = omap_variant_filename(
+                        disc_tag, path_tag, map_name=job_name or ""
+                    )
                     log(f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src})")
                     omap_p = prepare_oom_map(
                         kp_cwd,
@@ -446,7 +448,7 @@ def _package_output(
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)
-    # Stejná struktura jako v ZIPu, ať jde otevřít i output/podkladarna-*.omap.
+    # Stejná struktura jako v ZIPu, ať jde otevřít i output/*-{sprint,les,mtbo}.omap.
     if want_zip and omap_paths:
         for folder, names in (
             (

@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import db, worker
-from app.cleanup import purge_old_jobs, start_cleanup_scheduler
+from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.guide_text import WEB_ABOUT_HTML
 from app.rate_limit import check_create_job
@@ -124,6 +124,12 @@ WEB_DIR = STATIC_DIR.parent
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
+    try:
+        removed = maybe_purge_old_jobs()
+        if removed:
+            logger.info("Pageview cleanup: removed %s old job(s)", removed)
+    except Exception:
+        logger.exception("Pageview cleanup failed")
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("<!-- PODKLADARNA_ABOUT -->", WEB_ABOUT_HTML)
     # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
@@ -136,6 +142,7 @@ def index() -> HTMLResponse:
 @app.get("/licence", response_class=HTMLResponse)
 def licence_page() -> HTMLResponse:
     html = (WEB_DIR / "licence.html").read_text(encoding="utf-8")
+    html = html.replace("{{APP_VERSION}}", APP_VERSION)
     return HTMLResponse(html)
 
 

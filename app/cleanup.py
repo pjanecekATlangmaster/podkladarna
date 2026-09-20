@@ -13,6 +13,10 @@ from app.settings import JOB_RETENTION_DAYS, JOB_RETENTION_HOURS, JOBS_DIR
 logger = logging.getLogger("podkladarna.cleanup")
 
 _cleanup_started = False
+_last_pageview_purge = 0.0
+_pageview_purge_lock = threading.Lock()
+# Při otevření webu / výpisu jobů; ne při každém pollu.
+PAGEVIEW_PURGE_MIN_INTERVAL_S = 60.0
 
 
 def purge_old_jobs(retention_hours: int | None = None) -> int:
@@ -51,6 +55,20 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
 
     _purge_orphan_job_dirs()
     return removed
+
+
+def maybe_purge_old_jobs(
+    *,
+    min_interval_s: float = PAGEVIEW_PURGE_MIN_INTERVAL_S,
+) -> int:
+    """Stejné jako purge_old_jobs, ale nejvýš jednou za ``min_interval_s`` (pageview)."""
+    global _last_pageview_purge
+    now = time.monotonic()
+    with _pageview_purge_lock:
+        if now - _last_pageview_purge < min_interval_s:
+            return 0
+        _last_pageview_purge = now
+    return purge_old_jobs()
 
 
 def _purge_orphan_job_dirs() -> None:

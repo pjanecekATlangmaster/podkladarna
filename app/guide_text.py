@@ -31,7 +31,7 @@ WEB_ABOUT_HTML = """
 </p>
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
-  <li><code>podkladarna-*.omap</code> – podle měřítka 1 nebo 2 soubory (sprint, nebo les+MTBO); cesty z OSM; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
+  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> – podle názvu projektu a měřítka; cesty z OSM; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>) i KP (<code>contours_kp.dxf</code>) ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
@@ -39,7 +39,7 @@ WEB_ABOUT_HTML = """
   <strong>ekvidistanci</strong> a spusťte generování. PNG na webu je jen náhled;
   do ZIPu jdou omapy pro příslušné disciplíny. Stránku mezitím můžete zavřít.
   Po dokončení stáhněte ZIP (pokud jste ho nechali generovat),
-  v OOM otevřete vybraný <code>podkladarna-*.omap</code> a podle návodu doladíte symboliku.
+  v OOM otevřete vybraný <code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> a podle návodu doladíte symboliku.
   OCAD soubor <code>.omap</code> neotevře, DXF/SHP/PNG ano.
 </p>
 <p>
@@ -80,7 +80,7 @@ PNG a ZIP nevypadají 1:1 – editovatelné vrstvy se skládají z více zdrojů
 
 Co je uvnitř
 ------------
-- podkladarna-*.omap   … podle měřítka 1 nebo 2 soubory (sprint, nebo les+MTBO; cesty OSM), otevřete v OpenOrienteering Mapper (OOM)
+- *-sprint/les/mtbo.omap … podle názvu projektu a měřítka (cesty OSM), otevřete v OpenOrienteering Mapper (OOM)
 - kp/                  … PNG náhledy Karttapullautin (zeleň + deprese)
 - base/                … vrstevnice GDAL (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy/knolly
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, …)
@@ -92,7 +92,7 @@ Co je uvnitř
 Co s tím
 --------
 1. Nainstalujte OOM (openorienteering.org).
-2. Rozbalte ZIP. Dvojklik na vybraný podkladarna-*.omap nebo File → Open.
+2. Rozbalte ZIP. Dvojklik na vybraný *-sprint.omap / *-les.omap / *-mtbo.omap nebo File → Open.
 3. Importujte DXF a SHP dle README_OOM.txt a přiřaďte symboliku ISOM/ISSOM.
 4. Kreslete mapu. Referenční vrstvy po dokončení vypněte nebo smažte.
 
@@ -114,9 +114,10 @@ https://github.com/pjanecekATlangmaster/podkladarna/issues
 
 Právní
 ------
-Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto) – licence CC BY 4.0.
-Při šíření mapy uveďte: „Zdroj: ČÚZK, [rok]“. AOPK památné stromy (CC BY 4.0).
-OSM © přispěvatelé (ODbL).
+Kód Podkladárny: MIT. Výstup jobu (PNG, .omap, …): CC BY 4.0 –
+při šíření uveďte: „Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok]“.
+Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto) – CC BY 4.0.
+AOPK památné stromy (CC BY 4.0). OSM © přispěvatelé (ODbL).
 Reliéf: Karttapullautin (GPL-3.0).
 
 """

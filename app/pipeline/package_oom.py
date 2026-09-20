@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 import zipfile
 from pathlib import Path
 
@@ -327,10 +329,33 @@ def resolve_discipline_presets(
     return list(resolved["disciplines"])
 
 
-def omap_variant_filename(discipline_tag: str, path_tag: str = "") -> str:
+def omap_map_stem(map_name: str, *, max_len: int = 12) -> str:
+    """Název mapy → krátký stem pro .omap (bez diakritiky, CamelCase, max 12).
+
+    „Česká lípa park“ → „CeskaLipaPar“; prázdný název → „Mapa“.
+    """
+    raw = unicodedata.normalize("NFD", (map_name or "").strip())
+    raw = "".join(c for c in raw if unicodedata.category(c) != "Mn")
+    raw = re.sub(r'[<>:"/\\|?*\x00-\x1f._]+', " ", raw)
+    words: list[str] = []
+    for token in re.split(r"\s+", raw):
+        word = re.sub(r"[^A-Za-z0-9]", "", token)
+        if word:
+            words.append(word)
+    if not words:
+        return "Mapa"
+    stem = words[0] + "".join(w[:1].upper() + w[1:] for w in words[1:])
+    return stem[:max_len] or "Mapa"
+
+
+def omap_variant_filename(
+    discipline_tag: str,
+    path_tag: str = "",
+    map_name: str = "",
+) -> str:
     # Jediný auto zdroj cest je OSM – bez přípony cesty_*.
     del path_tag
-    return f"podkladarna-{discipline_tag}.omap"
+    return f"{omap_map_stem(map_name)}-{discipline_tag}.omap"
 
 
 def build_aoi_boundary_part(
@@ -463,8 +488,8 @@ def oom_readme(meta: dict) -> str:
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
-        "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný podkladarna-*.omap\n"
-        "   (sprint a/nebo les/mtbo – podle měřítka; cesty z OSM).\n"
+        "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný *-sprint.omap / *-les.omap / *-mtbo.omap\n"
+        "   (podle měřítka; cesty z OSM).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
         "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
@@ -479,7 +504,8 @@ def oom_readme(meta: dict) -> str:
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
         "AOPK památné stromy (CC BY 4.0). "
-        "OSM © přispěvatelé (ODbL). Při šíření mapy uveďte zdroj: ČÚZK, [rok].\n"
+        "OSM © přispěvatelé (ODbL). Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
+        "Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok].\n"
         "Reliéf a vegetace: Karttapullautin (GPL-3.0).\n\n"
         "Podkladárna je experiment — zpětná vazba a připomínky:\n"
         "https://github.com/pjanecekATlangmaster/podkladarna/issues\n"

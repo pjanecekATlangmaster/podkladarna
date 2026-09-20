@@ -1,9 +1,22 @@
 # Licence a zdroje
 
-Podkladárna (tento repozitář) je uvolněná pod **MIT**. Viz [LICENSE](./LICENSE).
+## Software (MIT)
 
-Výstupy jobů (PNG, DXF, shapefile) vznikají z cizích dat a nástrojů — ty mají
-vlastní podmínky. Při dalším šíření mapy je potřeba uvést zejména ČÚZK.
+Podkladárna (tento repozitář – web, API, pipeline) je uvolněná pod **MIT**.
+Viz [LICENSE](./LICENSE). MIT se vztahuje na kód; **nevyžaduje** uvedení
+zdroje na mapách, které službou vytvoříte.
+
+## Výstup jobu (CC BY 4.0)
+
+PNG, `.omap`, DXF a shapefile z jobu jsou pod
+[Creative Commons Uveďte původ 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs).
+Při dalším použití mapy (tisk, závod, publikace) **uveďte zdroj**, např.:
+
+**Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok]**
+
+Výstupy vznikají z cizích dat a nástrojů — ty mají vlastní podmínky níže.
+ČÚZK data jsou sama o sobě CC BY 4.0; citace ČÚZK je tedy povinná i bez
+licence výstupu Podkladárny.
 
 ## Data ČÚZK (CC BY 4.0)
 

@@ -60,8 +60,13 @@ uvicorn app.main:app --reload --app-dir .
 
 ## Licence
 
-Podkladárna je pod **[MIT](./LICENSE)** (© 2026 Petr Janeček).
+**Kód** Podkladárny je pod **[MIT](./LICENSE)** (© 2026 Petr Janeček).
+MIT se týká softwaru – nevyžaduje uvedení zdroje na mapách z jobu.
 
-Výstupy vznikají z otevřených dat **ČÚZK** (DMR 5G, DMP OK, ZABAGED®, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs))
-a z [Karttapullautin](https://github.com/karttapullautin/karttapullautin) (GPL-3.0).
-Přehled zdrojů a podmínek: **[LICENSES.md](./LICENSES.md)**.
+**Výstup jobu** (PNG, `.omap`, DXF, SHP) je pod **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs)** –
+při tisku / šíření mapy uveďte zdroj, např.
+`Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok]`.
+
+Data **ČÚZK** (DMR 5G, DMP OK, ZABAGED®) jsou také CC BY 4.0;
+[Karttapullautin](https://github.com/karttapullautin/karttapullautin) je GPL-3.0.
+Přehled: **[LICENSES.md](./LICENSES.md)** a stránka `/licence`.

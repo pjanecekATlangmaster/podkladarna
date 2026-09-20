@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.9.5"
+APP_VERSION = "1.9.7"
 
 apply_local_gis_env()
 

@@ -19,16 +19,29 @@
   </header>
 
   <main class="licence-page">
+    <h2>Software Podkladárna</h2>
     <p>
-      <strong>Podkladárna</strong> (web, API, pipeline) je svobodný software pod licencí
+      Web, API a pipeline jsou svobodný software pod licencí
       <a href="https://opensource.org/license/mit" target="_blank" rel="noopener">MIT</a>,
       © 2026 Petr Janeček.
+      MIT se vztahuje na <em>kód</em> (můžete ho volně používat a upravovat;
+      při šíření kódu ponechte copyright notice).
+      <strong>MIT nevyžaduje uvedení zdroje na mapách</strong>, které Podkladárnou vytvoříte.
       Zdrojový kód:
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">GitHub</a>.
     </p>
+
+    <h2>Vygenerovaná mapa (výstup jobu)</h2>
     <p>
-      Výstup jobu (PNG, DXF, shapefile) vzniká z dat ČÚZK a z Karttapullautinu.
-      Při dalším použití mapy je nutné uvést zdroje níže.
+      PNG, <code>.omap</code>, DXF a shapefile z jobu jsou pod
+      <a href="https://creativecommons.org/licenses/by/4.0/deed.cs" target="_blank" rel="noopener">CC BY 4.0</a>
+      – při dalším použití (tisk, závod, publikace, sdílení) <strong>musíte uvést zdroj</strong>.
+    </p>
+    <p>Minimální citace na mapě / v legendě:</p>
+    <p><strong>Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok]</strong></p>
+    <p>
+      Rok volte podle aktuálnosti použitých dat. Podrobnější citace zdrojů níže
+      jsou vítané (např. „ZABAGED® © ČÚZK“).
     </p>
 
     <h2>Data ČÚZK</h2>
@@ -73,7 +86,7 @@
   </main>
 
   <footer class="site-footer">
-    <p><a href="/">Podkladárna</a> v1.5 · licence MIT</p>
+    <p><a href="/">Podkladárna</a> v{{APP_VERSION}} · kód MIT · výstup CC BY 4.0</p>
   </footer>
 </body>
 </html>

@@ -67,18 +67,24 @@ def test_resolve_omap_job_by_scale():
     assert via_preset["contour_interval"] == 5.0
 
     names = [
-        omap_variant_filename(d, p)
+        omap_variant_filename(d, p, map_name="Veltrusy park")
         for d, _, _ in resolve_discipline_presets(
             "sprint_2m", presets, map_scale=4000, contour_interval=2
         )
         for p, _ in OOM_PATH_VARIANTS
     ]
     assert len(names) == 1
-    assert names == ["podkladarna-sprint.omap"]
+    assert names == ["VeltrusyPark-sprint.omap"]
     assert "podkladarna-sprint-cesty_zabaged.omap" not in names
     assert "podkladarna-sprint-cesty_osm.omap" not in names
     assert "podkladarna-sprint-kombinace.omap" not in names
     assert not any(n.startswith("podkladarna-les-") for n in names)
+
+    from app.pipeline.package_oom import omap_map_stem
+
+    assert omap_map_stem("Česká lípa sever") == "CeskaLipaSev"
+    assert omap_map_stem("") == "Mapa"
+    assert omap_variant_filename("les", map_name="A") == "A-les.omap"
 
 
 def test_map_scale_from_scalefactor():
@@ -206,12 +212,14 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "1:4000" in readme
     assert "ČÚZK" in readme
     assert "WMS" in readme
-    assert "podkladarna-*.omap" in readme
+    assert "*-sprint.omap" in readme or "*-les.omap" in readme
     assert "cesty_zabaged/cesty_osm" not in readme
     assert "kombinace" not in readme
     assert "Fialový obdélník" in readme or "fialový" in readme.lower()
     assert "github.com/pjanecekATlangmaster/podkladarna/issues" in readme
     assert oom_readme(meta).startswith("Podkladárna")
+
+
 def test_prepare_oom_map_minimal(tmp_path):
     kp = tmp_path / "work"
     kp.mkdir()
