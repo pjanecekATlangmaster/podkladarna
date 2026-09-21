@@ -599,6 +599,7 @@ def build_zabaged_object_parts(
     omit_path_layers: bool = False,
     omit_layers: frozenset[str] | set[str] | None = None,
     max_ostatni_m2: float | None = MAX_OSTATNI_PLOCHA_M2,
+    ostatni_as_403: bool = False,
 ) -> list[OomObjectPart]:
     use_ogr = True
     try:
@@ -728,6 +729,12 @@ def build_zabaged_object_parts(
                     preset_id=preset_id,
                     scale=scale,
                 )
+                if (
+                    layer_name == "OstatniPlochaVSidlech"
+                    and ostatni_as_403
+                    and code
+                ):
+                    code = "403"
                 if not code:
                     continue
                 symbol_index = symbol_index_for_code(preset_id, scale, code)
@@ -806,6 +813,12 @@ def build_zabaged_object_parts(
                     preset_id=preset_id,
                     scale=scale,
                 )
+                if (
+                    layer_name == "OstatniPlochaVSidlech"
+                    and ostatni_as_403
+                    and code
+                ):
+                    code = "403"
                 if not code:
                     continue
                 symbol_index = symbol_index_for_code(preset_id, scale, code)

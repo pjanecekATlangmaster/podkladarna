@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.10.0"
+APP_VERSION = "1.10.3"
 
 apply_local_gis_env()
 
@@ -78,6 +78,8 @@ DEFAULT_OPTIONS = {
     "kp_osm_playground_equipment": False,
     # Priorita OSM (urban pack) – dočasně default zapnuto kvůli testování.
     "kp_osm_priority": True,
+    # Všechny highway=footway jako zpevněný chodník (501.6) – default vypnuto.
+    "kp_osm_footway_as_sidewalk": False,
     # Zdroj cest: mixed | zabaged | osm (viz path_source v osm_paths.py).
     "path_source": "mixed",
     # Sprint: nepřístupné dvory uvnitř budov (díry v 521) vyplnit olivou 520.
@@ -85,4 +87,6 @@ DEFAULT_OPTIONS = {
     # Ostatní plocha v sídlech do auto .omap: none | small | medium | large.
     # Default small = jen ≤5 ha (současné chování). ZIP má vždy pásma SHP.
     "ostatni_plocha": "small",
+    # Ostatní plocha jako 403 (rough open) místo 501 – default vypnuto.
+    "ostatni_plocha_as_403": False,
 }

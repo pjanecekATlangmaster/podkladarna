@@ -220,6 +220,17 @@ def test_oom_code_parking_forest_maps_to_501_under_roads():
         assert idx < road_idx, (idx, road_idx)
 
 
+def test_ostatni_as_403_override_available():
+    """Volba ostatni_plocha_as_403: značka 403 je ve všech sadách."""
+    for preset_id, scale in (
+        ("sprint_2m", 4000),
+        ("forest_10000", 10000),
+        ("mtbo_10000", 10000),
+    ):
+        idx = symbol_index_for_code(preset_id, scale, "403")
+        assert idx is not None, (preset_id, scale)
+
+
 def test_oom_code_parking_mtbo_maps_to_501_0_under_roads():
     code = oom_code_for_vectorconf_rule(
         "parking",

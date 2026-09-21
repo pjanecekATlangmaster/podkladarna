@@ -125,6 +125,12 @@
           </label>
           <p class="hint" id="osm-priority-hint">Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintového výřezu užitečné; v lese často zbytečné. Budovy a silnice bereme ze ZABAGED.</p>
 
+          <label class="checkbox-row">
+            <input type="checkbox" name="kp_osm_footway_as_sidewalk" id="kp_osm_footway_as_sidewalk" value="1" />
+            Všechny footway jako zpevněný chodník
+          </label>
+          <p class="hint" id="osm-footway-sidewalk-hint">OSM občas špatně odliší pěšinu a chodník. Zapnutím se všechny <code>highway=footway</code> kreslí jako zpevněná cesta (sprint 501.6 / les 501.1). Default vypnuto. Dřevěný chodník (boardwalk) zůstává pěšinou.</p>
+
           <div id="courtyard-olive-wrap">
             <label class="checkbox-row">
               <input type="checkbox" name="sprint_courtyard_olive" id="sprint_courtyard_olive" value="1" checked />
@@ -143,6 +149,12 @@
             </select>
           </label>
           <p class="hint" id="ostatni-plocha-hint">Zpevněná „Ostatní plocha v sídlech“ do auto&nbsp;<code>.omap</code>. Ve sprintu může zjednodušit podklad (méně zbytečných detailů), ale velká plocha koliduje se silnicemi (hnědá pod okraji footprintů). Proto volitelné. Do ZIPu vždy přibudou samostatné SHP podle velikosti (<code>…_mensi</code> / <code>…_stredni</code> / <code>…_velke</code>), pokud v území existují – pro ruční import v&nbsp;OOM.</p>
+
+          <label class="checkbox-row">
+            <input type="checkbox" name="ostatni_plocha_as_403" id="ostatni_plocha_as_403" value="1" />
+            Ostatní plocha jako 403 (rough open) místo 501
+          </label>
+          <p class="hint" id="ostatni-plocha-403-hint">Technicky je to špatně (nejde o rough open land) — 403 se ale nebije s okrajem cest jako hnědá zpevněná 501. V některých kresbách dá lepší představu o prostoru; v OOM jde snadno smazat. Default vypnuto.</p>
 
           <details class="advanced-options" id="osm-advanced">
             <summary>Další objekty OSM (volitelné)</summary>
@@ -235,7 +247,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.10.0 ·
+      Podkladárna v1.10.3 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

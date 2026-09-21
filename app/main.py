@@ -467,10 +467,14 @@ async def api_create_job(request: Request):
         "kp_osm_playground_equipment"
     )
     options["kp_osm_priority"] = _opt_bool("kp_osm_priority")
+    options["kp_osm_footway_as_sidewalk"] = _opt_bool(
+        "kp_osm_footway_as_sidewalk"
+    )
     options["sprint_courtyard_olive"] = _opt_bool("sprint_courtyard_olive")
     ostatni_raw = _form_str(form, "ostatni_plocha").strip().lower()
     if ostatni_raw in {"none", "small", "medium", "large"}:
         options["ostatni_plocha"] = ostatni_raw
+    options["ostatni_plocha_as_403"] = _opt_bool("ostatni_plocha_as_403")
     # Zpětná kompatibilita starého checkboxu.
     if _opt_bool("kp_osm_furniture"):
         options["kp_osm_benches"] = True
@@ -528,8 +532,10 @@ async def api_create_job(request: Request):
         f"lampy={'ano' if options.get('kp_osm_lamps') else 'ne'}, "
         f"herní prvky={'ano' if options.get('kp_osm_playground_equipment') else 'ne'}, "
         f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}, "
+        f"footway=chodník={'ano' if options.get('kp_osm_footway_as_sidewalk') else 'ne'}, "
         f"dvory oliva={'ano' if options.get('sprint_courtyard_olive', True) else 'ne'}, "
-        f"ostatní plocha={options.get('ostatni_plocha', 'small')}, "
+        f"ostatní plocha={options.get('ostatni_plocha', 'small')}"
+        f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"
     )

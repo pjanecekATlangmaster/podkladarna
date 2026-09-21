@@ -814,6 +814,10 @@ function applyJobToForm(job) {
     priority.checked =
       opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
   }
+  const footwaySidewalk = form.kp_osm_footway_as_sidewalk;
+  if (footwaySidewalk) {
+    footwaySidewalk.checked = Boolean(opts.kp_osm_footway_as_sidewalk);
+  }
   const courtyard = form.sprint_courtyard_olive;
   if (courtyard) {
     courtyard.checked =
@@ -827,6 +831,10 @@ function applyJobToForm(job) {
     if ([...ostatni.options].some((o) => o.value === ostatniVal)) {
       ostatni.value = ostatniVal;
     }
+  }
+  const ostatni403 = form.ostatni_plocha_as_403;
+  if (ostatni403) {
+    ostatni403.checked = Boolean(opts.ostatni_plocha_as_403);
   }
   const outMode = form.output_mode;
   if (outMode) {

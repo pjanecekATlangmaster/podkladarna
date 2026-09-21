@@ -253,6 +253,9 @@ def run_job_pipeline(
                     options.get("kp_osm_playground_equipment")
                 ),
                 osm_priority=bool(options.get("kp_osm_priority")),
+                all_footways_as_sidewalk=bool(
+                    options.get("kp_osm_footway_as_sidewalk")
+                ),
                 preset_id=preset_id,
                 log=log,
             )
@@ -390,6 +393,7 @@ def _package_output(
 
             ostatni_choice = resolve_ostatni_plocha(options)
             max_ostatni_m2 = ostatni_plocha_max_m2(ostatni_choice)
+            ostatni_as_403 = bool(options.get("ostatni_plocha_as_403"))
             log(
                 f"Ostatní plocha v sídlech (auto .omap): {ostatni_choice}"
                 + (
@@ -399,6 +403,7 @@ def _package_output(
                     if max_ostatni_m2 != float("inf")
                     else " (všechny)"
                 )
+                + ("; značka 403" if ostatni_as_403 and max_ostatni_m2 is not None else "")
             )
 
             for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
@@ -435,6 +440,7 @@ def _package_output(
                         path_source=path_src,
                         aopk_trees=aopk_path,
                         max_ostatni_m2=max_ostatni_m2,
+                        ostatni_as_403=ostatni_as_403,
                     )
                     if omap_p:
                         omap_paths.append(omap_p)

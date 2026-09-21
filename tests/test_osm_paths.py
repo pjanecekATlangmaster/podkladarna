@@ -266,6 +266,54 @@ def test_garden_multipolygon_keeps_inner_hole():
     assert polys[0][1][0] == polys[0][1][-1]
 
 
+def test_running_track_multipolygon_as_paved_pitch():
+    """OSM relation/17479176: leisure=track multipolygon → 501 + díra."""
+    from app.pipeline.osm_paths import classify_osm_feature, osm_area_polygons_5514
+
+    assert classify_osm_feature({"leisure": "track", "sport": "running"}) == (
+        "pitch",
+        "501",
+    )
+    el = {
+        "type": "relation",
+        "id": 17479176,
+        "tags": {
+            "leisure": "track",
+            "sport": "running",
+            "type": "multipolygon",
+            "lanes": "4",
+        },
+        "members": [
+            {
+                "type": "way",
+                "role": "outer",
+                "geometry": [
+                    {"lat": 50.0, "lon": 14.40},
+                    {"lat": 50.0, "lon": 14.41},
+                    {"lat": 50.01, "lon": 14.41},
+                    {"lat": 50.01, "lon": 14.40},
+                    {"lat": 50.0, "lon": 14.40},
+                ],
+            },
+            {
+                "type": "way",
+                "role": "inner",
+                "geometry": [
+                    {"lat": 50.002, "lon": 14.402},
+                    {"lat": 50.002, "lon": 14.404},
+                    {"lat": 50.004, "lon": 14.404},
+                    {"lat": 50.004, "lon": 14.402},
+                    {"lat": 50.002, "lon": 14.402},
+                ],
+            },
+        ],
+    }
+    polys = osm_area_polygons_5514(el)
+    assert len(polys) == 1 and len(polys[0]) == 2
+    assert polys[0][0][0] == polys[0][0][-1]
+    assert polys[0][1][0] == polys[0][1][-1]
+
+
 def test_boardwalk_maps_as_path():
     assert _way_skip_reason({"highway": "footway", "footway": "boardwalk"}) is None
     assert _way_skip_reason({"man_made": "boardwalk"}) is None
@@ -387,6 +435,7 @@ def test_osm_priority_overpass_includes_barriers():
     assert 'relation["type"="multipolygon"]["amenity"="parking"]' in ql
     assert "playground" in ql
     assert "pitch" in ql
+    assert 'relation["type"="multipolygon"]["leisure"~"' in ql
     assert 'highway"="pedestrian"]["area"="yes"' in ql
     assert 'relation["type"="multipolygon"]["highway"="pedestrian"]' in ql
     assert "area:highway" in ql
@@ -812,6 +861,32 @@ def test_osm_oom_code_sidewalk():
         == "sidewalk"
     )
     assert sprint_line_highway({"highway": "footway"}, "footway") == "footway"
+    # Volba: všechny footway jako chodník (i bez surface).
+    assert (
+        sprint_line_highway(
+            {"highway": "footway"},
+            "footway",
+            all_footways_as_sidewalk=True,
+        )
+        == "sidewalk"
+    )
+    # Boardwalk zůstává pěšinou i při volbě.
+    assert (
+        sprint_line_highway(
+            {"highway": "footway", "footway": "boardwalk"},
+            "footway",
+            all_footways_as_sidewalk=True,
+        )
+        == "footway"
+    )
+    assert (
+        sprint_line_highway(
+            {"highway": "path"},
+            "path",
+            all_footways_as_sidewalk=True,
+        )
+        == "path"
+    )
     # way/373900933: highway=pedestrian + paving_stones → zpevněná, ne pěšina.
     assert (
         sprint_line_highway(

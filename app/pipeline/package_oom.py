@@ -645,6 +645,7 @@ def prepare_oom_map(
     path_source: str = PATH_SOURCE_MIXED,
     aopk_trees: Path | None = None,
     max_ostatni_m2: float | None = 50_000.0,
+    ostatni_as_403: bool = False,
 ) -> Path | None:
     del formline
     path_source = resolve_path_source(path_source)
@@ -705,6 +706,7 @@ def prepare_oom_map(
             omit_path_layers=path_source == PATH_SOURCE_OSM,
             omit_layers=omit,
             max_ostatni_m2=max_ostatni_m2,
+            ostatni_as_403=ostatni_as_403,
         ):
             if _COURTYARD_OLIVE_MARK in part.name:
                 courtyard_olive_parts.append(part)

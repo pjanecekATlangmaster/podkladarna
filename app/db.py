@@ -308,7 +308,9 @@ def find_duplicate_active_job(
             bool(opts.get("kp_osm_lamps")),
             bool(opts.get("kp_osm_playground_equipment")),
             bool(opts.get("kp_osm_priority")),
+            bool(opts.get("kp_osm_footway_as_sidewalk")),
             str(opts.get("ostatni_plocha") or "small"),
+            bool(opts.get("ostatni_plocha_as_403")),
             str(opts.get("client_ip") or ""),
         )
 

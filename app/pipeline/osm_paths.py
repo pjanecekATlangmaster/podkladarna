@@ -236,6 +236,8 @@ def _overpass_ql(
         f'node["natural"="spring"]({bbox});',
         f'way["natural"="spring"]({bbox});',
         f'way["leisure"~"^({paved})$"]({bbox});',
+        # Hřiště / běžecká dráha / … i jako multipolygon (díra uvnitř).
+        f'relation["type"="multipolygon"]["leisure"~"^({paved})$"]({bbox});',
         # Parkoviště → zpevněná plocha 501 (stejně jako hřiště).
         f'way["amenity"="parking"]({bbox});',
         f'relation["type"="multipolygon"]["amenity"="parking"]({bbox});',
@@ -458,11 +460,22 @@ def _is_paved_surface(tags: dict) -> bool:
     return any(part.strip() in _PAVED_SURFACES for part in surface.split(";"))
 
 
-def sprint_line_highway(tags: dict, highway: str) -> str:
-    """Sidewalk / zpevněný footway / pěší zóna → vnitřní druh ``sidewalk`` (zpevněná)."""
+def sprint_line_highway(
+    tags: dict, highway: str, *, all_footways_as_sidewalk: bool = False
+) -> str:
+    """Sidewalk / zpevněný footway / pěší zóna → vnitřní druh ``sidewalk`` (zpevněná).
+
+    ``all_footways_as_sidewalk``: všechny ``highway=footway`` jako chodník (sprint 501.6),
+    i bez surface / footway=sidewalk — užitečné v sídlišti při špatné klasifikaci OSM.
+    Dřevěný chodník (boardwalk) zůstává pěšinou.
+    """
     hw = (highway or "").lower()
     footway = (tags.get("footway") or "").lower()
-    if footway == "sidewalk" or (hw == "footway" and _is_paved_surface(tags)):
+    if footway == "boardwalk" or _is_boardwalk(tags):
+        return hw or "path"
+    if footway == "sidewalk" or (
+        hw == "footway" and (_is_paved_surface(tags) or all_footways_as_sidewalk)
+    ):
         return "sidewalk"
     # highway=pedestrian (i liniová pěší zóna) – typicky zpevněná; surface=paving_stones apod.
     if hw == "pedestrian":
@@ -2211,6 +2224,7 @@ def prepare_osm_paths(
     include_lamps: bool = False,
     include_playground_equipment: bool = False,
     osm_priority: bool = False,
+    all_footways_as_sidewalk: bool = False,
     preset_id: str = "",
     log=None,
 ) -> None:
@@ -2340,7 +2354,11 @@ def prepare_osm_paths(
         if not hw and _is_boardwalk(tags):
             hw = "footway"
         if allow_sidewalk:
-            hw = sprint_line_highway(tags, hw)
+            hw = sprint_line_highway(
+                tags,
+                hw,
+                all_footways_as_sidewalk=all_footways_as_sidewalk,
+            )
         elif not hw:
             hw = "path"
         # Šířka silnice / track podle lanes + surface (road_1..4, track_*).
