@@ -692,7 +692,7 @@ function onMapClick(e) {
   if (bboxCorners.length === 2) {
     const b = L.latLngBounds(bboxCorners[0], bboxCorners[1]);
     bboxRect = L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
-    bboxMap.fitBounds(b, { padding: [20, 20], maxZoom: 14 });
+    // Bez fitBounds – uživatel už vidí výřez; dřívější maxZoom:14 zbytečně odzoomovalo.
     const west = b.getWest();
     const south = b.getSouth();
     const east = b.getEast();
@@ -865,7 +865,7 @@ function applyBbox(west, south, east, north, extra = {}) {
   bboxCorners = [sw, ne];
   const b = L.latLngBounds(sw, ne);
   bboxRect = L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
-  bboxMap.fitBounds(b, { padding: [24, 24], maxZoom: 14 });
+  bboxMap.fitBounds(b, { padding: [24, 24], maxZoom: 16 });
   document.getElementById("bbox-input").value = [west, south, east, north].join(",");
   lookupSheets();
 }

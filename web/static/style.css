@@ -11,7 +11,8 @@
   --muted: #5a5a5a;
   --border: #d8ddd0;
   --page-pad-x: clamp(1rem, 2vw, 2rem);
-  --page-max: min(1720px, 96vw);
+  /* 100% viewport + padding; ne 96vw (na mobilu pak „o co jde“/patička vypadaly užší). */
+  --page-max: 1720px;
 }
 
 * { box-sizing: border-box; }
@@ -76,6 +77,13 @@ main.page-wrap {
   display: grid;
   grid-template-columns: 1.35fr 0.65fr;
   gap: 1.25rem;
+  /* Jinak Leaflet / dlouhé řádky roztáhnou sloupec přes page-wrap. */
+  min-width: 0;
+}
+
+.layout > .card {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .about-card {
@@ -110,10 +118,11 @@ main.page-wrap {
 
 @media (max-width: 1100px) {
   .layout { grid-template-columns: 1fr; }
+  #bbox-map { height: min(51vh, 315px); }
 }
 
 @media (min-width: 1101px) {
-  #bbox-map { height: 840px; }
+  #bbox-map { height: 630px; }
   .preview-img { max-height: 320px; }
   .log { max-height: 240px; }
 }
@@ -339,10 +348,17 @@ legend {
 }
 
 #bbox-map {
-  height: 680px;
+  height: 510px;
+  width: 100%;
+  max-width: 100%;
   border-radius: 8px;
   border: 1px solid var(--border);
   margin: 0.5rem 0;
+}
+
+#bbox-map .leaflet-container {
+  width: 100% !important;
+  max-width: 100%;
 }
 
 .sheet-info {
