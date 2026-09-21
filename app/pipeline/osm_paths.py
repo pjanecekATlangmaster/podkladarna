@@ -1154,7 +1154,7 @@ def _way_skip_reason(
 def osm_oom_code(highway: str, preset_id: str) -> str:
     """ISOM/ISSprOM/ISMTBOM kód podle OSM highway (vč. road_1..4 / track_*).
 
-    Sprint heavy footprint: 501.16–501.19 (1.4–4 m).
+    Sprint heavy footprint: 501.17–501.19 (posun o 1 vs. dřívější 501.16–19; 501.20 není).
     Les: 502 široká / 503 silnice / 504 vozová.
     MTBO: 502 major / 503 minor; track 831/833, pěšiny 834.
     """
@@ -1183,7 +1183,8 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
             rank = 1
         rank = max(0, min(3, rank))
         if sprint:
-            return ("501.16", "501.17", "501.18", "501.19")[rank]
+            # road_1→501.17 … road_3/4→501.19 (501.20 v ISSprOM není).
+            return ("501.17", "501.18", "501.19", "501.19")[rank]
         if mtbo:
             return "502" if rank >= 2 else "503"
         return "502" if rank >= 2 else ("504" if rank == 0 else "503")

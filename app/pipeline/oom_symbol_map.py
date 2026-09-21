@@ -31,7 +31,7 @@ _SYMBOL_NAME_TO_OOM_MTBO: dict[str, str] = {
 # KP vectorconf → ISSprOM: ulice/chodníky jako footprinty z klíče (ne 501.1 hrana).
 # Nezřetelnou 507 nepoužíváme – nejmenší je 506.
 _SPRINT_ROAD_KP_TO_OOM: dict[str, str] = {
-    "503": "501.18",  # sjízdná ulice / silnice (~3 m, heavy traffic footprint)
+    "503": "501.19",  # sjízdná ulice / silnice (heavy footprint; posun o 1)
     "504": "506",  # nesjízdná / úzká
     "505": "505.1",  # cesta (unpaved footprint 1.4 m)
     "506": "506",  # pěšina (small unpaved)
