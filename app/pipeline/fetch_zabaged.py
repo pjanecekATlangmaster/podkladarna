@@ -103,12 +103,6 @@ def fetch_zabaged_for_bbox(
     try:
         for name, layer_id in layers.items():
             gj = query_layer_geojson(service, int(layer_id), west, south, east, north)
-            if name == "OstatniPlochaVSidlech":
-                n_before = len(gj.get("features") or [])
-                drop_oversized_ostatni_plocha(gj, max_area_m2=MAX_OSTATNI_FETCH_M2)
-                n_dropped = n_before - len(gj.get("features") or [])
-                if log and n_dropped:
-                    log(f"  OstatniPlochaVSidlech: vynechano {n_dropped} obrich polygonu")
             n = len(gj.get("features") or [])
             if n <= 0:
                 if log:
@@ -121,6 +115,23 @@ def fetch_zabaged_for_bbox(
             _ogr2ogr_shp(ogr2ogr, geojson_path, shp, (xmin, ymin, xmax, ymax))
             write_prj(shp)
             geojson_path.unlink(missing_ok=True)
+            # Ostatní plocha: filtr plochy až PO ořezu (Shape_Area je z celého zdroje).
+            if name == "OstatniPlochaVSidlech":
+                n_dropped = _drop_oversized_ostatni_shp(
+                    shp, max_area_m2=MAX_OSTATNI_FETCH_M2
+                )
+                if log and n_dropped:
+                    log(
+                        f"  OstatniPlochaVSidlech: vynechano {n_dropped} "
+                        f"obrich polygonu (po ořezu > {MAX_OSTATNI_FETCH_M2:g} m²)"
+                    )
+                n = _shp_feature_count(shp)
+                if n <= 0:
+                    if log:
+                        log(f"  skip (prazdne): {name}")
+                    for ext in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
+                        (stage / f"{name}{ext}").unlink(missing_ok=True)
+                    continue
             if log:
                 log(f"  OK {name}: {n} prvku")
             kept += 1
@@ -191,12 +202,16 @@ def query_layer_geojson(
 
 
 def feature_area_m2(props: dict, geom_area_m2: float | None = None) -> float | None:
-    """Shape_Area z atributů, jinak plocha geometrie (m²)."""
+    """Plocha pro pásma/filtr: po ořezu má přednost geometrie, ne Shape_Area zdroje.
+
+    ``Shape_Area`` z ArcGIS je plocha celého ZABAGED polygonu (často km² sídliště),
+    zatímco do výřezu zasahuje jen malý kousek.
+    """
+    if geom_area_m2 is not None and geom_area_m2 > 0:
+        return float(geom_area_m2)
     area = props.get("Shape_Area", props.get("shape_area"))
     if isinstance(area, (int, float)) and area > 0:
         return float(area)
-    if geom_area_m2 is not None and geom_area_m2 > 0:
-        return float(geom_area_m2)
     return None
 
 
@@ -213,7 +228,7 @@ def drop_oversized_ostatni_plocha(
     gj: dict,
     max_area_m2: float = MAX_OSTATNI_PLOCHA_M2,
 ) -> dict:
-    """Zahodí velké polygony vrstvy 115 – přes silnice stejně nejde spolehlivě dostat."""
+    """Zahodí polygony nad limitem (preferuje plochu geometrie před Shape_Area)."""
     kept = []
     for feat in gj.get("features") or []:
         if ostatni_plocha_too_large(
@@ -233,13 +248,11 @@ def ostatni_plocha_too_large(
     geom_area_m2: float | None = None,
     max_area_m2: float = MAX_OSTATNI_PLOCHA_M2,
 ) -> bool:
-    """True = polygon zahodit (Shape_Area nebo plocha geometrie nad limitem)."""
-    area = props.get("Shape_Area", props.get("shape_area"))
-    if isinstance(area, (int, float)) and area > max_area_m2:
-        return True
-    if geom_area_m2 is not None and geom_area_m2 > max_area_m2:
-        return True
-    return False
+    """True = polygon zahodit. Po ořezu má přednost ``geom_area_m2`` (ne Shape_Area)."""
+    area = feature_area_m2(props, geom_area_m2)
+    if area is None:
+        return False
+    return area > max_area_m2
 
 
 def _geojson_area_m2(geometry: object) -> float | None:
@@ -279,6 +292,47 @@ def tag_features_with_layer(gj: dict, layer_name: str) -> dict:
             feat["properties"] = props
         props["vrstva"] = layer_name
     return gj
+
+
+def _shp_feature_count(shp: Path) -> int:
+    try:
+        from osgeo import ogr
+    except ImportError:
+        return 0
+    ds = ogr.Open(str(shp))
+    if not ds:
+        return 0
+    layer = ds.GetLayer(0)
+    n = layer.GetFeatureCount() if layer is not None else 0
+    ds = None
+    return int(n or 0)
+
+
+def _drop_oversized_ostatni_shp(shp: Path, max_area_m2: float) -> int:
+    """Smaže prvky SHP s ořezanou plochou nad limitem. Vrací počet smazaných."""
+    try:
+        from osgeo import ogr
+    except ImportError:
+        return 0
+    ogr.UseExceptions()
+    ds = ogr.Open(str(shp), 1)
+    if not ds:
+        return 0
+    layer = ds.GetLayer(0)
+    if layer is None:
+        ds = None
+        return 0
+    doomed: list[int] = []
+    for feat in layer:
+        geom = feat.GetGeometryRef()
+        area = float(geom.GetArea()) if geom is not None else 0.0
+        if area > max_area_m2:
+            doomed.append(int(feat.GetFID()))
+    for fid in doomed:
+        layer.DeleteFeature(fid)
+    layer.SyncToDisk()
+    ds = None
+    return len(doomed)
 
 
 def _ogr2ogr_shp(

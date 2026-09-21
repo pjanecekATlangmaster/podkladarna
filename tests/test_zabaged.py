@@ -214,7 +214,7 @@ def test_drop_oversized_ostatni_plocha():
     }
     drop_oversized_ostatni_plocha(gj)
     areas = [f["properties"].get("Shape_Area") for f in gj["features"]]
-    # Default filtr do .omap: nad ~5 ha.
+    # Default filtr do .omap: nad ~5 ha (bez geometrie = Shape_Area).
     assert MAX_OSTATNI_PLOCHA_M2 == 50_000.0
     assert OSTATNI_MEDIUM_MAX_M2 == 500_000.0
     assert MAX_OSTATNI_FETCH_M2 == 1_000_000.0
@@ -242,10 +242,15 @@ def test_drop_oversized_ostatni_plocha():
     assert [f["properties"].get("Shape_Area") for f in gj2["features"]] == [140_160]
 
 
-def test_ostatni_plocha_too_large_uses_geom_area():
-    from app.pipeline.fetch_zabaged import ostatni_plocha_too_large
+def test_ostatni_plocha_too_large_prefers_clipped_geom():
+    """Shape_Area ze zdroje je celoměstská – po ořezu rozhoduje geom_area_m2."""
+    from app.pipeline.fetch_zabaged import feature_area_m2, ostatni_plocha_too_large
 
     assert not ostatni_plocha_too_large({}, geom_area_m2=10_000)
     assert ostatni_plocha_too_large({}, geom_area_m2=80_000)
-    assert ostatni_plocha_too_large({"Shape_Area": 90_000}, geom_area_m2=1_000)
+    # Dřív Shape_Area 90k shodil i malý ořez 1k m² – to byl bug.
+    assert not ostatni_plocha_too_large({"Shape_Area": 90_000}, geom_area_m2=1_000)
+    assert ostatni_plocha_too_large({"Shape_Area": 1_000}, geom_area_m2=90_000)
+    assert feature_area_m2({"Shape_Area": 9_000_000}, geom_area_m2=12_000) == 12_000
+    assert feature_area_m2({"Shape_Area": 12_000}, geom_area_m2=None) == 12_000
 
