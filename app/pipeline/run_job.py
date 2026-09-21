@@ -383,6 +383,23 @@ def _package_output(
             cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
             include_dxf = bool(options.get("output_dxf", True))
             contour_interval_m = meta.get("contour_interval_m")
+            from app.pipeline.fetch_zabaged import (
+                ostatni_plocha_max_m2,
+                resolve_ostatni_plocha,
+            )
+
+            ostatni_choice = resolve_ostatni_plocha(options)
+            max_ostatni_m2 = ostatni_plocha_max_m2(ostatni_choice)
+            log(
+                f"Ostatní plocha v sídlech (auto .omap): {ostatni_choice}"
+                + (
+                    " (negenerovat)"
+                    if max_ostatni_m2 is None
+                    else f" (≤ {max_ostatni_m2:g} m²)"
+                    if max_ostatni_m2 != float("inf")
+                    else " (všechny)"
+                )
+            )
 
             for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
                 preset_id,
@@ -417,6 +434,7 @@ def _package_output(
                         courtyard_olive=courtyard_olive,
                         path_source=path_src,
                         aopk_trees=aopk_path,
+                        max_ostatni_m2=max_ostatni_m2,
                     )
                     if omap_p:
                         omap_paths.append(omap_p)

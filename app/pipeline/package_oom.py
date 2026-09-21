@@ -525,10 +525,12 @@ def _add_shapefiles_from_zip(
     dest_dir: str,
     *,
     only_layers: frozenset[str] | set[str] | None = None,
+    exclude_layers: frozenset[str] | set[str] | None = None,
 ) -> int:
     n = 0
     keep = {".shp", ".shx", ".dbf", ".prj", ".cpg"}
     only = {name.lower() for name in only_layers} if only_layers else None
+    exclude = {name.lower() for name in exclude_layers} if exclude_layers else set()
     with zipfile.ZipFile(src_zip) as src:
         for info in src.infolist():
             if info.is_dir():
@@ -538,12 +540,89 @@ def _add_shapefiles_from_zip(
                 continue
             if Path(name).suffix.lower() not in keep:
                 continue
-            if only is not None and Path(name).stem.lower() not in only:
+            stem = Path(name).stem.lower()
+            if only is not None and stem not in only:
+                continue
+            if stem in exclude:
                 continue
             data = src.read(info)
             zf.writestr(f"{dest_dir}/{name}", data)
             n += 1
     return n
+
+
+def _write_ostatni_band_shapefiles(
+    zabaged_clean: Path,
+    dest_dir: Path,
+) -> list[Path]:
+    """Rozdělí OstatniPlochaVSidlech do pásem mensi/stredni/velke (SHP)."""
+    from app.pipeline.fetch_zabaged import (
+        OSTATNI_LAYER_STEM,
+        feature_area_m2,
+        ostatni_band_stem,
+    )
+
+    try:
+        from osgeo import ogr
+    except ImportError:
+        return []
+    ogr.UseExceptions()
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    # Extract source layer
+    stage = dest_dir / "_ostatni_src"
+    stage.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zabaged_clean) as zf:
+        for info in zf.infolist():
+            name = Path(info.filename).name
+            if name.lower().startswith(OSTATNI_LAYER_STEM.lower() + "."):
+                (stage / name).write_bytes(zf.read(info))
+    src_shp = stage / f"{OSTATNI_LAYER_STEM}.shp"
+    if not src_shp.is_file():
+        return []
+    src_ds = ogr.Open(str(src_shp))
+    if not src_ds:
+        return []
+    src_lyr = src_ds.GetLayer(0)
+    if src_lyr is None:
+        return []
+
+    buckets: dict[str, list] = {}
+    for feat in src_lyr:
+        geom = feat.GetGeometryRef()
+        props = {feat.GetFieldDefnRef(i).GetName(): feat.GetField(i) for i in range(feat.GetFieldCount())}
+        area = feature_area_m2(
+            props,
+            geom_area_m2=float(geom.GetArea()) if geom is not None else None,
+        )
+        if area is None:
+            continue
+        stem = ostatni_band_stem(area)
+        buckets.setdefault(stem, []).append(feat.Clone())
+
+    driver = ogr.GetDriverByName("ESRI Shapefile")
+    written: list[Path] = []
+    srs = src_lyr.GetSpatialRef()
+    for stem, feats in buckets.items():
+        if not feats:
+            continue
+        out_shp = dest_dir / f"{stem}.shp"
+        if out_shp.exists():
+            driver.DeleteDataSource(str(out_shp))
+        out_ds = driver.CreateDataSource(str(out_shp))
+        out_lyr = out_ds.CreateLayer(
+            stem, srs=srs, geom_type=src_lyr.GetGeomType()
+        )
+        # copy fields from source
+        defn = src_lyr.GetLayerDefn()
+        for i in range(defn.GetFieldCount()):
+            out_lyr.CreateField(defn.GetFieldDefn(i))
+        for feat in feats:
+            out_lyr.CreateFeature(feat)
+        out_ds = None
+        written.append(out_shp)
+    src_ds = None
+    return written
 
 
 def prepare_oom_map(
@@ -565,6 +644,7 @@ def prepare_oom_map(
     courtyard_olive: bool = False,
     path_source: str = PATH_SOURCE_MIXED,
     aopk_trees: Path | None = None,
+    max_ostatni_m2: float | None = 50_000.0,
 ) -> Path | None:
     del formline
     path_source = resolve_path_source(path_source)
@@ -624,6 +704,7 @@ def prepare_oom_map(
             prefer_osm_path_lines=prefer_osm_paths or None,
             omit_path_layers=path_source == PATH_SOURCE_OSM,
             omit_layers=omit,
+            max_ostatni_m2=max_ostatni_m2,
         ):
             if _COURTYARD_OLIVE_MARK in part.name:
                 courtyard_olive_parts.append(part)
@@ -869,8 +950,22 @@ def build_oom_zip(
         if osm_kp.is_file() and not (manual_dir / "OSM_cesty.shp").is_file():
             _add_shapefiles_from_zip(zf, osm_kp, "osm")
         if zabaged_clean and zabaged_clean.is_file():
-            # Včetně Budova* – mezi ostatními vrstvami (ne samostatná podsložka).
-            _add_shapefiles_from_zip(zf, zabaged_clean, "zabaged")
+            from app.pipeline.fetch_zabaged import OSTATNI_LAYER_STEM
+            from app.pipeline.crs_5514 import write_prj
+
+            # Monolitickou Ostatní rozdělíme do pásem; prázdná pásma přeskočíme.
+            _add_shapefiles_from_zip(
+                zf,
+                zabaged_clean,
+                "zabaged",
+                exclude_layers={OSTATNI_LAYER_STEM},
+            )
+            band_dir = kp_cwd / "_ostatni_bands"
+            for shp in _write_ostatni_band_shapefiles(zabaged_clean, band_dir):
+                write_prj(shp)
+                for side in shp.parent.glob(shp.stem + ".*"):
+                    if side.suffix.lower() in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                        zf.write(side, f"zabaged/{side.name}")
             if include_zabaged_archive:
                 zf.write(zabaged_clean, "zabaged_clean.zip")
         # RÚIAN budovy jako SHP do zabaged/ (ne do auto .omap – tam je OSM).

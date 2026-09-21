@@ -26,9 +26,36 @@ from app.tool_env import gis_subprocess_env, which_tool
 
 PAGE_SIZE = 2000
 MAX_PAGES = 25
-# KP kreslí 529 (parking) přes silnice; v OOM CRT ani 501 nezaručí spodní vrstvu
-# u velkých blobů. Malá parkoviště (~ha) necháme, sídlištní zbytky zahodíme.
+# Do auto .omap defaultně jen menší plochy (~5 ha). Střední/velké volitelně z GUI.
 MAX_OSTATNI_PLOCHA_M2 = 50_000.0
+OSTATNI_MEDIUM_MAX_M2 = 500_000.0
+# Při stahování zahodit jen absurdní celoměstské km² – SHP pásma potřebují i velké.
+MAX_OSTATNI_FETCH_M2 = 1_000_000.0
+OSTATNI_PLOCHA_CHOICES = frozenset({"none", "small", "medium", "large"})
+# ZIP zdroje: tři SHP podle velikosti (prázdné pásmo se nevygeneruje).
+OSTATNI_SHP_BANDS: tuple[tuple[str, float, float], ...] = (
+    ("OstatniPlochaVSidlech_mensi", 0.0, MAX_OSTATNI_PLOCHA_M2),
+    ("OstatniPlochaVSidlech_stredni", MAX_OSTATNI_PLOCHA_M2, OSTATNI_MEDIUM_MAX_M2),
+    ("OstatniPlochaVSidlech_velke", OSTATNI_MEDIUM_MAX_M2, float("inf")),
+)
+OSTATNI_LAYER_STEM = "OstatniPlochaVSidlech"
+
+
+def resolve_ostatni_plocha(options: dict | None) -> str:
+    raw = str((options or {}).get("ostatni_plocha") or "small").strip().lower()
+    return raw if raw in OSTATNI_PLOCHA_CHOICES else "small"
+
+
+def ostatni_plocha_max_m2(choice: str) -> float | None:
+    """Horní limit plochy do auto .omap. None = vrstvu vůbec nekreslit."""
+    c = (choice or "small").strip().lower()
+    if c == "none":
+        return None
+    if c == "medium":
+        return OSTATNI_MEDIUM_MAX_M2
+    if c == "large":
+        return float("inf")
+    return MAX_OSTATNI_PLOCHA_M2
 
 
 def _ags_config() -> dict:
@@ -78,7 +105,7 @@ def fetch_zabaged_for_bbox(
             gj = query_layer_geojson(service, int(layer_id), west, south, east, north)
             if name == "OstatniPlochaVSidlech":
                 n_before = len(gj.get("features") or [])
-                drop_oversized_ostatni_plocha(gj)
+                drop_oversized_ostatni_plocha(gj, max_area_m2=MAX_OSTATNI_FETCH_M2)
                 n_dropped = n_before - len(gj.get("features") or [])
                 if log and n_dropped:
                     log(f"  OstatniPlochaVSidlech: vynechano {n_dropped} obrich polygonu")
@@ -161,6 +188,25 @@ def query_layer_geojson(
         raise FetchError(f"ZABAGED vrstva {layer_id}: příliš mnoho prvků (>{MAX_PAGES * PAGE_SIZE})")
 
     return {"type": "FeatureCollection", "features": features}
+
+
+def feature_area_m2(props: dict, geom_area_m2: float | None = None) -> float | None:
+    """Shape_Area z atributů, jinak plocha geometrie (m²)."""
+    area = props.get("Shape_Area", props.get("shape_area"))
+    if isinstance(area, (int, float)) and area > 0:
+        return float(area)
+    if geom_area_m2 is not None and geom_area_m2 > 0:
+        return float(geom_area_m2)
+    return None
+
+
+def ostatni_band_stem(area_m2: float) -> str:
+    """Stem SHP pásma: mensi ≤5 ha, stredni ≤50 ha, jinak velke."""
+    if area_m2 <= MAX_OSTATNI_PLOCHA_M2:
+        return "OstatniPlochaVSidlech_mensi"
+    if area_m2 <= OSTATNI_MEDIUM_MAX_M2:
+        return "OstatniPlochaVSidlech_stredni"
+    return "OstatniPlochaVSidlech_velke"
 
 
 def drop_oversized_ostatni_plocha(

@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.pipeline.cliff_height import filter_by_drop
-from app.pipeline.fetch_zabaged import ostatni_plocha_too_large
+from app.pipeline.fetch_zabaged import (
+    MAX_OSTATNI_PLOCHA_M2,
+    ostatni_plocha_too_large,
+)
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.cliff_merge import (
     merge_cliff_ticks,
@@ -595,6 +598,7 @@ def build_zabaged_object_parts(
     prefer_osm_path_lines: list[list[tuple[float, float]]] | None = None,
     omit_path_layers: bool = False,
     omit_layers: frozenset[str] | set[str] | None = None,
+    max_ostatni_m2: float | None = MAX_OSTATNI_PLOCHA_M2,
 ) -> list[OomObjectPart]:
     use_ogr = True
     try:
@@ -684,6 +688,8 @@ def build_zabaged_object_parts(
             continue
         if omit_path_layers and layer_name in ZABAGED_OMIT_PATH_LAYERS:
             continue
+        if layer_name == "OstatniPlochaVSidlech" and max_ostatni_m2 is None:
+            continue
         shp_path = _extract_shp_from_zip(zabaged_clean, shp_name, stage / layer_name)
         if not shp_path:
             continue
@@ -704,7 +710,13 @@ def build_zabaged_object_parts(
                         if geom_probe is not None
                         else None
                     )
-                    if ostatni_plocha_too_large(props, geom_area_m2=geom_area):
+                    if ostatni_plocha_too_large(
+                        props,
+                        geom_area_m2=geom_area,
+                        max_area_m2=max_ostatni_m2
+                        if max_ostatni_m2 is not None
+                        else MAX_OSTATNI_PLOCHA_M2,
+                    ):
                         continue
                 rule = match_feature(props, rules)
                 if not rule:
@@ -777,7 +789,11 @@ def build_zabaged_object_parts(
                 if "vrstva" not in props:
                     props["vrstva"] = layer_name
                 if layer_name == "OstatniPlochaVSidlech" and ostatni_plocha_too_large(
-                    props, geom_area_m2=_wkb_area_m2(wkb)
+                    props,
+                    geom_area_m2=_wkb_area_m2(wkb),
+                    max_area_m2=max_ostatni_m2
+                    if max_ostatni_m2 is not None
+                    else MAX_OSTATNI_PLOCHA_M2,
                 ):
                     continue
                 rule = match_feature(props, rules)

@@ -821,6 +821,13 @@ function applyJobToForm(job) {
         ? true
         : Boolean(opts.sprint_courtyard_olive);
   }
+  const ostatni = form.ostatni_plocha;
+  if (ostatni) {
+    const ostatniVal = opts.ostatni_plocha || "small";
+    if ([...ostatni.options].some((o) => o.value === ostatniVal)) {
+      ostatni.value = ostatniVal;
+    }
+  }
   const outMode = form.output_mode;
   if (outMode) {
     const wantZip = opts.output_zip == null ? true : Boolean(opts.output_zip);

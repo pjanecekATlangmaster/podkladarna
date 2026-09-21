@@ -192,7 +192,15 @@ def test_vectorconf_zamek_hrad_as_building_areal_olive():
 
 
 def test_drop_oversized_ostatni_plocha():
-    from app.pipeline.fetch_zabaged import MAX_OSTATNI_PLOCHA_M2
+    from app.pipeline.fetch_zabaged import (
+        MAX_OSTATNI_FETCH_M2,
+        MAX_OSTATNI_PLOCHA_M2,
+        OSTATNI_MEDIUM_MAX_M2,
+        drop_oversized_ostatni_plocha,
+        ostatni_band_stem,
+        ostatni_plocha_max_m2,
+        resolve_ostatni_plocha,
+    )
 
     gj = {
         "type": "FeatureCollection",
@@ -206,9 +214,32 @@ def test_drop_oversized_ostatni_plocha():
     }
     drop_oversized_ostatni_plocha(gj)
     areas = [f["properties"].get("Shape_Area") for f in gj["features"]]
-    # Nad ~5 ha (sídlištní zbytky / Veltrusy) zahodit – přes 502/503 stejně přelezou.
+    # Default filtr do .omap: nad ~5 ha.
     assert MAX_OSTATNI_PLOCHA_M2 == 50_000.0
+    assert OSTATNI_MEDIUM_MAX_M2 == 500_000.0
+    assert MAX_OSTATNI_FETCH_M2 == 1_000_000.0
     assert areas == [12_000, None]
+
+    assert resolve_ostatni_plocha({"ostatni_plocha": "medium"}) == "medium"
+    assert resolve_ostatni_plocha({}) == "small"
+    assert ostatni_plocha_max_m2("none") is None
+    assert ostatni_plocha_max_m2("small") == 50_000.0
+    assert ostatni_plocha_max_m2("medium") == 500_000.0
+    assert ostatni_plocha_max_m2("large") == float("inf")
+    assert ostatni_band_stem(12_000) == "OstatniPlochaVSidlech_mensi"
+    assert ostatni_band_stem(160_000) == "OstatniPlochaVSidlech_stredni"
+    assert ostatni_band_stem(600_000) == "OstatniPlochaVSidlech_velke"
+
+    # Při fetchu (MAX_OSTATNI_FETCH_M2) střední blob zůstane.
+    gj2 = {
+        "type": "FeatureCollection",
+        "features": [
+            {"type": "Feature", "properties": {"Shape_Area": 140_160}, "geometry": None},
+            {"type": "Feature", "properties": {"Shape_Area": 2_000_000}, "geometry": None},
+        ],
+    }
+    drop_oversized_ostatni_plocha(gj2, max_area_m2=MAX_OSTATNI_FETCH_M2)
+    assert [f["properties"].get("Shape_Area") for f in gj2["features"]] == [140_160]
 
 
 def test_ostatni_plocha_too_large_uses_geom_area():

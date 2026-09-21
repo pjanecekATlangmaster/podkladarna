@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.9.8"
+APP_VERSION = "1.10.0"
 
 apply_local_gis_env()
 
@@ -82,4 +82,7 @@ DEFAULT_OPTIONS = {
     "path_source": "mixed",
     # Sprint: nepřístupné dvory uvnitř budov (díry v 521) vyplnit olivou 520.
     "sprint_courtyard_olive": True,
+    # Ostatní plocha v sídlech do auto .omap: none | small | medium | large.
+    # Default small = jen ≤5 ha (současné chování). ZIP má vždy pásma SHP.
+    "ostatni_plocha": "small",
 }
