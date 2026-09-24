@@ -647,9 +647,14 @@ def test_overpass_ql_includes_roads_when_path_source_osm():
     from app.pipeline.osm_paths import _overpass_ql
 
     ql = _overpass_ql(50.0, 14.0, 50.1, 14.1, path_source="osm")
-    assert "residential" in ql
+    # OSM režim stahuje i silnice (highway=residential v regexu).
+    assert "|residential|" in ql or ql.startswith('way["highway"~"^(residential|')
+    assert 'landuse"="residential"' in ql  # subject pro residual 501
     ql_mixed = _overpass_ql(50.0, 14.0, 50.1, 14.1, path_source="mixed")
-    assert "residential" not in ql_mixed
+    # Mixed: landuse=residential ano, highway=residential (silnice) ne.
+    assert 'landuse"="residential"' in ql_mixed
+    assert "|residential|" not in ql_mixed
+    assert 'highway"="residential"' not in ql_mixed
 
 
 def test_dedup_osm_prefers_steps_over_path():
