@@ -207,6 +207,8 @@ OSM_PAVED_AREA_LEISURE = frozenset(
 _AREA_HIGHWAY_WALK = frozenset(
     {"footway", "pedestrian", "path", "steps", "cycleway"}
 )
+# Areál typicky ohraničený plotem (bez barrier=*) → plot po vnějším obrysu.
+_FENCED_COMPOUND_LANDUSE = frozenset({"recreation_ground"})
 
 
 def _overpass_ql(
@@ -312,6 +314,9 @@ def _overpass_ql(
                 f'way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]({bbox});',
                 f'node["barrier"~"^(gate|bollard|stile|cycle_barrier|block|lift_gate)$"]({bbox});',
                 f'way["barrier"~"^(gate|bollard|stile|cycle_barrier|block|lift_gate)$"]({bbox});',
+                # Areály (recreation_ground…) – plot po vnějším obrysu, ne výplň.
+                f'way["landuse"~"^({"|".join(sorted(_FENCED_COMPOUND_LANDUSE))})$"]({bbox});',
+                f'relation["type"="multipolygon"]["landuse"~"^({"|".join(sorted(_FENCED_COMPOUND_LANDUSE))})$"]({bbox});',
                 f'node["historic"~"^(memorial|monument)$"]({bbox});',
                 f'way["historic"~"^(memorial|monument)$"]({bbox});',
                 f'node["man_made"="cross"]({bbox});',
@@ -424,7 +429,7 @@ def path_min_length_m(highway: str) -> float:
     if is_bridge_highway(hw) or hw in {"steps", "sidewalk"}:
         return MIN_LENGTH_SHORT_M
     draw = path_draw_highway(hw)
-    if draw in {"footway", "path", "cycleway", "bridleway", "pedestrian"}:
+    if draw in {"footway", "path", "cycleway", "cycleway_paved", "bridleway", "pedestrian"}:
         return MIN_LENGTH_FOOT_M
     return MIN_LENGTH_M
 
@@ -448,6 +453,10 @@ _PAVED_SURFACES = frozenset(
         "chipseal",
     }
 )
+# Cyklostezka se „sjízdným“ povrchem → široká zpevněná (501.9), ne 506.
+_PAVED_CYCLEWAY_SMOOTHNESS = frozenset(
+    {"excellent", "good", "intermediate", "very_good"}
+)
 
 
 def _is_paved_surface(tags: dict) -> bool:
@@ -460,14 +469,23 @@ def _is_paved_surface(tags: dict) -> bool:
     return any(part.strip() in _PAVED_SURFACES for part in surface.split(";"))
 
 
+def _is_paved_cycleway(tags: dict) -> bool:
+    """highway=cycleway se zpevněným surface / dobrou smoothness (např. way/81797165)."""
+    if _is_paved_surface(tags):
+        return True
+    sm = (tags.get("smoothness") or "").lower()
+    return sm in _PAVED_CYCLEWAY_SMOOTHNESS
+
+
 def sprint_line_highway(
     tags: dict, highway: str, *, all_footways_as_sidewalk: bool = False
 ) -> str:
-    """Sidewalk / zpevněný footway / pěší zóna → vnitřní druh ``sidewalk`` (zpevněná).
+    """Sidewalk / zpevněný footway / pěší zóna / zpevněná cyklostezka → vnitřní druh.
 
     ``all_footways_as_sidewalk``: všechny ``highway=footway`` jako chodník (sprint 501.6),
     i bez surface / footway=sidewalk — užitečné v sídlišti při špatné klasifikaci OSM.
     Dřevěný chodník (boardwalk) zůstává pěšinou.
+    Zpevněná ``cycleway`` → ``cycleway_paved`` (sprint 501.9).
     """
     hw = (highway or "").lower()
     footway = (tags.get("footway") or "").lower()
@@ -480,6 +498,8 @@ def sprint_line_highway(
     # highway=pedestrian (i liniová pěší zóna) – typicky zpevněná; surface=paving_stones apod.
     if hw == "pedestrian":
         return "sidewalk"
+    if hw == "cycleway" and _is_paved_cycleway(tags):
+        return "cycleway_paved"
     return hw or "path"
 
 
@@ -713,6 +733,9 @@ def classify_osm_feature(
         return "fence", "518"
     if barrier in _BARRIER_POINTS:
         return "barrier_point", "531"
+    # Areál (recreation_ground…) bez vlastního barrier=* → plot po obrysu.
+    if landuse in _FENCED_COMPOUND_LANDUSE and not is_node:
+        return "fence", "518"
     if historic in {"memorial", "monument"} or man_made == "cross":
         return "memorial", "526"
     if amenity == "shelter" or man_made == "canopy":
@@ -1223,6 +1246,14 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
             return "529"
         return "501.1"
 
+    # Zpevněná cyklostezka (asphalt / good smoothness) – široký footprint s okrajem.
+    if hw == "cycleway_paved":
+        if sprint:
+            return "501.9"
+        if mtbo:
+            return "529"
+        return "501.1"
+
     if mtbo:
         return "834"
     return "506"
@@ -1263,6 +1294,7 @@ def highway_width_rank(highway: str) -> int:
         "track_slow": 38,
         "steps": 35,
         "bridleway": 30,
+        "cycleway_paved": 26,
         "cycleway": 25,
         "pedestrian": 20,
         "sidewalk": 12,
@@ -1928,12 +1960,15 @@ def filter_osm_items_against_zabaged(
     """Dedup celých střednic se zachováním highway tagu.
 
     Neořezává konce / úseky – jen zahodí linii, když je skoro celá shodná
-    se ZABAGED. ``steps``, ``sidewalk`` a lávky (``bridge``) se proti
-    ZABAGED nefiltrují.
+    se ZABAGED. ``steps``, ``sidewalk``, zpevněná cyklostezka a lávky (``bridge``)
+    se proti ZABAGED nefiltrují.
     """
     def _keep_vs_zabaged(hw: str) -> bool:
-        return is_bridge_highway(hw) or hw in {"steps", "sidewalk"}
-
+        return is_bridge_highway(hw) or hw in {
+            "steps",
+            "sidewalk",
+            "cycleway_paved",
+        }
     if not zabaged_lines:
         kept = [
             (pts, hw)
@@ -2105,6 +2140,24 @@ def osm_area_polygons_5514(
         return [[outers[0]] + inners]
     # Více outerů: díry nepřiřazujeme (vzácné) – každý outer zvlášť.
     return [[outer] for outer in outers]
+
+
+def osm_perimeter_lines_5514(element: dict) -> list[list[tuple[float, float]]]:
+    """Vnější obrysy jako uzavřené linie (plot kolem recreation_ground apod.)."""
+    el_type = element.get("type")
+    if el_type == "way":
+        pts = _nodes_geometry_to_5514(element.get("geometry"))
+        ring = _close_ring_5514(pts)
+        if ring:
+            return [ring]
+        return [pts] if len(pts) >= 2 else []
+    if el_type != "relation":
+        return []
+    lines: list[list[tuple[float, float]]] = []
+    for rings in osm_area_polygons_5514(element):
+        if rings and len(rings[0]) >= 2:
+            lines.append(rings[0])
+    return lines
 
 
 def osm_feature_to_5514(
@@ -2285,6 +2338,29 @@ def prepare_osm_paths(
             if kind in _PRIORITY_KINDS and not osm_priority:
                 skipped += 1
                 continue
+            if kind in _LINE_FEATURE_KINDS and el.get("type") == "relation":
+                # Multipolygon areál → plot/zeď jen po outer (ne díry).
+                code = classified[1]
+                lines = osm_perimeter_lines_5514(el)
+                if not lines:
+                    skipped += 1
+                    continue
+                for pts in lines:
+                    features.append(
+                        {
+                            "type": "Feature",
+                            "properties": {
+                                "source": "osm",
+                                "kind": kind,
+                                "oom_code": code,
+                            },
+                            "geometry": {
+                                "type": "LineString",
+                                "coordinates": [[x, y] for x, y in pts],
+                            },
+                        }
+                    )
+                continue
             if kind in _CLOSED_AREA_KINDS:
                 buf = (
                     PLATFORM_LINE_HALF_WIDTH_M if kind == "platform" else None
@@ -2419,7 +2495,10 @@ def prepare_osm_paths(
     dropped_short_osm = len(osm_items) - len(kept_osm)
 
     # 2. Varianta MIXED: pěšiny + lávky, ořez proti ZABAGED + OSM×OSM širší>užší
-    mixed_highways = osm_highway_set(PATH_SOURCE_MIXED) | frozenset({OSM_BRIDGE_HIGHWAY})
+    # sidewalk / cycleway_paved vznikají až refine ze footway/cycleway.
+    mixed_highways = osm_highway_set(PATH_SOURCE_MIXED) | frozenset(
+        {OSM_BRIDGE_HIGHWAY, "sidewalk", "cycleway_paved"}
+    )
     osm_items_mixed = [
         (pts, hw)
         for pts, hw in osm_items

@@ -157,6 +157,18 @@ def test_classify_osm_well_and_playground():
         "barrier_point",
         "531",
     )
+    # way/317686554: landuse=recreation_ground → plot po obrysu (ne plocha).
+    assert classify_osm_feature({"landuse": "recreation_ground"}) == (
+        "fence",
+        "518",
+    )
+    assert classify_osm_feature(
+        {"landuse": "recreation_ground"}, geom="node"
+    ) is None
+    # Explicitní barrier má přednost před landuse.
+    assert classify_osm_feature(
+        {"landuse": "recreation_ground", "barrier": "wall"}
+    ) == ("wall", "513.2")
     assert classify_osm_feature({"historic": "memorial"}, geom="node") == (
         "memorial",
         "526",
@@ -264,6 +276,31 @@ def test_garden_multipolygon_keeps_inner_hole():
     assert len(polys[0]) == 2
     assert polys[0][0][0] == polys[0][0][-1]
     assert polys[0][1][0] == polys[0][1][-1]
+
+
+def test_recreation_ground_perimeter_as_fence_line():
+    """OSM way/317686554: landuse=recreation_ground → plot (LineString), ne plocha."""
+    from app.pipeline.osm_paths import osm_feature_to_5514, osm_perimeter_lines_5514
+
+    el = {
+        "type": "way",
+        "id": 317686554,
+        "tags": {"landuse": "recreation_ground"},
+        "geometry": [
+            {"lat": 50.0, "lon": 14.40},
+            {"lat": 50.0, "lon": 14.41},
+            {"lat": 50.01, "lon": 14.41},
+            {"lat": 50.01, "lon": 14.40},
+            {"lat": 50.0, "lon": 14.40},
+        ],
+    }
+    feat = osm_feature_to_5514(el)
+    assert feat is not None
+    kind, code, pts = feat
+    assert kind == "fence" and code == "518"
+    assert len(pts) >= 4 and pts[0] == pts[-1]
+    lines = osm_perimeter_lines_5514(el)
+    assert len(lines) == 1 and lines[0][0] == lines[0][-1]
 
 
 def test_running_track_multipolygon_as_paved_pitch():
@@ -429,6 +466,7 @@ def test_osm_priority_overpass_includes_barriers():
     ql = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=True)
     assert "barrier" in ql
     assert "fitness_station" in ql
+    assert "recreation_ground" in ql
     assert 'way["building"]' in ql
     assert 'relation["type"="multipolygon"]["building"]' in ql
     assert 'way["amenity"="parking"]' in ql
@@ -460,6 +498,7 @@ def test_osm_priority_overpass_includes_barriers():
     ql_off = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=False)
     assert "fitness_station" not in ql_off
     assert "barrier" not in ql_off
+    assert "recreation_ground" not in ql_off
     # Budovy vždy (doplnky), i bez priority.
     assert 'way["building"]' in ql_off
     assert 'relation["type"="multipolygon"]["building"]' in ql_off
@@ -895,6 +934,33 @@ def test_osm_oom_code_sidewalk():
         == "sidewalk"
     )
     assert sprint_line_highway({"highway": "pedestrian"}, "pedestrian") == "sidewalk"
+    # way/81797165: cycleway + asphalt + smoothness=good → široká zpevněná 501.9.
+    assert (
+        sprint_line_highway(
+            {
+                "highway": "cycleway",
+                "foot": "yes",
+                "surface": "asphalt",
+                "smoothness": "good",
+                "segregated": "no",
+            },
+            "cycleway",
+        )
+        == "cycleway_paved"
+    )
+    assert osm_oom_code("cycleway_paved", "sprint_2m") == "501.9"
+    assert osm_oom_code("cycleway_paved", "forest_10000") == "501.1"
+    assert osm_oom_code("cycleway_paved", "mtbo_10000") == "529"
+    # Jen smoothness (bez surface) taky stačí.
+    assert (
+        sprint_line_highway(
+            {"highway": "cycleway", "smoothness": "excellent"}, "cycleway"
+        )
+        == "cycleway_paved"
+    )
+    # Bez povrchu / smoothness zůstane pěšina/cycleway.
+    assert sprint_line_highway({"highway": "cycleway"}, "cycleway") == "cycleway"
+    assert osm_oom_code("cycleway", "sprint_2m") == "506"
 
 
 def test_pedestrian_plaza_polygon_area_yes():
