@@ -1,0 +1,10 @@
+---
+description: Lokální GDAL/osgeo je v QGIS bin, ne v systémovém Pythonu.
+alwaysApply: true
+---
+
+# Lokální GDAL
+
+- Na tomto stroji je GDAL / `osgeo` v `C:\QGIS\bin\` (součást QGIS), ne v defaultním `C:\Program Files\Python313`.
+- Pro pipeline/testy potřebující OGR/osgeo přidej `C:\QGIS\bin` do `PATH` (příp. nastav Python z QGIS), nebo počítej s fallbackem shapely/pyshp.
+- Systémový `python` bez úpravy PATH typicky `import osgeo` neumí.

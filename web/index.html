@@ -139,6 +139,36 @@
             <p class="hint">Díra uprostřed budovy → oliva přes detaily uvnitř (sprint 520 / les 520 / MTBO 527). U lesa/MTBO skoro nic nepřibude.</p>
           </div>
 
+          <div id="residual-paved-wrap">
+            <label class="checkbox-row">
+              <input type="checkbox" name="sprint_residual_paved" id="sprint_residual_paved" value="1" />
+              Zpevněná plocha do mezer v residential (OSM)
+            </label>
+            <label>
+              Max. velikost do auto .omap
+              <select name="sprint_residual_size" id="sprint_residual_size">
+                <option value="small" selected>Jen menší (≤ 500 m²) – výchozí</option>
+                <option value="medium">Včetně středních (≤ 2000 m²)</option>
+                <option value="large">I velké (všechny hustě zmapované)</option>
+              </select>
+            </label>
+            <p class="hint" id="residual-paved-hint">
+              Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.
+              Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
+              (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
+              které jinak nekreslíme). Výsledek jde pod silnice.
+              Když po odečtu zbývá víc než 25&nbsp;% plochy residential, oblast je řídce
+              zmapovaná a do auto&nbsp;<code>.omap</code> se nebere (přikryla by KP);
+              stejně se zahodí kusy nad zvolenou max. velikostí.
+              Do ZIPu (<code>osm/</code>) vždy přibudou SHP
+              <code>OSM_residential_zbytek_mensi</code> /
+              <code>_stredni</code> /
+              <code>_velke</code>
+              a <code>_ridke</code> (přeskočené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
+              (symbol 501). Heuristika; v OOM jde smazat. Default vypnuto.
+            </p>
+          </div>
+
           <label>
             Ostatní plochy v sídlech (ZABAGED)
             <select name="ostatni_plocha" id="ostatni_plocha">
@@ -247,7 +277,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.10.9 ·
+      Podkladárna v1.12.0 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

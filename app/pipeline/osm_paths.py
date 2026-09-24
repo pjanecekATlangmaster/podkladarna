@@ -261,6 +261,9 @@ def _overpass_ql(
         f'way["landuse"~"^(reservoir|basin)$"]({bbox});',
         # Obdělávaná půda → ISOM 412 (zdroj OSM, ne ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
+        # Rezidenční plocha – subject pro inverzní 501 (ne kreslí se samostatně).
+        f'way["landuse"="residential"]({bbox});',
+        f'relation["type"="multipolygon"]["landuse"="residential"]({bbox});',
         # Zahrady → oliva 520 (vč. multipolygon relation s dírou na dům).
         f'way["leisure"="garden"]({bbox});',
         f'relation["type"="multipolygon"]["leisure"="garden"]({bbox});',
@@ -361,8 +364,17 @@ _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
 }
 # Budovy z OSM do auto OOM i do osm/OSM_budovy.shp (ruční import).
 _OSM_BUILDING_KINDS = frozenset({"building", "water_well_building"})
+# residential = jen subject pro residual_paved (ne do auto OOM jako plocha).
 _CLOSED_AREA_KINDS = frozenset(
-    {"wetland", "water_body", "farmland", "garden", "building", "water_well_building"}
+    {
+        "wetland",
+        "water_body",
+        "farmland",
+        "residential",
+        "garden",
+        "building",
+        "water_well_building",
+    }
 ) | _PAVED_AREA_KINDS
 # Jen při kp_osm_priority (hlavně sprint urban pack).
 _PRIORITY_KINDS = frozenset(
@@ -769,6 +781,11 @@ def classify_osm_feature(
         if is_node:
             return None
         return "farmland", "412"
+    # Rezidenční (šedá OSM) – subject pro inverzní zpevněnou 501, ne vlastní plocha.
+    if landuse == "residential":
+        if is_node:
+            return None
+        return "residential", "501"
     # Zahrada (ISSprOM/ISOM 520 oliva) – nepřístupné / soukromé plochy.
     if leisure == "garden":
         if is_node:
@@ -868,6 +885,9 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind == "farmland":
         # ISOM 412 Cultivated land; ISMTBOM 412 = Orchard → 415.
         return "415" if mtbo else "412"
+    if kind == "residential":
+        # Jen subject pro residual_paved – do OOM se nekreslí.
+        return ""
     if kind == "garden":
         # ISOM/ISSprOM 520 oliva; ISMTBOM 527 Settlement.
         return "527" if mtbo else "520"
@@ -3186,7 +3206,7 @@ def build_osm_feature_parts(
     for feat in feats:
         props = feat.get("properties") or {}
         kind = str(props.get("kind") or "")
-        if not kind:
+        if not kind or kind == "residential":
             continue
         code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
         if not code:

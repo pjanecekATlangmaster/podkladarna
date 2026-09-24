@@ -390,10 +390,17 @@ def _package_output(
                 ostatni_plocha_max_m2,
                 resolve_ostatni_plocha,
             )
+            from app.pipeline.residual_paved import (
+                residual_max_m2,
+                resolve_residual_size,
+            )
 
             ostatni_choice = resolve_ostatni_plocha(options)
             max_ostatni_m2 = ostatni_plocha_max_m2(ostatni_choice)
             ostatni_as_403 = bool(options.get("ostatni_plocha_as_403"))
+            residual_paved = bool(options.get("sprint_residual_paved"))
+            residual_size = resolve_residual_size(options)
+            max_residual_m2 = residual_max_m2(residual_size)
             log(
                 f"Ostatní plocha v sídlech (auto .omap): {ostatni_choice}"
                 + (
@@ -405,6 +412,16 @@ def _package_output(
                 )
                 + ("; značka 403" if ostatni_as_403 and max_ostatni_m2 is not None else "")
             )
+            if residual_paved:
+                size_note = (
+                    "všechny husté"
+                    if max_residual_m2 == float("inf")
+                    else f"≤ {max_residual_m2:g} m²"
+                )
+                log(
+                    f"OSM residential → zbytek zpevněné (501): zapnuto "
+                    f"(auto .omap {size_note}; SHP všechna pásma + řídké)"
+                )
 
             for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
                 preset_id,
@@ -441,6 +458,8 @@ def _package_output(
                         aopk_trees=aopk_path,
                         max_ostatni_m2=max_ostatni_m2,
                         ostatni_as_403=ostatni_as_403,
+                        residual_paved=residual_paved,
+                        max_residual_m2=max_residual_m2,
                     )
                     if omap_p:
                         omap_paths.append(omap_p)

@@ -37,6 +37,7 @@ from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.open_land_subtract import collect_kp401_subtract_wkbs
+from app.pipeline.residual_paved import build_residual_paved_parts, _RESIDUAL_BANDS_DIR
 from app.pipeline.reference_layers import reference_metadata
 from app.pipeline.ruian_buildings import (
     ZABAGED_OMIT_BUILDING_LAYERS,
@@ -60,6 +61,9 @@ Stejný účel jako složka zabaged/: vyber SHP a importuj do OOM
 
 Objekty už jsou i v .omap; tady je máš jako zdroj pro volné poskládání.
 Včetně OSM_budovy.shp (stejný zdroj jako auto budovy v .omap).
+
+Residential zbytek (501): OSM_residential_zbytek_mensi / _stredni / _velke
+a _ridke (řídce zmapované – v auto .omap nejsou). Symbol 501.
 
 Doporučené symboly jsou v README.txt uvnitř jobu (osm_paths/manual/).
 
@@ -646,6 +650,8 @@ def prepare_oom_map(
     aopk_trees: Path | None = None,
     max_ostatni_m2: float | None = 50_000.0,
     ostatni_as_403: bool = False,
+    residual_paved: bool = False,
+    max_residual_m2: float = 500.0,
 ) -> Path | None:
     del formline
     path_source = resolve_path_source(path_source)
@@ -719,8 +725,21 @@ def prepare_oom_map(
             else:
                 zabaged_rest.append(part)
 
-    # Nejspodnější podklad: zpevněné plochy ze ZABAGED (501), pak louky…
+    # Nejspodnější podklad: zpevněné plochy ze ZABAGED (501), pak inverze residential…
     object_parts.extend(zabaged_base_paved)
+    if residual_paved:
+        residual_parts = build_residual_paved_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            bbox_wgs84=bbox_wgs84,
+            max_piece_m2=max_residual_m2,
+        )
+        if residual_parts:
+            object_parts.extend(residual_parts)
     # Louky/zeleň ze ZABAGED + OSM 412 pod KP (hustníky z LiDARu musí zůstat vidět).
     object_parts.extend(zabaged_under)
     aopk_pts = load_aopk_tree_points(aopk_trees)
@@ -939,6 +958,18 @@ def build_oom_zip(
         budovy_shp = osm_dir / "budovy"
         if budovy_shp.is_dir():
             for path in sorted(budovy_shp.iterdir()):
+                if path.is_file() and path.suffix.lower() in {
+                    ".shp",
+                    ".shx",
+                    ".dbf",
+                    ".prj",
+                    ".cpg",
+                }:
+                    zf.write(path, f"osm/{path.name}")
+        # Inverzní residential 501 – pásma + řídké (i ty nepoužité v auto .omap).
+        residual_dir = kp_cwd / _RESIDUAL_BANDS_DIR
+        if residual_dir.is_dir():
+            for path in sorted(residual_dir.iterdir()):
                 if path.is_file() and path.suffix.lower() in {
                     ".shp",
                     ".shx",

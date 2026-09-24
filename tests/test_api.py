@@ -199,6 +199,49 @@ def test_create_job_sprint_courtyard_olive(client, monkeypatch):
     assert on.json()["options"]["sprint_courtyard_olive"] is True
 
 
+def test_create_job_sprint_residual_paved(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    off = client.post(
+        "/api/jobs",
+        data={
+            "name": "no-residual",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "output_mode": "png_zip",
+            "output_references": "1",
+            "sprint_courtyard_olive": "1",
+        },
+    )
+    assert off.status_code == 200
+    assert off.json()["options"]["sprint_residual_paved"] is False
+
+    on = client.post(
+        "/api/jobs",
+        data={
+            "name": "residual",
+            "preset_id": "sprint_2m",
+            "bbox": "14.56,50.10,14.58,50.11",
+            "output_mode": "png_zip",
+            "output_references": "1",
+            "sprint_courtyard_olive": "1",
+            "sprint_residual_paved": "1",
+            "sprint_residual_size": "medium",
+        },
+    )
+    assert on.status_code == 200
+    assert on.json()["options"]["sprint_residual_paved"] is True
+    assert on.json()["options"]["sprint_residual_size"] == "medium"
+
+
 def test_map_options(client):
     r = client.get("/api/map_options")
     assert r.status_code == 200
@@ -291,8 +334,12 @@ def test_index_html(client):
     assert 'name="output_references"' in html
     assert 'id="output_references" value="1" checked' in html
     assert 'name="sprint_courtyard_olive"' in html
+    assert 'name="sprint_residual_paved"' in html
+    assert 'name="sprint_residual_size"' in html
+    assert "OSM_residential_zbytek" in html
     assert "OSM detaily" in html
     assert "courtyard-olive-wrap" in html
+    assert "residual-paved-wrap" in html
     assert "pracovní podklad" in html
     assert "jasně danými" in html
     assert "postaru" in html

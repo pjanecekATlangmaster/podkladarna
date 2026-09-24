@@ -471,6 +471,10 @@ async def api_create_job(request: Request):
         "kp_osm_footway_as_sidewalk"
     )
     options["sprint_courtyard_olive"] = _opt_bool("sprint_courtyard_olive")
+    options["sprint_residual_paved"] = _opt_bool("sprint_residual_paved")
+    residual_size_raw = _form_str(form, "sprint_residual_size").strip().lower()
+    if residual_size_raw in {"small", "medium", "large"}:
+        options["sprint_residual_size"] = residual_size_raw
     ostatni_raw = _form_str(form, "ostatni_plocha").strip().lower()
     if ostatni_raw in {"none", "small", "medium", "large"}:
         options["ostatni_plocha"] = ostatni_raw
@@ -534,6 +538,8 @@ async def api_create_job(request: Request):
         f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}, "
         f"footway=chodník={'ano' if options.get('kp_osm_footway_as_sidewalk') else 'ne'}, "
         f"dvory oliva={'ano' if options.get('sprint_courtyard_olive', True) else 'ne'}, "
+        f"residential 501={'ano' if options.get('sprint_residual_paved') else 'ne'}"
+        f"/{options.get('sprint_residual_size', 'small')}, "
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"
         f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "

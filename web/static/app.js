@@ -825,6 +825,17 @@ function applyJobToForm(job) {
         ? true
         : Boolean(opts.sprint_courtyard_olive);
   }
+  const residualPaved = form.sprint_residual_paved;
+  if (residualPaved) {
+    residualPaved.checked = Boolean(opts.sprint_residual_paved);
+  }
+  const residualSize = form.sprint_residual_size;
+  if (residualSize) {
+    const sizeVal = opts.sprint_residual_size || "small";
+    if ([...residualSize.options].some((o) => o.value === sizeVal)) {
+      residualSize.value = sizeVal;
+    }
+  }
   const ostatni = form.ostatni_plocha;
   if (ostatni) {
     const ostatniVal = opts.ostatni_plocha || "small";

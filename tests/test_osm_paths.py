@@ -191,6 +191,13 @@ def test_classify_osm_well_and_playground():
     assert classify_osm_feature({"natural": "water"}) == ("water_body", "301")
     assert classify_osm_feature({"landuse": "basin"}) == ("water_body", "301")
     assert classify_osm_feature({"landuse": "farmland"}) == ("farmland", "412")
+    assert classify_osm_feature({"landuse": "residential"}) == (
+        "residential",
+        "501",
+    )
+    assert classify_osm_feature(
+        {"landuse": "residential"}, geom="node"
+    ) is None
     assert classify_osm_feature({"leisure": "garden"}) == ("garden", "520")
     assert classify_osm_feature({"leisure": "garden"}, geom="node") is None
     assert classify_osm_feature({"natural": "cave_entrance"}) == (
@@ -390,6 +397,7 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("garden", "forest_10000") == "520"
     assert feature_oom_code("water_body", "sprint_2m") == "301"
     assert feature_oom_code("farmland", "forest_7500") == "412"
+    assert feature_oom_code("residential", "sprint_2m") == ""
     # ISMTBOM – jiná čísla než ISOM.
     assert feature_oom_code("building", "mtbo_10000") == "526"
     assert feature_oom_code("garden", "mtbo_10000") == "527"
@@ -483,6 +491,8 @@ def test_osm_priority_overpass_includes_barriers():
     assert "ice_rink" in ql
     assert "reservoir" in ql
     assert "farmland" in ql
+    assert 'way["landuse"="residential"]' in ql
+    assert 'relation["type"="multipolygon"]["landuse"="residential"]' in ql
     assert 'natural"="water"' in ql
     assert 'amenity"="bench"' not in ql
     assert "street_lamp" not in ql

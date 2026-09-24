@@ -301,6 +301,8 @@ def find_duplicate_active_job(
             bool(opts.get("output_zip", True)),
             bool(opts.get("output_references", True)),
             bool(opts.get("sprint_courtyard_olive", True)),
+            bool(opts.get("sprint_residual_paved")),
+            str(opts.get("sprint_residual_size") or "small"),
             str(opts.get("kp_cliff_symbol") or "earth_bank"),
             str(opts.get("kp_cliff_sensitivity") or "normal"),
             str(opts.get("kp_vege_height") or ""),
