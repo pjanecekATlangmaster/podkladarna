@@ -500,18 +500,23 @@ async def api_create_job(request: Request):
         prev_bbox = (prev or {}).get("options", {}).get("bbox_wgs84")
         if prev and prev.get("has_reusable_lidar") and db.bbox_close(prev_bbox or [], bbox):
             options["reused_from"] = reuse_id
-    dup = db.find_duplicate_active_job(options, within_minutes=5)
+    dup = db.find_duplicate_active_job(options)
     if dup:
         logger.info(
             "Duplicate job skipped – returning existing %s (status=%s)",
             dup["id"],
             dup.get("status"),
         )
-        db.append_log(
-            dup["id"],
-            "Stejný výřez už běží/čeká – další Spustit generování přeskočeno.",
+        msg = (
+            "Nový job se nezaložil – stejný výřez a volby už "
+            f"{'běží' if dup.get('status') == 'running' else 'čekají'} "
+            f"(job {dup['id'][:8]}…, „{dup.get('name') or 'bez názvu'}“)."
         )
-        return dup
+        db.append_log(dup["id"], msg)
+        out = dict(dup)
+        out["duplicate_skipped"] = True
+        out["duplicate_message"] = msg
+        return out
     job = db.create_job(name, preset_id, options)
     job_id = job["id"]
 

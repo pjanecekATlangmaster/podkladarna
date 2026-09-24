@@ -242,6 +242,41 @@ def test_create_job_sprint_residual_paved(client, monkeypatch):
     assert on.json()["options"]["sprint_residual_size"] == "medium"
 
 
+def test_create_job_duplicate_active_warns(client, monkeypatch):
+    """Stejný aktivní job → nezaloží nový, vrátí duplicate_skipped + zprávu."""
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    payload = {
+        "name": "Svedske sance MB",
+        "map_scale": "10000",
+        "contour_interval": "5",
+        "bbox": "14.40,50.08,14.42,50.09",
+        "output_mode": "png_zip",
+        "output_references": "1",
+        "sprint_courtyard_olive": "1",
+        "kp_osm_priority": "1",
+    }
+    first = client.post("/api/jobs", data=payload)
+    assert first.status_code == 200
+    first_id = first.json()["id"]
+    assert first.json().get("duplicate_skipped") is not True
+
+    second = client.post("/api/jobs", data=payload)
+    assert second.status_code == 200
+    body = second.json()
+    assert body["id"] == first_id
+    assert body["duplicate_skipped"] is True
+    assert "nezaložil" in body["duplicate_message"]
+
+
 def test_map_options(client):
     r = client.get("/api/map_options")
     assert r.status_code == 200

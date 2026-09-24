@@ -612,6 +612,13 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   try {
     const fd = new FormData(form);
     const job = await api("/api/jobs", { method: "POST", body: fd });
+    if (job && job.duplicate_skipped) {
+      const msg =
+        job.duplicate_message ||
+        "Nový job se nezaložil – stejný výřez už běží nebo čeká.";
+      showFormError(msg);
+      alert(msg);
+    }
     await selectJob(job.id);
   } catch (err) {
     showFormError(err.message);

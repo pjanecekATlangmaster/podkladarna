@@ -288,9 +288,15 @@ def bbox_close(
 def find_duplicate_active_job(
     options: dict[str, Any],
     *,
-    within_minutes: int = 5,
+    within_minutes: int | None = None,
 ) -> dict[str, Any] | None:
-    """Stejný job (výřez + klíčové volby) už běží/čeká – typicky dvojklik Spustit."""
+    """Stejný job (výřez + klíčové volby) už běží/čeká – typicky dvojklik Spustit.
+
+    U aktivních jobů se neomezuje stářím: běh často trvá >5 min, dřívější okno
+    5 minut dovolilo založit druhý stejný job (např. Švédské šance).
+    ``within_minutes`` je jen zpětná kompatibilita volajícího kódu (ignoruje se).
+    """
+    del within_minutes
 
     def _fp(opts: dict[str, Any]) -> tuple:
         bbox = opts.get("bbox_wgs84") or []
@@ -319,7 +325,6 @@ def find_duplicate_active_job(
     want = _fp(options)
     if not want[0]:
         return None
-    since = datetime.now(timezone.utc).timestamp() - max(1, within_minutes) * 60
     with connect() as conn:
         rows = conn.execute(
             """
@@ -331,9 +336,6 @@ def find_duplicate_active_job(
         ).fetchall()
     for row in rows:
         job = _row_to_job(row)
-        created = _parse_iso(job.get("created_at") or "")
-        if created is None or created.timestamp() < since:
-            continue
         if _fp(job.get("options") or {}) == want:
             return job
     return None
