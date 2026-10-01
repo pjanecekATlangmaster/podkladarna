@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.12.3"
+APP_VERSION = "1.13.0"
 
 apply_local_gis_env()
 
@@ -56,6 +56,15 @@ REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))
 RUIAN_CACHE_MAX_AGE_DAYS = int(os.environ.get("RUIAN_CACHE_MAX_AGE_DAYS", "30"))
 AOPK_CACHE_MAX_AGE_DAYS = int(os.environ.get("AOPK_CACHE_MAX_AGE_DAYS", "30"))
 
+# Hybrid: Karttapullautin stále běží (default). Vypnutí = bez-KP cesta (vlny 3+).
+# Env PODKLADARNA_USE_KP=0 přepíše default v options, pokud job nepošle vlastní flag.
+USE_KP_DEFAULT = os.environ.get("PODKLADARNA_USE_KP", "1").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
 DEFAULT_OPTIONS = {
     "run_vectors": True,
     "output_png": True,
@@ -66,6 +75,8 @@ DEFAULT_OPTIONS = {
     "output_dxf": True,
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace
+    # Krátký hybrid: KP optional. Default zapnuto, ať stávající testy/regress drží.
+    "use_kp": USE_KP_DEFAULT,
     # KP c2g/c3g: earth_bank=104, rock_face=201(+210), symbol_206=206 plocha, off=přeskočit.
     "kp_cliff_symbol": "earth_bank",
     # KP greenhigh (m) – výška vegetace pro výpočet zeleně.

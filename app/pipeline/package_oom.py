@@ -43,6 +43,11 @@ from app.pipeline.ruian_buildings import (
     ZABAGED_OMIT_BUILDING_LAYERS,
     write_ruian_buildings_shapefile,
 )
+from app.pipeline.source_meta import (
+    INDICATIVE_LABEL_CS,
+    citation_line,
+    format_source_epochs_readme,
+)
 from app.pipeline.vegetation_gdal import build_vegetation_parts
 from app.settings import APP_VERSION
 
@@ -443,8 +448,10 @@ def oom_metadata(
     job_name: str = "",
     *,
     reference_layers: list[str] | None = None,
+    lidar_sources: dict | None = None,
 ) -> dict:
     sf = float(options.get("scalefactor", preset.get("scalefactor", 1)))
+    use_kp = bool(options.get("use_kp", True))
     meta = {
         "name": job_name,
         "app_version": APP_VERSION,
@@ -457,11 +464,18 @@ def oom_metadata(
             "contour_interval", preset.get("contour_interval")
         ),
         "formline": options.get("formline", preset.get("formline")),
+        "use_kp": use_kp,
+        "indicative_label": INDICATIVE_LABEL_CS,
+        "citation": citation_line(use_kp=use_kp),
         **reference_metadata(),
     }
     if reference_layers:
         meta["reference_layers"] = reference_layers
     meta["path_source"] = resolve_path_source(options.get("path_source"))
+    if lidar_sources:
+        meta["lidar_sources"] = lidar_sources
+        meta["dmp_mode"] = lidar_sources.get("dmp_mode")
+        meta["dmp_degraded"] = bool(lidar_sources.get("dmp_degraded"))
     return meta
 
 
@@ -471,6 +485,11 @@ def oom_readme(meta: dict) -> str:
     interval = meta.get("contour_interval_m")
     interval_txt = f"{interval} m" if interval is not None else "?"
     refs = meta.get("reference_layers") or []
+    use_kp = bool(meta.get("use_kp", True))
+    citation = meta.get("citation") or citation_line(use_kp=use_kp)
+    epochs_block = format_source_epochs_readme(meta.get("lidar_sources"))
+    if epochs_block:
+        epochs_block = "\n" + epochs_block + "\n"
     ref_block = ""
     if refs:
         ref_block = (
@@ -479,16 +498,42 @@ def oom_readme(meta: dict) -> str:
             + "\n".join(f"- {name}" for name in refs)
             + "\n"
         )
+    kp_steps = ""
+    if use_kp:
+        kp_steps = (
+            "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
+            "   v Šablony → Nastavení šablon (Template Setup); KP PNG náhledy jsou ve složce kp/.\n"
+            "3. Deprese: šablona „Karttapullautin deprese“.\n"
+            "4. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
+            "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
+            "   KP PNG náhledy ve složce kp/; ve složce base/: vrstevnice GDAL\n"
+            "   (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy, knolly.\n\n"
+        )
+        relief_line = "Reliéf a vegetace (náhled): Karttapullautin (GPL-3.0).\n\n"
+    else:
+        kp_steps = (
+            "2. PNG podklady (OSM, ortofoto, hillshade, …) zapněte dle potřeby\n"
+            "   v Šablony → Nastavení šablon (Template Setup).\n"
+            "3. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
+            "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
+            "   Ve složce base/: vrstevnice GDAL (contours_gdal.*) a další vektory.\n\n"
+        )
+        relief_line = (
+            "Reliéf: DMR 5G / DMP OK (ČÚZK) přes vlastní DEM/DSM/CHM pipeline.\n\n"
+        )
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"
         "=================================================\n\n"
         "Nejprve přečtěte CO_JE_PODKLADARNA.txt v kořeni ZIPu.\n\n"
+        f"{INDICATIVE_LABEL_CS}\n\n"
         f"Typ mapy: {label}\n"
         f"Měřítko: 1:{scale}\n"
         f"Ekvidistance: {interval_txt}\n"
-        "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n\n"
+        "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n"
+        f"{epochs_block}\n"
         f"Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
         "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa a náhled DMP OK.\n"
+        "Ortofoto slouží jen k vizuální kontrole (QA), ne jako vstup klasifikátoru.\n"
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
@@ -497,20 +542,14 @@ def oom_readme(meta: dict) -> str:
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
         "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
-        "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
-        "   v Šablony → Nastavení šablon (Template Setup); KP PNG náhledy jsou ve složce kp/.\n"
-        "3. Deprese: šablona „Karttapullautin deprese“.\n"
-        "4. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
-        "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
-        "   KP PNG náhledy ve složce kp/; ve složce base/: vrstevnice GDAL\n"
-        "   (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy, knolly.\n\n"
+        f"{kp_steps}"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
         "AOPK památné stromy (CC BY 4.0). "
         "OSM © přispěvatelé (ODbL). Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
-        "Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok].\n"
-        "Reliéf a vegetace: Karttapullautin (GPL-3.0).\n\n"
+        f"{citation}\n"
+        f"{relief_line}"
         "Podkladárna je experiment — zpětná vazba a připomínky:\n"
         "https://github.com/pjanecekATlangmaster/podkladarna/issues\n"
     )

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from app.pipeline.georef import png_pixel_size, read_pgw
+from app.pipeline.job_grid import resolve_job_extent
 from app.pipeline.oom_import import (
     OomObjectPart,
     _geom_parts_to_objects,
@@ -233,16 +233,6 @@ def refine_contour_polylines(
     return filter_short_polylines(stitched, min_length_m=min_length_m)
 
 
-def _extent_from_pullautus(png: Path, pgw: Path) -> tuple[float, float, float, float]:
-    georef = read_pgw(pgw)
-    width, height = png_pixel_size(png)
-    xmin = georef.origin_x
-    ymax = georef.origin_y
-    xmax = xmin + width * georef.pixel_x
-    ymin = ymax + height * georef.pixel_y
-    return min(xmin, xmax), min(ymin, ymax), max(xmin, xmax), max(ymin, ymax)
-
-
 def _smooth_dem(
     src: Path,
     dest: Path,
@@ -364,14 +354,8 @@ def generate_job_contours(
     crop_bounds: tuple[float, float, float, float] | None,
     log=None,
 ) -> Path:
-    png = work_dir / "pullautus.png"
-    pgw = work_dir / "pullautus.pgw"
-    if png.is_file() and pgw.is_file():
-        bounds = _extent_from_pullautus(png, pgw)
-    elif crop_bounds:
-        bounds = crop_bounds
-    else:
-        raise RuntimeError("Chybí extent pro GDAL vrstevnice (PNG/PGW nebo crop)")
+    # Preferuj kanonickou job_grid mřížku; pullautus jen jako fallback hybridu.
+    bounds = resolve_job_extent(work_dir, crop_bounds=crop_bounds)
     dest = work_dir / "contours" / "contours.shp"
     del formline
     cell_m, window_m, iters = contour_dem_params(scalefactor, interval_m)

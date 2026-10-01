@@ -320,25 +320,59 @@ def _cached_dmp_laz(mapnom: str, log: callable | None) -> Path:
             meta = read_meta(folder) or {}
             age = meta.get("downloaded_at", "?")[:10]
             log(f"LiDAR cache {mapnom} DMPOK (staženo {age})")
+        write_meta(
+            folder,
+            dmp_product="DMPOK",
+            dmp_mode="ok",
+            dmp_degraded=False,
+            mapnom=mapnom,
+        )
         return dmpok
 
     try:
-        return _cached_laz(
+        path = _cached_laz(
             mapnom, "DMPOK", OPENZU_DMPOK.format(mapnom=mapnom), log
         )
+        write_meta(
+            folder,
+            dmp_product="DMPOK",
+            dmp_mode="ok",
+            dmp_degraded=False,
+            mapnom=mapnom,
+        )
+        return path
     except FetchError as exc:
         dmp1g = folder / "DMP1G.laz"
         if is_fresh(folder, dmp1g, settings.LIDAR_CACHE_MAX_AGE_DAYS):
             if log:
                 log(
-                    f"DMP OK {mapnom} nedostupný ({exc}) – používám cache DMP 1G"
+                    f"DMP OK {mapnom} nedostupný ({exc}) – používám cache DMP 1G "
+                    "(degradace: není tichý fallback)"
                 )
+            write_meta(
+                folder,
+                dmp_product="DMP1G",
+                dmp_mode="1g",
+                dmp_degraded=True,
+                mapnom=mapnom,
+            )
             return dmp1g
         if log:
-            log(f"DMP OK {mapnom} nedostupný ({exc}) – zkouším DMP 1G …")
-        return _cached_laz(
+            log(
+                f"DMP OK {mapnom} nedostupný ({exc}) – zkouším DMP 1G "
+                "(degradace: není tichý fallback) …"
+            )
+        path = _cached_laz(
             mapnom, "DMP1G", OPENZU_DMP1G.format(mapnom=mapnom), log
         )
+        write_meta(
+            folder,
+            dmp_product="DMP1G",
+            dmp_mode="1g",
+            dmp_degraded=True,
+            mapnom=mapnom,
+        )
+        return path
 
 
 def _cached_laz(mapnom: str, kind: str, url: str, log: callable | None) -> Path:
