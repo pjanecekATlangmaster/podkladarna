@@ -5,16 +5,20 @@ nízký povrch, zeleně = střední výšky jako hrubý proxy hustoty, bílý le
 vysoká koruna. KP ve skutečnosti měří **hustotu bodů** (greenhits/groundhits);
 CHM je výškový proxy pod naší kontrolou — **ne** ZABAGED louky.
 
-Default prahy (metry nad terénem; blízké KP ``yellowheight`` / zónám):
+Default prahy (metry nad terénem; laděno vs. KP ``yellowheight`` / zóny +
+smoke feedback 2026-10 – méně bílé/zeleně na loukách):
 
-* ``open_max_m`` **1.0** – pod tím žlutá 401 (≈ KP ``yellowheight=0.9``)
-* ``green_light_max_m`` **3.0** – světlá zeleň 406 (≈ KP zone1 strop)
-* ``green_mid_max_m`` **6.0** – střední 408
-* ``green_dense_max_m`` **14.0** – hustá 410; **nad** tím kandidát na bílý les
+* ``open_max_m`` **4.0** – pod tím žlutá 401 (KP ``yellowheight=0.9`` na
+  bodech; CHM DMP−DMR na trávě/šumu je výš → strop otevřené vyšší)
+* ``green_light_max_m`` **5.5** – světlá zeleň 406 (úzký pás nad open)
+* ``green_mid_max_m`` **8.5** – střední 408
+* ``green_dense_max_m`` **12.0** – hustá 410; **nad** tím kandidát na bílý les
+  (nižší než dřív → vysoká koruna dřív bílá, ne 410)
 
-Bílý les: median smooth (KP ``medianboxsize``) + morfologické otevření
-+ na hranici s open jen výška ≥ ``WHITE_EDGE_STRICT_M`` zůstane bílá
-(jinak → hustá 410, ať bílá nepřeteče do luk).
+Bílý les: median smooth (KP ``medianboxsize``) + silnější morfologické
+otevření + na hranici s open jen výška ≥ ``WHITE_EDGE_STRICT_M`` zůstane
+bílá (jinak → hustá 410). Nízký scrub u otevřené plochy se zpětně vtáhne
+do 401 (KP yellow-threshold analog).
 
 ``open_land_subtract`` (ZABAGED/OSM odečet od 401) platí **jen** u KP cesty
 v ``package_oom`` — bez KP se 401 bere výhradně z tohoto SHP.
@@ -31,18 +35,20 @@ from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
 
 # --- Prahy CHM (metry nad terénem). KP-inspired bands + ochrana luk. ---
-# Open ≈ KP yellowheight (0.9); mírně výš kvůli šumu DMP−DMR.
-CHM_OPEN_MAX_M = 1.0
-# Světlá zeleň 406 ≈ KP zone1 (~1–2.65 m canopy)
-CHM_GREEN_LIGHT_MAX_M = 3.0
+# Open: KP yellowheight=0.9 na bodech; CHM residual na loukách typicky 2–4 m.
+CHM_OPEN_MAX_M = 4.0
+# Světlá zeleň 406 – úzký pás nad open (dřív 1–3 m sahalo do luk).
+CHM_GREEN_LIGHT_MAX_M = 5.5
 # Střed 408
-CHM_GREEN_MID_MAX_M = 6.0
+CHM_GREEN_MID_MAX_M = 8.5
 # Hustá 410; nad tím kandidát na bílý (průchodný) les.
-CHM_GREEN_DENSE_MAX_M = 14.0
+CHM_GREEN_DENSE_MAX_M = 12.0
 # Na styku s loukou musí koruna být ještě vyšší, jinak zůstane 410.
-WHITE_EDGE_STRICT_M = 20.0
+WHITE_EDGE_STRICT_M = 22.0
 # Morfologické otevření bílé masky (eroze→dilatace), zúží tenké výběžky do luk.
-WHITE_MORPH_OPEN_ITERS = 1
+WHITE_MORPH_OPEN_ITERS = 2
+# Kolikrát přitáhnout nízký scrub (406) do open, když okolí je většinou louka.
+OPEN_REINFORCE_ITERS = 2
 # Median filtr klasifikace (liché); KP default medianboxsize≈6 → okýnko ~5 px.
 CHM_MEDIAN_SIZE = 5
 
@@ -66,6 +72,7 @@ class ChmVegeThresholds:
     green_dense_max_m: float = CHM_GREEN_DENSE_MAX_M
     white_edge_strict_m: float = WHITE_EDGE_STRICT_M
     white_morph_iters: int = WHITE_MORPH_OPEN_ITERS
+    open_reinforce_iters: int = OPEN_REINFORCE_ITERS
     median_size: int = CHM_MEDIAN_SIZE
 
     def classify_height(self, h: float) -> int:
@@ -166,6 +173,65 @@ def _touches_open(classified, open_cls: int = 1):
     return near
 
 
+def _open_neighbor_fraction(open_mask):
+    """Podíl open sousedů v 3×3 (včetně self) – KP yellow-threshold analog."""
+    import numpy as np
+
+    m = np.asarray(open_mask, dtype=np.float32)
+    padded = np.pad(m, 1, mode="edge")
+    acc = np.zeros_like(m, dtype=np.float32)
+    for di in (-1, 0, 1):
+        for dj in (-1, 0, 1):
+            acc += padded[1 + di : 1 + di + m.shape[0], 1 + dj : 1 + dj + m.shape[1]]
+    return acc / 9.0
+
+
+def reinforce_open_land(
+    classified,
+    heights,
+    *,
+    thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
+    valid=None,
+):
+    """Vtáhne nízký scrub (406, případně nízké 408) do 401, když okolí je louka.
+
+    Proxy KP ``yellowthresold``: buňka s převážně „nízkým“ okolím zůstane
+    otevřená i při mírně vyšší CHM (tráva / šum DMP−DMR), místo falešné zeleně.
+    """
+    import numpy as np
+
+    out = np.asarray(classified, dtype=np.uint8).copy()
+    h = np.asarray(heights, dtype=np.float32)
+    if valid is None:
+        valid = np.isfinite(h)
+    else:
+        valid = np.asarray(valid, dtype=bool)
+
+    iters = max(0, int(thresholds.open_reinforce_iters))
+    # Soft strop: scrub až po mid band, ale jen když je v louce.
+    soft_max = thresholds.green_mid_max_m
+    for _ in range(iters):
+        open_m = out == 1
+        frac = _open_neighbor_fraction(open_m)
+        # Světlá zeleň v louce → open; nízké mid green jen při silné většině open.
+        pull_light = (
+            valid
+            & (out == 2)
+            & (h < soft_max)
+            & (frac >= 0.45)
+        )
+        pull_mid = (
+            valid
+            & (out == 3)
+            & (h < thresholds.green_light_max_m)
+            & (frac >= 0.6)
+        )
+        if not (np.any(pull_light) or np.any(pull_mid)):
+            break
+        out[pull_light | pull_mid] = 1
+    return out
+
+
 def cleanup_white_forest(
     classified,
     heights,
@@ -204,7 +270,7 @@ def cleanup_white_forest(
 
 
 def classify_chm_array(chm, nodata, thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS):
-    """Numpy uint8 třídy z CHM výšek (+ median + cleanup bílého lesa)."""
+    """Numpy uint8 třídy z CHM výšek (+ median + open reinforce + white cleanup)."""
     import numpy as np
 
     arr = np.asarray(chm, dtype=np.float32)
@@ -229,6 +295,7 @@ def classify_chm_array(chm, nodata, thresholds: ChmVegeThresholds = DEFAULT_THRE
         smoothed = _median_filter_uint8(out, thresholds.median_size)
         smoothed[~valid] = 0
         out = smoothed
+    out = reinforce_open_land(out, arr, thresholds=thresholds, valid=valid)
     return cleanup_white_forest(out, arr, thresholds=thresholds, valid=valid)
 
 
