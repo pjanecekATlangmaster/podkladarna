@@ -526,7 +526,7 @@ def oom_readme(meta: dict) -> str:
             "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
             "srázy zem (104) / skála (201) a volitelné knolly (109).\n"
             "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
-            "   Webový náhled PNG se neskládá; primární výstup je .omap.\n\n"
+            "   Náhled mapy: preview/preview.png (rasterizace .omap, ne hillshade).\n\n"
         )
         relief_line = (
             "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM. "

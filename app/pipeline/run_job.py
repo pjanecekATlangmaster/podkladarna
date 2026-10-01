@@ -37,6 +37,7 @@ from app.pipeline.osm_paths import (
     write_osm_manual_shapefiles,
     write_zabaged_omitting_layers,
 )
+from app.pipeline.oom_preview import oom_preview_enabled, write_job_oom_preview
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     OOM_PATH_VARIANTS,
@@ -269,7 +270,7 @@ def run_job_pipeline(
         log(
             "=== Fáze: Karttapullautin vypnut (use_kp=false) – "
             "hustota vegetace → srázy (skála/zem) → knolly → vrstevnice GDAL → .omap/ZIP "
-            "(webový náhled PNG se neskládá) ==="
+            "(náhled PNG z .omap po sestavení mapy) ==="
         )
 
     kp_cwd = work_dir
@@ -494,10 +495,17 @@ def run_job_pipeline(
         except Exception as exc:
             log(f"Náhled compose: přeskočeno ({exc})")
     elif not use_kp:
-        log(
-            "Náhled PNG: přeskočen (use_kp=false) – primární výstup je OOM/ZIP; "
-            "ČÚZK reference v ZIPu zůstávají. Opt-in: compose_preview=1."
-        )
+        if oom_preview_enabled(options):
+            log(
+                "Náhled PNG: hillshade compose přeskočen (use_kp=false); "
+                "web/ZIP náhled vznikne z .omap po sestavení mapy. "
+                "ČÚZK reference v ZIPu zůstávají."
+            )
+        else:
+            log(
+                "Náhled PNG: přeskočen (use_kp=false) – primární výstup je OOM/ZIP; "
+                "ČÚZK reference v ZIPu zůstávají. Opt-in: compose_preview=1 / oom_preview=1."
+            )
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(
@@ -699,6 +707,17 @@ def _package_output(
                         omap_paths.append(omap_p)
                     else:
                         log(f"OOM: {variant_name} nevytvořeno (prepare_oom_map vrátil None)")
+
+            try:
+                write_job_oom_preview(
+                    omap_paths,
+                    kp_cwd,
+                    output_dir,
+                    options,
+                    log=log,
+                )
+            except Exception as exc:
+                log(f"OOM náhled: přeskočeno ({exc})")
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
         build_oom_zip(

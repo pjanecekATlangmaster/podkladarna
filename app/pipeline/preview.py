@@ -21,14 +21,21 @@ PULLAUTUS_PGW = "pullautus.pgw"
 
 
 def resolve_preview_png(*dirs: Path) -> Path | None:
-    """Vrátí existující náhled: ``preview.png`` má prioritu před ``pullautus.png``."""
+    """Vrátí existující náhled: ``preview.png`` má prioritu před ``pullautus.png``.
+
+    Bez-KP OOM render také ukládá ``preview/oom_preview.png`` (web i ZIP).
+    """
     for directory in dirs:
         if directory is None:
             continue
+        root = Path(directory)
         for name in (PREVIEW_PNG, PULLAUTUS_PNG):
-            path = Path(directory) / name
+            path = root / name
             if path.is_file():
                 return path
+        oom = root / "preview" / "oom_preview.png"
+        if oom.is_file():
+            return oom
     return None
 
 

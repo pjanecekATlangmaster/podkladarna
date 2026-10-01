@@ -6,3 +6,6 @@ pyproj>=3.6.0
 almanac-compute>=0.1.0
 # Vegetace bez KP: hustota LiDAR odrazu (vegetation_density); bez laspy fallback CHM.
 laspy[lazrs]>=2.5
+
+# Náhled .omap → PNG (bez-KP), když Mapper nemá headless export.
+pillow>=10.0.0

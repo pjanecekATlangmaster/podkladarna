@@ -161,3 +161,15 @@ python scripts/compare_bez_kp_ab.py --a path\a --b path\b --json -o tmp\ab_repor
 Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: presence vege/cliffs/preview, feature count + plochy vegetace, počet/délka srázových ticků, rozměry náhledu. Analogie ke `scripts/compare_contours_oom.py` (to generuje srovnávací `.omap`; tento skript jen měří hotové artefakty).
 
 ---
+
+## Náhled PNG z `.omap` (bez KP)
+
+Když job běží s `use_kp=false`, hillshade compose se do webu nedává. Po zápisu `.omap` pipeline uloží `work/preview.png` (web `/preview.png`, ZIP `preview/preview.png`) a kopii `output/preview/oom_preview.png`. ČÚZK WMS reference v ZIPu zůstávají. Zapnout i při KP: `options.oom_preview=true` nebo `PODKLADARNA_OOM_PREVIEW=1`. Vypnout: `oom_preview=false` nebo `PODKLADARNA_OOM_PREVIEW=0`.
+
+Stock **OpenOrienteering Mapper 0.9.6** export do PNG umí jen z dialogu File → Export. Samotné `Mapper.exe` se proto nespouští – otevřelo by GUI. Vestavěný náhled čte XML `.omap` a kreslí plochy/linie/body barvami symbolů (ne plná symbolika Mapperu).
+
+`powershell
+python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
+.\scripts\fetch_openorienteering_mapper.ps1
+`
+
