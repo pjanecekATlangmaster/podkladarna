@@ -423,7 +423,9 @@ def run_job_pipeline(
         run_cmd(kp_vector_cmd, cwd=kp_cwd, log=log)
         # out2.dxf: po ZIP → archive/contours_kp.dxf (A/B); base/ má jen GDAL.
 
-    # Shade + náhled bez KP: po DEM prep / KP; před balením (georef šablona).
+    # Shade vždy (OOM/ZIP + ČÚZK reference). Náhled PNG:
+    # – KP/hybrid: pullautus / compose
+    # – bez KP: defaultně oželít preview.png (Petr 2026-10-01) – primární je OOM
     try:
         log("=== Fáze: hillshade stack ===")
         build_job_shade(
@@ -437,19 +439,28 @@ def run_job_pipeline(
         qa_contours_vs_shared_dem(work_dir, log=log)
     except Exception as exc:
         log(f"Hillshade stack: přeskočeno ({exc})")
-    try:
-        tint = work_dir / "vegetation" / "chm_tint.png"
-        compose_job_preview(
-            work_dir,
-            force=not use_kp,
-            prefer_kp_pullautus=use_kp,
-            overlay_png=tint if (not use_kp and tint.is_file()) else None,
-            overlay_opacity=0.30,
-            bounds_5514=grid_bounds,
-            log=log,
+    compose_preview = bool(options.get("compose_preview", False))
+    if use_kp or compose_preview:
+        try:
+            tint = work_dir / "vegetation" / "chm_tint.png"
+            compose_job_preview(
+                work_dir,
+                force=bool(compose_preview and not use_kp),
+                prefer_kp_pullautus=use_kp,
+                overlay_png=tint
+                if (compose_preview and not use_kp and tint.is_file())
+                else None,
+                overlay_opacity=0.30,
+                bounds_5514=grid_bounds,
+                log=log,
+            )
+        except Exception as exc:
+            log(f"Náhled compose: přeskočeno ({exc})")
+    elif not use_kp:
+        log(
+            "Náhled PNG: přeskočen (use_kp=false) – primární výstup je OOM/ZIP; "
+            "ČÚZK reference v ZIPu zůstávají. Opt-in: compose_preview=1."
         )
-    except Exception as exc:
-        log(f"Náhled compose: přeskočeno ({exc})")
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(

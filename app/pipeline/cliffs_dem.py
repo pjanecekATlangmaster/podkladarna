@@ -216,26 +216,14 @@ def generate_cliffs_from_dem(
     log=None,
 ) -> dict[str, Path]:
     """Detekce → ``temp/c2g.dxf`` (malé) + ``temp/c3g.dxf`` (větší)."""
-    try:
-        from osgeo import gdal
-    except ImportError:
-        if log:
-            log("Srázy DEM: osgeo/GDAL není k dispozici – přeskočeno")
-        return {}
+    from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
-    gdal.UseExceptions()
-    src = gdal.Open(str(dem_tif))
-    if src is None:
+    try:
+        arr, gt, nodata = read_float32_geotiff(dem_tif, log=log)
+    except Exception as exc:
         if log:
-            log(f"Srázy DEM: nelze otevřít {dem_tif.name}")
+            log(f"Srázy DEM: nelze číst {dem_tif.name} ({exc}) – přeskočeno")
         return {}
-    band = src.GetRasterBand(1)
-    arr = band.ReadAsArray()
-    if arr is None:
-        return {}
-    nodata = band.GetNoDataValue()
-    gt = src.GetGeoTransform()
-    src = None
 
     small, large = detect_cliff_ticks(
         arr,

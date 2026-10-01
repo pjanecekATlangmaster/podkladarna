@@ -216,9 +216,10 @@
             </select>
           </label>
           <p class="hint" id="output-omap-hint">
-            <strong>PNG</strong> je jen rychlý rastrový náhled (Karttapullautin), ne finální mapa.
-            <strong>ZIP</strong> obsahuje <code>.omap</code> soubory podle měřítka
-            (sprint, nebo les+MTBO; cesty z OSM) plus vektory pro OOM.
+            S <strong>KP</strong>: PNG je rychlý rastrový náhled (pullautus), ne finální mapa.
+            <strong>Bez KP</strong>: primární výstup je <code>.omap</code> / ZIP (vegetace z CHM, srázy z DEM, vrstevnice) —
+            webový náhled PNG se dočasně neskládá; ČÚZK referenční PNG v ZIPu zůstávají.
+            ZIP obsahuje <code>.omap</code> podle měřítka plus vektory pro OOM.
           </p>
           <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
 
@@ -232,7 +233,7 @@
             <input type="checkbox" name="use_kp" id="use_kp" value="1" checked />
             Karttapullautin (KP) – hybrid
           </label>
-          <p class="hint">Default <strong>zapnuto</strong>. Odškrtni (= <code>use_kp=false</code>) pro smoke test bez-KP pipeline (DEM/CHM/shade/vrstevnice GDAL). Vedle Force refresh.</p>
+          <p class="hint" id="use-kp-hint">Default <strong>zapnuto</strong> (hybrid s KP náhledem). Odškrtni (= <code>use_kp=false</code>) pro bez-KP: DEM/CHM/shade/vrstevnice/vegetace/srázy → OOM/ZIP (bez webového preview PNG).</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
@@ -291,7 +292,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.17.2 ·
+      Podkladárna v1.17.3 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

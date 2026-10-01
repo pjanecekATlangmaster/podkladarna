@@ -65,6 +65,21 @@ def proj_data_dir() -> Path | None:
     return None
 
 
+def osgeo_scripts_dir(root: Path | None = None) -> Path | None:
+    """``apps/Python3xx/Scripts`` s gdal_calc / gdal_polygonize (QGIS/OSGeo4W)."""
+    root = root or osgeo4w_root()
+    if not root:
+        return None
+    apps = root / "apps"
+    if not apps.is_dir():
+        return None
+    # Nejnovější Python*Scripts, které mají gdal_calc.
+    for scripts in sorted(apps.glob("Python*/Scripts"), reverse=True):
+        if (scripts / "gdal_calc.exe").exists() or (scripts / "gdal_calc.bat").exists():
+            return scripts
+    return None
+
+
 def apply_local_gis_env() -> Path | None:
     """Na Windows doplní OSGeo4W/QGIS do PATH a GDAL/PDAL/PROJ data."""
     if os.name != "nt":
@@ -78,6 +93,11 @@ def apply_local_gis_env() -> Path | None:
     if bin_dir.lower() not in path.lower():
         # Append, ať OSGeo4W python nepřebije systémový interpreter.
         os.environ["PATH"] = path + os.pathsep + bin_dir
+    scripts = osgeo_scripts_dir(root)
+    if scripts is not None:
+        scripts_s = str(scripts)
+        if scripts_s.lower() not in os.environ.get("PATH", "").lower():
+            os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + scripts_s
 
     mapping = {
         "PDAL_DRIVER_PATH": root / "apps" / "pdal" / "plugins",
@@ -97,26 +117,25 @@ def apply_local_gis_env() -> Path | None:
 
 
 def gis_subprocess_env(exe: str | None = None) -> dict[str, str]:
-    """Env for pdal/ogr2ogr/ogrinfo: PROJ_DATA must match the GDAL binary's libproj."""
+    """Env for pdal/ogr2ogr/gdal_calc: PROJ_DATA must match the GDAL binary's libproj.
+
+    Always sets ``OSGEO4W_ROOT`` when QGIS/OSGeo root exists — ``gdal_calc.exe``
+    and sibling Scripts tools need it even when not invoked via ``*.bat``.
+    """
     env = os.environ.copy()
     root = osgeo4w_root()
     proj = osgeo_proj_dir(root) or proj_data_dir()
-    if root and exe:
-        try:
-            under = Path(exe).resolve().is_relative_to(root.resolve())
-        except (OSError, ValueError):
-            under = False
-        if under:
-            env["OSGEO4W_ROOT"] = str(root)
-            osgeo_proj = osgeo_proj_dir(root)
-            if osgeo_proj is not None:
-                proj = osgeo_proj
-            gdal_data = root / "apps" / "gdal" / "share" / "gdal"
-            if gdal_data.is_dir():
-                env["GDAL_DATA"] = str(gdal_data)
-            pdal_plug = root / "apps" / "pdal" / "plugins"
-            if pdal_plug.is_dir():
-                env["PDAL_DRIVER_PATH"] = str(pdal_plug)
+    if root:
+        env["OSGEO4W_ROOT"] = str(root)
+        osgeo_proj = osgeo_proj_dir(root)
+        if osgeo_proj is not None:
+            proj = osgeo_proj
+        gdal_data = root / "apps" / "gdal" / "share" / "gdal"
+        if gdal_data.is_dir():
+            env["GDAL_DATA"] = str(gdal_data)
+        pdal_plug = root / "apps" / "pdal" / "plugins"
+        if pdal_plug.is_dir():
+            env["PDAL_DRIVER_PATH"] = str(pdal_plug)
     if proj:
         env["PROJ_DATA"] = str(proj)
         env["PROJ_LIB"] = str(proj)
@@ -136,18 +155,36 @@ def resolve_pullauta() -> str:
     return explicit or "/usr/local/bin/pullauta"
 
 
+def _tool_stem(name: str) -> str:
+    stem = name
+    lower = stem.lower()
+    if lower.endswith(".exe") or lower.endswith(".bat"):
+        stem = stem[:-4]
+    elif lower.endswith(".py"):
+        stem = stem[:-3]
+    return stem
+
+
 def which_tool(name: str) -> str | None:
+    """Najde GDAL/PDAL nástroj: ``bin/*.exe``, pak ``apps/Python*/Scripts`` (gdal_calc)."""
+    stem = _tool_stem(name)
     if os.name == "nt":
         root = osgeo4w_root()
         if root:
-            exe = root / "bin" / f"{name}.exe"
+            exe = root / "bin" / f"{stem}.exe"
             if exe.exists():
                 return str(exe)
-    found = shutil.which(name)
+            scripts = osgeo_scripts_dir(root)
+            if scripts is not None:
+                for cand in (f"{stem}.exe", f"{stem}.bat", f"{stem}.py"):
+                    path = scripts / cand
+                    if path.exists():
+                        return str(path)
+    found = shutil.which(stem) or shutil.which(name)
     if found:
         return found
     if os.name == "nt":
-        found = shutil.which(f"{name}.exe")
+        found = shutil.which(f"{stem}.exe")
         if found:
             return found
     return None
@@ -158,5 +195,7 @@ def tool_status() -> dict[str, str | None]:
         "pdal": which_tool("pdal"),
         "ogr2ogr": which_tool("ogr2ogr"),
         "ogrinfo": which_tool("ogrinfo"),
+        "gdal_calc": which_tool("gdal_calc"),
+        "gdal_polygonize": which_tool("gdal_polygonize"),
         "pullauta": resolve_pullauta() if Path(resolve_pullauta()).exists() else None,
     }

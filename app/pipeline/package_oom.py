@@ -939,7 +939,7 @@ def build_oom_zip(
         for name in ("pullautus_depr.png", "pullautus_depr.pgw"):
             if include_png:
                 _write_if_exists(zf, kp_cwd / name, f"kp/{name}")
-        # Bez-KP / hybrid: vlastní náhled ze shade (ne KP pullautus).
+        # preview.png jen pokud existuje (KP / explicitní compose_preview).
         for name in ("preview.png", "preview.pgw"):
             if include_png:
                 _write_if_exists(zf, kp_cwd / name, f"preview/{name}")

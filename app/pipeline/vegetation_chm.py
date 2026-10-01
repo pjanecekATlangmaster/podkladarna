@@ -222,6 +222,115 @@ def write_chm_tint_png(
     return dest if dest.is_file() else None
 
 
+def _simplify_vegetation_shp(
+    dest_shp: Path,
+    *,
+    log=None,
+) -> int:
+    """Filtr + simplify (pyogrio/shapely → pyshp); fallback osgeo.ogr."""
+    from app.pipeline.crs_5514 import write_prj
+
+    kept: list[tuple[int, str, object]] = []
+
+    try:
+        from shapely import from_wkb
+        from app.pipeline.oom_import import _pyogrio_layer_rows
+
+        for props, wkb in _pyogrio_layer_rows(dest_shp):
+            cls = int(props.get("cls") or 0)
+            code = _CLASS_TO_CODE.get(cls)
+            if not code or not wkb:
+                continue
+            geom = from_wkb(bytes(wkb))
+            if geom is None or geom.is_empty:
+                continue
+            simplified = geom.simplify(_SIMPLIFY_M, preserve_topology=True)
+            if simplified is None or simplified.is_empty:
+                continue
+            if float(simplified.area) < _MIN_AREA_M2:
+                continue
+            kept.append((cls, code, simplified))
+    except Exception as exc:
+        # osgeo in-place rewrite
+        try:
+            from osgeo import ogr
+
+            ogr.UseExceptions()
+            driver = ogr.GetDriverByName("ESRI Shapefile")
+            ds = driver.Open(str(dest_shp), 1)
+            if ds is None:
+                return 0
+            layer = ds.GetLayer(0)
+            defn = layer.GetLayerDefn()
+            if defn.GetFieldIndex("code") < 0:
+                layer.CreateField(ogr.FieldDefn("code", ogr.OFTString))
+            local_kept: list[tuple[int, str, object]] = []
+            to_delete: list[int] = []
+            for feature in layer:
+                cls = int(feature.GetField("cls") or 0)
+                code = _CLASS_TO_CODE.get(cls)
+                fid = feature.GetFID()
+                to_delete.append(fid)
+                if not code:
+                    continue
+                geom = feature.GetGeometryRef()
+                if geom is None:
+                    continue
+                simplified = geom.SimplifyPreserveTopology(_SIMPLIFY_M)
+                if simplified is None or simplified.IsEmpty():
+                    continue
+                if float(simplified.GetArea()) < _MIN_AREA_M2:
+                    continue
+                local_kept.append((cls, code, simplified.Clone()))
+            for fid in to_delete:
+                layer.DeleteFeature(fid)
+            for cls, code, geom in local_kept:
+                feat = ogr.Feature(layer.GetLayerDefn())
+                feat.SetField("cls", cls)
+                feat.SetField("code", code)
+                feat.SetGeometry(geom)
+                layer.CreateFeature(feat)
+                feat = None
+            n_kept = layer.GetFeatureCount()
+            ds = None
+            write_prj(dest_shp)
+            return int(n_kept)
+        except ImportError:
+            if log:
+                log(f"CHM vegetace: simplify přeskočen ({exc})")
+            write_prj(dest_shp)
+            return -1
+
+    import shapefile
+
+    for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
+        dest_shp.with_suffix(suffix).unlink(missing_ok=True)
+
+    writer = shapefile.Writer(str(dest_shp), shapeType=shapefile.POLYGON)
+    writer.field("cls", "N", size=10)
+    writer.field("code", "C", size=8)
+    for cls, code, geom in kept:
+        # Exterior (+ holes) as pyshp parts.
+        if geom.geom_type == "Polygon":
+            polys = [geom]
+        elif geom.geom_type == "MultiPolygon":
+            polys = list(geom.geoms)
+        else:
+            continue
+        for poly in polys:
+            parts = [list(poly.exterior.coords)]
+            for ring in poly.interiors:
+                parts.append(list(ring.coords))
+            writer.poly(parts)
+            writer.record(cls, code)
+    writer.close()
+    write_prj(dest_shp)
+    cpg = dest_shp.with_suffix(".cpg")
+    if not cpg.is_file():
+        cpg.write_text("UTF-8", encoding="ascii")
+    return len(kept)
+
+
 def generate_vegetation_from_chm(
     chm_tif: Path,
     dest_shp: Path,
@@ -230,32 +339,26 @@ def generate_vegetation_from_chm(
     tint_png: Path | None = None,
     log=None,
 ) -> Path | None:
-    """Klasifikuje CHM → polygony vegetation.shp (cls, code)."""
+    """Klasifikuje CHM → polygony vegetation.shp (cls, code).
+
+    Preferuje osgeo (Docker); na Windows bez osgeo jde přes
+    ``gdal_cli_raster`` + ``gdal_polygonize`` + pyogrio/shapely.
+    """
+    from app.pipeline.gdal_cli_raster import (
+        polygonize_byte_raster,
+        read_float32_geotiff,
+        write_uint8_geotiff,
+    )
+
     try:
-        from osgeo import gdal, ogr
-        import numpy as np
-    except ImportError:
+        arr, gt, nodata = read_float32_geotiff(chm_tif, log=log)
+    except Exception as exc:
         if log:
-            log("CHM vegetace: osgeo/GDAL není k dispozici – přeskočeno")
+            log(f"CHM vegetace: nelze číst {chm_tif.name} ({exc})")
         return None
 
-    gdal.UseExceptions()
-    ogr.UseExceptions()
-
-    src = gdal.Open(str(chm_tif))
-    if src is None:
-        if log:
-            log(f"CHM vegetace: nelze otevřít {chm_tif.name}")
-        return None
-
-    band = src.GetRasterBand(1)
-    arr = band.ReadAsArray()
-    if arr is None:
-        return None
-    nodata = band.GetNoDataValue()
     classified = classify_chm_array(arr, nodata, thresholds)
-    gt = src.GetGeoTransform()
-    width, height = src.RasterXSize, src.RasterYSize
+    height, width = classified.shape
 
     if tint_png is not None:
         try:
@@ -268,66 +371,96 @@ def generate_vegetation_from_chm(
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
 
-    mem_drv = gdal.GetDriverByName("MEM")
-    class_ds = mem_drv.Create("", width, height, 1, gdal.GDT_Byte)
-    class_ds.SetGeoTransform(gt)
-    class_band = class_ds.GetRasterBand(1)
-    class_band.WriteArray(np.asarray(classified, dtype=np.uint8))
-    class_band.SetNoDataValue(0)
+    # Rychlá cesta: osgeo polygonize v paměti (Docker / QGIS python).
+    try:
+        from osgeo import gdal, ogr
+        import numpy as np
 
-    driver = ogr.GetDriverByName("ESRI Shapefile")
-    out_ds = driver.CreateDataSource(str(dest_shp))
-    layer = out_ds.CreateLayer("vegetation", None, ogr.wkbPolygon)
-    layer.CreateField(ogr.FieldDefn("cls", ogr.OFTInteger))
-    layer.CreateField(ogr.FieldDefn("code", ogr.OFTString))
+        gdal.UseExceptions()
+        ogr.UseExceptions()
+        mem_drv = gdal.GetDriverByName("MEM")
+        class_ds = mem_drv.Create("", width, height, 1, gdal.GDT_Byte)
+        class_ds.SetGeoTransform(gt)
+        class_band = class_ds.GetRasterBand(1)
+        class_band.WriteArray(np.asarray(classified, dtype=np.uint8))
+        class_band.SetNoDataValue(0)
 
-    gdal.Polygonize(class_band, class_band, layer, 0, [], callback=None)
+        driver = ogr.GetDriverByName("ESRI Shapefile")
+        out_ds = driver.CreateDataSource(str(dest_shp))
+        layer = out_ds.CreateLayer("vegetation", None, ogr.wkbPolygon)
+        layer.CreateField(ogr.FieldDefn("cls", ogr.OFTInteger))
+        layer.CreateField(ogr.FieldDefn("code", ogr.OFTString))
+        gdal.Polygonize(class_band, class_band, layer, 0, [], callback=None)
 
-    kept: list[tuple[int, str, object]] = []
-    to_delete: list[int] = []
-    for feature in layer:
-        cls = int(feature.GetField("cls") or 0)
-        code = _CLASS_TO_CODE.get(cls)
-        fid = feature.GetFID()
-        to_delete.append(fid)
-        if not code:
-            continue
-        geom = feature.GetGeometryRef()
-        if geom is None:
-            continue
-        simplified = geom.SimplifyPreserveTopology(_SIMPLIFY_M)
-        if simplified is None or simplified.IsEmpty():
-            continue
-        if float(simplified.GetArea()) < _MIN_AREA_M2:
-            continue
-        kept.append((cls, code, simplified.Clone()))
-    for fid in to_delete:
-        layer.DeleteFeature(fid)
-    for cls, code, geom in kept:
-        feat = ogr.Feature(layer.GetLayerDefn())
-        feat.SetField("cls", cls)
-        feat.SetField("code", code)
-        feat.SetGeometry(geom)
-        layer.CreateFeature(feat)
-        feat = None
+        kept: list[tuple[int, str, object]] = []
+        to_delete: list[int] = []
+        for feature in layer:
+            cls = int(feature.GetField("cls") or 0)
+            code = _CLASS_TO_CODE.get(cls)
+            fid = feature.GetFID()
+            to_delete.append(fid)
+            if not code:
+                continue
+            geom = feature.GetGeometryRef()
+            if geom is None:
+                continue
+            simplified = geom.SimplifyPreserveTopology(_SIMPLIFY_M)
+            if simplified is None or simplified.IsEmpty():
+                continue
+            if float(simplified.GetArea()) < _MIN_AREA_M2:
+                continue
+            kept.append((cls, code, simplified.Clone()))
+        for fid in to_delete:
+            layer.DeleteFeature(fid)
+        for cls, code, geom in kept:
+            feat = ogr.Feature(layer.GetLayerDefn())
+            feat.SetField("cls", cls)
+            feat.SetField("code", code)
+            feat.SetGeometry(geom)
+            layer.CreateFeature(feat)
+            feat = None
+        n_kept = layer.GetFeatureCount()
+        out_ds = None
+        class_ds = None
+        from app.pipeline.crs_5514 import write_prj
 
-    n_kept = layer.GetFeatureCount()
-    out_ds = None
-    class_ds = None
-    src = None
+        write_prj(dest_shp)
+        if log:
+            log(
+                f"CHM vegetace: {n_kept} polygonů → {dest_shp.name} "
+                f"(open<{thresholds.open_max_m:g} m, "
+                f"white≥{thresholds.green_dense_max_m:g} m, "
+                f"edge≥{thresholds.white_edge_strict_m:g} m, "
+                f"morph={thresholds.white_morph_iters})"
+            )
+        return dest_shp if dest_shp.is_file() else None
+    except ImportError:
+        pass
 
-    if not dest_shp.is_file():
-        return None
-    write_prj(dest_shp)
-    if log:
-        log(
-            f"CHM vegetace: {n_kept} polygonů → {dest_shp.name} "
-            f"(open<{thresholds.open_max_m:g} m, "
-            f"white≥{thresholds.green_dense_max_m:g} m, "
-            f"edge≥{thresholds.white_edge_strict_m:g} m, "
-            f"morph={thresholds.white_morph_iters})"
+    # Windows job Python: klasifikovaný Byte TIF -> gdal_polygonize -> simplify.
+    class_tif = dest_shp.parent / "_chm_class.tif"
+    n_kept: int | None = None
+    try:
+        write_uint8_geotiff(class_tif, classified, gt, nodata=0, log=log)
+        polygonize_byte_raster(
+            class_tif, dest_shp, layer_name="vegetation", field_name="cls", log=log
         )
-    return dest_shp
+        n_kept = _simplify_vegetation_shp(dest_shp, log=log)
+    except Exception as exc:
+        if log:
+            log(f"CHM vegetace: CLI polygonize selhalo ({exc})")
+        return None
+    finally:
+        class_tif.unlink(missing_ok=True)
+        class_tif.with_suffix(".tif.aux.xml").unlink(missing_ok=True)
+
+    if log and n_kept is not None:
+        log(
+            f"CHM vegetace: {n_kept} polygonu -> {dest_shp.name} "
+            f"(CLI polygonize; open<{thresholds.open_max_m:g} m, "
+            f"white>={thresholds.green_dense_max_m:g} m)"
+        )
+    return dest_shp if dest_shp.is_file() else None
 
 
 def generate_job_vegetation_chm(

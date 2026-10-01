@@ -6,6 +6,7 @@ from app.tool_env import (
     gis_subprocess_env,
     osgeo4w_root,
     osgeo_proj_dir,
+    osgeo_scripts_dir,
     proj_data_dir,
     tool_status,
     which_tool,
@@ -14,7 +15,9 @@ from app.tool_env import (
 
 def test_tool_status_keys():
     status = tool_status()
-    assert set(status) == {"pdal", "ogr2ogr", "ogrinfo", "pullauta"}
+    assert set(status) >= {"pdal", "ogr2ogr", "ogrinfo", "pullauta"}
+    assert "gdal_calc" in status
+    assert "gdal_polygonize" in status
 
 
 def test_health_reports_tools(client):
@@ -48,6 +51,21 @@ def test_gis_subprocess_env_pins_qgis_proj_for_ogr2ogr():
     assert Path(env["PROJ_DATA"]) == expected
     assert Path(env["PROJ_LIB"]) == expected
     assert "pyproj" not in str(env["PROJ_DATA"]).lower()
+    assert env.get("OSGEO4W_ROOT") == str(root)
+
+
+def test_which_tool_finds_gdal_calc_in_qgis_scripts():
+    root = osgeo4w_root()
+    if root is None:
+        return
+    scripts = osgeo_scripts_dir(root)
+    if scripts is None:
+        return
+    calc = which_tool("gdal_calc")
+    assert calc is not None
+    assert "gdal_calc" in Path(calc).name.lower()
+    env = gis_subprocess_env(calc)
+    assert env.get("OSGEO4W_ROOT") == str(root)
 
 
 def test_ogr2ogr_assigns_s_jtsk(monkeypatch, tmp_path):

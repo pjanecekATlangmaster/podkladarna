@@ -72,3 +72,27 @@ def test_prepare_job_surfaces_with_chm(tmp_path: Path):
     assert result.dsm_filled is not None and result.dsm_filled.is_file()
     assert result.chm is not None and result.chm.is_file()
     assert result.surface_laz == "veg_merged.laz"
+
+
+def test_gdal_chm_via_qgis_tool(tmp_path: Path):
+    """Na Windows/QGIS: gdal_calc z Scripts musí najít tool_env.which_tool."""
+    from app.pipeline.dem_prep import _gdal_chm
+    from app.tool_env import which_tool
+
+    calc = which_tool("gdal_calc")
+    if not calc:
+        return
+    dem_src = Path("data/jobs/743135094e4a/work/dem/dem_filled.tif")
+    dsm_src = Path("data/jobs/743135094e4a/work/dem/dsm_filled.tif")
+    if not dem_src.is_file() or not dsm_src.is_file():
+        return
+    import shutil
+
+    dem = tmp_path / "dem.tif"
+    dsm = tmp_path / "dsm.tif"
+    shutil.copy2(dem_src, dem)
+    shutil.copy2(dsm_src, dsm)
+    dest = tmp_path / "chm.tif"
+    out = _gdal_chm(dem, dsm, dest)
+    assert out.is_file()
+    assert out.stat().st_size > 1000

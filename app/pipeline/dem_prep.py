@@ -87,9 +87,9 @@ def _pick_surface_laz(lidar_dir: Path) -> Path | None:
 
 
 def _gdal_chm(dem: Path, dsm: Path, dest: Path, *, log=None) -> Path:
-    """CHM = DSM − DEM přes gdal_calc (preferováno) nebo číslicově přes osgeo."""
+    """CHM = DSM − DEM přes gdal_calc (QGIS Scripts) nebo číslicově přes osgeo."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    for name in ("gdal_calc.py", "gdal_calc"):
+    for name in ("gdal_calc", "gdal_calc.py"):
         try:
             tool = find_tool(name)
         except RuntimeError:
@@ -113,14 +113,16 @@ def _gdal_chm(dem: Path, dsm: Path, dest: Path, *, log=None) -> Path:
             ],
             log=log,
         )
-        return dest
+        if dest.is_file() and dest.stat().st_size >= 500:
+            return dest
+        raise RuntimeError(f"gdal_calc nevytvořil použitelný CHM ({dest.name})")
 
     try:
         from osgeo import gdal
         import numpy as np
     except ImportError as exc:
         raise RuntimeError(
-            "CHM: chybí gdal_calc i osgeo – nainstalujte GDAL"
+            "CHM: chybí gdal_calc i osgeo – nastavte QGIS (C:\\QGIS) / OSGeo4W"
         ) from exc
 
     gdal.UseExceptions()

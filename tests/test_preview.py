@@ -42,8 +42,10 @@ def test_ensure_georef_from_job_grid_placeholder(tmp_path: Path):
     pair = ensure_georef_template(tmp_path)
     assert pair is not None
     png, pgw = pair
-    assert png.name == "preview.png"
+    assert png.name == "job.png"
+    assert pgw.name == "job.pgw"
     assert png.is_file() and pgw.is_file()
+    assert not (tmp_path / "preview.png").exists()
     w, h = png_pixel_size(png)
     assert w == 5 and h == 5
     georef = read_pgw(pgw)

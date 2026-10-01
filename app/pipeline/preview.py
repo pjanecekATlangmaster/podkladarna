@@ -107,7 +107,7 @@ def compose_job_preview(
 
     Při ``prefer_kp_pullautus=True`` a existujícím pullautus nechá KP náhled
     (hybrid zelený); jinak vždy preferuje vlastní shade compose.
-    Funguje i když KP PNG chybí / ``use_kp=False``.
+    Funguje i když KP PNG chybí. Bez-KP defaultně nevolej (Petr: oželít PNG).
     """
     work_dir = Path(work_dir)
     preview_png = work_dir / PREVIEW_PNG
@@ -223,8 +223,8 @@ def ensure_georef_template(
             pass
         return png, pgw
 
-    # Placeholder preview na mřížce (ne KP shade).
-    png = work_dir / PREVIEW_PNG
+    # Placeholder georef canvas – záměrně NE preview.png (web by to bral jako náhled jobu).
+    png = work_dir / "job.png"
     write_solid_gray_png(png, grid.width, grid.height)
-    grid.to_pgw().write(work_dir / PREVIEW_PGW)
-    return png, work_dir / PREVIEW_PGW
+    grid.to_pgw().write(work_dir / "job.pgw")
+    return png, work_dir / "job.pgw"

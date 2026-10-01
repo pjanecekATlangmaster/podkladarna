@@ -788,15 +788,40 @@ function updateCliffControls() {
   const sens = document.getElementById("kp_cliff_sensitivity");
   const sensLabel = document.getElementById("cliff-sensitivity-label");
   const sensHint = document.getElementById("cliff-sensitivity-hint");
+  const useKp = document.getElementById("use_kp");
   if (!cliff || !sens) return;
   const off = cliff.value === "off";
   sens.disabled = off;
   if (sensLabel) sensLabel.style.opacity = off ? "0.45" : "";
   if (sensHint) {
-    sensHint.textContent = off
-      ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
-      : "Jak přísně Karttapullautin hledá strmé skoky v DMR.";
+    if (off) {
+      sensHint.textContent =
+        "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají.";
+    } else if (useKp && !useKp.checked) {
+      sensHint.textContent =
+        "Bez KP: jak přísně hledat strmé skoky v DMR (vlastní kandidáti do OOM).";
+    } else {
+      sensHint.textContent =
+        "Jak přísně Karttapullautin hledá strmé skoky v DMR.";
+    }
   }
+}
+
+function updateUseKpHints() {
+  const useKp = document.getElementById("use_kp");
+  const hint = document.getElementById("use-kp-hint");
+  const outHint = document.getElementById("output-omap-hint");
+  if (useKp && hint) {
+    hint.innerHTML = useKp.checked
+      ? "Default <strong>zapnuto</strong> (hybrid s KP náhledem). Odškrtni (= <code>use_kp=false</code>) pro bez-KP: DEM/CHM → OOM/ZIP bez webového preview PNG."
+      : "Bez KP: primární výstup je <strong>OOM/ZIP</strong> (CHM vegetace, srázy z DEM, vrstevnice). Webový náhled PNG se neskládá; ČÚZK reference v ZIPu ano.";
+  }
+  if (useKp && outHint) {
+    outHint.innerHTML = useKp.checked
+      ? "S <strong>KP</strong>: PNG je rychlý rastrový náhled (pullautus), ne finální mapa. ZIP obsahuje <code>.omap</code> podle měřítka plus vektory pro OOM."
+      : "Bez KP: primární výstup je <code>.omap</code> / ZIP. Webový náhled PNG se dočasně neskládá. ČÚZK referenční PNG (orto, hillshade, …) v ZIPu zůstávají.";
+  }
+  updateCliffControls();
 }
 
 function applyJobToForm(job) {
@@ -1107,4 +1132,10 @@ initBboxMap();
   if (!cliff) return;
   cliff.addEventListener("change", updateCliffControls);
   updateCliffControls();
+})();
+(() => {
+  const useKp = document.getElementById("use_kp");
+  if (!useKp) return;
+  useKp.addEventListener("change", updateUseKpHints);
+  updateUseKpHints();
 })();
