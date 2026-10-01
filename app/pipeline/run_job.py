@@ -13,7 +13,7 @@ from app.download_cache import (
     surfaces_cache_dir,
     try_restore_lidar_crop,
 )
-from app.pipeline.contours_gdal import generate_job_contours
+from app.pipeline.contours_gdal import generate_job_contours, qa_contours_vs_shared_dem
 from app.pipeline.dem_prep import prepare_job_surfaces
 from app.pipeline.fetch_aopk import fetch_aopk_trees_for_bbox
 from app.pipeline.fetch_openzu import (
@@ -421,7 +421,7 @@ def run_job_pipeline(
         else:
             log("KP PNG: jen ZABAGED (bez OSM cest)")
         run_cmd(kp_vector_cmd, cwd=kp_cwd, log=log)
-        # out2.dxf necháme do zabalení ZIPu (base/contours_kp.dxf), teprve potom smažeme.
+        # out2.dxf: po ZIP → archive/contours_kp.dxf (A/B); base/ má jen GDAL.
 
     # Shade + náhled bez KP: po DEM prep / KP; před balením (georef šablona).
     try:
@@ -434,6 +434,7 @@ def run_job_pipeline(
             cache_dir=surfaces_cache,
             log=log,
         )
+        qa_contours_vs_shared_dem(work_dir, log=log)
     except Exception as exc:
         log(f"Hillshade stack: přeskočeno ({exc})")
     try:

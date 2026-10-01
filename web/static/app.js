@@ -651,6 +651,9 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   btn.textContent = "Zakládám job…";
   try {
     const fd = new FormData(form);
+    // Checkbox: vždy pošli 0/1 (unchecked jinak zmizí a API by drželo default true).
+    const useKpEl = document.getElementById("use_kp");
+    fd.set("use_kp", useKpEl && useKpEl.checked ? "1" : "0");
     const job = await api("/api/jobs", { method: "POST", body: fd });
     if (job && job.duplicate_skipped) {
       const msg =

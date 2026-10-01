@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
+from app.pipeline.dem_prep import DEM_DIR_NAME, _pick_ground_laz
 from app.pipeline.job_grid import resolve_job_extent
 from app.pipeline.oom_import import (
     OomObjectPart,
@@ -13,6 +15,8 @@ from app.pipeline.oom_import import (
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.prepare_lidar import find_tool, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
+
+CONTOUR_META_NAME = "contour_meta.json"
 
 # Les: jemnější DEM (1 m) + blur 6 m (spojuje útržky) + Chaikin 2
 # + post: stitch blízkých konců / drop krátkých zbytků.
@@ -298,30 +302,86 @@ def _smooth_dem(
     return dest
 
 
-def generate_contours_shapefile(
-    laz: Path,
-    bounds: tuple[float, float, float, float],
+def shared_dem_filled(work_dir: Path) -> Path | None:
+    """Kanonický filled DEM z ``dem_prep`` (DMR) – stejný zdroj jako hillshade."""
+    path = Path(work_dir) / DEM_DIR_NAME / "dem_filled.tif"
+    if path.is_file() and path.stat().st_size > 500:
+        return path
+    return None
+
+
+def _write_contour_meta(
+    contours_dir: Path,
+    *,
+    dem_source: str,
+    dem_path: Path | None,
+    interval_m: float,
+    scalefactor: float,
+) -> Path:
+    meta = {
+        "dem_source": dem_source,
+        "dem_path": str(dem_path) if dem_path else None,
+        "surface": "DMR",
+        "interval_m": float(interval_m),
+        "scalefactor": float(scalefactor),
+        "single_truth": True,
+    }
+    path = contours_dir / CONTOUR_META_NAME
+    path.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_contour_meta(work_dir: Path) -> dict | None:
+    path = Path(work_dir) / "contours" / CONTOUR_META_NAME
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def qa_contours_vs_shared_dem(work_dir: Path, *, log=None) -> bool:
+    """Levná QA: vrstevnice sedí na stejném dem_filled jako shade (ne DMP)."""
+    dem = shared_dem_filled(work_dir)
+    meta = load_contour_meta(work_dir)
+    if dem is None:
+        if log:
+            log("QA vrstevnice↔shade: chybí dem/dem_filled.tif")
+        return False
+    if not meta:
+        if log:
+            log("QA vrstevnice↔shade: chybí contour_meta.json")
+        return False
+    src = str(meta.get("dem_source") or "")
+    path_txt = str(meta.get("dem_path") or "")
+    ok = src == "shared_dem" and (
+        not path_txt or Path(path_txt).resolve() == dem.resolve()
+    )
+    if log:
+        if ok:
+            log(
+                "QA vrstevnice↔hillshade: OK – společný DMR dem_filled "
+                f"({dem.name}), ne DMP"
+            )
+        else:
+            log(
+                f"QA vrstevnice↔hillshade: VAROVÁNÍ – dem_source={src!r}, "
+                f"očekáván shared_dem / {dem.name}"
+            )
+    return ok
+
+
+def _run_gdal_contour(
+    dem_smooth: Path,
     dest_shp: Path,
     *,
     interval_m: float,
-    formline: float,
-    scalefactor: float,
     log=None,
 ) -> Path:
-    cell_m, window_m, _ = contour_dem_params(scalefactor, interval_m)
-    # OOM: jen plná ekvidistance (+ index). Formline (poloviční krok) necháváme KP PNG.
-    del formline
-    step = float(interval_m)
-    work = dest_shp.parent
-    work.mkdir(parents=True, exist_ok=True)
-    dem_raw = work / "dem_raw.tif"
-    dem_filled = work / "dem_filled.tif"
-    dem_smooth = work / "dem_smooth.tif"
-    _pdal_dem_from_laz(laz, bounds, dem_raw, resolution_m=cell_m, log=log)
-    _fill_dem_nodata(dem_raw, dem_filled, log=log)
-    _smooth_dem(
-        dem_filled, dem_smooth, cell_m=cell_m, window_m=window_m, log=log
-    )
     gdal_contour = find_tool("gdal_contour")
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
@@ -331,7 +391,7 @@ def generate_contours_shapefile(
             "-a",
             "elev",
             "-i",
-            str(step),
+            str(float(interval_m)),
             "-nln",
             "contours",
             str(dem_smooth),
@@ -344,6 +404,56 @@ def generate_contours_shapefile(
     return dest_shp
 
 
+def generate_contours_from_dem(
+    dem_filled: Path,
+    dest_shp: Path,
+    *,
+    interval_m: float,
+    scalefactor: float,
+    log=None,
+) -> Path:
+    """Vrstevnice z filled DMR DEM (sdílený dem_prep / shade) – nikdy z DMP."""
+    cell_m, window_m, _ = contour_dem_params(scalefactor, interval_m)
+    work = dest_shp.parent
+    work.mkdir(parents=True, exist_ok=True)
+    dem_smooth = work / "dem_smooth.tif"
+    _smooth_dem(
+        dem_filled, dem_smooth, cell_m=cell_m, window_m=window_m, log=log
+    )
+    return _run_gdal_contour(
+        dem_smooth, dest_shp, interval_m=interval_m, log=log
+    )
+
+
+def generate_contours_shapefile(
+    laz: Path,
+    bounds: tuple[float, float, float, float],
+    dest_shp: Path,
+    *,
+    interval_m: float,
+    formline: float,
+    scalefactor: float,
+    log=None,
+) -> Path:
+    """Fallback: DEM z ground LAZ (DMR Classification), ne z vegetace/DMP."""
+    cell_m, window_m, _ = contour_dem_params(scalefactor, interval_m)
+    # OOM: jen plná ekvidistance (+ index). Formline (poloviční krok) necháváme KP PNG.
+    del formline
+    work = dest_shp.parent
+    work.mkdir(parents=True, exist_ok=True)
+    dem_raw = work / "dem_raw.tif"
+    dem_filled = work / "dem_filled.tif"
+    dem_smooth = work / "dem_smooth.tif"
+    _pdal_dem_from_laz(laz, bounds, dem_raw, resolution_m=cell_m, log=log)
+    _fill_dem_nodata(dem_raw, dem_filled, log=log)
+    _smooth_dem(
+        dem_filled, dem_smooth, cell_m=cell_m, window_m=window_m, log=log
+    )
+    return _run_gdal_contour(
+        dem_smooth, dest_shp, interval_m=interval_m, log=log
+    )
+
+
 def generate_job_contours(
     work_dir: Path,
     laz: Path,
@@ -354,20 +464,51 @@ def generate_job_contours(
     crop_bounds: tuple[float, float, float, float] | None,
     log=None,
 ) -> Path:
+    """Jediná pravda vrstevnic: GDAL z DMR (sdílený dem_filled), ne KP DXF / DMP."""
     # Preferuj kanonickou job_grid mřížku; pullautus jen jako fallback hybridu.
     bounds = resolve_job_extent(work_dir, crop_bounds=crop_bounds)
     dest = work_dir / "contours" / "contours.shp"
     del formline
     cell_m, window_m, iters = contour_dem_params(scalefactor, interval_m)
     min_len, gap = contour_line_params(scalefactor, interval_m)
+    shared = shared_dem_filled(work_dir)
     if log:
         log(
             f"Vrstevnice GDAL: interval {interval_m:g} m "
             f"(bez formline do OOM), DEM {cell_m:g} m, smooth {window_m:g} m, "
             f"Chaikin {iters}, min_délka {min_len:g} m, stitch {gap:g} m"
         )
-    return generate_contours_shapefile(
-        laz,
+    if shared is not None:
+        if log:
+            log(
+                f"Vrstevnice: sdílený DMR dem_filled ({shared.as_posix()}) "
+                "– stejný zdroj jako hillshade (ne DMP)"
+            )
+        generate_contours_from_dem(
+            shared,
+            dest,
+            interval_m=interval_m,
+            scalefactor=scalefactor,
+            log=log,
+        )
+        _write_contour_meta(
+            dest.parent,
+            dem_source="shared_dem",
+            dem_path=shared,
+            interval_m=interval_m,
+            scalefactor=scalefactor,
+        )
+        return dest
+
+    # Fallback jen ground LAZ (DMR); merged dostane Classification[2:2] filtr.
+    ground = _pick_ground_laz(work_dir / "lidar") or laz
+    if log:
+        log(
+            f"Vrstevnice: dem_filled chybí – fallback PDAL z {ground.name} "
+            "(DMR ground, ne DMP)"
+        )
+    generate_contours_shapefile(
+        ground,
         bounds,
         dest,
         interval_m=interval_m,
@@ -375,6 +516,14 @@ def generate_job_contours(
         scalefactor=scalefactor,
         log=log,
     )
+    _write_contour_meta(
+        dest.parent,
+        dem_source="laz_ground_fallback",
+        dem_path=ground,
+        interval_m=interval_m,
+        scalefactor=scalefactor,
+    )
+    return dest
 
 
 def _iter_contour_rows(shp: Path):

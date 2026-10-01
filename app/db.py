@@ -319,6 +319,7 @@ def find_duplicate_active_job(
             bool(opts.get("kp_osm_footway_as_sidewalk")),
             str(opts.get("ostatni_plocha") or "small"),
             bool(opts.get("ostatni_plocha_as_403")),
+            bool(opts.get("use_kp", True)),
             str(opts.get("client_ip") or ""),
         )
 

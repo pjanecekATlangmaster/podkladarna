@@ -495,6 +495,13 @@ async def api_create_job(request: Request):
         options["output_zip"] = _opt_bool("output_zip")
     options["output_references"] = _opt_bool("output_references")
     options["force_refresh"] = _opt_bool("force_refresh")
+    # use_kp: UI checkbox (default checked). Absent → DEFAULT_OPTIONS (True).
+    # Explicit "0"/"false" from FormData.set allows smoke test bez KP.
+    use_kp_raw = _form_str(form, "use_kp").strip().lower()
+    if use_kp_raw in {"0", "false", "no", "off"}:
+        options["use_kp"] = False
+    elif use_kp_raw in {"1", "true", "yes", "on"}:
+        options["use_kp"] = True
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:
@@ -552,6 +559,8 @@ async def api_create_job(request: Request):
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"
         f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
+        f"KP={'ano' if options.get('use_kp', True) else 'ne'}, "
+        f"force_refresh={'ano' if options.get('force_refresh') else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"
     )
 

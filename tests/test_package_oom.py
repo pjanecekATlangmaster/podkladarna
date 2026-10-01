@@ -130,6 +130,20 @@ def test_oom_metadata_lidar_sources_and_no_kp_citation():
     assert "Karttapullautin" not in readme
     assert "Ortofoto slouží jen k vizuální kontrole" in readme
     assert "vlastní DEM/DSM/CHM" in readme
+    assert "contours_gdal.* z DMR" in readme
+    assert "contours_kp.dxf" not in readme
+
+
+def test_oom_readme_kp_mentions_archive_not_dual_base():
+    meta = oom_metadata(
+        "forest_10000",
+        {"label": "Les", "contour_interval": 5, "scalefactor": 1},
+        {"scalefactor": 1, "use_kp": True},
+    )
+    readme = oom_readme(meta)
+    assert "jediná pravda" in readme
+    assert "archive/contours_kp.dxf" in readme
+    assert "vrstevnice KP (contours_kp.dxf)" not in readme
 
 def test_build_oom_zip_layout(tmp_path: Path):
     kp = tmp_path / "work"
@@ -198,7 +212,8 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "kp/pullautus.pgw" in names
     assert "kp/pullautus_depr.png" in names
     assert "base/contours_gdal.shp" in names
-    assert "base/contours_kp.dxf" in names
+    assert "base/contours_kp.dxf" not in names
+    assert "archive/contours_kp.dxf" in names
     assert "base/contours.shp" not in names
     assert "contours/dem_filled.tif" not in names
     assert "kp/contours.dxf" not in names

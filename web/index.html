@@ -229,6 +229,12 @@
           <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP.</p>
 
           <label class="checkbox-row">
+            <input type="checkbox" name="use_kp" id="use_kp" value="1" checked />
+            Karttapullautin (KP) – hybrid
+          </label>
+          <p class="hint">Default <strong>zapnuto</strong>. Odškrtni (= <code>use_kp=false</code>) pro smoke test bez-KP pipeline (DEM/CHM/shade/vrstevnice GDAL). Vedle Force refresh.</p>
+
+          <label class="checkbox-row">
             <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
             Force refresh (přegenerovat AOI cache)
           </label>

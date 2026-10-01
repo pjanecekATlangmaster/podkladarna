@@ -6,7 +6,10 @@ import unicodedata
 import zipfile
 from pathlib import Path
 
-from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
+from app.pipeline.karttapullautin_dxf import (
+    collect_dxf_for_zip,
+    collect_kp_contours_for_archive,
+)
 from app.guide_text import ZIP_ABOUT_TXT
 from app.pipeline.aopk_trees import build_aopk_tree_parts, load_aopk_tree_points
 from app.pipeline.contours_gdal import build_gdal_contour_parts
@@ -507,7 +510,8 @@ def oom_readme(meta: dict) -> str:
             "4. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
             "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
             "   KP PNG náhledy ve složce kp/; ve složce base/: vrstevnice GDAL\n"
-            "   (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy, knolly.\n\n"
+            "   (contours_gdal.* = jediná pravda, z DMR), vegetace, srázy, knolly.\n"
+            "   Volitelný archiv KP vrstevnic: archive/contours_kp.dxf (ne do OOM).\n\n"
         )
         relief_line = "Reliéf a vegetace (náhled): Karttapullautin (GPL-3.0).\n\n"
     else:
@@ -516,7 +520,7 @@ def oom_readme(meta: dict) -> str:
             "   v Šablony → Nastavení šablon (Template Setup).\n"
             "3. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
             "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
-            "   Ve složce base/: vrstevnice GDAL (contours_gdal.*) a další vektory.\n\n"
+            "   Ve složce base/: vrstevnice GDAL (contours_gdal.* z DMR) a další vektory.\n\n"
         )
         relief_line = (
             "Reliéf: DMR 5G / DMP OK (ČÚZK) přes vlastní DEM/DSM/CHM pipeline.\n\n"
@@ -951,10 +955,20 @@ def build_oom_zip(
                     zf.write(pgw, f"references/{pgw.name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
+            # Jediná pravda vrstevnic = GDAL SHP; KP out2 ne do base/.
             for zip_name, src in sorted(
-                collect_dxf_for_zip(temp, include_cliffs=include_cliffs).items()
+                collect_dxf_for_zip(
+                    temp,
+                    include_cliffs=include_cliffs,
+                    include_contours=False,
+                ).items()
             ):
                 zf.write(src, f"base/{zip_name}")
+            # Archiv KP kontur jen pro A/B (ne konkurující sada vedle contours_gdal).
+            if bool(metadata.get("use_kp", True)):
+                kp_contours = collect_kp_contours_for_archive(temp)
+                if kp_contours is not None:
+                    zf.write(kp_contours, "archive/contours_kp.dxf")
         contours_dir = kp_cwd / "contours"
         if contours_dir.is_dir():
             for path in sorted(contours_dir.iterdir()):
@@ -965,13 +979,16 @@ def build_oom_zip(
                     ".prj",
                     ".cpg",
                 }:
-                    # Odlišit od KP DXF (contours_kp.dxf).
+                    # Jediná sada vrstevnic ve výstupu (GDAL z DMR).
                     stem = path.stem.lower()
                     if stem == "contours":
                         arc = f"base/contours_gdal{path.suffix.lower()}"
                     else:
                         arc = f"base/{path.name}"
                     zf.write(path, arc)
+            meta_json = contours_dir / "contour_meta.json"
+            if meta_json.is_file():
+                zf.write(meta_json, "base/contour_meta.json")
         vege_dir = kp_cwd / "vegetation"
         if vege_dir.is_dir():
             for path in sorted(vege_dir.iterdir()):

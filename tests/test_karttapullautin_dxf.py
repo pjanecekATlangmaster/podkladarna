@@ -12,7 +12,7 @@ from app.pipeline.package_oom import build_oom_zip, oom_metadata
 from app.pipeline.oom_symbol_map import oom_code_for_dxf
 
 
-def test_collect_dxf_includes_kp_contours(tmp_path: Path):
+def test_collect_dxf_excludes_kp_contours_by_default(tmp_path: Path):
     temp = tmp_path / "temp"
     temp.mkdir()
     (temp / "out2.dxf").write_text("contour lines", encoding="utf-8")
@@ -21,18 +21,29 @@ def test_collect_dxf_includes_kp_contours(tmp_path: Path):
     (temp / "contours03.dxf").write_text("x" * 5000, encoding="utf-8")
 
     got = collect_dxf_for_zip(temp)
-    assert got["contours_kp.dxf"].name == "out2.dxf"
+    assert "contours_kp.dxf" not in got
     assert "contours.dxf" not in got
     assert "contours03.dxf" not in got
     assert got["dotknolls.dxf"].name == "dotknolls.dxf"
     assert got["cliffs_small.dxf"].name == "c1g.dxf"
 
-    without = collect_dxf_for_zip(temp, include_contours=False)
-    assert "contours_kp.dxf" not in without
+    with_contours = collect_dxf_for_zip(temp, include_contours=True)
+    assert with_contours["contours_kp.dxf"].name == "out2.dxf"
+
+
+def test_collect_kp_contours_for_archive(tmp_path: Path):
+    from app.pipeline.karttapullautin_dxf import collect_kp_contours_for_archive
+
+    temp = tmp_path / "temp"
+    temp.mkdir()
+    (temp / "out2.dxf").write_text("contour lines", encoding="utf-8")
+    path = collect_kp_contours_for_archive(temp)
+    assert path is not None
+    assert path.name == "out2.dxf"
 
 
 def test_kp_contours_dxf_not_mapped_into_oom_objects():
-    """contours_kp.dxf je jen zdroj v ZIPu – do omap objektů nepatří (GDAL má 101)."""
+    """contours_kp.dxf je jen archiv – do omap objektů nepatří (GDAL má 101)."""
     assert oom_code_for_dxf("contours_kp.dxf", preset_id="forest_10000") is None
     assert oom_code_for_dxf("contours_kp.dxf", preset_id="sprint_2m") is None
 
@@ -78,7 +89,7 @@ def test_prune_after_vectors_removes_out2(tmp_path: Path):
     assert (temp / "dotknolls.dxf").exists()
 
 
-def test_build_oom_zip_includes_contours_kp_not_03(tmp_path: Path):
+def test_build_oom_zip_archives_kp_contours_not_in_base(tmp_path: Path):
     kp = tmp_path / "work"
     kp.mkdir()
     (kp / "pullautus.png").write_bytes(b"png")
@@ -89,14 +100,38 @@ def test_build_oom_zip_includes_contours_kp_not_03(tmp_path: Path):
     (temp / "contours03.dxf").write_text("huge", encoding="utf-8")
 
     dest = tmp_path / "out.zip"
-    meta = oom_metadata("sprint_2m", {"scalefactor": 0.4}, {"scalefactor": 0.4})
+    meta = oom_metadata(
+        "sprint_2m",
+        {"scalefactor": 0.4},
+        {"scalefactor": 0.4, "use_kp": True},
+    )
     build_oom_zip(kp, dest, zabaged_clean=None, metadata=meta)
 
     with zipfile.ZipFile(dest) as zf:
         names = set(zf.namelist())
-    assert "base/contours_kp.dxf" in names
+    assert "archive/contours_kp.dxf" in names
+    assert "base/contours_kp.dxf" not in names
     assert "base/contours.dxf" not in names
     assert "base/contours03.dxf" not in names
     assert "base/out.dxf" not in names
     assert "kp/contours.dxf" not in names
     assert "kp/contours03.dxf" not in names
+
+
+def test_build_oom_zip_no_kp_skips_contour_archive(tmp_path: Path):
+    kp = tmp_path / "work"
+    kp.mkdir()
+    temp = kp / "temp"
+    temp.mkdir()
+    (temp / "out2.dxf").write_text("contours", encoding="utf-8")
+    dest = tmp_path / "out.zip"
+    meta = oom_metadata(
+        "sprint_2m",
+        {"scalefactor": 0.4},
+        {"scalefactor": 0.4, "use_kp": False},
+    )
+    build_oom_zip(kp, dest, zabaged_clean=None, metadata=meta)
+    with zipfile.ZipFile(dest) as zf:
+        names = set(zf.namelist())
+    assert "archive/contours_kp.dxf" not in names
+    assert "base/contours_kp.dxf" not in names

@@ -353,10 +353,51 @@ def test_create_job_rejects_missing_bbox(client):
     assert "bbox" in r.json()["detail"].lower() or "výřez" in r.json()["detail"].lower()
 
 
+def test_create_job_use_kp_default_and_explicit(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+
+    base = {
+        "name": "kp-flag",
+        "map_scale": "10000",
+        "contour_interval": "5",
+        "bbox": "14.40,50.08,14.42,50.09",
+        "output_mode": "png_zip",
+        "output_references": "1",
+        "sprint_courtyard_olive": "1",
+        "kp_osm_priority": "1",
+    }
+    # Absent → default True (API/regres).
+    r = client.post("/api/jobs", data={**base, "name": "kp-default"})
+    assert r.status_code == 200
+    assert r.json()["options"]["use_kp"] is True
+
+    r0 = client.post("/api/jobs", data={**base, "name": "kp-off", "use_kp": "0"})
+    assert r0.status_code == 200
+    assert r0.json()["options"]["use_kp"] is False
+
+    r1 = client.post("/api/jobs", data={**base, "name": "kp-on", "use_kp": "1"})
+    assert r1.status_code == 200
+    assert r1.json()["options"]["use_kp"] is True
+
+
 def test_index_html(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "Podkladárna" in r.text
+    assert 'name="use_kp"' in r.text
+    assert 'id="use_kp"' in r.text
+    assert 'id="use_kp" value="1" checked' in r.text
+    assert 'name="force_refresh"' in r.text
+    assert "Force refresh" in r.text
     html = r.text
     assert "bbox-map" in html
     assert "O co jde" in html
