@@ -31,19 +31,25 @@ DEDUP_POS_PER_M = 1.0
 DEDUP_ANG_PER_RAD = 8.0
 
 # Plošná skála: buffer ticků → uzavření mezer → otevření tenkých stěn →
-# stažení k mase → vyhlazení. Parametry laděné proti syntetickým stěnám/polím
-# i DEM kandidátům (job 21caf0ddcec2).
+# stažení k mase → vyhlazení. Agresivnější než 1.20.10 (open 5 / w 9.5):
+# DEM skály jsou řidší než KP pole – otevření 5 m sežralo většinu mas.
+# Laděno na job f93ded4f6bcb (AOI testB): stěna/dvojstěna zůstane linií.
 ROCK_BUFFER_M = 3.0
-ROCK_CLOSE_M = 1.8
-ROCK_OPEN_M = 5.0
-ROCK_SHRINK_M = 1.6
-ROCK_SMOOTH_M = 1.5
+ROCK_CLOSE_M = 2.0
+ROCK_OPEN_M = 3.5
+ROCK_SHRINK_M = 1.5
+ROCK_SMOOTH_M = 1.3
 ROCK_SIMPLIFY_M = 2.0
-MIN_ROCK_AREA_M2 = 80.0
-MIN_ROCK_WIDTH_M = 9.5
-MAX_ROCK_ASPECT = 3.6
+MIN_ROCK_AREA_M2 = 55.0
+MIN_ROCK_WIDTH_M = 7.5
+MAX_ROCK_ASPECT = 3.8
 # Halo kolem plochy: čárky na okraji už nekreslit jako 201 (obrys nese plocha).
-ROCK_TICK_HALO_M = 3.0
+ROCK_TICK_HALO_M = 3.5
+# Po řetězení: kompaktní zbytky (ne protáhlá stěna) → plocha místo mraku 201.
+COMPACT_LINE_BUFFER_M = 2.8
+COMPACT_MAX_ASPECT = 3.0
+COMPACT_MIN_WIDTH_M = 6.0
+COMPACT_MIN_AREA_M2 = 35.0
 
 # Legacy rastr (fallback bez shapely + testy obtahu buněk).
 ROCK_CELL_M = 3.0
@@ -99,11 +105,73 @@ def merge_cliff_ticks(
     polylines = [
         _simplify_polyline(pts, SIMPLIFY_M) for pts in polylines if len(pts) >= 2
     ]
+    if as_polygons and polylines:
+        # Husté zbytky, které footprint nechytil (řidší DEM), ale nejsou
+        # protáhlá stěna → ještě jedna plocha místo shluku krátkých 201.
+        polylines, extra = _promote_compact_polylines(polylines)
+        polygons.extend(extra)
     if reject_tangled:
         polylines = [pts for pts in polylines if polyline_is_simple_bank(pts)]
     if min_line_m > 0:
         polylines = [pts for pts in polylines if _polyline_length(pts) >= min_line_m]
     return MergedCliffs(polylines, polygons)
+
+
+def _promote_compact_polylines(
+    polylines: list[list[tuple[float, float]]],
+) -> tuple[list[list[tuple[float, float]]], list[list[tuple[float, float]]]]:
+    """Kompaktní lomené čáry → plocha; protáhlé stěny nechá liniemi."""
+    try:
+        from shapely.geometry import LineString
+    except ImportError:
+        return polylines, []
+
+    kept: list[list[tuple[float, float]]] = []
+    areas: list[list[tuple[float, float]]] = []
+    for pts in polylines:
+        if len(pts) < 2:
+            continue
+        try:
+            geom = LineString(pts).buffer(
+                COMPACT_LINE_BUFFER_M, join_style=1, cap_style=1
+            )
+            geom = geom.buffer(1.0, join_style=1).buffer(-1.0, join_style=1)
+            if geom.is_empty:
+                kept.append(pts)
+                continue
+            if geom.geom_type == "MultiPolygon":
+                geom = max(geom.geoms, key=lambda g: g.area)
+            if geom.geom_type != "Polygon" or geom.is_empty:
+                kept.append(pts)
+                continue
+            width, length = _mrr_width_length(geom)
+            aspect = length / max(width, 1e-6)
+            if (
+                geom.area >= COMPACT_MIN_AREA_M2
+                and width >= COMPACT_MIN_WIDTH_M
+                and aspect <= COMPACT_MAX_ASPECT
+            ):
+                try:
+                    geom = geom.simplify(ROCK_SIMPLIFY_M, preserve_topology=True)
+                except Exception:
+                    pass
+                if geom.is_empty or geom.geom_type != "Polygon":
+                    kept.append(pts)
+                    continue
+                coords = [(float(x), float(y)) for x, y in geom.exterior.coords]
+                if len(coords) >= 2 and coords[0] == coords[-1]:
+                    coords = coords[:-1]
+                if len(coords) >= 3 and _ring_is_simple(coords):
+                    areas.append(coords)
+                    continue
+                hull = _convex_hull_ring(coords)
+                if len(hull) >= 3 and _ring_area(hull) >= COMPACT_MIN_AREA_M2:
+                    areas.append(hull)
+                    continue
+            kept.append(pts)
+        except Exception:
+            kept.append(pts)
+    return kept, areas
 
 
 def polyline_is_simple_bank(pts: list[tuple[float, float]]) -> bool:

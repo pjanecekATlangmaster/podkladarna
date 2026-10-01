@@ -135,6 +135,23 @@ def test_dense_field_stays_lines_for_earth_bank():
     assert got.lines
 
 
+def test_compact_leftover_lines_promote_to_area():
+    """Řidší „kapsa“ mimo hlavní footprint → plocha, ne mrak krátkých 201."""
+    # Hlavní pole + oddělená menší kapsa ~12×12 m (dříve často zůstala liniemi).
+    ticks = _field(24.0, 24.0) + _field(12.0, 12.0, x0=40.0, y0=40.0)
+    got = merge_cliff_ticks(ticks, as_polygons=True, min_line_m=12.0)
+    assert len(got.polygons) >= 2
+    assert len(got.lines) <= 2
+
+
+def test_aggressive_params_still_keep_walls_as_lines():
+    """Agresivnější open/min-area nesmí udělat z jednoduché stěny blob."""
+    assert not merge_cliff_ticks(_wall(80), as_polygons=True).polygons
+    assert not merge_cliff_ticks(
+        _wall(50, y=0.0) + _wall(50, y=4.0), as_polygons=True
+    ).polygons
+
+
 def test_object_count_drops_far_below_tick_count():
     ticks = _field(24.0, 24.0) + _wall(60, y=-40.0)
     got = merge_cliff_ticks(ticks, as_polygons=True)
