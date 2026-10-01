@@ -642,6 +642,8 @@ def _package_output(
                     )
                     if omap_p:
                         omap_paths.append(omap_p)
+                    else:
+                        log(f"OOM: {variant_name} nevytvořeno (prepare_oom_map vrátil None)")
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
         build_oom_zip(

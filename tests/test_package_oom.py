@@ -308,6 +308,30 @@ def test_prepare_oom_map_minimal(tmp_path):
     assert 'first_front_template="0"' in xml
 
 
+def test_prepare_oom_map_vector_only_without_png_templates(tmp_path):
+    """use_kp=false + žádné referenční PNG → .omap jen s vektory (ne None)."""
+    kp = tmp_path / "work"
+    kp.mkdir()
+    dest = tmp_path / "bez-kp-norefs.omap"
+    out = prepare_oom_map(
+        kp,
+        dest,
+        map_name="bez-kp",
+        scale=10000,
+        preset_id="forest_10000",
+        bbox_wgs84=(14.4, 50.08, 14.42, 50.09),
+        built_refs=None,
+        use_kp=False,
+    )
+    assert out == dest
+    assert dest.is_file()
+    xml = dest.read_text(encoding="utf-8")
+    assert 'templates count="0"' in xml
+    assert "+proj=krovak" in xml
+    assert "<geographic_crs" in xml
+    assert 'parts count="' in xml
+
+
 def test_collect_oom_templates_with_refs(tmp_path):
     kp = tmp_path / "work"
     refs = kp / "references"

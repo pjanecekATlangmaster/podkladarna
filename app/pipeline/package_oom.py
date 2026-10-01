@@ -731,8 +731,9 @@ def prepare_oom_map(
         include_dxf=include_dxf,
         include_dxf_templates=False,
     )
-    if not templates:
-        return None
+    # Prázdné šablony jsou OK: bez KP a bez referenčních PNG je výchozí pohled
+    # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty). Dřív early
+    # return None → žádné .omap při use_kp=false + output_references=false.
 
     object_parts: list[OomObjectPart] = []
     zabaged_under: list[OomObjectPart] = []
