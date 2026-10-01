@@ -101,3 +101,26 @@ python scripts/smoke_e2e.py --wait-minutes 45   # testdata/ → celé kolečko
 
 - PDAL merge, pullauta běh – to až `docker compose dev` + `--data-dir`
 - Reverse proxy limit – testujte HTTPS zvlášť po nasazení nginx conf
+
+---
+
+## A/B harness: KP vs `use_kp=false` (vegetace / srázy / náhled)
+
+Po dvou jobech na **stejné AOI** (jeden s KP zapnutým, druhý odškrtnutým) porovnej hotové výstupy — deskriptivní stats, ne subjektivní pass:
+
+```powershell
+cd C:\Users\PetrJanecek\.cursor\projects\podkladarna
+python scripts/compare_bez_kp_ab.py --help
+
+python scripts/compare_bez_kp_ab.py `
+  --a "data\jobs\<kp_job>\output" `
+  --b "data\jobs\<bez_kp_job>\output" `
+  --label-a KP --label-b bez-KP
+
+# strojový JSON + uložený text
+python scripts/compare_bez_kp_ab.py --a path\a --b path\b --json -o tmp\ab_report.txt
+```
+
+Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: presence vege/cliffs/preview, feature count + plochy vegetace, počet/délka srázových ticků, rozměry náhledu. Analogie ke `scripts/compare_contours_oom.py` (to generuje srovnávací `.omap`; tento skript jen měří hotové artefakty).
+
+---
