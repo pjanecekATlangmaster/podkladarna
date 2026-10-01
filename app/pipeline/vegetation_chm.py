@@ -1,21 +1,24 @@
-"""Hrubá vegetace z CHM (DMP − DMR) – vlna 1 bez KP vegetation.png.
+"""Vlastní vegetace z CHM (DMP − DMR) – náhrada KP ``vegetation.png``.
 
-Default prahy (metry nad terénem, ``ChmVegeThresholds`` / konstanty níže):
+Inspirováno Karttapullautinem (``makevege`` / ``vegetation.rs``): žlutá =
+nízký povrch, zeleně = střední výšky jako hrubý proxy hustoty, bílý les =
+vysoká koruna. KP ve skutečnosti měří **hustotu bodů** (greenhits/groundhits);
+CHM je výškový proxy pod naší kontrolou — **ne** ZABAGED louky.
 
-* ``open_max_m`` **1.5** – pod tím žlutá 401 (louky / open land)
-* ``green_light_max_m`` **4.0** – světlá zeleň 406
-* ``green_mid_max_m`` **8.5** – střední 408
-* ``green_dense_max_m`` **18.0** – hustá 410; **nad** tím bílý les (bez výplně)
+Default prahy (metry nad terénem; blízké KP ``yellowheight`` / zónám):
 
-Bílý les je záměrně přísný (vyšší práh než dřívějších ~14 m), ať nepřetéká
-do luk. Navíc:
+* ``open_max_m`` **1.0** – pod tím žlutá 401 (≈ KP ``yellowheight=0.9``)
+* ``green_light_max_m`` **3.0** – světlá zeleň 406 (≈ KP zone1 strop)
+* ``green_mid_max_m`` **6.0** – střední 408
+* ``green_dense_max_m`` **14.0** – hustá 410; **nad** tím kandidát na bílý les
 
-* morfologické otevření masky bílého lesa (``WHITE_MORPH_OPEN_ITERS``)
-* na hranici s open land jen výška ≥ ``WHITE_EDGE_STRICT_M`` zůstane bílá
-  (jinak → hustá 410)
+Bílý les: median smooth (KP ``medianboxsize``) + morfologické otevření
++ na hranici s open jen výška ≥ ``WHITE_EDGE_STRICT_M`` zůstane bílá
+(jinak → hustá 410, ať bílá nepřeteče do luk).
 
-ZABAGED/OSM odečet 401 řeší ``open_land_subtract`` při skládání OOM
-(stejné ``vegetation.shp``). Orto zůstává QA-only – sem nepatří.
+``open_land_subtract`` (ZABAGED/OSM odečet od 401) platí **jen** u KP cesty
+v ``package_oom`` — bez KP se 401 bere výhradně z tohoto SHP.
+Orto = QA-only.
 """
 
 from __future__ import annotations
@@ -27,19 +30,21 @@ from app.pipeline.crs_5514 import write_prj
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
 
-# --- Prahy CHM (metry nad terénem). Jemnější oddělení dense green vs white. ---
-# Open: nízko → žlutá 401 (louky). Vyšší práh = méně „bílého“ bleed do luk.
-CHM_OPEN_MAX_M = 1.5
-# Světlá zeleň 406
-CHM_GREEN_LIGHT_MAX_M = 4.0
+# --- Prahy CHM (metry nad terénem). KP-inspired bands + ochrana luk. ---
+# Open ≈ KP yellowheight (0.9); mírně výš kvůli šumu DMP−DMR.
+CHM_OPEN_MAX_M = 1.0
+# Světlá zeleň 406 ≈ KP zone1 (~1–2.65 m canopy)
+CHM_GREEN_LIGHT_MAX_M = 3.0
 # Střed 408
-CHM_GREEN_MID_MAX_M = 8.5
-# Hustá 410 – nad tím bílý (průchodný) les bez výplně. Přísnější než v1 (~14 m).
-CHM_GREEN_DENSE_MAX_M = 18.0
+CHM_GREEN_MID_MAX_M = 6.0
+# Hustá 410; nad tím kandidát na bílý (průchodný) les.
+CHM_GREEN_DENSE_MAX_M = 14.0
 # Na styku s loukou musí koruna být ještě vyšší, jinak zůstane 410.
-WHITE_EDGE_STRICT_M = 22.0
+WHITE_EDGE_STRICT_M = 20.0
 # Morfologické otevření bílé masky (eroze→dilatace), zúží tenké výběžky do luk.
 WHITE_MORPH_OPEN_ITERS = 1
+# Median filtr klasifikace (liché); KP default medianboxsize≈6 → okýnko ~5 px.
+CHM_MEDIAN_SIZE = 5
 
 _MIN_AREA_M2 = 12.0
 _SIMPLIFY_M = 1.5
@@ -61,6 +66,7 @@ class ChmVegeThresholds:
     green_dense_max_m: float = CHM_GREEN_DENSE_MAX_M
     white_edge_strict_m: float = WHITE_EDGE_STRICT_M
     white_morph_iters: int = WHITE_MORPH_OPEN_ITERS
+    median_size: int = CHM_MEDIAN_SIZE
 
     def classify_height(self, h: float) -> int:
         """0 = pozadí / bílý les, 1 open, 2–4 zeleně."""
@@ -78,6 +84,33 @@ class ChmVegeThresholds:
 
 
 DEFAULT_THRESHOLDS = ChmVegeThresholds()
+
+
+def _median_filter_uint8(arr, size: int):
+    """Median filtr pro uint8 klasifikaci (KP-like ``medianboxsize``)."""
+    import numpy as np
+
+    size = int(size)
+    if size < 3 or size % 2 == 0:
+        return np.asarray(arr, dtype=np.uint8)
+    a = np.asarray(arr, dtype=np.uint8)
+    pad = size // 2
+    padded = np.pad(a, pad, mode="edge")
+    h, w = a.shape
+    # sliding window via stride tricks when available; else pure python loops on small AOI
+    try:
+        from numpy.lib.stride_tricks import sliding_window_view
+
+        windows = sliding_window_view(padded, (size, size))
+        return np.median(windows, axis=(-2, -1)).astype(np.uint8)
+    except Exception:
+        out = a.copy()
+        for i in range(h):
+            for j in range(w):
+                out[i, j] = int(
+                    np.median(padded[i : i + size, j : j + size])
+                )
+        return out
 
 
 def chm_path(work_dir: Path) -> Path | None:
@@ -171,7 +204,7 @@ def cleanup_white_forest(
 
 
 def classify_chm_array(chm, nodata, thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS):
-    """Numpy uint8 třídy z CHM výšek (+ cleanup bílého lesa)."""
+    """Numpy uint8 třídy z CHM výšek (+ median + cleanup bílého lesa)."""
     import numpy as np
 
     arr = np.asarray(chm, dtype=np.float32)
@@ -191,6 +224,11 @@ def classify_chm_array(chm, nodata, thresholds: ChmVegeThresholds = DEFAULT_THRE
     out[valid & (arr >= g1) & (arr < g2)] = 3
     out[valid & (arr >= g2) & (arr < g3)] = 4
     # >= g3 zůstane 0 = bílý les
+    # Nodata zůstane 0; median by je „rozmazal“ do luk → obnovit po filtru.
+    if thresholds.median_size >= 3:
+        smoothed = _median_filter_uint8(out, thresholds.median_size)
+        smoothed[~valid] = 0
+        out = smoothed
     return cleanup_white_forest(out, arr, thresholds=thresholds, valid=valid)
 
 

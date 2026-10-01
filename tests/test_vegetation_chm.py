@@ -20,36 +20,37 @@ from app.pipeline.vegetation_chm import (
 
 def test_classify_open_vs_white_thresholds():
     """Louka (nízké CHM) → 401; vysoký porost → bílý les (0), ne bleed."""
-    thr = ChmVegeThresholds()
-    # meadow
+    thr = ChmVegeThresholds(median_size=0)  # bez median – čisté pásy
+    # meadow ≈ KP yellowheight
     assert thr.classify_height(0.3) == 1
     assert thr.classify_height(CHM_OPEN_MAX_M - 0.01) == 1
-    # scrub / greens
+    # scrub / greens (KP-inspired bands)
     assert thr.classify_height(2.0) == 2
-    assert thr.classify_height(5.0) == 3
+    assert thr.classify_height(4.0) == 3
     assert thr.classify_height(10.0) == 4
     # white forest – above dense max, not open
     assert thr.classify_height(CHM_GREEN_DENSE_MAX_M) == 0
     assert thr.classify_height(20.0) == 0
-    # dense green band reaches higher than old ~14 m default
-    assert thr.classify_height(15.0) == 4
-    assert CHM_GREEN_DENSE_MAX_M >= 16.0
+    assert CHM_OPEN_MAX_M <= 1.2
+    assert CHM_GREEN_DENSE_MAX_M >= 12.0
+    assert WHITE_EDGE_STRICT_M >= CHM_GREEN_DENSE_MAX_M
 
 
 def test_classify_chm_array_bands():
     chm = np.array(
         [
-            [0.5, 2.0, 5.0],
-            [10.0, 19.0, -9999.0],
+            [0.5, 2.0, 4.0],
+            [10.0, 16.0, -9999.0],
         ],
         dtype=np.float32,
     )
-    out = classify_chm_array(chm, nodata=-9999.0)
+    # median_size=0 → bez rozmazání na 2×3 mřížce
+    out = classify_chm_array(chm, nodata=-9999.0, thresholds=ChmVegeThresholds(median_size=0))
     assert out[0, 0] == 1  # open
     assert out[0, 1] == 2  # light green
     assert out[0, 2] == 3  # mid
     assert out[1, 0] == 4  # dense
-    # 19 m is white-range but single-pixel / open-edge cleanup → dense 410
+    # 16 m is white-range but single-pixel / open-edge cleanup → dense 410
     assert out[1, 1] in (0, 4)
     assert out[1, 2] == 0  # nodata
 
@@ -58,13 +59,14 @@ def test_white_edge_demoted_near_meadow():
     """Tenký výběžek bílého lesa u louky → 410, ne bleed class 0."""
     # 5x5: center tall canopy, surrounding open meadow
     h = np.full((5, 5), 0.5, dtype=np.float32)
-    h[2, 2] = 19.0  # above dense max, below edge-strict
+    h[2, 2] = 16.0  # above dense max, below edge-strict
     classified = np.ones((5, 5), dtype=np.uint8)
     classified[2, 2] = 0
     thr = ChmVegeThresholds(
-        green_dense_max_m=18.0,
-        white_edge_strict_m=22.0,
+        green_dense_max_m=14.0,
+        white_edge_strict_m=20.0,
         white_morph_iters=1,
+        median_size=0,
     )
     out = cleanup_white_forest(classified, h, thresholds=thr)
     assert out[2, 2] == 4
@@ -78,13 +80,25 @@ def test_white_core_kept_when_strict_and_clustered():
     classified = np.ones((7, 7), dtype=np.uint8)
     classified[2:5, 2:5] = 0
     thr = ChmVegeThresholds(
-        green_dense_max_m=18.0,
-        white_edge_strict_m=22.0,
+        green_dense_max_m=14.0,
+        white_edge_strict_m=20.0,
         white_morph_iters=1,
+        median_size=0,
     )
     out = cleanup_white_forest(classified, h, thresholds=thr)
     # Inner core after open should stay white (not all edge-touching)
     assert out[3, 3] == 0
+
+
+def test_median_smooth_reduces_salt(tmp_path: Path):
+    """KP-like median: izolovaný pixel zeleně v louce zmizí."""
+    del tmp_path
+    chm = np.full((9, 9), 0.3, dtype=np.float32)  # open
+    chm[4, 4] = 2.5  # single light-green speck
+    out = classify_chm_array(
+        chm, nodata=None, thresholds=ChmVegeThresholds(median_size=5)
+    )
+    assert out[4, 4] == 1  # smoothed back to open
 
 
 def test_generate_job_vegetation_chm_missing(tmp_path: Path):

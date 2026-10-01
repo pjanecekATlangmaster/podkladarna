@@ -38,10 +38,10 @@ _CLASS_TO_CODE: dict[int, str] = {
 }
 
 _CLASS_NAMES: dict[str, str] = {
-    "401": "Otevřený terén (KP)",
-    "406": "Vegetace pomalý běh (KP)",
-    "408": "Vegetace chůze (KP)",
-    "410": "Vegetace boj (KP)",
+    "401": "Otevřený terén",
+    "406": "Vegetace pomalý běh",
+    "408": "Vegetace chůze",
+    "410": "Vegetace boj",
 }
 
 _MIN_AREA_M2 = 12.0

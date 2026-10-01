@@ -130,7 +130,10 @@ def test_oom_metadata_lidar_sources_and_no_kp_citation():
     assert "Karttapullautin" not in readme
     assert "Ortofoto slouží jen k vizuální kontrole" in readme
     assert "vlastní DEM/DSM/CHM" in readme
+    assert "porosty z výšky CHM" in readme
+    assert "ne ze ZABAGED" in readme
     assert "contours_gdal.* z DMR" in readme
+    assert "vegetace z CHM" in readme
     assert "contours_kp.dxf" not in readme
 
 

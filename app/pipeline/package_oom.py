@@ -125,6 +125,8 @@ DEFAULT_CONTOUR_BY_SCALE: dict[int, float] = {
 # nechybí stub symbolu. OSM/ZABAGED/AOPK se neořezávají – radši přesahují.
 CLIP_MARGIN_M = 25.0
 # Louka / parková zeleň pod KP vegetací – jinak 401 překryje hustníky z LiDARu.
+# Bez KP (use_kp=false) se tyto vrstvy do auto .omap NEVKLÁDAJÍ – vegetace
+# jde jen z CHM (náhrada KP), ZABAGED louky zůstanou ve ZIP zabaged/ ručně.
 _ZABAGED_UNDER_VEGETATION = frozenset(
     {
         "TrvalyTravniPorost",
@@ -520,10 +522,13 @@ def oom_readme(meta: dict) -> str:
             "   v Šablony → Nastavení šablon (Template Setup).\n"
             "3. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
             "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
-            "   Ve složce base/: vrstevnice GDAL (contours_gdal.* z DMR) a další vektory.\n\n"
+            "   Ve složce base/: vrstevnice GDAL (contours_gdal.* z DMR), "
+            "vegetace z CHM (vegetation.*) a další vektory.\n"
+            "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n\n"
         )
         relief_line = (
-            "Reliéf: DMR 5G / DMP OK (ČÚZK) přes vlastní DEM/DSM/CHM pipeline.\n\n"
+            "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM/DSM/CHM "
+            "(porosty z výšky CHM, ne ze ZABAGED luk).\n\n"
         )
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"
@@ -695,6 +700,7 @@ def prepare_oom_map(
     ostatni_as_403: bool = False,
     residual_paved: bool = False,
     max_residual_m2: float = 500.0,
+    use_kp: bool = True,
 ) -> Path | None:
     del formline
     path_source = resolve_path_source(path_source)
@@ -740,6 +746,9 @@ def prepare_oom_map(
         omit = set(ZABAGED_OMIT_BUILDING_LAYERS)
         if osm_features_have_power_lines(kp_cwd):
             omit |= set(ZABAGED_OMIT_WHEN_OSM_POWER)
+        # Bez KP: ZABAGED louky/parková zeleň nesmí řídit vegetaci v auto .omap.
+        if not use_kp:
+            omit |= set(_ZABAGED_UNDER_VEGETATION)
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,
@@ -762,7 +771,9 @@ def prepare_oom_map(
                 continue
             layer = part.name.removeprefix("ZABAGED – ").strip()
             if layer in _ZABAGED_UNDER_VEGETATION:
-                zabaged_under.append(part)
+                # Bez KP: drop i kdyby se vrstva omylem vrátila (CHM = jediný zdroj).
+                if use_kp:
+                    zabaged_under.append(part)
             elif layer in _ZABAGED_BASE_PAVED:
                 zabaged_base_paved.append(part)
             else:
@@ -808,11 +819,17 @@ def prepare_oom_map(
         else:
             osm_feat_rest.append(part)
     object_parts.extend(osm_under)
-    # KP zeleň (+ 401 s odečtem ZABAGED/OSM ploch) pod vrstevnicemi.
-    subtract_wkbs = collect_kp401_subtract_wkbs(
-        zabaged_clean=zabaged_clean if zabaged_clean and zabaged_clean.is_file() else None,
-        work_dir=kp_cwd,
-    )
+    # Vegetace do OOM:
+    # – KP: KP/CHM SHP + odečet ZABAGED/OSM ploch od 401 (open_land_subtract)
+    # – bez KP: jen CHM vegetation.shp, bez ZABAGED meadow prior / subtract
+    subtract_wkbs: list[bytes] | None = None
+    if use_kp:
+        subtract_wkbs = collect_kp401_subtract_wkbs(
+            zabaged_clean=zabaged_clean
+            if zabaged_clean and zabaged_clean.is_file()
+            else None,
+            work_dir=kp_cwd,
+        ) or None
     object_parts.extend(
         build_vegetation_parts(
             kp_cwd,
@@ -821,7 +838,7 @@ def prepare_oom_map(
             ref_x=ref_x,
             ref_y=ref_y,
             grivation_deg=grivation,
-            subtract_wkbs=subtract_wkbs or None,
+            subtract_wkbs=subtract_wkbs,
         )
     )
     object_parts.extend(
