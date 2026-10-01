@@ -1205,6 +1205,7 @@ def build_reference_layers(
     out_dir: Path,
     *,
     log: callable | None = None,
+    force_refresh: bool = False,
 ) -> dict[str, Path]:
     """Vytvoří referenční PNG+PGW pro OOM (hillshade, ortofoto, OSM)."""
     if not template_png.is_file() or not template_pgw.is_file():
@@ -1216,9 +1217,12 @@ def build_reference_layers(
     ref_wh = _ref_target_size(template_png, template_pgw)[:2]
     osm_wh = _osm_target_size(template_png, template_pgw)[:2]
     cache_dir = references_cache_dir(bbox_wgs84, ref_wh=ref_wh, osm_wh=osm_wh)
-    cached = _try_load_references_cache(cache_dir, out_dir, log=log)
-    if cached is not None:
-        return cached
+    if not force_refresh:
+        cached = _try_load_references_cache(cache_dir, out_dir, log=log)
+        if cached is not None:
+            return cached
+    elif log:
+        log("Force refresh: referenční PNG cache se přegeneruje")
 
     built: dict[str, Path] = {}
 

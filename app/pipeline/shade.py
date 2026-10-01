@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from app.download_cache import file_fingerprint, persist_shade, try_restore_shade
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
 from app.pipeline.prepare_lidar import find_tool, run_cmd
@@ -184,11 +185,13 @@ def build_job_shade(
     bounds_5514: tuple[float, float, float, float] | None = None,
     prefer_local: bool = True,
     force: bool = False,
+    cache_dir: Path | None = None,
     log=None,
 ) -> Path | None:
     """Sestaví primární hillshade do ``work/shade/``.
 
-    Pořadí: existující soubor → lokální gdaldem z dem_filled → WMS.
+    Pořadí: existující soubor → AOI shade cache (DEM fingerprint) →
+    lokální gdaldem z dem_filled → WMS.
     """
     work_dir = Path(work_dir)
     grid = JobGrid.load(work_dir)
@@ -204,25 +207,43 @@ def build_job_shade(
         if dest_png.stat().st_size >= MIN_SHADE_BYTES:
             return dest_png
 
-    bounds = bounds_5514 or grid.bounds()
     dem = dem_filled_path(work_dir)
+    dem_fp = file_fingerprint(dem) if dem is not None else None
+    if cache_dir is not None and try_restore_shade(
+        cache_dir,
+        out_dir,
+        dem_fp=dem_fp,
+        force=force,
+        log=log,
+    ):
+        if dest_png.is_file() and dest_png.stat().st_size >= MIN_SHADE_BYTES:
+            return dest_png
+
+    bounds = bounds_5514 or grid.bounds()
+    built = False
 
     if prefer_local and dem is not None:
         try:
             if build_hillshade_from_dem(dem, dest_png, dest_pgw, grid, log=log):
-                return dest_png
+                built = True
         except Exception as exc:
             if log:
                 log(f"Hillshade DEM selhal ({exc}) – zkouším WMS…")
 
-    try:
-        if fetch_hillshade_wms_for_grid(
-            bounds, grid, dest_png, dest_pgw, log=log
-        ):
-            return dest_png
-    except Exception as exc:
-        if log:
-            log(f"Hillshade WMS selhal ({exc})")
+    if not built:
+        try:
+            if fetch_hillshade_wms_for_grid(
+                bounds, grid, dest_png, dest_pgw, log=log
+            ):
+                built = True
+        except Exception as exc:
+            if log:
+                log(f"Hillshade WMS selhal ({exc})")
+
+    if built and dest_png.is_file() and dest_png.stat().st_size >= MIN_SHADE_BYTES:
+        if cache_dir is not None:
+            persist_shade(cache_dir, out_dir, dem_fp=dem_fp, log=log)
+        return dest_png
 
     if log:
         log("Hillshade: žádný zdroj (DEM ani WMS)")

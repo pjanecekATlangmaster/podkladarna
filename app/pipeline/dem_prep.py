@@ -10,6 +10,11 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from app.download_cache import (
+    file_fingerprint,
+    persist_surfaces,
+    try_restore_surfaces,
+)
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 from app.pipeline.prepare_lidar import find_tool, run_cmd
 
@@ -152,6 +157,35 @@ def _gdal_chm(dem: Path, dsm: Path, dest: Path, *, log=None) -> Path:
     return dest
 
 
+def _result_from_dem_dir(
+    dem_dir: Path,
+    *,
+    bounds: tuple[float, float, float, float],
+    resolution_m: float,
+    ground_name: str,
+    surface_name: str | None,
+) -> DemPrepResult:
+    def _opt(name: str) -> Path | None:
+        path = dem_dir / name
+        return path if path.is_file() and path.stat().st_size >= 500 else None
+
+    dem_filled = dem_dir / "dem_filled.tif"
+    dem_raw = dem_dir / "dem_raw.tif"
+    if not dem_raw.is_file():
+        dem_raw = dem_filled
+    return DemPrepResult(
+        dem_raw=dem_raw,
+        dem_filled=dem_filled,
+        dsm_raw=_opt("dsm_raw.tif"),
+        dsm_filled=_opt("dsm_filled.tif"),
+        chm=_opt("chm.tif"),
+        bounds=bounds,
+        resolution_m=float(resolution_m),
+        ground_laz=ground_name,
+        surface_laz=surface_name,
+    )
+
+
 def prepare_job_surfaces(
     work_dir: Path,
     bounds: tuple[float, float, float, float],
@@ -159,9 +193,15 @@ def prepare_job_surfaces(
     resolution_m: float = DEFAULT_SURFACE_RESOLUTION_M,
     ground_laz: Path | None = None,
     surface_laz: Path | None = None,
+    cache_dir: Path | None = None,
+    force_refresh: bool = False,
     log=None,
 ) -> DemPrepResult:
-    """Vytvoří filled DEM (+ DSM/CHM pokud je DMP LAZ) do ``work/dem/``."""
+    """Vytvoří filled DEM (+ DSM/CHM pokud je DMP LAZ) do ``work/dem/``.
+
+    Při ``cache_dir`` (AOI surfaces) znovupoužije DEM/DSM/CHM, pokud sedí
+    fingerprint ground/surface LAZ — ekvidistance/lavičky cache neinvalidují.
+    """
     lidar_dir = work_dir / "lidar"
     ground = ground_laz or _pick_ground_laz(lidar_dir)
     if ground is None or not ground.is_file():
@@ -171,6 +211,29 @@ def prepare_job_surfaces(
     surface = surface_laz if surface_laz is not None else _pick_surface_laz(lidar_dir)
 
     dem_dir = dem_work_dir(work_dir)
+    ground_fp = file_fingerprint(ground)
+    surface_fp = file_fingerprint(surface) if surface is not None else None
+
+    if cache_dir is not None and try_restore_surfaces(
+        cache_dir,
+        dem_dir,
+        bounds=bounds,
+        resolution_m=float(resolution_m),
+        ground_fp=ground_fp,
+        surface_fp=surface_fp,
+        force=force_refresh,
+        log=log,
+    ):
+        result = _result_from_dem_dir(
+            dem_dir,
+            bounds=bounds,
+            resolution_m=float(resolution_m),
+            ground_name=ground.name,
+            surface_name=surface.name if surface else None,
+        )
+        result.write_meta(dem_dir)
+        return result
+
     dem_raw = dem_dir / "dem_raw.tif"
     dem_filled = dem_dir / "dem_filled.tif"
     if log:
@@ -221,6 +284,16 @@ def prepare_job_surfaces(
         surface_laz=surface.name if surface else None,
     )
     result.write_meta(dem_dir)
+    if cache_dir is not None:
+        persist_surfaces(
+            cache_dir,
+            dem_dir,
+            bounds=bounds,
+            resolution_m=float(resolution_m),
+            ground_fp=ground_fp,
+            surface_fp=surface_fp,
+            log=log,
+        )
     if log:
         parts = [f"DEM={dem_filled.name}"]
         if dsm_filled:

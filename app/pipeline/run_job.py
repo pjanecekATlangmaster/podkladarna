@@ -6,6 +6,13 @@ import subprocess
 from pathlib import Path
 
 from app import db
+from app.download_cache import (
+    force_refresh_enabled,
+    lidar_crop_cache_dir,
+    persist_lidar_crop,
+    surfaces_cache_dir,
+    try_restore_lidar_crop,
+)
 from app.pipeline.contours_gdal import generate_job_contours
 from app.pipeline.dem_prep import prepare_job_surfaces
 from app.pipeline.fetch_aopk import fetch_aopk_trees_for_bbox
@@ -89,6 +96,9 @@ def run_job_pipeline(
     sheet_names: list[str] = []
     zabaged_src: Path | None = None
     use_kp = bool(options.get("use_kp", USE_KP_DEFAULT))
+    force_refresh = force_refresh_enabled(options)
+    if force_refresh:
+        log("Force refresh zapnut – AOI/underlay cache se přeskočí")
 
     lidar_work = work_dir / "lidar"
     reused_from = options.get("reused_from")
@@ -115,15 +125,37 @@ def run_job_pipeline(
         west, south, east, north = bbox
         log("=== Fáze: stažená data (LiDAR) ===")
         dmr_files, dmp_files, sheet_names = fetch_lidar_for_bbox(
-            (west, south, east, north), log
+            (west, south, east, north),
+            log,
+            force_refresh=force_refresh,
         )
 
         log("=== Fáze: stažená data (ZABAGED) ===")
-        zabaged_src = fetch_zabaged_for_bbox((west, south, east, north), log)
+        zabaged_src = fetch_zabaged_for_bbox(
+            (west, south, east, north),
+            log,
+            force_refresh=force_refresh,
+        )
 
     scalefactor = float(
         options.get("scalefactor") or load_presets()[preset_id]["scalefactor"]
     )
+
+    bbox_tuple = tuple(bbox) if bbox else None
+    surfaces_cache: Path | None = None
+    crop_cache: Path | None = None
+    if bbox_tuple is not None:
+        surfaces_cache = surfaces_cache_dir(
+            bbox_tuple,
+            resolution_m=DEFAULT_RESOLUTION_M,
+            sheet_ids=sheet_names or options.get("sm5_sheets"),
+            scalefactor=scalefactor,
+        )
+        crop_cache = lidar_crop_cache_dir(
+            bbox_tuple,
+            scalefactor=scalefactor,
+            sheet_ids=sheet_names or options.get("sm5_sheets"),
+        )
 
     # Kanonická mřížka dřív než KP / DEM deriváty – nezávislá na pullautus.pgw.
     grid_bounds = resolve_merge_crop_bounds(crop, scalefactor)
@@ -143,15 +175,35 @@ def run_job_pipeline(
         )
         merged = merged_existing
     else:
-        log("=== Fáze: prepare LiDAR ===")
-        merged = merge_dmr_dmp(
-            dmr_files,
-            dmp_files,
-            lidar_work,
-            log=log,
-            crop_bounds=crop,
-            scalefactor=scalefactor,
-        )
+        cached_merged = None
+        if crop_cache is not None and not force_refresh:
+            cached_merged = try_restore_lidar_crop(
+                crop_cache,
+                lidar_work,
+                force=force_refresh,
+                log=log,
+            )
+        if cached_merged is not None:
+            merged = cached_merged
+        else:
+            log("=== Fáze: prepare LiDAR ===")
+            merged = merge_dmr_dmp(
+                dmr_files,
+                dmp_files,
+                lidar_work,
+                log=log,
+                crop_bounds=crop,
+                scalefactor=scalefactor,
+            )
+            if crop_cache is not None and bbox_tuple is not None:
+                persist_lidar_crop(
+                    crop_cache,
+                    lidar_work,
+                    bbox_wgs84=bbox_tuple,
+                    sheet_ids=sheet_names or options.get("sm5_sheets"),
+                    scalefactor=scalefactor,
+                    log=log,
+                )
 
     if grid_bounds is not None:
         log("=== Fáze: sdílený DEM/DSM/CHM prep ===")
@@ -160,6 +212,8 @@ def run_job_pipeline(
                 work_dir,
                 grid_bounds,
                 resolution_m=DEFAULT_RESOLUTION_M,
+                cache_dir=surfaces_cache,
+                force_refresh=force_refresh,
                 log=log,
             )
         except Exception as exc:
@@ -376,6 +430,8 @@ def run_job_pipeline(
             work_dir,
             bounds_5514=grid_bounds,
             prefer_local=True,
+            force=force_refresh,
+            cache_dir=surfaces_cache,
             log=log,
         )
     except Exception as exc:
@@ -450,6 +506,7 @@ def _package_output(
                     template_pgw,
                     reference_dir,
                     log=log,
+                    force_refresh=force_refresh_enabled(options),
                 )
             except Exception as exc:
                 log(f"Referenční podklady: přeskočeno ({exc})")

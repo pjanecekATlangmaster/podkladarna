@@ -6,10 +6,28 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from app import settings
 
 META_FILENAME = "meta.json"
+
+# DEM/DSM/CHM artefakty persistované pod surfaces_cache_dir.
+SURFACE_ARTIFACT_NAMES = (
+    "dem_raw.tif",
+    "dem_filled.tif",
+    "dsm_raw.tif",
+    "dsm_filled.tif",
+    "chm.tif",
+    "dem_meta.json",
+)
+# Ořez/merge LAZ pro AOI (nezávislé na ekvidistance / lavičkách).
+LIDAR_CROP_ARTIFACT_NAMES = (
+    "ground_merged.laz",
+    "veg_merged.laz",
+    "merged_crop.laz",
+)
+SHADE_ARTIFACT_NAMES = ("hillshade.png", "hillshade.pgw")
 
 
 def utcnow_iso() -> str:
@@ -69,6 +87,37 @@ def is_fresh(
     return age <= max_age_days
 
 
+def force_refresh_enabled(options: dict[str, Any] | None = None) -> bool:
+    """Escape hatch: options.force_refresh nebo PODKLADARNA_FORCE_REFRESH.
+
+    Default = reuse (False). Parametry jako ekvidistance/lavičky force neznamenají.
+    """
+    if options and options.get("force_refresh"):
+        return True
+    return bool(getattr(settings, "FORCE_REFRESH_DEFAULT", False))
+
+
+def file_fingerprint(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.is_file():
+        return None
+    st = path.stat()
+    return {
+        "name": path.name,
+        "size": int(st.st_size),
+        "mtime_ns": int(st.st_mtime_ns),
+    }
+
+
+def fingerprints_equal(a: dict | None, b: dict | None) -> bool:
+    if a is None and b is None:
+        return True
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    # size+name stačí na invalidaci při výměně LAZ; mtime je nestabilní
+    # po link_or_copy na některých FS.
+    return a.get("name") == b.get("name") and a.get("size") == b.get("size")
+
+
 def bbox_cache_key(bbox: tuple[float, float, float, float], precision: int = 4) -> str:
     west, south, east, north = bbox
     return "_".join(f"{v:.{precision}f}" for v in (west, south, east, north))
@@ -79,16 +128,20 @@ def aoi_cache_key(
     *,
     resolution_m: float | None = None,
     sheet_ids: list[str] | tuple[str, ...] | None = None,
+    scalefactor: float | None = None,
     precision: int = 4,
 ) -> str:
-    """Klíč cache podle AOI (+ volitelně buňka / listy SM5) – ne podle job ID.
+    """Klíč cache podle AOI (+ mřížka / listy / scalefactor) – ne podle job ID.
 
     Seam §10: stejný výřez sdílí underlaye/meziprodukty napříč joby.
-    Plná invalidace podle ekvidistance/laviček sem ještě nepatří.
+    Ekvidistance / lavičky / cliff symbol klíč nemění — invalidují jen
+    závislé větve (kontury, OSM, package).
     """
     parts = [bbox_cache_key(bbox, precision=precision)]
     if resolution_m is not None:
         parts.append(f"r{float(resolution_m):g}")
+    if scalefactor is not None:
+        parts.append(f"s{float(scalefactor):g}")
     if sheet_ids:
         sheets = "_".join(sorted({s.strip().upper() for s in sheet_ids if s and s.strip()}))
         if sheets:
@@ -101,10 +154,269 @@ def surfaces_cache_dir(
     *,
     resolution_m: float = 1.0,
     sheet_ids: list[str] | tuple[str, ...] | None = None,
+    scalefactor: float | None = None,
 ) -> Path:
-    """Sdílená cache DEM/DSM/CHM meziproduktů podle AOI (ne job id)."""
-    key = aoi_cache_key(bbox, resolution_m=resolution_m, sheet_ids=sheet_ids)
+    """Sdílená cache DEM/DSM/CHM (+ shade) podle AOI (ne job id)."""
+    key = aoi_cache_key(
+        bbox,
+        resolution_m=resolution_m,
+        sheet_ids=sheet_ids,
+        scalefactor=scalefactor,
+    )
     return settings.DOWNLOADS_DIR / "surfaces" / key
+
+
+def lidar_crop_cache_dir(
+    bbox: tuple[float, float, float, float],
+    *,
+    scalefactor: float = 1.0,
+    sheet_ids: list[str] | tuple[str, ...] | None = None,
+) -> Path:
+    """Sdílená cache ořezaného/sloučeného LAZ podle AOI (+ KP pad ze scalefactor)."""
+    key = aoi_cache_key(bbox, scalefactor=scalefactor, sheet_ids=sheet_ids)
+    return settings.DOWNLOADS_DIR / "lidar_crop" / key
+
+
+def shade_cache_dir(surfaces_dir: Path) -> Path:
+    return Path(surfaces_dir) / "shade"
+
+
+def _copy_named_artifacts(
+    src_dir: Path,
+    dst_dir: Path,
+    names: tuple[str, ...],
+    *,
+    required: tuple[str, ...] = (),
+) -> list[str]:
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    copied: list[str] = []
+    for name in names:
+        src = src_dir / name
+        if not src.is_file():
+            if name in required:
+                raise FileNotFoundError(f"Chybí povinný artefakt {name} v {src_dir}")
+            continue
+        link_or_copy(src, dst_dir / name)
+        copied.append(name)
+    return copied
+
+
+def try_restore_lidar_crop(
+    cache_dir: Path,
+    lidar_work: Path,
+    *,
+    max_age_days: int | None = None,
+    force: bool = False,
+    log=None,
+) -> Path | None:
+    """Obnoví merged_crop (+ ground/veg) z AOI cache → work/lidar. None = miss."""
+    if force:
+        return None
+    age_limit = (
+        settings.LIDAR_CACHE_MAX_AGE_DAYS if max_age_days is None else max_age_days
+    )
+    merged = cache_dir / "merged_crop.laz"
+    if not is_fresh(cache_dir, merged, age_limit, min_size=1000):
+        return None
+    ground = cache_dir / "ground_merged.laz"
+    veg = cache_dir / "veg_merged.laz"
+    if not ground.is_file() or not veg.is_file():
+        return None
+    _copy_named_artifacts(
+        cache_dir,
+        lidar_work,
+        LIDAR_CROP_ARTIFACT_NAMES,
+        required=("merged_crop.laz", "ground_merged.laz", "veg_merged.laz"),
+    )
+    dest = lidar_work / "merged_crop.laz"
+    if log:
+        meta = read_meta(cache_dir) or {}
+        age = age_days(meta.get("downloaded_at"))
+        age_s = f", stáří {age:.1f} d" if age is not None else ""
+        log(f"AOI lidar crop cache hit{age_s} ← {cache_dir.name}")
+    return dest
+
+
+def persist_lidar_crop(
+    cache_dir: Path,
+    lidar_work: Path,
+    *,
+    bbox_wgs84: tuple[float, float, float, float] | None = None,
+    sheet_ids: list[str] | None = None,
+    scalefactor: float | None = None,
+    log=None,
+) -> None:
+    merged = lidar_work / "merged_crop.laz"
+    if not merged.is_file() or merged.stat().st_size < 1000:
+        # Fallback jména bez early-crop.
+        alt = lidar_work / "merged.laz"
+        if alt.is_file() and alt.stat().st_size >= 1000:
+            link_or_copy(alt, lidar_work / "merged_crop.laz")
+            merged = lidar_work / "merged_crop.laz"
+        else:
+            return
+    copied = _copy_named_artifacts(lidar_work, cache_dir, LIDAR_CROP_ARTIFACT_NAMES)
+    if "merged_crop.laz" not in copied:
+        return
+    write_meta(
+        cache_dir,
+        kind="lidar_crop",
+        bbox_wgs84=list(bbox_wgs84) if bbox_wgs84 else None,
+        sheet_ids=list(sheet_ids or []),
+        scalefactor=scalefactor,
+        files=copied,
+        ground_fp=file_fingerprint(lidar_work / "ground_merged.laz"),
+        veg_fp=file_fingerprint(lidar_work / "veg_merged.laz"),
+        merged_fp=file_fingerprint(merged),
+    )
+    if log:
+        log(f"AOI lidar crop uložen → {cache_dir.name} ({len(copied)} souborů)")
+
+
+def try_restore_surfaces(
+    cache_dir: Path,
+    dem_dir: Path,
+    *,
+    bounds: tuple[float, float, float, float],
+    resolution_m: float,
+    ground_fp: dict | None,
+    surface_fp: dict | None,
+    max_age_days: int | None = None,
+    force: bool = False,
+    log=None,
+) -> bool:
+    """Obnoví dem_filled (+ DSM/CHM) z AOI cache. False = miss / invalidate."""
+    if force:
+        return False
+    age_limit = (
+        settings.SURFACES_CACHE_MAX_AGE_DAYS
+        if max_age_days is None
+        else max_age_days
+    )
+    dem_filled = cache_dir / "dem_filled.tif"
+    if not is_fresh(cache_dir, dem_filled, age_limit, min_size=500):
+        return False
+    meta = read_meta(cache_dir) or {}
+    if meta.get("kind") not in (None, "surfaces"):
+        # starší meta bez kind ještě bereme, pokud sedí fingerprinty
+        pass
+    cached_bounds = meta.get("bounds")
+    if cached_bounds is not None:
+        try:
+            cb = tuple(float(x) for x in cached_bounds)
+            if len(cb) != 4 or any(abs(a - b) > 1e-3 for a, b in zip(cb, bounds)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    if meta.get("resolution_m") is not None:
+        try:
+            if abs(float(meta["resolution_m"]) - float(resolution_m)) > 1e-9:
+                return False
+        except (TypeError, ValueError):
+            return False
+    if not fingerprints_equal(meta.get("ground_fp"), ground_fp):
+        return False
+    if not fingerprints_equal(meta.get("surface_fp"), surface_fp):
+        return False
+    _copy_named_artifacts(
+        cache_dir,
+        dem_dir,
+        SURFACE_ARTIFACT_NAMES,
+        required=("dem_filled.tif",),
+    )
+    if log:
+        age = age_days(meta.get("downloaded_at"))
+        age_s = f", stáří {age:.1f} d" if age is not None else ""
+        log(f"AOI surfaces cache hit{age_s} ← {cache_dir.name}")
+    return True
+
+
+def persist_surfaces(
+    cache_dir: Path,
+    dem_dir: Path,
+    *,
+    bounds: tuple[float, float, float, float],
+    resolution_m: float,
+    ground_fp: dict | None,
+    surface_fp: dict | None,
+    log=None,
+) -> None:
+    dem_filled = dem_dir / "dem_filled.tif"
+    if not dem_filled.is_file() or dem_filled.stat().st_size < 500:
+        return
+    copied = _copy_named_artifacts(dem_dir, cache_dir, SURFACE_ARTIFACT_NAMES)
+    write_meta(
+        cache_dir,
+        kind="surfaces",
+        bounds=list(bounds),
+        resolution_m=float(resolution_m),
+        ground_fp=ground_fp,
+        surface_fp=surface_fp,
+        files=copied,
+        dem_fp=file_fingerprint(dem_filled),
+    )
+    if log:
+        log(f"AOI surfaces uloženy → {cache_dir.name} ({len(copied)} souborů)")
+
+
+def try_restore_shade(
+    cache_dir: Path,
+    shade_dir: Path,
+    *,
+    dem_fp: dict | None,
+    max_age_days: int | None = None,
+    force: bool = False,
+    log=None,
+) -> bool:
+    """Obnoví hillshade.png když DEM fingerprint sedí. False = miss."""
+    if force:
+        return False
+    shade_root = shade_cache_dir(cache_dir)
+    png = shade_root / "hillshade.png"
+    age_limit = (
+        settings.SURFACES_CACHE_MAX_AGE_DAYS
+        if max_age_days is None
+        else max_age_days
+    )
+    if not is_fresh(shade_root, png, age_limit, min_size=64):
+        return False
+    meta = read_meta(shade_root) or {}
+    if not fingerprints_equal(meta.get("dem_fp"), dem_fp):
+        return False
+    pgw = shade_root / "hillshade.pgw"
+    if not pgw.is_file():
+        return False
+    _copy_named_artifacts(
+        shade_root,
+        shade_dir,
+        SHADE_ARTIFACT_NAMES,
+        required=("hillshade.png", "hillshade.pgw"),
+    )
+    if log:
+        log(f"AOI shade cache hit ← {shade_root.parent.name}/shade")
+    return True
+
+
+def persist_shade(
+    cache_dir: Path,
+    shade_dir: Path,
+    *,
+    dem_fp: dict | None,
+    log=None,
+) -> None:
+    png = shade_dir / "hillshade.png"
+    if not png.is_file() or png.stat().st_size < 64:
+        return
+    dest = shade_cache_dir(cache_dir)
+    copied = _copy_named_artifacts(shade_dir, dest, SHADE_ARTIFACT_NAMES)
+    write_meta(
+        dest,
+        kind="shade",
+        dem_fp=dem_fp,
+        files=copied,
+    )
+    if log:
+        log(f"AOI shade uložen → {cache_dir.name}/shade")
 
 
 def config_version(path: Path) -> str:

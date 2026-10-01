@@ -55,6 +55,17 @@ ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "3
 REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))
 RUIAN_CACHE_MAX_AGE_DAYS = int(os.environ.get("RUIAN_CACHE_MAX_AGE_DAYS", "30"))
 AOPK_CACHE_MAX_AGE_DAYS = int(os.environ.get("AOPK_CACHE_MAX_AGE_DAYS", "30"))
+# DEM/DSM/CHM + shade AOI cache (§10).
+SURFACES_CACHE_MAX_AGE_DAYS = int(
+    os.environ.get("SURFACES_CACHE_MAX_AGE_DAYS", str(LIDAR_CACHE_MAX_AGE_DAYS))
+)
+# Escape hatch: přeskočit všechny AOI/underlay cache (env nebo options.force_refresh).
+FORCE_REFRESH_DEFAULT = os.environ.get("PODKLADARNA_FORCE_REFRESH", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 # Hybrid: Karttapullautin stále běží (default). Vypnutí = bez-KP cesta (vlny 3+).
 # Env PODKLADARNA_USE_KP=0 přepíše default v options, pokud job nepošle vlastní flag.
@@ -75,6 +86,8 @@ DEFAULT_OPTIONS = {
     "output_dxf": True,
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace
+    # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
+    "force_refresh": False,
     # Krátký hybrid: KP optional. Default zapnuto, ať stávající testy/regress drží.
     "use_kp": USE_KP_DEFAULT,
     # KP c2g/c3g: earth_bank=104, rock_face=201(+210), symbol_206=206 plocha, off=přeskočit.

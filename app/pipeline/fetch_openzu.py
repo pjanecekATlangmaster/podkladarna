@@ -278,6 +278,8 @@ def expand_bbox_wgs84(
 def fetch_lidar_for_bbox(
     bbox: tuple[float, float, float, float],
     log: callable | None = None,
+    *,
+    force_refresh: bool = False,
 ) -> tuple[list[Path], list[Path], list[str]]:
     """Vrátí cesty k LAZ v sdílené cache (stáhne jen chybějící / zastaralé listy)."""
     west, south, east, north = bbox
@@ -300,22 +302,37 @@ def fetch_lidar_for_bbox(
     names = [s["mapnom"] for s in sheets]
     if log:
         log(f"Protíná listy: {', '.join(names)} ({len(names)})")
+        if force_refresh:
+            log("Force refresh: LAZ cache se přegeneruje")
 
     dmr_paths: list[Path] = []
     dmp_paths: list[Path] = []
     for mapnom in names:
-        dmr = _cached_laz(mapnom, "DMR5G", OPENZU_DMR.format(mapnom=mapnom), log)
-        dmp = _cached_dmp_laz(mapnom, log)
+        dmr = _cached_laz(
+            mapnom,
+            "DMR5G",
+            OPENZU_DMR.format(mapnom=mapnom),
+            log,
+            force_refresh=force_refresh,
+        )
+        dmp = _cached_dmp_laz(mapnom, log, force_refresh=force_refresh)
         dmr_paths.append(dmr)
         dmp_paths.append(dmp)
     return dmr_paths, dmp_paths, names
 
 
-def _cached_dmp_laz(mapnom: str, log: callable | None) -> Path:
+def _cached_dmp_laz(
+    mapnom: str,
+    log: callable | None,
+    *,
+    force_refresh: bool = False,
+) -> Path:
     """Model povrchu: primárně DMP OK (obrazová korelace), záloha DMP 1G."""
     folder = lidar_sheet_dir(mapnom)
     dmpok = folder / "DMPOK.laz"
-    if is_fresh(folder, dmpok, settings.LIDAR_CACHE_MAX_AGE_DAYS):
+    if not force_refresh and is_fresh(
+        folder, dmpok, settings.LIDAR_CACHE_MAX_AGE_DAYS
+    ):
         if log:
             meta = read_meta(folder) or {}
             age = meta.get("downloaded_at", "?")[:10]
@@ -331,7 +348,11 @@ def _cached_dmp_laz(mapnom: str, log: callable | None) -> Path:
 
     try:
         path = _cached_laz(
-            mapnom, "DMPOK", OPENZU_DMPOK.format(mapnom=mapnom), log
+            mapnom,
+            "DMPOK",
+            OPENZU_DMPOK.format(mapnom=mapnom),
+            log,
+            force_refresh=force_refresh,
         )
         write_meta(
             folder,
@@ -343,7 +364,9 @@ def _cached_dmp_laz(mapnom: str, log: callable | None) -> Path:
         return path
     except FetchError as exc:
         dmp1g = folder / "DMP1G.laz"
-        if is_fresh(folder, dmp1g, settings.LIDAR_CACHE_MAX_AGE_DAYS):
+        if not force_refresh and is_fresh(
+            folder, dmp1g, settings.LIDAR_CACHE_MAX_AGE_DAYS
+        ):
             if log:
                 log(
                     f"DMP OK {mapnom} nedostupný ({exc}) – používám cache DMP 1G "
@@ -363,7 +386,11 @@ def _cached_dmp_laz(mapnom: str, log: callable | None) -> Path:
                 "(degradace: není tichý fallback) …"
             )
         path = _cached_laz(
-            mapnom, "DMP1G", OPENZU_DMP1G.format(mapnom=mapnom), log
+            mapnom,
+            "DMP1G",
+            OPENZU_DMP1G.format(mapnom=mapnom),
+            log,
+            force_refresh=force_refresh,
         )
         write_meta(
             folder,
@@ -375,11 +402,20 @@ def _cached_dmp_laz(mapnom: str, log: callable | None) -> Path:
         return path
 
 
-def _cached_laz(mapnom: str, kind: str, url: str, log: callable | None) -> Path:
+def _cached_laz(
+    mapnom: str,
+    kind: str,
+    url: str,
+    log: callable | None,
+    *,
+    force_refresh: bool = False,
+) -> Path:
     folder = lidar_sheet_dir(mapnom)
     folder.mkdir(parents=True, exist_ok=True)
     laz = folder / f"{kind}.laz"
-    if is_fresh(folder, laz, settings.LIDAR_CACHE_MAX_AGE_DAYS):
+    if not force_refresh and is_fresh(
+        folder, laz, settings.LIDAR_CACHE_MAX_AGE_DAYS
+    ):
         if log:
             meta = read_meta(folder) or {}
             age = meta.get("downloaded_at", "?")[:10]

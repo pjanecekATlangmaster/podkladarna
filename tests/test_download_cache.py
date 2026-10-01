@@ -90,3 +90,15 @@ def test_surfaces_cache_dir_uses_aoi_key(tmp_path: Path, monkeypatch):
     assert path.parent.name == "surfaces"
     assert path.name == aoi_cache_key(bbox, resolution_m=1.0, sheet_ids=["PRAH77"])
     assert path.name != "job123"
+    with_sf = surfaces_cache_dir(
+        bbox, resolution_m=1.0, sheet_ids=["PRAH77"], scalefactor=0.75
+    )
+    assert "s0.75" in with_sf.name
+
+
+def test_force_refresh_enabled_default_false(monkeypatch):
+    from app.download_cache import force_refresh_enabled
+
+    monkeypatch.setattr("app.settings.FORCE_REFRESH_DEFAULT", False)
+    assert force_refresh_enabled({"contour_interval": 2.5}) is False
+    assert force_refresh_enabled({"force_refresh": 1}) is True

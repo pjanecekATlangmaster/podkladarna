@@ -494,6 +494,7 @@ async def api_create_job(request: Request):
     elif _form_str(form, "output_zip").strip():
         options["output_zip"] = _opt_bool("output_zip")
     options["output_references"] = _opt_bool("output_references")
+    options["force_refresh"] = _opt_bool("force_refresh")
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:
