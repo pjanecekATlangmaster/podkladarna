@@ -869,7 +869,7 @@ function applyJobToForm(job) {
   updateOsmHintsForScale(scaleSel ? scaleSel.value : scale);
   const cliff = form.kp_cliff_symbol;
   if (cliff) {
-    const cliffVal = (job.options || {}).kp_cliff_symbol || "earth_bank";
+    const cliffVal = (job.options || {}).kp_cliff_symbol || "auto";
     if ([...cliff.options].some((o) => o.value === cliffVal)) {
       cliff.value = cliffVal;
     }
@@ -890,7 +890,7 @@ function applyJobToForm(job) {
   }
   const sens = form.kp_cliff_sensitivity;
   if (sens) {
-    const sensVal = (job.options || {}).kp_cliff_sensitivity || "normal";
+    const sensVal = (job.options || {}).kp_cliff_sensitivity || "low";
     if ([...sens.options].some((o) => o.value === sensVal)) {
       sens.value = sensVal;
     }

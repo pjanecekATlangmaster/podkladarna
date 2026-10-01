@@ -21,6 +21,12 @@ def test_resolve_drop_thresholds_normal():
     assert c2 == 2.8
 
 
+def test_resolve_drop_thresholds_default_is_low():
+    c1, c2 = resolve_drop_thresholds({})
+    assert c1 == 1.8
+    assert c2 == 3.4
+
+
 def test_resolve_drop_thresholds_high():
     c1, c2 = resolve_drop_thresholds({"kp_cliff_sensitivity": "high"})
     assert c1 < 1.4

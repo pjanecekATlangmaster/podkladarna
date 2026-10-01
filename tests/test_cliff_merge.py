@@ -5,7 +5,7 @@ import math
 import pytest
 
 from app.pipeline.cliff_merge import merge_cliff_ticks, polyline_to_strip_ring
-from app.pipeline.oom_symbol_map import KP_CLIFF_DENSE_CODE, symbol_index_for_code
+from app.pipeline.oom_symbol_map import symbol_index_for_code
 
 
 def _tick(x0: float, y0: float, x1: float, y1: float):
@@ -144,16 +144,16 @@ def test_object_count_drops_far_below_tick_count():
 def test_min_line_length_scales_with_map():
     from app.pipeline.cliff_merge import min_line_length_m
 
-    assert min_line_length_m(4000) == pytest.approx(2.4)
-    assert min_line_length_m(10000) == pytest.approx(6.0)
-    assert min_line_length_m(15000) < 10.0
+    assert min_line_length_m(4000) == pytest.approx(4.0)
+    assert min_line_length_m(10000) == pytest.approx(10.0)
+    assert min_line_length_m(15000) == pytest.approx(15.0)
 
 
 def test_min_line_drops_stubs_but_keeps_real_cliffs():
     """Kompromis proti šumu: krátké nálezy pryč, dlouhá stěna zůstane celá."""
     wall = _wall(60, y=0.0)
     stubs = [_tick(200.0 + i * 40.0, 300.0, 202.9 + i * 40.0, 300.0) for i in range(12)]
-    got = merge_cliff_ticks(wall + stubs, as_polygons=False, min_line_m=6.0)
+    got = merge_cliff_ticks(wall + stubs, as_polygons=False, min_line_m=10.0)
     assert len(got.lines) == 1
     assert _length(got.lines[0]) >= 55.0
 
@@ -164,9 +164,34 @@ def test_min_line_zero_keeps_everything():
 
 
 def test_min_line_does_not_touch_rock_areas():
-    """Délkový práh se týká jen linií – plocha 210 musí zůstat."""
-    got = merge_cliff_ticks(_field(21.0, 21.0), as_polygons=True, min_line_m=6.0)
+    """Délkový práh se týká jen linií – plocha musí zůstat."""
+    got = merge_cliff_ticks(_field(21.0, 21.0), as_polygons=True, min_line_m=10.0)
     assert got.polygons
+
+
+def test_nearby_collinear_ticks_merge_across_wider_gap():
+    """Sousední úsečky ~5 m od sebe → jedna linie (ne několik krátkých ticků)."""
+    ticks = [
+        _tick(0.0, 0.0, 2.9, 0.0),
+        _tick(5.2, 0.0, 8.1, 0.0),
+        _tick(10.4, 0.0, 13.3, 0.0),
+        _tick(15.6, 0.0, 18.5, 0.0),
+    ]
+    got = merge_cliff_ticks(ticks, as_polygons=False, min_line_m=0.0)
+    assert len(got.lines) == 1
+    assert _length(got.lines[0]) >= 14.0
+
+
+def test_isolated_short_tick_dropped_by_default_min_line():
+    """Jedna osamělá čárka pod prahem ~1 mm na mapě (10 m @ 1:10k) zmizí."""
+    from app.pipeline.cliff_merge import min_line_length_m
+
+    got = merge_cliff_ticks(
+        [_tick(0.0, 0.0, 2.9, 0.0)],
+        as_polygons=False,
+        min_line_m=min_line_length_m(10000),
+    )
+    assert got.lines == []
 
 
 def test_trace_rings_splits_diagonally_touching_lobes():
@@ -187,7 +212,16 @@ def test_trace_ring_keeps_hole_as_separate_clockwise_ring():
     assert sorted(round(_signed_ring_area(r), 3) for r in rings) == [-9.0, 81.0]
 
 
-def test_dense_symbol_exists_in_both_sets():
+def test_dense_symbol_fallback_exists():
+    from app.pipeline.oom_symbol_map import (
+        KP_CLIFF_DENSE_CODE,
+        resolve_rock_area_code,
+        symbol_index_for_code,
+    )
+
+    assert resolve_rock_area_code("forest_10000", 10000) == "201.2"
+    assert resolve_rock_area_code("sprint_2m", 4000) == "206"
+    assert resolve_rock_area_code("mtbo_10000", 10000) == "206"
     assert symbol_index_for_code("sprint_2m", 4000, KP_CLIFF_DENSE_CODE) is not None
     assert symbol_index_for_code("forest_10000", 10000, KP_CLIFF_DENSE_CODE) is not None
 

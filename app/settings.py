@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.20.3"
+APP_VERSION = "1.20.4"
 
 apply_local_gis_env()
 
@@ -90,12 +90,13 @@ DEFAULT_OPTIONS = {
     "force_refresh": False,
     # Krátký hybrid: KP optional. Default zapnuto, ať stávající testy/regress drží.
     "use_kp": USE_KP_DEFAULT,
-    # KP c2g/c3g: earth_bank=104, rock_face=201(+210), symbol_206=206 plocha, off=přeskočit.
-    "kp_cliff_symbol": "earth_bank",
+    # Bez KP / KP: auto=skála 201 vs zem 104; rock_face→201(+plošná 201.2/206);
+    # symbol_206=206 plocha; earth_bank=104; off=přeskočit.
+    "kp_cliff_symbol": "auto",
     # KP greenhigh (m) – výška vegetace pro výpočet zeleně.
     "kp_vege_height": 2.0,
-    # Citlivost detekce srázů: low | normal | high | very_high.
-    "kp_cliff_sensitivity": "normal",
+    # Citlivost detekce srázů: low | normal | high | very_high (výchozí low = méně srázů).
+    "kp_cliff_sensitivity": "low",
     # OSM volitelné objekty – default vypnuto (rozšířená nastavení).
     "kp_osm_benches": False,
     "kp_osm_lamps": False,

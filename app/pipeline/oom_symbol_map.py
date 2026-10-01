@@ -116,9 +116,25 @@ KP_CLIFF_SYMBOL_CHOICES = frozenset(
         KP_CLIFF_OFF,
     }
 )
-# Hustý shluk KP čárek u rock_face → kamenitý povrch (210).
+# Hustý shluk skalních čárek → plocha (preferuj 201.2 / 206 před 210).
 KP_CLIFF_DENSE_CODE = "210"
 KP_CLIFF_206_CODE = "206"
+KP_CLIFF_FACE_AREA_CODE = "201.2"
+
+
+def resolve_rock_area_code(preset_id: str, scale: int) -> str | None:
+    """Kód plochy pro skalní shluk: ISOM 201.2, jinak 206, nouzově 210.
+
+    Ve sprintu/MTBO není 201.2 plocha (je to čára tagů) – hned 206.
+    """
+    candidates: list[str] = []
+    if not _is_sprint(preset_id) and not _is_mtbo(preset_id):
+        candidates.append(KP_CLIFF_FACE_AREA_CODE)
+    candidates.extend([KP_CLIFF_206_CODE, KP_CLIFF_DENSE_CODE])
+    for code in candidates:
+        if symbol_index_for_code(preset_id, scale, code) is not None:
+            return code
+    return None
 
 
 def _is_sprint(preset_id: str) -> bool:
@@ -234,7 +250,7 @@ def oom_code_for_dxf(
     filename: str,
     *,
     preset_id: str,
-    cliff_symbol: str = KP_CLIFF_EARTH_BANK,
+    cliff_symbol: str = KP_CLIFF_AUTO,
 ) -> str | None:
     """``auto``: zem z cliffs_small/large (104), skála z cliffs_rock (201).
 

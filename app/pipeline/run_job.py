@@ -620,7 +620,7 @@ def _package_output(
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
             courtyard_olive = bool(options.get("sprint_courtyard_olive", True))
-            cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
+            cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
             include_dxf = bool(options.get("output_dxf", True))
             contour_interval_m = meta.get("contour_interval_m")
             from app.pipeline.fetch_zabaged import (
@@ -719,7 +719,7 @@ def _package_output(
             except Exception as exc:
                 log(f"OOM náhled: přeskočeno ({exc})")
 
-        cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
+        cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
         build_oom_zip(
             kp_cwd,
             zip_path,

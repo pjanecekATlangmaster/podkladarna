@@ -695,7 +695,7 @@ def prepare_oom_map(
     contour_interval_m: float | None = None,
     formline: float = 0,
     indexcontours_m: float | None = None,
-    cliff_symbol: str = "earth_bank",
+    cliff_symbol: str = "auto",
     courtyard_olive: bool = False,
     path_source: str = PATH_SOURCE_MIXED,
     aopk_trees: Path | None = None,

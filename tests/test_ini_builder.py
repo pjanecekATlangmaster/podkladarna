@@ -113,8 +113,8 @@ def test_write_pullauta_ini_default_vege_and_cliff(tmp_path: Path):
     path = write_pullauta_ini(tmp_path, "sprint_2m")
     ini = _ini_map(path.read_text(encoding="utf-8"))
     assert ini["greenhigh"] == "2"
-    assert ini["cliff1"] == "1.4"
-    assert ini["cliff2"] == "2.8"
+    assert ini["cliff1"] == "1.8"
+    assert ini["cliff2"] == "3.4"
 
 
 def test_write_pullauta_ini_vege_height_and_cliff_sensitivity(tmp_path: Path):
@@ -148,5 +148,5 @@ def test_write_pullauta_ini_invalid_vege_falls_back(tmp_path: Path):
     )
     ini = _ini_map(path.read_text(encoding="utf-8"))
     assert ini["greenhigh"] == "2"
-    assert ini["cliff1"] == "1.4"
-    assert ini["cliff2"] == "2.8"
+    assert ini["cliff1"] == "1.8"
+    assert ini["cliff2"] == "3.4"

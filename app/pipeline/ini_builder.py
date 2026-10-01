@@ -12,14 +12,15 @@ KP_VEGE_HEIGHT_CHOICES = (1.5, 2.0, 2.5, 3.0)
 KP_VEGE_HEIGHT_DEFAULT = 2.0
 
 # cliff1/cliff2 – min. výškový skok; nižší = citlivější (více srázů).
-# „normal“ = současný pullauta.base.ini (1.4 / 2.8).
+# Výchozí „low“: méně falešných zemních srázů (kartografie). „normal“ = starý
+# pullauta.base.ini (1.4 / 2.8).
 KP_CLIFF_SENSITIVITY: dict[str, tuple[float, float]] = {
     "low": (1.8, 3.4),
     "normal": (1.4, 2.8),
     "high": (1.15, 2.0),
     "very_high": (0.95, 1.7),
 }
-KP_CLIFF_SENSITIVITY_DEFAULT = "normal"
+KP_CLIFF_SENSITIVITY_DEFAULT = "low"
 # Při kp_cliff_symbol=off KP makecliffs skoro nic nenajde (nemá nocliffs).
 KP_CLIFF_OFF_THRESHOLDS = (50.0, 50.0)
 
@@ -102,7 +103,7 @@ def write_pullauta_ini(
         raise FileNotFoundError(f"Chybí vectorconf: {src_conf}")
 
     vege_h = resolve_vege_height(opts)
-    cliff_symbol = str(opts.get("kp_cliff_symbol") or "earth_bank").strip().lower()
+    cliff_symbol = str(opts.get("kp_cliff_symbol") or "auto").strip().lower()
     if cliff_symbol == "off":
         cliff1, cliff2 = KP_CLIFF_OFF_THRESHOLDS
     else:

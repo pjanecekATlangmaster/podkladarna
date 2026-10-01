@@ -62,8 +62,8 @@ def detect_cliff_ticks(
     elev,
     gt,
     *,
-    min_drop_m: float = 1.4,
-    major_drop_m: float = 2.8,
+    min_drop_m: float = 1.8,
+    major_drop_m: float = 3.4,
     nodata=None,
     stride: int = SAMPLE_STRIDE_CELLS,
     max_ticks: int = MAX_TICKS,
@@ -221,14 +221,18 @@ def generate_cliffs_from_dem(
     dem_tif: Path,
     temp_dir: Path,
     *,
-    min_drop_m: float = 1.4,
-    major_drop_m: float = 2.8,
+    min_drop_m: float = 1.8,
+    major_drop_m: float = 3.4,
     log=None,
 ) -> dict[str, Path]:
     """Detekce → ``temp/c2g.dxf`` (zem) + ``temp/c_rock.dxf`` (skála)."""
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
-    log_step(log, "Hledám srázy na DEM (skála a zemní hrany, náhrada KP)")
+    log_step(
+        log,
+        f"Hledám srázy na DEM (drop≥{min_drop_m:g} m, skála sklon≥{ROCK_MIN_GRADE:g}; "
+        "krátké ticky a plochy řeší merge v OOM)",
+    )
     try:
         arr, gt, nodata = read_float32_geotiff(dem_tif, log=log)
     except Exception as exc:
@@ -256,7 +260,8 @@ def generate_cliffs_from_dem(
     if log:
         log(
             f"Srázy DEM: {len(small)} zemních + {len(large)} skalních ticků "
-            f"(drop≥{min_drop_m:g} m, skála při sklonu≥{ROCK_MIN_GRADE:g}) → temp/"
+            f"(drop≥{min_drop_m:g} m / major≥{major_drop_m:g} m, "
+            f"skála sklon≥{ROCK_MIN_GRADE:g}; body 204 z šumu DEM nevznikají) → temp/"
         )
     return out
 
@@ -269,7 +274,7 @@ def generate_job_cliffs_dem(
 ) -> dict[str, Path]:
     """Job fáze bez KP: kandidáti srázů do ``work/temp/`` pro OOM import."""
     work_dir = Path(work_dir)
-    cliff_symbol = str((options or {}).get("kp_cliff_symbol") or "earth_bank").strip().lower()
+    cliff_symbol = str((options or {}).get("kp_cliff_symbol") or "auto").strip().lower()
     if cliff_symbol == "off":
         if log:
             log("Srázy DEM: vypnuto (kp_cliff_symbol=off)")
@@ -280,8 +285,13 @@ def generate_job_cliffs_dem(
             log("Srázy DEM: chybí work/dem/dem_filled.tif – přeskočeno")
         return {}
     c1, c2 = resolve_drop_thresholds(options)
+    sens = resolve_cliff_sensitivity(options)
     if log:
         log("=== Fáze: srázy z DEM (bez KP) ===")
+        log(
+            f"Srázy DEM: citlivost={sens} → cliff1={c1:g} m, cliff2={c2:g} m "
+            f"(méně citlivé = méně falešných zemních srázů)"
+        )
     return generate_cliffs_from_dem(
         dem,
         work_dir / "temp",

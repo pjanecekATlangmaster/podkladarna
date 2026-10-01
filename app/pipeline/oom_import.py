@@ -29,6 +29,7 @@ from app.pipeline.oom_symbol_map import (
     KP_CLIFF_SYMBOL_206,
     oom_code_for_dxf,
     oom_code_for_vectorconf_rule,
+    resolve_rock_area_code,
     symbol_index_for_code,
 )
 from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
@@ -948,7 +949,7 @@ def build_dxf_object_part(
     ref_x: float,
     ref_y: float,
     grivation_deg: float,
-    cliff_symbol: str = "earth_bank",
+    cliff_symbol: str = "auto",
     clip_bounds: Bounds | None = None,
 ) -> OomObjectPart | None:
     use_ogr = True
@@ -1038,10 +1039,11 @@ def build_dxf_object_part(
     for cliff_line_code, cliff_ticks in cliff_groups.items():
         if not cliff_ticks or cliff_symbol == KP_CLIFF_OFF:
             continue
+        # Zem (104) jen linie. Skála (201) i v režimu auto: hustý shluk → plocha.
         as_polygons = cliff_symbol in (
             KP_CLIFF_ROCK_FACE,
             KP_CLIFF_SYMBOL_206,
-        )
+        ) or cliff_line_code == "201"
         merged = merge_cliff_ticks(
             cliff_ticks,
             as_polygons=as_polygons,
@@ -1056,6 +1058,7 @@ def build_dxf_object_part(
         drop_unmeasured += int(drop_stats.get("nezmereno") or 0)
         if cliff_symbol == KP_CLIFF_SYMBOL_206:
             poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_206_CODE)
+            area_code = KP_CLIFF_206_CODE
             if poly_index is not None:
                 poly_rings = list(merged.polygons)
                 for pts in cliff_lines:
@@ -1094,9 +1097,8 @@ def build_dxf_object_part(
                     )
                 )
             if merged.polygons:
-                poly_index = symbol_index_for_code(
-                    preset_id, scale, KP_CLIFF_DENSE_CODE
-                )
+                area_code = resolve_rock_area_code(preset_id, scale) or KP_CLIFF_DENSE_CODE
+                poly_index = symbol_index_for_code(preset_id, scale, area_code)
                 if poly_index is not None:
                     had_dense_polys = True
                     poly_parts = [("line", ring, True) for ring in merged.polygons]
@@ -1120,18 +1122,28 @@ def build_dxf_object_part(
         cliff_label = "skály (206 plocha)"
     elif cliff_symbol == KP_CLIFF_ROCK_FACE:
         cliff_label = (
-            "skály (201 + kamenitý povrch 210)"
+            "skály (201 + plocha 201.2/206)"
             if had_dense_polys
             else "skály (201)"
         )
     elif cliff_symbol == KP_CLIFF_EARTH_BANK:
         cliff_label = "zemní srázy (104)"
     elif cliff_symbol == KP_CLIFF_AUTO and "201" in codes and "104" in codes:
-        cliff_label = "skála (201) a zem (104)"
+        cliff_label = (
+            "skála (201 + plocha 201.2/206) a zem (104)"
+            if had_dense_polys
+            else "skála (201) a zem (104)"
+        )
     elif "201" in codes and "104" in codes:
-        cliff_label = "skála (201) a zem (104)"
+        cliff_label = (
+            "skála (201 + plocha 201.2/206) a zem (104)"
+            if had_dense_polys
+            else "skála (201) a zem (104)"
+        )
     elif "201" in codes:
-        cliff_label = "skála (201)"
+        cliff_label = (
+            "skála (201 + plocha 201.2/206)" if had_dense_polys else "skála (201)"
+        )
     else:
         cliff_label = "srázy"
     if drop_dropped:

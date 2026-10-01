@@ -4,10 +4,10 @@ Karttapullautin zapisuje každý sráz jako samostatnou úsečku kolmo na spád
 (délka ~2,9 m, rastr buněk 3 m). V OOM je to tisíce objektů. Tady se souosé
 sousední čárky řetězí na lomenou čáru (201/104).
 
-U volby skála se navíc hledá plošné pole: čárky se hodí do rastru s krokem KP
-a plocha 210 vznikne jen tam, kde je útvar 2D (buňka obklopená ze všech stran).
-Stěna je pás 1–2 buněk, žádnou takovou buňku nemá, a zůstane linií. Obrys se
-obtahuje po hranách buněk, ne konvexní obálkou – zálivy a díry zůstanou.
+U skal (201) se navíc hledá plošné pole: čárky se hodí do rastru s krokem KP
+a plocha (201.2 / 206, nouzově 210) vznikne jen tam, kde je útvar 2D (buňka
+obklopená ze všech stran). Stěna je pás 1–2 buněk, žádnou takovou buňku nemá,
+a zůstane linií 201. Obrys se obtahuje po hranách buněk, ne konvexní obálkou.
 """
 
 from __future__ import annotations
@@ -16,12 +16,13 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 
-# Mezera středů sousedních KP čárek (buňka 3 m, úhlopříčka ~4,2 m).
-JOIN_GAP_M = 4.4
+# Mezera středů sousedních KP čárek – trochu volnější než buňka 3 m, ať se
+# sousední úsečky slepí do jedné dlouhé stěny místo mraku krátkých ticků.
+JOIN_GAP_M = 5.5
 # Max. odchylka směru čárky (nesměrové).
-JOIN_ANGLE_COS = math.cos(math.radians(32))
+JOIN_ANGLE_COS = math.cos(math.radians(38))
 # Spojnice středů musí jít zhruba podél stěny, ne kolmo na sousední sráz.
-CHAIN_DIR_COS = 0.45
+CHAIN_DIR_COS = 0.40
 SIMPLIFY_M = 0.55
 # KP umí do jedné buňky 4,4 m nasypat i 1800 čárek přes sebe. Zahodit ty, co
 # se liší o < 1 m a < 8°, nic viditelného nestojí (1 m = 0,1 mm na 1:10 000).
@@ -37,11 +38,9 @@ ROCK_MIN_CORE_CELLS = 2
 MIN_ROCK_AREA_M2 = 80.0
 ROCK_SIMPLIFY_M = 1.2
 
-# KP nedává výšku srázu, takže jistotu detekce z jedné čárky poznat nejde: každá
-# je jen jedna dvojice bodů nad prahem, ne samostatné pozorování. Co poznat jde,
-# je jestli je útvar dost dlouhý na nakreslení – ISOM má pro čáru minimum kolem
-# 0,6 mm na mapě. Kratší nálezy by mapař stejně nekreslil a jen zaplevelí OOM.
-MIN_LINE_MM = 0.6
+# Izolovaná krátká čárka mapař stejně nekreslí. Práh ~1 mm na mapě (dřív 0,6):
+# na 1:10 000 ≈ 10 m, na 1:4000 ≈ 4 m – pod tím zahodit.
+MIN_LINE_MM = 1.0
 
 _Tick = tuple[tuple[float, float], tuple[float, float]]
 _Cell = tuple[int, int]
@@ -295,8 +294,8 @@ def _rock_area_polygons(
 
     if not used_cells:
         return ticks, []
-    # Čárky těsně za hranou plochy jen lemují její obrys – symbol 210 už je nese
-    # a jinak z nich vznikne rám stovek třímetrových pahýlů.
+    # Čárky těsně za hranou plochy jen lemují její obrys – plocha 201.2/206 už je
+    # nese a jinak z nich vznikne rám stovek třímetrových pahýlů.
     for i, j in tuple(used_cells):
         for di in (-1, 0, 1):
             for dj in (-1, 0, 1):

@@ -104,7 +104,7 @@
               <option value="off">Nevykreslovat (ani nepočítat)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-symbol-hint">Bez KP detektor sám rozliší strmý schod (skála 201) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. U vynucené skály (201) může vzniknout i plocha 210. Nálezy kratší než ~0,6 mm na mapě se zahazují.</p>
+          <p class="hint" id="cliff-symbol-hint">Bez KP detektor sám rozliší strmý schod (skála 201) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. U skály (201) hustý shluk → plocha 201.2/206. Nálezy kratší než ~1 mm na mapě se zahazují; sousední čárky se slepí do jedné linie.</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="include_knolls" id="include_knolls" value="1" checked />
@@ -115,13 +115,13 @@
           <label id="cliff-sensitivity-label">
             Citlivost srázů / skal
             <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
-              <option value="low">Méně citlivé (méně srázů)</option>
-              <option value="normal" selected>Výchozí</option>
+              <option value="low" selected>Méně citlivé (méně srázů)</option>
+              <option value="normal">Výchozí (KP 1,4 / 2,8 m)</option>
               <option value="high">Citlivější</option>
               <option value="very_high">Velmi citlivé (více drobných srázů)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-sensitivity-hint">Jak přísně Karttapullautin hledá strmé skoky v DMR.</p>
+          <p class="hint" id="cliff-sensitivity-hint">Výchozí „méně citlivé“ (cliff1=1,8 m). Bez KP i KP: vyšší práh = méně falešných zemních srázů.</p>
         </div>
 
         <div class="form-section">
@@ -301,7 +301,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.20.3 ·
+      Podkladárna v1.20.4 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>
