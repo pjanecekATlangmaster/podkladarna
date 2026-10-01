@@ -711,6 +711,7 @@ def _package_output(
                         residual_paved=residual_paved,
                         max_residual_m2=max_residual_m2,
                         use_kp=bool(options.get("use_kp", True)),
+                        log=log,
                     )
                     if omap_p:
                         omap_paths.append(omap_p)

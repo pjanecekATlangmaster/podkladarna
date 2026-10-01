@@ -357,3 +357,70 @@ def test_path_object_dash_point_flag():
     xml = _path_object(7, [(0, 0), (1000, 0, MAP_COORD_DASH_POINT), (2000, 0)])
     assert 'symbol="7"' in xml
     assert "0 0;1000 0 32;2000 0;" in xml
+
+
+def test_convert_polyline_to_curves_open_xml():
+    """Mapper CurveStart=1; 3 body → 2 Bézier → 7 coords s handly."""
+    from app.pipeline.oom_import import (
+        MAP_COORD_CURVE_START,
+        _path_object,
+        convert_polyline_to_curves,
+    )
+
+    # Lomená čára: (0,0) → (1000,0) → (1000,1000)
+    curved = convert_polyline_to_curves([(0, 0), (1000, 0), (1000, 1000)])
+    assert len(curved) == 7  # 3N-2 pro N=3
+    assert curved[0][0] == 0 and curved[0][1] == 0
+    assert curved[0][2] == MAP_COORD_CURVE_START
+    # Druhý vrchol (původní index 1) je po handlu startu + incoming → CurveStart
+    assert any(
+        len(c) == 3 and c[0] == 1000 and c[1] == 0 and c[2] == MAP_COORD_CURVE_START
+        for c in curved
+    )
+    xml = _path_object(3, curved)
+    assert 'coords count="7"' in xml
+    assert "0 0 1;" in xml  # CurveStart na prvním bodě
+    # Handly nemají flag (jen x y)
+    assert "390 0;" in xml or "391 0;" in xml  # ~0.39 * 1000
+
+
+def test_convert_polyline_to_curves_closed_flag():
+    from app.pipeline.oom_import import (
+        MAP_COORD_CLOSE_POINT,
+        MAP_COORD_HOLE_POINT,
+        convert_polyline_to_curves,
+    )
+
+    ring = [(0, 0), (1000, 0), (1000, 1000), (0, 1000)]
+    curved = convert_polyline_to_curves(ring, closed=True)
+    assert curved[0][2] == 1  # CurveStart
+    last = curved[-1]
+    assert last[0] == 0 and last[1] == 0
+    assert last[2] == MAP_COORD_CLOSE_POINT | MAP_COORD_HOLE_POINT
+
+
+def test_geom_parts_as_curves_only_when_requested():
+    from app.pipeline.oom_import import _geom_parts_to_objects
+
+    parts = [("line", [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)], False)]
+    plain = _geom_parts_to_objects(
+        parts,
+        1,
+        ref_x=0,
+        ref_y=0,
+        scale=10000,
+        grivation_deg=0,
+    )
+    curved = _geom_parts_to_objects(
+        parts,
+        1,
+        ref_x=0,
+        ref_y=0,
+        scale=10000,
+        grivation_deg=0,
+        as_curves=True,
+    )
+    assert " 1;" not in plain[0]  # žádný CurveStart flag
+    assert " 1;" in curved[0]
+    assert 'coords count="3"' in plain[0]
+    assert 'coords count="7"' in curved[0]

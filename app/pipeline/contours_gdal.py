@@ -582,6 +582,7 @@ def build_gdal_contour_parts(
     formline: float = 0,
     index_m: float | None = None,
     scalefactor: float | None = None,
+    log=None,
 ) -> list[OomObjectPart]:
     del formline
     shp = work_dir / "contours" / "contours.shp"
@@ -616,6 +617,10 @@ def build_gdal_contour_parts(
             if part[0] == "line" and len(part[1]) >= 2:
                 bucket.append(list(part[1]))  # type: ignore[arg-type]
 
+    log_step(
+        log,
+        "Převádím vrstevnice na křivky OOM (Bézier, jako Převést na křivky)",
+    )
     for (code, _elev), lines in by_key.items():
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
@@ -642,6 +647,7 @@ def build_gdal_contour_parts(
                 ref_y=ref_y,
                 scale=scale,
                 grivation_deg=grivation_deg,
+                as_curves=True,
             )
         )
 

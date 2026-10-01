@@ -229,6 +229,7 @@ def _geom_parts_to_objects(
     scale: int,
     grivation_deg: float,
     as_area: bool = False,
+    as_curves: bool = False,
     elev_at=None,
     clip_bounds: Bounds | None = None,
 ) -> list[str]:
@@ -292,7 +293,14 @@ def _geom_parts_to_objects(
                     piece, elev_at=elev_at, to_map=to_map
                 )
             coords = [to_map(x, y) for x, y in piece]
-            if closed_shape:
+            # Křivky jen u prostých linií (vrstevnice). Plochy s dírami
+            # necháme polygonální – srázy/cesty as_curves nezapínají.
+            if as_curves and not holes:
+                mapped = convert_polyline_to_curves(
+                    coords, closed=bool(closed_shape)
+                )
+                obj = _path_object(symbol_index, mapped)
+            elif closed_shape:
                 rings = [coords] + [
                     [to_map(x, y) for x, y in hole] for hole in holes
                 ]
@@ -339,8 +347,148 @@ def _fmt(x: int, y: int, flags: int = 0) -> str:
     return f"{x} {y}"
 
 
+# OpenOrienteering MapCoord flags (map_coord.h) – hodnoty se nesmí měnit.
+MAP_COORD_CURVE_START = 1  # první ze 4 bodů kubické Bézier
+MAP_COORD_CLOSE_POINT = 2
+MAP_COORD_HOLE_POINT = 16
 # OpenOrienteering MapCoord::DashPoint – fousy sloupů na vedení / dash symbol.
 MAP_COORD_DASH_POINT = 32
+# util.h: BEZIER_KAPPA / sqrt(2) – délka handle při „Převést na křivky“.
+_BEZIER_HANDLE_DISTANCE = 0.390524291729
+
+
+def _normalize_xy(dx: float, dy: float) -> tuple[float, float]:
+    length = math.hypot(dx, dy)
+    if length < 1e-12:
+        return 0.0, 0.0
+    return dx / length, dy / length
+
+
+def convert_polyline_to_curves(
+    coords: list[tuple[int, int]],
+    *,
+    closed: bool = False,
+) -> list[tuple[int, int] | tuple[int, int, int]]:
+    """Stejný algoritmus jako Mapper ``PathObject::convertRangeToCurves``.
+
+    Polygonální úseky → kubické Bézier: bod se flagem CurveStart (1), dva
+    handly, koncový bod. Uzavřená linie dostane na konci ClosePoint|HolePoint
+    (18), stejně jako Mapper u uzavřených PathPart.
+    """
+    if len(coords) < 2:
+        return [(int(x), int(y)) for x, y in coords]
+
+    pts: list[list[int]] = [[int(x), int(y), 0] for x, y in coords]
+    if closed:
+        if pts[0][0] != pts[-1][0] or pts[0][1] != pts[-1][1]:
+            pts.append([pts[0][0], pts[0][1], 0])
+        if len(pts) < 3:
+            pts[-1][2] = MAP_COORD_CLOSE_POINT | MAP_COORD_HOLE_POINT
+            return [
+                (p[0], p[1], p[2]) if p[2] else (p[0], p[1]) for p in pts
+            ]
+
+    start_index = 0
+    end_index = len(pts) - 1
+    pts[start_index][2] |= MAP_COORD_CURVE_START
+
+    if closed:
+        dx = float(pts[start_index + 1][0] - pts[end_index - 1][0])
+        dy = float(pts[start_index + 1][1] - pts[end_index - 1][1])
+    else:
+        dx = float(pts[end_index][0] - pts[end_index - 1][0])
+        dy = float(pts[end_index][1] - pts[end_index - 1][1])
+    tx, ty = _normalize_xy(dx, dy)
+    baseline = (
+        math.hypot(
+            pts[end_index][0] - pts[end_index - 1][0],
+            pts[end_index][1] - pts[end_index - 1][1],
+        )
+        * _BEZIER_HANDLE_DISTANCE
+    )
+    end_handle = [
+        round(pts[end_index][0] - tx * baseline),
+        round(pts[end_index][1] - ty * baseline),
+        0,
+    ]
+
+    if closed:
+        dx = float(pts[start_index + 1][0] - pts[end_index - 1][0])
+        dy = float(pts[start_index + 1][1] - pts[end_index - 1][1])
+    else:
+        dx = float(pts[start_index + 1][0] - pts[start_index][0])
+        dy = float(pts[start_index + 1][1] - pts[start_index][1])
+    tx, ty = _normalize_xy(dx, dy)
+    baseline = (
+        math.hypot(
+            pts[start_index + 1][0] - pts[start_index][0],
+            pts[start_index + 1][1] - pts[start_index][1],
+        )
+        * _BEZIER_HANDLE_DISTANCE
+    )
+    pts.insert(
+        start_index + 1,
+        [
+            round(pts[start_index][0] + tx * baseline),
+            round(pts[start_index][1] + ty * baseline),
+            0,
+        ],
+    )
+    end_index += 1
+
+    c = start_index + 2
+    while c < end_index:
+        dx = float(pts[c + 1][0] - pts[c - 2][0])
+        dy = float(pts[c + 1][1] - pts[c - 2][1])
+        tx, ty = _normalize_xy(dx, dy)
+
+        baseline = (
+            math.hypot(pts[c][0] - pts[c - 2][0], pts[c][1] - pts[c - 2][1])
+            * _BEZIER_HANDLE_DISTANCE
+        )
+        pts.insert(
+            c,
+            [
+                round(pts[c][0] - tx * baseline),
+                round(pts[c][1] - ty * baseline),
+                0,
+            ],
+        )
+        c += 1
+        end_index += 1
+
+        pts[c][2] |= MAP_COORD_CURVE_START
+
+        baseline = (
+            math.hypot(pts[c + 1][0] - pts[c][0], pts[c + 1][1] - pts[c][1])
+            * _BEZIER_HANDLE_DISTANCE
+        )
+        pts.insert(
+            c + 1,
+            [
+                round(pts[c][0] + tx * baseline),
+                round(pts[c][1] + ty * baseline),
+                0,
+            ],
+        )
+        c += 1
+        end_index += 1
+        c += 1  # for-loop ++c v Mapperu
+
+    pts.insert(end_index, end_handle)
+    end_index += 1
+
+    if closed:
+        # Uzavírací bod (shodný s prvním) – ClosePoint|HolePoint jako u ploch.
+        pts[end_index][2] |= MAP_COORD_CLOSE_POINT | MAP_COORD_HOLE_POINT
+
+    out: list[tuple[int, int] | tuple[int, int, int]] = []
+    for x, y, flags in pts:
+        if flags:
+            out.append((x, y, flags))
+        else:
+            out.append((x, y))
+    return out
 
 
 def _object_xml(symbol_index: int, pts: list[str]) -> str:

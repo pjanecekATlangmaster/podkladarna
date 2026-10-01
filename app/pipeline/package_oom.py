@@ -553,7 +553,8 @@ def oom_readme(meta: dict) -> str:
         "   (podle měřítka; cesty z OSM).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
-        "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
+        "   Vrstevnice (101/102) jsou už jako křivky (Bézier) a zamčené (is_protected)\n"
+        "   – odemkni v panelu symbolů; menu Převést na křivky není potřeba.\n"
         f"{kp_steps}"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
@@ -704,6 +705,7 @@ def prepare_oom_map(
     residual_paved: bool = False,
     max_residual_m2: float = 500.0,
     use_kp: bool = True,
+    log=None,
 ) -> Path | None:
     del formline
     path_source = resolve_path_source(path_source)
@@ -856,6 +858,7 @@ def prepare_oom_map(
             interval_m=float(contour_interval_m or 5),
             formline=0,
             index_m=float(indexcontours_m) if indexcontours_m else None,
+            log=log,
         )
     )
     if include_dxf:
