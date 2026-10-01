@@ -144,16 +144,18 @@ def test_object_count_drops_far_below_tick_count():
 def test_min_line_length_scales_with_map():
     from app.pipeline.cliff_merge import min_line_length_m
 
-    assert min_line_length_m(4000) == pytest.approx(4.0)
-    assert min_line_length_m(10000) == pytest.approx(10.0)
-    assert min_line_length_m(15000) == pytest.approx(15.0)
+    assert min_line_length_m(4000) == pytest.approx(4.8)
+    assert min_line_length_m(10000) == pytest.approx(12.0)
+    assert min_line_length_m(15000) == pytest.approx(18.0)
+    assert min_line_length_m(10000, earth=True) == pytest.approx(18.0)
+    assert min_line_length_m(4000, earth=True) == pytest.approx(7.2)
 
 
 def test_min_line_drops_stubs_but_keeps_real_cliffs():
     """Kompromis proti šumu: krátké nálezy pryč, dlouhá stěna zůstane celá."""
     wall = _wall(60, y=0.0)
     stubs = [_tick(200.0 + i * 40.0, 300.0, 202.9 + i * 40.0, 300.0) for i in range(12)]
-    got = merge_cliff_ticks(wall + stubs, as_polygons=False, min_line_m=10.0)
+    got = merge_cliff_ticks(wall + stubs, as_polygons=False, min_line_m=12.0)
     assert len(got.lines) == 1
     assert _length(got.lines[0]) >= 55.0
 
@@ -165,7 +167,7 @@ def test_min_line_zero_keeps_everything():
 
 def test_min_line_does_not_touch_rock_areas():
     """Délkový práh se týká jen linií – plocha musí zůstat."""
-    got = merge_cliff_ticks(_field(21.0, 21.0), as_polygons=True, min_line_m=10.0)
+    got = merge_cliff_ticks(_field(21.0, 21.0), as_polygons=True, min_line_m=12.0)
     assert got.polygons
 
 
@@ -183,7 +185,7 @@ def test_nearby_collinear_ticks_merge_across_wider_gap():
 
 
 def test_isolated_short_tick_dropped_by_default_min_line():
-    """Jedna osamělá čárka pod prahem ~1 mm na mapě (10 m @ 1:10k) zmizí."""
+    """Jedna osamělá čárka pod prahem ~1,2 mm na mapě (12 m @ 1:10k) zmizí."""
     from app.pipeline.cliff_merge import min_line_length_m
 
     got = merge_cliff_ticks(
@@ -296,3 +298,53 @@ def test_ring_is_simple_detects_bowtie():
     assert not _ring_is_simple(bowtie)
     square = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
     assert _ring_is_simple(square)
+
+
+def test_rock_field_has_few_smooth_vertices():
+    """Footprint má plynulý obvod (málo vrcholů), ne zigzag po koncích ticků."""
+    got = merge_cliff_ticks(_field(24.0, 24.0), as_polygons=True)
+    assert len(got.polygons) == 1
+    ring = got.polygons[0]
+    assert 3 <= len(ring) <= 24
+    assert not _ring_self_intersects(ring)
+    # Méně objektů než vstupních ticků – ideálně 1 plocha.
+    assert len(got.lines) + len(got.polygons) < len(_field(24.0, 24.0)) / 5
+
+
+def test_reject_tangled_drops_loopy_bank():
+    from app.pipeline.cliff_merge import merge_cliff_ticks, polyline_is_simple_bank
+
+    # Spirálovitá / smyčková lomená čára – sinuozita vysoko.
+    loop = [
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 8.0),
+        (2.0, 8.0),
+        (2.0, 2.0),
+        (12.0, 2.0),
+        (12.0, 12.0),
+        (0.0, 12.0),
+    ]
+    assert not polyline_is_simple_bank(loop)
+    straight = [(float(i) * 3.0, 0.0) for i in range(8)]
+    assert polyline_is_simple_bank(straight)
+    # Merge: rovná stěna projde, umělá smyčka z ticků kolem dokola ne.
+    wall = _wall(40)
+    tangled_ticks = [
+        _tick(100.0 + math.cos(a) * 6.0, 100.0 + math.sin(a) * 6.0,
+              100.0 + math.cos(a + 0.4) * 6.0, 100.0 + math.sin(a + 0.4) * 6.0)
+        for a in [i * 0.35 for i in range(20)]
+    ]
+    got = merge_cliff_ticks(
+        wall + tangled_ticks, as_polygons=False, min_line_m=0.0, reject_tangled=True
+    )
+    assert len(got.lines) >= 1
+    assert all(polyline_is_simple_bank(line) for line in got.lines)
+    assert max(_length(line) for line in got.lines) >= 35.0
+
+
+def test_gentle_bend_bank_is_kept():
+    from app.pipeline.cliff_merge import polyline_is_simple_bank
+
+    bend = [(0.0, 0.0), (10.0, 0.0), (18.0, 3.0), (25.0, 4.0)]
+    assert polyline_is_simple_bank(bend)

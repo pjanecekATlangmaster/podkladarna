@@ -12,13 +12,13 @@ KP_VEGE_HEIGHT_CHOICES = (1.5, 2.0, 2.5, 3.0)
 KP_VEGE_HEIGHT_DEFAULT = 2.0
 
 # cliff1/cliff2 – min. výškový skok; nižší = citlivější (více srázů).
-# Výchozí „low“: méně falešných zemních srázů (kartografie). „normal“ = starý
-# pullauta.base.ini (1.4 / 2.8).
+# Výchozí „low“: ještě vyšší práh proti falešným zemním srázům (kartografie).
+# „normal“ = dřívější low (1,8 / 3,4). Staré KP 1,4 / 2,8 je teď „high“.
 KP_CLIFF_SENSITIVITY: dict[str, tuple[float, float]] = {
-    "low": (1.8, 3.4),
-    "normal": (1.4, 2.8),
-    "high": (1.15, 2.0),
-    "very_high": (0.95, 1.7),
+    "low": (2.2, 4.0),
+    "normal": (1.8, 3.4),
+    "high": (1.4, 2.8),
+    "very_high": (1.15, 2.0),
 }
 KP_CLIFF_SENSITIVITY_DEFAULT = "low"
 # Při kp_cliff_symbol=off KP makecliffs skoro nic nenajde (nemá nocliffs).

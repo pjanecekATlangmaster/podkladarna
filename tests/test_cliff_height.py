@@ -6,6 +6,7 @@ from app.pipeline.cliff_height import (
     MAJOR_DROP_M,
     drop_is_mappable,
     filter_by_drop,
+    likely_closed_depression,
     measure_drop,
 )
 
@@ -108,3 +109,22 @@ def test_filter_without_dem_keeps_everything():
     kept, stats = filter_by_drop(lines, None)
     assert kept == lines
     assert stats["nezmereno"] == 2
+
+
+def test_likely_closed_depression_both_sides_down():
+    """Okraj jámy: hřeben výš, obě strany klesají – soft True (nejisté)."""
+
+    def elev(x: float, y: float) -> float:
+        # Hřeben kolem x=0; do stran dolů.
+        return -abs(x) * 0.5
+
+    assert likely_closed_depression(_line_along_y(x=0.0), elev) is True
+
+
+def test_likely_closed_depression_one_sided_bank():
+    """Klasický sráz: jedna strana výš, druhá níž – není jáma."""
+
+    def elev(x: float, y: float) -> float:
+        return 0.0 if x < 0.0 else -4.0
+
+    assert likely_closed_depression(_line_along_y(x=0.0), elev) is False

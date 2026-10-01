@@ -149,3 +149,43 @@ def filter_by_drop(
             stats["vyrazne"] += 1
         kept.append(pts)
     return kept, stats
+
+
+def likely_closed_depression(
+    points: list[tuple[float, float]],
+    elev_at,
+    *,
+    probe_m: float = 4.0,
+) -> bool | None:
+    """Nejistý odhad: obě strany linie výše než hřeben → spíš jáma/rýha než sráz.
+
+    Vrací ``True`` / ``False`` / ``None`` (nejde změřit). Neověřuje terénní
+    pravdu – jen soft heuristika z DEM, ať se dá zalogovat jako nejisté.
+    """
+    if elev_at is None or len(points) < 2 or probe_m <= 0:
+        return None
+
+    left_higher = 0
+    right_higher = 0
+    samples = 0
+    for x, y, nx, ny in _stations(points, STATION_STEP_M, MAX_STATIONS):
+        crest = elev_at(x, y)
+        left = elev_at(x - nx * probe_m, y - ny * probe_m)
+        right = elev_at(x + nx * probe_m, y + ny * probe_m)
+        if None in (crest, left, right):
+            continue
+        samples += 1
+        # „Výš“ = strana je níž než hřeben o méně než ~0,3 m, nebo je výš.
+        # Pro jámu typicky obě strany klesají dolů od okraje → crest je výš.
+        if left < crest - 0.35:
+            left_higher += 1  # left is downhill from crest
+        if right < crest - 0.35:
+            right_higher += 1
+    if samples < 2:
+        return None
+    # Obě strany soustavně pod hřebenem → uzavřená deprese / okraj jámy.
+    frac_l = left_higher / samples
+    frac_r = right_higher / samples
+    if frac_l >= 0.65 and frac_r >= 0.65:
+        return True
+    return False

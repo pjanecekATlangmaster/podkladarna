@@ -6,7 +6,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.pipeline.cliff_height import filter_by_drop
+from app.pipeline.cliff_height import filter_by_drop, likely_closed_depression
 from app.pipeline.fetch_zabaged import (
     MAX_OSTATNI_PLOCHA_M2,
     ostatni_plocha_too_large,
@@ -15,6 +15,7 @@ from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_insid
 from app.pipeline.cliff_merge import (
     merge_cliff_ticks,
     min_line_length_m,
+    polyline_is_simple_bank,
     polyline_to_strip_ring,
 )
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
@@ -972,10 +973,16 @@ def build_dxf_object_part(
 
     objects: list[str] = []
     elev_at = _load_dem_elev(kp_cwd)
+    cliff_dem = _load_cliff_dem(kp_cwd)
     cliff_groups: dict[str, list[tuple[tuple[float, float], tuple[float, float]]]] = {}
     had_dense_polys = False
     drop_dropped = 0
     drop_unmeasured = 0
+    earth_tangled = 0
+    earth_pit_skip = 0
+    rock_lines_n = 0
+    rock_polys_n = 0
+    earth_lines_n = 0
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -1040,6 +1047,7 @@ def build_dxf_object_part(
         if not cliff_ticks or cliff_symbol == KP_CLIFF_OFF:
             continue
         # Zem (104) jen linie. Skála (201) i v režimu auto: hustý shluk → plocha.
+        is_earth = cliff_line_code == "104"
         as_polygons = cliff_symbol in (
             KP_CLIFF_ROCK_FACE,
             KP_CLIFF_SYMBOL_206,
@@ -1047,15 +1055,28 @@ def build_dxf_object_part(
         merged = merge_cliff_ticks(
             cliff_ticks,
             as_polygons=as_polygons,
-            min_line_m=min_line_length_m(scale),
+            min_line_m=min_line_length_m(scale, earth=is_earth),
+            reject_tangled=False,
         )
+        raw_lines = merged.lines
+        if is_earth:
+            clean_lines = [pts for pts in raw_lines if polyline_is_simple_bank(pts)]
+            earth_tangled += len(raw_lines) - len(clean_lines)
+            raw_lines = clean_lines
         # KP výšku srázu nezapisuje, tak si ji doměříme z DEM a nízké schody
         # zahodíme. Bez DEM projde všechno – není podle čeho rozhodovat.
-        cliff_lines, drop_stats = filter_by_drop(
-            merged.lines, _load_cliff_dem(kp_cwd)
-        )
+        cliff_lines, drop_stats = filter_by_drop(raw_lines, cliff_dem)
         drop_dropped += int(drop_stats.get("zahozeno") or 0)
         drop_unmeasured += int(drop_stats.get("nezmereno") or 0)
+        if is_earth and cliff_dem is not None:
+            kept_earth: list[list[tuple[float, float]]] = []
+            for pts in cliff_lines:
+                pit = likely_closed_depression(pts, cliff_dem)
+                if pit is True:
+                    earth_pit_skip += 1
+                    continue
+                kept_earth.append(pts)
+            cliff_lines = kept_earth
         if cliff_symbol == KP_CLIFF_SYMBOL_206:
             poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_206_CODE)
             area_code = KP_CLIFF_206_CODE
@@ -1067,6 +1088,7 @@ def build_dxf_object_part(
                         poly_rings.append(ring)
                 if poly_rings:
                     had_dense_polys = True
+                    rock_polys_n += len(poly_rings)
                     poly_parts = [("line", ring, True) for ring in poly_rings]
                     objects.extend(
                         _geom_parts_to_objects(
@@ -1083,6 +1105,10 @@ def build_dxf_object_part(
         else:
             line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
             if line_index is not None:
+                if is_earth:
+                    earth_lines_n += len(cliff_lines)
+                else:
+                    rock_lines_n += len(cliff_lines)
                 line_parts = [("line", pts, False) for pts in cliff_lines]
                 objects.extend(
                     _geom_parts_to_objects(
@@ -1101,6 +1127,7 @@ def build_dxf_object_part(
                 poly_index = symbol_index_for_code(preset_id, scale, area_code)
                 if poly_index is not None:
                     had_dense_polys = True
+                    rock_polys_n += len(merged.polygons)
                     poly_parts = [("line", ring, True) for ring in merged.polygons]
                     objects.extend(
                         _geom_parts_to_objects(
@@ -1146,6 +1173,24 @@ def build_dxf_object_part(
         )
     else:
         cliff_label = "srázy"
+    detail_bits: list[str] = []
+    if rock_polys_n or rock_lines_n:
+        detail_bits.append(
+            f"201→{rock_lines_n} linií"
+            + (f" + {rock_polys_n} ploch 201.2/206" if rock_polys_n else "")
+        )
+    if earth_lines_n or "104" in codes:
+        bit = f"104→{earth_lines_n} linií"
+        extras = []
+        if earth_tangled:
+            extras.append(f"{earth_tangled} zamotaných zahozeno")
+        if earth_pit_skip:
+            extras.append(f"{earth_pit_skip} možná jáma (nejisté, zahozeno)")
+        if extras:
+            bit += f" ({', '.join(extras)})"
+        detail_bits.append(bit)
+    if detail_bits:
+        cliff_label += "; " + "; ".join(detail_bits)
     if drop_dropped:
         cliff_label += f", {drop_dropped} nízkých zahozeno dle DEM"
     elif drop_unmeasured:

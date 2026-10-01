@@ -1,17 +1,14 @@
-"""Spojí KP srázové čárky (~3 m tick) do linií, plošné skalní pole do polygonů.
+"""Spojí srázové čárky (~3 m tick) do linií, plošné skalní masy do polygonů.
 
-Karttapullautin zapisuje každý sráz jako samostatnou úsečku kolmo na spád
-(délka ~2,9 m, rastr buněk 3 m). V OOM je to tisíce objektů. Tady se souosé
-sousední čárky řetězí na lomenou čáru (201/104).
+Vstup (KP i DEM) jsou krátké úsečky kolmo na spád. Souosé sousední čárky se
+řetězí na lomenou čáru (201/104).
 
-U skal (201) se navíc hledá plošné pole: čárky se hodí do rastru s krokem KP
-a plocha (201.2 / 206, nouzově 210) vznikne jen tam, kde je útvar 2D (buňka
-obklopená ze všech stran). Stěna je pás 1–2 buněk, žádnou takovou buňku nemá,
-a zůstane linií 201.
+U skal (201) se hledá plošná masa: buffer+dissolve ticků, morfologické
+otevření (tenké stěny pryč) a vyhlazení. Obrys je plynulý prstenec footprintu,
+ne zigzag přes konce ticků. Stěny a řídké pásy zůstanou liniemi 201.
 
-Obrys plochy je vnější prstenec footprintu buněk (union čtverců / obtah hran),
-ne řetězení konců ticků – ty by se křížily. Douglas–Peucker se na prstenci
-použije jen když výsledek zůstane jednoduchý (bez self-intersect).
+Zemní srázy (104): zamotané / smyčkové linie raději nekreslit
+(``reject_tangled``); delší minimální délka než u skály.
 """
 
 from __future__ import annotations
@@ -22,29 +19,50 @@ from dataclasses import dataclass
 
 # Mezera středů sousedních KP čárek – trochu volnější než buňka 3 m, ať se
 # sousední úsečky slepí do jedné dlouhé stěny místo mraku krátkých ticků.
-JOIN_GAP_M = 5.5
+JOIN_GAP_M = 6.0
 # Max. odchylka směru čárky (nesměrové).
-JOIN_ANGLE_COS = math.cos(math.radians(38))
+JOIN_ANGLE_COS = math.cos(math.radians(40))
 # Spojnice středů musí jít zhruba podél stěny, ne kolmo na sousední sráz.
-CHAIN_DIR_COS = 0.40
+CHAIN_DIR_COS = 0.35
 SIMPLIFY_M = 0.55
 # KP umí do jedné buňky 4,4 m nasypat i 1800 čárek přes sebe. Zahodit ty, co
 # se liší o < 1 m a < 8°, nic viditelného nestojí (1 m = 0,1 mm na 1:10 000).
 DEDUP_POS_PER_M = 1.0
 DEDUP_ANG_PER_RAD = 8.0
 
-# Rastr plošných skal – nativní krok KP, ať obrys nepřeteče přes realitu.
-ROCK_CELL_M = 3.0
-# Jedna zbloudilá čárka buňku neudělá skalní.
-ROCK_MIN_TICKS_PER_CELL = 2
-# Souvislých jader (buňka se všemi 4 sousedy) pod tímhle → nechat liniím.
-ROCK_MIN_CORE_CELLS = 2
+# Plošná skála: buffer ticků → uzavření mezer → otevření tenkých stěn →
+# stažení k mase → vyhlazení. Parametry laděné proti syntetickým stěnám/polím
+# i DEM kandidátům (job 21caf0ddcec2).
+ROCK_BUFFER_M = 3.0
+ROCK_CLOSE_M = 1.8
+ROCK_OPEN_M = 5.0
+ROCK_SHRINK_M = 1.6
+ROCK_SMOOTH_M = 1.5
+ROCK_SIMPLIFY_M = 2.0
 MIN_ROCK_AREA_M2 = 80.0
-ROCK_SIMPLIFY_M = 1.2
+MIN_ROCK_WIDTH_M = 9.5
+MAX_ROCK_ASPECT = 3.6
+# Halo kolem plochy: čárky na okraji už nekreslit jako 201 (obrys nese plocha).
+ROCK_TICK_HALO_M = 3.0
 
-# Izolovaná krátká čárka mapař stejně nekreslí. Práh ~1 mm na mapě (dřív 0,6):
-# na 1:10 000 ≈ 10 m, na 1:4000 ≈ 4 m – pod tím zahodit.
-MIN_LINE_MM = 1.0
+# Legacy rastr (fallback bez shapely + testy obtahu buněk).
+ROCK_CELL_M = 3.0
+ROCK_MIN_TICKS_PER_CELL = 2
+ROCK_MIN_CORE_CELLS = 2
+
+# Min. délka na mapě: skála ~1,2 mm, zem ~1,8 mm (raději nic než krátký šum).
+# 1:10 000 → skála 12 m, zem 18 m; 1:4000 → 4,8 m / 7,2 m.
+MIN_LINE_MM_ROCK = 1.2
+MIN_LINE_MM_EARTH = 1.8
+# Zpětná kompatibilita (testy / starší volání).
+MIN_LINE_MM = MIN_LINE_MM_ROCK
+
+# Zemní sráz: po hrubém zjednodušení path/chord a zatáčky – nad tím raději nekreslit.
+# (Surový řetěz DEM ticků je zubatý i u rovné stěny, proto nejdřív simplify.)
+BANK_SHAPE_SIMPLIFY_M = 4.0
+MAX_BANK_SINUOSITY = 2.45
+MAX_BANK_TURN_DEG = 200.0
+
 
 _Tick = tuple[tuple[float, float], tuple[float, float]]
 _Cell = tuple[int, int]
@@ -56,9 +74,10 @@ class MergedCliffs:
     polygons: list[list[tuple[float, float]]]
 
 
-def min_line_length_m(scale: int) -> float:
+def min_line_length_m(scale: int, *, earth: bool = False) -> float:
     """Nejkratší sráz, který má na dané měřítko smysl kreslit."""
-    return MIN_LINE_MM * scale / 1000.0
+    mm = MIN_LINE_MM_EARTH if earth else MIN_LINE_MM_ROCK
+    return mm * float(scale) / 1000.0
 
 
 def merge_cliff_ticks(
@@ -66,6 +85,7 @@ def merge_cliff_ticks(
     *,
     as_polygons: bool = False,
     min_line_m: float = 0.0,
+    reject_tangled: bool = False,
 ) -> MergedCliffs:
     """Vrátí lomené čáry a volitelně polygony. Vstup: úsečky v S-JTSK metrech."""
     remaining = _dedup_ticks(ticks)
@@ -79,9 +99,69 @@ def merge_cliff_ticks(
     polylines = [
         _simplify_polyline(pts, SIMPLIFY_M) for pts in polylines if len(pts) >= 2
     ]
+    if reject_tangled:
+        polylines = [pts for pts in polylines if polyline_is_simple_bank(pts)]
     if min_line_m > 0:
         polylines = [pts for pts in polylines if _polyline_length(pts) >= min_line_m]
     return MergedCliffs(polylines, polygons)
+
+
+def polyline_is_simple_bank(pts: list[tuple[float, float]]) -> bool:
+    """True = zhruba rovný nebo mírně zatáčející sráz; False = uzel / smyčka.
+
+    Raději nekreslit než zamotanou skupinku 104. Neříká nic o terénní pravdě.
+    Hodnotí se hrubě zjednodušená linie – surový řetěz DEM ticků je zubatý i
+    u rovné stěny.
+    """
+    if len(pts) < 2:
+        return False
+    length = _polyline_length(pts)
+    if length < 1e-6:
+        return False
+    chord = math.hypot(pts[-1][0] - pts[0][0], pts[-1][1] - pts[0][1])
+    if chord < 1e-3 or chord < 0.25 * length and chord < 8.0:
+        return False  # uzavřená / téměř uzavřená smyčka
+    if _polyline_self_intersects(pts):
+        return False
+    shape = _simplify_polyline(pts, BANK_SHAPE_SIMPLIFY_M)
+    if len(shape) < 2:
+        return False
+    shape_len = _polyline_length(shape)
+    shape_chord = math.hypot(shape[-1][0] - shape[0][0], shape[-1][1] - shape[0][1])
+    if shape_chord < 1e-3:
+        return False
+    if shape_len / shape_chord > MAX_BANK_SINUOSITY:
+        return False
+    if _total_turning_deg(shape) > MAX_BANK_TURN_DEG:
+        return False
+    return True
+
+def _total_turning_deg(pts: list[tuple[float, float]]) -> float:
+    total = 0.0
+    for i in range(1, len(pts) - 1):
+        ax, ay = pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]
+        bx, by = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
+        na, nb = math.hypot(ax, ay), math.hypot(bx, by)
+        if na < 1e-9 or nb < 1e-9:
+            continue
+        cos = max(-1.0, min(1.0, (ax * bx + ay * by) / (na * nb)))
+        total += math.degrees(math.acos(cos))
+    return total
+
+
+def _polyline_self_intersects(pts: list[tuple[float, float]]) -> bool:
+    """Proper self-crossing of an open polyline (shared vertices OK)."""
+    n = len(pts)
+    if n < 4:
+        return False
+    for i in range(n - 1):
+        a, b = pts[i], pts[i + 1]
+        for j in range(i + 2, n - 1):
+            if i == 0 and j == n - 2:
+                continue
+            if _segments_intersect(a, b, pts[j], pts[j + 1]):
+                return True
+    return False
 
 
 def _polyline_length(pts: list[tuple[float, float]]) -> float:
@@ -262,7 +342,148 @@ def _neighbors4(cell: _Cell) -> tuple[_Cell, _Cell, _Cell, _Cell]:
 def _rock_area_polygons(
     ticks: list[_Tick],
 ) -> tuple[list[_Tick], list[list[tuple[float, float]]]]:
-    """Plošné skalní pole → polygon podle rastru; stěny a řídké čárky nechá liniím."""
+    """Plošná skalní masa → plynulý polygon; stěny nechá liniím.
+
+    Footprint = buffer+dissolve ticků (ne řetězení konců). Morfologické otevření
+    sežere tenké stěny; MRR šířka/aspect odfiltruje zbytky pásů.
+    """
+    polygons = _rock_footprint_rings(ticks)
+    if not polygons:
+        # Bez shapely / prázdný výsledek: starý rastr jader (KP hustá pole).
+        return _rock_area_polygons_cells(ticks)
+    remaining = _ticks_outside_rings(ticks, polygons, halo_m=ROCK_TICK_HALO_M)
+    return remaining, polygons
+
+
+def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]:
+    """Vyhlazený footprint z bufferovaných ticků. [] když shapely chybí."""
+    if not ticks:
+        return []
+    try:
+        from shapely import make_valid
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+    except ImportError:
+        return []
+
+    segs = [LineString([a, b]) for a, b in ticks]
+    try:
+        geom = unary_union(segs).buffer(ROCK_BUFFER_M, join_style=1, cap_style=1)
+        geom = geom.buffer(ROCK_CLOSE_M, join_style=1).buffer(-ROCK_CLOSE_M, join_style=1)
+        # Tenké stěny (1D) zmizí; kompaktní masa zůstane.
+        geom = geom.buffer(-ROCK_OPEN_M, join_style=1).buffer(ROCK_OPEN_M, join_style=1)
+        if ROCK_SHRINK_M > 0:
+            geom = geom.buffer(-ROCK_SHRINK_M, join_style=1)
+        if ROCK_SMOOTH_M > 0 and not geom.is_empty:
+            geom = geom.buffer(ROCK_SMOOTH_M, join_style=1).buffer(
+                -ROCK_SMOOTH_M, join_style=1
+            )
+        geom = make_valid(geom)
+    except Exception:
+        return []
+
+    if geom is None or geom.is_empty:
+        return []
+
+    parts = []
+    if geom.geom_type == "Polygon":
+        parts = [geom]
+    elif geom.geom_type == "MultiPolygon":
+        parts = list(geom.geoms)
+    else:
+        try:
+            parts = [g for g in geom.geoms if g.geom_type == "Polygon"]
+        except Exception:
+            return []
+
+    rings: list[list[tuple[float, float]]] = []
+    for poly in parts:
+        if poly.is_empty or poly.area < MIN_ROCK_AREA_M2:
+            continue
+        try:
+            poly = poly.simplify(ROCK_SIMPLIFY_M, preserve_topology=True)
+        except Exception:
+            pass
+        if poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        if poly.area < MIN_ROCK_AREA_M2:
+            continue
+        width, length = _mrr_width_length(poly)
+        if width < MIN_ROCK_WIDTH_M:
+            continue
+        if length / max(width, 1e-6) > MAX_ROCK_ASPECT and width < 14.0:
+            continue
+        coords = [(float(x), float(y)) for x, y in poly.exterior.coords]
+        if len(coords) >= 2 and coords[0] == coords[-1]:
+            coords = coords[:-1]
+        if len(coords) >= 3 and _ring_is_simple(coords):
+            rings.append(coords)
+        elif len(coords) >= 3:
+            hull = _convex_hull_ring(coords)
+            if len(hull) >= 3 and _ring_area(hull) >= MIN_ROCK_AREA_M2:
+                rings.append(hull)
+    return rings
+
+
+def _mrr_width_length(poly) -> tuple[float, float]:
+    """Šířka a délka minimum rotated rectangle (shapely Polygon)."""
+    try:
+        mrr = poly.minimum_rotated_rectangle
+        coords = list(mrr.exterior.coords)
+    except Exception:
+        minx, miny, maxx, maxy = poly.bounds
+        w, h = maxx - minx, maxy - miny
+        return min(w, h), max(w, h)
+    sides = [
+        math.hypot(coords[i][0] - coords[i + 1][0], coords[i][1] - coords[i + 1][1])
+        for i in range(4)
+    ]
+    return min(sides), max(sides)
+
+
+def _ticks_outside_rings(
+    ticks: list[_Tick],
+    rings: list[list[tuple[float, float]]],
+    *,
+    halo_m: float,
+) -> list[_Tick]:
+    """Zahodí čárky uvnitř / na okraji plochy (halo), ať nezůstane rám 201."""
+    try:
+        from shapely.geometry import Point, Polygon
+        from shapely.ops import unary_union
+    except ImportError:
+        return ticks
+    polys = []
+    for ring in rings:
+        if len(ring) < 3:
+            continue
+        try:
+            p = Polygon(ring)
+            if halo_m > 0:
+                p = p.buffer(halo_m)
+            if not p.is_empty:
+                polys.append(p)
+        except Exception:
+            continue
+    if not polys:
+        return ticks
+    mask = unary_union(polys)
+    out: list[_Tick] = []
+    for tick in ticks:
+        mx, my = _mid(tick)
+        try:
+            if mask.contains(Point(mx, my)):
+                continue
+        except Exception:
+            pass
+        out.append(tick)
+    return out
+
+
+def _rock_area_polygons_cells(
+    ticks: list[_Tick],
+) -> tuple[list[_Tick], list[list[tuple[float, float]]]]:
+    """Fallback: plošné jádro v rastru 3 m (bez shapely / řídký footprint)."""
     cell = ROCK_CELL_M
     buckets: dict[_Cell, list[int]] = defaultdict(list)
     for i, tick in enumerate(ticks):
@@ -271,7 +492,6 @@ def _rock_area_polygons(
     rocky = {
         key for key, ids in buckets.items() if len(ids) >= ROCK_MIN_TICKS_PER_CELL
     }
-    # Jádro = buňka obklopená skálou ze všech stran; pás stěny žádné nemá.
     core = {c for c in rocky if all(nb in rocky for nb in _neighbors4(c))}
     if len(core) < ROCK_MIN_CORE_CELLS:
         return ticks, []
@@ -281,7 +501,6 @@ def _rock_area_polygons(
     for comp in _cell_components(core):
         if len(comp) < ROCK_MIN_CORE_CELLS:
             continue
-        # Zpět o jednu buňku: plocha kryje jen mohutnou část, výběžky zůstanou linií.
         area_cells = set(comp)
         for c in comp:
             area_cells.update(nb for nb in _neighbors4(c) if nb in rocky)
@@ -295,8 +514,6 @@ def _rock_area_polygons(
 
     if not used_cells:
         return ticks, []
-    # Čárky těsně za hranou plochy jen lemují její obrys – plocha 201.2/206 už je
-    # nese a jinak z nich vznikne rám stovek třímetrových pahýlů.
     for i, j in tuple(used_cells):
         for di in (-1, 0, 1):
             for dj in (-1, 0, 1):
@@ -338,19 +555,14 @@ def _cell_components(cells: set[_Cell]) -> list[list[_Cell]]:
 def _rock_outer_rings(
     cells: set[_Cell], cell_m: float
 ) -> list[list[tuple[float, float]]]:
-    """Vnější obrys skalního footprintu – jednoduchý prstenec (bez křížení).
-
-    Preferuje union buněk (shapely): čistý okraj kamene místo schodů / křížení
-    z naivního řetězení. Fallback: obtah hran + zjednodušení jen když zůstane
-    simple; jinak původní obtah nebo konvexní obálka.
-    """
+    """Vnější obrys buněk (fallback). Preferuje union čtverců přes shapely."""
     rings = _rings_from_cell_union(cells, cell_m)
     if rings is not None:
         return rings
     out: list[list[tuple[float, float]]] = []
     for ring in _trace_cell_rings(cells, cell_m):
         if _signed_ring_area(ring) <= 0:
-            continue  # díra
+            continue
         simple = _simplify_ring_safe(ring, ROCK_SIMPLIFY_M)
         if len(simple) >= 3 and _ring_is_simple(simple):
             out.append(simple)
@@ -375,7 +587,6 @@ def _rings_from_cell_union(
         for i, j in cells
     ]
     geom = unary_union(polys)
-    # Mírné otevření/zavření: usekne schody rastru, neprotáhne 1D stěnu.
     pad = cell_m * 0.45
     try:
         geom = geom.buffer(pad, join_style=1).buffer(-pad, join_style=1)
