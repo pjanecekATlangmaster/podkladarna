@@ -562,9 +562,18 @@ def road_width_rank(tags: dict, highway: str) -> int:
 
 
 def refine_track_highway(tags: dict) -> str:
-    """tracktype / surface → track_fast | track | track_slow."""
+    """tracktype / surface → road_* (zpevněný) | track_fast | track | track_slow.
+
+    Zpevněný surface (asphalt, concrete, paving_stones, …) má přednost před
+    tracktype: kreslí se jako silnice (les 503), ne vozová 504. way/46779621.
+    """
+    if _is_paved_surface(tags):
+        lanes = _lanes_total(tags)
+        if lanes is not None and lanes >= 2:
+            return "road_3"
+        return "road_2"
     tt = (tags.get("tracktype") or "").lower()
-    if tt == "grade1" or _is_paved_surface(tags):
+    if tt == "grade1":
         return "track_fast"
     if tt in {"grade4", "grade5"}:
         return "track_slow"
@@ -573,7 +582,7 @@ def refine_track_highway(tags: dict) -> str:
 
 
 def refine_path_highway(tags: dict, highway: str) -> str:
-    """Silnice → road_1..road_4; track → track_fast/track/track_slow; jinak beze změny."""
+    """Silnice → road_1..road_4; track → road_*/track_*; jinak beze změny."""
     hw = (highway or "path").lower() or "path"
     draw = path_draw_highway(hw)
     if draw in OSM_ROAD_HIGHWAYS:

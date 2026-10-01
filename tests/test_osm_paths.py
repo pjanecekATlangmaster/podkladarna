@@ -617,13 +617,47 @@ def test_refine_osm_road_examples():
     assert refine_path_highway(
         {"highway": "track", "tracktype": "grade1"}, "track"
     ) == "track_fast"
+    # way/46779621: asphalt track → silnice 503, ne vozová 504.
     assert refine_path_highway(
         {"highway": "track", "surface": "asphalt"}, "track"
-    ) == "track_fast"
+    ) == "road_2"
+    assert osm_oom_code("road_2", "forest_10000") == "503"
     assert refine_path_highway(
         {"highway": "track", "tracktype": "grade5"}, "track"
     ) == "track_slow"
     assert refine_path_highway({"highway": "track"}, "track") == "track"
+
+
+def test_paved_track_way_46779621_maps_to_503():
+    """OSM way/46779621: highway=track + surface=asphalt → les 503, ne 504."""
+    from app.pipeline.osm_paths import osm_oom_code, refine_path_highway
+
+    tags = {
+        "highway": "track",
+        "piste:difficulty": "easy",
+        "piste:grooming": "backcountry",
+        "piste:type": "nordic",
+        "smoothness": "bad",
+        "surface": "asphalt",
+        "tracktype": "grade1",
+    }
+    hw = refine_path_highway(tags, "track")
+    assert hw == "road_2"
+    assert osm_oom_code(hw, "forest_10000") == "503"
+    assert osm_oom_code(hw, "forest_10000") != "504"
+    assert osm_oom_code(hw, "sprint_2m") == "501.18"
+    assert osm_oom_code(hw, "mtbo_10000") == "503"
+    # Stejně concrete / paving_stones; grade1 bez zpevnění zůstává vozová.
+    assert refine_path_highway(
+        {"highway": "track", "surface": "concrete"}, "track"
+    ) == "road_2"
+    assert refine_path_highway(
+        {"highway": "track", "surface": "paving_stones"}, "track"
+    ) == "road_2"
+    assert refine_path_highway(
+        {"highway": "track", "tracktype": "grade1"}, "track"
+    ) == "track_fast"
+    assert osm_oom_code("track_fast", "forest_10000") == "504"
 
 
 def test_resolve_path_source_and_highway_set():
