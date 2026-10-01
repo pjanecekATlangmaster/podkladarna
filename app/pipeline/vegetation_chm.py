@@ -1,9 +1,21 @@
 """Hrubá vegetace z CHM (DMP − DMR) – vlna 1 bez KP vegetation.png.
 
-Prahy výšky: open (401) vs hustá zeleň (406/408/410) vs bílý les (bez
-výplně). Bílý les má vyšší práh, ať nepřetéká do luk. ZABAGED/OSM odečet
-401 řeší ``open_land_subtract`` při skládání OOM (stejné vegetation.shp).
-Orto zůstává QA-only – sem nepatří.
+Default prahy (metry nad terénem, ``ChmVegeThresholds`` / konstanty níže):
+
+* ``open_max_m`` **1.5** – pod tím žlutá 401 (louky / open land)
+* ``green_light_max_m`` **4.0** – světlá zeleň 406
+* ``green_mid_max_m`` **8.5** – střední 408
+* ``green_dense_max_m`` **18.0** – hustá 410; **nad** tím bílý les (bez výplně)
+
+Bílý les je záměrně přísný (vyšší práh než dřívějších ~14 m), ať nepřetéká
+do luk. Navíc:
+
+* morfologické otevření masky bílého lesa (``WHITE_MORPH_OPEN_ITERS``)
+* na hranici s open land jen výška ≥ ``WHITE_EDGE_STRICT_M`` zůstane bílá
+  (jinak → hustá 410)
+
+ZABAGED/OSM odečet 401 řeší ``open_land_subtract`` při skládání OOM
+(stejné ``vegetation.shp``). Orto zůstává QA-only – sem nepatří.
 """
 
 from __future__ import annotations
@@ -17,13 +29,17 @@ from app.pipeline.job_grid import JobGrid
 
 # --- Prahy CHM (metry nad terénem). Jemnější oddělení dense green vs white. ---
 # Open: nízko → žlutá 401 (louky). Vyšší práh = méně „bílého“ bleed do luk.
-CHM_OPEN_MAX_M = 1.2
+CHM_OPEN_MAX_M = 1.5
 # Světlá zeleň 406
 CHM_GREEN_LIGHT_MAX_M = 4.0
 # Střed 408
-CHM_GREEN_MID_MAX_M = 9.0
-# Hustá 410 – nad tím bílý (průchodný) les bez výplně.
-CHM_GREEN_DENSE_MAX_M = 14.0
+CHM_GREEN_MID_MAX_M = 8.5
+# Hustá 410 – nad tím bílý (průchodný) les bez výplně. Přísnější než v1 (~14 m).
+CHM_GREEN_DENSE_MAX_M = 18.0
+# Na styku s loukou musí koruna být ještě vyšší, jinak zůstane 410.
+WHITE_EDGE_STRICT_M = 22.0
+# Morfologické otevření bílé masky (eroze→dilatace), zúží tenké výběžky do luk.
+WHITE_MORPH_OPEN_ITERS = 1
 
 _MIN_AREA_M2 = 12.0
 _SIMPLIFY_M = 1.5
@@ -43,6 +59,8 @@ class ChmVegeThresholds:
     green_light_max_m: float = CHM_GREEN_LIGHT_MAX_M
     green_mid_max_m: float = CHM_GREEN_MID_MAX_M
     green_dense_max_m: float = CHM_GREEN_DENSE_MAX_M
+    white_edge_strict_m: float = WHITE_EDGE_STRICT_M
+    white_morph_iters: int = WHITE_MORPH_OPEN_ITERS
 
     def classify_height(self, h: float) -> int:
         """0 = pozadí / bílý les, 1 open, 2–4 zeleně."""
@@ -69,8 +87,91 @@ def chm_path(work_dir: Path) -> Path | None:
     return None
 
 
+def _binary_erode(mask):
+    """4-sousední eroze (True jen když self + N/S/E/W jsou True)."""
+    import numpy as np
+
+    m = np.asarray(mask, dtype=bool)
+    out = m.copy()
+    out[1:, :] &= m[:-1, :]
+    out[:-1, :] &= m[1:, :]
+    out[:, 1:] &= m[:, :-1]
+    out[:, :-1] &= m[:, 1:]
+    return out
+
+
+def _binary_dilate(mask):
+    """4-sousední dilatace."""
+    import numpy as np
+
+    m = np.asarray(mask, dtype=bool)
+    out = m.copy()
+    out[1:, :] |= m[:-1, :]
+    out[:-1, :] |= m[1:, :]
+    out[:, 1:] |= m[:, :-1]
+    out[:, :-1] |= m[:, 1:]
+    return out
+
+
+def _binary_open(mask, iterations: int = 1):
+    out = mask
+    for _ in range(max(0, int(iterations))):
+        out = _binary_dilate(_binary_erode(out))
+    return out
+
+
+def _touches_open(classified, open_cls: int = 1):
+    """True kde soused (4) je open land."""
+    import numpy as np
+
+    open_m = np.asarray(classified, dtype=np.uint8) == open_cls
+    near = np.zeros(open_m.shape, dtype=bool)
+    near[1:, :] |= open_m[:-1, :]
+    near[:-1, :] |= open_m[1:, :]
+    near[:, 1:] |= open_m[:, :-1]
+    near[:, :-1] |= open_m[:, 1:]
+    return near
+
+
+def cleanup_white_forest(
+    classified,
+    heights,
+    *,
+    thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
+    valid=None,
+):
+    """Zúží bílý les: morfologické otevření + přísnější hranice s loukou.
+
+    Pixely, které přijdou o bílou, dostanou hustou zeleň 410 (ne open),
+    ať se do luk nevrací falešná 401 z okraje korun.
+    """
+    import numpy as np
+
+    out = np.asarray(classified, dtype=np.uint8).copy()
+    h = np.asarray(heights, dtype=np.float32)
+    if valid is None:
+        valid = np.isfinite(h)
+    else:
+        valid = np.asarray(valid, dtype=bool)
+
+    white = valid & (out == 0) & (h >= thresholds.green_dense_max_m)
+    if not np.any(white):
+        return out
+
+    cleaned = _binary_open(white, iterations=thresholds.white_morph_iters)
+    # Na styku s open: jen opravdu vysoká koruna zůstane bílá.
+    open_touch = _touches_open(out, open_cls=1)
+    strict = thresholds.white_edge_strict_m
+    keep = cleaned & (~open_touch | (h >= strict))
+
+    demoted = white & ~keep
+    out[demoted] = 4  # dense green instead of white bleed
+    out[keep] = 0
+    return out
+
+
 def classify_chm_array(chm, nodata, thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS):
-    """Numpy uint8 třídy z CHM výšek."""
+    """Numpy uint8 třídy z CHM výšek (+ cleanup bílého lesa)."""
     import numpy as np
 
     arr = np.asarray(chm, dtype=np.float32)
@@ -90,7 +191,7 @@ def classify_chm_array(chm, nodata, thresholds: ChmVegeThresholds = DEFAULT_THRE
     out[valid & (arr >= g1) & (arr < g2)] = 3
     out[valid & (arr >= g2) & (arr < g3)] = 4
     # >= g3 zůstane 0 = bílý les
-    return out
+    return cleanup_white_forest(out, arr, thresholds=thresholds, valid=valid)
 
 
 def write_chm_tint_png(
@@ -222,7 +323,9 @@ def generate_vegetation_from_chm(
         log(
             f"CHM vegetace: {n_kept} polygonů → {dest_shp.name} "
             f"(open<{thresholds.open_max_m:g} m, "
-            f"white≥{thresholds.green_dense_max_m:g} m)"
+            f"white≥{thresholds.green_dense_max_m:g} m, "
+            f"edge≥{thresholds.white_edge_strict_m:g} m, "
+            f"morph={thresholds.white_morph_iters})"
         )
     return dest_shp
 

@@ -56,6 +56,7 @@ from app.pipeline.prepare_lidar import (
 )
 from app.pipeline.prepare_zabaged import clean_zabaged
 from app.pipeline.source_meta import collect_lidar_source_meta
+from app.pipeline.cliffs_dem import generate_job_cliffs_dem
 from app.pipeline.vegetation_chm import generate_job_vegetation_chm
 from app.pipeline.vegetation_gdal import generate_job_vegetation
 from app.settings import PULLAUTA_BIN, USE_KP_DEFAULT
@@ -206,7 +207,7 @@ def run_job_pipeline(
     else:
         log(
             "=== Fáze: Karttapullautin vypnut (use_kp=false) – "
-            "bez-KP (mřížka + DEM/CHM + shade náhled); vegetace/srázy z KP přeskočeny ==="
+            "bez-KP (mřížka + DEM/CHM + shade + CHM vegetace + srázy z DEM) ==="
         )
 
     kp_cwd = work_dir
@@ -302,6 +303,10 @@ def run_job_pipeline(
             generate_job_vegetation_chm(work_dir, log=log)
         except Exception as exc:
             log(f"CHM vegetace: přeskočeno ({exc})")
+        try:
+            generate_job_cliffs_dem(work_dir, options=options, log=log)
+        except Exception as exc:
+            log(f"Srázy DEM: přeskočeno ({exc})")
 
     if not has_zabaged or not zabaged_clean.is_file():
         raise RuntimeError(

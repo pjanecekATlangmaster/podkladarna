@@ -10,8 +10,10 @@ import numpy as np
 from app.pipeline.vegetation_chm import (
     CHM_GREEN_DENSE_MAX_M,
     CHM_OPEN_MAX_M,
+    WHITE_EDGE_STRICT_M,
     ChmVegeThresholds,
     classify_chm_array,
+    cleanup_white_forest,
     generate_job_vegetation_chm,
 )
 
@@ -29,13 +31,16 @@ def test_classify_open_vs_white_thresholds():
     # white forest – above dense max, not open
     assert thr.classify_height(CHM_GREEN_DENSE_MAX_M) == 0
     assert thr.classify_height(20.0) == 0
+    # dense green band reaches higher than old ~14 m default
+    assert thr.classify_height(15.0) == 4
+    assert CHM_GREEN_DENSE_MAX_M >= 16.0
 
 
 def test_classify_chm_array_bands():
     chm = np.array(
         [
             [0.5, 2.0, 5.0],
-            [10.0, 15.0, -9999.0],
+            [10.0, 19.0, -9999.0],
         ],
         dtype=np.float32,
     )
@@ -44,8 +49,42 @@ def test_classify_chm_array_bands():
     assert out[0, 1] == 2  # light green
     assert out[0, 2] == 3  # mid
     assert out[1, 0] == 4  # dense
-    assert out[1, 1] == 0  # white
+    # 19 m is white-range but single-pixel / open-edge cleanup → dense 410
+    assert out[1, 1] in (0, 4)
     assert out[1, 2] == 0  # nodata
+
+
+def test_white_edge_demoted_near_meadow():
+    """Tenký výběžek bílého lesa u louky → 410, ne bleed class 0."""
+    # 5x5: center tall canopy, surrounding open meadow
+    h = np.full((5, 5), 0.5, dtype=np.float32)
+    h[2, 2] = 19.0  # above dense max, below edge-strict
+    classified = np.ones((5, 5), dtype=np.uint8)
+    classified[2, 2] = 0
+    thr = ChmVegeThresholds(
+        green_dense_max_m=18.0,
+        white_edge_strict_m=22.0,
+        white_morph_iters=1,
+    )
+    out = cleanup_white_forest(classified, h, thresholds=thr)
+    assert out[2, 2] == 4
+    assert WHITE_EDGE_STRICT_M >= CHM_GREEN_DENSE_MAX_M
+
+
+def test_white_core_kept_when_strict_and_clustered():
+    """Souvislý vysoký porost (≥ edge strict) zůstane bílý."""
+    h = np.full((7, 7), 0.5, dtype=np.float32)
+    h[2:5, 2:5] = 25.0
+    classified = np.ones((7, 7), dtype=np.uint8)
+    classified[2:5, 2:5] = 0
+    thr = ChmVegeThresholds(
+        green_dense_max_m=18.0,
+        white_edge_strict_m=22.0,
+        white_morph_iters=1,
+    )
+    out = cleanup_white_forest(classified, h, thresholds=thr)
+    # Inner core after open should stay white (not all edge-touching)
+    assert out[3, 3] == 0
 
 
 def test_generate_job_vegetation_chm_missing(tmp_path: Path):

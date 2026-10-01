@@ -1120,13 +1120,16 @@ def build_dxf_object_part(
     elif cliff_symbol == KP_CLIFF_EARTH_BANK:
         cliff_label = "zemní srázy (104)"
     else:
-        cliff_label = "Karttapullautin"
+        cliff_label = "srázy"
     if drop_stats.get("zahozeno"):
         cliff_label += f", {drop_stats['zahozeno']} nízkých zahozeno dle DEM"
     elif drop_stats.get("nezmereno"):
         cliff_label += ", výška nezměřena (chybí DEM)"
+    # Bez KP temp/vegetation.pgw = kandidáti z DEM (cliffs_dem), ne z pullauta.
+    from_kp = (temp / "vegetation.pgw").is_file()
+    src_label = "Karttapullautin" if from_kp else "DEM kandidáti"
     return OomObjectPart(
-        name=f"Karttapullautin – vektory ({cliff_label})",
+        name=f"{src_label} – vektory ({cliff_label})",
         objects_xml="\n".join(objects),
         count=len(objects),
     )
