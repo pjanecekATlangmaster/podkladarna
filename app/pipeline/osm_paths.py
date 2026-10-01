@@ -30,6 +30,7 @@ from app.pipeline.oom_import import (
     _wkb_parts,
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.pipeline.prepare_lidar import log_step
 from app.tool_env import gis_subprocess_env, which_tool
 # Veřejná zrcadla – hlavní DE často hlásí 504; rotujeme rychle.
 OVERPASS_URLS = (
@@ -2716,6 +2717,10 @@ def write_osm_kp_zip(
             str(shp),
             str(gj_path),
         ]
+        log_step(
+            log,
+            "Převádím OSM cesty do shapefile (Karttapullautin je dokreslí na PNG)",
+        )
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -2929,6 +2934,7 @@ def write_osm_manual_shapefiles(
     """
     dest = work_dir / "osm_paths" / "manual"
     dest.mkdir(parents=True, exist_ok=True)
+    log_step(log, "Ukládám ruční OSM vrstvy do shapefile (import do mapy)")
     written = 0
 
     paths_gj = work_dir / "osm_paths" / "paths_osm.geojson"

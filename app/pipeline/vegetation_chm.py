@@ -28,6 +28,7 @@ from pathlib import Path
 from app.pipeline.crs_5514 import write_prj
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
+from app.pipeline.prepare_lidar import log_step
 
 # --- Prahy CHM (metry nad terénem), kalibrace vs. KP – viz docstring. ---
 CHM_OPEN_MAX_M = 1.0
@@ -439,6 +440,7 @@ def generate_vegetation_from_chm(
     """Klasifikuje CHM → polygony vegetation.shp (cls, code)."""
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
+    log_step(log, "Klasifikuji vegetaci z CHM (náhrada KP podle výšky porostu)")
     try:
         arr, gt, nodata = read_float32_geotiff(chm_tif, log=log)
     except Exception as exc:
@@ -549,6 +551,7 @@ def polygonize_vegetation_classes(
     class_tif = dest_shp.parent / "_chm_class.tif"
     n_kept: int | None = None
     try:
+        log_step(log, "Převádím třídy vegetace na polygony (vrstvy do mapy)")
         write_uint8_geotiff(class_tif, classified, gt, nodata=0, log=log)
         polygonize_byte_raster(
             class_tif, dest_shp, layer_name="vegetation", field_name="cls", log=log

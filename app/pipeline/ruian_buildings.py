@@ -43,9 +43,11 @@ def write_ruian_buildings_shapefile(
     if not feats:
         return None
     from app.pipeline.osm_paths import _geojson_to_shapefile
+    from app.pipeline.prepare_lidar import log_step
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     shp = dest_dir / "RUIAN_budovy.shp"
+    log_step(log, "Převádím budovy RÚIAN na shapefile (obrysy domů do mapy)")
     ok = _geojson_to_shapefile(
         feats, shp, nlt="POLYGON", log=log, label="RÚIAN budovy"
     )

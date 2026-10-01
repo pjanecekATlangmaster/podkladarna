@@ -31,6 +31,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.pipeline.prepare_lidar import log_step
+
 # Výstupní třídy (stejné jako vegetation_chm / vegetation_gdal):
 # 0 bílý les, 1 = 401, 2 = 406, 3 = 408, 4 = 410.
 WHITE, OPEN, LIGHT, MID, DENSE = 0, 1, 2, 3, 4
@@ -357,6 +359,7 @@ def generate_job_vegetation_density(
         return None
     if log:
         log("=== Fáze: vegetace z hustoty LiDAR bodů (bez KP) ===")
+    log_step(log, "Klasifikuji vegetaci z hustoty LiDAR odrazů (náhrada KP)")
     try:
         dem, gt, nodata = read_float32_geotiff(dem_tif, log=log)
         dem = np.asarray(dem, dtype=np.float32)

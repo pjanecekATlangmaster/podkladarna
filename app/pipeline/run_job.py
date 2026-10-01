@@ -58,6 +58,7 @@ from app.pipeline.prepare_lidar import (
     ensure_contains_bounds,
     is_kp_heightmap_oob,
     kp_pad_crop_bounds,
+    log_step,
     merge_dmr_dmp,
     resolve_merge_crop_bounds,
     run_cmd,
@@ -279,6 +280,10 @@ def run_job_pipeline(
     if use_kp:
         log("=== Fáze: Karttapullautin LiDAR ===")
         try:
+            log_step(
+                log,
+                "Spouštím Karttapullautin na LiDARu (zeleň, srázy a stínování)",
+            )
             run_cmd([PULLAUTA_BIN, str(merged.resolve())], cwd=kp_cwd, log=log)
         except subprocess.CalledProcessError as exc:
             if not crop or not is_kp_heightmap_oob(exc):
@@ -322,6 +327,10 @@ def run_job_pipeline(
                 if temp_dir.exists():
                     shutil.rmtree(temp_dir)
                 try:
+                    log_step(
+                        log,
+                        "Spouštím Karttapullautin znovu na širším ořezu (okraj heightmapy)",
+                    )
                     run_cmd([PULLAUTA_BIN, str(merged.resolve())], cwd=kp_cwd, log=log)
                     recovered = True
                     break
@@ -444,6 +453,10 @@ def run_job_pipeline(
             kp_vector_cmd.append(str(osm_kp_zip.resolve()))
         else:
             log("KP PNG: jen ZABAGED (bez OSM cest)")
+        log_step(
+            log,
+            "Dokresluji Karttapullautinem cesty a plochy (vektory do mapy)",
+        )
         run_cmd(kp_vector_cmd, cwd=kp_cwd, log=log)
         # out2.dxf: po ZIP → archive/contours_kp.dxf (A/B); base/ má jen GDAL.
 
@@ -639,6 +652,10 @@ def _package_output(
                     f"(auto .omap {size_note}; SHP všechna pásma + řídké)"
                 )
 
+            log_step(
+                log,
+                "Sestavuji mapu OOM (vrstevnice, zeleň a polohopis do .omap)",
+            )
             for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
                 preset_id,
                 presets,

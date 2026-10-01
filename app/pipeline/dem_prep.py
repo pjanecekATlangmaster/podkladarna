@@ -17,7 +17,7 @@ from app.download_cache import (
     try_restore_surfaces,
 )
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
-from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 
 DEM_DIR_NAME = "dem"
 DEM_META_NAME = "dem_meta.json"
@@ -111,6 +111,7 @@ def _gdal_chm(dem: Path, dsm: Path, dest: Path, *, log=None) -> Path:
     ``dsm`` má být **raw** DSM (bez fillnodata) na stejné mřížce jako ``dem``.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
+    log_step(log, "Počítám CHM (výška porostu = povrch minus terén)")
     for name in ("gdal_calc", "gdal_calc.py"):
         try:
             tool = find_tool(name)
@@ -266,6 +267,7 @@ def prepare_job_surfaces(
             f"surface={surface.name if surface else '—'}, "
             f"res={resolution_m:g} m"
         )
+    log_step(log, "Připravuji DEM z DMR5G (terén pro vrstevnice a srázy)")
     _pdal_dem_from_laz(
         ground, bounds, dem_raw, resolution_m=float(resolution_m), log=log
     )
@@ -283,6 +285,7 @@ def prepare_job_surfaces(
         dem_grid = _raster_grid(dem_raw, log=log)
         if dem_grid is not None:
             dsm_kwargs["grid"] = dem_grid
+        log_step(log, "Připravuji DSM z DMP (povrch pro výšku vegetace)")
         _pdal_dem_from_laz(
             surface,
             bounds,

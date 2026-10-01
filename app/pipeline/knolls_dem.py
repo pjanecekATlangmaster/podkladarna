@@ -14,6 +14,7 @@ from pathlib import Path
 
 from app.pipeline.cliffs_dem import dem_filled_path
 from app.pipeline.dem_prep import DEM_DIR_NAME
+from app.pipeline.prepare_lidar import log_step
 
 # Poloměr, ve kterém hledáme uzavřený vrchol (m). ISOM 109 je malá kupka.
 KNOLL_RADIUS_M = 8.0
@@ -165,6 +166,7 @@ def generate_knolls_from_dem(
 ) -> Path | None:
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
+    log_step(log, "Hledám knolly na DEM (drobné kopečky, náhrada KP)")
     try:
         arr, gt, nodata = read_float32_geotiff(dem_tif, log=log)
     except Exception as exc:

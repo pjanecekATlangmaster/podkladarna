@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.pipeline.prepare_lidar import run_cmd
+from app.pipeline.prepare_lidar import log_step, run_cmd
 from app.settings import PULLAUTA_BIN
 
 # Zdroj v temp/ → název v ZIPu (base/). Jediná pravda vrstevnic = GDAL
@@ -46,6 +46,10 @@ def ensure_text_dxf(
     bin_path = _bin_path(temp_dir, dxf_name)
     if not bin_path.is_file():
         return None
+    log_step(
+        log,
+        f"Převádím {dxf_name} z binárního KP do DXF (kresba srázů a kopečků)",
+    )
     run_cmd([PULLAUTA_BIN, "bin2dxf", str(bin_path), str(path)], log=log)
     if path.is_file() and path.stat().st_size >= 8:
         return path

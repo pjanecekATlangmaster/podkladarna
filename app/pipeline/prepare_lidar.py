@@ -102,6 +102,7 @@ def crop_laz(
         log(
             f"PDAL crop bbox 5514: [{xmin:.1f},{xmax:.1f}] x [{ymin:.1f},{ymax:.1f}]"
         )
+    log_step(log, "Ořezávám mračno bodů na výřez mapy")
     run_cmd(
         [
             find_tool("pdal"),
@@ -125,6 +126,16 @@ def find_tool(name: str) -> str:
             "docker compose -f docker-compose.dev.yml up --build"
         )
     return path
+
+
+def log_step(log, message: str) -> None:
+    """Krátká česká hláška do job logu těsně před spuštěním nástroje."""
+    if log is None or not message:
+        return
+    text = str(message).strip()
+    if not text.endswith(("…", "...", ".", "!", "?")):
+        text += "…"
+    log(text)
 
 
 def run_cmd(
@@ -257,6 +268,10 @@ def merge_dmr_dmp(
                 + (f" (extra_pad={extra_pad_m:g} m)" if extra_pad_m else "")
             )
 
+    log_step(
+        log,
+        "Ořezávám a třídím LiDAR DMR5G a DMP (mračno bodů pro terén a vegetaci)",
+    )
     ground_parts: list[Path] = []
     for i, dmr in enumerate(dmr_files):
         out = work_dir / f"dmr_ground_{i}.laz"

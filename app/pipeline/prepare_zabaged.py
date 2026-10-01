@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from app.pipeline.crs_5514 import write_prj
+from app.pipeline.prepare_lidar import log_step
 from app.settings import CONFIG_DIR
 from app.tool_env import gis_subprocess_env, which_tool
 
@@ -47,6 +48,7 @@ def clean_zabaged(
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
 
+    log_step(log, "Vybírám vrstvy ZABAGED potřebné pro mapu (cesty, budovy, plochy)")
     kept = 0
     with zipfile.ZipFile(src_zip) as zf:
         names = zf.namelist()

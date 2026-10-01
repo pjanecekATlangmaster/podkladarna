@@ -13,7 +13,7 @@ from pathlib import Path
 from app.download_cache import file_fingerprint, persist_shade, try_restore_shade
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
-from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_layers import (
     HILLSHADE_ALTITUDE,
     HILLSHADE_AZIMUTH,
@@ -88,6 +88,7 @@ def build_hillshade_from_dem(
             f"Hillshade: gdaldem z {dem_tif.name} "
             f"(az {azimuth:g}°, alt {altitude:g}°)"
         )
+    log_step(log, "Počítám stínování reliéfu z DEM (šedý podklad mapy)")
     run_cmd(
         [
             gdaldem,
@@ -111,6 +112,7 @@ def build_hillshade_from_dem(
         gdalwarp = _gdal_tool("gdalwarp")
     except RuntimeError:
         gdalwarp = find_tool("gdalwarp")
+    log_step(log, "Zarovnávám stínování na mřížku mapy")
     run_cmd(
         [
             gdalwarp,

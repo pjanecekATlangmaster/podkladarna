@@ -13,6 +13,7 @@ from app.pipeline.oom_import import (
     _wkb_parts,
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.pipeline.prepare_lidar import log_step
 from app.proj_env import ensure_proj_data
 
 # KP palette (lightgreentone=200) → ISOM plochy.
@@ -291,6 +292,7 @@ def generate_job_vegetation(work_dir: Path, *, log=None) -> Path | None:
     dest = work_dir / "vegetation" / "vegetation.shp"
     if log:
         log("=== Fáze: zeleň KP → polygony ===")
+    log_step(log, "Převádím zeleň z KP na polygony (vegetace do mapy)")
     return generate_vegetation_shapefile(png, pgw, dest, log=log)
 
 

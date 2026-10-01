@@ -20,7 +20,7 @@ from app.download_cache import (
 from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
-from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.settings import REF_CACHE_MAX_AGE_DAYS
 from app.tiles import fetch_tile
 
@@ -322,6 +322,7 @@ def _jpeg_to_georef_png(
     xmin, ymin, xmax, ymax = bounds_5514
     gdaltranslate = _gdal_tool("gdal_translate")
     dest_png.parent.mkdir(parents=True, exist_ok=True)
+    log_step(log, "Převádím stažený snímek na PNG s georeferencí")
     run_cmd(
         [
             gdaltranslate,
@@ -377,6 +378,7 @@ def _mosaic_wms_tiles(
         *[str(path) for path, *_ in tiles],
         str(dest_png),
     ]
+    log_step(log, "Skládám dlaždice WMS do jednoho snímku (celý výřez mapy)")
     run_cmd(cmd, log=log)
     if not dest_png.is_file() or dest_png.stat().st_size < 500:
         return False
@@ -579,6 +581,7 @@ def _align_to_template(
         str(src),
         str(dest_png),
     ]
+    log_step(log, "Zarovnávám podklad na výřez mapy")
     run_cmd(cmd, log=log)
     if tw == width and th == height:
         shutil.copy2(template_pgw, dest_pgw)
@@ -608,6 +611,7 @@ def _fill_dem_nodata(src: Path, dest: Path, *, log: callable | None = None) -> P
         except RuntimeError:
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
+        log_step(log, "Doplňuji díry v rastru (souvislá plocha bez mezer)")
         run_cmd([tool, str(src), str(dest), "-md", "24"], log=log)
         return dest
     shutil.copy2(src, dest)
@@ -693,6 +697,7 @@ def build_hillshade_from_dmr(
             f"Hillshade: zdroj {dmr_laz.name}, DEM {resolution_m:.2f} m/px "
             f"(výřez dle pullautus.pgw)"
         )
+    log_step(log, "Připravuji DEM z DMR (terén pro stínování)")
     _pdal_dem_from_laz(
         dmr_laz, crop, dem_tif, resolution_m=resolution_m, log=log
     )
@@ -700,6 +705,7 @@ def build_hillshade_from_dmr(
         raise RuntimeError(f"PDAL nevytvořil DEM ({dem_tif.name})")
     _fill_dem_nodata(dem_tif, dem_filled, log=log)
     gdaldem = _gdal_tool("gdaldem")
+    log_step(log, "Počítám stínování reliéfu z DEM (šedý podklad mapy)")
     run_cmd(
         [
             gdaldem,
@@ -1086,6 +1092,7 @@ def build_osm_reference(
             _write_osm_vrt(tiles, z, x0, y0, vrt)
             raw_tif = work / "mosaic_3857.tif"
             gdaltranslate = _gdal_tool("gdal_translate")
+            log_step(log, "Sestavuji OSM dlaždice do jednoho rastru (podklad mapy)")
             run_cmd([gdaltranslate, str(vrt), str(raw_tif), "-of", "GTiff"], log=log)
             _align_to_template(
                 raw_tif,

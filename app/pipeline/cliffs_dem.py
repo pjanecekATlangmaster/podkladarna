@@ -18,6 +18,7 @@ from pathlib import Path
 
 from app.pipeline.cliff_height import MAJOR_DROP_M, MIN_DROP_M
 from app.pipeline.dem_prep import DEM_DIR_NAME
+from app.pipeline.prepare_lidar import log_step
 from app.pipeline.ini_builder import (
     KP_CLIFF_SENSITIVITY,
     KP_CLIFF_SENSITIVITY_DEFAULT,
@@ -227,6 +228,7 @@ def generate_cliffs_from_dem(
     """Detekce → ``temp/c2g.dxf`` (zem) + ``temp/c_rock.dxf`` (skála)."""
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
+    log_step(log, "Hledám srázy na DEM (skála a zemní hrany, náhrada KP)")
     try:
         arr, gt, nodata = read_float32_geotiff(dem_tif, log=log)
     except Exception as exc:

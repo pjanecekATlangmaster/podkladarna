@@ -13,7 +13,7 @@ from app.pipeline.oom_import import (
     _wkb_parts,
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
-from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 
 CONTOUR_META_NAME = "contour_meta.json"
@@ -251,6 +251,7 @@ def _smooth_dem(
     mid_m = max(cell_m * 1.5, float(window_m) * 0.55)
     coarse = dest.with_name(dest.stem + "_coarse.tif")
     mid = dest.with_name(dest.stem + "_mid.tif")
+    log_step(log, "Vyhlazuji DEM (plynulejší vrstevnice)")
     run_cmd(
         [
             gdalwarp,
@@ -385,6 +386,7 @@ def _run_gdal_contour(
     gdal_contour = find_tool("gdal_contour")
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
+    log_step(log, "Kreslím vrstevnice z DEM (ekvidistance do mapy)")
     run_cmd(
         [
             gdal_contour,
@@ -444,6 +446,7 @@ def generate_contours_shapefile(
     dem_raw = work / "dem_raw.tif"
     dem_filled = work / "dem_filled.tif"
     dem_smooth = work / "dem_smooth.tif"
+    log_step(log, "Připravuji DEM z ground LAZ (záložní terén pro vrstevnice)")
     _pdal_dem_from_laz(laz, bounds, dem_raw, resolution_m=cell_m, log=log)
     _fill_dem_nodata(dem_raw, dem_filled, log=log)
     _smooth_dem(
