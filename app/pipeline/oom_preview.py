@@ -1,13 +1,19 @@
 """Webový náhled PNG z hotového ``.omap`` (bez-KP).
 
-OpenOrienteering Mapper 0.9.6 (``Mapper.exe``) nemá headless export: ``main()``
-soubor jen otevře v okně a ``PrintWidget::exportToImage()`` chce dialog.
-Proto:
+Výchozí cesta je čistě Python (Pillow + XML) – bez instalace OpenOrienteering
+Mapperu, vhodné i pro Docker. Stock Mapper 0.9.6 nemá headless export
+(``main()`` jen otevře okno); volitelný CLI export jen když je nastavené
+``PODKLADARNA_MAPPER_EXPORT`` (vlastní build / jiný exportér).
 
-* je-li nastavené ``PODKLADARNA_MAPPER_EXPORT``, zavolá se ten příkaz
-  (nainstalovaný Mapper nebo jiný exportér);
-* jinak se mapa vykreslí vestavěným náhledem z XML (souřadnice 1/1000 mm,
-  barvy podle priority jako v Mapperu).
+Vestavěný render čte objekty z XML (souřadnice 1/1000 mm) a kreslí
+plochy/linie/body barvami symbolů – ne plná symbolika Mapperu.
+
+Orientace: OOM mapové souřadnice už mají ``scale(s, −s)``
+(``projected_to_map_coord`` → geografický sever = nižší map Y). PNG proto
+dává nižší map Y nahoru (jako pohled v Mapperu / Qt), ne další převrácení Y.
+
+Ořez: výchozí výřez je fialový AOI rám (ISOM/ISSprOM 708, MTBO 705) –
+přesahy cest za rám zůstanou v Mapperu, webový náhled je ořízne.
 
 ČÚZK WMS reference se tu nemění. Zapnuto jen když ``use_kp`` je false,
 pokud job nepošle ``oom_preview`` nebo env ``PODKLADARNA_OOM_PREVIEW``.
@@ -359,6 +365,85 @@ def _current_part(root: ET.Element) -> ET.Element | None:
     return None
 
 
+# Fialový AOI obdélník z package_oom.build_aoi_boundary_part.
+_AOI_FRAME_CODES = frozenset({"708", "705"})
+
+
+def _symbol_ids_for_codes(root: ET.Element, codes: frozenset[str]) -> set[int]:
+    found: set[int] = set()
+    for el in root.iter():
+        if _local(el.tag) != "symbols":
+            continue
+        for sym in el:
+            if _local(sym.tag) != "symbol":
+                continue
+            if sym.attrib.get("code") not in codes:
+                continue
+            try:
+                found.add(int(sym.attrib["id"]))
+            except (KeyError, ValueError):
+                continue
+        break
+    return found
+
+
+def _path_bbox(
+    path: list[tuple[float, float]],
+) -> tuple[float, float, float, float] | None:
+    if len(path) < 2:
+        return None
+    xs = [p[0] for p in path]
+    ys = [p[1] for p in path]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def aoi_frame_bbox(root: ET.Element) -> tuple[float, float, float, float] | None:
+    """BBox fialového AOI rámu (708 / 705) – největší uzavřená cesta těchto symbolů."""
+    symbol_ids = _symbol_ids_for_codes(root, _AOI_FRAME_CODES)
+    if not symbol_ids:
+        return None
+    part = _current_part(root)
+    if part is None:
+        return None
+    best: tuple[float, tuple[float, float, float, float]] | None = None
+    for objects in part:
+        if _local(objects.tag) != "objects":
+            continue
+        for obj in objects:
+            if _local(obj.tag) != "object":
+                continue
+            try:
+                sym_id = int(obj.attrib.get("symbol", "-1"))
+            except ValueError:
+                continue
+            if sym_id not in symbol_ids:
+                continue
+            coords_el = _direct_child(obj, "coords")
+            coords = _parse_coord_text(coords_el.text if coords_el is not None else None)
+            for path in _split_paths(coords):
+                box = _path_bbox(path)
+                if box is None:
+                    continue
+                minx, miny, maxx, maxy = box
+                area = max(maxx - minx, 0.0) * max(maxy - miny, 0.0)
+                if area <= 0:
+                    continue
+                if best is None or area > best[0]:
+                    best = (area, box)
+    return best[1] if best else None
+
+
+def _ops_bbox(ops: list[_DrawOp]) -> tuple[float, float, float, float]:
+    xs: list[float] = []
+    ys: list[float] = []
+    for op in ops:
+        for path in op.paths:
+            for x, y in path:
+                xs.append(x)
+                ys.append(y)
+    return min(xs), min(ys), max(xs), max(ys)
+
+
 def _collect_ops(root: ET.Element) -> list[_DrawOp]:
     colors = _colors(root)
     styles: dict[int, _SymbolStyle] = {}
@@ -426,29 +511,33 @@ def render_omap_xml_png(
     if not ops:
         raise ValueError(f"{omap.name}: .omap nemá vykreslitelné objekty")
 
-    xs: list[float] = []
-    ys: list[float] = []
-    for op in ops:
-        for path in op.paths:
-            for x, y in path:
-                xs.append(x)
-                ys.append(y)
-    minx, maxx = min(xs), max(xs)
-    miny, maxy = min(ys), max(ys)
-    spanx = max(maxx - minx, 1.0)
-    spany = max(maxy - miny, 1.0)
-    padx = spanx * 0.03
-    pady = spany * 0.03
+    frame = aoi_frame_bbox(root)
+    if frame is not None:
+        minx, miny, maxx, maxy = frame
+        # Tenký okraj kolem fialové linky (šířka symbolu ~1 mm papíru).
+        spanx = max(maxx - minx, 1.0)
+        spany = max(maxy - miny, 1.0)
+        padx = max(spanx * 0.015, 800.0)
+        pady = max(spany * 0.015, 800.0)
+    else:
+        minx, miny, maxx, maxy = _ops_bbox(ops)
+        spanx = max(maxx - minx, 1.0)
+        spany = max(maxy - miny, 1.0)
+        padx = spanx * 0.03
+        pady = spany * 0.03
     world_w = spanx + 2 * padx
     world_h = spany + 2 * pady
     scale = max(1, int(max_side)) / max(world_w, world_h)
     width = max(1, int(round(world_w * scale)))
     height = max(1, int(round(world_h * scale)))
+    # Map X → right; map Y → down in PNG. OOM already uses scale(s, −s), so
+    # geographic north is lower map Y and must land at the top of the image.
+    # Flipping Y here (paper Y-up → screen) double-inverts and looks ~180° off.
     origin_x = minx - padx
-    origin_y = maxy + pady
+    origin_y = miny - pady
 
     def to_px(x: float, y: float) -> tuple[float, float]:
-        return (x - origin_x) * scale, (origin_y - y) * scale
+        return (x - origin_x) * scale, (y - origin_y) * scale
 
     image = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(image)

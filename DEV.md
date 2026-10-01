@@ -166,10 +166,12 @@ Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: 
 
 Když job běží s `use_kp=false`, hillshade compose se do webu nedává. Po zápisu `.omap` pipeline uloží `work/preview.png` (web `/preview.png`, ZIP `preview/preview.png`) a kopii `output/preview/oom_preview.png`. ČÚZK WMS reference v ZIPu zůstávají. Zapnout i při KP: `options.oom_preview=true` nebo `PODKLADARNA_OOM_PREVIEW=1`. Vypnout: `oom_preview=false` nebo `PODKLADARNA_OOM_PREVIEW=0`.
 
-Stock **OpenOrienteering Mapper 0.9.6** export do PNG umí jen z dialogu File → Export. Samotné `Mapper.exe` se proto nespouští – otevřelo by GUI. Vestavěný náhled čte XML `.omap` a kreslí plochy/linie/body barvami symbolů (ne plná symbolika Mapperu).
+**Výchozí render = Pillow + XML** (`app/pipeline/oom_preview.py`) – žádný Mapper v Dockeru. Stock Mapper 0.9.6 umí PNG jen z dialogu File → Export; `Mapper.exe` se proto nespouští. Volitelný CLI jen při `PODKLADARNA_MAPPER_EXPORT` (šablona příkazu s `{mapper}`, `{omap}`, `{png}`).
 
-`powershell
+Vestavěný náhled kreslí plochy/linie/body barvami symbolů (ne plná symbolika). Orientace: nižší map Y nahoru (OOM už má `scale(s, −s)`). Ořez kolem fialového AOI rámu (ISOM/ISSprOM **708**, MTBO **705**); přesahy cest za rám web ořízne.
+
+```powershell
 python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 .\scripts\fetch_openorienteering_mapper.ps1
-`
+```
 

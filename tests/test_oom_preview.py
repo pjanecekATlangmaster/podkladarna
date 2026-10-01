@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 from PIL import Image
 
 from app.pipeline.oom_preview import (
+    aoi_frame_bbox,
     find_mapper_exe,
     mapper_export_argv,
     oom_preview_enabled,
@@ -101,6 +103,130 @@ def test_xml_render_green_fill_and_black_line(tmp_path: Path):
     cx, cy = image.size[0] // 2, image.size[1] // 2
     center = image.getpixel((cx, cy))
     assert center[0] < 40 and center[1] < 40 and center[2] < 40
+
+
+def test_lower_map_y_is_top_of_png(tmp_path: Path):
+    """OOM scale(s, −s): geografický sever = nižší map Y → horní část PNG.
+
+    Dříve render dával vyšší map Y nahoru (matematické Y-up), takže náhled
+    vypadal otočený vzhůru nohama / „o 180°“.
+    """
+    omap = tmp_path / "north.omap"
+    # Zelená y∈[-10000, 0]; černá linka y=10000 roztáhne bbox, ať je co porovnat.
+    omap.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <colors count="2">
+    <color priority="2" name="Black"><rgb r="0" g="0" b="0"/></color>
+    <color priority="26" name="Green"><rgb r="0" g="1" b="0"/></color>
+  </colors>
+  <symbols count="2">
+    <symbol type="4" id="1" code="406">
+      <area_symbol inner_color="26"/>
+    </symbol>
+    <symbol type="2" id="2" code="101">
+      <line_symbol color="2" line_width="400"/>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="2">
+        <object type="1" symbol="1">
+          <coords count="5">0 0;0 -10000;10000 -10000;10000 0;0 0 18;</coords>
+        </object>
+        <object type="1" symbol="2">
+          <coords count="2">0 10000;10000 10000;</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    png = tmp_path / "preview.png"
+    render_omap_to_png(omap, png, max_side=200)
+    image = Image.open(png).convert("RGB")
+    w, h = image.size
+    top = image.getpixel((w // 2, max(1, h // 8)))
+    bottom = image.getpixel((w // 2, h - max(1, h // 8) - 4))
+    assert top[1] > 180 and top[0] < 80, f"top should be green (low map Y), got {top}"
+    assert not (bottom[1] > 180 and bottom[0] < 80), (
+        f"bottom should not be green (high map Y), got {bottom}"
+    )
+
+
+def test_aoi_frame_bbox_finds_708_rectangle():
+    root = ET.fromstring(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <colors count="1">
+    <color priority="5" name="Purple"><rgb r="1" g="0" b="1"/></color>
+  </colors>
+  <symbols count="1">
+    <symbol type="2" id="175" code="708" name="Out-of-bounds boundary">
+      <line_symbol color="5" line_width="1000"/>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="1">
+        <object type="1" symbol="175">
+          <coords count="5">0 0;10000 0;10000 5000;0 5000;0 0 18;</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+"""
+    )
+    assert aoi_frame_bbox(root) == (0.0, 0.0, 10000.0, 5000.0)
+
+
+def test_preview_crops_to_purple_aoi_frame(tmp_path: Path):
+    """Přesah za fialový 708 rám se do náhledu nevejde (Mapper ho nechá)."""
+    omap = tmp_path / "crop.omap"
+    # Rám 0..10000; zelený blob jen vpravo venku (15000..20000).
+    omap.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <colors count="2">
+    <color priority="5" name="Purple"><rgb r="1" g="0" b="1"/></color>
+    <color priority="26" name="Green"><rgb r="0" g="1" b="0"/></color>
+  </colors>
+  <symbols count="2">
+    <symbol type="2" id="175" code="708">
+      <line_symbol color="5" line_width="1000"/>
+    </symbol>
+    <symbol type="4" id="10" code="406">
+      <area_symbol inner_color="26"/>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="2">
+        <object type="1" symbol="10">
+          <coords count="5">15000 0;15000 10000;20000 10000;20000 0;15000 0 18;</coords>
+        </object>
+        <object type="1" symbol="175">
+          <coords count="5">0 0;10000 0;10000 10000;0 10000;0 0 18;</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    png = tmp_path / "preview.png"
+    render_omap_to_png(omap, png, max_side=200)
+    image = Image.open(png).convert("RGB")
+    w, h = image.size
+    # Bez ořezu by šířka sahala k x=20000 a poměr ≈ 2:1; s rámem ≈ čtverec.
+    assert abs(w - h) <= max(4, w // 10), f"expected near-square crop, got {w}x{h}"
+    mid = image.getpixel((w // 2, h // 2))
+    is_green = mid[1] > 180 and mid[0] < 80
+    assert not is_green, f"center should not be overflow green, got {mid}"
 
 
 def test_hole_stays_paper_white(tmp_path: Path):
