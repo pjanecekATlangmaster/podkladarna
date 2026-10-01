@@ -396,6 +396,10 @@ def test_index_html(client):
     assert 'name="use_kp"' in r.text
     assert 'id="use_kp"' in r.text
     assert 'id="use_kp" value="1" checked' in r.text
+    assert 'id="preset-bez-kp"' in r.text
+    assert "Bez KP (experimentální)" in r.text
+    assert 'value="auto" selected' in r.text
+    assert 'id="include_knolls"' in r.text
     assert 'name="force_refresh"' in r.text
     assert "Force refresh" in r.text
     html = r.text

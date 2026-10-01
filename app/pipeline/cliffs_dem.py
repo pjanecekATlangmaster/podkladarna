@@ -5,9 +5,10 @@ shade/kontury). Výstup: KP-kompatibilní tick DXF do ``work/temp/c2g.dxf``
 (+ ``c3g.dxf`` pro větší schody), ať ``cliff_merge`` + ``cliff_height``
 a OOM ``build_dxf_object_part`` zůstanou beze změny.
 
-Symbolika earth_bank / rock_face / 206 / off zůstává UI volbou
-(``kp_cliff_symbol``) — žádná auto-litologie. Citlivost mapuje
-``kp_cliff_sensitivity`` na prahy cliff1/cliff2 (ini_builder).
+Skála (201) vs. zem (104) se rozhoduje sklonem schodu, ne jen volbou
+ve formuláři. ``auto`` nechá obě třídy; ``earth_bank`` / ``rock_face`` /
+``symbol_206`` / ``off`` pořád přebijí všechno. Citlivost mapuje
+``kp_cliff_sensitivity`` na prahy výšky. Kód Karttapullautinu se nekopíruje.
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ TICK_HALF_LEN_M = 1.45
 SAMPLE_STRIDE_CELLS = 2
 # Max. počet ticků na AOI (ochrana RAM/OOM).
 MAX_TICKS = 80_000
+# drop / vodorovná délka sondy. Nad tím skála (krátká stěna), pod tím zemní sráz.
+ROCK_MIN_GRADE = 0.55
 
 
 def dem_filled_path(work_dir: Path) -> Path | None:
@@ -64,11 +67,11 @@ def detect_cliff_ticks(
     stride: int = SAMPLE_STRIDE_CELLS,
     max_ticks: int = MAX_TICKS,
 ) -> tuple[list[tuple[tuple[float, float], tuple[float, float]]], list[tuple[tuple[float, float], tuple[float, float]]]]:
-    """Vrátí (malé_ticky, velké_ticky) jako 2bodové úsečky kolmo na spád.
+    """Vrátí (zemní_ticky, skalní_ticky) jako 2bodové úsečky kolmo na spád.
 
-    Lokální schod = max(center − 4-soused) očištěný o hrubý trend ze vzdálenější
-    buňky (stejný princip jako ``cliff_height.measure_drop``, zjednodušeně
-    po rastru).
+    Schod je výškový skok očištěný o hrubý trend okolí. Skála = strmý skok
+    na krátké vzdálenosti (``ROCK_MIN_GRADE``); nižší sklon při stejném prahu
+    výšky je zemní sráz. ``major_drop_m`` zůstává v signatuře kvůli volajícím.
     """
     import numpy as np
 
@@ -140,6 +143,12 @@ def detect_cliff_ticks(
             drop = abs((near_hi - near_lo) - expected)
             if drop < min_drop_m:
                 continue
+            run_m = 2.0 * near * step_m
+            grade = drop / run_m if run_m > 0 else 0.0
+            # major_drop_m: vysoký schod, který je pořád dost strmý, ber jako skálu.
+            steep_enough = grade >= ROCK_MIN_GRADE or (
+                drop >= major_drop_m and grade >= ROCK_MIN_GRADE * 0.75
+            )
 
             # Tick perpendicular to downhill (along contour / cliff face).
             nx, ny = -uy, ux
@@ -151,7 +160,7 @@ def detect_cliff_ticks(
             cx, cy = _pixel_to_world(gt, c + 0.5, r + 0.5)
             a = (cx - nx * TICK_HALF_LEN_M, cy - ny * TICK_HALF_LEN_M)
             b = (cx + nx * TICK_HALF_LEN_M, cy + ny * TICK_HALF_LEN_M)
-            if drop >= major_drop_m:
+            if steep_enough:
                 large.append((a, b))
             else:
                 small.append((a, b))
@@ -215,7 +224,7 @@ def generate_cliffs_from_dem(
     major_drop_m: float = 2.8,
     log=None,
 ) -> dict[str, Path]:
-    """Detekce → ``temp/c2g.dxf`` (malé) + ``temp/c3g.dxf`` (větší)."""
+    """Detekce → ``temp/c2g.dxf`` (zem) + ``temp/c_rock.dxf`` (skála)."""
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
     try:
@@ -235,19 +244,17 @@ def generate_cliffs_from_dem(
     temp_dir = Path(temp_dir)
     temp_dir.mkdir(parents=True, exist_ok=True)
     out: dict[str, Path] = {}
-    # KP mapování: c2g → cliffs_small, c3g → cliffs_large.
-    # Velké i malé dát do c2g, velké navíc do c3g – merge je sloučí.
-    all_smallish = list(small) + list(large)
-    p2 = write_cliff_ticks_dxf(all_smallish, temp_dir / "c2g.dxf")
-    if p2:
-        out["c2g.dxf"] = p2
-    p3 = write_cliff_ticks_dxf(large, temp_dir / "c3g.dxf")
-    if p3:
-        out["c3g.dxf"] = p3
+    # c2g → zem (104). c_rock → skála (201). Neslévej je do jednoho DXF.
+    p_earth = write_cliff_ticks_dxf(small, temp_dir / "c2g.dxf")
+    if p_earth:
+        out["c2g.dxf"] = p_earth
+    p_rock = write_cliff_ticks_dxf(large, temp_dir / "c_rock.dxf")
+    if p_rock:
+        out["c_rock.dxf"] = p_rock
     if log:
         log(
-            f"Srázy DEM: {len(small)} malých + {len(large)} větších ticků "
-            f"(drop≥{min_drop_m:g}/{major_drop_m:g} m) → temp/"
+            f"Srázy DEM: {len(small)} zemních + {len(large)} skalních ticků "
+            f"(drop≥{min_drop_m:g} m, skála při sklonu≥{ROCK_MIN_GRADE:g}) → temp/"
         )
     return out
 

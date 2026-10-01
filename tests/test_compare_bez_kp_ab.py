@@ -11,6 +11,7 @@ import pytest
 from app.pipeline.cliffs_dem import write_cliff_ticks_dxf
 from app.pipeline.preview import write_solid_gray_png
 from scripts.compare_bez_kp_ab import (
+    vegetation_share_agreement,
     cliff_file_stats,
     cliffs_stats,
     compare_ab,
@@ -26,6 +27,17 @@ from scripts.compare_bez_kp_ab import (
     segment_length_m,
     summarize_side,
 )
+
+
+def test_vegetation_share_agreement_identical():
+    areas = {"401": 50.0, "406": 50.0}
+    score = vegetation_share_agreement(areas, areas)
+    assert score["agreement"] == pytest.approx(1.0)
+
+
+def test_vegetation_share_agreement_disjoint():
+    score = vegetation_share_agreement({"401": 10.0}, {"410": 10.0})
+    assert score["agreement"] == pytest.approx(0.0)
 
 
 def test_relative_diff_basic():

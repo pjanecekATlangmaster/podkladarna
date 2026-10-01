@@ -654,6 +654,8 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     // Checkbox: vždy pošli 0/1 (unchecked jinak zmizí a API by drželo default true).
     const useKpEl = document.getElementById("use_kp");
     fd.set("use_kp", useKpEl && useKpEl.checked ? "1" : "0");
+    const knollsEl = document.getElementById("include_knolls");
+    fd.set("include_knolls", knollsEl && knollsEl.checked ? "1" : "0");
     const job = await api("/api/jobs", { method: "POST", body: fd });
     if (job && job.duplicate_skipped) {
       const msg =
@@ -799,11 +801,18 @@ function updateCliffControls() {
         "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají.";
     } else if (useKp && !useKp.checked) {
       sensHint.textContent =
-        "Bez KP: jak přísně hledat strmé skoky v DMR (vlastní kandidáti do OOM).";
+        "Bez KP: jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem; knolly jsou samostatná volba.";
     } else {
       sensHint.textContent =
         "Jak přísně Karttapullautin hledá strmé skoky v DMR.";
     }
+  }
+  const symbolHint = document.getElementById("cliff-symbol-hint");
+  if (symbolHint) {
+    symbolHint.textContent =
+      useKp && !useKp.checked
+        ? "Bez KP: strmý schod = skála (201), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Knolly (109) jsou vedle, z DEM."
+        : "S KP kreslí srázy Karttapullautin a tahle volba přebarví všechny čárky (104 / 201 / 206 / vypnuto). Automaticky u KP zůstane zem, dokud v temp není samostatný soubor skály.";
   }
 }
 
@@ -811,17 +820,29 @@ function updateUseKpHints() {
   const useKp = document.getElementById("use_kp");
   const hint = document.getElementById("use-kp-hint");
   const outHint = document.getElementById("output-omap-hint");
+  const outMode = document.getElementById("output_mode");
+  if (useKp && !useKp.checked && outMode && outMode.value === "png") {
+    outMode.value = "png_zip";
+  }
   if (useKp && hint) {
     hint.innerHTML = useKp.checked
-      ? "Default <strong>zapnuto</strong> (hybrid s KP náhledem). Odškrtni (= <code>use_kp=false</code>) pro bez-KP: DEM/CHM → OOM/ZIP bez webového preview PNG."
-      : "Bez KP: primární výstup je <strong>OOM/ZIP</strong> (CHM vegetace, srázy z DEM, vrstevnice). Webový náhled PNG se neskládá; ČÚZK reference v ZIPu ano.";
+      ? "Výchozí stav formuláře: <strong>KP zapnuto</strong> (hybrid s náhledem). Odškrtni, nebo použij „Bez KP (experimentální)“ — globální default se sám nepřepíná."
+      : "Bez KP: primární výstup je <strong>.omap</strong> v ZIPu (vegetace z hustoty LiDAR odrazů, srázy z DMR, vrstevnice jen GDAL). Webový náhled PNG se neskládá; chybějící KP vegetation.png job neshodí. ČÚZK reference v ZIPu zůstávají.";
   }
   if (useKp && outHint) {
     outHint.innerHTML = useKp.checked
       ? "S <strong>KP</strong>: PNG je rychlý rastrový náhled (pullautus), ne finální mapa. ZIP obsahuje <code>.omap</code> podle měřítka plus vektory pro OOM."
-      : "Bez KP: primární výstup je <code>.omap</code> / ZIP. Webový náhled PNG se dočasně neskládá. ČÚZK referenční PNG (orto, hillshade, …) v ZIPu zůstávají.";
+      : "Bez KP: primární výstup je <code>.omap</code> v ZIPu. Webový náhled PNG se neskládá. ČÚZK referenční PNG (orto, hillshade, …) v ZIPu zůstávají.";
   }
   updateCliffControls();
+}
+
+function applyBezKpPreset() {
+  const useKp = document.getElementById("use_kp");
+  const outMode = document.getElementById("output_mode");
+  if (useKp) useKp.checked = false;
+  if (outMode) outMode.value = "png_zip";
+  updateUseKpHints();
 }
 
 function applyJobToForm(job) {
@@ -852,6 +873,11 @@ function applyJobToForm(job) {
     if ([...cliff.options].some((o) => o.value === cliffVal)) {
       cliff.value = cliffVal;
     }
+  }
+  const knolls = form.include_knolls;
+  if (knolls) {
+    knolls.checked =
+      opts.include_knolls == null ? true : Boolean(opts.include_knolls);
   }
   const vege = form.kp_vege_height;
   if (vege) {
@@ -1135,7 +1161,10 @@ initBboxMap();
 })();
 (() => {
   const useKp = document.getElementById("use_kp");
-  if (!useKp) return;
-  useKp.addEventListener("change", updateUseKpHints);
-  updateUseKpHints();
+  if (useKp) {
+    useKp.addEventListener("change", updateUseKpHints);
+    updateUseKpHints();
+  }
+  const preset = document.getElementById("preset-bez-kp");
+  if (preset) preset.addEventListener("click", applyBezKpPreset);
 })();

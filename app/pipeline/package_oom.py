@@ -522,13 +522,16 @@ def oom_readme(meta: dict) -> str:
             "   v Šablony → Nastavení šablon (Template Setup).\n"
             "3. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
             "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
-            "   Ve složce base/: vrstevnice GDAL (contours_gdal.* z DMR), "
-            "vegetace z CHM (vegetation.*) a další vektory.\n"
-            "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n\n"
+            "   Ve složce base/: vrstevnice GDAL (contours_gdal.* = jediná pravda, jen z DMR), "
+            "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
+            "srázy zem (104) / skála (201) a volitelné knolly (109).\n"
+            "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
+            "   Webový náhled PNG se neskládá; primární výstup je .omap.\n\n"
         )
         relief_line = (
-            "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM/DSM/CHM "
-            "(porosty z výšky CHM, ne ze ZABAGED luk).\n\n"
+            "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM. "
+            "Porosty z hustoty LiDAR odrazů (záloha: výška CHM), ne ze ZABAGED luk. "
+            "Srázy: skála vs. zem podle sklonu schodu.\n\n"
         )
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"

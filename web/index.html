@@ -97,13 +97,20 @@
           <label>
             Strmé změny reliéfu – symbol
             <select name="kp_cliff_symbol" id="kp_cliff_symbol">
-              <option value="earth_bank" selected>Zemní srázek (104)</option>
-              <option value="rock_face">Skála / nesjízdný sráz (201)</option>
-              <option value="symbol_206">Obří balvan / skála (206, plocha)</option>
+              <option value="auto" selected>Automaticky: skála (201) vs. zem (104)</option>
+              <option value="earth_bank">Vše jako zemní sráz (104)</option>
+              <option value="rock_face">Vše jako skála (201)</option>
+              <option value="symbol_206">Vše jako obří balvan / skála (206, plocha)</option>
               <option value="off">Nevykreslovat (ani nepočítat)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-symbol-hint">Hlína vs. skála z LiDARu nejde spolehlivě poznat. Čárky se slepí do editovatelných linií. U skály (201) může vzniknout i plocha 210 tam, kde je skalní pole opravdu plošné. Volba 206 = plochy ISOM 206. Nálezy kratší než ~0,6 mm na mapě se zahazují.</p>
+          <p class="hint" id="cliff-symbol-hint">Bez KP detektor sám rozliší strmý schod (skála 201) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. U vynucené skály (201) může vzniknout i plocha 210. Nálezy kratší než ~0,6 mm na mapě se zahazují.</p>
+
+          <label class="checkbox-row">
+            <input type="checkbox" name="include_knolls" id="include_knolls" value="1" checked />
+            Knolly z DMR (109, jen bez KP)
+          </label>
+          <p class="hint" id="knoll-hint">Malé kupky z výšky DEM, ne z binárky KP. S zapnutým KP kreslí knolly Karttapullautin a tahle volba se nepoužije.</p>
 
           <label id="cliff-sensitivity-label">
             Citlivost srázů / skal
@@ -211,15 +218,15 @@
           <label>
             Formát
             <select name="output_mode" id="output_mode">
-              <option value="png_zip" selected>PNG náhled + ZIP pro OOM (výchozí)</option>
-              <option value="png">Jen PNG náhled (bez ZIPu)</option>
+              <option value="png_zip" selected>ZIP s .omap (a PNG náhled, pokud běží KP)</option>
+              <option value="png">Jen PNG náhled (bez ZIPu; u bez-KP se nepoužije)</option>
             </select>
           </label>
           <p class="hint" id="output-omap-hint">
-            S <strong>KP</strong>: PNG je rychlý rastrový náhled (pullautus), ne finální mapa.
-            <strong>Bez KP</strong>: primární výstup je <code>.omap</code> / ZIP (vegetace z CHM, srázy z DEM, vrstevnice) —
-            webový náhled PNG se dočasně neskládá; ČÚZK referenční PNG v ZIPu zůstávají.
-            ZIP obsahuje <code>.omap</code> podle měřítka plus vektory pro OOM.
+            Primární výstup je <code>.omap</code> v ZIPu.
+            S <strong>KP</strong> je PNG jen rychlý rastrový náhled (pullautus), ne finální mapa.
+            <strong>Bez KP</strong>: vegetace z hustoty LiDAR odrazů, srázy z DMR, vrstevnice jen GDAL —
+            webový náhled PNG se neskládá; ČÚZK referenční PNG v ZIPu zůstávají.
           </p>
           <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
 
@@ -233,7 +240,9 @@
             <input type="checkbox" name="use_kp" id="use_kp" value="1" checked />
             Karttapullautin (KP) – hybrid
           </label>
-          <p class="hint" id="use-kp-hint">Default <strong>zapnuto</strong> (hybrid s KP náhledem). Odškrtni (= <code>use_kp=false</code>) pro bez-KP: DEM/CHM/shade/vrstevnice/vegetace/srázy → OOM/ZIP (bez webového preview PNG).</p>
+          <p class="hint" id="use-kp-hint">Výchozí stav formuláře: <strong>KP zapnuto</strong> (hybrid s náhledem). Odškrtnutí (<code>use_kp=false</code>) je podporovaná cesta bez KP: hustota vegetace → srázy z DMR → vrstevnice GDAL → <code>.omap</code>/ZIP. Webový náhled PNG se neskládá a chybějící KP <code>vegetation.png</code> job neshodí.</p>
+          <button type="button" class="btn" id="preset-bez-kp">Bez KP (experimentální)</button>
+          <p class="hint" id="preset-bez-kp-hint">Tlačítko nepřepíná výchozí zaškrtnutí (to zůstává zapnuté, dokud se neschválí flip). Po kliknutí se KP odškrtne a výstup zůstane ZIP s <code>.omap</code>.</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
@@ -292,7 +301,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.19.0 ·
+      Podkladárna v1.20.0 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

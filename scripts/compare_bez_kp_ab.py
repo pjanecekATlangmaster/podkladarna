@@ -14,6 +14,20 @@ Příklad (stejná AOI, jednou s KP, jednou bez)::
     --label-a KP --label-b bez-KP
 
   python scripts/compare_bez_kp_ab.py --a path\\a.zip_extracted --b path\\b --json
+
+Tři typy AOI (go kritérium, skript job nespouští — jen hotové výstupy):
+
+  1. městský sprint
+  2. členitý les
+  3. ploché MTBO
+
+Na každém typu dva joby se stejnou AOI (KP zapnutý a „Bez KP“). Pak::
+
+  python scripts/compare_bez_kp_ab.py --a <kp_job> --b <bez_kp_job>
+
+Levá shoda vegetace = podíly ploch 401/406/408/410 ve vegetation.shp
+(agreement 1 = stejné podíly). Pixelová shoda proti KP vegetation.png
+se tu nepočítá — chtěla by stejně velký rastr.
 """
 from __future__ import annotations
 
@@ -366,6 +380,31 @@ def presence_matrix(root: Path) -> dict[str, bool]:
     }
 
 
+_VEGE_CODES = ("401", "406", "408", "410")
+
+
+def vegetation_share_agreement(
+    area_a: dict | None, area_b: dict | None
+) -> dict[str, Any]:
+    """1 = stejné podíly ploch kódů 401/406/408/410. Levné, bez rastru."""
+    area_a = area_a or {}
+    area_b = area_b or {}
+    total_a = sum(float(area_a.get(code, 0) or 0) for code in _VEGE_CODES)
+    total_b = sum(float(area_b.get(code, 0) or 0) for code in _VEGE_CODES)
+    if total_a <= 0 or total_b <= 0:
+        return {"agreement": None, "reason": "missing_area", "codes": list(_VEGE_CODES)}
+    share_a = {code: float(area_a.get(code, 0) or 0) / total_a for code in _VEGE_CODES}
+    share_b = {code: float(area_b.get(code, 0) or 0) / total_b for code in _VEGE_CODES}
+    l1 = sum(abs(share_a[code] - share_b[code]) for code in _VEGE_CODES)
+    return {
+        "agreement": round(1.0 - 0.5 * l1, 4),
+        "l1": round(l1, 4),
+        "share_a": {code: round(share_a[code], 4) for code in _VEGE_CODES},
+        "share_b": {code: round(share_b[code], 4) for code in _VEGE_CODES},
+        "reason": "area_by_code",
+    }
+
+
 def relative_diff(a: float, b: float) -> float | None:
     """(b - a) / a; None pokud a==0 (nedefinováno)."""
     if a == 0:
@@ -446,6 +485,9 @@ def compare_ab(
         "b": b,
         "diffs": diffs,
         "presence_mismatch": presence_delta,
+        "vegetation_share_agreement": vegetation_share_agreement(
+            va.get("area_by_code"), vb.get("area_by_code")
+        ),
     }
 
 
@@ -482,6 +524,14 @@ def format_report(report: dict[str, Any]) -> str:
         f"Δ features: {d['delta']:+d} ({_fmt_pct(d['rel_b_vs_a'])} B vs A); "
         f"Δ area: {da['delta']:+.2f} m² ({_fmt_pct(da['rel_b_vs_a'])})"
     )
+    share = report.get("vegetation_share_agreement") or {}
+    if share.get("agreement") is None:
+        lines.append(f"podíly 401/406/408/410: n/a ({share.get('reason', '—')})")
+    else:
+        lines.append(
+            f"podíly 401/406/408/410: agreement={share['agreement']:.3f} "
+            f"(1 = stejné podíly ploch, ne pixelová shoda)"
+        )
 
     lines.append("")
     lines.append("## Cliffs")

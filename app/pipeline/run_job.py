@@ -65,6 +65,7 @@ from app.pipeline.prepare_lidar import (
 from app.pipeline.prepare_zabaged import clean_zabaged
 from app.pipeline.source_meta import collect_lidar_source_meta
 from app.pipeline.cliffs_dem import generate_job_cliffs_dem
+from app.pipeline.knolls_dem import generate_job_knolls
 from app.pipeline.vegetation_chm import generate_job_vegetation_chm
 from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS as DEFAULT_DENSITY_PARAMS,
@@ -266,7 +267,8 @@ def run_job_pipeline(
     else:
         log(
             "=== Fáze: Karttapullautin vypnut (use_kp=false) – "
-            "bez-KP (mřížka + DEM/CHM + shade + CHM vegetace + srázy z DEM) ==="
+            "hustota vegetace → srázy (skála/zem) → knolly → vrstevnice GDAL → .omap/ZIP "
+            "(webový náhled PNG se neskládá) ==="
         )
 
     kp_cwd = work_dir
@@ -379,6 +381,10 @@ def run_job_pipeline(
             generate_job_cliffs_dem(work_dir, options=options, log=log)
         except Exception as exc:
             log(f"Srázy DEM: přeskočeno ({exc})")
+        try:
+            generate_job_knolls(work_dir, options=options, log=log)
+        except Exception as exc:
+            log(f"Knolly DEM: přeskočeno ({exc})")
 
     if not has_zabaged or not zabaged_clean.is_file():
         raise RuntimeError(
@@ -497,6 +503,18 @@ def run_job_pipeline(
     log("Hotovo.")
 
 
+def resolve_want_zip(options: dict) -> tuple[bool, str | None]:
+    """Bez KP je primární výstup .omap/ZIP. Jen-PNG by nemělo na co ukázat."""
+    use_kp = bool(options.get("use_kp", True))
+    want = bool(options.get("output_zip", True))
+    if not use_kp and not want:
+        return True, (
+            "Bez KP: režim jen-PNG se nepoužije — chybějící KP náhled není chyba. "
+            "Primární výstup je .omap/ZIP."
+        )
+    return want, None
+
+
 def _package_output(
     kp_cwd: Path,
     output_dir: Path,
@@ -511,7 +529,9 @@ def _package_output(
     if zip_path.exists():
         zip_path.unlink()
 
-    want_zip = bool(options.get("output_zip", True))
+    want_zip, zip_note = resolve_want_zip(options)
+    if zip_note:
+        log(zip_note)
     presets = load_presets()
     preset = presets.get(preset_id, {})
     job_dir = kp_cwd.parent

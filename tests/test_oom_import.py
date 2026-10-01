@@ -306,6 +306,24 @@ def test_oom_code_dxf_cliffs_small_preset_specific():
         )
         == "109"
     )
+    assert (
+        oom_code_for_dxf(
+            "cliffs_rock.dxf", preset_id="forest_10000", cliff_symbol="auto"
+        )
+        == "201"
+    )
+    assert (
+        oom_code_for_dxf(
+            "cliffs_small.dxf", preset_id="forest_10000", cliff_symbol="auto"
+        )
+        == "104"
+    )
+    assert (
+        oom_code_for_dxf(
+            "cliffs_rock.dxf", preset_id="forest_10000", cliff_symbol="earth_bank"
+        )
+        == "104"
+    )
 
 
 def test_orient_polyline_tags_downhill_flips_when_needed():

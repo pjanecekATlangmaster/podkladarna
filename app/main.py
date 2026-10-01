@@ -446,8 +446,13 @@ async def api_create_job(request: Request):
         "indexcontours": resolved["indexcontours"],
     }
     cliff_raw = _form_str(form, "kp_cliff_symbol").strip().lower()
-    if cliff_raw in {"earth_bank", "rock_face", "symbol_206", "off"}:
+    if cliff_raw in {"auto", "earth_bank", "rock_face", "symbol_206", "off"}:
         options["kp_cliff_symbol"] = cliff_raw
+    knoll_raw = _form_str(form, "include_knolls").strip().lower()
+    if knoll_raw in {"0", "false", "no", "off"}:
+        options["include_knolls"] = False
+    elif knoll_raw in {"1", "true", "yes", "on"}:
+        options["include_knolls"] = True
     vege_raw = _form_str(form, "kp_vege_height").strip()
     if vege_raw:
         try:

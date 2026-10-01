@@ -22,6 +22,7 @@ from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
     KP_CLIFF_206_CODE,
     KP_CLIFF_DENSE_CODE,
+    KP_CLIFF_AUTO,
     KP_CLIFF_EARTH_BANK,
     KP_CLIFF_OFF,
     KP_CLIFF_ROCK_FACE,
@@ -35,7 +36,9 @@ from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
 # ('point', x, y) | ('line', [(x, y), ...], close)
 _WkbPart = tuple[str, object]
 
-_CLIFF_DXF_NAMES = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
+_CLIFF_DXF_NAMES = frozenset(
+    {"cliffs_small.dxf", "cliffs_large.dxf", "cliffs_rock.dxf"}
+)
 _TAG_SIDE_OFFSET_M = 2.0
 
 
@@ -968,10 +971,10 @@ def build_dxf_object_part(
 
     objects: list[str] = []
     elev_at = _load_dem_elev(kp_cwd)
-    cliff_ticks: list[tuple[tuple[float, float], tuple[float, float]]] = []
-    cliff_line_code: str | None = None
+    cliff_groups: dict[str, list[tuple[tuple[float, float], tuple[float, float]]]] = {}
     had_dense_polys = False
-    drop_stats: dict[str, int] = {}
+    drop_dropped = 0
+    drop_unmeasured = 0
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -982,14 +985,13 @@ def build_dxf_object_part(
         if symbol_index is None:
             continue
         if zip_name in _CLIFF_DXF_NAMES:
-            cliff_line_code = code
+            group = cliff_groups.setdefault(code, [])
             for pts in _collect_dxf_line_parts(path, use_ogr=use_ogr):
                 if len(pts) == 2:
-                    cliff_ticks.append((pts[0], pts[1]))
+                    group.append((pts[0], pts[1]))
                 elif len(pts) > 2:
-                    # Už slepená linie – nechat jako řetěz 2bodových úseků.
                     for i in range(1, len(pts)):
-                        cliff_ticks.append((pts[i - 1], pts[i]))
+                        group.append((pts[i - 1], pts[i]))
             continue
         if use_ogr:
             ds = ogr.Open(str(path))
@@ -1033,7 +1035,9 @@ def build_dxf_object_part(
                         )
                     )
 
-    if cliff_ticks and cliff_line_code and cliff_symbol != KP_CLIFF_OFF:
+    for cliff_line_code, cliff_ticks in cliff_groups.items():
+        if not cliff_ticks or cliff_symbol == KP_CLIFF_OFF:
+            continue
         as_polygons = cliff_symbol in (
             KP_CLIFF_ROCK_FACE,
             KP_CLIFF_SYMBOL_206,
@@ -1048,6 +1052,8 @@ def build_dxf_object_part(
         cliff_lines, drop_stats = filter_by_drop(
             merged.lines, _load_cliff_dem(kp_cwd)
         )
+        drop_dropped += int(drop_stats.get("zahozeno") or 0)
+        drop_unmeasured += int(drop_stats.get("nezmereno") or 0)
         if cliff_symbol == KP_CLIFF_SYMBOL_206:
             poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_206_CODE)
             if poly_index is not None:
@@ -1109,6 +1115,7 @@ def build_dxf_object_part(
 
     if not objects:
         return None
+    codes = set(cliff_groups)
     if cliff_symbol == KP_CLIFF_SYMBOL_206:
         cliff_label = "skály (206 plocha)"
     elif cliff_symbol == KP_CLIFF_ROCK_FACE:
@@ -1119,11 +1126,17 @@ def build_dxf_object_part(
         )
     elif cliff_symbol == KP_CLIFF_EARTH_BANK:
         cliff_label = "zemní srázy (104)"
+    elif cliff_symbol == KP_CLIFF_AUTO and "201" in codes and "104" in codes:
+        cliff_label = "skála (201) a zem (104)"
+    elif "201" in codes and "104" in codes:
+        cliff_label = "skála (201) a zem (104)"
+    elif "201" in codes:
+        cliff_label = "skála (201)"
     else:
         cliff_label = "srázy"
-    if drop_stats.get("zahozeno"):
-        cliff_label += f", {drop_stats['zahozeno']} nízkých zahozeno dle DEM"
-    elif drop_stats.get("nezmereno"):
+    if drop_dropped:
+        cliff_label += f", {drop_dropped} nízkých zahozeno dle DEM"
+    elif drop_unmeasured:
         cliff_label += ", výška nezměřena (chybí DEM)"
     # Bez KP temp/vegetation.pgw = kandidáti z DEM (cliffs_dem), ne z pullauta.
     from_kp = (temp / "vegetation.pgw").is_file()

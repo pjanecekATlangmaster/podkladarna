@@ -36,15 +36,27 @@ def test_flat_dem_yields_no_ticks():
 
 
 def test_step_dem_yields_ticks():
-    """Schod ~4 m napříč středem → kandidáti (malé nebo velké)."""
+    """Schod ~4 m napříč středem → skalní kandidáti (strmý skok)."""
     elev = np.zeros((50, 50), dtype=np.float32)
     elev[:, 25:] = -4.0
     gt = (0.0, 1.0, 0.0, 50.0, 0.0, -1.0)
-    small, large = detect_cliff_ticks(
+    earth, rock = detect_cliff_ticks(
         elev, gt, min_drop_m=1.0, major_drop_m=2.0, stride=1
     )
-    assert len(small) + len(large) > 0
-    assert len(large) > 0  # 4 m > major
+    assert len(earth) + len(rock) > 0
+    assert len(rock) > len(earth)
+
+
+def test_gentle_bank_is_mostly_earth():
+    """Nízký schod (~1,6 m) není skála."""
+    elev = np.zeros((50, 50), dtype=np.float32)
+    elev[:, 25:] = -1.6
+    gt = (0.0, 1.0, 0.0, 50.0, 0.0, -1.0)
+    earth, rock = detect_cliff_ticks(
+        elev, gt, min_drop_m=1.2, major_drop_m=4.0, stride=1
+    )
+    assert len(earth) > 0
+    assert len(rock) < len(earth)
 
 
 def test_uniform_slope_few_or_no_ticks():
