@@ -433,13 +433,13 @@ def _package_output(
                     else f"≤ {max_residual_m2:g} m²"
                 )
                 log(
-                    f"OSM residential → zbytek zpevněné (501): auto .omap "
-                    f"{size_note}; SHP vždy (uzitecne/osm)"
+                    f"OSM residential → zbytek zpevněné (501): zapnuto "
+                    f"(auto .omap {size_note}; SHP uzitecne/osm; soft limit ~7 min)"
                 )
             else:
                 log(
-                    "OSM residential → zbytek zpevněné (501): jen SHP "
-                    "(uzitecne/osm), auto .omap vypnuto"
+                    "OSM residential → zbytek zpevněné (501): přeskočeno "
+                    "(checkbox vypnutý)"
                 )
 
             for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
@@ -483,6 +483,7 @@ def _package_output(
                         include_osm_lamps=osm_lamps,
                         include_osm_playground_equipment=osm_playground_eq,
                         vegetation_mode=vegetation_mode,
+                        log=log,
                     )
                     if omap_p:
                         omap_paths.append(omap_p)

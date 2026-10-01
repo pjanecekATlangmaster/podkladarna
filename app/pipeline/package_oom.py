@@ -4,6 +4,7 @@ import json
 import re
 import unicodedata
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
@@ -672,6 +673,7 @@ def prepare_oom_map(
     include_osm_lamps: bool = False,
     include_osm_playground_equipment: bool = False,
     vegetation_mode: str = VEGETATION_MODE_MIXED,
+    log: Callable[[str], None] | None = None,
 ) -> Path | None:
     del formline
     path_source = resolve_path_source(path_source)
@@ -748,20 +750,22 @@ def prepare_oom_map(
 
     # Nejspodnější podklad: zpevněné plochy ze ZABAGED (501), pak inverze residential…
     object_parts.extend(zabaged_base_paved)
-    # Residual 501 vždy spočítat (+ SHP pásma); do auto .omap jen při zapnutí.
-    residual_parts = build_residual_paved_parts(
-        kp_cwd,
-        preset_id=preset_id,
-        scale=scale,
-        ref_x=ref_x,
-        ref_y=ref_y,
-        grivation_deg=grivation,
-        bbox_wgs84=bbox_wgs84,
-        max_piece_m2=max_residual_m2 if residual_paved else 0.0,
-        write_shapefiles=True,
-    )
-    if residual_paved and residual_parts:
-        object_parts.extend(residual_parts)
+    # Residual 501 jen při zapnutí (auto .omap + SHP) – jinak těžká geometrie hanguje job.
+    if residual_paved:
+        residual_parts = build_residual_paved_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            bbox_wgs84=bbox_wgs84,
+            max_piece_m2=max_residual_m2,
+            write_shapefiles=True,
+            log=log,
+        )
+        if residual_parts:
+            object_parts.extend(residual_parts)
     # Louky/zeleň ze ZABAGED pod KP (mixed). Režim kp = jen KP, bílá = papír.
     if vegetation_mode == VEGETATION_MODE_MIXED:
         object_parts.extend(zabaged_under)

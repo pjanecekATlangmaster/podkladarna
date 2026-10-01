@@ -161,13 +161,14 @@
                 <option value="large">I velké (všechny hustě zmapované)</option>
               </select>
             </label>
-            <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Všechna pásma (<code>OSM_residential_zbytek_*</code> včetně řídkých) jsou v&nbsp;<code>osm/</code> a&nbsp;<code>uzitecne/</code> k ručnímu importu.</p>
+            <p class="hint">Omezí velikost polygonů v auto&nbsp;<code>.omap</code>. Při zapnutí vzniknou i SHP pásma (<code>OSM_residential_zbytek_*</code>) v&nbsp;<code>osm/</code> a&nbsp;<code>uzitecne/</code>.</p>
             <p class="hint" id="residual-paved-hint">
               Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.
-              Počítá se vždy (SHP v ZIPu); checkbox řídí jen auto&nbsp;<code>.omap</code>.
+              Počítá se <strong>jen při zapnutí</strong> (výchozí vypnuto) – v husté zástavbě je to pomalé;
+              po ~7&nbsp;min soft limitu se zbytek přeskočí a&nbsp;<code>.omap</code> doběhne bez 501.
               Odečet: residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu.
               Při zbytku &gt; 25&nbsp;% plochy se residential do auto mapy nebere (řídké OSM).
-              Heuristika; v OOM jde smazat. Default vypnuto.
+              Heuristika; v OOM jde smazat.
             </p>
           </div>
 
@@ -279,7 +280,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.13.1 ·
+      Podkladárna v1.13.2 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

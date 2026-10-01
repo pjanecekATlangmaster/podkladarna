@@ -379,6 +379,9 @@ def test_index_html(client):
     assert "OSM detaily" in html
     assert "courtyard-olive-wrap" in html
     assert "residual-paved-wrap" in html
+    assert "jen při zapnutí" in html
+    assert "soft limitu" in html
+    assert "Počítá se vždy" not in html
     assert "pracovní podklad" in html
     assert "jasně danými" in html
     assert "postaru" in html

@@ -10,9 +10,11 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 from app.pipeline.crs_5514 import wgs84_to_projected
@@ -46,9 +48,12 @@ _DEFAULT_LINE_HALF_M = 0.5
 _POINT_BUFFER_M = 1.2
 _RESIDUAL_OVERPASS_TIMEOUT_S = 300
 _RESIDUAL_HTTP_TIMEOUT_S = 320
+# Soft limit: po něm job pokračuje bez zbývajících 501 (ne 90min hang).
+RESIDUAL_SOFT_TIMEOUT_S = 420.0
 # Když po odečtu OSM zbývá víc než tento podíl residential, oblast je
 # špatně zmapovaná → 501 by přikryla KP. (Černý Most: dobrá ~18 %, špatná ~45 %.)
 _MAX_RESIDUAL_FRACTION = 0.25
+_MASK_SIMPLIFY_M = 0.35
 
 # Max. plocha jednoho zbytku do auto .omap (SHP má vždy všechna pásma).
 RESIDUAL_SMALL_MAX_M2 = 500.0
@@ -150,12 +155,19 @@ def build_residual_paved_parts(
     bbox_wgs84: tuple[float, float, float, float] | None = None,
     max_piece_m2: float = RESIDUAL_SMALL_MAX_M2,
     write_shapefiles: bool = True,
+    log: Callable[[str], None] | None = None,
+    soft_timeout_s: float = RESIDUAL_SOFT_TIMEOUT_S,
 ) -> list[OomObjectPart]:
-    """Vrátí OOM part se zbytkem 501, nebo [] když nic / ne-sprint.
+    """Vrátí OOM part se zbytkem 501, nebo [] když nic / ne-sprint / timeout.
 
     Do ``work_dir/_residual_bands/`` zapíše SHP podle velikosti + řídké
     (přeskočené) zbytky – pro ruční import i když nejsou v auto .omap.
     """
+    def _emit(msg: str) -> None:
+        logger.info("%s", msg)
+        if log is not None:
+            log(msg)
+
     if not str(preset_id).startswith("sprint"):
         return []
     elements = _load_or_fetch_all_osm(work_dir, bbox_wgs84)
@@ -165,7 +177,7 @@ def build_residual_paved_parts(
     if not subjects:
         return []
     if not mask_wkbs:
-        logger.warning("residual_paved: prázdná OSM maska – residential bez výřezu")
+        _emit("residual_paved: prázdná OSM maska – residential bez výřezu")
     symbol_index = symbol_index_for_code(preset_id, scale, "501")
     if symbol_index is None:
         return []
@@ -177,26 +189,40 @@ def build_residual_paved_parts(
     kept_subjects = 0
     skipped_sparse = 0
     skipped_oversized = 0
+    timed_out = False
+    n_subj = len(subjects)
+    _emit(
+        f"residual_paved: počítám {n_subj} residential × maska {len(mask_wkbs)} "
+        f"(soft limit {soft_timeout_s:g} s)"
+    )
+    # Jeden STRtree na celou masku (ne znovu u každého subjectu).
+    mask_index = _build_mask_index(mask_wkbs)
+    deadline = time.monotonic() + max(0.0, float(soft_timeout_s))
 
-    for subject in subjects:
-        pieces = _difference_subjects([subject], mask_wkbs)
+    for i, subject in enumerate(subjects, start=1):
+        if time.monotonic() >= deadline:
+            timed_out = True
+            _emit(
+                f"residual_paved: soft timeout po {i - 1}/{n_subj} subjectů "
+                f"– zbytek 501 přeskočen, .omap pokračuje"
+            )
+            break
+        t0 = time.monotonic()
+        pieces = _difference_one_subject(subject, mask_index)
         exploded = _explode_polygon_wkbs(pieces)
         subj_area = _wkb_area_m2(subject)
         rem_area = sum(_wkb_area_m2(p) for p in exploded)
+        dt = time.monotonic() - t0
+        _emit(
+            f"residual_paved: subject {i}/{n_subj} "
+            f"({rem_area:.0f}/{subj_area:.0f} m², {dt:.1f} s)"
+        )
         if (
             subj_area > 0
             and rem_area / subj_area > _MAX_RESIDUAL_FRACTION
         ):
             skipped_sparse += 1
             sparse_wkbs.extend(exploded)
-            logger.info(
-                "residual_paved: přeskočen řídký residential "
-                "(zbytek %.0f/%.0f m² = %.0f %% > %.0f %%)",
-                rem_area,
-                subj_area,
-                100.0 * rem_area / subj_area,
-                100.0 * _MAX_RESIDUAL_FRACTION,
-            )
             continue
         kept_subjects += 1
         for piece in exploded:
@@ -229,24 +255,20 @@ def build_residual_paved_parts(
         )
 
     if not objects:
-        logger.info(
+        _emit(
             "residual_paved: nic k vykreslení "
-            "(řídkých=%s, příliš velkých=%s, subjectů=%s)",
-            skipped_sparse,
-            skipped_oversized,
-            len(subjects),
+            f"(řídkých={skipped_sparse}, příliš velkých={skipped_oversized}, "
+            f"subjectů={n_subj}"
+            + (", soft timeout" if timed_out else "")
+            + ")"
         )
         return []
-    logger.info(
-        "residual_paved: %s polygonů, ~%.0f m² "
-        "(OSM %s, mask %s, residential ok=%s, řídké=%s, >max=%s)",
-        len(objects),
-        total_m2,
-        len(elements),
-        len(mask_wkbs),
-        kept_subjects,
-        skipped_sparse,
-        skipped_oversized,
+    _emit(
+        f"residual_paved: {len(objects)} polygonů, ~{total_m2:.0f} m² "
+        f"(OSM {len(elements)}, mask {len(mask_wkbs)}, residential ok={kept_subjects}, "
+        f"řídké={skipped_sparse}, >max={skipped_oversized}"
+        + (", soft timeout" if timed_out else "")
+        + ")"
     )
     return [
         OomObjectPart(
@@ -474,23 +496,14 @@ def _load_or_build_subject_mask(
     return subjects, mask
 
 
-def _difference_subjects(
-    subjects: list[bytes], mask_wkbs: list[bytes]
-) -> list[bytes]:
-    """Subject − maska. Maska se skládá po subjectu (STRtree), ne jeden obří Union."""
+def _build_mask_index(mask_wkbs: list[bytes]):
+    """Připraví masku pro opakované difference: STRtree + geoms, nebo united WKB."""
     if not mask_wkbs:
-        out: list[bytes] = []
-        for subject in subjects:
-            out.extend(difference_polygon_wkb(subject, None))
-        return out
+        return ("empty", None, None)
     try:
-        from shapely import STRtree, from_wkb, unary_union
+        from shapely import STRtree, from_wkb
     except ImportError:
-        mask = union_polygon_wkbs(mask_wkbs)
-        out = []
-        for subject in subjects:
-            out.extend(difference_polygon_wkb(subject, mask))
-        return out
+        return ("union", union_polygon_wkbs(mask_wkbs), None)
 
     mask_geoms = []
     for raw in mask_wkbs:
@@ -500,50 +513,74 @@ def _difference_subjects(
             continue
         if g is None or g.is_empty:
             continue
+        try:
+            # Zjednodušení fragmentů z bufferů – méně vertexů při unary_union.
+            g = g.simplify(_MASK_SIMPLIFY_M, preserve_topology=True)
+        except Exception:
+            pass
+        if g is None or g.is_empty:
+            continue
         mask_geoms.append(g)
     if not mask_geoms:
-        out = []
-        for subject in subjects:
-            out.extend(difference_polygon_wkb(subject, None))
-        return out
+        return ("empty", None, None)
+    return ("tree", STRtree(mask_geoms), mask_geoms)
 
-    tree = STRtree(mask_geoms)
-    out = []
+
+def _difference_one_subject(subject: bytes, mask_index) -> list[bytes]:
+    """Subject − maska s předpřipraveným indexem (1× STRtree na celý běh)."""
+    kind, payload, mask_geoms = mask_index
+    if kind == "empty" or not subject:
+        return difference_polygon_wkb(subject, None) if subject else []
+    if kind == "union":
+        return difference_polygon_wkb(subject, payload)
+
+    try:
+        from shapely import from_wkb, to_wkb, unary_union
+    except ImportError:
+        return difference_polygon_wkb(subject, union_polygon_wkbs([]))
+
+    try:
+        subj = from_wkb(subject)
+    except Exception:
+        return []
+    if subj is None or subj.is_empty:
+        return []
+    tree = payload
+    try:
+        hits_idx = tree.query(subj.buffer(2.0))
+    except Exception:
+        hits_idx = range(len(mask_geoms or []))
+    nearby = [mask_geoms[i] for i in hits_idx]
+    if not nearby:
+        return difference_polygon_wkb(subject, None)
+    try:
+        local_mask = unary_union(nearby)
+        if local_mask is not None and not local_mask.is_empty:
+            local_mask = local_mask.simplify(_MASK_SIMPLIFY_M, preserve_topology=True)
+    except Exception:
+        local_mask = None
+        for g in nearby:
+            try:
+                local_mask = g if local_mask is None else local_mask.union(g)
+            except Exception:
+                continue
+    if local_mask is None or local_mask.is_empty:
+        return difference_polygon_wkb(subject, None)
+    try:
+        mask = union_polygon_wkbs([bytes(to_wkb(local_mask, hex=False))])
+    except Exception:
+        mask = None
+    return difference_polygon_wkb(subject, mask)
+
+
+def _difference_subjects(
+    subjects: list[bytes], mask_wkbs: list[bytes]
+) -> list[bytes]:
+    """Subject − maska. Maska se skládá po subjectu (STRtree), ne jeden obří Union."""
+    index = _build_mask_index(mask_wkbs)
+    out: list[bytes] = []
     for subject in subjects:
-        try:
-            subj = from_wkb(subject)
-        except Exception:
-            continue
-        if subj is None or subj.is_empty:
-            continue
-        # Trochu rozšířit – buffer cest u hranice subjectu.
-        try:
-            hits_idx = tree.query(subj.buffer(2.0))
-        except Exception:
-            hits_idx = range(len(mask_geoms))
-        nearby = [mask_geoms[i] for i in hits_idx]
-        if not nearby:
-            out.extend(difference_polygon_wkb(subject, None))
-            continue
-        try:
-            local_mask = unary_union(nearby)
-        except Exception:
-            local_mask = None
-            for g in nearby:
-                try:
-                    local_mask = g if local_mask is None else local_mask.union(g)
-                except Exception:
-                    continue
-        if local_mask is None or local_mask.is_empty:
-            out.extend(difference_polygon_wkb(subject, None))
-            continue
-        try:
-            from shapely import to_wkb
-
-            mask = union_polygon_wkbs([bytes(to_wkb(local_mask, hex=False))])
-        except Exception:
-            mask = None
-        out.extend(difference_polygon_wkb(subject, mask))
+        out.extend(_difference_one_subject(subject, index))
     return out
 
 
