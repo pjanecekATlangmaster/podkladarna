@@ -104,6 +104,33 @@ def test_oom_metadata_uses_interval_override():
     assert meta["scale"] == 10000
 
 
+def test_oom_metadata_lidar_sources_and_no_kp_citation():
+    from app.pipeline.source_meta import INDICATIVE_LABEL_CS
+
+    lidar = {
+        "sheets": [],
+        "sheet_count": 0,
+        "dmp_mode": "ok",
+        "dmp_degraded": False,
+    }
+    meta = oom_metadata(
+        "forest_10000",
+        {"label": "Les", "contour_interval": 5, "scalefactor": 1},
+        {"scalefactor": 1, "use_kp": False},
+        lidar_sources=lidar,
+    )
+    assert meta["use_kp"] is False
+    assert meta["dmp_mode"] == "ok"
+    assert meta["dmp_degraded"] is False
+    assert meta["lidar_sources"] is lidar
+    assert "Karttapullautin" not in meta["citation"]
+    assert INDICATIVE_LABEL_CS in meta["citation"]
+    readme = oom_readme(meta)
+    assert INDICATIVE_LABEL_CS in readme
+    assert "Karttapullautin" not in readme
+    assert "Ortofoto slouží jen k vizuální kontrole" in readme
+    assert "vlastní DEM/DSM/CHM" in readme
+
 def test_build_oom_zip_layout(tmp_path: Path):
     kp = tmp_path / "work"
     kp.mkdir()

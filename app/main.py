@@ -303,8 +303,11 @@ def api_download(job_id: str):
 
 @app.get("/api/jobs/{job_id}/preview.png")
 def api_preview(job_id: str):
-    png = JOBS_DIR / job_id / "output" / "pullautus.png"
-    if not png.exists():
+    from app.pipeline.preview import resolve_preview_png
+
+    job_dir = JOBS_DIR / job_id
+    png = resolve_preview_png(job_dir / "output", job_dir / "work")
+    if png is None:
         raise HTTPException(404, "Nahled neni k dispozici")
     return FileResponse(png)
 

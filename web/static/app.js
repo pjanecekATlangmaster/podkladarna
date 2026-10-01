@@ -420,6 +420,11 @@ async function loadJobs() {
         timingEl.textContent = jobTimingText(selected);
         timingEl.classList.toggle("hidden", !timingEl.textContent);
       }
+      const sourcesEl = document.getElementById("detail-sources");
+      if (sourcesEl) {
+        sourcesEl.textContent = jobSourcesText(selected);
+        sourcesEl.classList.toggle("hidden", !sourcesEl.textContent);
+      }
       setJobActionLinks(selected);
       const img = document.getElementById("detail-img");
       if (selected.has_preview) {
@@ -511,6 +516,36 @@ function jobTimingText(job) {
   return start ? `Zařazeno ${start}` : "";
 }
 
+function jobSourcesText(job) {
+  const meta = job.source_meta;
+  if (!meta && !job.dmp_mode) return "";
+  const mode = job.dmp_mode || (meta && meta.dmp_mode);
+  let dmpLabel = "DMP ?";
+  if (mode === "ok") dmpLabel = "DMP OK";
+  else if (mode === "1g") dmpLabel = "DMP 1G";
+  else if (mode === "mixed") dmpLabel = "DMP OK+1G";
+  const parts = [dmpLabel];
+  if (job.dmp_degraded || (meta && meta.dmp_degraded)) {
+    parts.push("degradace 1G viditelná");
+  }
+  const sheets = (meta && meta.sheets) || [];
+  const ages = [];
+  for (const sheet of sheets) {
+    const dmr = (sheet.dmr && sheet.dmr.cache_age_days) ?? null;
+    const dmp = (sheet.dmp && sheet.dmp.cache_age_days) ?? null;
+    if (dmr != null) ages.push(dmr);
+    if (dmp != null) ages.push(dmp);
+  }
+  if (ages.length) {
+    const maxAge = Math.max(...ages);
+    parts.push(`cache ~${Math.round(maxAge)} d`);
+  } else if (sheets.length) {
+    parts.push(`${sheets.length} list${sheets.length === 1 ? "" : "y"} SM5`);
+  }
+  parts.push("epochy = stáří cache, ne pořízení ČÚZK");
+  return parts.join(" · ");
+}
+
 function setJobActionLinks(job) {
   document.getElementById("detail-download").href = `/api/jobs/${job.id}/download`;
   document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
@@ -534,6 +569,11 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
   if (timingEl) {
     timingEl.textContent = jobTimingText(job);
     timingEl.classList.toggle("hidden", !timingEl.textContent);
+  }
+  const sourcesEl = document.getElementById("detail-sources");
+  if (sourcesEl) {
+    sourcesEl.textContent = jobSourcesText(job);
+    sourcesEl.classList.toggle("hidden", !sourcesEl.textContent);
   }
   if (applyForm) applyJobToForm(job);
   setJobActionLinks(job);

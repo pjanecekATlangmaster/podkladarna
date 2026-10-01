@@ -74,6 +74,39 @@ def bbox_cache_key(bbox: tuple[float, float, float, float], precision: int = 4) 
     return "_".join(f"{v:.{precision}f}" for v in (west, south, east, north))
 
 
+def aoi_cache_key(
+    bbox: tuple[float, float, float, float],
+    *,
+    resolution_m: float | None = None,
+    sheet_ids: list[str] | tuple[str, ...] | None = None,
+    precision: int = 4,
+) -> str:
+    """Klíč cache podle AOI (+ volitelně buňka / listy SM5) – ne podle job ID.
+
+    Seam §10: stejný výřez sdílí underlaye/meziprodukty napříč joby.
+    Plná invalidace podle ekvidistance/laviček sem ještě nepatří.
+    """
+    parts = [bbox_cache_key(bbox, precision=precision)]
+    if resolution_m is not None:
+        parts.append(f"r{float(resolution_m):g}")
+    if sheet_ids:
+        sheets = "_".join(sorted({s.strip().upper() for s in sheet_ids if s and s.strip()}))
+        if sheets:
+            parts.append(sheets)
+    return "_".join(parts)
+
+
+def surfaces_cache_dir(
+    bbox: tuple[float, float, float, float],
+    *,
+    resolution_m: float = 1.0,
+    sheet_ids: list[str] | tuple[str, ...] | None = None,
+) -> Path:
+    """Sdílená cache DEM/DSM/CHM meziproduktů podle AOI (ne job id)."""
+    key = aoi_cache_key(bbox, resolution_m=resolution_m, sheet_ids=sheet_ids)
+    return settings.DOWNLOADS_DIR / "surfaces" / key
+
+
 def config_version(path: Path) -> str:
     if not path.is_file():
         return "none"

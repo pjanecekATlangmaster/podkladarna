@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -37,6 +38,7 @@ from app.pipeline.package_oom import (
     prepare_oom_map,
     resolve_discipline_presets,
 )
+from app.pipeline.preview import ensure_georef_template, resolve_preview_png
 from app.pipeline.reference_layers import build_reference_layers
 from app.pipeline.prepare_lidar import (
     crop_laz,
@@ -162,6 +164,11 @@ def run_job_pipeline(
     )
     if lidar_sources:
         options = {**options, "_lidar_sources": lidar_sources}
+        source_meta_path = work_dir / "source_meta.json"
+        source_meta_path.write_text(
+            json.dumps(lidar_sources, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         if lidar_sources.get("dmp_degraded"):
             log(
                 "VAROVÁNÍ: DMP 1G místo DMP OK u alespoň jednoho listu "
@@ -390,19 +397,16 @@ def _package_output(
 
     if want_zip:
         want_refs = bool(options.get("output_references", True))
-        if (
-            want_refs
-            and bbox
-            and (kp_cwd / "pullautus.png").is_file()
-            and (kp_cwd / "pullautus.pgw").is_file()
-        ):
+        georef = ensure_georef_template(kp_cwd) if want_refs and bbox else None
+        if want_refs and bbox and georef is not None:
+            template_png, template_pgw = georef
             log("=== Fáze: referenční podklady pro OOM ===")
             try:
                 built_refs = build_reference_layers(
                     job_dir,
                     tuple(bbox),
-                    kp_cwd / "pullautus.png",
-                    kp_cwd / "pullautus.pgw",
+                    template_png,
+                    template_pgw,
                     reference_dir,
                     log=log,
                 )
@@ -412,11 +416,21 @@ def _package_output(
                 ref_layers = sorted(p.name for p in built_refs.values())
             elif reference_dir.is_dir():
                 ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
+        elif want_refs and bbox:
+            log(
+                "=== Fáze: referenční PNG přeskočeny "
+                "(chybí georef šablona preview/pullautus/job_grid) ==="
+            )
         elif not want_refs:
             log("=== Fáze: referenční PNG přeskočeny (volba v GUI) ===")
 
         meta = oom_metadata(
-            preset_id, preset, options, job_name, reference_layers=ref_layers or None
+            preset_id,
+            preset,
+            options,
+            job_name,
+            reference_layers=ref_layers or None,
+            lidar_sources=options.get("_lidar_sources"),
         )
         omap_paths: list[Path] = []
         ruian_path: Path | None = None
@@ -541,7 +555,7 @@ def _package_output(
     else:
         log("=== Fáze: jen PNG náhled (ZIP/OOM přeskočeno) ===")
 
-    for name in ("pullautus.png", "pullautus.pgw"):
+    for name in ("pullautus.png", "pullautus.pgw", "preview.png", "preview.pgw"):
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)
@@ -575,8 +589,9 @@ def _package_output(
 
     if want_zip and zip_path.is_file():
         log(f"Výstup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")
-    elif (output_dir / "pullautus.png").is_file():
-        png = output_dir / "pullautus.png"
+    elif resolve_preview_png(output_dir) is not None:
+        png = resolve_preview_png(output_dir)
+        assert png is not None
         log(f"Výstup: jen PNG náhled ({png.stat().st_size / 1e6:.2f} MB)")
     else:
         log("Výstup: žádný ZIP ani PNG")

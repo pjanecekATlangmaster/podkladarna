@@ -368,12 +368,26 @@ def _job_has_output(job_dir: Path) -> bool:
     return (out / "podkladarna_output.zip").is_file() or (out / "podkladarna_oom.zip").is_file()
 
 
+def _job_source_meta(job_dir: Path) -> dict[str, Any] | None:
+    path = job_dir / "work" / "source_meta.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
+    from app.pipeline.preview import has_preview
+
     job_dir = JOBS_DIR / row["id"]
     keys = row.keys()
     started_at = row["started_at"] if "started_at" in keys else None
     paths = _job_paths(row["id"])
-    return {
+    source_meta = _job_source_meta(job_dir)
+    job = {
         "id": row["id"],
         "name": row["name"],
         "preset_id": row["preset_id"],
@@ -387,6 +401,11 @@ def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
         "duration_s": _job_duration_s(row),
         "has_output": _job_has_output(job_dir),
         "has_oom": _job_has_output(job_dir),
-        "has_preview": (job_dir / "output" / "pullautus.png").exists(),
+        "has_preview": has_preview(job_dir / "output", job_dir / "work"),
         **paths,
     }
+    if source_meta:
+        job["source_meta"] = source_meta
+        job["dmp_mode"] = source_meta.get("dmp_mode")
+        job["dmp_degraded"] = bool(source_meta.get("dmp_degraded"))
+    return job

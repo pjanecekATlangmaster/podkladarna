@@ -65,3 +65,28 @@ def test_references_cache_dir_includes_sizes(tmp_path: Path, monkeypatch):
     assert "r2048x1536" in path.name
     assert "o4096x3072" in path.name
     assert path.name.startswith("14.4000_50.0800_14.4200_50.0900_")
+
+
+def test_aoi_cache_key_not_job_id():
+    from app.download_cache import aoi_cache_key
+
+    bbox = (14.4, 50.08, 14.42, 50.09)
+    key = aoi_cache_key(bbox, resolution_m=1.0, sheet_ids=["prah77", "PRAH78"])
+    assert "prah77" not in key  # normalized upper
+    assert "PRAH77" in key and "PRAH78" in key
+    assert key.startswith("14.4000_50.0800_14.4200_50.0900_r1")
+    # Must not look like a 12-char job id alone.
+    assert key != "abc123def456"
+    assert len(key) > 12
+
+
+def test_surfaces_cache_dir_uses_aoi_key(tmp_path: Path, monkeypatch):
+    from app import settings
+    from app.download_cache import aoi_cache_key, surfaces_cache_dir
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    bbox = (14.4, 50.08, 14.42, 50.09)
+    path = surfaces_cache_dir(bbox, resolution_m=1.0, sheet_ids=["PRAH77"])
+    assert path.parent.name == "surfaces"
+    assert path.name == aoi_cache_key(bbox, resolution_m=1.0, sheet_ids=["PRAH77"])
+    assert path.name != "job123"
