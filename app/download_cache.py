@@ -179,6 +179,159 @@ def lidar_crop_cache_dir(
     return settings.DOWNLOADS_DIR / "lidar_crop" / key
 
 
+# Per-list PDAL crop (DMR ground / DMP vegetace) – stejný list+bounds+filtr → bez PDAL.
+SHEET_CROP_GROUND = "ground_cls2"
+SHEET_CROP_VEG = "veg_cls5_6"
+SHEET_CROP_ARTIFACT = "cropped.laz"
+# Prázdný ořez může být < 1 KB; použitelný sheet crop bereme stejně jako prepare_lidar.
+MIN_LAZ_BYTES_SHEET = 1000
+
+
+def sheet_id_for_laz(src: Path) -> str:
+    """SM5 mapnom z cesty cache (…/sm5/VRCH31/DMPOK.laz), jinak stem souboru."""
+    parent = src.parent.name.strip().upper()
+    if parent and parent not in {"SM5", "LIDAR", "CACHE", "DATA"}:
+        return parent
+    return src.stem.strip().upper() or "UNKNOWN"
+
+
+def sheet_crop_bounds_key(bounds: tuple[float, float, float, float]) -> str:
+    """Stabilní klíč ořezu (mm) – musí sedět s ``bounds_from_sheet_crop_key``."""
+    return "_".join(f"{float(v):.3f}" for v in bounds)
+
+
+def bounds_from_sheet_crop_key(key: str) -> tuple[float, float, float, float] | None:
+    parts = key.split("_")
+    if len(parts) != 4:
+        return None
+    try:
+        return tuple(float(p) for p in parts)  # type: ignore[return-value]
+    except ValueError:
+        return None
+
+
+def bounds_contain(
+    outer: tuple[float, float, float, float],
+    inner: tuple[float, float, float, float],
+    *,
+    eps: float = 1e-3,
+) -> bool:
+    """True, když outer pokrývá inner (kvalitně bezpečný subset ořez)."""
+    return (
+        outer[0] <= inner[0] + eps
+        and outer[1] <= inner[1] + eps
+        and outer[2] >= inner[2] - eps
+        and outer[3] >= inner[3] - eps
+    )
+
+
+def sheet_crop_recipe_dir(sheet_id: str, recipe: str) -> Path:
+    safe_sheet = "".join(c if c.isalnum() or c in "-_" else "_" for c in sheet_id.upper())
+    safe_recipe = "".join(c if c.isalnum() or c in "-_" else "_" for c in recipe)
+    return settings.DOWNLOADS_DIR / "lidar_sheet_crop" / safe_sheet / safe_recipe
+
+
+def sheet_crop_cache_dir(
+    sheet_id: str,
+    recipe: str,
+    bounds: tuple[float, float, float, float],
+) -> Path:
+    return sheet_crop_recipe_dir(sheet_id, recipe) / sheet_crop_bounds_key(bounds)
+
+
+def try_lookup_sheet_crop(
+    src: Path,
+    bounds: tuple[float, float, float, float],
+    recipe: str,
+    *,
+    force: bool = False,
+    max_age_days: int | None = None,
+) -> tuple[str, Path, tuple[float, float, float, float]] | None:
+    """Najde cache ořezu listu.
+
+    Vrací ``(kind, path, cached_bounds)`` kde kind je ``exact`` nebo ``superset``.
+    ``superset`` = větší dřívější ořez obsahuje požadovaný bbox → PDAL jen z malého LAZ.
+    """
+    if force or bounds is None:
+        return None
+    age_limit = (
+        settings.LIDAR_CACHE_MAX_AGE_DAYS if max_age_days is None else max_age_days
+    )
+    src_fp = file_fingerprint(src)
+    sheet = sheet_id_for_laz(src)
+    recipe_root = sheet_crop_recipe_dir(sheet, recipe)
+    if not recipe_root.is_dir():
+        return None
+
+    exact_dir = sheet_crop_cache_dir(sheet, recipe, bounds)
+    exact_laz = exact_dir / SHEET_CROP_ARTIFACT
+    if is_fresh(exact_dir, exact_laz, age_limit, min_size=MIN_LAZ_BYTES_SHEET):
+        meta = read_meta(exact_dir) or {}
+        if fingerprints_equal(meta.get("src_fp"), src_fp):
+            return "exact", exact_laz, bounds
+
+    # Nejmenší nadmnožina (méně bodů k dořezání).
+    best: tuple[float, Path, tuple[float, float, float, float]] | None = None
+    for child in recipe_root.iterdir():
+        if not child.is_dir():
+            continue
+        laz = child / SHEET_CROP_ARTIFACT
+        if not is_fresh(child, laz, age_limit, min_size=MIN_LAZ_BYTES_SHEET):
+            continue
+        meta = read_meta(child) or {}
+        if not fingerprints_equal(meta.get("src_fp"), src_fp):
+            continue
+        cached_bounds = meta.get("bounds")
+        if cached_bounds is None:
+            cached_bounds = bounds_from_sheet_crop_key(child.name)
+        try:
+            cb = tuple(float(x) for x in cached_bounds)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if len(cb) != 4 or not bounds_contain(cb, bounds):
+            continue
+        area = max(0.0, (cb[2] - cb[0]) * (cb[3] - cb[1]))
+        if best is None or area < best[0]:
+            best = (area, laz, cb)  # type: ignore[assignment]
+    if best is None:
+        return None
+    return "superset", best[1], best[2]
+
+
+def persist_sheet_crop(
+    src: Path,
+    cropped: Path,
+    bounds: tuple[float, float, float, float],
+    recipe: str,
+    *,
+    log=None,
+) -> Path | None:
+    """Uloží ořez listu do sdílené cache (stejný src+bounds+filtr)."""
+    if not cropped.is_file() or cropped.stat().st_size < MIN_LAZ_BYTES_SHEET:
+        return None
+    sheet = sheet_id_for_laz(src)
+    cache_dir = sheet_crop_cache_dir(sheet, recipe, bounds)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / SHEET_CROP_ARTIFACT
+    link_or_copy(cropped, dest)
+    write_meta(
+        cache_dir,
+        kind="lidar_sheet_crop",
+        recipe=recipe,
+        sheet_id=sheet,
+        bounds=list(bounds),
+        src_fp=file_fingerprint(src),
+        crop_fp=file_fingerprint(dest),
+        source_name=src.name,
+    )
+    if log:
+        log(
+            f"Cache ořezu listu {sheet}/{recipe} uložena "
+            f"({dest.stat().st_size / 1e6:.1f} MB) → {cache_dir.name}"
+        )
+    return dest
+
+
 def shade_cache_dir(surfaces_dir: Path) -> Path:
     return Path(surfaces_dir) / "shade"
 
@@ -235,7 +388,10 @@ def try_restore_lidar_crop(
         meta = read_meta(cache_dir) or {}
         age = age_days(meta.get("downloaded_at"))
         age_s = f", stáří {age:.1f} d" if age is not None else ""
-        log(f"AOI lidar crop cache hit{age_s} ← {cache_dir.name}")
+        log(
+            "AOI cache zásah (sloučený LAZ) – přeskakuji PDAL ořez/třídění"
+            f"{age_s} ← {cache_dir.name}"
+        )
     return dest
 
 

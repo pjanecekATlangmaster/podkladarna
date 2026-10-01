@@ -202,6 +202,7 @@ def run_job_pipeline(
                 log=log,
                 crop_bounds=crop,
                 scalefactor=scalefactor,
+                force_refresh=force_refresh,
             )
             if crop_cache is not None and bbox_tuple is not None:
                 persist_lidar_crop(
@@ -309,6 +310,7 @@ def run_job_pipeline(
                         scalefactor=scalefactor,
                         extra_pad_m=extra_pad,
                         output_name=retry_name,
+                        force_refresh=force_refresh,
                     )
                 else:
                     wider = kp_pad_crop_bounds(crop, scalefactor, extra_pad_m=extra_pad)
