@@ -7,7 +7,11 @@ sousední čárky řetězí na lomenou čáru (201/104).
 U skal (201) se navíc hledá plošné pole: čárky se hodí do rastru s krokem KP
 a plocha (201.2 / 206, nouzově 210) vznikne jen tam, kde je útvar 2D (buňka
 obklopená ze všech stran). Stěna je pás 1–2 buněk, žádnou takovou buňku nemá,
-a zůstane linií 201. Obrys se obtahuje po hranách buněk, ne konvexní obálkou.
+a zůstane linií 201.
+
+Obrys plochy je vnější prstenec footprintu buněk (union čtverců / obtah hran),
+ne řetězení konců ticků – ty by se křížily. Douglas–Peucker se na prstenci
+použije jen když výsledek zůstane jednoduchý (bez self-intersect).
 """
 
 from __future__ import annotations
@@ -282,12 +286,9 @@ def _rock_area_polygons(
         for c in comp:
             area_cells.update(nb for nb in _neighbors4(c) if nb in rocky)
         kept: list[list[tuple[float, float]]] = []
-        for ring in _trace_cell_rings(area_cells, cell):
-            if _signed_ring_area(ring) <= 0:
-                continue  # díra uvnitř plochy
-            simple = _simplify_ring(ring, ROCK_SIMPLIFY_M)
-            if len(simple) >= 3 and _ring_area(simple) >= MIN_ROCK_AREA_M2:
-                kept.append(simple)
+        for ring in _rock_outer_rings(area_cells, cell):
+            if len(ring) >= 3 and _ring_area(ring) >= MIN_ROCK_AREA_M2:
+                kept.append(ring)
         if kept:
             polygons.extend(kept)
             used_cells |= area_cells
@@ -332,6 +333,187 @@ def _cell_components(cells: set[_Cell]) -> list[list[_Cell]]:
                     stack.append(nb)
         out.append(comp)
     return out
+
+
+def _rock_outer_rings(
+    cells: set[_Cell], cell_m: float
+) -> list[list[tuple[float, float]]]:
+    """Vnější obrys skalního footprintu – jednoduchý prstenec (bez křížení).
+
+    Preferuje union buněk (shapely): čistý okraj kamene místo schodů / křížení
+    z naivního řetězení. Fallback: obtah hran + zjednodušení jen když zůstane
+    simple; jinak původní obtah nebo konvexní obálka.
+    """
+    rings = _rings_from_cell_union(cells, cell_m)
+    if rings is not None:
+        return rings
+    out: list[list[tuple[float, float]]] = []
+    for ring in _trace_cell_rings(cells, cell_m):
+        if _signed_ring_area(ring) <= 0:
+            continue  # díra
+        simple = _simplify_ring_safe(ring, ROCK_SIMPLIFY_M)
+        if len(simple) >= 3 and _ring_is_simple(simple):
+            out.append(simple)
+    return out
+
+
+def _rings_from_cell_union(
+    cells: set[_Cell], cell_m: float
+) -> list[list[tuple[float, float]]] | None:
+    """Union čtverců buněk → vnější prstence. None = shapely není k dispozici."""
+    if not cells:
+        return []
+    try:
+        from shapely import make_valid
+        from shapely.geometry import box
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+
+    polys = [
+        box(i * cell_m, j * cell_m, (i + 1) * cell_m, (j + 1) * cell_m)
+        for i, j in cells
+    ]
+    geom = unary_union(polys)
+    # Mírné otevření/zavření: usekne schody rastru, neprotáhne 1D stěnu.
+    pad = cell_m * 0.45
+    try:
+        geom = geom.buffer(pad, join_style=1).buffer(-pad, join_style=1)
+    except Exception:
+        pass
+    try:
+        geom = make_valid(geom)
+    except Exception:
+        pass
+    if geom is None or geom.is_empty:
+        return []
+
+    parts = []
+    if geom.geom_type == "Polygon":
+        parts = [geom]
+    elif geom.geom_type == "MultiPolygon":
+        parts = list(geom.geoms)
+    else:
+        try:
+            parts = [g for g in geom.geoms if g.geom_type == "Polygon"]
+        except Exception:
+            return []
+
+    rings: list[list[tuple[float, float]]] = []
+    for poly in parts:
+        if poly.is_empty or poly.area < MIN_ROCK_AREA_M2 * 0.5:
+            continue
+        try:
+            poly = poly.simplify(ROCK_SIMPLIFY_M, preserve_topology=True)
+        except Exception:
+            pass
+        if poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        coords = [(float(x), float(y)) for x, y in poly.exterior.coords]
+        if len(coords) >= 2 and coords[0] == coords[-1]:
+            coords = coords[:-1]
+        if len(coords) >= 3 and _ring_is_simple(coords):
+            rings.append(coords)
+        elif len(coords) >= 3:
+            hull = _convex_hull_ring(coords)
+            if len(hull) >= 3:
+                rings.append(hull)
+    return rings
+
+
+def _simplify_ring_safe(
+    ring: list[tuple[float, float]], tol: float
+) -> list[tuple[float, float]]:
+    """Zjednoduší prstenec; při self-intersect vrátí původní nebo konvexní obálku."""
+    simple = _simplify_ring(ring, tol)
+    if _ring_is_simple(simple):
+        return simple
+    if _ring_is_simple(ring):
+        return ring
+    hull = _convex_hull_ring(ring)
+    return hull if len(hull) >= 3 else ring
+
+
+def _ring_is_simple(pts: list[tuple[float, float]]) -> bool:
+    """True, když se nekříží nesousední hrany (včetně uzavření prstence)."""
+    n = len(pts)
+    if n < 3:
+        return False
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        for j in range(i + 1, n):
+            if (j + 1) % n == i or (i + 1) % n == j:
+                continue
+            c, d = pts[j], pts[(j + 1) % n]
+            if _segments_intersect(a, b, c, d):
+                return False
+    return True
+
+
+def _segments_intersect(
+    a: tuple[float, float],
+    b: tuple[float, float],
+    c: tuple[float, float],
+    d: tuple[float, float],
+) -> bool:
+    """Proper or improper intersection of open segments ab and cd (shared vertex OK)."""
+
+    def orient(
+        p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]
+    ) -> int:
+        v = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1])
+        if abs(v) < 1e-12:
+            return 0
+        return 1 if v > 0 else 2
+
+    def on_seg(
+        p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]
+    ) -> bool:
+        return (
+            min(p[0], r[0]) - 1e-9 <= q[0] <= max(p[0], r[0]) + 1e-9
+            and min(p[1], r[1]) - 1e-9 <= q[1] <= max(p[1], r[1]) + 1e-9
+        )
+
+    # Shared endpoint of adjacent ring edges is not a crossing.
+    if a == c or a == d or b == c or b == d:
+        return False
+    o1, o2 = orient(a, b, c), orient(a, b, d)
+    o3, o4 = orient(c, d, a), orient(c, d, b)
+    if o1 != o2 and o3 != o4:
+        return True
+    if o1 == 0 and on_seg(a, c, b):
+        return True
+    if o2 == 0 and on_seg(a, d, b):
+        return True
+    if o3 == 0 and on_seg(c, a, d):
+        return True
+    if o4 == 0 and on_seg(c, b, d):
+        return True
+    return False
+
+
+def _convex_hull_ring(pts: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Monotone chain – nouzový jednoduchý vnější prstenec."""
+    uniq = sorted(set(pts))
+    if len(uniq) <= 2:
+        return list(uniq)
+
+    def cross(
+        o: tuple[float, float], a: tuple[float, float], b: tuple[float, float]
+    ) -> float:
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower: list[tuple[float, float]] = []
+    for p in uniq:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper: list[tuple[float, float]] = []
+    for p in reversed(uniq):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
 
 
 def _trace_cell_rings(
@@ -451,4 +633,15 @@ def polyline_to_strip_ring(
     ring = left + list(reversed(right))
     if ring[0] != ring[-1]:
         ring.append(ring[0])
-    return ring if len(ring) >= 4 else None
+    if len(ring) < 4:
+        return None
+    # Zigzagová střednice → pás se kříží; vezmi obálku, ať OOM nekreslí smyčky.
+    body = ring[:-1]
+    if not _ring_is_simple(body):
+        hull = _convex_hull_ring(body)
+        if len(hull) < 3:
+            return None
+        if hull[0] != hull[-1]:
+            hull = hull + [hull[0]]
+        return hull
+    return ring

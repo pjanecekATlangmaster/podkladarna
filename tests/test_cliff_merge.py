@@ -237,3 +237,62 @@ def test_polyline_to_strip_ring_makes_closed_area():
     assert ring[0] == ring[-1]
     assert len(ring) >= 5
     assert _ring_area(ring) == pytest.approx(30.0, abs=0.5)
+
+
+def _ring_self_intersects(pts) -> bool:
+    from app.pipeline.cliff_merge import _ring_is_simple
+
+    body = pts[:-1] if len(pts) >= 2 and pts[0] == pts[-1] else pts
+    return not _ring_is_simple(body)
+
+
+def test_rock_area_rings_are_not_self_intersecting():
+    """Shluk ticků → plocha s čistým okrajem (následující body se nekříží)."""
+    for ticks in (
+        _field(21.0, 21.0),
+        _field(30.0, 12.0) + _field(12.0, 30.0),
+        _field(24.0, 24.0) + _wall(40, x0=30.0, y=12.0),
+        _field(18.0, 18.0) + _field(18.0, 18.0, x0=60.0),
+    ):
+        got = merge_cliff_ticks(ticks, as_polygons=True)
+        assert got.polygons
+        for ring in got.polygons:
+            assert len(ring) >= 3
+            assert not _ring_self_intersects(ring)
+
+
+def test_simplify_ring_safe_rejects_bowtie():
+    """Douglas–Peucker na prstenci nesmí vrátit self-intersecting bowtie."""
+    from app.pipeline.cliff_merge import _ring_is_simple, _simplify_ring_safe
+
+    # C-tvar: agresivní DP by propojil ramena a vytvořil průsečík.
+    ring = [
+        (0.0, 0.0),
+        (10.0, 0.0),
+        (10.0, 2.0),
+        (2.0, 2.0),
+        (2.0, 8.0),
+        (10.0, 8.0),
+        (10.0, 10.0),
+        (0.0, 10.0),
+    ]
+    safe = _simplify_ring_safe(ring, tol=9.0)
+    assert _ring_is_simple(safe)
+    assert not _ring_self_intersects(safe)
+
+
+def test_zigzag_strip_falls_back_to_simple_hull():
+    """Zigzagová střednice nesmí dát křížící se pás 206."""
+    zig = [(float(i) * 2.0, (i % 2) * 10.0) for i in range(10)]
+    ring = polyline_to_strip_ring(zig, half_width_m=1.5)
+    assert ring is not None
+    assert not _ring_self_intersects(ring)
+
+
+def test_ring_is_simple_detects_bowtie():
+    from app.pipeline.cliff_merge import _ring_is_simple
+
+    bowtie = [(0.0, 0.0), (2.0, 2.0), (0.0, 2.0), (2.0, 0.0)]
+    assert not _ring_is_simple(bowtie)
+    square = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
+    assert _ring_is_simple(square)
