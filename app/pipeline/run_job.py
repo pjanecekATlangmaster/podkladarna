@@ -46,6 +46,7 @@ from app.pipeline.package_oom import (
     prepare_oom_map,
     resolve_discipline_presets,
 )
+from app.pipeline.oom_preview import oom_preview_enabled, write_job_oom_preview
 from app.pipeline.preview import (
     compose_job_preview,
     ensure_georef_template,
@@ -481,10 +482,17 @@ def run_job_pipeline(
         except Exception as exc:
             log(f"Náhled compose: přeskočeno ({exc})")
     elif not use_kp:
-        log(
-            "Náhled PNG: přeskočen (use_kp=false) – primární výstup je OOM/ZIP; "
-            "ČÚZK reference v ZIPu zůstávají. Opt-in: compose_preview=1."
-        )
+        if oom_preview_enabled(options):
+            log(
+                "Náhled PNG: hillshade compose přeskočen (use_kp=false); "
+                "web náhled vznikne z .omap po sestavení mapy. "
+                "ČÚZK reference v ZIPu zůstávají."
+            )
+        else:
+            log(
+                "Náhled PNG: přeskočen (use_kp=false) – primární výstup je OOM/ZIP; "
+                "ČÚZK reference v ZIPu zůstávají. Opt-in: compose_preview=1."
+            )
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(
@@ -682,6 +690,17 @@ def _package_output(
                         omap_paths.append(omap_p)
                     else:
                         log(f"OOM: {variant_name} nevytvořeno (prepare_oom_map vrátil None)")
+
+            try:
+                write_job_oom_preview(
+                    omap_paths,
+                    kp_cwd,
+                    output_dir,
+                    options,
+                    log=log,
+                )
+            except Exception as exc:
+                log(f"OOM náhled: přeskočeno ({exc})")
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "earth_bank")
         build_oom_zip(
