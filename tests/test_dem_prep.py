@@ -53,12 +53,14 @@ def test_prepare_job_surfaces_with_chm(tmp_path: Path):
 
     pdal_calls: list[tuple[str, dict]] = []
     chm_inputs: list[str] = []
+    fill_calls: list[str] = []
 
     def fake_pdal(laz, bounds, dest, *, resolution_m=1.0, log=None, **kw):
         pdal_calls.append((dest.name, kw))
         dest.write_bytes(b"tif" * 200)
 
     def fake_fill(src, dest, *, log=None):
+        fill_calls.append(src.name)
         dest.write_bytes(b"filled" * 50)
 
     def fake_chm(dem, dsm, dest, *, log=None):
@@ -75,12 +77,16 @@ def test_prepare_job_surfaces_with_chm(tmp_path: Path):
     ):
         result = prepare_job_surfaces(work, bounds)
 
-    assert result.dsm_filled is not None and result.dsm_filled.is_file()
+    # dsm_filled se už negeneruje (fillnodata by kazil CHM); CHM z raw DSM.
+    assert result.dsm_filled is None
+    assert not (dem_work_dir(work) / "dsm_filled.tif").exists()
     assert result.chm is not None and result.chm.is_file()
     assert result.surface_laz == "veg_merged.laz"
     # DSM na mřížce DEM; CHM z raw DSM (ne fillnodata přes louky)
     assert dict(pdal_calls)["dsm_raw.tif"] == {"grid": (0.0, 0.0, 10, 10)}
     assert chm_inputs == ["dsm_raw.tif"]
+    # fillnodata jen pro DEM, ne pro DSM
+    assert fill_calls == ["dem_raw.tif"]
 
 
 def test_gdal_chm_via_qgis_tool(tmp_path: Path):

@@ -404,7 +404,12 @@ def run_job_pipeline(
     osm_kp_zip: Path | None = None
     kp_zabaged = zabaged_clean
     if bbox:
-        log("=== Fáze: OSM pěšiny a objekty (před KP PNG) ===")
+        osm_phase = (
+            "=== Fáze: OSM pěšiny a objekty (vstup KP PNG) ==="
+            if use_kp
+            else "=== Fáze: OSM pěšiny a objekty (OOM / ZIP) ==="
+        )
+        log(osm_phase)
         try:
             prepare_osm_paths(
                 work_dir,
@@ -422,7 +427,9 @@ def run_job_pipeline(
                 preset_id=preset_id,
                 log=log,
             )
-            osm_kp_zip = write_osm_kp_zip(work_dir, log=log)
+            # osm_kp.zip je jen vstup 2. průchodu pullauta – bez KP zbytečný ogr2ogr.
+            if use_kp:
+                osm_kp_zip = write_osm_kp_zip(work_dir, log=log)
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
             log(f"OSM: přeskočeno ({exc})")

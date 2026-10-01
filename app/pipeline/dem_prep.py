@@ -276,11 +276,9 @@ def prepare_job_surfaces(
     _fill_dem_nodata(dem_raw, dem_filled, log=log)
 
     dsm_raw: Path | None = None
-    dsm_filled: Path | None = None
     chm: Path | None = None
     if surface is not None and surface.is_file():
         dsm_raw = dem_dir / "dsm_raw.tif"
-        dsm_filled = dem_dir / "dsm_filled.tif"
         dsm_kwargs = {}
         dem_grid = _raster_grid(dem_raw, log=log)
         if dem_grid is not None:
@@ -295,7 +293,9 @@ def prepare_job_surfaces(
             **dsm_kwargs,
         )
         if dsm_raw.is_file() and dsm_raw.stat().st_size >= 500:
-            _fill_dem_nodata(dsm_raw, dsm_filled, log=log)
+            # Úmyslně bez dsm_filled / fillnodata: CHM bere raw DSM (buňka bez
+            # DMP bodu = 0 / louka). Fill by roztáhl koruny přes otevřený terén
+            # a nic jiného dsm_filled nečte.
             try:
                 chm = _gdal_chm(dem_filled, dsm_raw, dem_dir / "chm.tif", log=log)
             except Exception as exc:
@@ -306,8 +306,14 @@ def prepare_job_surfaces(
             if log:
                 log("DSM: PDAL nevytvořil použitelný raster – CHM přeskočeno")
             dsm_raw = None
-            dsm_filled = None
 
+    # dsm_filled jen z případné staré AOI cache; nově se negeneruje.
+    dsm_filled_path = dem_dir / "dsm_filled.tif"
+    dsm_filled = (
+        dsm_filled_path
+        if dsm_filled_path.is_file() and dsm_filled_path.stat().st_size >= 500
+        else None
+    )
     result = DemPrepResult(
         dem_raw=dem_raw,
         dem_filled=dem_filled,
@@ -332,8 +338,8 @@ def prepare_job_surfaces(
         )
     if log:
         parts = [f"DEM={dem_filled.name}"]
-        if dsm_filled:
-            parts.append(f"DSM={dsm_filled.name}")
+        if dsm_raw:
+            parts.append(f"DSM={dsm_raw.name}")
         if chm:
             parts.append(f"CHM={chm.name}")
         log("DEM prep hotovo: " + ", ".join(parts))
