@@ -11,12 +11,37 @@ function Ensure-DevDeps {
     python -m pip install -q -r requirements.txt -r requirements-dev.txt
 }
 
+function Ensure-QgisGisEnv {
+    # QGIS ogr2ogr must not pick pip pyproj's older proj.db (EPSG:5514 fails).
+    $candidates = @(
+        $env:OSGEO4W_ROOT,
+        "C:\QGIS",
+        "C:\OSGeo4W",
+        "C:\OSGeo4W64"
+    ) | Where-Object { $_ }
+    foreach ($cand in $candidates) {
+        $projDir = Join-Path $cand "share\proj"
+        $binDir = Join-Path $cand "bin"
+        if (-not (Test-Path (Join-Path $projDir "proj.db"))) { continue }
+        $env:OSGEO4W_ROOT = $cand
+        $env:PROJ_DATA = $projDir
+        $env:PROJ_LIB = $projDir
+        if ((Test-Path $binDir) -and ($env:PATH -notmatch [regex]::Escape($binDir))) {
+            $env:PATH = $env:PATH + [IO.Path]::PathSeparator + $binDir
+        }
+        return
+    }
+}
+
+Ensure-QgisGisEnv
+
 switch ($Action) {
     "test" {
         Ensure-DevDeps
         python -m pytest tests/ -v
     }
     "run" {
+        Ensure-QgisGisEnv
         $env:PODKLADARNA_DATA = Join-Path $Root "data"
         python -m uvicorn app.main:app --host 127.0.0.1 --port 8672 --reload
     }

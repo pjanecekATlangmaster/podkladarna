@@ -75,6 +75,21 @@ python scripts/smoke_e2e.py --wait-minutes 45   # testdata/ → celé kolečko
 .\scripts\dev.ps1 all         # pytest → docker → e2e
 ```
 
+### Windows PROJ / QGIS (EPSG:5514)
+
+QGIS `ogr2ogr` must use QGIS `proj.db`, not pip pyproj’s older copy
+(`DATABASE.LAYOUT.VERSION.MINOR = 4` → GDAL expects `>= 6`).
+
+`scripts/dev.ps1` and `app.tool_env.apply_local_gis_env()` set this automatically.
+One-liner if you run tools outside the script:
+
+```powershell
+$env:PROJ_DATA = 'C:\QGIS\share\proj'; $env:PROJ_LIB = $env:PROJ_DATA
+# optional: append (do not prepend) so system python stays first
+$env:PATH = $env:PATH + ';C:\QGIS\bin'
+gdalsrsinfo EPSG:5514   # must not mention pyproj\proj_dir
+```
+
 ---
 
 ## 4. NAS deploy až po zelených testech

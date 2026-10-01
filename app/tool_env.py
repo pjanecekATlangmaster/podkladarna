@@ -33,8 +33,27 @@ def osgeo4w_root() -> Path | None:
     return None
 
 
+def osgeo_proj_dir(root: Path | None = None) -> Path | None:
+    """``share/proj`` next to the QGIS/OSGeo4W root used for ogr2ogr/pdal."""
+    root = root or osgeo4w_root()
+    if not root:
+        return None
+    path = root / "share" / "proj"
+    if (path / "proj.db").exists():
+        return path
+    return None
+
+
 def proj_data_dir() -> Path | None:
-    """PROJ data bundled with pip pyproj (PROJ 9+). OSGeo4W share/proj is often too old."""
+    """PROJ data matching local QGIS/OSGeo GDAL; pyproj only as fallback.
+
+    QGIS GDAL (libproj) expects a matching ``proj.db``. Pip pyproj often ships an
+    older layout (e.g. MINOR=4) while QGIS 3.4x needs MINOR>=6 — pointing
+    ``PROJ_DATA`` at pyproj then breaks ``ogr2ogr`` EPSG:5514.
+    """
+    osgeo = osgeo_proj_dir()
+    if osgeo is not None:
+        return osgeo
     try:
         from pyproj.datadir import get_data_dir
 
@@ -43,25 +62,11 @@ def proj_data_dir() -> Path | None:
             return path
     except Exception:
         pass
-    root = osgeo4w_root()
-    if root:
-        path = root / "share" / "proj"
-        if (path / "proj.db").exists():
-            return path
     return None
 
 
-def _is_osgeo_proj_dir(raw: str, root: Path) -> bool:
-    if not raw:
-        return False
-    try:
-        return Path(raw).resolve() == (root / "share" / "proj").resolve()
-    except OSError:
-        return False
-
-
 def apply_local_gis_env() -> Path | None:
-    """Na Windows doplní OSGeo4W do PATH a GDAL/PDAL data. PROJ bere z pyproj."""
+    """Na Windows doplní OSGeo4W/QGIS do PATH a GDAL/PDAL/PROJ data."""
     if os.name != "nt":
         return None
     root = osgeo4w_root()
@@ -83,10 +88,7 @@ def apply_local_gis_env() -> Path | None:
         if folder.is_dir():
             os.environ.setdefault(key, str(folder))
 
-    # GDAL 3.11+ očekává proj.db LAYOUT.MINOR >= 4. OSGeo4W share/proj bývá 8.2 (minor=2).
-    for key in ("PROJ_DATA", "PROJ_LIB"):
-        if _is_osgeo_proj_dir(os.environ.get(key, ""), root):
-            os.environ.pop(key, None)
+    # Always pin PROJ to QGIS/OSGeo share/proj when present (not pip pyproj).
     compatible = proj_data_dir()
     if compatible:
         os.environ["PROJ_DATA"] = str(compatible)
@@ -95,13 +97,10 @@ def apply_local_gis_env() -> Path | None:
 
 
 def gis_subprocess_env(exe: str | None = None) -> dict[str, str]:
-    """Env for pdal/ogr2ogr/ogrinfo: never mix a new libproj with OSGeo4W's old proj.db."""
+    """Env for pdal/ogr2ogr/ogrinfo: PROJ_DATA must match the GDAL binary's libproj."""
     env = os.environ.copy()
-    proj = proj_data_dir()
-    if proj:
-        env["PROJ_DATA"] = str(proj)
-        env["PROJ_LIB"] = str(proj)
     root = osgeo4w_root()
+    proj = osgeo_proj_dir(root) or proj_data_dir()
     if root and exe:
         try:
             under = Path(exe).resolve().is_relative_to(root.resolve())
@@ -109,12 +108,18 @@ def gis_subprocess_env(exe: str | None = None) -> dict[str, str]:
             under = False
         if under:
             env["OSGEO4W_ROOT"] = str(root)
+            osgeo_proj = osgeo_proj_dir(root)
+            if osgeo_proj is not None:
+                proj = osgeo_proj
             gdal_data = root / "apps" / "gdal" / "share" / "gdal"
             if gdal_data.is_dir():
                 env["GDAL_DATA"] = str(gdal_data)
             pdal_plug = root / "apps" / "pdal" / "plugins"
             if pdal_plug.is_dir():
                 env["PDAL_DRIVER_PATH"] = str(pdal_plug)
+    if proj:
+        env["PROJ_DATA"] = str(proj)
+        env["PROJ_LIB"] = str(proj)
     return env
 
 

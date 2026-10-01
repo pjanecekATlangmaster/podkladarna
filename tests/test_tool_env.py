@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.tool_env import gis_subprocess_env, proj_data_dir, tool_status
+from app.tool_env import (
+    gis_subprocess_env,
+    osgeo4w_root,
+    osgeo_proj_dir,
+    proj_data_dir,
+    tool_status,
+    which_tool,
+)
 
 
 def test_tool_status_keys():
@@ -17,7 +24,7 @@ def test_health_reports_tools(client):
     assert "pdal" in body["tools"]
 
 
-def test_gis_env_uses_pyproj_data():
+def test_gis_env_prefers_osgeo_proj_over_pyproj():
     proj = proj_data_dir()
     assert proj is not None
     assert (proj / "proj.db").exists()
@@ -25,6 +32,22 @@ def test_gis_env_uses_pyproj_data():
     assert Path(env["PROJ_DATA"]) == proj
     assert Path(env["PROJ_LIB"]) == proj
     assert (Path(env["PROJ_DATA"]) / "proj.db").exists()
+    # On this Windows worker QGIS wins; never point subprocess at pip pyproj.
+    assert "pyproj" not in str(Path(env["PROJ_DATA"])).lower() or osgeo4w_root() is None
+
+
+def test_gis_subprocess_env_pins_qgis_proj_for_ogr2ogr():
+    root = osgeo4w_root()
+    if root is None:
+        return
+    ogr = which_tool("ogr2ogr")
+    assert ogr
+    env = gis_subprocess_env(ogr)
+    expected = osgeo_proj_dir(root)
+    assert expected is not None
+    assert Path(env["PROJ_DATA"]) == expected
+    assert Path(env["PROJ_LIB"]) == expected
+    assert "pyproj" not in str(env["PROJ_DATA"]).lower()
 
 
 def test_ogr2ogr_assigns_s_jtsk(monkeypatch, tmp_path):
