@@ -935,6 +935,14 @@ def build_oom_zip(
         for name in ("pullautus_depr.png", "pullautus_depr.pgw"):
             if include_png:
                 _write_if_exists(zf, kp_cwd / name, f"kp/{name}")
+        # Bez-KP / hybrid: vlastní náhled ze shade (ne KP pullautus).
+        for name in ("preview.png", "preview.pgw"):
+            if include_png:
+                _write_if_exists(zf, kp_cwd / name, f"preview/{name}")
+        shade_dir = kp_cwd / "shade"
+        if include_png and shade_dir.is_dir():
+            for name in ("hillshade.png", "hillshade.pgw"):
+                _write_if_exists(zf, shade_dir / name, f"preview/{name}")
         if reference_dir and reference_dir.is_dir():
             for png in sorted(reference_dir.glob("*.png")):
                 zf.write(png, f"references/{png.name}")

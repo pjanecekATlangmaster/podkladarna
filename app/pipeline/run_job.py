@@ -38,8 +38,13 @@ from app.pipeline.package_oom import (
     prepare_oom_map,
     resolve_discipline_presets,
 )
-from app.pipeline.preview import ensure_georef_template, resolve_preview_png
+from app.pipeline.preview import (
+    compose_job_preview,
+    ensure_georef_template,
+    resolve_preview_png,
+)
 from app.pipeline.reference_layers import build_reference_layers
+from app.pipeline.shade import build_job_shade
 from app.pipeline.prepare_lidar import (
     crop_laz,
     ensure_contains_bounds,
@@ -51,6 +56,7 @@ from app.pipeline.prepare_lidar import (
 )
 from app.pipeline.prepare_zabaged import clean_zabaged
 from app.pipeline.source_meta import collect_lidar_source_meta
+from app.pipeline.vegetation_chm import generate_job_vegetation_chm
 from app.pipeline.vegetation_gdal import generate_job_vegetation
 from app.settings import PULLAUTA_BIN, USE_KP_DEFAULT
 
@@ -200,7 +206,7 @@ def run_job_pipeline(
     else:
         log(
             "=== Fáze: Karttapullautin vypnut (use_kp=false) – "
-            "bez-KP foundation (mřížka + DEM/CHM); vegetace/srázy z KP přeskočeny ==="
+            "bez-KP (mřížka + DEM/CHM + shade náhled); vegetace/srázy z KP přeskočeny ==="
         )
 
     kp_cwd = work_dir
@@ -291,6 +297,11 @@ def run_job_pipeline(
 
     if use_kp:
         generate_job_vegetation(work_dir, log=log)
+    else:
+        try:
+            generate_job_vegetation_chm(work_dir, log=log)
+        except Exception as exc:
+            log(f"CHM vegetace: přeskočeno ({exc})")
 
     if not has_zabaged or not zabaged_clean.is_file():
         raise RuntimeError(
@@ -352,6 +363,31 @@ def run_job_pipeline(
             log("KP PNG: jen ZABAGED (bez OSM cest)")
         run_cmd(kp_vector_cmd, cwd=kp_cwd, log=log)
         # out2.dxf necháme do zabalení ZIPu (base/contours_kp.dxf), teprve potom smažeme.
+
+    # Shade + náhled bez KP: po DEM prep / KP; před balením (georef šablona).
+    try:
+        log("=== Fáze: hillshade stack ===")
+        build_job_shade(
+            work_dir,
+            bounds_5514=grid_bounds,
+            prefer_local=True,
+            log=log,
+        )
+    except Exception as exc:
+        log(f"Hillshade stack: přeskočeno ({exc})")
+    try:
+        tint = work_dir / "vegetation" / "chm_tint.png"
+        compose_job_preview(
+            work_dir,
+            force=not use_kp,
+            prefer_kp_pullautus=use_kp,
+            overlay_png=tint if (not use_kp and tint.is_file()) else None,
+            overlay_opacity=0.30,
+            bounds_5514=grid_bounds,
+            log=log,
+        )
+    except Exception as exc:
+        log(f"Náhled compose: přeskočeno ({exc})")
 
     log("=== Fáze: baleni vystupu ===")
     _package_output(
@@ -559,6 +595,14 @@ def _package_output(
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)
+    shade_src = kp_cwd / "shade"
+    if shade_src.is_dir():
+        shade_dst = output_dir / "shade"
+        for name in ("hillshade.png", "hillshade.pgw"):
+            src = shade_src / name
+            if src.is_file():
+                shade_dst.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, shade_dst / name)
     # Stejná struktura jako v ZIPu, ať jde otevřít i output/*-{sprint,les,mtbo}.omap.
     if want_zip and omap_paths:
         for folder, names in (
