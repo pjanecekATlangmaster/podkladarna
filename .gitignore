@@ -10,3 +10,4 @@ __pycache__/
 agent-tools/
 local_test/
 pullauta.ini
+third_party/
