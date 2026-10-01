@@ -45,7 +45,7 @@ from app.pipeline.package_oom import (
 )
 from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE, APP_VERSION
 from app.tiles import TileError, fetch_tile
-from app.tool_env import tool_status
+from app.tool_env import log_ignored_gdal_plugins, tool_status
 from app.whats_new import whats_new_payload
 
 logger = logging.getLogger("podkladarna")
@@ -83,6 +83,7 @@ mimetypes.add_type("image/png", ".png")
 @app.on_event("startup")
 def startup() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    log_ignored_gdal_plugins()
     db.init_db()
     interrupted = worker.recover_after_restart()
     if interrupted:
