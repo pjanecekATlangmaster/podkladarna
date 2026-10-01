@@ -74,6 +74,17 @@
           <h3 class="form-section-title">Výřez</h3>
           <p class="hint">Dva protilehlé rohy, nebo klik na hotový job vpravo. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozího jobu se při iteraci znovu použije. Jen Česko, max cca 36&nbsp;km² (např. 6×6 nebo 8×4,5&nbsp;km).</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>
+          <div
+            id="bbox-map-resize"
+            class="map-resize-handle"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-controls="bbox-map"
+            aria-label="Změnit výšku mapy"
+            title="Přetáhněte pro změnu výšky mapy"
+          >
+            <span class="map-resize-grip" aria-hidden="true"></span>
+          </div>
           <p id="sheet-info" class="sheet-info">Nakreslete obdélník dvěma kliknutími.</p>
           <input type="hidden" name="bbox" id="bbox-input" value="" />
           <input type="hidden" name="reuse_job_id" id="reuse-job-id" value="" />
@@ -301,7 +312,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.20.13 ·
+      Podkladárna v1.20.14 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

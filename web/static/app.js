@@ -691,6 +691,93 @@ function inCzechia(latlng) {
   );
 }
 
+const BBOX_MAP_HEIGHT_KEY = "podkladarna-bbox-map-height";
+const BBOX_MAP_HEIGHT_MIN = 200;
+const BBOX_MAP_HEIGHT_MAX = 1200;
+
+function clampBboxMapHeight(px) {
+  const n = Math.round(Number(px));
+  if (!Number.isFinite(n)) return null;
+  return Math.min(BBOX_MAP_HEIGHT_MAX, Math.max(BBOX_MAP_HEIGHT_MIN, n));
+}
+
+function applyBboxMapHeight(px, { persist = false } = {}) {
+  const el = document.getElementById("bbox-map");
+  if (!el) return;
+  const height = clampBboxMapHeight(px);
+  if (height == null) return;
+  el.style.height = `${height}px`;
+  if (bboxMap) bboxMap.invalidateSize({ animate: false });
+  if (persist) {
+    try {
+      localStorage.setItem(BBOX_MAP_HEIGHT_KEY, String(height));
+    } catch (_) {
+      /* private mode / quota */
+    }
+  }
+}
+
+function restoreBboxMapHeight() {
+  try {
+    const raw = localStorage.getItem(BBOX_MAP_HEIGHT_KEY);
+    if (raw == null || raw === "") return;
+    applyBboxMapHeight(raw, { persist: false });
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function initBboxMapResize() {
+  const handle = document.getElementById("bbox-map-resize");
+  const el = document.getElementById("bbox-map");
+  if (!handle || !el) return;
+
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+
+  const onMove = (clientY) => {
+    if (!dragging) return;
+    applyBboxMapHeight(startH + (clientY - startY), { persist: false });
+  };
+
+  const stopDrag = (clientY) => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove("is-dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    if (clientY != null) onMove(clientY);
+    const h = clampBboxMapHeight(el.getBoundingClientRect().height);
+    if (h != null) applyBboxMapHeight(h, { persist: true });
+  };
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    dragging = true;
+    startY = e.clientY;
+    startH = el.getBoundingClientRect().height;
+    handle.classList.add("is-dragging");
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch (_) {
+      /* older browsers */
+    }
+  });
+
+  handle.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    onMove(e.clientY);
+  });
+
+  handle.addEventListener("pointerup", (e) => stopDrag(e.clientY));
+  handle.addEventListener("pointercancel", () => stopDrag(null));
+}
+
 function initBboxMap() {
   const clearBtn = document.getElementById("bbox-clear");
   if (clearBtn) clearBtn.addEventListener("click", clearBbox);
@@ -700,6 +787,7 @@ function initBboxMap() {
     setSheetInfo("Mapová knihovna se nenačetla (Leaflet).", "err");
     return;
   }
+  restoreBboxMapHeight();
   const bounds = czBounds();
   bboxMap = L.map(el, {
     scrollWheelZoom: true,
@@ -726,6 +814,11 @@ function initBboxMap() {
   });
   osm.addTo(bboxMap);
   bboxMap.on("click", onMapClick);
+  initBboxMapResize();
+  // Po obnovení výšky z localStorage ještě jednou po layoutu.
+  requestAnimationFrame(() => {
+    if (bboxMap) bboxMap.invalidateSize({ animate: false });
+  });
 }
 
 function onMapClick(e) {

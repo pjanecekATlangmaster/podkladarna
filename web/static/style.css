@@ -351,14 +351,48 @@ legend {
   height: 510px;
   width: 100%;
   max-width: 100%;
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   border: 1px solid var(--border);
-  margin: 0.5rem 0;
+  border-bottom: none;
+  margin: 0.5rem 0 0;
 }
 
 #bbox-map .leaflet-container {
   width: 100% !important;
   max-width: 100%;
+}
+
+.map-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 12px;
+  margin: 0 0 0.5rem;
+  border: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  background: #f0f2ec;
+  cursor: ns-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.map-resize-handle:hover,
+.map-resize-handle.is-dragging {
+  background: #e6ebe0;
+}
+
+.map-resize-grip {
+  display: block;
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background: #b8c0ae;
+}
+
+.map-resize-handle:hover .map-resize-grip,
+.map-resize-handle.is-dragging .map-resize-grip {
+  background: var(--muted);
 }
 
 .sheet-info {
