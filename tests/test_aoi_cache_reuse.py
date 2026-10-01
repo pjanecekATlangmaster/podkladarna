@@ -305,3 +305,25 @@ def test_param_only_pipeline_skips_merge_and_dem(tmp_path: Path, monkeypatch, bb
         )
     pdal_mock.assert_not_called()
     assert (work / "dem" / "dem_filled.tif").is_file()
+
+
+def test_surfaces_cache_without_recipe_is_not_restored(tmp_path: Path):
+    """Cache z doby před opravou CHM (bez ``recipe``) se nesmí obnovit."""
+    from app.download_cache import SURFACES_RECIPE, read_meta, try_restore_surfaces
+
+    cache = tmp_path / "cache"
+    src = tmp_path / "dem_src"
+    src.mkdir()
+    (src / "dem_filled.tif").write_bytes(b"dem" * 200)
+    ground = tmp_path / "g.laz"
+    ground.write_bytes(b"laz" * 400)
+    fp = file_fingerprint(ground)
+    bounds = (0.0, 0.0, 10.0, 10.0)
+    persist_surfaces(cache, src, bounds=bounds, resolution_m=1.0, ground_fp=fp, surface_fp=None)
+    assert read_meta(cache)["recipe"] == SURFACES_RECIPE
+    dest = tmp_path / "dem_dst"
+    dest.mkdir()
+    kw = dict(bounds=bounds, resolution_m=1.0, ground_fp=fp, surface_fp=None)
+    assert try_restore_surfaces(cache, dest, **kw)
+    write_meta(cache, recipe=None)
+    assert not try_restore_surfaces(cache, dest, **kw)

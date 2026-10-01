@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from app import db
@@ -22,7 +23,7 @@ from app.pipeline.fetch_openzu import (
 )
 from app.pipeline.fetch_ruian import fetch_ruian_buildings_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
-from app.pipeline.ini_builder import load_presets, write_pullauta_ini
+from app.pipeline.ini_builder import load_presets, resolve_vege_height, write_pullauta_ini
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
 from app.pipeline.karttapullautin_dxf import (
     DXF_SKIP_AFTER_VECTORS,
@@ -65,6 +66,10 @@ from app.pipeline.prepare_zabaged import clean_zabaged
 from app.pipeline.source_meta import collect_lidar_source_meta
 from app.pipeline.cliffs_dem import generate_job_cliffs_dem
 from app.pipeline.vegetation_chm import generate_job_vegetation_chm
+from app.pipeline.vegetation_density import (
+    DEFAULT_PARAMS as DEFAULT_DENSITY_PARAMS,
+    generate_job_vegetation_density,
+)
 from app.pipeline.vegetation_gdal import generate_job_vegetation
 from app.settings import PULLAUTA_BIN, USE_KP_DEFAULT
 
@@ -353,10 +358,23 @@ def run_job_pipeline(
     if use_kp:
         generate_job_vegetation(work_dir, log=log)
     else:
+        vege_shp = None
         try:
-            generate_job_vegetation_chm(work_dir, log=log)
+            vege_shp = generate_job_vegetation_density(
+                work_dir,
+                params=replace(
+                    DEFAULT_DENSITY_PARAMS,
+                    green_high_m=resolve_vege_height(options),
+                ),
+                log=log,
+            )
         except Exception as exc:
-            log(f"CHM vegetace: přeskočeno ({exc})")
+            log(f"Vegetace (hustota bodů): přeskočeno ({exc})")
+        if vege_shp is None:
+            try:
+                generate_job_vegetation_chm(work_dir, log=log)
+            except Exception as exc:
+                log(f"CHM vegetace: přeskočeno ({exc})")
         try:
             generate_job_cliffs_dem(work_dir, options=options, log=log)
         except Exception as exc:

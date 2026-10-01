@@ -20,7 +20,7 @@ def test_prepare_job_surfaces_dem_only(tmp_path: Path):
     ground = lidar / "ground_merged.laz"
     ground.write_bytes(b"laz" * 400)
 
-    def fake_pdal(laz, bounds, dest, *, resolution_m=1.0, log=None):
+    def fake_pdal(laz, bounds, dest, *, resolution_m=1.0, log=None, **kw):
         dest.write_bytes(b"dem" * 200)
 
     def fake_fill(src, dest, *, log=None):
@@ -51,13 +51,18 @@ def test_prepare_job_surfaces_with_chm(tmp_path: Path):
     (lidar / "ground_merged.laz").write_bytes(b"laz" * 400)
     (lidar / "veg_merged.laz").write_bytes(b"veg" * 400)
 
-    def fake_pdal(laz, bounds, dest, *, resolution_m=1.0, log=None):
+    pdal_calls: list[tuple[str, dict]] = []
+    chm_inputs: list[str] = []
+
+    def fake_pdal(laz, bounds, dest, *, resolution_m=1.0, log=None, **kw):
+        pdal_calls.append((dest.name, kw))
         dest.write_bytes(b"tif" * 200)
 
     def fake_fill(src, dest, *, log=None):
         dest.write_bytes(b"filled" * 50)
 
     def fake_chm(dem, dsm, dest, *, log=None):
+        chm_inputs.append(dsm.name)
         dest.write_bytes(b"chm" * 50)
         return dest
 
@@ -66,12 +71,16 @@ def test_prepare_job_surfaces_with_chm(tmp_path: Path):
         patch("app.pipeline.dem_prep._pdal_dem_from_laz", side_effect=fake_pdal),
         patch("app.pipeline.dem_prep._fill_dem_nodata", side_effect=fake_fill),
         patch("app.pipeline.dem_prep._gdal_chm", side_effect=fake_chm),
+        patch("app.pipeline.dem_prep._raster_grid", return_value=(0.0, 0.0, 10, 10)),
     ):
         result = prepare_job_surfaces(work, bounds)
 
     assert result.dsm_filled is not None and result.dsm_filled.is_file()
     assert result.chm is not None and result.chm.is_file()
     assert result.surface_laz == "veg_merged.laz"
+    # DSM na mřížce DEM; CHM z raw DSM (ne fillnodata přes louky)
+    assert dict(pdal_calls)["dsm_raw.tif"] == {"grid": (0.0, 0.0, 10, 10)}
+    assert chm_inputs == ["dsm_raw.tif"]
 
 
 def test_gdal_chm_via_qgis_tool(tmp_path: Path):
@@ -96,3 +105,47 @@ def test_gdal_chm_via_qgis_tool(tmp_path: Path):
     out = _gdal_chm(dem, dsm, dest)
     assert out.is_file()
     assert out.stat().st_size > 1000
+
+
+def _write_asc(path: Path, rows: list[list[float]]) -> None:
+    lines = [
+        f"ncols {len(rows[0])}",
+        f"nrows {len(rows)}",
+        "xllcorner 0",
+        "yllcorner 0",
+        "cellsize 1",
+        "NODATA_value -9999",
+    ] + [" ".join(str(v) for v in r) for r in rows]
+    path.write_text("\n".join(lines) + "\n", encoding="ascii")
+
+
+def test_gdal_chm_open_cells_are_zero_not_interpolated(tmp_path: Path):
+    """DSM NoData (žádný DMP vegetační bod) = louka → CHM 0, záporné → 0."""
+    from app.pipeline.dem_prep import _gdal_chm
+    from app.pipeline.gdal_cli_raster import read_float32_geotiff
+    from app.tool_env import which_tool
+
+    if not which_tool("gdal_calc") or not which_tool("gdal_translate"):
+        return
+    from app.pipeline.prepare_lidar import run_cmd
+
+    n = 20
+    dem_rows = [[100.0] * n for _ in range(n)]
+    dsm_rows = [[-9999.0] * n for _ in range(n)]
+    dem_rows[1][1] = -9999.0
+    dsm_rows[1][1] = 130.0
+    dsm_rows[0][1] = 120.0
+    dsm_rows[1][0] = 99.5
+    tifs = {}
+    for name, rows in (("dem", dem_rows), ("dsm", dsm_rows)):
+        asc = tmp_path / f"{name}.asc"
+        _write_asc(asc, rows)
+        tif = tmp_path / f"{name}.tif"
+        run_cmd([which_tool("gdal_translate"), "-of", "GTiff", "-ot", "Float32", str(asc), str(tif)])
+        tifs[name] = tif
+    out = _gdal_chm(tifs["dem"], tifs["dsm"], tmp_path / "chm.tif")
+    arr, _gt, nodata = read_float32_geotiff(out)
+    assert arr[0, 0] == 0.0
+    assert arr[0, 1] == 20.0
+    assert arr[1, 0] == 0.0
+    assert arr[1, 1] == nodata

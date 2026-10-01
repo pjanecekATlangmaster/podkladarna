@@ -1,24 +1,19 @@
-"""Vlastní vegetace z CHM (DMP − DMR) – náhrada KP ``vegetation.png``.
+"""Záložní vegetace z CHM (DMP − DMR), když nejde ``vegetation_density``.
 
-Inspirováno Karttapullautinem (``makevege`` / ``vegetation.rs``): žlutá =
-nízký povrch, zeleně = střední výšky jako hrubý proxy hustoty, bílý les =
-vysoká koruna. KP ve skutečnosti měří **hustotu bodů** (greenhits/groundhits);
-CHM je výškový proxy pod naší kontrolou — **ne** ZABAGED louky.
+Primární cesta bez KP je ``vegetation_density`` (hustota LiDAR odrazů jako KP
+``makevege``); CHM je jen výškový proxy pro prostředí bez ``laspy``.
 
-Default prahy (metry nad terénem; laděno vs. KP ``yellowheight`` / zóny +
-smoke feedback 2026-10 – méně bílé/zeleně na loukách):
+Prahy (metry nad terénem) kalibrované proti KP ``vegetation.png`` na dvou AOI
+(po opravě CHM v ``dem_prep``: DSM na mřížce DEM, buňka bez DMP bodu = 0):
 
-* ``open_max_m`` **4.0** – pod tím žlutá 401 (KP ``yellowheight=0.9`` na
-  bodech; CHM DMP−DMR na trávě/šumu je výš → strop otevřené vyšší)
-* ``green_light_max_m`` **5.5** – světlá zeleň 406 (úzký pás nad open)
-* ``green_mid_max_m`` **8.5** – střední 408
-* ``green_dense_max_m`` **12.0** – hustá 410; **nad** tím kandidát na bílý les
-  (nižší než dřív → vysoká koruna dřív bílá, ne 410)
+* ``open_max_m`` **1.0** – pod tím žlutá 401 (KP ``yellowheight=0.9``)
+* ``green_light_max_m`` **2.0** / ``green_mid_max_m`` **4.0** /
+  ``green_dense_max_m`` **6.0** – 406/408/410 = keře a mlází v pásu, kde KP
+  počítá zelené zóny (1–5.5 m)
+* ≥ 6 m – bílý les (vzrostlá koruna; KP ji jako zeleň nebere)
 
-Bílý les: median smooth (KP ``medianboxsize``) + silnější morfologické
-otevření + na hranici s open jen výška ≥ ``WHITE_EDGE_STRICT_M`` zůstane
-bílá (jinak → hustá 410). Nízký scrub u otevřené plochy se zpětně vtáhne
-do 401 (KP yellow-threshold analog).
+Dřívější prahy (open < 4 m, bílá ≥ 12 m) kompenzovaly chybu CHM:
+``fillnodata`` roztahoval koruny přes louky. Výsledek: střídavě „vše les“.
 
 ``open_land_subtract`` (ZABAGED/OSM odečet od 401) platí **jen** u KP cesty
 v ``package_oom`` — bez KP se 401 bere výhradně z tohoto SHP.
@@ -34,23 +29,20 @@ from app.pipeline.crs_5514 import write_prj
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
 
-# --- Prahy CHM (metry nad terénem). KP-inspired bands + ochrana luk. ---
-# Open: KP yellowheight=0.9 na bodech; CHM residual na loukách typicky 2–4 m.
-CHM_OPEN_MAX_M = 4.0
-# Světlá zeleň 406 – úzký pás nad open (dřív 1–3 m sahalo do luk).
-CHM_GREEN_LIGHT_MAX_M = 5.5
-# Střed 408
-CHM_GREEN_MID_MAX_M = 8.5
-# Hustá 410; nad tím kandidát na bílý (průchodný) les.
-CHM_GREEN_DENSE_MAX_M = 12.0
+# --- Prahy CHM (metry nad terénem), kalibrace vs. KP – viz docstring. ---
+CHM_OPEN_MAX_M = 1.0
+CHM_GREEN_LIGHT_MAX_M = 2.0
+CHM_GREEN_MID_MAX_M = 4.0
+# Hustá 410; nad tím bílý (průchodný) les.
+CHM_GREEN_DENSE_MAX_M = 6.0
 # Na styku s loukou musí koruna být ještě vyšší, jinak zůstane 410.
-WHITE_EDGE_STRICT_M = 22.0
+WHITE_EDGE_STRICT_M = 20.0
 # Morfologické otevření bílé masky (eroze→dilatace), zúží tenké výběžky do luk.
-WHITE_MORPH_OPEN_ITERS = 2
-# Kolikrát přitáhnout nízký scrub (406) do open, když okolí je většinou louka.
-OPEN_REINFORCE_ITERS = 2
-# Median filtr klasifikace (liché); KP default medianboxsize≈6 → okýnko ~5 px.
-CHM_MEDIAN_SIZE = 5
+WHITE_MORPH_OPEN_ITERS = 1
+# Přitažení nízkého scrubu do open – po opravě CHM bez přínosu, default vypnuto.
+OPEN_REINFORCE_ITERS = 0
+# Median filtr klasifikace (liché); KP medianboxsize=6 → okno 7 px (radius 3).
+CHM_MEDIAN_SIZE = 7
 
 _MIN_AREA_M2 = 12.0
 _SIMPLIFY_M = 1.5
@@ -444,16 +436,8 @@ def generate_vegetation_from_chm(
     tint_png: Path | None = None,
     log=None,
 ) -> Path | None:
-    """Klasifikuje CHM → polygony vegetation.shp (cls, code).
-
-    Preferuje osgeo (Docker); na Windows bez osgeo jde přes
-    ``gdal_cli_raster`` + ``gdal_polygonize`` + pyogrio/shapely.
-    """
-    from app.pipeline.gdal_cli_raster import (
-        polygonize_byte_raster,
-        read_float32_geotiff,
-        write_uint8_geotiff,
-    )
+    """Klasifikuje CHM → polygony vegetation.shp (cls, code)."""
+    from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
     try:
         arr, gt, nodata = read_float32_geotiff(chm_tif, log=log)
@@ -463,7 +447,6 @@ def generate_vegetation_from_chm(
         return None
 
     classified = classify_chm_array(arr, nodata, thresholds)
-    height, width = classified.shape
 
     if tint_png is not None:
         try:
@@ -472,6 +455,32 @@ def generate_vegetation_from_chm(
             if log:
                 log(f"CHM tint PNG: přeskočeno ({exc})")
 
+    label = (
+        f"CHM open<{thresholds.open_max_m:g} m, "
+        f"white>={thresholds.green_dense_max_m:g} m"
+    )
+    return polygonize_vegetation_classes(classified, gt, dest_shp, log=log, label=label)
+
+
+def polygonize_vegetation_classes(
+    classified,
+    gt,
+    dest_shp: Path,
+    *,
+    log=None,
+    label: str = "",
+) -> Path | None:
+    """uint8 třídy (0 bílý, 1–4 = 401/406/408/410) → ``vegetation.shp`` (cls, code).
+
+    Preferuje osgeo (Docker); na Windows bez osgeo jde přes
+    ``gdal_cli_raster`` + ``gdal_polygonize`` + pyogrio/shapely.
+    """
+    from app.pipeline.gdal_cli_raster import (
+        polygonize_byte_raster,
+        write_uint8_geotiff,
+    )
+
+    height, width = classified.shape
     dest_shp.parent.mkdir(parents=True, exist_ok=True)
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
@@ -531,13 +540,7 @@ def generate_vegetation_from_chm(
 
         write_prj(dest_shp)
         if log:
-            log(
-                f"CHM vegetace: {n_kept} polygonů → {dest_shp.name} "
-                f"(open<{thresholds.open_max_m:g} m, "
-                f"white≥{thresholds.green_dense_max_m:g} m, "
-                f"edge≥{thresholds.white_edge_strict_m:g} m, "
-                f"morph={thresholds.white_morph_iters})"
-            )
+            log(f"Vegetace: {n_kept} polygonů → {dest_shp.name} ({label})")
         return dest_shp if dest_shp.is_file() else None
     except ImportError:
         pass
@@ -553,18 +556,14 @@ def generate_vegetation_from_chm(
         n_kept = _simplify_vegetation_shp(dest_shp, log=log)
     except Exception as exc:
         if log:
-            log(f"CHM vegetace: CLI polygonize selhalo ({exc})")
+            log(f"Vegetace: CLI polygonize selhalo ({exc})")
         return None
     finally:
         class_tif.unlink(missing_ok=True)
         class_tif.with_suffix(".tif.aux.xml").unlink(missing_ok=True)
 
     if log and n_kept is not None:
-        log(
-            f"CHM vegetace: {n_kept} polygonu -> {dest_shp.name} "
-            f"(CLI polygonize; open<{thresholds.open_max_m:g} m, "
-            f"white>={thresholds.green_dense_max_m:g} m)"
-        )
+        log(f"Vegetace: {n_kept} polygonu -> {dest_shp.name} (CLI polygonize; {label})")
     return dest_shp if dest_shp.is_file() else None
 
 

@@ -155,6 +155,10 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         ),
         "Velké Ostatní plochy v sídlech se zahazují (nepřekrývají silnice)",
     ),
+    (
+        re.compile(r"(?i)LiDAR return density|return-density vegetation"),
+        "Vegetace bez KP z hustoty LiDAR odrazů",
+    ),
 ]
 
 _PREFIX_CS: list[tuple[re.Pattern[str], str]] = [

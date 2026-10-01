@@ -21,6 +21,8 @@ SURFACE_ARTIFACT_NAMES = (
     "chm.tif",
     "dem_meta.json",
 )
+# Změna výpočtu DSM/CHM → starší AOI surfaces cache se nesmí obnovit.
+SURFACES_RECIPE = "dsm-on-dem-grid-chm0-v2"
 # Ořez/merge LAZ pro AOI (nezávislé na ekvidistance / lavičkách).
 LIDAR_CROP_ARTIFACT_NAMES = (
     "ground_merged.laz",
@@ -318,6 +320,8 @@ def try_restore_surfaces(
         return False
     if not fingerprints_equal(meta.get("surface_fp"), surface_fp):
         return False
+    if meta.get("recipe") != SURFACES_RECIPE:
+        return False
     _copy_named_artifacts(
         cache_dir,
         dem_dir,
@@ -348,6 +352,7 @@ def persist_surfaces(
     write_meta(
         cache_dir,
         kind="surfaces",
+        recipe=SURFACES_RECIPE,
         bounds=list(bounds),
         resolution_m=float(resolution_m),
         ground_fp=ground_fp,

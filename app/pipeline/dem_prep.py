@@ -1,7 +1,8 @@
 """Sdílený DEM / DSM / CHM prep z DMR 5G + DMP OK (PDAL + GDAL).
 
 Jedna cesta pro shade, vrstevnice a budoucí vegetaci/srázy – výstup do
-``work/dem/``. CHM = DSM − DEM (po fillnodata). Orto do této větve nepatří.
+``work/dem/``. CHM = max(DSM_raw − DEM, 0), DSM na mřížce DEM; buňka bez
+DMP bodu = 0 (louka), ne fillnodata. Orto do této větve nepatří.
 """
 
 from __future__ import annotations
@@ -86,8 +87,29 @@ def _pick_surface_laz(lidar_dir: Path) -> Path | None:
     return None
 
 
+def _raster_grid(path: Path, *, log=None) -> tuple[float, float, int, int] | None:
+    """(origin_x, origin_y dolní okraj, width, height) existujícího rastru."""
+    try:
+        from app.pipeline.gdal_cli_raster import _gdalinfo_json
+
+        meta = _gdalinfo_json(path, log=log)
+        width, height = (int(v) for v in meta["size"])
+        gt = [float(v) for v in meta["geoTransform"]]
+    except Exception:
+        return None
+    return gt[0], gt[3] + gt[5] * height, width, height
+
+
+# DMP OK ořez bere jen třídy 5/6 – buňka bez bodu = otevřený terén, ne díra.
+# Výška 0 místo fillnodata (ta roztáhla koruny přes louky → „všechno les“).
+_CHM_CALC = "where(B<-9000,-9999,where(A<-9000,0,maximum(A-B,0)))"
+
+
 def _gdal_chm(dem: Path, dsm: Path, dest: Path, *, log=None) -> Path:
-    """CHM = DSM − DEM přes gdal_calc (QGIS Scripts) nebo číslicově přes osgeo."""
+    """CHM = max(DSM − DEM, 0); DSM NoData (žádný vegetační bod) → 0.
+
+    ``dsm`` má být **raw** DSM (bez fillnodata) na stejné mřížce jako ``dem``.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     for name in ("gdal_calc", "gdal_calc.py"):
         try:
@@ -104,7 +126,8 @@ def _gdal_chm(dem: Path, dsm: Path, dest: Path, *, log=None) -> Path:
                 "--outfile",
                 str(dest),
                 "--calc",
-                "A-B",
+                _CHM_CALC,
+                "--hideNoData",
                 "--type",
                 "Float32",
                 "--NoDataValue",
@@ -136,13 +159,12 @@ def _gdal_chm(dem: Path, dsm: Path, dest: Path, *, log=None) -> Path:
     dsm_arr = dsm_band.ReadAsArray().astype("float32")
     dem_nd = dem_band.GetNoDataValue()
     dsm_nd = dsm_band.GetNoDataValue()
-    chm = dsm_arr - dem_arr
-    mask = np.zeros(chm.shape, dtype=bool)
-    if dem_nd is not None:
-        mask |= dem_arr == dem_nd
+    chm = np.maximum(dsm_arr - dem_arr, 0.0)
     if dsm_nd is not None:
-        mask |= dsm_arr == dsm_nd
-    chm = np.where(mask, -9999.0, chm).astype("float32")
+        chm = np.where(dsm_arr == dsm_nd, 0.0, chm)
+    if dem_nd is not None:
+        chm = np.where(dem_arr == dem_nd, -9999.0, chm)
+    chm = chm.astype("float32")
     driver = gdal.GetDriverByName("GTiff")
     out = driver.Create(
         str(dest), dem_ds.RasterXSize, dem_ds.RasterYSize, 1, gdal.GDT_Float32
@@ -257,13 +279,22 @@ def prepare_job_surfaces(
     if surface is not None and surface.is_file():
         dsm_raw = dem_dir / "dsm_raw.tif"
         dsm_filled = dem_dir / "dsm_filled.tif"
+        dsm_kwargs = {}
+        dem_grid = _raster_grid(dem_raw, log=log)
+        if dem_grid is not None:
+            dsm_kwargs["grid"] = dem_grid
         _pdal_dem_from_laz(
-            surface, bounds, dsm_raw, resolution_m=float(resolution_m), log=log
+            surface,
+            bounds,
+            dsm_raw,
+            resolution_m=float(resolution_m),
+            log=log,
+            **dsm_kwargs,
         )
         if dsm_raw.is_file() and dsm_raw.stat().st_size >= 500:
             _fill_dem_nodata(dsm_raw, dsm_filled, log=log)
             try:
-                chm = _gdal_chm(dem_filled, dsm_filled, dem_dir / "chm.tif", log=log)
+                chm = _gdal_chm(dem_filled, dsm_raw, dem_dir / "chm.tif", log=log)
             except Exception as exc:
                 if log:
                     log(f"CHM: přeskočeno ({exc})")

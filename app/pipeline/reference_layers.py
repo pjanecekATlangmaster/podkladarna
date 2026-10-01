@@ -621,7 +621,13 @@ def _pdal_dem_from_laz(
     *,
     resolution_m: float,
     log: callable | None = None,
+    grid: tuple[float, float, int, int] | None = None,
 ) -> Path:
+    """``grid`` = (origin_x, origin_y dolní okraj, width, height) – pevná mřížka.
+
+    Bez ní writers.gdal odvodí extent z bodů, takže DEM a DSM z různých LAZ
+    mají posunuté počátky (gdal_calc pak odečítá pixel po pixelu ne ty samé).
+    """
     xmin, ymin, xmax, ymax = bounds
     pdal = find_tool("pdal")
     steps: list[object] = [
@@ -638,17 +644,21 @@ def _pdal_dem_from_laz(
                 "limits": "Classification[2:2]",
             }
         )
-    steps.append(
-        {
-            "type": "writers.gdal",
-            "filename": str(dest_tif),
-            "resolution": resolution_m,
-            "output_type": _pdal_dem_output_type(laz),
-            "data_type": "float32",
-            "gdaldriver": "GTiff",
-            "nodata": -9999,
-        }
-    )
+    writer: dict[str, object] = {
+        "type": "writers.gdal",
+        "filename": str(dest_tif),
+        "resolution": resolution_m,
+        "output_type": _pdal_dem_output_type(laz),
+        "data_type": "float32",
+        "gdaldriver": "GTiff",
+        "nodata": -9999,
+    }
+    if grid is not None:
+        ox, oy, gw, gh = grid
+        writer.update(
+            {"origin_x": float(ox), "origin_y": float(oy), "width": int(gw), "height": int(gh)}
+        )
+    steps.append(writer)
     pipeline = {"pipeline": steps}
     dest_tif.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as tmp:

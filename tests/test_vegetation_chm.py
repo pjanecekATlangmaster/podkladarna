@@ -23,15 +23,14 @@ from app.pipeline.vegetation_chm import (
 )
 
 
-def test_default_thresholds_retuned_for_meadows():
-    """Smoke retune: open výš (CHM residual), white přísnější, greens užší."""
-    assert 3.5 <= CHM_OPEN_MAX_M <= 5.0
-    assert CHM_GREEN_LIGHT_MAX_M > CHM_OPEN_MAX_M
-    assert CHM_GREEN_MID_MAX_M > CHM_GREEN_LIGHT_MAX_M
-    assert 10.0 <= CHM_GREEN_DENSE_MAX_M <= 13.0
+def test_default_thresholds_calibrated_vs_kp():
+    """Po opravě CHM (louka = 0 m): pásy jako KP zelené zóny 1–5.5 m."""
+    assert CHM_OPEN_MAX_M <= 1.5
+    assert CHM_OPEN_MAX_M < CHM_GREEN_LIGHT_MAX_M < CHM_GREEN_MID_MAX_M
+    assert 5.0 <= CHM_GREEN_DENSE_MAX_M <= 8.0
     assert WHITE_EDGE_STRICT_M >= CHM_GREEN_DENSE_MAX_M + 5.0
-    assert WHITE_MORPH_OPEN_ITERS >= 2
-    assert OPEN_REINFORCE_ITERS >= 1
+    assert WHITE_MORPH_OPEN_ITERS >= 1
+    assert OPEN_REINFORCE_ITERS >= 0
 
 
 def test_classify_open_vs_white_thresholds():
