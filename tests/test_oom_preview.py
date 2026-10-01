@@ -11,9 +11,11 @@ from PIL import Image
 from app.pipeline.oom_preview import (
     aoi_frame_bbox,
     find_mapper_exe,
+    map_grivation_deg,
     mapper_export_argv,
     oom_preview_enabled,
     render_omap_to_png,
+    undo_grivation_xy,
     write_job_oom_preview,
 )
 
@@ -181,6 +183,232 @@ def test_aoi_frame_bbox_finds_708_rectangle():
 """
     )
     assert aoi_frame_bbox(root) == (0.0, 0.0, 10000.0, 5000.0)
+
+
+def test_undo_grivation_restores_grid_east():
+    """projected_to_map_coord točí +grivation; náhled odrotuje zpět (bez deklinace)."""
+    from app.pipeline.oom_coords import projected_to_map_coord
+
+    g = 12.52
+    mx, my = projected_to_map_coord(
+        1.0, 0.0, ref_x=0.0, ref_y=0.0, scale=10000, grivation_deg=g
+    )
+    x, y = undo_grivation_xy(mx, my, g)
+    # 1 m východně @ 1:10000 → 100 nativních jednotek na +X, Y≈0
+    assert abs(x - 100.0) < 1.0
+    assert abs(y) < 1.0
+    # Sever (dy=+1) → nižší map Y i po odrotování
+    mxn, myn = projected_to_map_coord(
+        0.0, 1.0, ref_x=0.0, ref_y=0.0, scale=10000, grivation_deg=g
+    )
+    xn, yn = undo_grivation_xy(mxn, myn, g)
+    assert abs(xn) < 1.0
+    assert yn < -90.0
+
+
+def test_preview_undoes_grivation_for_aoi_crop(tmp_path: Path):
+    """AOI zapečené s grivací → po odrotování osově rovný ořez (srovnání bez deklinace)."""
+    import math
+
+    g = 12.52
+    rad = math.radians(g)
+    # Obdélník v gridu; v mapových souřadnicích jako po projected_to_map_coord.
+    grid = [(-5000, -4000), (5000, -4000), (5000, 4000), (-5000, 4000), (-5000, -4000)]
+
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        rx = x * math.cos(rad) - y * math.sin(rad)
+        ry = x * math.sin(rad) + y * math.cos(rad)
+        return round(rx), round(-ry)
+
+    ring = [to_map(x, y) for x, y in grid]
+    coords = ";".join(f"{x} {y}" for x, y in ring[:-1])
+    coords += f";{ring[-1][0]} {ring[-1][1]} 18;"
+    omap = tmp_path / "griv.omap"
+    omap.write_text(
+        f"""<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <georeferencing scale="10000" declination="5.00" grivation="{g}"/>
+  <colors count="2">
+    <color priority="5" name="Purple"><rgb r="1" g="0" b="1"/></color>
+    <color priority="26" name="Green"><rgb r="0" g="1" b="0"/></color>
+  </colors>
+  <symbols count="2">
+    <symbol type="2" id="175" code="708">
+      <line_symbol color="5" line_width="1000"/>
+    </symbol>
+    <symbol type="4" id="10" code="406">
+      <area_symbol inner_color="26"/>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="2">
+        <object type="1" symbol="10">
+          <coords count="5">{coords}</coords>
+        </object>
+        <object type="1" symbol="175">
+          <coords count="5">{coords}</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    root = ET.fromstring(omap.read_text(encoding="utf-8"))
+    assert abs(map_grivation_deg(root) - g) < 1e-6
+    minx, miny, maxx, maxy = aoi_frame_bbox(root)
+    # Bez odrotování by bbox byl „kosočtverec“; po odrotování ≈ 10000×8000.
+    assert abs((maxx - minx) - 10000) < 50
+    assert abs((maxy - miny) - 8000) < 50
+    png = tmp_path / "preview.png"
+    render_omap_to_png(omap, png, max_side=200)
+    image = Image.open(png).convert("RGB")
+    w, h = image.size
+    assert abs(w / h - 10000 / 8000) < 0.15
+
+
+def test_combined_inline_paved_area_is_drawn(tmp_path: Path):
+    """ISOM 501 má private parts v combined_symbol – dřív style=None → vynecháno."""
+    omap = tmp_path / "paved.omap"
+    omap.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <colors count="2">
+    <color priority="13" name="Paved"><rgb r="0.9" g="0.7" b="0.5"/></color>
+    <color priority="12" name="Bound"><rgb r="0" g="0" b="0"/></color>
+  </colors>
+  <symbols count="1">
+    <symbol type="16" id="111" code="501" name="Paved area, with bounding line">
+      <combined_symbol parts="2">
+        <part private="true">
+          <symbol type="4" code="501.1">
+            <area_symbol inner_color="13"/>
+          </symbol>
+        </part>
+        <part private="true">
+          <symbol type="2" code="501.2">
+            <line_symbol color="12" line_width="210"/>
+          </symbol>
+        </part>
+      </combined_symbol>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="1">
+        <object type="1" symbol="111">
+          <coords count="5">0 0;0 8000;8000 8000;8000 0;0 0 18;</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    png = tmp_path / "preview.png"
+    render_omap_to_png(omap, png, max_side=120)
+    image = Image.open(png).convert("RGB")
+    mid = image.getpixel((image.size[0] // 2, image.size[1] // 2))
+    assert mid[0] > 150 and mid[1] > 100 and mid[2] < 180
+
+
+def test_dashed_track_has_gaps(tmp_path: Path):
+    omap = tmp_path / "dash.omap"
+    omap.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <colors count="1">
+    <color priority="2" name="Black"><rgb r="0" g="0" b="0"/></color>
+  </colors>
+  <symbols count="1">
+    <symbol type="2" id="118" code="504">
+      <line_symbol color="2" line_width="800" dashed="true" dash_length="2000" break_length="2000"/>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="1">
+        <object type="1" symbol="118">
+          <coords count="2">0 0;20000 0;</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    png = tmp_path / "preview.png"
+    render_omap_to_png(omap, png, max_side=200)
+    image = Image.open(png).convert("RGB")
+    y = image.size[1] // 2
+    blacks = sum(
+        1
+        for x in range(image.size[0])
+        if image.getpixel((x, y))[0] < 40
+        and image.getpixel((x, y))[1] < 40
+        and image.getpixel((x, y))[2] < 40
+    )
+    whites = sum(1 for x in range(image.size[0]) if image.getpixel((x, y)) == (255, 255, 255))
+    assert blacks > 10
+    assert whites > 10
+
+
+def test_cliff_mid_ticks_drawn(tmp_path: Path):
+    omap = tmp_path / "cliff.omap"
+    # Svislá linie, ať fousy (kolmo) mají kam kreslit mimo střední sloupec.
+    omap.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <colors count="1">
+    <color priority="2" name="Black"><rgb r="0" g="0" b="0"/></color>
+  </colors>
+  <symbols count="1">
+    <symbol type="2" id="23" code="201">
+      <line_symbol color="2" line_width="200" segment_length="1500" end_length="800">
+        <start_symbol>
+          <symbol type="1">
+            <point_symbol inner_radius="0" inner_color="-1" elements="1">
+              <element>
+                <symbol type="2">
+                  <line_symbol color="2" line_width="180"/>
+                </symbol>
+              </element>
+            </point_symbol>
+          </symbol>
+        </start_symbol>
+      </line_symbol>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="1">
+        <object type="1" symbol="23">
+          <coords count="2">0 0;0 12000;</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    png = tmp_path / "preview.png"
+    render_omap_to_png(omap, png, max_side=240)
+    image = Image.open(png).convert("RGB")
+    mid_x = image.size[0] // 2
+    off_col_black = 0
+    for x in range(image.size[0]):
+        if abs(x - mid_x) < 3:
+            continue
+        for y in range(image.size[1]):
+            p = image.getpixel((x, y))
+            if p[0] < 40 and p[1] < 40 and p[2] < 40:
+                off_col_black += 1
+    assert off_col_black > 5
 
 
 def test_preview_crops_to_purple_aoi_frame(tmp_path: Path):

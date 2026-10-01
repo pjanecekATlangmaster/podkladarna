@@ -12,6 +12,11 @@ Orientace: OOM mapové souřadnice už mají ``scale(s, −s)``
 (``projected_to_map_coord`` → geografický sever = nižší map Y). PNG proto
 dává nižší map Y nahoru (jako pohled v Mapperu / Qt), ne další převrácení Y.
 
+Webový náhled je **srovnání bez deklinace**: grivace z georef se při
+kreslení odrotuje (objekty v ``.omap`` ji mají zapečenou), takže sever
+sítě/mapy sedí rovně jako v Mapperu bez magnetického natočení. Deklinace
+se do PNG neaplikuje.
+
 Ořez: výchozí výřez je fialový AOI rám (ISOM/ISSprOM 708, MTBO 705) –
 přesahy cest za rám zůstanou v Mapperu, webový náhled je ořízne.
 
@@ -21,6 +26,7 @@ pokud job nepošle ``oom_preview`` nebo env ``PODKLADARNA_OOM_PREVIEW``.
 
 from __future__ import annotations
 
+import math
 import os
 import shlex
 import shutil
@@ -177,6 +183,14 @@ class _SymbolStyle:
     color: int
     width: float
     radius: float
+    dashed: bool = False
+    dash_length: float = 0.0
+    break_length: float = 0.0
+    border_color: int = -1
+    border_width: float = 0.0
+    mid_mode: str = ""  # "", "tick", "dot"
+    segment_length: float = 0.0
+    tick_length: float = 0.0
 
 
 @dataclass
@@ -187,6 +201,15 @@ class _DrawOp:
     width: float
     radius: float
     paths: list[list[tuple[float, float]]]
+    dashed: bool = False
+    dash_length: float = 0.0
+    break_length: float = 0.0
+    border_rgb: tuple[int, int, int] | None = None
+    border_width: float = 0.0
+    mid_mode: str = ""
+    segment_length: float = 0.0
+    tick_length: float = 0.0
+    tick_rgb: tuple[int, int, int] | None = None
 
 
 def _parse_coord_text(text: str | None) -> list[tuple[float, float, int]]:
@@ -290,9 +313,146 @@ def _positive_color(el: ET.Element) -> int:
     return -1
 
 
-def _symbol_styles(symbols_el: ET.Element) -> dict[int, _SymbolStyle]:
-    styles: dict[int, _SymbolStyle] = {}
-    combined: dict[int, int] = {}
+def _attr_float(el: ET.Element, key: str, default: float = 0.0) -> float:
+    try:
+        return float(el.attrib.get(key, str(default)) or default)
+    except ValueError:
+        return default
+
+
+def _line_mid_mode(line_el: ET.Element) -> tuple[str, float]:
+    """Detekce fousů / teček na linii (srázy, zdi, hranice vegetace)."""
+    tick_len = 0.0
+    has_tick = False
+    has_dot = False
+    for node in line_el.iter():
+        tag = _local(node.tag)
+        if tag not in {"start_symbol", "mid_symbol", "end_symbol"}:
+            continue
+        for child in node.iter():
+            if _local(child.tag) == "line_symbol":
+                has_tick = True
+                tick_len = max(tick_len, _attr_float(child, "line_width", 0.0) * 4.0)
+            elif _local(child.tag) == "point_symbol":
+                has_dot = True
+                tick_len = max(tick_len, _attr_float(child, "inner_radius", 0.0))
+    if has_tick:
+        return "tick", max(tick_len, 500.0)
+    if has_dot:
+        return "dot", max(tick_len, 250.0)
+    return "", 0.0
+
+
+def _style_from_area(target: ET.Element) -> _SymbolStyle | None:
+    color = _positive_color(target)
+    if color < 0:
+        return None
+    return _SymbolStyle("area", color, 0.0, 0.0)
+
+
+def _style_from_line(target: ET.Element) -> _SymbolStyle | None:
+    color = int(target.attrib.get("color", "-1") or -1)
+    if color < 0:
+        color = _positive_color(target)
+    width = _attr_float(target, "line_width", 0.0)
+    dashed = (target.attrib.get("dashed", "false") or "false").lower() == "true"
+    dash_length = _attr_float(target, "dash_length", 0.0)
+    break_length = _attr_float(target, "break_length", 0.0)
+    border_color = -1
+    border_width = 0.0
+    borders = _direct_child(target, "borders")
+    if borders is not None:
+        for border in borders:
+            if _local(border.tag) != "border":
+                continue
+            try:
+                border_color = int(border.attrib.get("color", "-1") or -1)
+            except ValueError:
+                border_color = -1
+            border_width = _attr_float(border, "width", 0.0)
+            shift = _attr_float(border, "shift", 0.0)
+            # Dvě souběžné linky ≈ středová šířka + 2*shift.
+            if shift > 0:
+                width = max(width, 2.0 * shift + border_width)
+            break
+    mid_mode, tick_length = _line_mid_mode(target)
+    segment_length = _attr_float(target, "segment_length", 0.0)
+    if color < 0 and mid_mode:
+        color = _positive_color(target)
+    if color < 0 and border_color >= 0:
+        color = border_color
+    if color < 0 and width <= 0 and not mid_mode:
+        return None
+    if color < 0:
+        return None
+    if width <= 0 and mid_mode:
+        width = max(border_width, 120.0)
+    return _SymbolStyle(
+        "line",
+        color,
+        width,
+        0.0,
+        dashed=dashed,
+        dash_length=dash_length,
+        break_length=break_length,
+        border_color=border_color,
+        border_width=border_width,
+        mid_mode=mid_mode,
+        segment_length=segment_length,
+        tick_length=tick_length,
+    )
+
+
+def _style_from_point(target: ET.Element) -> _SymbolStyle | None:
+    color = _positive_color(target)
+    if color < 0:
+        return None
+    radius = _attr_float(target, "inner_radius", 0.0)
+    if radius <= 0:
+        radius = 600.0
+    return _SymbolStyle("point", color, 0.0, radius)
+
+
+def _styles_from_symbol_el(sym: ET.Element) -> list[_SymbolStyle]:
+    """Jedna nebo více vrstev stylu (combined = více částí)."""
+    kind_attr = sym.attrib.get("type", "")
+    area = _direct_child(sym, "area_symbol")
+    line = _direct_child(sym, "line_symbol")
+    point = _direct_child(sym, "point_symbol")
+    if area is not None or kind_attr == "4":
+        style = _style_from_area(area if area is not None else sym)
+        return [style] if style else []
+    if line is not None or kind_attr == "2":
+        style = _style_from_line(line if line is not None else sym)
+        return [style] if style else []
+    if point is not None or kind_attr == "1":
+        style = _style_from_point(point if point is not None else sym)
+        return [style] if style else []
+    if kind_attr != "16":
+        return []
+    out: list[_SymbolStyle] = []
+    combined = _direct_child(sym, "combined_symbol")
+    parts_parent = combined if combined is not None else sym
+    for part in parts_parent:
+        if _local(part.tag) != "part":
+            continue
+        nested = _direct_child(part, "symbol")
+        if nested is not None:
+            out.extend(_styles_from_symbol_el(nested))
+            continue
+        raw = part.attrib.get("symbol")
+        if raw is None:
+            continue
+        # Referenční part – vyřeší se později přes id.
+        try:
+            out.append(_SymbolStyle("__ref__", int(raw), 0.0, 0.0))
+        except ValueError:
+            pass
+    return out
+
+
+def _symbol_styles(symbols_el: ET.Element) -> dict[int, list[_SymbolStyle]]:
+    styles: dict[int, list[_SymbolStyle]] = {}
     for sym in symbols_el:
         if _local(sym.tag) != "symbol":
             continue
@@ -300,38 +460,20 @@ def _symbol_styles(symbols_el: ET.Element) -> dict[int, _SymbolStyle]:
             sym_id = int(sym.attrib["id"])
         except (KeyError, ValueError):
             continue
-        kind_attr = sym.attrib.get("type", "")
-        area = _direct_child(sym, "area_symbol")
-        line = _direct_child(sym, "line_symbol")
-        point = _direct_child(sym, "point_symbol")
-        if area is not None or kind_attr == "4":
-            target = area if area is not None else sym
-            styles[sym_id] = _SymbolStyle("area", _positive_color(target), 0.0, 0.0)
-        elif line is not None or kind_attr == "2":
-            target = line if line is not None else sym
-            width = float(target.attrib.get("line_width", "0") or 0)
-            styles[sym_id] = _SymbolStyle("line", _positive_color(target), width, 0.0)
-        elif point is not None or kind_attr == "1":
-            target = point if point is not None else sym
-            radius = float(target.attrib.get("inner_radius", "0") or 0)
-            if radius <= 0:
-                radius = 600.0
-            styles[sym_id] = _SymbolStyle("point", _positive_color(target), 0.0, radius)
-        elif kind_attr == "16":
-            part = None
-            for node in sym.iter():
-                if _local(node.tag) == "part" and node.attrib.get("symbol"):
-                    part = node
-                    break
-            if part is not None:
-                try:
-                    combined[sym_id] = int(part.attrib["symbol"])
-                except ValueError:
-                    pass
-    for sym_id, ref in combined.items():
-        style = styles.get(ref)
-        if style is not None:
-            styles[sym_id] = style
+        layers = _styles_from_symbol_el(sym)
+        if layers:
+            styles[sym_id] = layers
+    # Dohraj referenční části combined symbolů.
+    for sym_id, layers in list(styles.items()):
+        resolved: list[_SymbolStyle] = []
+        for layer in layers:
+            if layer.kind == "__ref__":
+                ref_layers = styles.get(layer.color)
+                if ref_layers:
+                    resolved.extend(ref_layers)
+            else:
+                resolved.append(layer)
+        styles[sym_id] = resolved
     return styles
 
 
@@ -397,8 +539,14 @@ def _path_bbox(
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def aoi_frame_bbox(root: ET.Element) -> tuple[float, float, float, float] | None:
+def aoi_frame_bbox(
+    root: ET.Element,
+    *,
+    grivation_deg: float | None = None,
+) -> tuple[float, float, float, float] | None:
     """BBox fialového AOI rámu (708 / 705) – největší uzavřená cesta těchto symbolů."""
+    if grivation_deg is None:
+        grivation_deg = map_grivation_deg(root)
     symbol_ids = _symbol_ids_for_codes(root, _AOI_FRAME_CODES)
     if not symbol_ids:
         return None
@@ -421,6 +569,7 @@ def aoi_frame_bbox(root: ET.Element) -> tuple[float, float, float, float] | None
             coords_el = _direct_child(obj, "coords")
             coords = _parse_coord_text(coords_el.text if coords_el is not None else None)
             for path in _split_paths(coords):
+                path = undo_grivation_path(path, grivation_deg)
                 box = _path_bbox(path)
                 if box is None:
                     continue
@@ -431,6 +580,41 @@ def aoi_frame_bbox(root: ET.Element) -> tuple[float, float, float, float] | None
                 if best is None or area > best[0]:
                     best = (area, box)
     return best[1] if best else None
+
+
+def map_grivation_deg(root: ET.Element) -> float:
+    """Grivace z ``<georeferencing>`` – pro webový náhled ji odrotujeme."""
+    for el in root.iter():
+        if _local(el.tag) != "georeferencing":
+            continue
+        try:
+            return float(el.attrib.get("grivation", "0") or 0)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def undo_grivation_xy(x: float, y: float, grivation_deg: float) -> tuple[float, float]:
+    """Mapové souřadnice → srovnání bez deklinace (odrotovat +grivation).
+
+    ``projected_to_map_coord`` točí o +grivation před ``scale(s, −s)``. Inverze
+    při zachování konvence (sever = nižší Y):
+    ``x' = x cos g − y sin g``, ``y' = x sin g + y cos g``.
+    """
+    if abs(grivation_deg) < 1e-9:
+        return x, y
+    g = math.radians(grivation_deg)
+    cos_g = math.cos(g)
+    sin_g = math.sin(g)
+    return x * cos_g - y * sin_g, x * sin_g + y * cos_g
+
+
+def undo_grivation_path(
+    path: list[tuple[float, float]], grivation_deg: float
+) -> list[tuple[float, float]]:
+    if abs(grivation_deg) < 1e-9:
+        return path
+    return [undo_grivation_xy(x, y, grivation_deg) for x, y in path]
 
 
 def _ops_bbox(ops: list[_DrawOp]) -> tuple[float, float, float, float]:
@@ -444,9 +628,42 @@ def _ops_bbox(ops: list[_DrawOp]) -> tuple[float, float, float, float]:
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _collect_ops(root: ET.Element) -> list[_DrawOp]:
+def _op_from_style(
+    style: _SymbolStyle,
+    colors: dict[int, tuple[int, int, int]],
+    paths: list[list[tuple[float, float]]],
+) -> _DrawOp | None:
+    if style.kind not in _KIND_RANK or style.color < 0:
+        return None
+    rgb = colors.get(style.color)
+    if rgb is None:
+        return None
+    border_rgb = colors.get(style.border_color) if style.border_color >= 0 else None
+    tick_rgb = rgb
+    return _DrawOp(
+        style.kind,
+        style.color,
+        rgb,
+        style.width,
+        style.radius,
+        paths,
+        dashed=style.dashed,
+        dash_length=style.dash_length,
+        break_length=style.break_length,
+        border_rgb=border_rgb,
+        border_width=style.border_width,
+        mid_mode=style.mid_mode,
+        segment_length=style.segment_length,
+        tick_length=style.tick_length,
+        tick_rgb=tick_rgb,
+    )
+
+
+def _collect_ops(root: ET.Element, *, grivation_deg: float | None = None) -> list[_DrawOp]:
+    if grivation_deg is None:
+        grivation_deg = map_grivation_deg(root)
     colors = _colors(root)
-    styles: dict[int, _SymbolStyle] = {}
+    styles: dict[int, list[_SymbolStyle]] = {}
     for el in root.iter():
         if _local(el.tag) == "symbols":
             styles = _symbol_styles(el)
@@ -465,66 +682,165 @@ def _collect_ops(root: ET.Element) -> list[_DrawOp]:
                 sym_id = int(obj.attrib.get("symbol", "-1"))
             except ValueError:
                 continue
-            style = styles.get(sym_id)
-            if style is None or style.kind not in _KIND_RANK or style.color < 0:
-                continue
-            rgb = colors.get(style.color)
-            if rgb is None:
+            layers = styles.get(sym_id) or []
+            if not layers:
                 continue
             coords_el = _direct_child(obj, "coords")
             coords = _parse_coord_text(coords_el.text if coords_el is not None else None)
-            if style.kind == "point":
-                if not coords:
+            for style in layers:
+                if style.kind == "point":
+                    if not coords:
+                        continue
+                    pt = undo_grivation_xy(coords[0][0], coords[0][1], grivation_deg)
+                    op = _op_from_style(style, colors, [[pt]])
+                    if op is not None:
+                        ops.append(op)
                     continue
-                ops.append(
-                    _DrawOp(
-                        "point",
-                        style.color,
-                        rgb,
-                        0.0,
-                        style.radius,
-                        [[(coords[0][0], coords[0][1])]],
-                    )
-                )
-                continue
-            paths = _split_paths(coords)
-            if not paths:
-                continue
-            ops.append(
-                _DrawOp(style.kind, style.color, rgb, style.width, style.radius, paths)
-            )
+                paths = [
+                    undo_grivation_path(path, grivation_deg)
+                    for path in _split_paths(coords)
+                ]
+                paths = [path for path in paths if len(path) >= 2]
+                if not paths:
+                    continue
+                op = _op_from_style(style, colors, paths)
+                if op is not None:
+                    ops.append(op)
     ops.sort(key=lambda op: (-op.color, _KIND_RANK[op.kind]))
     return ops
+
+
+def _path_length(path: list[tuple[float, float]]) -> float:
+    total = 0.0
+    for (x0, y0), (x1, y1) in zip(path, path[1:]):
+        total += math.hypot(x1 - x0, y1 - y0)
+    return total
+
+
+def _point_at_length(
+    path: list[tuple[float, float]], distance: float
+) -> tuple[float, float, float, float] | None:
+    """Bod a jednotkový směr na cestě v dané vzdálenosti od začátku."""
+    if len(path) < 2 or distance < 0:
+        return None
+    remaining = distance
+    for (x0, y0), (x1, y1) in zip(path, path[1:]):
+        seg = math.hypot(x1 - x0, y1 - y0)
+        if seg <= 1e-9:
+            continue
+        if remaining <= seg:
+            t = remaining / seg
+            dx, dy = (x1 - x0) / seg, (y1 - y0) / seg
+            return x0 + t * (x1 - x0), y0 + t * (y1 - y0), dx, dy
+        remaining -= seg
+    x0, y0 = path[-2]
+    x1, y1 = path[-1]
+    seg = math.hypot(x1 - x0, y1 - y0)
+    if seg <= 1e-9:
+        return None
+    return x1, y1, (x1 - x0) / seg, (y1 - y0) / seg
+
+
+def _dashed_polylines(
+    path: list[tuple[float, float]],
+    dash_length: float,
+    break_length: float,
+) -> list[list[tuple[float, float]]]:
+    if dash_length <= 0 or break_length < 0 or len(path) < 2:
+        return [path]
+    total = _path_length(path)
+    if total <= 0:
+        return [path]
+    out: list[list[tuple[float, float]]] = []
+    pos = 0.0
+    draw = True
+    while pos < total - 1e-6:
+        span = dash_length if draw else break_length
+        if span <= 0:
+            span = total
+        end = min(pos + span, total)
+        if draw:
+            samples: list[tuple[float, float]] = []
+            step = max(span / 8.0, 40.0)
+            t = pos
+            while t <= end + 1e-6:
+                hit = _point_at_length(path, min(t, end))
+                if hit is not None:
+                    samples.append((hit[0], hit[1]))
+                t += step
+            hit = _point_at_length(path, end)
+            if hit is not None:
+                samples.append((hit[0], hit[1]))
+            # unikátní body
+            cleaned: list[tuple[float, float]] = []
+            for pt in samples:
+                if not cleaned or math.hypot(pt[0] - cleaned[-1][0], pt[1] - cleaned[-1][1]) > 1e-3:
+                    cleaned.append(pt)
+            if len(cleaned) >= 2:
+                out.append(cleaned)
+        pos = end
+        draw = not draw
+    return out or [path]
+
+
+def _mid_marks(
+    path: list[tuple[float, float]],
+    *,
+    spacing: float,
+    tick_length: float,
+    mode: str,
+) -> list[tuple[float, float, float, float]]:
+    """Vzorky (x, y, dx, dy) pro fousy/tečky podél linie."""
+    if mode not in {"tick", "dot"} or len(path) < 2:
+        return []
+    total = _path_length(path)
+    if total <= 0:
+        return []
+    step = spacing if spacing > 0 else max(tick_length * 1.5, 750.0)
+    marks: list[tuple[float, float, float, float]] = []
+    pos = min(step * 0.5, total * 0.5)
+    while pos < total - step * 0.15:
+        hit = _point_at_length(path, pos)
+        if hit is not None:
+            marks.append(hit)
+        pos += step
+    if not marks:
+        hit = _point_at_length(path, total * 0.5)
+        if hit is not None:
+            marks.append(hit)
+    return marks
 
 
 def render_omap_xml_png(
     omap: Path,
     dest: Path,
     *,
-    max_side: int = 1280,
+    max_side: int = 1600,
 ) -> tuple[int, int, int]:
     """Vykreslí objekty mapy do PNG. Vrátí (šířka, výška, počet operací)."""
     from PIL import Image, ImageDraw
 
     root = ET.fromstring(_read_omap_bytes(Path(omap)))
-    ops = _collect_ops(root)
+    grivation = map_grivation_deg(root)
+    ops = _collect_ops(root, grivation_deg=grivation)
     if not ops:
         raise ValueError(f"{omap.name}: .omap nemá vykreslitelné objekty")
 
-    frame = aoi_frame_bbox(root)
+    frame = aoi_frame_bbox(root, grivation_deg=grivation)
+    tick_pad = max((op.tick_length for op in ops if op.mid_mode), default=0.0)
     if frame is not None:
         minx, miny, maxx, maxy = frame
         # Tenký okraj kolem fialové linky (šířka symbolu ~1 mm papíru).
         spanx = max(maxx - minx, 1.0)
         spany = max(maxy - miny, 1.0)
-        padx = max(spanx * 0.015, 800.0)
-        pady = max(spany * 0.015, 800.0)
+        padx = max(spanx * 0.015, 800.0, tick_pad)
+        pady = max(spany * 0.015, 800.0, tick_pad)
     else:
         minx, miny, maxx, maxy = _ops_bbox(ops)
         spanx = max(maxx - minx, 1.0)
         spany = max(maxy - miny, 1.0)
-        padx = spanx * 0.03
-        pady = spany * 0.03
+        padx = max(spanx * 0.03, tick_pad * 1.2, 500.0)
+        pady = max(spany * 0.03, tick_pad * 1.2, 500.0)
     world_w = spanx + 2 * padx
     world_h = spany + 2 * pady
     scale = max(1, int(max_side)) / max(world_w, world_h)
@@ -532,7 +848,7 @@ def render_omap_xml_png(
     height = max(1, int(round(world_h * scale)))
     # Map X → right; map Y → down in PNG. OOM already uses scale(s, −s), so
     # geographic north is lower map Y and must land at the top of the image.
-    # Flipping Y here (paper Y-up → screen) double-inverts and looks ~180° off.
+    # Grivation is undone above → srovnání bez deklinace (grid/map north).
     origin_x = minx - padx
     origin_y = miny - pady
 
@@ -553,14 +869,52 @@ def render_omap_xml_png(
             color_img = Image.new("RGB", (width, height), op.rgb)
             image.paste(color_img, (0, 0), mask)
         elif op.kind == "line":
-            stroke = max(1, int(round(op.width * scale)))
+            stroke = max(1, int(round(max(op.width, 1.0) * scale)))
+            border_stroke = 0
+            if op.border_rgb is not None and op.border_width > 0:
+                border_stroke = max(
+                    stroke + 2, int(round((op.width + 2 * op.border_width) * scale))
+                )
             for path in op.paths:
-                pts = [to_px(x, y) for x, y in path]
-                if len(pts) < 2:
-                    continue
-                draw.line(pts, fill=op.rgb, width=stroke)
+                polylines = (
+                    _dashed_polylines(path, op.dash_length, op.break_length)
+                    if op.dashed
+                    else [path]
+                )
+                for poly in polylines:
+                    pts = [to_px(x, y) for x, y in poly]
+                    if len(pts) < 2:
+                        continue
+                    if border_stroke > 0 and op.border_rgb is not None:
+                        draw.line(pts, fill=op.border_rgb, width=border_stroke)
+                    draw.line(pts, fill=op.rgb, width=stroke)
+                if op.mid_mode:
+                    tick_px = max(2.0, op.tick_length * scale)
+                    mark_rgb = op.tick_rgb or op.rgb
+                    for x, y, dx, dy in _mid_marks(
+                        path,
+                        spacing=op.segment_length,
+                        tick_length=op.tick_length,
+                        mode=op.mid_mode,
+                    ):
+                        px, py = to_px(x, y)
+                        if op.mid_mode == "dot":
+                            r = max(1.5, tick_px * 0.35)
+                            draw.ellipse(
+                                (px - r, py - r, px + r, py + r), fill=mark_rgb
+                            )
+                        else:
+                            # Fous kolmo vlevo od směru linie (konvence OOM tagů).
+                            nx, ny = -dy, dx
+                            x1, y1 = px, py
+                            x2, y2 = px + nx * tick_px, py + ny * tick_px
+                            draw.line(
+                                [(x1, y1), (x2, y2)],
+                                fill=mark_rgb,
+                                width=max(1, stroke // 2),
+                            )
         else:
-            radius = max(1.0, op.radius * scale)
+            radius = max(1.5, op.radius * scale)
             for path in op.paths:
                 if not path:
                     continue
@@ -579,7 +933,7 @@ def render_omap_to_png(
     dest: Path,
     *,
     log=None,
-    max_side: int = 1280,
+    max_side: int = 1600,
 ) -> str:
     """PNG z ``.omap``. Mapper CLI jen při ``PODKLADARNA_MAPPER_EXPORT``, jinak XML."""
     omap = Path(omap)

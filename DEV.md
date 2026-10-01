@@ -168,7 +168,7 @@ Když job běží s `use_kp=false`, hillshade compose se do webu nedává. Po z�
 
 **Výchozí render = Pillow + XML** (`app/pipeline/oom_preview.py`) – žádný Mapper v Dockeru. Stock Mapper 0.9.6 umí PNG jen z dialogu File → Export; `Mapper.exe` se proto nespouští. Volitelný CLI jen při `PODKLADARNA_MAPPER_EXPORT` (šablona příkazu s `{mapper}`, `{omap}`, `{png}`).
 
-Vestavěný náhled kreslí plochy/linie/body barvami symbolů (ne plná symbolika). Orientace: nižší map Y nahoru (OOM už má `scale(s, −s)`). Ořez kolem fialového AOI rámu (ISOM/ISSprOM **708**, MTBO **705**); přesahy cest za rám web ořízne.
+Vestavěný náhled kreslí plochy/linie/body barvami symbolů (ne plná symbolika). Orientace: nižší map Y nahoru (OOM už má `scale(s, −s)`). **Srovnání bez deklinace:** grivace z georef se při kreslení odrotuje (do PNG se magnetické natočení neaplikuje). Ořez kolem fialového AOI rámu (ISOM/ISSprOM **708**, MTBO **705**); přesahy cest za rám web ořízne. Navíc: combined symboly (inline 501), čárkované cesty, okraje silnic, fousy srázů/zíd.
 
 ```powershell
 python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
