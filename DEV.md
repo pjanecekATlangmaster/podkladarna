@@ -65,15 +65,37 @@ python scripts/smoke_e2e.py --wait-minutes 45   # testdata/ → celé kolečko
 
 ## 3. Skript `scripts/dev.ps1`
 
+**Checkouty:** Petr smokuje z `C:\Users\PetrJanecek\.cursor\projects\podkladarna`.
+Agenti editují jen worktree `C:\Users\PetrJanecek\.cursor\projects\podkladarna-agent`
+(stejný git, větev `cursor/bez-kp-pipeline-a36e`) — neukládat do Petrova live stromu,
+jinak `--reload` / file-watch zabije běžící job.
+
 ```powershell
 .\scripts\dev.ps1 test        # pytest (~2 s)
-.\scripts\dev.ps1 run         # uvicorn na Windows (OSGeo4W PDAL + pullauta.exe)
+.\scripts\dev.ps1 run         # uvicorn bez --reload (smoke / dlouhé joby)
+.\scripts\dev.ps1 run-reload  # uvicorn s --reload (jen krátký UI vývoj)
 .\scripts\dev.ps1 up          # docker compose dev
 .\scripts\dev.ps1 smoke       # fake upload (API)
 .\scripts\dev.ps1 e2e-upload  # testdata → upload
 .\scripts\dev.ps1 e2e         # testdata → celá pipeline
 .\scripts\dev.ps1 all         # pytest → docker → e2e
 ```
+
+### Důležité: `--reload` zabíjí běžící joby
+
+`run` **nepoužívá** `--reload`. Dřív reload restartoval uvicorn při každé změně
+v `app/` / `web/` / `configs/` (uložení v editoru, agent, pytest) → běžící job
+skončil jako *„Přerušeno restartem serveru…“*.
+
+Pro lokální smoke / bez-KP pipeline:
+
+```powershell
+.\scripts\dev.ps1 run
+```
+
+`run-reload` jen když potřebujete hot-reload při krátkém UI vývoji **bez** běžícího jobu.
+Docker `docker-compose.dev.yml` má `--reload` dál (mount zdrojů) – při e2e
+v Dockeru neukládejte kód uprostřed jobu.
 
 ### Windows PROJ / QGIS (EPSG:5514)
 

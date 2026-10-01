@@ -66,7 +66,8 @@ def can_accept_job() -> bool:
 def recover_after_restart() -> list[str]:
     """Uvolní joby zůstávající ve stavu running po pádu/restartu procesu."""
     return db.mark_interrupted_running_jobs(
-        "Přerušeno restartem serveru – spusťte job znovu."
+        "Přerušeno restartem serveru (uvicorn reload / pád procesu) – "
+        "spusťte job znovu. Pro smoke bez reloadu: .\\scripts\\dev.ps1 run"
     )
 
 

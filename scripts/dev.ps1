@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("test", "up", "down", "run", "smoke", "e2e", "e2e-upload", "all", "logs")]
+    [ValidateSet("test", "up", "down", "run", "run-reload", "smoke", "e2e", "e2e-upload", "all", "logs")]
     [string]$Action = "test"
 )
 
@@ -41,6 +41,12 @@ switch ($Action) {
         python -m pytest tests/ -v
     }
     "run" {
+        # Bez --reload: úpravy souborů / agent / pytest jinak zabijí běžící job.
+        Ensure-QgisGisEnv
+        $env:PODKLADARNA_DATA = Join-Path $Root "data"
+        python -m uvicorn app.main:app --host 127.0.0.1 --port 8672
+    }
+    "run-reload" {
         Ensure-QgisGisEnv
         $env:PODKLADARNA_DATA = Join-Path $Root "data"
         python -m uvicorn app.main:app --host 127.0.0.1 --port 8672 --reload
