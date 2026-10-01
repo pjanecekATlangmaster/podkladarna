@@ -10,7 +10,7 @@ from app.settings import PULLAUTA_BIN
 # Rust KP: c2g = menší (cliff1), c3g = větší (cliff2); obojí → ISOM 104 v OOM.
 # První shoda vyhrává; c1g/c2 jsou legacy aliasy.
 DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
-    ("dotknolls.dxf", "dotknolls.dxf"),
+    ("dotknolls.dxf", "kopecky.dxf"),
     ("c2g.dxf", "cliffs_small.dxf"),
     ("c3g.dxf", "cliffs_large.dxf"),
     ("c1g.dxf", "cliffs_small.dxf"),

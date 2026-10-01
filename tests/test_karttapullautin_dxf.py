@@ -24,7 +24,8 @@ def test_collect_dxf_includes_kp_contours(tmp_path: Path):
     assert got["contours_kp.dxf"].name == "out2.dxf"
     assert "contours.dxf" not in got
     assert "contours03.dxf" not in got
-    assert got["dotknolls.dxf"].name == "dotknolls.dxf"
+    assert got["kopecky.dxf"].name == "dotknolls.dxf"
+    assert "dotknolls.dxf" not in got
     assert got["cliffs_small.dxf"].name == "c1g.dxf"
 
     without = collect_dxf_for_zip(temp, include_contours=False)

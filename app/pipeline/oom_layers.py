@@ -15,7 +15,8 @@ DXF_LABELS: dict[str, str] = {
     "contours_kp.dxf": "Vrstevnice KP (DXF)",
     "cliffs_small.dxf": "Zemní srázy (DXF)",
     "cliffs_large.dxf": "Zemní srázy strmější (DXF)",
-    "dotknolls.dxf": "Knolíky (DXF)",
+    "dotknolls.dxf": "Kopečky (DXF)",
+    "kopecky.dxf": "Kopečky (DXF)",
 }
 
 

@@ -3102,6 +3102,9 @@ def build_osm_feature_parts(
     clip_bounds: Bounds | None = None,
     aopk_tree_points: list[tuple[float, float]] | None = None,
     courtyard_olive: bool = False,
+    include_benches: bool = False,
+    include_lamps: bool = False,
+    include_playground_equipment: bool = False,
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
     if not gj_path.is_file():
@@ -3112,6 +3115,19 @@ def build_osm_feature_parts(
         from app.pipeline.aopk_trees import filter_osm_landmark_trees_near_aopk
 
         feats, _dropped = filter_osm_landmark_trees_near_aopk(feats, aopk_tree_points)
+    # features.geojson má vždy nábytek (SHP); do auto .omap jen zaškrtnuté.
+    if not include_benches or not include_lamps or not include_playground_equipment:
+        kept: list[dict] = []
+        for feat in feats:
+            kind = str((feat.get("properties") or {}).get("kind") or "")
+            if kind in _BENCH_KINDS and not include_benches:
+                continue
+            if kind in _LAMP_KINDS and not include_lamps:
+                continue
+            if kind in _PLAYGROUND_EQUIPMENT_KINDS and not include_playground_equipment:
+                continue
+            kept.append(feat)
+        feats = kept
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

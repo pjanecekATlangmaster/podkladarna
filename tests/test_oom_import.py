@@ -302,9 +302,15 @@ def test_oom_code_dxf_cliffs_small_preset_specific():
     )
     assert (
         oom_code_for_dxf(
+            "kopecky.dxf", preset_id="sprint_2m", cliff_symbol="rock_face"
+        )
+        is None
+    )
+    assert (
+        oom_code_for_dxf(
             "dotknolls.dxf", preset_id="sprint_2m", cliff_symbol="rock_face"
         )
-        == "109"
+        is None
     )
 
 
