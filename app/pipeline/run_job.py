@@ -34,6 +34,7 @@ from app.pipeline.package_oom import (
     omap_variant_filename,
     prepare_oom_map,
     resolve_discipline_presets,
+    resolve_vegetation_mode,
 )
 from app.pipeline.reference_layers import build_reference_layers
 from app.pipeline.prepare_lidar import (
@@ -247,11 +248,10 @@ def run_job_pipeline(
                 work_dir,
                 tuple(bbox),
                 zabaged_clean,
-                include_benches=bool(options.get("kp_osm_benches")),
-                include_lamps=bool(options.get("kp_osm_lamps")),
-                include_playground_equipment=bool(
-                    options.get("kp_osm_playground_equipment")
-                ),
+                # Nábytek stahovat vždy → SHP v osm/uzitecne; do .omap jen checkboxy.
+                include_benches=True,
+                include_lamps=True,
+                include_playground_equipment=True,
                 osm_priority=bool(options.get("kp_osm_priority")),
                 all_footways_as_sidewalk=bool(
                     options.get("kp_osm_footway_as_sidewalk")
@@ -401,6 +401,20 @@ def _package_output(
             residual_paved = bool(options.get("sprint_residual_paved"))
             residual_size = resolve_residual_size(options)
             max_residual_m2 = residual_max_m2(residual_size)
+            osm_benches = bool(options.get("kp_osm_benches"))
+            osm_lamps = bool(options.get("kp_osm_lamps"))
+            osm_playground_eq = bool(options.get("kp_osm_playground_equipment"))
+            vegetation_mode = resolve_vegetation_mode(
+                options.get("vegetation_mode")
+            )
+            log(
+                "Vegetace auto .omap: "
+                + (
+                    "KP (bez ZABAGED luk pod ní; louky ve zabaged/)"
+                    if vegetation_mode == "kp"
+                    else "mixed (ZABAGED louky pod KP)"
+                )
+            )
             log(
                 f"Ostatní plocha v sídlech (auto .omap): {ostatni_choice}"
                 + (
@@ -419,8 +433,13 @@ def _package_output(
                     else f"≤ {max_residual_m2:g} m²"
                 )
                 log(
-                    f"OSM residential → zbytek zpevněné (501): zapnuto "
-                    f"(auto .omap {size_note}; SHP všechna pásma + řídké)"
+                    f"OSM residential → zbytek zpevněné (501): auto .omap "
+                    f"{size_note}; SHP vždy (uzitecne/osm)"
+                )
+            else:
+                log(
+                    "OSM residential → zbytek zpevněné (501): jen SHP "
+                    "(uzitecne/osm), auto .omap vypnuto"
                 )
 
             for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
@@ -460,6 +479,10 @@ def _package_output(
                         ostatni_as_403=ostatni_as_403,
                         residual_paved=residual_paved,
                         max_residual_m2=max_residual_m2,
+                        include_osm_benches=osm_benches,
+                        include_osm_lamps=osm_lamps,
+                        include_osm_playground_equipment=osm_playground_eq,
+                        vegetation_mode=vegetation_mode,
                     )
                     if omap_p:
                         omap_paths.append(omap_p)
@@ -481,6 +504,7 @@ def _package_output(
             ),
             include_png=bool(options.get("output_png", True)),
             ruian_buildings=ruian_path,
+            aopk_trees=aopk_path,
             include_dxf=bool(options.get("output_dxf", True)),
             include_cliffs=cliff_symbol != "off",
         )

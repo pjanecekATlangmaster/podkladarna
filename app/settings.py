@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.12.3"
+APP_VERSION = "1.13.1"
 
 apply_local_gis_env()
 
@@ -70,6 +70,8 @@ DEFAULT_OPTIONS = {
     "kp_cliff_symbol": "earth_bank",
     # KP greenhigh (m) – výška vegetace pro výpočet zeleně.
     "kp_vege_height": 2.0,
+    # Vegetace v auto .omap: mixed = ZABAGED louky pod KP; kp = jen KP (bílá = papír).
+    "vegetation_mode": "mixed",
     # Citlivost detekce srázů: low | normal | high | very_high.
     "kp_cliff_sensitivity": "normal",
     # OSM volitelné objekty – default vypnuto (rozšířená nastavení).

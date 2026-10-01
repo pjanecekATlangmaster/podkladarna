@@ -362,6 +362,9 @@ def test_index_html(client):
     assert "O co jde" in html
     assert "48 hodin" in html
     assert "PNG náhled" in html
+    assert 'name="kp_vege_height"' in html
+    assert 'name="vegetation_mode"' in html
+    assert "Jen KP" in html
     assert 'name="map_scale"' in html
     assert 'name="contour_interval"' in html
     assert 'name="preset_id"' not in html
@@ -372,6 +375,7 @@ def test_index_html(client):
     assert 'name="sprint_residual_paved"' in html
     assert 'name="sprint_residual_size"' in html
     assert "OSM_residential_zbytek" in html
+    assert "uzitecne/" in html
     assert "OSM detaily" in html
     assert "courtyard-olive-wrap" in html
     assert "residual-paved-wrap" in html

@@ -20,10 +20,17 @@ def collect_kp401_subtract_wkbs(
     *,
     zabaged_clean: Path | None,
     work_dir: Path,
+    subtract_zabaged_meadows: bool = True,
 ) -> list[bytes]:
     out: list[bytes] = []
-    if zabaged_clean is not None and zabaged_clean.is_file():
-        out.extend(_zabaged_layer_wkbs(zabaged_clean, work_dir, _SUBTRACT_ZABAGED_LAYERS))
+    if (
+        subtract_zabaged_meadows
+        and zabaged_clean is not None
+        and zabaged_clean.is_file()
+    ):
+        out.extend(
+            _zabaged_layer_wkbs(zabaged_clean, work_dir, _SUBTRACT_ZABAGED_LAYERS)
+        )
     out.extend(_osm_farmland_wkbs(work_dir))
     return out
 

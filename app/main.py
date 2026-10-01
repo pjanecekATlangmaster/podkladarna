@@ -453,6 +453,9 @@ async def api_create_job(request: Request):
             vh = None
         if vh is not None and any(abs(vh - c) < 1e-6 for c in KP_VEGE_HEIGHT_CHOICES):
             options["kp_vege_height"] = resolve_vege_height({"kp_vege_height": vh})
+    vege_mode_raw = _form_str(form, "vegetation_mode").strip().lower()
+    if vege_mode_raw in {"mixed", "kp"}:
+        options["vegetation_mode"] = vege_mode_raw
     sens_raw = _form_str(form, "kp_cliff_sensitivity").strip().lower()
     if sens_raw in KP_CLIFF_SENSITIVITY:
         options["kp_cliff_sensitivity"] = resolve_cliff_sensitivity(
@@ -534,7 +537,8 @@ async def api_create_job(request: Request):
         f"Prijato: listy={','.join(options['sm5_sheets'])}, "
         f"1:{resolved['map_scale']} · {resolved['contour_interval']} m "
         f"(preset={preset_id}), "
-        f"vege={options.get('kp_vege_height', 2.0)} m, "
+        f"vege={options.get('kp_vege_height', 2.0)} m/"
+        f"{options.get('vegetation_mode', 'mixed')}, "
         f"srázy={options.get('kp_cliff_sensitivity', 'normal')}/"
         f"{options.get('kp_cliff_symbol', 'earth_bank')}, "
         f"lavičky={'ano' if options.get('kp_osm_benches') else 'ne'}, "

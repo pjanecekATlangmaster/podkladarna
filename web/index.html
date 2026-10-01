@@ -95,6 +95,15 @@
           <p class="hint">LiDAR zeleň (<code>greenhigh</code>). Nižší hodnota = víc nízkého porostu jako vegetace.</p>
 
           <label>
+            Porosty v auto .omap
+            <select name="vegetation_mode" id="vegetation_mode">
+              <option value="mixed" selected>Mixed – ZABAGED louky pod KP (výchozí)</option>
+              <option value="kp">Jen KP – les = bílé mezery (louky ve zabaged/)</option>
+            </select>
+          </label>
+          <p class="hint">Mixed = současné skládání (louka pod KP žlutou/zelení). Jen&nbsp;KP = do auto mapy nejdou ZABAGED louky; bílá z LiDARu prosvítá jako papír. Louky zůstávají ve <code>zabaged/</code> k ručnímu importu.</p>
+
+          <label>
             Strmé změny reliéfu – symbol
             <select name="kp_cliff_symbol" id="kp_cliff_symbol">
               <option value="earth_bank" selected>Zemní srázek (104)</option>
@@ -136,7 +145,7 @@
               <input type="checkbox" name="sprint_courtyard_olive" id="sprint_courtyard_olive" value="1" checked />
               Nepřístupné dvory v budovách vyplnit olivou
             </label>
-            <p class="hint">Díra uprostřed budovy → oliva přes detaily uvnitř (sprint 520 / les 520 / MTBO 527). U lesa/MTBO skoro nic nepřibude.</p>
+            <p class="hint">Díra uprostřed budovy → oliva přes detaily uvnitř (sprint 520 / les 520 / MTBO 527). Default zapnuto. Při vypnutí lze načíst z&nbsp;<code>uzitecne/OSM_dvory_oliva</code>.</p>
           </div>
 
           <div id="residual-paved-wrap">
@@ -152,21 +161,13 @@
                 <option value="large">I velké (všechny hustě zmapované)</option>
               </select>
             </label>
-            <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Ostatní velikosti (a řídké) jsou v&nbsp;ZIPu v&nbsp;<code>osm/</code> k ručnímu importu.</p>
+            <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Všechna pásma (<code>OSM_residential_zbytek_*</code> včetně řídkých) jsou v&nbsp;<code>osm/</code> a&nbsp;<code>uzitecne/</code> k ručnímu importu.</p>
             <p class="hint" id="residual-paved-hint">
               Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.
-              Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
-              (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
-              které jinak nekreslíme). Výsledek jde pod silnice.
-              Když po odečtu zbývá víc než 25&nbsp;% plochy residential, oblast je řídce
-              zmapovaná a do auto&nbsp;<code>.omap</code> se nebere (přikryla by KP);
-              stejně se zahodí kusy nad zvolenou max. velikostí.
-              Do ZIPu (<code>osm/</code>) vždy přibudou SHP
-              <code>OSM_residential_zbytek_mensi</code> /
-              <code>_stredni</code> /
-              <code>_velke</code>
-              a <code>_ridke</code> (přeskočené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
-              (symbol 501). Heuristika; v OOM jde smazat. Default vypnuto.
+              Počítá se vždy (SHP v ZIPu); checkbox řídí jen auto&nbsp;<code>.omap</code>.
+              Odečet: residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu.
+              Při zbytku &gt; 25&nbsp;% plochy se residential do auto mapy nebere (řídké OSM).
+              Heuristika; v OOM jde smazat. Default vypnuto.
             </p>
           </div>
 
@@ -179,7 +180,7 @@
               <option value="large">I velké (všechny)</option>
             </select>
           </label>
-          <p class="hint" id="ostatni-plocha-hint">Zpevněná „Ostatní plocha v sídlech“ do auto&nbsp;<code>.omap</code>. Ve sprintu může zjednodušit podklad (méně zbytečných detailů), ale velká plocha koliduje se silnicemi (hnědá pod okraji footprintů). Proto volitelné. Do ZIPu vždy přibudou samostatné SHP podle velikosti (<code>…_mensi</code> / <code>…_stredni</code> / <code>…_velke</code>), pokud v území existují – pro ruční import v&nbsp;OOM.</p>
+          <p class="hint" id="ostatni-plocha-hint">Zpevněná „Ostatní plocha v sídlech“ do auto&nbsp;<code>.omap</code>. Ve sprintu může zjednodušit podklad (méně zbytečných detailů), ale velká plocha koliduje se silnicemi (hnědá pod okraji footprintů). Proto volitelné. Do ZIPu vždy přibudou samostatné SHP podle velikosti (<code>…_mensi</code> / <code>…_stredni</code> / <code>…_velke</code>) v&nbsp;<code>zabaged/</code> a&nbsp;<code>uzitecne/</code>, pokud v území existují – pro ruční import v&nbsp;OOM.</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="ostatni_plocha_as_403" id="ostatni_plocha_as_403" value="1" />
@@ -188,8 +189,8 @@
           <p class="hint" id="ostatni-plocha-403-hint">Technicky je to špatně (nejde o rough open land) — 403 se ale nebije s okrajem cest jako hnědá zpevněná 501. V některých kresbách dá lepší představu o prostoru; v OOM jde snadno smazat. Default vypnuto.</p>
 
           <details class="advanced-options" id="osm-advanced">
-            <summary>Další objekty OSM (volitelné)</summary>
-            <p class="hint">Default vypnuto. Lampy a lavičky spíš ve sprintu; herní prvky i u chat / okraje lesa.</p>
+            <summary>Další objekty OSM (do auto .omap)</summary>
+            <p class="hint">Checkbox = vykreslit v auto&nbsp;<code>.omap</code>. Data se stahují vždy; SHP jsou v&nbsp;<code>osm/</code> a&nbsp;<code>uzitecne/</code>. Default vypnuto.</p>
             <label class="checkbox-row">
               <input type="checkbox" name="kp_osm_benches" id="kp_osm_benches" value="1" />
               Lavičky, stoly, ohniště, tabule (531)
@@ -278,7 +279,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.12.3 ·
+      Podkladárna v1.13.1 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

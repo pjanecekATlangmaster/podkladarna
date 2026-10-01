@@ -32,7 +32,7 @@ WEB_ABOUT_HTML = """
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
   <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> – podle názvu projektu a měřítka; cesty z OSM; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
-  <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>) i KP (<code>contours_kp.dxf</code>) ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
+  <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>) i KP (<code>contours_kp.dxf</code>) ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, volitelné vektory v <code>uzitecne/</code> (kopečky, lavičky, cesty…), památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
   Nakreslete obdélník (max cca 36&nbsp;km², např. 6×6&nbsp;km), vyberte <strong>měřítko</strong> a
@@ -82,10 +82,12 @@ Co je uvnitř
 ------------
 - *-sprint/les/mtbo.omap … podle názvu projektu a měřítka (cesty OSM), otevřete v OpenOrienteering Mapper (OOM)
 - kp/                  … PNG náhledy Karttapullautin (zeleň + deprese)
-- base/                … vrstevnice GDAL (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy/knolly
+- base/                … vrstevnice GDAL (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy, kopečky (DXF – ne v auto .omap)
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, …)
 - zabaged/             … polohopis ZABAGED (shapefile včetně budov + RUIAN_budovy.shp; výchozí budovy v .omap jsou z OSM)
                        … Ostatní plocha v sídlech jako OstatniPlochaVSidlech_mensi / _stredni / _velke (podle velikosti; prázdné pásmo chybí)
+                       … Louky (TrvalyTravniPorost / UdrzovanaZelen) – v režimu „jen KP“ nejsou v auto .omap, tady k ručnímu importu
+- uzitecne/            … volitelné / alternativní vektory k ručnímu importu (kopečky, lavičky, cesty ZABAGED×OSM, residual 501, oliva dvorů, AOPK…)
 - references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM
 - metadata.json        … měřítko, preset, CRS
