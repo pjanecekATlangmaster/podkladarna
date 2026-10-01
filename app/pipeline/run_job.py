@@ -476,7 +476,7 @@ def run_job_pipeline(
         build_job_shade(
             work_dir,
             bounds_5514=grid_bounds,
-            prefer_local=True,
+            prefer_local=False,
             force=force_refresh,
             cache_dir=surfaces_cache,
             log=log,

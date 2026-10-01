@@ -149,7 +149,7 @@ def compose_job_preview(
     shade = resolve_shade_png(work_dir)
     if shade is None:
         shade = build_job_shade(
-            work_dir, bounds_5514=bounds_5514, prefer_local=True, log=log
+            work_dir, bounds_5514=bounds_5514, prefer_local=False, log=log
         )
 
     if shade is not None and shade.is_file():

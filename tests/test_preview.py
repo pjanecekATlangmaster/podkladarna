@@ -96,7 +96,67 @@ def test_build_job_shade_from_dem_mock(tmp_path: Path):
     assert (shade_work_dir(tmp_path) / "hillshade.pgw").is_file()
 
 
-def test_build_job_shade_wms_fallback(tmp_path: Path):
+def test_build_job_shade_prefers_cuzk_wms(tmp_path: Path):
+    """Default: ČÚZK WMS dřív než lokální gdaldem (i když DEM existuje)."""
+    write_job_grid(
+        tmp_path,
+        (-700005.0, -1050005.0, -700000.0, -1050000.0),
+        resolution_m=1.0,
+    )
+    dem_dir = tmp_path / "dem"
+    dem_dir.mkdir()
+    (dem_dir / "dem_filled.tif").write_bytes(b"dem" * 200)
+    logs: list[str] = []
+
+    def fake_wms(bounds, grid, dest_png, dest_pgw, *, log=None, **_kw):
+        write_solid_gray_png(dest_png, grid.width, grid.height, gray=90)
+        grid.to_pgw().write(dest_pgw)
+        return True
+
+    with (
+        patch(
+            "app.pipeline.shade.fetch_hillshade_wms_for_grid", side_effect=fake_wms
+        ) as mock_wms,
+        patch("app.pipeline.shade.build_hillshade_from_dem") as mock_dem,
+    ):
+        out = build_job_shade(tmp_path, log=logs.append)
+
+    assert out is not None
+    mock_wms.assert_called_once()
+    mock_dem.assert_not_called()
+
+
+def test_build_job_shade_wms_fallback_to_dem(tmp_path: Path):
+    """Když ČÚZK WMS selže, použij gdaldem z dem_filled."""
+    write_job_grid(
+        tmp_path,
+        (-700005.0, -1050005.0, -700000.0, -1050000.0),
+        resolution_m=1.0,
+    )
+    dem_dir = tmp_path / "dem"
+    dem_dir.mkdir()
+    (dem_dir / "dem_filled.tif").write_bytes(b"dem" * 200)
+
+    def fake_from_dem(dem_tif, dest_png, dest_pgw, grid, *, log=None, **_kw):
+        write_solid_gray_png(dest_png, grid.width, grid.height, gray=120)
+        grid.to_pgw().write(dest_pgw)
+        return True
+
+    with (
+        patch(
+            "app.pipeline.shade.fetch_hillshade_wms_for_grid", return_value=False
+        ),
+        patch(
+            "app.pipeline.shade.build_hillshade_from_dem", side_effect=fake_from_dem
+        ) as mock_dem,
+    ):
+        out = build_job_shade(tmp_path)
+
+    assert out is not None
+    mock_dem.assert_called_once()
+
+
+def test_build_job_shade_wms_when_no_dem(tmp_path: Path):
     write_job_grid(
         tmp_path,
         (-700005.0, -1050005.0, -700000.0, -1050000.0),
@@ -114,11 +174,45 @@ def test_build_job_shade_wms_fallback(tmp_path: Path):
             "app.pipeline.shade.fetch_hillshade_wms_for_grid", side_effect=fake_wms
         ),
     ):
-        out = build_job_shade(tmp_path, prefer_local=True)
+        out = build_job_shade(tmp_path)
 
     assert out is not None
     assert out.is_file()
 
+
+def test_fetch_hillshade_wms_logs_czech_step(tmp_path: Path):
+    from app.pipeline.job_grid import JobGrid
+    from app.pipeline.shade import fetch_hillshade_wms_for_grid
+
+    grid = JobGrid(
+        xmin=-10.0,
+        ymin=-10.0,
+        xmax=0.0,
+        ymax=0.0,
+        resolution_m=1.0,
+        width=10,
+        height=10,
+    )
+    logs: list[str] = []
+    dest_png = tmp_path / "hillshade.png"
+    dest_pgw = tmp_path / "hillshade.pgw"
+
+    with patch(
+        "app.pipeline.shade._download_wms_raster", return_value=True
+    ) as mock_dl:
+        ok = fetch_hillshade_wms_for_grid(
+            (-10.0, -10.0, 0.0, 0.0),
+            grid,
+            dest_png,
+            dest_pgw,
+            log=logs.append,
+        )
+
+    assert ok
+    mock_dl.assert_called_once()
+    assert any("ČÚZK" in line for line in logs)
+    assert any("Stahuji" in line for line in logs)
+    assert dest_pgw.is_file()
 
 def test_compose_preview_without_kp(tmp_path: Path):
     write_job_grid(

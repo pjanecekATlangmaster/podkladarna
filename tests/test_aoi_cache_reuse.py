@@ -173,6 +173,37 @@ def test_surfaces_force_refresh_reruns_pdal(tmp_path: Path, monkeypatch, bbox):
     assert calls["n"] == 1
 
 
+def test_shade_aoi_cache_reuse_cuzk(tmp_path: Path, monkeypatch, bbox):
+    """ČÚZK WMS shade se obnoví z AOI cache bez DEM fingerprintu."""
+    from app import settings
+    from app.pipeline.job_grid import JobGrid, write_job_grid
+    from app.pipeline.shade import build_job_shade
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    cache = surfaces_cache_dir(bbox, resolution_m=1.0)
+    work = tmp_path / "work"
+    write_job_grid(work, (0.0, 0.0, 100.0, 100.0), resolution_m=1.0)
+
+    shade = work / "shade"
+    shade.mkdir(parents=True)
+    (shade / "hillshade.png").write_bytes(b"png" * 30)
+    JobGrid.load(work).to_pgw().write(shade / "hillshade.pgw")
+    persist_shade(cache, shade, dem_fp=None, source="cuzk_wms")
+
+    work2 = tmp_path / "work2"
+    write_job_grid(work2, (0.0, 0.0, 100.0, 100.0), resolution_m=1.0)
+
+    with (
+        patch("app.pipeline.shade.build_hillshade_from_dem") as mock_local,
+        patch("app.pipeline.shade.fetch_hillshade_wms_for_grid") as mock_wms,
+    ):
+        out = build_job_shade(work2, cache_dir=cache)
+    mock_local.assert_not_called()
+    mock_wms.assert_not_called()
+    assert out is not None
+    assert out.is_file()
+
+
 def test_shade_reuse_when_dem_unchanged(tmp_path: Path, monkeypatch, bbox):
     from app import settings
     from app.pipeline.job_grid import JobGrid, write_job_grid
@@ -191,7 +222,9 @@ def test_shade_reuse_when_dem_unchanged(tmp_path: Path, monkeypatch, bbox):
     shade.mkdir(parents=True)
     (shade / "hillshade.png").write_bytes(b"png" * 30)
     JobGrid.load(work).to_pgw().write(shade / "hillshade.pgw")
-    persist_shade(cache, shade, dem_fp=file_fingerprint(dem_tif))
+    persist_shade(
+        cache, shade, dem_fp=file_fingerprint(dem_tif), source="gdaldem"
+    )
 
     # Nový work dir se stejným DEM fingerprintem (copy2).
     work2 = tmp_path / "work2"

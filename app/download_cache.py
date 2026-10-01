@@ -368,12 +368,16 @@ def try_restore_shade(
     cache_dir: Path,
     shade_dir: Path,
     *,
-    dem_fp: dict | None,
+    dem_fp: dict | None = None,
     max_age_days: int | None = None,
     force: bool = False,
     log=None,
 ) -> bool:
-    """Obnoví hillshade.png když DEM fingerprint sedí. False = miss."""
+    """Obnoví hillshade.png z AOI cache. False = miss.
+
+    ČÚZK WMS shade je vázaný na AOI (stejný surfaces_cache_dir), ne na DEM.
+    ``dem_fp`` se kontroluje jen u staršího / lokálního ``source=gdaldem``.
+    """
     if force:
         return False
     shade_root = shade_cache_dir(cache_dir)
@@ -386,8 +390,11 @@ def try_restore_shade(
     if not is_fresh(shade_root, png, age_limit, min_size=64):
         return False
     meta = read_meta(shade_root) or {}
-    if not fingerprints_equal(meta.get("dem_fp"), dem_fp):
-        return False
+    source = str(meta.get("source") or "")
+    # Legacy cache bez ``source``: když meta má dem_fp, chovej se jako gdaldem.
+    if source == "gdaldem" or (not source and meta.get("dem_fp") is not None):
+        if not fingerprints_equal(meta.get("dem_fp"), dem_fp):
+            return False
     pgw = shade_root / "hillshade.pgw"
     if not pgw.is_file():
         return False
@@ -406,7 +413,8 @@ def persist_shade(
     cache_dir: Path,
     shade_dir: Path,
     *,
-    dem_fp: dict | None,
+    dem_fp: dict | None = None,
+    source: str | None = None,
     log=None,
 ) -> None:
     png = shade_dir / "hillshade.png"
@@ -418,6 +426,7 @@ def persist_shade(
         dest,
         kind="shade",
         dem_fp=dem_fp,
+        source=source or ("gdaldem" if dem_fp else "cuzk_wms"),
         files=copied,
     )
     if log:

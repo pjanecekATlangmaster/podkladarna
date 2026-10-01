@@ -1,8 +1,9 @@
-"""Hillshade stack na sdíleném DEM / WMS – jeden primární azimut.
+"""Hillshade stack na sdíleném job_grid – jeden primární azimut.
 
-Lokální ``gdaldem`` z ``work/dem/dem_filled.tif`` (dem_prep) je preferovaný;
-WMS ČÚZK GrayscaleHillshade je fallback. Výstup: ``work/shade/hillshade.png``
-(+ PGW) na kanonické ``job_grid``.
+Primárně ČÚZK WMS ``dmr5g:GrayscaleHillshade`` (stažení do ``work/shade/``).
+Lokální ``gdaldem`` z ``work/dem/dem_filled.tif`` je jen fallback, když WMS
+selže (nebo ``prefer_local=True``). Výstup: ``hillshade.png`` (+ PGW)
+na kanonické mřížce.
 """
 
 from __future__ import annotations
@@ -159,6 +160,10 @@ def fetch_hillshade_wms_for_grid(
     log=None,
 ) -> bool:
     """WMS grayscale hillshade zarovnaný na ``job_grid`` (bez KP šablony)."""
+    log_step(
+        log,
+        "Stahuji stínovaný reliéf z ČÚZK (WMS DMR 5G, šedý podklad mapy)",
+    )
     if log:
         log(
             f"Hillshade: WMS {layer} → {dest_png.name} "
@@ -185,15 +190,16 @@ def build_job_shade(
     work_dir: Path,
     *,
     bounds_5514: tuple[float, float, float, float] | None = None,
-    prefer_local: bool = True,
+    prefer_local: bool = False,
     force: bool = False,
     cache_dir: Path | None = None,
     log=None,
 ) -> Path | None:
     """Sestaví primární hillshade do ``work/shade/``.
 
-    Pořadí: existující soubor → AOI shade cache (DEM fingerprint) →
-    lokální gdaldem z dem_filled → WMS.
+    Pořadí: existující soubor → AOI shade cache → ČÚZK WMS →
+    lokální gdaldem z dem_filled (fallback). ``prefer_local=True``
+    vrací staré pořadí DEM→WMS (testy / escape hatch).
     """
     work_dir = Path(work_dir)
     grid = JobGrid.load(work_dir)
@@ -223,11 +229,13 @@ def build_job_shade(
 
     bounds = bounds_5514 or grid.bounds()
     built = False
+    source: str | None = None
 
     if prefer_local and dem is not None:
         try:
             if build_hillshade_from_dem(dem, dest_png, dest_pgw, grid, log=log):
                 built = True
+                source = "gdaldem"
         except Exception as exc:
             if log:
                 log(f"Hillshade DEM selhal ({exc}) – zkouším WMS…")
@@ -238,17 +246,35 @@ def build_job_shade(
                 bounds, grid, dest_png, dest_pgw, log=log
             ):
                 built = True
+                source = "cuzk_wms"
         except Exception as exc:
             if log:
                 log(f"Hillshade WMS selhal ({exc})")
 
+    if not built and not prefer_local and dem is not None:
+        try:
+            if build_hillshade_from_dem(dem, dest_png, dest_pgw, grid, log=log):
+                built = True
+                source = "gdaldem"
+                if log:
+                    log("Hillshade: fallback gdaldem po selhání ČÚZK WMS")
+        except Exception as exc:
+            if log:
+                log(f"Hillshade DEM fallback selhal ({exc})")
+
     if built and dest_png.is_file() and dest_png.stat().st_size >= MIN_SHADE_BYTES:
         if cache_dir is not None:
-            persist_shade(cache_dir, out_dir, dem_fp=dem_fp, log=log)
+            persist_shade(
+                cache_dir,
+                out_dir,
+                dem_fp=dem_fp,
+                source=source,
+                log=log,
+            )
         return dest_png
 
     if log:
-        log("Hillshade: žádný zdroj (DEM ani WMS)")
+        log("Hillshade: žádný zdroj (WMS ani DEM)")
     return None
 
 
