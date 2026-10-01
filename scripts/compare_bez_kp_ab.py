@@ -29,8 +29,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.pipeline.oom_import import _pyogrio_layer_rows
-
 # Hledané cesty relativně ke kořeni jobu / ZIPu / output.
 _VEGE_CANDIDATES = (
     "base/vegetation.shp",
@@ -214,21 +212,108 @@ def cliffs_stats(root: Path) -> dict[str, Any]:
     }
 
 
-def _polygon_area_m2_from_wkb(wkb: bytes) -> float:
-    """Plocha v m² (EPSG:5514 / rovinné souřadnice) přes shapely; 0 při chybě."""
-    if not wkb:
+def _ring_signed_area(coords) -> float:
+    if len(coords) < 3:
         return 0.0
+    pts = [(float(p[0]), float(p[1])) for p in coords]
+    if pts[0] != pts[-1]:
+        pts.append(pts[0])
+    area = 0.0
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+        area += x1 * y2 - x2 * y1
+    return area / 2.0
+
+
+def _polygon_area_m2_from_shape(shape) -> float:
+    """Plocha v m² (rovinné souřadnice). Shapely, jinak shoelace včetně děr."""
     try:
-        from shapely import wkb as shapely_wkb
+        from shapely.geometry import shape as shapely_shape
     except ImportError:
+        shapely_shape = None
+    if shapely_shape is not None:
+        try:
+            geom = shapely_shape(shape.__geo_interface__)
+        except Exception:
+            geom = None
+        if geom is not None and not geom.is_empty:
+            return float(abs(geom.area))
+    points = list(getattr(shape, "points", None) or [])
+    if len(points) < 3:
         return 0.0
-    try:
-        geom = shapely_wkb.loads(bytes(wkb))
-    except Exception:
-        return 0.0
-    if geom is None or geom.is_empty:
-        return 0.0
-    return float(abs(geom.area))
+    parts = list(getattr(shape, "parts", None) or [0])
+    ends = parts[1:] + [len(points)]
+    signed = 0.0
+    for start, end in zip(parts, ends):
+        signed += _ring_signed_area(points[start:end])
+    return abs(signed)
+
+
+def _clean_field_value(value):
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
+def _vegetation_rows_pyshp(shp: Path) -> list[tuple[dict, float]]:
+    import shapefile
+
+    rows: list[tuple[dict, float]] = []
+    with shapefile.Reader(str(shp)) as reader:
+        names = [str(field[0]) for field in reader.fields[1:]]
+        for item in reader.iterShapeRecords():
+            values = list(item.record)
+            props = {
+                name: _clean_field_value(values[i])
+                for i, name in enumerate(names)
+                if i < len(values)
+            }
+            rows.append((props, _polygon_area_m2_from_shape(item.shape)))
+    return rows
+
+
+def _vegetation_rows_ogr(shp: Path) -> list[tuple[dict, float]]:
+    from osgeo import ogr
+
+    ds = ogr.Open(str(shp))
+    if ds is None:
+        raise OSError(f"nelze otevřít {shp.name}")
+    rows: list[tuple[dict, float]] = []
+    for i in range(ds.GetLayerCount() or 0):
+        layer = ds.GetLayer(i)
+        if layer is None:
+            continue
+        layer.ResetReading()
+        for feature in layer:
+            props: dict[str, Any] = {}
+            for fi in range(feature.GetFieldCount()):
+                defn = feature.GetFieldDefnRef(fi)
+                if defn is None:
+                    continue
+                props[str(defn.GetName())] = _clean_field_value(feature.GetField(fi))
+            geom = feature.GetGeometryRef()
+            area = 0.0
+            if geom is not None:
+                try:
+                    area = float(abs(geom.GetArea()))
+                except Exception:
+                    area = 0.0
+            rows.append((props, area))
+    return rows
+
+
+def _read_vegetation_rows(shp: Path) -> list[tuple[dict, float]]:
+    """Atributy a plocha. pyshp je v requirements-dev; osgeo je záloha (QGIS/Docker)."""
+    errors: list[BaseException] = []
+    for reader in (_vegetation_rows_pyshp, _vegetation_rows_ogr):
+        try:
+            return reader(shp)
+        except ImportError:
+            continue
+        except Exception as exc:
+            errors.append(exc)
+    if errors:
+        raise errors[-1]
+    raise ImportError("chybí pyshp i osgeo")
 
 
 def vegetation_stats(shp: Path | None) -> dict[str, Any]:
@@ -245,16 +330,6 @@ def vegetation_stats(shp: Path | None) -> dict[str, Any]:
     }
     if shp is None or not shp.is_file():
         return empty
-    try:
-        import pyogrio
-    except ImportError:
-        return {
-            **empty,
-            "present": True,
-            "path": str(shp),
-            "error": "pyogrio unavailable",
-            "size_bytes": shp.stat().st_size,
-        }
 
     area_by_code: dict[str, float] = {}
     area_by_cls: dict[str, float] = {}
@@ -263,7 +338,7 @@ def vegetation_stats(shp: Path | None) -> dict[str, Any]:
     n = 0
     total = 0.0
     try:
-        layers = pyogrio.list_layers(shp)
+        rows = _read_vegetation_rows(shp)
     except Exception as exc:
         return {
             **empty,
@@ -273,25 +348,23 @@ def vegetation_stats(shp: Path | None) -> dict[str, Any]:
             "size_bytes": shp.stat().st_size,
         }
 
-    for layer_name, _t in layers:
-        for props, wkb in _pyogrio_layer_rows(shp, layer=layer_name):
-            n += 1
-            area = _polygon_area_m2_from_wkb(bytes(wkb) if wkb is not None else b"")
-            total += area
-            code = props.get("code")
-            cls = props.get("cls")
-            code_key = str(code) if code is not None and str(code) not in {"nan", "None"} else "?"
-            if cls is None or str(cls) in {"nan", "None"}:
-                cls_key = "?"
-            else:
-                try:
-                    cls_key = str(int(cls))
-                except (TypeError, ValueError):
-                    cls_key = str(cls)
-            area_by_code[code_key] = area_by_code.get(code_key, 0.0) + area
-            area_by_cls[cls_key] = area_by_cls.get(cls_key, 0.0) + area
-            count_by_code[code_key] = count_by_code.get(code_key, 0) + 1
-            count_by_cls[cls_key] = count_by_cls.get(cls_key, 0) + 1
+    for props, area in rows:
+        n += 1
+        total += area
+        code = props.get("code")
+        cls = props.get("cls")
+        code_key = str(code) if code is not None and str(code) not in {"nan", "None", ""} else "?"
+        if cls is None or str(cls) in {"nan", "None", ""}:
+            cls_key = "?"
+        else:
+            try:
+                cls_key = str(int(cls))
+            except (TypeError, ValueError):
+                cls_key = str(cls)
+        area_by_code[code_key] = area_by_code.get(code_key, 0.0) + area
+        area_by_cls[cls_key] = area_by_cls.get(cls_key, 0.0) + area
+        count_by_code[code_key] = count_by_code.get(code_key, 0) + 1
+        count_by_cls[cls_key] = count_by_cls.get(cls_key, 0) + 1
 
     def _round_map(d: dict[str, float]) -> dict[str, float]:
         return {k: round(v, 2) for k, v in sorted(d.items())}

@@ -155,30 +155,23 @@ def test_compare_ab_report(tmp_path: Path):
 
 
 def test_vegetation_stats_from_shp(tmp_path: Path):
-    import numpy as np
-    import pyogrio.raw as pyogrio_raw
-    from shapely import wkb as shapely_wkb
-    from shapely.geometry import box
+    import shapefile
 
     from scripts.compare_bez_kp_ab import vegetation_stats
 
-    g1 = box(0, 0, 10, 10)  # 100 m²
-    g2 = box(0, 0, 5, 4)  # 20 m²
-    geoms = np.array(
-        [shapely_wkb.dumps(g1), shapely_wkb.dumps(g2)],
-        dtype=object,
-    )
+    def _ring(x0: float, y0: float, x1: float, y1: float) -> list[list[float]]:
+        # Clockwise exterior, jak to chce shapefile.
+        return [[x0, y0], [x0, y1], [x1, y1], [x1, y0], [x0, y0]]
+
     shp = tmp_path / "vegetation.shp"
-    pyogrio_raw.write(
-        str(shp),
-        geoms,
-        [np.array([1, 2], dtype=np.int32), np.array(["401", "406"])],
-        ["cls", "code"],
-        layer="vegetation",
-        driver="ESRI Shapefile",
-        geometry_type="Polygon",
-        crs="EPSG:5514",
-    )
+    with shapefile.Writer(str(shp.with_suffix("")), shapeType=shapefile.POLYGON) as writer:
+        writer.field("cls", "N", size=10, decimal=0)
+        writer.field("code", "C", size=8)
+        writer.poly([_ring(0, 0, 10, 10)])  # 100 m²
+        writer.record(1, "401")
+        writer.poly([_ring(0, 0, 5, 4)])  # 20 m²
+        writer.record(2, "406")
+
     stats = vegetation_stats(shp)
     assert stats["present"] is True
     assert stats["feature_count"] == 2
