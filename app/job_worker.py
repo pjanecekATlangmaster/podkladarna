@@ -90,6 +90,7 @@ def retry_missed_private_mails(*, limit: int = 50) -> list[str]:
 
     Pokrývá race: job stihne `Status: done`, pak redeploy zabije proces před SMTP,
     nebo chybějící PUBLIC_BASE_URL/SMTP v původním procesu.
+    Neposílá odkaz, když na disku už není ZIP (mrtvý token by Petr zmátl).
     """
     resent: list[str] = []
     for job in db.list_jobs(limit=limit, include_private=True):
@@ -103,6 +104,14 @@ def retry_missed_private_mails(*, limit: int = 50) -> list[str]:
             continue
         lines = [e.get("line") or "" for e in db.get_logs(job["id"])]
         if not any("Status: done" in ln for ln in lines):
+            continue
+        # Privátní API schová has_output – zkontroluj disk přímo.
+        job_dir = JOBS_DIR / job["id"]
+        if not db._job_has_output(job_dir):
+            logger.info(
+                "Skip private mail retry for %s – chybí výstupní ZIP na disku.",
+                job["id"],
+            )
             continue
         logger.info("Retry private mail for job %s", job["id"])
         try:
