@@ -8,7 +8,8 @@
    Mapper CLI** @ **600 DPI** (``--full-map``), **s grivací**, přes
    ``PODKLADARNA_MAPPER`` + ``PODKLADARNA_MAPPER_EXPORT``. Stock 0.9.6 bez
    ``--cli`` GUI otevře; bez CLI buildu job **explicitně** spadne na Pillow
-   georef (PNG+PGW±GeoTIFF, s grivací) a zapíše to do logu – tlačítko
+   georef (PNG+PGW±GeoTIFF, s grivací, **@ 600 DPI-eq** papíru – viz
+   ``PODKLADARNA_GEOREF_PILLOW_DPI``) a zapíše to do logu – tlačítko
    „Stáhnout georef náhledy“ zůstane. Přímý ``engine="mapper"`` bez CLI
    dál vyhodí ``MapperExportError`` (žádný tichý „Mapper“ fallback).
 
@@ -46,11 +47,35 @@ GEOREF_PREVIEW_DIR = "preview"
 GEOREF_PREVIEWS_ZIP_NAME = "podkladarna_georef_previews.zip"
 # Georef Mapper export – fixní DPI (bez GUI volby).
 GEOREF_MAPPER_DPI = 600
+# Web „Otevřít PNG“ – rychlý Pillow náhled (ne georef kvalita).
+WEB_PREVIEW_MAX_SIDE = 1600
+# Pillow georef fallback: cílové DPI ≈ Mapper; OOM map. j. = 1/1000 mm papíru.
+# Floor ≥ dřívější 1600 (malé AOI jinak pod 600 DPI papíru vypadají hůř než web);
+# 4800 = 3× starý cap → výrazně ostřejší tip bez Mapper CLI.
+GEOREF_PILLOW_MIN_SIDE_FLOOR = 4800
+# Cap chrání paměť na velkých AOI (≈10k px ≈ 200 MB RGB).
+GEOREF_PILLOW_MAX_SIDE_CAP = 10000
 # Výchozí šablona pro PR #2523 CLI (mfbehrens/oo-mapper větev cli).
 # Stock Mapper 0.9.6 tuto syntaxi neumí – bez env se nespouští.
 DEFAULT_MAPPER_EXPORT_TEMPLATE = (
     '"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}'
 )
+
+
+def georef_pillow_dpi() -> int:
+    """Cílové DPI pro Pillow georef fallback (default = Mapper 600).
+
+    Override: ``PODKLADARNA_GEOREF_PILLOW_DPI`` (kladné int).
+    """
+    raw = os.environ.get("PODKLADARNA_GEOREF_PILLOW_DPI", "").strip()
+    if raw:
+        try:
+            dpi = int(raw)
+            if dpi > 0:
+                return dpi
+        except ValueError:
+            pass
+    return GEOREF_MAPPER_DPI
 
 
 class MapperExportError(RuntimeError):
@@ -848,14 +873,46 @@ def preview_extent_from_crop(
     padx: float,
     pady: float,
     *,
-    max_side: int = 1600,
+    max_side: int = WEB_PREVIEW_MAX_SIDE,
+    target_dpi: int | None = None,
+    max_side_cap: int = GEOREF_PILLOW_MAX_SIDE_CAP,
+    min_side_floor: int = GEOREF_PILLOW_MIN_SIDE_FLOOR,
 ) -> PreviewExtent:
-    """PNG mřížka ze stejného ořezu jako ``render_omap_xml_png``."""
+    """PNG mřížka ze stejného ořezu jako ``render_omap_xml_png``.
+
+    ``target_dpi``: georef Pillow – velikost z papírových map. j. (1/1000 mm)
+    jako Mapper ``--dpi`` (``map_per_px = 25400 / dpi``), nejméně tak jemné
+    jako ``min_side_floor`` (default 4800), nanejvýš ``max_side_cap``.
+    Bez ``target_dpi`` jen ``max_side`` (web náhled).
+    """
     spanx = max(maxx - minx, 1.0)
     spany = max(maxy - miny, 1.0)
     world_w = spanx + 2 * padx
     world_h = spany + 2 * pady
-    scale = max(1, int(max_side)) / max(world_w, world_h)
+    longest_world = max(world_w, world_h)
+    if target_dpi is not None and int(target_dpi) > 0:
+        paper_mpp = 25400.0 / float(int(target_dpi))
+        floor = max(1, int(min_side_floor))
+        floor_mpp = longest_world / float(floor)
+        # Jemnější = menší map_per_px (600 DPI nebo aspoň dřívější 1600 cap).
+        map_per_px = min(paper_mpp, floor_mpp)
+        width = max(1, int(round(world_w / map_per_px)))
+        height = max(1, int(round(world_h / map_per_px)))
+        longest = max(width, height)
+        cap = max(1, int(max_side_cap))
+        if longest > cap:
+            shrink = cap / float(longest)
+            width = max(1, int(round(width * shrink)))
+            height = max(1, int(round(height * shrink)))
+            map_per_px = world_w / float(width)
+        return PreviewExtent(
+            origin_x=minx - padx,
+            origin_y=miny - pady,
+            map_per_px=map_per_px,
+            width=width,
+            height=height,
+        )
+    scale = max(1, int(max_side)) / longest_world
     width = max(1, int(round(world_w * scale)))
     height = max(1, int(round(world_h * scale)))
     return PreviewExtent(
@@ -1212,13 +1269,15 @@ def render_omap_xml_png(
     omap: Path,
     dest: Path,
     *,
-    max_side: int = 1600,
+    max_side: int = WEB_PREVIEW_MAX_SIDE,
+    target_dpi: int | None = None,
     undo_grivation: bool = True,
 ) -> tuple[int, int, int, PreviewExtent, OmapGeoref]:
     """Vykreslí objekty mapy do PNG. Vrátí (šířka, výška, počet ops, extent, georef).
 
     ``undo_grivation=True`` (web): srovnání bez deklinace.
     ``False`` (georef ZIP): magnetické natočení jako v Mapperu.
+    ``target_dpi``: georef Pillow ≈ Mapper DPI; jinak škálování ``max_side``.
     """
     from PIL import Image, ImageDraw
 
@@ -1233,7 +1292,14 @@ def render_omap_xml_png(
         root, ops, grivation_deg=g_undo
     )
     extent = preview_extent_from_crop(
-        minx, miny, maxx, maxy, padx, pady, max_side=max_side
+        minx,
+        miny,
+        maxx,
+        maxy,
+        padx,
+        pady,
+        max_side=max_side,
+        target_dpi=target_dpi,
     )
     width, height = extent.width, extent.height
     scale = 1.0 / extent.map_per_px
@@ -1321,7 +1387,8 @@ def render_omap_to_png(
     dest: Path,
     *,
     log=None,
-    max_side: int = 1600,
+    max_side: int = WEB_PREVIEW_MAX_SIDE,
+    target_dpi: int | None = None,
     write_pgw: bool = False,
     write_geotiff: bool = False,
     undo_grivation: bool | None = None,
@@ -1337,6 +1404,8 @@ def render_omap_to_png(
 
     ``undo_grivation``: default ``False`` při ``write_pgw`` (georef s deklinací),
     jinak ``True`` (web bez deklinace). U Mapper georef se grivace nechá v mapě.
+    ``target_dpi``: jen Pillow georef – papírové DPI (default přes caller);
+    web nechává ``None`` + ``max_side``.
     """
     omap = Path(omap)
     dest = Path(dest)
@@ -1371,7 +1440,11 @@ def render_omap_to_png(
         raise ValueError(f"Neznámý render engine: {engine!r}")
 
     width, height, count, extent, georef = render_omap_xml_png(
-        omap, dest, max_side=max_side, undo_grivation=undo_grivation
+        omap,
+        dest,
+        max_side=max_side,
+        target_dpi=target_dpi,
+        undo_grivation=undo_grivation,
     )
     if write_pgw:
         write_preview_pgw(
@@ -1384,10 +1457,17 @@ def render_omap_to_png(
             try_write_geotiff_from_png_pgw(dest, log=log)
     if log:
         orient = "bez deklinace" if undo_grivation else "s grivací"
+        dpi_note = (
+            f", ~{int(target_dpi)} DPI-eq"
+            if target_dpi is not None and int(target_dpi) > 0
+            else ""
+        )
         log(
             f"OOM náhled: Pillow render {dest.name} "
-            f"({width}×{height}, {count} objektů, {orient})"
+            f"({width}×{height}{dpi_note}, {count} objektů, {orient})"
         )
+    if target_dpi is not None and int(target_dpi) > 0:
+        return f"xml {width}x{height} n={count} dpi={int(target_dpi)}"
     return f"xml {width}x{height} n={count}"
 
 
@@ -1444,6 +1524,7 @@ def write_job_oom_preview(
     written: list[Path] = []
     use_mapper = mapper_export_configured()
     georef_engine = "mapper" if use_mapper else "pillow"
+    pillow_dpi = georef_pillow_dpi()
 
     if use_mapper:
         log_step(log, "Vykresluji georeferencované náhledy PNG+PGW (Mapper @ 600 DPI)")
@@ -1451,13 +1532,15 @@ def write_job_oom_preview(
         log_step(
             log,
             "Vykresluji georeferencované náhledy PNG+PGW "
-            "(Pillow fallback – Mapper CLI není nakonfigurovaný)",
+            f"(Pillow fallback @ {pillow_dpi} DPI-eq – Mapper CLI není nakonfigurovaný)",
         )
         if log:
             log(
                 "OOM georef: Mapper CLI chybí "
                 "(PODKLADARNA_MAPPER + PODKLADARNA_MAPPER_EXPORT) – "
-                "georef ZIP bude Pillow PNG+PGW (±GeoTIFF), ne Mapper @ 600 DPI."
+                f"georef ZIP bude Pillow PNG+PGW (±GeoTIFF) @ {pillow_dpi} DPI-eq "
+                f"(min_side≥{GEOREF_PILLOW_MIN_SIDE_FLOOR}, "
+                f"max_side_cap={GEOREF_PILLOW_MAX_SIDE_CAP}), ne Mapper @ 600 DPI."
             )
     for omap in existing:
         dest_png = preview_dir / f"{omap.stem}.png"
@@ -1470,10 +1553,14 @@ def write_job_oom_preview(
                 write_geotiff=want_geotiff,
                 undo_grivation=False,
                 engine=georef_engine,
+                target_dpi=None if use_mapper else pillow_dpi,
             )
         except MapperExportError as exc:
             if log:
-                log(f"OOM georef: {omap.name} Mapper selhal ({exc}) – zkouším Pillow")
+                log(
+                    f"OOM georef: {omap.name} Mapper selhal ({exc}) – "
+                    f"zkouším Pillow @ {pillow_dpi} DPI-eq"
+                )
             try:
                 summary = render_omap_to_png(
                     omap,
@@ -1483,6 +1570,7 @@ def write_job_oom_preview(
                     write_geotiff=want_geotiff,
                     undo_grivation=False,
                     engine="pillow",
+                    target_dpi=pillow_dpi,
                 )
             except Exception as pillow_exc:
                 if log:
@@ -1515,6 +1603,7 @@ def write_job_oom_preview(
             write_pgw=False,
             undo_grivation=True,
             engine="pillow",
+            max_side=WEB_PREVIEW_MAX_SIDE,
         )
         shutil.copy2(work_png, named)
         for stale in (
@@ -1535,7 +1624,11 @@ def write_job_oom_preview(
             log(f"OOM náhled (web): {preferred.name} selhal ({exc})")
 
     if log and written:
-        src = "Mapper @ 600 DPI" if use_mapper else "Pillow fallback"
+        src = (
+            "Mapper @ 600 DPI"
+            if use_mapper
+            else f"Pillow fallback @ {pillow_dpi} DPI-eq"
+        )
         log(
             f"OOM georef: hotovo {len(written)} variant ({src})"
             + (" + GeoTIFF" if want_geotiff else "")
@@ -1596,7 +1689,7 @@ def build_georef_previews_zip(
                 "==========================================\n\n"
                 "Každá varianta (les / mtbo / sprint dle měřítka) má:\n"
                 "  *.png  – rastr georef náhledu (Mapper CLI @ 600 DPI když je CLI;\n"
-                "           jinak Pillow fallback) – s grivací / magnetickým natočením\n"
+                "           jinak Pillow @ 600 DPI-eq) – s grivací / magnetickým natočením\n"
                 "  *.pgw  – ESRI world file (metry EPSG:5514 / S-JTSK; může mít rotaci)\n"
                 "  *.prj  – WKT souřadnicového systému\n"
                 "  *.tif  – volitelný GeoTIFF (když je k dispozici GDAL)\n\n"

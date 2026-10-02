@@ -601,6 +601,7 @@ def test_write_job_georef_pillow_fallback_without_mapper(tmp_path: Path, monkeyp
     """Bez Mapper CLI musí job pořád vyrobit georef PNG+PGW (Pillow) + ZIP."""
     monkeypatch.delenv("PODKLADARNA_MAPPER_EXPORT", raising=False)
     monkeypatch.delenv("PODKLADARNA_MAPPER", raising=False)
+    monkeypatch.delenv("PODKLADARNA_GEOREF_PILLOW_DPI", raising=False)
     omap = tmp_path / "out" / "Park-les.omap"
     omap.parent.mkdir()
     omap.write_text(_MAP_GEOREF, encoding="utf-8")
@@ -616,8 +617,61 @@ def test_write_job_georef_pillow_fallback_without_mapper(tmp_path: Path, monkeyp
     georef_png = tmp_path / "out" / "preview" / "Park-les.png"
     assert georef_png.is_file() and georef_png.with_suffix(".pgw").is_file()
     assert any("Pillow fallback" in line or "Pillow" in line for line in logs)
+    assert any("600 DPI-eq" in line for line in logs)
+    # Georef: ≥ floor 4800; web zůstane max_side 1600.
+    from app.pipeline.oom_preview import (
+        GEOREF_MAPPER_DPI,
+        GEOREF_PILLOW_MIN_SIDE_FLOOR,
+        WEB_PREVIEW_MAX_SIDE,
+    )
+
+    georef_im = Image.open(georef_png)
+    web_im = Image.open(work)
+    assert max(georef_im.size) >= GEOREF_PILLOW_MIN_SIDE_FLOOR
+    assert max(web_im.size) == WEB_PREVIEW_MAX_SIDE
+    assert any(f"dpi={GEOREF_MAPPER_DPI}" in line for line in logs) or any(
+        "dpi=600" in line for line in logs
+    )
     zpath = build_georef_previews_zip(tmp_path / "out")
     assert zpath is not None and zpath.is_file()
+
+
+def test_preview_extent_target_dpi_matches_mapper_paper():
+    """Pillow georef DPI: OOM 1/1000 mm → map_per_px = 25400/DPI, floor 4800."""
+    from app.pipeline.oom_preview import preview_extent_from_crop
+
+    # 1 inch square → floor 4800 beats 600 px @ 600 DPI.
+    tiny = preview_extent_from_crop(
+        0, 0, 25400, 25400, 0, 0, target_dpi=600, min_side_floor=4800
+    )
+    assert max(tiny.width, tiny.height) == 4800
+    # Velký výřez: 600 DPI (40 inch) → 24000 px, cap 1000.
+    large = preview_extent_from_crop(
+        0,
+        0,
+        25400 * 40,
+        25400 * 40,
+        0,
+        0,
+        target_dpi=600,
+        max_side_cap=1000,
+        min_side_floor=100,
+    )
+    assert max(large.width, large.height) == 1000
+    # Střední: přesně 10 inch → 6000 px @ 600 DPI (nad floorem 4800).
+    mid = preview_extent_from_crop(
+        0,
+        0,
+        25400 * 10,
+        25400 * 10,
+        0,
+        0,
+        target_dpi=600,
+        min_side_floor=4800,
+        max_side_cap=20000,
+    )
+    assert mid.width == 6000
+    assert abs(mid.map_per_px - (25400 / 600)) < 1e-6
 
 
 def test_export_argv_keeps_spaces(tmp_path: Path, monkeypatch):

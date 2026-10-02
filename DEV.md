@@ -173,7 +173,7 @@ Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: 
 Když job běží s `use_kp=false` (výchozí), pipeline po zápisu `.omap` dělá dvě věci:
 
 1. **Web „Otevřít PNG“** – vždy **Pillow + XML** (`work/preview.png` / `output/preview/oom_preview.png`), **bez deklinace**. Rychlé; Mapper se nevolá.
-2. **Georef ZIP** – preferuje **OpenOrienteering Mapper CLI @ 600 DPI** (`--full-map`) → `output/preview/*-{les,mtbo,sprint}.png` + `.pgw` (+ volitelně `.tif`), **s grivací**. Bez CLI buildu (typicky Windows tip se stock 0.9.6) job **explicitně** použije Pillow georef (PNG+PGW±GeoTIFF, s grivací) a zapíše to do logu – tlačítko „Stáhnout georef náhledy“ zůstane. Malý ZIP: `podkladarna_georef_previews.zip` / API `/download/georef-previews`.
+2. **Georef ZIP** – preferuje **OpenOrienteering Mapper CLI @ 600 DPI** (`--full-map`) → `output/preview/*-{les,mtbo,sprint}.png` + `.pgw` (+ volitelně `.tif`), **s grivací**. Bez CLI buildu (typicky Windows tip se stock 0.9.6) job **explicitně** použije Pillow georef @ **600 DPI-eq** papíru (`map_per_px = 25400/DPI`, cap 10 000 px; override `PODKLADARNA_GEOREF_PILLOW_DPI`) → PNG+PGW±GeoTIFF, s grivací, a zapíše to do logu – tlačítko „Stáhnout georef náhledy“ zůstane. Malý ZIP: `podkladarna_georef_previews.zip` / API `/download/georef-previews`.
 
 **Materiálový OOM ZIP** PNG náhledy mapy **neobsahuje** (ani Pillow, ani Mapper). ČÚZK WMS `references/` zůstávají. KP `kp/pullautus*` jen když běží KP.
 
@@ -192,7 +192,9 @@ $env:PODKLADARNA_MAPPER_EXPORT = '"{mapper}" --cli export --full-map -i "{omap}"
 $env:PODKLADARNA_MAPPER_TIMEOUT = "600"
 ```
 
-Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. Windows tip často nemá CLI build – georef ZIP pak vznikne Pillow fallbackem.
+Bez CLI: Pillow georef cílí **600 DPI papíru** (`map_per_px = 25400/DPI`), nejméně delší strana **4800 px** (3× starý cap), max **10 000 px**. Override: `PODKLADARNA_GEOREF_PILLOW_DPI`.
+
+Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. Windows tip často nemá CLI build – georef ZIP pak vznikne Pillow fallbackem @ 600 DPI-eq (floor 4800).
 
 Vestavěný Pillow kreslí zjednodušenou symboliku. Orientace: nižší map Y nahoru. Web ořez kolem AOI (708 / 705).
 
