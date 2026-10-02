@@ -33,7 +33,7 @@ WEB_ABOUT_HTML = """
   proto nevypadají úplně stejně.
   Georeferencované PNG/TIFF do ZIPu je volitelné (ve výchozím stavu vypnuto).
 </p>
-<p>Ve ZIPu je mimo jiné:</p>
+<p>V ZIPu je mimo jiné:</p>
 <ul>
   <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> – podle názvu projektu a měřítka; cesty z OSM; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
