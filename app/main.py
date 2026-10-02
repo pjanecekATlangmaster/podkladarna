@@ -51,6 +51,7 @@ from app.settings import (
     MAX_QUEUE_SIZE,
     APP_VERSION,
     PRIVATE_JOB_RETENTION_HOURS,
+    default_footway_as_sidewalk,
 )
 from app.tiles import TileError, fetch_tile
 from app.tool_env import log_ignored_gdal_plugins, tool_status
@@ -560,9 +561,17 @@ async def api_create_job(request: Request):
         "kp_osm_playground_equipment"
     )
     options["kp_osm_priority"] = _opt_bool("kp_osm_priority")
-    options["kp_osm_footway_as_sidewalk"] = _opt_bool(
-        "kp_osm_footway_as_sidewalk"
-    )
+    footway_raw = _form_str(form, "kp_osm_footway_as_sidewalk").strip().lower()
+    if footway_raw in {"0", "false", "no", "off"}:
+        options["kp_osm_footway_as_sidewalk"] = False
+    elif footway_raw in {"1", "true", "yes", "on"}:
+        options["kp_osm_footway_as_sidewalk"] = True
+    else:
+        # Chybí ve formuláři → sprint default ON, les/MTBO OFF.
+        options["kp_osm_footway_as_sidewalk"] = default_footway_as_sidewalk(
+            options.get("map_scale"),
+            preset_id,
+        )
     options["sprint_courtyard_olive"] = _opt_bool("sprint_courtyard_olive")
     options["sprint_residual_paved"] = _opt_bool("sprint_residual_paved")
     residual_size_raw = _form_str(form, "sprint_residual_size").strip().lower()
