@@ -340,13 +340,14 @@ def api_download(job_id: str, token: str | None = None):
 
 
 @app.get("/api/jobs/{job_id}/download/georef-previews")
-def api_download_georef_previews(job_id: str):
+def api_download_georef_previews(job_id: str, token: str | None = None):
     """Malý ZIP jen s georeferencovanými náhledy (PNG+PGW±GeoTIFF)."""
     from app.pipeline.oom_preview import (
         GEOREF_PREVIEWS_ZIP_NAME,
         build_georef_previews_zip,
     )
 
+    job = _load_job_for_artifact(job_id, token)
     out = JOBS_DIR / job_id / "output"
     zip_path = out / GEOREF_PREVIEWS_ZIP_NAME
     if not zip_path.is_file():
@@ -355,11 +356,7 @@ def api_download_georef_previews(job_id: str):
         if built is None or not built.is_file():
             raise HTTPException(404, "Georeferencovane nahledy nejsou k dispozici")
         zip_path = built
-    try:
-        job = db.get_job(job_id)
-        stem = db.safe_zip_stem(job["name"])
-    except KeyError:
-        stem = db.safe_zip_stem(job_id)
+    stem = db.safe_zip_stem(job["name"])
     filename = f"podkladarna-{stem}-georef-nahledy.zip"
     return FileResponse(zip_path, filename=filename)
 

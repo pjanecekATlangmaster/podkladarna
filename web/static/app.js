@@ -1020,7 +1020,7 @@ function updateUseKpHints() {
   if (useKp && hint) {
     hint.innerHTML = useKp.checked
       ? "KP <strong>zapnuto</strong> (hybrid): Karttapullautin počítá náhled/vrstvy. Odškrtněte, nebo „Bez KP (výchozí)“, pro vegetaci z hustoty LiDAR + srázy z DMR."
-      : "Výchozí <strong>bez KP</strong>: vegetace z hustoty LiDAR odrazů, srázy z DMR 5G, vrstevnice GDAL → <code>.omap</code>/ZIP. Web = Pillow náhled; georef ZIP = Mapper @ 600 DPI (když je CLI). ČÚZK reference v materiálovém ZIPu zůstávají.";
+      : "Výchozí <strong>bez KP</strong>: vegetace z hustoty LiDAR odrazů, srázy z DMR 5G, vrstevnice GDAL → <code>.omap</code>/ZIP. Web = Pillow náhled; georef ZIP = Mapper @ 600 DPI, bez CLI Pillow+PGW. ČÚZK reference v materiálovém ZIPu zůstávají.";
   }
   if (useKp && outHint) {
     outHint.innerHTML = useKp.checked

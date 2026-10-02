@@ -12,6 +12,7 @@ from PIL import Image
 
 from app.pipeline.oom_preview import (
     aoi_frame_bbox,
+    build_georef_previews_zip,
     find_mapper_exe,
     map_grivation_deg,
     mapper_export_argv,
@@ -594,6 +595,29 @@ def test_georef_mapper_missing_raises(tmp_path: Path, monkeypatch):
         render_omap_to_png(
             omap, tmp_path / "out.png", write_pgw=True, engine="mapper"
         )
+
+
+def test_write_job_georef_pillow_fallback_without_mapper(tmp_path: Path, monkeypatch):
+    """Bez Mapper CLI musí job pořád vyrobit georef PNG+PGW (Pillow) + ZIP."""
+    monkeypatch.delenv("PODKLADARNA_MAPPER_EXPORT", raising=False)
+    monkeypatch.delenv("PODKLADARNA_MAPPER", raising=False)
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
+    logs: list[str] = []
+    work = write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"use_kp": False, "oom_geotiff": False},
+        log=logs.append,
+    )
+    assert work is not None and work.is_file()
+    georef_png = tmp_path / "out" / "preview" / "Park-les.png"
+    assert georef_png.is_file() and georef_png.with_suffix(".pgw").is_file()
+    assert any("Pillow fallback" in line or "Pillow" in line for line in logs)
+    zpath = build_georef_previews_zip(tmp_path / "out")
+    assert zpath is not None and zpath.is_file()
 
 
 def test_export_argv_keeps_spaces(tmp_path: Path, monkeypatch):

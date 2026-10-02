@@ -173,7 +173,7 @@ Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: 
 Když job běží s `use_kp=false` (výchozí), pipeline po zápisu `.omap` dělá dvě věci:
 
 1. **Web „Otevřít PNG“** – vždy **Pillow + XML** (`work/preview.png` / `output/preview/oom_preview.png`), **bez deklinace**. Rychlé; Mapper se nevolá.
-2. **Georef ZIP** – **OpenOrienteering Mapper CLI @ 600 DPI** (`--full-map`) → `output/preview/*-{les,mtbo,sprint}.png` + `.pgw` (+ volitelně `.tif`), **s grivací**. Malý ZIP: `podkladarna_georef_previews.zip` / API `/download/georef-previews`.
+2. **Georef ZIP** – preferuje **OpenOrienteering Mapper CLI @ 600 DPI** (`--full-map`) → `output/preview/*-{les,mtbo,sprint}.png` + `.pgw` (+ volitelně `.tif`), **s grivací**. Bez CLI buildu (typicky Windows tip se stock 0.9.6) job **explicitně** použije Pillow georef (PNG+PGW±GeoTIFF, s grivací) a zapíše to do logu – tlačítko „Stáhnout georef náhledy“ zůstane. Malý ZIP: `podkladarna_georef_previews.zip` / API `/download/georef-previews`.
 
 **Materiálový OOM ZIP** PNG náhledy mapy **neobsahuje** (ani Pillow, ani Mapper). ČÚZK WMS `references/` zůstávají. KP `kp/pullautus*` jen když běží KP.
 
@@ -181,18 +181,18 @@ Zapnout OOM preview i při KP: `options.oom_preview=true` / `PODKLADARNA_OOM_PRE
 
 ### Mapper CLI (georef)
 
-Stock Mapper **0.9.6** headless export **neumí** (otevřel by GUI). Potřeba build s CLI (upstream PR [#2523](https://github.com/OpenOrienteering/mapper/pull/2523) / `mfbehrens/oo-mapper` větev `cli`).
+Stock Mapper **0.9.6** headless export **neumí** (otevřel by GUI). Potřeba build s CLI (upstream PR [#2523](https://github.com/OpenOrienteering/mapper/pull/2523) / `mfbehrens/oo-mapper` větev `cli`). Bez šablony job použije Pillow georef (jasný log, ne tiché „Mapper“).
 
 ```powershell
 # Cesta k CLI binárce (ne stock 0.9.6, pokud nemá --cli)
 $env:PODKLADARNA_MAPPER = "C:\cesta\k\Mapper.exe"
-# Povinná šablona – bez ní se georef PNG nevyrobí (jasná chyba v logu, ne Pillow fallback)
+# Šablona – bez ní georef běží Pillow fallback (log), ne Mapper @ 600 DPI
 $env:PODKLADARNA_MAPPER_EXPORT = '"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}'
 # Volitelně timeout (s), default 600
 $env:PODKLADARNA_MAPPER_TIMEOUT = "600"
 ```
 
-Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. Windows tip zatím často nemá CLI build – wiring je hotový; bez binárky georef PNG v jobu chybí, web Pillow běží dál.
+Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. Windows tip často nemá CLI build – georef ZIP pak vznikne Pillow fallbackem.
 
 Vestavěný Pillow kreslí zjednodušenou symboliku. Orientace: nižší map Y nahoru. Web ořez kolem AOI (708 / 705).
 
