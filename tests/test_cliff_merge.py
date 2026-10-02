@@ -80,22 +80,24 @@ def test_perpendicular_neighbor_does_not_join():
 
 
 def test_long_wall_never_becomes_polygon():
-    """Hlavní regrese: souvislá stěna musí zůstat linií i u volby skála."""
+    """Souvislá stěna není plocha; jako skála se zahodí (žádná samostatná 201)."""
     got = merge_cliff_ticks(_wall(60), as_polygons=True)
     assert not got.polygons
-    assert got.lines
+    assert not got.lines
 
 
 def test_double_wall_band_still_no_polygon():
-    """I dvojitý pás (terasa) je 1D útvar – pořád linie."""
+    """I dvojitý pás (terasa) je 1D útvar – pořád ne plocha (a 201 linie pryč)."""
     ticks = _wall(40, y=0.0) + _wall(40, y=4.0)
     got = merge_cliff_ticks(ticks, as_polygons=True)
     assert not got.polygons
+    assert not got.lines
 
 
 def test_rock_field_becomes_polygon_close_to_real_extent():
     got = merge_cliff_ticks(_field(21.0, 21.0), as_polygons=True)
     assert got.polygons
+    assert not got.lines
     area = sum(_ring_area(p) for p in got.polygons)
     # Reálný rozsah ~21×21 m; obrys po buňkách nesmí nafouknout o víc než ~30 %.
     assert 250.0 <= area <= 21.0 * 21.0 * 1.3
@@ -106,6 +108,7 @@ def test_two_rock_fields_stay_separate_polygons():
     ticks = _field(18.0, 18.0) + _field(18.0, 18.0, x0=60.0)
     got = merge_cliff_ticks(ticks, as_polygons=True)
     assert len(got.polygons) == 2
+    assert not got.lines
     assert sum(_ring_area(p) for p in got.polygons) <= 2 * 18.0 * 18.0 * 1.3
 
 
@@ -114,17 +117,18 @@ def test_l_shaped_field_keeps_concavity():
     ticks = _field(30.0, 12.0) + _field(12.0, 30.0)
     got = merge_cliff_ticks(ticks, as_polygons=True)
     assert got.polygons
+    assert not got.lines
     area = sum(_ring_area(p) for p in got.polygons)
     bbox = 30.0 * 30.0
     assert area <= bbox * 0.75
 
 
-def test_wall_touching_field_keeps_wall_as_line():
-    """Stěna vybíhající z pole zůstane linií, plocha se na ni nenatáhne."""
+def test_wall_touching_field_drops_wall_line():
+    """Stěna vybíhající z pole se zahodí; plocha se na ni nenatáhne."""
     ticks = _field(18.0, 18.0) + _wall(40, x0=21.0, y=9.0)
     got = merge_cliff_ticks(ticks, as_polygons=True)
     assert got.polygons
-    assert got.lines
+    assert not got.lines
     # Plocha nesmí zasahovat daleko za pole do stěny.
     assert max(x for poly in got.polygons for x, _ in poly) <= 34.0
 
@@ -136,26 +140,34 @@ def test_dense_field_stays_lines_for_earth_bank():
 
 
 def test_compact_leftover_lines_promote_to_area():
-    """Řidší „kapsa“ mimo hlavní footprint → plocha, ne mrak krátkých 201."""
+    """Řidší „kapsa“ mimo hlavní footprint → plocha; zbytek 201 pryč."""
     # Hlavní pole + oddělená menší kapsa ~12×12 m (dříve často zůstala liniemi).
     ticks = _field(24.0, 24.0) + _field(12.0, 12.0, x0=40.0, y0=40.0)
     got = merge_cliff_ticks(ticks, as_polygons=True, min_line_m=12.0)
     assert len(got.polygons) >= 2
-    assert len(got.lines) <= 2
+    assert not got.lines
 
 
-def test_aggressive_params_still_keep_walls_as_lines():
+def test_aggressive_params_still_reject_wall_blobs():
     """Agresivnější open/min-area nesmí udělat z jednoduché stěny blob."""
-    assert not merge_cliff_ticks(_wall(80), as_polygons=True).polygons
-    assert not merge_cliff_ticks(
-        _wall(50, y=0.0) + _wall(50, y=4.0), as_polygons=True
-    ).polygons
+    wall = merge_cliff_ticks(_wall(80), as_polygons=True)
+    assert not wall.polygons and not wall.lines
+    band = merge_cliff_ticks(_wall(50, y=0.0) + _wall(50, y=4.0), as_polygons=True)
+    assert not band.polygons and not band.lines
+
+
+def test_standalone_rock_lines_always_discarded():
+    """Samostatná 201 (i dlouhá) se při as_polygons vždy zahodí."""
+    got = merge_cliff_ticks(_wall(80), as_polygons=True, min_line_m=0.0)
+    assert not got.polygons
+    assert not got.lines
 
 
 def test_object_count_drops_far_below_tick_count():
     ticks = _field(24.0, 24.0) + _wall(60, y=-40.0)
     got = merge_cliff_ticks(ticks, as_polygons=True)
-    assert len(got.lines) + len(got.polygons) < len(ticks) / 10
+    assert not got.lines
+    assert len(got.polygons) < len(ticks) / 10
 
 
 def test_min_line_length_scales_with_map():
@@ -183,9 +195,10 @@ def test_min_line_zero_keeps_everything():
 
 
 def test_min_line_does_not_touch_rock_areas():
-    """Délkový práh se týká jen linií – plocha musí zůstat."""
+    """Délkový práh se týká jen linií – plocha musí zůstat; 201 linie pryč."""
     got = merge_cliff_ticks(_field(21.0, 21.0), as_polygons=True, min_line_m=12.0)
     assert got.polygons
+    assert not got.lines
 
 
 def test_nearby_collinear_ticks_merge_across_wider_gap():
@@ -319,13 +332,15 @@ def test_ring_is_simple_detects_bowtie():
 
 def test_rock_field_has_few_smooth_vertices():
     """Footprint má plynulý obvod (málo vrcholů), ne zigzag po koncích ticků."""
-    got = merge_cliff_ticks(_field(24.0, 24.0), as_polygons=True)
+    field = _field(24.0, 24.0)
+    got = merge_cliff_ticks(field, as_polygons=True)
     assert len(got.polygons) == 1
+    assert not got.lines
     ring = got.polygons[0]
     assert 3 <= len(ring) <= 24
     assert not _ring_self_intersects(ring)
     # Méně objektů než vstupních ticků – ideálně 1 plocha.
-    assert len(got.lines) + len(got.polygons) < len(_field(24.0, 24.0)) / 5
+    assert len(got.polygons) < len(field) / 5
 
 
 def test_reject_tangled_drops_loopy_bank():

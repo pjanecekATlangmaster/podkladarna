@@ -3,9 +3,10 @@
 Vstup (KP i DEM) jsou krátké úsečky kolmo na spád. Souosé sousední čárky se
 řetězí na lomenou čáru (201/104).
 
-U skal (201) se hledá plošná masa: buffer+dissolve ticků, morfologické
-otevření (tenké stěny pryč) a vyhlazení. Obrys je plynulý prstenec footprintu,
-ne zigzag přes konce ticků. Stěny a řídké pásy zůstanou liniemi 201.
+U skal (``as_polygons``): plošná masa přes buffer+dissolve ticků, morfologické
+otevření a vyhlazení → polygony (OOM 201.2 / 206). Samostatné / zbytkové
+linie 201 se vždy zahazují (i dlouhé stěny) — na mapě zůstanou jen spojené
+skalní plochy.
 
 Zemní srázy (104): zamotané / smyčkové linie raději nekreslit
 (``reject_tangled``); delší minimální délka než u skály.
@@ -110,6 +111,8 @@ def merge_cliff_ticks(
         # protáhlá stěna → ještě jedna plocha místo shluku krátkých 201.
         polylines, extra = _promote_compact_polylines(polylines)
         polygons.extend(extra)
+        # Petr: pouze spojené skalní plochy; žádná samostatná značka 201.
+        polylines = []
     if reject_tangled:
         polylines = [pts for pts in polylines if polyline_is_simple_bank(pts)]
     if min_line_m > 0:

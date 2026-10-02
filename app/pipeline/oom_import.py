@@ -16,7 +16,6 @@ from app.pipeline.cliff_merge import (
     merge_cliff_ticks,
     min_line_length_m,
     polyline_is_simple_bank,
-    polyline_to_strip_ring,
 )
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -1128,7 +1127,6 @@ def build_dxf_object_part(
     drop_unmeasured = 0
     earth_tangled = 0
     earth_pit_skip = 0
-    rock_lines_n = 0
     rock_polys_n = 0
     earth_lines_n = 0
     for zip_name, path in sorted(dxf_map.items()):
@@ -1194,7 +1192,8 @@ def build_dxf_object_part(
     for cliff_line_code, cliff_ticks in cliff_groups.items():
         if not cliff_ticks or cliff_symbol == KP_CLIFF_OFF:
             continue
-        # Zem (104) jen linie. Skála (201) i v režimu auto: hustý shluk → plocha.
+        # Zem (104) jen linie. Skála: hustý shluk → plocha 201.2/206; zbytek 201
+        # (i dlouhé stěny) se zahazuje — viz merge_cliff_ticks(as_polygons=True).
         is_earth = cliff_line_code == "104"
         as_polygons = cliff_symbol in (
             KP_CLIFF_ROCK_FACE,
@@ -1226,50 +1225,44 @@ def build_dxf_object_part(
                 kept_earth.append(pts)
             cliff_lines = kept_earth
         if cliff_symbol == KP_CLIFF_SYMBOL_206:
+            # Jen spojené skalní plochy — žádné pásy z osamělých stěn.
             poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_206_CODE)
             area_code = KP_CLIFF_206_CODE
-            if poly_index is not None:
-                poly_rings = list(merged.polygons)
-                for pts in cliff_lines:
-                    ring = polyline_to_strip_ring(pts)
-                    if ring:
-                        poly_rings.append(ring)
-                if poly_rings:
-                    had_dense_polys = True
-                    rock_polys_n += len(poly_rings)
-                    poly_parts = [("line", ring, True) for ring in poly_rings]
-                    objects.extend(
-                        _geom_parts_to_objects(
-                            poly_parts,
-                            poly_index,
-                            ref_x=ref_x,
-                            ref_y=ref_y,
-                            scale=scale,
-                            grivation_deg=grivation_deg,
-                            clip_bounds=clip_bounds,
-                            as_area=True,
-                        )
-                    )
-        else:
-            line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
-            if line_index is not None:
-                if is_earth:
-                    earth_lines_n += len(cliff_lines)
-                else:
-                    rock_lines_n += len(cliff_lines)
-                line_parts = [("line", pts, False) for pts in cliff_lines]
+            if poly_index is not None and merged.polygons:
+                had_dense_polys = True
+                rock_polys_n += len(merged.polygons)
+                poly_parts = [("line", ring, True) for ring in merged.polygons]
                 objects.extend(
                     _geom_parts_to_objects(
-                        line_parts,
-                        line_index,
+                        poly_parts,
+                        poly_index,
                         ref_x=ref_x,
                         ref_y=ref_y,
                         scale=scale,
                         grivation_deg=grivation_deg,
                         clip_bounds=clip_bounds,
-                        elev_at=elev_at,
+                        as_area=True,
                     )
                 )
+        else:
+            line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
+            if line_index is not None and cliff_lines:
+                if is_earth:
+                    earth_lines_n += len(cliff_lines)
+                    line_parts = [("line", pts, False) for pts in cliff_lines]
+                    objects.extend(
+                        _geom_parts_to_objects(
+                            line_parts,
+                            line_index,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                            clip_bounds=clip_bounds,
+                            elev_at=elev_at,
+                        )
+                    )
+                # Skála (201): linie se nevypisují — jen plochy níže.
             if merged.polygons:
                 area_code = resolve_rock_area_code(preset_id, scale) or KP_CLIFF_DENSE_CODE
                 poly_index = symbol_index_for_code(preset_id, scale, area_code)
@@ -1296,37 +1289,30 @@ def build_dxf_object_part(
     if cliff_symbol == KP_CLIFF_SYMBOL_206:
         cliff_label = "skály (206 plocha)"
     elif cliff_symbol == KP_CLIFF_ROCK_FACE:
-        cliff_label = (
-            "skály (201 + plocha 201.2/206)"
-            if had_dense_polys
-            else "skály (201)"
-        )
+        cliff_label = "skály (plocha 201.2/206)" if had_dense_polys else "skály (bez plochy)"
     elif cliff_symbol == KP_CLIFF_EARTH_BANK:
         cliff_label = "zemní srázy (104)"
     elif cliff_symbol == KP_CLIFF_AUTO and "201" in codes and "104" in codes:
         cliff_label = (
-            "skála (201 + plocha 201.2/206) a zem (104)"
+            "skála (plocha 201.2/206) a zem (104)"
             if had_dense_polys
-            else "skála (201) a zem (104)"
+            else "skála (bez plochy) a zem (104)"
         )
     elif "201" in codes and "104" in codes:
         cliff_label = (
-            "skála (201 + plocha 201.2/206) a zem (104)"
+            "skála (plocha 201.2/206) a zem (104)"
             if had_dense_polys
-            else "skála (201) a zem (104)"
+            else "skála (bez plochy) a zem (104)"
         )
     elif "201" in codes:
         cliff_label = (
-            "skála (201 + plocha 201.2/206)" if had_dense_polys else "skála (201)"
+            "skála (plocha 201.2/206)" if had_dense_polys else "skála (bez plochy)"
         )
     else:
         cliff_label = "srázy"
     detail_bits: list[str] = []
-    if rock_polys_n or rock_lines_n:
-        detail_bits.append(
-            f"201→{rock_lines_n} linií"
-            + (f" + {rock_polys_n} ploch 201.2/206" if rock_polys_n else "")
-        )
+    if rock_polys_n:
+        detail_bits.append(f"skála→{rock_polys_n} ploch 201.2/206")
     if earth_lines_n or "104" in codes:
         bit = f"104→{earth_lines_n} linií"
         extras = []
