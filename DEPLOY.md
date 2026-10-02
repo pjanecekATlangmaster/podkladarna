@@ -46,7 +46,24 @@ docker pull ghcr.io/pjanecekatlangmaster/podkladarna:latest
 
 CI drží **Docker layer cache** (`:buildcache` na GHCR + GitHub Actions cache).
 Těžká vrstva PDAL/GDAL (~350 MB) se při běžné změně kódu nepřestaví a na NAS
-se znovu nestahuje — jen menší vrstvy (app, configs, případně KP).
+se znovu nestahuje — jen menší vrstvy (app, configs). **Mapper CLI**
+(stage `mapper-builder`, pin PR #2523) se cacheuje zvlášť; při nezměněném
+pinu SHA se nepřestaví. Karttapullautin / `pullauta` v image **není**
+(tip ≥1.26.0).
+
+### Mapper CLI v image (georef PNG)
+
+Image obsahuje headless OpenOrienteering Mapper (`/opt/mapper/bin/Mapper`)
+sestavovaný z `mfbehrens/oo-mapper` `cli` @ `6dc1fd72`. Dockerfile nastaví:
+
+| Env | Význam |
+|-----|--------|
+| `PODKLADARNA_MAPPER` | `/opt/mapper/bin/Mapper` |
+| `PODKLADARNA_MAPPER_EXPORT` | `"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}` |
+| `QT_QPA_PLATFORM` | `offscreen` |
+
+App doplní `{dpi}` = **600** pro georef ZIP. Web „Otevřít PNG“ zůstává Pillow.
+GPL-3.0: viz `LICENSES.md` (zdroj + build recept / nabídka tarballu).
 
 Workflow po buildu nastaví balíček GHCR jako **veřejný** (login na NAS není potřeba).
 

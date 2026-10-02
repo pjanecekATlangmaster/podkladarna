@@ -178,7 +178,7 @@ $env:PODKLADARNA_MAPPER_TIMEOUT = "600"
 
 Bez CLI: Pillow georef cílí **600 DPI papíru** (`map_per_px = 25400/DPI`), nejméně delší strana **4800 px** (3× starý cap), max **10 000 px**. Override: `PODKLADARNA_GEOREF_PILLOW_DPI`.
 
-Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. Windows tip často nemá CLI build – georef ZIP pak vznikne Pillow fallbackem @ 600 DPI-eq (floor 4800).
+Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. **Docker image** (tip ≥1.26.1) Mapper CLI už obsahuje (`/opt/mapper/bin/Mapper`, pin `mfbehrens/oo-mapper` `cli` @ `6dc1fd72`) a nastaví `PODKLADARNA_MAPPER` + `PODKLADARNA_MAPPER_EXPORT` — viz `DEPLOY.md` / `Dockerfile`. Windows tip (`:8672`) bez CLI buildu dál padá na Pillow georef @ 600 DPI-eq (floor 4800); Docker změna je pro budoucí NAS/ostrý image, ne nutně lokální tip.
 
 Vestavěný Pillow kreslí zjednodušenou symboliku. Orientace: nižší map Y nahoru. Web ořez kolem AOI (708 / 705).
 
