@@ -279,6 +279,7 @@ def tool_status() -> dict[str, str | None]:
         "pdal": which_tool("pdal"),
         "ogr2ogr": which_tool("ogr2ogr"),
         "ogrinfo": which_tool("ogrinfo"),
+        "gdal_translate": which_tool("gdal_translate"),
         "gdal_calc": which_tool("gdal_calc"),
         "gdal_polygonize": which_tool("gdal_polygonize"),
         "pullauta": resolve_pullauta() if Path(resolve_pullauta()).exists() else None,

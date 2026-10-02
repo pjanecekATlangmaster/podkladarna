@@ -46,6 +46,12 @@ python scripts/smoke_e2e.py --wait-minutes 45
 
 Vyžaduje Docker Desktop (WSL2).
 
+Image (`Dockerfile`) bere GDAL z **conda-forge** (`gdal` + `libgdal-core`) — stejný
+stack jako `ogr2ogr` / `gdalwarp`. C++ CLI včetně `gdal_translate` (GeoTIFF náhledy)
+je v `libgdal-core`; build ověří `command -v gdal_translate`. **Neinstalovat** apt
+`gdal-bin` vedle conda (dvojí PROJ/GDAL). Po změně Dockerfile u deploye:
+`docker compose build` (lokální smoke loop bez Dockeru beze změny).
+
 ```powershell
 docker compose -f docker-compose.dev.yml up --build
 ```

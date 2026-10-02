@@ -2,15 +2,26 @@
 
 FROM condaforge/mambaforge:24.9.2-0
 
+# GDAL 3.9+: C++ CLI (gdal_translate, ogr2ogr, …) žije v libgdal-core;
+# balíček gdal = Python bindings + Python utilities. Obojí explicitně —
+# bez apt gdal-bin (dvojí GDAL/PROJ by rozbilo conda stack).
+# mambaforge: /opt/conda/bin je už v PATH.
 RUN mamba install -y -c conda-forge \
     pdal \
     python=3.11 \
     gdal \
+    libgdal-core \
     proj \
     pyproj \
     pyyaml \
     curl \
-    && mamba clean -afy
+    && mamba clean -afy \
+    && command -v gdal_translate \
+    && command -v ogr2ogr \
+    && command -v gdalwarp \
+    && command -v gdaldem \
+    && command -v gdal_contour \
+    && gdal_translate --version
 
 # Oficiální KP v2.15.1 obsahuje OOB clamp (PR #271).
 # https://github.com/karttapullautin/karttapullautin/releases/tag/v2.15.1
