@@ -482,6 +482,12 @@ def test_index_html(client):
     assert "volně inspirováno" in r.text
     assert 'value="auto" selected' in r.text
     assert 'id="include_knolls"' in r.text
+    assert "Malé kupky (109)" in r.text
+    assert "Knolly z DMR" not in r.text
+    assert 'id="knoll-hint"' not in r.text
+    assert 'id="include_knolls" value="1" checked' in r.text or (
+        'id="include_knolls"' in r.text and "checked" in r.text.split('id="include_knolls"', 1)[1][:80]
+    )
     assert 'name="force_refresh"' in r.text
     assert "Force refresh" in r.text
     html = r.text
