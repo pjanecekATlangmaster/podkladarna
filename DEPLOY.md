@@ -244,3 +244,19 @@ GHCR_OWNER=pjanecekatlangmaster
 ```yaml
 # docker-compose už používá ${GHCR_OWNER:-OWNER}
 ```
+
+### Georef PNG přes OpenOrienteering Mapper CLI (volitelné)
+
+Georeferencované náhledy (tlačítko „Stáhnout georef náhledy“) standardně renderuje **Mapper CLI** při DPI z GUI (default **600**). Webový „Otevřít PNG“ zůstává Pillow. Binárku Podkladárna **nevendí** (Qt runtime + GPL); na hostitele / sidecar:
+
+```env
+# Cesta k CLI buildu (fork PR #2523 / mfbehrens oo-mapper větev cli):
+PODKLADARNA_MAPPER=/opt/oomapper/bin/Mapper
+# Volitelně vlastní šablona (musí umět {dpi}):
+# PODKLADARNA_MAPPER_EXPORT="{mapper} --cli export --full-map -i {omap} -o {png} --dpi {dpi}"
+QT_QPA_PLATFORM=offscreen
+# PODKLADARNA_MAPPER_TIMEOUT=600
+# PODKLADARNA_OOM_EXPORT_DPI=600
+```
+
+Bez těchto env se georef ZIP nevytvoří (job s `.omap` doběhne; v logu je jasná hláška). Stock Mapper 0.9.6 z Program Files **nestačí** (nemá `--cli export`).

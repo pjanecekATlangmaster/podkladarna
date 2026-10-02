@@ -1,28 +1,23 @@
-"""Webový náhled PNG z hotového ``.omap`` (bez-KP).
+"""Webový náhled PNG a georef PNG z hotového ``.omap`` (bez-KP).
 
-Výchozí cesta je čistě Python (Pillow + XML) – bez instalace OpenOrienteering
-Mapperu, vhodné i pro Docker. Stock Mapper 0.9.6 nemá headless export
-(``main()`` jen otevře okno); volitelný CLI export jen když je nastavené
-``PODKLADARNA_MAPPER_EXPORT`` (vlastní build / jiný exportér).
+Dvě cesty (produkt 2026-10-02):
 
-Vestavěný render čte objekty z XML (souřadnice 1/1000 mm) a kreslí
-plochy/linie/body barvami symbolů – ne plná symbolika Mapperu.
+- **Web „Otevřít PNG“** – vždy **Pillow + XML** (rychlý náhled). Grivace se
+  při kreslení odrotuje (srovnání bez deklinace). Ořez na fialový AOI rám
+  (ISOM/ISSprOM 708, MTBO 705).
+- **Georeferencované PNG+PGW** (malý ZIP / „Stáhnout georef náhledy“) –
+  standardně **OpenOrienteering Mapper CLI** při zvoleném DPI (default 600).
+  Bez nakonfigurované CLI binárky se georef **nevyrábí** (žádný tichý Pillow
+  fallback vydávaný za OOM). Do balíčku ZIP s ``.omap`` se tyto PNG nedávají.
 
-Orientace: OOM mapové souřadnice už mají ``scale(s, −s)``
-(``projected_to_map_coord`` → geografický sever = nižší map Y). PNG proto
-dává nižší map Y nahoru (jako pohled v Mapperu / Qt), ne další převrácení Y.
+Stock Mapper 0.9.6 nemá headless export. CLI fork (např. PR #2523):
+``Mapper --cli export --full-map -i … -o ….png --dpi N`` +
+``QT_QPA_PLATFORM=offscreen``. Zapojení: ``PODKLADARNA_MAPPER`` a/nebo
+``PODKLADARNA_MAPPER_EXPORT`` (šablona s ``{mapper}``, ``{omap}``, ``{png}``,
+``{dpi}``).
 
-Dvě cesty náhledu:
-- **Web „Otevřít PNG“** – srovnání **bez deklinace**: grivace se při kreslení
-  odrotuje (objekty v ``.omap`` ji mají zapečenou).
-- **Georeferencované PNG+PGW** (ZIP / stáhnout georef) – **s grivací**, jako
-  Mapper s magnetickým natočením; PGW mapuje stejný výřez do EPSG:5514.
-
-Ořez: výchozí výřez je fialový AOI rám (ISOM/ISSprOM 708, MTBO 705) –
-přesahy cest za rám zůstanou v Mapperu, webový náhled je ořízne.
-
-ČÚZK WMS reference se tu nemění. Zapnuto jen když ``use_kp`` je false,
-pokud job nepošle ``oom_preview`` nebo env ``PODKLADARNA_OOM_PREVIEW``.
+Zapnuto jen když ``use_kp`` je false, pokud job nepošle ``oom_preview``
+nebo env ``PODKLADARNA_OOM_PREVIEW``.
 """
 
 from __future__ import annotations
@@ -48,12 +43,23 @@ _FALSE = frozenset({"0", "false", "no", "off"})
 GEOREF_PREVIEW_DIR = "preview"
 GEOREF_PREVIEWS_ZIP_NAME = "podkladarna_georef_previews.zip"
 
+# Georef OOM CLI – DPI (GUI presets + default).
+OOM_EXPORT_DPI_CHOICES = (150, 300, 600)
+DEFAULT_OOM_EXPORT_DPI = 600
+DEFAULT_MAPPER_EXPORT_TEMPLATE = (
+    '"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}'
+)
+
 # MapCoord::Flag – hodnoty jsou součást formátu .omap (neměnit).
 _CURVE = 1 << 0
 _CLOSE = 1 << 1
 _HOLE = 1 << 4
 
 _KIND_RANK = {"area": 0, "line": 1, "point": 2}
+
+
+class MapperExportError(RuntimeError):
+    """Georef OOM cesta vyžaduje nakonfigurovaný Mapper CLI (ne Pillow)."""
 
 
 def oom_preview_enabled(options: dict | None) -> bool:
@@ -111,22 +117,62 @@ def _argv_from_template(template: str, **values: str) -> list[str]:
     return [tokens.get(part, part) for part in parts]
 
 
-def mapper_export_argv(omap: Path, png: Path) -> list[str] | None:
-    """Argv headless exportu, jen když je ``PODKLADARNA_MAPPER_EXPORT``.
+def resolve_oom_export_dpi(options: dict | None = None) -> int:
+    """DPI pro georef Mapper CLI (default 600; clamp 36–1200)."""
+    options = options or {}
+    raw = options.get("oom_export_dpi")
+    if raw is None or raw == "":
+        env = os.environ.get("PODKLADARNA_OOM_EXPORT_DPI", "").strip()
+        raw = env if env else DEFAULT_OOM_EXPORT_DPI
+    try:
+        dpi = int(round(float(str(raw).replace(",", "."))))
+    except (TypeError, ValueError):
+        dpi = DEFAULT_OOM_EXPORT_DPI
+    return max(36, min(1200, dpi))
 
-    Šablona: ``"{mapper}" --export "{png}" "{omap}"``.
-    Stock Mapper 0.9.x ten přepínač nemá – bez šablony se nespouští (otevřel by GUI).
+
+def mapper_export_configured() -> bool:
+    """True, když je georef OOM CLI záměrně zapojený (ne stock GUI Mapper)."""
+    if os.environ.get("PODKLADARNA_MAPPER_EXPORT", "").strip():
+        return True
+    for key in ("PODKLADARNA_MAPPER", "MAPPER"):
+        raw = os.environ.get(key, "").strip().strip('"')
+        if raw and Path(raw).is_file():
+            return True
+    return False
+
+
+def mapper_export_argv(
+    omap: Path,
+    png: Path,
+    *,
+    dpi: int = DEFAULT_OOM_EXPORT_DPI,
+) -> list[str] | None:
+    """Argv headless exportu pro georef PNG.
+
+    ``PODKLADARNA_MAPPER_EXPORT`` = šablona (``{mapper}``, ``{omap}``, ``{png}``,
+    ``{dpi}``). Bez šablony, ale s ``PODKLADARNA_MAPPER`` / ``MAPPER`` → výchozí
+    CLI: ``--cli export --full-map … --dpi {dpi}``.
+    Stock 0.9.x bez CLI se nespouští jen proto, že leží v Program Files.
     """
     template = os.environ.get("PODKLADARNA_MAPPER_EXPORT", "").strip()
     if not template:
-        return None
+        if not mapper_export_configured():
+            return None
+        template = DEFAULT_MAPPER_EXPORT_TEMPLATE
     mapper = find_mapper_exe()
     return _argv_from_template(
         template,
         mapper=str(mapper or ""),
         omap=str(omap),
         png=str(png),
+        dpi=str(int(dpi)),
     )
+
+
+def map_units_per_px_at_dpi(dpi: float) -> float:
+    """Mapové jednotky (1/1000 mm papíru) na 1 PNG pixel při daném DPI."""
+    return 25400.0 / float(dpi)
 
 
 def _is_png(path: Path) -> bool:
@@ -730,6 +776,96 @@ def preview_extent_from_crop(
     )
 
 
+def preview_extent_from_mapper_png(
+    omap: Path,
+    png: Path,
+    dpi: int,
+) -> tuple[PreviewExtent, OmapGeoref]:
+    """Odhad výřezu Mapper ``--full-map`` exportu pro zápis PGW.
+
+    Mapper typicky vycentruje obsah mapy na papír; ``map_per_px`` plyne z DPI
+    (1 map unit = 0.001 mm papíru). Pokud CLI sám zapíše world file, preferuj ho.
+    """
+    from PIL import Image
+
+    root = ET.fromstring(_read_omap_bytes(Path(omap)))
+    georef = parse_omap_georef(root)
+    with Image.open(png) as im:
+        width, height = im.size
+    map_per_px = map_units_per_px_at_dpi(dpi)
+    ops = _collect_ops(root, grivation_deg=0.0)
+    if ops:
+        minx, miny, maxx, maxy = _ops_bbox(ops)
+    else:
+        minx = miny = 0.0
+        maxx = float(width) * map_per_px
+        maxy = float(height) * map_per_px
+    world_w = float(width) * map_per_px
+    world_h = float(height) * map_per_px
+    cx = 0.5 * (minx + maxx)
+    cy = 0.5 * (miny + maxy)
+    extent = PreviewExtent(
+        origin_x=cx - 0.5 * world_w,
+        origin_y=cy - 0.5 * world_h,
+        map_per_px=map_per_px,
+        width=width,
+        height=height,
+    )
+    return extent, georef
+
+
+def _find_sidecar_world_file(png: Path) -> Path | None:
+    """World file vedle PNG (Mapper / GDAL konvenci)."""
+    png = Path(png)
+    candidates = (
+        png.with_suffix(".pgw"),
+        png.with_suffix(".wld"),
+        Path(str(png) + "w"),
+    )
+    for cand in candidates:
+        if cand.is_file() and cand.resolve() != png.resolve():
+            return cand
+    return None
+
+
+def _write_georef_sidecars_for_mapper_png(
+    omap: Path,
+    png: Path,
+    dpi: int,
+    *,
+    write_geotiff: bool = False,
+    log=None,
+) -> None:
+    """PGW (+ PRJ, volitelně GeoTIFF) po Mapper CLI exportu."""
+    png = Path(png)
+    dest_pgw = png.with_suffix(".pgw")
+    sidecar = _find_sidecar_world_file(png)
+    if sidecar is not None and sidecar.resolve() != dest_pgw.resolve():
+        shutil.copy2(sidecar, dest_pgw)
+        if log:
+            log(f"OOM georef: převzat world file {sidecar.name} → {dest_pgw.name}")
+        dest_pgw.with_suffix(".prj").write_text(CRS_WKT + "\n", encoding="utf-8")
+    elif sidecar is not None and sidecar.resolve() == dest_pgw.resolve():
+        dest_pgw.with_suffix(".prj").write_text(CRS_WKT + "\n", encoding="utf-8")
+        if log:
+            log(f"OOM georef: Mapper world file {dest_pgw.name} (+ .prj)")
+    else:
+        extent, georef = preview_extent_from_mapper_png(omap, png, dpi)
+        write_preview_pgw(
+            dest_pgw,
+            extent,
+            georef,
+            with_grivation=True,
+        )
+        if log:
+            log(
+                f"OOM georef: PGW z DPI={dpi} "
+                f"({extent.width}×{extent.height}, mpp={extent.map_per_px:.3f})"
+            )
+    if write_geotiff:
+        try_write_geotiff_from_png_pgw(png, log=log)
+
+
 def pgw_for_grid_north_preview(
     extent: PreviewExtent,
     georef: OmapGeoref,
@@ -1179,6 +1315,46 @@ def render_omap_xml_png(
     return width, height, len(ops), extent, georef
 
 
+def _run_mapper_cli_export(
+    omap: Path,
+    dest: Path,
+    *,
+    dpi: int,
+    log=None,
+) -> None:
+    """Spustí Mapper CLI; při chybě vyhodí ``MapperExportError`` (bez Pillow fallbacku)."""
+    argv = mapper_export_argv(omap, dest, dpi=dpi)
+    if not argv:
+        raise MapperExportError(
+            "Georef PNG vyžaduje OpenOrienteering Mapper CLI. "
+            "Nastavte PODKLADARNA_MAPPER na binárku s --cli export "
+            "nebo PODKLADARNA_MAPPER_EXPORT (šablona s {mapper}/{omap}/{png}/{dpi})."
+        )
+    timeout = float(os.environ.get("PODKLADARNA_MAPPER_TIMEOUT", "600"))
+    env = os.environ.copy()
+    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    if log:
+        log(f"OOM georef: Mapper CLI export DPI={dpi}")
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            env=env,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise MapperExportError(f"Mapper CLI selhalo: {exc}") from exc
+    if proc.returncode != 0 or not _is_png(dest):
+        if dest.exists() and not _is_png(dest):
+            dest.unlink(missing_ok=True)
+        err = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        raise MapperExportError(
+            f"Mapper CLI kód {proc.returncode}"
+            + (f" ({err[:240]})" if err else "")
+        )
+
+
 def render_omap_to_png(
     omap: Path,
     dest: Path,
@@ -1188,48 +1364,48 @@ def render_omap_to_png(
     write_pgw: bool = False,
     write_geotiff: bool = False,
     undo_grivation: bool | None = None,
+    engine: str = "auto",
+    dpi: int | None = None,
 ) -> str:
-    """PNG z ``.omap``. Mapper CLI jen při ``PODKLADARNA_MAPPER_EXPORT``, jinak XML.
+    """PNG z ``.omap``.
 
-    ``write_pgw`` / ``write_geotiff`` platí jen u vestavěného XML renderu
-    (u Mapper CLI neznáme přesný ořez → PGW by nesedělo).
+    ``engine``:
+    - ``pillow`` – vždy vestavěný XML render (web).
+    - ``mapper`` – Mapper CLI povinně (georef); bez konfigurace / při chybě
+      ``MapperExportError`` (žádný tichý Pillow).
+    - ``auto`` – ``mapper`` při ``write_pgw``, jinak ``pillow``.
 
-    ``undo_grivation``: default ``False`` při ``write_pgw`` (georef s deklinací),
-    jinak ``True`` (web bez deklinace).
+    ``dpi`` platí jen pro Mapper CLI (default 600).
     """
     omap = Path(omap)
     dest = Path(dest)
     if undo_grivation is None:
         undo_grivation = not write_pgw
-    argv = mapper_export_argv(omap, dest)
-    if argv and not write_pgw:
-        timeout = float(os.environ.get("PODKLADARNA_MAPPER_TIMEOUT", "180"))
-        if log:
-            log("OOM náhled: spouštím Mapper export")
-        try:
-            proc = subprocess.run(
-                argv,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
+    eng = (engine or "auto").strip().lower()
+    if eng == "auto":
+        eng = "mapper" if write_pgw else "pillow"
+    export_dpi = resolve_oom_export_dpi({"oom_export_dpi": dpi} if dpi is not None else None)
+
+    if eng == "mapper":
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            dest.unlink()
+        _run_mapper_cli_export(omap, dest, dpi=export_dpi, log=log)
+        if write_pgw:
+            _write_georef_sidecars_for_mapper_png(
+                omap,
+                dest,
+                export_dpi,
+                write_geotiff=write_geotiff,
+                log=log,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            if log:
-                log(f"OOM náhled: Mapper CLI selhalo ({exc}) – beru vestavěný render")
-        else:
-            if proc.returncode == 0 and _is_png(dest):
-                if log:
-                    log(f"OOM náhled: Mapper CLI → {dest.name}")
-                return "mapper-cli"
-            if log:
-                err = (proc.stderr or b"").decode("utf-8", "replace").strip()
-                log(
-                    f"OOM náhled: Mapper CLI kód {proc.returncode}"
-                    + (f" ({err[:240]})" if err else "")
-                    + " – beru vestavěný render"
-                )
-            if dest.exists() and not _is_png(dest):
-                dest.unlink()
+        if log:
+            log(f"OOM georef: Mapper CLI → {dest.name} (DPI={export_dpi})")
+        return f"mapper-cli dpi={export_dpi}"
+
+    if eng != "pillow":
+        raise ValueError(f"Neznámý engine náhledu: {engine!r}")
+
     width, height, count, extent, georef = render_omap_xml_png(
         omap, dest, max_side=max_side, undo_grivation=undo_grivation
     )
@@ -1279,12 +1455,13 @@ def write_job_oom_preview(
     options: dict | None,
     log=None,
 ) -> Path | None:
-    """Po zápisu ``.omap`` uloží georef náhledy (s grivací) + webový ``preview.png``.
+    """Po zápisu ``.omap`` uloží georef náhledy (Mapper CLI) + webový ``preview.png``.
 
-    Pro každou ``*-{les,mtbo,sprint}.omap``:
-      ``output/preview/{stem}.png`` + ``.pgw`` (+ volitelně ``.tif``, ``.prj``)
-      – s deklinací / grivací, PGW sedí v GIS.
-    Web „Otevřít PNG“: samostatný render **bez** deklinace → ``work/preview.png``
+    Georef (s grivací): ``output/preview/{stem}.png`` + ``.pgw`` (± ``.tif``)
+    přes Mapper CLI při ``oom_export_dpi`` (default 600). Bez CLI → jasná chyba
+    v logu, žádný Pillow jako „OOM“.
+
+    Web „Otevřít PNG“: vždy Pillow **bez** deklinace → ``work/preview.png``
     a ``output/preview/oom_preview.png`` (bez PGW).
     """
     from app.pipeline.prepare_lidar import log_step
@@ -1300,28 +1477,47 @@ def write_job_oom_preview(
     preview_dir = Path(output_dir) / GEOREF_PREVIEW_DIR
     preview_dir.mkdir(parents=True, exist_ok=True)
     want_geotiff = georef_preview_enabled(options)
+    dpi = resolve_oom_export_dpi(options)
     written: list[Path] = []
 
-    log_step(log, "Vykresluji georeferencované náhledy PNG+PGW (s grivací)")
-    for omap in existing:
-        dest_png = preview_dir / f"{omap.stem}.png"
-        try:
-            summary = render_omap_to_png(
-                omap,
-                dest_png,
-                log=log,
-                write_pgw=True,
-                write_geotiff=want_geotiff,
-                undo_grivation=False,
+    log_step(
+        log,
+        f"Vykresluji georeferencované náhledy PNG+PGW (Mapper CLI, DPI={dpi})",
+    )
+    if not mapper_export_configured():
+        if log:
+            log(
+                "OOM georef: Mapper CLI není nakonfigurovaný "
+                "(PODKLADARNA_MAPPER / PODKLADARNA_MAPPER_EXPORT) – "
+                "georef PNG se nevytvoří (Pillow se jako OOM nepoužije). "
+                "Webový náhled Pillow běží dál."
             )
-        except Exception as exc:
-            if log:
-                log(f"OOM náhled: {omap.name} selhal ({exc})")
-            continue
-        if dest_png.is_file() and dest_png.with_suffix(".pgw").is_file():
-            written.append(dest_png)
-            if log:
-                log(f"OOM georef: {omap.name} → {dest_png.name} ({summary})")
+    else:
+        for omap in existing:
+            dest_png = preview_dir / f"{omap.stem}.png"
+            try:
+                summary = render_omap_to_png(
+                    omap,
+                    dest_png,
+                    log=log,
+                    write_pgw=True,
+                    write_geotiff=want_geotiff,
+                    undo_grivation=False,
+                    engine="mapper",
+                    dpi=dpi,
+                )
+            except MapperExportError as exc:
+                if log:
+                    log(f"OOM georef: {omap.name} selhal – {exc}")
+                continue
+            except Exception as exc:
+                if log:
+                    log(f"OOM georef: {omap.name} selhal ({exc})")
+                continue
+            if dest_png.is_file() and dest_png.with_suffix(".pgw").is_file():
+                written.append(dest_png)
+                if log:
+                    log(f"OOM georef: {omap.name} → {dest_png.name} ({summary})")
 
     preferred = pick_preview_omap(existing)
     if preferred is None:
@@ -1330,7 +1526,7 @@ def write_job_oom_preview(
     work_dir.mkdir(parents=True, exist_ok=True)
     work_png = work_dir / "preview.png"
     named = preview_dir / "oom_preview.png"
-    # Web: vždy zvlášť bez deklinace (nesdílet georef PNG).
+    # Web: vždy Pillow bez deklinace (nesdílet georef OOM PNG).
     try:
         summary = render_omap_to_png(
             preferred,
@@ -1338,9 +1534,9 @@ def write_job_oom_preview(
             log=log,
             write_pgw=False,
             undo_grivation=True,
+            engine="pillow",
         )
         shutil.copy2(work_png, named)
-        # Starý PGW z georef by k webovému PNG neseděl.
         for stale in (
             work_dir / "preview.pgw",
             work_dir / "preview.prj",
@@ -1350,11 +1546,13 @@ def write_job_oom_preview(
         ):
             stale.unlink(missing_ok=True)
         if log:
-            log(f"OOM náhled (web bez deklinace): {preferred.name} → preview.png ({summary})")
+            log(
+                f"OOM náhled (web Pillow bez deklinace): "
+                f"{preferred.name} → preview.png ({summary})"
+            )
     except Exception as exc:
         if log:
             log(f"OOM náhled (web): {preferred.name} selhal ({exc})")
-        # Fallback: aspoň georef kopie, ať UI má něco.
         preferred_png = preview_dir / f"{preferred.stem}.png"
         if preferred_png.is_file():
             shutil.copy2(preferred_png, work_png)
@@ -1362,7 +1560,7 @@ def write_job_oom_preview(
 
     if log and written:
         log(
-            f"OOM georef: hotovo {len(written)} variant"
+            f"OOM georef: hotovo {len(written)} variant @ {dpi} DPI"
             + (" + GeoTIFF" if want_geotiff else "")
         )
     return work_png if work_png.is_file() else None

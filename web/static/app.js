@@ -1152,6 +1152,13 @@ function applyJobToForm(job) {
     outRefs.checked =
       opts.output_references == null ? true : Boolean(opts.output_references);
   }
+  const oomDpi = form.oom_export_dpi;
+  if (oomDpi) {
+    const dpiVal = String(opts.oom_export_dpi == null ? 600 : opts.oom_export_dpi);
+    if ([...oomDpi.options].some((o) => o.value === dpiVal)) {
+      oomDpi.value = dpiVal;
+    }
+  }
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {
     applyBbox(bbox[0], bbox[1], bbox[2], bbox[3], {

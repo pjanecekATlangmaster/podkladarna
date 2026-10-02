@@ -580,6 +580,13 @@ async def api_create_job(request: Request):
         options["output_zip"] = _opt_bool("output_zip")
     options["output_references"] = _opt_bool("output_references")
     options["force_refresh"] = _opt_bool("force_refresh")
+    dpi_raw = _form_str(form, "oom_export_dpi").strip()
+    if dpi_raw:
+        from app.pipeline.oom_preview import resolve_oom_export_dpi
+
+        options["oom_export_dpi"] = resolve_oom_export_dpi(
+            {"oom_export_dpi": dpi_raw}
+        )
     # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
     if _opt_bool("private"):
         notify_email = _form_str(form, "notify_email").strip()
@@ -655,6 +662,7 @@ async def api_create_job(request: Request):
         f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
         f"KP={'ano' if options.get('use_kp', True) else 'ne'}, "
+        f"georef DPI={options.get('oom_export_dpi', 600)}, "
         f"force_refresh={'ano' if options.get('force_refresh') else 'ne'}, "
         f"privátní={'ano' if options.get('private') else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"

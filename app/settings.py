@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.22.0"
+APP_VERSION = "1.23.0"
 
 apply_local_gis_env()
 
@@ -133,4 +133,6 @@ DEFAULT_OPTIONS = {
     "ostatni_plocha": "small",
     # Ostatní plocha jako 403 (rough open) místo 501 – default vypnuto.
     "ostatni_plocha_as_403": False,
+    # DPI georef PNG přes Mapper CLI (GUI: 150/300/600; default 600).
+    "oom_export_dpi": 600,
 }

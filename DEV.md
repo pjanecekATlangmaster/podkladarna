@@ -170,11 +170,28 @@ Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: 
 
 ## Náhled PNG z `.omap` (bez KP)
 
-Když job běží s `use_kp=false`, hillshade compose se do webu nedává. Po zápisu `.omap` pipeline uloží **georeferencované** náhledy všech disciplín (`output/preview/*-{les,mtbo,sprint}.png` + `.pgw` + `.prj`, volitelně `.tif` přes `gdal_translate`) **s grivací** (jako Mapper s magnetickým natočením – sedí v GIS). Zvlášť vyrenderuje webový `work/preview.png` / `output/preview/oom_preview.png` **bez deklinace** (srovnání). Malý ZIP jen s georef náhledy: `podkladarna_georef_previews.zip` / API `/download/georef-previews`. ČÚZK WMS reference v ZIPu zůstávají. Zapnout i při KP: `options.oom_preview=true` nebo `PODKLADARNA_OOM_PREVIEW=1`. Vypnout: `oom_preview=false` nebo `PODKLADARNA_OOM_PREVIEW=0`. GeoTIFF vypnout: `oom_geotiff=false` / `PODKLADARNA_OOM_GEOTIFF=0`.
+Když job běží s `use_kp=false`, hillshade compose se do webu nedává. Po zápisu `.omap`:
 
-**Výchozí render = Pillow + XML** (`app/pipeline/oom_preview.py`) – žádný Mapper v Dockeru. Stock Mapper 0.9.6 umí PNG jen z dialogu File → Export; `Mapper.exe` se proto nespouští. Volitelný CLI jen při `PODKLADARNA_MAPPER_EXPORT` (šablona příkazu s `{mapper}`, `{omap}`, `{png}`).
+| Cesta | Engine | Poznámka |
+|-------|--------|----------|
+| Web „Otevřít PNG“ (`work/preview.png`, `preview/oom_preview.png`) | **Pillow + XML** | rychlé, bez deklinace, ořez AOI 708/705 |
+| Georef PNG+PGW (`preview/*-{les,mtbo,sprint}.*`) | **Mapper CLI** @ `oom_export_dpi` (default **600**) | plná symbolika; malý ZIP `/download/georef-previews` |
+| ZIP s `.omap` | bez georef OOM PNG | georef patří jen do malého ZIPu |
 
-Vestavěný náhled kreslí plochy/linie/body barvami symbolů (ne plná symbolika). Orientace: nižší map Y nahoru (OOM už má `scale(s, −s)`). **Web „Otevřít PNG“:** grivace se odrotuje (bez deklinace). **Georef PNG+PGW:** grivace zůstane; PGW může mít rotační členy. Ořez kolem fialového AOI rámu (ISOM/ISSprOM **708**, MTBO **705**); přesahy cest za rám web ořízne. Navíc: combined symboly (inline 501), čárkované cesty, okraje silnic, fousy srázů/zíd.
+Bez nakonfigurovaného Mapper CLI se georef **nevytvoří** (jasná hláška v logu) – Pillow se jako „OOM georef“ nepoužije. Webový Pillow náhled běží dál.
+
+Zapnout i při KP: `options.oom_preview=true` / `PODKLADARNA_OOM_PREVIEW=1`. GeoTIFF: `oom_geotiff` / `PODKLADARNA_OOM_GEOTIFF`. DPI: GUI select nebo `options.oom_export_dpi` / `PODKLADARNA_OOM_EXPORT_DPI`.
+
+**Mapper CLI** (stock 0.9.6 GUI nestačí – potřeba fork s `--cli export`, např. PR #2523):
+
+```bash
+export PODKLADARNA_MAPPER=/cesta/k/Mapper
+# nebo vlastní šablona (musí obsahovat {dpi}):
+export PODKLADARNA_MAPPER_EXPORT='"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}'
+export QT_QPA_PLATFORM=offscreen
+```
+
+Vestavěný Pillow náhled kreslí plochy/linie/body barvami symbolů (ne plná symbolika). Orientace: nižší map Y nahoru.
 
 ```powershell
 python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png

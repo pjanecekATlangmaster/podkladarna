@@ -1,12 +1,12 @@
 """Export jednoho .omap do PNG.
 
-Stock OpenOrienteering Mapper 0.9.x nemá CLI export (otevře GUI). Tento skript
-použije vestavěný náhled. Skutečný Mapper se zavolá jen když je nastavené
-``PODKLADARNA_MAPPER_EXPORT`` (viz DEV.md).
+Webový / ruční náhled = vestavěný Pillow render. Georef přes Mapper CLI
+řeší job pipeline (`write_job_oom_preview`) při ``PODKLADARNA_MAPPER`` /
+``PODKLADARNA_MAPPER_EXPORT``.
 
 Příklad:
 
-    python scripts/oom_export_png.py data\\jobs\\<id>\\output\\Mapa-mtbo.omap -o preview.png
+    python scripts/oom_export_png.py data/jobs/<id>/output/Mapa-mtbo.omap -o preview.png
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from app.pipeline.oom_preview import find_mapper_exe, render_omap_to_png
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Vykreslí .omap do PNG.")
+    parser = argparse.ArgumentParser(description="Vykreslí .omap do PNG (Pillow).")
     parser.add_argument("omap", type=Path, help="Vstupní .omap")
     parser.add_argument(
         "-o",
@@ -40,10 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     dest = (args.output or omap.with_suffix(".png")).resolve()
     mapper = find_mapper_exe()
     if mapper:
-        print(f"Mapper nalezen: {mapper} (CLI jen při PODKLADARNA_MAPPER_EXPORT)")
-    else:
-        print("Mapper.exe není na PATH – použije se vestavěný náhled")
-    summary = render_omap_to_png(omap, dest, log=print, max_side=args.max_side)
+        print(f"Mapper nalezen: {mapper} (tento skript používá Pillow; georef CLI = job)")
+    summary = render_omap_to_png(
+        omap, dest, log=print, max_side=args.max_side, engine="pillow"
+    )
     print(f"Hotovo: {dest} ({summary})")
     return 0
 

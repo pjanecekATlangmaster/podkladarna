@@ -247,6 +247,22 @@
           </label>
           <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP.</p>
 
+          <label id="oom-export-dpi-label">
+            DPI georef PNG (Mapper CLI)
+            <select name="oom_export_dpi" id="oom_export_dpi">
+              <option value="150">150 DPI</option>
+              <option value="300">300 DPI</option>
+              <option value="600" selected>600 DPI (výchozí)</option>
+            </select>
+          </label>
+          <p class="hint" id="oom-export-dpi-hint">
+            Jen pro tlačítko „Stáhnout georef náhledy“ – render přes OpenOrienteering Mapper CLI
+            (plná symbolika). Webový „Otevřít PNG“ zůstává rychlý Pillow.
+            Do ZIPu s <code>.omap</code> se georef PNG nedává.
+            Na serveru musí být nastavený Mapper CLI
+            (<code>PODKLADARNA_MAPPER</code> / <code>PODKLADARNA_MAPPER_EXPORT</code>).
+          </p>
+
           <label class="checkbox-row">
             <input type="checkbox" name="use_kp" id="use_kp" value="1" checked />
             Karttapullautin (KP) – hybrid
@@ -328,7 +344,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.22.0 ·
+      Podkladárna v1.23.0 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>
