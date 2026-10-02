@@ -95,6 +95,22 @@ class MergedCliffs:
     polygons: list[list[tuple[float, float]]]
 
 
+def filter_short_earth_banks(
+    polylines: list[list[tuple[float, float]]],
+    *,
+    scale: int,
+) -> list[list[tuple[float, float]]]:
+    """Zahodí zemní srázy (104) kratší než DEM práh (~24 m @ 1:10 000).
+
+    Stejný min-length jako ``merge_cliff_ticks(..., earth=True)`` – včetně
+    ZABAGED ``StupenSraz``, které dřív šly do OOM bez délkového filtru.
+    """
+    min_m = min_line_length_m(scale, earth=True)
+    if min_m <= 0:
+        return list(polylines)
+    return [pts for pts in polylines if _polyline_length(pts) >= min_m]
+
+
 def min_line_length_m(scale: int, *, earth: bool = False) -> float:
     """Nejkratší sráz, který má na dané měřítko smysl kreslit."""
     mm = MIN_LINE_MM_EARTH if earth else MIN_LINE_MM_ROCK
@@ -865,6 +881,7 @@ def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]
         except Exception:
             return []
 
+    # Po morphologii (shrink/smooth) znovu MIN_ROCK_AREA_M2 – drobné zbytky pryč.
     rings: list[list[tuple[float, float]]] = []
     for poly in parts:
         if poly.is_empty or poly.area < MIN_ROCK_AREA_M2:
@@ -1079,15 +1096,18 @@ def _rings_from_cell_union(
         except Exception:
             return []
 
+    # Stejný práh jako footprint path – ne polovina (po morph zůstatky <75 m²).
     rings: list[list[tuple[float, float]]] = []
     for poly in parts:
-        if poly.is_empty or poly.area < MIN_ROCK_AREA_M2 * 0.5:
+        if poly.is_empty or poly.area < MIN_ROCK_AREA_M2:
             continue
         try:
             poly = poly.simplify(ROCK_SIMPLIFY_M, preserve_topology=True)
         except Exception:
             pass
         if poly.is_empty or poly.geom_type != "Polygon":
+            continue
+        if poly.area < MIN_ROCK_AREA_M2:
             continue
         coords = [(float(x), float(y)) for x, y in poly.exterior.coords]
         if len(coords) >= 2 and coords[0] == coords[-1]:
@@ -1096,7 +1116,7 @@ def _rings_from_cell_union(
             rings.append(coords)
         elif len(coords) >= 3:
             hull = _convex_hull_ring(coords)
-            if len(hull) >= 3:
+            if len(hull) >= 3 and _ring_area(hull) >= MIN_ROCK_AREA_M2:
                 rings.append(hull)
     return rings
 

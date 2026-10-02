@@ -180,6 +180,17 @@ def test_min_line_length_scales_with_map():
     assert min_line_length_m(4000, earth=True) == pytest.approx(9.6)
 
 
+def test_filter_short_earth_banks_matches_dem_threshold():
+    """ZABAGED StupenSraz: krátké úseky pryč, dlouhé 104 zůstanou (@ 10k ≈ 24 m)."""
+    from app.pipeline.cliff_merge import filter_short_earth_banks
+
+    short = [(0.0, 0.0), (15.0, 0.0)]  # 15 m < 24 m
+    long = [(0.0, 0.0), (30.0, 0.0)]  # 30 m ≥ 24 m
+    kept = filter_short_earth_banks([short, long], scale=10000)
+    assert kept == [long]
+    assert filter_short_earth_banks([short], scale=4000) == [short]  # earth min ≈ 9.6 m
+
+
 def test_min_line_drops_stubs_but_keeps_real_cliffs():
     """Kompromis proti šumu: krátké nálezy pryč, dlouhá stěna zůstane celá."""
     wall = _wall(60, y=0.0)

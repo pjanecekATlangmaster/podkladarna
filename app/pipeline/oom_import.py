@@ -20,6 +20,7 @@ from app.pipeline.cliff_merge import (
     filter_by_dense_contours,
     filter_cliffs_crossing_buildings,
     filter_rocks_overlapping_blockers,
+    filter_short_earth_banks,
     merge_cliff_ticks,
     min_line_length_m,
     polyline_is_simple_bank,
@@ -967,7 +968,13 @@ def build_zabaged_object_parts(
                         for pts in line_parts
                     ):
                         continue
-                if (
+                # StupenSraz → 104: stejný min-length jako DEM (~24 m @ 10k).
+                if layer_name == "StupenSraz":
+                    line_parts = filter_short_earth_banks(line_parts, scale=scale)
+                    if not line_parts:
+                        continue
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif (
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
                 ):
@@ -1048,7 +1055,12 @@ def build_zabaged_object_parts(
                         for pts in line_parts
                     ):
                         continue
-                if (
+                if layer_name == "StupenSraz":
+                    line_parts = filter_short_earth_banks(line_parts, scale=scale)
+                    if not line_parts:
+                        continue
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif (
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
                 ):

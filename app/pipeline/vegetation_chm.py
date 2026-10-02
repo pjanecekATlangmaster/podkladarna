@@ -46,6 +46,8 @@ OPEN_REINFORCE_ITERS = 0
 CHM_MEDIAN_SIZE = 7
 
 _MIN_AREA_M2 = 12.0
+# Tip go-default: zelené fleky (406/408/410) – 12→25 m²; 401 open land beze změny.
+_MIN_GREEN_AREA_M2 = 25.0
 _SIMPLIFY_M = 1.5
 
 # Stejné kódy jako vegetation_gdal (OOM build_vegetation_parts).
@@ -55,6 +57,12 @@ _CLASS_TO_CODE = {
     3: "408",
     4: "410",
 }
+
+_GREEN_CODES = frozenset({"406", "408", "410"})
+
+
+def _min_area_for_code(code: str) -> float:
+    return _MIN_GREEN_AREA_M2 if code in _GREEN_CODES else _MIN_AREA_M2
 
 
 @dataclass(frozen=True)
@@ -345,7 +353,7 @@ def _simplify_vegetation_shp(
             simplified = geom.simplify(_SIMPLIFY_M, preserve_topology=True)
             if simplified is None or simplified.is_empty:
                 continue
-            if float(simplified.area) < _MIN_AREA_M2:
+            if float(simplified.area) < _min_area_for_code(code):
                 continue
             kept.append((cls, code, simplified))
     except Exception as exc:
@@ -377,7 +385,7 @@ def _simplify_vegetation_shp(
                 simplified = geom.SimplifyPreserveTopology(_SIMPLIFY_M)
                 if simplified is None or simplified.IsEmpty():
                     continue
-                if float(simplified.GetArea()) < _MIN_AREA_M2:
+                if float(simplified.GetArea()) < _min_area_for_code(code):
                     continue
                 local_kept.append((cls, code, simplified.Clone()))
             for fid in to_delete:
@@ -523,7 +531,7 @@ def polygonize_vegetation_classes(
             simplified = geom.SimplifyPreserveTopology(_SIMPLIFY_M)
             if simplified is None or simplified.IsEmpty():
                 continue
-            if float(simplified.GetArea()) < _MIN_AREA_M2:
+            if float(simplified.GetArea()) < _min_area_for_code(code):
                 continue
             kept.append((cls, code, simplified.Clone()))
         for fid in to_delete:

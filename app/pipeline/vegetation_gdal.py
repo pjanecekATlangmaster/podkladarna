@@ -46,11 +46,18 @@ _CLASS_NAMES: dict[str, str] = {
 }
 
 _MIN_AREA_M2 = 12.0
+# Tip go-default: 406/408/410 fleky 12→25 m²; 401 open land zůstává 12.
+_MIN_GREEN_AREA_M2 = 25.0
+_GREEN_CODES = frozenset({"406", "408", "410"})
 # Po zapnutí yellow_smoothing jsou hrany méně „pixelové“ – mírně vyšší simplify.
 _SIMPLIFY_M = 1.5
 # Velké KP 401 se v OOM těžko editují → rozřezat mřížkou na menší objekty.
 _YELLOW_SPLIT_CELL_M = 50.0
 _YELLOW_SPLIT_MIN_AREA_M2 = 2000.0
+
+
+def _min_area_for_code(code: str) -> float:
+    return _MIN_GREEN_AREA_M2 if code in _GREEN_CODES else _MIN_AREA_M2
 
 
 def rgb_to_vege_class(r: int, g: int, b: int) -> int:
@@ -176,7 +183,7 @@ def generate_vegetation_shapefile(
         for piece in pieces:
             if piece is None or piece.IsEmpty():
                 continue
-            if float(piece.GetArea()) < _MIN_AREA_M2:
+            if float(piece.GetArea()) < _min_area_for_code(code):
                 continue
             kept.append((cls, code, piece.Clone()))
     for fid in to_delete:
