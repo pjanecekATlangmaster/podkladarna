@@ -34,6 +34,19 @@ def test_small_yellow_is_not_split():
     assert pieces[0].GetArea() == pytest.approx(400.0)
 
 
+def test_green_min_area_matches_chm_go_default():
+    from app.pipeline.vegetation_gdal import (
+        _MIN_AREA_M2,
+        _MIN_GREEN_AREA_M2,
+        _min_area_for_code,
+    )
+
+    assert _MIN_AREA_M2 == pytest.approx(12.0)
+    assert _MIN_GREEN_AREA_M2 == pytest.approx(25.0)
+    assert _min_area_for_code("401") == pytest.approx(12.0)
+    assert _min_area_for_code("408") == pytest.approx(25.0)
+
+
 def test_large_yellow_is_split_to_grid_cells():
     # 120×120 m → při 50 m mřížce 3×3 = až 9 buněk
     geom = _square(0, 0, 120)

@@ -32,3 +32,38 @@ def projected_to_map_coord(
     mx = rx * fac + map_ref_x
     my = -ry * fac + map_ref_y
     return round(mx), round(my)
+
+
+def map_to_projected(
+    mx: float,
+    my: float,
+    *,
+    ref_x: float,
+    ref_y: float,
+    scale: int,
+    grivation_deg: float = 0.0,
+    combined_scale_factor: float = 1.0,
+    map_ref_x: float = 0.0,
+    map_ref_y: float = 0.0,
+) -> tuple[float, float]:
+    """Nativní souřadnice OOM → metry S-JTSK (inverze ``projected_to_map_coord``).
+
+    Webový náhled PNGčko má grivaci odrotovanou (= grid north nahoru), takže
+    pro webové PGW volej s ``grivation_deg=0``. Georef PNG s magnetickým
+    natočením volej se skutečnou grivací (rotační členy world file).
+    """
+    s = combined_scale_factor * float(scale) / 1000.0
+    if s <= 0:
+        raise ValueError("Neplatný měřítkový faktor pro OOM transformaci")
+    fac = 1000.0 / s
+    rx = (mx - map_ref_x) / fac
+    ry = -(my - map_ref_y) / fac
+    g = math.radians(grivation_deg)
+    if abs(grivation_deg) < 1e-9:
+        return ref_x + rx, ref_y + ry
+    # Inverze rotace +grivation: [dx,dy] = R(-g) · [rx,ry]
+    cos_g = math.cos(g)
+    sin_g = math.sin(g)
+    dx = rx * cos_g + ry * sin_g
+    dy = -rx * sin_g + ry * cos_g
+    return ref_x + dx, ref_y + dy

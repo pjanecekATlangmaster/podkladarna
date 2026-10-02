@@ -6,28 +6,39 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.pipeline.cliff_height import filter_by_drop
+from app.pipeline.cliff_height import (
+    filter_by_drop,
+    likely_closed_depression,
+    rock_ring_is_closed_depression,
+)
 from app.pipeline.fetch_zabaged import (
     MAX_OSTATNI_PLOCHA_M2,
     ostatni_plocha_too_large,
 )
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.cliff_merge import (
+    filter_by_dense_contours,
+    filter_cliffs_crossing_buildings,
+    filter_earth_bank_lines,
+    filter_rocks_overlapping_blockers,
     merge_cliff_ticks,
     min_line_length_m,
-    polyline_to_strip_ring,
+    polyline_is_simple_bank,
+    resolve_rock_scarp_overlaps,
 )
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
     KP_CLIFF_206_CODE,
     KP_CLIFF_DENSE_CODE,
+    KP_CLIFF_AUTO,
     KP_CLIFF_EARTH_BANK,
     KP_CLIFF_OFF,
     KP_CLIFF_ROCK_FACE,
     KP_CLIFF_SYMBOL_206,
     oom_code_for_dxf,
     oom_code_for_vectorconf_rule,
+    resolve_rock_area_code,
     symbol_index_for_code,
 )
 from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
@@ -35,9 +46,66 @@ from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
 # ('point', x, y) | ('line', [(x, y), ...], close)
 _WkbPart = tuple[str, object]
 
-_CLIFF_DXF_NAMES = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
+_CLIFF_DXF_NAMES = frozenset(
+    {"cliffs_small.dxf", "cliffs_large.dxf", "cliffs_rock.dxf"}
+)
 _TAG_SIDE_OFFSET_M = 2.0
 
+# ZABAGED vrstvy, které skálu NEpřebíjejí (zelená / bílá / vegetační pozadí).
+# Vrstevnice sem nepatří – nejsou v ZABAGED a do blockerů se vůbec nenačítají.
+_ROCK_OCCUPANCY_EXCEPTION_LAYERS = frozenset(
+    {
+        "TrvalyTravniPorost",
+        "UdrzovanaZelen",
+        "LiniovaVegetace",
+        "VyznamnyStromLesik",
+    }
+)
+# Plošné ZABAGED objekty, které skálu potlačí (budovy, voda, zpevněné, …).
+_ROCK_OCCUPANCY_POLY_LAYERS = frozenset(
+    {
+        "BudovaJednotlivaNeboBlokBudov",
+        "KulnaSklenikFoliovnikPristresek",
+        "ArealUceloveZastavby",
+        "Hrad",
+        "Zamek",
+        "RozvalinaZricenina",
+        "VezovitaStavba",
+        "StavebniObjektZakryty",
+        "Tribuna",
+        "VodniPlocha",
+        "Hrbitov",
+        "ParkovisteOdpocivka",
+        "OstatniPlochaVSidlech",
+        "ArealZeleznicniStanice",
+        "Koleiste",
+        "OvocnySadZahrada",
+        "SkupinaBalvanu",
+    }
+)
+# Liniové ZABAGED objekty (cesty, hydro, srázy, zdi, kolej…); střednice + buffer.
+_ROCK_OCCUPANCY_LINE_LAYERS = frozenset(
+    {
+        "VodniTok",
+        "SilniceDalnice",
+        "Cesta",
+        "Most",
+        "Ulice",
+        "Pesina",
+        "Lavka",
+        "Tunel",
+        "Podjezd",
+        "TramvajovaDraha",
+        "ZeleznicniTrat",
+        "ZeleznicniVlecka",
+        "LanovaDrahaLyzarskyVlek",
+        "StupenSraz",
+        "Zed",
+        "HradbaVal",
+        "ElektrickeVedeni",
+        "Zabrana",
+    }
+)
 
 def orient_polyline_tags_downhill(
     pts: list[tuple[float, float]],
@@ -128,37 +196,56 @@ _dem_cache: dict[Path, "_DemElev | None"] = {}
 _dem_cache_dir: Path | None = None
 
 
-def _first_dem(work_dir: Path, names: tuple[str, ...]):
+def _first_dem(
+    work_dir: Path,
+    names: tuple[str, ...],
+    *,
+    dirs: tuple[str, ...] = ("contours",),
+):
     """Rastr se drží celý v paměti, tak stejný soubor otevírat jen jednou.
 
     Cache platí pro jeden job – při přechodu jinam se zahodí, jinak by ve worker
     procesu zůstaly viset desítky MB po každé zpracované mapě.
+
+    ``dirs`` pořadí složek (typicky ``dem`` před ``contours`` pro srázy –
+    shared ``dem/dem_filled.tif`` je nehlazený; v ``contours/`` bývá jen
+    ``dem_smooth.tif``, který rozmazává sklon a dense-contour pak nestřílí).
     """
     global _dem_cache_dir
     if _dem_cache_dir != work_dir:
         _dem_cache.clear()
         _dem_cache_dir = work_dir
-    for name in names:
-        dem = work_dir / "contours" / name
-        if not dem.is_file():
-            continue
-        if dem not in _dem_cache:
-            try:
-                _dem_cache[dem] = _DemElev(dem)
-            except Exception:
-                _dem_cache[dem] = None
-        if _dem_cache[dem] is not None:
-            return _dem_cache[dem]
+    for dem_dir in dirs:
+        for name in names:
+            dem = work_dir / dem_dir / name
+            if not dem.is_file():
+                continue
+            if dem not in _dem_cache:
+                try:
+                    _dem_cache[dem] = _DemElev(dem)
+                except Exception:
+                    _dem_cache[dem] = None
+            if _dem_cache[dem] is not None:
+                return _dem_cache[dem]
     return None
 
 
 def _load_dem_elev(work_dir: Path):
-    return _first_dem(work_dir, ("dem_smooth.tif", "dem_filled.tif"))
+    # Side-of-slope u vrstevnic: smooth v contours/ stačí; fallback dem/.
+    return _first_dem(
+        work_dir,
+        ("dem_smooth.tif", "dem_filled.tif"),
+        dirs=("contours", "dem"),
+    )
 
 
 def _load_cliff_dem(work_dir: Path):
-    """Na měření srázu je potřeba nehlazený model – smooth schod rozmázne."""
-    return _first_dem(work_dir, ("dem_filled.tif", "dem_raw.tif", "dem_smooth.tif"))
+    """Nehlazený DEM – smooth schod / dense-contour grade rozmázne."""
+    return _first_dem(
+        work_dir,
+        ("dem_filled.tif", "dem_raw.tif", "dem_smooth.tif"),
+        dirs=("dem", "contours"),
+    )
 
 
 def _wkb_read_points(buf: bytes, offset: int, fmt: str, n: int) -> tuple[list[tuple[float, float]], int]:
@@ -224,6 +311,7 @@ def _geom_parts_to_objects(
     scale: int,
     grivation_deg: float,
     as_area: bool = False,
+    as_curves: bool = False,
     elev_at=None,
     clip_bounds: Bounds | None = None,
 ) -> list[str]:
@@ -287,7 +375,14 @@ def _geom_parts_to_objects(
                     piece, elev_at=elev_at, to_map=to_map
                 )
             coords = [to_map(x, y) for x, y in piece]
-            if closed_shape:
+            # Křivky jen když volající zapne as_curves (vrstevnice: po DP simplify).
+            # Plochy s dírami necháme polygonální – srázy/cesty as_curves nezapínají.
+            if as_curves and not holes:
+                mapped = convert_polyline_to_curves(
+                    coords, closed=bool(closed_shape)
+                )
+                obj = _path_object(symbol_index, mapped)
+            elif closed_shape:
                 rings = [coords] + [
                     [to_map(x, y) for x, y in hole] for hole in holes
                 ]
@@ -334,8 +429,148 @@ def _fmt(x: int, y: int, flags: int = 0) -> str:
     return f"{x} {y}"
 
 
+# OpenOrienteering MapCoord flags (map_coord.h) – hodnoty se nesmí měnit.
+MAP_COORD_CURVE_START = 1  # první ze 4 bodů kubické Bézier
+MAP_COORD_CLOSE_POINT = 2
+MAP_COORD_HOLE_POINT = 16
 # OpenOrienteering MapCoord::DashPoint – fousy sloupů na vedení / dash symbol.
 MAP_COORD_DASH_POINT = 32
+# util.h: BEZIER_KAPPA / sqrt(2) – délka handle při „Převést na křivky“.
+_BEZIER_HANDLE_DISTANCE = 0.390524291729
+
+
+def _normalize_xy(dx: float, dy: float) -> tuple[float, float]:
+    length = math.hypot(dx, dy)
+    if length < 1e-12:
+        return 0.0, 0.0
+    return dx / length, dy / length
+
+
+def convert_polyline_to_curves(
+    coords: list[tuple[int, int]],
+    *,
+    closed: bool = False,
+) -> list[tuple[int, int] | tuple[int, int, int]]:
+    """Stejný algoritmus jako Mapper ``PathObject::convertRangeToCurves``.
+
+    Polygonální úseky → kubické Bézier: bod se flagem CurveStart (1), dva
+    handly, koncový bod. Uzavřená linie dostane na konci ClosePoint|HolePoint
+    (18), stejně jako Mapper u uzavřených PathPart.
+    """
+    if len(coords) < 2:
+        return [(int(x), int(y)) for x, y in coords]
+
+    pts: list[list[int]] = [[int(x), int(y), 0] for x, y in coords]
+    if closed:
+        if pts[0][0] != pts[-1][0] or pts[0][1] != pts[-1][1]:
+            pts.append([pts[0][0], pts[0][1], 0])
+        if len(pts) < 3:
+            pts[-1][2] = MAP_COORD_CLOSE_POINT | MAP_COORD_HOLE_POINT
+            return [
+                (p[0], p[1], p[2]) if p[2] else (p[0], p[1]) for p in pts
+            ]
+
+    start_index = 0
+    end_index = len(pts) - 1
+    pts[start_index][2] |= MAP_COORD_CURVE_START
+
+    if closed:
+        dx = float(pts[start_index + 1][0] - pts[end_index - 1][0])
+        dy = float(pts[start_index + 1][1] - pts[end_index - 1][1])
+    else:
+        dx = float(pts[end_index][0] - pts[end_index - 1][0])
+        dy = float(pts[end_index][1] - pts[end_index - 1][1])
+    tx, ty = _normalize_xy(dx, dy)
+    baseline = (
+        math.hypot(
+            pts[end_index][0] - pts[end_index - 1][0],
+            pts[end_index][1] - pts[end_index - 1][1],
+        )
+        * _BEZIER_HANDLE_DISTANCE
+    )
+    end_handle = [
+        round(pts[end_index][0] - tx * baseline),
+        round(pts[end_index][1] - ty * baseline),
+        0,
+    ]
+
+    if closed:
+        dx = float(pts[start_index + 1][0] - pts[end_index - 1][0])
+        dy = float(pts[start_index + 1][1] - pts[end_index - 1][1])
+    else:
+        dx = float(pts[start_index + 1][0] - pts[start_index][0])
+        dy = float(pts[start_index + 1][1] - pts[start_index][1])
+    tx, ty = _normalize_xy(dx, dy)
+    baseline = (
+        math.hypot(
+            pts[start_index + 1][0] - pts[start_index][0],
+            pts[start_index + 1][1] - pts[start_index][1],
+        )
+        * _BEZIER_HANDLE_DISTANCE
+    )
+    pts.insert(
+        start_index + 1,
+        [
+            round(pts[start_index][0] + tx * baseline),
+            round(pts[start_index][1] + ty * baseline),
+            0,
+        ],
+    )
+    end_index += 1
+
+    c = start_index + 2
+    while c < end_index:
+        dx = float(pts[c + 1][0] - pts[c - 2][0])
+        dy = float(pts[c + 1][1] - pts[c - 2][1])
+        tx, ty = _normalize_xy(dx, dy)
+
+        baseline = (
+            math.hypot(pts[c][0] - pts[c - 2][0], pts[c][1] - pts[c - 2][1])
+            * _BEZIER_HANDLE_DISTANCE
+        )
+        pts.insert(
+            c,
+            [
+                round(pts[c][0] - tx * baseline),
+                round(pts[c][1] - ty * baseline),
+                0,
+            ],
+        )
+        c += 1
+        end_index += 1
+
+        pts[c][2] |= MAP_COORD_CURVE_START
+
+        baseline = (
+            math.hypot(pts[c + 1][0] - pts[c][0], pts[c + 1][1] - pts[c][1])
+            * _BEZIER_HANDLE_DISTANCE
+        )
+        pts.insert(
+            c + 1,
+            [
+                round(pts[c][0] + tx * baseline),
+                round(pts[c][1] + ty * baseline),
+                0,
+            ],
+        )
+        c += 1
+        end_index += 1
+        c += 1  # for-loop ++c v Mapperu
+
+    pts.insert(end_index, end_handle)
+    end_index += 1
+
+    if closed:
+        # Uzavírací bod (shodný s prvním) – ClosePoint|HolePoint jako u ploch.
+        pts[end_index][2] |= MAP_COORD_CLOSE_POINT | MAP_COORD_HOLE_POINT
+
+    out: list[tuple[int, int] | tuple[int, int, int]] = []
+    for x, y, flags in pts:
+        if flags:
+            out.append((x, y, flags))
+        else:
+            out.append((x, y))
+    return out
 
 
 def _object_xml(symbol_index: int, pts: list[str]) -> str:
@@ -752,7 +987,13 @@ def build_zabaged_object_parts(
                         for pts in line_parts
                     ):
                         continue
-                if (
+                # StupenSraz → 104: stejný min-length + zamotané jako DEM (~35 m @ 10k).
+                if layer_name == "StupenSraz":
+                    line_parts = filter_earth_bank_lines(line_parts, scale=scale)
+                    if not line_parts:
+                        continue
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif (
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
                 ):
@@ -833,7 +1074,12 @@ def build_zabaged_object_parts(
                         for pts in line_parts
                     ):
                         continue
-                if (
+                if layer_name == "StupenSraz":
+                    line_parts = filter_earth_bank_lines(line_parts, scale=scale)
+                    if not line_parts:
+                        continue
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif (
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
                 ):
@@ -937,6 +1183,201 @@ def _collect_dxf_line_parts(path: Path, *, use_ogr: bool) -> list[list[tuple[flo
     return out
 
 
+def _load_building_rings_for_cliffs(
+    *,
+    zabaged_clean: Path | None,
+    work_dir: Path | None,
+) -> list[list[tuple[float, float]]]:
+    """Budovy ZABAGED (+ OSM fallback) v S-JTSK – filtr srázů přes dům."""
+    rings: list[list[tuple[float, float]]] = []
+    if zabaged_clean is not None and zabaged_clean.is_file():
+        try:
+            from app.pipeline.osm_paths import _zabaged_polygons
+            from app.pipeline.ruian_buildings import ZABAGED_OMIT_BUILDING_LAYERS
+
+            rings.extend(
+                _zabaged_polygons(
+                    zabaged_clean, layers=frozenset(ZABAGED_OMIT_BUILDING_LAYERS)
+                )
+            )
+        except Exception:
+            pass
+    if work_dir is not None:
+        gj = work_dir / "osm_paths" / "buildings.geojson"
+        if gj.is_file():
+            try:
+                import json
+
+                data = json.loads(gj.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                data = None
+            if data:
+                for feat in data.get("features") or []:
+                    geom = feat.get("geometry") or {}
+                    gtype = geom.get("type")
+                    coords = geom.get("coordinates") or []
+                    if gtype == "Polygon" and coords:
+                        ring = [(float(x), float(y)) for x, y in coords[0]]
+                        if len(ring) >= 3:
+                            rings.append(ring)
+                    elif gtype == "MultiPolygon":
+                        for poly in coords:
+                            if not poly:
+                                continue
+                            ring = [(float(x), float(y)) for x, y in poly[0]]
+                            if len(ring) >= 3:
+                                rings.append(ring)
+    return rings
+
+
+def _load_zabaged_line_parts(
+    zabaged_clean: Path,
+    *,
+    layers: frozenset[str],
+) -> list[list[tuple[float, float]]]:
+    """Liniové ZABAGED geometrie (S-JTSK) pro occupancy filtr skal."""
+    if not layers or not zabaged_clean.is_file():
+        return []
+    try:
+        from app.pipeline.osm_paths import (
+            _iter_line_parts_from_shp,
+            _zabaged_shp_members,
+        )
+    except Exception:
+        return []
+    members = _zabaged_shp_members(zabaged_clean, layers=layers)
+    if not members:
+        return []
+    import shutil
+    import tempfile
+    from zipfile import ZipFile
+
+    lines: list[list[tuple[float, float]]] = []
+    stage = Path(tempfile.mkdtemp(prefix="rock_occ_ln_"))
+    try:
+        with ZipFile(zabaged_clean) as zf:
+            names = set(zf.namelist())
+            for _canon, member in members:
+                stem = Path(member).stem
+                for n in names:
+                    nn = n.replace("\\", "/")
+                    if Path(nn).stem.lower() != stem.lower():
+                        continue
+                    if Path(nn).suffix.lower() not in {
+                        ".shp",
+                        ".shx",
+                        ".dbf",
+                        ".prj",
+                        ".cpg",
+                    }:
+                        continue
+                    dest = stage / Path(nn).name
+                    if not dest.exists():
+                        dest.write_bytes(zf.read(n))
+        want = {n.lower() for n in layers}
+        for shp in sorted(stage.glob("*.shp")):
+            if shp.stem.lower() not in want:
+                continue
+            try:
+                lines.extend(_iter_line_parts_from_shp(shp))
+            except Exception:
+                continue
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    return lines
+
+
+def _load_rock_occupancy_blockers(
+    *,
+    zabaged_clean: Path | None,
+    work_dir: Path | None,
+) -> tuple[list[list[tuple[float, float]]], list[list[tuple[float, float]]]]:
+    """Polygony + linie, které skálu potlačí (bez zeleně/bílé/vrstevnic)."""
+    polys: list[list[tuple[float, float]]] = []
+    lines: list[list[tuple[float, float]]] = []
+    assert not (
+        _ROCK_OCCUPANCY_POLY_LAYERS & _ROCK_OCCUPANCY_EXCEPTION_LAYERS
+    ), "poly blockers must not include vegetation exceptions"
+    assert not (
+        _ROCK_OCCUPANCY_LINE_LAYERS & _ROCK_OCCUPANCY_EXCEPTION_LAYERS
+    ), "line blockers must not include vegetation exceptions"
+
+    if zabaged_clean is not None and zabaged_clean.is_file():
+        try:
+            from app.pipeline.osm_paths import _zabaged_polygons
+
+            polys.extend(
+                _zabaged_polygons(
+                    zabaged_clean, layers=_ROCK_OCCUPANCY_POLY_LAYERS
+                )
+            )
+        except Exception:
+            pass
+        try:
+            lines.extend(
+                _load_zabaged_line_parts(
+                    zabaged_clean, layers=_ROCK_OCCUPANCY_LINE_LAYERS
+                )
+            )
+        except Exception:
+            pass
+
+    if work_dir is not None:
+        try:
+            from app.pipeline.osm_paths import load_osm_path_lines
+
+            lines.extend(load_osm_path_lines(work_dir))
+        except Exception:
+            pass
+        # OSM vodní plochy / zpevněné z features.geojson (pokud jsou).
+        feat_gj = work_dir / "osm_paths" / "features.geojson"
+        if feat_gj.is_file():
+            try:
+                import json
+
+                data = json.loads(feat_gj.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                data = None
+            if data:
+                blocker_kinds = frozenset(
+                    {
+                        "water_body",
+                        "wetland",
+                        "parking",
+                        "playground",
+                        "pitch",
+                        "pedestrian_area",
+                        "platform",
+                        "building",
+                        "water_well_building",
+                    }
+                )
+                line_kinds = frozenset(
+                    {"fence", "wall", "power_line", "power_line_major"}
+                )
+                # hedge = vegetace → výjimka (neblokuje)
+                for feat in data.get("features") or []:
+                    props = feat.get("properties") or {}
+                    kind = str(props.get("kind") or "").strip().lower()
+                    geom = feat.get("geometry") or {}
+                    gtype = geom.get("type")
+                    coords = geom.get("coordinates") or []
+                    if kind in blocker_kinds and gtype == "Polygon" and coords:
+                        ring = [(float(x), float(y)) for x, y in coords[0]]
+                        if len(ring) >= 3:
+                            polys.append(ring)
+                    elif kind in blocker_kinds and gtype == "MultiPolygon":
+                        for poly in coords:
+                            if not poly:
+                                continue
+                            ring = [(float(x), float(y)) for x, y in poly[0]]
+                            if len(ring) >= 3:
+                                polys.append(ring)
+                    elif kind in line_kinds and gtype == "LineString" and len(coords) >= 2:
+                        lines.append([(float(x), float(y)) for x, y in coords])
+    return polys, lines
+
+
 def build_dxf_object_part(
     kp_cwd: Path,
     *,
@@ -945,8 +1386,11 @@ def build_dxf_object_part(
     ref_x: float,
     ref_y: float,
     grivation_deg: float,
-    cliff_symbol: str = "earth_bank",
+    cliff_symbol: str = "auto",
     clip_bounds: Bounds | None = None,
+    zabaged_clean: Path | None = None,
+    building_rings: list[list[tuple[float, float]]] | None = None,
+    contour_interval_m: float | None = None,
 ) -> OomObjectPart | None:
     use_ogr = True
     try:
@@ -968,10 +1412,20 @@ def build_dxf_object_part(
 
     objects: list[str] = []
     elev_at = _load_dem_elev(kp_cwd)
-    cliff_ticks: list[tuple[tuple[float, float], tuple[float, float]]] = []
-    cliff_line_code: str | None = None
+    cliff_dem = _load_cliff_dem(kp_cwd)
+    cliff_groups: dict[str, list[tuple[tuple[float, float], tuple[float, float]]]] = {}
     had_dense_polys = False
-    drop_stats: dict[str, int] = {}
+    drop_dropped = 0
+    drop_unmeasured = 0
+    earth_tangled = 0
+    earth_pit_skip = 0
+    rock_depression_skip = 0
+    rock_polys_n = 0
+    earth_lines_n = 0
+    overlap_drop = 0
+    building_drop = 0
+    occupancy_drop = 0
+    dense_contour_drop = 0
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -982,14 +1436,13 @@ def build_dxf_object_part(
         if symbol_index is None:
             continue
         if zip_name in _CLIFF_DXF_NAMES:
-            cliff_line_code = code
+            group = cliff_groups.setdefault(code, [])
             for pts in _collect_dxf_line_parts(path, use_ogr=use_ogr):
                 if len(pts) == 2:
-                    cliff_ticks.append((pts[0], pts[1]))
+                    group.append((pts[0], pts[1]))
                 elif len(pts) > 2:
-                    # Už slepená linie – nechat jako řetěz 2bodových úseků.
                     for i in range(1, len(pts)):
-                        cliff_ticks.append((pts[i - 1], pts[i]))
+                        group.append((pts[i - 1], pts[i]))
             continue
         if use_ogr:
             ds = ogr.Open(str(path))
@@ -1033,100 +1486,241 @@ def build_dxf_object_part(
                         )
                     )
 
-    if cliff_ticks and cliff_line_code and cliff_symbol != KP_CLIFF_OFF:
+    # Nejdřív sloučit po kódech, pak společné filtry (budovy, překryv skála×104).
+    pending_earth: list[list[tuple[float, float]]] = []
+    pending_rocks: list[list[tuple[float, float]]] = []
+    discarded_earth: list[tuple[list[tuple[float, float]], str]] = []
+    discarded_rocks: list[tuple[list[tuple[float, float]], str]] = []
+    rock_area_code = resolve_rock_area_code(preset_id, scale) or KP_CLIFF_DENSE_CODE
+    if cliff_symbol == KP_CLIFF_SYMBOL_206:
+        rock_area_code = KP_CLIFF_206_CODE
+
+    from app.pipeline.uzitecne_vectors import (
+        dropped_by_identity,
+        write_cliff_inspection_vectors,
+    )
+
+    for cliff_line_code, cliff_ticks in cliff_groups.items():
+        if not cliff_ticks or cliff_symbol == KP_CLIFF_OFF:
+            continue
+        # Zem (104) jen linie. Skála: hustý shluk → plocha 201.2/206; zbytek 201
+        # (i dlouhé stěny) se zahazuje — viz merge_cliff_ticks(as_polygons=True).
+        is_earth = cliff_line_code == "104"
         as_polygons = cliff_symbol in (
             KP_CLIFF_ROCK_FACE,
             KP_CLIFF_SYMBOL_206,
-        )
+        ) or cliff_line_code == "201"
+        # Zamotané nejdřív necháme v merge projít (reject_tangled=False), ať
+        # uzitecne/vyhozene dostane duvod=zamotany. Min-délka zůstává v merge.
         merged = merge_cliff_ticks(
             cliff_ticks,
             as_polygons=as_polygons,
-            min_line_m=min_line_length_m(scale),
+            min_line_m=min_line_length_m(scale, earth=is_earth),
+            reject_tangled=False,
         )
+        raw_lines = merged.lines
+        if is_earth:
+            clean_lines = [pts for pts in raw_lines if polyline_is_simple_bank(pts)]
+            for pts in dropped_by_identity(raw_lines, clean_lines):
+                discarded_earth.append((pts, "zamotany"))
+            earth_tangled += len(raw_lines) - len(clean_lines)
+            raw_lines = clean_lines
         # KP výšku srázu nezapisuje, tak si ji doměříme z DEM a nízké schody
         # zahodíme. Bez DEM projde všechno – není podle čeho rozhodovat.
-        cliff_lines, drop_stats = filter_by_drop(
-            merged.lines, _load_cliff_dem(kp_cwd)
+        before_drop = list(raw_lines)
+        cliff_lines, drop_stats = filter_by_drop(raw_lines, cliff_dem)
+        if is_earth:
+            for pts in dropped_by_identity(before_drop, cliff_lines):
+                discarded_earth.append((pts, "nizky_schod"))
+        drop_dropped += int(drop_stats.get("zahozeno") or 0)
+        drop_unmeasured += int(drop_stats.get("nezmereno") or 0)
+        if is_earth and cliff_dem is not None:
+            kept_earth: list[list[tuple[float, float]]] = []
+            for pts in cliff_lines:
+                pit = likely_closed_depression(pts, cliff_dem)
+                if pit is True:
+                    earth_pit_skip += 1
+                    discarded_earth.append((pts, "deprese"))
+                    continue
+                kept_earth.append(pts)
+            cliff_lines = kept_earth
+        if is_earth:
+            pending_earth.extend(cliff_lines)
+        if merged.polygons and as_polygons:
+            if cliff_dem is not None:
+                kept_rocks: list[list[tuple[float, float]]] = []
+                for ring in merged.polygons:
+                    pit = rock_ring_is_closed_depression(ring, cliff_dem)
+                    if pit is True:
+                        rock_depression_skip += 1
+                        discarded_rocks.append((ring, "deprese"))
+                        continue
+                    kept_rocks.append(ring)
+                pending_rocks.extend(kept_rocks)
+            else:
+                pending_rocks.extend(merged.polygons)
+
+    bldg = building_rings
+    if bldg is None:
+        bldg = _load_building_rings_for_cliffs(
+            zabaged_clean=zabaged_clean, work_dir=kp_cwd
         )
-        if cliff_symbol == KP_CLIFF_SYMBOL_206:
-            poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_206_CODE)
-            if poly_index is not None:
-                poly_rings = list(merged.polygons)
-                for pts in cliff_lines:
-                    ring = polyline_to_strip_ring(pts)
-                    if ring:
-                        poly_rings.append(ring)
-                if poly_rings:
-                    had_dense_polys = True
-                    poly_parts = [("line", ring, True) for ring in poly_rings]
-                    objects.extend(
-                        _geom_parts_to_objects(
-                            poly_parts,
-                            poly_index,
-                            ref_x=ref_x,
-                            ref_y=ref_y,
-                            scale=scale,
-                            grivation_deg=grivation_deg,
-                            clip_bounds=clip_bounds,
-                            as_area=True,
-                        )
-                    )
-        else:
-            line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
-            if line_index is not None:
-                line_parts = [("line", pts, False) for pts in cliff_lines]
-                objects.extend(
-                    _geom_parts_to_objects(
-                        line_parts,
-                        line_index,
-                        ref_x=ref_x,
-                        ref_y=ref_y,
-                        scale=scale,
-                        grivation_deg=grivation_deg,
-                        clip_bounds=clip_bounds,
-                        elev_at=elev_at,
-                    )
+    if bldg:
+        before_e, before_r = list(pending_earth), list(pending_rocks)
+        pending_earth, pending_rocks, building_drop = filter_cliffs_crossing_buildings(
+            pending_earth, pending_rocks, bldg
+        )
+        for pts in dropped_by_identity(before_e, pending_earth):
+            discarded_earth.append((pts, "budova"))
+        for ring in dropped_by_identity(before_r, pending_rocks):
+            discarded_rocks.append((ring, "budova"))
+    if pending_rocks and pending_earth:
+        before_r = list(pending_rocks)
+        pending_rocks, pending_earth, overlap_drop = resolve_rock_scarp_overlaps(
+            pending_rocks, pending_earth
+        )
+        for ring in dropped_by_identity(before_r, pending_rocks):
+            discarded_rocks.append((ring, "prekryv_104"))
+    if pending_rocks:
+        blocker_polys, blocker_lines = _load_rock_occupancy_blockers(
+            zabaged_clean=zabaged_clean, work_dir=kp_cwd
+        )
+        if blocker_polys or blocker_lines:
+            before_r = list(pending_rocks)
+            pending_rocks, occupancy_drop = filter_rocks_overlapping_blockers(
+                pending_rocks, blocker_polys, blocker_lines
+            )
+            for ring in dropped_by_identity(before_r, pending_rocks):
+                discarded_rocks.append((ring, "occupancy"))
+    # Husté vrstevnice (strmý shluk) → skála i 104 pryč; DEM už máme pro drop.
+    interval = float(contour_interval_m) if contour_interval_m else 5.0
+    dense_filter_ran = False
+    if cliff_dem is not None and (pending_earth or pending_rocks):
+        before_e, before_r = list(pending_earth), list(pending_rocks)
+        pending_earth, pending_rocks, dense_contour_drop = filter_by_dense_contours(
+            pending_earth, pending_rocks, cliff_dem, interval_m=interval
+        )
+        for pts in dropped_by_identity(before_e, pending_earth):
+            discarded_earth.append((pts, "huste_vrstevnice"))
+        for ring in dropped_by_identity(before_r, pending_rocks):
+            discarded_rocks.append((ring, "huste_vrstevnice"))
+        dense_filter_ran = True
+
+    try:
+        write_cliff_inspection_vectors(
+            kp_cwd,
+            used_earth=pending_earth,
+            used_rocks=pending_rocks,
+            discarded_earth=discarded_earth,
+            discarded_rocks=discarded_rocks,
+            rock_code=rock_area_code,
+        )
+    except Exception:
+        pass
+
+    if pending_earth:
+        line_index = symbol_index_for_code(preset_id, scale, "104")
+        if line_index is not None:
+            earth_lines_n += len(pending_earth)
+            line_parts = [("line", pts, False) for pts in pending_earth]
+            objects.extend(
+                _geom_parts_to_objects(
+                    line_parts,
+                    line_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    clip_bounds=clip_bounds,
+                    elev_at=elev_at,
                 )
-            if merged.polygons:
-                poly_index = symbol_index_for_code(
-                    preset_id, scale, KP_CLIFF_DENSE_CODE
+            )
+
+    if pending_rocks:
+        poly_index = symbol_index_for_code(preset_id, scale, rock_area_code)
+        if poly_index is not None:
+            had_dense_polys = True
+            rock_polys_n += len(pending_rocks)
+            poly_parts = [("line", ring, True) for ring in pending_rocks]
+            objects.extend(
+                _geom_parts_to_objects(
+                    poly_parts,
+                    poly_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    clip_bounds=clip_bounds,
+                    as_area=True,
                 )
-                if poly_index is not None:
-                    had_dense_polys = True
-                    poly_parts = [("line", ring, True) for ring in merged.polygons]
-                    objects.extend(
-                        _geom_parts_to_objects(
-                            poly_parts,
-                            poly_index,
-                            ref_x=ref_x,
-                            ref_y=ref_y,
-                            scale=scale,
-                            grivation_deg=grivation_deg,
-                            clip_bounds=clip_bounds,
-                            as_area=True,
-                        )
-                    )
+            )
 
     if not objects:
         return None
+    codes = set(cliff_groups)
     if cliff_symbol == KP_CLIFF_SYMBOL_206:
         cliff_label = "skály (206 plocha)"
     elif cliff_symbol == KP_CLIFF_ROCK_FACE:
-        cliff_label = (
-            "skály (201 + kamenitý povrch 210)"
-            if had_dense_polys
-            else "skály (201)"
-        )
+        cliff_label = "skály (plocha 201.2/206)" if had_dense_polys else "skály (bez plochy)"
     elif cliff_symbol == KP_CLIFF_EARTH_BANK:
         cliff_label = "zemní srázy (104)"
+    elif cliff_symbol == KP_CLIFF_AUTO and "201" in codes and "104" in codes:
+        cliff_label = (
+            "skála (plocha 201.2/206) a zem (104)"
+            if had_dense_polys
+            else "skála (bez plochy) a zem (104)"
+        )
+    elif "201" in codes and "104" in codes:
+        cliff_label = (
+            "skála (plocha 201.2/206) a zem (104)"
+            if had_dense_polys
+            else "skála (bez plochy) a zem (104)"
+        )
+    elif "201" in codes:
+        cliff_label = (
+            "skála (plocha 201.2/206)" if had_dense_polys else "skála (bez plochy)"
+        )
     else:
-        cliff_label = "Karttapullautin"
-    if drop_stats.get("zahozeno"):
-        cliff_label += f", {drop_stats['zahozeno']} nízkých zahozeno dle DEM"
-    elif drop_stats.get("nezmereno"):
+        cliff_label = "srázy"
+    detail_bits: list[str] = []
+    if rock_polys_n:
+        detail_bits.append(f"skála→{rock_polys_n} ploch 201.2/206")
+    if rock_depression_skip:
+        detail_bits.append(
+            f"{rock_depression_skip} skála=deprese (přednost vrstevnicím)"
+        )
+    if earth_lines_n or "104" in codes:
+        bit = f"104→{earth_lines_n} linií"
+        extras = []
+        if earth_tangled:
+            extras.append(f"{earth_tangled} zamotaných zahozeno")
+        if earth_pit_skip:
+            extras.append(f"{earth_pit_skip} možná jáma (nejisté, zahozeno)")
+        if extras:
+            bit += f" ({', '.join(extras)})"
+        detail_bits.append(bit)
+    if overlap_drop:
+        detail_bits.append(f"překryv skála×104→{overlap_drop} skal pryč (přednost srázu)")
+    if occupancy_drop:
+        detail_bits.append(f"{occupancy_drop} skála přes jiný objekt zahozeno")
+    if dense_filter_ran:
+        # Vždy logovat (i 0) – ověření, že filtr běží na Barr/tip (dřív ticho = bug).
+        detail_bits.append(
+            f"{dense_contour_drop} skála/104 v hustých vrstevnicích zahozeno"
+        )
+    if building_drop:
+        detail_bits.append(f"{building_drop} přes budovu zahozeno")
+    if detail_bits:
+        cliff_label += "; " + "; ".join(detail_bits)
+    if drop_dropped:
+        cliff_label += f", {drop_dropped} nízkých zahozeno dle DEM"
+    elif drop_unmeasured:
         cliff_label += ", výška nezměřena (chybí DEM)"
+    # Bez KP temp/vegetation.pgw = kandidáti z DEM (cliffs_dem), ne z pullauta.
+    from_kp = (temp / "vegetation.pgw").is_file()
+    src_label = "Karttapullautin" if from_kp else "DEM kandidáti"
     return OomObjectPart(
-        name=f"Karttapullautin – vektory ({cliff_label})",
+        name=f"{src_label} – vektory ({cliff_label})",
         objects_xml="\n".join(objects),
         count=len(objects),
     )

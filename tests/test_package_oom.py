@@ -104,6 +104,52 @@ def test_oom_metadata_uses_interval_override():
     assert meta["scale"] == 10000
 
 
+def test_oom_metadata_lidar_sources_and_no_kp_citation():
+    from app.pipeline.source_meta import INDICATIVE_LABEL_CS
+
+    lidar = {
+        "sheets": [],
+        "sheet_count": 0,
+        "dmp_mode": "ok",
+        "dmp_degraded": False,
+    }
+    meta = oom_metadata(
+        "forest_10000",
+        {"label": "Les", "contour_interval": 5, "scalefactor": 1},
+        {"scalefactor": 1, "use_kp": False},
+        lidar_sources=lidar,
+    )
+    assert meta["use_kp"] is False
+    assert meta["dmp_mode"] == "ok"
+    assert meta["dmp_degraded"] is False
+    assert meta["lidar_sources"] is lidar
+    assert "Karttapullautin" not in meta["citation"]
+    assert INDICATIVE_LABEL_CS in meta["citation"]
+    readme = oom_readme(meta)
+    assert INDICATIVE_LABEL_CS in readme
+    assert "Karttapullautin" not in readme
+    assert "Ortofoto slouží jen k vizuální kontrole" in readme
+    assert "vlastní DEM" in readme
+    assert "hustoty LiDAR" in readme
+    assert "ne ze ZABAGED" in readme
+    assert "jediná pravda" in readme
+    assert "hustoty LiDAR odrazů" in readme
+    assert "skála vs. zem" in readme
+    assert "contours_kp.dxf" not in readme
+
+
+def test_oom_readme_has_no_kp_archive():
+    meta = oom_metadata(
+        "forest_10000",
+        {"label": "Les", "contour_interval": 5, "scalefactor": 1},
+        {"scalefactor": 1, "use_kp": True},  # ignored – always bez-KP
+    )
+    readme = oom_readme(meta)
+    assert meta["use_kp"] is False
+    assert "jediná pravda" in readme
+    assert "archive/contours_kp.dxf" not in readme
+    assert "Karttapullautin" not in readme
+
 def test_build_oom_zip_layout(tmp_path: Path):
     kp = tmp_path / "work"
     kp.mkdir()
@@ -170,8 +216,15 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "kp/pullautus.png" in names
     assert "kp/pullautus.pgw" in names
     assert "kp/pullautus_depr.png" in names
+    # Materiálový ZIP: žádné mapové PNG náhledy (Pillow / Mapper georef).
+    assert "preview/preview.png" not in names
+    assert not any(
+        n.startswith("preview/") and n.endswith(".png") and "hillshade" not in n
+        for n in names
+    )
     assert "base/contours_gdal.shp" in names
-    assert "base/contours_kp.dxf" in names
+    assert "base/contours_kp.dxf" not in names
+    assert "archive/contours_kp.dxf" not in names
     assert "base/contours.shp" not in names
     assert "contours/dem_filled.tif" not in names
     assert "kp/contours.dxf" not in names
@@ -194,12 +247,15 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "osm/README.txt" in names
     assert "osm/geojson/features.geojson" not in names
     assert "osm/readme.txt" not in names
+    assert "uzitecne/README.txt" in names
     readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
     assert "zabaged/" in readme
     assert "vectors/" not in readme
+    assert "uzitecne" in readme
     about = zipfile.ZipFile(dest).read("CO_JE_PODKLADARNA.txt").decode("utf-8")
     assert "zabaged/" in about
     assert "vectors/" not in about
+    assert "uzitecne" in about
     assert "Petr Janeček" in about
     assert "janecek@datais.cz" in about
     assert "733 575 541" in about
@@ -261,6 +317,30 @@ def test_prepare_oom_map_minimal(tmp_path):
     assert '<line_symbol' in xml
     assert 'parts count="1"' in xml
     assert 'first_front_template="0"' in xml
+
+
+def test_prepare_oom_map_vector_only_without_png_templates(tmp_path):
+    """use_kp=false + žádné referenční PNG → .omap jen s vektory (ne None)."""
+    kp = tmp_path / "work"
+    kp.mkdir()
+    dest = tmp_path / "bez-kp-norefs.omap"
+    out = prepare_oom_map(
+        kp,
+        dest,
+        map_name="bez-kp",
+        scale=10000,
+        preset_id="forest_10000",
+        bbox_wgs84=(14.4, 50.08, 14.42, 50.09),
+        built_refs=None,
+        use_kp=False,
+    )
+    assert out == dest
+    assert dest.is_file()
+    xml = dest.read_text(encoding="utf-8")
+    assert 'templates count="0"' in xml
+    assert "+proj=krovak" in xml
+    assert "<geographic_crs" in xml
+    assert 'parts count="' in xml
 
 
 def test_collect_oom_templates_with_refs(tmp_path):

@@ -3,6 +3,13 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from app.download_cache import (
+    SHEET_CROP_GROUND,
+    SHEET_CROP_VEG,
+    link_or_copy,
+    persist_sheet_crop,
+    try_lookup_sheet_crop,
+)
 from app.tool_env import gis_subprocess_env, which_tool
 
 # Menší než tohle = prázdný / nepoužitelný LAZ (stejný práh jako reuse v run_job).
@@ -102,6 +109,7 @@ def crop_laz(
         log(
             f"PDAL crop bbox 5514: [{xmin:.1f},{xmax:.1f}] x [{ymin:.1f},{ymax:.1f}]"
         )
+    log_step(log, "Ořezávám mračno bodů na výřez mapy")
     run_cmd(
         [
             find_tool("pdal"),
@@ -110,6 +118,7 @@ def crop_laz(
             str(dest),
             "crop",
             _crop_filter_bounds(bounds),
+            "--stream",
         ],
         log=log,
     )
@@ -125,6 +134,16 @@ def find_tool(name: str) -> str:
             "docker compose -f docker-compose.dev.yml up --build"
         )
     return path
+
+
+def log_step(log, message: str) -> None:
+    """Krátká česká hláška do job logu těsně před spuštěním nástroje."""
+    if log is None or not message:
+        return
+    text = str(message).strip()
+    if not text.endswith(("…", "...", ".", "!", "?")):
+        text += "…"
+    log(text)
 
 
 def run_cmd(
@@ -172,18 +191,71 @@ def _translate_sheet(
     stages: list[str],
     stage_opts: list[str],
     crop: tuple[float, float, float, float] | None,
+    recipe: str | None = None,
+    force_refresh: bool = False,
     log: callable | None = None,
 ) -> Path | None:
-    """PDAL translate; při cropu nejdřív ořez, pak filtry. Prázdný list → None."""
+    """PDAL translate; při cropu nejdřív ořez, pak filtry. Prázdný list → None.
+
+    Stejný list + bounds + filtr bere z AOI sheet-crop cache (bez PDAL).
+    Nadmnožina v cache → PDAL jen z malého ořezu. Jinak ``--stream`` z plného listu.
+    """
     if dest.exists():
         dest.unlink()
-    cmd = [pdal, "translate", str(src), str(dest)]
+
+    read_src = src
+    cache_kind: str | None = None
+    if crop is not None and recipe and not force_refresh:
+        hit = try_lookup_sheet_crop(src, crop, recipe, force=force_refresh)
+        if hit is not None:
+            cache_kind, hit_path, _hit_bounds = hit
+            if cache_kind == "exact":
+                log_step(
+                    log,
+                    f"Cache zásah listu {src.parent.name}/{src.name} ({recipe}) "
+                    "– stejný ořez+filtr, přeskakuji PDAL",
+                )
+                link_or_copy(hit_path, dest)
+                if not _laz_usable(dest):
+                    if dest.exists():
+                        dest.unlink(missing_ok=True)
+                    if log:
+                        log(f"  skip (prázdný cache): {src.name}")
+                    return None
+                return dest
+            # superset: dořež z už vyfiltrovaného menšího LAZ
+            read_src = hit_path
+            log_step(
+                log,
+                f"Cache nadmnožina listu {src.parent.name}/{src.name} ({recipe}) "
+                "– PDAL ořez jen z menšího LAZ (ne z plného listu)",
+            )
+        else:
+            log_step(
+                log,
+                f"PDAL ořez listu {src.parent.name}/{src.name} ({recipe}) běží – "
+                "cache miss (jiný výřez/list/filtr nebo prázdná cache)",
+            )
+    elif crop is not None:
+        log_step(
+            log,
+            f"PDAL ořez listu {src.parent.name}/{src.name} běží"
+            + (" – force_refresh" if force_refresh else ""),
+        )
+
+    cmd = [pdal, "translate", str(read_src), str(dest)]
     if crop is not None:
         cmd.append("crop")
-    cmd.extend(stages)
+    # Při ořezu z cache nadmnožiny už je filtr (range/assign) hotový – stačí crop.
+    if cache_kind != "superset":
+        cmd.extend(stages)
     if crop is not None:
         cmd.append(_crop_filter_bounds(crop))
-    cmd.extend(stage_opts)
+    if cache_kind != "superset":
+        cmd.extend(stage_opts)
+    # crop+range/assign jsou streamovatelné; u DMPOK (~360 MB) ~3× rychlejší než nostream.
+    if crop is not None:
+        cmd.append("--stream")
     try:
         run_cmd(cmd, log=log)
     except subprocess.CalledProcessError:
@@ -200,6 +272,8 @@ def _translate_sheet(
         if log:
             log(f"  skip (prázdný): {src.name}")
         return None
+    if crop is not None and recipe:
+        persist_sheet_crop(src, dest, crop, recipe, log=log)
     return dest
 
 
@@ -229,6 +303,7 @@ def merge_dmr_dmp(
     *,
     extra_pad_m: float = 0.0,
     output_name: str | None = None,
+    force_refresh: bool = False,
 ) -> Path:
     """Sloučí DMR (ground) + DMP (vegetace).
 
@@ -257,6 +332,10 @@ def merge_dmr_dmp(
                 + (f" (extra_pad={extra_pad_m:g} m)" if extra_pad_m else "")
             )
 
+    log_step(
+        log,
+        "Ořezávám a třídím LiDAR DMR5G a DMP (mračno bodů pro terén a vegetaci)",
+    )
     ground_parts: list[Path] = []
     for i, dmr in enumerate(dmr_files):
         out = work_dir / f"dmr_ground_{i}.laz"
@@ -267,6 +346,8 @@ def merge_dmr_dmp(
             stages=["assign"],
             stage_opts=["--filters.assign.assignment=Classification[:]=2"],
             crop=crop,
+            recipe=SHEET_CROP_GROUND if crop is not None else None,
+            force_refresh=force_refresh,
             log=log,
         )
         if part is not None:
@@ -284,6 +365,8 @@ def merge_dmr_dmp(
             stages=["range"],
             stage_opts=["--filters.range.limits=Classification[5:6]"],
             crop=crop,
+            recipe=SHEET_CROP_VEG if crop is not None else None,
+            force_refresh=force_refresh,
             log=log,
         )
         if part is not None:

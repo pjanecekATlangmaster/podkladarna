@@ -2,19 +2,30 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from app.settings import DB_PATH, DOWNLOADS_DIR, JOBS_DIR
+from app.settings import (
+    DB_PATH,
+    DOWNLOADS_DIR,
+    JOBS_DIR,
+    PRIVATE_JOB_RETENTION_HOURS,
+)
 
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def new_download_token() -> str:
+    """Neprůhledný token pro privátní stažení (URL-safe)."""
+    return secrets.token_urlsafe(32)
 
 
 def init_db() -> None:
@@ -51,6 +62,12 @@ def init_db() -> None:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(jobs)").fetchall()]
         if "started_at" not in cols:
             conn.execute("ALTER TABLE jobs ADD COLUMN started_at TEXT")
+        if "download_token" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN download_token TEXT")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_download_token "
+            "ON jobs(download_token) WHERE download_token IS NOT NULL"
+        )
         conn.commit()
 
 
@@ -71,24 +88,83 @@ def create_job(name: str, preset_id: str, options: dict[str, Any]) -> dict[str, 
     for sub in ("work", "output"):
         (job_dir / sub).mkdir(parents=True, exist_ok=True)
 
+    opts = dict(options)
+    is_private = bool(opts.get("private"))
+    token = new_download_token() if is_private else None
+    if is_private:
+        opts["private"] = True
+        email = str(opts.get("notify_email") or "").strip()
+        if email:
+            opts["notify_email"] = email
+
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO jobs (id, name, preset_id, status, phase, options_json, error, created_at, updated_at, started_at)
-            VALUES (?, ?, ?, 'pending', NULL, ?, NULL, ?, ?, NULL)
+            INSERT INTO jobs (
+                id, name, preset_id, status, phase, options_json, error,
+                created_at, updated_at, started_at, download_token
+            )
+            VALUES (?, ?, ?, 'pending', NULL, ?, NULL, ?, ?, NULL, ?)
             """,
-            (job_id, name, preset_id, json.dumps(options), now, now),
+            (job_id, name, preset_id, json.dumps(opts), now, now, token),
         )
         conn.commit()
     return get_job(job_id)
 
 
-def get_job(job_id: str) -> dict[str, Any]:
+def get_job(job_id: str, *, reveal_artifacts: bool = False) -> dict[str, Any]:
     with connect() as conn:
         row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     if not row:
         raise KeyError(job_id)
-    return _row_to_job(row)
+    return _row_to_job(row, reveal_artifacts=reveal_artifacts)
+
+
+def get_job_by_download_token(token: str) -> dict[str, Any]:
+    token = (token or "").strip()
+    if not token:
+        raise KeyError("token")
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE download_token = ?",
+            (token,),
+        ).fetchone()
+    if not row:
+        raise KeyError(token)
+    return _row_to_job(row, reveal_artifacts=True, include_token=True)
+
+
+def job_is_private(job: dict[str, Any]) -> bool:
+    return bool((job.get("options") or {}).get("private"))
+
+
+def job_expires_at(job: dict[str, Any]) -> datetime | None:
+    """Konec platnosti privátního jobu (created_at + PRIVATE_JOB_RETENTION_HOURS)."""
+    if not job_is_private(job):
+        return None
+    created = _parse_iso(job.get("created_at"))
+    if created is None:
+        return None
+    hours = PRIVATE_JOB_RETENTION_HOURS
+    if hours <= 0:
+        hours = 48
+    return created + timedelta(hours=hours)
+
+
+def job_is_expired(job: dict[str, Any], *, now: datetime | None = None) -> bool:
+    expires = job_expires_at(job)
+    if expires is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    return now >= expires
+
+
+def token_matches(job: dict[str, Any], token: str | None) -> bool:
+    expected = (job.get("download_token") or "").strip()
+    got = (token or "").strip()
+    if not expected or not got:
+        return False
+    return secrets.compare_digest(expected, got)
 
 
 def count_active_jobs_for_ip(client_ip: str) -> int:
@@ -118,13 +194,38 @@ def count_jobs_for_ip_since(client_ip: str, since: datetime) -> int:
     return int(row[0]) if row else 0
 
 
-def list_jobs(limit: int = 250) -> list[dict[str, Any]]:
+def list_jobs(
+    limit: int = 250,
+    *,
+    include_private: bool = True,
+) -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?",
             (limit,),
         ).fetchall()
-    return [_row_to_job(r) for r in rows]
+    jobs = [_row_to_job(r) for r in rows]
+    if include_private:
+        return jobs
+    return [j for j in jobs if not job_is_private(j)]
+
+
+def list_expired_private_jobs(
+    *,
+    now: datetime | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Privátní joby po splatnosti (včetně pending – odkaz už stejně neplatí)."""
+    now = now or datetime.now(timezone.utc)
+    out: list[dict[str, Any]] = []
+    for job in list_jobs(limit=limit, include_private=True):
+        if not job_is_private(job):
+            continue
+        if job.get("status") in ("running", "queued"):
+            continue
+        if job_is_expired(job, now=now):
+            out.append(job)
+    return out
 
 
 _ZIP_FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -309,8 +410,8 @@ def find_duplicate_active_job(
             bool(opts.get("sprint_courtyard_olive", True)),
             bool(opts.get("sprint_residual_paved")),
             str(opts.get("sprint_residual_size") or "small"),
-            str(opts.get("kp_cliff_symbol") or "earth_bank"),
-            str(opts.get("kp_cliff_sensitivity") or "normal"),
+            str(opts.get("kp_cliff_symbol") or "auto"),
+            str(opts.get("kp_cliff_sensitivity") or "low"),
             str(opts.get("kp_vege_height") or ""),
             bool(opts.get("kp_osm_benches")),
             bool(opts.get("kp_osm_lamps")),
@@ -319,6 +420,9 @@ def find_duplicate_active_job(
             bool(opts.get("kp_osm_footway_as_sidewalk")),
             str(opts.get("ostatni_plocha") or "small"),
             bool(opts.get("ostatni_plocha_as_403")),
+            False,  # use_kp removed – always bez-KP
+            bool(opts.get("private")),
+            str(opts.get("notify_email") or "").strip().casefold(),
             str(opts.get("client_ip") or ""),
         )
 
@@ -368,25 +472,76 @@ def _job_has_output(job_dir: Path) -> bool:
     return (out / "podkladarna_output.zip").is_file() or (out / "podkladarna_oom.zip").is_file()
 
 
-def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
+def _job_has_georef_previews(job_dir: Path) -> bool:
+    from app.pipeline.oom_preview import GEOREF_PREVIEWS_ZIP_NAME, list_georef_preview_files
+
+    out = job_dir / "output"
+    if (out / GEOREF_PREVIEWS_ZIP_NAME).is_file():
+        return True
+    return bool(list_georef_preview_files(out / "preview"))
+
+
+def _job_source_meta(job_dir: Path) -> dict[str, Any] | None:
+    path = job_dir / "work" / "source_meta.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _row_to_job(
+    row: sqlite3.Row,
+    *,
+    reveal_artifacts: bool = False,
+    include_token: bool = False,
+) -> dict[str, Any]:
+    from app.pipeline.preview import has_preview
+
     job_dir = JOBS_DIR / row["id"]
     keys = row.keys()
     started_at = row["started_at"] if "started_at" in keys else None
+    token = row["download_token"] if "download_token" in keys else None
     paths = _job_paths(row["id"])
-    return {
+    source_meta = _job_source_meta(job_dir)
+    options = json.loads(row["options_json"])
+    is_private = bool(options.get("private"))
+    has_out = _job_has_output(job_dir)
+    has_prev = has_preview(job_dir / "output", job_dir / "work")
+    has_georef = _job_has_georef_previews(job_dir)
+    # Privátní job: bez tokenu neprozrazovat artefakty (náhled / ZIP).
+    if is_private and not reveal_artifacts:
+        has_out = False
+        has_prev = False
+        has_georef = False
+    job: dict[str, Any] = {
         "id": row["id"],
         "name": row["name"],
         "preset_id": row["preset_id"],
         "status": row["status"],
         "phase": row["phase"],
-        "options": json.loads(row["options_json"]),
+        "options": options,
         "error": row["error"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "started_at": started_at,
         "duration_s": _job_duration_s(row),
-        "has_output": _job_has_output(job_dir),
-        "has_oom": _job_has_output(job_dir),
-        "has_preview": (job_dir / "output" / "pullautus.png").exists(),
+        "has_output": has_out,
+        "has_oom": has_out,
+        "has_preview": has_prev,
+        "has_georef_previews": has_georef,
+        "private": is_private,
         **paths,
     }
+    expires = job_expires_at(job)
+    if expires is not None:
+        job["expires_at"] = expires.isoformat()
+    if include_token and token:
+        job["download_token"] = token
+    if source_meta:
+        job["source_meta"] = source_meta
+        job["dmp_mode"] = source_meta.get("dmp_mode")
+        job["dmp_degraded"] = bool(source_meta.get("dmp_degraded"))
+    return job

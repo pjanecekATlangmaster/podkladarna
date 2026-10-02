@@ -75,6 +75,10 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         "Přehled novinek v boxu nad formulářem",
     ),
     (
+        re.compile(r"(?i)simplify.?then.?curves|contour.*Bézier|contour.*Bezier|DP simplify.*curves"),
+        "Vrstevnice: zjednodušení a pak hladké Bézier křivky (bez bloatu)",
+    ),
+    (
         re.compile(r"(?i)map-type preset|scale and contour select"),
         "Měřítko a ekvidistance místo typu mapy",
     ),
@@ -154,6 +158,10 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
             r"(?i)Drop large settlement paved|OstatniPlocha|paved areas that cover roads"
         ),
         "Velké Ostatní plochy v sídlech se zahazují (nepřekrývají silnice)",
+    ),
+    (
+        re.compile(r"(?i)LiDAR return density|return-density vegetation"),
+        "Vegetace bez KP z hustoty LiDAR odrazů",
     ),
 ]
 

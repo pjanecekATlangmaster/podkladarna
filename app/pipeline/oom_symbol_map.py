@@ -89,33 +89,52 @@ _DXF_OOM_CODE_SPRINT: dict[str, str] = {
     # KP c2g/c3g → default 104; volba rock_face → 201 (viz oom_code_for_dxf).
     "cliffs_small.dxf": "104",
     "cliffs_large.dxf": "104",
-    # Kopečky (109) jen do ZIPu / uzitecne – do auto .omap ne (nepřesné).
+    "dotknolls.dxf": "109",
 }
 
 _DXF_OOM_CODE_FOREST: dict[str, str] = {
     "contours.dxf": "101",
     "cliffs_small.dxf": "104",
     "cliffs_large.dxf": "104",
+    "dotknolls.dxf": "109",
 }
 
-_DXF_SKIP_OOM = frozenset({"kopecky.dxf", "dotknolls.dxf"})
 _CLIFF_DXF = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
+_ROCK_DXF = frozenset({"cliffs_rock.dxf"})
 KP_CLIFF_EARTH_BANK = "earth_bank"
 KP_CLIFF_ROCK_FACE = "rock_face"
+KP_CLIFF_AUTO = "auto"
 # ISOM 206 = Gigantic boulder / massive cliff (area, plan shape).
 KP_CLIFF_SYMBOL_206 = "symbol_206"
 KP_CLIFF_OFF = "off"
 KP_CLIFF_SYMBOL_CHOICES = frozenset(
     {
+        KP_CLIFF_AUTO,
         KP_CLIFF_EARTH_BANK,
         KP_CLIFF_ROCK_FACE,
         KP_CLIFF_SYMBOL_206,
         KP_CLIFF_OFF,
     }
 )
-# Hustý shluk KP čárek u rock_face → kamenitý povrch (210).
+# Hustý shluk skalních čárek → plocha (preferuj 201.2 / 206 před 210).
 KP_CLIFF_DENSE_CODE = "210"
 KP_CLIFF_206_CODE = "206"
+KP_CLIFF_FACE_AREA_CODE = "201.2"
+
+
+def resolve_rock_area_code(preset_id: str, scale: int) -> str | None:
+    """Kód plochy pro skalní shluk: ISOM 201.2, jinak 206, nouzově 210.
+
+    Ve sprintu/MTBO není 201.2 plocha (je to čára tagů) – hned 206.
+    """
+    candidates: list[str] = []
+    if not _is_sprint(preset_id) and not _is_mtbo(preset_id):
+        candidates.append(KP_CLIFF_FACE_AREA_CODE)
+    candidates.extend([KP_CLIFF_206_CODE, KP_CLIFF_DENSE_CODE])
+    for code in candidates:
+        if symbol_index_for_code(preset_id, scale, code) is not None:
+            return code
+    return None
 
 
 def _is_sprint(preset_id: str) -> bool:
@@ -231,17 +250,24 @@ def oom_code_for_dxf(
     filename: str,
     *,
     preset_id: str,
-    cliff_symbol: str = KP_CLIFF_EARTH_BANK,
+    cliff_symbol: str = KP_CLIFF_AUTO,
 ) -> str | None:
-    if filename in _DXF_SKIP_OOM:
-        return None
-    if filename in _CLIFF_DXF:
+    """``auto``: zem z cliffs_small/large (104), skála z cliffs_rock (201).
+
+    ``earth_bank`` / ``rock_face`` / ``symbol_206`` přebarví obě sady.
+    ``off`` srázy vynechá. Knolly (dotknolls) symbol nemění.
+    """
+    if filename in _ROCK_DXF or filename in _CLIFF_DXF:
         if cliff_symbol == KP_CLIFF_OFF:
             return None
         if cliff_symbol == KP_CLIFF_ROCK_FACE:
             return "201"
         if cliff_symbol == KP_CLIFF_SYMBOL_206:
             return KP_CLIFF_206_CODE
+        if cliff_symbol == KP_CLIFF_EARTH_BANK:
+            return "104"
+        if filename in _ROCK_DXF:
+            return "201"
         return "104"
     table = _DXF_OOM_CODE_SPRINT if _is_sprint(preset_id) else _DXF_OOM_CODE_FOREST
     return table.get(filename)

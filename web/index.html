@@ -74,6 +74,17 @@
           <h3 class="form-section-title">Výřez</h3>
           <p class="hint">Dva protilehlé rohy, nebo klik na hotový job vpravo. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozího jobu se při iteraci znovu použije. Jen Česko, max cca 36&nbsp;km² (např. 6×6 nebo 8×4,5&nbsp;km).</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>
+          <div
+            id="bbox-map-resize"
+            class="map-resize-handle"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-controls="bbox-map"
+            aria-label="Změnit výšku mapy"
+            title="Přetáhněte pro změnu výšky mapy"
+          >
+            <span class="map-resize-grip" aria-hidden="true"></span>
+          </div>
           <p id="sheet-info" class="sheet-info">Nakreslete obdélník dvěma kliknutími.</p>
           <input type="hidden" name="bbox" id="bbox-input" value="" />
           <input type="hidden" name="reuse_job_id" id="reuse-job-id" value="" />
@@ -84,7 +95,7 @@
         <div class="form-section">
           <h3 class="form-section-title">Reliéf a vegetace</h3>
           <label>
-            Výška vegetace (Karttapullautin)
+            Výška vegetace (LiDAR)
             <select name="kp_vege_height" id="kp_vege_height">
               <option value="1.5">1,5 m – nízká</option>
               <option value="2" selected>2 m – výchozí</option>
@@ -95,35 +106,33 @@
           <p class="hint">LiDAR zeleň (<code>greenhigh</code>). Nižší hodnota = víc nízkého porostu jako vegetace.</p>
 
           <label>
-            Porosty v auto .omap
-            <select name="vegetation_mode" id="vegetation_mode">
-              <option value="mixed" selected>Mixed – ZABAGED louky pod KP (výchozí)</option>
-              <option value="kp">Jen KP – les = bílé mezery (louky ve zabaged/)</option>
-            </select>
-          </label>
-          <p class="hint">Mixed = současné skládání (louka pod KP žlutou/zelení). Jen&nbsp;KP = do auto mapy nejdou ZABAGED louky; bílá z LiDARu prosvítá jako papír. Louky zůstávají ve <code>zabaged/</code> k ručnímu importu.</p>
-
-          <label>
             Strmé změny reliéfu – symbol
             <select name="kp_cliff_symbol" id="kp_cliff_symbol">
-              <option value="earth_bank" selected>Zemní srázek (104)</option>
-              <option value="rock_face">Skála / nesjízdný sráz (201)</option>
-              <option value="symbol_206">Obří balvan / skála (206, plocha)</option>
+              <option value="auto" selected>Automaticky: skála (201) vs. zem (104)</option>
+              <option value="earth_bank">Vše jako zemní sráz (104)</option>
+              <option value="rock_face">Vše jako skála (201)</option>
+              <option value="symbol_206">Vše jako obří balvan / skála (206, plocha)</option>
               <option value="off">Nevykreslovat (ani nepočítat)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-symbol-hint">Hlína vs. skála z LiDARu nejde spolehlivě poznat. Čárky se slepí do editovatelných linií. U skály (201) může vzniknout i plocha 210 tam, kde je skalní pole opravdu plošné. Volba 206 = plochy ISOM 206. Nálezy kratší než ~0,6 mm na mapě se zahazují.</p>
+          <p class="hint" id="cliff-symbol-hint">Detektor sám rozliší strmý schod (skála) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. U skály zůstávají jen spojené plochy 201.2/206 — samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</p>
+
+          <label class="checkbox-row">
+            <input type="checkbox" name="include_knolls" id="include_knolls" value="1" checked />
+            Knolly z DMR (109)
+          </label>
+          <p class="hint" id="knoll-hint">Malé kupky z výšky DEM (DMR).</p>
 
           <label id="cliff-sensitivity-label">
             Citlivost srázů / skal
             <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
-              <option value="low">Méně citlivé (méně srázů)</option>
-              <option value="normal" selected>Výchozí</option>
-              <option value="high">Citlivější</option>
+              <option value="low" selected>Méně citlivé (méně srázů)</option>
+              <option value="normal">Střední (1,8 / 3,4 m)</option>
+              <option value="high">Citlivější (1,4 / 2,8 m)</option>
               <option value="very_high">Velmi citlivé (více drobných srázů)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-sensitivity-hint">Jak přísně Karttapullautin hledá strmé skoky v DMR.</p>
+          <p class="hint" id="cliff-sensitivity-hint">Výchozí „méně citlivé“ (cliff1=2,2 m). Vyšší práh = méně falešných zemních srázů. Skalní plochy 201.2/206 mají ještě přísnější drop (+0,7 m) a menší footprint (shrink); zamotané 104 a krátké pahýly se filtrují při sestavení OOM.</p>
         </div>
 
         <div class="form-section">
@@ -145,7 +154,7 @@
               <input type="checkbox" name="sprint_courtyard_olive" id="sprint_courtyard_olive" value="1" checked />
               Nepřístupné dvory v budovách vyplnit olivou
             </label>
-            <p class="hint">Díra uprostřed budovy → oliva přes detaily uvnitř (sprint 520 / les 520 / MTBO 527). Default zapnuto. Při vypnutí lze načíst z&nbsp;<code>uzitecne/OSM_dvory_oliva</code>.</p>
+            <p class="hint">Díra uprostřed budovy → oliva přes detaily uvnitř (sprint 520 / les 520 / MTBO 527). U lesa/MTBO skoro nic nepřibude.</p>
           </div>
 
           <div id="residual-paved-wrap">
@@ -161,14 +170,21 @@
                 <option value="large">I velké (všechny hustě zmapované)</option>
               </select>
             </label>
-            <p class="hint">Omezí velikost polygonů v auto&nbsp;<code>.omap</code>. Při zapnutí vzniknou i SHP pásma (<code>OSM_residential_zbytek_*</code>) v&nbsp;<code>osm/</code> a&nbsp;<code>uzitecne/</code>.</p>
+            <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Ostatní velikosti (a řídké) jsou v&nbsp;ZIPu v&nbsp;<code>osm/</code> k ručnímu importu.</p>
             <p class="hint" id="residual-paved-hint">
               Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.
-              Počítá se <strong>jen při zapnutí</strong> (výchozí vypnuto) – v husté zástavbě je to pomalé;
-              po ~7&nbsp;min soft limitu se zbytek přeskočí a&nbsp;<code>.omap</code> doběhne bez 501.
-              Odečet: residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu.
-              Při zbytku &gt; 25&nbsp;% plochy se residential do auto mapy nebere (řídké OSM).
-              Heuristika; v OOM jde smazat.
+              Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
+              (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
+              které jinak nekreslíme). Výsledek jde pod silnice.
+              Když po odečtu zbývá víc než 25&nbsp;% plochy residential, oblast je řídce
+              zmapovaná a do auto&nbsp;<code>.omap</code> se nebere;
+              stejně se zahodí kusy nad zvolenou max. velikostí.
+              Do ZIPu (<code>osm/</code>) vždy přibudou SHP
+              <code>OSM_residential_zbytek_mensi</code> /
+              <code>_stredni</code> /
+              <code>_velke</code>
+              a <code>_ridke</code> (přeskočené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
+              (symbol 501). Heuristika; v OOM jde smazat. Default vypnuto.
             </p>
           </div>
 
@@ -181,7 +197,7 @@
               <option value="large">I velké (všechny)</option>
             </select>
           </label>
-          <p class="hint" id="ostatni-plocha-hint">Zpevněná „Ostatní plocha v sídlech“ do auto&nbsp;<code>.omap</code>. Ve sprintu může zjednodušit podklad (méně zbytečných detailů), ale velká plocha koliduje se silnicemi (hnědá pod okraji footprintů). Proto volitelné. Do ZIPu vždy přibudou samostatné SHP podle velikosti (<code>…_mensi</code> / <code>…_stredni</code> / <code>…_velke</code>) v&nbsp;<code>zabaged/</code> a&nbsp;<code>uzitecne/</code>, pokud v území existují – pro ruční import v&nbsp;OOM.</p>
+          <p class="hint" id="ostatni-plocha-hint">Zpevněná „Ostatní plocha v sídlech“ do auto&nbsp;<code>.omap</code>. Ve sprintu může zjednodušit podklad (méně zbytečných detailů), ale velká plocha koliduje se silnicemi (hnědá pod okraji footprintů). Proto volitelné. Do ZIPu vždy přibudou samostatné SHP podle velikosti (<code>…_mensi</code> / <code>…_stredni</code> / <code>…_velke</code>), pokud v území existují – pro ruční import v&nbsp;OOM.</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="ostatni_plocha_as_403" id="ostatni_plocha_as_403" value="1" />
@@ -190,8 +206,8 @@
           <p class="hint" id="ostatni-plocha-403-hint">Technicky je to špatně (nejde o rough open land) — 403 se ale nebije s okrajem cest jako hnědá zpevněná 501. V některých kresbách dá lepší představu o prostoru; v OOM jde snadno smazat. Default vypnuto.</p>
 
           <details class="advanced-options" id="osm-advanced">
-            <summary>Další objekty OSM (do auto .omap)</summary>
-            <p class="hint">Checkbox = vykreslit v auto&nbsp;<code>.omap</code>. Data se stahují vždy; SHP jsou v&nbsp;<code>osm/</code> a&nbsp;<code>uzitecne/</code>. Default vypnuto.</p>
+            <summary>Další objekty OSM (volitelné)</summary>
+            <p class="hint">Default vypnuto. Lampy a lavičky spíš ve sprintu; herní prvky i u chat / okraje lesa.</p>
             <label class="checkbox-row">
               <input type="checkbox" name="kp_osm_benches" id="kp_osm_benches" value="1" />
               Lavičky, stoly, ohniště, tabule (531)
@@ -213,14 +229,14 @@
           <label>
             Formát
             <select name="output_mode" id="output_mode">
-              <option value="png_zip" selected>PNG náhled + ZIP pro OOM (výchozí)</option>
-              <option value="png">Jen PNG náhled (bez ZIPu)</option>
+              <option value="png_zip" selected>ZIP s .omap (+ PNG náhled na webu)</option>
+              <option value="png">Jen PNG náhled (bez ZIPu – nepoužije se)</option>
             </select>
           </label>
           <p class="hint" id="output-omap-hint">
-            <strong>PNG</strong> je jen rychlý rastrový náhled (Karttapullautin), ne finální mapa.
-            <strong>ZIP</strong> obsahuje <code>.omap</code> soubory podle měřítka
-            (sprint, nebo les+MTBO; cesty z OSM) plus vektory pro OOM.
+            Primární výstup je <code>.omap</code> v ZIPu:
+            vegetace z hustoty LiDAR odrazů, srázy z DMR, vrstevnice GDAL.
+            Webový náhled je Pillow z <code>.omap</code>; georef PNG+PGW zvlášť (Mapper @ 600 DPI, jinak Pillow).
           </p>
           <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
 
@@ -229,6 +245,26 @@
             Referenční PNG šablony (orto, OSM, ZTM, katastr, hillshade, DMP)
           </label>
           <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP.</p>
+<label class="checkbox-row">
+            <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
+            Force refresh (přegenerovat AOI cache)
+          </label>
+          <p class="hint">Defaultně se stejný výřez znovu využije (LAZ/PNG/DEM/shade). Zaškrtni jen když chceš stáhnout a spočítat znovu — změna ekvidistance nebo laviček cache podkladů <em>ne</em>invaliduje.</p>
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" name="private" id="private" value="1" />
+          Privátní režim generování mapy (nebude veřejně viditelná)
+        </label>
+        <div id="private-email-wrap" class="private-email-wrap hidden">
+          <label>
+            E-mail pro odkaz ke stažení
+            <input type="email" name="notify_email" id="notify_email" autocomplete="email" placeholder="vas@email.cz" />
+          </label>
+          <p class="hint">
+            Po dokončení přijde odkaz e-mailem. Mapa se neobjeví ve veřejném seznamu jobů
+            a náhled/ZIP tu neuvidíte. Odkaz platí 48 hodin.
+          </p>
         </div>
 
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
@@ -266,9 +302,11 @@
           <h3 id="detail-title"></h3>
           <p id="detail-status"></p>
           <p id="detail-timing" class="hint"></p>
+          <p id="detail-sources" class="hint hidden"></p>
           <pre id="detail-log" class="log"></pre>
           <div class="actions">
             <a id="detail-download" class="btn primary" href="#" download>Stáhnout ZIP</a>
+            <a id="detail-download-georef" class="btn" href="#" download>Stáhnout georef náhledy</a>
             <a id="detail-preview" class="btn" href="#" target="_blank">Otevřít PNG</a>
           </div>
           <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />
@@ -280,7 +318,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.13.2 ·
+      Podkladárna v1.26.0 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>
@@ -289,9 +327,10 @@
       Data: <a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">ČÚZK</a>
       (DMR 5G, DMP OK, ZABAGED®,
       <a href="https://creativecommons.org/licenses/by/4.0/deed.cs" target="_blank" rel="noopener">CC BY 4.0</a>)
-      · <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a> (GPL-3.0)
+      · volně inspirováno <a href="/licence">Karttapullautinem</a>
       · mapa © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
       · <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>
+      · indikativní podklad, není zaměření
     </p>
   </footer>
   <script data-cfasync="false" src="/static/leaflet/leaflet.js"></script>

@@ -30,6 +30,7 @@ from app.pipeline.oom_import import (
     _wkb_parts,
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.pipeline.prepare_lidar import log_step
 from app.tool_env import gis_subprocess_env, which_tool
 # Veřejná zrcadla – hlavní DE často hlásí 504; rotujeme rychle.
 OVERPASS_URLS = (
@@ -561,9 +562,18 @@ def road_width_rank(tags: dict, highway: str) -> int:
 
 
 def refine_track_highway(tags: dict) -> str:
-    """tracktype / surface → track_fast | track | track_slow."""
+    """tracktype / surface → road_* (zpevněný) | track_fast | track | track_slow.
+
+    Zpevněný surface (asphalt, concrete, paving_stones, …) má přednost před
+    tracktype: kreslí se jako silnice (les 503), ne vozová 504. way/46779621.
+    """
+    if _is_paved_surface(tags):
+        lanes = _lanes_total(tags)
+        if lanes is not None and lanes >= 2:
+            return "road_3"
+        return "road_2"
     tt = (tags.get("tracktype") or "").lower()
-    if tt == "grade1" or _is_paved_surface(tags):
+    if tt == "grade1":
         return "track_fast"
     if tt in {"grade4", "grade5"}:
         return "track_slow"
@@ -572,7 +582,7 @@ def refine_track_highway(tags: dict) -> str:
 
 
 def refine_path_highway(tags: dict, highway: str) -> str:
-    """Silnice → road_1..road_4; track → track_fast/track/track_slow; jinak beze změny."""
+    """Silnice → road_1..road_4; track → road_*/track_*; jinak beze změny."""
     hw = (highway or "path").lower() or "path"
     draw = path_draw_highway(hw)
     if draw in OSM_ROAD_HIGHWAYS:
@@ -2716,6 +2726,10 @@ def write_osm_kp_zip(
             str(shp),
             str(gj_path),
         ]
+        log_step(
+            log,
+            "Převádím OSM cesty do shapefile (Karttapullautin je dokreslí na PNG)",
+        )
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -2929,6 +2943,7 @@ def write_osm_manual_shapefiles(
     """
     dest = work_dir / "osm_paths" / "manual"
     dest.mkdir(parents=True, exist_ok=True)
+    log_step(log, "Ukládám ruční OSM vrstvy do shapefile (import do mapy)")
     written = 0
 
     paths_gj = work_dir / "osm_paths" / "paths_osm.geojson"
@@ -3102,9 +3117,6 @@ def build_osm_feature_parts(
     clip_bounds: Bounds | None = None,
     aopk_tree_points: list[tuple[float, float]] | None = None,
     courtyard_olive: bool = False,
-    include_benches: bool = False,
-    include_lamps: bool = False,
-    include_playground_equipment: bool = False,
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
     if not gj_path.is_file():
@@ -3115,19 +3127,6 @@ def build_osm_feature_parts(
         from app.pipeline.aopk_trees import filter_osm_landmark_trees_near_aopk
 
         feats, _dropped = filter_osm_landmark_trees_near_aopk(feats, aopk_tree_points)
-    # features.geojson má vždy nábytek (SHP); do auto .omap jen zaškrtnuté.
-    if not include_benches or not include_lamps or not include_playground_equipment:
-        kept: list[dict] = []
-        for feat in feats:
-            kind = str((feat.get("properties") or {}).get("kind") or "")
-            if kind in _BENCH_KINDS and not include_benches:
-                continue
-            if kind in _LAMP_KINDS and not include_lamps:
-                continue
-            if kind in _PLAYGROUND_EQUIPMENT_KINDS and not include_playground_equipment:
-                continue
-            kept.append(feat)
-        feats = kept
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

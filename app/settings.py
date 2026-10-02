@@ -3,11 +3,38 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from app.tool_env import apply_local_gis_env, resolve_pullauta
+from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.13.2"
+APP_VERSION = "1.26.0"
+
+
+def _load_dotenv(path: Path) -> None:
+    """Načte KEY=VALUE z .env do os.environ (neprepisuje už nastavené). Stdlib only."""
+    if not path.is_file():
+        return
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in {'"', "'"}:
+            val = val[1:-1]
+        os.environ[key] = val
+
+
+# Tip / lokál: SMTP + PUBLIC_BASE_URL žijí v .env vedle checkoutu (viz DEV.md).
+# Bez toho privátní job skončí done, ale e-mail se neodešle.
+_load_dotenv(APP_ROOT / ".env")
 
 apply_local_gis_env()
 
@@ -22,7 +49,6 @@ CACHE_DIR = DATA_ROOT / "cache"
 DOWNLOADS_DIR = CACHE_DIR
 DB_PATH = DATA_ROOT / "podkladarna.db"
 
-PULLAUTA_BIN = resolve_pullauta()
 MAX_CONCURRENT_LIDAR = int(os.environ.get("MAX_CONCURRENT_LIDAR", "1"))
 MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "10"))
 JOB_RETENTION_HOURS = int(os.environ.get("JOB_RETENTION_HOURS", "48"))
@@ -55,6 +81,32 @@ ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "3
 REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))
 RUIAN_CACHE_MAX_AGE_DAYS = int(os.environ.get("RUIAN_CACHE_MAX_AGE_DAYS", "30"))
 AOPK_CACHE_MAX_AGE_DAYS = int(os.environ.get("AOPK_CACHE_MAX_AGE_DAYS", "30"))
+# DEM/DSM/CHM + shade AOI cache (§10).
+SURFACES_CACHE_MAX_AGE_DAYS = int(
+    os.environ.get("SURFACES_CACHE_MAX_AGE_DAYS", str(LIDAR_CACHE_MAX_AGE_DAYS))
+)
+# Escape hatch: přeskočit všechny AOI/underlay cache (env nebo options.force_refresh).
+FORCE_REFRESH_DEFAULT = os.environ.get("PODKLADARNA_FORCE_REFRESH", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+# SMTP – privátní joby (odkaz ke stažení e-mailem). Prázdný USER/PASSWORD = IP relay.
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "25"))
+SMTP_ENCRYPTION = os.environ.get("SMTP_ENCRYPTION", "starttls").strip().lower()
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "podkladarna@datais.cz").strip()
+SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "OB podklady").strip()
+# Absolutní URL instance (bez koncového /) pro odkazy v e-mailu, např. https://podkladarna.example
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+# Privátní joby: platnost odkazu / mazání artefaktů (hodiny od založení).
+PRIVATE_JOB_RETENTION_HOURS = int(
+    os.environ.get("PRIVATE_JOB_RETENTION_HOURS", "48")
+)
 
 DEFAULT_OPTIONS = {
     "run_vectors": True,
@@ -66,14 +118,15 @@ DEFAULT_OPTIONS = {
     "output_dxf": True,
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace
-    # KP c2g/c3g: earth_bank=104, rock_face=201(+210), symbol_206=206 plocha, off=přeskočit.
-    "kp_cliff_symbol": "earth_bank",
-    # KP greenhigh (m) – výška vegetace pro výpočet zeleně.
+    # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
+    "force_refresh": False,
+    # auto=skála 201 vs zem 104; rock_face→201(+plošná 201.2/206);
+    # symbol_206=206 plocha; earth_bank=104; off=přeskočit.
+    "kp_cliff_symbol": "auto",
+    # greenhigh (m) – výška vegetace pro hustotu LiDAR odrazů.
     "kp_vege_height": 2.0,
-    # Vegetace v auto .omap: mixed = ZABAGED louky pod KP; kp = jen KP (bílá = papír).
-    "vegetation_mode": "mixed",
-    # Citlivost detekce srázů: low | normal | high | very_high.
-    "kp_cliff_sensitivity": "normal",
+    # Citlivost detekce srázů: low | normal | high | very_high (výchozí low = méně srázů).
+    "kp_cliff_sensitivity": "low",
     # OSM volitelné objekty – default vypnuto (rozšířená nastavení).
     "kp_osm_benches": False,
     "kp_osm_lamps": False,

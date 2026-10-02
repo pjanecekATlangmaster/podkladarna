@@ -12,11 +12,10 @@ GROUP_OSM = 2
 GROUP_KP_PNG = 3
 
 DXF_LABELS: dict[str, str] = {
-    "contours_kp.dxf": "Vrstevnice KP (DXF)",
+    "contours_kp.dxf": "Vrstevnice KP (archiv DXF)",
     "cliffs_small.dxf": "Zemní srázy (DXF)",
     "cliffs_large.dxf": "Zemní srázy strmější (DXF)",
-    "dotknolls.dxf": "Kopečky (DXF)",
-    "kopecky.dxf": "Kopečky (DXF)",
+    "dotknolls.dxf": "Knolíky (DXF)",
 }
 
 

@@ -149,3 +149,101 @@ def filter_by_drop(
             stats["vyrazne"] += 1
         kept.append(pts)
     return kept, stats
+
+
+def likely_closed_depression(
+    points: list[tuple[float, float]],
+    elev_at,
+    *,
+    probe_m: float = 4.0,
+) -> bool | None:
+    """Nejistý odhad: obě strany linie výše než hřeben → spíš jáma/rýha než sráz.
+
+    Vrací ``True`` / ``False`` / ``None`` (nejde změřit). Neověřuje terénní
+    pravdu – jen soft heuristika z DEM, ať se dá zalogovat jako nejisté.
+    """
+    if elev_at is None or len(points) < 2 or probe_m <= 0:
+        return None
+
+    left_higher = 0
+    right_higher = 0
+    samples = 0
+    for x, y, nx, ny in _stations(points, STATION_STEP_M, MAX_STATIONS):
+        crest = elev_at(x, y)
+        left = elev_at(x - nx * probe_m, y - ny * probe_m)
+        right = elev_at(x + nx * probe_m, y + ny * probe_m)
+        if None in (crest, left, right):
+            continue
+        samples += 1
+        # „Výš“ = strana je níž než hřeben o méně než ~0,3 m, nebo je výš.
+        # Pro jámu typicky obě strany klesají dolů od okraje → crest je výš.
+        if left < crest - 0.35:
+            left_higher += 1  # left is downhill from crest
+        if right < crest - 0.35:
+            right_higher += 1
+    if samples < 2:
+        return None
+    # Obě strany soustavně pod hřebenem → uzavřená deprese / okraj jámy.
+    frac_l = left_higher / samples
+    frac_r = right_higher / samples
+    if frac_l >= 0.65 and frac_r >= 0.65:
+        return True
+    return False
+
+
+def rock_ring_is_closed_depression(
+    ring: list[tuple[float, float]],
+    elev_at,
+    *,
+    min_depth_m: float = 1.2,
+) -> bool | None:
+    """Uzavřená jáma pod skalní plochou: střed zřetelně níž než okraj.
+
+    Orientácky: deprese (vrstevnice s krátkými čárkami dovnitř) je důležitější
+    než skála 201.2/206 na stejném místě. Konzervativní: ``True`` jen když
+    rim i interior jdou spočítat a rim_median − interior_median ≥ min_depth.
+    ``None`` = nelze rozhodnout (nechat skálu).
+    """
+    if elev_at is None or len(ring) < 3 or min_depth_m <= 0:
+        return None
+
+    # Okraj: vzorky podél prstence.
+    rim_z: list[float] = []
+    for i, (x0, y0) in enumerate(ring):
+        x1, y1 = ring[(i + 1) % len(ring)]
+        seg = math.hypot(x1 - x0, y1 - y0)
+        if seg < 1e-6:
+            continue
+        # 1–2 body na segment (střed, případně čtvrtiny u delších).
+        fracs = (0.5,) if seg < 8.0 else (0.25, 0.75)
+        for t in fracs:
+            z = elev_at(x0 + t * (x1 - x0), y0 + t * (y1 - y0))
+            if z is not None:
+                rim_z.append(float(z))
+    if len(rim_z) < 4:
+        return None
+
+    cx = sum(p[0] for p in ring) / len(ring)
+    cy = sum(p[1] for p in ring) / len(ring)
+    # Interior: těžiště + body mezi těžištěm a okrajem (0.35 rozměr).
+    interior_z: list[float] = []
+    zc = elev_at(cx, cy)
+    if zc is not None:
+        interior_z.append(float(zc))
+    for x, y in ring[:: max(1, len(ring) // 8)]:
+        ix = cx + 0.35 * (x - cx)
+        iy = cy + 0.35 * (y - cy)
+        z = elev_at(ix, iy)
+        if z is not None:
+            interior_z.append(float(z))
+    if len(interior_z) < 3:
+        return None
+
+    rim_z.sort()
+    interior_z.sort()
+    rim_med = rim_z[len(rim_z) // 2]
+    int_med = interior_z[len(interior_z) // 2]
+    # Okraj výš než dno → jáma. Jinak skála / vyvýšenina.
+    if rim_med - int_med >= min_depth_m:
+        return True
+    return False

@@ -353,18 +353,55 @@ def test_create_job_rejects_missing_bbox(client):
     assert "bbox" in r.json()["detail"].lower() or "výřez" in r.json()["detail"].lower()
 
 
+def test_create_job_ignores_legacy_use_kp(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+
+    base = {
+        "name": "kp-flag",
+        "map_scale": "10000",
+        "contour_interval": "5",
+        "bbox": "14.40,50.08,14.42,50.09",
+        "output_mode": "png_zip",
+        "output_references": "1",
+        "sprint_courtyard_olive": "1",
+        "kp_osm_priority": "1",
+    }
+    r = client.post("/api/jobs", data={**base, "name": "kp-default"})
+    assert r.status_code == 200
+    assert r.json()["options"]["use_kp"] is False
+
+    r1 = client.post("/api/jobs", data={**base, "name": "kp-on", "use_kp": "1"})
+    assert r1.status_code == 200
+    assert r1.json()["options"]["use_kp"] is False
+
+
 def test_index_html(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "Podkladárna" in r.text
+    assert 'name="use_kp"' not in r.text
+    assert 'id="use_kp"' not in r.text
+    assert 'id="preset-bez-kp"' not in r.text
+    assert "volitelný hybrid" not in r.text
+    assert "volně inspirováno" in r.text
+    assert 'value="auto" selected' in r.text
+    assert 'id="include_knolls"' in r.text
+    assert 'name="force_refresh"' in r.text
+    assert "Force refresh" in r.text
     html = r.text
     assert "bbox-map" in html
     assert "O co jde" in html
     assert "48 hodin" in html
     assert "PNG náhled" in html
-    assert 'name="kp_vege_height"' in html
-    assert 'name="vegetation_mode"' in html
-    assert "Jen KP" in html
     assert 'name="map_scale"' in html
     assert 'name="contour_interval"' in html
     assert 'name="preset_id"' not in html
@@ -375,13 +412,9 @@ def test_index_html(client):
     assert 'name="sprint_residual_paved"' in html
     assert 'name="sprint_residual_size"' in html
     assert "OSM_residential_zbytek" in html
-    assert "uzitecne/" in html
     assert "OSM detaily" in html
     assert "courtyard-olive-wrap" in html
     assert "residual-paved-wrap" in html
-    assert "jen při zapnutí" in html
-    assert "soft limitu" in html
-    assert "Počítá se vždy" not in html
     assert "pracovní podklad" in html
     assert "jasně danými" in html
     assert "postaru" in html
@@ -442,6 +475,42 @@ def test_download_oom_redirects_to_main_zip(client, tmp_path, monkeypatch):
     assert "podkladarna" in cd
     assert "nusle" in cd.casefold() and "mtbo" in cd.casefold()
     assert job_id not in cd
+
+
+def test_download_georef_previews_zip(client, tmp_path, monkeypatch):
+    from app import db, main
+
+    monkeypatch.setattr(main, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "jobs.sqlite")
+    db.init_db()
+    job = db.create_job("Nusle park", "forest_10000", {})
+    job_id = job["id"]
+    out = tmp_path / "jobs" / job_id / "output"
+    preview = out / "preview"
+    preview.mkdir(parents=True, exist_ok=True)
+    (preview / "NuslePark-les.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 32)
+    (preview / "NuslePark-les.pgw").write_text(
+        "1\n0\n0\n-1\n-750000\n-1050000\n", encoding="utf-8"
+    )
+    (preview / "oom_preview.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 8)
+
+    detail = client.get(f"/api/jobs/{job_id}")
+    assert detail.status_code == 200
+    assert detail.json()["has_georef_previews"] is True
+
+    r = client.get(f"/api/jobs/{job_id}/download/georef-previews")
+    assert r.status_code == 200
+    import zipfile
+    from io import BytesIO
+
+    with zipfile.ZipFile(BytesIO(r.content)) as zf:
+        names = set(zf.namelist())
+    assert "NuslePark-les.png" in names
+    assert "NuslePark-les.pgw" in names
+    assert "oom_preview.png" not in names
+    cd = r.headers.get("content-disposition", "")
+    assert "georef" in cd.casefold()
 
 
 def test_zip_download_filename_uses_project_name(tmp_path, monkeypatch):

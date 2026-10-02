@@ -1,6 +1,6 @@
 # Podkladárna
 
-Webová služba pro generování orientačních podkladů z **ČÚZK LiDAR** (DMR 5G + DMP OK) a **ZABAGED** pomocí [Karttapullautin](https://github.com/karttapullautin/karttapullautin).
+Webová služba pro generování orientačních podkladů z **ČÚZK LiDAR** (DMR 5G + DMP OK) a **ZABAGED**. Volně inspirováno [Karttapullautinem](https://github.com/karttapullautin/karttapullautin); pipeline jde vlastní cestou (vegetace / srázy / DEM).
 
 Výstup: jeden ZIP pro OpenOrienteering Mapper (`podkladarna_output.zip`).
 
@@ -50,7 +50,7 @@ Viz [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) – aktuálně **v1.8** (
 
 ## Lokální vývoj (bez Docker)
 
-Vyžaduje PDAL, GDAL, Linux `pullauta` v PATH.
+Vyžaduje PDAL a GDAL v PATH.
 
 ```bash
 export PODKLADARNA_DATA=./data
@@ -65,8 +65,7 @@ MIT se týká softwaru – nevyžaduje uvedení zdroje na mapách z jobu.
 
 **Výstup jobu** (PNG, `.omap`, DXF, SHP) je pod **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs)** –
 při tisku / šíření mapy uveďte zdroj, např.
-`Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok]`.
+`Podklad: Podkladárna · ČÚZK · OSM, [rok]`.
 
-Data **ČÚZK** (DMR 5G, DMP OK, ZABAGED®) jsou také CC BY 4.0;
-[Karttapullautin](https://github.com/karttapullautin/karttapullautin) je GPL-3.0.
+Data **ČÚZK** (DMR 5G, DMP OK, ZABAGED®) jsou také CC BY 4.0.
 Přehled: **[LICENSES.md](./LICENSES.md)** a stránka `/licence`.

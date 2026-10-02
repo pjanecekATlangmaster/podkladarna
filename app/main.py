@@ -43,9 +43,17 @@ from app.pipeline.package_oom import (
     MAP_SCALES,
     resolve_omap_job,
 )
-from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE, APP_VERSION
+from app.settings import (
+    CLEANUP_INTERVAL_HOURS,
+    DEFAULT_OPTIONS,
+    DOWNLOADS_DIR,
+    JOBS_DIR,
+    MAX_QUEUE_SIZE,
+    APP_VERSION,
+    PRIVATE_JOB_RETENTION_HOURS,
+)
 from app.tiles import TileError, fetch_tile
-from app.tool_env import tool_status
+from app.tool_env import log_ignored_gdal_plugins, tool_status
 from app.whats_new import whats_new_payload
 
 logger = logging.getLogger("podkladarna")
@@ -83,10 +91,16 @@ mimetypes.add_type("image/png", ".png")
 @app.on_event("startup")
 def startup() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    log_ignored_gdal_plugins()
     db.init_db()
     interrupted = worker.recover_after_restart()
     if interrupted:
         logger.info("Recovered %s interrupted job(s): %s", len(interrupted), interrupted)
+    from app.job_worker import retry_missed_private_mails
+
+    resent = retry_missed_private_mails()
+    if resent:
+        logger.info("Resent private download mail for %s job(s): %s", len(resent), resent)
     removed = purge_old_jobs()
     if removed:
         logger.info("Startup cleanup: removed %s old job(s)", removed)
@@ -97,7 +111,7 @@ def startup() -> None:
     if missing:
         logger.warning(
             "Chybí %s – pipeline na tomto stroji nepoběží. "
-            "Windows: OSGeo4W + pullauta.exe, nebo docker compose -f docker-compose.dev.yml up",
+            "Windows: OSGeo4W / QGIS PATH, nebo docker compose -f docker-compose.dev.yml up",
             ", ".join(missing),
         )
 
@@ -248,7 +262,7 @@ def api_sheets(bbox: str):
 
 @app.get("/api/jobs")
 def api_list_jobs():
-    jobs = db.list_jobs()
+    jobs = db.list_jobs(include_private=False)
     for job in jobs:
         pos = worker.queue_position(job["id"])
         if pos is not None:
@@ -259,24 +273,31 @@ def api_list_jobs():
 @app.get("/api/jobs/{job_id}")
 def api_get_job(job_id: str):
     try:
-        return db.get_job(job_id)
+        job = db.get_job(job_id)
     except KeyError:
         raise HTTPException(404, "Job nenalezen")
+    if db.job_is_expired(job):
+        db.delete_job(job_id)
+        raise HTTPException(410, "Privátní job vypršel a byl smazán.")
+    return job
 
 
 @app.get("/api/jobs/{job_id}/log")
 def api_job_log(job_id: str, after: int = 0):
     try:
-        db.get_job(job_id)
+        job = db.get_job(job_id)
     except KeyError:
         raise HTTPException(404, "Job nenalezen")
+    if db.job_is_expired(job):
+        db.delete_job(job_id)
+        raise HTTPException(410, "Privátní job vypršel a byl smazán.")
     return {"lines": db.get_logs(job_id, after)}
 
 
 @app.get("/api/jobs/{job_id}/download/oom")
-def api_download_oom(job_id: str):
+def api_download_oom(job_id: str, token: str | None = None):
     """Zpětná kompatibilita – stejný balíček jako /download."""
-    return api_download(job_id)
+    return api_download(job_id, token=token)
 
 
 def _output_zip_path(job_id: str) -> Path | None:
@@ -288,25 +309,89 @@ def _output_zip_path(job_id: str) -> Path | None:
     return None
 
 
+def _load_job_for_artifact(job_id: str, token: str | None) -> dict:
+    """Načte job; u privátních vyžaduje platný token a kontroluje expiraci."""
+    try:
+        job = db.get_job(job_id, reveal_artifacts=True)
+    except KeyError:
+        raise HTTPException(404, "Job nenalezen") from None
+    if db.job_is_private(job):
+        raw_token = None
+        with db.connect() as conn:
+            row = conn.execute(
+                "SELECT download_token FROM jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            if row:
+                raw_token = row["download_token"]
+        job["download_token"] = raw_token
+        if db.job_is_expired(job):
+            db.delete_job(job_id)
+            raise HTTPException(410, "Privátní odkaz vypršel – job byl smazán.")
+        if not db.token_matches(job, token):
+            raise HTTPException(404, "Job nenalezen")
+    return job
+
+
 @app.get("/api/jobs/{job_id}/download")
-def api_download(job_id: str):
+def api_download(job_id: str, token: str | None = None):
+    job = _load_job_for_artifact(job_id, token)
     zip_path = _output_zip_path(job_id)
     if not zip_path:
         raise HTTPException(404, "Vystup jeste neni pripraven")
-    try:
-        job = db.get_job(job_id)
-        filename = db.zip_download_filename(job_id, job["name"])
-    except KeyError:
-        filename = db.zip_download_filename(job_id, job_id)
+    filename = db.zip_download_filename(job_id, job["name"])
+    return FileResponse(zip_path, filename=filename)
+
+
+@app.get("/api/jobs/{job_id}/download/georef-previews")
+def api_download_georef_previews(job_id: str, token: str | None = None):
+    """Malý ZIP jen s georeferencovanými náhledy (PNG+PGW±GeoTIFF)."""
+    from app.pipeline.oom_preview import (
+        GEOREF_PREVIEWS_ZIP_NAME,
+        build_georef_previews_zip,
+    )
+
+    job = _load_job_for_artifact(job_id, token)
+    out = JOBS_DIR / job_id / "output"
+    zip_path = out / GEOREF_PREVIEWS_ZIP_NAME
+    if not zip_path.is_file():
+        # Lazy: sestav z preview/, pokud job doběhl před zavedením malého ZIPu.
+        built = build_georef_previews_zip(out)
+        if built is None or not built.is_file():
+            raise HTTPException(404, "Georeferencovane nahledy nejsou k dispozici")
+        zip_path = built
+    stem = db.safe_zip_stem(job["name"])
+    filename = f"podkladarna-{stem}-georef-nahledy.zip"
     return FileResponse(zip_path, filename=filename)
 
 
 @app.get("/api/jobs/{job_id}/preview.png")
-def api_preview(job_id: str):
-    png = JOBS_DIR / job_id / "output" / "pullautus.png"
-    if not png.exists():
+def api_preview(job_id: str, token: str | None = None):
+    from app.pipeline.preview import resolve_preview_png
+
+    _load_job_for_artifact(job_id, token)
+    job_dir = JOBS_DIR / job_id
+    png = resolve_preview_png(job_dir / "output", job_dir / "work")
+    if png is None:
         raise HTTPException(404, "Nahled neni k dispozici")
     return FileResponse(png)
+
+
+@app.get("/d/{token}")
+def download_by_token(token: str):
+    """Privátní stažení ZIP podle neprůhledného tokenu (odkaz z e-mailu)."""
+    try:
+        job = db.get_job_by_download_token(token)
+    except KeyError:
+        raise HTTPException(404, "Odkaz neplatí nebo job neexistuje.") from None
+    if db.job_is_expired(job):
+        db.delete_job(job["id"])
+        raise HTTPException(410, "Privátní odkaz vypršel – job byl smazán.")
+    zip_path = _output_zip_path(job["id"])
+    if not zip_path:
+        raise HTTPException(404, "Vystup jeste neni pripraven")
+    filename = db.zip_download_filename(job["id"], job["name"])
+    return FileResponse(zip_path, filename=filename)
 
 
 @app.get("/api/health")
@@ -443,8 +528,13 @@ async def api_create_job(request: Request):
         "indexcontours": resolved["indexcontours"],
     }
     cliff_raw = _form_str(form, "kp_cliff_symbol").strip().lower()
-    if cliff_raw in {"earth_bank", "rock_face", "symbol_206", "off"}:
+    if cliff_raw in {"auto", "earth_bank", "rock_face", "symbol_206", "off"}:
         options["kp_cliff_symbol"] = cliff_raw
+    knoll_raw = _form_str(form, "include_knolls").strip().lower()
+    if knoll_raw in {"0", "false", "no", "off"}:
+        options["include_knolls"] = False
+    elif knoll_raw in {"1", "true", "yes", "on"}:
+        options["include_knolls"] = True
     vege_raw = _form_str(form, "kp_vege_height").strip()
     if vege_raw:
         try:
@@ -453,9 +543,6 @@ async def api_create_job(request: Request):
             vh = None
         if vh is not None and any(abs(vh - c) < 1e-6 for c in KP_VEGE_HEIGHT_CHOICES):
             options["kp_vege_height"] = resolve_vege_height({"kp_vege_height": vh})
-    vege_mode_raw = _form_str(form, "vegetation_mode").strip().lower()
-    if vege_mode_raw in {"mixed", "kp"}:
-        options["vegetation_mode"] = vege_mode_raw
     sens_raw = _form_str(form, "kp_cliff_sensitivity").strip().lower()
     if sens_raw in KP_CLIFF_SENSITIVITY:
         options["kp_cliff_sensitivity"] = resolve_cliff_sensitivity(
@@ -494,6 +581,19 @@ async def api_create_job(request: Request):
     elif _form_str(form, "output_zip").strip():
         options["output_zip"] = _opt_bool("output_zip")
     options["output_references"] = _opt_bool("output_references")
+    options["force_refresh"] = _opt_bool("force_refresh")
+    # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
+    if _opt_bool("private"):
+        notify_email = _form_str(form, "notify_email").strip()
+        if not notify_email or "@" not in notify_email or "." not in notify_email.split("@")[-1]:
+            raise HTTPException(
+                400,
+                "Privátní režim vyžaduje platný e-mail pro odkaz ke stažení.",
+            )
+        options["private"] = True
+        options["notify_email"] = notify_email
+    # use_kp odstraněn – tip vždy bez KP (ignoruj legacy formulář/API).
+    options["use_kp"] = False
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:
@@ -537,10 +637,9 @@ async def api_create_job(request: Request):
         f"Prijato: listy={','.join(options['sm5_sheets'])}, "
         f"1:{resolved['map_scale']} · {resolved['contour_interval']} m "
         f"(preset={preset_id}), "
-        f"vege={options.get('kp_vege_height', 2.0)} m/"
-        f"{options.get('vegetation_mode', 'mixed')}, "
-        f"srázy={options.get('kp_cliff_sensitivity', 'normal')}/"
-        f"{options.get('kp_cliff_symbol', 'earth_bank')}, "
+        f"vege={options.get('kp_vege_height', 2.0)} m, "
+        f"srázy={options.get('kp_cliff_sensitivity', 'low')}/"
+        f"{options.get('kp_cliff_symbol', 'auto')}, "
         f"lavičky={'ano' if options.get('kp_osm_benches') else 'ne'}, "
         f"lampy={'ano' if options.get('kp_osm_lamps') else 'ne'}, "
         f"herní prvky={'ano' if options.get('kp_osm_playground_equipment') else 'ne'}, "
@@ -552,8 +651,16 @@ async def api_create_job(request: Request):
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"
         f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
+        f"force_refresh={'ano' if options.get('force_refresh') else 'ne'}, "
+        f"privátní={'ano' if options.get('private') else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"
     )
+    if options.get("private"):
+        hours = PRIVATE_JOB_RETENTION_HOURS if PRIVATE_JOB_RETENTION_HOURS > 0 else 48
+        log(
+            f"Privátní režim – po dokončení přijde e-mail na {options.get('notify_email')} "
+            f"(odkaz platí {hours} h)."
+        )
 
     try:
         worker.enqueue(job_id)

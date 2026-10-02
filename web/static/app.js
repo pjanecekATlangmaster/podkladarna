@@ -404,11 +404,35 @@ async function loadJobs() {
   updateFinishedPager(finished.length);
   syncJobsList(live, pageJobs);
 
+  let selected = data.jobs.find((j) => j.id === selectedJobId);
+  // Privátní job není ve veřejném seznamu – drž detail přes /api/jobs/{id}.
+  if (!selected && selectedJobId) {
+    try {
+      selected = await api(`/api/jobs/${selectedJobId}`);
+    } catch (_) {
+      selected = null;
+    }
+  }
+
+  if (generateStartedJobId) {
+    const started =
+      data.jobs.find((j) => j.id === generateStartedJobId) ||
+      (selected && selected.id === generateStartedJobId ? selected : null);
+    if (!started || !jobIsLive(started.status)) {
+      clearGenerateStarted();
+    }
+  }
+
   const selectedEl = selectedJobId ? jobItemEl(selectedJobId) : null;
-  const selected = data.jobs.find((j) => j.id === selectedJobId);
-  if (selectedEl && selected) {
-    const alreadyOpen = jobDetailEl()?.parentElement === selectedEl;
-    if (!alreadyOpen) attachJobDetail(selectedEl);
+  if (selected && (selectedEl || selected.private)) {
+    if (selectedEl) {
+      const alreadyOpen = jobDetailEl()?.parentElement === selectedEl;
+      if (!alreadyOpen) attachJobDetail(selectedEl);
+    } else {
+      // Privátní: detail v holderu (není položka v seznamu).
+      parkJobDetail();
+      jobDetailEl().classList.remove("hidden");
+    }
     selectedJobStatus = selected.status;
     const liveJob = jobIsLive(selected.status);
     if (liveJob || logSettledForJob !== selected.id) {
@@ -419,6 +443,11 @@ async function loadJobs() {
       if (timingEl) {
         timingEl.textContent = jobTimingText(selected);
         timingEl.classList.toggle("hidden", !timingEl.textContent);
+      }
+      const sourcesEl = document.getElementById("detail-sources");
+      if (sourcesEl) {
+        sourcesEl.textContent = jobSourcesText(selected);
+        sourcesEl.classList.toggle("hidden", !sourcesEl.textContent);
       }
       setJobActionLinks(selected);
       const img = document.getElementById("detail-img");
@@ -511,11 +540,54 @@ function jobTimingText(job) {
   return start ? `Zařazeno ${start}` : "";
 }
 
+function jobSourcesText(job) {
+  const meta = job.source_meta;
+  if (!meta && !job.dmp_mode) return "";
+  const mode = job.dmp_mode || (meta && meta.dmp_mode);
+  let dmpLabel = "DMP ?";
+  if (mode === "ok") dmpLabel = "DMP OK";
+  else if (mode === "1g") dmpLabel = "DMP 1G";
+  else if (mode === "mixed") dmpLabel = "DMP OK+1G";
+  const parts = [dmpLabel];
+  if (job.dmp_degraded || (meta && meta.dmp_degraded)) {
+    parts.push("degradace 1G viditelná");
+  }
+  const sheets = (meta && meta.sheets) || [];
+  const ages = [];
+  for (const sheet of sheets) {
+    const dmr = (sheet.dmr && sheet.dmr.cache_age_days) ?? null;
+    const dmp = (sheet.dmp && sheet.dmp.cache_age_days) ?? null;
+    if (dmr != null) ages.push(dmr);
+    if (dmp != null) ages.push(dmp);
+  }
+  if (ages.length) {
+    const maxAge = Math.max(...ages);
+    parts.push(`cache ~${Math.round(maxAge)} d`);
+  } else if (sheets.length) {
+    parts.push(`${sheets.length} list${sheets.length === 1 ? "" : "y"} SM5`);
+  }
+  parts.push("epochy = stáří cache, ne pořízení ČÚZK");
+  return parts.join(" · ");
+}
+
 function setJobActionLinks(job) {
-  document.getElementById("detail-download").href = `/api/jobs/${job.id}/download`;
-  document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
-  document.getElementById("detail-preview").href = `/api/jobs/${job.id}/preview.png`;
-  document.getElementById("detail-preview").classList.toggle("hidden", !job.has_preview);
+  const dl = document.getElementById("detail-download");
+  const prev = document.getElementById("detail-preview");
+  const georefBtn = document.getElementById("detail-download-georef");
+  if (job.private || (job.options && job.options.private)) {
+    dl.classList.add("hidden");
+    prev.classList.add("hidden");
+    if (georefBtn) georefBtn.classList.add("hidden");
+    return;
+  }
+  dl.href = `/api/jobs/${job.id}/download`;
+  dl.classList.toggle("hidden", !job.has_output);
+  if (georefBtn) {
+    georefBtn.href = `/api/jobs/${job.id}/download/georef-previews`;
+    georefBtn.classList.toggle("hidden", !job.has_georef_previews);
+  }
+  prev.href = `/api/jobs/${job.id}/preview.png`;
+  prev.classList.toggle("hidden", !job.has_preview);
 }
 
 function escapeHtml(s) {
@@ -527,13 +599,24 @@ function escapeHtml(s) {
 async function fillJobDetail(id, { applyForm = false } = {}) {
   const job = await api(`/api/jobs/${id}`);
   selectedJobStatus = job.status;
+  const privateNote =
+    job.private || (job.options && job.options.private)
+      ? " · privátní (ZIP přijde e-mailem)"
+      : "";
   document.getElementById("detail-title").textContent = job.name;
   document.getElementById("detail-status").textContent =
-    `Stav: ${job.status} · ${jobScaleLabel(job)}` + (job.error ? ` · ${job.error}` : "");
+    `Stav: ${job.status} · ${jobScaleLabel(job)}` +
+    privateNote +
+    (job.error ? ` · ${job.error}` : "");
   const timingEl = document.getElementById("detail-timing");
   if (timingEl) {
     timingEl.textContent = jobTimingText(job);
     timingEl.classList.toggle("hidden", !timingEl.textContent);
+  }
+  const sourcesEl = document.getElementById("detail-sources");
+  if (sourcesEl) {
+    sourcesEl.textContent = jobSourcesText(job);
+    sourcesEl.classList.toggle("hidden", !sourcesEl.textContent);
   }
   if (applyForm) applyJobToForm(job);
   setJobActionLinks(job);
@@ -548,6 +631,8 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
 }
 
 async function selectJob(id) {
+  // Klik na job v seznamu (nebo přepnutí) zruší zámek „Generování spuštěno“.
+  if (generateStartedJobId) clearGenerateStarted();
   const same = selectedJobId === id;
   selectedJobId = id;
   if (!same) {
@@ -578,10 +663,32 @@ async function refreshLog() {
 }
 
 let jobSubmitInFlight = false;
+/** Po úspěšném startu: světle červené „Generování spuštěno“ dokud se formulář/job nezmění. */
+let generateStartedJobId = null;
+
+function clearGenerateStarted() {
+  if (!generateStartedJobId) return;
+  generateStartedJobId = null;
+  const btn = document.getElementById("submit-btn");
+  if (btn) {
+    btn.disabled = false;
+    btn.classList.remove("generate-started");
+  }
+  updateSubmitButtonLabel();
+}
+
+function markGenerateStarted(jobId) {
+  generateStartedJobId = jobId;
+  const btn = document.getElementById("submit-btn");
+  if (!btn) return;
+  btn.disabled = true;
+  btn.classList.add("generate-started");
+  btn.textContent = "Generování spuštěno";
+}
 
 document.getElementById("job-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (jobSubmitInFlight) return;
+  if (jobSubmitInFlight || generateStartedJobId) return;
   const form = e.target;
   const btn = document.getElementById("submit-btn");
   clearFormError();
@@ -606,11 +713,26 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     );
     return;
   }
+  const privateEl = document.getElementById("private");
+  if (privateEl && privateEl.checked) {
+    const emailEl = document.getElementById("notify_email");
+    const email = (emailEl && emailEl.value || "").trim();
+    if (!email || !email.includes("@") || !email.split("@").pop().includes(".")) {
+      showFormError("Privátní režim vyžaduje platný e-mail pro odkaz ke stažení.");
+      if (emailEl) emailEl.focus();
+      return;
+    }
+  }
   jobSubmitInFlight = true;
   btn.disabled = true;
   btn.textContent = "Zakládám job…";
+  let startedId = null;
   try {
     const fd = new FormData(form);
+    // Checkbox: vždy pošli 0/1 (unchecked jinak zmizí a API by drželo default true).
+    const knollsEl = document.getElementById("include_knolls");
+    fd.set("include_knolls", knollsEl && knollsEl.checked ? "1" : "0");
+    fd.set("private", privateEl && privateEl.checked ? "1" : "0");
     const job = await api("/api/jobs", { method: "POST", body: fd });
     if (job && job.duplicate_skipped) {
       const msg =
@@ -618,6 +740,18 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
         "Nový job se nezaložil – stejný výřez už běží nebo čeká.";
       showFormError(msg);
       alert(msg);
+    } else if (job && (job.private || (job.options && job.options.private))) {
+      const mail =
+        (job.options && job.options.notify_email) ||
+        (document.getElementById("notify_email") || {}).value ||
+        "";
+      alert(
+        `Privátní job založen. Po dokončení přijde odkaz na ${mail || "váš e-mail"} ` +
+          "(platí 48 hodin). Ve veřejném seznamu jobů se neobjeví."
+      );
+      if (job.id) startedId = job.id;
+    } else if (job && job.id) {
+      startedId = job.id;
     }
     await selectJob(job.id);
   } catch (err) {
@@ -626,8 +760,14 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     await loadJobs();
   } finally {
     jobSubmitInFlight = false;
-    btn.disabled = false;
-    updateSubmitButtonLabel();
+    if (startedId) {
+      // selectJob výše mohl smazat zámek; nastav až po auto-výběru nového jobu.
+      markGenerateStarted(startedId);
+    } else {
+      btn.disabled = false;
+      btn.classList.remove("generate-started");
+      updateSubmitButtonLabel();
+    }
   }
 });
 
@@ -646,6 +786,93 @@ function inCzechia(latlng) {
   );
 }
 
+const BBOX_MAP_HEIGHT_KEY = "podkladarna-bbox-map-height";
+const BBOX_MAP_HEIGHT_MIN = 200;
+const BBOX_MAP_HEIGHT_MAX = 1200;
+
+function clampBboxMapHeight(px) {
+  const n = Math.round(Number(px));
+  if (!Number.isFinite(n)) return null;
+  return Math.min(BBOX_MAP_HEIGHT_MAX, Math.max(BBOX_MAP_HEIGHT_MIN, n));
+}
+
+function applyBboxMapHeight(px, { persist = false } = {}) {
+  const el = document.getElementById("bbox-map");
+  if (!el) return;
+  const height = clampBboxMapHeight(px);
+  if (height == null) return;
+  el.style.height = `${height}px`;
+  if (bboxMap) bboxMap.invalidateSize({ animate: false });
+  if (persist) {
+    try {
+      localStorage.setItem(BBOX_MAP_HEIGHT_KEY, String(height));
+    } catch (_) {
+      /* private mode / quota */
+    }
+  }
+}
+
+function restoreBboxMapHeight() {
+  try {
+    const raw = localStorage.getItem(BBOX_MAP_HEIGHT_KEY);
+    if (raw == null || raw === "") return;
+    applyBboxMapHeight(raw, { persist: false });
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function initBboxMapResize() {
+  const handle = document.getElementById("bbox-map-resize");
+  const el = document.getElementById("bbox-map");
+  if (!handle || !el) return;
+
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+
+  const onMove = (clientY) => {
+    if (!dragging) return;
+    applyBboxMapHeight(startH + (clientY - startY), { persist: false });
+  };
+
+  const stopDrag = (clientY) => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove("is-dragging");
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    if (clientY != null) onMove(clientY);
+    const h = clampBboxMapHeight(el.getBoundingClientRect().height);
+    if (h != null) applyBboxMapHeight(h, { persist: true });
+  };
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    dragging = true;
+    startY = e.clientY;
+    startH = el.getBoundingClientRect().height;
+    handle.classList.add("is-dragging");
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch (_) {
+      /* older browsers */
+    }
+  });
+
+  handle.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    onMove(e.clientY);
+  });
+
+  handle.addEventListener("pointerup", (e) => stopDrag(e.clientY));
+  handle.addEventListener("pointercancel", () => stopDrag(null));
+}
+
 function initBboxMap() {
   const clearBtn = document.getElementById("bbox-clear");
   if (clearBtn) clearBtn.addEventListener("click", clearBbox);
@@ -655,6 +882,7 @@ function initBboxMap() {
     setSheetInfo("Mapová knihovna se nenačetla (Leaflet).", "err");
     return;
   }
+  restoreBboxMapHeight();
   const bounds = czBounds();
   bboxMap = L.map(el, {
     scrollWheelZoom: true,
@@ -681,6 +909,11 @@ function initBboxMap() {
   });
   osm.addTo(bboxMap);
   bboxMap.on("click", onMapClick);
+  initBboxMapResize();
+  // Po obnovení výšky z localStorage ještě jednou po layoutu.
+  requestAnimationFrame(() => {
+    if (bboxMap) bboxMap.invalidateSize({ animate: false });
+  });
 }
 
 function onMapClick(e) {
@@ -690,6 +923,9 @@ function onMapClick(e) {
   }
   if (bboxCorners.length >= 2) {
     clearBbox();
+  } else if (generateStartedJobId) {
+    // Nový roh výřezu = změna mapy → zelené tlačítko zpět.
+    clearGenerateStarted();
   }
   bboxCorners.push(e.latlng);
   if (bboxCorners.length === 1) {
@@ -752,7 +988,12 @@ function updateCliffControls() {
   if (sensHint) {
     sensHint.textContent = off
       ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
-      : "Jak přísně Karttapullautin hledá strmé skoky v DMR.";
+      : "Jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem; knolly jsou samostatná volba.";
+  }
+  const symbolHint = document.getElementById("cliff-symbol-hint");
+  if (symbolHint) {
+    symbolHint.textContent =
+      "Strmý schod = skála (201), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Knolly (109) jsou vedle, z DEM.";
   }
 }
 
@@ -780,10 +1021,15 @@ function applyJobToForm(job) {
   updateOsmHintsForScale(scaleSel ? scaleSel.value : scale);
   const cliff = form.kp_cliff_symbol;
   if (cliff) {
-    const cliffVal = (job.options || {}).kp_cliff_symbol || "earth_bank";
+    const cliffVal = (job.options || {}).kp_cliff_symbol || "auto";
     if ([...cliff.options].some((o) => o.value === cliffVal)) {
       cliff.value = cliffVal;
     }
+  }
+  const knolls = form.include_knolls;
+  if (knolls) {
+    knolls.checked =
+      opts.include_knolls == null ? true : Boolean(opts.include_knolls);
   }
   const vege = form.kp_vege_height;
   if (vege) {
@@ -796,7 +1042,7 @@ function applyJobToForm(job) {
   }
   const sens = form.kp_cliff_sensitivity;
   if (sens) {
-    const sensVal = (job.options || {}).kp_cliff_sensitivity || "normal";
+    const sensVal = (job.options || {}).kp_cliff_sensitivity || "low";
     if ([...sens.options].some((o) => o.value === sensVal)) {
       sens.value = sensVal;
     }
@@ -889,6 +1135,9 @@ function applyBbox(west, south, east, north, extra = {}) {
 }
 
 function clearBbox(opts = {}) {
+  // Programatický applyBbox (keepReuse) nesmí shodit zámek po odeslání;
+  // uživatelské vymazání / překreslení výřezu ano.
+  if (!opts.keepReuse) clearGenerateStarted();
   bboxCorners = [];
   bboxRect = null;
   bboxAllowed = false;
@@ -926,7 +1175,7 @@ function selectedEstimateMinutes() {
 
 function updateSubmitButtonLabel() {
   const btn = document.getElementById("submit-btn");
-  if (!btn || jobSubmitInFlight) return;
+  if (!btn || jobSubmitInFlight || generateStartedJobId) return;
   const mins = selectedEstimateMinutes();
   if (mins != null && bboxAllowed) {
     btn.textContent = `Spustit generování (~${mins} min)`;
@@ -1048,6 +1297,11 @@ loadMapOptions().then(loadJobs).then(startPolling);
 initJobsPager();
 initBboxMap();
 (() => {
+  const form = document.getElementById("job-form");
+  if (form) {
+    form.addEventListener("input", clearGenerateStarted);
+    form.addEventListener("change", clearGenerateStarted);
+  }
   const refs = document.getElementById("output_references");
   if (refs) refs.addEventListener("change", updateSubmitButtonLabel);
   updateSubmitButtonLabel();
@@ -1064,4 +1318,17 @@ initBboxMap();
   if (!cliff) return;
   cliff.addEventListener("change", updateCliffControls);
   updateCliffControls();
+})();
+(() => {
+  const privateEl = document.getElementById("private");
+  const wrap = document.getElementById("private-email-wrap");
+  const emailEl = document.getElementById("notify_email");
+  if (!privateEl || !wrap) return;
+  const sync = () => {
+    const on = privateEl.checked;
+    wrap.classList.toggle("hidden", !on);
+    if (emailEl) emailEl.required = on;
+  };
+  privateEl.addEventListener("change", sync);
+  sync();
 })();

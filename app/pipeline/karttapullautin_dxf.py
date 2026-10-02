@@ -2,29 +2,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.pipeline.prepare_lidar import run_cmd
-from app.settings import PULLAUTA_BIN
+from app.pipeline.prepare_lidar import log_step, run_cmd
 
-# Zdroj v temp/ → název v ZIPu (base/). Vrstevnice KP → contours_kp.dxf;
-# GDAL vrstevnice jdou zvlášť jako contours_gdal.* (SHP).
+# Zdroj v temp/ → název v ZIPu (base/). Jediná pravda vrstevnic = GDAL
+# (base/contours_gdal.*). KP out2 → volitelně archive/contours_kp.dxf (A/B).
 # Rust KP: c2g = menší (cliff1), c3g = větší (cliff2); obojí → ISOM 104 v OOM.
 # První shoda vyhrává; c1g/c2 jsou legacy aliasy.
 DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
-    ("dotknolls.dxf", "kopecky.dxf"),
+    ("dotknolls.dxf", "dotknolls.dxf"),
     ("c2g.dxf", "cliffs_small.dxf"),
     ("c3g.dxf", "cliffs_large.dxf"),
+    ("c_rock.dxf", "cliffs_rock.dxf"),
     ("c1g.dxf", "cliffs_small.dxf"),
     ("c2.dxf", "cliffs_large.dxf"),
 )
 
-# KP vrstevnice (out2) – jen do ZIPu jako zdroj, ne do omap objektů.
+# KP vrstevnice (out2) – archiv / A/B, ne konkurující sada v base/.
 DXF_CONTOUR_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("out2.dxf", "contours_kp.dxf"),
 )
 
 # Po LiDARu: 0,3 m a mezikřivky. out2.dxf.bin musí zůstat – KP ho čte při ZABAGED PNG.
 DXF_SKIP_AFTER_LIDAR = frozenset({"contours03.dxf", "out.dxf"})
-# Po zabalení ZIPu: KP vrstevnice už máme jako base/contours_kp.dxf.
+# Po zabalení ZIPu: KP out2 už archivován / nepatří do base/.
 DXF_SKIP_AFTER_VECTORS = frozenset({"out2.dxf", "basemap.dxf"})
 
 
@@ -42,12 +42,7 @@ def ensure_text_dxf(
     path = temp_dir / dxf_name
     if path.is_file() and path.stat().st_size >= 8:
         return path
-    bin_path = _bin_path(temp_dir, dxf_name)
-    if not bin_path.is_file():
-        return None
-    run_cmd([PULLAUTA_BIN, "bin2dxf", str(bin_path), str(path)], log=log)
-    if path.is_file() and path.stat().st_size >= 8:
-        return path
+    # Binary .dxf.bin from legacy KP runs is no longer converted (no pullauta).
     return None
 
 
@@ -56,9 +51,13 @@ def collect_dxf_for_zip(
     *,
     log: callable | None = None,
     include_cliffs: bool = True,
-    include_contours: bool = True,
+    include_contours: bool = False,
 ) -> dict[str, Path]:
-    """Soubory pro base/ ve výstupním ZIPu (zip_name → cesta)."""
+    """Soubory pro base/ ve výstupním ZIPu (zip_name → cesta).
+
+    Default ``include_contours=False`` – jedna pravda vrstevnic je GDAL SHP;
+    KP out2 do base/ nedávej (opt-in jen pro legacy/A/B skripty).
+    """
     if not temp_dir.is_dir():
         return {}
     collected: dict[str, Path] = {}
@@ -74,6 +73,21 @@ def collect_dxf_for_zip(
         if path:
             collected[zip_name] = path
     return collected
+
+
+def collect_kp_contours_for_archive(
+    temp_dir: Path,
+    *,
+    log: callable | None = None,
+) -> Path | None:
+    """KP out2.dxf pro archive/ (ne base/) – A/B, ne OOM pravda."""
+    if not temp_dir.is_dir():
+        return None
+    for src_name, _zip_name in DXF_CONTOUR_PRODUCTS:
+        path = ensure_text_dxf(temp_dir, src_name, log=log)
+        if path is not None:
+            return path
+    return None
 
 
 def prune_heavy_intermediate_dxf(

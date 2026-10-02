@@ -13,6 +13,7 @@ from app.pipeline.oom_import import (
     _wkb_parts,
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.pipeline.prepare_lidar import log_step
 from app.proj_env import ensure_proj_data
 
 # KP palette (lightgreentone=200) → ISOM plochy.
@@ -38,18 +39,25 @@ _CLASS_TO_CODE: dict[int, str] = {
 }
 
 _CLASS_NAMES: dict[str, str] = {
-    "401": "Otevřený terén (KP)",
-    "406": "Vegetace pomalý běh (KP)",
-    "408": "Vegetace chůze (KP)",
-    "410": "Vegetace boj (KP)",
+    "401": "Otevřený terén",
+    "406": "Vegetace pomalý běh",
+    "408": "Vegetace chůze",
+    "410": "Vegetace boj",
 }
 
 _MIN_AREA_M2 = 12.0
+# Tip go-default: 406/408/410 fleky 12→25 m²; 401 open land zůstává 12.
+_MIN_GREEN_AREA_M2 = 25.0
+_GREEN_CODES = frozenset({"406", "408", "410"})
 # Po zapnutí yellow_smoothing jsou hrany méně „pixelové“ – mírně vyšší simplify.
 _SIMPLIFY_M = 1.5
 # Velké KP 401 se v OOM těžko editují → rozřezat mřížkou na menší objekty.
 _YELLOW_SPLIT_CELL_M = 50.0
 _YELLOW_SPLIT_MIN_AREA_M2 = 2000.0
+
+
+def _min_area_for_code(code: str) -> float:
+    return _MIN_GREEN_AREA_M2 if code in _GREEN_CODES else _MIN_AREA_M2
 
 
 def rgb_to_vege_class(r: int, g: int, b: int) -> int:
@@ -175,7 +183,7 @@ def generate_vegetation_shapefile(
         for piece in pieces:
             if piece is None or piece.IsEmpty():
                 continue
-            if float(piece.GetArea()) < _MIN_AREA_M2:
+            if float(piece.GetArea()) < _min_area_for_code(code):
                 continue
             kept.append((cls, code, piece.Clone()))
     for fid in to_delete:
@@ -291,6 +299,7 @@ def generate_job_vegetation(work_dir: Path, *, log=None) -> Path | None:
     dest = work_dir / "vegetation" / "vegetation.shp"
     if log:
         log("=== Fáze: zeleň KP → polygony ===")
+    log_step(log, "Převádím zeleň z KP na polygony (vegetace do mapy)")
     return generate_vegetation_shapefile(png, pgw, dest, log=log)
 
 

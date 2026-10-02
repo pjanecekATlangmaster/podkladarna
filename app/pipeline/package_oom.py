@@ -4,10 +4,11 @@ import json
 import re
 import unicodedata
 import zipfile
-from collections.abc import Callable
 from pathlib import Path
 
-from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
+from app.pipeline.karttapullautin_dxf import (
+    collect_dxf_for_zip,
+)
 from app.guide_text import ZIP_ABOUT_TXT
 from app.pipeline.aopk_trees import build_aopk_tree_parts, load_aopk_tree_points
 from app.pipeline.contours_gdal import build_gdal_contour_parts
@@ -39,11 +40,15 @@ from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.open_land_subtract import collect_kp401_subtract_wkbs
 from app.pipeline.residual_paved import build_residual_paved_parts, _RESIDUAL_BANDS_DIR
-from app.pipeline.uzitecne_export import add_uzitecne_to_zip, prepare_uzitecne_dir
 from app.pipeline.reference_layers import reference_metadata
 from app.pipeline.ruian_buildings import (
     ZABAGED_OMIT_BUILDING_LAYERS,
     write_ruian_buildings_shapefile,
+)
+from app.pipeline.source_meta import (
+    INDICATIVE_LABEL_CS,
+    citation_line,
+    format_source_epochs_readme,
 )
 from app.pipeline.vegetation_gdal import build_vegetation_parts
 from app.settings import APP_VERSION
@@ -66,7 +71,6 @@ Včetně OSM_budovy.shp (stejný zdroj jako auto budovy v .omap).
 
 Residential zbytek (501): OSM_residential_zbytek_mensi / _stredni / _velke
 a _ridke (řídce zmapované – v auto .omap nejsou). Symbol 501.
-Další volitelné vrstvy (kopečky, lavičky, oliva dvorů…): složka uzitecne/.
 
 Doporučené symboly jsou v README.txt uvnitř jobu (osm_paths/manual/).
 
@@ -120,6 +124,8 @@ DEFAULT_CONTOUR_BY_SCALE: dict[int, float] = {
 # nechybí stub symbolu. OSM/ZABAGED/AOPK se neořezávají – radši přesahují.
 CLIP_MARGIN_M = 25.0
 # Louka / parková zeleň pod KP vegetací – jinak 401 překryje hustníky z LiDARu.
+# Tyto ZABAGED vegetační vrstvy se do auto .omap NEVKLÁDAJÍ – vegetace
+# jde jen z CHM (náhrada KP), ZABAGED louky zůstanou ve ZIP zabaged/ ručně.
 _ZABAGED_UNDER_VEGETATION = frozenset(
     {
         "TrvalyTravniPorost",
@@ -138,18 +144,6 @@ _ZABAGED_BASE_PAVED = frozenset(
 _OSM_UNDER_VEGETATION_MARK = "(412)"
 # Dvory v budovách (oliva) až navrch – překryjí detaily uvnitř dvorů.
 _COURTYARD_OLIVE_MARK = "dvory (oliva)"
-
-VEGETATION_MODE_MIXED = "mixed"
-VEGETATION_MODE_KP = "kp"
-VEGETATION_MODE_CHOICES = frozenset({VEGETATION_MODE_MIXED, VEGETATION_MODE_KP})
-
-
-def resolve_vegetation_mode(raw: object) -> str:
-    """``mixed`` = ZABAGED louky pod KP; ``kp`` = porosty jen z KP (default mixed)."""
-    text = str(raw or "").strip().lower()
-    if text in VEGETATION_MODE_CHOICES:
-        return text
-    return VEGETATION_MODE_MIXED
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
@@ -458,6 +452,7 @@ def oom_metadata(
     job_name: str = "",
     *,
     reference_layers: list[str] | None = None,
+    lidar_sources: dict | None = None,
 ) -> dict:
     sf = float(options.get("scalefactor", preset.get("scalefactor", 1)))
     meta = {
@@ -472,11 +467,18 @@ def oom_metadata(
             "contour_interval", preset.get("contour_interval")
         ),
         "formline": options.get("formline", preset.get("formline")),
+        "use_kp": False,
+        "indicative_label": INDICATIVE_LABEL_CS,
+        "citation": citation_line(),
         **reference_metadata(),
     }
     if reference_layers:
         meta["reference_layers"] = reference_layers
     meta["path_source"] = resolve_path_source(options.get("path_source"))
+    if lidar_sources:
+        meta["lidar_sources"] = lidar_sources
+        meta["dmp_mode"] = lidar_sources.get("dmp_mode")
+        meta["dmp_degraded"] = bool(lidar_sources.get("dmp_degraded"))
     return meta
 
 
@@ -486,6 +488,10 @@ def oom_readme(meta: dict) -> str:
     interval = meta.get("contour_interval_m")
     interval_txt = f"{interval} m" if interval is not None else "?"
     refs = meta.get("reference_layers") or []
+    citation = meta.get("citation") or citation_line()
+    epochs_block = format_source_epochs_readme(meta.get("lidar_sources"))
+    if epochs_block:
+        epochs_block = "\n" + epochs_block + "\n"
     ref_block = ""
     if refs:
         ref_block = (
@@ -494,16 +500,39 @@ def oom_readme(meta: dict) -> str:
             + "\n".join(f"- {name}" for name in refs)
             + "\n"
         )
+    kp_steps = (
+        "2. PNG podklady (OSM, ortofoto, hillshade, …) zapněte dle potřeby\n"
+        "   v Šablony → Nastavení šablon (Template Setup).\n"
+        "3. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
+        "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
+        "   Ve složce base/: vrstevnice GDAL (contours_gdal.* = jediná pravda, jen z DMR), "
+        "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
+        "srázy zem (104) / skála (201) a volitelné knolly (109).\n"
+        "   uzitecne/pouzite vs uzitecne/vyhozene: stejné vrstvy po filtrech "
+        "(min-size, occupancy, husté vrstevnice, …) – SHP k prohlížení.\n"
+        "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
+        "   Georef náhledy mapy (Mapper @ 600 DPI + PGW) nejsou v tomto ZIPu –\n"
+        "   stáhněte je zvlášť z webu („Stáhnout georef náhledy“).\n"
+        "   Webový PNG náhled (Pillow) také nepatří do materiálového balíčku.\n\n"
+    )
+    relief_line = (
+        "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM. "
+        "Porosty z hustoty LiDAR odrazů (záloha: výška CHM), ne ze ZABAGED luk. "
+        "Srázy: skála vs. zem podle sklonu schodu.\n\n"
+    )
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"
         "=================================================\n\n"
         "Nejprve přečtěte CO_JE_PODKLADARNA.txt v kořeni ZIPu.\n\n"
+        f"{INDICATIVE_LABEL_CS}\n\n"
         f"Typ mapy: {label}\n"
         f"Měřítko: 1:{scale}\n"
         f"Ekvidistance: {interval_txt}\n"
-        "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n\n"
+        "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n"
+        f"{epochs_block}\n"
         f"Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
         "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa a náhled DMP OK.\n"
+        "Ortofoto slouží jen k vizuální kontrole (QA), ne jako vstup klasifikátoru.\n"
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
@@ -511,23 +540,16 @@ def oom_readme(meta: dict) -> str:
         "   (podle měřítka; cesty z OSM).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
-        "   Vrstevnice (101/102) jsou zamčené (is_protected) – odemkni v panelu symbolů.\n"
-        "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
-        "   v Šablony → Nastavení šablon (Template Setup); KP PNG náhledy jsou ve složce kp/.\n"
-        "3. Deprese: šablona „Karttapullautin deprese“.\n"
-        "4. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
-        "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
-        "   KP PNG náhledy ve složce kp/; ve složce base/: vrstevnice GDAL\n"
-        "   (contours_gdal.*), vrstevnice KP (contours_kp.dxf), vegetace, srázy.\n"
-        "   Kopečky a další volitelné vrstvy: složka uzitecne/ (ruční import).\n"
-        "   Louky ZABAGED: ve zabaged/ vždy; do auto .omap jen v režimu mixed.\n\n"
+        "   Vrstevnice (101/102): Chaikin → DP simplify (~0,08 mm) → Bézier; zamčené (is_protected)\n"
+        "   – odemkni v panelu symbolů; v OOM volitelně Převést na křivky.\n"
+        f"{kp_steps}"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
         "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
         "AOPK památné stromy (CC BY 4.0). "
         "OSM © přispěvatelé (ODbL). Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
-        "Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok].\n"
-        "Reliéf a vegetace: Karttapullautin (GPL-3.0).\n\n"
+        f"{citation}\n"
+        f"{relief_line}"
         "Podkladárna je experiment — zpětná vazba a připomínky:\n"
         "https://github.com/pjanecekATlangmaster/podkladarna/issues\n"
     )
@@ -661,7 +683,7 @@ def prepare_oom_map(
     contour_interval_m: float | None = None,
     formline: float = 0,
     indexcontours_m: float | None = None,
-    cliff_symbol: str = "earth_bank",
+    cliff_symbol: str = "auto",
     courtyard_olive: bool = False,
     path_source: str = PATH_SOURCE_MIXED,
     aopk_trees: Path | None = None,
@@ -669,15 +691,12 @@ def prepare_oom_map(
     ostatni_as_403: bool = False,
     residual_paved: bool = False,
     max_residual_m2: float = 500.0,
-    include_osm_benches: bool = False,
-    include_osm_lamps: bool = False,
-    include_osm_playground_equipment: bool = False,
-    vegetation_mode: str = VEGETATION_MODE_MIXED,
-    log: Callable[[str], None] | None = None,
+    use_kp: bool = False,
+    log=None,
 ) -> Path | None:
     del formline
+    use_kp = False  # KP runtime removed
     path_source = resolve_path_source(path_source)
-    vegetation_mode = resolve_vegetation_mode(vegetation_mode)
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
     pullautus_png = kp_cwd / "pullautus.png"
@@ -705,8 +724,9 @@ def prepare_oom_map(
         include_dxf=include_dxf,
         include_dxf_templates=False,
     )
-    if not templates:
-        return None
+    # Prázdné šablony jsou OK: bez KP a bez referenčních PNG je výchozí pohled
+    # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty). Dřív early
+    # return None → žádné .omap při use_kp=false + output_references=false.
 
     object_parts: list[OomObjectPart] = []
     zabaged_under: list[OomObjectPart] = []
@@ -720,6 +740,9 @@ def prepare_oom_map(
         omit = set(ZABAGED_OMIT_BUILDING_LAYERS)
         if osm_features_have_power_lines(kp_cwd):
             omit |= set(ZABAGED_OMIT_WHEN_OSM_POWER)
+        # Bez KP: ZABAGED louky/parková zeleň nesmí řídit vegetaci v auto .omap.
+        if not use_kp:
+            omit |= set(_ZABAGED_UNDER_VEGETATION)
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,
@@ -742,7 +765,9 @@ def prepare_oom_map(
                 continue
             layer = part.name.removeprefix("ZABAGED – ").strip()
             if layer in _ZABAGED_UNDER_VEGETATION:
-                zabaged_under.append(part)
+                # Bez KP: drop i kdyby se vrstva omylem vrátila (CHM = jediný zdroj).
+                if use_kp:
+                    zabaged_under.append(part)
             elif layer in _ZABAGED_BASE_PAVED:
                 zabaged_base_paved.append(part)
             else:
@@ -750,7 +775,6 @@ def prepare_oom_map(
 
     # Nejspodnější podklad: zpevněné plochy ze ZABAGED (501), pak inverze residential…
     object_parts.extend(zabaged_base_paved)
-    # Residual 501 jen při zapnutí (auto .omap + SHP) – jinak těžká geometrie hanguje job.
     if residual_paved:
         residual_parts = build_residual_paved_parts(
             kp_cwd,
@@ -761,14 +785,11 @@ def prepare_oom_map(
             grivation_deg=grivation,
             bbox_wgs84=bbox_wgs84,
             max_piece_m2=max_residual_m2,
-            write_shapefiles=True,
-            log=log,
         )
         if residual_parts:
             object_parts.extend(residual_parts)
-    # Louky/zeleň ze ZABAGED pod KP (mixed). Režim kp = jen KP, bílá = papír.
-    if vegetation_mode == VEGETATION_MODE_MIXED:
-        object_parts.extend(zabaged_under)
+    # Louky/zeleň ze ZABAGED + OSM 412 pod KP (hustníky z LiDARu musí zůstat vidět).
+    object_parts.extend(zabaged_under)
     aopk_pts = load_aopk_tree_points(aopk_trees)
     osm_feat = build_osm_feature_parts(
         kp_cwd,
@@ -780,9 +801,6 @@ def prepare_oom_map(
         clip_bounds=None,
         aopk_tree_points=aopk_pts or None,
         courtyard_olive=courtyard_olive,
-        include_benches=include_osm_benches,
-        include_lamps=include_osm_lamps,
-        include_playground_equipment=include_osm_playground_equipment,
     )
     osm_under: list[OomObjectPart] = []
     osm_feat_rest: list[OomObjectPart] = []
@@ -795,12 +813,17 @@ def prepare_oom_map(
         else:
             osm_feat_rest.append(part)
     object_parts.extend(osm_under)
-    # KP zeleň (+ 401 s odečtem); u kp neodečítat ZABAGED louky.
-    subtract_wkbs = collect_kp401_subtract_wkbs(
-        zabaged_clean=zabaged_clean if zabaged_clean and zabaged_clean.is_file() else None,
-        work_dir=kp_cwd,
-        subtract_zabaged_meadows=(vegetation_mode == VEGETATION_MODE_MIXED),
-    )
+    # Vegetace do OOM:
+    # – KP: KP/CHM SHP + odečet ZABAGED/OSM ploch od 401 (open_land_subtract)
+    # – bez KP: jen CHM vegetation.shp, bez ZABAGED meadow prior / subtract
+    subtract_wkbs: list[bytes] | None = None
+    if use_kp:
+        subtract_wkbs = collect_kp401_subtract_wkbs(
+            zabaged_clean=zabaged_clean
+            if zabaged_clean and zabaged_clean.is_file()
+            else None,
+            work_dir=kp_cwd,
+        ) or None
     object_parts.extend(
         build_vegetation_parts(
             kp_cwd,
@@ -809,7 +832,7 @@ def prepare_oom_map(
             ref_x=ref_x,
             ref_y=ref_y,
             grivation_deg=grivation,
-            subtract_wkbs=subtract_wkbs or None,
+            subtract_wkbs=subtract_wkbs,
         )
     )
     object_parts.extend(
@@ -823,6 +846,7 @@ def prepare_oom_map(
             interval_m=float(contour_interval_m or 5),
             formline=0,
             index_m=float(indexcontours_m) if indexcontours_m else None,
+            log=log,
         )
     )
     if include_dxf:
@@ -835,6 +859,10 @@ def prepare_oom_map(
             grivation_deg=grivation,
             cliff_symbol=cliff_symbol,
             clip_bounds=dxf_clip_bounds,
+            zabaged_clean=zabaged_clean
+            if zabaged_clean and zabaged_clean.is_file()
+            else None,
+            contour_interval_m=float(contour_interval_m or 5),
         )
         if dxf_part:
             object_parts.append(dxf_part)
@@ -905,25 +933,10 @@ def build_oom_zip(
     include_dxf: bool = True,
     include_cliffs: bool = True,
     ruian_buildings: Path | None = None,
-    aopk_trees: Path | None = None,
 ) -> Path:
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
     if dest_zip.exists():
         dest_zip.unlink()
-
-    # Ostatní pásma na disk dřív než uzitecne (kopíruje je).
-    if zabaged_clean and zabaged_clean.is_file():
-        from app.pipeline.crs_5514 import write_prj
-
-        band_dir = kp_cwd / "_ostatni_bands"
-        for shp in _write_ostatni_band_shapefiles(zabaged_clean, band_dir):
-            write_prj(shp)
-
-    prepare_uzitecne_dir(
-        kp_cwd,
-        zabaged_clean=zabaged_clean,
-        aopk_trees=aopk_trees,
-    )
 
     with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("CO_JE_PODKLADARNA.txt", ZIP_ABOUT_TXT)
@@ -942,6 +955,13 @@ def build_oom_zip(
         for name in ("pullautus_depr.png", "pullautus_depr.pgw"):
             if include_png:
                 _write_if_exists(zf, kp_cwd / name, f"kp/{name}")
+        # Materiálový OOM ZIP: žádné PNG náhledy mapy (ani Pillow, ani Mapper).
+        # Georef PNG+PGW jdou samostatným ZIP / API „Stáhnout georef náhledy“.
+        # ČÚZK references/ níže zůstávají (šablony, ne preview mapy).
+        shade_dir = kp_cwd / "shade"
+        if include_png and shade_dir.is_dir():
+            for name in ("hillshade.png", "hillshade.pgw"):
+                _write_if_exists(zf, shade_dir / name, f"preview/{name}")
         if reference_dir and reference_dir.is_dir():
             for png in sorted(reference_dir.glob("*.png")):
                 zf.write(png, f"references/{png.name}")
@@ -950,10 +970,16 @@ def build_oom_zip(
                     zf.write(pgw, f"references/{pgw.name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
+            # Jediná pravda vrstevnic = GDAL SHP; KP out2 ne do base/.
             for zip_name, src in sorted(
-                collect_dxf_for_zip(temp, include_cliffs=include_cliffs).items()
+                collect_dxf_for_zip(
+                    temp,
+                    include_cliffs=include_cliffs,
+                    include_contours=False,
+                ).items()
             ):
                 zf.write(src, f"base/{zip_name}")
+            # Archiv KP kontur vypnut – KP runtime odstraněn.
         contours_dir = kp_cwd / "contours"
         if contours_dir.is_dir():
             for path in sorted(contours_dir.iterdir()):
@@ -964,13 +990,16 @@ def build_oom_zip(
                     ".prj",
                     ".cpg",
                 }:
-                    # Odlišit od KP DXF (contours_kp.dxf).
+                    # Jediná sada vrstevnic ve výstupu (GDAL z DMR).
                     stem = path.stem.lower()
                     if stem == "contours":
                         arc = f"base/contours_gdal{path.suffix.lower()}"
                     else:
                         arc = f"base/{path.name}"
                     zf.write(path, arc)
+            meta_json = contours_dir / "contour_meta.json"
+            if meta_json.is_file():
+                zf.write(meta_json, "base/contour_meta.json")
         vege_dir = kp_cwd / "vegetation"
         if vege_dir.is_dir():
             for path in sorted(vege_dir.iterdir()):
@@ -1030,6 +1059,7 @@ def build_oom_zip(
             _add_shapefiles_from_zip(zf, osm_kp, "osm")
         if zabaged_clean and zabaged_clean.is_file():
             from app.pipeline.fetch_zabaged import OSTATNI_LAYER_STEM
+            from app.pipeline.crs_5514 import write_prj
 
             # Monolitickou Ostatní rozdělíme do pásem; prázdná pásma přeskočíme.
             _add_shapefiles_from_zip(
@@ -1039,8 +1069,9 @@ def build_oom_zip(
                 exclude_layers={OSTATNI_LAYER_STEM},
             )
             band_dir = kp_cwd / "_ostatni_bands"
-            if band_dir.is_dir():
-                for side in sorted(band_dir.iterdir()):
+            for shp in _write_ostatni_band_shapefiles(zabaged_clean, band_dir):
+                write_prj(shp)
+                for side in shp.parent.glob(shp.stem + ".*"):
                     if side.suffix.lower() in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
                         zf.write(side, f"zabaged/{side.name}")
             if include_zabaged_archive:
@@ -1059,6 +1090,13 @@ def build_oom_zip(
                         ".cpg",
                     }:
                         zf.write(path, f"zabaged/{path.name}")
+        # Vegetace / srázy / skály: použité vs vyhozené (prohlížení filtrů).
+        from app.pipeline.uzitecne_vectors import (
+            add_uzitecne_to_zip,
+            finalize_uzitecne_vectors,
+        )
+
+        finalize_uzitecne_vectors(kp_cwd)
         add_uzitecne_to_zip(zf, kp_cwd)
 
     return dest_zip

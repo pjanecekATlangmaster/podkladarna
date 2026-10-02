@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("test", "up", "down", "run", "smoke", "e2e", "e2e-upload", "all", "logs")]
+    [ValidateSet("test", "up", "down", "run", "run-reload", "smoke", "e2e", "e2e-upload", "all", "logs")]
     [string]$Action = "test"
 )
 
@@ -11,12 +11,59 @@ function Ensure-DevDeps {
     python -m pip install -q -r requirements.txt -r requirements-dev.txt
 }
 
+function Ensure-QgisGisEnv {
+    # QGIS ogr2ogr must not pick pip pyproj's older proj.db (EPSG:5514 fails).
+    $candidates = @(
+        $env:OSGEO4W_ROOT,
+        "C:\QGIS",
+        "C:\OSGeo4W",
+        "C:\OSGeo4W64"
+    ) | Where-Object { $_ }
+    foreach ($cand in $candidates) {
+        $projDir = Join-Path $cand "share\proj"
+        $binDir = Join-Path $cand "bin"
+        if (-not (Test-Path (Join-Path $projDir "proj.db"))) { continue }
+        $env:OSGEO4W_ROOT = $cand
+        $env:PROJ_DATA = $projDir
+        $env:PROJ_LIB = $projDir
+        if ((Test-Path $binDir) -and ($env:PATH -notmatch [regex]::Escape($binDir))) {
+            $env:PATH = $env:PATH + [IO.Path]::PathSeparator + $binDir
+        }
+        return
+    }
+}
+
+Ensure-QgisGisEnv
+
+# Načti .env (SMTP / PUBLIC_BASE_URL) do procesu – stejná logika jako app.settings._load_dotenv.
+$EnvFile = Join-Path $Root ".env"
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#") -or ($line -notmatch "=")) { return }
+        $key, $val = $line.Split("=", 2)
+        $key = $key.Trim()
+        $val = $val.Trim().Trim('"').Trim("'")
+        if ($key -and -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($key, "Process"))) {
+            return
+        }
+        if ($key) { Set-Item -Path "Env:$key" -Value $val }
+    }
+}
+
 switch ($Action) {
     "test" {
         Ensure-DevDeps
         python -m pytest tests/ -v
     }
     "run" {
+        # Bez --reload: úpravy souborů / agent / pytest jinak zabijí běžící job.
+        Ensure-QgisGisEnv
+        $env:PODKLADARNA_DATA = Join-Path $Root "data"
+        python -m uvicorn app.main:app --host 127.0.0.1 --port 8672
+    }
+    "run-reload" {
+        Ensure-QgisGisEnv
         $env:PODKLADARNA_DATA = Join-Path $Root "data"
         python -m uvicorn app.main:app --host 127.0.0.1 --port 8672 --reload
     }

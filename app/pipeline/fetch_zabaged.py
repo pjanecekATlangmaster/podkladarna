@@ -13,6 +13,7 @@ import yaml
 from app import settings
 from app.download_cache import is_fresh, read_meta, write_meta, zabaged_cache_dir
 from app.pipeline.crs_5514 import write_prj
+from app.pipeline.prepare_lidar import log_step
 from app.pipeline.fetch_openzu import (
     DOWNLOAD_TIMEOUT_S,
     FetchError,
@@ -66,18 +67,24 @@ def _ags_config() -> dict:
 def fetch_zabaged_for_bbox(
     bbox: tuple[float, float, float, float],
     log: callable | None = None,
+    *,
+    force_refresh: bool = False,
 ) -> Path:
     """Stáhne ZABAGED pro WGS84 bbox (+ VECTOR_FETCH_BUFFER_M) do sdílené cache."""
     cfg_path = settings.CONFIG_DIR / "zabaged_ags.yaml"
     fetch_bbox = expand_bbox_wgs84(bbox, VECTOR_FETCH_BUFFER_M)
     cache_dir = zabaged_cache_dir(fetch_bbox, cfg_path)
     dest_zip = cache_dir / "Zabaged_ags.zip"
-    if is_fresh(cache_dir, dest_zip, settings.ZABAGED_CACHE_MAX_AGE_DAYS, min_size=500):
+    if not force_refresh and is_fresh(
+        cache_dir, dest_zip, settings.ZABAGED_CACHE_MAX_AGE_DAYS, min_size=500
+    ):
         if log:
             meta = read_meta(cache_dir) or {}
             age = (meta.get("downloaded_at") or "?")[:10]
             log(f"ZABAGED cache ({cache_dir.name}, staženo {age})")
         return dest_zip
+    if force_refresh and log:
+        log("Force refresh: ZABAGED cache se přegeneruje")
 
     ogr2ogr = which_tool("ogr2ogr")
     if not ogr2ogr:
@@ -99,6 +106,7 @@ def fetch_zabaged_for_bbox(
         shutil.rmtree(stage)
     stage.mkdir(parents=True)
 
+    log_step(log, "Stahuji ZABAGED a převádím ho na shapefile (polohopis pro mapu)")
     kept = 0
     try:
         for name, layer_id in layers.items():

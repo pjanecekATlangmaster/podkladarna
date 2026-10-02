@@ -351,14 +351,48 @@ legend {
   height: 510px;
   width: 100%;
   max-width: 100%;
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   border: 1px solid var(--border);
-  margin: 0.5rem 0;
+  border-bottom: none;
+  margin: 0.5rem 0 0;
 }
 
 #bbox-map .leaflet-container {
   width: 100% !important;
   max-width: 100%;
+}
+
+.map-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 12px;
+  margin: 0 0 0.5rem;
+  border: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  background: #f0f2ec;
+  cursor: ns-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.map-resize-handle:hover,
+.map-resize-handle.is-dragging {
+  background: #e6ebe0;
+}
+
+.map-resize-grip {
+  display: block;
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background: #b8c0ae;
+}
+
+.map-resize-handle:hover .map-resize-grip,
+.map-resize-handle.is-dragging .map-resize-grip {
+  background: var(--muted);
 }
 
 .sheet-info {
@@ -394,6 +428,17 @@ legend {
 
 #submit-btn {
   margin-top: 0.5rem;
+}
+
+#submit-btn.generate-started,
+#submit-btn.generate-started:hover,
+#submit-btn.generate-started:disabled {
+  background: #f0b4b4;
+  border-color: #e09090;
+  color: #6b1f1f;
+  cursor: not-allowed;
+  filter: none;
+  opacity: 1;
 }
 
 .btn.primary:hover { filter: brightness(1.05); }
@@ -432,6 +477,21 @@ legend {
 
 .checkbox-row input {
   margin-top: 0.2rem;
+}
+
+.private-email-wrap {
+  margin: 0.35rem 0 1rem 1.5rem;
+}
+
+.private-email-wrap label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+.private-email-wrap input[type="email"] {
+  max-width: 22rem;
 }
 
 .advanced-options {
