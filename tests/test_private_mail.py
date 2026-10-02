@@ -307,7 +307,7 @@ def test_retry_missed_private_mails(tmp_path, monkeypatch):
         "CHYBA: PUBLIC_BASE_URL není nastavené – nelze sestavit odkaz v e-mailu.",
     )
     out = tmp_path / "jobs" / job["id"] / "output"
-    out.mkdir(parents=True)
+    out.mkdir(parents=True, exist_ok=True)
     (out / "podkladarna_output.zip").write_bytes(b"PK\x05\x06" + b"\x00" * 18)
 
     sent: list[tuple[str, str, str]] = []
