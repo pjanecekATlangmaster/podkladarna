@@ -597,6 +597,7 @@ def test_licence_page(client):
     assert "Leaflet" in html
     assert "OpenStreetMap" in html
     assert "Petr Janeček" in html
+    assert f"/static/style.css?v={APP_VERSION}" in html
 
 
 def test_download_oom_redirects_to_main_zip(client, tmp_path, monkeypatch):

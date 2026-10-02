@@ -789,6 +789,12 @@ legend {
 
 .licence-page li { margin: 0.35rem 0; }
 
+/* <code> jinak vypadá menší než okolní text (.omap, pullauta…). */
+.licence-page code {
+  font-size: 1em;
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+}
+
 footer {
   text-align: center;
   padding: 1rem;
