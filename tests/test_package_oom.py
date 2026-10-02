@@ -246,12 +246,15 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "osm/README.txt" in names
     assert "osm/geojson/features.geojson" not in names
     assert "osm/readme.txt" not in names
+    assert "uzitecne/README.txt" in names
     readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
     assert "zabaged/" in readme
     assert "vectors/" not in readme
+    assert "uzitecne" in readme
     about = zipfile.ZipFile(dest).read("CO_JE_PODKLADARNA.txt").decode("utf-8")
     assert "zabaged/" in about
     assert "vectors/" not in about
+    assert "uzitecne" in about
     assert "Petr Janeček" in about
     assert "janecek@datais.cz" in about
     assert "733 575 541" in about

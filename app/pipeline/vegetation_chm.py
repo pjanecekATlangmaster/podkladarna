@@ -337,6 +337,7 @@ def _simplify_vegetation_shp(
     from app.pipeline.crs_5514 import write_prj
 
     kept: list[tuple[int, str, object]] = []
+    discarded: list[tuple[int, str, object]] = []
 
     try:
         from shapely import from_wkb
@@ -354,6 +355,7 @@ def _simplify_vegetation_shp(
             if simplified is None or simplified.is_empty:
                 continue
             if float(simplified.area) < _min_area_for_code(code):
+                discarded.append((cls, code, simplified))
                 continue
             kept.append((cls, code, simplified))
     except Exception as exc:
@@ -411,6 +413,18 @@ def _simplify_vegetation_shp(
 
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
+
+    # Zahozené min-size polygony pro uzitecne/vyhozene (prohlížení filtrů).
+    try:
+        from app.pipeline.uzitecne_vectors import write_vegetation_discarded_shp
+
+        write_vegetation_discarded_shp(
+            dest_shp.parent / "vyhozene_vegetace.shp",
+            discarded,
+            reason="min_plocha",
+        )
+    except Exception:
+        pass
 
     writer = shapefile.Writer(str(dest_shp), shapeType=shapefile.POLYGON)
     writer.field("cls", "N", size=10)

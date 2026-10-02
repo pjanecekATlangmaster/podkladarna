@@ -800,6 +800,20 @@ def _package_output(
                 for path in refs_src.glob("*"):
                     if path.is_file() and path.suffix.lower() in {".png", ".pgw"}:
                         shutil.copy2(path, refs_dst / path.name)
+        # Vegetace / srázy / skály (použité vs vyhozené) – stejné jako v ZIPu.
+        try:
+            from app.pipeline.uzitecne_vectors import (
+                copy_uzitecne_to_output,
+                finalize_uzitecne_vectors,
+            )
+
+            finalize_uzitecne_vectors(kp_cwd, log=log)
+            n_uz = copy_uzitecne_to_output(kp_cwd, output_dir)
+            if n_uz and log:
+                log(f"Výstup: uzitecne/ ({n_uz} souborů)")
+        except Exception as exc:
+            if log:
+                log(f"uzitecne/: přeskočeno ({exc})")
 
     if want_zip and zip_path.is_file():
         log(f"Výstup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")

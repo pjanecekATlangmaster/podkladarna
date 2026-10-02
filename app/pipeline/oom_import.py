@@ -1489,9 +1489,16 @@ def build_dxf_object_part(
     # Nejdřív sloučit po kódech, pak společné filtry (budovy, překryv skála×104).
     pending_earth: list[list[tuple[float, float]]] = []
     pending_rocks: list[list[tuple[float, float]]] = []
+    discarded_earth: list[tuple[list[tuple[float, float]], str]] = []
+    discarded_rocks: list[tuple[list[tuple[float, float]], str]] = []
     rock_area_code = resolve_rock_area_code(preset_id, scale) or KP_CLIFF_DENSE_CODE
     if cliff_symbol == KP_CLIFF_SYMBOL_206:
         rock_area_code = KP_CLIFF_206_CODE
+
+    from app.pipeline.uzitecne_vectors import (
+        dropped_by_identity,
+        write_cliff_inspection_vectors,
+    )
 
     for cliff_line_code, cliff_ticks in cliff_groups.items():
         if not cliff_ticks or cliff_symbol == KP_CLIFF_OFF:
@@ -1512,11 +1519,17 @@ def build_dxf_object_part(
         raw_lines = merged.lines
         if is_earth:
             clean_lines = [pts for pts in raw_lines if polyline_is_simple_bank(pts)]
+            for pts in dropped_by_identity(raw_lines, clean_lines):
+                discarded_earth.append((pts, "zamotany"))
             earth_tangled += len(raw_lines) - len(clean_lines)
             raw_lines = clean_lines
         # KP výšku srázu nezapisuje, tak si ji doměříme z DEM a nízké schody
         # zahodíme. Bez DEM projde všechno – není podle čeho rozhodovat.
+        before_drop = list(raw_lines)
         cliff_lines, drop_stats = filter_by_drop(raw_lines, cliff_dem)
+        if is_earth:
+            for pts in dropped_by_identity(before_drop, cliff_lines):
+                discarded_earth.append((pts, "nizky_schod"))
         drop_dropped += int(drop_stats.get("zahozeno") or 0)
         drop_unmeasured += int(drop_stats.get("nezmereno") or 0)
         if is_earth and cliff_dem is not None:
@@ -1525,6 +1538,7 @@ def build_dxf_object_part(
                 pit = likely_closed_depression(pts, cliff_dem)
                 if pit is True:
                     earth_pit_skip += 1
+                    discarded_earth.append((pts, "deprese"))
                     continue
                 kept_earth.append(pts)
             cliff_lines = kept_earth
@@ -1537,6 +1551,7 @@ def build_dxf_object_part(
                     pit = rock_ring_is_closed_depression(ring, cliff_dem)
                     if pit is True:
                         rock_depression_skip += 1
+                        discarded_rocks.append((ring, "deprese"))
                         continue
                     kept_rocks.append(ring)
                 pending_rocks.extend(kept_rocks)
@@ -1549,29 +1564,57 @@ def build_dxf_object_part(
             zabaged_clean=zabaged_clean, work_dir=kp_cwd
         )
     if bldg:
+        before_e, before_r = list(pending_earth), list(pending_rocks)
         pending_earth, pending_rocks, building_drop = filter_cliffs_crossing_buildings(
             pending_earth, pending_rocks, bldg
         )
+        for pts in dropped_by_identity(before_e, pending_earth):
+            discarded_earth.append((pts, "budova"))
+        for ring in dropped_by_identity(before_r, pending_rocks):
+            discarded_rocks.append((ring, "budova"))
     if pending_rocks and pending_earth:
+        before_r = list(pending_rocks)
         pending_rocks, pending_earth, overlap_drop = resolve_rock_scarp_overlaps(
             pending_rocks, pending_earth
         )
+        for ring in dropped_by_identity(before_r, pending_rocks):
+            discarded_rocks.append((ring, "prekryv_104"))
     if pending_rocks:
         blocker_polys, blocker_lines = _load_rock_occupancy_blockers(
             zabaged_clean=zabaged_clean, work_dir=kp_cwd
         )
         if blocker_polys or blocker_lines:
+            before_r = list(pending_rocks)
             pending_rocks, occupancy_drop = filter_rocks_overlapping_blockers(
                 pending_rocks, blocker_polys, blocker_lines
             )
+            for ring in dropped_by_identity(before_r, pending_rocks):
+                discarded_rocks.append((ring, "occupancy"))
     # Husté vrstevnice (strmý shluk) → skála i 104 pryč; DEM už máme pro drop.
     interval = float(contour_interval_m) if contour_interval_m else 5.0
     dense_filter_ran = False
     if cliff_dem is not None and (pending_earth or pending_rocks):
+        before_e, before_r = list(pending_earth), list(pending_rocks)
         pending_earth, pending_rocks, dense_contour_drop = filter_by_dense_contours(
             pending_earth, pending_rocks, cliff_dem, interval_m=interval
         )
+        for pts in dropped_by_identity(before_e, pending_earth):
+            discarded_earth.append((pts, "huste_vrstevnice"))
+        for ring in dropped_by_identity(before_r, pending_rocks):
+            discarded_rocks.append((ring, "huste_vrstevnice"))
         dense_filter_ran = True
+
+    try:
+        write_cliff_inspection_vectors(
+            kp_cwd,
+            used_earth=pending_earth,
+            used_rocks=pending_rocks,
+            discarded_earth=discarded_earth,
+            discarded_rocks=discarded_rocks,
+            rock_code=rock_area_code,
+        )
+    except Exception:
+        pass
 
     if pending_earth:
         line_index = symbol_index_for_code(preset_id, scale, "104")

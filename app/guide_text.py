@@ -88,6 +88,7 @@ Co je uvnitř
 - *-sprint/les/mtbo.omap … podle názvu projektu a měřítka (cesty OSM), otevřete v OpenOrienteering Mapper (OOM)
 - kp/                  … PNG náhledy Karttapullautin (zeleň + deprese), pokud job KP použil
 - base/                … vrstevnice GDAL (contours_gdal.*), případně vegetace/srázy/knolly
+- uzitecne/             … vegetace / srázy 104 / skály: pouzite/ vs vyhozene/ (po filtrech)
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, …)
 - zabaged/             … polohopis ZABAGED (shapefile včetně budov + RUIAN_budovy.shp; výchozí budovy v .omap jsou z OSM)
                        … Ostatní plocha v sídlech jako OstatniPlochaVSidlech_mensi / _stredni / _velke (podle velikosti; prázdné pásmo chybí)

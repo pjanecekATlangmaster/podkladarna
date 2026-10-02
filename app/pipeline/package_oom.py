@@ -513,6 +513,7 @@ def oom_readme(meta: dict) -> str:
             "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
             "   KP PNG náhledy ve složce kp/; ve složce base/: vrstevnice GDAL\n"
             "   (contours_gdal.* = jediná pravda, z DMR), vegetace, srázy, knolly.\n"
+            "   uzitecne/pouzite|vyhozene: vegetace / srázy 104 / skály po filtrech.\n"
             "   Volitelný archiv KP vrstevnic: archive/contours_kp.dxf (ne do OOM).\n\n"
         )
         relief_line = "Reliéf a vegetace (náhled): Karttapullautin (GPL-3.0).\n\n"
@@ -525,6 +526,8 @@ def oom_readme(meta: dict) -> str:
             "   Ve složce base/: vrstevnice GDAL (contours_gdal.* = jediná pravda, jen z DMR), "
             "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
             "srázy zem (104) / skála (201) a volitelné knolly (109).\n"
+            "   uzitecne/pouzite vs uzitecne/vyhozene: stejné vrstvy po filtrech "
+            "(min-size, occupancy, husté vrstevnice, …) – SHP k prohlížení.\n"
             "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
             "   Georef náhledy mapy (Mapper @ 600 DPI + PGW) nejsou v tomto ZIPu –\n"
             "   stáhněte je zvlášť z webu („Stáhnout georef náhledy“).\n"
@@ -1108,5 +1111,13 @@ def build_oom_zip(
                         ".cpg",
                     }:
                         zf.write(path, f"zabaged/{path.name}")
+        # Vegetace / srázy / skály: použité vs vyhozené (prohlížení filtrů).
+        from app.pipeline.uzitecne_vectors import (
+            add_uzitecne_to_zip,
+            finalize_uzitecne_vectors,
+        )
+
+        finalize_uzitecne_vectors(kp_cwd)
+        add_uzitecne_to_zip(zf, kp_cwd)
 
     return dest_zip
