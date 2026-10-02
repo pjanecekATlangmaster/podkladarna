@@ -1,4 +1,4 @@
-"""Náhled PNG z .omap – vestavěný render a volitelný Mapper CLI."""
+"""Náhled PNG z .omap – Pillow (web) a Mapper CLI (georef)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+import pytest
 from PIL import Image
 
 from app.pipeline.oom_preview import (
@@ -19,6 +20,26 @@ from app.pipeline.oom_preview import (
     undo_grivation_xy,
     write_job_oom_preview,
 )
+
+
+def _install_fake_mapper(monkeypatch, tmp_path: Path, *, rgb=(255, 0, 0)) -> Path:
+    """Fake Mapper CLI: zapíše PNG na ``-o`` / ``{png}``."""
+    script = tmp_path / "fake_mapper.py"
+    r, g, b = rgb
+    script.write_text(
+        "import sys\n"
+        "from PIL import Image\n"
+        "args = sys.argv[1:]\n"
+        "out = args[args.index('-o') + 1] if '-o' in args else args[0]\n"
+        f"Image.new('RGB', (64, 48), ({r}, {g}, {b})).save(out, format='PNG')\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PODKLADARNA_MAPPER", sys.executable)
+    monkeypatch.setenv(
+        "PODKLADARNA_MAPPER_EXPORT",
+        f'"{sys.executable}" "{script}" -o "{{png}}" "{{omap}}" --dpi {{dpi}}',
+    )
+    return script
 
 _MAP = """<?xml version="1.0" encoding="UTF-8"?>
 <map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
@@ -469,24 +490,47 @@ def test_hole_stays_paper_white(tmp_path: Path):
     assert image.getpixel((24, 24))[1] > 200
 
 
-def test_mapper_cli_template_overrides_xml(tmp_path: Path, monkeypatch):
+def test_mapper_cli_used_for_georef_not_web(tmp_path: Path, monkeypatch):
+    """Georef → Mapper CLI; web (default) zůstane Pillow i s MAPPER_EXPORT."""
     omap = tmp_path / "mini.omap"
     omap.write_text(_MAP, encoding="utf-8")
     script = tmp_path / "fake_mapper.py"
     script.write_text(
         "import sys\n"
         "from PIL import Image\n"
-        "Image.new('RGB', (8, 8), (255, 0, 0)).save(sys.argv[1], format='PNG')\n",
+        "out = sys.argv[sys.argv.index('-o') + 1] if '-o' in sys.argv else sys.argv[1]\n"
+        "Image.new('RGB', (8, 8), (255, 0, 0)).save(out, format='PNG')\n",
         encoding="utf-8",
     )
+    monkeypatch.setenv("PODKLADARNA_MAPPER", sys.executable)
     monkeypatch.setenv(
         "PODKLADARNA_MAPPER_EXPORT",
-        f'"{sys.executable}" "{script}" "{{png}}" "{{omap}}"',
+        f'"{sys.executable}" "{script}" -o "{{png}}" "{{omap}}" --dpi {{dpi}}',
     )
-    png = tmp_path / "out.png"
-    summary = render_omap_to_png(omap, png)
-    assert summary == "mapper-cli"
-    assert Image.open(png).getpixel((0, 0)) == (255, 0, 0)
+    georef = tmp_path / "geo.png"
+    summary = render_omap_to_png(
+        omap, georef, write_pgw=True, write_geotiff=False, engine="mapper"
+    )
+    assert summary.startswith("mapper-cli")
+    assert Image.open(georef).getpixel((0, 0)) == (255, 0, 0)
+    assert georef.with_suffix(".pgw").is_file()
+
+    web = tmp_path / "web.png"
+    web_summary = render_omap_to_png(omap, web, write_pgw=False)
+    assert web_summary.startswith("xml ")
+    assert Image.open(web).getpixel((0, 0)) != (255, 0, 0)
+
+
+def test_georef_mapper_missing_raises(tmp_path: Path, monkeypatch):
+    from app.pipeline.oom_preview import MapperExportError
+
+    monkeypatch.delenv("PODKLADARNA_MAPPER_EXPORT", raising=False)
+    omap = tmp_path / "mini.omap"
+    omap.write_text(_MAP, encoding="utf-8")
+    with pytest.raises(MapperExportError):
+        render_omap_to_png(
+            omap, tmp_path / "out.png", write_pgw=True, engine="mapper"
+        )
 
 
 def test_export_argv_keeps_spaces(tmp_path: Path, monkeypatch):
@@ -496,15 +540,26 @@ def test_export_argv_keeps_spaces(tmp_path: Path, monkeypatch):
     exe.write_bytes(b"")
     monkeypatch.setenv(
         "PODKLADARNA_MAPPER_EXPORT",
-        '"{mapper}" --export "{png}" "{omap}"',
+        '"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}',
     )
-    argv = mapper_export_argv(tmp_path / "a b.omap", tmp_path / "out png.png")
+    argv = mapper_export_argv(tmp_path / "a b.omap", tmp_path / "out png.png", dpi=600)
     assert argv is not None
     assert argv[0] == str(exe)
-    assert argv[1:] == ["--export", str(tmp_path / "out png.png"), str(tmp_path / "a b.omap")]
+    assert argv[1:] == [
+        "--cli",
+        "export",
+        "--full-map",
+        "-i",
+        str(tmp_path / "a b.omap"),
+        "-o",
+        str(tmp_path / "out png.png"),
+        "--dpi",
+        "600",
+    ]
 
 
-def test_write_job_preview_copies_named_png(tmp_path: Path):
+def test_write_job_preview_copies_named_png(tmp_path: Path, monkeypatch):
+    _install_fake_mapper(monkeypatch, tmp_path)
     omap = tmp_path / "out" / "Les-sprint.omap"
     omap.parent.mkdir()
     omap.write_text(_MAP_GEOREF, encoding="utf-8")
@@ -525,7 +580,7 @@ def test_write_job_preview_copies_named_png(tmp_path: Path):
     named = tmp_path / "out" / "preview" / "oom_preview.png"
     assert named.is_file()
     assert named.read_bytes() == dest.read_bytes()
-    # Všechny varianty + PGW.
+    # Všechny varianty + PGW (Mapper fake).
     for stem in ("Les-sprint", "Les-mtbo"):
         png = tmp_path / "out" / "preview" / f"{stem}.png"
         pgw = png.with_suffix(".pgw")
@@ -536,6 +591,7 @@ def test_write_job_preview_copies_named_png(tmp_path: Path):
         assert vals[3] < 0  # pixel_y (north-up)
         assert abs(vals[1]) < 1e-9 and abs(vals[2]) < 1e-9
     assert any("Les-sprint" in line for line in lines)
+    assert any("Mapper" in line for line in lines)
 
 
 def test_write_job_skips_when_kp(tmp_path: Path):
@@ -612,7 +668,14 @@ def test_pgw_matches_projected_aoi_corners(tmp_path: Path):
     omap = tmp_path / "geo.omap"
     omap.write_text(_MAP_GEOREF, encoding="utf-8")
     png = tmp_path / "geo.png"
-    render_omap_to_png(omap, png, write_pgw=True, write_geotiff=False, max_side=200)
+    render_omap_to_png(
+        omap,
+        png,
+        write_pgw=True,
+        write_geotiff=False,
+        max_side=200,
+        engine="pillow",
+    )
     pgw_path = png.with_suffix(".pgw")
     assert pgw_path.is_file()
     assert png.with_suffix(".prj").is_file()
@@ -708,7 +771,13 @@ def test_georef_pgw_keeps_grivation_rotation(tmp_path: Path):
     )
     png = tmp_path / "griv-geo.png"
     render_omap_to_png(
-        omap, png, write_pgw=True, write_geotiff=False, max_side=200, undo_grivation=False
+        omap,
+        png,
+        write_pgw=True,
+        write_geotiff=False,
+        max_side=200,
+        undo_grivation=False,
+        engine="pillow",
     )
     pgw = read_pgw(png.with_suffix(".pgw"))
     # S grivací musí být nenulová rotace v world file.
@@ -732,10 +801,11 @@ def test_georef_pgw_keeps_grivation_rotation(tmp_path: Path):
     assert abs(exp_x - ref_x) > 1.0 or abs(exp_y - ref_y) > 1.0
 
 
-def test_write_job_splits_georef_and_web(tmp_path: Path):
+def test_write_job_splits_georef_and_web(tmp_path: Path, monkeypatch):
     """Georef PNG ≠ web preview, když .omap má nenulovou grivaci."""
     import math
 
+    _install_fake_mapper(monkeypatch, tmp_path, rgb=(200, 0, 0))
     g = 12.52
     rad = math.radians(g)
     grid = [(-5000, -4000), (5000, -4000), (5000, 4000), (-5000, 4000), (-5000, -4000)]
@@ -803,9 +873,10 @@ def test_write_job_splits_georef_and_web(tmp_path: Path):
     assert abs(pgw.rot_row) > 1e-6 or abs(pgw.rot_col) > 1e-6
 
 
-def test_build_georef_previews_zip(tmp_path: Path):
+def test_build_georef_previews_zip(tmp_path: Path, monkeypatch):
     from app.pipeline.oom_preview import build_georef_previews_zip
 
+    _install_fake_mapper(monkeypatch, tmp_path)
     omap_les = tmp_path / "out" / "Park-les.omap"
     omap_mtbo = tmp_path / "out" / "Park-mtbo.omap"
     omap_les.parent.mkdir()

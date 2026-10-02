@@ -51,6 +51,7 @@ from app.settings import (
     MAX_QUEUE_SIZE,
     APP_VERSION,
     PRIVATE_JOB_RETENTION_HOURS,
+    USE_KP_DEFAULT,
 )
 from app.tiles import TileError, fetch_tile
 from app.tool_env import log_ignored_gdal_plugins, tool_status
@@ -590,8 +591,8 @@ async def api_create_job(request: Request):
             )
         options["private"] = True
         options["notify_email"] = notify_email
-    # use_kp: UI checkbox (default checked). Absent → DEFAULT_OPTIONS (True).
-    # Explicit "0"/"false" from FormData.set allows smoke test bez KP.
+    # use_kp: UI checkbox (default vypnuto = bez-KP). Absent → DEFAULT_OPTIONS.
+    # Explicit "1"/"true" zapne KP hybrid.
     use_kp_raw = _form_str(form, "use_kp").strip().lower()
     if use_kp_raw in {"0", "false", "no", "off"}:
         options["use_kp"] = False
@@ -654,7 +655,7 @@ async def api_create_job(request: Request):
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"
         f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
-        f"KP={'ano' if options.get('use_kp', True) else 'ne'}, "
+        f"KP={'ano' if options.get('use_kp', USE_KP_DEFAULT) else 'ne'}, "
         f"force_refresh={'ano' if options.get('force_refresh') else 'ne'}, "
         f"privátní={'ano' if options.get('private') else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"

@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.22.0"
+APP_VERSION = "1.23.0"
 
 apply_local_gis_env()
 
@@ -82,9 +82,9 @@ PRIVATE_JOB_RETENTION_HOURS = int(
     os.environ.get("PRIVATE_JOB_RETENTION_HOURS", "48")
 )
 
-# Hybrid: Karttapullautin stále běží (default). Vypnutí = bez-KP cesta (vlny 3+).
-# Env PODKLADARNA_USE_KP=0 přepíše default v options, pokud job nepošle vlastní flag.
-USE_KP_DEFAULT = os.environ.get("PODKLADARNA_USE_KP", "1").lower() in (
+# Default = bez-KP (vegetace / DMR5G). KP zůstává volitelný hybrid (checkbox).
+# Env PODKLADARNA_USE_KP=1 přepíše default, pokud job nepošle vlastní flag.
+USE_KP_DEFAULT = os.environ.get("PODKLADARNA_USE_KP", "0").lower() in (
     "1",
     "true",
     "yes",
@@ -103,7 +103,7 @@ DEFAULT_OPTIONS = {
     "savetempfolders": False,  # budoucí expert režim / API iterace
     # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
     "force_refresh": False,
-    # Krátký hybrid: KP optional. Default zapnuto, ať stávající testy/regress drží.
+    # Default bez KP; checkbox / use_kp=1 zapne hybrid s Karttapullautinem.
     "use_kp": USE_KP_DEFAULT,
     # Bez KP / KP: auto=skála 201 vs zem 104; rock_face→201(+plošná 201.2/206);
     # symbol_206=206 plocha; earth_bank=104; off=přeskočit.

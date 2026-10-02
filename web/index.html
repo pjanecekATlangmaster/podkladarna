@@ -235,9 +235,9 @@
           </label>
           <p class="hint" id="output-omap-hint">
             Primární výstup je <code>.omap</code> v ZIPu.
-            S <strong>KP</strong> je PNG jen rychlý rastrový náhled (pullautus), ne finální mapa.
-            <strong>Bez KP</strong>: vegetace z hustoty LiDAR odrazů, srázy z DMR, vrstevnice jen GDAL —
-            webový náhled PNG se neskládá; ČÚZK referenční PNG v ZIPu zůstávají.
+            <strong>Bez KP</strong> (výchozí): vegetace z hustoty LiDAR odrazů, srázy z DMR, vrstevnice GDAL;
+            webový náhled je Pillow z <code>.omap</code>; georef PNG+PGW zvlášť (Mapper @ 600 DPI).
+            S <strong>KP</strong>: PNG je rychlý rastrový náhled (pullautus), ne finální mapa.
           </p>
           <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
 
@@ -248,12 +248,12 @@
           <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP.</p>
 
           <label class="checkbox-row">
-            <input type="checkbox" name="use_kp" id="use_kp" value="1" checked />
-            Karttapullautin (KP) – hybrid
+            <input type="checkbox" name="use_kp" id="use_kp" value="1" />
+            Karttapullautin (KP) – volitelný hybrid
           </label>
-          <p class="hint" id="use-kp-hint">Výchozí stav formuláře: <strong>KP zapnuto</strong> (hybrid s náhledem). Odškrtnutí (<code>use_kp=false</code>) je podporovaná cesta bez KP: hustota vegetace → srázy z DMR → vrstevnice GDAL → <code>.omap</code>/ZIP. Webový náhled PNG se neskládá a chybějící KP <code>vegetation.png</code> job neshodí.</p>
-          <button type="button" class="btn" id="preset-bez-kp">Bez KP (experimentální)</button>
-          <p class="hint" id="preset-bez-kp-hint">Tlačítko nepřepíná výchozí zaškrtnutí (to zůstává zapnuté, dokud se neschválí flip). Po kliknutí se KP odškrtne a výstup zůstane ZIP s <code>.omap</code>.</p>
+          <p class="hint" id="use-kp-hint">Výchozí je <strong>bez KP</strong>: vegetace z hustoty LiDAR odrazů, srázy z DMR 5G, vrstevnice GDAL → <code>.omap</code>/ZIP. Zaškrtněte KP jen když chcete hybrid s Karttapullautinem (PNG náhled pullautus + KP vrstvy).</p>
+          <button type="button" class="btn" id="preset-bez-kp">Bez KP (výchozí)</button>
+          <p class="hint" id="preset-bez-kp-hint">Odškrtne KP a nechá výstup ZIP s <code>.omap</code>. Stejné jako výchozí stav formuláře.</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
@@ -328,7 +328,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.22.0 ·
+      Podkladárna v1.23.0 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

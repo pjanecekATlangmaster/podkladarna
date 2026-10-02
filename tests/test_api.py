@@ -375,10 +375,10 @@ def test_create_job_use_kp_default_and_explicit(client, monkeypatch):
         "sprint_courtyard_olive": "1",
         "kp_osm_priority": "1",
     }
-    # Absent → default True (API/regres).
+    # Absent → default False (bez-KP).
     r = client.post("/api/jobs", data={**base, "name": "kp-default"})
     assert r.status_code == 200
-    assert r.json()["options"]["use_kp"] is True
+    assert r.json()["options"]["use_kp"] is False
 
     r0 = client.post("/api/jobs", data={**base, "name": "kp-off", "use_kp": "0"})
     assert r0.status_code == 200
@@ -395,9 +395,11 @@ def test_index_html(client):
     assert "Podkladárna" in r.text
     assert 'name="use_kp"' in r.text
     assert 'id="use_kp"' in r.text
-    assert 'id="use_kp" value="1" checked' in r.text
+    assert 'id="use_kp" value="1"' in r.text
+    assert 'id="use_kp" value="1" checked' not in r.text
     assert 'id="preset-bez-kp"' in r.text
-    assert "Bez KP (experimentální)" in r.text
+    assert "Bez KP (výchozí)" in r.text
+    assert "volitelný hybrid" in r.text
     assert 'value="auto" selected' in r.text
     assert 'id="include_knolls"' in r.text
     assert 'name="force_refresh"' in r.text

@@ -170,16 +170,40 @@ Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: 
 
 ## Náhled PNG z `.omap` (bez KP)
 
-Když job běží s `use_kp=false`, hillshade compose se do webu nedává. Po zápisu `.omap` pipeline uloží **georeferencované** náhledy všech disciplín (`output/preview/*-{les,mtbo,sprint}.png` + `.pgw` + `.prj`, volitelně `.tif` přes `gdal_translate`) **s grivací** (jako Mapper s magnetickým natočením – sedí v GIS). Zvlášť vyrenderuje webový `work/preview.png` / `output/preview/oom_preview.png` **bez deklinace** (srovnání). Malý ZIP jen s georef náhledy: `podkladarna_georef_previews.zip` / API `/download/georef-previews`. ČÚZK WMS reference v ZIPu zůstávají. Zapnout i při KP: `options.oom_preview=true` nebo `PODKLADARNA_OOM_PREVIEW=1`. Vypnout: `oom_preview=false` nebo `PODKLADARNA_OOM_PREVIEW=0`. GeoTIFF vypnout: `oom_geotiff=false` / `PODKLADARNA_OOM_GEOTIFF=0`.
+Když job běží s `use_kp=false` (výchozí), pipeline po zápisu `.omap` dělá dvě věci:
 
-**Výchozí render = Pillow + XML** (`app/pipeline/oom_preview.py`) – žádný Mapper v Dockeru. Stock Mapper 0.9.6 umí PNG jen z dialogu File → Export; `Mapper.exe` se proto nespouští. Volitelný CLI jen při `PODKLADARNA_MAPPER_EXPORT` (šablona příkazu s `{mapper}`, `{omap}`, `{png}`).
+1. **Web „Otevřít PNG“** – vždy **Pillow + XML** (`work/preview.png` / `output/preview/oom_preview.png`), **bez deklinace**. Rychlé; Mapper se nevolá.
+2. **Georef ZIP** – **OpenOrienteering Mapper CLI @ 600 DPI** (`--full-map`) → `output/preview/*-{les,mtbo,sprint}.png` + `.pgw` (+ volitelně `.tif`), **s grivací**. Malý ZIP: `podkladarna_georef_previews.zip` / API `/download/georef-previews`.
 
-Vestavěný náhled kreslí plochy/linie/body barvami symbolů (ne plná symbolika). Orientace: nižší map Y nahoru (OOM už má `scale(s, −s)`). **Web „Otevřít PNG“:** grivace se odrotuje (bez deklinace). **Georef PNG+PGW:** grivace zůstane; PGW může mít rotační členy. Ořez kolem fialového AOI rámu (ISOM/ISSprOM **708**, MTBO **705**); přesahy cest za rám web ořízne. Navíc: combined symboly (inline 501), čárkované cesty, okraje silnic, fousy srázů/zíd.
+**Materiálový OOM ZIP** PNG náhledy mapy **neobsahuje** (ani Pillow, ani Mapper). ČÚZK WMS `references/` zůstávají. KP `kp/pullautus*` jen když běží KP.
+
+Zapnout OOM preview i při KP: `options.oom_preview=true` / `PODKLADARNA_OOM_PREVIEW=1`. Vypnout: `oom_preview=false` / `PODKLADARNA_OOM_PREVIEW=0`. GeoTIFF: `oom_geotiff=false` / `PODKLADARNA_OOM_GEOTIFF=0`.
+
+### Mapper CLI (georef)
+
+Stock Mapper **0.9.6** headless export **neumí** (otevřel by GUI). Potřeba build s CLI (upstream PR [#2523](https://github.com/OpenOrienteering/mapper/pull/2523) / `mfbehrens/oo-mapper` větev `cli`).
+
+```powershell
+# Cesta k CLI binárce (ne stock 0.9.6, pokud nemá --cli)
+$env:PODKLADARNA_MAPPER = "C:\cesta\k\Mapper.exe"
+# Povinná šablona – bez ní se georef PNG nevyrobí (jasná chyba v logu, ne Pillow fallback)
+$env:PODKLADARNA_MAPPER_EXPORT = '"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}'
+# Volitelně timeout (s), default 600
+$env:PODKLADARNA_MAPPER_TIMEOUT = "600"
+```
+
+Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. Windows tip zatím často nemá CLI build – wiring je hotový; bez binárky georef PNG v jobu chybí, web Pillow běží dál.
+
+Vestavěný Pillow kreslí zjednodušenou symboliku. Orientace: nižší map Y nahoru. Web ořez kolem AOI (708 / 705).
 
 ```powershell
 python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 .\scripts\fetch_openorienteering_mapper.ps1
 ```
+
+### Default bez KP
+
+`USE_KP_DEFAULT` / formulář default = **bez KP**. Karttapullautin zůstává volitelný checkbox. Env `PODKLADARNA_USE_KP=1` přepíše API default, pokud job nepošle `use_kp`.
 
 ---
 
