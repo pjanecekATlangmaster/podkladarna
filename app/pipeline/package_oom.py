@@ -8,7 +8,6 @@ from pathlib import Path
 
 from app.pipeline.karttapullautin_dxf import (
     collect_dxf_for_zip,
-    collect_kp_contours_for_archive,
 )
 from app.guide_text import ZIP_ABOUT_TXT
 from app.pipeline.aopk_trees import build_aopk_tree_parts, load_aopk_tree_points
@@ -125,7 +124,7 @@ DEFAULT_CONTOUR_BY_SCALE: dict[int, float] = {
 # nechybí stub symbolu. OSM/ZABAGED/AOPK se neořezávají – radši přesahují.
 CLIP_MARGIN_M = 25.0
 # Louka / parková zeleň pod KP vegetací – jinak 401 překryje hustníky z LiDARu.
-# Bez KP (use_kp=false) se tyto vrstvy do auto .omap NEVKLÁDAJÍ – vegetace
+# Tyto ZABAGED vegetační vrstvy se do auto .omap NEVKLÁDAJÍ – vegetace
 # jde jen z CHM (náhrada KP), ZABAGED louky zůstanou ve ZIP zabaged/ ručně.
 _ZABAGED_UNDER_VEGETATION = frozenset(
     {
@@ -456,7 +455,6 @@ def oom_metadata(
     lidar_sources: dict | None = None,
 ) -> dict:
     sf = float(options.get("scalefactor", preset.get("scalefactor", 1)))
-    use_kp = bool(options.get("use_kp", True))
     meta = {
         "name": job_name,
         "app_version": APP_VERSION,
@@ -469,9 +467,9 @@ def oom_metadata(
             "contour_interval", preset.get("contour_interval")
         ),
         "formline": options.get("formline", preset.get("formline")),
-        "use_kp": use_kp,
+        "use_kp": False,
         "indicative_label": INDICATIVE_LABEL_CS,
-        "citation": citation_line(use_kp=use_kp),
+        "citation": citation_line(),
         **reference_metadata(),
     }
     if reference_layers:
@@ -490,8 +488,7 @@ def oom_readme(meta: dict) -> str:
     interval = meta.get("contour_interval_m")
     interval_txt = f"{interval} m" if interval is not None else "?"
     refs = meta.get("reference_layers") or []
-    use_kp = bool(meta.get("use_kp", True))
-    citation = meta.get("citation") or citation_line(use_kp=use_kp)
+    citation = meta.get("citation") or citation_line()
     epochs_block = format_source_epochs_readme(meta.get("lidar_sources"))
     if epochs_block:
         epochs_block = "\n" + epochs_block + "\n"
@@ -503,41 +500,26 @@ def oom_readme(meta: dict) -> str:
             + "\n".join(f"- {name}" for name in refs)
             + "\n"
         )
-    kp_steps = ""
-    if use_kp:
-        kp_steps = (
-            "2. PNG podklady (OSM, KP náhled, ortofoto, hillshade, …) zapněte dle potřeby\n"
-            "   v Šablony → Nastavení šablon (Template Setup); KP PNG náhledy jsou ve složce kp/.\n"
-            "3. Deprese: šablona „Karttapullautin deprese“.\n"
-            "4. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
-            "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
-            "   KP PNG náhledy ve složce kp/; ve složce base/: vrstevnice GDAL\n"
-            "   (contours_gdal.* = jediná pravda, z DMR), vegetace, srázy, knolly.\n"
-            "   uzitecne/pouzite|vyhozene: vegetace / srázy 104 / skály po filtrech.\n"
-            "   Volitelný archiv KP vrstevnic: archive/contours_kp.dxf (ne do OOM).\n\n"
-        )
-        relief_line = "Reliéf a vegetace (náhled): Karttapullautin (GPL-3.0).\n\n"
-    else:
-        kp_steps = (
-            "2. PNG podklady (OSM, ortofoto, hillshade, …) zapněte dle potřeby\n"
-            "   v Šablony → Nastavení šablon (Template Setup).\n"
-            "3. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
-            "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
-            "   Ve složce base/: vrstevnice GDAL (contours_gdal.* = jediná pravda, jen z DMR), "
-            "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
-            "srázy zem (104) / skála (201) a volitelné knolly (109).\n"
-            "   uzitecne/pouzite vs uzitecne/vyhozene: stejné vrstvy po filtrech "
-            "(min-size, occupancy, husté vrstevnice, …) – SHP k prohlížení.\n"
-            "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
-            "   Georef náhledy mapy (Mapper @ 600 DPI + PGW) nejsou v tomto ZIPu –\n"
-            "   stáhněte je zvlášť z webu („Stáhnout georef náhledy“).\n"
-            "   Webový PNG náhled (Pillow) také nepatří do materiálového balíčku.\n\n"
-        )
-        relief_line = (
-            "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM. "
-            "Porosty z hustoty LiDAR odrazů (záloha: výška CHM), ne ze ZABAGED luk. "
-            "Srázy: skála vs. zem podle sklonu schodu.\n\n"
-        )
+    kp_steps = (
+        "2. PNG podklady (OSM, ortofoto, hillshade, …) zapněte dle potřeby\n"
+        "   v Šablony → Nastavení šablon (Template Setup).\n"
+        "3. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
+        "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
+        "   Ve složce base/: vrstevnice GDAL (contours_gdal.* = jediná pravda, jen z DMR), "
+        "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
+        "srázy zem (104) / skála (201) a volitelné knolly (109).\n"
+        "   uzitecne/pouzite vs uzitecne/vyhozene: stejné vrstvy po filtrech "
+        "(min-size, occupancy, husté vrstevnice, …) – SHP k prohlížení.\n"
+        "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
+        "   Georef náhledy mapy (Mapper @ 600 DPI + PGW) nejsou v tomto ZIPu –\n"
+        "   stáhněte je zvlášť z webu („Stáhnout georef náhledy“).\n"
+        "   Webový PNG náhled (Pillow) také nepatří do materiálového balíčku.\n\n"
+    )
+    relief_line = (
+        "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM. "
+        "Porosty z hustoty LiDAR odrazů (záloha: výška CHM), ne ze ZABAGED luk. "
+        "Srázy: skála vs. zem podle sklonu schodu.\n\n"
+    )
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"
         "=================================================\n\n"
@@ -709,10 +691,11 @@ def prepare_oom_map(
     ostatni_as_403: bool = False,
     residual_paved: bool = False,
     max_residual_m2: float = 500.0,
-    use_kp: bool = True,
+    use_kp: bool = False,
     log=None,
 ) -> Path | None:
     del formline
+    use_kp = False  # KP runtime removed
     path_source = resolve_path_source(path_source)
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
@@ -996,11 +979,7 @@ def build_oom_zip(
                 ).items()
             ):
                 zf.write(src, f"base/{zip_name}")
-            # Archiv KP kontur jen pro A/B (ne konkurující sada vedle contours_gdal).
-            if bool(metadata.get("use_kp", True)):
-                kp_contours = collect_kp_contours_for_archive(temp)
-                if kp_contours is not None:
-                    zf.write(kp_contours, "archive/contours_kp.dxf")
+            # Archiv KP kontur vypnut – KP runtime odstraněn.
         contours_dir = kp_cwd / "contours"
         if contours_dir.is_dir():
             for path in sorted(contours_dir.iterdir()):

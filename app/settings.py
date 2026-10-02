@@ -3,11 +3,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from app.tool_env import apply_local_gis_env, resolve_pullauta
+from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.25.8"
+APP_VERSION = "1.26.0"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -49,7 +49,6 @@ CACHE_DIR = DATA_ROOT / "cache"
 DOWNLOADS_DIR = CACHE_DIR
 DB_PATH = DATA_ROOT / "podkladarna.db"
 
-PULLAUTA_BIN = resolve_pullauta()
 MAX_CONCURRENT_LIDAR = int(os.environ.get("MAX_CONCURRENT_LIDAR", "1"))
 MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "10"))
 JOB_RETENTION_HOURS = int(os.environ.get("JOB_RETENTION_HOURS", "48"))
@@ -109,15 +108,6 @@ PRIVATE_JOB_RETENTION_HOURS = int(
     os.environ.get("PRIVATE_JOB_RETENTION_HOURS", "48")
 )
 
-# Default = bez-KP (vegetace / DMR5G). KP zůstává volitelný hybrid (checkbox).
-# Env PODKLADARNA_USE_KP=1 přepíše default, pokud job nepošle vlastní flag.
-USE_KP_DEFAULT = os.environ.get("PODKLADARNA_USE_KP", "0").lower() in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
-
 DEFAULT_OPTIONS = {
     "run_vectors": True,
     "output_png": True,
@@ -130,12 +120,10 @@ DEFAULT_OPTIONS = {
     "savetempfolders": False,  # budoucí expert režim / API iterace
     # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
     "force_refresh": False,
-    # Default bez KP; checkbox / use_kp=1 zapne hybrid s Karttapullautinem.
-    "use_kp": USE_KP_DEFAULT,
-    # Bez KP / KP: auto=skála 201 vs zem 104; rock_face→201(+plošná 201.2/206);
+    # auto=skála 201 vs zem 104; rock_face→201(+plošná 201.2/206);
     # symbol_206=206 plocha; earth_bank=104; off=přeskočit.
     "kp_cliff_symbol": "auto",
-    # KP greenhigh (m) – výška vegetace pro výpočet zeleně.
+    # greenhigh (m) – výška vegetace pro hustotu LiDAR odrazů.
     "kp_vege_height": 2.0,
     # Citlivost detekce srázů: low | normal | high | very_high (výchozí low = méně srázů).
     "kp_cliff_sensitivity": "low",

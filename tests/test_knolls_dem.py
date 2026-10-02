@@ -42,12 +42,12 @@ def test_write_knoll_points_dxf(tmp_path: Path):
 
 
 def test_bez_kp_forces_zip():
-    want, note = resolve_want_zip({"use_kp": False, "output_zip": False})
+    want, note = resolve_want_zip({"output_zip": False})
     assert want is True
     assert note
     want, note = resolve_want_zip({"use_kp": True, "output_zip": False})
-    assert want is False
-    assert note is None
+    assert want is True
+    assert note is not None
     want, note = resolve_want_zip({"use_kp": False, "output_zip": True})
     assert want is True
     assert note is None

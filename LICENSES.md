@@ -12,7 +12,7 @@ PNG, `.omap`, DXF a shapefile z jobu jsou pod
 [Creative Commons Uveďte původ 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs).
 Při dalším použití mapy (tisk, závod, publikace) **uveďte zdroj**, např.:
 
-**Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok]**
+**Podklad: Podkladárna · ČÚZK · OSM, [rok]**
 
 Výstupy vznikají z cizích dat a nástrojů — ty mají vlastní podmínky níže.
 ČÚZK data jsou sama o sobě CC BY 4.0; citace ČÚZK je tedy povinná i bez
@@ -38,12 +38,12 @@ Citace na tiskových výstupech: **ČÚZK, [rok]** (rok = aktuálnost použitýc
 [Památné stromy – jedinci](https://gis.nature.cz/arcgis/rest/services/PamatneStromy/PamatneStromy/MapServer)
 (Agentura ochrany přírody a krajiny ČR). Licence CC BY 4.0; při šíření uveďte AOPK ČR.
 
-## Karttapullautin (GPL-3.0)
+## Inspirace (Karttapullautin)
 
-Orientační reliéf, vegetace, vrstevnice a srázy kreslí
-[Karttapullautin](https://github.com/karttapullautin/karttapullautin)
-([GPL-3.0](https://github.com/karttapullautin/karttapullautin/blob/master/LICENSE)).
-Docker image obsahuje binárku `pullauta`; zdroj je u upstreamu.
+Podkladárna byla volně inspirována
+[Karttapullautinem](https://github.com/karttapullautin/karttapullautin)
+a pak šla vlastní cestou (vegetace / srázy / DEM). Runtime KP ani binárka
+`pullauta` součástí tipu nejsou.
 
 ## Mapa výřezu
 

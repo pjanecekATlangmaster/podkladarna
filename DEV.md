@@ -3,7 +3,7 @@
 ## Princip
 
 1. **pytest** – API a upload (sekundy, bez Dockeru)
-2. **docker compose dev** – plný stack s PDAL + pullauta lokálně
+2. **docker compose dev** – plný stack s PDAL + GDAL lokálně
 3. **smoke_e2e.py** – end-to-end proti běžící instanci
 4. **GitHub Actions `test.yml`** – pytest na každý push
 5. **Teprve pak** `./deploy-nas.sh` na Synology
@@ -147,26 +147,10 @@ gdalsrsinfo EPSG:5514   # must not mention pyproj\proj_dir
 
 ---
 
-## A/B harness: KP vs `use_kp=false` (vegetace / srázy / náhled)
+## A/B harness (legacy)
 
-Po dvou jobech na **stejné AOI** (jeden s KP zapnutým, druhý odškrtnutým) porovnej hotové výstupy — deskriptivní stats, ne subjektivní pass:
+Skript `scripts/compare_bez_kp_ab.py` zůstal pro staré artefakty; tip už KP nerunuje (`use_kp` je vždy false).
 
-```powershell
-cd C:\Users\PetrJanecek\.cursor\projects\podkladarna
-python scripts/compare_bez_kp_ab.py --help
-
-python scripts/compare_bez_kp_ab.py `
-  --a "data\jobs\<kp_job>\output" `
-  --b "data\jobs\<bez_kp_job>\output" `
-  --label-a KP --label-b bez-KP
-
-# strojový JSON + uložený text
-python scripts/compare_bez_kp_ab.py --a path\a --b path\b --json -o tmp\ab_report.txt
-```
-
-Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: presence vege/cliffs/preview, feature count + plochy vegetace, počet/délka srázových ticků, rozměry náhledu. Analogie ke `scripts/compare_contours_oom.py` (to generuje srovnávací `.omap`; tento skript jen měří hotové artefakty).
-
----
 
 ## Náhled PNG z `.omap` (bez KP)
 
@@ -205,7 +189,7 @@ python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 
 ### Default bez KP
 
-`USE_KP_DEFAULT` / formulář default = **bez KP**. Karttapullautin zůstává volitelný checkbox. Env `PODKLADARNA_USE_KP=1` přepíše API default, pokud job nepošle `use_kp`.
+Tip ≥1.26.0: Karttapullautin runtime odstraněn; pipeline je vždy bez KP.
 
 ---
 

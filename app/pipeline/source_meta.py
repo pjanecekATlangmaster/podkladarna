@@ -18,13 +18,15 @@ PRODUCT_DMP1G = "DMP1G"
 INDICATIVE_LABEL_CS = (
     "Indikativní kreslicí podklad – není zeměměřičské zaměření."
 )
-CITATION_SHORT_NO_KP = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
-CITATION_SHORT_WITH_KP = "Podklad: Podkladárna · ČÚZK · OSM · Karttapullautin, [rok]"
+CITATION_SHORT = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
+# Legacy alias – KP runtime removed; citation never includes Karttapullautin.
+CITATION_SHORT_NO_KP = CITATION_SHORT
+CITATION_SHORT_WITH_KP = CITATION_SHORT
 
 
-def citation_line(*, use_kp: bool = True) -> str:
-    base = CITATION_SHORT_WITH_KP if use_kp else CITATION_SHORT_NO_KP
-    return f"{base} — {INDICATIVE_LABEL_CS}"
+def citation_line(*, use_kp: bool = False) -> str:
+    del use_kp  # retained for callers; always bez-KP citation
+    return f"{CITATION_SHORT} — {INDICATIVE_LABEL_CS}"
 
 
 def _sheet_product_meta(folder: Path, laz_name: str, default_kind: str) -> dict:

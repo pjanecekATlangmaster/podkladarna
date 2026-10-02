@@ -102,15 +102,15 @@ _HOLE = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 def test_preview_on_only_for_bez_kp():
-    assert oom_preview_enabled({"use_kp": False}) is True
-    assert oom_preview_enabled({"use_kp": True}) is False
-    assert oom_preview_enabled({"use_kp": True, "oom_preview": True}) is True
-    assert oom_preview_enabled({"use_kp": False, "oom_preview": False}) is False
+    assert oom_preview_enabled({}) is True
+    assert oom_preview_enabled({"use_kp": True}) is True
+    assert oom_preview_enabled({"oom_preview": True}) is True
+    assert oom_preview_enabled({"oom_preview": False}) is False
 
 
 def test_env_can_disable(monkeypatch):
     monkeypatch.setenv("PODKLADARNA_OOM_PREVIEW", "0")
-    assert oom_preview_enabled({"use_kp": False}) is False
+    assert oom_preview_enabled({}) is False
 
 
 def test_xml_render_green_fill_and_black_line(tmp_path: Path):
@@ -739,7 +739,7 @@ def test_write_job_skips_when_kp(tmp_path: Path):
     omap = tmp_path / "a.omap"
     omap.write_text(_MAP, encoding="utf-8")
     assert (
-        write_job_oom_preview([omap], tmp_path, tmp_path, {"use_kp": True}) is None
+        write_job_oom_preview([omap], tmp_path, tmp_path, {"oom_preview": False}) is None
     )
 
 
