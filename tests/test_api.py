@@ -433,6 +433,7 @@ def test_index_html(client):
     assert 'name="dmr_files"' not in html
     assert "job-detail" in html
     assert "job-detail-holder" in html
+    assert 'id="form-notice"' in html
     assert "jobs-list" in html
     assert f"Podkladárna v{APP_VERSION}" in html
     assert 'id="whats-new"' in html

@@ -44,6 +44,7 @@ function parseApiError(res, text) {
 }
 
 function showFormError(message) {
+  clearFormNotice();
   const el = document.getElementById("form-error");
   el.textContent = message;
   el.classList.remove("hidden");
@@ -53,6 +54,31 @@ function clearFormError() {
   const el = document.getElementById("form-error");
   el.textContent = "";
   el.classList.add("hidden");
+}
+
+function showFormNotice(message) {
+  clearFormError();
+  const el = document.getElementById("form-notice");
+  if (!el) return;
+  el.textContent = message;
+  el.classList.remove("hidden");
+}
+
+function clearFormNotice() {
+  const el = document.getElementById("form-notice");
+  if (!el) return;
+  el.textContent = "";
+  el.classList.add("hidden");
+}
+
+function jobIsPrivate(job) {
+  return Boolean(job && (job.private || (job.options && job.options.private)));
+}
+
+function setPrivateDetailHolder(visible) {
+  const holder = document.getElementById("job-detail-holder");
+  if (!holder) return;
+  holder.classList.toggle("active", Boolean(visible));
 }
 
 async function api(path, opts = {}) {
@@ -247,9 +273,10 @@ function jobItemHeadHtml(job) {
     const dur = formatDuration(job.duration_s);
     if (dur) timing = ` · ${dur}`;
   }
+  const privateLabel = jobIsPrivate(job) ? " · privátní session" : "";
   return `
     <strong>${escapeHtml(job.name)}</strong>
-    <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}${timing}</div>
+    <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}${timing}${privateLabel}</div>
     <div class="status">${escapeHtml(jobScaleLabel(job))} · ${escapeHtml(formatWhen(job.created_at))}</div>
     ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
   `;
@@ -286,7 +313,9 @@ function upsertJobItem(list, job, order) {
   }
   div.classList.toggle("selected", job.id === selectedJobId);
   div.classList.toggle("expanded", job.id === selectedJobId);
+  div.classList.toggle("private-session", jobIsPrivate(job));
   div.dataset.status = job.status || "";
+  div.dataset.private = jobIsPrivate(job) ? "1" : "0";
   let head = div.querySelector(":scope > .job-item-head");
   if (!head) {
     head = document.createElement("div");
@@ -389,7 +418,22 @@ async function loadJobs() {
     justPicked = true;
   }
 
-  const { live, finished } = splitJobs(data.jobs);
+  let selected = data.jobs.find((j) => j.id === selectedJobId);
+  // Privátní job není ve veřejném seznamu – drž detail přes /api/jobs/{id}.
+  if (!selected && selectedJobId) {
+    try {
+      selected = await api(`/api/jobs/${selectedJobId}`);
+    } catch (_) {
+      selected = null;
+    }
+  }
+
+  let { live, finished } = splitJobs(data.jobs);
+  // Privátní session: injektuj do „Běžící a fronta“, ať je vidět log jako u veřejných jobů.
+  if (selected && jobIsPrivate(selected) && jobIsLive(selected.status)) {
+    live = [selected, ...live.filter((j) => j.id !== selected.id)];
+  }
+
   const focusId = focusFinishedJobId || (justPicked ? selectedJobId : null);
   if (focusId) {
     const i = finished.findIndex((j) => j.id === focusId);
@@ -404,16 +448,6 @@ async function loadJobs() {
   updateFinishedPager(finished.length);
   syncJobsList(live, pageJobs);
 
-  let selected = data.jobs.find((j) => j.id === selectedJobId);
-  // Privátní job není ve veřejném seznamu – drž detail přes /api/jobs/{id}.
-  if (!selected && selectedJobId) {
-    try {
-      selected = await api(`/api/jobs/${selectedJobId}`);
-    } catch (_) {
-      selected = null;
-    }
-  }
-
   if (generateStartedJobId) {
     const started =
       data.jobs.find((j) => j.id === generateStartedJobId) ||
@@ -424,20 +458,28 @@ async function loadJobs() {
   }
 
   const selectedEl = selectedJobId ? jobItemEl(selectedJobId) : null;
-  if (selected && (selectedEl || selected.private)) {
+  if (selected && (selectedEl || jobIsPrivate(selected))) {
     if (selectedEl) {
       const alreadyOpen = jobDetailEl()?.parentElement === selectedEl;
       if (!alreadyOpen) attachJobDetail(selectedEl);
+      setPrivateDetailHolder(false);
     } else {
-      // Privátní: detail v holderu (není položka v seznamu).
+      // Privátní hotový/neživý: detail v holderu (není položka v seznamu).
       parkJobDetail();
       jobDetailEl().classList.remove("hidden");
+      setPrivateDetailHolder(true);
     }
     selectedJobStatus = selected.status;
     const liveJob = jobIsLive(selected.status);
     if (liveJob || logSettledForJob !== selected.id) {
+      const privateNote = jobIsPrivate(selected)
+        ? liveJob
+          ? " · privátní (log v této session; ZIP e-mailem)"
+          : " · privátní (ZIP přijde e-mailem)"
+        : "";
       document.getElementById("detail-status").textContent =
         `Stav: ${selected.status} · ${jobScaleLabel(selected)}` +
+        privateNote +
         (selected.error ? ` · ${selected.error}` : "");
       const timingEl = document.getElementById("detail-timing");
       if (timingEl) {
@@ -467,6 +509,7 @@ async function loadJobs() {
   } else {
     parkJobDetail();
     jobDetailEl().classList.add("hidden");
+    setPrivateDetailHolder(false);
     if (!selected) {
       selectedJobId = null;
       selectedJobStatus = null;
@@ -489,7 +532,10 @@ function parkJobDetail() {
 function attachJobDetail(jobEl) {
   const detail = jobDetailEl();
   if (!detail || !jobEl) return;
-  jobEl.appendChild(detail);
+  setPrivateDetailHolder(false);
+  if (detail.parentElement !== jobEl) {
+    jobEl.appendChild(detail);
+  }
   jobEl.classList.add("expanded");
   detail.classList.remove("hidden");
 }
@@ -574,7 +620,7 @@ function setJobActionLinks(job) {
   const dl = document.getElementById("detail-download");
   const prev = document.getElementById("detail-preview");
   const georefBtn = document.getElementById("detail-download-georef");
-  if (job.private || (job.options && job.options.private)) {
+  if (jobIsPrivate(job)) {
     dl.classList.add("hidden");
     prev.classList.add("hidden");
     if (georefBtn) georefBtn.classList.add("hidden");
@@ -599,10 +645,11 @@ function escapeHtml(s) {
 async function fillJobDetail(id, { applyForm = false } = {}) {
   const job = await api(`/api/jobs/${id}`);
   selectedJobStatus = job.status;
-  const privateNote =
-    job.private || (job.options && job.options.private)
-      ? " · privátní (ZIP přijde e-mailem)"
-      : "";
+  const privateNote = jobIsPrivate(job)
+    ? jobIsLive(job.status)
+      ? " · privátní (log v této session; ZIP e-mailem)"
+      : " · privátní (ZIP přijde e-mailem)"
+    : "";
   document.getElementById("detail-title").textContent = job.name;
   document.getElementById("detail-status").textContent =
     `Stav: ${job.status} · ${jobScaleLabel(job)}` +
@@ -742,17 +789,18 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
         "Nový job se nezaložil – stejný výřez už běží nebo čeká.";
       showFormError(msg);
       alert(msg);
-    } else if (job && (job.private || (job.options && job.options.private))) {
+    } else if (job && jobIsPrivate(job)) {
       const mail =
         (job.options && job.options.notify_email) ||
         (document.getElementById("notify_email") || {}).value ||
         "";
-      alert(
-        `Privátní job založen. Po dokončení přijde odkaz na ${mail || "váš e-mail"} ` +
-          "(platí 48 hodin). Ve veřejném seznamu jobů se neobjeví."
+      showFormNotice(
+        `Privátní job běží – pipeline log uvidíte níže u jobu. ` +
+          `ZIP nepřijde do veřejného seznamu; odkaz přijde na ${mail || "váš e-mail"} (platí 48 hodin).`
       );
       if (job.id) startedId = job.id;
     } else if (job && job.id) {
+      clearFormNotice();
       startedId = job.id;
     }
     await selectJob(job.id);

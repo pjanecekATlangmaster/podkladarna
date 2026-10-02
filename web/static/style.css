@@ -546,8 +546,52 @@ legend {
   display: none;
 }
 
+/* Holder je skrytý, dokud není aktivní privátní session (job není ve veřejném seznamu). */
 #job-detail-holder {
   display: none;
+}
+
+#job-detail-holder.active {
+  display: block;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #ecd9b8;
+  border-radius: 8px;
+  background: #fffaf3;
+}
+
+#job-detail-holder.active .job-detail {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+#job-detail-holder.active .job-detail h3 {
+  display: block;
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+#job-detail-holder.active .log {
+  max-height: 280px;
+}
+
+.job-item.private-session .log {
+  max-height: 280px;
+}
+
+.job-item.private-session {
+  border-style: dashed;
+}
+
+.form-notice {
+  color: #5a4a1a;
+  background: #fff8e6;
+  border: 1px solid #e6d7a8;
+  border-radius: 6px;
+  padding: 0.55rem 0.7rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
 }
 
 .job-item .status.error {
