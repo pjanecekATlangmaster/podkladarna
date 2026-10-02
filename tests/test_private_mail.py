@@ -267,3 +267,67 @@ def test_purge_expired_private(tmp_path, monkeypatch):
     removed = purge_old_jobs(retention_hours=0)
     assert removed >= 1
     assert old["id"] not in {j["id"] for j in db.list_jobs(include_private=True)}
+
+
+def test_api_private_job_log_available_without_token(client, monkeypatch):
+    """Privátní job: status/log v session OK, artefakty bez tokenu ne."""
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "priv-log",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "private": "1",
+            "notify_email": "petr@example.com",
+        },
+    )
+    assert r.status_code == 200
+    job_id = r.json()["id"]
+    db.append_log(job_id, "Připravuji DEM z DMR5G (terén pro vrstevnice a srázy)…")
+    db.append_log(job_id, "Klasifikuji vegetaci z hustoty LiDAR odrazů…")
+
+    detail = client.get(f"/api/jobs/{job_id}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["private"] is True
+    assert body["has_preview"] is False
+    assert body["has_output"] is False
+
+    log = client.get(f"/api/jobs/{job_id}/log?after=0")
+    assert log.status_code == 200
+    lines = log.json()["lines"]
+    assert len(lines) >= 2
+    joined = "\n".join(x["line"] for x in lines)
+    assert "Připravuji DEM" in joined
+    assert "vegetaci" in joined
+
+
+def test_ui_private_session_log_hooks():
+    """UI musí umět zobrazit log privátního běhu (holder + injekce do live)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    app_js = (root / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "web" / "static" / "style.css").read_text(encoding="utf-8")
+    html = (root / "web" / "index.html").read_text(encoding="utf-8")
+
+    assert "setPrivateDetailHolder" in app_js
+    assert "jobIsPrivate" in app_js
+    assert "showFormNotice" in app_js
+    assert "privátní session" in app_js
+    assert "injektuj do" in app_js or "Privátní session" in app_js
+    assert "#job-detail-holder.active" in css
+    assert "form-notice" in css
+    assert 'id="form-notice"' in html
+    assert "pipeline log" in html.lower() or "pipeline log" in app_js.lower()
