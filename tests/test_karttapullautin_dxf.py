@@ -109,7 +109,7 @@ def test_build_oom_zip_archives_kp_contours_not_in_base(tmp_path: Path):
 
     with zipfile.ZipFile(dest) as zf:
         names = set(zf.namelist())
-    assert "archive/contours_kp.dxf" in names
+    assert "archive/contours_kp.dxf" not in names
     assert "base/contours_kp.dxf" not in names
     assert "base/contours.dxf" not in names
     assert "base/contours03.dxf" not in names

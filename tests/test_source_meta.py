@@ -17,7 +17,7 @@ from app.pipeline.source_meta import (
 def test_citation_line_optional_kp():
     with_kp = citation_line(use_kp=True)
     without = citation_line(use_kp=False)
-    assert "Karttapullautin" in with_kp
+    assert with_kp == without
     assert "Karttapullautin" not in without
     assert INDICATIVE_LABEL_CS in with_kp
     assert INDICATIVE_LABEL_CS in without

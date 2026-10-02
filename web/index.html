@@ -95,7 +95,7 @@
         <div class="form-section">
           <h3 class="form-section-title">Reliéf a vegetace</h3>
           <label>
-            Výška vegetace (Karttapullautin)
+            Výška vegetace (LiDAR)
             <select name="kp_vege_height" id="kp_vege_height">
               <option value="1.5">1,5 m – nízká</option>
               <option value="2" selected>2 m – výchozí</option>
@@ -115,24 +115,24 @@
               <option value="off">Nevykreslovat (ani nepočítat)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-symbol-hint">Bez KP detektor sám rozliší strmý schod (skála) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. U skály zůstávají jen spojené plochy 201.2/206 — samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</p>
+          <p class="hint" id="cliff-symbol-hint">Detektor sám rozliší strmý schod (skála) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. U skály zůstávají jen spojené plochy 201.2/206 — samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="include_knolls" id="include_knolls" value="1" checked />
-            Knolly z DMR (109, jen bez KP)
+            Knolly z DMR (109)
           </label>
-          <p class="hint" id="knoll-hint">Malé kupky z výšky DEM, ne z binárky KP. S zapnutým KP kreslí knolly Karttapullautin a tahle volba se nepoužije.</p>
+          <p class="hint" id="knoll-hint">Malé kupky z výšky DEM (DMR).</p>
 
           <label id="cliff-sensitivity-label">
             Citlivost srázů / skal
             <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
               <option value="low" selected>Méně citlivé (méně srázů)</option>
               <option value="normal">Střední (1,8 / 3,4 m)</option>
-              <option value="high">Citlivější (KP 1,4 / 2,8 m)</option>
+              <option value="high">Citlivější (1,4 / 2,8 m)</option>
               <option value="very_high">Velmi citlivé (více drobných srázů)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-sensitivity-hint">Výchozí „méně citlivé“ (cliff1=2,2 m). Bez KP i KP: vyšší práh = méně falešných zemních srázů. Skalní plochy 201.2/206 mají ještě přísnější drop (+0,7 m) a menší footprint (shrink); zamotané 104 a krátké pahýly se filtrují při sestavení OOM.</p>
+          <p class="hint" id="cliff-sensitivity-hint">Výchozí „méně citlivé“ (cliff1=2,2 m). Vyšší práh = méně falešných zemních srázů. Skalní plochy 201.2/206 mají ještě přísnější drop (+0,7 m) a menší footprint (shrink); zamotané 104 a krátké pahýly se filtrují při sestavení OOM.</p>
         </div>
 
         <div class="form-section">
@@ -177,7 +177,7 @@
               (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
               které jinak nekreslíme). Výsledek jde pod silnice.
               Když po odečtu zbývá víc než 25&nbsp;% plochy residential, oblast je řídce
-              zmapovaná a do auto&nbsp;<code>.omap</code> se nebere (přikryla by KP);
+              zmapovaná a do auto&nbsp;<code>.omap</code> se nebere;
               stejně se zahodí kusy nad zvolenou max. velikostí.
               Do ZIPu (<code>osm/</code>) vždy přibudou SHP
               <code>OSM_residential_zbytek_mensi</code> /
@@ -229,15 +229,14 @@
           <label>
             Formát
             <select name="output_mode" id="output_mode">
-              <option value="png_zip" selected>ZIP s .omap (a PNG náhled, pokud běží KP)</option>
-              <option value="png">Jen PNG náhled (bez ZIPu; u bez-KP se nepoužije)</option>
+              <option value="png_zip" selected>ZIP s .omap (+ PNG náhled na webu)</option>
+              <option value="png">Jen PNG náhled (bez ZIPu – nepoužije se)</option>
             </select>
           </label>
           <p class="hint" id="output-omap-hint">
-            Primární výstup je <code>.omap</code> v ZIPu.
-            <strong>Bez KP</strong> (výchozí): vegetace z hustoty LiDAR odrazů, srázy z DMR, vrstevnice GDAL;
-            webový náhled je Pillow z <code>.omap</code>; georef PNG+PGW zvlášť (Mapper @ 600 DPI, jinak Pillow).
-            S <strong>KP</strong>: PNG je rychlý rastrový náhled (pullautus), ne finální mapa.
+            Primární výstup je <code>.omap</code> v ZIPu:
+            vegetace z hustoty LiDAR odrazů, srázy z DMR, vrstevnice GDAL.
+            Webový náhled je Pillow z <code>.omap</code>; georef PNG+PGW zvlášť (Mapper @ 600 DPI, jinak Pillow).
           </p>
           <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
 
@@ -246,16 +245,7 @@
             Referenční PNG šablony (orto, OSM, ZTM, katastr, hillshade, DMP)
           </label>
           <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP.</p>
-
-          <label class="checkbox-row">
-            <input type="checkbox" name="use_kp" id="use_kp" value="1" />
-            Karttapullautin (KP) – volitelný hybrid
-          </label>
-          <p class="hint" id="use-kp-hint">Výchozí je <strong>bez KP</strong>: vegetace z hustoty LiDAR odrazů, srázy z DMR 5G, vrstevnice GDAL → <code>.omap</code>/ZIP. Zaškrtněte KP jen když chcete hybrid s Karttapullautinem (PNG náhled pullautus + KP vrstvy).</p>
-          <button type="button" class="btn" id="preset-bez-kp">Bez KP (výchozí)</button>
-          <p class="hint" id="preset-bez-kp-hint">Odškrtne KP a nechá výstup ZIP s <code>.omap</code>. Stejné jako výchozí stav formuláře.</p>
-
-          <label class="checkbox-row">
+<label class="checkbox-row">
             <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
             Force refresh (přegenerovat AOI cache)
           </label>
@@ -328,7 +318,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.25.7 ·
+      Podkladárna v1.26.0 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>
@@ -337,7 +327,7 @@
       Data: <a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">ČÚZK</a>
       (DMR 5G, DMP OK, ZABAGED®,
       <a href="https://creativecommons.org/licenses/by/4.0/deed.cs" target="_blank" rel="noopener">CC BY 4.0</a>)
-      · <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a> (GPL-3.0, hybrid)
+      · volně inspirováno <a href="/licence">Karttapullautinem</a>
       · mapa © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
       · <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>
       · indikativní podklad, není zaměření

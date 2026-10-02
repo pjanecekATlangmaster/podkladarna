@@ -21,7 +21,8 @@ from app.tool_env import (
 
 def test_tool_status_keys():
     status = tool_status()
-    assert set(status) >= {"pdal", "ogr2ogr", "ogrinfo", "pullauta"}
+    assert set(status) >= {"pdal", "ogr2ogr", "ogrinfo"}
+    assert "pullauta" not in status
     assert "gdal_translate" in status
     assert "gdal_calc" in status
     assert "gdal_polygonize" in status

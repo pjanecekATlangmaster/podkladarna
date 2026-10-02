@@ -115,7 +115,7 @@ def test_bez_kp_omits_zabaged_meadows_and_skips_open_land_subtract(tmp_path: Pat
     assert any("CHM" in n or "Otevřený" in n or "terén" in n for n in names)
 
 
-def test_with_kp_still_subtracts_and_keeps_meadow_underlay(tmp_path: Path):
+def test_prepare_oom_map_ignores_use_kp_true(tmp_path: Path):
     kp = tmp_path / "work"
     kp.mkdir()
     _mini_png_pgw(kp)
@@ -173,9 +173,11 @@ def test_with_kp_still_subtracts_and_keeps_meadow_underlay(tmp_path: Path):
             use_kp=True,
         )
 
+    # use_kp=True is ignored – tip always uses bez-KP OOM assembly.
     omit = zab_mock.call_args.kwargs.get("omit_layers") or set()
-    assert "TrvalyTravniPorost" not in omit
-    sub_mock.assert_called_once()
-    assert vege_mock.call_args.kwargs.get("subtract_wkbs") == [b"wkb"]
-    names = [p.name for p in write_mock.call_args.kwargs["object_parts"]]
-    assert "ZABAGED – TrvalyTravniPorost" in names
+    assert "TrvalyTravniPorost" in omit
+    sub_mock.assert_not_called()
+    assert vege_mock.call_args.kwargs.get("subtract_wkbs") is None
+    parts = write_mock.call_args.kwargs.get("object_parts") or []
+    names = [p.name for p in parts]
+    assert "ZABAGED – TrvalyTravniPorost" not in names

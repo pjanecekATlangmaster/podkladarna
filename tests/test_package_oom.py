@@ -138,16 +138,17 @@ def test_oom_metadata_lidar_sources_and_no_kp_citation():
     assert "contours_kp.dxf" not in readme
 
 
-def test_oom_readme_kp_mentions_archive_not_dual_base():
+def test_oom_readme_has_no_kp_archive():
     meta = oom_metadata(
         "forest_10000",
         {"label": "Les", "contour_interval": 5, "scalefactor": 1},
-        {"scalefactor": 1, "use_kp": True},
+        {"scalefactor": 1, "use_kp": True},  # ignored – always bez-KP
     )
     readme = oom_readme(meta)
+    assert meta["use_kp"] is False
     assert "jediná pravda" in readme
-    assert "archive/contours_kp.dxf" in readme
-    assert "vrstevnice KP (contours_kp.dxf)" not in readme
+    assert "archive/contours_kp.dxf" not in readme
+    assert "Karttapullautin" not in readme
 
 def test_build_oom_zip_layout(tmp_path: Path):
     kp = tmp_path / "work"
@@ -223,7 +224,7 @@ def test_build_oom_zip_layout(tmp_path: Path):
     )
     assert "base/contours_gdal.shp" in names
     assert "base/contours_kp.dxf" not in names
-    assert "archive/contours_kp.dxf" in names
+    assert "archive/contours_kp.dxf" not in names
     assert "base/contours.shp" not in names
     assert "contours/dem_filled.tif" not in names
     assert "kp/contours.dxf" not in names

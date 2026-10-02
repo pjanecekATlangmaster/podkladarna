@@ -730,8 +730,6 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   try {
     const fd = new FormData(form);
     // Checkbox: vždy pošli 0/1 (unchecked jinak zmizí a API by drželo default true).
-    const useKpEl = document.getElementById("use_kp");
-    fd.set("use_kp", useKpEl && useKpEl.checked ? "1" : "0");
     const knollsEl = document.getElementById("include_knolls");
     fd.set("include_knolls", knollsEl && knollsEl.checked ? "1" : "0");
     fd.set("private", privateEl && privateEl.checked ? "1" : "0");
@@ -983,60 +981,20 @@ function updateCliffControls() {
   const sens = document.getElementById("kp_cliff_sensitivity");
   const sensLabel = document.getElementById("cliff-sensitivity-label");
   const sensHint = document.getElementById("cliff-sensitivity-hint");
-  const useKp = document.getElementById("use_kp");
   if (!cliff || !sens) return;
   const off = cliff.value === "off";
   sens.disabled = off;
   if (sensLabel) sensLabel.style.opacity = off ? "0.45" : "";
   if (sensHint) {
-    if (off) {
-      sensHint.textContent =
-        "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají.";
-    } else if (useKp && !useKp.checked) {
-      sensHint.textContent =
-        "Bez KP: jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem; knolly jsou samostatná volba.";
-    } else {
-      sensHint.textContent =
-        "Jak přísně Karttapullautin hledá strmé skoky v DMR.";
-    }
+    sensHint.textContent = off
+      ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
+      : "Jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem; knolly jsou samostatná volba.";
   }
   const symbolHint = document.getElementById("cliff-symbol-hint");
   if (symbolHint) {
     symbolHint.textContent =
-      useKp && !useKp.checked
-        ? "Bez KP: strmý schod = skála (201), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Knolly (109) jsou vedle, z DEM."
-        : "S KP kreslí srázy Karttapullautin a tahle volba přebarví všechny čárky (104 / 201 / 206 / vypnuto). Automaticky u KP zůstane zem, dokud v temp není samostatný soubor skály.";
+      "Strmý schod = skála (201), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Knolly (109) jsou vedle, z DEM.";
   }
-}
-
-function updateUseKpHints() {
-  const useKp = document.getElementById("use_kp");
-  const hint = document.getElementById("use-kp-hint");
-  const outHint = document.getElementById("output-omap-hint");
-  const outMode = document.getElementById("output_mode");
-  if (useKp && !useKp.checked && outMode && outMode.value === "png") {
-    outMode.value = "png_zip";
-  }
-  if (useKp && hint) {
-    hint.innerHTML = useKp.checked
-      ? "KP <strong>zapnuto</strong> (hybrid): Karttapullautin počítá náhled/vrstvy. Odškrtněte, nebo „Bez KP (výchozí)“, pro vegetaci z hustoty LiDAR + srázy z DMR."
-      : "Výchozí <strong>bez KP</strong>: vegetace z hustoty LiDAR odrazů, srázy z DMR 5G, vrstevnice GDAL → <code>.omap</code>/ZIP. Web = Pillow náhled; georef ZIP = Mapper @ 600 DPI, bez CLI Pillow+PGW. ČÚZK reference v materiálovém ZIPu zůstávají.";
-  }
-  if (useKp && outHint) {
-    outHint.innerHTML = useKp.checked
-      ? "S <strong>KP</strong>: PNG je rychlý rastrový náhled (pullautus), ne finální mapa. ZIP obsahuje <code>.omap</code> podle měřítka plus vektory pro OOM."
-      : "Bez KP (výchozí): primární výstup je <code>.omap</code> v ZIPu. Webový náhled = Pillow; georef náhledy zvlášť. ČÚZK referenční PNG v materiálovém ZIPu zůstávají.";
-  }
-  updateCliffControls();
-}
-
-function applyBezKpPreset() {
-  clearGenerateStarted();
-  const useKp = document.getElementById("use_kp");
-  const outMode = document.getElementById("output_mode");
-  if (useKp) useKp.checked = false;
-  if (outMode) outMode.value = "png_zip";
-  updateUseKpHints();
 }
 
 function applyJobToForm(job) {
@@ -1152,11 +1110,6 @@ function applyJobToForm(job) {
     outRefs.checked =
       opts.output_references == null ? true : Boolean(opts.output_references);
   }
-  const useKp = form.use_kp;
-  if (useKp) {
-    useKp.checked = Boolean(opts.use_kp);
-  }
-  updateUseKpHints();
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {
     applyBbox(bbox[0], bbox[1], bbox[2], bbox[3], {
@@ -1365,15 +1318,6 @@ initBboxMap();
   if (!cliff) return;
   cliff.addEventListener("change", updateCliffControls);
   updateCliffControls();
-})();
-(() => {
-  const useKp = document.getElementById("use_kp");
-  if (useKp) {
-    useKp.addEventListener("change", updateUseKpHints);
-    updateUseKpHints();
-  }
-  const preset = document.getElementById("preset-bez-kp");
-  if (preset) preset.addEventListener("click", applyBezKpPreset);
 })();
 (() => {
   const privateEl = document.getElementById("private");

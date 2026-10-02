@@ -353,7 +353,7 @@ def test_create_job_rejects_missing_bbox(client):
     assert "bbox" in r.json()["detail"].lower() or "výřez" in r.json()["detail"].lower()
 
 
-def test_create_job_use_kp_default_and_explicit(client, monkeypatch):
+def test_create_job_ignores_legacy_use_kp(client, monkeypatch):
     import app.main as main
 
     monkeypatch.setattr(
@@ -375,31 +375,24 @@ def test_create_job_use_kp_default_and_explicit(client, monkeypatch):
         "sprint_courtyard_olive": "1",
         "kp_osm_priority": "1",
     }
-    # Absent → default False (bez-KP).
     r = client.post("/api/jobs", data={**base, "name": "kp-default"})
     assert r.status_code == 200
     assert r.json()["options"]["use_kp"] is False
 
-    r0 = client.post("/api/jobs", data={**base, "name": "kp-off", "use_kp": "0"})
-    assert r0.status_code == 200
-    assert r0.json()["options"]["use_kp"] is False
-
     r1 = client.post("/api/jobs", data={**base, "name": "kp-on", "use_kp": "1"})
     assert r1.status_code == 200
-    assert r1.json()["options"]["use_kp"] is True
+    assert r1.json()["options"]["use_kp"] is False
 
 
 def test_index_html(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "Podkladárna" in r.text
-    assert 'name="use_kp"' in r.text
-    assert 'id="use_kp"' in r.text
-    assert 'id="use_kp" value="1"' in r.text
-    assert 'id="use_kp" value="1" checked' not in r.text
-    assert 'id="preset-bez-kp"' in r.text
-    assert "Bez KP (výchozí)" in r.text
-    assert "volitelný hybrid" in r.text
+    assert 'name="use_kp"' not in r.text
+    assert 'id="use_kp"' not in r.text
+    assert 'id="preset-bez-kp"' not in r.text
+    assert "volitelný hybrid" not in r.text
+    assert "volně inspirováno" in r.text
     assert 'value="auto" selected' in r.text
     assert 'id="include_knolls"' in r.text
     assert 'name="force_refresh"' in r.text

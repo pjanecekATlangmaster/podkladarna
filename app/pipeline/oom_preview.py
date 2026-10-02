@@ -18,8 +18,8 @@ georef jde samostatným ZIPem / API.
 Orientace: OOM mapové souřadnice už mají ``scale(s, −s)`` → nižší map Y
 nahoru. Webový ořez: fialový AOI rám (708 / MTBO 705).
 
-Zapnuto jen když ``use_kp`` je false, pokud job nepošle ``oom_preview``
-nebo env ``PODKLADARNA_OOM_PREVIEW``.
+Zapnuto defaultně; vypnout lze ``oom_preview=0`` nebo env
+``PODKLADARNA_OOM_PREVIEW=0``.
 """
 
 from __future__ import annotations
@@ -65,9 +65,7 @@ _KIND_RANK = {"area": 0, "line": 1, "point": 2}
 
 
 def oom_preview_enabled(options: dict | None) -> bool:
-    """Default zapnuto jen na bez-KP. Explicitní volba / env má přednost."""
-    from app.settings import USE_KP_DEFAULT
-
+    """Default zapnuto. Explicitní volba / env má přednost."""
     options = options or {}
     if "oom_preview" in options and options["oom_preview"] is not None:
         return bool(options["oom_preview"])
@@ -76,7 +74,7 @@ def oom_preview_enabled(options: dict | None) -> bool:
         return False
     if env in _TRUE:
         return True
-    return not bool(options.get("use_kp", USE_KP_DEFAULT))
+    return True
 
 
 def find_mapper_exe() -> Path | None:
