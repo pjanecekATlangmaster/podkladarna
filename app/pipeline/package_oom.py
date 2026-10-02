@@ -4,7 +4,6 @@ import json
 import re
 import unicodedata
 import zipfile
-from collections.abc import Callable
 from pathlib import Path
 
 from app.pipeline.karttapullautin_dxf import (
@@ -41,7 +40,6 @@ from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.open_land_subtract import collect_kp401_subtract_wkbs
 from app.pipeline.residual_paved import build_residual_paved_parts, _RESIDUAL_BANDS_DIR
-from app.pipeline.uzitecne_export import add_uzitecne_to_zip, prepare_uzitecne_dir
 from app.pipeline.reference_layers import reference_metadata
 from app.pipeline.ruian_buildings import (
     ZABAGED_OMIT_BUILDING_LAYERS,
@@ -73,7 +71,6 @@ Včetně OSM_budovy.shp (stejný zdroj jako auto budovy v .omap).
 
 Residential zbytek (501): OSM_residential_zbytek_mensi / _stredni / _velke
 a _ridke (řídce zmapované – v auto .omap nejsou). Symbol 501.
-Další volitelné vrstvy (kopečky, lavičky, oliva dvorů…): složka uzitecne/.
 
 Doporučené symboly jsou v README.txt uvnitř jobu (osm_paths/manual/).
 
@@ -147,18 +144,6 @@ _ZABAGED_BASE_PAVED = frozenset(
 _OSM_UNDER_VEGETATION_MARK = "(412)"
 # Dvory v budovách (oliva) až navrch – překryjí detaily uvnitř dvorů.
 _COURTYARD_OLIVE_MARK = "dvory (oliva)"
-
-VEGETATION_MODE_MIXED = "mixed"
-VEGETATION_MODE_KP = "kp"
-VEGETATION_MODE_CHOICES = frozenset({VEGETATION_MODE_MIXED, VEGETATION_MODE_KP})
-
-
-def resolve_vegetation_mode(raw: object) -> str:
-    """``mixed`` = ZABAGED louky pod KP; ``kp`` = porosty jen z KP (default mixed)."""
-    text = str(raw or "").strip().lower()
-    if text in VEGETATION_MODE_CHOICES:
-        return text
-    return VEGETATION_MODE_MIXED
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
@@ -712,7 +697,6 @@ def prepare_oom_map(
     del formline
     use_kp = False  # KP runtime removed
     path_source = resolve_path_source(path_source)
-    vegetation_mode = resolve_vegetation_mode(vegetation_mode)
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
     pullautus_png = kp_cwd / "pullautus.png"
@@ -791,7 +775,6 @@ def prepare_oom_map(
 
     # Nejspodnější podklad: zpevněné plochy ze ZABAGED (501), pak inverze residential…
     object_parts.extend(zabaged_base_paved)
-    # Residual 501 jen při zapnutí (auto .omap + SHP) – jinak těžká geometrie hanguje job.
     if residual_paved:
         residual_parts = build_residual_paved_parts(
             kp_cwd,
@@ -802,14 +785,11 @@ def prepare_oom_map(
             grivation_deg=grivation,
             bbox_wgs84=bbox_wgs84,
             max_piece_m2=max_residual_m2,
-            write_shapefiles=True,
-            log=log,
         )
         if residual_parts:
             object_parts.extend(residual_parts)
-    # Louky/zeleň ze ZABAGED pod KP (mixed). Režim kp = jen KP, bílá = papír.
-    if vegetation_mode == VEGETATION_MODE_MIXED:
-        object_parts.extend(zabaged_under)
+    # Louky/zeleň ze ZABAGED + OSM 412 pod KP (hustníky z LiDARu musí zůstat vidět).
+    object_parts.extend(zabaged_under)
     aopk_pts = load_aopk_tree_points(aopk_trees)
     osm_feat = build_osm_feature_parts(
         kp_cwd,
@@ -821,9 +801,6 @@ def prepare_oom_map(
         clip_bounds=None,
         aopk_tree_points=aopk_pts or None,
         courtyard_olive=courtyard_olive,
-        include_benches=include_osm_benches,
-        include_lamps=include_osm_lamps,
-        include_playground_equipment=include_osm_playground_equipment,
     )
     osm_under: list[OomObjectPart] = []
     osm_feat_rest: list[OomObjectPart] = []
@@ -956,25 +933,10 @@ def build_oom_zip(
     include_dxf: bool = True,
     include_cliffs: bool = True,
     ruian_buildings: Path | None = None,
-    aopk_trees: Path | None = None,
 ) -> Path:
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
     if dest_zip.exists():
         dest_zip.unlink()
-
-    # Ostatní pásma na disk dřív než uzitecne (kopíruje je).
-    if zabaged_clean and zabaged_clean.is_file():
-        from app.pipeline.crs_5514 import write_prj
-
-        band_dir = kp_cwd / "_ostatni_bands"
-        for shp in _write_ostatni_band_shapefiles(zabaged_clean, band_dir):
-            write_prj(shp)
-
-    prepare_uzitecne_dir(
-        kp_cwd,
-        zabaged_clean=zabaged_clean,
-        aopk_trees=aopk_trees,
-    )
 
     with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("CO_JE_PODKLADARNA.txt", ZIP_ABOUT_TXT)
@@ -1097,6 +1059,7 @@ def build_oom_zip(
             _add_shapefiles_from_zip(zf, osm_kp, "osm")
         if zabaged_clean and zabaged_clean.is_file():
             from app.pipeline.fetch_zabaged import OSTATNI_LAYER_STEM
+            from app.pipeline.crs_5514 import write_prj
 
             # Monolitickou Ostatní rozdělíme do pásem; prázdná pásma přeskočíme.
             _add_shapefiles_from_zip(
@@ -1106,8 +1069,9 @@ def build_oom_zip(
                 exclude_layers={OSTATNI_LAYER_STEM},
             )
             band_dir = kp_cwd / "_ostatni_bands"
-            if band_dir.is_dir():
-                for side in sorted(band_dir.iterdir()):
+            for shp in _write_ostatni_band_shapefiles(zabaged_clean, band_dir):
+                write_prj(shp)
+                for side in shp.parent.glob(shp.stem + ".*"):
                     if side.suffix.lower() in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
                         zf.write(side, f"zabaged/{side.name}")
             if include_zabaged_archive:
