@@ -22,7 +22,7 @@ OUT = ROOT / "configs" / "whats_new.yaml"
 ENTRY_DAYS = 30
 MAX_ENTRIES = 20
 
-# Commit subjecty / těla, které do boxu nepatří.
+# Commit subjecty / těla, které do boxu nepatří (začátek subjectu).
 _SKIP_SUBJECT = re.compile(
     r"(?i)^("
     r"merge\b|"
@@ -35,14 +35,28 @@ _SKIP_SUBJECT = re.compile(
     r"|bump\s+(the\s+)?(app\s+)?version\b"
     r")"
 )
+# Interní / testovací commity – stačí výskyt kdekoli v subjectu.
+_SKIP_ANYWHERE = re.compile(
+    r"(?i)("
+    r"tip\s*[→\->]+\s*master\s+merge|"
+    r"tip.?master merge|"
+    r"private-mail retry test|"
+    r"skip private mail retry when ZIP is missing|"
+    r"ensure gdal_translate in Docker|"
+    r"fix tip CI\b|"
+    r"restore Drop KP package_oom"
+    r")"
+)
 _SKIP_SHA_PARENTS = True  # merge commity (2+ rodiče) pryč
 
 
 def _git(*args: str) -> str:
     return subprocess.check_output(
-        ["git", *args],
+        ["git", "-c", "core.quotepath=false", *args],
         cwd=ROOT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stderr=subprocess.DEVNULL,
     )
 
@@ -70,6 +84,123 @@ def _looks_czech(text: str) -> bool:
 
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
+    # —— 2.0 / bez-KP + UI finale ——
+    (
+        re.compile(r"(?i)Drop Karttapullautin|without Karttapullautin|bez.?KP pipeline|KP runtime"),
+        "Pipeline bez Karttapullautinu (vegetace a skály z LiDARu)",
+    ),
+    (
+        re.compile(r"(?i)Formát combo|georef PNG/TIFF checkbox|opt-in georef"),
+        "Volitelný georeferencovaný PNG/TIFF (ve výchozím stavu vypnuto)",
+    ),
+    (
+        re.compile(r"(?i)force_refresh|AOI force-refresh|Hide force_refresh"),
+        "Obnova mezipaměti podkladů jen v Pokročilých",
+    ),
+    (
+        re.compile(r"(?i)residual size combo|Hide residual size"),
+        "Velikost zpevněné plochy jen když je volba zapnutá",
+    ),
+    (
+        re.compile(r"(?i)ostatn|as 403 option from the GUI|Hide.*403.*GUI"),
+        "Z formuláře pryč volba „ostatní plocha jako 403“",
+    ),
+    (
+        re.compile(r"(?i)Czech knolls|kupky over knolly|Malé kupky|knolls label \(109\)"),
+        "Malé kupky (109) – česky a ve výchozím stavu zapnuto",
+    ),
+    (
+        re.compile(r"(?i)footways as paved sidewalk|footway.*sidewalk|Default footways"),
+        "Sprint: pěšiny defaultně jako zpevněný chodník",
+    ),
+    (
+        re.compile(r"(?i)all-as-rock-face|all as 201|Vše jako skála 201"),
+        "Odstraněna zastaralá volba „vše jako skála 201“",
+    ),
+    (
+        re.compile(r"(?i)Mapper CLI in Docker|Ship OpenOrienteering Mapper CLI|keep KP out of image"),
+        "Mapper CLI v Docker image (pro NAS / ostrý běh)",
+    ),
+    (
+        re.compile(r"(?i)Drop Karttapullautin runtime|Drop Karttapullautin"),
+        "Pipeline bez Karttapullautinu (vegetace a skály z LiDARu)",
+    ),
+    (
+        re.compile(r"(?i)georef PNG/PGW download|Restore georef|georeferenced OOM preview"),
+        "Georeferencované náhledy PNG+PGW ke stažení",
+    ),
+    (
+        re.compile(r"(?i)Pillow georef|600 DPI-eq|georef fallback"),
+        "Georef přes Pillow ve vyšším rozlišení (~600 DPI)",
+    ),
+    (
+        re.compile(r"(?i)private (map )?jobs|SMTP download|private job email"),
+        "Privátní joby s odkazem ke stažení e-mailem",
+    ),
+    (
+        re.compile(r"(?i)uzitecne pouzite|Export veg/scarps/rocks"),
+        "Vektorové vrstvy do složky užitečné (použité / vyhozené)",
+    ),
+    (
+        re.compile(r"(?i)earth-bank min|tangled StupenSraz|min length to 35"),
+        "Zemní srázy: delší minimum a filtr zamotaných StupenSraz",
+    ),
+    (
+        re.compile(r"(?i)dense-contour scarp|dense contours drop"),
+        "Husté vrstevnice: méně falešných srázů, jemnější skály",
+    ),
+    (
+        re.compile(r"(?i)min-size go defaults|tip min-size"),
+        "Úprava výchozích minimálních velikostí (104, skály, vegetace)",
+    ),
+    (
+        re.compile(r"(?i)Suppress rocks on scarp|rock/scarp overlap|rock overlap"),
+        "Skály nepřekrývají srázy a objekty",
+    ),
+    (
+        re.compile(r"(?i)cultivated land 412|Pillow cultivated"),
+        "Oprava černé výplně orné půdy (412) v Pillow náhledu",
+    ),
+    (
+        re.compile(r"(?i)Tighten rock-area defaults|demote depression rocks"),
+        "Přísnější výchozí skály a méně skal v depresích",
+    ),
+    (
+        re.compile(r"(?i)Disable contour B.?zier|export OOM polylines"),
+        "Vrstevnice bez Bézier křivek (menší omap)",
+    ),
+    (
+        re.compile(r"(?i)Simplify then curves|Chaikin|contour.*B.?zier|Disable contour B"),
+        "Vrstevnice: zjednodušení a hladší křivky v OOM",
+    ),
+    (
+        re.compile(r"(?i)Split PNG products|web Pillow, georef Mapper"),
+        "Oddělený webový náhled a georeferencovaný výstup",
+    ),
+    (
+        re.compile(r"(?i)grivation|declination"),
+        "Magnetická deklinace jen u georeferencovaného PNG",
+    ),
+    (
+        re.compile(r"(?i)Generování spuštěno|light-red"),
+        "Po odeslání jobu výraznější stav „Generování spuštěno“",
+    ),
+    (
+        re.compile(r"(?i)Leaflet bbox|resizing the Leaflet"),
+        "Mapu výřezu lze výškově zvětšit",
+    ),
+    (
+        re.compile(r"(?i)paved OSM tracks to ISOM 503"),
+        "Zpevněné OSM tracks jako ISOM 503 (ne 504)",
+    ),
+    (
+        re.compile(r"(?i)standalone rock 201|Discard standalone rock"),
+        "Samostatné linie skály 201 se zahazují (zůstávají plochy)",
+    ),
+    (
+        re.compile(r"(?i)CHM vegetation|vegetation_chm|Retune bez-KP CHM"),
+        "Vegetace bez KP: doladěné prahy CHM (louky vs. les)",
+    ),
     (
         re.compile(r"(?i)generate whats-new|whats-new changelog|age-styled whats-new"),
         "Přehled novinek v boxu nad formulářem",
@@ -244,7 +375,7 @@ def collect_entries(
         if _SKIP_SHA_PARENTS and _is_merge(sha):
             continue
         subject = " ".join(subject.split()).strip()
-        if not subject or _SKIP_SUBJECT.search(subject):
+        if not subject or _SKIP_SUBJECT.search(subject) or _SKIP_ANYWHERE.search(subject):
             continue
         title = _clean_subject(subject)
         if not title:
