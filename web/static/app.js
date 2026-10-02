@@ -404,18 +404,35 @@ async function loadJobs() {
   updateFinishedPager(finished.length);
   syncJobsList(live, pageJobs);
 
+  let selected = data.jobs.find((j) => j.id === selectedJobId);
+  // Privátní job není ve veřejném seznamu – drž detail přes /api/jobs/{id}.
+  if (!selected && selectedJobId) {
+    try {
+      selected = await api(`/api/jobs/${selectedJobId}`);
+    } catch (_) {
+      selected = null;
+    }
+  }
+
   if (generateStartedJobId) {
-    const started = data.jobs.find((j) => j.id === generateStartedJobId);
+    const started =
+      data.jobs.find((j) => j.id === generateStartedJobId) ||
+      (selected && selected.id === generateStartedJobId ? selected : null);
     if (!started || !jobIsLive(started.status)) {
       clearGenerateStarted();
     }
   }
 
   const selectedEl = selectedJobId ? jobItemEl(selectedJobId) : null;
-  const selected = data.jobs.find((j) => j.id === selectedJobId);
-  if (selectedEl && selected) {
-    const alreadyOpen = jobDetailEl()?.parentElement === selectedEl;
-    if (!alreadyOpen) attachJobDetail(selectedEl);
+  if (selected && (selectedEl || selected.private)) {
+    if (selectedEl) {
+      const alreadyOpen = jobDetailEl()?.parentElement === selectedEl;
+      if (!alreadyOpen) attachJobDetail(selectedEl);
+    } else {
+      // Privátní: detail v holderu (není položka v seznamu).
+      parkJobDetail();
+      jobDetailEl().classList.remove("hidden");
+    }
     selectedJobStatus = selected.status;
     const liveJob = jobIsLive(selected.status);
     if (liveJob || logSettledForJob !== selected.id) {
@@ -554,15 +571,23 @@ function jobSourcesText(job) {
 }
 
 function setJobActionLinks(job) {
-  document.getElementById("detail-download").href = `/api/jobs/${job.id}/download`;
-  document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
+  const dl = document.getElementById("detail-download");
+  const prev = document.getElementById("detail-preview");
   const georefBtn = document.getElementById("detail-download-georef");
+  if (job.private || (job.options && job.options.private)) {
+    dl.classList.add("hidden");
+    prev.classList.add("hidden");
+    if (georefBtn) georefBtn.classList.add("hidden");
+    return;
+  }
+  dl.href = `/api/jobs/${job.id}/download`;
+  dl.classList.toggle("hidden", !job.has_output);
   if (georefBtn) {
     georefBtn.href = `/api/jobs/${job.id}/download/georef-previews`;
     georefBtn.classList.toggle("hidden", !job.has_georef_previews);
   }
-  document.getElementById("detail-preview").href = `/api/jobs/${job.id}/preview.png`;
-  document.getElementById("detail-preview").classList.toggle("hidden", !job.has_preview);
+  prev.href = `/api/jobs/${job.id}/preview.png`;
+  prev.classList.toggle("hidden", !job.has_preview);
 }
 
 function escapeHtml(s) {
@@ -574,9 +599,15 @@ function escapeHtml(s) {
 async function fillJobDetail(id, { applyForm = false } = {}) {
   const job = await api(`/api/jobs/${id}`);
   selectedJobStatus = job.status;
+  const privateNote =
+    job.private || (job.options && job.options.private)
+      ? " · privátní (ZIP přijde e-mailem)"
+      : "";
   document.getElementById("detail-title").textContent = job.name;
   document.getElementById("detail-status").textContent =
-    `Stav: ${job.status} · ${jobScaleLabel(job)}` + (job.error ? ` · ${job.error}` : "");
+    `Stav: ${job.status} · ${jobScaleLabel(job)}` +
+    privateNote +
+    (job.error ? ` · ${job.error}` : "");
   const timingEl = document.getElementById("detail-timing");
   if (timingEl) {
     timingEl.textContent = jobTimingText(job);
@@ -682,6 +713,16 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     );
     return;
   }
+  const privateEl = document.getElementById("private");
+  if (privateEl && privateEl.checked) {
+    const emailEl = document.getElementById("notify_email");
+    const email = (emailEl && emailEl.value || "").trim();
+    if (!email || !email.includes("@") || !email.split("@").pop().includes(".")) {
+      showFormError("Privátní režim vyžaduje platný e-mail pro odkaz ke stažení.");
+      if (emailEl) emailEl.focus();
+      return;
+    }
+  }
   jobSubmitInFlight = true;
   btn.disabled = true;
   btn.textContent = "Zakládám job…";
@@ -693,6 +734,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     fd.set("use_kp", useKpEl && useKpEl.checked ? "1" : "0");
     const knollsEl = document.getElementById("include_knolls");
     fd.set("include_knolls", knollsEl && knollsEl.checked ? "1" : "0");
+    fd.set("private", privateEl && privateEl.checked ? "1" : "0");
     const job = await api("/api/jobs", { method: "POST", body: fd });
     if (job && job.duplicate_skipped) {
       const msg =
@@ -700,6 +742,16 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
         "Nový job se nezaložil – stejný výřez už běží nebo čeká.";
       showFormError(msg);
       alert(msg);
+    } else if (job && (job.private || (job.options && job.options.private))) {
+      const mail =
+        (job.options && job.options.notify_email) ||
+        (document.getElementById("notify_email") || {}).value ||
+        "";
+      alert(
+        `Privátní job založen. Po dokončení přijde odkaz na ${mail || "váš e-mail"} ` +
+          "(platí 48 hodin). Ve veřejném seznamu jobů se neobjeví."
+      );
+      if (job.id) startedId = job.id;
     } else if (job && job.id) {
       startedId = job.id;
     }
@@ -1317,4 +1369,17 @@ initBboxMap();
   }
   const preset = document.getElementById("preset-bez-kp");
   if (preset) preset.addEventListener("click", applyBezKpPreset);
+})();
+(() => {
+  const privateEl = document.getElementById("private");
+  const wrap = document.getElementById("private-email-wrap");
+  const emailEl = document.getElementById("notify_email");
+  if (!privateEl || !wrap) return;
+  const sync = () => {
+    const on = privateEl.checked;
+    wrap.classList.toggle("hidden", !on);
+    if (emailEl) emailEl.required = on;
+  };
+  privateEl.addEventListener("change", sync);
+  sync();
 })();

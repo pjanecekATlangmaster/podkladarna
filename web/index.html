@@ -262,6 +262,21 @@
           <p class="hint">Defaultně se stejný výřez znovu využije (LAZ/PNG/DEM/shade). Zaškrtni jen když chceš stáhnout a spočítat znovu — změna ekvidistance nebo laviček cache podkladů <em>ne</em>invaliduje.</p>
         </div>
 
+        <label class="checkbox-row">
+          <input type="checkbox" name="private" id="private" value="1" />
+          Privátní režim generování mapy (nebude veřejně viditelná)
+        </label>
+        <div id="private-email-wrap" class="private-email-wrap hidden">
+          <label>
+            E-mail pro odkaz ke stažení
+            <input type="email" name="notify_email" id="notify_email" autocomplete="email" placeholder="vas@email.cz" />
+          </label>
+          <p class="hint">
+            Po dokončení přijde odkaz e-mailem. Mapa se neobjeví ve veřejném seznamu jobů
+            a náhled/ZIP tu neuvidíte. Odkaz platí 48 hodin.
+          </p>
+        </div>
+
         <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
         <p id="form-error" class="form-error hidden" role="alert"></p>
       </form>
@@ -313,7 +328,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.20.19 ·
+      Podkladárna v1.22.0 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

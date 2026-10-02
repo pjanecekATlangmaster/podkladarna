@@ -43,7 +43,15 @@ from app.pipeline.package_oom import (
     MAP_SCALES,
     resolve_omap_job,
 )
-from app.settings import CLEANUP_INTERVAL_HOURS, DEFAULT_OPTIONS, DOWNLOADS_DIR, JOBS_DIR, MAX_QUEUE_SIZE, APP_VERSION
+from app.settings import (
+    CLEANUP_INTERVAL_HOURS,
+    DEFAULT_OPTIONS,
+    DOWNLOADS_DIR,
+    JOBS_DIR,
+    MAX_QUEUE_SIZE,
+    APP_VERSION,
+    PRIVATE_JOB_RETENTION_HOURS,
+)
 from app.tiles import TileError, fetch_tile
 from app.tool_env import log_ignored_gdal_plugins, tool_status
 from app.whats_new import whats_new_payload
@@ -249,7 +257,7 @@ def api_sheets(bbox: str):
 
 @app.get("/api/jobs")
 def api_list_jobs():
-    jobs = db.list_jobs()
+    jobs = db.list_jobs(include_private=False)
     for job in jobs:
         pos = worker.queue_position(job["id"])
         if pos is not None:
@@ -260,24 +268,31 @@ def api_list_jobs():
 @app.get("/api/jobs/{job_id}")
 def api_get_job(job_id: str):
     try:
-        return db.get_job(job_id)
+        job = db.get_job(job_id)
     except KeyError:
         raise HTTPException(404, "Job nenalezen")
+    if db.job_is_expired(job):
+        db.delete_job(job_id)
+        raise HTTPException(410, "Privátní job vypršel a byl smazán.")
+    return job
 
 
 @app.get("/api/jobs/{job_id}/log")
 def api_job_log(job_id: str, after: int = 0):
     try:
-        db.get_job(job_id)
+        job = db.get_job(job_id)
     except KeyError:
         raise HTTPException(404, "Job nenalezen")
+    if db.job_is_expired(job):
+        db.delete_job(job_id)
+        raise HTTPException(410, "Privátní job vypršel a byl smazán.")
     return {"lines": db.get_logs(job_id, after)}
 
 
 @app.get("/api/jobs/{job_id}/download/oom")
-def api_download_oom(job_id: str):
+def api_download_oom(job_id: str, token: str | None = None):
     """Zpětná kompatibilita – stejný balíček jako /download."""
-    return api_download(job_id)
+    return api_download(job_id, token=token)
 
 
 def _output_zip_path(job_id: str) -> Path | None:
@@ -289,16 +304,37 @@ def _output_zip_path(job_id: str) -> Path | None:
     return None
 
 
+def _load_job_for_artifact(job_id: str, token: str | None) -> dict:
+    """Načte job; u privátních vyžaduje platný token a kontroluje expiraci."""
+    try:
+        job = db.get_job(job_id, reveal_artifacts=True)
+    except KeyError:
+        raise HTTPException(404, "Job nenalezen") from None
+    if db.job_is_private(job):
+        raw_token = None
+        with db.connect() as conn:
+            row = conn.execute(
+                "SELECT download_token FROM jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+            if row:
+                raw_token = row["download_token"]
+        job["download_token"] = raw_token
+        if db.job_is_expired(job):
+            db.delete_job(job_id)
+            raise HTTPException(410, "Privátní odkaz vypršel – job byl smazán.")
+        if not db.token_matches(job, token):
+            raise HTTPException(404, "Job nenalezen")
+    return job
+
+
 @app.get("/api/jobs/{job_id}/download")
-def api_download(job_id: str):
+def api_download(job_id: str, token: str | None = None):
+    job = _load_job_for_artifact(job_id, token)
     zip_path = _output_zip_path(job_id)
     if not zip_path:
         raise HTTPException(404, "Vystup jeste neni pripraven")
-    try:
-        job = db.get_job(job_id)
-        filename = db.zip_download_filename(job_id, job["name"])
-    except KeyError:
-        filename = db.zip_download_filename(job_id, job_id)
+    filename = db.zip_download_filename(job_id, job["name"])
     return FileResponse(zip_path, filename=filename)
 
 
@@ -328,14 +364,32 @@ def api_download_georef_previews(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/preview.png")
-def api_preview(job_id: str):
+def api_preview(job_id: str, token: str | None = None):
     from app.pipeline.preview import resolve_preview_png
 
+    _load_job_for_artifact(job_id, token)
     job_dir = JOBS_DIR / job_id
     png = resolve_preview_png(job_dir / "output", job_dir / "work")
     if png is None:
         raise HTTPException(404, "Nahled neni k dispozici")
     return FileResponse(png)
+
+
+@app.get("/d/{token}")
+def download_by_token(token: str):
+    """Privátní stažení ZIP podle neprůhledného tokenu (odkaz z e-mailu)."""
+    try:
+        job = db.get_job_by_download_token(token)
+    except KeyError:
+        raise HTTPException(404, "Odkaz neplatí nebo job neexistuje.") from None
+    if db.job_is_expired(job):
+        db.delete_job(job["id"])
+        raise HTTPException(410, "Privátní odkaz vypršel – job byl smazán.")
+    zip_path = _output_zip_path(job["id"])
+    if not zip_path:
+        raise HTTPException(404, "Vystup jeste neni pripraven")
+    filename = db.zip_download_filename(job["id"], job["name"])
+    return FileResponse(zip_path, filename=filename)
 
 
 @app.get("/api/health")
@@ -526,6 +580,16 @@ async def api_create_job(request: Request):
         options["output_zip"] = _opt_bool("output_zip")
     options["output_references"] = _opt_bool("output_references")
     options["force_refresh"] = _opt_bool("force_refresh")
+    # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
+    if _opt_bool("private"):
+        notify_email = _form_str(form, "notify_email").strip()
+        if not notify_email or "@" not in notify_email or "." not in notify_email.split("@")[-1]:
+            raise HTTPException(
+                400,
+                "Privátní režim vyžaduje platný e-mail pro odkaz ke stažení.",
+            )
+        options["private"] = True
+        options["notify_email"] = notify_email
     # use_kp: UI checkbox (default checked). Absent → DEFAULT_OPTIONS (True).
     # Explicit "0"/"false" from FormData.set allows smoke test bez KP.
     use_kp_raw = _form_str(form, "use_kp").strip().lower()
@@ -592,8 +656,15 @@ async def api_create_job(request: Request):
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
         f"KP={'ano' if options.get('use_kp', True) else 'ne'}, "
         f"force_refresh={'ano' if options.get('force_refresh') else 'ne'}, "
+        f"privátní={'ano' if options.get('private') else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"
     )
+    if options.get("private"):
+        hours = PRIVATE_JOB_RETENTION_HOURS if PRIVATE_JOB_RETENTION_HOURS > 0 else 48
+        log(
+            f"Privátní režim – po dokončení přijde e-mail na {options.get('notify_email')} "
+            f"(odkaz platí {hours} h)."
+        )
 
     try:
         worker.enqueue(job_id)

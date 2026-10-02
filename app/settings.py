@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env, resolve_pullauta
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.20.19"
+APP_VERSION = "1.22.0"
 
 apply_local_gis_env()
 
@@ -65,6 +65,21 @@ FORCE_REFRESH_DEFAULT = os.environ.get("PODKLADARNA_FORCE_REFRESH", "0").lower()
     "true",
     "yes",
     "on",
+)
+
+# SMTP – privátní joby (odkaz ke stažení e-mailem). Prázdný USER/PASSWORD = IP relay.
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "25"))
+SMTP_ENCRYPTION = os.environ.get("SMTP_ENCRYPTION", "starttls").strip().lower()
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "podkladarna@datais.cz").strip()
+SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "OB podklady").strip()
+# Absolutní URL instance (bez koncového /) pro odkazy v e-mailu, např. https://podkladarna.example
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+# Privátní joby: platnost odkazu / mazání artefaktů (hodiny od založení).
+PRIVATE_JOB_RETENTION_HOURS = int(
+    os.environ.get("PRIVATE_JOB_RETENTION_HOURS", "48")
 )
 
 # Hybrid: Karttapullautin stále běží (default). Vypnutí = bez-KP cesta (vlny 3+).

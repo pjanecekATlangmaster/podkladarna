@@ -479,6 +479,21 @@ legend {
   margin-top: 0.2rem;
 }
 
+.private-email-wrap {
+  margin: 0.35rem 0 1rem 1.5rem;
+}
+
+.private-email-wrap label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 600;
+}
+
+.private-email-wrap input[type="email"] {
+  max-width: 22rem;
+}
+
 .advanced-options {
   margin: 0.75rem 0 1rem;
   padding: 0.5rem 0.75rem 0.75rem;

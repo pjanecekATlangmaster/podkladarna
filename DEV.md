@@ -170,14 +170,44 @@ Vstupy: rozbalený ZIP, `output/`, nebo job root (`output/` + `work/`). Report: 
 
 ## Náhled PNG z `.omap` (bez KP)
 
-Když job běží s `use_kp=false`, hillshade compose se do webu nedává. Po zápisu `.omap` pipeline uloží georeferencované náhledy všech disciplín (`output/preview/*-{les,mtbo,sprint}.png` + `.pgw` + `.prj`, volitelně `.tif` přes `gdal_translate`) a webový `work/preview.png` / `output/preview/oom_preview.png`. World file je EPSG:5514 (sever sítě nahoru – grivace odrotovaná stejně jako webový náhled). Malý ZIP jen s těmito náhledy: `podkladarna_georef_previews.zip` / API `/download/georef-previews`. ČÚZK WMS reference v ZIPu zůstávají. Zapnout i při KP: `options.oom_preview=true` nebo `PODKLADARNA_OOM_PREVIEW=1`. Vypnout: `oom_preview=false` nebo `PODKLADARNA_OOM_PREVIEW=0`. GeoTIFF vypnout: `oom_geotiff=false` / `PODKLADARNA_OOM_GEOTIFF=0`.
+Když job běží s `use_kp=false`, hillshade compose se do webu nedává. Po zápisu `.omap` pipeline uloží **georeferencované** náhledy všech disciplín (`output/preview/*-{les,mtbo,sprint}.png` + `.pgw` + `.prj`, volitelně `.tif` přes `gdal_translate`) **s grivací** (jako Mapper s magnetickým natočením – sedí v GIS). Zvlášť vyrenderuje webový `work/preview.png` / `output/preview/oom_preview.png` **bez deklinace** (srovnání). Malý ZIP jen s georef náhledy: `podkladarna_georef_previews.zip` / API `/download/georef-previews`. ČÚZK WMS reference v ZIPu zůstávají. Zapnout i při KP: `options.oom_preview=true` nebo `PODKLADARNA_OOM_PREVIEW=1`. Vypnout: `oom_preview=false` nebo `PODKLADARNA_OOM_PREVIEW=0`. GeoTIFF vypnout: `oom_geotiff=false` / `PODKLADARNA_OOM_GEOTIFF=0`.
 
 **Výchozí render = Pillow + XML** (`app/pipeline/oom_preview.py`) – žádný Mapper v Dockeru. Stock Mapper 0.9.6 umí PNG jen z dialogu File → Export; `Mapper.exe` se proto nespouští. Volitelný CLI jen při `PODKLADARNA_MAPPER_EXPORT` (šablona příkazu s `{mapper}`, `{omap}`, `{png}`).
 
-Vestavěný náhled kreslí plochy/linie/body barvami symbolů (ne plná symbolika). Orientace: nižší map Y nahoru (OOM už má `scale(s, −s)`). **Srovnání bez deklinace:** grivace z georef se při kreslení odrotuje (do PNG se magnetické natočení neaplikuje). Ořez kolem fialového AOI rámu (ISOM/ISSprOM **708**, MTBO **705**); přesahy cest za rám web ořízne. Navíc: combined symboly (inline 501), čárkované cesty, okraje silnic, fousy srázů/zíd.
+Vestavěný náhled kreslí plochy/linie/body barvami symbolů (ne plná symbolika). Orientace: nižší map Y nahoru (OOM už má `scale(s, −s)`). **Web „Otevřít PNG“:** grivace se odrotuje (bez deklinace). **Georef PNG+PGW:** grivace zůstane; PGW může mít rotační členy. Ořez kolem fialového AOI rámu (ISOM/ISSprOM **708**, MTBO **705**); přesahy cest za rám web ořízne. Navíc: combined symboly (inline 501), čárkované cesty, okraje silnic, fousy srázů/zíd.
 
 ```powershell
 python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 .\scripts\fetch_openorienteering_mapper.ps1
+```
+
+---
+
+## SMTP a privátní joby
+
+Checkbox **„Privátní režim generování mapy…“** vyžaduje e-mail. Job se neobjeví ve veřejném `/api/jobs`, UI neukáže náhled ani ZIP. Po `done` worker pošle plain-text e-mail s odkazem `/d/{token}` (platí `PRIVATE_JOB_RETENTION_HOURS`, default 48). Expirované privátní joby maže startup/cleanup sweep (a 410 při přístupu po splatnosti).
+
+Env (doporučeno v `.env` vedle compose; necommitujte hesla):
+
+| Proměnná | Význam | Příklad |
+|----------|--------|---------|
+| `SMTP_HOST` | SMTP server | `datais-cz.mail.protection.outlook.com` |
+| `SMTP_PORT` | Port | `25` |
+| `SMTP_ENCRYPTION` | `starttls` / `ssl` / `none` | `starttls` |
+| `SMTP_USER` / `SMTP_PASSWORD` | Auth (prázdné = IP relay) | |
+| `SMTP_FROM` | From adresa | `podkladarna@datais.cz` |
+| `SMTP_FROM_NAME` | From jméno | `OB podklady` |
+| `PUBLIC_BASE_URL` | Absolutní URL instance (bez `/`) | `https://podkladarna.example` |
+| `PRIVATE_JOB_RETENTION_HOURS` | Platnost odkazu | `48` |
+
+Rychlý test SMTP (mockuje se v pytest; živý send):
+
+```powershell
+$env:SMTP_HOST='datais-cz.mail.protection.outlook.com'
+$env:SMTP_PORT='25'
+$env:SMTP_ENCRYPTION='starttls'
+$env:SMTP_FROM='podkladarna@datais.cz'
+$env:SMTP_FROM_NAME='OB podklady'
+python -c "from app.mail import send_mail; send_mail('vas@email.cz', 'Podkladárna SMTP test', 'Funguje.')"
 ```
 
