@@ -12,10 +12,11 @@ Orientace: OOM mapové souřadnice už mají ``scale(s, −s)``
 (``projected_to_map_coord`` → geografický sever = nižší map Y). PNG proto
 dává nižší map Y nahoru (jako pohled v Mapperu / Qt), ne další převrácení Y.
 
-Webový náhled je **srovnání bez deklinace**: grivace z georef se při
-kreslení odrotuje (objekty v ``.omap`` ji mají zapečenou), takže sever
-sítě/mapy sedí rovně jako v Mapperu bez magnetického natočení. Deklinace
-se do PNG neaplikuje.
+Dvě cesty náhledu:
+- **Web „Otevřít PNG“** – srovnání **bez deklinace**: grivace se při kreslení
+  odrotuje (objekty v ``.omap`` ji mají zapečenou).
+- **Georeferencované PNG+PGW** (ZIP / stáhnout georef) – **s grivací**, jako
+  Mapper s magnetickým natočením; PGW mapuje stejný výřez do EPSG:5514.
 
 Ořez: výchozí výřez je fialový AOI rám (ISOM/ISSprOM 708, MTBO 705) –
 přesahy cest za rám zůstanou v Mapperu, webový náhled je ořízne.
@@ -608,7 +609,11 @@ class OmapGeoref:
 
 @dataclass(frozen=True)
 class PreviewExtent:
-    """Výřez náhledu v mapových jednotkách (po odrotování grivace) + PNG mřížka."""
+    """Výřez náhledu v mapových jednotkách + PNG mřížka.
+
+    U webového náhledu jsou souřadnice po odrotování grivace; u georef
+    zůstávají nativní (s magnetickým natočením).
+    """
 
     origin_x: float  # map X levého horního rohu (okraj pixelu, ne střed)
     origin_y: float  # map Y levého horního rohu
@@ -618,7 +623,7 @@ class PreviewExtent:
 
 
 def map_grivation_deg(root: ET.Element) -> float:
-    """Grivace z ``<georeferencing>`` – pro webový náhled ji odrotujeme."""
+    """Grivace z ``<georeferencing>`` – web ji odrotuje, georef PNG nechá."""
     return parse_omap_georef(root).grivation_deg
 
 
@@ -729,35 +734,50 @@ def pgw_for_grid_north_preview(
     extent: PreviewExtent,
     georef: OmapGeoref,
 ) -> PgwGeoref:
-    """World file EPSG:5514 pro PNG se severem sítě nahoru (grivace odrotovaná).
+    """World file pro webový PNG se severem sítě nahoru (grivace odrotovaná)."""
+    return pgw_for_preview(extent, georef, with_grivation=False)
 
-    Horní řádek PNG = nižší map Y = geografický / grid sever. Rotace = 0.
-    Střed UL pixelu = origin + 0,5·map_per_px v mapových jednotkách.
+
+def pgw_for_preview(
+    extent: PreviewExtent,
+    georef: OmapGeoref,
+    *,
+    with_grivation: bool,
+) -> PgwGeoref:
+    """World file EPSG:5514 pro PNG výřez.
+
+    ``with_grivation=True``: PNG má magnetické natočení jako Mapper → PGW
+    může mít rotační členy. ``False``: grid north nahoru, rotace ≈ 0.
+    Horní řádek PNG = nižší map Y. Střed UL pixelu = origin + 0,5·map_per_px.
     """
-    ul_mx = extent.origin_x + 0.5 * extent.map_per_px
-    ul_my = extent.origin_y + 0.5 * extent.map_per_px
-    # Náhled už má objekty bez grivace → inverze s g=0.
-    ul_x, ul_y = map_to_projected(
-        ul_mx,
-        ul_my,
-        ref_x=georef.ref_x,
-        ref_y=georef.ref_y,
-        scale=georef.scale,
-        grivation_deg=0.0,
-        combined_scale_factor=georef.combined_scale_factor,
-        map_ref_x=georef.map_ref_x,
-        map_ref_y=georef.map_ref_y,
-    )
-    # 1 mapová jednotka = (combined_scale * scale / 1000) metrů.
-    m_per_map = (
-        georef.combined_scale_factor * float(georef.scale) / 1000.0
-    )
-    mpp = m_per_map * extent.map_per_px
+    g = georef.grivation_deg if with_grivation else 0.0
+    half = 0.5 * extent.map_per_px
+    ul_mx = extent.origin_x + half
+    ul_my = extent.origin_y + half
+    right_mx = ul_mx + extent.map_per_px
+    down_my = ul_my + extent.map_per_px
+
+    def _to_proj(mx: float, my: float) -> tuple[float, float]:
+        return map_to_projected(
+            mx,
+            my,
+            ref_x=georef.ref_x,
+            ref_y=georef.ref_y,
+            scale=georef.scale,
+            grivation_deg=g,
+            combined_scale_factor=georef.combined_scale_factor,
+            map_ref_x=georef.map_ref_x,
+            map_ref_y=georef.map_ref_y,
+        )
+
+    ul_x, ul_y = _to_proj(ul_mx, ul_my)
+    r_x, r_y = _to_proj(right_mx, ul_my)
+    d_x, d_y = _to_proj(ul_mx, down_my)
     return PgwGeoref(
-        pixel_x=mpp,
-        rot_row=0.0,
-        rot_col=0.0,
-        pixel_y=-mpp,
+        pixel_x=r_x - ul_x,
+        rot_row=r_y - ul_y,
+        rot_col=d_x - ul_x,
+        pixel_y=d_y - ul_y,
         origin_x=ul_x,
         origin_y=ul_y,
     )
@@ -767,9 +787,11 @@ def write_preview_pgw(
     dest_pgw: Path,
     extent: PreviewExtent,
     georef: OmapGeoref,
+    *,
+    with_grivation: bool = True,
 ) -> PgwGeoref:
     """Zapíše ``.pgw`` (+ ``.prj`` se stejným stemem) pro QGIS / GDAL."""
-    pgw = pgw_for_grid_north_preview(extent, georef)
+    pgw = pgw_for_preview(extent, georef, with_grivation=with_grivation)
     dest_pgw.parent.mkdir(parents=True, exist_ok=True)
     pgw.write(dest_pgw)
     # Stejný WKT jako SHP – QGIS u PNG+PGW bere sidecare .prj.
@@ -1054,18 +1076,24 @@ def render_omap_xml_png(
     dest: Path,
     *,
     max_side: int = 1600,
+    undo_grivation: bool = True,
 ) -> tuple[int, int, int, PreviewExtent, OmapGeoref]:
-    """Vykreslí objekty mapy do PNG. Vrátí (šířka, výška, počet ops, extent, georef)."""
+    """Vykreslí objekty mapy do PNG. Vrátí (šířka, výška, počet ops, extent, georef).
+
+    ``undo_grivation=True`` (web): srovnání bez deklinace.
+    ``False`` (georef ZIP): magnetické natočení jako v Mapperu.
+    """
     from PIL import Image, ImageDraw
 
     root = ET.fromstring(_read_omap_bytes(Path(omap)))
     georef = parse_omap_georef(root)
-    ops = _collect_ops(root, grivation_deg=georef.grivation_deg)
+    g_undo = georef.grivation_deg if undo_grivation else 0.0
+    ops = _collect_ops(root, grivation_deg=g_undo)
     if not ops:
         raise ValueError(f"{omap.name}: .omap nemá vykreslitelné objekty")
 
     minx, miny, maxx, maxy, padx, pady = preview_crop_box(
-        root, ops, grivation_deg=georef.grivation_deg
+        root, ops, grivation_deg=g_undo
     )
     extent = preview_extent_from_crop(
         minx, miny, maxx, maxy, padx, pady, max_side=max_side
@@ -1159,14 +1187,20 @@ def render_omap_to_png(
     max_side: int = 1600,
     write_pgw: bool = False,
     write_geotiff: bool = False,
+    undo_grivation: bool | None = None,
 ) -> str:
     """PNG z ``.omap``. Mapper CLI jen při ``PODKLADARNA_MAPPER_EXPORT``, jinak XML.
 
     ``write_pgw`` / ``write_geotiff`` platí jen u vestavěného XML renderu
     (u Mapper CLI neznáme přesný ořez → PGW by nesedělo).
+
+    ``undo_grivation``: default ``False`` při ``write_pgw`` (georef s deklinací),
+    jinak ``True`` (web bez deklinace).
     """
     omap = Path(omap)
     dest = Path(dest)
+    if undo_grivation is None:
+        undo_grivation = not write_pgw
     argv = mapper_export_argv(omap, dest)
     if argv and not write_pgw:
         timeout = float(os.environ.get("PODKLADARNA_MAPPER_TIMEOUT", "180"))
@@ -1197,16 +1231,22 @@ def render_omap_to_png(
             if dest.exists() and not _is_png(dest):
                 dest.unlink()
     width, height, count, extent, georef = render_omap_xml_png(
-        omap, dest, max_side=max_side
+        omap, dest, max_side=max_side, undo_grivation=undo_grivation
     )
     if write_pgw:
-        write_preview_pgw(dest.with_suffix(".pgw"), extent, georef)
+        write_preview_pgw(
+            dest.with_suffix(".pgw"),
+            extent,
+            georef,
+            with_grivation=not undo_grivation,
+        )
         if write_geotiff:
             try_write_geotiff_from_png_pgw(dest, log=log)
     if log:
+        orient = "bez deklinace" if undo_grivation else "s grivací"
         log(
             f"OOM náhled: vestavěný render {dest.name} "
-            f"({width}×{height}, {count} objektů)"
+            f"({width}×{height}, {count} objektů, {orient})"
         )
     return f"xml {width}x{height} n={count}"
 
@@ -1239,12 +1279,13 @@ def write_job_oom_preview(
     options: dict | None,
     log=None,
 ) -> Path | None:
-    """Po zápisu ``.omap`` uloží náhledy všech variant + webový ``preview.png``.
+    """Po zápisu ``.omap`` uloží georef náhledy (s grivací) + webový ``preview.png``.
 
     Pro každou ``*-{les,mtbo,sprint}.omap``:
-      ``output/preview/{stem}.png`` + ``.pgw`` (+ volitelně ``.tif``, ``.prj``).
-    Web/ZIP náhled: kopie preferované varianty → ``work/preview.png`` a
-    ``output/preview/oom_preview.png`` (+ PGW).
+      ``output/preview/{stem}.png`` + ``.pgw`` (+ volitelně ``.tif``, ``.prj``)
+      – s deklinací / grivací, PGW sedí v GIS.
+    Web „Otevřít PNG“: samostatný render **bez** deklinace → ``work/preview.png``
+    a ``output/preview/oom_preview.png`` (bez PGW).
     """
     from app.pipeline.prepare_lidar import log_step
 
@@ -1261,7 +1302,7 @@ def write_job_oom_preview(
     want_geotiff = georef_preview_enabled(options)
     written: list[Path] = []
 
-    log_step(log, "Vykresluji georeferencované náhledy PNG+PGW (všechny varianty)")
+    log_step(log, "Vykresluji georeferencované náhledy PNG+PGW (s grivací)")
     for omap in existing:
         dest_png = preview_dir / f"{omap.stem}.png"
         try:
@@ -1271,6 +1312,7 @@ def write_job_oom_preview(
                 log=log,
                 write_pgw=True,
                 write_geotiff=want_geotiff,
+                undo_grivation=False,
             )
         except Exception as exc:
             if log:
@@ -1284,41 +1326,39 @@ def write_job_oom_preview(
     preferred = pick_preview_omap(existing)
     if preferred is None:
         return None
-    preferred_png = preview_dir / f"{preferred.stem}.png"
-    # Preferovaná varianta: znovu vyrenderovat do work/ pokud chybí (selhala výše).
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
     work_png = work_dir / "preview.png"
-    if preferred_png.is_file():
-        shutil.copy2(preferred_png, work_png)
-        preferred_pgw = preferred_png.with_suffix(".pgw")
-        if preferred_pgw.is_file():
-            shutil.copy2(preferred_pgw, work_dir / "preview.pgw")
-            shutil.copy2(preferred_pgw, preview_dir / "oom_preview.pgw")
-            prj = preferred_png.with_suffix(".prj")
-            if prj.is_file():
-                shutil.copy2(prj, work_dir / "preview.prj")
-                shutil.copy2(prj, preview_dir / "oom_preview.prj")
-        named = preview_dir / "oom_preview.png"
-        shutil.copy2(preferred_png, named)
-        tif = preferred_png.with_suffix(".tif")
-        if tif.is_file():
-            shutil.copy2(tif, preview_dir / "oom_preview.tif")
-    else:
+    named = preview_dir / "oom_preview.png"
+    # Web: vždy zvlášť bez deklinace (nesdílet georef PNG).
+    try:
         summary = render_omap_to_png(
             preferred,
             work_png,
             log=log,
-            write_pgw=True,
-            write_geotiff=want_geotiff,
+            write_pgw=False,
+            undo_grivation=True,
         )
-        named = preview_dir / "oom_preview.png"
         shutil.copy2(work_png, named)
-        work_pgw = work_dir / "preview.pgw"
-        if work_pgw.is_file():
-            shutil.copy2(work_pgw, preview_dir / "oom_preview.pgw")
+        # Starý PGW z georef by k webovému PNG neseděl.
+        for stale in (
+            work_dir / "preview.pgw",
+            work_dir / "preview.prj",
+            preview_dir / "oom_preview.pgw",
+            preview_dir / "oom_preview.prj",
+            preview_dir / "oom_preview.tif",
+        ):
+            stale.unlink(missing_ok=True)
         if log:
-            log(f"OOM náhled: {preferred.name} → preview.png ({summary})")
+            log(f"OOM náhled (web bez deklinace): {preferred.name} → preview.png ({summary})")
+    except Exception as exc:
+        if log:
+            log(f"OOM náhled (web): {preferred.name} selhal ({exc})")
+        # Fallback: aspoň georef kopie, ať UI má něco.
+        preferred_png = preview_dir / f"{preferred.stem}.png"
+        if preferred_png.is_file():
+            shutil.copy2(preferred_png, work_png)
+            shutil.copy2(preferred_png, named)
 
     if log and written:
         log(
@@ -1377,8 +1417,8 @@ def build_georef_previews_zip(
                 "Podkladárna – georeferencované náhledy mapy\n"
                 "==========================================\n\n"
                 "Každá varianta (les / mtbo / sprint dle měřítka) má:\n"
-                "  *.png  – rastrový náhled (sever sítě nahoru)\n"
-                "  *.pgw  – ESRI world file (metry EPSG:5514 / S-JTSK)\n"
+                "  *.png  – rastrový náhled (s grivací / magnetickým natočením)\n"
+                "  *.pgw  – ESRI world file (metry EPSG:5514 / S-JTSK; může mít rotaci)\n"
                 "  *.prj  – WKT souřadnicového systému\n"
                 "  *.tif  – volitelný GeoTIFF (když je k dispozici GDAL)\n\n"
                 "Otevři PNG+PGW v QGIS (zadej EPSG:5514, pokud se neptá),\n"

@@ -49,7 +49,8 @@ def map_to_projected(
     """Nativní souřadnice OOM → metry S-JTSK (inverze ``projected_to_map_coord``).
 
     Webový náhled PNGčko má grivaci odrotovanou (= grid north nahoru), takže
-    pro PGW typicky volej s ``grivation_deg=0``.
+    pro webové PGW volej s ``grivation_deg=0``. Georef PNG s magnetickým
+    natočením volej se skutečnou grivací (rotační členy world file).
     """
     s = combined_scale_factor * float(scale) / 1000.0
     if s <= 0:

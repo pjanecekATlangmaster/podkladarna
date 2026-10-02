@@ -603,7 +603,7 @@ def test_pgw_matches_projected_aoi_corners(tmp_path: Path):
     from app.pipeline.oom_coords import map_to_projected
     from app.pipeline.oom_preview import (
         parse_omap_georef,
-        pgw_for_grid_north_preview,
+        pgw_for_preview,
         preview_crop_box,
         preview_extent_from_crop,
         render_omap_to_png,
@@ -633,18 +633,174 @@ def test_pgw_matches_projected_aoi_corners(tmp_path: Path):
     assert abs(px - og.ref_x) < 1e-6
     assert abs(py - og.ref_y) < 1e-6
 
-    # Střed UL pixelu z PGW = map_to_projected(origin + 0.5*mpp)
+    # Střed UL pixelu z PGW = map_to_projected(origin + 0.5*mpp); g=0 → bez rotace
     from app.pipeline.oom_preview import _collect_ops
 
     ops = _collect_ops(root, grivation_deg=0.0)
     minx, miny, maxx, maxy, padx, pady = preview_crop_box(root, ops, grivation_deg=0.0)
     extent = preview_extent_from_crop(minx, miny, maxx, maxy, padx, pady, max_side=200)
-    expected = pgw_for_grid_north_preview(extent, og)
+    expected = pgw_for_preview(extent, og, with_grivation=True)
     assert abs(georef.origin_x - expected.origin_x) < 1e-6
     assert abs(georef.origin_y - expected.origin_y) < 1e-6
     assert abs(georef.pixel_x - expected.pixel_x) < 1e-9
-    # 1 map unit @ 1:10000 = 10 m; map_per_px * 10 = mpp
-    assert abs(georef.pixel_x - extent.map_per_px * 10.0) < 1e-6
+    # 1 map unit @ 1:10000 = 0.01 m (OOM 1/1000 mm paper); map_per_px * 0.01 = mpp
+    assert abs(georef.pixel_x - extent.map_per_px * 0.01) < 1e-6
+    assert abs(georef.pixel_y + extent.map_per_px * 0.01) < 1e-6
+
+
+def test_georef_pgw_keeps_grivation_rotation(tmp_path: Path):
+    """Georef PNG nechá grivaci; PGW má rotační členy a invertuje roh AOI."""
+    import math
+
+    from app.pipeline.georef import read_pgw
+    from app.pipeline.oom_coords import map_to_projected
+    from app.pipeline.oom_preview import parse_omap_georef, render_omap_to_png
+
+    g = 12.52
+    rad = math.radians(g)
+    grid = [(-5000, -4000), (5000, -4000), (5000, 4000), (-5000, 4000), (-5000, -4000)]
+
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        rx = x * math.cos(rad) - y * math.sin(rad)
+        ry = x * math.sin(rad) + y * math.cos(rad)
+        return round(rx), round(-ry)
+
+    ring = [to_map(x, y) for x, y in grid]
+    coords = ";".join(f"{x} {y}" for x, y in ring[:-1])
+    coords += f";{ring[-1][0]} {ring[-1][1]} 18;"
+    ref_x, ref_y = -750000.0, -1050000.0
+    omap = tmp_path / "griv-geo.omap"
+    omap.write_text(
+        f"""<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <georeferencing scale="10000" declination="5.00" grivation="{g}">
+    <projected_crs id="EPSG">
+      <ref_point x="{ref_x}" y="{ref_y}"/>
+    </projected_crs>
+  </georeferencing>
+  <colors count="2">
+    <color priority="5" name="Purple"><rgb r="1" g="0" b="1"/></color>
+    <color priority="26" name="Green"><rgb r="0" g="1" b="0"/></color>
+  </colors>
+  <symbols count="2">
+    <symbol type="2" id="175" code="708">
+      <line_symbol color="5" line_width="1000"/>
+    </symbol>
+    <symbol type="4" id="10" code="406">
+      <area_symbol inner_color="26"/>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="2">
+        <object type="1" symbol="10">
+          <coords count="5">{coords}</coords>
+        </object>
+        <object type="1" symbol="175">
+          <coords count="5">{coords}</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    png = tmp_path / "griv-geo.png"
+    render_omap_to_png(
+        omap, png, write_pgw=True, write_geotiff=False, max_side=200, undo_grivation=False
+    )
+    pgw = read_pgw(png.with_suffix(".pgw"))
+    # S grivací musí být nenulová rotace v world file.
+    assert abs(pgw.rot_row) > 1e-6 or abs(pgw.rot_col) > 1e-6
+    og = parse_omap_georef(ET.fromstring(omap.read_text(encoding="utf-8")))
+    assert abs(og.grivation_deg - g) < 1e-6
+    # Roh mapy (ring[0]) → projected přes stejnou grivaci
+    mx0, my0 = ring[0]
+    exp_x, exp_y = map_to_projected(
+        float(mx0),
+        float(my0),
+        ref_x=og.ref_x,
+        ref_y=og.ref_y,
+        scale=og.scale,
+        grivation_deg=g,
+    )
+    # Bez odrotování je ořez širší než grid 10000×8000 (osa-aligned bbox natočeného rámu).
+    web = tmp_path / "web.png"
+    render_omap_to_png(omap, web, write_pgw=False, max_side=200, undo_grivation=True)
+    assert png.read_bytes() != web.read_bytes()
+    assert abs(exp_x - ref_x) > 1.0 or abs(exp_y - ref_y) > 1.0
+
+
+def test_write_job_splits_georef_and_web(tmp_path: Path):
+    """Georef PNG ≠ web preview, když .omap má nenulovou grivaci."""
+    import math
+
+    g = 12.52
+    rad = math.radians(g)
+    grid = [(-5000, -4000), (5000, -4000), (5000, 4000), (-5000, 4000), (-5000, -4000)]
+
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        rx = x * math.cos(rad) - y * math.sin(rad)
+        ry = x * math.sin(rad) + y * math.cos(rad)
+        return round(rx), round(-ry)
+
+    ring = [to_map(x, y) for x, y in grid]
+    coords = ";".join(f"{x} {y}" for x, y in ring[:-1])
+    coords += f";{ring[-1][0]} {ring[-1][1]} 18;"
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <georeferencing scale="10000" declination="5.00" grivation="{g}">
+    <projected_crs id="EPSG">
+      <ref_point x="-750000" y="-1050000"/>
+    </projected_crs>
+  </georeferencing>
+  <colors count="2">
+    <color priority="5" name="Purple"><rgb r="1" g="0" b="1"/></color>
+    <color priority="26" name="Green"><rgb r="0" g="1" b="0"/></color>
+  </colors>
+  <symbols count="2">
+    <symbol type="2" id="175" code="708">
+      <line_symbol color="5" line_width="1000"/>
+    </symbol>
+    <symbol type="4" id="10" code="406">
+      <area_symbol inner_color="26"/>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="2">
+        <object type="1" symbol="10">
+          <coords count="5">{coords}</coords>
+        </object>
+        <object type="1" symbol="175">
+          <coords count="5">{coords}</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+"""
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(body, encoding="utf-8")
+    work = write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"use_kp": False, "oom_geotiff": False},
+    )
+    assert work is not None and work.is_file()
+    georef_png = tmp_path / "out" / "preview" / "Park-les.png"
+    web_png = tmp_path / "out" / "preview" / "oom_preview.png"
+    assert georef_png.is_file() and georef_png.with_suffix(".pgw").is_file()
+    assert web_png.is_file()
+    assert not web_png.with_suffix(".pgw").is_file()
+    assert georef_png.read_bytes() != web_png.read_bytes()
+    from app.pipeline.georef import read_pgw
+
+    pgw = read_pgw(georef_png.with_suffix(".pgw"))
+    assert abs(pgw.rot_row) > 1e-6 or abs(pgw.rot_col) > 1e-6
 
 
 def test_build_georef_previews_zip(tmp_path: Path):
