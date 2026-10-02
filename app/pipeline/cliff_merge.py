@@ -60,16 +60,17 @@ ROCK_CELL_M = 3.0
 ROCK_MIN_TICKS_PER_CELL = 2
 ROCK_MIN_CORE_CELLS = 2
 
-# Min. délka na mapě: skála ~1,2 mm, zem ~2,4 mm (Petr: krátké 104 nekreslit).
-# 1:10 000 → skála 12 m, zem 24 m; 1:4000 → 4,8 m / 9,6 m.
+# Min. délka na mapě: skála ~1,2 mm, zem ~3,5 mm (Petr Barr 2026-10-02:
+# krátké jednotlivé 104 pryč; rovné delší OK). 1:10 000 → skála 12 m, zem 35 m;
+# 1:4000 → 4,8 m / 14 m. Dřív zem 2,4 mm / 24 m.
 MIN_LINE_MM_ROCK = 1.2
-MIN_LINE_MM_EARTH = 2.4
+MIN_LINE_MM_EARTH = 3.5
 # Zpětná kompatibilita (testy / starší volání).
 MIN_LINE_MM = MIN_LINE_MM_ROCK
 
 # Zemní sráz: po hrubém zjednodušení path/chord a zatáčky – nad tím raději nekreslit.
 # (Surový řetěz DEM ticků je zubatý i u rovné stěny, proto nejdřív simplify.)
-# Petr 2026-10-02: ještě přísněji – zamotané / nejasné 104 pryč.
+# Petr: zamotané / nejasné 104 pryč (včetně ZABAGED StupenSraz, i >70 m).
 BANK_SHAPE_SIMPLIFY_M = 4.5
 MAX_BANK_SINUOSITY = 1.85
 MAX_BANK_TURN_DEG = 135.0
@@ -101,15 +102,33 @@ def filter_short_earth_banks(
     *,
     scale: int,
 ) -> list[list[tuple[float, float]]]:
-    """Zahodí zemní srázy (104) kratší než DEM práh (~24 m @ 1:10 000).
+    """Zahodí zemní srázy (104) kratší než DEM práh (~35 m @ 1:10 000).
 
     Stejný min-length jako ``merge_cliff_ticks(..., earth=True)`` – včetně
-    ZABAGED ``StupenSraz``, které dřív šly do OOM bez délkového filtru.
+    ZABAGED ``StupenSraz``.
     """
     min_m = min_line_length_m(scale, earth=True)
     if min_m <= 0:
         return list(polylines)
     return [pts for pts in polylines if _polyline_length(pts) >= min_m]
+
+
+def filter_tangled_earth_banks(
+    polylines: list[list[tuple[float, float]]],
+) -> list[list[tuple[float, float]]]:
+    """Zahodí zamotané / smyčkové zemní srázy (stejná metrika jako DEM 104)."""
+    return [pts for pts in polylines if polyline_is_simple_bank(pts)]
+
+
+def filter_earth_bank_lines(
+    polylines: list[list[tuple[float, float]]],
+    *,
+    scale: int,
+) -> list[list[tuple[float, float]]]:
+    """Min-délka + zamotané – společný filtr DEM i ZABAGED ``StupenSraz`` → 104."""
+    return filter_tangled_earth_banks(
+        filter_short_earth_banks(polylines, scale=scale)
+    )
 
 
 def min_line_length_m(scale: int, *, earth: bool = False) -> float:

@@ -19,8 +19,8 @@ from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_insid
 from app.pipeline.cliff_merge import (
     filter_by_dense_contours,
     filter_cliffs_crossing_buildings,
+    filter_earth_bank_lines,
     filter_rocks_overlapping_blockers,
-    filter_short_earth_banks,
     merge_cliff_ticks,
     min_line_length_m,
     polyline_is_simple_bank,
@@ -987,9 +987,9 @@ def build_zabaged_object_parts(
                         for pts in line_parts
                     ):
                         continue
-                # StupenSraz → 104: stejný min-length jako DEM (~24 m @ 10k).
+                # StupenSraz → 104: stejný min-length + zamotané jako DEM (~35 m @ 10k).
                 if layer_name == "StupenSraz":
-                    line_parts = filter_short_earth_banks(line_parts, scale=scale)
+                    line_parts = filter_earth_bank_lines(line_parts, scale=scale)
                     if not line_parts:
                         continue
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
@@ -1075,7 +1075,7 @@ def build_zabaged_object_parts(
                     ):
                         continue
                 if layer_name == "StupenSraz":
-                    line_parts = filter_short_earth_banks(line_parts, scale=scale)
+                    line_parts = filter_earth_bank_lines(line_parts, scale=scale)
                     if not line_parts:
                         continue
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
@@ -1510,11 +1510,13 @@ def build_dxf_object_part(
             KP_CLIFF_ROCK_FACE,
             KP_CLIFF_SYMBOL_206,
         ) or cliff_line_code == "201"
+        # Zamotané nejdřív necháme v merge projít (reject_tangled=False), ať
+        # uzitecne/vyhozene dostane duvod=zamotany. Min-délka zůstává v merge.
         merged = merge_cliff_ticks(
             cliff_ticks,
             as_polygons=as_polygons,
             min_line_m=min_line_length_m(scale, earth=is_earth),
-            reject_tangled=is_earth,
+            reject_tangled=False,
         )
         raw_lines = merged.lines
         if is_earth:

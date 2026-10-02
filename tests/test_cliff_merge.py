@@ -176,19 +176,37 @@ def test_min_line_length_scales_with_map():
     assert min_line_length_m(4000) == pytest.approx(4.8)
     assert min_line_length_m(10000) == pytest.approx(12.0)
     assert min_line_length_m(15000) == pytest.approx(18.0)
-    assert min_line_length_m(10000, earth=True) == pytest.approx(24.0)
-    assert min_line_length_m(4000, earth=True) == pytest.approx(9.6)
+    assert min_line_length_m(10000, earth=True) == pytest.approx(35.0)
+    assert min_line_length_m(4000, earth=True) == pytest.approx(14.0)
 
 
 def test_filter_short_earth_banks_matches_dem_threshold():
-    """ZABAGED StupenSraz: krátké úseky pryč, dlouhé 104 zůstanou (@ 10k ≈ 24 m)."""
+    """ZABAGED StupenSraz: krátké úseky pryč, dlouhé 104 zůstanou (@ 10k ≈ 35 m)."""
     from app.pipeline.cliff_merge import filter_short_earth_banks
 
-    short = [(0.0, 0.0), (15.0, 0.0)]  # 15 m < 24 m
-    long = [(0.0, 0.0), (30.0, 0.0)]  # 30 m ≥ 24 m
+    short = [(0.0, 0.0), (30.0, 0.0)]  # 30 m < 35 m
+    long = [(0.0, 0.0), (40.0, 0.0)]  # 40 m ≥ 35 m
     kept = filter_short_earth_banks([short, long], scale=10000)
     assert kept == [long]
-    assert filter_short_earth_banks([short], scale=4000) == [short]  # earth min ≈ 9.6 m
+    assert filter_short_earth_banks([short], scale=4000) == [short]  # earth min ≈ 14 m
+
+
+def test_filter_earth_bank_lines_drops_tangled_zabaged():
+    """StupenSraz: stejná zamotaná metrika jako DEM 104."""
+    from app.pipeline.cliff_merge import filter_earth_bank_lines
+
+    straight = [(0.0, 0.0), (50.0, 0.0)]
+    # Smyčka: path ≫ chord → polyline_is_simple_bank False.
+    loop = [
+        (0.0, 0.0),
+        (20.0, 0.0),
+        (20.0, 20.0),
+        (0.0, 20.0),
+        (0.0, 1.0),
+        (40.0, 1.0),
+    ]
+    kept = filter_earth_bank_lines([straight, loop], scale=10000)
+    assert kept == [straight]
 
 
 def test_min_line_drops_stubs_but_keeps_real_cliffs():
