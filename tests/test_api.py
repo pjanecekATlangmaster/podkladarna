@@ -506,6 +506,8 @@ def test_index_html(client):
     assert "boardwalk" not in html.lower()
     assert "courtyard-olive-wrap" in html
     assert "residual-paved-wrap" in html
+    assert 'id="residual-paved-options" class="hidden"' in html
+    assert 'id="residual-paved-hint"' in html
     assert "pracovní podklad" in html
     assert "jasně danými" in html
     assert "postaru" in html

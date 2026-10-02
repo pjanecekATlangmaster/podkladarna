@@ -987,6 +987,13 @@ function updateOsmHintsForScale(scale) {
   }
 }
 
+function updateResidualPavedControls() {
+  const cb = document.getElementById("sprint_residual_paved");
+  const opts = document.getElementById("residual-paved-options");
+  if (!cb || !opts) return;
+  opts.classList.toggle("hidden", !cb.checked);
+}
+
 function updateCliffControls() {
   const cliff = document.getElementById("kp_cliff_symbol");
   const sens = document.getElementById("kp_cliff_sensitivity");
@@ -1108,6 +1115,7 @@ function applyJobToForm(job) {
       residualSize.value = sizeVal;
     }
   }
+  updateResidualPavedControls();
   const ostatni = form.ostatni_plocha;
   if (ostatni) {
     const ostatniVal = opts.ostatni_plocha || "small";
@@ -1340,6 +1348,12 @@ initBboxMap();
   if (!cliff) return;
   cliff.addEventListener("change", updateCliffControls);
   updateCliffControls();
+})();
+(() => {
+  const cb = document.getElementById("sprint_residual_paved");
+  if (!cb) return;
+  cb.addEventListener("change", updateResidualPavedControls);
+  updateResidualPavedControls();
 })();
 (() => {
   const privateEl = document.getElementById("private");

@@ -161,30 +161,32 @@
               <input type="checkbox" name="sprint_residual_paved" id="sprint_residual_paved" value="1" />
               Zpevněná plocha do mezer v residential (OSM)
             </label>
-            <label>
-              Max. velikost do auto .omap
-              <select name="sprint_residual_size" id="sprint_residual_size">
-                <option value="small" selected>Jen menší (≤ 500 m²) – výchozí</option>
-                <option value="medium">Včetně středních (≤ 2000 m²)</option>
-                <option value="large">I velké (všechny hustě zmapované)</option>
-              </select>
-            </label>
-            <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Ostatní velikosti (a řídké) jsou v&nbsp;ZIPu v&nbsp;<code>osm/</code> k ručnímu importu.</p>
-            <p class="hint" id="residual-paved-hint">
-              Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.
-              Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
-              (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
-              které jinak nekreslíme). Výsledek jde pod silnice.
-              Když po odečtu zbývá víc než 25&nbsp;% plochy residential, oblast je řídce
-              zmapovaná a do auto&nbsp;<code>.omap</code> se nebere;
-              stejně se zahodí kusy nad zvolenou max. velikostí.
-              Do ZIPu (<code>osm/</code>) vždy přibudou SHP
-              <code>OSM_residential_zbytek_mensi</code> /
-              <code>_stredni</code> /
-              <code>_velke</code>
-              a <code>_ridke</code> (přeskočené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
-              (symbol 501). Heuristika; v OOM jde smazat. Default vypnuto.
-            </p>
+            <div id="residual-paved-options" class="hidden">
+              <label>
+                Max. velikost do auto .omap
+                <select name="sprint_residual_size" id="sprint_residual_size">
+                  <option value="small" selected>Jen menší (≤ 500 m²) – výchozí</option>
+                  <option value="medium">Včetně středních (≤ 2000 m²)</option>
+                  <option value="large">I velké (všechny hustě zmapované)</option>
+                </select>
+              </label>
+              <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Ostatní velikosti (a řídké) jsou v&nbsp;ZIPu v&nbsp;<code>osm/</code> k ručnímu importu.</p>
+              <p class="hint" id="residual-paved-hint">
+                Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.
+                Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
+                (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
+                které jinak nekreslíme). Výsledek jde pod silnice.
+                Když po odečtu zbývá víc než 25&nbsp;% plochy residential, oblast je řídce
+                zmapovaná a do auto&nbsp;<code>.omap</code> se nebere;
+                stejně se zahodí kusy nad zvolenou max. velikostí.
+                Do ZIPu (<code>osm/</code>) vždy přibudou SHP
+                <code>OSM_residential_zbytek_mensi</code> /
+                <code>_stredni</code> /
+                <code>_velke</code>
+                a <code>_ridke</code> (přeskočené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
+                (symbol 501). Heuristika; v OOM jde smazat. Default vypnuto.
+              </p>
+            </div>
           </div>
 
           <label>
