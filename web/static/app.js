@@ -404,6 +404,13 @@ async function loadJobs() {
   updateFinishedPager(finished.length);
   syncJobsList(live, pageJobs);
 
+  if (generateStartedJobId) {
+    const started = data.jobs.find((j) => j.id === generateStartedJobId);
+    if (!started || !jobIsLive(started.status)) {
+      clearGenerateStarted();
+    }
+  }
+
   const selectedEl = selectedJobId ? jobItemEl(selectedJobId) : null;
   const selected = data.jobs.find((j) => j.id === selectedJobId);
   if (selectedEl && selected) {
@@ -593,6 +600,8 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
 }
 
 async function selectJob(id) {
+  // Klik na job v seznamu (nebo přepnutí) zruší zámek „Generování spuštěno“.
+  if (generateStartedJobId) clearGenerateStarted();
   const same = selectedJobId === id;
   selectedJobId = id;
   if (!same) {
@@ -623,10 +632,32 @@ async function refreshLog() {
 }
 
 let jobSubmitInFlight = false;
+/** Po úspěšném startu: světle červené „Generování spuštěno“ dokud se formulář/job nezmění. */
+let generateStartedJobId = null;
+
+function clearGenerateStarted() {
+  if (!generateStartedJobId) return;
+  generateStartedJobId = null;
+  const btn = document.getElementById("submit-btn");
+  if (btn) {
+    btn.disabled = false;
+    btn.classList.remove("generate-started");
+  }
+  updateSubmitButtonLabel();
+}
+
+function markGenerateStarted(jobId) {
+  generateStartedJobId = jobId;
+  const btn = document.getElementById("submit-btn");
+  if (!btn) return;
+  btn.disabled = true;
+  btn.classList.add("generate-started");
+  btn.textContent = "Generování spuštěno";
+}
 
 document.getElementById("job-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (jobSubmitInFlight) return;
+  if (jobSubmitInFlight || generateStartedJobId) return;
   const form = e.target;
   const btn = document.getElementById("submit-btn");
   clearFormError();
@@ -654,6 +685,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   jobSubmitInFlight = true;
   btn.disabled = true;
   btn.textContent = "Zakládám job…";
+  let startedId = null;
   try {
     const fd = new FormData(form);
     // Checkbox: vždy pošli 0/1 (unchecked jinak zmizí a API by drželo default true).
@@ -668,6 +700,8 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
         "Nový job se nezaložil – stejný výřez už běží nebo čeká.";
       showFormError(msg);
       alert(msg);
+    } else if (job && job.id) {
+      startedId = job.id;
     }
     await selectJob(job.id);
   } catch (err) {
@@ -676,8 +710,14 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     await loadJobs();
   } finally {
     jobSubmitInFlight = false;
-    btn.disabled = false;
-    updateSubmitButtonLabel();
+    if (startedId) {
+      // selectJob výše mohl smazat zámek; nastav až po auto-výběru nového jobu.
+      markGenerateStarted(startedId);
+    } else {
+      btn.disabled = false;
+      btn.classList.remove("generate-started");
+      updateSubmitButtonLabel();
+    }
   }
 });
 
@@ -833,6 +873,9 @@ function onMapClick(e) {
   }
   if (bboxCorners.length >= 2) {
     clearBbox();
+  } else if (generateStartedJobId) {
+    // Nový roh výřezu = změna mapy → zelené tlačítko zpět.
+    clearGenerateStarted();
   }
   bboxCorners.push(e.latlng);
   if (bboxCorners.length === 1) {
@@ -936,6 +979,7 @@ function updateUseKpHints() {
 }
 
 function applyBezKpPreset() {
+  clearGenerateStarted();
   const useKp = document.getElementById("use_kp");
   const outMode = document.getElementById("output_mode");
   if (useKp) useKp.checked = false;
@@ -1081,6 +1125,9 @@ function applyBbox(west, south, east, north, extra = {}) {
 }
 
 function clearBbox(opts = {}) {
+  // Programatický applyBbox (keepReuse) nesmí shodit zámek po odeslání;
+  // uživatelské vymazání / překreslení výřezu ano.
+  if (!opts.keepReuse) clearGenerateStarted();
   bboxCorners = [];
   bboxRect = null;
   bboxAllowed = false;
@@ -1118,7 +1165,7 @@ function selectedEstimateMinutes() {
 
 function updateSubmitButtonLabel() {
   const btn = document.getElementById("submit-btn");
-  if (!btn || jobSubmitInFlight) return;
+  if (!btn || jobSubmitInFlight || generateStartedJobId) return;
   const mins = selectedEstimateMinutes();
   if (mins != null && bboxAllowed) {
     btn.textContent = `Spustit generování (~${mins} min)`;
@@ -1240,6 +1287,11 @@ loadMapOptions().then(loadJobs).then(startPolling);
 initJobsPager();
 initBboxMap();
 (() => {
+  const form = document.getElementById("job-form");
+  if (form) {
+    form.addEventListener("input", clearGenerateStarted);
+    form.addEventListener("change", clearGenerateStarted);
+  }
   const refs = document.getElementById("output_references");
   if (refs) refs.addEventListener("change", updateSubmitButtonLabel);
   updateSubmitButtonLabel();
