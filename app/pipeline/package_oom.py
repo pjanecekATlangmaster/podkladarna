@@ -871,6 +871,9 @@ def prepare_oom_map(
             grivation_deg=grivation,
             cliff_symbol=cliff_symbol,
             clip_bounds=dxf_clip_bounds,
+            zabaged_clean=zabaged_clean
+            if zabaged_clean and zabaged_clean.is_file()
+            else None,
         )
         if dxf_part:
             object_parts.append(dxf_part)

@@ -176,8 +176,8 @@ def test_min_line_length_scales_with_map():
     assert min_line_length_m(4000) == pytest.approx(4.8)
     assert min_line_length_m(10000) == pytest.approx(12.0)
     assert min_line_length_m(15000) == pytest.approx(18.0)
-    assert min_line_length_m(10000, earth=True) == pytest.approx(18.0)
-    assert min_line_length_m(4000, earth=True) == pytest.approx(7.2)
+    assert min_line_length_m(10000, earth=True) == pytest.approx(24.0)
+    assert min_line_length_m(4000, earth=True) == pytest.approx(9.6)
 
 
 def test_min_line_drops_stubs_but_keeps_real_cliffs():
@@ -380,3 +380,71 @@ def test_gentle_bend_bank_is_kept():
 
     bend = [(0.0, 0.0), (10.0, 0.0), (18.0, 3.0), (25.0, 4.0)]
     assert polyline_is_simple_bank(bend)
+
+
+def test_rock_scarp_overlap_keeps_longer():
+    from app.pipeline.cliff_merge import resolve_rock_scarp_overlaps
+
+    # Malá skála (obvod ~40 m) vs dlouhý sráz (~80 m) přes ni → sráz.
+    small_rock = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    long_scarp = [(-20.0, 5.0), (30.0, 5.0)]
+    rocks, scarps, n = resolve_rock_scarp_overlaps([small_rock], [long_scarp])
+    assert n == 1
+    assert rocks == []
+    assert len(scarps) == 1
+
+    # Velká skála (obvod ~200 m) vs krátký sráz (~20 m) → skála.
+    big_rock = [(0.0, 0.0), (50.0, 0.0), (50.0, 50.0), (0.0, 50.0)]
+    short_scarp = [(10.0, 25.0), (30.0, 25.0)]
+    rocks, scarps, n = resolve_rock_scarp_overlaps([big_rock], [short_scarp])
+    assert n == 1
+    assert len(rocks) == 1
+    assert scarps == []
+
+
+def test_rock_scarp_no_overlap_keeps_both():
+    from app.pipeline.cliff_merge import resolve_rock_scarp_overlaps
+
+    rock = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    scarp = [(100.0, 0.0), (140.0, 0.0)]
+    rocks, scarps, n = resolve_rock_scarp_overlaps([rock], [scarp])
+    assert n == 0
+    assert len(rocks) == 1 and len(scarps) == 1
+
+
+def test_cliffs_crossing_buildings_discarded():
+    from app.pipeline.cliff_merge import filter_cliffs_crossing_buildings
+
+    building = [(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)]
+    through_line = [(-5.0, 10.0), (25.0, 10.0)]
+    outside_line = [(50.0, 0.0), (80.0, 0.0)]
+    through_rock = [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)]
+    outside_rock = [(60.0, 0.0), (80.0, 0.0), (80.0, 20.0), (60.0, 20.0)]
+
+    lines, polys, n = filter_cliffs_crossing_buildings(
+        [through_line, outside_line],
+        [through_rock, outside_rock],
+        [building],
+    )
+    assert n == 2
+    assert lines == [outside_line]
+    assert polys == [outside_rock]
+
+
+def test_tight_bank_filter_rejects_mild_zigzag():
+    """Přísnější sinuozita/zatáčky – jemný zigzag už neprojde."""
+    from app.pipeline.cliff_merge import polyline_is_simple_bank
+
+    zigzag = [
+        (0.0, 0.0),
+        (5.0, 8.0),
+        (10.0, 0.0),
+        (15.0, 8.0),
+        (20.0, 0.0),
+        (25.0, 8.0),
+        (30.0, 0.0),
+        (35.0, 8.0),
+        (40.0, 0.0),
+    ]
+    assert not polyline_is_simple_bank(zigzag)
+

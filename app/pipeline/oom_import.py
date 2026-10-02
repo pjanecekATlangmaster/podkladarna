@@ -13,9 +13,11 @@ from app.pipeline.fetch_zabaged import (
 )
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.cliff_merge import (
+    filter_cliffs_crossing_buildings,
     merge_cliff_ticks,
     min_line_length_m,
     polyline_is_simple_bank,
+    resolve_rock_scarp_overlaps,
 )
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -1089,6 +1091,53 @@ def _collect_dxf_line_parts(path: Path, *, use_ogr: bool) -> list[list[tuple[flo
     return out
 
 
+def _load_building_rings_for_cliffs(
+    *,
+    zabaged_clean: Path | None,
+    work_dir: Path | None,
+) -> list[list[tuple[float, float]]]:
+    """Budovy ZABAGED (+ OSM fallback) v S-JTSK – filtr srázů přes dům."""
+    rings: list[list[tuple[float, float]]] = []
+    if zabaged_clean is not None and zabaged_clean.is_file():
+        try:
+            from app.pipeline.osm_paths import _zabaged_polygons
+            from app.pipeline.ruian_buildings import ZABAGED_OMIT_BUILDING_LAYERS
+
+            rings.extend(
+                _zabaged_polygons(
+                    zabaged_clean, layers=frozenset(ZABAGED_OMIT_BUILDING_LAYERS)
+                )
+            )
+        except Exception:
+            pass
+    if work_dir is not None:
+        gj = work_dir / "osm_paths" / "buildings.geojson"
+        if gj.is_file():
+            try:
+                import json
+
+                data = json.loads(gj.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                data = None
+            if data:
+                for feat in data.get("features") or []:
+                    geom = feat.get("geometry") or {}
+                    gtype = geom.get("type")
+                    coords = geom.get("coordinates") or []
+                    if gtype == "Polygon" and coords:
+                        ring = [(float(x), float(y)) for x, y in coords[0]]
+                        if len(ring) >= 3:
+                            rings.append(ring)
+                    elif gtype == "MultiPolygon":
+                        for poly in coords:
+                            if not poly:
+                                continue
+                            ring = [(float(x), float(y)) for x, y in poly[0]]
+                            if len(ring) >= 3:
+                                rings.append(ring)
+    return rings
+
+
 def build_dxf_object_part(
     kp_cwd: Path,
     *,
@@ -1099,6 +1148,8 @@ def build_dxf_object_part(
     grivation_deg: float,
     cliff_symbol: str = "auto",
     clip_bounds: Bounds | None = None,
+    zabaged_clean: Path | None = None,
+    building_rings: list[list[tuple[float, float]]] | None = None,
 ) -> OomObjectPart | None:
     use_ogr = True
     try:
@@ -1129,6 +1180,8 @@ def build_dxf_object_part(
     earth_pit_skip = 0
     rock_polys_n = 0
     earth_lines_n = 0
+    overlap_drop = 0
+    building_drop = 0
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -1189,6 +1242,13 @@ def build_dxf_object_part(
                         )
                     )
 
+    # Nejdřív sloučit po kódech, pak společné filtry (budovy, překryv skála×104).
+    pending_earth: list[list[tuple[float, float]]] = []
+    pending_rocks: list[list[tuple[float, float]]] = []
+    rock_area_code = resolve_rock_area_code(preset_id, scale) or KP_CLIFF_DENSE_CODE
+    if cliff_symbol == KP_CLIFF_SYMBOL_206:
+        rock_area_code = KP_CLIFF_206_CODE
+
     for cliff_line_code, cliff_ticks in cliff_groups.items():
         if not cliff_ticks or cliff_symbol == KP_CLIFF_OFF:
             continue
@@ -1203,7 +1263,7 @@ def build_dxf_object_part(
             cliff_ticks,
             as_polygons=as_polygons,
             min_line_m=min_line_length_m(scale, earth=is_earth),
-            reject_tangled=False,
+            reject_tangled=is_earth,
         )
         raw_lines = merged.lines
         if is_earth:
@@ -1224,64 +1284,61 @@ def build_dxf_object_part(
                     continue
                 kept_earth.append(pts)
             cliff_lines = kept_earth
-        if cliff_symbol == KP_CLIFF_SYMBOL_206:
-            # Jen spojené skalní plochy — žádné pásy z osamělých stěn.
-            poly_index = symbol_index_for_code(preset_id, scale, KP_CLIFF_206_CODE)
-            area_code = KP_CLIFF_206_CODE
-            if poly_index is not None and merged.polygons:
-                had_dense_polys = True
-                rock_polys_n += len(merged.polygons)
-                poly_parts = [("line", ring, True) for ring in merged.polygons]
-                objects.extend(
-                    _geom_parts_to_objects(
-                        poly_parts,
-                        poly_index,
-                        ref_x=ref_x,
-                        ref_y=ref_y,
-                        scale=scale,
-                        grivation_deg=grivation_deg,
-                        clip_bounds=clip_bounds,
-                        as_area=True,
-                    )
+        if is_earth:
+            pending_earth.extend(cliff_lines)
+        if merged.polygons and as_polygons:
+            pending_rocks.extend(merged.polygons)
+
+    bldg = building_rings
+    if bldg is None:
+        bldg = _load_building_rings_for_cliffs(
+            zabaged_clean=zabaged_clean, work_dir=kp_cwd
+        )
+    if bldg:
+        pending_earth, pending_rocks, building_drop = filter_cliffs_crossing_buildings(
+            pending_earth, pending_rocks, bldg
+        )
+    if pending_rocks and pending_earth:
+        pending_rocks, pending_earth, overlap_drop = resolve_rock_scarp_overlaps(
+            pending_rocks, pending_earth
+        )
+
+    if pending_earth:
+        line_index = symbol_index_for_code(preset_id, scale, "104")
+        if line_index is not None:
+            earth_lines_n += len(pending_earth)
+            line_parts = [("line", pts, False) for pts in pending_earth]
+            objects.extend(
+                _geom_parts_to_objects(
+                    line_parts,
+                    line_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    clip_bounds=clip_bounds,
+                    elev_at=elev_at,
                 )
-        else:
-            line_index = symbol_index_for_code(preset_id, scale, cliff_line_code)
-            if line_index is not None and cliff_lines:
-                if is_earth:
-                    earth_lines_n += len(cliff_lines)
-                    line_parts = [("line", pts, False) for pts in cliff_lines]
-                    objects.extend(
-                        _geom_parts_to_objects(
-                            line_parts,
-                            line_index,
-                            ref_x=ref_x,
-                            ref_y=ref_y,
-                            scale=scale,
-                            grivation_deg=grivation_deg,
-                            clip_bounds=clip_bounds,
-                            elev_at=elev_at,
-                        )
-                    )
-                # Skála (201): linie se nevypisují — jen plochy níže.
-            if merged.polygons:
-                area_code = resolve_rock_area_code(preset_id, scale) or KP_CLIFF_DENSE_CODE
-                poly_index = symbol_index_for_code(preset_id, scale, area_code)
-                if poly_index is not None:
-                    had_dense_polys = True
-                    rock_polys_n += len(merged.polygons)
-                    poly_parts = [("line", ring, True) for ring in merged.polygons]
-                    objects.extend(
-                        _geom_parts_to_objects(
-                            poly_parts,
-                            poly_index,
-                            ref_x=ref_x,
-                            ref_y=ref_y,
-                            scale=scale,
-                            grivation_deg=grivation_deg,
-                            clip_bounds=clip_bounds,
-                            as_area=True,
-                        )
-                    )
+            )
+
+    if pending_rocks:
+        poly_index = symbol_index_for_code(preset_id, scale, rock_area_code)
+        if poly_index is not None:
+            had_dense_polys = True
+            rock_polys_n += len(pending_rocks)
+            poly_parts = [("line", ring, True) for ring in pending_rocks]
+            objects.extend(
+                _geom_parts_to_objects(
+                    poly_parts,
+                    poly_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    clip_bounds=clip_bounds,
+                    as_area=True,
+                )
+            )
 
     if not objects:
         return None
@@ -1323,6 +1380,10 @@ def build_dxf_object_part(
         if extras:
             bit += f" ({', '.join(extras)})"
         detail_bits.append(bit)
+    if overlap_drop:
+        detail_bits.append(f"překryv skála×104→{overlap_drop} kratších pryč")
+    if building_drop:
+        detail_bits.append(f"{building_drop} přes budovu zahozeno")
     if detail_bits:
         cliff_label += "; " + "; ".join(detail_bits)
     if drop_dropped:

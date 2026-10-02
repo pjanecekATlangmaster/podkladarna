@@ -8,8 +8,9 @@ otevření a vyhlazení → polygony (OOM 201.2 / 206). Samostatné / zbytkové
 linie 201 se vždy zahazují (i dlouhé stěny) — na mapě zůstanou jen spojené
 skalní plochy.
 
-Zemní srázy (104): zamotané / smyčkové linie raději nekreslit
-(``reject_tangled``); delší minimální délka než u skály.
+Zemní srázy (104): zamotané / smyčkové / krátké linie raději nekreslit
+(``reject_tangled`` + delší min. délka). Překryv skála×sráz → delší objekt;
+objekt přes budovu → zahodit.
 """
 
 from __future__ import annotations
@@ -57,18 +58,19 @@ ROCK_CELL_M = 3.0
 ROCK_MIN_TICKS_PER_CELL = 2
 ROCK_MIN_CORE_CELLS = 2
 
-# Min. délka na mapě: skála ~1,2 mm, zem ~1,8 mm (raději nic než krátký šum).
-# 1:10 000 → skála 12 m, zem 18 m; 1:4000 → 4,8 m / 7,2 m.
+# Min. délka na mapě: skála ~1,2 mm, zem ~2,4 mm (Petr: krátké 104 nekreslit).
+# 1:10 000 → skála 12 m, zem 24 m; 1:4000 → 4,8 m / 9,6 m.
 MIN_LINE_MM_ROCK = 1.2
-MIN_LINE_MM_EARTH = 1.8
+MIN_LINE_MM_EARTH = 2.4
 # Zpětná kompatibilita (testy / starší volání).
 MIN_LINE_MM = MIN_LINE_MM_ROCK
 
 # Zemní sráz: po hrubém zjednodušení path/chord a zatáčky – nad tím raději nekreslit.
 # (Surový řetěz DEM ticků je zubatý i u rovné stěny, proto nejdřív simplify.)
-BANK_SHAPE_SIMPLIFY_M = 4.0
-MAX_BANK_SINUOSITY = 2.45
-MAX_BANK_TURN_DEG = 200.0
+# Petr 2026-10-02: ještě přísněji – zamotané / nejasné 104 pryč.
+BANK_SHAPE_SIMPLIFY_M = 4.5
+MAX_BANK_SINUOSITY = 1.85
+MAX_BANK_TURN_DEG = 135.0
 
 
 _Tick = tuple[tuple[float, float], tuple[float, float]]
@@ -182,7 +184,7 @@ def polyline_is_simple_bank(pts: list[tuple[float, float]]) -> bool:
 
     Raději nekreslit než zamotanou skupinku 104. Neříká nic o terénní pravdě.
     Hodnotí se hrubě zjednodušená linie – surový řetěz DEM ticků je zubatý i
-    u rovné stěny.
+    u rovné stěny. Petr: když se tvar nedá vyčistit / je nejasný → nekreslit.
     """
     if len(pts) < 2:
         return False
@@ -197,6 +199,11 @@ def polyline_is_simple_bank(pts: list[tuple[float, float]]) -> bool:
     shape = _simplify_polyline(pts, BANK_SHAPE_SIMPLIFY_M)
     if len(shape) < 2:
         return False
+    # Po simplify zbyl zigzag / mrak vrcholů → tvar nejde vyčistit.
+    if len(shape) >= 8 and length > 0 and _polyline_length(shape) / length > 0.85:
+        # Simplify skoro nic neodstranil u dlouhé linie → pořád zamotané.
+        if _total_turning_deg(shape) > MAX_BANK_TURN_DEG * 0.7:
+            return False
     shape_len = _polyline_length(shape)
     shape_chord = math.hypot(shape[-1][0] - shape[0][0], shape[-1][1] - shape[0][1])
     if shape_chord < 1e-3:
@@ -206,6 +213,148 @@ def polyline_is_simple_bank(pts: list[tuple[float, float]]) -> bool:
     if _total_turning_deg(shape) > MAX_BANK_TURN_DEG:
         return False
     return True
+
+
+def resolve_rock_scarp_overlaps(
+    rock_rings: list[list[tuple[float, float]]],
+    scarp_lines: list[list[tuple[float, float]]],
+) -> tuple[list[list[tuple[float, float]]], list[list[tuple[float, float]]], int]:
+    """Petr: překryv skála×sráz → nechat delší objekt, kratší zahodit.
+
+    Délka skály = obvod polygonu; srázu = délka linie. Při shodě zůstane skála.
+    """
+    if not rock_rings or not scarp_lines:
+        return rock_rings, scarp_lines, 0
+    try:
+        from shapely.geometry import LineString, Polygon
+    except ImportError:
+        return rock_rings, scarp_lines, 0
+
+    rock_geoms: list[tuple[object, float, int]] = []
+    for i, ring in enumerate(rock_rings):
+        if len(ring) < 3:
+            continue
+        try:
+            poly = Polygon(ring)
+            if poly.is_empty or not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly.is_empty:
+                continue
+            rock_geoms.append((poly, float(poly.length), i))
+        except Exception:
+            continue
+
+    scarp_geoms: list[tuple[object, float, int]] = []
+    for j, pts in enumerate(scarp_lines):
+        if len(pts) < 2:
+            continue
+        try:
+            line = LineString(pts)
+            if line.is_empty:
+                continue
+            scarp_geoms.append((line, float(line.length), j))
+        except Exception:
+            continue
+
+    drop_rocks: set[int] = set()
+    drop_scarps: set[int] = set()
+    for rock_geom, rock_len, ri in rock_geoms:
+        if ri in drop_rocks:
+            continue
+        for scarp_geom, scarp_len, sj in scarp_geoms:
+            if sj in drop_scarps:
+                continue
+            try:
+                if not rock_geom.intersects(scarp_geom):
+                    continue
+            except Exception:
+                continue
+            # Delší zůstane; při remíze skála (plocha je na mapě důležitější).
+            if scarp_len > rock_len:
+                drop_rocks.add(ri)
+                break
+            drop_scarps.add(sj)
+
+    kept_rocks = [r for i, r in enumerate(rock_rings) if i not in drop_rocks]
+    kept_scarps = [s for j, s in enumerate(scarp_lines) if j not in drop_scarps]
+    dropped = (len(rock_rings) - len(kept_rocks)) + (len(scarp_lines) - len(kept_scarps))
+    return kept_rocks, kept_scarps, dropped
+
+
+def filter_cliffs_crossing_buildings(
+    lines: list[list[tuple[float, float]]],
+    polygons: list[list[tuple[float, float]]],
+    building_rings: list[list[tuple[float, float]]],
+) -> tuple[
+    list[list[tuple[float, float]]],
+    list[list[tuple[float, float]]],
+    int,
+]:
+    """Petr: skála/sráz přes budovu = chyba → zahodit objekt."""
+    if not building_rings or (not lines and not polygons):
+        return lines, polygons, 0
+    try:
+        from shapely.geometry import LineString, Polygon
+        from shapely.ops import unary_union
+    except ImportError:
+        return lines, polygons, 0
+
+    buildings = []
+    for ring in building_rings:
+        if len(ring) < 3:
+            continue
+        try:
+            poly = Polygon(ring)
+            if poly.is_empty:
+                continue
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if not poly.is_empty:
+                buildings.append(poly)
+        except Exception:
+            continue
+    if not buildings:
+        return lines, polygons, 0
+    try:
+        mask = unary_union(buildings)
+    except Exception:
+        return lines, polygons, 0
+
+    dropped = 0
+    kept_lines: list[list[tuple[float, float]]] = []
+    for pts in lines:
+        if len(pts) < 2:
+            dropped += 1
+            continue
+        try:
+            geom = LineString(pts)
+            if geom.intersects(mask) and not geom.touches(mask):
+                dropped += 1
+                continue
+        except Exception:
+            pass
+        kept_lines.append(pts)
+
+    kept_polys: list[list[tuple[float, float]]] = []
+    for ring in polygons:
+        if len(ring) < 3:
+            dropped += 1
+            continue
+        try:
+            geom = Polygon(ring)
+            if not geom.is_valid:
+                geom = geom.buffer(0)
+            if geom.is_empty:
+                dropped += 1
+                continue
+            if geom.intersects(mask) and not geom.touches(mask):
+                dropped += 1
+                continue
+        except Exception:
+            pass
+        kept_polys.append(ring)
+
+    return kept_lines, kept_polys, dropped
 
 def _total_turning_deg(pts: list[tuple[float, float]]) -> float:
     total = 0.0
