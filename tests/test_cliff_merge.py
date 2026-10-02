@@ -411,6 +411,26 @@ def test_gentle_bend_bank_is_kept():
     assert polyline_is_simple_bank(bend)
 
 
+def test_crooked_45m_bank_is_rejected():
+    """Přísnější filtr: ~45 m křivý sráz (typicky falešný DEM) pryč."""
+    from app.pipeline.cliff_merge import polyline_is_simple_bank
+
+    # Path ≫ chord: mírný meandr přes ~45 m – dřív (sinuosity 1.85) prošel.
+    crooked = [
+        (0.0, 0.0),
+        (8.0, 6.0),
+        (16.0, -2.0),
+        (24.0, 7.0),
+        (32.0, -1.0),
+        (40.0, 5.0),
+        (45.0, 0.0),
+    ]
+    assert not polyline_is_simple_bank(crooked)
+    # Dlouhá skoro rovná stěna stále OK.
+    straight_45 = [(float(i), 0.1 * math.sin(i * 0.2)) for i in range(46)]
+    assert polyline_is_simple_bank(straight_45)
+
+
 def test_rock_scarp_overlap_scarp_wins():
     """Překryv → vždy sráz; i krátký 104 přebije velkou skálu."""
     from app.pipeline.cliff_merge import resolve_rock_scarp_overlaps
