@@ -239,11 +239,21 @@
             Referenční PNG šablony (orto, OSM, ZTM, katastr, hillshade, DMP)
           </label>
           <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP.</p>
-<label class="checkbox-row">
-            <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
-            Force refresh (přegenerovat AOI cache)
-          </label>
-          <p class="hint">Defaultně se stejný výřez znovu využije (LAZ/PNG/DEM/shade). Zaškrtni jen když chceš stáhnout a spočítat znovu — změna ekvidistance nebo laviček cache podkladů <em>ne</em>invaliduje.</p>
+
+          <details class="advanced-options" id="output-advanced">
+            <summary>Pokročilé (mezipaměť podkladů)</summary>
+            <label class="checkbox-row">
+              <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
+              Znovu stáhnout a spočítat podklady
+            </label>
+            <p class="hint" id="force-refresh-hint">
+              Při stejném výřezu mapy se obvykle znovu použijí už uložená data
+              (LiDAR, výškový model, stínování…). Zapněte jen když výsledek vypadá
+              jako ze starých nebo poškozených dat, nebo chcete vše stáhnout znovu
+              od ČÚZK — job bude výrazně pomalejší. Běžné změny nastavení
+              (ekvidistance, lavičky…) tuto mezipaměť samy o sobě nezneplatní.
+            </p>
+          </details>
         </div>
 
         <label class="checkbox-row">
@@ -312,7 +322,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.26.4 ·
+      Podkladárna v1.26.5 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

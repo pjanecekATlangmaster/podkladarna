@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.26.4"
+APP_VERSION = "1.26.5"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -119,6 +119,7 @@ DEFAULT_OPTIONS = {
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace
     # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
+    # GUI ve <details> Pokročilé (2026-10); běžný uživatel nepotřebuje.
     "force_refresh": False,
     # auto=skála 201.2/206 vs zem 104; symbol_206=vše jako 206 plocha;
     # earth_bank=104; off=přeskočit. (rock_face zrušeno – linie 201 se nepoužívají)

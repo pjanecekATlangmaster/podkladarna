@@ -489,7 +489,9 @@ def test_index_html(client):
         'id="include_knolls"' in r.text and "checked" in r.text.split('id="include_knolls"', 1)[1][:80]
     )
     assert 'name="force_refresh"' in r.text
-    assert "Force refresh" in r.text
+    assert 'id="output-advanced"' in r.text
+    assert "Znovu stáhnout a spočítat podklady" in r.text
+    assert "Force refresh" not in r.text
     html = r.text
     assert "bbox-map" in html
     assert "O co jde" in html
