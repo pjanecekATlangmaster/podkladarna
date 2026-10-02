@@ -619,7 +619,7 @@ def build_gdal_contour_parts(
 
     log_step(
         log,
-        "Převádím vrstevnice na křivky OOM (Bézier, jako Převést na křivky)",
+        "Importuji vrstevnice do OOM jako polyline (Chaikin, bez Bézier křivek)",
     )
     for (code, _elev), lines in by_key.items():
         symbol_index = symbol_index_for_code(preset_id, scale, code)
@@ -647,7 +647,8 @@ def build_gdal_contour_parts(
                 ref_y=ref_y,
                 scale=scale,
                 grivation_deg=grivation_deg,
-                as_curves=True,
+                # Polylines only: Bézier (CurveStart) triples omap size on large AOIs.
+                as_curves=False,
             )
         )
 

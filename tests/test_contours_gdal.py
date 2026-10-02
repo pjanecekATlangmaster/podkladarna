@@ -81,3 +81,48 @@ def test_rgb_to_vege_class_kp_palette():
     assert vege_class_to_oom_code(rgb_to_vege_class(140, 231, 140)) == "408"
     assert vege_class_to_oom_code(rgb_to_vege_class(80, 209, 80)) == "410"
     assert rgb_to_vege_class(255, 255, 255) == 0
+
+
+def test_build_gdal_contour_parts_exports_polylines_not_curves(tmp_path, monkeypatch):
+    """Vrstevnice do OOM jako polyline – as_curves=False (bez CurveStart/Bézier)."""
+    from app.pipeline import contours_gdal as cg
+
+    shp_dir = tmp_path / "contours"
+    shp_dir.mkdir()
+    (shp_dir / "contours.shp").write_bytes(b"placeholder")
+
+    captured: dict = {}
+
+    def fake_geom_parts(*_args, **kwargs):
+        captured.clear()
+        captured.update(kwargs)
+        return ["<object type=\"Path\" />"]
+
+    monkeypatch.setattr(
+        cg,
+        "_iter_contour_rows",
+        lambda _shp: [({"elev": 250.0}, b"dummy")],
+    )
+    monkeypatch.setattr(
+        cg,
+        "_wkb_parts",
+        lambda _wkb: (
+            [("line", [(0.0, 0.0), (40.0, 0.0), (80.0, 0.0)], False)],
+            None,
+        ),
+    )
+    monkeypatch.setattr(cg, "_geom_parts_to_objects", fake_geom_parts)
+    monkeypatch.setattr(cg, "symbol_index_for_code", lambda *_a, **_k: 1)
+
+    parts = cg.build_gdal_contour_parts(
+        tmp_path,
+        preset_id="forest_10000",
+        scale=10000,
+        ref_x=0.0,
+        ref_y=0.0,
+        grivation_deg=0.0,
+        interval_m=5.0,
+        index_m=25.0,
+    )
+    assert captured.get("as_curves") is False
+    assert parts and parts[0].count >= 1

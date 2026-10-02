@@ -294,8 +294,8 @@ def _geom_parts_to_objects(
                     piece, elev_at=elev_at, to_map=to_map
                 )
             coords = [to_map(x, y) for x, y in piece]
-            # Křivky jen u prostých linií (vrstevnice). Plochy s dírami
-            # necháme polygonální – srázy/cesty as_curves nezapínají.
+            # Křivky jen když volající zapne as_curves (vrstevnice defaultně ne).
+            # Plochy s dírami necháme polygonální – srázy/cesty as_curves nezapínají.
             if as_curves and not holes:
                 mapped = convert_polyline_to_curves(
                     coords, closed=bool(closed_shape)
