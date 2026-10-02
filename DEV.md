@@ -211,7 +211,11 @@ python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 
 Checkbox **„Privátní režim generování mapy…“** vyžaduje e-mail. Job se neobjeví ve veřejném `/api/jobs`, UI neukáže náhled ani ZIP. Po `done` worker pošle plain-text e-mail s odkazem `/d/{token}` (platí `PRIVATE_JOB_RETENTION_HOURS`, default 48). Expirované privátní joby maže startup/cleanup sweep (a 410 při přístupu po splatnosti).
 
-Env (doporučeno v `.env` vedle compose; necommitujte hesla):
+Env (doporučeno v `.env` vedle checkoutu / compose; necommitujte hesla).
+`app.settings` a `scripts/dev.ps1` `.env` načtou automaticky (nepřepisují už
+nastavené proměnné). Bez `PUBLIC_BASE_URL` job doběhne, ale e-mail se neodešle.
+Po restartu tipu se u `done` privátních jobů bez „E-mail s odkazem odeslán“ mail
+zkusí znovu (`retry_missed_private_mails`).
 
 | Proměnná | Význam | Příklad |
 |----------|--------|---------|

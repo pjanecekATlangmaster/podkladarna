@@ -267,3 +267,63 @@ def test_purge_expired_private(tmp_path, monkeypatch):
     removed = purge_old_jobs(retention_hours=0)
     assert removed >= 1
     assert old["id"] not in {j["id"] for j in db.list_jobs(include_private=True)}
+
+
+def test_load_dotenv_sets_missing_only(tmp_path, monkeypatch):
+    from app.settings import _load_dotenv
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "PUBLIC_BASE_URL=http://from-dotenv:8672\nSMTP_HOST=smtp.example.com\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.setenv("SMTP_HOST", "keep-me")
+    _load_dotenv(env_file)
+    import os
+
+    assert os.environ["PUBLIC_BASE_URL"] == "http://from-dotenv:8672"
+    assert os.environ["SMTP_HOST"] == "keep-me"
+
+
+def test_retry_missed_private_mails(tmp_path, monkeypatch):
+    from app import job_worker
+
+    monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr("app.db.DOWNLOADS_DIR", tmp_path / "dl")
+    (tmp_path / "jobs").mkdir()
+    db.init_db()
+    job = db.create_job(
+        "priv-retry",
+        "forest_10000",
+        {"private": True, "notify_email": "user@example.com"},
+    )
+    db.update_job(job["id"], status="done", phase="done")
+    db.append_log(job["id"], "Status: done")
+    db.append_log(
+        job["id"],
+        "CHYBA: PUBLIC_BASE_URL není nastavené – nelze sestavit odkaz v e-mailu.",
+    )
+
+    sent: list[tuple[str, str, str]] = []
+
+    def fake_send(to, subject, body, **_kwargs):
+        sent.append((to, subject, body))
+
+    monkeypatch.setattr(job_worker, "send_mail", fake_send)
+    monkeypatch.setenv("PUBLIC_BASE_URL", "http://127.0.0.1:8672")
+    monkeypatch.setattr(
+        job_worker.app_settings, "PUBLIC_BASE_URL", "http://127.0.0.1:8672"
+    )
+    monkeypatch.setattr(job_worker.app_settings, "PRIVATE_JOB_RETENTION_HOURS", 48)
+
+    resent = job_worker.retry_missed_private_mails()
+    assert job["id"] in resent
+    assert sent and sent[0][0] == "user@example.com"
+    assert "/d/" in sent[0][2]
+    assert any("E-mail s odkazem odeslán" in e["line"] for e in db.get_logs(job["id"]))
+
+    sent.clear()
+    assert job_worker.retry_missed_private_mails() == []
+    assert sent == []

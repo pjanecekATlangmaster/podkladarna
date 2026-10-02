@@ -35,6 +35,22 @@ function Ensure-QgisGisEnv {
 
 Ensure-QgisGisEnv
 
+# Načti .env (SMTP / PUBLIC_BASE_URL) do procesu – stejná logika jako app.settings._load_dotenv.
+$EnvFile = Join-Path $Root ".env"
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#") -or ($line -notmatch "=")) { return }
+        $key, $val = $line.Split("=", 2)
+        $key = $key.Trim()
+        $val = $val.Trim().Trim('"').Trim("'")
+        if ($key -and -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($key, "Process"))) {
+            return
+        }
+        if ($key) { Set-Item -Path "Env:$key" -Value $val }
+    }
+}
+
 switch ($Action) {
     "test" {
         Ensure-DevDeps

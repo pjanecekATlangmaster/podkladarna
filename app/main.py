@@ -97,6 +97,11 @@ def startup() -> None:
     interrupted = worker.recover_after_restart()
     if interrupted:
         logger.info("Recovered %s interrupted job(s): %s", len(interrupted), interrupted)
+    from app.job_worker import retry_missed_private_mails
+
+    resent = retry_missed_private_mails()
+    if resent:
+        logger.info("Resent private download mail for %s job(s): %s", len(resent), resent)
     removed = purge_old_jobs()
     if removed:
         logger.info("Startup cleanup: removed %s old job(s)", removed)

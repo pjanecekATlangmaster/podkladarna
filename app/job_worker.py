@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import traceback
 
 from app import db
+from app import settings as app_settings
 from app.mail import MailError, build_private_ready_email, send_mail
 from app.pipeline.run_job import run_job_pipeline
 from app.proj_env import ensure_proj_data
-from app.settings import (
-    JOBS_DIR,
-    PRIVATE_JOB_RETENTION_HOURS,
-    PUBLIC_BASE_URL,
-)
+from app.settings import JOBS_DIR
 
 logger = logging.getLogger("podkladarna.job_worker")
+
+_MAIL_SENT_PREFIX = "E-mail s odkazem odeslán"
 
 
 def _job_token(job_id: str) -> str | None:
@@ -29,6 +29,19 @@ def _job_token(job_id: str) -> str | None:
         return None
     val = row["download_token"]
     return str(val) if val else None
+
+
+def _public_base_url() -> str:
+    """Čte PUBLIC_BASE_URL živě (env / settings), ať tip redeploy s .env stačí."""
+    return (
+        os.environ.get("PUBLIC_BASE_URL") or getattr(app_settings, "PUBLIC_BASE_URL", "") or ""
+    ).rstrip("/")
+
+
+def _mail_already_sent(job_id: str) -> bool:
+    return any(
+        _MAIL_SENT_PREFIX in (entry.get("line") or "") for entry in db.get_logs(job_id)
+    )
 
 
 def _notify_private_job(job_id: str) -> None:
@@ -45,17 +58,21 @@ def _notify_private_job(job_id: str) -> None:
         db.append_log(job_id, "CHYBA: privátní job bez download tokenu.")
         logger.error("Privátní job %s nemá download_token.", job_id)
         return
-    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    base = _public_base_url()
     if not base:
         msg = (
             "PUBLIC_BASE_URL není nastavené – nelze sestavit odkaz v e-mailu. "
-            "Nastavte env (viz DEV.md)."
+            "Nastavte env / .env (viz DEV.md)."
         )
         db.append_log(job_id, f"CHYBA: {msg}")
         logger.error("%s (job %s)", msg, job_id)
         return
+    if _mail_already_sent(job_id):
+        return
     url = f"{base}/d/{token}"
-    hours = PRIVATE_JOB_RETENTION_HOURS if PRIVATE_JOB_RETENTION_HOURS > 0 else 48
+    hours = app_settings.PRIVATE_JOB_RETENTION_HOURS
+    if hours <= 0:
+        hours = 48
     subject, body = build_private_ready_email(
         job_name=job.get("name") or job_id,
         download_url=url,
@@ -63,9 +80,39 @@ def _notify_private_job(job_id: str) -> None:
     )
     try:
         send_mail(email, subject, body)
-        db.append_log(job_id, f"E-mail s odkazem odeslán na {email}.")
+        db.append_log(job_id, f"{_MAIL_SENT_PREFIX} na {email}.")
     except MailError as exc:
         db.append_log(job_id, f"CHYBA odeslání e-mailu: {exc}")
+
+
+def retry_missed_private_mails(*, limit: int = 50) -> list[str]:
+    """Po restartu tipu znovu pošle mail u done privátních jobů bez úspěšného odeslání.
+
+    Pokrývá race: job stihne `Status: done`, pak redeploy zabije proces před SMTP,
+    nebo chybějící PUBLIC_BASE_URL/SMTP v původním procesu.
+    """
+    resent: list[str] = []
+    for job in db.list_jobs(limit=limit, include_private=True):
+        if job.get("status") != "done":
+            continue
+        if not db.job_is_private(job):
+            continue
+        if db.job_is_expired(job):
+            continue
+        if _mail_already_sent(job["id"]):
+            continue
+        lines = [e.get("line") or "" for e in db.get_logs(job["id"])]
+        if not any("Status: done" in ln for ln in lines):
+            continue
+        logger.info("Retry private mail for job %s", job["id"])
+        try:
+            _notify_private_job(job["id"])
+        except Exception:
+            logger.exception("Retry private mail failed for %s", job["id"])
+            continue
+        if _mail_already_sent(job["id"]):
+            resent.append(job["id"])
+    return resent
 
 
 def run_job(job_id: str) -> int:
@@ -89,6 +136,8 @@ def run_job(job_id: str) -> int:
         )
         db.update_job(job_id, status="done", phase="done")
         log("Status: done")
+        # Teprve po zápisu done – při pádu/redeploy během SMTP pomůže
+        # retry_missed_private_mails() na startupu.
         if db.job_is_private(job):
             _notify_private_job(job_id)
         return 0
