@@ -20,7 +20,10 @@ PAGEVIEW_PURGE_MIN_INTERVAL_S = 60.0
 
 
 def purge_old_jobs(retention_hours: int | None = None) -> int:
-    """Smaže hotové/selhané joby starší než retention_hours. Vrací počet smazaných."""
+    """Smaže hotové/selhané joby starší než retention_hours + prošlé privátní.
+
+    Vrací počet smazaných.
+    """
     hours = retention_hours
     if hours is None:
         if JOB_RETENTION_HOURS > 0:
@@ -28,30 +31,37 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
         elif JOB_RETENTION_DAYS > 0:
             hours = JOB_RETENTION_DAYS * 24
         else:
-            return 0
-    if hours <= 0:
-        return 0
+            hours = 0
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     removed = 0
+    now = datetime.now(timezone.utc)
 
-    for job in db.list_jobs(limit=500):
-        status = job["status"]
-        if status in ("running", "queued", "pending"):
-            continue
-        if status not in ("done", "failed"):
-            continue
-        try:
-            updated = datetime.fromisoformat(job["updated_at"])
-        except ValueError:
-            continue
-        if updated.tzinfo is None:
-            updated = updated.replace(tzinfo=timezone.utc)
-        if updated >= cutoff:
-            continue
+    # Privátní: po splatnosti (created_at + PRIVATE_JOB_RETENTION_HOURS),
+    # i když ještě nejsou „done“ (pending/failed) – odkaz už neplatí.
+    for job in db.list_expired_private_jobs(now=now):
         if db.delete_job(job["id"]):
             removed += 1
-            logger.info("Purged old job %s (%s)", job["id"], status)
+            logger.info("Purged expired private job %s", job["id"])
+
+    if hours > 0:
+        cutoff = now - timedelta(hours=hours)
+        for job in db.list_jobs(limit=500, include_private=True):
+            status = job["status"]
+            if status in ("running", "queued", "pending"):
+                continue
+            if status not in ("done", "failed"):
+                continue
+            try:
+                updated = datetime.fromisoformat(job["updated_at"])
+            except ValueError:
+                continue
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            if updated >= cutoff:
+                continue
+            if db.delete_job(job["id"]):
+                removed += 1
+                logger.info("Purged old job %s (%s)", job["id"], status)
 
     _purge_orphan_job_dirs()
     return removed
@@ -79,7 +89,7 @@ def _purge_orphan_job_dirs() -> None:
     """Složky na disku bez záznamu v DB."""
     if not JOBS_DIR.is_dir():
         return
-    known = {j["id"] for j in db.list_jobs(limit=1000)}
+    known = {j["id"] for j in db.list_jobs(limit=1000, include_private=True)}
     for path in JOBS_DIR.iterdir():
         if not path.is_dir():
             continue

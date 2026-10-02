@@ -175,3 +175,33 @@ python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 .\scripts\fetch_openorienteering_mapper.ps1
 ```
 
+---
+
+## SMTP a privátní joby
+
+Checkbox **„Privátní režim generování mapy…“** vyžaduje e-mail. Job se neobjeví ve veřejném `/api/jobs`, UI neukáže náhled ani ZIP. Po `done` worker pošle plain-text e-mail s odkazem `/d/{token}` (platí `PRIVATE_JOB_RETENTION_HOURS`, default 48). Expirované privátní joby maže startup/cleanup sweep (a 410 při přístupu po splatnosti).
+
+Env (doporučeno v `.env` vedle compose; necommitujte hesla):
+
+| Proměnná | Význam | Příklad |
+|----------|--------|---------|
+| `SMTP_HOST` | SMTP server | `datais-cz.mail.protection.outlook.com` |
+| `SMTP_PORT` | Port | `25` |
+| `SMTP_ENCRYPTION` | `starttls` / `ssl` / `none` | `starttls` |
+| `SMTP_USER` / `SMTP_PASSWORD` | Auth (prázdné = IP relay) | |
+| `SMTP_FROM` | From adresa | `podkladarna@datais.cz` |
+| `SMTP_FROM_NAME` | From jméno | `OB podklady` |
+| `PUBLIC_BASE_URL` | Absolutní URL instance (bez `/`) | `https://podkladarna.example` |
+| `PRIVATE_JOB_RETENTION_HOURS` | Platnost odkazu | `48` |
+
+Rychlý test SMTP (mockuje se v pytest; živý send):
+
+```powershell
+$env:SMTP_HOST='datais-cz.mail.protection.outlook.com'
+$env:SMTP_PORT='25'
+$env:SMTP_ENCRYPTION='starttls'
+$env:SMTP_FROM='podkladarna@datais.cz'
+$env:SMTP_FROM_NAME='OB podklady'
+python -c "from app.mail import send_mail; send_mail('vas@email.cz', 'Podkladárna SMTP test', 'Funguje.')"
+```
+
