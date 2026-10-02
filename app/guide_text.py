@@ -35,7 +35,7 @@ WEB_ABOUT_HTML = """
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
   <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> – podle názvu projektu a měřítka; cesty z OSM; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
-  <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / knolly ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
+  <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
   Nakreslete obdélník (max cca 36&nbsp;km², např. 6×6&nbsp;km), vyberte <strong>měřítko</strong> a
@@ -87,7 +87,7 @@ PNG a ZIP nevypadají 1:1 – editovatelné vrstvy se skládají z více zdrojů
 Co je uvnitř
 ------------
 - *-sprint/les/mtbo.omap … podle názvu projektu a měřítka (cesty OSM), otevřete v OpenOrienteering Mapper (OOM)
-- base/                … vrstevnice GDAL (contours_gdal.*), vegetace/srázy/knolly
+- base/                … vrstevnice GDAL (contours_gdal.*), vegetace/srázy/kupky
 - uzitecne/             … vegetace / srázy 104 / skály: pouzite/ vs vyhozene/ (po filtrech)
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, …)
 - zabaged/             … polohopis ZABAGED (shapefile včetně budov + RUIAN_budovy.shp; výchozí budovy v .omap jsou z OSM)
