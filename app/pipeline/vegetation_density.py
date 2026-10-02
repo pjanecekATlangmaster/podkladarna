@@ -3,9 +3,13 @@
 Proč ne CHM: běh lesem neurčuje výška koruny, ale **co je v nízkém patře**.
 Karttapullautin (``makevege``) proto nepracuje s DSM−DEM, ale počítá body:
 
-* **žlutá 401** – v okně ~6 m je podíl „nízkých“ odrazů (ground nebo
-  < ``yellow_height_m`` nad terénem) > ``yellow_threshold``. Louka = skoro
-  všechny body u země; jednotlivý strom v louce okno nepřeklopí.
+* **žlutá 401** – KP: buňky ``yellow_cell_m`` (3 m), poměr nízkých odrazů
+  (ground nebo < ``yellow_height_m``) v okně ``yellow_window_cells``×…
+  (2×2 → 6 m) > ``yellow_threshold``. Louka = skoro všechny body u země.
+  ČÚZK DMP má husté first-return koruny a DMR řídký ground — stromy v louce
+  (CHM ~14–20 m) by jinak „vybílily“ 401. Proto po detekci žluté **fill
+  malých uzavřených děr** (``yellow_canopy_close_m`` → max plocha) a reclaim
+  bílých pixelů uvnitř žlutého okolí (low-veg under tree / canopy mask).
 * **zeleně 406/408/410** – v bloku ``block_m`` vážený počet odrazů v nízkých
   zónách (1–2.65 m plná váha, výš jen zlomek, 3.4–5.5 m jen pod nízkou
   korunou) vůči odrazům od země; korekce podílem vysokých odrazů
@@ -45,9 +49,17 @@ class DensityVegeParams:
     # --- žlutá (open land) ---
     yellow_height_m: float = 0.9
     yellow_threshold: float = 0.9
+    # KP: hit-bin 3 m, poměr v 2×2 buňkách (= 6 m). ``yellow_window_m`` je
+    # odvozené (cell × window_cells) – drženo kvůli testům / starším voláním.
+    yellow_cell_m: float = 3.0
+    yellow_window_cells: int = 2
     yellow_window_m: float = 6.0
     # first+last (single) return mimo zem: váha do „vysokých“ pro žlutou
     yellow_single_return_weight: float = 1.0
+    # Max. „poloměr“ díry po DMP koruně ve žluté (m); plocha díry ≤ ~okno².
+    yellow_canopy_close_m: float = 6.0
+    # Reclaim bílého pixelu uvnitř žluté (podíl OPEN v 3×3), když chybí zeleň.
+    yellow_under_canopy_frac: float = 0.55
     # --- zeleně ---
     block_m: float = 2.0
     green_ground_m: float = 0.9
@@ -86,6 +98,185 @@ class DensityVegeParams:
 
 
 DEFAULT_PARAMS = DensityVegeParams()
+
+
+def _neighbor_fraction(mask):
+    """Podíl True v 3×3 (včetně self)."""
+    import numpy as np
+
+    m = np.asarray(mask, dtype=np.float32)
+    padded = np.pad(m, 1, mode="edge")
+    acc = np.zeros_like(m, dtype=np.float32)
+    for di in (-1, 0, 1):
+        for dj in (-1, 0, 1):
+            acc += padded[1 + di : 1 + di + m.shape[0], 1 + dj : 1 + dj + m.shape[1]]
+    return acc / 9.0
+
+
+def fill_small_holes(mask, *, max_hole_px: int):
+    """Vyplní uzavřené False díry o ploše ≤ ``max_hole_px`` (stromy v louce).
+
+    Velké ne-žluté ostrovy (les uvnitř luk) nechá být — flood z okraje +
+    size filter na zbytkových komponentách.
+    """
+    import numpy as np
+
+    m = np.asarray(mask, dtype=bool)
+    if max_hole_px <= 0 or not np.any(m) or np.all(m):
+        return m.copy()
+    h, w = m.shape
+    # False dosažitelné z okraje rastru = „vnější“ ne-žlutá (les / okraj AOI).
+    exterior = np.zeros((h, w), dtype=bool)
+    stack = []
+    for i in range(h):
+        for j in (0, w - 1):
+            if not m[i, j] and not exterior[i, j]:
+                exterior[i, j] = True
+                stack.append((i, j))
+    for j in range(w):
+        for i in (0, h - 1):
+            if not m[i, j] and not exterior[i, j]:
+                exterior[i, j] = True
+                stack.append((i, j))
+    while stack:
+        i, j = stack.pop()
+        if i > 0 and not m[i - 1, j] and not exterior[i - 1, j]:
+            exterior[i - 1, j] = True
+            stack.append((i - 1, j))
+        if i + 1 < h and not m[i + 1, j] and not exterior[i + 1, j]:
+            exterior[i + 1, j] = True
+            stack.append((i + 1, j))
+        if j > 0 and not m[i, j - 1] and not exterior[i, j - 1]:
+            exterior[i, j - 1] = True
+            stack.append((i, j - 1))
+        if j + 1 < w and not m[i, j + 1] and not exterior[i, j + 1]:
+            exterior[i, j + 1] = True
+            stack.append((i, j + 1))
+    holes = ~m & ~exterior
+    if not np.any(holes):
+        return m.copy()
+    # Komponenty děr — vyplň jen malé (koruna stromu), ne celý lesní ostrov.
+    out = m.copy()
+    unseen = holes.copy()
+    for i in range(h):
+        for j in range(w):
+            if not unseen[i, j]:
+                continue
+            comp = [(i, j)]
+            unseen[i, j] = False
+            idx = 0
+            while idx < len(comp):
+                ci, cj = comp[idx]
+                idx += 1
+                for ni, nj in (
+                    (ci - 1, cj),
+                    (ci + 1, cj),
+                    (ci, cj - 1),
+                    (ci, cj + 1),
+                ):
+                    if 0 <= ni < h and 0 <= nj < w and unseen[ni, nj]:
+                        unseen[ni, nj] = False
+                        comp.append((ni, nj))
+            if len(comp) <= max_hole_px:
+                for ci, cj in comp:
+                    out[ci, cj] = True
+    return out
+
+
+def yellow_mask_from_hits(
+    yhit,
+    noyhit,
+    *,
+    shape: tuple[int, int],
+    res: float,
+    params: DensityVegeParams = DEFAULT_PARAMS,
+):
+    """KP-like žlutá: 3 m buňky, poměr v 2×2, upsample na DEM, canopy holes.
+
+    ``yhit`` / ``noyhit`` jsou hit-count rastry ve výstupním rozlišení DEM
+    (stejný tvar jako ``shape``).
+    """
+    import numpy as np
+
+    h, w = shape
+    yhit = np.asarray(yhit, dtype=np.float64)
+    noyhit = np.asarray(noyhit, dtype=np.float64)
+    cell_m = float(params.yellow_cell_m) if params.yellow_cell_m > 0 else float(params.yellow_window_m)
+    # Odvození cell z legacy yellow_window_m, když window_cells sedí.
+    win_cells = max(1, int(params.yellow_window_cells))
+    if cell_m <= 0:
+        cell_m = float(params.yellow_window_m) / win_cells
+    cell_px = max(1, int(round(cell_m / max(res, 1e-6))))
+    bh = -(-h // cell_px)
+    bw = -(-w // cell_px)
+    pad_h, pad_w = bh * cell_px, bw * cell_px
+    y_pad = np.zeros((pad_h, pad_w), dtype=np.float64)
+    n_pad = np.zeros((pad_h, pad_w), dtype=np.float64)
+    y_pad[:h, :w] = yhit
+    n_pad[:h, :w] = noyhit
+    y_c = y_pad.reshape(bh, cell_px, bw, cell_px).sum(axis=(1, 3))
+    n_c = n_pad.reshape(bh, cell_px, bw, cell_px).sum(axis=(1, 3))
+
+    if win_cells <= 1:
+        yellow_c = y_c / (y_c + n_c + 0.01) > params.yellow_threshold
+    else:
+        # KP: součet [iy, iy+win)×[ix, ix+win) → poměr na startovací buňce.
+        ii_y = np.pad(y_c.cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+        ii_n = np.pad(n_c.cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+        ys = (
+            ii_y[win_cells : bh + 1, win_cells : bw + 1]
+            - ii_y[0 : bh - win_cells + 1, win_cells : bw + 1]
+            - ii_y[win_cells : bh + 1, 0 : bw - win_cells + 1]
+            + ii_y[0 : bh - win_cells + 1, 0 : bw - win_cells + 1]
+        )
+        ns = (
+            ii_n[win_cells : bh + 1, win_cells : bw + 1]
+            - ii_n[0 : bh - win_cells + 1, win_cells : bw + 1]
+            - ii_n[win_cells : bh + 1, 0 : bw - win_cells + 1]
+            + ii_n[0 : bh - win_cells + 1, 0 : bw - win_cells + 1]
+        )
+        yellow_c = np.zeros((bh, bw), dtype=bool)
+        interior = ys / (ys + ns + 0.01) > params.yellow_threshold
+        yellow_c[: interior.shape[0], : interior.shape[1]] = interior
+        # Okraj bez plného okna: vlastní poměr buňky.
+        edge = np.zeros((bh, bw), dtype=bool)
+        edge[-(win_cells - 1) :, :] = True
+        edge[:, -(win_cells - 1) :] = True
+        own = y_c / (y_c + n_c + 0.01) > params.yellow_threshold
+        yellow_c[edge & own] = True
+
+    yellow = np.repeat(np.repeat(yellow_c, cell_px, 0), cell_px, 1)[:h, :w]
+
+    # Díry po korunách: 2×2 okno kolem stromu ≈ (window+cell)² px (často ~9×9).
+    close_m = float(params.yellow_canopy_close_m)
+    if close_m > 0:
+        px = max(res, 1e-6)
+        side_m = float(params.yellow_window_m) + close_m
+        max_hole_px = max(1, int(round((side_m * side_m) / (px * px))))
+        yellow = fill_small_holes(yellow, max_hole_px=max_hole_px)
+    return yellow
+
+
+def reclaim_yellow_under_canopy(
+    classified,
+    *,
+    frac_min: float = 0.55,
+):
+    """Bílý pixel v převážně žlutém okolí → 401 (strom v louce, ne bílý les).
+
+    Nezasahuje do zeleně (406/408/410): jen WHITE→OPEN. Solidní bílý les
+    nemá dost OPEN sousedů, takže zůstane bílý (Rokytnice).
+    """
+    import numpy as np
+
+    out = np.asarray(classified, dtype=np.uint8).copy()
+    open_m = out == OPEN
+    if not np.any(open_m):
+        return out
+    frac = _neighbor_fraction(open_m)
+    reclaim = (out == WHITE) & (frac >= frac_min)
+    out[reclaim] = OPEN
+    return out
 
 
 @dataclass
@@ -223,16 +414,17 @@ def classify_points(
     is_ground = cls == 2
     single = (nr == 1) & (rn == 1)
 
-    # ---------------- žlutá ----------------
+    # ---------------- žlutá (KP 3 m buňky + canopy close) ----------------
     pix = row * w + col
     low = is_ground | (hh < params.yellow_height_m)
     yhit = np.bincount(pix[low], minlength=h * w).reshape(h, w)
     nohit_w = np.where(single, params.yellow_single_return_weight, 1.0)[~low]
     noyhit = np.bincount(pix[~low], weights=nohit_w, minlength=h * w).reshape(h, w)
-    win = max(1, int(round(params.yellow_window_m / res)))
-    ys = _box_sum(yhit, win)
-    ns = _box_sum(noyhit, win)
-    yellow = ys / (ys + ns + 0.01) > params.yellow_threshold
+    yellow = yellow_mask_from_hits(
+        yhit, noyhit, shape=(h, w), res=res, params=params
+    )
+    ys = _box_sum(yhit, max(1, int(round(params.yellow_window_m / res))))
+    ns = _box_sum(noyhit, max(1, int(round(params.yellow_window_m / res))))
 
     # ---------------- zeleně (bloky) ----------------
     bpx = max(1, int(round(params.block_m / res)))
@@ -304,9 +496,14 @@ def classify_points(
     out[(shade_px >= b1) & (shade_px < b2)] = MID
     out[shade_px >= b2] = DENSE
     out[yel.astype(bool)] = OPEN
+    # Stromy v louce: hustá DMP koruna → díra v žluté / bílý flek; reclaim 401.
+    out = reclaim_yellow_under_canopy(
+        out, frac_min=params.yellow_under_canopy_frac
+    )
     if return_debug:
         return out, {
             "yellow_ratio": ys / (ys + ns + 0.01),
+            "yellow": yellow,
             "value": value.reshape(bh, bw),
             "shade": shade.reshape(bh, bw),
             "roof": roof.reshape(bh, bw),

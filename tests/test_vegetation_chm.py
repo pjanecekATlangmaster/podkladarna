@@ -79,13 +79,13 @@ def test_classify_chm_array_bands():
     assert out[0, 1] == 2  # light green
     assert out[0, 2] == 3  # mid
     assert out[1, 0] == 4  # dense
-    # white-range but single-pixel / open-edge cleanup → dense 410
-    assert out[1, 1] in (0, 4)
+    # white-range single pixel u open → 401 (strom v louce) nebo 0/4
+    assert out[1, 1] in (0, 1, 4)
     assert out[1, 2] == 0  # nodata
 
 
-def test_white_edge_demoted_near_meadow():
-    """Tenký výběžek bílého lesa u louky → 410, ne bleed class 0."""
+def test_white_tree_in_meadow_becomes_open():
+    """Izolovaná koruna uprostřed louky → 401 (ne bílý les / 410)."""
     h = np.full((5, 5), 0.5, dtype=np.float32)
     h[2, 2] = 16.0  # above dense max, below edge-strict
     classified = np.ones((5, 5), dtype=np.uint8)
@@ -98,7 +98,26 @@ def test_white_edge_demoted_near_meadow():
         open_reinforce_iters=0,
     )
     out = cleanup_white_forest(classified, h, thresholds=thr)
-    assert out[2, 2] == 4
+    assert out[2, 2] == 1
+
+
+def test_white_forest_edge_demoted_to_dense_not_open():
+    """Okraj bílého lesa do louky → 410, ne roztažení 401 do lesa."""
+    h = np.full((7, 7), 0.5, dtype=np.float32)
+    h[:, 3:] = 16.0  # right half = canopy below edge-strict
+    classified = np.ones((7, 7), dtype=np.uint8)
+    classified[:, 3:] = 0
+    thr = ChmVegeThresholds(
+        green_dense_max_m=12.0,
+        white_edge_strict_m=22.0,
+        white_morph_iters=1,
+        median_size=0,
+        open_reinforce_iters=0,
+    )
+    out = cleanup_white_forest(classified, h, thresholds=thr)
+    # na styku louka|les: demoted → 410; hlouběji v „lese“ může zůstat 0/4
+    assert out[3, 3] in (0, 4)
+    assert out[3, 0] == 1
 
 
 def test_white_core_kept_when_strict_and_clustered():

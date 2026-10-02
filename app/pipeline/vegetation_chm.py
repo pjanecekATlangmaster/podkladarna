@@ -242,8 +242,8 @@ def cleanup_white_forest(
 ):
     """Zúží bílý les: morfologické otevření + přísnější hranice s loukou.
 
-    Pixely, které přijdou o bílou, dostanou hustou zeleň 410 (ne open),
-    ať se do luk nevrací falešná 401 z okraje korun.
+    Okraj korun do lesa → 410 (ne falešná 401). Izolovaná vysoká koruna
+    uvnitř louky (strom v open) → 401 — jinak Barr-like louky „zbelí“.
     """
     import numpy as np
 
@@ -265,7 +265,11 @@ def cleanup_white_forest(
     keep = cleaned & (~open_touch | (h >= strict))
 
     demoted = white & ~keep
-    out[demoted] = 4  # dense green instead of white bleed
+    open_frac = _open_neighbor_fraction(out == 1)
+    # Strom v louce (≥ polovina OPEN sousedů) → 401; okraj lesa → 410.
+    in_meadow = demoted & (open_frac >= 0.5)
+    out[demoted & ~in_meadow] = 4
+    out[in_meadow] = 1
     out[keep] = 0
     return out
 
