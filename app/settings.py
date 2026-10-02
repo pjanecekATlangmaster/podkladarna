@@ -149,6 +149,7 @@ DEFAULT_OPTIONS = {
     # Default small = jen ≤5 ha (současné chování). ZIP má vždy pásma SHP.
     "ostatni_plocha": "small",
     # Ostatní plocha jako 403 (rough open) místo 501 – default vypnuto.
+    # GUI skryté (2026-10); API/pipeline flag zůstává.
     "ostatni_plocha_as_403": False,
 }
 
