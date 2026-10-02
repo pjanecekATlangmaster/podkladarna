@@ -196,37 +196,56 @@ _dem_cache: dict[Path, "_DemElev | None"] = {}
 _dem_cache_dir: Path | None = None
 
 
-def _first_dem(work_dir: Path, names: tuple[str, ...]):
+def _first_dem(
+    work_dir: Path,
+    names: tuple[str, ...],
+    *,
+    dirs: tuple[str, ...] = ("contours",),
+):
     """Rastr se drží celý v paměti, tak stejný soubor otevírat jen jednou.
 
     Cache platí pro jeden job – při přechodu jinam se zahodí, jinak by ve worker
     procesu zůstaly viset desítky MB po každé zpracované mapě.
+
+    ``dirs`` pořadí složek (typicky ``dem`` před ``contours`` pro srázy –
+    shared ``dem/dem_filled.tif`` je nehlazený; v ``contours/`` bývá jen
+    ``dem_smooth.tif``, který rozmazává sklon a dense-contour pak nestřílí).
     """
     global _dem_cache_dir
     if _dem_cache_dir != work_dir:
         _dem_cache.clear()
         _dem_cache_dir = work_dir
-    for name in names:
-        dem = work_dir / "contours" / name
-        if not dem.is_file():
-            continue
-        if dem not in _dem_cache:
-            try:
-                _dem_cache[dem] = _DemElev(dem)
-            except Exception:
-                _dem_cache[dem] = None
-        if _dem_cache[dem] is not None:
-            return _dem_cache[dem]
+    for dem_dir in dirs:
+        for name in names:
+            dem = work_dir / dem_dir / name
+            if not dem.is_file():
+                continue
+            if dem not in _dem_cache:
+                try:
+                    _dem_cache[dem] = _DemElev(dem)
+                except Exception:
+                    _dem_cache[dem] = None
+            if _dem_cache[dem] is not None:
+                return _dem_cache[dem]
     return None
 
 
 def _load_dem_elev(work_dir: Path):
-    return _first_dem(work_dir, ("dem_smooth.tif", "dem_filled.tif"))
+    # Side-of-slope u vrstevnic: smooth v contours/ stačí; fallback dem/.
+    return _first_dem(
+        work_dir,
+        ("dem_smooth.tif", "dem_filled.tif"),
+        dirs=("contours", "dem"),
+    )
 
 
 def _load_cliff_dem(work_dir: Path):
-    """Na měření srázu je potřeba nehlazený model – smooth schod rozmázne."""
-    return _first_dem(work_dir, ("dem_filled.tif", "dem_raw.tif", "dem_smooth.tif"))
+    """Nehlazený DEM – smooth schod / dense-contour grade rozmázne."""
+    return _first_dem(
+        work_dir,
+        ("dem_filled.tif", "dem_raw.tif", "dem_smooth.tif"),
+        dirs=("dem", "contours"),
+    )
 
 
 def _wkb_read_points(buf: bytes, offset: int, fmt: str, n: int) -> tuple[list[tuple[float, float]], int]:
@@ -1547,10 +1566,12 @@ def build_dxf_object_part(
             )
     # Husté vrstevnice (strmý shluk) → skála i 104 pryč; DEM už máme pro drop.
     interval = float(contour_interval_m) if contour_interval_m else 5.0
+    dense_filter_ran = False
     if cliff_dem is not None and (pending_earth or pending_rocks):
         pending_earth, pending_rocks, dense_contour_drop = filter_by_dense_contours(
             pending_earth, pending_rocks, cliff_dem, interval_m=interval
         )
+        dense_filter_ran = True
 
     if pending_earth:
         line_index = symbol_index_for_code(preset_id, scale, "104")
@@ -1637,7 +1658,8 @@ def build_dxf_object_part(
         detail_bits.append(f"překryv skála×104→{overlap_drop} skal pryč (přednost srázu)")
     if occupancy_drop:
         detail_bits.append(f"{occupancy_drop} skála přes jiný objekt zahozeno")
-    if dense_contour_drop:
+    if dense_filter_ran:
+        # Vždy logovat (i 0) – ověření, že filtr běží na Barr/tip (dřív ticho = bug).
         detail_bits.append(
             f"{dense_contour_drop} skála/104 v hustých vrstevnicích zahozeno"
         )

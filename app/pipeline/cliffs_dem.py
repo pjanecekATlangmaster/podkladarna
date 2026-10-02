@@ -37,7 +37,8 @@ ROCK_MIN_GRADE = 0.55
 # Skála potřebuje vyšší schod než zemní sráz při stejné citlivosti GUI
 # (kp_cliff_sensitivity / cliff1). Slabé strmé kandidáty se zahodí – nepřelévají
 # se do 104, aby srázy zůstaly beze změny.
-ROCK_MIN_DROP_BONUS_M = 0.7
+# 1.23.2/1.25.0 = 0.7 (málo skal); 1.25.4 mírně níž – víc 201.2, ne flood.
+ROCK_MIN_DROP_BONUS_M = 0.5
 
 
 def dem_filled_path(work_dir: Path) -> Path | None:

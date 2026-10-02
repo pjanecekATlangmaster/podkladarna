@@ -71,14 +71,14 @@ def test_gentle_bank_is_mostly_earth():
 def test_steep_but_short_step_not_demoted_to_earth():
     """Strmý schod pod rock drop (cliff1+bonus) → ani skála, ani 104."""
     elev = np.zeros((50, 50), dtype=np.float32)
-    elev[:, 25:] = -2.4  # nad cliff1=1.8, pod 1.8+0.7=2.5
+    elev[:, 25:] = -2.2  # nad cliff1=1.8, pod 1.8+0.5=2.3
     gt = (0.0, 1.0, 0.0, 50.0, 0.0, -1.0)
     earth, rock = detect_cliff_ticks(
         elev, gt, min_drop_m=1.8, major_drop_m=3.4, stride=1
     )
     assert rock == []
     # Zemní kandidáti mohou existovat jen mimo strmý pás; strmé slabé se zahodí.
-    # Hlavní: žádné skalní ticky z ~2,4 m schodu.
+    # Hlavní: žádné skalní ticky z ~2,2 m schodu.
     assert len(rock) == 0
 
 

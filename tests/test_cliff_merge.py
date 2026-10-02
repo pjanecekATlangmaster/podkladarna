@@ -441,7 +441,7 @@ def test_dense_contours_suppress_rock_and_scarp():
     """Strmý svah (husté 5m vrstevnice) → skála i 104 pryč."""
     from app.pipeline.cliff_merge import filter_by_dense_contours
 
-    # grade ≈ 2.0 → spacing = 5/2 = 2.5 m < 0.8*5 = 4 m
+    # grade ≈ 2.0 → spacing = 5/2 = 2.5 m < 1.0*5 = 5 m
     def elev(x, y):
         return -2.0 * x
 
@@ -461,6 +461,38 @@ def test_dense_contours_suppress_rock_and_scarp():
     assert scarp not in lines
     assert rock not in polys
     assert flat_rock in polys
+
+
+def test_dense_contours_fires_at_unit_spacing_frac():
+    """grade≈1.05 → spacing≈4.76 < 1.0×5; dřív (0.8×) by neprošlo."""
+    from app.pipeline.cliff_merge import (
+        DENSE_CONTOUR_SPACING_FRAC,
+        filter_by_dense_contours,
+    )
+
+    assert DENSE_CONTOUR_SPACING_FRAC >= 1.0
+
+    def elev(x, y):
+        return -1.05 * x
+
+    scarp = [(0.0, 0.0), (40.0, 0.0)]
+    lines, polys, n = filter_by_dense_contours([scarp], [], elev, interval_m=5.0)
+    assert n == 1
+    assert lines == []
+    assert polys == []
+
+
+def test_short_scarp_in_dense_zone_dropped():
+    """Krátký 104 se 2 vzorky – dřív len<3 → False a sráz zůstal."""
+    from app.pipeline.cliff_merge import filter_by_dense_contours
+
+    def elev(x, y):
+        return -2.0 * x
+
+    short = [(0.0, 0.0), (3.0, 0.0)]
+    lines, _, n = filter_by_dense_contours([short], [], elev, interval_m=5.0)
+    assert n == 1
+    assert lines == []
 
 
 def test_cliffs_crossing_buildings_discarded():

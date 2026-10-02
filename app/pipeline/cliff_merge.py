@@ -35,25 +35,25 @@ DEDUP_POS_PER_M = 1.0
 DEDUP_ANG_PER_RAD = 8.0
 
 # Plošná skála: buffer ticků → uzavření mezer → otevření tenkých stěn →
-# stažení k mase → vyhlazení. 1.20.15 bylo měkčí (open 3.5 / area 55) →
-# příliš many 201.2; teď zpět přísněji, s důrazem na shrink (ne nafukovat).
+# stažení k mase → vyhlazení. 1.23.2/1.25.0 bylo přísné (area 75 / width 9 /
+# shrink 2.4) → skály skoro OK, ale řídké; 1.25.4 mírně uvolní (ne flood).
 # 104 citlivost se nemění – jen footprint ploch. Stěna/dvojstěna zůstane mimo.
-ROCK_BUFFER_M = 2.5
+ROCK_BUFFER_M = 2.6
 ROCK_CLOSE_M = 2.0
-ROCK_OPEN_M = 4.2
-ROCK_SHRINK_M = 2.4
+ROCK_OPEN_M = 3.9
+ROCK_SHRINK_M = 2.0
 ROCK_SMOOTH_M = 1.0
 ROCK_SIMPLIFY_M = 2.0
-MIN_ROCK_AREA_M2 = 75.0
-MIN_ROCK_WIDTH_M = 9.0
+MIN_ROCK_AREA_M2 = 62.0
+MIN_ROCK_WIDTH_M = 8.0
 MAX_ROCK_ASPECT = 3.4
 # Halo kolem plochy: čárky na okraji už nekreslit jako 201 (obrys nese plocha).
 ROCK_TICK_HALO_M = 3.5
 # Po řetězení: kompaktní zbytky (ne protáhlá stěna) → plocha místo mraku 201.
 COMPACT_LINE_BUFFER_M = 2.4
 COMPACT_MAX_ASPECT = 2.7
-COMPACT_MIN_WIDTH_M = 7.0
-COMPACT_MIN_AREA_M2 = 50.0
+COMPACT_MIN_WIDTH_M = 6.5
+COMPACT_MIN_AREA_M2 = 42.0
 
 # Legacy rastr (fallback bez shapely + testy obtahu buněk).
 ROCK_CELL_M = 3.0
@@ -78,9 +78,10 @@ MAX_BANK_TURN_DEG = 135.0
 ROCK_OCCUPANCY_LINE_BUFFER_M = 2.5
 
 # Husté vrstevnice (strmý svah): spacing = interval / |grad|. Pod prahem
-# ( Barr tip: KP 0× skála, ~174×104; naše auto ~128×201.2 ) potlačit skálu i 104.
-DENSE_CONTOUR_SPACING_FRAC = 0.8  # spacing < 0.8×ekvidistance = „nahuštěné“
-DENSE_CONTOUR_MIN_SAMPLE_FRAC = 0.45
+# potlačit skálu i 104. 1.25.0 (0.8× / 45 %) na Barr skoro nestřílelo – často
+# jen dem_smooth; 1.25.4: nehlazený dem/ + mírně volnější práh.
+DENSE_CONTOUR_SPACING_FRAC = 1.0  # spacing < 1.0×ekvidistance = „nahuštěné“
+DENSE_CONTOUR_MIN_SAMPLE_FRAC = 0.30
 DENSE_CONTOUR_GRADE_STEP_M = 2.0
 DENSE_CONTOUR_SAMPLE_STEP_M = 4.0
 
@@ -434,7 +435,17 @@ def _sample_spacings_in_ring(
     out: list[float] = []
     if elev_at is None or len(ring) < 3:
         return out
-    # Rim + centroid lattice is enough; full polygon fill is too slow for OOM.
+    # Rim line first – strmá hrana skály je na obrysu, ne uvnitř plošiny.
+    out.extend(
+        _sample_spacings_along_line(
+            list(ring) + [ring[0]],
+            elev_at,
+            interval_m=interval_m,
+            grade_step_m=grade_step_m,
+            sample_step_m=sample_step_m,
+        )
+    )
+    # Sparse interior: 3×3 relative to bbox center + rim vertices subsample.
     xs = [p[0] for p in ring]
     ys = [p[1] for p in ring]
     minx, maxx = min(xs), max(xs)
@@ -443,13 +454,11 @@ def _sample_spacings_in_ring(
     cy = sum(ys) / len(ys)
     candidates: list[tuple[float, float]] = [(cx, cy)]
     step = max(sample_step_m, 1.0)
-    # Sparse interior: 3×3 relative to bbox center + rim vertices subsample.
     for fx in (0.25, 0.5, 0.75):
         for fy in (0.25, 0.5, 0.75):
             candidates.append((minx + fx * (maxx - minx), miny + fy * (maxy - miny)))
     stride = max(1, len(ring) // 12)
     candidates.extend(ring[::stride])
-    # Keep only points roughly inside bbox (always) – rim/interior heuristic.
     for x, y in candidates:
         if x < minx - step or x > maxx + step or y < miny - step or y > maxy + step:
             continue
@@ -467,12 +476,15 @@ def _dense_contour_hit(
     spacing_frac: float = DENSE_CONTOUR_SPACING_FRAC,
     min_sample_frac: float = DENSE_CONTOUR_MIN_SAMPLE_FRAC,
 ) -> bool:
-    if len(spacings) < 3 or interval_m <= 0:
+    # Krátký sráz má málo vzorků – i 1–2 husté stačí (jinak 104 v shlucích přežije).
+    if len(spacings) < 1 or interval_m <= 0:
         return False
     limit = float(spacing_frac) * float(interval_m)
     if limit <= 0:
         return False
     dense_n = sum(1 for s in spacings if s < limit)
+    if len(spacings) < 3:
+        return dense_n == len(spacings)
     return (dense_n / len(spacings)) >= float(min_sample_frac)
 
 

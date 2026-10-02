@@ -424,3 +424,35 @@ def test_geom_parts_as_curves_only_when_requested():
     assert " 1;" in curved[0]
     assert 'coords count="3"' in plain[0]
     assert 'coords count="7"' in curved[0]
+def test_load_cliff_dem_prefers_shared_dem_over_contour_smooth(tmp_path, monkeypatch):
+    """Bez KP: contours/ má jen dem_smooth; dense-contour potřebuje dem/dem_filled."""
+    from app.pipeline import oom_import as oi
+
+    dem_dir = tmp_path / "dem"
+    cont = tmp_path / "contours"
+    dem_dir.mkdir()
+    cont.mkdir()
+    filled = dem_dir / "dem_filled.tif"
+    smooth = cont / "dem_smooth.tif"
+    filled.write_bytes(b"filled")
+    smooth.write_bytes(b"smooth")
+
+    opened: list[object] = []
+
+    class _FakeElev:
+        def __init__(self, path):
+            opened.append(path)
+            self.path = path
+
+        def __call__(self, x: float, y: float):
+            return 0.0
+
+    monkeypatch.setattr(oi, "_DemElev", _FakeElev)
+    oi._dem_cache.clear()
+    oi._dem_cache_dir = None
+    elev = oi._load_cliff_dem(tmp_path)
+    assert elev is not None
+    assert elev.path == filled
+    assert opened[0] == filled
+    # Smooth v contours/ se nemá preferovat před nehlazeným dem/.
+    assert smooth not in opened
