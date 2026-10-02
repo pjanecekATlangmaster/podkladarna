@@ -1006,12 +1006,12 @@ function updateCliffControls() {
   if (sensHint) {
     sensHint.textContent = off
       ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
-      : "Jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem; knolly jsou samostatná volba.";
+      : "Jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem; malé kupky (109) jsou samostatná volba.";
   }
   const symbolHint = document.getElementById("cliff-symbol-hint");
   if (symbolHint) {
     symbolHint.textContent =
-      "Strmý schod = skalní plocha (201.2/206), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Knolly (109) jsou vedle, z DEM.";
+      "Strmý schod = skalní plocha (201.2/206), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Malé kupky (109) jsou vedle, z DEM.";
   }
 }
 
@@ -1123,10 +1123,9 @@ function applyJobToForm(job) {
       ostatni.value = ostatniVal;
     }
   }
-  const outMode = form.output_mode;
-  if (outMode) {
-    const wantZip = opts.output_zip == null ? true : Boolean(opts.output_zip);
-    outMode.value = wantZip ? "png_zip" : "png";
+  const outGeoref = form.output_georef;
+  if (outGeoref) {
+    outGeoref.checked = Boolean(opts.output_georef);
   }
   const outRefs = form.output_references;
   if (outRefs) {

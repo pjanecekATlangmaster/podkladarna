@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.26.4"
+APP_VERSION = "1.26.6"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -111,14 +111,18 @@ PRIVATE_JOB_RETENTION_HOURS = int(
 DEFAULT_OPTIONS = {
     "run_vectors": True,
     "output_png": True,
-    # ZIP pro OOM (vektory + .omap). False = jen PNG náhled na webu.
+    # ZIP pro OOM (vektory + .omap). False = jen PNG náhled na webu (legacy API;
+    # pipeline stejně vždy balí .omap/ZIP).
     "output_zip": True,
+    # Georef PNG+PGW (±GeoTIFF) do výstupního ZIPu – GUI checkbox, default off.
+    "output_georef": False,
     # Ortofoto / OSM / ZTM / katastr / hillshade / DMP – stahovat a dát do ZIPu.
     "output_references": True,
     "output_dxf": True,
     "output_zabaged_clean": False,
     "savetempfolders": False,  # budoucí expert režim / API iterace
     # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
+    # GUI ve <details> Pokročilé (2026-10); běžný uživatel nepotřebuje.
     "force_refresh": False,
     # auto=skála 201.2/206 vs zem 104; symbol_206=vše jako 206 plocha;
     # earth_bank=104; off=přeskočit. (rock_face zrušeno – linie 201 se nepoužívají)

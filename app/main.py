@@ -592,6 +592,8 @@ async def api_create_job(request: Request):
         options["output_zip"] = True
     elif _form_str(form, "output_zip").strip():
         options["output_zip"] = _opt_bool("output_zip")
+    # Georef PNG/TIFF do ZIPu – default off (formulářové combo Formát už není).
+    options["output_georef"] = _opt_bool("output_georef")
     options["output_references"] = _opt_bool("output_references")
     options["force_refresh"] = _opt_bool("force_refresh")
     # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
@@ -663,6 +665,7 @@ async def api_create_job(request: Request):
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"
         f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
+        f"georef PNG/TIFF={'ano' if options.get('output_georef') else 'ne'}, "
         f"force_refresh={'ano' if options.get('force_refresh') else 'ne'}, "
         f"privátní={'ano' if options.get('private') else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"
