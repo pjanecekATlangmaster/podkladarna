@@ -292,6 +292,7 @@ def test_retry_missed_private_mails(tmp_path, monkeypatch):
     monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
     monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr("app.db.DOWNLOADS_DIR", tmp_path / "dl")
+    monkeypatch.setattr(job_worker, "JOBS_DIR", tmp_path / "jobs")
     (tmp_path / "jobs").mkdir()
     db.init_db()
     job = db.create_job(
@@ -305,6 +306,9 @@ def test_retry_missed_private_mails(tmp_path, monkeypatch):
         job["id"],
         "CHYBA: PUBLIC_BASE_URL není nastavené – nelze sestavit odkaz v e-mailu.",
     )
+    out = tmp_path / "jobs" / job["id"] / "output"
+    out.mkdir(parents=True)
+    (out / "podkladarna_output.zip").write_bytes(b"PK\x05\x06" + b"\x00" * 18)
 
     sent: list[tuple[str, str, str]] = []
 
@@ -327,3 +331,13 @@ def test_retry_missed_private_mails(tmp_path, monkeypatch):
     sent.clear()
     assert job_worker.retry_missed_private_mails() == []
     assert sent == []
+
+    # Bez ZIPu se retry přeskočí (žádný mrtvý odkaz).
+    orphan = db.create_job(
+        "priv-nozip",
+        "forest_10000",
+        {"private": True, "notify_email": "x@y.cz"},
+    )
+    db.update_job(orphan["id"], status="done", phase="done")
+    db.append_log(orphan["id"], "Status: done")
+    assert job_worker.retry_missed_private_mails() == []
