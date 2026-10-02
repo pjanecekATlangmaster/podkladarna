@@ -317,6 +317,8 @@ def test_create_job_with_map_scale(client, monkeypatch):
     assert body["options"]["map_scale"] == 10000
     assert body["options"]["contour_interval"] == 5.0
     assert body["options"]["scalefactor"] == 1.0
+    # Les / 1:10000 → footway default OFF (pole chybí ve payloadu).
+    assert body["options"]["kp_osm_footway_as_sidewalk"] is False
 
     bad = client.post(
         "/api/jobs",
@@ -329,6 +331,91 @@ def test_create_job_with_map_scale(client, monkeypatch):
     )
     assert bad.status_code == 400
     assert "ekvidistance" in bad.json()["detail"].lower()
+
+
+def test_footway_as_sidewalk_default_by_scale(client, monkeypatch):
+    """Sprint 1:4000 → footway default ON; les/MTBO → OFF; explicitní 0/1 vyhraje."""
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+
+    base = {
+        "bbox": "14.40,50.08,14.42,50.09",
+        "output_mode": "png_zip",
+        "output_references": "1",
+        "sprint_courtyard_olive": "1",
+        "kp_osm_priority": "1",
+    }
+
+    sprint = client.post(
+        "/api/jobs",
+        data={
+            **base,
+            "name": "footway-sprint",
+            "map_scale": "4000",
+            "contour_interval": "2.5",
+        },
+    )
+    assert sprint.status_code == 200
+    assert sprint.json()["preset_id"].startswith("sprint")
+    assert sprint.json()["options"]["kp_osm_footway_as_sidewalk"] is True
+
+    forest = client.post(
+        "/api/jobs",
+        data={
+            **base,
+            "name": "footway-forest",
+            "map_scale": "10000",
+            "contour_interval": "5",
+        },
+    )
+    assert forest.status_code == 200
+    assert forest.json()["options"]["kp_osm_footway_as_sidewalk"] is False
+
+    mtbo = client.post(
+        "/api/jobs",
+        data={
+            **base,
+            "name": "footway-mtbo",
+            "map_scale": "15000",
+            "contour_interval": "5",
+        },
+    )
+    assert mtbo.status_code == 200
+    assert mtbo.json()["options"]["kp_osm_footway_as_sidewalk"] is False
+
+    override_off = client.post(
+        "/api/jobs",
+        data={
+            **base,
+            "name": "footway-sprint-off",
+            "map_scale": "4000",
+            "contour_interval": "2.5",
+            "kp_osm_footway_as_sidewalk": "0",
+        },
+    )
+    assert override_off.status_code == 200
+    assert override_off.json()["options"]["kp_osm_footway_as_sidewalk"] is False
+
+    override_on = client.post(
+        "/api/jobs",
+        data={
+            **base,
+            "name": "footway-forest-on",
+            "map_scale": "10000",
+            "contour_interval": "5",
+            "kp_osm_footway_as_sidewalk": "1",
+        },
+    )
+    assert override_on.status_code == 200
+    assert override_on.json()["options"]["kp_osm_footway_as_sidewalk"] is True
 
 
 def test_create_job_rejects_missing_preset(client):
@@ -413,6 +500,10 @@ def test_index_html(client):
     assert 'name="sprint_residual_size"' in html
     assert "OSM_residential_zbytek" in html
     assert "OSM detaily" in html
+    assert "kp_osm_footway_as_sidewalk" in html
+    assert "Default zapnuto u sprintu" in html
+    assert "Dřevěný chodník" not in html
+    assert "boardwalk" not in html.lower()
     assert "courtyard-olive-wrap" in html
     assert "residual-paved-wrap" in html
     assert "pracovní podklad" in html

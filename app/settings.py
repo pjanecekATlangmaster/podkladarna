@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.26.2"
+APP_VERSION = "1.26.3"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -151,3 +151,17 @@ DEFAULT_OPTIONS = {
     # Ostatní plocha jako 403 (rough open) místo 501 – default vypnuto.
     "ostatni_plocha_as_403": False,
 }
+
+
+def default_footway_as_sidewalk(
+    map_scale: int | float | None = None,
+    preset_id: str | None = None,
+) -> bool:
+    """Sprint (1:4000 / preset ``sprint*``) → footway jako chodník; jinak off."""
+    try:
+        if map_scale is not None and int(map_scale) == 4000:
+            return True
+    except (TypeError, ValueError):
+        pass
+    pid = (preset_id or "").strip().lower()
+    return pid.startswith("sprint")

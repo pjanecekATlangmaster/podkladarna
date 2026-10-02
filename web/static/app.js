@@ -732,6 +732,11 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     // Checkbox: vždy pošli 0/1 (unchecked jinak zmizí a API by drželo default true).
     const knollsEl = document.getElementById("include_knolls");
     fd.set("include_knolls", knollsEl && knollsEl.checked ? "1" : "0");
+    const footwayEl = document.getElementById("kp_osm_footway_as_sidewalk");
+    fd.set(
+      "kp_osm_footway_as_sidewalk",
+      footwayEl && footwayEl.checked ? "1" : "0"
+    );
     fd.set("private", privateEl && privateEl.checked ? "1" : "0");
     const job = await api("/api/jobs", { method: "POST", body: fd });
     if (job && job.duplicate_skipped) {
@@ -962,17 +967,23 @@ function setReuseJob(id) {
 
 function updateOsmHintsForScale(scale) {
   const hint = document.getElementById("osm-priority-hint");
-  if (!hint) return;
   const s = Number(scale);
-  if (s === 4000) {
-    hint.textContent =
-      "Sprintový výřez: stáhne ploty, zdi, brány, přístřešky, pomníky… Budovy ze ZABAGED.";
-  } else if (s === 7500 || s === 10000 || s === 15000) {
-    hint.textContent =
-      "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Studny a hřiště podle nastavení níže.";
-  } else {
-    hint.textContent =
-      "Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintu užitečné; v lese často vypnout.";
+  if (hint) {
+    if (s === 4000) {
+      hint.textContent =
+        "Sprintový výřez: stáhne ploty, zdi, brány, přístřešky, pomníky… Budovy ze ZABAGED.";
+    } else if (s === 7500 || s === 10000 || s === 15000) {
+      hint.textContent =
+        "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Studny a hřiště podle nastavení níže.";
+    } else {
+      hint.textContent =
+        "Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintu užitečné; v lese často vypnout.";
+    }
+  }
+  // Footway → chodník: default ON u sprintu (1:4000), jinak OFF.
+  const footway = document.getElementById("kp_osm_footway_as_sidewalk");
+  if (footway && !footway.dataset.userTouched) {
+    footway.checked = s === 4000;
   }
 }
 
@@ -1071,7 +1082,13 @@ function applyJobToForm(job) {
   }
   const footwaySidewalk = form.kp_osm_footway_as_sidewalk;
   if (footwaySidewalk) {
-    footwaySidewalk.checked = Boolean(opts.kp_osm_footway_as_sidewalk);
+    const sprintDefault = Number(scale) === 4000 || String(job.preset_id || "").startsWith("sprint");
+    if (opts.kp_osm_footway_as_sidewalk == null) {
+      footwaySidewalk.checked = sprintDefault;
+    } else {
+      footwaySidewalk.checked = Boolean(opts.kp_osm_footway_as_sidewalk);
+    }
+    delete footwaySidewalk.dataset.userTouched;
   }
   const courtyard = form.sprint_courtyard_olive;
   if (courtyard) {
@@ -1314,6 +1331,13 @@ initBboxMap();
   const sync = () => updateOsmHintsForScale(scaleSel.value);
   scaleSel.addEventListener("change", sync);
   sync();
+})();
+(() => {
+  const footway = document.getElementById("kp_osm_footway_as_sidewalk");
+  if (!footway) return;
+  footway.addEventListener("change", () => {
+    footway.dataset.userTouched = "1";
+  });
 })();
 (() => {
   const cliff = document.getElementById("kp_cliff_symbol");
