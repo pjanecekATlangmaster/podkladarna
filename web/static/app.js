@@ -549,6 +549,11 @@ function jobSourcesText(job) {
 function setJobActionLinks(job) {
   document.getElementById("detail-download").href = `/api/jobs/${job.id}/download`;
   document.getElementById("detail-download").classList.toggle("hidden", !job.has_output);
+  const georefBtn = document.getElementById("detail-download-georef");
+  if (georefBtn) {
+    georefBtn.href = `/api/jobs/${job.id}/download/georef-previews`;
+    georefBtn.classList.toggle("hidden", !job.has_georef_previews);
+  }
   document.getElementById("detail-preview").href = `/api/jobs/${job.id}/preview.png`;
   document.getElementById("detail-preview").classList.toggle("hidden", !job.has_preview);
 }

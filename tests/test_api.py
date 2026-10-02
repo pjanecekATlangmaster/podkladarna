@@ -482,6 +482,42 @@ def test_download_oom_redirects_to_main_zip(client, tmp_path, monkeypatch):
     assert job_id not in cd
 
 
+def test_download_georef_previews_zip(client, tmp_path, monkeypatch):
+    from app import db, main
+
+    monkeypatch.setattr(main, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "jobs.sqlite")
+    db.init_db()
+    job = db.create_job("Nusle park", "forest_10000", {})
+    job_id = job["id"]
+    out = tmp_path / "jobs" / job_id / "output"
+    preview = out / "preview"
+    preview.mkdir(parents=True, exist_ok=True)
+    (preview / "NuslePark-les.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 32)
+    (preview / "NuslePark-les.pgw").write_text(
+        "1\n0\n0\n-1\n-750000\n-1050000\n", encoding="utf-8"
+    )
+    (preview / "oom_preview.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 8)
+
+    detail = client.get(f"/api/jobs/{job_id}")
+    assert detail.status_code == 200
+    assert detail.json()["has_georef_previews"] is True
+
+    r = client.get(f"/api/jobs/{job_id}/download/georef-previews")
+    assert r.status_code == 200
+    import zipfile
+    from io import BytesIO
+
+    with zipfile.ZipFile(BytesIO(r.content)) as zf:
+        names = set(zf.namelist())
+    assert "NuslePark-les.png" in names
+    assert "NuslePark-les.pgw" in names
+    assert "oom_preview.png" not in names
+    cd = r.headers.get("content-disposition", "")
+    assert "georef" in cd.casefold()
+
+
 def test_zip_download_filename_uses_project_name(tmp_path, monkeypatch):
     from app import db
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -506,9 +507,9 @@ def test_export_argv_keeps_spaces(tmp_path: Path, monkeypatch):
 def test_write_job_preview_copies_named_png(tmp_path: Path):
     omap = tmp_path / "out" / "Les-sprint.omap"
     omap.parent.mkdir()
-    omap.write_text(_MAP, encoding="utf-8")
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
     other = tmp_path / "out" / "Les-mtbo.omap"
-    other.write_text(_HOLE, encoding="utf-8")
+    other.write_text(_MAP_GEOREF.replace("Forest", "MTBO"), encoding="utf-8")
     work = tmp_path / "work"
     work.mkdir()
     lines: list[str] = []
@@ -516,7 +517,7 @@ def test_write_job_preview_copies_named_png(tmp_path: Path):
         [other, omap],
         work,
         tmp_path / "out",
-        {"use_kp": False},
+        {"use_kp": False, "oom_geotiff": False},
         log=lines.append,
     )
     assert dest == work / "preview.png"
@@ -524,7 +525,17 @@ def test_write_job_preview_copies_named_png(tmp_path: Path):
     named = tmp_path / "out" / "preview" / "oom_preview.png"
     assert named.is_file()
     assert named.read_bytes() == dest.read_bytes()
-    assert any("Les-sprint.omap" in line for line in lines)
+    # Všechny varianty + PGW.
+    for stem in ("Les-sprint", "Les-mtbo"):
+        png = tmp_path / "out" / "preview" / f"{stem}.png"
+        pgw = png.with_suffix(".pgw")
+        assert png.is_file()
+        assert pgw.is_file()
+        vals = [float(x) for x in pgw.read_text(encoding="utf-8").strip().splitlines()[:6]]
+        assert vals[0] > 0  # pixel_x
+        assert vals[3] < 0  # pixel_y (north-up)
+        assert abs(vals[1]) < 1e-9 and abs(vals[2]) < 1e-9
+    assert any("Les-sprint" in line for line in lines)
 
 
 def test_write_job_skips_when_kp(tmp_path: Path):
@@ -539,3 +550,142 @@ def test_find_mapper_does_not_require_install():
     # Smí vrátit None, nebo existující soubor – nikdy nespouštět GUI.
     found = find_mapper_exe()
     assert found is None or found.is_file()
+
+
+_MAP_GEOREF = """<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <georeferencing scale="10000" auxiliary_scale_factor="1" declination="0" grivation="0">
+    <projected_crs id="EPSG">
+      <ref_point x="-750000" y="-1050000"/>
+    </projected_crs>
+  </georeferencing>
+  <colors count="2">
+    <color priority="2" name="Black" c="0" m="0" y="0" k="1" opacity="1"/>
+    <color priority="26" name="Green" c="0.76" m="0" y="0.91" k="0" opacity="1">
+      <rgb method="cmyk" r="0.24" g="1" b="0.09"/>
+    </color>
+  </colors>
+  <barrier>
+    <symbols count="3">
+      <symbol type="4" id="10" code="406" name="Forest">
+        <area_symbol inner_color="26"/>
+      </symbol>
+      <symbol type="2" id="11" code="101" name="Contour">
+        <line_symbol color="2" line_width="400"/>
+      </symbol>
+      <symbol type="2" id="175" code="708" name="Out-of-bounds boundary">
+        <line_symbol color="2" line_width="1000"/>
+      </symbol>
+    </symbols>
+    <parts count="1" current="0">
+      <part name="Mapa">
+        <objects count="3">
+          <object type="1" symbol="10">
+            <coords count="5">0 0;0 10000;10000 10000;10000 0;0 0 18;</coords>
+          </object>
+          <object type="1" symbol="11">
+            <coords count="2">0 5000;10000 5000;</coords>
+          </object>
+          <object type="1" symbol="175">
+            <coords count="5">0 0;10000 0;10000 10000;0 10000;0 0 18;</coords>
+          </object>
+        </objects>
+      </part>
+    </parts>
+  </barrier>
+</map>
+"""
+
+
+def test_pgw_matches_projected_aoi_corners(tmp_path: Path):
+    """PGW: UL pixel → S-JTSK; AOI roh (0,0) map ≈ ref po inverzi g=0."""
+    from app.pipeline.georef import read_pgw
+    from app.pipeline.oom_coords import map_to_projected
+    from app.pipeline.oom_preview import (
+        parse_omap_georef,
+        pgw_for_grid_north_preview,
+        preview_crop_box,
+        preview_extent_from_crop,
+        render_omap_to_png,
+    )
+
+    omap = tmp_path / "geo.omap"
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
+    png = tmp_path / "geo.png"
+    render_omap_to_png(omap, png, write_pgw=True, write_geotiff=False, max_side=200)
+    pgw_path = png.with_suffix(".pgw")
+    assert pgw_path.is_file()
+    assert png.with_suffix(".prj").is_file()
+    georef = read_pgw(pgw_path)
+    assert georef.pixel_x > 0
+    assert georef.pixel_y < 0
+    assert abs(georef.rot_row) < 1e-12
+    assert abs(georef.rot_col) < 1e-12
+
+    root = ET.fromstring(omap.read_text(encoding="utf-8"))
+    og = parse_omap_georef(root)
+    assert og.ref_x == -750000.0
+    assert og.scale == 10000
+    # Map (0,0) při g=0 → projected = ref
+    px, py = map_to_projected(
+        0.0, 0.0, ref_x=og.ref_x, ref_y=og.ref_y, scale=og.scale, grivation_deg=0.0
+    )
+    assert abs(px - og.ref_x) < 1e-6
+    assert abs(py - og.ref_y) < 1e-6
+
+    # Střed UL pixelu z PGW = map_to_projected(origin + 0.5*mpp)
+    from app.pipeline.oom_preview import _collect_ops
+
+    ops = _collect_ops(root, grivation_deg=0.0)
+    minx, miny, maxx, maxy, padx, pady = preview_crop_box(root, ops, grivation_deg=0.0)
+    extent = preview_extent_from_crop(minx, miny, maxx, maxy, padx, pady, max_side=200)
+    expected = pgw_for_grid_north_preview(extent, og)
+    assert abs(georef.origin_x - expected.origin_x) < 1e-6
+    assert abs(georef.origin_y - expected.origin_y) < 1e-6
+    assert abs(georef.pixel_x - expected.pixel_x) < 1e-9
+    # 1 map unit @ 1:10000 = 10 m; map_per_px * 10 = mpp
+    assert abs(georef.pixel_x - extent.map_per_px * 10.0) < 1e-6
+
+
+def test_build_georef_previews_zip(tmp_path: Path):
+    from app.pipeline.oom_preview import build_georef_previews_zip
+
+    omap_les = tmp_path / "out" / "Park-les.omap"
+    omap_mtbo = tmp_path / "out" / "Park-mtbo.omap"
+    omap_les.parent.mkdir()
+    omap_les.write_text(_MAP_GEOREF, encoding="utf-8")
+    omap_mtbo.write_text(_MAP_GEOREF, encoding="utf-8")
+    write_job_oom_preview(
+        [omap_les, omap_mtbo],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"use_kp": False, "oom_geotiff": False},
+    )
+    zpath = build_georef_previews_zip(tmp_path / "out")
+    assert zpath is not None and zpath.is_file()
+    with zipfile.ZipFile(zpath) as zf:
+        names = set(zf.namelist())
+    assert "README.txt" in names
+    assert "Park-les.png" in names and "Park-les.pgw" in names
+    assert "Park-mtbo.png" in names and "Park-mtbo.pgw" in names
+    assert "oom_preview.png" not in names
+
+
+def test_map_to_projected_roundtrip():
+    from app.pipeline.oom_coords import map_to_projected, projected_to_map_coord
+
+    ref_x, ref_y = -740123.5, -1045678.25
+    for g in (0.0, 12.52):
+        mx, my = projected_to_map_coord(
+            ref_x + 50.0,
+            ref_y - 30.0,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            scale=10000,
+            grivation_deg=g,
+        )
+        x, y = map_to_projected(
+            mx, my, ref_x=ref_x, ref_y=ref_y, scale=10000, grivation_deg=g
+        )
+        assert abs(x - (ref_x + 50.0)) < 0.05
+        assert abs(y - (ref_y - 30.0)) < 0.05

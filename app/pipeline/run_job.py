@@ -37,7 +37,11 @@ from app.pipeline.osm_paths import (
     write_osm_manual_shapefiles,
     write_zabaged_omitting_layers,
 )
-from app.pipeline.oom_preview import oom_preview_enabled, write_job_oom_preview
+from app.pipeline.oom_preview import (
+    build_georef_previews_zip,
+    oom_preview_enabled,
+    write_job_oom_preview,
+)
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     OOM_PATH_VARIANTS,
@@ -728,6 +732,11 @@ def _package_output(
                 )
             except Exception as exc:
                 log(f"OOM náhled: přeskočeno ({exc})")
+
+            try:
+                build_georef_previews_zip(output_dir, log=log)
+            except Exception as exc:
+                log(f"OOM georef ZIP: přeskočeno ({exc})")
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
         build_oom_zip(

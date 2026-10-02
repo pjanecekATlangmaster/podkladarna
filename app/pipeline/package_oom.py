@@ -526,7 +526,9 @@ def oom_readme(meta: dict) -> str:
             "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
             "srázy zem (104) / skála (201) a volitelné knolly (109).\n"
             "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
-            "   Náhled mapy: preview/preview.png (rasterizace .omap, ne hillshade).\n\n"
+            "   Náhled mapy: preview/preview.png (rasterizace .omap, ne hillshade).\n"
+            "   Georef náhledy všech variant: preview/*-{les,mtbo,sprint}.png + .pgw\n"
+            "   (EPSG:5514; volitelně .tif). Samostatný malý ZIP na webu.\n\n"
         )
         relief_line = (
             "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM. "
@@ -970,6 +972,29 @@ def build_oom_zip(
         for name in ("preview.png", "preview.pgw"):
             if include_png:
                 _write_if_exists(zf, kp_cwd / name, f"preview/{name}")
+        # Georeferencované OOM náhledy všech disciplín (PNG+PGW±TIF).
+        # Preferuj output_dir/preview vedle .omap; fallback work.
+        candidates = []
+        if omap_paths:
+            candidates.append(Path(omap_paths[0]).parent / "preview")
+        candidates.append(kp_cwd / "preview")
+        seen_preview: set[str] = set()
+        for preview_root in candidates:
+            if not preview_root.is_dir():
+                continue
+            for path in sorted(preview_root.iterdir()):
+                if not path.is_file():
+                    continue
+                if path.suffix.lower() not in {".png", ".pgw", ".prj", ".tif"}:
+                    continue
+                # Nezdvojuj preview.png z work (už výše) – jen oom / varianty.
+                key = path.name.lower()
+                if key in {"preview.png", "preview.pgw", "preview.prj", "preview.tif"}:
+                    continue
+                if key in seen_preview:
+                    continue
+                seen_preview.add(key)
+                zf.write(path, f"preview/{path.name}")
         shade_dir = kp_cwd / "shade"
         if include_png and shade_dir.is_dir():
             for name in ("hillshade.png", "hillshade.pgw"):

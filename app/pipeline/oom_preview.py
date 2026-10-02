@@ -36,9 +36,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4, CRS_WKT
+from app.pipeline.georef import PgwGeoref
+from app.pipeline.oom_coords import map_to_projected
+
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _FALSE = frozenset({"0", "false", "no", "off"})
+# Disciplíny ve výstupu – stejné tagy jako omap_variant_filename.
+GEOREF_PREVIEW_DIR = "preview"
+GEOREF_PREVIEWS_ZIP_NAME = "podkladarna_georef_previews.zip"
 
 # MapCoord::Flag – hodnoty jsou součást formátu .omap (neměnit).
 _CURVE = 1 << 0
@@ -582,16 +589,247 @@ def aoi_frame_bbox(
     return best[1] if best else None
 
 
+@dataclass(frozen=True)
+class OmapGeoref:
+    """Georef z ``<georeferencing>`` v .omap (metr S-JTSK + měřítko)."""
+
+    scale: int
+    ref_x: float
+    ref_y: float
+    grivation_deg: float
+    auxiliary_scale_factor: float = 1.0
+    map_ref_x: float = 0.0
+    map_ref_y: float = 0.0
+
+    @property
+    def combined_scale_factor(self) -> float:
+        return float(self.auxiliary_scale_factor) if self.auxiliary_scale_factor else 1.0
+
+
+@dataclass(frozen=True)
+class PreviewExtent:
+    """Výřez náhledu v mapových jednotkách (po odrotování grivace) + PNG mřížka."""
+
+    origin_x: float  # map X levého horního rohu (okraj pixelu, ne střed)
+    origin_y: float  # map Y levého horního rohu
+    map_per_px: float  # mapové jednotky na 1 PNG pixel
+    width: int
+    height: int
+
+
 def map_grivation_deg(root: ET.Element) -> float:
     """Grivace z ``<georeferencing>`` – pro webový náhled ji odrotujeme."""
+    return parse_omap_georef(root).grivation_deg
+
+
+def parse_omap_georef(root: ET.Element) -> OmapGeoref:
+    """Načte ref. bod a měřítko z .omap; chybějící hodnoty → bezpečné defaulty."""
+    scale = 10000
+    aux = 1.0
+    grivation = 0.0
+    ref_x = 0.0
+    ref_y = 0.0
+    map_ref_x = 0.0
+    map_ref_y = 0.0
     for el in root.iter():
         if _local(el.tag) != "georeferencing":
             continue
         try:
-            return float(el.attrib.get("grivation", "0") or 0)
+            scale = int(round(float(el.attrib.get("scale", "10000") or 10000)))
         except ValueError:
-            return 0.0
-    return 0.0
+            scale = 10000
+        try:
+            aux = float(el.attrib.get("auxiliary_scale_factor", "1") or 1)
+        except ValueError:
+            aux = 1.0
+        try:
+            grivation = float(el.attrib.get("grivation", "0") or 0)
+        except ValueError:
+            grivation = 0.0
+        for child in el.iter():
+            tag = _local(child.tag)
+            if tag == "ref_point" and "x" in child.attrib:
+                try:
+                    ref_x = float(child.attrib["x"])
+                    ref_y = float(child.attrib.get("y", "0") or 0)
+                except ValueError:
+                    pass
+            elif tag == "map_ref_point" and "x" in child.attrib:
+                try:
+                    map_ref_x = float(child.attrib["x"])
+                    map_ref_y = float(child.attrib.get("y", "0") or 0)
+                except ValueError:
+                    pass
+        break
+    return OmapGeoref(
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+        auxiliary_scale_factor=aux,
+        map_ref_x=map_ref_x,
+        map_ref_y=map_ref_y,
+    )
+
+
+def preview_crop_box(
+    root: ET.Element,
+    ops: list[_DrawOp],
+    *,
+    grivation_deg: float | None = None,
+) -> tuple[float, float, float, float, float, float]:
+    """Vrátí (minx, miny, maxx, maxy, padx, pady) v mapových jednotkách."""
+    if grivation_deg is None:
+        grivation_deg = map_grivation_deg(root)
+    frame = aoi_frame_bbox(root, grivation_deg=grivation_deg)
+    tick_pad = max((op.tick_length for op in ops if op.mid_mode), default=0.0)
+    if frame is not None:
+        minx, miny, maxx, maxy = frame
+        spanx = max(maxx - minx, 1.0)
+        spany = max(maxy - miny, 1.0)
+        padx = max(spanx * 0.015, 800.0, tick_pad)
+        pady = max(spany * 0.015, 800.0, tick_pad)
+    else:
+        minx, miny, maxx, maxy = _ops_bbox(ops)
+        spanx = max(maxx - minx, 1.0)
+        spany = max(maxy - miny, 1.0)
+        padx = max(spanx * 0.03, tick_pad * 1.2, 500.0)
+        pady = max(spany * 0.03, tick_pad * 1.2, 500.0)
+    return minx, miny, maxx, maxy, padx, pady
+
+
+def preview_extent_from_crop(
+    minx: float,
+    miny: float,
+    maxx: float,
+    maxy: float,
+    padx: float,
+    pady: float,
+    *,
+    max_side: int = 1600,
+) -> PreviewExtent:
+    """PNG mřížka ze stejného ořezu jako ``render_omap_xml_png``."""
+    spanx = max(maxx - minx, 1.0)
+    spany = max(maxy - miny, 1.0)
+    world_w = spanx + 2 * padx
+    world_h = spany + 2 * pady
+    scale = max(1, int(max_side)) / max(world_w, world_h)
+    width = max(1, int(round(world_w * scale)))
+    height = max(1, int(round(world_h * scale)))
+    return PreviewExtent(
+        origin_x=minx - padx,
+        origin_y=miny - pady,
+        map_per_px=1.0 / scale,
+        width=width,
+        height=height,
+    )
+
+
+def pgw_for_grid_north_preview(
+    extent: PreviewExtent,
+    georef: OmapGeoref,
+) -> PgwGeoref:
+    """World file EPSG:5514 pro PNG se severem sítě nahoru (grivace odrotovaná).
+
+    Horní řádek PNG = nižší map Y = geografický / grid sever. Rotace = 0.
+    Střed UL pixelu = origin + 0,5·map_per_px v mapových jednotkách.
+    """
+    ul_mx = extent.origin_x + 0.5 * extent.map_per_px
+    ul_my = extent.origin_y + 0.5 * extent.map_per_px
+    # Náhled už má objekty bez grivace → inverze s g=0.
+    ul_x, ul_y = map_to_projected(
+        ul_mx,
+        ul_my,
+        ref_x=georef.ref_x,
+        ref_y=georef.ref_y,
+        scale=georef.scale,
+        grivation_deg=0.0,
+        combined_scale_factor=georef.combined_scale_factor,
+        map_ref_x=georef.map_ref_x,
+        map_ref_y=georef.map_ref_y,
+    )
+    # 1 mapová jednotka = (combined_scale * scale / 1000) metrů.
+    m_per_map = (
+        georef.combined_scale_factor * float(georef.scale) / 1000.0
+    )
+    mpp = m_per_map * extent.map_per_px
+    return PgwGeoref(
+        pixel_x=mpp,
+        rot_row=0.0,
+        rot_col=0.0,
+        pixel_y=-mpp,
+        origin_x=ul_x,
+        origin_y=ul_y,
+    )
+
+
+def write_preview_pgw(
+    dest_pgw: Path,
+    extent: PreviewExtent,
+    georef: OmapGeoref,
+) -> PgwGeoref:
+    """Zapíše ``.pgw`` (+ ``.prj`` se stejným stemem) pro QGIS / GDAL."""
+    pgw = pgw_for_grid_north_preview(extent, georef)
+    dest_pgw.parent.mkdir(parents=True, exist_ok=True)
+    pgw.write(dest_pgw)
+    # Stejný WKT jako SHP – QGIS u PNG+PGW bere sidecare .prj.
+    prj = dest_pgw.with_suffix(".prj")
+    prj.write_text(CRS_WKT + "\n", encoding="utf-8")
+    return pgw
+
+
+def try_write_geotiff_from_png_pgw(
+    png: Path,
+    dest_tif: Path | None = None,
+    *,
+    log=None,
+) -> Path | None:
+    """Volitelný GeoTIFF přes ``gdal_translate`` (PNG+PGW → GTiff + EPSG:5514).
+
+    Nízká složitost: GDAL si přečte world file sám. Chybí-li nástroj, vrátí None.
+    """
+    from app.pipeline.prepare_lidar import run_cmd
+    from app.tool_env import which_tool
+
+    png = Path(png)
+    pgw = png.with_suffix(".pgw")
+    if not png.is_file() or not pgw.is_file():
+        return None
+    translate = which_tool("gdal_translate")
+    if not translate:
+        if log:
+            log("OOM georef: gdal_translate chybí – GeoTIFF přeskočen")
+        return None
+    dest = Path(dest_tif) if dest_tif else png.with_suffix(".tif")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        run_cmd(
+            [
+                translate,
+                "-of",
+                "GTiff",
+                "-a_srs",
+                CRS_PROJ4,
+                "-co",
+                "COMPRESS=DEFLATE",
+                "-co",
+                "PREDICTOR=2",
+                str(png),
+                str(dest),
+            ],
+            log=None,
+        )
+    except Exception as exc:
+        if log:
+            log(f"OOM georef: GeoTIFF selhal ({exc})")
+        if dest.exists():
+            dest.unlink(missing_ok=True)
+        return None
+    if not dest.is_file() or dest.stat().st_size < 64:
+        return None
+    if log:
+        log(f"OOM georef: GeoTIFF → {dest.name} ({CRS_LABEL})")
+    return dest
 
 
 def undo_grivation_xy(x: float, y: float, grivation_deg: float) -> tuple[float, float]:
@@ -816,41 +1054,26 @@ def render_omap_xml_png(
     dest: Path,
     *,
     max_side: int = 1600,
-) -> tuple[int, int, int]:
-    """Vykreslí objekty mapy do PNG. Vrátí (šířka, výška, počet operací)."""
+) -> tuple[int, int, int, PreviewExtent, OmapGeoref]:
+    """Vykreslí objekty mapy do PNG. Vrátí (šířka, výška, počet ops, extent, georef)."""
     from PIL import Image, ImageDraw
 
     root = ET.fromstring(_read_omap_bytes(Path(omap)))
-    grivation = map_grivation_deg(root)
-    ops = _collect_ops(root, grivation_deg=grivation)
+    georef = parse_omap_georef(root)
+    ops = _collect_ops(root, grivation_deg=georef.grivation_deg)
     if not ops:
         raise ValueError(f"{omap.name}: .omap nemá vykreslitelné objekty")
 
-    frame = aoi_frame_bbox(root, grivation_deg=grivation)
-    tick_pad = max((op.tick_length for op in ops if op.mid_mode), default=0.0)
-    if frame is not None:
-        minx, miny, maxx, maxy = frame
-        # Tenký okraj kolem fialové linky (šířka symbolu ~1 mm papíru).
-        spanx = max(maxx - minx, 1.0)
-        spany = max(maxy - miny, 1.0)
-        padx = max(spanx * 0.015, 800.0, tick_pad)
-        pady = max(spany * 0.015, 800.0, tick_pad)
-    else:
-        minx, miny, maxx, maxy = _ops_bbox(ops)
-        spanx = max(maxx - minx, 1.0)
-        spany = max(maxy - miny, 1.0)
-        padx = max(spanx * 0.03, tick_pad * 1.2, 500.0)
-        pady = max(spany * 0.03, tick_pad * 1.2, 500.0)
-    world_w = spanx + 2 * padx
-    world_h = spany + 2 * pady
-    scale = max(1, int(max_side)) / max(world_w, world_h)
-    width = max(1, int(round(world_w * scale)))
-    height = max(1, int(round(world_h * scale)))
-    # Map X → right; map Y → down in PNG. OOM already uses scale(s, −s), so
-    # geographic north is lower map Y and must land at the top of the image.
-    # Grivation is undone above → srovnání bez deklinace (grid/map north).
-    origin_x = minx - padx
-    origin_y = miny - pady
+    minx, miny, maxx, maxy, padx, pady = preview_crop_box(
+        root, ops, grivation_deg=georef.grivation_deg
+    )
+    extent = preview_extent_from_crop(
+        minx, miny, maxx, maxy, padx, pady, max_side=max_side
+    )
+    width, height = extent.width, extent.height
+    scale = 1.0 / extent.map_per_px
+    origin_x = extent.origin_x
+    origin_y = extent.origin_y
 
     def to_px(x: float, y: float) -> tuple[float, float]:
         return (x - origin_x) * scale, (y - origin_y) * scale
@@ -925,7 +1148,7 @@ def render_omap_xml_png(
                 )
     dest.parent.mkdir(parents=True, exist_ok=True)
     image.save(dest, format="PNG")
-    return width, height, len(ops)
+    return width, height, len(ops), extent, georef
 
 
 def render_omap_to_png(
@@ -934,12 +1157,18 @@ def render_omap_to_png(
     *,
     log=None,
     max_side: int = 1600,
+    write_pgw: bool = False,
+    write_geotiff: bool = False,
 ) -> str:
-    """PNG z ``.omap``. Mapper CLI jen při ``PODKLADARNA_MAPPER_EXPORT``, jinak XML."""
+    """PNG z ``.omap``. Mapper CLI jen při ``PODKLADARNA_MAPPER_EXPORT``, jinak XML.
+
+    ``write_pgw`` / ``write_geotiff`` platí jen u vestavěného XML renderu
+    (u Mapper CLI neznáme přesný ořez → PGW by nesedělo).
+    """
     omap = Path(omap)
     dest = Path(dest)
     argv = mapper_export_argv(omap, dest)
-    if argv:
+    if argv and not write_pgw:
         timeout = float(os.environ.get("PODKLADARNA_MAPPER_TIMEOUT", "180"))
         if log:
             log("OOM náhled: spouštím Mapper export")
@@ -967,7 +1196,13 @@ def render_omap_to_png(
                 )
             if dest.exists() and not _is_png(dest):
                 dest.unlink()
-    width, height, count = render_omap_xml_png(omap, dest, max_side=max_side)
+    width, height, count, extent, georef = render_omap_xml_png(
+        omap, dest, max_side=max_side
+    )
+    if write_pgw:
+        write_preview_pgw(dest.with_suffix(".pgw"), extent, georef)
+        if write_geotiff:
+            try_write_geotiff_from_png_pgw(dest, log=log)
     if log:
         log(
             f"OOM náhled: vestavěný render {dest.name} "
@@ -984,6 +1219,19 @@ def pick_preview_omap(paths: list[Path]) -> Path | None:
     return sprint[0] if sprint else existing[0]
 
 
+def georef_preview_enabled(options: dict | None = None) -> bool:
+    """GeoTIFF vedle PNG+PGW – default zapnuto, když je gdal_translate."""
+    options = options or {}
+    if "oom_geotiff" in options and options["oom_geotiff"] is not None:
+        return bool(options["oom_geotiff"])
+    env = os.environ.get("PODKLADARNA_OOM_GEOTIFF", "").strip().lower()
+    if env in _FALSE:
+        return False
+    if env in _TRUE:
+        return True
+    return True
+
+
 def write_job_oom_preview(
     omap_paths: list[Path],
     work_dir: Path,
@@ -991,19 +1239,157 @@ def write_job_oom_preview(
     options: dict | None,
     log=None,
 ) -> Path | None:
-    """Po zápisu ``.omap`` uloží ``work/preview.png`` a ``output/preview/oom_preview.png``."""
+    """Po zápisu ``.omap`` uloží náhledy všech variant + webový ``preview.png``.
+
+    Pro každou ``*-{les,mtbo,sprint}.omap``:
+      ``output/preview/{stem}.png`` + ``.pgw`` (+ volitelně ``.tif``, ``.prj``).
+    Web/ZIP náhled: kopie preferované varianty → ``work/preview.png`` a
+    ``output/preview/oom_preview.png`` (+ PGW).
+    """
+    from app.pipeline.prepare_lidar import log_step
+
     if not oom_preview_enabled(options):
         return None
-    src = pick_preview_omap(list(omap_paths))
-    if src is None:
+    existing = [Path(p) for p in omap_paths if Path(p).is_file()]
+    if not existing:
         if log:
             log("OOM náhled: žádný .omap")
         return None
-    work_png = Path(work_dir) / "preview.png"
-    summary = render_omap_to_png(src, work_png, log=log)
-    named = Path(output_dir) / "preview" / "oom_preview.png"
-    named.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(work_png, named)
+
+    preview_dir = Path(output_dir) / GEOREF_PREVIEW_DIR
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    want_geotiff = georef_preview_enabled(options)
+    written: list[Path] = []
+
+    log_step(log, "Vykresluji georeferencované náhledy PNG+PGW (všechny varianty)")
+    for omap in existing:
+        dest_png = preview_dir / f"{omap.stem}.png"
+        try:
+            summary = render_omap_to_png(
+                omap,
+                dest_png,
+                log=log,
+                write_pgw=True,
+                write_geotiff=want_geotiff,
+            )
+        except Exception as exc:
+            if log:
+                log(f"OOM náhled: {omap.name} selhal ({exc})")
+            continue
+        if dest_png.is_file() and dest_png.with_suffix(".pgw").is_file():
+            written.append(dest_png)
+            if log:
+                log(f"OOM georef: {omap.name} → {dest_png.name} ({summary})")
+
+    preferred = pick_preview_omap(existing)
+    if preferred is None:
+        return None
+    preferred_png = preview_dir / f"{preferred.stem}.png"
+    # Preferovaná varianta: znovu vyrenderovat do work/ pokud chybí (selhala výše).
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    work_png = work_dir / "preview.png"
+    if preferred_png.is_file():
+        shutil.copy2(preferred_png, work_png)
+        preferred_pgw = preferred_png.with_suffix(".pgw")
+        if preferred_pgw.is_file():
+            shutil.copy2(preferred_pgw, work_dir / "preview.pgw")
+            shutil.copy2(preferred_pgw, preview_dir / "oom_preview.pgw")
+            prj = preferred_png.with_suffix(".prj")
+            if prj.is_file():
+                shutil.copy2(prj, work_dir / "preview.prj")
+                shutil.copy2(prj, preview_dir / "oom_preview.prj")
+        named = preview_dir / "oom_preview.png"
+        shutil.copy2(preferred_png, named)
+        tif = preferred_png.with_suffix(".tif")
+        if tif.is_file():
+            shutil.copy2(tif, preview_dir / "oom_preview.tif")
+    else:
+        summary = render_omap_to_png(
+            preferred,
+            work_png,
+            log=log,
+            write_pgw=True,
+            write_geotiff=want_geotiff,
+        )
+        named = preview_dir / "oom_preview.png"
+        shutil.copy2(work_png, named)
+        work_pgw = work_dir / "preview.pgw"
+        if work_pgw.is_file():
+            shutil.copy2(work_pgw, preview_dir / "oom_preview.pgw")
+        if log:
+            log(f"OOM náhled: {preferred.name} → preview.png ({summary})")
+
+    if log and written:
+        log(
+            f"OOM georef: hotovo {len(written)} variant"
+            + (" + GeoTIFF" if want_geotiff else "")
+        )
+    return work_png if work_png.is_file() else None
+
+
+def list_georef_preview_files(preview_dir: Path) -> list[Path]:
+    """Soubory georef náhledů (PNG/PGW/PRJ/TIF) mimo webový ``oom_preview*``."""
+    preview_dir = Path(preview_dir)
+    if not preview_dir.is_dir():
+        return []
+    out: list[Path] = []
+    for png in sorted(preview_dir.glob("*.png")):
+        if png.name.lower().startswith("oom_preview"):
+            continue
+        pgw = png.with_suffix(".pgw")
+        if not pgw.is_file():
+            continue
+        out.append(png)
+        out.append(pgw)
+        prj = png.with_suffix(".prj")
+        if prj.is_file():
+            out.append(prj)
+        tif = png.with_suffix(".tif")
+        if tif.is_file():
+            out.append(tif)
+    return out
+
+
+def build_georef_previews_zip(
+    output_dir: Path,
+    dest_zip: Path | None = None,
+    *,
+    log=None,
+) -> Path | None:
+    """Malý ZIP jen s georeferencovanými náhledy (PNG+PGW±TIF)."""
+    import zipfile
+
+    from app.pipeline.prepare_lidar import log_step
+
+    preview_dir = Path(output_dir) / GEOREF_PREVIEW_DIR
+    files = list_georef_preview_files(preview_dir)
+    if not files:
+        return None
+    dest = Path(dest_zip) if dest_zip else Path(output_dir) / GEOREF_PREVIEWS_ZIP_NAME
+    if dest.exists():
+        dest.unlink()
+    log_step(log, "Balím ZIP jen s georeferencovanými náhledy")
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "README.txt",
+            (
+                "Podkladárna – georeferencované náhledy mapy\n"
+                "==========================================\n\n"
+                "Každá varianta (les / mtbo / sprint dle měřítka) má:\n"
+                "  *.png  – rastrový náhled (sever sítě nahoru)\n"
+                "  *.pgw  – ESRI world file (metry EPSG:5514 / S-JTSK)\n"
+                "  *.prj  – WKT souřadnicového systému\n"
+                "  *.tif  – volitelný GeoTIFF (když je k dispozici GDAL)\n\n"
+                "Otevři PNG+PGW v QGIS (zadej EPSG:5514, pokud se neptá),\n"
+                "nebo rovnou GeoTIFF. Není to tisková mapa – jen náhled.\n"
+            ),
+        )
+        for path in files:
+            zf.write(path, path.name)
     if log:
-        log(f"OOM náhled: {src.name} → preview.png ({summary})")
-    return work_png
+        log(
+            f"OOM georef: ZIP náhledů → {dest.name} "
+            f"({dest.stat().st_size / 1e3:.0f} kB, {len(files)} souborů)"
+        )
+    return dest

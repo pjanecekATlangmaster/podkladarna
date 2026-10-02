@@ -369,6 +369,15 @@ def _job_has_output(job_dir: Path) -> bool:
     return (out / "podkladarna_output.zip").is_file() or (out / "podkladarna_oom.zip").is_file()
 
 
+def _job_has_georef_previews(job_dir: Path) -> bool:
+    from app.pipeline.oom_preview import GEOREF_PREVIEWS_ZIP_NAME, list_georef_preview_files
+
+    out = job_dir / "output"
+    if (out / GEOREF_PREVIEWS_ZIP_NAME).is_file():
+        return True
+    return bool(list_georef_preview_files(out / "preview"))
+
+
 def _job_source_meta(job_dir: Path) -> dict[str, Any] | None:
     path = job_dir / "work" / "source_meta.json"
     if not path.is_file():
@@ -403,6 +412,7 @@ def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
         "has_output": _job_has_output(job_dir),
         "has_oom": _job_has_output(job_dir),
         "has_preview": has_preview(job_dir / "output", job_dir / "work"),
+        "has_georef_previews": _job_has_georef_previews(job_dir),
         **paths,
     }
     if source_meta:
