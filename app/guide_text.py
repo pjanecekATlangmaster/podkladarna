@@ -28,9 +28,10 @@ WEB_ABOUT_HTML = """
 <p>
   Na webu uvidíte PNG náhled z <code>.omap</code> (Pillow) – spíš rychlý náhled
   než finální kresbu.
-  ZIP skládá editovatelné vektory z víc zdrojů (vrstevnice, zeleň, ZABAGED, OSM,
-  RÚIAN podklady, AOPK, DXF srázů, referenční orto…), takže PNG a ZIP nevypadají úplně stejně.
-  Výchozí je PNG + ZIP; můžete nechat jen náhled.
+  Primární výstup je vždy ZIP s editovatelnými vektory (vrstevnice, zeleň, ZABAGED, OSM,
+  RÚIAN podklady, AOPK, DXF srázů, referenční orto…) – PNG na webu a obsah ZIPu
+  proto nevypadají úplně stejně.
+  Georeferencované PNG/TIFF do ZIPu je volitelné (ve výchozím stavu vypnuto).
 </p>
 <p>Ve ZIPu je mimo jiné:</p>
 <ul>
@@ -41,8 +42,9 @@ WEB_ABOUT_HTML = """
   Nakreslete obdélník (max cca 36&nbsp;km², např. 6×6&nbsp;km), vyberte <strong>měřítko</strong> a
   <strong>ekvidistanci</strong> a spusťte generování. PNG na webu je jen náhled;
   do ZIPu jdou omapy pro příslušné disciplíny. Stránku mezitím můžete zavřít.
-  Po dokončení stáhněte ZIP (pokud jste ho nechali generovat),
-  v OOM otevřete vybraný <code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> a podle návodu doladíte symboliku.
+  Po dokončení stáhněte ZIP, v OOM otevřete vybraný
+  <code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code>
+  a podle návodu doladíte symboliku.
   OCAD soubor <code>.omap</code> neotevře, DXF/SHP/PNG ano.
 </p>
 <p>
