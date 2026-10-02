@@ -482,7 +482,12 @@ def _line_mid_mode(line_el: ET.Element) -> tuple[str, float]:
 
 
 def _style_from_area(target: ET.Element) -> _SymbolStyle | None:
-    color = _positive_color(target)
+    # Jen výplň plochy – ne barvy pattern teček/čar uvnitř <pattern>
+    # (ISOM 412.1 má inner_color="-1" + černé tečky → dřív solid black přes 412).
+    try:
+        color = int(target.attrib.get("inner_color", "-1") or -1)
+    except ValueError:
+        color = -1
     if color < 0:
         return None
     return _SymbolStyle("area", color, 0.0, 0.0)

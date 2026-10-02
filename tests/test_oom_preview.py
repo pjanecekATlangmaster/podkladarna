@@ -291,6 +291,69 @@ def test_preview_undoes_grivation_for_aoi_crop(tmp_path: Path):
     assert abs(w / h - 10000 / 8000) < 0.15
 
 
+def test_cultivated_land_412_is_yellow_not_black(tmp_path: Path):
+    """ISOM 412 = 401 (žlutá) + 412.1 (černý pattern); pattern nesmí zalít plochu černě."""
+    omap = tmp_path / "cultivated.omap"
+    omap.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <colors count="3">
+    <color priority="31" name="Black for open land"><rgb r="0" g="0" b="0"/></color>
+    <color priority="32" name="Yellow"><rgb r="1" g="0.73" b="0.21"/></color>
+    <color priority="33" name="Yellow 100% for area features"><rgb r="1" g="0.73" b="0.21"/></color>
+  </colors>
+  <symbols count="3">
+    <symbol type="4" id="79" code="401" name="Open land">
+      <area_symbol inner_color="33" min_area="1125" patterns="0"/>
+    </symbol>
+    <symbol type="16" id="99" code="412" name="Cultivated land">
+      <combined_symbol parts="2">
+        <part symbol="79"/>
+        <part symbol="100"/>
+      </combined_symbol>
+    </symbol>
+    <symbol type="4" id="100" code="412.1" name="Cultivated land (black pattern)">
+      <area_symbol inner_color="-1" min_area="20250" patterns="1">
+        <pattern type="2" angle="0" line_spacing="1200" line_offset="0"
+                 offset_along_line="0" point_distance="1200">
+          <symbol type="1" code="" name="Pattern fill 1">
+            <point_symbol rotatable="true" inner_radius="150" inner_color="31"
+                          outer_width="0" outer_color="-1" elements="0"/>
+          </symbol>
+        </pattern>
+      </area_symbol>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="1">
+        <object type="1" symbol="99">
+          <coords count="5">0 0;0 8000;8000 8000;8000 0;0 0 18;</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    from app.pipeline.oom_preview import _collect_ops
+
+    root = ET.fromstring(omap.read_text(encoding="utf-8"))
+    ops = _collect_ops(root)
+    assert len(ops) == 1
+    assert ops[0].kind == "area"
+    assert ops[0].color == 33
+    assert ops[0].rgb == (255, 186, 54)
+
+    png = tmp_path / "preview.png"
+    render_omap_to_png(omap, png, max_side=120)
+    image = Image.open(png).convert("RGB")
+    mid = image.getpixel((image.size[0] // 2, image.size[1] // 2))
+    assert mid[0] > 200 and mid[1] > 140 and mid[2] < 120, mid
+    assert mid != (0, 0, 0)
+
+
 def test_combined_inline_paved_area_is_drawn(tmp_path: Path):
     """ISOM 501 má private parts v combined_symbol – dřív style=None → vynecháno."""
     omap = tmp_path / "paved.omap"
