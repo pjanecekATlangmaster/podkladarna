@@ -56,7 +56,24 @@ Záložní zdroj dlaždic: [CARTO](https://carto.com/) Voyager (data OSM).
 
 - [PDAL](https://pdal.io/) — BSD
 - [GDAL](https://gdal.org/) — MIT/X
+- [OpenOrienteering Mapper](https://www.openorienteering.org/) **CLI** — **GPL-3.0**
+  (Docker image: pin `mfbehrens/oo-mapper` větev `cli` @
+  `6dc1fd72`, upstream PR
+  [#2523](https://github.com/OpenOrienteering/mapper/pull/2523);
+  build recept je multi-stage `Dockerfile`)
 
-## Cílový software (není součástí Podkladárny)
+### GPL nabídka zdrojů (Mapper v image)
+
+Distribuce binárky Mapperu v Docker image podléhá GPL-3.0. Odpovídající
+zdroj je veřejný git pin výše; recept sestavení je v `Dockerfile`
+(stage `mapper-builder`). Na vyžádání (Issues / e-mail maintainerovi)
+poskytneme tarball zdroje k danému pinu nebo odkaz na clone + SHA.
+Karttapullautin / `pullauta` v image **není**.
+
+Lokální Windows tip (`:8672`) Mapper CLI do Dockeru nepotřebuje —
+georef bez CLI padá na Pillow @ 600 DPI-eq (viz `DEV.md`).
+
+## Cílový software (GUI u uživatele)
 
 - [OpenOrienteering Mapper](https://www.openorienteering.org/) — GPL-3.0
+  (editace `.omap`; stock 0.9.6 **není** headless CLI pro georef PNG)

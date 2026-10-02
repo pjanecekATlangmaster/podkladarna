@@ -16,6 +16,7 @@ services:
       - PODKLADARNA_DATA=/data
       - MAX_CONCURRENT_LIDAR=1
       - TEMP_RETENTION_DAYS=7
+      # Mapper CLI z image buildu; georef @ 600 DPI přes PODKLADARNA_MAPPER*
     command:
       - uvicorn
       - app.main:app
