@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.26.5"
+APP_VERSION = "1.26.6"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -111,8 +111,11 @@ PRIVATE_JOB_RETENTION_HOURS = int(
 DEFAULT_OPTIONS = {
     "run_vectors": True,
     "output_png": True,
-    # ZIP pro OOM (vektory + .omap). False = jen PNG náhled na webu.
+    # ZIP pro OOM (vektory + .omap). False = jen PNG náhled na webu (legacy API;
+    # pipeline stejně vždy balí .omap/ZIP).
     "output_zip": True,
+    # Georef PNG+PGW (±GeoTIFF) do výstupního ZIPu – GUI checkbox, default off.
+    "output_georef": False,
     # Ortofoto / OSM / ZTM / katastr / hillshade / DMP – stahovat a dát do ZIPu.
     "output_references": True,
     "output_dxf": True,

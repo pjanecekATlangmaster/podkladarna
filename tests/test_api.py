@@ -81,6 +81,44 @@ def test_create_job_output_mode_png_only(client, monkeypatch):
     )
     assert r.status_code == 200
     assert r.json()["options"]["output_zip"] is False
+    assert r.json()["options"]["output_georef"] is False
+
+
+def test_create_job_output_georef_opt_in(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    off = client.post(
+        "/api/jobs",
+        data={
+            "name": "georef-off",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "output_mode": "png_zip",
+        },
+    )
+    assert off.status_code == 200
+    assert off.json()["options"]["output_georef"] is False
+    on = client.post(
+        "/api/jobs",
+        data={
+            "name": "georef-on",
+            "preset_id": "sprint_2m",
+            "bbox": "14.41,50.08,14.43,50.09",
+            "output_mode": "png_zip",
+            "output_georef": "1",
+        },
+    )
+    assert on.status_code == 200
+    assert on.json()["options"]["output_georef"] is True
+    assert on.json()["id"] != off.json()["id"]
 
 
 def test_create_job_dedupes_same_bbox_while_active(client, monkeypatch):
@@ -496,11 +534,17 @@ def test_index_html(client):
     assert "bbox-map" in html
     assert "O co jde" in html
     assert "48 hodin" in html
-    assert "PNG náhled" in html
+    assert "Webový náhled" in html
+    assert "Jen PNG náhled" not in html
     assert 'name="map_scale"' in html
     assert 'name="contour_interval"' in html
     assert 'name="preset_id"' not in html
-    assert 'name="output_mode"' in html
+    assert 'name="output_georef"' in html
+    assert 'id="output_georef" value="1"' in html
+    assert 'id="output_georef" value="1" checked' not in html
+    assert 'name="output_mode"' not in html
+    assert "Formát" not in html
+    assert "Georeferencované PNG/TIFF do ZIPu" in html
     assert 'name="output_references"' in html
     assert 'id="output_references" value="1" checked' in html
     assert 'name="sprint_courtyard_olive"' in html

@@ -31,6 +31,7 @@ from app.pipeline.osm_paths import (
 from app.pipeline.oom_preview import (
     build_georef_previews_zip,
     oom_preview_enabled,
+    output_georef_enabled,
     write_job_oom_preview,
 )
 from app.pipeline.package_oom import (
@@ -447,6 +448,7 @@ def _package_output(
             reference_layers=ref_layers or None,
             lidar_sources=options.get("_lidar_sources"),
         )
+        meta["output_georef"] = output_georef_enabled(options)
         omap_paths: list[Path] = []
         ruian_path: Path | None = None
         aopk_path: Path | None = None
@@ -566,12 +568,18 @@ def _package_output(
             except Exception as exc:
                 log(f"OOM náhled: přeskočeno ({exc})")
 
-            try:
-                build_georef_previews_zip(output_dir, log=log)
-            except Exception as exc:
-                log(f"OOM georef ZIP: přeskočeno ({exc})")
+            if output_georef_enabled(options):
+                try:
+                    build_georef_previews_zip(output_dir, log=log)
+                except Exception as exc:
+                    log(f"OOM georef ZIP: přeskočeno ({exc})")
 
         cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
+        georef_dir = (
+            output_dir / "preview"
+            if output_georef_enabled(options)
+            else None
+        )
         build_oom_zip(
             kp_cwd,
             zip_path,
@@ -590,6 +598,7 @@ def _package_output(
             ruian_buildings=ruian_path,
             include_dxf=bool(options.get("output_dxf", True)),
             include_cliffs=cliff_symbol != "off",
+            georef_preview_dir=georef_dir,
         )
     else:
         log("=== Fáze: jen PNG náhled (ZIP/OOM přeskočeno) ===")

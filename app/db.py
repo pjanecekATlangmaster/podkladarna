@@ -406,6 +406,7 @@ def find_duplicate_active_job(
             str(opts.get("map_scale") or ""),
             str(opts.get("contour_interval") or ""),
             bool(opts.get("output_zip", True)),
+            bool(opts.get("output_georef")),
             bool(opts.get("output_references", True)),
             bool(opts.get("sprint_courtyard_olive", True)),
             bool(opts.get("sprint_residual_paved")),

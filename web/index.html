@@ -220,19 +220,21 @@
 
         <div class="form-section">
           <h3 class="form-section-title">Výstup</h3>
-          <label>
-            Formát
-            <select name="output_mode" id="output_mode">
-              <option value="png_zip" selected>ZIP s .omap (+ PNG náhled na webu)</option>
-              <option value="png">Jen PNG náhled (bez ZIPu – nepoužije se)</option>
-            </select>
-          </label>
           <p class="hint" id="output-omap-hint">
             Primární výstup je <code>.omap</code> v ZIPu:
             vegetace z hustoty LiDAR odrazů, srázy z DMR, vrstevnice GDAL.
-            Webový náhled je Pillow z <code>.omap</code>; georef PNG+PGW zvlášť (Mapper @ 600 DPI, jinak Pillow).
+            Webový náhled (Pillow) vzniká až po sestavení mapy — není rychlejší bez ZIPu.
           </p>
           <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
+
+          <label class="checkbox-row">
+            <input type="checkbox" name="output_georef" id="output_georef" value="1" />
+            Georeferencované PNG/TIFF do ZIPu
+          </label>
+          <p class="hint">
+            Volitelně: raster mapy s PGW (± GeoTIFF) přes Mapper CLI @ 600 DPI,
+            jinak Pillow fallback. Default vypnuto — šetří čas a velikost ZIPu.
+          </p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="output_references" id="output_references" value="1" checked />
@@ -322,7 +324,7 @@
 
   <footer class="site-footer page-wrap">
     <p>
-      Podkladárna v1.26.5 ·
+      Podkladárna v1.26.6 ·
       <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
       · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
       · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>

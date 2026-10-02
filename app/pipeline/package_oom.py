@@ -487,6 +487,19 @@ def oom_readme(meta: dict) -> str:
     label = meta.get("label") or meta.get("preset_id") or ""
     interval = meta.get("contour_interval_m")
     interval_txt = f"{interval} m" if interval is not None else "?"
+    include_georef = bool(meta.get("output_georef"))
+    if include_georef:
+        georef_note = (
+            "   Georef náhledy mapy jsou ve složce preview/ "
+            "(PNG+PGW ± GeoTIFF; Mapper @ 600 DPI, jinak Pillow).\n"
+        )
+    else:
+        georef_note = (
+            "   Georef náhledy mapy (Mapper @ 600 DPI + PGW) v tomto ZIPu nejsou –\n"
+            "   zapněte „Georeferencované PNG/TIFF do ZIPu“ při generování,\n"
+            "   nebo je stáhněte zvlášť z webu („Stáhnout georef náhledy“),\n"
+            "   pokud job georef vyrobil.\n"
+        )
     refs = meta.get("reference_layers") or []
     citation = meta.get("citation") or citation_line()
     epochs_block = format_source_epochs_readme(meta.get("lidar_sources"))
@@ -511,9 +524,8 @@ def oom_readme(meta: dict) -> str:
         "   uzitecne/pouzite vs uzitecne/vyhozene: stejné vrstvy po filtrech "
         "(min-size, occupancy, husté vrstevnice, …) – SHP k prohlížení.\n"
         "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
-        "   Georef náhledy mapy (Mapper @ 600 DPI + PGW) nejsou v tomto ZIPu –\n"
-        "   stáhněte je zvlášť z webu („Stáhnout georef náhledy“).\n"
-        "   Webový PNG náhled (Pillow) také nepatří do materiálového balíčku.\n\n"
+        f"{georef_note}"
+        "   Webový PNG náhled (Pillow) nepatří do materiálového balíčku.\n\n"
     )
     relief_line = (
         "Reliéf a vegetace: DMR 5G / DMP OK (ČÚZK) – vlastní DEM. "
@@ -933,6 +945,7 @@ def build_oom_zip(
     include_dxf: bool = True,
     include_cliffs: bool = True,
     ruian_buildings: Path | None = None,
+    georef_preview_dir: Path | None = None,
 ) -> Path:
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
     if dest_zip.exists():
@@ -955,9 +968,13 @@ def build_oom_zip(
         for name in ("pullautus_depr.png", "pullautus_depr.pgw"):
             if include_png:
                 _write_if_exists(zf, kp_cwd / name, f"kp/{name}")
-        # Materiálový OOM ZIP: žádné PNG náhledy mapy (ani Pillow, ani Mapper).
-        # Georef PNG+PGW jdou samostatným ZIP / API „Stáhnout georef náhledy“.
-        # ČÚZK references/ níže zůstávají (šablony, ne preview mapy).
+        # Materiálový OOM ZIP: mapové PNG náhledy jen při opt-in georef
+        # (output_georef). ČÚZK references/ níže zůstávají (šablony).
+        if georef_preview_dir and Path(georef_preview_dir).is_dir():
+            from app.pipeline.oom_preview import list_georef_preview_files
+
+            for path in list_georef_preview_files(Path(georef_preview_dir)):
+                zf.write(path, f"preview/{path.name}")
         shade_dir = kp_cwd / "shade"
         if include_png and shade_dir.is_dir():
             for name in ("hillshade.png", "hillshade.pgw"):
