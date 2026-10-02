@@ -6,7 +6,11 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.pipeline.cliff_height import filter_by_drop, likely_closed_depression
+from app.pipeline.cliff_height import (
+    filter_by_drop,
+    likely_closed_depression,
+    rock_ring_is_closed_depression,
+)
 from app.pipeline.fetch_zabaged import (
     MAX_OSTATNI_PLOCHA_M2,
     ostatni_plocha_too_large,
@@ -1178,6 +1182,7 @@ def build_dxf_object_part(
     drop_unmeasured = 0
     earth_tangled = 0
     earth_pit_skip = 0
+    rock_depression_skip = 0
     rock_polys_n = 0
     earth_lines_n = 0
     overlap_drop = 0
@@ -1287,7 +1292,17 @@ def build_dxf_object_part(
         if is_earth:
             pending_earth.extend(cliff_lines)
         if merged.polygons and as_polygons:
-            pending_rocks.extend(merged.polygons)
+            if cliff_dem is not None:
+                kept_rocks: list[list[tuple[float, float]]] = []
+                for ring in merged.polygons:
+                    pit = rock_ring_is_closed_depression(ring, cliff_dem)
+                    if pit is True:
+                        rock_depression_skip += 1
+                        continue
+                    kept_rocks.append(ring)
+                pending_rocks.extend(kept_rocks)
+            else:
+                pending_rocks.extend(merged.polygons)
 
     bldg = building_rings
     if bldg is None:
@@ -1370,6 +1385,10 @@ def build_dxf_object_part(
     detail_bits: list[str] = []
     if rock_polys_n:
         detail_bits.append(f"skála→{rock_polys_n} ploch 201.2/206")
+    if rock_depression_skip:
+        detail_bits.append(
+            f"{rock_depression_skip} skála=deprese (přednost vrstevnicím)"
+        )
     if earth_lines_n or "104" in codes:
         bit = f"104→{earth_lines_n} linií"
         extras = []

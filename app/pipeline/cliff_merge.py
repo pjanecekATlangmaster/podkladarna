@@ -33,25 +33,25 @@ DEDUP_POS_PER_M = 1.0
 DEDUP_ANG_PER_RAD = 8.0
 
 # Plošná skála: buffer ticků → uzavření mezer → otevření tenkých stěn →
-# stažení k mase → vyhlazení. Agresivnější než 1.20.10 (open 5 / w 9.5):
-# DEM skály jsou řidší než KP pole – otevření 5 m sežralo většinu mas.
-# Laděno na job f93ded4f6bcb (AOI testB): stěna/dvojstěna zůstane linií.
-ROCK_BUFFER_M = 3.0
+# stažení k mase → vyhlazení. 1.20.15 bylo měkčí (open 3.5 / area 55) →
+# příliš many 201.2; teď zpět přísněji, s důrazem na shrink (ne nafukovat).
+# 104 citlivost se nemění – jen footprint ploch. Stěna/dvojstěna zůstane mimo.
+ROCK_BUFFER_M = 2.5
 ROCK_CLOSE_M = 2.0
-ROCK_OPEN_M = 3.5
-ROCK_SHRINK_M = 1.5
-ROCK_SMOOTH_M = 1.3
+ROCK_OPEN_M = 4.2
+ROCK_SHRINK_M = 2.4
+ROCK_SMOOTH_M = 1.0
 ROCK_SIMPLIFY_M = 2.0
-MIN_ROCK_AREA_M2 = 55.0
-MIN_ROCK_WIDTH_M = 7.5
-MAX_ROCK_ASPECT = 3.8
+MIN_ROCK_AREA_M2 = 75.0
+MIN_ROCK_WIDTH_M = 9.0
+MAX_ROCK_ASPECT = 3.4
 # Halo kolem plochy: čárky na okraji už nekreslit jako 201 (obrys nese plocha).
 ROCK_TICK_HALO_M = 3.5
 # Po řetězení: kompaktní zbytky (ne protáhlá stěna) → plocha místo mraku 201.
-COMPACT_LINE_BUFFER_M = 2.8
-COMPACT_MAX_ASPECT = 3.0
-COMPACT_MIN_WIDTH_M = 6.0
-COMPACT_MIN_AREA_M2 = 35.0
+COMPACT_LINE_BUFFER_M = 2.4
+COMPACT_MAX_ASPECT = 2.7
+COMPACT_MIN_WIDTH_M = 7.0
+COMPACT_MIN_AREA_M2 = 50.0
 
 # Legacy rastr (fallback bez shapely + testy obtahu buněk).
 ROCK_CELL_M = 3.0

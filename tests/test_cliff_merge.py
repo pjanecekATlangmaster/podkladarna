@@ -141,8 +141,8 @@ def test_dense_field_stays_lines_for_earth_bank():
 
 def test_compact_leftover_lines_promote_to_area():
     """Řidší „kapsa“ mimo hlavní footprint → plocha; zbytek 201 pryč."""
-    # Hlavní pole + oddělená menší kapsa ~12×12 m (dříve často zůstala liniemi).
-    ticks = _field(24.0, 24.0) + _field(12.0, 12.0, x0=40.0, y0=40.0)
+    # Hlavní pole + oddělená menší kapsa ~15×15 m (po přísnějším min-area).
+    ticks = _field(24.0, 24.0) + _field(15.0, 15.0, x0=40.0, y0=40.0)
     got = merge_cliff_ticks(ticks, as_polygons=True, min_line_m=12.0)
     assert len(got.polygons) >= 2
     assert not got.lines

@@ -34,6 +34,10 @@ SAMPLE_STRIDE_CELLS = 2
 MAX_TICKS = 80_000
 # drop / vodorovná délka sondy. Nad tím skála (krátká stěna), pod tím zemní sráz.
 ROCK_MIN_GRADE = 0.55
+# Skála potřebuje vyšší schod než zemní sráz při stejné citlivosti GUI
+# (kp_cliff_sensitivity / cliff1). Slabé strmé kandidáty se zahodí – nepřelévají
+# se do 104, aby srázy zůstaly beze změny.
+ROCK_MIN_DROP_BONUS_M = 0.7
 
 
 def dem_filled_path(work_dir: Path) -> Path | None:
@@ -71,8 +75,10 @@ def detect_cliff_ticks(
     """Vrátí (zemní_ticky, skalní_ticky) jako 2bodové úsečky kolmo na spád.
 
     Schod je výškový skok očištěný o hrubý trend okolí. Skála = strmý skok
-    na krátké vzdálenosti (``ROCK_MIN_GRADE``); nižší sklon při stejném prahu
-    výšky je zemní sráz. ``major_drop_m`` zůstává v signatuře kvůli volajícím.
+    na krátké vzdálenosti (``ROCK_MIN_GRADE``) **a** vyšší drop
+    (``min_drop_m + ROCK_MIN_DROP_BONUS_M``); nižší sklon při stejném prahu
+    výšky je zemní sráz. Strmé ale nízké kandidáty se zahodí (ne → 104).
+    ``major_drop_m`` zůstává v signatuře kvůli volajícím.
     """
     import numpy as np
 
@@ -91,6 +97,7 @@ def detect_cliff_ticks(
     # Sonda ~ 2–3 m v pixelech.
     near = max(1, int(round(2.5 / min(px, py))))
     far = max(near + 1, int(round(7.5 / min(px, py))))
+    rock_min_drop = float(min_drop_m) + ROCK_MIN_DROP_BONUS_M
 
     small: list[tuple[tuple[float, float], tuple[float, float]]] = []
     large: list[tuple[tuple[float, float], tuple[float, float]]] = []
@@ -162,7 +169,9 @@ def detect_cliff_ticks(
             a = (cx - nx * TICK_HALF_LEN_M, cy - ny * TICK_HALF_LEN_M)
             b = (cx + nx * TICK_HALF_LEN_M, cy + ny * TICK_HALF_LEN_M)
             if steep_enough:
-                large.append((a, b))
+                # Přísnější práh jen pro skálu; slabé strmé → pryč (ne 104).
+                if drop >= rock_min_drop:
+                    large.append((a, b))
             else:
                 small.append((a, b))
             if len(small) + len(large) >= max_ticks:
@@ -230,8 +239,8 @@ def generate_cliffs_from_dem(
 
     log_step(
         log,
-        f"Hledám srázy na DEM (drop≥{min_drop_m:g} m, skála sklon≥{ROCK_MIN_GRADE:g}; "
-        "krátké ticky a plochy řeší merge v OOM)",
+        f"Hledám srázy na DEM (drop≥{min_drop_m:g} m, skála≥{min_drop_m + ROCK_MIN_DROP_BONUS_M:g} m "
+        f"/ sklon≥{ROCK_MIN_GRADE:g}; krátké ticky a plochy řeší merge v OOM)",
     )
     try:
         arr, gt, nodata = read_float32_geotiff(dem_tif, log=log)
@@ -260,8 +269,9 @@ def generate_cliffs_from_dem(
     if log:
         log(
             f"Srázy DEM: {len(small)} zemních + {len(large)} skalních ticků "
-            f"(drop≥{min_drop_m:g} m / major≥{major_drop_m:g} m, "
-            f"skála sklon≥{ROCK_MIN_GRADE:g}; body 204 z šumu DEM nevznikají) → temp/"
+            f"(zem drop≥{min_drop_m:g} m / skála≥{min_drop_m + ROCK_MIN_DROP_BONUS_M:g} m, "
+            f"major≥{major_drop_m:g} m, sklon≥{ROCK_MIN_GRADE:g}; "
+            f"body 204 z šumu DEM nevznikají) → temp/"
         )
     return out
 

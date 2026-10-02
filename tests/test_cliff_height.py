@@ -128,3 +128,32 @@ def test_likely_closed_depression_one_sided_bank():
         return 0.0 if x < 0.0 else -4.0
 
     assert likely_closed_depression(_line_along_y(x=0.0), elev) is False
+
+
+def test_rock_ring_closed_depression_suppresses_pit():
+    """Skalní plocha nad jámou: střed níž než okraj → deprese."""
+    from app.pipeline.cliff_height import rock_ring_is_closed_depression
+
+    # Čtverec 20×20 m; dno ve středu −2 m, okraj 0.
+    ring = [(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)]
+
+    def elev(x: float, y: float) -> float:
+        dx, dy = x - 10.0, y - 10.0
+        r = (dx * dx + dy * dy) ** 0.5
+        return -2.0 if r < 6.0 else 0.0
+
+    assert rock_ring_is_closed_depression(ring, elev) is True
+
+
+def test_rock_ring_on_plateau_is_not_depression():
+    """Vyvýšená skála / plošina: střed výš nebo stejně → ne jáma."""
+    from app.pipeline.cliff_height import rock_ring_is_closed_depression
+
+    ring = [(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)]
+
+    def elev(x: float, y: float) -> float:
+        dx, dy = x - 10.0, y - 10.0
+        r = (dx * dx + dy * dy) ** 0.5
+        return 2.0 if r < 6.0 else 0.0
+
+    assert rock_ring_is_closed_depression(ring, elev) is False
