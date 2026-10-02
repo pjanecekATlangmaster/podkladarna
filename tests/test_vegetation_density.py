@@ -9,6 +9,7 @@ import numpy as np
 from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS,
     DENSE,
+    DensityVegeParams,
     MID,
     OPEN,
     WHITE,
@@ -17,6 +18,8 @@ from app.pipeline.vegetation_density import (
     classify_points,
     generate_job_vegetation_density,
     median_filter_uint8,
+    reclaim_yellow_under_canopy,
+    yellow_mask_from_hits,
 )
 
 SIZE = 60  # m, 1 m grid
@@ -79,9 +82,70 @@ def test_single_tree_in_meadow_does_not_become_forest_blob():
     grass = _grid_points(0, SIZE, 0, SIZE, 0.2, lambda n: rng.uniform(0, 0.4, n), 5, rng)
     tree = _grid_points(29, 32, 29, 32, 10.0, lambda n: rng.uniform(10, 15, n), 5, rng)
     out = classify_points(_pts(_ground(rng, per_m2=2.0), grass, tree), _dem(), GT)
-    # okno žluté ~6 m: nejvýš malý bílý ostrůvek kolem stromu, okolí louka
+    # okno žluté ~6 m + canopy close: okolí louka, ne bílý blob
     assert np.sum(out[8:-8, 8:-8] != OPEN) < 150
     assert out[10, 10] == OPEN and out[50, 50] == OPEN
+
+
+def test_park_trees_in_meadow_stay_open_not_white():
+    """ČÚZK-like: řídký ground + husté DMP koruny 14–20 m v louce → pořád 401.
+
+    Bez canopy close / reclaim by husté first-return koruny „vybílily“ louku
+    (Barr7 / OSM way 1081943349). Solidní bílý les řeší jiný test.
+    """
+    rng = np.random.default_rng(11)
+    ground = _ground(rng, per_m2=0.35)
+    # několik stromů ~8 m od sebe, hustá koruna jako DMP class 5
+    chunks = [ground]
+    for x0, y0 in ((12, 12), (12, 28), (12, 44), (28, 12), (28, 28), (28, 44), (44, 20), (44, 36)):
+        chunks.append(
+            _grid_points(
+                x0,
+                x0 + 3,
+                y0,
+                y0 + 3,
+                25.0,
+                lambda n: rng.uniform(14, 20, n),
+                5,
+                rng,
+            )
+        )
+    out = classify_points(_pts(*chunks), _dem(), GT)
+    inner = out[8:-8, 8:-8]
+    assert np.mean(inner == OPEN) > 0.75
+    assert np.mean(inner == WHITE) < 0.2
+
+
+def test_reclaim_yellow_under_canopy_only_inside_open():
+    classified = np.zeros((5, 5), dtype=np.uint8)
+    classified[:, :3] = OPEN
+    classified[2, 1] = WHITE  # uvnitř žluté
+    classified[2, 4] = WHITE  # v bílém lese
+    out = reclaim_yellow_under_canopy(classified, frac_min=0.55)
+    assert out[2, 1] == OPEN
+    assert out[2, 4] == WHITE
+
+
+def test_yellow_mask_canopy_close_fills_tree_hole():
+    """Hole-fill vyplní malou díru po stromu; velký lesní ostrov nechá."""
+    # --- malá koruna uprostřed čisté louky ---
+    yhit = np.ones((36, 36), dtype=float) * 10
+    noyhit = np.zeros((36, 36), dtype=float)
+    yhit[16:19, 16:19] = 1
+    noyhit[16:19, 16:19] = 40
+    params = DensityVegeParams(yellow_canopy_close_m=6.0, yellow_median_size=0)
+    yellow = yellow_mask_from_hits(yhit, noyhit, shape=(36, 36), res=1.0, params=params)
+    assert yellow[17, 17]
+    assert yellow.mean() > 0.95
+
+    # --- velký uzavřený lesní ostrov (> max hole) zůstane ne-žlutý ---
+    yhit2 = np.ones((48, 48), dtype=float) * 10
+    noyhit2 = np.zeros((48, 48), dtype=float)
+    yhit2[12:36, 12:36] = 1
+    noyhit2[12:36, 12:36] = 40
+    yellow2 = yellow_mask_from_hits(yhit2, noyhit2, shape=(48, 48), res=1.0, params=params)
+    assert not yellow2[24, 24]
+    assert yellow2[2, 2]
 
 
 def test_points_outside_grid_are_ignored():
@@ -121,6 +185,9 @@ def test_defaults_match_kp_base_ini():
     """Kalibrováno = KP defaulty Podkladárny (pullauta.base.ini)."""
     p = DEFAULT_PARAMS
     assert p.yellow_height_m == 0.9 and p.yellow_threshold == 0.9
+    assert p.yellow_cell_m == 3.0 and p.yellow_window_cells == 2
+    assert p.yellow_window_m == 6.0
+    assert p.yellow_canopy_close_m == 6.0
     assert p.block_m == 2.0 and p.green_ground_m == 0.9 and p.top_weight == 0.8
     assert p.zones[0] == (1.0, 2.65, 99.0, 1.0)
     assert p.median_size == 7
