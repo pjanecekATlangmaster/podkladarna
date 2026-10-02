@@ -555,7 +555,7 @@ def oom_readme(meta: dict) -> str:
         "   (podle měřítka; cesty z OSM).\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
-        "   Vrstevnice (101/102) jsou polygonální linie (Chaikin) a zamčené (is_protected)\n"
+        "   Vrstevnice (101/102): Chaikin → DP simplify (~0,08 mm) → Bézier; zamčené (is_protected)\n"
         "   – odemkni v panelu symbolů; v OOM volitelně Převést na křivky.\n"
         f"{kp_steps}"
         "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"

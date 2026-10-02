@@ -18,19 +18,24 @@ from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 
 CONTOUR_META_NAME = "contour_meta.json"
 
-# Les: jemnější DEM (1 m) + blur 6 m (spojuje útržky) + Chaikin 2
+# Les: jemnější DEM (1 m) + blur 6 m (spojuje útržky) + Chaikin 1
+# (dřív ×2 densifikovalo před Bézier → bloat; ×1 stačí před DP).
+# Pipeline OOM: Chaikin → DP simplify (~0,08 mm papíru) → convertToCurves.
 # + post: stitch blízkých konců / drop krátkých zbytků.
 _CELL_M_AT_SF1 = 1.0
 _SMOOTH_WINDOW_M_AT_SF1 = 6.0
-_CHAIKIN_ITERS = 2
+_CHAIKIN_ITERS = 1
 # Sprint (sf≈0.4): dřív window ~1,6 m → zubaté křivky; držet vyhlazení.
 _SPRINT_SF_MAX = 0.55
 _SPRINT_CELL_MIN_M = 1.0
 _SPRINT_SMOOTH_MIN_M = 4.0
-_SPRINT_CHAIKIN_ITERS = 2
+_SPRINT_CHAIKIN_ITERS = 1
 # Post-processing linií (metry v terénu).
 _MIN_CONTOUR_LEN_M = 15.0
 _STITCH_GAP_FACTOR = 1.1  # × smooth window
+# Mapper N používá 0,08 mm papíru po křivkách; u nás DP *před* křivkami
+# (stejný řád jako Ctrl+M 0,1 mm) → málo handlů, ne 3× Chaikin bloat.
+_SIMPLIFY_PAPER_MM = 0.08
 
 
 def contour_dem_params(
@@ -100,6 +105,83 @@ def chaikin(
         out.append(pts[-1])
         pts = out
     return pts
+
+
+def paper_mm_to_ground_m(threshold_mm: float, scale: int) -> float:
+    """Tolerance na papíře (mm) → metry v terénu při daném mapovém měřítku."""
+    return float(threshold_mm) * float(scale) / 1000.0
+
+
+def contour_simplify_tol_m(
+    scale: int, *, threshold_mm: float = _SIMPLIFY_PAPER_MM
+) -> float:
+    """Douglas–Peucker práh před převodem na Bézier (~Mapper 0,08 mm)."""
+    return paper_mm_to_ground_m(threshold_mm, scale)
+
+
+def _point_seg_dist(
+    px: float, py: float, ax: float, ay: float, bx: float, by: float
+) -> float:
+    dx = bx - ax
+    dy = by - ay
+    denom = dx * dx + dy * dy
+    if denom < 1e-18:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / denom))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def simplify_polyline_dp(
+    pts: list[tuple[float, float]], tol_m: float
+) -> list[tuple[float, float]]:
+    """Douglas–Peucker na otevřené polylinii (metry)."""
+    if len(pts) <= 2 or tol_m <= 0:
+        return pts
+    max_d = -1.0
+    idx = 0
+    ax, ay = pts[0]
+    bx, by = pts[-1]
+    for i in range(1, len(pts) - 1):
+        d = _point_seg_dist(pts[i][0], pts[i][1], ax, ay, bx, by)
+        if d > max_d:
+            max_d = d
+            idx = i
+    if max_d > tol_m:
+        left = simplify_polyline_dp(pts[: idx + 1], tol_m)
+        right = simplify_polyline_dp(pts[idx:], tol_m)
+        return left[:-1] + right
+    return [pts[0], pts[-1]]
+
+
+def simplify_contour_polyline(
+    pts: list[tuple[float, float]], tol_m: float
+) -> list[tuple[float, float]]:
+    """DP simplify; uzavřené prstence rozdělí na dvě půlky (jako cliff merge)."""
+    if len(pts) < 3 or tol_m <= 0:
+        return pts
+    closed = is_closed_polyline(pts) or (
+        len(pts) >= 4 and pts[0][0] == pts[-1][0] and pts[0][1] == pts[-1][1]
+    )
+    if not closed:
+        return simplify_polyline_dp(pts, tol_m)
+
+    ring = list(pts[:-1]) if pts[0] == pts[-1] else list(pts)
+    if len(ring) <= 4:
+        out = ring
+    else:
+        ax, ay = ring[0]
+        far = max(
+            range(1, len(ring)),
+            key=lambda i: (ring[i][0] - ax) ** 2 + (ring[i][1] - ay) ** 2,
+        )
+        first = simplify_polyline_dp(ring[: far + 1], tol_m)
+        second = simplify_polyline_dp(ring[far:] + [ring[0]], tol_m)
+        out = first[:-1] + second[:-1]
+        if len(out) < 3:
+            out = ring
+    if out[0] != out[-1]:
+        out = out + [out[0]]
+    return out
 
 
 def polyline_length_m(pts: list[tuple[float, float]]) -> float:
@@ -617,9 +699,11 @@ def build_gdal_contour_parts(
             if part[0] == "line" and len(part[1]) >= 2:
                 bucket.append(list(part[1]))  # type: ignore[arg-type]
 
+    simplify_tol = contour_simplify_tol_m(scale)
     log_step(
         log,
-        "Importuji vrstevnice do OOM jako polyline (Chaikin, bez Bézier křivek)",
+        "Importuji vrstevnice do OOM: Chaikin → DP simplify "
+        f"({_SIMPLIFY_PAPER_MM:g} mm ≈ {simplify_tol:.2f} m) → Bézier",
     )
     for (code, _elev), lines in by_key.items():
         symbol_index = symbol_index_for_code(preset_id, scale, code)
@@ -633,6 +717,7 @@ def build_gdal_contour_parts(
         smoothed: list = []
         for pts in refined:
             pts = chaikin(pts, iterations=chaikin_iters)
+            pts = simplify_contour_polyline(pts, simplify_tol)
             if len(pts) < 2:
                 continue
             closed = is_closed_polyline(pts)
@@ -647,8 +732,8 @@ def build_gdal_contour_parts(
                 ref_y=ref_y,
                 scale=scale,
                 grivation_deg=grivation_deg,
-                # Polylines only: Bézier (CurveStart) triples omap size on large AOIs.
-                as_curves=False,
+                # Křivky až po DP: handly jen na zjednodušených uzlech (ne Chaikin densita).
+                as_curves=True,
             )
         )
 
