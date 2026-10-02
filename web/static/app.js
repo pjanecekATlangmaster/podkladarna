@@ -1119,10 +1119,9 @@ function applyJobToForm(job) {
   if (ostatni403) {
     ostatni403.checked = Boolean(opts.ostatni_plocha_as_403);
   }
-  const outMode = form.output_mode;
-  if (outMode) {
-    const wantZip = opts.output_zip == null ? true : Boolean(opts.output_zip);
-    outMode.value = wantZip ? "png_zip" : "png";
+  const outGeoref = form.output_georef;
+  if (outGeoref) {
+    outGeoref.checked = Boolean(opts.output_georef);
   }
   const outRefs = form.output_references;
   if (outRefs) {

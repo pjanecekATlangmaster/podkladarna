@@ -17,6 +17,7 @@ from app.pipeline.oom_preview import (
     map_grivation_deg,
     mapper_export_argv,
     oom_preview_enabled,
+    output_georef_enabled,
     render_omap_to_png,
     undo_grivation_xy,
     write_job_oom_preview,
@@ -106,6 +107,15 @@ def test_preview_on_only_for_bez_kp():
     assert oom_preview_enabled({"use_kp": True}) is True
     assert oom_preview_enabled({"oom_preview": True}) is True
     assert oom_preview_enabled({"oom_preview": False}) is False
+
+
+def test_output_georef_default_off(monkeypatch):
+    monkeypatch.delenv("PODKLADARNA_OUTPUT_GEOREF", raising=False)
+    assert output_georef_enabled({}) is False
+    assert output_georef_enabled({"output_georef": False}) is False
+    assert output_georef_enabled({"output_georef": True}) is True
+    monkeypatch.setenv("PODKLADARNA_OUTPUT_GEOREF", "1")
+    assert output_georef_enabled({}) is True
 
 
 def test_env_can_disable(monkeypatch):
@@ -610,7 +620,7 @@ def test_write_job_georef_pillow_fallback_without_mapper(tmp_path: Path, monkeyp
         [omap],
         tmp_path / "work",
         tmp_path / "out",
-        {"use_kp": False, "oom_geotiff": False},
+        {"use_kp": False, "oom_geotiff": False, "output_georef": True},
         log=logs.append,
     )
     assert work is not None and work.is_file()
@@ -713,7 +723,7 @@ def test_write_job_preview_copies_named_png(tmp_path: Path, monkeypatch):
         [other, omap],
         work,
         tmp_path / "out",
-        {"use_kp": False, "oom_geotiff": False},
+        {"use_kp": False, "oom_geotiff": False, "output_georef": True},
         log=lines.append,
     )
     assert dest == work / "preview.png"
@@ -741,6 +751,29 @@ def test_write_job_skips_when_kp(tmp_path: Path):
     assert (
         write_job_oom_preview([omap], tmp_path, tmp_path, {"oom_preview": False}) is None
     )
+
+
+def test_write_job_skips_georef_when_default_off(tmp_path: Path, monkeypatch):
+    """Bez output_georef jen webový Pillow – žádné georef PNG+PGW."""
+    monkeypatch.delenv("PODKLADARNA_OUTPUT_GEOREF", raising=False)
+    monkeypatch.delenv("PODKLADARNA_MAPPER_EXPORT", raising=False)
+    monkeypatch.delenv("PODKLADARNA_MAPPER", raising=False)
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
+    logs: list[str] = []
+    work = write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"use_kp": False},
+        log=logs.append,
+    )
+    assert work is not None and work.is_file()
+    assert (tmp_path / "out" / "preview" / "oom_preview.png").is_file()
+    assert not (tmp_path / "out" / "preview" / "Park-les.png").is_file()
+    assert any("output_georef vypnuto" in line for line in logs)
+    assert build_georef_previews_zip(tmp_path / "out") is None
 
 
 def test_find_mapper_does_not_require_install():
@@ -999,7 +1032,7 @@ def test_write_job_splits_georef_and_web(tmp_path: Path, monkeypatch):
         [omap],
         tmp_path / "work",
         tmp_path / "out",
-        {"use_kp": False, "oom_geotiff": False},
+        {"use_kp": False, "oom_geotiff": False, "output_georef": True},
     )
     assert work is not None and work.is_file()
     georef_png = tmp_path / "out" / "preview" / "Park-les.png"
@@ -1027,7 +1060,7 @@ def test_build_georef_previews_zip(tmp_path: Path, monkeypatch):
         [omap_les, omap_mtbo],
         tmp_path / "work",
         tmp_path / "out",
-        {"use_kp": False, "oom_geotiff": False},
+        {"use_kp": False, "oom_geotiff": False, "output_georef": True},
     )
     zpath = build_georef_previews_zip(tmp_path / "out")
     assert zpath is not None and zpath.is_file()

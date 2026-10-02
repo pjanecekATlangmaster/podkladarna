@@ -276,6 +276,36 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert oom_readme(meta).startswith("Podkladárna")
 
 
+def test_build_oom_zip_includes_georef_when_requested(tmp_path: Path):
+    kp = tmp_path / "kp"
+    kp.mkdir()
+    (kp / "pullautus.png").write_bytes(b"png")
+    (kp / "pullautus.pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+    preview = tmp_path / "preview"
+    preview.mkdir()
+    (preview / "Park-les.png").write_bytes(b"geo")
+    (preview / "Park-les.pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+    (preview / "Park-les.prj").write_text("PROJCS", encoding="utf-8")
+    (preview / "oom_preview.png").write_bytes(b"web")  # nesmí do ZIPu
+    meta = {"label": "test", "scale": 10000, "output_georef": True}
+    dest = tmp_path / "out.zip"
+    build_oom_zip(
+        kp,
+        dest,
+        zabaged_clean=None,
+        metadata=meta,
+        georef_preview_dir=preview,
+    )
+    with zipfile.ZipFile(dest) as zf:
+        names = set(zf.namelist())
+        readme = zf.read("README_OOM.txt").decode("utf-8")
+    assert "preview/Park-les.png" in names
+    assert "preview/Park-les.pgw" in names
+    assert "preview/Park-les.prj" in names
+    assert "preview/oom_preview.png" not in names
+    assert "preview/" in readme and "PNG+PGW" in readme
+
+
 def test_prepare_oom_map_minimal(tmp_path):
     kp = tmp_path / "work"
     kp.mkdir()
