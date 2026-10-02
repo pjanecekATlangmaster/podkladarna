@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.26.3"
+APP_VERSION = "1.26.4"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -149,6 +149,7 @@ DEFAULT_OPTIONS = {
     # Default small = jen ≤5 ha (současné chování). ZIP má vždy pásma SHP.
     "ostatni_plocha": "small",
     # Ostatní plocha jako 403 (rough open) místo 501 – default vypnuto.
+    # GUI skryté (2026-10); API/pipeline flag zůstává.
     "ostatni_plocha_as_403": False,
 }
 
