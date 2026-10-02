@@ -277,3 +277,70 @@ def test_residual_size_filter_and_band_shp(tmp_path: Path):
     )
     assert len(parts) == 1
     assert parts[0].count >= 1
+
+
+def test_residual_soft_timeout_skips_remaining(tmp_path: Path, monkeypatch):
+    """Po soft timeoutu se zbývající subjecty přeskočí; job log dostane varování."""
+    residential_a = {
+        "type": "way",
+        "id": 1,
+        "tags": {"landuse": "residential"},
+        "geometry": _sq_wgs(50.10, 14.56, 0.001, 0.001),
+    }
+    residential_b = {
+        "type": "way",
+        "id": 2,
+        "tags": {"landuse": "residential"},
+        "geometry": _sq_wgs(50.102, 14.562, 0.001, 0.001),
+    }
+    building = {
+        "type": "way",
+        "id": 3,
+        "tags": {"building": "yes"},
+        "geometry": _sq_wgs(50.1002, 14.5602, 0.0003, 0.0003),
+    }
+    _write_cache(tmp_path, [residential_a, residential_b, building])
+
+    msgs: list[str] = []
+    clock = {"t": 1000.0}
+
+    def fake_mono():
+        return clock["t"]
+
+    from app.pipeline import residual_paved as rp
+
+    real_diff = rp._difference_one_subject
+
+    def slow_diff(subject, mask_index):
+        clock["t"] += 10.0
+        return real_diff(subject, mask_index)
+
+    monkeypatch.setattr(rp, "_difference_one_subject", slow_diff)
+    monkeypatch.setattr(rp.time, "monotonic", fake_mono)
+
+    parts = build_residual_paved_parts(
+        tmp_path,
+        preset_id="sprint_2m",
+        scale=4000,
+        ref_x=0.0,
+        ref_y=0.0,
+        grivation_deg=0.0,
+        max_piece_m2=float("inf"),
+        write_shapefiles=False,
+        log=msgs.append,
+        soft_timeout_s=5.0,
+    )
+    assert any("soft timeout" in m for m in msgs)
+    assert isinstance(parts, list)
+
+
+def test_package_oom_gates_residual_call():
+    """V package_oom je residual volaný jen uvnitř if residual_paved."""
+    import inspect
+
+    from app.pipeline import package_oom as po
+
+    src = inspect.getsource(po.prepare_oom_map)
+    assert "if residual_paved:" in src
+    assert "vždy spočítat" not in src
+    assert "max_piece_m2=max_residual_m2 if residual_paved else 0.0" not in src

@@ -98,3 +98,23 @@ def test_zabaged_layers_via_ogr(tmp_path: Path):
         zabaged_clean=zabaged, work_dir=tmp_path / "work"
     )
     assert len(wkbs) == 1
+
+
+def test_zabaged_meadows_skipped_when_disabled(tmp_path: Path):
+    pytest.importorskip("osgeo.ogr")
+    layer_dir = tmp_path / "src"
+    layer_dir.mkdir()
+    _write_square_shp(layer_dir / "TrvalyTravniPorost.shp")
+    zabaged = tmp_path / "zabaged_clean.zip"
+    with zipfile.ZipFile(zabaged, "w") as zf:
+        for path in layer_dir.iterdir():
+            zf.write(path, path.name)
+
+    assert (
+        collect_kp401_subtract_wkbs(
+            zabaged_clean=zabaged,
+            work_dir=tmp_path / "work",
+            subtract_zabaged_meadows=False,
+        )
+        == []
+    )
