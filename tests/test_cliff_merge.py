@@ -382,10 +382,10 @@ def test_gentle_bend_bank_is_kept():
     assert polyline_is_simple_bank(bend)
 
 
-def test_rock_scarp_overlap_keeps_longer():
+def test_rock_scarp_overlap_scarp_wins():
+    """Překryv → vždy sráz; i krátký 104 přebije velkou skálu."""
     from app.pipeline.cliff_merge import resolve_rock_scarp_overlaps
 
-    # Malá skála (obvod ~40 m) vs dlouhý sráz (~80 m) přes ni → sráz.
     small_rock = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
     long_scarp = [(-20.0, 5.0), (30.0, 5.0)]
     rocks, scarps, n = resolve_rock_scarp_overlaps([small_rock], [long_scarp])
@@ -393,13 +393,13 @@ def test_rock_scarp_overlap_keeps_longer():
     assert rocks == []
     assert len(scarps) == 1
 
-    # Velká skála (obvod ~200 m) vs krátký sráz (~20 m) → skála.
+    # Dřív „delší skála vyhrála“ – teď scarp wins i proti velké ploše.
     big_rock = [(0.0, 0.0), (50.0, 0.0), (50.0, 50.0), (0.0, 50.0)]
     short_scarp = [(10.0, 25.0), (30.0, 25.0)]
     rocks, scarps, n = resolve_rock_scarp_overlaps([big_rock], [short_scarp])
     assert n == 1
-    assert len(rocks) == 1
-    assert scarps == []
+    assert rocks == []
+    assert len(scarps) == 1
 
 
 def test_rock_scarp_no_overlap_keeps_both():
@@ -410,6 +410,46 @@ def test_rock_scarp_no_overlap_keeps_both():
     rocks, scarps, n = resolve_rock_scarp_overlaps([rock], [scarp])
     assert n == 0
     assert len(rocks) == 1 and len(scarps) == 1
+
+
+def test_rock_blocker_overlap_suppresses_rock():
+    from app.pipeline.cliff_merge import filter_rocks_overlapping_blockers
+
+    rock = [(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)]
+    far = [(100.0, 0.0), (120.0, 0.0), (120.0, 20.0), (100.0, 20.0)]
+    building = [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)]
+    path = [(-5.0, 10.0), (25.0, 10.0)]
+    kept, n = filter_rocks_overlapping_blockers(
+        [rock, far], [building], [path], line_buffer_m=2.5
+    )
+    assert n == 1
+    assert kept == [far]
+
+
+def test_dense_contours_suppress_rock_and_scarp():
+    """Strmý svah (husté 5m vrstevnice) → skála i 104 pryč."""
+    from app.pipeline.cliff_merge import filter_by_dense_contours
+
+    # grade ≈ 2.0 → spacing = 5/2 = 2.5 m < 0.8*5 = 4 m
+    def elev(x, y):
+        return -2.0 * x
+
+    rock = [(0.0, 0.0), (30.0, 0.0), (30.0, 20.0), (0.0, 20.0)]
+    scarp = [(0.0, 5.0), (40.0, 5.0)]
+    flat_rock = [(1000.0, 0.0), (1030.0, 0.0), (1030.0, 20.0), (1000.0, 20.0)]
+
+    def elev_flat_zone(x, y):
+        if x >= 900:
+            return 0.0
+        return -2.0 * x
+
+    lines, polys, n = filter_by_dense_contours(
+        [scarp], [rock, flat_rock], elev_flat_zone, interval_m=5.0
+    )
+    assert n >= 2
+    assert scarp not in lines
+    assert rock not in polys
+    assert flat_rock in polys
 
 
 def test_cliffs_crossing_buildings_discarded():

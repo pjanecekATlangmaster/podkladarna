@@ -876,6 +876,7 @@ def prepare_oom_map(
             zabaged_clean=zabaged_clean
             if zabaged_clean and zabaged_clean.is_file()
             else None,
+            contour_interval_m=float(contour_interval_m or 5),
         )
         if dxf_part:
             object_parts.append(dxf_part)

@@ -17,7 +17,9 @@ from app.pipeline.fetch_zabaged import (
 )
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.cliff_merge import (
+    filter_by_dense_contours,
     filter_cliffs_crossing_buildings,
+    filter_rocks_overlapping_blockers,
     merge_cliff_ticks,
     min_line_length_m,
     polyline_is_simple_bank,
@@ -48,6 +50,61 @@ _CLIFF_DXF_NAMES = frozenset(
 )
 _TAG_SIDE_OFFSET_M = 2.0
 
+# ZABAGED vrstvy, které skálu NEpřebíjejí (zelená / bílá / vegetační pozadí).
+# Vrstevnice sem nepatří – nejsou v ZABAGED a do blockerů se vůbec nenačítají.
+_ROCK_OCCUPANCY_EXCEPTION_LAYERS = frozenset(
+    {
+        "TrvalyTravniPorost",
+        "UdrzovanaZelen",
+        "LiniovaVegetace",
+        "VyznamnyStromLesik",
+    }
+)
+# Plošné ZABAGED objekty, které skálu potlačí (budovy, voda, zpevněné, …).
+_ROCK_OCCUPANCY_POLY_LAYERS = frozenset(
+    {
+        "BudovaJednotlivaNeboBlokBudov",
+        "KulnaSklenikFoliovnikPristresek",
+        "ArealUceloveZastavby",
+        "Hrad",
+        "Zamek",
+        "RozvalinaZricenina",
+        "VezovitaStavba",
+        "StavebniObjektZakryty",
+        "Tribuna",
+        "VodniPlocha",
+        "Hrbitov",
+        "ParkovisteOdpocivka",
+        "OstatniPlochaVSidlech",
+        "ArealZeleznicniStanice",
+        "Koleiste",
+        "OvocnySadZahrada",
+        "SkupinaBalvanu",
+    }
+)
+# Liniové ZABAGED objekty (cesty, hydro, srázy, zdi, kolej…); střednice + buffer.
+_ROCK_OCCUPANCY_LINE_LAYERS = frozenset(
+    {
+        "VodniTok",
+        "SilniceDalnice",
+        "Cesta",
+        "Most",
+        "Ulice",
+        "Pesina",
+        "Lavka",
+        "Tunel",
+        "Podjezd",
+        "TramvajovaDraha",
+        "ZeleznicniTrat",
+        "ZeleznicniVlecka",
+        "LanovaDrahaLyzarskyVlek",
+        "StupenSraz",
+        "Zed",
+        "HradbaVal",
+        "ElektrickeVedeni",
+        "Zabrana",
+    }
+)
 
 def orient_polyline_tags_downhill(
     pts: list[tuple[float, float]],
@@ -1142,6 +1199,154 @@ def _load_building_rings_for_cliffs(
     return rings
 
 
+def _load_zabaged_line_parts(
+    zabaged_clean: Path,
+    *,
+    layers: frozenset[str],
+) -> list[list[tuple[float, float]]]:
+    """Liniové ZABAGED geometrie (S-JTSK) pro occupancy filtr skal."""
+    if not layers or not zabaged_clean.is_file():
+        return []
+    try:
+        from app.pipeline.osm_paths import (
+            _iter_line_parts_from_shp,
+            _zabaged_shp_members,
+        )
+    except Exception:
+        return []
+    members = _zabaged_shp_members(zabaged_clean, layers=layers)
+    if not members:
+        return []
+    import shutil
+    import tempfile
+    from zipfile import ZipFile
+
+    lines: list[list[tuple[float, float]]] = []
+    stage = Path(tempfile.mkdtemp(prefix="rock_occ_ln_"))
+    try:
+        with ZipFile(zabaged_clean) as zf:
+            names = set(zf.namelist())
+            for _canon, member in members:
+                stem = Path(member).stem
+                for n in names:
+                    nn = n.replace("\\", "/")
+                    if Path(nn).stem.lower() != stem.lower():
+                        continue
+                    if Path(nn).suffix.lower() not in {
+                        ".shp",
+                        ".shx",
+                        ".dbf",
+                        ".prj",
+                        ".cpg",
+                    }:
+                        continue
+                    dest = stage / Path(nn).name
+                    if not dest.exists():
+                        dest.write_bytes(zf.read(n))
+        want = {n.lower() for n in layers}
+        for shp in sorted(stage.glob("*.shp")):
+            if shp.stem.lower() not in want:
+                continue
+            try:
+                lines.extend(_iter_line_parts_from_shp(shp))
+            except Exception:
+                continue
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    return lines
+
+
+def _load_rock_occupancy_blockers(
+    *,
+    zabaged_clean: Path | None,
+    work_dir: Path | None,
+) -> tuple[list[list[tuple[float, float]]], list[list[tuple[float, float]]]]:
+    """Polygony + linie, které skálu potlačí (bez zeleně/bílé/vrstevnic)."""
+    polys: list[list[tuple[float, float]]] = []
+    lines: list[list[tuple[float, float]]] = []
+    assert not (
+        _ROCK_OCCUPANCY_POLY_LAYERS & _ROCK_OCCUPANCY_EXCEPTION_LAYERS
+    ), "poly blockers must not include vegetation exceptions"
+    assert not (
+        _ROCK_OCCUPANCY_LINE_LAYERS & _ROCK_OCCUPANCY_EXCEPTION_LAYERS
+    ), "line blockers must not include vegetation exceptions"
+
+    if zabaged_clean is not None and zabaged_clean.is_file():
+        try:
+            from app.pipeline.osm_paths import _zabaged_polygons
+
+            polys.extend(
+                _zabaged_polygons(
+                    zabaged_clean, layers=_ROCK_OCCUPANCY_POLY_LAYERS
+                )
+            )
+        except Exception:
+            pass
+        try:
+            lines.extend(
+                _load_zabaged_line_parts(
+                    zabaged_clean, layers=_ROCK_OCCUPANCY_LINE_LAYERS
+                )
+            )
+        except Exception:
+            pass
+
+    if work_dir is not None:
+        try:
+            from app.pipeline.osm_paths import load_osm_path_lines
+
+            lines.extend(load_osm_path_lines(work_dir))
+        except Exception:
+            pass
+        # OSM vodní plochy / zpevněné z features.geojson (pokud jsou).
+        feat_gj = work_dir / "osm_paths" / "features.geojson"
+        if feat_gj.is_file():
+            try:
+                import json
+
+                data = json.loads(feat_gj.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                data = None
+            if data:
+                blocker_kinds = frozenset(
+                    {
+                        "water_body",
+                        "wetland",
+                        "parking",
+                        "playground",
+                        "pitch",
+                        "pedestrian_area",
+                        "platform",
+                        "building",
+                        "water_well_building",
+                    }
+                )
+                line_kinds = frozenset(
+                    {"fence", "wall", "power_line", "power_line_major"}
+                )
+                # hedge = vegetace → výjimka (neblokuje)
+                for feat in data.get("features") or []:
+                    props = feat.get("properties") or {}
+                    kind = str(props.get("kind") or "").strip().lower()
+                    geom = feat.get("geometry") or {}
+                    gtype = geom.get("type")
+                    coords = geom.get("coordinates") or []
+                    if kind in blocker_kinds and gtype == "Polygon" and coords:
+                        ring = [(float(x), float(y)) for x, y in coords[0]]
+                        if len(ring) >= 3:
+                            polys.append(ring)
+                    elif kind in blocker_kinds and gtype == "MultiPolygon":
+                        for poly in coords:
+                            if not poly:
+                                continue
+                            ring = [(float(x), float(y)) for x, y in poly[0]]
+                            if len(ring) >= 3:
+                                polys.append(ring)
+                    elif kind in line_kinds and gtype == "LineString" and len(coords) >= 2:
+                        lines.append([(float(x), float(y)) for x, y in coords])
+    return polys, lines
+
+
 def build_dxf_object_part(
     kp_cwd: Path,
     *,
@@ -1154,6 +1359,7 @@ def build_dxf_object_part(
     clip_bounds: Bounds | None = None,
     zabaged_clean: Path | None = None,
     building_rings: list[list[tuple[float, float]]] | None = None,
+    contour_interval_m: float | None = None,
 ) -> OomObjectPart | None:
     use_ogr = True
     try:
@@ -1187,6 +1393,8 @@ def build_dxf_object_part(
     earth_lines_n = 0
     overlap_drop = 0
     building_drop = 0
+    occupancy_drop = 0
+    dense_contour_drop = 0
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -1317,6 +1525,20 @@ def build_dxf_object_part(
         pending_rocks, pending_earth, overlap_drop = resolve_rock_scarp_overlaps(
             pending_rocks, pending_earth
         )
+    if pending_rocks:
+        blocker_polys, blocker_lines = _load_rock_occupancy_blockers(
+            zabaged_clean=zabaged_clean, work_dir=kp_cwd
+        )
+        if blocker_polys or blocker_lines:
+            pending_rocks, occupancy_drop = filter_rocks_overlapping_blockers(
+                pending_rocks, blocker_polys, blocker_lines
+            )
+    # Husté vrstevnice (strmý shluk) → skála i 104 pryč; DEM už máme pro drop.
+    interval = float(contour_interval_m) if contour_interval_m else 5.0
+    if cliff_dem is not None and (pending_earth or pending_rocks):
+        pending_earth, pending_rocks, dense_contour_drop = filter_by_dense_contours(
+            pending_earth, pending_rocks, cliff_dem, interval_m=interval
+        )
 
     if pending_earth:
         line_index = symbol_index_for_code(preset_id, scale, "104")
@@ -1400,7 +1622,13 @@ def build_dxf_object_part(
             bit += f" ({', '.join(extras)})"
         detail_bits.append(bit)
     if overlap_drop:
-        detail_bits.append(f"překryv skála×104→{overlap_drop} kratších pryč")
+        detail_bits.append(f"překryv skála×104→{overlap_drop} skal pryč (přednost srázu)")
+    if occupancy_drop:
+        detail_bits.append(f"{occupancy_drop} skála přes jiný objekt zahozeno")
+    if dense_contour_drop:
+        detail_bits.append(
+            f"{dense_contour_drop} skála/104 v hustých vrstevnicích zahozeno"
+        )
     if building_drop:
         detail_bits.append(f"{building_drop} přes budovu zahozeno")
     if detail_bits:

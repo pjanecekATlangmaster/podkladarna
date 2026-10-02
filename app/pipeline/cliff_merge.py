@@ -9,8 +9,10 @@ linie 201 se vždy zahazují (i dlouhé stěny) — na mapě zůstanou jen spoje
 skalní plochy.
 
 Zemní srázy (104): zamotané / smyčkové / krátké linie raději nekreslit
-(``reject_tangled`` + delší min. délka). Překryv skála×sráz → delší objekt;
-objekt přes budovu → zahodit.
+(``reject_tangled`` + delší min. délka). Překryv skála×sráz → vždy sráz
+(104), skálu 201.2/206 zahodit. Skála přes budovu / cestu / vodu / jiné
+mapové objekty (kromě zeleně/bílé/vrstevnic jako objektového překryvu) →
+zahodit skálu. Hustý shluk vrstevnic (strmý svah) → zahodit skálu i 104.
 """
 
 from __future__ import annotations
@@ -71,6 +73,16 @@ MIN_LINE_MM = MIN_LINE_MM_ROCK
 BANK_SHAPE_SIMPLIFY_M = 4.5
 MAX_BANK_SINUOSITY = 1.85
 MAX_BANK_TURN_DEG = 135.0
+
+# Střednice cesty/toku/zdi → buffer, ať plocha skály „na“ objektu koliduje.
+ROCK_OCCUPANCY_LINE_BUFFER_M = 2.5
+
+# Husté vrstevnice (strmý svah): spacing = interval / |grad|. Pod prahem
+# ( Barr tip: KP 0× skála, ~174×104; naše auto ~128×201.2 ) potlačit skálu i 104.
+DENSE_CONTOUR_SPACING_FRAC = 0.8  # spacing < 0.8×ekvidistance = „nahuštěné“
+DENSE_CONTOUR_MIN_SAMPLE_FRAC = 0.45
+DENSE_CONTOUR_GRADE_STEP_M = 2.0
+DENSE_CONTOUR_SAMPLE_STEP_M = 4.0
 
 
 _Tick = tuple[tuple[float, float], tuple[float, float]]
@@ -219,9 +231,9 @@ def resolve_rock_scarp_overlaps(
     rock_rings: list[list[tuple[float, float]]],
     scarp_lines: list[list[tuple[float, float]]],
 ) -> tuple[list[list[tuple[float, float]]], list[list[tuple[float, float]]], int]:
-    """Petr: překryv skála×sráz → nechat delší objekt, kratší zahodit.
+    """Petr: překryv skála×sráz → vždy sráz (104), skálu 201.2/206 zahodit.
 
-    Délka skály = obvod polygonu; srázu = délka linie. Při shodě zůstane skála.
+    Varianta „scarp wins“ – konzistentně všude; 104 už je OK, problém jsou skály.
     """
     if not rock_rings or not scarp_lines:
         return rock_rings, scarp_lines, 0
@@ -230,7 +242,7 @@ def resolve_rock_scarp_overlaps(
     except ImportError:
         return rock_rings, scarp_lines, 0
 
-    rock_geoms: list[tuple[object, float, int]] = []
+    rock_geoms: list[tuple[object, int]] = []
     for i, ring in enumerate(rock_rings):
         if len(ring) < 3:
             continue
@@ -240,45 +252,282 @@ def resolve_rock_scarp_overlaps(
                 poly = poly.buffer(0)
             if poly.is_empty:
                 continue
-            rock_geoms.append((poly, float(poly.length), i))
+            rock_geoms.append((poly, i))
         except Exception:
             continue
 
-    scarp_geoms: list[tuple[object, float, int]] = []
-    for j, pts in enumerate(scarp_lines):
+    scarp_geoms: list[object] = []
+    for pts in scarp_lines:
         if len(pts) < 2:
             continue
         try:
             line = LineString(pts)
             if line.is_empty:
                 continue
-            scarp_geoms.append((line, float(line.length), j))
+            scarp_geoms.append(line)
         except Exception:
             continue
+    if not rock_geoms or not scarp_geoms:
+        return rock_rings, scarp_lines, 0
 
     drop_rocks: set[int] = set()
-    drop_scarps: set[int] = set()
-    for rock_geom, rock_len, ri in rock_geoms:
-        if ri in drop_rocks:
-            continue
-        for scarp_geom, scarp_len, sj in scarp_geoms:
-            if sj in drop_scarps:
-                continue
+    for rock_geom, ri in rock_geoms:
+        for scarp_geom in scarp_geoms:
             try:
-                if not rock_geom.intersects(scarp_geom):
-                    continue
+                if rock_geom.intersects(scarp_geom):
+                    drop_rocks.add(ri)
+                    break
             except Exception:
                 continue
-            # Delší zůstane; při remíze skála (plocha je na mapě důležitější).
-            if scarp_len > rock_len:
-                drop_rocks.add(ri)
-                break
-            drop_scarps.add(sj)
 
     kept_rocks = [r for i, r in enumerate(rock_rings) if i not in drop_rocks]
-    kept_scarps = [s for j, s in enumerate(scarp_lines) if j not in drop_scarps]
-    dropped = (len(rock_rings) - len(kept_rocks)) + (len(scarp_lines) - len(kept_scarps))
-    return kept_rocks, kept_scarps, dropped
+    dropped = len(rock_rings) - len(kept_rocks)
+    return kept_rocks, scarp_lines, dropped
+
+
+def filter_rocks_overlapping_blockers(
+    rock_rings: list[list[tuple[float, float]]],
+    blocker_rings: list[list[tuple[float, float]]] | None = None,
+    blocker_lines: list[list[tuple[float, float]]] | None = None,
+    *,
+    line_buffer_m: float = ROCK_OCCUPANCY_LINE_BUFFER_M,
+) -> tuple[list[list[tuple[float, float]]], int]:
+    """Zahodí skálu, která geometricky koliduje s jiným mapovým objektem.
+
+    Výjimky (zelená / bílá / vrstevnice) se sem vůbec nepředávají – volající
+    je do blockerů nezařazuje. Dotyk hranou nestačí (``touches`` OK).
+    """
+    if not rock_rings:
+        return rock_rings, 0
+    polys_in = blocker_rings or []
+    lines_in = blocker_lines or []
+    if not polys_in and not lines_in:
+        return rock_rings, 0
+    try:
+        from shapely.geometry import LineString, Polygon
+        from shapely.ops import unary_union
+    except ImportError:
+        return rock_rings, 0
+
+    parts: list[object] = []
+    for ring in polys_in:
+        if len(ring) < 3:
+            continue
+        try:
+            poly = Polygon(ring)
+            if poly.is_empty:
+                continue
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if not poly.is_empty:
+                parts.append(poly)
+        except Exception:
+            continue
+    buf = max(0.0, float(line_buffer_m))
+    for pts in lines_in:
+        if len(pts) < 2:
+            continue
+        try:
+            line = LineString(pts)
+            if line.is_empty:
+                continue
+            parts.append(line.buffer(buf) if buf > 0 else line)
+        except Exception:
+            continue
+    if not parts:
+        return rock_rings, 0
+    try:
+        mask = unary_union(parts)
+    except Exception:
+        return rock_rings, 0
+
+    kept: list[list[tuple[float, float]]] = []
+    dropped = 0
+    for ring in rock_rings:
+        if len(ring) < 3:
+            dropped += 1
+            continue
+        try:
+            geom = Polygon(ring)
+            if not geom.is_valid:
+                geom = geom.buffer(0)
+            if geom.is_empty:
+                dropped += 1
+                continue
+            if geom.intersects(mask) and not geom.touches(mask):
+                dropped += 1
+                continue
+        except Exception:
+            pass
+        kept.append(ring)
+    return kept, dropped
+
+
+def _local_grade(elev_at, x: float, y: float, step_m: float) -> float | None:
+    z0 = elev_at(x, y)
+    zx = elev_at(x + step_m, y)
+    zy = elev_at(x, y + step_m)
+    if None in (z0, zx, zy) or step_m <= 0:
+        return None
+    return math.hypot((zx - z0) / step_m, (zy - z0) / step_m)
+
+
+def _contour_spacing_m(grade: float | None, interval_m: float) -> float | None:
+    if grade is None or grade < 1e-9 or interval_m <= 0:
+        return None
+    return float(interval_m) / float(grade)
+
+
+def _sample_spacings_along_line(
+    pts: list[tuple[float, float]],
+    elev_at,
+    *,
+    interval_m: float,
+    grade_step_m: float,
+    sample_step_m: float,
+) -> list[float]:
+    out: list[float] = []
+    if elev_at is None or len(pts) < 2:
+        return out
+    for i in range(len(pts) - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        seg = math.hypot(x1 - x0, y1 - y0)
+        if seg < 1e-6:
+            continue
+        n = max(1, int(seg / max(sample_step_m, 1e-6)))
+        for k in range(n + 1):
+            t = k / n
+            g = _local_grade(
+                elev_at, x0 + t * (x1 - x0), y0 + t * (y1 - y0), grade_step_m
+            )
+            sp = _contour_spacing_m(g, interval_m)
+            if sp is not None:
+                out.append(sp)
+    return out
+
+
+def _sample_spacings_in_ring(
+    ring: list[tuple[float, float]],
+    elev_at,
+    *,
+    interval_m: float,
+    grade_step_m: float,
+    sample_step_m: float,
+) -> list[float]:
+    out: list[float] = []
+    if elev_at is None or len(ring) < 3:
+        return out
+    # Rim + centroid lattice is enough; full polygon fill is too slow for OOM.
+    xs = [p[0] for p in ring]
+    ys = [p[1] for p in ring]
+    minx, maxx = min(xs), max(xs)
+    miny, maxy = min(ys), max(ys)
+    cx = sum(xs) / len(xs)
+    cy = sum(ys) / len(ys)
+    candidates: list[tuple[float, float]] = [(cx, cy)]
+    step = max(sample_step_m, 1.0)
+    # Sparse interior: 3×3 relative to bbox center + rim vertices subsample.
+    for fx in (0.25, 0.5, 0.75):
+        for fy in (0.25, 0.5, 0.75):
+            candidates.append((minx + fx * (maxx - minx), miny + fy * (maxy - miny)))
+    stride = max(1, len(ring) // 12)
+    candidates.extend(ring[::stride])
+    # Keep only points roughly inside bbox (always) – rim/interior heuristic.
+    for x, y in candidates:
+        if x < minx - step or x > maxx + step or y < miny - step or y > maxy + step:
+            continue
+        g = _local_grade(elev_at, x, y, grade_step_m)
+        sp = _contour_spacing_m(g, interval_m)
+        if sp is not None:
+            out.append(sp)
+    return out
+
+
+def _dense_contour_hit(
+    spacings: list[float],
+    *,
+    interval_m: float,
+    spacing_frac: float = DENSE_CONTOUR_SPACING_FRAC,
+    min_sample_frac: float = DENSE_CONTOUR_MIN_SAMPLE_FRAC,
+) -> bool:
+    if len(spacings) < 3 or interval_m <= 0:
+        return False
+    limit = float(spacing_frac) * float(interval_m)
+    if limit <= 0:
+        return False
+    dense_n = sum(1 for s in spacings if s < limit)
+    return (dense_n / len(spacings)) >= float(min_sample_frac)
+
+
+def geometry_has_dense_contours(
+    *,
+    elev_at,
+    interval_m: float,
+    line: list[tuple[float, float]] | None = None,
+    ring: list[tuple[float, float]] | None = None,
+    spacing_frac: float = DENSE_CONTOUR_SPACING_FRAC,
+    min_sample_frac: float = DENSE_CONTOUR_MIN_SAMPLE_FRAC,
+    grade_step_m: float = DENSE_CONTOUR_GRADE_STEP_M,
+    sample_step_m: float = DENSE_CONTOUR_SAMPLE_STEP_M,
+) -> bool:
+    """True = lokálně nahuštěné vrstevnice (strmý souvislý svah) → potlačit objekt."""
+    if elev_at is None or interval_m <= 0:
+        return False
+    if line is not None:
+        spacings = _sample_spacings_along_line(
+            line,
+            elev_at,
+            interval_m=interval_m,
+            grade_step_m=grade_step_m,
+            sample_step_m=sample_step_m,
+        )
+    elif ring is not None:
+        spacings = _sample_spacings_in_ring(
+            ring,
+            elev_at,
+            interval_m=interval_m,
+            grade_step_m=grade_step_m,
+            sample_step_m=sample_step_m,
+        )
+    else:
+        return False
+    return _dense_contour_hit(
+        spacings,
+        interval_m=interval_m,
+        spacing_frac=spacing_frac,
+        min_sample_frac=min_sample_frac,
+    )
+
+
+def filter_by_dense_contours(
+    lines: list[list[tuple[float, float]]],
+    polygons: list[list[tuple[float, float]]],
+    elev_at,
+    *,
+    interval_m: float,
+) -> tuple[
+    list[list[tuple[float, float]]],
+    list[list[tuple[float, float]]],
+    int,
+]:
+    """Petr: hustý shluk vrstevnic → zahodit skálu i sráz (104); vrstevnice stačí."""
+    if elev_at is None or interval_m <= 0:
+        return lines, polygons, 0
+    dropped = 0
+    kept_lines: list[list[tuple[float, float]]] = []
+    for pts in lines:
+        if geometry_has_dense_contours(elev_at=elev_at, interval_m=interval_m, line=pts):
+            dropped += 1
+            continue
+        kept_lines.append(pts)
+    kept_polys: list[list[tuple[float, float]]] = []
+    for ring in polygons:
+        if geometry_has_dense_contours(elev_at=elev_at, interval_m=interval_m, ring=ring):
+            dropped += 1
+            continue
+        kept_polys.append(ring)
+    return kept_lines, kept_polys, dropped
 
 
 def filter_cliffs_crossing_buildings(
