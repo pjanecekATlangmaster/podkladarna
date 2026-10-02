@@ -34,7 +34,6 @@ from app.pipeline.oom_symbol_map import (
     KP_CLIFF_AUTO,
     KP_CLIFF_EARTH_BANK,
     KP_CLIFF_OFF,
-    KP_CLIFF_ROCK_FACE,
     KP_CLIFF_SYMBOL_206,
     oom_code_for_dxf,
     oom_code_for_vectorconf_rule,
@@ -1506,10 +1505,9 @@ def build_dxf_object_part(
         # Zem (104) jen linie. Skála: hustý shluk → plocha 201.2/206; zbytek 201
         # (i dlouhé stěny) se zahazuje — viz merge_cliff_ticks(as_polygons=True).
         is_earth = cliff_line_code == "104"
-        as_polygons = cliff_symbol in (
-            KP_CLIFF_ROCK_FACE,
-            KP_CLIFF_SYMBOL_206,
-        ) or cliff_line_code == "201"
+        as_polygons = (
+            cliff_symbol == KP_CLIFF_SYMBOL_206 or cliff_line_code == "201"
+        )
         # Zamotané nejdřív necháme v merge projít (reject_tangled=False), ať
         # uzitecne/vyhozene dostane duvod=zamotany. Min-délka zůstává v merge.
         merged = merge_cliff_ticks(
@@ -1660,8 +1658,6 @@ def build_dxf_object_part(
     codes = set(cliff_groups)
     if cliff_symbol == KP_CLIFF_SYMBOL_206:
         cliff_label = "skály (206 plocha)"
-    elif cliff_symbol == KP_CLIFF_ROCK_FACE:
-        cliff_label = "skály (plocha 201.2/206)" if had_dense_polys else "skály (bez plochy)"
     elif cliff_symbol == KP_CLIFF_EARTH_BANK:
         cliff_label = "zemní srázy (104)"
     elif cliff_symbol == KP_CLIFF_AUTO and "201" in codes and "104" in codes:

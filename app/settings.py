@@ -120,8 +120,8 @@ DEFAULT_OPTIONS = {
     "savetempfolders": False,  # budoucí expert režim / API iterace
     # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
     "force_refresh": False,
-    # auto=skála 201 vs zem 104; rock_face→201(+plošná 201.2/206);
-    # symbol_206=206 plocha; earth_bank=104; off=přeskočit.
+    # auto=skála 201.2/206 vs zem 104; symbol_206=vše jako 206 plocha;
+    # earth_bank=104; off=přeskočit. (rock_face zrušeno – linie 201 se nepoužívají)
     "kp_cliff_symbol": "auto",
     # greenhigh (m) – výška vegetace pro hustotu LiDAR odrazů.
     "kp_vege_height": 2.0,

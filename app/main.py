@@ -528,7 +528,10 @@ async def api_create_job(request: Request):
         "indexcontours": resolved["indexcontours"],
     }
     cliff_raw = _form_str(form, "kp_cliff_symbol").strip().lower()
-    if cliff_raw in {"auto", "earth_bank", "rock_face", "symbol_206", "off"}:
+    if cliff_raw == "rock_face":
+        # Legacy: force linear 201 už nedává smysl (skály = plochy 201.2/206).
+        cliff_raw = "auto"
+    if cliff_raw in {"auto", "earth_bank", "symbol_206", "off"}:
         options["kp_cliff_symbol"] = cliff_raw
     knoll_raw = _form_str(form, "include_knolls").strip().lower()
     if knoll_raw in {"0", "false", "no", "off"}:

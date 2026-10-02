@@ -507,7 +507,7 @@ def oom_readme(meta: dict) -> str:
         "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
         "   Ve složce base/: vrstevnice GDAL (contours_gdal.* = jediná pravda, jen z DMR), "
         "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
-        "srázy zem (104) / skála (201) a volitelné knolly (109).\n"
+        "srázy zem (104) / skála (201.2/206) a volitelné knolly (109).\n"
         "   uzitecne/pouzite vs uzitecne/vyhozene: stejné vrstvy po filtrech "
         "(min-size, occupancy, husté vrstevnice, …) – SHP k prohlížení.\n"
         "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"

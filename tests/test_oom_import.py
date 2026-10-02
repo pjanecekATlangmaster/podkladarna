@@ -278,18 +278,6 @@ def test_oom_code_dxf_cliffs_small_preset_specific():
     assert oom_code_for_dxf("cliffs_large.dxf", preset_id="forest_10000") == "104"
     assert (
         oom_code_for_dxf(
-            "cliffs_small.dxf", preset_id="sprint_2m", cliff_symbol="rock_face"
-        )
-        == "201"
-    )
-    assert (
-        oom_code_for_dxf(
-            "cliffs_large.dxf", preset_id="forest_10000", cliff_symbol="rock_face"
-        )
-        == "201"
-    )
-    assert (
-        oom_code_for_dxf(
             "cliffs_small.dxf", preset_id="sprint_2m", cliff_symbol="symbol_206"
         )
         == "206"
@@ -302,7 +290,7 @@ def test_oom_code_dxf_cliffs_small_preset_specific():
     )
     assert (
         oom_code_for_dxf(
-            "dotknolls.dxf", preset_id="sprint_2m", cliff_symbol="rock_face"
+            "dotknolls.dxf", preset_id="sprint_2m", cliff_symbol="earth_bank"
         )
         == "109"
     )
@@ -321,6 +309,13 @@ def test_oom_code_dxf_cliffs_small_preset_specific():
     assert (
         oom_code_for_dxf(
             "cliffs_rock.dxf", preset_id="forest_10000", cliff_symbol="earth_bank"
+        )
+        == "104"
+    )
+    # Legacy rock_face already removed from choices – treated as auto (no force).
+    assert (
+        oom_code_for_dxf(
+            "cliffs_small.dxf", preset_id="sprint_2m", cliff_symbol="rock_face"
         )
         == "104"
     )
