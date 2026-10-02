@@ -71,9 +71,10 @@ MIN_LINE_MM = MIN_LINE_MM_ROCK
 # Zemní sráz: po hrubém zjednodušení path/chord a zatáčky – nad tím raději nekreslit.
 # (Surový řetěz DEM ticků je zubatý i u rovné stěny, proto nejdřív simplify.)
 # Petr: zamotané / nejasné 104 pryč (včetně ZABAGED StupenSraz, i >70 m).
-BANK_SHAPE_SIMPLIFY_M = 4.5
-MAX_BANK_SINUOSITY = 1.85
-MAX_BANK_TURN_DEG = 135.0
+# 2.0: přísnější křivost – křivé ~45 m srázy a překryvy už neprojdou.
+BANK_SHAPE_SIMPLIFY_M = 3.5
+MAX_BANK_SINUOSITY = 1.45
+MAX_BANK_TURN_DEG = 95.0
 
 # Střednice cesty/toku/zdi → buffer, ať plocha skály „na“ objektu koliduje.
 ROCK_OCCUPANCY_LINE_BUFFER_M = 2.5
