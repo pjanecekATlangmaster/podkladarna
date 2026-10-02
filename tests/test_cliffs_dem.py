@@ -17,20 +17,23 @@ from app.pipeline.cliffs_dem import (
 
 def test_resolve_drop_thresholds_normal():
     c1, c2 = resolve_drop_thresholds({"kp_cliff_sensitivity": "normal"})
-    assert c1 == 1.4
-    assert c2 == 2.8
-
-
-def test_resolve_drop_thresholds_default_is_low():
-    c1, c2 = resolve_drop_thresholds({})
     assert c1 == 1.8
     assert c2 == 3.4
 
 
+def test_resolve_drop_thresholds_default_is_low():
+    c1, c2 = resolve_drop_thresholds({})
+    assert c1 == 2.2
+    assert c2 == 4.0
+
+
 def test_resolve_drop_thresholds_high():
     c1, c2 = resolve_drop_thresholds({"kp_cliff_sensitivity": "high"})
-    assert c1 < 1.4
-    assert c2 <= 2.8
+    assert c1 == 1.4
+    assert c2 == 2.8
+    c1v, c2v = resolve_drop_thresholds({"kp_cliff_sensitivity": "very_high"})
+    assert c1v < c1
+    assert c2v <= c2
 
 
 def test_flat_dem_yields_no_ticks():

@@ -100,6 +100,8 @@ def test_ogr2ogr_assigns_s_jtsk(monkeypatch, tmp_path):
 
 
 def test_suppress_optional_plugins_disables_qgis_dir(tmp_path, monkeypatch):
+    import os
+
     plugins = tmp_path / "gdalplugins"
     plugins.mkdir()
     (plugins / "gdal_ECW_JP2ECW.dll").write_bytes(b"")
@@ -118,7 +120,7 @@ def test_suppress_optional_plugins_disables_qgis_dir(tmp_path, monkeypatch):
     assert suppress_optional_gdal_plugins(unset) is True
     assert unset["GDAL_DRIVER_PATH"] == "disable"
 
-    mixed = {"GDAL_DRIVER_PATH": str(plugins) + ";" + str(other)}
+    mixed = {"GDAL_DRIVER_PATH": str(plugins) + os.pathsep + str(other)}
     assert suppress_optional_gdal_plugins(mixed) is True
     assert mixed["GDAL_DRIVER_PATH"] == str(other)
 
