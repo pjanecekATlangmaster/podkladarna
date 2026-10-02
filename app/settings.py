@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "1.26.1"
+APP_VERSION = "1.26.2"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -120,8 +120,8 @@ DEFAULT_OPTIONS = {
     "savetempfolders": False,  # budoucí expert režim / API iterace
     # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
     "force_refresh": False,
-    # auto=skála 201 vs zem 104; rock_face→201(+plošná 201.2/206);
-    # symbol_206=206 plocha; earth_bank=104; off=přeskočit.
+    # auto=skála 201.2/206 vs zem 104; symbol_206=vše jako 206 plocha;
+    # earth_bank=104; off=přeskočit. (rock_face zrušeno – linie 201 se nepoužívají)
     "kp_cliff_symbol": "auto",
     # greenhigh (m) – výška vegetace pro hustotu LiDAR odrazů.
     "kp_vege_height": 2.0,
@@ -133,7 +133,9 @@ DEFAULT_OPTIONS = {
     "kp_osm_playground_equipment": False,
     # Priorita OSM (urban pack) – dočasně default zapnuto kvůli testování.
     "kp_osm_priority": True,
-    # Všechny highway=footway jako zpevněný chodník (501.6) – default vypnuto.
+    # Všechny highway=footway jako zpevněný chodník (501.6).
+    # Statický default = off; při vytváření jobu doplní default_footway_as_sidewalk
+    # (sprint / 1:4000 → on, jinak off), pokud formulář hodnotu nepošle.
     "kp_osm_footway_as_sidewalk": False,
     # Zdroj cest: mixed | zabaged | osm (viz path_source v osm_paths.py).
     "path_source": "mixed",

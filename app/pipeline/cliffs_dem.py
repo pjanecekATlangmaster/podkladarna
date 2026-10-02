@@ -5,8 +5,8 @@ shade/kontury). Výstup: KP-kompatibilní tick DXF do ``work/temp/c2g.dxf``
 (+ ``c3g.dxf`` pro větší schody), ať ``cliff_merge`` + ``cliff_height``
 a OOM ``build_dxf_object_part`` zůstanou beze změny.
 
-Skála (201) vs. zem (104) se rozhoduje sklonem schodu, ne jen volbou
-ve formuláři. ``auto`` nechá obě třídy; ``earth_bank`` / ``rock_face`` /
+Skála (plocha 201.2/206) vs. zem (104) se rozhoduje sklonem schodu, ne jen
+volbou ve formuláři. ``auto`` nechá obě třídy; ``earth_bank`` /
 ``symbol_206`` / ``off`` pořád přebijí všechno. Citlivost mapuje
 ``kp_cliff_sensitivity`` na prahy výšky. Kód Karttapullautinu se nekopíruje.
 """

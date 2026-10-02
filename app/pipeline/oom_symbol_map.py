@@ -86,7 +86,7 @@ _LAYER_OOM_CODE_MTBO: dict[str, str] = {
 
 _DXF_OOM_CODE_SPRINT: dict[str, str] = {
     "contours.dxf": "101",
-    # KP c2g/c3g → default 104; volba rock_face → 201 (viz oom_code_for_dxf).
+    # c2g/c3g → default 104; cliffs_rock → 201 (viz oom_code_for_dxf).
     "cliffs_small.dxf": "104",
     "cliffs_large.dxf": "104",
     "dotknolls.dxf": "109",
@@ -102,7 +102,6 @@ _DXF_OOM_CODE_FOREST: dict[str, str] = {
 _CLIFF_DXF = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
 _ROCK_DXF = frozenset({"cliffs_rock.dxf"})
 KP_CLIFF_EARTH_BANK = "earth_bank"
-KP_CLIFF_ROCK_FACE = "rock_face"
 KP_CLIFF_AUTO = "auto"
 # ISOM 206 = Gigantic boulder / massive cliff (area, plan shape).
 KP_CLIFF_SYMBOL_206 = "symbol_206"
@@ -111,7 +110,6 @@ KP_CLIFF_SYMBOL_CHOICES = frozenset(
     {
         KP_CLIFF_AUTO,
         KP_CLIFF_EARTH_BANK,
-        KP_CLIFF_ROCK_FACE,
         KP_CLIFF_SYMBOL_206,
         KP_CLIFF_OFF,
     }
@@ -252,16 +250,14 @@ def oom_code_for_dxf(
     preset_id: str,
     cliff_symbol: str = KP_CLIFF_AUTO,
 ) -> str | None:
-    """``auto``: zem z cliffs_small/large (104), skála z cliffs_rock (201).
+    """``auto``: zem z cliffs_small/large (104), skála z cliffs_rock (201→plocha).
 
-    ``earth_bank`` / ``rock_face`` / ``symbol_206`` přebarví obě sady.
+    ``earth_bank`` / ``symbol_206`` přebarví obě sady.
     ``off`` srázy vynechá. Knolly (dotknolls) symbol nemění.
     """
     if filename in _ROCK_DXF or filename in _CLIFF_DXF:
         if cliff_symbol == KP_CLIFF_OFF:
             return None
-        if cliff_symbol == KP_CLIFF_ROCK_FACE:
-            return "201"
         if cliff_symbol == KP_CLIFF_SYMBOL_206:
             return KP_CLIFF_206_CODE
         if cliff_symbol == KP_CLIFF_EARTH_BANK:
