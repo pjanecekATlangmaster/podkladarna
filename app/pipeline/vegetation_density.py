@@ -60,6 +60,11 @@ class DensityVegeParams:
     yellow_canopy_close_m: float = 6.0
     # Reclaim bílého pixelu uvnitř žluté (podíl OPEN v 3×3), když chybí zeleň.
     yellow_under_canopy_frac: float = 0.55
+    # Úzký pás louky mezi stromy: žluté okno nabere koruny → CHM prior.
+    # Jen WHITE→OPEN, když je okolí taky nízké (ne DMP díra v koruně).
+    chm_open_max_m: float = 1.5
+    chm_open_neighbor_px: int = 5
+    chm_open_neighbor_frac: float = 0.5
     # --- zeleně ---
     block_m: float = 2.0
     green_ground_m: float = 0.9
@@ -276,6 +281,50 @@ def reclaim_yellow_under_canopy(
     frac = _neighbor_fraction(open_m)
     reclaim = (out == WHITE) & (frac >= frac_min)
     out[reclaim] = OPEN
+    return out
+
+
+def reinforce_open_from_chm(
+    classified,
+    chm,
+    *,
+    open_max_m: float = 1.5,
+    neighbor_px: int = 5,
+    neighbor_frac: float = 0.5,
+):
+    """Bílý pixel s nízkým CHM v převážně nízkém okolí → 401.
+
+    Úzký/dlouhý pás louky v lese: žluté okno (~6 m) nabere koruny ze stran
+    a poměr nízkých odrazů klesne pod práh, i když DMP−DMR (CHM) otevřený
+    terén vidí. Min. plocha polygonu 401 je 12 m² – to pásy neshazuje;
+    problém je klasifikace, ne filtr velikosti.
+
+    Jen WHITE→OPEN (zelení 406+ nechá). Izolované CHM díry v koruně (DMP
+    bez bodu) bez nízkého okolí neprojdou ``neighbor_frac``.
+    """
+    import numpy as np
+
+    out = np.asarray(classified, dtype=np.uint8).copy()
+    if chm is None:
+        return out
+    h = np.asarray(chm, dtype=np.float32)
+    if h.shape != out.shape:
+        return out
+    if open_max_m <= 0 or neighbor_px < 1 or neighbor_frac <= 0:
+        return out
+
+    low = np.isfinite(h) & (h < float(open_max_m))
+    if not np.any(low):
+        return out
+    n = int(neighbor_px)
+    if n % 2 == 0:
+        n += 1
+    # Podíl nízkého CHM v okně (stejná logika jako žluté box sum / n²).
+    low_f = low.astype(np.float64)
+    summed = _box_sum(low_f, n)
+    frac = summed / float(n * n)
+    force = (out == WHITE) & low & (frac >= float(neighbor_frac))
+    out[force] = OPEN
     return out
 
 
@@ -566,6 +615,37 @@ def generate_job_vegetation_density(
                 dem = np.where(bad, np.nanmedian(np.where(bad, np.nan, dem)), dem)
         pts = read_las_points(files)
         classified = classify_points(pts, dem, gt, params)
+        chm_tif = work_dir / DEM_DIR_NAME / "chm.tif"
+        if chm_tif.is_file():
+            try:
+                chm_arr, chm_gt, chm_nodata = read_float32_geotiff(chm_tif, log=log)
+                chm_arr = np.asarray(chm_arr, dtype=np.float32)
+                if chm_arr.shape == classified.shape:
+                    if chm_nodata is not None:
+                        chm_arr = np.where(
+                            chm_arr == float(chm_nodata), np.nan, chm_arr
+                        )
+                    before = int(np.count_nonzero(classified == OPEN))
+                    classified = reinforce_open_from_chm(
+                        classified,
+                        chm_arr,
+                        open_max_m=params.chm_open_max_m,
+                        neighbor_px=params.chm_open_neighbor_px,
+                        neighbor_frac=params.chm_open_neighbor_frac,
+                    )
+                    # Po CHM prioru znovu reclaim stromů uvnitř nově žlutého pásu.
+                    classified = reclaim_yellow_under_canopy(
+                        classified, frac_min=params.yellow_under_canopy_frac
+                    )
+                    gained = int(np.count_nonzero(classified == OPEN)) - before
+                    if log and gained > 0:
+                        log(
+                            f"Vegetace (hustota bodů): CHM open prior "
+                            f"+{gained} px 401 (úzké louky / pásy)"
+                        )
+            except Exception as chm_exc:
+                if log:
+                    log(f"Vegetace CHM open prior: přeskočeno ({chm_exc})")
     except Exception as exc:
         if log:
             log(f"Vegetace (hustota bodů): selhalo ({exc}) – fallback CHM")

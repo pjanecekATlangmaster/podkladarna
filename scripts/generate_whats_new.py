@@ -176,6 +176,12 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         ),
         "Les/MTBO: chodníky jako linie pěšiny, ne plocha 501.1",
     ),
+    (
+        re.compile(
+            r"(?i)CHM open|narrow meadow|úzk.*louk|chm_open"
+        ),
+        "Úzké louky/pásy: 401 i z nízkého CHM (ne jen žluté okno)",
+    ),
 ]
 
 _PREFIX_CS: list[tuple[re.Pattern[str], str]] = [

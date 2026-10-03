@@ -10,6 +10,7 @@ from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS,
     DENSE,
     DensityVegeParams,
+    LIGHT,
     MID,
     OPEN,
     WHITE,
@@ -19,6 +20,7 @@ from app.pipeline.vegetation_density import (
     generate_job_vegetation_density,
     median_filter_uint8,
     reclaim_yellow_under_canopy,
+    reinforce_open_from_chm,
     yellow_mask_from_hits,
 )
 
@@ -195,3 +197,40 @@ def test_defaults_match_kp_base_ini():
 
 def test_generate_job_vegetation_density_missing_inputs(tmp_path: Path):
     assert generate_job_vegetation_density(tmp_path) is None
+
+
+def test_narrow_meadow_strip_opens_from_chm():
+    """Úzký pás s nízkým CHM mezi korunami → 401 (ne zahodit kvůli velikosti).
+
+    Žluté okno by nabralo stromy ze stran; CHM prior pás otevře. Min. plocha
+    401 je 12 m² – dlouhý pás ji splní, filtr velikosti není problém.
+    """
+    cls = np.zeros((40, 80), dtype=np.uint8)  # white forest
+    chm = np.full((40, 80), 15.0, dtype=np.float32)
+    # 8 m široký pás uprostřed (řádky 16..23)
+    chm[16:24, :] = 0.2
+    out = reinforce_open_from_chm(cls, chm, open_max_m=1.5, neighbor_px=5, neighbor_frac=0.5)
+    strip = out[17:23, 10:70]
+    assert np.mean(strip == OPEN) > 0.9
+    # koruny mimo pás zůstanou bílé
+    assert np.mean(out[2:10, :] == WHITE) > 0.95
+    assert np.mean(out[30:38, :] == WHITE) > 0.95
+
+
+def test_isolated_chm_hole_in_canopy_stays_white():
+    """Jednotlivá DMP díra v koruně (CHM=0) se nestane falešnou loukou."""
+    cls = np.zeros((30, 30), dtype=np.uint8)
+    chm = np.full((30, 30), 18.0, dtype=np.float32)
+    chm[14:16, 14:16] = 0.0
+    out = reinforce_open_from_chm(cls, chm, open_max_m=1.5, neighbor_px=5, neighbor_frac=0.5)
+    assert out[15, 15] == WHITE
+    assert np.mean(out == WHITE) > 0.99
+
+
+def test_chm_open_does_not_overwrite_green():
+    cls = np.full((20, 20), LIGHT, dtype=np.uint8)
+    cls[5:15, 5:15] = WHITE
+    chm = np.zeros((20, 20), dtype=np.float32)
+    out = reinforce_open_from_chm(cls, chm, open_max_m=1.5, neighbor_px=5, neighbor_frac=0.5)
+    assert np.all(out[0:5, :] == LIGHT)
+    assert np.mean(out[7:13, 7:13] == OPEN) > 0.9
