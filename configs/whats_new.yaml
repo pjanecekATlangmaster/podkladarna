@@ -1,6 +1,6 @@
 # AUTO-GENERATED – nepřepisovat ručně.
 # Zdroj: git log (scripts/generate_whats_new.py), spouští CI před Docker buildem.
-released_at: "2026-10-03T13:30:00Z"
+released_at: "2026-10-03T18:40:00Z"
 entries:
   - date: "2026-10-03"
     title: "Změna: Tighten earth-bank curve filter (sinuosity/turn)"

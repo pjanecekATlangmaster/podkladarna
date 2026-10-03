@@ -564,8 +564,8 @@ def test_hole_stays_paper_white(tmp_path: Path):
     assert image.getpixel((24, 24))[1] > 200
 
 
-def test_mapper_cli_used_for_georef_not_web(tmp_path: Path, monkeypatch):
-    """Georef → Mapper CLI; web (default) zůstane Pillow i s MAPPER_EXPORT."""
+def test_mapper_cli_used_for_georef_and_web(tmp_path: Path, monkeypatch):
+    """Georef i web job preview jdou přes Mapper, když je CLI; Pillow jen bez CLI."""
     omap = tmp_path / "mini.omap"
     omap.write_text(_MAP, encoding="utf-8")
     script = tmp_path / "fake_mapper.py"
@@ -589,10 +589,10 @@ def test_mapper_cli_used_for_georef_not_web(tmp_path: Path, monkeypatch):
     assert Image.open(georef).getpixel((0, 0)) == (255, 0, 0)
     assert georef.with_suffix(".pgw").is_file()
 
+    # Bez write_pgw default engine stále pillow (unit API); job path volá mapper explicitně.
     web = tmp_path / "web.png"
     web_summary = render_omap_to_png(omap, web, write_pgw=False)
     assert web_summary.startswith("xml ")
-    assert Image.open(web).getpixel((0, 0)) != (255, 0, 0)
 
 
 def test_georef_mapper_missing_raises(tmp_path: Path, monkeypatch):
@@ -628,7 +628,7 @@ def test_write_job_georef_pillow_fallback_without_mapper(tmp_path: Path, monkeyp
     assert georef_png.is_file() and georef_png.with_suffix(".pgw").is_file()
     assert any("Pillow fallback" in line or "Pillow" in line for line in logs)
     assert any("600 DPI-eq" in line for line in logs)
-    # Georef: ≥ floor 4800; web zůstane max_side 1600.
+    # Georef: ≥ floor 4800; web = JPEG max_side 1600.
     from app.pipeline.oom_preview import (
         GEOREF_MAPPER_DPI,
         GEOREF_PILLOW_MIN_SIDE_FLOOR,
@@ -638,7 +638,9 @@ def test_write_job_georef_pillow_fallback_without_mapper(tmp_path: Path, monkeyp
     georef_im = Image.open(georef_png)
     web_im = Image.open(work)
     assert max(georef_im.size) >= GEOREF_PILLOW_MIN_SIDE_FLOOR
-    assert max(web_im.size) == WEB_PREVIEW_MAX_SIDE
+    assert max(web_im.size) <= WEB_PREVIEW_MAX_SIDE
+    assert work.suffix.lower() == ".jpg"
+    assert GEOREF_MAPPER_DPI == 600
     assert any(f"dpi={GEOREF_MAPPER_DPI}" in line for line in logs) or any(
         "dpi=600" in line for line in logs
     )
@@ -726,11 +728,12 @@ def test_write_job_preview_copies_named_png(tmp_path: Path, monkeypatch):
         {"use_kp": False, "oom_geotiff": False, "output_georef": True},
         log=lines.append,
     )
-    assert dest == work / "preview.png"
+    assert dest == work / "preview.jpg"
     assert dest.is_file()
-    named = tmp_path / "out" / "preview" / "oom_preview.png"
+    named = tmp_path / "out" / "preview" / "oom_preview.jpg"
     assert named.is_file()
     assert named.read_bytes() == dest.read_bytes()
+    assert Image.open(dest).format == "JPEG"
     # Všechny varianty + PGW (Mapper fake).
     for stem in ("Les-sprint", "Les-mtbo"):
         png = tmp_path / "out" / "preview" / f"{stem}.png"
@@ -754,7 +757,7 @@ def test_write_job_skips_when_kp(tmp_path: Path):
 
 
 def test_write_job_skips_georef_when_default_off(tmp_path: Path, monkeypatch):
-    """Bez output_georef jen webový Pillow – žádné georef PNG+PGW."""
+    """Bez output_georef jen webový náhled – žádné georef PNG+PGW."""
     monkeypatch.delenv("PODKLADARNA_OUTPUT_GEOREF", raising=False)
     monkeypatch.delenv("PODKLADARNA_MAPPER_EXPORT", raising=False)
     monkeypatch.delenv("PODKLADARNA_MAPPER", raising=False)
@@ -770,7 +773,8 @@ def test_write_job_skips_georef_when_default_off(tmp_path: Path, monkeypatch):
         log=logs.append,
     )
     assert work is not None and work.is_file()
-    assert (tmp_path / "out" / "preview" / "oom_preview.png").is_file()
+    assert work.suffix.lower() == ".jpg"
+    assert (tmp_path / "out" / "preview" / "oom_preview.jpg").is_file()
     assert not (tmp_path / "out" / "preview" / "Park-les.png").is_file()
     assert any("output_georef vypnuto" in line for line in logs)
     assert build_georef_previews_zip(tmp_path / "out") is None
@@ -1036,11 +1040,11 @@ def test_write_job_splits_georef_and_web(tmp_path: Path, monkeypatch):
     )
     assert work is not None and work.is_file()
     georef_png = tmp_path / "out" / "preview" / "Park-les.png"
-    web_png = tmp_path / "out" / "preview" / "oom_preview.png"
+    web_jpg = tmp_path / "out" / "preview" / "oom_preview.jpg"
     assert georef_png.is_file() and georef_png.with_suffix(".pgw").is_file()
-    assert web_png.is_file()
-    assert not web_png.with_suffix(".pgw").is_file()
-    assert georef_png.read_bytes() != web_png.read_bytes()
+    assert web_jpg.is_file()
+    assert not web_jpg.with_suffix(".pgw").is_file()
+    assert georef_png.read_bytes() != web_jpg.read_bytes()
     from app.pipeline.georef import read_pgw
 
     pgw = read_pgw(georef_png.with_suffix(".pgw"))

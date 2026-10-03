@@ -15,27 +15,30 @@ from pathlib import Path
 from app.pipeline.job_grid import JobGrid
 
 PREVIEW_PNG = "preview.png"
+PREVIEW_JPG = "preview.jpg"
 PREVIEW_PGW = "preview.pgw"
 PULLAUTUS_PNG = "pullautus.png"
 PULLAUTUS_PGW = "pullautus.pgw"
 
 
 def resolve_preview_png(*dirs: Path) -> Path | None:
-    """Vrátí existující náhled: ``preview.png`` má prioritu před ``pullautus.png``.
+    """Vrátí existující webový náhled.
 
-    Bez-KP OOM render také ukládá ``preview/oom_preview.png`` (web i ZIP).
+    Priorita: ``preview.jpg`` → ``preview.png`` → ``pullautus.png`` →
+    ``preview/oom_preview.jpg`` → ``preview/oom_preview.png``.
     """
     for directory in dirs:
         if directory is None:
             continue
         root = Path(directory)
-        for name in (PREVIEW_PNG, PULLAUTUS_PNG):
+        for name in (PREVIEW_JPG, PREVIEW_PNG, PULLAUTUS_PNG):
             path = root / name
             if path.is_file():
                 return path
-        oom = root / "preview" / "oom_preview.png"
-        if oom.is_file():
-            return oom
+        for name in ("oom_preview.jpg", "oom_preview.png"):
+            oom = root / "preview" / name
+            if oom.is_file():
+                return oom
     return None
 
 
