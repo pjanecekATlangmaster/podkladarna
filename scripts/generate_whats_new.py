@@ -163,6 +163,13 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         re.compile(r"(?i)LiDAR return density|return-density vegetation"),
         "Vegetace bez KP z hustoty LiDAR odrazů",
     ),
+    (
+        re.compile(
+            r"(?i)meadow under-detection|trees.*white forest|"
+            r"bez-KP meadow"
+        ),
+        "Bez KP: louky pod stromy už nejsou bílý les",
+    ),
 ]
 
 _PREFIX_CS: list[tuple[re.Pattern[str], str]] = [
