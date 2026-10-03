@@ -1,7 +1,13 @@
 # AUTO-GENERATED – nepřepisovat ručně.
 # Zdroj: git log (scripts/generate_whats_new.py), spouští CI před Docker buildem.
-released_at: "2026-10-03T08:30:06Z"
+released_at: "2026-10-03T08:42:09Z"
 entries:
+  - date: "2026-10-03"
+    title: "ĂšzkĂ© louky/pĂˇsy: 401 i z nĂ­zkĂ©ho CHM (ne jen ĹľlutĂ© okno)"
+    body: ""
+  - date: "2026-10-03"
+    title: "Změna: Refresh whats_new for 1.27.2"
+    body: ""
   - date: "2026-10-03"
     title: "Změna: Les/MTBO: chodnĂ­ky jako linie pÄ›Ĺˇiny, ne plocha 501.1"
     body: ""
@@ -55,10 +61,4 @@ entries:
     body: ""
   - date: "2026-10-02"
     title: "Změna: Skip private mail retry when ZIP is missing"
-    body: ""
-  - date: "2026-10-02"
-    title: "Oprava: Private job email: load .env PUBLIC_BASE_URL and retry missed mails"
-    body: ""
-  - date: "2026-10-02"
-    title: "Změna: Strengthen dense-contour scarp suppress; slightly relax rocks"
     body: ""
