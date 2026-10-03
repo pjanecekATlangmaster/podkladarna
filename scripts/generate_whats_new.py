@@ -178,7 +178,8 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     ),
     (
         re.compile(
-            r"(?i)CHM open|narrow meadow|úzk.*louk|chm_open"
+            r"(?i)CHM open|narrow meadow|úzk.*louk|chm_open|"
+            r"zlom louka|meadow.?edge|louku až"
         ),
         "Úzké louky/pásy: 401 i z nízkého CHM (ne jen žluté okno)",
     ),

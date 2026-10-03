@@ -65,11 +65,12 @@ class DensityVegeParams:
     chm_open_max_m: float = 2.0
     chm_open_neighbor_px: int = 5
     chm_open_neighbor_frac: float = 0.4
-    # Zlom louka↔les: o trochu víc 401; u styku spíš 410 než holá bílá.
-    # Zahrady s korunami (vysoké CHM) zůstanou bílé – neexpandují se.
-    meadow_edge_expand_chm_m: float = 3.0
-    meadow_edge_open_frac: float = 0.22
-    meadow_edge_green_chm_max_m: float = 8.0
+    # Zlom louka↔vysoké stromy: 401 až k hraně (nízké/střední CHM u louky).
+    # Zelená z hustoty se nepřepisuje. Vysoké CHM u louky zůstane bílé.
+    meadow_edge_expand_chm_m: float = 6.0
+    meadow_edge_open_frac: float = 0.15
+    # Legacy / testy: invent 410 na zlomu je vypnuté (0 = nepoužít).
+    meadow_edge_green_chm_max_m: float = 0.0
     # --- zeleně ---
     block_m: float = 2.0
     green_ground_m: float = 0.9
@@ -337,16 +338,18 @@ def soften_meadow_forest_edge(
     classified,
     chm,
     *,
-    expand_chm_m: float = 3.0,
-    open_frac_min: float = 0.22,
-    green_chm_max_m: float = 8.0,
+    expand_chm_m: float = 6.0,
+    open_frac_min: float = 0.15,
+    green_chm_max_m: float = 0.0,
 ):
-    """U zlomu louka↔les: mírně víc 401; střední CHM → 410, ne skok do bílé.
+    """U zlomu louka↔vysoké stromy: 401 až k hraně; zelená podle hustoty.
 
-    * CHM &lt; expand: bílý u louky → 401 (prostor louce).
-    * expand ≤ CHM &lt; green_max: bílý u louky → 410 (přechod / podrost).
-    * CHM ≥ green_max u louky: nechá bílou (vzrostlá koruna, čistý podrost
-      jako zahrada/les) — zahrady s vysokými stromy zůstanou bílé.
+    * CHM &lt; expand a bílý u louky → 401 (louka až k koruně).
+    * Existující 406/408/410 se **nepřepisují** (přechod do zeleně = realita
+      z hustoty odrazů).
+    * CHM ≥ expand u louky: nechá bílou (vzrostlá koruna).
+    * ``green_chm_max_m`` &gt; expand: volitelně bílý se středním CHM → 410
+      (starší chování); default 0 = vypnuto, ať se na zlomu nevymýšlí zeleň.
     """
     import numpy as np
 
@@ -362,18 +365,21 @@ def soften_meadow_forest_edge(
     white = out == WHITE
     finite = np.isfinite(h)
 
+    # Jen WHITE→OPEN; zelené třídy z density nechat.
     expand = white & touches & finite & (h < float(expand_chm_m))
     out[expand] = OPEN
 
-    white2 = out == WHITE
-    edge_green = (
-        white2
-        & touches
-        & finite
-        & (h >= float(expand_chm_m))
-        & (h < float(green_chm_max_m))
-    )
-    out[edge_green] = DENSE
+    green_max = float(green_chm_max_m)
+    if green_max > float(expand_chm_m):
+        white2 = out == WHITE
+        edge_green = (
+            white2
+            & touches
+            & finite
+            & (h >= float(expand_chm_m))
+            & (h < green_max)
+        )
+        out[edge_green] = DENSE
     return out
 
 
