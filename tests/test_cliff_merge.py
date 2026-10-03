@@ -176,26 +176,40 @@ def test_min_line_length_scales_with_map():
     assert min_line_length_m(4000) == pytest.approx(4.8)
     assert min_line_length_m(10000) == pytest.approx(12.0)
     assert min_line_length_m(15000) == pytest.approx(18.0)
-    assert min_line_length_m(10000, earth=True) == pytest.approx(35.0)
-    assert min_line_length_m(4000, earth=True) == pytest.approx(14.0)
+    assert min_line_length_m(10000, earth=True) == pytest.approx(50.0)
+    assert min_line_length_m(4000, earth=True) == pytest.approx(20.0)
 
 
 def test_filter_short_earth_banks_matches_dem_threshold():
-    """ZABAGED StupenSraz: krátké úseky pryč, dlouhé 104 zůstanou (@ 10k ≈ 35 m)."""
+    """ZABAGED StupenSraz: krátké úseky pryč, dlouhé 104 zůstanou (@ 10k ≈ 50 m)."""
     from app.pipeline.cliff_merge import filter_short_earth_banks
 
-    short = [(0.0, 0.0), (30.0, 0.0)]  # 30 m < 35 m
-    long = [(0.0, 0.0), (40.0, 0.0)]  # 40 m ≥ 35 m
+    short = [(0.0, 0.0), (40.0, 0.0)]  # 40 m < 50 m
+    long = [(0.0, 0.0), (55.0, 0.0)]  # 55 m ≥ 50 m
     kept = filter_short_earth_banks([short, long], scale=10000)
     assert kept == [long]
-    assert filter_short_earth_banks([short], scale=4000) == [short]  # earth min ≈ 14 m
+    assert filter_short_earth_banks([short], scale=4000) == [short]  # earth min ≈ 20 m
+
+
+def test_filter_overlapping_earth_banks_keeps_longer():
+    """Kratší 104 podél delšího → zahodit kratší (104×104)."""
+    from app.pipeline.cliff_merge import filter_overlapping_earth_banks
+
+    long = [(0.0, 0.0), (80.0, 0.0)]
+    short_on_top = [(10.0, 1.0), (40.0, 1.0)]  # ~30 m, 1 m offset → v bufferu
+    parallel_far = [(0.0, 30.0), (60.0, 30.0)]  # mimo buffer
+    kept, n = filter_overlapping_earth_banks([short_on_top, long, parallel_far])
+    assert n == 1
+    assert long in kept
+    assert parallel_far in kept
+    assert short_on_top not in kept
 
 
 def test_filter_earth_bank_lines_drops_tangled_zabaged():
     """StupenSraz: stejná zamotaná metrika jako DEM 104."""
     from app.pipeline.cliff_merge import filter_earth_bank_lines
 
-    straight = [(0.0, 0.0), (50.0, 0.0)]
+    straight = [(0.0, 0.0), (60.0, 0.0)]
     # Smyčka: path ≫ chord → polyline_is_simple_bank False.
     loop = [
         (0.0, 0.0),

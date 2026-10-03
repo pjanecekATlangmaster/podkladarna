@@ -20,6 +20,7 @@ from app.pipeline.cliff_merge import (
     filter_by_dense_contours,
     filter_cliffs_crossing_buildings,
     filter_earth_bank_lines,
+    filter_overlapping_earth_banks,
     filter_rocks_overlapping_blockers,
     merge_cliff_ticks,
     min_line_length_m,
@@ -986,7 +987,7 @@ def build_zabaged_object_parts(
                         for pts in line_parts
                     ):
                         continue
-                # StupenSraz → 104: stejný min-length + zamotané jako DEM (~35 m @ 10k).
+                # StupenSraz → 104: stejný min-length + zamotané jako DEM (~50 m @ 10k).
                 if layer_name == "StupenSraz":
                     line_parts = filter_earth_bank_lines(line_parts, scale=scale)
                     if not line_parts:
@@ -1422,6 +1423,7 @@ def build_dxf_object_part(
     rock_polys_n = 0
     earth_lines_n = 0
     overlap_drop = 0
+    earth_overlap_drop = 0
     building_drop = 0
     occupancy_drop = 0
     dense_contour_drop = 0
@@ -1604,6 +1606,12 @@ def build_dxf_object_part(
             discarded_rocks.append((ring, "huste_vrstevnice"))
         dense_filter_ran = True
 
+    if len(pending_earth) >= 2:
+        before_e = list(pending_earth)
+        pending_earth, earth_overlap_drop = filter_overlapping_earth_banks(pending_earth)
+        for pts in dropped_by_identity(before_e, pending_earth):
+            discarded_earth.append((pts, "prekryv_104x104"))
+
     try:
         write_cliff_inspection_vectors(
             kp_cwd,
@@ -1697,6 +1705,10 @@ def build_dxf_object_part(
         detail_bits.append(bit)
     if overlap_drop:
         detail_bits.append(f"překryv skála×104→{overlap_drop} skal pryč (přednost srázu)")
+    if earth_overlap_drop:
+        detail_bits.append(
+            f"překryv 104×104→{earth_overlap_drop} kratších srázů pryč"
+        )
     if occupancy_drop:
         detail_bits.append(f"{occupancy_drop} skála přes jiný objekt zahozeno")
     if dense_filter_ran:

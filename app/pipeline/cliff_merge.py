@@ -9,10 +9,11 @@ linie 201 se vždy zahazují (i dlouhé stěny) — na mapě zůstanou jen spoje
 skalní plochy.
 
 Zemní srázy (104): zamotané / smyčkové / krátké linie raději nekreslit
-(``reject_tangled`` + delší min. délka). Překryv skála×sráz → vždy sráz
-(104), skálu 201.2/206 zahodit. Skála přes budovu / cestu / vodu / jiné
-mapové objekty (kromě zeleně/bílé/vrstevnic jako objektového překryvu) →
-zahodit skálu. Hustý shluk vrstevnic (strmý svah) → zahodit skálu i 104.
+(``reject_tangled`` + min. délka ~50 m @ 10k). Kratší 104 podél delšího
+(104×104) zahodit. Překryv skála×sráz → vždy sráz (104), skálu 201.2/206
+zahodit. Skála přes budovu / cestu / vodu / jiné mapové objekty (kromě
+zeleně/bílé/vrstevnic jako objektového překryvu) → zahodit skálu. Hustý
+shluk vrstevnic (strmý svah) → zahodit skálu i 104.
 """
 
 from __future__ import annotations
@@ -60,11 +61,11 @@ ROCK_CELL_M = 3.0
 ROCK_MIN_TICKS_PER_CELL = 2
 ROCK_MIN_CORE_CELLS = 2
 
-# Min. délka na mapě: skála ~1,2 mm, zem ~3,5 mm (Petr Barr 2026-10-02:
-# krátké jednotlivé 104 pryč; rovné delší OK). 1:10 000 → skála 12 m, zem 35 m;
-# 1:4000 → 4,8 m / 14 m. Dřív zem 2,4 mm / 24 m.
+# Min. délka na mapě: skála ~1,2 mm, zem ~5,0 mm (Petr 2026-10-03:
+# krátké 104 pryč; min ~50 m @ 1:10 000). 1:10 000 → skála 12 m, zem 50 m;
+# 1:4000 → 4,8 m / 20 m. Dřív zem 3,5 mm / 35 m.
 MIN_LINE_MM_ROCK = 1.2
-MIN_LINE_MM_EARTH = 3.5
+MIN_LINE_MM_EARTH = 5.0
 # Zpětná kompatibilita (testy / starší volání).
 MIN_LINE_MM = MIN_LINE_MM_ROCK
 
@@ -75,6 +76,10 @@ MIN_LINE_MM = MIN_LINE_MM_ROCK
 BANK_SHAPE_SIMPLIFY_M = 3.5
 MAX_BANK_SINUOSITY = 1.45
 MAX_BANK_TURN_DEG = 95.0
+
+# 104×104: kratší sráz, který leží podél delšího (buffer), zahodit.
+EARTH_OVERLAP_BUFFER_M = 4.0
+EARTH_OVERLAP_COVER_FRAC = 0.55
 
 # Střednice cesty/toku/zdi → buffer, ať plocha skály „na“ objektu koliduje.
 ROCK_OCCUPANCY_LINE_BUFFER_M = 2.5
@@ -103,7 +108,7 @@ def filter_short_earth_banks(
     *,
     scale: int,
 ) -> list[list[tuple[float, float]]]:
-    """Zahodí zemní srázy (104) kratší než DEM práh (~35 m @ 1:10 000).
+    """Zahodí zemní srázy (104) kratší než DEM práh (~50 m @ 1:10 000).
 
     Stejný min-length jako ``merge_cliff_ticks(..., earth=True)`` – včetně
     ZABAGED ``StupenSraz``.
@@ -121,15 +126,77 @@ def filter_tangled_earth_banks(
     return [pts for pts in polylines if polyline_is_simple_bank(pts)]
 
 
+def filter_overlapping_earth_banks(
+    polylines: list[list[tuple[float, float]]],
+    *,
+    buffer_m: float = EARTH_OVERLAP_BUFFER_M,
+    cover_frac: float = EARTH_OVERLAP_COVER_FRAC,
+) -> tuple[list[list[tuple[float, float]]], int]:
+    """Zahodí kratší 104, které leží podél delšího srázu (104×104).
+
+    Petr: menší srázek přes / podél většího → kreslit jen delší. Frakce délky
+    kratší linie uvnitř bufferu delší ≥ ``cover_frac`` → drop.
+    """
+    if len(polylines) < 2:
+        return list(polylines), 0
+    try:
+        from shapely.geometry import LineString
+    except ImportError:
+        return list(polylines), 0
+
+    ranked = sorted(
+        (
+            (i, pts, _polyline_length(pts))
+            for i, pts in enumerate(polylines)
+            if len(pts) >= 2
+        ),
+        key=lambda t: (-t[2], t[0]),
+    )
+    kept_pts: list[list[tuple[float, float]]] = []
+    kept_geoms: list[object] = []
+    dropped = 0
+    buf = max(0.5, float(buffer_m))
+    frac = min(1.0, max(0.05, float(cover_frac)))
+    for _i, pts, length in ranked:
+        if length < 1e-3:
+            dropped += 1
+            continue
+        try:
+            line = LineString(pts)
+            if line.is_empty:
+                dropped += 1
+                continue
+        except Exception:
+            kept_pts.append(pts)
+            continue
+        redundant = False
+        for longer in kept_geoms:
+            try:
+                covered = line.intersection(longer.buffer(buf)).length
+                if covered / length >= frac:
+                    redundant = True
+                    break
+            except Exception:
+                continue
+        if redundant:
+            dropped += 1
+            continue
+        kept_pts.append(pts)
+        kept_geoms.append(line)
+    return kept_pts, dropped
+
+
 def filter_earth_bank_lines(
     polylines: list[list[tuple[float, float]]],
     *,
     scale: int,
 ) -> list[list[tuple[float, float]]]:
-    """Min-délka + zamotané – společný filtr DEM i ZABAGED ``StupenSraz`` → 104."""
-    return filter_tangled_earth_banks(
+    """Min-délka + zamotané + 104×104 – společný filtr DEM i ZABAGED ``StupenSraz``."""
+    after_shape = filter_tangled_earth_banks(
         filter_short_earth_banks(polylines, scale=scale)
     )
+    kept, _n = filter_overlapping_earth_banks(after_shape)
+    return kept
 
 
 def min_line_length_m(scale: int, *, earth: bool = False) -> float:

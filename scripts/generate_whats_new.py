@@ -232,6 +232,13 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         ),
         "Webový náhled mapy přes OpenOrienteering Mapper (JPEG)",
     ),
+    (
+        re.compile(
+            r"(?i)earth.?bank.*50|104.?104|min.*sráz|overlapping earth|"
+            r"kratš.*sráz"
+        ),
+        "Zemní srázy: min. ~50 m a kratší přes delší se zahazují",
+    ),
 ]
 
 _PREFIX_CS: list[tuple[re.Pattern[str], str]] = [
