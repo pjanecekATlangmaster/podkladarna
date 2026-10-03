@@ -11,6 +11,7 @@ V CI se spouští před Docker buildem. Soubor je součástí image; .git v imag
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -33,18 +34,25 @@ _SKIP_SUBJECT = re.compile(
     r"chore(\([^)]*\))?:\s*(deps|lock|gitignore|version)\b|"
     r"ci(\([^)]*\))?:"
     r"|bump\s+(the\s+)?(app\s+)?version\b"
+    r"|refresh\s+whats_?new\b"
     r")"
 )
 _SKIP_SHA_PARENTS = True  # merge commity (2+ rodiče) pryč
 
 
 def _git(*args: str) -> str:
-    return subprocess.check_output(
-        ["git", *args],
+    # Windows default (cp1250/cp1252) rozbije UTF-8 subjecty z gitu → mojibake
+    # v whats_new.yaml. Vždy dekóduj jako UTF-8.
+    env = os.environ.copy()
+    env.setdefault("LANG", "C.UTF-8")
+    env.setdefault("LC_ALL", "C.UTF-8")
+    raw = subprocess.check_output(
+        ["git", "-c", "i18n.logOutputEncoding=utf-8", *args],
         cwd=ROOT,
-        text=True,
         stderr=subprocess.DEVNULL,
+        env=env,
     )
+    return raw.decode("utf-8")
 
 
 def _is_merge(sha: str) -> bool:
