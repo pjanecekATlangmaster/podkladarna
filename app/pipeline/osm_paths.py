@@ -1270,19 +1270,21 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return "504"
 
     if hw == "sidewalk":
+        # Linie chodníku – ve sprintu zpevněný footprint 501.6; v lese/MTBO
+        # pěšina (ne 501.1 / 529 plocha – to je jen pro polygony hřišť apod.).
         if sprint:
             return "501.6"
         if mtbo:
-            return "529"
-        return "501.1"
+            return "834"
+        return "506"
 
     # Zpevněná cyklostezka (asphalt / good smoothness) – široký footprint s okrajem.
     if hw == "cycleway_paved":
         if sprint:
             return "501.9"
         if mtbo:
-            return "529"
-        return "501.1"
+            return "834"
+        return "505"
 
     if mtbo:
         return "834"

@@ -10,6 +10,7 @@ from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS,
     DENSE,
     DensityVegeParams,
+    LIGHT,
     MID,
     OPEN,
     WHITE,
@@ -19,6 +20,8 @@ from app.pipeline.vegetation_density import (
     generate_job_vegetation_density,
     median_filter_uint8,
     reclaim_yellow_under_canopy,
+    reinforce_open_from_chm,
+    soften_meadow_forest_edge,
     yellow_mask_from_hits,
 )
 
@@ -195,3 +198,97 @@ def test_defaults_match_kp_base_ini():
 
 def test_generate_job_vegetation_density_missing_inputs(tmp_path: Path):
     assert generate_job_vegetation_density(tmp_path) is None
+
+
+def test_narrow_meadow_strip_opens_from_chm():
+    """Úzký pás s nízkým CHM mezi korunami → 401 (ne zahodit kvůli velikosti).
+
+    Žluté okno by nabralo stromy ze stran; CHM prior pás otevře. Min. plocha
+    401 je 12 m² – dlouhý pás ji splní, filtr velikosti není problém.
+    """
+    cls = np.zeros((40, 80), dtype=np.uint8)  # white forest
+    chm = np.full((40, 80), 15.0, dtype=np.float32)
+    # 8 m široký pás uprostřed (řádky 16..23)
+    chm[16:24, :] = 0.2
+    out = reinforce_open_from_chm(cls, chm, open_max_m=1.5, neighbor_px=5, neighbor_frac=0.5)
+    strip = out[17:23, 10:70]
+    assert np.mean(strip == OPEN) > 0.9
+    # koruny mimo pás zůstanou bílé
+    assert np.mean(out[2:10, :] == WHITE) > 0.95
+    assert np.mean(out[30:38, :] == WHITE) > 0.95
+
+
+def test_isolated_chm_hole_in_canopy_stays_white():
+    """Jednotlivá DMP díra v koruně (CHM=0) se nestane falešnou loukou."""
+    cls = np.zeros((30, 30), dtype=np.uint8)
+    chm = np.full((30, 30), 18.0, dtype=np.float32)
+    chm[14:16, 14:16] = 0.0
+    out = reinforce_open_from_chm(cls, chm, open_max_m=1.5, neighbor_px=5, neighbor_frac=0.5)
+    assert out[15, 15] == WHITE
+    assert np.mean(out == WHITE) > 0.99
+
+
+def test_chm_open_does_not_overwrite_green():
+    cls = np.full((20, 20), LIGHT, dtype=np.uint8)
+    cls[5:15, 5:15] = WHITE
+    chm = np.zeros((20, 20), dtype=np.float32)
+    out = reinforce_open_from_chm(cls, chm, open_max_m=1.5, neighbor_px=5, neighbor_frac=0.5)
+    assert np.all(out[0:5, :] == LIGHT)
+    assert np.mean(out[7:13, 7:13] == OPEN) > 0.9
+
+
+def test_meadow_edge_expands_open_to_tall_canopy_edge():
+    """Zlom louka→vysoké stromy: 401 až k hraně; inventovaná 410 vypnutá."""
+    cls = np.zeros((20, 30), dtype=np.uint8)
+    cls[8:12, 5:25] = OPEN  # meadow strip
+    chm = np.full((20, 30), 15.0, dtype=np.float32)
+    # low + mid fringe u louky → 401 (až k hraně)
+    chm[6:8, 5:25] = 1.0
+    chm[12:14, 5:25] = 5.0
+    # tall fringe dál → WHITE
+    chm[3:5, 5:25] = 16.0
+    cls[6:8, 5:25] = WHITE
+    cls[12:14, 5:25] = WHITE
+    cls[3:5, 5:25] = WHITE
+
+    out = soften_meadow_forest_edge(
+        cls, chm, expand_chm_m=8.0, open_frac_min=0.12, green_chm_max_m=0.0, passes=2
+    )
+    assert np.mean(out[7, 8:22] == OPEN) > 0.9
+    assert np.mean(out[12, 8:22] == OPEN) > 0.9  # mid fringe = louka, ne 410
+    assert np.mean(out[6, 8:22] == OPEN) > 0.8  # 2. průchod dál k hraně
+    assert np.mean(out[3:5, 8:22] == WHITE) > 0.8
+
+
+def test_meadow_edge_keeps_density_green():
+    """Přechod do zeleně z hustoty se na zlomu nepřepisuje na 401."""
+    cls = np.zeros((20, 20), dtype=np.uint8)
+    cls[8:12, :] = OPEN
+    cls[6:8, :] = LIGHT  # density green na severním okraji
+    cls[12:14, :] = MID
+    chm = np.full((20, 20), 2.0, dtype=np.float32)
+    out = soften_meadow_forest_edge(cls, chm)
+    assert np.all(out[6:8, :] == LIGHT)
+    assert np.all(out[12:14, :] == MID)
+
+
+def test_meadow_edge_optional_invent_green_when_enabled():
+    """Legacy: green_chm_max_m > expand znovu zapne WHITE→410 na zlomu."""
+    cls = np.zeros((20, 30), dtype=np.uint8)
+    cls[8:12, 5:25] = OPEN
+    chm = np.full((20, 30), 15.0, dtype=np.float32)
+    chm[12:14, 5:25] = 5.0
+    cls[12:14, 5:25] = WHITE
+    out = soften_meadow_forest_edge(
+        cls, chm, expand_chm_m=3.0, open_frac_min=0.2, green_chm_max_m=8.0
+    )
+    assert np.mean(out[12, 8:22] == DENSE) > 0.9
+
+
+def test_garden_canopy_away_from_meadow_stays_white():
+    """Koruny v zahradě (vysoké CHM, bez styku s loukou) zůstanou bílé."""
+    cls = np.zeros((25, 25), dtype=np.uint8)
+    cls[20:23, 20:23] = OPEN  # distant meadow corner
+    chm = np.full((25, 25), 14.0, dtype=np.float32)
+    out = soften_meadow_forest_edge(cls, chm)
+    assert np.mean(out[2:10, 2:10] == WHITE) > 0.99
