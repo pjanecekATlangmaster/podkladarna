@@ -1,0 +1,13 @@
+---
+description: Do odvolání merge/push rovnou na master kvůli GHCR buildu
+alwaysApply: true
+---
+
+# Master → GHCR (do odvolání)
+
+Dokud Petr toto pravidlo neodvolá:
+
+- Hotové změny **vždy dostaň na `master`** (merge PR nebo přímý push), aby CI spustilo **Build and push Podkladarna** → GHCR.
+- Feature branch / draft PR je OK jako pracovní krok, ale **neskonči s kódem jen na větvi** — po zeleném pytest merge (nebo ekvivalent) na `master`.
+- Nespoléhej na „až to schválíš“; default je doručit image tag z masteru.
+- Prod NAS deploy z agenta **ne** (stále `update-nas` / ručně), jen GHCR build přes master.
