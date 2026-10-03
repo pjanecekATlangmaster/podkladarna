@@ -21,6 +21,7 @@ from app.pipeline.vegetation_density import (
     median_filter_uint8,
     reclaim_yellow_under_canopy,
     reinforce_open_from_chm,
+    soften_meadow_forest_edge,
     yellow_mask_from_hits,
 )
 
@@ -234,3 +235,37 @@ def test_chm_open_does_not_overwrite_green():
     out = reinforce_open_from_chm(cls, chm, open_max_m=1.5, neighbor_px=5, neighbor_frac=0.5)
     assert np.all(out[0:5, :] == LIGHT)
     assert np.mean(out[7:13, 7:13] == OPEN) > 0.9
+
+
+def test_meadow_edge_expands_open_and_prefers_green_over_white():
+    """Zlom: nízké CHM u louky → 401; střední → 410; vysoké → bílá (zahrada/les)."""
+    cls = np.zeros((20, 30), dtype=np.uint8)
+    cls[8:12, 5:25] = OPEN  # meadow strip
+    chm = np.full((20, 30), 15.0, dtype=np.float32)
+    # low fringe north of strip → should expand to OPEN
+    chm[6:8, 5:25] = 1.0
+    # mid fringe south → 410
+    chm[12:14, 5:25] = 5.0
+    # tall fringe further north → stay WHITE
+    chm[3:5, 5:25] = 16.0
+    # touch: put white cells adjacent
+    cls[6:8, 5:25] = WHITE
+    cls[12:14, 5:25] = WHITE
+    cls[3:5, 5:25] = WHITE
+
+    out = soften_meadow_forest_edge(
+        cls, chm, expand_chm_m=3.0, open_frac_min=0.2, green_chm_max_m=8.0
+    )
+    # jen řádek těsně u louky (3×3 sousedství)
+    assert np.mean(out[7, 8:22] == OPEN) > 0.9
+    assert np.mean(out[12, 8:22] == DENSE) > 0.9
+    assert np.mean(out[3:5, 8:22] == WHITE) > 0.8
+
+
+def test_garden_canopy_away_from_meadow_stays_white():
+    """Koruny v zahradě (vysoké CHM, bez styku s loukou) zůstanou bílé."""
+    cls = np.zeros((25, 25), dtype=np.uint8)
+    cls[20:23, 20:23] = OPEN  # distant meadow corner
+    chm = np.full((25, 25), 14.0, dtype=np.float32)
+    out = soften_meadow_forest_edge(cls, chm)
+    assert np.mean(out[2:10, 2:10] == WHITE) > 0.99

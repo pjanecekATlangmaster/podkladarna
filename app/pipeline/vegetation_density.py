@@ -59,12 +59,17 @@ class DensityVegeParams:
     # Max. „poloměr“ díry po DMP koruně ve žluté (m); plocha díry ≤ ~okno².
     yellow_canopy_close_m: float = 6.0
     # Reclaim bílého pixelu uvnitř žluté (podíl OPEN v 3×3), když chybí zeleň.
-    yellow_under_canopy_frac: float = 0.55
+    yellow_under_canopy_frac: float = 0.45
     # Úzký pás louky mezi stromy: žluté okno nabere koruny → CHM prior.
     # Jen WHITE→OPEN, když je okolí taky nízké (ne DMP díra v koruně).
-    chm_open_max_m: float = 1.5
+    chm_open_max_m: float = 2.0
     chm_open_neighbor_px: int = 5
-    chm_open_neighbor_frac: float = 0.5
+    chm_open_neighbor_frac: float = 0.4
+    # Zlom louka↔les: o trochu víc 401; u styku spíš 410 než holá bílá.
+    # Zahrady s korunami (vysoké CHM) zůstanou bílé – neexpandují se.
+    meadow_edge_expand_chm_m: float = 3.0
+    meadow_edge_open_frac: float = 0.22
+    meadow_edge_green_chm_max_m: float = 8.0
     # --- zeleně ---
     block_m: float = 2.0
     green_ground_m: float = 0.9
@@ -325,6 +330,50 @@ def reinforce_open_from_chm(
     frac = summed / float(n * n)
     force = (out == WHITE) & low & (frac >= float(neighbor_frac))
     out[force] = OPEN
+    return out
+
+
+def soften_meadow_forest_edge(
+    classified,
+    chm,
+    *,
+    expand_chm_m: float = 3.0,
+    open_frac_min: float = 0.22,
+    green_chm_max_m: float = 8.0,
+):
+    """U zlomu louka↔les: mírně víc 401; střední CHM → 410, ne skok do bílé.
+
+    * CHM &lt; expand: bílý u louky → 401 (prostor louce).
+    * expand ≤ CHM &lt; green_max: bílý u louky → 410 (přechod / podrost).
+    * CHM ≥ green_max u louky: nechá bílou (vzrostlá koruna, čistý podrost
+      jako zahrada/les) — zahrady s vysokými stromy zůstanou bílé.
+    """
+    import numpy as np
+
+    out = np.asarray(classified, dtype=np.uint8).copy()
+    if chm is None:
+        return out
+    h = np.asarray(chm, dtype=np.float32)
+    if h.shape != out.shape:
+        return out
+
+    open_frac = _neighbor_fraction(out == OPEN)
+    touches = open_frac >= float(open_frac_min)
+    white = out == WHITE
+    finite = np.isfinite(h)
+
+    expand = white & touches & finite & (h < float(expand_chm_m))
+    out[expand] = OPEN
+
+    white2 = out == WHITE
+    edge_green = (
+        white2
+        & touches
+        & finite
+        & (h >= float(expand_chm_m))
+        & (h < float(green_chm_max_m))
+    )
+    out[edge_green] = DENSE
     return out
 
 
@@ -637,11 +686,22 @@ def generate_job_vegetation_density(
                     classified = reclaim_yellow_under_canopy(
                         classified, frac_min=params.yellow_under_canopy_frac
                     )
+                    classified = soften_meadow_forest_edge(
+                        classified,
+                        chm_arr,
+                        expand_chm_m=params.meadow_edge_expand_chm_m,
+                        open_frac_min=params.meadow_edge_open_frac,
+                        green_chm_max_m=params.meadow_edge_green_chm_max_m,
+                    )
+                    # Ještě jednou reclaim po expandu žluté na zlomu.
+                    classified = reclaim_yellow_under_canopy(
+                        classified, frac_min=params.yellow_under_canopy_frac
+                    )
                     gained = int(np.count_nonzero(classified == OPEN)) - before
                     if log and gained > 0:
                         log(
-                            f"Vegetace (hustota bodů): CHM open prior "
-                            f"+{gained} px 401 (úzké louky / pásy)"
+                            f"Vegetace (hustota bodů): CHM open/edge prior "
+                            f"+{gained} px 401 (úzké louky / zlom)"
                         )
             except Exception as chm_exc:
                 if log:
