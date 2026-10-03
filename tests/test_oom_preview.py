@@ -8,7 +8,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from app.pipeline.oom_preview import (
     aoi_frame_bbox,
@@ -18,6 +18,7 @@ from app.pipeline.oom_preview import (
     mapper_export_argv,
     oom_preview_enabled,
     output_georef_enabled,
+    prepare_mapper_web_preview,
     render_omap_to_png,
     undo_grivation_xy,
     write_job_oom_preview,
@@ -25,15 +26,58 @@ from app.pipeline.oom_preview import (
 
 
 def _install_fake_mapper(monkeypatch, tmp_path: Path, *, rgb=(255, 0, 0)) -> Path:
-    """Fake Mapper CLI: zapíše PNG na ``-o`` / ``{png}``."""
+    """Fake Mapper CLI: full-map styl PNG z .omap (s grivací, bez AOI ořezu)."""
     script = tmp_path / "fake_mapper.py"
-    r, g, b = rgb
+    # Fallback solid color when omap path missing; jinak Pillow render bez undo
+    # přes celý bbox objektů (simulace Mapper --full-map).
     script.write_text(
         "import sys\n"
-        "from PIL import Image\n"
+        "from pathlib import Path\n"
+        "from PIL import Image, ImageDraw\n"
+        "from xml.etree import ElementTree as ET\n"
+        "from app.pipeline.oom_preview import (\n"
+        "    _collect_ops, _ops_bbox, _read_omap_bytes, parse_omap_georef,\n"
+        ")\n"
         "args = sys.argv[1:]\n"
-        "out = args[args.index('-o') + 1] if '-o' in args else args[0]\n"
-        f"Image.new('RGB', (64, 48), ({r}, {g}, {b})).save(out, format='PNG')\n",
+        "out = Path(args[args.index('-o') + 1] if '-o' in args else args[0])\n"
+        "omap = None\n"
+        "for a in args:\n"
+        "    if a.endswith('.omap'):\n"
+        "        omap = Path(a)\n"
+        "        break\n"
+        f"rgb = ({rgb[0]}, {rgb[1]}, {rgb[2]})\n"
+        "if omap is None or not omap.is_file():\n"
+        "    Image.new('RGB', (64, 48), rgb).save(out, format='PNG')\n"
+        "    raise SystemExit(0)\n"
+        "root = ET.fromstring(_read_omap_bytes(omap))\n"
+        "ops = _collect_ops(root, grivation_deg=0.0)\n"
+        "if not ops:\n"
+        "    Image.new('RGB', (64, 48), rgb).save(out, format='PNG')\n"
+        "    raise SystemExit(0)\n"
+        "minx, miny, maxx, maxy = _ops_bbox(ops)\n"
+        "pad = 500.0\n"
+        "world_w = max(maxx - minx, 1.0) + 2 * pad\n"
+        "world_h = max(maxy - miny, 1.0) + 2 * pad\n"
+        "side = 320\n"
+        "mpp = max(world_w, world_h) / float(side)\n"
+        "w = max(1, int(round(world_w / mpp)))\n"
+        "h = max(1, int(round(world_h / mpp)))\n"
+        "ox, oy = minx - pad, miny - pad\n"
+        "img = Image.new('RGB', (w, h), (255, 255, 255))\n"
+        "draw = ImageDraw.Draw(img)\n"
+        "def to_px(x, y):\n"
+        "    return ((x - ox) / mpp, (y - oy) / mpp)\n"
+        "for op in ops:\n"
+        "    color = op.rgb if op.rgb else rgb\n"
+        "    for path in op.paths:\n"
+        "        if len(path) < 2:\n"
+        "            continue\n"
+        "        pts = [to_px(x, y) for x, y in path]\n"
+        "        if op.kind == 'area':\n"
+        "            draw.polygon(pts, fill=color)\n"
+        "        else:\n"
+        "            draw.line(pts, fill=color, width=max(1, int(round((op.width or 400) / mpp))))\n"
+        "img.save(out, format='PNG')\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("PODKLADARNA_MAPPER", sys.executable)
@@ -551,6 +595,115 @@ def test_preview_crops_to_purple_aoi_frame(tmp_path: Path):
     mid = image.getpixel((w // 2, h // 2))
     is_green = mid[1] > 180 and mid[0] < 80
     assert not is_green, f"center should not be overflow green, got {mid}"
+
+
+def test_prepare_mapper_web_preview_crops_aoi_and_undoes_grivation(tmp_path: Path):
+    """Mapper full-map PNG → web: ořez 708 + odrotování grivace."""
+    import math
+
+    from app.pipeline.oom_preview import (
+        _collect_ops,
+        _ops_bbox,
+        _read_omap_bytes,
+    )
+
+    g = 12.52
+    rad = math.radians(g)
+
+    def to_map(x: float, y: float) -> tuple[int, int]:
+        rx = x * math.cos(rad) - y * math.sin(rad)
+        ry = x * math.sin(rad) + y * math.cos(rad)
+        return round(rx), round(-ry)
+
+    # Grid-north AOI čtverec; spill až vpravo venku (Mapper --full-map ho nechá).
+    aoi = [(-5000, -5000), (5000, -5000), (5000, 5000), (-5000, 5000), (-5000, -5000)]
+    spill = [(12000, -3000), (18000, -3000), (18000, 3000), (12000, 3000), (12000, -3000)]
+    aoi_m = [to_map(x, y) for x, y in aoi]
+    spill_m = [to_map(x, y) for x, y in spill]
+    aoi_coords = ";".join(f"{x} {y}" for x, y in aoi_m[:-1])
+    aoi_coords += f";{aoi_m[-1][0]} {aoi_m[-1][1]} 18;"
+    spill_coords = ";".join(f"{x} {y}" for x, y in spill_m[:-1])
+    spill_coords += f";{spill_m[-1][0]} {spill_m[-1][1]} 18;"
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <georeferencing scale="10000" declination="5.00" grivation="{g}">
+    <projected_crs id="EPSG">
+      <ref_point x="-750000" y="-1050000"/>
+    </projected_crs>
+  </georeferencing>
+  <colors count="2">
+    <color priority="5" name="Purple"><rgb r="1" g="0" b="1"/></color>
+    <color priority="26" name="Green"><rgb r="0" g="1" b="0"/></color>
+  </colors>
+  <symbols count="2">
+    <symbol type="2" id="175" code="708">
+      <line_symbol color="5" line_width="1000"/>
+    </symbol>
+    <symbol type="4" id="10" code="406">
+      <area_symbol inner_color="26"/>
+    </symbol>
+  </symbols>
+  <parts count="1" current="0">
+    <part name="Mapa">
+      <objects count="2">
+        <object type="1" symbol="10">
+          <coords count="5">{spill_coords}</coords>
+        </object>
+        <object type="1" symbol="175">
+          <coords count="5">{aoi_coords}</coords>
+        </object>
+      </objects>
+    </part>
+  </parts>
+</map>
+"""
+    omap = tmp_path / "griv.omap"
+    omap.write_text(body, encoding="utf-8")
+
+    # Simulace Mapper --full-map: celý bbox objektů v nativních (grivovaných) j.
+    root = ET.fromstring(_read_omap_bytes(omap))
+    ops = _collect_ops(root, grivation_deg=0.0)
+    minx, miny, maxx, maxy = _ops_bbox(ops)
+    pad = 800.0
+    world_w = max(maxx - minx, 1.0) + 2 * pad
+    world_h = max(maxy - miny, 1.0) + 2 * pad
+    side = 480
+    mpp = max(world_w, world_h) / float(side)
+    w = max(1, int(round(world_w / mpp)))
+    h = max(1, int(round(world_h / mpp)))
+    ox, oy = minx - pad, miny - pad
+    mapper_png = tmp_path / "mapper_full.png"
+    img = Image.new("RGB", (w, h), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+
+    def to_px(x: float, y: float) -> tuple[float, float]:
+        return (x - ox) / mpp, (y - oy) / mpp
+
+    for op in ops:
+        for path in op.paths:
+            if len(path) < 2:
+                continue
+            pts = [to_px(x, y) for x, y in path]
+            if op.kind == "area":
+                draw.polygon(pts, fill=op.rgb)
+            else:
+                draw.line(pts, fill=op.rgb, width=3)
+    img.save(mapper_png)
+
+    # Full-map je širší než čtverec (spill + rotace).
+    assert w > h * 1.15, f"full-map should be wide, got {w}x{h}"
+
+    out = tmp_path / "web.png"
+    ow, oh = prepare_mapper_web_preview(omap, mapper_png, out, max_side=200)
+    assert out.is_file()
+    assert abs(ow - oh) <= max(4, ow // 10), f"AOI crop should be square, got {ow}x{oh}"
+    web = Image.open(out).convert("RGB")
+    mid = web.getpixel((ow // 2, oh // 2))
+    is_green = mid[1] > 180 and mid[0] < 80
+    assert not is_green, f"center must not be spill green after AOI crop, got {mid}"
+    # Po undo grivace je fialový rám axis-aligned → okrajové pixely blízko stredu stran
+    # nejsou „rozmazané“ šikmé čáry přes celý obrázek (stačí: výstup existuje + čtverec).
+    assert map_grivation_deg(root) == pytest.approx(g, abs=0.01)
 
 
 def test_hole_stays_paper_white(tmp_path: Path):

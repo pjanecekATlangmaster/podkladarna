@@ -1,22 +1,22 @@
 """PNG/JPEG náhledy z hotového ``.omap`` (bez-KP) – dvě produktové cesty.
 
 1. **Web (náhled jobu / klik)** – preferuje **OpenOrienteering Mapper CLI**
-   @ nižší DPI → **JPEG** (menší soubor). **Pillow + XML** jen jako
-   fallback, když Mapper CLI chybí (typicky lokální Windows tip) nebo
-   selže. Mapper drží grivaci; Pillow fallback odrotuje deklinaci.
+   @ nižší DPI → PNG, pak **ořez fialovým AOI (708/705) + odrotování
+   grivace** → **JPEG**. **Pillow + XML** jen jako fallback, když Mapper
+   CLI chybí (typicky lokální Windows tip) nebo selže.
 
 2. **Georef ZIP** (PNG+PGW, volitelně GeoTIFF) – preferuje **Mapper CLI**
    @ **600 DPI** (``--full-map``), **s grivací**, přes
    ``PODKLADARNA_MAPPER`` + ``PODKLADARNA_MAPPER_EXPORT``. Bez CLI job
    spadne na Pillow georef @ 600 DPI-eq. Přímý ``engine="mapper"`` bez CLI
-   vyhodí ``MapperExportError``.
+   vyhodí ``MapperExportError``. Georef ZIP zůstává full-map + grivace.
 
 Materiálový OOM ZIP georef PNG **neobsahuje**, dokud uživatel nezapne
 ``output_georef`` (GUI checkbox, default off) – pak jdou PNG+PGW±GeoTIFF
 do hlavního ZIPu i do ``podkladarna_georef_previews.zip`` / API.
 
 Orientace: OOM mapové souřadnice už mají ``scale(s, −s)`` → nižší map Y
-nahoru. Webový ořez (Pillow): fialový AOI rám (708 / MTBO 705).
+nahoru. Webový ořez: fialový AOI rám (708 / MTBO 705), sever sítě nahoru.
 
 Webový náhled default zapnutý; vypnout ``oom_preview=0`` /
 ``PODKLADARNA_OOM_PREVIEW=0``. Georef: ``output_georef=1``.
@@ -344,6 +344,72 @@ def extent_for_mapper_png(
         ),
         georef,
     )
+
+
+def prepare_mapper_web_preview(
+    omap: Path,
+    mapper_png: Path,
+    dest_png: Path,
+    *,
+    max_side: int = WEB_PREVIEW_MAX_SIDE,
+) -> tuple[int, int]:
+    """Mapper ``--full-map`` PNG → webový PNG: ořez AOI + zrušení deklinace.
+
+    Mapper export drží grivaci a celý mapový bbox. Web potřebuje stejný
+    výřez jako Pillow: fialový rám 708/705 a sever sítě nahoru. Affine
+    warp mapuje cílový (grid-north) pixel → nativní (s grivací) → vzorek
+    ze zdrojového PNG.
+    """
+    from PIL import Image
+
+    omap = Path(omap)
+    mapper_png = Path(mapper_png)
+    dest_png = Path(dest_png)
+    src_extent, georef = extent_for_mapper_png(omap, mapper_png)
+    root = ET.fromstring(_read_omap_bytes(omap))
+    g = float(georef.grivation_deg)
+    g_undo = g  # aoi_frame_bbox / _collect_ops: odrotovat
+    ops = _collect_ops(root, grivation_deg=g_undo)
+    if not ops:
+        raise ValueError(f"{omap.name}: .omap nemá objekty pro webový ořez")
+    minx, miny, maxx, maxy, padx, pady = preview_crop_box(
+        root, ops, grivation_deg=g_undo
+    )
+    dest_extent = preview_extent_from_crop(
+        minx,
+        miny,
+        maxx,
+        maxy,
+        padx,
+        pady,
+        max_side=max_side,
+    )
+    # dest (grid-north) → src (grivated): inverze undo = R(-g)
+    cos_g = math.cos(math.radians(g))
+    sin_g = math.sin(math.radians(g))
+    mpp_d = dest_extent.map_per_px
+    mpp_s = src_extent.map_per_px
+    ox_d, oy_d = dest_extent.origin_x, dest_extent.origin_y
+    ox_s, oy_s = src_extent.origin_x, src_extent.origin_y
+    # u_src = a*u + b*v + c ; v_src = d*u + e*v + f
+    a = (mpp_d * cos_g) / mpp_s
+    b = (mpp_d * sin_g) / mpp_s
+    c = (ox_d * cos_g + oy_d * sin_g - ox_s) / mpp_s
+    d = (-mpp_d * sin_g) / mpp_s
+    e = (mpp_d * cos_g) / mpp_s
+    f = (-ox_d * sin_g + oy_d * cos_g - oy_s) / mpp_s
+    with Image.open(mapper_png) as im:
+        rgb = im.convert("RGB")
+        out = rgb.transform(
+            (dest_extent.width, dest_extent.height),
+            Image.Transform.AFFINE,
+            (a, b, c, d, e, f),
+            resample=Image.Resampling.BILINEAR,
+            fillcolor=(255, 255, 255),
+        )
+        dest_png.parent.mkdir(parents=True, exist_ok=True)
+        out.save(dest_png, format="PNG", optimize=True)
+        return out.size
 
 
 def _read_omap_bytes(path: Path) -> bytes:
@@ -1564,11 +1630,12 @@ def write_job_oom_preview(
     """Po zápisu ``.omap`` uloží webový JPEG náhled (± volitelně georef).
 
     Web (náhled jobu / klik): preferuje **Mapper CLI** (reuse georef PNG @ 600
-    DPI downscale, jinak Mapper @ ``WEB_MAPPER_DPI``) → ``preview.jpg`` /
-    ``oom_preview.jpg``. Bez Mapperu / při chybě **Pillow** fallback → JPEG.
+    DPI, jinak Mapper @ ``WEB_MAPPER_DPI``) → AOI ořez + zrušení deklinace →
+    ``preview.jpg`` / ``oom_preview.jpg``. Bez Mapperu / při chybě **Pillow**
+    fallback → JPEG (už s AOI + undo grivation).
 
     Georef (opt-in ``output_georef``): plná kvalita ``{stem}.png`` + ``.pgw``
-    (+ volitelně GeoTIFF) – Mapper @ 600 DPI, jinak Pillow @ 600 DPI-eq.
+    (+ volitelně GeoTIFF) – Mapper @ 600 DPI s grivací, jinak Pillow @ 600 DPI-eq.
     """
     from app.pipeline.prepare_lidar import log_step
 
@@ -1698,7 +1765,7 @@ def write_job_oom_preview(
         src_label = ""
         if use_mapper and georef_full.is_file() and want_georef:
             src_png = georef_full
-            src_label = f"downscale z georef {georef_full.name}"
+            src_label = f"georef {georef_full.name}"
         elif use_mapper:
             render_omap_to_png(
                 preferred,
@@ -1712,20 +1779,30 @@ def write_job_oom_preview(
             src_png = tmp_mapper
             src_label = f"Mapper @ {web_dpi} DPI"
         if src_png is not None and src_png.is_file():
-            w, h = write_web_preview_jpeg(src_png, work_jpg)
+            cropped = work_dir / "_web_mapper_aoi.png"
+            cw, ch = prepare_mapper_web_preview(
+                preferred,
+                src_png,
+                cropped,
+                max_side=WEB_PREVIEW_MAX_SIDE,
+            )
+            w, h = write_web_preview_jpeg(cropped, work_jpg)
             shutil.copy2(work_jpg, named_jpg)
             work_png.unlink(missing_ok=True)
             named_png.unlink(missing_ok=True)
             tmp_mapper.unlink(missing_ok=True)
+            cropped.unlink(missing_ok=True)
             _clear_web_sidecars()
             web_out = work_jpg
             if log:
                 log(
                     f"OOM náhled (web Mapper JPEG): {preferred.name} → "
-                    f"preview.jpg ({src_label} → {w}×{h} q={WEB_JPEG_QUALITY})"
+                    f"preview.jpg ({src_label} → AOI+bez deklinace "
+                    f"{cw}×{ch} → {w}×{h} q={WEB_JPEG_QUALITY})"
                 )
     except Exception as exc:
         tmp_mapper.unlink(missing_ok=True)
+        (work_dir / "_web_mapper_aoi.png").unlink(missing_ok=True)
         if log:
             log(
                 f"OOM náhled (web Mapper): {preferred.name} selhal ({exc}) – "
