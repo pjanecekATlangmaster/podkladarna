@@ -936,8 +936,9 @@ def test_osm_oom_code_sidewalk():
     )
 
     assert osm_oom_code("sidewalk", "sprint_2m") == "501.6"
-    assert osm_oom_code("sidewalk", "forest_10000") == "501.1"
-    assert osm_oom_code("sidewalk", "mtbo_10000") == "529"
+    # Les / MTBO: linie pěšiny, ne plocha 501.1 / 529.
+    assert osm_oom_code("sidewalk", "forest_10000") == "506"
+    assert osm_oom_code("sidewalk", "mtbo_10000") == "834"
     assert osm_oom_code("track", "sprint_2m") == "505.1"
     assert osm_oom_code("residential", "sprint_2m") == "501.18"
     assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
@@ -998,8 +999,8 @@ def test_osm_oom_code_sidewalk():
         == "cycleway_paved"
     )
     assert osm_oom_code("cycleway_paved", "sprint_2m") == "501.9"
-    assert osm_oom_code("cycleway_paved", "forest_10000") == "501.1"
-    assert osm_oom_code("cycleway_paved", "mtbo_10000") == "529"
+    assert osm_oom_code("cycleway_paved", "forest_10000") == "505"
+    assert osm_oom_code("cycleway_paved", "mtbo_10000") == "834"
     # Jen smoothness (bez surface) taky stačí.
     assert (
         sprint_line_highway(

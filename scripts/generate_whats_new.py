@@ -170,6 +170,12 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         ),
         "Bez KP: louky pod stromy už nejsou bílý les",
     ),
+    (
+        re.compile(
+            r"(?i)sidewalk.*(line|506)|forest sidewalk|chodník.*(linie|pěšin)"
+        ),
+        "Les/MTBO: chodníky jako linie pěšiny, ne plocha 501.1",
+    ),
 ]
 
 _PREFIX_CS: list[tuple[re.Pattern[str], str]] = [
