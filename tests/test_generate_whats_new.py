@@ -18,6 +18,12 @@ def test_to_czech_title_known_phrases():
     )
     assert "most" in bridge.casefold()
     assert not bridge.startswith("Draw")
+    mapper = to_czech_title(
+        "Web Mapper náhled: ořez fialovým AOI a zrušení deklinace."
+    )
+    assert "náhled" in mapper.casefold()
+    assert "deklinace" in mapper.casefold()
+    assert "APP_VERSION" not in mapper
 
 
 def test_collect_entries_from_git():

@@ -68,13 +68,18 @@ def test_whats_new_entries_lead_matches_listed_span(monkeypatch):
 
 
 def test_whats_new_skips_version_bump_commits():
-    from scripts.generate_whats_new import _SKIP_SUBJECT
+    from scripts.generate_whats_new import _SKIP_ANYWHERE, _SKIP_SUBJECT
 
     assert _SKIP_SUBJECT.search("Bump app version to 1.9.0")
     assert _SKIP_SUBJECT.search("bump the app version")
     assert _SKIP_SUBJECT.search("chore: version 1.9.0")
     assert _SKIP_SUBJECT.search("Refresh whats_new for 1.27.3.")
+    assert _SKIP_SUBJECT.search("Rule: do odvolání vždy doručovat změny na master (GHCR).")
+    assert _SKIP_SUBJECT.search("Footer verze z APP_VERSION místo hardcoded 2.0.1.")
+    assert _SKIP_ANYWHERE.search("Oprava UTF-8 diakritiky ve whats_new (Windows mojibake)")
+    assert _SKIP_ANYWHERE.search("Match licence <code> size to body text")
     assert not _SKIP_SUBJECT.search("Prefer vector overflow past AOI")
+    assert not _SKIP_ANYWHERE.search("Web Mapper náhled: ořez fialovým AOI a zrušení deklinace.")
 
 
 def test_api_whats_new(client, monkeypatch):

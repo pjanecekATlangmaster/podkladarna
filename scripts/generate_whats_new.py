@@ -23,18 +23,45 @@ OUT = ROOT / "configs" / "whats_new.yaml"
 ENTRY_DAYS = 30
 MAX_ENTRIES = 20
 
-# Commit subjecty / těla, které do boxu nepatří.
+# Commit subjecty / těla, které do boxu nepatří (dev, CI, verze, copy-nits).
 _SKIP_SUBJECT = re.compile(
     r"(?i)^("
     r"merge\b|"
     r"wip\b|"
     r"tmp\b|"
-    r"cursor:\s*apply local changes|"
+    r"rule:\s*|"
+    r"cursor:\s*|"
     r"apply local changes for cloud agent|"
-    r"chore(\([^)]*\))?:\s*(deps|lock|gitignore|version)\b|"
+    r"chore(\([^)]*\))?:\s*(deps|lock|gitignore|version|rules?)\b|"
     r"ci(\([^)]*\))?:"
     r"|bump\s+(the\s+)?(app\s+)?version\b"
     r"|refresh\s+whats_?new\b"
+    r"|footer\s+verze\b"
+    r"|tip\s*.{0,3}master\b"
+    r"|fix tip.master\b"
+    r")"
+)
+# I uvnitř subjectu – údržba, ne produkt pro uživatele mapy.
+_SKIP_ANYWHERE = re.compile(
+    r"(?i)("
+    r"whats_?new|"
+    r"mojibake|"
+    r"APP_VERSION|"
+    r"hardcoded\s+\d|"
+    r"licence\s+<code>|"
+    r"licence\s+citation|"
+    r"Match licence\b|"
+    r"Clarify \[rok\]|"
+    r"obsolete uzitecne tests|"
+    r"keep KP out of image|"
+    r"Drop Karttapullautin runtime|"
+    r"Fix about text\b|"
+    r"Fix Czech:\s*V ZIPu|"
+    r"user-facing guide copy|"
+    r"drop redundant hint|"
+    r"\.cursor/rules|"
+    r"doručovat změny na master|"
+    r"dorucovat zmeny na master"
     r")"
 )
 _SKIP_SHA_PARENTS = True  # merge commity (2+ rodiče) pryč
@@ -191,6 +218,20 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         ),
         "Úzké louky/pásy: 401 i z nízkého CHM (ne jen žluté okno)",
     ),
+    (
+        re.compile(
+            r"(?i)Mapper.*(AOI|ořez|orez)|ořez fialov|orez fialov|"
+            r"zrušení deklinace|zruseni deklinace|undo.?grivation"
+        ),
+        "Webový náhled mapy: ořez podle výběru a bez natočení deklinace",
+    ),
+    (
+        re.compile(
+            r"(?i)Web náhled přes Mapper|Web nahled pres Mapper|"
+            r"Mapper \(JPEG\)|Mapper web preview"
+        ),
+        "Webový náhled mapy přes OpenOrienteering Mapper (JPEG)",
+    ),
 ]
 
 _PREFIX_CS: list[tuple[re.Pattern[str], str]] = [
@@ -272,10 +313,12 @@ def collect_entries(
         if _SKIP_SHA_PARENTS and _is_merge(sha):
             continue
         subject = " ".join(subject.split()).strip()
-        if not subject or _SKIP_SUBJECT.search(subject):
+        if not subject or _SKIP_SUBJECT.search(subject) or _SKIP_ANYWHERE.search(subject):
             continue
         title = _clean_subject(subject)
         if not title:
+            continue
+        if _SKIP_ANYWHERE.search(title):
             continue
         key = title.casefold()
         if key in seen_titles:
