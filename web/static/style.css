@@ -664,10 +664,15 @@ legend {
   background: #fff8ef;
   border-color: #e8d2b0;
   flex: 0 1 auto;
-  max-height: min(42vh, 28rem);
+  /* Levý formulář je vysoký – sem vejde běžící job (log) + část fronty. */
+  max-height: min(62vh, 40rem);
   overflow-x: hidden;
   overflow-y: auto;
   min-height: 0;
+}
+
+.jobs-block-live .log {
+  max-height: 16rem;
 }
 
 .jobs-block-finished {
