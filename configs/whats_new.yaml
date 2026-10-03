@@ -1,7 +1,10 @@
 # AUTO-GENERATED – nepřepisovat ručně.
 # Zdroj: git log (scripts/generate_whats_new.py), spouští CI před Docker buildem.
-released_at: "2026-10-03T06:39:14Z"
+released_at: "2026-10-03T08:30:06Z"
 entries:
+  - date: "2026-10-03"
+    title: "Změna: Les/MTBO: chodnĂ­ky jako linie pÄ›Ĺˇiny, ne plocha 501.1"
+    body: ""
   - date: "2026-10-02"
     title: "Bez KP: louky pod stromy už nejsou bílý les"
     body: ""
@@ -58,7 +61,4 @@ entries:
     body: ""
   - date: "2026-10-02"
     title: "Změna: Strengthen dense-contour scarp suppress; slightly relax rocks"
-    body: ""
-  - date: "2026-10-02"
-    title: "Změna: Apply tip min-size go defaults (104, rock, veg)"
     body: ""
