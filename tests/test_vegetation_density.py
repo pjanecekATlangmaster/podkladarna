@@ -252,10 +252,11 @@ def test_meadow_edge_expands_open_to_tall_canopy_edge():
     cls[3:5, 5:25] = WHITE
 
     out = soften_meadow_forest_edge(
-        cls, chm, expand_chm_m=6.0, open_frac_min=0.15, green_chm_max_m=0.0
+        cls, chm, expand_chm_m=8.0, open_frac_min=0.12, green_chm_max_m=0.0, passes=2
     )
     assert np.mean(out[7, 8:22] == OPEN) > 0.9
     assert np.mean(out[12, 8:22] == OPEN) > 0.9  # mid fringe = louka, ne 410
+    assert np.mean(out[6, 8:22] == OPEN) > 0.8  # 2. průchod dál k hraně
     assert np.mean(out[3:5, 8:22] == WHITE) > 0.8
 
 
