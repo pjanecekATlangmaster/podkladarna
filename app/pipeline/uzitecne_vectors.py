@@ -38,8 +38,9 @@ vegetace.*   polygony porostů (cls, code = 401/406/408/410)
 srazy_104.*  zemní srázy (linie ISOM 104)
 skaly_201.*  skalní plochy (polygony 201.2 / 206)
 
-Důvody ve vyhozene (příklady): min_plocha, zamotany, nizky_schod,
-deprese, budova, prekryv_104, occupancy, husté_vrstevnice.
+Důvody ve vyhozene (příklady): mala_plocha, kompaktni_flek, min_plocha,
+zamotany, nizky_schod, deprese, budova, prekryv_104, occupancy,
+husté_vrstevnice.
 
 Raw tick DXF a vegetation.shp jsou dál i ve složce base/ (před finální
 filtrací u srázů). Tahle složka ukazuje výsledek filtrů.
@@ -165,11 +166,14 @@ def write_polygon_shapefile(
 
 def write_vegetation_discarded_shp(
     dest_shp: Path,
-    features: list[tuple[int, str, object]],
+    features: list[tuple],
     *,
     reason: str = "min_plocha",
 ) -> Path | None:
-    """``features`` = (cls, code, shapely geom) zahozené při min-size/simplify."""
+    """``features`` = (cls, code, shapely geom[, duvod]) zahozené při size/tvar filtru.
+
+    Čtyřprvkový tuple má vlastní ``duvod``; u trojice se použije ``reason``.
+    """
     if not features:
         return None
     try:
@@ -184,8 +188,13 @@ def write_vegetation_discarded_shp(
         w.field("cls", "N", size=10)
         w.field("code", "C", size=8)
         w.field("duvod", "C", size=40)
-        for cls, code, geom in features:
+        for row in features:
             try:
+                if len(row) >= 4:
+                    cls, code, geom, duvod = row[0], row[1], row[2], row[3]
+                else:
+                    cls, code, geom = row[0], row[1], row[2]
+                    duvod = reason
                 if geom is None or geom.is_empty:
                     continue
                 if geom.geom_type == "MultiPolygon":
@@ -202,7 +211,7 @@ def write_vegetation_discarded_shp(
                     for hole in poly.interiors:
                         parts.append([[float(x), float(y)] for x, y in hole.coords])
                     w.poly(parts)
-                    w.record(int(cls), str(code)[:8], str(reason)[:40])
+                    w.record(int(cls), str(code)[:8], str(duvod or reason)[:40])
                     n += 1
             except Exception:
                 continue

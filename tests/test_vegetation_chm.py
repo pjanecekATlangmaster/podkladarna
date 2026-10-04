@@ -176,7 +176,15 @@ def test_generate_job_vegetation_chm_calls_generator(tmp_path: Path):
     chm.write_bytes(b"chm" * 200)
     dest_marker = tmp_path / "vegetation" / "vegetation.shp"
 
-    def fake_gen(src, dest, *, thresholds=None, tint_png=None, log=None):
+    def fake_gen(
+        src,
+        dest,
+        *,
+        thresholds=None,
+        tint_png=None,
+        log=None,
+        veg_size_profile="default",
+    ):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"shp")
         if tint_png:
