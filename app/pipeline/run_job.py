@@ -265,6 +265,18 @@ def run_job_pipeline(
         log=log,
     )
 
+    from app.pipeline.veg_size_filter import resolve_veg_size_profile
+
+    veg_size_profile = resolve_veg_size_profile(
+        options,
+        preset_id=preset_id,
+        map_scale=int(round(10000 * float(scalefactor)))
+        if scalefactor
+        else None,
+    )
+    if veg_size_profile != "default":
+        log(f"Vegetace: filtr velikosti/tvaru = {veg_size_profile}")
+
     vege_shp = None
     try:
         vege_shp = generate_job_vegetation_density(
@@ -274,12 +286,15 @@ def run_job_pipeline(
                 green_high_m=resolve_vege_height(options),
             ),
             log=log,
+            veg_size_profile=veg_size_profile,
         )
     except Exception as exc:
         log(f"Vegetace (hustota bodů): přeskočeno ({exc})")
     if vege_shp is None:
         try:
-            generate_job_vegetation_chm(work_dir, log=log)
+            generate_job_vegetation_chm(
+                work_dir, log=log, veg_size_profile=veg_size_profile
+            )
         except Exception as exc:
             log(f"CHM vegetace: přeskočeno ({exc})")
     try:

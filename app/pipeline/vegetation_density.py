@@ -646,6 +646,7 @@ def generate_job_vegetation_density(
     *,
     params: DensityVegeParams = DEFAULT_PARAMS,
     log=None,
+    veg_size_profile: str = "default",
 ) -> Path | None:
     """Job fáze: LAZ hustota + ``dem/dem_filled.tif`` → ``vegetation/vegetation.shp``.
 
@@ -741,4 +742,11 @@ def generate_job_vegetation_density(
         write_chm_tint_png(classified, work_dir / "vegetation" / "chm_tint.png")
     except Exception:
         pass
-    return polygonize_vegetation_classes(classified, gt, dest, log=log, label="hustota bodů")
+    return polygonize_vegetation_classes(
+        classified,
+        gt,
+        dest,
+        log=log,
+        label="hustota bodů",
+        veg_size_profile=veg_size_profile,
+    )

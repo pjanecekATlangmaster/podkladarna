@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.0.6"
+APP_VERSION = "2.1.0"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -155,6 +155,9 @@ DEFAULT_OPTIONS = {
     # Ostatní plocha jako 403 (rough open) místo 501 – default vypnuto.
     # GUI skryté (2026-10); API/pipeline flag zůstává.
     "ostatni_plocha_as_403": False,
+    # Filtr velikosti/tvaru vegetace (401/406/408/410): default | strict.
+    # Sprint vždy default (resolve_veg_size_profile). Přísnější jen opt-in A/B.
+    "veg_size_profile": "default",
 }
 
 
