@@ -1291,12 +1291,13 @@ async function loadWhatsNew() {
       lead.textContent =
         data.entries_lead ||
         ((data.entries || []).length
-          ? "Nedávné změny (scrollujte pro další):"
+          ? "Nedávné změny:"
           : "V přehledu nejsou žádné větší změny.");
     }
-    if (list) {
-      list.innerHTML = "";
-      for (const entry of data.entries || []) {
+    const fillList = (ul, entries) => {
+      if (!ul) return;
+      ul.innerHTML = "";
+      for (const entry of entries || []) {
         const li = document.createElement("li");
         const date = document.createElement("span");
         date.className = "whats-new-date";
@@ -1305,9 +1306,23 @@ async function loadWhatsNew() {
         strong.textContent = entry.title || "";
         li.appendChild(date);
         li.appendChild(strong);
-        list.appendChild(li);
+        ul.appendChild(li);
+      }
+    };
+    fillList(list, data.entries || []);
+    const msLead = document.getElementById("whats-new-milestones-lead");
+    const msList = document.getElementById("whats-new-milestones");
+    const milestones = data.milestones || [];
+    if (msLead) {
+      if (milestones.length) {
+        msLead.hidden = false;
+        msLead.textContent = data.milestones_lead || "Dřívější milníky:";
+      } else {
+        msLead.hidden = true;
+        msLead.textContent = "";
       }
     }
+    fillList(msList, milestones);
     box.hidden = false;
   } catch (_) {
     box.hidden = true;

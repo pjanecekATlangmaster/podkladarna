@@ -24,6 +24,7 @@ def test_whats_new_payload_hot_when_fresh(monkeypatch):
     assert payload["open"] is True
     assert payload["version"]
     assert isinstance(payload["entries"], list)
+    assert isinstance(payload["milestones"], list)
     assert payload["age_hours"] == 1.0
 
 
@@ -37,34 +38,36 @@ def test_whats_new_payload_calm_after_week(monkeypatch):
 
 
 def test_whats_new_filters_old_entries(monkeypatch):
-    released = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+    released = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
     monkeypatch.setenv("PODKLADARNA_BUILT_AT", released.isoformat())
-    now = datetime(2026, 9, 16, 15, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 10, 3, 15, 0, tzinfo=timezone.utc)
     payload = whats_new_payload(now=now)
-    assert payload["entries"]
-    assert all(e["date"] >= "2026-08-17" for e in payload["entries"])
+    # Recent má cutoff; milníky zůstávají i starší.
+    assert payload["milestones"]
+    assert all(e["date"] >= "2026-09-12" for e in payload["entries"])
 
 
 def test_whats_new_entries_lead_matches_listed_span(monkeypatch):
     from app.whats_new import _entries_lead_cs
 
     assert "posledního dne" in _entries_lead_cs(
-        [{"date": "2026-09-16", "title": "x"}], window_days=30
+        [{"date": "2026-09-16", "title": "x"}], window_days=21
     )
     assert "4 dní" in _entries_lead_cs(
         [
             {"date": "2026-09-13", "title": "a"},
             {"date": "2026-09-16", "title": "b"},
         ],
-        window_days=30,
+        window_days=21,
     )
-    assert "30 dní" in _entries_lead_cs([], window_days=30)
+    assert "větší změny" in _entries_lead_cs([], window_days=21)
 
-    released = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+    released = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
     monkeypatch.setenv("PODKLADARNA_BUILT_AT", released.isoformat())
     payload = whats_new_payload(now=released + timedelta(hours=1))
     assert "entries_lead" in payload
     assert payload["entries_lead"]
+    assert payload.get("milestones_lead")
 
 
 def test_whats_new_skips_version_bump_commits():
@@ -78,6 +81,7 @@ def test_whats_new_skips_version_bump_commits():
     assert _SKIP_SUBJECT.search("Footer verze z APP_VERSION místo hardcoded 2.0.1.")
     assert _SKIP_ANYWHERE.search("Oprava UTF-8 diakritiky ve whats_new (Windows mojibake)")
     assert _SKIP_ANYWHERE.search("Match licence <code> size to body text")
+    assert _SKIP_ANYWHERE.search("Hide residual size combo when paved checkbox is off")
     assert not _SKIP_SUBJECT.search("Prefer vector overflow past AOI")
     assert not _SKIP_ANYWHERE.search("Web Mapper náhled: ořez fialovým AOI a zrušení deklinace.")
 
@@ -85,22 +89,27 @@ def test_whats_new_skips_version_bump_commits():
 def test_api_whats_new(client, monkeypatch):
     monkeypatch.setenv(
         "PODKLADARNA_BUILT_AT",
-        datetime(2026, 9, 16, 10, 0, tzinfo=timezone.utc).isoformat(),
+        datetime(2026, 10, 3, 10, 0, tzinfo=timezone.utc).isoformat(),
     )
     r = client.get("/api/whats_new")
     assert r.status_code == 200
     body = r.json()
     assert "tone" in body
     assert "entries" in body
+    assert "milestones" in body
     assert "entries_lead" in body
+    assert "milestones_lead" in body
     assert "version" in body
     assert "disclaimer" in body
     assert "rozbilo" in body["disclaimer"]
+    assert body["milestones"]
+    assert any("Karttapullautin" in m["title"] for m in body["milestones"])
 
 
 def test_index_has_whats_new_box(client):
     html = client.get("/").text
     assert 'id="whats-new"' in html
     assert "whats-new-list" in html
+    assert "whats-new-milestones" in html
     assert "whats-new-disclaimer" in html
     assert "whats-new-scroll" in html

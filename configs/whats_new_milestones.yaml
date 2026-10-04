@@ -1,0 +1,16 @@
+# Ruční milníky pro box „Co je nového“.
+# Jen opravdové produktové zlomy — ne každý commit.
+# Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
+milestones:
+  - date: "2026-10-03"
+    title: "Webový náhled mapy přes OpenOrienteering Mapper"
+  - date: "2026-10-02"
+    title: "Konec Karttapullautinu — vlastní vegetace, srázy a DEM"
+  - date: "2026-10-01"
+    title: "Louky v auto-mapě z LiDARu, ne ze ZABAGED"
+  - date: "2026-10-01"
+    title: "Privátní joby: odkaz ke stažení e-mailem"
+  - date: "2026-10-01"
+    title: "Vegetace bez KP z hustoty LiDAR odrazů"
+  - date: "2026-09-16"
+    title: "Budovy z RÚIAN a stromy AOPK v omapu"

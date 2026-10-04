@@ -223,10 +223,16 @@ main.page-wrap {
 }
 
 .whats-new-scroll {
-  max-height: 7.5rem;
+  max-height: 11rem;
   overflow-y: auto;
   padding-right: 0.25rem;
   margin-top: 0.15rem;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+.whats-new-milestones-lead {
+  margin-top: 0.65rem;
+  padding-top: 0.35rem;
   border-top: 1px dashed rgba(0, 0, 0, 0.08);
 }
 
