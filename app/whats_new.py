@@ -13,8 +13,8 @@ import yaml
 from app.settings import APP_ROOT, APP_VERSION, CONFIG_DIR
 
 WHATS_NEW_PATH = CONFIG_DIR / "whats_new.yaml"
-# Soubor generuje CI (scripts/generate_whats_new.py) z git log před Docker buildem.
-ENTRY_DAYS = 30
+# Soubor generuje CI (scripts/generate_whats_new.py) z git log + milníků.
+ENTRY_DAYS = 21
 # < 6 h → hot (červená, rozbaleno); < 2 d → warm; < 7 d → mild; jinak calm (zelená, sbaleno)
 HOT_HOURS = 6
 WARM_HOURS = 48
@@ -137,18 +137,23 @@ def _translate_entry_title(title: str) -> str:
         from scripts.generate_whats_new import to_czech_title
     except Exception:
         return title
-    return to_czech_title(title) or title
+    # Denní souhrny mohou mít více částí oddělených středníkem.
+    parts = [p.strip() for p in title.split(";") if p.strip()]
+    if len(parts) <= 1:
+        return to_czech_title(title) or title
+    translated = [to_czech_title(p) or p for p in parts]
+    return "; ".join(translated)
 
 
 def _entries_lead_cs(entries: list[dict[str, str]], *, window_days: int) -> str:
     """Popisek podle skutečného rozsahu položek (ne vždy „30 dní“)."""
     if not entries:
-        return f"Za posledních {window_days} dní nejsou v přehledu žádné větší změny."
+        return "Za poslední dny nejsou v přehledu žádné větší změny."
     dates = sorted({e["date"] for e in entries if e.get("date")})
     if not dates:
-        return "Nedávné změny (scrollujte pro další):"
+        return "Nedávné změny:"
     if len(dates) == 1 or dates[0] == dates[-1]:
-        return "Změny z posledního dne (scrollujte pro další):"
+        return "Změny z posledního dne:"
     try:
         d0 = date.fromisoformat(dates[0])
         d1 = date.fromisoformat(dates[-1])
@@ -156,10 +161,33 @@ def _entries_lead_cs(entries: list[dict[str, str]], *, window_days: int) -> str:
     except ValueError:
         span = window_days
     if span <= 1:
-        return "Změny z posledního dne (scrollujte pro další):"
+        return "Změny z posledního dne:"
     if span <= 7:
-        return f"Změny za posledních {span} dní (scrollujte pro další):"
-    return f"Změny za posledních {window_days} dní (scrollujte pro další):"
+        return f"Změny za posledních {span} dní:"
+    return f"Změny za posledních {min(span, window_days)} dní:"
+
+
+def _normalize_items(raw_items: object) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    if not isinstance(raw_items, list):
+        return out
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        d = _parse_dt(item.get("date"))
+        if d is None:
+            continue
+        title = _translate_entry_title(str(item.get("title") or "").strip())
+        if not title:
+            continue
+        out.append(
+            {
+                "date": d.date().isoformat(),
+                "title": title,
+                "body": "",
+            }
+        )
+    return out
 
 
 def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
@@ -171,26 +199,24 @@ def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
     data = load_whats_new_file()
     cutoff = (now_utc - timedelta(days=ENTRY_DAYS)).date()
     entries_out: list[dict[str, str]] = []
-    raw_entries = data.get("entries") or []
-    if isinstance(raw_entries, list):
-        for item in raw_entries:
-            if not isinstance(item, dict):
+    for item in _normalize_items(data.get("entries")):
+        try:
+            if date.fromisoformat(item["date"]) < cutoff:
                 continue
-            d = _parse_dt(item.get("date"))
-            if d is None:
-                continue
-            if d.date() < cutoff:
-                continue
-            title = _translate_entry_title(str(item.get("title") or "").strip())
-            if not title:
-                continue
-            entries_out.append(
-                {
-                    "date": d.date().isoformat(),
-                    "title": title,
-                    "body": "",
-                }
-            )
+        except ValueError:
+            continue
+        entries_out.append(item)
+
+    milestones_out = _normalize_items(data.get("milestones"))
+    # Fallback: starší YAML bez sekce milestones → načíst ruční soubor.
+    if not milestones_out:
+        ms_path = CONFIG_DIR / "whats_new_milestones.yaml"
+        if ms_path.is_file():
+            try:
+                ms_data = yaml.safe_load(ms_path.read_text(encoding="utf-8")) or {}
+            except OSError:
+                ms_data = {}
+            milestones_out = _normalize_items(ms_data.get("milestones"))
 
     return {
         "version": APP_VERSION,
@@ -208,4 +234,6 @@ def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
         "entries": entries_out,
         "entry_days": ENTRY_DAYS,
         "entries_lead": _entries_lead_cs(entries_out, window_days=ENTRY_DAYS),
+        "milestones": milestones_out,
+        "milestones_lead": "Dřívější milníky:" if milestones_out else "",
     }
