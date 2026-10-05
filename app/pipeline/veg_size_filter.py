@@ -1,13 +1,12 @@
-"""Filtr velikosti/tvaru vegetačních ploch (401 / 406·408·410).
+"""Vegetační size/tvar filtr — **vypnutý** (≥2.2.17).
 
-Pravidlo (default i přísnější)::
+Petr 2026-10-05: min-size cleanup zrušen kompletně (veg, skály, path stubs);
+úklid drobných fleků necháno na uživateli. Jediná výjimka v pipeline je
+min. délka srázů **104** (~50 m @ 1:10k).
 
-    hard_floor  → vždy zahodit
-    area ≥ soft_min → vždy nechat
-    jinak (pás hard..soft): nechat jen když L ≥ L_min AND aspect ≥ A_min
-
-Žádný samotný min-width delete (úzké dlouhé pásy mají zůstat).
-Sprint (1:4000 / preset ``sprint*``) vždy používá profil ``default``.
+API (`keep_veg_polygon`, prahy, ``veg_size_profile``) zůstává kvůli
+zpětné kompatibilitě testů / A/B skriptu, ale ``keep_veg_polygon`` vždy
+nechá polygon (kromě None / empty).
 """
 
 from __future__ import annotations
@@ -21,9 +20,12 @@ VegSizeProfile = Literal["default", "strict"]
 _GREEN_CODES = frozenset({"406", "408", "410"})
 _VEG_CODES = frozenset({"401"}) | _GREEN_CODES
 
-# Důvody pro uzitecne/vyhozene (SHP pole duvod, ASCII).
+# Důvody pro uzitecne/vyhozene (SHP pole duvod, ASCII) — legacy, filtr je off.
 REASON_SMALL_AREA = "mala_plocha"
 REASON_COMPACT = "kompaktni_flek"
+
+# Globální vypínač min-size / tvarového cutu vegetace.
+VEG_SIZE_FILTER_ENABLED = False
 
 
 @dataclass(frozen=True)
@@ -34,11 +36,9 @@ class VegSizeThresholds:
     band_aspect_min: float
 
 
-# Default (konzervativní) — soft_min beze změny oproti tip ≥1.25.3.
+# Legacy prahy (dokumentace / A/B skript) — pipeline je neaplikuje.
 _DEFAULT_401 = VegSizeThresholds(6.0, 12.0, 20.0, 4.0)
 _DEFAULT_GREEN = VegSizeThresholds(12.0, 25.0, 25.0, 5.0)
-
-# Přísnější — jen forest / opt-in A/B; sprint nikdy.
 _STRICT_401 = VegSizeThresholds(8.0, 20.0, 25.0, 4.0)
 _STRICT_GREEN = VegSizeThresholds(15.0, 40.0, 30.0, 5.0)
 
@@ -68,11 +68,13 @@ def resolve_veg_size_profile(
     preset_id: str | None = None,
     map_scale: int | float | None = None,
 ) -> VegSizeProfile:
-    """Sprint vždy ``default``; jinak ``veg_size_profile`` z options (default/strict)."""
+    """Sprint vždy ``default``; jinak ``veg_size_profile`` z options (default/strict).
+
+    Profil se při ``VEG_SIZE_FILTER_ENABLED=False`` stejně neaplikuje.
+    """
     opts = options or {}
     if is_sprint_preset(preset_id=preset_id, map_scale=map_scale):
         return "default"
-    # Job options mohou nést preset / scale, když volající nepředá kwargs.
     if preset_id is None:
         preset_id = str(opts.get("preset_id") or opts.get("preset") or "") or None
     if map_scale is None and opts.get("map_scale") is not None:
@@ -118,7 +120,6 @@ def _as_shapely(geom):
     if geom is None:
         return None
     if hasattr(geom, "area") and hasattr(geom, "is_empty") and hasattr(geom, "bounds"):
-        # shapely-like
         if getattr(geom, "geom_type", None) or hasattr(geom, "minimum_rotated_rectangle"):
             return geom
     try:
@@ -144,10 +145,8 @@ def keep_veg_polygon(
 ) -> tuple[bool, str | None]:
     """Vrátí ``(keep, duvod|None)`` pro jeden vegetační polygon.
 
-    ``duvod`` je důvod zahození (`mala_plocha` / `kompaktni_flek`).
+    Od ≥2.2.17 vždy ``(True, None)`` pro neprázdný geom — min-size/tvar cut vypnutý.
     """
-    if code not in _VEG_CODES:
-        return True, None
     if geom is None:
         return False, REASON_SMALL_AREA
     try:
@@ -156,6 +155,12 @@ def keep_veg_polygon(
         empty = False
     if empty:
         return False, REASON_SMALL_AREA
+
+    if not VEG_SIZE_FILTER_ENABLED:
+        return True, None
+
+    if code not in _VEG_CODES:
+        return True, None
 
     thr = thresholds_for(code, profile)
     area = _geom_area(geom)
@@ -166,9 +171,7 @@ def keep_veg_polygon(
 
     poly = _as_shapely(geom)
     if poly is None or poly.is_empty:
-        # Bez shapely/MRR v pásu hard..soft raději zahodit (kompaktní flek).
         return False, REASON_COMPACT
-    # MultiPolygon — posuzuj největší kus.
     if getattr(poly, "geom_type", None) == "MultiPolygon":
         parts = [g for g in poly.geoms if not g.is_empty]
         if not parts:

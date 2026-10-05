@@ -34,20 +34,22 @@ def test_default_thresholds_calibrated_vs_kp():
     assert OPEN_REINFORCE_ITERS >= 0
 
 
-def test_green_min_area_raised_open_unchanged():
-    """Tip go-default: 406/408/410 ≥25 m²; 401 zůstává 12 m²."""
+def test_green_min_area_constants_legacy():
+    """Legacy soft_min konstanty (dokumentace); keep_veg_polygon je off."""
     from app.pipeline.vegetation_chm import (
         _MIN_AREA_M2,
         _MIN_GREEN_AREA_M2,
         _min_area_for_code,
     )
+    from app.pipeline.veg_size_filter import VEG_SIZE_FILTER_ENABLED, keep_veg_polygon
+    from shapely.geometry import box
 
+    assert VEG_SIZE_FILTER_ENABLED is False
     assert _MIN_AREA_M2 == pytest.approx(12.0)
     assert _MIN_GREEN_AREA_M2 == pytest.approx(25.0)
     assert _min_area_for_code("401") == pytest.approx(12.0)
-    assert _min_area_for_code("406") == pytest.approx(25.0)
     assert _min_area_for_code("408") == pytest.approx(25.0)
-    assert _min_area_for_code("410") == pytest.approx(25.0)
+    assert keep_veg_polygon("408", box(0, 0, 3, 3))[0] is True
 
 
 def test_classify_open_vs_white_thresholds():

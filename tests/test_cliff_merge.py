@@ -106,13 +106,23 @@ def test_rock_field_becomes_polygon_close_to_real_extent():
 def test_midsize_rock_survives_without_min_size_cut():
     """~8×8 m masa po morph/simplify dřív padala na 62 m² / 8 m — teď zůstane.
 
-    Min-size cleanup platí jen vegetaci; skály (201.2/206) jím neprocházejí.
+    Min-size cleanup (≥2.2.17) zrušen; skály (201.2/206) se area/width nemažou.
     """
     got = merge_cliff_ticks(_field(8.0, 8.0), as_polygons=True)
     assert got.polygons
     assert not got.lines
     area = sum(_ring_area(p) for p in got.polygons)
     assert area >= 20.0
+
+
+def test_earth_bank_min_length_exception_kept():
+    """Jediná výjimka min-size: 104 min. délka ~50 m @ 1:10k."""
+    from app.pipeline.cliff_merge import filter_short_earth_banks, min_line_length_m
+
+    assert min_line_length_m(10000, earth=True) == pytest.approx(50.0)
+    short = [(0.0, 0.0), (40.0, 0.0)]
+    long = [(0.0, 0.0), (55.0, 0.0)]
+    assert filter_short_earth_banks([short, long], scale=10000) == [long]
 
 
 def test_two_rock_fields_stay_separate_polygons():

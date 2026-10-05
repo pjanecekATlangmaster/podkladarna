@@ -34,13 +34,15 @@ def test_small_yellow_is_not_split():
     assert pieces[0].GetArea() == pytest.approx(400.0)
 
 
-def test_green_min_area_matches_chm_go_default():
+def test_green_min_area_constants_legacy():
     from app.pipeline.vegetation_gdal import (
         _MIN_AREA_M2,
         _MIN_GREEN_AREA_M2,
         _min_area_for_code,
     )
+    from app.pipeline.veg_size_filter import VEG_SIZE_FILTER_ENABLED
 
+    assert VEG_SIZE_FILTER_ENABLED is False
     assert _MIN_AREA_M2 == pytest.approx(12.0)
     assert _MIN_GREEN_AREA_M2 == pytest.approx(25.0)
     assert _min_area_for_code("401") == pytest.approx(12.0)

@@ -39,10 +39,10 @@ DEDUP_ANG_PER_RAD = 8.0
 # stažení k mase → vyhlazení. 1.23.2/1.25.0 bylo přísné (area 75 / width 9 /
 # shrink 2.4) → skály skoro OK, ale řídké; 1.25.4 mírně uvolní (ne flood).
 # 104 citlivost se nemění – jen footprint ploch. Stěna/dvojstěna zůstane mimo.
-# Min-size cleanup (≥1.25.3): skály/kameny (201.2/206) z procesu **vyjmuty** —
-# po morph se už nemažou prahem plochy/šířky (to na Rokytnici mazalo i reálné
-# masy). Vegetace si svůj size filtr drží zvlášť. Protáhlé zbytky stěn pořád
-# odfiltruje aspect (ne plošný min-size).
+# Min-size cleanup (≥2.2.17): **zrušen** (veg + skály/kameny + path stubs).
+# Po morph se 201.2/206 nemažou prahem plochy/šířky. Protáhlé zbytky stěn
+# odfiltruje aspect (tvar, ne plošný min-size). Jediná výjimka min-size v
+# pipeline: min. délka srázů **104** (~50 m @ 1:10k).
 ROCK_BUFFER_M = 2.6
 ROCK_CLOSE_M = 2.0
 ROCK_OPEN_M = 3.9
