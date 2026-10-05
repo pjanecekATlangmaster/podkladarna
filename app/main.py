@@ -507,10 +507,11 @@ async def api_feedback(request: Request):
     except MailError as exc:
         # 502, ne 503 — 503 si FE/klienti spojují s plnou frontou generování.
         logger.warning("Feedback mail failed: %s", exc)
+        # Detail obsahuje MailError (např. chybějící SMTP_HOST) – FE ukáže detail.
         raise HTTPException(
             502,
-            "Zpětnou vazbu teď nešlo odeslat (e-mail). Zkuste to později, "
-            "nebo napište na GitHub Issues.",
+            f"Zpětnou vazbu teď nešlo odeslat (e-mail): {exc}. "
+            "Zkuste to později, nebo napište na GitHub Issues.",
         ) from exc
 
     return {"ok": True}

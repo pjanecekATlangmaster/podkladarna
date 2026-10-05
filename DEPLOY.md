@@ -251,14 +251,27 @@ Router: forward **443** (a volitelně **80**) na **vnitřní IP NAS**, ne na jin
 
 ---
 
-## Env soubor (volitelně `.env` vedle compose)
+## Env soubor (`.env` vedle compose)
 
 ```env
 GHCR_OWNER=pjanecekatlangmaster
+
+# SMTP – nutné pro privátní joby i zpětnou vazbu (POST /api/feedback)
+SMTP_HOST=datais-cz.mail.protection.outlook.com
+SMTP_PORT=25
+SMTP_ENCRYPTION=starttls
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM=podkladarna@datais.cz
+SMTP_FROM_NAME=OB podklady
+# PUBLIC_BASE_URL=https://podkladarna.example
+# FEEDBACK_TO=janecek@datais.cz
 ```
 
 `GHCR_OWNER` musí být **lowercase** – GHCR ukládá image jako `ghcr.io/pjanecekatlangmaster/podkladarna`.
 
-```yaml
-# docker-compose už používá ${GHCR_OWNER:-OWNER}
-```
+`docker-compose.nas.yml` předává `SMTP_*` / `PUBLIC_BASE_URL` / `FEEDBACK_TO`
+z tohoto `.env` do kontejneru (`${SMTP_HOST:-}` …). Samotný `.env` u compose
+**není** automaticky celý injectnutý – bez řádků v `environment:` kontejner
+SMTP nevidí. Po změně `.env` nebo compose: `./update-nas.sh --force`
+(nebo recreate). Alternativa od 2.2.10: SMTP klíče do `data/.env` (volume).

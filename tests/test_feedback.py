@@ -235,6 +235,7 @@ def test_feedback_smtp_error_502_not_queue_503(client, monkeypatch):
     assert r.status_code == 502
     detail = r.json()["detail"]
     assert "nešlo odeslat" in detail
+    assert "SMTP není nastavené" in detail
     assert "fronta" not in detail.lower()
 
 
