@@ -131,7 +131,12 @@ def test_send_mail_starttls_mock(monkeypatch):
         def send_message(self, msg: EmailMessage):
             calls["to"] = msg["To"]
             calls["subject"] = msg["Subject"]
-            calls["body"] = msg.get_content()
+            plain = msg.get_body(preferencelist=("plain",))
+            calls["body"] = plain.get_content() if plain else ""
+            calls["attachments"] = [
+                (a.get_filename(), a.get_content_type(), a.get_content())
+                for a in msg.iter_attachments()
+            ]
 
     monkeypatch.setattr("app.mail.smtplib.SMTP", FakeSMTP)
     send_mail("user@example.com", "Předmět", "Tělo e-mailu")
@@ -142,6 +147,61 @@ def test_send_mail_starttls_mock(monkeypatch):
     assert calls["to"] == "user@example.com"
     assert calls["subject"] == "Předmět"
     assert "Tělo" in calls["body"]
+    assert calls["attachments"] == []
+
+
+def test_send_mail_with_png_attachment(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.mail.settings.SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr("app.mail.settings.SMTP_PORT", 25)
+    monkeypatch.setattr("app.mail.settings.SMTP_ENCRYPTION", "starttls")
+    monkeypatch.setattr("app.mail.settings.SMTP_USER", "")
+    monkeypatch.setattr("app.mail.settings.SMTP_PASSWORD", "")
+    monkeypatch.setattr("app.mail.settings.SMTP_FROM", "from@example.com")
+    monkeypatch.setattr("app.mail.settings.SMTP_FROM_NAME", "Test")
+
+    png = tmp_path / "preview.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+
+    calls: dict = {}
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def ehlo(self):
+            pass
+
+        def starttls(self, context=None):
+            pass
+
+        def send_message(self, msg: EmailMessage):
+            plain = msg.get_body(preferencelist=("plain",))
+            calls["body"] = plain.get_content() if plain else ""
+            atts = list(msg.iter_attachments())
+            calls["n_att"] = len(atts)
+            assert atts
+            calls["filename"] = atts[0].get_filename()
+            calls["ctype"] = atts[0].get_content_type()
+            calls["payload"] = atts[0].get_content()
+
+    monkeypatch.setattr("app.mail.smtplib.SMTP", FakeSMTP)
+    send_mail(
+        "user@example.com",
+        "S přílohou",
+        "Tělo s náhledem",
+        attachments=[png],
+    )
+    assert calls["n_att"] == 1
+    assert calls["filename"] == "preview.png"
+    assert calls["ctype"] == "image/png"
+    assert calls["payload"].startswith(b"\x89PNG")
+    assert "Tělo s náhledem" in calls["body"]
 
 
 def test_send_mail_requires_config(monkeypatch):
@@ -179,6 +239,21 @@ def test_build_private_ready_email_optional_artifact_links():
     assert "Náhled PNG" in body
     assert "ZIP georeferencovaných náhledů" in body
     assert "na stránce jobu se náhled/ZIP nezobrazují" in body
+    assert "v příloze" not in body
+
+
+def test_build_private_ready_email_preview_attached():
+    subject, body = build_private_ready_email(
+        job_name="Att mapa",
+        download_url="https://example/d/tok",
+        retention_hours=48,
+        preview_url="https://example/api/jobs/j1/preview.png?token=tok",
+        preview_attached=True,
+    )
+    assert "v příloze tohoto e-mailu" in body
+    assert "záloha odkazem" in body
+    assert "preview.png?token=tok" in body
+    assert "ZIP s mapou" in body
 
 
 def test_api_private_job_requires_email(client, monkeypatch):
@@ -457,7 +532,7 @@ def test_api_private_job_log_available_without_token(client, monkeypatch):
 
 
 def test_notify_private_job_mail_includes_preview_and_georef(tmp_path, monkeypatch):
-    """Mail obsahuje tokenizované odkazy PNG + georef, když artefakty existují."""
+    """Mail obsahuje tokenizované odkazy + MIME přílohu PNG, když artefakty existují."""
     from app import job_worker
 
     monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
@@ -481,10 +556,10 @@ def test_notify_private_job_mail_includes_preview_and_georef(tmp_path, monkeypat
     (prev / "mapa.png").write_bytes(b"png")
     (prev / "mapa.pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
 
-    sent: list[tuple] = []
+    sent: list[dict] = []
 
-    def fake_send(to, subject, body, **_kw):
-        sent.append((to, subject, body))
+    def fake_send(to, subject, body, **kw):
+        sent.append({"to": to, "subject": subject, "body": body, **kw})
 
     monkeypatch.setattr(job_worker, "send_mail", fake_send)
     monkeypatch.setattr(
@@ -494,12 +569,17 @@ def test_notify_private_job_mail_includes_preview_and_georef(tmp_path, monkeypat
 
     job_worker._notify_private_job(job["id"])
     assert len(sent) == 1
-    body = sent[0][2]
+    body = sent[0]["body"]
     assert "/d/" in body
     assert f"/api/jobs/{job['id']}/preview.png?token=" in body
     assert f"/api/jobs/{job['id']}/download/georef-previews?token=" in body
     assert "Náhled PNG" in body
+    assert "v příloze tohoto e-mailu" in body
     assert "ZIP georeferencovaných" in body
+    atts = sent[0].get("attachments") or []
+    assert len(atts) == 1
+    assert atts[0].name == "preview.jpg"
+    assert atts[0].read_bytes() == b"\xff\xd8\xff"
 
 
 def test_ui_private_session_log_hooks():
