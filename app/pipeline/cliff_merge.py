@@ -39,18 +39,23 @@ DEDUP_ANG_PER_RAD = 8.0
 # stažení k mase → vyhlazení. 1.23.2/1.25.0 bylo přísné (area 75 / width 9 /
 # shrink 2.4) → skály skoro OK, ale řídké; 1.25.4 mírně uvolní (ne flood).
 # 104 citlivost se nemění – jen footprint ploch. Stěna/dvojstěna zůstane mimo.
+# Min-size cleanup (≥1.25.3): skály/kameny (201.2/206) z procesu **vyjmuty** —
+# po morph se už nemažou prahem plochy/šířky (to na Rokytnici mazalo i reálné
+# masy). Vegetace si svůj size filtr drží zvlášť. Protáhlé zbytky stěn pořád
+# odfiltruje aspect (ne plošný min-size).
 ROCK_BUFFER_M = 2.6
 ROCK_CLOSE_M = 2.0
 ROCK_OPEN_M = 3.9
 ROCK_SHRINK_M = 2.0
 ROCK_SMOOTH_M = 1.0
 ROCK_SIMPLIFY_M = 2.0
-MIN_ROCK_AREA_M2 = 62.0
-MIN_ROCK_WIDTH_M = 8.0
+# Jen numerický/degenerovaný úlomek po morph — ne min-size cleanup.
+ROCK_DEGENERATE_AREA_M2 = 1.0
 MAX_ROCK_ASPECT = 3.4
 # Halo kolem plochy: čárky na okraji už nekreslit jako 201 (obrys nese plocha).
 ROCK_TICK_HALO_M = 3.5
 # Po řetězení: kompaktní zbytky (ne protáhlá stěna) → plocha místo mraku 201.
+# (Promotion práh; ne min-size delete existujících skalních ploch.)
 COMPACT_LINE_BUFFER_M = 2.4
 COMPACT_MAX_ASPECT = 2.7
 COMPACT_MIN_WIDTH_M = 6.5
@@ -980,10 +985,11 @@ def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]
         except Exception:
             return []
 
-    # Po morphologii (shrink/smooth) znovu MIN_ROCK_AREA_M2 – drobné zbytky pryč.
+    # Skály mimo min-size cleanup: po morph nechat plochu (i <62 m² / <8 m šířky).
+    # Aspect dál zahodí protáhlé zbytky stěn; vegetace má vlastní filtr.
     rings: list[list[tuple[float, float]]] = []
     for poly in parts:
-        if poly.is_empty or poly.area < MIN_ROCK_AREA_M2:
+        if poly.is_empty or poly.area < ROCK_DEGENERATE_AREA_M2:
             continue
         try:
             poly = poly.simplify(ROCK_SIMPLIFY_M, preserve_topology=True)
@@ -991,11 +997,9 @@ def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]
             pass
         if poly.is_empty or poly.geom_type != "Polygon":
             continue
-        if poly.area < MIN_ROCK_AREA_M2:
+        if poly.area < ROCK_DEGENERATE_AREA_M2:
             continue
         width, length = _mrr_width_length(poly)
-        if width < MIN_ROCK_WIDTH_M:
-            continue
         if length / max(width, 1e-6) > MAX_ROCK_ASPECT and width < 14.0:
             continue
         coords = [(float(x), float(y)) for x, y in poly.exterior.coords]
@@ -1005,7 +1009,7 @@ def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]
             rings.append(coords)
         elif len(coords) >= 3:
             hull = _convex_hull_ring(coords)
-            if len(hull) >= 3 and _ring_area(hull) >= MIN_ROCK_AREA_M2:
+            if len(hull) >= 3 and _ring_area(hull) >= ROCK_DEGENERATE_AREA_M2:
                 rings.append(hull)
     return rings
 
@@ -1091,7 +1095,7 @@ def _rock_area_polygons_cells(
             area_cells.update(nb for nb in _neighbors4(c) if nb in rocky)
         kept: list[list[tuple[float, float]]] = []
         for ring in _rock_outer_rings(area_cells, cell):
-            if len(ring) >= 3 and _ring_area(ring) >= MIN_ROCK_AREA_M2:
+            if len(ring) >= 3 and _ring_area(ring) >= ROCK_DEGENERATE_AREA_M2:
                 kept.append(ring)
         if kept:
             polygons.extend(kept)
@@ -1195,10 +1199,10 @@ def _rings_from_cell_union(
         except Exception:
             return []
 
-    # Stejný práh jako footprint path – ne polovina (po morph zůstatky <75 m²).
+    # Stejně jako footprint: skály bez min-size area cut (jen degenerát).
     rings: list[list[tuple[float, float]]] = []
     for poly in parts:
-        if poly.is_empty or poly.area < MIN_ROCK_AREA_M2:
+        if poly.is_empty or poly.area < ROCK_DEGENERATE_AREA_M2:
             continue
         try:
             poly = poly.simplify(ROCK_SIMPLIFY_M, preserve_topology=True)
@@ -1206,7 +1210,7 @@ def _rings_from_cell_union(
             pass
         if poly.is_empty or poly.geom_type != "Polygon":
             continue
-        if poly.area < MIN_ROCK_AREA_M2:
+        if poly.area < ROCK_DEGENERATE_AREA_M2:
             continue
         coords = [(float(x), float(y)) for x, y in poly.exterior.coords]
         if len(coords) >= 2 and coords[0] == coords[-1]:
@@ -1215,7 +1219,7 @@ def _rings_from_cell_union(
             rings.append(coords)
         elif len(coords) >= 3:
             hull = _convex_hull_ring(coords)
-            if len(hull) >= 3 and _ring_area(hull) >= MIN_ROCK_AREA_M2:
+            if len(hull) >= 3 and _ring_area(hull) >= ROCK_DEGENERATE_AREA_M2:
                 rings.append(hull)
     return rings
 

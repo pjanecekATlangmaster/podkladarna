@@ -103,6 +103,18 @@ def test_rock_field_becomes_polygon_close_to_real_extent():
     assert 250.0 <= area <= 21.0 * 21.0 * 1.3
 
 
+def test_midsize_rock_survives_without_min_size_cut():
+    """~8×8 m masa po morph/simplify dřív padala na 62 m² / 8 m — teď zůstane.
+
+    Min-size cleanup platí jen vegetaci; skály (201.2/206) jím neprocházejí.
+    """
+    got = merge_cliff_ticks(_field(8.0, 8.0), as_polygons=True)
+    assert got.polygons
+    assert not got.lines
+    area = sum(_ring_area(p) for p in got.polygons)
+    assert area >= 20.0
+
+
 def test_two_rock_fields_stay_separate_polygons():
     """Dvě pole 60 m od sebe nesmí splynout do jedné obálky."""
     ticks = _field(18.0, 18.0) + _field(18.0, 18.0, x0=60.0)
