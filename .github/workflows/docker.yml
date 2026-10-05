@@ -1,4 +1,5 @@
 name: Build and push Podkladarna
+# retrigger-marker: keep minimal path change for GHCR
 
 on:
   push:
