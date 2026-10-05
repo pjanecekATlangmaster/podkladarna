@@ -3,7 +3,9 @@
 from app.pipeline.cliff_height import classify_closed_ring_relief
 from app.pipeline.contours_gdal import (
     closed_relief_thresholds,
+    outermost_depression_rings,
     place_closed_contour_ticks,
+    point_in_ring,
     slope_tick_rotation_rad,
     _inset_ring,
 )
@@ -67,12 +69,28 @@ def test_shallow_noise_skipped():
     )
 
 
-def test_ticks_point_inward_for_depression():
-    ring = _square(50, 50, 40)
-    ticks = place_closed_contour_ticks(ring, toward_centroid=True, spacing_m=50.0)
-    assert ticks
+def test_ticks_one_or_two_opposite():
+    big = _square(50, 50, 40)  # perim 320 m → 2 ticks
+    ticks = place_closed_contour_ticks(big, toward_centroid=True)
+    assert len(ticks) == 2
+    (x0, y0, *_a), (x1, y1, *_b) = ticks
+    # protilehlé: střed mezi háčky blízko těžiště
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    assert abs(mx - 50) < 5 and abs(my - 50) < 5
     for x, y, tx, ty in ticks:
         assert (tx - x) * (50 - x) + (ty - y) * (50 - y) > 0
+
+    tiny = _square(50, 50, 5)  # perim 40 m → 1 tick
+    assert len(place_closed_contour_ticks(tiny, toward_centroid=True)) == 1
+
+
+def test_outermost_skips_inner_depression():
+    outer = _square(50, 50, 40)
+    inner = _square(50, 50, 15)
+    assert point_in_ring(50, 50, outer)
+    kept = outermost_depression_rings([(inner, "i"), (outer, "o")])
+    assert len(kept) == 1
+    assert kept[0][1] == "o"
 
 
 def test_inset_ring_is_smaller():

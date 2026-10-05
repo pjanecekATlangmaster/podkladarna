@@ -27,6 +27,7 @@ from app.pipeline.contours_gdal import (
     contour_line_params,
     contour_simplify_tol_m,
     is_closed_polyline,
+    outermost_depression_rings,
     place_closed_contour_ticks,
     polyline_length_m,
     refine_contour_polylines,
@@ -77,9 +78,16 @@ def _classify_rings(closed, elev_at, interval_m: float):
     min_dep, max_dep, min_dep_len, form_lo, form_hi, min_form_len = (
         closed_relief_thresholds(interval_m)
     )
-    depressions = []
+    dep_candidates = []
     formlines = []
-    skipped = {"small_dep": 0, "deep_dep": 0, "small_elev": 0, "equidist_elev": 0, "flat": 0}
+    skipped = {
+        "small_dep": 0,
+        "deep_dep": 0,
+        "small_elev": 0,
+        "equidist_elev": 0,
+        "flat": 0,
+        "inner_dep": 0,
+    }
     for ring in closed:
         perim = polyline_length_m(ring)
         relief = classify_closed_ring_relief(
@@ -98,7 +106,7 @@ def _classify_rings(closed, elev_at, interval_m: float):
             if perim < min_dep_len:
                 skipped["small_dep"] += 1
                 continue
-            depressions.append((ring, relief))
+            dep_candidates.append((ring, relief))
             continue
         # elevation
         if relief.relief_m > form_hi:
@@ -108,6 +116,8 @@ def _classify_rings(closed, elev_at, interval_m: float):
             skipped["small_elev"] += 1
             continue
         formlines.append((ring, relief))
+    depressions = outermost_depression_rings(dep_candidates)
+    skipped["inner_dep"] = len(dep_candidates) - len(depressions)
     thresholds = {
         "min_depression_m": min_dep,
         "max_depression_for_101_1_m": max_dep,
@@ -115,6 +125,7 @@ def _classify_rings(closed, elev_at, interval_m: float):
         "formline_height_lo_m": form_lo,
         "formline_height_hi_m": form_hi,
         "min_formline_perimeter_m": min_form_len,
+        "ticks": "1-2 opposite; outer ring only",
     }
     return depressions, formlines, skipped, thresholds
 
@@ -179,8 +190,10 @@ def _draw(
             p0 = to_px(x, y)
             dx, dy = tx - x, ty - y
             L = math.hypot(dx, dy) or 1.0
-            p1 = to_px(x + dx / L * 8.0, y + dy / L * 8.0)
-            draw.line([p0, p1], fill=(200, 20, 20), width=2)
+            # Kratke hacky (~0.75 mm @10k ≈ 7.5 m), ne diametr jamy.
+            tick_len = 7.5
+            p1 = to_px(x + dx / L * tick_len, y + dy / L * tick_len)
+            draw.line([p0, p1], fill=(200, 20, 20), width=3)
         cx = sum(p[0] for p in ring) / len(ring)
         cy = sum(p[1] for p in ring) / len(ring)
         draw.text(to_px(cx, cy), f"101.1 {relief.relief_m:.1f}m", fill=(140, 0, 0))
