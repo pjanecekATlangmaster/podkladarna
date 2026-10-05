@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.2.4"
+APP_VERSION = "2.2.5"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -137,11 +137,10 @@ DEFAULT_OPTIONS = {
     "kp_osm_playground_equipment": False,
     # Priorita OSM (urban pack) – dočasně default zapnuto kvůli testování.
     "kp_osm_priority": True,
-    # Všechny highway=footway jako zpevněný chodník (sprint 501.6;
-    # les/MTBO úzký pás 501.1/529 — ne fill uzavřené střednice).
+    # Všechny highway=footway jako zpevněný chodník (sprint 501.6).
+    # Les/MTBO: chodník = linie 506/834 (ne zpevněná plocha 501.1/529).
     # Statický default = off; při vytváření jobu doplní default_footway_as_sidewalk
     # (sprint / 1:4000 → on, jinak off), pokud formulář hodnotu nepošle.
-    # Volba platí i pro les/MTBO (ne jen sprint).
     "kp_osm_footway_as_sidewalk": False,
     # Zdroj cest: mixed | zabaged | osm (viz path_source v osm_paths.py).
     "path_source": "mixed",
