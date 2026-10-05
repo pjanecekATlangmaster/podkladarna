@@ -936,9 +936,9 @@ def test_osm_oom_code_sidewalk():
     )
 
     assert osm_oom_code("sidewalk", "sprint_2m") == "501.6"
-    # Les / MTBO: linie pěšiny, ne plocha 501.1 / 529.
-    assert osm_oom_code("sidewalk", "forest_10000") == "506"
-    assert osm_oom_code("sidewalk", "mtbo_10000") == "834"
+    # Les / MTBO: zpevněná plocha (ne linie pěšiny 506 / 834).
+    assert osm_oom_code("sidewalk", "forest_10000") == "501.1"
+    assert osm_oom_code("sidewalk", "mtbo_10000") == "529"
     assert osm_oom_code("track", "sprint_2m") == "505.1"
     assert osm_oom_code("residential", "sprint_2m") == "501.18"
     assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
@@ -950,7 +950,7 @@ def test_osm_oom_code_sidewalk():
         == "sidewalk"
     )
     assert sprint_line_highway({"highway": "footway"}, "footway") == "footway"
-    # Volba: všechny footway jako chodník (i bez surface).
+    # Volba: všechny footway jako chodník (i bez surface) – i les/MTBO → plocha.
     assert (
         sprint_line_highway(
             {"highway": "footway"},
@@ -958,6 +958,28 @@ def test_osm_oom_code_sidewalk():
             all_footways_as_sidewalk=True,
         )
         == "sidewalk"
+    )
+    assert (
+        osm_oom_code(
+            sprint_line_highway(
+                {"highway": "footway"},
+                "footway",
+                all_footways_as_sidewalk=True,
+            ),
+            "forest_10000",
+        )
+        == "501.1"
+    )
+    assert (
+        osm_oom_code(
+            sprint_line_highway(
+                {"highway": "footway"},
+                "footway",
+                all_footways_as_sidewalk=True,
+            ),
+            "mtbo_10000",
+        )
+        == "529"
     )
     # Boardwalk zůstává pěšinou i při volbě.
     assert (

@@ -495,10 +495,10 @@ def sprint_line_highway(
 ) -> str:
     """Sidewalk / zpevněný footway / pěší zóna / zpevněná cyklostezka → vnitřní druh.
 
-    ``all_footways_as_sidewalk``: všechny ``highway=footway`` jako chodník (sprint 501.6),
-    i bez surface / footway=sidewalk — užitečné v sídlišti při špatné klasifikaci OSM.
-    Dřevěný chodník (boardwalk) zůstává pěšinou.
-    Zpevněná ``cycleway`` → ``cycleway_paved`` (sprint 501.9).
+    ``all_footways_as_sidewalk``: všechny ``highway=footway`` jako chodník
+    (sprint 501.6 / les 501.1 / MTBO 529), i bez surface / footway=sidewalk —
+    užitečné při špatné klasifikaci OSM. Dřevěný chodník (boardwalk) zůstává
+    pěšinou. Zpevněná ``cycleway`` → ``cycleway_paved`` (sprint 501.9).
     """
     hw = (highway or "").lower()
     footway = (tags.get("footway") or "").lower()
@@ -1270,13 +1270,12 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return "504"
 
     if hw == "sidewalk":
-        # Linie chodníku – ve sprintu zpevněný footprint 501.6; v lese/MTBO
-        # pěšina (ne 501.1 / 529 plocha – to je jen pro polygony hřišť apod.).
+        # Chodník: sprint footprint 501.6; les/MTBO zpevněná plocha (501.1 / 529).
         if sprint:
             return "501.6"
         if mtbo:
-            return "834"
-        return "506"
+            return "529"
+        return "501.1"
 
     # Zpevněná cyklostezka (asphalt / good smoothness) – široký footprint s okrajem.
     if hw == "cycleway_paved":
