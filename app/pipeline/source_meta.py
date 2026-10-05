@@ -16,7 +16,7 @@ PRODUCT_DMPOK = "DMPOK"
 PRODUCT_DMP1G = "DMP1G"
 
 INDICATIVE_LABEL_CS = (
-    "Indikativní kreslicí podklad – není zeměměřičské zaměření."
+    "Pracovní kreslicí podklad – není dokonalé zaměření."
 )
 CITATION_SHORT = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
 # Legacy aliasy (dříve rozlišovaly citaci s/bez KP) – vždy stejný text.
@@ -25,7 +25,7 @@ CITATION_SHORT_WITH_KP = CITATION_SHORT
 
 
 def citation_line() -> str:
-    return f"{CITATION_SHORT} — {INDICATIVE_LABEL_CS}"
+    return f"{CITATION_SHORT} – {INDICATIVE_LABEL_CS}"
 
 
 def _sheet_product_meta(folder: Path, laz_name: str, default_kind: str) -> dict:

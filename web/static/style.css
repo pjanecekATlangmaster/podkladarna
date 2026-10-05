@@ -90,13 +90,17 @@ main.page-wrap {
   margin-bottom: 1.25rem;
 }
 
-.about-card h2 {
+.about-card > h2 {
   margin-top: 0;
 }
 
 .about-body {
   font-size: 0.98rem;
   line-height: 1.55;
+}
+
+.about-body h2 {
+  margin-top: 1.15rem;
 }
 
 .about-body ul {
