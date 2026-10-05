@@ -806,12 +806,13 @@ legend {
 .jobs-block-live {
   background: #fff8ef;
   border-color: #e8d2b0;
-  flex: 0 1 auto;
-  /* Levý formulář je vysoký – sem vejde běžící job (log) + část fronty. */
-  max-height: min(62vh, 40rem);
+  /* Výška podle obsahu — nesmršťovat ve flexu (to způsobovalo vnitřní scroll). */
+  flex: 0 0 auto;
+  height: fit-content;
+  /* Scroll jen když panel sám přeteče viewport. */
+  max-height: min(85vh, calc(100vh - 8rem));
   overflow-x: hidden;
   overflow-y: auto;
-  min-height: 0;
 }
 
 .jobs-block-live .log {
