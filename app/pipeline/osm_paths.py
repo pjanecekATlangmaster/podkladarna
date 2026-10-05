@@ -46,7 +46,9 @@ OVERPASS_QL_TIMEOUT_S = 25
 OSM_API_TIMEOUT_S = 45
 
 # path/footway nestačí – v ČR je spousta použitelných cest jako track/bridleway.
-# Ulice/silnice bereme ze ZABAGED (přesnější), ne z OSM – kromě režimu path_source=osm.
+# Ulice/silnice primárně ze ZABAGED; OSM road_* doplní mixed, když ZABAGED má
+# jen Cestu / nic (asfaltový track, service+asphalt, unclassified, …).
+# Režim path_source=osm bere všechny OSM_ROAD_HIGHWAYS.
 # pedestrian = náměstí / pěší zóny (hlavně sprint).
 OSM_HIGHWAYS = frozenset(
     {"path", "footway", "steps", "bridleway", "cycleway", "track", "pedestrian"}
@@ -92,6 +94,7 @@ _ROAD_BASE_RANK: dict[str, int] = {
     "road": 1,
     "service": 0,
 }
+# Zpevněný surface → +1 rank (širší footprint / les 503 místo 504 u service).
 _PAVED_ROAD_BUMP = frozenset(
     {
         "residential",
@@ -101,8 +104,32 @@ _PAVED_ROAD_BUMP = frozenset(
         "tertiary_link",
         "secondary",
         "secondary_link",
+        "service",
+        "road",
     }
 )
+# Typická silnice: i bez surface=* očekávej zpevněný povrch (ne service/track).
+# service jen při surface=asphalt/paved/…; track řeší refine_track_highway.
+_EXPECTED_PAVED_ROAD_HIGHWAYS = frozenset(
+    {
+        "motorway",
+        "motorway_link",
+        "trunk",
+        "trunk_link",
+        "primary",
+        "primary_link",
+        "secondary",
+        "secondary_link",
+        "tertiary",
+        "tertiary_link",
+        "unclassified",
+        "residential",
+        "living_street",
+        "road",
+    }
+)
+# Po refine do mixed: silnice (ne road_1 = service bez surface — to necháme ZABAGED).
+_MIXED_ROAD_DRAW_HIGHWAYS = frozenset({"road_2", "road_3", "road_4"})
 
 PATH_SOURCE_MIXED = "mixed"
 PATH_SOURCE_ZABAGED = "zabaged"
@@ -561,6 +588,14 @@ def road_width_rank(tags: dict, highway: str) -> int:
     return max(0, min(3, base))
 
 
+def is_expected_paved_road_highway(highway: str) -> bool:
+    """Typická silnice (residential/unclassified/tertiary/…) → zpevněná i bez surface.
+
+    Ne service (jen s asphalt/paved), ne track/footway/sidewalk.
+    """
+    return path_draw_highway(highway).lower() in _EXPECTED_PAVED_ROAD_HIGHWAYS
+
+
 def refine_track_highway(tags: dict) -> str:
     """tracktype / surface → road_* (zpevněný) | track_fast | track | track_slow.
 
@@ -596,6 +631,25 @@ def refine_path_highway(tags: dict, highway: str) -> str:
 def is_road_draw_highway(highway: str) -> bool:
     draw = path_draw_highway(highway)
     return draw in OSM_ROAD_HIGHWAYS or draw in ROAD_DRAW_HIGHWAYS
+
+
+def keep_highway_in_mixed(highway: str) -> bool:
+    """Mixed: pěšiny/track_* + silnice po refine (road_2..4), ne sidewalk blowup.
+
+    Asfaltový track / service+asphalt / unclassified i bez surface končí jako
+    ``road_*`` — dřív vypadly z mixed (jen OSM_HIGHWAYS), zůstala ZABAGED Cesta.
+    ``track_fast``/``track_slow`` taky vznikají refine a musí zůstat.
+    ``road_1`` (typicky service bez surface) necháváme ZABAGED.
+    """
+    if is_bridge_highway(highway):
+        return True
+    draw = path_draw_highway(highway)
+    if draw in TRACK_DRAW_HIGHWAYS or draw in _MIXED_ROAD_DRAW_HIGHWAYS:
+        return True
+    mixed = osm_highway_set(PATH_SOURCE_MIXED) | frozenset(
+        {"sidewalk", "cycleway_paved"}
+    )
+    return draw in mixed
 
 
 def _is_pedestrian_area_tags(tags: dict) -> bool:
@@ -2526,15 +2580,11 @@ def prepare_osm_paths(
     ]
     dropped_short_osm = len(osm_items) - len(kept_osm)
 
-    # 2. Varianta MIXED: pěšiny + lávky, ořez proti ZABAGED + OSM×OSM širší>užší
-    # sidewalk / cycleway_paved vznikají až refine ze footway/cycleway.
-    mixed_highways = osm_highway_set(PATH_SOURCE_MIXED) | frozenset(
-        {OSM_BRIDGE_HIGHWAY, "sidewalk", "cycleway_paved"}
-    )
+    # 2. Varianta MIXED: pěšiny + lávky + zpevněné silnice (road_2..4),
+    #    ořez proti ZABAGED Ulice + OSM×OSM širší>užší.
+    # sidewalk / cycleway_paved / road_* vznikají až refine.
     osm_items_mixed = [
-        (pts, hw)
-        for pts, hw in osm_items
-        if path_draw_highway(hw) in mixed_highways or is_bridge_highway(hw)
+        (pts, hw) for pts, hw in osm_items if keep_highway_in_mixed(hw)
     ]
     kept_mixed, dropped_mixed = filter_osm_items_against_zabaged(osm_items_mixed, zabaged_lines)
     kept_mixed, dropped_self_mixed = dedup_osm_prefer_wider(kept_mixed)
