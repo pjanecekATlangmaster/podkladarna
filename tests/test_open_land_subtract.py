@@ -1,4 +1,4 @@
-"""Testy masek pro odečet KP 401."""
+"""Testy masek pro legacy odečet 401 (modul zůstává pro starší skripty)."""
 
 from __future__ import annotations
 

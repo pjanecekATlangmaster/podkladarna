@@ -62,9 +62,9 @@ def grid_convergence_deg(ref_x: float, ref_y: float, crs_proj4: str = CRS_PROJ4)
 def oom_north_angles(ref_x: float, ref_y: float) -> tuple[float, float]:
     """Magnetická deklinace a grivace S-JTSK pro .omap.
 
-    PNG z Karttapullautinu je v severu sítě (S-JTSK). OOM ale potřebuje oba úhly:
+    Georef PNG je v severu sítě (S-JTSK). OOM ale potřebuje oba úhly:
     declination − grivation = konvergence (viz OOM a kalkulátor ČSOS).
-  """
+    """
     lat, lon = projected_to_wgs84(ref_x, ref_y)
     declination = _round_declination(magnetic_declination_deg(lat, lon))
     convergence = grid_convergence_deg(ref_x, ref_y)

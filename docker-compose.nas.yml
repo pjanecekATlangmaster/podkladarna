@@ -23,7 +23,6 @@ services:
       # Vaše veřejná IP bez limitů (doplňte před nasazením):
       - RATE_LIMIT_EXEMPT_IPS=78.80.94.188
       # Mapper CLI je zapečený v image (PODKLADARNA_MAPPER=/opt/mapper/bin/Mapper).
-      # Karttapullautin / pullauta v image není.
     mem_limit: 12g
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8672/"]

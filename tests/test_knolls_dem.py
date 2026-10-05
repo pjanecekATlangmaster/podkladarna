@@ -1,4 +1,4 @@
-"""Knolly z DEM (bez KP)."""
+"""Knolly z DEM."""
 
 from __future__ import annotations
 
@@ -41,13 +41,10 @@ def test_write_knoll_points_dxf(tmp_path: Path):
     assert "10.000" in text
 
 
-def test_bez_kp_forces_zip():
+def test_resolve_want_zip_always_true():
     want, note = resolve_want_zip({"output_zip": False})
     assert want is True
     assert note
-    want, note = resolve_want_zip({"use_kp": True, "output_zip": False})
-    assert want is True
-    assert note is not None
-    want, note = resolve_want_zip({"use_kp": False, "output_zip": True})
+    want, note = resolve_want_zip({"output_zip": True})
     assert want is True
     assert note is None

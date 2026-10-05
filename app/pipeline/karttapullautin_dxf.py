@@ -5,8 +5,7 @@ from pathlib import Path
 from app.pipeline.prepare_lidar import log_step, run_cmd
 
 # Zdroj v temp/ → název v ZIPu (base/). Jediná pravda vrstevnic = GDAL
-# (base/contours_gdal.*). KP out2 → volitelně archive/contours_kp.dxf (A/B).
-# Rust KP: c2g = menší (cliff1), c3g = větší (cliff2); obojí → ISOM 104 v OOM.
+# (base/contours_gdal.*). c2g = menší schod, c3g = větší; obojí → ISOM 104.
 # První shoda vyhrává; c1g/c2 jsou legacy aliasy.
 DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("dotknolls.dxf", "dotknolls.dxf"),
@@ -17,14 +16,12 @@ DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("c2.dxf", "cliffs_large.dxf"),
 )
 
-# KP vrstevnice (out2) – archiv / A/B, ne konkurující sada v base/.
+# Legacy out2 vrstevnice – archiv / A/B, ne konkurující sada v base/.
 DXF_CONTOUR_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("out2.dxf", "contours_kp.dxf"),
 )
 
-# Po LiDARu: 0,3 m a mezikřivky. out2.dxf.bin musí zůstat – KP ho čte při ZABAGED PNG.
 DXF_SKIP_AFTER_LIDAR = frozenset({"contours03.dxf", "out.dxf"})
-# Po zabalení ZIPu: KP out2 už archivován / nepatří do base/.
 DXF_SKIP_AFTER_VECTORS = frozenset({"out2.dxf", "basemap.dxf"})
 
 
@@ -42,7 +39,7 @@ def ensure_text_dxf(
     path = temp_dir / dxf_name
     if path.is_file() and path.stat().st_size >= 8:
         return path
-    # Binary .dxf.bin from legacy KP runs is no longer converted (no pullauta).
+    # Binary .dxf.bin ze starších běhů už nepřevádíme.
     return None
 
 
@@ -56,7 +53,7 @@ def collect_dxf_for_zip(
     """Soubory pro base/ ve výstupním ZIPu (zip_name → cesta).
 
     Default ``include_contours=False`` – jedna pravda vrstevnic je GDAL SHP;
-    KP out2 do base/ nedávej (opt-in jen pro legacy/A/B skripty).
+    legacy out2 do base/ nedávej (opt-in jen pro A/B skripty).
     """
     if not temp_dir.is_dir():
         return {}
@@ -80,7 +77,7 @@ def collect_kp_contours_for_archive(
     *,
     log: callable | None = None,
 ) -> Path | None:
-    """KP out2.dxf pro archive/ (ne base/) – A/B, ne OOM pravda."""
+    """Legacy out2.dxf pro archive/ (ne base/) – A/B, ne OOM pravda."""
     if not temp_dir.is_dir():
         return None
     for src_name, _zip_name in DXF_CONTOUR_PRODUCTS:
@@ -96,7 +93,7 @@ def prune_heavy_intermediate_dxf(
     log: callable | None = None,
     names: frozenset[str] | None = None,
 ) -> None:
-    """Smaže z temp/ obří nebo zbytečné DXF (úspora místa po běhu KP)."""
+    """Smaže z temp/ obří nebo zbytečné DXF (úspora místa)."""
     if not temp_dir.is_dir():
         return
     for name in names or DXF_SKIP_AFTER_LIDAR:

@@ -1,4 +1,4 @@
-"""Tests for DEM cliff candidates (bez KP)."""
+"""Tests for DEM cliff candidates."""
 
 from __future__ import annotations
 

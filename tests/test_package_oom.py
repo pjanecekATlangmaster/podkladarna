@@ -116,7 +116,7 @@ def test_oom_metadata_lidar_sources_and_no_kp_citation():
     meta = oom_metadata(
         "forest_10000",
         {"label": "Les", "contour_interval": 5, "scalefactor": 1},
-        {"scalefactor": 1, "use_kp": False},
+        {"scalefactor": 1},
         lidar_sources=lidar,
     )
     assert meta["use_kp"] is False
@@ -142,7 +142,7 @@ def test_oom_readme_has_no_kp_archive():
     meta = oom_metadata(
         "forest_10000",
         {"label": "Les", "contour_interval": 5, "scalefactor": 1},
-        {"scalefactor": 1, "use_kp": True},  # ignored – always bez-KP
+        {"scalefactor": 1},
     )
     readme = oom_readme(meta)
     assert meta["use_kp"] is False
@@ -394,19 +394,18 @@ def test_prepare_oom_map_minimal(tmp_path):
 
 
 def test_prepare_oom_map_vector_only_without_png_templates(tmp_path):
-    """use_kp=false + žádné referenční PNG → .omap jen s vektory (ne None)."""
+    """Bez referenčních PNG → .omap jen s vektory (ne None)."""
     kp = tmp_path / "work"
     kp.mkdir()
-    dest = tmp_path / "bez-kp-norefs.omap"
+    dest = tmp_path / "vector-only.omap"
     out = prepare_oom_map(
         kp,
         dest,
-        map_name="bez-kp",
+        map_name="vector-only",
         scale=10000,
         preset_id="forest_10000",
         bbox_wgs84=(14.4, 50.08, 14.42, 50.09),
         built_refs=None,
-        use_kp=False,
     )
     assert out == dest
     assert dest.is_file()

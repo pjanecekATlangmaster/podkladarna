@@ -505,7 +505,7 @@ def _dem_resolution_m(template_png: Path, template_pgw: Path) -> float:
 
 
 def _hillshade_dem_resolution_m(template_png: Path, template_pgw: Path) -> float:
-    """Rozlišení DEM pro hillshade – hrubší než pullautus, aby raster nebyl děravý."""
+    """Rozlišení DEM pro hillshade – hrubší než jemný náhled, aby raster nebyl děravý."""
     res = _dem_resolution_m(template_png, template_pgw)
     return max(HILLSHADE_DEM_MIN_M, min(res, HILLSHADE_DEM_MAX_M))
 

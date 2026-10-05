@@ -17,7 +17,7 @@ MIN_LAZ_BYTES = 1000
 
 
 def kp_grid_scale_m(scalefactor: float) -> float:
-    """Karttapullautin: scale = 2 * scalefactor (buňka heightmapy v metrech)."""
+    """Buňka heightmapy v metrech: scale = 2 * scalefactor."""
     return 2.0 * float(scalefactor)
 
 
@@ -81,16 +81,6 @@ def resolve_merge_crop_bounds(
     elif extra_pad_m:
         bounds = expand_crop_bounds(bounds, extra_pad_m)
     return bounds
-
-
-def is_kp_heightmap_oob(exc: BaseException) -> bool:
-    parts = [
-        str(exc),
-        str(getattr(exc, "stderr", "") or ""),
-        str(getattr(exc, "stdout", "") or ""),
-    ]
-    text = "\n".join(parts).lower()
-    return "index out of bounds" in text
 
 
 def _crop_filter_bounds(bounds: tuple[float, float, float, float]) -> str:

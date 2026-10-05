@@ -13,7 +13,7 @@ def _tick(x0: float, y0: float, x1: float, y1: float):
 
 
 def _wall(n: int, *, x0: float = 0.0, y: float = 0.0, step: float = 1.0):
-    """Stěna: KP kreslí čárku kolmo na spád, tedy podél stěny; nahusto za sebou."""
+    """Stěna: čárka kolmo na spád (podél stěny), nahusto za sebou."""
     return [_tick(x0 + i * step, y, x0 + i * step + 2.9, y) for i in range(n)]
 
 

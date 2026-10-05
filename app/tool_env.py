@@ -15,15 +15,6 @@ _OSGEO_CANDIDATES = (
     r"C:\OSGeo4W64",
 )
 
-_PULLAUTA_CANDIDATES = (
-    APP_ROOT / "bin" / "pullauta.exe",
-    APP_ROOT / "bin" / "pullauta",
-    APP_ROOT.parent / "karttapullautin-x86_64-win" / "pullauta.exe",
-    Path(r"D:\Downloads\karttapullautin-x86_64-win\pullauta.exe"),
-    Path(r"C:\Users\PetrJanecek\Downloads\karttapullautin-x86_64-win\pullauta.exe"),
-)
-
-
 def osgeo4w_root() -> Path | None:
     for raw in _OSGEO_CANDIDATES:
         if not raw:
@@ -224,19 +215,6 @@ def gis_subprocess_env(exe: str | None = None) -> dict[str, str]:
         env["PROJ_LIB"] = str(proj)
     suppress_optional_gdal_plugins(env)
     return env
-
-
-def resolve_pullauta() -> str:
-    explicit = os.environ.get("PULLAUTA_BIN")
-    if explicit and Path(explicit).exists():
-        return explicit
-    which = shutil.which("pullauta") or shutil.which("pullauta.exe")
-    if which:
-        return which
-    for candidate in _PULLAUTA_CANDIDATES:
-        if candidate.exists():
-            return str(candidate)
-    return explicit or "/usr/local/bin/pullauta"
 
 
 def _tool_stem(name: str) -> str:

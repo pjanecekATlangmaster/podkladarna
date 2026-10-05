@@ -1,4 +1,4 @@
-"""Tests for CHM vegetation classification (bez KP)."""
+"""Tests for CHM vegetation classification."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from app.pipeline.vegetation_chm import (
 
 
 def test_default_thresholds_calibrated_vs_kp():
-    """Po opravě CHM (louka = 0 m): pásy jako KP zelené zóny 1–5.5 m."""
+    """Po opravě CHM (louka = 0 m): pásy zeleně v zónách 1–5.5 m."""
     assert CHM_OPEN_MAX_M <= 1.5
     assert CHM_OPEN_MAX_M < CHM_GREEN_LIGHT_MAX_M < CHM_GREEN_MID_MAX_M
     assert 5.0 <= CHM_GREEN_DENSE_MAX_M <= 8.0
@@ -138,7 +138,7 @@ def test_white_core_kept_when_strict_and_clustered():
 
 
 def test_reinforce_open_pulls_scrub_in_meadow():
-    """Nízký 406 uprostřed louky → 401 (KP yellow-like)."""
+    """Nízký 406 uprostřed louky → 401."""
     h = np.full((7, 7), 1.0, dtype=np.float32)
     classified = np.ones((7, 7), dtype=np.uint8)
     classified[3, 3] = 2  # light green speck
@@ -155,7 +155,7 @@ def test_reinforce_open_pulls_scrub_in_meadow():
 
 
 def test_median_smooth_reduces_salt(tmp_path: Path):
-    """KP-like median: izolovaný pixel zeleně v louce zmizí."""
+    """Median filtr: izolovaný pixel zeleně v louce zmizí."""
     del tmp_path
     chm = np.full((9, 9), 0.3, dtype=np.float32)  # open
     chm[4, 4] = CHM_OPEN_MAX_M + 0.8  # single light-green speck

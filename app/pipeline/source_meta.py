@@ -19,13 +19,12 @@ INDICATIVE_LABEL_CS = (
     "Indikativní kreslicí podklad – není zeměměřičské zaměření."
 )
 CITATION_SHORT = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
-# Legacy alias – KP runtime removed; citation never includes Karttapullautin.
+# Legacy aliasy (dříve rozlišovaly citaci s/bez KP) – vždy stejný text.
 CITATION_SHORT_NO_KP = CITATION_SHORT
 CITATION_SHORT_WITH_KP = CITATION_SHORT
 
 
-def citation_line(*, use_kp: bool = False) -> str:
-    del use_kp  # retained for callers; always bez-KP citation
+def citation_line() -> str:
     return f"{CITATION_SHORT} — {INDICATIVE_LABEL_CS}"
 
 

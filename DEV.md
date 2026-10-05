@@ -73,7 +73,7 @@ python scripts/smoke_e2e.py --wait-minutes 45   # testdata/ → celé kolečko
 
 **Checkouty:** Petr smokuje z `C:\Users\PetrJanecek\.cursor\projects\podkladarna`.
 Agenti editují jen worktree `C:\Users\PetrJanecek\.cursor\projects\podkladarna-agent`
-(stejný git, větev `cursor/bez-kp-pipeline-a36e`) — neukládat do Petrova live stromu,
+(stejný git, agent worktree) — neukládat do Petrova live stromu,
 jinak `--reload` / file-watch zabije běžící job.
 
 ```powershell
@@ -93,7 +93,7 @@ jinak `--reload` / file-watch zabije běžící job.
 v `app/` / `web/` / `configs/` (uložení v editoru, agent, pytest) → běžící job
 skončil jako *„Přerušeno restartem serveru…“*.
 
-Pro lokální smoke / bez-KP pipeline:
+Pro lokální smoke / dlouhé joby:
 
 ```powershell
 .\scripts\dev.ps1 run
@@ -142,26 +142,27 @@ gdalsrsinfo EPSG:5514   # must not mention pyproj\proj_dir
 
 ## Co pytest neřeší
 
-- PDAL merge, pullauta běh – to až `docker compose dev` + `--data-dir`
+- PDAL merge / celá pipeline – to až `docker compose dev` + `--data-dir`
 - Reverse proxy limit – testujte HTTPS zvlášť po nasazení nginx conf
 
 ---
 
 ## A/B harness (legacy)
 
-Skript `scripts/compare_bez_kp_ab.py` zůstal pro staré artefakty; tip už KP nerunuje (`use_kp` je vždy false).
+Skript `scripts/compare_bez_kp_ab.py` slouží jen ke srovnání starých artefaktů;
+pipeline Karttapullautin nerunuje.
 
 
-## Náhled PNG z `.omap` (bez KP)
+## Náhled PNG z `.omap`
 
-Když job běží s `use_kp=false` (výchozí), pipeline po zápisu `.omap` dělá dvě věci:
+Po zápisu `.omap` pipeline dělá dvě věci:
 
 1. **Web „Otevřít PNG“** – vždy **Pillow + XML** (`work/preview.png` / `output/preview/oom_preview.png`), **bez deklinace**. Rychlé; Mapper se nevolá.
 2. **Georef ZIP** – preferuje **OpenOrienteering Mapper CLI @ 600 DPI** (`--full-map`) → `output/preview/*-{les,mtbo,sprint}.png` + `.pgw` (+ volitelně `.tif`), **s grivací**. Bez CLI buildu (typicky Windows tip se stock 0.9.6) job **explicitně** použije Pillow georef @ **600 DPI-eq** papíru (`map_per_px = 25400/DPI`, cap 10 000 px; override `PODKLADARNA_GEOREF_PILLOW_DPI`) → PNG+PGW±GeoTIFF, s grivací, a zapíše to do logu – tlačítko „Stáhnout georef náhledy“ zůstane. Malý ZIP: `podkladarna_georef_previews.zip` / API `/download/georef-previews`.
 
-**Materiálový OOM ZIP** PNG náhledy mapy **neobsahuje** (ani Pillow, ani Mapper). ČÚZK WMS `references/` zůstávají. KP `kp/pullautus*` jen když běží KP.
+**Materiálový OOM ZIP** PNG náhledy mapy **neobsahuje** (ani Pillow, ani Mapper). ČÚZK WMS `references/` zůstávají.
 
-Zapnout OOM preview i při KP: `options.oom_preview=true` / `PODKLADARNA_OOM_PREVIEW=1`. Vypnout: `oom_preview=false` / `PODKLADARNA_OOM_PREVIEW=0`. GeoTIFF: `oom_geotiff=false` / `PODKLADARNA_OOM_GEOTIFF=0`.
+Zapnout/vypnout OOM preview: `options.oom_preview=true|false` / `PODKLADARNA_OOM_PREVIEW=1|0`. GeoTIFF: `oom_geotiff=false` / `PODKLADARNA_OOM_GEOTIFF=0`.
 
 ### Mapper CLI (georef)
 
@@ -188,12 +189,6 @@ Vestavěný Pillow kreslí zjednodušenou symboliku. Orientace: nižší map Y n
 python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 .\scripts\fetch_openorienteering_mapper.ps1
 ```
-
-### Default bez KP
-
-Tip ≥1.26.0: Karttapullautin runtime odstraněn; pipeline je vždy bez KP.
-
----
 
 ## SMTP a privátní joby
 

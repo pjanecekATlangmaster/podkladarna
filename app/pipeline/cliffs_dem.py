@@ -1,14 +1,14 @@
-"""Kandidáti srázů ze sdíleného DEM (vlna 1 bez KP c2g/c3g).
+"""Kandidáti srázů ze sdíleného DEM.
 
 Počítá lokální schod na ``work/dem/dem_filled.tif`` (stejná mřížka jako
-shade/kontury). Výstup: KP-kompatibilní tick DXF do ``work/temp/c2g.dxf``
+shade/kontury). Výstup: tick DXF do ``work/temp/c2g.dxf``
 (+ ``c3g.dxf`` pro větší schody), ať ``cliff_merge`` + ``cliff_height``
 a OOM ``build_dxf_object_part`` zůstanou beze změny.
 
 Skála (plocha 201.2/206) vs. zem (104) se rozhoduje sklonem schodu, ne jen
 volbou ve formuláři. ``auto`` nechá obě třídy; ``earth_bank`` /
 ``symbol_206`` / ``off`` pořád přebijí všechno. Citlivost mapuje
-``kp_cliff_sensitivity`` na prahy výšky. Kód Karttapullautinu se nekopíruje.
+``kp_cliff_sensitivity`` na prahy výšky.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from app.pipeline.ini_builder import (
 )
 
 CLIFFS_DIR_NAME = "cliffs"
-# Délka ticku ~ KP buňka 3 m (merge_cliff_ticks očekává krátké úsečky).
+# Délka ticku ~ 3 m buňka (merge_cliff_ticks očekává krátké úsečky).
 TICK_HALF_LEN_M = 1.45
 # Krok vzorkování kandidátů po rastru (m) – podmnožina buněk.
 SAMPLE_STRIDE_CELLS = 2
@@ -283,7 +283,7 @@ def generate_job_cliffs_dem(
     options: dict | None = None,
     log=None,
 ) -> dict[str, Path]:
-    """Job fáze bez KP: kandidáti srázů do ``work/temp/`` pro OOM import."""
+    """Job fáze: kandidáti srázů do ``work/temp/`` pro OOM import."""
     work_dir = Path(work_dir)
     cliff_symbol = str((options or {}).get("kp_cliff_symbol") or "auto").strip().lower()
     if cliff_symbol == "off":
@@ -298,7 +298,7 @@ def generate_job_cliffs_dem(
     c1, c2 = resolve_drop_thresholds(options)
     sens = resolve_cliff_sensitivity(options)
     if log:
-        log("=== Fáze: srázy z DEM (bez KP) ===")
+        log("=== Fáze: srázy z DEM ===")
         log(
             f"Srázy DEM: citlivost={sens} → cliff1={c1:g} m, cliff2={c2:g} m "
             f"(méně citlivé = méně falešných zemních srázů)"

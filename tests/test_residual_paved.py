@@ -170,7 +170,7 @@ def test_residual_empty_without_residential(tmp_path: Path):
 
 
 def test_sparse_residential_is_skipped(tmp_path: Path):
-    """Residential skoro bez OSM uvnitř → přeskočit (jinak přikryje KP)."""
+    """Residential skoro bez OSM uvnitř → přeskočit (jinak přikryje podklad)."""
     # Velký residential, uvnitř jen malá budova → zbytek >> 25 %.
     residential = {
         "type": "way",

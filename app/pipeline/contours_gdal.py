@@ -550,7 +550,7 @@ def generate_job_contours(
     log=None,
 ) -> Path:
     """Jediná pravda vrstevnic: GDAL z DMR (sdílený dem_filled), ne KP DXF / DMP."""
-    # Preferuj kanonickou job_grid mřížku; pullautus jen jako fallback hybridu.
+    # Preferuj kanonickou job_grid mřížku; pullautus jen jako legacy fallback.
     bounds = resolve_job_extent(work_dir, crop_bounds=crop_bounds)
     dest = work_dir / "contours" / "contours.shp"
     del formline

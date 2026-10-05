@@ -1,8 +1,7 @@
 """Malé kupky (ISOM 109) ze sdíleného DEM.
 
-Vlastní detektor. Parametr ``knolls`` (0–1, výš = přísnější) je stejná
-myšlenka jako v pullauta.ini: výrazný lokální vrchol, který už není kopec
-na vrstevnici. Kód Karttapullautinu se nekopíruje.
+Vlastní detektor. Parametr ``knolls`` (0–1, výš = přísnější): výrazný lokální
+vrchol, který už není kopec na vrstevnici.
 
 Výstup ``work/temp/dotknolls.dxf`` (POINT) — OOM ho bere jako 109.
 """
@@ -22,7 +21,6 @@ KNOLL_RADIUS_M = 8.0
 KNOLL_MIN_SPACING_M = 14.0
 # Vyšší prominence už patří vrstevnici, ne tečce.
 KNOLL_MAX_PROMINENCE_M = 2.8
-# Výchozí faktor jako pullauta.base.ini (knolls=0.6).
 KNOLL_FACTOR_DEFAULT = 0.6
 
 
@@ -189,7 +187,7 @@ def generate_job_knolls(
     options: dict | None = None,
     log=None,
 ) -> Path | None:
-    """Bez KP: kupky do ``work/temp/dotknolls.dxf``. ``include_knolls=false`` = nic."""
+    """Kupky do ``work/temp/dotknolls.dxf``. ``include_knolls=false`` = nic."""
     opts = options or {}
     if opts.get("include_knolls", True) is False:
         if log:
@@ -212,5 +210,5 @@ def generate_job_knolls(
     except (TypeError, ValueError):
         factor = KNOLL_FACTOR_DEFAULT
     if log:
-        log("=== Fáze: knolly z DEM (bez KP) ===")
+        log("=== Fáze: knolly z DEM ===")
     return generate_knolls_from_dem(dem, work_dir / "temp", factor=factor, log=log)

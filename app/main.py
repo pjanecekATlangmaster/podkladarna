@@ -609,7 +609,7 @@ async def api_create_job(request: Request):
             )
         options["private"] = True
         options["notify_email"] = notify_email
-    # use_kp odstraněn – tip vždy bez KP (ignoruj legacy formulář/API).
+    # Legacy API flag – vždy vypnuto (Karttapullautin runtime není).
     options["use_kp"] = False
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:

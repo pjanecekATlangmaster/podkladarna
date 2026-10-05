@@ -42,8 +42,7 @@ Citace na tiskových výstupech: **ČÚZK, [rok]** (rok = aktuálnost použitýc
 
 Podkladárna byla volně inspirována
 [Karttapullautinem](https://github.com/karttapullautin/karttapullautin)
-a pak šla vlastní cestou (vegetace / srázy / DEM). Runtime KP ani binárka
-`pullauta` součástí tipu nejsou.
+a pak šla vlastní cestou (vegetace / srázy / DEM).
 
 ## Mapa výřezu
 
@@ -68,7 +67,6 @@ Distribuce binárky Mapperu v Docker image podléhá GPL-3.0. Odpovídající
 zdroj je veřejný git pin výše; recept sestavení je v `Dockerfile`
 (stage `mapper-builder`). Na vyžádání (Issues / e-mail maintainerovi)
 poskytneme tarball zdroje k danému pinu nebo odkaz na clone + SHA.
-Karttapullautin / `pullauta` v image **není**.
 
 Lokální Windows tip (`:8672`) Mapper CLI do Dockeru nepotřebuje —
 georef bez CLI padá na Pillow @ 600 DPI-eq (viz `DEV.md`).

@@ -214,7 +214,7 @@ def test_fetch_hillshade_wms_logs_czech_step(tmp_path: Path):
     assert any("Stahuji" in line for line in logs)
     assert dest_pgw.is_file()
 
-def test_compose_preview_without_kp(tmp_path: Path):
+def test_compose_preview_from_shade(tmp_path: Path):
     write_job_grid(
         tmp_path,
         (-700005.0, -1050005.0, -700000.0, -1050000.0),
@@ -226,27 +226,12 @@ def test_compose_preview_without_kp(tmp_path: Path):
         "1\n0\n0\n-1\n-700005\n-1050000\n", encoding="utf-8"
     )
 
-    pair = compose_job_preview(tmp_path, force=True, prefer_kp_pullautus=False)
+    pair = compose_job_preview(tmp_path, force=True)
     assert pair is not None
     png, pgw = pair
     assert png.name == "preview.png"
     assert png.is_file() and pgw.is_file()
     assert png_pixel_size(png) == (5, 5)
-
-
-def test_compose_preview_keeps_pullautus_when_hybrid(tmp_path: Path):
-    write_job_grid(
-        tmp_path,
-        (-700005.0, -1050005.0, -700000.0, -1050000.0),
-        resolution_m=1.0,
-    )
-    write_solid_gray_png(tmp_path / "pullautus.png", 5, 5, gray=50)
-    (tmp_path / "pullautus.pgw").write_text(
-        "1\n0\n0\n-1\n-700005\n-1050000\n", encoding="utf-8"
-    )
-    pair = compose_job_preview(tmp_path, prefer_kp_pullautus=True)
-    assert pair is not None
-    assert pair[0].name == "pullautus.png"
 
 
 def test_compose_preview_placeholder_when_no_shade(tmp_path: Path):

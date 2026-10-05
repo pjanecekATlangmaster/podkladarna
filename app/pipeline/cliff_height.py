@@ -1,12 +1,9 @@
 """Doměření výšky srázu z výškového modelu.
 
-Karttapullautin o výšce srázu nic neřekne. Rozhoduje se podle ní (`temp = h0 - ht`
-v jeho `cliffs.rs`), ale do DXF zapíše jen geometrii, takže se z jeho výstupu
-nedá poznat, jestli je nález 1,2 m stupínek nebo 15 m stěna. Tenhle modul výšku
-doměří zpětně z DEM.
+DXF kandidátů nese jen geometrii – nevíme, jestli je to 1,2 m stupínek nebo
+15 m stěna. Tenhle modul výšku doměří zpětně z DEM.
 
 Bere jen lomenou čáru a funkci na vzorkování výšky, o zdroj geometrie se nestará.
-Až KP nahradí vlastní detekce, měření i prahování zůstanou beze změny.
 
 Pozor na svah: rozdíl výšek napříč čárou sám o sobě nic neznamená, protože i
 rovnoměrný svah ho dá. Proto se vzorkuje ve dvou vzdálenostech a od bližšího

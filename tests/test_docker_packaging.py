@@ -1,4 +1,4 @@
-"""Docker packaging: bez KP runtime, s Mapper CLI pin + env wiring."""
+"""Docker packaging: Mapper CLI pin + env wiring; bez pullauta runtime."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,7 +8,7 @@ DOCKERFILE = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
 
 def test_dockerfile_has_no_karttapullautin_runtime():
-    """KP must not be downloaded/installed; comments saying it is absent are OK."""
+    """Karttapullautin / pullauta must not be downloaded or installed."""
     assert "PULLAUTA_BIN" not in DOCKERFILE
     assert "KP_VERSION" not in DOCKERFILE
     assert "KP_DOWNLOAD_URL" not in DOCKERFILE

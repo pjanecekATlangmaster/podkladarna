@@ -1,23 +1,20 @@
 """Záložní vegetace z CHM (DMP − DMR), když nejde ``vegetation_density``.
 
-Primární cesta bez KP je ``vegetation_density`` (hustota LiDAR odrazů jako KP
-``makevege``); CHM je jen výškový proxy pro prostředí bez ``laspy``.
+Primární cesta je ``vegetation_density`` (hustota LiDAR odrazů); CHM je jen
+výškový proxy pro prostředí bez ``laspy``.
 
-Prahy (metry nad terénem) kalibrované proti KP ``vegetation.png`` na dvou AOI
-(po opravě CHM v ``dem_prep``: DSM na mřížce DEM, buňka bez DMP bodu = 0):
+Prahy (metry nad terénem), po opravě CHM v ``dem_prep`` (DSM na mřížce DEM,
+buňka bez DMP bodu = 0):
 
-* ``open_max_m`` **1.0** – pod tím žlutá 401 (KP ``yellowheight=0.9``)
+* ``open_max_m`` **1.0** – pod tím žlutá 401
 * ``green_light_max_m`` **2.0** / ``green_mid_max_m`` **4.0** /
-  ``green_dense_max_m`` **6.0** – 406/408/410 = keře a mlází v pásu, kde KP
-  počítá zelené zóny (1–5.5 m)
-* ≥ 6 m – bílý les (vzrostlá koruna; KP ji jako zeleň nebere)
+  ``green_dense_max_m`` **6.0** – 406/408/410 = keře a mlází (pás ~1–5.5 m)
+* ≥ 6 m – bílý les (vzrostlá koruna)
 
 Dřívější prahy (open < 4 m, bílá ≥ 12 m) kompenzovaly chybu CHM:
 ``fillnodata`` roztahoval koruny přes louky. Výsledek: střídavě „vše les“.
 
-``open_land_subtract`` (ZABAGED/OSM odečet od 401) platí **jen** u KP cesty
-v ``package_oom`` — bez KP se 401 bere výhradně z tohoto SHP.
-Orto = QA-only.
+401 se do auto ``.omap`` bere z tohoto SHP (ne ze ZABAGED luk). Orto = QA-only.
 """
 
 from __future__ import annotations
@@ -649,7 +646,7 @@ def generate_job_vegetation_chm(
     dest = work_dir / "vegetation" / "vegetation.shp"
     tint = work_dir / "vegetation" / "chm_tint.png"
     if log:
-        log("=== Fáze: vegetace z CHM (bez KP) ===")
+        log("=== Fáze: vegetace z CHM ===")
     return generate_vegetation_from_chm(
         src,
         dest,

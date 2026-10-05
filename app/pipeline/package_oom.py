@@ -38,7 +38,6 @@ from app.pipeline.oom_import import (
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.oom_symbol_map import symbol_index_for_code
-from app.pipeline.open_land_subtract import collect_kp401_subtract_wkbs
 from app.pipeline.residual_paved import build_residual_paved_parts, _RESIDUAL_BANDS_DIR
 from app.pipeline.reference_layers import reference_metadata
 from app.pipeline.ruian_buildings import (
@@ -123,9 +122,8 @@ DEFAULT_CONTOUR_BY_SCALE: dict[int, float] = {
 # Ořez DXF/srazů z širšího LiDAR cropu: nechat kousek za hranicí, ať u kraje
 # nechybí stub symbolu. OSM/ZABAGED/AOPK se neořezávají – radši přesahují.
 CLIP_MARGIN_M = 25.0
-# Louka / parková zeleň pod KP vegetací – jinak 401 překryje hustníky z LiDARu.
 # Tyto ZABAGED vegetační vrstvy se do auto .omap NEVKLÁDAJÍ – vegetace
-# jde jen z CHM (náhrada KP), ZABAGED louky zůstanou ve ZIP zabaged/ ručně.
+# jde z hustoty LiDAR / CHM; ZABAGED louky zůstanou ve ZIP zabaged/ ručně.
 _ZABAGED_UNDER_VEGETATION = frozenset(
     {
         "TrvalyTravniPorost",
@@ -140,7 +138,7 @@ _ZABAGED_BASE_PAVED = frozenset(
         "ParkovisteOdpocivka",
     }
 )
-# Obdělávaná půda z OSM (412) taky pod KP – hustníky zůstanou navrch.
+# Obdělávaná půda z OSM (412) pod vegetací – hustníky zůstanou navrch.
 _OSM_UNDER_VEGETATION_MARK = "(412)"
 # Dvory v budovách (oliva) až navrch – překryjí detaily uvnitř dvorů.
 _COURTYARD_OLIVE_MARK = "dvory (oliva)"
@@ -226,7 +224,7 @@ def resolve_omap_job(
     presets: dict | None = None,
     preset_id_fallback: str | None = None,
 ) -> dict:
-    """Z měřítka + ekvidistance odvodí KP preset a seznam omap disciplín.
+    """Z měřítka + ekvidistance odvodí preset a seznam omap disciplín.
 
     Vrací dict:
       map_scale, preset_id, scalefactor, contour_interval, indexcontours,
@@ -703,11 +701,9 @@ def prepare_oom_map(
     ostatni_as_403: bool = False,
     residual_paved: bool = False,
     max_residual_m2: float = 500.0,
-    use_kp: bool = False,
     log=None,
 ) -> Path | None:
     del formline
-    use_kp = False  # KP runtime removed
     path_source = resolve_path_source(path_source)
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
@@ -724,7 +720,7 @@ def prepare_oom_map(
         ref_y = (ymin + ymax) / 2
     ref_lat, ref_lon = projected_to_wgs84(ref_x, ref_y)
     _, grivation = oom_north_angles(ref_x, ref_y)
-    # KP/LiDAR běží na širším výřezu (CROP_BUFFER_M) – DXF srazy/kameny z okraje
+    # LiDAR běží na širším výřezu (CROP_BUFFER_M) – DXF srazy/kameny z okraje
     # by jinak zaplavily mapu. Vektorové zdroje (OSM, ZABAGED, AOPK) necháme
     # přesahovat za AOI; uživatel je případně ořízne v OOM.
     dxf_clip_bounds = expand(
@@ -736,12 +732,10 @@ def prepare_oom_map(
         include_dxf=include_dxf,
         include_dxf_templates=False,
     )
-    # Prázdné šablony jsou OK: bez KP a bez referenčních PNG je výchozí pohled
-    # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty). Dřív early
-    # return None → žádné .omap při use_kp=false + output_references=false.
+    # Prázdné šablony jsou OK: bez referenčních PNG je výchozí pohled
+    # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty).
 
     object_parts: list[OomObjectPart] = []
-    zabaged_under: list[OomObjectPart] = []
     zabaged_base_paved: list[OomObjectPart] = []
     zabaged_rest: list[OomObjectPart] = []
     courtyard_olive_parts: list[OomObjectPart] = []
@@ -752,9 +746,9 @@ def prepare_oom_map(
         omit = set(ZABAGED_OMIT_BUILDING_LAYERS)
         if osm_features_have_power_lines(kp_cwd):
             omit |= set(ZABAGED_OMIT_WHEN_OSM_POWER)
-        # Bez KP: ZABAGED louky/parková zeleň nesmí řídit vegetaci v auto .omap.
-        if not use_kp:
-            omit |= set(_ZABAGED_UNDER_VEGETATION)
+        # ZABAGED louky/parková zeleň nesmí řídit vegetaci v auto .omap
+        # (vegetace = hustota LiDAR odrazů / CHM záloha).
+        omit |= set(_ZABAGED_UNDER_VEGETATION)
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,
@@ -777,10 +771,8 @@ def prepare_oom_map(
                 continue
             layer = part.name.removeprefix("ZABAGED – ").strip()
             if layer in _ZABAGED_UNDER_VEGETATION:
-                # Bez KP: drop i kdyby se vrstva omylem vrátila (CHM = jediný zdroj).
-                if use_kp:
-                    zabaged_under.append(part)
-            elif layer in _ZABAGED_BASE_PAVED:
+                continue  # už v omit; pojistka proti omylu
+            if layer in _ZABAGED_BASE_PAVED:
                 zabaged_base_paved.append(part)
             else:
                 zabaged_rest.append(part)
@@ -800,8 +792,6 @@ def prepare_oom_map(
         )
         if residual_parts:
             object_parts.extend(residual_parts)
-    # Louky/zeleň ze ZABAGED + OSM 412 pod KP (hustníky z LiDARu musí zůstat vidět).
-    object_parts.extend(zabaged_under)
     aopk_pts = load_aopk_tree_points(aopk_trees)
     osm_feat = build_osm_feature_parts(
         kp_cwd,
@@ -825,17 +815,7 @@ def prepare_oom_map(
         else:
             osm_feat_rest.append(part)
     object_parts.extend(osm_under)
-    # Vegetace do OOM:
-    # – KP: KP/CHM SHP + odečet ZABAGED/OSM ploch od 401 (open_land_subtract)
-    # – bez KP: jen CHM vegetation.shp, bez ZABAGED meadow prior / subtract
-    subtract_wkbs: list[bytes] | None = None
-    if use_kp:
-        subtract_wkbs = collect_kp401_subtract_wkbs(
-            zabaged_clean=zabaged_clean
-            if zabaged_clean and zabaged_clean.is_file()
-            else None,
-            work_dir=kp_cwd,
-        ) or None
+    # Vegetace: vegetation.shp z hustoty LiDAR / CHM, bez ZABAGED meadow prior.
     object_parts.extend(
         build_vegetation_parts(
             kp_cwd,
@@ -844,7 +824,7 @@ def prepare_oom_map(
             ref_x=ref_x,
             ref_y=ref_y,
             grivation_deg=grivation,
-            subtract_wkbs=subtract_wkbs,
+            subtract_wkbs=None,
         )
     )
     object_parts.extend(
@@ -991,7 +971,7 @@ def build_oom_zip(
                     zf.write(pgw, f"references/{pgw.name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
-            # Jediná pravda vrstevnic = GDAL SHP; KP out2 ne do base/.
+            # Jediná pravda vrstevnic = GDAL SHP; legacy out2 ne do base/.
             for zip_name, src in sorted(
                 collect_dxf_for_zip(
                     temp,
@@ -1000,7 +980,6 @@ def build_oom_zip(
                 ).items()
             ):
                 zf.write(src, f"base/{zip_name}")
-            # Archiv KP kontur vypnut – KP runtime odstraněn.
         contours_dir = kp_cwd / "contours"
         if contours_dir.is_dir():
             for path in sorted(contours_dir.iterdir()):
@@ -1074,7 +1053,7 @@ def build_oom_zip(
                     ".cpg",
                 }:
                     zf.write(path, f"osm/{path.name}")
-        # osm_kp.zip = vstup KP; pokud chybí manual OSM_cesty, rozbal jako fallback.
+        # Legacy osm_kp.zip; pokud chybí manual OSM_cesty, rozbal jako fallback.
         osm_kp = kp_cwd / "osm_kp.zip"
         if osm_kp.is_file() and not (manual_dir / "OSM_cesty.shp").is_file():
             _add_shapefiles_from_zip(zf, osm_kp, "osm")

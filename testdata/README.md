@@ -1,6 +1,6 @@
 # Testovací podklady (celé kolečko)
 
-Malý výřez pro lokální E2E test pipeline (PDAL → pullauta → ZIP).
+Malý výřez pro lokální E2E test pipeline (PDAL → vegetace/srázy/DEM → ZIP).
 
 | Soubor | Popis |
 |--------|--------|
@@ -22,4 +22,4 @@ Nebo:
 python scripts/smoke_e2e.py --wait-minutes 30
 ```
 
-Soubory jsou v gitu (~2,5 MB) – pytest je nepoužívá (běží v Dockeru s PDAL + pullauta).
+Soubory jsou v gitu (~2,5 MB) – pytest je nepoužívá (běží v Dockeru s PDAL/GDAL).

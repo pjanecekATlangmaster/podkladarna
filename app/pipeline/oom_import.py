@@ -1724,9 +1724,9 @@ def build_dxf_object_part(
         cliff_label += f", {drop_dropped} nízkých zahozeno dle DEM"
     elif drop_unmeasured:
         cliff_label += ", výška nezměřena (chybí DEM)"
-    # Bez KP temp/vegetation.pgw = kandidáti z DEM (cliffs_dem), ne z pullauta.
-    from_kp = (temp / "vegetation.pgw").is_file()
-    src_label = "Karttapullautin" if from_kp else "DEM kandidáti"
+    # Legacy temp/vegetation.pgw = starší rastrový zdroj; jinak kandidáti z DEM.
+    from_legacy_raster = (temp / "vegetation.pgw").is_file()
+    src_label = "legacy raster" if from_legacy_raster else "DEM kandidáti"
     return OomObjectPart(
         name=f"{src_label} – vektory ({cliff_label})",
         objects_xml="\n".join(objects),
