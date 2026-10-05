@@ -1,4 +1,4 @@
-"""Demo closed relief: 101.1 (velke jamy) + konzervativni 103 mid-interval.
+"""Demo closed relief + before/after proof for 101.1 tick rules.
 
 Usage (QGIS Python):
   $env:GDAL_DATA='C:\\QGIS\\share\\gdal'
@@ -13,6 +13,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +35,7 @@ from app.pipeline.contours_gdal import (
     simplify_contour_polyline,
     _inset_ring,
     _iter_contour_rows,
+    _ring_centroid,
 )
 from app.pipeline.oom_import import _load_cliff_dem, _wkb_parts
 
@@ -67,9 +69,7 @@ def _collect_closed_rings(
         if refine:
             pts = chaikin(pts, iterations=chaikin_iters)
             pts = simplify_contour_polyline(pts, simplify_tol)
-        if is_closed_polyline(pts) or (
-            len(pts) >= 4 and pts[0] == pts[-1]
-        ):
+        if is_closed_polyline(pts) or (len(pts) >= 4 and pts[0] == pts[-1]):
             closed.append(pts)
     return closed
 
@@ -108,7 +108,6 @@ def _classify_rings(closed, elev_at, interval_m: float):
                 continue
             dep_candidates.append((ring, relief))
             continue
-        # elevation
         if relief.relief_m > form_hi:
             skipped["equidist_elev"] += 1
             continue
@@ -127,7 +126,40 @@ def _classify_rings(closed, elev_at, interval_m: float):
         "min_formline_perimeter_m": min_form_len,
         "ticks": "1-2 opposite; outer ring only",
     }
-    return depressions, formlines, skipped, thresholds
+    return dep_candidates, depressions, formlines, skipped, thresholds
+
+
+def _dense_ticks_legacy(
+    ring: list[tuple[float, float]], *, spacing_m: float = 45.0
+) -> list[tuple[float, float, float, float]]:
+    """Stary styl: rada hacku podel kontury (pro before-srovnani)."""
+    pts = list(ring)
+    if pts and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    if len(pts) < 3:
+        return []
+    cx, cy = _ring_centroid(pts)
+    total = polyline_length_m(pts + [pts[0]])
+    if total < 1.0:
+        return []
+    n = max(1, int(total / max(spacing_m, 1.0)))
+    out = []
+    for i in range(n):
+        target = (i + 0.5) * total / n
+        walked = 0.0
+        loop = pts + [pts[0]]
+        for (x0, y0), (x1, y1) in zip(loop, loop[1:]):
+            seg = math.hypot(x1 - x0, y1 - y0)
+            if seg < 1e-6:
+                continue
+            if walked + seg >= target:
+                t = (target - walked) / seg
+                x = x0 + t * (x1 - x0)
+                y = y0 + t * (y1 - y0)
+                out.append((x, y, cx, cy))
+                break
+            walked += seg
+    return out
 
 
 def _bbox(rings, pad: float = 40.0):
@@ -136,30 +168,28 @@ def _bbox(rings, pad: float = 40.0):
     return min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad
 
 
-def _draw(
-    dest: Path,
+def _draw_scene(
     *,
     closed,
-    depressions,
-    formlines,
+    ring_styles: list[tuple],
     title: str,
+    subtitle: str = "",
     zoom_rings=None,
-    pad: float = 80.0,
+    pad: float = 50.0,
+    size: int = 900,
 ):
+    """ring_styles: (ring, outline_rgb, ticks, tick_rgb, label)."""
     from PIL import Image, ImageDraw
 
-    focus = zoom_rings or closed or [r for r, _ in depressions + formlines]
+    focus = zoom_rings or [r for r, *_ in ring_styles] or closed
     if not focus:
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (640, 360), (245, 245, 240)).save(dest)
-        print(f"Wrote empty {dest}")
-        return
+        img = Image.new("RGB", (640, 360), (245, 245, 240))
+        return img, 0
     xmin, ymin, xmax, ymax = _bbox(focus, pad=pad)
     span = max(xmax - xmin, ymax - ymin, 1.0)
-    size = 1400 if zoom_rings is None else 900
     scale = (size - 40) / span
     w = max(400, int((xmax - xmin) * scale) + 40)
-    h = max(300, int((ymax - ymin) * scale) + 40)
+    h = max(300, int((ymax - ymin) * scale) + 80)
 
     def to_px(x: float, y: float):
         return (int(20 + (x - xmin) * scale), int(20 + (ymax - y) * scale))
@@ -168,40 +198,58 @@ def _draw(
     draw = ImageDraw.Draw(img)
     for ring in closed:
         pts = [to_px(x, y) for x, y in ring]
-        draw.line(pts, fill=(190, 190, 190), width=1)
-    for ring, relief in formlines:
+        draw.line(pts, fill=(200, 200, 200), width=1)
+
+    tick_total = 0
+    for ring, outline, ticks, tick_rgb, label in ring_styles:
         pts = [to_px(x, y) for x, y in ring]
-        draw.line(pts, fill=(40, 120, 60), width=2)
-        inset = _inset_ring(ring, factor=0.55)
-        ipts = [to_px(x, y) for x, y in inset]
-        for i in range(0, max(len(ipts) - 1, 0), 2):
-            draw.line(
-                [ipts[i], ipts[min(i + 1, len(ipts) - 1)]],
-                fill=(20, 90, 40),
-                width=2,
-            )
-        cx = sum(p[0] for p in ring) / len(ring)
-        cy = sum(p[1] for p in ring) / len(ring)
-        draw.text(to_px(cx, cy), f"103 {relief.relief_m:.1f}m", fill=(10, 70, 30))
-    for ring, relief in depressions:
-        pts = [to_px(x, y) for x, y in ring]
-        draw.line(pts, fill=(180, 40, 40), width=2)
-        for x, y, tx, ty in place_closed_contour_ticks(ring, toward_centroid=True):
+        draw.line(pts, fill=outline, width=3)
+        for x, y, tx, ty in ticks:
             p0 = to_px(x, y)
             dx, dy = tx - x, ty - y
             L = math.hypot(dx, dy) or 1.0
-            # Kratke hacky (~0.75 mm @10k ≈ 7.5 m), ne diametr jamy.
-            tick_len = 7.5
-            p1 = to_px(x + dx / L * tick_len, y + dy / L * tick_len)
-            draw.line([p0, p1], fill=(200, 20, 20), width=3)
-        cx = sum(p[0] for p in ring) / len(ring)
-        cy = sum(p[1] for p in ring) / len(ring)
-        draw.text(to_px(cx, cy), f"101.1 {relief.relief_m:.1f}m", fill=(140, 0, 0))
-    draw.rectangle([6, 6, w - 6, 44], fill=(255, 255, 255))
-    draw.text((12, 12), title, fill=(20, 20, 20))
+            p1 = to_px(x + dx / L * 7.5, y + dy / L * 7.5)
+            draw.line([p0, p1], fill=tick_rgb, width=4)
+            tick_total += 1
+        if label:
+            cx, cy = _ring_centroid(ring)
+            draw.text(to_px(cx, cy), label, fill=outline)
+
+    banner_h = 56 if subtitle else 36
+    draw.rectangle([0, 0, w, banner_h], fill=(30, 30, 30))
+    draw.text((10, 8), title, fill=(255, 255, 255))
+    if subtitle:
+        draw.text((10, 30), subtitle, fill=(255, 220, 120))
+    return img, tick_total
+
+
+def _save(img, dest: Path):
     dest.parent.mkdir(parents=True, exist_ok=True)
+    # Force new mtime even if content similar
     img.save(dest, "PNG")
-    print(f"Wrote {dest} ({w}x{h})")
+    now = time.time()
+    try:
+        import os
+
+        os.utime(dest, (now, now))
+    except OSError:
+        pass
+    print(f"Wrote {dest} ({img.size[0]}x{img.size[1]}) mtime-bump")
+
+
+def _side_by_side(left, right, dest: Path, caption: str):
+    from PIL import Image, ImageDraw
+
+    gap = 12
+    header = 40
+    w = left.width + right.width + gap
+    h = max(left.height, right.height) + header
+    canvas = Image.new("RGB", (w, h), (40, 40, 40))
+    draw = ImageDraw.Draw(canvas)
+    draw.text((10, 10), caption, fill=(255, 255, 255))
+    canvas.paste(left, (0, header))
+    canvas.paste(right, (left.width + gap, header))
+    _save(canvas, dest)
 
 
 def run_aoi(
@@ -224,9 +272,121 @@ def run_aoi(
     closed = _collect_closed_rings(
         work, interval_m=interval_m, scale=scale, refine=refine
     )
-    deps, forms, skipped, thresholds = _classify_rings(
+    candidates, deps, forms, skipped, thresholds = _classify_rings(
         closed, elev_at, interval_m
     )
+
+    # Per-feature tick counts (AFTER rules)
+    features = []
+    after_styles = []
+    for ring, relief in deps:
+        ticks = place_closed_contour_ticks(ring, toward_centroid=True)
+        features.append(
+            {
+                "role": "outer",
+                "depth_m": round(relief.relief_m, 2),
+                "perimeter_m": round(polyline_length_m(ring), 1),
+                "tick_count": len(ticks),
+            }
+        )
+        after_styles.append(
+            (
+                ring,
+                (180, 40, 40),
+                ticks,
+                (220, 20, 20),
+                f"101.1 {relief.relief_m:.1f}m n={len(ticks)}",
+            )
+        )
+    # Inner candidates: outline gray, no ticks
+    outer_ids = {id(r) for r, _ in deps}
+    for ring, relief in candidates:
+        if id(ring) in outer_ids:
+            continue
+        features.append(
+            {
+                "role": "inner_no_ticks",
+                "depth_m": round(relief.relief_m, 2),
+                "perimeter_m": round(polyline_length_m(ring), 1),
+                "tick_count": 0,
+            }
+        )
+        after_styles.append(
+            (
+                ring,
+                (120, 120, 120),
+                [],
+                (120, 120, 120),
+                f"inner NO ticks {relief.relief_m:.1f}m",
+            )
+        )
+
+    after_tick_total = sum(f["tick_count"] for f in features)
+
+    # BEFORE: dense ticks on ALL candidates (outer+inner)
+    before_styles = []
+    before_tick_total = 0
+    for ring, relief in candidates:
+        ticks = _dense_ticks_legacy(ring, spacing_m=45.0)
+        before_tick_total += len(ticks)
+        before_styles.append(
+            (
+                ring,
+                (180, 40, 40),
+                ticks,
+                (220, 20, 20),
+                f"OLD dense {relief.relief_m:.1f}m n={len(ticks)}",
+            )
+        )
+
+    focus = [r for r, _ in candidates] or [r for r, _ in deps]
+    after_img, n_after = _draw_scene(
+        closed=closed,
+        ring_styles=after_styles,
+        title=f"PO / AFTER: {label}",
+        subtitle=f"ticks TOTAL={after_tick_total} (max 1-2 opposite, OUTER only)",
+        zoom_rings=focus,
+    )
+    before_img, n_before = _draw_scene(
+        closed=closed,
+        ring_styles=before_styles,
+        title=f"PRED / BEFORE: {label}",
+        subtitle=f"ticks TOTAL={before_tick_total} (dense along ALL nested rings)",
+        zoom_rings=focus,
+    )
+
+    _save(before_img, out / f"{slug}-before-dense.png")
+    _save(after_img, out / f"{slug}-101.1.png")
+    _side_by_side(
+        before_img,
+        after_img,
+        out / f"{slug}-before-after.png",
+        f"{slug}: BEFORE dense={before_tick_total}  |  AFTER opposite-outer={after_tick_total}",
+    )
+
+    # Overview AFTER only
+    ov_styles = list(after_styles)
+    for ring, relief in forms:
+        ov_styles.append(
+            (
+                ring,
+                (40, 120, 60),
+                [],
+                (40, 120, 60),
+                f"103 {relief.relief_m:.1f}m",
+            )
+        )
+    ov_img, _ = _draw_scene(
+        closed=closed,
+        ring_styles=ov_styles,
+        title=f"{label} overview AFTER",
+        subtitle=f"101.1 ticks={after_tick_total}; inner rings without ticks",
+        zoom_rings=None,
+        pad=80.0,
+        size=1400,
+    )
+    _save(ov_img, out / f"{slug}-overview.png")
+
     summary = {
         "slug": slug,
         "label": label,
@@ -238,56 +398,31 @@ def run_aoi(
         "formlines_103": len(forms),
         "skipped": skipped,
         "thresholds": thresholds,
-        "depression_depths_m": sorted(
-            [round(r.relief_m, 2) for _, r in deps], reverse=True
-        )[:20],
+        "tick_count_before_dense": before_tick_total,
+        "tick_count_after": after_tick_total,
+        "features": features,
+        "depression_depths_m": [f["depth_m"] for f in features if f["role"] == "outer"],
         "formline_heights_m": sorted(
             [round(r.relief_m, 2) for _, r in forms], reverse=True
         )[:20],
     }
-    _draw(
-        out / f"{slug}-overview.png",
-        closed=closed,
-        depressions=deps,
-        formlines=forms,
-        title=f"{label} | red=101.1 large pit | green=103 mid-interval hi-conf",
-    )
-    if deps:
-        top = sorted(deps, key=lambda t: polyline_length_m(t[0]), reverse=True)[:3]
-        _draw(
-            out / f"{slug}-101.1.png",
-            closed=closed,
-            depressions=top,
-            formlines=[],
-            title=f"{label}: 101.1 (large area, moderate depth)",
-            zoom_rings=[r for r, _ in top],
-            pad=50.0,
-        )
-    if forms:
-        top_f = sorted(forms, key=lambda t: t[1].relief_m, reverse=True)[:3]
-        _draw(
-            out / f"{slug}-103.png",
-            closed=closed,
-            depressions=[],
-            formlines=top_f,
-            title=f"{label}: 103 mid-interval (high confidence)",
-            zoom_rings=[r for r, _ in top_f],
-            pad=50.0,
-        )
     return summary
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--demo", action="store_true", help="Roky + test vrstevnic")
+    ap.add_argument("--demo", action="store_true")
     ap.add_argument("--out", type=Path, default=MEDIA_DEMO)
     args = ap.parse_args()
     if not args.demo:
         ap.error("Use --demo")
 
-    summaries = []
-    # Roky forest 5 m
-    summaries.append(
+    # Clear old PNGs so stale views cannot linger
+    if args.out.is_dir():
+        for p in args.out.glob("*.png"):
+            p.unlink(missing_ok=True)
+
+    summaries = [
         run_aoi(
             slug="roky",
             work=ROOT / "data" / "jobs" / "0822b22a8d62" / "work",
@@ -296,33 +431,30 @@ def main() -> int:
             out=args.out,
             label="Roky forest 5m",
             refine=True,
-        )
-    )
-    # Ostrý test vrstevnic – sprint 2 m (contours already from prod ZIP)
-    summaries.append(
+        ),
         run_aoi(
             slug="test-vrstevnic",
             work=ROOT / "data" / "_demo_test_vrstevnic" / "work",
             interval_m=2.0,
             scale=4000,
             out=args.out,
-            label="test vrstevnic sprint 2m (prod 19d6d2e756af)",
+            label="test vrstevnic sprint 2m",
             refine=False,
-        )
-    )
-    args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / "summary.json").write_text(
-        json.dumps(
-            {
-                "rules": "prefs 2026-10-05: 101.1 large moderate pits; 103 mid-interval hi-conf only",
-                "aois": summaries,
-            },
-            indent=2,
-            ensure_ascii=False,
         ),
-        encoding="utf-8",
+    ]
+    args.out.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "rules": (
+            "101.1: 1-2 opposite ticks; nested pits -> outer contour only. "
+            "103 mid-interval hi-conf. prefs 2026-10-05."
+        ),
+        "proof": "Compare *-before-dense.png vs *-101.1.png / *-before-after.png",
+        "aois": summaries,
+    }
+    (args.out / "summary.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    print(json.dumps(summaries, indent=2, ensure_ascii=False))
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
     print(f"Media -> {args.out}")
     return 0
 
