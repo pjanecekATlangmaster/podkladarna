@@ -286,6 +286,24 @@ def test_load_dotenv_sets_missing_only(tmp_path, monkeypatch):
     assert os.environ["SMTP_HOST"] == "keep-me"
 
 
+def test_load_dotenv_fills_empty_env(tmp_path, monkeypatch):
+    """Compose často injectne SMTP_HOST= (prázdné) — /data/.env musí doplnit."""
+    from app.settings import _load_dotenv
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "SMTP_HOST=smtp.from-data.example\nSMTP_FROM=from@example.com\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("SMTP_HOST", "")
+    monkeypatch.setenv("SMTP_FROM", "   ")
+    _load_dotenv(env_file)
+    import os
+
+    assert os.environ["SMTP_HOST"] == "smtp.from-data.example"
+    assert os.environ["SMTP_FROM"] == "from@example.com"
+
+
 def test_retry_missed_private_mails(tmp_path, monkeypatch):
     from app import job_worker
 

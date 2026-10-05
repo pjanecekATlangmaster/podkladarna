@@ -7,11 +7,15 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.2.10"
+APP_VERSION = "2.2.11"
 
 
 def _load_dotenv(path: Path) -> None:
-    """Načte KEY=VALUE z .env do os.environ (neprepisuje už nastavené). Stdlib only."""
+    """Načte KEY=VALUE z .env do os.environ (neprepisuje neprázdné). Stdlib only.
+
+    Prázdný existující env (např. compose ``SMTP_HOST=${SMTP_HOST:-}``) se
+    doplní z .env — jinak by ``/data/.env`` na NAS nikdy nefungoval.
+    """
     if not path.is_file():
         return
     try:
@@ -24,7 +28,10 @@ def _load_dotenv(path: Path) -> None:
             continue
         key, _, val = line.partition("=")
         key = key.strip()
-        if not key or key in os.environ:
+        if not key:
+            continue
+        existing = os.environ.get(key)
+        if existing is not None and existing.strip():
             continue
         val = val.strip()
         if len(val) >= 2 and val[0] == val[-1] and val[0] in {'"', "'"}:

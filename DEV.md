@@ -195,8 +195,9 @@ python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 Checkbox **„Privátní režim generování mapy…“** vyžaduje e-mail. Job se neobjeví ve veřejném `/api/jobs`, UI neukáže náhled ani ZIP. Po `done` worker pošle plain-text e-mail s odkazem `/d/{token}` (platí `PRIVATE_JOB_RETENTION_HOURS`, default 48). Expirované privátní joby maže startup/cleanup sweep (a 410 při přístupu po splatnosti).
 
 Env (doporučeno v `.env` vedle checkoutu / compose; necommitujte hesla).
-`app.settings` a `scripts/dev.ps1` `.env` načtou automaticky (nepřepisují už
-nastavené proměnné). Na NAS `docker-compose.nas.yml` předává `SMTP_*` /
+`app.settings` a `scripts/dev.ps1` `.env` načtou automaticky (nepřepisují
+**neprázdné** proměnné; prázdný compose inject se z `/data/.env` doplní).
+Na NAS `docker-compose.nas.yml` předává `SMTP_*` /
 `PUBLIC_BASE_URL` / `FEEDBACK_TO` z host `.env` do kontejneru; alternativně
 stačí `/data/.env` uvnitř volume. Bez `SMTP_HOST` selže privátní mail i
 `POST /api/feedback` (502). Bez `PUBLIC_BASE_URL` job doběhne, ale e-mail
