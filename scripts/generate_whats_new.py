@@ -299,6 +299,15 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         "Do ZIPu: vegetace/srázy/skály jako použité vs. vyhozené",
     ),
     (
+        re.compile(
+            r"(?i)fit.?content.*(?:běžíc|fronta|queue)|"
+            r"panel.*(?:výšk|height).*obsah|"
+            r"Běžící a fronta.*(?:výšk|obsah|scroll)|"
+            r"live.?jobs.*fit"
+        ),
+        "Panel běžících jobů a fronty podle výšky obsahu",
+    ),
+    (
         re.compile(r"(?i)UI:.*panel|vyšší panel Běžící"),
         "Vyšší panel běžících jobů a fronty",
     ),
