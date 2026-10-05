@@ -19,19 +19,17 @@ WEB_ABOUT_HTML = """
   Z výřezu na mapě si Podkladárna stáhne LiDAR (DMR&nbsp;5G + DMP&nbsp;OK),
   polohopis ZABAGED a doplňky z OSM (cesty, plochy, budovy…) i další zdroje.
   Reliéf a zeleň skládá z DMR/DMP (hustota odrazů, DEM srázy, GDAL vrstevnice);
-  hlavní výstup jsou vektory ve <code>.omap</code> pro OOM (a stejnojmenné
-  <code>.ocd</code> OCD12 pro OCAD) – podle měřítka (cesty z OSM).
+  hlavní výstup jsou vektory pro OOM (a stejnojmenné
+  <code>.ocd</code> OCD12 pro OCAD) – podle měřítka.
   Data nejsou dokonalá a automatika je jen skládá dohromady:
   něco chybí, něco se překrývá a ne všechno sedí napoprvé.
-  Berte to jako <em>indikativní pracovní podklad</em>, ne zeměměřičské zaměření
-  ani hotovou mapu. V OOM s tím ještě budete kreslit.
+  Berte to jako <em>pracovní podklad</em>, ne dokonalé zaměření
+  ani hotovou mapu. V OOM a terénu s tím ještě budete mít práci.
 </p>
 <p>
-  Na webu uvidíte PNG náhled z <code>.omap</code> (Pillow) – spíš rychlý náhled
-  než finální kresbu.
+  Na webu uvidíte PNG náhled mapy.
   Primární výstup je vždy ZIP s editovatelnými vektory (vrstevnice, zeleň, ZABAGED, OSM,
-  RÚIAN podklady, AOPK, DXF srázů, referenční orto…) – PNG na webu a obsah ZIPu
-  proto nevypadají úplně stejně.
+  RÚIAN podklady, AOPK, DXF srázů, referenční orto…).
   Georeferencované PNG/TIFF do ZIPu je volitelné (ve výchozím stavu vypnuto).
 </p>
 <p>V ZIPu je mimo jiné:</p>
@@ -39,13 +37,15 @@ WEB_ABOUT_HTML = """
   <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
+<h2>Jak na to</h2>
 <p>
-  Nakreslete obdélník (max cca 36&nbsp;km², např. 6×6&nbsp;km), vyberte <strong>měřítko</strong> a
-  <strong>ekvidistanci</strong> a spusťte generování. PNG na webu je jen náhled;
-  do ZIPu jdou omapy (a <code>.ocd</code>) pro příslušné disciplíny. Stránku mezitím můžete zavřít.
+  Nakreslete obdélník (max cca 36&nbsp;km², např. 6×6&nbsp;km), vyberte
+  <strong>mapový klíč</strong>, <strong>měřítko</strong>, případně zvolte další
+  parametry a spusťte generování. Na tlačítku je hrubý odhad potřebného času.
+  Stránku mezitím můžete zavřít.
   Po dokončení stáhněte ZIP, v OOM otevřete vybraný
   <code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code>
-  (v OCAD stejnojmenný <code>.ocd</code>) a podle návodu doladíte symboliku.
+  (v OCAD stejnojmenný <code>.ocd</code>) a můžete začít.
 </p>
 <p>
   Běží to na domácím NAS, takže najednou jede jen jeden job. Z jedné sítě
@@ -53,9 +53,11 @@ WEB_ABOUT_HTML = """
   <strong>10</strong>. Kdo má oba sloty plné, ve frontě ustoupí tomu, kdo
   ještě nic nespustil. Podle IP to není stoprocentní (VPN, sdílená Wi‑Fi).
   Hotové joby držíme <strong>48 hodin</strong>, ZIP si uložte u sebe.
+  Pokud nechcete, aby mapu viděl nikdo jiný, zvolte privátní režim a až bude
+  hotovo, přijde vám odkaz ke stažení.
 </p>
 <p>
-  Podkladárna je experiment — ocení
+  Podkladárna je experiment, proto ocením
   <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">zpětnou vazbu a připomínky (GitHub Issues)</a>.
 </p>
 """
@@ -78,14 +80,12 @@ danými algoritmy.
 
 Kvalita podkladu
 ----------------
-Hlavní výstup jsou vektory ve .omap (cesty, plochy, budovy, vrstevnice…)
+Hlavní výstup jsou vektory pro OOM (.omap; cesty, plochy, budovy, vrstevnice…)
 a stejnojmenné .ocd (OCD12) pro OCAD.
-PNG náhled z .omap je hlavně orientační.
+PNG náhled mapy je hlavně orientační.
 Data ČÚZK i OSM nejsou dokonalá a automatika je jen skládá dohromady –
-něco chybí, něco se překrývá. Tento balíček je indikativní pracovní podklad,
-ne zeměměřičské zaměření ani hotová mapa; v OOM s ním ještě budete kreslit.
-
-PNG a ZIP nevypadají 1:1 – editovatelné vrstvy se skládají z více zdrojů.
+něco chybí, něco se překrývá. Tento balíček je pracovní podklad,
+ne dokonalé zaměření ani hotová mapa; v OOM a terénu s ním ještě budete mít práci.
 
 Co je uvnitř
 ------------
@@ -116,8 +116,8 @@ Autor a kontakt
 Autorem Podkladárny je Petr Janeček. Služba běží na
 https://podkladarna.kibos.link
 
-Budu vděčný za jakékoli dotazy, připomínky i podněty k vylepšení —
-napište mi nebo zavolejte:
+Budu vděčný za jakékoli dotazy, připomínky i podněty k vylepšení.
+Napište mi nebo zavolejte:
   e-mail:   janecek@datais.cz
   telefon:  733 575 541
 

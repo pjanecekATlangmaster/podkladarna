@@ -533,6 +533,12 @@ def test_index_html(client):
     html = r.text
     assert "bbox-map" in html
     assert "O co jde" in html
+    assert "Jak na to" in html
+    assert "PNG náhled mapy" in html
+    assert "privátní režim" in html
+    assert "ocením" in html
+    assert "indikativní" not in html
+    assert "zeměměřičské" not in html
     assert "48 hodin" in html
     assert "Webový náhled" in html
     assert "Jen PNG náhled" not in html

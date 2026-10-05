@@ -560,7 +560,7 @@ def oom_readme(meta: dict) -> str:
         "OSM © přispěvatelé (ODbL). Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
         f"{citation}\n"
         f"{relief_line}"
-        "Podkladárna je experiment — zpětná vazba a připomínky:\n"
+        "Podkladárna je experiment, proto ocením zpětnou vazbu a připomínky:\n"
         "https://github.com/pjanecekATlangmaster/podkladarna/issues\n"
     )
 
