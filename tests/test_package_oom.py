@@ -269,11 +269,55 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "ČÚZK" in readme
     assert "WMS" in readme
     assert "*-sprint.omap" in readme or "*-les.omap" in readme
+    assert "*.ocd" in readme or ".ocd" in readme
+    assert "OCD12" in readme
     assert "cesty_zabaged/cesty_osm" not in readme
     assert "kombinace" not in readme
     assert "Fialový obdélník" in readme or "fialový" in readme.lower()
     assert "github.com/pjanecekATlangmaster/podkladarna/issues" in readme
     assert oom_readme(meta).startswith("Podkladárna")
+
+
+def test_build_oom_zip_includes_ocd_siblings(tmp_path: Path):
+    """ZIP bere .ocd vedle každého .omap (stejný stem)."""
+    kp = tmp_path / "kp"
+    kp.mkdir()
+    out = tmp_path / "out"
+    out.mkdir()
+    omap = out / "Park-les.omap"
+    ocd = out / "Park-les.ocd"
+    omap.write_text("<map/>", encoding="utf-8")
+    # Magic 0x0CAD + version 12
+    ocd.write_bytes(b"\xad\x0c\x00\x00\x0c\x00" + b"\x00" * 32)
+    meta = {"label": "test", "scale": 10000}
+    dest = tmp_path / "out.zip"
+    build_oom_zip(
+        kp,
+        dest,
+        zabaged_clean=None,
+        metadata=meta,
+        omap_paths=[omap],
+    )
+    with zipfile.ZipFile(dest) as zf:
+        names = set(zf.namelist())
+    assert "Park-les.omap" in names
+    assert "Park-les.ocd" in names
+
+
+def test_oom_readme_mentions_ocd_for_ocad():
+    from app.guide_text import ZIP_ABOUT_TXT
+
+    meta = oom_metadata(
+        "forest_10000",
+        {"label": "Les", "contour_interval": 5, "scalefactor": 1},
+        {"scalefactor": 1},
+    )
+    readme = oom_readme(meta)
+    assert "OCD12" in readme
+    assert ".ocd" in readme
+    assert "OCAD" in readme
+    assert ".ocd" in ZIP_ABOUT_TXT
+    assert "OCD12" in ZIP_ABOUT_TXT
 
 
 def test_build_oom_zip_includes_georef_when_requested(tmp_path: Path):

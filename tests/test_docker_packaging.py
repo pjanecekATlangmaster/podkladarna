@@ -22,6 +22,8 @@ def test_dockerfile_ships_mapper_cli_pin():
     assert "6dc1fd72ce2815f47646c51102a7e8e4eedb3bb2" in DOCKERFILE
     assert "PODKLADARNA_MAPPER=/opt/mapper/bin/Mapper" in DOCKERFILE
     assert "PODKLADARNA_MAPPER_EXPORT=" in DOCKERFILE
+    assert "PODKLADARNA_MAPPER_CONVERT=" in DOCKERFILE
+    assert "--output-format OCD12" in DOCKERFILE
     assert "--dpi {dpi}" in DOCKERFILE
     assert "QT_QPA_PLATFORM=offscreen" in DOCKERFILE
     assert "mapper-builder" in DOCKERFILE

@@ -19,8 +19,9 @@ WEB_ABOUT_HTML = """
   Z výřezu na mapě si Podkladárna stáhne LiDAR (DMR&nbsp;5G + DMP&nbsp;OK),
   polohopis ZABAGED a doplňky z OSM (cesty, plochy, budovy…) i další zdroje.
   Reliéf a zeleň skládá z DMR/DMP (hustota odrazů, DEM srázy, GDAL vrstevnice);
-  hlavní výstup jsou vektory ve <code>.omap</code> pro OOM – podle měřítka
-  (cesty z OSM). Data nejsou dokonalá a automatika je jen skládá dohromady:
+  hlavní výstup jsou vektory ve <code>.omap</code> pro OOM (a stejnojmenné
+  <code>.ocd</code> OCD12 pro OCAD) – podle měřítka (cesty z OSM).
+  Data nejsou dokonalá a automatika je jen skládá dohromady:
   něco chybí, něco se překrývá a ne všechno sedí napoprvé.
   Berte to jako <em>indikativní pracovní podklad</em>, ne zeměměřičské zaměření
   ani hotovou mapu. V OOM s tím ještě budete kreslit.
@@ -35,17 +36,16 @@ WEB_ABOUT_HTML = """
 </p>
 <p>V ZIPu je mimo jiné:</p>
 <ul>
-  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> – podle názvu projektu a měřítka; cesty z OSM; otevřete v OOM (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
+  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 <p>
   Nakreslete obdélník (max cca 36&nbsp;km², např. 6×6&nbsp;km), vyberte <strong>měřítko</strong> a
   <strong>ekvidistanci</strong> a spusťte generování. PNG na webu je jen náhled;
-  do ZIPu jdou omapy pro příslušné disciplíny. Stránku mezitím můžete zavřít.
+  do ZIPu jdou omapy (a <code>.ocd</code>) pro příslušné disciplíny. Stránku mezitím můžete zavřít.
   Po dokončení stáhněte ZIP, v OOM otevřete vybraný
   <code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code>
-  a podle návodu doladíte symboliku.
-  OCAD soubor <code>.omap</code> neotevře, DXF/SHP/PNG ano.
+  (v OCAD stejnojmenný <code>.ocd</code>) a podle návodu doladíte symboliku.
 </p>
 <p>
   Běží to na domácím NAS, takže najednou jede jen jeden job. Z jedné sítě
@@ -78,7 +78,8 @@ danými algoritmy.
 
 Kvalita podkladu
 ----------------
-Hlavní výstup jsou vektory ve .omap (cesty, plochy, budovy, vrstevnice…).
+Hlavní výstup jsou vektory ve .omap (cesty, plochy, budovy, vrstevnice…)
+a stejnojmenné .ocd (OCD12) pro OCAD.
 PNG náhled z .omap je hlavně orientační.
 Data ČÚZK i OSM nejsou dokonalá a automatika je jen skládá dohromady –
 něco chybí, něco se překrývá. Tento balíček je indikativní pracovní podklad,
@@ -89,6 +90,7 @@ PNG a ZIP nevypadají 1:1 – editovatelné vrstvy se skládají z více zdrojů
 Co je uvnitř
 ------------
 - *-sprint/les/mtbo.omap … podle názvu projektu a měřítka (cesty OSM), otevřete v OpenOrienteering Mapper (OOM)
+- *-sprint/les/mtbo.ocd  … totéž pro OCAD (OCD12 přes Mapper convert; lossy OK; .omap zůstává)
 - base/                … vrstevnice GDAL (contours_gdal.*), vegetace/srázy/kupky
 - uzitecne/             … vegetace / srázy 104 / skály: pouzite/ vs vyhozene/ (po filtrech)
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, …)
@@ -101,12 +103,13 @@ Co je uvnitř
 Co s tím
 --------
 1. Nainstalujte OOM (openorienteering.org).
-2. Rozbalte ZIP. Dvojklik na vybraný *-sprint.omap / *-les.omap / *-mtbo.omap nebo File → Open.
+2. Rozbalte ZIP. Dvojklik na vybraný *-sprint.omap / *-les.omap / *-mtbo.omap (OOM)
+   nebo stejnojmenný *.ocd (OCAD), případně File → Open.
 3. Importujte DXF a SHP dle README_OOM.txt a přiřaďte symboliku ISOM/ISSOM.
 4. Kreslete mapu. Referenční vrstvy po dokončení vypněte nebo smažte.
 
-OCAD neotevře .omap – použijte DXF, SHP nebo georeferencované PNG+PGW,
-případně export z OOM do OCD (v8–12).
+OCAD: použijte *.ocd z ZIPu (OCD12). Soubor .omap nativně neotevře –
+zůstává pro OOM; DXF/SHP/PNG+PGW dál fungují.
 
 Autor a kontakt
 ---------------

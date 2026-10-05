@@ -60,9 +60,11 @@ sestavovaný z `mfbehrens/oo-mapper` `cli` @ `6dc1fd72`. Dockerfile nastaví:
 |-----|--------|
 | `PODKLADARNA_MAPPER` | `/opt/mapper/bin/Mapper` |
 | `PODKLADARNA_MAPPER_EXPORT` | `"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}` |
+| `PODKLADARNA_MAPPER_CONVERT` | `"{mapper}" --cli convert -i "{omap}" -o "{ocd}" --output-format OCD12` |
 | `QT_QPA_PLATFORM` | `offscreen` |
 
-App doplní `{dpi}` = **600** pro georef ZIP. Web „Otevřít PNG“ zůstává Pillow.
+App doplní `{dpi}` = **600** pro georef ZIP. Po `.omap` volá convert → `.ocd`
+(OCD12) do materiálového ZIPu. Web „Otevřít PNG“ zůstává Pillow.
 GPL-3.0: viz `LICENSES.md` (zdroj + build recept / nabídka tarballu).
 
 Workflow po buildu nastaví balíček GHCR jako **veřejný** (login na NAS není potřeba).

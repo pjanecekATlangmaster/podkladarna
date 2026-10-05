@@ -549,14 +549,14 @@ def oom_readme(meta: dict) -> str:
         "Doporučený postup v OOM\n"
         "-----------------------\n"
         "1. Rozbalte celý ZIP do jedné složky. Otevřete vybraný *-sprint.omap / *-les.omap / *-mtbo.omap\n"
-        "   (podle měřítka; cesty z OSM).\n"
+        "   (podle měřítka; cesty z OSM) – nebo stejnojmenný *.ocd v OCAD.\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
         "   Vrstevnice (101/102): Chaikin → DP simplify (~0,08 mm) → Bézier; zamčené (is_protected)\n"
         "   – odemkni v panelu symbolů; v OOM volitelně Převést na křivky.\n"
         f"{kp_steps}"
-        "OCAD: soubor .omap neotevře – importujte DXF, SHP nebo georeferencované PNG+PGW.\n"
-        "Nebo v OOM exportujte do formátu OCD (v8–12).\n\n"
+        "OCAD: otevřete stejnojmenný *.ocd (OCD12 z Mapper convert; lossy OK).\n"
+        "Soubor .omap OCAD nativně neotevře – zůstal pro OOM; případně DXF/SHP/PNG+PGW.\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
         "AOPK památné stromy (CC BY 4.0). "
         "OSM © přispěvatelé (ODbL). Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
@@ -957,6 +957,10 @@ def build_oom_zip(
             for omap_path in omap_paths:
                 if omap_path.is_file():
                     zf.write(omap_path, omap_path.name)
+                    # Sourozenec .ocd (OCD12 přes Mapper convert) – stejný stem.
+                    ocd_path = omap_path.with_suffix(".ocd")
+                    if ocd_path.is_file():
+                        zf.write(ocd_path, ocd_path.name)
         zf.writestr("README_OOM.txt", oom_readme(metadata))
         zf.writestr(
             "metadata.json",

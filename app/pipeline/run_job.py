@@ -569,6 +569,12 @@ def _package_output(
                     )
                     if omap_p:
                         omap_paths.append(omap_p)
+                        try:
+                            from app.pipeline.oom_preview import convert_omap_to_ocd
+
+                            convert_omap_to_ocd(omap_p, log=log)
+                        except Exception as exc:
+                            log(f"OOM OCD: přeskočeno ({variant_name}): {exc}")
                     else:
                         log(f"OOM: {variant_name} nevytvořeno (prepare_oom_map vrátil None)")
 

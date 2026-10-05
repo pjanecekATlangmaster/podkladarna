@@ -13,13 +13,17 @@ from PIL import Image, ImageDraw
 from app.pipeline.oom_preview import (
     aoi_frame_bbox,
     build_georef_previews_zip,
+    convert_omap_to_ocd,
     find_mapper_exe,
     map_grivation_deg,
+    mapper_convert_argv,
     mapper_export_argv,
+    ocd_version,
     oom_preview_enabled,
     output_georef_enabled,
     prepare_mapper_web_preview,
     render_omap_to_png,
+    run_mapper_convert,
     undo_grivation_xy,
     write_job_oom_preview,
 )
@@ -862,6 +866,80 @@ def test_export_argv_keeps_spaces(tmp_path: Path, monkeypatch):
         "--dpi",
         "600",
     ]
+
+
+def test_convert_argv_requires_ocd12(tmp_path: Path, monkeypatch):
+    exe = tmp_path / "Mapper"
+    exe.write_bytes(b"")
+    monkeypatch.setenv("PODKLADARNA_MAPPER", str(exe))
+    monkeypatch.delenv("PODKLADARNA_MAPPER_CONVERT", raising=False)
+    assert mapper_convert_argv(tmp_path / "a.omap", tmp_path / "a.ocd") is None
+    monkeypatch.setenv(
+        "PODKLADARNA_MAPPER_CONVERT",
+        '"{mapper}" --cli convert -i "{omap}" -o "{ocd}" --output-format OCD12',
+    )
+    argv = mapper_convert_argv(tmp_path / "Park les.omap", tmp_path / "Park les.ocd")
+    assert argv is not None
+    assert argv[0] == str(exe)
+    assert argv[1:] == [
+        "--cli",
+        "convert",
+        "-i",
+        str(tmp_path / "Park les.omap"),
+        "-o",
+        str(tmp_path / "Park les.ocd"),
+        "--output-format",
+        "OCD12",
+    ]
+
+
+def _install_fake_mapper_convert(monkeypatch, tmp_path: Path) -> Path:
+    """Fake Mapper: convert → OCD magic file with version 12."""
+    script = tmp_path / "fake_mapper_convert.py"
+    script.write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "argv = sys.argv[1:]\n"
+        "ocd = None\n"
+        "fmt = None\n"
+        "i = 0\n"
+        "while i < len(argv):\n"
+        "    a = argv[i]\n"
+        "    if a == '-o' and i + 1 < len(argv):\n"
+        "        ocd = Path(argv[i + 1]); i += 2; continue\n"
+        "    if a == '--output-format' and i + 1 < len(argv):\n"
+        "        fmt = argv[i + 1]; i += 2; continue\n"
+        "    i += 1\n"
+        "assert ocd is not None and fmt == 'OCD12'\n"
+        "ocd.write_bytes(b'\\xad\\x0c\\x00\\x00\\x0c\\x00' + b'\\x00' * 64)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PODKLADARNA_MAPPER", sys.executable)
+    monkeypatch.setenv(
+        "PODKLADARNA_MAPPER_CONVERT",
+        f'"{sys.executable}" "{script}" --cli convert -i "{{omap}}" -o "{{ocd}}" '
+        "--output-format OCD12",
+    )
+    return script
+
+
+def test_run_mapper_convert_writes_ocd12(tmp_path: Path, monkeypatch):
+    _install_fake_mapper_convert(monkeypatch, tmp_path)
+    omap = tmp_path / "Mapa-les.omap"
+    omap.write_text("<map/>", encoding="utf-8")
+    dest = run_mapper_convert(omap)
+    assert dest == omap.with_suffix(".ocd")
+    assert dest.is_file()
+    assert ocd_version(dest) == 12
+
+
+def test_convert_omap_to_ocd_skips_without_env(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("PODKLADARNA_MAPPER_CONVERT", raising=False)
+    omap = tmp_path / "x.omap"
+    omap.write_text("<map/>", encoding="utf-8")
+    logs: list[str] = []
+    assert convert_omap_to_ocd(omap, log=logs.append) is None
+    assert any("přeskočeno" in m for m in logs)
 
 
 def test_write_job_preview_copies_named_png(tmp_path: Path, monkeypatch):

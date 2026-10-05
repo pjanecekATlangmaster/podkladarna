@@ -61,6 +61,11 @@ GEOREF_PILLOW_MAX_SIDE_CAP = 10000
 DEFAULT_MAPPER_EXPORT_TEMPLATE = (
     '"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}'
 )
+# .omap → .ocd (OCD12). Bez --output-format OCD12 by registry zvolil default v9.
+DEFAULT_MAPPER_CONVERT_TEMPLATE = (
+    '"{mapper}" --cli convert -i "{omap}" -o "{ocd}" --output-format OCD12'
+)
+_OCD_MAGIC = b"\xad\x0c"
 
 
 def georef_pillow_dpi() -> int:
@@ -234,6 +239,129 @@ def mapper_export_configured() -> bool:
         return False
     mapper = find_mapper_exe()
     return mapper is not None and mapper.is_file()
+
+
+def mapper_convert_argv(omap: Path, ocd: Path) -> list[str] | None:
+    """Argv ``Mapper --cli convert`` → OCD12.
+
+    Vyžaduje ``PODKLADARNA_MAPPER_CONVERT`` (šablona s ``{mapper}``, ``{omap}``,
+    ``{ocd}``). Explicitní ``OCD12`` v šabloně je povinné (bez flagu default v9).
+    """
+    template = os.environ.get("PODKLADARNA_MAPPER_CONVERT", "").strip()
+    if not template:
+        return None
+    mapper = find_mapper_exe()
+    return _argv_from_template(
+        template,
+        mapper=str(mapper or ""),
+        omap=str(omap),
+        ocd=str(ocd),
+    )
+
+
+def mapper_convert_configured() -> bool:
+    """True, když je nastavená convert šablona a existuje Mapper binárka."""
+    if not os.environ.get("PODKLADARNA_MAPPER_CONVERT", "").strip():
+        return False
+    mapper = find_mapper_exe()
+    return mapper is not None and mapper.is_file()
+
+
+def _is_ocd(path: Path) -> bool:
+    """Magic ``0x0CAD`` (little-endian ``ad 0c``) na začátku souboru."""
+    if not path.is_file() or path.stat().st_size < 8:
+        return False
+    return path.read_bytes()[:2] == _OCD_MAGIC
+
+
+def ocd_version(path: Path) -> int | None:
+    """Verze OCD formátu (uint16 LE na offsetu 4), nebo None."""
+    import struct
+
+    data = Path(path).read_bytes()[:6]
+    if len(data) < 6 or data[:2] != _OCD_MAGIC:
+        return None
+    return int(struct.unpack_from("<H", data, 4)[0])
+
+
+class MapperConvertError(RuntimeError):
+    """``Mapper --cli convert`` chybí, selhal, nebo není nakonfigurovaný."""
+
+
+def run_mapper_convert(
+    omap: Path,
+    dest: Path | None = None,
+    *,
+    log=None,
+) -> Path:
+    """Spustí Mapper CLI convert → ``.ocd`` (OCD12). Při chybě ``MapperConvertError``."""
+    omap = Path(omap)
+    dest = Path(dest) if dest is not None else omap.with_suffix(".ocd")
+    argv = mapper_convert_argv(omap, dest)
+    if not argv:
+        raise MapperConvertError(
+            "Convert .omap→.ocd vyžaduje OpenOrienteering Mapper CLI. "
+            "Nastavte PODKLADARNA_MAPPER a PODKLADARNA_MAPPER_CONVERT, např. "
+            f"{DEFAULT_MAPPER_CONVERT_TEMPLATE!r}."
+        )
+    if not find_mapper_exe():
+        raise MapperConvertError(
+            "PODKLADARNA_MAPPER_CONVERT je nastavené, ale Mapper binárka "
+            "nebyla nalezena (PODKLADARNA_MAPPER / PATH / Program Files)."
+        )
+    timeout = float(os.environ.get("PODKLADARNA_MAPPER_TIMEOUT", "600"))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        dest.unlink()
+    env = os.environ.copy()
+    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    if log:
+        log(f"OOM OCD: Mapper convert OCD12 → {dest.name}")
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise MapperConvertError(
+            f"Mapper convert timeout po {timeout:.0f}s ({omap.name})"
+        ) from exc
+    except OSError as exc:
+        raise MapperConvertError(f"Mapper convert spuštění selhalo: {exc}") from exc
+    if proc.returncode != 0 or not _is_ocd(dest):
+        err = (proc.stderr or b"").decode("utf-8", "replace").strip()
+        out = (proc.stdout or b"").decode("utf-8", "replace").strip()
+        detail = err or out
+        if dest.exists() and not _is_ocd(dest):
+            dest.unlink(missing_ok=True)
+        raise MapperConvertError(
+            f"Mapper convert selhal (kód {proc.returncode})"
+            + (f": {detail[:400]}" if detail else "")
+        )
+    return dest
+
+
+def convert_omap_to_ocd(omap: Path, *, log=None) -> Path | None:
+    """Best-effort ``.omap`` → ``.ocd`` vedle omapu. Bez CLI / při chybě None + log."""
+    omap = Path(omap)
+    if not omap.is_file():
+        return None
+    if not mapper_convert_configured():
+        if log:
+            log(
+                f"OOM OCD: přeskočeno ({omap.name}) – "
+                "není PODKLADARNA_MAPPER_CONVERT / Mapper CLI"
+            )
+        return None
+    try:
+        return run_mapper_convert(omap, log=log)
+    except MapperConvertError as exc:
+        if log:
+            log(f"OOM OCD: přeskočeno ({omap.name}): {exc}")
+        return None
 
 
 def _is_png(path: Path) -> bool:

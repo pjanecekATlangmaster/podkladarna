@@ -184,8 +184,10 @@ ENV PROJ_NETWORK=OFF
 # Georef ZIP: Mapper CLI (PR #2523). Web náhled zůstává Pillow.
 # {dpi} doplní app na 600 (GEOREF_MAPPER_DPI). Lokální Windows tip může
 # tyto env nepřepsat / nechat prázdné → Pillow georef fallback.
+# OCD12 do ZIPu: convert po .omap (bez flagu by default byl v9).
 ENV PODKLADARNA_MAPPER=/opt/mapper/bin/Mapper
 ENV PODKLADARNA_MAPPER_EXPORT='"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}'
+ENV PODKLADARNA_MAPPER_CONVERT='"{mapper}" --cli convert -i "{omap}" -o "{ocd}" --output-format OCD12'
 ENV QT_QPA_PLATFORM=offscreen
 ENV PATH="/opt/mapper/bin:${PATH}"
 
