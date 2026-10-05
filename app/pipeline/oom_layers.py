@@ -12,7 +12,7 @@ GROUP_OSM = 2
 GROUP_KP_PNG = 3
 
 DXF_LABELS: dict[str, str] = {
-    "contours_kp.dxf": "Vrstevnice KP (archiv DXF)",
+    "contours_kp.dxf": "Vrstevnice (archiv DXF, legacy)",
     "cliffs_small.dxf": "Zemní srázy (DXF)",
     "cliffs_large.dxf": "Zemní srázy strmější (DXF)",
     "dotknolls.dxf": "Knolíky (DXF)",
@@ -111,7 +111,7 @@ def collect_oom_templates(
         templates.append(
             OomTemplate(
                 "image",
-                "Karttapullautin (zeleň / náhled)",
+                "Náhled (legacy PNG)",
                 "kp/pullautus.png",
                 # Výchozí pohled = vektorová mapa; PNG si zapneš při kontrole.
                 visible=False,
@@ -125,7 +125,7 @@ def collect_oom_templates(
         templates.append(
             OomTemplate(
                 "image",
-                "Karttapullautin deprese",
+                "Deprese (legacy PNG)",
                 "kp/pullautus_depr.png",
                 visible=False,
                 opacity=0.65,

@@ -1,15 +1,11 @@
-# contour_interval is metres on the ground. ini_builder converts it for
-# Karttapullautin (interval is multiplied by scalefactor; formline=0 draws
-# every half-interval line as a full contour).
-# OOM vrstevnice (GDAL) vždy plná ekvidistance + indexcontours (bez 103 formline);
-# formline v presetu ovlivňuje jen KP rastrový náhled.
+# contour_interval = metry na zemi (OOM / GDAL).
+# OOM vrstevnice vždy plná ekvidistance + indexcontours (bez 103 formline).
+# basemapinterval / formline v presetu jsou legacy klíče (už se nerenderuje rastr).
 sprint_2m:
   label: "Sprint 1:4000 · 2 m"
   group: Sprint
   contour_interval: 2
   indexcontours: 10
-  # KP basemapinterval is metres on the DEM (not scaled). Keep 0 so the
-  # preview is not flooded with sub-metre raw contours (default KP).
   basemapinterval: 0
   scalefactor: 0.4
   formline: 0

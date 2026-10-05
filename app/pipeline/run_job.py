@@ -355,7 +355,6 @@ def run_job_pipeline(
             compose_job_preview(
                 work_dir,
                 force=True,
-                prefer_kp_pullautus=False,
                 overlay_png=tint if tint.is_file() else None,
                 overlay_opacity=0.30,
                 bounds_5514=grid_bounds,
@@ -564,7 +563,6 @@ def _package_output(
                         ostatni_as_403=ostatni_as_403,
                         residual_paved=residual_paved,
                         max_residual_m2=max_residual_m2,
-                        use_kp=False,
                         log=log,
                     )
                     if omap_p:

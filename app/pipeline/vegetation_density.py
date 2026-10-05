@@ -1,9 +1,9 @@
-"""Vegetace bez KP z hustoty LiDAR odrazů (vlastní implementace, inspirace KP).
+"""Vegetace z hustoty LiDAR odrazů (vlastní implementace; volně inspirováno KP).
 
 Proč ne CHM: běh lesem neurčuje výška koruny, ale **co je v nízkém patře**.
-Karttapullautin (``makevege``) proto nepracuje s DSM−DEM, ale počítá body:
+Počítáme body:
 
-* **žlutá 401** – KP: buňky ``yellow_cell_m`` (3 m), poměr nízkých odrazů
+* **žlutá 401** – buňky ``yellow_cell_m`` (3 m), poměr nízkých odrazů
   (ground nebo < ``yellow_height_m``) v okně ``yellow_window_cells``×…
   (2×2 → 6 m) > ``yellow_threshold``. Louka = skoro všechny body u země.
   ČÚZK DMP má husté first-return koruny a DMR řídký ground — stromy v louce
@@ -23,11 +23,8 @@ zemi, ne přes CHM. Proto CHM s výškovými pásy (``vegetation_chm``) dával
 střídavě „vše les“ / „bílá v loukách“ – na loukách DMP body vůbec nejsou a
 ``fillnodata`` tam roztáhl výšky korun.
 
-Defaulty = KP ``pullauta.base.ini`` Podkladárny (``greendetectsize=2``,
-``zone1..3``, ``thresold*=0.1``, ``greenshades``, ``medianboxsize=6``,
-``yellowheight=0.9``, ``yellowthresold=0.9``); kalibrováno proti KP
-``vegetation.png`` na stejném LAZ (viz ``internal/vege-calibration-vs-kp.md``).
-Kód je napsaný od nuly v numpy, KP (GPL) se nekopíruje ani nevolá.
+Defaulty (``greendetectsize``/zóny/prahy) jsou kalibrované historicky proti
+starším rastrovým výstupům; kód je napsaný od nuly v numpy.
 """
 
 from __future__ import annotations
@@ -204,7 +201,7 @@ def yellow_mask_from_hits(
     res: float,
     params: DensityVegeParams = DEFAULT_PARAMS,
 ):
-    """KP-like žlutá: 3 m buňky, poměr v 2×2, upsample na DEM, canopy holes.
+    """Žlutá 401: 3 m buňky, poměr v 2×2, upsample na DEM, canopy holes.
 
     ``yhit`` / ``noyhit`` jsou hit-count rastry ve výstupním rozlišení DEM
     (stejný tvar jako ``shape``).
@@ -672,7 +669,7 @@ def generate_job_vegetation_density(
             log("Vegetace (hustota bodů): chybí laspy – fallback CHM")
         return None
     if log:
-        log("=== Fáze: vegetace z hustoty LiDAR bodů (bez KP) ===")
+        log("=== Fáze: vegetace z hustoty LiDAR bodů ===")
     log_step(log, "Klasifikuji vegetaci z hustoty LiDAR odrazů (náhrada KP)")
     try:
         dem, gt, nodata = read_float32_geotiff(dem_tif, log=log)

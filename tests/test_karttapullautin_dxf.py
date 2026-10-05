@@ -103,7 +103,7 @@ def test_build_oom_zip_archives_kp_contours_not_in_base(tmp_path: Path):
     meta = oom_metadata(
         "sprint_2m",
         {"scalefactor": 0.4},
-        {"scalefactor": 0.4, "use_kp": True},
+        {"scalefactor": 0.4},
     )
     build_oom_zip(kp, dest, zabaged_clean=None, metadata=meta)
 
@@ -118,7 +118,7 @@ def test_build_oom_zip_archives_kp_contours_not_in_base(tmp_path: Path):
     assert "kp/contours03.dxf" not in names
 
 
-def test_build_oom_zip_no_kp_skips_contour_archive(tmp_path: Path):
+def test_build_oom_zip_skips_legacy_contour_archive(tmp_path: Path):
     kp = tmp_path / "work"
     kp.mkdir()
     temp = kp / "temp"
@@ -128,7 +128,7 @@ def test_build_oom_zip_no_kp_skips_contour_archive(tmp_path: Path):
     meta = oom_metadata(
         "sprint_2m",
         {"scalefactor": 0.4},
-        {"scalefactor": 0.4, "use_kp": False},
+        {"scalefactor": 0.4},
     )
     build_oom_zip(kp, dest, zabaged_clean=None, metadata=meta)
     with zipfile.ZipFile(dest) as zf:

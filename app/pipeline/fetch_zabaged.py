@@ -292,7 +292,7 @@ def _geojson_area_m2(geometry: object) -> float | None:
 
 
 def tag_features_with_layer(gj: dict, layer_name: str) -> dict:
-    """Karttapullautin matchuje atributy, ne název SHP – `vrstva` drží jméno vrstvy."""
+    """Atribut `vrstva` drží jméno vrstvy (match vektorconf podle atributů)."""
     for feat in gj.get("features") or []:
         props = feat.get("properties")
         if not isinstance(props, dict):

@@ -1,4 +1,4 @@
-"""Tests for LiDAR return-density vegetation (bez KP, KP-inspired makevege)."""
+"""Tests for LiDAR return-density vegetation."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def test_low_thicket_is_green_and_denser_is_darker():
     out = classify_points(_pts(_ground(rng), thicket), _dem(), GT)
     inner = out[8:-8, 8:-8]
     assert np.mean(np.isin(inner, (MID, DENSE))) > 0.9
-    # 410 potřebuje i odrazy nad greenhigh (2 m) – topweight člen jako KP.
+    # 410 potřebuje i odrazy nad greenhigh (2 m) – topweight člen.
     wall = _grid_points(0, SIZE, 0, SIZE, 8.0, lambda n: rng.uniform(1.0, 3.4, n), 5, rng)
     out2 = classify_points(_pts(_ground(rng), wall), _dem(), GT)
     assert np.mean(out2[8:-8, 8:-8] == DENSE) > 0.9
@@ -184,8 +184,8 @@ def test_median_filter_chunking_is_seamless():
     )
 
 
-def test_defaults_match_kp_base_ini():
-    """Kalibrováno = KP defaulty Podkladárny (pullauta.base.ini)."""
+def test_defaults_stable_calibration():
+    """Kalibrované defaulty vegetace (historicky vs. starší rastry)."""
     p = DEFAULT_PARAMS
     assert p.yellow_height_m == 0.9 and p.yellow_threshold == 0.9
     assert p.yellow_cell_m == 3.0 and p.yellow_window_cells == 2

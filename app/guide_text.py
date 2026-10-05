@@ -130,6 +130,6 @@ Kód Podkladárny: MIT. Výstup jobu (PNG, .omap, …): CC BY 4.0 –
 při šíření uveďte: „Podklad: Podkladárna · ČÚZK · OSM, [rok]“.
 Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto) – CC BY 4.0.
 AOPK památné stromy (CC BY 4.0). OSM © přispěvatelé (ODbL).
-Volně inspirováno Karttapullautinem (bez runtime závislosti).
+Volně inspirováno Karttapullautinem.
 
 """

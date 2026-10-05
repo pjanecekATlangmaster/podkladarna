@@ -159,7 +159,7 @@ def fetch_hillshade_wms_for_grid(
     layer: str = PRIMARY_WMS_LAYER,
     log=None,
 ) -> bool:
-    """WMS grayscale hillshade zarovnaný na ``job_grid`` (bez KP šablony)."""
+    """WMS grayscale hillshade zarovnaný na ``job_grid``."""
     log_step(
         log,
         "Stahuji stínovaný reliéf z ČÚZK (WMS DMR 5G, šedý podklad mapy)",

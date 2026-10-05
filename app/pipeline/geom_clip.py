@@ -1,9 +1,8 @@
 """Ořez geometrie na obdélník objednané mapy.
 
-Karttapullautin běží na širším výřezu, než uživatel objednal – kvůli chybám na
-okraji heightmapy se ořez padduje a při pádu se opakuje na celých listech SM5.
-Jeho výstup proto přetéká daleko za mapu a na hraně LiDARových dat generuje
-artefakty. Bez ořezu se do OOM dostanou stovky objektů, které tam nepatří.
+Pipeline běží na širším výřezu, než uživatel objednal – kvůli chybám na
+okraji heightmapy se ořez padduje. Výstup proto může přetékat za mapu.
+Bez ořezu se do OOM dostanou objekty, které tam nepatří.
 
 Čáry se řežou po segmentech (Liang–Barsky) a rozpadají se na části uvnitř,
 plochy jedním průchodem Sutherland–Hodgman. Obdélník je konvexní, takže na to

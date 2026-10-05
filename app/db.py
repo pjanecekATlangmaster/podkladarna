@@ -421,7 +421,7 @@ def find_duplicate_active_job(
             bool(opts.get("kp_osm_footway_as_sidewalk")),
             str(opts.get("ostatni_plocha") or "small"),
             bool(opts.get("ostatni_plocha_as_403")),
-            False,  # use_kp removed – always bez-KP
+            False,  # legacy use_kp – always False
             bool(opts.get("private")),
             str(opts.get("notify_email") or "").strip().casefold(),
             str(opts.get("client_ip") or ""),

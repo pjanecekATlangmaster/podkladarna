@@ -1,8 +1,8 @@
-"""Kanonická georef mřížka jobu (EPSG:5514) – nezávislá na pullautus.pgw.
+"""Kanonická georef mřížka jobu (EPSG:5514).
 
 Všechny DEM-deriváty (vrstevnice, shade, CHM, …) mají sdílet stejný extent
-a buňku. KP PNG zůstává volitelná šablona v hybridním režimu; primární pravda
-je ``job_grid.json`` + ``job.pgw`` ve work dir.
+a buňku. Primární pravda je ``job_grid.json`` + ``job.pgw``; legacy
+``pullautus.*`` je jen fallback ze starších ZIP.
 """
 
 from __future__ import annotations

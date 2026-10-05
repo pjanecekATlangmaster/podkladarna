@@ -14,13 +14,11 @@ from app.pipeline.source_meta import (
 )
 
 
-def test_citation_line_optional_kp():
-    with_kp = citation_line(use_kp=True)
-    without = citation_line(use_kp=False)
-    assert with_kp == without
-    assert "Karttapullautin" not in without
-    assert INDICATIVE_LABEL_CS in with_kp
-    assert INDICATIVE_LABEL_CS in without
+def test_citation_line_has_no_karttapullautin():
+    line = citation_line()
+    assert "Karttapullautin" not in line
+    assert "Podkladárna" in line
+    assert INDICATIVE_LABEL_CS in line
 
 
 def test_resolve_dmp_product_prefers_ok(tmp_path: Path, monkeypatch):

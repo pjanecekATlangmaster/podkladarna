@@ -3,7 +3,7 @@
 # Multi-stage image:
 #  1) Build OpenOrienteering Mapper CLI (PR #2523 / mfbehrens/oo-mapper cli)
 #     on the same base as runtime (matching glibc)
-#  2) Runtime: conda PDAL/GDAL stack + bundled Mapper (no Karttapullautin)
+#  2) Runtime: conda PDAL/GDAL stack + bundled Mapper
 #
 # GPL-3.0: shipping Mapper binary — corresponding source is the pinned git
 # ref below; this Dockerfile is the build recipe. Offer on request: see LICENSES.md.
@@ -140,7 +140,6 @@ FROM condaforge/mambaforge:24.9.2-0
 # balíček gdal = Python bindings + Python utilities. Obojí explicitně —
 # bez apt gdal-bin (dvojí GDAL/PROJ by rozbilo conda stack).
 # mambaforge: /opt/conda/bin je už v PATH.
-# Karttapullautin / pullauta: záměrně NENÍ v image (tip ≥1.26.0).
 RUN mamba install -y -c conda-forge \
     pdal \
     python=3.11 \

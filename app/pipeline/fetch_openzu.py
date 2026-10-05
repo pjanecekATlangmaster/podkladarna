@@ -122,7 +122,7 @@ def estimate_minutes(
 ) -> int:
     """Hrubý odhad délky jobu v minutách.
 
-    DMP OK je řádově větší a hustší než DMP 1G – PDAL i Karttapullautin trvají
+    DMP OK je řádově větší a hustší než DMP 1G – PDAL i vegetace/DEM trvají
     zhruba dvakrát déle i z cache. Bez cache přibývá stažení ~350 MB na list.
     Referenční PNG (orto, OSM, …) přidají několik minut.
     """

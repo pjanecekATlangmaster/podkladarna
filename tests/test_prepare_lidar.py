@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 from app.pipeline.prepare_lidar import (
     ensure_contains_bounds,
     expand_crop_bounds,
-    is_kp_heightmap_oob,
     kp_pad_crop_bounds,
     kp_safe_crop_bounds,
     merge_dmr_dmp,
@@ -51,20 +50,6 @@ def test_expand_and_ensure_contains():
         10.0,
         20.0,
     )
-
-
-def test_is_kp_heightmap_oob():
-    err = subprocess.CalledProcessError(
-        101,
-        ["pullauta"],
-        output="",
-        stderr=(
-            "thread 'main' panicked at src/contours.rs:95:49:\n"
-            "index out of bounds: the len is (2052, 1079) but the index is (1974, 1079)\n"
-        ),
-    )
-    assert is_kp_heightmap_oob(err)
-    assert not is_kp_heightmap_oob(subprocess.CalledProcessError(1, ["x"], stderr="boom"))
 
 
 def test_resolve_merge_crop_bounds_adds_kp_pad():

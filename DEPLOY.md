@@ -48,8 +48,7 @@ CI drží **Docker layer cache** (`:buildcache` na GHCR + GitHub Actions cache).
 Těžká vrstva PDAL/GDAL (~350 MB) se při běžné změně kódu nepřestaví a na NAS
 se znovu nestahuje — jen menší vrstvy (app, configs). **Mapper CLI**
 (stage `mapper-builder`, pin PR #2523) se cacheuje zvlášť; při nezměněném
-pinu SHA se nepřestaví. Karttapullautin / `pullauta` v image **není**
-(tip ≥1.26.0).
+pinu SHA se nepřestaví.
 
 ### Mapper CLI v image (georef PNG)
 

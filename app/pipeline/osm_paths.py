@@ -2674,10 +2674,10 @@ def write_osm_kp_zip(
     *,
     log=None,
 ) -> Path | None:
-    """Sestaví plochý SHP ZIP pro Karttapullautin (druhý ZIP vedle ZABAGED).
+    """Sestaví plochý SHP ZIP cest (legacy layout vedle ZABAGED).
 
     Čte hustší ``osm_paths/paths_osm.geojson`` (ne mixed/dedup). Při chybě ogr2ogr
-    vrátí None – PNG zůstane jen ze ZABAGED, OOM OSM objekty beze změny.
+    vrátí None – OOM OSM objekty beze změny.
     """
     paths_gj = work_dir / "osm_paths" / "paths_osm.geojson"
     if not paths_gj.is_file():
@@ -2697,13 +2697,13 @@ def write_osm_kp_zip(
     n = len(kp_gj["features"])
     if n == 0:
         if log:
-            log("OSM→KP PNG: žádné cesty")
+            log("OSM cesty ZIP: žádné cesty")
         return None
 
     ogr2ogr = which_tool("ogr2ogr")
     if not ogr2ogr:
         if log:
-            log("OSM→KP PNG: chybí ogr2ogr – cesty jen do OOM, ne na PNG")
+            log("OSM cesty ZIP: chybí ogr2ogr – cesty jen do OOM")
         return None
 
     dest_zip = work_dir / "osm_kp.zip"
@@ -2730,7 +2730,7 @@ def write_osm_kp_zip(
         ]
         log_step(
             log,
-            "Převádím OSM cesty do shapefile (Karttapullautin je dokreslí na PNG)",
+            "Převádím OSM cesty do shapefile (ZIP)",
         )
         result = subprocess.run(
             cmd,
@@ -2742,7 +2742,7 @@ def write_osm_kp_zip(
         if result.returncode != 0 or not shp.is_file():
             err = (result.stderr or result.stdout or "ogr2ogr failed").strip()
             if log:
-                log(f"OSM→KP PNG: ogr2ogr selhal ({err[:200]})")
+                log(f"OSM cesty ZIP: ogr2ogr selhal ({err[:200]})")
             return None
         write_prj(shp)
         if dest_zip.exists():
@@ -2762,7 +2762,7 @@ def write_osm_kp_zip(
             by_v[str((feat.get("properties") or {}).get("vrstva") or "?")] += 1
         summary = ", ".join(f"{k}={v}" for k, v in sorted(by_v.items()))
         if log:
-            log(f"OSM→KP PNG: {n} linií ({summary}) → {dest_zip.name}")
+            log(f"OSM cesty ZIP: {n} linií ({summary}) → {dest_zip.name}")
         return dest_zip
     finally:
         shutil.rmtree(stage, ignore_errors=True)

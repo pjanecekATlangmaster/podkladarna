@@ -1,8 +1,7 @@
-"""Náhledová PNG / georef šablona bez tvrdé závislosti na KP pullautus.
+"""Náhledová PNG / georef šablona.
 
-Po drop KP preferujeme ``preview.png`` (+ ``preview.pgw``); ``pullautus``
-zůstává hybridní fallback. Compose náhledu = hillshade (± volitelné overlaye)
-na kanonické ``job_grid``.
+Preferujeme ``preview.png`` (+ ``preview.pgw``); legacy ``pullautus.*``
+jen jako fallback ze starších ZIP. Compose = hillshade (± overlay) na ``job_grid``.
 """
 
 from __future__ import annotations
@@ -107,29 +106,15 @@ def compose_job_preview(
     work_dir: Path,
     *,
     force: bool = False,
-    prefer_kp_pullautus: bool = False,
     overlay_png: Path | None = None,
     overlay_opacity: float = 0.35,
     bounds_5514: tuple[float, float, float, float] | None = None,
     log=None,
 ) -> tuple[Path, Path] | None:
-    """Složí ``preview.png`` ze shade (± volitelný overlay) na job_grid.
-
-    Při ``prefer_kp_pullautus=True`` a existujícím pullautus nechá KP náhled
-    (hybrid zelený); jinak vždy preferuje vlastní shade compose.
-    Funguje i když KP PNG chybí. Bez-KP defaultně nevolej (Petr: oželít PNG).
-    """
+    """Složí ``preview.png`` ze shade (± volitelný overlay) na job_grid."""
     work_dir = Path(work_dir)
     preview_png = work_dir / PREVIEW_PNG
     preview_pgw = work_dir / PREVIEW_PGW
-
-    if prefer_kp_pullautus:
-        kp_png = work_dir / PULLAUTUS_PNG
-        kp_pgw = work_dir / PULLAUTUS_PGW
-        if kp_png.is_file() and kp_pgw.is_file() and not force:
-            if log:
-                log("Náhled: hybrid – ponechávám pullautus.png")
-            return kp_png, kp_pgw
 
     if (
         not force

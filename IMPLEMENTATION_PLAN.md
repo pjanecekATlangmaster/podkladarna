@@ -1,7 +1,10 @@
 # Podkladárna – plán implementace
 
+> **Historický dokument** (raná architektura s Karttapullautinem). Aktuální
+> pipeline je vlastní (vegetace / srázy / DEM); KP jen jako inspirace na `/licence`.
+>
 > Domácí webová služba (Docker na Synology NAS) pro generování orientačních podkladů
-> z ČÚZK LiDAR + ZABAGED pomocí Karttapullautin.
+> z ČÚZK LiDAR + ZABAGED.
 >
 > Hardware: Synology NAS, **AMD Ryzen R1600, 24 GB RAM** (amd64).
 > Název: **Podkladárna** (slug: `podkladarna`).
