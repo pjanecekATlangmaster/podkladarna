@@ -210,6 +210,8 @@ zkusí znovu (`retry_missed_private_mails`).
 | `SMTP_FROM_NAME` | From jméno | `OB podklady` |
 | `PUBLIC_BASE_URL` | Absolutní URL instance (bez `/`) | `https://podkladarna.example` |
 | `PRIVATE_JOB_RETENTION_HOURS` | Platnost odkazu | `48` |
+| `FEEDBACK_TO` / `OWNER_EMAIL` | Příjemce zpětné vazby z webu | `janecek@datais.cz` |
+| `MAX_FEEDBACK_PER_IP_HOUR` | Rate limit zpětné vazby / IP | `5` |
 
 Rychlý test SMTP (mockuje se v pytest; živý send):
 

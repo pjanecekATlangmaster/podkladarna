@@ -14,7 +14,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import db, worker
 from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
+from app.feedback import (
+    MAX_COMMENT_LEN,
+    MAX_CONTACT_LEN,
+    MAX_JOB_ID_LEN,
+    check_feedback_rate,
+    send_feedback,
+)
 from app.guide_text import WEB_ABOUT_HTML
+from app.mail import MailError
 from app.rate_limit import check_create_job
 from app.pipeline.fetch_openzu import (
     FetchError,
@@ -416,6 +424,78 @@ def api_health():
         "tools": tools,
         "pipeline_ready": all(tools.values()),
     }
+
+
+@app.post("/api/feedback")
+async def api_feedback(request: Request):
+    """Textová zpětná vazba (kontakt + komentář) → e-mail Petrovi."""
+    content_type = (request.headers.get("content-type") or "").lower()
+    honeypot = ""
+    if "application/json" in content_type:
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            raise HTTPException(400, "Neplatný JSON.") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "Neplatný JSON.")
+        contact = str(payload.get("contact") or "").strip()
+        comment = str(payload.get("comment") or "").strip()
+        job_id = str(payload.get("job_id") or "").strip()
+        honeypot = str(
+            payload.get("website") or payload.get("company") or ""
+        ).strip()
+    else:
+        try:
+            form = await request.form()
+        except Exception as exc:
+            raise HTTPException(400, f"Nepodařilo se přečíst formulář: {exc}") from exc
+        contact = _form_str(form, "contact").strip()
+        comment = _form_str(form, "comment").strip()
+        job_id = _form_str(form, "job_id").strip()
+        honeypot = (
+            _form_str(form, "website").strip()
+            or _form_str(form, "company").strip()
+        )
+
+    # Honeypot: boti vyplní skryté pole — tiše OK, nic neodesílat.
+    if honeypot:
+        logger.info("Feedback honeypot hit from %s", client_ip(request))
+        return {"ok": True}
+
+    if not contact:
+        raise HTTPException(400, "Vyplňte kontakt (e-mail nebo telefon).")
+    if not comment:
+        raise HTTPException(400, "Napište komentář.")
+    if len(contact) > MAX_CONTACT_LEN:
+        raise HTTPException(400, f"Kontakt je moc dlouhý (max {MAX_CONTACT_LEN} znaků).")
+    if len(comment) > MAX_COMMENT_LEN:
+        raise HTTPException(400, f"Komentář je moc dlouhý (max {MAX_COMMENT_LEN} znaků).")
+    if job_id and len(job_id) > MAX_JOB_ID_LEN:
+        raise HTTPException(400, "Neplatné job_id.")
+    if job_id and not all(c.isalnum() or c in "-_" for c in job_id):
+        raise HTTPException(400, "Neplatné job_id.")
+
+    ip = client_ip(request)
+    limit_msg = check_feedback_rate(ip)
+    if limit_msg:
+        raise HTTPException(429, limit_msg)
+
+    try:
+        send_feedback(
+            contact=contact,
+            comment=comment,
+            job_id=job_id or None,
+            client_ip=ip,
+        )
+    except MailError as exc:
+        logger.warning("Feedback mail failed: %s", exc)
+        raise HTTPException(
+            503,
+            "Zpětnou vazbu teď nešlo odeslat. Zkuste to později, "
+            "nebo napište na GitHub Issues.",
+        ) from exc
+
+    return {"ok": True}
 
 
 @app.post("/api/jobs")

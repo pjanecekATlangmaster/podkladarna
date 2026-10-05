@@ -584,6 +584,8 @@ def test_index_html(client):
     assert 'id="whats-new"' in html
     assert "github.com/pjanecekATlangmaster/podkladarna/issues" in html
     assert "zpětnou vazbu" in html
+    assert 'id="job-feedback"' in html
+    assert 'id="feedback-form"' in html
     assert "janecek@datais.cz" not in html
     assert "tel:+420733575541" not in html
     assert "733&nbsp;575&nbsp;541" not in html

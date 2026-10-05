@@ -643,6 +643,95 @@ legend {
   margin: 0;
 }
 
+.feedback-box {
+  margin-top: 0.75rem;
+  padding: 0.55rem 0.7rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fafaf8;
+  font-size: 0.9rem;
+}
+
+.feedback-box > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+  list-style: none;
+}
+
+.feedback-box > summary::-webkit-details-marker {
+  display: none;
+}
+
+.feedback-box > summary::before {
+  content: "▸ ";
+  color: var(--brown);
+}
+
+.feedback-box[open] > summary {
+  margin-bottom: 0.45rem;
+  color: var(--brown);
+}
+
+.feedback-box[open] > summary::before {
+  content: "▾ ";
+}
+
+.feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.feedback-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.feedback-form input[type="text"],
+.feedback-form textarea {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #fff;
+  color: var(--text);
+  max-width: 100%;
+}
+
+.feedback-form textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+}
+
+.feedback-form .btn {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+}
+
+.feedback-status.ok {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.feedback-status.err {
+  color: #a00;
+  font-weight: 600;
+}
+
+/* Honeypot – skryté před lidmi, boti často vyplní. */
+.feedback-hp {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
 .worker-status {
   font-size: 0.9rem;
   color: var(--muted);
