@@ -5,10 +5,13 @@ from __future__ import annotations
 import threading
 import time
 from collections import defaultdict, deque
+from pathlib import Path
 
 from app import settings
 from app.mail import MailError, send_mail
+from app.pipeline.preview import resolve_preview_png
 from app.rate_limit import is_exempt
+from app.settings import JOBS_DIR
 
 MAX_CONTACT_LEN = 200
 MAX_COMMENT_LEN = 4000
@@ -62,6 +65,7 @@ def build_feedback_email(
     client_ip: str | None = None,
     job_name: str | None = None,
     job_status: str | None = None,
+    preview_attached: bool = False,
 ) -> tuple[str, str]:
     """Vrací (předmět, tělo) pro zpětnou vazbu – česky. job_id je povinné."""
     job_id = (job_id or "").strip()
@@ -81,8 +85,22 @@ def build_feedback_email(
         lines.append(f"Odkaz: {url}")
     if client_ip:
         lines.append(f"IP: {client_ip}")
+    if preview_attached:
+        lines.append("Náhled PNG: v příloze tohoto e-mailu.")
     lines.extend(["", "Komentář:", comment.strip(), ""])
     return subject, "\n".join(lines)
+
+
+def _job_preview_attachment(job_id: str) -> Path | None:
+    """Existující náhled jobu pro MIME přílohu, nebo None."""
+    job_id = (job_id or "").strip()
+    if not job_id:
+        return None
+    job_dir = JOBS_DIR / job_id
+    path = resolve_preview_png(job_dir / "output", job_dir / "work")
+    if path is not None and path.is_file():
+        return path
+    return None
 
 
 def send_feedback(
@@ -94,13 +112,17 @@ def send_feedback(
     job_name: str | None = None,
     job_status: str | None = None,
 ) -> None:
-    """Pošle zpětnou vazbu na FEEDBACK_TO. Při chybě MailError."""
+    """Pošle zpětnou vazbu na FEEDBACK_TO. Při chybě MailError.
+
+    Pokud job má náhled PNG/JPEG, přiloží ho jako MIME attachment.
+    """
     to = (settings.FEEDBACK_TO or "").strip()
     if not to:
         raise MailError("Chybí adresa pro zpětnou vazbu (FEEDBACK_TO).")
     job_id = (job_id or "").strip()
     if not job_id:
         raise MailError("Chybí job_id.")
+    preview = _job_preview_attachment(job_id)
     subject, body = build_feedback_email(
         contact=contact,
         comment=comment,
@@ -108,5 +130,11 @@ def send_feedback(
         client_ip=client_ip,
         job_name=job_name,
         job_status=job_status,
+        preview_attached=preview is not None,
     )
-    send_mail(to, subject, body)
+    send_mail(
+        to,
+        subject,
+        body,
+        attachments=[preview] if preview is not None else None,
+    )

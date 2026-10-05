@@ -10,6 +10,7 @@ import traceback
 from app import db
 from app import settings as app_settings
 from app.mail import MailError, build_private_ready_email, send_mail
+from app.pipeline.preview import resolve_preview_png
 from app.pipeline.run_job import run_job_pipeline
 from app.proj_env import ensure_proj_data
 from app.settings import JOBS_DIR
@@ -73,7 +74,9 @@ def _notify_private_job(job_id: str) -> None:
     url = f"{base}/d/{token}"
     preview_url = None
     georef_url = None
-    if job.get("has_preview"):
+    job_dir = JOBS_DIR / job_id
+    preview_path = resolve_preview_png(job_dir / "output", job_dir / "work")
+    if job.get("has_preview") or preview_path is not None:
         preview_url = f"{base}/api/jobs/{job_id}/preview.png?token={token}"
     if job.get("has_georef_previews"):
         georef_url = (
@@ -82,15 +85,22 @@ def _notify_private_job(job_id: str) -> None:
     hours = app_settings.PRIVATE_JOB_RETENTION_HOURS
     if hours <= 0:
         hours = 48
+    preview_attached = preview_path is not None and preview_path.is_file()
     subject, body = build_private_ready_email(
         job_name=job.get("name") or job_id,
         download_url=url,
         retention_hours=hours,
         preview_url=preview_url,
         georef_url=georef_url,
+        preview_attached=preview_attached,
     )
     try:
-        send_mail(email, subject, body)
+        send_mail(
+            email,
+            subject,
+            body,
+            attachments=[preview_path] if preview_attached else None,
+        )
         db.append_log(job_id, f"{_MAIL_SENT_PREFIX} na {email}.")
     except MailError as exc:
         db.append_log(job_id, f"CHYBA odeslání e-mailu: {exc}")

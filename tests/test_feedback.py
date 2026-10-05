@@ -54,6 +54,15 @@ def test_build_feedback_email(monkeypatch):
     assert "Stav jobu: running" in body
     assert "https://podkladarna.example/api/jobs/abc123" in body
     assert "IP: 1.2.3.4" in body
+    assert "v příloze" not in body
+
+    _, body_att = build_feedback_email(
+        contact="a@b.cz",
+        comment="x",
+        job_id="j1",
+        preview_attached=True,
+    )
+    assert "Náhled PNG: v příloze tohoto e-mailu." in body_att
 
 
 def test_job_page_url(monkeypatch):
@@ -263,10 +272,11 @@ def test_feedback_ignores_job_queue_busy(client, monkeypatch):
 def test_send_feedback_uses_feedback_to(monkeypatch):
     captured = {}
 
-    def fake_send_mail(to, subject, body, **_kw):
+    def fake_send_mail(to, subject, body, **kw):
         captured["to"] = to
         captured["subject"] = subject
         captured["body"] = body
+        captured["attachments"] = kw.get("attachments")
 
     monkeypatch.setattr("app.feedback.settings.FEEDBACK_TO", "owner@example.com")
     monkeypatch.setattr(
@@ -276,6 +286,7 @@ def test_send_feedback_uses_feedback_to(monkeypatch):
     monkeypatch.setattr("app.feedback.settings.SMTP_HOST", "smtp.example.com")
     monkeypatch.setattr("app.feedback.settings.SMTP_FROM", "from@example.com")
     monkeypatch.setattr("app.feedback.send_mail", fake_send_mail)
+    monkeypatch.setattr("app.feedback._job_preview_attachment", lambda _jid: None)
 
     send_feedback(
         contact="u@x.cz",
@@ -288,6 +299,45 @@ def test_send_feedback_uses_feedback_to(monkeypatch):
     assert "u@x.cz" in captured["body"]
     assert "https://podkladarna.example/api/jobs/j1" in captured["body"]
     assert "queued" in captured["body"]
+    assert captured["attachments"] is None
+
+
+def test_send_feedback_attaches_preview(tmp_path, monkeypatch):
+    """Feedback mail přiloží náhled PNG, když job má preview na disku."""
+    from pathlib import Path
+
+    import app.feedback as feedback_mod
+
+    monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr("app.db.DOWNLOADS_DIR", tmp_path / "dl")
+    monkeypatch.setattr(feedback_mod, "JOBS_DIR", tmp_path / "jobs")
+    (tmp_path / "jobs").mkdir(exist_ok=True)
+    db.init_db()
+
+    job = db.create_job("s preview", "forest_10000", {})
+    out = tmp_path / "jobs" / job["id"] / "output"
+    out.mkdir(parents=True, exist_ok=True)
+    png = out / "preview.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 12)
+
+    captured: dict = {}
+
+    def fake_send_mail(to, subject, body, **kw):
+        captured["to"] = to
+        captured["body"] = body
+        captured["attachments"] = kw.get("attachments")
+
+    monkeypatch.setattr("app.feedback.settings.FEEDBACK_TO", "owner@example.com")
+    monkeypatch.setattr("app.feedback.settings.PUBLIC_BASE_URL", "")
+    monkeypatch.setattr("app.feedback.send_mail", fake_send_mail)
+
+    send_feedback(contact="u@x.cz", comment="Podívej", job_id=job["id"])
+    assert "v příloze tohoto e-mailu" in captured["body"]
+    atts = captured["attachments"] or []
+    assert len(atts) == 1
+    assert Path(atts[0]).name == "preview.png"
+    assert Path(atts[0]).read_bytes().startswith(b"\x89PNG")
 
 
 def test_check_feedback_rate_exempt(monkeypatch):
