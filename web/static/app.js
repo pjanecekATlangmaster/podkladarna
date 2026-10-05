@@ -620,6 +620,8 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
   }
   if (applyForm) applyJobToForm(job);
   setJobActionLinks(job);
+  const feedbackJob = document.getElementById("feedback-job-id");
+  if (feedbackJob) feedbackJob.value = job.id || "";
   const img = document.getElementById("detail-img");
   if (job.has_preview) {
     img.src = `/api/jobs/${id}/preview.png?t=${Date.now()}`;
@@ -1381,4 +1383,58 @@ initBboxMap();
   };
   privateEl.addEventListener("change", sync);
   sync();
+})();
+(() => {
+  const form = document.getElementById("feedback-form");
+  if (!form) return;
+  const statusEl = document.getElementById("feedback-status");
+  const submitBtn = document.getElementById("feedback-submit");
+  const setStatus = (msg, kind) => {
+    if (!statusEl) return;
+    statusEl.textContent = msg || "";
+    statusEl.classList.toggle("ok", kind === "ok");
+    statusEl.classList.toggle("err", kind === "err");
+  };
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const contact = (document.getElementById("feedback-contact")?.value || "").trim();
+    const comment = (document.getElementById("feedback-comment")?.value || "").trim();
+    const jobId = (document.getElementById("feedback-job-id")?.value || "").trim();
+    const website = (document.getElementById("feedback-website")?.value || "").trim();
+    if (!contact) {
+      setStatus("Vyplňte kontakt (e-mail nebo telefon).", "err");
+      return;
+    }
+    if (!comment) {
+      setStatus("Napište komentář.", "err");
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    setStatus("Odesílám…", "");
+    try {
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          contact,
+          comment,
+          job_id: jobId || undefined,
+          website,
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        setStatus(parseApiError(res, text), "err");
+        return;
+      }
+      setStatus("Díky — zpráva je u Petra.", "ok");
+      form.reset();
+      const jobField = document.getElementById("feedback-job-id");
+      if (jobField && selectedJobId) jobField.value = selectedJobId;
+    } catch (err) {
+      setStatus(err.message || "Odeslání selhalo.", "err");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
 })();

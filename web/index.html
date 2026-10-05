@@ -318,6 +318,50 @@
             <a id="detail-preview" class="btn" href="#" target="_blank">Otevřít PNG</a>
           </div>
           <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />
+          <details class="feedback-box" id="job-feedback">
+            <summary>Napsat zpětnou vazbu</summary>
+            <form id="feedback-form" class="feedback-form" novalidate>
+              <p class="hint">
+                Podkladárna je experiment, proto ocením krátký komentář
+                (e-mailem Petrovi, ne veřejně).
+              </p>
+              <input type="hidden" name="job_id" id="feedback-job-id" value="" />
+              <label class="feedback-hp" aria-hidden="true">
+                Webová stránka
+                <input
+                  type="text"
+                  name="website"
+                  id="feedback-website"
+                  tabindex="-1"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                Kontakt (e-mail nebo telefon)
+                <input
+                  type="text"
+                  name="contact"
+                  id="feedback-contact"
+                  autocomplete="email"
+                  maxlength="200"
+                  placeholder="vas@email.cz"
+                />
+              </label>
+              <label>
+                Komentář
+                <textarea
+                  name="comment"
+                  id="feedback-comment"
+                  rows="3"
+                  maxlength="4000"
+                  required
+                  placeholder="Co sedí, co ne, nápad na zlepšení…"
+                ></textarea>
+              </label>
+              <button type="submit" class="btn" id="feedback-submit">Odeslat Petrovi</button>
+              <p id="feedback-status" class="hint feedback-status" role="status"></p>
+            </form>
+          </details>
         </div>
       </div>
     </section>

@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.2.6"
+APP_VERSION = "2.2.7"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -107,6 +107,13 @@ PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 PRIVATE_JOB_RETENTION_HOURS = int(
     os.environ.get("PRIVATE_JOB_RETENTION_HOURS", "48")
 )
+# Zpětná vazba z webu → e-mail vlastníkovi (fallback = kontakt z README/ZIP).
+FEEDBACK_TO = (
+    os.environ.get("FEEDBACK_TO")
+    or os.environ.get("OWNER_EMAIL")
+    or "janecek@datais.cz"
+).strip()
+MAX_FEEDBACK_PER_IP_HOUR = int(os.environ.get("MAX_FEEDBACK_PER_IP_HOUR", "5"))
 
 DEFAULT_OPTIONS = {
     "run_vectors": True,

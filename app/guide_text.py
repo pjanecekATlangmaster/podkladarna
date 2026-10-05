@@ -57,8 +57,9 @@ WEB_ABOUT_HTML = """
   hotovo, přijde vám odkaz ke stažení.
 </p>
 <p>
-  Podkladárna je experiment, proto ocením
-  <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">zpětnou vazbu a připomínky (GitHub Issues)</a>.
+  Podkladárna je experiment, proto ocením zpětnou vazbu u hotové mapy
+  nebo na
+  <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">GitHub Issues</a>.
 </p>
 """
 
