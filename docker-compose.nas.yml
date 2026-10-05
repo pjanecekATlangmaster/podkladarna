@@ -23,15 +23,16 @@ services:
       # Vaše veřejná IP bez limitů (doplňte před nasazením):
       - RATE_LIMIT_EXEMPT_IPS=78.80.94.188
       # SMTP / mail – hodnoty z .env vedle compose (jinak kontejner SMTP nevidí).
+      # Default = ostrý M365 relay + kibos URL (ne tajné). Override v host .env.
       # Bez SMTP_HOST selže privátní mail i POST /api/feedback (HTTP 502).
-      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_HOST=${SMTP_HOST:-datais-cz.mail.protection.outlook.com}
       - SMTP_PORT=${SMTP_PORT:-25}
       - SMTP_ENCRYPTION=${SMTP_ENCRYPTION:-starttls}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM=${SMTP_FROM:-podkladarna@datais.cz}
       - SMTP_FROM_NAME=${SMTP_FROM_NAME:-OB podklady}
-      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-https://podkladarna.kibos.link}
       - PRIVATE_JOB_RETENTION_HOURS=${PRIVATE_JOB_RETENTION_HOURS:-48}
       - FEEDBACK_TO=${FEEDBACK_TO:-}
       - OWNER_EMAIL=${OWNER_EMAIL:-}

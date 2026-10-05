@@ -59,6 +59,8 @@ from app.settings import (
     MAX_QUEUE_SIZE,
     APP_VERSION,
     PRIVATE_JOB_RETENTION_HOURS,
+    SMTP_FROM,
+    SMTP_HOST,
     default_footway_as_sidewalk,
 )
 from app.tiles import TileError, fetch_tile
@@ -414,6 +416,7 @@ def api_health():
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
     usage = shutil.disk_usage(JOBS_DIR)
     tools = tool_status()
+    mail_ok = bool((SMTP_HOST or "").strip() and (SMTP_FROM or "").strip())
     return {
         "ok": True,
         "version": APP_VERSION,
@@ -423,6 +426,8 @@ def api_health():
         "busy": worker.is_busy(),
         "tools": tools,
         "pipeline_ready": all(tools.values()),
+        # Bez hesel: jen zda feedback / privátní mail vůbec zkusí SMTP.
+        "mail_configured": mail_ok,
     }
 
 
