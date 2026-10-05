@@ -319,6 +319,8 @@ def test_query_http_error(monkeypatch):
 
 
 def test_cached_dmp_laz_prefers_dmpok(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
     from app import settings
     from app.download_cache import write_meta
     from app.pipeline.fetch_openzu import _cached_dmp_laz
@@ -328,7 +330,8 @@ def test_cached_dmp_laz_prefers_dmpok(tmp_path, monkeypatch):
     folder.mkdir(parents=True)
     dmpok = folder / "DMPOK.laz"
     dmpok.write_bytes(b"x" * 2000)
-    write_meta(folder, downloaded_at="2026-01-01T00:00:00+00:00")
+    # Čerstvá meta – stará by spustila live download z openzu (CI hang).
+    write_meta(folder, downloaded_at=datetime.now(timezone.utc).isoformat())
 
     got = _cached_dmp_laz("PRAH77", log=None)
     assert got == dmpok
