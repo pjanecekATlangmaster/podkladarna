@@ -274,4 +274,11 @@ SMTP_FROM_NAME=OB podklady
 z tohoto `.env` do kontejneru (`${SMTP_HOST:-}` …). Samotný `.env` u compose
 **není** automaticky celý injectnutý – bez řádků v `environment:` kontejner
 SMTP nevidí. Po změně `.env` nebo compose: `./update-nas.sh --force`
-(nebo recreate). Alternativa od 2.2.10: SMTP klíče do `data/.env` (volume).
+(nebo recreate).
+
+**Důležité:** `./update-nas.sh` jen pullne image a recreate — **nesynchronizuje**
+`docker-compose.nas.yml` z Gitu. Po #55 musí být na NAS compose se SMTP řádky
+(zkopírovat z masteru / `git pull`, pokud je deploy složka klon).
+
+Alternativa od 2.2.10 (`data/.env` na volume): od **2.2.11** doplní i klíče,
+které compose injectne jako prázdné (`SMTP_HOST=`). Restart kontejneru stačí.
