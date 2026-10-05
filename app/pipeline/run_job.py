@@ -50,6 +50,7 @@ from app.pipeline.preview import (
 )
 from app.pipeline.reference_layers import build_reference_layers
 from app.pipeline.shade import build_job_shade
+from app.pipeline.job_progress import JobProgress, plan_pipeline_steps
 from app.pipeline.prepare_lidar import (
     log_step,
     merge_dmr_dmp,
@@ -92,18 +93,32 @@ def run_job_pipeline(
     if force_refresh:
         log("Force refresh zapnut – AOI/underlay cache se přeskočí")
 
-    lidar_work = work_dir / "lidar"
+    want_zip, _ = resolve_want_zip(options)
+    want_refs = bool(options.get("output_references", True))
     reused_from = options.get("reused_from")
+    progress = JobProgress(
+        log,
+        plan_pipeline_steps(
+            bbox=bbox,
+            reused_from=reused_from,
+            want_zip=want_zip,
+            want_refs=want_refs,
+        ),
+    )
+
+    lidar_work = work_dir / "lidar"
     if reused_from:
+        progress.begin("kopie LAZ z předchozího jobu")
         log(
-            f"=== Fáze: kopie LAZ z jobu {reused_from} "
-            "(mimo request založení, ať UI neodpovídá pozdě) ==="
+            f"Kopie LAZ z jobu {reused_from} "
+            "(mimo request založení, ať UI neodpovídá pozdě)"
         )
         copied = db.copy_reusable_work(str(reused_from), job_dir.name)
         if copied:
             log(f"Zkopírováno {len(copied)} souborů (sloučený LAZ).")
         else:
             log("Varování: v předchozím jobu není použitelný LAZ ke kopírování.")
+        progress.done()
 
     merged_existing = None
     if reused_from:
@@ -115,19 +130,21 @@ def run_job_pipeline(
 
     if bbox:
         west, south, east, north = bbox
-        log("=== Fáze: stažená data (LiDAR) ===")
+        progress.begin("stažení LiDAR")
         dmr_files, dmp_files, sheet_names = fetch_lidar_for_bbox(
             (west, south, east, north),
             log,
             force_refresh=force_refresh,
         )
+        progress.done()
 
-        log("=== Fáze: stažená data (ZABAGED) ===")
+        progress.begin("stažení ZABAGED")
         zabaged_src = fetch_zabaged_for_bbox(
             (west, south, east, north),
             log,
             force_refresh=force_refresh,
         )
+        progress.done()
 
     scalefactor = float(
         options.get("scalefactor") or load_presets()[preset_id]["scalefactor"]
@@ -152,13 +169,14 @@ def run_job_pipeline(
     # Kanonická mřížka dřív než DEM deriváty.
     grid_bounds = resolve_merge_crop_bounds(crop, scalefactor)
     if grid_bounds is not None:
-        log("=== Fáze: kanonická georef mřížka ===")
+        progress.begin("georef mřížka")
         write_job_grid(
             work_dir,
             grid_bounds,
             resolution_m=DEFAULT_RESOLUTION_M,
             log=log,
         )
+        progress.done()
 
     if reused_from and merged_existing:
         log(
@@ -166,6 +184,7 @@ def run_job_pipeline(
             f"({merged_existing.name}) – PDAL merge přeskakuji"
         )
         merged = merged_existing
+        progress.skip("prepare LiDAR", reason="reuse")
     else:
         cached_merged = None
         if crop_cache is not None and not force_refresh:
@@ -177,8 +196,9 @@ def run_job_pipeline(
             )
         if cached_merged is not None:
             merged = cached_merged
+            progress.skip("prepare LiDAR", reason="cache")
         else:
-            log("=== Fáze: prepare LiDAR ===")
+            progress.begin("prepare LiDAR")
             merged = merge_dmr_dmp(
                 dmr_files,
                 dmp_files,
@@ -197,9 +217,10 @@ def run_job_pipeline(
                     scalefactor=scalefactor,
                     log=log,
                 )
+            progress.done()
 
     if grid_bounds is not None:
-        log("=== Fáze: sdílený DEM/DSM/CHM prep ===")
+        progress.begin("DEM/DSM/CHM")
         try:
             prepare_job_surfaces(
                 work_dir,
@@ -212,6 +233,7 @@ def run_job_pipeline(
         except Exception as exc:
             # Nehard-fail: vegetace/srázy mají vlastní fallbacky.
             log(f"DEM/DSM/CHM prep: přeskočeno ({exc})")
+        progress.done()
 
     lidar_sources = (
         collect_lidar_source_meta(sheet_names) if sheet_names else None
@@ -232,20 +254,18 @@ def run_job_pipeline(
     zabaged_clean = work_dir / "zabaged_clean.zip"
     has_zabaged = zabaged_src is not None and zabaged_src.is_file()
     if has_zabaged:
-        log("=== Fáze: prepare ZABAGED ===")
+        progress.begin("prepare ZABAGED")
         clean_zabaged(zabaged_src, zabaged_clean, log=log)
-
-    log(
-        "=== Fáze: vegetace (hustota LiDAR) → srázy DEM → knolly → "
-        "vrstevnice GDAL → .omap/ZIP (náhled PNG z .omap) ==="
-    )
+        progress.done()
+    elif bbox:
+        progress.skip("prepare ZABAGED", reason="chybí zdroj")
 
     work_cwd = work_dir
     temp_dir = work_cwd / "temp"
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
 
-    log("=== Fáze: vrstevnice PDAL/GDAL ===")
+    progress.begin("vrstevnice")
     preset = load_presets()[preset_id]
     generate_job_contours(
         work_dir,
@@ -264,6 +284,7 @@ def run_job_pipeline(
         crop_bounds=crop,
         log=log,
     )
+    progress.done()
 
     from app.pipeline.veg_size_filter import resolve_veg_size_profile
 
@@ -277,6 +298,7 @@ def run_job_pipeline(
     if veg_size_profile != "default":
         log(f"Vegetace: filtr velikosti/tvaru = {veg_size_profile}")
 
+    progress.begin("vegetace")
     vege_shp = None
     try:
         vege_shp = generate_job_vegetation_density(
@@ -297,14 +319,21 @@ def run_job_pipeline(
             )
         except Exception as exc:
             log(f"CHM vegetace: přeskočeno ({exc})")
+    progress.done()
+
+    progress.begin("srázy DEM")
     try:
         generate_job_cliffs_dem(work_dir, options=options, log=log)
     except Exception as exc:
         log(f"Srázy DEM: přeskočeno ({exc})")
+    progress.done()
+
+    progress.begin("knolly")
     try:
         generate_job_knolls(work_dir, options=options, log=log)
     except Exception as exc:
         log(f"Knolly DEM: přeskočeno ({exc})")
+    progress.done()
 
     if not has_zabaged or not zabaged_clean.is_file():
         raise RuntimeError(
@@ -312,7 +341,7 @@ def run_job_pipeline(
         )
 
     if bbox:
-        log("=== Fáze: OSM pěšiny a objekty (OOM / ZIP) ===")
+        progress.begin("OSM pěšiny a objekty")
         try:
             prepare_osm_paths(
                 work_dir,
@@ -333,10 +362,11 @@ def run_job_pipeline(
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
             log(f"OSM: přeskočeno ({exc})")
+        progress.done()
 
     # Shade vždy (OOM/ZIP + ČÚZK reference). Náhled PNG z .omap po sestavení.
+    progress.begin("hillshade")
     try:
-        log("=== Fáze: hillshade stack ===")
         build_job_shade(
             work_dir,
             bounds_5514=grid_bounds,
@@ -373,8 +403,8 @@ def run_job_pipeline(
             "Náhled PNG: přeskočen – primární výstup je OOM/ZIP; "
             "ČÚZK reference v ZIPu zůstávají. Opt-in: compose_preview=1 / oom_preview=1."
         )
+    progress.done()
 
-    log("=== Fáze: baleni vystupu ===")
     _package_output(
         work_cwd,
         output_dir,
@@ -383,7 +413,9 @@ def run_job_pipeline(
         log,
         preset_id=preset_id,
         job_name=job_name,
+        progress=progress,
     )
+    progress.finish_all()
     log("Hotovo.")
 
 
@@ -406,6 +438,7 @@ def _package_output(
     *,
     preset_id: str,
     job_name: str = "",
+    progress: JobProgress | None = None,
 ) -> None:
     zip_path = output_dir / OUTPUT_ZIP_NAME
     if zip_path.exists():
@@ -429,7 +462,10 @@ def _package_output(
         georef = ensure_georef_template(kp_cwd) if want_refs and bbox else None
         if want_refs and bbox and georef is not None:
             template_png, template_pgw = georef
-            log("=== Fáze: referenční podklady pro OOM ===")
+            if progress is not None:
+                progress.begin("referenční podklady")
+            else:
+                log("=== Fáze: referenční podklady pro OOM ===")
             try:
                 built_refs = build_reference_layers(
                     job_dir,
@@ -446,13 +482,21 @@ def _package_output(
                 ref_layers = sorted(p.name for p in built_refs.values())
             elif reference_dir.is_dir():
                 ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
+            if progress is not None:
+                progress.done()
         elif want_refs and bbox:
-            log(
-                "=== Fáze: referenční PNG přeskočeny "
-                "(chybí georef šablona preview/pullautus/job_grid) ==="
-            )
+            if progress is not None:
+                progress.skip(
+                    "referenční podklady",
+                    reason="chybí georef šablona",
+                )
+            else:
+                log(
+                    "=== Fáze: referenční PNG přeskočeny "
+                    "(chybí georef šablona preview/pullautus/job_grid) ==="
+                )
         elif not want_refs:
-            log("=== Fáze: referenční PNG přeskočeny (volba v GUI) ===")
+            log("Referenční PNG přeskočeny (volba v GUI)")
 
         meta = oom_metadata(
             preset_id,
@@ -467,7 +511,10 @@ def _package_output(
         ruian_path: Path | None = None
         aopk_path: Path | None = None
         if bbox:
-            log("=== Fáze: RÚIAN budovy (zabaged/) + AOPK památné stromy ===")
+            if progress is not None:
+                progress.begin("RÚIAN a AOPK")
+            else:
+                log("=== Fáze: RÚIAN budovy (zabaged/) + AOPK památné stromy ===")
             try:
                 ruian_path = fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
             except Exception as exc:
@@ -478,6 +525,11 @@ def _package_output(
             except Exception as exc:
                 log(f"AOPK stromy: přeskočeno ({exc})")
                 aopk_path = None
+            if progress is not None:
+                progress.done()
+
+            if progress is not None:
+                progress.begin("OOM / ZIP")
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
@@ -593,6 +645,8 @@ def _package_output(
                 except Exception as exc:
                     log(f"OOM georef ZIP: přeskočeno ({exc})")
 
+        if progress is not None and not bbox:
+            progress.begin("OOM / ZIP")
         cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
         georef_dir = (
             output_dir / "preview"
@@ -620,7 +674,10 @@ def _package_output(
             georef_preview_dir=georef_dir,
         )
     else:
-        log("=== Fáze: jen PNG náhled (ZIP/OOM přeskočeno) ===")
+        if progress is not None:
+            progress.begin("balení výstupu")
+        else:
+            log("=== Fáze: jen PNG náhled (ZIP/OOM přeskočeno) ===")
 
     for name in ("pullautus.png", "pullautus.pgw", "preview.png", "preview.pgw"):
         src = kp_cwd / name
@@ -667,3 +724,5 @@ def _package_output(
         log(f"Výstup: jen PNG náhled ({png.stat().st_size / 1e6:.2f} MB)")
     else:
         log("Výstup: žádný ZIP ani PNG")
+    if progress is not None:
+        progress.finish_all()
