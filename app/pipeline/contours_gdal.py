@@ -20,12 +20,14 @@ from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 
-# Konzervativní prahy pro closed relief na dem_filled (nad skála-vs-deprese 1.2 m).
-# Deprese → 101.1; významné vyvýšeniny → 103 (ne tick). Malé knolly → 109, sem ne.
-_MIN_DEPRESSION_DEPTH_M = 2.0
-_MIN_ELEVATION_HEIGHT_M = 2.2
-_MIN_DEPRESSION_PERIMETER_M = 60.0
-_MIN_ELEVATION_PERIMETER_M = 120.0
+# Closed relief na dem_filled (prefs 2026-10-05):
+# – 101.1: větší plošně, hloubka spíš mírná (hluboké → 104; drobné → symbol jámy)
+# – 103: jen mid-interval vyvýšenina s vysokou jistotou (ne malé knolly / FP)
+# – closed elevation ≥ interval už je 101/102 → bez 103
+_MIN_DEPRESSION_DEPTH_M = 1.2
+_MAX_DEPRESSION_DEPTH_FOR_TICK_M = 3.5
+_MIN_DEPRESSION_PERIMETER_M = 65.0
+_MIN_FORMLINE_PERIMETER_M = 140.0
 _TICK_SPACING_M = 45.0
 _MAX_TICKS_PER_RING = 8
 
@@ -79,15 +81,28 @@ def contour_line_params(
     return min_len, gap
 
 
-def contour_tick_thresholds(interval_m: float) -> tuple[float, float, float, float]:
-    """(min_depression_m, min_elevation_m, min_dep_perim_m, min_elev_perim_m)."""
+def closed_relief_thresholds(
+    interval_m: float,
+) -> tuple[float, float, float, float, float, float]:
+    """(min_dep, max_dep_tick, min_dep_perim, form_lo, form_hi, min_form_perim)."""
     iv = max(float(interval_m), 0.1)
-    return (
-        max(_MIN_DEPRESSION_DEPTH_M, 0.4 * iv),
-        max(_MIN_ELEVATION_HEIGHT_M, 0.44 * iv),
-        _MIN_DEPRESSION_PERIMETER_M,
-        _MIN_ELEVATION_PERIMETER_M,
+    min_dep = max(_MIN_DEPRESSION_DEPTH_M, 0.25 * iv)
+    max_dep = max(_MAX_DEPRESSION_DEPTH_FOR_TICK_M, 0.7 * iv)
+    # Mid-interval pás pro 103 (vysoká jistota): cca 0.55–0.90 × ekvidistance.
+    form_lo = max(1.0, 0.55 * iv)
+    form_hi = max(form_lo + 0.2, 0.90 * iv)
+    min_dep_perim = max(_MIN_DEPRESSION_PERIMETER_M, 12.0 * iv)
+    min_form_perim = max(_MIN_FORMLINE_PERIMETER_M, 28.0 * iv)
+    return min_dep, max_dep, min_dep_perim, form_lo, form_hi, min_form_perim
+
+
+# Zpětná kompatibilita testů / skriptů.
+def contour_tick_thresholds(interval_m: float) -> tuple[float, float, float, float]:
+    """Deprecated alias: (min_dep, form_lo, min_dep_perim, min_form_perim)."""
+    min_dep, _max_dep, min_dep_perim, form_lo, _form_hi, min_form_perim = (
+        closed_relief_thresholds(interval_m)
     )
+    return min_dep, form_lo, min_dep_perim, min_form_perim
 
 
 def slope_tick_rotation_rad(
@@ -909,7 +924,7 @@ def _build_closed_relief_parts(
     interval_m: float,
     log=None,
 ) -> tuple[list[str], list[str]]:
-    """Deprese → 101.1 háčky; významné vyvýšeniny → 103 (ne tick, ne malé knolly)."""
+    """Deprese → 101.1 (větší plošně); 103 jen mid-interval s vysokou jistotou."""
     if not closed_rings:
         return [], []
 
@@ -920,26 +935,36 @@ def _build_closed_relief_parts(
 
     tick_index = symbol_index_for_code(preset_id, scale, "101.1")
     form_index = symbol_index_for_code(preset_id, scale, "103")
-    min_dep, min_elev, min_dep_len, min_elev_len = contour_tick_thresholds(
-        interval_m
-    )
-    n_dep = n_elev = n_skip = 0
+    (
+        min_dep,
+        max_dep_tick,
+        min_dep_len,
+        form_lo,
+        form_hi,
+        min_form_len,
+    ) = closed_relief_thresholds(interval_m)
+    n_dep = n_form = n_skip = 0
     tick_objects: list[str] = []
     formline_rings: list[list[tuple[float, float]]] = []
 
     for ring in closed_rings:
         perim = polyline_length_m(ring)
+        # Klasifikuj s nízkým prahem; jemné filtry níž (plošnost / mid-interval).
         relief = classify_closed_ring_relief(
             ring,
             elev_at,
             min_depression_m=min_dep,
-            min_elevation_m=min_elev,
+            min_elevation_m=form_lo,
         )
         if relief is None:
             n_skip += 1
             continue
         if relief.kind == "depression":
-            if perim < min_dep_len or tick_index is None:
+            if (
+                perim < min_dep_len
+                or relief.relief_m > max_dep_tick
+                or tick_index is None
+            ):
                 n_skip += 1
                 continue
             n_dep += 1
@@ -968,11 +993,16 @@ def _build_closed_relief_parts(
                 )
             continue
 
-        # Významná vyvýšenina → formline 103 (mimo ekvidistanční síť), ne 101.1.
-        if perim < min_elev_len or form_index is None:
+        # 103 jen mid-interval + velký obvod (malé knolly / full-interval 101 → ne).
+        if (
+            form_index is None
+            or perim < min_form_len
+            or relief.relief_m < form_lo
+            or relief.relief_m > form_hi
+        ):
             n_skip += 1
             continue
-        n_elev += 1
+        n_form += 1
         formline_rings.append(_inset_ring(ring, factor=0.55))
 
     formline_objects: list[str] = []
@@ -994,9 +1024,10 @@ def _build_closed_relief_parts(
     log_step(
         log,
         "Closed relief (dem_filled): "
-        f"deprese→101.1={n_dep} (hloubka≥{min_dep:.1f} m, obvod≥{min_dep_len:.0f} m, "
-        f"ticks={len(tick_objects)}); "
-        f"vyvýšeniny→103={n_elev} (výška≥{min_elev:.1f} m, obvod≥{min_elev_len:.0f} m, "
-        f"formlines={len(formline_objects)}); přeskočeno/malé={n_skip}",
+        f"deprese→101.1={n_dep} (hloubka {min_dep:.1f}–{max_dep_tick:.1f} m, "
+        f"obvod≥{min_dep_len:.0f} m, ticks={len(tick_objects)}); "
+        f"103 mid-interval={n_form} (výška {form_lo:.1f}–{form_hi:.1f} m, "
+        f"obvod≥{min_form_len:.0f} m, formlines={len(formline_objects)}); "
+        f"skip/FP/ekvidistance={n_skip}",
     )
     return tick_objects, formline_objects
