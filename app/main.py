@@ -428,7 +428,10 @@ def api_health():
 
 @app.post("/api/feedback")
 async def api_feedback(request: Request):
-    """Textová zpětná vazba (kontakt + komentář) → e-mail Petrovi."""
+    """Textová zpětná vazba → e-mail Petrovi.
+
+    Nezávislé na frontě generování (žádný worker.is_busy / check_create_job).
+    """
     content_type = (request.headers.get("content-type") or "").lower()
     honeypot = ""
     if "application/json" in content_type:
@@ -502,10 +505,11 @@ async def api_feedback(request: Request):
             job_status=job_status,
         )
     except MailError as exc:
+        # 502, ne 503 — 503 si FE/klienti spojují s plnou frontou generování.
         logger.warning("Feedback mail failed: %s", exc)
         raise HTTPException(
-            503,
-            "Zpětnou vazbu teď nešlo odeslat. Zkuste to později, "
+            502,
+            "Zpětnou vazbu teď nešlo odeslat (e-mail). Zkuste to později, "
             "nebo napište na GitHub Issues.",
         ) from exc
 
