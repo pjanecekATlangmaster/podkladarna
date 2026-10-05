@@ -234,8 +234,15 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     ),
     (
         re.compile(
-            r"(?i)sidewalk.*(paved|501\.1|529)|forest.?mtbo.?sidewalk|"
-            r"chodník.*(zpevněn|plocha)|Les/MTBO: chodníky"
+            r"(?i)sidewalk.*(strip|blowup|pás|blow)|forest.?mtbo.?sidewalk|"
+            r"chodník.*(pás|blow|obří)|úzký pás 501"
+        ),
+        "Les/MTBO: chodníky jako úzký pás zpevněné plochy (ne obří 501.1)",
+    ),
+    (
+        re.compile(
+            r"(?i)sidewalk.*(paved|501\.1|529)|chodník.*(zpevněn|plocha)|"
+            r"Les/MTBO: chodníky jako zpevněná"
         ),
         "Les/MTBO: chodníky jako zpevněná plocha (501.1 / 529)",
     ),

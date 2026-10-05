@@ -554,7 +554,8 @@ def test_index_html(client):
     assert "OSM detaily" in html
     assert "kp_osm_footway_as_sidewalk" in html
     assert "Default zapnuto u sprintu" in html
-    assert "MTBO 529" in html
+    assert "úzký pás 501.1" in html or "úzký pás" in html
+    assert "ne obří plocha" in html
     assert "funguje i u lesa" in html
     assert "Dřevěný chodník" not in html
     assert "boardwalk" not in html.lower()
