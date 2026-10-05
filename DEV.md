@@ -196,7 +196,11 @@ Checkbox **„Privátní režim generování mapy…“** vyžaduje e-mail. Job 
 
 Env (doporučeno v `.env` vedle checkoutu / compose; necommitujte hesla).
 `app.settings` a `scripts/dev.ps1` `.env` načtou automaticky (nepřepisují už
-nastavené proměnné). Bez `PUBLIC_BASE_URL` job doběhne, ale e-mail se neodešle.
+nastavené proměnné). Na NAS `docker-compose.nas.yml` předává `SMTP_*` /
+`PUBLIC_BASE_URL` / `FEEDBACK_TO` z host `.env` do kontejneru; alternativně
+stačí `/data/.env` uvnitř volume. Bez `SMTP_HOST` selže privátní mail i
+`POST /api/feedback` (502). Bez `PUBLIC_BASE_URL` job doběhne, ale e-mail
+s odkazem se neodešle.
 Po restartu tipu se u `done` privátních jobů bez „E-mail s odkazem odeslán“ mail
 zkusí znovu (`retry_missed_private_mails`).
 

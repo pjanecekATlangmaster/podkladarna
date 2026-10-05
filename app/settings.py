@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.2.9"
+APP_VERSION = "2.2.10"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -44,6 +44,8 @@ elif os.name == "nt":
     DATA_ROOT = APP_ROOT / "data"
 else:
     DATA_ROOT = Path("/data")
+# Docker/NAS: host .env u compose se do image nedostane; volitelně SMTP v /data/.env.
+_load_dotenv(DATA_ROOT / ".env")
 JOBS_DIR = DATA_ROOT / "jobs"
 CACHE_DIR = DATA_ROOT / "cache"
 DOWNLOADS_DIR = CACHE_DIR
