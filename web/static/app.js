@@ -467,6 +467,7 @@ async function loadJobs() {
   } else {
     parkJobDetail();
     jobDetailEl().classList.add("hidden");
+    syncFeedbackForJob(null);
     if (!selected) {
       selectedJobId = null;
       selectedJobStatus = null;
@@ -574,6 +575,7 @@ function setJobActionLinks(job) {
   const dl = document.getElementById("detail-download");
   const prev = document.getElementById("detail-preview");
   const georefBtn = document.getElementById("detail-download-georef");
+  syncFeedbackForJob(job);
   if (job.private || (job.options && job.options.private)) {
     dl.classList.add("hidden");
     prev.classList.add("hidden");
@@ -588,6 +590,22 @@ function setJobActionLinks(job) {
   }
   prev.href = `/api/jobs/${job.id}/preview.png`;
   prev.classList.toggle("hidden", !job.has_preview);
+}
+
+/** Feedback u jobu — lze odeslat i během běhu; vždy s job_id. */
+function syncFeedbackForJob(job) {
+  const box = document.getElementById("job-feedback");
+  const feedbackJob = document.getElementById("feedback-job-id");
+  const submitBtn = document.getElementById("feedback-submit");
+  const contactEl = document.getElementById("feedback-contact");
+  const commentEl = document.getElementById("feedback-comment");
+  const hasJob = !!(job && job.id);
+  if (box) box.classList.toggle("hidden", !hasJob);
+  if (feedbackJob) feedbackJob.value = hasJob ? job.id : "";
+  // Nikdy disabled kvůli statusu — odeslat jde i u running/queued.
+  if (submitBtn) submitBtn.disabled = false;
+  if (contactEl) contactEl.disabled = false;
+  if (commentEl) commentEl.disabled = false;
 }
 
 function escapeHtml(s) {
@@ -620,8 +638,6 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
   }
   if (applyForm) applyJobToForm(job);
   setJobActionLinks(job);
-  const feedbackJob = document.getElementById("feedback-job-id");
-  if (feedbackJob) feedbackJob.value = job.id || "";
   const img = document.getElementById("detail-img");
   if (job.has_preview) {
     img.src = `/api/jobs/${id}/preview.png?t=${Date.now()}`;
@@ -1409,6 +1425,10 @@ initBboxMap();
       setStatus("Napište komentář.", "err");
       return;
     }
+    if (!jobId) {
+      setStatus("Vyberte job v seznamu — zpětná vazba patří ke konkrétní mapě.", "err");
+      return;
+    }
     if (submitBtn) submitBtn.disabled = true;
     setStatus("Odesílám…", "");
     try {
@@ -1418,7 +1438,7 @@ initBboxMap();
         body: JSON.stringify({
           contact,
           comment,
-          job_id: jobId || undefined,
+          job_id: jobId,
           website,
         }),
       });

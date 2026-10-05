@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 
+from app import db
 from app.feedback import (
     build_feedback_email,
     check_feedback_rate,
+    job_page_url,
     reset_feedback_rate_limits,
     send_feedback,
 )
@@ -18,24 +20,53 @@ def _clear_feedback_limits():
     reset_feedback_rate_limits()
 
 
-def test_build_feedback_email():
+def _done_job(name: str = "Mapa") -> dict:
+    job = db.create_job(name, "forest_10000", {})
+    db.update_job(job["id"], status="done", phase="done")
+    return db.get_job(job["id"])
+
+
+def _running_job(name: str = "Běží") -> dict:
+    job = db.create_job(name, "forest_10000", {})
+    db.update_job(job["id"], status="running", phase="vectors")
+    return db.get_job(job["id"])
+
+
+def test_build_feedback_email(monkeypatch):
+    monkeypatch.setattr(
+        "app.feedback.settings.PUBLIC_BASE_URL",
+        "https://podkladarna.example",
+    )
     subject, body = build_feedback_email(
         contact="petr@example.com",
         comment="Srázy u Barrandova chybí.",
         job_id="abc123",
         client_ip="1.2.3.4",
+        job_name="Barrandov",
+        job_status="running",
     )
     assert "zpětná vazba" in subject
     assert "abc123" in subject
     assert "petr@example.com" in body
     assert "Srázy u Barrandova chybí." in body
     assert "Job ID: abc123" in body
+    assert "Název: Barrandov" in body
+    assert "Stav jobu: running" in body
+    assert "https://podkladarna.example/api/jobs/abc123" in body
     assert "IP: 1.2.3.4" in body
+
+
+def test_job_page_url(monkeypatch):
+    monkeypatch.setattr("app.feedback.settings.PUBLIC_BASE_URL", "https://x.test/")
+    assert job_page_url("j1") == "https://x.test/api/jobs/j1"
+    monkeypatch.setattr("app.feedback.settings.PUBLIC_BASE_URL", "")
+    assert job_page_url("j1") is None
 
 
 def test_feedback_api_sends_mail(client, monkeypatch):
     import app.main as main
 
+    job = _done_job("PNG OK")
     sent = {}
 
     def fake_send(**kwargs):
@@ -49,20 +80,43 @@ def test_feedback_api_sends_mail(client, monkeypatch):
         json={
             "contact": "mapar@example.com",
             "comment": "PNG vypadá dobře, díky.",
-            "job_id": "job_42",
+            "job_id": job["id"],
         },
     )
     assert r.status_code == 200
     assert r.json()["ok"] is True
     assert sent["contact"] == "mapar@example.com"
     assert sent["comment"] == "PNG vypadá dobře, díky."
-    assert sent["job_id"] == "job_42"
+    assert sent["job_id"] == job["id"]
+    assert sent["job_name"] == "PNG OK"
+    assert sent["job_status"] == "done"
     assert sent["client_ip"]
+
+
+def test_feedback_accepts_running_job(client, monkeypatch):
+    """Petr: odeslat jde i při běžícím jobu."""
+    import app.main as main
+
+    job = _running_job("Ještě běží")
+    sent = {}
+    monkeypatch.setattr(main, "send_feedback", lambda **kw: sent.update(kw))
+    r = client.post(
+        "/api/feedback",
+        json={
+            "contact": "a@b.cz",
+            "comment": "Už teď vypadá vegetace hustě.",
+            "job_id": job["id"],
+        },
+    )
+    assert r.status_code == 200
+    assert sent["job_id"] == job["id"]
+    assert sent["job_status"] == "running"
 
 
 def test_feedback_api_form_post(client, monkeypatch):
     import app.main as main
 
+    job = _done_job("Form")
     sent = {}
     monkeypatch.setattr(main, "send_feedback", lambda **kw: sent.update(kw))
     r = client.post(
@@ -70,12 +124,13 @@ def test_feedback_api_form_post(client, monkeypatch):
         data={
             "contact": "+420733575541",
             "comment": "Chybí lavičky u rybníka.",
-            "job_id": "x1",
+            "job_id": job["id"],
         },
     )
     assert r.status_code == 200
     assert sent["contact"] == "+420733575541"
     assert "lavičky" in sent["comment"]
+    assert sent["job_id"] == job["id"]
 
 
 def test_feedback_honeypot_skips_send(client, monkeypatch):
@@ -93,6 +148,7 @@ def test_feedback_honeypot_skips_send(client, monkeypatch):
         json={
             "contact": "bot@spam.test",
             "comment": "buy now",
+            "job_id": "whatever",
             "website": "https://spam.example",
         },
     )
@@ -104,16 +160,45 @@ def test_feedback_honeypot_skips_send(client, monkeypatch):
 def test_feedback_requires_fields(client, monkeypatch):
     import app.main as main
 
+    job = _done_job()
     monkeypatch.setattr(main, "send_feedback", lambda **_k: None)
-    r = client.post("/api/feedback", json={"contact": "", "comment": "x"})
+    r = client.post(
+        "/api/feedback",
+        json={"contact": "", "comment": "x", "job_id": job["id"]},
+    )
     assert r.status_code == 400
-    r2 = client.post("/api/feedback", json={"contact": "a@b.cz", "comment": ""})
+    r2 = client.post(
+        "/api/feedback",
+        json={"contact": "a@b.cz", "comment": "", "job_id": job["id"]},
+    )
     assert r2.status_code == 400
+    r3 = client.post(
+        "/api/feedback",
+        json={"contact": "a@b.cz", "comment": "bez jobu"},
+    )
+    assert r3.status_code == 400
+    assert "job_id" in r3.json()["detail"]
+
+
+def test_feedback_unknown_job_404(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main, "send_feedback", lambda **_k: None)
+    r = client.post(
+        "/api/feedback",
+        json={
+            "contact": "a@b.cz",
+            "comment": "ghost",
+            "job_id": "no_such_job_zzz",
+        },
+    )
+    assert r.status_code == 404
 
 
 def test_feedback_rate_limit(client, monkeypatch):
     import app.main as main
 
+    job = _done_job()
     monkeypatch.setattr(main, "send_feedback", lambda **_k: None)
     monkeypatch.setattr("app.feedback.settings.MAX_FEEDBACK_PER_IP_HOUR", 2)
     monkeypatch.setattr("app.settings.MAX_FEEDBACK_PER_IP_HOUR", 2)
@@ -121,13 +206,13 @@ def test_feedback_rate_limit(client, monkeypatch):
     for _ in range(2):
         ok = client.post(
             "/api/feedback",
-            json={"contact": "a@b.cz", "comment": "ok"},
+            json={"contact": "a@b.cz", "comment": "ok", "job_id": job["id"]},
         )
         assert ok.status_code == 200
 
     blocked = client.post(
         "/api/feedback",
-        json={"contact": "a@b.cz", "comment": "spam"},
+        json={"contact": "a@b.cz", "comment": "spam", "job_id": job["id"]},
     )
     assert blocked.status_code == 429
     assert "hodinu" in blocked.json()["detail"]
@@ -136,13 +221,15 @@ def test_feedback_rate_limit(client, monkeypatch):
 def test_feedback_smtp_error_503(client, monkeypatch):
     import app.main as main
 
+    job = _done_job()
+
     def fail(**_kwargs):
         raise MailError("SMTP není nastavené")
 
     monkeypatch.setattr(main, "send_feedback", fail)
     r = client.post(
         "/api/feedback",
-        json={"contact": "a@b.cz", "comment": "test"},
+        json={"contact": "a@b.cz", "comment": "test", "job_id": job["id"]},
     )
     assert r.status_code == 503
     assert "nešlo odeslat" in r.json()["detail"]
@@ -157,14 +244,25 @@ def test_send_feedback_uses_feedback_to(monkeypatch):
         captured["body"] = body
 
     monkeypatch.setattr("app.feedback.settings.FEEDBACK_TO", "owner@example.com")
+    monkeypatch.setattr(
+        "app.feedback.settings.PUBLIC_BASE_URL",
+        "https://podkladarna.example",
+    )
     monkeypatch.setattr("app.feedback.settings.SMTP_HOST", "smtp.example.com")
     monkeypatch.setattr("app.feedback.settings.SMTP_FROM", "from@example.com")
     monkeypatch.setattr("app.feedback.send_mail", fake_send_mail)
 
-    send_feedback(contact="u@x.cz", comment="Ahoj", job_id="j1")
+    send_feedback(
+        contact="u@x.cz",
+        comment="Ahoj",
+        job_id="j1",
+        job_status="queued",
+    )
     assert captured["to"] == "owner@example.com"
     assert "j1" in captured["subject"]
     assert "u@x.cz" in captured["body"]
+    assert "https://podkladarna.example/api/jobs/j1" in captured["body"]
+    assert "queued" in captured["body"]
 
 
 def test_check_feedback_rate_exempt(monkeypatch):

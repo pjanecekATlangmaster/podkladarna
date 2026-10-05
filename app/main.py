@@ -466,14 +466,26 @@ async def api_feedback(request: Request):
         raise HTTPException(400, "Vyplňte kontakt (e-mail nebo telefon).")
     if not comment:
         raise HTTPException(400, "Napište komentář.")
+    if not job_id:
+        raise HTTPException(400, "Chybí job_id – zpětná vazba patří ke konkrétnímu jobu.")
     if len(contact) > MAX_CONTACT_LEN:
         raise HTTPException(400, f"Kontakt je moc dlouhý (max {MAX_CONTACT_LEN} znaků).")
     if len(comment) > MAX_COMMENT_LEN:
         raise HTTPException(400, f"Komentář je moc dlouhý (max {MAX_COMMENT_LEN} znaků).")
-    if job_id and len(job_id) > MAX_JOB_ID_LEN:
+    if len(job_id) > MAX_JOB_ID_LEN:
         raise HTTPException(400, "Neplatné job_id.")
-    if job_id and not all(c.isalnum() or c in "-_" for c in job_id):
+    if not all(c.isalnum() or c in "-_" for c in job_id):
         raise HTTPException(400, "Neplatné job_id.")
+
+    # Job může běžet, čekat i být hotový — odeslat jde vždy (Petr 2026-10-05).
+    job_name: str | None = None
+    job_status: str | None = None
+    try:
+        job = db.get_job(job_id)
+        job_name = str(job.get("name") or "").strip() or None
+        job_status = str(job.get("status") or "").strip() or None
+    except KeyError:
+        raise HTTPException(404, "Job nenalezen.") from None
 
     ip = client_ip(request)
     limit_msg = check_feedback_rate(ip)
@@ -484,8 +496,10 @@ async def api_feedback(request: Request):
         send_feedback(
             contact=contact,
             comment=comment,
-            job_id=job_id or None,
+            job_id=job_id,
             client_ip=ip,
+            job_name=job_name,
+            job_status=job_status,
         )
     except MailError as exc:
         logger.warning("Feedback mail failed: %s", exc)
