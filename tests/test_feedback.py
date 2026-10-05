@@ -218,7 +218,8 @@ def test_feedback_rate_limit(client, monkeypatch):
     assert "hodinu" in blocked.json()["detail"]
 
 
-def test_feedback_smtp_error_503(client, monkeypatch):
+def test_feedback_smtp_error_502_not_queue_503(client, monkeypatch):
+    """Mail fail nesmí být 503 (FE to dřív maskovalo jako plnou frontu jobů)."""
     import app.main as main
 
     job = _done_job()
@@ -231,8 +232,31 @@ def test_feedback_smtp_error_503(client, monkeypatch):
         "/api/feedback",
         json={"contact": "a@b.cz", "comment": "test", "job_id": job["id"]},
     )
-    assert r.status_code == 503
-    assert "nešlo odeslat" in r.json()["detail"]
+    assert r.status_code == 502
+    detail = r.json()["detail"]
+    assert "nešlo odeslat" in detail
+    assert "fronta" not in detail.lower()
+
+
+def test_feedback_ignores_job_queue_busy(client, monkeypatch):
+    """Feedback nesmí záviset na worker.is_busy / frontě generování."""
+    import app.main as main
+
+    job = _running_job("busy-ok")
+    sent = {}
+    monkeypatch.setattr(main, "send_feedback", lambda **kw: sent.update(kw))
+    monkeypatch.setattr(main.worker, "is_busy", lambda: True)
+    monkeypatch.setattr(main.worker, "can_accept_job", lambda: False)
+    r = client.post(
+        "/api/feedback",
+        json={
+            "contact": "a@b.cz",
+            "comment": "I při plné frontě.",
+            "job_id": job["id"],
+        },
+    )
+    assert r.status_code == 200
+    assert sent["job_id"] == job["id"]
 
 
 def test_send_feedback_uses_feedback_to(monkeypatch):

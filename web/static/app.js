@@ -1,4 +1,16 @@
 function parseApiError(res, text) {
+  let detail = null;
+  try {
+    const data = JSON.parse(text);
+    if (Array.isArray(data.detail)) {
+      detail = data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+    } else if (typeof data.detail === "string") {
+      detail = data.detail;
+    }
+  } catch (_) {
+    /* not JSON */
+  }
+
   if (res.status === 413) {
     return (
       "Soubor je příliš velký pro reverse proxy (HTTP 413). " +
@@ -6,36 +18,28 @@ function parseApiError(res, text) {
       "nebo nahrajte soubory přes http://IP_NAS:8672 bez HTTPS proxy."
     );
   }
+  // 503 u create-job = fronta; u feedback/SMTP tohle nesmí přepsat detail.
   if (res.status === 503) {
     return (
+      detail ||
       "Server je zaneprázdněn – fronta generování je plná. " +
-      "Počkejte na dokončení běžících jobů a zkuste to znovu."
+        "Počkejte na dokončení běžících jobů a zkuste to znovu."
     );
   }
   if (res.status === 429) {
-    try {
-      const data = JSON.parse(text);
-      if (data.detail) return String(data.detail);
-    } catch (_) { /* fall through */ }
-    return "Limit jobů z vaší sítě – počkejte na dokončení běžících generování.";
+    return (
+      detail ||
+      "Limit jobů z vaší sítě – počkejte na dokončení běžících generování."
+    );
   }
   if (res.status === 502 || res.status === 504) {
     return (
+      detail ||
       `Proxy timeout (HTTP ${res.status}). LAZ soubory jsou velké – ` +
-      "prodlužte timeout reverse proxy nebo uploadujte přímo na port 8672."
+        "prodlužte timeout reverse proxy nebo uploadujte přímo na port 8672."
     );
   }
-  try {
-    const data = JSON.parse(text);
-    if (Array.isArray(data.detail)) {
-      return data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
-    }
-    if (typeof data.detail === "string") {
-      return data.detail;
-    }
-  } catch (_) {
-    /* not JSON */
-  }
+  if (detail) return detail;
   const trimmed = (text || "").trim();
   if (trimmed.includes("Request Entity Too Large")) {
     return parseApiError({ status: 413 }, text);
