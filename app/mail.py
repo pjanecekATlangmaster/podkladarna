@@ -84,16 +84,32 @@ def build_private_ready_email(
     job_name: str,
     download_url: str,
     retention_hours: int,
+    preview_url: str | None = None,
+    georef_url: str | None = None,
 ) -> tuple[str, str]:
-    """Vrací (předmět, tělo) pro hotový privátní job – česky."""
+    """Vrací (předmět, tělo) pro hotový privátní job – česky.
+
+    Odkazy (ZIP omap, volitelně PNG náhled / georef ZIP) jdou jen e-mailem;
+    na webové stránce privátního jobu se nezobrazují.
+    """
     subject = f"Podkladárna: mapa „{job_name}“ je připravená ke stažení"
-    body = (
-        f"Dobrý den,\n\n"
-        f"vaše mapa „{job_name}“ je hotová.\n\n"
-        f"Stažení (privátní odkaz):\n{download_url}\n\n"
-        f"Odkaz platí {retention_hours} hodin od založení jobu; "
-        f"poté se job i soubory smažou.\n\n"
-        f"Mapa není veřejně viditelná v seznamu jobů.\n\n"
-        f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n"
+    parts = [
+        "Dobrý den,\n",
+        f"vaše mapa „{job_name}“ je hotová.\n",
+        "Stažení (privátní odkazy):\n",
+        f"• ZIP s mapou (.omap / .ocd):\n{download_url}\n",
+    ]
+    if preview_url:
+        parts.append(f"• Náhled PNG:\n{preview_url}\n")
+    if georef_url:
+        parts.append(f"• ZIP georeferencovaných náhledů:\n{georef_url}\n")
+    parts.extend(
+        [
+            f"\nOdkazy platí {retention_hours} hodin od založení jobu; "
+            "poté se job i soubory smažou.\n",
+            "Mapa není veřejně viditelná v seznamu jobů "
+            "a na stránce jobu se náhled/ZIP nezobrazují.\n",
+            f"\n— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n",
+        ]
     )
-    return subject, body
+    return subject, "".join(parts)

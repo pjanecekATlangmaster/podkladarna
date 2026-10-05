@@ -160,6 +160,25 @@ def test_build_private_ready_email_mentions_expiry():
     assert "Test mapa" in subject
     assert "https://example/d/abc" in body
     assert "48" in body
+    assert "ZIP s mapou" in body
+    assert "Náhled PNG" not in body
+    assert "georeferencovaných" not in body
+
+
+def test_build_private_ready_email_optional_artifact_links():
+    subject, body = build_private_ready_email(
+        job_name="Geo mapa",
+        download_url="https://example/d/tok",
+        retention_hours=48,
+        preview_url="https://example/api/jobs/j1/preview.png?token=tok",
+        georef_url="https://example/api/jobs/j1/download/georef-previews?token=tok",
+    )
+    assert "Geo mapa" in subject
+    assert "preview.png?token=tok" in body
+    assert "georef-previews?token=tok" in body
+    assert "Náhled PNG" in body
+    assert "ZIP georeferencovaných náhledů" in body
+    assert "na stránce jobu se náhled/ZIP nezobrazují" in body
 
 
 def test_api_private_job_requires_email(client, monkeypatch):
@@ -341,3 +360,119 @@ def test_retry_missed_private_mails(tmp_path, monkeypatch):
     db.update_job(orphan["id"], status="done", phase="done")
     db.append_log(orphan["id"], "Status: done")
     assert job_worker.retry_missed_private_mails() == []
+
+
+def test_api_private_job_log_available_without_token(client, monkeypatch):
+    """Privátní job: status/log v session OK, artefakty bez tokenu ne."""
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "priv-log",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "private": "1",
+            "notify_email": "petr@example.com",
+        },
+    )
+    assert r.status_code == 200
+    job_id = r.json()["id"]
+    db.append_log(job_id, "Připravuji DEM z DMR5G (terén pro vrstevnice a srázy)…")
+    db.append_log(job_id, "Klasifikuji vegetaci z hustoty LiDAR odrazů…")
+
+    detail = client.get(f"/api/jobs/{job_id}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["private"] is True
+    assert body["has_preview"] is False
+    assert body["has_output"] is False
+    assert body["has_georef_previews"] is False
+
+    log = client.get(f"/api/jobs/{job_id}/log?after=0")
+    assert log.status_code == 200
+    lines = log.json()["lines"]
+    assert len(lines) >= 2
+    joined = "\n".join(x["line"] for x in lines)
+    assert "Připravuji DEM" in joined
+    assert "vegetaci" in joined
+
+
+def test_notify_private_job_mail_includes_preview_and_georef(tmp_path, monkeypatch):
+    """Mail obsahuje tokenizované odkazy PNG + georef, když artefakty existují."""
+    from app import job_worker
+
+    monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr("app.db.DOWNLOADS_DIR", tmp_path / "dl")
+    monkeypatch.setattr(job_worker, "JOBS_DIR", tmp_path / "jobs")
+    (tmp_path / "jobs").mkdir(exist_ok=True)
+    db.init_db()
+
+    job = db.create_job(
+        "priv-arts",
+        "forest_10000",
+        {"private": True, "notify_email": "user@example.com", "output_georef": True},
+    )
+    out = tmp_path / "jobs" / job["id"] / "output"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "podkladarna_output.zip").write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+    (out / "preview.jpg").write_bytes(b"\xff\xd8\xff")
+    prev = out / "preview"
+    prev.mkdir(exist_ok=True)
+    (prev / "mapa.png").write_bytes(b"png")
+    (prev / "mapa.pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+
+    sent: list[tuple] = []
+
+    def fake_send(to, subject, body, **_kw):
+        sent.append((to, subject, body))
+
+    monkeypatch.setattr(job_worker, "send_mail", fake_send)
+    monkeypatch.setattr(
+        job_worker.app_settings, "PUBLIC_BASE_URL", "http://127.0.0.1:8672"
+    )
+    monkeypatch.setattr(job_worker.app_settings, "PRIVATE_JOB_RETENTION_HOURS", 48)
+
+    job_worker._notify_private_job(job["id"])
+    assert len(sent) == 1
+    body = sent[0][2]
+    assert "/d/" in body
+    assert f"/api/jobs/{job['id']}/preview.png?token=" in body
+    assert f"/api/jobs/{job['id']}/download/georef-previews?token=" in body
+    assert "Náhled PNG" in body
+    assert "ZIP georeferencovaných" in body
+
+
+def test_ui_private_session_log_hooks():
+    """UI musí umět zobrazit log privátního běhu (holder + injekce do live)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    app_js = (root / "web" / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "web" / "static" / "style.css").read_text(encoding="utf-8")
+    html = (root / "web" / "index.html").read_text(encoding="utf-8")
+
+    assert "setPrivateDetailHolder" in app_js
+    assert "jobIsPrivate" in app_js
+    assert "showFormNotice" in app_js
+    assert "privátní session" in app_js
+    assert "Privátní session" in app_js or "injektuj do" in app_js
+    assert "!jobIsPrivate(selected) && selected.has_preview" in app_js
+    assert "!jobIsPrivate(job) && job.has_preview" in app_js
+    assert "ZIP/náhled nepřijdou" in app_js or "ZIP e-mailem" in app_js
+    assert "#job-detail-holder.active" in css
+    assert "form-notice" in css
+    assert 'id="form-notice"' in html
+    assert "pipeline log" in html.lower() or "pipeline log" in app_js.lower()
+    # Na webu privátní job nemá PNG/ZIP odkazy — jen mail.
+    assert "Privátní: ZIP/PNG jen e-mailem" in app_js or "jen e-mailem" in app_js

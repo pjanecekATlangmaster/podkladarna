@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.2.10"
+APP_VERSION = "2.2.11"
 
 
 def _load_dotenv(path: Path) -> None:

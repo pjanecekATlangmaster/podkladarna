@@ -46,7 +46,8 @@ def _mail_already_sent(job_id: str) -> bool:
 
 def _notify_private_job(job_id: str) -> None:
     """Po úspěchu pošle e-mail s privátním odkazem (best-effort)."""
-    job = db.get_job(job_id)
+    # reveal_artifacts=True jen pro sestavení mailu (flags existence na disku).
+    job = db.get_job(job_id, reveal_artifacts=True)
     if not db.job_is_private(job):
         return
     email = str((job.get("options") or {}).get("notify_email") or "").strip()
@@ -70,6 +71,14 @@ def _notify_private_job(job_id: str) -> None:
     if _mail_already_sent(job_id):
         return
     url = f"{base}/d/{token}"
+    preview_url = None
+    georef_url = None
+    if job.get("has_preview"):
+        preview_url = f"{base}/api/jobs/{job_id}/preview.png?token={token}"
+    if job.get("has_georef_previews"):
+        georef_url = (
+            f"{base}/api/jobs/{job_id}/download/georef-previews?token={token}"
+        )
     hours = app_settings.PRIVATE_JOB_RETENTION_HOURS
     if hours <= 0:
         hours = 48
@@ -77,6 +86,8 @@ def _notify_private_job(job_id: str) -> None:
         job_name=job.get("name") or job_id,
         download_url=url,
         retention_hours=hours,
+        preview_url=preview_url,
+        georef_url=georef_url,
     )
     try:
         send_mail(email, subject, body)
