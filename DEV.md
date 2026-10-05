@@ -199,9 +199,12 @@ Env (doporučeno v `.env` vedle checkoutu / compose; necommitujte hesla).
 **neprázdné** proměnné; prázdný compose inject se z `/data/.env` doplní).
 Na NAS `docker-compose.nas.yml` předává `SMTP_*` /
 `PUBLIC_BASE_URL` / `FEEDBACK_TO` z host `.env` do kontejneru; alternativně
-stačí `/data/.env` uvnitř volume. Bez `SMTP_HOST` selže privátní mail i
+stačí `/data/.env` uvnitř volume. Od **2.2.12** Docker image při prázdném
+injectu doplní NAS default (`datais-cz.mail.protection.outlook.com` +
+`https://podkladarna.kibos.link`) — tip/lokál bez `/.dockerenv` ne.
+Bez `SMTP_HOST` (a bez Docker defaultu) selže privátní mail i
 `POST /api/feedback` (502). Bez `PUBLIC_BASE_URL` job doběhne, ale e-mail
-s odkazem se neodešle.
+s odkazem se neodešle. Health: `mail_configured` v `/api/health`.
 Po restartu tipu se u `done` privátních jobů bez „E-mail s odkazem odeslán“ mail
 zkusí znovu (`retry_missed_private_mails`).
 

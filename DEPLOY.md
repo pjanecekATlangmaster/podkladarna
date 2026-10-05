@@ -271,14 +271,21 @@ SMTP_FROM_NAME=OB podklady
 `GHCR_OWNER` musí být **lowercase** – GHCR ukládá image jako `ghcr.io/pjanecekatlangmaster/podkladarna`.
 
 `docker-compose.nas.yml` předává `SMTP_*` / `PUBLIC_BASE_URL` / `FEEDBACK_TO`
-z tohoto `.env` do kontejneru (`${SMTP_HOST:-}` …). Samotný `.env` u compose
-**není** automaticky celý injectnutý – bez řádků v `environment:` kontejner
-SMTP nevidí. Po změně `.env` nebo compose: `./update-nas.sh --force`
+z tohoto `.env` do kontejneru. Od **2.2.12** má compose **product default**
+`SMTP_HOST` (M365 relay) a `PUBLIC_BASE_URL=https://podkladarna.kibos.link`
+i když host `.env` SMTP řádky nemá. Image navíc při prázdném injectu
+doplní stejné defaulty (detekce `/.dockerenv`) — stačí `./update-nas.sh`
+po GHCR buildu, bez ručního sync compose.
+
+Samotný `.env` u compose **není** automaticky celý injectnutý – bez řádků
+v `environment:` (starý compose před #55) kontejner SMTP z host `.env`
+nevidí. Po změně `.env` nebo compose: `./update-nas.sh --force`
 (nebo recreate).
 
 **Důležité:** `./update-nas.sh` jen pullne image a recreate — **nesynchronizuje**
-`docker-compose.nas.yml` z Gitu. Po #55 musí být na NAS compose se SMTP řádky
-(zkopírovat z masteru / `git pull`, pokud je deploy složka klon).
+`docker-compose.nas.yml` z Gitu. Pro compose defaulty zkopírujte soubor
+z masteru; i bez toho image ≥2.2.12 mail defaulty doplní v procesu.
 
 Alternativa od 2.2.10 (`data/.env` na volume): od **2.2.11** doplní i klíče,
 které compose injectne jako prázdné (`SMTP_HOST=`). Restart kontejneru stačí.
+Health `/api/health` má `mail_configured` (true/false, bez hesel).

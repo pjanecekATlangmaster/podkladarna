@@ -269,6 +269,13 @@ nas_health_check() {
     _code="$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 http://127.0.0.1:8672/ 2>/dev/null || echo 000)"
     if [ "$_code" = "200" ]; then
       echo "OK (HTTP $_code)"
+      _health="$(curl -sS --connect-timeout 2 --max-time 5 http://127.0.0.1:8672/api/health 2>/dev/null || true)"
+      if printf '%s' "$_health" | grep -q '"mail_configured": *false'; then
+        echo "Varování: mail_configured=false – feedback/privátní mail neodejde." >&2
+        echo "Doplňte SMTP_* do .env / data/.env (DEPLOY.md) nebo image ≥2.2.12." >&2
+      elif printf '%s' "$_health" | grep -q '"mail_configured": *true'; then
+        echo "mail_configured=true"
+      fi
       return 0
     fi
     _restarts="$(docker inspect --format='{{.RestartCount}}' podkladarna 2>/dev/null || echo 0)"

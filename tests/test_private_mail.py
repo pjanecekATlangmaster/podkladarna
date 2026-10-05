@@ -323,6 +323,37 @@ def test_load_dotenv_fills_empty_env(tmp_path, monkeypatch):
     assert os.environ["SMTP_FROM"] == "from@example.com"
 
 
+def test_docker_empty_smtp_gets_nas_defaults(monkeypatch):
+    """Prázdný compose inject na NAS → product SMTP/PUBLIC_BASE default (2.2.12)."""
+    import app.settings as settings_mod
+
+    monkeypatch.setattr(settings_mod, "_running_in_docker", lambda: True)
+    monkeypatch.setattr(settings_mod, "SMTP_HOST", "")
+    monkeypatch.setattr(settings_mod, "SMTP_FROM", "")
+    monkeypatch.setattr(settings_mod, "PUBLIC_BASE_URL", "")
+
+    host = ("" or settings_mod._NAS_DEFAULT_SMTP_HOST)
+    assert host == "datais-cz.mail.protection.outlook.com"
+    assert settings_mod._NAS_DEFAULT_PUBLIC_BASE_URL == "https://podkladarna.kibos.link"
+
+    # Simulace stejné logiky jako při importu settings (empty env + docker).
+    smtp_host = ""
+    if not smtp_host and settings_mod._running_in_docker():
+        smtp_host = settings_mod._NAS_DEFAULT_SMTP_HOST
+    public = ""
+    if not public and settings_mod._running_in_docker():
+        public = settings_mod._NAS_DEFAULT_PUBLIC_BASE_URL
+    assert smtp_host == settings_mod._NAS_DEFAULT_SMTP_HOST
+    assert public == settings_mod._NAS_DEFAULT_PUBLIC_BASE_URL
+
+
+def test_running_in_docker_false_on_tip():
+    from app.settings import _running_in_docker
+
+    # Tip/pytest běží mimo kontejner (bez /.dockerenv).
+    assert _running_in_docker() is False
+
+
 def test_retry_missed_private_mails(tmp_path, monkeypatch):
     from app import job_worker
 

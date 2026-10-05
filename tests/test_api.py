@@ -20,6 +20,7 @@ def test_health(client):
     assert body["ok"] is True
     assert "disk_free_gb" in body
     assert "downloads_dir" in body
+    assert isinstance(body["mail_configured"], bool)
 
 
 def test_presets(client):

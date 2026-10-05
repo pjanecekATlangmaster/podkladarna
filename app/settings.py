@@ -7,7 +7,16 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.2.11"
+APP_VERSION = "2.2.12"
+
+# Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
+# PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
+_NAS_DEFAULT_SMTP_HOST = "datais-cz.mail.protection.outlook.com"
+_NAS_DEFAULT_PUBLIC_BASE_URL = "https://podkladarna.kibos.link"
+
+
+def _running_in_docker() -> bool:
+    return Path("/.dockerenv").is_file()
 
 
 def _load_dotenv(path: Path) -> None:
@@ -104,14 +113,22 @@ FORCE_REFRESH_DEFAULT = os.environ.get("PODKLADARNA_FORCE_REFRESH", "0").lower()
 
 # SMTP – privátní joby (odkaz ke stažení e-mailem). Prázdný USER/PASSWORD = IP relay.
 SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+if not SMTP_HOST and _running_in_docker():
+    SMTP_HOST = _NAS_DEFAULT_SMTP_HOST
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "25"))
 SMTP_ENCRYPTION = os.environ.get("SMTP_ENCRYPTION", "starttls").strip().lower()
 SMTP_USER = os.environ.get("SMTP_USER", "").strip()
 SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", "podkladarna@datais.cz").strip()
+if not SMTP_FROM and _running_in_docker():
+    SMTP_FROM = "podkladarna@datais.cz"
 SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "OB podklady").strip()
+if not SMTP_FROM_NAME and _running_in_docker():
+    SMTP_FROM_NAME = "OB podklady"
 # Absolutní URL instance (bez koncového /) pro odkazy v e-mailu, např. https://podkladarna.example
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+if not PUBLIC_BASE_URL and _running_in_docker():
+    PUBLIC_BASE_URL = _NAS_DEFAULT_PUBLIC_BASE_URL
 # Privátní joby: platnost odkazu / mazání artefaktů (hodiny od založení).
 PRIVATE_JOB_RETENTION_HOURS = int(
     os.environ.get("PRIVATE_JOB_RETENTION_HOURS", "48")
