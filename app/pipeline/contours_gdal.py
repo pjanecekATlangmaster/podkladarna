@@ -4,17 +4,30 @@ import json
 import math
 from pathlib import Path
 
+from app.pipeline.cliff_height import classify_closed_ring_relief
 from app.pipeline.dem_prep import DEM_DIR_NAME, _pick_ground_laz
 from app.pipeline.job_grid import resolve_job_extent
+from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import (
     OomObjectPart,
     _geom_parts_to_objects,
+    _load_cliff_dem,
+    _point_object,
     _pyogrio_layer_rows,
     _wkb_parts,
 )
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
+
+# Konzervativní prahy pro closed relief na dem_filled (nad skála-vs-deprese 1.2 m).
+# Deprese → 101.1; významné vyvýšeniny → 103 (ne tick). Malé knolly → 109, sem ne.
+_MIN_DEPRESSION_DEPTH_M = 2.0
+_MIN_ELEVATION_HEIGHT_M = 2.2
+_MIN_DEPRESSION_PERIMETER_M = 60.0
+_MIN_ELEVATION_PERIMETER_M = 120.0
+_TICK_SPACING_M = 45.0
+_MAX_TICKS_PER_RING = 8
 
 CONTOUR_META_NAME = "contour_meta.json"
 
@@ -64,6 +77,87 @@ def contour_line_params(
     min_len = max(_MIN_CONTOUR_LEN_M, 2.5 * interval)
     gap = max(6.0, _STITCH_GAP_FACTOR * window_m)
     return min_len, gap
+
+
+def contour_tick_thresholds(interval_m: float) -> tuple[float, float, float, float]:
+    """(min_depression_m, min_elevation_m, min_dep_perim_m, min_elev_perim_m)."""
+    iv = max(float(interval_m), 0.1)
+    return (
+        max(_MIN_DEPRESSION_DEPTH_M, 0.4 * iv),
+        max(_MIN_ELEVATION_HEIGHT_M, 0.44 * iv),
+        _MIN_DEPRESSION_PERIMETER_M,
+        _MIN_ELEVATION_PERIMETER_M,
+    )
+
+
+def slope_tick_rotation_rad(
+    map_x: float,
+    map_y: float,
+    toward_x: float,
+    toward_y: float,
+) -> float:
+    """Mapper rotace 101.1: symbol default míří k (0,−1) v mapových j."""
+    dx = toward_x - map_x
+    dy = toward_y - map_y
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        return 0.0
+    # Tip po rotaci θ: (sin θ, −cos θ) — viz ISOM point symbol 0;0 → 0;−len.
+    return math.atan2(dx, -dy)
+
+
+def place_closed_contour_ticks(
+    ring: list[tuple[float, float]],
+    *,
+    toward_centroid: bool,
+    spacing_m: float = _TICK_SPACING_M,
+    max_ticks: int = _MAX_TICKS_PER_RING,
+) -> list[tuple[float, float, float, float]]:
+    """Body háčků (x, y, toward_x, toward_y) v projected metrech.
+
+    ``toward_centroid=True`` = deprese (háček dovnitř), jinak vyvýšenina ven.
+    """
+    if len(ring) < 4:
+        return []
+    pts = list(ring)
+    if pts[0] == pts[-1]:
+        pts = pts[:-1]
+    if len(pts) < 3:
+        return []
+    cx = sum(p[0] for p in pts) / len(pts)
+    cy = sum(p[1] for p in pts) / len(pts)
+    total = polyline_length_m(pts + [pts[0]])
+    if total < 1.0:
+        return []
+    n = max(1, min(max_ticks, int(total / max(spacing_m, 1.0))))
+    out: list[tuple[float, float, float, float]] = []
+    for i in range(n):
+        target = (i + 0.5) * total / n
+        walked = 0.0
+        placed = False
+        loop = pts + [pts[0]]
+        for (x0, y0), (x1, y1) in zip(loop, loop[1:]):
+            seg = math.hypot(x1 - x0, y1 - y0)
+            if seg < 1e-6:
+                continue
+            if walked + seg >= target:
+                t = (target - walked) / seg
+                x = x0 + t * (x1 - x0)
+                y = y0 + t * (y1 - y0)
+                if toward_centroid:
+                    tx, ty = cx, cy
+                else:
+                    tx, ty = x + (x - cx), y + (y - cy)
+                out.append((x, y, tx, ty))
+                placed = True
+                break
+            walked += seg
+        if not placed:
+            x, y = pts[0]
+            if toward_centroid:
+                out.append((x, y, cx, cy))
+            else:
+                out.append((x, y, x + (x - cx), y + (y - cy)))
+    return out
 
 
 def contour_oom_code(
@@ -705,6 +799,7 @@ def build_gdal_contour_parts(
         "Importuji vrstevnice do OOM: Chaikin → DP simplify "
         f"({_SIMPLIFY_PAPER_MM:g} mm ≈ {simplify_tol:.2f} m) → Bézier",
     )
+    closed_rings: list[list[tuple[float, float]]] = []
     for (code, _elev), lines in by_key.items():
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
@@ -721,6 +816,8 @@ def build_gdal_contour_parts(
             if len(pts) < 2:
                 continue
             closed = is_closed_polyline(pts)
+            if closed:
+                closed_rings.append(list(pts))
             smoothed.append(("line", pts, closed))
         if not smoothed:
             continue
@@ -737,6 +834,18 @@ def build_gdal_contour_parts(
             )
         )
 
+    tick_objects, formline_objects = _build_closed_relief_parts(
+        closed_rings,
+        work_dir=work_dir,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        interval_m=interval_m,
+        log=log,
+    )
+
     parts: list[OomObjectPart] = []
     for code in ("101", "102"):
         objects = grouped[code]
@@ -748,4 +857,146 @@ def build_gdal_contour_parts(
                     count=len(objects),
                 )
             )
+    if tick_objects:
+        parts.append(
+            OomObjectPart(
+                name="Háčky depresí (101.1)",
+                objects_xml="\n".join(tick_objects),
+                count=len(tick_objects),
+            )
+        )
+    if formline_objects:
+        parts.append(
+            OomObjectPart(
+                name="Pomocné vrstevnice vyvýšenin (103)",
+                objects_xml="\n".join(formline_objects),
+                count=len(formline_objects),
+            )
+        )
     return parts
+
+
+def _inset_ring(
+    ring: list[tuple[float, float]],
+    *,
+    factor: float = 0.55,
+) -> list[tuple[float, float]]:
+    """Prstenec posunutý k těžišti – proxy formline uvnitř uzavřené 101/102."""
+    pts = list(ring)
+    if len(pts) >= 2 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    if len(pts) < 3:
+        return list(ring)
+    cx = sum(p[0] for p in pts) / len(pts)
+    cy = sum(p[1] for p in pts) / len(pts)
+    out = [
+        (cx + factor * (x - cx), cy + factor * (y - cy)) for x, y in pts
+    ]
+    if out[0] != out[-1]:
+        out.append(out[0])
+    return out
+
+
+def _build_closed_relief_parts(
+    closed_rings: list[list[tuple[float, float]]],
+    *,
+    work_dir: Path,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    interval_m: float,
+    log=None,
+) -> tuple[list[str], list[str]]:
+    """Deprese → 101.1 háčky; významné vyvýšeniny → 103 (ne tick, ne malé knolly)."""
+    if not closed_rings:
+        return [], []
+
+    elev_at = _load_cliff_dem(work_dir)
+    if elev_at is None:
+        log_step(log, "Closed relief 101.1/103: chybí dem/dem_filled – přeskočeno")
+        return [], []
+
+    tick_index = symbol_index_for_code(preset_id, scale, "101.1")
+    form_index = symbol_index_for_code(preset_id, scale, "103")
+    min_dep, min_elev, min_dep_len, min_elev_len = contour_tick_thresholds(
+        interval_m
+    )
+    n_dep = n_elev = n_skip = 0
+    tick_objects: list[str] = []
+    formline_rings: list[list[tuple[float, float]]] = []
+
+    for ring in closed_rings:
+        perim = polyline_length_m(ring)
+        relief = classify_closed_ring_relief(
+            ring,
+            elev_at,
+            min_depression_m=min_dep,
+            min_elevation_m=min_elev,
+        )
+        if relief is None:
+            n_skip += 1
+            continue
+        if relief.kind == "depression":
+            if perim < min_dep_len or tick_index is None:
+                n_skip += 1
+                continue
+            n_dep += 1
+            for x, y, tx, ty in place_closed_contour_ticks(
+                ring, toward_centroid=True
+            ):
+                mx, my = projected_to_map_coord(
+                    x,
+                    y,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                )
+                mtx, mty = projected_to_map_coord(
+                    tx,
+                    ty,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                )
+                rot = slope_tick_rotation_rad(mx, my, mtx, mty)
+                tick_objects.append(
+                    _point_object(tick_index, mx, my, rotation_rad=rot)
+                )
+            continue
+
+        # Významná vyvýšenina → formline 103 (mimo ekvidistanční síť), ne 101.1.
+        if perim < min_elev_len or form_index is None:
+            n_skip += 1
+            continue
+        n_elev += 1
+        formline_rings.append(_inset_ring(ring, factor=0.55))
+
+    formline_objects: list[str] = []
+    if formline_rings and form_index is not None:
+        formline_objects = _geom_parts_to_objects(
+            [("line", pts, True) for pts in formline_rings],
+            form_index,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            scale=scale,
+            grivation_deg=grivation_deg,
+            as_curves=True,
+        )
+
+    if tick_index is None:
+        log_step(log, "Háčky 101.1: symbol v sadě chybí")
+    if form_index is None:
+        log_step(log, "Formline 103: symbol v sadě chybí")
+    log_step(
+        log,
+        "Closed relief (dem_filled): "
+        f"deprese→101.1={n_dep} (hloubka≥{min_dep:.1f} m, obvod≥{min_dep_len:.0f} m, "
+        f"ticks={len(tick_objects)}); "
+        f"vyvýšeniny→103={n_elev} (výška≥{min_elev:.1f} m, obvod≥{min_elev_len:.0f} m, "
+        f"formlines={len(formline_objects)}); přeskočeno/malé={n_skip}",
+    )
+    return tick_objects, formline_objects

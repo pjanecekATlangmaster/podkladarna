@@ -625,9 +625,18 @@ def _area_object_with_holes(
     return _object_xml(symbol_index, pts)
 
 
-def _point_object(symbol_index: int, x: int, y: int) -> str:
+def _point_object(
+    symbol_index: int,
+    x: int,
+    y: int,
+    *,
+    rotation_rad: float | None = None,
+) -> str:
+    rot = ""
+    if rotation_rad is not None:
+        rot = f' rotation="{float(rotation_rad):.6g}"'
     return (
-        f'            <object type="0" symbol="{symbol_index}">\n'
+        f'            <object type="0" symbol="{symbol_index}"{rot}>\n'
         f'                <coords count="1">{_fmt(x, y)};</coords>\n'
         f"            </object>"
     )
