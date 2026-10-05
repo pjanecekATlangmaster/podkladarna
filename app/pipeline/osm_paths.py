@@ -198,6 +198,12 @@ SKIP_CYCLEWAY = frozenset({"sidewalk", "crossing", "lane", "share_busway", "trac
 SKIP_FOOTWAY = frozenset({"sidewalk"})
 # Lineární railway=platform (2 uzly) → buffer na plochu.
 PLATFORM_LINE_HALF_WIDTH_M = 1.5
+# Les/MTBO: chodník = úzký pás zpevněné plochy (ISOM 501.1 / ISMTBOM 529).
+# Poloviční šířka ~0.7 m ≈ sprint footprint 501.6 (1.4 m). Nesmí se kreslit
+# jako uzavřená area po střednici – to vyplní celý blok.
+SIDEWALK_PAVED_STRIP_HALF_WIDTH_M = 0.7
+# OOM area kódy pro liniový chodník → strip polygon (ne path s area symbolem).
+_SIDEWALK_PAVED_AREA_CODES = frozenset({"501.1", "529"})
 
 # Plochy → OOM zpevněná (501 / 501.1), ne žlutá 401.
 # leisure=track = běžecká dráha (ne highway=track).
@@ -1270,7 +1276,8 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return "504"
 
     if hw == "sidewalk":
-        # Chodník: sprint footprint 501.6; les/MTBO zpevněná plocha (501.1 / 529).
+        # Chodník: sprint = liniový footprint 501.6; les/MTBO = area 501.1 / 529
+        # jako úzký pás (viz build_osm_path_parts) – ne fill uzavřené střednice.
         if sprint:
             return "501.6"
         if mtbo:
@@ -1288,6 +1295,11 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     if mtbo:
         return "834"
     return "506"
+
+
+def sidewalk_oom_uses_paved_strip(code: str) -> bool:
+    """True když liniový chodník musí jít do OOM jako pás area (ne path+area)."""
+    return (code or "") in _SIDEWALK_PAVED_AREA_CODES
 
 
 def highway_width_rank(highway: str) -> int:
@@ -3076,19 +3088,41 @@ def build_osm_path_parts(
             continue
         line = [(float(x), float(y)) for x, y in coords]
         pieces = clip_polyline(line, clip_bounds) if clip_bounds else [line]
+        as_strip = sidewalk_oom_uses_paved_strip(code) and path_draw_highway(
+            hw
+        ) == "sidewalk"
         for piece in pieces:
-            mapped = [
-                projected_to_map_coord(
-                    x,
-                    y,
-                    ref_x=ref_x,
-                    ref_y=ref_y,
-                    scale=scale,
-                    grivation_deg=grivation_deg,
+            if as_strip:
+                ring = _line_buffer_ring_5514(
+                    piece, half_width_m=SIDEWALK_PAVED_STRIP_HALF_WIDTH_M
                 )
-                for x, y in piece
-            ]
-            obj = _path_object(symbol_index, mapped)
+                if not ring:
+                    continue
+                mapped_ring = [
+                    projected_to_map_coord(
+                        x,
+                        y,
+                        ref_x=ref_x,
+                        ref_y=ref_y,
+                        scale=scale,
+                        grivation_deg=grivation_deg,
+                    )
+                    for x, y in ring
+                ]
+                obj = _area_object_with_holes(symbol_index, [mapped_ring])
+            else:
+                mapped = [
+                    projected_to_map_coord(
+                        x,
+                        y,
+                        ref_x=ref_x,
+                        ref_y=ref_y,
+                        scale=scale,
+                        grivation_deg=grivation_deg,
+                    )
+                    for x, y in piece
+                ]
+                obj = _path_object(symbol_index, mapped)
             if obj:
                 objects.append(obj)
     if not objects:

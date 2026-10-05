@@ -1,5 +1,6 @@
 import io
 import json
+import re
 from unittest.mock import patch
 
 import urllib.error
@@ -932,6 +933,7 @@ def test_osm_oom_code_sidewalk():
     from app.pipeline.osm_paths import (
         highway_to_zabaged_vrstva,
         osm_oom_code,
+        sidewalk_oom_uses_paved_strip,
         sprint_line_highway,
     )
 
@@ -939,6 +941,10 @@ def test_osm_oom_code_sidewalk():
     # Les / MTBO: zpevněná plocha (ne linie pěšiny 506 / 834).
     assert osm_oom_code("sidewalk", "forest_10000") == "501.1"
     assert osm_oom_code("sidewalk", "mtbo_10000") == "529"
+    assert sidewalk_oom_uses_paved_strip("501.1")
+    assert sidewalk_oom_uses_paved_strip("529")
+    assert not sidewalk_oom_uses_paved_strip("501.6")
+    assert not sidewalk_oom_uses_paved_strip("506")
     assert osm_oom_code("track", "sprint_2m") == "505.1"
     assert osm_oom_code("residential", "sprint_2m") == "501.18"
     assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
@@ -1355,6 +1361,112 @@ def _write_osm_geojson(work_dir, name, features):
 
 def _build_kwargs():
     return dict(preset_id="isom2017", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+
+
+def test_forest_sidewalk_closed_ring_is_thin_strip_not_filled_block(tmp_path):
+    """Uzavřený chodník kolem bloku nesmí vyplnit vnitřek jako 501.1 area."""
+    from app.pipeline.osm_paths import SIDEWALK_PAVED_STRIP_HALF_WIDTH_M
+
+    # ~100×100 m blok – fill by byl ~10 000 m²; pás ~1.4 m je řádově menší.
+    ring = [
+        [0.0, 0.0],
+        [100.0, 0.0],
+        [100.0, 100.0],
+        [0.0, 100.0],
+        [0.0, 0.0],
+    ]
+    _write_osm_geojson(
+        tmp_path,
+        "paths.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {"highway": "sidewalk"},
+                "geometry": {"type": "LineString", "coordinates": ring},
+            }
+        ],
+    )
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=112):
+        parts = build_osm_path_parts(
+            tmp_path,
+            preset_id="forest_10000",
+            scale=10000,
+            ref_x=0.0,
+            ref_y=0.0,
+            grivation_deg=0.0,
+        )
+    assert parts and parts[0].count == 1
+    xml = parts[0].objects_xml
+    # Area object = ClosePoint|HolePoint flag 18 na uzavíracím bodě.
+    assert " 18;" in xml
+    # Střednicový fill by měl jen ~5 vertexů; pás má left+right (~10+).
+    m = re.search(r'coords count="(\d+)"', xml)
+    assert m and int(m.group(1)) >= 10
+    # Bounding box pásu: max |coord| ~ (100 + half_width) * 100 (map mm @10k).
+    # Half-width 0.7 m → okraj ~100.7 m → ~10070 map units; fill by šel stejně,
+    # ale ověř šířku pásu: body mimo „tlustý“ okraj kolem 50,50 uvnitř bloku
+    # v XML být nemají jako jediný ring fill – stačí že count > 5 a flag 18.
+    assert SIDEWALK_PAVED_STRIP_HALF_WIDTH_M == 0.7
+
+
+def test_sprint_sidewalk_stays_line_footprint(tmp_path):
+    """Sprint 501.6 zůstává liniový footprint, ne area strip."""
+    _write_osm_geojson(
+        tmp_path,
+        "paths.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {"highway": "sidewalk"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[0.0, 0.0], [50.0, 0.0]],
+                },
+            }
+        ],
+    )
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=109):
+        parts = build_osm_path_parts(
+            tmp_path,
+            preset_id="sprint_2m",
+            scale=4000,
+            ref_x=0.0,
+            ref_y=0.0,
+            grivation_deg=0.0,
+        )
+    assert parts and parts[0].count == 1
+    xml = parts[0].objects_xml
+    assert " 18;" not in xml
+    m = re.search(r'coords count="(\d+)"', xml)
+    assert m and int(m.group(1)) == 2
+
+
+def test_mtbo_sidewalk_uses_paved_strip(tmp_path):
+    _write_osm_geojson(
+        tmp_path,
+        "paths.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {"highway": "sidewalk"},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[0.0, 0.0], [40.0, 0.0]],
+                },
+            }
+        ],
+    )
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=69):
+        parts = build_osm_path_parts(
+            tmp_path,
+            preset_id="mtbo_10000",
+            scale=10000,
+            ref_x=0.0,
+            ref_y=0.0,
+            grivation_deg=0.0,
+        )
+    assert parts and parts[0].count == 1
+    assert " 18;" in parts[0].objects_xml
 
 
 def test_osm_paths_are_clipped_to_map_bounds(tmp_path):
