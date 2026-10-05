@@ -1,8 +1,9 @@
 #!/bin/sh
 # Aktualizace nasazené Podkladárny na Synology NAS
 #
-# Nejdřív počká na GitHub Actions (docker.yml), pak pull jen změněných vrstev.
-# Stejný digest → nic nestahuje. Vynucení: ./update-nas.sh --force
+# Syncne docker-compose.nas.yml z GitHubu (host .env nepřepisuje),
+# počká na GitHub Actions (docker.yml), pak pull jen změněných vrstev.
+# Stejný digest + compose beze změny → nic nestahuje. Vynucení: ./update-nas.sh --force
 #
 # Použití:
 #   cd /volume1/docker/podkladarna
@@ -32,9 +33,11 @@ while [ $# -gt 0 ]; do
       ;;
     -h|--help)
       echo "Použití: $0 [--force] [--no-wait] [tag]"
+      echo "  Syncne docker-compose.nas.yml z GitHubu (host .env nepřepisuje)."
       echo "  Bez --force: přeskočí pull, pokud je digest stejný jako na GHCR."
       echo "  Výchozí: počká na dokončení GitHub Actions (docker.yml) pro latest."
       echo "  --no-wait: stáhnout to, co už je na GHCR, i když build ještě běží."
+      echo "  NAS_SKIP_COMPOSE_SYNC=1: nepřepisovat compose."
       echo "  Pull nemaže staré vrstvy – Docker stáhne jen rozdíl."
       exit 0
       ;;
@@ -66,9 +69,18 @@ nas_ghcr_login
 export GHCR_OWNER
 export IMAGE_TAG="$TAG"
 
+# Sync compose z masteru (SMTP_*/PUBLIC_BASE mapování). Host .env nepřepisuje.
+nas_sync_compose_file
+
 nas_wait_for_gh_build "$WAIT_BUILD" "$TAG" || exit 1
 
 nas_check_up_to_date "$IMAGE" "$FORCE"
+
+# Nový compose + stejný image → recreate, ať env interpolace proběhne znovu.
+if [ "$NAS_UPDATE_ACTION" = skip ] && nas_compose_requires_recreate; then
+  echo "Compose se změnil – restartuji kontejner (image beze změny)."
+  NAS_UPDATE_ACTION=restart
+fi
 
 if [ "$NAS_UPDATE_ACTION" = skip ]; then
   $COMPOSE $COMPOSE_FILE ps

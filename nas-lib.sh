@@ -54,6 +54,81 @@ nas_github_branch() {
   printf '%s' "${GITHUB_BRANCH:-master}"
 }
 
+# Stáhne docker-compose.nas.yml z GitHubu (raw) a nahradí lokální,
+# pokud se liší. Host .env NIKDY nepřepisuje. Nesmí vypisovat secrets.
+# Nastaví NAS_COMPOSE_SYNCED=1 při zápisu, jinak 0.
+# Přeskočení: NAS_SKIP_COMPOSE_SYNC=1
+nas_sync_compose_file() {
+  _dest="${1:-docker-compose.nas.yml}"
+  NAS_COMPOSE_SYNCED=0
+
+  if [ "${NAS_SKIP_COMPOSE_SYNC:-}" = "1" ]; then
+    echo "Sync compose přeskočen (NAS_SKIP_COMPOSE_SYNC=1)."
+    return 0
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "Varování: curl není k dispozici – sync compose přeskakuji." >&2
+    return 0
+  fi
+
+  _repo="$(nas_github_repo)"
+  _branch="$(nas_github_branch)"
+  _tmp="$(mktemp /tmp/podkladarna-compose.XXXXXX 2>/dev/null || mktemp)"
+  # raw.githubusercontent – veřejný repo; token volitelně (rate limit / private)
+  _url="https://raw.githubusercontent.com/${_repo}/${_branch}/docker-compose.nas.yml"
+  _tok="$(nas_github_token)"
+
+  echo "Sync ${_dest} z ${_repo}@${_branch}..."
+
+  if [ -n "$_tok" ]; then
+    NAS_COMPOSE_HTTP="$(curl -sS -L -o "$_tmp" -w '%{http_code}' \
+      -H "Authorization: Bearer ${_tok}" \
+      -H "Accept: application/vnd.github.raw" \
+      "$_url" 2>/dev/null || echo 000)"
+  else
+    NAS_COMPOSE_HTTP="$(curl -sS -L -o "$_tmp" -w '%{http_code}' \
+      "$_url" 2>/dev/null || echo 000)"
+  fi
+
+  if [ "$NAS_COMPOSE_HTTP" != "200" ]; then
+    echo "Varování: stažení compose selhalo (HTTP ${NAS_COMPOSE_HTTP}) – nechávám lokální soubor." >&2
+    rm -f "$_tmp"
+    return 0
+  fi
+
+  # Základní validace – nesmíme přepsat compose nesmyslem.
+  if ! grep -q '^[[:space:]]*services:' "$_tmp" 2>/dev/null \
+    || ! grep -q 'podkladarna' "$_tmp" 2>/dev/null; then
+    echo "Varování: stažený soubor nevypadá jako docker-compose.nas.yml – nechávám lokální." >&2
+    rm -f "$_tmp"
+    return 0
+  fi
+
+  if [ -f "$_dest" ] && cmp -s "$_tmp" "$_dest" 2>/dev/null; then
+    echo "Compose beze změny."
+    rm -f "$_tmp"
+    return 0
+  fi
+
+  if [ -f "$_dest" ]; then
+    cp -p "$_dest" "${_dest}.bak" 2>/dev/null || true
+  fi
+  # Atomický zápis; .env se vůbec neotevírá.
+  mv "$_tmp" "$_dest"
+  NAS_COMPOSE_SYNCED=1
+  if grep -q 'SMTP_HOST=' "$_dest" 2>/dev/null; then
+    echo "Compose aktualizován (včetně SMTP_*/PUBLIC_BASE mapování)."
+  else
+    echo "Compose aktualizován."
+  fi
+  return 0
+}
+
+# Po sync compose: pokud by image skip, ale compose se změnil → restart.
+nas_compose_requires_recreate() {
+  [ "${NAS_COMPOSE_SYNCED:-0}" = "1" ]
+}
+
 # První "key": "value" po rozsekaní JSON (stačí pro GitHub REST).
 nas_json_str() {
   _json="$1"

@@ -62,9 +62,17 @@ nas_ghcr_login
 export GHCR_OWNER
 export IMAGE_TAG="$TAG"
 
+# Sync compose z masteru (SMTP_*/PUBLIC_BASE mapování). Host .env nepřepisuje.
+nas_sync_compose_file
+
 nas_wait_for_gh_build "$WAIT_BUILD" "$TAG" || exit 1
 
 nas_check_up_to_date "$IMAGE" "$FORCE"
+
+if [ "$NAS_UPDATE_ACTION" = skip ] && nas_compose_requires_recreate; then
+  echo "Compose se změnil – restartuji kontejner (image beze změny)."
+  NAS_UPDATE_ACTION=restart
+fi
 
 if [ "$NAS_UPDATE_ACTION" = skip ]; then
   $COMPOSE $COMPOSE_FILE ps

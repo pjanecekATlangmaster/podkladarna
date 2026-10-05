@@ -108,19 +108,24 @@ sudo ./update-nas.sh
 ```
 
 `update-nas.sh` **chytrý režim** (výchozí):
+- **syncne `docker-compose.nas.yml`** z GitHubu (`GITHUB_REPO` / `GITHUB_BRANCH`, default `master`) – host `.env` **nepřepisuje**
 - počká na doběhnutí GitHub Actions workflow `docker.yml` pro aktuální `master` (až 40 min)
 - porovná **digest** lokálního image s GHCR (`docker manifest inspect`)
-- stejný digest + běžící kontejner → **nic nestahuje** (~350 MB ušetřeno)
+- stejný digest + běžící kontejner + compose beze změny → **nic nestahuje**
+- stejný digest, ale compose se změnil → recreate (nové `environment:` mapování)
 - stejný digest, kontejner neběží → restart bez pull
 - nový digest → stop, pull, start
 
-Repo je veřejné, takže čekání na Actions nepotřebuje token (anonymní API, poll 45 s). Volitelný `GH_TOKEN` zrychlí poll na 15 s. Přeskočit čekání: `./update-nas.sh --no-wait`
+Repo je veřejné, takže čekání na Actions nepotřebuje token (anonymní API, poll 45 s). Volitelný `GH_TOKEN` zrychlí poll na 15 s. Přeskočit čekání: `./update-nas.sh --no-wait`. Přeskočit sync compose: `NAS_SKIP_COMPOSE_SYNC=1 ./update-nas.sh`.
 
 Vynucení plného stažení: `./update-nas.sh --force`
 
-Aktualizace **nepoužívá** `docker compose down` napřímo na běžící kontejner. Nejdřív ho zastaví přes `synowebapi` (stejně jako Stop v Container Manageru), aby DSM neposílal mail „kontejner byl ukončen nečekaně“. Skripty na NAS (`nas-lib.sh`, `update-nas.sh`, `deploy-nas.sh`) je potřeba zkopírovat z repozitáře – v image nejsou.
+Aktualizace **nepoužívá** `docker compose down` napřímo na běžící kontejner. Nejdřív ho zastaví přes `synowebapi` (stejně jako Stop v Container Manageru), aby DSM neposílal mail „kontejner byl ukončen nečekaně“.
+
+**Jednorázově po této změně (≥2.2.13):** zkopírujte na NAS nové `update-nas.sh` + `nas-lib.sh` (+ `deploy-nas.sh`) z masteru – starý skript sync neumí. Další `./update-nas.sh` už compose drží aktuální samo. Skripty v image nejsou.
 
 Kdyby mail pořád chodil, v DSM: **Ovládací panel → Oznámení → Pravidla** a u Container Manageru vypnout „Neočekávaně zastaveno“. Ruční `docker compose down` ten mail pořád spustí.
+
 
 `deploy-nas.sh` – stejná logika digestu, ale **nesmaže** starý image před pull (šetrnější).
 
@@ -274,17 +279,19 @@ SMTP_FROM_NAME=OB podklady
 z tohoto `.env` do kontejneru. Od **2.2.12** má compose **product default**
 `SMTP_HOST` (M365 relay) a `PUBLIC_BASE_URL=https://podkladarna.kibos.link`
 i když host `.env` SMTP řádky nemá. Image navíc při prázdném injectu
-doplní stejné defaulty (detekce `/.dockerenv`) — stačí `./update-nas.sh`
-po GHCR buildu, bez ručního sync compose.
+doplní stejné defaulty (detekce `/.dockerenv`).
 
 Samotný `.env` u compose **není** automaticky celý injectnutý – bez řádků
 v `environment:` (starý compose před #55) kontejner SMTP z host `.env`
-nevidí. Po změně `.env` nebo compose: `./update-nas.sh --force`
-(nebo recreate).
+nevidí.
 
-**Důležité:** `./update-nas.sh` jen pullne image a recreate — **nesynchronizuje**
-`docker-compose.nas.yml` z Gitu. Pro compose defaulty zkopírujte soubor
-z masteru; i bez toho image ≥2.2.12 mail defaulty doplní v procesu.
+Od **2.2.13** `./update-nas.sh` / `./deploy-nas.sh` **syncne**
+`docker-compose.nas.yml` z masteru (raw GitHub) před pull/recreate.
+Host `.env` **nepřepisuje** a do logu nevypisuje hodnoty SMTP.
+Po sync + recreate `printenv` v kontejneru ukáže `SMTP_*` z host `.env`
+(nebo compose defaults). Přeskočení sync: `NAS_SKIP_COMPOSE_SYNC=1`.
+
+Po změně `.env` (bez změny compose): `./update-nas.sh --force`.
 
 Alternativa od 2.2.10 (`data/.env` na volume): od **2.2.11** doplní i klíče,
 které compose injectne jako prázdné (`SMTP_HOST=`). Restart kontejneru stačí.
