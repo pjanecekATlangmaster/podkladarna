@@ -45,23 +45,40 @@ def check_feedback_rate(client_ip: str) -> str | None:
     return None
 
 
+def job_page_url(job_id: str) -> str | None:
+    """Krátký odkaz na job (API detail), pokud je PUBLIC_BASE_URL."""
+    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
+    job_id = (job_id or "").strip()
+    if not base or not job_id:
+        return None
+    return f"{base}/api/jobs/{job_id}"
+
+
 def build_feedback_email(
     *,
     contact: str,
     comment: str,
-    job_id: str | None = None,
+    job_id: str,
     client_ip: str | None = None,
+    job_name: str | None = None,
+    job_status: str | None = None,
 ) -> tuple[str, str]:
-    """Vrací (předmět, tělo) pro zpětnou vazbu – česky."""
-    job_part = f" (job {job_id})" if job_id else ""
-    subject = f"Podkladárna: zpětná vazba{job_part}"
+    """Vrací (předmět, tělo) pro zpětnou vazbu – česky. job_id je povinné."""
+    job_id = (job_id or "").strip()
+    subject = f"Podkladárna: zpětná vazba (job {job_id})"
     lines = [
         "Nová zpětná vazba z webu Podkladárny.",
         "",
         f"Kontakt: {contact}",
+        f"Job ID: {job_id}",
     ]
-    if job_id:
-        lines.append(f"Job ID: {job_id}")
+    if job_name:
+        lines.append(f"Název: {job_name}")
+    if job_status:
+        lines.append(f"Stav jobu: {job_status}")
+    url = job_page_url(job_id)
+    if url:
+        lines.append(f"Odkaz: {url}")
     if client_ip:
         lines.append(f"IP: {client_ip}")
     lines.extend(["", "Komentář:", comment.strip(), ""])
@@ -72,17 +89,24 @@ def send_feedback(
     *,
     contact: str,
     comment: str,
-    job_id: str | None = None,
+    job_id: str,
     client_ip: str | None = None,
+    job_name: str | None = None,
+    job_status: str | None = None,
 ) -> None:
     """Pošle zpětnou vazbu na FEEDBACK_TO. Při chybě MailError."""
     to = (settings.FEEDBACK_TO or "").strip()
     if not to:
         raise MailError("Chybí adresa pro zpětnou vazbu (FEEDBACK_TO).")
+    job_id = (job_id or "").strip()
+    if not job_id:
+        raise MailError("Chybí job_id.")
     subject, body = build_feedback_email(
         contact=contact,
         comment=comment,
         job_id=job_id,
         client_ip=client_ip,
+        job_name=job_name,
+        job_status=job_status,
     )
     send_mail(to, subject, body)
