@@ -77,6 +77,7 @@ OSM_ROAD_HIGHWAYS = frozenset(
 ROAD_DRAW_HIGHWAYS = frozenset({f"road_{i}" for i in range(1, 5)})
 TRACK_DRAW_HIGHWAYS = frozenset({"track", "track_fast", "track_slow"})
 # highway base → výchozí rank 0–3 (před lanes/surface).
+# secondary+ = silnice II. třídy / vyšší → rank 3 → les 502.1.
 _ROAD_BASE_RANK: dict[str, int] = {
     "motorway": 3,
     "motorway_link": 3,
@@ -84,8 +85,8 @@ _ROAD_BASE_RANK: dict[str, int] = {
     "trunk_link": 3,
     "primary": 3,
     "primary_link": 3,
-    "secondary": 2,
-    "secondary_link": 2,
+    "secondary": 3,
+    "secondary_link": 3,
     "tertiary": 2,
     "tertiary_link": 2,
     "unclassified": 1,
@@ -124,6 +125,16 @@ _EXPECTED_PAVED_ROAD_HIGHWAYS = frozenset(
         "tertiary_link",
         "unclassified",
         "residential",
+        "living_street",
+        "road",
+    }
+)
+# Místní silnice bez surface → +1 rank (unclassified→road_3→les 502, ne 503).
+# tertiary/secondary už mají vyšší base; service/track nepatří sem.
+_LOCAL_EXPECTED_PAVED_BUMP = frozenset(
+    {
+        "residential",
+        "unclassified",
         "living_street",
         "road",
     }
@@ -571,7 +582,8 @@ def _lanes_total(tags: dict) -> int | None:
 def road_width_rank(tags: dict, highway: str) -> int:
     """Rank 0–3 → sprint footprint 1.4/2/3/4 m (heavy).
 
-    Base z OSM highway; +1 při lanes≥2, jinak +1 u zpevněného surface u běžných ulic.
+    Base z OSM highway; +1 při lanes≥2, jinak +1 u zpevněného surface
+    nebo u místní typické silnice i bez surface (unclassified/residential).
     """
     hw = path_draw_highway(highway).lower()
     if hw in ROAD_DRAW_HIGHWAYS:
@@ -584,6 +596,9 @@ def road_width_rank(tags: dict, highway: str) -> int:
     if lanes is not None and lanes >= 2:
         base += 1
     elif _is_paved_surface(tags) and hw in _PAVED_ROAD_BUMP:
+        base += 1
+    elif hw in _LOCAL_EXPECTED_PAVED_BUMP:
+        # way/46779630 unclassified bez surface → road_3 → les 502 (ne 503).
         base += 1
     return max(0, min(3, base))
 
@@ -1262,8 +1277,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     """ISOM/ISSprOM/ISMTBOM kód podle OSM highway (vč. road_1..4 / track_*).
 
     Sprint heavy footprint: 501.17–501.19 (posun o 1 vs. dřívější 501.16–19; 501.20 není).
-    Les: 502 široká / 503 silnice / 504 vozová.
-    MTBO: 502 major / 503 minor; track 831/833, pěšiny 834.
+    Les: 502.1 II.+ třída / 502 široká / 503 úzká silnice / 504 vozová.
+    MTBO: 502 major / 503 minor; track 831/833, pěšiny 834 (ne 502.1 — v ISMTBOM
+    je 502.1 „under construction“).
     """
     raw = highway or "path"
     sprint = preset_id.startswith("sprint")
@@ -1294,7 +1310,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
             return ("501.17", "501.18", "501.19", "501.19")[rank]
         if mtbo:
             return "502" if rank >= 2 else "503"
-        return "502" if rank >= 2 else ("504" if rank == 0 else "503")
+        # Les: road_1→504, road_2→503 (service/track asphalt),
+        # road_3→502 (unclassified/residential), road_4→502.1 (secondary+).
+        return ("504", "503", "502", "502.1")[rank]
 
     if hw == "steps":
         if sprint:
