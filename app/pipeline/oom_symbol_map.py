@@ -120,18 +120,37 @@ KP_CLIFF_206_CODE = "206"
 KP_CLIFF_FACE_AREA_CODE = "201.2"
 
 
+def _symbol_visible(preset_id: str, scale: int, code: str) -> bool:
+    """True = symbol existuje a není ``is_hidden`` (Mapper by ho neukázal)."""
+    path = symbol_set_path(preset_id, scale)
+    text = path.read_text(encoding="utf-8")
+    for m in re.finditer(r"<symbol\b([^>]*)>", text):
+        attrs = m.group(1)
+        if f'code="{code}"' not in attrs:
+            continue
+        if 'is_hidden="true"' in attrs:
+            return False
+        return True
+    return False
+
+
 def resolve_rock_area_code(preset_id: str, scale: int) -> str | None:
     """Kód plochy pro skalní shluk: ISOM 201.2, jinak 206, nouzově 210.
 
     Ve sprintu/MTBO není 201.2 plocha (je to čára tagů) – hned 206.
+    ISOM 201.2 je v sadě ``is_hidden`` (migrace ISOM2000) → přeskočit, jinak
+    objekty v .omap jsou, ale Mapper je nekreslí (0 viditelných skal).
     """
     candidates: list[str] = []
     if not _is_sprint(preset_id) and not _is_mtbo(preset_id):
         candidates.append(KP_CLIFF_FACE_AREA_CODE)
     candidates.extend([KP_CLIFF_206_CODE, KP_CLIFF_DENSE_CODE])
     for code in candidates:
-        if symbol_index_for_code(preset_id, scale, code) is not None:
-            return code
+        if symbol_index_for_code(preset_id, scale, code) is None:
+            continue
+        if not _symbol_visible(preset_id, scale, code):
+            continue
+        return code
     return None
 
 
