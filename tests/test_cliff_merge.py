@@ -94,6 +94,51 @@ def test_double_wall_band_still_no_polygon():
     assert not got.lines
 
 
+def _dem_face(
+    n_along: int,
+    n_depth: int,
+    *,
+    along_step: float = 3.0,
+    depth_step: float = 3.0,
+    x0: float = 0.0,
+    y0: float = 0.0,
+):
+    """DEM-like rock face: ticks perpendicular to slope, depth × along rows."""
+    ticks = []
+    for d in range(n_depth):
+        for i in range(n_along):
+            x = x0 + i * along_step
+            y = y0 + d * depth_step
+            ticks.append(_tick(x, y - 1.45, x, y + 1.45))
+    return ticks
+
+
+def test_ridge_rock_face_survives_morph_aspect():
+    """Hřebenová stěna (~3+ řady DEM) → 201.2; dřív aspect (3.4 / w<14) → 0.
+
+    Sachrův hřeben: stovky ticků, morph nechal protáhlou masu, aspect ji shodil.
+    Stěna/dvojstěna dál padá (viz test_long_wall / test_double_wall_band).
+    """
+    face = _dem_face(30, 4)
+    got = merge_cliff_ticks(face, as_polygons=True)
+    assert got.polygons
+    assert not got.lines
+    assert sum(_ring_area(p) for p in got.polygons) >= 200.0
+
+    # Kompaktnější výchozí na hřebeni (kratší + hlubší).
+    outcrop = _dem_face(15, 4) + _dem_face(10, 3, x0=5.0, y0=2.0)
+    got2 = merge_cliff_ticks(outcrop, as_polygons=True)
+    assert got2.polygons
+    assert not got2.lines
+
+
+def test_thin_two_row_face_still_rejected():
+    """Dvě řady (~stěna) dál aspect filtr – ne flood dlouhých tenkých pásů."""
+    got = merge_cliff_ticks(_dem_face(40, 2), as_polygons=True)
+    assert not got.polygons
+    assert not got.lines
+
+
 def test_rock_field_becomes_polygon_close_to_real_extent():
     got = merge_cliff_ticks(_field(21.0, 21.0), as_polygons=True)
     assert got.polygons

@@ -36,22 +36,25 @@ DEDUP_POS_PER_M = 1.0
 DEDUP_ANG_PER_RAD = 8.0
 
 # Plošná skála: buffer ticků → uzavření mezer → otevření tenkých stěn →
-# stažení k mase → vyhlazení. 1.23.2/1.25.0 bylo přísné (area 75 / width 9 /
-# shrink 2.4) → skály skoro OK, ale řídké; 1.25.4 mírně uvolní (ne flood).
-# 104 citlivost se nemění – jen footprint ploch. Stěna/dvojstěna zůstane mimo.
+# stažení k mase → vyhlazení. 1.25.4 (open 3.9 / shrink 2.0 / aspect 3.4 /
+# šířka-gate 14) na hřebenech (Sachrův) sežralo 457 ticků → 0×201.2 — morph
+# nechal protáhlé stěny skal a aspect je všechny shodil. ≥2.2.18: mírně
+# měkčí open/shrink + aspect jen u úzkých pásů (<~9 m); stěna/dvojstěna
+# zůstane mimo, scarp-wins / occupancy / dense-contour beze změny.
 # Min-size cleanup (≥2.2.17): **zrušen** (veg + skály/kameny + path stubs).
-# Po morph se 201.2/206 nemažou prahem plochy/šířky. Protáhlé zbytky stěn
-# odfiltruje aspect (tvar, ne plošný min-size). Jediná výjimka min-size v
-# pipeline: min. délka srázů **104** (~50 m @ 1:10k).
+# Jediná výjimka min-size: min. délka srázů **104** (~50 m @ 1:10k).
 ROCK_BUFFER_M = 2.6
 ROCK_CLOSE_M = 2.0
-ROCK_OPEN_M = 3.9
-ROCK_SHRINK_M = 2.0
+ROCK_OPEN_M = 3.2
+ROCK_SHRINK_M = 1.5
 ROCK_SMOOTH_M = 1.0
 ROCK_SIMPLIFY_M = 2.0
 # Jen numerický/degenerovaný úlomek po morph — ne min-size cleanup.
 ROCK_DEGENERATE_AREA_M2 = 1.0
-MAX_ROCK_ASPECT = 3.4
+# Aspect filtr: jen úzké protáhlé zbytky stěn (ne hřebenová skalní stěna
+# ~10+ m hluboká). Širší masa projde i při vyšším aspectu.
+MAX_ROCK_ASPECT = 5.0
+MAX_ROCK_ASPECT_WIDTH_M = 9.0
 # Halo kolem plochy: čárky na okraji už nekreslit jako 201 (obrys nese plocha).
 ROCK_TICK_HALO_M = 3.5
 # Po řetězení: kompaktní zbytky (ne protáhlá stěna) → plocha místo mraku 201.
@@ -1000,7 +1003,10 @@ def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]
         if poly.area < ROCK_DEGENERATE_AREA_M2:
             continue
         width, length = _mrr_width_length(poly)
-        if length / max(width, 1e-6) > MAX_ROCK_ASPECT and width < 14.0:
+        if (
+            length / max(width, 1e-6) > MAX_ROCK_ASPECT
+            and width < MAX_ROCK_ASPECT_WIDTH_M
+        ):
             continue
         coords = [(float(x), float(y)) for x, y in poly.exterior.coords]
         if len(coords) >= 2 and coords[0] == coords[-1]:
