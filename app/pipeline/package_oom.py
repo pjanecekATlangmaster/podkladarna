@@ -65,8 +65,11 @@ OSM_FOLDER_README = """OSM – vrstvy pro ruční skládání mapy
 Stejný účel jako složka zabaged/: vyber SHP a importuj do OOM
 (File → Importovat…) s přiřazením symbolu.
 
-Objekty už jsou i v .omap; tady je máš jako zdroj pro volné poskládání.
+Většina objektů je i v .omap; tady je máš jako zdroj pro volné poskládání.
 Včetně OSM_budovy.shp (stejný zdroj jako auto budovy v .omap).
+
+OSM skály (OSM_skaly / OSM_skaly_linie / OSM_sutina): jen podklad –
+do auto .omap nejdou. Skály ve výstupu jsou spočítané z LiDAR/DEM (206).
 
 Residential zbytek (501): OSM_residential_zbytek_mensi / _stredni / _velke
 a _ridke (řídce zmapované – v auto .omap nejsou). Symbol 501.

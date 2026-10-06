@@ -94,7 +94,7 @@ Co je uvnitř
 - *-sprint/les/mtbo.ocd  … totéž pro OCAD (OCD12 přes Mapper convert; lossy OK; .omap zůstává)
 - base/                … vrstevnice GDAL (contours_gdal.*), vegetace/srázy/kupky
 - uzitecne/             … vegetace / srázy 104 / skály: pouzite/ vs vyhozene/ (po filtrech)
-- osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, …)
+- osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, skály podklad, …)
 - zabaged/             … polohopis ZABAGED (shapefile včetně budov + RUIAN_budovy.shp; výchozí budovy v .omap jsou z OSM)
                        … Ostatní plocha v sídlech jako OstatniPlochaVSidlech_mensi / _stredni / _velke (podle velikosti; prázdné pásmo chybí)
 - references/          … ortofoto, OSM, ZTM, katastr, náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)

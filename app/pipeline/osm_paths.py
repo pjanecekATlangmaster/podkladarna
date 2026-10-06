@@ -308,8 +308,8 @@ def _overpass_ql(
         f'relation["type"="multipolygon"]["leisure"="garden"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
-        # Skály / kameny → ISOM 201 (linie) / 201.2|206 (plocha). Les i dle klíče.
-        # way/373494169 natural=cliff; way/746567272 natural=bare_rock.
+        # Skály / kameny → jen osm/ podklad (ne auto .omap); LiDAR 206 je jinde.
+        # way/553090030 / 746567272 bare_rock; way/373494169 cliff.
         f'way["natural"~"^(cliff|bare_rock|rock|scree)$"]({bbox});',
         f'relation["type"="multipolygon"]["natural"~"^(bare_rock|rock|scree)$"]({bbox});',
         # Posed / vodojem (les + MTBO; ve sprintu taky OK).
@@ -407,6 +407,10 @@ _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
 }
 # Budovy z OSM do auto OOM i do osm/OSM_budovy.shp (ruční import).
 _OSM_BUILDING_KINDS = frozenset({"building", "water_well_building"})
+# OSM skály / srázy: jen užitečný podklad (osm/*.shp), ne do auto .omap.
+# Ve výstupu zůstávají jen LiDAR/DEM skály (206) z cliffs_rock.dxf.
+# way/553090030 bare_rock; way/373494169 cliff; way/746567272 bare_rock.
+_OSM_ROCK_UNDERLAY_KINDS = frozenset({"cliff", "bare_rock", "rock_area", "scree"})
 # residential = jen subject pro residual_paved (ne do auto OOM jako plocha).
 _CLOSED_AREA_KINDS = frozenset(
     {
@@ -852,8 +856,9 @@ def classify_osm_feature(
         return "cave_entrance", "203.1"
     if natural == "spring":
         return "spring", "312"
-    # Skála / kámen (Petr 2026-10-06): cliff → linie 201; bare_rock/rock/scree → plocha.
-    # way/373494169 cliff; way/746567272 bare_rock. Les i sprint/MTBO (kód dle klíče).
+    # Skála / kámen: klasifikace pro osm/ SHP podklad (ne auto .omap).
+    # Doporučené symboly: cliff → 201 linie; bare_rock/rock/scree → 206 plocha.
+    # way/553090030 bare_rock; way/373494169 cliff. LiDAR skály = 206 z DEM.
     if natural == "cliff" and not is_node:
         return "cliff", "201"
     if natural in {"bare_rock", "rock"} and not is_node:
@@ -2872,6 +2877,10 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "playground_equipment": ("OSM_herni_prvky", "herní prvky", "531"),
     "wetland": ("OSM_mokrad", "mokřad", "308"),
     "cave_entrance": ("OSM_jeskyne", "vstup do jeskyně", "203.2"),
+    # Jen podklad (ne v auto .omap) – skály ve výstupu jsou LiDAR 206.
+    "cliff": ("OSM_skaly_linie", "skála / sráz OSM (podklad)", "201"),
+    "bare_rock": ("OSM_skaly", "skála / bare rock OSM (podklad)", "206"),
+    "scree": ("OSM_sutina", "sutina OSM (podklad)", "206"),
     "fence": ("OSM_ploty", "ploty", "516"),
     "wall": ("OSM_zdi", "zdi", "513"),
     "hedge": ("OSM_zive_ploty", "živé ploty", "416"),
@@ -3090,7 +3099,8 @@ def write_osm_manual_shapefiles(
         "====================================================",
         "",
         "Importuj vybrané SHP do OOM (File → Importovat…) a přiřaď symbol.",
-        "Objekty už jsou i v .omap; sem patří pro volné poskládání / doladění.",
+        "Většina objektů je i v .omap; sem patří pro volné poskládání / doladění.",
+        "OSM_skaly* / OSM_sutina: jen podklad – do auto .omap nejdou (skály = LiDAR 206).",
         "",
         "Vrstva              Typ        Doporučený symbol (les/sprint; MTBO se liší)",
         "-----              ---        ---------------------------------------------",
@@ -3318,7 +3328,8 @@ def build_osm_feature_parts(
     for feat in feats:
         props = feat.get("properties") or {}
         kind = str(props.get("kind") or "")
-        if not kind or kind == "residential":
+        # residential = subject residual 501; OSM skály = jen osm/ podklad.
+        if not kind or kind == "residential" or kind in _OSM_ROCK_UNDERLAY_KINDS:
             continue
         code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
         if not code:

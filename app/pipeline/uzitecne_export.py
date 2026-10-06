@@ -37,6 +37,9 @@ _OSM_MANUAL_COPY = (
     "OSM_vedeni",
     "OSM_vedeni_velke",
     "OSM_zive_ploty",
+    "OSM_skaly",
+    "OSM_skaly_linie",
+    "OSM_sutina",
 )
 
 # Herní prvky: stem z OSM_MANUAL_LAYER_SPECS nebo OSM_playground_equipment.
@@ -55,6 +58,7 @@ OSM_lavicky / lampy / …  OSM nábytek (i když checkbox vypnutý)
 OSM_stromy               Významné stromy OSM (417)
 AOPK_pamatne_stromy      Památné stromy AOPK (417)
 OSM_cesty                Cesty OSM
+OSM_skaly / _linie / sutina  OSM skály (podklad; ne v auto .omap – LiDAR 206)
 ZABAGED_Pesina/Cesta/Ulice  Cesty ZABAGED (druhý zdroj)
 OSM_residential_zbytek_* Residual 501 (mensi/stredni/velke/ridke)
 OstatniPlochaVSidlech_*  Zpevněné plochy ZABAGED podle velikosti
