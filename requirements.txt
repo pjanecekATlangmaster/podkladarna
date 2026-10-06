@@ -7,5 +7,11 @@ almanac-compute>=0.1.0
 # Vegetace: hustota LiDAR odrazu (vegetation_density); bez laspy fallback CHM.
 laspy[lazrs]>=2.5
 
+# Skalní plochy 201.2/206 (cliff_merge morph) + uzitecne SHP.
+# Bez shapely v Dockeru: native DXF parse načte ticky, ale footprint → 0 ploch
+# (Sachrův 1859 ticků → 0×206). pyshp = uzitecne/pouzite|vyhozene.
+shapely>=2.0.0
+pyshp>=2.3.0
+
 # Náhled .omap → PNG, když Mapper nemá headless export.
 pillow>=10.0.0

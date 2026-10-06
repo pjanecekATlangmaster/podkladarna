@@ -948,6 +948,15 @@ def _rock_area_polygons(
     return remaining, polygons
 
 
+def shapely_available() -> bool:
+    """True = morph skalních ploch (buffer/dissolve) může běžet."""
+    try:
+        import shapely  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]:
     """Vyhlazený footprint z bufferovaných ticků. [] když shapely chybí."""
     if not ticks:
@@ -957,6 +966,8 @@ def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]
         from shapely.geometry import LineString
         from shapely.ops import unary_union
     except ImportError:
+        # Docker image dřív neměl shapely v requirements.txt → 1859 ticků
+        # a cell-fallback 0 ploch (DEM má ~1 tick/buňku). Volající loguje.
         return []
 
     segs = [LineString([a, b]) for a, b in ticks]

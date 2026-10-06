@@ -26,6 +26,7 @@ from app.pipeline.cliff_merge import (
     min_line_length_m,
     polyline_is_simple_bank,
     resolve_rock_scarp_overlaps,
+    shapely_available,
 )
 from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -1436,6 +1437,7 @@ def build_dxf_object_part(
     earth_pit_skip = 0
     rock_depression_skip = 0
     rock_polys_n = 0
+    rock_ticks_n = 0
     earth_lines_n = 0
     overlap_drop = 0
     earth_overlap_drop = 0
@@ -1522,6 +1524,8 @@ def build_dxf_object_part(
         # Zem (104) jen linie. Skála: hustý shluk → plocha 201.2/206; zbytek 201
         # (i dlouhé stěny) se zahazuje — viz merge_cliff_ticks(as_polygons=True).
         is_earth = cliff_line_code == "104"
+        if not is_earth:
+            rock_ticks_n += len(cliff_ticks)
         as_polygons = (
             cliff_symbol == KP_CLIFF_SYMBOL_206 or cliff_line_code == "201"
         )
@@ -1702,8 +1706,16 @@ def build_dxf_object_part(
     else:
         cliff_label = "srázy"
     detail_bits: list[str] = []
+    if rock_ticks_n:
+        detail_bits.append(f"{rock_ticks_n} skalních ticků")
     if rock_polys_n:
         detail_bits.append(f"skála→{rock_polys_n} ploch 201.2/206")
+    elif rock_ticks_n and not shapely_available():
+        # Bez shapely morph vrátí 0 ploch a zbytky 201 se zahodí — typický
+        # Docker bug před 2.2.21 (shapely chybělo v requirements.txt).
+        detail_bits.append(
+            "skála→0 ploch (chybí balíček shapely v image – morph neběží)"
+        )
     if rock_depression_skip:
         detail_bits.append(
             f"{rock_depression_skip} skála=deprese (přednost vrstevnicím)"
