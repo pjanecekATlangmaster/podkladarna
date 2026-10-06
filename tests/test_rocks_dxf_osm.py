@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.pipeline.cliffs_dem import parse_cliff_ticks_dxf, write_cliff_ticks_dxf
-from app.pipeline.cliff_merge import merge_cliff_ticks
+from app.pipeline.cliff_merge import merge_cliff_ticks, shapely_available
 from app.pipeline.oom_symbol_map import resolve_rock_area_code
 from app.pipeline.osm_paths import classify_osm_feature, feature_oom_code
 
@@ -61,3 +61,18 @@ def test_osm_bare_rock_maps_to_area():
 def test_forest_rock_area_uses_visible_206_not_hidden_201_2():
     """ISOM 201.2 je is_hidden – LiDAR skály musí jít na viditelný 206."""
     assert resolve_rock_area_code("forest_10000", 10000) == "206"
+
+
+def test_shapely_required_for_rock_footprint():
+    """Docker image musí mít shapely – bez něj morph → 0 ploch (Sachrův bug)."""
+    assert shapely_available()
+    # Kompaktní mřížka ticků (~skalní masa) → aspoň 1 polygon.
+    ticks = []
+    for i in range(6):
+        for j in range(6):
+            x = 100.0 + i * 2.5
+            y = 200.0 + j * 2.5
+            ticks.append(((x, y), (x + 2.0, y + 0.3)))
+    got = merge_cliff_ticks(ticks, as_polygons=True)
+    assert len(got.polygons) >= 1
+    assert not got.lines
