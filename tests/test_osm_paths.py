@@ -555,14 +555,17 @@ def test_osm_oom_code_paths_only():
     assert osm_oom_code("track", "forest_10000") == "504"
     assert osm_oom_code("steps", "sprint_2m") == "532.7"
     assert osm_oom_code("steps", "forest_10000") == "532"
-    # Legacy highway bez tagů → rank 1 (road_2).
-    assert osm_oom_code("residential", "sprint_2m") == "501.18"
-    assert osm_oom_code("residential", "forest_10000") == "503"
-    assert osm_oom_code("residential", "mtbo_10000") == "503"
+    # Legacy highway bez tagů: místní silnice → road_3 (les 502).
+    assert osm_oom_code("residential", "sprint_2m") == "501.19"
+    assert osm_oom_code("residential", "forest_10000") == "502"
+    assert osm_oom_code("residential", "mtbo_10000") == "502"
     assert osm_oom_code("road_4", "sprint_2m") == "501.19"
     assert osm_oom_code("road_3", "forest_10000") == "502"
     assert osm_oom_code("road_3", "mtbo_10000") == "502"
+    assert osm_oom_code("road_4", "forest_10000") == "502.1"
     assert osm_oom_code("road_1", "forest_10000") == "504"
+    assert osm_oom_code("secondary", "forest_10000") == "502.1"
+    assert osm_oom_code("unclassified", "forest_10000") == "502"
     assert osm_oom_code("track", "mtbo_10000") == "833"
     assert osm_oom_code("track_fast", "mtbo_10000") == "831"
     assert osm_oom_code("track_slow", "forest_10000") == "506"
@@ -672,6 +675,50 @@ def test_paved_track_way_46779621_maps_to_503():
     assert keep_highway_in_mixed("track_fast")
 
 
+def test_isom_road_classes_way_46779630_and_46779654():
+    """Petr 2026-10-06: konkrétní ISOM třídy (les).
+
+    way/46779630 highway=unclassified (bez surface) → **502** (ne 503/504).
+    way/46779654 highway=secondary surface=asphalt ref=294 → **502.1**.
+    Sidewalk (#50) beze změny.
+    """
+    from app.pipeline.osm_paths import (
+        keep_highway_in_mixed,
+        osm_oom_code,
+        refine_path_highway,
+    )
+
+    # Ověřené OSM tagy (API 2026-10-06).
+    unc = {"highway": "unclassified", "source": "cuzk:km;uhul:ortofoto"}
+    hw_unc = refine_path_highway(unc, "unclassified")
+    assert hw_unc == "road_3"
+    assert keep_highway_in_mixed(hw_unc)
+    assert osm_oom_code(hw_unc, "forest_10000") == "502"
+    assert osm_oom_code(hw_unc, "forest_10000") != "503"
+    assert osm_oom_code(hw_unc, "mtbo_10000") == "502"
+    assert osm_oom_code(hw_unc, "sprint_2m") == "501.19"
+
+    sec = {
+        "highway": "secondary",
+        "surface": "asphalt",
+        "ref": "294",
+        "sidewalk": "no",
+        "cycleway:both": "no",
+        "lane_markings": "no",
+        "source": "HELP SERVICE - REMOTE SENSING spol. s r.o. http://www.bnhelp.cz",
+    }
+    hw_sec = refine_path_highway(sec, "secondary")
+    assert hw_sec == "road_4"
+    assert keep_highway_in_mixed(hw_sec)
+    assert osm_oom_code(hw_sec, "forest_10000") == "502.1"
+    assert osm_oom_code(hw_sec, "mtbo_10000") == "502"  # ne 502.1 (ISMTBOM)
+    assert osm_oom_code(hw_sec, "sprint_2m") == "501.19"
+    # Secondary i bez surface → pořád 502.1 (II. třída).
+    assert refine_path_highway({"highway": "secondary"}, "secondary") == "road_4"
+    assert osm_oom_code("road_4", "forest_10000") == "502.1"
+    assert osm_oom_code("sidewalk", "forest_10000") == "506"
+
+
 def test_asphalt_and_expected_paved_roads_all_keys():
     """Petr 2026-10-05: asfalt / typická silnice → zpevněná ve všech klíčích.
 
@@ -686,24 +733,24 @@ def test_asphalt_and_expected_paved_roads_all_keys():
     )
 
     cases = [
-        # way/46786094
+        # way/46786094 — service+asphalt zůstává úzká silnice 503
         ({"highway": "service", "surface": "asphalt", "source": "cuzk:km;uhul:ortofoto"},
-         "service", "road_2"),
-        # way/46779630 — bez surface, ale typická silnice
+         "service", "road_2", "503"),
+        # way/46779630 — bez surface, typická silnice → 502 (ne 503)
         ({"highway": "unclassified", "source": "cuzk:km;uhul:ortofoto"},
-         "unclassified", "road_2"),
+         "unclassified", "road_3", "502"),
         # way/46779621
         ({"highway": "track", "surface": "asphalt", "tracktype": "grade1",
-          "smoothness": "bad"}, "track", "road_2"),
+          "smoothness": "bad"}, "track", "road_2", "503"),
         # residential / tertiary i bez surface
-        ({"highway": "residential"}, "residential", "road_2"),
-        ({"highway": "tertiary"}, "tertiary", "road_3"),
+        ({"highway": "residential"}, "residential", "road_3", "502"),
+        ({"highway": "tertiary"}, "tertiary", "road_3", "502"),
     ]
-    for tags, base_hw, expected_draw in cases:
+    for tags, base_hw, expected_draw, forest_code in cases:
         hw = refine_path_highway(tags, base_hw)
         assert hw == expected_draw, (tags, hw)
         assert keep_highway_in_mixed(hw), hw
-        assert osm_oom_code(hw, "forest_10000") in {"502", "503"}
+        assert osm_oom_code(hw, "forest_10000") == forest_code, (tags, hw)
         assert osm_oom_code(hw, "forest_10000") != "504"
         assert osm_oom_code(hw, "mtbo_10000") in {"502", "503"}
         assert osm_oom_code(hw, "sprint_2m").startswith("501.")
@@ -991,7 +1038,7 @@ def test_short_osm_bridge_is_kept():
     assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "sprint_2m") == "506"
     assert osm_oom_code("bridge:footway", "sprint_2m") == "506"
     assert osm_oom_code("bridge:sidewalk", "sprint_2m") == "501.6"
-    assert osm_oom_code("bridge:residential", "sprint_2m") == "501.18"
+    assert osm_oom_code("bridge:residential", "sprint_2m") == "501.19"
     assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "mtbo_10000") == "834"
     assert highway_to_zabaged_vrstva(OSM_BRIDGE_HIGHWAY) == "Lavka"
     assert highway_to_zabaged_vrstva("bridge:footway") == "Lavka"
@@ -1009,7 +1056,7 @@ def test_osm_oom_code_sidewalk():
     assert osm_oom_code("sidewalk", "forest_10000") == "506"
     assert osm_oom_code("sidewalk", "mtbo_10000") == "834"
     assert osm_oom_code("track", "sprint_2m") == "505.1"
-    assert osm_oom_code("residential", "sprint_2m") == "501.18"
+    assert osm_oom_code("residential", "sprint_2m") == "501.19"
     assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
     # way/613443110: footway + asphalt bez footway=sidewalk → sprint chodník.
     assert (
