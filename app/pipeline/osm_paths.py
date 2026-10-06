@@ -308,6 +308,10 @@ def _overpass_ql(
         f'relation["type"="multipolygon"]["leisure"="garden"]({bbox});',
         f'node["natural"="cave_entrance"]({bbox});',
         f'way["natural"="cave_entrance"]({bbox});',
+        # Skály / kameny → ISOM 201 (linie) / 201.2|206 (plocha). Les i dle klíče.
+        # way/373494169 natural=cliff; way/746567272 natural=bare_rock.
+        f'way["natural"~"^(cliff|bare_rock|rock|scree)$"]({bbox});',
+        f'relation["type"="multipolygon"]["natural"~"^(bare_rock|rock|scree)$"]({bbox});',
         # Posed / vodojem (les + MTBO; ve sprintu taky OK).
         f'node["amenity"="hunting_stand"]({bbox});',
         f'node["man_made"="water_tower"]({bbox});',
@@ -413,6 +417,9 @@ _CLOSED_AREA_KINDS = frozenset(
         "garden",
         "building",
         "water_well_building",
+        "bare_rock",
+        "rock_area",
+        "scree",
     }
 ) | _PAVED_AREA_KINDS
 # Jen při kp_osm_priority (hlavně sprint urban pack).
@@ -449,7 +456,7 @@ _POINT_FEATURE_KINDS = frozenset(
     }
 )
 _LINE_FEATURE_KINDS = frozenset(
-    {"fence", "wall", "hedge", "power_line", "power_line_major"}
+    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff"}
 )
 # Sloupy/stožáry OSM → DashPoint na vedení (MapCoord flag 32).
 POWER_SUPPORT_MATCH_M = 1.5
@@ -845,6 +852,14 @@ def classify_osm_feature(
         return "cave_entrance", "203.1"
     if natural == "spring":
         return "spring", "312"
+    # Skála / kámen (Petr 2026-10-06): cliff → linie 201; bare_rock/rock/scree → plocha.
+    # way/373494169 cliff; way/746567272 bare_rock. Les i sprint/MTBO (kód dle klíče).
+    if natural == "cliff" and not is_node:
+        return "cliff", "201"
+    if natural in {"bare_rock", "rock"} and not is_node:
+        return "bare_rock", "201.2"
+    if natural == "scree" and not is_node:
+        return "scree", "201.2"
     # Vodní plocha / nádrž / basin → nepřekonatelné vodní těleso (301).
     # Stačí natural=water (v ČR často bez water=reservoir); ořez proti VodniPlocha.
     if (
@@ -925,6 +940,12 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         if mtbo:
             return "205"
         return "203.2"
+    if kind == "cliff":
+        # ISOM/ISSprOM linie 201; MTBO taky 201 (impassable cliff).
+        return "201"
+    if kind in {"bare_rock", "rock_area", "scree"}:
+        # Plošná skála: ISOM 201.2 je is_hidden → 206 (plan shape); sprint/MTBO taky 206.
+        return "206"
     if kind == "fence":
         if sprint:
             return "518"
@@ -3221,6 +3242,9 @@ def build_osm_feature_parts(
         "firepit": "OSM ohniště",
         "wetland": "OSM mokřad",
         "cave_entrance": "OSM vstup do jeskyně",
+        "cliff": "OSM skála / sráz (201)",
+        "bare_rock": "OSM skála / bare rock (206)",
+        "scree": "OSM sutina (206)",
         "fence": "OSM ploty",
         "wall": "OSM zdi",
         "hedge": "OSM živé ploty",
@@ -3250,6 +3274,9 @@ def build_osm_feature_parts(
         "playground_equipment",
         "wetland",
         "cave_entrance",
+        "cliff",
+        "bare_rock",
+        "scree",
         "fence",
         "wall",
         "hedge",

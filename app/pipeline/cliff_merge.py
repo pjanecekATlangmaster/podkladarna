@@ -13,7 +13,8 @@ Zemní srázy (104): zamotané / smyčkové / krátké linie raději nekreslit
 (104×104) zahodit. Překryv skála×sráz → vždy sráz (104), skálu 201.2/206
 zahodit. Skála přes budovu / cestu / vodu / jiné mapové objekty (kromě
 zeleně/bílé/vrstevnic jako objektového překryvu) → zahodit skálu. Hustý
-shluk vrstevnic (strmý svah) → zahodit skálu i 104.
+shluk vrstevnic (strmý svah) → zahodit jen 104 (skály ne – dense-contour
+by systematicky mazal 201.2/206 na detekovaných stěnách).
 """
 
 from __future__ import annotations

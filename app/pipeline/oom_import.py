@@ -1157,7 +1157,22 @@ def _geom_to_parts(geom) -> list[_WkbPart]:
 
 
 def _collect_dxf_line_parts(path: Path, *, use_ogr: bool) -> list[list[tuple[float, float]]]:
-    """Všechny LINESTRING z DXF (KP srázy = spousta 2bodových úseček)."""
+    """Všechny LINESTRING z DXF (KP srázy = spousta 2bodových úseček).
+
+    Cliff DXF z ``write_cliff_ticks_dxf`` čteme nativně – GDAL OGR na minimálním
+    ASCII DXF (bez TABLES) v Dockeru často vrátí 0 prvků.
+    """
+    path = Path(path)
+    name = path.name.lower()
+    if name in {"c_rock.dxf", "c2g.dxf", "c3g.dxf", "c1g.dxf", "c2.dxf"} or name.startswith(
+        "cliffs_"
+    ):
+        from app.pipeline.cliffs_dem import parse_cliff_ticks_dxf
+
+        ticks = parse_cliff_ticks_dxf(path)
+        if ticks:
+            return [[a, b] for a, b in ticks]
+
     out: list[list[tuple[float, float]]] = []
     if use_ogr:
         from osgeo import ogr
@@ -1592,18 +1607,18 @@ def build_dxf_object_part(
             )
             for ring in dropped_by_identity(before_r, pending_rocks):
                 discarded_rocks.append((ring, "occupancy"))
-    # Husté vrstevnice (strmý shluk) → skála i 104 pryč; DEM už máme pro drop.
+    # Husté vrstevnice → jen 104 pryč. Skály (201.2/206) ne – detekce skal je
+    # právě na strmém schodu; dense-contour by je systematicky vymazal (Sachrův
+    # 457/1859 ticků → 0 ploch i po morph). Petr 2026-10-06: 104 neměnit.
     interval = float(contour_interval_m) if contour_interval_m else 5.0
     dense_filter_ran = False
-    if cliff_dem is not None and (pending_earth or pending_rocks):
-        before_e, before_r = list(pending_earth), list(pending_rocks)
-        pending_earth, pending_rocks, dense_contour_drop = filter_by_dense_contours(
-            pending_earth, pending_rocks, cliff_dem, interval_m=interval
+    if cliff_dem is not None and pending_earth:
+        before_e = list(pending_earth)
+        pending_earth, _ignored_rocks, dense_contour_drop = filter_by_dense_contours(
+            pending_earth, [], cliff_dem, interval_m=interval
         )
         for pts in dropped_by_identity(before_e, pending_earth):
             discarded_earth.append((pts, "huste_vrstevnice"))
-        for ring in dropped_by_identity(before_r, pending_rocks):
-            discarded_rocks.append((ring, "huste_vrstevnice"))
         dense_filter_ran = True
 
     if len(pending_earth) >= 2:
@@ -1712,9 +1727,10 @@ def build_dxf_object_part(
     if occupancy_drop:
         detail_bits.append(f"{occupancy_drop} skála přes jiný objekt zahozeno")
     if dense_filter_ran:
-        # Vždy logovat (i 0) – ověření, že filtr běží na Barr/tip (dřív ticho = bug).
+        # Vždy logovat (i 0) – ověření, že filtr běží (dřív ticho = bug).
+        # Od 2.2.20 jen 104; skály dense-contour neřeší.
         detail_bits.append(
-            f"{dense_contour_drop} skála/104 v hustých vrstevnicích zahozeno"
+            f"{dense_contour_drop}×104 v hustých vrstevnicích zahozeno"
         )
     if building_drop:
         detail_bits.append(f"{building_drop} přes budovu zahozeno")

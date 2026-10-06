@@ -185,7 +185,7 @@ def write_cliff_ticks_dxf(
     ticks: list[tuple[tuple[float, float], tuple[float, float]]],
     dest: Path,
 ) -> Path | None:
-    """Minimální ASCII DXF (LINE) – čte OGR / pyogrio v oom_import."""
+    """Minimální ASCII DXF (LINE) – pár k ``parse_cliff_ticks_dxf``."""
     if not ticks:
         return None
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -225,6 +225,52 @@ def write_cliff_ticks_dxf(
     lines.extend(["0", "ENDSEC", "0", "EOF", ""])
     dest.write_text("\n".join(lines), encoding="utf-8")
     return dest if dest.is_file() else None
+
+
+def parse_cliff_ticks_dxf(
+    path: Path,
+) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+    """Načte LINE entity z našeho minimálního cliff DXF (bez OGR/GDAL).
+
+    GDAL DXF driver na Dockeru často vrátí 0 vrstev u ASCII jen s HEADER+ENTITIES
+    (bez TABLES) → 457/1859 ticků v temp/ se do merge vůbec nedostane → 0×201.2.
+    Tento parser je zdrojem pravdy pro formát z ``write_cliff_ticks_dxf``.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    lines = text.splitlines()
+    ticks: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        if lines[i].strip() != "LINE":
+            i += 1
+            continue
+        vals: dict[str, str] = {}
+        i += 1
+        while i < n and lines[i].strip() != "0":
+            code = lines[i].strip()
+            i += 1
+            if i >= n:
+                break
+            vals[code] = lines[i].strip()
+            i += 1
+        try:
+            if {"10", "20", "11", "21"} <= vals.keys():
+                ticks.append(
+                    (
+                        (float(vals["10"]), float(vals["20"])),
+                        (float(vals["11"]), float(vals["21"])),
+                    )
+                )
+        except ValueError:
+            continue
+    return ticks
 
 
 def generate_cliffs_from_dem(

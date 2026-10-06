@@ -361,7 +361,7 @@ def test_dense_symbol_fallback_exists():
         symbol_index_for_code,
     )
 
-    assert resolve_rock_area_code("forest_10000", 10000) == "201.2"
+    assert resolve_rock_area_code("forest_10000", 10000) == "206"
     assert resolve_rock_area_code("sprint_2m", 4000) == "206"
     assert resolve_rock_area_code("mtbo_10000", 10000) == "206"
     assert symbol_index_for_code("sprint_2m", 4000, KP_CLIFF_DENSE_CODE) is not None
