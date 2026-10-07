@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import signal
 import sys
 import zipfile
 from pathlib import Path
@@ -31,6 +32,11 @@ from app.pipeline.oom_preview import (
     run_mapper_convert,
     undo_grivation_xy,
     write_job_oom_preview,
+)
+
+# _web_preview_deadline stojí na SIGALRM (Linux job worker); Windows ho nemá.
+needs_sigalrm = pytest.mark.skipif(
+    not hasattr(signal, "SIGALRM"), reason="SIGALRM not available (Windows)"
 )
 
 
@@ -879,6 +885,7 @@ def test_assert_png_within_web_pixel_limit_rejects_huge_ihdr(tmp_path: Path):
     )
 
 
+@needs_sigalrm
 def test_web_preview_deadline_raises_timeout():
     import time
 
@@ -887,6 +894,7 @@ def test_web_preview_deadline_raises_timeout():
             time.sleep(2.0)
 
 
+@needs_sigalrm
 def test_write_job_web_timeout_skips_preview_not_raise(
     tmp_path: Path, monkeypatch
 ):
