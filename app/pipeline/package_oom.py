@@ -95,6 +95,8 @@ DEFAULT_CONTOUR_BY_SCALE: dict[int, float] = {
 # Ořez DXF/srazů z širšího LiDAR cropu: nechat kousek za hranicí, ať u kraje
 # nechybí stub symbolu. OSM/ZABAGED/AOPK se neořezávají – radši přesahují.
 CLIP_MARGIN_M = 25.0
+# Přesah vektorů (OSM/ZABAGED/AOPK) za AOI v auto .omap.
+VECTOR_CLIP_MARGIN_M = 1000.0
 # Tyto ZABAGED vegetační vrstvy se do auto .omap NEVKLÁDAJÍ – vegetace
 # jde z hustoty LiDAR / CHM; ZABAGED louky zůstanou ve ZIP zabaged/ ručně.
 _ZABAGED_UNDER_VEGETATION = frozenset(
@@ -658,10 +660,12 @@ def prepare_oom_map(
     _, grivation = oom_north_angles(ref_x, ref_y)
     # LiDAR běží na širším výřezu (CROP_BUFFER_M) – DXF srazy/kameny z okraje
     # by jinak zaplavily mapu. Vektorové zdroje (OSM, ZABAGED, AOPK) necháme
-    # přesahovat za AOI; uživatel je případně ořízne v OOM.
-    dxf_clip_bounds = expand(
-        crop_bounds_5514(west, south, east, north, buffer_m=0.0), CLIP_MARGIN_M
-    )
+    # přesahovat za AOI (uživatel je případně ořízne v OOM), ale jen o
+    # VECTOR_CLIP_MARGIN_M: OSM vrací celé linie (VVN 155 km) → Mapper
+    # --full-map chtěl 367 000 × 141 000 px a export spadl na paměť.
+    aoi_bounds = crop_bounds_5514(west, south, east, north, buffer_m=0.0)
+    dxf_clip_bounds = expand(aoi_bounds, CLIP_MARGIN_M)
+    vector_clip_bounds = expand(aoi_bounds, VECTOR_CLIP_MARGIN_M)
     templates = collect_oom_templates(kp_cwd, built_refs=built_refs)
     # Prázdné šablony jsou OK: bez referenčních PNG je výchozí pohled
     # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty).
@@ -689,7 +693,7 @@ def prepare_oom_map(
             ref_y=ref_y,
             grivation_deg=grivation,
             work_dir=kp_cwd.parent,
-            clip_bounds=None,
+            clip_bounds=vector_clip_bounds,
             courtyard_olive=False,  # oliva dvorů z OSM budov
             prefer_osm_path_lines=prefer_osm_paths or None,
             omit_path_layers=path_source == PATH_SOURCE_OSM,
@@ -731,7 +735,7 @@ def prepare_oom_map(
         ref_x=ref_x,
         ref_y=ref_y,
         grivation_deg=grivation,
-        clip_bounds=None,
+        clip_bounds=vector_clip_bounds,
         aopk_tree_points=aopk_pts or None,
         courtyard_olive=courtyard_olive,
     )
@@ -797,7 +801,7 @@ def prepare_oom_map(
         ref_x=ref_x,
         ref_y=ref_y,
         grivation_deg=grivation,
-        clip_bounds=None,
+        clip_bounds=vector_clip_bounds,
         path_source=path_source,
     )
     if osm_parts:
@@ -813,7 +817,7 @@ def prepare_oom_map(
                 ref_x=ref_x,
                 ref_y=ref_y,
                 grivation_deg=grivation,
-                clip_bounds=None,
+                clip_bounds=vector_clip_bounds,
             )
         )
     # Oliva dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
