@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import shutil
-from dataclasses import replace
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app import db
@@ -65,6 +67,172 @@ from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS as DEFAULT_DENSITY_PARAMS,
     generate_job_vegetation_density,
 )
+
+
+@dataclass
+class ReferenceDownload:
+    """Background stahování referenčních PNG (1 thread × celá sériová sada)."""
+
+    future: Future
+    reference_dir: Path
+    _executor: ThreadPoolExecutor
+
+    def result(self) -> dict[str, Path]:
+        try:
+            return self.future.result()
+        finally:
+            self._executor.shutdown(wait=False)
+
+
+def _locked_log(log: callable, lock: threading.Lock) -> callable:
+    def _log(msg: str) -> None:
+        with lock:
+            log(msg)
+
+    return _log
+
+
+def _ref_prefixed_log(log: callable, lock: threading.Lock) -> callable:
+    """Detailní řádky z backgroundu: prefix [ref] + atomický zápis."""
+
+    def _log(msg: str) -> None:
+        line = f"[ref] {msg}" if msg else msg
+        with lock:
+            log(line)
+
+    return _log
+
+
+def start_reference_download(
+    job_dir: Path,
+    work_dir: Path,
+    bbox_wgs84: tuple[float, float, float, float],
+    *,
+    force_refresh: bool,
+    log: callable,
+) -> ReferenceDownload | None:
+    """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
+
+    Vrací handle pro join v ``_package_output``, nebo None když chybí georef šablona.
+    ČÚZK/vrstvy uvnitř zůstávají sériové — paralelní je jen overlap s hlavním buildem.
+    """
+    georef = ensure_georef_template(work_dir, prefer_preview=False)
+    if georef is None:
+        return None
+    template_png, template_pgw = georef
+    reference_dir = work_dir / "references"
+    log_lock = threading.Lock()
+    ref_log = _ref_prefixed_log(log, log_lock)
+    start_log = _locked_log(log, log_lock)
+    start_log(
+        "Referenční podklady: začínám stahování na pozadí "
+        "(ČÚZK/OSM, sériově; paralelně s buildem)."
+    )
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-dl")
+    future = executor.submit(
+        build_reference_layers,
+        job_dir,
+        tuple(bbox_wgs84),
+        template_png,
+        template_pgw,
+        reference_dir,
+        log=ref_log,
+        force_refresh=force_refresh,
+    )
+    return ReferenceDownload(
+        future=future,
+        reference_dir=reference_dir,
+        _executor=executor,
+    )
+
+
+def join_reference_download(
+    ref_download: ReferenceDownload | None,
+    *,
+    log: callable,
+    want_refs: bool,
+    bbox,
+    work_dir: Path,
+    job_dir: Path,
+    force_refresh: bool,
+    progress: JobProgress | None = None,
+) -> tuple[dict[str, Path], list[str]]:
+    """Tvrdý join před prepare_oom_map. Nespuští download dvakrát, když future běží.
+
+    Chyba refs = log + prázdné built_refs (job pokračuje). Fallback: sériová cesta,
+    pokud background nebyl nastartován (chyběla mřížka / georef).
+    ``JobProgress.begin``/``done`` jen zde (ne z backgroundu).
+    """
+    built_refs: dict[str, Path] = {}
+    reference_dir = work_dir / "references"
+    if not want_refs:
+        log("Referenční PNG přeskočeny (volba v GUI)")
+        return built_refs, []
+    if not bbox:
+        return built_refs, []
+
+    if ref_download is None:
+        georef = ensure_georef_template(work_dir)
+        if georef is None:
+            if progress is not None:
+                progress.skip(
+                    "referenční podklady",
+                    reason="chybí georef šablona",
+                )
+            else:
+                log(
+                    "=== Fáze: referenční PNG přeskočeny "
+                    "(chybí georef šablona preview/pullautus/job_grid) ==="
+                )
+            return built_refs, []
+        if progress is not None:
+            progress.begin("referenční podklady")
+        else:
+            log("=== Fáze: referenční podklady pro OOM ===")
+        template_png, template_pgw = georef
+        try:
+            built_refs = build_reference_layers(
+                job_dir,
+                tuple(bbox),
+                template_png,
+                template_pgw,
+                reference_dir,
+                log=log,
+                force_refresh=force_refresh,
+            )
+        except Exception as exc:
+            log(f"Referenční podklady: přeskočeno ({exc})")
+            built_refs = {}
+    else:
+        reference_dir = ref_download.reference_dir
+        if progress is not None:
+            progress.begin("referenční podklady")
+        else:
+            log("=== Fáze: referenční podklady pro OOM ===")
+        if not ref_download.future.done():
+            log("Referenční podklady: čekám na dokončení stahování na pozadí…")
+        try:
+            built_refs = ref_download.result() or {}
+            if built_refs:
+                names = ", ".join(sorted(built_refs.keys()))
+                log(f"Referenční podklady: staženo na pozadí — {names}")
+            else:
+                log("Referenční podklady: staženo na pozadí — nic")
+        except Exception as exc:
+            log(
+                f"Referenční podklady: pozadí selhalo ({exc}); "
+                "pokračuji bez nich."
+            )
+            built_refs = {}
+
+    ref_layers: list[str] = []
+    if built_refs:
+        ref_layers = sorted(p.name for p in built_refs.values())
+    elif reference_dir.is_dir():
+        ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
+    if progress is not None:
+        progress.done()
+    return built_refs, ref_layers
 
 
 def run_job_pipeline(
@@ -168,6 +336,7 @@ def run_job_pipeline(
 
     # Kanonická mřížka dřív než DEM deriváty.
     grid_bounds = resolve_merge_crop_bounds(crop, scalefactor)
+    ref_download: ReferenceDownload | None = None
     if grid_bounds is not None:
         progress.begin("georef mřížka")
         write_job_grid(
@@ -177,6 +346,15 @@ def run_job_pipeline(
             log=log,
         )
         progress.done()
+        # Referenční PNG na pozadí (sériově ČÚZK) × overlap s těžkým buildem.
+        if want_refs and bbox:
+            ref_download = start_reference_download(
+                job_dir,
+                work_dir,
+                tuple(bbox),
+                force_refresh=force_refresh,
+                log=log,
+            )
 
     if reused_from and merged_existing:
         log(
@@ -414,6 +592,7 @@ def run_job_pipeline(
         preset_id=preset_id,
         job_name=job_name,
         progress=progress,
+        ref_download=ref_download,
     )
     progress.finish_all()
     log("Hotovo.")
@@ -439,6 +618,7 @@ def _package_output(
     preset_id: str,
     job_name: str = "",
     progress: JobProgress | None = None,
+    ref_download: ReferenceDownload | None = None,
 ) -> None:
     zip_path = output_dir / OUTPUT_ZIP_NAME
     if zip_path.exists():
@@ -459,44 +639,18 @@ def _package_output(
 
     if want_zip:
         want_refs = bool(options.get("output_references", True))
-        georef = ensure_georef_template(kp_cwd) if want_refs and bbox else None
-        if want_refs and bbox and georef is not None:
-            template_png, template_pgw = georef
-            if progress is not None:
-                progress.begin("referenční podklady")
-            else:
-                log("=== Fáze: referenční podklady pro OOM ===")
-            try:
-                built_refs = build_reference_layers(
-                    job_dir,
-                    tuple(bbox),
-                    template_png,
-                    template_pgw,
-                    reference_dir,
-                    log=log,
-                    force_refresh=force_refresh_enabled(options),
-                )
-            except Exception as exc:
-                log(f"Referenční podklady: přeskočeno ({exc})")
-            if built_refs:
-                ref_layers = sorted(p.name for p in built_refs.values())
-            elif reference_dir.is_dir():
-                ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
-            if progress is not None:
-                progress.done()
-        elif want_refs and bbox:
-            if progress is not None:
-                progress.skip(
-                    "referenční podklady",
-                    reason="chybí georef šablona",
-                )
-            else:
-                log(
-                    "=== Fáze: referenční PNG přeskočeny "
-                    "(chybí georef šablona preview/pullautus/job_grid) ==="
-                )
-        elif not want_refs:
-            log("Referenční PNG přeskočeny (volba v GUI)")
+        built_refs, ref_layers = join_reference_download(
+            ref_download,
+            log=log,
+            want_refs=want_refs,
+            bbox=bbox,
+            work_dir=kp_cwd,
+            job_dir=job_dir,
+            force_refresh=force_refresh_enabled(options),
+            progress=progress,
+        )
+        if ref_download is not None:
+            reference_dir = ref_download.reference_dir
 
         meta = oom_metadata(
             preset_id,
