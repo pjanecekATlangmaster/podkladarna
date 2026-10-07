@@ -541,6 +541,8 @@ def test_index_html(client):
     assert "indikativní" not in html
     assert "zeměměřičské" not in html
     assert "48 hodin" in html
+    assert "spam" in html
+    assert "obvykle hotové do hodiny" in html
     assert "Webový náhled" in html
     assert "Jen PNG náhled" not in html
     assert 'name="map_scale"' in html

@@ -223,6 +223,22 @@ def test_build_private_ready_email_mentions_expiry():
     assert "ZIP s mapou" in body
     assert "Náhled PNG" not in body
     assert "georeferencovaných" not in body
+    assert "Doba běhu" not in body
+    # Přehlednější odřádkování (prázdné řádky mezi bloky).
+    assert "\n\nvaše mapa" in body
+    assert "\n\nStažení (privátní odkazy):\n\n" in body
+    assert "\n\nOdkazy platí 48 hodin" in body
+
+
+def test_build_private_ready_email_includes_duration():
+    subject, body = build_private_ready_email(
+        job_name="Rychlá mapa",
+        download_url="https://example/d/abc",
+        retention_hours=48,
+        duration_s=754,
+    )
+    assert "Rychlá mapa" in subject
+    assert "Doba běhu: 12 min 34 s." in body
 
 
 def test_build_private_ready_email_optional_artifact_links():
@@ -232,6 +248,7 @@ def test_build_private_ready_email_optional_artifact_links():
         retention_hours=48,
         preview_url="https://example/api/jobs/j1/preview.png?token=tok",
         georef_url="https://example/api/jobs/j1/download/georef-previews?token=tok",
+        duration_s=3700,
     )
     assert "Geo mapa" in subject
     assert "preview.png?token=tok" in body
@@ -240,6 +257,9 @@ def test_build_private_ready_email_optional_artifact_links():
     assert "ZIP georeferencovaných náhledů" in body
     assert "na stránce jobu se náhled/ZIP nezobrazují" in body
     assert "v příloze" not in body
+    assert "Doba běhu: 1 h 1 min." in body
+    assert "\n\n• Náhled PNG:\n" in body
+    assert "\n\n• ZIP georeferencovaných náhledů:\n" in body
 
 
 def test_build_private_ready_email_preview_attached():
