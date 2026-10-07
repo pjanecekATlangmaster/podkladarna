@@ -3,7 +3,11 @@
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
   - date: "2026-10-07"
-    title: "Rychlejší zpracování LiDARu, velké výřezy už nepadají na paměť"
+    title: "Turbo generování: LiDAR proudově místo celého mračna v RAM, velké výřezy už nepadají, kroky běží souběžně"
+  - date: "2026-10-07"
+    title: "Georef náhledy zase z OpenOrienteering Mapperu; záložní render 400× rychlejší (14 min → 2 s)"
+  - date: "2026-10-07"
+    title: "Opakovaný výřez téměř bez čekání: LiDAR, DEM i OSM z cache, srázy 7× a sestavení mapy 2× rychleji"
   - date: "2026-10-03"
     title: "Webový náhled mapy přes OpenOrienteering Mapper"
   - date: "2026-10-02"

@@ -133,6 +133,30 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)LiDAR pipeline: stream merges"),
+        "Rychlejší LiDAR: proudový merge, souběžné kroky, velké výřezy nepadají na paměť",
+    ),
+    (
+        re.compile(r"(?i)Speed up Python steps"),
+        "Rychlejší srázy (7×), sestavení mapy (2×) a OSM z cache při opakování výřezu",
+    ),
+    (
+        re.compile(r"(?i)Georef previews: fix Mapper"),
+        "Georef náhledy znovu přes Mapper, záložní render 400× rychlejší",
+    ),
+    (
+        re.compile(r"(?i)Clip OSM/ZABAGED/AOPK vectors"),
+        "Mapa bez 155km přesahů z OSM – georef přes Mapper zase funguje",
+    ),
+    (
+        re.compile(r"(?i)fill_small_holes via scipy"),
+        "Vegetace: rychlejší vyplňování děr v loukách",
+    ),
+    (
+        re.compile(r"(?i)Remove Karttapullautin leftovers|Lock sheet-crop cache"),
+        "Úklid kódu po Karttapullautinu",
+    ),
+    (
         re.compile(r"(?i)generate whats-new|whats-new changelog|age-styled whats-new"),
         "Přehled novinek v boxu nad formulářem",
     ),
