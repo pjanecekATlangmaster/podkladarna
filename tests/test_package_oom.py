@@ -506,3 +506,24 @@ def test_oom_map_keeps_png_templates_loaded_but_hidden(tmp_path):
     assert 'open="true" name="osm.png"' in xml
     assert 'open="true" name="orthophoto.png"' in xml
     assert xml.count('visible="false"') >= 2
+
+
+def test_build_oom_zip_appears_only_when_complete(tmp_path: Path, monkeypatch):
+    """Během balení ZIP pod finálním jménem neexistuje (web by ho nabídl ke stažení)."""
+    import app.pipeline.uzitecne_vectors as uv
+
+    kp = tmp_path / "work"
+    kp.mkdir()
+    dest = tmp_path / "out" / "podkladarna_output.zip"
+    seen: list[bool] = []
+
+    def spy(zf, work_dir):
+        seen.append(dest.exists())
+
+    monkeypatch.setattr(uv, "add_uzitecne_to_zip", spy)
+    build_oom_zip(kp, dest, zabaged_clean=None, metadata={"label": "t", "scale": 10000})
+    assert seen == [False]
+    assert dest.is_file()
+    assert not dest.with_name(dest.name + ".part").exists()
+    with zipfile.ZipFile(dest) as zf:
+        assert "CO_JE_PODKLADARNA.txt" in zf.namelist()

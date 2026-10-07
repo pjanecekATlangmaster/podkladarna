@@ -337,6 +337,7 @@ def test_api_private_hidden_from_list_and_token_download(client, monkeypatch, da
     out.mkdir(parents=True, exist_ok=True)
     zip_path = out / "podkladarna_output.zip"
     zip_path.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+    db.update_job(job_id, status="done", phase="done")
 
     assert client.get(f"/api/jobs/{job_id}/download").status_code == 404
     assert client.get(f"/api/jobs/{job_id}/preview.png").status_code == 404
@@ -575,6 +576,8 @@ def test_notify_private_job_mail_includes_preview_and_georef(tmp_path, monkeypat
     prev.mkdir(exist_ok=True)
     (prev / "mapa.png").write_bytes(b"png")
     (prev / "mapa.pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+    # Jako job_worker.run_job: status done se zapíše před odesláním mailu.
+    db.update_job(job["id"], status="done", phase="done")
 
     sent: list[dict] = []
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 import zipfile
@@ -864,8 +865,11 @@ def build_oom_zip(
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
     if dest_zip.exists():
         dest_zip.unlink()
+    # Zápis pod dočasným jménem → web/API vidí ZIP až kompletní (os.replace).
+    part_zip = dest_zip.with_name(dest_zip.name + ".part")
+    part_zip.unlink(missing_ok=True)
 
-    with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(part_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("CO_JE_PODKLADARNA.txt", ZIP_ABOUT_TXT)
         if omap_paths:
             for omap_path in omap_paths:
@@ -1025,4 +1029,5 @@ def build_oom_zip(
         finalize_uzitecne_vectors(kp_cwd)
         add_uzitecne_to_zip(zf, kp_cwd)
 
+    os.replace(part_zip, dest_zip)
     return dest_zip

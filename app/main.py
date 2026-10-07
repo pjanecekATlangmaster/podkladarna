@@ -363,9 +363,16 @@ def _load_job_for_artifact(job_id: str, token: str | None) -> dict:
     return job
 
 
+def _require_finished(job: dict) -> None:
+    """ZIP ke stažení až po doběhnutí jobu (dřív šel stáhnout rozpracovaný)."""
+    if job.get("status") not in db.JOB_FINISHED_STATUSES:
+        raise HTTPException(409, "Job ještě běží – ZIP se teprve balí.")
+
+
 @app.get("/api/jobs/{job_id}/download")
 def api_download(job_id: str, token: str | None = None):
     job = _load_job_for_artifact(job_id, token)
+    _require_finished(job)
     zip_path = _output_zip_path(job_id)
     if not zip_path:
         raise HTTPException(404, "Vystup jeste neni pripraven")
@@ -382,6 +389,7 @@ def api_download_georef_previews(job_id: str, token: str | None = None):
     )
 
     job = _load_job_for_artifact(job_id, token)
+    _require_finished(job)
     out = JOBS_DIR / job_id / "output"
     zip_path = out / GEOREF_PREVIEWS_ZIP_NAME
     if not zip_path.is_file():
@@ -417,6 +425,7 @@ def download_by_token(token: str):
     if db.job_is_expired(job):
         db.delete_job(job["id"])
         raise HTTPException(410, "Privátní odkaz vypršel – job byl smazán.")
+    _require_finished(job)
     zip_path = _output_zip_path(job["id"])
     if not zip_path:
         raise HTTPException(404, "Vystup jeste neni pripraven")

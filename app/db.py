@@ -477,6 +477,10 @@ def get_logs(job_id: str, after_id: int = 0) -> list[dict[str, Any]]:
     return [{"id": r["id"], "line": r["line"], "at": r["created_at"]} for r in rows]
 
 
+# Job už nic nezapisuje do output/ (ZIP hotový nebo nevznikne).
+JOB_FINISHED_STATUSES = frozenset({"done", "failed"})
+
+
 def _job_has_output(job_dir: Path) -> bool:
     out = job_dir / "output"
     return (out / "podkladarna_output.zip").is_file() or (out / "podkladarna_oom.zip").is_file()
@@ -518,9 +522,12 @@ def _row_to_job(
     source_meta = _job_source_meta(job_dir)
     options = json.loads(row["options_json"])
     is_private = bool(options.get("private"))
-    has_out = _job_has_output(job_dir)
+    # ZIPy (výstup / georef náhledy) až po doběhnutí jobu – během balení by
+    # odkaz stáhl rozpracovaný archiv. Náhled PNG smí být vidět hned.
+    finished = row["status"] in JOB_FINISHED_STATUSES
+    has_out = finished and _job_has_output(job_dir)
     has_prev = has_preview(job_dir / "output", job_dir / "work")
-    has_georef = _job_has_georef_previews(job_dir)
+    has_georef = finished and _job_has_georef_previews(job_dir)
     # Privátní job: bez tokenu neprozrazovat artefakty (náhled / ZIP).
     if is_private and not reveal_artifacts:
         has_out = False

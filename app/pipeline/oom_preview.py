@@ -2308,8 +2308,11 @@ def build_georef_previews_zip(
     dest = Path(dest_zip) if dest_zip else Path(output_dir) / GEOREF_PREVIEWS_ZIP_NAME
     if dest.exists():
         dest.unlink()
+    # Dočasné jméno → odkaz ke stažení uvidí až kompletní ZIP (os.replace).
+    part = dest.with_name(dest.name + ".part")
+    part.unlink(missing_ok=True)
     log_step(log, "Balím ZIP jen s georeferencovanými náhledy")
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             "README.txt",
             (
@@ -2329,6 +2332,7 @@ def build_georef_previews_zip(
         )
         for path in files:
             zf.write(path, path.name)
+    os.replace(part, dest)
     if log:
         log(
             f"OOM georef: ZIP náhledů → {dest.name} "

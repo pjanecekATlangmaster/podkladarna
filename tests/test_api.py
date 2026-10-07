@@ -627,6 +627,7 @@ def test_download_oom_redirects_to_main_zip(client, tmp_path, monkeypatch):
     out = tmp_path / "jobs" / job_id / "output"
     out.mkdir(parents=True, exist_ok=True)
     (out / "podkladarna_output.zip").write_bytes(b"zip")
+    db.update_job(job_id, status="done", phase="done")
 
     r = client.get(f"/api/jobs/{job_id}/download/oom")
     assert r.status_code == 200
@@ -654,6 +655,12 @@ def test_download_georef_previews_zip(client, tmp_path, monkeypatch):
         "1\n0\n0\n-1\n-750000\n-1050000\n", encoding="utf-8"
     )
     (preview / "oom_preview.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 8)
+
+    # Během běhu jobu se georef ZIP nenabízí ani nestaví (rozpracovaný výstup).
+    db.update_job(job_id, status="running", phase="oom")
+    assert client.get(f"/api/jobs/{job_id}").json()["has_georef_previews"] is False
+    assert client.get(f"/api/jobs/{job_id}/download/georef-previews").status_code == 409
+    db.update_job(job_id, status="done", phase="done")
 
     detail = client.get(f"/api/jobs/{job_id}")
     assert detail.status_code == 200
