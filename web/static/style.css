@@ -594,6 +594,16 @@ legend {
   border-style: dashed;
 }
 
+/* Anonymní placeholder ve veřejném panelu (bez jména/logů). */
+.job-item.private-live-placeholder {
+  border-style: dashed;
+  cursor: default;
+}
+
+.job-item.private-live-placeholder:hover {
+  border-color: #ecd9b8;
+}
+
 .form-notice {
   color: #5a4a1a;
   background: #fff8e6;

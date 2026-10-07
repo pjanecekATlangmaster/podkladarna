@@ -583,7 +583,7 @@ def test_notify_private_job_mail_includes_preview_and_georef(tmp_path, monkeypat
 
 
 def test_ui_private_session_log_hooks():
-    """UI musí umět zobrazit log privátního běhu (holder + injekce do live)."""
+    """UI: detail/log u privátního jobu + anonymní placeholder ve frontě."""
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
@@ -595,13 +595,71 @@ def test_ui_private_session_log_hooks():
     assert "jobIsPrivate" in app_js
     assert "showFormNotice" in app_js
     assert "privátní session" in app_js
-    assert "Privátní session" in app_js or "injektuj do" in app_js
+    assert "syncPrivateLivePlaceholder" in app_js
+    assert "Běží privátní job" in app_js
+    assert "private_live" in app_js
     assert "!jobIsPrivate(selected) && selected.has_preview" in app_js
     assert "!jobIsPrivate(job) && job.has_preview" in app_js
     assert "ZIP/náhled nepřijdou" in app_js or "ZIP e-mailem" in app_js
     assert "#job-detail-holder.active" in css
+    assert "private-live-placeholder" in css
     assert "form-notice" in css
     assert 'id="form-notice"' in html
     assert "pipeline log" in html.lower() or "pipeline log" in app_js.lower()
     # Na webu privátní job nemá PNG/ZIP odkazy — jen mail.
     assert "Privátní: ZIP/PNG jen e-mailem" in app_js or "jen e-mailem" in app_js
+
+
+def test_api_private_live_in_jobs_list(client, monkeypatch, data_dir):
+    """Běžící privátní job: listing prázdný, ale private_live + stopky-start."""
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+
+    created = {}
+
+    def fake_enqueue(job_id):
+        created["id"] = job_id
+        db.update_job(
+            job_id,
+            status="running",
+            phase="starting",
+            started_at=db._utcnow(),
+        )
+
+    monkeypatch.setattr(main.worker, "enqueue", fake_enqueue)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    monkeypatch.setattr(main.worker, "queue_snapshot", lambda: {
+        "busy": True,
+        "current": created.get("id"),
+        "queued": [],
+        "queue_size": 0,
+        "max_concurrent": 1,
+        "max_queue_size": 2,
+        "job_timeout_minutes": 60,
+    })
+
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "priv-live",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "private": "1",
+            "notify_email": "petr@example.com",
+        },
+    )
+    assert r.status_code == 200
+    job_id = r.json()["id"]
+    assert created.get("id") == job_id
+
+    listed = client.get("/api/jobs").json()
+    assert all(j["id"] != job_id for j in listed["jobs"])
+    assert listed["private_live"] is not None
+    assert listed["private_live"]["status"] == "running"
+    assert listed["private_live"]["started_at"]
