@@ -30,8 +30,17 @@ _MTBO_ISOM_OVERLAY: dict[str, str] = {
 }
 
 
+@lru_cache(maxsize=32)
+def _symbol_set_exists(path_str: str) -> bool:
+    return Path(path_str).is_file()
+
+
 def symbol_set_path(preset_id: str, scale: int) -> Path:
-    """Vrátí oficiální OOM symbol set (OpenOrienteering/mapper, GPL)."""
+    """Vrátí oficiální OOM symbol set (OpenOrienteering/mapper, GPL).
+
+    Existence souboru se cachuje – volá se pro každý objekt mapy
+    (~270k× / velký job, každé is_file na disk).
+    """
     if preset_id.startswith("sprint"):
         path = OOM_DIR / "ISSprOM_2019_4000.omap"
     elif preset_id.startswith("mtbo"):
@@ -45,7 +54,7 @@ def symbol_set_path(preset_id: str, scale: int) -> Path:
     else:
         # ISOM 2017-2 pro 1:7500 i 1:10000 (OOM nemá samostatný set pro 7500)
         path = OOM_DIR / "ISOM_2017-2_10000.omap"
-    if not path.is_file():
+    if not _symbol_set_exists(str(path)):
         raise FileNotFoundError(f"Chybí symbol set OOM: {path}")
     return path
 

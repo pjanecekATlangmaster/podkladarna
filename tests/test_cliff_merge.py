@@ -634,3 +634,17 @@ def test_tight_bank_filter_rejects_mild_zigzag():
     ]
     assert not polyline_is_simple_bank(zigzag)
 
+
+
+def test_merge_cliff_ticks_memo_returns_independent_copies():
+    """Varianty jobu (les/mtbo) sdílí výpočet, ale ne seznamy výsledku."""
+    import app.pipeline.cliff_merge as cmod
+
+    ticks = _field(21.0, 21.0)
+    cmod._MERGE_MEMO.clear()
+    a = merge_cliff_ticks(ticks, as_polygons=True)
+    a.polygons.append([(0.0, 0.0)])
+    b = merge_cliff_ticks(ticks, as_polygons=True)
+    assert len(cmod._MERGE_MEMO) == 1
+    assert len(b.polygons) == len(a.polygons) - 1
+    assert b.polygons == a.polygons[:-1]

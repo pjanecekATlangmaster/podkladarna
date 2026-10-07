@@ -180,3 +180,17 @@ def test_build_gdal_contour_parts_simplify_then_curves(tmp_path, monkeypatch):
     verts = seen_parts[0][1]
     assert len(verts) < len(noisy) / 2
     assert len(verts) <= 10
+
+
+def test_numpy_dp_matches_recursive_reference():
+    import math
+    import random
+
+    from app.pipeline.contours_gdal import _simplify_polyline_dp_py, simplify_polyline_dp
+
+    rnd = random.Random(3)
+    for n in (40, 200, 1500):
+        pts = [(i * 0.7, 5 * math.sin(i / 7.0) + rnd.uniform(-0.6, 0.6)) for i in range(n)]
+        pts[n // 2] = pts[n // 2 - 1]  # duplicitní bod
+        for tol in (0.05, 0.8, 3.0):
+            assert simplify_polyline_dp(pts, tol) == _simplify_polyline_dp_py(pts, tol)

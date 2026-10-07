@@ -99,9 +99,165 @@ def detect_cliff_ticks(
     far = max(near + 1, int(round(7.5 / min(px, py))))
     rock_min_drop = float(min_drop_m) + ROCK_MIN_DROP_BONUS_M
 
+    stride = max(1, int(stride))
+    return _detect_cliff_ticks_np(
+        arr,
+        valid,
+        gt,
+        near=near,
+        far=far,
+        px=px,
+        py=py,
+        min_drop_m=float(min_drop_m),
+        major_drop_m=float(major_drop_m),
+        rock_min_drop=rock_min_drop,
+        stride=stride,
+        max_ticks=int(max_ticks),
+    )
+
+
+def _detect_cliff_ticks_np(
+    arr,
+    valid,
+    gt,
+    *,
+    near: int,
+    far: int,
+    px: float,
+    py: float,
+    min_drop_m: float,
+    major_drop_m: float,
+    rock_min_drop: float,
+    stride: int,
+    max_ticks: int,
+    rows_per_block: int = 256,
+):
+    """Vektorová verze smyčky ``_detect_cliff_ticks_loop`` – stejné ticky i pořadí.
+
+    Stejné vzorkování (stride), stejné float64 výrazy ve stejném pořadí a
+    ``np.rint`` = Python ``round`` (polovina k sudé). Po blocích řádků kvůli RAM.
+    """
+    import numpy as np
+
+    h, w = arr.shape
+    a64 = arr.astype(np.float64)
     small: list[tuple[tuple[float, float], tuple[float, float]]] = []
     large: list[tuple[tuple[float, float], tuple[float, float]]] = []
-    stride = max(1, int(stride))
+    step_m = min(px, py)
+    span_m = (far - near) * step_m
+    if span_m <= 0:
+        return small, large
+    run_m = 2.0 * near * step_m
+    rows_all = np.arange(far, h - far, stride)
+    cols = np.arange(far, w - far, stride)
+    if rows_all.size == 0 or cols.size == 0:
+        return small, large
+    total = 0
+    for b0 in range(0, rows_all.size, max(1, rows_per_block)):
+        rows = rows_all[b0 : b0 + rows_per_block]
+        R, C = np.meshgrid(rows, cols, indexing="ij")
+        R = R.ravel()
+        C = C.ravel()
+        keep = valid[R, C]
+        R, C = R[keep], C[keep]
+        if R.size == 0:
+            continue
+        z0 = a64[R, C]
+
+        def _nb(dr: int, dc: int):
+            return np.where(valid[R + dr, C + dc], a64[R + dr, C + dc], z0)
+
+        z_e = _nb(0, near)
+        z_w = _nb(0, -near)
+        z_s = _nb(near, 0)
+        z_n = _nb(-near, 0)
+        gx = (z_e - z_w) / (2.0 * near * px)
+        gy = -(z_s - z_n) / (2.0 * near * py)
+        gmag = np.hypot(gx, gy)
+        ok = gmag >= 1e-6
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ux = gx / gmag
+            uy = gy / gmag
+            dcol = ux
+            drow = -uy if gt[5] < 0 else uy
+            plen = np.hypot(dcol, drow)
+            ok &= plen >= 1e-9
+            dcol = dcol / plen
+            drow = drow / plen
+        Cf = C.astype(np.float64)
+        Rf = R.astype(np.float64)
+
+        def _at(dist_px: int):
+            cc = np.rint(Cf + dcol * dist_px)
+            rr = np.rint(Rf + drow * dist_px)
+            inb = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w) & np.isfinite(cc) & np.isfinite(rr)
+            ci = np.where(inb, cc, 0).astype(np.int64)
+            ri = np.where(inb, rr, 0).astype(np.int64)
+            good = inb & valid[ri, ci]
+            return a64[ri, ci], good
+
+        near_lo, g1 = _at(-near)
+        near_hi, g2 = _at(near)
+        far_lo, g3 = _at(-far)
+        far_hi, g4 = _at(far)
+        ok &= g1 & g2 & g3 & g4
+        grade = ((near_lo - far_lo) + (far_hi - near_hi)) / (2.0 * span_m)
+        expected = grade * 2.0 * near * step_m
+        drop = np.abs((near_hi - near_lo) - expected)
+        ok &= drop >= min_drop_m
+        grade2 = drop / run_m if run_m > 0 else np.zeros_like(drop)
+        steep = (grade2 >= ROCK_MIN_GRADE) | (
+            (drop >= major_drop_m) & (grade2 >= ROCK_MIN_GRADE * 0.75)
+        )
+        nx = -uy
+        ny = ux
+        with np.errstate(divide="ignore", invalid="ignore"):
+            nlen = np.hypot(nx, ny)
+            ok &= nlen >= 1e-9
+            nx = nx / nlen
+            ny = ny / nlen
+        appended = ok & ((steep & (drop >= rock_min_drop)) | ~steep)
+        idx = np.nonzero(appended)[0]
+        if idx.size == 0:
+            continue
+        idx = idx[: max(0, max_ticks - total)]
+        col_c = C[idx] + 0.5
+        row_c = R[idx] + 0.5
+        cx = gt[0] + col_c * gt[1] + row_c * gt[2]
+        cy = gt[3] + col_c * gt[4] + row_c * gt[5]
+        tx = nx[idx] * TICK_HALF_LEN_M
+        ty = ny[idx] * TICK_HALF_LEN_M
+        ax, ay = (cx - tx).tolist(), (cy - ty).tolist()
+        bx, by = (cx + tx).tolist(), (cy + ty).tolist()
+        is_large = steep[idx].tolist()
+        for i, lg in enumerate(is_large):
+            seg = ((ax[i], ay[i]), (bx[i], by[i]))
+            (large if lg else small).append(seg)
+        total += idx.size
+        if total >= max_ticks:
+            break
+    return small, large
+
+
+def _detect_cliff_ticks_loop(
+    arr,
+    valid,
+    gt,
+    *,
+    near: int,
+    far: int,
+    px: float,
+    py: float,
+    min_drop_m: float,
+    major_drop_m: float,
+    rock_min_drop: float,
+    stride: int,
+    max_ticks: int,
+):
+    """Původní smyčka (reference pro testy vektorové verze)."""
+    h, w = arr.shape
+    small: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    large: list[tuple[tuple[float, float], tuple[float, float]]] = []
 
     for r in range(far, h - far, stride):
         for c in range(far, w - far, stride):

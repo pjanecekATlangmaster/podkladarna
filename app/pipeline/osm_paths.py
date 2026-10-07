@@ -1210,7 +1210,107 @@ def _fetch_osm_api_map(
     return elements
 
 
+def osm_cache_max_age_hours() -> float:
+    """Platnost cache OSM odpovědi (h). 0 = bez cache."""
+    import os
+
+    try:
+        return max(0.0, float(os.environ.get("PODKLADARNA_OSM_CACHE_HOURS", "24")))
+    except ValueError:
+        return 24.0
+
+
+def _osm_cache_path(
+    bbox_wgs84: tuple[float, float, float, float], **params
+) -> Path:
+    """Klíč = výřez + parametry dotazu + text Overpass QL (změna kódu → nový klíč)."""
+    import hashlib
+
+    from app import settings
+
+    west, south, east, north = bbox_wgs84
+    ql = _overpass_ql(
+        south,
+        west,
+        north,
+        east,
+        include_benches=params["include_benches"],
+        include_lamps=params["include_lamps"],
+        include_playground_equipment=params["include_playground_equipment"],
+        osm_priority=params["osm_priority"],
+        path_source=params["path_source"],
+    )
+    raw = json.dumps(
+        {
+            "bbox": [round(float(v), 6) for v in bbox_wgs84],
+            "ql": ql,
+            "api_highways": sorted(osm_highway_set(params["path_source"])),
+            "v": 1,
+        },
+        sort_keys=True,
+    )
+    key = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+    return settings.DOWNLOADS_DIR / "osm" / f"{key}.json"
+
+
 def fetch_osm_path_elements(
+    bbox_wgs84: tuple[float, float, float, float],
+    *,
+    include_benches: bool = False,
+    include_lamps: bool = False,
+    include_playground_equipment: bool = False,
+    osm_priority: bool = False,
+    path_source: str = PATH_SOURCE_MIXED,
+    force_refresh: bool = False,
+    log=None,
+) -> list[dict]:
+    """OSM prvky pro výřez; úspěšná odpověď se cachuje (opakovaný job = bez sítě).
+
+    Overpass mirrory často timeoutují (~35–50 s / job), iterace stejného
+    výřezu by je čekala znovu.
+    """
+    import time
+
+    params = dict(
+        include_benches=include_benches,
+        include_lamps=include_lamps,
+        include_playground_equipment=include_playground_equipment,
+        osm_priority=osm_priority,
+        path_source=path_source,
+    )
+    max_age_h = osm_cache_max_age_hours()
+    cache_path: Path | None = None
+    if max_age_h > 0:
+        try:
+            cache_path = _osm_cache_path(bbox_wgs84, **params)
+        except Exception:
+            cache_path = None
+    if cache_path is not None and not force_refresh and cache_path.is_file():
+        age_h = (time.time() - cache_path.stat().st_mtime) / 3600.0
+        if age_h <= max_age_h:
+            try:
+                elements = json.loads(cache_path.read_text(encoding="utf-8"))
+                if log:
+                    log(
+                        f"OSM cache zásah ({len(elements)} prvků, stáří {age_h:.1f} h) "
+                        "– Overpass přeskakuji"
+                    )
+                return elements
+            except (OSError, json.JSONDecodeError):
+                pass
+    elements = _fetch_osm_path_elements_net(bbox_wgs84, log=log, **params)
+    if cache_path is not None and elements:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(elements), encoding="utf-8")
+            tmp.replace(cache_path)
+        except OSError:
+            pass
+    return elements
+
+
+def _fetch_osm_path_elements_net(
     bbox_wgs84: tuple[float, float, float, float],
     *,
     include_benches: bool = False,
@@ -2033,6 +2133,14 @@ def filter_osm_items_against_zabaged(
     return kept, dropped
 
 
+def centerline_index(lines: list[list[tuple[float, float]]]) -> "_SegmentIndex":
+    """Prostorový index střednic pro ``filter_lines_against_centerlines``."""
+    index = _SegmentIndex()
+    for line in lines:
+        index.add_line(line)
+    return index
+
+
 def filter_lines_against_centerlines(
     lines: list[list[tuple[float, float]]],
     blockers: list[list[tuple[float, float]]],
@@ -2040,14 +2148,18 @@ def filter_lines_against_centerlines(
     near_m: float = MATCH_M,
     overlap_drop: float = COVER_DROP,
     min_length_m: float = MIN_LENGTH_M,
+    index: "_SegmentIndex | None" = None,
 ) -> tuple[list[list[tuple[float, float]]], int]:
-    """Zahodí jen celé linie se shodnou střednicí ``blockers``; konce neořezává."""
+    """Zahodí jen celé linie se shodnou střednicí ``blockers``; konce neořezává.
+
+    ``index``: předpočítaný ``centerline_index(blockers)`` – volající s mnoha
+    dávkami proti stejným blockers ho nestaví znovu (dřív ~25 s / velký job).
+    """
     if not blockers:
         kept = [ln for ln in lines if polyline_length(ln) >= min_length_m]
         return kept, len(lines) - len(kept)
-    index = _SegmentIndex()
-    for line in blockers:
-        index.add_line(line)
+    if index is None:
+        index = centerline_index(blockers)
     kept: list[list[tuple[float, float]]] = []
     dropped = 0
     for line in lines:
@@ -2291,6 +2403,7 @@ def prepare_osm_paths(
     osm_priority: bool = False,
     all_footways_as_sidewalk: bool = False,
     preset_id: str = "",
+    force_refresh: bool = False,
     log=None,
 ) -> None:
     highways = osm_highway_set(PATH_SOURCE_OSM)
@@ -2302,6 +2415,7 @@ def prepare_osm_paths(
         include_playground_equipment=include_playground_equipment,
         osm_priority=osm_priority,
         path_source=PATH_SOURCE_OSM,
+        force_refresh=force_refresh,
         log=log,
     )
     osm_items: list[tuple[list[tuple[float, float]], str]] = []

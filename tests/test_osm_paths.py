@@ -1624,3 +1624,39 @@ def test_osm_features_have_power_lines(tmp_path):
         ],
     )
     assert osm_features_have_power_lines(tmp_path) is True
+
+
+def test_fetch_osm_elements_cached_per_bbox(tmp_path, monkeypatch):
+    """Opakovaný výřez → OSM z cache (bez Overpass); force_refresh / prázdná odpověď ne."""
+    from app import settings
+    import app.pipeline.osm_paths as op
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path / "cache")
+    monkeypatch.setenv("PODKLADARNA_OSM_CACHE_HOURS", "24")
+    calls: list[int] = []
+    answer: list[list[dict]] = [[{"type": "way", "tags": {"highway": "path"}, "geometry": []}]]
+
+    def fake_net(bbox, **kw):
+        calls.append(1)
+        return answer[0]
+
+    monkeypatch.setattr(op, "_fetch_osm_path_elements_net", fake_net)
+    bbox = (14.40, 50.08, 14.42, 50.09)
+    first = op.fetch_osm_path_elements(bbox)
+    again = op.fetch_osm_path_elements(bbox)
+    assert first == again and len(calls) == 1
+    op.fetch_osm_path_elements(bbox, force_refresh=True)
+    assert len(calls) == 2
+    # Jiné parametry dotazu = jiný klíč.
+    op.fetch_osm_path_elements(bbox, include_benches=True)
+    assert len(calls) == 3
+    # Prázdná odpověď (síť selhala) se necachuje.
+    answer[0] = []
+    other = (14.50, 50.08, 14.52, 50.09)
+    op.fetch_osm_path_elements(other)
+    op.fetch_osm_path_elements(other)
+    assert len(calls) == 5
+    monkeypatch.setenv("PODKLADARNA_OSM_CACHE_HOURS", "0")
+    answer[0] = [{"type": "node", "tags": {}, "lat": 50.0, "lon": 14.0}]
+    op.fetch_osm_path_elements(bbox)
+    assert len(calls) == 6

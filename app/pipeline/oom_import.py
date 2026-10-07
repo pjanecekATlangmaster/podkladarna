@@ -864,6 +864,7 @@ def build_zabaged_object_parts(
         ZABAGED_PATH_LAYERS_OSM_FIRST,
         _SegmentIndex,
         centerline_cover_fraction,
+        centerline_index,
         filter_lines_against_centerlines,
     )
 
@@ -900,18 +901,24 @@ def build_zabaged_object_parts(
             clip_bounds=clip_bounds,
         )
 
+    osm_index = None
+
     def _filter_vs_osm(
         line_parts: list[list[tuple[float, float]]],
         layer_name: str,
     ) -> list[list[tuple[float, float]]]:
+        nonlocal osm_index
         if not osm_blockers or layer_name not in ZABAGED_PATH_LAYERS_OSM_FIRST:
             return line_parts
+        if osm_index is None:
+            osm_index = centerline_index(osm_blockers)
         kept, _dropped = filter_lines_against_centerlines(
             line_parts,
             osm_blockers,
             near_m=MATCH_M,
             overlap_drop=COVER_DROP,
             min_length_m=MIN_LENGTH_M,
+            index=osm_index,
         )
         return kept
 

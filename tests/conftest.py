@@ -35,3 +35,9 @@ def client(data_dir: Path):
 
     with TestClient(main.app) as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def _no_osm_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OSM cache (DOWNLOADS_DIR) by mezi testy vracela cizí odpovědi."""
+    monkeypatch.setenv("PODKLADARNA_OSM_CACHE_HOURS", "0")

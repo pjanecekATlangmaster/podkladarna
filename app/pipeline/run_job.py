@@ -567,6 +567,7 @@ def run_job_pipeline(
                     options.get("kp_osm_footway_as_sidewalk")
                 ),
                 preset_id=preset_id,
+                force_refresh=force_refresh,
                 log=log,
             )
             write_osm_manual_shapefiles(work_dir, log=log)

@@ -64,7 +64,114 @@ def detect_knolls(
         return []
     min_prom = knoll_min_prominence(factor)
     stride = max(1, rad // 2)
+    try:
+        candidates = _knoll_candidates_np(
+            arr, valid, gt, rad=rad, stride=stride, min_prom=min_prom,
+            max_prominence_m=max_prominence_m, limit=max_points * 4,
+        )
+    except ImportError:
+        candidates = _knoll_candidates_loop(
+            arr, valid, gt, rad=rad, stride=stride, min_prom=min_prom,
+            max_prominence_m=max_prominence_m, limit=max_points * 4,
+        )
+    return _pick_spaced(candidates, min_spacing_m=min_spacing_m, max_points=max_points)
+
+
+def _knoll_candidates_np(
+    arr, valid, gt, *, rad: int, stride: int, min_prom: float,
+    max_prominence_m: float, limit: int,
+) -> list[tuple[float, float, float]]:
+    """Vektorově (posuvná maxima scipy) – stejné kandidáty i pořadí jako smyčka."""
+    import numpy as np
+    from scipy import ndimage
+
+    h, w = arr.shape
+    size = 2 * rad + 1
+    a64 = arr.astype(np.float64)
+    win_max = ndimage.maximum_filter(arr, size=size, mode="nearest")
+    all_valid = ndimage.minimum_filter(valid.astype(np.uint8), size=size, mode="nearest")
+    hmax = ndimage.maximum_filter1d(arr, size=size, axis=1, mode="nearest")
+    vmax = ndimage.maximum_filter1d(arr, size=size, axis=0, mode="nearest")
+
+    rows = np.arange(rad, h - rad, stride)
+    cols = np.arange(rad, w - rad, stride)
+    R, C = np.meshgrid(rows, cols, indexing="ij")
+    R = R.ravel()
+    C = C.ravel()
+    ok = valid[R, C] & (all_valid[R, C] == 1)
+    R, C = R[ok], C[ok]
+    z0 = a64[R, C]
+    ok = ~(win_max[R, C].astype(np.float64) > z0 + 1e-3)
+    ring_max = np.maximum.reduce(
+        [
+            hmax[R - rad, C].astype(np.float64),
+            hmax[R + rad, C].astype(np.float64),
+            vmax[R, C - rad].astype(np.float64),
+            vmax[R, C + rad].astype(np.float64),
+        ]
+    )
+    prom = z0 - ring_max
+    ok &= ~((prom < min_prom) | (prom > max_prominence_m))
+    thr = np.maximum(prom + 0.4, 2.2)
+    for dr, dc in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+        rr, cc = R + dr, C + dc
+        inb = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
+        ri = np.where(inb, rr, 0)
+        ci = np.where(inb, cc, 0)
+        nb_ok = inb & valid[ri, ci]
+        ok &= ~(nb_ok & (z0 - a64[ri, ci] > thr))
+    idx = np.nonzero(ok)[0][:limit]
+    col_c = C[idx] + 0.5
+    row_c = R[idx] + 0.5
+    xs = (gt[0] + col_c * gt[1] + row_c * gt[2]).tolist()
+    ys = (gt[3] + col_c * gt[4] + row_c * gt[5]).tolist()
+    return list(zip(prom[idx].tolist(), xs, ys))
+
+
+def _pick_spaced(
+    candidates: list[tuple[float, float, float]],
+    *,
+    min_spacing_m: float,
+    max_points: int,
+) -> list[tuple[float, float]]:
+    """Nejvýraznější první; zahodí body blíž než ``min_spacing_m`` k vybraným.
+
+    Stejný výsledek jako porovnání se všemi vybranými, jen přes mřížku buněk.
+    """
+    candidates = sorted(candidates, key=lambda item: item[0], reverse=True)
+    kept: list[tuple[float, float]] = []
+    cell = max(float(min_spacing_m), 1e-6)
+    grid: dict[tuple[int, int], list[tuple[float, float]]] = {}
+    for _prom, x, y in candidates:
+        gx, gy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        near = False
+        for i in (gx - 1, gx, gx + 1):
+            for j in (gy - 1, gy, gy + 1):
+                for kx, ky in grid.get((i, j), ()):
+                    if math.hypot(x - kx, y - ky) < min_spacing_m:
+                        near = True
+                        break
+                if near:
+                    break
+            if near:
+                break
+        if near:
+            continue
+        kept.append((x, y))
+        grid.setdefault((gx, gy), []).append((x, y))
+        if len(kept) >= max_points:
+            break
+    return kept
+
+
+def _knoll_candidates_loop(
+    arr, valid, gt, *, rad: int, stride: int, min_prom: float,
+    max_prominence_m: float, limit: int,
+) -> list[tuple[float, float, float]]:
+    """Původní smyčka (bez scipy; reference pro testy)."""
+    h, w = arr.shape
     candidates: list[tuple[float, float, float]] = []
+    max_points4 = limit
 
     for r in range(rad, h - rad, stride):
         for c in range(rad, w - rad, stride):
@@ -99,20 +206,11 @@ def detect_knolls(
                 continue
             x, y = _pixel_to_world(gt, c + 0.5, r + 0.5)
             candidates.append((prom, x, y))
-            if len(candidates) >= max_points * 4:
+            if len(candidates) >= max_points4:
                 break
-        if len(candidates) >= max_points * 4:
+        if len(candidates) >= max_points4:
             break
-
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    kept: list[tuple[float, float]] = []
-    for _prom, x, y in candidates:
-        if any(math.hypot(x - kx, y - ky) < min_spacing_m for kx, ky in kept):
-            continue
-        kept.append((x, y))
-        if len(kept) >= max_points:
-            break
-    return kept
+    return candidates
 
 
 def write_knoll_points_dxf(

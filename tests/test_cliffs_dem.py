@@ -144,3 +144,25 @@ def test_generate_job_cliffs_dem_calls_generator(tmp_path: Path):
 
     assert "c2g.dxf" in out
     assert marker.is_file()
+
+
+def test_vectorized_cliff_ticks_match_reference_loop():
+    """numpy detekce = původní smyčka (stejné ticky, pořadí, limit max_ticks)."""
+    import numpy as np
+
+    from app.pipeline import cliffs_dem as cd
+
+    rng = np.random.default_rng(5)
+    yy, xx = np.mgrid[0:160, 0:200]
+    arr = (300 + 0.2 * xx + 4 * np.sin(yy / 9.0) + 6.0 * (xx > 90) + 4.0 * (yy > 70)).astype(np.float32)
+    arr += rng.normal(0, 0.3, arr.shape).astype(np.float32)
+    arr[40:44, 10:30] = -9999.0
+    valid = arr != -9999.0
+    gt = (-700000.0, 1.0, 0.0, -1050000.0, 0.0, -1.0)
+    for c1, c2, cap in ((1.8, 3.4, 80_000), (1.15, 2.0, 37)):
+        kw = dict(near=2, far=8, px=1.0, py=1.0, min_drop_m=c1, major_drop_m=c2,
+                  rock_min_drop=c1 + cd.ROCK_MIN_DROP_BONUS_M, stride=2, max_ticks=cap)
+        got = cd._detect_cliff_ticks_np(arr, valid, gt, rows_per_block=7, **kw)
+        ref = cd._detect_cliff_ticks_loop(arr, valid, gt, **kw)
+        assert got == ref
+        assert sum(map(len, got)) > 0

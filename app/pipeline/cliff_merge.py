@@ -212,6 +212,12 @@ def min_line_length_m(scale: int, *, earth: bool = False) -> float:
     return mm * float(scale) / 1000.0
 
 
+# Varianty jednoho jobu (les + mtbo při stejném měřítku) slučují tytéž ticky
+# se stejnými parametry; skalní footprint (GEOS buffer) stojí minuty → memo.
+_MERGE_MEMO: dict[tuple, MergedCliffs] = {}
+_MERGE_MEMO_MAX = 4
+
+
 def merge_cliff_ticks(
     ticks: list[_Tick],
     *,
@@ -219,7 +225,40 @@ def merge_cliff_ticks(
     min_line_m: float = 0.0,
     reject_tangled: bool = False,
 ) -> MergedCliffs:
-    """Vrátí lomené čáry a volitelně polygony. Vstup: úsečky v S-JTSK metrech."""
+    """Vrátí lomené čáry a volitelně polygony. Vstup: úsečky v S-JTSK metrech.
+
+    Stejný vstup → výsledek z paměti (kopie seznamů, volající je může měnit).
+    """
+    key = (
+        tuple((tuple(a), tuple(b)) for a, b in ticks),
+        bool(as_polygons),
+        float(min_line_m),
+        bool(reject_tangled),
+    )
+    hit = _MERGE_MEMO.get(key)
+    if hit is None:
+        hit = _merge_cliff_ticks(
+            ticks,
+            as_polygons=as_polygons,
+            min_line_m=min_line_m,
+            reject_tangled=reject_tangled,
+        )
+        if len(_MERGE_MEMO) >= _MERGE_MEMO_MAX:
+            _MERGE_MEMO.pop(next(iter(_MERGE_MEMO)))
+        _MERGE_MEMO[key] = hit
+    return MergedCliffs(
+        [list(pts) for pts in hit.lines],
+        [list(pts) for pts in hit.polygons],
+    )
+
+
+def _merge_cliff_ticks(
+    ticks: list[_Tick],
+    *,
+    as_polygons: bool = False,
+    min_line_m: float = 0.0,
+    reject_tangled: bool = False,
+) -> MergedCliffs:
     remaining = _dedup_ticks(ticks)
     polygons: list[list[tuple[float, float]]] = []
     if as_polygons:

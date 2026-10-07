@@ -134,7 +134,52 @@ def _point_seg_dist(
 def simplify_polyline_dp(
     pts: list[tuple[float, float]], tol_m: float
 ) -> list[tuple[float, float]]:
-    """Douglas–Peucker na otevřené polylinii (metry)."""
+    """Douglas–Peucker na otevřené polylinii (metry).
+
+    Numpy verze (velký job: ~30 M volání ``_point_seg_dist`` v Pythonu).
+    Stejné vzdálenosti i volba prvního maxima jako ``_simplify_polyline_dp_py``.
+    """
+    if len(pts) <= 2 or tol_m <= 0:
+        return pts
+    if len(pts) < 32:
+        return _simplify_polyline_dp_py(pts, tol_m)
+    import numpy as np
+
+    xy = np.asarray(pts, dtype=np.float64)
+    x = xy[:, 0]
+    y = xy[:, 1]
+    keep = np.zeros(len(pts), dtype=bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        i0, i1 = stack.pop()
+        if i1 - i0 < 2:
+            continue
+        ax, ay = x[i0], y[i0]
+        bx, by = x[i1], y[i1]
+        px_ = x[i0 + 1 : i1]
+        py_ = y[i0 + 1 : i1]
+        dx = bx - ax
+        dy = by - ay
+        denom = dx * dx + dy * dy
+        if denom < 1e-18:
+            d = np.hypot(px_ - ax, py_ - ay)
+        else:
+            t = np.clip(((px_ - ax) * dx + (py_ - ay) * dy) / denom, 0.0, 1.0)
+            d = np.hypot(px_ - (ax + t * dx), py_ - (ay + t * dy))
+        k = int(np.argmax(d))
+        if d[k] > tol_m:
+            idx = i0 + 1 + k
+            keep[idx] = True
+            stack.append((idx, i1))
+            stack.append((i0, idx))
+    return [pts[i] for i in np.nonzero(keep)[0]]
+
+
+def _simplify_polyline_dp_py(
+    pts: list[tuple[float, float]], tol_m: float
+) -> list[tuple[float, float]]:
+    """Rekurzivní referenční DP (krátké linie + testy)."""
     if len(pts) <= 2 or tol_m <= 0:
         return pts
     max_d = -1.0
@@ -147,8 +192,8 @@ def simplify_polyline_dp(
             max_d = d
             idx = i
     if max_d > tol_m:
-        left = simplify_polyline_dp(pts[: idx + 1], tol_m)
-        right = simplify_polyline_dp(pts[idx:], tol_m)
+        left = _simplify_polyline_dp_py(pts[: idx + 1], tol_m)
+        right = _simplify_polyline_dp_py(pts[idx:], tol_m)
         return left[:-1] + right
     return [pts[0], pts[-1]]
 
