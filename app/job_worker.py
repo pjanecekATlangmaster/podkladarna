@@ -93,6 +93,7 @@ def _notify_private_job(job_id: str) -> None:
         preview_url=preview_url,
         georef_url=georef_url,
         preview_attached=preview_attached,
+        duration_s=job.get("duration_s"),
     )
     try:
         send_mail(

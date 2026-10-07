@@ -133,6 +133,26 @@ def send_mail(
         logger.info("E-mail na %s odeslán (předmět: %s).", to, subject)
 
 
+def format_duration_cs(seconds: int | float | None) -> str | None:
+    """České trvání jako ve web UI (např. „12 min 34 s“, „1 h 5 min“)."""
+    if seconds is None:
+        return None
+    try:
+        s = int(round(float(seconds)))
+    except (TypeError, ValueError):
+        return None
+    if s < 0:
+        return None
+    h = s // 3600
+    m = (s % 3600) // 60
+    sec = s % 60
+    if h:
+        return f"{h} h {m} min"
+    if m:
+        return f"{m} min {sec} s" if sec else f"{m} min"
+    return f"{sec} s"
+
+
 def build_private_ready_email(
     *,
     job_name: str,
@@ -141,6 +161,7 @@ def build_private_ready_email(
     preview_url: str | None = None,
     georef_url: str | None = None,
     preview_attached: bool = False,
+    duration_s: int | float | None = None,
 ) -> tuple[str, str]:
     """Vrací (předmět, tělo) pro hotový privátní job – česky.
 
@@ -151,25 +172,41 @@ def build_private_ready_email(
     subject = f"Podkladárna: mapa „{job_name}“ je připravená ke stažení"
     parts = [
         "Dobrý den,\n",
+        "\n",
         f"vaše mapa „{job_name}“ je hotová.\n",
-        "Stažení (privátní odkazy):\n",
-        f"• ZIP s mapou (.omap / .ocd):\n{download_url}\n",
     ]
+    duration_label = format_duration_cs(duration_s)
+    if duration_label:
+        parts.append(f"Doba běhu: {duration_label}.\n")
+    parts.extend(
+        [
+            "\n",
+            "Stažení (privátní odkazy):\n",
+            "\n",
+            f"• ZIP s mapou (.omap / .ocd):\n{download_url}\n",
+        ]
+    )
     if preview_attached:
+        parts.append("\n")
         parts.append("• Náhled PNG: v příloze tohoto e-mailu.\n")
         if preview_url:
             parts.append(f"  (záloha odkazem:\n{preview_url})\n")
     elif preview_url:
+        parts.append("\n")
         parts.append(f"• Náhled PNG:\n{preview_url}\n")
     if georef_url:
+        parts.append("\n")
         parts.append(f"• ZIP georeferencovaných náhledů:\n{georef_url}\n")
     parts.extend(
         [
-            f"\nOdkazy platí {retention_hours} hodin od založení jobu; "
+            "\n",
+            f"Odkazy platí {retention_hours} hodin od založení jobu; "
             "poté se job i soubory smažou.\n",
+            "\n",
             "Mapa není veřejně viditelná v seznamu jobů "
             "a na stránce jobu se náhled/ZIP nezobrazují.\n",
-            f"\n— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n",
+            "\n",
+            f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n",
         ]
     )
     return subject, "".join(parts)
