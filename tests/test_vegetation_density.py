@@ -352,3 +352,20 @@ def test_classify_point_files_matches_read_all(tmp_path: Path):
     got, n = classify_point_files(files, _dem(), GT, chunk_size=7_000)
     assert n == 50_000
     assert np.array_equal(got, expected)
+
+
+def test_fill_small_holes_scipy_matches_python_fallback():
+    """scipy.ndimage.label varianta = původní flood fill (stejné díry, 4-okolí)."""
+    import pytest
+
+    pytest.importorskip("scipy")
+    from app.pipeline.vegetation_density import _fill_small_holes_py, fill_small_holes
+
+    for seed in range(20):
+        rng = np.random.default_rng(seed)
+        mask = rng.random((int(rng.integers(5, 80)), int(rng.integers(5, 80)))) < rng.uniform(0.2, 0.9)
+        for max_px in (1, 4, 30, 500):
+            assert np.array_equal(
+                fill_small_holes(mask, max_hole_px=max_px),
+                _fill_small_holes_py(mask, max_hole_px=max_px),
+            )

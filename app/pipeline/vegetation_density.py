@@ -134,6 +134,30 @@ def fill_small_holes(mask, *, max_hole_px: int):
     m = np.asarray(mask, dtype=bool)
     if max_hole_px <= 0 or not np.any(m) or np.all(m):
         return m.copy()
+    try:
+        from scipy import ndimage
+    except ImportError:
+        return _fill_small_holes_py(m, max_hole_px=max_hole_px)
+
+    # Komponenty ne-žluté (4-okolí). Dotyk okraje = vnější (les / okraj AOI),
+    # ostatní jsou díry → vyplň malé. Stejný výsledek jako flood fill níž.
+    labels, n = ndimage.label(~m)
+    if n == 0:
+        return m.copy()
+    border = np.unique(
+        np.concatenate((labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]))
+    )
+    sizes = np.bincount(labels.ravel(), minlength=n + 1)
+    fill = sizes <= max_hole_px
+    fill[0] = False
+    fill[border] = False
+    return m | fill[labels]
+
+
+def _fill_small_holes_py(m, *, max_hole_px: int):
+    """Čistý Python fallback ``fill_small_holes`` (bez scipy; pomalé u velkých rastrů)."""
+    import numpy as np
+
     h, w = m.shape
     # False dosažitelné z okraje rastru = „vnější“ ne-žlutá (les / okraj AOI).
     exterior = np.zeros((h, w), dtype=bool)

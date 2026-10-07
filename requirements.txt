@@ -13,5 +13,8 @@ laspy[lazrs]>=2.5
 shapely>=2.0.0
 pyshp>=2.3.0
 
+# Vegetace: komponenty děr ve žluté (fill_small_holes) – C místo Python smyčky.
+scipy>=1.11
+
 # Náhled .omap → PNG, když Mapper nemá headless export.
 pillow>=10.0.0
