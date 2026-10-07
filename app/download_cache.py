@@ -24,11 +24,20 @@ SURFACE_ARTIFACT_NAMES = (
 # Změna výpočtu DSM/CHM → starší AOI surfaces cache se nesmí obnovit.
 SURFACES_RECIPE = "dsm-on-dem-grid-chm0-v2"
 # Ořez/merge LAZ pro AOI (nezávislé na ekvidistance / lavičkách).
+# Dvojice ground + veg; jeden list = ořez listu bez merge (dmr_ground_0 / dmp_veg_0).
 LIDAR_CROP_ARTIFACT_NAMES = (
     "ground_merged.laz",
     "veg_merged.laz",
-    "merged_crop.laz",
 )
+# Pozůstatek KP (vstup pullauta) – už se nevytváří; legacy reuse ho ještě čte.
+LEGACY_MERGED_LAZ_NAMES = (
+    "merged_crop.laz",
+    "merged_crop_retry.laz",
+    "merged.laz",
+)
+LIDAR_GROUND_MERGED = "ground_merged.laz"
+LIDAR_VEG_MERGED = "veg_merged.laz"
+LIDAR_MIN_BYTES = 1000
 SHADE_ARTIFACT_NAMES = ("hillshade.png", "hillshade.pgw")
 
 
@@ -356,6 +365,38 @@ def _copy_named_artifacts(
     return copied
 
 
+def _laz_usable(path: Path) -> bool:
+    """Shodný práh jako ``prepare_lidar.MIN_LAZ_BYTES`` (prázdný ořez < 1 KB)."""
+    try:
+        return path.is_file() and path.stat().st_size >= LIDAR_MIN_BYTES
+    except OSError:
+        return False
+
+
+def _single_usable(lidar_dir: Path, pattern: str) -> Path | None:
+    usable = [p for p in sorted(lidar_dir.glob(pattern)) if _laz_usable(p)]
+    return usable[0] if len(usable) == 1 else None
+
+
+def lidar_pair_paths(lidar_dir: Path) -> tuple[Path, Path] | None:
+    """Dvojice (ground, veg) LAZ jobu, jak ji nechá ``merge_dmr_dmp``.
+
+    Víc listů → ``ground_merged`` / ``veg_merged``; jediný použitelný list →
+    jeho ořez (``dmr_ground_N`` / ``dmp_veg_N``) bez kopie. Jména zůstávají
+    stejná jako dřív, ať sedí fingerprinty AOI surfaces cache.
+    """
+    lidar_dir = Path(lidar_dir)
+    ground = lidar_dir / LIDAR_GROUND_MERGED
+    if not _laz_usable(ground):
+        ground = _single_usable(lidar_dir, "dmr_ground_*.laz")
+    veg = lidar_dir / LIDAR_VEG_MERGED
+    if not _laz_usable(veg):
+        veg = _single_usable(lidar_dir, "dmp_veg_*.laz")
+    if ground is None or veg is None:
+        return None
+    return ground, veg
+
+
 def try_restore_lidar_crop(
     cache_dir: Path,
     lidar_work: Path,
@@ -364,35 +405,42 @@ def try_restore_lidar_crop(
     force: bool = False,
     log=None,
 ) -> Path | None:
-    """Obnoví merged_crop (+ ground/veg) z AOI cache → work/lidar. None = miss."""
+    """Obnoví dvojici ground + veg z AOI cache → work/lidar. Vrací ground; None = miss.
+
+    Starší cache (bez ``pair`` v meta) mají ``ground_merged`` + ``veg_merged``;
+    jejich ``merged_crop.laz`` se už nekopíruje.
+    """
     if force:
         return None
     age_limit = (
         settings.LIDAR_CACHE_MAX_AGE_DAYS if max_age_days is None else max_age_days
     )
-    merged = cache_dir / "merged_crop.laz"
-    if not is_fresh(cache_dir, merged, age_limit, min_size=1000):
+    meta = read_meta(cache_dir) or {}
+    pair = meta.get("pair") or [LIDAR_GROUND_MERGED, LIDAR_VEG_MERGED]
+    if not isinstance(pair, list) or len(pair) != 2:
         return None
-    ground = cache_dir / "ground_merged.laz"
-    veg = cache_dir / "veg_merged.laz"
-    if not ground.is_file() or not veg.is_file():
+    ground_name, veg_name = (str(n) for n in pair)
+    if not is_fresh(cache_dir, cache_dir / ground_name, age_limit, min_size=LIDAR_MIN_BYTES):
+        return None
+    if not _laz_usable(cache_dir / veg_name):
         return None
     _copy_named_artifacts(
         cache_dir,
         lidar_work,
-        LIDAR_CROP_ARTIFACT_NAMES,
-        required=("merged_crop.laz", "ground_merged.laz", "veg_merged.laz"),
+        (ground_name, veg_name),
+        required=(ground_name, veg_name),
     )
-    dest = lidar_work / "merged_crop.laz"
+    # KP merged_crop ze starší cache už nic nečte – uvolni místo.
+    for name in LEGACY_MERGED_LAZ_NAMES:
+        (cache_dir / name).unlink(missing_ok=True)
     if log:
-        meta = read_meta(cache_dir) or {}
         age = age_days(meta.get("downloaded_at"))
         age_s = f", stáří {age:.1f} d" if age is not None else ""
         log(
-            "AOI cache zásah (sloučený LAZ) – přeskakuji PDAL ořez/třídění"
+            "AOI cache zásah (ořezaný LAZ) – přeskakuji PDAL ořez/třídění"
             f"{age_s} ← {cache_dir.name}"
         )
-    return dest
+    return lidar_work / ground_name
 
 
 def persist_lidar_crop(
@@ -404,18 +452,14 @@ def persist_lidar_crop(
     scalefactor: float | None = None,
     log=None,
 ) -> None:
-    merged = lidar_work / "merged_crop.laz"
-    if not merged.is_file() or merged.stat().st_size < 1000:
-        # Fallback jména bez early-crop.
-        alt = lidar_work / "merged.laz"
-        if alt.is_file() and alt.stat().st_size >= 1000:
-            link_or_copy(alt, lidar_work / "merged_crop.laz")
-            merged = lidar_work / "merged_crop.laz"
-        else:
-            return
-    copied = _copy_named_artifacts(lidar_work, cache_dir, LIDAR_CROP_ARTIFACT_NAMES)
-    if "merged_crop.laz" not in copied:
+    pair = lidar_pair_paths(lidar_work)
+    if pair is None:
         return
+    ground, veg = pair
+    copied = _copy_named_artifacts(lidar_work, cache_dir, (ground.name, veg.name))
+    # Uvolni místo po KP merged_crop ze starší cache stejné AOI.
+    for name in LEGACY_MERGED_LAZ_NAMES:
+        (cache_dir / name).unlink(missing_ok=True)
     write_meta(
         cache_dir,
         kind="lidar_crop",
@@ -423,9 +467,10 @@ def persist_lidar_crop(
         sheet_ids=list(sheet_ids or []),
         scalefactor=scalefactor,
         files=copied,
-        ground_fp=file_fingerprint(lidar_work / "ground_merged.laz"),
-        veg_fp=file_fingerprint(lidar_work / "veg_merged.laz"),
-        merged_fp=file_fingerprint(merged),
+        pair=[ground.name, veg.name],
+        ground_fp=file_fingerprint(ground),
+        veg_fp=file_fingerprint(veg),
+        merged_fp=None,
     )
     if log:
         log(f"AOI lidar crop uložen → {cache_dir.name} ({len(copied)} souborů)")

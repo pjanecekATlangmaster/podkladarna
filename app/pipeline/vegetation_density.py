@@ -494,6 +494,193 @@ def median_filter_uint8(arr, size: int, *, rows_per_chunk: int = 256):
     return out
 
 
+class DensityAccumulator:
+    """Průchod body po blocích → součty na mřížce DEM; ``finish`` = klasifikace.
+
+    Všechny per-bod veličiny se sčítají do rastrů (``bincount`` /
+    ``maximum.at``), takže body můžou chodit po blocích (paměť O(rastr) místo
+    O(počet bodů)). Jen vážené odrazy zeleně (``greenhit``) závisí na výšce
+    koruny bloku (max přes **všechny** body) → pro ně se ukládá kompaktní
+    podmnožina bodů v nízkých zónách a sečte se až v ``finish`` ve stejném
+    pořadí jako dřív. Výsledek je shodný s jednorázovým průchodem.
+    """
+
+    def __init__(self, dem, gt, params: DensityVegeParams = DEFAULT_PARAMS) -> None:
+        import numpy as np
+
+        self.dem = np.asarray(dem, dtype=np.float32)
+        self.gt = gt
+        self.params = params
+        h, w = self.dem.shape
+        self.h, self.w = h, w
+        self.res = float(gt[1])
+        self.bpx = max(1, int(round(params.block_m / self.res)))
+        self.bh, self.bw = -(-h // self.bpx), -(-w // self.bpx)
+        nb = self.bh * self.bw
+        self.nb = nb
+        self.n_points = 0
+        self.yhit = np.zeros(h * w, dtype=np.int64)
+        self.noyhit = np.zeros(h * w, dtype=np.float64)
+        self.top = np.full(nb, -np.inf, dtype=np.float32)
+        self.firsthit = np.zeros(nb, dtype=np.int64)
+        self.ghit = np.zeros(nb, dtype=np.float64)
+        self.highit = np.zeros(nb, dtype=np.int64)
+        # Body mimo zem v rozsahu zón: (bidx, hh, váha last) pro greenhit.
+        self._zone_lo = min((z[0] for z in params.zones), default=0.0)
+        self._zone_hi = max((z[1] for z in params.zones), default=0.0)
+        self._zone_bidx: list = []
+        self._zone_hh: list = []
+        self._zone_last: list = []
+
+    def add(self, x, y, z, classification, return_number, number_of_returns) -> None:
+        import numpy as np
+
+        params = self.params
+        dem, gt = self.dem, self.gt
+        h, w, res = self.h, self.w, self.res
+        # Bez přetypování (z float64/32 jako vstup) – stejná aritmetika jako dřív.
+        x = np.asarray(x)
+        y = np.asarray(y)
+        self.n_points += int(len(x))
+        col = np.floor((x - gt[0]) / res).astype(np.int64)
+        row = np.floor((y - gt[3]) / gt[5]).astype(np.int64)
+        inside = (col >= 0) & (col < w) & (row >= 0) & (row < h)
+        z = np.asarray(z)
+        cls = np.asarray(classification)
+        rn = np.asarray(return_number)
+        nr = np.asarray(number_of_returns)
+        if not np.all(inside):
+            x, y, col, row = x[inside], y[inside], col[inside], row[inside]
+            z, cls, rn, nr = z[inside], cls[inside], rn[inside], nr[inside]
+        if len(x) == 0:
+            return
+        hh = (z - _bilinear(dem, gt, x, y)).astype(np.float32)
+        is_ground = cls == 2
+        single = (nr == 1) & (rn == 1)
+
+        # ---------------- žlutá (KP 3 m buňky + canopy close) ----------------
+        pix = row * w + col
+        low = is_ground | (hh < params.yellow_height_m)
+        self.yhit += np.bincount(pix[low], minlength=h * w)
+        nohit_w = np.where(single, params.yellow_single_return_weight, 1.0)[~low]
+        self.noyhit += np.bincount(pix[~low], weights=nohit_w, minlength=h * w)
+
+        # ---------------- zeleně (bloky) ----------------
+        bpx, bw, nb = self.bpx, self.bw, self.nb
+        bidx = (row // bpx) * bw + (col // bpx)
+        np.maximum.at(self.top, bidx, z)
+        self.firsthit += np.bincount(bidx[rn == 1], minlength=nb)
+        gmask = is_ground | (hh <= params.green_ground_m)
+        gw = np.where(single, params.single_return_ground_weight, 1.0)
+        self.ghit += np.bincount(bidx[gmask], weights=gw[gmask], minlength=nb)
+        ng = ~gmask
+        self.highit += np.bincount(bidx[ng & (hh > params.green_high_m)], minlength=nb)
+
+        keep = ng & (hh >= self._zone_lo) & (hh < self._zone_hi)
+        if np.any(keep):
+            hk = hh[keep]
+            last = np.ones(hk.shape, dtype=np.float32)
+            lastm = (nr == rn)[keep]
+            last[lastm] = np.where(
+                hk[lastm] < params.single_return_split_m,
+                params.single_return_low_factor,
+                params.single_return_high_factor,
+            )
+            self._zone_bidx.append(bidx[keep].astype(np.int32 if nb < 2**31 else np.int64))
+            self._zone_hh.append(hk)
+            self._zone_last.append(last)
+
+    def finish(self, *, return_debug: bool = False):
+        import numpy as np
+
+        params = self.params
+        dem = self.dem
+        h, w, res = self.h, self.w, self.res
+        bpx, bh, bw, nb = self.bpx, self.bh, self.bw, self.nb
+
+        yhit = self.yhit.reshape(h, w)
+        noyhit = self.noyhit.reshape(h, w)
+        yellow = yellow_mask_from_hits(
+            yhit, noyhit, shape=(h, w), res=res, params=params
+        )
+
+        top = self.top
+        # Terén bloku = průměr DEM v bloku.
+        dem_pad = np.full((bh * bpx, bw * bpx), np.nan, dtype=np.float32)
+        dem_pad[:h, :w] = dem
+        dem_blk = np.nanmean(dem_pad.reshape(bh, bpx, bw, bpx), axis=(1, 3)).ravel()
+        roof = np.where(np.isfinite(top), top - dem_blk, -np.inf)
+
+        firsthit = self.firsthit.astype(np.float64)
+        ghit = self.ghit
+        highit = self.highit.astype(np.float64)
+
+        if self._zone_bidx:
+            zb = np.concatenate(self._zone_bidx)
+            zh = np.concatenate(self._zone_hh)
+            zl = np.concatenate(self._zone_last)
+        else:
+            zb = np.zeros(0, dtype=np.int64)
+            zh = np.zeros(0, dtype=np.float32)
+            zl = np.zeros(0, dtype=np.float32)
+        roof_pt = roof[zb]
+        zone_w = np.zeros(zh.shape, dtype=np.float32)
+        assigned = np.zeros(zh.shape, dtype=bool)
+        for lo, hi, roof_max, factor in params.zones:
+            m = ~assigned & (zh >= lo) & (zh < hi) & (roof_pt < roof_max)
+            zone_w[m] = factor
+            assigned |= m
+        greenhit = np.bincount(zb, weights=zone_w * zl, minlength=nb)
+
+        fh2 = _min_filter(firsthit.reshape(bh, bw).astype(np.int64), 5).ravel().astype(np.float64)
+        valid_g = ghit > 1
+        aveg = float(firsthit[valid_g].mean()) if np.any(valid_g) else 1.0
+
+        limit = np.full(nb, np.inf)
+        for r_lo, r_hi, lim in reversed(params.roof_limits):
+            limit[(roof >= r_lo) & (roof < r_hi)] = lim
+        vol = np.clip(1.0 - params.point_volume_factor * fh2 / (aveg + 1e-5), 0.0, None)
+        value = (
+            greenhit / (ghit + greenhit + 1.0)
+            * (1.0 - params.top_weight + params.top_weight * highit / (ghit + greenhit + highit + 1.0))
+            * vol ** params.point_volume_exponent
+        )
+        shade = np.zeros(nb, dtype=np.uint8)
+        pos = value > 0
+        for step in params.shade_steps:
+            shade += (pos & (value > limit * step)).astype(np.uint8)
+        shade_px = np.repeat(np.repeat(shade.reshape(bh, bw), bpx, 0), bpx, 1)[:h, :w]
+
+        if params.median_size >= 3:
+            shade_px = median_filter_uint8(shade_px, params.median_size)
+        yel = yellow.astype(np.uint8)
+        if params.yellow_median_size >= 3:
+            yel = median_filter_uint8(yel, params.yellow_median_size)
+
+        b1, b2 = params.shade_class_breaks
+        out = np.zeros((h, w), dtype=np.uint8)
+        out[(shade_px >= 1) & (shade_px < b1)] = LIGHT
+        out[(shade_px >= b1) & (shade_px < b2)] = MID
+        out[shade_px >= b2] = DENSE
+        out[yel.astype(bool)] = OPEN
+        # Stromy v louce: hustá DMP koruna → díra v žluté / bílý flek; reclaim 401.
+        out = reclaim_yellow_under_canopy(
+            out, frac_min=params.yellow_under_canopy_frac
+        )
+        if return_debug:
+            win = max(1, int(round(params.yellow_window_m / res)))
+            ys = _box_sum(yhit, win)
+            ns = _box_sum(noyhit, win)
+            return out, {
+                "yellow_ratio": ys / (ys + ns + 0.01),
+                "yellow": yellow,
+                "value": value.reshape(bh, bw),
+                "shade": shade.reshape(bh, bw),
+                "roof": roof.reshape(bh, bw),
+            }
+        return out
+
+
 def classify_points(
     pts: LidarPoints,
     dem,
@@ -506,132 +693,63 @@ def classify_points(
 
     Vrací uint8 rastr tvaru ``dem`` (0 bílý les, 1 401, 2 406, 3 408, 4 410).
     """
+    acc = DensityAccumulator(dem, gt, params)
+    acc.add(
+        pts.x,
+        pts.y,
+        pts.z,
+        pts.classification,
+        pts.return_number,
+        pts.number_of_returns,
+    )
+    return acc.finish(return_debug=return_debug)
+
+
+# Body na blok čtení LAZ: ~1–2 GB špička na blok (pomocná pole per bod).
+POINT_CHUNK_SIZE = 10_000_000
+
+
+def classify_point_files(
+    paths: list[Path],
+    dem,
+    gt,
+    params: DensityVegeParams = DEFAULT_PARAMS,
+    *,
+    chunk_size: int = POINT_CHUNK_SIZE,
+) -> tuple[object, int]:
+    """Jako ``read_las_points`` + ``classify_points``, ale LAZ čte po blocích.
+
+    Vrací ``(rastr tříd, počet bodů)``. laspy volí paralelní dekompresi
+    (lazrs), pokud je k dispozici.
+    """
+    import laspy
     import numpy as np
 
-    dem = np.asarray(dem, dtype=np.float32)
-    h, w = dem.shape
-    res = float(gt[1])
-    x, y = pts.x, pts.y
-    col = np.floor((x - gt[0]) / res).astype(np.int64)
-    row = np.floor((y - gt[3]) / gt[5]).astype(np.int64)
-    inside = (col >= 0) & (col < w) & (row >= 0) & (row < h)
-    if not np.all(inside):
-        x, y, col, row = x[inside], y[inside], col[inside], row[inside]
-        z = pts.z[inside]
-        cls = pts.classification[inside]
-        rn = pts.return_number[inside]
-        nr = pts.number_of_returns[inside]
-    else:
-        z, cls, rn, nr = pts.z, pts.classification, pts.return_number, pts.number_of_returns
-    hh = (z - _bilinear(dem, gt, x, y)).astype(np.float32)
-    is_ground = cls == 2
-    single = (nr == 1) & (rn == 1)
-
-    # ---------------- žlutá (KP 3 m buňky + canopy close) ----------------
-    pix = row * w + col
-    low = is_ground | (hh < params.yellow_height_m)
-    yhit = np.bincount(pix[low], minlength=h * w).reshape(h, w)
-    nohit_w = np.where(single, params.yellow_single_return_weight, 1.0)[~low]
-    noyhit = np.bincount(pix[~low], weights=nohit_w, minlength=h * w).reshape(h, w)
-    yellow = yellow_mask_from_hits(
-        yhit, noyhit, shape=(h, w), res=res, params=params
-    )
-    ys = _box_sum(yhit, max(1, int(round(params.yellow_window_m / res))))
-    ns = _box_sum(noyhit, max(1, int(round(params.yellow_window_m / res))))
-
-    # ---------------- zeleně (bloky) ----------------
-    bpx = max(1, int(round(params.block_m / res)))
-    bh, bw = -(-h // bpx), -(-w // bpx)
-    bcol = col // bpx
-    brow = row // bpx
-    bidx = brow * bw + bcol
-    nb = bh * bw
-
-    top = np.full(nb, -np.inf, dtype=np.float32)
-    np.maximum.at(top, bidx, z)
-    # Terén bloku = průměr DEM v bloku.
-    dem_pad = np.full((bh * bpx, bw * bpx), np.nan, dtype=np.float32)
-    dem_pad[:h, :w] = dem
-    dem_blk = np.nanmean(dem_pad.reshape(bh, bpx, bw, bpx), axis=(1, 3)).ravel()
-    roof = np.where(np.isfinite(top), top - dem_blk, -np.inf)
-
-    firsthit = np.bincount(bidx[rn == 1], minlength=nb).astype(np.float64)
-    gmask = is_ground | (hh <= params.green_ground_m)
-    gw = np.where(single, params.single_return_ground_weight, 1.0)
-    ghit = np.bincount(bidx[gmask], weights=gw[gmask], minlength=nb)
-
-    ng = ~gmask
-    last = np.ones(hh.shape, dtype=np.float32)
-    lastm = nr == rn
-    last[lastm] = np.where(
-        hh[lastm] < params.single_return_split_m,
-        params.single_return_low_factor,
-        params.single_return_high_factor,
-    )
-    roof_pt = roof[bidx]
-    zone_w = np.zeros(hh.shape, dtype=np.float32)
-    assigned = np.zeros(hh.shape, dtype=bool)
-    for lo, hi, roof_max, factor in params.zones:
-        m = ng & ~assigned & (hh >= lo) & (hh < hi) & (roof_pt < roof_max)
-        zone_w[m] = factor
-        assigned |= m
-    greenhit = np.bincount(bidx, weights=zone_w * last, minlength=nb)
-    highit = np.bincount(bidx[ng & (hh > params.green_high_m)], minlength=nb).astype(np.float64)
-
-    fh2 = _min_filter(firsthit.reshape(bh, bw).astype(np.int64), 5).ravel().astype(np.float64)
-    valid_g = ghit > 1
-    aveg = float(firsthit[valid_g].mean()) if np.any(valid_g) else 1.0
-
-    limit = np.full(nb, np.inf)
-    for r_lo, r_hi, lim in reversed(params.roof_limits):
-        limit[(roof >= r_lo) & (roof < r_hi)] = lim
-    vol = np.clip(1.0 - params.point_volume_factor * fh2 / (aveg + 1e-5), 0.0, None)
-    value = (
-        greenhit / (ghit + greenhit + 1.0)
-        * (1.0 - params.top_weight + params.top_weight * highit / (ghit + greenhit + highit + 1.0))
-        * vol ** params.point_volume_exponent
-    )
-    shade = np.zeros(nb, dtype=np.uint8)
-    pos = value > 0
-    for step in params.shade_steps:
-        shade += (pos & (value > limit * step)).astype(np.uint8)
-    shade_px = np.repeat(np.repeat(shade.reshape(bh, bw), bpx, 0), bpx, 1)[:h, :w]
-
-    if params.median_size >= 3:
-        shade_px = median_filter_uint8(shade_px, params.median_size)
-    yel = yellow.astype(np.uint8)
-    if params.yellow_median_size >= 3:
-        yel = median_filter_uint8(yel, params.yellow_median_size)
-
-    b1, b2 = params.shade_class_breaks
-    out = np.zeros((h, w), dtype=np.uint8)
-    out[(shade_px >= 1) & (shade_px < b1)] = LIGHT
-    out[(shade_px >= b1) & (shade_px < b2)] = MID
-    out[shade_px >= b2] = DENSE
-    out[yel.astype(bool)] = OPEN
-    # Stromy v louce: hustá DMP koruna → díra v žluté / bílý flek; reclaim 401.
-    out = reclaim_yellow_under_canopy(
-        out, frac_min=params.yellow_under_canopy_frac
-    )
-    if return_debug:
-        return out, {
-            "yellow_ratio": ys / (ys + ns + 0.01),
-            "yellow": yellow,
-            "value": value.reshape(bh, bw),
-            "shade": shade.reshape(bh, bw),
-            "roof": roof.reshape(bh, bw),
-        }
-    return out
+    acc = DensityAccumulator(dem, gt, params)
+    for path in paths:
+        with laspy.open(str(path)) as reader:
+            for chunk in reader.chunk_iterator(int(chunk_size)):
+                acc.add(
+                    np.asarray(chunk.x, dtype=np.float64),
+                    np.asarray(chunk.y, dtype=np.float64),
+                    np.asarray(chunk.z, dtype=np.float32),
+                    np.asarray(chunk.classification, dtype=np.uint8),
+                    np.asarray(chunk.return_number, dtype=np.uint8),
+                    np.asarray(chunk.number_of_returns, dtype=np.uint8),
+                )
+    return acc.finish(), acc.n_points
 
 
 def _pick_point_files(lidar_dir: Path) -> list[Path]:
-    """Stejný vstup jako KP: merged_crop (DMR ground + DMP veg) nebo dvojice."""
+    """Dvojice DMR ground + DMP veg (stejné body jako dřívější KP merged_crop)."""
+    from app.download_cache import LEGACY_MERGED_LAZ_NAMES, lidar_pair_paths
+
     lidar_dir = Path(lidar_dir)
-    ground = lidar_dir / "ground_merged.laz"
-    veg = lidar_dir / "veg_merged.laz"
-    if ground.is_file() and veg.is_file():
-        return [ground, veg]
-    for name in ("merged_crop.laz", "merged_crop_retry.laz", "merged.laz"):
+    pair = lidar_pair_paths(lidar_dir)
+    if pair is not None:
+        return list(pair)
+    # Starší job / reuse jen s KP merged_crop.
+    for name in LEGACY_MERGED_LAZ_NAMES:
         p = lidar_dir / name
         if p.is_file() and p.stat().st_size > 1000:
             return [p]
@@ -644,10 +762,13 @@ def generate_job_vegetation_density(
     params: DensityVegeParams = DEFAULT_PARAMS,
     log=None,
     veg_size_profile: str = "default",
+    wait_chm=None,
 ) -> Path | None:
     """Job fáze: LAZ hustota + ``dem/dem_filled.tif`` → ``vegetation/vegetation.shp``.
 
     ``None`` = nelze (chybí laspy / LAZ / DEM) → volající spadne na CHM.
+    ``wait_chm`` se zavolá až před čtením ``chm.tif`` (DSM/CHM může běžet
+    na pozadí souběžně s průchodem body).
     """
     import numpy as np
 
@@ -678,8 +799,9 @@ def generate_job_vegetation_density(
             bad = dem == float(nodata)
             if np.any(bad):
                 dem = np.where(bad, np.nanmedian(np.where(bad, np.nan, dem)), dem)
-        pts = read_las_points(files)
-        classified = classify_points(pts, dem, gt, params)
+        classified, n_points = classify_point_files(files, dem, gt, params)
+        if wait_chm is not None:
+            wait_chm()
         chm_tif = work_dir / DEM_DIR_NAME / "chm.tif"
         if chm_tif.is_file():
             try:
@@ -731,7 +853,7 @@ def generate_job_vegetation_density(
     if log:
         log(
             "Vegetace (hustota bodů): "
-            f"{len(pts)} bodů, bílý {shares[0]:.1f} %, 401 {shares[1]:.1f} %, "
+            f"{n_points} bodů, bílý {shares[0]:.1f} %, 401 {shares[1]:.1f} %, "
             f"406 {shares[2]:.1f} %, 408 {shares[3]:.1f} %, 410 {shares[4]:.1f} %"
         )
     dest = work_dir / "vegetation" / "vegetation.shp"

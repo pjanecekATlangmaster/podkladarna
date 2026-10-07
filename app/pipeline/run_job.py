@@ -9,14 +9,16 @@ from pathlib import Path
 
 from app import db
 from app.download_cache import (
+    LEGACY_MERGED_LAZ_NAMES,
     force_refresh_enabled,
+    lidar_pair_paths,
     lidar_crop_cache_dir,
     persist_lidar_crop,
     surfaces_cache_dir,
     try_restore_lidar_crop,
 )
 from app.pipeline.contours_gdal import generate_job_contours, qa_contours_vs_shared_dem
-from app.pipeline.dem_prep import prepare_job_surfaces
+from app.pipeline.dem_prep import SurfacesPrep, start_job_surfaces
 from app.pipeline.fetch_aopk import fetch_aopk_trees_for_bbox
 from app.pipeline.fetch_openzu import (
     crop_bounds_5514,
@@ -88,6 +90,17 @@ def _locked_log(log: callable, lock: threading.Lock) -> callable:
     def _log(msg: str) -> None:
         with lock:
             log(msg)
+
+    return _log
+
+
+def _prefixed_log(log: callable, prefix: str) -> callable:
+    """Log z vlákna na pozadí s prefixem (řádky se prolínají s hlavním během)."""
+    lock = threading.Lock()
+
+    def _log(msg: str) -> None:
+        with lock:
+            log(f"{prefix}{msg}" if msg else msg)
 
     return _log
 
@@ -290,11 +303,16 @@ def run_job_pipeline(
 
     merged_existing = None
     if reused_from:
-        for name in ("merged_crop.laz", "merged_crop_retry.laz", "merged.laz"):
-            candidate = lidar_work / name
-            if candidate.exists() and candidate.stat().st_size > 1000:
-                merged_existing = candidate
-                break
+        pair = lidar_pair_paths(lidar_work)
+        if pair is not None:
+            merged_existing = pair[0]
+        else:
+            # Starší job jen s KP merged_crop (bez dvojice ground/veg).
+            for name in LEGACY_MERGED_LAZ_NAMES:
+                candidate = lidar_work / name
+                if candidate.exists() and candidate.stat().st_size > 1000:
+                    merged_existing = candidate
+                    break
 
     if bbox:
         west, south, east, north = bbox
@@ -397,21 +415,40 @@ def run_job_pipeline(
                 )
             progress.done()
 
+    surfaces: SurfacesPrep | None = None
     if grid_bounds is not None:
         progress.begin("DEM/DSM/CHM")
         try:
-            prepare_job_surfaces(
+            # DEM hned; DSM/CHM z DMP na pozadí (překryv s vrstevnicemi a
+            # průchodem vegetace) – join před čtením chm.tif.
+            surfaces = start_job_surfaces(
                 work_dir,
                 grid_bounds,
                 resolution_m=DEFAULT_RESOLUTION_M,
                 cache_dir=surfaces_cache,
                 force_refresh=force_refresh,
                 log=log,
+                surface_log=_prefixed_log(log, "[DSM] "),
             )
+            if not surfaces.done():
+                log("DSM/CHM: běží na pozadí souběžně s dalšími kroky.")
         except Exception as exc:
             # Nehard-fail: vegetace/srázy mají vlastní fallbacky.
             log(f"DEM/DSM/CHM prep: přeskočeno ({exc})")
         progress.done()
+
+    def _wait_surfaces() -> None:
+        """Dokončí DSM/CHM větev; chyba = stejný log jako dřív, job jede dál."""
+        nonlocal surfaces
+        if surfaces is None:
+            return
+        pending, surfaces = surfaces, None
+        if not pending.done():
+            log("DSM/CHM: čekám na dokončení výpočtu na pozadí…")
+        try:
+            pending.wait()
+        except Exception as exc:
+            log(f"DEM/DSM/CHM prep: přeskočeno ({exc})")
 
     lidar_sources = (
         collect_lidar_source_meta(sheet_names) if sheet_names else None
@@ -487,9 +524,12 @@ def run_job_pipeline(
             ),
             log=log,
             veg_size_profile=veg_size_profile,
+            wait_chm=_wait_surfaces,
         )
     except Exception as exc:
         log(f"Vegetace (hustota bodů): přeskočeno ({exc})")
+    # CHM fallback i další kroky (hillshade → AOI cache) potřebují hotové DSM/CHM.
+    _wait_surfaces()
     if vege_shp is None:
         try:
             generate_job_vegetation_chm(

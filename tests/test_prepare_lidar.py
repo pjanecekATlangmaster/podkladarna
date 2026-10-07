@@ -63,6 +63,14 @@ def test_resolve_merge_crop_bounds_adds_kp_pad():
     assert wide[0] < out[0]
 
 
+def _fake_pipeline_output(cmd):
+    """Fake PDAL streaming merge: zapíše výstup writers.las z pipeline JSON."""
+    import json
+
+    spec = json.loads(Path(cmd[2]).read_text(encoding="utf-8"))
+    Path(spec["pipeline"][-1]["filename"]).write_bytes(b"x" * 2000)
+
+
 def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
     """Early-crop: translate obsahuje crop; žádný dodatečný crop po merge."""
     cmds: list[list[str]] = []
@@ -71,8 +79,8 @@ def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
         cmds.append(list(cmd))
         if cmd[1] == "translate":
             Path(cmd[3]).write_bytes(b"x" * 2000)
-        elif cmd[1] == "merge":
-            Path(cmd[-1]).write_bytes(b"x" * 2000)
+        elif cmd[1] == "pipeline":
+            _fake_pipeline_output(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr("app.pipeline.prepare_lidar.run_cmd", fake_run_cmd)
@@ -95,8 +103,11 @@ def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
         crop_bounds=(0.0, 0.0, 100.0, 100.0),
         scalefactor=0.4,
     )
-    assert out.name == "merged_crop.laz"
+    # KP merged_crop (ground+veg v jednom LAZ) se už nevytváří.
+    assert out.name == "ground_merged.laz"
     assert out.is_file()
+    assert (work / "veg_merged.laz").is_file()
+    assert not (work / "merged_crop.laz").exists()
 
     translates = [c for c in cmds if len(c) > 1 and c[1] == "translate"]
     assert len(translates) == 4
@@ -105,9 +116,11 @@ def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
         assert "--stream" in c
         assert any(a.startswith("--filters.crop.bounds=") for a in c)
 
-    merges = [c for c in cmds if len(c) > 1 and c[1] == "merge"]
-    assert merges
-    assert merges[-1][-1].endswith("merged_crop.laz")
+    # Merge listů proudově (pdal pipeline --stream), ne in-memory `pdal merge`.
+    assert not [c for c in cmds if len(c) > 1 and c[1] == "merge"]
+    merges = [c for c in cmds if len(c) > 1 and c[1] == "pipeline"]
+    assert len(merges) == 2
+    assert all("--stream" in c for c in merges)
     post_merge_crop = [
         c
         for c in cmds
@@ -123,8 +136,8 @@ def test_merge_dmr_dmp_skips_empty_crop_sheet(tmp_path, monkeypatch):
             if dest.name == "dmr_ground_0.laz":
                 raise subprocess.CalledProcessError(1, cmd, "", "empty")
             dest.write_bytes(b"x" * 2000)
-        elif cmd[1] == "merge":
-            Path(cmd[-1]).write_bytes(b"x" * 2000)
+        elif cmd[1] == "pipeline":
+            _fake_pipeline_output(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr("app.pipeline.prepare_lidar.run_cmd", fake_run_cmd)
@@ -162,8 +175,8 @@ def test_merge_dmr_dmp_sheet_cache_skips_pdal(tmp_path, monkeypatch):
         cmds.append(list(cmd))
         if cmd[1] == "translate":
             Path(cmd[3]).write_bytes(b"x" * 2000)
-        elif cmd[1] == "merge":
-            Path(cmd[-1]).write_bytes(b"x" * 2000)
+        elif cmd[1] == "pipeline":
+            _fake_pipeline_output(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr("app.pipeline.prepare_lidar.run_cmd", fake_run_cmd)
@@ -220,8 +233,8 @@ def test_merge_dmr_dmp_force_refresh_ignores_sheet_cache(tmp_path, monkeypatch):
         cmds.append(list(cmd))
         if cmd[1] == "translate":
             Path(cmd[3]).write_bytes(b"x" * 2000)
-        elif cmd[1] == "merge":
-            Path(cmd[-1]).write_bytes(b"x" * 2000)
+        elif cmd[1] == "pipeline":
+            _fake_pipeline_output(cmd)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr("app.pipeline.prepare_lidar.run_cmd", fake_run_cmd)
@@ -256,3 +269,44 @@ def test_merge_dmr_dmp_force_refresh_ignores_sheet_cache(tmp_path, monkeypatch):
     translates = [c for c in cmds if len(c) > 1 and c[1] == "translate"]
     assert len(translates) == 2
     assert all("--stream" in c for c in translates)
+
+
+def test_merge_dmr_dmp_parallel_keeps_sheet_order(tmp_path, monkeypatch):
+    """Souběžné ořezy listů: pořadí částí v merge pipeline = pořadí listů."""
+    import json
+    import time
+
+    pipelines: list[list[str]] = []
+
+    def fake_run_cmd(cmd, **kwargs):
+        if cmd[1] == "translate":
+            dest = Path(cmd[3])
+            # Dřívější listy doběhnou později → bez řazení by se pořadí prohodilo.
+            time.sleep(0.05 if dest.name.endswith("_0.laz") else 0.0)
+            dest.write_bytes(b"x" * 2000)
+        elif cmd[1] == "pipeline":
+            spec = json.loads(Path(cmd[2]).read_text(encoding="utf-8"))
+            pipelines.append(spec["pipeline"][:-1])
+            _fake_pipeline_output(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("app.pipeline.prepare_lidar.run_cmd", fake_run_cmd)
+    monkeypatch.setattr("app.pipeline.prepare_lidar.find_tool", lambda _n: "pdal")
+    monkeypatch.setattr(
+        "app.pipeline.prepare_lidar.subprocess.run",
+        lambda *a, **k: MagicMock(stdout="", stderr="", returncode=0),
+    )
+    monkeypatch.setenv("PODKLADARNA_LIDAR_WORKERS", "2")
+
+    dmr = [tmp_path / f"r{i}.laz" for i in range(3)]
+    dmp = [tmp_path / f"p{i}.laz" for i in range(3)]
+    for p in dmr + dmp:
+        p.write_bytes(b"src" * 100)
+    work = tmp_path / "lidar"
+    (work).mkdir()
+    (work / "merged_crop.laz").write_bytes(b"old" * 1000)  # stará KP kopie z reuse
+    out = merge_dmr_dmp(dmr, dmp, work, crop_bounds=(0.0, 0.0, 10.0, 10.0), scalefactor=0.4)
+    assert out.name == "ground_merged.laz"
+    assert [Path(p).name for p in pipelines[0]] == [f"dmr_ground_{i}.laz" for i in range(3)]
+    assert [Path(p).name for p in pipelines[1]] == [f"dmp_veg_{i}.laz" for i in range(3)]
+    assert not (work / "merged_crop.laz").exists()

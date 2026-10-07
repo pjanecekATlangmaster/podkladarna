@@ -211,6 +211,50 @@ def _result_from_dem_dir(
     )
 
 
+@dataclass
+class _SurfaceJob:
+    """Rozpracovaný prep: DEM hotový, DSM/CHM + persist zbývá."""
+
+    dem_dir: Path
+    dem_raw: Path
+    dem_filled: Path
+    ground: Path
+    surface: Path | None
+    ground_fp: dict | None
+    surface_fp: dict | None
+    bounds: tuple[float, float, float, float]
+    resolution_m: float
+    cache_dir: Path | None
+
+
+class SurfacesPrep:
+    """Výsledek ``start_job_surfaces``: DEM je hotový, DSM/CHM může běžet dál.
+
+    ``wait()`` vrátí ``DemPrepResult`` (a případnou výjimku DSM/CHM větve
+    vyhodí až tady). Volat před čtením ``chm.tif`` / dokončením jobu.
+    """
+
+    def __init__(self, result: DemPrepResult | None = None, future=None, executor=None):
+        self._result = result
+        self._future = future
+        self._executor = executor
+
+    def done(self) -> bool:
+        return self._future is None or self._future.done()
+
+    def wait(self) -> DemPrepResult:
+        if self._future is not None:
+            try:
+                self._result = self._future.result()
+            finally:
+                self._future = None
+                if self._executor is not None:
+                    self._executor.shutdown(wait=False)
+                    self._executor = None
+        assert self._result is not None
+        return self._result
+
+
 def prepare_job_surfaces(
     work_dir: Path,
     bounds: tuple[float, float, float, float],
@@ -226,6 +270,38 @@ def prepare_job_surfaces(
 
     Při ``cache_dir`` (AOI surfaces) znovupoužije DEM/DSM/CHM, pokud sedí
     fingerprint ground/surface LAZ — ekvidistance/lavičky cache neinvalidují.
+    """
+    return start_job_surfaces(
+        work_dir,
+        bounds,
+        resolution_m=resolution_m,
+        ground_laz=ground_laz,
+        surface_laz=surface_laz,
+        cache_dir=cache_dir,
+        force_refresh=force_refresh,
+        log=log,
+        background=False,
+    ).wait()
+
+
+def start_job_surfaces(
+    work_dir: Path,
+    bounds: tuple[float, float, float, float],
+    *,
+    resolution_m: float = DEFAULT_SURFACE_RESOLUTION_M,
+    ground_laz: Path | None = None,
+    surface_laz: Path | None = None,
+    cache_dir: Path | None = None,
+    force_refresh: bool = False,
+    log=None,
+    background: bool = True,
+    surface_log=None,
+) -> SurfacesPrep:
+    """DEM synchronně; DSM + CHM (+ persist cache) při ``background`` ve vlákně.
+
+    DSM potřebuje mřížku hotového DEM, ale vrstevnice / srázy / knolly a
+    průchod hustoty vegetace čtou jen DEM → DSM z DMP (největší mračno)
+    se překryje s nimi. Výstupy jsou stejné jako sekvenční běh.
     """
     lidar_dir = work_dir / "lidar"
     ground = ground_laz or _pick_ground_laz(lidar_dir)
@@ -257,7 +333,7 @@ def prepare_job_surfaces(
             surface_name=surface.name if surface else None,
         )
         result.write_meta(dem_dir)
-        return result
+        return SurfacesPrep(result)
 
     dem_raw = dem_dir / "dem_raw.tif"
     dem_filled = dem_dir / "dem_filled.tif"
@@ -274,6 +350,42 @@ def prepare_job_surfaces(
     if not dem_raw.is_file() or dem_raw.stat().st_size < 500:
         raise RuntimeError(f"PDAL nevytvořil DEM ({dem_raw.name})")
     _fill_dem_nodata(dem_raw, dem_filled, log=log)
+
+    job = _SurfaceJob(
+        dem_dir=dem_dir,
+        dem_raw=dem_raw,
+        dem_filled=dem_filled,
+        ground=ground,
+        surface=surface,
+        ground_fp=ground_fp,
+        surface_fp=surface_fp,
+        bounds=bounds,
+        resolution_m=float(resolution_m),
+        cache_dir=cache_dir,
+    )
+    has_surface = surface is not None and surface.is_file()
+    if not background or not has_surface:
+        return SurfacesPrep(_finish_job_surfaces(job, log=log))
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dsm-chm")
+    future = executor.submit(_finish_job_surfaces, job, log=surface_log or log)
+    return SurfacesPrep(future=future, executor=executor)
+
+
+def _finish_job_surfaces(job: _SurfaceJob, *, log=None) -> DemPrepResult:
+    """DSM z DMP na mřížce DEM → CHM → meta + persist AOI cache."""
+    dem_dir = job.dem_dir
+    dem_raw = job.dem_raw
+    dem_filled = job.dem_filled
+    ground = job.ground
+    surface = job.surface
+    bounds = job.bounds
+    resolution_m = job.resolution_m
+    cache_dir = job.cache_dir
+    ground_fp = job.ground_fp
+    surface_fp = job.surface_fp
 
     dsm_raw: Path | None = None
     chm: Path | None = None

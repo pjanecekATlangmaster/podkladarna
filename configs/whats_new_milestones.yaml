@@ -2,6 +2,8 @@
 # Jen opravdové produktové zlomy — ne každý commit.
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
+  - date: "2026-10-07"
+    title: "Rychlejší zpracování LiDARu, velké výřezy už nepadají na paměť"
   - date: "2026-10-03"
     title: "Webový náhled mapy přes OpenOrienteering Mapper"
   - date: "2026-10-02"

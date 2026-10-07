@@ -721,3 +721,21 @@ def test_copy_reusable_lidar(data_dir):
     assert not (db.JOBS_DIR / dest["id"] / "input" / "zabaged" / "Zabaged_ags.zip").exists()
     assert db.get_job(src["id"])["has_reusable_lidar"] is True
     assert db.bbox_close(src["options"]["bbox_wgs84"], [14.4, 50.08, 14.42, 50.09])
+
+
+def test_copy_reusable_lidar_pair_skips_kp_merged(data_dir):
+    """S dvojicí ground + veg se KP merged_crop nepřenáší (velký a nepotřebný)."""
+    import app.db as db
+
+    db.init_db()
+    src = db.create_job("stary", "sprint_2m", {})
+    dest = db.create_job("novy", "sprint_2m", {})
+    lidar = db.JOBS_DIR / src["id"] / "work" / "lidar"
+    lidar.mkdir(parents=True, exist_ok=True)
+    for name in ("ground_merged.laz", "veg_merged.laz", "merged_crop.laz"):
+        (lidar / name).write_bytes(b"x" * 2000)
+    copied = db.copy_reusable_work(src["id"], dest["id"])
+    names = sorted(name.rsplit("/", 1)[-1] for name in copied)
+    assert names == ["ground_merged.laz", "veg_merged.laz"]
+    dest_lidar = db.JOBS_DIR / dest["id"] / "work" / "lidar"
+    assert (dest_lidar / "ground_merged.laz").read_bytes() == b"x" * 2000

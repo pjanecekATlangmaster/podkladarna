@@ -360,7 +360,17 @@ def _job_paths(job_id: str) -> dict[str, bool]:
 
 
 def copy_reusable_work(src_id: str, dest_id: str) -> list[str]:
-    """Zkopíruje sloučený LAZ z předchozího jobu (iterace). Vstupní data jsou ve sdílené cache."""
+    """Převezme ořezaný LAZ z předchozího jobu (iterace). Vstupní data jsou ve sdílené cache.
+
+    Hardlink místo kopie (LAZ se nepřepisují na místě, jen unlink + nový
+    zápis). S dvojicí ground + veg se KP ``merged_crop`` nepřenáší.
+    """
+    from app.download_cache import (
+        LEGACY_MERGED_LAZ_NAMES,
+        lidar_pair_paths,
+        link_or_copy,
+    )
+
     copied: list[str] = []
     src = JOBS_DIR / src_id
     dest = JOBS_DIR / dest_id
@@ -369,11 +379,13 @@ def copy_reusable_work(src_id: str, dest_id: str) -> list[str]:
     if not s.is_dir():
         return copied
     files = [p for p in s.iterdir() if p.is_file()]
+    if lidar_pair_paths(s) is not None:
+        files = [p for p in files if p.name not in LEGACY_MERGED_LAZ_NAMES]
     if not files:
         return copied
     d.mkdir(parents=True, exist_ok=True)
     for path in files:
-        shutil.copy2(path, d / path.name)
+        link_or_copy(path, d / path.name)
         copied.append(f"{rel}/{path.name}")
     return copied
 

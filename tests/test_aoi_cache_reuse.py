@@ -360,3 +360,137 @@ def test_surfaces_cache_without_recipe_is_not_restored(tmp_path: Path):
     assert try_restore_surfaces(cache, dest, **kw)
     write_meta(cache, recipe=None)
     assert not try_restore_surfaces(cache, dest, **kw)
+
+
+def test_lidar_pair_paths_multi_and_single_sheet(tmp_path: Path):
+    from app.download_cache import lidar_pair_paths
+
+    lidar = tmp_path / "lidar"
+    lidar.mkdir()
+    assert lidar_pair_paths(lidar) is None
+    # Jeden list = ořez listu bez merge (jména jako dřív → sedí fingerprinty).
+    (lidar / "dmr_ground_0.laz").write_bytes(b"g" * 2000)
+    (lidar / "dmp_veg_0.laz").write_bytes(b"v" * 2000)
+    assert lidar_pair_paths(lidar) == (lidar / "dmr_ground_0.laz", lidar / "dmp_veg_0.laz")
+    # Víc listů bez merge → nejednoznačné.
+    (lidar / "dmr_ground_1.laz").write_bytes(b"g" * 2000)
+    assert lidar_pair_paths(lidar) is None
+    (lidar / "ground_merged.laz").write_bytes(b"G" * 2000)
+    assert lidar_pair_paths(lidar) == (lidar / "ground_merged.laz", lidar / "dmp_veg_0.laz")
+    # Prázdný ořez (< 1 KB) se nepočítá.
+    (lidar / "dmp_veg_1.laz").write_bytes(b"")
+    assert lidar_pair_paths(lidar)[1] == lidar / "dmp_veg_0.laz"
+
+
+def test_lidar_crop_single_sheet_pair_roundtrip(tmp_path: Path, monkeypatch, bbox):
+    """Jednolistový výřez: cache uloží/obnoví dmr_ground_0 + dmp_veg_0 pod stejnými jmény."""
+    from app import settings
+    from app.download_cache import read_meta
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    cache = lidar_crop_cache_dir(bbox, scalefactor=1.0, sheet_ids=["PRAH77"])
+    src = tmp_path / "job1" / "lidar"
+    src.mkdir(parents=True)
+    (src / "dmr_ground_0.laz").write_bytes(b"g" * 2000)
+    (src / "dmp_veg_0.laz").write_bytes(b"v" * 3000)
+    persist_lidar_crop(cache, src, bbox_wgs84=bbox, sheet_ids=["PRAH77"], scalefactor=1.0)
+    assert read_meta(cache)["pair"] == ["dmr_ground_0.laz", "dmp_veg_0.laz"]
+
+    dest = tmp_path / "job2" / "lidar"
+    hit = try_restore_lidar_crop(cache, dest)
+    assert hit == dest / "dmr_ground_0.laz"
+    assert (dest / "dmp_veg_0.laz").stat().st_size == 3000
+    assert file_fingerprint(hit)["size"] == 2000
+
+
+def test_legacy_lidar_crop_cache_restores_without_merged_crop(
+    tmp_path: Path, monkeypatch, bbox
+):
+    """Starší cache (meta bez ``pair``) dál funguje; KP merged_crop se nekopíruje a persist ho uklidí."""
+    from app import settings
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    cache = lidar_crop_cache_dir(bbox, scalefactor=1.0, sheet_ids=["PRAH77", "PRAH78"])
+    cache.mkdir(parents=True)
+    for name in ("ground_merged.laz", "veg_merged.laz", "merged_crop.laz"):
+        (cache / name).write_bytes(b"x" * 2000)
+    write_meta(cache, kind="lidar_crop", files=["ground_merged.laz", "veg_merged.laz", "merged_crop.laz"])
+
+    dest = tmp_path / "job" / "lidar"
+    hit = try_restore_lidar_crop(cache, dest)
+    assert hit == dest / "ground_merged.laz"
+    assert (dest / "veg_merged.laz").is_file()
+    assert not (dest / "merged_crop.laz").exists()
+    assert not (cache / "merged_crop.laz").exists()
+
+    (cache / "merged_crop.laz").write_bytes(b"x" * 2000)
+    persist_lidar_crop(cache, dest, bbox_wgs84=bbox, sheet_ids=["PRAH77", "PRAH78"])
+    assert not (cache / "merged_crop.laz").exists()
+    assert try_restore_lidar_crop(cache, tmp_path / "job2" / "lidar") is not None
+
+
+def test_start_job_surfaces_background_matches_sequential(tmp_path: Path):
+    """DSM/CHM na pozadí: stejné soubory i meta jako sekvenční prepare."""
+    from app.pipeline import dem_prep
+
+    def fake_pdal(laz, b, dest, *, resolution_m=1.0, log=None, grid=None):
+        dest.write_bytes(laz.name.encode() * 200)
+
+    def fake_fill(src, dest, *, log=None):
+        dest.write_bytes(src.read_bytes() + b"fill")
+
+    def fake_chm(dem, dsm, dest, *, log=None):
+        dest.write_bytes(dem.read_bytes()[:50] + dsm.read_bytes()[:50] * 10)
+        return dest
+
+    results = {}
+    for mode in ("seq", "bg"):
+        work = tmp_path / mode
+        lidar = work / "lidar"
+        lidar.mkdir(parents=True)
+        (lidar / "ground_merged.laz").write_bytes(b"g" * 2000)
+        (lidar / "veg_merged.laz").write_bytes(b"v" * 2000)
+        with (
+            patch.object(dem_prep, "_pdal_dem_from_laz", side_effect=fake_pdal),
+            patch.object(dem_prep, "_fill_dem_nodata", side_effect=fake_fill),
+            patch.object(dem_prep, "_gdal_chm", side_effect=fake_chm),
+            patch.object(dem_prep, "_raster_grid", return_value=None),
+        ):
+            if mode == "seq":
+                res = dem_prep.prepare_job_surfaces(work, (0.0, 0.0, 10.0, 10.0))
+            else:
+                prep = dem_prep.start_job_surfaces(
+                    work, (0.0, 0.0, 10.0, 10.0), background=True
+                )
+                res = prep.wait()
+        results[mode] = {
+            p.name: p.read_bytes() for p in sorted((work / "dem").glob("*.tif"))
+        }
+        assert res.chm is not None and res.chm.is_file()
+    assert results["seq"] == results["bg"]
+
+
+def test_start_job_surfaces_background_error_raised_on_wait(tmp_path: Path):
+    from app.pipeline import dem_prep
+
+    work = tmp_path / "w"
+    lidar = work / "lidar"
+    lidar.mkdir(parents=True)
+    (lidar / "ground_merged.laz").write_bytes(b"g" * 2000)
+    (lidar / "veg_merged.laz").write_bytes(b"v" * 2000)
+
+    def fake_pdal(laz, b, dest, *, resolution_m=1.0, log=None, grid=None):
+        if laz.name == "veg_merged.laz":
+            raise RuntimeError("dsm boom")
+        dest.write_bytes(b"dem" * 200)
+
+    with (
+        patch.object(dem_prep, "_pdal_dem_from_laz", side_effect=fake_pdal),
+        patch.object(dem_prep, "_fill_dem_nodata", side_effect=lambda s, d, log=None: d.write_bytes(b"f" * 600)),
+        patch.object(dem_prep, "_raster_grid", return_value=None),
+    ):
+        prep = dem_prep.start_job_surfaces(work, (0.0, 0.0, 10.0, 10.0))
+        # DEM je hotový hned, chyba DSM až při wait().
+        assert (work / "dem" / "dem_filled.tif").is_file()
+        with pytest.raises(RuntimeError, match="dsm boom"):
+            prep.wait()

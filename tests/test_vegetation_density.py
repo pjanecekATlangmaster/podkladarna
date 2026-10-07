@@ -292,3 +292,63 @@ def test_garden_canopy_away_from_meadow_stays_white():
     chm = np.full((25, 25), 14.0, dtype=np.float32)
     out = soften_meadow_forest_edge(cls, chm)
     assert np.mean(out[2:10, 2:10] == WHITE) > 0.99
+
+
+def _mixed_points(seed: int = 7, n: int = 120_000):
+    """Les s podrostem, louky a body mimo rastr – všechny třídy zeleně."""
+    rng = np.random.default_rng(seed)
+    x = rng.uniform(GT[0] - 5, GT[0] + SIZE + 5, n)
+    y = rng.uniform(GT[3] - SIZE - 5, GT[3] + 5, n)
+    forest = (np.sin(x / 7.0) + np.cos(y / 5.0)) > 0
+    hh = np.where(
+        forest, rng.choice([0.1, 1.5, 3.0, 4.5, 12.0, 22.0], n), rng.uniform(0, 0.8, n)
+    )
+    cls = np.where(rng.random(n) < 0.3, 2, np.where(hh > 1, 5, 3)).astype(np.uint8)
+    hh = np.where(cls == 2, 0.0, hh + rng.normal(0, 0.2, n))
+    z = (500.0 + hh).astype(np.float32)
+    nr = rng.integers(1, 4, n).astype(np.uint8)
+    rn = np.minimum(rng.integers(1, 4, n), nr).astype(np.uint8)
+    return x, y, z, cls, rn, nr
+
+
+def test_chunked_accumulator_matches_single_pass():
+    """Body po blocích (paměť O(rastr)) = stejný rastr jako jeden průchod."""
+    from app.pipeline.vegetation_density import DensityAccumulator
+
+    cols = _mixed_points()
+    for params in (DEFAULT_PARAMS, DensityVegeParams(green_high_m=3.0)):
+        whole = classify_points(LidarPoints(*cols), _dem(), GT, params)
+        assert len(np.unique(whole)) >= 3
+        acc = DensityAccumulator(_dem(), GT, params)
+        for i in range(0, len(cols[0]), 9_999):
+            acc.add(*(c[i : i + 9_999] for c in cols))
+        assert acc.n_points == len(cols[0])
+        assert np.array_equal(acc.finish(), whole)
+
+
+def test_classify_point_files_matches_read_all(tmp_path: Path):
+    """LAZ po blocích = laspy.read všeho + classify_points (stejné body i pořadí)."""
+    import pytest
+
+    laspy = pytest.importorskip("laspy")
+    from app.pipeline.vegetation_density import classify_point_files, read_las_points
+
+    cols = _mixed_points(seed=3, n=50_000)
+    files = []
+    for k, sl in enumerate((slice(0, 20_000), slice(20_000, None))):
+        header = laspy.LasHeader(point_format=1, version="1.2")
+        header.scales = np.array([0.01, 0.01, 0.01])
+        header.offsets = np.array([1000.0, 1900.0, 0.0])
+        las = laspy.LasData(header)
+        las.x, las.y, las.z = cols[0][sl], cols[1][sl], cols[2][sl]
+        las.classification = cols[3][sl]
+        las.number_of_returns = cols[5][sl]
+        las.return_number = cols[4][sl]
+        path = tmp_path / f"part{k}.laz"
+        las.write(str(path))
+        files.append(path)
+
+    expected = classify_points(read_las_points(files), _dem(), GT)
+    got, n = classify_point_files(files, _dem(), GT, chunk_size=7_000)
+    assert n == 50_000
+    assert np.array_equal(got, expected)

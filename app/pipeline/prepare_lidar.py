@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app.download_cache import (
+    LEGACY_MERGED_LAZ_NAMES,
     SHEET_CROP_GROUND,
     SHEET_CROP_VEG,
     link_or_copy,
@@ -274,13 +279,53 @@ def _merge_parts(
     *,
     log: callable | None = None,
 ) -> Path:
+    """Sloučí ořezy listů proudově (konstantní paměť).
+
+    ``pdal merge`` drží celé mračno v RAM (~90 B/bod → velký výřez spadl na
+    OOM). Pipeline s více readery + ``writers.las`` v ``--stream`` dá stejné
+    body i hlavičku (stejné výchozí volby writeru jako ``pdal merge``).
+    """
     if len(parts) == 1:
-        # Bez kopírování – jediný list použijeme přímo ve finálním merge.
+        # Bez kopírování – jediný list je rovnou výsledek.
         return parts[0]
     if dest.exists():
         dest.unlink()
-    run_cmd([pdal, "merge", *[str(p) for p in parts], str(dest)], log=log)
+    pipeline = {
+        "pipeline": [
+            *[str(p) for p in parts],
+            {"type": "writers.las", "filename": str(dest)},
+        ]
+    }
+    pipe_path = dest.with_name(dest.stem + "_pipeline.json")
+    pipe_path.write_text(json.dumps(pipeline), encoding="utf-8")
+    try:
+        run_cmd([pdal, "pipeline", str(pipe_path), "--stream"], log=log)
+    finally:
+        pipe_path.unlink(missing_ok=True)
     return dest
+
+
+def _laz_point_count(pdal: str, path: Path) -> int | None:
+    """Počet bodů z hlavičky (``--summary`` nečte body, na rozdíl od ``--stats``)."""
+    info = subprocess.run(
+        [pdal, "info", str(path), "--summary"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=gis_subprocess_env(pdal),
+    )
+    try:
+        return int(json.loads(info.stdout)["summary"]["num_points"])
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def lidar_workers() -> int:
+    """Souběžné PDAL ořezy listů (proudové → paměť zanedbatelná)."""
+    try:
+        return max(1, int(os.environ.get("PODKLADARNA_LIDAR_WORKERS", "2")))
+    except ValueError:
+        return 2
 
 
 def merge_dmr_dmp(
@@ -292,13 +337,15 @@ def merge_dmr_dmp(
     scalefactor: float | None = None,
     *,
     extra_pad_m: float = 0.0,
-    output_name: str | None = None,
     force_refresh: bool = False,
 ) -> Path:
-    """Sloučí DMR (ground) + DMP (vegetace).
+    """Připraví dvojici DMR ground + DMP vegetace; vrací ground LAZ.
 
     Je-li ``crop_bounds``, ořezává **každý list před merge** (stejný finální bbox
     jako dřív: user + buffer + KP pad). Tím se nečtou celé SM5 listy.
+    Výstup: ``ground_merged`` / ``veg_merged`` (víc listů) nebo ořez jediného
+    listu – viz ``download_cache.lidar_pair_paths``. Společný ``merged_crop``
+    (vstup KP pullauta) se už nevytváří.
     """
     if not dmr_files:
         raise FileNotFoundError("Chybí alespoň jeden soubor DMR 5G (LAZ/LAS)")
@@ -326,41 +373,84 @@ def merge_dmr_dmp(
         log,
         "Ořezávám a třídím LiDAR DMR5G a DMP (mračno bodů pro terén a vegetaci)",
     )
-    ground_parts: list[Path] = []
-    for i, dmr in enumerate(dmr_files):
-        out = work_dir / f"dmr_ground_{i}.laz"
-        part = _translate_sheet(
-            pdal,
-            dmr,
-            out,
-            stages=["assign"],
-            stage_opts=["--filters.assign.assignment=Classification[:]=2"],
-            crop=crop,
-            recipe=SHEET_CROP_GROUND if crop is not None else None,
-            force_refresh=force_refresh,
-            log=log,
-        )
-        if part is not None:
-            ground_parts.append(part)
+    # Staré výstupy (reuse kopie / KP merged_crop) nesmí přebít nový ořez.
+    for name in (
+        "ground_merged.laz",
+        "veg_merged.laz",
+        *LEGACY_MERGED_LAZ_NAMES,
+        *(p.name for p in work_dir.glob("dmr_ground_*.laz")),
+        *(p.name for p in work_dir.glob("dmp_veg_*.laz")),
+    ):
+        (work_dir / name).unlink(missing_ok=True)
 
-    veg_parts: list[Path] = []
-    for i, dmp in enumerate(dmp_files):
+    log_lock = threading.Lock()
+
+    def _safe_log(msg: str) -> None:
         if log:
-            log(f"DMP zdroj {i + 1}/{len(dmp_files)}: {dmp.name}")
-        out = work_dir / f"dmp_veg_{i}.laz"
-        part = _translate_sheet(
-            pdal,
-            dmp,
-            out,
-            stages=["range"],
-            stage_opts=["--filters.range.limits=Classification[5:6]"],
-            crop=crop,
-            recipe=SHEET_CROP_VEG if crop is not None else None,
-            force_refresh=force_refresh,
-            log=log,
+            with log_lock:
+                log(msg)
+
+    tasks: list[tuple[str, int, dict]] = []
+    for i, dmr in enumerate(dmr_files):
+        tasks.append(
+            (
+                "ground",
+                i,
+                dict(
+                    src=dmr,
+                    dest=work_dir / f"dmr_ground_{i}.laz",
+                    stages=["assign"],
+                    stage_opts=["--filters.assign.assignment=Classification[:]=2"],
+                    recipe=SHEET_CROP_GROUND if crop is not None else None,
+                ),
+            )
         )
-        if part is not None:
-            veg_parts.append(part)
+    for i, dmp in enumerate(dmp_files):
+        tasks.append(
+            (
+                "veg",
+                i,
+                dict(
+                    src=dmp,
+                    dest=work_dir / f"dmp_veg_{i}.laz",
+                    stages=["range"],
+                    stage_opts=["--filters.range.limits=Classification[5:6]"],
+                    recipe=SHEET_CROP_VEG if crop is not None else None,
+                ),
+            )
+        )
+
+    def _run_task(task: tuple[str, int, dict]) -> Path | None:
+        kind, i, spec = task
+        if kind == "veg":
+            _safe_log(f"DMP zdroj {i + 1}/{len(dmp_files)}: {spec['src'].name}")
+        return _translate_sheet(
+            pdal,
+            spec["src"],
+            spec["dest"],
+            stages=spec["stages"],
+            stage_opts=spec["stage_opts"],
+            crop=crop,
+            recipe=spec["recipe"],
+            force_refresh=force_refresh,
+            log=_safe_log if log else None,
+        )
+
+    # Ořezy listů jsou proudové (CPU = dekomprese LAZ) → 2 souběžně stačí
+    # na 2jádrový NAS; pořadí výsledků zůstává dle listů.
+    workers = min(lidar_workers(), len(tasks)) or 1
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pdal-crop") as ex:
+            results = list(ex.map(_run_task, tasks))
+    else:
+        results = [_run_task(t) for t in tasks]
+
+    ground_parts = [
+        part for (kind, _i, _s), part in zip(tasks, results) if kind == "ground" and part
+    ]
+    veg_parts = [
+        part for (kind, _i, _s), part in zip(tasks, results) if kind == "veg" and part
+    ]
 
     if not ground_parts:
         raise RuntimeError(
@@ -371,31 +461,13 @@ def merge_dmr_dmp(
             "Po ořezu/filtru Classification[5:6] nezůstaly žádné DMP body"
         )
 
-    ground = work_dir / "ground_merged.laz"
-    veg = work_dir / "veg_merged.laz"
-    if output_name:
-        merged = work_dir / output_name
-    elif crop is not None:
-        merged = work_dir / "merged_crop.laz"
-    else:
-        merged = work_dir / "merged.laz"
+    ground = _merge_parts(pdal, ground_parts, work_dir / "ground_merged.laz", log=log)
+    veg = _merge_parts(pdal, veg_parts, work_dir / "veg_merged.laz", log=log)
 
-    ground = _merge_parts(pdal, ground_parts, ground, log=log)
-    veg = _merge_parts(pdal, veg_parts, veg, log=log)
-    if merged.exists():
-        merged.unlink()
-    run_cmd([pdal, "merge", str(ground), str(veg), str(merged)], log=log)
-
-    info = subprocess.run(
-        [pdal, "info", str(merged), "--stats"],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=gis_subprocess_env(pdal),
-    )
     if log:
-        tail = (info.stdout or info.stderr)[-600:]
-        log(tail)
-        log(f"OK {merged.name} ({merged.stat().st_size / 1e6:.1f} MB)")
+        for path in (ground, veg):
+            n = _laz_point_count(pdal, path)
+            count = f"{n:,} bodů, ".replace(",", " ") if n is not None else ""
+            log(f"OK {path.name} ({count}{path.stat().st_size / 1e6:.1f} MB)")
 
-    return merged
+    return ground
