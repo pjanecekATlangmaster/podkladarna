@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -301,6 +302,9 @@ def try_lookup_sheet_crop(
     return "superset", best[1], best[2]
 
 
+_SHEET_CROP_LOCK = threading.Lock()
+
+
 def persist_sheet_crop(
     src: Path,
     cropped: Path,
@@ -309,24 +313,29 @@ def persist_sheet_crop(
     *,
     log=None,
 ) -> Path | None:
-    """Uloží ořez listu do sdílené cache (stejný src+bounds+filtr)."""
+    """Uloží ořez listu do sdílené cache (stejný src+bounds+filtr).
+
+    Ořezy listů běží souběžně (``PODKLADARNA_LIDAR_WORKERS``) → zámek, ať dva
+    zápisy do stejné složky (link + meta.json) nezávodí.
+    """
     if not cropped.is_file() or cropped.stat().st_size < MIN_LAZ_BYTES_SHEET:
         return None
     sheet = sheet_id_for_laz(src)
     cache_dir = sheet_crop_cache_dir(sheet, recipe, bounds)
-    cache_dir.mkdir(parents=True, exist_ok=True)
     dest = cache_dir / SHEET_CROP_ARTIFACT
-    link_or_copy(cropped, dest)
-    write_meta(
-        cache_dir,
-        kind="lidar_sheet_crop",
-        recipe=recipe,
-        sheet_id=sheet,
-        bounds=list(bounds),
-        src_fp=file_fingerprint(src),
-        crop_fp=file_fingerprint(dest),
-        source_name=src.name,
-    )
+    with _SHEET_CROP_LOCK:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        link_or_copy(cropped, dest)
+        write_meta(
+            cache_dir,
+            kind="lidar_sheet_crop",
+            recipe=recipe,
+            sheet_id=sheet,
+            bounds=list(bounds),
+            src_fp=file_fingerprint(src),
+            crop_fp=file_fingerprint(dest),
+            source_name=src.name,
+        )
     if log:
         log(
             f"Cache ořezu listu {sheet}/{recipe} uložena "
