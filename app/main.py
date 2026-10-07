@@ -281,7 +281,23 @@ def api_list_jobs():
         pos = worker.queue_position(job["id"])
         if pos is not None:
             job["queue_position"] = pos
-    return {"jobs": jobs, **worker.queue_snapshot()}
+    snap = worker.queue_snapshot()
+    # Veřejný listing neobsahuje privátní joby – ale panel „Běžící a fronta“
+    # potřebuje vědět, že něco běží (bez jména/logů/artefaktů).
+    private_live = None
+    current_id = snap.get("current")
+    if current_id:
+        try:
+            current_job = db.get_job(current_id)
+        except KeyError:
+            current_job = None
+        if current_job and db.job_is_private(current_job):
+            private_live = {
+                "status": current_job.get("status") or "running",
+                "started_at": current_job.get("started_at")
+                or current_job.get("created_at"),
+            }
+    return {"jobs": jobs, **snap, "private_live": private_live}
 
 
 @app.get("/api/jobs/{job_id}")

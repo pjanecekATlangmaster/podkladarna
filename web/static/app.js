@@ -350,13 +350,18 @@ function syncJobsList(liveJobs, finishedJobs) {
   for (const job of finishedJobs) upsertJobItem(doneList, job, finishedJobs);
   for (const list of [liveList, doneList]) {
     for (const child of [...list.children]) {
+      if (child.id === "private-live-placeholder") continue;
       if (visibleIds.has(child.dataset.id)) continue;
       if (detail && child.contains(detail)) parkJobDetail();
       child.remove();
     }
   }
-  liveList.classList.toggle("hidden", liveJobs.length === 0);
-  if (liveEmpty) liveEmpty.classList.toggle("hidden", liveJobs.length > 0);
+  const hasPrivatePlaceholder = Boolean(
+    document.getElementById("private-live-placeholder")
+  );
+  const liveVisible = liveJobs.length > 0 || hasPrivatePlaceholder;
+  liveList.classList.toggle("hidden", !liveVisible);
+  if (liveEmpty) liveEmpty.classList.toggle("hidden", liveVisible);
   if (doneEmpty) doneEmpty.classList.toggle("hidden", finishedJobs.length > 0);
 }
 
@@ -433,9 +438,19 @@ async function loadJobs() {
   }
 
   let { live, finished } = splitJobs(data.jobs);
-  // Privátní session: injektuj do „Běžící a fronta“, ať je vidět log jako u veřejných jobů.
-  if (selected && jobIsPrivate(selected) && jobIsLive(selected.status)) {
-    live = [selected, ...live.filter((j) => j.id !== selected.id)];
+  // Privátní joby do veřejného panelu neinjektovat (bez jména/logů).
+  // Místo toho anonymní placeholder „Běží privátní job“ + stopky.
+  let privateLive = data.private_live || null;
+  if (
+    !privateLive &&
+    selected &&
+    jobIsPrivate(selected) &&
+    selected.status === "running"
+  ) {
+    privateLive = {
+      status: selected.status,
+      started_at: selected.started_at || selected.created_at,
+    };
   }
 
   const focusId = focusFinishedJobId || (justPicked ? selectedJobId : null);
@@ -451,6 +466,7 @@ async function loadJobs() {
   const pageJobs = finished.slice(start, start + FINISHED_PAGE_SIZE);
   updateFinishedPager(finished.length);
   syncJobsList(live, pageJobs);
+  syncPrivateLivePlaceholder(privateLive);
 
   if (generateStartedJobId) {
     const started =
@@ -572,6 +588,83 @@ function formatDuration(seconds) {
   if (h) return `${h} h ${m} min`;
   if (m) return sec ? `${m} min ${sec} s` : `${m} min`;
   return `${sec} s`;
+}
+
+function elapsedSinceIso(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, (Date.now() - t) / 1000);
+}
+
+let privateLiveStartedAt = null;
+let privateLiveTickTimer = null;
+
+function stopPrivateLiveTick() {
+  if (privateLiveTickTimer) {
+    clearInterval(privateLiveTickTimer);
+    privateLiveTickTimer = null;
+  }
+}
+
+function privateLivePlaceholderHtml(startedAt) {
+  const elapsed = formatDuration(elapsedSinceIso(startedAt));
+  const clock = elapsed || "…";
+  return `
+    <strong>Běží privátní job</strong>
+    <div class="status status-running">${escapeHtml(clock)}</div>
+  `;
+}
+
+function syncPrivateLivePlaceholder(privateLive) {
+  const liveList = document.getElementById("jobs-live");
+  const liveEmpty = document.getElementById("jobs-live-empty");
+  if (!liveList) return;
+  let el = document.getElementById("private-live-placeholder");
+  if (!privateLive) {
+    privateLiveStartedAt = null;
+    stopPrivateLiveTick();
+    if (el) el.remove();
+    const hasJobs = liveList.querySelector(".job-item:not(#private-live-placeholder)");
+    liveList.classList.toggle("hidden", !hasJobs);
+    if (liveEmpty) liveEmpty.classList.toggle("hidden", Boolean(hasJobs));
+    return;
+  }
+  privateLiveStartedAt = privateLive.started_at || null;
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "private-live-placeholder";
+    el.className = "job-item private-live-placeholder";
+    el.setAttribute("aria-live", "polite");
+    el.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+  }
+  const html = privateLivePlaceholderHtml(privateLiveStartedAt);
+  if (el._html !== html) {
+    el.innerHTML = html;
+    el._html = html;
+  }
+  if (el.parentElement !== liveList || liveList.firstChild !== el) {
+    liveList.insertBefore(el, liveList.firstChild);
+  }
+  liveList.classList.remove("hidden");
+  if (liveEmpty) liveEmpty.classList.add("hidden");
+  if (!privateLiveTickTimer) {
+    privateLiveTickTimer = setInterval(() => {
+      const node = document.getElementById("private-live-placeholder");
+      if (!node || !privateLiveStartedAt) {
+        stopPrivateLiveTick();
+        return;
+      }
+      const next = privateLivePlaceholderHtml(privateLiveStartedAt);
+      if (node._html !== next) {
+        node.innerHTML = next;
+        node._html = next;
+      }
+    }, 1000);
+  }
 }
 
 function formatWhen(iso) {
