@@ -120,6 +120,17 @@ while queue:
 print(f"bundled {len(list(libdir.iterdir()))} libs")
 PY
 
+# PROJ data k bundlované libproj (apt) – runtime image /usr/share/proj nemá
+# a conda proj.db je jiná verze (dřív „Cannot find proj.db“ při exportu).
+# Fontconfig konfigurace + DejaVu pro texty v mapě.
+RUN mkdir -p /opt/mapper/share \
+    && cp -a /usr/share/proj /opt/mapper/share/proj \
+    && test -f /opt/mapper/share/proj/proj.db \
+    && mkdir -p /opt/mapper/etc \
+    && (cp -a /etc/fonts /opt/mapper/etc/fonts || true) \
+    && mkdir -p /opt/mapper/share/fonts \
+    && (cp -a /usr/share/fonts/truetype/dejavu /opt/mapper/share/fonts/ || true)
+
 # Wrapper: isolate Mapper from conda LD_LIBRARY_PATH / PROJ.
 RUN mv /opt/mapper/bin/Mapper /opt/mapper/bin/Mapper.real \
     && printf '%s\n' \
@@ -127,7 +138,12 @@ RUN mv /opt/mapper/bin/Mapper /opt/mapper/bin/Mapper.real \
     'export LD_LIBRARY_PATH="/opt/mapper/lib"' \
     'export QT_PLUGIN_PATH="/opt/mapper/plugins"' \
     'export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"' \
-    'unset PROJ_LIB PROJ_DATA || true' \
+    'export PROJ_DATA="/opt/mapper/share/proj"' \
+    'export PROJ_LIB="/opt/mapper/share/proj"' \
+    'export FONTCONFIG_PATH="/opt/mapper/etc/fonts"' \
+    'export QT_QPA_FONTDIR="/opt/mapper/share/fonts"' \
+    'export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-mapper}"' \
+    'mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null && chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null' \
     'exec /opt/mapper/bin/Mapper.real "$@"' \
     > /opt/mapper/bin/Mapper \
     && chmod 755 /opt/mapper/bin/Mapper /opt/mapper/bin/Mapper.real \
@@ -170,6 +186,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY configs ./configs
 COPY app ./app
 COPY web ./web
+COPY scripts/mapper_smoke.py ./scripts/mapper_smoke.py
 
 ARG BUILD_DATE=
 ENV PODKLADARNA_BUILT_AT=${BUILD_DATE}
@@ -189,6 +206,11 @@ ENV PODKLADARNA_MAPPER_EXPORT='"{mapper}" --cli export --full-map -i "{omap}" -o
 ENV PODKLADARNA_MAPPER_CONVERT='"{mapper}" --cli convert -i "{omap}" -o "{ocd}" --output-format OCD12'
 ENV QT_QPA_PLATFORM=offscreen
 ENV PATH="/opt/mapper/bin:${PATH}"
+
+# Smoke: Mapper musí opravdu vyexportovat georef PNG z .omap, jakou dělá
+# pipeline (S-JTSK georeference). Když selže, build spadne s plným stderr –
+# jinak by joby tiše padaly na pomalý Pillow fallback.
+RUN python /app/scripts/mapper_smoke.py
 
 EXPOSE 8672
 

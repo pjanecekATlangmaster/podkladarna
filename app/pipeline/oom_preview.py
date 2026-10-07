@@ -437,6 +437,40 @@ class MapperConvertError(RuntimeError):
     """``Mapper --cli convert`` chybí, selhal, nebo není nakonfigurovaný."""
 
 
+# Opakující se hlášky Qt/fontconfig/PROJ, které zakryly skutečnou chybu
+# (dřív se logovalo jen prvních 400 znaků stderr = samý šum).
+_MAPPER_NOISE_PREFIXES = (
+    "QStandardPaths:",
+    "Fontconfig error:",
+    "proj_create",
+    "pj_obj_create",
+    "proj_identify",
+)
+
+
+def _mapper_error_detail(proc: subprocess.CompletedProcess, *, full: bool = False) -> str:
+    """Stderr/stdout Mapperu pro log: bez šumu, s koncem výstupu (tam bývá příčina)."""
+    text = "\n".join(
+        part
+        for part in (
+            (proc.stderr or b"").decode("utf-8", "replace").strip(),
+            (proc.stdout or b"").decode("utf-8", "replace").strip(),
+        )
+        if part
+    )
+    if full:
+        return text
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    signal_lines = [ln for ln in lines if not ln.lstrip().startswith(_MAPPER_NOISE_PREFIXES)]
+    noise = len(lines) - len(signal_lines)
+    detail = " | ".join(signal_lines)
+    if len(detail) > 600:
+        detail = "…" + detail[-600:]
+    if noise:
+        detail = (detail + " " if detail else "") + f"(+{noise} řádků Qt/PROJ šumu)"
+    return detail
+
+
 def run_mapper_convert(
     omap: Path,
     dest: Path | None = None,
@@ -481,14 +515,12 @@ def run_mapper_convert(
     except OSError as exc:
         raise MapperConvertError(f"Mapper convert spuštění selhalo: {exc}") from exc
     if proc.returncode != 0 or not _is_ocd(dest):
-        err = (proc.stderr or b"").decode("utf-8", "replace").strip()
-        out = (proc.stdout or b"").decode("utf-8", "replace").strip()
-        detail = err or out
+        detail = _mapper_error_detail(proc)
         if dest.exists() and not _is_ocd(dest):
             dest.unlink(missing_ok=True)
         raise MapperConvertError(
             f"Mapper convert selhal (kód {proc.returncode})"
-            + (f": {detail[:400]}" if detail else "")
+            + (f": {detail}" if detail else "")
         )
     return dest
 
@@ -535,8 +567,12 @@ def run_mapper_export(
     *,
     dpi: int = GEOREF_MAPPER_DPI,
     log=None,
+    full_stderr: bool = False,
 ) -> None:
-    """Spustí Mapper CLI → PNG. Při chybě ``MapperExportError`` (bez Pillow fallbacku)."""
+    """Spustí Mapper CLI → PNG. Při chybě ``MapperExportError`` (bez Pillow fallbacku).
+
+    ``full_stderr``: celý výstup Mapperu bez filtrace šumu (smoke test buildu).
+    """
     omap = Path(omap)
     dest = Path(dest)
     argv = mapper_export_argv(omap, dest, dpi=dpi)
@@ -577,15 +613,17 @@ def run_mapper_export(
     except OSError as exc:
         raise MapperExportError(f"Mapper CLI spuštění selhalo: {exc}") from exc
     if proc.returncode != 0 or not _is_png(dest):
-        err = (proc.stderr or b"").decode("utf-8", "replace").strip()
-        out = (proc.stdout or b"").decode("utf-8", "replace").strip()
-        detail = err or out
+        detail = _mapper_error_detail(proc, full=full_stderr)
         if dest.exists() and not _is_png(dest):
             dest.unlink(missing_ok=True)
         raise MapperExportError(
             f"Mapper CLI selhal (kód {proc.returncode})"
-            + (f": {detail[:400]}" if detail else "")
+            + (f": {detail}" if detail else "")
         )
+    if full_stderr:
+        detail = _mapper_error_detail(proc, full=True)
+        if detail and log:
+            log(f"Mapper výstup: {detail}")
 
 
 def extent_for_mapper_png(
@@ -1704,15 +1742,33 @@ def render_omap_xml_png(
     draw = ImageDraw.Draw(image)
     for op in ops:
         if op.kind == "area":
-            mask = Image.new("L", (width, height), 0)
+            rings = [
+                [to_px(x, y) for x, y in path] for path in op.paths
+            ]
+            outer = [pts for pts in rings if len(pts) >= 3]
+            if not outer:
+                continue
+            # Maska jen přes bbox plochy (ne celý obrázek) – dřív 2 plné
+            # rastry + paste na každou plochu (~14 min / 10k objektů @ 600 DPI).
+            # Celočíselný posun = stejná rasterizace jako na plném plátně.
+            xs = [p[0] for pts in outer for p in pts]
+            ys = [p[1] for pts in outer for p in pts]
+            x0 = max(0, int(math.floor(min(xs))) - 2)
+            y0 = max(0, int(math.floor(min(ys))) - 2)
+            x1 = min(width, int(math.ceil(max(xs))) + 3)
+            y1 = min(height, int(math.ceil(max(ys))) + 3)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            mask = Image.new("L", (x1 - x0, y1 - y0), 0)
             mask_draw = ImageDraw.Draw(mask)
-            for ring_index, path in enumerate(op.paths):
-                pts = [to_px(x, y) for x, y in path]
+            for ring_index, pts in enumerate(rings):
                 if len(pts) < 3:
                     continue
-                mask_draw.polygon(pts, fill=0 if ring_index else 255)
-            color_img = Image.new("RGB", (width, height), op.rgb)
-            image.paste(color_img, (0, 0), mask)
+                mask_draw.polygon(
+                    [(px - x0, py - y0) for px, py in pts],
+                    fill=0 if ring_index else 255,
+                )
+            image.paste(op.rgb, (x0, y0, x1, y1), mask)
         elif op.kind == "line":
             stroke = max(1, int(round(max(op.width, 1.0) * scale)))
             border_stroke = 0
@@ -1891,6 +1947,15 @@ def georef_preview_enabled(options: dict | None = None) -> bool:
     return True
 
 
+def _georef_engine_summary(mapper_n: int, pillow_n: int, pillow_dpi: int) -> str:
+    parts = []
+    if mapper_n:
+        parts.append(f"{mapper_n}× Mapper @ 600 DPI")
+    if pillow_n:
+        parts.append(f"{pillow_n}× Pillow fallback @ {pillow_dpi} DPI-eq")
+    return ", ".join(parts) or "nic"
+
+
 def write_job_oom_preview(
     omap_paths: list[Path],
     work_dir: Path,
@@ -1924,6 +1989,10 @@ def write_job_oom_preview(
     want_georef = output_georef_enabled(options)
     want_geotiff = want_georef and georef_preview_enabled(options)
     written: list[Path] = []
+    # Georef PNG skutečně z Mapperu (full-map rozsah) – jen ty jde znovu použít
+    # pro web ořez. Pillow fallback má jiný rozsah → dřív celý oranžový náhled.
+    mapper_made: set[str] = set()
+    pillow_made: set[str] = set()
     use_mapper = mapper_export_configured()
     georef_engine = "mapper" if use_mapper else "pillow"
     pillow_dpi = georef_pillow_dpi()
@@ -1949,6 +2018,7 @@ def write_job_oom_preview(
                 )
         for omap in existing:
             dest_png = preview_dir / f"{omap.stem}.png"
+            engine_used = georef_engine
             try:
                 summary = render_omap_to_png(
                     omap,
@@ -1966,6 +2036,7 @@ def write_job_oom_preview(
                         f"OOM georef: {omap.name} Mapper selhal ({exc}) – "
                         f"zkouším Pillow @ {pillow_dpi} DPI-eq"
                     )
+                engine_used = "pillow"
                 try:
                     summary = render_omap_to_png(
                         omap,
@@ -1989,6 +2060,9 @@ def write_job_oom_preview(
                 continue
             if dest_png.is_file() and dest_png.with_suffix(".pgw").is_file():
                 written.append(dest_png)
+                (mapper_made if engine_used == "mapper" else pillow_made).add(
+                    dest_png.name
+                )
                 if log:
                     log(f"OOM georef: {omap.name} → {dest_png.name} ({summary})")
     elif log:
@@ -2002,10 +2076,8 @@ def write_job_oom_preview(
         return None
     if not oom_preview_enabled(options):
         if log and written:
-            src = (
-                "Mapper @ 600 DPI"
-                if use_mapper
-                else f"Pillow fallback @ {pillow_dpi} DPI-eq"
+            src = _georef_engine_summary(
+                len(mapper_made), len(pillow_made), pillow_dpi
             )
             log(
                 f"OOM georef: hotovo {len(written)} variant ({src})"
@@ -2043,7 +2115,12 @@ def write_job_oom_preview(
     def _try_mapper_web() -> Path | None:
         src_png: Path | None = None
         src_label = ""
-        if use_mapper and georef_full.is_file() and want_georef:
+        if (
+            use_mapper
+            and want_georef
+            and georef_full.is_file()
+            and georef_full.name in mapper_made
+        ):
             # Reuse georef @ 600 jen když IHDR vejde – nikdy Image.open na ~494 Mpx.
             if png_within_web_pixel_limit(georef_full, max_pixels=web_px_limit):
                 src_png = georef_full
@@ -2179,11 +2256,7 @@ def write_job_oom_preview(
         web_out = None
 
     if log and written:
-        src = (
-            "Mapper @ 600 DPI"
-            if use_mapper
-            else f"Pillow fallback @ {pillow_dpi} DPI-eq"
-        )
+        src = _georef_engine_summary(len(mapper_made), len(pillow_made), pillow_dpi)
         log(
             f"OOM georef: hotovo {len(written)} variant ({src})"
             + (" + GeoTIFF" if want_geotiff else "")

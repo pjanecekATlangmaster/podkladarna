@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import sys
 import zipfile
@@ -42,6 +43,13 @@ needs_sigalrm = pytest.mark.skipif(
 
 def _install_fake_mapper(monkeypatch, tmp_path: Path, *, rgb=(255, 0, 0)) -> Path:
     """Fake Mapper CLI: full-map styl PNG z .omap (s grivací, bez AOI ořezu)."""
+    # Podproces musí najít balík app (jinak ModuleNotFoundError → testy tiše
+    # jely přes Pillow fallback místo „Mapperu“).
+    repo_root = str(Path(__file__).resolve().parents[1])
+    monkeypatch.setenv(
+        "PYTHONPATH",
+        os.pathsep.join(p for p in (repo_root, os.environ.get("PYTHONPATH", "")) if p),
+    )
     script = tmp_path / "fake_mapper.py"
     # Fallback solid color when omap path missing; jinak Pillow render bez undo
     # přes celý bbox objektů (simulace Mapper --full-map).
@@ -1494,3 +1502,92 @@ def test_map_to_projected_roundtrip():
         )
         assert abs(x - (ref_x + 50.0)) < 0.05
         assert abs(y - (ref_y - 30.0)) < 0.05
+
+
+def test_mapper_error_detail_drops_qt_proj_noise():
+    import subprocess as sp
+
+    from app.pipeline.oom_preview import _mapper_error_detail
+
+    noise = "\n".join(
+        ["QStandardPaths: XDG_RUNTIME_DIR not set, defaulting to '/tmp/runtime-root'",
+         "Fontconfig error: Cannot load default config file"]
+        + ["proj_create_operation_factory_context: Cannot find proj.db",
+           "pj_obj_create: Cannot find proj.db"] * 20
+        + ["Error: Cannot export map: something real"]
+    )
+    proc = sp.CompletedProcess(["mapper"], 1, b"", noise.encode())
+    detail = _mapper_error_detail(proc)
+    assert "something real" in detail
+    assert "proj.db" not in detail
+    assert "42 řádků" in detail
+    assert "something real" in _mapper_error_detail(proc, full=True)
+
+
+def test_web_preview_does_not_reuse_pillow_georef_after_mapper_fail(
+    tmp_path: Path, monkeypatch
+):
+    """Mapper selže → georef z Pillow; web ho nesmí ořezat jako Mapper full-map.
+
+    (Job e0ea3635b042: celý oranžový preview.jpg.)
+    """
+    script = tmp_path / "failing_mapper.py"
+    script.write_text("import sys\nsys.stderr.write('boom')\nraise SystemExit(1)\n", encoding="utf-8")
+    monkeypatch.setenv("PODKLADARNA_MAPPER", sys.executable)
+    monkeypatch.setenv(
+        "PODKLADARNA_MAPPER_EXPORT",
+        f'"{sys.executable}" "{script}" -i "{{omap}}" -o "{{png}}" --dpi {{dpi}}',
+    )
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
+    logs: list[str] = []
+    work = write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"oom_preview": True, "output_georef": True, "oom_geotiff": False},
+        log=logs.append,
+    )
+    assert work is not None and work.is_file()
+    assert (tmp_path / "out" / "preview" / "Park-les.png").is_file()
+    assert not any("→ AOI+bez deklinace" in line and "georef Park-les.png" in line for line in logs)
+    assert any("web Pillow JPEG fallback" in line for line in logs)
+    assert any("1× Pillow fallback" in line for line in logs)
+    assert not any("Mapper @ 600 DPI)" in line and "hotovo" in line for line in logs)
+
+
+def test_pillow_area_bbox_render_matches_full_canvas(tmp_path: Path):
+    """Maska plochy jen přes bbox = stejné pixely jako maska přes celé plátno."""
+    from PIL import ImageDraw
+
+    from app.pipeline.oom_preview import render_omap_xml_png
+
+    omap = tmp_path / "hole.omap"
+    omap.write_text(_HOLE, encoding="utf-8")
+    dest = tmp_path / "hole.png"
+    w, h, _n, extent, _g = render_omap_xml_png(omap, dest, max_side=300)
+    got = Image.open(dest).convert("RGB")
+
+    # Referenční (původní) postup: plná maska + plný barevný obrázek.
+    import xml.etree.ElementTree as ET
+
+    from app.pipeline.oom_preview import _collect_ops, _read_omap_bytes, parse_omap_georef
+
+    root = ET.fromstring(_read_omap_bytes(omap))
+    g = parse_omap_georef(root)
+    ops = _collect_ops(root, grivation_deg=g.grivation_deg)
+    scale = 1.0 / extent.map_per_px
+    ref = Image.new("RGB", (w, h), (255, 255, 255))
+    for op in ops:
+        if op.kind != "area":
+            continue
+        mask = Image.new("L", (w, h), 0)
+        md = ImageDraw.Draw(mask)
+        for i, path in enumerate(op.paths):
+            pts = [((x - extent.origin_x) * scale, (y - extent.origin_y) * scale) for x, y in path]
+            if len(pts) >= 3:
+                md.polygon(pts, fill=0 if i else 255)
+        ref.paste(Image.new("RGB", (w, h), op.rgb), (0, 0), mask)
+    if all(op.kind == "area" for op in ops):
+        assert list(got.getdata()) == list(ref.getdata())

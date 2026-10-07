@@ -835,6 +835,11 @@ def _package_output(
         if progress is not None and not bbox:
             progress.begin("OOM / ZIP")
         cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
+        log_step(
+            log,
+            "Balím výstupní ZIP (mapy, vektory, referenční podklady – u velkých "
+            "výřezů i několik minut)",
+        )
         georef_dir = (
             output_dir / "preview"
             if output_georef_enabled(options)
