@@ -42,8 +42,8 @@ def test_bbox_size_small_ok():
     assert not bbox_exceeds_limit(14.40, 50.08, 14.42, 50.09)
 
 
-def test_bbox_area_limit_allows_six_by_six_shape():
-    """Limit je plocha ~36 km² (obsah výřezu), ne max strana 5 km."""
+def test_bbox_area_limit_allows_five_by_five_shape():
+    """Limit je plocha ~25 km² (obsah výřezu), ne tvrdý strop na jednu stranu."""
     from app.pipeline.fetch_openzu import MAX_BBOX_AREA_KM2, bbox_area_km2
 
     # ~14 × 22 km – daleko přes limit plochy
@@ -51,23 +51,35 @@ def test_bbox_area_limit_allows_six_by_six_shape():
     # Malý výřez OK
     assert not bbox_exceeds_limit(14.40, 50.08, 14.42, 50.09)
 
-    # ~6 × 6 km kolem WGS (obsah ≈ 36 km²)
+    # ~5 × 5 km kolem WGS (obsah ≈ 25 km²)
     lon0, lat0 = 14.42, 50.08
-    dlon, dlat = 0.0839, 0.0539
-    box6 = (lon0 - dlon / 2, lat0 - dlat / 2, lon0 + dlon / 2, lat0 + dlat / 2)
-    w6, h6 = bbox_size_km(*box6)
-    a6 = bbox_area_km2(*box6)
-    assert 5.7 <= w6 <= 6.3
-    assert 5.7 <= h6 <= 6.3
-    assert a6 <= MAX_BBOX_AREA_KM2 + 0.5
-    assert not bbox_exceeds_limit(*box6)
+    dlon, dlat = 0.0699, 0.0449
+    box5 = (lon0 - dlon / 2, lat0 - dlat / 2, lon0 + dlon / 2, lat0 + dlat / 2)
+    w5, h5 = bbox_size_km(*box5)
+    a5 = bbox_area_km2(*box5)
+    assert 4.7 <= w5 <= 5.3
+    assert 4.7 <= h5 <= 5.3
+    assert a5 <= MAX_BBOX_AREA_KM2 + 0.5
+    assert not bbox_exceeds_limit(*box5)
 
-    # ~8 × 4 km – pod 36 km²
-    dlon8, dlat4 = 0.1118, 0.0360
-    box84 = (lon0 - dlon8 / 2, lat0 - dlat4 / 2, lon0 + dlon8 / 2, lat0 + dlat4 / 2)
-    a84 = bbox_area_km2(*box84)
-    assert a84 <= MAX_BBOX_AREA_KM2
-    assert not bbox_exceeds_limit(*box84)
+    # ~6 × 6 km – přes 25 km²
+    dlon6, dlat6 = 0.0839, 0.0539
+    box6 = (lon0 - dlon6 / 2, lat0 - dlat6 / 2, lon0 + dlon6 / 2, lat0 + dlat6 / 2)
+    a6 = bbox_area_km2(*box6)
+    assert a6 > MAX_BBOX_AREA_KM2
+    assert bbox_exceeds_limit(*box6)
+
+    # ~6 × 4 km – pod 25 km²
+    dlon6w, dlat4 = 0.0839, 0.0360
+    box64 = (
+        lon0 - dlon6w / 2,
+        lat0 - dlat4 / 2,
+        lon0 + dlon6w / 2,
+        lat0 + dlat4 / 2,
+    )
+    a64 = bbox_area_km2(*box64)
+    assert a64 <= MAX_BBOX_AREA_KM2
+    assert not bbox_exceeds_limit(*box64)
 
 
 def test_bbox_size_over_area_limit():
@@ -155,8 +167,8 @@ def test_api_sheets(client, monkeypatch):
     assert body["estimate_note"]
     assert "PRAH77" in body["label"]
     assert body["too_large"] is False
-    assert body["max_km"] == 6.0
-    assert body["max_area_km2"] == 36.0
+    assert body["max_km"] == 5.0
+    assert body["max_area_km2"] == 25.0
     assert body["width_km"] < 5
     assert body["height_km"] < 5
 
@@ -250,7 +262,7 @@ def test_api_sheets_too_large(client, monkeypatch):
     assert body["too_large"] is True
     assert body["too_large_reason"] == "size"
     assert body["estimate_minutes"] is None
-    assert "36" in body["hint"]
+    assert "25" in body["hint"]
     assert "moc velký" in body["hint"]
 
 
@@ -274,7 +286,7 @@ def test_create_job_map_too_large(client, monkeypatch):
     assert r.status_code == 400
     detail = r.json()["detail"].lower()
     assert "moc velk" in detail
-    assert "36" in r.json()["detail"]
+    assert "25" in r.json()["detail"]
 
 
 def test_create_job_map_without_bbox(client):
