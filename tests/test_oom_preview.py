@@ -11,8 +11,12 @@ import pytest
 from PIL import Image, ImageDraw
 
 from app.pipeline.oom_preview import (
+    _is_pixel_bomb_error,
+    _web_preview_deadline,
     aoi_frame_bbox,
+    assert_png_within_web_pixel_limit,
     build_georef_previews_zip,
+    capped_web_mapper_dpi,
     convert_omap_to_ocd,
     find_mapper_exe,
     map_grivation_deg,
@@ -21,6 +25,7 @@ from app.pipeline.oom_preview import (
     ocd_version,
     oom_preview_enabled,
     output_georef_enabled,
+    png_pixel_count,
     prepare_mapper_web_preview,
     render_omap_to_png,
     run_mapper_convert,
@@ -841,6 +846,162 @@ def test_preview_extent_target_dpi_matches_mapper_paper():
     )
     assert mid.width == 6000
     assert abs(mid.map_per_px - (25400 / 600)) < 1e-6
+
+
+def _ihdr_only_png(path: Path, width: int, height: int) -> None:
+    """Minimální PNG s IHDR (bez IDAT) – stačí pro ``_png_size`` / pixel cap."""
+    import struct
+
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + struct.pack(">I", 13)
+        + b"IHDR"
+        + struct.pack(">II", int(width), int(height))
+    )
+
+
+def test_assert_png_within_web_pixel_limit_rejects_huge_ihdr(tmp_path: Path):
+    """~494 Mpx IHDR (job Zvokoli) musí spadnout před Image.open."""
+    huge = tmp_path / "bomb.png"
+    # 16214×30463 = 493_927_082 (reálná Pillow bomb hláška z jobu).
+    _ihdr_only_png(huge, 16214, 30463)
+    assert png_pixel_count(huge) == 493_927_082
+    with pytest.raises(ValueError, match="493927082"):
+        assert_png_within_web_pixel_limit(huge, max_pixels=50_000_000)
+    ok = tmp_path / "ok.png"
+    Image.new("RGB", (64, 48), (1, 2, 3)).save(ok)
+    assert assert_png_within_web_pixel_limit(ok) == (64, 48)
+    assert _is_pixel_bomb_error(
+        ValueError(
+            "Image size (493927082 pixels) exceeds limit of 178956970 pixels, "
+            "could be decompression bomb DOS attack."
+        )
+    )
+
+
+def test_web_preview_deadline_raises_timeout():
+    import time
+
+    with pytest.raises(TimeoutError, match="web preview timeout"):
+        with _web_preview_deadline(0.25):
+            time.sleep(2.0)
+
+
+def test_write_job_web_timeout_skips_preview_not_raise(
+    tmp_path: Path, monkeypatch
+):
+    """Timeout web náhledu → None + log, bez výjimky (ZIP může pokračovat)."""
+    import app.pipeline.oom_preview as oom_mod
+
+    monkeypatch.setattr(oom_mod, "web_preview_timeout_sec", lambda: 0.2)
+    monkeypatch.setattr(oom_mod, "mapper_export_configured", lambda: False)
+
+    def _slow_pillow(*_a, **_k):
+        import time
+
+        time.sleep(3.0)
+        raise AssertionError("should have been interrupted")
+
+    monkeypatch.setattr(oom_mod, "render_omap_to_png", _slow_pillow)
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP, encoding="utf-8")
+    logs: list[str] = []
+    out = write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"oom_preview": True, "output_georef": False},
+        log=logs.append,
+    )
+    assert out is None
+    assert any("timeout" in line and "ZIP" in line for line in logs)
+
+
+def test_prepare_mapper_web_preview_rejects_huge_source(tmp_path: Path):
+    omap = tmp_path / "mini.omap"
+    omap.write_text(_MAP, encoding="utf-8")
+    huge = tmp_path / "full.png"
+    _ihdr_only_png(huge, 16214, 30463)
+    with pytest.raises(ValueError, match="exceeds web preview limit"):
+        prepare_mapper_web_preview(omap, huge, tmp_path / "out.png", max_side=200)
+
+
+def test_capped_web_mapper_dpi_reduces_for_large_paper(tmp_path: Path):
+    """Obří full-map papír → web DPI pod 150, ať odhad px ≤ limitu."""
+    # ~2e6 map. j. ≈ 2 m papíru (+ margin) → @150 DPI stovky Mpx.
+    side = 2_000_000
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <georeferencing scale="10000" declination="0" grivation="0">
+    <projected_crs id="EPSG"><ref_point x="-750000" y="-1050000"/></projected_crs>
+  </georeferencing>
+  <colors count="1"><color priority="26" name="G"><rgb r="0" g="1" b="0"/></color></colors>
+  <symbols count="1">
+    <symbol type="4" id="1" code="406"><area_symbol inner_color="26"/></symbol>
+  </symbols>
+  <parts count="1" current="0"><part name="Mapa"><objects count="1">
+    <object type="1" symbol="1">
+      <coords count="5">0 0;0 {side};{side} {side};{side} 0;0 0 18;</coords>
+    </object>
+  </objects></part></parts>
+</map>
+"""
+    omap = tmp_path / "huge.omap"
+    omap.write_text(body, encoding="utf-8")
+    limit = 100_000_000
+    dpi = capped_web_mapper_dpi(omap, desired_dpi=150, max_pixels=limit)
+    assert 1 <= dpi < 150
+    from app.pipeline.oom_preview import estimate_omap_fullmap_paper_inches
+
+    w_in, h_in = estimate_omap_fullmap_paper_inches(omap)
+    assert (w_in * dpi) * (h_in * dpi) <= limit
+    small = tmp_path / "small.omap"
+    small.write_text(_MAP, encoding="utf-8")
+    assert capped_web_mapper_dpi(small, desired_dpi=150, max_pixels=limit) == 150
+
+
+def test_write_job_skips_huge_georef_reuse_for_web(
+    tmp_path: Path, monkeypatch
+):
+    """Georef @600 může zůstat obří; web ho nereusuje nad pixel limitem."""
+    import app.pipeline.oom_preview as oom_mod
+
+    _install_fake_mapper(monkeypatch, tmp_path)
+    omap = tmp_path / "out" / "Zvokoli-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
+
+    real_within = oom_mod.png_within_web_pixel_limit
+    real_count = oom_mod.png_pixel_count
+
+    def within(path, *, max_pixels=None):
+        if Path(path).name == "Zvokoli-les.png":
+            return False
+        return real_within(path, max_pixels=max_pixels)
+
+    def count(path):
+        if Path(path).name == "Zvokoli-les.png":
+            return 493_927_082
+        return real_count(path)
+
+    monkeypatch.setattr(oom_mod, "png_within_web_pixel_limit", within)
+    monkeypatch.setattr(oom_mod, "png_pixel_count", count)
+
+    logs: list[str] = []
+    work = write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"oom_preview": True, "output_georef": True, "oom_geotiff": False},
+        log=logs.append,
+    )
+    assert work is not None and work.is_file()
+    assert work.suffix.lower() == ".jpg"
+    assert max(Image.open(work).size) <= 1600
+    assert any("nereuse" in line for line in logs)
+    assert any("493927082" in line for line in logs)
+    assert (tmp_path / "out" / "preview" / "Zvokoli-les.png").is_file()
 
 
 def test_export_argv_keeps_spaces(tmp_path: Path, monkeypatch):

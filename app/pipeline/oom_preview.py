@@ -1,9 +1,10 @@
 """PNG/JPEG náhledy z hotového ``.omap`` (bez-KP) – dvě produktové cesty.
 
 1. **Web (náhled jobu / klik)** – preferuje **OpenOrienteering Mapper CLI**
-   @ nižší DPI → PNG, pak **ořez fialovým AOI (708/705) + odrotování
-   grivace** → **JPEG**. **Pillow + XML** jen jako fallback, když Mapper
-   CLI chybí (typicky lokální Windows tip) nebo selže.
+   @ nižší DPI (cap ≤50 Mpx IHDR před ``Image.open``; georef @ 600 se
+   reuse jen když IHDR vejde) → PNG, pak **ořez AOI (708/705) + undo
+   grivace** → **JPEG ≤1600**. Pillow XML fallback pod timeoutem – selhání
+   / hang náhledu **neblokuje** ZIP/OCD.
 
 2. **Georef ZIP** (PNG+PGW, volitelně GeoTIFF) – preferuje **Mapper CLI**
    @ **600 DPI** (``--full-map``), **s grivací**, přes
@@ -28,8 +29,10 @@ import math
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import zlib
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -50,6 +53,15 @@ GEOREF_MAPPER_DPI = 600
 WEB_MAPPER_DPI = 150
 WEB_PREVIEW_MAX_SIDE = 1600
 WEB_JPEG_QUALITY = 82
+# Pillow MAX_IMAGE_PIXELS bývá ~89M–179M. Nad tím Image.open → bomb.
+# Typicky reuse georef @ 600 DPI na velkém full-map (~494 Mpx u Zvokoli).
+# Cap pod oběma limity + RAM (RGB load); georef @ 600 se nemění.
+WEB_MAPPER_MAX_PIXELS = 50_000_000
+# Celý web náhled (Mapper+crop / Pillow fallback) – po timeoutu job pokračuje
+# na ZIP/OCD/mail. Ostrý hang: bomb → Pillow fallback vytuhne → ZIP nedoběhne.
+WEB_PREVIEW_TIMEOUT_SEC = 120
+# Rezerva na Mapper --full-map okraje oproti bbox objektů.
+_WEB_MAPPER_PAPER_MARGIN = 1.2
 # Pillow georef fallback: cílové DPI ≈ Mapper; OOM map. j. = 1/1000 mm papíru.
 # Floor ≥ dřívější 1600 (malé AOI jinak pod 600 DPI papíru vypadají hůř než web);
 # 4800 = 3× starý cap → výrazně ostřejší tip bez Mapper CLI.
@@ -97,6 +109,142 @@ def web_mapper_dpi() -> int:
     return WEB_MAPPER_DPI
 
 
+def web_mapper_max_pixels() -> int:
+    """Max. pixelů zdrojového PNG pro web Mapper→Pillow. Override env."""
+    raw = os.environ.get("PODKLADARNA_WEB_MAPPER_MAX_PIXELS", "").strip()
+    if raw:
+        try:
+            value = int(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return WEB_MAPPER_MAX_PIXELS
+
+
+def web_preview_timeout_sec() -> float:
+    """Timeout web náhledu v sekundách (0 = vypnuto). Env override."""
+    raw = os.environ.get("PODKLADARNA_WEB_PREVIEW_TIMEOUT", "").strip()
+    if raw:
+        try:
+            value = float(raw)
+            if value >= 0:
+                return value
+        except ValueError:
+            pass
+    return float(WEB_PREVIEW_TIMEOUT_SEC)
+
+
+def _is_pixel_bomb_error(exc: BaseException) -> bool:
+    """True u Pillow decompression bomb / našeho IHDR capu."""
+    msg = str(exc).lower()
+    if "decompression bomb" in msg:
+        return True
+    if "exceeds web preview limit" in msg:
+        return True
+    if "exceeds limit of" in msg and "pixels" in msg:
+        return True
+    return False
+
+
+@contextmanager
+def _web_preview_deadline(seconds: float):
+    """SIGALRM deadline (Linux job worker = main thread). 0 = bez limitu."""
+    if seconds <= 0 or not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def _handler(signum, frame):  # noqa: ARG001
+        raise TimeoutError(
+            f"web preview timeout after {seconds:g}s"
+        )
+
+    previous = signal.signal(signal.SIGALRM, _handler)
+    signal.setitimer(signal.ITIMER_REAL, float(seconds))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def png_pixel_count(path: Path) -> int:
+    """Šířka×výška PNG z IHDR (bez dekodování pixelů)."""
+    width, height = _png_size(path)
+    return int(width) * int(height)
+
+
+def png_within_web_pixel_limit(
+    path: Path,
+    *,
+    max_pixels: int | None = None,
+) -> bool:
+    """True, pokud IHDR pixel count ≤ limitu webového náhledu."""
+    limit = web_mapper_max_pixels() if max_pixels is None else max(1, int(max_pixels))
+    return png_pixel_count(path) <= limit
+
+
+def assert_png_within_web_pixel_limit(
+    path: Path,
+    *,
+    max_pixels: int | None = None,
+) -> tuple[int, int]:
+    """IHDR kontrola před ``Image.open`` – nikdy neotevírat stovky Mpx.
+
+    Vrací ``(width, height)``. Nad limitem ``ValueError`` (bez ``Image.open``).
+    Caller pak zkusí capped Mapper / Pillow XML ≤1600, nebo náhled přeskočí.
+    """
+    width, height = _png_size(path)
+    limit = web_mapper_max_pixels() if max_pixels is None else max(1, int(max_pixels))
+    pixels = int(width) * int(height)
+    if pixels > limit:
+        raise ValueError(
+            f"Image size ({pixels} pixels) exceeds web preview limit of "
+            f"{limit} pixels ({width}×{height})"
+        )
+    return width, height
+
+
+def estimate_omap_fullmap_paper_inches(omap: Path) -> tuple[float, float]:
+    """Odhad papíru Mapper ``--full-map`` z bbox objektů (map. j. = 1/1000 mm)."""
+    root = ET.fromstring(_read_omap_bytes(Path(omap)))
+    ops = _collect_ops(root, grivation_deg=0.0)
+    if not ops:
+        return (1.0, 1.0)
+    minx, miny, maxx, maxy = _ops_bbox(ops)
+    span_x = max(maxx - minx, 1.0) * _WEB_MAPPER_PAPER_MARGIN
+    span_y = max(maxy - miny, 1.0) * _WEB_MAPPER_PAPER_MARGIN
+    # map unit = 0.001 mm → mm = /1000 → inch = /25.4
+    width_in = max(span_x / 1000.0 / 25.4, 0.01)
+    height_in = max(span_y / 1000.0 / 25.4, 0.01)
+    return (width_in, height_in)
+
+
+def capped_web_mapper_dpi(
+    omap: Path,
+    *,
+    desired_dpi: int | None = None,
+    max_pixels: int | None = None,
+) -> int:
+    """Web Mapper DPI ≤ ``desired``, tak aby odhad full-map px ≤ ``max_pixels``.
+
+    Georef @ 600 DPI se nemění – jen webová cesta, ať Pillow nedostane stovky Mpx.
+    """
+    dpi = (
+        int(desired_dpi)
+        if desired_dpi is not None and int(desired_dpi) > 0
+        else web_mapper_dpi()
+    )
+    limit = web_mapper_max_pixels() if max_pixels is None else max(1, int(max_pixels))
+    width_in, height_in = estimate_omap_fullmap_paper_inches(omap)
+    area = max(width_in * height_in, 1e-9)
+    estimated = (width_in * dpi) * (height_in * dpi)
+    if estimated <= limit:
+        return max(1, dpi)
+    capped = int(math.floor(math.sqrt(limit / area)))
+    return max(1, min(dpi, capped))
+
+
 def write_web_preview_jpeg(
     src_png: Path,
     dest_jpg: Path,
@@ -109,6 +257,7 @@ def write_web_preview_jpeg(
 
     src_png = Path(src_png)
     dest_jpg = Path(dest_jpg)
+    assert_png_within_web_pixel_limit(src_png)
     with Image.open(src_png) as im:
         rgb = im.convert("RGB")
         w, h = rgb.size
@@ -526,6 +675,8 @@ def prepare_mapper_web_preview(
     d = (-mpp_d * sin_g) / mpp_s
     e = (mpp_d * cos_g) / mpp_s
     f = (-ox_d * sin_g + oy_d * cos_g - oy_s) / mpp_s
+    # IHDR cap před Image.open – obří georef @ 600 by jinak shodil Pillow bomb.
+    assert_png_within_web_pixel_limit(mapper_png)
     with Image.open(mapper_png) as im:
         rgb = im.convert("RGB")
         out = rgb.transform(
@@ -1758,9 +1909,10 @@ def write_job_oom_preview(
     """Po zápisu ``.omap`` uloží webový JPEG náhled (± volitelně georef).
 
     Web (náhled jobu / klik): preferuje **Mapper CLI** (reuse georef PNG @ 600
-    DPI, jinak Mapper @ ``WEB_MAPPER_DPI``) → AOI ořez + zrušení deklinace →
-    ``preview.jpg`` / ``oom_preview.jpg``. Bez Mapperu / při chybě **Pillow**
-    fallback → JPEG (už s AOI + undo grivation).
+    DPI jen pokud IHDR ≤ ``WEB_MAPPER_MAX_PIXELS``, jinak Mapper @ capped
+    ``WEB_MAPPER_DPI``) → AOI ořez + zrušení deklinace → ``preview.jpg`` /
+    ``oom_preview.jpg``. Bez Mapperu / při chybě **Pillow** fallback → JPEG
+    (už s AOI + undo grivation, ``max_side`` ≤1600).
 
     Georef (opt-in ``output_georef``): plná kvalita ``{stem}.png`` + ``.pgw``
     (+ volitelně GeoTIFF) – Mapper @ 600 DPI s grivací, jinak Pillow @ 600 DPI-eq.
@@ -1784,6 +1936,7 @@ def write_job_oom_preview(
     georef_engine = "mapper" if use_mapper else "pillow"
     pillow_dpi = georef_pillow_dpi()
     web_dpi = web_mapper_dpi()
+    web_px_limit = web_mapper_max_pixels()
 
     if want_georef:
         if use_mapper:
@@ -1888,13 +2041,40 @@ def write_job_oom_preview(
             stale.unlink(missing_ok=True)
 
     web_out: Path | None = None
-    try:
+    web_timeout = web_preview_timeout_sec()
+
+    def _cleanup_web_temps() -> None:
+        tmp_mapper.unlink(missing_ok=True)
+        (work_dir / "_web_mapper_aoi.png").unlink(missing_ok=True)
+        work_png.unlink(missing_ok=True)
+
+    def _try_mapper_web() -> Path | None:
         src_png: Path | None = None
         src_label = ""
         if use_mapper and georef_full.is_file() and want_georef:
-            src_png = georef_full
-            src_label = f"georef {georef_full.name}"
-        elif use_mapper:
+            # Reuse georef @ 600 jen když IHDR vejde – nikdy Image.open na ~494 Mpx.
+            if png_within_web_pixel_limit(georef_full, max_pixels=web_px_limit):
+                src_png = georef_full
+                gw, gh = _png_size(georef_full)
+                src_label = f"georef {georef_full.name} ({gw}×{gh})"
+            elif log:
+                gp = png_pixel_count(georef_full)
+                log(
+                    f"OOM náhled (web): georef {georef_full.name} "
+                    f"({gp} px) > limit {web_px_limit} – "
+                    "nereuse (skip Image.open), Mapper @ capped web DPI"
+                )
+        if src_png is None and use_mapper:
+            dpi = capped_web_mapper_dpi(
+                preferred,
+                desired_dpi=web_dpi,
+                max_pixels=web_px_limit,
+            )
+            if log and dpi < web_dpi:
+                log(
+                    f"OOM náhled (web): DPI capped {web_dpi} → {dpi} "
+                    f"(max {web_px_limit} px)"
+                )
             render_omap_to_png(
                 preferred,
                 tmp_mapper,
@@ -1902,66 +2082,109 @@ def write_job_oom_preview(
                 write_pgw=False,
                 undo_grivation=False,
                 engine="mapper",
-                target_dpi=web_dpi,
+                target_dpi=dpi,
             )
+            # IHDR před open – když i capped export přestřelí, neotevírat.
+            assert_png_within_web_pixel_limit(tmp_mapper, max_pixels=web_px_limit)
             src_png = tmp_mapper
-            src_label = f"Mapper @ {web_dpi} DPI"
-        if src_png is not None and src_png.is_file():
-            cropped = work_dir / "_web_mapper_aoi.png"
-            cw, ch = prepare_mapper_web_preview(
-                preferred,
-                src_png,
-                cropped,
-                max_side=WEB_PREVIEW_MAX_SIDE,
-            )
-            w, h = write_web_preview_jpeg(cropped, work_jpg)
-            shutil.copy2(work_jpg, named_jpg)
-            work_png.unlink(missing_ok=True)
-            named_png.unlink(missing_ok=True)
-            tmp_mapper.unlink(missing_ok=True)
-            cropped.unlink(missing_ok=True)
-            _clear_web_sidecars()
-            web_out = work_jpg
-            if log:
-                log(
-                    f"OOM náhled (web Mapper JPEG): {preferred.name} → "
-                    f"preview.jpg ({src_label} → AOI+bez deklinace "
-                    f"{cw}×{ch} → {w}×{h} q={WEB_JPEG_QUALITY})"
-                )
-    except Exception as exc:
+            src_label = f"Mapper @ {dpi} DPI"
+        if src_png is None or not src_png.is_file():
+            return None
+        cropped = work_dir / "_web_mapper_aoi.png"
+        cw, ch = prepare_mapper_web_preview(
+            preferred,
+            src_png,
+            cropped,
+            max_side=WEB_PREVIEW_MAX_SIDE,
+        )
+        w, h = write_web_preview_jpeg(cropped, work_jpg)
+        shutil.copy2(work_jpg, named_jpg)
+        work_png.unlink(missing_ok=True)
+        named_png.unlink(missing_ok=True)
         tmp_mapper.unlink(missing_ok=True)
-        (work_dir / "_web_mapper_aoi.png").unlink(missing_ok=True)
+        cropped.unlink(missing_ok=True)
+        _clear_web_sidecars()
         if log:
             log(
-                f"OOM náhled (web Mapper): {preferred.name} selhal ({exc}) – "
-                "Pillow fallback"
+                f"OOM náhled (web Mapper JPEG): {preferred.name} → "
+                f"preview.jpg ({src_label} → AOI+bez deklinace "
+                f"{cw}×{ch} → {w}×{h} q={WEB_JPEG_QUALITY})"
             )
+        return work_jpg
 
-    if web_out is None:
-        try:
-            summary = render_omap_to_png(
-                preferred,
-                work_png,
-                log=log,
-                write_pgw=False,
-                undo_grivation=True,
-                engine="pillow",
-                max_side=WEB_PREVIEW_MAX_SIDE,
+    def _try_pillow_web() -> Path | None:
+        summary = render_omap_to_png(
+            preferred,
+            work_png,
+            log=log,
+            write_pgw=False,
+            undo_grivation=True,
+            engine="pillow",
+            max_side=WEB_PREVIEW_MAX_SIDE,
+        )
+        w, h = write_web_preview_jpeg(work_png, work_jpg)
+        shutil.copy2(work_jpg, named_jpg)
+        work_png.unlink(missing_ok=True)
+        named_png.unlink(missing_ok=True)
+        _clear_web_sidecars()
+        if log:
+            log(
+                f"OOM náhled (web Pillow JPEG fallback): "
+                f"{preferred.name} → preview.jpg ({summary} → {w}×{h})"
             )
-            w, h = write_web_preview_jpeg(work_png, work_jpg)
-            shutil.copy2(work_jpg, named_jpg)
-            work_png.unlink(missing_ok=True)
-            named_png.unlink(missing_ok=True)
-            _clear_web_sidecars()
-            web_out = work_jpg
-            if log:
-                log(
-                    f"OOM náhled (web Pillow JPEG fallback): "
-                    f"{preferred.name} → preview.jpg ({summary} → {w}×{h})"
-                )
-        except Exception as exc:
-            if log:
-                log(f"OOM náhled (web): {preferred.name} selhal ({exc})")
+        return work_jpg
+
+    # Celý web náhled pod deadline – hang (bomb→fallback) nesmí blokovat ZIP.
+    try:
+        with _web_preview_deadline(web_timeout):
+            mapper_exc: Exception | None = None
+            try:
+                web_out = _try_mapper_web()
+            except TimeoutError:
+                raise  # deadline – nepolykat jako běžný Mapper fail
+            except Exception as exc:
+                mapper_exc = exc
+                _cleanup_web_temps()
+                if log:
+                    log(
+                        f"OOM náhled (web Mapper): {preferred.name} selhal "
+                        f"({exc}) – Pillow fallback"
+                    )
+            if web_out is None:
+                try:
+                    web_out = _try_pillow_web()
+                except TimeoutError:
+                    raise
+                except Exception as exc:
+                    _cleanup_web_temps()
+                    if log:
+                        log(
+                            f"OOM náhled (web): {preferred.name} selhal ({exc})"
+                        )
+                    if mapper_exc is not None and _is_pixel_bomb_error(mapper_exc):
+                        if log:
+                            log(
+                                "OOM náhled (web): po pixel bomb / IHDR cap "
+                                "fallback selhal – pokračuji bez web náhledu "
+                                "(ZIP/OCD dál)"
+                            )
+    except TimeoutError as exc:
+        _cleanup_web_temps()
+        if log:
+            log(
+                f"OOM náhled (web): {preferred.name} timeout ({exc}) – "
+                "pokračuji bez web náhledu (ZIP/OCD dál)"
+            )
+        web_out = None
+    except Exception as exc:
+        # Obrana: nic z web náhledu nesmí shodit zbytek pipeline.
+        _cleanup_web_temps()
+        if log:
+            log(
+                f"OOM náhled (web): {preferred.name} neočekávaně selhal "
+                f"({exc}) – pokračuji bez web náhledu"
+            )
+        web_out = None
 
     if log and written:
         src = (

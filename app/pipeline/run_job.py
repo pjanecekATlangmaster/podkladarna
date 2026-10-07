@@ -629,6 +629,8 @@ def _package_output(
                         log(f"OOM: {variant_name} nevytvořeno (prepare_oom_map vrátil None)")
 
             try:
+                # Web/georef náhled: vnitřní timeout + catch; selhání nesmí
+                # blokovat ZIP/OCD (ostrý hang b15bc8d21895: bomb→fallback).
                 write_job_oom_preview(
                     omap_paths,
                     kp_cwd,
@@ -637,7 +639,7 @@ def _package_output(
                     log=log,
                 )
             except Exception as exc:
-                log(f"OOM náhled: přeskočeno ({exc})")
+                log(f"OOM náhled: přeskočeno ({exc}) – pokračuji ZIP/OCD")
 
             if output_georef_enabled(options):
                 try:
