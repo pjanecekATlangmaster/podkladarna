@@ -16,7 +16,6 @@ services:
     environment:
       - PODKLADARNA_DATA=/data
       - MAX_CONCURRENT_LIDAR=1
-      - TEMP_RETENTION_DAYS=7
       # Mapper CLI je v image (/opt/mapper); override jen při vlastním binárce:
       # PODKLADARNA_MAPPER=/opt/mapper/bin/Mapper
       # PODKLADARNA_MAPPER_EXPORT="{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}

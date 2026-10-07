@@ -1,8 +1,7 @@
 """Kanonická georef mřížka jobu (EPSG:5514).
 
 Všechny DEM-deriváty (vrstevnice, shade, CHM, …) mají sdílet stejný extent
-a buňku. Primární pravda je ``job_grid.json`` + ``job.pgw``; legacy
-``pullautus.*`` je jen fallback ze starších ZIP.
+a buňku. Pravda je ``job_grid.json`` + ``job.pgw``.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from app.pipeline.crs_5514 import CRS_LABEL
-from app.pipeline.georef import PgwGeoref, png_pixel_size, read_pgw
+from app.pipeline.georef import PgwGeoref
 
 GRID_JSON_NAME = "job_grid.json"
 GRID_PGW_NAME = "job.pgw"
@@ -161,37 +160,19 @@ def write_job_grid(
     return grid
 
 
-def extent_from_pgw_png(png: Path, pgw: Path) -> tuple[float, float, float, float]:
-    georef = read_pgw(pgw)
-    width, height = png_pixel_size(png)
-    xmin = georef.origin_x
-    ymax = georef.origin_y
-    xmax = xmin + width * georef.pixel_x
-    ymin = ymax + height * georef.pixel_y
-    return min(xmin, xmax), min(ymin, ymax), max(xmin, xmax), max(ymin, ymax)
-
-
 def resolve_job_extent(
     work_dir: Path,
     *,
     crop_bounds: tuple[float, float, float, float] | None = None,
 ) -> tuple[float, float, float, float]:
-    """Primární extent jobu: job_grid → pullautus PNG/PGW → crop_bounds.
-
-    Už nebere ``pullautus.pgw`` jako jedinou pravdu – kanonická mřížka má prioritu.
-    """
+    """Extent jobu: kanonická job_grid, jinak ``crop_bounds``."""
     grid = JobGrid.load(work_dir)
     if grid is not None:
         return grid.bounds()
-
-    png = work_dir / "pullautus.png"
-    pgw = work_dir / "pullautus.pgw"
-    if png.is_file() and pgw.is_file():
-        return extent_from_pgw_png(png, pgw)
 
     if crop_bounds is not None:
         return crop_bounds
 
     raise RuntimeError(
-        "Chybí extent jobu (job_grid.json, pullautus PNG/PGW, nebo crop_bounds)"
+        "Chybí extent jobu (job_grid.json nebo crop_bounds)"
     )

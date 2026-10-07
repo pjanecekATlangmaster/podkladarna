@@ -1,7 +1,6 @@
 """Náhledová PNG / georef šablona.
 
-Preferujeme ``preview.png`` (+ ``preview.pgw``); legacy ``pullautus.*``
-jen jako fallback ze starších ZIP. Compose = hillshade (± overlay) na ``job_grid``.
+``preview.png`` (+ ``preview.pgw``). Compose = hillshade (± overlay) na ``job_grid``.
 """
 
 from __future__ import annotations
@@ -16,21 +15,19 @@ from app.pipeline.job_grid import JobGrid
 PREVIEW_PNG = "preview.png"
 PREVIEW_JPG = "preview.jpg"
 PREVIEW_PGW = "preview.pgw"
-PULLAUTUS_PNG = "pullautus.png"
-PULLAUTUS_PGW = "pullautus.pgw"
 
 
 def resolve_preview_png(*dirs: Path) -> Path | None:
     """Vrátí existující webový náhled.
 
-    Priorita: ``preview.jpg`` → ``preview.png`` → ``pullautus.png`` →
+    Priorita: ``preview.jpg`` → ``preview.png`` →
     ``preview/oom_preview.jpg`` → ``preview/oom_preview.png``.
     """
     for directory in dirs:
         if directory is None:
             continue
         root = Path(directory)
-        for name in (PREVIEW_JPG, PREVIEW_PNG, PULLAUTUS_PNG):
+        for name in (PREVIEW_JPG, PREVIEW_PNG):
             path = root / name
             if path.is_file():
                 return path
@@ -175,7 +172,7 @@ def ensure_georef_template(
     prefer_preview: bool = True,
     create_grid_placeholder: bool = True,
 ) -> tuple[Path, Path] | None:
-    """PNG+PGW šablona: preview → pullautus → job_grid placeholder.
+    """PNG+PGW šablona: preview → job_grid placeholder.
 
     Full shade compose řeší ``compose_job_preview``; zde jen existence souborů
     / solid canvas, ať WMS/reference mají extent.
@@ -184,7 +181,6 @@ def ensure_georef_template(
     candidates: list[tuple[str, str]] = []
     if prefer_preview:
         candidates.append((PREVIEW_PNG, PREVIEW_PGW))
-    candidates.append((PULLAUTUS_PNG, PULLAUTUS_PGW))
 
     for png_name, pgw_name in candidates:
         png = work_dir / png_name

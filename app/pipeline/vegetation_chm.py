@@ -22,7 +22,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.pipeline.crs_5514 import write_prj
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
 from app.pipeline.prepare_lidar import log_step

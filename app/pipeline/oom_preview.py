@@ -1323,14 +1323,6 @@ def preview_extent_from_crop(
     )
 
 
-def pgw_for_grid_north_preview(
-    extent: PreviewExtent,
-    georef: OmapGeoref,
-) -> PgwGeoref:
-    """World file pro webový PNG se severem sítě nahoru (grivace odrotovaná)."""
-    return pgw_for_preview(extent, georef, with_grivation=False)
-
-
 def pgw_for_preview(
     extent: PreviewExtent,
     georef: OmapGeoref,

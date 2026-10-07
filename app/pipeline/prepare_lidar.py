@@ -36,19 +36,6 @@ def expand_crop_bounds(
     return xmin - pad, ymin - pad, xmax + pad, ymax + pad
 
 
-def ensure_contains_bounds(
-    outer: tuple[float, float, float, float],
-    inner: tuple[float, float, float, float],
-) -> tuple[float, float, float, float]:
-    """Vrátí envelope, který pokrývá outer i inner."""
-    return (
-        min(outer[0], inner[0]),
-        min(outer[1], inner[1]),
-        max(outer[2], inner[2]),
-        max(outer[3], inner[3]),
-    )
-
-
 def kp_pad_crop_bounds(
     bounds: tuple[float, float, float, float],
     scalefactor: float,
@@ -60,15 +47,6 @@ def kp_pad_crop_bounds(
     """
     pad = kp_grid_scale_m(scalefactor) + 0.05 + max(0.0, float(extra_pad_m))
     return expand_crop_bounds(bounds, pad)
-
-
-# Zpětná kompatibilita: dřívější inset by zmenšoval výběr – teď jen pad ven.
-def kp_safe_crop_bounds(
-    bounds: tuple[float, float, float, float],
-    scalefactor: float,
-    extra_inset_m: float = 0.0,
-) -> tuple[float, float, float, float]:
-    return kp_pad_crop_bounds(bounds, scalefactor, extra_pad_m=extra_inset_m)
 
 
 def resolve_merge_crop_bounds(
@@ -91,33 +69,6 @@ def resolve_merge_crop_bounds(
 def _crop_filter_bounds(bounds: tuple[float, float, float, float]) -> str:
     xmin, ymin, xmax, ymax = bounds
     return f"--filters.crop.bounds=([{xmin},{xmax}],[{ymin},{ymax}])"
-
-
-def crop_laz(
-    src: Path,
-    dest: Path,
-    bounds: tuple[float, float, float, float],
-    log: callable | None = None,
-) -> Path:
-    xmin, ymin, xmax, ymax = bounds
-    if log:
-        log(
-            f"PDAL crop bbox 5514: [{xmin:.1f},{xmax:.1f}] x [{ymin:.1f},{ymax:.1f}]"
-        )
-    log_step(log, "Ořezávám mračno bodů na výřez mapy")
-    run_cmd(
-        [
-            find_tool("pdal"),
-            "translate",
-            str(src),
-            str(dest),
-            "crop",
-            _crop_filter_bounds(bounds),
-            "--stream",
-        ],
-        log=log,
-    )
-    return dest
 
 
 def find_tool(name: str) -> str:

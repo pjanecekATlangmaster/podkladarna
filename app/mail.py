@@ -50,7 +50,7 @@ def _attach_path(msg: EmailMessage, path: Path) -> None:
     maintype, subtype = _guess_mime(path)
     # Stabilní jméno v mail klientovi (náhled mapy).
     filename = path.name
-    if filename.lower() in {"pullautus.png", "oom_preview.png"}:
+    if filename.lower() == "oom_preview.png":
         filename = "preview.png"
     elif filename.lower() in {"oom_preview.jpg", "oom_preview.jpeg"}:
         filename = "preview.jpg"

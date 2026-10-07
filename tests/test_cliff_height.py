@@ -4,7 +4,6 @@ import pytest
 
 from app.pipeline.cliff_height import (
     MAJOR_DROP_M,
-    drop_is_mappable,
     filter_by_drop,
     likely_closed_depression,
     measure_drop,
@@ -63,7 +62,6 @@ def test_step_on_slope_keeps_only_the_step():
 def test_small_step_is_below_threshold():
     got = measure_drop(_line_along_y(), _step_terrain(0.5))
     assert got.measured
-    assert not drop_is_mappable(got)
 
 
 def test_big_step_counts_as_major():
@@ -74,7 +72,6 @@ def test_big_step_counts_as_major():
 def test_no_dem_measures_nothing_and_keeps_line():
     got = measure_drop(_line_along_y(), None)
     assert not got.measured
-    assert drop_is_mappable(got)
 
 
 def test_nodata_holes_do_not_crash():

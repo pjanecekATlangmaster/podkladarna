@@ -19,9 +19,6 @@ INDICATIVE_LABEL_CS = (
     "Pracovní kreslicí podklad – není dokonalé zaměření."
 )
 CITATION_SHORT = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
-# Legacy aliasy (dříve rozlišovaly citaci s/bez KP) – vždy stejný text.
-CITATION_SHORT_NO_KP = CITATION_SHORT
-CITATION_SHORT_WITH_KP = CITATION_SHORT
 
 
 def citation_line() -> str:

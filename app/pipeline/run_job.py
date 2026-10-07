@@ -9,7 +9,6 @@ from pathlib import Path
 
 from app import db
 from app.download_cache import (
-    LEGACY_MERGED_LAZ_NAMES,
     force_refresh_enabled,
     lidar_pair_paths,
     lidar_crop_cache_dir,
@@ -26,7 +25,7 @@ from app.pipeline.fetch_openzu import (
 )
 from app.pipeline.fetch_ruian import fetch_ruian_buildings_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
-from app.pipeline.ini_builder import load_presets, resolve_vege_height
+from app.pipeline.job_options import load_presets, resolve_vege_height
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
 from app.pipeline.osm_paths import (
     prepare_osm_paths,
@@ -195,7 +194,7 @@ def join_reference_download(
             else:
                 log(
                     "=== Fáze: referenční PNG přeskočeny "
-                    "(chybí georef šablona preview/pullautus/job_grid) ==="
+                    "(chybí georef šablona preview/job_grid) ==="
                 )
             return built_refs, []
         if progress is not None:
@@ -306,13 +305,6 @@ def run_job_pipeline(
         pair = lidar_pair_paths(lidar_work)
         if pair is not None:
             merged_existing = pair[0]
-        else:
-            # Starší job jen s KP merged_crop (bez dvojice ground/veg).
-            for name in LEGACY_MERGED_LAZ_NAMES:
-                candidate = lidar_work / name
-                if candidate.exists() and candidate.stat().st_size > 1000:
-                    merged_existing = candidate
-                    break
 
     if bbox:
         west, south, east, north = bbox
@@ -674,7 +666,6 @@ def _package_output(
     ref_layers: list[str] = []
     built_refs: dict[str, Path] = {}
     bbox = options.get("bbox_wgs84")
-    omap_path = None
     zabaged = zabaged_clean if zabaged_clean and zabaged_clean.exists() else None
 
     if want_zip:
@@ -875,7 +866,7 @@ def _package_output(
         else:
             log("=== Fáze: jen PNG náhled (ZIP/OOM přeskočeno) ===")
 
-    for name in ("pullautus.png", "pullautus.pgw", "preview.png", "preview.pgw"):
+    for name in ("preview.png", "preview.pgw"):
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)

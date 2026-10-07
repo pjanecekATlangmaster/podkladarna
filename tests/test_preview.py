@@ -27,7 +27,6 @@ from app.pipeline.shade import (
 def test_resolve_preview_prefers_preview_png(tmp_path: Path):
     out = tmp_path / "output"
     out.mkdir()
-    (out / "pullautus.png").write_bytes(b"kp")
     (out / "preview.png").write_bytes(b"own")
     assert resolve_preview_png(out).name == "preview.png"
     assert has_preview(out)
@@ -53,9 +52,9 @@ def test_ensure_georef_from_job_grid_placeholder(tmp_path: Path):
     assert georef.pixel_y == -1.0
 
 
-def test_ensure_georef_prefers_existing_pullautus(tmp_path: Path):
-    write_solid_gray_png(tmp_path / "pullautus.png", 4, 4)
-    (tmp_path / "pullautus.pgw").write_text(
+def test_ensure_georef_prefers_existing_preview(tmp_path: Path):
+    write_solid_gray_png(tmp_path / "preview.png", 4, 4)
+    (tmp_path / "preview.pgw").write_text(
         "1\n0\n0\n-1\n-700000\n-1050000\n", encoding="utf-8"
     )
     write_job_grid(
@@ -64,8 +63,8 @@ def test_ensure_georef_prefers_existing_pullautus(tmp_path: Path):
         resolution_m=1.0,
     )
     png, pgw = ensure_georef_template(tmp_path)
-    assert png.name == "pullautus.png"
-    assert pgw.name == "pullautus.pgw"
+    assert png.name == "preview.png"
+    assert pgw.name == "preview.pgw"
 
 
 def test_build_job_shade_from_dem_mock(tmp_path: Path):

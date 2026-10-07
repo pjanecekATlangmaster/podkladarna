@@ -8,31 +8,15 @@ from app.pipeline.oom_import import OomObjectPart
 from app.pipeline.package_oom import _ZABAGED_UNDER_VEGETATION, prepare_oom_map
 
 
-def _mini_png_pgw(kp: Path) -> None:
-    # 1×1 PNG
-    mini_png = (
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
-        b"\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx"
-        b"\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND"
-        b"\xaeB`\x82"
-    )
-    (kp / "pullautus.png").write_bytes(mini_png)
-    (kp / "pullautus.pgw").write_text(
-        "1.0\n0.0\n0.0\n-1.0\n-742000.0\n-1045000.0\n",
-        encoding="utf-8",
-    )
-
-
 def test_zabaged_under_vegetation_layers():
     assert "TrvalyTravniPorost" in _ZABAGED_UNDER_VEGETATION
     assert "UdrzovanaZelen" in _ZABAGED_UNDER_VEGETATION
 
 
 def test_omits_zabaged_meadows_from_auto_omap(tmp_path: Path):
-    """Žádné ZABAGED louky v auto .omap; žádný open_land_subtract."""
+    """Žádné ZABAGED louky v auto .omap; vegetace jen z LiDARu."""
     kp = tmp_path / "work"
     kp.mkdir()
-    _mini_png_pgw(kp)
     zabaged = tmp_path / "zabaged_clean.zip"
     zabaged.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
 
@@ -97,7 +81,6 @@ def test_omits_zabaged_meadows_from_auto_omap(tmp_path: Path):
     assert "TrvalyTravniPorost" in omit
     assert "UdrzovanaZelen" in omit
     vege_mock.assert_called_once()
-    assert vege_mock.call_args.kwargs.get("subtract_wkbs") is None
 
     parts = write_mock.call_args.kwargs["object_parts"]
     names = [p.name for p in parts]

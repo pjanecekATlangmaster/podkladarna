@@ -10,7 +10,7 @@ from app.pipeline.contours_gdal import (
     stitch_open_polylines,
 )
 from app.pipeline.oom_coords import projected_to_map_coord
-from app.pipeline.vegetation_gdal import rgb_to_vege_class, vege_class_to_oom_code
+from app.pipeline.vegetation_gdal import vege_class_to_oom_code
 
 
 def test_contour_oom_code_forest_index_no_formline():
@@ -124,13 +124,12 @@ def test_filter_short_and_refine():
     assert refined[0][-1] == (25.0, 0.0)
 
 
-def test_rgb_to_vege_class_kp_palette():
-    assert vege_class_to_oom_code(rgb_to_vege_class(255, 219, 166)) == "401"
-    assert vege_class_to_oom_code(rgb_to_vege_class(200, 254, 200)) == "406"
-    assert vege_class_to_oom_code(rgb_to_vege_class(140, 231, 140)) == "408"
-    assert vege_class_to_oom_code(rgb_to_vege_class(80, 209, 80)) == "410"
-    assert rgb_to_vege_class(255, 255, 255) == 0
-
+def test_vege_class_to_oom_code():
+    assert vege_class_to_oom_code(1) == "401"
+    assert vege_class_to_oom_code(2) == "406"
+    assert vege_class_to_oom_code(3) == "408"
+    assert vege_class_to_oom_code(4) == "410"
+    assert vege_class_to_oom_code(0) is None
 
 def test_build_gdal_contour_parts_simplify_then_curves(tmp_path, monkeypatch):
     """Vrstevnice: Chaikin → DP → as_curves=True (ne surový Chaikin×Bézier)."""

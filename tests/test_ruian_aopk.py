@@ -12,10 +12,9 @@ from app.pipeline.aopk_trees import (
 )
 from app.pipeline.oom_symbol_map import oom_code_for_vectorconf_rule
 from app.pipeline.oom_vectorconf import load_vectorconf, match_feature
-from app.pipeline.package_oom import DOPLNKY_README, build_oom_zip
+from app.pipeline.package_oom import build_oom_zip
 from app.pipeline.ruian_buildings import (
     ZABAGED_OMIT_BUILDING_LAYERS,
-    build_ruian_building_parts,
 )
 
 
@@ -39,87 +38,6 @@ def test_vectorconf_vyznamny_strom_lesik():
         scale=10000,
     )
     assert mtbo == "418"
-
-
-def test_build_ruian_building_parts_521(tmp_path: Path):
-    gj = tmp_path / "ruian.geojson"
-    gj.write_text(
-        json.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "properties": {},
-                        "geometry": {
-                            "type": "Polygon",
-                            "coordinates": [
-                                [
-                                    [-745000.0, -1045000.0],
-                                    [-744990.0, -1045000.0],
-                                    [-744990.0, -1044990.0],
-                                    [-745000.0, -1044990.0],
-                                    [-745000.0, -1045000.0],
-                                ]
-                            ],
-                        },
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    parts = build_ruian_building_parts(
-        gj,
-        preset_id="sprint_2m",
-        scale=4000,
-        ref_x=-745000.0,
-        ref_y=-1045000.0,
-        grivation_deg=0.0,
-    )
-    assert len(parts) == 1
-    assert parts[0].count == 1
-    assert "RÚIAN" in parts[0].name
-    assert "budovy" in parts[0].name.lower()
-
-
-def test_build_ruian_building_parts_mtbo_526(tmp_path: Path):
-    gj = tmp_path / "ruian.geojson"
-    gj.write_text(
-        json.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "properties": {},
-                        "geometry": {
-                            "type": "Polygon",
-                            "coordinates": [
-                                [
-                                    [-745000.0, -1045000.0],
-                                    [-744990.0, -1045000.0],
-                                    [-744990.0, -1044990.0],
-                                    [-745000.0, -1044990.0],
-                                    [-745000.0, -1045000.0],
-                                ]
-                            ],
-                        },
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    parts = build_ruian_building_parts(
-        gj,
-        preset_id="mtbo_10000",
-        scale=10000,
-        ref_x=-745000.0,
-        ref_y=-1045000.0,
-        grivation_deg=0.0,
-    )
-    assert parts and parts[0].count == 1
 
 
 def test_build_aopk_tree_parts_417(tmp_path: Path):
@@ -295,5 +213,3 @@ def test_doplnky_in_oom_zip(tmp_path: Path, monkeypatch):
     assert not any(n.startswith("zabaged/budovy/") for n in names)
     assert any("BudovaJednotlivaNeboBlokBudov.shp" in n for n in names)
     assert "zabaged/RUIAN_budovy.shp" in names
-    assert "OSM_budovy" in DOPLNKY_README
-    assert "zabaged/" in DOPLNKY_README

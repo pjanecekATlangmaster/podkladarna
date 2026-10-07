@@ -1,3 +1,5 @@
+"""Presety map a čtení voleb jobu z formuláře / API."""
+
 from __future__ import annotations
 
 import yaml
@@ -19,8 +21,6 @@ KP_CLIFF_SENSITIVITY: dict[str, tuple[float, float]] = {
     "very_high": (1.15, 2.0),
 }
 KP_CLIFF_SENSITIVITY_DEFAULT = "low"
-# Při kp_cliff_symbol=off prakticky žádné srázy (vysoké prahy).
-KP_CLIFF_OFF_THRESHOLDS = (50.0, 50.0)
 
 
 def load_presets() -> dict:

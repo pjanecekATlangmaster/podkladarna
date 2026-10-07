@@ -6,7 +6,7 @@ import unicodedata
 import zipfile
 from pathlib import Path
 
-from app.pipeline.karttapullautin_dxf import (
+from app.pipeline.dxf_products import (
     collect_dxf_for_zip,
 )
 from app.guide_text import ZIP_ABOUT_TXT
@@ -15,7 +15,6 @@ from app.pipeline.contours_gdal import build_gdal_contour_parts
 from app.pipeline.osm_paths import (
     PATH_SOURCE_MIXED,
     PATH_SOURCE_OSM,
-    PATH_SOURCE_ZABAGED,
     ZABAGED_OMIT_WHEN_OSM_POWER,
     build_osm_feature_parts,
     build_osm_path_parts,
@@ -27,7 +26,6 @@ from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.geom_clip import expand
-from app.pipeline.georef import projected_center_from_raster
 from app.pipeline.oom_georef import oom_north_angles
 from app.pipeline.oom_import import (
     OomObjectPart,
@@ -52,13 +50,6 @@ from app.pipeline.source_meta import (
 from app.pipeline.vegetation_gdal import build_vegetation_parts
 from app.settings import APP_VERSION
 
-DOPLNKY_OSM_README = """OSM budovy (ruční import)
-========================
-Soubor OSM_budovy.shp ve složce osm/ – v OOM dialog přiřazení symbolu.
-Všem polygonům dej 521 (les/sprint) nebo 526 (MTBO).
-
-Výchozí budovy v .omap jsou z OSM; toto SHP je pro ruční import.
-"""
 
 OSM_FOLDER_README = """OSM – vrstvy pro ruční skládání mapy
 ====================================
@@ -79,35 +70,14 @@ Doporučené symboly jsou v README.txt uvnitř jobu (osm_paths/manual/).
 Souřadnice: EPSG:5514 (S-JTSK).
 """
 
-DOPLNKY_ZABAGED_README = """ZABAGED / RÚIAN budovy
-=====================
-Vrstvy Budova*, Kulna*, StavebniObjektZakryty, Hrad, Zamek a RUIAN_budovy.shp
-jsou ve složce zabaged/ mezi ostatními SHP. Výchozí budovy v .omap jsou z OSM;
-RÚIAN a ZABAGED budovy jsou podklad pro ruční import.
 
-V OOM: File → Importovat… → symbol 521 (les/sprint) nebo 526 (MTBO).
-"""
-
-# Zpětná kompatibilita testů / starších odkazů.
-DOPLNKY_README = (
-    "Budovy pro ruční import jsou u svých zdrojů:\n"
-    "  osm/OSM_budovy.shp (mezi ostatními OSM vrstvami)\n"
-    "  zabaged/ (vrstvy Budova* atd. mezi ostatními SHP)\n"
-    "\n"
-    + DOPLNKY_OSM_README
-    + "\n"
-    + DOPLNKY_ZABAGED_README
-)
 
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
-OOM_ZIP_NAME = "podkladarna_oom.zip"  # legacy – starší joby
-OOM_MAP_NAME = "podkladarna.omap"
 # Zdroje cest × disciplíny (počet disciplín závisí na měřítku).
 # V .omap jen OSM cesty; ZABAGED cesty zůstávají ve zabaged/ pro ruční import.
 OOM_PATH_VARIANTS: tuple[tuple[str, str], ...] = (
     ("cesty_osm", PATH_SOURCE_OSM),
 )
-OOM_DISCIPLINE_ORDER: tuple[str, ...] = ("sprint", "les", "mtbo")
 MAP_SCALES: tuple[int, ...] = (4000, 7500, 10000, 15000)
 # Povolené ekvidistance (m) podle zvoleného měřítka.
 CONTOURS_BY_SCALE: dict[int, tuple[float, ...]] = {
@@ -419,33 +389,6 @@ def build_aoi_boundary_part(
     )
 
 
-def job_scale_label(options: dict | None, preset_id: str = "") -> str:
-    """Text pro seznam jobů: „1:10000 · 5 m“."""
-    opts = options or {}
-    scale = parse_map_scale(opts.get("map_scale"))
-    if scale is None and opts.get("scalefactor") is not None:
-        try:
-            scale = map_scale_from_scalefactor(float(opts["scalefactor"]))
-            if scale not in MAP_SCALES:
-                scale = None
-        except (TypeError, ValueError):
-            scale = None
-    if scale is None and preset_id:
-        scale = map_scale_from_preset_id(preset_id)
-    contour = parse_contour_interval(opts.get("contour_interval"))
-    if contour is None and scale is not None:
-        contour = default_contour_for_scale(scale)
-    if scale is None:
-        return preset_id or "?"
-    if contour is None:
-        return f"1:{scale}"
-    if float(contour).is_integer():
-        c_txt = str(int(contour))
-    else:
-        c_txt = str(contour).replace(".", ",")
-    return f"1:{scale} · {c_txt} m"
-
-
 def oom_metadata(
     preset_id: str,
     preset: dict,
@@ -468,7 +411,6 @@ def oom_metadata(
             "contour_interval", preset.get("contour_interval")
         ),
         "formline": options.get("formline", preset.get("formline")),
-        "use_kp": False,
         "indicative_label": INDICATIVE_LABEL_CS,
         "citation": citation_line(),
         **reference_metadata(),
@@ -710,17 +652,8 @@ def prepare_oom_map(
     path_source = resolve_path_source(path_source)
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
-    pullautus_png = kp_cwd / "pullautus.png"
-    pullautus_pgw = kp_cwd / "pullautus.pgw"
-    if pullautus_png.is_file() and pullautus_pgw.is_file():
-        try:
-            ref_x, ref_y = projected_center_from_raster(pullautus_png, pullautus_pgw)
-        except ValueError:
-            ref_x = (xmin + xmax) / 2
-            ref_y = (ymin + ymax) / 2
-    else:
-        ref_x = (xmin + xmax) / 2
-        ref_y = (ymin + ymax) / 2
+    ref_x = (xmin + xmax) / 2
+    ref_y = (ymin + ymax) / 2
     ref_lat, ref_lon = projected_to_wgs84(ref_x, ref_y)
     _, grivation = oom_north_angles(ref_x, ref_y)
     # LiDAR běží na širším výřezu (CROP_BUFFER_M) – DXF srazy/kameny z okraje
@@ -729,12 +662,7 @@ def prepare_oom_map(
     dxf_clip_bounds = expand(
         crop_bounds_5514(west, south, east, north, buffer_m=0.0), CLIP_MARGIN_M
     )
-    templates = collect_oom_templates(
-        kp_cwd,
-        built_refs=built_refs,
-        include_dxf=include_dxf,
-        include_dxf_templates=False,
-    )
+    templates = collect_oom_templates(kp_cwd, built_refs=built_refs)
     # Prázdné šablony jsou OK: bez referenčních PNG je výchozí pohled
     # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty).
 
@@ -827,7 +755,6 @@ def prepare_oom_map(
             ref_x=ref_x,
             ref_y=ref_y,
             grivation_deg=grivation,
-            subtract_wkbs=None,
         )
     )
     object_parts.extend(
@@ -949,12 +876,6 @@ def build_oom_zip(
             "metadata.json",
             json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
         )
-        for name in ("pullautus.png", "pullautus.pgw"):
-            if include_png:
-                _write_if_exists(zf, kp_cwd / name, f"kp/{name}")
-        for name in ("pullautus_depr.png", "pullautus_depr.pgw"):
-            if include_png:
-                _write_if_exists(zf, kp_cwd / name, f"kp/{name}")
         # Materiálový OOM ZIP: mapové PNG náhledy jen při opt-in georef
         # (output_georef). ČÚZK references/ níže zůstávají (šablony).
         if georef_preview_dir and Path(georef_preview_dir).is_dir():
@@ -974,12 +895,10 @@ def build_oom_zip(
                     zf.write(pgw, f"references/{pgw.name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
-            # Jediná pravda vrstevnic = GDAL SHP; legacy out2 ne do base/.
             for zip_name, src in sorted(
                 collect_dxf_for_zip(
                     temp,
                     include_cliffs=include_cliffs,
-                    include_contours=False,
                 ).items()
             ):
                 zf.write(src, f"base/{zip_name}")

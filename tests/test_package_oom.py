@@ -16,7 +16,7 @@ from app.pipeline.package_oom import (
 
 
 def test_resolve_omap_job_by_scale():
-    from app.pipeline.ini_builder import load_presets
+    from app.pipeline.job_options import load_presets
     from app.pipeline.package_oom import (
         OOM_PATH_VARIANTS,
         omap_variant_filename,
@@ -119,7 +119,7 @@ def test_oom_metadata_lidar_sources_and_no_kp_citation():
         {"scalefactor": 1},
         lidar_sources=lidar,
     )
-    assert meta["use_kp"] is False
+    assert "use_kp" not in meta
     assert meta["dmp_mode"] == "ok"
     assert meta["dmp_degraded"] is False
     assert meta["lidar_sources"] is lidar
@@ -145,7 +145,7 @@ def test_oom_readme_has_no_kp_archive():
         {"scalefactor": 1},
     )
     readme = oom_readme(meta)
-    assert meta["use_kp"] is False
+    assert "use_kp" not in meta
     assert "jediná pravda" in readme
     assert "archive/contours_kp.dxf" not in readme
     assert "Karttapullautin" not in readme
@@ -213,9 +213,8 @@ def test_build_oom_zip_layout(tmp_path: Path):
     assert "README_OOM.txt" in names
     assert "CO_JE_PODKLADARNA.txt" in names
     assert "metadata.json" in names
-    assert "kp/pullautus.png" in names
-    assert "kp/pullautus.pgw" in names
-    assert "kp/pullautus_depr.png" in names
+    # KP náhledy (pullautus*) do ZIPu nepatří, i kdyby v work/ ležely.
+    assert not any(n.startswith("kp/") for n in names)
     # Materiálový ZIP: žádné mapové PNG náhledy (Pillow / Mapper georef).
     assert "preview/preview.png" not in names
     assert not any(
@@ -351,19 +350,10 @@ def test_build_oom_zip_includes_georef_when_requested(tmp_path: Path):
 
 
 def test_prepare_oom_map_minimal(tmp_path):
+    from app.pipeline.fetch_openzu import crop_bounds_5514
+
     kp = tmp_path / "work"
     kp.mkdir()
-    # 2×2 px PNG – stačí pro projected_center_from_raster
-    mini_png = (
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02\x00\x00\x00\x02"
-        b"\x08\x02\x00\x00\x00\xfd\xd4\x9a\x73\x00\x00\x00\x12IDATx\x9cc\x60\x60"
-        b"\x60\x00\x00\x00\x04\x00\x01\x5c\xcd\xff\x69\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
-    (kp / "pullautus.png").write_bytes(mini_png)
-    (kp / "pullautus.pgw").write_text(
-        "0.5\n0\n0\n-0.5\n-700000\n-1050000\n",
-        encoding="utf-8",
-    )
     dest = tmp_path / "podkladarna.omap"
     out = prepare_oom_map(
         kp,
@@ -376,7 +366,6 @@ def test_prepare_oom_map_minimal(tmp_path):
     )
     assert out == dest
     xml = dest.read_text(encoding="utf-8")
-    assert "kp/pullautus.png" in xml
     assert "+proj=krovak" in xml
     assert CRS_PROJ4 in xml
     assert "<geographic_crs" in xml
@@ -384,9 +373,9 @@ def test_prepare_oom_map_minimal(tmp_path):
     assert 'declination="' in xml
     assert 'grivation="' in xml
     assert 'grivation="0.00"' not in xml
-    assert "<ref_point x=\"-699999.500000\" y=\"-1050000.500000\"/>" in xml
-    assert 'name="pullautus.png"' in xml
-    assert 'type="TemplateImage"' in xml
+    # Referenční bod = střed výřezu (AOI).
+    xmin, ymin, xmax, ymax = crop_bounds_5514(14.4, 50.08, 14.42, 50.09)
+    assert f'<ref_point x="{(xmin + xmax) / 2:.6f}" y="{(ymin + ymax) / 2:.6f}"/>' in xml
     assert '<symbols count="' in xml
     assert '<line_symbol' in xml
     assert 'parts count="1"' in xml
@@ -421,16 +410,12 @@ def test_collect_oom_templates_with_refs(tmp_path):
     refs = kp / "references"
     refs.mkdir(parents=True)
     (refs / "hillshade_dmr5g.png").write_bytes(b"x")
-    (kp / "pullautus.png").write_bytes(b"x")
     built = {"hillshade": refs / "hillshade_dmr5g.png"}
     templates = collect_oom_templates(kp, built_refs=built)
-    assert len(templates) == 2
+    assert len(templates) == 1
     assert templates[0].relpath == "references/hillshade_dmr5g.png"
     assert templates[0].visible is False
-    assert templates[1].relpath == "kp/pullautus.png"
-    assert templates[1].visible is False
-    assert templates[1].opacity == 0.65
-    assert templates[1].loaded is True
+    assert templates[0].loaded is True
 
 
 def test_collect_oom_templates_osm_hidden_by_default(tmp_path):
@@ -439,7 +424,6 @@ def test_collect_oom_templates_osm_hidden_by_default(tmp_path):
     refs.mkdir(parents=True)
     osm = refs / "osm.png"
     osm.write_bytes(b"x")
-    (kp / "pullautus.png").write_bytes(b"x")
     templates = collect_oom_templates(kp, built_refs={"osm": osm})
     osm_t = [t for t in templates if t.relpath == "references/osm.png"]
     assert len(osm_t) == 1
@@ -453,50 +437,12 @@ def test_collect_oom_templates_katastr_hidden_by_default(tmp_path):
     refs.mkdir(parents=True)
     km = refs / "katastr.png"
     km.write_bytes(b"x")
-    (kp / "pullautus.png").write_bytes(b"x")
     templates = collect_oom_templates(kp, built_refs={"katastr": km})
     km_t = [t for t in templates if t.relpath == "references/katastr.png"]
     assert len(km_t) == 1
     assert km_t[0].label == "Katastrální mapa"
     assert km_t[0].visible is False
     assert km_t[0].opacity == 0.9
-
-def test_collect_oom_templates_includes_hidden_dxf(tmp_path):
-    kp = tmp_path / "work"
-    kp.mkdir()
-    (kp / "pullautus.png").write_bytes(b"x")
-    temp = kp / "temp"
-    temp.mkdir()
-    (temp / "c1g.dxf").write_text("0\nSECTION\n", encoding="utf-8")
-    templates = collect_oom_templates(kp, include_dxf_templates=True)
-    dxf = [t for t in templates if t.kind == "ogr"]
-    assert len(dxf) == 1
-    assert dxf[0].relpath == "base/cliffs_small.dxf"
-    assert dxf[0].visible is False
-    assert dxf[0].loaded is True
-
-
-def test_collect_oom_templates_png_is_control_overlay(tmp_path):
-    kp = tmp_path / "work"
-    kp.mkdir()
-    (kp / "pullautus.png").write_bytes(b"x")
-    templates = collect_oom_templates(kp)
-    png = [t for t in templates if t.relpath == "kp/pullautus.png"]
-    assert len(png) == 1
-    assert png[0].opacity == 0.65
-    assert png[0].visible is False
-    assert all(t.kind != "ogr" for t in templates)
-
-
-def test_first_front_puts_kp_above_map():
-    from app.pipeline.oom_layers import OomTemplate, first_front_template_index
-
-    templates = [
-        OomTemplate("image", "ortho", "references/orthophoto.png", visible=False),
-        OomTemplate("image", "kp", "kp/pullautus.png", visible=False, opacity=0.65),
-    ]
-    assert first_front_template_index(templates) == 1
-
 
 def test_oom_map_shows_main_objects_in_one_part(tmp_path):
     from app.pipeline.build_oom_map import write_oom_map
@@ -517,7 +463,7 @@ def test_oom_map_shows_main_objects_in_one_part(tmp_path):
         ref_y=0,
         ref_lat=50,
         ref_lon=14,
-        templates=[OomTemplate("image", "png", "kp/pullautus.png", visible=False)],
+        templates=[OomTemplate("image", "ortho", "references/orthophoto.png", visible=False)],
         preset_id="forest_10000",
         object_parts=[
             OomObjectPart("Vrstevnice", dummy, 1),
@@ -528,7 +474,8 @@ def test_oom_map_shows_main_objects_in_one_part(tmp_path):
     assert 'parts count="1"' in xml
     assert 'part name="Mapa"' in xml
     assert 'objects count="2"' in xml
-    assert 'first_front_template="0"' in xml
+    # Referenční PNG leží pod mapou (first_front = počet šablon).
+    assert 'first_front_template="1"' in xml
     assert 'visible="false"' in xml
 
 
@@ -550,12 +497,12 @@ def test_oom_map_keeps_png_templates_loaded_but_hidden(tmp_path):
                 "image", "ortho", "references/orthophoto.png", visible=False
             ),
             OomTemplate(
-                "image", "png", "kp/pullautus.png", visible=False, opacity=0.65
+                "image", "osm", "references/osm.png", visible=False, opacity=0.55
             ),
         ],
         preset_id="forest_10000",
     )
     xml = dest.read_text(encoding="utf-8")
-    assert 'open="true" name="pullautus.png"' in xml
+    assert 'open="true" name="osm.png"' in xml
     assert 'open="true" name="orthophoto.png"' in xml
     assert xml.count('visible="false"') >= 2

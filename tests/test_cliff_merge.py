@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from app.pipeline.cliff_merge import merge_cliff_ticks, polyline_to_strip_ring
+from app.pipeline.cliff_merge import merge_cliff_ticks
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 
 
@@ -373,14 +373,6 @@ def test_symbol_206_exists_in_both_sets():
     assert symbol_index_for_code("forest_10000", 10000, "206") is not None
 
 
-def test_polyline_to_strip_ring_makes_closed_area():
-    ring = polyline_to_strip_ring([(0.0, 0.0), (10.0, 0.0)], half_width_m=1.5)
-    assert ring is not None
-    assert ring[0] == ring[-1]
-    assert len(ring) >= 5
-    assert _ring_area(ring) == pytest.approx(30.0, abs=0.5)
-
-
 def _ring_self_intersects(pts) -> bool:
     from app.pipeline.cliff_merge import _ring_is_simple
 
@@ -421,14 +413,6 @@ def test_simplify_ring_safe_rejects_bowtie():
     safe = _simplify_ring_safe(ring, tol=9.0)
     assert _ring_is_simple(safe)
     assert not _ring_self_intersects(safe)
-
-
-def test_zigzag_strip_falls_back_to_simple_hull():
-    """Zigzagová střednice nesmí dát křížící se pás 206."""
-    zig = [(float(i) * 2.0, (i % 2) * 10.0) for i in range(10)]
-    ring = polyline_to_strip_ring(zig, half_width_m=1.5)
-    assert ring is not None
-    assert not _ring_self_intersects(ring)
 
 
 def test_ring_is_simple_detects_bowtie():

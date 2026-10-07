@@ -106,14 +106,6 @@ KP_CLIFF_AUTO = "auto"
 # ISOM 206 = Gigantic boulder / massive cliff (area, plan shape).
 KP_CLIFF_SYMBOL_206 = "symbol_206"
 KP_CLIFF_OFF = "off"
-KP_CLIFF_SYMBOL_CHOICES = frozenset(
-    {
-        KP_CLIFF_AUTO,
-        KP_CLIFF_EARTH_BANK,
-        KP_CLIFF_SYMBOL_206,
-        KP_CLIFF_OFF,
-    }
-)
 # Hustý shluk skalních čárek → plocha (preferuj 201.2 / 206 před 210).
 KP_CLIFF_DENSE_CODE = "210"
 KP_CLIFF_206_CODE = "206"

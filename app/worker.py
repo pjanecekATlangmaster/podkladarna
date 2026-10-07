@@ -26,15 +26,6 @@ def is_busy() -> bool:
     return _running is not None
 
 
-def current_job_id() -> str | None:
-    return _running
-
-
-def queue_size() -> int:
-    with _lock:
-        return len(_queue)
-
-
 def queue_snapshot() -> dict:
     with _lock:
         return {

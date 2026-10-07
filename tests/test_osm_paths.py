@@ -12,14 +12,13 @@ from app.pipeline.osm_paths import (
     build_osm_path_parts,
     classify_osm_feature,
     fetch_osm_path_elements,
-    filter_osm_against_zabaged,
+    centerline_cover_fraction,
+    filter_osm_items_against_zabaged,
     osm_feature_to_5514,
-    overlap_fraction,
     parse_osm_api_map_xml,
     polyline_length,
     sample_polyline,
     osm_way_to_5514,
-    unique_polyline_parts,
     _SegmentIndex,
 )
 
@@ -421,29 +420,6 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("power_line_major", "mtbo_10000") == "517"
 
 
-def test_zabaged_omit_ostatni_from_kp(tmp_path):
-    """Ostatní plocha zůstane v OOM, ale do KP ZIP nepatří (jinak 529 přes silnice)."""
-    from zipfile import ZipFile
-
-    from app.pipeline.osm_paths import ZABAGED_OMIT_FROM_KP, write_zabaged_omitting_layers
-
-    assert "OstatniPlochaVSidlech" in ZABAGED_OMIT_FROM_KP
-    src = tmp_path / "zabaged.zip"
-    with ZipFile(src, "w") as zf:
-        for stem in ("Ulice", "OstatniPlochaVSidlech", "Budova"):
-            for suf in (".shp", ".shx", ".dbf", ".prj"):
-                zf.writestr(f"{stem}{suf}", b"x")
-        zf.writestr("readme.txt", b"keep")
-    dest = tmp_path / "kp.zip"
-    write_zabaged_omitting_layers(src, dest, ZABAGED_OMIT_FROM_KP)
-    with ZipFile(dest) as zf:
-        names = set(zf.namelist())
-    assert "Ulice.shp" in names
-    assert "Budova.shp" in names
-    assert "readme.txt" in names
-    assert not any(n.startswith("OstatniPlochaVSidlech") for n in names)
-
-
 def test_point_in_ring_and_farmland_dedup():
     from app.pipeline.osm_paths import (
         _point_in_ring,
@@ -513,39 +489,6 @@ def test_osm_priority_overpass_includes_barriers():
     # Budovy vždy (doplnky), i bez priority.
     assert 'way["building"]' in ql_off
     assert 'relation["type"="multipolygon"]["building"]' in ql_off
-
-def test_highway_to_zabaged_vrstva():
-    from app.pipeline.osm_paths import highway_to_zabaged_vrstva, paths_geojson_for_kp
-
-    assert highway_to_zabaged_vrstva("track") == "Cesta"
-    assert highway_to_zabaged_vrstva("path") == "Pesina"
-    assert highway_to_zabaged_vrstva("footway") == "Pesina"
-    gj = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": {"highway": "track"},
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": [[0, 0], [10, 0]],
-                },
-            },
-            {
-                "type": "Feature",
-                "properties": {"highway": "path"},
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": [[0, 1], [10, 1]],
-                },
-            },
-        ],
-    }
-    out = paths_geojson_for_kp(gj)
-    assert len(out["features"]) == 2
-    assert out["features"][0]["properties"]["vrstva"] == "Cesta"
-    assert out["features"][1]["properties"]["vrstva"] == "Pesina"
-
 
 def test_osm_oom_code_paths_only():
     from app.pipeline.osm_paths import osm_oom_code
@@ -870,36 +813,6 @@ def test_load_osm_path_lines(tmp_path):
     assert len(lines) == 1
     assert lines[0][0] == (0.0, 0.0)
 
-def test_paths_geojson_for_kp_skips_steps():
-    from app.pipeline.osm_paths import highway_to_zabaged_vrstva, paths_geojson_for_kp
-
-    assert highway_to_zabaged_vrstva("steps") is None
-    gj = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "properties": {"highway": "steps"},
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": [[0, 0], [10, 0]],
-                },
-            },
-            {
-                "type": "Feature",
-                "properties": {"highway": "path"},
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": [[0, 1], [10, 1]],
-                },
-            },
-        ],
-    }
-    out = paths_geojson_for_kp(gj)
-    assert len(out["features"]) == 1
-    assert out["features"][0]["properties"]["highway"] == "path"
-
-
 def test_osm_bench_to_point():
     el = {
         "type": "node",
@@ -979,7 +892,6 @@ def test_short_osm_bridge_is_kept():
         bridge_highway,
         dedup_osm_prefer_wider,
         filter_osm_items_against_zabaged,
-        highway_to_zabaged_vrstva,
         is_bridge_highway,
         osm_oom_code,
         path_min_length_m,
@@ -1040,13 +952,10 @@ def test_short_osm_bridge_is_kept():
     assert osm_oom_code("bridge:sidewalk", "sprint_2m") == "501.6"
     assert osm_oom_code("bridge:residential", "sprint_2m") == "501.19"
     assert osm_oom_code(OSM_BRIDGE_HIGHWAY, "mtbo_10000") == "834"
-    assert highway_to_zabaged_vrstva(OSM_BRIDGE_HIGHWAY) == "Lavka"
-    assert highway_to_zabaged_vrstva("bridge:footway") == "Lavka"
 
 
 def test_osm_oom_code_sidewalk():
     from app.pipeline.osm_paths import (
-        highway_to_zabaged_vrstva,
         osm_oom_code,
         sprint_line_highway,
     )
@@ -1057,7 +966,6 @@ def test_osm_oom_code_sidewalk():
     assert osm_oom_code("sidewalk", "mtbo_10000") == "834"
     assert osm_oom_code("track", "sprint_2m") == "505.1"
     assert osm_oom_code("residential", "sprint_2m") == "501.19"
-    assert highway_to_zabaged_vrstva("sidewalk") == "Pesina"
     # way/613443110: footway + asphalt bez footway=sidewalk → sprint chodník.
     assert (
         sprint_line_highway(
@@ -1297,20 +1205,24 @@ def test_tram_platform_two_node_line_buffered():
     assert ring[0] == ring[-1]
 
 
+def _items(lines):
+    return [(line, "path") for line in lines]
+
+
 def test_filter_drops_line_on_zabaged():
     zab = [[(0.0, 0.0), (100.0, 0.0)]]
     osm_dup = [[(1.0, 1.0), (80.0, 2.0)]]
     osm_new = [[(0.0, 80.0), (40.0, 80.0)]]
-    kept, dropped = filter_osm_against_zabaged(osm_dup + osm_new, zab)
+    kept, dropped = filter_osm_items_against_zabaged(_items(osm_dup + osm_new), zab)
     assert dropped >= 1
-    assert any(abs(pt[1] - 80) < 1 for line in kept for pt in line)
+    assert any(abs(pt[1] - 80) < 1 for line, _hw in kept for pt in line)
 
 
 def test_filter_drops_coincident_centerline():
     """OSM prakticky přes ZABAGED (stejná střednice) musí zmizet."""
     zab = [[(0.0, 0.0), (200.0, 0.0)]]
     osm = [[(0.0, 2.0), (200.0, 2.0)]]
-    kept, dropped = filter_osm_against_zabaged(osm, zab)
+    kept, dropped = filter_osm_items_against_zabaged(_items(osm), zab)
     assert dropped == 1
     assert kept == []
 
@@ -1319,7 +1231,7 @@ def test_filter_keeps_parallel_distinct_path():
     """Paralelní pěšina ~15 m vedle silnice není duplicita střednice – nechat."""
     zab = [[(0.0, 0.0), (200.0, 0.0)]]
     osm = [[(0.0, 15.0), (200.0, 15.0)]]
-    kept, dropped = filter_osm_against_zabaged(osm, zab)
+    kept, dropped = filter_osm_items_against_zabaged(_items(osm), zab)
     assert dropped == 0
     assert len(kept) == 1
 
@@ -1329,27 +1241,17 @@ def test_filter_keeps_partial_overlap_whole_way():
     zab = [[(0.0, 0.0), (100.0, 0.0)]]
     # 80 m po silnici, pak 40 m do lesa (~67 % cover < COVER_DROP).
     osm = [[(0.0, 1.0), (80.0, 1.0), (80.0, 41.0)]]
-    kept, dropped = filter_osm_against_zabaged(osm, zab)
+    kept, dropped = filter_osm_items_against_zabaged(_items(osm), zab)
     assert dropped == 0
     assert len(kept) == 1
-    assert kept[0] == osm[0]
-    assert abs(polyline_length(kept[0]) - 120.0) < 1e-6
+    assert kept[0][0] == osm[0]
+    assert abs(polyline_length(kept[0][0]) - 120.0) < 1e-6
 
 
-def test_unique_parts_splits_middle_overlap():
-    index = _SegmentIndex()
-    index.add_line([(40.0, 0.0), (60.0, 0.0)])
-    line = [(0.0, 0.0), (100.0, 0.0)]
-    parts = unique_polyline_parts(line, index, near_m=6, sample_m=5)
-    assert len(parts) == 2
-    assert polyline_length(parts[0]) > 12
-    assert polyline_length(parts[1]) > 12
-
-
-def test_overlap_high_when_coincident():
+def test_centerline_cover_high_when_coincident():
     index = _SegmentIndex()
     index.add_line([(0.0, 0.0), (100.0, 0.0)])
-    frac = overlap_fraction([(0.0, 1.0), (100.0, 1.0)], index, near_m=6)
+    frac = centerline_cover_fraction([(0.0, 1.0), (100.0, 1.0)], index, match_m=6)
     assert frac > 0.9
 
 

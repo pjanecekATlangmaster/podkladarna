@@ -8,7 +8,6 @@ na kanonické mřížce.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from app.download_cache import file_fingerprint, persist_shade, try_restore_shade
@@ -278,25 +277,3 @@ def build_job_shade(
     return None
 
 
-def copy_shade_to(
-    work_dir: Path,
-    dest_png: Path,
-    dest_pgw: Path | None = None,
-) -> bool:
-    """Zkopíruje shade PNG (+ PGW) na cílové cesty."""
-    src = resolve_shade_png(work_dir)
-    if src is None:
-        return False
-    dest_png.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest_png)
-    src_pgw = src.with_suffix(".pgw")
-    if dest_pgw is not None:
-        if src_pgw.is_file():
-            shutil.copy2(src_pgw, dest_pgw)
-        else:
-            grid = JobGrid.load(work_dir)
-            if grid is not None:
-                _write_grid_pgw(grid, dest_pgw)
-            else:
-                return False
-    return True

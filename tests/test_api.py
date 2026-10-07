@@ -503,11 +503,12 @@ def test_create_job_ignores_legacy_use_kp(client, monkeypatch):
     }
     r = client.post("/api/jobs", data={**base, "name": "kp-default"})
     assert r.status_code == 200
-    assert r.json()["options"]["use_kp"] is False
+    assert "use_kp" not in r.json()["options"]
 
+    # Starý klient posílající use_kp=1: pole se ignoruje, job vznikne.
     r1 = client.post("/api/jobs", data={**base, "name": "kp-on", "use_kp": "1"})
     assert r1.status_code == 200
-    assert r1.json()["options"]["use_kp"] is False
+    assert "use_kp" not in r1.json()["options"]
 
 
 def test_index_html(client):

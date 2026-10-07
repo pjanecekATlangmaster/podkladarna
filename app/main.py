@@ -38,7 +38,7 @@ from app.pipeline.fetch_openzu import (
     parse_bbox,
     query_sm5_sheets,
 )
-from app.pipeline.ini_builder import (
+from app.pipeline.job_options import (
     KP_CLIFF_SENSITIVITY,
     KP_VEGE_HEIGHT_CHOICES,
     load_presets,
@@ -729,8 +729,6 @@ async def api_create_job(request: Request):
             )
         options["private"] = True
         options["notify_email"] = notify_email
-    # Legacy API flag – vždy vypnuto (Karttapullautin runtime není).
-    options["use_kp"] = False
     reuse_id = _form_str(form, "reuse_job_id").strip()
     if reuse_id:
         try:

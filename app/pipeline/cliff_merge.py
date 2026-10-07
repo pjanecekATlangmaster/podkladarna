@@ -75,8 +75,6 @@ ROCK_MIN_CORE_CELLS = 2
 # 1:4000 → 4,8 m / 20 m. Dřív zem 3,5 mm / 35 m.
 MIN_LINE_MM_ROCK = 1.2
 MIN_LINE_MM_EARTH = 5.0
-# Zpětná kompatibilita (testy / starší volání).
-MIN_LINE_MM = MIN_LINE_MM_ROCK
 
 # Zemní sráz: po hrubém zjednodušení path/chord a zatáčky – nad tím raději nekreslit.
 # (Surový řetěz DEM ticků je zubatý i u rovné stěny, proto nejdřív simplify.)
@@ -1426,43 +1424,3 @@ def _ring_area(pts: list[tuple[float, float]]) -> float:
     return abs(_signed_ring_area(pts))
 
 
-def polyline_to_strip_ring(
-    pts: list[tuple[float, float]],
-    half_width_m: float = 1.5,
-) -> list[tuple[float, float]] | None:
-    """Úzký uzavřený prstenec kolem linie – pro kreslení srázu symbolem plochy (206)."""
-    if len(pts) < 2 or half_width_m <= 0:
-        return None
-    left: list[tuple[float, float]] = []
-    right: list[tuple[float, float]] = []
-    n = len(pts)
-    for i, (x, y) in enumerate(pts):
-        if i == 0:
-            dx, dy = pts[1][0] - x, pts[1][1] - y
-        elif i == n - 1:
-            dx, dy = x - pts[i - 1][0], y - pts[i - 1][1]
-        else:
-            dx, dy = pts[i + 1][0] - pts[i - 1][0], pts[i + 1][1] - pts[i - 1][1]
-        length = math.hypot(dx, dy)
-        if length < 1e-9:
-            continue
-        nx, ny = -dy / length, dx / length
-        left.append((x + nx * half_width_m, y + ny * half_width_m))
-        right.append((x - nx * half_width_m, y - ny * half_width_m))
-    if len(left) < 2:
-        return None
-    ring = left + list(reversed(right))
-    if ring[0] != ring[-1]:
-        ring.append(ring[0])
-    if len(ring) < 4:
-        return None
-    # Zigzagová střednice → pás se kříží; vezmi obálku, ať OOM nekreslí smyčky.
-    body = ring[:-1]
-    if not _ring_is_simple(body):
-        hull = _convex_hull_ring(body)
-        if len(hull) < 3:
-            return None
-        if hull[0] != hull[-1]:
-            hull = hull + [hull[0]]
-        return hull
-    return ring

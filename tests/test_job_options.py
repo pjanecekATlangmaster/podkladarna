@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from app.pipeline.ini_builder import (
-    KP_CLIFF_OFF_THRESHOLDS,
+from app.pipeline.job_options import (
     KP_CLIFF_SENSITIVITY,
     KP_VEGE_HEIGHT_DEFAULT,
     resolve_cliff_sensitivity,
@@ -22,4 +21,3 @@ def test_resolve_cliff_sensitivity():
     assert resolve_cliff_sensitivity({"kp_cliff_sensitivity": "nope"}) == "low"
     assert resolve_cliff_sensitivity({}) == "low"
     assert KP_CLIFF_SENSITIVITY["high"] == (1.4, 2.8)
-    assert KP_CLIFF_OFF_THRESHOLDS == (50.0, 50.0)

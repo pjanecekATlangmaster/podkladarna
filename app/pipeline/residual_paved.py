@@ -573,17 +573,6 @@ def _difference_one_subject(subject: bytes, mask_index) -> list[bytes]:
     return difference_polygon_wkb(subject, mask)
 
 
-def _difference_subjects(
-    subjects: list[bytes], mask_wkbs: list[bytes]
-) -> list[bytes]:
-    """Subject − maska. Maska se skládá po subjectu (STRtree), ne jeden obří Union."""
-    index = _build_mask_index(mask_wkbs)
-    out: list[bytes] = []
-    for subject in subjects:
-        out.extend(_difference_one_subject(subject, index))
-    return out
-
-
 def _load_or_fetch_all_osm(
     work_dir: Path,
     bbox_wgs84: tuple[float, float, float, float] | None,

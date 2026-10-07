@@ -3,20 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
 from app.pipeline.reference_layers import HILLSHADE_VARIANTS
 
 # Skupiny v okně šablon OOM (atribut group=).
 GROUP_REFERENCE = 1
 GROUP_OSM = 2
-GROUP_KP_PNG = 3
-
-DXF_LABELS: dict[str, str] = {
-    "contours_kp.dxf": "Vrstevnice (archiv DXF, legacy)",
-    "cliffs_small.dxf": "Zemní srázy (DXF)",
-    "cliffs_large.dxf": "Zemní srázy strmější (DXF)",
-    "dotknolls.dxf": "Knolíky (DXF)",
-}
 
 
 @dataclass(frozen=True)
@@ -56,27 +47,17 @@ OOM_OSM_REF_SPEC = (
 )
 
 
-def first_front_template_index(templates: list[OomTemplate]) -> int:
-    """První šablona nad mapou: až uživatel zapne KP PNG, má být nad papírem."""
-    for i, tmpl in enumerate(templates):
-        if tmpl.relpath.startswith("kp/"):
-            return i
-        if tmpl.group == GROUP_KP_PNG:
-            return i
-    return len(templates)
-
-
 def collect_oom_templates(
-    kp_cwd: Path,
+    work_dir: Path,
     *,
     built_refs: dict[str, Path] | None = None,
-    include_dxf: bool = True,
-    include_dxf_templates: bool = False,
 ) -> list[OomTemplate]:
-    """Šablony zdola nahoru. KP PNG patří nad mapu (first_front_template_index).
+    """Referenční PNG šablony zdola nahoru (všechny pod mapou).
 
-    Vektory KP a ZABAGED jdou do .omap jako editovatelné objekty (viz oom_import).
+    Vektory (LiDAR, ZABAGED, OSM) jdou do .omap jako editovatelné objekty
+    (viz oom_import), ne jako šablony.
     """
+    del work_dir
     templates: list[OomTemplate] = []
 
     if built_refs:
@@ -106,47 +87,5 @@ def collect_oom_templates(
                     group=GROUP_OSM,
                 )
             )
-
-    if (kp_cwd / "pullautus.png").is_file():
-        templates.append(
-            OomTemplate(
-                "image",
-                "Náhled (legacy PNG)",
-                "kp/pullautus.png",
-                # Výchozí pohled = vektorová mapa; PNG si zapneš při kontrole.
-                visible=False,
-                opacity=0.65,
-                group=GROUP_KP_PNG,
-            )
-        )
-
-    depr = kp_cwd / "pullautus_depr.png"
-    if depr.is_file():
-        templates.append(
-            OomTemplate(
-                "image",
-                "Deprese (legacy PNG)",
-                "kp/pullautus_depr.png",
-                visible=False,
-                opacity=0.65,
-                group=GROUP_KP_PNG,
-            )
-        )
-
-    if include_dxf and include_dxf_templates:
-        temp = kp_cwd / "temp"
-        if temp.is_dir():
-            for zip_name in sorted(collect_dxf_for_zip(temp)):
-                templates.append(
-                    OomTemplate(
-                        "ogr",
-                        DXF_LABELS.get(zip_name, zip_name),
-                        f"base/{zip_name}",
-                        visible=False,
-                        opacity=1.0,
-                        group=GROUP_KP_PNG,
-                        loaded=True,
-                    )
-                )
 
     return templates

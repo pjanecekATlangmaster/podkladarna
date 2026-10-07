@@ -44,10 +44,6 @@ Výřez na mapě (Česko, max 5 × 5 km). LiDAR i ZABAGED se stahují do sdílen
 - `web/static/logo.svg` – vektorové logo (lampion, barvy O-mapy)
 - Volitelně PNG: zkopírujte `assets/podkladarna-logo.png` do `web/static/logo.png`
 
-## Plán
-
-Viz [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) – aktuálně **v1.8** (měřítko + ekvidistance; omapy podle disciplín).
-
 ## Lokální vývoj (bez Docker)
 
 Vyžaduje PDAL a GDAL v PATH.

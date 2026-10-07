@@ -5,10 +5,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from app.pipeline.prepare_lidar import (
-    ensure_contains_bounds,
     expand_crop_bounds,
     kp_pad_crop_bounds,
-    kp_safe_crop_bounds,
     merge_dmr_dmp,
     resolve_merge_crop_bounds,
 )
@@ -23,15 +21,6 @@ def test_kp_pad_expands_sprint_scale():
     assert ymax > 1000.5
 
 
-def test_kp_safe_crop_is_expand_alias():
-    """Dřívější inset by zmenšoval výběr – alias musí expandovat."""
-    xmin, ymin, xmax, ymax = kp_safe_crop_bounds(
-        (0.0, 0.0, 2000.0, 1000.0), 0.4, extra_inset_m=2.0
-    )
-    assert xmin < -2.0
-    assert xmax > 2002.0
-
-
 def test_kp_oob_pads_stay_near_user_crop():
     """Retry pad musí zůstat u výběru – ne skok na celé SM5 (km)."""
     crop = (0.0, 0.0, 2000.0, 1000.0)
@@ -42,14 +31,8 @@ def test_kp_oob_pads_stay_near_user_crop():
         assert (xmax - xmin) < 4000.0
 
 
-def test_expand_and_ensure_contains():
+def test_expand_crop_bounds():
     assert expand_crop_bounds((0.0, 0.0, 10.0, 10.0), 5.0) == (-5.0, -5.0, 15.0, 15.0)
-    assert ensure_contains_bounds((-100.0, -50.0, 0.0, 0.0), (0.0, 0.0, 10.0, 20.0)) == (
-        -100.0,
-        -50.0,
-        10.0,
-        20.0,
-    )
 
 
 def test_resolve_merge_crop_bounds_adds_kp_pad():
@@ -73,6 +56,10 @@ def _fake_pipeline_output(cmd):
 
 def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
     """Early-crop: translate obsahuje crop; žádný dodatečný crop po merge."""
+    from app import settings
+
+    # Sheet-crop cache do tmp – jinak zásah z předchozího běhu (stejné jméno listu).
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path / "cache_root")
     cmds: list[list[str]] = []
 
     def fake_run_cmd(cmd, **kwargs):
@@ -130,6 +117,10 @@ def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
 
 
 def test_merge_dmr_dmp_skips_empty_crop_sheet(tmp_path, monkeypatch):
+    from app import settings
+
+    # Sheet-crop cache do tmp – jinak zásah z předchozího běhu (stejné jméno listu).
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path / "cache_root")
     def fake_run_cmd(cmd, **kwargs):
         if cmd[1] == "translate":
             dest = Path(cmd[3])
@@ -297,10 +288,15 @@ def test_merge_dmr_dmp_parallel_keeps_sheet_order(tmp_path, monkeypatch):
         lambda *a, **k: MagicMock(stdout="", stderr="", returncode=0),
     )
     monkeypatch.setenv("PODKLADARNA_LIDAR_WORKERS", "2")
+    from app import settings
 
-    dmr = [tmp_path / f"r{i}.laz" for i in range(3)]
-    dmp = [tmp_path / f"p{i}.laz" for i in range(3)]
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path / "cache_root")
+
+    # Každý list ve vlastní složce (jako sm5/<MAPNOM>/) → vlastní sheet-crop cache.
+    dmr = [tmp_path / "sm5" / f"S{i}" / "DMR5G.laz" for i in range(3)]
+    dmp = [tmp_path / "sm5" / f"S{i}" / "DMPOK.laz" for i in range(3)]
     for p in dmr + dmp:
+        p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"src" * 100)
     work = tmp_path / "lidar"
     (work).mkdir()

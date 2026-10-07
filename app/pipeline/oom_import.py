@@ -28,7 +28,7 @@ from app.pipeline.cliff_merge import (
     resolve_rock_scarp_overlaps,
     shapely_available,
 )
-from app.pipeline.karttapullautin_dxf import collect_dxf_for_zip
+from app.pipeline.dxf_products import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
     KP_CLIFF_206_CODE,
@@ -1158,14 +1158,14 @@ def _geom_to_parts(geom) -> list[_WkbPart]:
 
 
 def _collect_dxf_line_parts(path: Path, *, use_ogr: bool) -> list[list[tuple[float, float]]]:
-    """Všechny LINESTRING z DXF (KP srázy = spousta 2bodových úseček).
+    """Všechny LINESTRING z DXF (srázy = spousta 2bodových úseček).
 
     Cliff DXF z ``write_cliff_ticks_dxf`` čteme nativně – GDAL OGR na minimálním
     ASCII DXF (bez TABLES) v Dockeru často vrátí 0 prvků.
     """
     path = Path(path)
     name = path.name.lower()
-    if name in {"c_rock.dxf", "c2g.dxf", "c3g.dxf", "c1g.dxf", "c2.dxf"} or name.startswith(
+    if name in {"c_rock.dxf", "c2g.dxf"} or name.startswith(
         "cliffs_"
     ):
         from app.pipeline.cliffs_dem import parse_cliff_ticks_dxf

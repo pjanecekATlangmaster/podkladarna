@@ -19,13 +19,12 @@ from pathlib import Path
 from app.pipeline.cliff_height import MAJOR_DROP_M, MIN_DROP_M
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.prepare_lidar import log_step
-from app.pipeline.ini_builder import (
+from app.pipeline.job_options import (
     KP_CLIFF_SENSITIVITY,
     KP_CLIFF_SENSITIVITY_DEFAULT,
     resolve_cliff_sensitivity,
 )
 
-CLIFFS_DIR_NAME = "cliffs"
 # Délka ticku ~ 3 m buňka (merge_cliff_ticks očekává krátké úsečky).
 TICK_HALF_LEN_M = 1.45
 # Krok vzorkování kandidátů po rastru (m) – podmnožina buněk.

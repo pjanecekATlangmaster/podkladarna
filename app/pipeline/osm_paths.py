@@ -175,8 +175,6 @@ ZABAGED_PATH_LAYERS = frozenset(
 )
 # Při path_source=osm vynechat z OOM (zůstanou ve ZIPu zabaged/ pro ruční import).
 ZABAGED_OMIT_PATH_LAYERS = ZABAGED_PATH_LAYERS | frozenset({"Tunel"})
-# Do KP PNG ne – parking|529 překreslí silnice; v OOM zůstane jako spodní podklad.
-ZABAGED_OMIT_FROM_KP = frozenset({"OstatniPlochaVSidlech"})
 # Priorita OSM / sprint: ořezávat OSM jen proti pevným komunikacím (ne Pesina/Cesta).
 ZABAGED_PATH_LAYERS_PRIORITY = frozenset(
     {
@@ -190,13 +188,11 @@ ZABAGED_PATH_LAYERS_PRIORITY = frozenset(
 )
 # Sprint OOM: tyto ZABAGED vrstvy ustoupí OSM (KP PNG beze změny).
 ZABAGED_PATH_LAYERS_OSM_FIRST = frozenset({"Pesina", "Cesta", "Zabrana"})
-NEAR_M = 25.0  # zpětná kompatibilita testů / starších volání
 # Stejná středová čára (ne „něco v okolí“): OSM a ZABAGED přes sebe.
 MATCH_M = 6.0
 COVER_DROP = 0.70
 # Min. |cos| úhlu tečen – paralelní i protisměr; kolmá cesta se neshoduje.
 MIN_DIR_DOT = 0.5
-OVERLAP_DROP = 0.45  # alias COVER_DROP pro stará volání
 SAMPLE_M = 5.0
 MIN_LENGTH_M = 1.0
 # Společný práh – odřízne jen drobný šum, ne krátké lávky/spojky.
@@ -232,8 +228,6 @@ GRID_M = 30.0
 # crossing / přechody bereme (pod silnicemi); dřív se zahazovaly.
 SKIP_FOOTWAY_ALWAYS = frozenset()
 SKIP_CYCLEWAY = frozenset({"sidewalk", "crossing", "lane", "share_busway", "track"})
-# Zpětná kompatibilita testů / starších importů (sidewalk jen když allow_sidewalk=False).
-SKIP_FOOTWAY = frozenset({"sidewalk"})
 # Lineární railway=platform (2 uzly) → buffer na plochu.
 PLATFORM_LINE_HALF_WIDTH_M = 1.5
 
@@ -379,8 +373,8 @@ def _overpass_ql(
         f"[out:json][timeout:{OVERPASS_QL_TIMEOUT_S}];"
         f"("
         + "".join(parts)
-        + f");"
-        f"out geom;"
+        + ");"
+        "out geom;"
     )
 
 
@@ -652,11 +646,6 @@ def refine_path_highway(tags: dict, highway: str) -> str:
     if draw == "track":
         return refine_track_highway(tags)
     return hw
-
-
-def is_road_draw_highway(highway: str) -> bool:
-    draw = path_draw_highway(highway)
-    return draw in OSM_ROAD_HIGHWAYS or draw in ROAD_DRAW_HIGHWAYS
 
 
 def keep_highway_in_mixed(highway: str) -> bool:
@@ -1564,20 +1553,6 @@ class _SegmentIndex:
                 for jj in range(j0, j1 + 1):
                     self.cells[(ii, jj)].append(seg)
 
-    def nearest(self, x: float, y: float, *, max_m: float | None = None) -> float:
-        """Vzdálenost k nejbližšímu segmentu; prohledá buňky do max_m."""
-        i = int(math.floor(x / self.cell_m))
-        j = int(math.floor(y / self.cell_m))
-        radius = 1
-        if max_m is not None and max_m > 0:
-            radius = max(1, int(math.ceil(max_m / self.cell_m)))
-        best = float("inf")
-        for di in range(-radius, radius + 1):
-            for dj in range(-radius, radius + 1):
-                for ax, ay, bx, by in self.cells.get((i + di, j + dj), ()):
-                    best = min(best, _point_seg_dist(x, y, ax, ay, bx, by))
-        return best
-
     def on_centerline(
         self,
         x: float,
@@ -1651,45 +1626,6 @@ def centerline_cover_fraction(
         if index.on_centerline(x, y, tx, ty, match_m=match_m)
     )
     return hit / len(samples)
-
-
-def overlap_fraction(
-    osm_pts: list[tuple[float, float]],
-    index: _SegmentIndex,
-    *,
-    near_m: float = MATCH_M,
-    sample_m: float = SAMPLE_M,
-) -> float:
-    """Zpětná kompatibilita – teď = pokrytí střednicí (near_m = match poloměr)."""
-    return centerline_cover_fraction(
-        osm_pts, index, match_m=near_m, sample_m=sample_m
-    )
-
-
-def unique_polyline_parts(
-    osm_pts: list[tuple[float, float]],
-    index: _SegmentIndex,
-    *,
-    near_m: float = MATCH_M,
-    sample_m: float = SAMPLE_M,
-) -> list[list[tuple[float, float]]]:
-    """Úseky OSM mimo ZABAGED střednici (např. ocas pěšiny do lesa)."""
-    samples = sample_polyline(osm_pts, sample_m)
-    if len(samples) < 2:
-        return []
-    tangents = _sample_tangents(samples)
-    parts: list[list[tuple[float, float]]] = []
-    current: list[tuple[float, float]] = []
-    for (x, y), (tx, ty) in zip(samples, tangents):
-        on_zab = index.on_centerline(x, y, tx, ty, match_m=near_m)
-        if not on_zab:
-            current.append((x, y))
-        elif current:
-            parts.append(current)
-            current = []
-    if current:
-        parts.append(current)
-    return [p for p in parts if len(p) >= 2]
 
 
 def _zabaged_shp_members(
@@ -2052,34 +1988,6 @@ def filter_osm_area_features_against_zabaged(
     return kept, dropped
 
 
-def filter_osm_against_zabaged(
-    osm_lines: list[list[tuple[float, float]]],
-    zabaged_lines: list[list[tuple[float, float]]],
-    *,
-    near_m: float = MATCH_M,
-    overlap_drop: float = COVER_DROP,
-) -> tuple[list[list[tuple[float, float]]], int]:
-    """Zahodí jen celé OSM linie se shodnou střednicí ZABAGED; konce neořezává."""
-    if not zabaged_lines:
-        kept = [line for line in osm_lines if polyline_length(line) >= MIN_LENGTH_M]
-        return kept, len(osm_lines) - len(kept)
-    index = _SegmentIndex()
-    for line in zabaged_lines:
-        index.add_line(line)
-    kept: list[list[tuple[float, float]]] = []
-    dropped = 0
-    for line in osm_lines:
-        if polyline_length(line) < MIN_LENGTH_M:
-            dropped += 1
-            continue
-        # Jen celá shoda střednice → pryč. Částečný souběh (konec u silnice) nechat.
-        if centerline_cover_fraction(line, index, match_m=near_m) >= overlap_drop:
-            dropped += 1
-            continue
-        kept.append(line)
-    return kept, dropped
-
-
 def filter_osm_items_against_zabaged(
     osm_items: list[tuple[list[tuple[float, float]], str]],
     zabaged_lines: list[list[tuple[float, float]]],
@@ -2354,33 +2262,6 @@ def osm_feature_to_5514(
     # krátká linie → střed
     mid = len(pts) // 2
     return kind, code, [pts[mid]]
-
-
-def write_zabaged_omitting_layers(
-    src_zip: Path,
-    dest_zip: Path,
-    omit_layers: frozenset[str],
-) -> Path:
-    """Zkopíruje ZABAGED ZIP bez sidecarů vrstev z ``omit_layers`` (stem shp)."""
-    omit_stems = {name.lower() for name in omit_layers}
-    keep_suffixes = {".shp", ".shx", ".dbf", ".prj", ".cpg"}
-    if dest_zip.exists():
-        dest_zip.unlink()
-    with ZipFile(src_zip) as src, ZipFile(dest_zip, "w") as dest:
-        for info in src.infolist():
-            if info.is_dir():
-                continue
-            name = Path(info.filename).name
-            if not name or name.startswith("."):
-                continue
-            suffix = Path(name).suffix.lower()
-            if suffix not in keep_suffixes:
-                dest.writestr(info, src.read(info))
-                continue
-            if Path(name).stem.lower() in omit_stems:
-                continue
-            dest.writestr(info, src.read(info))
-    return dest_zip
 
 
 def osm_features_have_power_lines(work_dir: Path) -> bool:
@@ -2714,152 +2595,6 @@ def prepare_osm_paths(
         json.dumps({"type": "FeatureCollection", "features": features}),
         encoding="utf-8",
     )
-
-
-def highway_to_zabaged_vrstva(highway: str) -> str | None:
-    """Mapování OSM highway → ZABAGED vrstva pro KP vectorconf (vrstva=…).
-
-    ``None`` = neposílat do KP PNG (schody KP neumí – jen OOM 532).
-    """
-    hw = path_draw_highway(highway or "path")
-    if hw == "steps":
-        return None
-    if hw in OSM_ROAD_HIGHWAYS or hw in ROAD_DRAW_HIGHWAYS:
-        return "Ulice"  # KP road-path|503
-    if hw in TRACK_DRAW_HIGHWAYS:
-        return "Cesta"  # KP road-path|505
-    if is_bridge_highway(highway or ""):
-        return "Lavka"  # KP road-path|506
-    # sidewalk / footway / path → KP pěšina (506)
-    return "Pesina"  # KP road-path|506
-
-
-def paths_geojson_for_kp(paths_gj: dict) -> dict:
-    """GeoJSON pro KP: u každé linie `vrstva=Pesina|Cesta` (match vectorconf)."""
-    features: list[dict] = []
-    for feat in paths_gj.get("features") or []:
-        geom = feat.get("geometry") or {}
-        if geom.get("type") != "LineString":
-            continue
-        coords = geom.get("coordinates") or []
-        if len(coords) < 2:
-            continue
-        props = feat.get("properties") or {}
-        hw = str(props.get("highway") or "path")
-        vrstva = highway_to_zabaged_vrstva(hw)
-        if not vrstva:
-            continue
-        features.append(
-            {
-                "type": "Feature",
-                "properties": {
-                    "vrstva": vrstva,
-                    "highway": hw,
-                    "source": "osm",
-                },
-                "geometry": {"type": "LineString", "coordinates": coords},
-            }
-        )
-    return {"type": "FeatureCollection", "features": features}
-
-
-def write_osm_kp_zip(
-    work_dir: Path,
-    *,
-    log=None,
-) -> Path | None:
-    """Sestaví plochý SHP ZIP cest (legacy layout vedle ZABAGED).
-
-    Čte hustší ``osm_paths/paths_osm.geojson`` (ne mixed/dedup). Při chybě ogr2ogr
-    vrátí None – OOM OSM objekty beze změny.
-    """
-    paths_gj = work_dir / "osm_paths" / "paths_osm.geojson"
-    if not paths_gj.is_file():
-        # Zpětná kompatibilita pro starší joby
-        for fallback in ("paths_mixed.geojson", "paths.geojson"):
-            candidate = work_dir / "osm_paths" / fallback
-            if candidate.is_file():
-                paths_gj = candidate
-                break
-        else:
-            return None
-    try:
-        data = json.loads(paths_gj.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    kp_gj = paths_geojson_for_kp(data)
-    n = len(kp_gj["features"])
-    if n == 0:
-        if log:
-            log("OSM cesty ZIP: žádné cesty")
-        return None
-
-    ogr2ogr = which_tool("ogr2ogr")
-    if not ogr2ogr:
-        if log:
-            log("OSM cesty ZIP: chybí ogr2ogr – cesty jen do OOM")
-        return None
-
-    dest_zip = work_dir / "osm_kp.zip"
-    stage = Path(tempfile.mkdtemp(prefix="osm_kp_"))
-    try:
-        gj_path = stage / "osm_paths_kp.geojson"
-        gj_path.write_text(json.dumps(kp_gj), encoding="utf-8")
-        shp = stage / "OSM_cesty.shp"
-        cmd = [
-            ogr2ogr,
-            "-f",
-            "ESRI Shapefile",
-            "-overwrite",
-            "-s_srs",
-            "EPSG:5514",
-            "-t_srs",
-            "EPSG:5514",
-            "-lco",
-            "ENCODING=UTF-8",
-            "-nlt",
-            "LINESTRING",
-            str(shp),
-            str(gj_path),
-        ]
-        log_step(
-            log,
-            "Převádím OSM cesty do shapefile (ZIP)",
-        )
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=gis_subprocess_env(ogr2ogr),
-        )
-        if result.returncode != 0 or not shp.is_file():
-            err = (result.stderr or result.stdout or "ogr2ogr failed").strip()
-            if log:
-                log(f"OSM cesty ZIP: ogr2ogr selhal ({err[:200]})")
-            return None
-        write_prj(shp)
-        if dest_zip.exists():
-            dest_zip.unlink()
-        with ZipFile(dest_zip, "w") as zf:
-            for path in stage.iterdir():
-                if path.suffix.lower() in {
-                    ".shp",
-                    ".shx",
-                    ".dbf",
-                    ".prj",
-                    ".cpg",
-                }:
-                    zf.write(path, path.name)
-        by_v: dict[str, int] = defaultdict(int)
-        for feat in kp_gj["features"]:
-            by_v[str((feat.get("properties") or {}).get("vrstva") or "?")] += 1
-        summary = ", ".join(f"{k}={v}" for k, v in sorted(by_v.items()))
-        if log:
-            log(f"OSM cesty ZIP: {n} linií ({summary}) → {dest_zip.name}")
-        return dest_zip
-    finally:
-        shutil.rmtree(stage, ignore_errors=True)
 
 
 # Ruční skládání mapy (jako zabaged/): kind → (stem SHP, popis, výchozí ISOM kód).

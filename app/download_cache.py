@@ -23,12 +23,6 @@ SURFACE_ARTIFACT_NAMES = (
 )
 # Změna výpočtu DSM/CHM → starší AOI surfaces cache se nesmí obnovit.
 SURFACES_RECIPE = "dsm-on-dem-grid-chm0-v2"
-# Ořez/merge LAZ pro AOI (nezávislé na ekvidistance / lavičkách).
-# Dvojice ground + veg; jeden list = ořez listu bez merge (dmr_ground_0 / dmp_veg_0).
-LIDAR_CROP_ARTIFACT_NAMES = (
-    "ground_merged.laz",
-    "veg_merged.laz",
-)
 # Pozůstatek KP (vstup pullauta) – už se nevytváří; legacy reuse ho ještě čte.
 LEGACY_MERGED_LAZ_NAMES = (
     "merged_crop.laz",

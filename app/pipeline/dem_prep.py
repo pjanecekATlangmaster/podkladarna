@@ -59,32 +59,20 @@ def dem_work_dir(work_dir: Path) -> Path:
     return path
 
 
-def _pick_ground_laz(lidar_dir: Path) -> Path | None:
-    for name in (
-        "ground_merged.laz",
-        "dmr_ground_0.laz",
-        "merged_crop.laz",
-        "merged_crop_retry.laz",
-        "merged.laz",
-    ):
-        path = lidar_dir / name
-        if path.is_file() and path.stat().st_size > 1000:
-            return path
-    for path in sorted(lidar_dir.glob("dmr_ground_*.laz")):
+def _pick_laz(lidar_dir: Path, merged_name: str, part_glob: str) -> Path | None:
+    """Sloučený LAZ (víc listů), jinak první použitelný ořez listu."""
+    for path in (lidar_dir / merged_name, *sorted(lidar_dir.glob(part_glob))):
         if path.is_file() and path.stat().st_size > 1000:
             return path
     return None
+
+
+def _pick_ground_laz(lidar_dir: Path) -> Path | None:
+    return _pick_laz(lidar_dir, "ground_merged.laz", "dmr_ground_*.laz")
 
 
 def _pick_surface_laz(lidar_dir: Path) -> Path | None:
-    for name in ("veg_merged.laz", "dmp_veg_0.laz"):
-        path = lidar_dir / name
-        if path.is_file() and path.stat().st_size > 1000:
-            return path
-    for path in sorted(lidar_dir.glob("dmp_veg_*.laz")):
-        if path.is_file() and path.stat().st_size > 1000:
-            return path
-    return None
+    return _pick_laz(lidar_dir, "veg_merged.laz", "dmp_veg_*.laz")
 
 
 def _raster_grid(path: Path, *, log=None) -> tuple[float, float, int, int] | None:
@@ -307,7 +295,7 @@ def start_job_surfaces(
     ground = ground_laz or _pick_ground_laz(lidar_dir)
     if ground is None or not ground.is_file():
         raise FileNotFoundError(
-            "DEM prep: chybí ground LAZ (ground_merged / dmr_ground_* / merged_*)"
+            "DEM prep: chybí ground LAZ (ground_merged / dmr_ground_*)"
         )
     surface = surface_laz if surface_laz is not None else _pick_surface_laz(lidar_dir)
 

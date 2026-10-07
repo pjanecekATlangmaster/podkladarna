@@ -765,19 +765,11 @@ def classify_point_files(
 
 
 def _pick_point_files(lidar_dir: Path) -> list[Path]:
-    """Dvojice DMR ground + DMP veg (stejné body jako dřívější KP merged_crop)."""
-    from app.download_cache import LEGACY_MERGED_LAZ_NAMES, lidar_pair_paths
+    """Dvojice DMR ground + DMP veg."""
+    from app.download_cache import lidar_pair_paths
 
-    lidar_dir = Path(lidar_dir)
-    pair = lidar_pair_paths(lidar_dir)
-    if pair is not None:
-        return list(pair)
-    # Starší job / reuse jen s KP merged_crop.
-    for name in LEGACY_MERGED_LAZ_NAMES:
-        p = lidar_dir / name
-        if p.is_file() and p.stat().st_size > 1000:
-            return [p]
-    return []
+    pair = lidar_pair_paths(Path(lidar_dir))
+    return list(pair) if pair is not None else []
 
 
 def generate_job_vegetation_density(

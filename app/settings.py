@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.3.1"
+APP_VERSION = "2.3.2"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -91,7 +91,6 @@ def _parse_ip_list(raw: str) -> frozenset[str]:
 
 
 RATE_LIMIT_EXEMPT_IPS = _parse_ip_list(os.environ.get("RATE_LIMIT_EXEMPT_IPS", ""))
-TEMP_RETENTION_DAYS = int(os.environ.get("TEMP_RETENTION_DAYS", "7"))
 CLEANUP_INTERVAL_HOURS = int(os.environ.get("CLEANUP_INTERVAL_HOURS", "24"))
 LIDAR_CACHE_MAX_AGE_DAYS = int(os.environ.get("LIDAR_CACHE_MAX_AGE_DAYS", "180"))
 ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "30"))
@@ -153,7 +152,6 @@ DEFAULT_OPTIONS = {
     "output_references": True,
     "output_dxf": True,
     "output_zabaged_clean": False,
-    "savetempfolders": False,  # budoucí expert režim / API iterace
     # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
     # GUI ve <details> Pokročilé (2026-10); běžný uživatel nepotřebuje.
     "force_refresh": False,

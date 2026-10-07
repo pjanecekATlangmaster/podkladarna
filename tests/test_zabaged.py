@@ -5,7 +5,6 @@ from pathlib import Path
 
 from app.pipeline.crs_5514 import CRS_PROJ4, CRS_WKT, write_prj
 from app.pipeline.fetch_zabaged import (
-    drop_oversized_ostatni_plocha,
     query_layer_geojson,
     tag_features_with_layer,
 )
@@ -191,34 +190,20 @@ def test_vectorconf_zamek_hrad_as_building_areal_olive():
         assert not any("areál zámku" in ln and ln.startswith("building|") for ln in lines)
 
 
-def test_drop_oversized_ostatni_plocha():
+def test_ostatni_plocha_limits_and_bands():
     from app.pipeline.fetch_zabaged import (
         MAX_OSTATNI_FETCH_M2,
         MAX_OSTATNI_PLOCHA_M2,
         OSTATNI_MEDIUM_MAX_M2,
-        drop_oversized_ostatni_plocha,
         ostatni_band_stem,
         ostatni_plocha_max_m2,
         resolve_ostatni_plocha,
     )
 
-    gj = {
-        "type": "FeatureCollection",
-        "features": [
-            {"type": "Feature", "properties": {"Shape_Area": 12_000}, "geometry": None},
-            {"type": "Feature", "properties": {"Shape_Area": 160_356}, "geometry": None},
-            {"type": "Feature", "properties": {"Shape_Area": 371_249}, "geometry": None},
-            {"type": "Feature", "properties": {"Shape_Area": 13_727_609}, "geometry": None},
-            {"type": "Feature", "properties": {"fid_zbg": "no-area"}, "geometry": None},
-        ],
-    }
-    drop_oversized_ostatni_plocha(gj)
-    areas = [f["properties"].get("Shape_Area") for f in gj["features"]]
-    # Default filtr do .omap: nad ~5 ha (bez geometrie = Shape_Area).
+    # Default filtr do .omap: nad ~5 ha.
     assert MAX_OSTATNI_PLOCHA_M2 == 50_000.0
     assert OSTATNI_MEDIUM_MAX_M2 == 500_000.0
     assert MAX_OSTATNI_FETCH_M2 == 1_000_000.0
-    assert areas == [12_000, None]
 
     assert resolve_ostatni_plocha({"ostatni_plocha": "medium"}) == "medium"
     assert resolve_ostatni_plocha({}) == "small"
@@ -229,17 +214,6 @@ def test_drop_oversized_ostatni_plocha():
     assert ostatni_band_stem(12_000) == "OstatniPlochaVSidlech_mensi"
     assert ostatni_band_stem(160_000) == "OstatniPlochaVSidlech_stredni"
     assert ostatni_band_stem(600_000) == "OstatniPlochaVSidlech_velke"
-
-    # Při fetchu (MAX_OSTATNI_FETCH_M2) střední blob zůstane.
-    gj2 = {
-        "type": "FeatureCollection",
-        "features": [
-            {"type": "Feature", "properties": {"Shape_Area": 140_160}, "geometry": None},
-            {"type": "Feature", "properties": {"Shape_Area": 2_000_000}, "geometry": None},
-        ],
-    }
-    drop_oversized_ostatni_plocha(gj2, max_area_m2=MAX_OSTATNI_FETCH_M2)
-    assert [f["properties"].get("Shape_Area") for f in gj2["features"]] == [140_160]
 
 
 def test_ostatni_plocha_too_large_prefers_clipped_geom():

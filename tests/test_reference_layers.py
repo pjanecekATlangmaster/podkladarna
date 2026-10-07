@@ -129,40 +129,6 @@ def test_osm_pgw_path(tmp_path):
     assert osm_pgw.name == "osm.pgw"
 
 
-def test_laz_needs_ground_filter():
-    from app.pipeline.reference_layers import _laz_needs_ground_filter
-
-    assert _laz_needs_ground_filter(Path("dmr_ground_0.laz")) is False
-    assert _laz_needs_ground_filter(Path("merged_crop.laz")) is True
-
-
-def test_dem_resolution_m(tmp_path):
-    from app.pipeline.georef import PgwGeoref
-    from app.pipeline.reference_layers import _dem_resolution_m, _hillshade_dem_resolution_m
-
-    mini_png = (
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
-        b"\x08\x02\x00\x00\x00\x26\x93\x09\x29\x00\x00\x00\x12IDATx\x9cc\x60\x60"
-        b"\x60\x00\x00\x00\x04\x00\x01\x5c\xcd\xff\x69\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
-    png = tmp_path / "t.png"
-    png.write_bytes(mini_png)
-    pgw = tmp_path / "t.pgw"
-    PgwGeoref(1.0, 0.0, 0.0, -1.0, 0.0, 4.0).write(pgw)
-    res = _dem_resolution_m(png, pgw)
-    assert 0.25 <= res <= 8.0
-    assert abs(res - 1.0) < 0.01
-    hill = _hillshade_dem_resolution_m(png, pgw)
-    assert hill == 1.0
-
-
-def test_pdal_dem_output_type():
-    from app.pipeline.reference_layers import _pdal_dem_output_type
-
-    assert _pdal_dem_output_type(Path("dmr_ground_0.laz")) == "max"
-    assert _pdal_dem_output_type(Path("merged_crop.laz")) == "max"
-
-
 def test_build_oom_map_xml_contains_templates():
     xml = build_oom_map_xml(
         map_name="Test",
@@ -176,13 +142,13 @@ def test_build_oom_map_xml_contains_templates():
         preset_id="forest_10000",
         templates=[
             OomTemplate("image", "Ortofoto", "references/orthophoto.png"),
-            OomTemplate("image", "KP", "kp/pullautus.png"),
+            OomTemplate("image", "OSM", "references/osm.png"),
         ],
     )
     assert "+proj=krovak" in xml
     assert "<parameter>5514</parameter>" in xml
     assert "references/orthophoto.png" in xml
-    assert "kp/pullautus.png" in xml
+    assert "references/osm.png" in xml
     assert 'scale="10000"' in xml
     assert "ref_point_deg" in xml
     assert 'declination="5.15"' in xml
@@ -202,7 +168,7 @@ def test_write_oom_map_file(tmp_path):
         ref_lat=50.0,
         ref_lon=14.5,
         preset_id="sprint_2m",
-        templates=[OomTemplate("image", "KP", "kp/pullautus.png")],
+        templates=[OomTemplate("image", "OSM", "references/osm.png")],
     )
     assert dest.is_file()
     assert "Šance" in dest.read_text(encoding="utf-8")

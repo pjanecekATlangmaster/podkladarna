@@ -5,7 +5,6 @@ import shutil
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from app import db
 from app.settings import JOB_RETENTION_DAYS, JOB_RETENTION_HOURS, JOBS_DIR

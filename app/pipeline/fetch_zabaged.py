@@ -33,12 +33,6 @@ OSTATNI_MEDIUM_MAX_M2 = 500_000.0
 # Při stahování zahodit jen absurdní celoměstské km² – SHP pásma potřebují i velké.
 MAX_OSTATNI_FETCH_M2 = 1_000_000.0
 OSTATNI_PLOCHA_CHOICES = frozenset({"none", "small", "medium", "large"})
-# ZIP zdroje: tři SHP podle velikosti (prázdné pásmo se nevygeneruje).
-OSTATNI_SHP_BANDS: tuple[tuple[str, float, float], ...] = (
-    ("OstatniPlochaVSidlech_mensi", 0.0, MAX_OSTATNI_PLOCHA_M2),
-    ("OstatniPlochaVSidlech_stredni", MAX_OSTATNI_PLOCHA_M2, OSTATNI_MEDIUM_MAX_M2),
-    ("OstatniPlochaVSidlech_velke", OSTATNI_MEDIUM_MAX_M2, float("inf")),
-)
 OSTATNI_LAYER_STEM = "OstatniPlochaVSidlech"
 
 
@@ -232,24 +226,6 @@ def ostatni_band_stem(area_m2: float) -> str:
     return "OstatniPlochaVSidlech_velke"
 
 
-def drop_oversized_ostatni_plocha(
-    gj: dict,
-    max_area_m2: float = MAX_OSTATNI_PLOCHA_M2,
-) -> dict:
-    """Zahodí polygony nad limitem (preferuje plochu geometrie před Shape_Area)."""
-    kept = []
-    for feat in gj.get("features") or []:
-        if ostatni_plocha_too_large(
-            feat.get("properties") or {},
-            geom_area_m2=_geojson_area_m2(feat.get("geometry")),
-            max_area_m2=max_area_m2,
-        ):
-            continue
-        kept.append(feat)
-    gj["features"] = kept
-    return gj
-
-
 def ostatni_plocha_too_large(
     props: dict,
     *,
@@ -261,34 +237,6 @@ def ostatni_plocha_too_large(
     if area is None:
         return False
     return area > max_area_m2
-
-
-def _geojson_area_m2(geometry: object) -> float | None:
-    if not isinstance(geometry, dict):
-        return None
-    gtype = geometry.get("type")
-    coords = geometry.get("coordinates")
-    if not coords:
-        return None
-
-    def _ring_area(ring: list) -> float:
-        if not ring or len(ring) < 3:
-            return 0.0
-        a = 0.0
-        for i in range(len(ring) - 1):
-            x1, y1 = float(ring[i][0]), float(ring[i][1])
-            x2, y2 = float(ring[i + 1][0]), float(ring[i + 1][1])
-            a += x1 * y2 - x2 * y1
-        return abs(a) * 0.5
-
-    try:
-        if gtype == "Polygon":
-            return _ring_area(coords[0])
-        if gtype == "MultiPolygon":
-            return sum(_ring_area(poly[0]) for poly in coords if poly)
-    except (TypeError, ValueError, IndexError):
-        return None
-    return None
 
 
 def tag_features_with_layer(gj: dict, layer_name: str) -> dict:

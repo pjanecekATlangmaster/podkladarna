@@ -349,14 +349,12 @@ def _job_duration_s(row: sqlite3.Row) -> int | None:
 def _job_paths(job_id: str) -> dict[str, bool]:
     job_dir = JOBS_DIR / job_id
     lidar = job_dir / "work" / "lidar"
-    temp = job_dir / "work" / "temp"
     has_laz = False
     if lidar.is_dir():
         has_laz = any(
             p.suffix.lower() in {".laz", ".las"} for p in lidar.iterdir() if p.is_file()
         )
-    has_temp = temp.is_dir() and any(temp.iterdir())
-    return {"has_reusable_lidar": has_laz, "has_temp": has_temp}
+    return {"has_reusable_lidar": has_laz}
 
 
 def copy_reusable_work(src_id: str, dest_id: str) -> list[str]:
@@ -433,7 +431,6 @@ def find_duplicate_active_job(
             bool(opts.get("kp_osm_footway_as_sidewalk")),
             str(opts.get("ostatni_plocha") or "small"),
             bool(opts.get("ostatni_plocha_as_403")),
-            False,  # legacy use_kp – always False
             bool(opts.get("private")),
             str(opts.get("notify_email") or "").strip().casefold(),
             str(opts.get("client_ip") or ""),

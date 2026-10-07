@@ -147,12 +147,6 @@ gdalsrsinfo EPSG:5514   # must not mention pyproj\proj_dir
 
 ---
 
-## A/B harness (legacy)
-
-Skript `scripts/compare_bez_kp_ab.py` slouží jen ke srovnání starých artefaktů;
-pipeline Karttapullautin nerunuje.
-
-
 ## Náhled PNG z `.omap`
 
 Po zápisu `.omap` pipeline dělá dvě věci:

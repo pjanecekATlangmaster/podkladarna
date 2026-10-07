@@ -3,11 +3,9 @@ from __future__ import annotations
 import json
 import math
 import shutil
-import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
 from pathlib import Path
 
 from app.download_cache import (
@@ -38,8 +36,6 @@ MAX_OSM_REF_PIXELS = 8192
 _REF_MPP_CANDIDATES = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
 _OSM_MPP_CANDIDATES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
 # DMR 5G má ~0,5 m mezi body – jemnější raster dělá díry a kostičkovaný hillshade.
-HILLSHADE_DEM_MIN_M = 1.0
-HILLSHADE_DEM_MAX_M = 2.5
 WEB_MERCATOR_HALF = 20037508.342789244
 
 ORTOFOTO_WMS = (
@@ -496,52 +492,6 @@ def _write_pgw_for_extent(
     ).write(dest_pgw)
 
 
-def _dem_resolution_m(template_png: Path, template_pgw: Path) -> float:
-    """Rozlišení DEM v metrech – sladěné s cílovým PNG (max MAX_REF_PIXELS)."""
-    xmin, ymin, xmax, ymax, width, height = _template_extent(template_png, template_pgw)
-    tw, th = _target_size(width, height)
-    res = max((xmax - xmin) / tw, (ymax - ymin) / th)
-    return max(0.25, min(res, 8.0))
-
-
-def _hillshade_dem_resolution_m(template_png: Path, template_pgw: Path) -> float:
-    """Rozlišení DEM pro hillshade – hrubší než jemný náhled, aby raster nebyl děravý."""
-    res = _dem_resolution_m(template_png, template_pgw)
-    return max(HILLSHADE_DEM_MIN_M, min(res, HILLSHADE_DEM_MAX_M))
-
-
-def _template_bounds(
-    template_png: Path, template_pgw: Path
-) -> tuple[float, float, float, float]:
-    xmin, ymin, xmax, ymax, _, _ = _template_extent(template_png, template_pgw)
-    return xmin, ymin, xmax, ymax
-
-
-def _hillshade_laz_candidates(job_dir: Path) -> list[Path]:
-    lidar = job_dir / "work" / "lidar"
-    if not lidar.is_dir():
-        return []
-    seen: set[Path] = set()
-    ordered: list[Path] = []
-    # Nejdřív ořezaný merge – nejmenší a přesně odpovídá výřezu jobu.
-    for name in ("merged_crop.laz", "merged_crop_retry.laz", "ground_merged.laz"):
-        path = lidar / name
-        if path.is_file() and path.stat().st_size > 1000 and path not in seen:
-            seen.add(path)
-            ordered.append(path)
-    for pattern in ("dmr_ground_*.laz",):
-        for path in sorted(lidar.glob(pattern)):
-            if path.is_file() and path.stat().st_size > 1000 and path not in seen:
-                seen.add(path)
-                ordered.append(path)
-    for name in ("merged.laz",):
-        path = lidar / name
-        if path.is_file() and path.stat().st_size > 1000 and path not in seen:
-            seen.add(path)
-            ordered.append(path)
-    return ordered
-
-
 def _align_to_template(
     src: Path,
     template_png: Path,
@@ -589,20 +539,6 @@ def _align_to_template(
         _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, tw, th)
 
 
-def _laz_needs_ground_filter(laz: Path) -> bool:
-    """Sloučený LAZ (DMR+DMP) potřebuje odfiltrovat vegetaci; čistý ground ne."""
-    return laz.name.lower() in (
-        "merged.laz",
-        "merged_crop.laz",
-        "merged_crop_retry.laz",
-    )
-
-
-def _pdal_dem_output_type(laz: Path) -> str:
-    """Interpolace rasteru z bodů – max je stabilnější než idw u DMR 5G."""
-    return "max"
-
-
 def _fill_dem_nodata(src: Path, dest: Path, *, log: callable | None = None) -> Path:
     """Vyplní malé díry v DEM před hillshade (pokud je k dispozici gdal_fillnodata)."""
     for name in ("gdal_fillnodata.py", "gdal_fillnodata"):
@@ -641,18 +577,12 @@ def _pdal_dem_from_laz(
             "bounds": f"([{xmin},{xmax}],[{ymin},{ymax}])",
         },
     ]
-    if _laz_needs_ground_filter(laz):
-        steps.append(
-            {
-                "type": "filters.range",
-                "limits": "Classification[2:2]",
-            }
-        )
     writer: dict[str, object] = {
         "type": "writers.gdal",
         "filename": str(dest_tif),
         "resolution": resolution_m,
-        "output_type": _pdal_dem_output_type(laz),
+        # max je stabilnější než idw u DMR 5G.
+        "output_type": "max",
         "data_type": "float32",
         "gdaldriver": "GTiff",
         "nodata": -9999,
@@ -673,72 +603,6 @@ def _pdal_dem_from_laz(
     finally:
         Path(pipe_path).unlink(missing_ok=True)
     return dest_tif
-
-
-def build_hillshade_from_dmr(
-    dmr_laz: Path,
-    template_png: Path,
-    template_pgw: Path,
-    dest_png: Path,
-    dest_pgw: Path,
-    *,
-    log: callable | None = None,
-) -> bool:
-    if not dmr_laz.is_file():
-        return False
-    work = dest_png.parent
-    dem_tif = work / "_dem.tif"
-    dem_filled = work / "_dem_filled.tif"
-    shade_tif = work / "_hillshade.tif"
-    crop = _template_bounds(template_png, template_pgw)
-    resolution_m = _hillshade_dem_resolution_m(template_png, template_pgw)
-    if log:
-        log(
-            f"Hillshade: zdroj {dmr_laz.name}, DEM {resolution_m:.2f} m/px "
-            f"(výřez dle pullautus.pgw)"
-        )
-    log_step(log, "Připravuji DEM z DMR (terén pro stínování)")
-    _pdal_dem_from_laz(
-        dmr_laz, crop, dem_tif, resolution_m=resolution_m, log=log
-    )
-    if not dem_tif.is_file() or dem_tif.stat().st_size < 500:
-        raise RuntimeError(f"PDAL nevytvořil DEM ({dem_tif.name})")
-    _fill_dem_nodata(dem_tif, dem_filled, log=log)
-    gdaldem = _gdal_tool("gdaldem")
-    log_step(log, "Počítám stínování reliéfu z DEM (šedý podklad mapy)")
-    run_cmd(
-        [
-            gdaldem,
-            "hillshade",
-            str(dem_filled),
-            str(shade_tif),
-            "-az",
-            str(HILLSHADE_AZIMUTH),
-            "-alt",
-            str(HILLSHADE_ALTITUDE),
-            "-of",
-            "GTiff",
-        ],
-        log=log,
-    )
-    _align_to_template(
-        shade_tif,
-        template_png,
-        template_pgw,
-        dest_png,
-        dest_pgw,
-        resample="cubic",
-        log=log,
-    )
-    dem_tif.unlink(missing_ok=True)
-    dem_filled.unlink(missing_ok=True)
-    shade_tif.unlink(missing_ok=True)
-    if log:
-        log(
-            f"Hillshade DMR 5G: azimut {HILLSHADE_AZIMUTH}°, "
-            f"výška slunce {HILLSHADE_ALTITUDE}° → {dest_png.name}"
-        )
-    return True
 
 
 def fetch_hillshade_wms(
@@ -1116,11 +980,6 @@ def build_osm_reference(
     return _build_osm_from_wms(
         bbox_wgs84, template_png, template_pgw, dest_png, dest_pgw, log=log
     )
-
-
-def _find_dmr_ground_laz(job_dir: Path) -> Path | None:
-    candidates = _hillshade_laz_candidates(job_dir)
-    return candidates[0] if candidates else None
 
 
 def _ref_png_key(filename: str) -> str | None:

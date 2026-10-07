@@ -112,15 +112,6 @@ def _stations(
             break
 
 
-def drop_is_mappable(
-    measurement: DropMeasurement, *, min_drop_m: float = MIN_DROP_M
-) -> bool:
-    """Nezměřené nechat projít – bez DEM se nemá podle čeho rozhodovat."""
-    if not measurement.measured:
-        return True
-    return measurement.drop_m >= min_drop_m
-
-
 def filter_by_drop(
     lines: list[list[tuple[float, float]]],
     elev_at,
