@@ -33,6 +33,7 @@ from app.pipeline.fetch_openzu import (
     bbox_area_km2,
     bbox_exceeds_limit,
     bbox_size_km,
+    estimate_georef_minutes,
     estimate_note,
     estimate_minutes,
     parse_bbox,
@@ -252,10 +253,17 @@ def api_sheets(bbox: str):
         if sheets_too_big
         else None
     )
-    est = estimate_minutes(names) if sheets and not sheets_too_big else None
+    can_estimate = bool(sheets) and not sheets_too_big
+    est = estimate_minutes(names, area_km2=area_km2) if can_estimate else None
     est_refs = (
-        estimate_minutes(names, include_references=True)
-        if sheets and not sheets_too_big
+        estimate_minutes(names, area_km2=area_km2, include_references=True)
+        if can_estimate
+        else None
+    )
+    # Georef PNG/TIFF závisí na měřítku – tlačítko si přičte podle formuláře.
+    est_georef = (
+        {str(s): estimate_georef_minutes(area_km2, s) for s in MAP_SCALES}
+        if can_estimate
         else None
     )
     return {
@@ -272,7 +280,8 @@ def api_sheets(bbox: str):
         "too_large_reason": "sheets" if sheets_too_big else None,
         "estimate_minutes": est,
         "estimate_minutes_with_refs": est_refs,
-        "estimate_note": estimate_note(names) if sheets and not sheets_too_big else None,
+        "estimate_georef_minutes": est_georef,
+        "estimate_note": estimate_note(names) if can_estimate else None,
         "label": (
             f"Protíná listy: {', '.join(names)} ({len(sheets)})"
             if sheets

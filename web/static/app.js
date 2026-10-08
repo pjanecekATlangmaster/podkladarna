@@ -1526,10 +1526,18 @@ function selectedEstimateMinutes() {
   if (!lastSheets || lastSheets.estimate_minutes == null) return null;
   const refs = document.getElementById("output_references");
   const wantRefs = !refs || refs.checked;
-  if (wantRefs && lastSheets.estimate_minutes_with_refs != null) {
-    return lastSheets.estimate_minutes_with_refs;
+  let mins =
+    wantRefs && lastSheets.estimate_minutes_with_refs != null
+      ? lastSheets.estimate_minutes_with_refs
+      : lastSheets.estimate_minutes;
+  // Georef PNG/TIFF @ 600 DPI podle měřítka (sprint 1 varianta, les + MTBO 2).
+  const georef = document.getElementById("output_georef");
+  const scale = document.getElementById("map_scale");
+  const byScale = lastSheets.estimate_georef_minutes;
+  if (georef && georef.checked && byScale && scale && byScale[scale.value] != null) {
+    mins += byScale[scale.value];
   }
-  return lastSheets.estimate_minutes;
+  return mins;
 }
 
 function updateSubmitButtonLabel() {
@@ -1683,6 +1691,10 @@ initBboxMap();
   }
   const refs = document.getElementById("output_references");
   if (refs) refs.addEventListener("change", updateSubmitButtonLabel);
+  for (const id of ["output_georef", "map_scale"]) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("change", updateSubmitButtonLabel);
+  }
   updateSubmitButtonLabel();
 })();
 (() => {

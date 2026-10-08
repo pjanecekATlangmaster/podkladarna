@@ -36,8 +36,18 @@ CROP_BUFFER_M = 30.0
 # Polohopis (ZABAGED/OSM/RÚIAN/AOPK) stahovat s přesahu přes AOI –
 # LiDAR/KP mají ~CROP_BUFFER_M + KP pad; radši přesah než holé kraje.
 VECTOR_FETCH_BUFFER_M = 80.0
-# Referenční PNG (orto/OSM/ZTM/…) – hrubý příplatek k odhadu jobu.
-REF_PNG_ESTIMATE_MINUTES = 5
+# Odhad délky jobu (min). Kalibrace NAS R1600 / 2.3.x: 6×6 km 16 listů bez
+# cache 55 min, 5,4 km² 4 listy z cache 10 min, sprint 0,7 km² 2 listy 9,5 min.
+# Schválně mírně nadsazené (~+20 %): radši doběhne dřív, než slíbí tlačítko.
+_EST_FIXED_MIN = 2.0  # ZABAGED, OSM, RÚIAN/AOPK, web náhled, ZIP
+_EST_DOWNLOAD_MIN_PER_SHEET = 1.0  # DMR5G + DMPOK ~350 MB; ČÚZK 0,5–2,2 min
+_EST_CROP_MIN_PER_SHEET = 1.25  # PDAL ořez (dekomprese celého listu)
+_EST_MIN_PER_KM2 = 0.55  # sloučení mračna, DEM/DSM/CHM, vegetace, srázy, OOM
+# Georef PNG/TIFF @ 600 DPI: Mapper na variantu (sprint 1, les + MTBO 2).
+_EST_GEOREF_MIN_PER_VARIANT = 0.5
+_EST_GEOREF_MIN_PER_PAPER_M2 = 7.0
+# Referenční PNG (orto/OSM/ZTM/…) se stahují souběžně s buildem.
+REF_PNG_ESTIMATE_MINUTES = 1
 QUERY_TIMEOUT_S = 30
 DOWNLOAD_TIMEOUT_S = 180
 
@@ -120,22 +130,35 @@ def bbox_exceeds_limit(west: float, south: float, east: float, north: float) -> 
 def estimate_minutes(
     sheet_names: list[str],
     *,
+    area_km2: float = 0.0,
     include_references: bool = False,
 ) -> int:
-    """Hrubý odhad délky jobu v minutách.
+    """Odhad délky jobu v minutách (bez georef náhledů – viz ``estimate_georef_minutes``).
 
-    DMP OK je řádově větší a hustší než DMP 1G – PDAL i vegetace/DEM trvají
-    zhruba dvakrát déle i z cache. Bez cache přibývá stažení ~350 MB na list.
-    Referenční PNG (orto, OSM, …) přidají několik minut.
+    Každý list se celý dekomprimuje při ořezu, i když do výřezu zasahuje jen
+    rohem; nestažený list navíc ~350 MB z ČÚZK. Zbytek roste s plochou výřezu.
     """
     n = max(len(sheet_names), 1)
-    cached = dmpok_cached_mapnoms(sheet_names)
-    base = max(2, 1 + n)
-    minutes = base * 2
-    minutes += (n - len(cached)) * 5
+    missing = n - len(dmpok_cached_mapnoms(sheet_names))
+    minutes = (
+        _EST_FIXED_MIN
+        + missing * _EST_DOWNLOAD_MIN_PER_SHEET
+        + n * _EST_CROP_MIN_PER_SHEET
+        + max(0.0, float(area_km2)) * _EST_MIN_PER_KM2
+    )
     if include_references:
         minutes += REF_PNG_ESTIMATE_MINUTES
-    return minutes
+    return math.ceil(minutes)
+
+
+def estimate_georef_minutes(area_km2: float, scale: int) -> int:
+    """Příplatek za georef PNG/TIFF @ 600 DPI (roste s plochou papíru)."""
+    paper_m2 = max(0.0, float(area_km2)) * 1_000_000.0 / float(scale) ** 2
+    variants = 1 if int(scale) <= 5000 else 2  # sprint / les + MTBO
+    return math.ceil(
+        variants
+        * (_EST_GEOREF_MIN_PER_VARIANT + paper_m2 * _EST_GEOREF_MIN_PER_PAPER_M2)
+    )
 
 
 def dmpok_cached_mapnoms(mapnoms: list[str]) -> set[str]:

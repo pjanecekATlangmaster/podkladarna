@@ -271,12 +271,51 @@ def _laz_point_count(pdal: str, path: Path) -> int | None:
         return None
 
 
-def lidar_workers() -> int:
-    """Souběžné PDAL ořezy listů (proudové → paměť zanedbatelná)."""
+def _cgroup_cpu_quota() -> float | None:
+    """Limit CPU kontejneru (docker ``cpus:``) z cgroup v2 / v1, jinak None."""
     try:
-        return max(1, int(os.environ.get("PODKLADARNA_LIDAR_WORKERS", "2")))
-    except ValueError:
-        return 2
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        if quota != "max":
+            return float(quota) / float(period)
+        return None
+    except (OSError, ValueError):
+        pass
+    try:
+        quota_us = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period_us = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        if quota_us > 0 and period_us > 0:
+            return quota_us / period_us
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def available_cpus() -> int:
+    """Logická jádra, která proces smí použít (affinity / cpuset + cgroup limit)."""
+    try:
+        n = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        n = os.cpu_count() or 1
+    quota = _cgroup_cpu_quota()
+    if quota:
+        n = min(n, int(quota + 0.5))
+    return max(1, n)
+
+
+def lidar_workers() -> int:
+    """Souběžné PDAL ořezy listů (proudové → paměť zanedbatelná).
+
+    ``PODKLADARNA_LIDAR_WORKERS`` přebije; jinak jádra − 1 (zbytek pro web
+    a souběžné kroky), aspoň 2 a nejvýš 8 (pak už brzdí disk).
+    R1600 (2 jádra / 4 vlákna) → 3.
+    """
+    raw = os.environ.get("PODKLADARNA_LIDAR_WORKERS", "").strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return max(2, min(8, available_cpus() - 1))
 
 
 def merge_dmr_dmp(
@@ -387,9 +426,11 @@ def merge_dmr_dmp(
             log=_safe_log if log else None,
         )
 
-    # Ořezy listů jsou proudové (CPU = dekomprese LAZ) → 2 souběžně stačí
-    # na 2jádrový NAS; pořadí výsledků zůstává dle listů.
+    # Ořezy listů jsou proudové (CPU = dekomprese LAZ) → počet podle jader;
+    # pořadí výsledků zůstává dle listů.
     workers = min(lidar_workers(), len(tasks)) or 1
+    if log and len(tasks) > 1:
+        log(f"PDAL ořezy listů: {len(tasks)} úloh, souběžně {workers} (CPU {available_cpus()})")
     if workers > 1:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pdal-crop") as ex:
             results = list(ex.map(_run_task, tasks))
