@@ -107,6 +107,10 @@ const FINISHED_PAGE_SIZE = 8;
 let bboxMap = null;
 let bboxCorners = [];
 let bboxRect = null;
+let bboxHandles = [];
+let bboxFirstCorner = null;
+let bboxMaxAreaKm2 = 36;
+let sheetsLookupSeq = 0;
 let bboxAllowed = false;
 let lastSheets = null;
 let mapOptions = {
@@ -1103,23 +1107,178 @@ function onMapClick(e) {
   bboxCorners.push(e.latlng);
   if (bboxCorners.length === 1) {
     setSheetInfo("Druhý roh výřezu…", "");
-    L.circleMarker(e.latlng, { radius: 5, color: "#cc00cc" }).addTo(bboxMap);
+    bboxFirstCorner = L.circleMarker(e.latlng, { radius: 5, color: "#cc00cc" }).addTo(bboxMap);
   }
   if (bboxCorners.length === 2) {
     const b = L.latLngBounds(bboxCorners[0], bboxCorners[1]);
-    bboxRect = L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
     // Bez fitBounds – uživatel už vidí výřez; dřívější maxZoom:14 zbytečně odzoomovalo.
-    const west = b.getWest();
-    const south = b.getSouth();
-    const east = b.getEast();
-    const north = b.getNorth();
-    document.getElementById("bbox-input").value = [west, south, east, north].join(",");
+    drawBboxRect(b);
+    document.getElementById("bbox-input").value = bboxToInputValue(b);
     setReuseJob("");
     lookupSheets();
   }
 }
 
+function bboxToInputValue(b) {
+  return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
+}
+
+function drawBboxRect(b) {
+  if (bboxFirstCorner) {
+    bboxMap.removeLayer(bboxFirstCorner);
+    bboxFirstCorner = null;
+  }
+  bboxRect = L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
+  addBboxHandles();
+}
+
+// Úchyty hotového výřezu: roh mění velikost (protější roh drží),
+// křížek uprostřed posouvá celý obdélník. Listy SM5 se ověří po puštění.
+const BBOX_CORNER_NAMES = ["sw", "nw", "ne", "se"];
+const BBOX_MOVE_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
+  'd="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>';
+
+function bboxCornerLatLngs(b) {
+  return [b.getSouthWest(), b.getNorthWest(), b.getNorthEast(), b.getSouthEast()];
+}
+
+function clampToCz(ll) {
+  return L.latLng(
+    Math.min(CZ.north, Math.max(CZ.south, ll.lat)),
+    Math.min(CZ.east, Math.max(CZ.west, ll.lng))
+  );
+}
+
+function removeBboxHandles() {
+  if (bboxMap) bboxHandles.forEach((m) => bboxMap.removeLayer(m));
+  bboxHandles = [];
+}
+
+function addBboxHandles() {
+  removeBboxHandles();
+  if (!bboxRect) return;
+  const corners = bboxCornerLatLngs(bboxRect.getBounds());
+  corners.forEach((ll, i) => {
+    const handle = L.marker(ll, {
+      draggable: true,
+      autoPan: true,
+      keyboard: false,
+      title: "Táhnutím změníte velikost výřezu",
+      icon: L.divIcon({
+        className: `bbox-handle bbox-handle-corner bbox-handle-${BBOX_CORNER_NAMES[i]}`,
+        iconSize: null,
+      }),
+    });
+    let fixed = null;
+    handle.on("dragstart", () => {
+      fixed = bboxCornerLatLngs(bboxRect.getBounds())[(i + 2) % 4];
+      onBboxEditStart();
+    });
+    handle.on("drag", () => {
+      const ll2 = clampToCz(handle.getLatLng());
+      updateBboxDraft(L.latLngBounds(fixed, ll2), handle);
+    });
+    handle.on("dragend", commitBboxEdit);
+    bboxHandles.push(handle.addTo(bboxMap));
+  });
+  const move = L.marker(bboxRect.getBounds().getCenter(), {
+    draggable: true,
+    autoPan: true,
+    keyboard: false,
+    title: "Táhnutím posunete výřez",
+    icon: L.divIcon({
+      className: "bbox-handle bbox-handle-move",
+      html: BBOX_MOVE_ICON,
+      iconSize: null,
+    }),
+  });
+  let start = null;
+  let startBounds = null;
+  move.on("dragstart", () => {
+    start = move.getLatLng();
+    startBounds = bboxRect.getBounds();
+    onBboxEditStart();
+  });
+  move.on("drag", () => {
+    const cur = move.getLatLng();
+    // Posun omezit tak, aby obdélník zůstal celý v obálce Česka.
+    const dLat = Math.min(
+      CZ.north - startBounds.getNorth(),
+      Math.max(CZ.south - startBounds.getSouth(), cur.lat - start.lat)
+    );
+    const dLng = Math.min(
+      CZ.east - startBounds.getEast(),
+      Math.max(CZ.west - startBounds.getWest(), cur.lng - start.lng)
+    );
+    const sw = startBounds.getSouthWest();
+    const ne = startBounds.getNorthEast();
+    updateBboxDraft(
+      L.latLngBounds([sw.lat + dLat, sw.lng + dLng], [ne.lat + dLat, ne.lng + dLng]),
+      move
+    );
+  });
+  move.on("dragend", commitBboxEdit);
+  bboxHandles.push(move.addTo(bboxMap));
+}
+
+function positionBboxHandles(skip) {
+  if (!bboxRect || bboxHandles.length !== 5) return;
+  const b = bboxRect.getBounds();
+  const pts = [...bboxCornerLatLngs(b), b.getCenter()];
+  bboxHandles.forEach((m, i) => {
+    if (m !== skip) m.setLatLng(pts[i]);
+  });
+}
+
+// Hrubý rozměr pro živou odezvu při tažení; přesnou plochu (S-JTSK) vrátí /api/sheets.
+function approxBboxSizeKm(b) {
+  const rad = (((b.getSouth() + b.getNorth()) / 2) * Math.PI) / 180;
+  const kmPerDegLat = 111.13295 - 0.55982 * Math.cos(2 * rad);
+  const kmPerDegLng = 111.41284 * Math.cos(rad) - 0.0935 * Math.cos(3 * rad);
+  const w = (b.getEast() - b.getWest()) * kmPerDegLng;
+  const h = (b.getNorth() - b.getSouth()) * kmPerDegLat;
+  return { w, h, area: w * h };
+}
+
+function onBboxEditStart() {
+  // Změna výřezu = nová mapa: zelené tlačítko zpět, LiDAR ze starého jobu nesedí.
+  if (generateStartedJobId) clearGenerateStarted();
+  setReuseJob("");
+  sheetsLookupSeq++;
+  bboxAllowed = false;
+  lastSheets = null;
+  const sheetsInput = document.getElementById("sm5-sheets-input");
+  if (sheetsInput) sheetsInput.value = "";
+  updateSubmitButtonLabel();
+}
+
+function updateBboxDraft(b, skip) {
+  bboxRect.setBounds(b);
+  positionBboxHandles(skip);
+  const { w, h, area } = approxBboxSizeKm(b);
+  const tooLarge = area > bboxMaxAreaKm2;
+  styleBboxRect(tooLarge);
+  setSheetInfo(
+    `${w.toFixed(1)} × ${h.toFixed(1)} km (cca ${area.toFixed(1)} km²)` +
+      (tooLarge ? ` – nad limit ${bboxMaxAreaKm2} km².` : " – po puštění ověřím listy."),
+    tooLarge ? "warn" : ""
+  );
+}
+
+function commitBboxEdit() {
+  if (!bboxRect) return;
+  const b = bboxRect.getBounds();
+  bboxCorners = [b.getSouthWest(), b.getNorthEast()];
+  positionBboxHandles(null);
+  document.getElementById("bbox-input").value = bboxToInputValue(b);
+  lookupSheets();
+}
+
 function styleBboxRect(tooLarge) {
+  const el = document.getElementById("bbox-map");
+  if (el) el.classList.toggle("bbox-too-large", Boolean(tooLarge && bboxRect));
   if (!bboxRect) return;
   bboxRect.setStyle({
     color: tooLarge ? "#ff6600" : "#cc00cc",
@@ -1318,7 +1477,7 @@ function applyBbox(west, south, east, north, extra = {}) {
   const ne = L.latLng(north, east);
   bboxCorners = [sw, ne];
   const b = L.latLngBounds(sw, ne);
-  bboxRect = L.rectangle(b, { color: "#cc00cc", weight: 2, fillOpacity: 0.15 }).addTo(bboxMap);
+  drawBboxRect(b);
   bboxMap.fitBounds(b, { padding: [24, 24], maxZoom: 16 });
   document.getElementById("bbox-input").value = [west, south, east, north].join(",");
   lookupSheets();
@@ -1328,8 +1487,12 @@ function clearBbox(opts = {}) {
   // Programatický applyBbox (keepReuse) nesmí shodit zámek po odeslání;
   // uživatelské vymazání / překreslení výřezu ano.
   if (!opts.keepReuse) clearGenerateStarted();
+  removeBboxHandles();
+  styleBboxRect(false);
   bboxCorners = [];
   bboxRect = null;
+  bboxFirstCorner = null;
+  sheetsLookupSeq++;
   bboxAllowed = false;
   lastSheets = null;
   document.getElementById("bbox-input").value = "";
@@ -1383,9 +1546,13 @@ async function lookupSheets() {
   const sheetsInput = document.getElementById("sm5-sheets-input");
   if (sheetsInput) sheetsInput.value = "";
   setSheetInfo("Zjišťuji mapové listy SM5…", "");
+  // Po tažení úchytu může dorazit starší odpověď až po novější – tu zahodit.
+  const seq = ++sheetsLookupSeq;
   try {
     const data = await api(`/api/sheets?bbox=${encodeURIComponent(bbox)}`);
+    if (seq !== sheetsLookupSeq) return;
     lastSheets = data;
+    if (data.max_area_km2) bboxMaxAreaKm2 = data.max_area_km2;
     if (data.too_large) {
       styleBboxRect(true);
       setSheetInfo(
@@ -1413,6 +1580,7 @@ async function lookupSheets() {
     setSheetInfo(`${data.label} · ${size}${area}.`, "ok");
     updateSubmitButtonLabel();
   } catch (err) {
+    if (seq !== sheetsLookupSeq) return;
     styleBboxRect(true);
     setSheetInfo(err.message, "err");
     updateSubmitButtonLabel();

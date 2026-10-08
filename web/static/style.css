@@ -405,6 +405,69 @@ legend {
   background: var(--muted);
 }
 
+/* Úchyty výřezu: rohy = velikost, křížek uprostřed = posun.
+   divIcon bez iconSize → rozměr i vycentrování drží CSS (i větší na dotyk). */
+.bbox-handle {
+  box-sizing: border-box;
+  background: #fff;
+  border: 2px solid #cc00cc;
+  color: #cc00cc;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.bbox-too-large .bbox-handle {
+  border-color: #ff6600;
+  color: #ff6600;
+}
+
+.bbox-handle-corner {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 3px;
+}
+
+.bbox-handle-sw,
+.bbox-handle-ne {
+  cursor: nesw-resize;
+}
+
+.bbox-handle-nw,
+.bbox-handle-se {
+  cursor: nwse-resize;
+}
+
+.bbox-handle-move {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  cursor: move;
+}
+
+.bbox-handle-move svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+@media (pointer: coarse) {
+  .bbox-handle-corner {
+    width: 22px;
+    height: 22px;
+    margin: -11px 0 0 -11px;
+  }
+
+  .bbox-handle-move {
+    width: 36px;
+    height: 36px;
+    margin: -18px 0 0 -18px;
+  }
+}
+
 .sheet-info {
   font-weight: 400;
   color: var(--muted);

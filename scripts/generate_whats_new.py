@@ -133,6 +133,10 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)Drag handles to adjust the AOI"),
+        "Výřez jde doladit: tažením za rohy, křížkem uprostřed se posouvá",
+    ),
+    (
         re.compile(r"(?i)Allow 6×6 km AOI again"),
         "Výřez zase až 6×6 km (36 km²)",
     ),
