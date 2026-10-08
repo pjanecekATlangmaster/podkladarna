@@ -30,8 +30,6 @@ na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
 
 - Georef PNG 600 DPI je obří (6×6 km ≈ 25 000 × 24 000 px, neotevře se):
   výchozí 300 DPI, dlaždicový GeoTIFF s kompresí a náhledy, PNG jen volbou.
-- Max. počet vrcholů u velkých ploch (louka přes celou mapu s tisíci vrcholy
-  brzdí OCAD): rozřezat do mřížky (~250 m) / strop ~1–2 tis. vrcholů na objekt.
 - Volba „Obsah mapy“: jen podklady + vrstevnice + budovy (+ cesty) vs. plná
   automatická mapa; plošné symboly (louky, zpevněné) mapař nepoužije.
 - Vyhlazení schodovitých okrajů ploch z rastru.
