@@ -1,19 +1,22 @@
 """PNG/JPEG náhledy z hotového ``.omap`` (bez-KP) – dvě produktové cesty.
 
 1. **Web (náhled jobu / klik)** – preferuje **OpenOrienteering Mapper CLI**
-   @ nižší DPI (cap ≤50 Mpx IHDR před ``Image.open``; georef @ 600 se
+   @ nižší DPI (cap ≤50 Mpx IHDR před ``Image.open``; georef PNG se
    reuse jen když IHDR vejde) → PNG, pak **ořez AOI (708/705) + undo
    grivace** → **JPEG ≤1600**. Pillow XML fallback pod timeoutem – selhání
    / hang náhledu **neblokuje** ZIP/OCD.
 
-2. **Georef ZIP** (PNG+PGW, volitelně GeoTIFF) – preferuje **Mapper CLI**
-   @ **600 DPI** (``--full-map``), **s grivací**, přes
+2. **Georef ZIP** (GeoTIFF) – preferuje **Mapper CLI**
+   @ **300 DPI** (``GEOREF_MAPPER_DPI``, ``--full-map``), **s grivací**, přes
    ``PODKLADARNA_MAPPER`` + ``PODKLADARNA_MAPPER_EXPORT``. Bez CLI job
-   spadne na Pillow georef @ 600 DPI-eq. Přímý ``engine="mapper"`` bez CLI
-   vyhodí ``MapperExportError``. Georef ZIP zůstává full-map + grivace.
+   spadne na Pillow georef @ 300 DPI-eq. Přímý ``engine="mapper"`` bez CLI
+   vyhodí ``MapperExportError``. Georef zůstává full-map + grivace.
+   Mapper PNG+PGW je jen **pracovní** (zdroj pro GeoTIFF a web náhled); do ZIPu
+   jde dlaždicový DEFLATE GeoTIFF s přehledkami, PNG se po náhledu maže.
+   Jen když GeoTIFF nevznikne (chybí GDAL / ``oom_geotiff=0``), zůstane PNG+PGW.
 
-Materiálový OOM ZIP georef PNG **neobsahuje**, dokud uživatel nezapne
-``output_georef`` (GUI checkbox, default off) – pak jdou PNG+PGW±GeoTIFF
+Materiálový OOM ZIP georef rastr **neobsahuje**, dokud uživatel nezapne
+``output_georef`` (GUI checkbox, default off) – pak jde GeoTIFF
 do hlavního ZIPu i do ``podkladarna_georef_previews.zip`` / API.
 
 Orientace: OOM mapové souřadnice už mají ``scale(s, −s)`` → nižší map Y
@@ -47,15 +50,20 @@ _FALSE = frozenset({"0", "false", "no", "off"})
 # Disciplíny ve výstupu – stejné tagy jako omap_variant_filename.
 GEOREF_PREVIEW_DIR = "preview"
 GEOREF_PREVIEWS_ZIP_NAME = "podkladarna_georef_previews.zip"
-# Georef Mapper export – fixní DPI (bez GUI volby).
-GEOREF_MAPPER_DPI = 600
+# Georef Mapper export – fixní DPI (bez GUI volby). 300 DPI = 4× méně pixelů
+# než dřívějších 600 (6×6 km @ 1:10000 ≈ 12,7k px na stranu místo 25k, které
+# uživatel neotevřel); na podklad pro OOM/OCAD/QGIS to stačí.
+GEOREF_MAPPER_DPI = 300
+# Dodaný GeoTIFF: dlaždice + interní přehledky (viz try_write_geotiff_from_png_pgw).
+GEOTIFF_BLOCK_SIZE = 512
+GEOTIFF_OVERVIEW_LEVELS = (2, 4, 8, 16)
 # Web náhled: Mapper @ nižší DPI (nebo downscale z georef) → JPEG.
 WEB_MAPPER_DPI = 150
 WEB_PREVIEW_MAX_SIDE = 1600
 WEB_JPEG_QUALITY = 82
 # Pillow MAX_IMAGE_PIXELS bývá ~89M–179M. Nad tím Image.open → bomb.
-# Typicky reuse georef @ 600 DPI na velkém full-map (~494 Mpx u Zvokoli).
-# Cap pod oběma limity + RAM (RGB load); georef @ 600 se nemění.
+# Typicky reuse georef PNG na velkém full-map (@ 600 DPI bývalo ~494 Mpx u Zvokoli).
+# Cap pod oběma limity + RAM (RGB load); georef se nemění.
 WEB_MAPPER_MAX_PIXELS = 50_000_000
 # Celý web náhled (Mapper+crop / Pillow fallback) – po timeoutu job pokračuje
 # na ZIP/OCD/mail. Ostrý hang: bomb → Pillow fallback vytuhne → ZIP nedoběhne.
@@ -63,7 +71,7 @@ WEB_PREVIEW_TIMEOUT_SEC = 120
 # Rezerva na Mapper --full-map okraje oproti bbox objektů.
 _WEB_MAPPER_PAPER_MARGIN = 1.2
 # Pillow georef fallback: cílové DPI ≈ Mapper; OOM map. j. = 1/1000 mm papíru.
-# Floor ≥ dřívější 1600 (malé AOI jinak pod 600 DPI papíru vypadají hůř než web);
+# Floor ≥ dřívější 1600 (malé AOI jinak pod DPI papíru vypadají hůř než web);
 # 4800 = 3× starý cap → výrazně ostřejší tip bez Mapper CLI.
 GEOREF_PILLOW_MIN_SIDE_FLOOR = 4800
 # Cap chrání paměť na velkých AOI (≈10k px ≈ 200 MB RGB).
@@ -81,7 +89,7 @@ _OCD_MAGIC = b"\xad\x0c"
 
 
 def georef_pillow_dpi() -> int:
-    """Cílové DPI pro Pillow georef fallback (default = Mapper 600).
+    """Cílové DPI pro Pillow georef fallback (default = ``GEOREF_MAPPER_DPI``).
 
     Override: ``PODKLADARNA_GEOREF_PILLOW_DPI`` (kladné int).
     """
@@ -228,7 +236,7 @@ def capped_web_mapper_dpi(
 ) -> int:
     """Web Mapper DPI ≤ ``desired``, tak aby odhad full-map px ≤ ``max_pixels``.
 
-    Georef @ 600 DPI se nemění – jen webová cesta, ať Pillow nedostane stovky Mpx.
+    Georef se nemění – jen webová cesta, ať Pillow nedostane stovky Mpx.
     """
     dpi = (
         int(desired_dpi)
@@ -300,7 +308,7 @@ def oom_preview_enabled(options: dict | None) -> bool:
 
 
 def output_georef_enabled(options: dict | None = None) -> bool:
-    """Georef PNG/TIFF (Mapper @ 600 / Pillow fallback) – GUI checkbox, default off."""
+    """Georef GeoTIFF (Mapper @ GEOREF_MAPPER_DPI / Pillow fallback) – GUI checkbox, default off."""
     options = options or {}
     if "output_georef" in options and options["output_georef"] is not None:
         return bool(options["output_georef"])
@@ -713,7 +721,7 @@ def prepare_mapper_web_preview(
     d = (-mpp_d * sin_g) / mpp_s
     e = (mpp_d * cos_g) / mpp_s
     f = (-ox_d * sin_g + oy_d * cos_g - oy_s) / mpp_s
-    # IHDR cap před Image.open – obří georef @ 600 by jinak shodil Pillow bomb.
+    # IHDR cap před Image.open – obří georef PNG by jinak shodil Pillow bomb.
     assert_png_within_web_pixel_limit(mapper_png)
     with Image.open(mapper_png) as im:
         rgb = im.convert("RGB")
@@ -1331,7 +1339,7 @@ def preview_extent_from_crop(
         paper_mpp = 25400.0 / float(int(target_dpi))
         floor = max(1, int(min_side_floor))
         floor_mpp = longest_world / float(floor)
-        # Jemnější = menší map_per_px (600 DPI nebo aspoň dřívější 1600 cap).
+        # Jemnější = menší map_per_px (cílové DPI nebo aspoň dřívější 1600 cap).
         map_per_px = min(paper_mpp, floor_mpp)
         width = max(1, int(round(world_w / map_per_px)))
         height = max(1, int(round(world_h / map_per_px)))
@@ -1423,15 +1431,68 @@ def write_preview_pgw(
     return pgw
 
 
+def geotiff_translate_args(translate: str, src: Path, dest: Path) -> list[str]:
+    """Argv ``gdal_translate`` pro snadno otevíratelný GeoTIFF.
+
+    Dlaždicový (512), bezztrátový DEFLATE + PREDICTOR=2 (mapa = ostré čáry,
+    žádné JPEG), BigTIFF jen když je nutný.
+    """
+    return [
+        translate,
+        "-of",
+        "GTiff",
+        "-a_srs",
+        CRS_PROJ4,
+        "-co",
+        "TILED=YES",
+        "-co",
+        f"BLOCKXSIZE={GEOTIFF_BLOCK_SIZE}",
+        "-co",
+        f"BLOCKYSIZE={GEOTIFF_BLOCK_SIZE}",
+        "-co",
+        "COMPRESS=DEFLATE",
+        "-co",
+        "PREDICTOR=2",
+        "-co",
+        "BIGTIFF=IF_SAFER",
+        "-co",
+        "NUM_THREADS=ALL_CPUS",
+        str(src),
+        str(dest),
+    ]
+
+
+def geotiff_overviews_args(addo: str, tif: Path) -> list[str]:
+    """Argv ``gdaladdo`` – interní přehledky (QGIS/OCAD otevřou hned v každém zoomu)."""
+    return [
+        addo,
+        "-r",
+        "average",
+        "--config",
+        "COMPRESS_OVERVIEW",
+        "DEFLATE",
+        "--config",
+        "PREDICTOR_OVERVIEW",
+        "2",
+        "--config",
+        "GDAL_NUM_THREADS",
+        "ALL_CPUS",
+        str(tif),
+        *[str(level) for level in GEOTIFF_OVERVIEW_LEVELS],
+    ]
+
+
 def try_write_geotiff_from_png_pgw(
     png: Path,
     dest_tif: Path | None = None,
     *,
     log=None,
 ) -> Path | None:
-    """Volitelný GeoTIFF přes ``gdal_translate`` (PNG+PGW → GTiff + EPSG:5514).
+    """GeoTIFF přes ``gdal_translate`` (PNG+PGW → dlaždicový DEFLATE GTiff + EPSG:5514).
 
-    Nízká složitost: GDAL si přečte world file sám. Chybí-li nástroj, vrátí None.
+    GDAL si přečte world file sám, pak ``gdaladdo`` přidá interní přehledky.
+    Chybí-li ``gdal_translate``, vrátí None; chybí-li/selže ``gdaladdo``,
+    GeoTIFF zůstane (jen bez přehledek).
     """
     from app.pipeline.prepare_lidar import run_cmd
     from app.tool_env import which_tool
@@ -1448,22 +1509,7 @@ def try_write_geotiff_from_png_pgw(
     dest = Path(dest_tif) if dest_tif else png.with_suffix(".tif")
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        run_cmd(
-            [
-                translate,
-                "-of",
-                "GTiff",
-                "-a_srs",
-                CRS_PROJ4,
-                "-co",
-                "COMPRESS=DEFLATE",
-                "-co",
-                "PREDICTOR=2",
-                str(png),
-                str(dest),
-            ],
-            log=None,
-        )
+        run_cmd(geotiff_translate_args(translate, png, dest), log=None)
     except Exception as exc:
         if log:
             log(f"OOM georef: GeoTIFF selhal ({exc})")
@@ -1472,8 +1518,18 @@ def try_write_geotiff_from_png_pgw(
         return None
     if not dest.is_file() or dest.stat().st_size < 64:
         return None
+    addo = which_tool("gdaladdo")
+    if not addo:
+        if log:
+            log("OOM georef: gdaladdo chybí – GeoTIFF bez přehledek")
+    else:
+        try:
+            run_cmd(geotiff_overviews_args(addo, dest), log=None)
+        except Exception as exc:
+            if log:
+                log(f"OOM georef: přehledky GeoTIFF selhaly ({exc}) – ponechán bez nich")
     if log:
-        log(f"OOM georef: GeoTIFF → {dest.name} ({CRS_LABEL})")
+        log(f"OOM georef: GeoTIFF → {dest.name} ({CRS_LABEL}, dlaždice + přehledky)")
     return dest
 
 
@@ -1935,7 +1991,7 @@ def pick_preview_omap(paths: list[Path]) -> Path | None:
 
 
 def georef_preview_enabled(options: dict | None = None) -> bool:
-    """GeoTIFF vedle PNG+PGW – default zapnuto, když je gdal_translate."""
+    """GeoTIFF z georef PNG+PGW – default zapnuto, když je gdal_translate."""
     options = options or {}
     if "oom_geotiff" in options and options["oom_geotiff"] is not None:
         return bool(options["oom_geotiff"])
@@ -1950,7 +2006,7 @@ def georef_preview_enabled(options: dict | None = None) -> bool:
 def _georef_engine_summary(mapper_n: int, pillow_n: int, pillow_dpi: int) -> str:
     parts = []
     if mapper_n:
-        parts.append(f"{mapper_n}× Mapper @ 600 DPI")
+        parts.append(f"{mapper_n}× Mapper @ {GEOREF_MAPPER_DPI} DPI")
     if pillow_n:
         parts.append(f"{pillow_n}× Pillow fallback @ {pillow_dpi} DPI-eq")
     return ", ".join(parts) or "nic"
@@ -1965,14 +2021,14 @@ def write_job_oom_preview(
 ) -> Path | None:
     """Po zápisu ``.omap`` uloží webový JPEG náhled (± volitelně georef).
 
-    Web (náhled jobu / klik): preferuje **Mapper CLI** (reuse georef PNG @ 600
+    Web (náhled jobu / klik): preferuje **Mapper CLI** (reuse georef PNG @ GEOREF_MAPPER_DPI
     DPI jen pokud IHDR ≤ ``WEB_MAPPER_MAX_PIXELS``, jinak Mapper @ capped
     ``WEB_MAPPER_DPI``) → AOI ořez + zrušení deklinace → ``preview.jpg`` /
     ``oom_preview.jpg``. Bez Mapperu / při chybě **Pillow** fallback → JPEG
     (už s AOI + undo grivation, ``max_side`` ≤1600).
 
     Georef (opt-in ``output_georef``): plná kvalita ``{stem}.png`` + ``.pgw``
-    (+ volitelně GeoTIFF) – Mapper @ 600 DPI s grivací, jinak Pillow @ 600 DPI-eq.
+    (+ volitelně GeoTIFF) – Mapper @ 300 DPI s grivací, jinak Pillow @ 300 DPI-eq; do ZIPu jen GeoTIFF.
     """
     from app.pipeline.prepare_lidar import log_step
 
@@ -2001,20 +2057,20 @@ def write_job_oom_preview(
 
     if want_georef:
         if use_mapper:
-            log_step(log, "Vykresluji georeferencované náhledy PNG+PGW (Mapper @ 600 DPI)")
+            log_step(log, f"Vykresluji georeferencované náhledy (Mapper @ {GEOREF_MAPPER_DPI} DPI)")
         else:
             log_step(
                 log,
-                "Vykresluji georeferencované náhledy PNG+PGW "
+                "Vykresluji georeferencované náhledy "
                 f"(Pillow fallback @ {pillow_dpi} DPI-eq – Mapper CLI není nakonfigurovaný)",
             )
             if log:
                 log(
                     "OOM georef: Mapper CLI chybí "
                     "(PODKLADARNA_MAPPER + PODKLADARNA_MAPPER_EXPORT) – "
-                    f"georef ZIP bude Pillow PNG+PGW (±GeoTIFF) @ {pillow_dpi} DPI-eq "
+                    f"georef ZIP bude Pillow GeoTIFF @ {pillow_dpi} DPI-eq "
                     f"(min_side≥{GEOREF_PILLOW_MIN_SIDE_FLOOR}, "
-                    f"max_side_cap={GEOREF_PILLOW_MAX_SIDE_CAP}), ne Mapper @ 600 DPI."
+                    f"max_side_cap={GEOREF_PILLOW_MAX_SIDE_CAP}), ne Mapper @ {GEOREF_MAPPER_DPI} DPI."
                 )
         for omap in existing:
             dest_png = preview_dir / f"{omap.stem}.png"
@@ -2083,6 +2139,7 @@ def write_job_oom_preview(
                 f"OOM georef: hotovo {len(written)} variant ({src})"
                 + (" + GeoTIFF" if want_geotiff else "")
             )
+        drop_georef_png_sidecars(preview_dir, log=log)
         return None
 
     work_dir = Path(work_dir)
@@ -2121,7 +2178,7 @@ def write_job_oom_preview(
             and georef_full.is_file()
             and georef_full.name in mapper_made
         ):
-            # Reuse georef @ 600 jen když IHDR vejde – nikdy Image.open na ~494 Mpx.
+            # Reuse georef PNG jen když IHDR vejde – nikdy Image.open na ~494 Mpx.
             if png_within_web_pixel_limit(georef_full, max_pixels=web_px_limit):
                 src_png = georef_full
                 gw, gh = _png_size(georef_full)
@@ -2263,31 +2320,71 @@ def write_job_oom_preview(
         )
     elif log and want_georef and not written:
         log("OOM georef: žádná varianta nevznikla – tlačítko stažení nebude")
+    # Obří pracovní PNG už web náhled nepotřebuje – dál jen GeoTIFF.
+    drop_georef_png_sidecars(preview_dir, log=log)
     return web_out if web_out is not None and web_out.is_file() else None
 
 
+def _is_web_preview(path: Path) -> bool:
+    return path.name.lower().startswith("oom_preview")
+
 
 def list_georef_preview_files(preview_dir: Path) -> list[Path]:
-    """Soubory georef náhledů (PNG/PGW/PRJ/TIF) mimo webový ``oom_preview*``."""
+    """Georef soubory k dodání mimo webový ``oom_preview*``.
+
+    Varianta s GeoTIFFem = jen ``.tif`` (CRS i georef jsou uvnitř). Obří
+    pracovní PNG+PGW(+PRJ) se dodá jen jako nouzovka, když GeoTIFF chybí
+    (bez GDAL / ``oom_geotiff=0`` / starší job).
+    """
     preview_dir = Path(preview_dir)
     if not preview_dir.is_dir():
         return []
+    stems = {
+        p.stem
+        for p in preview_dir.iterdir()
+        if p.suffix.lower() in (".tif", ".png") and not _is_web_preview(p)
+    }
     out: list[Path] = []
-    for png in sorted(preview_dir.glob("*.png")):
-        if png.name.lower().startswith("oom_preview"):
+    for stem in sorted(stems):
+        tif = preview_dir / f"{stem}.tif"
+        if tif.is_file():
+            out.append(tif)
             continue
+        png = preview_dir / f"{stem}.png"
         pgw = png.with_suffix(".pgw")
-        if not pgw.is_file():
+        if not png.is_file() or not pgw.is_file():
             continue
         out.append(png)
         out.append(pgw)
         prj = png.with_suffix(".prj")
         if prj.is_file():
             out.append(prj)
-        tif = png.with_suffix(".tif")
-        if tif.is_file():
-            out.append(tif)
     return out
+
+
+def drop_georef_png_sidecars(preview_dir: Path, *, log=None) -> list[Path]:
+    """Smaže pracovní georef PNG+PGW+PRJ tam, kde už existuje GeoTIFF.
+
+    PNG (stovky Mpx) slouží jen jako zdroj pro GeoTIFF a web náhled; v ZIPu
+    ani na disku ho dál nechceme. Bez ``.tif`` se nesahá na nic.
+    """
+    preview_dir = Path(preview_dir)
+    removed: list[Path] = []
+    if not preview_dir.is_dir():
+        return removed
+    for png in sorted(preview_dir.glob("*.png")):
+        if _is_web_preview(png) or not png.with_suffix(".tif").is_file():
+            continue
+        for stale in (png, png.with_suffix(".pgw"), png.with_suffix(".prj")):
+            if stale.is_file():
+                stale.unlink(missing_ok=True)
+                removed.append(stale)
+    if removed and log:
+        log(
+            "OOM georef: pracovní PNG odstraněno, dodává se GeoTIFF "
+            f"({', '.join(p.name for p in removed if p.suffix == '.png')})"
+        )
+    return removed
 
 
 def build_georef_previews_zip(
@@ -2296,7 +2393,7 @@ def build_georef_previews_zip(
     *,
     log=None,
 ) -> Path | None:
-    """Malý ZIP jen s georeferencovanými náhledy (PNG+PGW±TIF)."""
+    """Malý ZIP jen s georeferencovanými náhledy (GeoTIFF; nouzově PNG+PGW)."""
     import zipfile
 
     from app.pipeline.prepare_lidar import log_step
@@ -2318,20 +2415,30 @@ def build_georef_previews_zip(
             (
                 "Podkladárna – georeferencované náhledy mapy\n"
                 "==========================================\n\n"
-                "Každá varianta (les / mtbo / sprint dle měřítka) má:\n"
-                "  *.png  – rastr georef náhledu (Mapper CLI @ 600 DPI když je CLI;\n"
-                "           jinak Pillow @ 600 DPI-eq) – s grivací / magnetickým natočením\n"
-                "  *.pgw  – ESRI world file (metry EPSG:5514 / S-JTSK; může mít rotaci)\n"
-                "  *.prj  – WKT souřadnicového systému\n"
-                "  *.tif  – volitelný GeoTIFF (když je k dispozici GDAL)\n\n"
-                "Otevři PNG+PGW v QGIS (zadej EPSG:5514, pokud se neptá),\n"
-                "nebo rovnou GeoTIFF. Není to tisková mapa – jen georef náhled.\n"
+                "Každá varianta (les / mtbo / sprint dle měřítka) je jeden soubor:\n"
+                "  *.tif  – GeoTIFF v S-JTSK (EPSG:5514), s grivací / magnetickým\n"
+                "           natočením (Mapper CLI @ 300 DPI; bez CLI Pillow @ 300 DPI-eq).\n"
+                "           Dlaždicový, bezztrátově komprimovaný (DEFLATE) a s interními\n"
+                "           přehledkami – QGIS i OCAD ho otevřou hned při libovolném zoomu.\n\n"
+                "Otevři *.tif v QGIS nebo ho vlož jako podkladovou mapu v OOM / OCAD.\n"
+                "Není to tisková mapa – jen georef náhled.\n"
+                "Pokud se GeoTIFF nepodařilo vyrobit (chybí GDAL), je místo něj\n"
+                "*.png + *.pgw (+ *.prj): otevři PNG v QGIS (zadej EPSG:5514, pokud se neptá).\n"
                 "Webový náhled „Otevřít PNG“ je zvlášť (Pillow, bez deklinace)\n"
                 "a do materiálového OOM ZIPu se PNG náhledy nedávají.\n"
             ),
         )
         for path in files:
-            zf.write(path, path.name)
+            # GeoTIFF je už DEFLATE – druhá komprese jen zdržuje.
+            zf.write(
+                path,
+                path.name,
+                compress_type=(
+                    zipfile.ZIP_STORED
+                    if path.suffix.lower() == ".tif"
+                    else zipfile.ZIP_DEFLATED
+                ),
+            )
     os.replace(part, dest)
     if log:
         log(

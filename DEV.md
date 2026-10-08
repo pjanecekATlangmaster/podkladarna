@@ -152,7 +152,7 @@ gdalsrsinfo EPSG:5514   # must not mention pyproj\proj_dir
 Po zápisu `.omap` pipeline dělá dvě věci:
 
 1. **Web „Otevřít PNG“** – vždy **Pillow + XML** (`work/preview.png` / `output/preview/oom_preview.png`), **bez deklinace**. Rychlé; Mapper se nevolá.
-2. **Georef ZIP** – preferuje **OpenOrienteering Mapper CLI @ 600 DPI** (`--full-map`) → `output/preview/*-{les,mtbo,sprint}.png` + `.pgw` (+ volitelně `.tif`), **s grivací**. Bez CLI buildu (typicky Windows tip se stock 0.9.6) job **explicitně** použije Pillow georef @ **600 DPI-eq** papíru (`map_per_px = 25400/DPI`, cap 10 000 px; override `PODKLADARNA_GEOREF_PILLOW_DPI`) → PNG+PGW±GeoTIFF, s grivací, a zapíše to do logu – tlačítko „Stáhnout georef náhledy“ zůstane. Malý ZIP: `podkladarna_georef_previews.zip` / API `/download/georef-previews`.
+2. **Georef ZIP** – preferuje **OpenOrienteering Mapper CLI @ 300 DPI** (`--full-map`, konstanta `GEOREF_MAPPER_DPI`) → pracovní `output/preview/*-{les,mtbo,sprint}.png` + `.pgw`, z nich **GeoTIFF** `.tif` (dlaždice 512, DEFLATE+PREDICTOR=2, BIGTIFF=IF_SAFER, interní přehledky 2/4/8/16), **s grivací**. Obří PNG se po web náhledu maže a do ZIPu nejde; zůstane jen když GeoTIFF nevznikne (bez GDAL / `oom_geotiff=0`). Bez CLI buildu (typicky Windows tip se stock 0.9.6) job **explicitně** použije Pillow georef @ **300 DPI-eq** papíru (`map_per_px = 25400/DPI`, cap 10 000 px; override `PODKLADARNA_GEOREF_PILLOW_DPI`) → GeoTIFF, s grivací, a zapíše to do logu – tlačítko „Stáhnout georef náhledy“ zůstane. Malý ZIP: `podkladarna_georef_previews.zip` / API `/download/georef-previews`.
 
 **Materiálový OOM ZIP** PNG náhledy mapy **neobsahuje** (ani Pillow, ani Mapper). ČÚZK WMS `references/` zůstávají.
 
@@ -165,7 +165,7 @@ Stock Mapper **0.9.6** headless export **neumí** (otevřel by GUI). Potřeba bu
 ```powershell
 # Cesta k CLI binárce (ne stock 0.9.6, pokud nemá --cli)
 $env:PODKLADARNA_MAPPER = "C:\cesta\k\Mapper.exe"
-# Šablona – bez ní georef běží Pillow fallback (log), ne Mapper @ 600 DPI
+# Šablona – bez ní georef běží Pillow fallback (log), ne Mapper @ 300 DPI
 $env:PODKLADARNA_MAPPER_EXPORT = '"{mapper}" --cli export --full-map -i "{omap}" -o "{png}" --dpi {dpi}'
 # .omap → .ocd OCD12 do ZIPu (bez CONVERT se .ocd přeskočí; bez OCD12 flagu default v9)
 $env:PODKLADARNA_MAPPER_CONVERT = '"{mapper}" --cli convert -i "{omap}" -o "{ocd}" --output-format OCD12'
@@ -173,9 +173,9 @@ $env:PODKLADARNA_MAPPER_CONVERT = '"{mapper}" --cli convert -i "{omap}" -o "{ocd
 $env:PODKLADARNA_MAPPER_TIMEOUT = "600"
 ```
 
-Bez CLI: Pillow georef cílí **600 DPI papíru** (`map_per_px = 25400/DPI`), nejméně delší strana **4800 px** (3× starý cap), max **10 000 px**. Override: `PODKLADARNA_GEOREF_PILLOW_DPI`.
+Bez CLI: Pillow georef cílí **300 DPI papíru** (`map_per_px = 25400/DPI`), nejméně delší strana **4800 px** (3× starý cap), max **10 000 px**. Override: `PODKLADARNA_GEOREF_PILLOW_DPI`.
 
-Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. **Docker image** (tip ≥1.26.1) Mapper CLI už obsahuje (`/opt/mapper/bin/Mapper`, pin `mfbehrens/oo-mapper` `cli` @ `6dc1fd72`) a nastaví `PODKLADARNA_MAPPER` + `PODKLADARNA_MAPPER_EXPORT` + `PODKLADARNA_MAPPER_CONVERT` — viz `DEPLOY.md` / `Dockerfile`. Windows tip (`:8672`) bez CLI buildu dál padá na Pillow georef @ 600 DPI-eq (floor 4800) a bez `.ocd`; Docker změna je pro budoucí NAS/ostrý image, ne nutně lokální tip.
+Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. **Docker image** (tip ≥1.26.1) Mapper CLI už obsahuje (`/opt/mapper/bin/Mapper`, pin `mfbehrens/oo-mapper` `cli` @ `6dc1fd72`) a nastaví `PODKLADARNA_MAPPER` + `PODKLADARNA_MAPPER_EXPORT` + `PODKLADARNA_MAPPER_CONVERT` — viz `DEPLOY.md` / `Dockerfile`. Windows tip (`:8672`) bez CLI buildu dál padá na Pillow georef @ 300 DPI-eq (floor 4800) a bez `.ocd`; Docker změna je pro budoucí NAS/ostrý image, ne nutně lokální tip.
 
 Vestavěný Pillow kreslí zjednodušenou symboliku. Orientace: nižší map Y nahoru. Web ořez kolem AOI (708 / 705).
 

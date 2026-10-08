@@ -69,7 +69,7 @@ zdroj je veřejný git pin výše; recept sestavení je v `Dockerfile`
 poskytneme tarball zdroje k danému pinu nebo odkaz na clone + SHA.
 
 Lokální Windows tip (`:8672`) Mapper CLI do Dockeru nepotřebuje —
-georef bez CLI padá na Pillow @ 600 DPI-eq (viz `DEV.md`).
+georef bez CLI padá na Pillow @ 300 DPI-eq (viz `DEV.md`).
 
 ## Cílový software (GUI u uživatele)
 

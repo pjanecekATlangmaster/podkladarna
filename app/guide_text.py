@@ -30,7 +30,7 @@ WEB_ABOUT_HTML = """
   Na webu uvidíte PNG náhled mapy.
   Primární výstup je vždy ZIP s editovatelnými vektory (vrstevnice, zeleň, ZABAGED, OSM,
   RÚIAN podklady, AOPK, DXF srázů, referenční orto…).
-  Georeferencované PNG/TIFF do ZIPu je volitelné (ve výchozím stavu vypnuto).
+  Georeferencovaný GeoTIFF do ZIPu je volitelný (ve výchozím stavu vypnuto).
 </p>
 <p>
   <strong>Mapa je rovnou georeferencovaná v S-JTSK (EPSG:5514)</strong> – včetně

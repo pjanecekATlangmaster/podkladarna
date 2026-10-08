@@ -346,7 +346,31 @@ def test_build_oom_zip_includes_georef_when_requested(tmp_path: Path):
     assert "preview/Park-les.pgw" in names
     assert "preview/Park-les.prj" in names
     assert "preview/oom_preview.png" not in names
-    assert "preview/" in readme and "PNG+PGW" in readme
+    assert "preview/" in readme and "GeoTIFF" in readme and "300 DPI" in readme
+
+
+def test_build_oom_zip_georef_ships_only_geotiff(tmp_path: Path):
+    kp = tmp_path / "kp"
+    kp.mkdir()
+    preview = tmp_path / "preview"
+    preview.mkdir()
+    (preview / "Park-les.tif").write_bytes(b"II*\x00" + b"\0" * 64)
+    # Pracovní PNG+PGW u hotového GeoTIFFu se nebalí.
+    (preview / "Park-les.png").write_bytes(b"huge")
+    (preview / "Park-les.pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+    (preview / "Park-les.prj").write_text("PROJCS", encoding="utf-8")
+    dest = tmp_path / "out.zip"
+    build_oom_zip(
+        kp,
+        dest,
+        zabaged_clean=None,
+        metadata={"label": "test", "scale": 10000, "output_georef": True},
+        georef_preview_dir=preview,
+    )
+    with zipfile.ZipFile(dest) as zf:
+        names = set(zf.namelist())
+    assert "preview/Park-les.tif" in names
+    assert not any(n.startswith("preview/Park-les.p") for n in names)
 
 
 def test_prepare_oom_map_minimal(tmp_path):

@@ -441,12 +441,12 @@ def oom_readme(meta: dict) -> str:
     if include_georef:
         georef_note = (
             "   Georef náhledy mapy jsou ve složce preview/ "
-            "(PNG+PGW ± GeoTIFF; Mapper @ 600 DPI, jinak Pillow).\n"
+            "(GeoTIFF v EPSG:5514, 300 DPI, s přehledkami; Mapper, jinak Pillow).\n"
         )
     else:
         georef_note = (
-            "   Georef náhledy mapy (Mapper @ 600 DPI + PGW) v tomto ZIPu nejsou –\n"
-            "   zapněte „Georeferencované PNG/TIFF do ZIPu“ při generování,\n"
+            "   Georef náhledy mapy (GeoTIFF, Mapper @ 300 DPI) v tomto ZIPu nejsou –\n"
+            "   zapněte při generování volbu georeferencovaného rastru do ZIPu,\n"
             "   nebo je stáhněte zvlášť z webu („Stáhnout georef náhledy“),\n"
             "   pokud job georef vyrobil.\n"
         )

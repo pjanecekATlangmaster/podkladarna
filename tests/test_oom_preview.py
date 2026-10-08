@@ -803,7 +803,7 @@ def test_write_job_georef_pillow_fallback_without_mapper(tmp_path: Path, monkeyp
     georef_png = tmp_path / "out" / "preview" / "Park-les.png"
     assert georef_png.is_file() and georef_png.with_suffix(".pgw").is_file()
     assert any("Pillow fallback" in line or "Pillow" in line for line in logs)
-    assert any("600 DPI-eq" in line for line in logs)
+    assert any("300 DPI-eq" in line for line in logs)
     # Georef: ≥ floor 4800; web = JPEG max_side 1600.
     from app.pipeline.oom_preview import (
         GEOREF_MAPPER_DPI,
@@ -816,10 +816,8 @@ def test_write_job_georef_pillow_fallback_without_mapper(tmp_path: Path, monkeyp
     assert max(georef_im.size) >= GEOREF_PILLOW_MIN_SIDE_FLOOR
     assert max(web_im.size) <= WEB_PREVIEW_MAX_SIDE
     assert work.suffix.lower() == ".jpg"
-    assert GEOREF_MAPPER_DPI == 600
-    assert any(f"dpi={GEOREF_MAPPER_DPI}" in line for line in logs) or any(
-        "dpi=600" in line for line in logs
-    )
+    assert GEOREF_MAPPER_DPI == 300
+    assert any(f"dpi={GEOREF_MAPPER_DPI}" in line for line in logs)
     zpath = build_georef_previews_zip(tmp_path / "out")
     assert zpath is not None and zpath.is_file()
 
@@ -980,7 +978,7 @@ def test_capped_web_mapper_dpi_reduces_for_large_paper(tmp_path: Path):
 def test_write_job_skips_huge_georef_reuse_for_web(
     tmp_path: Path, monkeypatch
 ):
-    """Georef @600 může zůstat obří; web ho nereusuje nad pixel limitem."""
+    """Georef PNG může zůstat obří; web ho nereusuje nad pixel limitem."""
     import app.pipeline.oom_preview as oom_mod
 
     _install_fake_mapper(monkeypatch, tmp_path)
@@ -1554,7 +1552,7 @@ def test_web_preview_does_not_reuse_pillow_georef_after_mapper_fail(
     assert not any("→ AOI+bez deklinace" in line and "georef Park-les.png" in line for line in logs)
     assert any("web Pillow JPEG fallback" in line for line in logs)
     assert any("1× Pillow fallback" in line for line in logs)
-    assert not any("Mapper @ 600 DPI)" in line and "hotovo" in line for line in logs)
+    assert not any("Mapper @ 300 DPI" in line and "hotovo" in line for line in logs)
 
 
 def test_pillow_area_bbox_render_matches_full_canvas(tmp_path: Path):
@@ -1591,3 +1589,259 @@ def test_pillow_area_bbox_render_matches_full_canvas(tmp_path: Path):
         ref.paste(Image.new("RGB", (w, h), op.rgb), (0, 0), mask)
     if all(op.kind == "area" for op in ops):
         assert list(got.getdata()) == list(ref.getdata())
+
+
+# --- GeoTIFF jako jediný dodaný georef raster (300 DPI, dlaždice, přehledky) ---
+
+
+def test_georef_mapper_dpi_is_300_and_used_for_export(tmp_path: Path, monkeypatch):
+    import app.pipeline.oom_preview as oom_mod
+
+    assert oom_mod.GEOREF_MAPPER_DPI == 300
+    _install_fake_mapper(monkeypatch, tmp_path)
+    seen: list[int] = []
+    real = oom_mod.run_mapper_export
+
+    def spy(omap, dest, *, dpi=oom_mod.GEOREF_MAPPER_DPI, log=None):
+        seen.append(dpi)
+        return real(omap, dest, dpi=dpi, log=log)
+
+    monkeypatch.setattr(oom_mod, "run_mapper_export", spy)
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
+    render_omap_to_png(
+        omap,
+        tmp_path / "out" / "preview" / "Park-les.png",
+        write_pgw=True,
+        write_geotiff=False,
+        engine="mapper",
+    )
+    assert seen == [300]
+
+
+def test_geotiff_creation_options_and_overviews(tmp_path: Path, monkeypatch):
+    """gdal_translate: dlaždice 512 + DEFLATE/PREDICTOR=2 + BigTIFF; gdaladdo 2 4 8 16."""
+    import app.pipeline.oom_preview as oom_mod
+    import app.pipeline.prepare_lidar as lidar_mod
+    import app.tool_env as tool_env
+
+    png = tmp_path / "Park-les.png"
+    Image.new("RGB", (8, 8), (255, 0, 0)).save(png)
+    png.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **_kw):
+        calls.append(list(cmd))
+        if cmd[0] == "translate":
+            Path(cmd[-1]).write_bytes(b"II*\x00" + b"\0" * 200)
+
+    monkeypatch.setattr(tool_env, "which_tool", lambda name: {
+        "gdal_translate": "translate", "gdaladdo": "addo"}.get(name))
+    monkeypatch.setattr(lidar_mod, "run_cmd", fake_run)
+
+    tif = oom_mod.try_write_geotiff_from_png_pgw(png)
+    assert tif == png.with_suffix(".tif") and tif.is_file()
+    translate, addo = calls
+    cos = {translate[i + 1] for i, a in enumerate(translate) if a == "-co"}
+    assert {
+        "TILED=YES",
+        "BLOCKXSIZE=512",
+        "BLOCKYSIZE=512",
+        "COMPRESS=DEFLATE",
+        "PREDICTOR=2",
+        "BIGTIFF=IF_SAFER",
+    } <= cos
+    assert not any("JPEG" in c for c in cos)
+    assert translate[translate.index("-a_srs") + 1] == oom_mod.CRS_PROJ4
+    assert addo[0] == "addo" and addo[addo.index("-r") + 1] == "average"
+    assert str(tif) in addo
+    assert addo[-4:] == ["2", "4", "8", "16"]
+    assert ["COMPRESS_OVERVIEW", "DEFLATE"] == addo[
+        addo.index("COMPRESS_OVERVIEW") : addo.index("COMPRESS_OVERVIEW") + 2
+    ]
+
+
+def test_geotiff_kept_when_overviews_fail(tmp_path: Path, monkeypatch):
+    import app.pipeline.oom_preview as oom_mod
+    import app.pipeline.prepare_lidar as lidar_mod
+    import app.tool_env as tool_env
+
+    png = tmp_path / "Park-les.png"
+    Image.new("RGB", (8, 8)).save(png)
+    png.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0\n0\n", encoding="utf-8")
+
+    def fake_run(cmd, **_kw):
+        if cmd[0] == "translate":
+            Path(cmd[-1]).write_bytes(b"II*\x00" + b"\0" * 200)
+        else:
+            raise RuntimeError("addo boom")
+
+    monkeypatch.setattr(tool_env, "which_tool", lambda name: {
+        "gdal_translate": "translate", "gdaladdo": "addo"}.get(name))
+    monkeypatch.setattr(lidar_mod, "run_cmd", fake_run)
+    logs: list[str] = []
+    tif = oom_mod.try_write_geotiff_from_png_pgw(png, log=logs.append)
+    assert tif is not None and tif.is_file()
+    assert any("přehledky" in line and "selhaly" in line for line in logs)
+
+
+def _fake_geotiff(monkeypatch):
+    """Místo GDALu zapíše .tif vedle PNG (test balení / mazání PNG)."""
+    import app.pipeline.oom_preview as oom_mod
+
+    def fake(png, dest_tif=None, *, log=None):
+        dest = Path(dest_tif) if dest_tif else Path(png).with_suffix(".tif")
+        dest.write_bytes(b"II*\x00" + b"\0" * 200)
+        return dest
+
+    monkeypatch.setattr(oom_mod, "try_write_geotiff_from_png_pgw", fake)
+
+
+def test_job_ships_only_geotiff_and_keeps_web_preview(tmp_path: Path, monkeypatch):
+    """Georef ZIP: jen .tif; pracovní PNG/PGW/PRJ pryč; preview.jpg dál vzniká."""
+    _install_fake_mapper(monkeypatch, tmp_path)
+    _fake_geotiff(monkeypatch)
+    omap_les = tmp_path / "out" / "Park-les.omap"
+    omap_mtbo = tmp_path / "out" / "Park-mtbo.omap"
+    omap_les.parent.mkdir()
+    omap_les.write_text(_MAP_GEOREF, encoding="utf-8")
+    omap_mtbo.write_text(_MAP_GEOREF, encoding="utf-8")
+    logs: list[str] = []
+    work = write_job_oom_preview(
+        [omap_les, omap_mtbo],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"use_kp": False, "output_georef": True},
+        log=logs.append,
+    )
+    # Web náhled funguje (reuse georef PNG ještě před smazáním).
+    assert work is not None and work.is_file() and work.suffix == ".jpg"
+    assert (tmp_path / "out" / "preview" / "oom_preview.jpg").is_file()
+    assert any("web Mapper JPEG" in line and "georef Park-les.png" in line for line in logs)
+    preview = tmp_path / "out" / "preview"
+    for stem in ("Park-les", "Park-mtbo"):
+        assert (preview / f"{stem}.tif").is_file()
+        assert not (preview / f"{stem}.png").exists()
+        assert not (preview / f"{stem}.pgw").exists()
+        assert not (preview / f"{stem}.prj").exists()
+
+    zpath = build_georef_previews_zip(tmp_path / "out")
+    assert zpath is not None
+    with zipfile.ZipFile(zpath) as zf:
+        names = set(zf.namelist())
+    assert names == {"README.txt", "Park-les.tif", "Park-mtbo.tif"}
+
+
+def test_job_ships_only_geotiff_without_web_preview(tmp_path: Path, monkeypatch):
+    _install_fake_mapper(monkeypatch, tmp_path)
+    _fake_geotiff(monkeypatch)
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
+    write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"oom_preview": False, "output_georef": True},
+    )
+    preview = tmp_path / "out" / "preview"
+    assert (preview / "Park-les.tif").is_file()
+    assert not (preview / "Park-les.png").exists()
+
+
+def test_png_kept_as_fallback_when_geotiff_missing(tmp_path: Path, monkeypatch):
+    """Bez GeoTIFFu (oom_geotiff=0 / bez GDAL) se nemaže nic – ZIP dostane PNG+PGW."""
+    _install_fake_mapper(monkeypatch, tmp_path)
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP_GEOREF, encoding="utf-8")
+    write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"use_kp": False, "oom_geotiff": False, "output_georef": True},
+    )
+    preview = tmp_path / "out" / "preview"
+    assert (preview / "Park-les.png").is_file() and (preview / "Park-les.pgw").is_file()
+    zpath = build_georef_previews_zip(tmp_path / "out")
+    with zipfile.ZipFile(zpath) as zf:
+        names = set(zf.namelist())
+    assert {"Park-les.png", "Park-les.pgw"} <= names
+    assert "Park-les.tif" not in names
+
+
+def test_list_georef_preview_files_prefers_tif(tmp_path: Path):
+    from app.pipeline.oom_preview import list_georef_preview_files
+
+    d = tmp_path / "preview"
+    d.mkdir()
+    for stem in ("A-les", "B-mtbo"):
+        (d / f"{stem}.png").write_bytes(b"png")
+        (d / f"{stem}.pgw").write_text("1\n", encoding="utf-8")
+        (d / f"{stem}.prj").write_text("P", encoding="utf-8")
+    (d / "A-les.tif").write_bytes(b"tif")
+    (d / "oom_preview.png").write_bytes(b"web")
+    (d / "oom_preview.jpg").write_bytes(b"web")
+    names = [p.name for p in list_georef_preview_files(d)]
+    assert names == ["A-les.tif", "B-mtbo.png", "B-mtbo.pgw", "B-mtbo.prj"]
+    # Jen .tif (PNG už smazané) se dál nabízí.
+    for p in d.glob("A-les.p*"):
+        p.unlink()
+    assert "A-les.tif" in [p.name for p in list_georef_preview_files(d)]
+
+
+def test_drop_georef_png_sidecars_only_with_tif(tmp_path: Path):
+    from app.pipeline.oom_preview import drop_georef_png_sidecars
+
+    d = tmp_path / "preview"
+    d.mkdir()
+    for stem in ("A-les", "B-mtbo"):
+        for ext in (".png", ".pgw", ".prj"):
+            (d / f"{stem}{ext}").write_bytes(b"x")
+    (d / "A-les.tif").write_bytes(b"tif")
+    (d / "oom_preview.png").write_bytes(b"web")
+    (d / "oom_preview.tif").write_bytes(b"web")
+    removed = drop_georef_png_sidecars(d)
+    assert {p.name for p in removed} == {"A-les.png", "A-les.pgw", "A-les.prj"}
+    assert (d / "B-mtbo.png").is_file() and (d / "oom_preview.png").is_file()
+
+
+def _gdal_tool(name: str) -> str | None:
+    from app.tool_env import which_tool
+
+    return which_tool(name)
+
+
+@pytest.mark.skipif(
+    not (_gdal_tool("gdal_translate") and _gdal_tool("gdaladdo") and _gdal_tool("gdalinfo")),
+    reason="GDAL CLI (gdal_translate/gdaladdo/gdalinfo) missing",
+)
+def test_geotiff_real_gdal_tiled_deflate_overviews(tmp_path: Path):
+    import json
+    import subprocess
+
+    import app.pipeline.oom_preview as oom_mod
+
+    png = tmp_path / "Park-les.png"
+    Image.new("RGB", (2300, 1700), (240, 200, 40)).save(png)
+    png.with_suffix(".pgw").write_text(
+        "1.0\n0.0\n0.0\n-1.0\n-740000.5\n-1040000.5\n", encoding="utf-8"
+    )
+    tif = oom_mod.try_write_geotiff_from_png_pgw(png)
+    assert tif is not None and tif.is_file()
+    out = subprocess.run(
+        [_gdal_tool("gdalinfo"), "-json", str(tif)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    info = json.loads(out.stdout)
+    meta = info["metadata"].get("IMAGE_STRUCTURE", {})
+    assert meta.get("COMPRESSION") == "DEFLATE"
+    band = info["bands"][0]
+    assert band["block"] == [512, 512]
+    assert len(band["overviews"]) == 4
+    assert info["size"] == [2300, 1700]
+    assert "Krovak" in json.dumps(info["coordinateSystem"])
+    assert info["geoTransform"][0] == pytest.approx(-740000.5)

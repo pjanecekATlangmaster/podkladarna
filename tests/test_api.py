@@ -722,6 +722,33 @@ def test_download_georef_previews_zip(client, tmp_path, monkeypatch):
     assert "georef" in cd.casefold()
 
 
+def test_download_georef_previews_zip_geotiff_only(client, tmp_path, monkeypatch):
+    from app import db, main
+
+    monkeypatch.setattr(main, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "jobs.sqlite")
+    db.init_db()
+    job = db.create_job("Nusle park", "forest_10000", {})
+    job_id = job["id"]
+    preview = tmp_path / "jobs" / job_id / "output" / "preview"
+    preview.mkdir(parents=True, exist_ok=True)
+    # Po jobu zbyde jen GeoTIFF (pracovní PNG se maže).
+    (preview / "NuslePark-les.tif").write_bytes(b"II*\x00" + b"\0" * 64)
+    (preview / "oom_preview.jpg").write_bytes(b"\xff\xd8" + b"\0" * 8)
+    db.update_job(job_id, status="done", phase="done")
+
+    assert client.get(f"/api/jobs/{job_id}").json()["has_georef_previews"] is True
+    r = client.get(f"/api/jobs/{job_id}/download/georef-previews")
+    assert r.status_code == 200
+    import zipfile
+    from io import BytesIO
+
+    with zipfile.ZipFile(BytesIO(r.content)) as zf:
+        names = set(zf.namelist())
+    assert names == {"README.txt", "NuslePark-les.tif"}
+
+
 def test_zip_download_filename_uses_project_name(tmp_path, monkeypatch):
     from app import db
 

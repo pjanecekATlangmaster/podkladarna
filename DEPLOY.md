@@ -62,7 +62,7 @@ sestavovaný z `mfbehrens/oo-mapper` `cli` @ `6dc1fd72`. Dockerfile nastaví:
 | `PODKLADARNA_MAPPER_CONVERT` | `"{mapper}" --cli convert -i "{omap}" -o "{ocd}" --output-format OCD12` |
 | `QT_QPA_PLATFORM` | `offscreen` |
 
-App doplní `{dpi}` = **600** pro georef ZIP. Po `.omap` volá convert → `.ocd`
+App doplní `{dpi}` = **300** pro georef ZIP. Po `.omap` volá convert → `.ocd`
 (OCD12) do materiálového ZIPu. Web „Otevřít PNG“ zůstává Pillow.
 GPL-3.0: viz `LICENSES.md` (zdroj + build recept / nabídka tarballu).
 

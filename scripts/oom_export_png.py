@@ -1,6 +1,6 @@
 """Export jednoho .omap do PNG (výchozí = Pillow web cesta).
 
-Webový náhled je vždy Pillow. Mapper CLI je jen pro georef ZIP (@ 600 DPI)
+Webový náhled je vždy Pillow. Mapper CLI je jen pro georef ZIP (@ 300 DPI)
 přes ``PODKLADARNA_MAPPER`` + ``PODKLADARNA_MAPPER_EXPORT`` (viz DEV.md).
 
 Příklad:
@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--georef",
         action="store_true",
-        help="Mapper CLI @ 600 DPI + PGW (vyžaduje PODKLADARNA_MAPPER_EXPORT)",
+        help="Mapper CLI @ 300 DPI + PGW (vyžaduje PODKLADARNA_MAPPER_EXPORT)",
     )
     args = parser.parse_args(argv)
     omap = args.omap.resolve()
