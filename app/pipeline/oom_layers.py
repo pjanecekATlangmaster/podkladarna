@@ -52,10 +52,10 @@ def collect_oom_templates(
     *,
     built_refs: dict[str, Path] | None = None,
 ) -> list[OomTemplate]:
-    """Referenční PNG šablony zdola nahoru (všechny pod mapou).
+    """Referenční šablony zdola nahoru (všechny pod mapou).
 
     Vektory (LiDAR, ZABAGED, OSM) jdou do .omap jako editovatelné objekty
-    (viz oom_import), ne jako šablony.
+    (viz oom_import), ne jako šablony – kromě katastru, ten je jen podklad.
     """
     del work_dir
     templates: list[OomTemplate] = []
@@ -92,6 +92,20 @@ def collect_oom_templates(
                         group=GROUP_REFERENCE,
                     )
                 )
+        # Vektorový katastr (GeoPackage, EPSG:5514) jako podklad nad rastry –
+        # jde zapnout/vypnout a nastavit průhlednost, do mapy nezasahuje.
+        km_vector = built_refs.get("katastr_vector")
+        if km_vector and km_vector.is_file():
+            templates.append(
+                OomTemplate(
+                    "ogr",
+                    "Katastrální mapa (křivky)",
+                    f"references/{km_vector.name}",
+                    visible=False,
+                    opacity=1.0,
+                    group=GROUP_REFERENCE,
+                )
+            )
         key, label, relpath, opacity, visible = OOM_OSM_REF_SPEC
         path = built_refs.get(key)
         if path and path.is_file():

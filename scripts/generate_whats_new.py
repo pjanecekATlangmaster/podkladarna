@@ -133,6 +133,14 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)Cadastre as vector template"),
+        "Katastr ve křivkách jako podklad (zapnout/vypnout, průhlednost); DXF pro OCAD",
+    ),
+    (
+        re.compile(r"(?i)Transparent cadastre overlay; orthophoto"),
+        "Ortofoto 0,25 m/px (dlaždice JPEG), rastrový katastr s průhledným pozadím",
+    ),
+    (
         re.compile(r"(?i)Form lines everywhere as a guide"),
         "Pomocné vrstevnice i „všude“ jako vodítko (jako OCAD)",
     ),

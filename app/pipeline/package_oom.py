@@ -917,6 +917,9 @@ def build_oom_zip(
                 world = world_file_for(raster)
                 if world.is_file():
                     zf.write(world, f"references/{world.name}")
+            # Vektorový katastr: GeoPackage (podklad OOM) + DXF (OCAD).
+            for name in ("katastr.gpkg", "katastr.dxf"):
+                _write_if_exists(zf, reference_dir / name, f"references/{name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
             for zip_name, src in sorted(

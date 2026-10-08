@@ -5,6 +5,8 @@ import math
 import re
 import shutil
 import tempfile
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -40,7 +42,11 @@ _OSM_MPP_CANDIDATES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
 # Ortofoto: vždy 0,25 m/px (les se na 1 m/px nedá mapovat). Nad strop jedné
 # šablony se AOI rozdělí na mřížku dlaždic – Mapper načítá šablonu celou do paměti.
 ORTHO_MPP = 0.25
-ORTHO_MAX_TILE_PX = 8192
+# 8192² RGB32 = přesně 256 MiB – Qt (Mapper) má na obrázek alokační limit
+# 256 MB, proto rezerva.
+ORTHO_MAX_TILE_PX = 8000
+_HTTP_RETRIES = 3
+_HTTP_RETRY_WAIT_S = 2.0
 ORTHO_JPEG_QUALITY = 90
 # Katastr: bílé (a téměř bílé) pixely → alfa 0, když server TRANSPARENT ignoruje.
 KM_WHITE_THRESHOLD = 250
@@ -314,9 +320,20 @@ def _wms_getmap_url(
 
 
 def _http_get_bytes(url: str, timeout: int = 120) -> bytes:
+    """GET s opakováním – ortofoto 6×6 km je ~150 GetMap a jeden výpadek
+    by jinak zahodil celou vrstvu."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read()
+    for attempt in range(_HTTP_RETRIES):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            # 4xx se opakováním nespraví – jen výpadky sítě a 5xx.
+            client_error = isinstance(exc, urllib.error.HTTPError) and exc.code < 500
+            if client_error or attempt == _HTTP_RETRIES - 1:
+                raise
+            time.sleep(_HTTP_RETRY_WAIT_S * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 def _is_png(data: bytes) -> bool:
@@ -1275,7 +1292,7 @@ def build_reference_layers(
     if not force_refresh:
         cached = _try_load_references_cache(cache_dir, out_dir, log=log)
         if cached is not None:
-            return cached
+            return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
     elif log:
         log("Force refresh: referenční PNG cache se přegeneruje")
 
@@ -1395,4 +1412,23 @@ def build_reference_layers(
         if log:
             log(f"Referenční PNG: cache zápis selhal ({exc})")
 
+    return _with_katastr_vectors(built, bbox_wgs84, out_dir, log=log)
+
+
+def _with_katastr_vectors(
+    built: dict[str, Path],
+    bbox_wgs84: tuple[float, float, float, float],
+    out_dir: Path,
+    *,
+    log: callable | None = None,
+) -> dict[str, Path]:
+    """Vektorový katastr (GeoPackage + DXF) vedle rastrů – mimo rastrovou cache
+    (má vlastní cache po KÚ; ořez na výřez je jen pár sekund)."""
+    from app.pipeline.fetch_katastr import build_katastr_vectors
+
+    try:
+        built.update(build_katastr_vectors(bbox_wgs84, out_dir, log=log))
+    except Exception as exc:
+        if log:
+            log(f"Katastr (vektor): přeskočeno ({exc})")
     return built

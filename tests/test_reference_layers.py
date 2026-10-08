@@ -412,17 +412,18 @@ def test_ortho_target_size_non_square(tmp_path):
 def test_split_ortho_tiles_limits_and_coverage():
     from app.pipeline.reference_layers import ORTHO_MAX_TILE_PX, _split_ortho_tiles
 
-    assert ORTHO_MAX_TILE_PX == 8192
-    one = _split_ortho_tiles(8192, 5000)
-    assert one == [(0, 0, 0, 0, 8192, 5000)]
+    # Pod Qt alokačním limitem 256 MB (8192² RGB32 je přesně na hraně).
+    assert ORTHO_MAX_TILE_PX * ORTHO_MAX_TILE_PX * 4 < 256 * 1024 * 1024
+    one = _split_ortho_tiles(ORTHO_MAX_TILE_PX, 5000)
+    assert one == [(0, 0, 0, 0, ORTHO_MAX_TILE_PX, 5000)]
     tiles = _split_ortho_tiles(24000, 26000)
     cols = {c for _r, c, *_ in tiles}
     rows = {r for r, *_ in tiles}
     assert len(cols) == 3 and len(rows) == 4 and len(tiles) == 12
     covered = 0
     for r, c, x0, y0, x1, y1 in tiles:
-        assert 0 < x1 - x0 <= 8192
-        assert 0 < y1 - y0 <= 8192
+        assert 0 < x1 - x0 <= ORTHO_MAX_TILE_PX
+        assert 0 < y1 - y0 <= ORTHO_MAX_TILE_PX
         covered += (x1 - x0) * (y1 - y0)
     assert covered == 24000 * 26000
     # sousední dlaždice na sebe navazují bez mezery a přesahu
@@ -698,3 +699,45 @@ def test_collect_oom_templates_single_ortho_jpg(tmp_path):
     assert templates[0].relpath == "references/orthophoto.jpg"
     assert templates[0].label == "Ortofoto ČÚZK"
 
+
+
+def test_http_get_bytes_retries_network_errors_not_4xx(monkeypatch):
+    import urllib.error
+
+    import app.pipeline.reference_layers as rl
+
+    monkeypatch.setattr(rl, "_HTTP_RETRY_WAIT_S", 0.0)
+    calls = {"n": 0}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    def flaky(_req, timeout=None):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.URLError("reset")
+        return _Resp()
+
+    monkeypatch.setattr(rl.urllib.request, "urlopen", flaky)
+    assert rl._http_get_bytes("http://x") == b"ok"
+    assert calls["n"] == 3
+
+    calls["n"] = 0
+
+    def not_found(req, timeout=None):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(req.full_url, 404, "nf", None, None)
+
+    monkeypatch.setattr(rl.urllib.request, "urlopen", not_found)
+    import pytest
+
+    with pytest.raises(urllib.error.HTTPError):
+        rl._http_get_bytes("http://x")
+    assert calls["n"] == 1

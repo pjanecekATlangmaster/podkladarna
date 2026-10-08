@@ -904,6 +904,8 @@ def _package_output(
                         ".pgw",
                         ".jpg",
                         ".jgw",
+                        ".gpkg",
+                        ".dxf",
                     }:
                         shutil.copy2(path, refs_dst / path.name)
         # Vegetace / srázy / skály (použité vs vyhozené) – stejné jako v ZIPu.
