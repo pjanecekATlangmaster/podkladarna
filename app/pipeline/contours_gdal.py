@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.pipeline.dem_prep import DEM_DIR_NAME, _pick_ground_laz
 from app.pipeline.job_grid import resolve_job_extent
-from app.pipeline.job_options import FORMLINE_MODE_DEFAULT
+from app.pipeline.job_options import FORMLINE_MODE_DEFAULT, FORMLINE_MODES
 from app.pipeline.oom_import import (
     OomObjectPart,
     _geom_parts_to_objects,
@@ -32,6 +32,12 @@ _FORMLINE_PARAMS: dict[str, dict[str, float]] = {
     "sparse": {"asym": 0.55, "room_mm": 1.2, "ext_mm": 1.0, "bridge_mm": 1.5, "min_mm": 3.0},
     "more": {"asym": 0.4, "room_mm": 0.8, "ext_mm": 1.5, "bridge_mm": 2.0, "min_mm": 2.0},
 }
+# Režim „all“: jen zahodit útržky kratší než tohle (mm papíru).
+_FORMLINE_ALL_MIN_MM = 1.5
+
+
+def _formlines_on(mode: str) -> bool:
+    return mode in FORMLINE_MODES and mode != "off"
 
 # Les: jemnější DEM (1 m) + blur 6 m (spojuje útržky) + Chaikin 1
 # (dřív ×2 densifikovalo před Bézier → bloat; ×1 stačí před DP).
@@ -424,6 +430,14 @@ def select_formlines(
     import numpy as np
     from scipy.spatial import cKDTree
 
+    if mode == "all":
+        # Vodítko jako OCAD z LAZ: celá půlová linie, jen bez drobných útržků.
+        min_all = paper_mm_to_ground_m(_FORMLINE_ALL_MIN_MM, scale)
+        return [
+            (elev, list(pts), is_closed_polyline(pts))
+            for elev, pts in formlines
+            if len(pts) >= 2 and polyline_length_m(pts) >= min_all
+        ]
     params = _FORMLINE_PARAMS.get(mode)
     if not params or not formlines:
         return []
@@ -803,7 +817,7 @@ def _formline_candidates(
 ) -> Path | None:
     """Půlové linie ze stejného vyhlazeného DEM jako vrstevnice (výběr až v OOM)."""
     dest = contours_dir / FORMLINES_ALL_NAME
-    if mode not in _FORMLINE_PARAMS:
+    if not _formlines_on(mode):
         for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
             dest.with_suffix(suffix).unlink(missing_ok=True)
         return None
@@ -945,7 +959,7 @@ def build_gdal_contour_parts(
 
     formline_shp = work_dir / "contours" / FORMLINES_ALL_NAME
     symbol_103 = symbol_index_for_code(preset_id, scale, "103")
-    if formlines in _FORMLINE_PARAMS and formline_shp.is_file() and symbol_103 is not None:
+    if _formlines_on(formlines) and formline_shp.is_file() and symbol_103 is not None:
         candidates: list[tuple[float, list[tuple[float, float]]]] = []
         for props, wkb in _iter_contour_rows(formline_shp):
             elev = _elev_from_props(props)

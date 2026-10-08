@@ -133,6 +133,10 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)Form lines everywhere as a guide"),
+        "Pomocné vrstevnice i „všude“ jako vodítko (jako OCAD)",
+    ),
+    (
         re.compile(r"(?i)Knolls, depressions and pits from DEM"),
         "Kupky i ve svahu (jen velké), nově ďolíky 111 a jámy 112 z DEM",
     ),

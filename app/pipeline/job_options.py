@@ -28,8 +28,9 @@ KP_CLIFF_SENSITIVITY_DEFAULT = "low"
 COURTYARD_FILL_CHOICES = ("olive", "building", "none")
 COURTYARD_FILL_DEFAULT = "olive"
 
-# Pomocné vrstevnice 103 (půl ekvidistance) jen kde ukážou tvar navíc.
-FORMLINE_MODES = ("off", "sparse", "more")
+# Pomocné vrstevnice 103 (půl ekvidistance): sparse/more jen kde ukážou tvar
+# navíc, all = všude jako vodítko (jako OCAD z LAZ).
+FORMLINE_MODES = ("off", "sparse", "more", "all")
 FORMLINE_MODE_DEFAULT = "off"
 
 

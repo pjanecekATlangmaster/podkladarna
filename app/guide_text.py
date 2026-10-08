@@ -32,6 +32,12 @@ WEB_ABOUT_HTML = """
   RÚIAN podklady, AOPK, DXF srázů, referenční orto…).
   Georeferencované PNG/TIFF do ZIPu je volitelné (ve výchozím stavu vypnuto).
 </p>
+<p>
+  <strong>Mapa je rovnou georeferencovaná v S-JTSK (EPSG:5514)</strong> – včetně
+  magnetické deklinace a grivace pro střed výřezu.
+  Podklady (ortofoto, katastr, hillshade…) i vektory tak v OOM / OCAD sedí na
+  sebe bez ručního lícování a do vlastní šablony je jde rovnou podložit.
+</p>
 <p>V ZIPu je mimo jiné:</p>
 <ul>
   <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
@@ -83,6 +89,8 @@ Kvalita podkladu
 ----------------
 Hlavní výstup jsou vektory pro OOM (.omap; cesty, plochy, budovy, vrstevnice…)
 a stejnojmenné .ocd (OCD12) pro OCAD.
+Mapa je georeferencovaná v S-JTSK (EPSG:5514) včetně magnetické deklinace
+a grivace pro střed výřezu – podklady i vektory sedí na sebe bez lícování.
 PNG náhled mapy je hlavně orientační.
 Data ČÚZK i OSM nejsou dokonalá a automatika je jen skládá dohromady –
 něco chybí, něco se překrývá. Tento balíček je pracovní podklad,

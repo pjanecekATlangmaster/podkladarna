@@ -98,7 +98,7 @@ def _form_str(form, key: str, default: str = "") -> str:
 
 
 _COURTYARD_FILL_LABEL = {"olive": "oliva", "building": "budova", "none": "ne"}
-_FORMLINE_LABEL = {"off": "ne", "sparse": "střídmě", "more": "víc"}
+_FORMLINE_LABEL = {"off": "ne", "sparse": "střídmě", "more": "víc", "all": "všude"}
 
 app = FastAPI(title="Podkladarna", version=APP_VERSION)
 

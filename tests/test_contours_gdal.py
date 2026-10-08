@@ -305,3 +305,23 @@ def test_build_gdal_contour_parts_adds_formline_part(tmp_path, monkeypatch):
     on = {p.name: p for p in cg.build_gdal_contour_parts(tmp_path, formlines="sparse", **kw)}
     assert on["Pomocné vrstevnice (GDAL)"].count == 1
     assert symbols[-1] == 3
+
+
+def test_formline_mode_all_keeps_every_half_line():
+    """„Všude“: celé půlové linie jako vodítko (jako OCAD), jen bez útržků."""
+    from app.pipeline.contours_gdal import select_formlines
+
+    contours = [
+        (0.0, _line(-300, 300, lambda _x: 0.0)),
+        (5.0, _line(-300, 300, lambda _x: 40.0)),
+    ]
+    formlines = [
+        (2.5, _line(-300, 300, lambda _x: 20.0)),  # rovnoměrný svah – i tak
+        (2.5, _line(0, 8, lambda _x: 25.0)),  # 8 m útržek < 1,5 mm @ 1:10000
+    ]
+    got = select_formlines(formlines, contours, interval_m=5, scale=10000, mode="all")
+    assert len(got) == 1
+    assert got[0][0] == 2.5 and len(got[0][1]) == 601
+    from app.pipeline.job_options import resolve_formline_mode
+
+    assert resolve_formline_mode({"contour_formlines": "all"}) == "all"
