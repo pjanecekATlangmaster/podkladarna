@@ -137,6 +137,10 @@ _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
         "Výřez zase až 6×6 km (36 km²)",
     ),
     (
+        re.compile(r"(?i)Keep 6×6 km DEM in memory"),
+        "Rychlejší měření výšky srázů na velkých výřezech",
+    ),
+    (
         re.compile(r"(?i)LiDAR pipeline: stream merges"),
         "Rychlejší LiDAR: proudový merge, souběžné kroky, velké výřezy nepadají na paměť",
     ),

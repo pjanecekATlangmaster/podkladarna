@@ -163,11 +163,12 @@ class _DemElev:
         # Měření výšky srázů dělá desetitisíce vzorků; po pixelech přes GDAL by
         # to bylo o řád pomalejší než držet celý rastr v paměti.
         self._grid = None
-        # 16M pixelů = 64 MB ve float32, což pokryje 4×4 km po metru. Větší
-        # rastr radši číst po pixelech než si sáhnout na paměť kontejneru.
-        if self._w * self._h <= 16_000_000:
+        # 100M pixelů = 400 MB ve float32: výřez 36 km² (i 12×3 km, pootočený
+        # v S-JTSK) má po metru ~50–65M px. Docker má 12 GB; po pixelech až
+        # extrémně protáhlé pásy.
+        if self._w * self._h <= 100_000_000:
             try:
-                self._grid = self._band.ReadAsArray().astype("float32")
+                self._grid = self._band.ReadAsArray().astype("float32", copy=False)
             except Exception:
                 self._grid = None
 
@@ -206,7 +207,7 @@ def _first_dem(
     """Rastr se drží celý v paměti, tak stejný soubor otevírat jen jednou.
 
     Cache platí pro jeden job – při přechodu jinam se zahodí, jinak by ve worker
-    procesu zůstaly viset desítky MB po každé zpracované mapě.
+    procesu zůstaly viset stovky MB po každé zpracované mapě.
 
     ``dirs`` pořadí složek (typicky ``dem`` před ``contours`` pro srázy –
     shared ``dem/dem_filled.tif`` je nehlazený; v ``contours/`` bývá jen

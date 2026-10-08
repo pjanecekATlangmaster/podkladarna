@@ -29,8 +29,10 @@ from app.pipeline.job_options import (
 TICK_HALF_LEN_M = 1.45
 # Krok vzorkování kandidátů po rastru (m) – podmnožina buněk.
 SAMPLE_STRIDE_CELLS = 2
-# Max. počet ticků na AOI (ochrana RAM/OOM).
-MAX_TICKS = 80_000
+# Max. počet ticků na AOI (ochrana RAM/OOM). Řádky jdou od severu, takže po
+# dosažení stropu jih mapy srázy nedostane – škáluje s limitem plochy
+# (80k pro 25 km² → 120k pro 36 km², ~3 300 ticků/km²; běžný terén ~300).
+MAX_TICKS = 120_000
 # drop / vodorovná délka sondy. Nad tím skála (krátká stěna), pod tím zemní sráz.
 ROCK_MIN_GRADE = 0.55
 # Skála potřebuje vyšší schod než zemní sráz při stejné citlivosti GUI
