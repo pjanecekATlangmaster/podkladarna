@@ -133,6 +133,10 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)Split huge vegetation areas"),
+        "Velké plochy vegetace rozřezané na kusy do 1 500 vrcholů (OCAD už nebrzdí)",
+    ),
+    (
         re.compile(r"(?i)Cadastre as vector template"),
         "Katastr ve křivkách jako podklad (zapnout/vypnout, průhlednost); DXF pro OCAD",
     ),
