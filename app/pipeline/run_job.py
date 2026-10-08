@@ -56,7 +56,7 @@ from app.pipeline.preview import (
     ensure_georef_template,
     resolve_preview_png,
 )
-from app.pipeline.reference_layers import build_reference_layers
+from app.pipeline.reference_layers import build_reference_layers, list_reference_rasters
 from app.pipeline.shade import build_job_shade
 from app.pipeline.job_progress import JobProgress, plan_pipeline_steps
 from app.pipeline.prepare_lidar import (
@@ -246,7 +246,7 @@ def join_reference_download(
     if built_refs:
         ref_layers = sorted(p.name for p in built_refs.values())
     elif reference_dir.is_dir():
-        ref_layers = sorted(p.name for p in reference_dir.glob("*.png"))
+        ref_layers = sorted(p.name for p in list_reference_rasters(reference_dir))
     if progress is not None:
         progress.done()
     return built_refs, ref_layers
@@ -899,7 +899,12 @@ def _package_output(
                 refs_dst = output_dir / "references"
                 refs_dst.mkdir(parents=True, exist_ok=True)
                 for path in refs_src.glob("*"):
-                    if path.is_file() and path.suffix.lower() in {".png", ".pgw"}:
+                    if path.is_file() and path.suffix.lower() in {
+                        ".png",
+                        ".pgw",
+                        ".jpg",
+                        ".jgw",
+                    }:
                         shutil.copy2(path, refs_dst / path.name)
         # Vegetace / srázy / skály (použité vs vyhozené) – stejné jako v ZIPu.
         try:

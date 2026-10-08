@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shutil
 import tempfile
 import urllib.parse
@@ -13,6 +14,7 @@ from app.download_cache import (
     link_or_copy,
     read_meta,
     references_cache_dir,
+    utcnow_iso,
     write_meta,
 )
 from app.pipeline.crs_5514 import CRS_PROJ4
@@ -35,6 +37,15 @@ MAX_OSM_REF_PIXELS = 8192
 # Ortofoto ČÚZK je nativně ~0,20 m; 0,25 m je praktický kompromis vůči WMS/OOM.
 _REF_MPP_CANDIDATES = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
 _OSM_MPP_CANDIDATES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
+# Ortofoto: vždy 0,25 m/px (les se na 1 m/px nedá mapovat). Nad strop jedné
+# šablony se AOI rozdělí na mřížku dlaždic – Mapper načítá šablonu celou do paměti.
+ORTHO_MPP = 0.25
+ORTHO_MAX_TILE_PX = 8192
+ORTHO_JPEG_QUALITY = 90
+# Katastr: bílé (a téměř bílé) pixely → alfa 0, když server TRANSPARENT ignoruje.
+KM_WHITE_THRESHOLD = 250
+# Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice).
+REF_CACHE_FORMAT = 2
 # DMR 5G má ~0,5 m mezi body – jemnější raster dělá díry a kostičkovaný hillshade.
 WEB_MERCATOR_HALF = 20037508.342789244
 
@@ -96,6 +107,7 @@ def reference_metadata() -> dict:
         "hillshade_variants": [v[2] for v in HILLSHADE_VARIANTS],
         "hillshade_tool": "WMS ImageServer",
         "map_layers": ["osm.png", "mapa_ztm.png", "katastr.png"],
+        "orthophoto": f"JPEG {ORTHO_MPP:.2f} m/px, dlaždice ≤ {ORTHO_MAX_TILE_PX} px (.jgw)",
         "dmpok_preview": "dmpok_nahled.png",
     }
 
@@ -110,9 +122,14 @@ def fetch_cuzk_wms_png(
     dest_pgw: Path,
     *,
     label: str,
+    transparent: bool = False,
     log: callable | None = None,
 ) -> bool:
-    """Stáhne PNG+PGW z ČÚZK WMS ve S-JTSK (EPSG:5514)."""
+    """Stáhne PNG+PGW z ČÚZK WMS ve S-JTSK (EPSG:5514).
+
+    ``transparent``: průhledné pozadí (WMS TRANSPARENT=TRUE, výstup RGBA);
+    když server alfu neposlal, bílá → alfa 0.
+    """
     tw, th, mpp = _ref_target_size(template_png, template_pgw)
     if log:
         log(f"Stahuji {label} ČÚZK WMS ({tw}×{th} px, ~{mpp:.2f} m/px)…")
@@ -125,11 +142,41 @@ def fetch_cuzk_wms_png(
         width=tw,
         height=th,
         image_format="image/png",
+        transparent=transparent,
         log=log,
     )
+    if ok and transparent:
+        how = ensure_png_alpha(dest_png)
+        if log:
+            log(
+                f"{label}: průhlednost "
+                + ("ze serveru (alfa)" if how == "server" else "bílá → alfa 0 (fallback)")
+            )
     if ok and log:
         log(f"{label}: {dest_png.name}")
     return ok
+
+
+def ensure_png_alpha(png: Path, *, threshold: int = KM_WHITE_THRESHOLD) -> str:
+    """Zajistí RGBA PNG s průhledným pozadím.
+
+    Vrací ``"server"`` (alfa už byla, jen případně převod na RGBA) nebo
+    ``"fallback"`` (server TRANSPARENT ignoroval – bílé pixely dostaly alfa 0).
+    """
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(png) as im:
+        mode = im.mode
+        arr = np.array(im.convert("RGBA"))
+    if int(arr[..., 3].min()) < 255:
+        if mode != "RGBA":
+            Image.fromarray(arr, "RGBA").save(png)
+        return "server"
+    white = (arr[..., :3] >= threshold).all(axis=-1)
+    arr[white, 3] = 0
+    Image.fromarray(arr, "RGBA").save(png)
+    return "fallback"
 
 
 def _gdal_tool(name: str) -> str:
@@ -248,6 +295,7 @@ def _wms_getmap_url(
     width: int,
     height: int,
     image_format: str,
+    transparent: bool = False,
 ) -> str:
     params = {
         "service": "WMS",
@@ -260,7 +308,7 @@ def _wms_getmap_url(
         "width": str(width),
         "height": str(height),
         "format": image_format,
-        "transparent": "false",
+        "transparent": "true" if transparent else "false",
     }
     return wms_url + "?" + urllib.parse.urlencode(params)
 
@@ -308,36 +356,6 @@ def _write_image_bytes(path: Path, data: bytes, image_format: str) -> bool:
     return True
 
 
-def _jpeg_to_georef_png(
-    src_jpg: Path,
-    dest_png: Path,
-    bounds_5514: tuple[float, float, float, float],
-    *,
-    log: callable | None = None,
-) -> None:
-    xmin, ymin, xmax, ymax = bounds_5514
-    gdaltranslate = _gdal_tool("gdal_translate")
-    dest_png.parent.mkdir(parents=True, exist_ok=True)
-    log_step(log, "Převádím stažený snímek na PNG s georeferencí")
-    run_cmd(
-        [
-            gdaltranslate,
-            str(src_jpg),
-            str(dest_png),
-            "-of",
-            "PNG",
-            "-a_srs",
-            CRS_PROJ4,
-            "-a_ullr",
-            str(xmin),
-            str(ymax),
-            str(xmax),
-            str(ymin),
-        ],
-        log=log,
-    )
-
-
 def _mosaic_wms_tiles(
     tiles: list[tuple[Path, int, int, int, int]],
     bounds_5514: tuple[float, float, float, float],
@@ -346,12 +364,31 @@ def _mosaic_wms_tiles(
     width: int,
     height: int,
     *,
+    jpeg: bool = False,
+    transparent: bool = False,
     log: callable | None = None,
 ) -> bool:
-    """Složí WMS dlaždice (PNG/JPEG + world file) do cílového PNG+PGW."""
+    """Složí WMS dlaždice (PNG/JPEG + world file) do cílového PNG/JPEG + world file.
+
+    ``transparent``: dlaždice se předem převedou na RGBA (server posílá paletové
+    PNG s tRNS, které gdalwarp jako alfa nerozpozná) → výstup má alfa pásmo.
+    ``jpeg``: výstup JPEG (q90), bez PNG mezikroku.
+    """
     xmin, ymin, xmax, ymax = bounds_5514
+    if transparent and not jpeg:
+        from PIL import Image
+
+        for path, *_ in tiles:
+            with Image.open(path) as im:
+                rgba = im.convert("RGBA") if im.mode != "RGBA" else None
+            if rgba is not None:
+                rgba.save(path)
     gdalwarp = _gdal_tool("gdalwarp")
     dest_png.parent.mkdir(parents=True, exist_ok=True)
+    warp_out = dest_png
+    if jpeg:
+        # JPEG driver neumí Create → gdalwarp do VRT, pak gdal_translate.
+        warp_out = tiles[0][0].parent / "_mosaic.vrt"
     cmd = [
         gdalwarp,
         "-s_srs",
@@ -369,13 +406,28 @@ def _mosaic_wms_tiles(
         "-r",
         "near",
         "-of",
-        "PNG",
+        "VRT" if jpeg else "PNG",
         "-overwrite",
         *[str(path) for path, *_ in tiles],
-        str(dest_png),
+        str(warp_out),
     ]
     log_step(log, "Skládám dlaždice WMS do jednoho snímku (celý výřez mapy)")
     run_cmd(cmd, log=log)
+    if jpeg:
+        run_cmd(
+            [
+                _gdal_tool("gdal_translate"),
+                str(warp_out),
+                str(dest_png),
+                "-of",
+                "JPEG",
+                "-co",
+                f"QUALITY={ORTHO_JPEG_QUALITY}",
+            ],
+            log=log,
+        )
+        # GDAL k JPEG píše vedlejší .aux.xml (statistiky) – nepotřebujeme.
+        dest_png.with_name(dest_png.name + ".aux.xml").unlink(missing_ok=True)
     if not dest_png.is_file() or dest_png.stat().st_size < 500:
         return False
     _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, width, height)
@@ -392,26 +444,34 @@ def _download_wms_raster(
     width: int,
     height: int,
     image_format: str,
+    transparent: bool = False,
     log: callable | None = None,
 ) -> bool:
-    """GetMap; nad WMS_MAX_GETMAP_PX stáhne dlaždice a složí je GDAL."""
+    """GetMap; nad WMS_MAX_GETMAP_PX stáhne dlaždice a složí je GDAL.
+
+    ``image/jpeg`` zůstává JPEG až do výstupu (``dest_png`` je pak ``.jpg`` a
+    ``dest_pgw`` ``.jgw``); ``transparent`` posílá TRANSPARENT=TRUE (jen PNG).
+    """
     xmin, ymin, xmax, ymax = bounds_5514
+    jpeg = image_format == "image/jpeg"
     dest_png.parent.mkdir(parents=True, exist_ok=True)
     windows = _split_pixel_grid(width, height)
     if len(windows) == 1:
         url = _wms_getmap_url(
-            wms_url, layer, xmin, ymin, xmax, ymax, width, height, image_format
+            wms_url,
+            layer,
+            xmin,
+            ymin,
+            xmax,
+            ymax,
+            width,
+            height,
+            image_format,
+            transparent=transparent,
         )
         data = _http_get_bytes(url)
-        if image_format == "image/jpeg":
-            tmp = dest_png.parent / f"_{dest_png.stem}.jpg"
-            if not _write_image_bytes(tmp, data, image_format):
-                return False
-            _jpeg_to_georef_png(tmp, dest_png, bounds_5514, log=log)
-            tmp.unlink(missing_ok=True)
-        else:
-            if not _write_image_bytes(dest_png, data, image_format):
-                return False
+        if not _write_image_bytes(dest_png, data, image_format):
+            return False
         _write_pgw_for_extent(dest_pgw, xmin, ymin, xmax, ymax, width, height)
         return dest_png.is_file() and dest_png.stat().st_size > 500
 
@@ -429,7 +489,16 @@ def _download_wms_raster(
             )
             tw, th = x1 - x0, y1 - y0
             url = _wms_getmap_url(
-                wms_url, layer, bxmin, bymin, bxmax, bymax, tw, th, image_format
+                wms_url,
+                layer,
+                bxmin,
+                bymin,
+                bxmax,
+                bymax,
+                tw,
+                th,
+                image_format,
+                transparent=transparent,
             )
             data = _http_get_bytes(url)
             tile_path = work / f"t{i}{ext}"
@@ -457,6 +526,8 @@ def _download_wms_raster(
             dest_pgw,
             width,
             height,
+            jpeg=jpeg,
+            transparent=transparent,
             log=log,
         )
     finally:
@@ -630,32 +701,127 @@ def fetch_hillshade_wms(
     )
 
 
+def _ortho_target_size(
+    template_png: Path, template_pgw: Path
+) -> tuple[int, int, float]:
+    """Ortofoto vždy 0,25 m/px – bez ohledu na velikost AOI (strop řeší dlaždice)."""
+    xmin, ymin, xmax, ymax, _, _ = _template_extent(template_png, template_pgw)
+    tw = max(1, int(round(abs(xmax - xmin) / ORTHO_MPP)))
+    th = max(1, int(round(abs(ymax - ymin) / ORTHO_MPP)))
+    return tw, th, ORTHO_MPP
+
+
+def _even_spans(total: int, max_px: int) -> list[tuple[int, int]]:
+    """Rozdělí ``total`` px na nejméně dílů ≤ ``max_px``, co nejrovnoměrněji."""
+    n = max(1, -(-total // max_px))
+    base, extra = divmod(total, n)
+    spans: list[tuple[int, int]] = []
+    pos = 0
+    for i in range(n):
+        size = base + (1 if i < extra else 0)
+        spans.append((pos, pos + size))
+        pos += size
+    return spans
+
+
+def _split_ortho_tiles(
+    width: int, height: int, max_px: int = ORTHO_MAX_TILE_PX
+) -> list[tuple[int, int, int, int, int, int]]:
+    """Mřížka dlaždic ortofota: (řádek, sloupec, x0, y0, x1, y1), x1/y1 exkluzivní."""
+    tiles: list[tuple[int, int, int, int, int, int]] = []
+    for r, (y0, y1) in enumerate(_even_spans(height, max_px)):
+        for c, (x0, x1) in enumerate(_even_spans(width, max_px)):
+            tiles.append((r, c, x0, y0, x1, y1))
+    return tiles
+
+
+def ortho_tile_stem(row: int, col: int, *, single: bool) -> str:
+    return "orthophoto" if single else f"orthophoto_r{row}c{col}"
+
+
+_ORTHO_KEY_RE = re.compile(r"^orthophoto(?:_r(\d+)c(\d+))?$")
+
+
+def orthophoto_items(built: dict[str, Path]) -> list[tuple[str, Path]]:
+    """Klíče ortofota v ``built_refs`` (``orthophoto`` nebo ``orthophoto_rXcY``) po řádcích."""
+    items: list[tuple[tuple[int, int], str, Path]] = []
+    for key, path in built.items():
+        m = _ORTHO_KEY_RE.match(key)
+        if not m:
+            continue
+        pos = (int(m.group(1)), int(m.group(2))) if m.group(1) is not None else (0, 0)
+        items.append((pos, key, path))
+    items.sort(key=lambda t: t[0])
+    return [(key, path) for _pos, key, path in items]
+
+
+def world_file_for(raster: Path) -> Path:
+    """Vedlejší world file: ``.png`` → ``.pgw``, ``.jpg`` → ``.jgw``."""
+    return raster.with_suffix(".jgw" if raster.suffix.lower() in {".jpg", ".jpeg"} else ".pgw")
+
+
+def list_reference_rasters(folder: Path) -> list[Path]:
+    """Referenční PNG i JPEG (ortofoto) ve složce, seřazené podle názvu."""
+    return sorted(
+        p
+        for p in folder.iterdir()
+        if p.is_file() and p.suffix.lower() in {".png", ".jpg"}
+    )
+
+
 def fetch_orthophoto_wms(
     bounds_5514: tuple[float, float, float, float],
     template_png: Path,
     template_pgw: Path,
-    dest_png: Path,
-    dest_pgw: Path,
+    dest_dir: Path,
     *,
     log: callable | None = None,
-) -> bool:
-    tw, th, mpp = _ref_target_size(template_png, template_pgw)
+) -> dict[str, Path]:
+    """Ortofoto 0,25 m/px jako JPEG + .jgw; nad 8192 px mřížka dlaždic.
+
+    Vrací ``{klíč: jpg}`` (``orthophoto`` pro jednu dlaždici, jinak
+    ``orthophoto_r0c0`` …). Při selhání jakékoli dlaždice smaže vše a vrátí ``{}``.
+    """
+    tw, th, mpp = _ortho_target_size(template_png, template_pgw)
+    grid = _split_ortho_tiles(tw, th)
+    single = len(grid) == 1
     if log:
-        log(f"Stahuji ortofoto ČÚZK ({tw}×{th} px, ~{mpp:.2f} m/px)…")
-    ok = _download_wms_raster(
-        ORTOFOTO_WMS,
-        "0",
-        bounds_5514,
-        dest_png,
-        dest_pgw,
-        width=tw,
-        height=th,
-        image_format="image/jpeg",
-        log=log,
-    )
-    if ok and log:
-        log(f"Ortofoto: {dest_png.name}")
-    return ok
+        log(
+            f"Stahuji ortofoto ČÚZK ({tw}×{th} px, {mpp:.2f} m/px, "
+            f"{len(grid)} {'soubor' if single else 'dlaždic'} JPEG)…"
+        )
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for old in dest_dir.glob("orthophoto*"):
+        old.unlink(missing_ok=True)
+    built: dict[str, Path] = {}
+    try:
+        for r, c, x0, y0, x1, y1 in grid:
+            stem = ortho_tile_stem(r, c, single=single)
+            jpg = dest_dir / f"{stem}.jpg"
+            tile_bounds = _pixel_window_bounds(bounds_5514, tw, th, (x0, y0, x1, y1))
+            if log and not single:
+                log(f"Ortofoto: dlaždice r{r}c{c} ({x1 - x0}×{y1 - y0} px)…")
+            ok = _download_wms_raster(
+                ORTOFOTO_WMS,
+                "0",
+                tile_bounds,
+                jpg,
+                world_file_for(jpg),
+                width=x1 - x0,
+                height=y1 - y0,
+                image_format="image/jpeg",
+                log=log,
+            )
+            if not ok:
+                raise RuntimeError(f"dlaždice {stem} se nepodařila")
+            built[stem] = jpg
+    except Exception:
+        for old in dest_dir.glob("orthophoto*"):
+            old.unlink(missing_ok=True)
+        raise
+    if log:
+        log("Ortofoto: " + ", ".join(p.name for p in built.values()))
+    return built
 
 
 def _lon_lat_to_tile(lon: float, lat: float, zoom: int) -> tuple[int, int]:
@@ -983,8 +1149,12 @@ def build_osm_reference(
 
 
 def _ref_png_key(filename: str) -> str | None:
+    # Ortofoto je JPEG (orthophoto.jpg / orthophoto_rXcY.jpg); starý orthophoto.png
+    # se nenačítá (cache s ním je stejně neplatná – viz REF_CACHE_FORMAT).
+    if filename.lower().endswith(".jpg"):
+        stem = filename[:-4]
+        return stem if _ORTHO_KEY_RE.match(stem) else None
     mapping = {
-        "orthophoto.png": "orthophoto",
         "osm.png": "osm",
         "mapa_ztm.png": "ztm",
         "katastr.png": "katastr",
@@ -1002,34 +1172,34 @@ def _try_load_references_cache(
     log: callable | None = None,
 ) -> dict[str, Path] | None:
     """Vrátí built_refs z cache, nebo None při miss."""
-    primary = cache_dir / "orthophoto.png"
-    if not primary.is_file():
-        primary = cache_dir / "osm.png"
+    meta = read_meta(cache_dir)
+    if not meta or meta.get("ref_format") != REF_CACHE_FORMAT:
+        # Stará cache (ortofoto PNG, nepruhledný katastr) → znovu stáhnout.
+        return None
+    ortho = sorted(cache_dir.glob("orthophoto*.jpg"))
+    primary = ortho[0] if ortho else cache_dir / "osm.png"
     if not is_fresh(
         cache_dir, primary, REF_CACHE_MAX_AGE_DAYS, min_size=500
     ):
         return None
     built: dict[str, Path] = {}
-    for png in sorted(cache_dir.glob("*.png")):
-        key = _ref_png_key(png.name)
+    for src in list_reference_rasters(cache_dir):
+        key = _ref_png_key(src.name)
         if not key:
             continue
-        dest = out_dir / png.name
-        link_or_copy(png, dest)
-        pgw = png.with_suffix(".pgw")
-        if pgw.is_file():
-            link_or_copy(pgw, dest.with_suffix(".pgw"))
+        dest = out_dir / src.name
+        link_or_copy(src, dest)
+        world = world_file_for(src)
+        if world.is_file():
+            link_or_copy(world, world_file_for(dest))
         if dest.is_file() and dest.stat().st_size > 500:
             built[key] = dest
     if not built:
         return None
     if log:
-        age = None
-        meta = read_meta(cache_dir)
-        if meta:
-            from app.download_cache import age_days
+        from app.download_cache import age_days
 
-            age = age_days(meta.get("downloaded_at"))
+        age = age_days(meta.get("downloaded_at"))
         age_s = f", stáří {age:.1f} d" if age is not None else ""
         log(
             f"Referenční PNG: cache hit ({len(built)} vrstev{age_s}) "
@@ -1051,18 +1221,27 @@ def _store_references_cache(
     if not built:
         return
     cache_dir.mkdir(parents=True, exist_ok=True)
+    # Zbytky starého formátu / jiné mřížky dlaždic (orthophoto.png, r0c2 navíc, …).
+    keep = {p.name for p in built.values()} | {
+        world_file_for(p).name for p in built.values()
+    }
+    for old in cache_dir.glob("orthophoto*"):
+        if old.name not in keep:
+            old.unlink(missing_ok=True)
     stored = 0
     for path in built.values():
         if not path.is_file():
             continue
         shutil.copy2(path, cache_dir / path.name)
-        pgw = path.with_suffix(".pgw")
-        if pgw.is_file():
-            shutil.copy2(pgw, cache_dir / pgw.name)
+        world = world_file_for(path)
+        if world.is_file():
+            shutil.copy2(world, cache_dir / world.name)
         stored += 1
     write_meta(
         cache_dir,
         kind="references",
+        ref_format=REF_CACHE_FORMAT,
+        downloaded_at=utcnow_iso(),
         bbox_wgs84=list(bbox_wgs84),
         ref_wh=list(ref_wh),
         osm_wh=list(osm_wh),
@@ -1102,13 +1281,10 @@ def build_reference_layers(
 
     built: dict[str, Path] = {}
 
-    ortho_png = out_dir / "orthophoto.png"
-    ortho_pgw = out_dir / "orthophoto.pgw"
     try:
-        if fetch_orthophoto_wms(
-            bounds, template_png, template_pgw, ortho_png, ortho_pgw, log=log
-        ):
-            built["orthophoto"] = ortho_png
+        built.update(
+            fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
+        )
     except Exception as exc:
         if log:
             log(f"Ortofoto: přeskočeno ({exc})")
@@ -1155,6 +1331,7 @@ def build_reference_layers(
             km_png,
             km_pgw,
             label="Katastrální mapa",
+            transparent=True,
             log=log,
         ):
             built["katastr"] = km_png

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.pipeline.reference_layers import HILLSHADE_VARIANTS
+from app.pipeline.reference_layers import HILLSHADE_VARIANTS, orthophoto_items
 
 # Skupiny v okně šablon OOM (atribut group=).
 GROUP_REFERENCE = 1
@@ -28,7 +28,7 @@ class OomTemplate:
 
 OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
     # Všechny PNG vypnuté – výchozí pohled = jen vektorové objekty mapy.
-    ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.png", 1.0, False),
+    ("orthophoto", "Ortofoto ČÚZK", "references/orthophoto.jpg", 1.0, False),
     ("ztm", "Základní mapa ČÚZK (ZTM)", "references/mapa_ztm.png", 0.88, False),
     ("katastr", "Katastrální mapa", "references/katastr.png", 0.9, False),
     ("dmpok", "Náhled DMP OK", "references/dmpok_nahled.png", 0.65, False),
@@ -62,6 +62,24 @@ def collect_oom_templates(
 
     if built_refs:
         for key, label, relpath, opacity, visible in OOM_REFERENCE_SPECS:
+            if key == "orthophoto":
+                # JPEG dlaždice (orthophoto.jpg nebo orthophoto_rXcY.jpg) = každá šablona zvlášť.
+                tiles = [
+                    (k, p) for k, p in orthophoto_items(built_refs) if p.is_file()
+                ]
+                for tkey, tpath in tiles:
+                    tlabel = label if len(tiles) == 1 else f"{label} {tkey[len('orthophoto_'):]}"
+                    templates.append(
+                        OomTemplate(
+                            "image",
+                            tlabel,
+                            f"references/{tpath.name}",
+                            visible=visible,
+                            opacity=opacity,
+                            group=GROUP_REFERENCE,
+                        )
+                    )
+                continue
             path = built_refs.get(key)
             if path and path.is_file():
                 templates.append(

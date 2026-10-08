@@ -38,7 +38,11 @@ from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.residual_paved import build_residual_paved_parts, _RESIDUAL_BANDS_DIR
-from app.pipeline.reference_layers import reference_metadata
+from app.pipeline.reference_layers import (
+    list_reference_rasters,
+    reference_metadata,
+    world_file_for,
+)
 from app.pipeline.ruian_buildings import (
     ZABAGED_OMIT_BUILDING_LAYERS,
     write_ruian_buildings_shapefile,
@@ -898,11 +902,21 @@ def build_oom_zip(
             for name in ("hillshade.png", "hillshade.pgw"):
                 _write_if_exists(zf, shade_dir / name, f"preview/{name}")
         if reference_dir and reference_dir.is_dir():
-            for png in sorted(reference_dir.glob("*.png")):
-                zf.write(png, f"references/{png.name}")
-                pgw = png.with_suffix(".pgw")
-                if pgw.is_file():
-                    zf.write(pgw, f"references/{pgw.name}")
+            # PNG (+ .pgw) a ortofoto JPEG dlaždice (+ .jgw).
+            for raster in list_reference_rasters(reference_dir):
+                zf.write(
+                    raster,
+                    f"references/{raster.name}",
+                    # JPEG se už nezkomprimuje – deflate jen zdržuje.
+                    compress_type=(
+                        zipfile.ZIP_STORED
+                        if raster.suffix.lower() == ".jpg"
+                        else zipfile.ZIP_DEFLATED
+                    ),
+                )
+                world = world_file_for(raster)
+                if world.is_file():
+                    zf.write(world, f"references/{world.name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
             for zip_name, src in sorted(

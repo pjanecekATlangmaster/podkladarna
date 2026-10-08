@@ -527,3 +527,36 @@ def test_build_oom_zip_appears_only_when_complete(tmp_path: Path, monkeypatch):
     assert not dest.with_name(dest.name + ".part").exists()
     with zipfile.ZipFile(dest) as zf:
         assert "CO_JE_PODKLADARNA.txt" in zf.namelist()
+
+
+def test_build_oom_zip_includes_ortho_jpeg_tiles_and_world_files(tmp_path: Path):
+    kp = tmp_path / "kp"
+    kp.mkdir()
+    refs = tmp_path / "refs"
+    refs.mkdir()
+    for name in ("orthophoto_r0c0.jpg", "orthophoto_r0c1.jpg"):
+        (refs / name).write_bytes(b"\xff\xd8" + b"j" * 100)
+        (refs / name).with_suffix(".jgw").write_text("0.25\n0\n0\n-0.25\n0\n0\n")
+    (refs / "katastr.png").write_bytes(b"png")
+    (refs / "katastr.pgw").write_text("1\n0\n0\n-1\n0\n0\n")
+    (refs / "_osm_wms").mkdir()
+    dest = tmp_path / "out.zip"
+    build_oom_zip(
+        kp,
+        dest,
+        zabaged_clean=None,
+        metadata={"label": "test", "scale": 10000},
+        reference_dir=refs,
+    )
+    with zipfile.ZipFile(dest) as zf:
+        names = set(zf.namelist())
+        assert zf.testzip() is None
+    for name in (
+        "references/orthophoto_r0c0.jpg",
+        "references/orthophoto_r0c0.jgw",
+        "references/orthophoto_r0c1.jpg",
+        "references/orthophoto_r0c1.jgw",
+        "references/katastr.png",
+        "references/katastr.pgw",
+    ):
+        assert name in names
