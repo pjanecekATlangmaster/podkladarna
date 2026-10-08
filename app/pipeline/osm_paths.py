@@ -3066,7 +3066,7 @@ def build_osm_feature_parts(
     grivation_deg: float,
     clip_bounds: Bounds | None = None,
     aopk_tree_points: list[tuple[float, float]] | None = None,
-    courtyard_olive: bool = False,
+    courtyard_fill: str = "none",
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
     if not gj_path.is_file():
@@ -3157,8 +3157,12 @@ def build_osm_feature_parts(
     symbol_cache: dict[str, int | None] = {}
     mtbo = preset_id.startswith("mtbo")
     olive_code = "527" if mtbo else "520"
+    # Díra v budově = nepřístupný dvůr: oliva, nebo stejná značka jako budova.
+    fill_courtyards = courtyard_fill in ("olive", "building")
     olive_index = (
-        symbol_index_for_code(preset_id, scale, olive_code) if courtyard_olive else None
+        symbol_index_for_code(preset_id, scale, olive_code)
+        if courtyard_fill == "olive"
+        else None
     )
 
     def to_map(pts):
@@ -3258,8 +3262,10 @@ def build_osm_feature_parts(
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
+            fill_index = olive_index if courtyard_fill == "olive" else symbol_index
             if (
-                olive_index is not None
+                fill_courtyards
+                and fill_index is not None
                 and kind in _OSM_BUILDING_KINDS
                 and len(rings) > 1
             ):
@@ -3271,7 +3277,7 @@ def build_osm_feature_parts(
                 courtyard_objects.extend(
                     _hole_rings_as_area_objects(
                         hole_parts,
-                        olive_index,
+                        fill_index,
                         ref_x=ref_x,
                         ref_y=ref_y,
                         scale=scale,
@@ -3293,7 +3299,7 @@ def build_osm_feature_parts(
     if courtyard_objects:
         parts.append(
             OomObjectPart(
-                name="OSM – dvory (oliva)",
+                name=f"OSM – dvory ({'oliva' if courtyard_fill == 'olive' else 'budova'})",
                 objects_xml="\n".join(courtyard_objects),
                 count=len(courtyard_objects),
             )

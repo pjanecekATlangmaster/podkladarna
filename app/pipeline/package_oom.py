@@ -116,8 +116,8 @@ _ZABAGED_BASE_PAVED = frozenset(
 )
 # Obdělávaná půda z OSM (412) pod vegetací – hustníky zůstanou navrch.
 _OSM_UNDER_VEGETATION_MARK = "(412)"
-# Dvory v budovách (oliva) až navrch – překryjí detaily uvnitř dvorů.
-_COURTYARD_OLIVE_MARK = "dvory (oliva)"
+# Dvory v budovách (oliva / značka budovy) až navrch – překryjí detaily uvnitř.
+_COURTYARD_MARK = "dvory ("
 
 
 def map_scale_from_scalefactor(scalefactor: float) -> int:
@@ -642,7 +642,7 @@ def prepare_oom_map(
     formline: float = 0,
     indexcontours_m: float | None = None,
     cliff_symbol: str = "auto",
-    courtyard_olive: bool = False,
+    courtyard_fill: str = "none",
     path_source: str = PATH_SOURCE_MIXED,
     aopk_trees: Path | None = None,
     max_ostatni_m2: float | None = 50_000.0,
@@ -674,7 +674,7 @@ def prepare_oom_map(
     object_parts: list[OomObjectPart] = []
     zabaged_base_paved: list[OomObjectPart] = []
     zabaged_rest: list[OomObjectPart] = []
-    courtyard_olive_parts: list[OomObjectPart] = []
+    courtyard_parts: list[OomObjectPart] = []
     prefer_osm_paths: list[list[tuple[float, float]]] = []
     if path_source == PATH_SOURCE_MIXED:
         prefer_osm_paths = load_osm_path_lines(kp_cwd)
@@ -695,15 +695,15 @@ def prepare_oom_map(
             grivation_deg=grivation,
             work_dir=kp_cwd.parent,
             clip_bounds=vector_clip_bounds,
-            courtyard_olive=False,  # oliva dvorů z OSM budov
+            courtyard_olive=False,  # výplň dvorů z OSM budov
             prefer_osm_path_lines=prefer_osm_paths or None,
             omit_path_layers=path_source == PATH_SOURCE_OSM,
             omit_layers=omit,
             max_ostatni_m2=max_ostatni_m2,
             ostatni_as_403=ostatni_as_403,
         ):
-            if _COURTYARD_OLIVE_MARK in part.name:
-                courtyard_olive_parts.append(part)
+            if _COURTYARD_MARK in part.name:
+                courtyard_parts.append(part)
                 continue
             layer = part.name.removeprefix("ZABAGED – ").strip()
             if layer in _ZABAGED_UNDER_VEGETATION:
@@ -738,13 +738,13 @@ def prepare_oom_map(
         grivation_deg=grivation,
         clip_bounds=vector_clip_bounds,
         aopk_tree_points=aopk_pts or None,
-        courtyard_olive=courtyard_olive,
+        courtyard_fill=courtyard_fill,
     )
     osm_under: list[OomObjectPart] = []
     osm_feat_rest: list[OomObjectPart] = []
     for part in osm_feat:
-        if _COURTYARD_OLIVE_MARK in part.name:
-            courtyard_olive_parts.append(part)
+        if _COURTYARD_MARK in part.name:
+            courtyard_parts.append(part)
             continue
         if _OSM_UNDER_VEGETATION_MARK in part.name:
             osm_under.append(part)
@@ -821,8 +821,8 @@ def prepare_oom_map(
                 clip_bounds=vector_clip_bounds,
             )
         )
-    # Oliva dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
-    object_parts.extend(courtyard_olive_parts)
+    # Výplň dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
+    object_parts.extend(courtyard_parts)
     aoi_part = build_aoi_boundary_part(
         bbox_wgs84,
         preset_id=preset_id,

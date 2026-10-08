@@ -25,7 +25,11 @@ from app.pipeline.fetch_openzu import (
 )
 from app.pipeline.fetch_ruian import fetch_ruian_buildings_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
-from app.pipeline.job_options import load_presets, resolve_vege_height
+from app.pipeline.job_options import (
+    load_presets,
+    resolve_courtyard_fill,
+    resolve_vege_height,
+)
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
 from app.pipeline.osm_paths import (
     prepare_osm_paths,
@@ -719,7 +723,7 @@ def _package_output(
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
-            courtyard_olive = bool(options.get("sprint_courtyard_olive", True))
+            courtyard_fill = resolve_courtyard_fill(options)
             cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
             include_dxf = bool(options.get("output_dxf", True))
             contour_interval_m = meta.get("contour_interval_m")
@@ -794,7 +798,7 @@ def _package_output(
                         formline=0,
                         indexcontours_m=indexcontours_m,
                         cliff_symbol=cliff_symbol,
-                        courtyard_olive=courtyard_olive,
+                        courtyard_fill=courtyard_fill,
                         path_source=path_src,
                         aopk_trees=aopk_path,
                         max_ostatni_m2=max_ostatni_m2,

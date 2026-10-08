@@ -133,6 +133,10 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)Courtyard fill: olive or the building symbol"),
+        "Dvory v budovách: výplň olivou, nebo stejně jako budova",
+    ),
+    (
         re.compile(r"(?i)Drag handles to adjust the AOI"),
         "Výřez jde doladit: tažením za rohy, křížkem uprostřed se posouvá",
     ),

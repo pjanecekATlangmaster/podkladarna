@@ -1424,12 +1424,13 @@ function applyJobToForm(job) {
     }
     delete footwaySidewalk.dataset.userTouched;
   }
-  const courtyard = form.sprint_courtyard_olive;
+  const courtyard = form.sprint_courtyard_fill;
   if (courtyard) {
-    courtyard.checked =
-      opts.sprint_courtyard_olive == null
-        ? true
-        : Boolean(opts.sprint_courtyard_olive);
+    // Starý job s vypnutým checkboxem olivy („none“) → výchozí oliva.
+    const fillVal = opts.sprint_courtyard_fill || "olive";
+    courtyard.value = [...courtyard.options].some((o) => o.value === fillVal)
+      ? fillVal
+      : "olive";
   }
   const residualPaved = form.sprint_residual_paved;
   if (residualPaved) {

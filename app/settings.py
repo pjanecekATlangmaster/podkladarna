@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.4.1"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -175,8 +175,9 @@ DEFAULT_OPTIONS = {
     "kp_osm_footway_as_sidewalk": False,
     # Zdroj cest: mixed | zabaged | osm (viz path_source v osm_paths.py).
     "path_source": "mixed",
-    # Sprint: nepřístupné dvory uvnitř budov (díry v 521) vyplnit olivou 520.
-    "sprint_courtyard_olive": True,
+    # Nepřístupné dvory uvnitř budov (díry v 521/526): olive (520/527) | building
+    # (stejná značka jako budova); „none“ jen API / staré joby.
+    "sprint_courtyard_fill": "olive",
     # Sprint: mezery v OSM landuse=residential jako zpevněná 501 – default vypnuto.
     "sprint_residual_paved": False,
     # Max. velikost zbytku do auto .omap: small | medium | large (ZIP má vždy pásma).

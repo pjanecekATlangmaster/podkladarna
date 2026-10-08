@@ -39,10 +39,12 @@ from app.pipeline.fetch_openzu import (
     query_sm5_sheets,
 )
 from app.pipeline.job_options import (
+    COURTYARD_FILL_CHOICES,
     KP_CLIFF_SENSITIVITY,
     KP_VEGE_HEIGHT_CHOICES,
     load_presets,
     resolve_cliff_sensitivity,
+    resolve_courtyard_fill,
     resolve_vege_height,
 )
 from app.pipeline.package_oom import (
@@ -90,6 +92,9 @@ def _form_str(form, key: str, default: str = "") -> str:
     if val is None:
         return default
     return str(val)
+
+
+_COURTYARD_FILL_LABEL = {"olive": "oliva", "building": "budova", "none": "ne"}
 
 app = FastAPI(title="Podkladarna", version=APP_VERSION)
 
@@ -704,7 +709,14 @@ async def api_create_job(request: Request):
             options.get("map_scale"),
             preset_id,
         )
-    options["sprint_courtyard_olive"] = _opt_bool("sprint_courtyard_olive")
+    fill_raw = _form_str(form, "sprint_courtyard_fill").strip().lower()
+    if fill_raw in COURTYARD_FILL_CHOICES:
+        options["sprint_courtyard_fill"] = fill_raw
+    elif form.get("sprint_courtyard_olive") is not None:
+        # Zpětná kompatibilita starého checkboxu (API).
+        options["sprint_courtyard_fill"] = (
+            "olive" if _opt_bool("sprint_courtyard_olive") else "none"
+        )
     options["sprint_residual_paved"] = _opt_bool("sprint_residual_paved")
     residual_size_raw = _form_str(form, "sprint_residual_size").strip().lower()
     if residual_size_raw in {"small", "medium", "large"}:
@@ -789,7 +801,7 @@ async def api_create_job(request: Request):
         f"herní prvky={'ano' if options.get('kp_osm_playground_equipment') else 'ne'}, "
         f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}, "
         f"footway=chodník={'ano' if options.get('kp_osm_footway_as_sidewalk') else 'ne'}, "
-        f"dvory oliva={'ano' if options.get('sprint_courtyard_olive', True) else 'ne'}, "
+        f"dvory={_COURTYARD_FILL_LABEL[resolve_courtyard_fill(options)]}, "
         f"residential 501={'ano' if options.get('sprint_residual_paved') else 'ne'}"
         f"/{options.get('sprint_residual_size', 'small')}, "
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"

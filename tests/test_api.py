@@ -199,7 +199,7 @@ def test_create_job_skips_reference_pngs(client, monkeypatch):
 
 
 
-def test_create_job_sprint_courtyard_olive(client, monkeypatch):
+def test_create_job_sprint_courtyard_fill(client, monkeypatch):
     import app.main as main
 
     monkeypatch.setattr(
@@ -210,32 +210,39 @@ def test_create_job_sprint_courtyard_olive(client, monkeypatch):
     monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
     monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
     monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
-    off = client.post(
-        "/api/jobs",
-        data={
-            "name": "no-olive",
-            "preset_id": "sprint_2m",
-            "bbox": "14.40,50.08,14.42,50.09",
-            "output_mode": "png_zip",
-            "output_references": "1",
-        },
-    )
-    assert off.status_code == 200
-    assert off.json()["options"]["sprint_courtyard_olive"] is False
 
-    on = client.post(
-        "/api/jobs",
-        data={
-            "name": "olive",
-            "preset_id": "sprint_2m",
-            "bbox": "14.40,50.08,14.42,50.09",
-            "output_mode": "png_zip",
-            "output_references": "1",
-            "sprint_courtyard_olive": "1",
-        },
-    )
-    assert on.status_code == 200
-    assert on.json()["options"]["sprint_courtyard_olive"] is True
+    def post(name: str, **extra: str):
+        r = client.post(
+            "/api/jobs",
+            data={
+                "name": name,
+                "preset_id": "sprint_2m",
+                "bbox": "14.40,50.08,14.42,50.09",
+                "output_mode": "png_zip",
+                "output_references": "1",
+                **extra,
+            },
+        )
+        assert r.status_code == 200, r.text
+        return r.json()["options"]["sprint_courtyard_fill"]
+
+    # Bez volby = výchozí oliva.
+    assert post("default") == "olive"
+    assert post("building", sprint_courtyard_fill="building") == "building"
+    assert post("olive", sprint_courtyard_fill="olive") == "olive"
+    # Starý checkbox (API) dál funguje.
+    assert post("legacy-on", sprint_courtyard_olive="1") == "olive"
+    assert post("legacy-off", sprint_courtyard_olive="0") == "none"
+
+
+def test_resolve_courtyard_fill_legacy_jobs():
+    from app.pipeline.job_options import resolve_courtyard_fill
+
+    assert resolve_courtyard_fill({}) == "olive"
+    assert resolve_courtyard_fill({"sprint_courtyard_fill": "building"}) == "building"
+    assert resolve_courtyard_fill({"sprint_courtyard_olive": True}) == "olive"
+    assert resolve_courtyard_fill({"sprint_courtyard_olive": False}) == "none"
+    assert resolve_courtyard_fill({"sprint_courtyard_fill": "nonsense"}) == "olive"
 
 
 def test_create_job_sprint_residual_paved(client, monkeypatch):
@@ -557,7 +564,8 @@ def test_index_html(client):
     assert "Georeferencované PNG/TIFF do ZIPu" in html
     assert 'name="output_references"' in html
     assert 'id="output_references" value="1" checked' in html
-    assert 'name="sprint_courtyard_olive"' in html
+    assert 'name="sprint_courtyard_fill"' in html
+    assert '<option value="olive" selected>' in html
     assert 'name="sprint_residual_paved"' in html
     assert 'name="sprint_residual_size"' in html
     assert "OSM_residential_zbytek" in html
@@ -568,7 +576,7 @@ def test_index_html(client):
     assert "ne zpevněná plocha" in html
     assert "Dřevěný chodník" not in html
     assert "boardwalk" not in html.lower()
-    assert "courtyard-olive-wrap" in html
+    assert "courtyard-fill-wrap" in html
     assert "residual-paved-wrap" in html
     assert 'id="residual-paved-options" class="hidden"' in html
     assert 'id="residual-paved-hint"' in html

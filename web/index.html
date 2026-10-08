@@ -149,12 +149,15 @@
           </label>
           <p class="hint" id="osm-footway-sidewalk-hint">OSM občas špatně odliší pěšinu a chodník. Zapnutím se všechny <code>highway=footway</code> kreslí jako zpevněný chodník (sprint 501.6). U lesa/MTBO zůstává linie pěšiny (506 / 834), ne zpevněná plocha. Default zapnuto u sprintu, jinak vypnuto.</p>
 
-          <div id="courtyard-olive-wrap">
-            <label class="checkbox-row">
-              <input type="checkbox" name="sprint_courtyard_olive" id="sprint_courtyard_olive" value="1" checked />
-              Nepřístupné dvory v budovách vyplnit olivou
+          <div id="courtyard-fill-wrap">
+            <label>
+              Nepřístupné dvory v budovách
+              <select name="sprint_courtyard_fill" id="sprint_courtyard_fill">
+                <option value="olive" selected>Vyplnit olivou – výchozí</option>
+                <option value="building">Vyplnit stejně jako budovu</option>
+              </select>
             </label>
-            <p class="hint">Díra uprostřed budovy → oliva přes detaily uvnitř (sprint 520 / les 520 / MTBO 527). U lesa/MTBO skoro nic nepřibude.</p>
+            <p class="hint">Díra uprostřed budovy → plná plocha navrch, překryje detaily uvnitř (oliva: sprint/les 520, MTBO 527; budova: stejná značka jako budova kolem). Podklad pod ní zůstává, v OOM jde výplň smazat. U lesa/MTBO skoro nic nepřibude.</p>
           </div>
 
           <div id="residual-paved-wrap">
