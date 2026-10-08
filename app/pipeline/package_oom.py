@@ -643,6 +643,7 @@ def prepare_oom_map(
     indexcontours_m: float | None = None,
     cliff_symbol: str = "auto",
     courtyard_fill: str = "none",
+    contour_formlines: str = "off",
     path_source: str = PATH_SOURCE_MIXED,
     aopk_trees: Path | None = None,
     max_ostatni_m2: float | None = 50_000.0,
@@ -773,6 +774,7 @@ def prepare_oom_map(
             interval_m=float(contour_interval_m or 5),
             formline=0,
             index_m=float(indexcontours_m) if indexcontours_m else None,
+            formlines=contour_formlines,
             log=log,
         )
     )

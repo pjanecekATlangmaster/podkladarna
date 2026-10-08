@@ -28,6 +28,7 @@ from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.job_options import (
     load_presets,
     resolve_courtyard_fill,
+    resolve_formline_mode,
     resolve_vege_height,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
@@ -493,6 +494,7 @@ def run_job_pipeline(
         ),
         scalefactor=scalefactor,
         crop_bounds=crop,
+        formlines=resolve_formline_mode(options),
         log=log,
     )
     progress.done()
@@ -799,6 +801,7 @@ def _package_output(
                         indexcontours_m=indexcontours_m,
                         cliff_symbol=cliff_symbol,
                         courtyard_fill=courtyard_fill,
+                        contour_formlines=resolve_formline_mode(options),
                         path_source=path_src,
                         aopk_trees=aopk_path,
                         max_ostatni_m2=max_ostatni_m2,

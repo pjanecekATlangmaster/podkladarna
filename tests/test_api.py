@@ -235,6 +235,38 @@ def test_create_job_sprint_courtyard_fill(client, monkeypatch):
     assert post("legacy-off", sprint_courtyard_olive="0") == "none"
 
 
+def test_create_job_contour_formlines(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+
+    def post(**extra: str):
+        r = client.post(
+            "/api/jobs",
+            data={
+                "name": "fl",
+                "preset_id": "forest_10000",
+                "bbox": "14.40,50.08,14.42,50.09",
+                "output_mode": "png_zip",
+                **extra,
+            },
+        )
+        assert r.status_code == 200, r.text
+        return r.json()["options"]["contour_formlines"]
+
+    assert post() == "off"
+    assert post(contour_formlines="sparse") == "sparse"
+    assert post(contour_formlines="more") == "more"
+    assert post(contour_formlines="nonsense") == "off"
+
+
 def test_resolve_courtyard_fill_legacy_jobs():
     from app.pipeline.job_options import resolve_courtyard_fill
 
@@ -565,6 +597,8 @@ def test_index_html(client):
     assert 'name="output_references"' in html
     assert 'id="output_references" value="1" checked' in html
     assert 'name="sprint_courtyard_fill"' in html
+    assert 'name="contour_formlines"' in html
+    assert '<option value="off" selected>' in html
     assert '<option value="olive" selected>' in html
     assert 'name="sprint_residual_paved"' in html
     assert 'name="sprint_residual_size"' in html

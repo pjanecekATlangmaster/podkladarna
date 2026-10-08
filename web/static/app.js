@@ -1363,6 +1363,11 @@ function applyJobToForm(job) {
     if (match) scaleSel.value = match.value;
   }
   rebuildContourOptions(opts.contour_interval);
+  const formlines = form.contour_formlines;
+  if (formlines) {
+    const flVal = opts.contour_formlines || "off";
+    formlines.value = [...formlines.options].some((o) => o.value === flVal) ? flVal : "off";
+  }
   updateOsmHintsForScale(scaleSel ? scaleSel.value : scale);
   const cliff = form.kp_cliff_symbol;
   if (cliff) {

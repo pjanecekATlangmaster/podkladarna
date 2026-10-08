@@ -133,6 +133,10 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)Optional form lines \(103\)"),
+        "Volitelné pomocné vrstevnice 103 – jen kde ukážou tvar navíc",
+    ),
+    (
         re.compile(r"(?i)Courtyard fill: olive or the building symbol"),
         "Dvory v budovách: výplň olivou, nebo stejně jako budova",
     ),

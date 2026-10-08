@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from app.pipeline.job_options import resolve_courtyard_fill
+from app.pipeline.job_options import resolve_courtyard_fill, resolve_formline_mode
 from app.settings import (
     DB_PATH,
     DOWNLOADS_DIR,
@@ -420,6 +420,7 @@ def find_duplicate_active_job(
             bool(opts.get("output_georef")),
             bool(opts.get("output_references", True)),
             resolve_courtyard_fill(opts),
+            resolve_formline_mode(opts),
             bool(opts.get("sprint_residual_paved")),
             str(opts.get("sprint_residual_size") or "small"),
             str(opts.get("kp_cliff_symbol") or "auto"),

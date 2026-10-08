@@ -194,3 +194,114 @@ def test_numpy_dp_matches_recursive_reference():
         pts[n // 2] = pts[n // 2 - 1]  # duplicitní bod
         for tol in (0.05, 0.8, 3.0):
             assert simplify_polyline_dp(pts, tol) == _simplify_polyline_dp_py(pts, tol)
+
+
+def _line(x0, x1, y_of_x, step=1.0):
+    n = int(round((x1 - x0) / step))
+    return [(x0 + i * step, y_of_x(x0 + i * step)) for i in range(n + 1)]
+
+
+def _circle(r, n=360):
+    import math
+
+    pts = [(r * math.cos(2 * math.pi * i / n), r * math.sin(2 * math.pi * i / n)) for i in range(n)]
+    return pts + [pts[0]]
+
+
+def test_formline_uniform_slope_is_dropped():
+    """Půlová linie přesně uprostřed mezi vrstevnicemi nic nepřidá."""
+    from app.pipeline.contours_gdal import select_formlines
+
+    contours = [
+        (0.0, _line(-300, 300, lambda _x: 0.0)),
+        (5.0, _line(-300, 300, lambda _x: 40.0)),
+    ]
+    formlines = [(2.5, _line(-300, 300, lambda _x: 20.0))]
+    for mode in ("sparse", "more"):
+        assert select_formlines(formlines, contours, interval_m=5, scale=10000, mode=mode) == []
+
+
+def test_formline_spur_keeps_only_the_bend():
+    """Výběžek mezi vrstevnicemi: půlová se přimkne k dolní → kus kolem výběžku."""
+    import math
+
+    from app.pipeline.contours_gdal import polyline_length_m, select_formlines
+
+    # Krajní úrovně jen kvůli obálce dat (u okraje výřezu se 103 nevybírá).
+    contours = [
+        (-5.0, _line(-300, 300, lambda _x: -40.0)),
+        (0.0, _line(-300, 300, lambda _x: 0.0)),
+        (5.0, _line(-300, 300, lambda _x: 40.0)),
+        (10.0, _line(-300, 300, lambda _x: 80.0)),
+    ]
+    spur = lambda x: 20.0 - 16.0 * math.exp(-((x / 25.0) ** 2))  # noqa: E731
+    formlines = [(2.5, _line(-300, 300, spur))]
+    got = select_formlines(formlines, contours, interval_m=5, scale=10000, mode="sparse")
+    assert len(got) == 1
+    elev, pts, closed = got[0]
+    assert elev == 2.5 and not closed
+    xs = [p[0] for p in pts]
+    assert min(xs) < 0 < max(xs)
+    # Jen okolí výběžku, ne celá 600m linie.
+    assert 30.0 <= polyline_length_m(pts) <= 200.0
+
+
+def test_formline_summit_between_levels_keeps_whole_ring():
+    """Vrchol nad poslední vrstevnicí (horní úroveň chybí) → celý kroužek 103."""
+    from app.pipeline.contours_gdal import select_formlines
+
+    contours = [(5.0, _circle(90.0)), (0.0, _circle(140.0))]
+    formlines = [(7.5, _circle(35.0)), (2.5, _circle(115.0))]
+    got = select_formlines(formlines, contours, interval_m=5, scale=10000, mode="sparse")
+    assert [(e, c) for e, _p, c in got] == [(7.5, True)]
+
+
+def test_formline_mode_off_selects_nothing():
+    from app.pipeline.contours_gdal import select_formlines
+
+    contours = [(5.0, _circle(90.0))]
+    formlines = [(7.5, _circle(35.0))]
+    assert select_formlines(formlines, contours, interval_m=5, scale=10000, mode="off") == []
+
+
+def test_resolve_formline_mode():
+    from app.pipeline.job_options import resolve_formline_mode
+
+    assert resolve_formline_mode({}) == "off"
+    assert resolve_formline_mode({"contour_formlines": "sparse"}) == "sparse"
+    assert resolve_formline_mode({"contour_formlines": "MORE"}) == "more"
+    assert resolve_formline_mode({"contour_formlines": "lots"}) == "off"
+
+
+def test_build_gdal_contour_parts_adds_formline_part(tmp_path, monkeypatch):
+    """S volbou se z formlines_all.shp vybrané kusy přidají jako 103."""
+    from app.pipeline import contours_gdal as cg
+
+    shp_dir = tmp_path / "contours"
+    shp_dir.mkdir()
+    (shp_dir / "contours.shp").write_bytes(b"placeholder")
+    (shp_dir / cg.FORMLINES_ALL_NAME).write_bytes(b"placeholder")
+    rows = {
+        "contours.shp": [({"elev": 5.0}, _circle(90.0)), ({"elev": 0.0}, _circle(140.0))],
+        cg.FORMLINES_ALL_NAME: [({"elev": 7.5}, _circle(35.0)), ({"elev": 2.5}, _circle(115.0))],
+    }
+    monkeypatch.setattr(cg, "_iter_contour_rows", lambda shp: rows[shp.name])
+    monkeypatch.setattr(cg, "_wkb_parts", lambda pts: ([("line", pts, True)], None))
+    codes = {"101": 1, "102": 2, "103": 3}
+    monkeypatch.setattr(cg, "symbol_index_for_code", lambda _p, _s, code: codes.get(code))
+    symbols: list[int] = []
+
+    def fake_objects(parts, symbol_index, **_kw):
+        symbols.append(symbol_index)
+        return ["<object />" for _ in parts]
+
+    monkeypatch.setattr(cg, "_geom_parts_to_objects", fake_objects)
+    kw = dict(
+        preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0,
+        interval_m=5.0, index_m=25.0,
+    )
+    off = cg.build_gdal_contour_parts(tmp_path, **kw)
+    assert "Pomocné vrstevnice (GDAL)" not in [p.name for p in off]
+    on = {p.name: p for p in cg.build_gdal_contour_parts(tmp_path, formlines="sparse", **kw)}
+    assert on["Pomocné vrstevnice (GDAL)"].count == 1
+    assert symbols[-1] == 3

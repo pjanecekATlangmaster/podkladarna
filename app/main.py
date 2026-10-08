@@ -40,11 +40,13 @@ from app.pipeline.fetch_openzu import (
 )
 from app.pipeline.job_options import (
     COURTYARD_FILL_CHOICES,
+    FORMLINE_MODES,
     KP_CLIFF_SENSITIVITY,
     KP_VEGE_HEIGHT_CHOICES,
     load_presets,
     resolve_cliff_sensitivity,
     resolve_courtyard_fill,
+    resolve_formline_mode,
     resolve_vege_height,
 )
 from app.pipeline.package_oom import (
@@ -95,6 +97,7 @@ def _form_str(form, key: str, default: str = "") -> str:
 
 
 _COURTYARD_FILL_LABEL = {"olive": "oliva", "building": "budova", "none": "ne"}
+_FORMLINE_LABEL = {"off": "ne", "sparse": "střídmě", "more": "víc"}
 
 app = FastAPI(title="Podkladarna", version=APP_VERSION)
 
@@ -717,6 +720,9 @@ async def api_create_job(request: Request):
         options["sprint_courtyard_fill"] = (
             "olive" if _opt_bool("sprint_courtyard_olive") else "none"
         )
+    formlines_raw = _form_str(form, "contour_formlines").strip().lower()
+    if formlines_raw in FORMLINE_MODES:
+        options["contour_formlines"] = formlines_raw
     options["sprint_residual_paved"] = _opt_bool("sprint_residual_paved")
     residual_size_raw = _form_str(form, "sprint_residual_size").strip().lower()
     if residual_size_raw in {"small", "medium", "large"}:
@@ -802,6 +808,7 @@ async def api_create_job(request: Request):
         f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}, "
         f"footway=chodník={'ano' if options.get('kp_osm_footway_as_sidewalk') else 'ne'}, "
         f"dvory={_COURTYARD_FILL_LABEL[resolve_courtyard_fill(options)]}, "
+        f"pomocné 103={_FORMLINE_LABEL[resolve_formline_mode(options)]}, "
         f"residential 501={'ano' if options.get('sprint_residual_paved') else 'ne'}"
         f"/{options.get('sprint_residual_size', 'small')}, "
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"

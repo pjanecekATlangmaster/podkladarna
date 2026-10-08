@@ -28,6 +28,10 @@ KP_CLIFF_SENSITIVITY_DEFAULT = "low"
 COURTYARD_FILL_CHOICES = ("olive", "building", "none")
 COURTYARD_FILL_DEFAULT = "olive"
 
+# Pomocné vrstevnice 103 (půl ekvidistance) jen kde ukážou tvar navíc.
+FORMLINE_MODES = ("off", "sparse", "more")
+FORMLINE_MODE_DEFAULT = "off"
+
 
 def load_presets() -> dict:
     return yaml.safe_load((CONFIG_DIR / "presets.yaml").read_text(encoding="utf-8"))
@@ -62,3 +66,8 @@ def resolve_courtyard_fill(options: dict | None) -> str:
     if "sprint_courtyard_olive" in opts and not opts["sprint_courtyard_olive"]:
         return "none"
     return COURTYARD_FILL_DEFAULT
+
+
+def resolve_formline_mode(options: dict | None) -> str:
+    raw = str((options or {}).get("contour_formlines") or "").strip().lower()
+    return raw if raw in FORMLINE_MODES else FORMLINE_MODE_DEFAULT

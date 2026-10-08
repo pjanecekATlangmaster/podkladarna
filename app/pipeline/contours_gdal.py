@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.pipeline.dem_prep import DEM_DIR_NAME, _pick_ground_laz
 from app.pipeline.job_grid import resolve_job_extent
+from app.pipeline.job_options import FORMLINE_MODE_DEFAULT
 from app.pipeline.oom_import import (
     OomObjectPart,
     _geom_parts_to_objects,
@@ -17,6 +18,20 @@ from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 
 CONTOUR_META_NAME = "contour_meta.json"
+FORMLINES_ALL_NAME = "formlines_all.shp"
+
+# Pomocné vrstevnice 103 (volba jobu contour_formlines, viz job_options).
+# Výběr: kreslit jen kde půlová linie není uprostřed mezi sousedními
+# vrstevnicemi (výběžek, žlábek, vrchol mezi úrovněmi) a je na ni místo.
+#   asym      |d_dolní − d_horní| / (d_dolní + d_horní) – 0 = přesně uprostřed
+#   room_mm   min. rozestup sousedních vrstevnic na papíře (hustě = netřeba)
+#   ext_mm    prodloužení jádra podél linie na každou stranu
+#   bridge_mm spojit kousky s mezerou do této délky
+#   min_mm    kratší kousky zahodit
+_FORMLINE_PARAMS: dict[str, dict[str, float]] = {
+    "sparse": {"asym": 0.55, "room_mm": 1.2, "ext_mm": 1.0, "bridge_mm": 1.5, "min_mm": 3.0},
+    "more": {"asym": 0.4, "room_mm": 0.8, "ext_mm": 1.5, "bridge_mm": 2.0, "min_mm": 2.0},
+}
 
 # Les: jemnější DEM (1 m) + blur 6 m (spojuje útržky) + Chaikin 1
 # (dřív ×2 densifikovalo před Bézier → bloat; ×1 stačí před DP).
@@ -75,8 +90,8 @@ def contour_oom_code(
 ) -> str:
     """101 běžná plná, 102 index (typicky každá 5.).
 
-    Pomocné (103, přerušované) do OOM neexportujeme – KP formline zůstává
-    jen pro rastrový náhled. Parametr ``formline`` je ignorován (kompatibilita).
+    Pomocné 103 jdou zvlášť (``select_formlines`` z půlových linií).
+    Parametr ``formline`` je ignorován (kompatibilita).
     """
     del formline
 
@@ -364,6 +379,122 @@ def refine_contour_polylines(
     return filter_short_polylines(stitched, min_length_m=min_length_m)
 
 
+def _kept_runs(
+    keep,
+    arc,
+    *,
+    bridge_m: float,
+    min_len_m: float,
+) -> list[tuple[int, int]]:
+    """Souvislé úseky ``keep`` (indexy vrcholů vč.), mezery ≤ bridge spojené."""
+    runs: list[list[int]] = []
+    i = 0
+    n = len(keep)
+    while i < n:
+        if not keep[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and keep[j + 1]:
+            j += 1
+        if runs and arc[i] - arc[runs[-1][1]] <= bridge_m:
+            runs[-1][1] = j
+        else:
+            runs.append([i, j])
+        i = j + 1
+    return [(a, b) for a, b in runs if arc[b] - arc[a] >= min_len_m]
+
+
+def select_formlines(
+    formlines: list[tuple[float, list[tuple[float, float]]]],
+    contours: list[tuple[float, list[tuple[float, float]]]],
+    *,
+    interval_m: float,
+    scale: int,
+    mode: str = "sparse",
+) -> list[tuple[float, list[tuple[float, float]], bool]]:
+    """Z půlových linií nechá jen kusy, které ukážou tvar navíc (103).
+
+    Pro každý vrchol půlové linie ve výšce (k+½)·I se změří vzdálenost
+    k vrstevnici k·I a (k+1)·I. V rovnoměrném svahu leží uprostřed a nic
+    nepřidá; u výběžku/žlábku se přimkne k jedné z nich, na vrcholu mezi
+    úrovněmi horní soused chybí úplně. Jádra se prodlouží podél linie,
+    blízké kusy spojí a krátké zahodí. Vrací (výška, body, uzavřená).
+    """
+    import numpy as np
+    from scipy.spatial import cKDTree
+
+    params = _FORMLINE_PARAMS.get(mode)
+    if not params or not formlines:
+        return []
+    interval = max(float(interval_m), 0.1)
+
+    def mm(key: str) -> float:
+        return paper_mm_to_ground_m(params[key], scale)
+
+    room_m, ext_m, bridge_m, min_m = mm("room_mm"), mm("ext_mm"), mm("bridge_mm"), mm("min_mm")
+
+    by_level: dict[int, list[tuple[float, float]]] = {}
+    for elev, pts in contours:
+        by_level.setdefault(int(round(elev / interval)), []).extend(pts)
+    trees = {k: cKDTree(np.asarray(v, dtype=np.float64)) for k, v in by_level.items() if v}
+    all_pts = [p for _e, pts in contours for p in pts] + [p for _e, pts in formlines for p in pts]
+    xs = np.asarray([p[0] for p in all_pts])
+    ys = np.asarray([p[1] for p in all_pts])
+    # U okraje výřezu soused „chybí“ jen proto, že vrstevnice odešla z mapy.
+    xmin, xmax, ymin, ymax = xs.min(), xs.max(), ys.min(), ys.max()
+
+    out: list[tuple[float, list[tuple[float, float]], bool]] = []
+    for elev, pts in formlines:
+        if len(pts) < 3:
+            continue
+        xy = np.asarray(pts, dtype=np.float64)
+        closed = is_closed_polyline(pts)
+        k = int(math.floor(elev / interval + 1e-6))
+        dists = []
+        for level in (k, k + 1):
+            tree = trees.get(level)
+            if tree is None:
+                dists.append(np.full(len(xy), np.inf))
+            else:
+                dists.append(tree.query(xy)[0])
+        d_lo, d_hi = dists
+        total = d_lo + d_hi
+        with np.errstate(invalid="ignore"):
+            asym = np.where(np.isfinite(total), np.abs(d_lo - d_hi) / np.maximum(total, 1e-6), 1.0)
+        inner = (
+            (xy[:, 0] - xmin > room_m)
+            & (xmax - xy[:, 0] > room_m)
+            & (xy[:, 1] - ymin > room_m)
+            & (ymax - xy[:, 1] > room_m)
+        )
+        core = (asym > params["asym"]) & (total > room_m) & inner
+        if not core.any():
+            continue
+        if closed:
+            # Kroužek rozříznout v nevybraném místě, ať úseky nepřetékají přes začátek.
+            if core.mean() >= 0.6:
+                ring_len = polyline_length_m(pts)
+                if ring_len >= min_m:
+                    out.append((elev, list(pts), True))
+                continue
+            start = int(np.argmin(core))
+            ring = list(pts[:-1]) if pts[0] == pts[-1] else list(pts)
+            pts = ring[start:] + ring[:start] + [ring[start]]
+            xy = np.asarray(pts, dtype=np.float64)
+            core = np.concatenate([core[: len(ring)][start:], core[: len(ring)][:start], [False]])
+        seg = np.hypot(np.diff(xy[:, 0]), np.diff(xy[:, 1]))
+        arc = np.concatenate([[0.0], np.cumsum(seg)])
+        core_arc = arc[core]
+        pos = np.searchsorted(core_arc, arc)
+        before = np.abs(arc - core_arc[np.clip(pos - 1, 0, len(core_arc) - 1)])
+        after = np.abs(core_arc[np.clip(pos, 0, len(core_arc) - 1)] - arc)
+        keep = np.minimum(before, after) <= ext_m
+        for a, b in _kept_runs(keep.tolist(), arc.tolist(), bridge_m=bridge_m, min_len_m=min_m):
+            out.append((elev, [tuple(p) for p in pts[a : b + 1]], False))
+    return out
+
+
 def _smooth_dem(
     src: Path,
     dest: Path,
@@ -508,12 +639,16 @@ def _run_gdal_contour(
     dest_shp: Path,
     *,
     interval_m: float,
+    offset_m: float = 0.0,
     log=None,
 ) -> Path:
     gdal_contour = find_tool("gdal_contour")
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
-    log_step(log, "Kreslím vrstevnice z DEM (ekvidistance do mapy)")
+    if offset_m:
+        log_step(log, "Kandidáti pomocných vrstevnic (půl ekvidistance)")
+    else:
+        log_step(log, "Kreslím vrstevnice z DEM (ekvidistance do mapy)")
     run_cmd(
         [
             gdal_contour,
@@ -521,8 +656,9 @@ def _run_gdal_contour(
             "elev",
             "-i",
             str(float(interval_m)),
+            *(["-off", str(float(offset_m))] if offset_m else []),
             "-nln",
-            "contours",
+            dest_shp.stem,
             str(dem_smooth),
             str(dest_shp),
         ],
@@ -592,6 +728,7 @@ def generate_job_contours(
     formline: float,
     scalefactor: float,
     crop_bounds: tuple[float, float, float, float] | None,
+    formlines: str = FORMLINE_MODE_DEFAULT,
     log=None,
 ) -> Path:
     """Jediná pravda vrstevnic: GDAL z DMR (sdílený dem_filled), ne KP DXF / DMP."""
@@ -604,7 +741,7 @@ def generate_job_contours(
     if log:
         log(
             f"Vrstevnice GDAL: interval {interval_m:g} m "
-            f"(bez formline do OOM), DEM {cell_m:g} m, smooth {window_m:g} m, "
+            f"(pomocné 103: {formlines}), DEM {cell_m:g} m, smooth {window_m:g} m, "
             f"Chaikin {iters}, min_délka {min_len:g} m, stitch {gap:g} m"
         )
     if shared is not None:
@@ -627,6 +764,7 @@ def generate_job_contours(
             interval_m=interval_m,
             scalefactor=scalefactor,
         )
+        _formline_candidates(dest.parent, interval_m=interval_m, mode=formlines, log=log)
         return dest
 
     # Fallback jen ground LAZ (DMR); merged dostane Classification[2:2] filtr.
@@ -652,7 +790,29 @@ def generate_job_contours(
         interval_m=interval_m,
         scalefactor=scalefactor,
     )
+    _formline_candidates(dest.parent, interval_m=interval_m, mode=formlines, log=log)
     return dest
+
+
+def _formline_candidates(
+    contours_dir: Path,
+    *,
+    interval_m: float,
+    mode: str,
+    log=None,
+) -> Path | None:
+    """Půlové linie ze stejného vyhlazeného DEM jako vrstevnice (výběr až v OOM)."""
+    dest = contours_dir / FORMLINES_ALL_NAME
+    if mode not in _FORMLINE_PARAMS:
+        for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
+            dest.with_suffix(suffix).unlink(missing_ok=True)
+        return None
+    dem_smooth = contours_dir / "dem_smooth.tif"
+    if not dem_smooth.is_file():
+        return None
+    return _run_gdal_contour(
+        dem_smooth, dest, interval_m=interval_m, offset_m=interval_m / 2.0, log=log
+    )
 
 
 def _iter_contour_rows(shp: Path):
@@ -708,6 +868,7 @@ def build_gdal_contour_parts(
     formline: float = 0,
     index_m: float | None = None,
     scalefactor: float | None = None,
+    formlines: str = FORMLINE_MODE_DEFAULT,
     log=None,
 ) -> list[OomObjectPart]:
     del formline
@@ -715,10 +876,11 @@ def build_gdal_contour_parts(
     if not shp.is_file():
         return []
 
-    grouped: dict[str, list[str]] = {"101": [], "102": []}
+    grouped: dict[str, list[str]] = {"101": [], "102": [], "103": []}
     names = {
         "101": "Vrstevnice (GDAL)",
         "102": "Indexové vrstevnice (GDAL)",
+        "103": "Pomocné vrstevnice (GDAL)",
     }
     if scalefactor is None:
         scalefactor = float(scale) / 10000.0 if scale else 1.0
@@ -781,8 +943,53 @@ def build_gdal_contour_parts(
             )
         )
 
+    formline_shp = work_dir / "contours" / FORMLINES_ALL_NAME
+    symbol_103 = symbol_index_for_code(preset_id, scale, "103")
+    if formlines in _FORMLINE_PARAMS and formline_shp.is_file() and symbol_103 is not None:
+        candidates: list[tuple[float, list[tuple[float, float]]]] = []
+        for props, wkb in _iter_contour_rows(formline_shp):
+            elev = _elev_from_props(props)
+            if elev is None:
+                continue
+            geom_parts, _ = _wkb_parts(wkb)
+            for part in geom_parts:
+                if part[0] == "line" and len(part[1]) >= 3:
+                    candidates.append((elev, list(part[1])))  # type: ignore[arg-type]
+        main_lines = [
+            (elev, pts)
+            for (_code, elev), lines in by_key.items()
+            if elev is not None
+            for pts in lines
+        ]
+        pieces = select_formlines(
+            candidates, main_lines, interval_m=interval_m, scale=scale, mode=formlines
+        )
+        smoothed = []
+        for _elev, pts, _closed in pieces:
+            pts = chaikin(pts, iterations=chaikin_iters)
+            pts = simplify_contour_polyline(pts, simplify_tol)
+            if len(pts) >= 2:
+                smoothed.append(("line", pts, is_closed_polyline(pts)))
+        if log:
+            log(
+                f"Pomocné vrstevnice 103 ({formlines}): {len(smoothed)} kusů "
+                f"z {len(candidates)} půlových linií"
+            )
+        if smoothed:
+            grouped["103"].extend(
+                _geom_parts_to_objects(
+                    smoothed,
+                    symbol_103,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    as_curves=True,
+                )
+            )
+
     parts: list[OomObjectPart] = []
-    for code in ("101", "102"):
+    for code in ("101", "102", "103"):
         objects = grouped[code]
         if objects:
             parts.append(
