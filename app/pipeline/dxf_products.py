@@ -8,6 +8,8 @@ from pathlib import Path
 # (base/contours_gdal.*). c2g = zemní srázy (104), c_rock = skalní (201).
 DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("dotknolls.dxf", "dotknolls.dxf"),
+    ("dotdepressions.dxf", "dotdepressions.dxf"),
+    ("dotpits.dxf", "dotpits.dxf"),
     ("c2g.dxf", "cliffs_small.dxf"),
     ("c_rock.dxf", "cliffs_rock.dxf"),
 )

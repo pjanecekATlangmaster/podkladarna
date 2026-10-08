@@ -90,6 +90,8 @@ _DXF_OOM_CODE_SPRINT: dict[str, str] = {
     "cliffs_small.dxf": "104",
     "cliffs_large.dxf": "104",
     "dotknolls.dxf": "109",
+    "dotdepressions.dxf": "111",
+    "dotpits.dxf": "112",
 }
 
 _DXF_OOM_CODE_FOREST: dict[str, str] = {
@@ -97,6 +99,8 @@ _DXF_OOM_CODE_FOREST: dict[str, str] = {
     "cliffs_small.dxf": "104",
     "cliffs_large.dxf": "104",
     "dotknolls.dxf": "109",
+    "dotdepressions.dxf": "111",
+    "dotpits.dxf": "112",
 }
 
 _CLIFF_DXF = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
@@ -276,5 +280,7 @@ def oom_code_for_dxf(
         if filename in _ROCK_DXF:
             return "201"
         return "104"
+    if filename == "dotdepressions.dxf" and preset_id.startswith("mtbo"):
+        return "112"  # ISMTBOM nemá Small depression 111
     table = _DXF_OOM_CODE_SPRINT if _is_sprint(preset_id) else _DXF_OOM_CODE_FOREST
     return table.get(filename)

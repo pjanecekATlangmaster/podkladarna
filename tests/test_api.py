@@ -561,7 +561,7 @@ def test_index_html(client):
     assert "volně inspirováno" in r.text
     assert 'value="auto" selected' in r.text
     assert 'id="include_knolls"' in r.text
-    assert "Malé kupky (109)" in r.text
+    assert "Kupky (109), ďolíky (111) a jámy (112)" in r.text
     assert "Knolly z DMR" not in r.text
     assert 'id="knoll-hint"' not in r.text
     assert 'id="include_knolls" value="1" checked' in r.text or (
