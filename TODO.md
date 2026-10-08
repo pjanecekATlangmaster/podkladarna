@@ -33,7 +33,13 @@ na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
 - Vyhlazení schodovitých okrajů ploch z rastru.
 - Vlastní šablona mapového klíče (nahrát .omap; import jde podle kódů značek)
   a výchozí ISSprOM 2019-2 rev. 6 (chybí např. trojúhelníky víceúrovňových
-  staveb).
+  staveb). Uživatel hledá úplnou sadu pro OOM.
+  - Rozbor šablony ze školení kartografů (Mapovani_Zderaz.omap, 2026-10):
+    ISOM 2017-2 1:15000 česky, 138 kódů shodných s naší; kódy jako „101.0“
+    a přečíslované podvarianty (513.100, 520.4, 501.1, 203.101) → při použití
+    normalizovat „.0“ + tabulka přemapování; chybí 206, 301, 412.1, 203.1/2.
+    Navíc pomocné značky 1.x Ortofoto, 2.x LAS reliéf, 3.x pomocné – vhodné
+    pro nejisté výstupy generátoru. Licence/šíření nejasné (asi ČSOS).
 - Výška vegetace spíš jako rastrový podklad (CHM / hustota) než hotové plochy.
 - Předvolby „podklady pro mapaře“ vs. „příprava na závod (embargo)“.
 
