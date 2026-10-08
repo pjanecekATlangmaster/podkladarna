@@ -133,6 +133,10 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)Allow 6×6 km AOI again"),
+        "Výřez zase až 6×6 km (36 km²)",
+    ),
+    (
         re.compile(r"(?i)LiDAR pipeline: stream merges"),
         "Rychlejší LiDAR: proudový merge, souběžné kroky, velké výřezy nepadají na paměť",
     ),

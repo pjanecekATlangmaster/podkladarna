@@ -25,11 +25,13 @@ OPENZU_DMR = "https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/{mapnom}.zip"
 OPENZU_DMPOK = "https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/{mapnom}.zip"
 OPENZU_DMP1G = "https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/{mapnom}.zip"
 USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladarna)"
-MAX_SHEETS = 16
-# Plocha výřezu (km²) – např. 5×5; ne tvrdý strop na jednu stranu.
-MAX_BBOX_AREA_KM2 = 25.0
-# Zpětná kompatibilita / odkaz v textech („cca 5 km“).
-MAX_BBOX_KM = 5.0
+# WGS obálka je vůči mřížce SM5 (2,5 × 2 km v S-JTSK) pootočená o ~7–10°,
+# takže 36 km² podle polohy protne až ~18 listů; 20 = rezerva, ne hlavní limit.
+MAX_SHEETS = 20
+# Plocha výřezu (km²) – např. 6×6, 8×4,5; ne tvrdý strop na jednu stranu.
+MAX_BBOX_AREA_KM2 = 36.0
+# Zpětná kompatibilita / odkaz v textech („cca 6 km“).
+MAX_BBOX_KM = 6.0
 CROP_BUFFER_M = 30.0
 # Polohopis (ZABAGED/OSM/RÚIAN/AOPK) stahovat s přesahu přes AOI –
 # LiDAR/KP mají ~CROP_BUFFER_M + KP pad; radši přesah než holé kraje.

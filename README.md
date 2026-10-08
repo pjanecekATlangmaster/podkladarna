@@ -31,7 +31,7 @@ chmod +x deploy-nas.sh
 
 ## Vstup
 
-Výřez na mapě (Česko, max 5 × 5 km). LiDAR i ZABAGED se stahují do sdílené cache (`data/cache/`), ne do jednotlivých jobů.
+Výřez na mapě (Česko, max cca 36 km², např. 6 × 6 nebo 8 × 4,5 km). LiDAR i ZABAGED se stahují do sdílené cache (`data/cache/`), ne do jednotlivých jobů.
 
 ## Presety
 

@@ -876,7 +876,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   if (!bboxAllowed) {
     showFormError(
       (lastSheets && lastSheets.hint) ||
-        "Výřez je moc velký nebo ještě není ověřený. Max 5 × 5 km (cca 25 km²)."
+        "Výřez je moc velký nebo ještě není ověřený. Max cca 36 km² (např. 6 × 6 km)."
     );
     return;
   }
@@ -1390,7 +1390,7 @@ async function lookupSheets() {
       styleBboxRect(true);
       setSheetInfo(
         data.hint ||
-          `Výřez je moc velký (max ${data.max_area_km2 || 25} km², např. 5×5 km). Zmenšete ho.`,
+          `Výřez je moc velký (max ${data.max_area_km2 || 36} km², např. 6×6 km). Zmenšete ho.`,
         "warn"
       );
       updateSubmitButtonLabel();
