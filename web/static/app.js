@@ -1530,7 +1530,7 @@ function selectedEstimateMinutes() {
     wantRefs && lastSheets.estimate_minutes_with_refs != null
       ? lastSheets.estimate_minutes_with_refs
       : lastSheets.estimate_minutes;
-  // Georef PNG/TIFF @ 600 DPI podle měřítka (sprint 1 varianta, les + MTBO 2).
+  // Georef GeoTIFF @ 300 DPI podle měřítka (sprint 1 varianta, les + MTBO 2).
   const georef = document.getElementById("output_georef");
   const scale = document.getElementById("map_scale");
   const byScale = lastSheets.estimate_georef_minutes;

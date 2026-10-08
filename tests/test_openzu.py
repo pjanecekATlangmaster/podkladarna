@@ -162,7 +162,7 @@ def test_api_sheets(client, monkeypatch):
     assert body["estimate_minutes"] == 6
     assert body["estimate_minutes_with_refs"] == 6 + 1
     assert body["estimate_georef_minutes"]["10000"] == 2
-    assert body["estimate_georef_minutes"]["4000"] == 2
+    assert body["estimate_georef_minutes"]["4000"] == 1
     assert body["estimate_note"]
     assert "PRAH77" in body["label"]
     assert body["too_large"] is False

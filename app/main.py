@@ -260,7 +260,7 @@ def api_sheets(bbox: str):
         if can_estimate
         else None
     )
-    # Georef PNG/TIFF závisí na měřítku – tlačítko si přičte podle formuláře.
+    # Georef GeoTIFF závisí na měřítku – tlačítko si přičte podle formuláře.
     est_georef = (
         {str(s): estimate_georef_minutes(area_km2, s) for s in MAP_SCALES}
         if can_estimate
@@ -399,7 +399,7 @@ def api_download(job_id: str, token: str | None = None):
 
 @app.get("/api/jobs/{job_id}/download/georef-previews")
 def api_download_georef_previews(job_id: str, token: str | None = None):
-    """Malý ZIP jen s georeferencovanými náhledy (PNG+PGW±GeoTIFF)."""
+    """Malý ZIP jen s georeferencovanými náhledy (GeoTIFF; PNG+PGW jen bez GDAL)."""
     from app.pipeline.oom_preview import (
         GEOREF_PREVIEWS_ZIP_NAME,
         build_georef_previews_zip,
@@ -751,7 +751,7 @@ async def api_create_job(request: Request):
         options["output_zip"] = True
     elif _form_str(form, "output_zip").strip():
         options["output_zip"] = _opt_bool("output_zip")
-    # Georef PNG/TIFF do ZIPu – default off (formulářové combo Formát už není).
+    # Georef GeoTIFF do ZIPu – default off (formulářové combo Formát už není).
     options["output_georef"] = _opt_bool("output_georef")
     options["output_references"] = _opt_bool("output_references")
     options["force_refresh"] = _opt_bool("force_refresh")
@@ -823,7 +823,7 @@ async def api_create_job(request: Request):
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"
         f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
         f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
-        f"georef PNG/TIFF={'ano' if options.get('output_georef') else 'ne'}, "
+        f"georef GeoTIFF={'ano' if options.get('output_georef') else 'ne'}, "
         f"force_refresh={'ano' if options.get('force_refresh') else 'ne'}, "
         f"privátní={'ano' if options.get('private') else 'ne'}, "
         f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"

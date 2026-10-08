@@ -593,7 +593,7 @@ def test_index_html(client):
     assert 'id="output_georef" value="1" checked' not in html
     assert 'name="output_mode"' not in html
     assert "Formát" not in html
-    assert "Georeferencované PNG/TIFF do ZIPu" in html
+    assert "Georeferencovaný GeoTIFF do ZIPu" in html
     assert 'name="output_references"' in html
     assert 'id="output_references" value="1" checked' in html
     assert 'name="sprint_courtyard_fill"' in html

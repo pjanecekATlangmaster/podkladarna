@@ -43,9 +43,9 @@ _EST_FIXED_MIN = 2.0  # ZABAGED, OSM, RÚIAN/AOPK, web náhled, ZIP
 _EST_DOWNLOAD_MIN_PER_SHEET = 1.0  # DMR5G + DMPOK ~350 MB; ČÚZK 0,5–2,2 min
 _EST_CROP_MIN_PER_SHEET = 1.25  # PDAL ořez (dekomprese celého listu)
 _EST_MIN_PER_KM2 = 0.55  # sloučení mračna, DEM/DSM/CHM, vegetace, srázy, OOM
-# Georef PNG/TIFF @ 600 DPI: Mapper na variantu (sprint 1, les + MTBO 2).
+# Georef GeoTIFF @ 300 DPI: Mapper + GeoTIFF/náhledy na variantu (sprint 1, les + MTBO 2).
 _EST_GEOREF_MIN_PER_VARIANT = 0.5
-_EST_GEOREF_MIN_PER_PAPER_M2 = 7.0
+_EST_GEOREF_MIN_PER_PAPER_M2 = 2.5  # 600 DPI bylo 7 (4× víc px); s rezervou
 # Referenční PNG (orto/OSM/ZTM/…) se stahují souběžně s buildem.
 REF_PNG_ESTIMATE_MINUTES = 1
 QUERY_TIMEOUT_S = 30
@@ -152,7 +152,7 @@ def estimate_minutes(
 
 
 def estimate_georef_minutes(area_km2: float, scale: int) -> int:
-    """Příplatek za georef PNG/TIFF @ 600 DPI (roste s plochou papíru)."""
+    """Příplatek za georef GeoTIFF @ 300 DPI (roste s plochou papíru)."""
     paper_m2 = max(0.0, float(area_km2)) * 1_000_000.0 / float(scale) ** 2
     variants = 1 if int(scale) <= 5000 else 2  # sprint / les + MTBO
     return math.ceil(

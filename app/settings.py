@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.7.1"
+APP_VERSION = "2.7.2"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -146,7 +146,7 @@ DEFAULT_OPTIONS = {
     # ZIP pro OOM (vektory + .omap). False = jen PNG náhled na webu (legacy API;
     # pipeline stejně vždy balí .omap/ZIP).
     "output_zip": True,
-    # Georef PNG+PGW (±GeoTIFF) do výstupního ZIPu – GUI checkbox, default off.
+    # Georef GeoTIFF (300 DPI, dlaždice + náhledy) do výstupního ZIPu – GUI checkbox, default off.
     "output_georef": False,
     # Ortofoto / OSM / ZTM / katastr / hillshade / DMP – stahovat a dát do ZIPu.
     "output_references": True,
