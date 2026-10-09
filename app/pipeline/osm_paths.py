@@ -44,6 +44,13 @@ OSM_API_MAP_URL = "https://api.openstreetmap.org/api/0.6/map"
 QUERY_TIMEOUT_S = 25
 OVERPASS_QL_TIMEOUT_S = 25
 OSM_API_TIMEOUT_S = 45
+# Kola opakování, když selžou všechny zdroje (Overpass zrcadla i API map);
+# prodlevy před 2. a 3. kolem (s). Chyby bývají přechodné (přetížení, 504).
+OSM_FETCH_ROUNDS = 3
+OSM_RETRY_DELAYS_S = (10, 30)
+# Větší výřez se stahuje po dlaždicích (stupně); menší dotazy méně timeoutují
+# a vejdou se do limitu API map (0,25 °²).
+OSM_TILE_DEG = 0.05
 
 # path/footway nestačí – v ČR je spousta použitelných cest jako track/bridleway.
 # Ulice/silnice primárně ze ZABAGED; OSM road_* doplní mixed, když ZABAGED má
@@ -1108,7 +1115,9 @@ def parse_osm_api_map_xml(
             continue
         if is_feat and len(geometry) < 1:
             continue
-        elements.append({"type": "way", "tags": tags, "geometry": geometry})
+        elements.append(
+            {"type": "way", "id": way.get("id"), "tags": tags, "geometry": geometry}
+        )
     return elements
 
 def _fetch_overpass(
@@ -1298,8 +1307,11 @@ def fetch_osm_path_elements(
                 return elements
             except (OSError, json.JSONDecodeError):
                 pass
-    elements = _fetch_osm_path_elements_net(bbox_wgs84, log=log, **params)
-    if cache_path is not None and elements:
+    status: dict = {}
+    elements = _fetch_osm_path_elements_net(
+        bbox_wgs84, log=log, status=status, **params
+    )
+    if cache_path is not None and elements and status.get("complete", True):
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = cache_path.with_suffix(".tmp")
@@ -1308,6 +1320,35 @@ def fetch_osm_path_elements(
         except OSError:
             pass
     return elements
+
+
+def split_bbox_tiles(
+    bbox_wgs84: tuple[float, float, float, float], tile_deg: float = OSM_TILE_DEG
+) -> list[tuple[float, float, float, float]]:
+    """Rozdělí (west, south, east, north) na dlaždice o hraně nejvýš tile_deg."""
+    import math
+
+    west, south, east, north = bbox_wgs84
+    nx = max(1, math.ceil((east - west) / tile_deg - 1e-9))
+    ny = max(1, math.ceil((north - south) / tile_deg - 1e-9))
+    dx, dy = (east - west) / nx, (north - south) / ny
+    return [
+        (west + i * dx, south + j * dy, west + (i + 1) * dx, south + (j + 1) * dy)
+        for j in range(ny)
+        for i in range(nx)
+    ]
+
+
+def _osm_element_key(el: dict):
+    if el.get("id") is not None:
+        return (el.get("type"), el.get("id"))
+    geom = el.get("geometry") or []
+    return (
+        el.get("type"),
+        json.dumps(el.get("tags") or {}, sort_keys=True),
+        json.dumps(geom[:1] + geom[-1:]),
+        len(geom),
+    )
 
 
 def _fetch_osm_path_elements_net(
@@ -1319,41 +1360,109 @@ def _fetch_osm_path_elements_net(
     osm_priority: bool = False,
     path_source: str = PATH_SOURCE_MIXED,
     log=None,
+    status: dict | None = None,
 ) -> list[dict]:
-    west, south, east, north = bbox_wgs84
-    elements, last_err = _fetch_overpass(
-        west,
-        south,
-        east,
-        north,
-        include_benches=include_benches,
-        include_lamps=include_lamps,
-        include_playground_equipment=include_playground_equipment,
-        osm_priority=osm_priority,
-        path_source=path_source,
-        log=log,
-    )
-    if elements is not None:
-        return elements
-    try:
-        if log:
-            log("OSM Overpass selhal – zkouším Export API (api.openstreetmap.org)…")
-        return _fetch_osm_api_map(
-            west, south, east, north, path_source=path_source, log=log
+    """Stáhne výřez po dlaždicích; selhání jedné dlaždice neshodí ostatní.
+
+    status["complete"] = False, pokud některá dlaždice selhala (výsledek se
+    pak necachuje).
+    """
+    tiles = split_bbox_tiles(bbox_wgs84)
+    merged: list[dict] = []
+    seen: set = set()
+    failed = 0
+    for idx, tile in enumerate(tiles, 1):
+        if log and len(tiles) > 1:
+            log(f"OSM dlaždice {idx}/{len(tiles)}…")
+        els = _fetch_osm_tile(
+            tile,
+            include_benches=include_benches,
+            include_lamps=include_lamps,
+            include_playground_equipment=include_playground_equipment,
+            osm_priority=osm_priority,
+            path_source=path_source,
+            log=log,
         )
-    except (
-        urllib.error.HTTPError,
-        urllib.error.URLError,
-        TimeoutError,
-        ET.ParseError,
-        OSError,
-    ) as exc:
-        if log:
-            log(
-                f"OSM pěšiny: Overpass ({last_err}) i API map ({exc}) selhaly "
-                "– job pokračuje bez nich"
+        if els is None:
+            failed += 1
+            continue
+        for el in els:
+            key = _osm_element_key(el)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(el)
+    if status is not None:
+        status["complete"] = failed == 0
+    if failed and log:
+        log(
+            f"!!! OSM: {failed} z {len(tiles)} dlaždic se nepodařilo stáhnout – "
+            "výsledek je neúplný, spusťte job později znovu."
+        )
+    return merged
+
+
+def _fetch_osm_tile(
+    bbox_wgs84: tuple[float, float, float, float],
+    *,
+    include_benches: bool = False,
+    include_lamps: bool = False,
+    include_playground_equipment: bool = False,
+    osm_priority: bool = False,
+    path_source: str = PATH_SOURCE_MIXED,
+    log=None,
+) -> list[dict] | None:
+    """Jedna dlaždice s opakováním; None = všechny pokusy selhaly."""
+    import time
+
+    west, south, east, north = bbox_wgs84
+    last_err: Exception | None = None
+    api_err: Exception | None = None
+    for attempt in range(OSM_FETCH_ROUNDS):
+        if attempt > 0:
+            delay = OSM_RETRY_DELAYS_S[min(attempt - 1, len(OSM_RETRY_DELAYS_S) - 1)]
+            if log:
+                log(
+                    f"OSM: všechny zdroje selhaly, další pokus "
+                    f"{attempt + 1}/{OSM_FETCH_ROUNDS} za {delay} s…"
+                )
+            time.sleep(delay)
+        elements, last_err = _fetch_overpass(
+            west,
+            south,
+            east,
+            north,
+            include_benches=include_benches,
+            include_lamps=include_lamps,
+            include_playground_equipment=include_playground_equipment,
+            osm_priority=osm_priority,
+            path_source=path_source,
+            log=log,
+        )
+        if elements is not None:
+            return elements
+        try:
+            if log:
+                log("OSM Overpass selhal – zkouším Export API (api.openstreetmap.org)…")
+            return _fetch_osm_api_map(
+                west, south, east, north, path_source=path_source, log=log
             )
-        return []
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            ET.ParseError,
+            OSError,
+        ) as exc:
+            api_err = exc
+            if log:
+                log(f"OSM API map: {exc}")
+    if log:
+        log(
+            f"OSM: dlaždice selhala po {OSM_FETCH_ROUNDS} kolech – Overpass "
+            f"({last_err}), API map ({api_err})"
+        )
+    return None
 
 
 def _way_skip_reason(

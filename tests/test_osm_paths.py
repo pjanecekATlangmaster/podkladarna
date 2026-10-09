@@ -1362,6 +1362,63 @@ def test_fetch_osm_falls_back_to_api_map():
     assert len(calls) == len(OVERPASS_URLS) + 1
 
 
+def test_fetch_osm_retries_rounds_then_gives_empty():
+    import app.pipeline.osm_paths as op
+
+    calls: list[str] = []
+    sleeps: list[float] = []
+    logs: list[str] = []
+
+    def fake_urlopen(req, timeout=0):
+        calls.append(req.full_url)
+        raise urllib.error.HTTPError(
+            req.full_url, 504, "Gateway Timeout", hdrs=None, fp=None
+        )
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen), patch(
+        "time.sleep", side_effect=sleeps.append
+    ):
+        got = op._fetch_osm_path_elements_net(
+            (14.4, 50.0, 14.41, 50.01), log=logs.append
+        )
+    assert got == []
+    assert len(calls) == op.OSM_FETCH_ROUNDS * (len(OVERPASS_URLS) + 1)
+    assert sleeps == list(op.OSM_RETRY_DELAYS_S)
+    assert any("neúplný" in m for m in logs)
+
+
+def test_split_bbox_tiles_covers_bbox():
+    from app.pipeline.osm_paths import split_bbox_tiles
+
+    assert split_bbox_tiles((14.4, 50.0, 14.42, 50.01)) == [(14.4, 50.0, 14.42, 50.01)]
+    tiles = split_bbox_tiles((14.0, 50.0, 14.12, 50.06), 0.05)
+    assert len(tiles) == 6
+    assert min(t[0] for t in tiles) == 14.0 and max(t[2] for t in tiles) == 14.12
+    assert all(t[2] - t[0] <= 0.05 + 1e-9 and t[3] - t[1] <= 0.05 + 1e-9 for t in tiles)
+
+
+def test_fetch_osm_tiles_partial_failure_and_dedup():
+    import app.pipeline.osm_paths as op
+
+    way = {"type": "way", "id": 7, "tags": {"highway": "path"}, "geometry": []}
+    n = []
+
+    def fake_tile(tile, **kw):
+        n.append(tile)
+        if len(n) == 2:
+            return None
+        return [way]
+
+    status: dict = {}
+    with patch.object(op, "_fetch_osm_tile", side_effect=fake_tile):
+        got = op._fetch_osm_path_elements_net(
+            (14.0, 50.0, 14.12, 50.01), status=status
+        )
+    assert len(n) == 3
+    assert got == [way]  # duplicita přes hranici dlaždic sloučena
+    assert status["complete"] is False
+
+
 def _write_osm_geojson(work_dir, name, features):
     out = work_dir / "osm_paths"
     out.mkdir(parents=True, exist_ok=True)
