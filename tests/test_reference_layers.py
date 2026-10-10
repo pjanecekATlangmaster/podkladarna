@@ -513,10 +513,16 @@ def test_download_wms_raster_jpeg_single_tile_stays_jpeg(tmp_path, monkeypatch):
     """Jedna GetMap: server dá PNG, výstup je JPEG (bez PNG vedle) + .jgw."""
     import io
 
+    import pytest
     from PIL import Image
 
     from app.pipeline import reference_layers as rl
 
+    try:
+        rl._gdal_tool("gdalwarp")
+        rl._gdal_tool("gdal_translate")
+    except RuntimeError:
+        pytest.skip("GDAL není k dispozici")
     buf = io.BytesIO()
     _noisy_image("RGB", (200, 150)).save(buf, "PNG")
     raw = buf.getvalue()
