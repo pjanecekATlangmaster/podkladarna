@@ -120,7 +120,7 @@ _ZABAGED_BASE_PAVED = frozenset(
 )
 # Obdělávaná půda z OSM (412) pod vegetací – hustníky zůstanou navrch.
 _OSM_UNDER_VEGETATION_MARK = "(412)"
-# Druhý .omap „jen jistá data“: bez vegetace, OSM polí (412) a všeho generovaného
+# Druhý .omap „jen jistá data“: bez vegetace a všeho generovaného
 # z LiDAR/DEM (srázy, skály, ďolíky, knolly). Zbytek (ZABAGED, RÚIAN, OSM, AOPK,
 # vrstevnice) zůstává.
 CERTAIN_TAG = "-jiste"
@@ -791,8 +791,9 @@ def prepare_oom_map(
             osm_under.append(part)
         else:
             osm_feat_rest.append(part)
+    # OSM pole (412) jsou data z OSM, ne dohad → i v „jistých“.
+    object_parts.extend(osm_under)
     if not certain_only:
-        object_parts.extend(osm_under)
         # Vegetace: vegetation.shp z hustoty LiDAR / CHM, bez ZABAGED meadow prior.
         object_parts.extend(
             build_vegetation_parts(

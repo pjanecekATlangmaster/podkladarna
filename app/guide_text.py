@@ -41,7 +41,7 @@ WEB_ABOUT_HTML = """
 <p>V ZIPu je mimo jiné:</p>
 <ul>
   <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (ortofoto, OSM, ZTM, katastr, DMP OK, hillshade, reliéf)</li>
-  <li><code>*-jiste.omap</code> – druhá mapa jen z jistých dat (vrstevnice, ZABAGED, budovy, vodstvo, cesty, AOPK); bez vegetace, polí a toho, co se počítá z LiDARu/DEM (srázy, skály, ďolíky, knolly)</li>
+  <li><code>*-jiste.omap</code> – druhá mapa jen z jistých dat (vrstevnice, ZABAGED, budovy, vodstvo, cesty, OSM pole, AOPK); bez vegetace a toho, co se počítá z LiDARu/DEM (srázy, skály, ďolíky, knolly)</li>
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 <h2>Jak na to</h2>

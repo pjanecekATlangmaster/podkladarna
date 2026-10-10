@@ -125,7 +125,7 @@ def test_vector_sources_clipped_near_aoi(tmp_path: Path):
 
 
 def test_certain_only_omits_vegetation_dxf_and_osm_fields(tmp_path: Path):
-    """„Jistá“ mapa: bez vegetace, DXF (srázy/skály/ďolíky/knolly) a OSM polí (412)."""
+    """„Jistá“ mapa: bez vegetace a DXF (srázy/skály/ďolíky/knolly); OSM pole (412) ano."""
     kp = tmp_path / "work"
     kp.mkdir()
     zabaged = tmp_path / "zabaged_clean.zip"
@@ -167,8 +167,8 @@ def test_certain_only_omits_vegetation_dxf_and_osm_fields(tmp_path: Path):
 
     names, vege_called, dxf_called = run(certain=True)
     assert not vege_called and not dxf_called
-    assert "OSM orná (412)" not in names and "DXF srázy" not in names
-    assert "ZABAGED – Silnice" in names and "OSM budovy" in names
+    assert "DXF srázy" not in names
+    assert {"ZABAGED – Silnice", "OSM budovy", "OSM orná (412)"} <= set(names)
 
     names, vege_called, dxf_called = run(certain=False)
     assert vege_called and dxf_called
