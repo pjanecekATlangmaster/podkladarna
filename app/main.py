@@ -44,11 +44,13 @@ from app.pipeline.job_options import (
     FORMLINE_MODES,
     KP_CLIFF_SENSITIVITY,
     KP_VEGE_HEIGHT_CHOICES,
+    VEG_SMOOTH_LEVELS,
     load_presets,
     resolve_cliff_sensitivity,
     resolve_courtyard_fill,
     resolve_formline_mode,
     resolve_vege_height,
+    resolve_veg_smooth,
 )
 from app.pipeline.package_oom import (
     CONTOURS_BY_SCALE,
@@ -732,6 +734,9 @@ async def api_create_job(request: Request):
     formlines_raw = _form_str(form, "contour_formlines").strip().lower()
     if formlines_raw in FORMLINE_MODES:
         options["contour_formlines"] = formlines_raw
+    veg_smooth_raw = _form_str(form, "veg_smooth").strip().lower()
+    if veg_smooth_raw.isdigit() and int(veg_smooth_raw) in VEG_SMOOTH_LEVELS:
+        options["veg_smooth"] = veg_smooth_raw
     options["sprint_residual_paved"] = _opt_bool("sprint_residual_paved")
     residual_size_raw = _form_str(form, "sprint_residual_size").strip().lower()
     if residual_size_raw in {"small", "medium", "large"}:
@@ -818,6 +823,7 @@ async def api_create_job(request: Request):
         f"footway=chodník={'ano' if options.get('kp_osm_footway_as_sidewalk') else 'ne'}, "
         f"dvory={_COURTYARD_FILL_LABEL[resolve_courtyard_fill(options)]}, "
         f"pomocné 103={_FORMLINE_LABEL[resolve_formline_mode(options)]}, "
+        f"tvar vegetace={resolve_veg_smooth(options)}, "
         f"residential 501={'ano' if options.get('sprint_residual_paved') else 'ne'}"
         f"/{options.get('sprint_residual_size', 'small')}, "
         f"ostatní plocha={options.get('ostatni_plocha', 'small')}"

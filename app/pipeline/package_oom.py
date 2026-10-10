@@ -693,6 +693,7 @@ def prepare_oom_map(
     residual_paved: bool = False,
     max_residual_m2: float = 500.0,
     certain_only: bool = False,
+    veg_smooth: int = 0,
     log=None,
 ) -> Path | None:
     """``certain_only``: jen čistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů."""
@@ -807,6 +808,7 @@ def prepare_oom_map(
                 ref_x=ref_x,
                 ref_y=ref_y,
                 grivation_deg=grivation,
+                smooth_level=veg_smooth,
             )
         )
     object_parts.extend(

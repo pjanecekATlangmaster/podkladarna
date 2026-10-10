@@ -177,9 +177,11 @@ DEFAULT_OPTIONS = {
     "path_source": "mixed",
     # Nepřístupné dvory uvnitř budov (díry v 521/526): olive (520/527) | building
     # (stejná značka jako budova); „none“ jen API / staré joby.
-    "sprint_courtyard_fill": "olive",
+    "sprint_courtyard_fill": "building",
     # Pomocné vrstevnice 103: off | sparse | more (jen kde ukážou tvar navíc).
     "contour_formlines": "off",
+    # Zaoblení louek (401) a hustého porostu (410): 0 (kostičky) až 3 (silně vyhladit).
+    "veg_smooth": "2",
     # Sprint: mezery v OSM landuse=residential jako zpevněná 501 – default vypnuto.
     "sprint_residual_paved": False,
     # Max. velikost zbytku do auto .omap: small | medium | large (ZIP má vždy pásma).

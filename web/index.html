@@ -81,6 +81,17 @@
             </select>
           </label>
           <p class="hint" id="formlines-hint">V polovině ekvidistance. „Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.</p>
+
+          <label>
+            Tvar luk a hustého porostu (401, 410)
+            <select name="veg_smooth" id="veg_smooth">
+              <option value="0">0 – kostičky z rastru (nejpřesnější, bez zaoblení)</option>
+              <option value="1">1 – zjednodušit + křivky</option>
+              <option value="2" selected>2 – + vyhladit drobné výběžky a zátoky – výchozí</option>
+              <option value="3">3 – silné vyhlazení ve větším okolí</option>
+            </select>
+          </label>
+          <p class="hint" id="veg-smooth-hint">Vyšší stupeň odstraní schodky a obrysy korun jednotlivých stromů, hranice se ale odchýlí o 2 až 6&nbsp;m. Louka se přitom nepřeleje přes cesty, budovy ani vodu z OSM (v těch místech se přírůstek odřízne). Ostatní zeleň zůstává beze změny.</p>
         </div>
 
         <div class="form-section" id="map-mode">
@@ -165,8 +176,8 @@
             <label>
               Nepřístupné dvory v budovách
               <select name="sprint_courtyard_fill" id="sprint_courtyard_fill">
-                <option value="olive" selected>Vyplnit olivou – výchozí</option>
-                <option value="building">Vyplnit stejně jako budovu</option>
+                <option value="olive">Vyplnit olivou</option>
+                <option value="building" selected>Vyplnit stejně jako budovu – výchozí</option>
               </select>
             </label>
             <p class="hint">Díra uprostřed budovy → plná plocha navrch, překryje detaily uvnitř (oliva: sprint/les 520, MTBO 527; budova: stejná značka jako budova kolem). Podklad pod ní zůstává, v OOM jde výplň smazat. U lesa/MTBO skoro nic nepřibude.</p>

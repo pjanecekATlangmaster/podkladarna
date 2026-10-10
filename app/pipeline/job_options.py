@@ -26,12 +26,33 @@ KP_CLIFF_SENSITIVITY_DEFAULT = "low"
 # olive = 520 (MTBO 527), building = stejná značka jako budova kolem.
 # „none“ jen pro API a staré joby s vypnutým checkboxem sprint_courtyard_olive.
 COURTYARD_FILL_CHOICES = ("olive", "building", "none")
-COURTYARD_FILL_DEFAULT = "olive"
+COURTYARD_FILL_DEFAULT = "building"
 
 # Pomocné vrstevnice 103 (půl ekvidistance): sparse/more jen kde ukážou tvar
 # navíc, all = všude jako vodítko (jako OCAD z LAZ).
 FORMLINE_MODES = ("off", "sparse", "more", "all")
 FORMLINE_MODE_DEFAULT = "off"
+
+
+# Stupeň zaoblení plošné vegetace (louky 401, hustý porost 410):
+# 0 = kostičky z rastru, 1 = zjednodušit + křivky, 2 = navíc vyhladit drobné
+# výběžky a zátoky (obrysy korun stromů), 3 = silné vyhlazení ve větším okolí.
+# Plocha se nikdy nepřelije přes cesty, budovy a vodu z OSM (viz veg_smooth).
+VEG_SMOOTH_LEVELS = (0, 1, 2, 3)
+VEG_SMOOTH_DEFAULT = 2
+# Starý dvouhodnotový přepínač (off / round).
+_VEG_SMOOTH_LEGACY = {"off": 0, "round": 1}
+
+
+def resolve_veg_smooth(options: dict | None) -> int:
+    raw = str((options or {}).get("veg_smooth", "")).strip().lower()
+    if raw in _VEG_SMOOTH_LEGACY:
+        return _VEG_SMOOTH_LEGACY[raw]
+    try:
+        level = int(raw)
+    except ValueError:
+        return VEG_SMOOTH_DEFAULT
+    return level if level in VEG_SMOOTH_LEVELS else VEG_SMOOTH_DEFAULT
 
 
 def load_presets() -> dict:
@@ -63,9 +84,9 @@ def resolve_courtyard_fill(options: dict | None) -> str:
     raw = str(opts.get("sprint_courtyard_fill") or "").strip().lower()
     if raw in COURTYARD_FILL_CHOICES:
         return raw
-    # Starý checkbox: vypnutý = dvory nevyplňovat.
-    if "sprint_courtyard_olive" in opts and not opts["sprint_courtyard_olive"]:
-        return "none"
+    # Starý checkbox: vypnutý = dvory nevyplňovat, zapnutý = oliva (tehdejší default).
+    if "sprint_courtyard_olive" in opts:
+        return "olive" if opts["sprint_courtyard_olive"] else "none"
     return COURTYARD_FILL_DEFAULT
 
 

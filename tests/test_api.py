@@ -226,8 +226,8 @@ def test_create_job_sprint_courtyard_fill(client, monkeypatch):
         assert r.status_code == 200, r.text
         return r.json()["options"]["sprint_courtyard_fill"]
 
-    # Bez volby = výchozí oliva.
-    assert post("default") == "olive"
+    # Bez volby = výchozí vnitřek jako budova.
+    assert post("default") == "building"
     assert post("building", sprint_courtyard_fill="building") == "building"
     assert post("olive", sprint_courtyard_fill="olive") == "olive"
     # Starý checkbox (API) dál funguje.
@@ -270,11 +270,11 @@ def test_create_job_contour_formlines(client, monkeypatch):
 def test_resolve_courtyard_fill_legacy_jobs():
     from app.pipeline.job_options import resolve_courtyard_fill
 
-    assert resolve_courtyard_fill({}) == "olive"
+    assert resolve_courtyard_fill({}) == "building"
     assert resolve_courtyard_fill({"sprint_courtyard_fill": "building"}) == "building"
     assert resolve_courtyard_fill({"sprint_courtyard_olive": True}) == "olive"
     assert resolve_courtyard_fill({"sprint_courtyard_olive": False}) == "none"
-    assert resolve_courtyard_fill({"sprint_courtyard_fill": "nonsense"}) == "olive"
+    assert resolve_courtyard_fill({"sprint_courtyard_fill": "nonsense"}) == "building"
 
 
 def test_create_job_sprint_residual_paved(client, monkeypatch):
@@ -599,7 +599,8 @@ def test_index_html(client):
     assert 'name="sprint_courtyard_fill"' in html
     assert 'name="contour_formlines"' in html
     assert '<option value="off" selected>' in html
-    assert '<option value="olive" selected>' in html
+    assert '<option value="building" selected>' in html
+    assert '<option value="2" selected>' in html
     assert 'name="sprint_residual_paved"' in html
     assert 'name="sprint_residual_size"' in html
     assert "OSM_residential_zbytek" in html

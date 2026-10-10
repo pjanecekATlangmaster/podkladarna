@@ -318,6 +318,9 @@ def _geom_parts_to_objects(
     clip_bounds: Bounds | None = None,
     max_area_vertices: int | None = None,
     max_area_m2: float | None = None,
+    area_smooth_level: int = 0,
+    area_smooth_barriers=None,
+    area_as_curves: bool = False,
 ) -> list[str]:
     def to_map(x: float, y: float) -> tuple[int, int]:
         return projected_to_map_coord(
@@ -328,6 +331,13 @@ def _geom_parts_to_objects(
             scale=scale,
             grivation_deg=grivation_deg,
         )
+
+    def _smoothed(ring, holes):
+        if not area_smooth_level:
+            return [(ring, holes)]
+        from app.pipeline.veg_smooth import smooth_area
+
+        return smooth_area(ring, holes, area_smooth_level, area_smooth_barriers)
 
     out: list[str] = []
     index = 0
@@ -387,21 +397,30 @@ def _geom_parts_to_objects(
                 )
                 obj = _path_object(symbol_index, mapped)
             elif closed_shape and max_area_vertices:
-                for ring_part, hole_parts in split_area_by_vertices(
-                    piece, holes, max_area_vertices, max_area=max_area_m2
-                ):
-                    rings = [[to_map(x, y) for x, y in ring_part]] + [
-                        [to_map(x, y) for x, y in hole] for hole in hole_parts
+                for sm_ring, sm_holes in _smoothed(piece, holes):
+                    for ring_part, hole_parts in split_area_by_vertices(
+                        sm_ring, sm_holes, max_area_vertices, max_area=max_area_m2
+                    ):
+                        rings = [[to_map(x, y) for x, y in ring_part]] + [
+                            [to_map(x, y) for x, y in hole] for hole in hole_parts
+                        ]
+                        obj = _area_object_with_holes(
+                            symbol_index, rings, as_curves=area_as_curves
+                        )
+                        if obj:
+                            out.append(obj)
+                continue
+            elif closed_shape:
+                for sm_ring, sm_holes in _smoothed(piece, holes):
+                    rings = [[to_map(x, y) for x, y in sm_ring]] + [
+                        [to_map(x, y) for x, y in hole] for hole in sm_holes
                     ]
-                    obj = _area_object_with_holes(symbol_index, rings)
+                    obj = _area_object_with_holes(
+                        symbol_index, rings, as_curves=area_as_curves
+                    )
                     if obj:
                         out.append(obj)
                 continue
-            elif closed_shape:
-                rings = [coords] + [
-                    [to_map(x, y) for x, y in hole] for hole in holes
-                ]
-                obj = _area_object_with_holes(symbol_index, rings)
             else:
                 obj = _path_object(symbol_index, coords)
             if obj:
@@ -615,7 +634,10 @@ def _path_object(
 
 
 def _area_object_with_holes(
-    symbol_index: int, rings: list[list[tuple[int, int]]]
+    symbol_index: int,
+    rings: list[list[tuple[int, int]]],
+    *,
+    as_curves: bool = False,
 ) -> str:
     """Plocha v OOM = PathObject (type=1), prstence oddělené bodem s flagem 18.
 
@@ -632,6 +654,12 @@ def _area_object_with_holes(
         if len(ring) < 3:
             if index == 0:
                 return ""
+            continue
+        if as_curves and len(ring) >= 3:
+            # „Převést na křivky“ z Mapperu; konec prstence nese flag 18 sám.
+            pts.extend(
+                _fmt(*c) for c in convert_polyline_to_curves(ring, closed=True)
+            )
             continue
         pts.extend(_fmt(x, y) for x, y in ring)
         pts.append(_fmt(ring[0][0], ring[0][1], 18))

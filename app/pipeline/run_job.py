@@ -30,6 +30,7 @@ from app.pipeline.job_options import (
     resolve_courtyard_fill,
     resolve_formline_mode,
     resolve_vege_height,
+    resolve_veg_smooth,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
 from app.pipeline.osm_paths import (
@@ -866,6 +867,7 @@ def _package_output(
                         max_ostatni_m2=max_ostatni_m2,
                         ostatni_as_403=ostatni_as_403,
                         residual_paved=residual_paved,
+                        veg_smooth=resolve_veg_smooth(options),
                         max_residual_m2=max_residual_m2,
                         certain_only=certain,
                         log=log,

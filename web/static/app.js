@@ -1368,6 +1368,11 @@ function applyJobToForm(job) {
     const flVal = opts.contour_formlines || "off";
     formlines.value = [...formlines.options].some((o) => o.value === flVal) ? flVal : "off";
   }
+  const vegSmooth = form.veg_smooth;
+  if (vegSmooth) {
+    const vsVal = String(opts.veg_smooth ?? "2");
+    vegSmooth.value = [...vegSmooth.options].some((o) => o.value === vsVal) ? vsVal : "2";
+  }
   updateOsmHintsForScale(scaleSel ? scaleSel.value : scale);
   const cliff = form.kp_cliff_symbol;
   if (cliff) {
@@ -1432,10 +1437,10 @@ function applyJobToForm(job) {
   const courtyard = form.sprint_courtyard_fill;
   if (courtyard) {
     // Starý job s vypnutým checkboxem olivy („none“) → výchozí oliva.
-    const fillVal = opts.sprint_courtyard_fill || "olive";
+    const fillVal = opts.sprint_courtyard_fill || "building";
     courtyard.value = [...courtyard.options].some((o) => o.value === fillVal)
       ? fillVal
-      : "olive";
+      : "building";
   }
   const residualPaved = form.sprint_residual_paved;
   if (residualPaved) {

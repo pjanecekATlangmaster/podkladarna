@@ -27,6 +27,15 @@ _CLASS_TO_CODE: dict[int, str] = {
 # řez není vidět. 4 ha ≈ 200 × 200 m (2 × 2 cm v 1 : 10 000).
 VEG_MAX_AREA_VERTICES = 1000
 VEG_MAX_AREA_M2 = 40_000.0
+# Vyhlazení tvarů z rastru (schodky po pixelech): Douglas–Peucker + převod na
+# Bézierovy křivky jako „Zjednodušit“ + „Převést na křivky“ v Mapperu.
+# Stupně zaoblení (tolerance DP, poloměr vyhlazení) viz veg_smooth.SMOOTH_LEVELS.
+VEG_AS_CURVES = True
+# Jen louky (401) a hustý porost (410) – tam jsou schodky nejvíc vidět.
+VEG_SMOOTH_CODES = frozenset({"401", "410"})
+# Otevřený terén (401) se podle plochy neřeže (velká louka s jednoduchým obrysem
+# je v OCADu v pohodě, řezy jsou vidět); dělí se jen kvůli počtu vrcholů.
+_NO_AREA_SPLIT_CODES = frozenset({"401"})
 
 _CLASS_NAMES: dict[str, str] = {
     "401": "Otevřený terén",
@@ -90,10 +99,18 @@ def build_vegetation_parts(
     ref_x: float,
     ref_y: float,
     grivation_deg: float,
+    smooth_level: int = 0,
 ) -> list[OomObjectPart]:
+    """``smooth_level``: 0 = kostičky z rastru, 1–3 = stupeň zaoblení (401, 410)."""
     shp = work_dir / "vegetation" / "vegetation.shp"
     if not shp.is_file():
         return []
+
+    barriers = None
+    if smooth_level:
+        from app.pipeline.veg_smooth import load_smooth_barriers
+
+        barriers = load_smooth_barriers(work_dir)
 
     grouped: dict[str, list[str]] = {code: [] for code in _CLASS_TO_CODE.values()}
     for props, wkb in _iter_vege_rows(shp):
@@ -110,6 +127,7 @@ def build_vegetation_parts(
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             continue
+        smooth = bool(smooth_level) and code in VEG_SMOOTH_CODES
         geom_parts, _ = _wkb_parts(wkb)
         grouped[code].extend(
             _geom_parts_to_objects(
@@ -121,7 +139,10 @@ def build_vegetation_parts(
                 grivation_deg=grivation_deg,
                 as_area=True,
                 max_area_vertices=VEG_MAX_AREA_VERTICES,
-                max_area_m2=VEG_MAX_AREA_M2,
+                max_area_m2=None if code in _NO_AREA_SPLIT_CODES else VEG_MAX_AREA_M2,
+                area_smooth_level=smooth_level if smooth else 0,
+                area_smooth_barriers=barriers,
+                area_as_curves=VEG_AS_CURVES and smooth,
             )
         )
 
