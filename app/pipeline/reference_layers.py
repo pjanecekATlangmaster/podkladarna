@@ -42,6 +42,10 @@ _OSM_MPP_CANDIDATES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 8.0)
 # Ortofoto: vždy 0,25 m/px (les se na 1 m/px nedá mapovat). Nad strop jedné
 # šablony se AOI rozdělí na mřížku dlaždic – Mapper načítá šablonu celou do paměti.
 ORTHO_MPP = 0.25
+# Nativní rozlišení ČÚZK ortofota je ~0,125 m/px (při 0,25 je znatelně měkčí).
+# Nejjemnější krok, při kterém celkový počet pixelů nepřekročí strop; jinak hrubší.
+ORTHO_MPP_CANDIDATES = (0.125, 0.2, ORTHO_MPP)
+ORTHO_MAX_TOTAL_PX = 600_000_000
 # 8192² RGB32 = přesně 256 MiB – Qt (Mapper) má na obrázek alokační limit
 # 256 MB, proto rezerva.
 ORTHO_MAX_TILE_PX = 8000
@@ -50,8 +54,9 @@ _HTTP_RETRY_WAIT_S = 2.0
 ORTHO_JPEG_QUALITY = 95
 # Katastr: bílé (a téměř bílé) pixely → alfa 0, když server TRANSPARENT ignoruje.
 KM_WHITE_THRESHOLD = 250
-# Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice).
-REF_CACHE_FORMAT = 2
+# Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice,
+# 3 = ortofoto z PNG dlaždic q95 v jemnějším rozlišení, world file ve středu pixelu).
+REF_CACHE_FORMAT = 3
 # DMR 5G má ~0,5 m mezi body – jemnější raster dělá díry a kostičkovaný hillshade.
 WEB_MERCATOR_HALF = 20037508.342789244
 
@@ -113,7 +118,7 @@ def reference_metadata() -> dict:
         "hillshade_variants": [v[2] for v in HILLSHADE_VARIANTS],
         "hillshade_tool": "WMS ImageServer",
         "map_layers": ["osm.png", "mapa_ztm.png", "katastr.png"],
-        "orthophoto": f"JPEG {ORTHO_MPP:.2f} m/px, dlaždice ≤ {ORTHO_MAX_TILE_PX} px (.jgw)",
+        "orthophoto": f"JPEG {ORTHO_MPP_CANDIDATES[0]:.3f}–{ORTHO_MPP:.2f} m/px, dlaždice ≤ {ORTHO_MAX_TILE_PX} px (.jgw)",
         "dmpok_preview": "dmpok_nahled.png",
     }
 
@@ -731,9 +736,12 @@ def _ortho_target_size(
 ) -> tuple[int, int, float]:
     """Ortofoto vždy 0,25 m/px – bez ohledu na velikost AOI (strop řeší dlaždice)."""
     xmin, ymin, xmax, ymax, _, _ = _template_extent(template_png, template_pgw)
-    tw = max(1, int(round(abs(xmax - xmin) / ORTHO_MPP)))
-    th = max(1, int(round(abs(ymax - ymin) / ORTHO_MPP)))
-    return tw, th, ORTHO_MPP
+    for mpp in ORTHO_MPP_CANDIDATES:
+        tw = max(1, int(round(abs(xmax - xmin) / mpp)))
+        th = max(1, int(round(abs(ymax - ymin) / mpp)))
+        if tw * th <= ORTHO_MAX_TOTAL_PX or mpp == ORTHO_MPP_CANDIDATES[-1]:
+            return tw, th, mpp
+    raise AssertionError("unreachable")
 
 
 def _even_spans(total: int, max_px: int) -> list[tuple[int, int]]:

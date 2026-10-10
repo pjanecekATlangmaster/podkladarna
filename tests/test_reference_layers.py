@@ -387,6 +387,16 @@ def test_mosaic_wms_tiles_keeps_alpha(tmp_path):
 # --- Ortofoto 0,25 m/px, dlaždice, JPEG --------------------------------------
 
 
+def test_ortho_target_size_steps_down_with_aoi_size(tmp_path):
+    from app.pipeline.reference_layers import _ortho_target_size
+
+    # 2,5 km → 0,125; 4 km → 0,2 (0,125 by přesáhlo strop pixelů)
+    assert _ortho_target_size(*_mini_template(tmp_path, 2500.0))[2] == 0.125
+    sub = tmp_path / "b"
+    sub.mkdir()
+    assert _ortho_target_size(*_mini_template(sub, 4000.0))[2] == 0.2
+
+
 def test_ortho_target_size_is_quarter_meter_for_big_aoi(tmp_path):
     from app.pipeline.reference_layers import _ref_target_size, _ortho_target_size
 
@@ -406,7 +416,7 @@ def test_ortho_target_size_non_square(tmp_path):
     png.write_bytes(_MINI_PNG)
     pgw = tmp_path / "t.pgw"
     PgwGeoref(500.0, 0.0, 0.0, -250.0, 100.0, 1100.0).write(pgw)  # 2000 × 1000 m
-    assert _ortho_target_size(png, pgw) == (8000, 4000, 0.25)
+    assert _ortho_target_size(png, pgw) == (16000, 8000, 0.125)  # malé AOI = nativně
 
 
 def test_split_ortho_tiles_limits_and_coverage():
