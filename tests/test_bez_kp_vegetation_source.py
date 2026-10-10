@@ -125,7 +125,7 @@ def test_vector_sources_clipped_near_aoi(tmp_path: Path):
 
 
 def test_certain_only_omits_vegetation_dxf_and_osm_fields(tmp_path: Path):
-    """„Jistá“ mapa: bez vegetace a DXF (srázy/skály/ďolíky/knolly); OSM pole (412) ano."""
+    """„Čistá“ mapa: bez vegetace a DXF (srázy/skály/ďolíky/knolly); OSM pole (412) ano."""
     kp = tmp_path / "work"
     kp.mkdir()
     zabaged = tmp_path / "zabaged_clean.zip"
@@ -178,5 +178,5 @@ def test_certain_only_omits_vegetation_dxf_and_osm_fields(tmp_path: Path):
 def test_certain_filename_and_symbol_set_tag():
     from app.pipeline.package_oom import omap_variant_filename
 
-    assert omap_variant_filename("les", map_name="A", certain_only=True) == "A-les-jiste.omap"
+    assert omap_variant_filename("les", map_name="A", certain_only=True) == "A-les-ciste.omap"
     assert omap_variant_filename("les", map_name="A") == "A-les.omap"

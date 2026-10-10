@@ -841,7 +841,7 @@ def _package_output(
                     )
                     log(
                         f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src}"
-                        + (", jen jistá data)" if certain else ")")
+                        + (", jen čistá data)" if certain else ")")
                     )
                     omap_p = prepare_oom_map(
                         kp_cwd,
@@ -871,7 +871,7 @@ def _package_output(
                         log=log,
                     )
                     if omap_p:
-                        # Náhled jen z plné mapy; „jistá“ jde do ZIPu a OCD navíc.
+                        # Náhled jen z plné mapy; „čistá“ jde do ZIPu a OCD navíc.
                         (certain_paths if certain else omap_paths).append(omap_p)
                         try:
                             from app.pipeline.oom_preview import convert_omap_to_ocd

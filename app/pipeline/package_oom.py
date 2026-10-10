@@ -121,11 +121,11 @@ _ZABAGED_BASE_PAVED = frozenset(
 )
 # Obdělávaná půda z OSM (412) pod vegetací – hustníky zůstanou navrch.
 _OSM_UNDER_VEGETATION_MARK = "(412)"
-# Druhý .omap „jen jistá data“: bez vegetace a všeho generovaného
+# Druhý .omap „jen čistá data“: bez vegetace a všeho generovaného
 # z LiDAR/DEM (srázy, skály, ďolíky, knolly). Zbytek (ZABAGED, RÚIAN, OSM, AOPK,
 # vrstevnice) zůstává.
-CERTAIN_TAG = "-jiste"
-CERTAIN_MAP_NAME_SUFFIX = " (jistá data)"
+CERTAIN_TAG = "-ciste"
+CERTAIN_MAP_NAME_SUFFIX = " (čistá data)"
 # Dvory v budovách (oliva / značka budovy) až navrch – překryjí detaily uvnitř.
 _COURTYARD_MARK = "dvory ("
 
@@ -695,7 +695,7 @@ def prepare_oom_map(
     certain_only: bool = False,
     log=None,
 ) -> Path | None:
-    """``certain_only``: jen jistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů."""
+    """``certain_only``: jen čistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů."""
     del formline
     path_source = resolve_path_source(path_source)
     west, south, east, north = bbox_wgs84
@@ -795,7 +795,7 @@ def prepare_oom_map(
             osm_under.append(part)
         else:
             osm_feat_rest.append(part)
-    # OSM pole (412) jsou data z OSM, ne dohad → i v „jistých“.
+    # OSM pole (412) jsou data z OSM, ne dohad → i v „čistých“.
     object_parts.extend(osm_under)
     if not certain_only:
         # Vegetace: vegetation.shp z hustoty LiDAR / CHM, bez ZABAGED meadow prior.
@@ -824,7 +824,7 @@ def prepare_oom_map(
             log=log,
         )
     )
-    # DXF část = srázy, skály, ďolíky, knolly (vše z LiDAR/DEM) → ne v „jistých“.
+    # DXF část = srázy, skály, ďolíky, knolly (vše z LiDAR/DEM) → ne v „čistých“.
     if include_dxf and not certain_only:
         dxf_part = build_dxf_object_part(
             kp_cwd,
