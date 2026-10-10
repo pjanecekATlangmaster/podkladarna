@@ -101,7 +101,8 @@ def test_build_katastr_vectors_lines_only_in_5514(cache_root, monkeypatch):
     assert gpkg.name == "katastr.gpkg" and built["katastr_dxf"].is_file()
     info = pyogrio.read_info(gpkg)
     assert info["features"] == 1  # jen linie, bod značky vynechán
-    assert "5514" in (info["crs"] or "")
+    # Stejné datum (+towgs84) jako georeferencované PNG, jinak je katastr posunutý.
+    assert "542.5,89.2,456.9" in (info["crs"] or "")
 
 
 def test_katastr_vector_is_hidden_ogr_template(tmp_path):

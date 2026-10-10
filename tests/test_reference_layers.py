@@ -471,8 +471,9 @@ def test_fetch_orthophoto_wms_tiles_and_world_files(tmp_path, monkeypatch):
         georef = read_pgw(dest_pgw)
         assert abs(georef.pixel_x - 0.25) < 1e-9
         assert abs(georef.pixel_y + 0.25) < 1e-9
-        assert abs(georef.origin_x - b[0]) < 1e-9
-        assert abs(georef.origin_y - b[3]) < 1e-9
+        # world file = střed horního levého pixelu
+        assert abs(georef.origin_x - (b[0] + 0.125)) < 1e-9
+        assert abs(georef.origin_y - (b[3] - 0.125)) < 1e-9
         assert abs((b[2] - b[0]) - w * 0.25) < 1e-6
     by_name = {c[1].stem: c[0] for c in calls}
     r0c0, r0c1, r1c0 = by_name["orthophoto_r0c0"], by_name["orthophoto_r0c1"], by_name["orthophoto_r1c0"]
@@ -509,7 +510,7 @@ def test_fetch_orthophoto_wms_failure_removes_partial(tmp_path, monkeypatch):
 
 
 def test_download_wms_raster_jpeg_single_tile_stays_jpeg(tmp_path, monkeypatch):
-    """Jedna GetMap: JPEG se uloží beze změny (bez PNG), vedle něj .jgw."""
+    """Jedna GetMap: server dá PNG, výstup je JPEG (bez PNG vedle) + .jgw."""
     import io
 
     from PIL import Image
@@ -517,7 +518,7 @@ def test_download_wms_raster_jpeg_single_tile_stays_jpeg(tmp_path, monkeypatch):
     from app.pipeline import reference_layers as rl
 
     buf = io.BytesIO()
-    _noisy_image("RGB", (200, 150)).save(buf, "JPEG", quality=90)
+    _noisy_image("RGB", (200, 150)).save(buf, "PNG")
     raw = buf.getvalue()
     monkeypatch.setattr(rl, "_http_get_bytes", lambda url, timeout=120: raw)
     dest = tmp_path / "orthophoto.jpg"
@@ -526,11 +527,10 @@ def test_download_wms_raster_jpeg_single_tile_stays_jpeg(tmp_path, monkeypatch):
         rl.ORTOFOTO_WMS, "0", (0.0, 0.0, 50.0, 37.5), dest, jgw,
         width=200, height=150, image_format="image/jpeg",
     )
-    assert dest.read_bytes() == raw
     assert Image.open(dest).format == "JPEG"
     assert not list(tmp_path.glob("*.png"))
     g = read_pgw(jgw)
-    assert (g.pixel_x, g.pixel_y, g.origin_x, g.origin_y) == (0.25, -0.25, 0.0, 37.5)
+    assert (g.pixel_x, g.pixel_y, g.origin_x, g.origin_y) == (0.25, -0.25, 0.125, 37.375)
 
 
 def test_download_wms_raster_jpeg_mosaic(tmp_path, monkeypatch):
@@ -553,11 +553,19 @@ def test_download_wms_raster_jpeg_mosaic(tmp_path, monkeypatch):
     )
     import io
 
+    calls: list[str] = []
+
     def fake_get(url, timeout=120):
         buf = io.BytesIO()
-        w = 100 if "bbox=0.0%2C" in url or "bbox=0," in url else 60
-        _noisy_image("RGB", (w, 60)).save(buf, "JPEG")
-        return buf.getvalue().ljust(600, b"\0")
+        calls.append(url)
+        left = len(calls) == 1  # dlaždice se stahují zleva doprava
+        w = 100 if left else 60
+        # Plné barvy: levá dlaždice červená, pravá zelená (černá = chybí v mozaice).
+        # Lehký šum, ať JPEG přesáhne minimální velikost (500 B).
+        n = _noisy_image("RGB", (w, 60)).convert("L")
+        hi, lo = n.point(lambda v: 200 + v // 8), n.point(lambda v: v // 8)
+        Image.merge("RGB", (hi, lo, lo) if left else (lo, hi, lo)).save(buf, "PNG")
+        return buf.getvalue()
 
     monkeypatch.setattr(rl, "_http_get_bytes", fake_get)
     dest = tmp_path / "orthophoto_r0c0.jpg"
@@ -568,6 +576,11 @@ def test_download_wms_raster_jpeg_mosaic(tmp_path, monkeypatch):
     )
     im = Image.open(dest)
     assert im.format == "JPEG" and im.size == (160, 60)
+    rgb = im.convert("RGB")
+    r, g, _ = rgb.getpixel((20, 30))
+    assert r > 150 and g < 80  # levá dlaždice
+    r, g, _ = rgb.getpixel((140, 30))
+    assert g > 150 and r < 80  # pravá dlaždice (ne černá)
     assert not list(tmp_path.glob("*.png"))
     assert not list(tmp_path.glob("*.xml"))
     assert read_pgw(jgw).pixel_x == 0.25

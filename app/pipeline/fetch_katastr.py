@@ -20,6 +20,7 @@ from pathlib import Path
 
 from app import settings
 from app.download_cache import is_fresh, read_meta, utcnow_iso, write_meta
+from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import (
     VECTOR_FETCH_BUFFER_M,
     FetchError,
@@ -123,7 +124,9 @@ def build_katastr_vectors(
                 ogr2ogr,
                 "-f", "GPKG",
                 *(["-append"] if i else []),
-                "-a_srs", "EPSG:5514",
+                # Ne holé EPSG:5514: bez +towgs84 OOM převede datum jinak než
+                # u georeferencovaných PNG a vektor je posunutý o metry.
+                "-a_srs", CRS_PROJ4,
                 "-dialect", "OGRSQL",
                 "-sql", _LINES_SQL,
                 "-clipsrc", str(xmin), str(ymin), str(xmax), str(ymax),

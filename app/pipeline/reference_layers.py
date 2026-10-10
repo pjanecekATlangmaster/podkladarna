@@ -47,7 +47,7 @@ ORTHO_MPP = 0.25
 ORTHO_MAX_TILE_PX = 8000
 _HTTP_RETRIES = 3
 _HTTP_RETRY_WAIT_S = 2.0
-ORTHO_JPEG_QUALITY = 90
+ORTHO_JPEG_QUALITY = 95
 # Katastr: bílé (a téměř bílé) pixely → alfa 0, když server TRANSPARENT ignoruje.
 KM_WHITE_THRESHOLD = 250
 # Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice).
@@ -404,8 +404,10 @@ def _mosaic_wms_tiles(
     dest_png.parent.mkdir(parents=True, exist_ok=True)
     warp_out = dest_png
     if jpeg:
-        # JPEG driver neumí Create → gdalwarp do VRT, pak gdal_translate.
-        warp_out = tiles[0][0].parent / "_mosaic.vrt"
+        # JPEG driver neumí Create → gdalwarp do dočasného GeoTIFF, pak
+        # gdal_translate. NE do VRT: s více vstupy gdalwarp -of VRT (conda GDAL
+        # v Dockeru) zapracuje jen první dlaždici, zbytek ortofota je černý.
+        warp_out = tiles[0][0].parent / "_mosaic.tif"
     cmd = [
         gdalwarp,
         "-s_srs",
@@ -423,7 +425,8 @@ def _mosaic_wms_tiles(
         "-r",
         "near",
         "-of",
-        "VRT" if jpeg else "PNG",
+        "GTiff" if jpeg else "PNG",
+        *(["-co", "TILED=YES", "-co", "BIGTIFF=IF_SAFER"] if jpeg else []),
         "-overwrite",
         *[str(path) for path, *_ in tiles],
         str(warp_out),
@@ -473,7 +476,10 @@ def _download_wms_raster(
     jpeg = image_format == "image/jpeg"
     dest_png.parent.mkdir(parents=True, exist_ok=True)
     windows = _split_pixel_grid(width, height)
-    if len(windows) == 1:
+    # JPEG výstup: server JPEG komprimuje agresivně (artefakty), proto dlaždice
+    # stahujeme jako PNG a JPEG vzniká až jednou při skládání.
+    image_format = "image/png" if jpeg else image_format
+    if len(windows) == 1 and not jpeg:
         url = _wms_getmap_url(
             wms_url,
             layer,
@@ -530,11 +536,6 @@ def _download_wms_raster(
                 tw,
                 th,
             )
-            if ext == ".jpg":
-                # GDAL u JPEG hledá .jgw / .wld, ne .pgw.
-                pgw = tile_path.with_suffix(".pgw")
-                shutil.copy2(pgw, tile_path.with_suffix(".jgw"))
-                shutil.copy2(pgw, tile_path.with_suffix(".wld"))
             tiles.append((tile_path, x0, y0, x1, y1))
         return _mosaic_wms_tiles(
             tiles,
@@ -554,8 +555,9 @@ def _download_wms_raster(
 def _template_extent(template_png: Path, template_pgw: Path) -> tuple[float, float, float, float, int, int]:
     georef = read_pgw(template_pgw)
     width, height = _raster_size(template_png)
-    xmin = georef.origin_x
-    ymax = georef.origin_y
+    # origin ve world file = střed horního levého pixelu → roh extentu.
+    xmin = georef.origin_x - georef.pixel_x / 2
+    ymax = georef.origin_y - georef.pixel_y / 2
     xmax = xmin + width * georef.pixel_x
     ymin = ymax + height * georef.pixel_y
     return xmin, ymin, xmax, ymax, width, height
@@ -570,13 +572,17 @@ def _write_pgw_for_extent(
     width: int,
     height: int,
 ) -> None:
+    pixel_x = (xmax - xmin) / width
+    pixel_y = (ymax - ymin) / height
+    # World file udává STŘED horního levého pixelu (jako GDAL a Mapper), ne roh
+    # extentu – jinak je raster posunutý o půl pixelu proti vektorovým podkladům.
     PgwGeoref(
-        pixel_x=(xmax - xmin) / width,
+        pixel_x=pixel_x,
         rot_row=0.0,
         rot_col=0.0,
-        pixel_y=-(ymax - ymin) / height,
-        origin_x=xmin,
-        origin_y=ymax,
+        pixel_y=-pixel_y,
+        origin_x=xmin + pixel_x / 2,
+        origin_y=ymax - pixel_y / 2,
     ).write(dest_pgw)
 
 
@@ -601,6 +607,8 @@ def _align_to_template(
     dest_png.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         gdalwarp,
+        "-s_srs",
+        CRS_PROJ4,
         "-t_srs",
         CRS_PROJ4,
         "-te",
@@ -1278,8 +1286,13 @@ def build_reference_layers(
     *,
     log: callable | None = None,
     force_refresh: bool = False,
+    job_shade: Path | None = None,
 ) -> dict[str, Path]:
-    """Vytvoří referenční PNG+PGW pro OOM (hillshade, ortofoto, OSM)."""
+    """Vytvoří referenční PNG+PGW pro OOM (hillshade, ortofoto, OSM).
+
+    ``job_shade``: už stažený hillshade jobu (stejná WMS vrstva); hlavní
+    referenční hillshade se z něj odvodí místo druhého stahování.
+    """
     if not template_png.is_file() or not template_pgw.is_file():
         return {}
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1379,6 +1392,12 @@ def build_reference_layers(
     for key, wms_layer, filename, label, _opacity, _visible in HILLSHADE_VARIANTS:
         dest_png = out_dir / filename
         dest_pgw = dest_png.with_suffix(".pgw")
+        if key == "hillshade" and _derive_hillshade_from_job_shade(
+            job_shade, template_png, template_pgw, dest_png, dest_pgw, ref_wh, log=log
+        ):
+            built[key] = dest_png
+            hill_ok = True
+            continue
         try:
             if fetch_hillshade_wms(
                 bounds,
@@ -1413,6 +1432,51 @@ def build_reference_layers(
             log(f"Referenční PNG: cache zápis selhal ({exc})")
 
     return _with_katastr_vectors(built, bbox_wgs84, out_dir, log=log)
+
+
+def _derive_hillshade_from_job_shade(
+    job_shade: Path | None,
+    template_png: Path,
+    template_pgw: Path,
+    dest_png: Path,
+    dest_pgw: Path,
+    ref_wh: tuple[int, int],
+    *,
+    log: callable | None = None,
+) -> bool:
+    """Referenční hillshade ze sdíleného stažení (job shade je stejná WMS vrstva).
+
+    Jen když je job shade aspoň tak jemný jako cílový referenční raster; jinak
+    (malé AOI, ref jemnější než mřížka jobu) se stáhne zvlášť.
+    """
+    if job_shade is None or not Path(job_shade).is_file():
+        return False
+    shade_pgw = Path(job_shade).with_suffix(".pgw")
+    if not shade_pgw.is_file():
+        return False
+    try:
+        shade_px = abs(read_pgw(shade_pgw).pixel_x)
+        xmin, _ymin, xmax, _ymax, _w, _h = _template_extent(template_png, template_pgw)
+        ref_px = abs(xmax - xmin) / max(1, ref_wh[0])
+        if shade_px > ref_px * 1.001:
+            return False
+        _align_to_template(
+            job_shade,
+            template_png,
+            template_pgw,
+            dest_png,
+            dest_pgw,
+            resample="average",
+            out_size=ref_wh,
+            log=log,
+        )
+    except Exception as exc:
+        if log:
+            log(f"Hillshade ze sdíleného stažení selhal ({exc}) – stahuji znovu")
+        return False
+    if log:
+        log(f"Hillshade DMR 5G: sdílené stažení (bez druhého WMS) → {dest_png.name}")
+    return dest_png.is_file() and dest_png.stat().st_size > 500
 
 
 def _with_katastr_vectors(
