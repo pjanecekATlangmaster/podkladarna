@@ -317,6 +317,7 @@ def _geom_parts_to_objects(
     elev_at=None,
     clip_bounds: Bounds | None = None,
     max_area_vertices: int | None = None,
+    max_area_m2: float | None = None,
 ) -> list[str]:
     def to_map(x: float, y: float) -> tuple[int, int]:
         return projected_to_map_coord(
@@ -387,7 +388,7 @@ def _geom_parts_to_objects(
                 obj = _path_object(symbol_index, mapped)
             elif closed_shape and max_area_vertices:
                 for ring_part, hole_parts in split_area_by_vertices(
-                    piece, holes, max_area_vertices
+                    piece, holes, max_area_vertices, max_area=max_area_m2
                 ):
                     rings = [[to_map(x, y) for x, y in ring_part]] + [
                         [to_map(x, y) for x, y in hole] for hole in hole_parts
@@ -647,58 +648,17 @@ def split_area_by_vertices(
     holes: list[_Ring],
     max_vertices: int,
     *,
-    _depth: int = 0,
+    max_area: float | None = None,
 ) -> list[tuple[_Ring, list[_Ring]]]:
-    """Plochu s víc než ``max_vertices`` vrcholy rozřízne na čtvrtiny (rekurzivně).
+    """Plochu nad limitem vrcholů / plochy (m²) rozřízne – přednostně v hrdlech.
 
     OCAD při výběru / posunu obrazovky přepočítává celý objekt bod po bodu –
     louka přes celou mapu s tisíci vrcholy ho brzdí o sekundy. Jen pro výplně
-    bez obrysu (vegetace), jinak by byly řezy vidět.
+    bez obrysu (vegetace), jinak by byly řezy vidět. Viz ``area_split``.
     """
-    n = len(ring) + sum(len(h) for h in holes)
-    if n <= max_vertices:
-        return [(ring, holes)]
-    from shapely.geometry import Polygon
-    from shapely.validation import make_valid
+    from app.pipeline.area_split import split_area
 
-    poly = Polygon(ring, holes)
-    if not poly.is_valid:
-        poly = make_valid(poly)
-    return _split_polygon(poly, max_vertices, _depth)
-
-
-def _split_polygon(geom, max_vertices: int, depth: int) -> list[tuple[_Ring, list[_Ring]]]:
-    from shapely.geometry import box
-
-    out: list[tuple[_Ring, list[_Ring]]] = []
-    for poly in _polygons_of(geom):
-        n = len(poly.exterior.coords) + sum(len(i.coords) for i in poly.interiors)
-        if n <= max_vertices or depth >= 10:
-            out.append(
-                (list(poly.exterior.coords), [list(i.coords) for i in poly.interiors])
-            )
-            continue
-        minx, miny, maxx, maxy = poly.bounds
-        mx, my = (minx + maxx) / 2.0, (miny + maxy) / 2.0
-        for cell in (
-            box(minx, miny, mx, my),
-            box(mx, miny, maxx, my),
-            box(minx, my, mx, maxy),
-            box(mx, my, maxx, maxy),
-        ):
-            out.extend(_split_polygon(poly.intersection(cell), max_vertices, depth + 1))
-    return out
-
-
-def _polygons_of(geom) -> list:
-    """Jen plošné kusy (průnik s buňkou může vrátit i linie/body na hraně)."""
-    if geom.is_empty:
-        return []
-    if geom.geom_type == "Polygon":
-        return [geom] if geom.area > 0 else []
-    if hasattr(geom, "geoms"):
-        return [p for g in geom.geoms for p in _polygons_of(g)]
-    return []
+    return split_area(ring, holes, max_vertices, max_area=max_area)
 
 
 def _point_object(symbol_index: int, x: int, y: int) -> str:

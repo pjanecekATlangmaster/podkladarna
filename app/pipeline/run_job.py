@@ -83,6 +83,10 @@ class ReferenceDownload:
     future: Future
     reference_dir: Path
     _executor: ThreadPoolExecutor
+    # Hillshade pro job (work/shade) se stahuje na pozadí jako první krok téhož
+    # sériového vlákna; ``shade_done`` se nastaví po jeho dokončení (i neúspěchu).
+    shade_done: threading.Event | None = None
+    shade_ok: bool = False
 
     def result(self) -> dict[str, Path]:
         try:
@@ -128,11 +132,15 @@ def start_reference_download(
     *,
     force_refresh: bool,
     log: callable,
+    shade_bounds: tuple[float, float, float, float] | None = None,
+    shade_cache_dir: Path | None = None,
 ) -> ReferenceDownload | None:
     """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
 
     Vrací handle pro join v ``_package_output``, nebo None když chybí georef šablona.
     ČÚZK/vrstvy uvnitř zůstávají sériové — paralelní je jen overlap s hlavním buildem.
+    Když je zadané ``shade_bounds``, stáhne se v témže vlákně nejdřív hillshade
+    jobu (``work/shade``) a referenční hillshade z něj vznikne bez dalšího stahování.
     """
     georef = ensure_georef_template(work_dir, prefer_preview=False)
     if georef is None:
@@ -147,21 +155,46 @@ def start_reference_download(
         "(ČÚZK/OSM, sériově; paralelně s buildem)."
     )
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-dl")
-    future = executor.submit(
-        build_reference_layers,
-        job_dir,
-        tuple(bbox_wgs84),
-        template_png,
-        template_pgw,
-        reference_dir,
-        log=ref_log,
-        force_refresh=force_refresh,
-    )
-    return ReferenceDownload(
-        future=future,
+    shade_done = threading.Event() if shade_bounds is not None else None
+    handle = ReferenceDownload(
+        future=None,  # type: ignore[arg-type]  # doplněno níže
         reference_dir=reference_dir,
         _executor=executor,
+        shade_done=shade_done,
     )
+
+    def _run() -> dict[str, Path]:
+        extra: dict = {}
+        if shade_bounds is not None:
+            try:
+                shade_png = build_job_shade(
+                    work_dir,
+                    bounds_5514=shade_bounds,
+                    prefer_local=False,
+                    force=force_refresh,
+                    cache_dir=shade_cache_dir,
+                    log=ref_log,
+                )
+                if shade_png is not None:
+                    handle.shade_ok = True
+                    extra["job_shade"] = shade_png
+            except Exception as exc:
+                ref_log(f"Hillshade na pozadí: selhalo ({exc})")
+            finally:
+                shade_done.set()
+        return build_reference_layers(
+            job_dir,
+            tuple(bbox_wgs84),
+            template_png,
+            template_pgw,
+            reference_dir,
+            log=ref_log,
+            force_refresh=force_refresh,
+            **extra,
+        )
+
+    handle.future = executor.submit(_run)
+    return handle
 
 
 def join_reference_download(
@@ -370,6 +403,8 @@ def run_job_pipeline(
                 tuple(bbox),
                 force_refresh=force_refresh,
                 log=log,
+                shade_bounds=grid_bounds,
+                shade_cache_dir=surfaces_cache,
             )
 
     if reused_from and merged_existing:
@@ -592,12 +627,19 @@ def run_job_pipeline(
 
     # Shade vždy (OOM/ZIP + ČÚZK reference). Náhled PNG z .omap po sestavení.
     progress.begin("hillshade")
+    shade_force = force_refresh
+    if ref_download is not None and ref_download.shade_done is not None:
+        if not ref_download.shade_done.is_set():
+            log("Hillshade: čekám na stažení na pozadí…")
+        ref_download.shade_done.wait()
+        if ref_download.shade_ok:
+            shade_force = False  # už stažený v tomto běhu, nestahovat znovu
     try:
         build_job_shade(
             work_dir,
             bounds_5514=grid_bounds,
             prefer_local=False,
-            force=force_refresh,
+            force=shade_force,
             cache_dir=surfaces_cache,
             log=log,
         )

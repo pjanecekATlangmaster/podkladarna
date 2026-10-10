@@ -59,6 +59,31 @@ def symbol_set_path(preset_id: str, scale: int) -> Path:
     return path
 
 
+OCAD_DIR = CONFIG_DIR / "ocad"
+
+# Disciplína (přípona *-sprint/-les/-mtbo.omap) + měřítko → OCAD sada symbolů
+# (export z OCADu). Klíč je pro každou kombinaci jiný soubor.
+_OCAD_SYMBOL_SETS: dict[tuple[str, int], str] = {
+    ("sprint", 4000): "ISSprOM_2019_4000.ocd",
+    ("les", 7500): "ISOM_2017_10000.ocd",  # ISOM nemá samostatnou sadu pro 7500
+    ("les", 10000): "ISOM_2017_10000.ocd",
+    ("les", 15000): "ISOM_2017_15000.ocd",
+    ("mtbo", 5000): "ISMTBOM_2022_5000.ocd",
+    ("mtbo", 7500): "ISMTBOM_2022_7500.ocd",
+    ("mtbo", 10000): "ISMTBOM_2022_10000.ocd",
+    ("mtbo", 15000): "ISMTBOM_2022_15000.ocd",
+}
+
+
+def ocad_symbol_set_path(discipline: str, scale: int) -> Path | None:
+    """OCAD sada symbolů (.ocd) pro disciplínu a měřítko, nebo ``None``."""
+    name = _OCAD_SYMBOL_SETS.get((discipline, int(scale)))
+    if not name:
+        return None
+    path = OCAD_DIR / name
+    return path if path.is_file() else None
+
+
 def _isom_donor_path(mtbo_path: Path) -> Path:
     if "15000" in mtbo_path.name:
         return OOM_DIR / "ISOM_2017-2_15000.omap"
@@ -97,6 +122,81 @@ def protect_symbol_codes(symbols_xml: str, codes: frozenset[str] | set[str]) -> 
 def unhide_all_symbols(symbols_xml: str) -> str:
     """OOM u is_hidden nevykreslí objekty – v generovaném .omap vše odkrýt."""
     return re.sub(r'\s+is_hidden="true"', "", symbols_xml)
+
+
+_SYMBOL_TOKEN = re.compile(r"<symbol\b([^>]*?)(/?)>|</symbol>")
+
+
+def _top_level_symbols(symbols_xml: str) -> list[tuple[int, int, str]]:
+    """[(start, end, otevírací atributy)] pro symboly na nejvyšší úrovni."""
+    out: list[tuple[int, int, str]] = []
+    depth = 0
+    start = 0
+    attrs = ""
+    for m in _SYMBOL_TOKEN.finditer(symbols_xml):
+        if m.group(0).startswith("</"):
+            depth -= 1
+            if depth == 0:
+                out.append((start, m.end(), attrs))
+        else:
+            if depth == 0:
+                start, attrs = m.start(), m.group(1)
+                if m.group(2):  # samozavřený <symbol …/>
+                    out.append((start, m.end(), attrs))
+                    continue
+            depth += 1
+    return out
+
+
+def hidden_symbol_ids(symbols_xml: str) -> dict[str, str]:
+    """{id: code} top-level symbolů s ``is_hidden="true"``."""
+    out: dict[str, str] = {}
+    for _s, _e, attrs in _top_level_symbols(symbols_xml):
+        if 'is_hidden="true"' not in attrs:
+            continue
+        id_m = re.search(r'\bid="(\d+)"', attrs)
+        code_m = re.search(r'\bcode="([^"]*)"', attrs)
+        if id_m:
+            out[id_m.group(1)] = code_m.group(1) if code_m else ""
+    return out
+
+
+def drop_symbols_by_id(symbols_xml: str, ids: set[str]) -> str:
+    """Odstraní top-level symboly s danými id a opraví ``count``."""
+    if not ids:
+        return symbols_xml
+    pieces: list[str] = []
+    pos = 0
+    removed = 0
+    for start, end, attrs in _top_level_symbols(symbols_xml):
+        id_m = re.search(r'\bid="(\d+)"', attrs)
+        if id_m and id_m.group(1) in ids:
+            pieces.append(symbols_xml[pos:start].rstrip(" \t"))
+            pos = end
+            removed += 1
+    pieces.append(symbols_xml[pos:])
+    out = "".join(pieces)
+    m = re.search(r'<symbols\s+count="(\d+)"', out)
+    if m:
+        out = out.replace(
+            m.group(0), f'<symbols count="{int(m.group(1)) - removed}"', 1
+        )
+    return out
+
+
+def unused_hidden_template_symbol_ids(symbol_set: Path, used_ids: set[str]) -> set[str]:
+    """Id symbolů, které jsou v šabloně zhasnuté a objekty je nepoužívají.
+
+    Symboly přebrané z ISOM (``_MTBO_ISOM_OVERLAY``) se nechávají – jsou
+    záměrně odkryté.
+    """
+    _colors, symbols = _load_fragments(str(symbol_set.resolve()))
+    keep_codes = set(_MTBO_ISOM_OVERLAY)
+    return {
+        sid
+        for sid, code in hidden_symbol_ids(symbols).items()
+        if sid not in used_ids and code not in keep_codes
+    }
 
 
 def _extract_symbol_element(symbols_xml: str, code: str) -> str | None:

@@ -64,8 +64,9 @@ Stejný účel jako složka zabaged/: vyber SHP a importuj do OOM
 Většina objektů je i v .omap; tady je máš jako zdroj pro volné poskládání.
 Včetně OSM_budovy.shp (stejný zdroj jako auto budovy v .omap).
 
-OSM skály (OSM_skaly / OSM_skaly_linie / OSM_sutina): jen podklad –
-do auto .omap nejdou. Skály ve výstupu jsou spočítané z LiDAR/DEM (206).
+OSM skály: OSM_skaly (natural=bare_rock) jde do auto .omap jako holá skála 214
+(MTBO ji nemá, tam zůstává podklad). OSM_skaly_linie / OSM_sutina jsou jen
+podklad. Ostatní skály ve výstupu jsou spočítané z LiDAR/DEM (206).
 
 Residential zbytek (501): OSM_residential_zbytek_mensi / _stredni / _velke
 a _ridke (řídce zmapované – v auto .omap nejsou). Symbol 501.
@@ -540,6 +541,9 @@ def oom_readme(meta: dict) -> str:
         "   – odemkni v panelu symbolů; v OOM volitelně Převést na křivky.\n"
         f"{kp_steps}"
         "OCAD: otevřete stejnojmenný *.ocd (OCD12 z Mapper convert; lossy OK).\n"
+        "   Originální OCAD sada symbolů pro daný klíč je ve složce ocad_symboly/\n"
+        "   (ISOM / ISSprOM / ISMTBOM) – lze ji v OCADu použít k nahrazení symbolů\n"
+        "   (kódy symbolů se shodují).\n"
         "Soubor .omap OCAD nativně neotevře – zůstal pro OOM; případně DXF/SHP/PNG+PGW.\n\n"
         "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
         "AOPK památné stromy (CC BY 4.0). "
@@ -924,6 +928,7 @@ def build_oom_zip(
                     ocd_path = omap_path.with_suffix(".ocd")
                     if ocd_path.is_file():
                         zf.write(ocd_path, ocd_path.name)
+            _write_ocad_symbol_sets(zf, omap_paths, metadata)
         zf.writestr("README_OOM.txt", oom_readme(metadata))
         zf.writestr(
             "metadata.json",

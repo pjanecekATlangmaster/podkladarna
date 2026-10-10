@@ -21,9 +21,12 @@ _CLASS_TO_CODE: dict[int, str] = {
     4: "410",
 }
 
-# Max. vrcholů na jeden plošný objekt – větší louka/porost se rozřízne
-# (OCAD přepočítává objekt bod po bodu; výplně vegetace nemají obrys, řez není vidět).
-VEG_MAX_AREA_VERTICES = 1500
+# Max. vrcholů a plochy na jeden plošný objekt – větší louka/porost se rozřízne,
+# přednostně v úzkých místech (area_split). OCAD přepočítává objekt bod po bodu
+# a s loukou přes půl mapy se špatně pracuje; výplně vegetace nemají obrys,
+# řez není vidět. 4 ha ≈ 200 × 200 m (2 × 2 cm v 1 : 10 000).
+VEG_MAX_AREA_VERTICES = 1000
+VEG_MAX_AREA_M2 = 40_000.0
 
 _CLASS_NAMES: dict[str, str] = {
     "401": "Otevřený terén",
@@ -118,6 +121,7 @@ def build_vegetation_parts(
                 grivation_deg=grivation_deg,
                 as_area=True,
                 max_area_vertices=VEG_MAX_AREA_VERTICES,
+                max_area_m2=VEG_MAX_AREA_M2,
             )
         )
 

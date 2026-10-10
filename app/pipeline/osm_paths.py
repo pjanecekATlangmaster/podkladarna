@@ -32,11 +32,15 @@ from app.pipeline.oom_import import (
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.prepare_lidar import log_step
 from app.tool_env import gis_subprocess_env, which_tool
-# Veřejná zrcadla – hlavní DE často hlásí 504; rotujeme rychle.
+# Veřejná zrcadla (seznam z wiki.openstreetmap.org/wiki/Overpass_API, ověřeno
+# 2026-10-09) – hlavní DE často hlásí 504, rotujeme rychle. Pořadí: nejčerstvější
+# data první; private.coffee (dřív kumi.systems) vrací 500 a data o měsíce
+# starší, proto až poslední. overpass.openstreetmap.ru neodpovídá (timeout)
+# a na wiki už není.
 OVERPASS_URLS = (
-    "https://overpass.kumi.systems/api/interpreter",
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.openstreetmap.ru/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
 )
 # Stejné jako Export na openstreetmap.org – celý bbox, filtrujeme relevantní highway.
 OSM_API_MAP_URL = "https://api.openstreetmap.org/api/0.6/map"
@@ -944,8 +948,12 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind == "cliff":
         # ISOM/ISSprOM linie 201; MTBO taky 201 (impassable cliff).
         return "201"
-    if kind in {"bare_rock", "rock_area", "scree"}:
-        # Plošná skála: ISOM 201.2 je is_hidden → 206 (plan shape); sprint/MTBO taky 206.
+    if kind == "bare_rock":
+        # OSM natural=bare_rock = holá skála 214 (ISOM/ISSprOM); MTBO 214 nemá,
+        # tam zůstává jen podklad. 206 z OSM nemapujeme (skály = naše detekce).
+        return "214"
+    if kind in {"rock_area", "scree"}:
+        # Jen podklad (SHP), do auto .omap nejdou; kód 206 je pouze štítek.
         return "206"
     if kind == "fence":
         if sprint:
@@ -2837,7 +2845,7 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "cave_entrance": ("OSM_jeskyne", "vstup do jeskyně", "203.2"),
     # Jen podklad (ne v auto .omap) – skály ve výstupu jsou LiDAR 206.
     "cliff": ("OSM_skaly_linie", "skála / sráz OSM (podklad)", "201"),
-    "bare_rock": ("OSM_skaly", "skála / bare rock OSM (podklad)", "206"),
+    "bare_rock": ("OSM_skaly", "holá skála / bare rock OSM", "214"),
     "scree": ("OSM_sutina", "sutina OSM (podklad)", "206"),
     "fence": ("OSM_ploty", "ploty", "516"),
     "wall": ("OSM_zdi", "zdi", "513"),
@@ -3058,7 +3066,7 @@ def write_osm_manual_shapefiles(
         "",
         "Importuj vybrané SHP do OOM (File → Importovat…) a přiřaď symbol.",
         "Většina objektů je i v .omap; sem patří pro volné poskládání / doladění.",
-        "OSM_skaly* / OSM_sutina: jen podklad – do auto .omap nejdou (skály = LiDAR 206).",
+        "OSM_skaly (bare_rock) → 214 v auto .omap; OSM_skaly_linie / OSM_sutina: jen podklad (skály = LiDAR 206).",
         "",
         "Vrstva              Typ        Doporučený symbol (les/sprint; MTBO se liší)",
         "-----              ---        ---------------------------------------------",
@@ -3211,7 +3219,7 @@ def build_osm_feature_parts(
         "wetland": "OSM mokřad",
         "cave_entrance": "OSM vstup do jeskyně",
         "cliff": "OSM skála / sráz (201)",
-        "bare_rock": "OSM skála / bare rock (206)",
+        "bare_rock": "OSM holá skála (214)",
         "scree": "OSM sutina (206)",
         "fence": "OSM ploty",
         "wall": "OSM zdi",
@@ -3290,8 +3298,13 @@ def build_osm_feature_parts(
     for feat in feats:
         props = feat.get("properties") or {}
         kind = str(props.get("kind") or "")
-        # residential = subject residual 501; OSM skály = jen osm/ podklad.
-        if not kind or kind == "residential" or kind in _OSM_ROCK_UNDERLAY_KINDS:
+        # residential = subject residual 501; OSM skály (cliff, sutina) = jen osm/
+        # podklad, holá skála (bare_rock → 214) jde do mapy.
+        if (
+            not kind
+            or kind == "residential"
+            or (kind in _OSM_ROCK_UNDERLAY_KINDS and kind != "bare_rock")
+        ):
             continue
         code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
         if not code:

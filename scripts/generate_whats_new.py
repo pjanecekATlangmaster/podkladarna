@@ -133,6 +133,10 @@ def _looks_czech(text: str) -> bool:
 # Známé subjecty → krátký český popis (pořadí: konkrétnější dřív).
 _TITLE_CS: list[tuple[re.Pattern[str], str]] = [
     (
+        re.compile(r"(?i)Cut vegetation areas at narrow necks"),
+        "Velké louky a porosty dělené v úzkých místech na kusy do 4 ha / 1 000 vrcholů",
+    ),
+    (
         re.compile(r"(?i)Georef raster: 300 DPI|GeoTIFF wording and estimate"),
         "Georef jako GeoTIFF 300 DPI s náhledy – otevře se i u velkého výřezu",
     ),

@@ -57,20 +57,21 @@ def test_osm_cliff_way_maps_to_201():
 
 
 def test_osm_bare_rock_maps_to_area():
-    """way/553090030 / 746567272 natural=bare_rock → 206 kód (podklad, ne auto omap)."""
+    """way/905065542 natural=bare_rock → 214 holá skála (OSM 206 nemapujeme)."""
     assert classify_osm_feature({"natural": "bare_rock"}, geom="way") == (
         "bare_rock",
         "201.2",
     )
-    assert feature_oom_code("bare_rock", "forest_10000") == "206"
-    assert feature_oom_code("bare_rock", "mtbo_10000") == "206"
+    assert feature_oom_code("bare_rock", "forest_10000") == "214"
+    assert feature_oom_code("bare_rock", "sprint_4000") == "214"
+    assert feature_oom_code("bare_rock", "mtbo_10000") == "214"
     assert "bare_rock" in _OSM_ROCK_UNDERLAY_KINDS
     assert OSM_MANUAL_LAYER_SPECS["bare_rock"][0] == "OSM_skaly"
     assert OSM_MANUAL_LAYER_SPECS["cliff"][0] == "OSM_skaly_linie"
 
 
 def test_osm_rocks_excluded_from_auto_omap(tmp_path: Path):
-    """OSM cliff/bare_rock/scree nesmí jít do auto .omap (jen osm/ SHP podklad)."""
+    """OSM cliff/scree nejdou do auto .omap (jen SHP podklad); bare_rock (214) ano."""
     import json
 
     feats = [
@@ -84,7 +85,7 @@ def test_osm_rocks_excluded_from_auto_omap(tmp_path: Path):
         },
         {
             "type": "Feature",
-            "properties": {"kind": "bare_rock", "oom_code": "206"},
+            "properties": {"kind": "bare_rock", "oom_code": "214"},
             "geometry": {
                 "type": "Polygon",
                 "coordinates": [
@@ -123,9 +124,10 @@ def test_osm_rocks_excluded_from_auto_omap(tmp_path: Path):
             ref_y=0.0,
             grivation_deg=0.0,
         )
-    assert sum(p.count for p in got) == 1
-    assert all("skála" not in p.name.lower() and "sutina" not in p.name.lower() for p in got)
+    assert sum(p.count for p in got) == 2
+    assert all("sutina" not in p.name.lower() and "sráz" not in p.name.lower() for p in got)
     assert any("pramen" in p.name.lower() for p in got)
+    assert any("holá skála" in p.name.lower() for p in got)
 
 
 def test_forest_rock_area_uses_visible_206_not_hidden_201_2():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import re
 from pathlib import Path
 
 from app.pipeline.crs_5514 import (
@@ -12,7 +13,12 @@ from app.pipeline.crs_5514 import (
 from app.pipeline.oom_georef import oom_north_angles
 from app.pipeline.oom_import import OomObjectPart
 from app.pipeline.oom_layers import OomTemplate
-from app.pipeline.oom_symbols import colors_and_symbols_xml, symbol_set_path
+from app.pipeline.oom_symbols import (
+    colors_and_symbols_xml,
+    drop_symbols_by_id,
+    symbol_set_path,
+    unused_hidden_template_symbol_ids,
+)
 
 __all__ = [
     "CRS_LABEL",
@@ -123,7 +129,8 @@ def build_oom_map_xml(
     preset_id: str,
 ) -> str:
     """.omap s kontrolním PNG a editovatelnými objekty mapy."""
-    colors_xml, symbols_xml = colors_and_symbols_xml(symbol_set_path(preset_id, scale))
+    set_path = symbol_set_path(preset_id, scale)
+    colors_xml, symbols_xml = colors_and_symbols_xml(set_path)
     templates_xml = "\n".join(_template_xml(t) for t in templates)
     template_refs = "\n".join(
         f'                    <ref template="{i}" visible="{"true" if t.visible else "false"}"'
@@ -136,6 +143,12 @@ def build_oom_map_xml(
         object_parts or [],
         hidden_parts=hidden_object_parts,
     )
+    if set_path.name.startswith("ISMTBOM"):
+        # MTBO klíč: symboly zhasnuté v šabloně, které mapa nepoužívá, pryč.
+        used = set(re.findall(r'<object\b[^>]*\bsymbol="(\d+)"', parts_xml))
+        symbols_xml = drop_symbols_by_id(
+            symbols_xml, unused_hidden_template_symbol_ids(set_path, used)
+        )
     # Všechny šablony (referenční PNG) leží pod mapou.
     front = len(templates)
     safe_name = html.escape(map_name)

@@ -58,8 +58,9 @@ class JobGrid:
             rot_row=0.0,
             rot_col=0.0,
             pixel_y=self.pixel_y,
-            origin_x=self.origin_x,
-            origin_y=self.origin_y,
+            # World file = střed horního levého pixelu (GDAL, Mapper), ne roh mřížky.
+            origin_x=self.origin_x + self.pixel_x / 2,
+            origin_y=self.origin_y + self.pixel_y / 2,
         )
 
     def to_dict(self) -> dict:
