@@ -779,6 +779,7 @@ def generate_job_vegetation_density(
     log=None,
     veg_size_profile: str = "default",
     wait_chm=None,
+    buildings_geojson: Path | None = None,
 ) -> Path | None:
     """Job fáze: LAZ hustota + ``dem/dem_filled.tif`` → ``vegetation/vegetation.shp``.
 
@@ -872,6 +873,29 @@ def generate_job_vegetation_density(
             f"{n_points} bodů, bílý {shares[0]:.1f} %, 401 {shares[1]:.1f} %, "
             f"406 {shares[2]:.1f} %, 408 {shares[3]:.1f} %, 410 {shares[4]:.1f} %"
         )
+    if buildings_geojson is not None and Path(buildings_geojson).is_file():
+        try:
+            import json
+
+            from app.pipeline.vegetation_merge import (
+                rasterize_buildings,
+                simplify_open_in_settlements,
+            )
+
+            gj = json.loads(Path(buildings_geojson).read_text(encoding="utf-8"))
+            bmask = rasterize_buildings(gj, gt, classified.shape)
+            before = int(np.count_nonzero(classified == OPEN))
+            classified = simplify_open_in_settlements(
+                classified, bmask, abs(gt[1])
+            )
+            if log:
+                log(
+                    "Vegetace: 401 v zástavbě zjednodušena "
+                    f"({before} → {int(np.count_nonzero(classified == OPEN))} px)"
+                )
+        except Exception as exc:
+            if log:
+                log(f"Vegetace: zjednodušení 401 v zástavbě přeskočeno ({exc})")
     dest = work_dir / "vegetation" / "vegetation.shp"
     try:
         write_chm_tint_png(classified, work_dir / "vegetation" / "chm_tint.png")

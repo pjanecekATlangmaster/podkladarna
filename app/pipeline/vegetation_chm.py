@@ -524,6 +524,12 @@ def polygonize_vegetation_classes(
     )
     from app.pipeline.veg_size_filter import keep_veg_polygon
 
+    from app.pipeline.vegetation_merge import merge_small_regions
+
+    merged = merge_small_regions(classified, abs(gt[1] * gt[5]))
+    if log:
+        log(f"Vegetace: drobné plošky vyplněny okolím ({int((merged != classified).sum())} px)")
+    classified = merged
     height, width = classified.shape
     dest_shp.parent.mkdir(parents=True, exist_ok=True)
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):

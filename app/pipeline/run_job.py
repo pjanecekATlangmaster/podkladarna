@@ -513,6 +513,13 @@ def run_job_pipeline(
 
     progress.begin("vegetace")
     vege_shp = None
+    veg_buildings: Path | None = None
+    if bbox:
+        # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
+        try:
+            veg_buildings = fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
+        except Exception as exc:
+            log(f"RÚIAN budovy pro vegetaci: přeskočeno ({exc})")
     try:
         vege_shp = generate_job_vegetation_density(
             work_dir,
@@ -523,6 +530,7 @@ def run_job_pipeline(
             log=log,
             veg_size_profile=veg_size_profile,
             wait_chm=_wait_surfaces,
+            buildings_geojson=veg_buildings,
         )
     except Exception as exc:
         log(f"Vegetace (hustota bodů): přeskočeno ({exc})")
