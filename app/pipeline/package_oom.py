@@ -120,6 +120,11 @@ _ZABAGED_BASE_PAVED = frozenset(
 )
 # Obdělávaná půda z OSM (412) pod vegetací – hustníky zůstanou navrch.
 _OSM_UNDER_VEGETATION_MARK = "(412)"
+# Druhý .omap „jen jistá data“: bez vegetace, OSM polí (412) a všeho generovaného
+# z LiDAR/DEM (srázy, skály, ďolíky, knolly). Zbytek (ZABAGED, RÚIAN, OSM, AOPK,
+# vrstevnice) zůstává.
+CERTAIN_TAG = "-jiste"
+CERTAIN_MAP_NAME_SUFFIX = " (jistá data)"
 # Dvory v budovách (oliva / značka budovy) až navrch – překryjí detaily uvnitř.
 _COURTYARD_MARK = "dvory ("
 
@@ -195,6 +200,32 @@ def map_scale_from_preset_id(preset_id: str, presets: dict | None = None) -> int
         except (TypeError, ValueError):
             pass
     return 10000
+
+
+def _write_ocad_symbol_sets(
+    zf: zipfile.ZipFile, omap_paths: list[Path], metadata: dict
+) -> None:
+    """Originální OCAD sady symbolů (``ocad_symboly/``) k ``.omap`` v ZIPu.
+
+    Disciplína z přípony ``*-sprint|les|mtbo.omap``, měřítko z metadat; každá
+    kombinace má vlastní sadu, stejná se do ZIPu přidá jen jednou.
+    """
+    from app.pipeline.oom_symbols import ocad_symbol_set_path
+
+    scale = parse_map_scale(metadata.get("scale") or metadata.get("map_scale"))
+    if scale is None:
+        return
+    seen: set[Path] = set()
+    for omap_path in omap_paths:
+        if not omap_path.is_file():
+            continue
+        stem = omap_path.stem.removesuffix(CERTAIN_TAG)
+        tag = stem.rsplit("-", 1)[-1].lower()
+        path = ocad_symbol_set_path(tag, scale)
+        if path is None or path in seen:
+            continue
+        seen.add(path)
+        zf.write(path, f"ocad_symboly/{path.name}")
 
 
 def resolve_omap_job(
@@ -343,10 +374,13 @@ def omap_variant_filename(
     discipline_tag: str,
     path_tag: str = "",
     map_name: str = "",
+    *,
+    certain_only: bool = False,
 ) -> str:
     # Jediný auto zdroj cest je OSM – bez přípony cesty_*.
     del path_tag
-    return f"{omap_map_stem(map_name)}-{discipline_tag}.omap"
+    suffix = CERTAIN_TAG if certain_only else ""
+    return f"{omap_map_stem(map_name)}-{discipline_tag}{suffix}.omap"
 
 
 def build_aoi_boundary_part(
@@ -654,8 +688,10 @@ def prepare_oom_map(
     ostatni_as_403: bool = False,
     residual_paved: bool = False,
     max_residual_m2: float = 500.0,
+    certain_only: bool = False,
     log=None,
 ) -> Path | None:
+    """``certain_only``: jen jistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů."""
     del formline
     path_source = resolve_path_source(path_source)
     west, south, east, north = bbox_wgs84
@@ -755,18 +791,19 @@ def prepare_oom_map(
             osm_under.append(part)
         else:
             osm_feat_rest.append(part)
-    object_parts.extend(osm_under)
-    # Vegetace: vegetation.shp z hustoty LiDAR / CHM, bez ZABAGED meadow prior.
-    object_parts.extend(
-        build_vegetation_parts(
-            kp_cwd,
-            preset_id=preset_id,
-            scale=scale,
-            ref_x=ref_x,
-            ref_y=ref_y,
-            grivation_deg=grivation,
+    if not certain_only:
+        object_parts.extend(osm_under)
+        # Vegetace: vegetation.shp z hustoty LiDAR / CHM, bez ZABAGED meadow prior.
+        object_parts.extend(
+            build_vegetation_parts(
+                kp_cwd,
+                preset_id=preset_id,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                grivation_deg=grivation,
+            )
         )
-    )
     object_parts.extend(
         build_gdal_contour_parts(
             kp_cwd,
@@ -782,7 +819,8 @@ def prepare_oom_map(
             log=log,
         )
     )
-    if include_dxf:
+    # DXF část = srázy, skály, ďolíky, knolly (vše z LiDAR/DEM) → ne v „jistých“.
+    if include_dxf and not certain_only:
         dxf_part = build_dxf_object_part(
             kp_cwd,
             preset_id=preset_id,

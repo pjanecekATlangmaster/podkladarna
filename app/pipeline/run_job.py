@@ -44,6 +44,7 @@ from app.pipeline.oom_preview import (
 )
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
+    CERTAIN_MAP_NAME_SUFFIX,
     OOM_PATH_VARIANTS,
     build_oom_zip,
     oom_metadata,
@@ -708,6 +709,7 @@ def _package_output(
         )
         meta["output_georef"] = output_georef_enabled(options)
         omap_paths: list[Path] = []
+        certain_paths: list[Path] = []
         ruian_path: Path | None = None
         aopk_path: Path | None = None
         if bbox:
@@ -788,15 +790,22 @@ def _package_output(
                 vectorconf = Path(
                     str(disc_preset.get("vectorconf", "zabaged.txt"))
                 ).name
-                for path_tag, path_src in OOM_PATH_VARIANTS:
+                for (path_tag, path_src), certain in (
+                    (v, c) for v in OOM_PATH_VARIANTS for c in (False, True)
+                ):
                     variant_name = omap_variant_filename(
-                        disc_tag, path_tag, map_name=job_name or ""
+                        disc_tag, path_tag, map_name=job_name or "",
+                        certain_only=certain,
                     )
-                    log(f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src})")
+                    log(
+                        f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src}"
+                        + (", jen jistá data)" if certain else ")")
+                    )
                     omap_p = prepare_oom_map(
                         kp_cwd,
                         output_dir / variant_name,
-                        map_name=job_name or disc_preset_id,
+                        map_name=(job_name or disc_preset_id)
+                        + (CERTAIN_MAP_NAME_SUFFIX if certain else ""),
                         scale=scale,
                         preset_id=disc_preset_id,
                         bbox_wgs84=tuple(bbox),
@@ -816,10 +825,12 @@ def _package_output(
                         ostatni_as_403=ostatni_as_403,
                         residual_paved=residual_paved,
                         max_residual_m2=max_residual_m2,
+                        certain_only=certain,
                         log=log,
                     )
                     if omap_p:
-                        omap_paths.append(omap_p)
+                        # Náhled jen z plné mapy; „jistá“ jde do ZIPu a OCD navíc.
+                        (certain_paths if certain else omap_paths).append(omap_p)
                         try:
                             from app.pipeline.oom_preview import convert_omap_to_ocd
 
@@ -871,7 +882,7 @@ def _package_output(
                 if want_refs and reference_dir and reference_dir.is_dir()
                 else None
             ),
-            omap_paths=omap_paths,
+            omap_paths=[*omap_paths, *certain_paths],
             include_zabaged_archive=bool(
                 options.get("output_zabaged_clean", False) and zabaged
             ),
