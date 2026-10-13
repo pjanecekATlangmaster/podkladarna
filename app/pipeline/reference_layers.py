@@ -308,6 +308,22 @@ def _wms_getmap_url(
     image_format: str,
     transparent: bool = False,
 ) -> str:
+    # ČÚZK ArcGIS Server má ve WMS rozhraní pro ORTOFOTO bug – při rozměrech dlaždice
+    # nad ~1000 px vyplňuje pravý a spodní okraj černými pixely (0, 0, 0), což vytváří
+    # černé čáry na švech mezi dlaždicemi. REST export vrací čistý bezešvý rastr.
+    if "/services/ORTOFOTO/MapServer/WMSServer" in wms_url:
+        rest_url = wms_url.replace("/services/", "/rest/services/").replace("/WMSServer", "/export")
+        fmt = "png24" if image_format == "image/png" else "jpg"
+        params = {
+            "bbox": f"{xmin},{ymin},{xmax},{ymax}",
+            "bboxSR": "5514",
+            "imageSR": "5514",
+            "size": f"{width},{height}",
+            "format": fmt,
+            "f": "image",
+            "transparent": "true" if transparent else "false",
+        }
+        return rest_url + "?" + urllib.parse.urlencode(params)
     params = {
         "service": "WMS",
         "request": "GetMap",
@@ -598,6 +614,7 @@ def _align_to_template(
     dest_png: Path,
     dest_pgw: Path,
     *,
+    src_srs: str | None = CRS_PROJ4,
     resample: str = "bilinear",
     max_px: int | None = None,
     out_size: tuple[int, int] | None = None,
@@ -612,8 +629,7 @@ def _align_to_template(
     dest_png.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         gdalwarp,
-        "-s_srs",
-        CRS_PROJ4,
+        *(["-s_srs", src_srs] if src_srs else []),
         "-t_srs",
         CRS_PROJ4,
         "-te",
@@ -1015,6 +1031,7 @@ def _build_osm_from_wms(
         template_pgw,
         dest_png,
         dest_pgw,
+        src_srs="EPSG:3857",
         out_size=(tw, th),
         log=log,
     )
@@ -1089,6 +1106,7 @@ def _build_osm_from_xyz(
                 template_pgw,
                 dest_png,
                 dest_pgw,
+                src_srs="EPSG:3857",
                 resample="cubic",
                 out_size=(tw, th),
                 log=log,
@@ -1163,6 +1181,7 @@ def build_osm_reference(
                 template_pgw,
                 dest_png,
                 dest_pgw,
+                src_srs="EPSG:3857",
                 out_size=_osm_target_size(template_png, template_pgw)[:2],
                 log=log,
             )

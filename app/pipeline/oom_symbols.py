@@ -7,6 +7,7 @@ from pathlib import Path
 from app.settings import CONFIG_DIR
 
 OOM_DIR = CONFIG_DIR / "oom"
+MERGED_SUBDIR = "merged"
 
 # Vrstevnice GDAL – zamčené, ať se při editaci omylem nepohnou.
 _PROTECTED_SYMBOL_CODES = frozenset({"101", "102"})
@@ -54,6 +55,10 @@ def symbol_set_path(preset_id: str, scale: int) -> Path:
     else:
         # ISOM 2017-2 pro 1:7500 i 1:10000 (OOM nemá samostatný set pro 7500)
         path = OOM_DIR / "ISOM_2017-2_10000.omap"
+    # Sada doplněná o symboly z novější OCAD sady (scripts/merge_symbol_sets.py).
+    merged = OOM_DIR / MERGED_SUBDIR / path.name
+    if _symbol_set_exists(str(merged)):
+        return merged
     if not _symbol_set_exists(str(path)):
         raise FileNotFoundError(f"Chybí symbol set OOM: {path}")
     return path
