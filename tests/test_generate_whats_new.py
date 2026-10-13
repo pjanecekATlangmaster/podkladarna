@@ -50,31 +50,35 @@ def test_collect_entries_from_git():
 
 
 def test_summarize_by_day_joins_top_titles():
+    from datetime import datetime, timezone, timedelta
+    today = datetime.now(timezone.utc).date()
+    d1 = (today - timedelta(days=1)).isoformat()
+    d2 = (today - timedelta(days=2)).isoformat()
     raw = [
         {
-            "date": "2026-10-03",
+            "date": d1,
             "title": "Zemní srázy: min. ~50 m",
             "body": "",
             "score": 80,
         },
         {
-            "date": "2026-10-03",
+            "date": d1,
             "title": "Vyšší panel běžících jobů",
             "body": "",
             "score": 40,
         },
         {
-            "date": "2026-10-02",
+            "date": d2,
             "title": "Bez KP: louky",
             "body": "",
             "score": 70,
         },
     ]
     out = summarize_by_day(raw, max_days=3, max_per_day=2)
-    assert out[0]["date"] == "2026-10-03"
+    assert out[0]["date"] == d1
     assert "srázy" in out[0]["title"]
     assert ";" in out[0]["title"]
-    assert out[1]["date"] == "2026-10-02"
+    assert out[1]["date"] == d2
 
 
 def test_drop_milestone_duplicates_before_summary():
