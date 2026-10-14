@@ -175,8 +175,8 @@ def build_oom_map_xml(
         object_parts or [],
         hidden_parts=hidden_object_parts,
     )
-    if set_path.name.startswith("ISMTBOM"):
-        # MTBO klíč: symboly zhasnuté v šabloně, které mapa nepoužívá, pryč.
+    if set_path.name.startswith(("ISMTBOM", "ISSprOM")):
+        # MTBO/sprint: zhasnuté v šabloně a nepoužité (legacy ISSOM, šipky …) pryč.
         used = set(re.findall(r'<object\b[^>]*\bsymbol="(\d+)"', parts_xml))
         symbols_xml = drop_symbols_by_id(
             symbols_xml, unused_hidden_template_symbol_ids(set_path, used)

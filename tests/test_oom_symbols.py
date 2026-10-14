@@ -58,6 +58,14 @@ def test_mtbo_embedded_symbols_are_unhidden():
         assert f'code="{code}"' in symbols
 
 
+def test_sprint_colors_and_symbols_drop_issom_legacy():
+    path = symbol_set_path("sprint_2m", 4000)
+    _, symbols = colors_and_symbols_xml(path)
+    assert 'code="203.9"' not in symbols
+    assert 'code="203.1"' in symbols
+    assert "from ISSOM" not in symbols
+
+
 def test_mtbo_overlays_isom_earth_bank_knoll_farmland():
     """MTBO bere z ISOM zemní sráz, kopeček a obdělávané pole (správný typ/vzhled)."""
     path = symbol_set_path("mtbo_10000", 10000)

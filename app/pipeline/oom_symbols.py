@@ -12,6 +12,19 @@ MERGED_SUBDIR = "merged"
 # Vrstevnice GDAL – zamčené, ať se při editaci omylem nepohnou.
 _PROTECTED_SYMBOL_CODES = frozenset({"101", "102"})
 
+# ISSprOM footprinty, které generátor nepoužívá a v klíči jen duplikují
+# používaný sourozenec (light/heavy nebo jiná šířka). 501.6/501.9/501.17–19
+# a 532.7 zůstávají.
+_SPRINT_UNUSED_FOOTPRINT_CODES = frozenset(
+    {
+        "501.7",  # light 2 m – silnice berou heavy 501.17
+        "501.8",  # light 3 m – silnice berou heavy 501.18
+        "501.16",  # heavy 1.4 m – chodník je light 501.6
+        "532.6",  # schody 1.6 m – kreslíme 532.7
+        "532.8",  # schody 3 m – nepoužito
+    }
+)
+
 # MTBO sada: cílový kód → ISOM kód (vzhled z lesního klíče).
 # ISMTBOM má u těchto čísel jiný význam, špatný typ, nebo skrytý symbol.
 _MTBO_ISOM_OVERLAY: dict[str, str] = {
@@ -127,6 +140,52 @@ def protect_symbol_codes(symbols_xml: str, codes: frozenset[str] | set[str]) -> 
 def unhide_all_symbols(symbols_xml: str) -> str:
     """OOM u is_hidden nevykreslí objekty – v generovaném .omap vše odkrýt."""
     return re.sub(r'\s+is_hidden="true"', "", symbols_xml)
+
+
+# Migrace ISSOM → ISSprOM / ISOM2000 → ISOM 2017: v šabloně zhasnuté symboly
+# se stejným významem jako novější kód (např. 203.9 ≙ 203.1). Po unhide by
+# zbytečně plnily klíč mapy.
+_LEGACY_MIGRATION_NAME = re.compile(
+    r"\bfrom ISSOM\b|\bfrom ISOM2000\b|\bfrom ISOM 2017\b",
+    re.IGNORECASE,
+)
+
+
+def legacy_migration_symbol_ids(symbols_xml: str) -> set[str]:
+    """Id top-level symbolů z migrační vrstvy ISSOM / ISOM2000 / ISOM 2017-1."""
+    out: set[str] = set()
+    for _s, _e, attrs in _top_level_symbols(symbols_xml):
+        name_m = re.search(r'\bname="([^"]*)"', attrs)
+        if not name_m or not _LEGACY_MIGRATION_NAME.search(name_m.group(1)):
+            continue
+        id_m = re.search(r'\bid="(\d+)"', attrs)
+        if id_m:
+            out.add(id_m.group(1))
+    return out
+
+
+def drop_legacy_migration_symbols(symbols_xml: str) -> str:
+    """Odstraní legacy migrační symboly (přednost má aktuální nativní kód)."""
+    return drop_symbols_by_id(symbols_xml, legacy_migration_symbol_ids(symbols_xml))
+
+
+def symbol_ids_for_codes(symbols_xml: str, codes: set[str] | frozenset[str]) -> set[str]:
+    """Id top-level symbolů s danými kódy."""
+    if not codes:
+        return set()
+    out: set[str] = set()
+    for _s, _e, attrs in _top_level_symbols(symbols_xml):
+        code_m = re.search(r'\bcode="([^"]*)"', attrs)
+        if not code_m or code_m.group(1) not in codes:
+            continue
+        id_m = re.search(r'\bid="(\d+)"', attrs)
+        if id_m:
+            out.add(id_m.group(1))
+    return out
+
+
+def drop_symbols_by_code(symbols_xml: str, codes: set[str] | frozenset[str]) -> str:
+    return drop_symbols_by_id(symbols_xml, symbol_ids_for_codes(symbols_xml, codes))
 
 
 _SYMBOL_TOKEN = re.compile(r"<symbol\b([^>]*?)(/?)>|</symbol>")
@@ -467,6 +526,10 @@ def merge_isom_overlay_into_mtbo(
 
 def colors_and_symbols_xml(symbol_set: Path) -> tuple[str, str]:
     colors, symbols = _load_fragments(str(symbol_set.resolve()))
+    # Nejdřív pryč legacy dvojčata (203.9, 201.9, …), pak odkrýt zbytek klíče.
+    symbols = drop_legacy_migration_symbols(symbols)
+    if symbol_set.name.startswith("ISSprOM"):
+        symbols = drop_symbols_by_code(symbols, _SPRINT_UNUSED_FOOTPRINT_CODES)
     symbols = unhide_all_symbols(symbols)
     if symbol_set.name.startswith("ISMTBOM"):
         colors, symbols = merge_isom_overlay_into_mtbo(
