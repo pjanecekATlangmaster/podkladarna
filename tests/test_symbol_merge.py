@@ -151,8 +151,9 @@ def test_real_merged_sets_valid(preset, scale, has_new):
             # OCAD 501 schéma (light/heavy), bez OOM footprintů 501.16–19.
             for code in ("501.0", "501.10", "501.13", "501.30", "501.31", "501.100"):
                 assert f'code="{code}"' in text
-            for code in ("501.16", "501.17", "501.18", "501.19", "501.6", "501.9"):
+            for code in ("501.16", "501.17", "501.18", "501.19", "501.6", "501.9", "532.6", "532.8"):
                 assert f'code="{code}"' not in text
+            assert 'code="532.7"' in text  # schody – generátor mapuje steps sem
         for code in ("401", "214", "201", "412"):
             assert f'code="{code}"' in text  # původní kódy zůstaly
     assert path.parent in (OOM_DIR, OOM_DIR / "merged")
