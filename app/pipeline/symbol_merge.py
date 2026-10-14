@@ -309,6 +309,33 @@ def merge_missing_symbols(
         if bc in insert_after:
             ordered_syms.extend(insert_after[bc])
 
+    # Mapper očekává, že pořadí <symbol> odpovídá ID od 0. Po finálním
+    # seřazení proto všechny symboly přečíslujeme a přemapujeme odkazy
+    # na jejich části (<part symbol="...">).
+    id_translation: dict[str, str] = {}
+    for new_id, sym_xml in enumerate(ordered_syms):
+        old_id = re.search(r'\bid="(\d+)"', sym_xml)
+        if old_id:
+            id_translation[old_id.group(1)] = str(new_id)
+
+    ordered_syms = [
+        re.sub(
+            r'\bid="(\d+)"',
+            lambda m: f'id="{id_translation[m.group(1)]}"',
+            sym_xml,
+            count=1,
+        )
+        for sym_xml in ordered_syms
+    ]
+    ordered_syms = [
+        re.sub(
+            r'part symbol="(\d+)"',
+            lambda m: f'part symbol="{id_translation.get(m.group(1), m.group(1))}"',
+            sym_xml,
+        )
+        for sym_xml in ordered_syms
+    ]
+
     # Obalující tag <symbols ...> zachováme a tělo nahradíme seřazenými symboly
     prefix_m = re.match(r"<symbols\s+count=\"\d+\"[^>]*>\s*", base_symbols_xml)
     syms_prefix = prefix_m.group(0) if prefix_m else '<symbols count="0">\n'
