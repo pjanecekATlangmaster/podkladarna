@@ -31,6 +31,70 @@ _NAME_STOP = frozenset(
     {"footprint", "dvojitá", "linie", "line", "the", "of", "a", "and", "with", "or", "mm", "m"}
 )
 
+# Která stávající značka v OOM má být předchůdcem nově přidané značky,
+# aby odpovídající symboly byly přímo u sebe (např. 501.300 přímo za 501.3).
+_ANCHORS: dict[str, str] = {
+    # ISSprOM 2019
+    "501.300": "501.3",
+    "501.301": "501.3",
+    "501.200": "501.1",
+    "501.20": "501.19",
+    "501.32": "501.19",
+    "501.33": "501.19",
+    "505.3": "505.2",
+    "505.4": "505.2",
+    "509.101": "509.1",
+    "512.100": "512.1",
+    "512.101": "512.1",
+    "512.300": "512.2",
+    "512.301": "512.2",
+    "512.302": "512.2",
+    "512.304": "512.2",
+    "512.307": "512.2",
+    "512.308": "512.2",
+    "512.309": "512.2",
+    "512.311": "512.2",
+    "512.312": "512.2",
+    "512.313": "512.2",
+    "512.314": "512.2",
+    "512.315": "512.2",
+    "513.101": "513.1",
+    "533.0": "532.9",
+    # ISOM 2017
+    "101.2": "101.1",
+    "101.3": "101.1",
+    "102.2": "102.1",
+    "103.2": "103.1",
+    "103.3": "103.1",
+    "105.101": "105",
+    "105.200": "105",
+    "508.5": "508.4",
+    "508.6": "508.4",
+    "508.7": "508.4",
+    "508.8": "508.4",
+    "508.9": "508.4",
+    "513.200": "513.2",
+    "709.4": "709.2",
+}
+
+
+def _find_anchor(code: str, base_codes: list[str]) -> str:
+    """Určí stávající kód symbolu, za který má být nový symbol zařazen."""
+    if code in _ANCHORS and _ANCHORS[code] in base_codes:
+        return _ANCHORS[code]
+    prefix = _series(code)
+    same_series = [c for c in base_codes if _series(c) == prefix]
+    if same_series:
+        return same_series[-1]
+    try:
+        num = int(prefix)
+        prev = [c for c in base_codes if _series(c).isdigit() and int(_series(c)) < num]
+        if prev:
+            return prev[-1]
+    except ValueError:
+        pass
+    return base_codes[-1] if base_codes else ""
+
 
 @dataclass
 class MergeReport:
@@ -171,10 +235,14 @@ def merge_missing_symbols(
     donor_symbols_xml = donor_syms.group(0)
     mapper = _ColorMapper(base_colors.group(0), donor_colors.group(0), report)
 
+    base_symbols_slices = _top_level_symbols(base_symbols_xml)
     base_names: dict[str, str] = {}
-    for _s, _e, a in _top_level_symbols(base_symbols_xml):
-        if _attr(a, "code"):
-            base_names[_attr(a, "code")] = _attr(a, "name") or ""  # type: ignore[index]
+    base_codes_order: list[str] = []
+    for _s, _e, a in base_symbols_slices:
+        c = _attr(a, "code")
+        if c:
+            base_names[c] = _attr(a, "name") or ""
+            base_codes_order.append(c)
     base_codes = set(base_names)
     base_tokens: dict[str, list[tuple[frozenset[str], str]]] = {}
     for bc, bn in base_names.items():
@@ -182,7 +250,7 @@ def merge_missing_symbols(
 
     next_id = _next_symbol_id(base_symbols_xml)
     id_map: dict[str, str] = {}  # id v donoru → nové id (kvůli <part symbol=>)
-    pending: list[str] = []
+    pending: list[tuple[str, str]] = []  # (code, xml)
 
     for start, end, attrs in _top_level_symbols(donor_symbols_xml):
         code = _attr(attrs, "code") or ""
@@ -217,20 +285,34 @@ def merge_missing_symbols(
         xml = re.sub(r'\bid="\d+"', f'id="{new_id}"', xml, count=1)
         if did is not None:
             id_map[did] = new_id
-        pending.append(xml)
+        pending.append((code, xml))
         report.added.append((code, _attr(attrs, "name") or ""))
     report.color_map = dict(mapper.map)
 
     def _part_repl(m: re.Match[str]) -> str:
         return f'part symbol="{id_map.get(m.group(1), m.group(1))}"'
 
-    new_symbols = [re.sub(r'part symbol="(\d+)"', _part_repl, x) for x in pending]
+    new_symbols = [(code, re.sub(r'part symbol="(\d+)"', _part_repl, x)) for code, x in pending]
     if not new_symbols:
         return base_text, report
 
-    merged_symbols = re.sub(
-        r"</symbols>\s*$", "".join(new_symbols) + "\n</symbols>", base_symbols_xml, count=1
-    )
+    # Zařazení nových symbolů přímo za jejich kotevní OOM symboly
+    insert_after: dict[str, list[str]] = {}
+    for code, sym_xml in new_symbols:
+        anchor = _find_anchor(code, base_codes_order)
+        insert_after.setdefault(anchor, []).append(sym_xml)
+
+    ordered_syms: list[str] = []
+    for s, e, attrs in base_symbols_slices:
+        bc = _attr(attrs, "code") or ""
+        ordered_syms.append(base_symbols_xml[s:e])
+        if bc in insert_after:
+            ordered_syms.extend(insert_after[bc])
+
+    # Obalující tag <symbols ...> zachováme a tělo nahradíme seřazenými symboly
+    prefix_m = re.match(r"<symbols\s+count=\"\d+\"[^>]*>\s*", base_symbols_xml)
+    syms_prefix = prefix_m.group(0) if prefix_m else '<symbols count="0">\n'
+    merged_symbols = syms_prefix + "".join(ordered_syms) + "\n</symbols>"
     total = len(_top_level_symbols(merged_symbols))
     merged_symbols = re.sub(
         r'<symbols\s+count="\d+"', f'<symbols count="{total}"', merged_symbols, count=1
