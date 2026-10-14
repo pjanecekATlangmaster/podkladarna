@@ -30,18 +30,21 @@ def test_drop_symbols_by_id_handles_nested_and_count():
     assert 'code="1"' in out and 'code="3"' in out
 
 
-def test_mtbo_map_drops_unused_hidden_symbols_but_keeps_ids():
+def test_mtbo_map_drops_unused_hidden_symbols_and_renumbers_ids():
     raw = symbol_set_path("mtbo_10000", 10000).read_text(encoding="utf-8")
     hidden = hidden_symbol_ids(raw)
     assert hidden
+    hidden_codes = {c for c in hidden.values() if c}
     xml = _build("mtbo_10000", 10000)
-    present = set(re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml))
+    present_codes = set(re.findall(r'<symbol\b[^>]*\bcode="([^"]+)"', xml))
     # Zhasnuté a nepoužité pryč (kromě záměrně odkrytých z ISOM overlay).
-    gone = {i for i in hidden if i not in present}
-    assert len(gone) > 30
-    # Viditelné symboly a jejich id zůstávají beze změny.
-    assert "101" in re.findall(r'\bcode="([^"]+)"', xml)
+    gone_codes = hidden_codes - present_codes
+    assert len(gone_codes) > 30
+    assert "101" in present_codes
     assert not re.findall(r'is_hidden="true"', xml)
+    # Po dropu se ID znovu seřadí od 0 (Mapper).
+    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml)]
+    assert ids == list(range(len(ids)))
 
 
 def test_non_mtbo_map_keeps_all_symbols():

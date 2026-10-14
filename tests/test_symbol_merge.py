@@ -85,6 +85,18 @@ def test_part_symbol_reference_follows_new_id():
     assert f'part symbol="{new_id}"' in merged
 
 
+def test_merged_symbol_ids_are_sequential_from_zero():
+    """Po zařazení musí id odpovídat pořadí <symbol> od 0 (Mapper)."""
+    merged, _ = merge_missing_symbols(BASE, DONOR)
+    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', merged)]
+    assert ids == list(range(len(ids)))
+    # 512.* za 401, 513.100 za 513; combined part → 512.300.
+    codes = re.findall(r'<symbol\b[^>]*\bcode="([^"]+)"', merged)
+    assert codes == ["401", "512.300", "512.301", "513", "513.100"]
+    lower_id = re.search(r'<symbol[^>]*\bid="(\d+)"[^>]*code="512.300"', merged).group(1)
+    assert f'part symbol="{lower_id}"' in merged
+
+
 @pytest.mark.parametrize(
     "preset,scale,has_new",
     [("forest_10000", 10000, "512.300"), ("sprint_4000", 4000, "512.300")],
@@ -93,9 +105,10 @@ def test_real_merged_sets_valid(preset, scale, has_new):
     path = symbol_set_path(preset, scale)
     text = path.read_text(encoding="utf-8")
     ET.fromstring(text)
-    ids = re.findall(r'<symbol\b[^>]*\bid="(\d+)"', text)
+    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', text)]
     # id jsou jedinečná jen mezi top-level symboly; soukromé části id nemají
     assert len(ids) == len(set(ids))
+    assert ids == list(range(len(ids)))
     if path.parent.name == "merged":
         if preset.startswith("sprint"):
             assert f'code="{has_new}"' in text

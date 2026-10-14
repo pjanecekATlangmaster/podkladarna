@@ -114,7 +114,12 @@ def _parts_xml(
 
 
 def _normalize_symbol_ids(symbols_xml: str, parts_xml: str) -> tuple[str, str]:
-    """Přečísluje <symbol> podle pořadí od 0 a přemapuje všechny odkazy na symboly."""
+    """Přečísluje <symbol> podle pořadí od 0 a přemapuje všechny odkazy na symboly.
+
+    Mapper očekává ``id="0"``, ``id="1"``, … v pořadí elementů. Regex musí
+    matchovat běžnou mezeru před ``id=`` / ``symbol=`` (``\\sid=``, ne
+    ``\\s id=`` — to by vyžadovalo dvě mezery a nic nenašlo).
+    """
     id_translation: dict[str, str] = {}
 
     def _map_id(m: re.Match[str]) -> str:
@@ -123,7 +128,7 @@ def _normalize_symbol_ids(symbols_xml: str, parts_xml: str) -> tuple[str, str]:
         id_translation[old] = new
         return f"{m.group(1)}{new}{m.group(3)}"
 
-    symbols_xml = re.sub(r'(<symbol\b[^>]*?\s id=")(\d+)(")', _map_id, symbols_xml)
+    symbols_xml = re.sub(r'(<symbol\b[^>]*?\sid=")(\d+)(")', _map_id, symbols_xml)
 
     def _map_ref(m: re.Match[str]) -> str:
         old = m.group(2)
@@ -134,7 +139,7 @@ def _normalize_symbol_ids(symbols_xml: str, parts_xml: str) -> tuple[str, str]:
             raise ValueError(f"Odkaz na neexistující ID symbolu: {old}")
         return f"{m.group(1)}{new}{m.group(3)}"
 
-    ref_re = r'((?:part|object)\b[^>]*?\s symbol=")(-?\d+)(")'
+    ref_re = r'((?:part|object)\b[^>]*?\ssymbol=")(-?\d+)(")'
     symbols_xml = re.sub(ref_re, _map_ref, symbols_xml)
     parts_xml = re.sub(ref_re, _map_ref, parts_xml)
     return symbols_xml, parts_xml

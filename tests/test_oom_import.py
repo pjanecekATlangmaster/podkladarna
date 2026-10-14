@@ -78,7 +78,8 @@ def test_oom_code_building_maps_to_521():
         scale=4000,
     )
     assert code == "521"
-    assert symbol_index_for_code("sprint_2m", 4000, code) == 141
+    # ID == pořadí v sadě (0..n-1); po merge+normalizaci je 521 na indexu 174.
+    assert symbol_index_for_code("sprint_2m", 4000, code) == 174
 
 
 def test_oom_code_building_mtbo_maps_to_526():
