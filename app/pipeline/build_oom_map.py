@@ -50,7 +50,7 @@ def _template_xml(tmpl: OomTemplate) -> str:
         f' name="{fname}" path="{relpath}" relpath="{relpath}"'
         f' georef="true"{group_attr}>\n'
         f"                <crs_spec>{crs}</crs_spec>\n"
-        f"            </template>"
+        "            </template>"
     )
 
 
@@ -113,6 +113,33 @@ def _parts_xml(
     )
 
 
+def _normalize_symbol_ids(symbols_xml: str, parts_xml: str) -> tuple[str, str]:
+    """Přečísluje <symbol> podle pořadí od 0 a přemapuje všechny odkazy na symboly."""
+    id_translation: dict[str, str] = {}
+
+    def _map_id(m: re.Match[str]) -> str:
+        old = m.group(2)
+        new = str(len(id_translation))
+        id_translation[old] = new
+        return f"{m.group(1)}{new}{m.group(3)}"
+
+    symbols_xml = re.sub(r'(<symbol\b[^>]*?\s id=")(\d+)(")', _map_id, symbols_xml)
+
+    def _map_ref(m: re.Match[str]) -> str:
+        old = m.group(2)
+        if old == "-1":
+            return m.group(0)
+        new = id_translation.get(old)
+        if new is None:
+            raise ValueError(f"Odkaz na neexistující ID symbolu: {old}")
+        return f"{m.group(1)}{new}{m.group(3)}"
+
+    ref_re = r'((?:part|object)\b[^>]*?\s symbol=")(-?\d+)(")'
+    symbols_xml = re.sub(ref_re, _map_ref, symbols_xml)
+    parts_xml = re.sub(ref_re, _map_ref, parts_xml)
+    return symbols_xml, parts_xml
+
+
 def build_oom_map_xml(
     *,
     map_name: str,
@@ -149,6 +176,8 @@ def build_oom_map_xml(
         symbols_xml = drop_symbols_by_id(
             symbols_xml, unused_hidden_template_symbol_ids(set_path, used)
         )
+    # Normalizace ID symbolů: pořadí <symbol> musí odpovídat ID od 0.
+    symbols_xml, parts_xml = _normalize_symbol_ids(symbols_xml, parts_xml)
     # Všechny šablony (referenční PNG) leží pod mapou.
     front = len(templates)
     safe_name = html.escape(map_name)
@@ -178,7 +207,7 @@ PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.</note
             <defaults meters_per_pixel="0" dpi="0" scale="0"/>
         </templates>
         <view>
-            <grid color="#646464" display="0" alignment="0" additional_rotation="0" unit="1" h_spacing="500" v_spacing="500" h_offset="0" v_offset="0" snapping_enabled="true"/>
+            <grid color="#646464" display="0" alignment="0" additional_rotation="0" unit="1" h_spacing="500" v_spacing="500" h_offset="0" snapping_enabled="true"/>
             <map_view zoom="1" position_x="0" position_y="0">
                 <map opacity="1" visible="true"/>
                 <templates count="{len(templates)}">
