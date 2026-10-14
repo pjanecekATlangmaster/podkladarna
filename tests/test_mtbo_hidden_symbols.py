@@ -60,22 +60,35 @@ def test_forest_map_drops_isom2000_legacy_keeps_rest():
     assert 'code="101"' in xml
 
 
-def test_sprint_map_drops_issom_legacy_duplicates():
-    """203.9 ≙ 203.1; 201.8/201.9 ≙ moderní srázy – v klíči sprintu nepatří."""
+def test_sprint_map_uses_ocad_501_scheme():
+    """Sprint: OCAD 501 (light/heavy), bez OOM footprintů 501.6–19 a ISSOM legacy."""
     raw = symbol_set_path("sprint_2m", 4000).read_text(encoding="utf-8")
-    assert 'code="203.9"' in raw
+    assert 'code="203.9"' in raw or 'code="501.0"' in raw
     xml = _build("sprint_2m", 4000)
     for code in ("201.8", "201.9", "202.8", "202.9", "203.9"):
         assert f'code="{code}"' not in xml
-    # Nepoužívané footprinty, které jen duplikují používaný sourozenec.
-    for code in ("501.7", "501.8", "501.16", "532.6", "532.8"):
+    # Staré OOM heavy/light footprinty pryč (nahrazeny OCAD 501.10–13 / 501.30–33).
+    for code in (
+        "501.6",
+        "501.7",
+        "501.8",
+        "501.9",
+        "501.16",
+        "501.17",
+        "501.18",
+        "501.19",
+        "532.6",
+        "532.8",
+    ):
         assert f'code="{code}"' not in xml
-    # Aktuální nativní kódy a používané footprinty zůstávají.
     assert 'code="203"' in xml
     assert 'code="203.1"' in xml
-    assert 'code="501.6"' in xml
-    assert 'code="501.9"' in xml  # light – cyklostezka
-    assert 'code="501.19"' in xml  # heavy – silnice (jiná barva než 501.9)
+    assert 'code="501.0"' in xml
+    assert 'code="501.10"' in xml  # chodník
+    assert 'code="501.13"' in xml  # light 4 m
+    assert 'code="501.30"' in xml
+    assert 'code="501.31"' in xml  # dřívější 501.19
+    assert 'code="501.100"' in xml  # hrana (dřív OOM 501.1)
     assert 'code="532.7"' in xml
     ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml)]
     assert ids == list(range(len(ids)))

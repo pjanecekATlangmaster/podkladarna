@@ -506,7 +506,7 @@ def _is_osm_building(tags: dict) -> bool:
     return bool(building) and building not in {"no", "false", "0"}
 
 
-# Zpevněný povrch – ve sprintu kreslíme jako chodník (501.6), ne jako 507.
+# Zpevněný povrch – ve sprintu kreslíme jako chodník (501.10), ne jako 507.
 _PAVED_SURFACES = frozenset(
     {
         "asphalt",
@@ -520,7 +520,7 @@ _PAVED_SURFACES = frozenset(
         "chipseal",
     }
 )
-# Cyklostezka se „sjízdným“ povrchem → široká zpevněná (501.9), ne 506.
+# Cyklostezka se „sjízdným“ povrchem → široká zpevněná (501.13), ne 506.
 _PAVED_CYCLEWAY_SMOOTHNESS = frozenset(
     {"excellent", "good", "intermediate", "very_good"}
 )
@@ -550,9 +550,9 @@ def sprint_line_highway(
     """Sidewalk / zpevněný footway / pěší zóna / zpevněná cyklostezka → vnitřní druh.
 
     ``all_footways_as_sidewalk``: všechny ``highway=footway`` jako chodník
-    (sprint 501.6; les/MTBO zůstává linie pěšiny 506/834), i bez surface /
+    (sprint 501.10; les/MTBO zůstává linie pěšiny 506/834), i bez surface /
     footway=sidewalk. Dřevěný chodník (boardwalk) zůstává pěšinou.
-    Zpevněná ``cycleway`` → ``cycleway_paved`` (sprint 501.9).
+    Zpevněná ``cycleway`` → ``cycleway_paved`` (sprint 501.13).
     """
     hw = (highway or "").lower()
     footway = (tags.get("footway") or "").lower()
@@ -978,14 +978,14 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind == "parking":
         # Stejně jako ZABAGED Ostatní plocha – CRT pod silnicemi (ne 529/501.1).
         if sprint:
-            return "501"
+            return "501.0"
         if mtbo:
             return "501.0"
         return "501"
     if kind in _PAVED_AREA_KINDS:
         # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
         if sprint:
-            return "501"
+            return "501.0"
         if mtbo:
             return "529"
         return "501.1"
@@ -1508,7 +1508,7 @@ def _way_skip_reason(
 def osm_oom_code(highway: str, preset_id: str) -> str:
     """ISOM/ISSprOM/ISMTBOM kód podle OSM highway (vč. road_1..4 / track_*).
 
-    Sprint heavy footprint: 501.17–501.19 (posun o 1 vs. dřívější 501.16–19; 501.20 není).
+    Sprint (OCAD ISSprOM): chodník 501.10, silnice 501.30–501.33 (heavy).
     Les: 502.1 II.+ třída / 502 široká / 503 úzká silnice / 504 vozová.
     MTBO: 502 major / 503 minor; track 831/833, pěšiny 834 (ne 502.1 — v ISMTBOM
     je 502.1 „under construction“).
@@ -1538,8 +1538,8 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
             rank = 1
         rank = max(0, min(3, rank))
         if sprint:
-            # road_1→501.17 … road_3/4→501.19 (501.20 v ISSprOM není).
-            return ("501.17", "501.18", "501.19", "501.19")[rank]
+            # OOM 501.17/18/19 → OCAD 501.30/31 (2 m / 4 m); 501.32–33 v klíči pro editaci.
+            return ("501.30", "501.31", "501.31", "501.31")[rank]
         if mtbo:
             return "502" if rank >= 2 else "503"
         # Les: road_1→504, road_2→503 (service/track asphalt),
@@ -1574,10 +1574,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return "504"
 
     if hw == "sidewalk":
-        # Chodník: sprint footprint 501.6; les/MTBO linie pěšiny (ne 501.1/529
-        # area — to fouká šířku / vyplní blok). Petr 2026-10-05: zpět z ploch.
+        # Chodník: sprint OCAD 501.10 (1.4 m); les/MTBO linie pěšiny.
         if sprint:
-            return "501.6"
+            return "501.10"
         if mtbo:
             return "834"
         return "506"
@@ -1585,7 +1584,7 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     # Zpevněná cyklostezka (asphalt / good smoothness) – široký footprint s okrajem.
     if hw == "cycleway_paved":
         if sprint:
-            return "501.9"
+            return "501.13"
         if mtbo:
             return "834"
         return "505"

@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.7.6"
+APP_VERSION = "2.8.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -168,7 +168,7 @@ DEFAULT_OPTIONS = {
     "kp_osm_playground_equipment": False,
     # Priorita OSM (urban pack) – dočasně default zapnuto kvůli testování.
     "kp_osm_priority": True,
-    # Všechny highway=footway jako zpevněný chodník (sprint 501.6).
+    # Všechny highway=footway jako zpevněný chodník (sprint 501.10).
     # Les/MTBO: chodník = linie 506/834 (ne zpevněná plocha 501.1/529).
     # Statický default = off; při vytváření jobu doplní default_footway_as_sidewalk
     # (sprint / 1:4000 → on, jinak off), pokud formulář hodnotu nepošle.

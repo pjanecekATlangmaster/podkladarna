@@ -97,6 +97,42 @@ def test_merged_symbol_ids_are_sequential_from_zero():
     assert f'part symbol="{lower_id}"' in merged
 
 
+def test_prefer_donor_replaces_oom_and_drops_base():
+    """OCAD ikona nahradí OOM u prefer_donor; drop_base smaže staré footprinty."""
+    base = BASE.replace(
+        "</symbols>",
+        '<symbol type="2" id="2" code="501.19" name="Heavy 4 m">'
+        '<line_symbol color="0" line_width="1000"/></symbol></symbols>',
+    ).replace('<symbols count="2">', '<symbols count="3">')
+    donor = (
+        '<map><colors count="1">'
+        '<color priority="0" name="Black" c="0" m="0" y="0" k="1" opacity="1">'
+        '<cmyk method="custom"/><rgb method="cmyk" r="0" g="0" b="0"/></color>'
+        "</colors>\n"
+        '<symbols count="2">\n'
+        '<symbol type="2" id="10" code="501.31" name="Paved street 4 m">'
+        '<line_symbol color="0" line_width="1100"/></symbol>\n'
+        '<symbol type="2" id="11" code="513" name="Wall donor">'
+        '<line_symbol color="0" line_width="50"/></symbol>\n'
+        "</symbols></map>"
+    )
+    merged, rep = merge_missing_symbols(
+        base,
+        donor,
+        prefer_donor={"501.31", "513"},
+        drop_base={"501.19"},
+    )
+    codes = re.findall(r'<symbol\b[^>]*\bcode="([^"]+)"', merged)
+    assert "501.19" not in codes
+    assert "501.31" in codes
+    assert codes.count("513") == 1
+    assert 'name="Wall donor"' in merged  # OCAD nahradil OOM Wall
+    assert ("513", "Wall donor") in rep.replaced
+    assert "501.19" in rep.dropped
+    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', merged)]
+    assert ids == list(range(len(ids)))
+
+
 @pytest.mark.parametrize(
     "preset,scale,has_new",
     [("forest_10000", 10000, "512.300"), ("sprint_4000", 4000, "512.300")],
@@ -112,6 +148,11 @@ def test_real_merged_sets_valid(preset, scale, has_new):
     if path.parent.name == "merged":
         if preset.startswith("sprint"):
             assert f'code="{has_new}"' in text
+            # OCAD 501 schéma (light/heavy), bez OOM footprintů 501.16–19.
+            for code in ("501.0", "501.10", "501.13", "501.30", "501.31", "501.100"):
+                assert f'code="{code}"' in text
+            for code in ("501.16", "501.17", "501.18", "501.19", "501.6", "501.9"):
+                assert f'code="{code}"' not in text
         for code in ("401", "214", "201", "412"):
             assert f'code="{code}"' in text  # původní kódy zůstaly
     assert path.parent in (OOM_DIR, OOM_DIR / "merged")

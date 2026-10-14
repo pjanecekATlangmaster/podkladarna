@@ -178,7 +178,10 @@ def build_residual_paved_parts(
         return []
     if not mask_wkbs:
         _emit("residual_paved: prázdná OSM maska – residential bez výřezu")
-    symbol_index = symbol_index_for_code(preset_id, scale, "501")
+    # OCAD ISSprOM: zpevněná plocha light = 501.0 (OOM „501“ v merged sadě není).
+    symbol_index = symbol_index_for_code(preset_id, scale, "501.0")
+    if symbol_index is None:
+        symbol_index = symbol_index_for_code(preset_id, scale, "501")
     if symbol_index is None:
         return []
 

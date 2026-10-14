@@ -55,26 +55,38 @@ def _find_donor(donor_names: tuple[str, ...]) -> Path | None:
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     eq_path = OOM / "merge_equivalents.json"
+    overrides_path = OOM / "merge_overrides.json"
     equivalents = json.loads(eq_path.read_text(encoding="utf-8")) if eq_path.is_file() else {}
+    overrides = (
+        json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {}
+    )
     for base_name, donor_names in PAIRS:
         base = OOM / base_name
         donor = _find_donor(donor_names)
         if donor is None:
             print(f"CHYBÍ zdroj pro {base_name} (hledáno v {TEMP_SS} i {SRC})")
             return 1
+        ov = overrides.get(base_name) or {}
         merged, rep = merge_missing_symbols(
             base.read_text(encoding="utf-8"),
             donor.read_text(encoding="utf-8"),
             equivalents.get(base_name) or {},
+            prefer_donor=set(ov.get("prefer_donor") or ()),
+            drop_base=set(ov.get("drop_base") or ()),
         )
         (OUT / base_name).write_text(merged, encoding="utf-8", newline="\n")
         print(
-            f"{base_name}: +{len(rep.added)} symbolů "
+            f"{base_name}: +{len(rep.added)} symbolů, nahrazeno {len(rep.replaced)}, "
+            f"drop OOM {len(rep.dropped)} "
             f"(dvojčat přeskočeno {len(rep.twins)}, kód už existuje {rep.skipped_existing} z toho s jiným významem {len(rep.collisions)}, text {rep.skipped_type}); "
             f"barev nepřesně {len(rep.color_inexact)}, přidáno nových {len(rep.color_added)}"
         )
+        for code, name in rep.replaced:
+            print(f"    ~ {code:9} {name}")
         for code, name in rep.added:
             print(f"    + {code:9} {name}")
+        if rep.dropped:
+            print(f"    - drop {', '.join(rep.dropped)}")
         for c, nm, oc, on in rep.collisions:
             print(f"    ! kolize {c:8} nový '{nm}' x starý {oc} '{on}'")
         for c in rep.color_inexact:

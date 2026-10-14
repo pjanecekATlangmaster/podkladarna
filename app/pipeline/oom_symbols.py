@@ -12,16 +12,22 @@ MERGED_SUBDIR = "merged"
 # Vrstevnice GDAL – zamčené, ať se při editaci omylem nepohnou.
 _PROTECTED_SYMBOL_CODES = frozenset({"101", "102"})
 
-# ISSprOM footprinty, které generátor nepoužívá a v klíči jen duplikují
-# používaný sourozenec (light/heavy nebo jiná šířka). 501.6/501.9/501.17–19
-# a 532.7 zůstávají.
+# Po přechodu na OCAD 501 schéma: staré OOM footprinty v klíči nechat zmizet,
+# plus nepoužívané šířky schodů.
 _SPRINT_UNUSED_FOOTPRINT_CODES = frozenset(
     {
-        "501.7",  # light 2 m – silnice berou heavy 501.17
-        "501.8",  # light 3 m – silnice berou heavy 501.18
-        "501.16",  # heavy 1.4 m – chodník je light 501.6
-        "532.6",  # schody 1.6 m – kreslíme 532.7
-        "532.8",  # schody 3 m – nepoužito
+        "501",
+        "501.5",
+        "501.6",
+        "501.7",
+        "501.8",
+        "501.9",
+        "501.16",
+        "501.17",
+        "501.18",
+        "501.19",
+        "532.6",
+        "532.8",
     }
 )
 

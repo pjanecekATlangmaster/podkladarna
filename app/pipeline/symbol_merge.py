@@ -34,13 +34,12 @@ _NAME_STOP = frozenset(
 # Která stávající značka v OOM má být předchůdcem nově přidané značky,
 # aby odpovídající symboly byly přímo u sebe (např. 501.300 přímo za 501.3).
 _ANCHORS: dict[str, str] = {
-    # ISSprOM 2019
+    # ISSprOM 2019 – OCAD 501 schéma (light .0–.13, heavy .20–.33)
+    # OCAD 501 blok se vkládá celý za poslední vegetaci před zpevněnými.
+    "501.0": "419",
     "501.300": "501.3",
     "501.301": "501.3",
-    "501.200": "501.1",
-    "501.20": "501.19",
-    "501.32": "501.19",
-    "501.33": "501.19",
+    "501.200": "501.100",
     "505.3": "505.2",
     "505.4": "505.2",
     "509.101": "509.1",
@@ -99,6 +98,8 @@ def _find_anchor(code: str, base_codes: list[str]) -> str:
 @dataclass
 class MergeReport:
     added: list[tuple[str, str]] = field(default_factory=list)  # (kód, název)
+    replaced: list[tuple[str, str]] = field(default_factory=list)  # donor nahradil OOM
+    dropped: list[str] = field(default_factory=list)  # OOM kódy odstraněné ze sady
     skipped_existing: int = 0
     twins: list[tuple[str, str, str]] = field(default_factory=list)  # (nový kód, název, starý kód)
     collisions: list[tuple[str, str, str, str]] = field(default_factory=list)  # nový kód/název, starý kód/název
@@ -164,15 +165,22 @@ def _plain_color_xml(priority: int, name: str, cmyk: tuple[float, ...]) -> str:
 
 
 class _ColorMapper:
-    """Priorita barvy v donoru → priorita v základní sadě (příp. nově přidaná)."""
+    """Priorita barvy v donoru → priorita v základní sadě (příp. nově přidaná).
+
+    Nové barvy se nelepí na konec CRT (pod žlutou by zmizely ulice), ale
+    rezervují se a při ``finalize_new_colors`` se vloží těsně nad Yellow 100%.
+    """
 
     def __init__(self, base_colors_xml: str, donor_colors_xml: str, report: MergeReport):
         self.base = _parse_color_entries(base_colors_xml)
         self.donor = dict(_parse_color_entries(donor_colors_xml))
         self.report = report
-        self.next_pri = max((p for p, _ in self.base), default=-1) + 1
-        self.appended: list[str] = []
+        # Dočasné ID pro nové barvy (mimo rozsah base) → po finalize skutečná priorita.
+        self._temp_pri = max((p for p, _ in self.base), default=-1) + 1000
+        self.pending_new: list[tuple[int, str, tuple[float, ...]]] = []  # temp_pri, name, cmyk
+        self.appended: list[str] = []  # po finalize: XML nových barev (už ne na konec)
         self.map: dict[int, int] = {}
+        self._shift_map: dict[int, int] = {}  # staré base priority → po vložení nových
 
     def resolve(self, pri: int) -> int:
         if pri in self.map:
@@ -196,12 +204,68 @@ class _ColorMapper:
                     f"{pri} '{name}' → {out} '{_color_name(near[1])}'"
                 )
             else:
-                out = self.next_pri
-                self.next_pri += 1
-                self.appended.append(_plain_color_xml(out, name, cmyk))
-                self.report.color_added.append(f"{out} '{name}'")
+                out = self._temp_pri
+                self._temp_pri += 1
+                self.pending_new.append((out, name, cmyk))
+                self.report.color_added.append(f"(pending) '{name}'")
         self.map[pri] = out
         return out
+
+    def finalize_new_colors(self, colors_xml: str) -> tuple[str, dict[int, int]]:
+        """Vloží pending barvy těsně nad Yellow 100%; vrátí colors XML + remap priorit."""
+        if not self.pending_new:
+            return colors_xml, {}
+        yellow = next(
+            (p for p, x in self.base if "yellow 100%" in _color_name(x)),
+            None,
+        )
+        insert_at = yellow if yellow is not None else max((p for p, _ in self.base), default=0) + 1
+        n = len(self.pending_new)
+        # Base priority p → p (pokud p < insert_at) nebo p+n (pokud p >= insert_at).
+        shift = {p: (p if p < insert_at else p + n) for p, _ in self.base}
+        self._shift_map = shift
+        # Temp priority → finální slot těsně nad (původní) žlutou.
+        temp_to_final = {
+            temp: insert_at + i for i, (temp, _name, _cmyk) in enumerate(self.pending_new)
+        }
+        # Donor map: existující base přes shift, nové přes temp_to_final.
+        for donor_pri, mapped in list(self.map.items()):
+            if mapped in temp_to_final:
+                self.map[donor_pri] = temp_to_final[mapped]
+            elif mapped in shift:
+                self.map[donor_pri] = shift[mapped]
+        new_entries: list[tuple[int, str]] = []
+        for p, xml in self.base:
+            new_pri = shift[p]
+            new_entries.append(
+                (new_pri, re.sub(r'\bpriority="\d+"', f'priority="{new_pri}"', xml, count=1))
+            )
+        for i, (_temp, name, cmyk) in enumerate(self.pending_new):
+            new_pri = insert_at + i
+            new_entries.append((new_pri, _plain_color_xml(new_pri, name, cmyk)))
+            self.report.color_added.append(f"{new_pri} '{name}'")
+        # Odstraň pending řádky z reportu.
+        self.report.color_added = [x for x in self.report.color_added if not x.startswith("(pending)")]
+        new_entries.sort(key=lambda e: e[0])
+        body = "\n".join(x for _, x in new_entries)
+        out = re.sub(
+            r"(<colors\s+count=\"\d+\"[^>]*>).*</colors>",
+            rf'\1\n{body}\n</colors>',
+            colors_xml,
+            count=1,
+            flags=re.S,
+        )
+        out = re.sub(
+            r'<colors\s+count="\d+"',
+            f'<colors count="{len(new_entries)}"',
+            out,
+            count=1,
+        )
+        self.appended = []  # už jsou ve colors_xml
+        # Remap pro symboly, které ještě mají temp / staré base priority.
+        remap = dict(shift)
+        remap.update(temp_to_final)
+        return out, remap
 
 
 def build_color_map(
@@ -216,13 +280,26 @@ def merge_missing_symbols(
     base_text: str,
     donor_text: str,
     equivalents: dict[str, str] | None = None,
+    *,
+    prefer_donor: set[str] | frozenset[str] | None = None,
+    drop_base: set[str] | frozenset[str] | None = None,
 ) -> tuple[str, MergeReport]:
     """Vrátí ``base_text`` s doplněnými symboly z ``donor_text`` + report.
 
     ``equivalents``: ručně určená dvojčata ``{nový kód: starý kód}`` pro případy,
     kdy se názvy liší (nový „Paved footpath, 4 m“ ≙ starý „…footprint: 4 m“).
+
+    ``prefer_donor``: kódy, u kterých má ikona/definice z donoru (OCAD) přednost
+    před OOM – existující OOM symbol se nahradí. ``drop_base``: další OOM kódy
+    k odstranění (např. staré footprinty 501.6–501.19 po přechodu na OCAD schéma).
     """
     equivalents = equivalents or {}
+    prefer_donor = set(prefer_donor or ())
+    drop_base = set(drop_base or ())
+    for code in prefer_donor:
+        drop_base.add(code)
+        if code.endswith(".0"):
+            drop_base.add(normalize_code(code))
     report = MergeReport()
     base_colors = re.search(r"<colors\s+count=\"\d+\"[^>]*>.*?</colors>", base_text, re.S)
     donor_colors = re.search(r"<colors\s+count=\"\d+\"[^>]*>.*?</colors>", donor_text, re.S)
@@ -248,6 +325,8 @@ def merge_missing_symbols(
     for bc, bn in base_names.items():
         base_tokens.setdefault(_series(bc), []).append((name_tokens(bn), bc))
 
+    kept_codes_order = [c for c in base_codes_order if c not in drop_base]
+
     next_id = _next_symbol_id(base_symbols_xml)
     id_map: dict[str, str] = {}  # id v donoru → nové id (kvůli <part symbol=>)
     pending: list[tuple[str, str]] = []  # (code, xml)
@@ -261,20 +340,30 @@ def merge_missing_symbols(
             report.skipped_type += 1
             continue
         nm = _attr(attrs, "name") or ""
-        # Stejný význam v téže číselné řadě (532.1 „3 m“ ≙ 532.8 „footprint 3 m“).
-        twin = equivalents.get(code) or next(
-            (bc for toks, bc in base_tokens.get(_series(code), []) if toks == name_tokens(nm)),
-            None,
-        )
-        if twin is not None:
-            report.twins.append((code, nm, twin))
-            continue
-        same_code = normalize_code(code) if normalize_code(code) in base_codes else (code if code in base_codes else None)
-        if same_code is not None:
-            report.skipped_existing += 1
-            if name_tokens(base_names[same_code]) != name_tokens(nm):
-                report.collisions.append((code, nm, same_code, base_names[same_code]))
-            continue
+        force = code in prefer_donor
+        if not force:
+            # Stejný význam v téže číselné řadě (532.1 „3 m“ ≙ 532.8 „footprint 3 m“).
+            twin = equivalents.get(code) or next(
+                (
+                    bc
+                    for toks, bc in base_tokens.get(_series(code), [])
+                    if toks == name_tokens(nm)
+                ),
+                None,
+            )
+            if twin is not None:
+                report.twins.append((code, nm, twin))
+                continue
+            same_code = (
+                normalize_code(code)
+                if normalize_code(code) in base_codes
+                else (code if code in base_codes else None)
+            )
+            if same_code is not None:
+                report.skipped_existing += 1
+                if name_tokens(base_names[same_code]) != name_tokens(nm):
+                    report.collisions.append((code, nm, same_code, base_names[same_code]))
+                continue
         xml = donor_symbols_xml[start:end]
         xml = re.sub(r'\s+is_hidden="true"', "", xml, count=1)
         for pri in _color_refs_in_symbol(xml):
@@ -286,28 +375,40 @@ def merge_missing_symbols(
         if did is not None:
             id_map[did] = new_id
         pending.append((code, xml))
-        report.added.append((code, _attr(attrs, "name") or ""))
-    report.color_map = dict(mapper.map)
+        if force and (code in base_codes or normalize_code(code) in base_codes):
+            report.replaced.append((code, nm))
+        else:
+            report.added.append((code, nm))
 
     def _part_repl(m: re.Match[str]) -> str:
         return f'part symbol="{id_map.get(m.group(1), m.group(1))}"'
 
     new_symbols = [(code, re.sub(r'part symbol="(\d+)"', _part_repl, x)) for code, x in pending]
-    if not new_symbols:
+    if not new_symbols and not drop_base:
         return base_text, report
 
-    # Zařazení nových symbolů přímo za jejich kotevní OOM symboly
+    prefer_syms = [(c, x) for c, x in new_symbols if c in prefer_donor]
+    other_syms = [(c, x) for c, x in new_symbols if c not in prefer_donor]
+    # Prefer-donor blok v pořadí z donoru (OCAD 501.0, .1, .10, …).
     insert_after: dict[str, list[str]] = {}
-    for code, sym_xml in new_symbols:
-        anchor = _find_anchor(code, base_codes_order)
+    if prefer_syms:
+        root = _find_anchor(prefer_syms[0][0], kept_codes_order or base_codes_order)
+        insert_after[root] = [x for _, x in prefer_syms]
+    for code, sym_xml in other_syms:
+        anchor = _find_anchor(code, kept_codes_order or base_codes_order)
         insert_after.setdefault(anchor, []).append(sym_xml)
 
     ordered_syms: list[str] = []
     for s, e, attrs in base_symbols_slices:
         bc = _attr(attrs, "code") or ""
+        if bc in drop_base:
+            report.dropped.append(bc)
+            continue
         ordered_syms.append(base_symbols_xml[s:e])
         if bc in insert_after:
-            ordered_syms.extend(insert_after[bc])
+            ordered_syms.extend(insert_after.pop(bc))
+    for leftover in insert_after.values():
+        ordered_syms.extend(leftover)
 
     # Mapper očekává, že pořadí <symbol> odpovídá ID od 0. Po finálním
     # seřazení proto všechny symboly přečíslujeme a přemapujeme odkazy
@@ -344,17 +445,19 @@ def merge_missing_symbols(
     merged_symbols = re.sub(
         r'<symbols\s+count="\d+"', f'<symbols count="{total}"', merged_symbols, count=1
     )
+    # Nové barvy nad Yellow 100% + posun CRT; přemapovat odkazy ve všech symbolech.
+    merged_colors, color_remap = mapper.finalize_new_colors(base_colors.group(0))
+    report.color_map = dict(mapper.map)
+    if color_remap:
+        ordered_syms = [_remap_colors_in_xml(s, color_remap) for s in ordered_syms]
+        # ID symbolů už jsou finální 0..n-1 – znovu složit tělo.
+        merged_symbols = syms_prefix + "".join(ordered_syms) + "\n</symbols>"
+        merged_symbols = re.sub(
+            r'<symbols\s+count="\d+"', f'<symbols count="{total}"', merged_symbols, count=1
+        )
     out = base_text.replace(base_symbols_xml, merged_symbols, 1)
-    if mapper.appended:
-        base_colors_xml = base_colors.group(0)
-        merged_colors = re.sub(
-            r"</colors>\s*$", "".join(mapper.appended) + "\n</colors>", base_colors_xml, count=1
-        )
-        n = len(_parse_color_entries(merged_colors))
-        merged_colors = re.sub(
-            r'<colors\s+count="\d+"', f'<colors count="{n}"', merged_colors, count=1
-        )
-        out = out.replace(base_colors_xml, merged_colors, 1)
+    if merged_colors != base_colors.group(0):
+        out = out.replace(base_colors.group(0), merged_colors, 1)
     return out, report
 
 __all__ = ["MergeReport", "merge_missing_symbols", "normalize_code", "build_color_map"]
