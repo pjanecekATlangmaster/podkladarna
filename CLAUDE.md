@@ -38,9 +38,10 @@ Agenti jsou v `.claude/agents/`. Šetříme drahé modely: implementuje junior, 
 - `junior-dev` (Sonnet) — výchozí volba pro rutinní implementaci: opravy chyb, menší funkce, testy, úpravy UI. Eskaluje, když se zasekne.
 - `opus-advisor` (read-only) — konzultace plánu před netriviální změnou (pipeline, API, formát jobů, geometrie).
 - `opus-reviewer` (read-only) — review diffu před commitem u netriviálních změn. U drobností a dokumentace se přeskakuje.
+- `test-runner` (Haiku, read-only) — spouští pytest (e2e jen na požádání) a vrací stručné shrnutí selhání místo dlouhého logu.
 - `opus-expert` — jen eskalace těžkých algoritmických problémů, kde junior uvázl. Ne pro rutinní práci.
 
-Typický tok: plán → (advisor u složitých věcí) → junior-dev implementuje + pytest → reviewer → commit.
+Typický tok: plán → (advisor u složitých věcí) → junior-dev implementuje → test-runner (pytest) → reviewer → commit.
 
 ## Struktura repozitáře
 
