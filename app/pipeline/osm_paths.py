@@ -29,7 +29,11 @@ from app.pipeline.oom_import import (
     _pyogrio_layer_rows,
     _wkb_parts,
 )
-from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.pipeline.oom_symbol_map import (
+    describe_code,
+    preset_uses_catalog,
+    symbol_index_for_code,
+)
 from app.pipeline.prepare_lidar import log_step
 from app.tool_env import gis_subprocess_env, which_tool
 # Veřejná zrcadla (seznam z wiki.openstreetmap.org/wiki/Overpass_API, ověřeno
@@ -3065,12 +3069,13 @@ def write_osm_manual_shapefiles(
         "",
         "Importuj vybrané SHP do OOM (File → Importovat…) a přiřaď symbol.",
         "Většina objektů je i v .omap; sem patří pro volné poskládání / doladění.",
-        "OSM_skaly (bare_rock) → 214 v auto .omap; OSM_skaly_linie / OSM_sutina: jen podklad (skály = LiDAR 206).",
+        f"OSM_skaly (bare_rock) → {describe_code('214')} v auto .omap; OSM_skaly_linie / "
+        f"OSM_sutina: jen podklad (skály = LiDAR {describe_code('206')}).",
         "",
         "Vrstva              Typ        Doporučený symbol (les/sprint; MTBO se liší)",
         "-----              ---        ---------------------------------------------",
-        "OSM_cesty          linie      506 (pěšina) / 501.* silnice – dle highway",
-        "OSM_budovy         polygony   521 (les/sprint) nebo 526 (MTBO)",
+        f"OSM_cesty          linie      {describe_code('506')} (pěšina) / silnice dle highway",
+        f"OSM_budovy         polygony   {describe_code('521')} (les/sprint) nebo 526 (MTBO)",
     ]
     for kind, feats in sorted(by_kind.items()):
         spec = OSM_MANUAL_LAYER_SPECS.get(kind)
@@ -3082,7 +3087,7 @@ def write_osm_manual_shapefiles(
         geom = {"POINT": "body", "LINESTRING": "linie", "POLYGON": "polygony"}.get(
             nlt, "smíšené"
         )
-        lines.append(f"{stem:<18} {geom:<10} {code}  ({desc})")
+        lines.append(f"{stem:<18} {geom:<10} {describe_code(code)}  ({desc})")
     lines.append("")
     lines.append("Souřadnice: EPSG:5514 (S-JTSK).")
     lines.append("")
@@ -3129,8 +3134,10 @@ def build_osm_path_parts(
         if code not in symbol_cache:
             symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
         symbol_index = symbol_cache[code]
-        if symbol_index is None:
-            # Fallback: les/sprint 506; MTBO Path medium 834 (504–507 jsou skryté).
+        if symbol_index is None and not preset_uses_catalog(preset_id, scale):
+            # Fallback (jen staré sady): les/sprint 506; MTBO Path medium 834 (504–507
+            # jsou skryté). U katalogových sad se chybějící kód nenahrazuje – je
+            # zaznamenán v počítadle a vypsán varováním v logu jobu.
             fallback = "834" if preset_id.startswith("mtbo") else "506"
             if fallback not in symbol_cache:
                 symbol_cache[fallback] = symbol_index_for_code(

@@ -1123,7 +1123,20 @@ def _current_part(root: ET.Element) -> ET.Element | None:
 
 
 # Fialový AOI obdélník z package_oom.build_aoi_boundary_part.
-_AOI_FRAME_CODES = frozenset({"708", "705"})
+_AOI_FRAME_GEN_CODES = frozenset({"708", "705"})
+
+
+def _aoi_frame_codes() -> frozenset[str]:
+    """Kódy rámu v .omap: kódy generátoru (staré sady) + jejich překlad v katalogu."""
+    from app.pipeline.symbol_catalog import all_set_codes
+
+    codes = set(_AOI_FRAME_GEN_CODES)
+    for gen in _AOI_FRAME_GEN_CODES:
+        codes |= all_set_codes(gen)
+    return frozenset(codes)
+
+
+_AOI_FRAME_CODES = _aoi_frame_codes()
 
 
 def _symbol_ids_for_codes(root: ET.Element, codes: frozenset[str]) -> set[int]:

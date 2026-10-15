@@ -34,6 +34,9 @@ na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
 - Vlastní šablona mapového klíče (nahrát .omap; import jde podle kódů značek)
   a výchozí ISSprOM 2019-2 rev. 6 (chybí např. trojúhelníky víceúrovňových
   staveb). Uživatel hledá úplnou sadu pro OOM.
+  - Stav (2026-10): mapový klíč je teď česká OCAD sada ISOM 2017-2 / ISSprOM 2019-2
+    (`configs/oom/*_cz.omap`, viz DEV.md „Sady symbolů“); trojúhelníky víceúrovňových
+    staveb a další symboly jsou v sadě. Vlastní nahrávaná šablona zůstává otevřená.
   - Rozbor šablony ze školení kartografů (Mapovani_Zderaz.omap, 2026-10):
     ISOM 2017-2 1:15000 česky, 138 kódů shodných s naší; kódy jako „101.0“
     a přečíslované podvarianty (513.100, 520.4, 501.1, 203.101) → při použití

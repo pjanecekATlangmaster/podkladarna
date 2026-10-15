@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from functools import lru_cache
 from pathlib import Path
 
+from app.pipeline import symbol_catalog as _sc
 from app.pipeline.oom_symbols import symbol_set_path
+from app.pipeline.symbol_catalog import catalog_entry, generator_map, uses_catalog
+from app.pipeline.symbol_catalog import translate as catalog_translate
 
 # KP vectorconf číslo ≠ vždy stejné IOF číslo v ISSprOM / ISOM.
 _SYMBOL_NAME_TO_OOM: dict[str, str] = {
@@ -116,9 +120,95 @@ KP_CLIFF_206_CODE = "206"
 KP_CLIFF_FACE_AREA_CODE = "201.2"
 
 
+@lru_cache(maxsize=64)
+def _uses_catalog(path: Path) -> bool:
+    return uses_catalog(path)
+
+
+@lru_cache(maxsize=8192)
+def _translate_cached(path: Path, gen_code: str, catalog_file: Path) -> str | None:
+    return catalog_translate(path, gen_code)
+
+
+def _translate(path: Path, gen_code: str) -> str | None:
+    """Čistý překlad kódu generátoru na kód sady (cachovaný; počítadlo chybějících
+    kódů je mimo cache). ``catalog_file`` v klíči kvůli testům s jiným katalogem."""
+    return _translate_cached(path, gen_code, _sc.CATALOG_PATH)
+
+# Kódy generátoru bez symbolu v katalogové sadě: {(soubor sady, kód): počet dotazů}.
+_UNMAPPED: Counter[tuple[str, str]] = Counter()
+
+
+def set_code(preset_id: str, scale: int, gen_code: str) -> str | None:
+    """Kód generátoru → kód symbolu v sadě použité pro (preset, měřítko).
+
+    Nové ``*_cz.omap`` sady: překlad přes ``symbol_catalog.yaml`` (bez „+.0“ a bez
+    fallbacku na syrový kód; neznámý kód → ``None``). Staré sady (OOM / merged /
+    MTBO): identita.
+    """
+    path = symbol_set_path(preset_id, scale)
+    if not _uses_catalog(path):
+        return gen_code
+    code = _translate(path, gen_code)
+    if code is None:
+        _UNMAPPED[(path.name, gen_code)] += 1
+    return code
+
+
+def preset_uses_catalog(preset_id: str, scale: int) -> bool:
+    """True = preset kreslí do katalogové ``*_cz.omap`` sady (fallbacky na jiný kód
+    se tu nesmí použít, chybějící kód se hlásí přes ``unmapped_codes_message``)."""
+    return _uses_catalog(symbol_set_path(preset_id, scale))
+
+
+def display_code(preset_id: str, scale: int, gen_code: str) -> str:
+    """Kód pro texty a atributy výstupu (kód sady; při neznámém kódu původní)."""
+    path = symbol_set_path(preset_id, scale)
+    if not _uses_catalog(path):
+        return gen_code
+    return _translate(path, gen_code) or gen_code
+
+
+def describe_code(gen_code: str) -> str:
+    """Kód pro statické texty ve ZIPu (README) bez znalosti presetu.
+
+    ZIP může obsahovat sprint i les; když se kód sady v ISOM a ISSprOM liší,
+    vypíše se u obou. Kód, který katalog nezná, zůstane beze změny.
+    """
+    isom = generator_map("isom").get(gen_code)
+    sprint = generator_map("sprint").get(gen_code)
+    if isom and sprint:
+        return isom if isom == sprint else f"ISOM {isom} / ISSprOM {sprint}"
+    return isom or sprint or gen_code
+
+
+def drain_unmapped_codes() -> dict[tuple[str, str], int]:
+    """Vrátí a vynuluje {(sada, kód generátoru): počet dotazů bez symbolu}."""
+    out = dict(_UNMAPPED)
+    _UNMAPPED.clear()
+    return out
+
+
+def unmapped_codes_message(unmapped: dict[tuple[str, str], int]) -> str | None:
+    """Text varování do logu jobu (nebo ``None``, když nic nechybí)."""
+    if not unmapped:
+        return None
+    parts = [f"{code}×{n}" for (_set, code), n in sorted(unmapped.items())]
+    set_name = sorted({s for s, _c in unmapped})[0]
+    return (
+        f"!!! Sada {set_name}: kód generátoru bez symbolu v katalogu – objekty "
+        f"zahozeny nebo nahrazeny (kód×počet dotazů): {', '.join(parts)}"
+    )
+
+
 def _symbol_visible(preset_id: str, scale: int, code: str) -> bool:
     """True = symbol existuje a není ``is_hidden`` (Mapper by ho neukázal)."""
     path = symbol_set_path(preset_id, scale)
+    if _uses_catalog(path):
+        translated = _translate(path, code)
+        if translated is None:
+            return False
+        code = translated
     text = path.read_text(encoding="utf-8")
     for m in re.finditer(r"<symbol\b([^>]*)>", text):
         attrs = m.group(1)
@@ -141,13 +231,23 @@ def resolve_rock_area_code(preset_id: str, scale: int) -> str | None:
     if not _is_sprint(preset_id) and not _is_mtbo(preset_id):
         candidates.append(KP_CLIFF_FACE_AREA_CODE)
     candidates.extend([KP_CLIFF_206_CODE, KP_CLIFF_DENSE_CODE])
+    path = symbol_set_path(preset_id, scale)
     for code in candidates:
-        if symbol_index_for_code(preset_id, scale, code) is None:
+        if not _has_symbol(preset_id, scale, code):
             continue
         if not _symbol_visible(preset_id, scale, code):
             continue
+        if _uses_catalog(path) and not _is_area_symbol(path, code):
+            # V OCAD sadě je např. ISOM 201.2 čára (útes bez čárek), ne plocha.
+            continue
         return code
     return None
+
+
+def _is_area_symbol(path: Path, gen_code: str) -> bool:
+    ocad = _translate(path, gen_code)
+    entry = catalog_entry(path, ocad) if ocad else None
+    return bool(entry) and entry.get("geom") == "area"
 
 
 def _is_sprint(preset_id: str) -> bool:
@@ -172,7 +272,23 @@ def _code_to_index(symbol_set: Path) -> dict[str, int]:
 
 def symbol_index_for_code(preset_id: str, scale: int, code: str) -> int | None:
     path = symbol_set_path(preset_id, scale)
+    if _uses_catalog(path):
+        set_symbol_code = _translate(path, code)
+        if set_symbol_code is None:
+            _UNMAPPED[(path.name, code)] += 1
+            return None
+        return _code_to_index(path).get(set_symbol_code)
     return _code_to_index(path).get(code)
+
+
+def _has_symbol(preset_id: str, scale: int, code: str) -> bool:
+    """Jako ``symbol_index_for_code(...) is not None``, ale bez záznamu do _UNMAPPED
+    (jen sondování kandidátů)."""
+    path = symbol_set_path(preset_id, scale)
+    if _uses_catalog(path):
+        translated = _translate(path, code)
+        return translated is not None and translated in _code_to_index(path)
+    return code in _code_to_index(path)
 
 
 def _layer_oom_code(layer: str, preset_id: str) -> str | None:
@@ -249,12 +365,11 @@ def oom_code_for_vectorconf_rule(
             return "522"
         return "516"
 
-    known = _code_to_index(symbol_set_path(preset_id, scale))
     name_map = _SYMBOL_NAME_TO_OOM_MTBO if _is_mtbo(preset_id) else _SYMBOL_NAME_TO_OOM
     mapped = name_map.get(symbol_name)
-    if mapped and mapped in known:
+    if mapped and _has_symbol(preset_id, scale, mapped):
         return mapped
-    if kp in known:
+    if _has_symbol(preset_id, scale, kp):
         return kp
     return None
 

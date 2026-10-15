@@ -78,8 +78,12 @@ def test_oom_code_building_maps_to_521():
         scale=4000,
     )
     assert code == "521"
-    # ID == pořadí v sadě (0..n-1); po OCAD 501 merge je 521 na indexu 170.
-    assert symbol_index_for_code("sprint_2m", 4000, code) == 170
+    # Kód generátoru 521 → OCAD 521.0 v ISSprOM_2019_4000_cz.omap (id = pořadí v sadě).
+    from app.pipeline.oom_symbol_map import _code_to_index
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    expected = _code_to_index(symbol_set_path("sprint_2m", 4000))["521.0"]
+    assert symbol_index_for_code("sprint_2m", 4000, code) == expected
 
 
 def test_oom_code_building_mtbo_maps_to_526():

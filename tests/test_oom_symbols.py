@@ -9,13 +9,15 @@ from app.pipeline.oom_symbols import colors_and_symbols_xml, symbol_set_path
 
 def test_symbol_set_path_sprint():
     path = symbol_set_path("sprint_2m", 4000)
-    assert path.name == "ISSprOM_2019_4000.omap"
+    assert path.name == "ISSprOM_2019_4000_cz.omap"
     assert path.is_file()
 
 
 def test_symbol_set_path_forest():
     path = symbol_set_path("forest_7500", 7500)
-    assert path.name == "ISOM_2017-2_10000.omap"
+    assert path.name == "ISOM_2017_10000_cz.omap"
+    assert symbol_set_path("forest_10000", 10000).name == "ISOM_2017_10000_cz.omap"
+    assert symbol_set_path("forest_10000", 15000).name == "ISOM_2017_15000_cz.omap"
 
 
 def test_symbol_set_path_mtbo():
@@ -38,7 +40,8 @@ def test_colors_and_symbols_xml():
 def test_contour_symbols_are_protected():
     path = symbol_set_path("forest_10000", 10000)
     _, symbols = colors_and_symbols_xml(path)
-    for code in ("101", "102"):
+    # Kódy generátoru 101/102 → OCAD 101.0/102.0 (symbol_catalog.yaml).
+    for code in ("101.0", "102.0"):
         m = __import__("re").search(
             rf'<symbol\b[^>]*\bcode="{code}"[^>]*>',
             symbols,
@@ -62,8 +65,9 @@ def test_sprint_colors_and_symbols_drop_issom_legacy():
     path = symbol_set_path("sprint_2m", 4000)
     _, symbols = colors_and_symbols_xml(path)
     assert 'code="203.9"' not in symbols
-    assert 'code="203.1"' in symbols
+    assert 'code="203.1"' in symbols  # OCAD: Jeskyně
     assert "from ISSOM" not in symbols
+    assert "is_hidden" not in symbols
 
 
 def test_mtbo_overlays_isom_earth_bank_knoll_farmland():
@@ -152,7 +156,10 @@ def test_symbol_color_refs_exist_in_palette():
 
 
 def test_issprom_lower_brown_above_yellow():
-    """ISSprOM: hnědé barvy ulic 501.x musí být nad žlutou 401, jinak cesty zmizí."""
+    """ISSprOM: hnědé barvy ulic 501.x musí být nad žlutou 401, jinak cesty zmizí.
+
+    Nová OCAD sada má vlastní názvy barev (bez OOM „Lower brown …“).
+    """
     import re
 
     text = symbol_set_path("sprint_2m", 4000).read_text(encoding="utf-8")
@@ -164,14 +171,14 @@ def test_issprom_lower_brown_above_yellow():
         pri = int(m.group(1))
         by_name[m.group(2)] = pri
         by_pri[pri] = m.group(2)
-    yellow = by_name["Yellow 100%"]
+    yellow = by_name["Yellow"]
     # Nižší priority = výše ve výkresu.
-    assert by_name["Lower brown 50%"] < yellow
-    assert by_name["Lower brown 30%"] < yellow
-    assert by_name["Black below lower light brown"] < yellow
+    assert by_name["Brown 50% - street infill"] < yellow
+    assert by_name["Brown 30% - street infill"] < yellow
+    assert by_name["Black - street sideline"] < yellow
     # OCAD heavy streets (501.30+) – brown 50% / street infill nad žlutou.
     road = re.search(
-        r'<symbol[^>]*\bcode="501.30"[^>]*>.*?</symbol>', text, re.DOTALL
+        r'<symbol[^>]*\bcode="501\.30"[^>]*>.*?</symbol>\s*(?=<symbol)', text, re.DOTALL
     )
     assert road is not None
     road_colors = {int(c) for c in re.findall(r'\bcolor="(\d+)"', road.group(0))}
