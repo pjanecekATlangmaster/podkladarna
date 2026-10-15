@@ -11,3 +11,5 @@ agent-tools/
 local_test/
 third_party/
 .env
+
+.claude/settings.local.json

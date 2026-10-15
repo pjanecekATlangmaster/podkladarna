@@ -9,24 +9,38 @@ Podkladárna je webová služba pro generování orientačních podkladů z ČÚ
 - Geoprocessing: PDAL, GDAL, vlastní pipeline pro vegetaci, srázy a DEM
 - Kontejnerizace: Docker / Docker Compose
 - Testy: pytest v `tests/`, end-to-end smoke test `scripts/smoke_e2e.py`
-- CI: GitHub Actions, build a push image do GHCR
+- CI: GitHub Actions — `test.yml` (testy), `docker.yml` (build a push image do GHCR)
 
-## Základní pravidla pro agenta
+## Pravidla pro agenta
 
-- Komunikuj česky.
+- Komunikuj česky; commit zprávy také česky (prefix `docs:`, `fix:`, `feat:` apod.).
 - Před úpravou si přečti relevantní soubory a vysvětli krátký plán změny.
 - Zachovávej stávající strukturu projektu, styl kódu a pojmenování.
-- Nepřepisuj `.env`, hesla, tokeny, SMTP údaje ani produkční konfiguraci.
-- Nikdy necommituj tajemství, přihlašovací údaje ani lokální data.
-- Před commitem spusť alespoň rychlé testy:
-
-```powershell
-python -m pytest tests/ -v
-```
-
 - Nedělej rozsáhlý refaktoring bez výslovného souhlasu.
-- Neměň Dockerfile, `docker-compose*.yml`, deploy skripty ani GitHub Actions bez vysvětlení dopadu.
-- Do produkce na NAS nikdy nesahej bez výslovného souhlasu.
+- Nikdy necommituj tajemství, přihlašovací údaje ani lokální data.
+- Před commitem spusť rychlé testy (viz „Vývoj a testy").
+- Při změnách kódu a opravách chyb zvyš `APP_VERSION` v `app/settings.py` (viz „Verze a Novinky"); u dokumentace ne.
+
+### Jen se souhlasem Petra
+
+- Spouštět `./deploy-nas.sh` nebo `./update-nas.sh` na ostré NAS; do produkce na NAS nesahat vůbec.
+- Mazat data, joby, cache nebo Docker image.
+- Měnit DNS, router, Synology reverse proxy, certifikáty nebo firewall.
+- Měnit produkční `.env`, SMTP údaje nebo secrets (ani `.env` lokálně nepřepisovat).
+- Měnit Dockerfile, `docker-compose*.yml`, deploy skripty ani GitHub Actions bez vysvětlení dopadu.
+- Publikovat novou Docker image bez úspěšných testů.
+- Měnit schéma SQLite databáze nebo formát uložených jobů bez migračního plánu.
+
+## Dělba práce (agenti)
+
+Agenti jsou v `.claude/agents/`. Šetříme drahé modely: implementuje junior, senioři radí a revidují.
+
+- `junior-dev` (Sonnet) — výchozí volba pro rutinní implementaci: opravy chyb, menší funkce, testy, úpravy UI. Eskaluje, když se zasekne.
+- `opus-advisor` (read-only) — konzultace plánu před netriviální změnou (pipeline, API, formát jobů, geometrie).
+- `opus-reviewer` (read-only) — review diffu před commitem u netriviálních změn. U drobností a dokumentace se přeskakuje.
+- `opus-expert` — jen eskalace těžkých algoritmických problémů, kde junior uvázl. Ne pro rutinní práci.
+
+Typický tok: plán → (advisor u složitých věcí) → junior-dev implementuje + pytest → reviewer → commit.
 
 ## Struktura repozitáře
 
@@ -44,33 +58,24 @@ python -m pytest tests/ -v
 - `deploy-nas.sh` — první deploy / šetrný restart na NAS
 - `update-nas.sh` — aktualizace image z GHCR na NAS
 - `nas-lib.sh` — sdílené funkce pro NAS deploy
-- `.github/workflows/` — GitHub Actions, zejména build a push do GHCR
+- `.github/workflows/` — GitHub Actions (`test.yml`, `docker.yml`)
 - `DEV.md` — podrobný vývojový workflow
 - `DEPLOY.md` — podrobný postup nasazení a provozu na NAS
 
-## Lokální vývoj na Windows
+## Vývoj a testy
 
-Standardní checkout Petra je:
-
-```text
-C:\Users\PetrJanecek\.cursor\projects\podkladarna
-```
-
-Agenti mají editovat worktree:
-
-```text
-C:\Users\PetrJanecek\.cursor\projects\podkladarna-agent
-```
-
-Neukládej změny přímo do Petrova live checkoutu, pokud běží dlouhé joby; `--reload` nebo file-watch může běžící job přerušit.
+Předpoklady: Windows + PowerShell, nainstalovaný QGIS v `C:\QGIS` (kvůli `proj.db`, viz níže).
 
 ### Rychlé testy
 
+Z kořene repozitáře:
+
 ```powershell
-cd C:\Users\PetrJanecek\.cursor\projects\podkladarna-agent
 python -m pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
+
+Pro změny v `app/` stačí pytest. E2E test a Docker (`dev.ps1 up`, `dev.ps1 e2e`) spouštěj jen u změn pipeline, Dockerfile nebo závislostí.
 
 ### Pomocné příkazy
 
@@ -91,11 +96,7 @@ python -m pytest tests/ -v
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-Lokální adresa:
-
-```text
-http://localhost:8672
-```
+Lokální adresa: `http://localhost:8672`
 
 Při e2e testu v Dockeru neukládej změny kódu uprostřed běžícího jobu, protože dev compose používá automatický reload.
 
@@ -111,62 +112,66 @@ $env:PROJ_LIB = $env:PROJ_DATA
 $env:PATH = $env:PATH + ';C:\QGIS\bin'
 ```
 
+### Diagnostika
+
+```powershell
+# pytest podrobněji
+python -m pytest tests/ -v --tb=short
+
+# lokální Docker log
+docker compose -f docker-compose.dev.yml logs -f
+
+# log jobu přes API
+curl http://127.0.0.1:8672/api/jobs/<id>/log
+```
+
+```bash
+# log na NAS
+docker compose -f docker-compose.nas.yml logs --tail=100
+```
+
+## Verze a Novinky
+
+- Verze aplikace je `APP_VERSION` v `app/settings.py` (formát `MAJOR.MINOR.PATCH`).
+- Při každé změně kódu včetně oprav chyb zvyš verzi (patch, např. `2.8.1` → `2.8.2`). Čistě dokumentační úpravy (CLAUDE.md, DEV.md, DEPLOY.md apod.) verzi nezvyšují.
+- U velké změny zvyš minor o jedna a patch vynuluj (`2.8.2` → `2.9.0`). Zda jde o velkou změnu, posuzuje agent odhadem (nová funkce, změna výstupu pipeline, výrazné zrychlení apod.).
+- Box „Co je nového" na webu: `configs/whats_new.yaml` je generovaný CI z git logu — neupravuj ho ručně. Ruční milníky jsou v `configs/whats_new_milestones.yaml`; zapisuj sem jen významné změny z posledního období, ne drobnosti.
+
 ## Ostré prostředí
 
 - Veřejná adresa: `https://podkladarna.kibos.link`
 - Hosting: Synology NAS
-- Provoz: Internet → router → Synology DSM reverse proxy → `127.0.0.1:8672` → Docker kontejner
+- Provoz: Internet/Cloudflare → router → Synology DSM reverse proxy → `127.0.0.1:8672` → Docker kontejner
 - Interní port kontejneru: `8672`
 - Docker image: `ghcr.io/pjanecekatlangmaster/podkladarna:latest`
 - NAS složka: `/volume1/docker/podkladarna/`
 - Perzistentní data: `./data` na NAS, uvnitř kontejneru `/data`
-- Port 8672 nemusí být otevřený na routeru; veřejný přístup jde přes HTTPS reverse proxy na NAS.
 
 ## Release proces
 
-Standardní postup:
+Agent dělá kroky 1–7, nasazení na NAS (od kroku 8) dělá Petr.
 
 1. Vytvoř feature větev z aktuálního `master`.
-2. Proveď změny a lokálně spusť:
-
-```powershell
-python -m pytest tests/ -v
-```
-
-3. Pro změny pipeline, Dockerfile nebo závislostí spusť podle potřeby:
-
-```powershell
-.\scripts\dev.ps1 up
-.\scripts\dev.ps1 e2e
-```
-
+2. Proveď změny, zvyš `APP_VERSION` (kromě čistě dokumentačních změn) a lokálně spusť `python -m pytest tests/ -v`.
+3. Pro změny pipeline, Dockerfile nebo závislostí navíc `.\scripts\dev.ps1 up` a `.\scripts\dev.ps1 e2e`.
 4. Commitni změny a pushni větev do GitHubu.
 5. Vytvoř Pull Request do `master`.
-6. Po merge do `master` GitHub Actions workflow `docker.yml` sestaví a publikuje image do:
-
-```text
-ghcr.io/pjanecekatlangmaster/podkladarna:latest
-```
-
+6. Po merge do `master` workflow `docker.yml` sestaví a publikuje `ghcr.io/pjanecekatlangmaster/podkladarna:latest`.
 7. Zkontroluj, že Actions workflow je zelené.
-8. Na NAS spusť aktualizaci:
+8. (Petr) Na NAS spusť aktualizaci:
 
 ```bash
 cd /volume1/docker/podkladarna
 sudo ./update-nas.sh
 ```
 
-9. Ověř funkčnost:
+9. (Petr) Ověř funkčnost, očekávaný výsledek je `200`:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
 ```
 
-Očekávaný výsledek je `200`.
-
-10. Otevři `https://podkladarna.kibos.link` a ověř základní funkce webu.
-
-## Nasazení na NAS
+## Nasazení na NAS (dělá Petr)
 
 `update-nas.sh` ve výchozím režimu:
 
@@ -194,6 +199,8 @@ docker compose -f docker-compose.nas.yml down
 docker compose -f docker-compose.nas.yml up -d
 ```
 
+Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažení ZIP a otevření v OpenOrienteering Mapperu, u SMTP e-mail s odkazem) je popsán v `DEPLOY.md`.
+
 ## Konfigurace a tajemství
 
 - Lokálně vycházej z `.env.example`; skutečný `.env` necommituj.
@@ -202,40 +209,3 @@ docker compose -f docker-compose.nas.yml up -d
 - SMTP je nutné pro privátní joby a zpětnou vazbu.
 - Důležité proměnné: `SMTP_HOST`, `SMTP_PORT`, `SMTP_ENCRYPTION`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `PUBLIC_BASE_URL`, `FEEDBACK_TO`, `PRIVATE_JOB_RETENTION_HOURS`.
 - Zdravotní stav mailu lze ověřit přes `/api/health`, pole `mail_configured`.
-
-## Testování po deployi
-
-- Otevřít `https://podkladarna.kibos.link`.
-- Vytvořit nový job s testovacími nebo reálnými DMR/DMP/ZABAGED daty.
-- Zvolit preset, například Sprint.
-- Sledovat log jobu.
-- Stáhnout výsledný ZIP.
-- Ověřit, že se ZIP otevře v OpenOrienteering Mapperu.
-- Pokud jde o změnu SMTP nebo privátních jobů, ověřit e-mail s odkazem.
-
-## Diagnostika
-
-```powershell
-# pytest
-python -m pytest tests/ -v --tb=short
-
-# lokální Docker log
-docker compose -f docker-compose.dev.yml logs -f
-
-# log jobu přes API
-curl http://127.0.0.1:8672/api/jobs/<id>/log
-```
-
-```bash
-# log na NAS
-docker compose -f docker-compose.nas.yml logs --tail=100
-```
-
-## Co je zakázáno bez souhlasu
-
-- Spouštět `./deploy-nas.sh` nebo `./update-nas.sh` na ostré NAS.
-- Mazat data, joby, cache nebo Docker image.
-- Měnit DNS, router, Synology reverse proxy, certifikáty nebo firewall.
-- Měnit produkční `.env`, SMTP údaje nebo secrets.
-- Publikovat novou Docker image bez úspěšných testů.
-- Měnit schéma SQLite databáze nebo formát uložených jobů bez migračního plánu.
