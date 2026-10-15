@@ -172,6 +172,12 @@ sudo ./update-nas.sh
 curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
 ```
 
+## Kde se co spouští (Docker a NAS)
+
+- **Vývojový stroj (Windows):** tady je repozitář. `dev.ps1 up` / `dev.ps1 e2e` staví image z lokálního pracovního stromu (`docker-compose.dev.yml`) a zkouší tedy kód z aktuální větve. Je to volitelná kontrola před mergem; nutná je jen u změn pipeline, Dockerfile nebo závislostí (viz „Release proces").
+- **NAS:** repozitář se tam nestahuje. Běží jen hotový image `ghcr.io/pjanecekatlangmaster/podkladarna:latest` sestavený workflow `docker.yml` po mergu do `master` (kopíruje se `configs/`, `app/`, `web/`). Na NAS se proto nikdy nezkouší kód z větve ani se tam nespouští `dev.ps1`; po `update-nas.sh` se jen ověřuje nasazený image (health `200`, testovací job, log jobu, stažený ZIP).
+- Agent proto při předávání pokynů „co pustit" vždy rozlišuje: před mergem = vývojový stroj, po mergu = NAS (jen `update-nas.sh` + ruční ověření podle `DEPLOY.md`).
+
 ## Nasazení na NAS (dělá Petr)
 
 `update-nas.sh` ve výchozím režimu:
