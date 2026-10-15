@@ -164,6 +164,13 @@ z vectorconf (`kp`) odvozený ze souboru `zabaged*.txt`, který katalog nezná, 
 symbolu i dřív; kódy, které generátor vyrábí, hlídá `tests/test_generator_codes_covered.py`.
 Staré sady (MTBO) procházejí beze změny.
 
+Zpevněné plochy v lese: ISOM `501.0` má okraj v symbolu, `501.1` je jen výplň a `501.2` okrajová
+čára. OSM plochy kreslené jako `501.1` (hřiště, pěší zóny, nástupiště) proto dostanou navíc
+čáru `501.2` po skutečné hranici plochy (`osm_paths.py`, `_paved_edge_objects`): prstenec celý
+ve výřezu = uzavřená čára, prstenec protnutý výřezem = jen otevřené kusy uvnitř (podél ořezu
+na výřez se okraj nekreslí). Sprint a MTBO to nedělají (sprint `501.0` je kombinovaný
+a okraj `501.100` obsahuje; `501.1`/`501.2` mají v ISSprOM jiný význam).
+
 Testy: `tests/test_symbol_catalog.py` (sady a katalog), `tests/test_set_code.py` (překlad),
 `tests/test_generator_codes_covered.py` (každý kód, který generátor umí vyprodukovat, je
 v katalogu a geometrie symbolu odpovídá použití).

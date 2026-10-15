@@ -939,6 +939,52 @@ def classify_osm_feature(
     return None
 
 
+# Les (ISOM): 501.1 = jen výplň zpevněné plochy bez okraje; okraj nese čára 501.2.
+ISOM_PAVED_FILL_CODE = "501.1"
+ISOM_PAVED_EDGE_CODE = "501.2"
+
+
+def _closed_edge_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
+    """Uzavřená čára (okraj plochy) po jednom prstenci; None-like ``""`` pro < 3 body."""
+    ring = list(coords)
+    if len(ring) >= 2 and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    if len(ring) < 3:
+        return ""
+    return _path_object(symbol_index, [*ring, (ring[0][0], ring[0][1], 18)])
+
+
+def _paved_edge_objects(
+    edge_index: int,
+    rings: list[list[tuple[float, float]]],
+    clip_bounds: Bounds | None,
+    to_map,
+) -> list[str]:
+    """Okraj 501.2 po SKUTEČNÉ hranici plochy.
+
+    Prstenec celý uvnitř výřezu → uzavřená čára; prstenec protínající hranici výřezu
+    → jen otevřené kusy uvnitř (podél ořezu na výřez žádná falešná čára).
+    """
+    out: list[str] = []
+    for ring in rings:
+        if len(ring) < 3:
+            continue
+        if clip_bounds is None or all(
+            point_inside(x, y, clip_bounds) for x, y in ring
+        ):
+            obj = _closed_edge_object(edge_index, to_map(ring))
+            if obj:
+                out.append(obj)
+            continue
+        closed = list(ring) if ring[0] == ring[-1] else [*ring, ring[0]]
+        for piece in clip_polyline(closed, clip_bounds):
+            if len(piece) >= 2:
+                obj = _path_object(edge_index, to_map(piece))
+                if obj:
+                    out.append(obj)
+    return out
+
+
 def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     """OOM kód podle druhu objektu a presetu (sprint / les / MTBO)."""
     sprint = preset_id.startswith("sprint")
@@ -3381,6 +3427,7 @@ def build_osm_feature_parts(
             if not raw_rings:
                 continue
             rings = [[(float(x), float(y)) for x, y in r] for r in raw_rings]
+            orig_rings = rings  # skutečná hranice plochy (před ořezem na výřez)
             if clip_bounds:
                 rings = [clip_ring(r, clip_bounds) for r in rings]
                 if len(rings[0]) < 3:
@@ -3390,6 +3437,20 @@ def build_osm_feature_parts(
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
+                if code == ISOM_PAVED_FILL_CODE and not (
+                    preset_id.startswith("sprint") or mtbo
+                ):
+                    # ISOM 501.1 je jen výplň bez okraje → černý okraj 501.2 po skutečné
+                    # hranici plochy (vnější obrys i díry); podél ořezu na výřez se nekreslí.
+                    if ISOM_PAVED_EDGE_CODE not in symbol_cache:
+                        symbol_cache[ISOM_PAVED_EDGE_CODE] = symbol_index_for_code(
+                            preset_id, scale, ISOM_PAVED_EDGE_CODE
+                        )
+                    edge_index = symbol_cache[ISOM_PAVED_EDGE_CODE]
+                    if edge_index is not None:
+                        grouped[kind].extend(
+                            _paved_edge_objects(edge_index, orig_rings, clip_bounds, to_map)
+                        )
             fill_index = olive_index if courtyard_fill == "olive" else symbol_index
             if (
                 fill_courtyards

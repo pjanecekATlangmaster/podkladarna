@@ -181,6 +181,8 @@ def collect_generated_codes(
     add("104", "sráz zem", "line")
     if key == "sprint":
         add("501.0", "residual_paved (sprint)", "area")
+    if key == "isom":
+        add("501.2", "okraj zpevněné plochy 501.1 (osm_paths)", "line")
     # Plocha skály: resolve_rock_area_code vrací 206, nouzově 210 (201.2 v OCAD
     # sadě není plocha → záměrně nemapováno a přeskočeno).
     add(sm.KP_CLIFF_206_CODE, "resolve_rock_area_code", "area")
