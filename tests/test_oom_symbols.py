@@ -22,10 +22,10 @@ def test_symbol_set_path_forest():
 
 def test_symbol_set_path_mtbo():
     path10 = symbol_set_path("mtbo_10000", 10000)
-    assert path10.name == "ISMTBOM_10000.omap"
+    assert path10.name == "ISMTBOM_2022_10000_cz.omap"
     assert path10.is_file()
     path15 = symbol_set_path("mtbo_15000", 15000)
-    assert path15.name == "ISMTBOM_15000.omap"
+    assert path15.name == "ISMTBOM_2022_15000_cz.omap"
     assert path15.is_file()
 
 
@@ -50,15 +50,27 @@ def test_contour_symbols_are_protected():
         assert 'is_protected="true"' in m.group(0)
 
 
-def test_mtbo_embedded_symbols_are_unhidden():
-    """ISMTBOM má skryté legacy 504–507 i vegetaci – v .omap musí jít kreslit."""
+def test_mtbo_set_keeps_ocad_hidden_flags():
+    """ISMTBOM 2022: hidden symboly zůstávají jako v OCADu (odkryjí se až při použití)."""
     path = symbol_set_path("mtbo_10000", 10000)
     raw = path.read_text(encoding="utf-8")
     assert 'is_hidden="true"' in raw
     _, symbols = colors_and_symbols_xml(path)
-    assert "is_hidden" not in symbols
-    for code in ("502", "831", "833", "834", "408", "410"):
+    assert 'is_hidden="true"' in symbols
+    for code in ("101.0", "815.0", "817.0", "818.0", "103.0", "111.0", "408.0"):
         assert f'code="{code}"' in symbols
+
+
+def test_mtbo_catalog_translates_generator_codes():
+    """Kódy generátoru (číslování dřívějšího ISMTBOM) → kódy OCAD sady ISMTBOM 2022."""
+    from app.pipeline.symbol_catalog import generator_map
+
+    gm = generator_map("mtbo")
+    assert gm["101"] == "101.0"
+    assert gm["526"] == "521.0"  # budova
+    assert gm["831"] == "815.0" and gm["833"] == "817.0" and gm["834"] == "818.0"
+    assert gm["415"] == "412.0"
+    assert gm["416"] == "416.1"
 
 
 def test_sprint_colors_and_symbols_drop_issom_legacy():
@@ -70,62 +82,22 @@ def test_sprint_colors_and_symbols_drop_issom_legacy():
     assert "is_hidden" not in symbols
 
 
-def test_mtbo_overlays_isom_earth_bank_knoll_farmland():
-    """MTBO bere z ISOM zemní sráz, kopeček a obdělávané pole (správný typ/vzhled)."""
-    path = symbol_set_path("mtbo_10000", 10000)
-    _, symbols = colors_and_symbols_xml(path)
-    earth = __import__("re").search(
-        r'<symbol\b[^>]*\bcode="104"[^>]*>.*?</symbol>',
-        symbols,
-        __import__("re").DOTALL,
-    )
-    assert earth is not None
-    assert 'type="2"' in earth.group(0)  # line, ne point Slope line
-    assert "Earth bank" in earth.group(0) or "line_symbol" in earth.group(0)
-
-    knoll = __import__("re").search(
-        r'<symbol\b[^>]*\bcode="109"[^>]*>',
-        symbols,
-    )
-    assert knoll is not None
-    assert 'type="1"' in knoll.group(0)  # point knoll
-
-    farm = __import__("re").search(
-        r'<symbol\b[^>]*\bcode="415"[^>]*>',
-        symbols,
-    )
-    assert farm is not None
-    # Combined cultivated land z ISOM 412.
-    assert 'type="16"' in farm.group(0) or "Cultivated" in symbols
-
-    # 416: vzhled ISOM 416.1 (zelená čárkovaná), ne tečkovaná 416.
-    veg = __import__("re").search(
-        r'<symbol\b[^>]*\bcode="416"[^>]*>.*?</symbol>',
-        symbols,
-        __import__("re").DOTALL,
-    )
-    assert veg is not None
-    assert "green dashed" in veg.group(0).lower() or "dashed" in veg.group(0).lower()
-
-
-def test_mtbo_building_is_gray_not_solid_black():
-    """ISMTBOM 526 Building = Black 70 % (šedá), ne plná černá."""
+def test_mtbo_set_has_own_ocad_symbols_instead_of_isom_overlay():
+    """ISMTBOM 2022 má zemní sráz, kopeček, pole i hranici vegetace vlastní (bez ISOM overlay)."""
     import re
 
     path = symbol_set_path("mtbo_10000", 10000)
-    text = path.read_text(encoding="utf-8")
-    building = re.search(
-        r'<symbol[^>]*\bcode="526"[^>]*>.*?</symbol>',
-        text,
-        re.DOTALL,
-    )
-    assert building is not None
-    assert 'inner_color="3"' in building.group(0)
-    # priority="3" = Black 70 %
-    assert re.search(
-        r'<color[^>]*\bpriority="3"[^>]*\bname="Black 70%"',
-        text,
-    )
+    _, symbols = colors_and_symbols_xml(path)
+
+    def tag(code: str) -> str:
+        m = re.search(rf'<symbol\b[^>]*\bcode="{re.escape(code)}"[^>]*>', symbols)
+        assert m is not None, code
+        return m.group(0)
+
+    assert 'type="2"' in tag("104.0")  # zemní sráz = čára
+    assert 'type="1"' in tag("109.0")  # kupka = bod
+    for code in ("412.0", "416.1", "521.0"):
+        tag(code)  # existují (hidden se odkryjí až při použití)
 
 
 def test_symbol_color_refs_exist_in_palette():

@@ -410,6 +410,85 @@ _SPRINT = """
 """
 
 
+# ISMTBOM 2022 (MTBO): jen symboly, jejichž anglický název nebo geometrie se liší od
+# ISOM/ISSprOM; ostatní se odvodí z názvů ISOM/ISSprOM skriptem build_symbol_sets.py
+# (shoda kódu, geometrie i anglického názvu). Všechny jsou ke kontrole (R).
+_MTBO = """
+502.0|Zpevněná silnice (dálnice)|R
+502.1|Zpevněná silnice nad 7 m|R
+502.2|Zpevněná silnice 5–7 m|R
+502.100|Nezpevněná silnice|R
+815.0|Vozová cesta: rychlá jízda|R
+816.0|Pěšina: rychlá jízda|R
+817.0|Vozová cesta: střední rychlost jízdy|R
+818.0|Pěšina: střední rychlost jízdy|R
+819.0|Vozová cesta: pomalá jízda|R
+820.0|Pěšina: pomalá jízda|R
+821.0|Vozová cesta: velmi pomalá jízda|R
+822.0|Pěšina: velmi pomalá jízda|R
+823.0|Konec vozové cesty|R
+501.2|Zpevněná plocha (okraj)|R
+501.400|Nezpevněná plocha (plocha a okraj)|R
+501.401|Nezpevněná plocha (okraj)|R
+824.0|Volný terén, jízda povolena|R
+825.0|Zalesněná plocha, jízda povolena|R
+826.0|Nesourodý volný terén, jízda povolena|R
+827.0|Průsek nebo liniová trasa terénem: rychlá jízda|R
+828.0|Průsek nebo liniová trasa terénem: střední rychlost jízdy|R
+829.0|Průsek nebo liniová trasa terénem: pomalá jízda|R
+830.0|Průsek nebo liniová trasa terénem: velmi pomalá jízda|R
+113.0|Rozbitý povrch|R
+113.1|Rozbitý povrch (jednotlivá tečka)|R
+113.2|Rozbitý povrch (minimální velikost)|R
+114.0|Velmi rozbitý povrch|R
+114.1|Velmi rozbitý povrch (minimální velikost)|R
+711.1|Nepřístupná trasa (linie)|R
+105.0|Zemní val|R
+105.1|Zemní val (minimální velikost)|R
+109.1|Malá kupka (volný terén, jízda povolena)|R
+204.2|Balvan (volný terén, jízda povolena)|R
+210.0|Kamenitý povrch|R
+210.1|Kamenitý povrch (jednotlivá tečka)|R
+305.0|Malý překonatelný vodní tok|R
+406.0|Les: snížená sjízdnost a viditelnost (plocha)|R
+406.2|Les: snížená sjízdnost a viditelnost (linie)|R
+407.0|Vegetace: snížená sjízdnost mimo cesty, dobrá viditelnost|R
+410.2|Neprůchodná vegetace|R
+414.0|Vinice|R
+419.0|Výrazný vegetační objekt|R
+510.0|Elektrické vedení, lanovka nebo lyžařský vlek|R
+512.0|Most / tunel|R
+513.0|Překonatelná zeď|R
+518.0|Nepřekonatelný plot nebo zábradlí|R
+524.1|Vysoká věž (volný terén, jízda povolena)|R
+525.1|Malá věž (volný terén, jízda povolena)|R
+527.1|Krmelec (volný terén, jízda povolena)|R
+528.0|Překonatelný liniový objekt|R
+529.0|Nepřekonatelný liniový objekt|R
+530.1|Výrazný umělý objekt – kroužek (volný terén, jízda povolena)|R
+531.1|Výrazný umělý objekt – křížek (volný terén, jízda povolena)|R
+532.0|Schody|R
+603.0|Výšková kóta (bod)|R
+603.1|Výšková kóta (text)|R
+703.100|Kontrola s pomocným bodem|R
+704.0|Číslo kontroly s kódem|R
+708.0|Nepřekonatelná hranice|R
+709.0|Nepřístupná oblast|R
+709.1|Nepřístupná oblast s čárkovaným ohraničením|R
+709.2|Nepřístupná oblast, čárkovaná linie|R
+709.3|Nepřístupná oblast s plným ohraničením|R
+709.4|Nepřístupná oblast, plná linie|R
+710.100|Bod přechodu|R
+710.200|Úsek přechodu|R
+716.0|Zakázaná trasa (automaticky)|R
+716.1|Zakázaná trasa (ručně)|R
+717.0|Překážka přes vozovou cestu, pěšinu nebo silnici|R
+718.0|Zákaz průjezdu|R
+719.0|Nebezpečný úsek|R
+841.0|Povinný průjezd jedním směrem|R
+"""
+
+
 def _parse(block: str) -> dict[str, tuple[str, bool]]:
     out: dict[str, tuple[str, bool]] = {}
     for line in block.strip().splitlines():
@@ -421,4 +500,5 @@ def _parse(block: str) -> dict[str, tuple[str, bool]]:
 NAMES: dict[str, dict[str, tuple[str, bool]]] = {
     "isom": _parse(_ISOM),
     "sprint": _parse(_SPRINT),
+    "mtbo": _parse(_MTBO),
 }

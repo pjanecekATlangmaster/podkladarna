@@ -5,7 +5,7 @@ mapování na symbol sady (isom, sprint) a geometrie symbolu musí odpovídat to
 jak ho generátor použije (bod / čára / plocha). Chybějící kód by se za běhu
 potichu zahodil (nebo nahradil fallbackem), proto je test tvrdý.
 
-MTBO se přeskakuje (používá staré ISMTBOM sady a ISOM overlay bez katalogu).
+MTBO (sekce ``mtbo``) jede na ISMTBOM 2022 ``*_cz.omap``; kódy generátoru jsou tam stále v číslování dřívějšího ISMTBOM a katalog je překládá.
 """
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ SETS = [
     ("isom", "forest_10000", 10000, "zabaged_forest.txt", "ISOM_2017-2_10000.omap"),
     ("isom", "forest_10000", 15000, "zabaged_forest.txt", "ISOM_2017-2_15000.omap"),
     ("sprint", "sprint_2m", 4000, "zabaged.txt", "ISSprOM_2019_4000.omap"),
+    ("mtbo", "mtbo_10000", 10000, "zabaged_forest.txt", "ISMTBOM_10000.omap"),
+    ("mtbo", "mtbo_15000", 15000, "zabaged_forest.txt", "ISMTBOM_15000.omap"),
 ]
 _SET_IDS = [f"{k}-{s}" for k, _p, s, _v, _o in SETS]
 
@@ -200,6 +202,9 @@ def test_collect_finds_known_codes(key, preset, scale, vectorconf, legacy) -> No
     if key == "sprint":
         for code in ("501.30", "501.10", "532.7", "513.2", "509.1", "505.1"):
             assert code in codes, code
+    elif key == "mtbo":
+        for code in ("831", "833", "834", "526", "502"):
+            assert code in codes, code
     else:
         for code in ("502.1", "512", "532", "513"):
             assert code in codes, code
@@ -223,6 +228,7 @@ def test_catalog_geometry_matches_generator_use(key, preset, scale, vectorconf, 
     set_file = {
         "isom": "ISOM_2017_10000_cz.omap",
         "sprint": "ISSprOM_2019_4000_cz.omap",
+        "mtbo": "ISMTBOM_2022_10000_cz.omap",
     }[key]
     bad = []
     for code, (src, geoms) in sorted(codes.items()):
@@ -241,6 +247,7 @@ def test_catalog_geometry_matches_generator_use(key, preset, scale, vectorconf, 
     [
         ("isom", ("ISOM_2017_10000_cz.omap", "ISOM_2017_15000_cz.omap")),
         ("sprint", ("ISSprOM_2019_4000_cz.omap",)),
+        ("mtbo", ("ISMTBOM_2022_10000_cz.omap", "ISMTBOM_2022_15000_cz.omap")),
     ],
 )
 def test_catalog_is_consistent_with_set_files(key: str, set_files: tuple[str, ...]) -> None:
@@ -289,7 +296,7 @@ def _line_feature(highway: str) -> dict:
     }
 
 
-@pytest.mark.parametrize("key,preset,scale", [("isom", "forest_10000", 10000), ("sprint", "sprint_2m", 4000)])
+@pytest.mark.parametrize("key,preset,scale", [("isom", "forest_10000", 10000), ("sprint", "sprint_2m", 4000), ("mtbo", "mtbo_10000", 10000)])
 def test_spy_osm_paths_codes_in_catalog(tmp_path: Path, seen_generator_codes, key, preset, scale) -> None:
     import json
 
@@ -313,7 +320,7 @@ def test_spy_osm_paths_codes_in_catalog(tmp_path: Path, seen_generator_codes, ke
     assert sum(p.count for p in parts) == len(feats)
 
 
-@pytest.mark.parametrize("key,preset,scale", [("isom", "forest_10000", 10000), ("sprint", "sprint_2m", 4000)])
+@pytest.mark.parametrize("key,preset,scale", [("isom", "forest_10000", 10000), ("sprint", "sprint_2m", 4000), ("mtbo", "mtbo_10000", 10000)])
 def test_spy_vegetation_codes_in_catalog(
     tmp_path, monkeypatch, seen_generator_codes, key, preset, scale
 ) -> None:
@@ -335,7 +342,7 @@ def test_spy_vegetation_codes_in_catalog(
     assert sm.drain_unmapped_codes() == {}
 
 
-@pytest.mark.parametrize("key,preset,scale", [("isom", "forest_10000", 10000), ("sprint", "sprint_2m", 4000)])
+@pytest.mark.parametrize("key,preset,scale", [("isom", "forest_10000", 10000), ("sprint", "sprint_2m", 4000), ("mtbo", "mtbo_10000", 10000)])
 def test_spy_dxf_codes_in_catalog(seen_generator_codes, key, preset, scale) -> None:
     sm.drain_unmapped_codes()
     names = set(_DXF_GEOM)
@@ -350,7 +357,7 @@ def test_spy_dxf_codes_in_catalog(seen_generator_codes, key, preset, scale) -> N
     assert sm.drain_unmapped_codes() == {}
 
 
-@pytest.mark.parametrize("preset,scale", [("forest_10000", 10000), ("sprint_2m", 4000)])
+@pytest.mark.parametrize("preset,scale", [("forest_10000", 10000), ("sprint_2m", 4000), ("mtbo_10000", 10000)])
 def test_aoi_frame_found_in_built_map(preset: str, scale: int) -> None:
     """Rám AOI (kód generátoru 708) se v sestavené mapě najde přes aoi_frame_bbox (708.0)."""
     import xml.etree.ElementTree as ET

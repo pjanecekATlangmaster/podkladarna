@@ -49,7 +49,13 @@ SETS = [
     ("isom", "ISOM_2017_10000.omap", "ISOM_2017_10000_cz.omap"),
     ("isom", "ISOM_2017_15000.omap", "ISOM_2017_15000_cz.omap"),
     ("sprint", "ISSprOM_2019_4000.omap", "ISSprOM_2019_4000_cz.omap"),
+    ("mtbo", "ISMTBOM_2022_10000.omap", "ISMTBOM_2022_10000_cz.omap"),
+    ("mtbo", "ISMTBOM_2022_15000.omap", "ISMTBOM_2022_15000_cz.omap"),
 ]
+
+# Sady, u nichž skryté symboly zůstávají jako v OCADu (is_hidden="true"). Při tvorbě
+# mapy se odkryjí jen symboly, které generátor skutečně použil (build_oom_map).
+KEEP_HIDDEN = frozenset({"mtbo"})
 
 # Pomocné symboly mimo normu (pokud by ve zdroji byly, smažou se).
 _NON_STANDARD_CODES = frozenset({"799", "799.0", "999", "999.0"})
@@ -107,9 +113,9 @@ def _top_level_info(symbols_xml: str) -> list[tuple[str, str, str]]:
     return out
 
 
-def clean_symbols(symbols_xml: str) -> str:
-    """Odstraní skryté symboly a nestandardní pomocné kódy."""
-    drop = set(hidden_symbol_ids(symbols_xml))
+def clean_symbols(symbols_xml: str, keep_hidden: bool = False) -> str:
+    """Odstraní skryté symboly (ne u ``keep_hidden``) a nestandardní pomocné kódy."""
+    drop = set() if keep_hidden else set(hidden_symbol_ids(symbols_xml))
     for _s, _e, attrs in _top_level_symbols(symbols_xml):
         if _attr(attrs, "code") in _NON_STANDARD_CODES:
             sid = _attr(attrs, "id")
@@ -158,10 +164,42 @@ def rename_symbols(symbols_xml: str, cz_names: dict[str, str]) -> str:
     return _OPEN_TAG_RE.sub(repl, symbols_xml)
 
 
+def _norm_en(name: str) -> str:
+    return re.sub(r"\s+", " ", name.lower().replace("&amp;", "&")).strip()
+
+
+def mtbo_names(
+    info: list[tuple[str, str, str]],
+    others: dict[str, list[tuple[str, str, str]]],
+) -> dict[str, tuple[str, bool]]:
+    """České názvy ISMTBOM: vlastní ``NAMES['mtbo']``, jinak shoda s ISOM/ISSprOM.
+
+    Převzetí z jiné sady jen při shodě kódu, geometrie i anglického názvu
+    (číslování MTBO se v části man-made liší, shoda samotného kódu nestačí).
+    """
+    names = dict(NAMES["mtbo"])
+    for code, geom, en in info:
+        if code in names:
+            continue
+        for key, other in others.items():
+            if any(
+                c == code and g == geom and _norm_en(e) == _norm_en(en)
+                for c, g, e in other
+            ) and code in NAMES[key]:
+                names[code] = NAMES[key][code]
+                break
+        else:
+            raise SystemExit(f"MTBO {code} ({en}): chybí český název v symbol_names_cz.py")
+    return names
+
+
 def build_catalog_entries(
-    key: str, info: list[tuple[str, str, str]], existing: dict[str, dict]
+    key: str,
+    info: list[tuple[str, str, str]],
+    existing: dict[str, dict],
+    names: dict[str, tuple[str, bool]] | None = None,
 ) -> list[dict]:
-    names = NAMES[key]
+    names = names if names is not None else NAMES[key]
     entries: list[dict] = []
     for code, typ, en_name in info:
         prev = existing.get(code, {})
@@ -228,7 +266,7 @@ def main() -> int:
     sources: dict[str, str] = {}
     for key, src_name, _out in SETS:
         text = (SRC / src_name).read_text(encoding="utf-8", newline="")
-        symbols = clean_symbols(_SYMBOLS_RE.search(text).group(0))
+        symbols = clean_symbols(_SYMBOLS_RE.search(text).group(0), key in KEEP_HIDDEN)
         info = _top_level_info(symbols)
         if key in infos:
             if [c for c, _t, _n in info] != [c for c, _t, _n in infos[key]]:
@@ -237,10 +275,14 @@ def main() -> int:
             infos[key] = info
         sources[src_name] = text
 
-    catalog = {
-        key: build_catalog_entries(key, info, existing_all.get(key, {}))
-        for key, info in infos.items()
-    }
+    catalog = {}
+    for key, info in infos.items():
+        names = (
+            mtbo_names(info, {k: v for k, v in infos.items() if k != "mtbo"})
+            if key == "mtbo"
+            else None
+        )
+        catalog[key] = build_catalog_entries(key, info, existing_all.get(key, {}), names)
     CATALOG_PATH.write_text(_dump_catalog(catalog), encoding="utf-8", newline="\n")
 
     # 2) čisté sady s českými názvy
@@ -249,7 +291,7 @@ def main() -> int:
         cz_names = {e["ocad_code"]: e["cz_name"] for e in catalog[key]}
         m = _SYMBOLS_RE.search(text)
         before = len(_top_level_symbols(m.group(0)))
-        symbols = rename_symbols(clean_symbols(m.group(0)), cz_names)
+        symbols = rename_symbols(clean_symbols(m.group(0), key in KEEP_HIDDEN), cz_names)
         after = len(_top_level_symbols(symbols))
         out = text[: m.start()] + symbols + text[m.end() :]
         (OOM / out_name).write_text(out, encoding="utf-8", newline="\n")

@@ -2,6 +2,8 @@
 # Jen opravdové produktové zlomy — ne každý commit.
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
+  - date: "2026-10-16"
+    title: "MTBO mapy ve skutečné OCAD sadě ISMTBOM 2022 s českými názvy symbolů"
   - date: "2026-10-15"
     title: "České sady symbolů ISOM a ISSprOM podle OCAD a jednotné číslování symbolů"
   - date: "2026-10-07"

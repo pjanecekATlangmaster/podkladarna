@@ -31,10 +31,12 @@ def uses_catalog(path: Path | str) -> bool:
 
 
 def catalog_key(path: Path | str) -> str | None:
-    """Klíč sady v katalogu: ``isom`` / ``sprint`` (jinak ``None``)."""
+    """Klíč sady v katalogu: ``isom`` / ``sprint`` / ``mtbo`` (jinak ``None``)."""
     name = Path(path).name
     if name.startswith("ISSprOM"):
         return "sprint"
+    if name.startswith("ISMTBOM"):
+        return "mtbo"
     if name.startswith("ISOM"):
         return "isom"
     return None
@@ -66,7 +68,7 @@ def _generator_map(path_str: str, key: str) -> dict[str, str]:
 
 
 def generator_map(key: str) -> dict[str, str]:
-    """{kód generátoru: kód sady} pro klíč ``isom`` / ``sprint``."""
+    """{kód generátoru: kód sady} pro klíč ``isom`` / ``sprint`` / ``mtbo``."""
     return _generator_map(str(CATALOG_PATH), key)
 
 

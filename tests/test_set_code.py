@@ -59,6 +59,7 @@ def _use_set(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
 def test_uses_catalog_by_filename() -> None:
     assert sc.uses_catalog(Path("ISOM_2017_10000_cz.omap"))
     assert sc.uses_catalog(Path("ISSprOM_2019_4000_cz.omap"))
+    assert sc.uses_catalog(Path("ISMTBOM_2022_10000_cz.omap"))
     assert not sc.uses_catalog(Path("ISOM_2017-2_10000.omap"))
     assert not sc.uses_catalog(Path("ISSprOM_2019_4000.omap"))
     assert not sc.uses_catalog(Path("ISMTBOM_10000.omap"))
@@ -103,12 +104,14 @@ def test_old_sets_are_identity(synth_catalog, monkeypatch, old_set: str) -> None
     assert sm.drain_unmapped_codes() == {}
 
 
-def test_mtbo_sets_stay_identity() -> None:
-    """MTBO zůstává na starých ISMTBOM sadách (bez katalogu) → set_code je identita."""
+def test_mtbo_uses_catalog_section() -> None:
+    """MTBO jede na ISMTBOM 2022 *_cz.omap přes sekci ``mtbo`` katalogu."""
+    sm.drain_unmapped_codes()
     for preset, scale in (("mtbo_10000", 10000), ("mtbo_15000", 15000)):
-        for code in ("101", "834", "212.5"):
-            assert sm.set_code(preset, scale, code) == code
-    assert sm.drain_unmapped_codes() == {}
+        assert sm.set_code(preset, scale, "101") == "101.0"
+        assert sm.set_code(preset, scale, "834") == "818.0"
+        assert sm.set_code(preset, scale, "101.0") is None  # žádné implicitní „.0“
+    sm.drain_unmapped_codes()
 
 
 def test_forest_and_sprint_use_catalog_by_default() -> None:

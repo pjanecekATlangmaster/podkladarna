@@ -129,8 +129,13 @@ gdalsrsinfo EPSG:5514   # must not mention pyproj\proj_dir
   v `configs/oom/ISOM_2017_10000_cz.omap`, `ISOM_2017_15000_cz.omap`,
   `ISSprOM_2019_4000_cz.omap`. Kódy zůstávají jako v OCAD (`101.0`, `203.100`, …),
   názvy barev se nepřekládají. Lesní presety 7500 i 10000 používají sadu 10000.
-- **ISMTBOM** zůstává ze sad OpenOrienteering Mapperu (`configs/oom/ISMTBOM_*.omap`, GPL);
-  jako dárce vzhledu pro MTBO overlay slouží `configs/oom/ISOM_2017-2_*.omap`. Ty se nemažou.
+- **ISMTBOM 2022** (MTBO) je stejně z OCADu: `configs/oom/ISMTBOM_2022_10000_cz.omap`
+  a `ISMTBOM_2022_15000_cz.omap` (presety `mtbo_10000` / `mtbo_15000`). Na rozdíl od ISOM/ISSprOM
+  se u ní **skryté symboly nemažou** (`KEEP_HIDDEN` ve `scripts/build_symbol_sets.py`):
+  zůstávají `is_hidden` jako v OCADu a `build_oom_map` při tvorbě mapy odkryje jen ty, které
+  objekty skutečně používají. Kódy generátoru pro MTBO jsou dál v číslování dřívějšího ISMTBOM
+  (`831`, `526`, …) a sekce `mtbo` v katalogu je překládá na kódy OCAD (`815.0`, `521.0`, …).
+  Starší `configs/oom/ISMTBOM_*.omap` a `ISOM_2017-2_*.omap` presety nepoužívají (nemažou se).
 - `_cz.omap` se nepíšou ručně, generuje je skript:
 
   ```powershell
@@ -152,7 +157,9 @@ Sekce `isom` (sdílí 10k i 15k) a `sprint`; pro každý symbol sady:
   patřit jen jednomu symbolu (jinak `ValueError`); více kódů na jeden symbol je v pořádku,
 - `geom` – `point` / `line` / `area` / `text` (kombinovaný symbol je `area`, jen když má
   plošnou část),
-- `review: true` – název nebo přiřazení je odvozené a čeká na kontrolu,
+- `review: true` – název nebo přiřazení je odvozené a čeká na kontrolu; drží se jen u symbolů,
+  které generátor používá (`generator_codes` neprázdné). U ostatních (varianty, např. zvětšení
+  120 %, minimální velikosti) stačí odvozený název, takže `review: false`,
 - `keep_reason` – proč je v sadě symbol, který generátor nepoužívá (řada 7xx, texty).
 
 Za běhu **neexistuje implicitní překlad** (žádné „kód + .0“ ani fallback na syrový kód).

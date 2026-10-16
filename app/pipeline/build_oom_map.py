@@ -14,10 +14,12 @@ from app.pipeline.oom_georef import oom_north_angles
 from app.pipeline.oom_import import OomObjectPart
 from app.pipeline.oom_layers import OomTemplate
 from app.pipeline.oom_symbol_map import display_code
+from app.pipeline.symbol_catalog import uses_catalog
 from app.pipeline.oom_symbols import (
     colors_and_symbols_xml,
     drop_symbols_by_id,
     symbol_set_path,
+    unhide_symbols_by_id,
     unused_hidden_template_symbol_ids,
 )
 
@@ -176,12 +178,16 @@ def build_oom_map_xml(
         object_parts or [],
         hidden_parts=hidden_object_parts,
     )
+    used = set(re.findall(r'<object\b[^>]*\bsymbol="(\d+)"', parts_xml))
     if set_path.name.startswith("ISMTBOM"):
-        # MTBO/sprint: zhasnuté v šabloně a nepoužité (legacy ISSOM, šipky …) pryč.
-        used = set(re.findall(r'<object\b[^>]*\bsymbol="(\d+)"', parts_xml))
-        symbols_xml = drop_symbols_by_id(
-            symbols_xml, unused_hidden_template_symbol_ids(set_path, used)
-        )
+        if uses_catalog(set_path):
+            # ISMTBOM 2022: hidden jako v OCADu, odkryjí se jen použité symboly.
+            symbols_xml = unhide_symbols_by_id(symbols_xml, used)
+        else:
+            # Staré ISMTBOM_*.omap: zhasnuté v šabloně a nepoužité (legacy ISSOM, šipky …) pryč.
+            symbols_xml = drop_symbols_by_id(
+                symbols_xml, unused_hidden_template_symbol_ids(set_path, used)
+            )
     # Normalizace ID symbolů: pořadí <symbol> musí odpovídat ID od 0.
     symbols_xml, parts_xml = _normalize_symbol_ids(symbols_xml, parts_xml)
     # Všechny šablony (referenční PNG) leží pod mapou.

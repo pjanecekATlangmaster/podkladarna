@@ -4,6 +4,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from app.pipeline.symbol_catalog import catalog_key
 from app.pipeline.symbol_catalog import translate as catalog_translate
 from app.pipeline.symbol_catalog import uses_catalog
 from app.settings import CONFIG_DIR
@@ -43,31 +44,27 @@ def symbol_set_path(preset_id: str, scale: int) -> Path:
     """Vrátí symbol set pro (preset, měřítko).
 
     ISOM / ISSprOM: čisté české OCAD sady ``*_cz.omap`` (katalogový překlad kódů).
-    MTBO: oficiální OOM ISMTBOM (OpenOrienteering/mapper, GPL).
+    MTBO: čistá česká OCAD sada ``ISMTBOM_2022_*_cz.omap`` (také přes katalog).
 
     Existence souboru se cachuje – volá se pro každý objekt mapy
     (~270k× / velký job, každé is_file na disk).
     """
-    if not preset_id.startswith("mtbo"):
-        # Čisté české OCAD sady (scripts/build_symbol_sets.py); kódy generátoru
-        # se na kódy sady překládají přes symbol_catalog.yaml (set_code).
-        if preset_id.startswith("sprint"):
-            name = "ISSprOM_2019_4000_cz.omap"
-        elif scale >= 15000:
-            name = "ISOM_2017_15000_cz.omap"
-        else:
-            # ISOM pro 1:7500 i 1:10000 (OCAD nemá samostatnou sadu pro 7500)
-            name = "ISOM_2017_10000_cz.omap"
-        cz_path = _existing_set_file(OOM_DIR, name)
-        if cz_path is None:
-            raise FileNotFoundError(f"Chybí symbol set OCAD: {OOM_DIR / name}")
-        return cz_path
-    # ISMTBOM: základní 1:15000; 1:10000 je 1.5× zvětšení (viz OOM README).
-    name = "ISMTBOM_15000.omap" if scale >= 15000 else "ISMTBOM_10000.omap"
-    path = _existing_set_file(OOM_DIR, name)
-    if path is None:
-        raise FileNotFoundError(f"Chybí symbol set OOM: {OOM_DIR / name}")
-    return path
+    # Čisté české OCAD sady (scripts/build_symbol_sets.py); kódy generátoru
+    # se na kódy sady překládají přes symbol_catalog.yaml (set_code).
+    if preset_id.startswith("mtbo"):
+        # Presety MTBO jsou 1:10000 a 1:15000; jiné měřítko spadne na bližší sadu.
+        name = "ISMTBOM_2022_15000_cz.omap" if scale >= 15000 else "ISMTBOM_2022_10000_cz.omap"
+    elif preset_id.startswith("sprint"):
+        name = "ISSprOM_2019_4000_cz.omap"
+    elif scale >= 15000:
+        name = "ISOM_2017_15000_cz.omap"
+    else:
+        # ISOM pro 1:7500 i 1:10000 (OCAD nemá samostatnou sadu pro 7500)
+        name = "ISOM_2017_10000_cz.omap"
+    cz_path = _existing_set_file(OOM_DIR, name)
+    if cz_path is None:
+        raise FileNotFoundError(f"Chybí symbol set OCAD: {OOM_DIR / name}")
+    return cz_path
 
 
 OCAD_DIR = CONFIG_DIR / "ocad"
@@ -133,6 +130,25 @@ def protect_symbol_codes(symbols_xml: str, codes: frozenset[str] | set[str]) -> 
 def unhide_all_symbols(symbols_xml: str) -> str:
     """OOM u is_hidden nevykreslí objekty – v generovaném .omap vše odkrýt."""
     return re.sub(r'\s+is_hidden="true"', "", symbols_xml)
+
+
+def unhide_symbols_by_id(symbols_xml: str, ids: set[str]) -> str:
+    """Odkryje jen top-level symboly s danými id (ostatní hidden zůstanou)."""
+    if not ids:
+        return symbols_xml
+    pieces: list[str] = []
+    pos = 0
+    for start, _end, attrs in _top_level_symbols(symbols_xml):
+        id_m = re.search(r'\bid="(\d+)"', attrs)
+        if not id_m or id_m.group(1) not in ids or 'is_hidden="true"' not in attrs:
+            continue
+        tag_end = symbols_xml.index(">", start)
+        tag = symbols_xml[start : tag_end + 1]
+        pieces.append(symbols_xml[pos:start])
+        pieces.append(re.sub(r'\s+is_hidden="true"', "", tag, count=1))
+        pos = tag_end + 1
+    pieces.append(symbols_xml[pos:])
+    return "".join(pieces)
 
 
 # Migrace ISSOM → ISSprOM / ISOM2000 → ISOM 2017: v šabloně zhasnuté symboly
@@ -501,11 +517,15 @@ def merge_isom_overlay_into_mtbo(
 def colors_and_symbols_xml(symbol_set: Path) -> tuple[str, str]:
     colors, symbols = _load_fragments(str(symbol_set.resolve()))
     # Nejdřív pryč legacy dvojčata (203.9, 201.9, …), pak odkrýt zbytek klíče.
-    # Čisté *_cz.omap sady nemají legacy ani skryté symboly (jen ISMTBOM ano).
+    # Čisté *_cz.omap sady (ISOM, ISSprOM i ISMTBOM 2022) nemají legacy ani skryté
+    # symboly ani ISOM overlay; ten zůstal jen pro staré ISMTBOM_*.omap.
     if not uses_catalog(symbol_set):
         symbols = drop_legacy_migration_symbols(symbols)
-    symbols = unhide_all_symbols(symbols)
-    if symbol_set.name.startswith("ISMTBOM"):
+    if catalog_key(symbol_set) != "mtbo" or not uses_catalog(symbol_set):
+        symbols = unhide_all_symbols(symbols)
+    # ISMTBOM 2022: hidden symboly zůstávají jako v OCADu; build_oom_map odkryje
+    # jen ty, které objekty mapy skutečně používají (unhide_symbols_by_id).
+    if symbol_set.name.startswith("ISMTBOM") and not uses_catalog(symbol_set):
         colors, symbols = merge_isom_overlay_into_mtbo(
             colors,
             symbols,

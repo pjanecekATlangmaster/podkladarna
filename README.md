@@ -44,7 +44,7 @@ Výřez na mapě (Česko, max cca 36 km², např. 6 × 6 nebo 8 × 4,5 km). LiDA
 Lesní a sprintové mapy používají sady **ISOM 2017-2 (Revize 6)** a **ISSprOM 2019-2
 (Revize 6)** vycházející z oficiálních OCAD sad, s českými názvy symbolů
 (`configs/oom/*_cz.omap`, generované skriptem `scripts/build_symbol_sets.py`
-z `configs/oom/ocad_src/`). MTBO používá ISMTBOM ze sad OpenOrienteering Mapperu.
+z `configs/oom/ocad_src/`). MTBO používá stejným způsobem **ISMTBOM 2022** z OCADu.
 Postup přegenerování a katalog kódů: **[DEV.md](./DEV.md)**, původ a licence: **[LICENSES.md](./LICENSES.md)**.
 
 ## Logo

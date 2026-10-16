@@ -395,7 +395,5 @@ def oom_code_for_dxf(
         if filename in _ROCK_DXF:
             return "201"
         return "104"
-    if filename == "dotdepressions.dxf" and preset_id.startswith("mtbo"):
-        return "112"  # ISMTBOM nemá Small depression 111
     table = _DXF_OOM_CODE_SPRINT if _is_sprint(preset_id) else _DXF_OOM_CODE_FOREST
     return table.get(filename)

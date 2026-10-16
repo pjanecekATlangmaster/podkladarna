@@ -30,21 +30,37 @@ def test_drop_symbols_by_id_handles_nested_and_count():
     assert 'code="1"' in out and 'code="3"' in out
 
 
-def test_mtbo_map_drops_unused_hidden_symbols_and_renumbers_ids():
+def test_mtbo_map_keeps_ocad_hidden_and_unhides_only_used_symbols():
+    """ISMTBOM 2022: hidden jako v OCADu, odkryjí se jen symboly použité objekty."""
+    from app.pipeline.oom_import import OomObjectPart
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
     raw = symbol_set_path("mtbo_10000", 10000).read_text(encoding="utf-8")
-    hidden = hidden_symbol_ids(raw)
-    assert hidden
-    hidden_codes = {c for c in hidden.values() if c}
-    xml = _build("mtbo_10000", 10000)
-    present_codes = set(re.findall(r'<symbol\b[^>]*\bcode="([^"]+)"', xml))
-    # Zhasnuté a nepoužité pryč (kromě záměrně odkrytých z ISOM overlay).
-    gone_codes = hidden_codes - present_codes
-    assert len(gone_codes) > 30
-    assert "101" in present_codes
-    assert not re.findall(r'is_hidden="true"', xml)
-    # Po dropu se ID znovu seřadí od 0 (Mapper).
-    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml)]
-    assert ids == list(range(len(ids)))
+    hidden_raw = hidden_symbol_ids(raw)
+    assert hidden_raw
+    xml0 = _build("mtbo_10000", 10000)
+    # Bez objektů zůstanou hidden všechny a nic se nemaže.
+    n_all = len(re.findall(r'<symbol\b[^>]*\bid="\d+"', raw))
+    assert len(re.findall(r'<symbol\b[^>]*\bid="\d+"', xml0)) == n_all
+    assert len(hidden_symbol_ids(xml0)) == len(hidden_raw)
+    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml0)]
+    assert ids == list(range(len(ids)))  # ID od 0 (Mapper)
+
+    # 408 (vegetace, chůze) je v OCAD sadě hidden → s objektem se odkryje.
+    idx = symbol_index_for_code("mtbo_10000", 10000, "408")
+    assert idx is not None
+    part = OomObjectPart(
+        name="t",
+        count=1,
+        objects_xml=(
+            f'<object type="1" symbol="{idx}"><coords count="4">0 0;100 0;100 100;0 0 18;'
+            "</coords></object>"
+        ),
+    )
+    xml1 = _build("mtbo_10000", 10000, [part])
+    tag = re.search(r'<symbol\b[^>]*\bcode="408\.0"[^>]*>', xml1)
+    assert tag is not None and "is_hidden" not in tag.group(0)
+    assert len(hidden_symbol_ids(xml1)) == len(hidden_raw) - 1
 
 
 def test_forest_map_drops_isom2000_legacy_keeps_rest():

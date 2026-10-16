@@ -52,8 +52,10 @@ a pak šla vlastní cestou (vegetace / srázy / DEM).
   českých překladů specifikací (ČSOS), názvy podsymbolů (minimální velikosti, varianty,
   obrysy) jsou odvozené; skript `scripts/build_symbol_sets.py` je
   vygeneruje, odstraní skryté symboly a přejmenuje symboly.
-- **ISMTBOM** (MTBO) je ze sad OpenOrienteering Mapperu ([GPL-3.0](https://github.com/OpenOrienteering/mapper));
-  jako dárce vzhledu pro MTBO slouží OOM sady ISOM 2017-2 (`configs/oom/ISOM_2017-2_*.omap`).
+- **ISMTBOM 2022** (MTBO, `configs/oom/ISMTBOM_2022_*_cz.omap`) vychází stejně z oficiální OCAD
+  sady (`configs/oom/ocad_src/ISMTBOM_2022_*.omap`); skryté symboly zůstávají jako v OCADu.
+  Starší sady OpenOrienteering Mapperu (`configs/oom/ISMTBOM_*.omap`, `ISOM_2017-2_*.omap`,
+  [GPL-3.0](https://github.com/OpenOrienteering/mapper)) se už nepoužívají.
 - TODO Petr: potvrdit podmínky šíření počeštěné odvozeniny OCAD sad.
 
 ## Mapa výřezu

@@ -401,9 +401,8 @@ def build_aoi_boundary_part(
     grivation_deg: float,
 ) -> OomObjectPart | None:
     """Fialový obdélník vybraného AOI (uvnitř = výběr, vně = přesah)."""
-    # ISOM/ISSprOM 708 = Out-of-bounds boundary (purple);
-    # ISMTBOM 708 je crossing point → 705 Marked route.
-    code = "705" if preset_id.startswith("mtbo") else "708"
+    # 708 = Out-of-bounds boundary (purple) ve všech sadách (ISOM, ISSprOM, ISMTBOM 2022).
+    code = "708"
     symbol_index = symbol_index_for_code(preset_id, scale, code)
     if symbol_index is None:
         return None
