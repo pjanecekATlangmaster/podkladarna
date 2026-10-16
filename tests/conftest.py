@@ -37,6 +37,37 @@ def client(data_dir: Path):
         yield test_client
 
 
+@pytest.fixture()
+def seen_generator_codes(monkeypatch: pytest.MonkeyPatch):
+    """Opt-in špión: sbírá kódy předané do ``set_code`` / ``symbol_index_for_code``.
+
+    Chování se nemění (volá se původní funkce). Obalí i moduly, které si
+    ``symbol_index_for_code`` naimportovaly přes ``from … import``. Fixture vrací
+    množinu viděných kódů (testy ji porovnávají s katalogem).
+    """
+    import sys
+
+    import app.pipeline.oom_symbol_map as sm
+
+    seen: set[str] = set()
+    orig_set_code = sm.set_code
+    orig_index = sm.symbol_index_for_code
+
+    def spy_set_code(preset_id: str, scale: int, gen_code: str):
+        seen.add(gen_code)
+        return orig_set_code(preset_id, scale, gen_code)
+
+    def spy_index(preset_id: str, scale: int, code: str):
+        seen.add(code)
+        return orig_index(preset_id, scale, code)
+
+    monkeypatch.setattr(sm, "set_code", spy_set_code)
+    for name, mod in list(sys.modules.items()):
+        if name.startswith("app.") and getattr(mod, "symbol_index_for_code", None) is orig_index:
+            monkeypatch.setattr(mod, "symbol_index_for_code", spy_index)
+    yield seen
+
+
 @pytest.fixture(autouse=True)
 def _no_osm_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """OSM cache (DOWNLOADS_DIR) by mezi testy vracela cizí odpovědi."""

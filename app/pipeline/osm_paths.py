@@ -29,7 +29,11 @@ from app.pipeline.oom_import import (
     _pyogrio_layer_rows,
     _wkb_parts,
 )
-from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.pipeline.oom_symbol_map import (
+    describe_code,
+    preset_uses_catalog,
+    symbol_index_for_code,
+)
 from app.pipeline.prepare_lidar import log_step
 from app.tool_env import gis_subprocess_env, which_tool
 # Veřejná zrcadla (seznam z wiki.openstreetmap.org/wiki/Overpass_API, ověřeno
@@ -935,6 +939,52 @@ def classify_osm_feature(
     return None
 
 
+# Les (ISOM): 501.1 = jen výplň zpevněné plochy bez okraje; okraj nese čára 501.2.
+ISOM_PAVED_FILL_CODE = "501.1"
+ISOM_PAVED_EDGE_CODE = "501.2"
+
+
+def _closed_edge_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
+    """Uzavřená čára (okraj plochy) po jednom prstenci; None-like ``""`` pro < 3 body."""
+    ring = list(coords)
+    if len(ring) >= 2 and ring[0] == ring[-1]:
+        ring = ring[:-1]
+    if len(ring) < 3:
+        return ""
+    return _path_object(symbol_index, [*ring, (ring[0][0], ring[0][1], 18)])
+
+
+def _paved_edge_objects(
+    edge_index: int,
+    rings: list[list[tuple[float, float]]],
+    clip_bounds: Bounds | None,
+    to_map,
+) -> list[str]:
+    """Okraj 501.2 po SKUTEČNÉ hranici plochy.
+
+    Prstenec celý uvnitř výřezu → uzavřená čára; prstenec protínající hranici výřezu
+    → jen otevřené kusy uvnitř (podél ořezu na výřez žádná falešná čára).
+    """
+    out: list[str] = []
+    for ring in rings:
+        if len(ring) < 3:
+            continue
+        if clip_bounds is None or all(
+            point_inside(x, y, clip_bounds) for x, y in ring
+        ):
+            obj = _closed_edge_object(edge_index, to_map(ring))
+            if obj:
+                out.append(obj)
+            continue
+        closed = list(ring) if ring[0] == ring[-1] else [*ring, ring[0]]
+        for piece in clip_polyline(closed, clip_bounds):
+            if len(piece) >= 2:
+                obj = _path_object(edge_index, to_map(piece))
+                if obj:
+                    out.append(obj)
+    return out
+
+
 def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     """OOM kód podle druhu objektu a presetu (sprint / les / MTBO)."""
     sprint = preset_id.startswith("sprint")
@@ -1510,8 +1560,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
 
     Sprint (OCAD ISSprOM): chodník 501.10, silnice 501.30–501.33 (heavy).
     Les: 502.1 II.+ třída / 502 široká / 503 úzká silnice / 504 vozová.
-    MTBO: 502 major / 503 minor; track 831/833, pěšiny 834 (ne 502.1 — v ISMTBOM
-    je 502.1 „under construction“).
+    MTBO (ISMTBOM 2022, kódy se překládají katalogem): road_4 → 502.1 (>7 m),
+    road_3 a asfaltová road_2 → 502.2 (5–7 m), road_1 a track_fast → 815, track → 817,
+    pěšiny a chodníky 816.
     """
     raw = highway or "path"
     sprint = preset_id.startswith("sprint")
@@ -1541,7 +1592,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
             # OOM 501.17/18/19 → OCAD 501.30/31 (2 m / 4 m); 501.32–33 v klíči pro editaci.
             return ("501.30", "501.31", "501.31", "501.31")[rank]
         if mtbo:
-            return "502" if rank >= 2 else "503"
+            # Jako les: široké a vyšší třídy 502.1 / 502 (ISMTBOM 502.1 >7 m, 502.2 5–7 m),
+            # asfaltové servisní "503" (→ 502.2), nezpevněná vozová road_1 → track 831 (815).
+            return ("831", "503", "502", "502.1")[rank]
         # Les: road_1→504, road_2→503 (service/track asphalt),
         # road_3→502 (unclassified/residential), road_4→502.1 (secondary+).
         return ("504", "503", "502", "502.1")[rank]
@@ -3065,12 +3118,13 @@ def write_osm_manual_shapefiles(
         "",
         "Importuj vybrané SHP do OOM (File → Importovat…) a přiřaď symbol.",
         "Většina objektů je i v .omap; sem patří pro volné poskládání / doladění.",
-        "OSM_skaly (bare_rock) → 214 v auto .omap; OSM_skaly_linie / OSM_sutina: jen podklad (skály = LiDAR 206).",
+        f"OSM_skaly (bare_rock) → {describe_code('214')} v auto .omap; OSM_skaly_linie / "
+        f"OSM_sutina: jen podklad (skály = LiDAR {describe_code('206')}).",
         "",
         "Vrstva              Typ        Doporučený symbol (les/sprint; MTBO se liší)",
         "-----              ---        ---------------------------------------------",
-        "OSM_cesty          linie      506 (pěšina) / 501.* silnice – dle highway",
-        "OSM_budovy         polygony   521 (les/sprint) nebo 526 (MTBO)",
+        f"OSM_cesty          linie      {describe_code('506')} (pěšina) / silnice dle highway",
+        f"OSM_budovy         polygony   {describe_code('521')} (les/sprint) nebo 526 (MTBO)",
     ]
     for kind, feats in sorted(by_kind.items()):
         spec = OSM_MANUAL_LAYER_SPECS.get(kind)
@@ -3082,7 +3136,7 @@ def write_osm_manual_shapefiles(
         geom = {"POINT": "body", "LINESTRING": "linie", "POLYGON": "polygony"}.get(
             nlt, "smíšené"
         )
-        lines.append(f"{stem:<18} {geom:<10} {code}  ({desc})")
+        lines.append(f"{stem:<18} {geom:<10} {describe_code(code)}  ({desc})")
     lines.append("")
     lines.append("Souřadnice: EPSG:5514 (S-JTSK).")
     lines.append("")
@@ -3129,8 +3183,10 @@ def build_osm_path_parts(
         if code not in symbol_cache:
             symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
         symbol_index = symbol_cache[code]
-        if symbol_index is None:
-            # Fallback: les/sprint 506; MTBO Path medium 834 (504–507 jsou skryté).
+        if symbol_index is None and not preset_uses_catalog(preset_id, scale):
+            # Fallback (jen staré sady): les/sprint 506; MTBO Path medium 834 (504–507
+            # jsou skryté). U katalogových sad se chybějící kód nenahrazuje – je
+            # zaznamenán v počítadle a vypsán varováním v logu jobu.
             fallback = "834" if preset_id.startswith("mtbo") else "506"
             if fallback not in symbol_cache:
                 symbol_cache[fallback] = symbol_index_for_code(
@@ -3374,6 +3430,7 @@ def build_osm_feature_parts(
             if not raw_rings:
                 continue
             rings = [[(float(x), float(y)) for x, y in r] for r in raw_rings]
+            orig_rings = rings  # skutečná hranice plochy (před ořezem na výřez)
             if clip_bounds:
                 rings = [clip_ring(r, clip_bounds) for r in rings]
                 if len(rings[0]) < 3:
@@ -3383,6 +3440,20 @@ def build_osm_feature_parts(
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
+                if code == ISOM_PAVED_FILL_CODE and not (
+                    preset_id.startswith("sprint") or mtbo
+                ):
+                    # ISOM 501.1 je jen výplň bez okraje → černý okraj 501.2 po skutečné
+                    # hranici plochy (vnější obrys i díry); podél ořezu na výřez se nekreslí.
+                    if ISOM_PAVED_EDGE_CODE not in symbol_cache:
+                        symbol_cache[ISOM_PAVED_EDGE_CODE] = symbol_index_for_code(
+                            preset_id, scale, ISOM_PAVED_EDGE_CODE
+                        )
+                    edge_index = symbol_cache[ISOM_PAVED_EDGE_CODE]
+                    if edge_index is not None:
+                        grouped[kind].extend(
+                            _paved_edge_objects(edge_index, orig_rings, clip_bounds, to_map)
+                        )
             fill_index = olive_index if courtyard_fill == "olive" else symbol_index
             if (
                 fill_courtyards

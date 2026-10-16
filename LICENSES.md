@@ -44,6 +44,20 @@ Podkladárna byla volně inspirována
 [Karttapullautinem](https://github.com/karttapullautin/karttapullautin)
 a pak šla vlastní cestou (vegetace / srázy / DEM).
 
+## Sady symbolů
+
+- **ISOM 2017-2 (Revize 6)** a **ISSprOM 2019-2 (Revize 6)** (`configs/oom/*_cz.omap`)
+  vycházejí z oficiálních OCAD sad symbolů (`configs/oom/ocad_src/`, otevřených
+  a uložených v OpenOrienteering Mapperu). Základní názvy symbolů jsou podle oficiálních
+  českých překladů specifikací (ČSOS), názvy podsymbolů (minimální velikosti, varianty,
+  obrysy) jsou odvozené; skript `scripts/build_symbol_sets.py` je
+  vygeneruje, odstraní skryté symboly a přejmenuje symboly.
+- **ISMTBOM 2022** (MTBO, `configs/oom/ISMTBOM_2022_*_cz.omap`) vychází stejně z oficiální OCAD
+  sady (`configs/oom/ocad_src/ISMTBOM_2022_*.omap`); skryté symboly zůstávají jako v OCADu.
+  Starší sady OpenOrienteering Mapperu (`configs/oom/ISMTBOM_*.omap`, `ISOM_2017-2_*.omap`,
+  [GPL-3.0](https://github.com/OpenOrienteering/mapper)) se už nepoužívají.
+- TODO Petr: potvrdit podmínky šíření počeštěné odvozeniny OCAD sad.
+
 ## Mapa výřezu
 
 - [OpenStreetMap](https://www.openstreetmap.org/copyright) — dlaždice, ODbL

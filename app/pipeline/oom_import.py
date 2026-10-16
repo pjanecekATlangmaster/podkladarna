@@ -38,6 +38,7 @@ from app.pipeline.oom_symbol_map import (
     KP_CLIFF_OFF,
     KP_CLIFF_SYMBOL_206,
     oom_code_for_dxf,
+    display_code,
     oom_code_for_vectorconf_rule,
     resolve_rock_area_code,
     symbol_index_for_code,
@@ -1708,7 +1709,8 @@ def build_dxf_object_part(
             used_rocks=pending_rocks,
             discarded_earth=discarded_earth,
             discarded_rocks=discarded_rocks,
-            rock_code=rock_area_code,
+            rock_code=display_code(preset_id, scale, rock_area_code),
+            earth_code=display_code(preset_id, scale, "104"),
         )
     except Exception:
         pass
@@ -1753,25 +1755,28 @@ def build_dxf_object_part(
     if not objects:
         return None
     codes = set(cliff_groups)
+    # Kódy ve zprávách = kódy symbolů v použité sadě (ne kódy generátoru).
+    rock_lbl = display_code(preset_id, scale, rock_area_code)
+    earth_lbl = display_code(preset_id, scale, "104")
     if cliff_symbol == KP_CLIFF_SYMBOL_206:
-        cliff_label = "skály (206 plocha)"
+        cliff_label = f"skály ({display_code(preset_id, scale, KP_CLIFF_206_CODE)} plocha)"
     elif cliff_symbol == KP_CLIFF_EARTH_BANK:
-        cliff_label = "zemní srázy (104)"
+        cliff_label = f"zemní srázy ({earth_lbl})"
     elif cliff_symbol == KP_CLIFF_AUTO and "201" in codes and "104" in codes:
         cliff_label = (
-            "skála (plocha 201.2/206) a zem (104)"
+            f"skála (plocha {rock_lbl}) a zem ({earth_lbl})"
             if had_dense_polys
-            else "skála (bez plochy) a zem (104)"
+            else f"skála (bez plochy) a zem ({earth_lbl})"
         )
     elif "201" in codes and "104" in codes:
         cliff_label = (
-            "skála (plocha 201.2/206) a zem (104)"
+            f"skála (plocha {rock_lbl}) a zem ({earth_lbl})"
             if had_dense_polys
-            else "skála (bez plochy) a zem (104)"
+            else f"skála (bez plochy) a zem ({earth_lbl})"
         )
     elif "201" in codes:
         cliff_label = (
-            "skála (plocha 201.2/206)" if had_dense_polys else "skála (bez plochy)"
+            f"skála (plocha {rock_lbl})" if had_dense_polys else "skála (bez plochy)"
         )
     else:
         cliff_label = "srázy"
@@ -1779,7 +1784,7 @@ def build_dxf_object_part(
     if rock_ticks_n:
         detail_bits.append(f"{rock_ticks_n} skalních ticků")
     if rock_polys_n:
-        detail_bits.append(f"skála→{rock_polys_n} ploch 201.2/206")
+        detail_bits.append(f"skála→{rock_polys_n} ploch {rock_lbl}")
     elif rock_ticks_n and not shapely_available():
         # Bez shapely morph vrátí 0 ploch a zbytky 201 se zahodí — typický
         # Docker bug před 2.2.21 (shapely chybělo v requirements.txt).
@@ -1791,7 +1796,7 @@ def build_dxf_object_part(
             f"{rock_depression_skip} skála=deprese (přednost vrstevnicím)"
         )
     if earth_lines_n or "104" in codes:
-        bit = f"104→{earth_lines_n} linií"
+        bit = f"{earth_lbl}→{earth_lines_n} linií"
         extras = []
         if earth_tangled:
             extras.append(f"{earth_tangled} zamotaných zahozeno")

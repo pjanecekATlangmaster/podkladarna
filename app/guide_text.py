@@ -115,7 +115,7 @@ Co s tím
 1. Nainstalujte OOM (openorienteering.org).
 2. Rozbalte ZIP. Dvojklik na vybraný *-sprint.omap / *-les.omap / *-mtbo.omap (OOM)
    nebo stejnojmenný *.ocd (OCAD), případně File → Open.
-3. Importujte DXF a SHP dle README_OOM.txt a přiřaďte symboliku ISOM/ISSOM.
+3. Importujte DXF a SHP dle README_OOM.txt a použijte symboly sady v mapě (ISOM 2017-2 / ISSprOM 2019-2 s českými názvy, MTBO: ISMTBOM).
 4. Kreslete mapu. Referenční vrstvy po dokončení vypněte nebo smažte.
 
 OCAD: použijte *.ocd z ZIPu (OCD12). Soubor .omap nativně neotevře –

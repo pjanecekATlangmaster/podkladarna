@@ -82,8 +82,11 @@ def write_line_shapefile(
     lines: list[list[tuple[float, float]]],
     *,
     reasons: list[str] | None = None,
+    oom_code: str = "104",
 ) -> Path | None:
-    """Zapíše linie (S-JTSK). ``reasons`` → pole ``duvod`` (stejná délka)."""
+    """Zapíše linie (S-JTSK). ``reasons`` → pole ``duvod`` (stejná délka).
+
+    ``oom_code`` = kód symbolu v použité sadě (výchozí 104 = kód generátoru)."""
     if not lines:
         return None
     try:
@@ -107,9 +110,9 @@ def write_line_shapefile(
             ring = [[float(x), float(y)] for x, y in pts]
             w.line([ring])
             if with_reason:
-                w.record("104", str(reasons[i] or "")[:40])
+                w.record(str(oom_code)[:8], str(reasons[i] or "")[:40])
             else:
-                w.record("104")
+                w.record(str(oom_code)[:8])
     if not dest_shp.is_file():
         return None
     write_prj(dest_shp)
@@ -230,6 +233,7 @@ def write_cliff_inspection_vectors(
     discarded_earth: list[tuple[list[tuple[float, float]], str]] | None = None,
     discarded_rocks: list[tuple[list[tuple[float, float]], str]] | None = None,
     rock_code: str = "201.2",
+    earth_code: str = "104",
     log=None,
 ) -> Path:
     """Zapíše srázy/skály do ``uzitecne/pouzite|vyhozene/``."""
@@ -239,7 +243,7 @@ def write_cliff_inspection_vectors(
     discarded_earth = discarded_earth or []
     discarded_rocks = discarded_rocks or []
 
-    write_line_shapefile(pouzite / "srazy_104.shp", used_earth)
+    write_line_shapefile(pouzite / "srazy_104.shp", used_earth, oom_code=earth_code)
     write_polygon_shapefile(
         pouzite / "skaly_201.shp", used_rocks, oom_code=rock_code
     )
@@ -248,6 +252,7 @@ def write_cliff_inspection_vectors(
             vyhozene / "srazy_104.shp",
             [pts for pts, _ in discarded_earth],
             reasons=[reason for _, reason in discarded_earth],
+            oom_code=earth_code,
         )
     if discarded_rocks:
         write_polygon_shapefile(

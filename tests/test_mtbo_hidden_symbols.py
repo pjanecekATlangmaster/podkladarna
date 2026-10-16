@@ -30,40 +30,59 @@ def test_drop_symbols_by_id_handles_nested_and_count():
     assert 'code="1"' in out and 'code="3"' in out
 
 
-def test_mtbo_map_drops_unused_hidden_symbols_and_renumbers_ids():
+def test_mtbo_map_keeps_ocad_hidden_and_unhides_only_used_symbols():
+    """ISMTBOM 2022: hidden jako v OCADu, odkryjí se jen symboly použité objekty."""
+    from app.pipeline.oom_import import OomObjectPart
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
     raw = symbol_set_path("mtbo_10000", 10000).read_text(encoding="utf-8")
-    hidden = hidden_symbol_ids(raw)
-    assert hidden
-    hidden_codes = {c for c in hidden.values() if c}
-    xml = _build("mtbo_10000", 10000)
-    present_codes = set(re.findall(r'<symbol\b[^>]*\bcode="([^"]+)"', xml))
-    # Zhasnuté a nepoužité pryč (kromě záměrně odkrytých z ISOM overlay).
-    gone_codes = hidden_codes - present_codes
-    assert len(gone_codes) > 30
-    assert "101" in present_codes
-    assert not re.findall(r'is_hidden="true"', xml)
-    # Po dropu se ID znovu seřadí od 0 (Mapper).
-    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml)]
-    assert ids == list(range(len(ids)))
+    hidden_raw = hidden_symbol_ids(raw)
+    assert hidden_raw
+    xml0 = _build("mtbo_10000", 10000)
+    # Bez objektů zůstanou hidden všechny a nic se nemaže.
+    n_all = len(re.findall(r'<symbol\b[^>]*\bid="\d+"', raw))
+    assert len(re.findall(r'<symbol\b[^>]*\bid="\d+"', xml0)) == n_all
+    assert len(hidden_symbol_ids(xml0)) == len(hidden_raw)
+    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml0)]
+    assert ids == list(range(len(ids)))  # ID od 0 (Mapper)
+
+    # 408 (vegetace, chůze) je v OCAD sadě hidden → s objektem se odkryje.
+    idx = symbol_index_for_code("mtbo_10000", 10000, "408")
+    assert idx is not None
+    part = OomObjectPart(
+        name="t",
+        count=1,
+        objects_xml=(
+            f'<object type="1" symbol="{idx}"><coords count="4">0 0;100 0;100 100;0 0 18;'
+            "</coords></object>"
+        ),
+    )
+    xml1 = _build("mtbo_10000", 10000, [part])
+    tag = re.search(r'<symbol\b[^>]*\bcode="408\.0"[^>]*>', xml1)
+    assert tag is not None and "is_hidden" not in tag.group(0)
+    assert len(hidden_symbol_ids(xml1)) == len(hidden_raw) - 1
 
 
 def test_forest_map_drops_isom2000_legacy_keeps_rest():
+    """Čistá OCAD sada ISOM: žádné ISOM2000 legacy ani skryté symboly, nic se nemaže."""
     raw = symbol_set_path("forest_10000", 10000).read_text(encoding="utf-8")
     n_raw = len(re.findall(r'<symbol\b[^>]*\bid="\d+"', raw))
     xml = _build("forest_10000", 10000)
     n_out = len(re.findall(r'<symbol\b[^>]*\bid="\d+"', xml))
-    # ISOM2000 / starší migrace pryč (104.9, 201.2, 203.9, …), zbytek zůstává.
-    assert n_out < n_raw
-    assert n_raw - n_out >= 5
+    # Záměrná změna (ISOM *_cz.omap): sada je už vyčištěná, výstup má stejně symbolů.
+    assert n_out == n_raw
+    assert "is_hidden" not in xml
+    assert "from ISOM2000" not in xml
     assert 'code="203.9"' not in xml
-    assert 'code="201.2"' not in xml
-    assert 'code="101"' in xml
+    assert 'code="101.0"' in xml
+    ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml)]
+    assert ids == list(range(len(ids)))
 
 
 def test_sprint_map_uses_ocad_501_scheme():
     """Sprint: OCAD 501 (light/heavy), bez OOM footprintů 501.6–19 a ISSOM legacy."""
     raw = symbol_set_path("sprint_2m", 4000).read_text(encoding="utf-8")
-    assert 'code="203.9"' in raw or 'code="501.0"' in raw
+    assert 'code="501.0"' in raw
     xml = _build("sprint_2m", 4000)
     for code in ("201.8", "201.9", "202.8", "202.9", "203.9"):
         assert f'code="{code}"' not in xml
@@ -81,7 +100,8 @@ def test_sprint_map_uses_ocad_501_scheme():
         "532.8",
     ):
         assert f'code="{code}"' not in xml
-    assert 'code="203"' in xml
+    # OCAD číslování: 203.0 Kamenná jáma, 203.1 Jeskyně (dřív OOM 203 / 203.1).
+    assert 'code="203.0"' in xml
     assert 'code="203.1"' in xml
     assert 'code="501.0"' in xml
     assert 'code="501.10"' in xml  # chodník
@@ -89,6 +109,8 @@ def test_sprint_map_uses_ocad_501_scheme():
     assert 'code="501.30"' in xml
     assert 'code="501.31"' in xml  # dřívější 501.19
     assert 'code="501.100"' in xml  # hrana (dřív OOM 501.1)
-    assert 'code="532.7"' in xml
+    # Schodiště: OOM 532.7 (2 m) → OCAD 532.0 (1,6 m), viz symbol_catalog.yaml.
+    assert 'code="532.0"' in xml
+    assert 'code="532.7"' not in xml
     ids = [int(x) for x in re.findall(r'<symbol\b[^>]*\bid="(\d+)"', xml)]
     assert ids == list(range(len(ids)))

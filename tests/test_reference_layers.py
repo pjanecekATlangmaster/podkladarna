@@ -154,7 +154,7 @@ def test_build_oom_map_xml_contains_templates():
     assert 'declination="5.15"' in xml
     assert 'grivation="13.02"' in xml
     assert '<symbols count="' in xml
-    assert 'code="101"' in xml
+    assert 'code="101.0"' in xml  # forest_10000 → ISOM_2017_10000_cz.omap
 
 
 def test_write_oom_map_file(tmp_path):

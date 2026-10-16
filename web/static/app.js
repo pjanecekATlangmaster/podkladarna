@@ -1338,7 +1338,7 @@ function updateCliffControls() {
   const symbolHint = document.getElementById("cliff-symbol-hint");
   if (symbolHint) {
     symbolHint.textContent =
-      "Strmý schod = skalní plocha (201.2/206), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Malé kupky (109) jsou vedle, z DEM.";
+      "Strmý schod = skalní plocha (206), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Malé kupky (109) jsou vedle, z DEM.";
   }
 }
 
@@ -1377,7 +1377,7 @@ function applyJobToForm(job) {
   const cliff = form.kp_cliff_symbol;
   if (cliff) {
     let cliffVal = (job.options || {}).kp_cliff_symbol || "auto";
-    // Legacy „rock_face“ (force linear 201) → auto; skály jsou plochy 201.2/206.
+    // Legacy „rock_face“ (force linear 201) → auto; skály jsou plochy 206.
     if (cliffVal === "rock_face") cliffVal = "auto";
     if ([...cliff.options].some((o) => o.value === cliffVal)) {
       cliff.value = cliffVal;

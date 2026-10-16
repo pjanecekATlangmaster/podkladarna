@@ -132,13 +132,13 @@
           <label>
             Strmé změny reliéfu – symbol
             <select name="kp_cliff_symbol" id="kp_cliff_symbol">
-              <option value="auto" selected>Automaticky: skála (201.2/206) vs. zem (104)</option>
+              <option value="auto" selected>Automaticky: skála (206) vs. zem (104)</option>
               <option value="earth_bank">Vše jako zemní sráz (104)</option>
               <option value="symbol_206">Vše jako skála (206, plocha)</option>
               <option value="off">Nevykreslovat (ani nepočítat)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-symbol-hint">Detektor rozliší strmý schod (skalní plochy 201.2/206) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. Samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</p>
+          <p class="hint" id="cliff-symbol-hint">Detektor rozliší strmý schod (skalní plochy 206) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. Samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</p>
 
           <label class="checkbox-row">
             <input type="checkbox" name="include_knolls" id="include_knolls" value="1" checked />
@@ -155,7 +155,7 @@
               <option value="very_high">Velmi citlivé (více drobných srázů)</option>
             </select>
           </label>
-          <p class="hint" id="cliff-sensitivity-hint">Výchozí „méně citlivé“ (cliff1=2,2 m). Vyšší práh = méně falešných zemních srázů. Skalní plochy 201.2/206 mají ještě přísnější drop (+0,7 m) a menší footprint (shrink); zamotané 104 a krátké pahýly se filtrují při sestavení OOM.</p>
+          <p class="hint" id="cliff-sensitivity-hint">Výchozí „méně citlivé“ (cliff1=2,2 m). Vyšší práh = méně falešných zemních srázů. Skalní plochy (206) mají ještě přísnější drop (+0,7 m) a menší footprint (shrink); zamotané 104 a krátké pahýly se filtrují při sestavení OOM.</p>
         </div>
 
         <div class="form-section">
@@ -170,7 +170,7 @@
             <input type="checkbox" name="kp_osm_footway_as_sidewalk" id="kp_osm_footway_as_sidewalk" value="1" />
             Všechny footway jako zpevněný chodník
           </label>
-          <p class="hint" id="osm-footway-sidewalk-hint">OSM občas špatně odliší pěšinu a chodník. Zapnutím se všechny <code>highway=footway</code> kreslí jako zpevněný chodník (sprint 501.6). U lesa/MTBO zůstává linie pěšiny (506 / 834), ne zpevněná plocha. Default zapnuto u sprintu, jinak vypnuto.</p>
+          <p class="hint" id="osm-footway-sidewalk-hint">OSM občas špatně odliší pěšinu a chodník. Zapnutím se všechny <code>highway=footway</code> kreslí jako zpevněný chodník (sprint 501.10, zpevněná pěšina 1,4 m). U lesa/MTBO zůstává linie pěšiny (506 / 834), ne zpevněná plocha. Default zapnuto u sprintu, jinak vypnuto.</p>
 
           <div id="courtyard-fill-wrap">
             <label>

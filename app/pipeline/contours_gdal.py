@@ -13,7 +13,7 @@ from app.pipeline.oom_import import (
     _pyogrio_layer_rows,
     _wkb_parts,
 )
-from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.pipeline.oom_symbol_map import preset_uses_catalog, symbol_index_for_code
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 
@@ -927,7 +927,8 @@ def build_gdal_contour_parts(
     )
     for (code, _elev), lines in by_key.items():
         symbol_index = symbol_index_for_code(preset_id, scale, code)
-        if symbol_index is None:
+        if symbol_index is None and not preset_uses_catalog(preset_id, scale):
+            # Jen staré sady; u katalogových se chybějící kód nenahrazuje.
             symbol_index = symbol_index_for_code(preset_id, scale, "101")
         if symbol_index is None:
             continue

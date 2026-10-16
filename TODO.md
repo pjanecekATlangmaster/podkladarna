@@ -34,6 +34,13 @@ na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
 - Vlastní šablona mapového klíče (nahrát .omap; import jde podle kódů značek)
   a výchozí ISSprOM 2019-2 rev. 6 (chybí např. trojúhelníky víceúrovňových
   staveb). Uživatel hledá úplnou sadu pro OOM.
+  - Stav (2026-10): mapový klíč je teď česká OCAD sada ISOM 2017-2 / ISSprOM 2019-2
+    (`configs/oom/*_cz.omap`, viz DEV.md „Sady symbolů“); trojúhelníky víceúrovňových
+    staveb a další symboly jsou v sadě. Vlastní nahrávaná šablona zůstává otevřená.
+  - Vlastní šablona: nejdřív promyslet **mapování symbolů** (katalog `symbol_catalog.yaml`
+    je navázaný na kódy naší sady; cizí šablona má jiné/přečíslované kódy – viz rozbor
+    Mapovani_Zderaz.omap níže, normalizace „.0“ a tabulka přemapování). Bez návrhu
+    mapování neimplementovat.
   - Rozbor šablony ze školení kartografů (Mapovani_Zderaz.omap, 2026-10):
     ISOM 2017-2 1:15000 česky, 138 kódů shodných s naší; kódy jako „101.0“
     a přečíslované podvarianty (513.100, 520.4, 501.1, 203.101) → při použití
@@ -41,10 +48,10 @@ na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
     Navíc pomocné značky 1.x Ortofoto, 2.x LAS reliéf, 3.x pomocné – vhodné
     pro nejisté výstupy generátoru. Licence/šíření nejasné (asi ČSOS).
 - OSM `natural=bare_rock` (např. [way/905065542](https://www.openstreetmap.org/way/905065542),
-  50.0404N 14.3653E) mapovat na značku 214 – holá skála. HOTOVO (neotestováno
-  na ostrém jobu): `bare_rock` jde jako 214 do .omap (sprint i les; MTBO
+  50.0404N 14.3653E) mapovat na značku 214 – holá skála. HOTOVO a ověřeno
+  (Petr, 2026-10): `bare_rock` jde jako 214 do .omap (sprint i les; MTBO
   214 nemá). Značku 206 z OSM nemapujeme, `scree` zůstává jen podklad.
-  Zbývá ověřit na reálné mapě u way/905065542 a zvážit `scree`.
+  Zbývá jen zvážit `scree`.
 - Mapa „Spousta změn, velká kontrola ďolíky“ (job): generuje se velké
   množství samostatných maličkých zelených ploch, na ní dobře vidět – zjistit,
   která vegetační třída je tvoří, a odfiltrovat nebo sloučit podle minimální

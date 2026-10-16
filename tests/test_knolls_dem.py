@@ -112,7 +112,8 @@ def test_dxf_codes_for_relief_points():
     assert oom_code_for_dxf("dotknolls.dxf", preset_id="forest_10000") == "109"
     assert oom_code_for_dxf("dotdepressions.dxf", preset_id="forest_10000") == "111"
     assert oom_code_for_dxf("dotpits.dxf", preset_id="sprint_2m") == "112"
-    assert oom_code_for_dxf("dotdepressions.dxf", preset_id="mtbo_10000") == "112"
+    # ISMTBOM 2022 (OCAD) má Small depression 111 i Pit 112 (hidden, odkryjí se při použití).
+    assert oom_code_for_dxf("dotdepressions.dxf", preset_id="mtbo_10000") == "111"
 
 
 def test_resolve_want_zip_always_true():

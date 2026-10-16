@@ -36,7 +36,13 @@ from app.pipeline.oom_import import (
 )
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_layers import collect_oom_templates
-from app.pipeline.oom_symbol_map import symbol_index_for_code
+from app.pipeline.oom_symbol_map import (
+    describe_code,
+    display_code,
+    drain_unmapped_codes,
+    symbol_index_for_code,
+    unmapped_codes_message,
+)
 from app.pipeline.residual_paved import build_residual_paved_parts, _RESIDUAL_BANDS_DIR
 from app.pipeline.reference_layers import (
     list_reference_rasters,
@@ -56,7 +62,7 @@ from app.pipeline.vegetation_gdal import build_vegetation_parts
 from app.settings import APP_VERSION
 
 
-OSM_FOLDER_README = """OSM – vrstvy pro ruční skládání mapy
+OSM_FOLDER_README = f"""OSM – vrstvy pro ruční skládání mapy
 ====================================
 Stejný účel jako složka zabaged/: vyber SHP a importuj do OOM
 (File → Importovat…) s přiřazením symbolu.
@@ -64,14 +70,15 @@ Stejný účel jako složka zabaged/: vyber SHP a importuj do OOM
 Většina objektů je i v .omap; tady je máš jako zdroj pro volné poskládání.
 Včetně OSM_budovy.shp (stejný zdroj jako auto budovy v .omap).
 
-OSM skály: OSM_skaly (natural=bare_rock) jde do auto .omap jako holá skála 214
+OSM skály: OSM_skaly (natural=bare_rock) jde do auto .omap jako holá skála {describe_code("214")}
 (MTBO ji nemá, tam zůstává podklad). OSM_skaly_linie / OSM_sutina jsou jen
-podklad. Ostatní skály ve výstupu jsou spočítané z LiDAR/DEM (206).
+podklad. Ostatní skály ve výstupu jsou spočítané z LiDAR/DEM ({describe_code("206")}).
 
-Residential zbytek (501): OSM_residential_zbytek_mensi / _stredni / _velke
-a _ridke (řídce zmapované – v auto .omap nejsou). Symbol 501.
+Residential zbytek: OSM_residential_zbytek_mensi / _stredni / _velke
+a _ridke (řídce zmapované – v auto .omap nejsou). Symbol {describe_code("501")}.
 
 Doporučené symboly jsou v README.txt uvnitř jobu (osm_paths/manual/).
+Kódy symbolů jsou kódy OCAD sad ISOM / ISSprOM (MTBO má vlastní číslování).
 
 Souřadnice: EPSG:5514 (S-JTSK).
 """
@@ -394,9 +401,8 @@ def build_aoi_boundary_part(
     grivation_deg: float,
 ) -> OomObjectPart | None:
     """Fialový obdélník vybraného AOI (uvnitř = výběr, vně = přesah)."""
-    # ISOM/ISSprOM 708 = Out-of-bounds boundary (purple);
-    # ISMTBOM 708 je crossing point → 705 Marked route.
-    code = "705" if preset_id.startswith("mtbo") else "708"
+    # 708 = Out-of-bounds boundary (purple) ve všech sadách (ISOM, ISSprOM, ISMTBOM 2022).
+    code = "708"
     symbol_index = symbol_index_for_code(preset_id, scale, code)
     if symbol_index is None:
         return None
@@ -468,6 +474,17 @@ def oom_metadata(
 
 
 def oom_readme(meta: dict) -> str:
+    def _c(code: str) -> str:
+        """Kód symbolu v sadě jobu (staré sady: beze změny)."""
+        pid = meta.get("preset_id")
+        sc = parse_map_scale(meta.get("scale"))
+        if not pid or sc is None:
+            return code
+        try:
+            return display_code(str(pid), sc, code)
+        except FileNotFoundError:
+            return code
+
     scale = meta.get("scale") or "?"
     label = meta.get("label") or meta.get("preset_id") or ""
     interval = meta.get("contour_interval_m")
@@ -505,7 +522,8 @@ def oom_readme(meta: dict) -> str:
         "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
         "   Ve složce base/: vrstevnice GDAL (contours_gdal.* = jediná pravda, jen z DMR), "
         "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "
-        "srázy zem (104) / skála (201.2/206) a volitelné knolly (109).\n"
+        f"srázy zem ({_c('104')}) / skála ({_c('206')}) "
+        f"a volitelné knolly ({_c('109')}).\n"
         "   uzitecne/pouzite vs uzitecne/vyhozene: stejné vrstvy po filtrech "
         "(min-size, occupancy, husté vrstevnice, …) – SHP k prohlížení.\n"
         "   ZABAGED louky nejsou auto-zdroj vegetace – jen v zabaged/ pro ruční import.\n"
@@ -537,7 +555,7 @@ def oom_readme(meta: dict) -> str:
         "   (podle měřítka; cesty z OSM) – nebo stejnojmenný *.ocd v OCAD.\n"
         "   Výchozí pohled: jen vektory (vrstevnice, zeleň, ZABAGED, OSM budovy, srázy, …).\n"
         "   Fialový obdélník = váš výřez; vně je jen přesah polohopisu.\n"
-        "   Vrstevnice (101/102): Chaikin → DP simplify (~0,08 mm) → Bézier; zamčené (is_protected)\n"
+        f"   Vrstevnice ({_c('101')}/{_c('102')}): Chaikin → DP simplify (~0,08 mm) → Bézier; zamčené (is_protected)\n"
         "   – odemkni v panelu symbolů; v OOM volitelně Převést na křivky.\n"
         f"{kp_steps}"
         "OCAD: otevřete stejnojmenný *.ocd (OCD12 z Mapper convert; lossy OK).\n"
@@ -698,6 +716,7 @@ def prepare_oom_map(
 ) -> Path | None:
     """``certain_only``: jen čistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů."""
     del formline
+    drain_unmapped_codes()  # počítadlo chybějících symbolů jen pro tento job
     path_source = resolve_path_source(path_source)
     west, south, east, north = bbox_wgs84
     xmin, ymin, xmax, ymax = crop_bounds_5514(west, south, east, north)
@@ -884,6 +903,10 @@ def prepare_oom_map(
     )
     if aoi_part:
         object_parts.append(aoi_part)
+    # Kódy generátoru, které katalogová sada nezná (u starých sad vždy prázdné).
+    unmapped_msg = unmapped_codes_message(drain_unmapped_codes())
+    if unmapped_msg and log:
+        log(unmapped_msg)
     return write_oom_map(
         dest,
         map_name=map_name,

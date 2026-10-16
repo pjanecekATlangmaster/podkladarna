@@ -120,6 +120,79 @@ gdalsrsinfo EPSG:5514   # must not mention pyproj\proj_dir
 
 ---
 
+## Sady symbolů (ISOM, ISSprOM, ISMTBOM)
+
+- **ISOM 2017-2 (Revize 6)** a **ISSprOM 2019-2 (Revize 6)** vycházejí z oficiálních
+  OCAD sad (otevřených a uložených v Mapperu jako `.omap` do `configs/oom/ocad_src/`).
+  Základní názvy symbolů jsou české podle oficiálních českých překladů ČSOS, názvy podsymbolů
+  jsou odvozené (`review: true` v katalogu). Sady jsou
+  v `configs/oom/ISOM_2017_10000_cz.omap`, `ISOM_2017_15000_cz.omap`,
+  `ISSprOM_2019_4000_cz.omap`. Kódy zůstávají jako v OCAD (`101.0`, `203.100`, …),
+  názvy barev se nepřekládají. Lesní presety 7500 i 10000 používají sadu 10000.
+- **ISMTBOM 2022** (MTBO) je stejně z OCADu: `configs/oom/ISMTBOM_2022_10000_cz.omap`
+  a `ISMTBOM_2022_15000_cz.omap` (presety `mtbo_10000` / `mtbo_15000`). Na rozdíl od ISOM/ISSprOM
+  se u ní **skryté symboly nemažou** (`KEEP_HIDDEN` ve `scripts/build_symbol_sets.py`):
+  zůstávají `is_hidden` jako v OCADu a `build_oom_map` při tvorbě mapy odkryje jen ty, které
+  objekty skutečně používají. Kódy generátoru pro MTBO jsou dál v číslování dřívějšího ISMTBOM
+  (`831`, `526`, …) a sekce `mtbo` v katalogu je překládá na kódy OCAD (`815.0`, `521.0`, …).
+  Starší `configs/oom/ISMTBOM_*.omap` a `ISOM_2017-2_*.omap` presety nepoužívají (nemažou se).
+- `_cz.omap` se nepíšou ručně, generuje je skript:
+
+  ```powershell
+  python scripts/build_symbol_sets.py
+  ```
+
+  Odstraní skryté symboly (`is_hidden`) a nestandardní pomocné kódy 799/999, přejmenuje
+  symboly včetně vnořených částí podle katalogu a zapíše `configs/oom/symbol_catalog.yaml`.
+  Opakovaný běh zachová ruční úpravy v katalogu a doplní jen nové symboly.
+
+### Katalog `configs/oom/symbol_catalog.yaml`
+
+Sekce `isom` (sdílí 10k i 15k) a `sprint`; pro každý symbol sady:
+
+- `ocad_code` – kód symbolu v sadě (např. `501.0`, `505.0`),
+- `cz_name` – český název (zapisuje se do `.omap`),
+- `generator_codes` – kódy, které používá generátor (`osm_oom_code`, `oom_code_for_dxf`,
+  vegetace, vrstevnice, …) a které se mapují na tento symbol. Jeden kód generátoru smí
+  patřit jen jednomu symbolu (jinak `ValueError`); více kódů na jeden symbol je v pořádku,
+- `geom` – `point` / `line` / `area` / `text` (kombinovaný symbol je `area`, jen když má
+  plošnou část),
+- `review: true` – název nebo přiřazení je odvozené a čeká na kontrolu; drží se jen u symbolů,
+  které generátor používá (`generator_codes` neprázdné). U ostatních (varianty, např. zvětšení
+  120 %, minimální velikosti) stačí odvozený název, takže `review: false`,
+- `keep_reason` – proč je v sadě symbol, který generátor nepoužívá (řada 7xx, texty).
+
+Za běhu **neexistuje implicitní překlad** (žádné „kód + .0“ ani fallback na syrový kód).
+`set_code(preset, měřítko, kód_generátoru)` v `app/pipeline/oom_symbol_map.py` přeloží kód
+přes katalog; neznámý kód vrátí `None`, objekt se nenakreslí a job log dostane varování
+„kód generátoru bez symbolu“ (počet dotazů na symbol, ne přesně objektů). Výjimka: kód
+z vectorconf (`kp`) odvozený ze souboru `zabaged*.txt`, který katalog nezná, se v
+`oom_code_for_vectorconf_rule` jen přeskočí bez varování – tak se tiše zahazovaly vrstvy bez
+symbolu i dřív; kódy, které generátor vyrábí, hlídá `tests/test_generator_codes_covered.py`.
+Staré sady (MTBO) procházejí beze změny.
+
+Zpevněné plochy v lese: ISOM `501.0` má okraj v symbolu, `501.1` je jen výplň a `501.2` okrajová
+čára. OSM plochy kreslené jako `501.1` (hřiště, pěší zóny, nástupiště) proto dostanou navíc
+čáru `501.2` po skutečné hranici plochy (`osm_paths.py`, `_paved_edge_objects`): prstenec celý
+ve výřezu = uzavřená čára, prstenec protnutý výřezem = jen otevřené kusy uvnitř (podél ořezu
+na výřez se okraj nekreslí). Sprint a MTBO to nedělají (sprint `501.0` je kombinovaný
+a okraj `501.100` obsahuje; `501.1`/`501.2` mají v ISSprOM jiný význam).
+
+Testy: `tests/test_symbol_catalog.py` (sady a katalog), `tests/test_set_code.py` (překlad),
+`tests/test_generator_codes_covered.py` (každý kód, který generátor umí vyprodukovat, je
+v katalogu a geometrie symbolu odpovídá použití).
+
+### Změna nebo nová sada (např. ISOM 2030)
+
+1. Otevři oficiální OCAD sadu v Mapperu a ulož jako `.omap` do `configs/oom/ocad_src/`.
+2. V `scripts/build_symbol_sets.py` doplň položku do `SETS` (klíč katalogu, zdroj, výstup
+   `*_cz.omap`); pro nový klíč doplň české názvy do `scripts/symbol_names_cz.py`
+   (nezmapované symboly dostanou anglický název a `review: true`).
+3. Spusť skript, projdi `symbol_catalog.yaml` (`review: true`) a ručně vyplň
+   `generator_codes` – zkontroluj šířky a geometrii (např. starý footprint 1,4 m ≠ stejné číslo v OCAD).
+4. Uprav `symbol_set_path` (`app/pipeline/oom_symbols.py`) a `catalog_key` (`app/pipeline/symbol_catalog.py`).
+5. `python -m pytest tests/ -q` – výčtový test ukáže kódy generátoru bez mapování.
+
 ## 4. NAS deploy až po zelených testech
 
 ```bash
