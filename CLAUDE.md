@@ -11,15 +11,23 @@ Podkladárna je webová služba pro generování orientačních podkladů z ČÚ
 - Testy: pytest v `tests/`, end-to-end smoke test `scripts/smoke_e2e.py`
 - CI: GitHub Actions — `test.yml` (testy), `docker.yml` (build a push image do GHCR)
 
+## Načítání kontextu
+
+- Při navazování zjisti `git status` a rozsah změn; rozliš vlastní změny od cizí rozpracované práce.
+- Začni konkrétním zadáním a cíleným hledáním symbolů (Grep), čti jen potřebné části souborů.
+- `DEV.md`, `DEPLOY.md`, `TODO.md` čti jen pro konkrétní otázku, ne preventivně. Již načtený obsah nečti znovu.
+- Nečti celé datové soubory, rozsáhlé logy ani celý repozitář; použij souhrn, výběr nebo skript.
+- Úspora kontextu neruší bezpečnostní a doménová pravidla; chybějící důkazy cíleně doplň.
+
 ## Pravidla pro agenta
 
-- Komunikuj česky; commit zprávy také česky (prefix `docs:`, `fix:`, `feat:` apod.).
-- Před úpravou si přečti relevantní soubory a vysvětli krátký plán změny.
-- Zachovávej stávající strukturu projektu, styl kódu a pojmenování.
-- Nedělej rozsáhlý refaktoring bez výslovného souhlasu.
+- Komunikuj česky se správnou diakritikou; commit zprávy také česky (prefix `docs:`, `fix:`, `feat:` apod.).
+- Před úpravou si přečti relevantní soubory a krátce řekni plán; u drobnosti stačí jedna věta.
+- Zachovávej stávající strukturu projektu, styl kódu a pojmenování. Dělej malé, cílené diffy.
+- Nedělej rozsáhlý refaktoring bez výslovného souhlasu. Nesouvisející problémy neopravuj, jen je stručně zmiň, jsou-li podstatné.
 - Nikdy necommituj tajemství, přihlašovací údaje ani lokální data.
-- Před commitem spusť rychlé testy (viz „Vývoj a testy").
-- Při změnách kódu a opravách chyb zvyš `APP_VERSION` v `app/settings.py` (viz „Verze a Novinky"); u dokumentace ne.
+- Před commitem spusť relevantní testy (viz „Vývoj a testy"); celou sadu před PR.
+- Při změnách kódu a opravách chyb zvyš `APP_VERSION` v `app/settings.py` jednou za dokončenou logickou změnu (viz „Verze a Novinky"); u dokumentace ne.
 
 ### Jen se souhlasem Petra
 
@@ -33,15 +41,38 @@ Podkladárna je webová služba pro generování orientačních podkladů z ČÚ
 
 ## Dělba práce (agenti)
 
-Agenti jsou v `.claude/agents/`. Šetříme drahé modely: implementuje junior, senioři radí a revidují.
+Agenti jsou v `.claude/agents/` (každý má `maxTurns` a nízký/střední `effort`). Pouhá existence agenta není důvod ho spustit. Výchozí tok: **jeden implementátor → cílené testy → stručné předání → commit**.
 
-- `junior-dev` (Sonnet) — výchozí volba pro rutinní implementaci: opravy chyb, menší funkce, testy, úpravy UI. Eskaluje, když se zasekne.
-- `opus-advisor` (read-only) — konzultace plánu před netriviální změnou (pipeline, API, formát jobů, geometrie).
-- `opus-reviewer` (read-only) — review diffu před commitem u netriviálních změn. U drobností a dokumentace se přeskakuje.
-- `test-runner` (Haiku, read-only) — spouští pytest (e2e jen na požádání) a vrací stručné shrnutí selhání místo dlouhého logu.
-- `opus-expert` — jen eskalace těžkých algoritmických problémů, kde junior uvázl. Ne pro rutinní práci.
+### Hlavní agent
 
-Typický tok: plán → (advisor u složitých věcí) → junior-dev implementuje → test-runner (pytest) → reviewer → commit.
+- Zvol jednu cestu: úkol vyřeš sám, nebo ho deleguj jednomu implementátorovi. Neimplementuj paralelně totéž, co jsi delegoval.
+- Před delegováním načti jen kontext nutný pro přesné zadání; nedělej analýzu, kterou subagent zopakuje.
+- Výsledek ověř přiměřeně riziku (shrnutí, rozsah diffu, doložené testy), neopakuj automaticky celý postup subagenta.
+- Verzi (`APP_VERSION`) zvyšuje jednou za logickou změnu; subagent jen na výslovné zadání.
+
+### Role
+
+- `junior-dev` (Sonnet) — výchozí implementátor: opravy, menší funkce, testy, UI. Testuje sám, takže `test-runner` k němu nepatří.
+- `test-runner` (Haiku) — jen když testy neběžely u implementátora, nebo na samostatný testovací úkol.
+- `opus-advisor` — jedna konkrétní návrhová nejistota (pipeline, API, formát jobů, geometrie), ne automatický plánovač.
+- `opus-expert` — pouze DIAGNÓZA prokázaného algoritmického problému (nemá Edit/Write); opravu provede `junior-dev`.
+- `opus-reviewer` — rizikové změny (pipeline, API, formát jobů, ZIP/cesty, souběh) nebo výslovně vyžádané druhé oči. Drobnosti a dokumentace bez review.
+
+### Rozhodovací pravidla a rozpočet
+
+- Drobnost, dokumentace, běžné UI, lokální oprava: bez Opusu.
+- Nejasný algoritmus: krátká konzultace NEBO expertova diagnóza → implementátor; ne obojí automaticky.
+- Za úkol nejvýše jedno volání Opus role, jen při prokázané nejistotě. Poradce/expert + následný reviewer v jednom úkolu jen s výslovným souhlasem Petra (nebo je-li předem schválen v zadání). Nutné review se nesmí tiše přeskočit; bez něj změnu neoznačuj za hotovou.
+- Zadání Opus roli obsahuje konkrétní soubory/funkce, reprodukci a otázku; agent nezjišťuje kontext plošným čtením.
+- Po dvou neúspěšných opravných iteracích stejného problému zastav a předej zjištění, hypotézy a překážku; další pokus jen s novým schváleným postupem.
+- Subagenti nespouštějí další subagenty a necommitují, pokud to zadání výslovně nevyžaduje.
+- Souběžní writeři nesmějí měnit stejné soubory.
+
+### Předání
+
+- Zadání obsahuje cíl, relevantní cesty, omezení, dosavadní zjištění a podmínku dokončení; ne celou historii ani kopie velkých souborů.
+- Výstup subagenta do ~10 bodů: co se změnilo, výsledek testů, rizika. Rozsáhlé výstupy do souboru, vracej souhrn.
+- Úsporné pokyny nejsou důvod zamlčet zásadní nález.
 
 ## Struktura repozitáře
 
@@ -67,16 +98,19 @@ Typický tok: plán → (advisor u složitých věcí) → junior-dev implementu
 
 Předpoklady: Windows + PowerShell, nainstalovaný QGIS v `C:\QGIS` (kvůli `proj.db`, viz níže).
 
-### Rychlé testy
+### Testování — cíleně, celá sada až před PR
 
-Z kořene repozitáře:
+Z kořene repozitáře (závislosti: `python -m pip install -r requirements.txt -r requirements-dev.txt`, instaluj jen na žádost):
 
 ```powershell
-python -m pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest tests/ -v
+python -m pytest tests/test_x.py -k "název" --tb=short -q   # při vývoji
+python -m pytest tests/ --tb=short -q                       # celá sada: před PR / na zadání
 ```
 
-Pro změny v `app/` stačí pytest. E2E test a Docker (`dev.ps1 up`, `dev.ps1 e2e`) spouštěj jen u změn pipeline, Dockerfile nebo závislostí.
+- Začni nejmenším relevantním testem nebo výběrem `-k`; celý soubor, pokud odpovídá rozsahu změny. Soubory jsou pojmenované po modulech (`test_vegetation_*`, `test_cliff*`, `test_oom_*`, `test_api.py`, `test_worker.py` …).
+- Jeden vlastník běhu testů; ostatní přebírají příkaz a výsledek. Testy opakuj jen po změně relevantního kódu nebo při konkrétní pochybnosti.
+- Reportuj souhrn a relevantní traceback, ne celé logy. Při chybě prostředí uveď příčinu, neopakuj stejný příkaz beze změny podmínek.
+- E2E a Docker (`dev.ps1 up`, `dev.ps1 e2e`) jen u změn pipeline, Dockerfile nebo závislostí.
 
 ### Pomocné příkazy
 
@@ -154,7 +188,7 @@ Agent dělá kroky 1–7, nasazení na NAS (od kroku 8) dělá Petr.
 
 1. Vytvoř feature větev z aktuálního `master`.
 2. Proveď změny, zvyš `APP_VERSION` (kromě čistě dokumentačních změn) a lokálně spusť `python -m pytest tests/ -v`.
-3. Pro změny pipeline, Dockerfile nebo závislostí navíc `.\scripts\dev.ps1 up` a `.\scripts\dev.ps1 e2e`.
+3. Pro změny pipeline, Dockerfile nebo závislostí navíc `.\scripts\dev.ps1 up` a `.\scripts\dev.ps1 e2e`. U změn s vizuálním dopadem na mapu nabídni Petrovi lokální otočku s `.omap` (viz „Ověření novinky").
 4. Commitni změny a pushni větev do GitHubu.
 5. Vytvoř Pull Request do `master`.
 6. Po merge do `master` workflow `docker.yml` sestaví a publikuje `ghcr.io/pjanecekatlangmaster/podkladarna:latest`.
@@ -177,6 +211,15 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
 - **Vývojový stroj (Windows):** tady je repozitář. `dev.ps1 up` / `dev.ps1 e2e` staví image z lokálního pracovního stromu (`docker-compose.dev.yml`) a zkouší tedy kód z aktuální větve. Je to volitelná kontrola před mergem; nutná je jen u změn pipeline, Dockerfile nebo závislostí (viz „Release proces").
 - **NAS:** repozitář se tam nestahuje. Běží jen hotový image `ghcr.io/pjanecekatlangmaster/podkladarna:latest` sestavený workflow `docker.yml` po mergu do `master` (kopíruje se `configs/`, `app/`, `web/`). Na NAS se proto nikdy nezkouší kód z větve ani se tam nespouští `dev.ps1`; po `update-nas.sh` se jen ověřuje nasazený image (health `200`, testovací job, log jobu, stažený ZIP).
 - Agent proto při předávání pokynů „co pustit" vždy rozlišuje: před mergem = vývojový stroj, po mergu = NAS (jen `update-nas.sh` + ruční ověření podle `DEPLOY.md`).
+
+## Ověření novinky: lokální otočka, nebo až po nasazení
+
+U změn, jejichž výsledek se pozná jen na mapě (pipeline, symboly, geometrie, vegetace, srázy, DEM), se Petra před mergem zeptej, zda chce:
+
+- **lokální otočku** — agent na vývojovém stroji z testdat (případně z dat zadaných Petrem) vygeneruje `.omap` / ZIP, uloží ho do session složky mimo git a předá cestu; Petr ho otevře v Mapperu a zkontroluje. Může ušetřit hodně času, než se chyba dostane do produkce;
+- **ověření až po nasazení** — Petr změnu zkontroluje na ostrém podle `DEPLOY.md`.
+
+Neptej se u drobností, dokumentace a změn bez vizuálního dopadu. Lokální otočka je výchozí doporučení u větších změn výstupu; spouštěj ji až po souhlasu, protože pipeline může trvat dlouho (e2e a Docker viz „Vývoj a testy").
 
 ## Nasazení na NAS (dělá Petr)
 
