@@ -1691,6 +1691,68 @@ def highway_width_rank(highway: str) -> int:
     }.get(draw, 10)
 
 
+def merge_osm_items_same_class(
+    items: list[tuple[list[tuple[float, float]], str]],
+    *,
+    tol_m: float = 0.01,
+) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
+    """Spojí úseky téže cesty, které OSM rozdělilo (jiný chodník, jmenné tagy, …).
+
+    Spojují se jen linie **stejné kresebné třídy** (``hw``), které se potkávají
+    koncovým bodem, v němž končí právě dvě linie této třídy. V křižovatce tří a
+    více úseků stejné třídy se nespojuje. Uzavřené linie a lávky/mosty jiné třídy
+    se neslučují. Vrací ``(nové položky, počet zaniklých úseků)``.
+    """
+    ndigits = max(0, int(round(-math.log10(tol_m))))
+
+    def key(hw: str, p: tuple[float, float]) -> tuple[str, float, float]:
+        return (hw, round(p[0], ndigits), round(p[1], ndigits))
+
+    ends: dict[tuple[str, float, float], list[tuple[int, int]]] = defaultdict(list)
+    for i, (pts, hw) in enumerate(items):
+        if len(pts) < 2 or key(hw, pts[0]) == key(hw, pts[-1]):
+            continue
+        ends[key(hw, pts[0])].append((i, 0))
+        ends[key(hw, pts[-1])].append((i, 1))
+    partner: dict[tuple[int, int], tuple[int, int]] = {}
+    for lst in ends.values():
+        if len(lst) == 2 and lst[0][0] != lst[1][0]:
+            partner[lst[0]] = lst[1]
+            partner[lst[1]] = lst[0]
+    if not partner:
+        return items, 0
+
+    used: set[int] = set()
+    out: list[tuple[list[tuple[float, float]], str]] = []
+    for i in range(len(items)):
+        if i in used:
+            continue
+        # Volný konec řetězce: od konce 0 přes sousedy až na konec bez partnera.
+        start = (i, 0)
+        seen = {i}
+        while start in partner:
+            j, f = partner[start]
+            if j in seen:
+                break
+            seen.add(j)
+            start = (j, 1 - f)
+        cur_line, cur_end = start
+        chain: list[tuple[float, float]] = []
+        visited: set[int] = set()
+        while True:
+            visited.add(cur_line)
+            pts = items[cur_line][0]
+            seg = pts if cur_end == 0 else pts[::-1]
+            chain.extend(seg if not chain else seg[1:])
+            nxt = partner.get((cur_line, 1 - cur_end))
+            if nxt is None or nxt[0] in visited:
+                break
+            cur_line, cur_end = nxt
+        used |= visited
+        out.append((chain, items[i][1]))
+    return out, len(items) - len(out)
+
+
 def dedup_osm_prefer_wider(
     items: list[tuple[list[tuple[float, float]], str]],
     *,
@@ -2763,6 +2825,10 @@ def prepare_osm_paths(
                 )
                 continue
         osm_items.append((pts, hw))
+    # Úseky téže cesty rozdělené v OSM (např. jiný chodník) → jedna linie.
+    osm_items, merged_split_ways = merge_osm_items_same_class(osm_items)
+    if merged_split_ways and log:
+        log(f"OSM cesty: {merged_split_ways} rozdělených úseků spojeno do souvislých linií")
     zabaged_lines: list[list[tuple[float, float]]] = []
     if zabaged_clean and zabaged_clean.is_file():
         # Stejný dedup pro všechny disciplíny: OSM > Pesina/Cesta (Ulice zůstává).
