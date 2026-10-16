@@ -68,7 +68,7 @@ def test_mtbo_catalog_translates_generator_codes():
     gm = generator_map("mtbo")
     assert gm["101"] == "101.0"
     assert gm["526"] == "521.0"  # budova
-    assert gm["831"] == "815.0" and gm["833"] == "817.0" and gm["834"] == "818.0"
+    assert gm["831"] == "815.0" and gm["833"] == "817.0" and gm["834"] == "816.0"
     assert gm["415"] == "412.0"
     assert gm["416"] == "416.1"
 

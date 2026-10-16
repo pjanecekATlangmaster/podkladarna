@@ -1560,8 +1560,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
 
     Sprint (OCAD ISSprOM): chodník 501.10, silnice 501.30–501.33 (heavy).
     Les: 502.1 II.+ třída / 502 široká / 503 úzká silnice / 504 vozová.
-    MTBO: 502 major / 503 minor; track 831/833, pěšiny 834 (ne 502.1 — v ISMTBOM
-    je 502.1 „under construction“).
+    MTBO (ISMTBOM 2022, kódy se překládají katalogem): road_4 → 502.1 (>7 m),
+    road_3 a asfaltová road_2 → 502.2 (5–7 m), road_1 a track_fast → 815, track → 817,
+    pěšiny a chodníky 816.
     """
     raw = highway or "path"
     sprint = preset_id.startswith("sprint")
@@ -1591,7 +1592,9 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
             # OOM 501.17/18/19 → OCAD 501.30/31 (2 m / 4 m); 501.32–33 v klíči pro editaci.
             return ("501.30", "501.31", "501.31", "501.31")[rank]
         if mtbo:
-            return "502" if rank >= 2 else "503"
+            # Jako les: široké a vyšší třídy 502.1 / 502 (ISMTBOM 502.1 >7 m, 502.2 5–7 m),
+            # asfaltové servisní "503" (→ 502.2), nezpevněná vozová road_1 → track 831 (815).
+            return ("831", "503", "502", "502.1")[rank]
         # Les: road_1→504, road_2→503 (service/track asphalt),
         # road_3→502 (unclassified/residential), road_4→502.1 (secondary+).
         return ("504", "503", "502", "502.1")[rank]

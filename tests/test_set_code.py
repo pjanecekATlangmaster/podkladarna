@@ -109,7 +109,7 @@ def test_mtbo_uses_catalog_section() -> None:
     sm.drain_unmapped_codes()
     for preset, scale in (("mtbo_10000", 10000), ("mtbo_15000", 15000)):
         assert sm.set_code(preset, scale, "101") == "101.0"
-        assert sm.set_code(preset, scale, "834") == "818.0"
+        assert sm.set_code(preset, scale, "834") == "816.0"
         assert sm.set_code(preset, scale, "101.0") is None  # žádné implicitní „.0“
     sm.drain_unmapped_codes()
 

@@ -654,7 +654,7 @@ def test_isom_road_classes_way_46779630_and_46779654():
     assert hw_sec == "road_4"
     assert keep_highway_in_mixed(hw_sec)
     assert osm_oom_code(hw_sec, "forest_10000") == "502.1"
-    assert osm_oom_code(hw_sec, "mtbo_10000") == "502"  # ne 502.1 (ISMTBOM)
+    assert osm_oom_code(hw_sec, "mtbo_10000") == "502.1"  # ISMTBOM 2022: 502.1 >7 m
     assert osm_oom_code(hw_sec, "sprint_2m") == "501.31"
     # Secondary i bez surface → pořád 502.1 (II. třída).
     assert refine_path_highway({"highway": "secondary"}, "secondary") == "road_4"

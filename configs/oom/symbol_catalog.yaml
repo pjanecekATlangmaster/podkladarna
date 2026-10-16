@@ -2019,14 +2019,14 @@ mtbo:
     review: false
   - ocad_code: "502.1"
     cz_name: "Zpevněná silnice nad 7 m"
-    generator_codes: []
+    generator_codes: ["502.1"]
     geom: line
     review: false
   - ocad_code: "502.2"
     cz_name: "Zpevněná silnice 5–7 m"
-    generator_codes: ["502"]
+    generator_codes: ["502", "503"]
     geom: line
-    review: true
+    review: false
   - ocad_code: "502.100"
     cz_name: "Nezpevněná silnice"
     generator_codes: []
@@ -2036,10 +2036,10 @@ mtbo:
     cz_name: "Vozová cesta: rychlá jízda"
     generator_codes: ["831"]
     geom: line
-    review: true
+    review: false
   - ocad_code: "816.0"
     cz_name: "Pěšina: rychlá jízda"
-    generator_codes: []
+    generator_codes: ["834"]
     geom: line
     review: false
   - ocad_code: "817.0"
@@ -2049,9 +2049,9 @@ mtbo:
     review: true
   - ocad_code: "818.0"
     cz_name: "Pěšina: střední rychlost jízdy"
-    generator_codes: ["834"]
+    generator_codes: []
     geom: line
-    review: true
+    review: false
   - ocad_code: "819.0"
     cz_name: "Vozová cesta: pomalá jízda"
     generator_codes: []
@@ -2527,7 +2527,7 @@ mtbo:
     cz_name: "Malý překonatelný vodní tok"
     generator_codes: ["306"]
     geom: line
-    review: true
+    review: false
   - ocad_code: "306.0"
     cz_name: "Malý / občasný vodní příkop"
     generator_codes: []
@@ -2725,7 +2725,7 @@ mtbo:
     review: false
   - ocad_code: "503.0"
     cz_name: "Silnice"
-    generator_codes: ["503"]
+    generator_codes: []
     geom: line
     review: false
   - ocad_code: "504.0"
@@ -2842,7 +2842,7 @@ mtbo:
     cz_name: "Překonatelná zeď"
     generator_codes: ["521"]
     geom: line
-    review: true
+    review: false
   - ocad_code: "514.0"
     cz_name: "Rozpadlá zeď"
     generator_codes: []
