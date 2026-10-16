@@ -1762,3 +1762,115 @@ def test_fetch_osm_elements_cached_per_bbox(tmp_path, monkeypatch):
     answer[0] = [{"type": "node", "tags": {}, "lat": 50.0, "lon": 14.0}]
     op.fetch_osm_path_elements(bbox)
     assert len(calls) == 6
+
+
+# --- Spojení úseků téže cesty rozdělených v OSM -------------------------------
+
+
+def _merge_items(*lines_hw):
+    return [(list(map(tuple, pts)), hw) for pts, hw in lines_hw]
+
+
+def test_merge_osm_items_joins_two_ways_same_class():
+    from app.pipeline.osm_paths import merge_osm_items_same_class
+
+    items = _merge_items(
+        ([(0, 0), (10, 0), (20, 0)], "road_3"),
+        ([(20, 0), (30, 5)], "road_3"),
+    )
+    out, merged = merge_osm_items_same_class(items)
+    assert merged == 1 and len(out) == 1
+    assert out[0][1] == "road_3"
+    assert out[0][0] == [(0, 0), (10, 0), (20, 0), (30, 5)]  # bez zdvojeného uzlu
+
+
+def test_merge_osm_items_handles_reversed_middle_and_chain():
+    from app.pipeline.osm_paths import merge_osm_items_same_class
+
+    items = _merge_items(
+        ([(0, 0), (10, 0)], "path"),
+        ([(20, 0), (10, 0)], "path"),  # opačný směr
+        ([(20, 0), (30, 0)], "path"),
+    )
+    out, merged = merge_osm_items_same_class(items)
+    assert merged == 2 and len(out) == 1
+    pts = out[0][0]
+    assert sorted({p[0] for p in pts}) == [0, 10, 20, 30]
+    assert len(pts) == 4
+    assert pts[0][0] in (0, 30) and pts[-1][0] in (0, 30)
+
+
+def test_merge_osm_items_keeps_different_classes_and_junctions():
+    from app.pipeline.osm_paths import merge_osm_items_same_class
+
+    # Jiná třída (silnice × pěšina) se nespojuje.
+    out, merged = merge_osm_items_same_class(
+        _merge_items(([(0, 0), (10, 0)], "road_3"), ([(10, 0), (20, 0)], "path"))
+    )
+    assert merged == 0 and len(out) == 2
+    # Křižovatka tří úseků stejné třídy se nespojuje.
+    out, merged = merge_osm_items_same_class(
+        _merge_items(
+            ([(0, 0), (10, 0)], "road_3"),
+            ([(10, 0), (20, 0)], "road_3"),
+            ([(10, 0), (10, 10)], "road_3"),
+        )
+    )
+    assert merged == 0 and len(out) == 3
+    # Uzavřená linie ani dva konce téže linie se neslučují sami se sebou.
+    ring = [(0, 0), (10, 0), (10, 10), (0, 0)]
+    out, merged = merge_osm_items_same_class(_merge_items((ring, "path")))
+    assert merged == 0 and out[0][0] == ring
+
+
+def test_merge_osm_items_cycle_of_two_ways_terminates():
+    from app.pipeline.osm_paths import merge_osm_items_same_class
+
+    out, merged = merge_osm_items_same_class(
+        _merge_items(
+            ([(0, 0), (10, 0), (10, 10)], "path"),
+            ([(10, 10), (0, 10), (0, 0)], "path"),
+        )
+    )
+    assert merged == 1 and len(out) == 1
+    assert len(out[0][0]) == 5
+
+
+def test_prepare_osm_paths_merges_way_split_by_sidewalk_tag(tmp_path, monkeypatch):
+    """way/4672230 + way/1309251777 (Do Klukovic): stejná ulice, jen jiný sidewalk:left."""
+    import app.pipeline.osm_paths as op
+
+    base = {
+        "highway": "residential",
+        "name": "Do Klukovic",
+        "lanes": "2",
+        "surface": "asphalt",
+        "sidewalk:right": "separate",
+    }
+    # ~ 60 m a 40 m, společný uzel uprostřed.
+    a = [(50.0000, 14.4000), (50.0003, 14.4004), (50.0006, 14.4008)]
+    b = [(50.0006, 14.4008), (50.0009, 14.4011)]
+
+    def way(i, pts, extra):
+        return {
+            "type": "way",
+            "id": i,
+            "tags": {**base, **extra},
+            "geometry": [{"lat": la, "lon": lo} for la, lo in pts],
+        }
+
+    elements = [
+        way(4672230, a, {"sidewalk:left": "no"}),
+        way(1309251777, b, {"sidewalk:left": "yes"}),
+    ]
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: elements)
+    logs: list[str] = []
+    op.prepare_osm_paths(
+        tmp_path, (14.39, 49.99, 14.41, 50.01), None, preset_id="forest_10000", log=logs.append
+    )
+    for fname in ("paths_osm.geojson", "paths_mixed.geojson"):
+        feats = json.loads((tmp_path / "osm_paths" / fname).read_text(encoding="utf-8"))["features"]
+        lines = [f for f in feats if f["geometry"]["type"] == "LineString"]
+        assert len(lines) == 1, fname
+        assert len(lines[0]["geometry"]["coordinates"]) == 4  # 3 + 2 body, sdílený uzel jednou
+    assert any("rozdělených úseků spojeno" in line for line in logs)
