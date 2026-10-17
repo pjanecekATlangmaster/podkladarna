@@ -1,5 +1,6 @@
 import io
 import json
+import pytest
 import re
 from unittest.mock import patch
 
@@ -1874,3 +1875,94 @@ def test_prepare_osm_paths_merges_way_split_by_sidewalk_tag(tmp_path, monkeypatc
         assert len(lines) == 1, fname
         assert len(lines[0]["geometry"]["coordinates"]) == 4  # 3 + 2 body, sdílený uzel jednou
     assert any("rozdělených úseků spojeno" in line for line in logs)
+
+@pytest.fixture(autouse=True)
+def _reset_mirror_health():
+    import app.pipeline.osm_paths as op
+
+    op._MIRROR_FAILED_AT.clear()
+    yield
+    op._MIRROR_FAILED_AT.clear()
+
+
+def test_overpass_mirrors_demotes_failed_and_honors_env(monkeypatch):
+    import app.pipeline.osm_paths as op
+
+    assert op.overpass_mirrors() == list(OVERPASS_URLS)
+    op._mirror_result(OVERPASS_URLS[0], False)
+    got = op.overpass_mirrors()
+    assert got[-1] == OVERPASS_URLS[0]
+    assert set(got) == set(OVERPASS_URLS)
+    op._mirror_result(OVERPASS_URLS[0], True)
+    monkeypatch.setenv(
+        "PODKLADARNA_OVERPASS_URLS", "https://moje.example/api/interpreter, "
+    )
+    got = op.overpass_mirrors()
+    assert got[0] == "https://moje.example/api/interpreter"
+    assert got[1:] == list(OVERPASS_URLS)
+
+
+def test_fetch_overpass_rejects_runtime_error_remark():
+    import app.pipeline.osm_paths as op
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    bad = {"elements": [], "remark": "runtime error: Query timed out"}
+    good = {
+        "elements": [
+            {
+                "type": "way",
+                "geometry": [{"lat": 50.0, "lon": 14.4}, {"lat": 50.001, "lon": 14.4}],
+                "tags": {"highway": "path"},
+            }
+        ]
+    }
+    calls: list[str] = []
+
+    def fake_urlopen(req, timeout=0):
+        calls.append(req.full_url)
+        data = bad if len(calls) == 1 else good
+        return _Resp(json.dumps(data).encode("utf-8"))
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        els, err = op._fetch_overpass(14.4, 50.0, 14.41, 50.01)
+    assert err is None and len(els) == 1
+    assert len(calls) == 2
+
+
+def test_api_fallback_result_is_not_cached():
+    import app.pipeline.osm_paths as op
+
+    xml = (
+        '<osm><node id="1" lat="50.0" lon="14.4"/>'
+        '<node id="2" lat="50.001" lon="14.4"/>'
+        '<way id="10"><nd ref="1"/><nd ref="2"/>'
+        '<tag k="highway" v="path"/></way></osm>'
+    )
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(req, timeout=0):
+        if "api.openstreetmap.org" in req.full_url:
+            return _Resp(xml.encode("utf-8"))
+        raise urllib.error.HTTPError(req.full_url, 504, "x", hdrs=None, fp=None)
+
+    status: dict = {}
+    logs: list[str] = []
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        got = op._fetch_osm_path_elements_net(
+            (14.4, 50.0, 14.41, 50.01), log=logs.append, status=status
+        )
+    assert len(got) == 1
+    assert status["complete"] is False
+    assert any("neúplná" in m for m in logs)

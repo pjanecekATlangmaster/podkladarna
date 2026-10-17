@@ -27,7 +27,7 @@ from app.pipeline.geom_diff import (
 from app.pipeline.oom_import import OomObjectPart, _geom_parts_to_objects, _wkb_parts
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 from app.pipeline.osm_paths import (
-    OVERPASS_URLS,
+    overpass_mirrors,
     ROAD_DRAW_HIGHWAYS,
     osm_area_polygons_5514,
     osm_perimeter_lines_5514,
@@ -640,7 +640,7 @@ def fetch_all_osm_elements(
 def _overpass_query(ql: str, *, label: str) -> list[dict]:
     body = urllib.parse.urlencode({"data": ql}).encode("utf-8")
     last_err: Exception | None = None
-    for url in OVERPASS_URLS:
+    for url in overpass_mirrors():
         req = urllib.request.Request(
             url,
             data=body,

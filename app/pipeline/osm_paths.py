@@ -41,16 +41,26 @@ from app.tool_env import gis_subprocess_env, which_tool
 # data první; private.coffee (dřív kumi.systems) vrací 500 a data o měsíce
 # starší, proto až poslední. overpass.openstreetmap.ru neodpovídá (timeout)
 # a na wiki už není.
+# Měření 2026-10-17 (dlaždice 0,05° u Brna, ~25 tis. prvků): openstreetmap.fr
+# 13–18 s a spolehlivě; overpass-api.de a lz4/z aliasy 40–70 s a občas 502;
+# maps.mail.ru 38 s nebo 504; private.coffee i kumi.systems vždy 500.
 OVERPASS_URLS = (
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
     "https://overpass-api.de/api/interpreter",
+    "https://z.overpass-api.de/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
 )
 # Stejné jako Export na openstreetmap.org – celý bbox, filtrujeme relevantní highway.
 OSM_API_MAP_URL = "https://api.openstreetmap.org/api/0.6/map"
-# HTTP timeout na jeden pokus (krátký, ať při 504 stihneme další zrcadlo).
-QUERY_TIMEOUT_S = 25
-OVERPASS_QL_TIMEOUT_S = 25
+# Těžší dlaždice trvají na veřejných zrcadlech běžně 40–70 s; kratší limit by
+# úspěšné odpovědi zahazoval. Rychle selhávající zrcadla (502/500) nezdržují.
+QUERY_TIMEOUT_S = 90
+OVERPASS_QL_TIMEOUT_S = 80
+# Zrcadlo, které selhalo, se po tuto dobu zkouší až nakonec (sdíleno napříč
+# dlaždicemi a joby v jednom procesu).
+MIRROR_COOLDOWN_S = 300
 OSM_API_TIMEOUT_S = 45
 # Kola opakování, když selžou všechny zdroje (Overpass zrcadla i API map);
 # prodlevy před 2. a 3. kolem (s). Chyby bývají přechodné (přetížení, 504).
@@ -1178,6 +1188,37 @@ def parse_osm_api_map_xml(
         )
     return elements
 
+_MIRROR_FAILED_AT: dict[str, float] = {}
+
+
+def overpass_mirrors() -> list[str]:
+    """Zrcadla v pořadí zkoušení: vlastní z PODKLADARNA_OVERPASS_URLS (čárkami
+    oddělené, např. s API klíčem) první, pak zdravá, nedávno selhaná nakonec."""
+    import os
+    import time
+
+    custom = [
+        u.strip()
+        for u in os.environ.get("PODKLADARNA_OVERPASS_URLS", "").split(",")
+        if u.strip()
+    ]
+    urls = custom + [u for u in OVERPASS_URLS if u not in custom]
+    now = time.monotonic()
+    healthy = [
+        u for u in urls if now - _MIRROR_FAILED_AT.get(u, -MIRROR_COOLDOWN_S) >= MIRROR_COOLDOWN_S
+    ]
+    return healthy + [u for u in urls if u not in healthy]
+
+
+def _mirror_result(url: str, ok: bool) -> None:
+    import time
+
+    if ok:
+        _MIRROR_FAILED_AT.pop(url, None)
+    else:
+        _MIRROR_FAILED_AT[url] = time.monotonic()
+
+
 def _fetch_overpass(
     west: float,
     south: float,
@@ -1204,7 +1245,7 @@ def _fetch_overpass(
     )
     body = urllib.parse.urlencode({"data": ql}).encode("utf-8")
     last_err: Exception | None = None
-    for url in OVERPASS_URLS:
+    for url in overpass_mirrors():
         req = urllib.request.Request(
             url,
             data=body,
@@ -1217,6 +1258,11 @@ def _fetch_overpass(
         try:
             with urllib.request.urlopen(req, timeout=QUERY_TIMEOUT_S) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
+            # Přetížený server občas vrátí HTTP 200 s neúplnou odpovědí a chybou
+            # jen v „remark“ – to by se jinak tiše zacachovalo jako úplné.
+            remark = str(data.get("remark") or "")
+            if "runtime error" in remark.lower():
+                raise OSError(f"Overpass: {remark[:120]}")
             elements = [
                 e
                 for e in (data.get("elements") or [])
@@ -1237,6 +1283,7 @@ def _fetch_overpass(
             if log:
                 host = url.split("/")[2]
                 log(f"OSM Overpass ({host}): {len(elements)} prvků")
+            _mirror_result(url, True)
             return elements, None
         except (
             urllib.error.HTTPError,
@@ -1246,6 +1293,7 @@ def _fetch_overpass(
             OSError,
         ) as exc:
             last_err = exc
+            _mirror_result(url, False)
             if log:
                 log(f"OSM Overpass {url}: {exc}")
     return None, last_err
@@ -1429,6 +1477,7 @@ def _fetch_osm_path_elements_net(
     merged: list[dict] = []
     seen: set = set()
     failed = 0
+    tile_status: dict = {}
     for idx, tile in enumerate(tiles, 1):
         if log and len(tiles) > 1:
             log(f"OSM dlaždice {idx}/{len(tiles)}…")
@@ -1440,6 +1489,7 @@ def _fetch_osm_path_elements_net(
             osm_priority=osm_priority,
             path_source=path_source,
             log=log,
+            status=tile_status,
         )
         if els is None:
             failed += 1
@@ -1451,7 +1501,7 @@ def _fetch_osm_path_elements_net(
             seen.add(key)
             merged.append(el)
     if status is not None:
-        status["complete"] = failed == 0
+        status["complete"] = failed == 0 and not tile_status.get("fallback")
     if failed and log:
         log(
             f"!!! OSM: {failed} z {len(tiles)} dlaždic se nepodařilo stáhnout – "
@@ -1469,8 +1519,13 @@ def _fetch_osm_tile(
     osm_priority: bool = False,
     path_source: str = PATH_SOURCE_MIXED,
     log=None,
+    status: dict | None = None,
 ) -> list[dict] | None:
-    """Jedna dlaždice s opakováním; None = všechny pokusy selhaly."""
+    """Jedna dlaždice s opakováním; None = všechny pokusy selhaly.
+
+    status["fallback"] = True, když data přišla ze zálohy API map (bez relací
+    – multipolygonů), tedy neúplná.
+    """
     import time
 
     west, south, east, north = bbox_wgs84
@@ -1502,9 +1557,17 @@ def _fetch_osm_tile(
         try:
             if log:
                 log("OSM Overpass selhal – zkouším Export API (api.openstreetmap.org)…")
-            return _fetch_osm_api_map(
+            els = _fetch_osm_api_map(
                 west, south, east, north, path_source=path_source, log=log
             )
+            if status is not None:
+                status["fallback"] = True
+            if log:
+                log(
+                    "!!! OSM: data ze zálohy API map jsou neúplná (chybí "
+                    "multipolygony); výsledek se necachuje."
+                )
+            return els
         except (
             urllib.error.HTTPError,
             urllib.error.URLError,
