@@ -48,7 +48,7 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
             status = job["status"]
             if status in ("running", "queued", "pending"):
                 continue
-            if status not in ("done", "failed"):
+            if status not in db.JOB_FINISHED_STATUSES:
                 continue
             try:
                 updated = datetime.fromisoformat(job["updated_at"])

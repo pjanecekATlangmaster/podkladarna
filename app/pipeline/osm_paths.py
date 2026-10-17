@@ -35,6 +35,7 @@ from app.pipeline.oom_symbol_map import (
     symbol_index_for_code,
 )
 from app.pipeline.prepare_lidar import log_step
+from app.pipeline.job_progress import log_issue
 from app.tool_env import gis_subprocess_env, which_tool
 # Veřejná zrcadla (seznam z wiki.openstreetmap.org/wiki/Overpass_API, ověřeno
 # 2026-10-09) – hlavní DE často hlásí 504, rotujeme rychle. Pořadí: nejčerstvější
@@ -1502,9 +1503,10 @@ def _fetch_osm_path_elements_net(
             merged.append(el)
     if status is not None:
         status["complete"] = failed == 0 and not tile_status.get("fallback")
-    if failed and log:
-        log(
-            f"!!! OSM: {failed} z {len(tiles)} dlaždic se nepodařilo stáhnout – "
+    if failed:
+        log_issue(
+            log,
+            f"OSM: {failed} z {len(tiles)} dlaždic se nepodařilo stáhnout z žádného zdroje – "
             "výsledek je neúplný, spusťte job později znovu."
         )
     return merged

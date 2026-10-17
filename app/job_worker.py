@@ -10,6 +10,7 @@ import traceback
 from app import db
 from app import settings as app_settings
 from app.mail import MailError, build_private_ready_email, send_mail
+from app.pipeline.job_progress import issues_summary
 from app.pipeline.preview import resolve_preview_png
 from app.pipeline.run_job import run_job_pipeline
 from app.proj_env import ensure_proj_data
@@ -116,7 +117,7 @@ def retry_missed_private_mails(*, limit: int = 50) -> list[str]:
     """
     resent: list[str] = []
     for job in db.list_jobs(limit=limit, include_private=True):
-        if job.get("status") != "done":
+        if job.get("status") not in db.JOB_DONE_STATUSES:
             continue
         if not db.job_is_private(job):
             continue
@@ -159,15 +160,24 @@ def run_job(job_id: str) -> int:
         log("")
         log(f"Start jobu {job_id} · preset {job['preset_id']}")
 
-        run_job_pipeline(
+        issues = run_job_pipeline(
             job_dir,
             job["preset_id"],
             job["options"],
             log,
             job_name=job["name"],
         )
-        db.update_job(job_id, status="done", phase="done")
-        log("Status: done")
+        if issues:
+            db.update_job(
+                job_id,
+                status=db.STATUS_DONE_WITH_ERRORS,
+                phase="done",
+                error=issues_summary(issues),
+            )
+            log(f"Status: {db.STATUS_DONE_WITH_ERRORS}")
+        else:
+            db.update_job(job_id, status="done", phase="done")
+            log("Status: done")
         # Teprve po zápisu done – při pádu/redeploy během SMTP pomůže
         # retry_missed_private_mails() na startupu.
         if db.job_is_private(job):

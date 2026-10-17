@@ -15,6 +15,7 @@ from app.download_cache import (
 )
 from app.pipeline.fetch_openzu import FetchError, VECTOR_FETCH_BUFFER_M, expand_bbox_wgs84
 from app.pipeline.fetch_zabaged import query_layer_geojson
+from app.pipeline.job_progress import log_issue
 
 AOPK_TREES_SERVICE = (
     "https://gis.nature.cz/arcgis/rest/services/"
@@ -58,11 +59,11 @@ def fetch_aopk_trees_for_bbox(
         )
     except FetchError as exc:
         if log:
-            log(f"AOPK stromy: přeskočeno ({exc})")
+            log_issue(log, f"AOPK stromy: přeskočeno ({exc})")
         return None
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
         if log:
-            log(f"AOPK stromy: přeskočeno ({exc})")
+            log_issue(log, f"AOPK stromy: přeskočeno ({exc})")
         return None
 
     n = len(gj.get("features") or [])

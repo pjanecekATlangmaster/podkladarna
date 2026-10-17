@@ -42,6 +42,7 @@ from xml.etree import ElementTree as ET
 
 from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4, CRS_WKT
 from app.pipeline.georef import PgwGeoref
+from app.pipeline.job_progress import log_issue
 from app.pipeline.oom_coords import map_to_projected
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -538,7 +539,8 @@ def convert_omap_to_ocd(omap: Path, *, log=None) -> Path | None:
     omap = Path(omap)
     if not omap.is_file():
         return None
-    if not mapper_convert_configured():
+    # Chybějící nástroj/konfigurace (typicky vývojový stroj) není chyba jobu.
+    if not mapper_convert_configured() or not find_mapper_exe():
         if log:
             log(
                 f"OOM OCD: přeskočeno ({omap.name}) – "
@@ -549,7 +551,7 @@ def convert_omap_to_ocd(omap: Path, *, log=None) -> Path | None:
         return run_mapper_convert(omap, log=log)
     except MapperConvertError as exc:
         if log:
-            log(f"OOM OCD: přeskočeno ({omap.name}): {exc}")
+            log_issue(log, f"OOM OCD: přeskočeno ({omap.name}): {exc}")
         return None
 
 
@@ -1525,7 +1527,7 @@ def try_write_geotiff_from_png_pgw(
         run_cmd(geotiff_translate_args(translate, png, dest), log=None)
     except Exception as exc:
         if log:
-            log(f"OOM georef: GeoTIFF selhal ({exc})")
+            log_issue(log, f"OOM georef: GeoTIFF selhal ({exc})")
         if dest.exists():
             dest.unlink(missing_ok=True)
         return None
@@ -2125,7 +2127,7 @@ def write_job_oom_preview(
                     continue
             except Exception as exc:
                 if log:
-                    log(f"OOM georef: {omap.name} selhal ({exc})")
+                    log_issue(log, f"OOM georef: {omap.name} selhal ({exc})")
                 continue
             if dest_png.is_file() and dest_png.with_suffix(".pgw").is_file():
                 written.append(dest_png)
@@ -2332,7 +2334,7 @@ def write_job_oom_preview(
             + (" + GeoTIFF" if want_geotiff else "")
         )
     elif log and want_georef and not written:
-        log("OOM georef: žádná varianta nevznikla – tlačítko stažení nebude")
+        log_issue(log, "OOM georef: žádná varianta nevznikla")
     # Obří pracovní PNG už web náhled nepotřebuje – dál jen GeoTIFF.
     drop_georef_png_sidecars(preview_dir, log=log)
     return web_out if web_out is not None and web_out.is_file() else None

@@ -31,6 +31,7 @@ from app.pipeline.fetch_openzu import (
 from app.pipeline.fetch_ruian import RUIAN_SERVICE
 from app.pipeline.fetch_zabaged import query_layer_geojson
 from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.job_progress import log_issue
 
 KM_DXF_URL = "https://services.cuzk.cz/dxf/ku/{kod}.zip"
 RUIAN_KU_LAYER_ID = 7  # KatastralniUzemi
@@ -81,7 +82,7 @@ def fetch_ku_dxf(kod: int, *, log=None) -> Path | None:
                 dst.write(src.read())
     except (FetchError, OSError, zipfile.BadZipFile) as exc:
         if log:
-            log(f"Katastr KÚ {kod}: přeskočeno ({exc})")
+            log_issue(log, f"Katastr KÚ {kod}: přeskočeno ({exc})")
         return None
     finally:
         zpath.unlink(missing_ok=True)
@@ -105,7 +106,7 @@ def build_katastr_vectors(
         codes = ku_codes_for_bbox(fetch_bbox)
     except FetchError as exc:
         if log:
-            log(f"Katastr (vektor): přeskočeno – KÚ nezjištěna ({exc})")
+            log_issue(log, f"Katastr (vektor): přeskočeno – KÚ nezjištěna ({exc})")
         return {}
     sources = [p for p in (fetch_ku_dxf(k, log=log) for k in codes) if p]
     if not sources:

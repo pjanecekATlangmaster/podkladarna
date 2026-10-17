@@ -14,6 +14,7 @@ from app.download_cache import file_fingerprint, persist_shade, try_restore_shad
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
+from app.pipeline.job_progress import log_issue
 from app.pipeline.reference_layers import (
     HILLSHADE_ALTITUDE,
     HILLSHADE_AZIMUTH,
@@ -267,7 +268,7 @@ def build_job_shade(
         return dest_png
 
     if log:
-        log("Stínování: žádný zdroj (WMS ani DEM)")
+        log_issue(log, "Stínování: žádný zdroj (WMS ani DEM)")
     return None
 
 

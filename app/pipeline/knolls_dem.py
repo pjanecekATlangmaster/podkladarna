@@ -22,6 +22,7 @@ from pathlib import Path
 from app.pipeline.cliffs_dem import dem_filled_path
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.prepare_lidar import log_step
+from app.pipeline.job_progress import log_issue
 
 # Poloměry prstence (m) – malý i širší tvar (ďolík ~20 m), který vrstevnice minou.
 RELIEF_RADII_M = (7.0, 12.0)
@@ -319,7 +320,7 @@ def generate_job_knolls(
         alt = work_dir / DEM_DIR_NAME / "dem_filled.tif"
         if not (alt.is_file() and alt.stat().st_size > 500):
             if log:
-                log("Kupky/ďolíky DEM: chybí work/dem/dem_filled.tif – přeskočeno")
+                log_issue(log, "Kupky a ďolíky: chybí DEM (dem_filled.tif) – přeskočeno")
             return None
         dem = alt
     return generate_knolls_from_dem(dem, work_dir / "temp", log=log)
