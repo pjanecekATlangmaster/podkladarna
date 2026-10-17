@@ -1652,7 +1652,7 @@ sprint:
     review: false
   - ocad_code: "512.100"
     cz_name: "Vstup pod most nebo do tunelu"
-    generator_codes: []
+    generator_codes: ["512.100"]  # ohraničení lávky přes jinou cestu (sprint)
     geom: line
     review: false
   - ocad_code: "512.101"
@@ -1662,7 +1662,7 @@ sprint:
     review: false
   - ocad_code: "512.200"
     cz_name: "Podchod nebo tunel"
-    generator_codes: []
+    generator_codes: ["512.200"]
     geom: line
     review: false
   - ocad_code: "512.300"

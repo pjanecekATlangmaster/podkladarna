@@ -750,6 +750,22 @@ def prepare_oom_map(
         # ZABAGED louky/parková zeleň nesmí řídit vegetaci v auto .omap
         # (vegetace = hustota LiDAR odrazů / CHM záloha).
         omit |= set(_ZABAGED_UNDER_VEGETATION)
+        # Sprint: voda (modrá) by překryla výplň mostu → vodní plocha se pod mostovkami vystřihne.
+        water_deck = None
+        if preset_id.startswith("sprint"):
+            from app.pipeline.osm_paths import bridge_deck_geometry
+
+            water_deck = bridge_deck_geometry(kp_cwd)
+        # Priorita OSM: ZABAGED voda / parkoviště pod OSM plochou se vynechá (jako u cest).
+        from app.pipeline.osm_paths import osm_priority_area_geometries
+
+        osm_priority_areas = osm_priority_area_geometries(kp_cwd)
+        # Sprint: tok 306 pod vodní plochou 301.x se nekreslí (les / MTBO beze změny).
+        osm_water_area = None
+        if preset_id.startswith("sprint"):
+            from app.pipeline.osm_paths import osm_water_area_geometry
+
+            osm_water_area = osm_water_area_geometry(kp_cwd)
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,
@@ -766,6 +782,10 @@ def prepare_oom_map(
             omit_layers=omit,
             max_ostatni_m2=max_ostatni_m2,
             ostatni_as_403=ostatni_as_403,
+            water_deck=water_deck,
+            osm_water_area=osm_water_area,
+            suppress_waterway_in_water=preset_id.startswith("sprint"),
+            osm_priority_areas=osm_priority_areas or None,
         ):
             if _COURTYARD_MARK in part.name:
                 courtyard_parts.append(part)

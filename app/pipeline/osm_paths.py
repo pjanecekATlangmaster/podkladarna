@@ -227,11 +227,21 @@ MIN_LENGTH_FOOT_M = 1.0
 # Syntetický highway po načtení OSM (bridge=* na way).
 # Hodnota ``bridge`` nebo ``bridge:<base>`` (base = původní highway pro značku).
 OSM_BRIDGE_HIGHWAY = "bridge"
+# Totéž pro tunel / podchod / cestu na nižší úrovni (``tunnel:<base>``).
+OSM_TUNNEL_HIGHWAY = "tunnel"
+_STRUCTURE_HIGHWAYS = (OSM_BRIDGE_HIGHWAY, OSM_TUNNEL_HIGHWAY)
 
 
 def is_bridge_highway(highway: str) -> bool:
+    """Most **nebo tunel** (křížení úrovní) – takové úseky se nikdy nezahazují
+    kvůli překryvu ani délce; konkrétní symbol řeší ``osm_oom_code``."""
     hw = (highway or "").lower()
-    return hw == OSM_BRIDGE_HIGHWAY or hw.startswith(f"{OSM_BRIDGE_HIGHWAY}:")
+    return any(hw == s or hw.startswith(f"{s}:") for s in _STRUCTURE_HIGHWAYS)
+
+
+def is_tunnel_highway(highway: str) -> bool:
+    hw = (highway or "").lower()
+    return hw == OSM_TUNNEL_HIGHWAY or hw.startswith(f"{OSM_TUNNEL_HIGHWAY}:")
 
 
 def bridge_highway(base_highway: str) -> str:
@@ -242,13 +252,22 @@ def bridge_highway(base_highway: str) -> str:
     return f"{OSM_BRIDGE_HIGHWAY}:{base}"
 
 
+def tunnel_highway(base_highway: str) -> str:
+    """Ulož tunel / podchod s původním highway (mimo sprint se kreslí jako dřív)."""
+    base = (base_highway or "path").lower() or "path"
+    if is_bridge_highway(base):
+        base = "path"
+    return f"{OSM_TUNNEL_HIGHWAY}:{base}"
+
+
 def path_draw_highway(highway: str) -> str:
-    """Highway pro OOM značku (u mostu vrátí původní typ cesty)."""
+    """Highway pro OOM značku (u mostu / tunelu vrátí původní typ cesty)."""
     hw = (highway or "path").lower()
-    if hw.startswith(f"{OSM_BRIDGE_HIGHWAY}:"):
-        return hw.split(":", 1)[1] or "path"
-    if hw == OSM_BRIDGE_HIGHWAY:
-        return "path"
+    for s in _STRUCTURE_HIGHWAYS:
+        if hw.startswith(f"{s}:"):
+            return hw.split(":", 1)[1] or "path"
+        if hw == s:
+            return "path"
     return hw or "path"
 GRID_M = 30.0
 # crossing / přechody bereme (pod silnicemi); dřív se zahazovaly.
@@ -290,6 +309,8 @@ def _overpass_ql(
     parts = [
         f'way["highway"~"^({hw})$"]({bbox});',
         f'way["man_made"="boardwalk"]({bbox});',
+        # Obrys mostu (man_made=bridge, i jako outline relace type=bridge) – podkres mostovky.
+        f'way["man_made"="bridge"]({bbox});',
         f'way["man_made"="water_well"]({bbox});',
         f'node["man_made"="water_well"]({bbox});',
         f'node["amenity"="fountain"]({bbox});',
@@ -503,6 +524,35 @@ def _is_osm_bridge(tags: dict) -> bool:
         return False
     bridge = (tags.get("bridge") or "").lower()
     return bool(bridge) and bridge not in {"no", "false", "0"}
+
+
+def _osm_layer(tags: dict) -> int | None:
+    """Číslo ``layer=*`` (při ``-1;0`` apod. nejnižší hodnota); None bez/neplatné."""
+    raw = str(tags.get("layer") or "").strip()
+    if not raw:
+        return None
+    vals: list[int] = []
+    for part in raw.replace(",", ";").split(";"):
+        try:
+            vals.append(int(part.strip()))
+        except ValueError:
+            continue
+    return min(vals) if vals else None
+
+
+def _is_osm_tunnel(tags: dict) -> bool:
+    """Tunel / podchod / průchod domem nebo cesta na nižší úrovni (layer < 0).
+
+    Most má přednost (``bridge`` + záporná vrstva je chyba v datech). ``culvert``
+    je propustek vodního toku, ne průchod pro lidi.
+    """
+    if _is_osm_bridge(tags):
+        return False
+    tunnel = (tags.get("tunnel") or "").lower()
+    if tunnel in {"yes", "building_passage"}:
+        return True
+    layer = _osm_layer(tags)
+    return layer is not None and layer < 0
 
 
 def path_min_length_m(highway: str) -> float:
@@ -1632,6 +1682,13 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     raw = highway or "path"
     sprint = preset_id.startswith("sprint")
     mtbo = preset_id.startswith("mtbo")
+
+    if is_tunnel_highway(raw):
+        # Sprint: ISSprOM 512.200 Podchod nebo tunel (černá „underpass“); les
+        # a MTBO beze změny (cesta se kreslí jako navazující).
+        if sprint:
+            return "512.200"
+        return osm_oom_code(path_draw_highway(raw), preset_id)
 
     if is_bridge_highway(raw):
         # Sprint: stejná značka jako navazující cesta; les 512; MTBO 834.
@@ -2786,6 +2843,20 @@ def prepare_osm_paths(
         if lat is None or lon is None:
             continue
         power_supports.append(wgs84_to_projected(float(lat), float(lon)))
+    # Obrysy mostů (man_made=bridge): celá plocha mostovky pro vystřižení vody.
+    bridge_decks: list[list[tuple[float, float]]] = []
+    for el in elements:
+        if el.get("type") != "way":
+            continue
+        if ((el.get("tags") or {}).get("man_made") or "").lower() != "bridge":
+            continue
+        ring = [
+            wgs84_to_projected(float(g["lat"]), float(g["lon"]))
+            for g in (el.get("geometry") or [])
+            if g.get("lat") is not None and g.get("lon") is not None
+        ]
+        if len(ring) >= 4 and ring[0] == ring[-1]:
+            bridge_decks.append(ring)
     # Chodník / zpevněný footway bereme ve všech disciplínách (symbolika se liší).
     allow_sidewalk = True
     for el in elements:
@@ -2921,6 +2992,8 @@ def prepare_osm_paths(
         # Krátké lávky (bridge=yes) – zachovej typ cesty pro sprint značku.
         if _is_osm_bridge(tags):
             hw = bridge_highway(hw or "path")
+        elif _is_osm_tunnel(tags):
+            hw = tunnel_highway(hw or "path")
         # Uzavřená pěší zóna i bez area=yes → zpevněná plocha (ne střednicová pěšina).
         # Kontrola podle tagů – sprint_line_highway už pedestrian přemapuje na sidewalk.
         if (tags.get("highway") or "").lower() == "pedestrian" and len(pts) >= 3:
@@ -2986,9 +3059,10 @@ def prepare_osm_paths(
     kept_mixed, dropped_self_mixed = dedup_osm_prefer_wider(kept_mixed)
     dropped_mixed += dropped_self_mixed
 
-    features, dropped_areas = filter_osm_area_features_against_zabaged(
-        features, zabaged_clean, log=log
-    )
+    # Priorita OSM: OSM plochy (voda, parkoviště) se nezahazují kvůli ZABAGED;
+    # naopak ZABAGED polygon pod / menší než OSM plocha se vynechá při sestavení
+    # mapy (viz ``osm_priority_area_geometries`` a ``build_zabaged_object_parts``).
+    dropped_areas = 0
     if log:
         by_hw: dict[str, int] = defaultdict(int)
         for _pts, hw in kept_mixed:
@@ -3022,6 +3096,25 @@ def prepare_osm_paths(
     
     dest_dir = work_dir / "osm_paths"
     dest_dir.mkdir(parents=True, exist_ok=True)
+    (dest_dir / "bridge_decks.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"source": "osm", "man_made": "bridge"},
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[[x, y] for x, y in ring]],
+                        },
+                    }
+                    for ring in bridge_decks
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     
     def write_geojson(kept_list, filename):
         gj = {
@@ -3335,6 +3428,257 @@ def write_osm_manual_shapefiles(
     return written
 
 
+def bridge_deck_geometry(work_dir: Path, *, margin_m: float = 0.5):
+    """Plocha mostovek (lávky, silnice, … s ``bridge=*``) jako Shapely geometrie.
+
+    Šířka podle kresby cesty + malá rezerva. Slouží k vystřižení vodní plochy
+    pod mostem: voda (modrá) má v ISSprOM vyšší prioritu než výplň zpevněných
+    ploch, takže by most přes řeku překryla. None, když žádný most není.
+    """
+    try:
+        from shapely.geometry import LineString, Polygon
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+    decks = []
+    outlines = work_dir / "osm_paths" / "bridge_decks.geojson"
+    if outlines.is_file():
+        try:
+            for feat in json.loads(outlines.read_text(encoding="utf-8")).get("features") or []:
+                rings = (feat.get("geometry") or {}).get("coordinates") or []
+                if rings and len(rings[0]) >= 4:
+                    poly = Polygon(rings[0], rings[1:])
+                    if not poly.is_valid:
+                        poly = poly.buffer(0)
+                    decks.append(poly.buffer(margin_m))
+        except (OSError, json.JSONDecodeError, ValueError):
+            pass
+    for name in ("paths_osm.geojson", "paths_mixed.geojson", "paths.geojson"):
+        gj_path = work_dir / "osm_paths" / name
+        if gj_path.is_file():
+            break
+    else:
+        gj_path = None
+    try:
+        data = (
+            json.loads(gj_path.read_text(encoding="utf-8")) if gj_path else {}
+        )
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    for feat in data.get("features") or []:
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if not is_bridge_highway(hw) or is_tunnel_highway(hw):
+            continue
+        coords = (feat.get("geometry") or {}).get("coordinates") or []
+        if len(coords) < 2:
+            continue
+        decks.append(
+            LineString(coords).buffer(
+                drawn_width_m(hw) / 2.0 + margin_m, cap_style="flat"
+            )
+        )
+    return unary_union(decks) if decks else None
+
+
+def osm_water_area_geometry(work_dir: Path):
+    """Vodní plochy z OSM (``water_body``) jako Shapely geometrie, nebo None.
+
+    Slouží k tomu, aby se tok (ZABAGED VodniTok → 306) nekreslil pod vodní
+    plochou 301.x.
+    """
+    try:
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+    gj_path = work_dir / "osm_paths" / "features.geojson"
+    if not gj_path.is_file():
+        return None
+    try:
+        data = json.loads(gj_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    polys = []
+    for feat in data.get("features") or []:
+        if (feat.get("properties") or {}).get("kind") != "water_body":
+            continue
+        geom = feat.get("geometry") or {}
+        rings = geom.get("coordinates") or []
+        if geom.get("type") != "Polygon" or not rings or len(rings[0]) < 4:
+            continue
+        poly = Polygon(rings[0], rings[1:])
+        polys.append(poly if poly.is_valid else poly.buffer(0))
+    return unary_union(polys) if polys else None
+
+
+# ZABAGED vrstva → druh OSM plochy, která ji při překryvu přebíjí (priorita OSM).
+OSM_PRIORITY_AREA_LAYERS: dict[str, str] = {
+    "VodniPlocha": "water_body",
+    "ParkovisteOdpocivka": "parking",
+}
+
+
+def osm_priority_area_geometries(work_dir: Path) -> dict:
+    """{ZABAGED vrstva: Shapely sjednocení OSM ploch téhož druhu} (jen neprázdné)."""
+    try:
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+    except ImportError:
+        return {}
+    gj_path = work_dir / "osm_paths" / "features.geojson"
+    if not gj_path.is_file():
+        return {}
+    try:
+        data = json.loads(gj_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    by_kind: dict[str, list] = defaultdict(list)
+    for feat in data.get("features") or []:
+        kind = str((feat.get("properties") or {}).get("kind") or "")
+        geom = feat.get("geometry") or {}
+        rings = geom.get("coordinates") or []
+        if geom.get("type") != "Polygon" or not rings or len(rings[0]) < 4:
+            continue
+        if kind not in OSM_PRIORITY_AREA_LAYERS.values():
+            continue
+        poly = Polygon(rings[0], rings[1:])
+        by_kind[kind].append(poly if poly.is_valid else poly.buffer(0))
+    return {
+        layer: unary_union(by_kind[kind])
+        for layer, kind in OSM_PRIORITY_AREA_LAYERS.items()
+        if by_kind.get(kind)
+    }
+
+
+def cut_water_features_by_decks(feats: list[dict], deck) -> list[dict]:
+    """Vodní plochy (``water_body``) bez mostovek – kus po kusu jako Polygon."""
+    try:
+        from shapely.geometry import Polygon
+    except ImportError:
+        return feats
+    out: list[dict] = []
+    for feat in feats:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") != "water_body" or geom.get("type") != "Polygon":
+            out.append(feat)
+            continue
+        rings = geom.get("coordinates") or []
+        if not rings or len(rings[0]) < 4:
+            out.append(feat)
+            continue
+        try:
+            poly = Polygon(rings[0], rings[1:])
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            cut = poly.difference(deck)
+        except Exception:
+            out.append(feat)
+            continue
+        if cut.is_empty:
+            continue
+        pieces = list(cut.geoms) if hasattr(cut, "geoms") else [cut]
+        for piece in pieces:
+            if piece.geom_type != "Polygon" or piece.is_empty:
+                continue
+            new_rings = [[list(c) for c in piece.exterior.coords]] + [
+                [list(c) for c in r.coords] for r in piece.interiors
+            ]
+            out.append(
+                {**feat, "geometry": {"type": "Polygon", "coordinates": new_rings}}
+            )
+    return out
+
+
+BRIDGE_EDGE_CODE = "512.100"
+# Hrana se vede přes šířku křižované cesty (nejvýš tolik m po každé straně od křížení).
+_BRIDGE_EDGE_MAX_HALF_M = 15.0
+# Úhel křížení, pod kterým se cesty berou jako rovnoběžné (sin úhlu).
+_BRIDGE_EDGE_MIN_SIN = 0.2
+
+
+def drawn_width_m(highway: str) -> float:
+    """Přibližná šířka kresby cesty v terénu (m) – pro ohraničení lávek."""
+    base = path_draw_highway(highway)
+    if base in {"sidewalk", "steps"}:
+        return 1.4
+    if base == "cycleway_paved":
+        return 4.0
+    if base == "road_1":
+        return 2.0
+    if base.startswith("road_"):
+        return 4.0
+    if base in {"track", "track_fast"}:
+        return 2.0
+    return 1.0
+
+
+def bridge_entrance_edges(
+    items: list[tuple[list[tuple[float, float]], str]],
+) -> list[list[tuple[float, float]]]:
+    """Hrany lávek pro symbol 512.100 (S-JTSK), kde lávka kříží jinou cestu.
+
+    Dvě krátké hrany podél okrajů kresby lávky (offset = půlka šířky kresby),
+    každá dlouhá jako šířka křižované cesty. Směr čáry určuje, na kterou stranu
+    míří trojúhelníky symbolu. Rovnoběžné cesty (sin < 0,2), tunely a další
+    lávky se nepočítají.
+    """
+    try:
+        from shapely.geometry import LineString
+    except ImportError:
+        return []
+
+    def tangent(line, d):
+        a = line.interpolate(max(0.0, d - 1.0))
+        b = line.interpolate(min(line.length, d + 1.0))
+        dx, dy = b.x - a.x, b.y - a.y
+        n = math.hypot(dx, dy) or 1.0
+        return dx / n, dy / n
+
+    bridges = []
+    lower = []
+    for pts, hw in items:
+        if len(pts) < 2:
+            continue
+        line = LineString(pts)
+        if is_tunnel_highway(hw):
+            continue
+        if is_bridge_highway(hw):
+            bridges.append((line, hw))
+        else:
+            lower.append((line, hw))
+    edges: list[list[tuple[float, float]]] = []
+    for bridge, bhw in bridges:
+        hb = drawn_width_m(bhw) / 2.0
+        bminx, bminy, bmaxx, bmaxy = bridge.bounds
+        for line, lhw in lower:
+            lminx, lminy, lmaxx, lmaxy = line.bounds
+            if lminx > bmaxx or lmaxx < bminx or lminy > bmaxy or lmaxy < bminy:
+                continue
+            inter = bridge.intersection(line)
+            points = (
+                [inter]
+                if inter.geom_type == "Point"
+                else [g for g in getattr(inter, "geoms", []) if g.geom_type == "Point"]
+            )
+            for p in points:
+                tb = tangent(bridge, bridge.project(p))
+                tl = tangent(line, line.project(p))
+                sin = abs(tb[0] * tl[1] - tb[1] * tl[0])
+                if sin < _BRIDGE_EDGE_MIN_SIN:
+                    continue
+                half = min(
+                    _BRIDGE_EDGE_MAX_HALF_M, (drawn_width_m(lhw) / 2.0 + 0.5) / sin
+                )
+                nx, ny = -tb[1], tb[0]
+                for side in (1, -1):
+                    cx, cy = p.x + side * hb * nx, p.y + side * hb * ny
+                    a = (cx - half * tb[0], cy - half * tb[1])
+                    c = (cx + half * tb[0], cy + half * tb[1])
+                    edges.append([c, a] if side == 1 else [a, c])
+    return edges
+
+
 def build_osm_path_parts(
     work_dir: Path,
     *,
@@ -3400,6 +3744,36 @@ def build_osm_path_parts(
             obj = _path_object(symbol_index, mapped)
             if obj:
                 objects.append(obj)
+    # Sprint: ohraničení lávek přes jiné cesty symbolem 512.100 (vstup pod most).
+    if preset_id.startswith("sprint"):
+        edge_index = symbol_index_for_code(preset_id, scale, BRIDGE_EDGE_CODE)
+        if edge_index is not None:
+            items = [
+                (
+                    [(float(x), float(y)) for x, y in (f["geometry"]["coordinates"])],
+                    str((f.get("properties") or {}).get("highway") or "path"),
+                )
+                for f in data.get("features") or []
+                if (f.get("geometry") or {}).get("type") == "LineString"
+                and len((f["geometry"].get("coordinates") or [])) >= 2
+            ]
+            for edge in bridge_entrance_edges(items):
+                pieces = clip_polyline(edge, clip_bounds) if clip_bounds else [edge]
+                for piece in pieces:
+                    mapped = [
+                        projected_to_map_coord(
+                            x,
+                            y,
+                            ref_x=ref_x,
+                            ref_y=ref_y,
+                            scale=scale,
+                            grivation_deg=grivation_deg,
+                        )
+                        for x, y in piece
+                    ]
+                    obj = _path_object(edge_index, mapped)
+                    if obj:
+                        objects.append(obj)
     if not objects:
         return []
     part_name = (
@@ -3437,6 +3811,11 @@ def build_osm_feature_parts(
         from app.pipeline.aopk_trees import filter_osm_landmark_trees_near_aopk
 
         feats, _dropped = filter_osm_landmark_trees_near_aopk(feats, aopk_tree_points)
+    if preset_id.startswith("sprint"):
+        # Most přes vodu: voda (modrá) by jinak překryla výplň silnice / chodníku.
+        deck = bridge_deck_geometry(work_dir)
+        if deck is not None:
+            feats = cut_water_features_by_decks(feats, deck)
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

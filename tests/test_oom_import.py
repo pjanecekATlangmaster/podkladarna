@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import feature_props
 from app.pipeline.oom_symbol_map import oom_code_for_vectorconf_rule, symbol_index_for_code
@@ -457,3 +462,167 @@ def test_load_cliff_dem_prefers_shared_dem_over_contour_smooth(tmp_path, monkeyp
     assert opened[0] == filled
     # Smooth v contours/ se nemá preferovat před nehlazeným dem/.
     assert smooth not in opened
+
+def _water_zip(tmp_path):
+    """ZABAGED zip: jezero 100 × 50 m + tři toky (uvnitř / z poloviny / mimo)."""
+    import zipfile
+
+    import numpy as np
+    import pyogrio.raw as pr
+    from shapely.geometry import LineString, box
+
+    def write(name, geoms, gtype):
+        arr = np.array([g.wkb for g in geoms], dtype=object)
+        pr.write(
+            str(tmp_path / f"{name}.shp"),
+            geometry=arr,
+            field_data=[],
+            fields=[],
+            geometry_type=gtype,
+            crs="EPSG:5514",
+            driver="ESRI Shapefile",
+        )
+
+    x0, y0 = -744000.0, -1047000.0
+    write("VodniPlocha", [box(x0, y0, x0 + 100, y0 + 50)], "Polygon")
+    write(
+        "VodniTok",
+        [
+            LineString([(x0 + 10, y0 + 25), (x0 + 90, y0 + 25)]),
+            LineString([(x0 + 50, y0 + 25), (x0 + 50, y0 + 200)]),
+            LineString([(x0 + 500, y0 + 500), (x0 + 600, y0 + 500)]),
+        ],
+        "LineString",
+    )
+    z = tmp_path / "z.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in tmp_path.iterdir():
+            if f.suffix in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                zf.write(f, f.name)
+    return z, x0, y0
+
+
+def _count_waterway_objects(tmp_path, preset, scale, flag):
+    import tempfile
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    z, x0, y0 = _water_zip(tmp_path)
+    parts = build_zabaged_object_parts(
+        z,
+        vectorconf_name="zabaged.txt",
+        preset_id=preset,
+        scale=scale,
+        ref_x=x0,
+        ref_y=y0,
+        grivation_deg=0.0,
+        work_dir=Path(tempfile.mkdtemp()),
+        suppress_waterway_in_water=flag,
+    )
+    idx = symbol_index_for_code(preset, scale, "306")
+    xml = "\n".join(p.objects_xml for p in parts if "VodniTok" in p.name)
+    return xml.count(f'symbol="{idx}"')
+
+
+def test_waterway_under_water_area_not_drawn_in_sprint(tmp_path):
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    # bez potlačení všechny tři toky; s ním tok celý pod vodou zmizí,
+    # druhý se zkrátí na část mimo jezero, třetí zůstane
+    assert _count_waterway_objects(tmp_path, "sprint_4000", 4000, False) == 3
+    assert _count_waterway_objects(tmp_path, "sprint_4000", 4000, True) == 2
+
+
+def test_waterway_flag_off_keeps_forest_unchanged(tmp_path):
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    # les / MTBO se potlačení neúčastní (výchozí False)
+    assert _count_waterway_objects(tmp_path, "forest_10000", 10000, False) == 3
+
+def test_zabaged_area_under_osm_area_is_omitted(tmp_path):
+    """Priorita OSM: ZABAGED plocha pod / menší než OSM plocha se vynechá."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+    import zipfile
+
+    import numpy as np
+    import pyogrio.raw as pr
+    from shapely.geometry import box
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    x0, y0 = -744000.0, -1047000.0
+    zabaged = [
+        box(x0 + 10, y0 + 10, x0 + 30, y0 + 30),    # celé pod OSM plochou → pryč
+        box(x0 + 80, y0 + 10, x0 + 140, y0 + 30),   # z 1/3 pod OSM plochou → zůstane
+        box(x0 + 500, y0 + 10, x0 + 520, y0 + 30),  # mimo OSM plochu → zůstane
+    ]
+    arr = np.array([g.wkb for g in zabaged], dtype=object)
+    pr.write(
+        str(tmp_path / "VodniPlocha.shp"),
+        geometry=arr,
+        field_data=[],
+        fields=[],
+        geometry_type="Polygon",
+        crs="EPSG:5514",
+        driver="ESRI Shapefile",
+    )
+    z = tmp_path / "z.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in tmp_path.iterdir():
+            if f.suffix in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                zf.write(f, f.name)
+    osm_water = box(x0, y0, x0 + 100, y0 + 50)
+
+    def count(priority):
+        parts = build_zabaged_object_parts(
+            z,
+            vectorconf_name="zabaged.txt",
+            preset_id="sprint_4000",
+            scale=4000,
+            ref_x=x0,
+            ref_y=y0,
+            grivation_deg=0.0,
+            work_dir=Path(tempfile.mkdtemp()),
+            osm_priority_areas=priority,
+        )
+        idx = symbol_index_for_code("sprint_4000", 4000, "301")
+        xml = "\n".join(p.objects_xml for p in parts if "VodniPlocha" in p.name)
+        return xml.count(f'symbol="{idx}"')
+
+    assert count(None) == 3
+    assert count({"VodniPlocha": osm_water}) == 2
+
+
+def test_osm_priority_area_geometries_by_kind(tmp_path):
+    import app.pipeline.osm_paths as op
+
+    d = tmp_path / "osm_paths"
+    d.mkdir()
+
+    def poly(kind, x):
+        return {
+            "type": "Feature",
+            "properties": {"kind": kind},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[x, 0], [x + 10, 0], [x + 10, 10], [x, 10], [x, 0]]],
+            },
+        }
+
+    (d / "features.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [poly("water_body", 0), poly("parking", 50), poly("building", 90)],
+            }
+        ),
+        encoding="utf-8",
+    )
+    got = op.osm_priority_area_geometries(tmp_path)
+    assert set(got) == {"VodniPlocha", "ParkovisteOdpocivka"}
+    assert abs(got["VodniPlocha"].area - 100.0) < 1e-9
+    assert op.osm_priority_area_geometries(tmp_path / "neni") == {}

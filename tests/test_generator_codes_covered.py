@@ -94,6 +94,8 @@ def _all_highways() -> list[str]:
     out = set(base)
     out.add(osm_paths.OSM_BRIDGE_HIGHWAY)
     out |= {osm_paths.bridge_highway(b) for b in base if b}
+    out.add(osm_paths.OSM_TUNNEL_HIGHWAY)
+    out |= {osm_paths.tunnel_highway(b) for b in base if b}
     return sorted(out)
 
 

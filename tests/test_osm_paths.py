@@ -2022,3 +2022,206 @@ def test_osm_prefetch_error_propagates_to_prepare(tmp_path, monkeypatch):
         op.prepare_osm_paths(
             tmp_path, (14.39, 49.99, 14.41, 50.01), None, prefetched=pre
         )
+
+def test_tunnel_and_lower_level_detection():
+    import app.pipeline.osm_paths as op
+
+    assert op._is_osm_tunnel({"highway": "footway", "tunnel": "yes"})
+    assert op._is_osm_tunnel({"highway": "footway", "tunnel": "building_passage"})
+    assert op._is_osm_tunnel({"highway": "footway", "layer": "-1"})
+    assert op._is_osm_tunnel({"highway": "footway", "layer": "-1;0"})
+    assert not op._is_osm_tunnel({"highway": "footway", "layer": "1"})
+    assert not op._is_osm_tunnel({"highway": "footway"})
+    assert not op._is_osm_tunnel({"highway": "service", "tunnel": "culvert"})
+    # most má přednost před záporným layer
+    assert not op._is_osm_tunnel({"highway": "footway", "bridge": "yes", "layer": "-1"})
+
+
+def test_tunnel_symbol_sprint_only():
+    import app.pipeline.osm_paths as op
+
+    hw = op.tunnel_highway("footway")
+    assert hw == "tunnel:footway"
+    assert op.is_bridge_highway(hw) and op.is_tunnel_highway(hw)
+    assert op.path_draw_highway(hw) == "footway"
+    assert op.osm_oom_code(hw, "sprint_4000") == "512.200"
+    # les / MTBO beze změny: kreslí se jako navazující cesta
+    assert op.osm_oom_code(hw, "forest_10000") == op.osm_oom_code("footway", "forest_10000")
+    assert op.osm_oom_code(hw, "mtbo_10000") == op.osm_oom_code("footway", "mtbo_10000")
+    # krátký podchod se nezahazuje
+    assert op.path_min_length_m(hw) == op.MIN_LENGTH_SHORT_M
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    assert symbol_index_for_code("sprint_4000", 4000, "512.200") is not None
+
+def _bridge_scene():
+    # Chodníková lávka (E–W, 1,4 m) přes silnici road_2 (N–S).
+    return [
+        ([(-20.0, 0.0), (20.0, 0.0)], "bridge:sidewalk"),
+        ([(0.0, -30.0), (0.0, 30.0)], "road_2"),
+    ]
+
+
+def test_bridge_entrance_edges_geometry_and_orientation():
+    import app.pipeline.osm_paths as op
+
+    edges = op.bridge_entrance_edges(_bridge_scene())
+    assert len(edges) == 2
+    # hrany leží na okraji kresby lávky (±0,7 m od osy), přes šířku silnice (4 m + rezerva 1 m)
+    ys = sorted(round(e[0][1], 3) for e in edges)
+    assert ys == [-0.7, 0.7]
+    for e in edges:
+        assert abs(abs(e[1][0] - e[0][0]) - 5.0) < 1e-6
+    # opačný směr hran (trojúhelníky míří na stranu podle směru čáry)
+    up = [e for e in edges if e[0][1] > 0][0]
+    down = [e for e in edges if e[0][1] < 0][0]
+    assert up[0][0] > up[1][0]       # side=+1: c → a
+    assert down[0][0] < down[1][0]   # side=-1: a → c
+
+
+def test_bridge_entrance_edges_skips_parallel_tunnel_and_structures():
+    import app.pipeline.osm_paths as op
+
+    # rovnoběžná cesta, tunel i další lávka se nepočítají
+    items = [
+        ([(-20.0, 0.0), (20.0, 0.0)], "bridge:sidewalk"),
+        ([(5.0, 1.0), (20.0, 1.0)], "road_2"),
+        ([(0.0, -30.0), (0.0, 30.0)], "tunnel:footway"),
+        ([(0.0, -30.0), (0.0, 30.0)], "bridge:footway"),
+    ]
+    assert op.bridge_entrance_edges(items) == []
+
+
+def test_build_osm_path_parts_adds_bridge_edges_only_in_sprint(tmp_path):
+    import app.pipeline.osm_paths as op
+
+    d = tmp_path / "osm_paths"
+    d.mkdir()
+    # souřadnice S-JTSK u Prahy (v rozsahu klipu)
+    x0, y0 = -746313.0, -1048482.0
+    gj = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"highway": hw},
+                "geometry": {"type": "LineString", "coordinates": [[x0 + a, y0 + b] for a, b in pts]},
+            }
+            for pts, hw in (
+                ([(-20, 0), (20, 0)], "bridge:sidewalk"),
+                ([(0, -30), (0, 30)], "road_2"),
+            )
+        ],
+    }
+    (d / "paths_osm.geojson").write_text(json.dumps(gj), encoding="utf-8")
+
+    def count_edge_objects(preset, scale):
+        parts = op.build_osm_path_parts(
+            tmp_path, preset_id=preset, scale=scale, ref_x=x0, ref_y=y0,
+            grivation_deg=0.0, path_source=op.PATH_SOURCE_OSM,
+        )
+        from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+        idx = symbol_index_for_code(preset, scale, op.BRIDGE_EDGE_CODE)
+        xml = "\n".join(p.objects_xml for p in parts)
+        return idx, xml.count(f'symbol="{idx}"') if idx is not None else 0
+
+    idx, n = count_edge_objects("sprint_4000", 4000)
+    assert idx is not None and n == 2
+    _idx, n_forest = count_edge_objects("forest_10000", 10000)
+    assert n_forest == 0
+
+def test_bridge_deck_cuts_water_polygon(tmp_path):
+    import app.pipeline.osm_paths as op
+
+    d = tmp_path / "osm_paths"
+    d.mkdir()
+    gj = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"highway": hw},
+                "geometry": {"type": "LineString", "coordinates": pts},
+            }
+            for pts, hw in (
+                ([[0, -50], [0, 50]], "bridge:road_3"),   # most přes řeku (S–J)
+                ([[40, -50], [40, 50]], "tunnel:footway"),  # tunel mostovku netvoří
+                ([[80, -50], [80, 50]], "road_3"),        # cesta bez mostu taky ne
+            )
+        ],
+    }
+    (d / "paths_osm.geojson").write_text(json.dumps(gj), encoding="utf-8")
+    deck = op.bridge_deck_geometry(tmp_path)
+    assert deck is not None
+    # šířka: road_3 → 4 m kresba → půlka 2 m + rezerva 0,5 m
+    assert abs(deck.bounds[0] + 2.5) < 1e-6 and abs(deck.bounds[2] - 2.5) < 1e-6
+
+    river = {
+        "type": "Feature",
+        "properties": {"kind": "water_body", "oom_code": "301"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[-100, -20], [100, -20], [100, 20], [-100, 20], [-100, -20]]],
+        },
+    }
+    other = {
+        "type": "Feature",
+        "properties": {"kind": "building"},
+        "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]]},
+    }
+    out = op.cut_water_features_by_decks([river, other], deck)
+    water = [f for f in out if f["properties"]["kind"] == "water_body"]
+    assert len(water) == 2  # řeka se rozpadla na dva kusy (vlevo / vpravo od mostu)
+    assert other in out     # ostatní objekty beze změny
+    from shapely.geometry import Polygon
+
+    total = sum(Polygon(f["geometry"]["coordinates"][0]).area for f in water)
+    assert abs(total - (200 * 40 - 5 * 40)) < 1e-6  # řeka mínus pruh 5 m
+
+
+def test_bridge_deck_none_without_bridges(tmp_path):
+    import app.pipeline.osm_paths as op
+
+    (tmp_path / "osm_paths").mkdir()
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
+    )
+    assert op.bridge_deck_geometry(tmp_path) is None
+
+def test_bridge_outline_polygon_used_for_deck(tmp_path):
+    import app.pipeline.osm_paths as op
+
+    d = tmp_path / "osm_paths"
+    d.mkdir()
+    (d / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
+    )
+    ring = [[0, 0], [100, 0], [100, 20], [0, 20], [0, 0]]
+    (d / "bridge_decks.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {},
+                        "geometry": {"type": "Polygon", "coordinates": [ring]},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    deck = op.bridge_deck_geometry(tmp_path)
+    assert deck is not None
+    # obrys 100 × 20 m + rezerva 0,5 m ze všech stran
+    assert abs(deck.bounds[0] + 0.5) < 1e-6 and abs(deck.bounds[3] - 20.5) < 1e-6
+    assert deck.area > 100 * 20
+
+
+def test_overpass_ql_requests_bridge_outlines():
+    import app.pipeline.osm_paths as op
+
+    ql = op._overpass_ql(50.0, 14.0, 50.1, 14.1)
+    assert 'way["man_made"="bridge"]' in ql

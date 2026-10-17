@@ -883,6 +883,10 @@ def _hole_rings_as_area_objects(
     return out
 
 
+# Podíl plochy ZABAGED polygonu, který musí ležet pod OSM plochou téhož druhu, aby se vynechal.
+OSM_COVER_MIN = 0.7
+
+
 def build_zabaged_object_parts(
     zabaged_clean: Path,
     *,
@@ -900,6 +904,10 @@ def build_zabaged_object_parts(
     omit_layers: frozenset[str] | set[str] | None = None,
     max_ostatni_m2: float | None = MAX_OSTATNI_PLOCHA_M2,
     ostatni_as_403: bool = False,
+    water_deck=None,
+    osm_water_area=None,
+    suppress_waterway_in_water: bool = False,
+    osm_priority_areas: dict | None = None,
 ) -> list[OomObjectPart]:
     use_ogr = True
     try:
@@ -966,6 +974,129 @@ def build_zabaged_object_parts(
         )
 
     osm_index = None
+
+    def _emit_water_cut(
+        wkb_bytes: bytes, symbol_index: int
+    ) -> list[str] | None:
+        """Vodní plocha (301) bez mostovek (`water_deck`); None = neřešit zde."""
+        if water_deck is None:
+            return None
+        try:
+            from shapely import wkb as _shp_wkb
+
+            cut = _shp_wkb.loads(wkb_bytes).difference(water_deck)
+        except Exception:
+            return None
+        if cut.is_empty:
+            return []
+        pieces = list(cut.geoms) if hasattr(cut, "geoms") else [cut]
+        out: list[str] = []
+        for piece in pieces:
+            if piece.geom_type != "Polygon" or piece.is_empty:
+                continue
+            geom_parts, _ = _wkb_parts(piece.wkb)
+            out.extend(
+                _geom_parts_to_objects(
+                    geom_parts,
+                    symbol_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    clip_bounds=clip_bounds,
+                )
+            )
+        return out
+
+    def _covered_by_osm_area(layer: str, wkb_bytes: bytes) -> bool:
+        """Priorita OSM: ZABAGED plocha pod / menší než OSM plocha se vynechá."""
+        mask = (osm_priority_areas or {}).get(layer)
+        if mask is None:
+            return False
+        try:
+            from shapely import wkb as _shp_wkb
+
+            g = _shp_wkb.loads(wkb_bytes)
+            if g.is_empty or g.area <= 0:
+                return False
+            if not g.is_valid:
+                g = g.buffer(0)
+            return g.intersection(mask).area / g.area >= OSM_COVER_MIN
+        except Exception:
+            return False
+
+    water_union = None  # vodní plochy (ZABAGED + OSM) – tok 306 pod nimi se nekreslí
+    water_union_ready = False
+
+    def _water_union():
+        """Sjednocení vodních ploch 301.x (původní, bez vystřižení pod mosty)."""
+        nonlocal water_union, water_union_ready
+        if water_union_ready:
+            return water_union
+        water_union_ready = True
+        try:
+            from shapely import wkb as _shp_wkb
+            from shapely.ops import unary_union
+        except ImportError:
+            return None
+        polys = []
+        if osm_water_area is not None and not osm_water_area.is_empty:
+            polys.append(osm_water_area)
+        shp = _extract_shp_from_zip(
+            zabaged_clean, "VodniPlocha.shp", stage / "_VodniPlocha_mask"
+        )
+        if shp:
+            try:
+                for _props, w in _pyogrio_layer_rows(shp):
+                    g = _shp_wkb.loads(bytes(w))
+                    if not g.is_empty:
+                        polys.append(g if g.is_valid else g.buffer(0))
+            except Exception:
+                pass
+        if polys:
+            # malá tolerance: tok vedený po okraji plochy nezanechá střepy
+            water_union = unary_union(polys).buffer(0.3)
+        return water_union
+
+    def _emit_waterway_cut(wkb_bytes: bytes, symbol_index: int) -> list[str] | None:
+        """Tok (306) bez částí pod vodní plochou; None = neřešit zde.
+
+        Jen když je zapnuto ``suppress_waterway_in_water`` (sprint).
+        """
+        if not suppress_waterway_in_water:
+            return None
+        mask = _water_union()
+        if mask is None:
+            return None
+        try:
+            from shapely import wkb as _shp_wkb
+
+            line = _shp_wkb.loads(wkb_bytes)
+            cut = line.difference(mask)
+        except Exception:
+            return None
+        if cut.equals(line):
+            return None  # nic se nemění → původní cesta
+        if cut.is_empty:
+            return []
+        pieces = list(cut.geoms) if hasattr(cut, "geoms") else [cut]
+        out: list[str] = []
+        for piece in pieces:
+            if piece.geom_type != "LineString" or piece.length < 1.5:
+                continue
+            geom_parts, _ = _wkb_parts(piece.wkb)
+            out.extend(
+                _geom_parts_to_objects(
+                    geom_parts,
+                    symbol_index,
+                    ref_x=ref_x,
+                    ref_y=ref_y,
+                    scale=scale,
+                    grivation_deg=grivation_deg,
+                    clip_bounds=clip_bounds,
+                )
+            )
+        return out
 
     def _filter_vs_osm(
         line_parts: list[list[tuple[float, float]]],
@@ -1050,6 +1181,10 @@ def build_zabaged_object_parts(
                 geom = feature.GetGeometryRef()
                 if geom is None:
                     continue
+                if osm_priority_areas and _covered_by_osm_area(
+                    layer_name, bytes(geom.ExportToWkb())
+                ):
+                    continue
                 line_parts = _ogr_line_parts_5514(geom)
                 line_parts = _filter_vs_osm(line_parts, layer_name)
                 if layer_name == "Pesina" and line_parts:
@@ -1079,18 +1214,28 @@ def build_zabaged_object_parts(
                     if layer_name == "Cesta":
                         for pts in line_parts:
                             wider_paths.add_line(pts)
-                    objects.extend(
-                        _geom_objects(
-                            geom,
-                            symbol_index,
-                            ref_x=ref_x,
-                            ref_y=ref_y,
-                            scale=scale,
-                            grivation_deg=grivation_deg,
-                            clip_bounds=clip_bounds,
-                            ogr=ogr,
-                        )
+                    cut_objs = (
+                        _emit_water_cut(bytes(geom.ExportToWkb()), symbol_index)
+                        if code == "301"
+                        else _emit_waterway_cut(bytes(geom.ExportToWkb()), symbol_index)
+                        if code == "306"
+                        else None
                     )
+                    if cut_objs is not None:
+                        objects.extend(cut_objs)
+                    else:
+                        objects.extend(
+                            _geom_objects(
+                                geom,
+                                symbol_index,
+                                ref_x=ref_x,
+                                ref_y=ref_y,
+                                scale=scale,
+                                grivation_deg=grivation_deg,
+                                clip_bounds=clip_bounds,
+                                ogr=ogr,
+                            )
+                        )
                 if fill_courtyards and olive_index is not None and code in building_codes:
                     # Budova s dírou = nepřístupný dvůr → plná oliva přes detaily uvnitř.
                     courtyard_objects.extend(
@@ -1137,6 +1282,8 @@ def build_zabaged_object_parts(
                 symbol_index = symbol_index_for_code(preset_id, scale, code)
                 if symbol_index is None:
                     continue
+                if osm_priority_areas and _covered_by_osm_area(layer_name, bytes(wkb)):
+                    continue
                 line_parts = _wkb_line_parts_5514(wkb)
                 line_parts = _filter_vs_osm(line_parts, layer_name)
                 if layer_name == "Pesina" and line_parts:
@@ -1165,18 +1312,28 @@ def build_zabaged_object_parts(
                     if layer_name == "Cesta":
                         for pts in line_parts:
                             wider_paths.add_line(pts)
-                    geom_parts, _ = _wkb_parts(wkb)
-                    objects.extend(
-                        _geom_parts_to_objects(
-                            geom_parts,
-                            symbol_index,
-                            ref_x=ref_x,
-                            ref_y=ref_y,
-                            scale=scale,
-                            grivation_deg=grivation_deg,
-                            clip_bounds=clip_bounds,
-                        )
+                    cut_objs = (
+                        _emit_water_cut(bytes(wkb), symbol_index)
+                        if code == "301"
+                        else _emit_waterway_cut(bytes(wkb), symbol_index)
+                        if code == "306"
+                        else None
                     )
+                    if cut_objs is not None:
+                        objects.extend(cut_objs)
+                    else:
+                        geom_parts, _ = _wkb_parts(wkb)
+                        objects.extend(
+                            _geom_parts_to_objects(
+                                geom_parts,
+                                symbol_index,
+                                ref_x=ref_x,
+                                ref_y=ref_y,
+                                scale=scale,
+                                grivation_deg=grivation_deg,
+                                clip_bounds=clip_bounds,
+                            )
+                        )
                 if fill_courtyards and olive_index is not None and code in building_codes:
                     geom_parts, _ = _wkb_parts(wkb)
                     courtyard_objects.extend(
