@@ -614,7 +614,7 @@ def test_ui_private_session_log_hooks():
     css = (root / "web" / "static" / "style.css").read_text(encoding="utf-8")
     html = (root / "web" / "index.html").read_text(encoding="utf-8")
 
-    assert "setPrivateDetailHolder" in app_js
+    assert "setJobsView" in app_js
     assert "jobIsPrivate" in app_js
     assert "showFormNotice" in app_js
     assert "privátní session" in app_js
@@ -624,7 +624,7 @@ def test_ui_private_session_log_hooks():
     assert "!jobIsPrivate(selected) && selected.has_preview" in app_js
     assert "!jobIsPrivate(job) && job.has_preview" in app_js
     assert "ZIP/náhled nepřijdou" in app_js or "ZIP e-mailem" in app_js
-    assert "#job-detail-holder.active" in css
+    assert ".jobs-view" in css
     assert "private-live-placeholder" in css
     assert "form-notice" in css
     assert 'id="form-notice"' in html

@@ -79,12 +79,6 @@ function jobIsPrivate(job) {
   return Boolean(job && (job.private || (job.options && job.options.private)));
 }
 
-function setPrivateDetailHolder(visible) {
-  const holder = document.getElementById("job-detail-holder");
-  if (!holder) return;
-  holder.classList.toggle("active", Boolean(visible));
-}
-
 async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   if (!res.ok) {
@@ -101,9 +95,8 @@ let selectedJobStatus = null;
 let logAfter = 0;
 let logSettledForJob = null;
 let pollTimer = null;
-let finishedPage = 0;
-let focusFinishedJobId = null;
 const FINISHED_PAGE_SIZE = 8;
+let finishedShown = FINISHED_PAGE_SIZE;
 let bboxMap = null;
 let bboxCorners = [];
 let bboxRect = null;
@@ -265,6 +258,12 @@ async function loadMapOptions() {
   }
 }
 
+/** Log úspěšně dokončeného jobu (i s opakovanými pokusy o stažení) se neukazuje; u chyby a běhu ano. */
+function syncDetailLogVisibility(job) {
+  const pre = document.getElementById("detail-log");
+  if (pre) pre.classList.toggle("hidden", job.status === "done");
+}
+
 function jobIsLive(status) {
   return status === "running" || status === "queued" || status === "pending";
 }
@@ -290,6 +289,15 @@ function jobItemHeadHtml(job) {
   `;
 }
 
+/** Panel Joby má dva pohledy: seznam a detail jednoho jobu (bez vnořování). */
+let jobsView = "list";
+
+function setJobsView(view) {
+  jobsView = view;
+  document.getElementById("jobs-view-list")?.classList.toggle("hidden", view !== "list");
+  document.getElementById("jobs-view-detail")?.classList.toggle("hidden", view !== "detail");
+}
+
 function splitJobs(jobs) {
   const live = [];
   const finished = [];
@@ -305,35 +313,21 @@ function jobItemEl(jobId) {
 }
 
 function upsertJobItem(list, job, order) {
-  const detail = jobDetailEl();
   let div = jobItemEl(job.id);
   if (!div) {
     div = document.createElement("div");
     div.className = "job-item";
     div.dataset.id = job.id;
-    const head = document.createElement("div");
-    head.className = "job-item-head";
-    div.appendChild(head);
-    div.onclick = (e) => {
-      if (e.target.closest(".job-detail")) return;
-      selectJob(job.id);
-    };
+    div.onclick = () => selectJob(job.id);
   }
   div.classList.toggle("selected", job.id === selectedJobId);
-  div.classList.toggle("expanded", job.id === selectedJobId);
   div.classList.toggle("private-session", jobIsPrivate(job));
   div.dataset.status = job.status || "";
   div.dataset.private = jobIsPrivate(job) ? "1" : "0";
-  let head = div.querySelector(":scope > .job-item-head");
-  if (!head) {
-    head = document.createElement("div");
-    head.className = "job-item-head";
-    div.insertBefore(head, detail && div.contains(detail) ? detail : div.firstChild);
-  }
   const html = jobItemHeadHtml(job);
-  if (head._html !== html) {
-    head.innerHTML = html;
-    head._html = html;
+  if (div._html !== html) {
+    div.innerHTML = html;
+    div._html = html;
   }
   const at = [...list.children].indexOf(div);
   const want = order.findIndex((j) => j.id === job.id);
@@ -348,7 +342,6 @@ function syncJobsList(liveJobs, finishedJobs) {
   const liveEmpty = document.getElementById("jobs-live-empty");
   const doneEmpty = document.getElementById("jobs-finished-empty");
   if (!liveList || !doneList) return;
-  const detail = jobDetailEl();
   const visibleIds = new Set([...liveJobs, ...finishedJobs].map((j) => j.id));
   for (const job of liveJobs) upsertJobItem(liveList, job, liveJobs);
   for (const job of finishedJobs) upsertJobItem(doneList, job, finishedJobs);
@@ -356,7 +349,6 @@ function syncJobsList(liveJobs, finishedJobs) {
     for (const child of [...list.children]) {
       if (child.id === "private-live-placeholder") continue;
       if (visibleIds.has(child.dataset.id)) continue;
-      if (detail && child.contains(detail)) parkJobDetail();
       child.remove();
     }
   }
@@ -369,67 +361,29 @@ function syncJobsList(liveJobs, finishedJobs) {
   if (doneEmpty) doneEmpty.classList.toggle("hidden", finishedJobs.length > 0);
 }
 
-function updateFinishedPager(total) {
-  const bar = document.getElementById("jobs-finished-bar");
-  const prev = document.getElementById("jobs-prev");
-  const next = document.getElementById("jobs-next");
+function updateFinishedMore(total) {
   const label = document.getElementById("jobs-finished-label");
-  const pageLabel = document.getElementById("jobs-page-label");
-  if (!bar || !prev || !next || !label || !pageLabel) return;
-  const pages = Math.max(1, Math.ceil(total / FINISHED_PAGE_SIZE) || 1);
-  if (finishedPage > pages - 1) finishedPage = pages - 1;
-  if (finishedPage < 0) finishedPage = 0;
-  if (!total) {
-    label.textContent = "Hotové";
-    pageLabel.textContent = "";
-    prev.classList.add("hidden");
-    next.classList.add("hidden");
-    return;
-  }
-  const from = finishedPage * FINISHED_PAGE_SIZE + 1;
-  const to = Math.min(total, (finishedPage + 1) * FINISHED_PAGE_SIZE);
-  label.textContent = `Hotové ${from}–${to} z ${total}`;
-  pageLabel.textContent = pages > 1 ? `${finishedPage + 1} / ${pages}` : "";
-  prev.disabled = finishedPage <= 0;
-  next.disabled = finishedPage >= pages - 1;
-  prev.classList.toggle("hidden", pages <= 1);
-  next.classList.toggle("hidden", pages <= 1);
+  const more = document.getElementById("jobs-more");
+  if (!label || !more) return;
+  const shown = Math.min(total, finishedShown);
+  label.textContent = total > shown ? `Hotové (${shown} z ${total})` : "Hotové";
+  more.classList.toggle("hidden", total <= shown);
 }
 
 function initJobsPager() {
-  const prev = document.getElementById("jobs-prev");
-  const next = document.getElementById("jobs-next");
-  if (prev) {
-    prev.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (finishedPage <= 0) return;
-      finishedPage -= 1;
-      loadJobs();
-    });
-  }
-  if (next) {
-    next.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      finishedPage += 1;
-      loadJobs();
-    });
-  }
+  document.getElementById("jobs-more")?.addEventListener("click", () => {
+    finishedShown += FINISHED_PAGE_SIZE;
+    loadJobs();
+  });
+  document.getElementById("jobs-back")?.addEventListener("click", () => {
+    setJobsView("list");
+    loadJobs();
+  });
 }
 
 async function loadJobs() {
   const data = await api("/api/jobs");
   updateWorkerStatus(data);
-
-  let justPicked = false;
-  if (!selectedJobId && data.jobs.length) {
-    const running = data.jobs.find((j) => j.status === "running");
-    selectedJobId = (running || data.jobs[0]).id;
-    logAfter = 0;
-    logSettledForJob = null;
-    justPicked = true;
-  }
 
   let selected = data.jobs.find((j) => j.id === selectedJobId);
   // Privátní job není ve veřejném seznamu – drž detail přes /api/jobs/{id}.
@@ -457,19 +411,11 @@ async function loadJobs() {
     };
   }
 
-  const focusId = focusFinishedJobId || (justPicked ? selectedJobId : null);
-  if (focusId) {
-    const i = finished.findIndex((j) => j.id === focusId);
-    if (i >= 0) finishedPage = Math.floor(i / FINISHED_PAGE_SIZE);
-    focusFinishedJobId = null;
-  }
-  const pages = Math.max(1, Math.ceil(finished.length / FINISHED_PAGE_SIZE) || 1);
-  if (finishedPage > pages - 1) finishedPage = pages - 1;
-  if (finishedPage < 0) finishedPage = 0;
-  const start = finishedPage * FINISHED_PAGE_SIZE;
-  const pageJobs = finished.slice(start, start + FINISHED_PAGE_SIZE);
-  updateFinishedPager(finished.length);
-  syncJobsList(live, pageJobs);
+  // Vybraný hotový job musí být v seznamu vidět.
+  const selIdx = finished.findIndex((j) => j.id === selectedJobId);
+  if (selIdx >= finishedShown) finishedShown = selIdx + 1;
+  updateFinishedMore(finished.length);
+  syncJobsList(live, finished.slice(0, finishedShown));
   syncPrivateLivePlaceholder(privateLive);
 
   if (generateStartedJobId) {
@@ -481,90 +427,52 @@ async function loadJobs() {
     }
   }
 
-  const selectedEl = selectedJobId ? jobItemEl(selectedJobId) : null;
-  if (selected && (selectedEl || jobIsPrivate(selected))) {
-    if (selectedEl) {
-      const alreadyOpen = jobDetailEl()?.parentElement === selectedEl;
-      if (!alreadyOpen) attachJobDetail(selectedEl);
-      setPrivateDetailHolder(false);
-    } else {
-      // Privátní hotový/neživý: detail v holderu (není položka v seznamu).
-      parkJobDetail();
-      jobDetailEl().classList.remove("hidden");
-      setPrivateDetailHolder(true);
-    }
-    selectedJobStatus = selected.status;
-    const liveJob = jobIsLive(selected.status);
-    if (liveJob || logSettledForJob !== selected.id) {
-      const privateNote = jobIsPrivate(selected)
-        ? liveJob
-          ? " · privátní (log v této session; ZIP e-mailem)"
-          : " · privátní (ZIP přijde e-mailem)"
-        : "";
-      document.getElementById("detail-status").textContent =
-        `Stav: ${selected.status} · ${jobScaleLabel(selected)}` +
-        privateNote +
-        (selected.error ? ` · ${selected.error}` : "");
-      const timingEl = document.getElementById("detail-timing");
-      if (timingEl) {
-        timingEl.textContent = jobTimingText(selected);
-        timingEl.classList.toggle("hidden", !timingEl.textContent);
-      }
-      const sourcesEl = document.getElementById("detail-sources");
-      if (sourcesEl) {
-        sourcesEl.textContent = jobSourcesText(selected);
-        sourcesEl.classList.toggle("hidden", !sourcesEl.textContent);
-      }
-      setJobActionLinks(selected);
-      const img = document.getElementById("detail-img");
-      // Privátní: náhled PNG jen e-mailem, na webu nikdy.
-      if (!jobIsPrivate(selected) && selected.has_preview) {
-        if (img.classList.contains("hidden")) {
-          img.src = `/api/jobs/${selected.id}/preview.png?t=${Date.now()}`;
-        }
-        img.classList.remove("hidden");
-      } else {
-        img.classList.add("hidden");
-        if (jobIsPrivate(selected)) img.removeAttribute("src");
-      }
-      if (justPicked) {
-        await fillJobDetail(selectedJobId, { applyForm: false });
-      }
-      await refreshLog();
-    }
-  } else {
-    parkJobDetail();
-    jobDetailEl().classList.add("hidden");
-    setPrivateDetailHolder(false);
+  if (!selected) {
+    selectedJobId = null;
+    selectedJobStatus = null;
     syncFeedbackForJob(null);
-    if (!selected) {
-      selectedJobId = null;
-      selectedJobStatus = null;
+    setJobsView("list");
+    return;
+  }
+  selectedJobStatus = selected.status;
+  if (jobsView !== "detail") return;
+  syncDetailLogVisibility(selected);
+  const liveJob = jobIsLive(selected.status);
+  if (liveJob || logSettledForJob !== selected.id) {
+    const privateNote = jobIsPrivate(selected)
+      ? liveJob
+        ? " · privátní (log v této session; ZIP e-mailem)"
+        : " · privátní (ZIP přijde e-mailem)"
+      : "";
+    document.getElementById("detail-title").textContent = selected.name;
+    document.getElementById("detail-status").textContent =
+      `Stav: ${selected.status} · ${jobScaleLabel(selected)}` +
+      privateNote +
+      (selected.error ? ` · ${selected.error}` : "");
+    const timingEl = document.getElementById("detail-timing");
+    if (timingEl) {
+      timingEl.textContent = jobTimingText(selected);
+      timingEl.classList.toggle("hidden", !timingEl.textContent);
     }
+    const sourcesEl = document.getElementById("detail-sources");
+    if (sourcesEl) {
+      sourcesEl.textContent = jobSourcesText(selected);
+      sourcesEl.classList.toggle("hidden", !sourcesEl.textContent);
+    }
+    setJobActionLinks(selected);
+    const img = document.getElementById("detail-img");
+    // Privátní: náhled PNG jen e-mailem, na webu nikdy.
+    if (!jobIsPrivate(selected) && selected.has_preview) {
+      if (img.classList.contains("hidden")) {
+        img.src = `/api/jobs/${selected.id}/preview.png?t=${Date.now()}`;
+      }
+      img.classList.remove("hidden");
+    } else {
+      img.classList.add("hidden");
+      if (jobIsPrivate(selected)) img.removeAttribute("src");
+    }
+    await refreshLog();
   }
-}
-
-function jobDetailEl() {
-  return document.getElementById("job-detail");
-}
-
-function parkJobDetail() {
-  const detail = jobDetailEl();
-  const holder = document.getElementById("job-detail-holder");
-  if (detail && holder && detail.parentElement !== holder) {
-    holder.appendChild(detail);
-  }
-}
-
-function attachJobDetail(jobEl) {
-  const detail = jobDetailEl();
-  if (!detail || !jobEl) return;
-  setPrivateDetailHolder(false);
-  if (detail.parentElement !== jobEl) {
-    jobEl.appendChild(detail);
-  }
-  jobEl.classList.add("expanded");
-  detail.classList.remove("hidden");
 }
 
 function updateWorkerStatus(data) {
@@ -767,6 +675,7 @@ function escapeHtml(s) {
 async function fillJobDetail(id, { applyForm = false } = {}) {
   const job = await api(`/api/jobs/${id}`);
   selectedJobStatus = job.status;
+  syncDetailLogVisibility(job);
   const privateNote = jobIsPrivate(job)
     ? jobIsLive(job.status)
       ? " · privátní (log v této session; ZIP e-mailem)"
@@ -809,11 +718,13 @@ async function selectJob(id) {
   if (!same) {
     logAfter = 0;
     logSettledForJob = null;
-    focusFinishedJobId = id;
     document.getElementById("detail-log").textContent = "";
   }
+  setJobsView("detail");
   await fillJobDetail(id, { applyForm: true });
-  if (!same) await loadJobs();
+  await loadJobs();
+  const card = document.querySelector(".jobs-card");
+  if (card) card.scrollTop = 0;
 }
 
 async function refreshLog() {

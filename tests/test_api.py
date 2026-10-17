@@ -625,7 +625,7 @@ def test_index_html(client):
     assert 'name="zabaged_file"' not in html
     assert 'name="dmr_files"' not in html
     assert "job-detail" in html
-    assert "job-detail-holder" in html
+    assert "jobs-view-detail" in html
     assert "jobs-list" in html
     assert f"Podkladárna v{APP_VERSION}" in html
     assert 'id="whats-new"' in html
@@ -637,7 +637,7 @@ def test_index_html(client):
     assert "tel:+420733575541" not in html
     assert "733&nbsp;575&nbsp;541" not in html
     assert "jobs-live" in html
-    assert "jobs-finished-bar" in html
+    assert "jobs-view-list" in html
     assert 'href="/licence"' in html
     assert "creativecommons.org/licenses/by/4.0" in html
     assert "DEPLOY.md" not in html
