@@ -735,7 +735,11 @@ async function selectJob(id) {
 async function refreshLog() {
   if (!selectedJobId) return;
   if (logSettledForJob === selectedJobId) return;
-  const data = await api(`/api/jobs/${selectedJobId}/log?after=${logAfter}`);
+  const jobId = selectedJobId;
+  const after = logAfter;
+  const data = await api(`/api/jobs/${jobId}/log?after=${after}`);
+  // Souběžné volání (výběr jobu + polling) mezitím log už připsalo nebo se změnil job.
+  if (selectedJobId !== jobId || logAfter !== after) return;
   const pre = document.getElementById("detail-log");
   const hadNew = data.lines.length > 0;
   for (const line of data.lines) {
