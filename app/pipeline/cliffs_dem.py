@@ -491,7 +491,7 @@ def generate_job_cliffs_dem(
     cliff_symbol = str((options or {}).get("kp_cliff_symbol") or "auto").strip().lower()
     if cliff_symbol == "off":
         if log:
-            log("Srázy DEM: vypnuto (kp_cliff_symbol=off)")
+            log("Srázy: vypnuto ve formuláři")
         return {}
     dem = dem_filled_path(work_dir)
     if dem is None:
@@ -501,11 +501,7 @@ def generate_job_cliffs_dem(
     c1, c2 = resolve_drop_thresholds(options)
     sens = resolve_cliff_sensitivity(options)
     if log:
-        log("=== Fáze: srázy z DEM ===")
-        log(
-            f"Srázy DEM: citlivost={sens} → cliff1={c1:g} m, cliff2={c2:g} m "
-            f"(méně citlivé = méně falešných zemních srázů)"
-        )
+        log(f"Citlivost {sens}: cliff1={c1:g} m, cliff2={c2:g} m")
     return generate_cliffs_from_dem(
         dem,
         work_dir / "temp",

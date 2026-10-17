@@ -4,10 +4,10 @@ from app.pipeline.prepare_lidar import log_step
 def test_log_step_explains_before_tool():
     lines: list[str] = []
     log_step(lines.append, "Připravuji DEM z DMR5G (terén pro vrstevnice a srázy)")
-    log_step(lines.append, "Klasifikuji vegetaci z hustoty LiDAR odrazů (náhrada KP)")
+    log_step(lines.append, "Klasifikuji vegetaci z hustoty LiDAR odrazů")
     assert lines == [
         "Připravuji DEM z DMR5G (terén pro vrstevnice a srázy)…",
-        "Klasifikuji vegetaci z hustoty LiDAR odrazů (náhrada KP)…",
+        "Klasifikuji vegetaci z hustoty LiDAR odrazů…",
     ]
 
 

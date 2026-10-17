@@ -129,8 +129,6 @@ def compose_job_preview(
 
     from app.pipeline.shade import build_job_shade, resolve_shade_png
 
-    if log:
-        log("=== Fáze: náhled PNG (shade compose) ===")
     shade = resolve_shade_png(work_dir)
     if shade is None:
         shade = build_job_shade(

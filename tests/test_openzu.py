@@ -219,7 +219,7 @@ def test_create_job_from_map_bbox(client, monkeypatch):
     assert job["options"]["bbox_wgs84"][0] == pytest.approx(14.40)
     log = client.get(f"/api/jobs/{job['id']}/log").json()["lines"]
     text = "\n".join(x["line"] for x in log)
-    assert "listy=PRAH77" in text
+    assert "listy SM5 PRAH77" in text
 
 
 def test_create_job_uses_client_sm5_sheets_without_arcgis(client, monkeypatch):

@@ -107,9 +107,10 @@ def test_start_creates_future_with_force_refresh(tmp_path: Path):
     assert seen["force_refresh"] is True
     assert seen["template"] == "job.png"
     assert "orthophoto" in built
-    assert any("začínám stahování na pozadí" in ln for ln in lines)
-    assert any(ln.startswith("[ref] ") for ln in lines)
-    assert any("staženo na pozadí — orthophoto" in ln for ln in lines)
+    assert any(ln.startswith("[podklady] Start stahování na pozadí") for ln in lines)
+    assert "[podklady] orto ok" in lines
+    assert "[podklady] Hotovo (1 vrstev)" in lines
+    assert any("Staženo na pozadí: orthophoto" in ln for ln in lines)
     assert layers == ["orthophoto.png"]
 
 
@@ -147,7 +148,7 @@ def test_join_uses_future_no_double_fetch(tmp_path: Path):
         mocked.assert_not_called()
     assert calls["n"] == 0
     assert "osm" in built
-    assert any("staženo na pozadí" in ln for ln in lines)
+    assert any("Staženo na pozadí" in ln for ln in lines)
 
 
 def test_join_exception_logs_and_skips(tmp_path: Path):
@@ -178,8 +179,8 @@ def test_join_exception_logs_and_skips(tmp_path: Path):
     )
     assert built == {}
     assert layers == []
-    assert any("pozadí selhalo" in ln and "WMS down" in ln for ln in lines)
-    assert any("referenční podklady" in ln for ln in progress_lines)
+    assert any("na pozadí selhalo" in ln and "WMS down" in ln for ln in lines)
+    assert any("referenční podklady" in ln.lower() for ln in progress_lines)
 
 
 def test_join_serial_fallback_when_no_future(tmp_path: Path):
@@ -232,7 +233,7 @@ def test_join_want_refs_false_skips_build(tmp_path: Path):
         mocked.assert_not_called()
     assert built == {}
     assert layers == []
-    assert any("přeskočeny" in ln for ln in lines)
+    assert any("vypnuto ve formuláři" in ln for ln in lines)
 
 
 def test_ref_log_prefix_and_lock(tmp_path: Path):
@@ -249,6 +250,7 @@ def test_ref_log_prefix_and_lock(tmp_path: Path):
         barrier.wait(timeout=5)
         if log:
             log("detail A")
+            log("> gdalwarp in.tif out.png")
             log("detail B")
         return {}
 
@@ -275,9 +277,11 @@ def test_ref_log_prefix_and_lock(tmp_path: Path):
             force_refresh=False,
         )
     assert built == {}
-    ref_lines = [ln for ln in lines if ln.startswith("[ref] ")]
-    assert "[ref] detail A" in ref_lines
-    assert "[ref] detail B" in ref_lines
+    ref_lines = [ln for ln in lines if ln.startswith("[podklady] ")]
+    assert "[podklady] detail A" in ref_lines
+    assert "[podklady] detail B" in ref_lines
+    # Příkazy nástrojů z pozadí se do logu nepletou.
+    assert not any("gdalwarp" in ln for ln in lines)
 
 
 def test_progress_begin_done_only_on_join(tmp_path: Path):
@@ -290,7 +294,7 @@ def test_progress_begin_done_only_on_join(tmp_path: Path):
     progress_lines: list[str] = []
     progress = JobProgress(
         progress_lines.append,
-        ["georef mřížka", "referenční podklady", "OOM"],
+        ["mřížka mapy", "referenční podklady", "OOM"],
     )
 
     def slow_build(*args, **kwargs):
@@ -320,4 +324,4 @@ def test_progress_begin_done_only_on_join(tmp_path: Path):
             force_refresh=False,
             progress=progress,
         )
-    assert any("referenční podklady" in ln for ln in progress_lines)
+    assert any("referenční podklady" in ln.lower() for ln in progress_lines)

@@ -292,9 +292,7 @@ def fetch_lidar_for_bbox(
 
     names = [s["mapnom"] for s in sheets]
     if log:
-        log(f"Protíná listy: {', '.join(names)} ({len(names)})")
-        if force_refresh:
-            log("Force refresh: LAZ cache se přegeneruje")
+        log(f"Listy SM5 ({len(names)}): {', '.join(names)}")
 
     dmr_paths: list[Path] = []
     dmp_paths: list[Path] = []

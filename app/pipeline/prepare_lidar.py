@@ -92,15 +92,32 @@ def log_step(log, message: str) -> None:
     log(text)
 
 
+# Řádek s příkazem nástroje v job logu (vlákna na pozadí ho podle prefixu vynechají).
+CMD_LOG_PREFIX = "> "
+
+
+def _short_cmd_arg(arg: str) -> str:
+    """Absolutní cesty v logu jen jménem souboru (celé cesty jsou v jobu stejné)."""
+    text = str(arg)
+    if text.startswith("/vsi") or "://" in text:
+        return text
+    try:
+        p = Path(text)
+        if p.is_absolute() and p.name:
+            return p.name
+    except (OSError, ValueError):
+        pass
+    return text
+
+
 def run_cmd(
     cmd: list[str],
     *,
     cwd: Path | None = None,
     log: callable | None = None,
 ) -> subprocess.CompletedProcess:
-    line = "> " + " ".join(cmd)
     if log:
-        log(line)
+        log(CMD_LOG_PREFIX + " ".join(_short_cmd_arg(a) for a in cmd))
     result = subprocess.run(
         cmd,
         cwd=str(cwd) if cwd else None,
@@ -109,13 +126,11 @@ def run_cmd(
         capture_output=True,
         env=gis_subprocess_env(cmd[0] if cmd else None),
     )
-    if result.stdout and log:
-        for ln in result.stdout.strip().splitlines()[-5:]:
-            log(ln)
     if result.returncode != 0:
+        # Stdout nástrojů (průběh 0...10...100) se loguje jen při chybě.
         err = (result.stderr or result.stdout or "Unknown error").strip()
         if log:
-            log(err)
+            log("\n".join(err.splitlines()[-20:]))
         raise subprocess.CalledProcessError(
             result.returncode, cmd, result.stdout, result.stderr
         )

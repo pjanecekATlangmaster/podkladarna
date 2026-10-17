@@ -83,12 +83,11 @@ def build_hillshade_from_dem(
                 log(f"Hillshade DEM: chybí gdaldem ({exc})")
             return False
 
-    if log:
-        log(
-            f"Hillshade: gdaldem z {dem_tif.name} "
-            f"(az {azimuth:g}°, alt {altitude:g}°)"
-        )
-    log_step(log, "Počítám stínování reliéfu z DEM (šedý podklad mapy)")
+    log_step(
+        log,
+        f"Počítám stínování reliéfu z {dem_tif.name} "
+        f"(azimut {azimuth:g}°, výška {altitude:g}°)",
+    )
     run_cmd(
         [
             gdaldem,
@@ -112,7 +111,6 @@ def build_hillshade_from_dem(
         gdalwarp = _gdal_tool("gdalwarp")
     except RuntimeError:
         gdalwarp = find_tool("gdalwarp")
-    log_step(log, "Zarovnávám stínování na mřížku mapy")
     run_cmd(
         [
             gdalwarp,
@@ -145,7 +143,7 @@ def build_hillshade_from_dem(
         return False
     _write_grid_pgw(grid, dest_pgw)
     if log:
-        log(f"Hillshade DEM → {dest_png.name} ({grid.width}×{grid.height})")
+        log(f"Stínování z DEM: {dest_png.name} ({grid.width}×{grid.height} px)")
     return True
 
 
@@ -161,13 +159,9 @@ def fetch_hillshade_wms_for_grid(
     """WMS grayscale hillshade zarovnaný na ``job_grid``."""
     log_step(
         log,
-        "Stahuji stínovaný reliéf z ČÚZK (WMS DMR 5G, šedý podklad mapy)",
+        f"Stahuji stínovaný reliéf ČÚZK (WMS {layer}, "
+        f"{grid.width}×{grid.height} px)",
     )
-    if log:
-        log(
-            f"Hillshade: WMS {layer} → {dest_png.name} "
-            f"({grid.width}×{grid.height})"
-        )
     ok = _download_wms_raster(
         HILLSHADE_WMS,
         layer,
@@ -204,7 +198,7 @@ def build_job_shade(
     grid = JobGrid.load(work_dir)
     if grid is None:
         if log:
-            log("Hillshade: chybí job_grid – přeskočeno")
+            log("Stínování: chybí mřížka mapy – přeskočeno")
         return None
 
     out_dir = shade_work_dir(work_dir)
@@ -237,7 +231,7 @@ def build_job_shade(
                 source = "gdaldem"
         except Exception as exc:
             if log:
-                log(f"Hillshade DEM selhal ({exc}) – zkouším WMS…")
+                log(f"Stínování z DEM selhalo ({exc}) – zkouším WMS…")
 
     if not built:
         try:
@@ -248,7 +242,7 @@ def build_job_shade(
                 source = "cuzk_wms"
         except Exception as exc:
             if log:
-                log(f"Hillshade WMS selhal ({exc})")
+                log(f"Stínování z WMS selhalo ({exc})")
 
     if not built and not prefer_local and dem is not None:
         try:
@@ -256,10 +250,10 @@ def build_job_shade(
                 built = True
                 source = "gdaldem"
                 if log:
-                    log("Hillshade: fallback gdaldem po selhání ČÚZK WMS")
+                    log("Stínování: náhradně z DEM (ČÚZK WMS selhalo)")
         except Exception as exc:
             if log:
-                log(f"Hillshade DEM fallback selhal ({exc})")
+                log(f"Stínování z DEM (náhradní) selhalo ({exc})")
 
     if built and dest_png.is_file() and dest_png.stat().st_size >= MIN_SHADE_BYTES:
         if cache_dir is not None:
@@ -273,7 +267,7 @@ def build_job_shade(
         return dest_png
 
     if log:
-        log("Hillshade: žádný zdroj (WMS ani DEM)")
+        log("Stínování: žádný zdroj (WMS ani DEM)")
     return None
 
 

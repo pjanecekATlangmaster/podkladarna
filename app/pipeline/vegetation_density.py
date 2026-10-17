@@ -806,9 +806,7 @@ def generate_job_vegetation_density(
         if log:
             log("Vegetace (hustota bodů): chybí laspy – fallback CHM")
         return None
-    if log:
-        log("=== Fáze: vegetace z hustoty LiDAR bodů ===")
-    log_step(log, "Klasifikuji vegetaci z hustoty LiDAR odrazů (náhrada KP)")
+    log_step(log, "Klasifikuji vegetaci z hustoty LiDAR odrazů")
     try:
         dem, gt, nodata = read_float32_geotiff(dem_tif, log=log)
         dem = np.asarray(dem, dtype=np.float32)

@@ -1,39 +1,69 @@
-from app.pipeline.job_progress import JobProgress, plan_pipeline_steps
+from app.pipeline.job_progress import (
+    JobProgress,
+    format_elapsed,
+    indented_log,
+    plan_pipeline_steps,
+)
 
 
-def test_job_progress_shows_current_and_remaining():
+class _Clock:
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+def test_job_progress_numbered_headers_with_elapsed():
     lines: list[str] = []
-    progress = JobProgress(lines.append, ["alpha", "beta", "gamma"])
+    clock = _Clock()
+    progress = JobProgress(lines.append, ["alpha", "beta", "gamma"], clock=clock)
+    progress.announce_plan()
+    assert lines[0] == "Plán (3 kroků): alpha · beta · gamma"
     progress.begin("alpha")
-    assert lines[0] == "=== Krok 1/3: alpha ==="
-    assert lines[1] == "  Následuje: beta · gamma"
+    assert lines[-1] == "[1/3] Alpha · 0:00"
     progress.done()
-    assert lines[2] == ""
+    clock.t = 75
     progress.begin("beta")
-    assert "=== Krok 2/3: beta ===" in lines
-    assert "  Následuje: gamma" in lines
+    # Prázdný řádek odděluje kroky.
+    assert lines[-2:] == ["", "[2/3] Beta · 1:15"]
     progress.done()
+    clock.t = 3725
     progress.begin("gamma")
-    assert "  Následuje: (poslední krok)" in lines
-    progress.done()
-    assert lines[-1] == ""
+    assert lines[-1] == "[3/3] Gamma · 1:02:05"
+    progress.finish_all()
+    assert progress.elapsed() == "1:02:05"
 
 
-def test_job_progress_skip_advances_and_blank_line():
+def test_job_progress_skip_advances():
     lines: list[str] = []
     progress = JobProgress(lines.append, ["a", "b", "c"])
     progress.skip("a", reason="cache")
-    assert any("přeskočeno (cache)" in ln for ln in lines)
-    assert lines[-1] == ""
+    assert lines[-1] == "[1/3] A – přeskočeno (cache)"
     progress.begin("b")
-    assert "=== Krok 2/3: b ===" in lines
-    assert "  Následuje: c" in lines
+    assert lines[-1].startswith("[2/3] B · ")
 
 
 def test_job_progress_silent_without_logger():
     progress = JobProgress(None, ["x"])
+    progress.announce_plan()
     progress.begin("x")
     progress.done()
+
+
+def test_format_elapsed():
+    assert format_elapsed(0) == "0:00"
+    assert format_elapsed(59.6) == "1:00"
+    assert format_elapsed(3600) == "1:00:00"
+
+
+def test_indented_log_indents_every_line():
+    lines: list[str] = []
+    log = indented_log(lines.append)
+    log("jedna")
+    log("")
+    log("a\nb")
+    assert lines == ["  jedna", "", "  a\n  b"]
 
 
 def test_plan_pipeline_steps_full_bbox_zip():
@@ -44,8 +74,8 @@ def test_plan_pipeline_steps_full_bbox_zip():
         want_refs=True,
     )
     assert steps[0] == "stažení LiDAR"
-    assert "prepare LiDAR" in steps
-    assert steps[-1] == "OOM / ZIP"
+    assert "příprava LiDAR" in steps
+    assert steps[-1] == "sestavení mapy a ZIP"
     assert "referenční podklady" in steps
     assert "RÚIAN a AOPK" in steps
     assert "balení výstupu" not in steps
@@ -59,5 +89,5 @@ def test_plan_pipeline_steps_reuse_includes_copy_and_prepare():
         want_refs=False,
     )
     assert steps[0] == "kopie LAZ z předchozího jobu"
-    assert "prepare LiDAR" in steps
+    assert "příprava LiDAR" in steps
     assert "referenční podklady" not in steps

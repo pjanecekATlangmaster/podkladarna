@@ -809,30 +809,40 @@ async def api_create_job(request: Request):
             f"Iterace z jobu {options['reused_from']}: LAZ se zkopíruje na začátku běhu."
         )
 
+    def _yn(key: str, default: bool = False) -> str:
+        return "ano" if options.get(key, default) else "ne"
+
     log(
-        f"Prijato: listy={','.join(options['sm5_sheets'])}, "
-        f"1:{resolved['map_scale']} · {resolved['contour_interval']} m "
-        f"(preset={preset_id}), "
-        f"vege={options.get('kp_vege_height', 2.0)} m, "
-        f"srázy={options.get('kp_cliff_sensitivity', 'low')}/"
-        f"{options.get('kp_cliff_symbol', 'auto')}, "
-        f"lavičky={'ano' if options.get('kp_osm_benches') else 'ne'}, "
-        f"lampy={'ano' if options.get('kp_osm_lamps') else 'ne'}, "
-        f"herní prvky={'ano' if options.get('kp_osm_playground_equipment') else 'ne'}, "
-        f"priorita OSM={'ano' if options.get('kp_osm_priority') else 'ne'}, "
-        f"footway=chodník={'ano' if options.get('kp_osm_footway_as_sidewalk') else 'ne'}, "
-        f"dvory={_COURTYARD_FILL_LABEL[resolve_courtyard_fill(options)]}, "
-        f"pomocné 103={_FORMLINE_LABEL[resolve_formline_mode(options)]}, "
-        f"tvar vegetace={resolve_veg_smooth(options)}, "
-        f"residential 501={'ano' if options.get('sprint_residual_paved') else 'ne'}"
-        f"/{options.get('sprint_residual_size', 'small')}, "
-        f"ostatní plocha={options.get('ostatni_plocha', 'small')}"
-        f"{'/403' if options.get('ostatni_plocha_as_403') else ''}, "
-        f"ref. PNG={'ano' if options.get('output_references', True) else 'ne'}, "
-        f"georef GeoTIFF={'ano' if options.get('output_georef') else 'ne'}, "
-        f"force_refresh={'ano' if options.get('force_refresh') else 'ne'}, "
-        f"privátní={'ano' if options.get('private') else 'ne'}, "
-        f"výstup={'PNG+ZIP' if options.get('output_zip', True) else 'jen PNG'}"
+        f"Přijato: preset {preset_id} · 1:{resolved['map_scale']} · "
+        f"ekvidistance {resolved['contour_interval']} m · "
+        f"listy SM5 {', '.join(options['sm5_sheets'])}"
+    )
+    log(
+        f"  Terén: vegetace {options.get('kp_vege_height', 2.0)} m · "
+        f"tvar vegetace {resolve_veg_smooth(options)} · "
+        f"srázy {options.get('kp_cliff_sensitivity', 'low')}/"
+        f"{options.get('kp_cliff_symbol', 'auto')} · "
+        f"pomocné vrstevnice {_FORMLINE_LABEL[resolve_formline_mode(options)]}"
+    )
+    log(
+        f"  OSM: lavičky {_yn('kp_osm_benches')} · lampy {_yn('kp_osm_lamps')} · "
+        f"herní prvky {_yn('kp_osm_playground_equipment')} · "
+        f"priorita OSM {_yn('kp_osm_priority')} · "
+        f"footway jako chodník {_yn('kp_osm_footway_as_sidewalk')}"
+    )
+    log(
+        f"  Sídla: dvory {_COURTYARD_FILL_LABEL[resolve_courtyard_fill(options)]} · "
+        f"residential 501 {_yn('sprint_residual_paved')}"
+        f"/{options.get('sprint_residual_size', 'small')} · "
+        f"ostatní plocha {options.get('ostatni_plocha', 'small')}"
+        f"{'/403' if options.get('ostatni_plocha_as_403') else ''}"
+    )
+    log(
+        f"  Výstup: {'ZIP' if options.get('output_zip', True) else 'jen PNG'} · "
+        f"referenční podklady {_yn('output_references', True)} · "
+        f"georef GeoTIFF {_yn('output_georef')} · "
+        f"vynucené obnovení {_yn('force_refresh')} · "
+        f"privátní {_yn('private')}"
     )
     if options.get("private"):
         hours = PRIVATE_JOB_RETENTION_HOURS if PRIVATE_JOB_RETENTION_HOURS > 0 else 48
