@@ -1966,3 +1966,59 @@ def test_api_fallback_result_is_not_cached():
     assert len(got) == 1
     assert status["complete"] is False
     assert any("neúplná" in m for m in logs)
+
+def test_osm_prefetch_runs_in_background_and_prepare_reuses_it(tmp_path, monkeypatch):
+    import threading
+
+    import app.pipeline.osm_paths as op
+
+    release = threading.Event()
+    calls: list[dict] = []
+    elements = [
+        {
+            "type": "way",
+            "id": 1,
+            "tags": {"highway": "path"},
+            "geometry": [{"lat": 50.0, "lon": 14.4}, {"lat": 50.001, "lon": 14.4}],
+        }
+    ]
+
+    def fake_fetch(bbox, **kw):
+        calls.append(kw)
+        release.wait(5)
+        return elements
+
+    monkeypatch.setattr(op, "fetch_osm_path_elements", fake_fetch)
+    pre = op.start_osm_prefetch(
+        (14.39, 49.99, 14.41, 50.01), include_benches=True, osm_priority=True
+    )
+    assert not pre.future.done()  # start nečeká na síť
+    release.set()
+    logs: list[str] = []
+    op.prepare_osm_paths(
+        tmp_path,
+        (14.39, 49.99, 14.41, 50.01),
+        None,
+        preset_id="forest_10000",
+        log=logs.append,
+        prefetched=pre,
+    )
+    assert len(calls) == 1  # prepare znovu nestahuje
+    assert calls[0]["include_benches"] is True
+    assert calls[0]["osm_priority"] is True
+    assert calls[0]["path_source"] == op.PATH_SOURCE_OSM
+    assert any("převzato z pozadí" in m for m in logs)
+
+
+def test_osm_prefetch_error_propagates_to_prepare(tmp_path, monkeypatch):
+    import app.pipeline.osm_paths as op
+
+    def boom(*a, **k):
+        raise RuntimeError("síť")
+
+    monkeypatch.setattr(op, "fetch_osm_path_elements", boom)
+    pre = op.start_osm_prefetch((14.39, 49.99, 14.41, 50.01))
+    with pytest.raises(RuntimeError, match="síť"):
+        op.prepare_osm_paths(
+            tmp_path, (14.39, 49.99, 14.41, 50.01), None, prefetched=pre
+        )

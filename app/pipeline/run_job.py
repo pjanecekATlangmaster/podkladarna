@@ -35,6 +35,7 @@ from app.pipeline.job_options import (
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
 from app.pipeline.osm_paths import (
     prepare_osm_paths,
+    start_osm_prefetch,
     write_osm_manual_shapefiles,
 )
 from app.pipeline.oom_preview import (
@@ -86,6 +87,7 @@ from app.pipeline.vegetation_density import (
 # Štítky řádků z vláken na pozadí (``[podklady] …``, ``[DSM/CHM] …``).
 REF_LOG_LABEL = "podklady"
 SURFACE_LOG_LABEL = "DSM/CHM"
+OSM_LOG_LABEL = "OSM"
 
 
 @dataclass
@@ -328,6 +330,25 @@ def run_job_pipeline(
     progress.announce_plan()
     if force_refresh:
         raw_log("Vynucené obnovení: cache (LiDAR, ZABAGED, podklady) se nepoužije.")
+
+    # OSM (Overpass) trvá desítky sekund a při výpadku zrcadel minuty – stahuje
+    # se na pozadí hned, souběžně s LiDAR/ZABAGED, a krok OSM jen převezme výsledek.
+    osm_prefetch = None
+    if bbox:
+        try:
+            osm_prefetch = start_osm_prefetch(
+                tuple(bbox),
+                include_benches=bool(options.get("kp_osm_benches")),
+                include_lamps=bool(options.get("kp_osm_lamps")),
+                include_playground_equipment=bool(
+                    options.get("kp_osm_playground_equipment")
+                ),
+                osm_priority=bool(options.get("kp_osm_priority")),
+                force_refresh=force_refresh,
+                log=background_log(raw_log, OSM_LOG_LABEL),
+            )
+        except Exception as exc:
+            log_issue(log, f"OSM: stahování na pozadí se nespustilo ({exc})")
 
     lidar_work = work_dir / "lidar"
     if reused_from:
@@ -620,6 +641,7 @@ def run_job_pipeline(
                 preset_id=preset_id,
                 force_refresh=force_refresh,
                 log=log,
+                prefetched=osm_prefetch,
             )
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:

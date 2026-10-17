@@ -2688,6 +2688,56 @@ def osm_features_have_power_lines(work_dir: Path) -> bool:
     return False
 
 
+class OsmPrefetch:
+    """Stažení OSM prvků na pozadí; ``result()`` počká na dokončení."""
+
+    def __init__(self, future, executor) -> None:
+        self.future = future
+        self._executor = executor
+
+    def result(self) -> list[dict]:
+        try:
+            return self.future.result()
+        finally:
+            self._executor.shutdown(wait=False)
+
+
+def start_osm_prefetch(
+    bbox_wgs84: tuple[float, float, float, float],
+    *,
+    include_benches: bool = False,
+    include_lamps: bool = False,
+    include_playground_equipment: bool = False,
+    osm_priority: bool = False,
+    force_refresh: bool = False,
+    log=None,
+) -> OsmPrefetch:
+    """Spustí stahování OSM ve vlákně hned na začátku jobu.
+
+    Dotaz na Overpass trvá desítky sekund a při výpadku zrcadel i minuty;
+    ``prepare_osm_paths(prefetched=…)`` pak jen převezme hotový výsledek místo
+    čekání (parametry musí odpovídat těm, které by použil sám).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    fetch_bbox = expand_bbox_wgs84(bbox_wgs84, VECTOR_FETCH_BUFFER_M)
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="osm-dl")
+    if log:
+        log("Start stahování OSM na pozadí; výsledek se převezme v kroku OSM.")
+    future = executor.submit(
+        fetch_osm_path_elements,
+        fetch_bbox,
+        include_benches=include_benches,
+        include_lamps=include_lamps,
+        include_playground_equipment=include_playground_equipment,
+        osm_priority=osm_priority,
+        path_source=PATH_SOURCE_OSM,
+        force_refresh=force_refresh,
+        log=log,
+    )
+    return OsmPrefetch(future, executor)
+
+
 def prepare_osm_paths(
     work_dir: Path,
     bbox_wgs84: tuple[float, float, float, float],
@@ -2701,19 +2751,27 @@ def prepare_osm_paths(
     preset_id: str = "",
     force_refresh: bool = False,
     log=None,
+    prefetched: OsmPrefetch | None = None,
 ) -> None:
     highways = osm_highway_set(PATH_SOURCE_OSM)
     fetch_bbox = expand_bbox_wgs84(bbox_wgs84, VECTOR_FETCH_BUFFER_M)
-    elements = fetch_osm_path_elements(
-        fetch_bbox,
-        include_benches=include_benches,
-        include_lamps=include_lamps,
-        include_playground_equipment=include_playground_equipment,
-        osm_priority=osm_priority,
-        path_source=PATH_SOURCE_OSM,
-        force_refresh=force_refresh,
-        log=log,
-    )
+    if prefetched is not None:
+        if log and not prefetched.future.done():
+            log("Čekám na stažení OSM z pozadí…")
+        elements = prefetched.result()
+        if log:
+            log(f"OSM: převzato z pozadí ({len(elements)} prvků)")
+    else:
+        elements = fetch_osm_path_elements(
+            fetch_bbox,
+            include_benches=include_benches,
+            include_lamps=include_lamps,
+            include_playground_equipment=include_playground_equipment,
+            osm_priority=osm_priority,
+            path_source=PATH_SOURCE_OSM,
+            force_refresh=force_refresh,
+            log=log,
+        )
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     features: list[dict] = []
     skipped = 0
