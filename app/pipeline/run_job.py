@@ -33,6 +33,7 @@ from app.pipeline.job_options import (
     resolve_veg_smooth,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
+from app.pipeline.residual_paved import start_residual_osm_prefetch
 from app.pipeline.osm_paths import (
     prepare_osm_paths,
     start_osm_prefetch,
@@ -349,6 +350,26 @@ def run_job_pipeline(
             )
         except Exception as exc:
             log_issue(log, f"OSM: stahování na pozadí se nespustilo ({exc})")
+        # Zbytek zpevněné (501, jen sprint): vlastní velký OSM dump, stahuje se
+        # sériově po hlavním OSM dotazu a build ho pak vezme z cache.
+        try:
+            if options.get("sprint_residual_paved") and any(
+                str(disc_preset).startswith("sprint")
+                for _tag, disc_preset, _scale in resolve_discipline_presets(
+                    preset_id,
+                    load_presets(),
+                    map_scale=options.get("map_scale"),
+                    contour_interval=options.get("contour_interval"),
+                )
+            ):
+                start_residual_osm_prefetch(
+                    work_dir,
+                    tuple(bbox),
+                    after=osm_prefetch.future if osm_prefetch else None,
+                    log=background_log(raw_log, OSM_LOG_LABEL),
+                )
+        except Exception as exc:
+            log_issue(log, f"OSM 501: stahování na pozadí se nespustilo ({exc})")
 
     lidar_work = work_dir / "lidar"
     if reused_from:

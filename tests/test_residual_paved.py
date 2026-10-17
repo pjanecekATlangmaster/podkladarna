@@ -344,3 +344,50 @@ def test_package_oom_gates_residual_call():
     assert "if residual_paved:" in src
     assert "vždy spočítat" not in src
     assert "max_piece_m2=max_residual_m2 if residual_paved else 0.0" not in src
+
+def test_residual_prefetch_waits_for_main_osm_and_build_reuses_cache(tmp_path, monkeypatch):
+    import threading
+    from concurrent.futures import Future
+
+    import app.pipeline.residual_paved as rp
+
+    order: list[str] = []
+    calls: list[int] = []
+    gate = threading.Event()
+    main = Future()  # hlavní OSM ještě neskončil
+
+    def fake_fetch(bbox):
+        order.append("dump")
+        calls.append(1)
+        return [{"type": "way", "id": 1, "tags": {}, "geometry": []}]
+
+    monkeypatch.setattr(rp, "fetch_all_osm_elements", fake_fetch)
+    fut = rp.start_residual_osm_prefetch(
+        tmp_path, (14.39, 49.99, 14.41, 50.01), after=main
+    )
+    assert not gate.wait(0.2) and order == []  # čeká na hlavní OSM
+    main.set_result([])
+    assert len(fut.result(5)) == 1
+    # build si vezme cache / hotový výsledek, nestahuje podruhé
+    els = rp._load_or_fetch_all_osm(tmp_path, (14.39, 49.99, 14.41, 50.01))
+    assert len(els) == 1
+    assert len(calls) == 1
+
+
+def test_residual_prefetch_failure_falls_back_to_normal_fetch(tmp_path, monkeypatch):
+    import app.pipeline.residual_paved as rp
+
+    state = {"n": 0}
+
+    def flaky(bbox):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise RuntimeError("síť")
+        return [{"type": "way", "id": 2, "tags": {}, "geometry": []}]
+
+    monkeypatch.setattr(rp, "fetch_all_osm_elements", flaky)
+    fut = rp.start_residual_osm_prefetch(tmp_path, (14.39, 49.99, 14.41, 50.01))
+    with pytest.raises(RuntimeError):
+        fut.result(5)
+    els = rp._load_or_fetch_all_osm(tmp_path, (14.39, 49.99, 14.41, 50.01))
+    assert len(els) == 1 and state["n"] == 2

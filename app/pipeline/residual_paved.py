@@ -10,11 +10,13 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from app.pipeline.crs_5514 import wgs84_to_projected
@@ -576,7 +578,62 @@ def _difference_one_subject(subject: bytes, mask_index) -> list[bytes]:
     return difference_polygon_wkb(subject, mask)
 
 
+_PREFETCH: dict[str, Future] = {}
+_PREFETCH_LOCK = threading.Lock()
+
+
+def start_residual_osm_prefetch(
+    work_dir: Path,
+    bbox_wgs84: tuple[float, float, float, float],
+    *,
+    after: Future | None = None,
+    log: Callable[[str], None] | None = None,
+) -> Future:
+    """Stáhne OSM dump pro residual_paved na pozadí (do cache v work_dir).
+
+    ``build_residual_paved_parts`` si pak vezme hotovou cache; když stahování
+    ještě běží, počká na něj (nestahuje podruhé). ``after`` = hlavní OSM
+    dotaz – dump se začne stahovat až po něm, ať se Overpass nezahltí
+    dvěma těžkými dotazy najednou.
+    """
+    key = str(work_dir)
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="residual-dl")
+
+    def _run() -> list[dict]:
+        if after is not None:
+            try:
+                after.result()
+            except Exception:
+                pass  # chybu hlavního OSM řeší jeho krok
+        if log:
+            log("Start stahování OSM dumpu pro zbytek zpevněné (501) na pozadí.")
+        els = _load_or_fetch_all_osm_impl(work_dir, bbox_wgs84)
+        if log:
+            log(f"OSM dump pro zbytek zpevněné (501): {len(els)} prvků")
+        return els
+
+    future = executor.submit(_run)
+    executor.shutdown(wait=False)
+    with _PREFETCH_LOCK:
+        _PREFETCH[key] = future
+    return future
+
+
 def _load_or_fetch_all_osm(
+    work_dir: Path,
+    bbox_wgs84: tuple[float, float, float, float] | None,
+) -> list[dict]:
+    with _PREFETCH_LOCK:
+        pending = _PREFETCH.pop(str(work_dir), None)
+    if pending is not None:
+        try:
+            pending.result()
+        except Exception as exc:
+            logger.warning("residual_paved: předstažení OSM selhalo: %s", exc)
+    return _load_or_fetch_all_osm_impl(work_dir, bbox_wgs84)
+
+
+def _load_or_fetch_all_osm_impl(
     work_dir: Path,
     bbox_wgs84: tuple[float, float, float, float] | None,
 ) -> list[dict]:
