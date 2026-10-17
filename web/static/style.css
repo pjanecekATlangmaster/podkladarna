@@ -655,6 +655,11 @@ legend {
   border-color: #ecd9b8;
 }
 
+.job-item[data-status="done_with_errors"] {
+  background: #fffaf3;
+  border-color: #ecd9b8;
+}
+
 .job-item[data-status="failed"] {
   background: #faf4f4;
   border-color: #e5d0d0;
@@ -670,6 +675,7 @@ legend {
 .status-queued,
 .status-pending { color: var(--orange); font-weight: 600; }
 .status-done { color: var(--green); font-weight: 600; }
+.status-done_with_errors { color: var(--orange); font-weight: 600; }
 .status-failed { color: #c00; font-weight: 600; }
 
 .log {

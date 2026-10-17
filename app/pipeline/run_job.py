@@ -59,7 +59,13 @@ from app.pipeline.preview import (
 )
 from app.pipeline.reference_layers import build_reference_layers, list_reference_rasters
 from app.pipeline.shade import build_job_shade
-from app.pipeline.job_progress import JobProgress, indented_log, plan_pipeline_steps
+from app.pipeline.job_progress import (
+    IssueCollector,
+    JobProgress,
+    indented_log,
+    log_issue,
+    plan_pipeline_steps,
+)
 from app.pipeline.prepare_lidar import (
     CMD_LOG_PREFIX,
     log_step,
@@ -246,7 +252,7 @@ def join_reference_download(
                 force_refresh=force_refresh,
             )
         except Exception as exc:
-            log(f"Referenční podklady: přeskočeno ({exc})")
+            log_issue(log, f"Referenční podklady: přeskočeno ({exc})")
             built_refs = {}
     else:
         reference_dir = ref_download.reference_dir
@@ -262,7 +268,7 @@ def join_reference_download(
             else:
                 log("Staženo na pozadí: nic")
         except Exception as exc:
-            log(f"Stahování na pozadí selhalo ({exc}); pokračuji bez podkladů.")
+            log_issue(log, f"Referenční podklady: stahování na pozadí selhalo ({exc})")
             built_refs = {}
 
     ref_layers: list[str] = []
@@ -281,15 +287,18 @@ def run_job_pipeline(
     options: dict,
     log: callable,
     job_name: str = "",
-) -> None:
+) -> list[str]:
+    """Celý běh jobu. Vrací neopravené chyby (prázdný seznam = vše v pořádku)."""
     work_dir = job_dir / "work"
     output_dir = job_dir / "output"
     work_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Hlavičky kroků a vlákna na pozadí píšou od kraje (raw_log), detaily
-    # hlavního vlákna jsou odsazené pod hlavičkou aktuálního kroku.
-    raw_log = log
+    # hlavního vlákna jsou odsazené pod hlavičkou aktuálního kroku. Sběr chyb
+    # (``⚠``) sedí pod oběma, takže vidí i řádky z pozadí.
+    issues = IssueCollector(log)
+    raw_log = issues
     log = indented_log(raw_log)
 
     bbox = options.get("bbox_wgs84")
@@ -457,7 +466,7 @@ def run_job_pipeline(
                 log("DSM/CHM (výška porostu) se počítá na pozadí.")
         except Exception as exc:
             # Nehard-fail: vegetace/srázy mají vlastní fallbacky.
-            log(f"Výškové modely: přeskočeno ({exc})")
+            log_issue(log, f"Výškové modely: přeskočeno ({exc})")
         progress.done()
 
     def _wait_surfaces() -> None:
@@ -471,7 +480,7 @@ def run_job_pipeline(
         try:
             pending.wait()
         except Exception as exc:
-            log(f"DSM/CHM: přeskočeno ({exc})")
+            log_issue(log, f"DSM/CHM: přeskočeno ({exc})")
 
     lidar_sources = (
         collect_lidar_source_meta(sheet_names) if sheet_names else None
@@ -484,9 +493,10 @@ def run_job_pipeline(
             encoding="utf-8",
         )
         if lidar_sources.get("dmp_degraded"):
+            # Trvalé omezení dat listu (ne selhání) – stav jobu neovlivní.
             log(
                 "VAROVÁNÍ: DMP 1G místo DMP OK u alespoň jednoho listu "
-                f"(režim={lidar_sources.get('dmp_mode')}) – degradace je viditelná."
+                f"(režim={lidar_sources.get('dmp_mode')}) – vegetace je méně přesná."
             )
 
     zabaged_clean = work_dir / "zabaged_clean.zip"
@@ -563,25 +573,27 @@ def run_job_pipeline(
     _wait_surfaces()
     if vege_shp is None:
         try:
-            generate_job_vegetation_chm(
+            vege_shp = generate_job_vegetation_chm(
                 work_dir, log=log, veg_size_profile=veg_size_profile
             )
         except Exception as exc:
             log(f"CHM vegetace: přeskočeno ({exc})")
+        if vege_shp is None:
+            log_issue(log, "Vegetace: nevznikla (hustota bodů ani CHM)")
     progress.done()
 
     progress.begin("srázy")
     try:
         generate_job_cliffs_dem(work_dir, options=options, log=log)
     except Exception as exc:
-        log(f"Srázy: přeskočeno ({exc})")
+        log_issue(log, f"Srázy: přeskočeno ({exc})")
     progress.done()
 
     progress.begin("kupky a ďolíky")
     try:
         generate_job_knolls(work_dir, options=options, log=log)
     except Exception as exc:
-        log(f"Kupky a ďolíky: přeskočeno ({exc})")
+        log_issue(log, f"Kupky a ďolíky: přeskočeno ({exc})")
     progress.done()
 
     if not has_zabaged or not zabaged_clean.is_file():
@@ -611,7 +623,7 @@ def run_job_pipeline(
             )
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
-            log(f"OSM: přeskočeno ({exc})")
+            log_issue(log, f"OSM: přeskočeno ({exc})")
         progress.done()
 
     # Shade vždy (OOM/ZIP + ČÚZK reference). Náhled PNG z .omap po sestavení.
@@ -635,7 +647,7 @@ def run_job_pipeline(
         )
         qa_contours_vs_shared_dem(work_dir, log=log)
     except Exception as exc:
-        log(f"Stínování reliéfu: přeskočeno ({exc})")
+        log_issue(log, f"Stínování reliéfu: přeskočeno ({exc})")
     compose_preview = bool(options.get("compose_preview", False))
     if compose_preview:
         try:
@@ -649,7 +661,7 @@ def run_job_pipeline(
                 log=log,
             )
         except Exception as exc:
-            log(f"Náhled compose: přeskočeno ({exc})")
+            log_issue(log, f"Náhled compose: přeskočeno ({exc})")
     progress.done()
 
     _package_output(
@@ -664,8 +676,13 @@ def run_job_pipeline(
         ref_download=ref_download,
     )
     progress.finish_all()
+    issues.report()
     raw_log("")
-    raw_log(f"Hotovo za {progress.elapsed()}.")
+    if issues.items:
+        raw_log(f"Hotovo za {progress.elapsed()}, s chybami ({len(issues.items)}).")
+    else:
+        raw_log(f"Hotovo za {progress.elapsed()}.")
+    return list(issues.items)
 
 
 def resolve_want_zip(options: dict) -> tuple[bool, str | None]:
@@ -740,12 +757,12 @@ def _package_output(
             try:
                 ruian_path = fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
             except Exception as exc:
-                log(f"RÚIAN budovy: přeskočeno ({exc})")
+                log_issue(log, f"RÚIAN budovy: přeskočeno ({exc})")
                 ruian_path = None
             try:
                 aopk_path = fetch_aopk_trees_for_bbox(tuple(bbox), log=log)
             except Exception as exc:
-                log(f"AOPK stromy: přeskočeno ({exc})")
+                log_issue(log, f"AOPK stromy: přeskočeno ({exc})")
                 aopk_path = None
             if progress is not None:
                 progress.done()
@@ -857,9 +874,9 @@ def _package_output(
 
                             convert_omap_to_ocd(omap_p, log=log)
                         except Exception as exc:
-                            log(f"OOM OCD: přeskočeno ({variant_name}): {exc}")
+                            log_issue(log, f"OOM OCD: přeskočeno ({variant_name}): {exc}")
                     else:
-                        log(f"OOM: {variant_name} nevytvořeno")
+                        log_issue(log, f"OOM: {variant_name} nevytvořeno")
 
             try:
                 # Web/georef náhled: vnitřní timeout + catch; selhání nesmí
@@ -872,13 +889,13 @@ def _package_output(
                     log=log,
                 )
             except Exception as exc:
-                log(f"OOM náhled: přeskočeno ({exc}) – pokračuji ZIP/OCD")
+                log_issue(log, f"OOM náhled: přeskočeno ({exc})")
 
             if output_georef_enabled(options):
                 try:
                     build_georef_previews_zip(output_dir, log=log)
                 except Exception as exc:
-                    log(f"OOM georef ZIP: přeskočeno ({exc})")
+                    log_issue(log, f"OOM georef ZIP: přeskočeno ({exc})")
 
         if progress is not None and not bbox:
             progress.begin("sestavení mapy a ZIP")
@@ -959,7 +976,7 @@ def _package_output(
                 log(f"Výstup: uzitecne/ ({n_uz} souborů)")
         except Exception as exc:
             if log:
-                log(f"uzitecne/: přeskočeno ({exc})")
+                log_issue(log, f"uzitecne/: přeskočeno ({exc})")
 
     if want_zip and zip_path.is_file():
         log(f"Výstup: {zip_path.name} ({zip_path.stat().st_size / 1e6:.2f} MB)")
@@ -968,6 +985,6 @@ def _package_output(
         assert png is not None
         log(f"Výstup: jen PNG náhled ({png.stat().st_size / 1e6:.2f} MB)")
     else:
-        log("Výstup: žádný ZIP ani PNG")
+        log_issue(log, "Výstup: žádný ZIP ani PNG")
     if progress is not None:
         progress.finish_all()

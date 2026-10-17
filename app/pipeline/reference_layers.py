@@ -22,6 +22,7 @@ from app.download_cache import (
 from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
+from app.pipeline.job_progress import log_issue
 from app.pipeline.prepare_lidar import find_tool, run_cmd
 from app.settings import REF_CACHE_MAX_AGE_DAYS
 from app.tiles import fetch_tile
@@ -1336,7 +1337,7 @@ def build_reference_layers(
         )
     except Exception as exc:
         if log:
-            log(f"Ortofoto: přeskočeno ({exc})")
+            log_issue(log, f"Ortofoto: přeskočeno ({exc})")
 
     osm_png = out_dir / "osm.png"
     osm_pgw = osm_png.with_suffix(".pgw")
@@ -1345,9 +1346,11 @@ def build_reference_layers(
             bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log
         ):
             built["osm"] = osm_png
+        else:
+            log_issue(log, "OpenStreetMap: podklad se nepodařilo stáhnout z žádného zdroje")
     except Exception as exc:
         if log:
-            log(f"OpenStreetMap: přeskočeno ({exc})")
+            log_issue(log, f"OpenStreetMap: přeskočeno ({exc})")
 
     ztm_png = out_dir / "mapa_ztm.png"
     ztm_pgw = ztm_png.with_suffix(".pgw")
@@ -1366,7 +1369,7 @@ def build_reference_layers(
             built["ztm"] = ztm_png
     except Exception as exc:
         if log:
-            log(f"Mapa ZTM: přeskočeno ({exc})")
+            log_issue(log, f"Mapa ZTM: přeskočeno ({exc})")
 
     km_png = out_dir / "katastr.png"
     km_pgw = km_png.with_suffix(".pgw")
@@ -1386,7 +1389,7 @@ def build_reference_layers(
             built["katastr"] = km_png
     except Exception as exc:
         if log:
-            log(f"Katastrální mapa: přeskočeno ({exc})")
+            log_issue(log, f"Katastrální mapa: přeskočeno ({exc})")
 
     dmpok_png = out_dir / "dmpok_nahled.png"
     dmpok_pgw = dmpok_png.with_suffix(".pgw")
@@ -1405,7 +1408,7 @@ def build_reference_layers(
             built["dmpok"] = dmpok_png
     except Exception as exc:
         if log:
-            log(f"Náhled DMP OK: přeskočeno ({exc})")
+            log_issue(log, f"Náhled DMP OK: přeskočeno ({exc})")
 
     hill_ok = False
     for key, wms_layer, filename, label, _opacity, _visible in HILLSHADE_VARIANTS:
@@ -1432,9 +1435,9 @@ def build_reference_layers(
                 hill_ok = True
         except Exception as exc:
             if log:
-                log(f"{label}: přeskočeno ({exc})")
+                log_issue(log, f"{label}: přeskočeno ({exc})")
     if log and not hill_ok:
-        log("Hillshade: WMS ČÚZK nevrátil žádnou vrstvu")
+        log_issue(log, "Stínování: WMS ČÚZK nevrátil žádnou vrstvu")
 
     try:
         _store_references_cache(
@@ -1513,5 +1516,5 @@ def _with_katastr_vectors(
         built.update(build_katastr_vectors(bbox_wgs84, out_dir, log=log))
     except Exception as exc:
         if log:
-            log(f"Katastr (vektor): přeskočeno ({exc})")
+            log_issue(log, f"Katastr (vektor): přeskočeno ({exc})")
     return built

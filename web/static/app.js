@@ -268,6 +268,11 @@ function jobIsLive(status) {
   return status === "running" || status === "queued" || status === "pending";
 }
 
+/** Doběhl (i s chybami nebo neúspěšně) – má konečné trvání. */
+function jobIsFinished(status) {
+  return status === "done" || status === "done_with_errors" || status === "failed";
+}
+
 function jobItemHeadHtml(job) {
   let queueLabel = "";
   if (job.queue_position === 0) {
@@ -276,7 +281,7 @@ function jobItemHeadHtml(job) {
     queueLabel = ` · fronta #${job.queue_position}`;
   }
   let timing = "";
-  if (job.status === "done" || job.status === "failed") {
+  if (jobIsFinished(job.status)) {
     const dur = formatDuration(job.duration_s);
     if (dur) timing = ` · ${dur}`;
   }
@@ -589,7 +594,7 @@ function formatWhen(iso) {
 function jobTimingText(job) {
   const start = formatWhen(job.started_at || job.created_at);
   const dur = formatDuration(job.duration_s);
-  if (job.status === "done" || job.status === "failed") {
+  if (jobIsFinished(job.status)) {
     return [start ? `Start ${start}` : "", dur ? `trvání ${dur}` : ""].filter(Boolean).join(" · ");
   }
   if (job.status === "running" && dur) {

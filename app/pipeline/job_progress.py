@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Callable
 
@@ -10,6 +11,55 @@ LogFn = Callable[[str], None]
 
 # Odsazení detailních řádků pod hlavičkou kroku (hlavní vlákno).
 DETAIL_INDENT = "  "
+
+# Značka neopravené chyby (krok/podklad chybí ve výstupu). Fallback, který
+# uspěl, se takto neoznačuje.
+ISSUE_LOG_PREFIX = "⚠ "
+# Délka souhrnu chyb ve sloupci ``error`` (karta jobu ve webu).
+ISSUES_SUMMARY_MAX_CHARS = 300
+
+
+def log_issue(log: LogFn | None, message: str) -> None:
+    """Zaloguje neopravenou chybu; na konci jobu se zopakuje v souhrnu."""
+    if log is None or not message:
+        return
+    log(ISSUE_LOG_PREFIX + str(message).strip())
+
+
+class IssueCollector:
+    """Obal job logu: řádky se značkou ``⚠`` si zapamatuje (i z vláken na pozadí)."""
+
+    def __init__(self, log: LogFn) -> None:
+        self._log = log
+        self._lock = threading.Lock()
+        self.items: list[str] = []
+
+    def __call__(self, msg: str) -> None:
+        if msg and ISSUE_LOG_PREFIX in msg:
+            text = " ".join(
+                str(msg).replace(ISSUE_LOG_PREFIX, "", 1).split()
+            )
+            with self._lock:
+                if text not in self.items:
+                    self.items.append(text)
+        self._log(msg)
+
+    def report(self) -> None:
+        """Zopakuje chyby blokem na konci logu (mimo sběr – nezdvojí se)."""
+        if not self.items:
+            return
+        self._log("")
+        self._log(f"{ISSUE_LOG_PREFIX}Dokončeno s chybami ({len(self.items)}):")
+        for item in self.items:
+            self._log(f"{DETAIL_INDENT}- {item}")
+
+
+def issues_summary(issues: list[str]) -> str:
+    """Krátký souhrn do ``jobs.error`` (karta jobu)."""
+    text = f"Dokončeno s chybami ({len(issues)}): " + "; ".join(issues)
+    if len(text) > ISSUES_SUMMARY_MAX_CHARS:
+        text = text[: ISSUES_SUMMARY_MAX_CHARS - 1].rstrip() + "…"
+    return text
 
 
 def format_elapsed(seconds: float) -> str:

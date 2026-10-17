@@ -74,11 +74,13 @@ def main() -> int:
             for line in r.json().get("lines", []):
                 print("   log:", line["line"])
                 last_after = line["id"]
-            if job["status"] in ("done", "failed"):
+            if job["status"] in ("done", "done_with_errors", "failed"):
+                done = job["status"] != "failed"
                 print("   vysledek:", job["status"], job.get("error") or "")
-                if job["status"] == "done" and job.get("has_output"):
+                if done and job.get("has_output"):
                     print(f"   download: {base}/api/jobs/{job_id}/download")
-                return 0 if job["status"] == "done" else 2
+                # Výstup vznikl i s chybami (typicky výpadek služby) – smoke prošel.
+                return 0 if done else 2
             time.sleep(5)
         print("Timeout", file=sys.stderr)
         return 2

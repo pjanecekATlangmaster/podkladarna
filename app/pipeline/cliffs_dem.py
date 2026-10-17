@@ -19,6 +19,7 @@ from pathlib import Path
 from app.pipeline.cliff_height import MAJOR_DROP_M, MIN_DROP_M
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.prepare_lidar import log_step
+from app.pipeline.job_progress import log_issue
 from app.pipeline.job_options import (
     KP_CLIFF_SENSITIVITY,
     KP_CLIFF_SENSITIVITY_DEFAULT,
@@ -496,7 +497,7 @@ def generate_job_cliffs_dem(
     dem = dem_filled_path(work_dir)
     if dem is None:
         if log:
-            log("Srázy DEM: chybí work/dem/dem_filled.tif – přeskočeno")
+            log_issue(log, "Srázy: chybí DEM (dem_filled.tif) – přeskočeno")
         return {}
     c1, c2 = resolve_drop_thresholds(options)
     sens = resolve_cliff_sensitivity(options)

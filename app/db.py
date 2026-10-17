@@ -484,8 +484,12 @@ def get_logs(job_id: str, after_id: int = 0) -> list[dict[str, Any]]:
     return [{"id": r["id"], "line": r["line"], "at": r["created_at"]} for r in rows]
 
 
+# Doběhl s výstupem, ale část podkladů selhala (souhrn v ``error`` a na konci logu).
+STATUS_DONE_WITH_ERRORS = "done_with_errors"
+# Doběhl s výstupem (ZIP ke stažení, privátní mail).
+JOB_DONE_STATUSES = frozenset({"done", STATUS_DONE_WITH_ERRORS})
 # Job už nic nezapisuje do output/ (ZIP hotový nebo nevznikne).
-JOB_FINISHED_STATUSES = frozenset({"done", "failed"})
+JOB_FINISHED_STATUSES = JOB_DONE_STATUSES | {"failed"}
 
 
 def _job_has_output(job_dir: Path) -> bool:
