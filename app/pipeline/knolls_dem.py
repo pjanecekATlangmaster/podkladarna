@@ -312,7 +312,7 @@ def generate_job_knolls(
         for name in (DXF_KNOLLS, DXF_DEPRESSIONS, DXF_PITS):
             (work_dir / "temp" / name).unlink(missing_ok=True)
         if log:
-            log("Kupky/ďolíky DEM: vypnuto (include_knolls=false)")
+            log("Kupky a ďolíky: vypnuto ve formuláři")
         return None
     dem = dem_filled_path(work_dir)
     if dem is None:
@@ -322,6 +322,4 @@ def generate_job_knolls(
                 log("Kupky/ďolíky DEM: chybí work/dem/dem_filled.tif – přeskočeno")
             return None
         dem = alt
-    if log:
-        log("=== Fáze: kupky a ďolíky z DEM ===")
     return generate_knolls_from_dem(dem, work_dir / "temp", log=log)

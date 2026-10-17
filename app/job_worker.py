@@ -156,7 +156,8 @@ def run_job(job_id: str) -> int:
     try:
         job = db.get_job(job_id)
         db.update_job(job_id, status="running", phase="prepare", error=None)
-        log(f"Start job {job_id} preset={job['preset_id']}")
+        log("")
+        log(f"Start jobu {job_id} · preset {job['preset_id']}")
 
         run_job_pipeline(
             job_dir,

@@ -325,13 +325,11 @@ def start_job_surfaces(
 
     dem_raw = dem_dir / "dem_raw.tif"
     dem_filled = dem_dir / "dem_filled.tif"
-    if log:
-        log(
-            f"DEM prep: ground={ground.name}, "
-            f"surface={surface.name if surface else '—'}, "
-            f"res={resolution_m:g} m"
-        )
-    log_step(log, "Připravuji DEM z DMR5G (terén pro vrstevnice a srázy)")
+    log_step(
+        log,
+        f"Připravuji DEM z {ground.name} (terén pro vrstevnice a srázy, "
+        f"{resolution_m:g} m)",
+    )
     _pdal_dem_from_laz(
         ground, bounds, dem_raw, resolution_m=float(resolution_m), log=log
     )
@@ -442,7 +440,7 @@ def _finish_job_surfaces(job: _SurfaceJob, *, log=None) -> DemPrepResult:
             parts.append(f"DSM={dsm_raw.name}")
         if chm:
             parts.append(f"CHM={chm.name}")
-        log("DEM prep hotovo: " + ", ".join(parts))
+        log("Hotovo: " + ", ".join(parts))
     return result
 
 

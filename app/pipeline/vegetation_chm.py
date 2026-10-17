@@ -473,7 +473,7 @@ def generate_vegetation_from_chm(
     """Klasifikuje CHM → polygony vegetation.shp (cls, code)."""
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
-    log_step(log, "Klasifikuji vegetaci z CHM (náhrada KP podle výšky porostu)")
+    log_step(log, "Klasifikuji vegetaci z CHM (podle výšky porostu)")
     try:
         arr, gt, nodata = read_float32_geotiff(chm_tif, log=log)
     except Exception as exc:
@@ -650,8 +650,6 @@ def generate_job_vegetation_chm(
 
     dest = work_dir / "vegetation" / "vegetation.shp"
     tint = work_dir / "vegetation" / "chm_tint.png"
-    if log:
-        log("=== Fáze: vegetace z CHM ===")
     return generate_vegetation_from_chm(
         src,
         dest,

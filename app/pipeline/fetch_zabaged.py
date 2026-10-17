@@ -77,8 +77,6 @@ def fetch_zabaged_for_bbox(
             age = (meta.get("downloaded_at") or "?")[:10]
             log(f"ZABAGED cache ({cache_dir.name}, staženo {age})")
         return dest_zip
-    if force_refresh and log:
-        log("Force refresh: ZABAGED cache se přegeneruje")
 
     ogr2ogr = which_tool("ogr2ogr")
     if not ogr2ogr:

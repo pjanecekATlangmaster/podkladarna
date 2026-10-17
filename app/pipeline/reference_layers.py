@@ -22,7 +22,7 @@ from app.download_cache import (
 from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
-from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
+from app.pipeline.prepare_lidar import find_tool, run_cmd
 from app.settings import REF_CACHE_MAX_AGE_DAYS
 from app.tiles import fetch_tile
 
@@ -452,7 +452,6 @@ def _mosaic_wms_tiles(
         *[str(path) for path, *_ in tiles],
         str(warp_out),
     ]
-    log_step(log, "Skládám dlaždice WMS do jednoho snímku (celý výřez mapy)")
     run_cmd(cmd, log=log)
     if jpeg:
         run_cmd(
@@ -648,7 +647,6 @@ def _align_to_template(
         str(src),
         str(dest_png),
     ]
-    log_step(log, "Zarovnávám podklad na výřez mapy")
     run_cmd(cmd, log=log)
     if tw == width and th == height:
         shutil.copy2(template_pgw, dest_pgw)
@@ -664,7 +662,6 @@ def _fill_dem_nodata(src: Path, dest: Path, *, log: callable | None = None) -> P
         except RuntimeError:
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
-        log_step(log, "Doplňuji díry v rastru (souvislá plocha bez mezer)")
         run_cmd([tool, str(src), str(dest), "-md", "24"], log=log)
         return dest
     shutil.copy2(src, dest)
@@ -848,8 +845,6 @@ def fetch_orthophoto_wms(
             stem = ortho_tile_stem(r, c, single=single)
             jpg = dest_dir / f"{stem}.jpg"
             tile_bounds = _pixel_window_bounds(bounds_5514, tw, th, (x0, y0, x1, y1))
-            if log and not single:
-                log(f"Ortofoto: dlaždice r{r}c{c} ({x1 - x0}×{y1 - y0} px)…")
             ok = _download_wms_raster(
                 ORTOFOTO_WMS,
                 "0",
@@ -1173,7 +1168,6 @@ def build_osm_reference(
             _write_osm_vrt(tiles, z, x0, y0, vrt)
             raw_tif = work / "mosaic_3857.tif"
             gdaltranslate = _gdal_tool("gdal_translate")
-            log_step(log, "Sestavuji OSM dlaždice do jednoho rastru (podklad mapy)")
             run_cmd([gdaltranslate, str(vrt), str(raw_tif), "-of", "GTiff"], log=log)
             _align_to_template(
                 raw_tif,
@@ -1333,8 +1327,6 @@ def build_reference_layers(
         cached = _try_load_references_cache(cache_dir, out_dir, log=log)
         if cached is not None:
             return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
-    elif log:
-        log("Force refresh: referenční PNG cache se přegeneruje")
 
     built: dict[str, Path] = {}
 

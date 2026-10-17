@@ -39,7 +39,6 @@ from app.pipeline.osm_paths import (
 )
 from app.pipeline.oom_preview import (
     build_georef_previews_zip,
-    oom_preview_enabled,
     output_georef_enabled,
     write_job_oom_preview,
 )
@@ -60,8 +59,9 @@ from app.pipeline.preview import (
 )
 from app.pipeline.reference_layers import build_reference_layers, list_reference_rasters
 from app.pipeline.shade import build_job_shade
-from app.pipeline.job_progress import JobProgress, plan_pipeline_steps
+from app.pipeline.job_progress import JobProgress, indented_log, plan_pipeline_steps
 from app.pipeline.prepare_lidar import (
+    CMD_LOG_PREFIX,
     log_step,
     merge_dmr_dmp,
     resolve_merge_crop_bounds,
@@ -75,6 +75,11 @@ from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS as DEFAULT_DENSITY_PARAMS,
     generate_job_vegetation_density,
 )
+
+
+# Štítky řádků z vláken na pozadí (``[podklady] …``, ``[DSM/CHM] …``).
+REF_LOG_LABEL = "podklady"
+SURFACE_LOG_LABEL = "DSM/CHM"
 
 
 @dataclass
@@ -96,32 +101,21 @@ class ReferenceDownload:
             self._executor.shutdown(wait=False)
 
 
-def _locked_log(log: callable, lock: threading.Lock) -> callable:
-    def _log(msg: str) -> None:
-        with lock:
-            log(msg)
+def background_log(log: callable, label: str) -> callable:
+    """Log vlákna na pozadí: ``[label] …`` od kraje řádku, jen souhrnné hlášky.
 
-    return _log
-
-
-def _prefixed_log(log: callable, prefix: str) -> callable:
-    """Log z vlákna na pozadí s prefixem (řádky se prolínají s hlavním během)."""
+    Řádky se prolínají s krokem hlavního vlákna, proto se příkazy nástrojů
+    (``> gdal…``) a prázdné řádky zahazují – na pozadí zajímá jen co a s jakým
+    výsledkem se stahuje / počítá.
+    """
     lock = threading.Lock()
+    prefix = f"[{label}] "
 
     def _log(msg: str) -> None:
+        if not msg or str(msg).startswith(CMD_LOG_PREFIX):
+            return
         with lock:
-            log(f"{prefix}{msg}" if msg else msg)
-
-    return _log
-
-
-def _ref_prefixed_log(log: callable, lock: threading.Lock) -> callable:
-    """Detailní řádky z backgroundu: prefix [ref] + atomický zápis."""
-
-    def _log(msg: str) -> None:
-        line = f"[ref] {msg}" if msg else msg
-        with lock:
-            log(line)
+            log(prefix + str(msg).strip())
 
     return _log
 
@@ -148,12 +142,10 @@ def start_reference_download(
         return None
     template_png, template_pgw = georef
     reference_dir = work_dir / "references"
-    log_lock = threading.Lock()
-    ref_log = _ref_prefixed_log(log, log_lock)
-    start_log = _locked_log(log, log_lock)
-    start_log(
-        "Referenční podklady: začínám stahování na pozadí "
-        "(ČÚZK/OSM, sériově; paralelně s buildem)."
+    ref_log = background_log(log, REF_LOG_LABEL)
+    ref_log(
+        "Start stahování na pozadí (stínování, ortofoto, OSM, ZTM, katastr); "
+        "výsledek se převezme v kroku „referenční podklady“."
     )
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-dl")
     shade_done = threading.Event() if shade_bounds is not None else None
@@ -180,19 +172,25 @@ def start_reference_download(
                     handle.shade_ok = True
                     extra["job_shade"] = shade_png
             except Exception as exc:
-                ref_log(f"Hillshade na pozadí: selhalo ({exc})")
+                ref_log(f"Stínování reliéfu: selhalo ({exc})")
             finally:
                 shade_done.set()
-        return build_reference_layers(
-            job_dir,
-            tuple(bbox_wgs84),
-            template_png,
-            template_pgw,
-            reference_dir,
-            log=ref_log,
-            force_refresh=force_refresh,
-            **extra,
-        )
+        try:
+            built = build_reference_layers(
+                job_dir,
+                tuple(bbox_wgs84),
+                template_png,
+                template_pgw,
+                reference_dir,
+                log=ref_log,
+                force_refresh=force_refresh,
+                **extra,
+            )
+        except Exception as exc:
+            ref_log(f"Selhalo ({exc})")
+            raise
+        ref_log(f"Hotovo ({len(built or {})} vrstev)")
+        return built
 
     handle.future = executor.submit(_run)
     return handle
@@ -218,7 +216,7 @@ def join_reference_download(
     built_refs: dict[str, Path] = {}
     reference_dir = work_dir / "references"
     if not want_refs:
-        log("Referenční PNG přeskočeny (volba v GUI)")
+        log("Referenční podklady: vypnuto ve formuláři")
         return built_refs, []
     if not bbox:
         return built_refs, []
@@ -232,15 +230,10 @@ def join_reference_download(
                     reason="chybí georef šablona",
                 )
             else:
-                log(
-                    "=== Fáze: referenční PNG přeskočeny "
-                    "(chybí georef šablona preview/job_grid) ==="
-                )
+                log("Referenční podklady: přeskočeno (chybí georef šablona)")
             return built_refs, []
         if progress is not None:
             progress.begin("referenční podklady")
-        else:
-            log("=== Fáze: referenční podklady pro OOM ===")
         template_png, template_pgw = georef
         try:
             built_refs = build_reference_layers(
@@ -259,22 +252,17 @@ def join_reference_download(
         reference_dir = ref_download.reference_dir
         if progress is not None:
             progress.begin("referenční podklady")
-        else:
-            log("=== Fáze: referenční podklady pro OOM ===")
         if not ref_download.future.done():
-            log("Referenční podklady: čekám na dokončení stahování na pozadí…")
+            log("Čekám na dokončení stahování na pozadí…")
         try:
             built_refs = ref_download.result() or {}
             if built_refs:
                 names = ", ".join(sorted(built_refs.keys()))
-                log(f"Referenční podklady: staženo na pozadí — {names}")
+                log(f"Staženo na pozadí: {names}")
             else:
-                log("Referenční podklady: staženo na pozadí — nic")
+                log("Staženo na pozadí: nic")
         except Exception as exc:
-            log(
-                f"Referenční podklady: pozadí selhalo ({exc}); "
-                "pokračuji bez nich."
-            )
+            log(f"Stahování na pozadí selhalo ({exc}); pokračuji bez podkladů.")
             built_refs = {}
 
     ref_layers: list[str] = []
@@ -299,6 +287,11 @@ def run_job_pipeline(
     work_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Hlavičky kroků a vlákna na pozadí píšou od kraje (raw_log), detaily
+    # hlavního vlákna jsou odsazené pod hlavičkou aktuálního kroku.
+    raw_log = log
+    log = indented_log(raw_log)
+
     bbox = options.get("bbox_wgs84")
     crop = None
     if bbox:
@@ -310,14 +303,12 @@ def run_job_pipeline(
     sheet_names: list[str] = []
     zabaged_src: Path | None = None
     force_refresh = force_refresh_enabled(options)
-    if force_refresh:
-        log("Force refresh zapnut – AOI/underlay cache se přeskočí")
 
     want_zip, _ = resolve_want_zip(options)
     want_refs = bool(options.get("output_references", True))
     reused_from = options.get("reused_from")
     progress = JobProgress(
-        log,
+        raw_log,
         plan_pipeline_steps(
             bbox=bbox,
             reused_from=reused_from,
@@ -325,14 +316,14 @@ def run_job_pipeline(
             want_refs=want_refs,
         ),
     )
+    progress.announce_plan()
+    if force_refresh:
+        raw_log("Vynucené obnovení: cache (LiDAR, ZABAGED, podklady) se nepoužije.")
 
     lidar_work = work_dir / "lidar"
     if reused_from:
         progress.begin("kopie LAZ z předchozího jobu")
-        log(
-            f"Kopie LAZ z jobu {reused_from} "
-            "(mimo request založení, ať UI neodpovídá pozdě)"
-        )
+        log(f"Kopíruji LAZ z jobu {reused_from}…")
         copied = db.copy_reusable_work(str(reused_from), job_dir.name)
         if copied:
             log(f"Zkopírováno {len(copied)} souborů (sloučený LAZ).")
@@ -388,7 +379,7 @@ def run_job_pipeline(
     grid_bounds = resolve_merge_crop_bounds(crop, scalefactor)
     ref_download: ReferenceDownload | None = None
     if grid_bounds is not None:
-        progress.begin("georef mřížka")
+        progress.begin("mřížka mapy")
         write_job_grid(
             work_dir,
             grid_bounds,
@@ -403,20 +394,19 @@ def run_job_pipeline(
                 work_dir,
                 tuple(bbox),
                 force_refresh=force_refresh,
-                log=log,
+                log=raw_log,
                 shade_bounds=grid_bounds,
                 shade_cache_dir=surfaces_cache,
             )
 
     if reused_from and merged_existing:
-        log(
-            f"Iterace z jobu {reused_from}: používám sloučený LAZ "
-            f"({merged_existing.name}) – PDAL merge přeskakuji"
-        )
         merged = merged_existing
-        progress.skip("prepare LiDAR", reason="reuse")
+        progress.skip(
+            "příprava LiDAR", reason=f"LAZ z jobu {reused_from}"
+        )
     else:
         cached_merged = None
+        progress.begin("příprava LiDAR")
         if crop_cache is not None and not force_refresh:
             cached_merged = try_restore_lidar_crop(
                 crop_cache,
@@ -426,9 +416,8 @@ def run_job_pipeline(
             )
         if cached_merged is not None:
             merged = cached_merged
-            progress.skip("prepare LiDAR", reason="cache")
+            progress.done()
         else:
-            progress.begin("prepare LiDAR")
             merged = merge_dmr_dmp(
                 dmr_files,
                 dmp_files,
@@ -451,7 +440,7 @@ def run_job_pipeline(
 
     surfaces: SurfacesPrep | None = None
     if grid_bounds is not None:
-        progress.begin("DEM/DSM/CHM")
+        progress.begin("výškové modely")
         try:
             # DEM hned; DSM/CHM z DMP na pozadí (překryv s vrstevnicemi a
             # průchodem vegetace) – join před čtením chm.tif.
@@ -462,13 +451,13 @@ def run_job_pipeline(
                 cache_dir=surfaces_cache,
                 force_refresh=force_refresh,
                 log=log,
-                surface_log=_prefixed_log(log, "[DSM] "),
+                surface_log=background_log(raw_log, SURFACE_LOG_LABEL),
             )
             if not surfaces.done():
-                log("DSM/CHM: běží na pozadí souběžně s dalšími kroky.")
+                log("DSM/CHM (výška porostu) se počítá na pozadí.")
         except Exception as exc:
             # Nehard-fail: vegetace/srázy mají vlastní fallbacky.
-            log(f"DEM/DSM/CHM prep: přeskočeno ({exc})")
+            log(f"Výškové modely: přeskočeno ({exc})")
         progress.done()
 
     def _wait_surfaces() -> None:
@@ -478,11 +467,11 @@ def run_job_pipeline(
             return
         pending, surfaces = surfaces, None
         if not pending.done():
-            log("DSM/CHM: čekám na dokončení výpočtu na pozadí…")
+            log("Čekám na DSM/CHM z pozadí…")
         try:
             pending.wait()
         except Exception as exc:
-            log(f"DEM/DSM/CHM prep: přeskočeno ({exc})")
+            log(f"DSM/CHM: přeskočeno ({exc})")
 
     lidar_sources = (
         collect_lidar_source_meta(sheet_names) if sheet_names else None
@@ -503,11 +492,11 @@ def run_job_pipeline(
     zabaged_clean = work_dir / "zabaged_clean.zip"
     has_zabaged = zabaged_src is not None and zabaged_src.is_file()
     if has_zabaged:
-        progress.begin("prepare ZABAGED")
+        progress.begin("příprava ZABAGED")
         clean_zabaged(zabaged_src, zabaged_clean, log=log)
         progress.done()
     elif bbox:
-        progress.skip("prepare ZABAGED", reason="chybí zdroj")
+        progress.skip("příprava ZABAGED", reason="chybí zdroj")
 
     work_cwd = work_dir
     temp_dir = work_cwd / "temp"
@@ -545,10 +534,9 @@ def run_job_pipeline(
         if scalefactor
         else None,
     )
-    if veg_size_profile != "default":
-        log(f"Vegetace: filtr velikosti/tvaru = {veg_size_profile}")
-
     progress.begin("vegetace")
+    if veg_size_profile != "default":
+        log(f"Filtr velikosti/tvaru: {veg_size_profile}")
     vege_shp = None
     veg_buildings: Path | None = None
     if bbox:
@@ -582,18 +570,18 @@ def run_job_pipeline(
             log(f"CHM vegetace: přeskočeno ({exc})")
     progress.done()
 
-    progress.begin("srázy DEM")
+    progress.begin("srázy")
     try:
         generate_job_cliffs_dem(work_dir, options=options, log=log)
     except Exception as exc:
-        log(f"Srázy DEM: přeskočeno ({exc})")
+        log(f"Srázy: přeskočeno ({exc})")
     progress.done()
 
-    progress.begin("knolly")
+    progress.begin("kupky a ďolíky")
     try:
         generate_job_knolls(work_dir, options=options, log=log)
     except Exception as exc:
-        log(f"Knolly DEM: přeskočeno ({exc})")
+        log(f"Kupky a ďolíky: přeskočeno ({exc})")
     progress.done()
 
     if not has_zabaged or not zabaged_clean.is_file():
@@ -627,14 +615,15 @@ def run_job_pipeline(
         progress.done()
 
     # Shade vždy (OOM/ZIP + ČÚZK reference). Náhled PNG z .omap po sestavení.
-    progress.begin("hillshade")
+    progress.begin("stínování reliéfu")
     shade_force = force_refresh
     if ref_download is not None and ref_download.shade_done is not None:
         if not ref_download.shade_done.is_set():
-            log("Hillshade: čekám na stažení na pozadí…")
+            log("Čekám na stínování z pozadí…")
         ref_download.shade_done.wait()
         if ref_download.shade_ok:
             shade_force = False  # už stažený v tomto běhu, nestahovat znovu
+            log("Stínování převzato ze stahování na pozadí.")
     try:
         build_job_shade(
             work_dir,
@@ -646,7 +635,7 @@ def run_job_pipeline(
         )
         qa_contours_vs_shared_dem(work_dir, log=log)
     except Exception as exc:
-        log(f"Hillshade stack: přeskočeno ({exc})")
+        log(f"Stínování reliéfu: přeskočeno ({exc})")
     compose_preview = bool(options.get("compose_preview", False))
     if compose_preview:
         try:
@@ -661,17 +650,6 @@ def run_job_pipeline(
             )
         except Exception as exc:
             log(f"Náhled compose: přeskočeno ({exc})")
-    elif oom_preview_enabled(options):
-        log(
-            "Náhled PNG: hillshade compose přeskočen; "
-            "web/ZIP náhled vznikne z .omap po sestavení mapy. "
-            "ČÚZK reference v ZIPu zůstávají."
-        )
-    else:
-        log(
-            "Náhled PNG: přeskočen – primární výstup je OOM/ZIP; "
-            "ČÚZK reference v ZIPu zůstávají. Opt-in: compose_preview=1 / oom_preview=1."
-        )
     progress.done()
 
     _package_output(
@@ -686,7 +664,8 @@ def run_job_pipeline(
         ref_download=ref_download,
     )
     progress.finish_all()
-    log("Hotovo.")
+    raw_log("")
+    raw_log(f"Hotovo za {progress.elapsed()}.")
 
 
 def resolve_want_zip(options: dict) -> tuple[bool, str | None]:
@@ -758,8 +737,6 @@ def _package_output(
         if bbox:
             if progress is not None:
                 progress.begin("RÚIAN a AOPK")
-            else:
-                log("=== Fáze: RÚIAN budovy (zabaged/) + AOPK památné stromy ===")
             try:
                 ruian_path = fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
             except Exception as exc:
@@ -774,7 +751,7 @@ def _package_output(
                 progress.done()
 
             if progress is not None:
-                progress.begin("OOM / ZIP")
+                progress.begin("sestavení mapy a ZIP")
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
@@ -882,7 +859,7 @@ def _package_output(
                         except Exception as exc:
                             log(f"OOM OCD: přeskočeno ({variant_name}): {exc}")
                     else:
-                        log(f"OOM: {variant_name} nevytvořeno (prepare_oom_map vrátil None)")
+                        log(f"OOM: {variant_name} nevytvořeno")
 
             try:
                 # Web/georef náhled: vnitřní timeout + catch; selhání nesmí
@@ -904,7 +881,7 @@ def _package_output(
                     log(f"OOM georef ZIP: přeskočeno ({exc})")
 
         if progress is not None and not bbox:
-            progress.begin("OOM / ZIP")
+            progress.begin("sestavení mapy a ZIP")
         cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
         log_step(
             log,
@@ -939,8 +916,6 @@ def _package_output(
     else:
         if progress is not None:
             progress.begin("balení výstupu")
-        else:
-            log("=== Fáze: jen PNG náhled (ZIP/OOM přeskočeno) ===")
 
     for name in ("preview.png", "preview.pgw"):
         src = kp_cwd / name
