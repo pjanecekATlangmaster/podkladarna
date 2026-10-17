@@ -1700,12 +1700,11 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return "506"
 
     # Zpevněná cyklostezka (asphalt / good smoothness) – široký footprint s okrajem.
+    # Les i MTBO: asfalt je asfalt → 503 jako asfaltová service (way/1011527251).
     if hw == "cycleway_paved":
         if sprint:
             return "501.13"
-        if mtbo:
-            return "834"
-        return "505"
+        return "503"
 
     if mtbo:
         return "834"

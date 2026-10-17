@@ -1046,8 +1046,8 @@ def test_osm_oom_code_sidewalk():
         == "cycleway_paved"
     )
     assert osm_oom_code("cycleway_paved", "sprint_2m") == "501.13"
-    assert osm_oom_code("cycleway_paved", "forest_10000") == "505"
-    assert osm_oom_code("cycleway_paved", "mtbo_10000") == "834"
+    assert osm_oom_code("cycleway_paved", "forest_10000") == "503"
+    assert osm_oom_code("cycleway_paved", "mtbo_10000") == "503"
     # Jen smoothness (bez surface) taky stačí.
     assert (
         sprint_line_highway(
