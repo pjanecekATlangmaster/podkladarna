@@ -739,6 +739,7 @@ def run_job_pipeline(
         job_name=job_name,
         progress=progress,
         ref_download=ref_download,
+        dtm_prefetch=dtm_prefetch,
     )
     progress.finish_all()
     issues.report()
@@ -771,6 +772,7 @@ def _package_output(
     job_name: str = "",
     progress: JobProgress | None = None,
     ref_download: ReferenceDownload | None = None,
+    dtm_prefetch=None,
 ) -> None:
     zip_path = output_dir / OUTPUT_ZIP_NAME
     if zip_path.exists():
