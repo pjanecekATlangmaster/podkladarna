@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from html import escape as html_escape
 import mimetypes
 import traceback
 import urllib.parse
@@ -11,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import db, worker
+from app import db, settings as app_settings, worker
 from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -158,6 +159,37 @@ async def unhandled_exception_handler(_request: Request, exc: Exception):
 WEB_DIR = STATIC_DIR.parent
 
 
+def _is_test_channel() -> bool:
+    return app_settings.INSTANCE_CHANNEL == "test"
+
+
+def apply_channel(html: str) -> str:
+    """Testovací verze (B): banner s odkazem na stabilní verzi a ``noindex``.
+
+    Stabilní verze (A) o testovací nic neví – žádný odkaz ani zmínka.
+    """
+    if not _is_test_channel():
+        return html
+    name = f" ({app_settings.INSTANCE_NAME})" if app_settings.INSTANCE_NAME else ""
+    stable = html_escape(app_settings.STABLE_URL, quote=True)
+    banner = (
+        '<div class="channel-banner" role="note">'
+        f"Testovací verze{name} – může obsahovat chyby. "
+        f'<a href="{stable}">Přejít na stabilní verzi</a>'
+        "</div>"
+    )
+    html = html.replace("<body>", "<body>\n  " + banner, 1)
+    return html.replace("</head>", '  <meta name="robots" content="noindex, nofollow" />\n</head>', 1)
+
+
+@app.middleware("http")
+async def _noindex_test_channel(request: Request, call_next):
+    response = await call_next(request)
+    if _is_test_channel():
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     try:
@@ -173,7 +205,7 @@ def index() -> HTMLResponse:
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
     html = html.replace('src="/static/app.js"', f'src="/static/app.js?v={v}"')
-    return HTMLResponse(html)
+    return HTMLResponse(apply_channel(html))
 
 
 @app.get("/licence", response_class=HTMLResponse)
@@ -468,6 +500,8 @@ def api_health():
         "downloads_dir": str(DOWNLOADS_DIR),
         "disk_free_gb": round(usage.free / 1e9, 2),
         "busy": worker.is_busy(),
+        "channel": app_settings.INSTANCE_CHANNEL,
+        "instance": app_settings.INSTANCE_NAME or None,
         "tools": tools,
         "pipeline_ready": all(tools.values()),
         # Bez hesel: jen zda feedback / privátní mail vůbec zkusí SMTP.

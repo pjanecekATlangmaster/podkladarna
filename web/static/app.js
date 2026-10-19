@@ -275,7 +275,9 @@ function jobIsFinished(status) {
 
 function jobItemHeadHtml(job) {
   let queueLabel = "";
-  if (job.queue_position === 0) {
+  if (job.phase === "waiting_server") {
+    queueLabel = " · čeká na uvolnění serveru";
+  } else if (job.queue_position === 0) {
     queueLabel = " · právě běží";
   } else if (job.queue_position) {
     queueLabel = ` · fronta #${job.queue_position}`;
@@ -489,6 +491,10 @@ function updateWorkerStatus(data) {
     el.textContent =
       `Generování běží` +
       (q ? ` · ${q} job${q === 1 ? "" : "ů"} ve frontě (max ${maxQ})` : "");
+    el.classList.add("busy");
+  } else if (data.shared_busy) {
+    // Těžký job právě počítá jiná instance serveru – detail se nezveřejňuje.
+    el.textContent = "Server je právě vytížený – nový job chvíli počká na uvolnění";
     el.classList.add("busy");
   } else {
     el.textContent = "Server volný – lze spustit nové generování";

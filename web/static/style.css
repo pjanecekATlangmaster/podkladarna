@@ -73,6 +73,21 @@ main.page-wrap {
   padding-bottom: 2rem;
 }
 
+/* Testovací verze (B): proužek nad stránkou s cestou zpět na stabilní verzi. */
+.channel-banner {
+  background: #fff3cd;
+  border-bottom: 1px solid #e6cf7a;
+  color: #5a4a1a;
+  text-align: center;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+}
+
+.channel-banner a {
+  font-weight: 600;
+  margin-left: 0.4rem;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 1.35fr 0.65fr;
