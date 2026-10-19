@@ -3816,10 +3816,12 @@ def build_osm_feature_parts(
         deck = bridge_deck_geometry(work_dir)
         if deck is not None:
             feats = cut_water_features_by_decks(feats, deck)
-        # Priorita DTM: OSM ploty se ořežou tam, kde je zaměřený plot z DTM kraje.
-        from app.pipeline.dtm_import import dtm_fence_buffer, subtract_dtm_from_osm_fences
+        # Jsou-li data DTM kraje, kreslí ploty (DTM i OSM) společně dtm_import.build_dtm_fence_parts
+        # (spojení konců, vnitřní ploty, orientace čárek, výplň oplocení, odsun od cest).
+        from app.pipeline.dtm_import import dtm_owns_fences
 
-        feats = subtract_dtm_from_osm_fences(feats, dtm_fence_buffer(work_dir))
+        if dtm_owns_fences(work_dir):
+            feats = [f for f in feats if (f.get("properties") or {}).get("kind") != "fence"]
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

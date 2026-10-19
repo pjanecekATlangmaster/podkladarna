@@ -130,6 +130,7 @@ def prepare_dtm_fences(
                 "oriented": oriented,
                 "dubious_removed": dubious,
                 "inner_removed": inner_dropped,
+                "opl_files": [str(files[p.filename]) for p in packages if p.set_name == dtm_sources.SET_OPL],
                 "fences": [{"code": code, "coords": [list(p) for p in line]} for code, line in merged],
                 "fills": [[list(p) for p in ring] for ring in fill_rings],
             }
@@ -234,6 +235,47 @@ def path_clearances(work_dir: Path, path_source: str) -> list[tuple[list[tuple[f
     return out
 
 
+def dtm_owns_fences(work_dir: Path) -> bool:
+    """Jsou pro výřez data DTM? Pak ploty (DTM i OSM) kreslí společně ``build_dtm_fence_parts``."""
+    return fences_path(work_dir).is_file()
+
+
+def _osm_fence_lines(work_dir: Path) -> list[tuple[str, list[tuple[float, float]]]]:
+    """OSM ploty (``kind == "fence"``) po ořezu o ploty z DTM, s napojenými konci."""
+    gj_path = work_dir / "osm_paths" / "features.geojson"
+    if not gj_path.is_file():
+        return []
+    try:
+        feats = json.loads(gj_path.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return []
+    feats = [f for f in feats if (f.get("properties") or {}).get("kind") == "fence"]
+    feats = subtract_dtm_from_osm_fences(feats, dtm_fence_buffer(work_dir))
+    pieces = []
+    for feat in feats:
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") == "LineString" and len(coords) >= 2:
+            pieces.append([(float(x), float(y)) for x, y in coords])
+    return [(dtm_fences.CODE_FENCE, ln) for ln in dtm_fences.merge_lines(pieces)]
+
+
+def _load_opl_areas(work_dir: Path) -> dict[str, list]:
+    areas: dict[str, list] = {"olive": [], "public": [], "building": [], "open": []}
+    try:
+        data = json.loads(fences_path(work_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return areas
+    for name in data.get("opl_files") or []:
+        try:
+            part = dtm_fences.load_orientation_areas(name)
+        except Exception:  # plochy jsou doplněk (orientace, výplň)
+            continue
+        for key in areas:
+            areas[key].extend(part.get(key, []))
+    return areas
+
+
 def build_dtm_fence_parts(
     work_dir: Path,
     *,
@@ -245,22 +287,45 @@ def build_dtm_fence_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
-    """Objekty plotů z DTM (jen sprint): odsunuté od kreslených cest, oplocení vyplněná olivou."""
+    """Objekty plotů (jen sprint) z DTM i OSM: jedna síť, společné zpracování.
+
+    OSM ploty (po ořezu o DTM) se spojí, vnitřní se zahodí, otočí se čárky k olivě,
+    oplocení se vyplní olivou a ploty se odsunou od kreslených cest – stejně jako ploty
+    z DTM (ty jsou spojené, filtrované a orientované už při přípravě).
+    """
     from app.pipeline.oom_import import _area_object_with_holes
     from app.pipeline.osm_paths import _path_object
 
-    if not preset_id.startswith("sprint"):
+    if not preset_id.startswith("sprint") or not dtm_owns_fences(work_dir):
         return []
-    lines, fill_rings = _load_fence_data(work_dir)
+    dtm_lines, fill_rings = _load_fence_data(work_dir)
+    osm_lines = _osm_fence_lines(work_dir)
+    areas = _load_opl_areas(work_dir)
+    lines = list(dtm_lines)
+    if osm_lines:
+        try:
+            tagged = [(c, ln, False) for c, ln in dtm_lines] + [(c, ln, True) for c, ln in osm_lines]
+            dropped = dtm_fences.fences_inside_enclosures([(c, ln) for c, ln, _o in tagged])
+            tagged = [item for i, item in enumerate(tagged) if i not in dropped]
+            keep_dtm = [(c, ln) for c, ln, is_osm in tagged if not is_osm]
+            keep_osm = [(c, ln) for c, ln, is_osm in tagged if is_osm]
+            if keep_osm and (areas["olive"] or areas["public"]):
+                keep_osm = dtm_fences.orient_fences(keep_osm, areas)
+            lines = keep_dtm + keep_osm
+        except Exception:  # sjednocení je doplněk, ploty se kreslí i bez něj
+            lines = dtm_lines + osm_lines
     if not lines:
         return []
+    if osm_lines and (areas["olive"] or areas["building"]):
+        try:
+            fill_rings = dtm_fences.private_enclosure_rings(lines, areas)
+        except Exception:
+            pass
     try:
         paths = path_clearances(work_dir, path_source)
         if paths:
             # Obrysy výplní se posouvají stejnou funkcí polohy jako ploty → zůstanou na plotech.
-            moved = dtm_fences.avoid_paths(
-                lines + [("520", r) for r in fill_rings], paths
-            )
+            moved = dtm_fences.avoid_paths(lines + [("520", r) for r in fill_rings], paths)
             lines, fill_rings = moved[: len(lines)], [r for _c, r in moved[len(lines) :]]
     except Exception:  # odsun je kosmetika, ploty se kreslí i bez něj
         pass
@@ -306,7 +371,7 @@ def build_dtm_fence_parts(
             )
         )
     if objects:
-        parts.append(OomObjectPart(name="DTM – ploty", objects_xml="\n".join(objects), count=len(objects)))
+        parts.append(OomObjectPart(name="Ploty (DTM + OSM)", objects_xml="\n".join(objects), count=len(objects)))
     return parts
 
 

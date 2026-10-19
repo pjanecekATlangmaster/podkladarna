@@ -156,3 +156,53 @@ def test_prepare_orients_fences_with_opl_areas(tmp_path, monkeypatch):
     out = di.prepare_dtm_fences(tmp_path / "work2", BBOX, log=logs.append)
     assert json.loads(out.read_text(encoding="utf-8"))["oriented"] is False
     assert any("plochy z OPL nelze načíst" in m for m in logs)
+
+
+def _write_unified_fixture(work, dtm_fences_list, osm_fences):
+    (work / "dtm").mkdir(parents=True)
+    (work / "dtm" / "fences.json").write_text(
+        json.dumps({"fences": [{"code": "518", "coords": [list(p) for p in ln]} for ln in dtm_fences_list], "fills": [], "opl_files": []}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir(parents=True)
+    feats = [
+        {"type": "Feature", "properties": {"kind": "fence"}, "geometry": {"type": "LineString", "coordinates": [list(p) for p in ln]}}
+        for ln in osm_fences
+    ]
+    (work / "osm_paths" / "features.geojson").write_text(json.dumps({"features": feats}), encoding="utf-8")
+
+
+KW = dict(preset_id="sprint_2_5m", scale=4000, ref_x=X0, ref_y=Y0, grivation_deg=0.0)
+
+
+def test_unified_fences_draw_osm_and_dtm_in_one_part_and_drop_inner_osm_line(tmp_path):
+    ring = [(X0, Y0), (X0 + 40, Y0), (X0 + 40, Y0 + 40), (X0, Y0 + 40), (X0, Y0)]  # uzavřený OSM plot
+    inner = [(X0 + 10, Y0 + 10), (X0 + 25, Y0 + 10)]  # osamělá čára uvnitř
+    dtm = [(X0 + 200, Y0), (X0 + 230, Y0)]
+    _write_unified_fixture(tmp_path, [dtm], [ring, inner])
+    parts = di.build_dtm_fence_parts(tmp_path, **KW)
+    assert [p.name for p in parts] == ["Ploty (DTM + OSM)"]
+    assert parts[0].count == 2  # DTM čára + OSM oplocení; vnitřní OSM čára zahozena
+
+
+def test_unified_fences_join_osm_ways_and_skip_without_dtm(tmp_path):
+    a = [(X0, Y0), (X0 + 20, Y0)]
+    b = [(X0 + 20, Y0), (X0 + 20, Y0 + 20)]  # navazuje na a
+    _write_unified_fixture(tmp_path, [], [a, b])
+    parts = di.build_dtm_fence_parts(tmp_path, **KW)
+    assert parts and parts[0].count == 1  # dva OSM ways spojené do jednoho plotu
+    # bez dat DTM se nekreslí nic (ploty z OSM kreslí build_osm_feature_parts)
+    assert di.build_dtm_fence_parts(tmp_path / "jiny", **KW) == []
+    assert not di.dtm_owns_fences(tmp_path / "jiny")
+
+
+def test_osm_feature_parts_skip_fences_when_dtm_owns_them(tmp_path):
+    from app.pipeline import osm_paths as o
+
+    fence = [(X0, Y0), (X0 + 20, Y0)]
+    _write_unified_fixture(tmp_path, [[(X0 + 200, Y0), (X0 + 230, Y0)]], [fence])
+    parts = o.build_osm_feature_parts(tmp_path, **KW)
+    assert all(p.name != "OSM ploty" for p in parts)
+    (tmp_path / "dtm" / "fences.json").unlink()  # bez DTM kreslí OSM ploty původní cestou
+    parts = o.build_osm_feature_parts(tmp_path, **KW)
+    assert any(p.name == "OSM ploty" for p in parts)

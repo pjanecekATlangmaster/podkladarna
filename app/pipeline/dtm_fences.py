@@ -591,6 +591,17 @@ def drop_fences_inside_enclosures(
 ) -> tuple[list[tuple[str, list[tuple[float, float]]]], int]:
     """Zahodí ploty ležící uvnitř většího oplocení: ``(ponechané, počet zahozených)``.
 
+    Pravidla viz ``fences_inside_enclosures``.
+    """
+    dropped = fences_inside_enclosures(lines, tol=tol)
+    return [item for i, item in enumerate(lines) if i not in dropped], len(dropped)
+
+
+def fences_inside_enclosures(
+    lines: list[tuple[str, list[tuple[float, float]]]], *, tol: float = ENCLOSURE_CLOSE_TOL_M
+) -> set[int]:
+    """Indexy plotů ležících uvnitř většího oplocení.
+
     1. Čára celá uvnitř jiné uzavřené čáry (vnořené oplocení, přepážka).
     2. Čára celá uvnitř uzavřené plochy sítě plotů (osamělý / vyčnívající kus),
        která neleží na hranici té plochy – dělicí plot spojující dvě strany oplocení
@@ -638,8 +649,7 @@ def drop_fences_inside_enclosures(
                 if on_edge < 0.5 * line.length:
                     dropped.add(i)
                     break
-    kept = [item for i, item in enumerate(lines) if i not in dropped]
-    return kept, len(dropped)
+    return dropped
 
 
 def private_enclosure_rings(
