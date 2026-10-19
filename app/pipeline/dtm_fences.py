@@ -23,8 +23,8 @@ CODE_HEDGE = "416"
 DRUH_HEDGE = "5"
 # Koncové body blíž než toto (m) se považují za jeden uzel.
 JOIN_TOLERANCE_M = 0.3
-CACHE_SUFFIX = ".plot.json"
-AREAS_CACHE_SUFFIX = ".orient.json"
+CACHE_SUFFIX = ".plot2.json"
+AREAS_CACHE_SUFFIX = ".orient2.json"
 
 # Plochy z ZPS_OPL, podle kterých se orientují ploty (čárky symbolu 518 mají mířit
 # k „olivě“ = soukromá plocha, ne k chodníku / silnici).
@@ -38,10 +38,16 @@ PUBLIC_TYPES = (
     "NastupistePlocha",
     "SchodistePlocha",
 )
-# Čárky (dvojitý tick) symbolu 518 jsou na LEVÉ straně ve směru kreslení – odvozeno
-# z ověření na lávkách (512.100, stejný princip bočního symbolu). Kdyby se ukázalo,
-# že míří doprava, stačí přepnout tuto konstantu.
-TICKS_ON_LEFT = True
+# Čárky (dvojitý tick) symbolu 518 jsou na PRAVÉ straně ve směru kreslení. Původní
+# odhad „vlevo“ (z lávek, 512.100) se na reálné mapě ukázal většinově špatně →
+# otočeno (uživatelské ověření 2026-10-19). Přepíná se touto konstantou.
+TICKS_ON_LEFT = False
+# Soukromé plochy, u kterých je plot věrohodný (zahrada, dvůr, budova); viz filter_dubious_fences.
+PRIVATE_BUILDING_TYPES = ("BudovaPlocha",)
+# ZpusobPorizeniZPS: 99 = nezjištěno (stará migrace z roku 2008, ne zaměření).
+ZPUSOB_UNKNOWN = "99"
+# Plot s neznámým původem musí ležet do této vzdálenosti (m) od hranice soukromé plochy.
+DUBIOUS_NEAR_M = 0.35
 # Orientace plotu: vzorek každých ``ORIENT_STEP_M`` m, bod ``ORIENT_OFFSET_M`` m od osy.
 ORIENT_STEP_M = 6.0
 ORIENT_OFFSET_M = 1.2
@@ -53,6 +59,8 @@ class Fence:
     druh: str  # DruhPlotu
     level: int  # UrovenUmisteniObjektuZPS
     boundary: bool  # HraniceJinehoObjektu (plot je zároveň hranicí jiného objektu)
+    zpusob: str = ""  # ZpusobPorizeniZPS (1 terestricky … 5 odvozením, 99 nezjištěno)
+    oid: str = ""  # ID objektu v DTM (pro ladění / hlášení chyb)
 
     @property
     def code(self) -> str:
@@ -67,7 +75,8 @@ def load_fences(package_zip: str | Path, *, use_cache: bool = True) -> list[Fenc
         try:
             rows = json.loads(cache.read_text(encoding="utf-8"))
             return [
-                Fence(tuple((x, y) for x, y in r["c"]), r["d"], r["l"], bool(r["b"])) for r in rows
+                Fence(tuple((x, y) for x, y in r["c"]), r["d"], r["l"], bool(r["b"]), r["z"], r["i"])
+                for r in rows
             ]
         except (OSError, ValueError, KeyError, TypeError):
             pass
@@ -81,6 +90,8 @@ def load_fences(package_zip: str | Path, *, use_cache: bool = True) -> list[Fenc
                 rec.attrs.get("DruhPlotu", "99"),
                 rec.level,
                 rec.attrs.get("HraniceJinehoObjektu", "false").lower() == "true",
+                rec.attrs.get("ZpusobPorizeniZPS", ""),
+                rec.attrs.get("ID", ""),
             )
         )
     if use_cache:
@@ -88,7 +99,14 @@ def load_fences(package_zip: str | Path, *, use_cache: bool = True) -> list[Fenc
             cache.write_text(
                 json.dumps(
                     [
-                        {"c": [list(p) for p in f.coords], "d": f.druh, "l": f.level, "b": f.boundary}
+                        {
+                            "c": [list(p) for p in f.coords],
+                            "d": f.druh,
+                            "l": f.level,
+                            "b": f.boundary,
+                            "z": f.zpusob,
+                            "i": f.oid,
+                        }
                         for f in fences
                     ]
                 ),
@@ -223,19 +241,24 @@ def load_orientation_areas(
             raw = json.loads(cache.read_text(encoding="utf-8"))
             return {
                 k: [[[(x, y) for x, y in ring] for ring in poly] for poly in raw[k]]
-                for k in ("olive", "public")
+                for k in ("olive", "public", "building")
             }
         except (OSError, ValueError, KeyError, TypeError):
             pass
-    wanted = set(OLIVE_TYPES) | set(PUBLIC_TYPES)
-    out: dict[str, list] = {"olive": [], "public": []}
+    wanted = set(OLIVE_TYPES) | set(PUBLIC_TYPES) | set(PRIVATE_BUILDING_TYPES)
+    out: dict[str, list] = {"olive": [], "public": [], "building": []}
     for rec in iter_records(opl_zip, wanted):
         if rec.geom_type != "Polygon" or not rec.coords:
             continue
         poly = [[(float(c[0]), float(c[1])) for c in ring] for ring in rec.coords if len(ring) >= 4]
         if not poly:
             continue
-        out["olive" if rec.type_name in OLIVE_TYPES else "public"].append(poly)
+        if rec.type_name in OLIVE_TYPES:
+            out["olive"].append(poly)
+        elif rec.type_name in PRIVATE_BUILDING_TYPES:
+            out["building"].append(poly)
+        else:
+            out["public"].append(poly)
     if use_cache:
         try:
             cache.write_text(
@@ -327,3 +350,80 @@ def orient_fences(
             d += ORIENT_STEP_M
         out.append((code, list(reversed(coords)) if net < 0 else coords))
     return out
+
+
+def filter_dubious_fences(
+    fences: list[Fence],
+    areas: dict[str, list],
+    *,
+    near_m: float = DUBIOUS_NEAR_M,
+    snap_m: float = JOIN_TOLERANCE_M,
+) -> tuple[list[Fence], list[Fence]]:
+    """Vynechá „plot“, který nejspíš nikdy neexistoval: ``(ponechané, vynechané)``.
+
+    V DTM jsou z roku 2008 přenesené čáry s neznámým původem (``ZpusobPorizeniZPS = 99``),
+    které jsou jen hranicí jiného objektu (``HraniceJinehoObjektu``), ne skutečným
+    plotem. Skutečný plot dělí soukromý pozemek od okolí, proto se takový úsek
+    ponechá, když leží u hranice zahrady, dvora nebo budovy. Ostatní se vynechají a
+    vynechání se šíří na navazující úseky s neznámým původem, které také nemají
+    soukromého souseda (pokračování téže čáry). Zaměřené ploty (způsob 1–5) se nikdy
+    nevynechávají. Bez ploch (``areas``) se nic nevynechává.
+    """
+    from shapely import STRtree
+    from shapely.geometry import LineString
+
+    private = (areas.get("olive") or []) + (areas.get("building") or [])
+    if not private or not fences:
+        return list(fences), []
+    borders = []
+    for poly in private:
+        for ring in poly:
+            if len(ring) >= 2:
+                borders.append(LineString(ring))
+    if not borders:
+        return list(fences), []
+    tree = STRtree(borders)
+
+    def near_private(line: LineString) -> bool:
+        for frac in (0.25, 0.5, 0.75):
+            p = line.interpolate(frac, normalized=True)
+            if any(borders[i].distance(p) <= near_m for i in tree.query(p.buffer(near_m))):
+                return True
+        return False
+
+    lines = [LineString(f.coords) for f in fences]
+    unknown = [f.zpusob == ZPUSOB_UNKNOWN for f in fences]
+    # soukromého souseda stačí zjišťovat jen u úseků s neznámým původem
+    has_private = [(not unknown[i]) or near_private(lines[i]) for i in range(len(fences))]
+    dropped = {
+        i for i, f in enumerate(fences) if unknown[i] and f.boundary and not has_private[i]
+    }
+
+    def cell(p: tuple[float, float]) -> tuple[int, int]:
+        return (int(round(p[0] / snap_m)), int(round(p[1] / snap_m)))
+
+    ends: dict[tuple[int, int], list[int]] = {}
+    for i, f in enumerate(fences):
+        for p in (f.coords[0], f.coords[-1]):
+            ends.setdefault(cell(p), []).append(i)
+    changed = True
+    while changed:
+        changed = False
+        for i, f in enumerate(fences):
+            if i in dropped or not unknown[i] or has_private[i]:
+                continue
+            for p in (f.coords[0], f.coords[-1]):
+                cx, cy = cell(p)
+                touching = {
+                    j
+                    for dx in (-1, 0, 1)
+                    for dy in (-1, 0, 1)
+                    for j in ends.get((cx + dx, cy + dy), ())
+                }
+                if touching & dropped:
+                    dropped.add(i)
+                    changed = True
+                    break
+    kept = [f for i, f in enumerate(fences) if i not in dropped]
+    removed = [f for i, f in enumerate(fences) if i in dropped]
+    return kept, removed

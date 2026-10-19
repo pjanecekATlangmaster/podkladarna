@@ -113,17 +113,17 @@ FENCE_EAST = [(0.0, 0.0), (60.0, 0.0)]
 
 
 def test_orient_fence_ticks_toward_olive_not_sidewalk():
-    # směr na východ → levá strana je sever (+y)
+    # směr na východ → pravá strana je jih (-y); čárky jsou vpravo (TICKS_ON_LEFT=False)
     olive_north = {"olive": [_rect(-5, 0.1, 65, 10)], "public": [_rect(-5, -10, 65, -0.1)]}
-    same = df.orient_fences([("518", list(FENCE_EAST))], olive_north)
-    assert same[0][1] == FENCE_EAST  # oliva vlevo, chodník vpravo → beze změny
-    flipped = df.orient_fences(
+    flipped = df.orient_fences([("518", list(FENCE_EAST))], olive_north)
+    assert flipped[0][1] == list(reversed(FENCE_EAST))  # oliva vlevo, chodník vpravo → otočit
+    same = df.orient_fences(
         [("518", list(FENCE_EAST))], {"olive": [_rect(-5, -10, 65, -0.1)], "public": [_rect(-5, 0.1, 65, 10)]}
     )
-    assert flipped[0][1] == list(reversed(FENCE_EAST))  # oliva vpravo → otočit
-    # jen chodník vlevo a nic vpravo → čárky mají mířit pryč od chodníku → otočit
+    assert same[0][1] == FENCE_EAST  # oliva vpravo → beze změny
+    # jen chodník vlevo a nic vpravo → čárky vpravo míří pryč od chodníku → beze změny
     only_public_left = df.orient_fences([("518", list(FENCE_EAST))], {"olive": [], "public": [_rect(-5, 0.1, 65, 10)]})
-    assert only_public_left[0][1] == list(reversed(FENCE_EAST))
+    assert only_public_left[0][1] == FENCE_EAST
 
 
 def test_orient_fence_keeps_ties_hedges_and_respects_switch():
@@ -166,3 +166,18 @@ def test_load_orientation_areas_reads_opl_and_caches(tmp_path):
     assert areas["olive"][0][0][0] == (0.0, 0.0)
     assert z.with_name(z.name + df.AREAS_CACHE_SUFFIX).is_file()
     assert df.load_orientation_areas(z) == areas  # z cache
+
+def test_filter_dubious_fences_drops_unknown_boundary_without_private_neighbour():
+    garden = {"olive": [_rect(-5, 0.1, 65, 10)], "building": []}
+    # skutečný plot u zahrady, zaměřený → zůstane; neznámý původ u zahrady → zůstane
+    real = df.Fence(((0.0, 0.1), (60.0, 0.1)), "2", 0, True, "1", "a")
+    old_near = df.Fence(((0.0, 0.0), (60.0, 0.0)), "2", 0, True, "99", "b")
+    # neznámý původ, hranice jiného objektu, daleko od soukromé plochy → vynechat
+    phantom = df.Fence(((0.0, -50.0), (30.0, -50.0)), "2", 0, True, "99", "c")
+    # navazující úsek téže čáry (acq 99, bez hranice) → vynechat kaskádou
+    tail = df.Fence(((30.0, -50.0), (60.0, -50.0)), "2", 0, False, "99", "d")
+    kept, removed = df.filter_dubious_fences([real, old_near, phantom, tail], garden)
+    assert {f.oid for f in removed} == {"c", "d"}
+    assert {f.oid for f in kept} == {"a", "b"}
+    # bez ploch se nic nevynechává
+    assert df.filter_dubious_fences([phantom], {"olive": [], "building": []})[1] == []

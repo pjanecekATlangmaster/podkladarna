@@ -76,18 +76,30 @@ def prepare_dtm_fences(
         all_fences.extend(
             dtm_fences.fences_in_bounds(dtm_fences.load_fences(files[pkg.filename]), bounds)
         )
-    merged = dtm_fences.merged_fences(all_fences)
     oriented = False
-    areas: dict[str, list] = {"olive": [], "public": []}
+    dubious = 0
+    areas: dict[str, list] = {"olive": [], "public": [], "building": []}
     try:
         for pkg in (p for p in packages if p.set_name == dtm_sources.SET_OPL):
             part = dtm_fences.load_orientation_areas(files[pkg.filename])
             for key in areas:
-                areas[key].extend(part[key])
+                areas[key].extend(part.get(key, []))
+    except Exception as exc:  # plochy jsou jen doplněk, ploty se kreslí i bez nich
+        if log:
+            log(f"DTM: plochy z OPL nelze načíst ({type(exc).__name__}: {exc})")
+    if areas["olive"] or areas["building"]:
+        # Podezřelé „ploty“ (stará migrace s neznámým původem, jen hranice jiného objektu).
+        all_fences, removed = dtm_fences.filter_dubious_fences(all_fences, areas)
+        dubious = len(removed)
+        if removed and log:
+            ids = ", ".join(f.oid for f in removed[:3] if f.oid)
+            log(f"DTM ploty: vynecháno {dubious} podezřelých úseků (neznámý původ, bez soukromé hranice; např. {ids})")
+    merged = dtm_fences.merged_fences(all_fences)
+    try:
         if areas["olive"] or areas["public"]:
             merged = dtm_fences.orient_fences(merged, areas, bounds=bounds)
             oriented = True
-    except Exception as exc:  # orientace je jen kosmetika, ploty se kreslí i bez ní
+    except Exception as exc:  # orientace je jen kosmetika
         if log:
             log(f"DTM: orientace plotů přeskočena ({type(exc).__name__}: {exc})")
     dest = fences_path(work_dir)
@@ -98,6 +110,7 @@ def prepare_dtm_fences(
                 "packages": [p.filename for p in packages],
                 "source_pieces": len(all_fences),
                 "oriented": oriented,
+                "dubious_removed": dubious,
                 "fences": [{"code": code, "coords": [list(p) for p in line]} for code, line in merged],
             }
         ),

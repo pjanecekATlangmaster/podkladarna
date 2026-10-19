@@ -126,7 +126,7 @@ def test_prepare_orients_fences_with_opl_areas(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(ds, "find_packages_for_bbox", lambda bbox, **k: [_pkg(), opl])
     monkeypatch.setattr(ds, "download_packages", lambda pkgs, **k: {p.filename: tmp_path / p.filename for p in pkgs})
-    # plot na východ; oliva (zahrada) je napravo (jih) → čárky vlevo by mířily ke chodníku → otočit
+    # plot na východ; oliva (zahrada) je nalevo (sever) → čárky vpravo by mířily ke chodníku → otočit
     fences = [Fence(((X0, Y0), (X0 + 60, Y0)), "2", 0, False)]
     monkeypatch.setattr(di.dtm_fences, "load_fences", lambda path, **k: fences)
     monkeypatch.setattr(di.dtm_fences, "fences_in_bounds", lambda fs, b: fs)
@@ -135,8 +135,8 @@ def test_prepare_orients_fences_with_opl_areas(tmp_path, monkeypatch):
         return [[(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]]
 
     areas = {
-        "olive": [rect(X0 - 5, Y0 - 10, X0 + 65, Y0 - 0.1)],
-        "public": [rect(X0 - 5, Y0 + 0.1, X0 + 65, Y0 + 10)],
+        "olive": [rect(X0 - 5, Y0 + 0.1, X0 + 65, Y0 + 10)],
+        "public": [rect(X0 - 5, Y0 - 10, X0 + 65, Y0 - 0.1)],
     }
     monkeypatch.setattr(di.dtm_fences, "load_orientation_areas", lambda path, **k: areas)
     out = di.prepare_dtm_fences(tmp_path / "work", BBOX)
@@ -153,4 +153,4 @@ def test_prepare_orients_fences_with_opl_areas(tmp_path, monkeypatch):
     logs: list[str] = []
     out = di.prepare_dtm_fences(tmp_path / "work2", BBOX, log=logs.append)
     assert json.loads(out.read_text(encoding="utf-8"))["oriented"] is False
-    assert any("orientace plotů přeskočena" in m for m in logs)
+    assert any("plochy z OPL nelze načíst" in m for m in logs)
