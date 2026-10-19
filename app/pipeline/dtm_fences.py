@@ -69,6 +69,9 @@ ENCLOSURE_PRIVATE_SHARE = 0.5
 # se, když má plot aspoň ``PLOT_FENCE_SHARE`` obvodu (±``PLOT_FENCE_BUFFER_M``), průměrnou šířku
 # aspoň ``PLOT_MIN_WIDTH_M``, nejvýš ``PLOT_MAX_AREA_M2`` a stojí v ní budova.
 PLOT_FENCE_SHARE = 0.35
+# Oplocení uzavřené samotnými ploty se vyplní vždy (zahrada, areál, hřiště …), je-li dost
+# široké a ne příliš velké; větší plochy se vyplní jen s převahou zahrady/dvora (OPL).
+ENCLOSURE_CLOSED_MAX_AREA_M2 = 20_000.0
 PLOT_FENCE_BUFFER_M = 0.7
 PLOT_MIN_WIDTH_M = 2.5
 PLOT_MAX_AREA_M2 = 3000.0
@@ -657,7 +660,8 @@ def private_enclosure_rings(
 ) -> list[list[tuple[float, float]]]:
     """Obrysy oplocení k vyplnění olivou (vnější obrys, S-JTSK).
 
-    1. Plocha uzavřená samotnými ploty, jejíž vnitřek je aspoň z poloviny zahrada/dvůr (OPL).
+    1. Plocha uzavřená samotnými ploty: vyplní se, když je široká aspoň ``PLOT_MIN_WIDTH_M`` a
+       do ``ENCLOSURE_CLOSED_MAX_AREA_M2``, nebo (větší) když je aspoň z poloviny zahrada/dvůr (OPL).
     2. Parcela uzavřená plotem a okraji cest/zpevněných ploch (plot u cesty chybí): plot na
        ≥ ``PLOT_FENCE_SHARE`` obvodu, šířka ≥ ``PLOT_MIN_WIDTH_M``, plocha ≤ ``PLOT_MAX_AREA_M2``
        a uvnitř budova (hřiště a velké areály se tak nevyplní).
@@ -689,13 +693,17 @@ def private_enclosure_rings(
         return [g for g in out if not g.is_empty]
 
     olive = polygons(areas.get("olive") or [])
+    otree = STRtree(olive) if olive else None
     out: list[Polygon] = []
-    if olive:
-        otree = STRtree(olive)
-        for face in fence_faces(lines):
+    for face in fence_faces(lines):
+        per = face.exterior.length
+        compact = per > 0 and 2.0 * face.area / per >= PLOT_MIN_WIDTH_M and face.area <= ENCLOSURE_CLOSED_MAX_AREA_M2
+        private = False
+        if otree is not None:
             covered = sum(olive[int(k)].intersection(face).area for k in otree.query(face))
-            if covered / face.area >= ENCLOSURE_PRIVATE_SHARE:
-                out.append(face)
+            private = covered / face.area >= ENCLOSURE_PRIVATE_SHARE
+        if compact or private:
+            out.append(face)
 
     buildings = polygons(areas.get("building") or [])
     if buildings:

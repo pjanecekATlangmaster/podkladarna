@@ -244,13 +244,17 @@ def test_drop_inside_removes_dangling_line_in_face_but_keeps_divider_between_fac
     assert n == 1 and dangling not in kept and divider in kept
 
 
-def test_private_enclosure_rings_need_olive_coverage():
+def test_private_enclosure_rings_fill_closed_fences_by_size_and_olive():
     ring = ("518", _square_ring(0, 0, 40))
-    rings = df.private_enclosure_rings([ring], {"olive": [_rect(-5, -5, 45, 45)]})
-    assert len(rings) == 1 and rings[0][0] == rings[0][-1]
-    assert df.private_enclosure_rings([ring], {"olive": [_rect(100, 100, 120, 120)]}) == []
-    assert df.private_enclosure_rings([ring], {"olive": []}) == []
-    assert df.private_enclosure_rings([("518", [(0.0, 0.0), (30.0, 0.0)])], {"olive": [_rect(-5, -5, 45, 45)]}) == []
+    rings = df.private_enclosure_rings([ring], {"olive": []})
+    assert len(rings) == 1 and rings[0][0] == rings[0][-1]  # uzavřené oplocení se vyplní i bez zahrady
+    assert df.private_enclosure_rings([("518", [(0.0, 0.0), (30.0, 0.0)])], {"olive": []}) == []  # nezavřený
+    narrow = ("518", [(0.0, 0.0), (40.0, 0.0), (40.0, 1.5), (0.0, 1.5), (0.0, 0.0)])
+    assert df.private_enclosure_rings([narrow], {"olive": []}) == []  # úzký pruh
+    big = ("518", _square_ring(0, 0, 200))  # 40 000 m2 > limit
+    assert df.private_enclosure_rings([big], {"olive": []}) == []
+    assert len(df.private_enclosure_rings([big], {"olive": [_rect(-5, -5, 205, 205)]})) == 1  # zahrada → vyplnit
+
 
 def test_avoid_paths_pushes_fence_away_from_black_path_only_where_needed():
     fence = ("518", [(0.0, 0.5), (40.0, 0.5)])  # 0,5 m od osy pěšiny
