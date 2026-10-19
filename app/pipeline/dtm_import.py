@@ -78,7 +78,7 @@ def prepare_dtm_fences(
         )
     oriented = False
     dubious = 0
-    areas: dict[str, list] = {"olive": [], "public": [], "building": []}
+    areas: dict[str, list] = {"olive": [], "public": [], "building": [], "open": []}
     try:
         for pkg in (p for p in packages if p.set_name == dtm_sources.SET_OPL):
             part = dtm_fences.load_orientation_areas(files[pkg.filename])

@@ -181,3 +181,16 @@ def test_filter_dubious_fences_drops_unknown_boundary_without_private_neighbour(
     assert {f.oid for f in kept} == {"a", "b"}
     # bez ploch se nic nevynechává
     assert df.filter_dubious_fences([phantom], {"olive": [], "building": []})[1] == []
+
+def test_filter_dubious_fences_drops_unknown_fence_inside_single_area():
+    park = {"olive": [_rect(-100, -100, 100, 100)], "open": [], "building": [_rect(500, 500, 510, 510)]}
+    inner = df.Fence(((0.0, 0.0), (40.0, 0.0)), "2", 0, False, "99", "p")
+    surveyed = df.Fence(((0.0, 10.0), (40.0, 10.0)), "2", 0, False, "1", "s")
+    kept, removed = df.filter_dubious_fences([inner, surveyed], park)
+    assert [f.oid for f in removed] == ["p"] and [f.oid for f in kept] == ["s"]
+    # budova v okolí (do 15 m) → plot se ponechá
+    near_house = dict(park, building=[_rect(5, 8, 12, 14)])
+    assert df.filter_dubious_fences([inner], near_house)[1] == []
+    # hranice dvou ploch (jiná plocha na druhé straně) → ponechat
+    two = {"olive": [_rect(-100, 0.1, 100, 100)], "open": [_rect(-100, -100, 100, -0.1)], "building": []}
+    assert df.filter_dubious_fences([inner], two)[1] == []

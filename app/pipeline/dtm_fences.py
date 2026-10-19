@@ -24,7 +24,7 @@ DRUH_HEDGE = "5"
 # Koncové body blíž než toto (m) se považují za jeden uzel.
 JOIN_TOLERANCE_M = 0.3
 CACHE_SUFFIX = ".plot2.json"
-AREAS_CACHE_SUFFIX = ".orient2.json"
+AREAS_CACHE_SUFFIX = ".orient3.json"
 
 # Plochy z ZPS_OPL, podle kterých se orientují ploty (čárky symbolu 518 mají mířit
 # k „olivě“ = soukromá plocha, ne k chodníku / silnici).
@@ -44,6 +44,11 @@ PUBLIC_TYPES = (
 TICKS_ON_LEFT = False
 # Soukromé plochy, u kterých je plot věrohodný (zahrada, dvůr, budova); viz filter_dubious_fences.
 PRIVATE_BUILDING_TYPES = ("BudovaPlocha",)
+# Zeleň a les: spolu se zahradou/dvorem tvoří „vnitřek plochy“ (viz filter_dubious_fences).
+OPEN_TYPES = ("UdrzovanaPlochaZelenePlocha", "LesPlocha")
+# Plot s neznámým původem uvnitř jedné plochy se vynechá, jen když v tomto okolí (m) není budova.
+INNER_BUILDING_FREE_M = 15.0
+INNER_SIDE_OFFSET_M = 1.2
 # ZpusobPorizeniZPS: 99 = nezjištěno (stará migrace z roku 2008, ne zaměření).
 ZPUSOB_UNKNOWN = "99"
 # Plot s neznámým původem musí ležet do této vzdálenosti (m) od hranice soukromé plochy.
@@ -241,12 +246,12 @@ def load_orientation_areas(
             raw = json.loads(cache.read_text(encoding="utf-8"))
             return {
                 k: [[[(x, y) for x, y in ring] for ring in poly] for poly in raw[k]]
-                for k in ("olive", "public", "building")
+                for k in ("olive", "public", "building", "open")
             }
         except (OSError, ValueError, KeyError, TypeError):
             pass
-    wanted = set(OLIVE_TYPES) | set(PUBLIC_TYPES) | set(PRIVATE_BUILDING_TYPES)
-    out: dict[str, list] = {"olive": [], "public": [], "building": []}
+    wanted = set(OLIVE_TYPES) | set(PUBLIC_TYPES) | set(PRIVATE_BUILDING_TYPES) | set(OPEN_TYPES)
+    out: dict[str, list] = {"olive": [], "public": [], "building": [], "open": []}
     for rec in iter_records(opl_zip, wanted):
         if rec.geom_type != "Polygon" or not rec.coords:
             continue
@@ -257,6 +262,8 @@ def load_orientation_areas(
             out["olive"].append(poly)
         elif rec.type_name in PRIVATE_BUILDING_TYPES:
             out["building"].append(poly)
+        elif rec.type_name in OPEN_TYPES:
+            out["open"].append(poly)
         else:
             out["public"].append(poly)
     if use_cache:
@@ -398,6 +405,7 @@ def filter_dubious_fences(
     dropped = {
         i for i, f in enumerate(fences) if unknown[i] and f.boundary and not has_private[i]
     }
+    dropped |= _inside_single_area(fences, lines, unknown, has_private, areas)
 
     def cell(p: tuple[float, float]) -> tuple[int, int]:
         return (int(round(p[0] / snap_m)), int(round(p[1] / snap_m)))
@@ -427,3 +435,58 @@ def filter_dubious_fences(
     kept = [f for i, f in enumerate(fences) if i not in dropped]
     removed = [f for i, f in enumerate(fences) if i in dropped]
     return kept, removed
+
+
+def _inside_single_area(fences, lines, unknown, has_private, areas) -> set[int]:
+    """Indexy úseků s neznámým původem ležících uvnitř jedné plochy daleko od budov.
+
+    Skutečný plot dělí dvě různé plochy (nebo leží na hranici plochy). Čára, která má
+    po obou stranách tutéž plochu zahrady/dvora/zeleně/lesa a v okolí není budova, je
+    nejspíš pozůstatek zákresu (např. cesta či hranice v parku).
+    """
+    from shapely import STRtree
+    from shapely.geometry import Point, Polygon
+
+    def polygons(items):
+        out = []
+        for poly in items:
+            try:
+                p = Polygon(poly[0], poly[1:]).buffer(0)
+            except (ValueError, IndexError):
+                continue
+            if not p.is_empty:
+                out.append(p)
+        return out
+
+    inner_polys = polygons((areas.get("olive") or []) + (areas.get("open") or []))
+    candidates = [i for i in range(len(fences)) if unknown[i] and not has_private[i]]
+    if not inner_polys or not candidates:
+        return set()
+    tree = STRtree(inner_polys)
+    buildings = polygons(areas.get("building") or [])
+    btree = STRtree(buildings) if buildings else None
+
+    def side(pt):
+        return frozenset(int(j) for j in tree.query(pt) if inner_polys[int(j)].contains(pt))
+
+    out: set[int] = set()
+    for i in candidates:
+        line = lines[i]
+        if line.length < 1.0:
+            continue
+        inside = True
+        for frac in (0.25, 0.5, 0.75):
+            p = line.interpolate(frac, normalized=True)
+            q = line.interpolate(min(frac + 0.01, 1.0), normalized=True)
+            dx, dy = q.x - p.x, q.y - p.y
+            norm = (dx * dx + dy * dy) ** 0.5 or 1.0
+            ox, oy = -dy / norm * INNER_SIDE_OFFSET_M, dx / norm * INNER_SIDE_OFFSET_M
+            left = side(Point(p.x + ox, p.y + oy))
+            if not left or left != side(Point(p.x - ox, p.y - oy)):
+                inside = False
+                break
+        if inside and btree is not None and len(btree.query(line.buffer(INNER_BUILDING_FREE_M))):
+            inside = False
+        if inside:
+            out.add(i)
+    return out
