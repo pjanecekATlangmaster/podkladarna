@@ -766,6 +766,12 @@ def prepare_oom_map(
             from app.pipeline.osm_paths import osm_water_area_geometry
 
             osm_water_area = osm_water_area_geometry(kp_cwd)
+        # Sprint: čáry cest ZABAGED se nekreslí uvnitř ploch chodníků a silnic z DTM.
+        dtm_cover = None
+        if preset_id.startswith("sprint"):
+            from app.pipeline.dtm_import import dtm_cover_geometry
+
+            dtm_cover = dtm_cover_geometry(kp_cwd)
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,
@@ -786,6 +792,7 @@ def prepare_oom_map(
             osm_water_area=osm_water_area,
             suppress_waterway_in_water=preset_id.startswith("sprint"),
             osm_priority_areas=osm_priority_areas or None,
+            dtm_cover=dtm_cover,
         ):
             if _COURTYARD_MARK in part.name:
                 courtyard_parts.append(part)
@@ -885,8 +892,20 @@ def prepare_oom_map(
             object_parts.append(dxf_part)
     object_parts.extend(zabaged_rest)
     # Chodníky z DTM kraje sjednocené s OSM / ZABAGED (jen sprint; bez DTM prázdné, chodníky pak kreslí OSM cesty).
-    from app.pipeline.dtm_import import build_dtm_sidewalk_parts
+    from app.pipeline.dtm_import import build_dtm_road_parts, build_dtm_sidewalk_parts
 
+    object_parts.extend(
+        build_dtm_road_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            clip_bounds=vector_clip_bounds,
+            path_source=path_source,
+        )
+    )
     object_parts.extend(
         build_dtm_sidewalk_parts(
             kp_cwd,

@@ -15,6 +15,9 @@ from app.pipeline.jvf_reader import iter_records
 
 SIDEWALK_TYPES = ("ChodnikPlocha",)
 CACHE_SUFFIX = ".sidewalk1.json"
+# Silnice: provozní plocha pozemní komunikace a manipulační plocha (sprint 501.20, těžký provoz).
+ROAD_TYPES = ("ProvozniPlochaPozemniKomunikacePlocha", "ManipulacniPlochaPlocha")
+ROAD_CACHE_SUFFIX = ".road1.json"
 # Sloučení sousedních ploch a zacelení škvír užších než 2 × tato hodnota (m).
 CLOSE_M = 0.5
 # Díry menší než tato plocha (m²) se zacelí (drobné záhonky, sloupky).
@@ -44,8 +47,19 @@ def load_sidewalk_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> li
     Chodníky na mostech (úroveň > 0) a pod povrchem se nepoužijí – ty kreslí cesty z OSM.
     Výsledek se cachuje u balíku.
     """
+    return load_polygons(opl_zip, SIDEWALK_TYPES, CACHE_SUFFIX, use_cache=use_cache)
+
+
+def load_road_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Plochy silnic / manipulačních ploch na povrchu (úroveň 0) z balíku ZPS_OPL."""
+    return load_polygons(opl_zip, ROAD_TYPES, ROAD_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def load_polygons(
+    opl_zip: str | Path, types: tuple[str, ...], cache_suffix: str, *, use_cache: bool = True
+) -> list[list[list[tuple[float, float]]]]:
     opl_zip = Path(opl_zip)
-    cache = opl_zip.with_name(opl_zip.name + CACHE_SUFFIX)
+    cache = opl_zip.with_name(opl_zip.name + cache_suffix)
     if use_cache and cache.is_file() and cache.stat().st_mtime >= opl_zip.stat().st_mtime:
         try:
             raw = json.loads(cache.read_text(encoding="utf-8"))
@@ -53,7 +67,7 @@ def load_sidewalk_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> li
         except (OSError, ValueError, TypeError):
             pass
     out: list[list[list[tuple[float, float]]]] = []
-    for rec in iter_records(opl_zip, set(SIDEWALK_TYPES)):
+    for rec in iter_records(opl_zip, set(types)):
         if rec.geom_type != "Polygon" or not rec.coords or rec.level != 0:
             continue
         poly = [[(float(c[0]), float(c[1])) for c in ring] for ring in rec.coords if len(ring) >= 4]
@@ -124,6 +138,7 @@ def unify_sidewalks(
     cover_m: float = OSM_COVER_M,
     min_remainder_m: float = OSM_MIN_REMAINDER_M,
     extra_areas: list | None = None,
+    widths: list[float] | None = None,
 ):
     """Jedna plocha chodníků: DTM (tvar) + zbytky OSM čar (aktuálnost); shapely geometrie nebo None."""
     from shapely.geometry import LineString
@@ -133,9 +148,10 @@ def unify_sidewalks(
     covered = dtm.buffer(cover_m) if dtm is not None and not dtm.is_empty else None
     near_zone = dtm.buffer(PARALLEL_NEAR_M) if covered is not None else None
     extra = []
-    for coords in osm_lines:
+    for i, coords in enumerate(osm_lines):
         if len(coords) < 2:
             continue
+        width = widths[i] if widths else osm_width_m
         line = LineString(coords)
         rest = line.difference(covered) if covered is not None else line
         pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
@@ -144,9 +160,9 @@ def unify_sidewalks(
                 continue
             if near_zone is not None and piece.intersection(near_zone).length >= PARALLEL_SHARE * piece.length:
                 continue  # souběžná čára vedle plochy z DTM = tentýž chodník, jen posunutý
-            # Zbytek leží ≥ cover_m od DTM; kulatý konec široký ``osm_width_m`` do něj
+            # Zbytek leží ≥ cover_m od DTM; kulatý konec široký ``width`` do něj
             # kousek zasáhne, takže se po sjednocení napojí.
-            extra.append(piece.buffer(osm_width_m / 2.0, cap_style=1, join_style=1))
+            extra.append(piece.buffer(width / 2.0, cap_style=1, join_style=1))
     items = ([dtm] if dtm is not None and not dtm.is_empty else []) + extra + list(extra_areas or [])
     if not items:
         return None

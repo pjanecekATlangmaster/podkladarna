@@ -84,6 +84,54 @@ def test_osm_paved_area_overlapping_dtm_sidewalk_is_merged_not_drawn_twice(tmp_p
     assert parts[0].count == 1  # jedna sloučená plocha
 
 
+def test_road_parts_replace_osm_road_lines_and_keep_widths(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1004, -940, -996)]]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+
+    def line(hw, a, b):
+        return {
+            "type": "Feature",
+            "properties": {"highway": hw},
+            "geometry": {"type": "LineString", "coordinates": [a, b]},
+        }
+
+    feats = [
+        line("road_3", [-1000, -1000], [-940, -1000]),  # uvnitř DTM plochy → duplicitní
+        line("road_3", [-940, -1000], [-900, -1000]),  # pokračování za plochou → doplní se
+        line("bridge:road_3", [-960, -1010], [-960, -990]),  # most zůstává čárou
+        line("path", [-1000, -980], [-940, -980]),
+    ]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-960.0, ref_y=-1000.0, grivation_deg=0.0)
+    parts = di.build_dtm_road_parts(work, **kw)
+    assert [p.name for p in parts] == ["Silnice (DTM + OSM)"] and parts[0].count == 1  # jedna sloučená plocha
+    assert di.is_surface_road("road_2") and not di.is_surface_road("bridge:road_2")
+    paths = op.build_osm_path_parts(work, **kw)
+    assert paths and paths[0].count == 4  # most + pěšina + 2 hrany lávky 512.100; silnice nahradila plocha
+    assert di.build_dtm_road_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+
+
+def test_dtm_cover_geometry_clips_zabaged_lines(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, -4, 40, 4)]]}), encoding="utf-8"
+    )
+    cover = di.dtm_cover_geometry(work)
+    assert cover is not None and cover.contains(__import__("shapely.geometry").geometry.Point(20, 0))
+    pieces = ds.clip_outside([(-30.0, 0.0), (80.0, 0.0)], cover)
+    assert len(pieces) == 2  # část uvnitř plochy se nekreslí
+
+
 def test_is_surface_sidewalk_excludes_bridges_and_steps():
     assert di.is_surface_sidewalk("sidewalk")
     assert not di.is_surface_sidewalk("steps")

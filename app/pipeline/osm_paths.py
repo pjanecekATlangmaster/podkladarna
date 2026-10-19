@@ -3706,10 +3706,17 @@ def build_osm_path_parts(
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
     # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.
-    from app.pipeline.dtm_import import dtm_owns_sidewalks, is_surface_sidewalk, sidewalk_cover_geometry
+    from app.pipeline.dtm_import import (
+        dtm_owns_roads,
+        dtm_owns_sidewalks,
+        is_surface_road,
+        is_surface_sidewalk,
+        sidewalk_cover_geometry,
+    )
     from app.pipeline.dtm_sidewalks import clip_outside
 
     sidewalks_from_dtm = preset_id.startswith("sprint") and dtm_owns_sidewalks(work_dir)
+    roads_from_dtm = preset_id.startswith("sprint") and dtm_owns_roads(work_dir)
     sidewalk_cover = sidewalk_cover_geometry(work_dir) if sidewalks_from_dtm else None
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
@@ -3719,6 +3726,8 @@ def build_osm_path_parts(
         hw = str((feat.get("properties") or {}).get("highway") or "path")
         if sidewalks_from_dtm and is_surface_sidewalk(hw):
             continue
+        if roads_from_dtm and is_surface_road(hw):
+            continue  # silnice kreslí plocha DTM + OSM (build_dtm_road_parts)
         code = osm_oom_code(hw, preset_id)
         if code not in symbol_cache:
             symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)

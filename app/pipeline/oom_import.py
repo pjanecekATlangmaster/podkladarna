@@ -52,6 +52,8 @@ _CLIFF_DXF_NAMES = frozenset(
     {"cliffs_small.dxf", "cliffs_large.dxf", "cliffs_rock.dxf"}
 )
 _TAG_SIDE_OFFSET_M = 2.0
+# Čáry těchto vrstev ZABAGED se ořežou o plochy chodníků a silnic z DTM (nekreslí se podruhé).
+_DTM_CLIPPED_PATH_LAYERS = frozenset({"Ulice", "SilniceDalnice", "Cesta", "Pesina"})
 
 # ZABAGED vrstvy, které skálu NEpřebíjejí (zelená / bílá / vegetační pozadí).
 # Vrstevnice sem nepatří – nejsou v ZABAGED a do blockerů se vůbec nenačítají.
@@ -908,7 +910,9 @@ def build_zabaged_object_parts(
     osm_water_area=None,
     suppress_waterway_in_water: bool = False,
     osm_priority_areas: dict | None = None,
+    dtm_cover=None,
 ) -> list[OomObjectPart]:
+    """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou."""
     use_ogr = True
     try:
         from osgeo import ogr
@@ -1103,6 +1107,10 @@ def build_zabaged_object_parts(
         layer_name: str,
     ) -> list[list[tuple[float, float]]]:
         nonlocal osm_index
+        if dtm_cover is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
+            from app.pipeline.dtm_sidewalks import clip_outside
+
+            line_parts = [p for pts in line_parts for p in clip_outside(pts, dtm_cover, MIN_LENGTH_M)]
         if not osm_blockers or layer_name not in ZABAGED_PATH_LAYERS_OSM_FIRST:
             return line_parts
         if osm_index is None:

@@ -1532,7 +1532,7 @@ sprint:
     review: false
   - ocad_code: "501.20"
     cz_name: "Zpevněná plocha (těžký provoz)"
-    generator_codes: []
+    generator_codes: ["501.20"]
     geom: area
     review: false
   - ocad_code: "501.21"
