@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from html import escape as html_escape
 import mimetypes
+import re
 import traceback
 import urllib.parse
 from pathlib import Path
@@ -178,6 +179,8 @@ def apply_channel(html: str) -> str:
         f'<a href="{stable}">Přejít na stabilní verzi</a>'
         "</div>"
     )
+    # Na testu úvodní text „O co jde“ nepotřebujeme – formulář je hned nahoře.
+    html = re.sub(r'\s*<section class="card about-card">.*?</section>', "", html, count=1, flags=re.S)
     html = html.replace("<body>", "<body>\n  " + banner, 1)
     return html.replace("</head>", '  <meta name="robots" content="noindex, nofollow" />\n</head>', 1)
 

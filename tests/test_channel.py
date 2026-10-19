@@ -10,6 +10,7 @@ def test_stable_channel_has_no_banner_and_no_noindex(client, monkeypatch):
     res = client.get("/")
     assert res.status_code == 200
     assert "channel-banner" not in res.text and 'content="noindex' not in res.text
+    assert "about-card" in res.text  # na stabilní verzi úvod zůstává
     assert "x-robots-tag" not in res.headers
     assert client.get("/api/health").json()["channel"] == "stable"
 
@@ -22,6 +23,7 @@ def test_test_channel_shows_banner_with_stable_link_and_noindex(client, monkeypa
     assert res.status_code == 200
     assert 'class="channel-banner"' in res.text
     assert "Testovací verze (B)" in res.text
+    assert "about-card" not in res.text and "O co jde" not in res.text  # úvodní blok je na testu skrytý
     assert 'href="https://podkladarna.kibos.link"' in res.text
     assert '<meta name="robots" content="noindex, nofollow"' in res.text
     assert res.headers["x-robots-tag"] == "noindex, nofollow"
