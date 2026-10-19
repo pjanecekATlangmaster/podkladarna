@@ -3834,6 +3834,13 @@ def build_osm_feature_parts(
 
         if dtm_owns_fences(work_dir):
             feats = [f for f in feats if (f.get("properties") or {}).get("kind") != "fence"]
+        # Zpevněné plochy zasahující do chodníků z DTM se kreslí společně s nimi (build_dtm_sidewalk_parts).
+        from app.pipeline.dtm_import import dtm_owns_sidewalks, sidewalk_dtm_geometry, split_absorbed_areas
+
+        if dtm_owns_sidewalks(work_dir):
+            dtm_geom = sidewalk_dtm_geometry(work_dir)
+            if dtm_geom is not None:
+                _absorbed, feats = split_absorbed_areas(feats, dtm_geom)
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

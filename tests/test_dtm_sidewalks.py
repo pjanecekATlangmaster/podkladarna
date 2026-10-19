@@ -53,6 +53,37 @@ def test_clip_outside_cuts_footway_inside_dtm():
     assert max(x for x, _y in pieces[0]) < 10 and min(x for x, _y in pieces[1]) > 20
 
 
+def test_osm_paved_area_overlapping_dtm_sidewalk_is_merged_not_drawn_twice(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1000, -960, -990)]]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+
+    def area(kind, x0, y0, x1, y1):
+        ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        return {
+            "type": "Feature",
+            "properties": {"source": "osm", "kind": kind, "oom_code": "501"},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+
+    feats = [area("pedestrian_area", -980, -995, -950, -970), area("parking", -900, -900, -880, -880)]
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-985.0, ref_y=-999.0, grivation_deg=0.0)
+    names = [p.name for p in op.build_osm_feature_parts(work, **kw)]
+    assert "OSM pěší zóny (501 zpevněná)" not in names  # překrývá chodník → sloučeno s ním
+    assert "OSM parkoviště (501 zpevněná)" in names  # samostatná plocha zůstává
+    parts = di.build_dtm_sidewalk_parts(work, **kw)
+    assert parts[0].count == 1  # jedna sloučená plocha
+
+
 def test_is_surface_sidewalk_excludes_bridges_and_steps():
     assert di.is_surface_sidewalk("sidewalk")
     assert not di.is_surface_sidewalk("steps")

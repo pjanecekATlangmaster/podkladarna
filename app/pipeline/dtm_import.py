@@ -209,6 +209,41 @@ def _path_features(work_dir: Path, path_source: str) -> list[dict]:
         return []
 
 
+def sidewalk_dtm_geometry(work_dir: Path):
+    """Vyčištěná plocha chodníků z DTM (shapely) nebo None."""
+    from app.pipeline import dtm_sidewalks
+
+    return dtm_sidewalks.dtm_union(_load_sidewalk_polygons(work_dir))
+
+
+def split_absorbed_areas(features: list[dict], dtm) -> tuple[list, list[dict]]:
+    """OSM zpevněné plochy (hřiště, pěší zóna, parkoviště …) zasahující do plochy chodníků z DTM.
+
+    Kreslí se stejným symbolem 501.0 jako chodníky, takže by vznikla zdvojená plocha (větší
+    plocha a její část). Takové plochy se proto sloučí s chodníky: ``(shapely plochy, ostatní prvky)``.
+    """
+    from shapely.geometry import shape
+
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline import osm_paths as op
+
+    absorbed, rest = [], []
+    for feat in features:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") in op._PAVED_AREA_KINDS and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+                if g.intersection(dtm).area >= dtm_sidewalks.ABSORB_MIN_OVERLAP_M2:
+                    absorbed.append(g)
+                    continue
+            except (ValueError, TypeError):
+                pass
+        rest.append(feat)
+    return absorbed, rest
+
+
 def sidewalk_cover_geometry(work_dir: Path):
     """Plocha chodníků z DTM rozšířená o ``OSM_COVER_M`` (shapely) nebo None."""
     from app.pipeline import dtm_sidewalks
@@ -264,7 +299,16 @@ def build_dtm_sidewalk_parts(
     polys = _load_sidewalk_polygons(work_dir)
     if not polys:
         return []
-    geom = dtm_sidewalks.unify_sidewalks(polys, sidewalk_osm_lines(work_dir, path_source))
+    extra_areas: list = []
+    dtm = dtm_sidewalks.dtm_union(polys)
+    feats_path = work_dir / "osm_paths" / "features.geojson"
+    if dtm is not None and feats_path.is_file():
+        try:
+            feats = json.loads(feats_path.read_text(encoding="utf-8")).get("features") or []
+            extra_areas, _rest = split_absorbed_areas(feats, dtm)
+        except (OSError, ValueError):
+            pass
+    geom = dtm_sidewalks.unify_sidewalks(polys, sidewalk_osm_lines(work_dir, path_source), extra_areas=extra_areas)
     if geom is None:
         return []
     if clip_bounds is not None:

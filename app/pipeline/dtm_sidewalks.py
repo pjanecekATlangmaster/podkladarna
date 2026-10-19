@@ -29,6 +29,9 @@ OSM_MIN_REMAINDER_M = 3.0
 # za koncem plochy (míří pryč) tímto filtrem neprojde, protože se od plochy rychle vzdaluje.
 PARALLEL_NEAR_M = 2.5
 PARALLEL_SHARE = 0.75
+# OSM zpevněná plocha (stejný symbol 501.0) překrývající chodníky z DTM aspoň takto (m²)
+# se s nimi sloučí do jedné plochy, aby se nekreslila dvakrát.
+ABSORB_MIN_OVERLAP_M2 = 1.0
 # Šířka chodníku z OSM čáry (m) – jako symbol 501.10.
 OSM_WIDTH_M = 1.4
 # Plochy menší než tato (m²) se po sloučení zahodí.
@@ -120,6 +123,7 @@ def unify_sidewalks(
     osm_width_m: float = OSM_WIDTH_M,
     cover_m: float = OSM_COVER_M,
     min_remainder_m: float = OSM_MIN_REMAINDER_M,
+    extra_areas: list | None = None,
 ):
     """Jedna plocha chodníků: DTM (tvar) + zbytky OSM čar (aktuálnost); shapely geometrie nebo None."""
     from shapely.geometry import LineString
@@ -143,7 +147,7 @@ def unify_sidewalks(
             # Zbytek leží ≥ cover_m od DTM; kulatý konec široký ``osm_width_m`` do něj
             # kousek zasáhne, takže se po sjednocení napojí.
             extra.append(piece.buffer(osm_width_m / 2.0, cap_style=1, join_style=1))
-    items = ([dtm] if dtm is not None and not dtm.is_empty else []) + extra
+    items = ([dtm] if dtm is not None and not dtm.is_empty else []) + extra + list(extra_areas or [])
     if not items:
         return None
     # Sloučení škvír mezi OSM zbytkem a DTM (≤ 2 × cover_m − šířka) + stejné čištění jako u DTM.
