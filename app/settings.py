@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.12.3"
+APP_VERSION = "2.12.4"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -68,12 +68,22 @@ DOWNLOADS_DIR = CACHE_DIR
 DB_PATH = DATA_ROOT / "podkladarna.db"
 
 MAX_CONCURRENT_LIDAR = int(os.environ.get("MAX_CONCURRENT_LIDAR", "1"))
+# Provoz A/B (stabilní + test) na jednom HW: sdílený adresář se zámkem těžkého jobu.
+# Bez PODKLADARNA_SHARED_SLOTS se nic nesdílí (jedna instance).
+_shared_slots = os.environ.get("PODKLADARNA_SHARED_SLOTS", "").strip()
+SHARED_SLOTS_DIR = Path(_shared_slots) if _shared_slots else None
+INSTANCE_NAME = os.environ.get("PODKLADARNA_INSTANCE", "").strip()
+# stable = veřejná stabilní verze (A); test = testovací verze (B): banner, noindex.
+INSTANCE_CHANNEL = os.environ.get("PODKLADARNA_CHANNEL", "stable").strip().lower() or "stable"
+STABLE_URL = os.environ.get("PODKLADARNA_STABLE_URL", "https://podkladarna.kibos.link").rstrip("/")
 MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "10"))
 JOB_RETENTION_HOURS = int(os.environ.get("JOB_RETENTION_HOURS", "48"))
 JOB_RETENTION_DAYS = int(os.environ.get("JOB_RETENTION_DAYS", "0"))  # legacy; použijte JOB_RETENTION_HOURS
 MAX_ACTIVE_JOBS_PER_IP = int(os.environ.get("MAX_ACTIVE_JOBS_PER_IP", "2"))
 MAX_JOBS_PER_IP_HOUR = int(os.environ.get("MAX_JOBS_PER_IP_HOUR", "10"))
 JOB_TIMEOUT_MINUTES = int(os.environ.get("JOB_TIMEOUT_MINUTES", "90"))
+# Jak dlouho nejvýš job čeká na sdílený slot (druhá instance má vlastní limit jobu).
+SHARED_SLOT_WAIT_MINUTES = int(os.environ.get("SHARED_SLOT_WAIT_MINUTES", str(JOB_TIMEOUT_MINUTES + 15)))
 if os.environ.get("JOB_TIMEOUT_SECONDS"):
     JOB_TIMEOUT_SECONDS = max(1, int(os.environ["JOB_TIMEOUT_SECONDS"]))
 else:

@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 
-from app import db
+from app import db, settings
 from app.rate_limit import queue_priority_key
 from app.settings import (
     APP_ROOT,
@@ -16,10 +16,35 @@ from app.settings import (
     MAX_CONCURRENT_LIDAR,
     MAX_QUEUE_SIZE,
 )
+from app.slot_lock import SharedSlot, shared_slot_from_env
 
 _lock = threading.Lock()
 _running: str | None = None
 _queue: list[str] = []
+# Sdílený slot mezi instancemi A/B (None = vypnuto); drží ho právě běžící job.
+_slot: SharedSlot | None = None
+_slot_dir_cache: object = object()
+
+
+def _shared_slot() -> SharedSlot | None:
+    """Slot podle ``settings.SHARED_SLOTS_DIR`` (znovu vytvořen, když se nastavení změní)."""
+    global _slot, _slot_dir_cache
+    directory = settings.SHARED_SLOTS_DIR
+    if _slot_dir_cache != directory:
+        _slot = shared_slot_from_env(directory, owner=settings.INSTANCE_NAME)
+        _slot_dir_cache = directory
+    return _slot
+
+
+def shared_busy() -> bool:
+    """True, když těžký job právě počítá druhá instance (detail se nezveřejňuje)."""
+    slot = _shared_slot()
+    if slot is None:
+        return False
+    try:
+        return slot.held_by_other()
+    except OSError:
+        return False
 
 
 def is_busy() -> bool:
@@ -30,6 +55,7 @@ def queue_snapshot() -> dict:
     with _lock:
         return {
             "busy": _running is not None,
+            "shared_busy": shared_busy(),
             "current": _running,
             "queued": list(_queue),
             "queue_size": len(_queue),
@@ -143,10 +169,26 @@ def _run(job_id: str) -> None:
     global _running
     timed_out = False
     proc: subprocess.Popen | None = None
+    slot = _shared_slot()
 
     try:
         if not (JOBS_DIR / job_id).is_dir():
             raise FileNotFoundError(f"Chybí složka jobu: {job_id}")
+
+        if slot is not None:
+            # Těžký job smí počítat jen jeden napříč instancemi A/B. Druhá instance se
+            # o něm nedozví nic než „vytíženo“; zde jen čekáme, až se slot uvolní.
+            def _mark_waiting() -> None:
+                db.update_job(job_id, status="queued", phase="waiting_server")
+
+            if not slot.acquire(
+                timeout_s=settings.SHARED_SLOT_WAIT_MINUTES * 60, on_wait=_mark_waiting
+            ):
+                raise TimeoutError(
+                    f"Server byl obsazený déle než {settings.SHARED_SLOT_WAIT_MINUTES} min – "
+                    "spusťte job znovu."
+                )
+            db.update_job(job_id, status="running", phase="starting", started_at=db._utcnow())
 
         proc = _popen_job(job_id)
         try:
@@ -183,6 +225,8 @@ def _run(job_id: str) -> None:
     finally:
         if proc is not None and proc.poll() is None and not timed_out:
             _terminate_process_tree(proc)
+        if slot is not None:
+            slot.release()
         with _lock:
             if _running == job_id:
                 _running = None
