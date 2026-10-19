@@ -143,7 +143,9 @@ def test_prepare_orients_fences_with_opl_areas(tmp_path, monkeypatch):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["oriented"] is True
     coords = data["fences"][0]["coords"]
-    assert coords[0] == [X0 + 60, Y0] and coords[-1] == [X0, Y0]  # otočeno k olivě
+    # otočeno k olivě a odsunuto od chodníku o FENCE_SETBACK_M k olivě (sever)
+    sb = di.dtm_fences.FENCE_SETBACK_M
+    assert coords[0] == [X0 + 60, Y0 + sb] and coords[-1] == [X0, Y0 + sb]
 
     # chyba orientace nesmí shodit plot
     def boom(path, **k):

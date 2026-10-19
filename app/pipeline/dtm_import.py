@@ -97,7 +97,9 @@ def prepare_dtm_fences(
     merged = dtm_fences.merged_fences(all_fences)
     try:
         if areas["olive"] or areas["public"]:
-            merged = dtm_fences.orient_fences(merged, areas, bounds=bounds)
+            merged = dtm_fences.orient_fences(
+                merged, areas, bounds=bounds, setback_m=dtm_fences.FENCE_SETBACK_M
+            )
             oriented = True
     except Exception as exc:  # orientace je jen kosmetika
         if log:

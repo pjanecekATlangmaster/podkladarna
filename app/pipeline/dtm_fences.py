@@ -56,6 +56,9 @@ DUBIOUS_NEAR_M = 0.35
 # Orientace plotu: vzorek každých ``ORIENT_STEP_M`` m, bod ``ORIENT_OFFSET_M`` m od osy.
 ORIENT_STEP_M = 6.0
 ORIENT_OFFSET_M = 1.2
+# Odstup plotu od cesty/chodníku směrem k soukromé ploše (zahrada, dvůr, budova), aby se
+# čára nekryla s okrajem cesty a byla čitelná. 0 = bez odstupu.
+FENCE_SETBACK_M = 1.5
 
 
 @dataclass(frozen=True)
@@ -283,6 +286,7 @@ def orient_fences(
     *,
     bounds: tuple[float, float, float, float] | None = None,
     ticks_on_left: bool = TICKS_ON_LEFT,
+    setback_m: float = 0.0,
 ) -> list[tuple[str, list[tuple[float, float]]]]:
     """Otočí směr plotů (kód 518) tak, aby čárky symbolu mířily k olivě, ne k chodníku.
 
@@ -290,6 +294,9 @@ def orient_fences(
     = +1 (oliva), chodník / komunikace / parkoviště = −1. Čára se otočí, když by na straně
     čárek bylo méně „olivy“ než na druhé. Remíza nebo žádná plocha = beze změny. Živý plot
     (416) čárky nemá a zůstává.
+
+    ``setback_m`` > 0: plot (518 i 416), který má na jedné straně chodník/komunikaci a na
+    druhé olivu, se navíc odsune o tolik metrů k olivě (od cesty).
     """
     from shapely import STRtree
     from shapely.geometry import LineString, Point, Polygon
@@ -336,12 +343,14 @@ def orient_fences(
 
     out: list[tuple[str, list[tuple[float, float]]]] = []
     for code, coords in lines:
-        if code != CODE_FENCE or len(coords) < 2:
+        if code not in (CODE_FENCE, CODE_HEDGE) or len(coords) < 2:
             out.append((code, coords))
             continue
         line = LineString(coords)
         length = line.length
         net = 0
+        raw = 0  # olivová strana: >0 vlevo, <0 vpravo
+        road_votes = 0  # vzorky, kde je na jedné straně cesta a na druhé ne
         d = ORIENT_STEP_M / 2.0
         while d < length:
             a = line.interpolate(max(0.0, d - 0.5))
@@ -354,9 +363,34 @@ def orient_fences(
                 left = _score(p.x + ORIENT_OFFSET_M * lx, p.y + ORIENT_OFFSET_M * ly)
                 right = _score(p.x - ORIENT_OFFSET_M * lx, p.y - ORIENT_OFFSET_M * ly)
                 net += (left - right) if ticks_on_left else (right - left)
+                raw += left - right
+                if (left == -1) != (right == -1):
+                    road_votes += 1
             d += ORIENT_STEP_M
-        out.append((code, list(reversed(coords)) if net < 0 else coords))
+        if code == CODE_FENCE and net < 0:
+            coords = list(reversed(coords))
+        if setback_m > 0 and raw != 0 and road_votes > 0:
+            coords = _setback(coords, setback_m if raw > 0 else -setback_m, line_in=line, reversed_=code == CODE_FENCE and net < 0)
+        out.append((code, coords))
     return out
+
+
+def _setback(coords, signed_m, *, line_in, reversed_):
+    """Posune čáru o ``signed_m`` m (+ vlevo ve směru původního ``line_in``); při chybě beze změny."""
+    from shapely.geometry import LineString
+
+    try:
+        # směr původní čáry; ``coords`` mohly být otočeny → posun se počítá na původním směru
+        shifted = line_in.offset_curve(signed_m, join_style="mitre", mitre_limit=2.0)
+    except Exception:
+        return coords
+    if shifted.is_empty or not isinstance(shifted, LineString) or len(shifted.coords) < 2:
+        return coords
+    # délka se nesmí výrazně změnit (ostré zlomy) – jinak raději původní poloha
+    if abs(shifted.length - line_in.length) > max(2.0, 0.25 * line_in.length):
+        return coords
+    pts = [(float(x), float(y)) for x, y, *_ in shifted.coords]
+    return list(reversed(pts)) if reversed_ else pts
 
 
 def filter_dubious_fences(

@@ -194,3 +194,18 @@ def test_filter_dubious_fences_drops_unknown_fence_inside_single_area():
     # hranice dvou ploch (jiná plocha na druhé straně) → ponechat
     two = {"olive": [_rect(-100, 0.1, 100, 100)], "open": [_rect(-100, -100, 100, -0.1)], "building": []}
     assert df.filter_dubious_fences([inner], two)[1] == []
+
+
+def test_orient_fences_setback_moves_fence_from_road_toward_olive():
+    olive_north = {"olive": [_rect(-5, 0.1, 65, 10)], "public": [_rect(-5, -10, 65, -0.1)]}
+    out = df.orient_fences([("518", list(FENCE_EAST))], olive_north, setback_m=1.5)
+    ys = {round(y, 2) for _, y in out[0][1]}
+    assert ys == {1.5}  # posun k olivě (sever), čárky dál ke chodníku/olivě dle orientace
+    south = {"olive": [_rect(-5, -10, 65, -0.1)], "public": [_rect(-5, 0.1, 65, 10)]}
+    out = df.orient_fences([("416", list(FENCE_EAST))], south, setback_m=1.5)
+    assert {round(y, 2) for _, y in out[0][1]} == {-1.5}
+    # bez cesty (jen olivy po obou stranách) se neposouvá
+    both = {"olive": [_rect(-5, 0.1, 65, 10), _rect(-5, -10, 65, -0.1)], "public": []}
+    assert df.orient_fences([("518", list(FENCE_EAST))], both, setback_m=1.5)[0][1] == FENCE_EAST
+    # výchozí setback 0 = beze změny polohy
+    assert {y for _, y in df.orient_fences([("518", list(FENCE_EAST))], olive_north)[0][1]} == {0.0}
