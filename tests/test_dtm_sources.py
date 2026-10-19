@@ -156,3 +156,37 @@ def test_find_packages_for_bbox_outside_czechia_or_unknown_region(downloads, mon
     logs: list[str] = []
     assert ds.find_packages_for_bbox((14, 50, 14.1, 50.1), log=logs.append) == []
     assert any("Neznámý kraj" in m for m in logs)
+
+def test_download_package_caches_validates_and_cleans_up(downloads, monkeypatch):
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("x.jvf.xml", "<a/>")
+    good = buf.getvalue()
+    pkg = ds.parse_url_list(SAMPLE)[1]  # Praha 5 ZPS_KR
+    calls = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=0):
+        calls.append(req.full_url)
+        return Resp(good if len(calls) < 3 else b"neni zip")
+
+    monkeypatch.setattr(ds.urllib.request, "urlopen", fake_urlopen)
+    path = ds.download_package(pkg)
+    assert path == ds.package_path(pkg) and path.read_bytes() == good
+    assert ds.download_package(pkg) == path and len(calls) == 1  # z cache
+    ds.download_package(pkg, force=True)
+    assert len(calls) == 2
+    # nevalidní odpověď: výjimka a žádný .part / poškozený soubor
+    path.unlink()
+    with pytest.raises(ValueError):
+        ds.download_package(pkg)
+    assert not path.exists() and not list(path.parent.glob("*.part"))

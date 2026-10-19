@@ -164,6 +164,51 @@ def fetch_url_list(
     return packages
 
 
+# --------------------------------------------------------------------------- stažení balíku
+
+DOWNLOAD_TIMEOUT_S = 300
+# Pojistka proti omylem obřímu souboru (největší městské balíky mají desítky MB).
+DOWNLOAD_MAX_BYTES = 600 * 1024 * 1024
+
+
+def package_path(pkg: DtmPackage) -> Path:
+    """Kam se balík ukládá (název obsahuje datum → nový měsíc = nový soubor)."""
+    return settings.DOWNLOADS_DIR / "dtm" / pkg.kraj / pkg.filename
+
+
+def download_package(pkg: DtmPackage, *, force: bool = False, log=None) -> Path:
+    """Stáhne balík do cache (znovu použije existující platný ZIP). Vrací cestu."""
+    import zipfile
+
+    dest = package_path(pkg)
+    if not force and dest.is_file() and zipfile.is_zipfile(dest):
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    req = urllib.request.Request(pkg.url, headers={"User-Agent": USER_AGENT})
+    total = 0
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT_S) as resp, open(tmp, "wb") as fh:
+            while True:
+                chunk = resp.read(1 << 16)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > DOWNLOAD_MAX_BYTES:
+                    raise ValueError(f"balík {pkg.filename} je větší než {DOWNLOAD_MAX_BYTES >> 20} MB")
+                fh.write(chunk)
+        if not zipfile.is_zipfile(tmp):
+            raise ValueError(f"{pkg.filename}: stažený soubor není ZIP")
+        tmp.replace(dest)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    if log:
+        log(f"DTM: staženo {pkg.filename} ({total / 1e6:.1f} MB, {time.time() - t0:.0f} s)")
+    return dest
+
+
 # --------------------------------------------------------------------------- území výřezu
 
 
