@@ -266,3 +266,21 @@ def test_avoid_paths_keeps_closed_ring_closed():
     path = [([(-5.0, 10.0), (-5.0, 11.0)], 8.0)]
     (_c, new), = df.avoid_paths([ring], path)
     assert new[0] == new[-1]
+
+
+def test_private_enclosure_rings_plot_closed_by_road_edge_with_house():
+    # plot ze tří stran, čtvrtou stranu (u cesty) uzavírá okraj zpevněné plochy; uvnitř budova
+    fence = ("518", [(0.0, 0.0), (0.0, 30.0), (20.0, 30.0), (20.0, 0.0)])
+    road = _rect(-30, -20, 60, 0.0)  # cesta pod parcelou, horní okraj y=0
+    areas = {"olive": [], "public": [road], "building": [_rect(5, 10, 15, 20)], "open": []}
+    rings = df.private_enclosure_rings([fence], areas)
+    assert len(rings) == 1
+    xs = [x for x, _y in rings[0]]
+    ys = [y for _x, y in rings[0]]
+    assert min(xs) == 0.0 and max(xs) == 20.0 and min(ys) == 0.0 and max(ys) == 30.0
+    # bez budovy (hřiště, prázdná plocha) se nevyplňuje
+    assert df.private_enclosure_rings([fence], dict(areas, building=[])) == []
+    # velký areál (nad limit) se nevyplňuje
+    big = ("518", [(0.0, 0.0), (0.0, 400.0), (400.0, 400.0), (400.0, 0.0)])
+    big_areas = {"olive": [], "public": [_rect(-30, -20, 460, 0.0)], "building": [_rect(100, 100, 120, 120)], "open": []}
+    assert df.private_enclosure_rings([big], big_areas) == []

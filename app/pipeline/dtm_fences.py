@@ -65,6 +65,13 @@ ENCLOSURE_MIN_AREA_M2 = 15.0
 ENCLOSURE_MAX_AREA_M2 = 100_000.0
 # Oplocení se vyplní olivou, jen když aspoň tento podíl jeho vnitřku je zahrada/dvůr (OPL).
 ENCLOSURE_PRIVATE_SHARE = 0.5
+# Parcela uzavřená plotem a okraji cest/zpevněných ploch (plot u cesty v datech chybí): vyplní
+# se, když má plot aspoň ``PLOT_FENCE_SHARE`` obvodu (±``PLOT_FENCE_BUFFER_M``), průměrnou šířku
+# aspoň ``PLOT_MIN_WIDTH_M``, nejvýš ``PLOT_MAX_AREA_M2`` a stojí v ní budova.
+PLOT_FENCE_SHARE = 0.35
+PLOT_FENCE_BUFFER_M = 0.7
+PLOT_MIN_WIDTH_M = 2.5
+PLOT_MAX_AREA_M2 = 3000.0
 # Odsun od cest: poloviční šířka čáry plotu (m), mezera od černé čáry cesty (m),
 # největší povolený posun jednoho bodu a rozestup bodů při úpravě.
 FENCE_HALF_WIDTH_M = 0.4
@@ -559,11 +566,11 @@ def _closed_ring_polygon(coords, tol: float = ENCLOSURE_CLOSE_TOL_M):
     return poly
 
 
-def fence_faces(lines: list[tuple[str, list[tuple[float, float]]]]):
+def fence_faces(lines: list[tuple[str, list[tuple[float, float]]]], *, barriers=None, max_area: float = ENCLOSURE_MAX_AREA_M2):
     """Uzavřené plochy tvořené sítí plotů (i složené z více čar spojených do „T“).
 
-    Čáry se uzlí (``unary_union``) a polygonizují; plochy mimo rozsah
-    ``ENCLOSURE_MIN_AREA_M2``–``ENCLOSURE_MAX_AREA_M2`` se nepoužívají.
+    Čáry (a volitelné ``barriers`` = další čáry, např. okraje cest) se uzlí (``unary_union``)
+    a polygonizují; plochy mimo rozsah ``ENCLOSURE_MIN_AREA_M2``–``max_area`` se nepoužívají.
     """
     from shapely.geometry import LineString
     from shapely.ops import polygonize, unary_union
@@ -571,11 +578,12 @@ def fence_faces(lines: list[tuple[str, list[tuple[float, float]]]]):
     geoms = [LineString(c) for _code, c in lines if len(c) >= 2]
     if not geoms:
         return []
-    faces = []
-    for poly in polygonize(unary_union(geoms)):
-        if ENCLOSURE_MIN_AREA_M2 <= poly.area <= ENCLOSURE_MAX_AREA_M2:
-            faces.append(poly)
-    return faces
+    geoms.extend(barriers or [])
+    return [
+        poly
+        for poly in polygonize(unary_union(geoms))
+        if ENCLOSURE_MIN_AREA_M2 <= poly.area <= max_area
+    ]
 
 
 def drop_fences_inside_enclosures(
@@ -637,30 +645,74 @@ def drop_fences_inside_enclosures(
 def private_enclosure_rings(
     lines: list[tuple[str, list[tuple[float, float]]]], areas: dict[str, list]
 ) -> list[list[tuple[float, float]]]:
-    """Obrysy oplocení (ploch sítě plotů), jejichž vnitřek je převážně zahrada/dvůr (OPL).
+    """Obrysy oplocení k vyplnění olivou (vnější obrys, S-JTSK).
 
-    Jen takové se vyplní olivou (hřiště, školní areály apod. by oliva špatně označila za
-    nepřístupné). Bez ploch z OPL se nevyplňuje nic.
+    1. Plocha uzavřená samotnými ploty, jejíž vnitřek je aspoň z poloviny zahrada/dvůr (OPL).
+    2. Parcela uzavřená plotem a okraji cest/zpevněných ploch (plot u cesty chybí): plot na
+       ≥ ``PLOT_FENCE_SHARE`` obvodu, šířka ≥ ``PLOT_MIN_WIDTH_M``, plocha ≤ ``PLOT_MAX_AREA_M2``
+       a uvnitř budova (hřiště a velké areály se tak nevyplní).
+    Bez ploch z OPL se nevyplňuje nic.
     """
     from shapely import STRtree
-    from shapely.geometry import Polygon
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
 
-    olive = []
-    for poly in areas.get("olive") or []:
-        try:
-            p = Polygon(poly[0], poly[1:])
-            olive.append(p if p.is_valid else p.buffer(0))
-        except (ValueError, IndexError):
-            continue
-    if not olive:
+    xs = [x for _c, line in lines for x, _y in line]
+    ys = [y for _c, line in lines for _x, y in line]
+    if not xs:
         return []
-    tree = STRtree(olive)
-    out = []
-    for face in fence_faces(lines):
-        covered = sum(olive[int(k)].intersection(face).area for k in tree.query(face))
-        if covered / face.area >= ENCLOSURE_PRIVATE_SHARE:
-            out.append([(float(x), float(y)) for x, y in face.exterior.coords])
-    return out
+    margin = 30.0
+    bx = (min(xs) - margin, min(ys) - margin, max(xs) + margin, max(ys) + margin)
+
+    def polygons(items):
+        out = []
+        for poly in items:
+            px = [p[0] for p in poly[0]]
+            py = [p[1] for p in poly[0]]
+            if max(px) < bx[0] or min(px) > bx[2] or max(py) < bx[1] or min(py) > bx[3]:
+                continue
+            try:
+                g = Polygon(poly[0], poly[1:])
+                out.append(g if g.is_valid else g.buffer(0))
+            except (ValueError, IndexError):
+                continue
+        return [g for g in out if not g.is_empty]
+
+    olive = polygons(areas.get("olive") or [])
+    out: list[Polygon] = []
+    if olive:
+        otree = STRtree(olive)
+        for face in fence_faces(lines):
+            covered = sum(olive[int(k)].intersection(face).area for k in otree.query(face))
+            if covered / face.area >= ENCLOSURE_PRIVATE_SHARE:
+                out.append(face)
+
+    buildings = polygons(areas.get("building") or [])
+    if buildings:
+        rings = [
+            LineString(g.exterior.coords)
+            for g in polygons(areas.get("public") or [])
+            if g.geom_type == "Polygon"
+        ]
+        fence_zone = unary_union([LineString(c).buffer(PLOT_FENCE_BUFFER_M) for _k, c in lines if len(c) >= 2])
+        btree = STRtree(buildings)
+        for face in fence_faces(lines, barriers=rings, max_area=PLOT_MAX_AREA_M2):
+            per = face.exterior.length
+            if per <= 0 or 2.0 * face.area / per < PLOT_MIN_WIDTH_M:
+                continue
+            if face.exterior.intersection(fence_zone).length / per < PLOT_FENCE_SHARE:
+                continue
+            has_house = any(
+                buildings[int(k)].intersection(face).area > 0.5 * buildings[int(k)].area
+                for k in btree.query(face)
+            )
+            if not has_house:
+                continue
+            c = face.representative_point()
+            if any(o.contains(c) for o in out):
+                continue  # už vyplněno prvním pravidlem
+            out.append(face)
+    return [[(float(x), float(y)) for x, y in face.exterior.coords] for face in out]
 
 
 def avoid_paths(

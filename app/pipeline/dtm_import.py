@@ -106,6 +106,8 @@ def prepare_dtm_fences(
     fill_rings: list[list[tuple[float, float]]] = []
     try:
         fill_rings = dtm_fences.private_enclosure_rings(merged, areas)
+        if log:
+            log(f"DTM ploty: {len(fill_rings)} oplocení k vyplnění olivou")
     except Exception as exc:  # výplň olivou je doplněk
         if log:
             log(f"DTM: výplň oplocení přeskočena ({type(exc).__name__}: {exc})")
