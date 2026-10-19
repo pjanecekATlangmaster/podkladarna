@@ -26,7 +26,7 @@ def _pkg():
 
 def _patch_sources(monkeypatch, tmp_path, fences):
     monkeypatch.setattr(ds, "find_packages_for_bbox", lambda bbox, **k: [_pkg()])
-    monkeypatch.setattr(ds, "download_package", lambda pkg, **k: tmp_path / pkg.filename)
+    monkeypatch.setattr(ds, "download_packages", lambda pkgs, **k: {p.filename: tmp_path / p.filename for p in pkgs})
     monkeypatch.setattr(di.dtm_fences, "load_fences", lambda path, **k: fences)
     # souřadnice výřezu → pro test je jedno, filtr obdélníkem se obejde
     monkeypatch.setattr(di.dtm_fences, "fences_in_bounds", lambda fs, b: fs)
@@ -118,3 +118,39 @@ def test_subtract_dtm_from_osm_fences(tmp_path):
     assert min(xs) >= 100 - 3.0 - 1e-6 and max(xs) == 200  # začíná až za pásem DTM
     # bez DTM se nic nemění
     assert di.subtract_dtm_from_osm_fences([covered], None) == [covered]
+
+def test_prepare_orients_fences_with_opl_areas(tmp_path, monkeypatch):
+    opl = ds.DtmPackage(
+        url="https://x/VS_CZ010_MOMC_500143_20260930_ZPS_OPL.jvf.zip",
+        kraj="CZ010", unit_kind="MOMC", unit_code=500143, date="20260930", set_name="ZPS_OPL", fmt="jvf",
+    )
+    monkeypatch.setattr(ds, "find_packages_for_bbox", lambda bbox, **k: [_pkg(), opl])
+    monkeypatch.setattr(ds, "download_packages", lambda pkgs, **k: {p.filename: tmp_path / p.filename for p in pkgs})
+    # plot na východ; oliva (zahrada) je napravo (jih) → čárky vlevo by mířily ke chodníku → otočit
+    fences = [Fence(((X0, Y0), (X0 + 60, Y0)), "2", 0, False)]
+    monkeypatch.setattr(di.dtm_fences, "load_fences", lambda path, **k: fences)
+    monkeypatch.setattr(di.dtm_fences, "fences_in_bounds", lambda fs, b: fs)
+
+    def rect(x0, y0, x1, y1):
+        return [[(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]]
+
+    areas = {
+        "olive": [rect(X0 - 5, Y0 - 10, X0 + 65, Y0 - 0.1)],
+        "public": [rect(X0 - 5, Y0 + 0.1, X0 + 65, Y0 + 10)],
+    }
+    monkeypatch.setattr(di.dtm_fences, "load_orientation_areas", lambda path, **k: areas)
+    out = di.prepare_dtm_fences(tmp_path / "work", BBOX)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["oriented"] is True
+    coords = data["fences"][0]["coords"]
+    assert coords[0] == [X0 + 60, Y0] and coords[-1] == [X0, Y0]  # otočeno k olivě
+
+    # chyba orientace nesmí shodit plot
+    def boom(path, **k):
+        raise ValueError("poškozené OPL")
+
+    monkeypatch.setattr(di.dtm_fences, "load_orientation_areas", boom)
+    logs: list[str] = []
+    out = di.prepare_dtm_fences(tmp_path / "work2", BBOX, log=logs.append)
+    assert json.loads(out.read_text(encoding="utf-8"))["oriented"] is False
+    assert any("orientace plotů přeskočena" in m for m in logs)

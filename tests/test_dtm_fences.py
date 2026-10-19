@@ -104,3 +104,65 @@ def test_fences_in_bounds_filters_by_extent():
     fs = [_f([(0, 0), (10, 0)]), _f([(100, 100), (110, 100)])]
     assert df.fences_in_bounds(fs, (-5, -5, 20, 20)) == [fs[0]]
     assert df.fences_in_bounds(fs, (500, 500, 600, 600)) == []
+
+def _rect(x0, y0, x1, y1):
+    return [[(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]]
+
+
+FENCE_EAST = [(0.0, 0.0), (60.0, 0.0)]
+
+
+def test_orient_fence_ticks_toward_olive_not_sidewalk():
+    # směr na východ → levá strana je sever (+y)
+    olive_north = {"olive": [_rect(-5, 0.1, 65, 10)], "public": [_rect(-5, -10, 65, -0.1)]}
+    same = df.orient_fences([("518", list(FENCE_EAST))], olive_north)
+    assert same[0][1] == FENCE_EAST  # oliva vlevo, chodník vpravo → beze změny
+    flipped = df.orient_fences(
+        [("518", list(FENCE_EAST))], {"olive": [_rect(-5, -10, 65, -0.1)], "public": [_rect(-5, 0.1, 65, 10)]}
+    )
+    assert flipped[0][1] == list(reversed(FENCE_EAST))  # oliva vpravo → otočit
+    # jen chodník vlevo a nic vpravo → čárky mají mířit pryč od chodníku → otočit
+    only_public_left = df.orient_fences([("518", list(FENCE_EAST))], {"olive": [], "public": [_rect(-5, 0.1, 65, 10)]})
+    assert only_public_left[0][1] == list(reversed(FENCE_EAST))
+
+
+def test_orient_fence_keeps_ties_hedges_and_respects_switch():
+    both_public = {"olive": [], "public": [_rect(-5, 0.1, 65, 10), _rect(-5, -10, 65, -0.1)]}
+    assert df.orient_fences([("518", list(FENCE_EAST))], both_public)[0][1] == FENCE_EAST
+    assert df.orient_fences([("518", list(FENCE_EAST))], {"olive": [], "public": []})[0][1] == FENCE_EAST
+    # živý plot (416) čárky nemá → neotáčí se
+    olive_south = {"olive": [_rect(-5, -10, 65, -0.1)], "public": []}
+    assert df.orient_fences([("416", list(FENCE_EAST))], olive_south)[0][1] == FENCE_EAST
+    # přepínač strany čárek
+    assert df.orient_fences([("518", list(FENCE_EAST))], olive_south, ticks_on_left=False)[0][1] == FENCE_EAST
+    assert df.orient_fences([("518", list(FENCE_EAST))], olive_south, ticks_on_left=True)[0][1] == list(reversed(FENCE_EAST))
+
+
+def test_load_orientation_areas_reads_opl_and_caches(tmp_path):
+    import zipfile as zf_mod
+
+    def zaznam(ring):
+        pos = " ".join(f"{x} {y}" for x, y in ring)
+        return (
+            "<z:ZaznamObjektu><z:AtributyObjektu/><z:GeometrieObjektu><gml:surfaceProperty>"
+            '<gml:Polygon srsName="EPSG:5514" srsDimension="2"><gml:exterior><gml:LinearRing>'
+            f"<gml:posList>{pos}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>"
+            "</gml:surfaceProperty></z:GeometrieObjektu></z:ZaznamObjektu>"
+        )
+
+    xml = (
+        '<objtyp:JVFDTM xmlns:objtyp="objtyp" xmlns:z="z" xmlns:gml="http://www.opengis.net/gml/3.2">'
+        "<objtyp:Data>"
+        f"<objtyp:ZahradaPlocha>{zaznam(_rect(0, 0, 10, 10)[0])}</objtyp:ZahradaPlocha>"
+        f"<objtyp:ChodnikPlocha>{zaznam(_rect(20, 0, 30, 10)[0])}</objtyp:ChodnikPlocha>"
+        f"<objtyp:BudovaPlocha>{zaznam(_rect(40, 0, 50, 10)[0])}</objtyp:BudovaPlocha>"
+        "</objtyp:Data></objtyp:JVFDTM>"
+    )
+    z = tmp_path / "VS_test_ZPS_OPL.jvf.zip"
+    with zf_mod.ZipFile(z, "w") as zf:
+        zf.writestr("x.jvf.xml", xml)
+    areas = df.load_orientation_areas(z)
+    assert len(areas["olive"]) == 1 and len(areas["public"]) == 1  # budova se nebere
+    assert areas["olive"][0][0][0] == (0.0, 0.0)
+    assert z.with_name(z.name + df.AREAS_CACHE_SUFFIX).is_file()
+    assert df.load_orientation_areas(z) == areas  # z cache

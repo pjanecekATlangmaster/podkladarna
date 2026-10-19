@@ -28,8 +28,8 @@ from app.pipeline.fetch_openzu import USER_AGENT
 
 DMVS_API = "https://dmvs.cuzk.gov.cz/api/rest/open-data/datove-sady"
 HTTP_TIMEOUT_S = 90
-# Seznam odkazů se mění nejvýš měsíčně (stavová data k poslednímu dni měsíce).
-URL_LIST_CACHE_MAX_AGE_H = 24.0
+# Seznam odkazů v cache platí, dokud DMVS nevydá novější data (stavová data jsou
+# k poslednímu dni měsíce); zjišťuje se lehkým dotazem ``stavove/info``.
 # Stavová data jsou k poslednímu dni měsíce; okno musí pokrýt poslední vydání.
 DATE_FROM_WINDOW_DAYS = 100
 
@@ -132,18 +132,44 @@ def _list_cache_path(kraj: str) -> Path:
     return settings.DOWNLOADS_DIR / "dtm" / f"urls_{kraj}.txt"
 
 
+def latest_published_date(kraj: str, *, date_from: str | None = None) -> str | None:
+    """Datum nejnovějšího vydání sad kraje (``YYYYMMDD``) podle ``stavove/info``; None při chybě."""
+    if date_from is None:
+        date_from = (date.today() - timedelta(days=DATE_FROM_WINDOW_DAYS)).isoformat()
+    payload = json.dumps({"isDtmk": [kraj], "datumOd": date_from}).encode("utf-8")
+    try:
+        body = _request(f"{DMVS_API}/stavove/info", data=payload, accept="application/json")
+        items = json.loads(body.decode("utf-8")).get("isDtmk") or []
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None
+    dates = [
+        str(s.get("vyhotoveno") or "")[:10].replace("-", "")
+        for it in items
+        for s in (it.get("datoveSady") or [])
+    ]
+    dates = [d for d in dates if len(d) == 8 and d.isdigit()]
+    return max(dates) if dates else None
+
+
 def fetch_url_list(
     kraj: str,
     *,
     date_from: str | None = None,
-    max_age_h: float = URL_LIST_CACHE_MAX_AGE_H,
     force: bool = False,
     log=None,
 ) -> list[DtmPackage]:
-    """Aktuální odkazy pro jeden kraj (cache ``max_age_h``; při výpadku starší cache)."""
+    """Aktuální odkazy pro jeden kraj.
+
+    Cache platí, dokud DMVS nevydá novější data (``latest_published_date``). Když se
+    nově vydané datum zjistit nedá (výpadek), použije se cache bez ohledu na stáří.
+    """
     cache = _list_cache_path(kraj)
-    if not force and cache.is_file() and (time.time() - cache.stat().st_mtime) / 3600.0 <= max_age_h:
-        return parse_url_list(cache.read_text(encoding="utf-8"))
+    if not force and cache.is_file():
+        cached = parse_url_list(cache.read_text(encoding="utf-8"))
+        newest = latest_published_date(kraj, date_from=date_from)
+        have = max((p.date for p in cached), default="")
+        if cached and (newest is None or newest <= have):
+            return cached
     if date_from is None:
         date_from = (date.today() - timedelta(days=DATE_FROM_WINDOW_DAYS)).isoformat()
     payload = json.dumps({"isDtmk": [kraj], "datumOd": date_from}).encode("utf-8")
@@ -182,6 +208,7 @@ def download_package(pkg: DtmPackage, *, force: bool = False, log=None) -> Path:
 
     dest = package_path(pkg)
     if not force and dest.is_file() and zipfile.is_zipfile(dest):
+        prune_older_packages(pkg)
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
@@ -206,7 +233,35 @@ def download_package(pkg: DtmPackage, *, force: bool = False, log=None) -> Path:
         raise
     if log:
         log(f"DTM: staženo {pkg.filename} ({total / 1e6:.1f} MB, {time.time() - t0:.0f} s)")
+    prune_older_packages(pkg)
     return dest
+
+
+def prune_older_packages(pkg: DtmPackage) -> int:
+    """Smaže starší vydání téhož balíku (a jejich odvozené cache); vrací počet souborů."""
+    stem = f"VS_{pkg.kraj}_{pkg.unit_kind}_{pkg.unit_code}_"
+    suffix = f"_{pkg.set_name}."
+    removed = 0
+    for path in package_path(pkg).parent.glob(f"{stem}*{suffix}*"):
+        m = re.search(r"_(\d{8})_", path.name)
+        if m and m.group(1) < pkg.date:
+            path.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
+def download_packages(
+    packages: list[DtmPackage], *, max_workers: int = 3, force: bool = False, log=None
+) -> dict[str, Path]:
+    """Stáhne více balíků souběžně (I/O); ``{název souboru: cesta}``. Chyba jednoho balíku vyhodí výjimku."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    if not packages:
+        return {}
+    workers = max(1, min(max_workers, len(packages)))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="dtm-get") as pool:
+        futures = {p.filename: pool.submit(download_package, p, force=force, log=log) for p in packages}
+        return {name: fut.result() for name, fut in futures.items()}
 
 
 # --------------------------------------------------------------------------- území výřezu

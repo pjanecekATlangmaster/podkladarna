@@ -24,6 +24,27 @@ DRUH_HEDGE = "5"
 # Koncové body blíž než toto (m) se považují za jeden uzel.
 JOIN_TOLERANCE_M = 0.3
 CACHE_SUFFIX = ".plot.json"
+AREAS_CACHE_SUFFIX = ".orient.json"
+
+# Plochy z ZPS_OPL, podle kterých se orientují ploty (čárky symbolu 518 mají mířit
+# k „olivě“ = soukromá plocha, ne k chodníku / silnici).
+OLIVE_TYPES = ("ZahradaPlocha", "DvurNadvoriPlocha")
+PUBLIC_TYPES = (
+    "ChodnikPlocha",
+    "ProvozniPlochaPozemniKomunikacePlocha",
+    "CyklostezkaPlocha",
+    "ParkovisteOdstavnaPlochaPlocha",
+    "DopravniOstruvekPlocha",
+    "NastupistePlocha",
+    "SchodistePlocha",
+)
+# Čárky (dvojitý tick) symbolu 518 jsou na LEVÉ straně ve směru kreslení – odvozeno
+# z ověření na lávkách (512.100, stejný princip bočního symbolu). Kdyby se ukázalo,
+# že míří doprava, stačí přepnout tuto konstantu.
+TICKS_ON_LEFT = True
+# Orientace plotu: vzorek každých ``ORIENT_STEP_M`` m, bod ``ORIENT_OFFSET_M`` m od osy.
+ORIENT_STEP_M = 6.0
+ORIENT_OFFSET_M = 1.2
 
 
 @dataclass(frozen=True)
@@ -185,4 +206,124 @@ def merged_fences(
     for code in (CODE_FENCE, CODE_HEDGE):
         group = [list(f.coords) for f in fences if f.level >= 0 and f.code == code]
         out.extend((code, ln) for ln in merge_lines(group, tol))
+    return out
+
+
+def load_orientation_areas(
+    opl_zip: str | Path, *, use_cache: bool = True
+) -> dict[str, list[list[list[tuple[float, float]]]]]:
+    """Plochy z ZPS_OPL pro orientaci plotů: ``{"olive": [polygon, …], "public": [...]}``.
+
+    Polygon = ``[vnější obrys, díra, …]`` (S-JTSK x, y). Výsledek se cachuje u balíku.
+    """
+    opl_zip = Path(opl_zip)
+    cache = opl_zip.with_name(opl_zip.name + AREAS_CACHE_SUFFIX)
+    if use_cache and cache.is_file() and cache.stat().st_mtime >= opl_zip.stat().st_mtime:
+        try:
+            raw = json.loads(cache.read_text(encoding="utf-8"))
+            return {
+                k: [[[(x, y) for x, y in ring] for ring in poly] for poly in raw[k]]
+                for k in ("olive", "public")
+            }
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    wanted = set(OLIVE_TYPES) | set(PUBLIC_TYPES)
+    out: dict[str, list] = {"olive": [], "public": []}
+    for rec in iter_records(opl_zip, wanted):
+        if rec.geom_type != "Polygon" or not rec.coords:
+            continue
+        poly = [[(float(c[0]), float(c[1])) for c in ring] for ring in rec.coords if len(ring) >= 4]
+        if not poly:
+            continue
+        out["olive" if rec.type_name in OLIVE_TYPES else "public"].append(poly)
+    if use_cache:
+        try:
+            cache.write_text(
+                json.dumps({k: [[[list(p) for p in ring] for ring in poly] for poly in v] for k, v in out.items()}),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+    return out
+
+
+def orient_fences(
+    lines: list[tuple[str, list[tuple[float, float]]]],
+    areas: dict[str, list],
+    *,
+    bounds: tuple[float, float, float, float] | None = None,
+    ticks_on_left: bool = TICKS_ON_LEFT,
+) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Otočí směr plotů (kód 518) tak, aby čárky symbolu mířily k olivě, ne k chodníku.
+
+    Podél čáry se po ``ORIENT_STEP_M`` m zkoumají body vlevo / vpravo; zahrada nebo dvůr
+    = +1 (oliva), chodník / komunikace / parkoviště = −1. Čára se otočí, když by na straně
+    čárek bylo méně „olivy“ než na druhé. Remíza nebo žádná plocha = beze změny. Živý plot
+    (416) čárky nemá a zůstává.
+    """
+    from shapely import STRtree
+    from shapely.geometry import LineString, Point, Polygon
+
+    def _polys(items):
+        out = []
+        for poly in items:
+            try:
+                p = Polygon(poly[0], poly[1:])
+                out.append(p if p.is_valid else p.buffer(0))
+            except (ValueError, IndexError):
+                continue
+        return out
+
+    def _in_bounds(items):
+        if bounds is None:
+            return items
+        xmin, ymin, xmax, ymax = bounds
+        keep = []
+        for poly in items:
+            xs = [p[0] for p in poly[0]]
+            ys = [p[1] for p in poly[0]]
+            if not (max(xs) < xmin or min(xs) > xmax or max(ys) < ymin or min(ys) > ymax):
+                keep.append(poly)
+        return keep
+
+    olive = _polys(_in_bounds(areas.get("olive") or []))
+    public = _polys(_in_bounds(areas.get("public") or []))
+    if not olive and not public:
+        return lines
+    tree_o = STRtree(olive) if olive else None
+    tree_p = STRtree(public) if public else None
+
+    def _hit(tree, polys, pt) -> bool:
+        if tree is None:
+            return False
+        return any(polys[i].contains(pt) for i in tree.query(pt))
+
+    def _score(x: float, y: float) -> int:
+        pt = Point(x, y)
+        o = _hit(tree_o, olive, pt)
+        p = _hit(tree_p, public, pt)
+        return 1 if o and not p else (-1 if p and not o else 0)
+
+    out: list[tuple[str, list[tuple[float, float]]]] = []
+    for code, coords in lines:
+        if code != CODE_FENCE or len(coords) < 2:
+            out.append((code, coords))
+            continue
+        line = LineString(coords)
+        length = line.length
+        net = 0
+        d = ORIENT_STEP_M / 2.0
+        while d < length:
+            a = line.interpolate(max(0.0, d - 0.5))
+            b = line.interpolate(min(length, d + 0.5))
+            dx, dy = b.x - a.x, b.y - a.y
+            n = math.hypot(dx, dy)
+            if n > 1e-9:
+                lx, ly = -dy / n, dx / n  # levá normála (S-JTSK: x východ, y sever)
+                p = line.interpolate(d)
+                left = _score(p.x + ORIENT_OFFSET_M * lx, p.y + ORIENT_OFFSET_M * ly)
+                right = _score(p.x - ORIENT_OFFSET_M * lx, p.y - ORIENT_OFFSET_M * ly)
+                net += (left - right) if ticks_on_left else (right - left)
+            d += ORIENT_STEP_M
+        out.append((code, list(reversed(coords)) if net < 0 else coords))
     return out

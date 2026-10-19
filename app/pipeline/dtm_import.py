@@ -59,18 +59,37 @@ def prepare_dtm_fences(
     """Ploty z DTM pro výřez → ``work_dir/dtm/fences.json``; None, když data nejsou."""
     west, south, east, north = bbox_wgs84
     packages = dtm_sources.find_packages_for_bbox(
-        bbox_wgs84, sets=(dtm_sources.SET_KR,), force=force, log=log
+        bbox_wgs84, sets=(dtm_sources.SET_KR, dtm_sources.SET_OPL), force=force, log=log
     )
     if not packages:
         if log:
             log("DTM: pro výřez nejsou datové sady (ploty zůstanou z OSM)")
         return None
     bounds = crop_bounds_5514(west, south, east, north, buffer_m=VECTOR_FETCH_BUFFER_M)
+    # Stažení více balíků souběžně (I/O); parsování a cache JSON pak postupně.
+    files = dtm_sources.download_packages(packages, log=log)
+    kr_packages = [p for p in packages if p.set_name == dtm_sources.SET_KR]
+    if not kr_packages:
+        return None
     all_fences: list[dtm_fences.Fence] = []
-    for pkg in packages:
-        path = dtm_sources.download_package(pkg, log=log)
-        all_fences.extend(dtm_fences.fences_in_bounds(dtm_fences.load_fences(path), bounds))
+    for pkg in kr_packages:
+        all_fences.extend(
+            dtm_fences.fences_in_bounds(dtm_fences.load_fences(files[pkg.filename]), bounds)
+        )
     merged = dtm_fences.merged_fences(all_fences)
+    oriented = False
+    areas: dict[str, list] = {"olive": [], "public": []}
+    try:
+        for pkg in (p for p in packages if p.set_name == dtm_sources.SET_OPL):
+            part = dtm_fences.load_orientation_areas(files[pkg.filename])
+            for key in areas:
+                areas[key].extend(part[key])
+        if areas["olive"] or areas["public"]:
+            merged = dtm_fences.orient_fences(merged, areas, bounds=bounds)
+            oriented = True
+    except Exception as exc:  # orientace je jen kosmetika, ploty se kreslí i bez ní
+        if log:
+            log(f"DTM: orientace plotů přeskočena ({type(exc).__name__}: {exc})")
     dest = fences_path(work_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(
@@ -78,6 +97,7 @@ def prepare_dtm_fences(
             {
                 "packages": [p.filename for p in packages],
                 "source_pieces": len(all_fences),
+                "oriented": oriented,
                 "fences": [{"code": code, "coords": [list(p) for p in line]} for code, line in merged],
             }
         ),

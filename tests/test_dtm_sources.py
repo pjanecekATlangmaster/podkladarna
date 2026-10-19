@@ -79,45 +79,79 @@ def downloads(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_fetch_url_list_posts_filter_and_caches(downloads, monkeypatch):
-    calls = []
+def _router(list_text=SAMPLE, newest="2026-09-30", calls=None):
+    """Falešné DMVS: seznam odkazů + ``stavove/info`` s datem nejnovějšího vydání."""
 
     def fake_request(url, *, data=None, accept="*/*"):
-        calls.append((url, json.loads(data.decode()) if data else None))
-        return SAMPLE.encode("utf-8")
+        payload = json.loads(data.decode()) if data else None
+        if calls is not None:
+            calls.append((url, payload))
+        if url.endswith("/stavove/info"):
+            if newest is None:
+                raise urllib.error.URLError("výpadek")
+            return json.dumps(
+                {"isDtmk": [{"isDtmk": {"kod": "CZ010"}, "datoveSady": [{"vyhotoveno": newest + "T00:00:00.000+02:00", "pocet": 285}]}]}
+            ).encode()
+        if isinstance(list_text, Exception):
+            raise list_text
+        return list_text.encode("utf-8")
 
-    monkeypatch.setattr(ds, "_request", fake_request)
+    return fake_request
+
+
+def test_latest_published_date_parses_info_and_survives_outage(monkeypatch):
+    monkeypatch.setattr(ds, "_request", _router(newest="2026-10-31"))
+    assert ds.latest_published_date("CZ010") == "20261031"
+    monkeypatch.setattr(ds, "_request", _router(newest=None))
+    assert ds.latest_published_date("CZ010") is None
+
+
+def test_fetch_url_list_posts_filter_and_caches_until_new_data(downloads, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(ds, "_request", _router(calls=calls))
     first = ds.fetch_url_list("CZ010", date_from="2026-09-30")
     assert len(first) == 9
-    assert calls[0][0].endswith("/stavove/seznam-url")
-    assert calls[0][1] == {"isDtmk": ["CZ010"], "datumOd": "2026-09-30"}
-    # druhé volání jde z cache (žádná další síť)
+    posts = [c for c in calls if c[0].endswith("/stavove/seznam-url")]
+    assert len(posts) == 1 and posts[0][1] == {"isDtmk": ["CZ010"], "datumOd": "2026-09-30"}
+    # nic novějšího nevyšlo → seznam z cache (jen lehký dotaz na info, žádný nový seznam)
     ds.fetch_url_list("CZ010", date_from="2026-09-30")
-    assert len(calls) == 1
-    # force = znovu na síť
-    ds.fetch_url_list("CZ010", date_from="2026-09-30", force=True)
-    assert len(calls) == 2
+    assert len([c for c in calls if c[0].endswith("/stavove/seznam-url")]) == 1
+    # vyšla novější data → nový seznam
+    new_text = SAMPLE.replace("20260930", "20261031")
+    monkeypatch.setattr(ds, "_request", _router(list_text=new_text, newest="2026-10-31", calls=calls))
+    got = ds.fetch_url_list("CZ010", date_from="2026-09-30")
+    assert max(p.date for p in got) == "20261031"
+    assert len([c for c in calls if c[0].endswith("/stavove/seznam-url")]) == 2
+    # force vždy znovu
+    ds.fetch_url_list("CZ010", force=True)
+    assert len([c for c in calls if c[0].endswith("/stavove/seznam-url")]) == 3
 
 
-def test_fetch_url_list_refreshes_stale_cache_and_falls_back(downloads, monkeypatch):
+def test_fetch_url_list_old_cache_stays_valid_without_age_limit(downloads, monkeypatch):
+    import os
+
     cache = downloads / "dtm" / "urls_CZ010.txt"
     cache.parent.mkdir(parents=True)
     cache.write_text(SAMPLE, encoding="utf-8")
-    old = time.time() - 3 * 24 * 3600
-    import os
-
+    old = time.time() - 200 * 24 * 3600  # stáří souboru nehraje roli
     os.utime(cache, (old, old))
-    calls = []
+    calls: list = []
+    monkeypatch.setattr(ds, "_request", _router(calls=calls))
+    assert len(ds.fetch_url_list("CZ010")) == 9
+    assert not any(c[0].endswith("/stavove/seznam-url") for c in calls)
 
-    def fail(url, *, data=None, accept="*/*"):
-        calls.append(url)
-        raise urllib.error.URLError("výpadek")
 
-    monkeypatch.setattr(ds, "_request", fail)
+def test_fetch_url_list_outage_uses_cache_or_raises(downloads, monkeypatch):
+    cache = downloads / "dtm" / "urls_CZ010.txt"
+    cache.parent.mkdir(parents=True)
+    cache.write_text(SAMPLE, encoding="utf-8")
+    # info nejde zjistit → cache beze změny
+    monkeypatch.setattr(ds, "_request", _router(newest=None))
+    assert len(ds.fetch_url_list("CZ010")) == 9
+    # nový seznam nejde stáhnout, ale vyšla novější data → starší cache + hlášení
     logs: list[str] = []
-    got = ds.fetch_url_list("CZ010", log=logs.append)
-    assert len(calls) == 1  # cache je stará → zkusí síť
-    assert len(got) == 9  # …a při výpadku vrátí starou cache
+    monkeypatch.setattr(ds, "_request", _router(list_text=urllib.error.URLError("výpadek"), newest="2026-10-31"))
+    assert len(ds.fetch_url_list("CZ010", log=logs.append)) == 9
     assert any("starší cache" in m for m in logs)
     # bez cache výpadek propadne
     cache.unlink()
@@ -126,7 +160,7 @@ def test_fetch_url_list_refreshes_stale_cache_and_falls_back(downloads, monkeypa
 
 
 def test_fetch_url_list_does_not_cache_empty_answer(downloads, monkeypatch):
-    monkeypatch.setattr(ds, "_request", lambda *a, **k: b"")
+    monkeypatch.setattr(ds, "_request", _router(list_text=""))
     assert ds.fetch_url_list("CZ010") == []
     assert not (downloads / "dtm" / "urls_CZ010.txt").exists()
 
@@ -190,3 +224,39 @@ def test_download_package_caches_validates_and_cleans_up(downloads, monkeypatch)
     with pytest.raises(ValueError):
         ds.download_package(pkg)
     assert not path.exists() and not list(path.parent.glob("*.part"))
+
+
+def test_prune_older_packages_removes_old_releases_and_derived_caches(downloads):
+    pkg = ds.parse_url_list(SAMPLE)[1]  # Praha 5 ZPS_KR, 20260930
+    folder = ds.package_path(pkg).parent
+    folder.mkdir(parents=True)
+    old = folder / "VS_CZ010_MOMC_500143_20260831_ZPS_KR.jvf.zip"
+    old_cache = folder / "VS_CZ010_MOMC_500143_20260831_ZPS_KR.jvf.zip.plot.json"
+    keep = [
+        folder / "VS_CZ010_MOMC_500143_20260930_ZPS_KR.jvf.zip",  # aktuální
+        folder / "VS_CZ010_MOMC_500143_20260831_ZPS_OPL.jvf.zip",  # jiná sada
+        folder / "VS_CZ010_MOMC_500119_20260831_ZPS_KR.jvf.zip",  # jiná jednotka
+    ]
+    for f in [old, old_cache, *keep]:
+        f.write_bytes(b"x")
+    assert ds.prune_older_packages(pkg) == 2
+    assert not old.exists() and not old_cache.exists()
+    assert all(f.exists() for f in keep)
+
+
+def test_download_packages_runs_in_parallel_and_returns_paths(downloads, monkeypatch):
+    import threading
+
+    pkgs = [p for p in ds.parse_url_list(SAMPLE) if p.set_name == "ZPS_KR" and p.date == "20260930"]
+    assert len(pkgs) >= 2
+    seen: set[str] = set()
+
+    def fake_download(pkg, **k):
+        seen.add(threading.current_thread().name)
+        return ds.package_path(pkg)
+
+    monkeypatch.setattr(ds, "download_package", fake_download)
+    got = ds.download_packages(pkgs, max_workers=2)
+    assert set(got) == {p.filename for p in pkgs}
+    assert all(name.startswith("dtm-get") for name in seen)
+    assert ds.download_packages([]) == {}
