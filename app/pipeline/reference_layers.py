@@ -57,7 +57,8 @@ ORTHO_JPEG_QUALITY = 95
 KM_WHITE_THRESHOLD = 250
 # Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice,
 # 3 = ortofoto z PNG dlaždic q95 v jemnějším rozlišení, world file ve středu pixelu).
-REF_CACHE_FORMAT = 3
+# 4 = přibyly vrstvy DTM kraje (DMVS WMS: dtm_plochy.png, dtm_linie.png).
+REF_CACHE_FORMAT = 4
 # DMR 5G má ~0,5 m mezi body – jemnější raster dělá díry a kostičkovaný hillshade.
 WEB_MERCATOR_HALF = 20037508.342789244
 
@@ -80,6 +81,12 @@ ZTM_WMS = "https://ags.cuzk.gov.cz/arcgis1/services/ZTM/MapServer/WMSServer"
 # Veřejná WMS katastrální mapy (KN) – https://services.cuzk.gov.cz/wms/local-km-wms.asp
 KM_WMS = "https://services.cuzk.gov.cz/wms/local-km-wms.asp"
 KM_LAYER = "KN"
+# DTM kraje – základní prostorová situace (ČÚZK DMVS, veřejné WMS bez přihlášení).
+# Zaměřené budovy, komunikace, chodníky, ploty, zdi, mosty; mimo území DTM vrací prázdný obrázek.
+DMVS_ZPS_PLOCHY_WMS = "https://dmvs.cuzk.gov.cz/api/wms/dtm_zps_plochy_bar"
+DMVS_ZPS_PLOCHY_LAYER = "dtm_zps_plochy_bar"
+DMVS_ZPS_LINIE_WMS = "https://dmvs.cuzk.gov.cz/api/wms/dtm_zps_linie_body"
+DMVS_ZPS_LINIE_LAYER = "dtm_zps_linie_body"
 DMPOK_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmp_obrazova_korelace/ImageServer/WMSServer"
 )
@@ -118,7 +125,7 @@ def reference_metadata() -> dict:
         "hillshade_source": "ČÚZK DMR 5G WMS",
         "hillshade_variants": [v[2] for v in HILLSHADE_VARIANTS],
         "hillshade_tool": "WMS ImageServer",
-        "map_layers": ["osm.png", "mapa_ztm.png", "katastr.png"],
+        "map_layers": ["osm.png", "mapa_ztm.png", "katastr.png", "dtm_plochy.png", "dtm_linie.png"],
         "orthophoto": f"JPEG {ORTHO_MPP_CANDIDATES[0]:.3f}–{ORTHO_MPP:.2f} m/px, dlaždice ≤ {ORTHO_MAX_TILE_PX} px (.jgw)",
         "dmpok_preview": "dmpok_nahled.png",
     }
@@ -167,6 +174,16 @@ def fetch_cuzk_wms_png(
     if ok and log:
         log(f"{label}: {dest_png.name}")
     return ok
+
+
+def png_has_content(png: Path) -> bool:
+    """False, když je RGBA PNG celé průhledné (WMS mimo území vrací prázdný obrázek)."""
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(png) as im:
+        arr = np.array(im.convert("RGBA"))
+    return bool(arr[..., 3].max() > 0)
 
 
 def ensure_png_alpha(png: Path, *, threshold: int = KM_WHITE_THRESHOLD) -> str:
@@ -330,7 +347,8 @@ def _wms_getmap_url(
         "request": "GetMap",
         "version": "1.3.0",
         "layers": layer,
-        "styles": "default",
+        # DMVS WMS styl „default“ odmítá (500) – vyžaduje prázdný STYLES.
+        "styles": "" if "dmvs.cuzk.gov.cz" in wms_url else "default",
         "crs": "EPSG:5514",
         "bbox": f"{xmin},{ymin},{xmax},{ymax}",
         "width": str(width),
@@ -1205,6 +1223,8 @@ def _ref_png_key(filename: str) -> str | None:
         "osm.png": "osm",
         "mapa_ztm.png": "ztm",
         "katastr.png": "katastr",
+        "dtm_plochy.png": "dtm_plochy",
+        "dtm_linie.png": "dtm_linie",
         "dmpok_nahled.png": "dmpok",
     }
     for key, _layer, name, _label, _op, _vis in HILLSHADE_VARIANTS:
@@ -1390,6 +1410,29 @@ def build_reference_layers(
     except Exception as exc:
         if log:
             log_issue(log, f"Katastrální mapa: přeskočeno ({exc})")
+
+    # DTM kraje (zaměřená situace): plochy + linie jako průhledné PNG pro dokreslení detailů.
+    for key, wms, layer, fname, label in (
+        ("dtm_plochy", DMVS_ZPS_PLOCHY_WMS, DMVS_ZPS_PLOCHY_LAYER, "dtm_plochy.png", "DTM kraje – plochy (ZPS)"),
+        ("dtm_linie", DMVS_ZPS_LINIE_WMS, DMVS_ZPS_LINIE_LAYER, "dtm_linie.png", "DTM kraje – linie a body (ZPS)"),
+    ):
+        dtm_png = out_dir / fname
+        dtm_pgw = dtm_png.with_suffix(".pgw")
+        try:
+            if fetch_cuzk_wms_png(
+                wms, layer, bounds, template_png, template_pgw, dtm_png, dtm_pgw,
+                label=label, transparent=True, log=log,
+            ):
+                if png_has_content(dtm_png):
+                    built[key] = dtm_png
+                else:  # oblast bez DTM kraje – prázdnou vrstvu nenabízet
+                    dtm_png.unlink(missing_ok=True)
+                    dtm_pgw.unlink(missing_ok=True)
+                    if log:
+                        log(f"{label}: v oblasti nejsou data DTM")
+        except Exception as exc:
+            if log:
+                log_issue(log, f"{label}: přeskočeno ({exc})")
 
     dmpok_png = out_dir / "dmpok_nahled.png"
     dmpok_pgw = dmpok_png.with_suffix(".pgw")

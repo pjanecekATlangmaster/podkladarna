@@ -770,3 +770,42 @@ def test_http_get_bytes_retries_network_errors_not_4xx(monkeypatch):
     with pytest.raises(urllib.error.HTTPError):
         rl._http_get_bytes("http://x")
     assert calls["n"] == 1
+
+def test_dmvs_wms_getmap_uses_empty_styles_and_keeps_default_elsewhere():
+    from app.pipeline import reference_layers as rl
+
+    dmvs = rl._wms_getmap_url(
+        rl.DMVS_ZPS_LINIE_WMS, rl.DMVS_ZPS_LINIE_LAYER, -744250, -1047250, -743750, -1046850, 500, 400,
+        "image/png", True,
+    )
+    assert "styles=&" in dmvs and "crs=EPSG%3A5514" in dmvs and "transparent=true" in dmvs
+    ztm = rl._wms_getmap_url(rl.ZTM_WMS, "0", 0, 0, 10, 10, 100, 100, "image/png")
+    assert "styles=default" in ztm
+
+
+def test_dtm_layers_registered_in_references_and_templates():
+    from app.pipeline import reference_layers as rl
+    from app.pipeline.oom_layers import OOM_REFERENCE_SPECS
+
+    assert rl._ref_png_key("dtm_plochy.png") == "dtm_plochy"
+    assert rl._ref_png_key("dtm_linie.png") == "dtm_linie"
+    assert "dtm_linie.png" in rl.reference_metadata()["map_layers"]
+    keys = {s[0]: s[2] for s in OOM_REFERENCE_SPECS}
+    assert keys["dtm_plochy"] == "references/dtm_plochy.png"
+    assert keys["dtm_linie"] == "references/dtm_linie.png"
+    assert rl.REF_CACHE_FORMAT >= 4  # stará cache bez vrstev DTM se nepoužije
+
+
+def test_png_has_content_detects_empty_overlay(tmp_path):
+    from PIL import Image
+
+    from app.pipeline.reference_layers import png_has_content
+
+    empty = tmp_path / "e.png"
+    Image.new("RGBA", (20, 20), (255, 255, 255, 0)).save(empty)
+    assert png_has_content(empty) is False
+    full = tmp_path / "f.png"
+    im = Image.new("RGBA", (20, 20), (255, 255, 255, 0))
+    im.putpixel((3, 3), (0, 0, 0, 255))
+    im.save(full)
+    assert png_has_content(full) is True
