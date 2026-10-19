@@ -209,6 +209,14 @@ def _path_features(work_dir: Path, path_source: str) -> list[dict]:
         return []
 
 
+def sidewalk_cover_geometry(work_dir: Path):
+    """Plocha chodníků z DTM rozšířená o ``OSM_COVER_M`` (shapely) nebo None."""
+    from app.pipeline import dtm_sidewalks
+
+    dtm = dtm_sidewalks.dtm_union(_load_sidewalk_polygons(work_dir))
+    return dtm.buffer(dtm_sidewalks.OSM_COVER_M) if dtm is not None and not dtm.is_empty else None
+
+
 def is_surface_sidewalk(highway: str) -> bool:
     """Zpevněný chodník na povrchu (ne lávka, tunel, schody ani nezpevněná pěšina)."""
     from app.pipeline import osm_paths as op

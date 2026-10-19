@@ -36,6 +36,23 @@ def test_unify_osm_only_when_no_dtm_polygon():
     assert abs(geom.area - 20 * ds.OSM_WIDTH_M) < 3.0
 
 
+def test_unify_drops_parallel_osm_line_beside_dtm_but_keeps_extension():
+    dtm = [_rect(0, 0, 40, 2)]
+    parallel = [(2.0, 3.5), (38.0, 3.5)]  # posunutý OSM chodník 1,5 m od plochy
+    away = [(40.0, 1.0), (40.0, 31.0)]  # pokračování kolmo pryč
+    geom = ds.unify_sidewalks(dtm, [parallel])
+    assert abs(geom.area - 80.0) < 1.0  # souběžná čára se nekreslí
+    geom = ds.unify_sidewalks(dtm, [parallel, away])
+    assert geom.bounds[3] > 30.0 and geom.area < 80 + 30 * 1.4 + 5
+
+
+def test_clip_outside_cuts_footway_inside_dtm():
+    cover = ds.dtm_union([_rect(10, -2, 20, 2)]).buffer(ds.OSM_COVER_M)
+    pieces = ds.clip_outside([(0.0, 0.0), (40.0, 0.0)], cover)
+    assert len(pieces) == 2
+    assert max(x for x, _y in pieces[0]) < 10 and min(x for x, _y in pieces[1]) > 20
+
+
 def test_is_surface_sidewalk_excludes_bridges_and_steps():
     assert di.is_surface_sidewalk("sidewalk")
     assert not di.is_surface_sidewalk("steps")

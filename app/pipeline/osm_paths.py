@@ -3706,9 +3706,11 @@ def build_osm_path_parts(
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
     # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.
-    from app.pipeline.dtm_import import dtm_owns_sidewalks, is_surface_sidewalk
+    from app.pipeline.dtm_import import dtm_owns_sidewalks, is_surface_sidewalk, sidewalk_cover_geometry
+    from app.pipeline.dtm_sidewalks import clip_outside
 
     sidewalks_from_dtm = preset_id.startswith("sprint") and dtm_owns_sidewalks(work_dir)
+    sidewalk_cover = sidewalk_cover_geometry(work_dir) if sidewalks_from_dtm else None
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
@@ -3734,7 +3736,11 @@ def build_osm_path_parts(
         if symbol_index is None:
             continue
         line = [(float(x), float(y)) for x, y in coords]
-        pieces = clip_polyline(line, clip_bounds) if clip_bounds else [line]
+        lines = [line]
+        if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian"}:
+            # Pěšina uvnitř plochy chodníku z DTM by se kreslila dvakrát → jen části mimo plochu.
+            lines = clip_outside(line, sidewalk_cover)
+        pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         for piece in pieces:
             mapped = [
                 projected_to_map_coord(

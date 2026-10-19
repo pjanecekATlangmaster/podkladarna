@@ -24,6 +24,11 @@ SIMPLIFY_M = 0.1
 OSM_COVER_M = 0.5
 # Zbytek OSM čáry kratší než toto (m) se zahodí (střepy po ořezu).
 OSM_MIN_REMAINDER_M = 3.0
+# Zbytek OSM čáry, jehož aspoň ``PARALLEL_SHARE`` délky leží do ``PARALLEL_NEAR_M`` od plochy z DTM,
+# je souběžný duplikát (OSM chodník posunutý proti DTM) a zahodí se. Krátké pokračování chodníku
+# za koncem plochy (míří pryč) tímto filtrem neprojde, protože se od plochy rychle vzdaluje.
+PARALLEL_NEAR_M = 2.5
+PARALLEL_SHARE = 0.75
 # Šířka chodníku z OSM čáry (m) – jako symbol 501.10.
 OSM_WIDTH_M = 1.4
 # Plochy menší než tato (m²) se po sloučení zahodí.
@@ -80,16 +85,9 @@ def _clean(geom, *, close_m: float, min_hole_m2: float, simplify_m: float):
     return geom
 
 
-def unify_sidewalks(
-    dtm_polys: list[list[list[tuple[float, float]]]],
-    osm_lines: list[list[tuple[float, float]]],
-    *,
-    osm_width_m: float = OSM_WIDTH_M,
-    cover_m: float = OSM_COVER_M,
-    min_remainder_m: float = OSM_MIN_REMAINDER_M,
-):
-    """Jedna plocha chodníků: DTM (tvar) + zbytky OSM čar (aktuálnost); shapely geometrie nebo None."""
-    from shapely.geometry import LineString, Polygon
+def dtm_union(dtm_polys: list[list[list[tuple[float, float]]]]):
+    """Vyčištěné sjednocení ploch chodníků z DTM (shapely) nebo None."""
+    from shapely.geometry import Polygon
     from shapely.ops import unary_union
 
     parts = []
@@ -101,8 +99,35 @@ def unify_sidewalks(
         g = g if g.is_valid else g.buffer(0)
         if not g.is_empty:
             parts.append(g)
-    dtm = _clean(unary_union(parts), close_m=CLOSE_M, min_hole_m2=MIN_HOLE_M2, simplify_m=SIMPLIFY_M) if parts else None
+    if not parts:
+        return None
+    return _clean(unary_union(parts), close_m=CLOSE_M, min_hole_m2=MIN_HOLE_M2, simplify_m=SIMPLIFY_M)
+
+
+def clip_outside(coords: list[tuple[float, float]], cover, min_len_m: float = OSM_MIN_REMAINDER_M):
+    """Části čáry mimo ``cover`` (kratší než ``min_len_m`` se zahodí) jako seznamy souřadnic."""
+    from shapely.geometry import LineString
+
+    rest = LineString(coords).difference(cover)
+    pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
+    return [[(float(x), float(y)) for x, y in g.coords] for g in pieces if g.length >= min_len_m]
+
+
+def unify_sidewalks(
+    dtm_polys: list[list[list[tuple[float, float]]]],
+    osm_lines: list[list[tuple[float, float]]],
+    *,
+    osm_width_m: float = OSM_WIDTH_M,
+    cover_m: float = OSM_COVER_M,
+    min_remainder_m: float = OSM_MIN_REMAINDER_M,
+):
+    """Jedna plocha chodníků: DTM (tvar) + zbytky OSM čar (aktuálnost); shapely geometrie nebo None."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    dtm = dtm_union(dtm_polys)
     covered = dtm.buffer(cover_m) if dtm is not None and not dtm.is_empty else None
+    near_zone = dtm.buffer(PARALLEL_NEAR_M) if covered is not None else None
     extra = []
     for coords in osm_lines:
         if len(coords) < 2:
@@ -111,10 +136,13 @@ def unify_sidewalks(
         rest = line.difference(covered) if covered is not None else line
         pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
         for piece in pieces:
-            if piece.length >= min_remainder_m:
-                # Zbytek leží ≥ cover_m od DTM; kulatý konec široký ``osm_width_m`` do něj
-                # kousek zasáhne, takže se po sjednocení napojí.
-                extra.append(piece.buffer(osm_width_m / 2.0, cap_style=1, join_style=1))
+            if piece.length < min_remainder_m:
+                continue
+            if near_zone is not None and piece.intersection(near_zone).length >= PARALLEL_SHARE * piece.length:
+                continue  # souběžná čára vedle plochy z DTM = tentýž chodník, jen posunutý
+            # Zbytek leží ≥ cover_m od DTM; kulatý konec široký ``osm_width_m`` do něj
+            # kousek zasáhne, takže se po sjednocení napojí.
+            extra.append(piece.buffer(osm_width_m / 2.0, cap_style=1, join_style=1))
     items = ([dtm] if dtm is not None and not dtm.is_empty else []) + extra
     if not items:
         return None
