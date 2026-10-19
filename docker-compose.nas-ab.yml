@@ -1,0 +1,82 @@
+# A/B provoz na Synology NAS – jen pull z GHCR, bez buildu.
+#
+#   A = stabilní (veřejná):  podkladarna.kibos.link → 127.0.0.1:8672, image :stable
+#   B = test:                pt.kibos.link          → 127.0.0.1:8673, image :latest
+#
+# Obě instance běží na stejném HW: sdílí cache stažených dat (./data/cache) a zámek
+# těžkého jobu (./shared/slots) – počítá vždy jen jeden job napříč A i B. Joby,
+# databáze a odkazy v e-mailech jsou oddělené (A: ./data, B: ./data-test), takže B
+# může měnit schéma a formáty, aniž by rozbilo A.
+#
+# Povýšení B na A: GitHub Actions „Promote to stable“ (přetaguje :latest na :stable),
+# pak ./update-nas-ab.sh stable. Rollback A = předchozí digest :stable.
+# Starší jednokontejnerový docker-compose.nas.yml zůstává beze změny.
+x-app: &app
+  restart: unless-stopped
+  init: true
+  stop_grace_period: 20s
+  # Synology: compose bridge (podkladarna_default) často bez NAT/DNS.
+  network_mode: bridge
+  mem_limit: 12g  # strop; těžký job běží globálně jen jeden, takže se nesčítají
+  healthcheck:
+    test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8672/"]
+    interval: 15s
+    timeout: 5s
+    retries: 5
+    start_period: 120s
+
+x-env: &env
+  PODKLADARNA_DATA: /data
+  PODKLADARNA_SHARED_SLOTS: /shared/slots
+  MAX_CONCURRENT_LIDAR: "1"
+  JOB_RETENTION_HOURS: "48"
+  MAX_ACTIVE_JOBS_PER_IP: "2"
+  MAX_JOBS_PER_IP_HOUR: "10"
+  TRUST_PROXY_HEADERS: "1"
+  RATE_LIMIT_EXEMPT_IPS: ${RATE_LIMIT_EXEMPT_IPS:-78.80.94.188}
+  # SMTP je pro obě instance stejné (hodnoty z .env vedle compose).
+  SMTP_HOST: ${SMTP_HOST:-datais-cz.mail.protection.outlook.com}
+  SMTP_PORT: ${SMTP_PORT:-25}
+  SMTP_ENCRYPTION: ${SMTP_ENCRYPTION:-starttls}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-podkladarna@datais.cz}
+  SMTP_FROM_NAME: ${SMTP_FROM_NAME:-OB podklady}
+  PRIVATE_JOB_RETENTION_HOURS: ${PRIVATE_JOB_RETENTION_HOURS:-48}
+  FEEDBACK_TO: ${FEEDBACK_TO:-}
+  OWNER_EMAIL: ${OWNER_EMAIL:-}
+  MAX_FEEDBACK_PER_IP_HOUR: ${MAX_FEEDBACK_PER_IP_HOUR:-5}
+
+services:
+  podkladarna:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER}/podkladarna:${IMAGE_TAG_A:-stable}
+    container_name: podkladarna
+    ports:
+      - "8672:8672"
+    volumes:
+      - ./data:/data
+      - ./shared/slots:/shared/slots
+    environment:
+      <<: *env
+      PODKLADARNA_INSTANCE: A
+      PODKLADARNA_CHANNEL: stable
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://podkladarna.kibos.link}
+
+  podkladarna-test:
+    <<: *app
+    image: ghcr.io/${GHCR_OWNER}/podkladarna:${IMAGE_TAG_B:-latest}
+    container_name: podkladarna-test
+    ports:
+      - "8673:8672"
+    volumes:
+      - ./data-test:/data
+      # Sdílená cache s A (LiDAR, ZABAGED, OSM, DTM); joby a databáze zůstávají oddělené.
+      - ./data/cache:/data/cache
+      - ./shared/slots:/shared/slots
+    environment:
+      <<: *env
+      PODKLADARNA_INSTANCE: B
+      PODKLADARNA_CHANNEL: test
+      PODKLADARNA_STABLE_URL: ${STABLE_URL:-https://podkladarna.kibos.link}
+      PUBLIC_BASE_URL: ${TEST_PUBLIC_BASE_URL:-https://pt.kibos.link}

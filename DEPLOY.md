@@ -256,6 +256,36 @@ Router: forward **443** (a volitelně **80**) na **vnitřní IP NAS**, ne na jin
 
 ---
 
+## 9. A/B provoz (stabilní + test na jednom NAS)
+
+Dvě instance ze stejného image repozitáře, každá s vlastními jobami a databází:
+
+| | A – stabilní | B – test |
+|---|---|---|
+| Doména | `podkladarna.kibos.link` | `pt.kibos.link` (bez odkazů z A, `noindex`) |
+| Port | 8672 | 8673 |
+| Image | `:stable` | `:latest` (každý merge do `master`) |
+| Data | `./data` | `./data-test` |
+| Banner | žádný | „Testovací verze“ + odkaz na A |
+
+Společné: **cache stažených dat** (`./data/cache`, v B připojená nad `./data-test`) a **zámek těžkého jobu** (`./shared/slots`) – počítá jen jeden job napříč A i B. Čekající job má štítek „čeká na uvolnění serveru“; druhá instance se o cizím jobu nedozví nic než „server je vytížený“. Soubor `docker-compose.nas-ab.yml` je vedle původního `docker-compose.nas.yml` (ten zůstává pro jednu instanci).
+
+### První nasazení A/B
+1. GitHub → Actions → **Promote to stable** → Run (přetaguje `:latest` na `:stable`; bez toho A nenastartuje).
+2. DNS (Cloudflare): `pt.kibos.link` → stejná IP jako `podkladarna.kibos.link`. DSM → Reverse Proxy: `pt.kibos.link` → `http://127.0.0.1:8673` + certifikát; stejné limity uploadu jako u A (sekce 4).
+3. Na NAS do `/volume1/docker/podkladarna/`: `docker-compose.nas-ab.yml`, `update-nas-ab.sh`, doplnit `.env` (viz `.env.example`, sekce A/B).
+4. Zastavit starý stack (`docker compose -f docker-compose.nas.yml down`) a spustit `sudo ./update-nas-ab.sh both`. A používá stejné `./data`, takže joby zůstanou.
+5. Ověřit `curl http://127.0.0.1:8672/` a `:8673/` → 200 a banner na `https://pt.kibos.link`.
+
+### Běžný tok
+`merge do master` → CI sestaví `:latest` → `sudo ./update-nas-ab.sh test` → ověření na `pt.kibos.link` → **Promote to stable** → `sudo ./update-nas-ab.sh stable`.
+Rollback A: do `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh stable`.
+
+### Pozor
+- Restart služby přeruší její běžící job. Aktualizujte instanci, která zrovna nepočítá.
+- Sdílená cache: když B změní formát odvozené cache (reference, DTM JSON…), musí změnit i klíč / verzi formátu, aby A nečetl nekompatibilní soubor (`REF_CACHE_FORMAT` to už dělá).
+- Skript `update-nas-ab.sh` a compose se na NAS ještě nespustily – první nasazení sledujte.
+
 ## Env soubor (`.env` vedle compose)
 
 ```env
