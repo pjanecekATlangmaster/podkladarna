@@ -25,6 +25,7 @@ from app.pipeline.oom_import import OomObjectPart
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 
 FENCES_NAME = "fences.json"
+SIDEWALKS_NAME = "sidewalks.json"
 # OSM plot do této vzdálenosti (m) od plotu z DTM se bere jako duplicitní.
 OSM_DEDUP_BUFFER_M = 3.0
 # Zbytek OSM plotu po ořezu kratší než toto (m) se zahodí (střepy).
@@ -120,6 +121,11 @@ def prepare_dtm_fences(
     except Exception as exc:  # orientace je jen kosmetika
         if log:
             log(f"DTM: orientace plotů přeskočena ({type(exc).__name__}: {exc})")
+    try:
+        _write_sidewalks(work_dir, [files[p.filename] for p in packages if p.set_name == dtm_sources.SET_OPL], bounds, log)
+    except Exception as exc:  # chodníky z DTM jsou doplněk, kreslí se i z OSM
+        if log:
+            log(f"DTM: chodníky přeskočeny ({type(exc).__name__}: {exc})")
     dest = fences_path(work_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(
@@ -140,6 +146,139 @@ def prepare_dtm_fences(
     if log:
         log(f"DTM ploty: {len(all_fences)} úseků → {len(merged)} napojených čar ({len(packages)} balíků)")
     return dest
+
+
+def sidewalks_path(work_dir: Path) -> Path:
+    return work_dir / "dtm" / SIDEWALKS_NAME
+
+
+def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) -> None:
+    """Plochy chodníků z DTM (úroveň 0) zasahující do výřezu → ``work_dir/dtm/sidewalks.json``."""
+    from app.pipeline import dtm_sidewalks
+
+    xmin, ymin, xmax, ymax = bounds
+    polys = []
+    for name in opl_files:
+        for poly in dtm_sidewalks.load_sidewalk_polygons(name):
+            xs = [p[0] for p in poly[0]]
+            ys = [p[1] for p in poly[0]]
+            if max(xs) < xmin or min(xs) > xmax or max(ys) < ymin or min(ys) > ymax:
+                continue
+            polys.append(poly)
+    dest = sidewalks_path(work_dir)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not polys:
+        dest.unlink(missing_ok=True)
+        return
+    dest.write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in poly] for poly in polys]}), encoding="utf-8"
+    )
+    if log:
+        log(f"DTM chodníky: {len(polys)} ploch")
+
+
+def _load_sidewalk_polygons(work_dir: Path) -> list[list[list[tuple[float, float]]]]:
+    try:
+        data = json.loads(sidewalks_path(work_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [[[(float(x), float(y)) for x, y in ring] for ring in poly] for poly in data.get("polygons") or []]
+
+
+def dtm_owns_sidewalks(work_dir: Path) -> bool:
+    """Má výřez plochy chodníků z DTM? Pak chodníky kreslí ``build_dtm_sidewalk_parts``."""
+    return sidewalks_path(work_dir).is_file()
+
+
+def _path_features(work_dir: Path, path_source: str) -> list[dict]:
+    from app.pipeline import osm_paths as op
+
+    src = op.resolve_path_source(path_source)
+    name = {
+        op.PATH_SOURCE_ZABAGED: "paths_bridges.geojson",
+        op.PATH_SOURCE_OSM: "paths_osm.geojson",
+    }.get(src, "paths_mixed.geojson")
+    gj_path = work_dir / "osm_paths" / name
+    if not gj_path.is_file():
+        gj_path = work_dir / "osm_paths" / "paths.geojson"
+    if not gj_path.is_file():
+        return []
+    try:
+        return json.loads(gj_path.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return []
+
+
+def is_surface_sidewalk(highway: str) -> bool:
+    """Zpevněný chodník na povrchu (ne lávka, tunel, schody ani nezpevněná pěšina)."""
+    from app.pipeline import osm_paths as op
+
+    return (
+        op.path_draw_highway(highway) == "sidewalk"
+        and not op.is_bridge_highway(highway)
+        and not op.is_tunnel_highway(highway)
+        and highway != "steps"
+    )
+
+
+def sidewalk_osm_lines(work_dir: Path, path_source: str) -> list[list[tuple[float, float]]]:
+    """Osy chodníků z OSM / ZABAGED (podle zdroje cest), které se sjednocují s DTM."""
+    lines = []
+    for feat in _path_features(work_dir, path_source):
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        if is_surface_sidewalk(str((feat.get("properties") or {}).get("highway") or "path")):
+            lines.append([(float(x), float(y)) for x, y in coords])
+    return lines
+
+
+def build_dtm_sidewalk_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+    path_source: str = "mixed",
+) -> list[OomObjectPart]:
+    """Chodníky (jen sprint) jako jedna plocha 501.0: DTM tvar + doplňky z OSM / ZABAGED."""
+    from shapely.geometry import box
+
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline.oom_import import _area_object_with_holes
+
+    if not preset_id.startswith("sprint") or not dtm_owns_sidewalks(work_dir):
+        return []
+    polys = _load_sidewalk_polygons(work_dir)
+    if not polys:
+        return []
+    geom = dtm_sidewalks.unify_sidewalks(polys, sidewalk_osm_lines(work_dir, path_source))
+    if geom is None:
+        return []
+    if clip_bounds is not None:
+        geom = geom.intersection(box(*clip_bounds))
+    idx = symbol_index_for_code(preset_id, scale, "501.0")
+    if idx is None:
+        return []
+    objects = []
+    for rings in dtm_sidewalks.polygon_rings(geom):
+        mapped = [
+            [
+                projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                for x, y in ring
+            ]
+            for ring in rings
+        ]
+        obj = _area_object_with_holes(idx, mapped)
+        if obj:
+            objects.append(obj)
+    if not objects:
+        return []
+    return [OomObjectPart(name="Chodníky (DTM + OSM)", objects_xml="\n".join(objects), count=len(objects))]
 
 
 def start_dtm_prefetch(

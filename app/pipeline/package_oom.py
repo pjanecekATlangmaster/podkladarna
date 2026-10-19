@@ -884,6 +884,21 @@ def prepare_oom_map(
         if dxf_part:
             object_parts.append(dxf_part)
     object_parts.extend(zabaged_rest)
+    # Chodníky z DTM kraje sjednocené s OSM / ZABAGED (jen sprint; bez DTM prázdné, chodníky pak kreslí OSM cesty).
+    from app.pipeline.dtm_import import build_dtm_sidewalk_parts
+
+    object_parts.extend(
+        build_dtm_sidewalk_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            clip_bounds=vector_clip_bounds,
+            path_source=path_source,
+        )
+    )
     # OSM cesty / u režimu jen-ZABAGED aspoň krátké lávky (ČÚZK je často nemá).
     osm_parts = build_osm_path_parts(
         kp_cwd,

@@ -3705,12 +3705,18 @@ def build_osm_path_parts(
     data = json.loads(gj_path.read_text(encoding="utf-8"))
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
+    # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.
+    from app.pipeline.dtm_import import dtm_owns_sidewalks, is_surface_sidewalk
+
+    sidewalks_from_dtm = preset_id.startswith("sprint") and dtm_owns_sidewalks(work_dir)
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
         if geom.get("type") != "LineString" or len(coords) < 2:
             continue
         hw = str((feat.get("properties") or {}).get("highway") or "path")
+        if sidewalks_from_dtm and is_surface_sidewalk(hw):
+            continue
         code = osm_oom_code(hw, preset_id)
         if code not in symbol_cache:
             symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
