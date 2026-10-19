@@ -288,3 +288,16 @@ def test_private_enclosure_rings_plot_closed_by_road_edge_with_house():
     big = ("518", [(0.0, 0.0), (0.0, 400.0), (400.0, 400.0), (400.0, 0.0)])
     big_areas = {"olive": [], "public": [_rect(-30, -20, 460, 0.0)], "building": [_rect(100, 100, 120, 120)], "open": []}
     assert df.private_enclosure_rings([big], big_areas) == []
+
+
+def test_private_enclosure_rings_bridge_small_gaps_but_not_large_ones():
+    def ring_with_gap(gap):
+        return [
+            ("518", [(0.0, 0.0), (40.0, 0.0), (40.0, 40.0)]),
+            ("518", [(40.0, 40.0), (0.0, 40.0), (0.0, gap)]),  # poslední strana nedotažená o ``gap``
+        ]
+
+    assert len(df.private_enclosure_rings(ring_with_gap(3.0), {"olive": []})) == 1  # mezera 3 m → uzavřeno
+    assert df.private_enclosure_rings(ring_with_gap(15.0), {"olive": []}) == []  # velká mezera = vstup
+    # překlenutí se nekreslí: čáry zůstávají, jak jsou
+    assert len(df.gap_bridges(ring_with_gap(3.0))) >= 1

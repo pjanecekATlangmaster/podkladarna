@@ -72,6 +72,11 @@ PLOT_FENCE_SHARE = 0.35
 # Oplocení uzavřené samotnými ploty se vyplní vždy (zahrada, areál, hřiště …), je-li dost
 # široké a ne příliš velké; větší plochy se vyplní jen s převahou zahrady/dvora (OPL).
 ENCLOSURE_CLOSED_MAX_AREA_M2 = 20_000.0
+# Nedotažené konce plotů (např. po ořezu OSM plotu o DTM) se pro hledání oplocení překlenou
+# do této vzdálenosti (m); kreslit se nic nepřidává. Překlenutí smí tvořit nejvýš
+# ``ENCLOSURE_MAX_BRIDGE_SHARE`` obvodu plochy.
+ENCLOSURE_GAP_BRIDGE_M = 5.0
+ENCLOSURE_MAX_BRIDGE_SHARE = 0.3
 PLOT_FENCE_BUFFER_M = 0.7
 PLOT_MIN_WIDTH_M = 2.5
 PLOT_MAX_AREA_M2 = 3000.0
@@ -569,6 +574,37 @@ def _closed_ring_polygon(coords, tol: float = ENCLOSURE_CLOSE_TOL_M):
     return poly
 
 
+def gap_bridges(lines: list[tuple[str, list[tuple[float, float]]]], gap_m: float = ENCLOSURE_GAP_BRIDGE_M):
+    """Krátké spojky z volných konců čar k nejbližší jiné čáře do ``gap_m`` m (jen pro hledání ploch)."""
+    from shapely import STRtree
+    from shapely.geometry import LineString, Point
+    from shapely.ops import nearest_points
+
+    geoms = [LineString(c) for _code, c in lines if len(c) >= 2]
+    if not geoms or gap_m <= 0:
+        return []
+    tree = STRtree(geoms)
+    bridges = []
+    for i, line in enumerate(geoms):
+        coords = list(line.coords)
+        if math.hypot(coords[0][0] - coords[-1][0], coords[0][1] - coords[-1][1]) <= ENCLOSURE_CLOSE_TOL_M:
+            continue  # uzavřená čára nemá volné konce
+        for end in (coords[0], coords[-1]):
+            pt = Point(end)
+            best = None
+            for k in tree.query(pt.buffer(gap_m)):
+                k = int(k)
+                if k == i:
+                    continue
+                dist = geoms[k].distance(pt)
+                if 1e-9 < dist <= gap_m and (best is None or dist < best[0]):
+                    best = (dist, k)
+            if best is not None:
+                q = nearest_points(pt, geoms[best[1]])[1]
+                bridges.append(LineString([end, (q.x, q.y)]))
+    return bridges
+
+
 def fence_faces(lines: list[tuple[str, list[tuple[float, float]]]], *, barriers=None, max_area: float = ENCLOSURE_MAX_AREA_M2):
     """Uzavřené plochy tvořené sítí plotů (i složené z více čar spojených do „T“).
 
@@ -695,7 +731,17 @@ def private_enclosure_rings(
     olive = polygons(areas.get("olive") or [])
     otree = STRtree(olive) if olive else None
     out: list[Polygon] = []
-    for face in fence_faces(lines):
+    bridges = gap_bridges(lines)
+    bridge_zone = unary_union([b.buffer(0.05) for b in bridges]) if bridges else None
+
+    def bridged_too_much(face) -> bool:
+        if bridge_zone is None:
+            return False
+        return face.exterior.intersection(bridge_zone).length / face.exterior.length > ENCLOSURE_MAX_BRIDGE_SHARE
+
+    for face in fence_faces(lines, barriers=bridges):
+        if bridged_too_much(face):
+            continue
         per = face.exterior.length
         compact = per > 0 and 2.0 * face.area / per >= PLOT_MIN_WIDTH_M and face.area <= ENCLOSURE_CLOSED_MAX_AREA_M2
         private = False
@@ -714,7 +760,9 @@ def private_enclosure_rings(
         ]
         fence_zone = unary_union([LineString(c).buffer(PLOT_FENCE_BUFFER_M) for _k, c in lines if len(c) >= 2])
         btree = STRtree(buildings)
-        for face in fence_faces(lines, barriers=rings, max_area=PLOT_MAX_AREA_M2):
+        for face in fence_faces(lines, barriers=rings + bridges, max_area=PLOT_MAX_AREA_M2):
+            if bridged_too_much(face):
+                continue
             per = face.exterior.length
             if per <= 0 or 2.0 * face.area / per < PLOT_MIN_WIDTH_M:
                 continue
