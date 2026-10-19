@@ -58,7 +58,19 @@ ORIENT_STEP_M = 6.0
 ORIENT_OFFSET_M = 1.2
 # Odstup plotu od cesty/chodníku směrem k soukromé ploše (zahrada, dvůr, budova), aby se
 # čára nekryla s okrajem cesty a byla čitelná. 0 = bez odstupu.
-FENCE_SETBACK_M = 1.5
+FENCE_SETBACK_M = 0.0
+# Oplocení (uzavřený plot): uvnitř ležící ploty se zahodí, oplocení se zvenku vyplní olivou.
+ENCLOSURE_CLOSE_TOL_M = 0.3
+ENCLOSURE_MIN_AREA_M2 = 15.0
+ENCLOSURE_MAX_AREA_M2 = 100_000.0
+# Oplocení se vyplní olivou, jen když aspoň tento podíl jeho vnitřku je zahrada/dvůr (OPL).
+ENCLOSURE_PRIVATE_SHARE = 0.5
+# Odsun od cest: poloviční šířka čáry plotu (m), mezera od černé čáry cesty (m),
+# největší povolený posun jednoho bodu a rozestup bodů při úpravě.
+FENCE_HALF_WIDTH_M = 0.4
+PATH_GAP_M = 0.3
+AVOID_MAX_SHIFT_M = 3.0
+AVOID_STEP_M = 2.0
 
 
 @dataclass(frozen=True)
@@ -523,4 +535,208 @@ def _inside_single_area(fences, lines, unknown, has_private, areas) -> set[int]:
             inside = False
         if inside:
             out.add(i)
+    return out
+
+
+def _closed_ring_polygon(coords, tol: float = ENCLOSURE_CLOSE_TOL_M):
+    """Polygon z uzavřené čáry (první a poslední bod do ``tol`` m), jinak None."""
+    from shapely.geometry import Polygon
+
+    if len(coords) < 4:
+        return None
+    (x0, y0), (x1, y1) = coords[0], coords[-1]
+    if math.hypot(x1 - x0, y1 - y0) > tol:
+        return None
+    try:
+        poly = Polygon(coords)
+        poly = poly if poly.is_valid else poly.buffer(0)
+    except ValueError:
+        return None
+    if poly.is_empty or poly.geom_type != "Polygon":
+        return None
+    if not (ENCLOSURE_MIN_AREA_M2 <= poly.area <= ENCLOSURE_MAX_AREA_M2):
+        return None
+    return poly
+
+
+def fence_faces(lines: list[tuple[str, list[tuple[float, float]]]]):
+    """Uzavřené plochy tvořené sítí plotů (i složené z více čar spojených do „T“).
+
+    Čáry se uzlí (``unary_union``) a polygonizují; plochy mimo rozsah
+    ``ENCLOSURE_MIN_AREA_M2``–``ENCLOSURE_MAX_AREA_M2`` se nepoužívají.
+    """
+    from shapely.geometry import LineString
+    from shapely.ops import polygonize, unary_union
+
+    geoms = [LineString(c) for _code, c in lines if len(c) >= 2]
+    if not geoms:
+        return []
+    faces = []
+    for poly in polygonize(unary_union(geoms)):
+        if ENCLOSURE_MIN_AREA_M2 <= poly.area <= ENCLOSURE_MAX_AREA_M2:
+            faces.append(poly)
+    return faces
+
+
+def drop_fences_inside_enclosures(
+    lines: list[tuple[str, list[tuple[float, float]]]], *, tol: float = ENCLOSURE_CLOSE_TOL_M
+) -> tuple[list[tuple[str, list[tuple[float, float]]]], int]:
+    """Zahodí ploty ležící uvnitř většího oplocení: ``(ponechané, počet zahozených)``.
+
+    1. Čára celá uvnitř jiné uzavřené čáry (vnořené oplocení, přepážka).
+    2. Čára celá uvnitř uzavřené plochy sítě plotů (osamělý / vyčnívající kus),
+       která neleží na hranici té plochy – dělicí plot spojující dvě strany oplocení
+       je hranicí dvou ploch, ten zůstává.
+    Hranici oplocení samotnou nikdy nezahazujeme.
+    """
+    from shapely import STRtree
+    from shapely.geometry import LineString
+
+    rings = []  # (index čáry, polygon)
+    for i, (_code, coords) in enumerate(lines):
+        poly = _closed_ring_polygon(coords, tol)
+        if poly is not None:
+            rings.append((i, poly))
+    dropped: set[int] = set()
+    if rings:
+        tree = STRtree([p.buffer(tol) for _i, p in rings])
+        for i, (_code, coords) in enumerate(lines):
+            if len(coords) < 2:
+                continue
+            line = LineString(coords)
+            own = next((p for j, p in rings if j == i), None)
+            for k in tree.query(line):
+                j, poly = rings[int(k)]
+                if j == i or (own is not None and own.area >= poly.area):
+                    continue
+                if poly.buffer(tol).covers(line):
+                    dropped.add(i)
+                    break
+    rest = [(i, item) for i, item in enumerate(lines) if i not in dropped]
+    faces = fence_faces([item for _i, item in rest])
+    if faces:
+        ftree = STRtree(faces)
+        for i, (_code, coords) in rest:
+            if len(coords) < 2:
+                continue
+            line = LineString(coords)
+            if line.length <= 0:
+                continue
+            for k in ftree.query(line):
+                face = faces[int(k)]
+                if not face.buffer(tol).covers(line):
+                    continue
+                on_edge = line.intersection(face.boundary.buffer(2 * tol)).length
+                if on_edge < 0.5 * line.length:
+                    dropped.add(i)
+                    break
+    kept = [item for i, item in enumerate(lines) if i not in dropped]
+    return kept, len(dropped)
+
+
+def private_enclosure_rings(
+    lines: list[tuple[str, list[tuple[float, float]]]], areas: dict[str, list]
+) -> list[list[tuple[float, float]]]:
+    """Obrysy oplocení (ploch sítě plotů), jejichž vnitřek je převážně zahrada/dvůr (OPL).
+
+    Jen takové se vyplní olivou (hřiště, školní areály apod. by oliva špatně označila za
+    nepřístupné). Bez ploch z OPL se nevyplňuje nic.
+    """
+    from shapely import STRtree
+    from shapely.geometry import Polygon
+
+    olive = []
+    for poly in areas.get("olive") or []:
+        try:
+            p = Polygon(poly[0], poly[1:])
+            olive.append(p if p.is_valid else p.buffer(0))
+        except (ValueError, IndexError):
+            continue
+    if not olive:
+        return []
+    tree = STRtree(olive)
+    out = []
+    for face in fence_faces(lines):
+        covered = sum(olive[int(k)].intersection(face).area for k in tree.query(face))
+        if covered / face.area >= ENCLOSURE_PRIVATE_SHARE:
+            out.append([(float(x), float(y)) for x, y in face.exterior.coords])
+    return out
+
+
+def avoid_paths(
+    lines: list[tuple[str, list[tuple[float, float]]]],
+    paths: list[tuple[list[tuple[float, float]], float]],
+    *,
+    max_shift: float = AVOID_MAX_SHIFT_M,
+    step: float = AVOID_STEP_M,
+) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Odsune body plotů od os cest tak, aby bylo mezi osou cesty a plotem aspoň ``clearance`` m.
+
+    ``paths`` = ``[(osa cesty, požadovaná vzdálenost osy plotu od osy cesty v m), …]``.
+    Bod se posune po kolmici od nejbližšího bodu cesty (zůstane na své straně), nejvýš o
+    ``max_shift`` m; body, které by se musely posunout víc (plot cestu kříží), se nemění.
+    Posuny se vyhladí a uzavřené čáry zůstanou uzavřené.
+    """
+    from shapely import STRtree
+    from shapely.geometry import LineString, Point
+
+    geoms, req = [], []
+    for coords, clearance in paths:
+        if len(coords) >= 2 and clearance > 0:
+            geoms.append(LineString(coords))
+            req.append(float(clearance))
+    if not geoms:
+        return lines
+    tree = STRtree(geoms)
+    reach = max(req)
+
+    def displacement(x: float, y: float) -> tuple[float, float]:
+        pt = Point(x, y)
+        best = None  # (nedostatek, dx, dy)
+        for k in tree.query(pt.buffer(reach)):
+            k = int(k)
+            g = geoms[k]
+            d = g.distance(pt)
+            deficit = req[k] - d
+            if deficit <= 1e-6 or deficit > max_shift:
+                continue
+            q = g.interpolate(g.project(pt))
+            vx, vy = x - q.x, y - q.y
+            n = math.hypot(vx, vy)
+            if n < 1e-6:
+                continue
+            if best is None or deficit > best[0]:
+                best = (deficit, vx / n * deficit, vy / n * deficit)
+        return (best[1], best[2]) if best else (0.0, 0.0)
+
+    out = []
+    for code, coords in lines:
+        if len(coords) < 2:
+            out.append((code, coords))
+            continue
+        line = LineString(coords)
+        n_seg = max(1, int(math.ceil(line.length / step)))
+        pts = [tuple(line.interpolate(line.length * t / n_seg).coords[0]) for t in range(n_seg + 1)]
+        pts[0], pts[-1] = tuple(coords[0]), tuple(coords[-1])
+        disp = [displacement(x, y) for x, y in pts]
+        if not any(dx or dy for dx, dy in disp):
+            out.append((code, coords))
+            continue
+        for _ in range(2):  # vyhlazení posunů, krajní body zůstávají
+            disp = [disp[0]] + [
+                (
+                    (disp[i - 1][0] + 2 * disp[i][0] + disp[i + 1][0]) / 4,
+                    (disp[i - 1][1] + 2 * disp[i][1] + disp[i + 1][1]) / 4,
+                )
+                for i in range(1, len(disp) - 1)
+            ] + [disp[-1]]
+        moved = [(x + dx, y + dy) for (x, y), (dx, dy) in zip(pts, disp)]
+        simple = LineString(moved).simplify(0.1)
+        new = [(float(x), float(y)) for x, y in simple.coords]
+        if len(new) < 2:
+            out.append((code, coords))
+            continue
+        if math.hypot(coords[0][0] - coords[-1][0], coords[0][1] - coords[-1][1]) <= ENCLOSURE_CLOSE_TOL_M:
+            new[-1] = new[0]
+        out.append((code, new))
     return out

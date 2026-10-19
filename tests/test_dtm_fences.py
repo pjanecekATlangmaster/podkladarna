@@ -209,3 +209,60 @@ def test_orient_fences_setback_moves_fence_from_road_toward_olive():
     assert df.orient_fences([("518", list(FENCE_EAST))], both, setback_m=1.5)[0][1] == FENCE_EAST
     # výchozí setback 0 = beze změny polohy
     assert {y for _, y in df.orient_fences([("518", list(FENCE_EAST))], olive_north)[0][1]} == {0.0}
+
+
+def _square_ring(x0, y0, size):
+    return [(x0, y0), (x0 + size, y0), (x0 + size, y0 + size), (x0, y0 + size), (x0, y0)]
+
+
+def test_drop_fences_inside_enclosures_keeps_outer_ring_and_outside_lines():
+    ring = ("518", _square_ring(0, 0, 40))
+    inner_line = ("518", [(10.0, 10.0), (30.0, 10.0)])
+    inner_ring = ("518", _square_ring(10, 10, 8))
+    outside = ("518", [(60.0, 0.0), (90.0, 0.0)])
+    crossing = ("518", [(20.0, 20.0), (80.0, 20.0)])  # vyčnívá ven → ponechat
+    kept, n = df.drop_fences_inside_enclosures([ring, inner_line, inner_ring, outside, crossing])
+    assert n == 2
+    assert [c for _k, c in kept] == [ring[1], outside[1], crossing[1]]
+
+
+def test_fence_faces_find_enclosure_made_of_several_lines_with_t_junction():
+    lines = [
+        ("518", [(0.0, 0.0), (40.0, 0.0), (40.0, 40.0)]),
+        ("518", [(40.0, 40.0), (0.0, 40.0), (0.0, 0.0)]),
+        ("518", [(20.0, 0.0), (20.0, -15.0)]),  # vyčnívá ven – žádná plocha
+    ]
+    faces = df.fence_faces(lines)
+    assert len(faces) == 1 and abs(faces[0].area - 1600.0) < 1e-6
+
+
+def test_drop_inside_removes_dangling_line_in_face_but_keeps_divider_between_faces():
+    box = [("518", [(0.0, 0.0), (40.0, 0.0), (40.0, 40.0)]), ("518", [(40.0, 40.0), (0.0, 40.0), (0.0, 0.0)])]
+    dangling = ("518", [(10.0, 10.0), (20.0, 10.0)])
+    divider = ("518", [(20.0, 0.0), (20.0, 40.0)])  # spojuje dvě strany → hranice dvou ploch
+    kept, n = df.drop_fences_inside_enclosures(box + [dangling, divider])
+    assert n == 1 and dangling not in kept and divider in kept
+
+
+def test_private_enclosure_rings_need_olive_coverage():
+    ring = ("518", _square_ring(0, 0, 40))
+    rings = df.private_enclosure_rings([ring], {"olive": [_rect(-5, -5, 45, 45)]})
+    assert len(rings) == 1 and rings[0][0] == rings[0][-1]
+    assert df.private_enclosure_rings([ring], {"olive": [_rect(100, 100, 120, 120)]}) == []
+    assert df.private_enclosure_rings([ring], {"olive": []}) == []
+    assert df.private_enclosure_rings([("518", [(0.0, 0.0), (30.0, 0.0)])], {"olive": [_rect(-5, -5, 45, 45)]}) == []
+
+def test_avoid_paths_pushes_fence_away_from_black_path_only_where_needed():
+    fence = ("518", [(0.0, 0.5), (40.0, 0.5)])  # 0,5 m od osy pěšiny
+    far = ("518", [(0.0, 20.0), (40.0, 20.0)])
+    path = [([(-10.0, 0.0), (50.0, 0.0)], 1.5)]
+    (_c1, moved), (_c2, untouched) = df.avoid_paths([fence, far], path)
+    assert min(y for _x, y in moved) >= 1.4  # odsunuto na stranu, kde plot byl
+    assert untouched == far[1]
+
+
+def test_avoid_paths_keeps_closed_ring_closed():
+    ring = ("518", _square_ring(0, 0, 20))
+    path = [([(-5.0, 10.0), (-5.0, 11.0)], 8.0)]
+    (_c, new), = df.avoid_paths([ring], path)
+    assert new[0] == new[-1]

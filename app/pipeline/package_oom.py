@@ -911,6 +911,7 @@ def prepare_oom_map(
             ref_y=ref_y,
             grivation_deg=grivation,
             clip_bounds=vector_clip_bounds,
+            path_source=path_source,
         )
     )
     if aopk_trees and aopk_trees.is_file():
