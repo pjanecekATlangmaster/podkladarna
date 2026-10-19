@@ -33,6 +33,7 @@ from app.pipeline.job_options import (
     resolve_veg_smooth,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
+from app.pipeline.dtm_import import start_dtm_prefetch
 from app.pipeline.residual_paved import start_residual_osm_prefetch
 from app.pipeline.osm_paths import (
     prepare_osm_paths,
@@ -89,6 +90,7 @@ from app.pipeline.vegetation_density import (
 REF_LOG_LABEL = "podklady"
 SURFACE_LOG_LABEL = "DSM/CHM"
 OSM_LOG_LABEL = "OSM"
+DTM_LOG_LABEL = "DTM"
 
 
 @dataclass
@@ -335,6 +337,7 @@ def run_job_pipeline(
     # OSM (Overpass) trvá desítky sekund a při výpadku zrcadel minuty – stahuje
     # se na pozadí hned, souběžně s LiDAR/ZABAGED, a krok OSM jen převezme výsledek.
     osm_prefetch = None
+    dtm_prefetch = None
     if bbox:
         try:
             osm_prefetch = start_osm_prefetch(
@@ -370,6 +373,25 @@ def run_job_pipeline(
                 )
         except Exception as exc:
             log_issue(log, f"OSM 501: stahování na pozadí se nespustilo ({exc})")
+        # DTM kraje (zaměřené ploty, jen sprint): příprava na pozadí, výsledek se vezme při sestavení mapy.
+        try:
+            if options.get("dtm_fences", True) and any(
+                str(disc_preset).startswith("sprint")
+                for _tag, disc_preset, _scale in resolve_discipline_presets(
+                    preset_id,
+                    load_presets(),
+                    map_scale=options.get("map_scale"),
+                    contour_interval=options.get("contour_interval"),
+                )
+            ):
+                dtm_prefetch = start_dtm_prefetch(
+                    work_dir,
+                    tuple(bbox),
+                    log=background_log(raw_log, DTM_LOG_LABEL),
+                    force=force_refresh,
+                )
+        except Exception as exc:
+            log_issue(log, f"DTM: příprava na pozadí se nespustila ({exc})")
 
     lidar_work = work_dir / "lidar"
     if reused_from:
@@ -856,6 +878,10 @@ def _package_output(
                     f"(auto .omap {size_note}; SHP všechna pásma + řídké)"
                 )
 
+            if dtm_prefetch is not None:
+                if not dtm_prefetch.future.done():
+                    log("Čekám na přípravu DTM (ploty) z pozadí…")
+                dtm_prefetch.result()  # chyby řeší vlákno samo (job pokračuje bez DTM)
             log_step(
                 log,
                 "Sestavuji mapu OOM (vrstevnice, zeleň a polohopis do .omap)",

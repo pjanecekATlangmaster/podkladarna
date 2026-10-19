@@ -899,6 +899,20 @@ def prepare_oom_map(
         object_parts.extend(osm_parts)
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
+    # Zaměřené ploty z DTM kraje (jen sprint; chybějící DTM = prázdný seznam).
+    from app.pipeline.dtm_import import build_dtm_fence_parts
+
+    object_parts.extend(
+        build_dtm_fence_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            clip_bounds=vector_clip_bounds,
+        )
+    )
     if aopk_trees and aopk_trees.is_file():
         object_parts.extend(
             build_aopk_tree_parts(
