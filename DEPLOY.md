@@ -279,6 +279,7 @@ Společné: **cache stažených dat** (`./data/cache`, v B připojená nad `./da
 
 ### Běžný tok
 `merge do master` → CI sestaví `:latest` → `sudo ./update-nas-ab.sh test` → ověření na `pt.kibos.link` → **Promote to stable** → `sudo ./update-nas-ab.sh stable`.
+Automatická aktualizace B (cron, např. každých 5 min): `flock -n /tmp/update-ab.lock /volume1/docker/podkladarna/update-nas-ab.sh test --if-idle`. Bez nového image se kontejner nerestartuje; s novým image se restart odloží, dokud na B běží job (`/api/health` → `busy`).
 Rollback A: do `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh stable`.
 
 ### Pozor
