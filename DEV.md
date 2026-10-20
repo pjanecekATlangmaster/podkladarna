@@ -225,6 +225,8 @@ se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`
 - `ChodnikPlocha` s OSM silnicí uvnitř (≥ 150 m, nebo ≥ 30 m a šířka ≥ 4 m) se bere jako silnice
   (chyba v DTM, `reclassify_sidewalks_as_roads`).
 - Čáry cest ZABAGED (`Ulice`, `SilniceDalnice`, `Cesta`, `Pesina`) se o plochy chodníků a silnic ořežou.
+- Cesty končící na zpevněné ploše (chodníky / silnice z DTM ve sprintu, koridor v MTBO) se ukončí přesně na její hraně:
+  konec uvnitř plochy se odřízne, konec do 1,5 m před plochou se k hraně prodlouží (`end_at_edge`); ořez je bez odstupu.
 - Starší joby (bez `work/dtm/sidewalks.json` apod.) kreslí chodníky, silnice a budovy po staru z OSM.
 - Cache balíků DTM má vlastní přípony (`.sidewalk1.json`, `.road1.json`, `.bld1.json`, …); při změně formátu
   zvyš číslo v příponě (A/B sdílí cache, viz `DEPLOY.md`).
