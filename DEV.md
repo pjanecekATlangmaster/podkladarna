@@ -210,8 +210,11 @@ Pravidlo: **tvar bere DTM, aktuálnost OSM** – zbytky OSM, které DTM nezná, 
 | Budovy | `BudovaPlocha` | 521, těsně navazující sloučené | OSM budova s ≥ 50 % krytím (platí i v `OSM_budovy.shp`) |
 | Malé stavby | `StavbaProZpevneniPovrchuPlocha` | samostatná část 501.0 | – |
 | Schodiště | `SchodistePlocha` | 532.7 po ose (i zahnutá) | OSM schody v schodišti a v plochách DTM |
-| Zeleň | `UdrzovanaPlochaZelenePlocha` | nekreslí se | vystřihne se z OSM zpevněných ploch |
+| Zeleň | `UdrzovanaPlochaZelenePlocha` | nekreslí se | vystřihne se z OSM zpevněných ploch (parkoviště, pěší zóna …); **dětská hřiště z OSM se nevystřihují** (OSM je přesnější, `DTM_GREEN_KEEP_KINDS`) |
 | Mosty (více úrovní) | `PlochaMostniKonstrukcePlocha` a povrchy na úrovni ≥ 1 (`ChodnikPlocha`, `SchodistePlocha`, `StavbaProZpevneniPovrchu`, `ProvozniPlocha…`) | mostovka po úrovních barvou povrchu (chodník 501.0, silnice 501.20) + hrany 512.100 pod mostem | spodní úroveň pod mostem (chodníky, silnice, parkoviště, voda), OSM cesty pod mostem a OSM lávky uvnitř mostu z DTM |
+
+**MTBO zatím DTM nepoužívá** (`MTBO_USE_DTM = False` v `dtm_import.py`, `mtbo_dtm_off`): kreslí se z ZABAGED / OSM jako před
+zavedením DTM (budovy, ploty, koridor, chodníky, parkoviště, schodiště z DTM se vypnou). Zbytek odstavce platí po zapnutí příznaku.
 
 **Les a MTBO** berou z DTM jen to, co je v 1:7500–1:15000 čitelné: **budovy** (stejné skládání jako ve sprintu, 521 / 526)
 a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výplně, jen delší než 20 m). MTBO navíc
@@ -220,8 +223,11 @@ a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výp
 čárou 502.x, uvnitř koridoru se čára nekreslí; chodník se sdíleným provozem (OSM `bicycle=yes|designated`, soubor
 `osm_paths/bike_paths.geojson`) a cyklostezky se nesloučí (vypnutí: `MTBO_ROAD_CORRIDOR = False`). MTBO navíc
 **velká parkoviště** z DTM (od 300 m², plocha 529; OSM parkoviště pod nimi se zahodí). **Schodiště z DTM** (po ose, 532 / 843, od 3 m; OSM schody v nich pryč). Chodníky, silnice a malé stavby
-z DTM se tam nekreslí; šířka silnic zůstává z OSM. Navíc se v lese i MTBO (jen z OSM, bez DTM) zahazuje **chodník souběžný
-se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`).
+z DTM se tam nekreslí (kromě chodníků níže); šířka silnic zůstává z OSM. MTBO navíc **chodníky a zpevněné cesty z DTM mimo silnice** (plocha 501.0 + obrys 501.100,
+`mtbo_sidewalk_geometry`): jen části široké aspoň 0,25 mm mapy (2,5 m v 1:10000), mimo koridor a dál než 8 m od silnice (sdílený provoz / cyklostezky zůstávají); OSM
+chodník / pěšina / zpevněná cyklostezka uvnitř plochy se nekreslí a končí na její hraně, užší cesty zůstávají čárou 834 (vypnutí: `MTBO_SIDEWALK_AREAS = False`). Navíc se v lese i MTBO (jen z OSM, bez DTM) zahazuje **chodník souběžný
+se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`); k pásu kolem silnice se sčítá i OSM parkoviště
+(+ 3 m od okraje, `osm_parking_geometry`), takže chodník podél parkoviště se také nekreslí.
 
 - `ChodnikPlocha` s OSM silnicí uvnitř (≥ 150 m, nebo ≥ 30 m a šířka ≥ 4 m) se bere jako silnice
   (chyba v DTM, `reclassify_sidewalks_as_roads`).
@@ -232,6 +238,23 @@ se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`
 - Starší joby (bez `work/dtm/sidewalks.json` apod.) kreslí chodníky, silnice a budovy po staru z OSM.
 - Cache balíků DTM má vlastní přípony (`.sidewalk1.json`, `.road1.json`, `.bld1.json`, …); při změně formátu
   zvyš číslo v příponě (A/B sdílí cache, viz `DEPLOY.md`).
+
+### Ladění na testovací verzi B a dohledání DTM objektu podle ID
+
+- **Testovací B verze:** `https://pt.kibos.link`, data jobů na NAS ve sdílené složce
+  `\\192.168.10.11\docker\podkladarna\data-test\jobs\<id>\` (ostrá je vedle: `...\data\jobs\`; jen čtení, do produkce nesahat).
+  Job obsahuje `log.txt` (první řádek = preset a listy, dál „[DTM] …“), `output/` (`.omap` les / mtbo / sprint, `podkladarna_output.zip`)
+  a `work/` (`dtm/*.json` = polygony použité v jobu, `osm_paths/`, `job_grid.json`). Iterace („Iterace z jobu …“) berou LAZ z původního jobu.
+  Poslední MTBO / LES se dohledá podle `output/*-mtbo.omap` a řádku `OOM: …mtbo_10000`.
+- **Cache balíků DTM:** `data/cache/dtm/<kraj>/VS_<kraj>_<MOMC|OBEC>_<kód>_<YYYYMMDD>_<sada>.jvf.zip` (lokálně, gitignorované) a stejná struktura na NAS
+  `\\192.168.10.11\docker\podkladarna\data\cache\dtm\`. Seznam URL kraje je v `urls_<kraj>.txt`. Stažení: `app/pipeline/dtm_sources.py`
+  (`find_packages_for_bbox`, `download_package`; seznam URL přes DMVS API). Lokálně je stažená celá Praha (CZ010) pro sady OPL, KR a DI k 30. 9. 2026.
+- **ID objektu z portálu DTM** (pole „ID objektu v rámci DTM ČR“) je v JVF XML jako `<atr:ID>…</atr:ID>` (12–13 číslic). Hledání: projdi `*.zip` v cache
+  `zipfile` a v bajtech hledej `>ID<`. Sady: **ZPS_OPL** (odvozené plochy – chodníky, silnice, budovy), **ZPS_KR** (kresba – ploty, obvody),
+  **DI** (dopravní infrastruktura, např. `ObvodPozemniKomunikace` = element `obvopk`). **DI pipeline zatím nepoužívá** (`DEFAULT_SETS` = OPL + KR);
+  např. ID 100056111929 / 100056111932 jsou DI „obvod pozemní komunikace“ v Praze 5 (MČ 500143). Portál ukazuje živý stav, balíky jsou měsíční export
+  (k poslednímu dni měsíce) – čerstvě založený objekt v balíku být nemusí (ID 1000427416976 se v pražských OPL / KR / DI k 30. 9. 2026 nenašlo).
+- Chybí-li balík pro místo, najdi kraj a MČ / obec podle bbox z `work/job_grid.json` nebo z řádku `ZABAGED cache (<lon>_<lat>_…)` v logu jobu.
 
 ## 4. NAS deploy až po zelených testech
 

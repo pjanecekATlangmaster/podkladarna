@@ -91,7 +91,7 @@ Agenti jsou v `.claude/agents/` (každý má `maxTurns` a nízký/střední `eff
 - `update-nas.sh` — aktualizace image z GHCR na NAS
 - `nas-lib.sh` — sdílené funkce pro NAS deploy
 - `.github/workflows/` — GitHub Actions (`test.yml`, `docker.yml`)
-- `DEV.md` — podrobný vývojový workflow
+- `DEV.md` — podrobný vývojový workflow; sekce „Ladění na testovací verzi B a dohledání DTM objektu podle ID“ (pt.kibos.link, `data-test\jobs`, cache a stahování DTM balíků)
 - `DEPLOY.md` — podrobný postup nasazení a provozu na NAS
 
 ## Vývoj a testy
@@ -250,6 +250,22 @@ docker compose -f docker-compose.nas.yml up -d
 ```
 
 Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažení ZIP a otevření v OpenOrienteering Mapperu, u SMTP e-mail s odkazem) je popsán v `DEPLOY.md`.
+
+## Důležité poznatky (DTM, MTBO, test B)
+
+- **Testovací B verze** (`https://pt.kibos.link`, data `\\192.168.10.11\docker\podkladarna\data-test\jobs\`) se aktualizuje z `master`
+  (`:latest` → `update-nas-ab.sh test`, cron jen když neběží job). „Push do testu“ = commit + push do `master`. Jak dohledat job, bbox a DTM balíky: `DEV.md`.
+- **MTBO nepoužívá DTM** (`MTBO_USE_DTM = False` v `app/pipeline/dtm_import.py`, `mtbo_dtm_off`): kreslí se z ZABAGED / OSM. Kód pro DTM v MTBO
+  (koridor silnice, chodníky, parkoviště, schodiště, budovy, ploty) zůstává a zapne se příznakem; testy ho zapínají fixturou. LES bere z DTM budovy
+  a ploty (včetně výplně oplocení olivou 520), sprint všechno.
+- **Dedup chodníků v lese a MTBO je jen z OSM:** chodník souběžný se silnicí nebo OSM parkovištěm se zahodí (celý při ≥ 70 % délky v pásu 12 m /
+  parkoviště + 3 m, jinak jen souvislé úseky ≥ 40 m). Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic
+  jako zóna pro dedup (zatím neudělané, čeká na rozhodnutí Petra).
+- **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
+- **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
+  jinak se silnice kreslila střídavě plochou a čárou.
+- **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
+  Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
 
 ## Konfigurace a tajemství
 

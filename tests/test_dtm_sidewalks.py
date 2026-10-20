@@ -1,7 +1,36 @@
 import json
 
+import pytest
+
 from app.pipeline import dtm_import as di
 from app.pipeline import dtm_sidewalks as ds
+
+
+@pytest.fixture(autouse=True)
+def _mtbo_dtm_on(monkeypatch):
+    """MTBO má DTM ve výchozím stavu vypnuté (``MTBO_USE_DTM``); testy MTBO funkcí ho zapínají."""
+    monkeypatch.setattr(di, "MTBO_USE_DTM", True)
+
+
+def test_mtbo_without_dtm_flag_draws_nothing_from_dtm(tmp_path, monkeypatch):
+    monkeypatch.setattr(di, "MTBO_USE_DTM", False)
+    work = tmp_path
+    (work / "dtm").mkdir()
+    ring = [[-1000, -980], [-950, -980], [-950, -940], [-1000, -940], [-1000, -980]]
+    (work / "dtm" / "fences.json").write_text(json.dumps({"fences": [{"code": "518", "coords": ring}]}), encoding="utf-8")
+    for name in ("sidewalks.json", "roads.json", "parking.json", "stairs.json"):
+        (work / "dtm" / name).write_text(json.dumps({"polygons": [[[list(p) for p in _rect(0, 0, 100, 10)[0]]]]}), encoding="utf-8")
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    assert di.mtbo_dtm_off("mtbo_10000") and not di.mtbo_dtm_off("forest_10000")
+    assert di.mtbo_corridor_geometry(work, 10000) is None and di.mtbo_sidewalk_geometry(work, 10000) is None
+    for fn in (
+        di.build_dtm_fence_parts,
+        di.build_dtm_sidewalk_parts,
+        di.build_dtm_parking_parts,
+        di.build_dtm_stairs_parts,
+        di.build_mtbo_corridor_parts,
+    ):
+        assert fn(work, **kw) == []
 
 
 def _rect(x0, y0, x1, y1):
@@ -280,6 +309,66 @@ def test_forest_and_mtbo_drop_sidewalks_beside_roads_but_keep_park_paths(tmp_pat
     assert op.is_sidewalk_beside_road("sidewalk", [(0, 5), (100, 5)], op.road_zone_geometry(feats[:1]) or None) is False
 
 
+def test_long_merged_sidewalk_is_cut_only_where_it_runs_along_road(tmp_path):
+    from shapely.geometry import LineString
+
+    from app.pipeline import osm_paths as op
+
+    road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-1000, -1000], [-880, -1000]]}}
+    zone = op.road_zone_geometry([road])
+    # sloučený chodník 600 m: prvních ~130 m podél silnice (v pásu 12 m), zbytek daleko
+    long_walk = [(-1000, -995), (-700, -995), (-700, -500)]
+    cut = op.sidewalk_parallel_zone("sidewalk", long_walk, zone)
+    assert cut is not None
+    removed = LineString(long_walk).intersection(cut).length
+    assert 120 < removed < 140
+    # krátké křížení silnice (průchod pásem < 40 m) se nekreslí jinak než dosud – nic se neřeže
+    crossing = [(-940, -1100), (-940, -900)]
+    assert op.sidewalk_parallel_zone("sidewalk", crossing, zone) is None
+    assert op.sidewalk_parallel_zone("footway", long_walk, zone) is None  # jen třída chodník
+
+    work = tmp_path
+    (work / "osm_paths").mkdir()
+    feats = [road, {"type": "Feature", "properties": {"highway": "sidewalk"}, "geometry": {"type": "LineString", "coordinates": [list(p) for p in long_walk]}}]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8")
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
+    assert op.build_osm_path_parts(work, **kw)[0].count == 2  # silnice + zbytek chodníku (ne celý, ne nic)
+
+
+def test_forest_and_mtbo_drop_sidewalks_beside_parking_too(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "osm_paths").mkdir()
+
+    def line(hw, a, b):
+        return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": [a, b]}}
+
+    feats = [
+        line("road_3", [-1000, -1000], [-900, -1000]),
+        line("sidewalk", [-1000, -975], [-900, -975]),  # 25 m od silnice, ale u okraje parkoviště → pryč
+        line("sidewalk", [-1000, -940], [-900, -940]),  # park daleko od všeho → zůstává
+    ]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    parking = {
+        "type": "Feature",
+        "properties": {"kind": "parking"},
+        "geometry": {"type": "Polygon", "coordinates": [[[-990, -990], [-910, -990], [-910, -978], [-990, -978], [-990, -990]]]},
+    }
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [parking]}), encoding="utf-8"
+    )
+    assert op.osm_parking_geometry(work) is not None
+    for preset in ("forest_10000", "mtbo_10000"):
+        kw = dict(preset_id=preset, scale=10000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
+        assert op.build_osm_path_parts(work, **kw)[0].count == 2  # silnice + park; chodník u parkoviště odpadl
+    (work / "osm_paths" / "features.geojson").unlink()
+    kw = dict(preset_id="forest_10000", scale=10000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
+    assert op.build_osm_path_parts(work, **kw)[0].count == 3  # bez parkoviště zůstává
+
+
 def test_forest_uses_dtm_buildings_and_fences_replace_osm(tmp_path):
     from app.pipeline import osm_paths as op
 
@@ -310,6 +399,20 @@ def test_forest_uses_dtm_buildings_and_fences_replace_osm(tmp_path):
     assert [p.name for p in parts] == ["Budovy (DTM + OSM)"] and parts[0].count == 1  # DTM budova, OSM dvojče pryč; plot kreslí DTM část
     fences = di.build_dtm_fence_parts(work, **kw)
     assert fences and fences[0].count == 2  # spojené ploty DTM (50 m) + OSM (50 m)
+
+
+def test_forest_fills_dtm_fence_enclosures_with_olive_but_mtbo_does_not(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    ring = [[-1000, -980], [-950, -980], [-950, -940], [-1000, -940], [-1000, -980]]
+    (work / "dtm" / "fences.json").write_text(
+        json.dumps({"fences": [{"code": "518", "coords": ring}], "fills": [ring]}), encoding="utf-8"
+    )
+    kw = dict(scale=10000, ref_x=-975.0, ref_y=-960.0, grivation_deg=0.0)
+    forest = di.build_dtm_fence_parts(work, preset_id="forest_10000", **kw)
+    assert [p.name for p in forest] == ["DTM – oplocené plochy", "Ploty (DTM + OSM)"]
+    mtbo = di.build_dtm_fence_parts(work, preset_id="mtbo_10000", **kw)
+    assert [p.name for p in mtbo] == ["Ploty (DTM + OSM)"]
 
 
 def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path):
@@ -394,6 +497,50 @@ def test_mtbo_corridor_needs_real_roadway_and_long_enough_piece():
     assert ds.road_corridor(ds.dtm_union([_rect(0, 0, 100, 10)]), None, scale=10000) is not None
 
 
+def test_wide_parts_keeps_only_wide_enough_pieces():
+    geom = ds.dtm_union([_rect(0, 0, 60, 4), _rect(0, 20, 60, 21.5)])
+    kept = ds.wide_parts(geom, 2.5, min_area_m2=40.0)
+    assert kept is not None and kept.bounds[1] == 0 and kept.bounds[3] == 4  # úzký pruh (1,5 m) vypadl
+    assert ds.wide_parts(geom, 5.0) is None
+
+
+def test_mtbo_draws_wide_dtm_sidewalks_away_from_roads_and_drops_osm_line_inside(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "osm_paths").mkdir()
+    wide = _rect(0, 0, 80, 4)  # široká cesta daleko od silnice
+    narrow = _rect(0, 30, 80, 31.5)  # úzký chodník
+    near = _rect(0, 200, 80, 204)  # široký, ale u silnice
+    road = _rect(0, 190, 80, 198)
+    for name, polys in (("sidewalks.json", [wide, narrow, near]), ("roads.json", [road])):
+        (work / "dtm" / name).write_text(
+            json.dumps({"polygons": [[[list(p) for p in ring] for ring in poly] for poly in polys]}), encoding="utf-8"
+        )
+    geom = di.mtbo_sidewalk_geometry(work, 10000, "mixed")
+    assert geom is not None
+    assert geom.intersection(ds.dtm_union([wide])).area > 0.9 * 80 * 4
+    assert geom.intersection(ds.dtm_union([narrow])).area < 1.0
+    assert geom.intersection(ds.dtm_union([near])).area < 1.0
+    parts = di.build_dtm_sidewalk_parts(
+        work, preset_id="mtbo_10000", scale=10000, ref_x=40.0, ref_y=2.0, grivation_deg=0.0
+    )
+    assert parts and parts[0].count >= 1
+    assert di.build_dtm_sidewalk_parts(
+        work, preset_id="forest_10000", scale=10000, ref_x=40.0, ref_y=2.0, grivation_deg=0.0
+    ) == []
+
+
+def test_mtbo_corridor_bridges_narrower_stretch_between_wide_pieces():
+    # silnice 10 m – úsek 8 m – 10 m: úzký úsek navazuje na široké kusy, koridor se nepřeruší
+    road = ds.dtm_union([_rect(0, 0, 100, 10), _rect(100, 1, 130, 9), _rect(130, 0, 230, 10)])
+    corridor = ds.road_corridor(road, None, scale=10000)
+    assert corridor is not None and corridor.geom_type == "Polygon"
+    assert corridor.area > 0.97 * road.area
+    # úzký úsek daleko od širokého kusu (za ``CORRIDOR_BRIDGE_M``) se nepřipojí
+    far = ds.dtm_union([_rect(0, 0, 100, 10), _rect(100, 1, 300, 9)])
+    assert ds.road_corridor(far, None, scale=10000).bounds[2] <= 100 + ds.CORRIDOR_BRIDGE_M + 5
+
+
 def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
     from app.pipeline import osm_paths as op
 
@@ -473,8 +620,11 @@ def test_dtm_green_is_cut_out_of_osm_paved_areas(tmp_path):
         area("parking", -1000, -1000, -960, -970),  # přes zeleň → vystřihne se
         area("building", -1000, -1000, -960, -970),  # budova se nemění
         area("parking", -900, -900, -880, -880),  # daleko
+        area("playground", -995, -995, -965, -975),  # hřiště z OSM je přesnější než zeleň z DTM → nemění se
     ]
     out = di.apply_dtm_priority_to_paved(work, feats)
+    playground = [shape(f["geometry"]) for f in out if f["properties"]["kind"] == "playground"]
+    assert len(playground) == 1 and abs(playground[0].area - 30 * 20) < 1e-6
     green = ds.dtm_union([_rect(-990, -990, -970, -980)])
     parking = [shape(f["geometry"]) for f in out if f["properties"]["kind"] == "parking"]
     assert len(parking) == 2

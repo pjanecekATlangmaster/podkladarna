@@ -48,6 +48,9 @@ CORRIDOR_MIN_ROADWAY_M = 5.0
 CORRIDOR_SMOOTH_M = 1.5
 CORRIDOR_MIN_WIDTH_MM = 0.9
 CORRIDOR_MIN_LEN_M = 50.0
+# Hystereze: k širokým kusům koridoru se připojí navazující část do ``CORRIDOR_BRIDGE_M`` m, která je
+# aspoň ``CORRIDOR_MIN_ROADWAY_M`` m široká (silnice 7–9 m jinak střídavě vypadává z koridoru a kreslí se po kouscích).
+CORRIDOR_BRIDGE_M = 60.0
 BUILDING_CACHE_SUFFIX = ".bld1.json"
 # Schody, rampy, zápraží u vchodů: v DTM bez atributu druhu, kreslí se jako zpevněná plocha 501.0.
 SMALL_PAVED_TYPES = ("StavbaProZpevneniPovrchuPlocha",)
@@ -210,6 +213,29 @@ def road_corridor(
     wide = wide.intersection(corridor)
     pieces = [wide] if wide.geom_type == "Polygon" else [x for x in getattr(wide, "geoms", []) if x.geom_type == "Polygon"]
     keep = [x for x in pieces if x.area >= width * CORRIDOR_MIN_LEN_M and _long_side(x) >= CORRIDOR_MIN_LEN_M]
+    if not keep:
+        return None
+    seeds = unary_union(keep)
+    # navazující užší úseky (aspoň jízdní šířky) – bez nich se silnice kreslí střídavě plochou a čárou
+    r = CORRIDOR_MIN_ROADWAY_M / 2
+    soft = corridor.buffer(-r, join_style=2).buffer(r, join_style=2).intersection(corridor)
+    ext = soft.intersection(seeds.buffer(CORRIDOR_BRIDGE_M))
+    merged = unary_union([seeds, ext]).buffer(0.05).buffer(-0.05)
+    comps = [merged] if merged.geom_type == "Polygon" else [x for x in getattr(merged, "geoms", []) if x.geom_type == "Polygon"]
+    kept = [x for x in comps if x.intersects(seeds)]
+    return unary_union(kept) if kept else None
+
+
+def wide_parts(geom, width_m: float, min_area_m2: float = 0.0):
+    """Části plochy ``geom`` (shapely) široké aspoň ``width_m`` m (otevření) a s plochou aspoň ``min_area_m2``; None bez nich."""
+    from shapely.ops import unary_union
+
+    if geom is None or geom.is_empty:
+        return None
+    h = width_m / 2
+    wide = geom.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(geom)
+    pieces = [wide] if wide.geom_type == "Polygon" else [x for x in getattr(wide, "geoms", []) if x.geom_type == "Polygon"]
+    keep = [x for x in pieces if not x.is_empty and x.area >= min_area_m2]
     return unary_union(keep) if keep else None
 
 
