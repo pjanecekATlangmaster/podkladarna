@@ -3648,6 +3648,20 @@ SIDEWALK_ROAD_NEAR_M = 12.0
 SIDEWALK_ROAD_SHARE = 0.7
 
 
+# OSM lávka / most, který se s mostem z DTM překrývá aspoň tolik (m), patří DTM: nekreslí se uvnitř mostu a
+# zpevněných ploch ani k ní OSM hrany 512.100 (viz ``build_dtm_bridge_parts``).
+DTM_BRIDGE_OVERLAP_M = 5.0
+
+
+def _line_overlap_m(coords: list, zone) -> float:
+    """Délka (m) čáry uvnitř ``zone`` (shapely); 0 bez zóny."""
+    if zone is None or len(coords) < 2:
+        return 0.0
+    from shapely.geometry import LineString
+
+    return float(LineString(coords).intersection(zone).length)
+
+
 def _line_in_zone(coords: list, zone) -> bool:
     """Leží aspoň 90 % délky čáry v ``zone`` (shapely)? Bez zóny nikdy."""
     if zone is None or len(coords) < 2:
@@ -3835,10 +3849,15 @@ def build_osm_path_parts(
     edge_area = corridor_zone if corridor_zone is not None else sidewalk_cover
     # Sprint: pod mostem z DTM se cesty nekreslí (kreslí se most a hrany 512.100), mostní čáry uvnitř DTM mostu také ne.
     deck_zone = None
+    deck_cover_zone = None
     if preset_id.startswith("sprint"):
         from app.pipeline.dtm_import import deck_footprint_geometry
 
         deck_zone = deck_footprint_geometry(work_dir)
+        if deck_zone is not None and sidewalk_cover is not None:
+            from shapely.ops import unary_union as _uu2
+
+            deck_cover_zone = _uu2([deck_zone, sidewalk_cover])
     # Les a MTBO: chodníky vedle silnic se nekreslí (viz ``is_sidewalk_beside_road``).
     road_zone = None if preset_id.startswith("sprint") else road_zone_geometry(data.get("features") or [])
     for feat in data.get("features") or []:
@@ -3896,6 +3915,10 @@ def build_osm_path_parts(
             if is_bridge_highway(hw):
                 if _line_in_zone(line, deck_zone):
                     continue  # most kreslí DTM (mostovka + hrany 512.100)
+                if _line_overlap_m(line, deck_zone) >= DTM_BRIDGE_OVERLAP_M:
+                    # OSM lávka částečně mimo půdorys z DTM: nekreslí se uvnitř mostu ani na plochách z DTM (silnice, chodníky)
+                    bridge_zone = deck_cover_zone if deck_cover_zone is not None else deck_zone
+                    lines = [seg for ln in lines for seg in clip_outside(ln, bridge_zone)]
             else:
                 lines = [seg for ln in lines for seg in clip_outside(ln, deck_zone)]  # pod mostem se cesta nekreslí
         if edge_area is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
@@ -3932,7 +3955,7 @@ def build_osm_path_parts(
                 and not (
                     deck_zone is not None
                     and is_bridge_highway(str((f.get("properties") or {}).get("highway") or ""))
-                    and _line_in_zone(f["geometry"]["coordinates"], deck_zone)
+                    and _line_overlap_m(f["geometry"]["coordinates"], deck_zone) >= DTM_BRIDGE_OVERLAP_M
                 )  # most z DTM: hrany kreslí build_dtm_bridge_parts
             ]
             for edge in bridge_entrance_edges(items):

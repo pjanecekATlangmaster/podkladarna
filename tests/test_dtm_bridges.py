@@ -61,6 +61,44 @@ def test_entrance_edges_are_oriented_with_deck_on_the_left():
         assert foot.contains(left)
 
 
+def test_osm_footbridge_partly_inside_dtm_deck_draws_no_edges_and_nothing_on_dtm_road(tmp_path):
+    import re
+
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "decks.json").write_text(
+        json.dumps({"decks": [{"l": 1, "t": "ChodnikPlocha", "p": [[list(p) for p in ring] for ring in _rect(-990, -1004, -970, -1000)]}]}),
+        encoding="utf-8",
+    )
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1040, -1020, -940, -980)]]}),  # silnice pod lávkou
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+
+    def line(hw, a, b):
+        return {
+            "type": "Feature",
+            "properties": {"highway": hw},
+            "geometry": {"type": "LineString", "coordinates": [a, b]},
+        }
+
+    feats = [
+        line("bridge:footway", [-1030, -1002], [-940, -1002]),  # OSM lávka: 20 m uvnitř DTM mostu, zbytek na DTM silnici
+        line("road_4", [-980, -1040], [-980, -960]),  # OSM silnice kolmo pod lávkou
+    ]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-1002.0, grivation_deg=0.0)
+    paths = op.build_osm_path_parts(work, **kw)
+    # lávka uvnitř mostu z DTM i na DTM silnici se nekreslí, OSM silnice je plochou z DTM, hrany 512.100 z OSM žádné
+    assert paths == []
+    assert re.search(r"symbol", "".join(p.objects_xml for p in paths)) is None
+
+
 def test_bridge_parts_cut_lower_levels_and_osm_lines_under_deck(tmp_path):
     from app.pipeline import osm_paths as op
 
