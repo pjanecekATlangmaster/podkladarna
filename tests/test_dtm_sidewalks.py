@@ -268,6 +268,26 @@ def test_stairs_axis_follows_reference_path_and_centroid():
     assert ds.stairs_axis(_rect(0, 0, 0.3, 0.3)) is None
 
 
+def test_long_curved_stairs_get_centerline_along_the_whole_curve():
+    import math
+
+    from shapely.geometry import LineString, Polygon
+
+    # zahnuté schodiště: oblouk 90° o poloměru 12 m (délka ≈ 18,8 m) široký 2,6 m
+    arc = LineString([(12 * math.cos(a / 20 * math.pi / 2), 12 * math.sin(a / 20 * math.pi / 2)) for a in range(21)])
+    poly = arc.buffer(1.3, cap_style=2)
+    rings = [list(poly.exterior.coords)]
+    axis = ds.stairs_axis(rings)
+    assert axis is not None and len(axis) > 3  # více bodů, ne přímka o dvou
+    length = LineString(axis).length
+    assert 18.0 < length < 20.5  # po celém oblouku
+    # konce leží poblíž konců oblouku (zahnutí se neztratilo)
+    ends = sorted([axis[0], axis[-1]])
+    assert min(math.dist(e, (12.0, 0.0)) for e in ends) < 1.6  # do půl šířky od konce
+    assert min(math.dist(e, (0.0, 12.0)) for e in ends) < 1.6
+    assert isinstance(Polygon(rings[0]).area, float)
+
+
 def test_dtm_stairs_parts_draw_every_stair_and_osm_steps_only_outside(tmp_path):
     from app.pipeline import osm_paths as op
 

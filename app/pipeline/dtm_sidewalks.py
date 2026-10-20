@@ -33,6 +33,9 @@ STAIRS_ZONE_M = 0.5
 STAIRS_OSM_NEAR_M = 2.0
 # Směr schodů se bere z nejbližší cesty do této vzdálenosti (m); osa se na každé straně prodlouží.
 STAIRS_REF_NEAR_M = 3.0
+# Schodiště protáhlejší než tento poměr stran se kreslí po střední ose (zachová zahnutí).
+STAIRS_LONG_ELONGATION = 6.0
+CENTERLINE_STEP_M = 0.25
 STAIRS_AXIS_EXTRA_M = 0.3
 # Sloučení sousedních ploch a zacelení škvír užších než 2 × tato hodnota (m).
 CLOSE_M = 0.5
@@ -107,6 +110,93 @@ def steps_keep(coords: list[tuple[float, float]], stair_zone, cover, min_len_m: 
     return [[(float(x), float(y)) for x, y in g.coords] for g in pieces if g.length >= min_len_m]
 
 
+def polygon_centerline(g, step_m: float = CENTERLINE_STEP_M):
+    """Střední čára protáhlého polygonu (i zakřiveného): ``[(x, y), …]`` nebo None.
+
+    Voronoiův diagram hustě vzorkovaného obrysu → hrany uvnitř polygonu tvoří kostru (strom);
+    střední čára je nejdelší cesta v ní. Konce se prodlouží až k obrysu polygonu.
+    """
+    import heapq
+    import math
+
+    from shapely import MultiPoint
+    from shapely.geometry import LineString, Point
+    from shapely.ops import voronoi_diagram
+
+    if g.is_empty or g.geom_type != "Polygon":
+        return None
+    ring = g.exterior
+    n = max(8, int(ring.length / step_m))
+    pts = [ring.interpolate(ring.length * i / n) for i in range(n)]
+    try:
+        edges = voronoi_diagram(MultiPoint(pts), edges=True)
+    except Exception:
+        return None
+    inner = g.buffer(1e-6)
+    adj: dict[tuple[float, float], list[tuple[tuple[float, float], float]]] = {}
+    def lines_of(geom):
+        if geom.geom_type == "LineString":
+            yield geom
+        else:
+            for part in getattr(geom, "geoms", []):
+                yield from lines_of(part)
+
+    for e in lines_of(edges):
+        if not inner.contains(e):
+            continue
+        a, b = e.coords[0], e.coords[-1]
+        a, b = (round(a[0], 4), round(a[1], 4)), (round(b[0], 4), round(b[1], 4))
+        w = math.dist(a, b)
+        adj.setdefault(a, []).append((b, w))
+        adj.setdefault(b, []).append((a, w))
+    if len(adj) < 2:
+        return None
+
+    def far(start):
+        dist = {start: 0.0}
+        prev: dict = {}
+        heap = [(0.0, start)]
+        while heap:
+            d, u = heapq.heappop(heap)
+            if d > dist.get(u, math.inf):
+                continue
+            for v, w in adj[u]:
+                nd = d + w
+                if nd < dist.get(v, math.inf):
+                    dist[v], prev[v] = nd, u
+                    heapq.heappush(heap, (nd, v))
+        end = max(dist, key=dist.get)
+        return end, prev
+
+    u, _ = far(next(iter(adj)))
+    v, prev = far(u)
+    path = [v]
+    while path[-1] != u:
+        path.append(prev[path[-1]])
+    if len(path) < 2:
+        return None
+    line = LineString(path).simplify(0.05)
+    coords = list(line.coords)
+    # prodloužení obou konců až k obrysu (kostra končí o půl šířky před koncem polygonu)
+    for idx, sign in ((0, 1), (-1, -1)):
+        p = coords[idx]
+        q = coords[1] if idx == 0 else coords[-2]
+        dx, dy = p[0] - q[0], p[1] - q[1]
+        nrm = math.hypot(dx, dy)
+        if nrm < 1e-9:
+            continue
+        ray = LineString([p, (p[0] + dx / nrm * 3.0, p[1] + dy / nrm * 3.0)]).intersection(inner)
+        segs = [ray] if ray.geom_type == "LineString" else [x for x in getattr(ray, "geoms", []) if x.geom_type == "LineString"]
+        segs = [s for s in segs if s.distance(Point(p)) < 1e-6]
+        if segs:
+            far_pt = max(segs[0].coords, key=lambda c: math.dist(c, p))
+            if idx == 0:
+                coords.insert(0, far_pt)
+            else:
+                coords.append(far_pt)
+    return [(float(x), float(y)) for x, y in coords]
+
+
 def stairs_axis(poly: list[list[tuple[float, float]]], ref_lines: list | None = None):
     """Osa schodiště z DTM: ``[(x, y), (x, y)]`` nebo None.
 
@@ -125,6 +215,13 @@ def stairs_axis(poly: list[list[tuple[float, float]]], ref_lines: list | None = 
         return None
     if g.is_empty or rect.is_empty or rect.geom_type != "Polygon":
         return None
+    # protáhlost (délka / šířka)^~: (půl obvodu)² / plocha; čtverec 4, obdélník 4 : 1 ≈ 6,25
+    elongation = (g.length / 2.0) ** 2 / max(g.area, 1e-6)
+    if elongation >= STAIRS_LONG_ELONGATION and g.geom_type == "Polygon":
+        # Dlouhé schodiště (i zahnuté): čára po jeho střední ose, ne přímka.
+        center = polygon_centerline(g)
+        if center is not None and len(center) >= 2 and LineString(center).length >= STAIRS_MIN_LEN_M:
+            return center
     c = g.centroid
     ux = uy = None
     best = None
