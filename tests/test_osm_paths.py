@@ -175,6 +175,9 @@ def test_classify_osm_well_and_playground():
         "526",
     )
     assert classify_osm_feature({"amenity": "shelter"}) == ("shelter", "522")
+    # way/1157170467: building=roof je zastřešení, ne budova
+    assert classify_osm_feature({"building": "roof", "layer": "1", "material": "glass"}) == ("shelter", "522")
+    assert classify_osm_feature({"building": "yes"}) == ("building", "521")
     assert classify_osm_feature({"leisure": "fitness_station"}) == ("fitness", "531")
     assert classify_osm_feature(
         {"natural": "tree", "denotation": "landmark"}, geom="node"

@@ -918,6 +918,9 @@ def classify_osm_feature(
         return "memorial", "526"
     if amenity == "shelter" or man_made == "canopy":
         return "shelter", "522"
+    # building=roof = střecha bez stěn (zastřešení nástupiště, průchodu, parkoviště): ne budova.
+    if (tags.get("building") or "").lower() == "roof" and not is_node:
+        return "shelter", "522"
     if natural == "tree" and denotation in {"landmark", "natural_monument"}:
         return "landmark_tree", "417"
     if (
