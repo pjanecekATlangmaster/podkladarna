@@ -701,6 +701,31 @@ def test_paths_end_exactly_on_paved_edge_in_sprint(tmp_path):
     assert min(ys) == 0 and ys.count(0) == 2
 
 
+def test_complex_c_shaped_stairs_are_left_to_the_mapper_as_area(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    u_shape = [  # „C“: dvě ramena (4 × 1 m) spojená podestou (1 × 5 m)
+        [(0, 0), (4, 0), (4, 1), (1, 1), (1, 4), (4, 4), (4, 5), (0, 5), (0, 0)]
+    ]
+    straight = _rect(20, 0, 30, 2)
+    assert ds.is_complex_stairs(u_shape) and not ds.is_complex_stairs(straight)
+    (work / "dtm" / "stairs.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in poly] for poly in (u_shape, straight)]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=10.0, ref_y=0.0, grivation_deg=0.0)
+    parts = di.build_dtm_stairs_parts(work, **kw)
+    names = [p.name for p in parts]
+    assert names[0] == "DTM – schodiště (532.7)" and parts[0].count == 1  # jen přímé schodiště čárou
+    assert any("složitá schodiště" in n for n in names)
+    # les / MTBO složitá schodiště nekreslí vůbec
+    forest = di.build_dtm_stairs_parts(work, **{**kw, "preset_id": "forest_10000", "scale": 10000})
+    assert [p.name for p in forest] == ["DTM – schodiště (532.7)"] and forest[0].count == 1
+
+
 def test_forest_and_mtbo_use_dtm_stairs_with_own_symbol_and_min_length(tmp_path):
     from app.pipeline import osm_paths as op
     from app.pipeline.oom_symbol_map import symbol_index_for_code

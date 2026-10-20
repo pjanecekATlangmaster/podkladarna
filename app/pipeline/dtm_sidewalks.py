@@ -58,6 +58,11 @@ STAIRS_CACHE_SUFFIX = ".stairs1.json"
 # OSM čára schodů se v něm nekreslí (schodiště kreslí DTM).
 STAIRS_MIN_LEN_M = 1.0
 STAIRS_ZONE_M = 0.5
+# Spodní schodiště se pod mostem nekreslí; od hrany mostu končí s tímto odstupem (m), ať se neslévá s trojúhelníky.
+STAIRS_DECK_CLEAR_M = 0.6
+# Složité schodiště (polygon zahnutý do „C“ / „U“, více ramen s podestou, např. kolem hlavy lávky) se jednou čárou
+# nenakreslí: jeho plocha / obrys 501.0 se nechá mapaři. Mírou je podíl plochy polygonu a jeho konvexního obalu.
+STAIRS_COMPLEX_SOLIDITY = 0.72
 # Cesta, která končí v zpevněné ploše, se ukončí přesně na její hraně; cesta, která k ploše nedosáhne
 # o méně než ``EDGE_SNAP_M`` m, se k hraně prodlouží.
 EDGE_SNAP_M = 1.5
@@ -370,6 +375,22 @@ def polygon_centerline(g, step_m: float = CENTERLINE_STEP_M):
             else:
                 coords.append(far_pt)
     return [(float(x), float(y)) for x, y in coords]
+
+
+def is_complex_stairs(poly: list[list[tuple[float, float]]], foot=None) -> bool:
+    """Složité schodiště (více ramen, zahnuté do „C“) nebo schodiště pod půdorysem mostu ``foot`` (víc úrovní)."""
+    from shapely.geometry import Polygon
+
+    try:
+        g = Polygon(poly[0], poly[1:])
+        g = g if g.is_valid else g.buffer(0)
+    except (ValueError, IndexError):
+        return False
+    if g.is_empty or g.geom_type != "Polygon" or g.area <= 0:
+        return False
+    if g.convex_hull.area > 0 and g.area / g.convex_hull.area < STAIRS_COMPLEX_SOLIDITY:
+        return True
+    return foot is not None and not foot.is_empty and g.intersection(foot).area > 0.3 * g.area
 
 
 def stairs_axis(poly: list[list[tuple[float, float]]], ref_lines: list | None = None):

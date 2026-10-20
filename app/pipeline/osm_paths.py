@@ -3849,11 +3849,16 @@ def build_osm_path_parts(
     edge_area = corridor_zone if corridor_zone is not None else sidewalk_cover
     # Sprint: pod mostem z DTM se cesty nekreslí (kreslí se most a hrany 512.100), mostní čáry uvnitř DTM mostu také ne.
     deck_zone = None
+    deck_zone_steps = None
     deck_cover_zone = None
     if preset_id.startswith("sprint"):
         from app.pipeline.dtm_import import deck_footprint_geometry
 
         deck_zone = deck_footprint_geometry(work_dir)
+        if deck_zone is not None:
+            from app.pipeline.dtm_sidewalks import STAIRS_DECK_CLEAR_M
+
+            deck_zone_steps = deck_zone.buffer(STAIRS_DECK_CLEAR_M)
         if deck_zone is not None and sidewalk_cover is not None:
             from shapely.ops import unary_union as _uu2
 
@@ -3920,7 +3925,9 @@ def build_osm_path_parts(
                     bridge_zone = deck_cover_zone if deck_cover_zone is not None else deck_zone
                     lines = [seg for ln in lines for seg in clip_outside(ln, bridge_zone)]
             else:
-                lines = [seg for ln in lines for seg in clip_outside(ln, deck_zone)]  # pod mostem se cesta nekreslí
+                # pod mostem se cesta nekreslí (schody s odstupem od hrany mostu)
+                zone = deck_zone_steps if is_surface_steps(hw) and deck_zone_steps is not None else deck_zone
+                lines = [seg for ln in lines for seg in clip_outside(ln, zone)]
         if edge_area is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
             # Cesta končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]

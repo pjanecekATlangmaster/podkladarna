@@ -332,6 +332,11 @@ def build_dtm_stairs_parts(
     if idx is None:
         return []
     min_len = dtm_sidewalks.STAIRS_MIN_LEN_M if sprint else dtm_sidewalks.STAIRS_MIN_LEN_NONSPRINT_M
+    deck_clear = None
+    foot = deck_footprint_geometry(work_dir) if sprint else None
+    if foot is not None and not foot.is_empty:
+        deck_clear = foot.buffer(dtm_sidewalks.STAIRS_DECK_CLEAR_M)
+    complex_polys = []
     steps_refs, path_refs = [], []
     for feat in _path_features(work_dir, path_source):
         geom = feat.get("geometry") or {}
@@ -353,20 +358,43 @@ def build_dtm_stairs_parts(
             continue
         if g.is_empty:
             continue
+        if dtm_sidewalks.is_complex_stairs(poly, foot):
+            complex_polys.append(g)  # více ramen / u mostu: čáru nelze spolehlivě odvodit, plocha pro mapaře
+            continue
         axis = dtm_sidewalks.stairs_axis(poly, ref_lines)
         if axis is None or LineString(axis).length < min_len:
             continue
-        for piece in clip_polyline(axis, clip_bounds) if clip_bounds else [axis]:
-            mapped = [
-                projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
-                for x, y in piece
-            ]
-            obj = _path_object(idx, mapped)
-            if obj:
-                objects.append(obj)
-    if not objects:
-        return []
-    return [OomObjectPart(name="DTM – schodiště (532.7)", objects_xml="\n".join(objects), count=len(objects))]
+        # schodiště pod mostem (spodní úroveň) se pod mostem nekreslí; s odstupem od hrany mostu
+        axes = dtm_sidewalks.clip_outside(axis, deck_clear, min_len) if deck_clear is not None else [axis]
+        for ax in axes:
+            for piece in clip_polyline(ax, clip_bounds) if clip_bounds else [ax]:
+                mapped = [
+                    projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                    for x, y in piece
+                ]
+                obj = _path_object(idx, mapped)
+                if obj:
+                    objects.append(obj)
+    parts: list[OomObjectPart] = []
+    if objects:
+        parts.append(OomObjectPart(name="DTM – schodiště (532.7)", objects_xml="\n".join(objects), count=len(objects)))
+    if complex_polys and sprint:
+        from shapely.ops import unary_union
+
+        parts.extend(
+            _geometry_part(
+                unary_union(complex_polys),
+                name="DTM – složitá schodiště (plocha 501.0, schody doplnit ručně)",
+                code="501.0",
+                preset_id=preset_id,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                grivation_deg=grivation_deg,
+                clip_bounds=clip_bounds,
+            )
+        )
+    return parts
 
 
 def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) -> None:
@@ -965,6 +993,22 @@ def build_mtbo_corridor_parts(
     )
 
 
+def dtm_sidewalks_union(polys):
+    from app.pipeline import dtm_sidewalks
+
+    return dtm_sidewalks.dtm_union(polys) if polys else None
+
+
+def _osm_water_geometry(work_dir: Path):
+    """Vodní plochy z OSM (``water_body``) jako shapely geometrie nebo None (voda pod mostem)."""
+    from app.pipeline import osm_paths as op
+
+    try:
+        return op.osm_water_area_geometry(work_dir)
+    except Exception:
+        return None
+
+
 def bridge_entrance_edge_lines(work_dir: Path, path_source: str = "mixed") -> list[list[tuple[float, float]]]:
     """Hrany 512.100 pod mosty z DTM (S-JTSK): přes chodník pod mostem, jinak přes silnici (viz ``dtm_bridges``)."""
     from app.pipeline import dtm_bridges, dtm_sidewalks
@@ -1030,6 +1074,16 @@ def build_dtm_bridge_parts(
                     **kw,
                 )
             )
+    # Křížení úrovní: spodní zpevněná plocha / voda pod mostem symbolem 512.311 / 512.302 (bílý základ + barva spodní plochy).
+    from shapely.ops import unary_union as _uu
+
+    foot = dtm_bridges.footprint(levels)
+    sw_polys, road_polys = classified_polygons(work_dir, path_source)
+    paved_parts = [g for g in (dtm_sidewalks_union(sw_polys), dtm_sidewalks_union(road_polys), dtm_sidewalks_union(_load_polygons_file(parking_path(work_dir)))) if g is not None and not g.is_empty]
+    lower = dtm_bridges.lower_level_areas(foot, _uu(paved_parts) if paved_parts else None, _osm_water_geometry(work_dir))
+    for key, code, label in (("paved", dtm_bridges.LOWER_PAVED_CODE, "zpevněná plocha 512.311"), ("water", dtm_bridges.LOWER_WATER_CODE, "voda 512.302")):
+        if lower.get(key) is not None:
+            parts.extend(_geometry_part(lower[key], name=f"Mosty (DTM) – nižší úroveň, {label}", code=code, **kw))
     edge_idx = symbol_index_for_code(preset_id, scale, "512.100")
     if edge_idx is not None:
         objects: list[str] = []

@@ -61,6 +61,54 @@ def test_entrance_edges_are_oriented_with_deck_on_the_left():
         assert foot.contains(left)
 
 
+def test_lower_level_areas_are_intersection_of_deck_with_paved_and_water():
+    foot = ds.dtm_union([_rect(0, 0, 40, 10)])
+    paved = ds.dtm_union([_rect(10, -5, 20, 15)])  # 10 × 10 pod mostem
+    water = ds.dtm_union([_rect(30, -5, 38, 15)])  # 8 × 10
+    out = db.lower_level_areas(foot, paved, water)
+    assert abs(out["paved"].area - 100.0) < 1e-6 and abs(out["water"].area - 80.0) < 1e-6
+    assert db.lower_level_areas(foot, None, None) == {"paved": None, "water": None}
+    tiny = ds.dtm_union([_rect(50, 0, 50.5, 0.5)])
+    assert db.lower_level_areas(foot, tiny)["paved"] is None  # mimo most
+
+
+def test_bridge_parts_draw_lower_paved_with_512_311_and_hide_lower_stairs(tmp_path):
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "decks.json").write_text(
+        json.dumps({"decks": [{"l": 1, "t": "ChodnikPlocha", "p": [[list(p) for p in ring] for ring in _rect(-1000, -1004, -960, -996)]}]}),
+        encoding="utf-8",
+    )
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-990, -1020, -970, -980)]]}),  # silnice pod mostem
+        encoding="utf-8",
+    )
+    (work / "dtm" / "stairs.json").write_text(
+        json.dumps(
+            {
+                "polygons": [
+                    [[list(p) for p in ring] for ring in _rect(-988, -1001, -984, -999)],  # schodiště pod mostem (úr. 0)
+                    [[list(p) for p in ring] for ring in _rect(-1030, -1001, -1026, -999)],  # schodiště mimo most
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-1000.0, grivation_deg=0.0)
+    parts = di.build_dtm_bridge_parts(work, **kw)
+    lower = [p for p in parts if "512.311" in p.name]
+    assert lower and lower[0].count == 1
+    assert f'symbol="{symbol_index_for_code("sprint_4000", 4000, "512.311")}"' in lower[0].objects_xml
+    stairs = di.build_dtm_stairs_parts(work, **kw)
+    assert stairs and stairs[0].count == 1  # schodiště pod mostem se nekreslí, mimo most ano
+
+
 def test_osm_footbridge_partly_inside_dtm_deck_draws_no_edges_and_nothing_on_dtm_road(tmp_path):
     import re
 

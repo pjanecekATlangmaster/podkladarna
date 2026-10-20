@@ -1677,7 +1677,7 @@ sprint:
     review: false
   - ocad_code: "512.302"
     cz_name: "Oblast průběžná v nižší úrovni (301)"
-    generator_codes: []
+    generator_codes: ["512.302"]
     geom: area
     review: false
   - ocad_code: "512.304"
@@ -1702,7 +1702,7 @@ sprint:
     review: false
   - ocad_code: "512.311"
     cz_name: "Oblast průběžná v nižší úrovni (501, 501.3)"
-    generator_codes: []
+    generator_codes: ["512.311"]
     geom: area
     review: false
   - ocad_code: "512.312"
