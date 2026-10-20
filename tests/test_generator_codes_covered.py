@@ -321,7 +321,13 @@ def test_spy_osm_paths_codes_in_catalog(tmp_path: Path, seen_generator_codes, ke
     assert sm.drain_unmapped_codes() == {}
     # les / MTBO zahazují chodník souběžný se silnicí (všechny cesty fixtury leží na sobě)
     zone = osm_paths.road_zone_geometry(feats)
-    dropped = 0 if key == "sprint" else sum(
+    # sprint nekreslí silniční tunely (tunnel:road_*)
+    dropped = sum(
+        1
+        for f in feats
+        if osm_paths.is_tunnel_highway(f["properties"]["highway"])
+        and osm_paths.path_draw_highway(f["properties"]["highway"]).startswith("road_")
+    ) if key == "sprint" else sum(
         1
         for f in feats
         if osm_paths.is_sidewalk_beside_road(f["properties"]["highway"], f["geometry"]["coordinates"], zone)
