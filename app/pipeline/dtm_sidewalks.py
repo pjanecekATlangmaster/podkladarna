@@ -38,6 +38,9 @@ ROAD_EDGE_GAP_M = 0.5
 CORRIDOR_GAP_M = 3.0
 CORRIDOR_NEAR_M = 8.0
 CORRIDOR_BIKE_PROTECT_M = 1.5
+# Parkoviště přiléhající k silnici (do ``CORRIDOR_PARKING_NEAR_M`` m od ní) patří ke koridoru: bývá mezi
+# silnicí a chodníkem. Chodník se pak bere do ``CORRIDOR_NEAR_M`` m od silnice nebo takového parkoviště.
+CORRIDOR_PARKING_NEAR_M = 12.0
 CORRIDOR_MIN_WIDTH_MM = 0.9
 CORRIDOR_MIN_LEN_M = 50.0
 BUILDING_CACHE_SUFFIX = ".bld1.json"
@@ -133,13 +136,16 @@ def separate_from_roads(geom, roads, gap_m: float = ROAD_EDGE_GAP_M):
     return unary_union([geom, *gaps]).difference(roads)
 
 
-def road_corridor(roads, sidewalks, bike_lines=None, *, scale: int, min_width_mm: float = CORRIDOR_MIN_WIDTH_MM):
+def road_corridor(
+    roads, sidewalks, bike_lines=None, *, scale: int, min_width_mm: float = CORRIDOR_MIN_WIDTH_MM, parking=None
+):
     """Koridor silnice pro MTBO: silnice + přilehlé chodníky jedním polygonem (shapely) nebo None.
 
     Chodník se bere jen do ``CORRIDOR_NEAR_M`` m od silnice a ne tam, kde se smí jezdit na kole
-    (``bike_lines`` = čáry OSM chodníků se sdíleným provozem). Mezera mezi silnicí a chodníkem do
-    ``CORRIDOR_GAP_M`` m (pruh zeleně) se zacelí. Zůstanou jen části širší než ``min_width_mm`` mm
-    mapy (v ``scale``) a delší než ``CORRIDOR_MIN_LEN_M`` m.
+    (``bike_lines`` = čáry OSM chodníků se sdíleným provozem). ``parking``: plocha parkovišť (DTM + OSM);
+    část do ``CORRIDOR_PARKING_NEAR_M`` m od silnice patří ke koridoru (chodník za parkovištěm se tak
+    taky sloučí). Mezera do ``CORRIDOR_GAP_M`` m (pruh zeleně) se zacelí. Zůstanou jen části širší než
+    ``min_width_mm`` mm mapy (v ``scale``) a delší než ``CORRIDOR_MIN_LEN_M`` m.
     """
     from shapely.geometry import LineString
     from shapely.ops import unary_union
@@ -147,8 +153,14 @@ def road_corridor(roads, sidewalks, bike_lines=None, *, scale: int, min_width_mm
     if roads is None or roads.is_empty:
         return None
     parts = [roads]
+    base = roads
+    if parking is not None and not parking.is_empty:
+        park_near = parking.intersection(roads.buffer(CORRIDOR_PARKING_NEAR_M))
+        if not park_near.is_empty:
+            parts.append(park_near)
+            base = unary_union([roads, park_near])
     if sidewalks is not None and not sidewalks.is_empty:
-        near = sidewalks.intersection(roads.buffer(CORRIDOR_NEAR_M))
+        near = sidewalks.intersection(base.buffer(CORRIDOR_NEAR_M))
         if bike_lines:
             protect = unary_union([LineString(c) for c in bike_lines if len(c) >= 2]).buffer(CORRIDOR_BIKE_PROTECT_M)
             near = near.difference(protect)

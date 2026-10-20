@@ -3637,6 +3637,16 @@ SIDEWALK_ROAD_NEAR_M = 12.0
 SIDEWALK_ROAD_SHARE = 0.7
 
 
+def _line_in_zone(coords: list, zone) -> bool:
+    """Leží aspoň 90 % délky čáry v ``zone`` (shapely)? Bez zóny nikdy."""
+    if zone is None or len(coords) < 2:
+        return False
+    from shapely.geometry import LineString
+
+    line = LineString(coords)
+    return line.length > 0 and line.intersection(zone).length >= 0.9 * line.length
+
+
 def road_zone_geometry(features: list[dict]):
     """Pás ``SIDEWALK_ROAD_NEAR_M`` m kolem os silnic (``road_*``, i mosty) z prvků cest; None bez silnic."""
     try:
@@ -3797,11 +3807,20 @@ def build_osm_path_parts(
     )
     # MTBO: uvnitř koridoru silnice (silnice + přilehlé chodníky) se čára 502.x nekreslí.
     corridor_zone = None
+    bike_zone = None
     if preset_id.startswith("mtbo"):
         from app.pipeline.dtm_import import mtbo_corridor_geometry
 
         _corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
         corridor_zone = _corridor.buffer(0.5) if _corridor is not None else None
+        # Sdílený provoz (kolo povoleno): chodník / pěšina se nezahazuje ani neořezává koridorem.
+        from shapely.geometry import LineString as _LS
+        from shapely.ops import unary_union as _uu
+
+        from app.pipeline.dtm_import import _load_bike_lines
+
+        _bike = [_LS(c) for c in _load_bike_lines(work_dir)]
+        bike_zone = _uu(_bike).buffer(1.0) if _bike else None
     # Les a MTBO: chodníky vedle silnic se nekreslí (viz ``is_sidewalk_beside_road``).
     road_zone = None if preset_id.startswith("sprint") else road_zone_geometry(data.get("features") or [])
     for feat in data.get("features") or []:
@@ -3814,7 +3833,11 @@ def build_osm_path_parts(
             continue
         if roads_from_dtm and is_surface_road(hw):
             continue  # silnice kreslí plocha DTM + OSM (build_dtm_road_parts)
-        if road_zone is not None and is_sidewalk_beside_road(hw, coords, road_zone):
+        if (
+            road_zone is not None
+            and is_sidewalk_beside_road(hw, coords, road_zone)
+            and not _line_in_zone(coords, bike_zone)
+        ):
             continue
         code = osm_oom_code(hw, preset_id)
         if code not in symbol_cache:
@@ -3838,6 +3861,15 @@ def build_osm_path_parts(
             # Pěšina uvnitř plochy chodníku z DTM by se kreslila dvakrát → jen části mimo plochu.
             lines = clip_outside(line, sidewalk_cover)
         elif corridor_zone is not None and is_surface_road(hw):
+            lines = clip_outside(line, corridor_zone)
+        elif (
+            corridor_zone is not None
+            and path_draw_highway(hw) in {"sidewalk", "footway", "pedestrian"}
+            and not is_bridge_highway(hw)
+            and not is_tunnel_highway(hw)
+            and not _line_in_zone(line, bike_zone)
+        ):
+            # Chodník / pěšina uvnitř koridoru je jeho součástí; sdílený provoz (kolo povoleno) zůstává.
             lines = clip_outside(line, corridor_zone)
         elif stairs_zone is not None and is_surface_steps(hw):
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
@@ -3974,6 +4006,10 @@ def build_osm_feature_parts(
             from app.pipeline.dtm_import import drop_osm_parking_covered_by_dtm
 
             feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
+            # Zpevněné plochy (parkoviště …) v koridoru silnice kreslí koridor, ne zvlášť.
+            from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_corridor_geometry
+
+            feats = cut_osm_paved_by_geometry(feats, mtbo_corridor_geometry(work_dir, scale, "mixed"))
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

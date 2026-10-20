@@ -623,12 +623,19 @@ def apply_dtm_priority_to_paved(work_dir: Path, features: list[dict]) -> list[di
 
 def cut_osm_paved_by_dtm_green(work_dir: Path, features: list[dict]) -> list[dict]:
     """Udržovaná zeleň z DTM se odečte od OSM zpevněných ploch; plochy bez zbytku (< 1 m²) se zahodí."""
+    from app.pipeline import dtm_sidewalks
+
+    green = dtm_sidewalks.dtm_union(_load_polygons_file(green_path(work_dir)))
+    return cut_osm_paved_by_geometry(features, green)
+
+
+def cut_osm_paved_by_geometry(features: list[dict], green) -> list[dict]:
+    """Plochu ``green`` (shapely) odečte od OSM zpevněných ploch; zbytek < 1 m² se zahodí."""
     from shapely.geometry import mapping, shape
 
     from app.pipeline import dtm_sidewalks
     from app.pipeline import osm_paths as op
 
-    green = dtm_sidewalks.dtm_union(_load_polygons_file(green_path(work_dir)))
     if green is None or green.is_empty:
         return features
     out = []
@@ -808,7 +815,38 @@ def mtbo_corridor_geometry(work_dir: Path, scale: int, path_source: str = "mixed
     if roads is None:
         return None
     sidewalks = sidewalk_geometry(work_dir, path_source, roads=None)
-    return dtm_sidewalks.road_corridor(roads, sidewalks, _load_bike_lines(work_dir), scale=scale)
+    return dtm_sidewalks.road_corridor(
+        roads, sidewalks, _load_bike_lines(work_dir), scale=scale, parking=corridor_parking_geometry(work_dir)
+    )
+
+
+def corridor_parking_geometry(work_dir: Path):
+    """Parkoviště pro koridor: parkoviště z DTM + OSM parkoviště, které z DTM nemá protějšek (shapely) nebo None."""
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_sidewalks
+
+    geoms = []
+    dtm_park = dtm_sidewalks.dtm_union(_load_polygons_file(parking_path(work_dir)))
+    if dtm_park is not None and not dtm_park.is_empty:
+        geoms.append(dtm_park)
+    feats_path = work_dir / "osm_paths" / "features.geojson"
+    if feats_path.is_file():
+        try:
+            feats = json.loads(feats_path.read_text(encoding="utf-8")).get("features") or []
+        except (OSError, ValueError):
+            feats = []
+        feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
+        for feat in feats:
+            geom = feat.get("geometry") or {}
+            if (feat.get("properties") or {}).get("kind") == "parking" and geom.get("type") in ("Polygon", "MultiPolygon"):
+                try:
+                    g = shape(geom)
+                    geoms.append(g if g.is_valid else g.buffer(0))
+                except (ValueError, TypeError):
+                    continue
+    return unary_union(geoms) if geoms else None
 
 
 def build_mtbo_corridor_parts(
@@ -891,6 +929,11 @@ def build_dtm_parking_parts(
         geom = parking_geometry(work_dir)
         if geom is None:
             return []
+        corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
+        if corridor is not None and not corridor.is_empty:
+            geom = geom.difference(corridor)  # část v koridoru kreslí koridor
+            if geom.is_empty:
+                return []
         from shapely.ops import unary_union
 
         polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]

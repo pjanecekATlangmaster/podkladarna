@@ -358,6 +358,18 @@ def test_mtbo_road_corridor_merges_sidewalks_over_grass_strip_and_respects_width
     assert ds.road_corridor(roads, None, scale=15000) is None
 
 
+def test_mtbo_road_corridor_counts_parking_between_road_and_sidewalk():
+    roads = ds.dtm_union([_rect(0, 0, 100, 8)])
+    parking = ds.dtm_union([_rect(0, 8, 100, 13), _rect(0, 20, 100, 80)])  # pruh u silnice + vzdálené velké parkoviště
+    sidewalk = ds.dtm_union([_rect(0, 14, 100, 16)])  # 1 m za parkovacím pruhem
+    without = ds.road_corridor(roads, sidewalk, scale=10000)
+    assert without is None or without.bounds[3] < 9  # sám chodník je 14 m od silnice → nesloučí se (a samotná silnice je užší)
+    corridor = ds.road_corridor(roads, sidewalk, scale=10000, parking=parking)
+    assert corridor is not None
+    assert abs(corridor.bounds[1] - 0.0) < 0.1 and abs(corridor.bounds[3] - 16.0) < 0.1  # silnice + parkování + chodník
+    assert corridor.intersection(ds.dtm_union([_rect(0, 20, 100, 80)])).area < 1.0  # vzdálené parkoviště zůstává mimo
+
+
 def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
     from app.pipeline import osm_paths as op
 
@@ -391,11 +403,26 @@ def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
     parts = di.build_mtbo_corridor_parts(work, **kw)
     assert [p.name for p in parts] == ["MTBO – silnice s chodníky (koridor)", "MTBO – silnice s chodníky (koridor) – obrys (501.100)"]
     assert op.build_osm_path_parts(work, **kw) == []  # čára silnice leží uvnitř koridoru → nekreslí se
+    # chodník uvnitř koridoru je jeho součástí (nekreslí se); se sdíleným provozem (kolo povoleno) zůstává
+    sw_line = {
+        "type": "Feature",
+        "properties": {"highway": "sidewalk"},
+        "geometry": {"type": "LineString", "coordinates": [[-1000, -992], [-900, -992]]},
+    }
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [road, sw_line]}), encoding="utf-8"
+    )
+    assert op.build_osm_path_parts(work, **kw) == []
+    (work / "osm_paths" / "bike_paths.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [{**sw_line, "properties": {"bike": True}}]}), encoding="utf-8"
+    )
+    shared = op.build_osm_path_parts(work, **kw)
+    assert shared and shared[0].count == 1  # sdílený chodník se kreslí jako cesta
     assert di.build_mtbo_corridor_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
     di.MTBO_ROAD_CORRIDOR = False
     try:
         assert di.build_mtbo_corridor_parts(work, **kw) == []
-        assert op.build_osm_path_parts(work, **kw)[0].count == 1  # bez koridoru jako dřív čára 502.x
+        assert op.build_osm_path_parts(work, **kw)[0].count == 2  # bez koridoru jako dřív: čára 502.x + sdílený chodník
     finally:
         di.MTBO_ROAD_CORRIDOR = True
 
