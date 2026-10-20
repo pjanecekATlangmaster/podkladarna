@@ -370,23 +370,16 @@ def test_mtbo_road_corridor_counts_parking_between_road_and_sidewalk():
     assert corridor.intersection(ds.dtm_union([_rect(0, 20, 100, 80)])).area < 1.0  # vzdálené parkoviště zůstává mimo
 
 
-def test_mtbo_corridor_needs_real_roadway_and_marks_bays():
-    from shapely.geometry import MultiLineString
-
+def test_mtbo_corridor_needs_real_roadway_and_long_enough_piece():
     # úzká vedlejší silnice (4 m) s chodníky po obou stranách: koridor nevznikne, zůstává čára 502.x
     minor = ds.dtm_union([_rect(0, 0, 100, 4)])
     side = ds.dtm_union([_rect(0, 5, 100, 7), _rect(0, -3, 100, -1)])
     assert ds.road_corridor(minor, side, scale=10000) is None
-    # silnice 7 m + záliv (parkování) 3 m u ní: záliv je součást koridoru a jeho hranice se označí čárou
-    roads = ds.dtm_union([_rect(0, 0, 100, 7)])
-    bay = ds.dtm_union([_rect(10, 7, 90, 10)])
-    corridor = ds.road_corridor(roads, None, scale=10000, parking=bay)
-    assert corridor is not None and corridor.bounds[3] >= 9.9
-    lines = ds.corridor_bay_lines(roads, bay, corridor)
-    assert lines is not None
-    flat = lines.geoms if isinstance(lines, MultiLineString) else [lines]
-    assert 70 < sum(g.length for g in flat) < 90  # hranice záliv × jízdní plocha ≈ 80 m
-    assert ds.corridor_bay_lines(roads, None, corridor) is None
+    # široký ale krátký uzel (rozbočka, 25 × 20 m) se nekreslí koridorem
+    junction = ds.dtm_union([_rect(0, 0, 25, 20)])
+    assert ds.road_corridor(junction, None, scale=10000) is None
+    # dlouhá silnice 10 m × 100 m ano
+    assert ds.road_corridor(ds.dtm_union([_rect(0, 0, 100, 10)]), None, scale=10000) is not None
 
 
 def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
@@ -646,6 +639,41 @@ def test_long_curved_stairs_get_centerline_along_the_whole_curve():
     assert min(math.dist(e, (12.0, 0.0)) for e in ends) < 1.6  # do půl šířky od konce
     assert min(math.dist(e, (0.0, 12.0)) for e in ends) < 1.6
     assert isinstance(Polygon(rings[0]).area, float)
+
+
+def test_forest_and_mtbo_use_dtm_stairs_with_own_symbol_and_min_length(tmp_path):
+    from app.pipeline import osm_paths as op
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "stairs.json").write_text(
+        json.dumps(
+            {
+                "polygons": [
+                    [[list(p) for p in ring] for ring in _rect(-1000, -1000, -993, -997)],  # 7 × 3 m → kreslí se
+                    [[list(p) for p in ring] for ring in _rect(-980, -1000, -978.5, -998.5)],  # 1,5 m → ne
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    osm_steps = {
+        "type": "Feature",
+        "properties": {"highway": "steps"},
+        "geometry": {"type": "LineString", "coordinates": [[-1010, -998.5], [-960, -998.5]]},
+    }
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [osm_steps]}), encoding="utf-8"
+    )
+    for preset, code in (("forest_10000", "532"), ("mtbo_10000", "843")):
+        kw = dict(preset_id=preset, scale=10000, ref_x=-985.0, ref_y=-999.0, grivation_deg=0.0)
+        parts = di.build_dtm_stairs_parts(work, **kw)
+        assert parts and parts[0].count == 1  # jen schodiště nad 3 m
+        assert f'symbol="{symbol_index_for_code(preset, 10000, code)}"' in parts[0].objects_xml
+        paths = op.build_osm_path_parts(work, **kw)
+        assert paths and paths[0].count == 3  # OSM schody přerušené dvěma schodišti z DTM: 3 kusy
 
 
 def test_dtm_stairs_parts_draw_every_stair_and_osm_steps_only_outside(tmp_path):

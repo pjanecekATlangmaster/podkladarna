@@ -34,7 +34,7 @@ ROAD_EDGE_GAP_M = 0.5
 # do ``CORRIDOR_GAP_M`` m se přeskočí, chodník se bere do ``CORRIDOR_NEAR_M`` m od silnice, chodník se
 # sdíleným provozem (kolo povoleno) se nesloučí (okolí ``CORRIDOR_BIKE_PROTECT_M`` m od jeho čáry).
 # Koridor se kreslí jen tam, kde je širší než ``CORRIDOR_MIN_WIDTH_MM`` mm mapy a delší než
-# ``CORRIDOR_MIN_LEN_M`` m; užší silnice zůstávají čárou 502.x.
+# ``CORRIDOR_MIN_LEN_M`` m (plochou i délkou kusu – krátký uzel u rozbočky se nekreslí); užší silnice zůstávají čárou 502.x.
 CORRIDOR_GAP_M = 3.0
 CORRIDOR_NEAR_M = 8.0
 CORRIDOR_BIKE_PROTECT_M = 1.5
@@ -58,6 +58,8 @@ STAIRS_CACHE_SUFFIX = ".stairs1.json"
 # OSM čára schodů se v něm nekreslí (schodiště kreslí DTM).
 STAIRS_MIN_LEN_M = 1.0
 STAIRS_ZONE_M = 0.5
+# Les a MTBO (1:7500–1:15000): schodiště z DTM kratší než toto (m) se nekreslí.
+STAIRS_MIN_LEN_NONSPRINT_M = 3.0
 # Směr schodů se bere z nejbližší cesty do této vzdálenosti (m); osa se na každé straně prodlouží.
 STAIRS_REF_NEAR_M = 3.0
 # Schodiště protáhlejší než tento poměr stran se kreslí po střední ose (zachová zahnutí).
@@ -141,27 +143,15 @@ def separate_from_roads(geom, roads, gap_m: float = ROAD_EDGE_GAP_M):
     return unary_union([geom, *gaps]).difference(roads)
 
 
-def corridor_bay_lines(roads, parking, corridor):
-    """Hranice mezi jízdní plochou a parkovacím zálivem uvnitř koridoru (shapely čáry) nebo None.
-
-    Zálivy se v jedné ploše koridoru nesplynou: kreslí se samostatnou černou čárou. ``roads`` je
-    sjednocená plocha silnic, ``parking`` plocha parkovišť, ``corridor`` výsledek ``road_corridor``.
-    """
-    if roads is None or parking is None or corridor is None or roads.is_empty or parking.is_empty or corridor.is_empty:
-        return None
-    h = CORRIDOR_MIN_ROADWAY_M / 2
-    roadway = roads.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(roads)
-    if roadway.geom_type not in ("Polygon", "MultiPolygon"):  # GeometryCollection (nemá ``boundary``)
-        from shapely.ops import unary_union
-
-        roadway = unary_union([g for g in getattr(roadway, "geoms", []) if g.geom_type in ("Polygon", "MultiPolygon")])
-    if roadway.is_empty:
-        return None
-    bay = parking.intersection(roads.buffer(CORRIDOR_PARKING_NEAR_M)).intersection(corridor)
-    if bay.is_empty:
-        return None
-    lines = roadway.boundary.intersection(bay.buffer(0.3)).intersection(corridor.buffer(0.05))
-    return None if lines.is_empty else lines
+def _long_side(poly) -> float:
+    """Delší strana opsaného (otočeného) obdélníku polygonu (m) – délka kusu koridoru."""
+    rect = poly.minimum_rotated_rectangle
+    if rect.is_empty or rect.geom_type != "Polygon":
+        return 0.0
+    pts = list(rect.exterior.coords)[:4]
+    a = ((pts[1][0] - pts[0][0]) ** 2 + (pts[1][1] - pts[0][1]) ** 2) ** 0.5
+    b = ((pts[2][0] - pts[1][0]) ** 2 + (pts[2][1] - pts[1][1]) ** 2) ** 0.5
+    return max(a, b)
 
 
 def road_corridor(
@@ -209,7 +199,7 @@ def road_corridor(
     wide = corridor.buffer(-width / 2, join_style=2).buffer(width / 2, join_style=2)
     wide = wide.intersection(corridor)
     pieces = [wide] if wide.geom_type == "Polygon" else [x for x in getattr(wide, "geoms", []) if x.geom_type == "Polygon"]
-    keep = [x for x in pieces if x.area >= width * CORRIDOR_MIN_LEN_M]
+    keep = [x for x in pieces if x.area >= width * CORRIDOR_MIN_LEN_M and _long_side(x) >= CORRIDOR_MIN_LEN_M]
     return unary_union(keep) if keep else None
 
 

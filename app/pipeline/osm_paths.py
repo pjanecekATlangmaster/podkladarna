@@ -3802,9 +3802,8 @@ def build_osm_path_parts(
     # Pěšina (footway) uvnitř plochy chodníku nebo silnice z DTM se nekreslí (přechod přes silnici
     # ani pěšina v ploše chodníku): jen části mimo plochy.
     sidewalk_cover = dtm_cover_geometry(work_dir) if (sidewalks_from_dtm or roads_from_dtm) else None
-    stairs_zone = (
-        stairs_zone_geometry(work_dir) if preset_id.startswith("sprint") and dtm_owns_stairs(work_dir) else None
-    )
+    # OSM schody uvnitř schodišť z DTM se nekreslí (schodiště kreslí build_dtm_stairs_parts; všechny presety).
+    stairs_zone = stairs_zone_geometry(work_dir) if dtm_owns_stairs(work_dir) else None
     # MTBO: uvnitř koridoru silnice (silnice + přilehlé chodníky) se čára 502.x nekreslí.
     corridor_zone = None
     bike_zone = None

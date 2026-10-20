@@ -241,7 +241,7 @@ def build_dtm_stairs_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
-    """Schodiště z DTM jako čáry 532.7 (jedna čára na schodiště).
+    """Schodiště z DTM jako čáry schodů (jedna čára na schodiště; sprint 532.7, les 532, MTBO 843).
 
     Čára vede středem schodiště ve směru nejbližší cesty (OSM schody, pak ostatní cesty), takže
     navazuje na cestu. OSM čáry schodů se uvnitř schodišť z DTM nekreslí (viz ``build_osm_path_parts``).
@@ -251,11 +251,16 @@ def build_dtm_stairs_parts(
     from app.pipeline import dtm_sidewalks
     from app.pipeline.osm_paths import _path_object
 
-    if not preset_id.startswith("sprint") or not dtm_owns_stairs(work_dir):
+    if not dtm_owns_stairs(work_dir):
         return []
-    idx = symbol_index_for_code(preset_id, scale, "532.7")
+    from app.pipeline.osm_paths import osm_oom_code
+
+    sprint = preset_id.startswith("sprint")
+    # Symbol podle presetu (sprint 532.7, les 532, MTBO 843); les a MTBO bez drobných schodišť.
+    idx = symbol_index_for_code(preset_id, scale, osm_oom_code("steps", preset_id))
     if idx is None:
         return []
+    min_len = dtm_sidewalks.STAIRS_MIN_LEN_M if sprint else dtm_sidewalks.STAIRS_MIN_LEN_NONSPRINT_M
     steps_refs, path_refs = [], []
     for feat in _path_features(work_dir, path_source):
         geom = feat.get("geometry") or {}
@@ -278,7 +283,7 @@ def build_dtm_stairs_parts(
         if g.is_empty:
             continue
         axis = dtm_sidewalks.stairs_axis(poly, ref_lines)
-        if axis is None:
+        if axis is None or LineString(axis).length < min_len:
             continue
         for piece in clip_polyline(axis, clip_bounds) if clip_bounds else [axis]:
             mapped = [
@@ -868,7 +873,7 @@ def build_mtbo_corridor_parts(
     if not preset_id.startswith("mtbo"):
         return []
     corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
-    parts = _geometry_part(
+    return _geometry_part(
         corridor,
         name="MTBO – silnice s chodníky (koridor)",
         code="501.0",
@@ -880,44 +885,6 @@ def build_mtbo_corridor_parts(
         clip_bounds=clip_bounds,
         outline_separate=True,
     )
-    if corridor is None or not parts:
-        return parts
-    # Zálivy (parkování u silnice) uvnitř koridoru: samostatná černá čára mezi jízdní plochou a zálivem.
-    from app.pipeline import dtm_sidewalks
-    from app.pipeline.osm_paths import _path_object
-
-    edge_idx = symbol_index_for_code(preset_id, scale, EDGE_CODE)
-    bays = dtm_sidewalks.corridor_bay_lines(
-        road_geometry(work_dir, path_source), corridor_parking_geometry(work_dir), corridor
-    )
-    if bays is None or edge_idx is None:
-        return parts
-
-    def flat(g):
-        if g.geom_type == "LineString":
-            yield g
-        else:
-            for sub_g in getattr(g, "geoms", []):
-                yield from flat(sub_g)
-
-    objects: list[str] = []
-    for ln in flat(bays):
-        coords = [(float(x), float(y)) for x, y in ln.coords]
-        if len(coords) < 2 or ln.length < 1.0:
-            continue
-        for piece in clip_polyline(coords, clip_bounds) if clip_bounds else [coords]:
-            mapped = [
-                projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
-                for x, y in piece
-            ]
-            obj = _path_object(edge_idx, mapped)
-            if obj:
-                objects.append(obj)
-    if objects:
-        parts.append(
-            OomObjectPart(name="MTBO – zálivy v koridoru (501.100)", objects_xml="\n".join(objects), count=len(objects))
-        )
-    return parts
 
 
 def build_dtm_sidewalk_parts(
