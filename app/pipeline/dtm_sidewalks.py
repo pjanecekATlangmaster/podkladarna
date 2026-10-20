@@ -63,6 +63,8 @@ STAIRS_DECK_CLEAR_M = 0.6
 # Složité schodiště (polygon zahnutý do „C“ / „U“, více ramen s podestou, např. kolem hlavy lávky) se jednou čárou
 # nenakreslí: jeho plocha / obrys 501.0 se nechá mapaři. Mírou je podíl plochy polygonu a jeho konvexního obalu.
 STAIRS_COMPLEX_SOLIDITY = 0.72
+# Složité schodiště menší než tato plocha (m²) je střep: nekreslí se (ani čárou, ani plochou).
+STAIRS_COMPLEX_MIN_AREA_M2 = 4.0
 # Cesta, která končí v zpevněné ploše, se ukončí přesně na její hraně; cesta, která k ploše nedosáhne
 # o méně než ``EDGE_SNAP_M`` m, se k hraně prodlouží.
 EDGE_SNAP_M = 1.5

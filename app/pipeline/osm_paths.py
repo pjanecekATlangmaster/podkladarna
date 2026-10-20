@@ -440,6 +440,31 @@ _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
 _PAVED_AREA_KINDS = frozenset(
     {"playground", "pitch", "pedestrian_area", "parking", "platform"}
 )
+# OSM zpevněná plocha, která je jen sliver (plocha < ``SLIVER_MIN_AREA_M2`` nebo užší než ``SLIVER_MIN_WIDTH_M``,
+# např. nástupiště nakreslené téměř do přímky), se nekreslí.
+SLIVER_MIN_AREA_M2 = 3.0
+SLIVER_MIN_WIDTH_M = 0.8
+
+
+def is_sliver_polygon(coords_rings: list) -> bool:
+    """Je polygon (první prstenec ``[[x, y], …]``) zdegenerovaný: plocha nebo šířka pod limitem?"""
+    try:
+        from shapely.geometry import Polygon
+
+        g = Polygon(coords_rings[0], coords_rings[1:])
+        g = g if g.is_valid else g.buffer(0)
+    except (ValueError, IndexError):
+        return False
+    if g.is_empty or g.geom_type != "Polygon":
+        return g.is_empty
+    if g.area < SLIVER_MIN_AREA_M2:
+        return True
+    pts = list(g.minimum_rotated_rectangle.exterior.coords)[:4]
+    side_a = ((pts[1][0] - pts[0][0]) ** 2 + (pts[1][1] - pts[0][1]) ** 2) ** 0.5
+    side_b = ((pts[2][0] - pts[1][0]) ** 2 + (pts[2][1] - pts[1][1]) ** 2) ** 0.5
+    return min(side_a, side_b) < SLIVER_MIN_WIDTH_M
+
+
 # OSM plochy s ořezem proti ZABAGED (priorita ZABAGED).
 # farmland (412) se neořezává – zdroj je OSM, OrnaPuda se do OOM neimportuje.
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
@@ -4073,6 +4098,15 @@ def build_osm_feature_parts(
             from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_corridor_geometry
 
             feats = cut_osm_paved_by_geometry(feats, mtbo_corridor_geometry(work_dir, scale, "mixed"))
+    feats = [
+        f
+        for f in feats
+        if not (
+            (f.get("properties") or {}).get("kind") in _PAVED_AREA_KINDS
+            and (f.get("geometry") or {}).get("type") == "Polygon"
+            and is_sliver_polygon((f["geometry"].get("coordinates") or [[]]))
+        )
+    ]  # zdegenerované plošky (sliver) se nekreslí
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

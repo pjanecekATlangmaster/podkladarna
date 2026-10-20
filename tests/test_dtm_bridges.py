@@ -130,6 +130,22 @@ def test_lower_area_outline_is_not_drawn_along_the_bridge_edge():
     assert [p.name for p in di._geometry_part(lower, name="Chodníky", code="501.0", **kw)] == ["Chodníky"]
 
 
+def test_bridge_over_nothing_keeps_surface_color_without_512_window(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "decks.json").write_text(
+        json.dumps({"decks": [{"l": 1, "t": "ChodnikPlocha", "p": [[list(p) for p in ring] for ring in _rect(-1000, -1004, -960, -996)]}]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-1000.0, grivation_deg=0.0)
+    names = [p.name for p in di.build_dtm_bridge_parts(work, **kw)]
+    assert names == ["Mosty (DTM) úr. +1 – chodník 501.0"]  # nic pod ním → žádné 512.3xx, mostovka barvou povrchu
+
+
 def test_osm_footbridge_partly_inside_dtm_deck_draws_no_edges_and_nothing_on_dtm_road(tmp_path):
     import re
 
@@ -215,7 +231,9 @@ def test_bridge_parts_cut_lower_levels_and_osm_lines_under_deck(tmp_path):
     assert di.dtm_owns_decks(work)
     parts = di.build_dtm_bridge_parts(work, **kw)
     names = [p.name for p in parts]
-    assert any("chodník 501.0" in n for n in names) and not any("silnice" in n for n in names)
+    # most nad spodním chodníkem: celý 512.311 + obrys 501.100, mostovka 501.0 se zvlášť nekreslí (jeden plošný symbol)
+    assert any("512.311" in n for n in names) and any("obrys mostu" in n for n in names)
+    assert not any("chodník 501.0" in n for n in names) and not any("silnice" in n for n in names)
     # chodník na úrovni 0 pod mostem se z plochy chodníků vystřihne
     side = di.sidewalk_geometry(work, "mixed", cut_decks=True)
     assert side.intersection(di.deck_footprint_geometry(work)).area < 1e-6

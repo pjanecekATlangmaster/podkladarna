@@ -751,6 +751,46 @@ def test_complex_c_shaped_stairs_are_left_to_the_mapper_as_area(tmp_path):
     assert [p.name for p in forest] == ["DTM – schodiště (532.7)"] and forest[0].count == 1
 
 
+def test_tiny_complex_stairs_are_dropped(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    tiny_c = [[(0, 0), (1.5, 0), (1.5, 0.4), (0.4, 0.4), (0.4, 1.1), (1.5, 1.1), (1.5, 1.5), (0, 1.5), (0, 0)]]  # „C“, < 4 m²
+    (work / "dtm" / "stairs.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in tiny_c]]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    assert di.build_dtm_stairs_parts(work, **kw) == []  # střep: ani čára, ani plocha
+
+
+def test_osm_paved_slivers_are_not_drawn(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "osm_paths").mkdir()
+
+    def area(kind, ring):
+        return {
+            "type": "Feature",
+            "properties": {"source": "osm", "kind": kind, "oom_code": "501"},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+
+    sliver = [[-1000, -1000], [-973, -1007], [-1000, -1000.2], [-1000, -1000]]  # 27 m dlouhé, skoro přímka
+    real = [[-960, -960], [-940, -960], [-940, -940], [-960, -940], [-960, -960]]
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [area("platform", sliver), area("parking", real)]}),
+        encoding="utf-8",
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-980.0, grivation_deg=0.0)
+    names = [p.name for p in op.build_osm_feature_parts(work, **kw)]
+    assert names == ["OSM parkoviště (501 zpevněná)"]  # nástupiště-sliver pryč, skutečná plocha zůstává
+    assert op.is_sliver_polygon([sliver]) and not op.is_sliver_polygon([real])
+
+
 def test_forest_and_mtbo_use_dtm_stairs_with_own_symbol_and_min_length(tmp_path):
     from app.pipeline import osm_paths as op
     from app.pipeline.oom_symbol_map import symbol_index_for_code

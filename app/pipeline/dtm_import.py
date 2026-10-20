@@ -359,8 +359,9 @@ def build_dtm_stairs_parts(
         if g.is_empty:
             continue
         if dtm_sidewalks.is_complex_stairs(poly, foot):
-            complex_polys.append(g)  # více ramen / u mostu: čáru nelze spolehlivě odvodit, plocha pro mapaře
-            continue
+            if g.area >= dtm_sidewalks.STAIRS_COMPLEX_MIN_AREA_M2:
+                complex_polys.append(g)  # více ramen / u mostu: čáru nelze spolehlivě odvodit, plocha pro mapaře
+            continue  # střepy do 4 m² se nekreslí
         axis = dtm_sidewalks.stairs_axis(poly, ref_lines)
         if axis is None or LineString(axis).length < min_len:
             continue
@@ -909,6 +910,48 @@ def _geometry_part(
     return parts
 
 
+def _outline_part(
+    geom,
+    *,
+    name: str,
+    code: str,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None,
+) -> list[OomObjectPart]:
+    """Obrys plochy (shapely) čárou ``code`` (jen obvod a díry, ne podél ořezu na výřez); po kusech do 800 vrcholů."""
+    from shapely.geometry import LineString, box
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_sidewalks
+
+    if geom is None or geom.is_empty:
+        return []
+    idx = symbol_index_for_code(preset_id, scale, code)
+    if idx is None:
+        return []
+    clip = box(*clip_bounds) if clip_bounds is not None else None
+    objects: list[str] = []
+    for rings in dtm_sidewalks.polygon_rings(geom):
+        outline = unary_union([LineString(r) for r in rings])
+        if clip is not None:
+            outline = outline.intersection(clip).difference(clip.exterior.buffer(0.02))
+        lines = [outline] if outline.geom_type == "LineString" else [g for g in getattr(outline, "geoms", []) if g.geom_type == "LineString"]
+        for ln in lines:
+            for piece in _chunk_line([(float(x), float(y)) for x, y in ln.coords], OUTLINE_CHUNK_VERTICES):
+                mapped = [
+                    projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                    for x, y in piece
+                ]
+                obj = _path_object_mapped(idx, mapped)
+                if obj:
+                    objects.append(obj)
+    return [OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects))] if objects else []
+
+
 def _path_object_mapped(symbol_index: int, mapped) -> str:
     from app.pipeline.osm_paths import _path_object
 
@@ -1070,9 +1113,27 @@ def build_dtm_bridge_parts(
     )
     levels = deck_levels(work_dir)
     parts: list[OomObjectPart] = []
+    # Mosty nad spodní zpevněnou plochou / vodou kreslí celé 512.311 / 512.302 (a obrys 501.100), ne mostovka 501.0 / 501.20.
+    foot0 = dtm_bridges.footprint(levels)
+    sw_polys0, road_polys0 = classified_polygons(work_dir, path_source)
+    paved_parts0 = [
+        g
+        for g in (
+            dtm_sidewalks_union(sw_polys0),
+            dtm_sidewalks_union(road_polys0),
+            dtm_sidewalks_union(_load_polygons_file(parking_path(work_dir))),
+        )
+        if g is not None and not g.is_empty
+    ]
+    from shapely.ops import unary_union as _uu0
+
+    lower0 = dtm_bridges.lower_level_areas(foot0, _uu0(paved_parts0) if paved_parts0 else None, _osm_water_geometry(work_dir))
+    covered = _uu0([g for g in (lower0.get("paved"), lower0.get("water")) if g is not None]) if (lower0.get("paved") is not None or lower0.get("water") is not None) else None
     for level in sorted(levels):
         for key, code, label in (("light", "501.0", "chodník 501.0"), ("heavy", ROAD_CODE, "silnice 501.20")):
             geom = levels[level][key]
+            if geom is not None and covered is not None:
+                geom = geom.difference(covered)  # tuto část mostu kreslí 512.3xx (níže)
             if geom is None or geom.is_empty:
                 continue
             polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]
@@ -1090,6 +1151,17 @@ def build_dtm_bridge_parts(
                 )
             )
     # Křížení úrovní: spodní zpevněná plocha / voda pod mostem symbolem 512.311 / 512.302 (bílý základ + barva spodní plochy).
+    if covered is not None:
+        outline_lines = [g for lv in levels.values() if lv["all"] is not None for g in [lv["all"].intersection(covered)] if not g.is_empty]
+        if outline_lines:
+            parts.extend(
+                _outline_part(
+                    _uu0(outline_lines),
+                    name="Mosty (DTM) – obrys mostu (501.100)",
+                    code=EDGE_CODE,
+                    **kw,
+                )
+            )
     from shapely.ops import unary_union as _uu
 
     foot = dtm_bridges.footprint(levels)
