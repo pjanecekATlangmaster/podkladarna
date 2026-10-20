@@ -34,6 +34,7 @@ SMALL_PAVED_NAME = "small_paved.json"
 STAIRS_NAME = "stairs.json"
 PARKING_NAME = "parking.json"
 GREEN_NAME = "green.json"
+DECKS_NAME = "decks.json"
 # OSM budova, jejíž aspoň tento podíl plochy kryjí budovy z DTM, je duplicita (DTM má přednost).
 BUILDING_TWIN_SHARE = 0.5
 # Budovy z DTM, jejichž hrany jsou blíž než 2 × tato hodnota (m), se sloučí do jednoho objektu.
@@ -142,6 +143,11 @@ def prepare_dtm_fences(
         if log:
             log(f"DTM: orientace plotů přeskočena ({type(exc).__name__}: {exc})")
     try:
+        _write_decks(work_dir, [files[p.filename] for p in packages if p.set_name == dtm_sources.SET_OPL], bounds, log)
+    except Exception as exc:  # mosty z DTM jsou doplněk, kreslí se i z OSM
+        if log:
+            log(f"DTM: mosty přeskočeny ({type(exc).__name__}: {exc})")
+    try:
         _write_sidewalks(work_dir, [files[p.filename] for p in packages if p.set_name == dtm_sources.SET_OPL], bounds, log)
     except Exception as exc:  # chodníky z DTM jsou doplněk, kreslí se i z OSM
         if log:
@@ -174,6 +180,71 @@ def sidewalks_path(work_dir: Path) -> Path:
 
 def roads_path(work_dir: Path) -> Path:
     return work_dir / "dtm" / ROADS_NAME
+
+
+def decks_path(work_dir: Path) -> Path:
+    return work_dir / "dtm" / DECKS_NAME
+
+
+def _write_decks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) -> None:
+    """Plochy mostů (úroveň ≥ 1) zasahující do výřezu → ``dtm/decks.json``."""
+    from app.pipeline import dtm_bridges
+
+    xmin, ymin, xmax, ymax = bounds
+    decks = []
+    for name in opl_files:
+        for d in dtm_bridges.load_deck_polygons(name):
+            xs = [p[0] for p in d["p"][0]]
+            ys = [p[1] for p in d["p"][0]]
+            if max(xs) < xmin or min(xs) > xmax or max(ys) < ymin or min(ys) > ymax:
+                continue
+            decks.append(d)
+    dest = decks_path(work_dir)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not decks:
+        dest.unlink(missing_ok=True)
+        return
+    dest.write_text(
+        json.dumps({"decks": [{"l": d["l"], "t": d["t"], "p": [[list(p) for p in ring] for ring in d["p"]]} for d in decks]}),
+        encoding="utf-8",
+    )
+    if log:
+        log(f"DTM mosty: {len(decks)} ploch (úrovně {sorted({d['l'] for d in decks})})")
+
+
+def dtm_owns_decks(work_dir: Path) -> bool:
+    """Má výřez mosty / více úrovní z DTM? Pak je kreslí ``build_dtm_bridge_parts`` (sprint)."""
+    return decks_path(work_dir).is_file()
+
+
+def deck_levels(work_dir: Path):
+    """``{úroveň: {"light", "heavy", "all"}}`` (shapely) z ``decks.json``; prázdný dict bez mostů."""
+    from app.pipeline import dtm_bridges
+
+    try:
+        data = json.loads(decks_path(work_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    decks = [{"l": d["l"], "t": d["t"], "p": [[(x, y) for x, y in ring] for ring in d["p"]]} for d in data.get("decks") or []]
+    return dtm_bridges.level_decks(decks)
+
+
+def deck_footprint_geometry(work_dir: Path):
+    """Sjednocený půdorys mostů z DTM (shapely) nebo None."""
+    from app.pipeline import dtm_bridges
+
+    return dtm_bridges.footprint(deck_levels(work_dir)) if dtm_owns_decks(work_dir) else None
+
+
+def _minus_decks(geom, work_dir: Path):
+    """Plocha ``geom`` bez půdorysu mostů (spodní úroveň pod mostem)."""
+    if geom is None or geom.is_empty:
+        return geom
+    foot = deck_footprint_geometry(work_dir)
+    if foot is None or foot.is_empty:
+        return geom
+    cut = geom.difference(foot)
+    return None if cut.is_empty else cut
 
 
 def buildings_path(work_dir: Path) -> Path:
@@ -563,18 +634,22 @@ def sidewalk_osm_lines(work_dir: Path, path_source: str) -> list[list[tuple[floa
     return lines
 
 
-def road_geometry(work_dir: Path, path_source: str = "mixed"):
-    """Sjednocená plocha silnic (DTM + zbytky OSM; shapely) nebo None."""
+def road_geometry(work_dir: Path, path_source: str = "mixed", cut_decks: bool = False):
+    """Sjednocená plocha silnic (DTM + zbytky OSM; shapely) nebo None.
+
+    ``cut_decks``: bez půdorysu mostů (sprint; pod mostem se kreslí most).
+    """
     from app.pipeline import dtm_sidewalks
 
     polys = classified_polygons(work_dir, path_source)[1]  # vč. chodníků přeřazených mezi silnice
     if not polys:
         return None
     lines, widths = road_osm_lines(work_dir, path_source)
-    return dtm_sidewalks.unify_sidewalks(polys, lines, widths=widths)
+    geom = dtm_sidewalks.unify_sidewalks(polys, lines, widths=widths)
+    return _minus_decks(geom, work_dir) if cut_decks else geom
 
 
-def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None):
+def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None, cut_decks: bool = False):
     """Sjednocená plocha chodníků (DTM + OSM / ZABAGED; shapely) po ořezu o silnice, nebo None.
 
     ``roads``: plocha silnic z ``road_geometry``; chodník se o ni ořízne a škvíry do
@@ -603,10 +678,11 @@ def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None):
     geom = dtm_sidewalks.unify_sidewalks(polys, osm_lines, extra_areas=extra_areas)
     if geom is None:
         return None
-    return dtm_sidewalks.separate_from_roads(geom, roads)
+    geom = dtm_sidewalks.separate_from_roads(geom, roads)
+    return _minus_decks(geom, work_dir) if cut_decks else geom
 
 
-def parking_geometry(work_dir: Path, roads=None, sidewalks=None):
+def parking_geometry(work_dir: Path, roads=None, sidewalks=None, cut_decks: bool = False):
     """Plocha parkovišť z DTM po ořezu o silnice a chodníky (shapely) nebo None."""
     from app.pipeline import dtm_sidewalks
 
@@ -616,7 +692,9 @@ def parking_geometry(work_dir: Path, roads=None, sidewalks=None):
     for other in (roads, sidewalks):
         if other is not None and not other.is_empty:
             park = park.difference(other)
-    return park if not park.is_empty else None
+    if cut_decks:
+        park = _minus_decks(park, work_dir)
+    return park if park is not None and not park.is_empty else None
 
 
 def apply_dtm_priority_to_paved(work_dir: Path, features: list[dict]) -> list[dict]:
@@ -887,6 +965,88 @@ def build_mtbo_corridor_parts(
     )
 
 
+def bridge_entrance_edge_lines(work_dir: Path, path_source: str = "mixed") -> list[list[tuple[float, float]]]:
+    """Hrany 512.100 pod mosty z DTM (S-JTSK): přes chodník pod mostem, jinak přes silnici (viz ``dtm_bridges``)."""
+    from app.pipeline import dtm_bridges, dtm_sidewalks
+
+    levels = deck_levels(work_dir)
+    foot = dtm_bridges.footprint(levels)
+    if foot is None:
+        return []
+    sw_polys, road_polys = classified_polygons(work_dir, path_source)
+    return dtm_bridges.entrance_edges(
+        foot, dtm_sidewalks.dtm_union(sw_polys), dtm_sidewalks.dtm_union(road_polys)
+    )
+
+
+def build_dtm_bridge_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+    path_source: str = "mixed",
+) -> list[OomObjectPart]:
+    """Mosty z DTM (jen sprint): mostovka po úrovních barvou povrchu + hrany 512.100 pod mostem.
+
+    Chodníkové mostovky 501.0, silniční 501.20 (úrovně od nejnižší; vyšší úroveň vystřihuje nižší).
+    Hrany 512.100 jsou orientované tak, že vnitřek mostu leží vlevo od směru kreslení.
+    """
+    from app.pipeline.osm_paths import _path_object
+
+    if not preset_id.startswith("sprint") or not dtm_owns_decks(work_dir):
+        return []
+    from app.pipeline import dtm_bridges
+
+    kw = dict(
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        clip_bounds=clip_bounds,
+    )
+    levels = deck_levels(work_dir)
+    parts: list[OomObjectPart] = []
+    for level in sorted(levels):
+        for key, code, label in (("light", "501.0", "chodník 501.0"), ("heavy", ROAD_CODE, "silnice 501.20")):
+            geom = levels[level][key]
+            if geom is None or geom.is_empty:
+                continue
+            polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]
+            polys = [g for g in polys if g.area >= dtm_bridges.MIN_DECK_AREA_M2]
+            if not polys:
+                continue
+            from shapely.ops import unary_union
+
+            parts.extend(
+                _geometry_part(
+                    unary_union(polys),
+                    name=f"Mosty (DTM) úr. +{level} – {label}",
+                    code=code,
+                    **kw,
+                )
+            )
+    edge_idx = symbol_index_for_code(preset_id, scale, "512.100")
+    if edge_idx is not None:
+        objects: list[str] = []
+        for line in bridge_entrance_edge_lines(work_dir, path_source):
+            for piece in clip_polyline(line, clip_bounds) if clip_bounds else [line]:
+                mapped = [
+                    projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                    for x, y in piece
+                ]
+                obj = _path_object(edge_idx, mapped)
+                if obj:
+                    objects.append(obj)
+        if objects:
+            parts.append(OomObjectPart(name="Hrany pod mosty (DTM, 512.100)", objects_xml="\n".join(objects), count=len(objects)))
+    return parts
+
+
 def build_dtm_sidewalk_parts(
     work_dir: Path,
     *,
@@ -901,7 +1061,12 @@ def build_dtm_sidewalk_parts(
     """Chodníky (jen sprint) jako jedna plocha 501.0: DTM tvar + doplňky z OSM / ZABAGED, ořezaná o silnice."""
     if not preset_id.startswith("sprint") or not dtm_owns_sidewalks(work_dir):
         return []
-    geom = sidewalk_geometry(work_dir, path_source, roads=road_geometry(work_dir, path_source))
+    geom = sidewalk_geometry(
+        work_dir,
+        path_source,
+        roads=road_geometry(work_dir, path_source),
+        cut_decks=True,
+    )
     return _geometry_part(
         geom,
         name="Chodníky (DTM + OSM)",
@@ -960,7 +1125,7 @@ def build_dtm_parking_parts(
     roads = road_geometry(work_dir, path_source)
     sidewalks = sidewalk_geometry(work_dir, path_source, roads=roads) if dtm_owns_sidewalks(work_dir) else None
     return _geometry_part(
-        parking_geometry(work_dir, roads, sidewalks),
+        parking_geometry(work_dir, roads, sidewalks, cut_decks=True),
         name="DTM – parkoviště (501.0)",
         code="501.0",
         preset_id=preset_id,
@@ -1042,7 +1207,7 @@ def build_dtm_road_parts(
     if not preset_id.startswith("sprint") or not (dtm_owns_roads(work_dir) or dtm_owns_sidewalks(work_dir)):
         return []
     return _geometry_part(
-        road_geometry(work_dir, path_source),
+        road_geometry(work_dir, path_source, cut_decks=True),
         name="Silnice (DTM + OSM)",
         code=ROAD_CODE,
         preset_id=preset_id,

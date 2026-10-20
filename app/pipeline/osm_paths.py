@@ -3513,6 +3513,14 @@ def bridge_deck_geometry(work_dir: Path, *, margin_m: float = 0.5):
                 drawn_width_m(hw) / 2.0 + margin_m, cap_style="flat"
             )
         )
+    try:  # mostovky z DTM kraje (sprint kreslí mosty z DTM; voda pod nimi se vystřihne)
+        from app.pipeline.dtm_import import deck_footprint_geometry
+
+        dtm_foot = deck_footprint_geometry(work_dir)
+        if dtm_foot is not None and not dtm_foot.is_empty:
+            decks.append(dtm_foot.buffer(margin_m))
+    except Exception:
+        pass
     return unary_union(decks) if decks else None
 
 
@@ -3825,6 +3833,12 @@ def build_osm_path_parts(
         bike_zone = _uu(_bike).buffer(1.0) if _bike else None
     # Zpevněná plocha, na jejíž hraně cesty končí: sprint = chodníky a silnice z DTM, MTBO = koridor silnice.
     edge_area = corridor_zone if corridor_zone is not None else sidewalk_cover
+    # Sprint: pod mostem z DTM se cesty nekreslí (kreslí se most a hrany 512.100), mostní čáry uvnitř DTM mostu také ne.
+    deck_zone = None
+    if preset_id.startswith("sprint"):
+        from app.pipeline.dtm_import import deck_footprint_geometry
+
+        deck_zone = deck_footprint_geometry(work_dir)
     # Les a MTBO: chodníky vedle silnic se nekreslí (viz ``is_sidewalk_beside_road``).
     road_zone = None if preset_id.startswith("sprint") else road_zone_geometry(data.get("features") or [])
     for feat in data.get("features") or []:
@@ -3878,6 +3892,12 @@ def build_osm_path_parts(
         elif stairs_zone is not None and is_surface_steps(hw):
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
             lines = steps_keep(line, stairs_zone, sidewalk_cover)
+        if deck_zone is not None and not is_tunnel_highway(hw):
+            if is_bridge_highway(hw):
+                if _line_in_zone(line, deck_zone):
+                    continue  # most kreslí DTM (mostovka + hrany 512.100)
+            else:
+                lines = [seg for ln in lines for seg in clip_outside(ln, deck_zone)]  # pod mostem se cesta nekreslí
         if edge_area is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
             # Cesta končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
@@ -3909,6 +3929,11 @@ def build_osm_path_parts(
                 for f in data.get("features") or []
                 if (f.get("geometry") or {}).get("type") == "LineString"
                 and len((f["geometry"].get("coordinates") or [])) >= 2
+                and not (
+                    deck_zone is not None
+                    and is_bridge_highway(str((f.get("properties") or {}).get("highway") or ""))
+                    and _line_in_zone(f["geometry"]["coordinates"], deck_zone)
+                )  # most z DTM: hrany kreslí build_dtm_bridge_parts
             ]
             for edge in bridge_entrance_edges(items):
                 pieces = clip_polyline(edge, clip_bounds) if clip_bounds else [edge]

@@ -211,6 +211,7 @@ Pravidlo: **tvar bere DTM, aktuálnost OSM** – zbytky OSM, které DTM nezná, 
 | Malé stavby | `StavbaProZpevneniPovrchuPlocha` | samostatná část 501.0 | – |
 | Schodiště | `SchodistePlocha` | 532.7 po ose (i zahnutá) | OSM schody v schodišti a v plochách DTM |
 | Zeleň | `UdrzovanaPlochaZelenePlocha` | nekreslí se | vystřihne se z OSM zpevněných ploch |
+| Mosty (více úrovní) | `PlochaMostniKonstrukcePlocha` a povrchy na úrovni ≥ 1 (`ChodnikPlocha`, `SchodistePlocha`, `StavbaProZpevneniPovrchu`, `ProvozniPlocha…`) | mostovka po úrovních barvou povrchu (chodník 501.0, silnice 501.20) + hrany 512.100 pod mostem | spodní úroveň pod mostem (chodníky, silnice, parkoviště, voda), OSM cesty pod mostem a OSM lávky uvnitř mostu z DTM |
 
 **Les a MTBO** berou z DTM jen to, co je v 1:7500–1:15000 čitelné: **budovy** (stejné skládání jako ve sprintu, 521 / 526)
 a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výplně, jen delší než 20 m). MTBO navíc
@@ -225,6 +226,7 @@ se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`
 - `ChodnikPlocha` s OSM silnicí uvnitř (≥ 150 m, nebo ≥ 30 m a šířka ≥ 4 m) se bere jako silnice
   (chyba v DTM, `reclassify_sidewalks_as_roads`).
 - Čáry cest ZABAGED (`Ulice`, `SilniceDalnice`, `Cesta`, `Pesina`) se o plochy chodníků a silnic ořežou.
+- **Mosty / více úrovní (jen sprint, `app/pipeline/dtm_bridges.py`):** mostovka není vždy `PlochaMostniKonstrukcePlocha` – lávky a rampy jsou často jen `ChodnikPlocha` na úrovni +1 (`UrovenUmisteniObjektuZPS`), proto se půdorys skládá z konstrukce i z povrchů téže úrovně; vyšší úroveň vystřihuje nižší. Hrany 512.100 (trojúhelníky) se kreslí tam, kde pod mostem **prochází** chodník (vstup a výstup napříč hranami), jinak silnice (jen tam, kde u ní do 5 m není chodník); orientace: vnitřek mostu vlevo od směru kreslení. Podchody a tunely (úroveň < 0, metro) se nekreslí. Železnice a tramvaj mostovku neplní.
 - Cesty končící na zpevněné ploše (chodníky / silnice z DTM ve sprintu, koridor v MTBO) se ukončí přesně na její hraně:
   konec uvnitř plochy se odřízne, konec do 1,5 m před plochou se k hraně prodlouží (`end_at_edge`); ořez je bez odstupu.
 - Starší joby (bez `work/dtm/sidewalks.json` apod.) kreslí chodníky, silnice a budovy po staru z OSM.
