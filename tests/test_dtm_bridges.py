@@ -61,14 +61,19 @@ def test_entrance_edges_are_oriented_with_deck_on_the_left():
         assert foot.contains(left)
 
 
-def test_lower_level_areas_are_intersection_of_deck_with_paved_and_water():
-    foot = ds.dtm_union([_rect(0, 0, 40, 10)])
-    paved = ds.dtm_union([_rect(10, -5, 20, 15)])  # 10 × 10 pod mostem
-    water = ds.dtm_union([_rect(30, -5, 38, 15)])  # 8 × 10
+def test_lower_level_areas_cover_the_whole_bridge_that_crosses_paved_or_water():
+    bridge_road = ds.dtm_union([_rect(0, 0, 40, 10)])  # most přes silnici
+    bridge_water = ds.dtm_union([_rect(100, 0, 140, 10)])  # most přes vodu
+    bridge_none = ds.dtm_union([_rect(200, 0, 240, 10)])  # most přes nic
+    foot = ds.dtm_union([_rect(0, 0, 40, 10), _rect(100, 0, 140, 10), _rect(200, 0, 240, 10)])
+    paved = ds.dtm_union([_rect(10, -5, 20, 15)])  # silnice pod prvním mostem (10 × 10)
+    water = ds.dtm_union([_rect(110, -5, 118, 15)])  # řeka pod druhým mostem (8 × 10)
     out = db.lower_level_areas(foot, paved, water)
-    assert abs(out["paved"].area - 100.0) < 1e-6 and abs(out["water"].area - 80.0) < 1e-6
+    # celý most (ne jen průnik se spodní plochou): 400 m² každý; třetí most bez spodního povrchu se nevrací
+    assert abs(out["paved"].area - bridge_road.area) < 1e-6 and abs(out["water"].area - bridge_water.area) < 1e-6
+    assert out["paved"].intersection(bridge_none).area < 1e-6 and out["water"].intersection(bridge_none).area < 1e-6
     assert db.lower_level_areas(foot, None, None) == {"paved": None, "water": None}
-    tiny = ds.dtm_union([_rect(50, 0, 50.5, 0.5)])
+    tiny = ds.dtm_union([_rect(300, 0, 300.5, 0.5)])
     assert db.lower_level_areas(foot, tiny)["paved"] is None  # mimo most
 
 
@@ -103,7 +108,7 @@ def test_bridge_parts_draw_lower_paved_with_512_311_and_hide_lower_stairs(tmp_pa
     kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-1000.0, grivation_deg=0.0)
     parts = di.build_dtm_bridge_parts(work, **kw)
     lower = [p for p in parts if "512.311" in p.name]
-    assert lower and lower[0].count == 1
+    assert lower and lower[0].count == 1  # celý most (i s částí mimo silnici), ne jen průnik
     assert f'symbol="{symbol_index_for_code("sprint_4000", 4000, "512.311")}"' in lower[0].objects_xml
     stairs = di.build_dtm_stairs_parts(work, **kw)
     assert stairs and stairs[0].count == 1  # schodiště pod mostem se nekreslí, mimo most ano

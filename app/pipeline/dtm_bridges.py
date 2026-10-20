@@ -212,25 +212,32 @@ MIN_LOWER_AREA_M2 = 1.0
 
 
 def lower_level_areas(foot, paved0, water0=None) -> dict[str, object]:
-    """Oblasti pod mostem, kde spodní povrch prochází: ``{"paved": geom, "water": geom}`` (shapely nebo None).
+    """Mosty, pod kterými prochází spodní povrch: ``{"paved": geom, "water": geom}`` (shapely nebo None).
 
-    Průnik půdorysu mostů ``foot`` se zpevněnými plochami (chodníky, silnice, parkoviště) ``paved0`` a s vodou
-    ``water0`` na úrovni 0. V ISSprOM se takové křížení úrovní kreslí symboly 512.3xx (bílý základ a barva
-    spodní plochy): 512.311 pro zpevněnou plochu, 512.302 pro vodu.
+    Každý souvislý most ``foot``, který kříží zpevněné plochy ``paved0`` (chodníky, silnice, parkoviště) nebo vodu
+    ``water0`` na úrovni 0, se vrací **celý** (od napojení na cestu po napojení na další cestu), do ``paved`` nebo
+    ``water`` podle toho, pod kterým povrchem leží větší plocha. V ISSprOM se takový most kreslí symbolem 512.3xx
+    (bílý základ a barva spodní plochy): 512.311 zpevněná plocha, 512.302 voda.
     """
+    from shapely.ops import unary_union
+
     out: dict[str, object] = {"paved": None, "water": None}
     if foot is None or foot.is_empty:
         return out
-    for key, surface in (("paved", paved0), ("water", water0)):
-        if surface is None or surface.is_empty:
+    comps = [foot] if foot.geom_type == "Polygon" else [g for g in getattr(foot, "geoms", []) if g.geom_type == "Polygon"]
+    paved_parts, water_parts = [], []
+    for comp in comps:
+        if comp.area < MIN_DECK_AREA_M2:
             continue
-        cross = foot.intersection(surface)
-        parts = [cross] if cross.geom_type == "Polygon" else [g for g in getattr(cross, "geoms", []) if g.geom_type == "Polygon"]
-        parts = [g for g in parts if g.area >= MIN_LOWER_AREA_M2]
-        if parts:
-            from shapely.ops import unary_union
-
-            out[key] = unary_union(parts)
+        pa = comp.intersection(paved0).area if paved0 is not None and not paved0.is_empty else 0.0
+        wa = comp.intersection(water0).area if water0 is not None and not water0.is_empty else 0.0
+        if max(pa, wa) < MIN_LOWER_AREA_M2:
+            continue
+        (paved_parts if pa >= wa else water_parts).append(comp)
+    if paved_parts:
+        out["paved"] = unary_union(paved_parts)
+    if water_parts:
+        out["water"] = unary_union(water_parts)
     return out
 
 
