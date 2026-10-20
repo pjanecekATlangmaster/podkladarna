@@ -155,6 +155,59 @@ def test_sidewalk_line_crossing_road_is_not_drawn_over_the_road(tmp_path, monkey
     assert all(not (-1004 < y < -996) for ln in seen["lines"] for _x, y in ln)
 
 
+def test_separate_from_roads_cuts_overlap_and_closes_narrow_gap():
+    roads = ds.dtm_union([_rect(0, 0, 40, 8)])
+    overlap = ds.dtm_union([_rect(0, 7, 40, 12)])  # zasahuje 1 m do silnice
+    cut = ds.separate_from_roads(overlap, roads)
+    assert cut.intersection(roads).area < 1e-6  # překryv odebrán
+    assert abs(cut.bounds[1] - 8.0) < 1e-6  # chodník začíná přesně na hraně silnice
+    gap = ds.dtm_union([_rect(0, 8.3, 40, 12)])  # škvíra 0,3 m
+    closed = ds.separate_from_roads(gap, roads)
+    assert abs(closed.bounds[1] - 8.0) < 0.05  # škvíra zacelená
+    far = ds.dtm_union([_rect(0, 10, 40, 12)])  # škvíra 2 m (pás trávy) zůstává
+    assert abs(ds.separate_from_roads(far, roads).bounds[1] - 10.0) < 1e-6
+
+
+def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "parking.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1000, -960, -980)]]}),
+        encoding="utf-8",
+    )
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -990, -960, -980)]]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+
+    def area(kind, x0, y0, x1, y1):
+        ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        return {
+            "type": "Feature",
+            "properties": {"source": "osm", "kind": kind, "oom_code": "501"},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+
+    feats = [area("parking", -995, -998, -965, -982), area("parking", -900, -900, -880, -880)]
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-990.0, grivation_deg=0.0)
+    parts = di.build_dtm_parking_parts(work, **kw)
+    assert [p.name for p in parts] == ["DTM – parkoviště (501.0)"] and parts[0].count == 1
+    geom = di.parking_geometry(work, di.road_geometry(work), None)
+    assert geom.intersection(di.road_geometry(work)).area < 1e-6  # parkoviště po ořezu o silnici
+    names = [p.name for p in op.build_osm_feature_parts(work, **kw)]
+    assert names.count("OSM parkoviště (501 zpevněná)") == 1  # OSM parkoviště nad DTM zahozeno, vzdálené zůstává
+    assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+
+
 def test_reclassify_sidewalk_with_osm_road_inside_as_road():
     wide = _rect(0, 0, 60, 12)  # 12 m široká „ChodnikPlocha“ s OSM silnicí uvnitř = chyba v DTM
     crossing = _rect(100, 0, 140, 2.5)  # úzký chodník, který silnice jen kříží

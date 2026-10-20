@@ -30,6 +30,7 @@ ROADS_NAME = "roads.json"
 BUILDINGS_NAME = "buildings.json"
 SMALL_PAVED_NAME = "small_paved.json"
 STAIRS_NAME = "stairs.json"
+PARKING_NAME = "parking.json"
 # OSM budova, jejíž aspoň tento podíl plochy kryjí budovy z DTM, je duplicita (DTM má přednost).
 BUILDING_TWIN_SHARE = 0.5
 # Budovy z DTM, jejichž hrany jsou blíž než 2 × tato hodnota (m), se sloučí do jednoho objektu.
@@ -178,6 +179,10 @@ def stairs_path(work_dir: Path) -> Path:
     return work_dir / "dtm" / STAIRS_NAME
 
 
+def parking_path(work_dir: Path) -> Path:
+    return work_dir / "dtm" / PARKING_NAME
+
+
 def dtm_owns_stairs(work_dir: Path) -> bool:
     """Má výřez schodiště z DTM? Pak se OSM čáry schodů ořežou na ně (DTM má přednost)."""
     return stairs_path(work_dir).is_file()
@@ -285,6 +290,7 @@ def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) 
         (buildings_path(work_dir), dtm_sidewalks.load_building_polygons, "budovy"),
         (small_paved_path(work_dir), dtm_sidewalks.load_small_paved_polygons, "malé zpevněné stavby"),
         (stairs_path(work_dir), dtm_sidewalks.load_stairs_polygons, "schodiště"),
+        (parking_path(work_dir), dtm_sidewalks.load_parking_polygons, "parkoviště"),
     ):
         xmin, ymin, xmax, ymax = bounds
         polys = []
@@ -546,34 +552,35 @@ def sidewalk_osm_lines(work_dir: Path, path_source: str) -> list[list[tuple[floa
     return lines
 
 
-def build_dtm_sidewalk_parts(
-    work_dir: Path,
-    *,
-    preset_id: str,
-    scale: int,
-    ref_x: float,
-    ref_y: float,
-    grivation_deg: float,
-    clip_bounds: Bounds | None = None,
-    path_source: str = "mixed",
-) -> list[OomObjectPart]:
-    """Chodníky (jen sprint) jako jedna plocha 501.0: DTM tvar + doplňky z OSM / ZABAGED."""
-    from shapely.geometry import box
-
+def road_geometry(work_dir: Path, path_source: str = "mixed"):
+    """Sjednocená plocha silnic (DTM + zbytky OSM; shapely) nebo None."""
     from app.pipeline import dtm_sidewalks
-    from app.pipeline.oom_import import _area_object_with_holes
 
-    if not preset_id.startswith("sprint") or not dtm_owns_sidewalks(work_dir):
-        return []
+    polys = classified_polygons(work_dir, path_source)[1]  # vč. chodníků přeřazených mezi silnice
+    if not polys:
+        return None
+    lines, widths = road_osm_lines(work_dir, path_source)
+    return dtm_sidewalks.unify_sidewalks(polys, lines, widths=widths)
+
+
+def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None):
+    """Sjednocená plocha chodníků (DTM + OSM / ZABAGED; shapely) po ořezu o silnice, nebo None.
+
+    ``roads``: plocha silnic z ``road_geometry``; chodník se o ni ořízne a škvíry do
+    ``ROAD_EDGE_GAP_M`` se zacelí (jedna hranice místo dvou čar těsně vedle sebe).
+    """
+    from app.pipeline import dtm_sidewalks
+
     polys, road_polys = classified_polygons(work_dir, path_source)
     if not polys:
-        return []
+        return None
     extra_areas: list = []
     dtm = dtm_sidewalks.dtm_union(polys)
     feats_path = work_dir / "osm_paths" / "features.geojson"
     if dtm is not None and feats_path.is_file():
         try:
             feats = json.loads(feats_path.read_text(encoding="utf-8")).get("features") or []
+            feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
             extra_areas, _rest = split_absorbed_areas(feats, dtm)
         except (OSError, ValueError):
             pass
@@ -584,10 +591,70 @@ def build_dtm_sidewalk_parts(
         osm_lines = [seg for ln in osm_lines for seg in dtm_sidewalks.clip_outside(ln, road)]
     geom = dtm_sidewalks.unify_sidewalks(polys, osm_lines, extra_areas=extra_areas)
     if geom is None:
+        return None
+    return dtm_sidewalks.separate_from_roads(geom, roads)
+
+
+def parking_geometry(work_dir: Path, roads=None, sidewalks=None):
+    """Plocha parkovišť z DTM po ořezu o silnice a chodníky (shapely) nebo None."""
+    from app.pipeline import dtm_sidewalks
+
+    park = dtm_sidewalks.dtm_union(_load_polygons_file(parking_path(work_dir)))
+    if park is None or park.is_empty:
+        return None
+    for other in (roads, sidewalks):
+        if other is not None and not other.is_empty:
+            park = park.difference(other)
+    return park if not park.is_empty else None
+
+
+def drop_osm_parking_covered_by_dtm(work_dir: Path, features: list[dict]) -> list[dict]:
+    """OSM parkoviště, které se překrývá s parkovištěm z DTM (aspoň 1 m²), se zahodí (DTM má přednost)."""
+    from shapely.geometry import shape
+
+    from app.pipeline import dtm_sidewalks
+
+    park = dtm_sidewalks.dtm_union(_load_polygons_file(parking_path(work_dir)))
+    if park is None or park.is_empty:
+        return features
+    kept = []
+    for feat in features:
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") == "parking" and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+                if g.intersection(park).area >= dtm_sidewalks.ABSORB_MIN_OVERLAP_M2:
+                    continue
+            except (ValueError, TypeError):
+                pass
+        kept.append(feat)
+    return kept
+
+
+def _geometry_part(
+    geom,
+    *,
+    name: str,
+    code: str,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None,
+) -> list[OomObjectPart]:
+    """Plocha (shapely) jako části .omap se symbolem ``code``; prázdný seznam bez geometrie / symbolu."""
+    from shapely.geometry import box
+
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline.oom_import import _area_object_with_holes
+
+    if geom is None or geom.is_empty:
         return []
     if clip_bounds is not None:
         geom = geom.intersection(box(*clip_bounds))
-    idx = symbol_index_for_code(preset_id, scale, "501.0")
+    idx = symbol_index_for_code(preset_id, scale, code)
     if idx is None:
         return []
     objects = []
@@ -604,7 +671,64 @@ def build_dtm_sidewalk_parts(
             objects.append(obj)
     if not objects:
         return []
-    return [OomObjectPart(name="Chodníky (DTM + OSM)", objects_xml="\n".join(objects), count=len(objects))]
+    return [OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects))]
+
+
+def build_dtm_sidewalk_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+    path_source: str = "mixed",
+) -> list[OomObjectPart]:
+    """Chodníky (jen sprint) jako jedna plocha 501.0: DTM tvar + doplňky z OSM / ZABAGED, ořezaná o silnice."""
+    if not preset_id.startswith("sprint") or not dtm_owns_sidewalks(work_dir):
+        return []
+    geom = sidewalk_geometry(work_dir, path_source, roads=road_geometry(work_dir, path_source))
+    return _geometry_part(
+        geom,
+        name="Chodníky (DTM + OSM)",
+        code="501.0",
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        clip_bounds=clip_bounds,
+    )
+
+
+def build_dtm_parking_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+    path_source: str = "mixed",
+) -> list[OomObjectPart]:
+    """Parkoviště a odstavné plochy z DTM (jen sprint) jako samostatná část 501.0, ořezaná o silnice a chodníky."""
+    if not preset_id.startswith("sprint") or not parking_path(work_dir).is_file():
+        return []
+    roads = road_geometry(work_dir, path_source)
+    sidewalks = sidewalk_geometry(work_dir, path_source, roads=roads) if dtm_owns_sidewalks(work_dir) else None
+    return _geometry_part(
+        parking_geometry(work_dir, roads, sidewalks),
+        name="DTM – parkoviště (501.0)",
+        code="501.0",
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        clip_bounds=clip_bounds,
+    )
 
 
 def classified_polygons(
@@ -674,40 +798,19 @@ def build_dtm_road_parts(
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
     """Silnice (jen sprint) jako jedna plocha 501.20: DTM tvar + doplňky z OSM."""
-    from shapely.geometry import box
-
-    from app.pipeline import dtm_sidewalks
-    from app.pipeline.oom_import import _area_object_with_holes
-
     if not preset_id.startswith("sprint") or not (dtm_owns_roads(work_dir) or dtm_owns_sidewalks(work_dir)):
         return []
-    polys = classified_polygons(work_dir, path_source)[1]  # vč. chodníků přeřazených mezi silnice
-    if not polys:
-        return []
-    lines, widths = road_osm_lines(work_dir, path_source)
-    geom = dtm_sidewalks.unify_sidewalks(polys, lines, widths=widths)
-    if geom is None:
-        return []
-    if clip_bounds is not None:
-        geom = geom.intersection(box(*clip_bounds))
-    idx = symbol_index_for_code(preset_id, scale, ROAD_CODE)
-    if idx is None:
-        return []
-    objects = []
-    for rings in dtm_sidewalks.polygon_rings(geom):
-        mapped = [
-            [
-                projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
-                for x, y in ring
-            ]
-            for ring in rings
-        ]
-        obj = _area_object_with_holes(idx, mapped)
-        if obj:
-            objects.append(obj)
-    if not objects:
-        return []
-    return [OomObjectPart(name="Silnice (DTM + OSM)", objects_xml="\n".join(objects), count=len(objects))]
+    return _geometry_part(
+        road_geometry(work_dir, path_source),
+        name="Silnice (DTM + OSM)",
+        code=ROAD_CODE,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        clip_bounds=clip_bounds,
+    )
 
 
 def dtm_cover_geometry(work_dir: Path):

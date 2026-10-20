@@ -3860,6 +3860,11 @@ def build_osm_feature_parts(
 
         if dtm_owns_fences(work_dir):
             feats = [f for f in feats if (f.get("properties") or {}).get("kind") != "fence"]
+        # OSM parkoviště překrývající parkoviště z DTM se nekreslí (DTM má přednost, kreslí je
+        # build_dtm_parking_parts).
+        from app.pipeline.dtm_import import drop_osm_parking_covered_by_dtm
+
+        feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
         # Zpevněné plochy zasahující do chodníků z DTM se kreslí společně s nimi (build_dtm_sidewalk_parts).
         from app.pipeline.dtm_import import (
             dtm_owns_buildings,

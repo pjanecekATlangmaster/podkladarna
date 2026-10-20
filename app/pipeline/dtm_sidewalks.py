@@ -19,6 +19,11 @@ CACHE_SUFFIX = ".sidewalk1.json"
 ROAD_TYPES = ("ProvozniPlochaPozemniKomunikacePlocha", "ManipulacniPlochaPlocha")
 ROAD_CACHE_SUFFIX = ".road1.json"
 BUILDING_TYPES = ("BudovaPlocha",)
+# Parkoviště a odstavné plochy (sprint 501.0, samostatná část).
+PARKING_TYPES = ("ParkovisteOdstavnaPlochaPlocha",)
+PARKING_CACHE_SUFFIX = ".park1.json"
+# Škvíry užší než tato hodnota (m) mezi chodníkem a silnicí se zacelí (hranice je jedna čára).
+ROAD_EDGE_GAP_M = 0.5
 BUILDING_CACHE_SUFFIX = ".bld1.json"
 # Schody, rampy, zápraží u vchodů: v DTM bez atributu druhu, kreslí se jako zpevněná plocha 501.0.
 SMALL_PAVED_TYPES = ("StavbaProZpevneniPovrchuPlocha",)
@@ -82,6 +87,31 @@ def load_road_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[l
 def load_building_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
     """Půdorysy budov na povrchu (``BudovaPlocha``, úroveň 0) z balíku ZPS_OPL."""
     return load_polygons(opl_zip, BUILDING_TYPES, BUILDING_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def load_parking_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Parkoviště a odstavné plochy na povrchu (úroveň 0) z balíku ZPS_OPL."""
+    return load_polygons(opl_zip, PARKING_TYPES, PARKING_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def separate_from_roads(geom, roads, gap_m: float = ROAD_EDGE_GAP_M):
+    """Plocha ``geom`` (chodník) po ořezu o silnice ``roads`` a zacelení škvír užších než ``gap_m``.
+
+    Překryv se odebere ploše, škvíra mezi plochou a silnicí se přidá ploše, takže obě sousedí na
+    jedné hraně (jedna čára obrysu místo dvou těsně vedle sebe).
+    """
+    from shapely.ops import unary_union
+
+    if geom is None or roads is None or roads.is_empty:
+        return geom
+    both = unary_union([geom, roads])
+    # „zacelení“ obou ploch dohromady; z toho, co přibylo, jen kusy dotýkající se chodníku i silnice
+    # (ne rohy na koncích ploch a ne škvíry uvnitř jedné z nich)
+    fill = both.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2).difference(both)
+    pieces = [fill] if fill.geom_type == "Polygon" else list(getattr(fill, "geoms", []))
+    near_geom, near_roads = geom.buffer(0.02), roads.buffer(0.02)
+    gaps = [p for p in pieces if p.geom_type == "Polygon" and p.intersects(near_geom) and p.intersects(near_roads)]
+    return unary_union([geom, *gaps]).difference(roads)
 
 
 def load_small_paved_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
