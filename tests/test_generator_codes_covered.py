@@ -319,7 +319,14 @@ def test_spy_osm_paths_codes_in_catalog(tmp_path: Path, seen_generator_codes, ke
     )
     # žádný fallback na 506: všechny cesty našly svůj symbol
     assert sm.drain_unmapped_codes() == {}
-    assert sum(p.count for p in parts) == len(feats)
+    # les / MTBO zahazují chodník souběžný se silnicí (všechny cesty fixtury leží na sobě)
+    zone = osm_paths.road_zone_geometry(feats)
+    dropped = 0 if key == "sprint" else sum(
+        1
+        for f in feats
+        if osm_paths.is_sidewalk_beside_road(f["properties"]["highway"], f["geometry"]["coordinates"], zone)
+    )
+    assert sum(p.count for p in parts) == len(feats) - dropped
 
 
 @pytest.mark.parametrize("key,preset,scale", [("isom", "forest_10000", 10000), ("sprint", "sprint_2m", 4000), ("mtbo", "mtbo_10000", 10000)])

@@ -3602,6 +3602,42 @@ _BRIDGE_EDGE_MAX_HALF_M = 15.0
 _BRIDGE_EDGE_MIN_SIN = 0.2
 
 
+# Les a MTBO (1:7500–1:15000): chodník souběžný se silnicí se nekreslí (1,4 m je pod šířkou čáry).
+# Zahazuje se čára chodníku, jejíž aspoň ``SIDEWALK_ROAD_SHARE`` délky leží do ``SIDEWALK_ROAD_NEAR_M`` m
+# od osy silnice. Chodník / pěšina v parku mimo silnici zůstává.
+SIDEWALK_ROAD_NEAR_M = 12.0
+SIDEWALK_ROAD_SHARE = 0.7
+
+
+def road_zone_geometry(features: list[dict]):
+    """Pás ``SIDEWALK_ROAD_NEAR_M`` m kolem os silnic (``road_*``, i mosty) z prvků cest; None bez silnic."""
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+    lines = []
+    for feat in features:
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if geom.get("type") == "LineString" and len(coords) >= 2 and path_draw_highway(hw).startswith("road_"):
+            lines.append(LineString(coords))
+    return unary_union(lines).buffer(SIDEWALK_ROAD_NEAR_M) if lines else None
+
+
+def is_sidewalk_beside_road(highway: str, coords: list, road_zone) -> bool:
+    """Chodník (na povrchu) souběžný se silnicí: aspoň ``SIDEWALK_ROAD_SHARE`` délky v pásu kolem silnice."""
+    if road_zone is None or len(coords) < 2:
+        return False
+    if path_draw_highway(highway) != "sidewalk" or is_bridge_highway(highway) or is_tunnel_highway(highway):
+        return False
+    from shapely.geometry import LineString
+
+    line = LineString(coords)
+    return line.length > 0 and line.intersection(road_zone).length >= SIDEWALK_ROAD_SHARE * line.length
+
+
 def drawn_width_m(highway: str) -> float:
     """Přibližná šířka kresby cesty v terénu (m) – pro ohraničení lávek."""
     base = path_draw_highway(highway)
@@ -3731,6 +3767,8 @@ def build_osm_path_parts(
     stairs_zone = (
         stairs_zone_geometry(work_dir) if preset_id.startswith("sprint") and dtm_owns_stairs(work_dir) else None
     )
+    # Les a MTBO: chodníky vedle silnic se nekreslí (viz ``is_sidewalk_beside_road``).
+    road_zone = None if preset_id.startswith("sprint") else road_zone_geometry(data.get("features") or [])
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
@@ -3741,6 +3779,8 @@ def build_osm_path_parts(
             continue
         if roads_from_dtm and is_surface_road(hw):
             continue  # silnice kreslí plocha DTM + OSM (build_dtm_road_parts)
+        if road_zone is not None and is_sidewalk_beside_road(hw, coords, road_zone):
+            continue
         code = osm_oom_code(hw, preset_id)
         if code not in symbol_cache:
             symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
@@ -3882,6 +3922,16 @@ def build_osm_feature_parts(
             dtm_geom = sidewalk_dtm_geometry(work_dir)
             if dtm_geom is not None:
                 _absorbed, feats = split_absorbed_areas(feats, dtm_geom)
+    else:
+        # Les a MTBO: z DTM jen budovy (přesný tvar, OSM bez protějšku) a ploty (kreslí je společně
+        # dtm_import.build_dtm_fence_parts, bez orientace čárek a olivové výplně).
+        from app.pipeline.dtm_import import dtm_owns_buildings, dtm_owns_fences, merge_dtm_buildings
+
+        if dtm_owns_fences(work_dir):
+            feats = [f for f in feats if (f.get("properties") or {}).get("kind") != "fence"]
+        dtm_buildings = dtm_owns_buildings(work_dir)
+        if dtm_buildings:
+            feats = merge_dtm_buildings(work_dir, feats)
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

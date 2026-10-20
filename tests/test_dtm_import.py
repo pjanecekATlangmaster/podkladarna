@@ -92,9 +92,20 @@ def test_build_parts_sprint_only_with_codes(tmp_path):
     xml = parts[0].objects_xml
     assert f'symbol="{symbol_index_for_code("sprint_4000", 4000, "518")}"' in xml
     assert f'symbol="{symbol_index_for_code("sprint_4000", 4000, "416")}"' in xml
-    # les / MTBO a oblast bez DTM: nic
+    # les / MTBO: stejné spojené ploty, ale symboly presetu (516 / 522, živý plot 416), bez výplně
+    forest = di.build_dtm_fence_parts(tmp_path, preset_id="forest_10000", scale=10000, **kw)
+    assert len(forest) == 1 and forest[0].count == 2
+    assert f'symbol="{symbol_index_for_code("forest_10000", 10000, "516")}"' in forest[0].objects_xml
+    mtbo = di.build_dtm_fence_parts(tmp_path, preset_id="mtbo_10000", scale=10000, **kw)
+    assert len(mtbo) == 1 and mtbo[0].count >= 1
+    assert f'symbol="{symbol_index_for_code("mtbo_10000", 10000, "522")}"' in mtbo[0].objects_xml
+    # krátké ploty (zahradní oplocení) se v lese / MTBO nekreslí
+    _write_fences(tmp_path, [("518", [(X0, Y0), (X0 + 10, Y0)])])
     assert di.build_dtm_fence_parts(tmp_path, preset_id="forest_10000", scale=10000, **kw) == []
+    assert di.build_dtm_fence_parts(tmp_path, preset_id="sprint_4000", scale=4000, **kw) != []
+    # oblast bez DTM: nic
     assert di.build_dtm_fence_parts(tmp_path / "jinde", preset_id="sprint_4000", scale=4000, **kw) == []
+    assert di.build_dtm_fence_parts(tmp_path / "jinde", preset_id="forest_10000", scale=10000, **kw) == []
 
 
 def test_subtract_dtm_from_osm_fences(tmp_path):

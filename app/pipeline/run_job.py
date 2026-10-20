@@ -373,17 +373,10 @@ def run_job_pipeline(
                 )
         except Exception as exc:
             log_issue(log, f"OSM 501: stahování na pozadí se nespustilo ({exc})")
-        # DTM kraje (zaměřené ploty, jen sprint): příprava na pozadí, výsledek se vezme při sestavení mapy.
+        # DTM kraje (zaměřené ploty, budovy, chodníky, silnice …; sprint, les i MTBO): příprava na pozadí,
+        # výsledek se vezme při sestavení mapy (každý preset si z něj bere, co dává smysl).
         try:
-            if options.get("dtm_fences", True) and any(
-                str(disc_preset).startswith("sprint")
-                for _tag, disc_preset, _scale in resolve_discipline_presets(
-                    preset_id,
-                    load_presets(),
-                    map_scale=options.get("map_scale"),
-                    contour_interval=options.get("contour_interval"),
-                )
-            ):
+            if options.get("dtm_fences", True):
                 dtm_prefetch = start_dtm_prefetch(
                     work_dir,
                     tuple(bbox),

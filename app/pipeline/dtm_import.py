@@ -44,6 +44,8 @@ ROAD_CODE = "501.20"
 OSM_DEDUP_BUFFER_M = 3.0
 # Zbytek OSM plotu po ořezu kratší než toto (m) se zahodí (střepy).
 OSM_MIN_REMAINDER_M = 2.0
+# Les a MTBO (1:7500–1:15000): ploty kratší než tato délka (m) se nekreslí (zahradní oplocení by zahltilo mapu).
+NONSPRINT_FENCE_MIN_LEN_M = 20.0
 
 
 def fences_path(work_dir: Path) -> Path:
@@ -1072,20 +1074,31 @@ def build_dtm_fence_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
-    """Objekty plotů (jen sprint) z DTM i OSM: jedna síť, společné zpracování.
+    """Objekty plotů z DTM i OSM: jedna síť, společné zpracování.
 
-    OSM ploty (po ořezu o DTM) se spojí, vnitřní se zahodí, otočí se čárky k olivě,
-    oplocení se vyplní olivou a ploty se odsunou od kreslených cest – stejně jako ploty
-    z DTM (ty jsou spojené, filtrované a orientované už při přípravě).
+    OSM ploty (po ořezu o DTM) se spojí a vnitřní se zahodí. Sprint navíc otočí čárky k olivě,
+    vyplní oplocení olivou a odsune ploty od kreslených cest – stejně jako ploty z DTM (ty jsou
+    spojené, filtrované a orientované už při přípravě). Les a MTBO kreslí jen spojené ploty
+    (516 / 522, živý plot 416) delší než ``NONSPRINT_FENCE_MIN_LEN_M`` bez orientace a výplně.
     """
     from app.pipeline.oom_import import _area_object_with_holes
-    from app.pipeline.osm_paths import _path_object
+    from app.pipeline.osm_paths import _path_object, feature_oom_code
 
-    if not preset_id.startswith("sprint") or not dtm_owns_fences(work_dir):
+    if not dtm_owns_fences(work_dir):
         return []
+    sprint = preset_id.startswith("sprint")
     dtm_lines, fill_rings = _load_fence_data(work_dir)
     osm_lines = _osm_fence_lines(work_dir)
     areas = _load_opl_areas(work_dir)
+    if not sprint:
+        fill_rings = []
+        # Symboly podle presetu: plot 516 (les) / 522 (MTBO), živý plot 416.
+        code_map = {
+            dtm_fences.CODE_FENCE: feature_oom_code("fence", preset_id),
+            dtm_fences.CODE_HEDGE: feature_oom_code("hedge", preset_id),
+        }
+        dtm_lines = [(code_map.get(c, c), ln) for c, ln in dtm_lines]
+        osm_lines = [(code_map.get(c, c), ln) for c, ln in osm_lines]
     lines = list(dtm_lines)
     if osm_lines:
         try:
@@ -1094,20 +1107,24 @@ def build_dtm_fence_parts(
             tagged = [item for i, item in enumerate(tagged) if i not in dropped]
             keep_dtm = [(c, ln) for c, ln, is_osm in tagged if not is_osm]
             keep_osm = [(c, ln) for c, ln, is_osm in tagged if is_osm]
-            if keep_osm and (areas["olive"] or areas["public"]):
+            if sprint and keep_osm and (areas["olive"] or areas["public"]):
                 keep_osm = dtm_fences.orient_fences(keep_osm, areas)
             lines = keep_dtm + keep_osm
         except Exception:  # sjednocení je doplněk, ploty se kreslí i bez něj
             lines = dtm_lines + osm_lines
+    if not sprint:
+        from shapely.geometry import LineString
+
+        lines = [(c, ln) for c, ln in lines if len(ln) >= 2 and LineString(ln).length >= NONSPRINT_FENCE_MIN_LEN_M]
     if not lines:
         return []
-    if osm_lines and (areas["olive"] or areas["building"]):
+    if sprint and osm_lines and (areas["olive"] or areas["building"]):
         try:
             fill_rings = dtm_fences.private_enclosure_rings(lines, areas)
         except Exception:
             pass
     try:
-        paths = path_clearances(work_dir, path_source)
+        paths = path_clearances(work_dir, path_source) if sprint else []
         if paths:
             # Obrysy výplní se posouvají stejnou funkcí polohy jako ploty → zůstanou na plotech.
             moved = dtm_fences.avoid_paths(lines + [("520", r) for r in fill_rings], paths)
@@ -1117,7 +1134,7 @@ def build_dtm_fence_parts(
     symbol_cache: dict[str, int | None] = {}
     objects: list[str] = []
     area_objects: list[str] = []
-    olive_idx = symbol_index_for_code(preset_id, scale, "520")
+    olive_idx = symbol_index_for_code(preset_id, scale, "520") if sprint else None
     if olive_idx is not None:
         for raw_ring in fill_rings:
             ring = _fill_ring(raw_ring, clip_bounds)

@@ -237,6 +237,69 @@ def test_large_paved_polygon_is_split_with_fill_only_symbol_and_separate_outline
     assert n_clip < n_full  # část obvodu mimo výřez se nekreslí
 
 
+def test_forest_and_mtbo_drop_sidewalks_beside_roads_but_keep_park_paths(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "osm_paths").mkdir()
+
+    def line(hw, a, b):
+        return {
+            "type": "Feature",
+            "properties": {"highway": hw},
+            "geometry": {"type": "LineString", "coordinates": [a, b]},
+        }
+
+    feats = [
+        line("road_3", [-1000, -1000], [-900, -1000]),
+        line("sidewalk", [-1000, -995], [-900, -995]),  # 5 m od silnice → pryč
+        line("sidewalk", [-1000, -940], [-900, -940]),  # 60 m od silnice (park) → zůstává
+        line("path", [-1000, -990], [-900, -990]),  # pěšina vedle silnice → zůstává
+    ]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    for preset in ("forest_10000", "mtbo_10000"):
+        kw = dict(preset_id=preset, scale=10000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
+        parts = op.build_osm_path_parts(work, **kw)
+        assert parts and parts[0].count == 3  # silnice + park + pěšina; chodník u silnice odpadl
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
+    assert op.build_osm_path_parts(work, **kw)[0].count == 4  # sprint chodníky ponechává
+    assert op.is_sidewalk_beside_road("sidewalk", [(0, 5), (100, 5)], op.road_zone_geometry(feats[:1]) or None) is False
+
+
+def test_forest_uses_dtm_buildings_and_fences_replace_osm(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "buildings.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1000, -990, -990)]]}),
+        encoding="utf-8",
+    )
+    (work / "dtm" / "fences.json").write_text(
+        json.dumps({"fences": [{"code": "518", "coords": [[-1000, -980], [-950, -980]]}]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+
+    def feat(kind, geom):
+        return {"type": "Feature", "properties": {"source": "osm", "kind": kind, "oom_code": "521"}, "geometry": geom}
+
+    ring = [[-999.5, -999.5], [-989.5, -999.5], [-989.5, -989.5], [-999.5, -989.5], [-999.5, -999.5]]
+    feats = [
+        feat("building", {"type": "Polygon", "coordinates": [ring]}),  # dvojče DTM budovy
+        feat("fence", {"type": "LineString", "coordinates": [[-1000, -975], [-950, -975]]}),  # OSM plot
+    ]
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    kw = dict(preset_id="forest_10000", scale=10000, ref_x=-975.0, ref_y=-985.0, grivation_deg=0.0)
+    parts = op.build_osm_feature_parts(work, **kw)
+    assert [p.name for p in parts] == ["Budovy (DTM + OSM)"] and parts[0].count == 1  # DTM budova, OSM dvojče pryč; plot kreslí DTM část
+    fences = di.build_dtm_fence_parts(work, **kw)
+    assert fences and fences[0].count == 2  # spojené ploty DTM (50 m) + OSM (50 m)
+
+
 def test_dtm_green_is_cut_out_of_osm_paved_areas(tmp_path):
     from shapely.geometry import shape
 
