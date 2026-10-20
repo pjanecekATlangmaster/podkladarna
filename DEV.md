@@ -193,6 +193,31 @@ v katalogu a geometrie symbolu odpovídá použití).
 4. Uprav `symbol_set_path` (`app/pipeline/oom_symbols.py`) a `catalog_key` (`app/pipeline/symbol_catalog.py`).
 5. `python -m pytest tests/ -q` – výčtový test ukáže kódy generátoru bez mapování.
 
+## DTM kraje ve sprintu (priorita DTM, doplněk OSM)
+
+Jen sprint a jen tam, kde pro výřez existují data DMVS (jinak se kreslí OSM / ZABAGED jako dřív).
+Příprava běží na pozadí na začátku jobu (`app/pipeline/dtm_import.py`, `prepare_dtm_fences`) a zapíše
+`work/dtm/*.json`: `fences`, `sidewalks`, `roads`, `buildings`, `small_paved`, `stairs`, `parking`, `green`.
+Pravidlo: **tvar bere DTM, aktuálnost OSM** – zbytky OSM, které DTM nezná, se k ploše přidají.
+
+| Co | Zdroj z DTM | Kresba | Co se z OSM / ZABAGED nekreslí |
+|---|---|---|---|
+| Ploty | `Plot` | 518 / 416, výplň oplocení olivou | OSM ploty uvnitř oplocení, duplicity |
+| Chodníky | `ChodnikPlocha` | plocha 501.0 (ořez o silnice) | čáry `sidewalk`, `footway` v ploše, přechody přes silnici |
+| Silnice | `ProvozniPlochaPozemniKomunikacePlocha`, `ManipulacniPlochaPlocha` | plocha 501.20 | čáry `road_*` v ploše |
+| Parkoviště | `ParkovisteOdstavnaPlochaPlocha` | samostatná část 501.0 | OSM parkoviště nad ním |
+| Budovy | `BudovaPlocha` | 521, těsně navazující sloučené | OSM budova s ≥ 50 % krytím (platí i v `OSM_budovy.shp`) |
+| Malé stavby | `StavbaProZpevneniPovrchuPlocha` | samostatná část 501.0 | – |
+| Schodiště | `SchodistePlocha` | 532.7 po ose (i zahnutá) | OSM schody v schodišti a v plochách DTM |
+| Zeleň | `UdrzovanaPlochaZelenePlocha` | nekreslí se | vystřihne se z OSM zpevněných ploch |
+
+- `ChodnikPlocha` s OSM silnicí uvnitř (≥ 150 m, nebo ≥ 30 m a šířka ≥ 4 m) se bere jako silnice
+  (chyba v DTM, `reclassify_sidewalks_as_roads`).
+- Čáry cest ZABAGED (`Ulice`, `SilniceDalnice`, `Cesta`, `Pesina`) se o plochy chodníků a silnic ořežou.
+- Starší joby (bez `work/dtm/sidewalks.json` apod.) kreslí chodníky, silnice a budovy po staru z OSM.
+- Cache balíků DTM má vlastní přípony (`.sidewalk1.json`, `.road1.json`, `.bld1.json`, …); při změně formátu
+  zvyš číslo v příponě (A/B sdílí cache, viz `DEPLOY.md`).
+
 ## 4. NAS deploy až po zelených testech
 
 ```bash
