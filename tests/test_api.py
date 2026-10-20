@@ -226,13 +226,10 @@ def test_create_job_sprint_courtyard_fill(client, monkeypatch):
         assert r.status_code == 200, r.text
         return r.json()["options"]["sprint_courtyard_fill"]
 
-    # Bez volby = výchozí vnitřek jako budova.
+    # Pevný default bez volby ve formuláři: vnitřek jako budova (staré hodnoty z API se ignorují).
     assert post("default") == "building"
-    assert post("building", sprint_courtyard_fill="building") == "building"
-    assert post("olive", sprint_courtyard_fill="olive") == "olive"
-    # Starý checkbox (API) dál funguje.
-    assert post("legacy-on", sprint_courtyard_olive="1") == "olive"
-    assert post("legacy-off", sprint_courtyard_olive="0") == "none"
+    assert post("olive", sprint_courtyard_fill="olive") == "building"
+    assert post("legacy-on", sprint_courtyard_olive="1") == "building"
 
 
 def test_create_job_contour_formlines(client, monkeypatch):
@@ -412,7 +409,7 @@ def test_create_job_with_map_scale(client, monkeypatch):
 
 
 def test_footway_as_sidewalk_default_by_scale(client, monkeypatch):
-    """Sprint 1:4000 → footway default ON; les/MTBO → OFF; explicitní 0/1 vyhraje."""
+    """Sprint 1:4000 → footway ON; les/MTBO → OFF; hodnota z formuláře se ignoruje."""
     import app.main as main
 
     monkeypatch.setattr(
@@ -469,31 +466,23 @@ def test_footway_as_sidewalk_default_by_scale(client, monkeypatch):
     assert mtbo.status_code == 200
     assert mtbo.json()["options"]["kp_osm_footway_as_sidewalk"] is False
 
-    override_off = client.post(
+    # Pevný default: hodnota z formuláře se ignoruje.
+    ignored = client.post(
         "/api/jobs",
         data={
             **base,
-            "name": "footway-sprint-off",
+            "name": "footway-sprint-ignored",
             "map_scale": "4000",
             "contour_interval": "2.5",
             "kp_osm_footway_as_sidewalk": "0",
         },
     )
-    assert override_off.status_code == 200
-    assert override_off.json()["options"]["kp_osm_footway_as_sidewalk"] is False
-
-    override_on = client.post(
-        "/api/jobs",
-        data={
-            **base,
-            "name": "footway-forest-on",
-            "map_scale": "10000",
-            "contour_interval": "5",
-            "kp_osm_footway_as_sidewalk": "1",
-        },
-    )
-    assert override_on.status_code == 200
-    assert override_on.json()["options"]["kp_osm_footway_as_sidewalk"] is True
+    assert ignored.status_code == 200
+    assert ignored.json()["options"]["kp_osm_footway_as_sidewalk"] is True
+    # Kupky a ďolíky: pevně vypnuto ve sprintu a MTBO, zapnuto v lese.
+    assert sprint.json()["options"]["include_knolls"] is False
+    assert mtbo.json()["options"]["include_knolls"] is False
+    assert forest.json()["options"]["include_knolls"] is True
 
 
 def test_create_job_rejects_missing_preset(client):
@@ -560,13 +549,9 @@ def test_index_html(client):
     assert "volitelný hybrid" not in r.text
     assert "volně inspirováno" in r.text
     assert 'value="auto" selected' in r.text
-    assert 'id="include_knolls"' in r.text
-    assert "Kupky (109), ďolíky (111) a jámy (112)" in r.text
+    assert 'id="include_knolls"' not in r.text  # pevný default podle presetu, bez volby ve formuláři
     assert "Knolly z DMR" not in r.text
     assert 'id="knoll-hint"' not in r.text
-    assert 'id="include_knolls" value="1" checked' in r.text or (
-        'id="include_knolls"' in r.text and "checked" in r.text.split('id="include_knolls"', 1)[1][:80]
-    )
     assert 'name="force_refresh"' in r.text
     assert 'id="output-advanced"' in r.text
     assert "Znovu stáhnout a spočítat podklady" in r.text
@@ -596,22 +581,20 @@ def test_index_html(client):
     assert "Georeferencovaný GeoTIFF do ZIPu" in html
     assert 'name="output_references"' in html
     assert 'id="output_references" value="1" checked' in html
-    assert 'name="sprint_courtyard_fill"' in html
+    assert 'name="sprint_courtyard_fill"' not in html
+    assert "DTM kraje" in html
+    assert "ZABAGED → OSM → DTM kraje" in html
     assert 'name="contour_formlines"' in html
     assert '<option value="off" selected>' in html
-    assert '<option value="building" selected>' in html
     assert '<option value="2" selected>' in html
     assert 'name="sprint_residual_paved"' in html
     assert 'name="sprint_residual_size"' in html
     assert "OSM_residential_zbytek" in html
     assert "OSM detaily" in html
-    assert "kp_osm_footway_as_sidewalk" in html
-    assert "Default zapnuto u sprintu" in html
-    assert "506 / 834" in html
-    assert "ne zpevněná plocha" in html
+    assert "kp_osm_footway_as_sidewalk" not in html
     assert "Dřevěný chodník" not in html
     assert "boardwalk" not in html.lower()
-    assert "courtyard-fill-wrap" in html
+    assert "courtyard-fill-wrap" not in html
     assert "residual-paved-wrap" in html
     assert 'id="residual-paved-options" class="hidden"' in html
     assert 'id="residual-paved-hint"' in html

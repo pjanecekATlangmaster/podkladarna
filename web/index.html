@@ -14,7 +14,7 @@
       <img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" />
       <div>
         <h1>Podkladárna</h1>
-        <p class="tagline">Z LiDARu, ZABAGEDu a OSM podklad pro OpenOrienteering Mapper</p>
+        <p class="tagline">Z LiDARu, DTM kraje, OSM a ZABAGEDu podklad pro OpenOrienteering Mapper</p>
       </div>
     </div>
   </header>
@@ -140,12 +140,6 @@
           </label>
           <p class="hint" id="cliff-symbol-hint">Detektor rozliší strmý schod (skalní plochy 206) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. Samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</p>
 
-          <label class="checkbox-row">
-            <input type="checkbox" name="include_knolls" id="include_knolls" value="1" checked />
-            Kupky (109), ďolíky (111) a jámy (112)
-          </label>
-          <p class="hint" id="knolls-hint">Jen výrazné tvary z DEM, i ve svahu. Kupka aspoň 1,5&nbsp;m a široká (ne hromada větví), ďolík / jáma aspoň 0,8&nbsp;m hluboko. Radši méně a přesně.</p>
-
           <label id="cliff-sensitivity-label">
             Citlivost srázů / skal
             <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
@@ -164,24 +158,7 @@
             <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />
             OSM detaily – ploty, zdi, brány, pomníky…
           </label>
-          <p class="hint" id="osm-priority-hint">Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintového výřezu užitečné; v lese často zbytečné. Budovy a silnice bereme ze ZABAGED.</p>
-
-          <label class="checkbox-row">
-            <input type="checkbox" name="kp_osm_footway_as_sidewalk" id="kp_osm_footway_as_sidewalk" value="1" />
-            Všechny footway jako zpevněný chodník
-          </label>
-          <p class="hint" id="osm-footway-sidewalk-hint">OSM občas špatně odliší pěšinu a chodník. Zapnutím se všechny <code>highway=footway</code> kreslí jako zpevněný chodník (sprint 501.10, zpevněná pěšina 1,4 m). U lesa/MTBO zůstává linie pěšiny (506 / 834), ne zpevněná plocha. Default zapnuto u sprintu, jinak vypnuto.</p>
-
-          <div id="courtyard-fill-wrap">
-            <label>
-              Nepřístupné dvory v budovách
-              <select name="sprint_courtyard_fill" id="sprint_courtyard_fill">
-                <option value="olive">Vyplnit olivou</option>
-                <option value="building" selected>Vyplnit stejně jako budovu – výchozí</option>
-              </select>
-            </label>
-            <p class="hint">Díra uprostřed budovy → plná plocha navrch, překryje detaily uvnitř (oliva: sprint/les 520, MTBO 527; budova: stejná značka jako budova kolem). Podklad pod ní zůstává, v OOM jde výplň smazat. U lesa/MTBO skoro nic nepřibude.</p>
-          </div>
+          <p class="hint" id="osm-priority-hint">Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintového výřezu užitečné; v lese často zbytečné. Tvar budov, chodníků a silnic bereme ve sprintu z DTM kraje (kde je k dispozici), aktuálnost z OSM; ZABAGED zůstává jako doplněk.</p>
 
           <div id="residual-paved-wrap">
             <label class="checkbox-row">

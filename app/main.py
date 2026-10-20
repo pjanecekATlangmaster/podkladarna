@@ -42,7 +42,6 @@ from app.pipeline.fetch_openzu import (
     query_sm5_sheets,
 )
 from app.pipeline.job_options import (
-    COURTYARD_FILL_CHOICES,
     FORMLINE_MODES,
     KP_CLIFF_SENSITIVITY,
     KP_VEGE_HEIGHT_CHOICES,
@@ -722,11 +721,8 @@ async def api_create_job(request: Request):
         cliff_raw = "auto"
     if cliff_raw in {"auto", "earth_bank", "symbol_206", "off"}:
         options["kp_cliff_symbol"] = cliff_raw
-    knoll_raw = _form_str(form, "include_knolls").strip().lower()
-    if knoll_raw in {"0", "false", "no", "off"}:
-        options["include_knolls"] = False
-    elif knoll_raw in {"1", "true", "yes", "on"}:
-        options["include_knolls"] = True
+    # Pevný default (bez volby ve formuláři): kupky a ďolíky z DEM jen u lesního OB, ne ve sprintu a MTBO.
+    options["include_knolls"] = not (preset_id.startswith("sprint") or preset_id.startswith("mtbo"))
     vege_raw = _form_str(form, "kp_vege_height").strip()
     if vege_raw:
         try:
@@ -749,25 +745,13 @@ async def api_create_job(request: Request):
         "kp_osm_playground_equipment"
     )
     options["kp_osm_priority"] = _opt_bool("kp_osm_priority")
-    footway_raw = _form_str(form, "kp_osm_footway_as_sidewalk").strip().lower()
-    if footway_raw in {"0", "false", "no", "off"}:
-        options["kp_osm_footway_as_sidewalk"] = False
-    elif footway_raw in {"1", "true", "yes", "on"}:
-        options["kp_osm_footway_as_sidewalk"] = True
-    else:
-        # Chybí ve formuláři → sprint default ON, les/MTBO OFF.
-        options["kp_osm_footway_as_sidewalk"] = default_footway_as_sidewalk(
-            options.get("map_scale"),
-            preset_id,
-        )
-    fill_raw = _form_str(form, "sprint_courtyard_fill").strip().lower()
-    if fill_raw in COURTYARD_FILL_CHOICES:
-        options["sprint_courtyard_fill"] = fill_raw
-    elif form.get("sprint_courtyard_olive") is not None:
-        # Zpětná kompatibilita starého checkboxu (API).
-        options["sprint_courtyard_fill"] = (
-            "olive" if _opt_bool("sprint_courtyard_olive") else "none"
-        )
+    # Pevný default (bez volby ve formuláři): footway jako zpevněný chodník jen ve sprintu,
+    # nepřístupné dvory v budovách kreslí budova.
+    options["kp_osm_footway_as_sidewalk"] = default_footway_as_sidewalk(
+        options.get("map_scale"),
+        preset_id,
+    )
+    options["sprint_courtyard_fill"] = "building"
     formlines_raw = _form_str(form, "contour_formlines").strip().lower()
     if formlines_raw in FORMLINE_MODES:
         options["contour_formlines"] = formlines_raw

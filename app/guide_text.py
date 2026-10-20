@@ -17,7 +17,8 @@ WEB_ABOUT_HTML = """
 </p>
 <p>
   Z výřezu na mapě si Podkladárna stáhne LiDAR (DMR&nbsp;5G + DMP&nbsp;OK),
-  polohopis ZABAGED a doplňky z OSM (cesty, plochy, budovy…) i další zdroje.
+  zaměřený polohopis z <strong>DTM kraje</strong> (kde je k dispozici),
+  doplňky z OSM (cesty, plochy, budovy…), ZABAGED a další zdroje.
   Reliéf a zeleň skládá z DMR/DMP (hustota odrazů, DEM srázy, GDAL vrstevnice);
   hlavní výstup jsou vektory pro OOM (a stejnojmenné
   <code>.ocd</code> OCD12 pro OCAD) – podle měřítka.
@@ -26,6 +27,38 @@ WEB_ABOUT_HTML = """
   Berte to jako <em>pracovní podklad</em>, ne dokonalé zaměření
   ani hotovou mapu. V OOM a terénu s tím ještě budete mít práci.
 </p>
+<details class="about-evolution">
+  <summary><strong>Jak se Podkladárna vyvíjela (ZABAGED → OSM → DTM kraje)</strong></summary>
+  <ol>
+    <li>
+      <strong>ZABAGED.</strong> Začínal jsem státním polohopisem ČÚZK. Je úplný a jednotný,
+      ale pro orientační mapu příliš hrubý a pomalu se aktualizuje.
+    </li>
+    <li>
+      <strong>OSM.</strong> Je aktuálnější a má detaily, které orientační mapa potřebuje
+      (schody, ploty, lávky, chodníky), jenže kvalita se mezi místy liší. OSM tak převzalo vedení
+      a ZABAGED zůstal jako doplněk.
+    </li>
+    <li>
+      <strong>DTM kraje.</strong> Zaměřená digitální technická mapa (DMVS, ČÚZK) dává
+      přesný <em>tvar</em> ploch: chodníky, silnice, parkoviště, budovy, schodiště, ploty
+      i mosty s více úrovněmi. Tvar proto bereme z DTM, <em>aktuálnost</em> z OSM: co v DTM
+      ještě chybí (nové stavby, čerstvé úpravy), doplní OSM. Mosty se kreslí s křížením úrovní
+      a místa, kde se pod nimi dá přecházet, označí trojúhelník. Pokrytí DTM kraje postupně roste;
+      kde chybí, zůstávají OSM a ZABAGED.
+    </li>
+    <li>
+      <strong>Karttapullautin → vlastní vektory.</strong> Reliéf a vegetace původně stály
+      na výstupech Karttapullautinu (KP). Dnes si vegetaci, srázy a DEM počítáme sami a
+      kreslíme je rovnou jako editovatelné vektory. Tahle část je mladší a ještě na ní
+      budeme pracovat.
+    </li>
+  </ol>
+  <p>
+    Sprint (1:4000) z DTM těží nejvíc. V lese a u MTBO se DTM využívá pro budovy, ploty,
+    schodiště a koridor silnice (MTBO). Zpevněné plochy teprve přijdou.
+  </p>
+</details>
 <p>
   Na webu uvidíte PNG náhled mapy.
   Primární výstup je vždy ZIP s editovatelnými vektory (vrstevnice, zeleň, ZABAGED, OSM,
@@ -85,6 +118,14 @@ automaticky. Inspirací bylo mapant.net a Karttapullautin; Podkladárna pak
 (vlastní vegetace / srázy / DEM), ne jen k rastrovému náhledu.
 Program vznikl s pomocí AI, samotné generování ale běží postaru, jasně
 danými algoritmy.
+
+Odkud co bereme (vývoj)
+-----------------------
+ZABAGED (státní polohopis, úplný, ale hrubý) → OSM (aktuálnější, s detaily) →
+DTM kraje (zaměřený tvar ploch: chodníky, silnice, parkoviště, budovy, schodiště,
+ploty, mosty ve více úrovních). Tvar bereme z DTM, aktuálnost z OSM; kde DTM chybí,
+zůstávají OSM a ZABAGED. Reliéf a vegetace dřív stály na Karttapullautinu, dnes jsou
+to vlastní vektory (tahle část je mladší a ještě na ní pracujeme).
 
 Kvalita podkladu
 ----------------

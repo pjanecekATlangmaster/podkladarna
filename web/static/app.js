@@ -826,14 +826,6 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   let startedId = null;
   try {
     const fd = new FormData(form);
-    // Checkbox: vždy pošli 0/1 (unchecked jinak zmizí a API by drželo default true).
-    const knollsEl = document.getElementById("include_knolls");
-    fd.set("include_knolls", knollsEl && knollsEl.checked ? "1" : "0");
-    const footwayEl = document.getElementById("kp_osm_footway_as_sidewalk");
-    fd.set(
-      "kp_osm_footway_as_sidewalk",
-      footwayEl && footwayEl.checked ? "1" : "0"
-    );
     fd.set("private", privateEl && privateEl.checked ? "1" : "0");
     const job = await api("/api/jobs", { method: "POST", body: fd });
     if (job && job.duplicate_skipped) {
@@ -1224,7 +1216,7 @@ function updateOsmHintsForScale(scale) {
   if (hint) {
     if (s === 4000) {
       hint.textContent =
-        "Sprintový výřez: stáhne ploty, zdi, brány, přístřešky, pomníky… Budovy ze ZABAGED.";
+        "Sprintový výřez: stáhne ploty, zdi, brány, přístřešky, pomníky… Budovy, chodníky a silnice z DTM kraje (kde je) a OSM.";
     } else if (s === 7500 || s === 10000 || s === 15000) {
       hint.textContent =
         "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Studny a hřiště podle nastavení níže.";
@@ -1232,11 +1224,6 @@ function updateOsmHintsForScale(scale) {
       hint.textContent =
         "Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintu užitečné; v lese často vypnout.";
     }
-  }
-  // Footway → chodník: default ON u sprintu (1:4000), jinak OFF.
-  const footway = document.getElementById("kp_osm_footway_as_sidewalk");
-  if (footway && !footway.dataset.userTouched) {
-    footway.checked = s === 4000;
   }
 }
 
@@ -1259,12 +1246,12 @@ function updateCliffControls() {
   if (sensHint) {
     sensHint.textContent = off
       ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
-      : "Jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem; malé kupky (109) jsou samostatná volba.";
+      : "Jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem.";
   }
   const symbolHint = document.getElementById("cliff-symbol-hint");
   if (symbolHint) {
     symbolHint.textContent =
-      "Strmý schod = skalní plocha (206), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Malé kupky (109) jsou vedle, z DEM.";
+      "Strmý schod = skalní plocha (206), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Kupky a ďolíky z DEM se kreslí jen v lese (ne ve sprintu a MTBO).";
   }
 }
 
@@ -1309,11 +1296,6 @@ function applyJobToForm(job) {
       cliff.value = cliffVal;
     }
   }
-  const knolls = form.include_knolls;
-  if (knolls) {
-    knolls.checked =
-      opts.include_knolls == null ? true : Boolean(opts.include_knolls);
-  }
   const vege = form.kp_vege_height;
   if (vege) {
     const raw = (job.options || {}).kp_vege_height;
@@ -1349,24 +1331,6 @@ function applyJobToForm(job) {
   if (priority) {
     priority.checked =
       opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
-  }
-  const footwaySidewalk = form.kp_osm_footway_as_sidewalk;
-  if (footwaySidewalk) {
-    const sprintDefault = Number(scale) === 4000 || String(job.preset_id || "").startsWith("sprint");
-    if (opts.kp_osm_footway_as_sidewalk == null) {
-      footwaySidewalk.checked = sprintDefault;
-    } else {
-      footwaySidewalk.checked = Boolean(opts.kp_osm_footway_as_sidewalk);
-    }
-    delete footwaySidewalk.dataset.userTouched;
-  }
-  const courtyard = form.sprint_courtyard_fill;
-  if (courtyard) {
-    // Starý job s vypnutým checkboxem olivy („none“) → výchozí oliva.
-    const fillVal = opts.sprint_courtyard_fill || "building";
-    courtyard.value = [...courtyard.options].some((o) => o.value === fillVal)
-      ? fillVal
-      : "building";
   }
   const residualPaved = form.sprint_residual_paved;
   if (residualPaved) {
@@ -1634,13 +1598,6 @@ initBboxMap();
   const sync = () => updateOsmHintsForScale(scaleSel.value);
   scaleSel.addEventListener("change", sync);
   sync();
-})();
-(() => {
-  const footway = document.getElementById("kp_osm_footway_as_sidewalk");
-  if (!footway) return;
-  footway.addEventListener("change", () => {
-    footway.dataset.userTouched = "1";
-  });
 })();
 (() => {
   const cliff = document.getElementById("kp_cliff_symbol");
