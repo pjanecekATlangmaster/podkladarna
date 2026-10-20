@@ -3830,6 +3830,7 @@ def build_osm_feature_parts(
         return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
     feats = list(data.get("features") or [])
+    dtm_buildings = False
     if aopk_tree_points:
         from app.pipeline.aopk_trees import filter_osm_landmark_trees_near_aopk
 
@@ -3846,8 +3847,18 @@ def build_osm_feature_parts(
         if dtm_owns_fences(work_dir):
             feats = [f for f in feats if (f.get("properties") or {}).get("kind") != "fence"]
         # Zpevněné plochy zasahující do chodníků z DTM se kreslí společně s nimi (build_dtm_sidewalk_parts).
-        from app.pipeline.dtm_import import dtm_owns_sidewalks, sidewalk_dtm_geometry, split_absorbed_areas
+        from app.pipeline.dtm_import import (
+            dtm_owns_buildings,
+            dtm_owns_sidewalks,
+            merge_dtm_buildings,
+            sidewalk_dtm_geometry,
+            split_absorbed_areas,
+        )
 
+        # Budovy z DTM mají přednost (přesný tvar); OSM budova bez protějšku v DTM zůstává.
+        dtm_buildings = dtm_owns_buildings(work_dir)
+        if dtm_buildings:
+            feats = merge_dtm_buildings(work_dir, feats)
         if dtm_owns_sidewalks(work_dir):
             dtm_geom = sidewalk_dtm_geometry(work_dir)
             if dtm_geom is not None:
@@ -3892,6 +3903,8 @@ def build_osm_feature_parts(
         "hunting_stand": "OSM posedy (531 ×)",
         "water_tower": "OSM vodojemy / vysoké věže (524)",
     }
+    if dtm_buildings:
+        names["building"] = "Budovy (DTM + OSM)"
     kind_order = (
         "building",
         "water_well_building",

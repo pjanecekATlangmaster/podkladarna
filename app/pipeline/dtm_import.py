@@ -27,6 +27,10 @@ from app.pipeline.oom_symbol_map import symbol_index_for_code
 FENCES_NAME = "fences.json"
 SIDEWALKS_NAME = "sidewalks.json"
 ROADS_NAME = "roads.json"
+BUILDINGS_NAME = "buildings.json"
+SMALL_PAVED_NAME = "small_paved.json"
+# OSM budova, jejíž aspoň tento podíl plochy kryjí budovy z DTM, je duplicita (DTM má přednost).
+BUILDING_TWIN_SHARE = 0.5
 # Šířka kresby OSM silnice (m) – podle symbolu: road_1 = 501.30 (2 m), ostatní 501.31 (4 m).
 ROAD_CODE = "501.20"
 # OSM plot do této vzdálenosti (m) od plotu z DTM se bere jako duplicitní.
@@ -159,6 +163,14 @@ def roads_path(work_dir: Path) -> Path:
     return work_dir / "dtm" / ROADS_NAME
 
 
+def buildings_path(work_dir: Path) -> Path:
+    return work_dir / "dtm" / BUILDINGS_NAME
+
+
+def small_paved_path(work_dir: Path) -> Path:
+    return work_dir / "dtm" / SMALL_PAVED_NAME
+
+
 def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) -> None:
     """Plochy chodníků a silnic z DTM (úroveň 0) zasahující do výřezu → ``dtm/sidewalks.json``, ``dtm/roads.json``."""
     from app.pipeline import dtm_sidewalks
@@ -166,6 +178,8 @@ def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) 
     for dest, loader, label in (
         (sidewalks_path(work_dir), dtm_sidewalks.load_sidewalk_polygons, "chodníky"),
         (roads_path(work_dir), dtm_sidewalks.load_road_polygons, "silnice"),
+        (buildings_path(work_dir), dtm_sidewalks.load_building_polygons, "budovy"),
+        (small_paved_path(work_dir), dtm_sidewalks.load_small_paved_polygons, "malé zpevněné stavby"),
     ):
         xmin, ymin, xmax, ymax = bounds
         polys = []
@@ -202,6 +216,111 @@ def _load_sidewalk_polygons(work_dir: Path) -> list[list[list[tuple[float, float
 
 def _load_road_polygons(work_dir: Path) -> list[list[list[tuple[float, float]]]]:
     return _load_polygons_file(roads_path(work_dir))
+
+
+def dtm_owns_buildings(work_dir: Path) -> bool:
+    """Má výřez půdorysy budov z DTM? Pak budovy kreslí DTM a OSM jen tam, kde DTM budova chybí."""
+    return buildings_path(work_dir).is_file()
+
+
+def merge_dtm_buildings(work_dir: Path, features: list[dict]) -> list[dict]:
+    """OSM prvky bez OSM budov, které mají v DTM protějšek, plus budovy z DTM jako prvky ``building``.
+
+    OSM budova se zahodí, když aspoň ``BUILDING_TWIN_SHARE`` její plochy kryjí budovy z DTM.
+    Budovy z DTM (přesné zaměření) tak mají přednost, OSM zůstává pro novější budovy.
+    """
+    from shapely.geometry import mapping, shape
+    from shapely.ops import unary_union
+
+    dtm_polys = _load_polygons_file(buildings_path(work_dir))
+    if not dtm_polys:
+        return features
+    from shapely.geometry import Polygon
+
+    dtm_geoms = []
+    for poly in dtm_polys:
+        try:
+            g = Polygon(poly[0], poly[1:])
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, IndexError):
+            continue
+        if not g.is_empty:
+            dtm_geoms.append(g)
+    dtm_union = unary_union(dtm_geoms)
+    kept = []
+    for feat in features:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") == "building" and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+                if g.area > 0 and g.intersection(dtm_union).area / g.area >= BUILDING_TWIN_SHARE:
+                    continue
+            except (ValueError, TypeError):
+                pass
+        kept.append(feat)
+    for g in dtm_geoms:
+        for part in [g] if g.geom_type == "Polygon" else list(getattr(g, "geoms", [])):
+            if part.geom_type == "Polygon":
+                kept.append(
+                    {
+                        "type": "Feature",
+                        "properties": {"source": "dtm", "kind": "building", "oom_code": "521"},
+                        "geometry": mapping(part),
+                    }
+                )
+    return kept
+
+
+def build_dtm_small_paved_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+) -> list[OomObjectPart]:
+    """Malé stavby pro zpevnění povrchu z DTM (schody, rampy, zápraží u vchodů) jako plochy 501.0.
+
+    Záměrně samostatná část (jedna plocha = jeden objekt), aby se dala později snadno opravit.
+    """
+    from shapely.geometry import Polygon, box
+
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline.oom_import import _area_object_with_holes
+
+    if not preset_id.startswith("sprint") or not small_paved_path(work_dir).is_file():
+        return []
+    idx = symbol_index_for_code(preset_id, scale, "501.0")
+    if idx is None:
+        return []
+    clip = box(*clip_bounds) if clip_bounds is not None else None
+    objects = []
+    for poly in _load_polygons_file(small_paved_path(work_dir)):
+        try:
+            g = Polygon(poly[0], poly[1:])
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, IndexError):
+            continue
+        if clip is not None:
+            g = g.intersection(clip)
+        for rings in dtm_sidewalks.polygon_rings(g):
+            mapped = [
+                [
+                    projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                    for x, y in ring
+                ]
+                for ring in rings
+            ]
+            obj = _area_object_with_holes(idx, mapped)
+            if obj:
+                objects.append(obj)
+    if not objects:
+        return []
+    return [OomObjectPart(name="DTM – malé zpevněné stavby (501.0)", objects_xml="\n".join(objects), count=len(objects))]
 
 
 def dtm_owns_roads(work_dir: Path) -> bool:

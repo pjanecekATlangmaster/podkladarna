@@ -155,6 +155,49 @@ def test_sidewalk_line_crossing_road_is_not_drawn_over_the_road(tmp_path, monkey
     assert all(not (-1004 < y < -996) for ln in seen["lines"] for _x, y in ln)
 
 
+def test_dtm_buildings_replace_osm_twins_and_keep_osm_only_buildings(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "buildings.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1000, -990, -990)]]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+
+    def bld(x0, y0, x1, y1):
+        ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        return {
+            "type": "Feature",
+            "properties": {"source": "osm", "kind": "building", "oom_code": "521"},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+
+    feats = [bld(-999.5, -999.5, -989.5, -989.5), bld(-960, -960, -950, -950)]  # dvojče posunuté o 0,5 m + nová
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    merged = di.merge_dtm_buildings(work, feats)
+    sources = sorted(f["properties"]["source"] for f in merged)
+    assert sources == ["dtm", "osm"]  # OSM dvojče zahozeno, nová OSM budova zůstala
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-980.0, grivation_deg=0.0)
+    parts = op.build_osm_feature_parts(work, **kw)
+    assert [p.name for p in parts] == ["Budovy (DTM + OSM)"] and parts[0].count == 2
+
+
+def test_small_paved_parts_are_separate_501_0_areas(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "small_paved.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, 0, 3, 2)]]}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    parts = di.build_dtm_small_paved_parts(work, **kw)
+    assert [p.name for p in parts] == ["DTM – malé zpevněné stavby (501.0)"] and parts[0].count == 1
+    assert di.build_dtm_small_paved_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+
+
 def test_dtm_cover_geometry_clips_zabaged_lines(tmp_path):
     work = tmp_path
     (work / "dtm").mkdir()

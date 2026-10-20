@@ -18,6 +18,11 @@ CACHE_SUFFIX = ".sidewalk1.json"
 # Silnice: provozní plocha pozemní komunikace a manipulační plocha (sprint 501.20, těžký provoz).
 ROAD_TYPES = ("ProvozniPlochaPozemniKomunikacePlocha", "ManipulacniPlochaPlocha")
 ROAD_CACHE_SUFFIX = ".road1.json"
+BUILDING_TYPES = ("BudovaPlocha",)
+BUILDING_CACHE_SUFFIX = ".bld1.json"
+# Schody, rampy, zápraží u vchodů: v DTM bez atributu druhu, kreslí se jako zpevněná plocha 501.0.
+SMALL_PAVED_TYPES = ("StavbaProZpevneniPovrchuPlocha",)
+SMALL_PAVED_CACHE_SUFFIX = ".stavba1.json"
 # Sloučení sousedních ploch a zacelení škvír užších než 2 × tato hodnota (m).
 CLOSE_M = 0.5
 # Díry menší než tato plocha (m²) se zacelí (drobné záhonky, sloupky).
@@ -53,6 +58,16 @@ def load_sidewalk_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> li
 def load_road_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
     """Plochy silnic / manipulačních ploch na povrchu (úroveň 0) z balíku ZPS_OPL."""
     return load_polygons(opl_zip, ROAD_TYPES, ROAD_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def load_building_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Půdorysy budov na povrchu (``BudovaPlocha``, úroveň 0) z balíku ZPS_OPL."""
+    return load_polygons(opl_zip, BUILDING_TYPES, BUILDING_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def load_small_paved_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Malé stavby pro zpevnění povrchu (schody, rampy, zápraží u vchodů), úroveň 0."""
+    return load_polygons(opl_zip, SMALL_PAVED_TYPES, SMALL_PAVED_CACHE_SUFFIX, use_cache=use_cache)
 
 
 def load_polygons(
