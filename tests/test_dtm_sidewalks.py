@@ -208,6 +208,35 @@ def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
     assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
 
 
+def test_large_paved_polygon_is_split_with_fill_only_symbol_and_separate_outline():
+    import re
+
+    from shapely.geometry import Point
+
+    big = Point(0, 0).buffer(100.0, quad_segs=600)  # ~2400 vrcholů > AREA_SPLIT_VERTICES
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    parts = di._geometry_part(big, name="Chodníky", code="501.0", clip_bounds=None, **kw)
+    assert [p.name for p in parts] == ["Chodníky", "Chodníky – obrys (501.100)"]
+    fill, outline = parts
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    fill_idx = symbol_index_for_code("sprint_4000", 4000, "501.1")
+    edge_idx = symbol_index_for_code("sprint_4000", 4000, "501.100")
+    assert fill.count >= 2 and all(f'symbol="{fill_idx}"' in o for o in fill.objects_xml.split("</object>")[:-1])
+    assert all(int(n) <= di.AREA_SPLIT_VERTICES + 2 for n in re.findall(r'<coords count="(\d+)">', fill.objects_xml))
+    assert outline.count >= 3 and f'symbol="{edge_idx}"' in outline.objects_xml  # obrys po kusech
+    assert all(int(n) <= di.OUTLINE_CHUNK_VERTICES for n in re.findall(r'<coords count="(\d+)">', outline.objects_xml))
+    # malý polygon zůstává běžnou plochou s obrysem v symbolu
+    small = di._geometry_part(Point(0, 0).buffer(5.0), name="Chodníky", code="501.0", clip_bounds=None, **kw)
+    assert [p.name for p in small] == ["Chodníky"]
+    # ořez na výřez: obrys jen po skutečné hranici, nikoli podél hranice výřezu (kratší než plný obvod)
+    clipped = di._geometry_part(big, name="Chodníky", code="501.0", clip_bounds=(-50.0, -200.0, 200.0, 200.0), **kw)
+    assert [p.name for p in clipped] == ["Chodníky", "Chodníky – obrys (501.100)"]
+    n_full = sum(int(n) for n in re.findall(r'<coords count="(\d+)">', outline.objects_xml))
+    n_clip = sum(int(n) for n in re.findall(r'<coords count="(\d+)">', clipped[1].objects_xml))
+    assert n_clip < n_full  # část obvodu mimo výřez se nekreslí
+
+
 def test_dtm_green_is_cut_out_of_osm_paved_areas(tmp_path):
     from shapely.geometry import shape
 

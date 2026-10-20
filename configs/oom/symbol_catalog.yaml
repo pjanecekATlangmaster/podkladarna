@@ -1502,7 +1502,7 @@ sprint:
     review: false
   - ocad_code: "501.1"
     cz_name: "Zpevněná plocha, horní úroveň (lehký provoz), plocha"
-    generator_codes: []
+    generator_codes: ["501.1"]
     geom: area
     review: false
   - ocad_code: "501.2"
@@ -1537,7 +1537,7 @@ sprint:
     review: false
   - ocad_code: "501.21"
     cz_name: "Zpevněná plocha (těžký provoz), plocha"
-    generator_codes: []
+    generator_codes: ["501.21"]
     geom: area
     review: false
   - ocad_code: "501.30"
@@ -1562,7 +1562,7 @@ sprint:
     review: false
   - ocad_code: "501.100"
     cz_name: "Schod nebo okraj zpevněné plochy"
-    generator_codes: []
+    generator_codes: ["501.100"]
     geom: line
     review: false
   - ocad_code: "501.200"

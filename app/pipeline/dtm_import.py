@@ -673,6 +673,26 @@ def drop_osm_parking_covered_by_dtm(work_dir: Path, features: list[dict]) -> lis
     return kept
 
 
+# Plochy 501.0 / 501.20 mají v symbolu obrys. Velký polygon (síť chodníků přes celé sídliště) by byl
+# jeden objekt s tisíci vrcholů, který OCAD / Mapper brzdí. Takový polygon se vyplní bezobrysovým
+# symbolem (501.1 / 501.21), rozřeže se (řezy nejsou vidět) a obrys se nakreslí zvlášť čárou 501.100.
+AREA_SPLIT_VERTICES = 1000
+OUTLINE_CHUNK_VERTICES = 800
+FILL_ONLY_CODE = {"501.0": "501.1", ROAD_CODE: "501.21"}
+EDGE_CODE = "501.100"
+
+
+def _chunk_line(coords: list[tuple[float, float]], size: int) -> list[list[tuple[float, float]]]:
+    """Dlouhou čáru rozdělí na kusy do ``size`` vrcholů (sousední kusy sdílí krajní vrchol)."""
+    if len(coords) <= size:
+        return [coords]
+    out, i = [], 0
+    while i < len(coords) - 1:
+        out.append(coords[i : i + size])
+        i += size - 1
+    return out
+
+
 def _geometry_part(
     geom,
     *,
@@ -685,34 +705,68 @@ def _geometry_part(
     grivation_deg: float,
     clip_bounds: Bounds | None,
 ) -> list[OomObjectPart]:
-    """Plocha (shapely) jako části .omap se symbolem ``code``; prázdný seznam bez geometrie / symbolu."""
-    from shapely.geometry import box
+    """Plocha (shapely) jako části .omap se symbolem ``code``; prázdný seznam bez geometrie / symbolu.
+
+    Polygony nad ``AREA_SPLIT_VERTICES`` vrcholů: bezobrysová výplň rozřezaná na díly + zvláštní část
+    s obrysem (čára 501.100) po skutečné hranici (ne podél ořezu na výřez ani podél řezů).
+    """
+    from shapely.geometry import LineString, box
+    from shapely.ops import unary_union
 
     from app.pipeline import dtm_sidewalks
+    from app.pipeline.area_split import split_area
     from app.pipeline.oom_import import _area_object_with_holes
 
     if geom is None or geom.is_empty:
         return []
-    if clip_bounds is not None:
-        geom = geom.intersection(box(*clip_bounds))
+    clip = box(*clip_bounds) if clip_bounds is not None else None
+    if clip is not None:
+        geom = geom.intersection(clip)
     idx = symbol_index_for_code(preset_id, scale, code)
     if idx is None:
         return []
-    objects = []
-    for rings in dtm_sidewalks.polygon_rings(geom):
-        mapped = [
-            [
-                projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
-                for x, y in ring
-            ]
-            for ring in rings
+    fill_idx = symbol_index_for_code(preset_id, scale, FILL_ONLY_CODE.get(code, ""))
+    edge_idx = symbol_index_for_code(preset_id, scale, EDGE_CODE)
+
+    def to_map(ring):
+        return [
+            projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+            for x, y in ring
         ]
-        obj = _area_object_with_holes(idx, mapped)
+
+    objects: list[str] = []
+    edges: list[str] = []
+    for rings in dtm_sidewalks.polygon_rings(geom):
+        if sum(len(r) for r in rings) > AREA_SPLIT_VERTICES and fill_idx is not None and edge_idx is not None:
+            for ring, holes in split_area(rings[0], rings[1:], AREA_SPLIT_VERTICES):
+                obj = _area_object_with_holes(fill_idx, [to_map(ring), *[to_map(h) for h in holes]])
+                if obj:
+                    objects.append(obj)
+            outline = unary_union([LineString(r) for r in rings])
+            if clip is not None:
+                outline = outline.difference(clip.exterior.buffer(0.02))
+            lines = [outline] if outline.geom_type == "LineString" else [g for g in getattr(outline, "geoms", []) if g.geom_type == "LineString"]
+            for ln in lines:
+                for piece in _chunk_line([(float(x), float(y)) for x, y in ln.coords], OUTLINE_CHUNK_VERTICES):
+                    obj = _path_object_mapped(edge_idx, to_map(piece))
+                    if obj:
+                        edges.append(obj)
+            continue
+        obj = _area_object_with_holes(idx, [to_map(r) for r in rings])
         if obj:
             objects.append(obj)
-    if not objects:
-        return []
-    return [OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects))]
+    parts = []
+    if objects:
+        parts.append(OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects)))
+    if edges:
+        parts.append(OomObjectPart(name=f"{name} – obrys (501.100)", objects_xml="\n".join(edges), count=len(edges)))
+    return parts
+
+
+def _path_object_mapped(symbol_index: int, mapped) -> str:
+    from app.pipeline.osm_paths import _path_object
+
+    return _path_object(symbol_index, mapped)
 
 
 def build_dtm_sidewalk_parts(
