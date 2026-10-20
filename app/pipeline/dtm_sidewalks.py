@@ -31,6 +31,9 @@ STAIRS_MIN_LEN_M = 1.0
 STAIRS_ZONE_M = 0.5
 # DTM schodiště bez OSM čáry schodů do této vzdálenosti (m) se kreslí samo (podle osy).
 STAIRS_OSM_NEAR_M = 2.0
+# Směr schodů se bere z nejbližší cesty do této vzdálenosti (m); osa se na každé straně prodlouží.
+STAIRS_REF_NEAR_M = 3.0
+STAIRS_AXIS_EXTRA_M = 0.3
 # Sloučení sousedních ploch a zacelení škvír užších než 2 × tato hodnota (m).
 CLOSE_M = 0.5
 # Díry menší než tato plocha (m²) se zacelí (drobné záhonky, sloupky).
@@ -86,17 +89,16 @@ def load_stairs_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list
 def steps_keep(coords: list[tuple[float, float]], stair_zone, cover, min_len_m: float = STAIRS_MIN_LEN_M):
     """Části OSM čáry schodů, které se mají kreslit, jako seznamy souřadnic.
 
-    Zůstává to, co leží ve schodišti z DTM (``stair_zone``), a to, co leží mimo plochy chodníků
-    a silnic z DTM (``cover``; tam DTM o schodech nic neví). Zbytek (schody „přes“ celý chodník,
-    které DTM nezná) odpadne – DTM má přednost.
+    Zůstává jen to, co leží mimo schodiště z DTM (``stair_zone``; ta se kreslí z DTM) a mimo
+    plochy chodníků a silnic z DTM (``cover``; uvnitř nich DTM o schodech nic neví, takže OSM
+    schody „přes“ celý chodník odpadnou – DTM má přednost).
     """
     from shapely.geometry import LineString
     from shapely.ops import linemerge, unary_union
 
     line = LineString(coords)
-    parts = [line.intersection(stair_zone)]
-    parts.append(line if cover is None else line.difference(cover))
-    merged = unary_union([p for p in parts if not p.is_empty])
+    blocked = stair_zone if cover is None else unary_union([stair_zone, cover])
+    merged = line.difference(blocked)
     if merged.is_empty:
         return []
     if merged.geom_type == "MultiLineString":
@@ -105,9 +107,15 @@ def steps_keep(coords: list[tuple[float, float]], stair_zone, cover, min_len_m: 
     return [[(float(x), float(y)) for x, y in g.coords] for g in pieces if g.length >= min_len_m]
 
 
-def stairs_axis(poly: list[list[tuple[float, float]]]):
-    """Osa schodiště z DTM po delší straně opsaného obdélníku: ``[(x, y), (x, y)]`` nebo None."""
-    from shapely.geometry import Polygon
+def stairs_axis(poly: list[list[tuple[float, float]]], ref_lines: list | None = None):
+    """Osa schodiště z DTM: ``[(x, y), (x, y)]`` nebo None.
+
+    Vede středem schodiště ve směru nejbližší cesty z ``ref_lines`` (shapely čáry; nejdřív OSM
+    schody, pak ostatní cesty do ``STAIRS_REF_NEAR_M`` m), takže navazuje na cestu před a za
+    schodištěm. Bez cesty v okolí po delší straně opsaného obdélníku. Délka = průměr schodiště
+    ve zvoleném směru (+ ``STAIRS_AXIS_EXTRA_M`` na každé straně).
+    """
+    from shapely.geometry import LineString, Point, Polygon
 
     try:
         g = Polygon(poly[0], poly[1:])
@@ -115,18 +123,46 @@ def stairs_axis(poly: list[list[tuple[float, float]]]):
         rect = g.minimum_rotated_rectangle
     except (ValueError, IndexError):
         return None
-    if rect.is_empty or rect.geom_type != "Polygon":
+    if g.is_empty or rect.is_empty or rect.geom_type != "Polygon":
         return None
-    pts = list(rect.exterior.coords)[:4]
-    e1 = (pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
-    e2 = (pts[2][0] - pts[1][0], pts[2][1] - pts[1][1])
-    l1, l2 = (e1[0] ** 2 + e1[1] ** 2) ** 0.5, (e2[0] ** 2 + e2[1] ** 2) ** 0.5
-    ex, ey, length = (e1[0], e1[1], l1) if l1 >= l2 else (e2[0], e2[1], l2)
-    if length < STAIRS_MIN_LEN_M:
+    c = g.centroid
+    ux = uy = None
+    best = None
+    for rank, lines in enumerate(ref_lines or []):  # skupiny: 0 = schody, 1 = ostatní cesty
+        for ln in lines:
+            d = ln.distance(g)
+            if d <= STAIRS_REF_NEAR_M and (best is None or (rank, d) < best[:2]):
+                best = (rank, d, ln)
+        if best is not None:
+            break
+    if best is not None:
+        ln = best[2]
+        s = ln.project(Point(c.x, c.y))
+        a, b = ln.interpolate(max(0.0, s - 1.0)), ln.interpolate(min(ln.length, s + 1.0))
+        dx, dy = b.x - a.x, b.y - a.y
+        n = (dx * dx + dy * dy) ** 0.5
+        if n > 1e-6:
+            ux, uy = dx / n, dy / n
+    if ux is None:
+        pts = list(rect.exterior.coords)[:4]
+        e1 = (pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
+        e2 = (pts[2][0] - pts[1][0], pts[2][1] - pts[1][1])
+        l1, l2 = (e1[0] ** 2 + e1[1] ** 2) ** 0.5, (e2[0] ** 2 + e2[1] ** 2) ** 0.5
+        ex, ey, ln_ = (e1[0], e1[1], l1) if l1 >= l2 else (e2[0], e2[1], l2)
+        if ln_ < 1e-6:
+            return None
+        ux, uy = ex / ln_, ey / ln_
+    # průměr schodiště ve směru (ux, uy) středem těžiště
+    probe = LineString([(c.x - ux * 100, c.y - uy * 100), (c.x + ux * 100, c.y + uy * 100)]).intersection(g)
+    chords = [probe] if probe.geom_type == "LineString" else [x for x in getattr(probe, "geoms", []) if x.geom_type == "LineString"]
+    if not chords:
         return None
-    cx, cy = g.centroid.x, g.centroid.y
-    ux, uy = ex / length, ey / length
-    return [(cx - ux * length / 2, cy - uy * length / 2), (cx + ux * length / 2, cy + uy * length / 2)]
+    chord = max(chords, key=lambda x: x.length)
+    if chord.length < STAIRS_MIN_LEN_M - 2 * STAIRS_AXIS_EXTRA_M:
+        return None
+    (x0, y0), (x1, y1) = chord.coords[0], chord.coords[-1]
+    e = STAIRS_AXIS_EXTRA_M
+    return [(x0 - ux * e, y0 - uy * e), (x1 + ux * e, y1 + uy * e)]
 
 
 def load_polygons(

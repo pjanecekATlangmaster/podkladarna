@@ -3321,6 +3321,11 @@ def write_osm_buildings_shapefile(
     feats = list(data.get("features") or [])
     if not feats:
         return None
+    # Stejné skládání budov jako v .omap: budovy z DTM mají přednost, OSM jen bez protějšku.
+    from app.pipeline.dtm_import import dtm_owns_buildings, merge_dtm_buildings
+
+    if dtm_owns_buildings(work_dir):
+        feats = merge_dtm_buildings(work_dir, feats)
     dest_dir = work_dir / "osm_paths" / "manual"
     shp = dest_dir / "OSM_budovy.shp"
     ok = _geojson_to_shapefile(

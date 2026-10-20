@@ -1464,7 +1464,12 @@ def _load_building_rings_for_cliffs(
             except (OSError, json.JSONDecodeError):
                 data = None
             if data:
-                for feat in data.get("features") or []:
+                from app.pipeline.dtm_import import dtm_owns_buildings, merge_dtm_buildings
+
+                feats_in = list(data.get("features") or [])
+                if dtm_owns_buildings(work_dir):
+                    feats_in = merge_dtm_buildings(work_dir, feats_in)
+                for feat in feats_in:
                     geom = feat.get("geometry") or {}
                     gtype = geom.get("type")
                     coords = geom.get("coordinates") or []

@@ -178,6 +178,13 @@ def build_residual_paved_parts(
         subjects = _residential_from_features(work_dir)
     if not subjects:
         return []
+    try:
+        # Budovy, chodníky, silnice a malé stavby z DTM kraje (kreslí se samostatně, nesmí se zdvojit).
+        from app.pipeline.dtm_import import dtm_mask_wkbs
+
+        mask_wkbs = list(mask_wkbs) + dtm_mask_wkbs(work_dir)
+    except Exception:  # maska z DTM je doplněk
+        pass
     if not mask_wkbs:
         _emit("residual_paved: prázdná OSM maska – residential bez výřezu")
     # OCAD ISSprOM: zpevněná plocha light = 501.0 (OOM „501“ v merged sadě není).

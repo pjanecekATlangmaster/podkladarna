@@ -518,7 +518,7 @@ def oom_readme(meta: dict) -> str:
     kp_steps = (
         "2. PNG podklady (OSM, ortofoto, hillshade, …) zapněte dle potřeby\n"
         "   v Šablony → Nastavení šablon (Template Setup).\n"
-        "3. Budovy v .omap jsou z OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
+        "3. Budovy v .omap jsou z DTM kraje (kde je) doplněné OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
         "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
         "   Ve složce base/: vrstevnice GDAL (contours_gdal.* = jediná pravda, jen z DMR), "
         "vegetace z hustoty LiDAR odrazů (vegetation.*, záloha CHM), "

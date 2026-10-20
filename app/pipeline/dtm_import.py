@@ -32,6 +32,8 @@ SMALL_PAVED_NAME = "small_paved.json"
 STAIRS_NAME = "stairs.json"
 # OSM budova, jejíž aspoň tento podíl plochy kryjí budovy z DTM, je duplicita (DTM má přednost).
 BUILDING_TWIN_SHARE = 0.5
+# Budovy z DTM, jejichž hrany jsou blíž než 2 × tato hodnota (m), se sloučí do jednoho objektu.
+BUILDING_FUSE_M = 0.1
 # Šířka kresby OSM silnice (m) – podle symbolu: road_1 = 501.30 (2 m), ostatní 501.31 (4 m).
 ROAD_CODE = "501.20"
 # OSM plot do této vzdálenosti (m) od plotu z DTM se bere jako duplicitní.
@@ -221,13 +223,12 @@ def build_dtm_stairs_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
-    """Schodiště z DTM, u kterých chybí OSM čára schodů (do ``STAIRS_OSM_NEAR_M``), jako čáry 532.7.
+    """Schodiště z DTM jako čáry 532.7 (jedna čára na schodiště).
 
-    Čára vede po delší straně schodiště. Schodiště s OSM čárou kreslí OSM čára ořezaná na
-    schodiště z DTM (viz ``build_osm_path_parts``), takže se nekreslí dvakrát.
+    Čára vede středem schodiště ve směru nejbližší cesty (OSM schody, pak ostatní cesty), takže
+    navazuje na cestu. OSM čáry schodů se uvnitř schodišť z DTM nekreslí (viz ``build_osm_path_parts``).
     """
     from shapely.geometry import LineString, Polygon
-    from shapely.ops import unary_union
 
     from app.pipeline import dtm_sidewalks
     from app.pipeline.osm_paths import _path_object
@@ -237,14 +238,18 @@ def build_dtm_stairs_parts(
     idx = symbol_index_for_code(preset_id, scale, "532.7")
     if idx is None:
         return []
-    osm_steps = []
+    steps_refs, path_refs = [], []
     for feat in _path_features(work_dir, path_source):
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
-        if geom.get("type") == "LineString" and len(coords) >= 2:
-            if is_surface_steps(str((feat.get("properties") or {}).get("highway") or "path")):
-                osm_steps.append(LineString(coords))
-    osm_zone = unary_union(osm_steps).buffer(dtm_sidewalks.STAIRS_OSM_NEAR_M) if osm_steps else None
+        if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        hw = str((feat.get("properties") or {}).get("highway") or "path")
+        if is_surface_steps(hw):
+            steps_refs.append(LineString(coords))
+        elif not is_surface_road(hw):
+            path_refs.append(LineString(coords))
+    ref_lines = [steps_refs, path_refs]
     objects = []
     for poly in _load_polygons_file(stairs_path(work_dir)):
         try:
@@ -252,9 +257,9 @@ def build_dtm_stairs_parts(
             g = g if g.is_valid else g.buffer(0)
         except (ValueError, IndexError):
             continue
-        if g.is_empty or (osm_zone is not None and g.intersects(osm_zone)):
+        if g.is_empty:
             continue
-        axis = dtm_sidewalks.stairs_axis(poly)
+        axis = dtm_sidewalks.stairs_axis(poly, ref_lines)
         if axis is None:
             continue
         for piece in clip_polyline(axis, clip_bounds) if clip_bounds else [axis]:
@@ -346,6 +351,9 @@ def merge_dtm_buildings(work_dir: Path, features: list[dict]) -> list[dict]:
             continue
         if not g.is_empty:
             dtm_geoms.append(g)
+    # Těsně navazující části jedné budovy (společná stěna, škvíra pár cm) se kreslí jako jeden objekt.
+    fused = unary_union(dtm_geoms).buffer(BUILDING_FUSE_M, join_style=2).buffer(-BUILDING_FUSE_M, join_style=2)
+    dtm_geoms = [g for g in ([fused] if fused.geom_type == "Polygon" else list(getattr(fused, "geoms", []))) if g.geom_type == "Polygon" and not g.is_empty]
     dtm_union = unary_union(dtm_geoms)
     kept = []
     for feat in features:
@@ -371,6 +379,24 @@ def merge_dtm_buildings(work_dir: Path, features: list[dict]) -> list[dict]:
                     }
                 )
     return kept
+
+
+def dtm_mask_wkbs(work_dir: Path) -> list[bytes]:
+    """WKB ploch z DTM (budovy, chodníky, silnice, malé stavby), které se odečítají při výpočtu
+    zbytkové zpevněné plochy (``residual_paved``), aby se nekreslila pod ně ani přes ně."""
+    from shapely.geometry import Polygon
+
+    out: list[bytes] = []
+    for path in (buildings_path(work_dir), sidewalks_path(work_dir), roads_path(work_dir), small_paved_path(work_dir)):
+        for poly in _load_polygons_file(path):
+            try:
+                g = Polygon(poly[0], poly[1:])
+                g = g if g.is_valid else g.buffer(0)
+            except (ValueError, IndexError):
+                continue
+            if not g.is_empty:
+                out.append(g.wkb)
+    return out
 
 
 def build_dtm_small_paved_parts(

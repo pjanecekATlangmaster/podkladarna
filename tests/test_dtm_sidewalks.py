@@ -186,6 +186,48 @@ def test_dtm_buildings_replace_osm_twins_and_keep_osm_only_buildings(tmp_path):
     assert [p.name for p in parts] == ["Budovy (DTM + OSM)"] and parts[0].count == 2
 
 
+def test_touching_dtm_buildings_are_fused_into_one_object_and_shp_uses_dtm(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "buildings.json").write_text(
+        json.dumps(
+            {
+                "polygons": [
+                    [[list(p) for p in ring] for ring in _rect(-1000, -1000, -990, -990)],
+                    [[list(p) for p in ring] for ring in _rect(-989.95, -1000, -980, -990)],  # škvíra 5 cm
+                    [[list(p) for p in ring] for ring in _rect(-960, -960, -950, -950)],  # samostatná
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    merged = di.merge_dtm_buildings(work, [])
+    assert sorted(f["properties"]["source"] for f in merged) == ["dtm", "dtm"]  # 2 objekty místo 3
+    # budovy do SHP / filtru srázů: stejné skládání jako v .omap
+    (work / "osm_paths").mkdir()
+    (work / "osm_paths" / "buildings.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"kind": "building"},
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[[-999.5, -999.5], [-990, -999.5], [-990, -990], [-999.5, -990], [-999.5, -999.5]]],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert len(di.dtm_mask_wkbs(work)) == 3  # maska zbytkových ploch obsahuje budovy z DTM
+
+
 def test_small_paved_parts_are_separate_501_0_areas(tmp_path):
     work = tmp_path
     (work / "dtm").mkdir()
@@ -198,26 +240,35 @@ def test_small_paved_parts_are_separate_501_0_areas(tmp_path):
     assert di.build_dtm_small_paved_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
 
 
-def test_steps_keep_only_dtm_stairs_inside_sidewalk_and_outside_dtm():
+def test_steps_keep_only_osm_steps_outside_dtm_stairs_and_sidewalks():
     stair_zone = ds.dtm_union([_rect(10, -1, 12, 1)]).buffer(ds.STAIRS_ZONE_M)
     cover = ds.dtm_union([_rect(0, -1, 40, 1)]).buffer(0.5)  # chodník z DTM
     # OSM čára schodů přes celý chodník (0–40) a dál za ním (40–60)
     pieces = ds.steps_keep([(0.0, 0.0), (60.0, 0.0)], stair_zone, cover)
-    xs = sorted((min(x for x, _y in p), max(x for x, _y in p)) for p in pieces)
-    assert len(xs) == 2
-    assert 9.0 < xs[0][0] < 10.0 and 12.0 < xs[0][1] < 13.0  # jen schodiště z DTM (+ 0,5 m)
-    assert xs[1][0] > 40.0 and abs(xs[1][1] - 60.0) < 0.1  # mimo plochu DTM zůstává OSM
+    assert len(pieces) == 1
+    assert min(x for x, _y in pieces[0]) > 40.0 and abs(max(x for x, _y in pieces[0]) - 60.0) < 0.1
+    # bez ploch chodníků zůstane vše kromě schodiště z DTM
+    pieces = ds.steps_keep([(0.0, 0.0), (60.0, 0.0)], stair_zone, None)
+    assert len(pieces) == 2
 
 
-def test_stairs_axis_follows_longer_side_and_skips_tiny():
-    axis = ds.stairs_axis(_rect(0, 0, 6, 2))
-    assert axis is not None
+def test_stairs_axis_follows_reference_path_and_centroid():
+    from shapely.geometry import LineString
+
+    stairs = _rect(10, -1, 12, 1)  # čtvercové schodiště 2 × 2 m
+    path = LineString([(0.0, 0.0), (30.0, 0.0)])  # cesta ve směru x
+    axis = ds.stairs_axis(stairs, [[path], []])
     (x0, y0), (x1, y1) = axis
-    assert abs(abs(x1 - x0) - 6.0) < 1e-6 and abs(y1 - y0) < 1e-6
-    assert ds.stairs_axis(_rect(0, 0, 0.5, 0.4)) is None
+    assert abs(y1 - y0) < 1e-6 and abs(y0) < 1e-6  # vodorovně, středem schodiště
+    assert abs((x1 - x0) - (2.0 + 2 * ds.STAIRS_AXIS_EXTRA_M)) < 1e-6
+    # bez cesty v okolí: po delší straně
+    axis = ds.stairs_axis(_rect(0, 0, 6, 2))
+    (x0, y0), (x1, y1) = axis
+    assert abs(y1 - y0) < 1e-6 and abs(x1 - x0) > 6.0
+    assert ds.stairs_axis(_rect(0, 0, 0.3, 0.3)) is None
 
 
-def test_dtm_stairs_parts_draw_only_stairs_without_osm_line(tmp_path):
+def test_dtm_stairs_parts_draw_every_stair_and_osm_steps_only_outside(tmp_path):
     from app.pipeline import osm_paths as op
 
     work = tmp_path
@@ -227,7 +278,7 @@ def test_dtm_stairs_parts_draw_only_stairs_without_osm_line(tmp_path):
             {
                 "polygons": [
                     [[list(p) for p in ring] for ring in _rect(-1000, -1000, -996, -998)],  # bez OSM čáry
-                    [[list(p) for p in ring] for ring in _rect(-970, -1000, -966, -998)],  # u OSM čáry
+                    [[list(p) for p in ring] for ring in _rect(-970, -1000, -966, -998)],  # na OSM čáře
                 ]
             }
         ),
@@ -240,16 +291,16 @@ def test_dtm_stairs_parts_draw_only_stairs_without_osm_line(tmp_path):
             {
                 "type": "Feature",
                 "properties": {"highway": "steps"},
-                "geometry": {"type": "LineString", "coordinates": [[-980, -999], [-960, -999]]},
+                "geometry": {"type": "LineString", "coordinates": [[-980, -999], [-940, -999]]},
             }
         ],
     }
     (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps(gj), encoding="utf-8")
     kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-999.0, grivation_deg=0.0)
     parts = di.build_dtm_stairs_parts(work, **kw)
-    assert [p.name for p in parts] == ["DTM – schodiště (532.7)"] and parts[0].count == 1
+    assert [p.name for p in parts] == ["DTM – schodiště (532.7)"] and parts[0].count == 2
     paths = op.build_osm_path_parts(work, **kw)
-    assert paths and paths[0].count == 1  # OSM čára ořezaná na schodiště z DTM (-970…-966 ± 0,5)
+    assert paths and paths[0].count == 2  # OSM čára přerušená schodištěm z DTM: před ním a za ním
 
 
 def test_dtm_cover_geometry_clips_zabaged_lines(tmp_path):
