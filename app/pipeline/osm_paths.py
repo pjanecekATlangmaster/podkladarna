@@ -217,6 +217,9 @@ ZABAGED_PATH_LAYERS_OSM_FIRST = frozenset({"Pesina", "Cesta", "Zabrana"})
 # Stejná středová čára (ne „něco v okolí“): OSM a ZABAGED přes sebe.
 MATCH_M = 6.0
 COVER_DROP = 0.70
+# Krátká linie (schody, spojka) leží vždy blízko delší cesty; za duplicitu se bere jen při těsné shodě.
+SHORT_LINE_M = 12.0
+SHORT_LINE_MATCH_M = 1.5
 # Min. |cos| úhlu tečen – paralelní i protisměr; kolmá cesta se neshoduje.
 MIN_DIR_DOT = 0.5
 SAMPLE_M = 5.0
@@ -1942,12 +1945,15 @@ def dedup_osm_prefer_wider(
             continue
         if not is_bridge_highway(hw) and kept:
             max_cover = 0.0
+            line_match_m = (
+                min(match_m, SHORT_LINE_MATCH_M) if polyline_length(pts) < SHORT_LINE_M else match_m
+            )
             for kpts, _khw in kept:
                 idx = _SegmentIndex()
                 idx.add_line(kpts)
                 max_cover = max(
                     max_cover,
-                    centerline_cover_fraction(pts, idx, match_m=match_m),
+                    centerline_cover_fraction(pts, idx, match_m=line_match_m),
                 )
                 if max_cover >= cover_drop:
                     break

@@ -765,6 +765,16 @@ def test_dedup_osm_prefers_steps_over_path():
     assert kept[0][1] == "steps"
 
 
+def test_dedup_osm_keeps_short_branch_near_longer_path():
+    from app.pipeline.osm_paths import dedup_osm_prefer_wider
+
+    long_steps = ([(0.0, 0.0), (10.7, 0.0)], "steps")
+    short_steps = ([(0.0, 0.0), (0.0, 5.0)], "steps")  # odbočka z téhož bodu, do 6 m od delší linie
+    kept, dropped = dedup_osm_prefer_wider([long_steps, short_steps])
+    assert dropped == 0
+    assert len(kept) == 2
+
+
 def test_filter_keeps_steps_on_zabaged():
     from app.pipeline.osm_paths import filter_osm_items_against_zabaged
 
