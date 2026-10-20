@@ -3899,8 +3899,9 @@ def build_osm_path_parts(
             continue
         line = [(float(x), float(y)) for x, y in coords]
         lines = [line]
-        if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian"}:
-            # Pěšina uvnitř plochy chodníku z DTM by se kreslila dvakrát → jen části mimo plochu.
+        if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian", "cycleway_paved"}:
+            # Pěšina / zpevněná cyklostezka uvnitř plochy chodníku nebo silnice z DTM by se kreslila dvakrát
+            # (plocha už je nakreslená) → jen části mimo plochu.
             lines = clip_outside(line, sidewalk_cover)
         elif corridor_zone is not None and is_surface_road(hw):
             lines = clip_outside(line, corridor_zone)

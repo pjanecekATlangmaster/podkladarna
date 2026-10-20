@@ -641,6 +641,31 @@ def test_long_curved_stairs_get_centerline_along_the_whole_curve():
     assert isinstance(Polygon(rings[0]).area, float)
 
 
+def test_paved_cycleway_on_dtm_sidewalk_is_not_drawn_twice(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1003, -940, -997)]]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    feats = [
+        {
+            "type": "Feature",
+            "properties": {"highway": "cycleway_paved"},
+            "geometry": {"type": "LineString", "coordinates": [[-1030, -1000], [-910, -1000]]},  # 60 m na chodníku
+        }
+    ]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-970.0, ref_y=-1000.0, grivation_deg=0.0)
+    paths = op.build_osm_path_parts(work, **kw)
+    assert paths and paths[0].count == 2  # jen části před a za plochou chodníku (30 m + 30 m), ne přes ni
+
+
 def test_end_at_edge_trims_inside_extends_near_and_keeps_crossing():
     area = ds.dtm_union([_rect(10, -5, 20, 5)])
     # končí uvnitř plochy → odříznuto na hraně x = 10
