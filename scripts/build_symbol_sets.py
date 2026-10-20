@@ -53,9 +53,10 @@ SETS = [
     ("mtbo", "ISMTBOM_2022_15000.omap", "ISMTBOM_2022_15000_cz.omap"),
 ]
 
-# Sady, u nichž skryté symboly zůstávají jako v OCADu (is_hidden="true"). Při tvorbě
-# mapy se odkryjí jen symboly, které generátor skutečně použil (build_oom_map).
-KEEP_HIDDEN = frozenset({"mtbo"})
+# Sady, u nichž se skryté symboly (is_hidden="true") neodstraňují všechny: zůstanou jen ty, jejichž kód
+# generátor používá (``generator_codes`` v katalogu); při tvorbě mapy se odkryjí ty, které generátor
+# skutečně použil (build_oom_map). Ostatní skryté symboly se z MTBO sady odstraní.
+KEEP_HIDDEN_USED_ONLY = frozenset({"mtbo"})
 
 # Pomocné symboly mimo normu (pokud by ve zdroji byly, smažou se).
 _NON_STANDARD_CODES = frozenset({"799", "799.0", "999", "999.0"})
@@ -113,9 +114,9 @@ def _top_level_info(symbols_xml: str) -> list[tuple[str, str, str]]:
     return out
 
 
-def clean_symbols(symbols_xml: str, keep_hidden: bool = False) -> str:
-    """Odstraní skryté symboly (ne u ``keep_hidden``) a nestandardní pomocné kódy."""
-    drop = set() if keep_hidden else set(hidden_symbol_ids(symbols_xml))
+def clean_symbols(symbols_xml: str, keep_codes: frozenset[str] | set[str] = frozenset()) -> str:
+    """Odstraní skryté symboly (kromě kódů ``keep_codes``) a nestandardní pomocné kódy."""
+    drop = {sid for sid, code in hidden_symbol_ids(symbols_xml).items() if code not in keep_codes}
     for _s, _e, attrs in _top_level_symbols(symbols_xml):
         if _attr(attrs, "code") in _NON_STANDARD_CODES:
             sid = _attr(attrs, "id")
@@ -261,12 +262,19 @@ def main() -> int:
         for key, entries in raw.items():
             existing_all[key] = {str(e["ocad_code"]): e for e in entries}
 
+    # Kódy, které generátor používá (mají ``generator_codes``): skrytý symbol s takovým kódem se nemaže.
+    used_codes = {
+        key: {code for code, e in entries.items() if e.get("generator_codes")}
+        for key, entries in existing_all.items()
+        if key in KEEP_HIDDEN_USED_ONLY
+    }
+
     # 1) kostra katalogu (sdílená 10k/15k ISOM) + kontrola shody sad
     infos: dict[str, list[tuple[str, str, str]]] = {}
     sources: dict[str, str] = {}
     for key, src_name, _out in SETS:
         text = (SRC / src_name).read_text(encoding="utf-8", newline="")
-        symbols = clean_symbols(_SYMBOLS_RE.search(text).group(0), key in KEEP_HIDDEN)
+        symbols = clean_symbols(_SYMBOLS_RE.search(text).group(0), used_codes.get(key, frozenset()))
         info = _top_level_info(symbols)
         if key in infos:
             if [c for c, _t, _n in info] != [c for c, _t, _n in infos[key]]:
@@ -291,7 +299,7 @@ def main() -> int:
         cz_names = {e["ocad_code"]: e["cz_name"] for e in catalog[key]}
         m = _SYMBOLS_RE.search(text)
         before = len(_top_level_symbols(m.group(0)))
-        symbols = rename_symbols(clean_symbols(m.group(0), key in KEEP_HIDDEN), cz_names)
+        symbols = rename_symbols(clean_symbols(m.group(0), used_codes.get(key, frozenset())), cz_names)
         after = len(_top_level_symbols(symbols))
         out = text[: m.start()] + symbols + text[m.end() :]
         (OOM / out_name).write_text(out, encoding="utf-8", newline="\n")

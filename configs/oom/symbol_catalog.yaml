@@ -1652,7 +1652,7 @@ sprint:
     review: false
   - ocad_code: "512.100"
     cz_name: "Vstup pod most nebo do tunelu"
-    generator_codes: ["512.100"]  # ohraničení lávky přes jinou cestu (sprint)
+    generator_codes: ["512.100"]
     geom: line
     review: false
   - ocad_code: "512.101"
@@ -2188,21 +2188,6 @@ mtbo:
     generator_codes: ["103"]
     geom: line
     review: false
-  - ocad_code: "103.1"
-    cz_name: "Doplňková vrstevnice – spádnice"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "103.2"
-    cz_name: "Doplňková vrstevnice (kupa, minimální velikost)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "103.3"
-    cz_name: "Doplňková vrstevnice (prohlubeň, minimální velikost)"
-    generator_codes: []
-    geom: point
-    review: false
   - ocad_code: "104.0"
     cz_name: "Zemní sráz"
     generator_codes: ["104"]
@@ -2218,11 +2203,6 @@ mtbo:
     generator_codes: []
     geom: point
     review: false
-  - ocad_code: "104.3"
-    cz_name: "Zemní sráz (minimální velikost, bez koncových čárek)"
-    generator_codes: []
-    geom: point
-    review: false
   - ocad_code: "104.4"
     cz_name: "Zemní sráz (čárka)"
     generator_codes: []
@@ -2235,16 +2215,6 @@ mtbo:
     review: false
   - ocad_code: "105.1"
     cz_name: "Zemní val (minimální velikost)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "106.0"
-    cz_name: "Rozpadlý zemní val"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "106.1"
-    cz_name: "Rozpadlý zemní val (minimální velikost)"
     generator_codes: []
     geom: point
     review: false
@@ -2268,11 +2238,6 @@ mtbo:
     generator_codes: []
     geom: point
     review: false
-  - ocad_code: "110.0"
-    cz_name: "Malá protáhlá kupka"
-    generator_codes: []
-    geom: point
-    review: false
   - ocad_code: "111.0"
     cz_name: "Malá prohlubeň"
     generator_codes: ["111"]
@@ -2281,36 +2246,6 @@ mtbo:
   - ocad_code: "112.0"
     cz_name: "Jáma"
     generator_codes: ["112"]
-    geom: point
-    review: false
-  - ocad_code: "113.0"
-    cz_name: "Rozbitý povrch"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "113.1"
-    cz_name: "Rozbitý povrch (jednotlivá tečka)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "113.2"
-    cz_name: "Rozbitý povrch (minimální velikost)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "114.0"
-    cz_name: "Velmi rozbitý povrch"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "114.1"
-    cz_name: "Velmi rozbitý povrch (minimální velikost)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "115.0"
-    cz_name: "Výrazný terénní objekt"
-    generator_codes: []
     geom: point
     review: false
   - ocad_code: "201.0"
@@ -2348,31 +2283,6 @@ mtbo:
     generator_codes: []
     geom: point
     review: false
-  - ocad_code: "202.0"
-    cz_name: "Sráz"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "202.1"
-    cz_name: "Sráz bez čárek"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "202.2"
-    cz_name: "Sráz (minimální velikost)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "202.3"
-    cz_name: "Sráz (minimální velikost, varianta 2)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "203.0"
-    cz_name: "Kamenná jáma"
-    generator_codes: []
-    geom: point
-    review: false
   - ocad_code: "203.1"
     cz_name: "Jeskyně"
     generator_codes: ["205"]
@@ -2388,16 +2298,6 @@ mtbo:
     generator_codes: []
     geom: point
     review: false
-  - ocad_code: "204.1"
-    cz_name: "Střední balvan"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "205.0"
-    cz_name: "Velký balvan"
-    generator_codes: []
-    geom: point
-    review: false
   - ocad_code: "206.0"
     cz_name: "Obrovský balvan nebo skalní věž"
     generator_codes: ["206"]
@@ -2407,31 +2307,6 @@ mtbo:
     cz_name: "Shluk balvanů"
     generator_codes: ["207"]
     geom: point
-    review: false
-  - ocad_code: "208.0"
-    cz_name: "Balvanové pole"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "208.1"
-    cz_name: "Balvanové pole (jednotlivý znak)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "208.2"
-    cz_name: "Balvanové pole (jednotlivý znak, 120 %)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "208.3"
-    cz_name: "Balvanové pole (minimální velikost)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "209.0"
-    cz_name: "Husté balvanové pole"
-    generator_codes: []
-    geom: area
     review: false
   - ocad_code: "210.0"
     cz_name: "Kamenitý povrch"
@@ -2443,16 +2318,6 @@ mtbo:
     generator_codes: []
     geom: point
     review: false
-  - ocad_code: "211.0"
-    cz_name: "Kamenitý povrch, chůze"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "212.0"
-    cz_name: "Kamenitý povrch, obtížný pohyb"
-    generator_codes: []
-    geom: area
-    review: false
   - ocad_code: "213.0"
     cz_name: "Otevřený písčitý povrch"
     generator_codes: []
@@ -2462,11 +2327,6 @@ mtbo:
     cz_name: "Holá skála"
     generator_codes: ["214"]
     geom: area
-    review: false
-  - ocad_code: "215.0"
-    cz_name: "Příkop"
-    generator_codes: []
-    geom: line
     review: false
   - ocad_code: "301.0"
     cz_name: "Nepřekonatelné vodní těleso"
@@ -2482,41 +2342,6 @@ mtbo:
     cz_name: "Nepřekonatelné vodní těleso (okrajová linie)"
     generator_codes: []
     geom: line
-    review: false
-  - ocad_code: "301.4"
-    cz_name: "Dominantní nepřekonatelné vodní těleso 70 %"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "301.5"
-    cz_name: "Dominantní nepřekonatelné vodní těleso 70 % (plocha)"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "302.0"
-    cz_name: "Mělké vodní těleso"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "302.4"
-    cz_name: "Mělké vodní těleso (okrajová linie)"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "302.1"
-    cz_name: "Občasné mělké vodní těleso (plocha)"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "302.2"
-    cz_name: "Občasné mělké vodní těleso (okrajová linie)"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "303.0"
-    cz_name: "Jáma s vodou"
-    generator_codes: []
-    geom: point
     review: false
   - ocad_code: "304.0"
     cz_name: "Překonatelný vodní tok"
@@ -2538,11 +2363,6 @@ mtbo:
     generator_codes: []
     geom: area
     review: false
-  - ocad_code: "307.1"
-    cz_name: "Nepřekonatelná bažina (plocha)"
-    generator_codes: []
-    geom: area
-    review: false
   - ocad_code: "307.2"
     cz_name: "Nepřekonatelná bažina (minimální velikost)"
     generator_codes: []
@@ -2555,21 +2375,6 @@ mtbo:
     review: false
   - ocad_code: "308.1"
     cz_name: "Bažina (minimální velikost)"
-    generator_codes: []
-    geom: point
-    review: false
-  - ocad_code: "309.0"
-    cz_name: "Úzká bažina"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "310.0"
-    cz_name: "Nezřetelná bažina"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "310.1"
-    cz_name: "Nezřetelná bažina (minimální velikost)"
     generator_codes: []
     geom: point
     review: false
@@ -2633,11 +2438,6 @@ mtbo:
     generator_codes: []
     geom: line
     review: false
-  - ocad_code: "406.1"
-    cz_name: "Vegetace, pomalý běh, jeden směr"
-    generator_codes: []
-    geom: area
-    review: false
   - ocad_code: "407.0"
     cz_name: "Vegetace: snížená sjízdnost mimo cesty, dobrá viditelnost"
     generator_codes: []
@@ -2648,24 +2448,9 @@ mtbo:
     generator_codes: ["408"]
     geom: area
     review: true
-  - ocad_code: "408.1"
-    cz_name: "Vegetace, chůze, jeden směr"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "409.0"
-    cz_name: "Vegetace, chůze, dobrá viditelnost"
-    generator_codes: []
-    geom: area
-    review: false
   - ocad_code: "410.0"
     cz_name: "Vegetace, prodírání"
     generator_codes: ["410"]
-    geom: area
-    review: false
-  - ocad_code: "410.1"
-    cz_name: "Vegetace, prodírání, jeden směr"
-    generator_codes: []
     geom: area
     review: false
   - ocad_code: "410.2"
@@ -2693,16 +2478,6 @@ mtbo:
     generator_codes: []
     geom: area
     review: false
-  - ocad_code: "415.0"
-    cz_name: "Zřetelná hranice obdělávané půdy"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "416.0"
-    cz_name: "Zřetelná hranice vegetace"
-    generator_codes: []
-    geom: line
-    review: false
   - ocad_code: "416.1"
     cz_name: "Zřetelná hranice vegetace (alternativní)"
     generator_codes: ["416"]
@@ -2722,81 +2497,6 @@ mtbo:
     cz_name: "Výrazný vegetační objekt"
     generator_codes: []
     geom: point
-    review: false
-  - ocad_code: "503.0"
-    cz_name: "Silnice"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "504.0"
-    cz_name: "Vozová cesta"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "505.0"
-    cz_name: "Pěší cesta"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "506.0"
-    cz_name: "Pěšina"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "507.0"
-    cz_name: "Nezřetelná pěšina"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.0"
-    cz_name: "Průsek nebo liniová trasa terénem"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.1"
-    cz_name: "Průsek nebo liniová trasa terénem, dobrý běh"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.2"
-    cz_name: "Průsek nebo liniová trasa terénem, pomalý běh"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.3"
-    cz_name: "Průsek nebo liniová trasa terénem, obtížný pohyb"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.4"
-    cz_name: "Průsek nebo liniová trasa terénem, normální běh"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.5"
-    cz_name: "Průsek nebo liniová trasa terénem (krátká linie)"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.6"
-    cz_name: "Průsek nebo liniová trasa terénem, dobrý běh (linie)"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.7"
-    cz_name: "Průsek nebo liniová trasa terénem, pomalý běh (linie)"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.8"
-    cz_name: "Průsek nebo liniová trasa terénem, obtížný pohyb (linie)"
-    generator_codes: []
-    geom: line
-    review: false
-  - ocad_code: "508.9"
-    cz_name: "Průsek nebo liniová trasa terénem, normální běh (linie)"
-    generator_codes: []
-    geom: line
     review: false
   - ocad_code: "509.0"
     cz_name: "Železnice"
@@ -2843,11 +2543,6 @@ mtbo:
     generator_codes: ["521"]
     geom: line
     review: false
-  - ocad_code: "514.0"
-    cz_name: "Rozpadlá zeď"
-    generator_codes: []
-    geom: line
-    review: false
   - ocad_code: "515.0"
     cz_name: "Nepřekonatelná zeď"
     generator_codes: []
@@ -2856,11 +2551,6 @@ mtbo:
   - ocad_code: "516.0"
     cz_name: "Překonatelný plot nebo zábradlí"
     generator_codes: ["522"]
-    geom: line
-    review: false
-  - ocad_code: "517.0"
-    cz_name: "Rozpadlý plot"
-    generator_codes: []
     geom: line
     review: false
   - ocad_code: "518.0"
@@ -2912,11 +2602,6 @@ mtbo:
     cz_name: "Zřícenina"
     generator_codes: ["530"]
     geom: line
-    review: false
-  - ocad_code: "523.1"
-    cz_name: "Zřícenina (minimální velikost)"
-    generator_codes: []
-    geom: point
     review: false
   - ocad_code: "524.0"
     cz_name: "Vysoká věž"
@@ -2988,11 +2673,6 @@ mtbo:
     generator_codes: ["843"]
     geom: line
     review: true
-  - ocad_code: "601.0"
-    cz_name: "Magnetický poledník (černý)"
-    generator_codes: []
-    geom: line
-    review: false
   - ocad_code: "601.1"
     cz_name: "Magnetický poledník (modrý)"
     generator_codes: []
@@ -3002,16 +2682,6 @@ mtbo:
     cz_name: "Magnetický poledník (modrý, plocha)"
     generator_codes: []
     geom: area
-    review: false
-  - ocad_code: "601.2"
-    cz_name: "Magnetický poledník (černý, plocha)"
-    generator_codes: []
-    geom: area
-    review: false
-  - ocad_code: "602.0"
-    cz_name: "Registrační značka"
-    generator_codes: []
-    geom: point
     review: false
   - ocad_code: "603.0"
     cz_name: "Výšková kóta (bod)"
@@ -3116,18 +2786,6 @@ mtbo:
     keep_reason: "řada 7xx (tratě); generátor nepoužívá, ponecháno pro editaci v Mapperu"
   - ocad_code: "710.200"
     cz_name: "Úsek přechodu"
-    generator_codes: []
-    geom: line
-    review: false
-    keep_reason: "řada 7xx (tratě); generátor nepoužívá, ponecháno pro editaci v Mapperu"
-  - ocad_code: "711.0"
-    cz_name: "Nepřístupná trasa"
-    generator_codes: []
-    geom: point
-    review: false
-    keep_reason: "řada 7xx (tratě); generátor nepoužívá, ponecháno pro editaci v Mapperu"
-  - ocad_code: "711.1"
-    cz_name: "Nepřístupná trasa (linie)"
     generator_codes: []
     geom: line
     review: false
