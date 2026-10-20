@@ -370,6 +370,25 @@ def test_mtbo_road_corridor_counts_parking_between_road_and_sidewalk():
     assert corridor.intersection(ds.dtm_union([_rect(0, 20, 100, 80)])).area < 1.0  # vzdálené parkoviště zůstává mimo
 
 
+def test_mtbo_corridor_needs_real_roadway_and_marks_bays():
+    from shapely.geometry import MultiLineString
+
+    # úzká vedlejší silnice (4 m) s chodníky po obou stranách: koridor nevznikne, zůstává čára 502.x
+    minor = ds.dtm_union([_rect(0, 0, 100, 4)])
+    side = ds.dtm_union([_rect(0, 5, 100, 7), _rect(0, -3, 100, -1)])
+    assert ds.road_corridor(minor, side, scale=10000) is None
+    # silnice 7 m + záliv (parkování) 3 m u ní: záliv je součást koridoru a jeho hranice se označí čárou
+    roads = ds.dtm_union([_rect(0, 0, 100, 7)])
+    bay = ds.dtm_union([_rect(10, 7, 90, 10)])
+    corridor = ds.road_corridor(roads, None, scale=10000, parking=bay)
+    assert corridor is not None and corridor.bounds[3] >= 9.9
+    lines = ds.corridor_bay_lines(roads, bay, corridor)
+    assert lines is not None
+    flat = lines.geoms if isinstance(lines, MultiLineString) else [lines]
+    assert 70 < sum(g.length for g in flat) < 90  # hranice záliv × jízdní plocha ≈ 80 m
+    assert ds.corridor_bay_lines(roads, None, corridor) is None
+
+
 def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
     from app.pipeline import osm_paths as op
 

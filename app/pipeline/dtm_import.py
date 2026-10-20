@@ -867,8 +867,9 @@ def build_mtbo_corridor_parts(
     """
     if not preset_id.startswith("mtbo"):
         return []
-    return _geometry_part(
-        mtbo_corridor_geometry(work_dir, scale, path_source),
+    corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
+    parts = _geometry_part(
+        corridor,
         name="MTBO – silnice s chodníky (koridor)",
         code="501.0",
         preset_id=preset_id,
@@ -879,6 +880,44 @@ def build_mtbo_corridor_parts(
         clip_bounds=clip_bounds,
         outline_separate=True,
     )
+    if corridor is None or not parts:
+        return parts
+    # Zálivy (parkování u silnice) uvnitř koridoru: samostatná černá čára mezi jízdní plochou a zálivem.
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline.osm_paths import _path_object
+
+    edge_idx = symbol_index_for_code(preset_id, scale, EDGE_CODE)
+    bays = dtm_sidewalks.corridor_bay_lines(
+        road_geometry(work_dir, path_source), corridor_parking_geometry(work_dir), corridor
+    )
+    if bays is None or edge_idx is None:
+        return parts
+
+    def flat(g):
+        if g.geom_type == "LineString":
+            yield g
+        else:
+            for sub_g in getattr(g, "geoms", []):
+                yield from flat(sub_g)
+
+    objects: list[str] = []
+    for ln in flat(bays):
+        coords = [(float(x), float(y)) for x, y in ln.coords]
+        if len(coords) < 2 or ln.length < 1.0:
+            continue
+        for piece in clip_polyline(coords, clip_bounds) if clip_bounds else [coords]:
+            mapped = [
+                projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                for x, y in piece
+            ]
+            obj = _path_object(edge_idx, mapped)
+            if obj:
+                objects.append(obj)
+    if objects:
+        parts.append(
+            OomObjectPart(name="MTBO – zálivy v koridoru (501.100)", objects_xml="\n".join(objects), count=len(objects))
+        )
+    return parts
 
 
 def build_dtm_sidewalk_parts(

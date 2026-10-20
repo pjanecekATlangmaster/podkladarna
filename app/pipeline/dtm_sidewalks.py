@@ -41,6 +41,11 @@ CORRIDOR_BIKE_PROTECT_M = 1.5
 # Parkoviště přiléhající k silnici (do ``CORRIDOR_PARKING_NEAR_M`` m od ní) patří ke koridoru: bývá mezi
 # silnicí a chodníkem. Chodník se pak bere do ``CORRIDOR_NEAR_M`` m od silnice nebo takového parkoviště.
 CORRIDOR_PARKING_NEAR_M = 12.0
+# Koridor vzniká jen kolem skutečné jízdní plochy široké aspoň ``CORRIDOR_MIN_ROADWAY_M`` m (užší vedlejší
+# silnice zůstávají čárou 502.x, jinak by se k nim přilepily chodníčky ke vchodům) a výsledek se vyhladí
+# (výběžky užší než 2 × ``CORRIDOR_SMOOTH_M`` m se odříznou).
+CORRIDOR_MIN_ROADWAY_M = 5.0
+CORRIDOR_SMOOTH_M = 1.5
 CORRIDOR_MIN_WIDTH_MM = 0.9
 CORRIDOR_MIN_LEN_M = 50.0
 BUILDING_CACHE_SUFFIX = ".bld1.json"
@@ -136,6 +141,29 @@ def separate_from_roads(geom, roads, gap_m: float = ROAD_EDGE_GAP_M):
     return unary_union([geom, *gaps]).difference(roads)
 
 
+def corridor_bay_lines(roads, parking, corridor):
+    """Hranice mezi jízdní plochou a parkovacím zálivem uvnitř koridoru (shapely čáry) nebo None.
+
+    Zálivy se v jedné ploše koridoru nesplynou: kreslí se samostatnou černou čárou. ``roads`` je
+    sjednocená plocha silnic, ``parking`` plocha parkovišť, ``corridor`` výsledek ``road_corridor``.
+    """
+    if roads is None or parking is None or corridor is None or roads.is_empty or parking.is_empty or corridor.is_empty:
+        return None
+    h = CORRIDOR_MIN_ROADWAY_M / 2
+    roadway = roads.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(roads)
+    if roadway.geom_type not in ("Polygon", "MultiPolygon"):  # GeometryCollection (nemá ``boundary``)
+        from shapely.ops import unary_union
+
+        roadway = unary_union([g for g in getattr(roadway, "geoms", []) if g.geom_type in ("Polygon", "MultiPolygon")])
+    if roadway.is_empty:
+        return None
+    bay = parking.intersection(roads.buffer(CORRIDOR_PARKING_NEAR_M)).intersection(corridor)
+    if bay.is_empty:
+        return None
+    lines = roadway.boundary.intersection(bay.buffer(0.3)).intersection(corridor.buffer(0.05))
+    return None if lines.is_empty else lines
+
+
 def road_corridor(
     roads, sidewalks, bike_lines=None, *, scale: int, min_width_mm: float = CORRIDOR_MIN_WIDTH_MM, parking=None
 ):
@@ -151,6 +179,11 @@ def road_corridor(
     from shapely.ops import unary_union
 
     if roads is None or roads.is_empty:
+        return None
+    # jízdní plocha: jen části silnice široké aspoň CORRIDOR_MIN_ROADWAY_M (otevření plochy)
+    h = CORRIDOR_MIN_ROADWAY_M / 2
+    roads = roads.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(roads)
+    if roads.is_empty:
         return None
     parts = [roads]
     base = roads
@@ -169,6 +202,9 @@ def road_corridor(
     union = unary_union(parts)
     g = CORRIDOR_GAP_M / 2
     corridor = union.buffer(g, join_style=2).buffer(-g, join_style=2)
+    s = CORRIDOR_SMOOTH_M
+    corridor = corridor.buffer(-s).buffer(s)  # odříznutí úzkých výběžků (chodníčky ke vchodům)
+    corridor = corridor.simplify(0.15, preserve_topology=True)
     width = min_width_mm * scale / 1000.0
     wide = corridor.buffer(-width / 2, join_style=2).buffer(width / 2, join_style=2)
     wide = wide.intersection(corridor)
