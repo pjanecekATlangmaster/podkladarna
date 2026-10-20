@@ -1,4 +1,7 @@
-"""Chodníky z DTM kraje (ZPS_OPL, ``ChodnikPlocha``) sjednocené s OSM / ZABAGED.
+"""Plochy z DTM kraje (ZPS_OPL: chodníky, silnice, budovy, schodiště, parkoviště …) sjednocené s OSM.
+
+Načtení typů ploch (úroveň 0), jejich sloučení s OSM / ZABAGED a geometrické pomocné funkce
+(ořez o silnice, střední osa schodiště, přeřazení chybně zařazených ploch). Souhrn viz DEV.md.
 
 DTM kreslí chodníky jako plochy (detail sídlišť, dlažby), OSM jako čáry (aktuálnější, ale
 hrubší). Postup: DTM plochy (úroveň 0) se vyčistí a sloučí; čáry chodníků z OSM / ZABAGED se
@@ -33,12 +36,10 @@ SMALL_PAVED_TYPES = ("StavbaProZpevneniPovrchuPlocha",)
 SMALL_PAVED_CACHE_SUFFIX = ".stavba1.json"
 STAIRS_TYPES = ("SchodistePlocha",)
 STAIRS_CACHE_SUFFIX = ".stairs1.json"
-# Schody kratší než toto (m) se nekreslí; schodiště z DTM se do ``STAIRS_ZONE_M`` m rozšíří
-# a v něm se ponechá OSM čára schodů.
+# Schody kratší než toto (m) se nekreslí; schodiště z DTM se do ``STAIRS_ZONE_M`` m rozšíří a
+# OSM čára schodů se v něm nekreslí (schodiště kreslí DTM).
 STAIRS_MIN_LEN_M = 1.0
 STAIRS_ZONE_M = 0.5
-# DTM schodiště bez OSM čáry schodů do této vzdálenosti (m) se kreslí samo (podle osy).
-STAIRS_OSM_NEAR_M = 2.0
 # Směr schodů se bere z nejbližší cesty do této vzdálenosti (m); osa se na každé straně prodlouží.
 STAIRS_REF_NEAR_M = 3.0
 # Schodiště protáhlejší než tento poměr stran se kreslí po střední ose (zachová zahnutí).

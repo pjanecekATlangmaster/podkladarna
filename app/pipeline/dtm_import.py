@@ -6,6 +6,8 @@
 2. ``build_dtm_fence_parts`` (sestavení mapy): objekty ploty 518 / živý plot 416.
 3. ``subtract_dtm_from_osm_fences``: OSM ploty se ořežou tam, kde už je zaměřený
    plot z DTM (ZABAGED / OSM jsou méně přesné; priorita DTM).
+4. Plochy z OPL (chodníky, silnice, budovy, schodiště, parkoviště, malé stavby, zeleň) se uloží do
+   ``work/dtm/*.json`` a v ``build_dtm_*_parts`` se sloučí s OSM (viz DEV.md, „DTM kraje ve sprintu“).
 
 Chyba (výpadek DMVS, oblast bez DTM) nikdy neshodí job – jen se zaloguje a mapa
 zůstane z OSM.
@@ -523,14 +525,6 @@ def split_absorbed_areas(features: list[dict], dtm) -> tuple[list, list[dict]]:
                 pass
         rest.append(feat)
     return absorbed, rest
-
-
-def sidewalk_cover_geometry(work_dir: Path):
-    """Plocha chodníků z DTM rozšířená o ``OSM_COVER_M`` (shapely) nebo None."""
-    from app.pipeline import dtm_sidewalks
-
-    dtm = dtm_sidewalks.dtm_union(_load_sidewalk_polygons(work_dir))
-    return dtm.buffer(dtm_sidewalks.OSM_COVER_M) if dtm is not None and not dtm.is_empty else None
 
 
 def is_surface_sidewalk(highway: str) -> bool:
