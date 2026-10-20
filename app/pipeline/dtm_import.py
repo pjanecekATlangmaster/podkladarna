@@ -29,6 +29,7 @@ SIDEWALKS_NAME = "sidewalks.json"
 ROADS_NAME = "roads.json"
 BUILDINGS_NAME = "buildings.json"
 SMALL_PAVED_NAME = "small_paved.json"
+STAIRS_NAME = "stairs.json"
 # OSM budova, jejíž aspoň tento podíl plochy kryjí budovy z DTM, je duplicita (DTM má přednost).
 BUILDING_TWIN_SHARE = 0.5
 # Šířka kresby OSM silnice (m) – podle symbolu: road_1 = 501.30 (2 m), ostatní 501.31 (4 m).
@@ -171,6 +172,104 @@ def small_paved_path(work_dir: Path) -> Path:
     return work_dir / "dtm" / SMALL_PAVED_NAME
 
 
+def stairs_path(work_dir: Path) -> Path:
+    return work_dir / "dtm" / STAIRS_NAME
+
+
+def dtm_owns_stairs(work_dir: Path) -> bool:
+    """Má výřez schodiště z DTM? Pak se OSM čáry schodů ořežou na ně (DTM má přednost)."""
+    return stairs_path(work_dir).is_file()
+
+
+def stairs_zone_geometry(work_dir: Path):
+    """Schodiště z DTM rozšířená o ``STAIRS_ZONE_M`` (shapely) nebo None."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_sidewalks
+
+    geoms = []
+    for poly in _load_polygons_file(stairs_path(work_dir)):
+        try:
+            g = Polygon(poly[0], poly[1:])
+            geoms.append(g if g.is_valid else g.buffer(0))
+        except (ValueError, IndexError):
+            continue
+    geoms = [g for g in geoms if not g.is_empty]
+    return unary_union(geoms).buffer(dtm_sidewalks.STAIRS_ZONE_M) if geoms else None
+
+
+def is_surface_steps(highway: str) -> bool:
+    """Schody na povrchu (ne lávka, tunel)."""
+    from app.pipeline import osm_paths as op
+
+    return (
+        op.path_draw_highway(highway) == "steps"
+        and not op.is_bridge_highway(highway)
+        and not op.is_tunnel_highway(highway)
+    )
+
+
+def build_dtm_stairs_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+    path_source: str = "mixed",
+) -> list[OomObjectPart]:
+    """Schodiště z DTM, u kterých chybí OSM čára schodů (do ``STAIRS_OSM_NEAR_M``), jako čáry 532.7.
+
+    Čára vede po delší straně schodiště. Schodiště s OSM čárou kreslí OSM čára ořezaná na
+    schodiště z DTM (viz ``build_osm_path_parts``), takže se nekreslí dvakrát.
+    """
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline.osm_paths import _path_object
+
+    if not preset_id.startswith("sprint") or not dtm_owns_stairs(work_dir):
+        return []
+    idx = symbol_index_for_code(preset_id, scale, "532.7")
+    if idx is None:
+        return []
+    osm_steps = []
+    for feat in _path_features(work_dir, path_source):
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") == "LineString" and len(coords) >= 2:
+            if is_surface_steps(str((feat.get("properties") or {}).get("highway") or "path")):
+                osm_steps.append(LineString(coords))
+    osm_zone = unary_union(osm_steps).buffer(dtm_sidewalks.STAIRS_OSM_NEAR_M) if osm_steps else None
+    objects = []
+    for poly in _load_polygons_file(stairs_path(work_dir)):
+        try:
+            g = Polygon(poly[0], poly[1:])
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, IndexError):
+            continue
+        if g.is_empty or (osm_zone is not None and g.intersects(osm_zone)):
+            continue
+        axis = dtm_sidewalks.stairs_axis(poly)
+        if axis is None:
+            continue
+        for piece in clip_polyline(axis, clip_bounds) if clip_bounds else [axis]:
+            mapped = [
+                projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                for x, y in piece
+            ]
+            obj = _path_object(idx, mapped)
+            if obj:
+                objects.append(obj)
+    if not objects:
+        return []
+    return [OomObjectPart(name="DTM – schodiště (532.7)", objects_xml="\n".join(objects), count=len(objects))]
+
+
 def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) -> None:
     """Plochy chodníků a silnic z DTM (úroveň 0) zasahující do výřezu → ``dtm/sidewalks.json``, ``dtm/roads.json``."""
     from app.pipeline import dtm_sidewalks
@@ -180,6 +279,7 @@ def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) 
         (roads_path(work_dir), dtm_sidewalks.load_road_polygons, "silnice"),
         (buildings_path(work_dir), dtm_sidewalks.load_building_polygons, "budovy"),
         (small_paved_path(work_dir), dtm_sidewalks.load_small_paved_polygons, "malé zpevněné stavby"),
+        (stairs_path(work_dir), dtm_sidewalks.load_stairs_polygons, "schodiště"),
     ):
         xmin, ymin, xmax, ymax = bounds
         polys = []

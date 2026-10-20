@@ -23,6 +23,14 @@ BUILDING_CACHE_SUFFIX = ".bld1.json"
 # Schody, rampy, zápraží u vchodů: v DTM bez atributu druhu, kreslí se jako zpevněná plocha 501.0.
 SMALL_PAVED_TYPES = ("StavbaProZpevneniPovrchuPlocha",)
 SMALL_PAVED_CACHE_SUFFIX = ".stavba1.json"
+STAIRS_TYPES = ("SchodistePlocha",)
+STAIRS_CACHE_SUFFIX = ".stairs1.json"
+# Schody kratší než toto (m) se nekreslí; schodiště z DTM se do ``STAIRS_ZONE_M`` m rozšíří
+# a v něm se ponechá OSM čára schodů.
+STAIRS_MIN_LEN_M = 1.0
+STAIRS_ZONE_M = 0.5
+# DTM schodiště bez OSM čáry schodů do této vzdálenosti (m) se kreslí samo (podle osy).
+STAIRS_OSM_NEAR_M = 2.0
 # Sloučení sousedních ploch a zacelení škvír užších než 2 × tato hodnota (m).
 CLOSE_M = 0.5
 # Díry menší než tato plocha (m²) se zacelí (drobné záhonky, sloupky).
@@ -68,6 +76,57 @@ def load_building_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> li
 def load_small_paved_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
     """Malé stavby pro zpevnění povrchu (schody, rampy, zápraží u vchodů), úroveň 0."""
     return load_polygons(opl_zip, SMALL_PAVED_TYPES, SMALL_PAVED_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def load_stairs_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Plochy schodišť na povrchu (``SchodistePlocha``, úroveň 0) z balíku ZPS_OPL."""
+    return load_polygons(opl_zip, STAIRS_TYPES, STAIRS_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def steps_keep(coords: list[tuple[float, float]], stair_zone, cover, min_len_m: float = STAIRS_MIN_LEN_M):
+    """Části OSM čáry schodů, které se mají kreslit, jako seznamy souřadnic.
+
+    Zůstává to, co leží ve schodišti z DTM (``stair_zone``), a to, co leží mimo plochy chodníků
+    a silnic z DTM (``cover``; tam DTM o schodech nic neví). Zbytek (schody „přes“ celý chodník,
+    které DTM nezná) odpadne – DTM má přednost.
+    """
+    from shapely.geometry import LineString
+    from shapely.ops import linemerge, unary_union
+
+    line = LineString(coords)
+    parts = [line.intersection(stair_zone)]
+    parts.append(line if cover is None else line.difference(cover))
+    merged = unary_union([p for p in parts if not p.is_empty])
+    if merged.is_empty:
+        return []
+    if merged.geom_type == "MultiLineString":
+        merged = linemerge(merged)  # unary_union uzlí čáru v místech průniku → zpět na souvislé kusy
+    pieces = [merged] if merged.geom_type == "LineString" else [g for g in getattr(merged, "geoms", []) if g.geom_type == "LineString"]
+    return [[(float(x), float(y)) for x, y in g.coords] for g in pieces if g.length >= min_len_m]
+
+
+def stairs_axis(poly: list[list[tuple[float, float]]]):
+    """Osa schodiště z DTM po delší straně opsaného obdélníku: ``[(x, y), (x, y)]`` nebo None."""
+    from shapely.geometry import Polygon
+
+    try:
+        g = Polygon(poly[0], poly[1:])
+        g = g if g.is_valid else g.buffer(0)
+        rect = g.minimum_rotated_rectangle
+    except (ValueError, IndexError):
+        return None
+    if rect.is_empty or rect.geom_type != "Polygon":
+        return None
+    pts = list(rect.exterior.coords)[:4]
+    e1 = (pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
+    e2 = (pts[2][0] - pts[1][0], pts[2][1] - pts[1][1])
+    l1, l2 = (e1[0] ** 2 + e1[1] ** 2) ** 0.5, (e2[0] ** 2 + e2[1] ** 2) ** 0.5
+    ex, ey, length = (e1[0], e1[1], l1) if l1 >= l2 else (e2[0], e2[1], l2)
+    if length < STAIRS_MIN_LEN_M:
+        return None
+    cx, cy = g.centroid.x, g.centroid.y
+    ux, uy = ex / length, ey / length
+    return [(cx - ux * length / 2, cy - uy * length / 2), (cx + ux * length / 2, cy + uy * length / 2)]
 
 
 def load_polygons(

@@ -3711,15 +3711,21 @@ def build_osm_path_parts(
         dtm_owns_sidewalks,
         is_surface_road,
         dtm_cover_geometry,
+        dtm_owns_stairs,
         is_surface_sidewalk,
+        is_surface_steps,
+        stairs_zone_geometry,
     )
-    from app.pipeline.dtm_sidewalks import clip_outside
+    from app.pipeline.dtm_sidewalks import clip_outside, steps_keep
 
     sidewalks_from_dtm = preset_id.startswith("sprint") and dtm_owns_sidewalks(work_dir)
     roads_from_dtm = preset_id.startswith("sprint") and dtm_owns_roads(work_dir)
     # Pěšina (footway) uvnitř plochy chodníku nebo silnice z DTM se nekreslí (přechod přes silnici
     # ani pěšina v ploše chodníku): jen části mimo plochy.
     sidewalk_cover = dtm_cover_geometry(work_dir) if (sidewalks_from_dtm or roads_from_dtm) else None
+    stairs_zone = (
+        stairs_zone_geometry(work_dir) if preset_id.startswith("sprint") and dtm_owns_stairs(work_dir) else None
+    )
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
@@ -3751,6 +3757,9 @@ def build_osm_path_parts(
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian"}:
             # Pěšina uvnitř plochy chodníku z DTM by se kreslila dvakrát → jen části mimo plochu.
             lines = clip_outside(line, sidewalk_cover)
+        elif stairs_zone is not None and is_surface_steps(hw):
+            # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
+            lines = steps_keep(line, stairs_zone, sidewalk_cover)
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         for piece in pieces:
             mapped = [
