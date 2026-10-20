@@ -858,7 +858,8 @@ def _geometry_part(
     idx = symbol_index_for_code(preset_id, scale, code)
     if idx is None:
         return []
-    fill_idx = symbol_index_for_code(preset_id, scale, FILL_ONLY_CODE.get(code, ""))
+    fill_code = FILL_ONLY_CODE.get(code)
+    fill_idx = symbol_index_for_code(preset_id, scale, fill_code) if fill_code else None
     edge_idx = symbol_index_for_code(preset_id, scale, EDGE_CODE)
 
     def to_map(ring):

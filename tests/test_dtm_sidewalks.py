@@ -208,6 +208,18 @@ def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
     assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
 
 
+def test_geometry_part_without_fill_only_variant_reports_no_unmapped_code():
+    """Kód bez výplňové varianty (MTBO parkoviště apod.) se nesmí hlásit jako chybějící symbol (kód '')."""
+    from shapely.geometry import Point
+
+    from app.pipeline import oom_symbol_map as sm
+
+    sm.drain_unmapped_codes()
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    di._geometry_part(Point(0, 0).buffer(5.0), name="Parkoviště", code="501.1", clip_bounds=None, **kw)
+    assert all(code for _set, code in sm.drain_unmapped_codes())
+
+
 def test_large_paved_polygon_is_split_with_fill_only_symbol_and_separate_outline():
     import re
 
