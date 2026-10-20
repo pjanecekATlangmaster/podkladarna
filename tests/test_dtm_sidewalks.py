@@ -208,6 +208,38 @@ def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
     assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
 
 
+def test_dtm_green_is_cut_out_of_osm_paved_areas(tmp_path):
+    from shapely.geometry import shape
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "green.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-990, -990, -970, -980)]]}),
+        encoding="utf-8",
+    )
+
+    def area(kind, x0, y0, x1, y1):
+        ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        return {
+            "type": "Feature",
+            "properties": {"source": "osm", "kind": kind},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+
+    feats = [
+        area("parking", -1000, -1000, -960, -970),  # přes zeleň → vystřihne se
+        area("building", -1000, -1000, -960, -970),  # budova se nemění
+        area("parking", -900, -900, -880, -880),  # daleko
+    ]
+    out = di.apply_dtm_priority_to_paved(work, feats)
+    green = ds.dtm_union([_rect(-990, -990, -970, -980)])
+    parking = [shape(f["geometry"]) for f in out if f["properties"]["kind"] == "parking"]
+    assert len(parking) == 2
+    assert all(g.intersection(green).area < 1e-6 for g in parking)
+    assert abs(parking[0].area - (40 * 30 - 20 * 10)) < 1e-6  # původních 1200 m² − 200 m² zeleně
+    assert [f["properties"]["kind"] for f in out].count("building") == 1
+
+
 def test_reclassify_sidewalk_with_osm_road_inside_as_road():
     wide = _rect(0, 0, 60, 12)  # 12 m široká „ChodnikPlocha“ s OSM silnicí uvnitř = chyba v DTM
     crossing = _rect(100, 0, 140, 2.5)  # úzký chodník, který silnice jen kříží

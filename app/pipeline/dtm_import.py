@@ -31,6 +31,7 @@ BUILDINGS_NAME = "buildings.json"
 SMALL_PAVED_NAME = "small_paved.json"
 STAIRS_NAME = "stairs.json"
 PARKING_NAME = "parking.json"
+GREEN_NAME = "green.json"
 # OSM budova, jejíž aspoň tento podíl plochy kryjí budovy z DTM, je duplicita (DTM má přednost).
 BUILDING_TWIN_SHARE = 0.5
 # Budovy z DTM, jejichž hrany jsou blíž než 2 × tato hodnota (m), se sloučí do jednoho objektu.
@@ -183,6 +184,10 @@ def parking_path(work_dir: Path) -> Path:
     return work_dir / "dtm" / PARKING_NAME
 
 
+def green_path(work_dir: Path) -> Path:
+    return work_dir / "dtm" / GREEN_NAME
+
+
 def dtm_owns_stairs(work_dir: Path) -> bool:
     """Má výřez schodiště z DTM? Pak se OSM čáry schodů ořežou na ně (DTM má přednost)."""
     return stairs_path(work_dir).is_file()
@@ -291,6 +296,7 @@ def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) 
         (small_paved_path(work_dir), dtm_sidewalks.load_small_paved_polygons, "malé zpevněné stavby"),
         (stairs_path(work_dir), dtm_sidewalks.load_stairs_polygons, "schodiště"),
         (parking_path(work_dir), dtm_sidewalks.load_parking_polygons, "parkoviště"),
+        (green_path(work_dir), dtm_sidewalks.load_green_polygons, "udržovaná zeleň"),
     ):
         xmin, ymin, xmax, ymax = bounds
         polys = []
@@ -580,7 +586,7 @@ def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None):
     if dtm is not None and feats_path.is_file():
         try:
             feats = json.loads(feats_path.read_text(encoding="utf-8")).get("features") or []
-            feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
+            feats = apply_dtm_priority_to_paved(work_dir, feats)
             extra_areas, _rest = split_absorbed_areas(feats, dtm)
         except (OSError, ValueError):
             pass
@@ -606,6 +612,47 @@ def parking_geometry(work_dir: Path, roads=None, sidewalks=None):
         if other is not None and not other.is_empty:
             park = park.difference(other)
     return park if not park.is_empty else None
+
+
+def apply_dtm_priority_to_paved(work_dir: Path, features: list[dict]) -> list[dict]:
+    """OSM zpevněné plochy s přednostní DTM: parkoviště kryté DTM parkovištěm pryč, udržovaná zeleň
+    z DTM se z OSM zpevněných ploch (parkoviště, hřiště, pěší zóna …) vystřihne."""
+    features = drop_osm_parking_covered_by_dtm(work_dir, features)
+    return cut_osm_paved_by_dtm_green(work_dir, features)
+
+
+def cut_osm_paved_by_dtm_green(work_dir: Path, features: list[dict]) -> list[dict]:
+    """Udržovaná zeleň z DTM se odečte od OSM zpevněných ploch; plochy bez zbytku (< 1 m²) se zahodí."""
+    from shapely.geometry import mapping, shape
+
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline import osm_paths as op
+
+    green = dtm_sidewalks.dtm_union(_load_polygons_file(green_path(work_dir)))
+    if green is None or green.is_empty:
+        return features
+    out = []
+    for feat in features:
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") in op._PAVED_AREA_KINDS and geom.get("type") in (
+            "Polygon",
+            "MultiPolygon",
+        ):
+            try:
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+                if g.intersects(green):
+                    rest = g.difference(green)
+                    if rest.is_empty or rest.area < dtm_sidewalks.MIN_AREA_M2:
+                        continue
+                    polys = [rest] if rest.geom_type == "Polygon" else [x for x in getattr(rest, "geoms", []) if x.geom_type == "Polygon" and x.area >= dtm_sidewalks.MIN_AREA_M2]
+                    for part in polys:
+                        out.append({**feat, "geometry": mapping(part)})
+                    continue
+            except (ValueError, TypeError):
+                pass
+        out.append(feat)
+    return out
 
 
 def drop_osm_parking_covered_by_dtm(work_dir: Path, features: list[dict]) -> list[dict]:

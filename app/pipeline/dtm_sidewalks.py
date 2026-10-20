@@ -20,6 +20,9 @@ ROAD_TYPES = ("ProvozniPlochaPozemniKomunikacePlocha", "ManipulacniPlochaPlocha"
 ROAD_CACHE_SUFFIX = ".road1.json"
 BUILDING_TYPES = ("BudovaPlocha",)
 # Parkoviště a odstavné plochy (sprint 501.0, samostatná část).
+# Udržovaná zeleň: z OSM zpevněných ploch (parkoviště, hřiště …) se vystřihne (DTM má přednost).
+GREEN_TYPES = ("UdrzovanaPlochaZelenePlocha",)
+GREEN_CACHE_SUFFIX = ".green1.json"
 PARKING_TYPES = ("ParkovisteOdstavnaPlochaPlocha",)
 PARKING_CACHE_SUFFIX = ".park1.json"
 # Škvíry užší než tato hodnota (m) mezi chodníkem a silnicí se zacelí (hranice je jedna čára).
@@ -87,6 +90,11 @@ def load_road_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[l
 def load_building_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
     """Půdorysy budov na povrchu (``BudovaPlocha``, úroveň 0) z balíku ZPS_OPL."""
     return load_polygons(opl_zip, BUILDING_TYPES, BUILDING_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def load_green_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Udržovaná zeleň na povrchu (úroveň 0) z balíku ZPS_OPL."""
+    return load_polygons(opl_zip, GREEN_TYPES, GREEN_CACHE_SUFFIX, use_cache=use_cache)
 
 
 def load_parking_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
