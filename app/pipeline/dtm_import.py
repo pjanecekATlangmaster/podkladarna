@@ -332,7 +332,12 @@ def build_dtm_sidewalk_parts(
             extra_areas, _rest = split_absorbed_areas(feats, dtm)
         except (OSError, ValueError):
             pass
-    geom = dtm_sidewalks.unify_sidewalks(polys, sidewalk_osm_lines(work_dir, path_source), extra_areas=extra_areas)
+    osm_lines = sidewalk_osm_lines(work_dir, path_source)
+    road = dtm_sidewalks.dtm_union(_load_road_polygons(work_dir))
+    if road is not None and not road.is_empty:
+        # Přechody přes silnici se nekreslí (silnice je souvislá plocha): jen části mimo ni.
+        osm_lines = [seg for ln in osm_lines for seg in dtm_sidewalks.clip_outside(ln, road)]
+    geom = dtm_sidewalks.unify_sidewalks(polys, osm_lines, extra_areas=extra_areas)
     if geom is None:
         return []
     if clip_bounds is not None:

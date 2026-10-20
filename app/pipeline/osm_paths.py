@@ -3710,14 +3710,16 @@ def build_osm_path_parts(
         dtm_owns_roads,
         dtm_owns_sidewalks,
         is_surface_road,
+        dtm_cover_geometry,
         is_surface_sidewalk,
-        sidewalk_cover_geometry,
     )
     from app.pipeline.dtm_sidewalks import clip_outside
 
     sidewalks_from_dtm = preset_id.startswith("sprint") and dtm_owns_sidewalks(work_dir)
     roads_from_dtm = preset_id.startswith("sprint") and dtm_owns_roads(work_dir)
-    sidewalk_cover = sidewalk_cover_geometry(work_dir) if sidewalks_from_dtm else None
+    # Pěšina (footway) uvnitř plochy chodníku nebo silnice z DTM se nekreslí (přechod přes silnici
+    # ani pěšina v ploše chodníku): jen části mimo plochy.
+    sidewalk_cover = dtm_cover_geometry(work_dir) if (sidewalks_from_dtm or roads_from_dtm) else None
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []

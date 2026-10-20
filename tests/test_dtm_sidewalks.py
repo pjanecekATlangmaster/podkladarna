@@ -120,6 +120,41 @@ def test_road_parts_replace_osm_road_lines_and_keep_widths(tmp_path):
     assert di.build_dtm_road_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
 
 
+def test_sidewalk_line_crossing_road_is_not_drawn_over_the_road(tmp_path, monkeypatch):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1004, -940, -996)]]}),
+        encoding="utf-8",
+    )
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1010, -990, -1005)]]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    crossing = {
+        "type": "Feature",
+        "properties": {"highway": "sidewalk"},
+        "geometry": {"type": "LineString", "coordinates": [[-960, -1030], [-960, -970]]},  # přes silnici
+    }
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [crossing]}), encoding="utf-8"
+    )
+    seen = {}
+    real = ds.unify_sidewalks
+
+    def spy(polys, lines, **kw):
+        seen["lines"] = lines
+        return real(polys, lines, **kw)
+
+    monkeypatch.setattr(ds, "unify_sidewalks", spy)
+    di.build_dtm_sidewalk_parts(
+        work, preset_id="sprint_4000", scale=4000, ref_x=-960.0, ref_y=-1000.0, grivation_deg=0.0
+    )
+    assert len(seen["lines"]) == 2  # před a za silnicí; úsek v silnici (-1004…-996) odpadl
+    assert all(not (-1004 < y < -996) for ln in seen["lines"] for _x, y in ln)
+
+
 def test_dtm_cover_geometry_clips_zabaged_lines(tmp_path):
     work = tmp_path
     (work / "dtm").mkdir()
