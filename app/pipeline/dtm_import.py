@@ -1054,10 +1054,10 @@ def build_dtm_road_parts(
     )
 
 
-def dtm_cover_geometry(work_dir: Path):
-    """Plochy chodníků a silnic z DTM rozšířené o ``OSM_COVER_M`` (shapely) nebo None.
+def dtm_cover_geometry(work_dir: Path, buffer_m: float | None = None):
+    """Plochy chodníků a silnic z DTM rozšířené o ``buffer_m`` (výchozí ``OSM_COVER_M``; shapely) nebo None.
 
-    ZABAGED čáry cest se o ně ořežou, aby se uvnitř ploch nekreslily podruhé.
+    Čáry cest se o ně ořežou, aby se uvnitř ploch nekreslily podruhé; s ``buffer_m=0`` končí přesně na hraně.
     """
     from shapely.ops import unary_union
 
@@ -1070,7 +1070,9 @@ def dtm_cover_geometry(work_dir: Path):
             parts.append(dtm)
     if not parts:
         return None
-    return unary_union(parts).buffer(dtm_sidewalks.OSM_COVER_M)
+    grow = dtm_sidewalks.OSM_COVER_M if buffer_m is None else buffer_m
+    union = unary_union(parts)
+    return union.buffer(grow) if grow else union
 
 
 def start_dtm_prefetch(

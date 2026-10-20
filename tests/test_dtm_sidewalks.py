@@ -641,6 +641,66 @@ def test_long_curved_stairs_get_centerline_along_the_whole_curve():
     assert isinstance(Polygon(rings[0]).area, float)
 
 
+def test_end_at_edge_trims_inside_extends_near_and_keeps_crossing():
+    area = ds.dtm_union([_rect(10, -5, 20, 5)])
+    # končí uvnitř plochy → odříznuto na hraně x = 10
+    (line,) = ds.end_at_edge([(0.0, 0.0), (15.0, 0.0)], area)
+    assert abs(line[-1][0] - 10.0) < 1e-6 and abs(line[-1][1]) < 1e-6
+    # začíná uvnitř → začíná na hraně x = 20
+    (line,) = ds.end_at_edge([(15.0, 0.0), (40.0, 0.0)], area)
+    assert abs(line[0][0] - 20.0) < 1e-6
+    # nedosahuje k ploše o 1 m → prodlouží se na hranu
+    (line,) = ds.end_at_edge([(0.0, 0.0), (9.0, 0.0)], area)
+    assert abs(line[-1][0] - 10.0) < 1e-6 and len(line) == 3
+    # dál než EDGE_SNAP_M → beze změny
+    (line,) = ds.end_at_edge([(0.0, 0.0), (6.0, 0.0)], area)
+    assert line[-1] == (6.0, 0.0) and len(line) == 2
+    # prochází plochou (oba konce venku) → beze změny
+    (line,) = ds.end_at_edge([(0.0, 0.0), (40.0, 0.0)], area)
+    assert line[0] == (0.0, 0.0) and line[-1] == (40.0, 0.0)
+    # celá uvnitř → zmizí
+    assert ds.end_at_edge([(12.0, 0.0), (18.0, 0.0)], area) == []
+    # bez plochy beze změny
+    assert ds.end_at_edge([(0.0, 0.0), (5.0, 0.0)], None) == [[(0.0, 0.0), (5.0, 0.0)]]
+
+
+def test_paths_end_exactly_on_paved_edge_in_sprint(tmp_path):
+    import re
+
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1002, -960, -998)]]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+
+    def path(a, b):
+        return {
+            "type": "Feature",
+            "properties": {"highway": "path"},
+            "geometry": {"type": "LineString", "coordinates": [a, b]},
+        }
+
+    feats = [
+        path([-990, -1030], [-990, -1000]),  # končí uvnitř plochy (y -1002…-998)
+        path([-980, -1030], [-980, -1003]),  # nedosahuje k ploše o 1 m
+    ]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-980.0, ref_y=-1002.0, grivation_deg=0.0)
+    parts = op.build_osm_path_parts(work, **kw)
+    assert parts and parts[0].count == 2
+    # souřadnice v .omap jsou v 0,001 mm papíru; 1:4000 → 1 m terénu = 250 jednotek; map y = −(Y − ref_y) · 250
+    ys = [int(y) for y in re.findall(r"-?\d+ (-?\d+)[ ;]", parts[0].objects_xml)]
+    assert ys
+    # obě cesty končí na hraně plochy (Y = −1002 → map y 0): žádný bod uvnitř plochy (map y < 0 = Y > −1002)
+    assert min(ys) == 0 and ys.count(0) == 2
+
+
 def test_forest_and_mtbo_use_dtm_stairs_with_own_symbol_and_min_length(tmp_path):
     from app.pipeline import osm_paths as op
     from app.pipeline.oom_symbol_map import symbol_index_for_code

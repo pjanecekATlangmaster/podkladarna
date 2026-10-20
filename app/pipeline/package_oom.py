@@ -771,7 +771,7 @@ def prepare_oom_map(
         if preset_id.startswith("sprint"):
             from app.pipeline.dtm_import import dtm_cover_geometry
 
-            dtm_cover = dtm_cover_geometry(kp_cwd)
+            dtm_cover = dtm_cover_geometry(kp_cwd, 0.0)
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,

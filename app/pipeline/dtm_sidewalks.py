@@ -58,6 +58,9 @@ STAIRS_CACHE_SUFFIX = ".stairs1.json"
 # OSM čára schodů se v něm nekreslí (schodiště kreslí DTM).
 STAIRS_MIN_LEN_M = 1.0
 STAIRS_ZONE_M = 0.5
+# Cesta, která končí v zpevněné ploše, se ukončí přesně na její hraně; cesta, která k ploše nedosáhne
+# o méně než ``EDGE_SNAP_M`` m, se k hraně prodlouží.
+EDGE_SNAP_M = 1.5
 # Les a MTBO (1:7500–1:15000): schodiště z DTM kratší než toto (m) se nekreslí.
 STAIRS_MIN_LEN_NONSPRINT_M = 3.0
 # Směr schodů se bere z nejbližší cesty do této vzdálenosti (m); osa se na každé straně prodlouží.
@@ -211,6 +214,54 @@ def load_small_paved_polygons(opl_zip: str | Path, *, use_cache: bool = True) ->
 def load_stairs_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
     """Plochy schodišť na povrchu (``SchodistePlocha``, úroveň 0) z balíku ZPS_OPL."""
     return load_polygons(opl_zip, STAIRS_TYPES, STAIRS_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SNAP_M, min_len_m: float = STAIRS_MIN_LEN_M):
+    """Čára ukončená přesně na hraně zpevněné plochy ``area`` (shapely): seznam souřadnic (0–1 čára).
+
+    - Začíná-li / končí-li čára uvnitř plochy, odřízne se část uvnitř po první / poslední hranu.
+    - Končí-li čára mimo plochu do ``snap_m`` m od její hrany, prodlouží se na nejbližší bod hrany.
+    - Čára procházející plochou (oba konce venku) se nemění. Čára celá uvnitř zmizí.
+    """
+    from shapely.geometry import LineString, Point
+    from shapely.ops import nearest_points, substring
+
+    if area is None or area.is_empty or len(coords) < 2:
+        return [coords]
+    line = LineString(coords)
+    if line.length <= 0:
+        return [coords]
+    boundary = area.boundary
+    start_in = area.contains(Point(coords[0]))
+    end_in = area.contains(Point(coords[-1]))
+    s, e = 0.0, line.length
+    if start_in or end_in:
+        crossing = line.intersection(boundary)
+        pts = [crossing] if crossing.geom_type == "Point" else [g for g in getattr(crossing, "geoms", []) if g.geom_type == "Point"]
+        if not pts:
+            return []  # celá uvnitř
+        params = sorted(line.project(p) for p in pts)
+        if start_in:
+            s = params[0]
+        if end_in:
+            e = params[-1]
+        if e - s < min_len_m:
+            return []
+        line = substring(line, s, e)
+    pts_out = [(float(x), float(y)) for x, y in line.coords]
+    for idx in (0, -1):
+        p = Point(pts_out[idx])
+        if area.contains(p) or area.touches(p):
+            continue
+        d = p.distance(area)
+        if 1e-6 < d <= snap_m:
+            q = nearest_points(boundary, p)[0]
+            new = (float(q.x), float(q.y))
+            if idx == 0:
+                pts_out.insert(0, new)
+            else:
+                pts_out.append(new)
+    return [pts_out]
 
 
 def steps_keep(coords: list[tuple[float, float]], stair_zone, cover, min_len_m: float = STAIRS_MIN_LEN_M):

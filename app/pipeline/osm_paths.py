@@ -3795,13 +3795,13 @@ def build_osm_path_parts(
         is_surface_steps,
         stairs_zone_geometry,
     )
-    from app.pipeline.dtm_sidewalks import clip_outside, steps_keep
+    from app.pipeline.dtm_sidewalks import clip_outside, end_at_edge, steps_keep
 
     sidewalks_from_dtm = preset_id.startswith("sprint") and dtm_owns_sidewalks(work_dir)
     roads_from_dtm = preset_id.startswith("sprint") and dtm_owns_roads(work_dir)
     # Pěšina (footway) uvnitř plochy chodníku nebo silnice z DTM se nekreslí (přechod přes silnici
     # ani pěšina v ploše chodníku): jen části mimo plochy.
-    sidewalk_cover = dtm_cover_geometry(work_dir) if (sidewalks_from_dtm or roads_from_dtm) else None
+    sidewalk_cover = dtm_cover_geometry(work_dir, 0.0) if (sidewalks_from_dtm or roads_from_dtm) else None
     # OSM schody uvnitř schodišť z DTM se nekreslí (schodiště kreslí build_dtm_stairs_parts; všechny presety).
     stairs_zone = stairs_zone_geometry(work_dir) if dtm_owns_stairs(work_dir) else None
     # MTBO: uvnitř koridoru silnice (silnice + přilehlé chodníky) se čára 502.x nekreslí.
@@ -3811,7 +3811,7 @@ def build_osm_path_parts(
         from app.pipeline.dtm_import import mtbo_corridor_geometry
 
         _corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
-        corridor_zone = _corridor.buffer(0.5) if _corridor is not None else None
+        corridor_zone = _corridor  # přesná hrana: cesty končí přímo na ní
         # Sdílený provoz (kolo povoleno): chodník / pěšina se nezahazuje ani neořezává koridorem.
         from shapely.geometry import LineString as _LS
         from shapely.ops import unary_union as _uu
@@ -3820,6 +3820,8 @@ def build_osm_path_parts(
 
         _bike = [_LS(c) for c in _load_bike_lines(work_dir)]
         bike_zone = _uu(_bike).buffer(1.0) if _bike else None
+    # Zpevněná plocha, na jejíž hraně cesty končí: sprint = chodníky a silnice z DTM, MTBO = koridor silnice.
+    edge_area = corridor_zone if corridor_zone is not None else sidewalk_cover
     # Les a MTBO: chodníky vedle silnic se nekreslí (viz ``is_sidewalk_beside_road``).
     road_zone = None if preset_id.startswith("sprint") else road_zone_geometry(data.get("features") or [])
     for feat in data.get("features") or []:
@@ -3873,6 +3875,9 @@ def build_osm_path_parts(
         elif stairs_zone is not None and is_surface_steps(hw):
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
             lines = steps_keep(line, stairs_zone, sidewalk_cover)
+        if edge_area is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
+            # Cesta končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
+            lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         for piece in pieces:
             mapped = [
