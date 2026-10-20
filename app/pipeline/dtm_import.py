@@ -804,6 +804,8 @@ AREA_SPLIT_VERTICES = 1000
 OUTLINE_CHUNK_VERTICES = 800
 FILL_ONLY_CODE = {"501.0": "501.1", ROAD_CODE: "501.21"}
 EDGE_CODE = "501.100"
+# Šířka pásu kolem hrany mostu (m), v němž se obrys spodní plochy nekreslí.
+EDGE_EXCLUDE_BUFFER_M = 0.15
 
 
 def _chunk_line(coords: list[tuple[float, float]], size: int) -> list[list[tuple[float, float]]]:
@@ -829,10 +831,13 @@ def _geometry_part(
     grivation_deg: float,
     clip_bounds: Bounds | None,
     outline_separate: bool = False,
+    edge_exclude=None,
 ) -> list[OomObjectPart]:
     """Plocha (shapely) jako části .omap se symbolem ``code``; prázdný seznam bez geometrie / symbolu.
 
     ``outline_separate``: vždy bezobrysová výplň + zvláštní obrys 501.100 (i u malých polygonů).
+    ``edge_exclude``: plocha (půdorys mostu, shapely); obrys podél její hrany se nekreslí a polygony, které se jí
+    dotýkají, se kreslí s obrysem zvlášť (spodní plocha pod mostem končí u trojúhelníků, ne obrysovou čárou).
 
     Polygony nad ``AREA_SPLIT_VERTICES`` vrcholů: bezobrysová výplň rozřezaná na díly + zvláštní část
     s obrysem (čára 501.100) po skutečné hranici (ne podél ořezu na výřez ani podél řezů).
@@ -863,9 +868,17 @@ def _geometry_part(
 
     objects: list[str] = []
     edges: list[str] = []
+    exclude_zone = None
+    if edge_exclude is not None and not edge_exclude.is_empty:
+        exclude_zone = edge_exclude.boundary.buffer(EDGE_EXCLUDE_BUFFER_M)
     for rings in dtm_sidewalks.polygon_rings(geom):
+        touches_deck = False
+        if exclude_zone is not None:
+            from shapely.geometry import Polygon as _Poly
+
+            touches_deck = _Poly(rings[0], rings[1:]).boundary.intersects(exclude_zone)
         if (
-            (outline_separate or sum(len(r) for r in rings) > AREA_SPLIT_VERTICES)
+            (outline_separate or touches_deck or sum(len(r) for r in rings) > AREA_SPLIT_VERTICES)
             and fill_idx is not None
             and edge_idx is not None
         ):
@@ -876,6 +889,8 @@ def _geometry_part(
             outline = unary_union([LineString(r) for r in rings])
             if clip is not None:
                 outline = outline.difference(clip.exterior.buffer(0.02))
+            if exclude_zone is not None:
+                outline = outline.difference(exclude_zone)  # podél hrany mostu obrys není (trojúhelníky)
             lines = [outline] if outline.geom_type == "LineString" else [g for g in getattr(outline, "geoms", []) if g.geom_type == "LineString"]
             for ln in lines:
                 for piece in _chunk_line([(float(x), float(y)) for x, y in ln.coords], OUTLINE_CHUNK_VERTICES):
@@ -1123,6 +1138,7 @@ def build_dtm_sidewalk_parts(
     )
     return _geometry_part(
         geom,
+        edge_exclude=deck_footprint_geometry(work_dir),
         name="Chodníky (DTM + OSM)",
         code="501.0",
         preset_id=preset_id,
@@ -1180,6 +1196,7 @@ def build_dtm_parking_parts(
     sidewalks = sidewalk_geometry(work_dir, path_source, roads=roads) if dtm_owns_sidewalks(work_dir) else None
     return _geometry_part(
         parking_geometry(work_dir, roads, sidewalks, cut_decks=True),
+        edge_exclude=deck_footprint_geometry(work_dir),
         name="DTM – parkoviště (501.0)",
         code="501.0",
         preset_id=preset_id,
@@ -1262,6 +1279,7 @@ def build_dtm_road_parts(
         return []
     return _geometry_part(
         road_geometry(work_dir, path_source, cut_decks=True),
+        edge_exclude=deck_footprint_geometry(work_dir),
         name="Silnice (DTM + OSM)",
         code=ROAD_CODE,
         preset_id=preset_id,

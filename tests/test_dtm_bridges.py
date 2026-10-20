@@ -114,6 +114,22 @@ def test_bridge_parts_draw_lower_paved_with_512_311_and_hide_lower_stairs(tmp_pa
     assert stairs and stairs[0].count == 1  # schodiště pod mostem se nekreslí, mimo most ano
 
 
+def test_lower_area_outline_is_not_drawn_along_the_bridge_edge():
+    import re
+
+    deck = ds.dtm_union([_rect(15, -5, 25, 15)])
+    lower = ds.dtm_union([_rect(0, 0, 15, 10), _rect(25, 0, 40, 10)])  # chodník vystřižený o most
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0, clip_bounds=None)
+    parts = di._geometry_part(lower, name="Chodníky", code="501.0", edge_exclude=deck, **kw)
+    assert [p.name for p in parts] == ["Chodníky", "Chodníky – obrys (501.100)"]  # polygony u mostu: obrys zvlášť
+    pts = [(int(x), int(y)) for x, y in re.findall(r"(-?\d+) (-?\d+)[ ;]", parts[1].objects_xml)]
+    # 1 m terénu = 250 jednotek; hrana mostu x = 15 m → 3750, 25 m → 6250; y mezi 1,6 a 8,4 m = −400 … −2100
+    on_bridge_edge = [p for p in pts if (abs(p[0] - 3750) < 20 or abs(p[0] - 6250) < 20) and -2100 < p[1] < -400]
+    assert not on_bridge_edge and pts  # podél hrany mostu žádná čára, vnější obrys je
+    # bez půdorysu mostu zůstává plocha se symbolem s obrysem (jedna část)
+    assert [p.name for p in di._geometry_part(lower, name="Chodníky", code="501.0", **kw)] == ["Chodníky"]
+
+
 def test_osm_footbridge_partly_inside_dtm_deck_draws_no_edges_and_nothing_on_dtm_road(tmp_path):
     import re
 
