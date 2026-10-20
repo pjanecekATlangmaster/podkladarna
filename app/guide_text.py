@@ -27,6 +27,26 @@ WEB_ABOUT_HTML = """
   Berte to jako <em>pracovní podklad</em>, ne dokonalé zaměření
   ani hotovou mapu. V OOM a terénu s tím ještě budete mít práci.
 </p>
+<p>
+  Na webu uvidíte PNG náhled mapy.
+  Primární výstup je vždy ZIP s editovatelnými vektory (vrstevnice, zeleň, ZABAGED, OSM,
+  RÚIAN podklady, AOPK, DXF srázů, referenční orto…).
+  Georeferencovaný GeoTIFF do ZIPu je volitelný (ve výchozím stavu vypnuto).
+</p>
+<p>
+  <strong>Mapa je rovnou georeferencovaná v S-JTSK (EPSG:5514)</strong> – včetně
+  magnetické deklinace a grivace pro střed výřezu.
+  Podklady (ortofoto, katastr, hillshade…) i vektory tak v OOM / OCAD sedí na
+  sebe bez ručního lícování a do vlastní šablony je jde rovnou podložit.
+</p>
+<details class="about-zip">
+  <summary><strong>V ZIPu je mimo jiné</strong></summary>
+<ul>
+  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (ortofoto, OSM, ZTM, katastr, DTM kraje, DMP OK, hillshade, reliéf)</li>
+  <li><code>*-ciste.omap</code> – druhá mapa jen z čistých dat (vrstevnice, ZABAGED, budovy, vodstvo, cesty, OSM pole, AOPK); bez vegetace a toho, co se počítá z LiDARu/DEM (srázy, skály, ďolíky, knolly)</li>
+  <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
+</ul>
+</details>
 <details class="about-evolution">
   <summary><strong>Jak se Podkladárna vyvíjela (ZABAGED → OSM → DTM kraje)</strong></summary>
   <ol>
@@ -59,24 +79,6 @@ WEB_ABOUT_HTML = """
     schodiště a koridor silnice (MTBO). Zpevněné plochy teprve přijdou.
   </p>
 </details>
-<p>
-  Na webu uvidíte PNG náhled mapy.
-  Primární výstup je vždy ZIP s editovatelnými vektory (vrstevnice, zeleň, ZABAGED, OSM,
-  RÚIAN podklady, AOPK, DXF srázů, referenční orto…).
-  Georeferencovaný GeoTIFF do ZIPu je volitelný (ve výchozím stavu vypnuto).
-</p>
-<p>
-  <strong>Mapa je rovnou georeferencovaná v S-JTSK (EPSG:5514)</strong> – včetně
-  magnetické deklinace a grivace pro střed výřezu.
-  Podklady (ortofoto, katastr, hillshade…) i vektory tak v OOM / OCAD sedí na
-  sebe bez ručního lícování a do vlastní šablony je jde rovnou podložit.
-</p>
-<p>V ZIPu je mimo jiné:</p>
-<ul>
-  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (ortofoto, OSM, ZTM, katastr, DTM kraje, DMP OK, hillshade, reliéf)</li>
-  <li><code>*-ciste.omap</code> – druhá mapa jen z čistých dat (vrstevnice, ZABAGED, budovy, vodstvo, cesty, OSM pole, AOPK); bez vegetace a toho, co se počítá z LiDARu/DEM (srázy, skály, ďolíky, knolly)</li>
-  <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
-</ul>
 <h2>Jak na to</h2>
 <p>
   Nakreslete obdélník (max cca 36&nbsp;km², např. 6&nbsp;×&nbsp;6&nbsp;km), vyberte
