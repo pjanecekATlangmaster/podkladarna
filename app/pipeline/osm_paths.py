@@ -3932,6 +3932,11 @@ def build_osm_feature_parts(
         dtm_buildings = dtm_owns_buildings(work_dir)
         if dtm_buildings:
             feats = merge_dtm_buildings(work_dir, feats)
+        if preset_id.startswith("mtbo"):
+            # OSM parkoviště překrývající parkoviště z DTM se nekreslí (kreslí je build_dtm_parking_parts).
+            from app.pipeline.dtm_import import drop_osm_parking_covered_by_dtm
+
+            feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
     grouped: dict[str, list[str]] = defaultdict(list)
     kind_codes: dict[str, str] = {}
     courtyard_objects: list[str] = []

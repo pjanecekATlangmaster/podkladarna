@@ -212,8 +212,9 @@ Pravidlo: **tvar bere DTM, aktuálnost OSM** – zbytky OSM, které DTM nezná, 
 | Zeleň | `UdrzovanaPlochaZelenePlocha` | nekreslí se | vystřihne se z OSM zpevněných ploch |
 
 **Les a MTBO** berou z DTM jen to, co je v 1:7500–1:15000 čitelné: **budovy** (stejné skládání jako ve sprintu, 521 / 526)
-a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výplně, jen delší než 20 m). Chodníky, silnice,
-parkoviště a schodiště z DTM se tam nekreslí. Navíc se v lese i MTBO (jen z OSM, bez DTM) zahazuje **chodník souběžný
+a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výplně, jen delší než 20 m). MTBO navíc
+**velká parkoviště** z DTM (od 300 m², plocha 529; OSM parkoviště pod nimi se zahodí). Chodníky, silnice, malé stavby
+a schodiště z DTM se tam nekreslí; šířka silnic zůstává z OSM. Navíc se v lese i MTBO (jen z OSM, bez DTM) zahazuje **chodník souběžný
 se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`).
 
 - `ChodnikPlocha` s OSM silnicí uvnitř (≥ 150 m, nebo ≥ 30 m a šířka ≥ 4 m) se bere jako silnice

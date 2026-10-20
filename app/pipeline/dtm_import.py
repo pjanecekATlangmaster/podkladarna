@@ -46,6 +46,8 @@ OSM_DEDUP_BUFFER_M = 3.0
 OSM_MIN_REMAINDER_M = 2.0
 # Les a MTBO (1:7500–1:15000): ploty kratší než tato délka (m) se nekreslí (zahradní oplocení by zahltilo mapu).
 NONSPRINT_FENCE_MIN_LEN_M = 20.0
+# MTBO: parkoviště z DTM se kreslí jen od této plochy (m²), menší jsou v 1:10000–1:15000 nečitelná.
+MTBO_PARKING_MIN_M2 = 300.0
 
 
 def fences_path(work_dir: Path) -> Path:
@@ -810,7 +812,30 @@ def build_dtm_parking_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
-    """Parkoviště a odstavné plochy z DTM (jen sprint) jako samostatná část 501.0, ořezaná o silnice a chodníky."""
+    """Parkoviště a odstavné plochy z DTM jako samostatná část.
+
+    Sprint: 501.0, ořezaná o silnice a chodníky. MTBO: jen velká parkoviště (od ``MTBO_PARKING_MIN_M2``)
+    zpevněnou plochou 529; silnice jsou tam čáry, takže se neořezává. Les: nic.
+    """
+    if preset_id.startswith("mtbo") and parking_path(work_dir).is_file():
+        geom = parking_geometry(work_dir)
+        if geom is None:
+            return []
+        from shapely.ops import unary_union
+
+        polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]
+        big = [g for g in polys if g.area >= MTBO_PARKING_MIN_M2]
+        return _geometry_part(
+            unary_union(big) if big else None,
+            name="DTM – velká parkoviště (529)",
+            code="529",
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation_deg,
+            clip_bounds=clip_bounds,
+        )
     if not preset_id.startswith("sprint") or not parking_path(work_dir).is_file():
         return []
     roads = road_geometry(work_dir, path_source)

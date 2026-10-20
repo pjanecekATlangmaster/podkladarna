@@ -300,6 +300,41 @@ def test_forest_uses_dtm_buildings_and_fences_replace_osm(tmp_path):
     assert fences and fences[0].count == 2  # spojené ploty DTM (50 m) + OSM (50 m)
 
 
+def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "parking.json").write_text(
+        json.dumps(
+            {
+                "polygons": [
+                    [[list(p) for p in ring] for ring in _rect(-1000, -1000, -970, -985)],  # 450 m² → kreslí se
+                    [[list(p) for p in ring] for ring in _rect(-900, -900, -890, -890)],  # 100 m² → ne
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    ring = [[-995, -998], [-975, -998], [-975, -988], [-995, -988], [-995, -998]]
+    feat = {
+        "type": "Feature",
+        "properties": {"source": "osm", "kind": "parking", "oom_code": "501"},
+        "geometry": {"type": "Polygon", "coordinates": [ring]},
+    }
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [feat]}), encoding="utf-8"
+    )
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-985.0, ref_y=-990.0, grivation_deg=0.0)
+    parts = di.build_dtm_parking_parts(work, **kw)
+    assert [p.name for p in parts] == ["DTM – velká parkoviště (529)"] and parts[0].count == 1
+    assert op.build_osm_feature_parts(work, **kw) == []  # OSM parkoviště nad DTM parkovištěm zahozeno
+    # les nic; sprint dál 501.0
+    assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "sprint_4000"}) != []
+
+
 def test_dtm_green_is_cut_out_of_osm_paved_areas(tmp_path):
     from shapely.geometry import shape
 
