@@ -3907,6 +3907,12 @@ def build_osm_path_parts(
         if roads_from_dtm and is_surface_road(hw):
             continue  # silnice kreslí plocha DTM + OSM (build_dtm_road_parts)
         if (
+            preset_id.startswith("sprint")
+            and is_tunnel_highway(hw)
+            and path_draw_highway(hw).startswith("road_")
+        ):
+            continue  # silniční tunel ve sprintu nekreslíme; pěší podchody zůstávají
+        if (
             road_zone is not None
             and is_sidewalk_beside_road(hw, coords, road_zone)
             and not _line_in_zone(coords, bike_zone)

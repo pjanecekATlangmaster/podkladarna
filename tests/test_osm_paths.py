@@ -1446,6 +1446,24 @@ def _build_kwargs():
     return dict(preset_id="isom2017", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
 
 
+def test_sprint_drops_road_tunnel_keeps_footway_tunnel(tmp_path):
+    def feat(hw):
+        return {
+            "type": "Feature",
+            "properties": {"highway": hw},
+            "geometry": {"type": "LineString", "coordinates": [[0.0, 0.0], [50.0, 0.0]]},
+        }
+
+    for hw, expected in (("tunnel:road_3", 0), ("tunnel:footway", 1)):
+        work = tmp_path / hw.replace(":", "_")
+        _write_osm_geojson(work, "paths.geojson", [feat(hw)])
+        with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=109):
+            parts = build_osm_path_parts(
+                work, preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0
+            )
+        assert sum(p.count for p in parts) == expected
+
+
 def test_forest_mtbo_sidewalk_is_path_line_not_area(tmp_path):
     """Les/MTBO chodník = linie (506/834), ne area strip / fill."""
     _write_osm_geojson(
