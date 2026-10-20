@@ -35,6 +35,11 @@ STAIRS_OSM_NEAR_M = 2.0
 STAIRS_REF_NEAR_M = 3.0
 # Schodiště protáhlejší než tento poměr stran se kreslí po střední ose (zachová zahnutí).
 STAIRS_LONG_ELONGATION = 6.0
+# ChodnikPlocha, ve které leží OSM silnice, je ve skutečnosti silnice (chyba v DTM); viz
+# ``reclassify_sidewalks_as_roads``.
+RECLASS_MIN_WIDTH_M = 4.0
+RECLASS_MIN_ROAD_M = 30.0
+RECLASS_ROAD_ONLY_M = 150.0
 CENTERLINE_STEP_M = 0.25
 STAIRS_AXIS_EXTRA_M = 0.3
 # Sloučení sousedních ploch a zacelení škvír užších než 2 × tato hodnota (m).
@@ -307,6 +312,49 @@ def _clean(geom, *, close_m: float, min_hole_m2: float, simplify_m: float):
     if simplify_m > 0 and not geom.is_empty:
         geom = geom.simplify(simplify_m, preserve_topology=True)
     return geom
+
+
+def reclassify_sidewalks_as_roads(
+    sidewalk_polys: list[list[list[tuple[float, float]]]],
+    road_lines: list[list[tuple[float, float]]],
+    *,
+    min_width_m: float = RECLASS_MIN_WIDTH_M,
+    min_road_m: float = RECLASS_MIN_ROAD_M,
+    road_only_m: float = RECLASS_ROAD_ONLY_M,
+):
+    """Chybně zařazené ``ChodnikPlocha`` (ve skutečnosti silnice) → ``(chodníky, silnice)``.
+
+    Polygon se přeřadí mezi silnice, když uvnitř leží OSM silnice: aspoň ``road_only_m`` m délky,
+    nebo aspoň ``min_road_m`` m a střední šířka polygonu (2 × plocha / obvod) ≥ ``min_width_m``.
+    Chodník, který silnici jen kříží, má uvnitř málo silnice a je úzký, takže se nepřeřadí.
+    """
+    from shapely import STRtree
+    from shapely.geometry import LineString, Polygon
+
+    if not road_lines or not sidewalk_polys:
+        return sidewalk_polys, []
+    lines = [LineString(c) for c in road_lines if len(c) >= 2]
+    if not lines:
+        return sidewalk_polys, []
+    tree = STRtree(lines)
+    keep, moved = [], []
+    for poly in sidewalk_polys:
+        try:
+            g = Polygon(poly[0], poly[1:])
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, IndexError):
+            keep.append(poly)
+            continue
+        if g.is_empty or g.geom_type != "Polygon" or g.length <= 0:
+            keep.append(poly)
+            continue
+        inside = sum(lines[int(k)].intersection(g).length for k in tree.query(g))
+        width = 2.0 * g.area / g.length
+        if inside >= road_only_m or (inside >= min_road_m and width >= min_width_m):
+            moved.append(poly)
+        else:
+            keep.append(poly)
+    return keep, moved
 
 
 def dtm_union(dtm_polys: list[list[list[tuple[float, float]]]]):

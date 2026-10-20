@@ -155,6 +155,43 @@ def test_sidewalk_line_crossing_road_is_not_drawn_over_the_road(tmp_path, monkey
     assert all(not (-1004 < y < -996) for ln in seen["lines"] for _x, y in ln)
 
 
+def test_reclassify_sidewalk_with_osm_road_inside_as_road():
+    wide = _rect(0, 0, 60, 12)  # 12 m široká „ChodnikPlocha“ s OSM silnicí uvnitř = chyba v DTM
+    crossing = _rect(100, 0, 140, 2.5)  # úzký chodník, který silnice jen kříží
+    plain = _rect(200, 0, 240, 2.5)  # chodník bez silnice
+    road_inside = [(0.0, 6.0), (60.0, 6.0)]  # 60 m uvnitř široké plochy
+    road_cross = [(120.0, -10.0), (120.0, 10.0)]  # kříží úzký chodník (2,5 m uvnitř)
+    keep, moved = ds.reclassify_sidewalks_as_roads([wide, crossing, plain], [road_inside, road_cross])
+    assert moved == [wide] and keep == [crossing, plain]
+    # velmi dlouhá silnice uvnitř úzké plochy (≥ 150 m) → také silnice
+    long_strip = _rect(0, 0, 400, 3)
+    keep, moved = ds.reclassify_sidewalks_as_roads([long_strip], [[(0.0, 1.5), (200.0, 1.5)]])
+    assert moved == [long_strip]
+    assert ds.reclassify_sidewalks_as_roads([wide], []) == ([wide], [])
+
+
+def test_misclassified_sidewalk_is_drawn_as_road_part(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1006, -940, -994)]]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    road = {
+        "type": "Feature",
+        "properties": {"highway": "road_3"},
+        "geometry": {"type": "LineString", "coordinates": [[-1000, -1000], [-940, -1000]]},
+    }
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-970.0, ref_y=-1000.0, grivation_deg=0.0)
+    assert di.build_dtm_sidewalk_parts(work, **kw) == []  # žádný chodník, plocha je silnice
+    parts = di.build_dtm_road_parts(work, **kw)
+    assert [p.name for p in parts] == ["Silnice (DTM + OSM)"] and parts[0].count == 1
+
+
 def test_dtm_buildings_replace_osm_twins_and_keep_osm_only_buildings(tmp_path):
     from app.pipeline import osm_paths as op
 

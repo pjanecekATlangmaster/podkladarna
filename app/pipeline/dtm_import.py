@@ -478,11 +478,11 @@ def _path_features(work_dir: Path, path_source: str) -> list[dict]:
         return []
 
 
-def sidewalk_dtm_geometry(work_dir: Path):
-    """Vyčištěná plocha chodníků z DTM (shapely) nebo None."""
+def sidewalk_dtm_geometry(work_dir: Path, path_source: str = "mixed"):
+    """Vyčištěná plocha chodníků z DTM (po přeřazení chybně zařazených ploch) nebo None."""
     from app.pipeline import dtm_sidewalks
 
-    return dtm_sidewalks.dtm_union(_load_sidewalk_polygons(work_dir))
+    return dtm_sidewalks.dtm_union(classified_polygons(work_dir, path_source)[0])
 
 
 def split_absorbed_areas(features: list[dict], dtm) -> tuple[list, list[dict]]:
@@ -565,7 +565,7 @@ def build_dtm_sidewalk_parts(
 
     if not preset_id.startswith("sprint") or not dtm_owns_sidewalks(work_dir):
         return []
-    polys = _load_sidewalk_polygons(work_dir)
+    polys, road_polys = classified_polygons(work_dir, path_source)
     if not polys:
         return []
     extra_areas: list = []
@@ -578,7 +578,7 @@ def build_dtm_sidewalk_parts(
         except (OSError, ValueError):
             pass
     osm_lines = sidewalk_osm_lines(work_dir, path_source)
-    road = dtm_sidewalks.dtm_union(_load_road_polygons(work_dir))
+    road = dtm_sidewalks.dtm_union(road_polys)
     if road is not None and not road.is_empty:
         # Přechody přes silnici se nekreslí (silnice je souvislá plocha): jen části mimo ni.
         osm_lines = [seg for ln in osm_lines for seg in dtm_sidewalks.clip_outside(ln, road)]
@@ -605,6 +605,31 @@ def build_dtm_sidewalk_parts(
     if not objects:
         return []
     return [OomObjectPart(name="Chodníky (DTM + OSM)", objects_xml="\n".join(objects), count=len(objects))]
+
+
+def classified_polygons(
+    work_dir: Path, path_source: str
+) -> tuple[list[list[list[tuple[float, float]]]], list[list[list[tuple[float, float]]]]]:
+    """``(chodníky, silnice)`` z DTM po přeřazení chybně zařazených ploch.
+
+    ``ChodnikPlocha`` s OSM silnicemi uvnitř (viz ``dtm_sidewalks.reclassify_sidewalks_as_roads``)
+    se bere jako silnice.
+    """
+    import logging
+
+    from app.pipeline import dtm_sidewalks
+
+    sidewalks = _load_sidewalk_polygons(work_dir)
+    roads = _load_road_polygons(work_dir)
+    if sidewalks:
+        road_lines, _widths = road_osm_lines(work_dir, path_source)
+        sidewalks, moved = dtm_sidewalks.reclassify_sidewalks_as_roads(sidewalks, road_lines)
+        if moved:
+            roads = roads + moved
+            logging.getLogger(__name__).info(
+                "DTM: %s ploch chodníků s OSM silnicí uvnitř přeřazeno mezi silnice", len(moved)
+            )
+    return sidewalks, roads
 
 
 def is_surface_road(highway: str) -> bool:
@@ -654,9 +679,9 @@ def build_dtm_road_parts(
     from app.pipeline import dtm_sidewalks
     from app.pipeline.oom_import import _area_object_with_holes
 
-    if not preset_id.startswith("sprint") or not dtm_owns_roads(work_dir):
+    if not preset_id.startswith("sprint") or not (dtm_owns_roads(work_dir) or dtm_owns_sidewalks(work_dir)):
         return []
-    polys = _load_road_polygons(work_dir)
+    polys = classified_polygons(work_dir, path_source)[1]  # vč. chodníků přeřazených mezi silnice
     if not polys:
         return []
     lines, widths = road_osm_lines(work_dir, path_source)
