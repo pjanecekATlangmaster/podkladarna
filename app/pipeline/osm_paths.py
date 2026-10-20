@@ -601,6 +601,17 @@ def _is_paved_surface(tags: dict) -> bool:
     return any(part.strip() in _PAVED_SURFACES for part in surface.split(";"))
 
 
+_BIKE_ALLOWED = frozenset({"yes", "designated", "permissive"})
+# Cesty (po refine), na kterých se může jezdit na kole, ale nekreslí se jako cyklostezka:
+# chodník / pěšina / pěší zóna se sdíleným provozem (bicycle=yes|designated|permissive).
+BIKE_SHARED_BASES = frozenset({"sidewalk", "footway", "path", "pedestrian"})
+
+
+def is_bike_allowed(tags: dict) -> bool:
+    """Značí OSM tag, že po cestě smějí jet cyklisté (``bicycle`` = yes / designated / permissive)?"""
+    return (tags.get("bicycle") or "").strip().lower() in _BIKE_ALLOWED
+
+
 def _is_paved_cycleway(tags: dict) -> bool:
     """highway=cycleway se zpevněným surface / dobrou smoothness (např. way/81797165)."""
     if _is_paved_surface(tags):
@@ -2829,6 +2840,8 @@ def prepare_osm_paths(
             log=log,
         )
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
+    # Chodníky / pěšiny, po kterých smějí jezdit cyklisté (sdílený provoz) – pro MTBO koridor silnice.
+    bike_lines: list[list[tuple[float, float]]] = []
     features: list[dict] = []
     skipped = 0
     # Sloupy/stožáry pro DashPoint na vedení (nejsou samostatné OOM objekty).
@@ -3020,6 +3033,8 @@ def prepare_osm_paths(
                 )
                 continue
         osm_items.append((pts, hw))
+        if is_bike_allowed(tags) and path_draw_highway(hw) in BIKE_SHARED_BASES:
+            bike_lines.append(list(pts))
     # Úseky téže cesty rozdělené v OSM (např. jiný chodník) → jedna linie.
     osm_items, merged_split_ways = merge_osm_items_same_class(osm_items)
     if merged_split_ways and log:
@@ -3134,6 +3149,19 @@ def prepare_osm_paths(
         (dest_dir / filename).write_text(json.dumps(gj), encoding="utf-8")
 
     write_geojson(kept_mixed, "paths_mixed.geojson")
+    (dest_dir / "bike_paths.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature", "properties": {"source": "osm", "bike": True}, "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in line]}}
+                    for line in bike_lines
+                    if len(line) >= 2
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     write_geojson(kept_osm, "paths_osm.geojson")
     # Lávky i do režimu jen-ZABAGED (krátké OSM bridge často v ČÚZK chybí).
     write_geojson(
@@ -3767,6 +3795,13 @@ def build_osm_path_parts(
     stairs_zone = (
         stairs_zone_geometry(work_dir) if preset_id.startswith("sprint") and dtm_owns_stairs(work_dir) else None
     )
+    # MTBO: uvnitř koridoru silnice (silnice + přilehlé chodníky) se čára 502.x nekreslí.
+    corridor_zone = None
+    if preset_id.startswith("mtbo"):
+        from app.pipeline.dtm_import import mtbo_corridor_geometry
+
+        _corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
+        corridor_zone = _corridor.buffer(0.5) if _corridor is not None else None
     # Les a MTBO: chodníky vedle silnic se nekreslí (viz ``is_sidewalk_beside_road``).
     road_zone = None if preset_id.startswith("sprint") else road_zone_geometry(data.get("features") or [])
     for feat in data.get("features") or []:
@@ -3802,6 +3837,8 @@ def build_osm_path_parts(
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian"}:
             # Pěšina uvnitř plochy chodníku z DTM by se kreslila dvakrát → jen části mimo plochu.
             lines = clip_outside(line, sidewalk_cover)
+        elif corridor_zone is not None and is_surface_road(hw):
+            lines = clip_outside(line, corridor_zone)
         elif stairs_zone is not None and is_surface_steps(hw):
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
             lines = steps_keep(line, stairs_zone, sidewalk_cover)

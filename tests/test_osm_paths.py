@@ -1876,6 +1876,31 @@ def test_prepare_osm_paths_merges_way_split_by_sidewalk_tag(tmp_path, monkeypatc
         assert len(lines[0]["geometry"]["coordinates"]) == 4  # 3 + 2 body, sdílený uzel jednou
     assert any("rozdělených úseků spojeno" in line for line in logs)
 
+def test_prepare_osm_paths_writes_bike_allowed_sidewalks(tmp_path, monkeypatch):
+    """Chodník se sdíleným provozem (bicycle=yes|designated) → bike_paths.geojson; běžný chodník ne."""
+    import app.pipeline.osm_paths as op
+
+    def way(i, lat, tags):
+        return {
+            "type": "way",
+            "id": i,
+            "tags": tags,
+            "geometry": [{"lat": lat, "lon": 14.4000}, {"lat": lat, "lon": 14.4010}],
+        }
+
+    elements = [
+        way(1, 50.0000, {"highway": "footway", "footway": "sidewalk", "surface": "asphalt", "bicycle": "yes"}),
+        way(2, 50.0003, {"highway": "footway", "footway": "sidewalk", "surface": "asphalt"}),
+        way(3, 50.0006, {"highway": "footway", "surface": "asphalt", "bicycle": "designated"}),
+        way(4, 50.0009, {"highway": "path", "surface": "ground", "bicycle": "no"}),
+    ]
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: elements)
+    op.prepare_osm_paths(tmp_path, (14.39, 49.99, 14.41, 50.01), None, preset_id="mtbo_10000", log=lambda m: None)
+    gj = json.loads((tmp_path / "osm_paths" / "bike_paths.geojson").read_text(encoding="utf-8"))
+    assert len(gj["features"]) == 2  # way 1 a 3; ne běžný chodník ani zákaz kol
+    assert all(f["properties"].get("bike") for f in gj["features"])
+
+
 @pytest.fixture(autouse=True)
 def _reset_mirror_health():
     import app.pipeline.osm_paths as op

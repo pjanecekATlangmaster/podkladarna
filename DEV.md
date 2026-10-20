@@ -213,6 +213,10 @@ Pravidlo: **tvar bere DTM, aktuálnost OSM** – zbytky OSM, které DTM nezná, 
 
 **Les a MTBO** berou z DTM jen to, co je v 1:7500–1:15000 čitelné: **budovy** (stejné skládání jako ve sprintu, 521 / 526)
 a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výplně, jen delší než 20 m). MTBO navíc
+**koridor silnice**: silnice + přilehlé chodníky (do 8 m od silnice, pruh zeleně do 3 m se přeskočí) jednou plochou
+(výplň 501.1) + černý obrubník (501.100), jen kde je širší než 0,9 mm mapy a delší než 50 m; užší silnice zůstávají
+čárou 502.x, uvnitř koridoru se čára nekreslí; chodník se sdíleným provozem (OSM `bicycle=yes|designated`, soubor
+`osm_paths/bike_paths.geojson`) a cyklostezky se nesloučí (vypnutí: `MTBO_ROAD_CORRIDOR = False`). MTBO navíc
 **velká parkoviště** z DTM (od 300 m², plocha 529; OSM parkoviště pod nimi se zahodí). Chodníky, silnice, malé stavby
 a schodiště z DTM se tam nekreslí; šířka silnic zůstává z OSM. Navíc se v lese i MTBO (jen z OSM, bez DTM) zahazuje **chodník souběžný
 se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`).

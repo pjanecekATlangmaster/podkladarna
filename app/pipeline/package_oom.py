@@ -895,6 +895,7 @@ def prepare_oom_map(
     from app.pipeline.dtm_import import (
         build_dtm_parking_parts,
         build_dtm_road_parts,
+        build_mtbo_corridor_parts,
         build_dtm_sidewalk_parts,
         build_dtm_small_paved_parts,
         build_dtm_stairs_parts,
@@ -921,6 +922,18 @@ def prepare_oom_map(
             ref_y=ref_y,
             grivation_deg=grivation,
             clip_bounds=vector_clip_bounds,
+        )
+    )
+    object_parts.extend(
+        build_mtbo_corridor_parts(
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            clip_bounds=vector_clip_bounds,
+            path_source=path_source,
         )
     )
     object_parts.extend(

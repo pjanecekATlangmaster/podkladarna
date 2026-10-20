@@ -335,6 +335,71 @@ def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path
     assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "sprint_4000"}) != []
 
 
+def test_mtbo_road_corridor_merges_sidewalks_over_grass_strip_and_respects_width_and_bikes():
+    # silnice 8 m široká, 100 m dlouhá; chodníky 2 m široké, 2 m (pruh zeleně) od silnice, po obou stranách
+    roads = ds.dtm_union([_rect(0, 0, 100, 8)])
+    sidewalks = ds.dtm_union([_rect(0, 10, 100, 12), _rect(0, -4, 100, -2)])
+    corridor = ds.road_corridor(roads, sidewalks, scale=10000)  # min. šířka 0,9 mm = 9 m
+    assert corridor is not None
+    assert abs(corridor.bounds[1] - (-4.0)) < 0.1 and abs(corridor.bounds[3] - 12.0) < 0.1  # chodníky přes pruh trávy
+    # sdílený chodník (kolo povoleno) se nesloučí
+    bike = [[(0.0, 11.0), (100.0, 11.0)]]
+    shared = ds.road_corridor(roads, sidewalks, bike, scale=10000)
+    assert abs(shared.bounds[3] - 8.0) < 0.1 and abs(shared.bounds[1] - (-4.0)) < 0.1
+    # pruh zeleně širší než 3 m se nepřeskočí
+    wide_road = ds.dtm_union([_rect(0, 0, 100, 10)])  # 10 m = nad prahem i sama
+    far = ds.dtm_union([_rect(0, 14, 100, 16)])  # 4 m trávy > 3 m
+    assert abs(ds.road_corridor(wide_road, far, scale=10000).bounds[3] - 10.0) < 0.1
+    # úzká silnice (bez chodníků pod 9 m) zůstává čárou
+    narrow = ds.dtm_union([_rect(0, 0, 100, 6)])
+    assert ds.road_corridor(narrow, None, scale=10000) is None
+    # na 1:15000 je práh 13,5 m: silnice s chodníky 16 m ještě projde, 8 m silnice sama ne
+    assert ds.road_corridor(roads, sidewalks, scale=15000) is not None
+    assert ds.road_corridor(roads, None, scale=15000) is None
+
+
+def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1004, -900, -996)]]}),
+        encoding="utf-8",
+    )
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps(
+            {
+                "polygons": [
+                    [[list(p) for p in ring] for ring in _rect(-1000, -993, -900, -991)],
+                    [[list(p) for p in ring] for ring in _rect(-1000, -1009, -900, -1007)],
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    road = {
+        "type": "Feature",
+        "properties": {"highway": "road_3"},
+        "geometry": {"type": "LineString", "coordinates": [[-1000, -1000], [-900, -1000]]},
+    }
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8"
+    )
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
+    parts = di.build_mtbo_corridor_parts(work, **kw)
+    assert [p.name for p in parts] == ["MTBO – silnice s chodníky (koridor)", "MTBO – silnice s chodníky (koridor) – obrys (501.100)"]
+    assert op.build_osm_path_parts(work, **kw) == []  # čára silnice leží uvnitř koridoru → nekreslí se
+    assert di.build_mtbo_corridor_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    di.MTBO_ROAD_CORRIDOR = False
+    try:
+        assert di.build_mtbo_corridor_parts(work, **kw) == []
+        assert op.build_osm_path_parts(work, **kw)[0].count == 1  # bez koridoru jako dřív čára 502.x
+    finally:
+        di.MTBO_ROAD_CORRIDOR = True
+
+
 def test_dtm_green_is_cut_out_of_osm_paved_areas(tmp_path):
     from shapely.geometry import shape
 

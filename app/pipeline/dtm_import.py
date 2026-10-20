@@ -48,6 +48,8 @@ OSM_MIN_REMAINDER_M = 2.0
 NONSPRINT_FENCE_MIN_LEN_M = 20.0
 # MTBO: parkoviště z DTM se kreslí jen od této plochy (m²), menší jsou v 1:10000–1:15000 nečitelná.
 MTBO_PARKING_MIN_M2 = 300.0
+# MTBO: silnice s přilehlými chodníky jednou plochou (koridor); False = jen čáry 502.x jako dřív.
+MTBO_ROAD_CORRIDOR = True
 
 
 def fences_path(work_dir: Path) -> Path:
@@ -708,8 +710,11 @@ def _geometry_part(
     ref_y: float,
     grivation_deg: float,
     clip_bounds: Bounds | None,
+    outline_separate: bool = False,
 ) -> list[OomObjectPart]:
     """Plocha (shapely) jako části .omap se symbolem ``code``; prázdný seznam bez geometrie / symbolu.
+
+    ``outline_separate``: vždy bezobrysová výplň + zvláštní obrys 501.100 (i u malých polygonů).
 
     Polygony nad ``AREA_SPLIT_VERTICES`` vrcholů: bezobrysová výplň rozřezaná na díly + zvláštní část
     s obrysem (čára 501.100) po skutečné hranici (ne podél ořezu na výřez ani podél řezů).
@@ -741,7 +746,11 @@ def _geometry_part(
     objects: list[str] = []
     edges: list[str] = []
     for rings in dtm_sidewalks.polygon_rings(geom):
-        if sum(len(r) for r in rings) > AREA_SPLIT_VERTICES and fill_idx is not None and edge_idx is not None:
+        if (
+            (outline_separate or sum(len(r) for r in rings) > AREA_SPLIT_VERTICES)
+            and fill_idx is not None
+            and edge_idx is not None
+        ):
             for ring, holes in split_area(rings[0], rings[1:], AREA_SPLIT_VERTICES):
                 obj = _area_object_with_holes(fill_idx, [to_map(ring), *[to_map(h) for h in holes]])
                 if obj:
@@ -771,6 +780,67 @@ def _path_object_mapped(symbol_index: int, mapped) -> str:
     from app.pipeline.osm_paths import _path_object
 
     return _path_object(symbol_index, mapped)
+
+
+def _load_bike_lines(work_dir: Path) -> list[list[tuple[float, float]]]:
+    """Čáry OSM chodníků / pěšin se sdíleným provozem (``osm_paths/bike_paths.geojson``)."""
+    path = work_dir / "osm_paths" / "bike_paths.geojson"
+    try:
+        feats = json.loads(path.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return []
+    out = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") == "LineString" and len(coords) >= 2:
+            out.append([(float(x), float(y)) for x, y in coords])
+    return out
+
+
+def mtbo_corridor_geometry(work_dir: Path, scale: int, path_source: str = "mixed"):
+    """Koridor silnice pro MTBO (silnice + přilehlé chodníky, jen dost široké části; shapely) nebo None."""
+    from app.pipeline import dtm_sidewalks
+
+    if not MTBO_ROAD_CORRIDOR or not (dtm_owns_roads(work_dir) or dtm_owns_sidewalks(work_dir)):
+        return None
+    roads = road_geometry(work_dir, path_source)
+    if roads is None:
+        return None
+    sidewalks = sidewalk_geometry(work_dir, path_source, roads=None)
+    return dtm_sidewalks.road_corridor(roads, sidewalks, _load_bike_lines(work_dir), scale=scale)
+
+
+def build_mtbo_corridor_parts(
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None = None,
+    path_source: str = "mixed",
+) -> list[OomObjectPart]:
+    """MTBO: silnice s přilehlými chodníky jednou plochou (výplň 501.1) + černý obrubník (501.100).
+
+    Jen tam, kde je koridor dost široký (viz ``dtm_sidewalks.road_corridor``); užší silnice kreslí
+    čára 502.x z OSM cest. Čáry 502.x se uvnitř koridoru nekreslí (``build_osm_path_parts``).
+    """
+    if not preset_id.startswith("mtbo"):
+        return []
+    return _geometry_part(
+        mtbo_corridor_geometry(work_dir, scale, path_source),
+        name="MTBO – silnice s chodníky (koridor)",
+        code="501.0",
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        clip_bounds=clip_bounds,
+        outline_separate=True,
+    )
 
 
 def build_dtm_sidewalk_parts(

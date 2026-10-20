@@ -30,6 +30,16 @@ PARKING_TYPES = ("ParkovisteOdstavnaPlochaPlocha",)
 PARKING_CACHE_SUFFIX = ".park1.json"
 # Škvíry užší než tato hodnota (m) mezi chodníkem a silnicí se zacelí (hranice je jedna čára).
 ROAD_EDGE_GAP_M = 0.5
+# MTBO koridor silnice (silnice + přilehlé chodníky jedním polygonem): pruh zeleně mezi silnicí a chodníkem
+# do ``CORRIDOR_GAP_M`` m se přeskočí, chodník se bere do ``CORRIDOR_NEAR_M`` m od silnice, chodník se
+# sdíleným provozem (kolo povoleno) se nesloučí (okolí ``CORRIDOR_BIKE_PROTECT_M`` m od jeho čáry).
+# Koridor se kreslí jen tam, kde je širší než ``CORRIDOR_MIN_WIDTH_MM`` mm mapy a delší než
+# ``CORRIDOR_MIN_LEN_M`` m; užší silnice zůstávají čárou 502.x.
+CORRIDOR_GAP_M = 3.0
+CORRIDOR_NEAR_M = 8.0
+CORRIDOR_BIKE_PROTECT_M = 1.5
+CORRIDOR_MIN_WIDTH_MM = 0.9
+CORRIDOR_MIN_LEN_M = 50.0
 BUILDING_CACHE_SUFFIX = ".bld1.json"
 # Schody, rampy, zápraží u vchodů: v DTM bez atributu druhu, kreslí se jako zpevněná plocha 501.0.
 SMALL_PAVED_TYPES = ("StavbaProZpevneniPovrchuPlocha",)
@@ -121,6 +131,38 @@ def separate_from_roads(geom, roads, gap_m: float = ROAD_EDGE_GAP_M):
     near_geom, near_roads = geom.buffer(0.02), roads.buffer(0.02)
     gaps = [p for p in pieces if p.geom_type == "Polygon" and p.intersects(near_geom) and p.intersects(near_roads)]
     return unary_union([geom, *gaps]).difference(roads)
+
+
+def road_corridor(roads, sidewalks, bike_lines=None, *, scale: int, min_width_mm: float = CORRIDOR_MIN_WIDTH_MM):
+    """Koridor silnice pro MTBO: silnice + přilehlé chodníky jedním polygonem (shapely) nebo None.
+
+    Chodník se bere jen do ``CORRIDOR_NEAR_M`` m od silnice a ne tam, kde se smí jezdit na kole
+    (``bike_lines`` = čáry OSM chodníků se sdíleným provozem). Mezera mezi silnicí a chodníkem do
+    ``CORRIDOR_GAP_M`` m (pruh zeleně) se zacelí. Zůstanou jen části širší než ``min_width_mm`` mm
+    mapy (v ``scale``) a delší než ``CORRIDOR_MIN_LEN_M`` m.
+    """
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    if roads is None or roads.is_empty:
+        return None
+    parts = [roads]
+    if sidewalks is not None and not sidewalks.is_empty:
+        near = sidewalks.intersection(roads.buffer(CORRIDOR_NEAR_M))
+        if bike_lines:
+            protect = unary_union([LineString(c) for c in bike_lines if len(c) >= 2]).buffer(CORRIDOR_BIKE_PROTECT_M)
+            near = near.difference(protect)
+        if not near.is_empty:
+            parts.append(near)
+    union = unary_union(parts)
+    g = CORRIDOR_GAP_M / 2
+    corridor = union.buffer(g, join_style=2).buffer(-g, join_style=2)
+    width = min_width_mm * scale / 1000.0
+    wide = corridor.buffer(-width / 2, join_style=2).buffer(width / 2, join_style=2)
+    wide = wide.intersection(corridor)
+    pieces = [wide] if wide.geom_type == "Polygon" else [x for x in getattr(wide, "geoms", []) if x.geom_type == "Polygon"]
+    keep = [x for x in pieces if x.area >= width * CORRIDOR_MIN_LEN_M]
+    return unary_union(keep) if keep else None
 
 
 def load_small_paved_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:

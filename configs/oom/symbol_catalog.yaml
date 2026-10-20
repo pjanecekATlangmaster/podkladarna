@@ -2084,7 +2084,7 @@ mtbo:
     review: false
   - ocad_code: "501.1"
     cz_name: "Zpevněná plocha (plocha)"
-    generator_codes: []
+    generator_codes: ["501.1"]
     geom: area
     review: false
   - ocad_code: "501.2"
@@ -2104,7 +2104,7 @@ mtbo:
     review: false
   - ocad_code: "501.100"
     cz_name: "Schod nebo okraj zpevněné plochy"
-    generator_codes: []
+    generator_codes: ["501.100"]
     geom: line
     review: false
   - ocad_code: "824.0"
