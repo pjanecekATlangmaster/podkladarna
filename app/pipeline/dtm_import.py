@@ -113,6 +113,7 @@ def prepare_dtm_fences(
         )
     oriented = False
     dubious = 0
+    dubious_lines: list[dict] = []
     areas: dict[str, list] = {"olive": [], "public": [], "building": [], "open": []}
     try:
         for pkg in (p for p in packages if p.set_name == dtm_sources.SET_OPL):
@@ -133,6 +134,8 @@ def prepare_dtm_fences(
                 log(f"DTM: hranice staveb z KR nelze načíst ({type(exc).__name__}: {exc})")
         all_fences, removed = dtm_fences.filter_dubious_fences(all_fences, areas, construction=construction)
         dubious = len(removed)
+        # Vynechané úseky se uloží; při kreslení se vrátí ty, které leží na hraně kreslené olivy (ZABAGED / OSM).
+        dubious_lines = [{"code": f.code, "coords": [list(p) for p in f.coords]} for f in removed if f.level >= 0]
         if removed and log:
             ids = ", ".join(f.oid for f in removed[:3] if f.oid)
             log(f"DTM ploty: vynecháno {dubious} podezřelých úseků (neznámý původ, bez soukromé hranice; např. {ids})")
@@ -181,6 +184,7 @@ def prepare_dtm_fences(
                 "source_pieces": len(all_fences),
                 "oriented": oriented,
                 "dubious_removed": dubious,
+                "dubious": dubious_lines,
                 "inner_removed": inner_dropped,
                 "opl_files": [str(files[p.filename]) for p in packages if p.set_name == dtm_sources.SET_OPL],
                 "fences": [{"code": code, "coords": [list(p) for p in line]} for code, line in merged],
@@ -1507,6 +1511,43 @@ def _load_fence_data(
     return lines, fills
 
 
+def _load_dubious_fences(work_dir: Path) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Podezřelé ploty vynechané při přípravě (``fences.json`` → ``dubious``)."""
+    try:
+        data = json.loads(fences_path(work_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for f in data.get("dubious") or []:
+        coords = [(float(x), float(y)) for x, y in f.get("coords") or []]
+        if len(coords) >= 2:
+            out.append((str(f.get("code") or dtm_fences.CODE_FENCE), coords))
+    return out
+
+
+# Podezřelý plot (neznámý původ, hranice jiného objektu) se vrátí, když z aspoň ``FENCE_OLIVE_EDGE_SHARE`` délky leží do
+# ``FENCE_OLIVE_EDGE_TOL_M`` m od okraje kreslené olivy (zahrada, zastavěná plocha …) – je to hranice soukromého pozemku.
+FENCE_OLIVE_EDGE_TOL_M = 0.5
+FENCE_OLIVE_EDGE_SHARE = 0.8
+
+
+def fences_on_olive_edge(
+    lines: list[tuple[str, list[tuple[float, float]]]], olive, *, tol_m: float = FENCE_OLIVE_EDGE_TOL_M, share: float = FENCE_OLIVE_EDGE_SHARE
+) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Ploty ležící na okraji olivy ``olive`` (shapely; prázdná = žádné)."""
+    from shapely.geometry import LineString
+
+    if olive is None or olive.is_empty:
+        return []
+    zone = olive.boundary.buffer(tol_m)
+    out = []
+    for code, ln in lines:
+        g = LineString(ln)
+        if g.length > 0 and g.intersection(zone).length >= share * g.length:
+            out.append((code, ln))
+    return out
+
+
 def load_fence_lines(work_dir: Path) -> list[tuple[str, list[tuple[float, float]]]]:
     return _load_fence_data(work_dir)[0]
 
@@ -1776,7 +1817,7 @@ def build_dtm_fence_parts(
         from shapely.geometry import LineString
 
         lines = [(c, ln) for c, ln in lines if len(ln) >= 2 and LineString(ln).length >= NONSPRINT_FENCE_MIN_LEN_M]
-    if not lines:
+    if not lines and not _load_dubious_fences(work_dir):
         return []
     if fill_olive and osm_lines and (areas["olive"] or areas["building"]):
         try:
@@ -1784,6 +1825,18 @@ def build_dtm_fence_parts(
         except Exception:
             pass
     try:
+        olive_geom = _olive_geometry(work_dir, fill_rings if fill_olive else [])
+        # Podezřelé ploty ležící na hraně kreslené olivy se vracejí (hranice soukromého pozemku).
+        dubious_back = fences_on_olive_edge(_load_dubious_fences(work_dir), olive_geom)
+        if not sprint:
+            from shapely.geometry import LineString as _L2
+
+            dubious_back = [
+                (code_map.get(c, c), ln)
+                for c, ln in dubious_back
+                if _L2(ln).length >= NONSPRINT_FENCE_MIN_LEN_M
+            ]
+        lines = lines + dubious_back
         # Plot na obrysu budovy se nekreslí (budova má přednost, kreslí se z DTM / OSM).
         buildings_zone = _buildings_zone(work_dir)
         lines = cut_fences_by_buildings(lines, buildings_zone)
@@ -1793,11 +1846,10 @@ def build_dtm_fence_parts(
 
         blockers = [buildings_zone] if buildings_zone is not None else []
         blockers.extend(_LS(c).buffer(0.2) for c, _need in path_clearances(work_dir, path_source) if len(c) >= 2)
-        olive_geom = _olive_geometry(work_dir, fill_rings if fill_olive else [])
         connectors = dtm_fences.fence_gap_connectors(
             lines, forbidden=_uu(blockers) if blockers else None, near=olive_geom
         )
-        if connectors:
+        if connectors or dubious_back:
             # Spojky se slijí s ploty do jedné linie (po kódu symbolu); ve sprintu se pak celá linie otočí tak, aby
             # čárky plotu mířily do olivy (OPL zahrady + kreslená oliva z OSM / ZABAGED / DTM).
             joined: list[tuple[str, list[tuple[float, float]]]] = []

@@ -269,6 +269,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `HraniceStavby` / `HraniceBudovy` z `ZPS_KR` (`load_construction_borders`, cache `.cons1.json`): plot, který se jich dotkne koncem nebo po nich vede, se
   ponechá. Plot na obrysu budovy (≤ 0,5 m) se nekreslí – budova má přednost (`cut_fences_by_buildings`, budovy = DTM + OSM bez protějšku). Budovy z DTM jsou
   v těchto obcích řídké, tvar budov je převážně z OSM.
+- **Podezřelé ploty na hraně olivy:** filtr běží při přípravě DTM (na začátku jobu, ještě bez ZABAGED a OSM), proto `fences.json` ukládá i vynechané
+  úseky (`dubious`) a při kreslení (`build_dtm_fence_parts`) se vrátí ty, které z ≥ 80 % délky leží do 0,5 m od okraje kreslené olivy
+  (`fences_on_olive_edge`, `_load_dubious_fences`) – hranice soukromého pozemku. Dobřichovice: z 2 905 vynechaných se vrátí 1 505. Starší joby bez `dubious` se chovají jako dřív.
 - **Propojení mezer mezi ploty** (`fence_gap_connectors`, sprint a les): dva volné konce téhož druhu plotu do 6 m, které na sebe míří (≤ 35°), se spojí
   čárou, pokud spojka leží do 1,5 m od kreslené olivy (OSM zahrada, oplocení z DTM, ZABAGED `ArealUceloveZastavby` / `OvocnySadZahrada` / `Hrbitov` – tak je oliva
   ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.

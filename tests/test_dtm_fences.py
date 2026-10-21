@@ -242,6 +242,38 @@ def test_olive_geometry_includes_zabaged_settlement_layers(tmp_path):
     assert di._olive_geometry(tmp_path / "neexistuje", []).is_empty
 
 
+def test_dubious_fence_on_olive_edge_is_brought_back_at_draw_time(tmp_path):
+    import io
+
+    import shapefile
+    from shapely.geometry import Polygon
+
+    import app.pipeline.dtm_import as di
+
+    olive = Polygon([(0, 0), (40, 0), (40, 30), (0, 30)])
+    on_edge = ("518", [(0.0, 0.2), (40.0, 0.2)])  # po okraji olivy → vrátit
+    inside = ("518", [(0.0, 15.0), (40.0, 15.0)])  # uprostřed olivy, ne na hraně → ne
+    far = ("518", [(0.0, 100.0), (40.0, 100.0)])  # daleko → ne
+    assert di.fences_on_olive_edge([on_edge, inside, far], olive) == [on_edge]
+    assert di.fences_on_olive_edge([on_edge], Polygon()) == []
+
+    (tmp_path / "dtm").mkdir()
+    (tmp_path / "dtm" / "fences.json").write_text(
+        json.dumps({"fences": [], "dubious": [{"code": "518", "coords": [[0, 0.2], [40, 0.2]]}]}), encoding="utf-8"
+    )
+    assert di._load_dubious_fences(tmp_path) == [("518", [(0.0, 0.2), (40.0, 0.2)])]
+    shp, shx, dbf = io.BytesIO(), io.BytesIO(), io.BytesIO()
+    with shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON) as w:
+        w.field("id", "N")
+        w.poly([[(0, 0), (0, 30), (40, 30), (40, 0), (0, 0)]])
+        w.record(1)
+    with zipfile.ZipFile(tmp_path / "zabaged_clean.zip", "w") as zf:
+        for ext, buf in (("shp", shp), ("shx", shx), ("dbf", dbf)):
+            zf.writestr(f"OvocnySadZahrada.{ext}", buf.getvalue())
+    parts = di.build_dtm_fence_parts(tmp_path, preset_id="sprint_4000", scale=4000, ref_x=20.0, ref_y=15.0, grivation_deg=0.0)
+    assert [p for p in parts if p.name.startswith("Ploty")][0].count == 1  # podezřelý plot na hraně zahrady se vykreslí
+
+
 def test_sprint_joins_fences_across_gap_into_one_line_with_ticks_toward_olive(tmp_path, monkeypatch):
     import io
 
