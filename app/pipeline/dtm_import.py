@@ -124,7 +124,14 @@ def prepare_dtm_fences(
             log(f"DTM: plochy z OPL nelze načíst ({type(exc).__name__}: {exc})")
     if areas["olive"] or areas["building"]:
         # Podezřelé „ploty“ (stará migrace s neznámým původem, jen hranice jiného objektu).
-        all_fences, removed = dtm_fences.filter_dubious_fences(all_fences, areas)
+        construction: list[list[tuple[float, float]]] = []
+        try:
+            for pkg in kr_packages:
+                construction.extend(dtm_fences.load_construction_borders(files[pkg.filename]))
+        except Exception as exc:  # hranice staveb jsou doplněk, filtr funguje i bez nich
+            if log:
+                log(f"DTM: hranice staveb z KR nelze načíst ({type(exc).__name__}: {exc})")
+        all_fences, removed = dtm_fences.filter_dubious_fences(all_fences, areas, construction=construction)
         dubious = len(removed)
         if removed and log:
             ids = ", ".join(f.oid for f in removed[:3] if f.oid)
@@ -1588,6 +1595,131 @@ def _load_opl_areas(work_dir: Path) -> dict[str, list]:
     return areas
 
 
+# Plot vedoucí po obrysu budovy (do tolika m) se nekreslí – budova má přednost; zbytky kratší než ``FENCE_BUILDING_MIN_PIECE_M`` pryč.
+FENCE_BUILDING_TOL_M = 0.5
+FENCE_BUILDING_MIN_PIECE_M = 1.5
+
+
+def _buildings_zone(work_dir: Path, tol_m: float = FENCE_BUILDING_TOL_M):
+    """Budovy tak, jak se kreslí (DTM budovy + OSM bez protějšku), rozšířené o ``tol_m`` m (shapely) nebo None."""
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+
+    feats_path = work_dir / "osm_paths" / "features.geojson"
+    try:
+        feats = json.loads(feats_path.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        feats = []
+    if dtm_owns_buildings(work_dir):
+        feats = merge_dtm_buildings(work_dir, feats)
+    polys = []
+    for feat in feats:
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") != "building" or geom.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            g = shape(geom)
+            polys.append(g if g.is_valid else g.buffer(0))
+        except (ValueError, TypeError):
+            continue
+    return unary_union(polys).buffer(tol_m) if polys else None
+
+
+def _olive_geometry(work_dir: Path, fill_rings: list[list[tuple[float, float]]]):
+    """Kreslené olivy (shapely, i prázdná): zahrady z OSM (``kind == "garden"``), oplocení vyplněná olivou z DTM
+    a olivové vrstvy ZABAGED (``ZABAGED_OLIVE_LAYERS``)."""
+    from shapely.geometry import Polygon, shape
+    from shapely.ops import unary_union
+
+    polys = []
+    try:
+        feats = json.loads((work_dir / "osm_paths" / "features.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        feats = []
+    for feat in feats:
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") != "garden" or geom.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            g = shape(geom)
+            polys.append(g if g.is_valid else g.buffer(0))
+        except (ValueError, TypeError):
+            continue
+    for ring in fill_rings:
+        if len(ring) >= 4:
+            try:
+                g = Polygon(ring)
+                polys.append(g if g.is_valid else g.buffer(0))
+            except ValueError:
+                continue
+    polys.extend(_zabaged_olive_polygons(work_dir))
+    return unary_union(polys) if polys else Polygon()
+
+
+# Vrstvy ZABAGED, které se v sadě symbolů kreslí jako olivová plocha (zastavěná plocha, zahrady, hřbitov; viz ``configs/zabaged.txt``).
+ZABAGED_OLIVE_LAYERS = ("ArealUceloveZastavby", "OvocnySadZahrada", "Hrbitov")
+
+
+def _zabaged_olive_polygons(work_dir: Path) -> list:
+    """Polygony olivových vrstev ZABAGED z ``zabaged_clean.zip`` (shapely); bez archivu nebo pyshp prázdný seznam."""
+    import io
+    import zipfile
+
+    from shapely.geometry import shape
+
+    archive = work_dir / "zabaged_clean.zip"
+    if not archive.is_file():
+        return []
+    try:
+        import shapefile
+
+        out = []
+        with zipfile.ZipFile(archive) as zf:
+            names = set(zf.namelist())
+            for stem in ZABAGED_OLIVE_LAYERS:
+                if not {f"{stem}.shp", f"{stem}.shx", f"{stem}.dbf"} <= names:
+                    continue
+                reader = shapefile.Reader(
+                    shp=io.BytesIO(zf.read(f"{stem}.shp")),
+                    shx=io.BytesIO(zf.read(f"{stem}.shx")),
+                    dbf=io.BytesIO(zf.read(f"{stem}.dbf")),
+                )
+                for sh in reader.iterShapes():
+                    if sh.shapeType == 0:
+                        continue
+                    try:
+                        g = shape(sh.__geo_interface__)
+                    except (ValueError, TypeError, AttributeError):
+                        continue
+                    if g.geom_type in ("Polygon", "MultiPolygon"):
+                        out.append(g if g.is_valid else g.buffer(0))
+        return out
+    except Exception:  # olivy ze ZABAGED jsou doplněk podmínky, bez nich se spojuje podle ostatních zdrojů
+        return []
+
+
+def cut_fences_by_buildings(
+    lines: list[tuple[str, list[tuple[float, float]]]], zone, min_piece_m: float = FENCE_BUILDING_MIN_PIECE_M
+) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Části plotů ležící na obrysu budovy / uvnitř ní (``zone``) se odříznou; ploty mimo ni zůstanou beze změny."""
+    from shapely.geometry import LineString
+
+    if zone is None or zone.is_empty:
+        return lines
+    out = []
+    for code, ln in lines:
+        if len(ln) < 2:
+            continue
+        line = LineString(ln)
+        if not line.intersects(zone):
+            out.append((code, ln))
+            continue
+        rest = line.difference(zone)
+        pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
+        out.extend((code, [(float(x), float(y)) for x, y in g.coords]) for g in pieces if g.length >= min_piece_m)
+    return out
+
+
 def build_dtm_fence_parts(
     work_dir: Path,
     *,
@@ -1651,6 +1783,38 @@ def build_dtm_fence_parts(
             fill_rings = dtm_fences.private_enclosure_rings(lines, areas)
         except Exception:
             pass
+    try:
+        # Plot na obrysu budovy se nekreslí (budova má přednost, kreslí se z DTM / OSM).
+        buildings_zone = _buildings_zone(work_dir)
+        lines = cut_fences_by_buildings(lines, buildings_zone)
+        # Data DTM bývají neúplná: mezery mezi konci plotů, které na sebe míří, se propojí (ne přes budovu ani cestu).
+        from shapely.geometry import LineString as _LS
+        from shapely.ops import unary_union as _uu
+
+        blockers = [buildings_zone] if buildings_zone is not None else []
+        blockers.extend(_LS(c).buffer(0.2) for c, _need in path_clearances(work_dir, path_source) if len(c) >= 2)
+        olive_geom = _olive_geometry(work_dir, fill_rings if fill_olive else [])
+        connectors = dtm_fences.fence_gap_connectors(
+            lines, forbidden=_uu(blockers) if blockers else None, near=olive_geom
+        )
+        if connectors:
+            # Spojky se slijí s ploty do jedné linie (po kódu symbolu); ve sprintu se pak celá linie otočí tak, aby
+            # čárky plotu mířily do olivy (OPL zahrady + kreslená oliva z OSM / ZABAGED / DTM).
+            joined: list[tuple[str, list[tuple[float, float]]]] = []
+            for code in dict.fromkeys(c for c, _ln in lines + connectors):
+                group = [ln for c, ln in lines + connectors if c == code]
+                joined.extend((code, ln) for ln in dtm_fences.merge_lines(group))
+            lines = joined
+            if sprint and not olive_geom.is_empty:
+                polys = [olive_geom] if olive_geom.geom_type == "Polygon" else list(getattr(olive_geom, "geoms", []))
+                olive_polys = [
+                    [list(p.exterior.coords)] + [list(r.coords) for r in p.interiors]
+                    for p in polys
+                    if p.geom_type == "Polygon" and not p.is_empty
+                ]
+                lines = dtm_fences.orient_fences(lines, {**areas, "olive": list(areas["olive"]) + olive_polys})
+    except Exception:  # dedup a propojení jsou doplněk, ploty se kreslí i bez nich
+        pass
     try:
         paths = path_clearances(work_dir, path_source) if sprint else []
         if paths:

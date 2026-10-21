@@ -24,6 +24,9 @@ DRUH_HEDGE = "5"
 # Koncové body blíž než toto (m) se považují za jeden uzel.
 JOIN_TOLERANCE_M = 0.3
 CACHE_SUFFIX = ".plot2.json"
+# Hranice staveb a budov (čáry v ZPS_KR): plot s neznámým původem u nich je věrohodný (i tam, kde ZPS_OPL budovy nemá).
+CONSTRUCTION_TYPES = ("HraniceStavby", "HraniceBudovy")
+CONSTRUCTION_CACHE_SUFFIX = ".cons1.json"
 AREAS_CACHE_SUFFIX = ".orient3.json"
 
 # Plochy z ZPS_OPL, podle kterých se orientují ploty (čárky symbolu 518 mají mířit
@@ -150,6 +153,29 @@ def load_fences(package_zip: str | Path, *, use_cache: bool = True) -> list[Fenc
         except OSError:
             pass
     return fences
+
+
+def load_construction_borders(
+    package_zip: str | Path, *, use_cache: bool = True
+) -> list[list[tuple[float, float]]]:
+    """Čáry ``HraniceStavby`` a ``HraniceBudovy`` z balíku ZPS_KR (S-JTSK x, y); cache u balíku."""
+    package_zip = Path(package_zip)
+    cache = package_zip.with_name(package_zip.name + CONSTRUCTION_CACHE_SUFFIX)
+    if use_cache and cache.is_file() and cache.stat().st_mtime >= package_zip.stat().st_mtime:
+        try:
+            return [[(x, y) for x, y in line] for line in json.loads(cache.read_text(encoding="utf-8"))]
+        except (OSError, ValueError, TypeError):
+            pass
+    lines: list[list[tuple[float, float]]] = []
+    for rec in iter_records(package_zip, set(CONSTRUCTION_TYPES)):
+        if rec.geom_type == "LineString" and len(rec.coords) >= 2:
+            lines.append([(float(c[0]), float(c[1])) for c in rec.coords])
+    if use_cache:
+        try:
+            cache.write_text(json.dumps([[list(p) for p in line] for line in lines]), encoding="utf-8")
+        except OSError:
+            pass
+    return lines
 
 
 def fences_in_bounds(
@@ -426,6 +452,7 @@ def filter_dubious_fences(
     *,
     near_m: float = DUBIOUS_NEAR_M,
     snap_m: float = JOIN_TOLERANCE_M,
+    construction: list[list[tuple[float, float]]] | None = None,
 ) -> tuple[list[Fence], list[Fence]]:
     """Vynechá „plot“, který nejspíš nikdy neexistoval: ``(ponechané, vynechané)``.
 
@@ -436,6 +463,10 @@ def filter_dubious_fences(
     vynechání se šíří na navazující úseky s neznámým původem, které také nemají
     soukromého souseda (pokračování téže čáry). Zaměřené ploty (způsob 1–5) se nikdy
     nevynechávají. Bez ploch (``areas``) se nic nevynechává.
+
+    ``construction``: čáry hranic staveb a budov z ZPS_KR (``load_construction_borders``). Tam, kde ZPS_OPL budovy a
+    zahrady nemá (menší obce), jsou jediným důkazem soukromého pozemku: plot u nich se ponechá. Sama o sobě neurčují,
+    zda se filtruje (rozhoduje, že ``areas`` obsahují zahrady nebo budovy).
     """
     from shapely import STRtree
     from shapely.geometry import LineString
@@ -451,12 +482,20 @@ def filter_dubious_fences(
     if not borders:
         return list(fences), []
     tree = STRtree(borders)
+    cons = [LineString(c) for c in (construction or []) if len(c) >= 2]
+    cons_tree = STRtree(cons) if cons else None
 
     def near_private(line: LineString) -> bool:
         for frac in (0.25, 0.5, 0.75):
             p = line.interpolate(frac, normalized=True)
             if any(borders[i].distance(p) <= near_m for i in tree.query(p.buffer(near_m))):
                 return True
+        if cons_tree is not None:
+            # hranice stavby / budovy: stačí, aby se jí plot dotýkal koncem (plot od rohu stavby) nebo po ní vedl
+            for frac in (0.0, 0.25, 0.5, 0.75, 1.0):
+                p = line.interpolate(frac, normalized=True)
+                if any(cons[i].distance(p) <= near_m for i in cons_tree.query(p.buffer(near_m))):
+                    return True
         return False
 
     lines = [LineString(f.coords) for f in fences]
@@ -603,6 +642,92 @@ def gap_bridges(lines: list[tuple[str, list[tuple[float, float]]]], gap_m: float
                 q = nearest_points(pt, geoms[best[1]])[1]
                 bridges.append(LineString([end, (q.x, q.y)]))
     return bridges
+
+
+# Propojení mezer mezi ploty (kreslí se): dva volné konce téhož druhu plotu do ``FENCE_BRIDGE_MAX_GAP_M`` m, které na sebe míří
+# (odchylka směru plotu od spojky nejvýš ``FENCE_BRIDGE_MAX_TURN_DEG``), se spojí krátkou čárou. Data DTM bývají neúplná.
+FENCE_BRIDGE_MAX_GAP_M = 6.0
+FENCE_BRIDGE_MAX_TURN_DEG = 35.0
+FENCE_BRIDGE_DIR_LEN_M = 3.0
+# Nutná podmínka: spojka leží u kreslené olivy (zahrada z OSM, oplocení z DTM) – do tolika m.
+FENCE_BRIDGE_OLIVE_NEAR_M = 1.5
+
+
+def fence_gap_connectors(
+    lines: list[tuple[str, list[tuple[float, float]]]],
+    *,
+    max_gap_m: float = FENCE_BRIDGE_MAX_GAP_M,
+    max_turn_deg: float = FENCE_BRIDGE_MAX_TURN_DEG,
+    forbidden=None,
+    near=None,
+    near_m: float = FENCE_BRIDGE_OLIVE_NEAR_M,
+) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Spojky ``(kód, [konec A, konec B])`` mezi volnými konci plotů téhož kódu, které na sebe míří.
+
+    Volný konec = nedotýká se jiné čáry (do ``JOIN_TOLERANCE_M``). Spojka nesmí protínat ``forbidden`` (shapely: budovy,
+    cesty) ani jiný plot; každý konec se použije nejvýš jednou, přednost má nejkratší mezera.
+    ``near`` (shapely: kreslené olivy – zahrady, oplocení): je-li zadané, musí spojka ležet do ``near_m`` m od něj
+    (prázdné ``near`` = žádná spojka).
+    """
+    from shapely import STRtree
+    from shapely.geometry import LineString, Point
+
+    items = [(code, [(float(x), float(y)) for x, y in c]) for code, c in lines if len(c) >= 2]
+    geoms = [LineString(c) for _code, c in items]
+    if len(geoms) < 2 or max_gap_m <= JOIN_TOLERANCE_M:
+        return []
+    if near is not None and near.is_empty:
+        return []
+    tree = STRtree(geoms)
+    cos_turn = math.cos(math.radians(max_turn_deg))
+
+    ends = []  # (index čáry, bod konce, jednotkový vektor ven z čáry)
+    for i, g in enumerate(geoms):
+        if g.length < FENCE_BRIDGE_DIR_LEN_M or Point(g.coords[0]).distance(Point(g.coords[-1])) <= JOIN_TOLERANCE_M:
+            continue  # příliš krátké pro směr, nebo uzavřená čára
+        for at_start in (True, False):
+            p = Point(g.coords[0] if at_start else g.coords[-1])
+            q = g.interpolate(FENCE_BRIDGE_DIR_LEN_M if at_start else g.length - FENCE_BRIDGE_DIR_LEN_M)
+            dx, dy = p.x - q.x, p.y - q.y
+            norm = math.hypot(dx, dy)
+            if norm == 0:
+                continue
+            touching = any(
+                int(k) != i and geoms[int(k)].distance(p) <= JOIN_TOLERANCE_M for k in tree.query(p.buffer(JOIN_TOLERANCE_M))
+            )
+            if not touching:
+                ends.append((i, (p.x, p.y), (dx / norm, dy / norm)))
+
+    candidates = []
+    for a in range(len(ends)):
+        ia, pa, da = ends[a]
+        for b in range(a + 1, len(ends)):
+            ib, pb, db = ends[b]
+            if ia == ib or items[ia][0] != items[ib][0]:
+                continue
+            vx, vy = pb[0] - pa[0], pb[1] - pa[1]
+            gap = math.hypot(vx, vy)
+            if gap <= JOIN_TOLERANCE_M or gap > max_gap_m:
+                continue
+            ux, uy = vx / gap, vy / gap
+            if da[0] * ux + da[1] * uy < cos_turn or db[0] * -ux + db[1] * -uy < cos_turn:
+                continue  # konce na sebe nemíří
+            candidates.append((gap, a, b))
+    used: set[int] = set()
+    out = []
+    for gap, a, b in sorted(candidates):
+        if a in used or b in used:
+            continue
+        link = LineString([ends[a][1], ends[b][1]])
+        if forbidden is not None and link.intersects(forbidden):
+            continue
+        if near is not None and link.distance(near) > near_m:
+            continue
+        if any(int(k) not in (ends[a][0], ends[b][0]) and geoms[int(k)].intersects(link) for k in tree.query(link)):
+            continue
+        used.update((a, b))
+        out.append((items[ends[a][0]][0], [ends[a][1], ends[b][1]]))
+    return out
 
 
 def fence_faces(lines: list[tuple[str, list[tuple[float, float]]]], *, barriers=None, max_area: float = ENCLOSURE_MAX_AREA_M2):

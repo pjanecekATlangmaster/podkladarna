@@ -264,6 +264,14 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
+- **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé
+  plochy. V menších obcích (např. Dobřichovice) má `ZPS_OPL` jen zlomek zahrad a budov (5 400 plotů typu 99, 47 zahrad), proto se jako důkaz berou i čáry
+  `HraniceStavby` / `HraniceBudovy` z `ZPS_KR` (`load_construction_borders`, cache `.cons1.json`): plot, který se jich dotkne koncem nebo po nich vede, se
+  ponechá. Plot na obrysu budovy (≤ 0,5 m) se nekreslí – budova má přednost (`cut_fences_by_buildings`, budovy = DTM + OSM bez protějšku). Budovy z DTM jsou
+  v těchto obcích řídké, tvar budov je převážně z OSM.
+- **Propojení mezer mezi ploty** (`fence_gap_connectors`, sprint a les): dva volné konce téhož druhu plotu do 6 m, které na sebe míří (≤ 35°), se spojí
+  čárou, pokud spojka leží do 1,5 m od kreslené olivy (OSM zahrada, oplocení z DTM, ZABAGED `ArealUceloveZastavby` / `OvocnySadZahrada` / `Hrbitov` – tak je oliva
+  ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
 
