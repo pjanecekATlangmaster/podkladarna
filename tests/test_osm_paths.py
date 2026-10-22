@@ -929,7 +929,7 @@ def test_dedup_path_lines_same_source_keeps_longer():
 
 
 def test_prepare_forest_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypatch):
-    """Les: area:highway zůstává plochou 501 (šířka); souběžná pedestrian linie se při kreslení ořízne."""
+    """Les: area:highway = plocha 501; otevřená pedestrian taky plocha (ne 506); footway zůstane linií."""
     import app.pipeline.osm_paths as op
 
     pedestrian = {
@@ -965,7 +965,18 @@ def test_prepare_forest_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypa
             {"lat": 50.0330302, "lon": 14.3754017},
         ],
     }
-    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [pedestrian, area_hw])
+    footway = {
+        "type": "way",
+        "id": 999001,
+        "tags": {"highway": "footway"},
+        "geometry": [
+            {"lat": 50.0320, "lon": 14.3740},
+            {"lat": 50.0322, "lon": 14.3745},
+        ],
+    }
+    monkeypatch.setattr(
+        op, "fetch_osm_path_elements", lambda *a, **k: [pedestrian, area_hw, footway]
+    )
     op.prepare_osm_paths(
         tmp_path,
         (14.37, 50.03, 14.38, 50.04),
@@ -979,37 +990,30 @@ def test_prepare_forest_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypa
         for f in feats["features"]
         if (f.get("properties") or {}).get("kind") == "pedestrian_area"
     ]
-    assert len(areas) == 1
-    assert areas[0]["geometry"]["type"] == "Polygon"
-    # Plocha má šířku (ne degenerovaná střednice): bbox delší i kratší strana.
-    ring = areas[0]["geometry"]["coordinates"][0]
-    xs = [p[0] for p in ring]
-    ys = [p[1] for p in ring]
-    assert max(xs) - min(xs) > 5.0
-    assert max(ys) - min(ys) > 1.0
+    # area:highway + bufferovaná osa pedestrian (merge_adjacent může sloučit).
+    assert len(areas) >= 1
+    assert all(a["geometry"]["type"] == "Polygon" for a in areas)
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+
+    union = unary_union([shape(a["geometry"]) for a in areas])
+    assert union.area > 50.0
+    # Šířka: kratší strana MRR > 1 m (ne degenerovaná střednice).
+    pts = list(union.minimum_rotated_rectangle.exterior.coords)[:4]
+    side_a = ((pts[1][0] - pts[0][0]) ** 2 + (pts[1][1] - pts[0][1]) ** 2) ** 0.5
+    side_b = ((pts[2][0] - pts[1][0]) ** 2 + (pts[2][1] - pts[1][1]) ** 2) ** 0.5
+    assert min(side_a, side_b) > 1.0
     paths = json.loads((tmp_path / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8"))
     lines = [f for f in paths["features"] if f["geometry"]["type"] == "LineString"]
-    assert len(lines) == 1
-    assert lines[0]["properties"]["highway"] == "sidewalk"
-    # Dedup na úrovni ploch: přes překryv se linie nekreslí (clip), šířka plochy zůstává.
-    from shapely.geometry import LineString, shape
-
-    from app.pipeline.dtm_sidewalks import clip_outside
-
-    area_g = shape(areas[0]["geometry"])
-    line_coords = [(float(x), float(y)) for x, y in lines[0]["geometry"]["coordinates"]]
-    zone = op.path_cut_zone_geometry(tmp_path, paths["features"])
-    assert zone is not None and zone.intersects(area_g)
-    overlap_before = LineString(line_coords).intersection(area_g.buffer(0.5)).length
-    assert overlap_before > 10.0
-    clipped = clip_outside(line_coords, zone, min_len_m=1.0)
-    for seg in clipped:
-        mid = LineString(seg).interpolate(0.5, normalized=True)
-        assert not area_g.buffer(-0.2).contains(mid)
+    # Otevřená pedestrian už není sidewalk linie; footway zůstane pěšinou.
+    assert all(
+        (f.get("properties") or {}).get("highway") != "sidewalk" for f in lines
+    )
+    assert any((f.get("properties") or {}).get("highway") == "footway" for f in lines)
 
 
 def test_prepare_mtbo_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypatch):
-    """MTBO: stejně jako les — area:highway = plocha (ne střednice)."""
+    """MTBO: area:highway + otevřená pedestrian = plocha; ne linie 834."""
     import app.pipeline.osm_paths as op
 
     area_hw = {
@@ -1027,7 +1031,16 @@ def test_prepare_mtbo_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypatc
             {"lat": 50.0330302, "lon": 14.3754017},
         ],
     }
-    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [area_hw])
+    pedestrian = {
+        "type": "way",
+        "id": 60592702,
+        "tags": {"highway": "pedestrian"},
+        "geometry": [
+            {"lat": 50.0324915, "lon": 14.3742031},
+            {"lat": 50.0334425, "lon": 14.3764804},
+        ],
+    }
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [area_hw, pedestrian])
     op.prepare_osm_paths(
         tmp_path,
         (14.37, 50.03, 14.38, 50.04),
@@ -1041,13 +1054,13 @@ def test_prepare_mtbo_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypatc
         for f in feats["features"]
         if (f.get("properties") or {}).get("kind") == "pedestrian_area"
     ]
-    assert len(areas) == 1
+    assert len(areas) >= 1
     paths = json.loads((tmp_path / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8"))
     assert paths["features"] == []
 
 
 def test_prepare_sprint_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypatch):
-    """Sprint: area:highway zůstává plochou 501 (nesaháme na sprint chování)."""
+    """Sprint: area:highway = plocha; otevřená pedestrian zůstane linií 501.10 (nesaháme)."""
     import app.pipeline.osm_paths as op
 
     area_hw = {
@@ -1065,7 +1078,16 @@ def test_prepare_sprint_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypa
             {"lat": 50.0330302, "lon": 14.3754017},
         ],
     }
-    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [area_hw])
+    pedestrian = {
+        "type": "way",
+        "id": 60592702,
+        "tags": {"highway": "pedestrian"},
+        "geometry": [
+            {"lat": 50.0324915, "lon": 14.3742031},
+            {"lat": 50.0334425, "lon": 14.3764804},
+        ],
+    }
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [area_hw, pedestrian])
     op.prepare_osm_paths(
         tmp_path,
         (14.37, 50.03, 14.38, 50.04),
@@ -1081,7 +1103,19 @@ def test_prepare_sprint_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypa
     ]
     assert len(areas) == 1
     paths = json.loads((tmp_path / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8"))
-    assert paths["features"] == []
+    assert len(paths["features"]) == 1
+    assert paths["features"][0]["properties"]["highway"] == "sidewalk"
+
+
+def test_pedestrian_line_half_width_respects_width_tag():
+    from app.pipeline.osm_paths import (
+        PEDESTRIAN_LINE_HALF_WIDTH_M,
+        pedestrian_line_half_width_m,
+    )
+
+    assert pedestrian_line_half_width_m({}) == PEDESTRIAN_LINE_HALF_WIDTH_M
+    assert pedestrian_line_half_width_m({"width": "8"}) == 4.0
+    assert pedestrian_line_half_width_m({"est_width": "3 m"}) == 1.5
 
 
 def test_osm_way_to_5514_skips_sidewalk():
