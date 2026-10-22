@@ -609,7 +609,11 @@ def merge_adjacent_pedestrian_area_features(
     for feat in features:
         props = feat.get("properties") or {}
         geom = feat.get("geometry") or {}
-        if props.get("kind") != "pedestrian_area" or geom.get("type") not in ("Polygon", "MultiPolygon"):
+        if (
+            props.get("kind") != "pedestrian_area"
+            or props.get("structure")
+            or geom.get("type") not in ("Polygon", "MultiPolygon")
+        ):
             rest.append(feat)
             continue
         try:
@@ -754,6 +758,18 @@ def _is_osm_tunnel(tags: dict) -> bool:
         return True
     layer = _osm_layer(tags)
     return layer is not None and layer < 0
+
+
+def paved_area_structure(tags: dict) -> str | None:
+    """Zpevněná plocha na mostě / nad terénem (``bridge``) nebo v tunelu / pod terénem (``tunnel``), jinak None."""
+    if _is_osm_bridge(tags) or (tags.get("man_made") or "").lower() == "bridge":
+        return "bridge"
+    if _is_osm_tunnel(tags):
+        return "tunnel"
+    layer = _osm_layer(tags)
+    if layer is not None and layer > 0:
+        return "bridge"
+    return None
 
 
 def path_min_length_m(highway: str) -> float:
@@ -1314,7 +1330,9 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
             return "501.0"
         if mtbo:
             return "501.0"
-        return "501"
+        # Les: výplň 501.1 + samostatný okraj 501.2 (vypadá jako 501.0), aby se parkoviště
+        # sloučilo s ostatními zpevněnými plochami a okraj šel vynechat u silnice.
+        return ISOM_PAVED_FILL_CODE
     if kind in _PAVED_AREA_KINDS:
         # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
         if sprint:
@@ -3184,16 +3202,16 @@ def prepare_osm_paths(
                 # area:highway / pěší zóna zůstává plochou (reálná šířka 501 + okraj).
                 # Dedup proti souběžné linii: clip/potlačení chodníku u plochy
                 # (``path_cut_zone`` / ``osm_paved_beside_geometry``), ne převod na střednici.
+                props_area: dict = {"source": "osm", "kind": kind, "oom_code": code}
+                structure = paved_area_structure(tags) if kind in _PAVED_AREA_KINDS else None
+                if structure:
+                    props_area["structure"] = structure  # most / tunel se s okolními plochami neslučuje
                 for rings in polygons:
                     coords = [[[x, y] for x, y in ring] for ring in rings]
                     features.append(
                         {
                             "type": "Feature",
-                            "properties": {
-                                "source": "osm",
-                                "kind": kind,
-                                "oom_code": code,
-                            },
+                            "properties": dict(props_area),
                             "geometry": {"type": "Polygon", "coordinates": coords},
                         }
                     )
@@ -3269,14 +3287,13 @@ def prepare_osm_paths(
                 else:
                     ring = []
             if len(ring) >= 4 and ring[0] == ring[-1]:
+                ped_props: dict = {"source": "osm", "kind": "pedestrian_area", "oom_code": "501"}
+                if paved_area_structure(tags):
+                    ped_props["structure"] = paved_area_structure(tags)
                 features.append(
                     {
                         "type": "Feature",
-                        "properties": {
-                            "source": "osm",
-                            "kind": "pedestrian_area",
-                            "oom_code": "501",
-                        },
+                        "properties": ped_props,
                         "geometry": {
                             "type": "Polygon",
                             "coordinates": [[[x, y] for x, y in ring]],
@@ -4020,6 +4037,124 @@ def path_cut_zone_geometry(work_dir: Path, path_features: list[dict], extra=None
     return unary_union(parts) if parts else None
 
 
+# Les a MTBO: sousední zpevněné plochy (parkoviště, pěší zóny, area:highway, nástupiště, hřiště) se
+# při sestavení mapy sloučí do jedné plochy; mezera do tolika m se zacelí. Spoj nevede přes silnici
+# (pás ``road_carriageway_geometry``) ani přes most / tunel (plochy s ``structure`` zůstávají samostatně).
+PAVED_MERGE_GAP_M = 3.5
+
+
+def _paths_features_for_network(work_dir: Path) -> list[dict]:
+    """Prvky cest pro síť zpevněných ploch (silnice); nejdřív mixed, pak OSM, pak starý ``paths.geojson``."""
+    for name in ("paths_mixed.geojson", "paths_osm.geojson", "paths.geojson"):
+        path = work_dir / "osm_paths" / name
+        if path.is_file():
+            try:
+                return json.loads(path.read_text(encoding="utf-8")).get("features") or []
+            except (OSError, ValueError):
+                return []
+    return []
+
+
+def build_paved_network(feats: list[dict], path_features: list[dict], *, gap_m: float = PAVED_MERGE_GAP_M):
+    """Sloučí zpevněné plochy (``_PAVED_AREA_KINDS``) do souvislé sítě: ``(prvky, plocha sítě)``.
+
+    - Plochy se sjednotí a mezery do ``gap_m`` m se zacelí; zacelení se nepoužije v pásu silnice,
+      takže se plochy na opačných stranách ulice nespojí.
+    - Plochy na mostě / v tunelu (``structure``) zůstávají beze změny a do sítě se nepočítají.
+    - Sloučená plocha dostane ``kind`` největší původní plochy (vrstva v mapě), ``merged = True``.
+
+    Vrací nový seznam prvků (ostatní beze změny) a shapely geometrii sítě (nebo None bez ploch).
+    """
+    try:
+        from shapely.geometry import mapping, shape
+        from shapely.ops import unary_union
+    except ImportError:
+        return feats, None
+    paved: list[tuple[object, str]] = []
+    rest: list[dict] = []
+    structures = []
+    for feat in feats:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") not in _PAVED_AREA_KINDS or geom.get("type") not in ("Polygon", "MultiPolygon"):
+            rest.append(feat)
+            continue
+        try:
+            g = shape(geom)
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, TypeError):
+            rest.append(feat)
+            continue
+        if props.get("structure"):
+            rest.append(feat)
+            structures.append(g)
+            continue
+        if g.is_empty:
+            continue
+        paved.append((g, str(props.get("kind"))))
+    if not paved:
+        return feats, None
+    union = unary_union([g for g, _k in paved])
+    merged = union
+    if gap_m > 0:
+        closed = union.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2)
+        fill = closed.difference(union)
+        blockers = []
+        roads = road_carriageway_geometry(path_features)
+        if roads is not None and not roads.is_empty:
+            blockers.append(roads)
+        if structures:
+            blockers.append(unary_union(structures))
+        if blockers and not fill.is_empty:
+            fill = fill.difference(unary_union(blockers))
+        if not fill.is_empty:
+            merged = unary_union([union, fill])
+    polys = [merged] if merged.geom_type == "Polygon" else [g for g in getattr(merged, "geoms", []) if g.geom_type == "Polygon"]
+    out = list(rest)
+    kept = []
+    for poly in polys:
+        if poly.is_empty or poly.area < SLIVER_MIN_AREA_M2:
+            continue
+        kept.append(poly)
+        best_kind, best_area = paved[0][1], -1.0
+        for g, kind in paved:
+            if not g.intersects(poly):
+                continue
+            a = g.intersection(poly).area
+            if a > best_area:
+                best_kind, best_area = kind, a
+        out.append(
+            {
+                "type": "Feature",
+                "properties": {"source": "osm", "kind": best_kind, "oom_code": "501", "merged": True},
+                "geometry": mapping(poly),
+            }
+        )
+    return out, (unary_union(kept) if kept else None)
+
+
+_PAVED_NETWORK_CACHE: dict[tuple, object] = {}
+
+
+def paved_network_geometry(work_dir: Path):
+    """Plocha sítě zpevněných ploch (``build_paved_network``) z ``features.geojson`` jobu; cache podle mtime."""
+    gj = work_dir / "osm_paths" / "features.geojson"
+    if not gj.is_file():
+        return None
+    try:
+        key = (str(gj), gj.stat().st_mtime_ns)
+    except OSError:
+        return None
+    if key not in _PAVED_NETWORK_CACHE:
+        try:
+            feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
+        except (OSError, ValueError):
+            feats = []
+        _PAVED_NETWORK_CACHE.clear()
+        _PAVED_NETWORK_CACHE[key] = build_paved_network(feats, _paths_features_for_network(work_dir))[1]
+    return _PAVED_NETWORK_CACHE[key]
+
+
 def road_zone_geometry(features: list[dict], parking=None):
     """Pás ``SIDEWALK_ROAD_NEAR_M`` m kolem os silnic (``road_*``, i mosty) z prvků cest, sečtený se zpevněnou
     plochou (``parking`` = shapely, rozšířená o ``SIDEWALK_PARKING_NEAR_M`` m); None bez silnic i plochy."""
@@ -4596,6 +4731,9 @@ def build_osm_feature_parts(
             from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_corridor_geometry
 
             feats = cut_osm_paved_by_geometry(feats, mtbo_corridor_geometry(work_dir, scale, "mixed"))
+    if not preset_id.startswith("sprint"):
+        # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
+        feats, _network = build_paved_network(feats, _paths_features_for_network(work_dir))
     feats = [
         f
         for f in feats

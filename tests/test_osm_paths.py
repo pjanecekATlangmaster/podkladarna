@@ -396,7 +396,7 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("pedestrian_area", "sprint_2m") == "501.0"
     assert feature_oom_code("pedestrian_area", "forest_10000") == "501.1"
     assert feature_oom_code("parking", "sprint_2m") == "501.0"
-    assert feature_oom_code("parking", "forest_10000") == "501"
+    assert feature_oom_code("parking", "forest_10000") == "501.1"
     assert feature_oom_code("parking", "mtbo_10000") == "501.0"
     assert feature_oom_code("garden", "sprint_2m") == "520"
     assert feature_oom_code("garden", "forest_10000") == "520"
