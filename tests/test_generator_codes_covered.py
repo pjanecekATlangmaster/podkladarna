@@ -56,7 +56,7 @@ _KIND_GEOM = {
     **{k: "area" for k in (
         "wetland", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "parking",
         "pedestrian_area", "platform", "water_well_building", "building", "bare_rock",
-        "scree", "rock_area", "residential", "shelter", "road_with_sidewalk",
+        "scree", "rock_area", "residential", "shelter", "road_with_sidewalk", "road_strip",
     )},
 }
 # ZABAGED vrstvy s vlastním kódem (viz oom_symbol_map._LAYER_OOM_CODE).

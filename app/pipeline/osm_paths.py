@@ -201,6 +201,9 @@ PEDESTRIAN_BAND_RATIO = 4.0
 # Otevřená highway=pedestrian v lese/MTBO → pás plochy (ne linie 506/834).
 # Typická pěší zóna ~5 m; width= / est_width= z OSM má přednost.
 PEDESTRIAN_LINE_HALF_WIDTH_M = 2.5
+# Silnice v lese/MTBO je pás této šířky po celé ose (m). Chodník ji nerozšiřuje.
+# road_4 ~ nad 7 m, road_3 5–7 m; nižší třídy zůstávají užší, ale každá pořád stejná.
+ROAD_STRIP_WIDTH_M = {"road_4": 8.0, "road_3": 6.0, "road_2": 4.5, "road_1": 3.0}
 
 
 def resolve_path_source(raw: str | None) -> str:
@@ -1013,6 +1016,66 @@ def _feature_from_polygon(poly, kind: str, code: str = "501") -> dict | None:
         "properties": {"source": "osm", "kind": kind, "oom_code": code},
         "geometry": mapping(poly),
     }
+
+
+def road_strips_ignoring_sidewalks(features: list[dict], osm_items: list):
+    """Les/MTBO: každá silnice je pás stálé šířky po celé ose. Chodníky se nekreslí.
+
+    Šířku bere jen třída osy (``ROAD_STRIP_WIDTH_M``), ne souběžný chodník. Odbočka
+    je vlastní pás a na hlavní silnici jen naváže — šířku hlavní osy nemění.
+    Most a tunel zůstávají čárou.
+    """
+    try:
+        from shapely.geometry import LineString, shape
+        from shapely.ops import unary_union
+    except ImportError:
+        return features, osm_items
+    kept: list = []
+    buffers = []
+    for pts, hw in osm_items:
+        draw = path_draw_highway(hw)
+        if draw == "sidewalk" and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
+            continue
+        width = ROAD_STRIP_WIDTH_M.get(draw)
+        if (
+            width
+            and not is_bridge_highway(hw)
+            and not is_tunnel_highway(hw)
+            and len(pts) >= 2
+        ):
+            half = width / 2.0
+            buffers.append(LineString(pts).buffer(half, cap_style=1, join_style=1))
+            continue
+        kept.append((pts, hw))
+    if not buffers:
+        return features, kept
+    merged = unary_union(buffers)
+    merged = merged if merged.is_valid else merged.buffer(0)
+    out: list[dict] = []
+    for feat in features:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") == "pedestrian_area" and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+                g = g.difference(merged)
+            except (ValueError, TypeError):
+                out.append(feat)
+                continue
+            for poly in _as_polygons(g):
+                piece = _feature_from_polygon(poly, "pedestrian_area")
+                if piece:
+                    if props.get("form"):
+                        piece["properties"]["form"] = props["form"]
+                    out.append(piece)
+            continue
+        out.append(feat)
+    for poly in _as_polygons(merged):
+        piece = _feature_from_polygon(poly, "road_strip", "501.1")
+        if piece:
+            out.append(piece)
+    return out, kept
 
 
 def absorb_sidewalks_beside_paved(
@@ -1941,6 +2004,9 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "301.1"
     if kind == "road_with_sidewalk":
         # Silnice ∪ chodník: výplň bez okraje. Šev je ``paved_interface``.
+        return "501.1"
+    if kind == "road_strip":
+        # Pás silnice stálé šířky, bez chodníku. Okraj se dokreslí zvlášť.
         return "501.1"
     if kind == "paved_interface":
         # Rozhraní chodník×silnice. Les nemá 501.100 — okraj zpevněné je 501.2.
@@ -3933,11 +3999,10 @@ def prepare_osm_paths(
     if ped_corridors and log:
         log(f"OSM pěší zóny: {len(ped_corridors)} koridorů z paralelních linií sloučeno do plochy 501")
     features = merge_adjacent_pedestrian_area_features(features)
-    # Les/MTBO: chodník podél pěší zóny splyne; podél silnice → 501.1 + šev.
-    # Sprint to řeší plochy z DTM (build_dtm_road_parts). DTM plochy lze předat později
-    # jako priority_roads — teď OSM, DTM má v funkci přednost, až bude zapnuté.
+    # Les/MTBO: silnice je pás stálé šířky (jako pěší zóna). Chodník se ignoruje,
+    # ať nerozšiřuje pruh jen na části ulice. Sprint bere plochy z DTM.
     if not preset_id.startswith("sprint"):
-        features, osm_items = absorb_sidewalks_beside_paved(features, osm_items, bike_lines)
+        features, osm_items = road_strips_ignoring_sidewalks(features, osm_items)
     zabaged_lines: list[list[tuple[float, float]]] = []
     if zabaged_clean and zabaged_clean.is_file():
         # Stejný dedup pro všechny disciplíny: OSM > Pesina/Cesta (Ulice zůstává).
@@ -5068,7 +5133,7 @@ def build_osm_path_parts(
     paved_road_area = None
     if not preset_id.startswith("sprint"):
         paved_road_area = osm_paved_beside_geometry(
-            work_dir, kinds=frozenset({"road_with_sidewalk"})
+            work_dir, kinds=frozenset({"road_strip", "road_with_sidewalk"})
         )
         if paved_road_area is not None and paved_road_area.is_empty:
             paved_road_area = None
@@ -5361,6 +5426,7 @@ def build_osm_feature_parts(
         "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (501 zpevněná)",
         "pedestrian_area": "OSM pěší zóny (501 zpevněná)",
+        "road_strip": "Silnice (pás stálé šířky)",
         "road_with_sidewalk": "Silnice s chodníkem (501.1)",
         "paved_interface": "Rozhraní chodník×silnice",
         "parking": "OSM parkoviště (501 zpevněná)",
@@ -5409,6 +5475,7 @@ def build_osm_feature_parts(
         "playground",
         "pitch",
         "pedestrian_area",
+        "road_strip",
         "road_with_sidewalk",
         "paved_interface",
         "parking",

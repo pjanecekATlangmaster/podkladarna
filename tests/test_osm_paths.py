@@ -1380,6 +1380,27 @@ def test_sidewalk_beside_road_merges_and_keeps_the_spur():
     assert roads and min(p[0] for pts in roads for p in pts) > 40.0
 
 
+def test_road_strip_keeps_one_width_and_ignores_sidewalk():
+    """Silnice je po celé ose stejně široká. Chodník ani odbočka ji nerozšíří."""
+    from shapely.geometry import Point, shape
+
+    from app.pipeline.osm_paths import ROAD_STRIP_WIDTH_M, road_strips_ignoring_sidewalks
+
+    road = ([(0.0, 0.0), (120.0, 0.0)], "road_4")
+    sidewalk = ([(0.0, 5.0), (70.0, 5.0)], "sidewalk")
+    branch = ([(60.0, 0.0), (60.0, 40.0)], "road_2")
+    features, items = road_strips_ignoring_sidewalks([], [road, sidewalk, branch])
+    assert not items
+    strips = [shape(f["geometry"]) for f in features if f["properties"]["kind"] == "road_strip"]
+    assert len(strips) == 1
+    half = ROAD_STRIP_WIDTH_M["road_4"] / 2.0
+    assert strips[0].covers(Point(10.0, half - 0.2))
+    assert strips[0].covers(Point(100.0, half - 0.2))
+    # Chodník vedle osy pruh nerozšíří. Odbočka je užší a hlavní osu nenafoukne.
+    assert not strips[0].covers(Point(10.0, half + 0.4))
+    assert strips[0].covers(Point(60.0, 20.0))
+
+
 def test_gap_on_the_same_road_joins_the_paved_area_side_road_stays():
     """Díra uprostřed ulice mezi dvěma chodníky je pořád ta plocha. Odbočka zůstane čára dosedlá na hranu."""
     from shapely.geometry import LineString, Point, shape
@@ -2385,12 +2406,18 @@ def test_prepare_osm_paths_merges_way_split_by_sidewalk_tag(tmp_path, monkeypatc
     op.prepare_osm_paths(
         tmp_path, (14.39, 49.99, 14.41, 50.01), None, preset_id="forest_10000", log=logs.append
     )
-    for fname in ("paths_osm.geojson", "paths_mixed.geojson"):
-        feats = json.loads((tmp_path / "osm_paths" / fname).read_text(encoding="utf-8"))["features"]
-        lines = [f for f in feats if f["geometry"]["type"] == "LineString"]
-        assert len(lines) == 1, fname
-        assert len(lines[0]["geometry"]["coordinates"]) == 4  # 3 + 2 body, sdílený uzel jednou
     assert any("rozdělených úseků spojeno" in line for line in logs)
+    feats = json.loads((tmp_path / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))["features"]
+    strips = [f for f in feats if (f.get("properties") or {}).get("kind") == "road_strip"]
+    assert len(strips) == 1
+    from shapely.geometry import Point, shape
+
+    from app.pipeline.crs_5514 import wgs84_to_projected
+
+    strip = shape(strips[0]["geometry"])
+    for lat, lon in (a[0], b[-1]):
+        x, y = wgs84_to_projected(lat, lon)
+        assert strip.covers(Point(x, y)) or strip.distance(Point(x, y)) < 1.0
 
 def test_prepare_osm_paths_writes_bike_allowed_sidewalks(tmp_path, monkeypatch):
     """Chodník se sdíleným provozem (bicycle=yes|designated) → bike_paths.geojson; běžný chodník ne."""
