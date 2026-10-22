@@ -449,3 +449,81 @@ def test_private_enclosure_rings_bridge_small_gaps_but_not_large_ones():
     assert df.private_enclosure_rings(ring_with_gap(15.0), {"olive": []}) == []  # velká mezera = vstup
     # překlenutí se nekreslí: čáry zůstávají, jak jsou
     assert len(df.gap_bridges(ring_with_gap(3.0))) >= 1
+
+
+def _zabaged_garden_zip(path, ring):
+    import io
+
+    import shapefile
+
+    shp, shx, dbf = io.BytesIO(), io.BytesIO(), io.BytesIO()
+    with shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON) as w:
+        w.field("id", "N")
+        w.poly([ring])
+        w.record(1)
+    with zipfile.ZipFile(path / "zabaged_clean.zip", "w") as zf:
+        for ext, buf in (("shp", shp), ("shx", shx), ("dbf", dbf)):
+            zf.writestr(f"OvocnySadZahrada.{ext}", buf.getvalue())
+
+
+def test_forest_joins_fences_and_turns_ticks_toward_olive_like_sprint(tmp_path, monkeypatch):
+    import app.pipeline.dtm_import as di
+    from app.pipeline.dtm_import import symbol_index_for_code
+
+    (tmp_path / "dtm").mkdir()
+    # dva ploty kreslené zprava doleva (čárky vpravo = nahoru, od olivy) s mezerou 4 m; oliva leží dole (y < 0)
+    fences = [
+        {"code": "518", "coords": [[-950.0, 0.0], [-976.0, 0.0]]},
+        {"code": "518", "coords": [[-980.0, 0.0], [-1000.0, 0.0]]},
+    ]
+    (tmp_path / "dtm" / "fences.json").write_text(json.dumps({"fences": fences}), encoding="utf-8")
+    _zabaged_garden_zip(tmp_path, [(-1010, -20), (-1010, 0.3), (-940, 0.3), (-940, -20), (-1010, -20)])
+    oriented = []
+    real_orient = di.dtm_fences.orient_fences
+
+    def spy(lines, areas, **kwargs):
+        out = real_orient(lines, areas, **kwargs)
+        oriented.extend(out)
+        return out
+
+    monkeypatch.setattr(di.dtm_fences, "orient_fences", spy)
+    kw = dict(scale=10000, ref_x=-975.0, ref_y=0.0, grivation_deg=0.0)
+    parts = di.build_dtm_fence_parts(tmp_path, preset_id="forest_10000", **kw)
+    fence_part = [p for p in parts if p.name.startswith("Ploty")][0]
+    assert fence_part.count == 1  # dva ploty + spojka = jedna linie
+    assert len(oriented) == 1 and len(oriented[0][1]) >= 3
+    start, end = oriented[0][1][0], oriented[0][1][-1]
+    assert end[0] - start[0] > 40  # otočeno: zleva doprava → čárky (vpravo) míří do olivy
+    assert f'symbol="{symbol_index_for_code("forest_10000", 10000, "516")}"' in fence_part.objects_xml
+
+
+def test_osm_fences_without_dtm_are_joined_and_oriented_for_forest_and_mtbo(tmp_path):
+    import app.pipeline.dtm_import as di
+    from app.pipeline import osm_paths as op
+
+    (tmp_path / "osm_paths").mkdir()
+
+    def feat(kind, geom):
+        return {"type": "Feature", "properties": {"source": "osm", "kind": kind}, "geometry": geom}
+
+    garden = [[-1010, -20], [-1010, 0.3], [-940, 0.3], [-940, -20], [-1010, -20]]
+    feats = [
+        feat("garden", {"type": "Polygon", "coordinates": [garden]}),
+        # dvě navazující OSM cesty kreslené zprava doleva (čárky vpravo = od zahrady)
+        feat("fence", {"type": "LineString", "coordinates": [[-950, 0], [-975, 0]]}),
+        feat("fence", {"type": "LineString", "coordinates": [[-975, 0], [-1000, 0]]}),
+    ]
+    out = di.join_and_orient_osm_fences(tmp_path, feats)
+    fences = [f for f in out if f["properties"]["kind"] == "fence"]
+    assert len(fences) == 1 and len(out) == 2
+    coords = fences[0]["geometry"]["coordinates"]
+    assert coords[-1][0] - coords[0][0] > 40  # otočeno k zahradě
+    assert di.join_and_orient_osm_fences(tmp_path, [feats[0]]) == [feats[0]]
+
+    (tmp_path / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    for preset in ("forest_10000", "mtbo_10000"):
+        kw = dict(preset_id=preset, scale=10000, ref_x=-975.0, ref_y=0.0, grivation_deg=0.0)
+        parts = {p.name: p.count for p in op.build_osm_feature_parts(tmp_path, **kw)}
+        assert parts.get("OSM ploty") == 1

@@ -4517,7 +4517,7 @@ def build_osm_feature_parts(
                 _absorbed, feats = split_absorbed_areas(feats, dtm_geom)
     elif not mtbo_dtm_off(preset_id):
         # Les (a MTBO, je-li zapnuté ``MTBO_USE_DTM``): z DTM jen budovy (přesný tvar, OSM bez protějšku)
-        # a ploty (kreslí je společně dtm_import.build_dtm_fence_parts, bez orientace čárek).
+        # a ploty (kreslí je společně dtm_import.build_dtm_fence_parts, včetně orientace čárek k olivě).
         from app.pipeline.dtm_import import dtm_owns_buildings, dtm_owns_fences, merge_dtm_buildings
 
         if dtm_owns_fences(work_dir):
@@ -4534,6 +4534,11 @@ def build_osm_feature_parts(
             from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_corridor_geometry
 
             feats = cut_osm_paved_by_geometry(feats, mtbo_corridor_geometry(work_dir, scale, "mixed"))
+    if not preset_id.startswith("sprint"):
+        # Les a MTBO: OSM ploty (pokud je nekreslí DTM) se spojí a otočí čárkami k olivě jako ve sprintu.
+        from app.pipeline.dtm_import import join_and_orient_osm_fences
+
+        feats = join_and_orient_osm_fences(work_dir, feats)
     feats = [
         f
         for f in feats
