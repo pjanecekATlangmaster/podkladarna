@@ -1253,21 +1253,47 @@ def _closed_edge_object(symbol_index: int, coords: list[tuple[int, int]]) -> str
     return _path_object(symbol_index, [*ring, (ring[0][0], ring[0][1], 18)])
 
 
+# Zbytek okraje 501.2 kratší než tolik m (mezi dvěma vynechanými úseky u silnice) se nekreslí.
+PAVED_EDGE_MIN_PIECE_M = 3.0
+
+
 def _paved_edge_objects(
     edge_index: int,
     rings: list[list[tuple[float, float]]],
     clip_bounds: Bounds | None,
     to_map,
+    omit_zone=None,
 ) -> list[str]:
     """Okraj 501.2 po SKUTEČNÉ hranici plochy.
 
     Prstenec celý uvnitř výřezu → uzavřená čára; prstenec protínající hranici výřezu
     → jen otevřené kusy uvnitř (podél ořezu na výřez žádná falešná čára).
+    ``omit_zone`` (shapely): tam se okraj nekreslí (splýval by se silnicí), zbytek jako otevřené kusy.
     """
     out: list[str] = []
     for ring in rings:
         if len(ring) < 3:
             continue
+        if omit_zone is not None:
+            from shapely.geometry import LineString
+
+            closed = list(ring) if ring[0] == ring[-1] else [*ring, ring[0]]
+            edge = LineString(closed)
+            if edge.intersects(omit_zone):
+                rest = edge.difference(omit_zone)
+                pieces = [rest] if rest.geom_type == "LineString" else [
+                    g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"
+                ]
+                for g in pieces:
+                    if g.length < PAVED_EDGE_MIN_PIECE_M:
+                        continue
+                    coords = [(float(x), float(y)) for x, y in g.coords]
+                    for piece in clip_polyline(coords, clip_bounds) if clip_bounds else [coords]:
+                        if len(piece) >= 2:
+                            obj = _path_object(edge_index, to_map(piece))
+                            if obj:
+                                out.append(obj)
+                continue
         if clip_bounds is None or all(
             point_inside(x, y, clip_bounds) for x, y in ring
         ):
@@ -4135,6 +4161,38 @@ def build_paved_network(feats: list[dict], path_features: list[dict], *, gap_m: 
     return out, (unary_union(kept) if kept else None)
 
 
+def paved_edge_omit_zone(path_features: list[dict], network, *, preset_id: str, scale: int):
+    """Les: pás kolem kreslených silnic, ve kterém by okraj zpevněné plochy 501.2 splynul se silnicí (shapely / None).
+
+    Půlka kresby silnice + půlka okraje + ``LINE_MIN_GAP_MM``. Silnice se berou až po ořezu zpevněnou plochou
+    (``clip_road_in_paved``), takže jízdní pruh uvnitř parkoviště okraj nemaže; mosty a tunely se nepočítají.
+    """
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+    reach = paved_edge_width_m(preset_id, scale) / 2.0 + mm_to_ground_m(LINE_MIN_GAP_MM, scale)
+    core = network.buffer(-ROAD_IN_PAVED_EDGE_M) if network is not None else None
+    widths: dict[str, float] = {}
+    parts = []
+    for feat in path_features:
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if geom.get("type") != "LineString" or len(coords) < 2 or not path_draw_highway(hw).startswith("road_"):
+            continue
+        if is_bridge_highway(hw) or is_tunnel_highway(hw):
+            continue
+        if hw not in widths:
+            widths[hw] = drawn_symbol_width_m(hw, preset_id, scale) / 2.0
+        line = [(float(x), float(y)) for x, y in coords]
+        for piece in clip_road_in_paved(line, network, core=core) if network is not None else [line]:
+            if len(piece) >= 2:
+                parts.append(LineString(piece).buffer(widths[hw] + reach))
+    return unary_union(parts) if parts else None
+
+
 _PAVED_NETWORK_CACHE: dict[tuple, object] = {}
 
 
@@ -4790,9 +4848,14 @@ def build_osm_feature_parts(
             from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_corridor_geometry
 
             feats = cut_osm_paved_by_geometry(feats, mtbo_corridor_geometry(work_dir, scale, "mixed"))
+    edge_omit_zone = None
     if not preset_id.startswith("sprint"):
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
-        feats, _network = build_paved_network(feats, _paths_features_for_network(work_dir))
+        _path_feats = _paths_features_for_network(work_dir)
+        feats, _network = build_paved_network(feats, _path_feats)
+        if not preset_id.startswith("mtbo"):
+            # Les: okraj 501.2 se nekreslí tam, kde by splýval se silnicí.
+            edge_omit_zone = paved_edge_omit_zone(_path_feats, _network, preset_id=preset_id, scale=scale)
     feats = [
         f
         for f in feats
@@ -5009,7 +5072,9 @@ def build_osm_feature_parts(
                     edge_index = symbol_cache[ISOM_PAVED_EDGE_CODE]
                     if edge_index is not None:
                         grouped[kind].extend(
-                            _paved_edge_objects(edge_index, orig_rings, clip_bounds, to_map)
+                            _paved_edge_objects(
+                                edge_index, orig_rings, clip_bounds, to_map, omit_zone=edge_omit_zone
+                            )
                         )
             fill_index = olive_index if courtyard_fill == "olive" else symbol_index
             if (

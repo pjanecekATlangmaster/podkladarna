@@ -205,3 +205,41 @@ def test_sprint_road_over_parking_unchanged(tmp_path):
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
     lengths = _path_lengths(tmp_path, preset="sprint_2m", scale=4000)
     assert sum(lengths.values()) == pytest.approx(140, abs=1.0)
+
+
+def _edge_length(parts, preset="forest_10000", scale=10000):
+    import re
+
+    import app.pipeline.oom_symbol_map as sm
+
+    edge_id = sm._code_to_index(sm.symbol_set_path(preset, scale))["501.2"]
+    total = 0.0
+    for p in parts:
+        for m in re.finditer(rf'<object\b[^>]*\bsymbol="{edge_id}".*?<coords[^>]*>(.*?)</coords>', p.objects_xml, re.DOTALL):
+            pts = [tuple(int(v) for v in c.split()[:2]) for c in m.group(1).split(";") if c.strip()]
+            total += sum(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 for a, b in zip(pts, pts[1:]))
+    return total / 1000.0 * scale / 1000.0
+
+
+def test_edge_omitted_along_road(tmp_path):
+    # Parkoviště 40 × 40 m, silnice podél spodní hrany 3 m od ní: tam okraj nekreslit.
+    road = _line([(-50, -3), (90, -3)], "road_2")
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    length = _edge_length(parts)
+    assert length < 160 - 30  # spodní hrana (40 m) a kousky boků chybí
+    assert length > 100  # horní hrana a většina boků zůstává
+    # Bez silnice celý obvod.
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [])
+    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    assert _edge_length(parts) == pytest.approx(160, abs=1.0)
+
+
+def test_edge_kept_along_road_inside_parking(tmp_path):
+    # Jízdní pruh uvnitř parkoviště (nekreslí se) okraj nemaže; vjezd ano jen kolem napojení.
+    road = _line([(-50, 20), (90, 20)], "road_2")
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
+    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    length = _edge_length(parts)
+    assert 160 - 2 * 25 < length < 160  # chybí jen okolí dvou vjezdů
