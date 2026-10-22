@@ -502,6 +502,12 @@ def test_osm_oom_code_paths_only():
     assert osm_oom_code("track", "forest_10000") == "504"
     assert osm_oom_code("steps", "sprint_2m") == "532.7"
     assert osm_oom_code("steps", "forest_10000") == "532"
+    from app.pipeline.osm_paths import osm_steps_draw_code
+
+    assert osm_steps_draw_code("forest_10000", 9.0) == "506"
+    assert osm_steps_draw_code("forest_10000", 10.0) == "532"
+    assert osm_steps_draw_code("mtbo_10000", 9.0) == "834"
+    assert osm_steps_draw_code("sprint_2m", 3.0) == "532.7"
     # Legacy highway bez tagů: místní silnice → road_3 (les 502).
     assert osm_oom_code("residential", "sprint_2m") == "501.31"
     assert osm_oom_code("residential", "forest_10000") == "502"
