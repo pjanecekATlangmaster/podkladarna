@@ -192,10 +192,12 @@ PATH_LINE_SOURCE_PRIORITY: dict[str, int] = {
 PEDESTRIAN_CORRIDOR_MAX_GAP_M = 12.0
 PEDESTRIAN_CORRIDOR_MIN_LEN_M = 25.0
 PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M = 20.0
-# Sousední pěší zóny (stejný typ) se sloučí, škvíra do tolika m se zacelí.
-# Pásy kolem way/60592678 × 60592718 mají mezi okraji až ~3,5 m — 1,5 m je nechalo
-# jako dvě plochy (čtyři okraje přes sebe).
+# Sousední pásy téže pěší ulice (way/60592678 × 60592718) se sloučí.
+# Pěší zóna (náměstí) se s ulicí nad ní neslévá — ta má vlastní kresbu.
 PEDESTRIAN_AREA_MERGE_GAP_M = 4.5
+PEDESTRIAN_PLAZA_MERGE_GAP_M = 1.5
+# Otevřená osa delší než širší aspoň tolikrát je pás (ulice), ne náměstí.
+PEDESTRIAN_BAND_RATIO = 4.0
 # Otevřená highway=pedestrian v lese/MTBO → pás plochy (ne linie 506/834).
 # Typická pěší zóna ~5 m; width= / est_width= z OSM má přednost.
 PEDESTRIAN_LINE_HALF_WIDTH_M = 2.5
@@ -501,26 +503,99 @@ def is_sliver_polygon(coords_rings: list) -> bool:
     return min(side_a, side_b) < SLIVER_MIN_WIDTH_M
 
 
+def _line_tails(line, start_m: float, end_m: float) -> list[list[tuple[float, float]]]:
+    """Kusy čáry před a za úsekem ``start_m``–``end_m`` (staničení v metrech)."""
+    from shapely.ops import substring
+
+    tails = []
+    spans = ((0.0, start_m), (end_m, line.length))
+    for a, b in spans:
+        if b - a < 1.0:
+            continue
+        piece = substring(line, max(0.0, a), min(line.length, b))
+        if piece.is_empty or piece.length < 1.0 or piece.geom_type != "LineString":
+            continue
+        tails.append([(float(x), float(y)) for x, y in piece.coords])
+    return tails
+
+
 def _pedestrian_corridor_polygon(coords_a: list, coords_b: list):
-    """Polygon mezi dvěma souběžnými čarami (shapely), nebo None."""
+    """Polygon jen tam, kde dvě čáry vedou vedle sebe.
+
+    Vrací ``(polygon, staničení A, staničení B)``. Čáry, které se jen míjejí
+    nebo se dál rozcházejí, polygon přes celou délku nedostanou.
+    """
     from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import substring
 
     if len(coords_a) < 2 or len(coords_b) < 2:
         return None
     a, b = LineString(coords_a), LineString(coords_b)
     if a.length < PEDESTRIAN_CORRIDOR_MIN_LEN_M or b.length < PEDESTRIAN_CORRIDOR_MIN_LEN_M:
         return None
-    # Stejný směr: začátek B blíž k začátku A než ke konci A.
-    if Point(b.coords[0]).distance(Point(a.coords[0])) > Point(b.coords[0]).distance(Point(a.coords[-1])):
-        b = LineString(list(b.coords)[::-1])
     gap = a.distance(b)
     if gap <= 0 or gap > PEDESTRIAN_CORRIDOR_MAX_GAP_M:
         return None
-    # Překryv podél delší čáry: společná projekce.
-    overlap = min(a.length, b.length)
-    if overlap < PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M:
+    steps = max(2, int(a.length / 5.0))
+    samples = []
+    for i in range(steps + 1):
+        dist_a = a.length * i / steps
+        point = a.interpolate(dist_a)
+        dist_b = b.project(point)
+        near = point.distance(b.interpolate(dist_b)) <= PEDESTRIAN_CORRIDOR_MAX_GAP_M
+        samples.append((dist_a, dist_b, near))
+    best: tuple[float, list[tuple[float, float]]] | None = None
+    run: list[tuple[float, float]] = []
+
+    def close_run() -> None:
+        nonlocal best, run
+        if len(run) >= 2:
+            length = run[-1][0] - run[0][0]
+            if length >= PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M and (best is None or length > best[0]):
+                best = (length, list(run))
+        run = []
+
+    prev_b = None
+    direction = 0
+    for dist_a, dist_b, near in samples:
+        if not near:
+            close_run()
+            prev_b = None
+            direction = 0
+            continue
+        if prev_b is not None and run:
+            delta = dist_b - prev_b
+            if direction == 0 and abs(delta) > 0.5:
+                direction = 1 if delta > 0 else -1
+            elif direction and direction * delta < -2.0:
+                close_run()
+                direction = 0
+                prev_b = None
+                continue
+        run.append((dist_a, dist_b))
+        prev_b = dist_b
+    close_run()
+    if best is None:
         return None
-    ring = list(a.coords) + list(b.coords)[::-1] + [a.coords[0]]
+    _length, run = best
+    a0, a1 = run[0][0], run[-1][0]
+    b0, b1 = min(run[0][1], run[-1][1]), max(run[0][1], run[-1][1])
+    if a1 - a0 < PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M or b1 - b0 < PEDESTRIAN_CORRIDOR_MIN_LEN_M * 0.5:
+        return None
+    part_a = substring(a, a0, a1)
+    part_b = substring(b, b0, b1)
+    if part_a.length < PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M or part_b.length < 1.0:
+        return None
+    if Point(part_b.coords[0]).distance(Point(part_a.coords[0])) > Point(part_b.coords[-1]).distance(
+        Point(part_a.coords[0])
+    ):
+        part_b = LineString(list(part_b.coords)[::-1])
+    ax, ay = part_a.coords[-1][0] - part_a.coords[0][0], part_a.coords[-1][1] - part_a.coords[0][1]
+    bx, by = part_b.coords[-1][0] - part_b.coords[0][0], part_b.coords[-1][1] - part_b.coords[0][1]
+    norm = math.hypot(ax, ay) * math.hypot(bx, by)
+    if norm <= 0 or abs(ax * bx + ay * by) / norm < 0.75:
+        return None
+    ring = list(part_a.coords) + list(part_b.coords)[::-1] + [part_a.coords[0]]
     try:
         poly = Polygon(ring)
         poly = poly if poly.is_valid else poly.buffer(0)
@@ -528,9 +603,9 @@ def _pedestrian_corridor_polygon(coords_a: list, coords_b: list):
         return None
     if poly.is_empty or poly.geom_type not in {"Polygon", "MultiPolygon"}:
         return None
-    if poly.area < gap * PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M * 0.5:
+    if poly.area > part_a.length * (PEDESTRIAN_CORRIDOR_MAX_GAP_M + 1.0) * 1.8:
         return None
-    return poly
+    return poly, a0, a1, b0, b1
 
 
 def merge_parallel_pedestrian_to_areas(
@@ -550,34 +625,160 @@ def merge_parallel_pedestrian_to_areas(
         return osm_items, []
     used: set[int] = set()
     areas: list[list[list[tuple[float, float]]]] = []
+    tails: list[tuple[list[tuple[float, float]], str]] = []
     for ai, i in enumerate(walk_idx):
         if i in used:
             continue
         best_j = None
-        best_poly = None
+        best = None
         for j in walk_idx[ai + 1 :]:
             if j in used:
                 continue
-            poly = _pedestrian_corridor_polygon(osm_items[i][0], osm_items[j][0])
-            if poly is None:
+            found = _pedestrian_corridor_polygon(osm_items[i][0], osm_items[j][0])
+            if found is None:
                 continue
-            if best_poly is None or poly.area > best_poly.area:
-                best_poly, best_j = poly, j
-        if best_j is None or best_poly is None:
+            poly = found[0]
+            if best is None or poly.area > best[0].area:
+                best, best_j = found, j
+        if best_j is None or best is None:
             continue
+        poly, a0, a1, b0, b1 = best
         used.add(i)
         used.add(best_j)
-        polys = [best_poly] if best_poly.geom_type == "Polygon" else list(best_poly.geoms)
-        for poly in polys:
-            if poly.geom_type != "Polygon" or poly.is_empty:
+        from shapely.geometry import LineString
+
+        hw_i = osm_items[i][1]
+        hw_j = osm_items[best_j][1]
+        for coords in _line_tails(LineString(osm_items[i][0]), a0, a1):
+            tails.append((coords, hw_i))
+        for coords in _line_tails(LineString(osm_items[best_j][0]), b0, b1):
+            tails.append((coords, hw_j))
+        polys = [poly] if poly.geom_type == "Polygon" else list(poly.geoms)
+        for part in polys:
+            if part.geom_type != "Polygon" or part.is_empty:
                 continue
-            exterior = [(float(x), float(y)) for x, y in poly.exterior.coords]
-            holes = [[(float(x), float(y)) for x, y in r.coords] for r in poly.interiors]
+            exterior = [(float(x), float(y)) for x, y in part.exterior.coords]
+            holes = [[(float(x), float(y)) for x, y in r.coords] for r in part.interiors]
             areas.append([exterior, *holes])
     if not used:
         return osm_items, []
     kept = [item for i, item in enumerate(osm_items) if i not in used]
+    kept.extend(tails)
     return kept, areas
+
+
+def _pedestrian_form(geom, props: dict | None = None) -> str:
+    """``band`` = protáhlá ulice / osa, ``plaza`` = pěší zóna. Neslévají se spolu."""
+    props = props or {}
+    if props.get("form") == "band":
+        return "band"
+    if props.get("form") == "plaza":
+        return "plaza"
+    try:
+        rect = geom.minimum_rotated_rectangle
+        pts = list(rect.exterior.coords)
+        sides = []
+        for a, b in zip(pts, pts[1:]):
+            sides.append(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5)
+        sides.sort(reverse=True)
+        if len(sides) >= 3 and sides[2] > 0 and sides[0] / sides[2] >= PEDESTRIAN_BAND_RATIO:
+            return "band"
+    except Exception:
+        pass
+    return "plaza"
+
+
+def _merge_pedestrian_group(geoms: list, gap_m: float) -> list:
+    from shapely.ops import unary_union
+
+    geoms = [g for g in geoms if g is not None and not g.is_empty]
+    if not geoms:
+        return []
+    merged = unary_union(geoms)
+    if gap_m > 0 and len(geoms) > 1:
+        merged = merged.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2)
+    return [p for p in _as_polygons(merged) if p.area >= SLIVER_MIN_AREA_M2]
+
+
+def _band_axis(geom) -> tuple[float, float] | None:
+    """Jednotkový směr delší strany opsaného obdélníku."""
+    try:
+        rect = geom.minimum_rotated_rectangle
+        pts = list(rect.exterior.coords)
+    except Exception:
+        return None
+    best = None
+    best_len = -1.0
+    for a, b in zip(pts, pts[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = dx * dx + dy * dy
+        if length > best_len:
+            best_len = length
+            best = (dx, dy)
+    if best is None or best_len <= 0:
+        return None
+    norm = best_len ** 0.5
+    return (best[0] / norm, best[1] / norm)
+
+
+def _axis_overlap_m(a, b, axis: tuple[float, float]) -> float:
+    ax, ay = axis
+
+    def span(geom) -> tuple[float, float] | None:
+        coords = []
+        parts = geom.geoms if geom.geom_type == "MultiPolygon" else [geom]
+        for part in parts:
+            if part.geom_type != "Polygon":
+                continue
+            coords.extend(part.exterior.coords)
+        if not coords:
+            return None
+        vals = [x * ax + y * ay for x, y in coords]
+        return min(vals), max(vals)
+
+    sa, sb = span(a), span(b)
+    if sa is None or sb is None:
+        return 0.0
+    return min(sa[1], sb[1]) - max(sa[0], sb[0])
+
+
+def _merge_parallel_bands(bands: list, gap_m: float) -> list:
+    """Sloučí jen rovnoběžné pásy (škvíra mezi dvěma osami). Křižovatka zůstane dvě plochy."""
+    bands = [g for g in bands if g is not None and not g.is_empty]
+    if len(bands) <= 1:
+        return _merge_pedestrian_group(bands, 0)
+    parent = list(range(len(bands)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    axes = [_band_axis(g) for g in bands]
+    for i in range(len(bands)):
+        if axes[i] is None:
+            continue
+        for j in range(i + 1, len(bands)):
+            if axes[j] is None:
+                continue
+            dot = abs(axes[i][0] * axes[j][0] + axes[i][1] * axes[j][1])
+            if dot < 0.85:
+                continue
+            dist = bands[i].distance(bands[j])
+            if dist > gap_m:
+                continue
+            # Navazující kus téže ulice se dotýká; souběžné osy musí mít společný úsek.
+            if dist > 0.4 and _axis_overlap_m(bands[i], bands[j], axes[i]) < PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M:
+                continue
+            parent[find(i)] = find(j)
+    clusters: dict[int, list] = {}
+    for i, geom in enumerate(bands):
+        clusters.setdefault(find(i), []).append(geom)
+    out = []
+    for group in clusters.values():
+        out.extend(_merge_pedestrian_group(group, gap_m if len(group) > 1 else 0))
+    return out
 
 
 def merge_adjacent_pedestrian_area_features(
@@ -585,13 +786,19 @@ def merge_adjacent_pedestrian_area_features(
     *,
     gap_m: float = PEDESTRIAN_AREA_MERGE_GAP_M,
 ) -> list[dict]:
-    """Sloučí sousední ``pedestrian_area`` (škvíra ≤ ``gap_m``) do souvislé zpevněné plochy s jedním okrajem."""
+    """Sloučí sousední pásy pěší ulice a zvlášť sousední pěší zóny.
+
+    Pás (otevřená osa, protáhlý ``area:highway``) a náměstí se nespojují — ulice nad
+    zónou zůstane samostatná plocha. ``gap_m`` je škvíra mezi pásy; zóny berou užší
+    ``PEDESTRIAN_PLAZA_MERGE_GAP_M``.
+    """
     try:
-        from shapely.geometry import mapping, shape
+        from shapely.geometry import shape
         from shapely.ops import unary_union
     except ImportError:
         return features
-    paved: list = []
+    bands: list = []
+    plazas: list = []
     rest: list[dict] = []
     for feat in features:
         props = feat.get("properties") or {}
@@ -601,29 +808,41 @@ def merge_adjacent_pedestrian_area_features(
             continue
         try:
             g = shape(geom)
-            paved.append(g if g.is_valid else g.buffer(0))
+            g = g if g.is_valid else g.buffer(0)
         except (ValueError, TypeError):
             rest.append(feat)
-    if len(paved) < 2:
-        return features
-    merged = unary_union(paved)
-    if gap_m > 0:
-        merged = merged.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2)
-    if merged.is_empty:
-        return features
-    out = list(rest)
-    polys = [merged] if merged.geom_type == "Polygon" else [g for g in getattr(merged, "geoms", []) if g.geom_type == "Polygon"]
-    for poly in polys:
-        if poly.is_empty or poly.area < SLIVER_MIN_AREA_M2:
             continue
-        gj = mapping(poly)
-        out.append(
-            {
-                "type": "Feature",
-                "properties": {"source": "osm", "kind": "pedestrian_area", "oom_code": "501"},
-                "geometry": gj,
-            }
-        )
+        if g.is_empty:
+            continue
+        if _pedestrian_form(g, props) == "band":
+            bands.append(g)
+        else:
+            plazas.append(g)
+    if not bands and not plazas:
+        return features
+    # Pás, který skoro celý leží v zóně, je její druhá kresba — připojí se k ní.
+    kept_bands: list = []
+    for band in bands:
+        host = None
+        for i, plaza in enumerate(plazas):
+            if band.intersection(plaza).area >= 0.4 * band.area:
+                host = i
+                break
+        if host is None:
+            kept_bands.append(band)
+        else:
+            plazas[host] = unary_union([plazas[host], band])
+    out = list(rest)
+    for poly in _merge_parallel_bands(kept_bands, gap_m):
+        feat = _feature_from_polygon(poly, "pedestrian_area")
+        if feat:
+            feat["properties"]["form"] = "band"
+            out.append(feat)
+    for poly in _merge_pedestrian_group(plazas, PEDESTRIAN_PLAZA_MERGE_GAP_M):
+        feat = _feature_from_polygon(poly, "pedestrian_area")
+        if feat:
+            feat["properties"]["form"] = "plaza"
+            out.append(feat)
     return out
 
 
@@ -675,7 +894,12 @@ def pedestrian_line_area_feature(
         return None
     return {
         "type": "Feature",
-        "properties": {"source": "osm", "kind": "pedestrian_area", "oom_code": "501"},
+        "properties": {
+            "source": "osm",
+            "kind": "pedestrian_area",
+            "oom_code": "501",
+            "form": "band",
+        },
         "geometry": mapping(band),
     }
 
@@ -775,7 +999,7 @@ def absorb_sidewalks_beside_paved(
     if priority_roads is not None and not getattr(priority_roads, "is_empty", True):
         dtm_zone = priority_roads.buffer(CORRIDOR_NEAR_M)
 
-    ped_geoms = []
+    ped_polys: list[tuple] = []
     rest_feats: list[dict] = []
     for feat in features:
         props = feat.get("properties") or {}
@@ -785,13 +1009,13 @@ def absorb_sidewalks_beside_paved(
                 from shapely.geometry import shape
 
                 g = shape(geom)
-                ped_geoms.append(g if g.is_valid else g.buffer(0))
+                g = g if g.is_valid else g.buffer(0)
+                if not g.is_empty:
+                    ped_polys.append((g, _pedestrian_form(g, props)))
             except (ValueError, TypeError):
                 rest_feats.append(feat)
         else:
             rest_feats.append(feat)
-    ped = unary_union(ped_geoms) if ped_geoms else None
-    ped_zone = ped.buffer(PEDESTRIAN_AREA_MERGE_GAP_M) if ped is not None and not ped.is_empty else None
 
     road_polys = []
     if priority_roads is not None and not getattr(priority_roads, "is_empty", True):
@@ -805,6 +1029,7 @@ def absorb_sidewalks_beside_paved(
         half = max(1.0, drawn_width_m(hw) / 2.0)
         road_polys.append(LineString(pts).buffer(half, cap_style=2, join_style=2))
     roads = unary_union(road_polys) if road_polys else None
+    road_near = roads.buffer(CORRIDOR_NEAR_M) if roads is not None else None
 
     new_items: list[tuple[list[tuple[float, float]], str]] = []
     sw_for_road = []
@@ -833,32 +1058,38 @@ def absorb_sidewalks_beside_paved(
         pending = [list(pts)]
         if dtm_zone is not None:
             pending = [seg for ln in pending for seg in clip_outside(ln, dtm_zone, min_len_m=1.0)]
-        absorbed_ped = []
-        after_ped = []
+        # Nejdřív ulice: chodník podél silnice patří k ní, ne do pěší zóny nad ní.
+        after_road = []
         for seg in pending:
-            runs, rest = _line_long_runs(seg, ped_zone, SIDEWALK_BESIDE_MIN_RUN_M)
-            absorbed_ped.extend(runs)
-            after_ped.extend(rest)
-        if absorbed_ped and ped is not None:
-            extra = unary_union([ln.buffer(0.7, cap_style=2, join_style=2) for ln in absorbed_ped])
-            ped = unary_union([ped, extra])
-            ped_zone = ped.buffer(PEDESTRIAN_AREA_MERGE_GAP_M)
-        for seg in after_ped:
-            runs, rest = _line_long_runs(
-                seg, roads.buffer(CORRIDOR_NEAR_M) if roads is not None else None, SIDEWALK_BESIDE_MIN_RUN_M
-            )
+            runs, rest = _line_long_runs(seg, road_near, SIDEWALK_BESIDE_MIN_RUN_M)
             sw_for_road.extend(runs)
-            for piece in rest:
-                if len(piece) >= 2:
-                    new_items.append((piece, hw))
-
-    if ped is not None and not ped.is_empty:
-        for poly in _as_polygons(ped):
-            feat = _feature_from_polygon(poly, "pedestrian_area")
-            if feat:
-                rest_feats.append(feat)
+            after_road.extend(rest)
+        for seg in after_road:
+            buf_host = None
+            if ped_polys and len(seg) >= 2:
+                line = LineString(seg)
+                best_i, best_d = None, PEDESTRIAN_PLAZA_MERGE_GAP_M
+                for i, (poly, _form) in enumerate(ped_polys):
+                    dist = line.distance(poly)
+                    if dist < best_d:
+                        best_i, best_d = i, dist
+                if best_i is not None:
+                    runs, rest = _line_long_runs(
+                        seg, ped_polys[best_i][0].buffer(PEDESTRIAN_PLAZA_MERGE_GAP_M), SIDEWALK_BESIDE_MIN_RUN_M
+                    )
+                    if runs:
+                        extra = unary_union([ln.buffer(0.7, cap_style=2, join_style=2) for ln in runs])
+                        ped_polys[best_i] = (unary_union([ped_polys[best_i][0], extra]), ped_polys[best_i][1])
+                        buf_host = True
+                        for piece in rest:
+                            if len(piece) >= 2:
+                                new_items.append((piece, hw))
+            if buf_host is None:
+                if len(seg) >= 2:
+                    new_items.append((seg, hw))
 
     interface = None
+    merged = None
     if sw_for_road and roads is not None:
         sw_poly = unary_union([ln.buffer(0.7, cap_style=2, join_style=2) for ln in sw_for_road])
         # DTM část silnice už má vlastní sloučení — do OSM výplně jde jen to, co DTM nepokrývá.
@@ -885,6 +1116,19 @@ def absorb_sidewalks_beside_paved(
                 for piece in clip_outside(pts, merged, min_len_m=1.0):
                     covered.append((piece, hw))
             new_items = covered
+
+    barrier = None
+    if roads is not None and not roads.is_empty:
+        barrier = roads
+    if merged is not None and not merged.is_empty:
+        barrier = merged if barrier is None else unary_union([barrier, merged])
+    for poly, form in ped_polys:
+        geom = poly if barrier is None else poly.difference(barrier)
+        for piece in _as_polygons(geom):
+            feat = _feature_from_polygon(piece, "pedestrian_area")
+            if feat:
+                feat["properties"]["form"] = form
+                rest_feats.append(feat)
 
     if interface is not None and not interface.is_empty:
         bits = (
@@ -3574,7 +3818,12 @@ def prepare_osm_paths(
         features.append(
             {
                 "type": "Feature",
-                "properties": {"source": "osm", "kind": "pedestrian_area", "oom_code": "501"},
+                "properties": {
+                    "source": "osm",
+                    "kind": "pedestrian_area",
+                    "oom_code": "501",
+                    "form": "band",
+                },
                 "geometry": {"type": "Polygon", "coordinates": [[[x, y] for x, y in ring] for ring in rings]},
             }
         )

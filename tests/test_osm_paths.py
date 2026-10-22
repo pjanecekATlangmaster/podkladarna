@@ -1313,6 +1313,17 @@ def test_parallel_pedestrian_lines_become_one_paved_area():
     assert areas2 == [] and len(kept2) == 2
 
 
+def test_diverging_sidewalks_do_not_become_one_stretched_area():
+    """Čáry, které se jen na chvíli přiblíží a pak se rozejdou, nevyplní celý klín."""
+    from app.pipeline.osm_paths import merge_parallel_pedestrian_to_areas
+
+    beside = [(0.0, 0.0), (100.0, 0.0)]
+    diverging = [(0.0, 8.0), (100.0, 80.0)]
+    kept, areas = merge_parallel_pedestrian_to_areas([(beside, "sidewalk"), (diverging, "sidewalk")])
+    assert areas == []
+    assert len(kept) == 2
+
+
 def test_parallel_pedestrian_bands_merge_into_one_area():
     """way/60592678 × 60592718: dva pásy ~7 m od sebe → jedna plocha, ne čtyři okraje."""
     from app.pipeline.osm_paths import (
@@ -1401,6 +1412,62 @@ def test_path_beside_building_is_offset_parallel_approach_stays():
     short = offset_line_from_buildings([(0.0, 10.3), (4.0, 10.3)], wall, clear)
     assert short[0][1] == pytest.approx(10.3)
     assert building_clearance_m(10000) == pytest.approx(3.5)
+
+
+def test_crossing_pedestrian_streets_stay_separate():
+    """Křížení dvou pěších ulic není jedna roztažená plocha."""
+    from app.pipeline.osm_paths import (
+        merge_adjacent_pedestrian_area_features,
+        pedestrian_line_area_feature,
+    )
+
+    horizontal = pedestrian_line_area_feature([(0.0, 0.0), (80.0, 0.0)])
+    vertical = pedestrian_line_area_feature([(40.0, -40.0), (40.0, 40.0)])
+    out = merge_adjacent_pedestrian_area_features([horizontal, vertical])
+    ped = [f for f in out if f["properties"]["kind"] == "pedestrian_area"]
+    assert len(ped) == 2
+
+
+def test_plaza_stays_separate_from_street_band():
+    """Pěší zóna a ulice nad ní (pás) se neslijí do jedné roztažené plochy."""
+    from app.pipeline.osm_paths import (
+        merge_adjacent_pedestrian_area_features,
+        pedestrian_line_area_feature,
+    )
+
+    plaza = {
+        "type": "Feature",
+        "properties": {"kind": "pedestrian_area", "oom_code": "501", "form": "plaza"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[0, 0], [40, 0], [40, 30], [0, 30], [0, 0]]],
+        },
+    }
+    street = pedestrian_line_area_feature([(0.0, 36.0), (40.0, 36.0)])
+    out = merge_adjacent_pedestrian_area_features([plaza, street])
+    ped = [f for f in out if f["properties"]["kind"] == "pedestrian_area"]
+    assert len(ped) == 2
+    assert {f["properties"]["form"] for f in ped} == {"plaza", "band"}
+
+
+def test_pedestrian_zone_is_cut_by_the_street():
+    """Ulice přes okraj pěší zóny se z ní vyřízne a kreslí se zvlášť."""
+    from shapely.geometry import shape
+
+    from app.pipeline.osm_paths import absorb_sidewalks_beside_paved
+
+    plaza = {
+        "type": "Feature",
+        "properties": {"kind": "pedestrian_area", "form": "plaza", "oom_code": "501"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[0, 0], [40, 0], [40, 20], [0, 20], [0, 0]]],
+        },
+    }
+    features, _items = absorb_sidewalks_beside_paved([plaza], [([(0.0, 18.0), (40.0, 18.0)], "road_3")])
+    peds = [f for f in features if f["properties"]["kind"] == "pedestrian_area"]
+    assert len(peds) == 1
+    assert shape(peds[0]["geometry"]).bounds[3] < 17.0
 
 
 def test_merge_adjacent_pedestrian_areas_closes_gap():
