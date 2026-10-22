@@ -175,10 +175,41 @@ PATH_SOURCE_CHOICES = frozenset(
     {PATH_SOURCE_MIXED, PATH_SOURCE_ZABAGED, PATH_SOURCE_OSM}
 )
 
+# Priorita zdroje střednic cest při překryvu (vyšší vyhraje).
+# DTM je připravené na budoucí feed střednic silnic/chodníků; zatím se neplní
+# (``MTBO_USE_DTM`` / feed cest nezapínat naplocho). Po zapojení DTM stačí
+# přidat položky se ``PATH_LINE_SOURCE_DTM`` do ``dedup_path_lines``.
+# Pořadí: DTM > OSM > ZABAGED (mixed už dnes bere OSM před Pesina/Cesta).
+PATH_LINE_SOURCE_DTM = "dtm"
+PATH_LINE_SOURCE_OSM = "osm"
+PATH_LINE_SOURCE_ZABAGED = "zabaged"
+PATH_LINE_SOURCE_PRIORITY: dict[str, int] = {
+    PATH_LINE_SOURCE_DTM: 30,
+    PATH_LINE_SOURCE_OSM: 20,
+    PATH_LINE_SOURCE_ZABAGED: 10,
+}
+# area:highway=* tenčí než toto (m, kratší strana opsaného obdélníku) → střednice
+# do sítě cest (les/MTBO), ne plocha 501 vedle linie (way/60592702 × way/1408205238).
+AREA_HIGHWAY_CORRIDOR_MAX_WIDTH_M = 12.0
+
 
 def resolve_path_source(raw: str | None) -> str:
     val = (raw or PATH_SOURCE_MIXED).strip().lower()
     return val if val in PATH_SOURCE_CHOICES else PATH_SOURCE_MIXED
+
+
+def path_line_source_rank(source: str | None) -> int:
+    """Priorita zdroje střednice; neznámý zdroj = OSM (zpětná kompatibilita)."""
+    return PATH_LINE_SOURCE_PRIORITY.get(
+        (source or PATH_LINE_SOURCE_OSM).strip().lower(),
+        PATH_LINE_SOURCE_PRIORITY[PATH_LINE_SOURCE_OSM],
+    )
+
+
+def is_line_oriented_path_preset(preset_id: str) -> bool:
+    """Les / MTBO: cesty jako linie; area:highway koridory → střednice, ne 501 plocha."""
+    p = (preset_id or "").strip().lower()
+    return p.startswith(("forest", "mtbo", "les"))
 
 
 def osm_highway_set(path_source: str = PATH_SOURCE_MIXED) -> frozenset[str]:
@@ -466,6 +497,59 @@ def is_sliver_polygon(coords_rings: list) -> bool:
     side_a = ((pts[1][0] - pts[0][0]) ** 2 + (pts[1][1] - pts[0][1]) ** 2) ** 0.5
     side_b = ((pts[2][0] - pts[1][0]) ** 2 + (pts[2][1] - pts[1][1]) ** 2) ** 0.5
     return min(side_a, side_b) < SLIVER_MIN_WIDTH_M
+
+
+def _polygon_mrr_width_m(g) -> float | None:
+    """Kratší strana minimum rotated rectangle (m), nebo None."""
+    try:
+        pts = list(g.minimum_rotated_rectangle.exterior.coords)[:4]
+    except Exception:
+        return None
+    if len(pts) < 3:
+        return None
+    side_a = math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
+    side_b = math.hypot(pts[2][0] - pts[1][0], pts[2][1] - pts[1][1])
+    return min(side_a, side_b)
+
+
+def area_highway_corridor_centerline(
+    ring: list[tuple[float, float]],
+    *,
+    max_width_m: float = AREA_HIGHWAY_CORRIDOR_MAX_WIDTH_M,
+) -> list[tuple[float, float]] | None:
+    """Střednice tenkého ``area:highway`` koridoru, nebo None (široká plocha / selhání).
+
+    Les/MTBO: micromapping plochy chodníku (např. way/1408205238) se kreslí jako
+    linie a dedupuje se proti ``highway=pedestrian`` (way/60592702) → jedna cesta
+    v maximální délce, ne plocha 501 + paralelní linie.
+    """
+    if len(ring) < 4:
+        return None
+    try:
+        from shapely.geometry import Polygon
+
+        from app.pipeline.dtm_sidewalks import polygon_centerline
+    except ImportError:
+        return None
+    pts = list(ring)
+    if pts[0] != pts[-1]:
+        pts = pts + [pts[0]]
+    try:
+        g = Polygon(pts)
+        g = g if g.is_valid else g.buffer(0)
+    except (ValueError, TypeError):
+        return None
+    if g.is_empty or g.geom_type != "Polygon":
+        return None
+    width = _polygon_mrr_width_m(g)
+    if width is None or width >= max_width_m:
+        return None
+    center = polygon_centerline(g)
+    if center is None or len(center) < 2:
+        return None
+    if polyline_length(center) < MIN_LENGTH_M:
+        return None
+    return center
 
 
 # OSM plochy s ořezem proti ZABAGED (priorita ZABAGED).
@@ -1916,30 +2000,37 @@ def merge_osm_items_same_class(
     return out, len(items) - len(out)
 
 
-def dedup_osm_prefer_wider(
-    items: list[tuple[list[tuple[float, float]], str]],
+def dedup_path_lines(
+    items: list[tuple[list[tuple[float, float]], str, str]],
     *,
     match_m: float = MATCH_M,
     cover_drop: float = COVER_DROP,
-) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
-    """OSM×OSM: při shodné střednici nechá širší (track > path/footway).
+) -> tuple[list[tuple[list[tuple[float, float]], str, str]], int]:
+    """Dedup střednic cest napříč zdroji: priorita zdroje, pak šířka, pak max. délka.
 
-    Překryv se měří vůči **jedné** už ponechané linii (paralelní duplicita),
-    ne vůči celé síti – jinak krátká spojka mezi dvěma cestami (Motol
-    way/806853877 ~28 m) zmizí, protože ``MATCH_M`` ji „přikryje“ jen uzly.
+    Položka = ``(souřadnice, highway, source)`` kde ``source`` je klíč z
+    ``PATH_LINE_SOURCE_PRIORITY`` (``dtm`` / ``osm`` / ``zabaged``).
 
-    Lávky (``bridge``) se kvůli překryvu nikdy nezahazují.
+    Při shodné střednici zůstane jedna linie: vyšší ``PATH_LINE_SOURCE_PRIORITY``,
+    jinak širší (``highway_width_rank``), jinak delší. Překryv se měří vůči
+    **jedné** už ponechané linii (ne celé síti) – krátké spojky mezi cestami
+    (Motol way/806853877) se nezahazují. Lávky (``bridge``) nikdy.
+
+    Budoucí DTM feed: přidej střednice se ``source=PATH_LINE_SOURCE_DTM``;
+    při překryvu s OSM/ZABAGED vyhraje DTM a delší OSM úsek bez překryvu
+    zůstane jen pokud cover < ``cover_drop`` (max. pokrytí bez dvojité čáry).
     """
     ordered = sorted(
         items,
         key=lambda it: (
+            -path_line_source_rank(it[2]),
             -highway_width_rank(it[1]),
             -polyline_length(it[0]),
         ),
     )
-    kept: list[tuple[list[tuple[float, float]], str]] = []
+    kept: list[tuple[list[tuple[float, float]], str, str]] = []
     dropped = 0
-    for pts, hw in ordered:
+    for pts, hw, source in ordered:
         if polyline_length(pts) < path_min_length_m(hw):
             dropped += 1
             continue
@@ -1948,7 +2039,7 @@ def dedup_osm_prefer_wider(
             line_match_m = (
                 min(match_m, SHORT_LINE_MATCH_M) if polyline_length(pts) < SHORT_LINE_M else match_m
             )
-            for kpts, _khw in kept:
+            for kpts, _khw, _ksrc in kept:
                 idx = _SegmentIndex()
                 idx.add_line(kpts)
                 max_cover = max(
@@ -1960,8 +2051,20 @@ def dedup_osm_prefer_wider(
             if max_cover >= cover_drop:
                 dropped += 1
                 continue
-        kept.append((pts, hw))
+        kept.append((pts, hw, source))
     return kept, dropped
+
+
+def dedup_osm_prefer_wider(
+    items: list[tuple[list[tuple[float, float]], str]],
+    *,
+    match_m: float = MATCH_M,
+    cover_drop: float = COVER_DROP,
+) -> tuple[list[tuple[list[tuple[float, float]], str]], int]:
+    """OSM×OSM obálka ``dedup_path_lines`` (source=OSM): širší / delší při překryvu."""
+    tagged = [(pts, hw, PATH_LINE_SOURCE_OSM) for pts, hw in items]
+    kept, dropped = dedup_path_lines(tagged, match_m=match_m, cover_drop=cover_drop)
+    return [(pts, hw) for pts, hw, _src in kept], dropped
 
 
 def osm_way_to_5514(
@@ -2966,7 +3069,19 @@ def prepare_osm_paths(
                     skipped += 1
                     continue
                 code = classified[1]
+                # Les/MTBO: tenký area:highway koridor → střednice do cest (dedup
+                # s highway=pedestrian/footway), ne plocha 501 + paralelní linie.
+                as_corridor = (
+                    kind == "pedestrian_area"
+                    and _is_area_highway_paved_tags(tags)
+                    and is_line_oriented_path_preset(preset_id)
+                )
                 for rings in polygons:
+                    if as_corridor and rings:
+                        center = area_highway_corridor_centerline(rings[0])
+                        if center is not None:
+                            osm_items.append((center, "sidewalk"))
+                            continue
                     coords = [[[x, y] for x, y in ring] for ring in rings]
                     features.append(
                         {
