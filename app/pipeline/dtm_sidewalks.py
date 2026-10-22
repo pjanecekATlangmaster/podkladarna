@@ -73,6 +73,8 @@ STAIRS_COMPLEX_MIN_AREA_M2 = 4.0
 EDGE_SNAP_M = 1.5
 # Les a MTBO (1:7500–1:15000): schodiště z DTM kratší než toto (m) se nekreslí.
 STAIRS_MIN_LEN_NONSPRINT_M = 3.0
+# Les a MTBO: schody kratší než toto (m) ≈ jeden dílek schodišťového symbolu → kreslit jako pěšinu.
+STAIRS_AS_PATH_MAX_M = 10.0
 # Směr schodů se bere z nejbližší cesty do této vzdálenosti (m); osa se na každé straně prodlouží.
 STAIRS_REF_NEAR_M = 3.0
 # Schodiště protáhlejší než tento poměr stran se kreslí po střední ose (zachová zahnutí).

@@ -336,25 +336,22 @@ def build_dtm_stairs_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
-    """Schodiště z DTM jako čáry schodů (jedna čára na schodiště; sprint 532.7, les 532, MTBO 843).
+    """Schodiště z DTM jako čáry (jedna čára na schodiště; sprint 532.7, les 532, MTBO 843).
 
     Čára vede středem schodiště ve směru nejbližší cesty (OSM schody, pak ostatní cesty), takže
     navazuje na cestu. OSM čáry schodů se uvnitř schodišť z DTM nekreslí (viz ``build_osm_path_parts``).
+    Les a MTBO: krátké schody (~jeden dílek, pod ``STAIRS_AS_PATH_MAX_M``) jako pěšina, ne schodiště.
     """
     from shapely.geometry import LineString, Polygon
 
     from app.pipeline import dtm_sidewalks
-    from app.pipeline.osm_paths import _path_object
+    from app.pipeline.osm_paths import _path_object, osm_steps_draw_code, polyline_length
 
     if mtbo_dtm_off(preset_id) or not dtm_owns_stairs(work_dir):
         return []
-    from app.pipeline.osm_paths import osm_oom_code
 
     sprint = preset_id.startswith("sprint")
-    # Symbol podle presetu (sprint 532.7, les 532, MTBO 843); les a MTBO bez drobných schodišť.
-    idx = symbol_index_for_code(preset_id, scale, osm_oom_code("steps", preset_id))
-    if idx is None:
-        return []
+    # Les a MTBO bez drobných schodišť; symbol (schody vs pěšina) podle délky osy.
     min_len = dtm_sidewalks.STAIRS_MIN_LEN_M if sprint else dtm_sidewalks.STAIRS_MIN_LEN_NONSPRINT_M
     deck_clear = None
     foot = deck_footprint_geometry(work_dir) if sprint else None
@@ -373,7 +370,8 @@ def build_dtm_stairs_parts(
         elif not is_surface_road(hw):
             path_refs.append(LineString(coords))
     ref_lines = [steps_refs, path_refs]
-    objects = []
+    symbol_cache: dict[str, int | None] = {}
+    objects_by_code: dict[str, list[str]] = {}
     for poly in _load_polygons_file(stairs_path(work_dir)):
         try:
             g = Polygon(poly[0], poly[1:])
@@ -393,16 +391,26 @@ def build_dtm_stairs_parts(
         axes = dtm_sidewalks.clip_outside(axis, deck_clear, min_len) if deck_clear is not None else [axis]
         for ax in axes:
             for piece in clip_polyline(ax, clip_bounds) if clip_bounds else [ax]:
+                code = osm_steps_draw_code(preset_id, polyline_length(piece))
+                if code not in symbol_cache:
+                    symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
+                idx = symbol_cache[code]
+                if idx is None:
+                    continue
                 mapped = [
                     projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
                     for x, y in piece
                 ]
                 obj = _path_object(idx, mapped)
                 if obj:
-                    objects.append(obj)
+                    objects_by_code.setdefault(code, []).append(obj)
     parts: list[OomObjectPart] = []
-    if objects:
-        parts.append(OomObjectPart(name="DTM – schodiště (532.7)", objects_xml="\n".join(objects), count=len(objects)))
+    for code, objects in objects_by_code.items():
+        if code in {"532", "532.7", "843"}:
+            name = f"DTM – schodiště ({code})"
+        else:
+            name = f"DTM – krátké schodiště jako pěšina ({code})"
+        parts.append(OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects)))
     if complex_polys and sprint:
         from shapely.ops import unary_union
 

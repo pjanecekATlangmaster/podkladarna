@@ -1894,6 +1894,18 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     return "506"
 
 
+def osm_steps_draw_code(preset_id: str, length_m: float) -> str:
+    """Kód pro kreslení schodů: les/MTBO krátké (~jeden dílek) jako pěšina, sprint beze změny.
+
+    Prah délky je ``STAIRS_AS_PATH_MAX_M`` (~10 m). Delší schody zůstávají schodišťovým symbolem.
+    """
+    from app.pipeline.dtm_sidewalks import STAIRS_AS_PATH_MAX_M
+
+    if not preset_id.startswith("sprint") and length_m < STAIRS_AS_PATH_MAX_M:
+        return osm_oom_code("path", preset_id)
+    return osm_oom_code("steps", preset_id)
+
+
 def highway_width_rank(highway: str) -> int:
     """Vyšší = širší / preferovanější při překryvu střednic."""
     hw = (highway or "path").lower()
@@ -4112,22 +4124,26 @@ def build_osm_path_parts(
             if is_sidewalk_beside_road(hw, coords, road_zone):
                 continue
             beside_zone = sidewalk_parallel_zone(hw, coords, road_zone)
-        code = osm_oom_code(hw, preset_id)
-        if code not in symbol_cache:
-            symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
-        symbol_index = symbol_cache[code]
-        if symbol_index is None and not preset_uses_catalog(preset_id, scale):
-            # Fallback (jen staré sady): les/sprint 506; MTBO Path medium 834 (504–507
-            # jsou skryté). U katalogových sad se chybějící kód nenahrazuje – je
-            # zaznamenán v počítadle a vypsán varováním v logu jobu.
-            fallback = "834" if preset_id.startswith("mtbo") else "506"
-            if fallback not in symbol_cache:
-                symbol_cache[fallback] = symbol_index_for_code(
-                    preset_id, scale, fallback
-                )
-            symbol_index = symbol_cache[fallback]
-        if symbol_index is None:
-            continue
+        # Symbol u schodů se volí až podle délky dílku (les/MTBO krátké → pěšina).
+        steps_piece = is_surface_steps(hw)
+        code = osm_oom_code(hw, preset_id) if not steps_piece else None
+        symbol_index = None
+        if code is not None:
+            if code not in symbol_cache:
+                symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
+            symbol_index = symbol_cache[code]
+            if symbol_index is None and not preset_uses_catalog(preset_id, scale):
+                # Fallback (jen staré sady): les/sprint 506; MTBO Path medium 834 (504–507
+                # jsou skryté). U katalogových sad se chybějící kód nenahrazuje – je
+                # zaznamenán v počítadle a vypsán varováním v logu jobu.
+                fallback = "834" if preset_id.startswith("mtbo") else "506"
+                if fallback not in symbol_cache:
+                    symbol_cache[fallback] = symbol_index_for_code(
+                        preset_id, scale, fallback
+                    )
+                symbol_index = symbol_cache[fallback]
+            if symbol_index is None:
+                continue
         line = [(float(x), float(y)) for x, y in coords]
         lines = [line]
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian", "cycleway_paved"}:
@@ -4145,7 +4161,7 @@ def build_osm_path_parts(
         ):
             # Chodník / pěšina uvnitř koridoru je jeho součástí; sdílený provoz (kolo povoleno) zůstává.
             lines = clip_outside(line, corridor_zone)
-        elif stairs_zone is not None and is_surface_steps(hw):
+        elif stairs_zone is not None and steps_piece:
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
             lines = steps_keep(line, stairs_zone, sidewalk_cover)
         if deck_zone is not None and not is_tunnel_highway(hw):
@@ -4158,7 +4174,7 @@ def build_osm_path_parts(
                     lines = [seg for ln in lines for seg in clip_outside(ln, bridge_zone)]
             else:
                 # pod mostem se cesta nekreslí (schody s odstupem od hrany mostu)
-                zone = deck_zone_steps if is_surface_steps(hw) and deck_zone_steps is not None else deck_zone
+                zone = deck_zone_steps if steps_piece and deck_zone_steps is not None else deck_zone
                 lines = [seg for ln in lines for seg in clip_outside(ln, zone)]
         if beside_zone is not None:
             # Chodník souběžný se silnicí / parkovištěm jen na části: tam se nekreslí, zbytek zůstává.
@@ -4176,6 +4192,21 @@ def build_osm_path_parts(
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         for piece in pieces:
+            piece_idx = symbol_index
+            if steps_piece:
+                piece_code = osm_steps_draw_code(preset_id, polyline_length(piece))
+                if piece_code not in symbol_cache:
+                    symbol_cache[piece_code] = symbol_index_for_code(preset_id, scale, piece_code)
+                piece_idx = symbol_cache[piece_code]
+                if piece_idx is None and not preset_uses_catalog(preset_id, scale):
+                    fallback = "834" if preset_id.startswith("mtbo") else "506"
+                    if fallback not in symbol_cache:
+                        symbol_cache[fallback] = symbol_index_for_code(
+                            preset_id, scale, fallback
+                        )
+                    piece_idx = symbol_cache[fallback]
+                if piece_idx is None:
+                    continue
             mapped = [
                 projected_to_map_coord(
                     x,
@@ -4187,7 +4218,7 @@ def build_osm_path_parts(
                 )
                 for x, y in piece
             ]
-            obj = _path_object(symbol_index, mapped)
+            obj = _path_object(piece_idx, mapped)
             if obj:
                 objects.append(obj)
     # Sprint: ohraničení lávek přes jiné cesty symbolem 512.100 (vstup pod most).

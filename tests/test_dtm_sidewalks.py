@@ -908,9 +908,9 @@ def test_complex_c_shaped_stairs_are_left_to_the_mapper_as_area(tmp_path):
     names = [p.name for p in parts]
     assert names[0] == "DTM – schodiště (532.7)" and parts[0].count == 1  # jen přímé schodiště čárou
     assert any("složitá schodiště" in n for n in names)
-    # les / MTBO složitá schodiště nekreslí vůbec
+    # les / MTBO složitá schodiště nekreslí vůbec; přímé ≥10 m zůstává schodištěm (532)
     forest = di.build_dtm_stairs_parts(work, **{**kw, "preset_id": "forest_10000", "scale": 10000})
-    assert [p.name for p in forest] == ["DTM – schodiště (532.7)"] and forest[0].count == 1
+    assert [p.name for p in forest] == ["DTM – schodiště (532)"] and forest[0].count == 1
 
 
 def test_tiny_complex_stairs_are_dropped(tmp_path):
@@ -963,7 +963,8 @@ def test_forest_and_mtbo_use_dtm_stairs_with_own_symbol_and_min_length(tmp_path)
         json.dumps(
             {
                 "polygons": [
-                    [[list(p) for p in ring] for ring in _rect(-1000, -1000, -993, -997)],  # 7 × 3 m → kreslí se
+                    # 14 × 3 m → osa ≥10 m → schodišťový symbol
+                    [[list(p) for p in ring] for ring in _rect(-1000, -1000, -986, -997)],
                     [[list(p) for p in ring] for ring in _rect(-980, -1000, -978.5, -998.5)],  # 1,5 m → ne
                 ]
             }
@@ -982,10 +983,73 @@ def test_forest_and_mtbo_use_dtm_stairs_with_own_symbol_and_min_length(tmp_path)
     for preset, code in (("forest_10000", "532"), ("mtbo_10000", "843")):
         kw = dict(preset_id=preset, scale=10000, ref_x=-985.0, ref_y=-999.0, grivation_deg=0.0)
         parts = di.build_dtm_stairs_parts(work, **kw)
-        assert parts and parts[0].count == 1  # jen schodiště nad 3 m
+        assert parts and parts[0].count == 1  # jen schodiště nad 3 m (a ≥10 m → schody)
         assert f'symbol="{symbol_index_for_code(preset, 10000, code)}"' in parts[0].objects_xml
         paths = op.build_osm_path_parts(work, **kw)
         assert paths and paths[0].count == 3  # OSM schody přerušené dvěma schodišti z DTM: 3 kusy
+
+
+def test_forest_mtbo_short_stairs_drawn_as_path(tmp_path):
+    """Les/MTBO: schody pod ~10 m (jeden dílek) jako pěšina; sprint zůstává schodištěm."""
+    from app.pipeline import osm_paths as op
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "stairs.json").write_text(
+        json.dumps(
+            {
+                "polygons": [
+                    # 7 × 3 m → osa ~7,6 m < 10 m → les/MTBO pěšina
+                    [[list(p) for p in ring] for ring in _rect(-1000, -1000, -993, -997)],
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    short_steps = {
+        "type": "Feature",
+        "properties": {"highway": "steps"},
+        "geometry": {"type": "LineString", "coordinates": [[0.0, 0.0], [8.0, 0.0]]},
+    }
+    long_steps = {
+        "type": "Feature",
+        "properties": {"highway": "steps"},
+        "geometry": {"type": "LineString", "coordinates": [[0.0, 20.0], [15.0, 20.0]]},
+    }
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [short_steps, long_steps]}),
+        encoding="utf-8",
+    )
+
+    assert op.osm_steps_draw_code("forest_10000", 9.9) == "506"
+    assert op.osm_steps_draw_code("forest_10000", 10.0) == "532"
+    assert op.osm_steps_draw_code("mtbo_10000", 5.0) == "834"
+    assert op.osm_steps_draw_code("mtbo_10000", 12.0) == "843"
+    assert op.osm_steps_draw_code("sprint_4000", 5.0) == "532.7"
+
+    for preset, path_code, steps_code in (
+        ("forest_10000", "506", "532"),
+        ("mtbo_10000", "834", "843"),
+    ):
+        kw = dict(preset_id=preset, scale=10000, ref_x=-996.5, ref_y=-998.5, grivation_deg=0.0)
+        dtm_parts = di.build_dtm_stairs_parts(work, **kw)
+        assert len(dtm_parts) == 1 and "pěšina" in dtm_parts[0].name
+        assert f'symbol="{symbol_index_for_code(preset, 10000, path_code)}"' in dtm_parts[0].objects_xml
+
+        osm_kw = dict(preset_id=preset, scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+        # Bez DTM schodišť v AOI OSM (jiný výřez souřadnic) — stairs.json je daleko, zóna nezasáhne
+        paths = op.build_osm_path_parts(work, **osm_kw)
+        assert paths and paths[0].count == 2
+        xml = paths[0].objects_xml
+        assert f'symbol="{symbol_index_for_code(preset, 10000, path_code)}"' in xml
+        assert f'symbol="{symbol_index_for_code(preset, 10000, steps_code)}"' in xml
+
+    sprint_kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-996.5, ref_y=-998.5, grivation_deg=0.0)
+    sprint_dtm = di.build_dtm_stairs_parts(work, **sprint_kw)
+    assert sprint_dtm and "schodiště (532.7)" in sprint_dtm[0].name
+    assert f'symbol="{symbol_index_for_code("sprint_4000", 4000, "532.7")}"' in sprint_dtm[0].objects_xml
 
 
 def test_dtm_stairs_parts_draw_every_stair_and_osm_steps_only_outside(tmp_path):
