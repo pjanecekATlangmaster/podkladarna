@@ -4100,6 +4100,37 @@ def drawn_width_m(highway: str) -> float:
     return 1.0
 
 
+# Les a MTBO: mezi kresbou dvou souběžných čar (silnice × chodník, okraj plochy × silnice) musí zůstat aspoň
+# tolik mm bílé, jinak čáry splynou a nejsou čitelné.
+LINE_MIN_GAP_MM = 0.25
+# Okraj zpevněné plochy (ISOM 501.2 0,14 mm), když ho sada nemá (MTBO kreslí okraj v 501.0).
+PAVED_EDGE_FALLBACK_MM = 0.14
+
+
+def mm_to_ground_m(mm: float, scale: int) -> float:
+    """Délka na papíře (mm) → metry v terénu pro dané měřítko."""
+    return mm * scale / 1000.0
+
+
+def drawn_symbol_width_m(highway: str, preset_id: str, scale: int) -> float:
+    """Šířka kresby cesty v terénu (m) podle skutečné šířky symbolu v sadě; bez symbolu ``drawn_width_m``."""
+    from app.pipeline.oom_symbol_map import symbol_line_width_mm
+
+    code = osm_oom_code(highway, preset_id)
+    mm = symbol_line_width_mm(preset_id, scale, code) if code else None
+    if not mm:
+        return drawn_width_m(highway)
+    return mm_to_ground_m(mm, scale)
+
+
+def paved_edge_width_m(preset_id: str, scale: int) -> float:
+    """Šířka okraje zpevněné plochy 501.2 v terénu (m)."""
+    from app.pipeline.oom_symbol_map import symbol_line_width_mm
+
+    mm = symbol_line_width_mm(preset_id, scale, ISOM_PAVED_EDGE_CODE) or PAVED_EDGE_FALLBACK_MM
+    return mm_to_ground_m(mm, scale)
+
+
 def bridge_entrance_edges(
     items: list[tuple[list[tuple[float, float]], str]],
 ) -> list[list[tuple[float, float]]]:

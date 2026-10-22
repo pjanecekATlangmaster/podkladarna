@@ -161,6 +161,44 @@ def preset_uses_catalog(preset_id: str, scale: int) -> bool:
     return _uses_catalog(symbol_set_path(preset_id, scale))
 
 
+@lru_cache(maxsize=8)
+def _line_extents_um(symbol_set: Path) -> dict[str, float]:
+    """Kód symbolu → celková šířka kresby čáry (µm na papíře) včetně okrajů ``border``.
+
+    Kombinovaný symbol (např. 502.x: černá linie + výplň s okraji) = nejširší z částí.
+    """
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(symbol_set).getroot()
+    ns = root.tag.split("}")[0] + "}" if root.tag.startswith("{") else ""
+    out: dict[str, float] = {}
+    for sym in root.iter(f"{ns}symbol"):
+        code = sym.get("code")
+        if not code or not sym.get("id"):
+            continue
+        half = 0.0
+        for line in sym.iter(f"{ns}line_symbol"):
+            lw = float(line.get("line_width") or 0) / 2.0
+            half = max(half, lw)
+            for border in line.iter(f"{ns}border"):
+                bw = float(border.get("width") or 0)
+                shift = float(border.get("shift") or 0)
+                half = max(half, lw + shift + bw / 2.0)
+        if half > 0:
+            out[code] = 2.0 * half
+    return out
+
+
+def symbol_line_width_mm(preset_id: str, scale: int, gen_code: str) -> float | None:
+    """Šířka kresby čárového symbolu (mm na papíře) podle skutečné sady, nebo None (není čára / chybí)."""
+    path = symbol_set_path(preset_id, scale)
+    code = _translate(path, gen_code) if _uses_catalog(path) else gen_code
+    if code is None:
+        return None
+    um = _line_extents_um(path).get(code)
+    return um / 1000.0 if um else None
+
+
 def display_code(preset_id: str, scale: int, gen_code: str) -> str:
     """Kód pro texty a atributy výstupu (kód sady; při neznámém kódu původní)."""
     path = symbol_set_path(preset_id, scale)
