@@ -314,3 +314,66 @@ def test_corridor_not_from_diverging_lines():
     items = [_walk([(0, 0), (60, 0)]), _walk([(0, 2), (60, 30)])]
     _kept, areas = op.merge_parallel_pedestrian_to_areas(items)
     assert areas == []
+
+
+def _write_dtm(tmp_path, name, rects):
+    import json
+
+    d = tmp_path / "dtm"
+    d.mkdir(exist_ok=True)
+    polys = [[[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] for x0, y0, x1, y1 in rects]
+    (d / name).write_text(json.dumps({"polygons": polys}), encoding="utf-8")
+
+
+def test_dtm_width_index_measures_strip():
+    from shapely.geometry import box
+
+    from app.pipeline.dtm_widths import WidthIndex
+
+    idx = WidthIndex([box(0, -3, 100, 3)])
+    assert idx.line_width([(0, 0), (100, 0)]) == pytest.approx(6.0)
+    assert idx.line_width([(0, 20), (100, 20)]) is None  # čára mimo plochu
+
+
+def test_width_line_code_rules():
+    from app.pipeline.dtm_widths import width_line_code
+
+    assert width_line_code("road_2", 8.0, "503") == "502.1"
+    assert width_line_code("road_2", 6.0, "503") == "502"
+    assert width_line_code("road_2", 4.0, "503") == "503"
+    assert width_line_code("road_2", None, "503") == "503"
+    assert width_line_code("footway", 3.0, "506") == "505"
+    assert width_line_code("footway", 1.5, "506") == "506"
+    assert width_line_code("track", 3.0, "504") == "504"
+
+
+def test_forest_symbols_from_dtm_width(tmp_path, monkeypatch):
+    # Silnice v OSM jako road_2 (503), v DTM 6 m široká → 502; pěšina 3 m → 505.
+    road = _line([(0, 0), (200, 0)], "road_2")
+    walk = _line([(0, 50), (200, 50)], "footway")
+    _write_job(tmp_path, [], [road, walk])
+    _write_dtm(tmp_path, "roads.json", [(-5, -3, 205, 3)])
+    _write_dtm(tmp_path, "sidewalks.json", [(-5, 48.5, 205, 51.5)])
+    lengths = _path_lengths(tmp_path)
+    assert lengths["502.2"] == pytest.approx(200, abs=1.0)  # generátor 502 = v sadě 502.2 (5–7 m)
+    assert lengths["505.0"] == pytest.approx(200, abs=1.0)
+
+
+def test_forest_wide_dtm_walk_becomes_paved_area(tmp_path):
+    # Pěší plocha z DTM 20 m široká → zpevněná plocha 501.1 + okraj, pěšina uvnitř se nekreslí.
+    walk = _line([(0, 50), (200, 50)], "footway")
+    _write_job(tmp_path, [], [walk])
+    _write_dtm(tmp_path, "sidewalks.json", [(0, 40, 200, 60)])
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    cnt = _codes(parts, "forest_10000", 10000)
+    assert cnt["501.1"] == 1
+    assert sum(_path_lengths(tmp_path).values()) == pytest.approx(0, abs=1.0)
+
+
+def test_mtbo_ignores_dtm_widths(tmp_path):
+    road = _line([(0, 0), (200, 0)], "road_2")
+    _write_job(tmp_path, [], [road])
+    _write_dtm(tmp_path, "roads.json", [(-5, -5, 205, 5)])
+    lengths = _path_lengths(tmp_path, preset="mtbo_10000")
+    assert len(lengths) == 1  # jeden symbol podle tagů, DTM se v MTBO nepoužívá

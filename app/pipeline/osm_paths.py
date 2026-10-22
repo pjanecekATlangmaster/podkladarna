@@ -4285,12 +4285,29 @@ def road_clip_geometry(feats: list[dict]):
 _PAVED_NETWORK_CACHE: dict[tuple, tuple] = {}
 
 
-def _paved_network_cached(work_dir: Path) -> tuple:
+def uses_dtm_widths(preset_id: str) -> bool:
+    """Bere se šířka cest z DTM (les; MTBO jen se zapnutým ``MTBO_USE_DTM``; sprint kreslí DTM plochou sám)?"""
+    from app.pipeline.dtm_import import mtbo_dtm_off
+
+    return not preset_id.startswith("sprint") and not mtbo_dtm_off(preset_id)
+
+
+def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
+    """Les: k prvkům přidá široké pěší plochy z DTM (``dtm_widths.wide_walk_area_features``)."""
+    if not uses_dtm_widths(preset_id):
+        return feats
+    from app.pipeline.dtm_widths import wide_walk_area_features
+
+    extra = wide_walk_area_features(work_dir, scale)
+    return feats + extra if extra else feats
+
+
+def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -> tuple:
     gj = work_dir / "osm_paths" / "features.geojson"
     if not gj.is_file():
         return None, None
     try:
-        key = (str(gj), gj.stat().st_mtime_ns)
+        key = (str(gj), gj.stat().st_mtime_ns, uses_dtm_widths(preset_id) if preset_id else False, scale)
     except OSError:
         return None, None
     if key not in _PAVED_NETWORK_CACHE:
@@ -4298,20 +4315,22 @@ def _paved_network_cached(work_dir: Path) -> tuple:
             feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
         except (OSError, ValueError):
             feats = []
+        if preset_id:
+            feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)
         _PAVED_NETWORK_CACHE.clear()
         network = build_paved_network(feats, _paths_features_for_network(work_dir))[1]
         _PAVED_NETWORK_CACHE[key] = (network, road_clip_geometry(feats))
     return _PAVED_NETWORK_CACHE[key]
 
 
-def paved_network_geometry(work_dir: Path):
-    """Plocha sítě zpevněných ploch (``build_paved_network``) z ``features.geojson`` jobu; cache podle mtime."""
-    return _paved_network_cached(work_dir)[0]
+def paved_network_geometry(work_dir: Path, preset_id: str = "", scale: int = 0):
+    """Plocha sítě zpevněných ploch (``build_paved_network``) z ``features.geojson`` jobu (les i s DTM); cache."""
+    return _paved_network_cached(work_dir, preset_id, scale)[0]
 
 
-def road_clip_zone(work_dir: Path):
+def road_clip_zone(work_dir: Path, preset_id: str = "", scale: int = 0):
     """Plochy jobu, přes které se silnice nekreslí (``road_clip_geometry``); cache podle mtime."""
-    return _paved_network_cached(work_dir)[1]
+    return _paved_network_cached(work_dir, preset_id, scale)[1]
 
 
 # Les a MTBO: silnice přes zpevněnou plochu (typicky jízdní pruh na parkovišti) se uvnitř plochy nekreslí,
@@ -4656,11 +4675,17 @@ def build_osm_path_parts(
             _cut_extra = _uu_cut([_cut_extra, _g])
     # Les a MTBO: zpevněné plochy jako sloučená síť (``build_paved_network``): přes ni se silnice ani menší
     # cesty nekreslí, končí na její hraně.
-    paved_network = None if preset_id.startswith("sprint") else paved_network_geometry(work_dir)
+    paved_network = None if preset_id.startswith("sprint") else paved_network_geometry(work_dir, preset_id, scale)
     path_cut_zone = path_cut_zone_geometry(
         work_dir, data.get("features") or [], extra=_cut_extra, paved=paved_network
     )
-    road_clip = None if paved_network is None else road_clip_zone(work_dir)
+    road_clip = None if paved_network is None else road_clip_zone(work_dir, preset_id, scale)
+    # Les: šířka cest z ploch DTM → symbol podle skutečné šířky (``dtm_widths``).
+    road_widths = walk_widths = None
+    if uses_dtm_widths(preset_id):
+        from app.pipeline.dtm_widths import dtm_width_indexes, width_line_code
+
+        road_widths, walk_widths = dtm_width_indexes(work_dir)
     paved_core = road_clip.buffer(-ROAD_IN_PAVED_EDGE_M) if road_clip is not None else None
     # Obecné ukončení cest na hraně zpevněné (i silnice / DTM).
     edge_area = path_cut_zone
@@ -4713,6 +4738,10 @@ def build_osm_path_parts(
         # Symbol u schodů se volí až podle délky dílku (les/MTBO krátké → pěšina).
         steps_piece = is_surface_steps(hw)
         code = osm_oom_code(hw, preset_id) if not steps_piece else None
+        if code is not None and (road_widths or walk_widths) and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
+            _index = road_widths if path_draw_highway(hw).startswith("road_") else walk_widths
+            if _index is not None:
+                code = width_line_code(hw, _index.line_width(coords), code)
         symbol_index = None
         if code is not None:
             if code not in symbol_cache:
@@ -4966,6 +4995,7 @@ def build_osm_feature_parts(
     if not preset_id.startswith("sprint"):
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
         _path_feats = _paths_features_for_network(work_dir)
+        feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)  # les: široké pěší plochy z DTM
         _road_clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
         feats, _network = build_paved_network(feats, _path_feats)
         if not preset_id.startswith("mtbo"):
