@@ -880,6 +880,222 @@ def test_dedup_osm_keeps_parallel_distinct():
     assert len(kept) == 2
 
 
+def test_path_line_source_priority_dtm_beats_osm():
+    """Budoucí DTM střednice má přednost před OSM při stejném překryvu."""
+    from app.pipeline.osm_paths import (
+        PATH_LINE_SOURCE_DTM,
+        PATH_LINE_SOURCE_OSM,
+        PATH_LINE_SOURCE_PRIORITY,
+        PATH_LINE_SOURCE_ZABAGED,
+        dedup_path_lines,
+        path_line_source_rank,
+    )
+
+    assert (
+        PATH_LINE_SOURCE_PRIORITY[PATH_LINE_SOURCE_DTM]
+        > PATH_LINE_SOURCE_PRIORITY[PATH_LINE_SOURCE_OSM]
+        > PATH_LINE_SOURCE_PRIORITY[PATH_LINE_SOURCE_ZABAGED]
+    )
+    assert path_line_source_rank(PATH_LINE_SOURCE_DTM) > path_line_source_rank(
+        PATH_LINE_SOURCE_OSM
+    )
+    # Stejná osa: i když je OSM „širší“ typ, vyhraje DTM (priorita zdroje).
+    dtm = ([(0.0, 0.0), (100.0, 0.0)], "road_2", PATH_LINE_SOURCE_DTM)
+    osm = ([(0.0, 1.0), (100.0, 1.0)], "road_4", PATH_LINE_SOURCE_OSM)
+    kept, dropped = dedup_path_lines([osm, dtm])
+    assert dropped == 1
+    assert len(kept) == 1
+    assert kept[0][2] == PATH_LINE_SOURCE_DTM
+    assert kept[0][1] == "road_2"
+
+
+def test_dedup_path_lines_same_source_keeps_longer():
+    """Stejný zdroj / třída: při překryvu zůstane delší pokrytí (max. délka)."""
+    from app.pipeline.osm_paths import PATH_LINE_SOURCE_OSM, dedup_path_lines
+
+    long_sw = ([(0.0, 0.0), (200.0, 0.0)], "sidewalk", PATH_LINE_SOURCE_OSM)
+    short_sw = ([(50.0, 1.0), (140.0, 1.0)], "sidewalk", PATH_LINE_SOURCE_OSM)
+    kept, dropped = dedup_path_lines([short_sw, long_sw])
+    assert dropped == 1
+    assert len(kept) == 1
+    assert polyline_length(kept[0][0]) == pytest.approx(200.0)
+
+
+def test_area_highway_corridor_centerline_thin_strip():
+    """Tenký area:highway pás → střednice; široká plocha → None."""
+    from app.pipeline.osm_paths import area_highway_corridor_centerline
+
+    # ~3 m široký, ~90 m dlouhý koridor (jako way/1408205238).
+    thin = [
+        (0.0, 0.0),
+        (90.0, 0.0),
+        (90.0, 3.0),
+        (0.0, 3.0),
+        (0.0, 0.0),
+    ]
+    center = area_highway_corridor_centerline(thin)
+    assert center is not None and len(center) >= 2
+    assert polyline_length(center) > 50.0
+
+    wide = [
+        (0.0, 0.0),
+        (40.0, 0.0),
+        (40.0, 30.0),
+        (0.0, 30.0),
+        (0.0, 0.0),
+    ]
+    assert area_highway_corridor_centerline(wide) is None
+
+
+def test_dedup_ways_60592702_and_1408205238_keeps_one_max_length():
+    """way/60592702 (pedestrian) × way/1408205238 (area:highway) → jedna delší linie."""
+    from app.pipeline.crs_5514 import wgs84_to_projected
+    from app.pipeline.osm_paths import (
+        PATH_LINE_SOURCE_OSM,
+        area_highway_corridor_centerline,
+        dedup_path_lines,
+        sprint_line_highway,
+    )
+
+    # Zjednodušené WGS84 z OSM API (stejný koridor, pedestrian delší).
+    pedestrian_wgs = [
+        (50.0324915, 14.3742031),
+        (50.0326154, 14.3742645),
+        (50.0327303, 14.3745513),
+        (50.0327577, 14.3746183),
+        (50.0327656, 14.3746376),
+        (50.0328828, 14.3749561),
+        (50.0330264, 14.3753463),
+        (50.0331542, 14.3756935),
+        (50.0332773, 14.3760282),
+        (50.0334293, 14.3764385),
+        (50.0334425, 14.3764804),
+    ]
+    area_wgs = [
+        (50.0330302, 14.3754017),
+        (50.0330411, 14.3753590),
+        (50.0334405, 14.3764357),
+        (50.0334293, 14.3764385),
+        (50.0334181, 14.3764433),
+        (50.0331440, 14.3757049),
+        (50.0331404, 14.3756972),
+        (50.0330302, 14.3754017),
+    ]
+    ped_pts = [wgs84_to_projected(lat, lon) for lat, lon in pedestrian_wgs]
+    area_ring = [wgs84_to_projected(lat, lon) for lat, lon in area_wgs]
+    area_center = area_highway_corridor_centerline(area_ring)
+    assert area_center is not None
+    hw = sprint_line_highway({"highway": "pedestrian"}, "pedestrian")
+    assert hw == "sidewalk"
+    kept, dropped = dedup_path_lines(
+        [
+            (ped_pts, hw, PATH_LINE_SOURCE_OSM),
+            (area_center, "sidewalk", PATH_LINE_SOURCE_OSM),
+        ]
+    )
+    assert dropped == 1
+    assert len(kept) == 1
+    # Max. délka = delší z obou (pedestrian ~197 m).
+    assert polyline_length(kept[0][0]) == pytest.approx(polyline_length(ped_pts), rel=0.05)
+    assert polyline_length(kept[0][0]) > polyline_length(area_center)
+
+
+def test_prepare_forest_converts_area_highway_and_dedups_pedestrian(tmp_path, monkeypatch):
+    """Les: area:highway koridor + highway=pedestrian → jedna cesta, bez pedestrian_area."""
+    import app.pipeline.osm_paths as op
+
+    pedestrian = {
+        "type": "way",
+        "id": 60592702,
+        "tags": {"highway": "pedestrian", "bicycle": "yes"},
+        "geometry": [
+            {"lat": 50.0324915, "lon": 14.3742031},
+            {"lat": 50.0326154, "lon": 14.3742645},
+            {"lat": 50.0327303, "lon": 14.3745513},
+            {"lat": 50.0327577, "lon": 14.3746183},
+            {"lat": 50.0327656, "lon": 14.3746376},
+            {"lat": 50.0328828, "lon": 14.3749561},
+            {"lat": 50.0330264, "lon": 14.3753463},
+            {"lat": 50.0331542, "lon": 14.3756935},
+            {"lat": 50.0332773, "lon": 14.3760282},
+            {"lat": 50.0334293, "lon": 14.3764385},
+            {"lat": 50.0334425, "lon": 14.3764804},
+        ],
+    }
+    area_hw = {
+        "type": "way",
+        "id": 1408205238,
+        "tags": {"area:highway": "footway", "surface": "paving_stones"},
+        "geometry": [
+            {"lat": 50.0330302, "lon": 14.3754017},
+            {"lat": 50.0330411, "lon": 14.3753590},
+            {"lat": 50.0334405, "lon": 14.3764357},
+            {"lat": 50.0334293, "lon": 14.3764385},
+            {"lat": 50.0334181, "lon": 14.3764433},
+            {"lat": 50.0331440, "lon": 14.3757049},
+            {"lat": 50.0331404, "lon": 14.3756972},
+            {"lat": 50.0330302, "lon": 14.3754017},
+        ],
+    }
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [pedestrian, area_hw])
+    op.prepare_osm_paths(
+        tmp_path,
+        (14.37, 50.03, 14.38, 50.04),
+        None,
+        preset_id="forest_10000",
+        log=lambda m: None,
+    )
+    paths = json.loads((tmp_path / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8"))
+    lines = [f for f in paths["features"] if f["geometry"]["type"] == "LineString"]
+    assert len(lines) == 1
+    assert lines[0]["properties"]["highway"] == "sidewalk"
+    feats = json.loads((tmp_path / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))
+    areas = [
+        f
+        for f in feats["features"]
+        if (f.get("properties") or {}).get("kind") == "pedestrian_area"
+    ]
+    assert areas == []
+
+
+def test_prepare_sprint_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypatch):
+    """Sprint: area:highway zůstává plochou 501 (nesaháme na sprint chování)."""
+    import app.pipeline.osm_paths as op
+
+    area_hw = {
+        "type": "way",
+        "id": 1408205238,
+        "tags": {"area:highway": "footway", "surface": "paving_stones"},
+        "geometry": [
+            {"lat": 50.0330302, "lon": 14.3754017},
+            {"lat": 50.0330411, "lon": 14.3753590},
+            {"lat": 50.0334405, "lon": 14.3764357},
+            {"lat": 50.0334293, "lon": 14.3764385},
+            {"lat": 50.0334181, "lon": 14.3764433},
+            {"lat": 50.0331440, "lon": 14.3757049},
+            {"lat": 50.0331404, "lon": 14.3756972},
+            {"lat": 50.0330302, "lon": 14.3754017},
+        ],
+    }
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [area_hw])
+    op.prepare_osm_paths(
+        tmp_path,
+        (14.37, 50.03, 14.38, 50.04),
+        None,
+        preset_id="sprint_2_5m",
+        log=lambda m: None,
+    )
+    feats = json.loads((tmp_path / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))
+    areas = [
+        f
+        for f in feats["features"]
+        if (f.get("properties") or {}).get("kind") == "pedestrian_area"
+    ]
+    assert len(areas) == 1
+    paths = json.loads((tmp_path / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8"))
+    assert paths["features"] == []
+
+
 def test_osm_way_to_5514_skips_sidewalk():
     el = {
         "tags": {"highway": "footway", "footway": "sidewalk"},
