@@ -3830,12 +3830,27 @@ def _line_in_zone(coords: list, zone) -> bool:
     return line.length > 0 and line.intersection(zone).length >= 0.9 * line.length
 
 
-# Chodník těsně u parkoviště (do tolika m od jeho okraje) se počítá jako chodník vedle silnice.
+# Chodník těsně u zpevněné plochy (do tolika m od jejího okraje) se počítá jako chodník vedle silnice.
 SIDEWALK_PARKING_NEAR_M = 3.0
+# OSM zpevněné plochy, u kterých se v lese/MTBO potlačí souběžný chodník (ne hřiště / pitch).
+SIDEWALK_BESIDE_PAVED_KINDS = frozenset({"parking", "pedestrian_area", "platform"})
 
 
 def osm_parking_geometry(work_dir: Path):
-    """OSM parkoviště (``kind == "parking"`` z ``osm_paths/features.geojson``) jako shapely plocha nebo None."""
+    """OSM parkoviště (``kind == "parking"``) jako shapely plocha nebo None.
+
+    Zůstává pro volající, kteří chtějí jen parkoviště; pro potlačení chodníku u zpevněných ploch
+    použij ``osm_paved_beside_geometry``.
+    """
+    return osm_paved_beside_geometry(work_dir, kinds=frozenset({"parking"}))
+
+
+def osm_paved_beside_geometry(work_dir: Path, kinds: frozenset[str] | None = None):
+    """OSM zpevněné plochy (parkoviště, pěší zóna, nástupiště) jako shapely plocha nebo None.
+
+    U těchto ploch se v lese/MTBO nekreslí souběžný chodník (stejně jako u silnice).
+    """
+    want = kinds if kinds is not None else SIDEWALK_BESIDE_PAVED_KINDS
     try:
         from shapely.geometry import shape
         from shapely.ops import unary_union
@@ -3846,7 +3861,7 @@ def osm_parking_geometry(work_dir: Path):
     polys = []
     for feat in feats:
         geom = feat.get("geometry") or {}
-        if (feat.get("properties") or {}).get("kind") != "parking" or geom.get("type") not in ("Polygon", "MultiPolygon"):
+        if (feat.get("properties") or {}).get("kind") not in want or geom.get("type") not in ("Polygon", "MultiPolygon"):
             continue
         try:
             g = shape(geom)
@@ -3857,8 +3872,8 @@ def osm_parking_geometry(work_dir: Path):
 
 
 def road_zone_geometry(features: list[dict], parking=None):
-    """Pás ``SIDEWALK_ROAD_NEAR_M`` m kolem os silnic (``road_*``, i mosty) z prvků cest, sečtený s parkovištěm
-    (``parking`` = shapely plocha, rozšířená o ``SIDEWALK_PARKING_NEAR_M`` m); None bez silnic i parkoviště."""
+    """Pás ``SIDEWALK_ROAD_NEAR_M`` m kolem os silnic (``road_*``, i mosty) z prvků cest, sečtený se zpevněnou
+    plochou (``parking`` = shapely, rozšířená o ``SIDEWALK_PARKING_NEAR_M`` m); None bez silnic i plochy."""
     try:
         from shapely.geometry import LineString
         from shapely.ops import unary_union
@@ -4097,11 +4112,11 @@ def build_osm_path_parts(
             from shapely.ops import unary_union as _uu2
 
             deck_cover_zone = _uu2([deck_zone, sidewalk_cover])
-    # Les a MTBO: chodníky vedle silnic se nekreslí (viz ``is_sidewalk_beside_road``).
+    # Les a MTBO: chodníky vedle silnic / zpevněných ploch se nekreslí (viz ``is_sidewalk_beside_road``).
     road_zone = (
         None
         if preset_id.startswith("sprint")
-        else road_zone_geometry(data.get("features") or [], osm_parking_geometry(work_dir))
+        else road_zone_geometry(data.get("features") or [], osm_paved_beside_geometry(work_dir))
     )
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
