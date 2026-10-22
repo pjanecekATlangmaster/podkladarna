@@ -4041,6 +4041,34 @@ def road_zone_geometry(features: list[dict], parking=None):
     return unary_union(parts) if parts else None
 
 
+def sidewalk_road_zone_geometry(features: list[dict], paved, *, preset_id: str, scale: int, sidewalk_highway: str = "sidewalk"):
+    """Les / MTBO: pás, ve kterém by chodník splynul se silnicí nebo okrajem zpevněné plochy (shapely nebo None).
+
+    Šířka podle skutečných symbolů: půlka kresby silnice (okraje plochy) + půlka kresby chodníku
+    + ``LINE_MIN_GAP_MM``; v metrech podle měřítka. Nahrazuje pevných ``SIDEWALK_ROAD_NEAR_M`` m.
+    """
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+    reach = drawn_symbol_width_m(sidewalk_highway, preset_id, scale) / 2.0 + mm_to_ground_m(LINE_MIN_GAP_MM, scale)
+    widths: dict[str, float] = {}
+    parts = []
+    for feat in features:
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if geom.get("type") != "LineString" or len(coords) < 2 or not path_draw_highway(hw).startswith("road_"):
+            continue
+        if hw not in widths:
+            widths[hw] = drawn_symbol_width_m(hw, preset_id, scale) / 2.0
+        parts.append(LineString(coords).buffer(widths[hw] + reach))
+    if paved is not None and not paved.is_empty:
+        parts.append(paved.buffer(paved_edge_width_m(preset_id, scale) / 2.0 + reach))
+    return unary_union(parts) if parts else None
+
+
 def is_sidewalk_beside_road(highway: str, coords: list, road_zone) -> bool:
     """Chodník (na povrchu) souběžný se silnicí: aspoň ``SIDEWALK_ROAD_SHARE`` délky v pásu kolem silnice."""
     if road_zone is None or len(coords) < 2:
@@ -4299,11 +4327,14 @@ def build_osm_path_parts(
             from shapely.ops import unary_union as _uu2
 
             deck_cover_zone = _uu2([deck_zone, sidewalk_cover])
-    # Les a MTBO: chodníky vedle silnic / zpevněných ploch se nekreslí (viz ``is_sidewalk_beside_road``).
+    # Les a MTBO: chodníky vedle silnic / zpevněných ploch se nekreslí (viz ``is_sidewalk_beside_road``);
+    # „vedle“ = čáry by se v měřítku mapy slily (``sidewalk_road_zone_geometry``).
     road_zone = (
         None
         if preset_id.startswith("sprint")
-        else road_zone_geometry(data.get("features") or [], osm_paved_beside_geometry(work_dir))
+        else sidewalk_road_zone_geometry(
+            data.get("features") or [], osm_paved_beside_geometry(work_dir), preset_id=preset_id, scale=scale
+        )
     )
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}

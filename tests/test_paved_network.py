@@ -30,3 +30,30 @@ def test_drawn_symbol_width_in_ground_metres():
     assert op.paved_edge_width_m("les", 15000) == pytest.approx(2.1)
     # MTBO sada 501.2 v katalogu nemá → ISOM 0,14 mm.
     assert op.paved_edge_width_m("mtbo", 15000) == pytest.approx(2.1)
+
+
+def _road(coords, hw="road_2"):
+    return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": coords}}
+
+
+def test_sidewalk_zone_follows_symbol_widths():
+    feats = [_road([(0, 0), (200, 0)])]
+    zone15 = op.sidewalk_road_zone_geometry(feats, None, preset_id="les", scale=15000)
+    zone75 = op.sidewalk_road_zone_geometry(feats, None, preset_id="les", scale=7500)
+    near = [(0, 6), (200, 6)]  # chodník 6 m od osy silnice
+    far = [(0, 11), (200, 11)]  # 11 m: dřív (pevných 12 m) se zahodil, teď je v 1:15000 čitelný
+    assert op.is_sidewalk_beside_road("sidewalk", near, zone15)
+    assert not op.is_sidewalk_beside_road("sidewalk", far, zone15)
+    # 1:7500 (sada 1:10000 zmenšená): čáry jsou v terénu užší, 6 m od osy už je chodník čitelný.
+    assert not op.is_sidewalk_beside_road("sidewalk", near, zone75)
+    # Široká silnice 502.1 má širší pás.
+    wide = op.sidewalk_road_zone_geometry([_road([(0, 0), (200, 0)], "road_4")], None, preset_id="les", scale=15000)
+    assert wide.area > zone15.area
+
+
+def test_sidewalk_zone_includes_paved_edge():
+    from shapely.geometry import box
+
+    zone = op.sidewalk_road_zone_geometry([], box(0, 0, 50, 50), preset_id="les", scale=15000)
+    assert op.is_sidewalk_beside_road("sidewalk", [(0, 54), (50, 54)], zone)
+    assert not op.is_sidewalk_beside_road("sidewalk", [(0, 60), (50, 60)], zone)
