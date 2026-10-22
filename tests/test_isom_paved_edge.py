@@ -17,7 +17,7 @@ HOLE = [[20.0, 20.0], [40.0, 20.0], [40.0, 40.0], [20.0, 40.0], [20.0, 20.0]]
 
 def _build(tmp_path, preset: str, scale: int, kind: str = "pitch", clip_bounds=None):
     out = tmp_path / "osm_paths"
-    out.mkdir(exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
     (out / "features.geojson").write_text(
         json.dumps(
             {
@@ -96,6 +96,14 @@ def test_sprint_has_no_edge_line(tmp_path) -> None:
 def test_mtbo_has_no_edge_line(tmp_path) -> None:
     parts, cnt = _build(tmp_path, "mtbo_10000", 10000)
     assert sum(p.count for p in parts) == 1  # jedna plocha 529, bez okraje
+
+
+def test_road_with_sidewalk_fill_gets_redrawn_edge(tmp_path) -> None:
+    """Linie sloučená do plochy 501.1: výplň bez okraje v symbolu, obrys se dokreslí čárou."""
+    _, forest = _build(tmp_path, "forest_10000", 10000, kind="road_with_sidewalk")
+    assert forest["501.1"] == 1 and forest["501.2"] == 2
+    _, mtbo = _build(tmp_path / "mtbo", "mtbo_10000", 10000, kind="road_with_sidewalk")
+    assert mtbo["501.1"] == 1 and mtbo["501.100"] == 2
 
 
 def test_edge_is_drawn_above_fill() -> None:

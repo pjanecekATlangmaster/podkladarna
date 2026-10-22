@@ -4366,6 +4366,118 @@ def sidewalk_parallel_zone(highway: str, coords: list, road_zone):
     return unary_union(runs).buffer(0.02) if runs else None
 
 
+# Mezera mezi čárou cesty a zdí budovy na mapě (mm). Blíž by symboly splynuly.
+PATH_BUILDING_GAP_MM = 0.35
+# Odsazení jen u úseku, který podél zdi běží aspoň takhle dlouho (m). Krátký dotek / vchod ne.
+PATH_BUILDING_MIN_RUN_M = 8.0
+# |cos| tečny cesty a zdi: pod tím je nájezd kolmý (vchod) a čára zůstane.
+PATH_BUILDING_MIN_DIR = 0.65
+
+
+def building_clearance_m(scale: int) -> float:
+    """Jak daleko od zdi má čára cesty být (m v terénu), aby na mapě nesplynula se zdí."""
+    return PATH_BUILDING_GAP_MM * max(int(scale), 1) / 1000.0
+
+
+def offset_line_from_buildings(coords: list, buildings, clear_m: float, min_run_m: float = PATH_BUILDING_MIN_RUN_M):
+    """Posune úsek cesty jedoucí podél budovy ven, na ``clear_m`` od zdi.
+
+    Kolmý nájezd (vchod) a průchod skrz budovu se nehýbou. ``buildings`` je shapely plocha.
+    """
+    if buildings is None or getattr(buildings, "is_empty", True) or len(coords) < 2 or clear_m <= 0:
+        return list(coords)
+    from shapely.geometry import Point
+    from shapely.ops import nearest_points
+
+    boundary = buildings.boundary
+    n = len(coords)
+
+    def tangent(i: int) -> tuple[float, float]:
+        a = coords[max(0, i - 1)]
+        b = coords[min(n - 1, i + 1)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy) or 1.0
+        return dx / length, dy / length
+
+    desired = [tuple(p) for p in coords]
+    move = [False] * n
+    for i, (x, y) in enumerate(coords):
+        p = Point(x, y)
+        inside = bool(buildings.covers(p))
+        dist = float(p.distance(boundary))
+        if inside and dist > 0.8:
+            continue
+        if not inside and dist >= clear_m:
+            continue
+        near = nearest_points(p, boundary)[1]
+        proj = float(boundary.project(near))
+        a = boundary.interpolate(max(0.0, proj - 1.0))
+        b = boundary.interpolate(proj + 1.0)
+        tx, ty = b.x - a.x, b.y - a.y
+        tl = math.hypot(tx, ty) or 1.0
+        tx, ty = tx / tl, ty / tl
+        px, py = tangent(i)
+        if abs(px * tx + py * ty) < PATH_BUILDING_MIN_DIR:
+            continue
+        if not inside and dist >= 0.15:
+            vx, vy = x - near.x, y - near.y
+        else:
+            vx, vy = -ty, tx
+            if buildings.covers(Point(near.x + vx, near.y + vy)):
+                vx, vy = -vx, -vy
+        vl = math.hypot(vx, vy) or 1.0
+        desired[i] = (near.x + vx / vl * clear_m, near.y + vy / vl * clear_m)
+        move[i] = True
+    apply = [False] * n
+    i = 0
+    while i < n:
+        if not move[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and move[j]:
+            j += 1
+        length = 0.0
+        for k in range(i, j - 1):
+            length += math.hypot(coords[k + 1][0] - coords[k][0], coords[k + 1][1] - coords[k][1])
+        if length >= min_run_m:
+            for k in range(i, j):
+                apply[k] = True
+        i = j
+    return [desired[k] if apply[k] else tuple(coords[k]) for k in range(n)]
+
+
+def drawn_building_geometry(work_dir: Path):
+    """Budovy, podle kterých se odsazuje cesta: DTM má přednost, jinak OSM.
+
+    Shapely plocha nebo None.
+    """
+    try:
+        from shapely.geometry import shape
+        from shapely.ops import unary_union
+
+        feats = json.loads((work_dir / "osm_paths" / "features.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (ImportError, OSError, ValueError):
+        return None
+    from app.pipeline.dtm_import import dtm_owns_buildings, merge_dtm_buildings
+
+    if dtm_owns_buildings(work_dir):
+        feats = merge_dtm_buildings(work_dir, feats)
+    polys = []
+    for feat in feats:
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") not in _OSM_BUILDING_KINDS:
+            continue
+        if geom.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            g = shape(geom)
+            polys.append(g if g.is_valid else g.buffer(0))
+        except (ValueError, TypeError):
+            continue
+    return unary_union(polys) if polys else None
+
+
 def drawn_width_m(highway: str) -> float:
     """Přibližná šířka kresby cesty v terénu (m) – pro ohraničení lávek."""
     base = path_draw_highway(highway)
@@ -4556,6 +4668,8 @@ def build_osm_path_parts(
         if preset_id.startswith("sprint")
         else road_zone_geometry(data.get("features") or [], osm_paved_beside_geometry(work_dir))
     )
+    # Čára těsně u budovy se odsune, ať nesplyne se zdí. DTM budovy mají přednost.
+    building_geom = drawn_building_geometry(work_dir)
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
@@ -4653,6 +4767,13 @@ def build_osm_path_parts(
             # Ostatní cesty končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
+        if (
+            building_geom is not None
+            and not is_bridge_highway(hw)
+            and not is_tunnel_highway(hw)
+        ):
+            clear_m = building_clearance_m(scale)
+            pieces = [offset_line_from_buildings(p, building_geom, clear_m) for p in pieces]
         for piece in pieces:
             piece_idx = symbol_index
             if steps_piece:
@@ -5018,18 +5139,15 @@ def build_osm_feature_parts(
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
-                if (
-                    code == ISOM_PAVED_FILL_CODE
-                    and kind != "road_with_sidewalk"
-                    and not (preset_id.startswith("sprint") or mtbo)
-                ):
-                    # ISOM 501.1 je jen výplň bez okraje → černý okraj 501.2 po skutečné
-                    # hranici plochy (vnější obrys i díry); podél ořezu na výřez se nekreslí.
-                    if ISOM_PAVED_EDGE_CODE not in symbol_cache:
-                        symbol_cache[ISOM_PAVED_EDGE_CODE] = symbol_index_for_code(
-                            preset_id, scale, ISOM_PAVED_EDGE_CODE
+                if code == ISOM_PAVED_FILL_CODE and not preset_id.startswith("sprint"):
+                    # 501.1 je jen výplň. Okraj se dokreslí čárou: les 501.2, MTBO 501.100.
+                    # Platí i pro silnici sloučenou s chodníkem — bez té čáry by z linie zbyla plocha bez obrysu.
+                    edge_code = "501.100" if mtbo else ISOM_PAVED_EDGE_CODE
+                    if edge_code not in symbol_cache:
+                        symbol_cache[edge_code] = symbol_index_for_code(
+                            preset_id, scale, edge_code
                         )
-                    edge_index = symbol_cache[ISOM_PAVED_EDGE_CODE]
+                    edge_index = symbol_cache[edge_code]
                     if edge_index is not None:
                         grouped[kind].extend(
                             _paved_edge_objects(edge_index, orig_rings, clip_bounds, to_map)

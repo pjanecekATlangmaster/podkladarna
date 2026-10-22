@@ -1383,6 +1383,26 @@ def test_dtm_priority_roads_drop_osm_sidewalk_beside_them():
     assert not any(hw == "road_3" for _pts, hw in items)
 
 
+def test_path_beside_building_is_offset_parallel_approach_stays():
+    """Čára podél zdi se odsune na odstup; kolmý nájezd ke vchodu zůstane."""
+    from shapely.geometry import box
+
+    from app.pipeline.osm_paths import building_clearance_m, offset_line_from_buildings
+
+    wall = box(0, 0, 30, 10)
+    clear = 3.0
+    along = offset_line_from_buildings([(0.0, 10.4), (30.0, 10.4)], wall, clear)
+    assert all(abs(y - 13.0) < 0.2 for _x, y in along)
+    door = offset_line_from_buildings([(15.0, 10.2), (15.0, 25.0)], wall, clear)
+    assert door[0][1] == pytest.approx(10.2)
+    assert door[-1] == pytest.approx((15.0, 25.0))
+    far = [(0.0, 20.0), (30.0, 20.0)]
+    assert offset_line_from_buildings(far, wall, clear) == [tuple(p) for p in far]
+    short = offset_line_from_buildings([(0.0, 10.3), (4.0, 10.3)], wall, clear)
+    assert short[0][1] == pytest.approx(10.3)
+    assert building_clearance_m(10000) == pytest.approx(3.5)
+
+
 def test_merge_adjacent_pedestrian_areas_closes_gap():
     from app.pipeline.osm_paths import merge_adjacent_pedestrian_area_features
 
