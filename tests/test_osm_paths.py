@@ -79,7 +79,8 @@ def test_classify_osm_well_and_playground():
         "521",
     )
     assert classify_osm_feature({"man_made": "water_well"}) == ("water_well", "311")
-    assert classify_osm_feature({"amenity": "fountain"}) == ("water_well", "311")
+    assert classify_osm_feature({"amenity": "fountain"}, geom="node") == ("water_well", "311")
+    assert classify_osm_feature({"amenity": "fountain"}, geom="way") == ("fountain", "301.1")
     assert classify_osm_feature({"natural": "spring"}) == ("spring", "312")
     assert classify_osm_feature({"leisure": "playground"}) == ("playground", "501")
     assert classify_osm_feature(
@@ -1311,6 +1312,7 @@ def test_pedestrian_plaza_polygon_area_yes():
     }
     assert classify_osm_feature(tags) == ("pedestrian_area", "501")
     assert feature_oom_code("pedestrian_area", "sprint_2m") == "501.0"
+    assert feature_oom_code("pedestrian_area", "forest_10000") == "501.1"
     # Velký uzavřený ring (náměstí) → jeden polygon.
     el = {
         "type": "way",
@@ -1327,6 +1329,99 @@ def test_pedestrian_plaza_polygon_area_yes():
     assert len(polys) == 1
     assert len(polys[0][0]) >= 4
     assert polys[0][0][0] == polys[0][0][-1]
+
+
+def test_parallel_pedestrian_lines_become_one_paved_area():
+    """way/60592678 × way/60592718: dvě souběžné pedestrian → jedna plocha, ne dvě čáry."""
+    from app.pipeline.osm_paths import merge_parallel_pedestrian_to_areas
+
+    # Dvě rovnoběžky 6 m od sebe, délka 60 m (S-JTSK metriky).
+    a = [(0.0, 0.0), (60.0, 0.0)]
+    b = [(0.0, 6.0), (60.0, 6.0)]
+    kept, areas = merge_parallel_pedestrian_to_areas([(a, "sidewalk"), (b, "sidewalk"), ([(0, 40), (30, 40)], "path")])
+    assert len(areas) == 1 and abs(areas[0][0][0][0] - areas[0][0][-1][0]) < 1e-6
+    assert len(kept) == 1 and kept[0][1] == "path"  # pěšina mimo koridor zůstala
+    # Daleko od sebe se nesloučí.
+    far = [(0.0, 40.0), (60.0, 40.0)]
+    kept2, areas2 = merge_parallel_pedestrian_to_areas([(a, "sidewalk"), (far, "sidewalk")])
+    assert areas2 == [] and len(kept2) == 2
+
+
+def test_merge_adjacent_pedestrian_areas_closes_gap():
+    from app.pipeline.osm_paths import merge_adjacent_pedestrian_area_features
+
+    def feat(x0, y0, x1, y1):
+        ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        return {
+            "type": "Feature",
+            "properties": {"kind": "pedestrian_area", "oom_code": "501"},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+
+    # Dvě plochy se škvírou 1 m → jedna
+    out = merge_adjacent_pedestrian_area_features([feat(0, 0, 10, 10), feat(11, 0, 20, 10)])
+    ped = [f for f in out if f["properties"]["kind"] == "pedestrian_area"]
+    assert len(ped) == 1
+
+
+def test_fountain_area_uses_301_1():
+    from app.pipeline.osm_paths import classify_osm_feature, feature_oom_code
+
+    assert classify_osm_feature({"amenity": "fountain"}, geom="way") == ("fountain", "301.1")
+    for preset in ("forest_10000", "mtbo_10000", "sprint_4000"):
+        assert feature_oom_code("fountain", preset) == "301.1"
+
+
+def test_footpath_crossing_paved_or_road_is_clipped_to_edge(tmp_path):
+    """Pěšina přes zpevněnou plochu / silnici: přes překryv pryč, končí na hraně."""
+    from shapely.geometry import LineString, box
+
+    from app.pipeline import osm_paths as op
+    from app.pipeline.dtm_sidewalks import clip_outside, end_at_edge
+
+    work = tmp_path
+    (work / "osm_paths").mkdir()
+    # Zpevněná plocha 0…40 × 0…20; silnice jako čára y=50
+    paved = {
+        "type": "Feature",
+        "properties": {"kind": "pedestrian_area", "oom_code": "501"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[0, 0], [40, 0], [40, 20], [0, 20], [0, 0]]],
+        },
+    }
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [paved]}), encoding="utf-8"
+    )
+    road = {
+        "type": "Feature",
+        "properties": {"highway": "road_3"},
+        "geometry": {"type": "LineString", "coordinates": [[-10, 50], [50, 50]]},
+    }
+    path_cross = {
+        "type": "Feature",
+        "properties": {"highway": "path"},
+        "geometry": {"type": "LineString", "coordinates": [[20, -10], [20, 70]]},  # přes plochu i silnici
+    }
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [road, path_cross]}), encoding="utf-8"
+    )
+    zone = op.path_cut_zone_geometry(work, [road, path_cross])
+    assert zone is not None and not zone.is_empty
+    assert zone.intersects(box(0, 0, 40, 20))
+    # Clip + hrana: žádný úsek uvnitř plochy / pásu silnice
+    segs = clip_outside([(20.0, -10.0), (20.0, 70.0)], zone, min_len_m=1.0)
+    assert segs
+    for seg in segs:
+        mid = LineString(seg).interpolate(0.5, normalized=True)
+        assert not zone.contains(mid)
+    # Konce u plochy se snapnou na hranu
+    snapped = end_at_edge([(20.0, -10.0), (20.0, 5.0)], box(0, 0, 40, 20))
+    assert snapped and abs(snapped[0][-1][1] - 0.0) < 0.05  # konec na y=0
+
+    kw = dict(preset_id="forest_10000", scale=10000, ref_x=20.0, ref_y=30.0, grivation_deg=0.0)
+    parts = op.build_osm_path_parts(work, **kw)
+    assert parts and parts[0].count >= 2  # silnice + zbytky pěšiny (ne celá přes plochu)
 
 
 def test_area_highway_footway_multipolygon():

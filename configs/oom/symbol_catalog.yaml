@@ -336,7 +336,7 @@ isom:
     review: false
   - ocad_code: "301.1"
     cz_name: "Nepřekonatelné vodní těleso (plocha)"
-    generator_codes: []
+    generator_codes: ["301.1"]
     geom: area
     review: false
   - ocad_code: "301.2"
@@ -1242,7 +1242,7 @@ sprint:
     review: false
   - ocad_code: "301.1"
     cz_name: "Nepřekonatelné vodní těleso (plocha)"
-    generator_codes: []
+    generator_codes: ["301.1"]
     geom: area
     review: false
   - ocad_code: "301.2"
@@ -2335,7 +2335,7 @@ mtbo:
     review: false
   - ocad_code: "301.1"
     cz_name: "Nepřekonatelné vodní těleso (plocha)"
-    generator_codes: []
+    generator_codes: ["301.1"]
     geom: area
     review: false
   - ocad_code: "301.2"
