@@ -4018,15 +4018,17 @@ def road_carriageway_geometry(features: list[dict]):
     return unary_union(parts) if parts else None
 
 
-def path_cut_zone_geometry(work_dir: Path, path_features: list[dict], extra=None):
+def path_cut_zone_geometry(work_dir: Path, path_features: list[dict], extra=None, paved=None):
     """Zóna, přes kterou se pěšina nekreslí: OSM zpevněné plochy + pás silnic (+ ``extra`` DTM/koridor).
 
+    ``paved``: hotová plocha zpevněných (les/MTBO síť ``paved_network_geometry``); bez ní syrové OSM plochy.
     Vrací shapely geometrii nebo None.
     """
     from shapely.ops import unary_union
 
     parts = []
-    paved = osm_paved_beside_geometry(work_dir, kinds=_PAVED_AREA_KINDS)
+    if paved is None:
+        paved = osm_paved_beside_geometry(work_dir, kinds=_PAVED_AREA_KINDS)
     if paved is not None and not paved.is_empty:
         parts.append(paved)
     roads = road_carriageway_geometry(path_features)
@@ -4153,6 +4155,44 @@ def paved_network_geometry(work_dir: Path):
         _PAVED_NETWORK_CACHE.clear()
         _PAVED_NETWORK_CACHE[key] = build_paved_network(feats, _paths_features_for_network(work_dir))[1]
     return _PAVED_NETWORK_CACHE[key]
+
+
+# Les a MTBO: silnice přes zpevněnou plochu (typicky jízdní pruh na parkovišti) se uvnitř plochy nekreslí,
+# zůstane jen napojení na hranu. Kratší průchod nebo silnice jen podél okraje (do ``ROAD_IN_PAVED_EDGE_M`` m
+# od hrany, nepřesnost OSM) se neřeže.
+ROAD_IN_PAVED_MIN_M = 6.0
+ROAD_IN_PAVED_EDGE_M = 2.0
+
+
+def clip_road_in_paved(
+    coords: list, paved, min_run_m: float = ROAD_IN_PAVED_MIN_M, edge_m: float = ROAD_IN_PAVED_EDGE_M, core=None
+) -> list[list[tuple[float, float]]]:
+    """Části silnice mimo zpevněnou plochu ``paved`` (shapely).
+
+    Vnitřní úsek se vynechá celý (od hrany k hraně), je-li delší než ``min_run_m`` a zasahuje-li dál než
+    ``edge_m`` od hrany plochy; jinak silnice zůstává. ``core`` = předpočítané ``paved.buffer(-edge_m)``.
+    """
+    if paved is None or paved.is_empty or len(coords) < 2:
+        return [coords]
+    from shapely.geometry import LineString
+    from shapely.ops import linemerge, unary_union
+
+    line = LineString(coords)
+    inside = line.intersection(paved)
+    if inside.is_empty:
+        return [coords]
+    parts = [inside] if inside.geom_type == "LineString" else [g for g in getattr(inside, "geoms", []) if g.geom_type == "LineString"]
+    if len(parts) > 1:
+        merged = linemerge(parts)
+        parts = [merged] if merged.geom_type == "LineString" else list(merged.geoms)
+    if core is None:
+        core = paved.buffer(-edge_m) if edge_m > 0 else paved
+    runs = [p for p in parts if p.length >= min_run_m and not core.is_empty and p.intersects(core)]
+    if not runs:
+        return [coords]
+    from app.pipeline.dtm_sidewalks import clip_outside
+
+    return clip_outside(coords, unary_union(runs).buffer(0.01, cap_style=2), min_len_m=1.0)
 
 
 def road_zone_geometry(features: list[dict], parking=None):
@@ -4443,7 +4483,13 @@ def build_osm_path_parts(
             from shapely.ops import unary_union as _uu_cut
 
             _cut_extra = _uu_cut([_cut_extra, _g])
-    path_cut_zone = path_cut_zone_geometry(work_dir, data.get("features") or [], extra=_cut_extra)
+    # Les a MTBO: zpevněné plochy jako sloučená síť (``build_paved_network``): přes ni se silnice ani menší
+    # cesty nekreslí, končí na její hraně.
+    paved_network = None if preset_id.startswith("sprint") else paved_network_geometry(work_dir)
+    path_cut_zone = path_cut_zone_geometry(
+        work_dir, data.get("features") or [], extra=_cut_extra, paved=paved_network
+    )
+    paved_core = paved_network.buffer(-ROAD_IN_PAVED_EDGE_M) if paved_network is not None else None
     # Obecné ukončení cest na hraně zpevněné (i silnice / DTM).
     edge_area = path_cut_zone
     # Sprint: pod mostem z DTM se cesty nekreslí (kreslí se most a hrany 512.100), mostní čáry uvnitř DTM mostu také ne.
@@ -4572,7 +4618,20 @@ def build_osm_path_parts(
         ):
             # Ostatní cesty končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
             # Silnice ne: zóna obsahuje jejich vlastní jízdní pás, ořez by je zahodil (≈ 84 % délky).
+            if paved_network is not None and not steps_piece:
+                # Les/MTBO: menší cesta (vozová, cyklostezka …) se přes zpevněnou plochu přeruší.
+                lines = [seg for ln in lines for seg in clip_outside(ln, paved_network)]
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
+        elif (
+            paved_network is not None
+            and path_draw_highway(hw).startswith("road_")
+            and not is_bridge_highway(hw)
+            and not is_tunnel_highway(hw)
+        ):
+            # Les/MTBO: silnice přes zpevněnou plochu (parkoviště) se uvnitř nekreslí, jen napojení na hranu.
+            # Zóna je jen plocha, bez jízdního pásu silnic (ten by silnici zahodil celou).
+            lines = [seg for ln in lines for seg in clip_road_in_paved(ln, paved_network, core=paved_core)]
+            lines = [seg for ln in lines for seg in end_at_edge(ln, paved_network)]
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         for piece in pieces:
             piece_idx = symbol_index

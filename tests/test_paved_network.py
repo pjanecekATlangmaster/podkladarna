@@ -145,3 +145,63 @@ def test_feature_parts_draw_merged_network(tmp_path, preset):
         assert cnt["501.1"] == 1 and cnt["501.2"] == 1  # jedna plocha, jeden okraj
     else:
         assert sum(cnt.values()) == 1
+
+
+def _line(coords, hw):
+    return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": coords}}
+
+
+def _path_lengths(tmp_path, preset="forest_10000", scale=10000):
+    """Délky nakreslených čar (m) podle kódu symbolu – z map souřadnic zpět (1 mm mapy = scale/1000 m)."""
+    import re
+
+    import app.pipeline.oom_symbol_map as sm
+
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_path_parts(tmp_path, preset_id=preset, scale=scale, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    id2code = {v: k for k, v in sm._code_to_index(sm.symbol_set_path(preset, scale)).items()}
+    out: dict[str, float] = {}
+    for p in parts:
+        for m in re.finditer(r'<object\b[^>]*\bsymbol="(\d+)".*?<coords[^>]*>(.*?)</coords>', p.objects_xml, re.DOTALL):
+            pts = [tuple(int(v) for v in c.split()[:2]) for c in m.group(2).split(";") if c.strip()]
+            length = sum(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 for a, b in zip(pts, pts[1:]))
+            code = id2code[int(m.group(1))]
+            out[code] = out.get(code, 0.0) + length / 1000.0 * scale / 1000.0
+    return out
+
+
+def test_road_over_parking_kept_only_as_connection(tmp_path):
+    # Parkoviště 40 × 40 m, silnice vede z ulice (x < 0) přes celé parkoviště a dál.
+    road = _line([(-50, 20), (90, 20)], "road_2")
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
+    lengths = _path_lengths(tmp_path)
+    assert lengths["503.0"] == pytest.approx(100, abs=1.0)  # 140 m − 40 m uvnitř parkoviště
+
+
+def test_road_grazing_corner_is_not_cut(tmp_path):
+    road = _line([(-50, 42), (90, 38)], "road_2")  # škrtne parkoviště jen na pár metrech
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
+    assert _path_lengths(tmp_path)["503.0"] == pytest.approx(140, abs=1.0)
+
+
+def test_track_and_path_interrupted_on_paved_area(tmp_path):
+    track = _line([(-30, 10), (70, 10)], "track")
+    path = _line([(-30, 30), (70, 30)], "footway")
+    _write_job(tmp_path, [_area(0, 0, 40, 40)], [track, path])
+    lengths = _path_lengths(tmp_path)
+    assert lengths["504.0"] == pytest.approx(60, abs=1.0)  # vozová cesta
+    assert lengths["506.0"] == pytest.approx(60, abs=1.0)  # pěšina
+
+
+def test_bridge_over_paved_area_is_kept(tmp_path):
+    bridge = _line([(-30, 20), (70, 20)], op.bridge_highway("road_2"))
+    _write_job(tmp_path, [_area(0, 0, 40, 40)], [bridge])
+    lengths = _path_lengths(tmp_path)
+    assert sum(lengths.values()) == pytest.approx(100, abs=1.0)
+
+
+def test_sprint_road_over_parking_unchanged(tmp_path):
+    road = _line([(-50, 20), (90, 20)], "road_2")
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
+    lengths = _path_lengths(tmp_path, preset="sprint_2m", scale=4000)
+    assert sum(lengths.values()) == pytest.approx(140, abs=1.0)
