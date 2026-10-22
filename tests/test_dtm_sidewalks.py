@@ -339,7 +339,8 @@ def test_forest_and_mtbo_drop_sidewalks_beside_roads_but_keep_park_paths(tmp_pat
         line("road_3", [-1000, -1000], [-900, -1000]),
         line("sidewalk", [-1000, -995], [-900, -995]),  # 5 m od silnice → pryč
         line("sidewalk", [-1000, -940], [-900, -940]),  # 60 m od silnice (park) → zůstává
-        line("path", [-1000, -990], [-900, -990]),  # pěšina vedle silnice → zůstává
+        line("path", [-1000, -975], [-900, -975]),  # pěšina 25 m od silnice → zůstává
+        line("footway", [-1000, -1004], [-900, -1004]),  # pěšina bez tagu chodníku těsně u silnice → pryč
     ]
     (work / "osm_paths" / "paths_mixed.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
@@ -347,9 +348,9 @@ def test_forest_and_mtbo_drop_sidewalks_beside_roads_but_keep_park_paths(tmp_pat
     for preset in ("forest_10000", "mtbo_10000"):
         kw = dict(preset_id=preset, scale=10000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
         parts = op.build_osm_path_parts(work, **kw)
-        assert parts and parts[0].count == 3  # silnice + park + pěšina; chodník u silnice odpadl
+        assert parts and parts[0].count == 3  # silnice + park + pěšina; chodník a pěšina u silnice odpadly
     kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
-    assert op.build_osm_path_parts(work, **kw)[0].count == 4  # sprint chodníky ponechává
+    assert op.build_osm_path_parts(work, **kw)[0].count == 5  # sprint chodníky ponechává
     assert op.is_sidewalk_beside_road("sidewalk", [(0, 5), (100, 5)], op.road_zone_geometry(feats[:1]) or None) is False
 
 
@@ -369,7 +370,7 @@ def test_long_merged_sidewalk_is_cut_only_where_it_runs_along_road(tmp_path):
     # krátké křížení silnice (průchod pásem < 40 m) se nekreslí jinak než dosud – nic se neřeže
     crossing = [(-940, -1100), (-940, -900)]
     assert op.sidewalk_parallel_zone("sidewalk", crossing, zone) is None
-    assert op.sidewalk_parallel_zone("footway", long_walk, zone) is None  # jen třída chodník
+    assert op.sidewalk_parallel_zone("track", long_walk, zone) is None  # jen chodník / pěšina
 
     work = tmp_path
     (work / "osm_paths").mkdir()

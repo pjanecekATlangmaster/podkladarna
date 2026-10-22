@@ -194,6 +194,9 @@ PEDESTRIAN_CORRIDOR_MIN_LEN_M = 25.0
 # Nejvýš tolik metrů silnice z OSM smí ležet uvnitř slučovaného koridoru.
 PEDESTRIAN_CORRIDOR_MAX_ROAD_M = 3.0
 PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M = 20.0
+# Koridor jen ze zpevněných linií (podíl délky na čarách se zpevněným ``surface``) a ne přes budovy.
+PEDESTRIAN_CORRIDOR_PAVED_SHARE = 0.8
+PEDESTRIAN_CORRIDOR_MAX_BUILDING_SHARE = 0.05
 # Sousední pěší zóny se sloučí, škvíra do tolika m se zacelí (navázání okrajů).
 PEDESTRIAN_AREA_MERGE_GAP_M = 1.5
 
@@ -530,22 +533,58 @@ def _pedestrian_corridor_polygon(coords_a: list, coords_b: list):
     # Koridor je úzký pruh: plocha nad šířka × délka (se zdvojnásobením rozevření) = zkroucený prstenec.
     if poly.area > 2.0 * PEDESTRIAN_CORRIDOR_MAX_GAP_M * max(a.length, b.length):
         return None
+    # Průměrná šířka (plocha / délka kratší čáry) nad limit = čáry se rozbíhají, ne souběžná osa jedné zóny.
+    if poly.area > PEDESTRIAN_CORRIDOR_MAX_GAP_M * min(a.length, b.length):
+        return None
     return poly
 
 
 def merge_parallel_pedestrian_to_areas(
     osm_items: list[tuple[list[tuple[float, float]], str]],
+    *,
+    paved_lines: list[list[tuple[float, float]]] | None = None,
+    buildings: list | None = None,
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], list[list[list[tuple[float, float]]]]]:
     """Souběžné ``sidewalk``/``pedestrian`` linie → polygony pěší zóny; zbylé položky beze změny.
 
     Typicky dvě osy téhož koridoru (way/60592678 × way/60592718) se nahradí jednou plochou 501
     s okrajem místo čtyř překrytých čar.
+
+    - Mosty a tunely se neslučují (lávka way/31191318 by zmizela v ploše náměstí).
+    - ``paved_lines``: čáry se zpevněným povrchem (OSM ``surface``); je-li zadáno, obě linie koridoru musí
+      ležet aspoň z ``PEDESTRIAN_CORRIDOR_PAVED_SHARE`` na nich (cesta je plochou jen při pevném povrchu).
+    - ``buildings``: polygony budov; koridor, který z víc než ``PEDESTRIAN_CORRIDOR_MAX_BUILDING_SHARE``
+      leží v budově, se zahodí (umělý mnohoúhelník kolem budovy).
     """
     walk_idx = [
         i
         for i, (_pts, hw) in enumerate(osm_items)
-        if path_draw_highway(hw) in {"sidewalk", "pedestrian"} and len(_pts) >= 2
+        if path_draw_highway(hw) in {"sidewalk", "pedestrian"}
+        and not is_bridge_highway(hw)
+        and not is_tunnel_highway(hw)
+        and len(_pts) >= 2
     ]
+    paved_zone = None
+    building_zone = None
+    try:
+        from shapely.geometry import LineString as _LSp
+        from shapely.ops import unary_union as _uup
+
+        if paved_lines is not None:
+            _pl = [_LSp(c) for c in paved_lines if len(c) >= 2]
+            paved_zone = _uup(_pl).buffer(0.5) if _pl else None
+            if paved_zone is None:
+                return osm_items, []
+            walk_idx = [
+                i
+                for i in walk_idx
+                if _LSp(osm_items[i][0]).intersection(paved_zone).length
+                >= PEDESTRIAN_CORRIDOR_PAVED_SHARE * _LSp(osm_items[i][0]).length
+            ]
+        if buildings:
+            building_zone = _uup(buildings)
+    except ImportError:
+        pass
     # Koridor nesmí vést přes silnici (dva chodníky na opačných stranách ulice by dal plochu přes vozovku).
     try:
         from shapely.geometry import LineString as _LS
@@ -573,6 +612,11 @@ def merge_parallel_pedestrian_to_areas(
             if poly is None:
                 continue
             if roads is not None and poly.intersection(roads).length > PEDESTRIAN_CORRIDOR_MAX_ROAD_M:
+                continue
+            if (
+                building_zone is not None
+                and poly.intersection(building_zone).area > PEDESTRIAN_CORRIDOR_MAX_BUILDING_SHARE * poly.area
+            ):
                 continue
             if best_poly is None or poly.area > best_poly.area:
                 best_poly, best_j = poly, j
@@ -3135,6 +3179,8 @@ def prepare_osm_paths(
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     # Chodníky / pěšiny, po kterých smějí jezdit cyklisté (sdílený provoz) – pro MTBO koridor silnice.
     bike_lines: list[list[tuple[float, float]]] = []
+    # Cesty se zpevněným povrchem (surface=asphalt, paving_stones …) – jen z nich vzniká koridor pěší zóny.
+    paved_walk_lines: list[list[tuple[float, float]]] = []
     features: list[dict] = []
     skipped = 0
     # Sloupy/stožáry pro DashPoint na vedení (nejsou samostatné OOM objekty).
@@ -3330,12 +3376,26 @@ def prepare_osm_paths(
         osm_items.append((pts, hw))
         if is_bike_allowed(tags) and path_draw_highway(hw) in BIKE_SHARED_BASES:
             bike_lines.append(list(pts))
+        if _is_paved_surface(tags):
+            paved_walk_lines.append(list(pts))
     # Úseky téže cesty rozdělené v OSM (např. jiný chodník) → jedna linie.
     osm_items, merged_split_ways = merge_osm_items_same_class(osm_items)
     if merged_split_ways and log:
         log(f"OSM cesty: {merged_split_ways} rozdělených úseků spojeno do souvislých linií")
     # Souběžné pěší zóny (dvě linie vedle sebe) → jedna zpevněná plocha s okrajem.
-    osm_items, ped_corridors = merge_parallel_pedestrian_to_areas(osm_items)
+    _buildings = []
+    try:
+        from shapely.geometry import shape as _shape
+
+        for _f in features:
+            if (_f.get("properties") or {}).get("kind") in _OSM_BUILDING_KINDS and (_f.get("geometry") or {}).get("type") == "Polygon":
+                _g = _shape(_f["geometry"])
+                _buildings.append(_g if _g.is_valid else _g.buffer(0))
+    except (ImportError, ValueError, TypeError):
+        _buildings = []
+    osm_items, ped_corridors = merge_parallel_pedestrian_to_areas(
+        osm_items, paved_lines=paved_walk_lines, buildings=_buildings
+    )
     for rings in ped_corridors:
         features.append(
             {
@@ -4337,15 +4397,25 @@ def sidewalk_road_zone_geometry(features: list[dict], paved, *, preset_id: str, 
             widths[hw] = drawn_symbol_width_m(hw, preset_id, scale) / 2.0
         parts.append(LineString(coords).buffer(widths[hw] + reach))
     if paved is not None and not paved.is_empty:
-        parts.append(paved.buffer(paved_edge_width_m(preset_id, scale) / 2.0 + reach))
+        # Jen pás vně plochy: cesta přes plochu se řeže na hraně (``path_cut_zone``), ne tady o kus dřív.
+        parts.append(paved.buffer(paved_edge_width_m(preset_id, scale) / 2.0 + reach).difference(paved))
     return unary_union(parts) if parts else None
+
+
+# Les a MTBO: kromě chodníku (``footway=sidewalk``) se u silnice zahazuje i pěšina bez tagu chodníku
+# (way/227971133 u Brichtovy je jen ``highway=footway``) – v měřítku se slije stejně.
+SIDEWALK_DEDUP_BASES = frozenset({"sidewalk", "footway", "path"})
 
 
 def is_sidewalk_beside_road(highway: str, coords: list, road_zone) -> bool:
     """Chodník (na povrchu) souběžný se silnicí: aspoň ``SIDEWALK_ROAD_SHARE`` délky v pásu kolem silnice."""
     if road_zone is None or len(coords) < 2:
         return False
-    if path_draw_highway(highway) != "sidewalk" or is_bridge_highway(highway) or is_tunnel_highway(highway):
+    if (
+        path_draw_highway(highway) not in SIDEWALK_DEDUP_BASES
+        or is_bridge_highway(highway)
+        or is_tunnel_highway(highway)
+    ):
         return False
     from shapely.geometry import LineString
 
@@ -4365,7 +4435,11 @@ def sidewalk_parallel_zone(highway: str, coords: list, road_zone):
     """
     if road_zone is None or len(coords) < 2:
         return None
-    if path_draw_highway(highway) != "sidewalk" or is_bridge_highway(highway) or is_tunnel_highway(highway):
+    if (
+        path_draw_highway(highway) not in SIDEWALK_DEDUP_BASES
+        or is_bridge_highway(highway)
+        or is_tunnel_highway(highway)
+    ):
         return None
     from shapely.geometry import LineString
     from shapely.ops import linemerge, unary_union
@@ -4402,7 +4476,7 @@ def drawn_width_m(highway: str) -> float:
 
 # Les a MTBO: mezi kresbou dvou souběžných čar (silnice × chodník, okraj plochy × silnice) musí zůstat aspoň
 # tolik mm bílé, jinak čáry splynou a nejsou čitelné.
-LINE_MIN_GAP_MM = 0.25
+LINE_MIN_GAP_MM = 0.35
 # Okraj zpevněné plochy (ISOM 501.2 0,14 mm), když ho sada nemá (MTBO kreslí okraj v 501.0).
 PAVED_EDGE_FALLBACK_MM = 0.14
 

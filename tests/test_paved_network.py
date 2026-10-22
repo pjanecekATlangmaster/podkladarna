@@ -263,3 +263,54 @@ def test_network_blocks_merge_with_osm_roads(tmp_path):
     op._PAVED_NETWORK_CACHE.clear()
     net = op.paved_network_geometry(tmp_path)
     assert net.geom_type == "MultiPolygon"
+
+
+def test_footway_beside_road_dropped_like_sidewalk():
+    # Brichtova (Praha 5): highway=footway bez footway=sidewalk 5–9 m od osy residential (502) – v lese 1:10000 nečitelné.
+    zone = op.sidewalk_road_zone_geometry([_road([(0, 0), (100, 0)], "road_3")], None, preset_id="forest_10000", scale=10000)
+    walk = [(0, 4.8), (40, 7.3), (100, 8.8)]
+    assert op.is_sidewalk_beside_road("footway", walk, zone)
+    assert not op.is_sidewalk_beside_road("track", walk, zone)
+
+
+def test_path_crossing_parking_not_cut_before_edge():
+    from shapely.geometry import box
+
+    zone = op.sidewalk_road_zone_geometry([], box(0, 0, 40, 40), preset_id="forest_10000", scale=10000)
+    crossing = [(20, -30), (20, 70)]
+    assert op.sidewalk_parallel_zone("footway", crossing, zone) is None
+
+
+def _walk(coords, hw="sidewalk"):
+    return ([tuple(c) for c in coords], hw)
+
+
+def test_corridor_not_from_bridge():
+    items = [_walk([(0, 0), (60, 0)]), _walk([(0, 8), (60, 8)], op.bridge_highway("sidewalk"))]
+    kept, areas = op.merge_parallel_pedestrian_to_areas(items)
+    assert areas == [] and len(kept) == 2
+
+
+def test_corridor_only_from_paved_lines():
+    items = [_walk([(0, 0), (60, 0)], "pedestrian"), _walk([(0, 8), (60, 8)], "pedestrian")]
+    _kept, areas = op.merge_parallel_pedestrian_to_areas(items)
+    assert len(areas) == 1  # bez informace o povrchu jako dřív
+    _kept, areas = op.merge_parallel_pedestrian_to_areas(items, paved_lines=[items[0][0]])
+    assert areas == []  # jen jedna z čar má zpevněný povrch
+    _kept, areas = op.merge_parallel_pedestrian_to_areas(items, paved_lines=[items[0][0], items[1][0]])
+    assert len(areas) == 1
+
+
+def test_corridor_not_over_building():
+    from shapely.geometry import box
+
+    items = [_walk([(0, 0), (60, 0)]), _walk([(0, 10), (60, 10)])]
+    _kept, areas = op.merge_parallel_pedestrian_to_areas(items, buildings=[box(10, 2, 40, 9)])
+    assert areas == []
+
+
+def test_corridor_not_from_diverging_lines():
+    # Čáry se rozbíhají (min. rozestup 2 m, na konci 30 m): průměrná šířka nad 12 m → žádný koridor.
+    items = [_walk([(0, 0), (60, 0)]), _walk([(0, 2), (60, 30)])]
+    _kept, areas = op.merge_parallel_pedestrian_to_areas(items)
+    assert areas == []
