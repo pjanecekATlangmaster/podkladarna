@@ -243,3 +243,23 @@ def test_edge_kept_along_road_inside_parking(tmp_path):
     parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
     length = _edge_length(parts)
     assert 160 - 2 * 25 < length < 160  # chybí jen okolí dvou vjezdů
+
+
+def test_road_over_pitch_is_kept(tmp_path):
+    # Silnice přes hřiště / sportoviště se neřeže (spíš nepřesnost OSM), jen přes parkoviště a pěší zónu.
+    road = _line([(-50, 20), (90, 20)], "road_2")
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "pitch")], [road])
+    assert _path_lengths(tmp_path)["503.0"] == pytest.approx(140, abs=1.0)
+
+
+def test_network_blocks_merge_with_osm_roads(tmp_path):
+    # Silnice pro blokaci spojení přes ulici se berou z paths_osm (mixed je po dedupu se ZABAGED neúplný).
+    import json
+
+    _write_job(tmp_path, [_area(0, 0, 50, 20), _area(0, 23, 50, 40)], [])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [_road([(-10, 21.5), (60, 21.5)])]}), encoding="utf-8"
+    )
+    op._PAVED_NETWORK_CACHE.clear()
+    net = op.paved_network_geometry(tmp_path)
+    assert net.geom_type == "MultiPolygon"

@@ -4072,8 +4072,9 @@ PAVED_MERGE_GAP_M = 3.5
 
 
 def _paths_features_for_network(work_dir: Path) -> list[dict]:
-    """Prvky cest pro síť zpevněných ploch (silnice); nejdřív mixed, pak OSM, pak starý ``paths.geojson``."""
-    for name in ("paths_mixed.geojson", "paths_osm.geojson", "paths.geojson"):
+    """Prvky cest pro síť zpevněných ploch (silnice); nejdřív OSM (všechny silnice, i ty, které v mixed nahradila
+    ZABAGED Ulice), pak mixed, pak starý ``paths.geojson``."""
+    for name in ("paths_osm.geojson", "paths_mixed.geojson", "paths.geojson"):
         path = work_dir / "osm_paths" / name
         if path.is_file():
             try:
@@ -4161,7 +4162,7 @@ def build_paved_network(feats: list[dict], path_features: list[dict], *, gap_m: 
     return out, (unary_union(kept) if kept else None)
 
 
-def paved_edge_omit_zone(path_features: list[dict], network, *, preset_id: str, scale: int):
+def paved_edge_omit_zone(path_features: list[dict], road_clip, *, preset_id: str, scale: int):
     """Les: pás kolem kreslených silnic, ve kterém by okraj zpevněné plochy 501.2 splynul se silnicí (shapely / None).
 
     Půlka kresby silnice + půlka okraje + ``LINE_MIN_GAP_MM``. Silnice se berou až po ořezu zpevněnou plochou
@@ -4173,7 +4174,7 @@ def paved_edge_omit_zone(path_features: list[dict], network, *, preset_id: str, 
     except ImportError:
         return None
     reach = paved_edge_width_m(preset_id, scale) / 2.0 + mm_to_ground_m(LINE_MIN_GAP_MM, scale)
-    core = network.buffer(-ROAD_IN_PAVED_EDGE_M) if network is not None else None
+    core = road_clip.buffer(-ROAD_IN_PAVED_EDGE_M) if road_clip is not None else None
     widths: dict[str, float] = {}
     parts = []
     for feat in path_features:
@@ -4187,32 +4188,70 @@ def paved_edge_omit_zone(path_features: list[dict], network, *, preset_id: str, 
         if hw not in widths:
             widths[hw] = drawn_symbol_width_m(hw, preset_id, scale) / 2.0
         line = [(float(x), float(y)) for x, y in coords]
-        for piece in clip_road_in_paved(line, network, core=core) if network is not None else [line]:
+        for piece in clip_road_in_paved(line, road_clip, core=core) if road_clip is not None else [line]:
             if len(piece) >= 2:
                 parts.append(LineString(piece).buffer(widths[hw] + reach))
     return unary_union(parts) if parts else None
 
 
-_PAVED_NETWORK_CACHE: dict[tuple, object] = {}
+# Silnice se ořezávají jen plochami, kde jízdní pruh uvnitř nedává v mapě smysl (parkoviště, pěší zóna, nástupiště).
+# Hřiště / sportoviště ne: silnice přes ně je spíš nepřesnost OSM (Praha 5: 0,5 km silnic přes pitch).
+ROAD_CLIP_KINDS = frozenset({"parking", "pedestrian_area", "platform"})
 
 
-def paved_network_geometry(work_dir: Path):
-    """Plocha sítě zpevněných ploch (``build_paved_network``) z ``features.geojson`` jobu; cache podle mtime."""
+def road_clip_geometry(feats: list[dict]):
+    """Sjednocení OSM ploch ``ROAD_CLIP_KINDS`` (bez mostů / tunelů) – přes ně se silnice nekreslí; shapely / None."""
+    try:
+        from shapely.geometry import shape
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+    polys = []
+    for feat in feats:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") not in ROAD_CLIP_KINDS or props.get("structure"):
+            continue
+        if geom.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            g = shape(geom)
+            polys.append(g if g.is_valid else g.buffer(0))
+        except (ValueError, TypeError):
+            continue
+    return unary_union(polys) if polys else None
+
+
+_PAVED_NETWORK_CACHE: dict[tuple, tuple] = {}
+
+
+def _paved_network_cached(work_dir: Path) -> tuple:
     gj = work_dir / "osm_paths" / "features.geojson"
     if not gj.is_file():
-        return None
+        return None, None
     try:
         key = (str(gj), gj.stat().st_mtime_ns)
     except OSError:
-        return None
+        return None, None
     if key not in _PAVED_NETWORK_CACHE:
         try:
             feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
         except (OSError, ValueError):
             feats = []
         _PAVED_NETWORK_CACHE.clear()
-        _PAVED_NETWORK_CACHE[key] = build_paved_network(feats, _paths_features_for_network(work_dir))[1]
+        network = build_paved_network(feats, _paths_features_for_network(work_dir))[1]
+        _PAVED_NETWORK_CACHE[key] = (network, road_clip_geometry(feats))
     return _PAVED_NETWORK_CACHE[key]
+
+
+def paved_network_geometry(work_dir: Path):
+    """Plocha sítě zpevněných ploch (``build_paved_network``) z ``features.geojson`` jobu; cache podle mtime."""
+    return _paved_network_cached(work_dir)[0]
+
+
+def road_clip_zone(work_dir: Path):
+    """Plochy jobu, přes které se silnice nekreslí (``road_clip_geometry``); cache podle mtime."""
+    return _paved_network_cached(work_dir)[1]
 
 
 # Les a MTBO: silnice přes zpevněnou plochu (typicky jízdní pruh na parkovišti) se uvnitř plochy nekreslí,
@@ -4547,7 +4586,8 @@ def build_osm_path_parts(
     path_cut_zone = path_cut_zone_geometry(
         work_dir, data.get("features") or [], extra=_cut_extra, paved=paved_network
     )
-    paved_core = paved_network.buffer(-ROAD_IN_PAVED_EDGE_M) if paved_network is not None else None
+    road_clip = None if paved_network is None else road_clip_zone(work_dir)
+    paved_core = road_clip.buffer(-ROAD_IN_PAVED_EDGE_M) if road_clip is not None else None
     # Obecné ukončení cest na hraně zpevněné (i silnice / DTM).
     edge_area = path_cut_zone
     # Sprint: pod mostem z DTM se cesty nekreslí (kreslí se most a hrany 512.100), mostní čáry uvnitř DTM mostu také ne.
@@ -4681,15 +4721,15 @@ def build_osm_path_parts(
                 lines = [seg for ln in lines for seg in clip_outside(ln, paved_network)]
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
         elif (
-            paved_network is not None
+            road_clip is not None
             and path_draw_highway(hw).startswith("road_")
             and not is_bridge_highway(hw)
             and not is_tunnel_highway(hw)
         ):
             # Les/MTBO: silnice přes zpevněnou plochu (parkoviště) se uvnitř nekreslí, jen napojení na hranu.
             # Zóna je jen plocha, bez jízdního pásu silnic (ten by silnici zahodil celou).
-            lines = [seg for ln in lines for seg in clip_road_in_paved(ln, paved_network, core=paved_core)]
-            lines = [seg for ln in lines for seg in end_at_edge(ln, paved_network)]
+            lines = [seg for ln in lines for seg in clip_road_in_paved(ln, road_clip, core=paved_core)]
+            lines = [seg for ln in lines for seg in end_at_edge(ln, road_clip)]
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         for piece in pieces:
             piece_idx = symbol_index
@@ -4852,10 +4892,11 @@ def build_osm_feature_parts(
     if not preset_id.startswith("sprint"):
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
         _path_feats = _paths_features_for_network(work_dir)
+        _road_clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
         feats, _network = build_paved_network(feats, _path_feats)
         if not preset_id.startswith("mtbo"):
             # Les: okraj 501.2 se nekreslí tam, kde by splýval se silnicí.
-            edge_omit_zone = paved_edge_omit_zone(_path_feats, _network, preset_id=preset_id, scale=scale)
+            edge_omit_zone = paved_edge_omit_zone(_path_feats, _road_clip, preset_id=preset_id, scale=scale)
     feats = [
         f
         for f in feats
