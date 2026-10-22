@@ -197,6 +197,50 @@ def test_separate_from_roads_cuts_overlap_and_closes_narrow_gap():
     assert abs(ds.separate_from_roads(far, roads).bounds[1] - 10.0) < 1e-6
 
 
+def test_merge_sidewalk_with_road_unions_near_keeps_far_and_interface():
+    roads = ds.dtm_union([_rect(0, 0, 100, 8)])
+    # přilehlý pás + pokračování daleko od silnice (y 20–22)
+    sidewalks = ds.dtm_union([_rect(0, 8.2, 100, 11), _rect(0, 20, 40, 22)])
+    merged, interface, rest = ds.merge_sidewalk_with_road(roads, sidewalks)
+    assert merged is not None and interface is not None and rest is not None
+    assert merged.area > roads.area  # chodník přibyl do plochy
+    assert abs(rest.bounds[1] - 20.0) < 0.1  # daleký kus zůstal
+    assert interface.length > 50  # společná hrana podél silnice
+    # bez přilehlého chodníku se nesloučí
+    far_only = ds.dtm_union([_rect(0, 20, 40, 22)])
+    assert ds.merge_sidewalk_with_road(roads, far_only) == (None, None, far_only)
+
+
+def test_sprint_merges_adjacent_sidewalk_into_501_1_with_interface(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1004, -900, -996)]]}),
+        encoding="utf-8",
+    )
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps(
+            {
+                "polygons": [
+                    # podél silnice (y -995…-992) + kus mimo (y -940…-938)
+                    [[list(p) for p in ring] for ring in _rect(-1000, -995, -900, -992)],
+                    [[list(p) for p in ring] for ring in _rect(-1000, -940, -960, -938)],
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
+    roads = di.build_dtm_road_parts(work, **kw)
+    names = [p.name for p in roads]
+    assert "Silnice s chodníkem (DTM + OSM, 501.1)" in names
+    assert "Rozhraní chodník×silnice (501.100)" in names
+    assert "Silnice (DTM + OSM)" not in names  # ne oddělená 501.20
+    side = di.build_dtm_sidewalk_parts(work, **kw)
+    assert side and "mimo silnici" in side[0].name
+    assert side[0].count >= 1  # zůstal jen vzdálený kus
+
+
 def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
     from app.pipeline import osm_paths as op
 
@@ -367,6 +411,48 @@ def test_forest_and_mtbo_drop_sidewalks_beside_parking_too(tmp_path):
     (work / "osm_paths" / "features.geojson").unlink()
     kw = dict(preset_id="forest_10000", scale=10000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
     assert op.build_osm_path_parts(work, **kw)[0].count == 3  # bez parkoviště zůstává
+
+
+def test_forest_drops_sidewalk_beside_pedestrian_area(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "osm_paths").mkdir()
+
+    def line(hw, a, b):
+        return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": [a, b]}}
+
+    # bez silnice: jen pěší zóna + chodník u ní + chodník v parku
+    feats = [
+        line("sidewalk", [-1000, -975], [-900, -975]),
+        line("sidewalk", [-1000, -940], [-900, -940]),
+    ]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    ped = {
+        "type": "Feature",
+        "properties": {"kind": "pedestrian_area", "oom_code": "501"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[-990, -990], [-910, -990], [-910, -978], [-990, -978], [-990, -990]]],
+        },
+    }
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [ped]}), encoding="utf-8"
+    )
+    assert op.osm_paved_beside_geometry(work) is not None
+    kw = dict(preset_id="forest_10000", scale=10000, ref_x=-950.0, ref_y=-960.0, grivation_deg=0.0)
+    assert op.build_osm_path_parts(work, **kw)[0].count == 1  # jen park; chodník u pěší zóny odpadl
+    playground = {
+        "type": "Feature",
+        "properties": {"kind": "playground", "oom_code": "501"},
+        "geometry": ped["geometry"],
+    }
+    (work / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [playground]}), encoding="utf-8"
+    )
+    assert op.build_osm_path_parts(work, **kw)[0].count == 2  # hřiště nepotlačuje chodník
 
 
 def test_forest_uses_dtm_buildings_and_fences_replace_osm(tmp_path):

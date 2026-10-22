@@ -990,6 +990,67 @@ def _outline_part(
     return [OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects))] if objects else []
 
 
+def _lines_part(
+    geom,
+    *,
+    name: str,
+    code: str,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    clip_bounds: Bounds | None,
+) -> list[OomObjectPart]:
+    """Lineární geometrie (shapely LineString / MultiLineString / …) čárou ``code``."""
+    from shapely.geometry import box
+
+    if geom is None or geom.is_empty:
+        return []
+    idx = symbol_index_for_code(preset_id, scale, code)
+    if idx is None:
+        return []
+    clip = box(*clip_bounds) if clip_bounds is not None else None
+    if clip is not None:
+        geom = geom.intersection(clip)
+        if geom.is_empty:
+            return []
+    lines = [geom] if geom.geom_type == "LineString" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "LineString"]
+    objects: list[str] = []
+    for ln in lines:
+        for piece in _chunk_line([(float(x), float(y)) for x, y in ln.coords], OUTLINE_CHUNK_VERTICES):
+            mapped = [
+                projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                for x, y in piece
+            ]
+            obj = _path_object_mapped(idx, mapped)
+            if obj:
+                objects.append(obj)
+    return [OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects))] if objects else []
+
+
+def _sprint_merged_road_sidewalk(work_dir: Path, path_source: str = "mixed"):
+    """Sprint: sloučení silnice + přilehlého chodníku, nebo ``None`` když není co sloučit.
+
+    Vrací ``(merged, interface, sidewalk_rest)`` ze ``merge_sidewalk_with_road``, nebo ``None``
+    (oddělené kreslení 501.20 / 501.0).
+    """
+    from app.pipeline import dtm_sidewalks
+
+    if not dtm_owns_sidewalks(work_dir) and not dtm_owns_roads(work_dir):
+        return None
+    roads = road_geometry(work_dir, path_source, cut_decks=True)
+    if roads is None or roads.is_empty:
+        return None
+    if not dtm_owns_sidewalks(work_dir):
+        return None
+    sidewalks = sidewalk_geometry(work_dir, path_source, roads=None, cut_decks=True)
+    merged, interface, rest = dtm_sidewalks.merge_sidewalk_with_road(roads, sidewalks)
+    if merged is None:
+        return None
+    return merged, interface, rest
+
+
 def _path_object_mapped(symbol_index: int, mapped) -> str:
     from app.pipeline.osm_paths import _path_object
 
@@ -1270,7 +1331,9 @@ def build_dtm_sidewalk_parts(
 ) -> list[OomObjectPart]:
     """Chodníky (sprint, MTBO) jako jedna plocha 501.0: DTM tvar + doplňky z OSM / ZABAGED, ořezaná o silnice.
 
-    MTBO: jen široké části mimo silnice a koridor (``mtbo_sidewalk_geometry``), obrys zvlášť čárou 501.100.
+    Sprint: přilehlý chodník u silnice se sloučí do společné zpevněné plochy (viz ``build_dtm_road_parts``);
+    zde zůstane jen část mimo silnici. MTBO: jen široké části mimo silnice a koridor
+    (``mtbo_sidewalk_geometry``), obrys zvlášť čárou 501.100.
     """
     if mtbo_dtm_off(preset_id):
         return []
@@ -1289,6 +1352,26 @@ def build_dtm_sidewalk_parts(
         )
     if not preset_id.startswith("sprint") or not dtm_owns_sidewalks(work_dir):
         return []
+    kw = dict(
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation_deg,
+        clip_bounds=clip_bounds,
+    )
+    merged = _sprint_merged_road_sidewalk(work_dir, path_source)
+    if merged is not None:
+        _fill, _interface, rest = merged
+        if rest is None or rest.is_empty:
+            return []
+        return _geometry_part(
+            rest,
+            edge_exclude=deck_footprint_geometry(work_dir),
+            name="Chodníky mimo silnici (DTM + OSM)",
+            code="501.0",
+            **kw,
+        )
     geom = sidewalk_geometry(
         work_dir,
         path_source,
@@ -1300,12 +1383,7 @@ def build_dtm_sidewalk_parts(
         edge_exclude=deck_footprint_geometry(work_dir),
         name="Chodníky (DTM + OSM)",
         code="501.0",
-        preset_id=preset_id,
-        scale=scale,
-        ref_x=ref_x,
-        ref_y=ref_y,
-        grivation_deg=grivation_deg,
-        clip_bounds=clip_bounds,
+        **kw,
     )
 
 
@@ -1435,20 +1513,48 @@ def build_dtm_road_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
-    """Silnice (jen sprint) jako jedna plocha 501.20: DTM tvar + doplňky z OSM."""
+    """Silnice (jen sprint) jako plocha: DTM tvar + doplňky z OSM.
+
+    Je-li vedle silnice chodník, sloučí se do výplně 501.1 (bez okraje) + vnější obrys a rozhraní
+    chodník×silnice čárou 501.100. Jinak zůstává těžký provoz 501.20.
+    """
     if not preset_id.startswith("sprint") or not (dtm_owns_roads(work_dir) or dtm_owns_sidewalks(work_dir)):
         return []
-    return _geometry_part(
-        road_geometry(work_dir, path_source, cut_decks=True),
-        edge_exclude=deck_footprint_geometry(work_dir),
-        name="Silnice (DTM + OSM)",
-        code=ROAD_CODE,
+    kw = dict(
         preset_id=preset_id,
         scale=scale,
         ref_x=ref_x,
         ref_y=ref_y,
         grivation_deg=grivation_deg,
         clip_bounds=clip_bounds,
+    )
+    merged = _sprint_merged_road_sidewalk(work_dir, path_source)
+    if merged is not None:
+        fill, interface, _rest = merged
+        parts = _geometry_part(
+            fill,
+            edge_exclude=deck_footprint_geometry(work_dir),
+            name="Silnice s chodníkem (DTM + OSM, 501.1)",
+            code="501.0",
+            outline_separate=True,
+            **kw,
+        )
+        if interface is not None and not interface.is_empty:
+            parts.extend(
+                _lines_part(
+                    interface,
+                    name="Rozhraní chodník×silnice (501.100)",
+                    code=EDGE_CODE,
+                    **kw,
+                )
+            )
+        return parts
+    return _geometry_part(
+        road_geometry(work_dir, path_source, cut_decks=True),
+        edge_exclude=deck_footprint_geometry(work_dir),
+        name="Silnice (DTM + OSM)",
+        code=ROAD_CODE,
+        **kw,
     )
 
 

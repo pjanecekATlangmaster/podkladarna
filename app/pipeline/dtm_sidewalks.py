@@ -158,6 +158,55 @@ def separate_from_roads(geom, roads, gap_m: float = ROAD_EDGE_GAP_M):
     return unary_union([geom, *gaps]).difference(roads)
 
 
+# Chodník do této vzdálenosti (m) od silnice se sloučí do společné zpevněné plochy (sprint 501.1 + 501.100).
+MERGE_SIDEWALK_NEAR_M = CORRIDOR_NEAR_M
+# Škvíra mezi silnicí a chodníkem do této šířky (m) se při sloučení zacelí (širší než pouhý obrubník).
+MERGE_GAP_M = CORRIDOR_GAP_M
+# Společná hrana silnice×chodník: část hranice silnice do tolika m od upraveného chodníku.
+MERGE_INTERFACE_TOL_M = 0.15
+
+
+def merge_sidewalk_with_road(
+    roads,
+    sidewalks,
+    *,
+    near_m: float = MERGE_SIDEWALK_NEAR_M,
+    gap_m: float = MERGE_GAP_M,
+):
+    """Sloučí chodník vedle silnice do jedné plochy.
+
+    Vrací ``(merged, interface, sidewalk_rest)``:
+    - ``merged``: silnice ∪ přilehlý chodník (vč. zacelených škvír), nebo ``None`` když není co sloučit
+      (žádný chodník v ``near_m``) — volající nechá oddělené symboly;
+    - ``interface``: společná hrana silnice×chodník (pro 501.100), nebo ``None``;
+    - ``sidewalk_rest``: část chodníku mimo pás u silnice (zůstane samostatný chodník), nebo ``None``.
+    """
+    from shapely.ops import unary_union
+
+    if roads is None or roads.is_empty or sidewalks is None or sidewalks.is_empty:
+        return None, None, sidewalks
+    near_zone = roads.buffer(near_m)
+    near = sidewalks.intersection(near_zone)
+    rest = sidewalks.difference(near_zone)
+    if near.is_empty:
+        return None, None, sidewalks
+    both = unary_union([near, roads])
+    fill = both.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2).difference(both)
+    pieces = [fill] if fill.geom_type == "Polygon" else list(getattr(fill, "geoms", []))
+    near_g, near_r = near.buffer(0.02), roads.buffer(0.02)
+    gaps = [p for p in pieces if p.geom_type == "Polygon" and p.intersects(near_g) and p.intersects(near_r)]
+    near_closed = unary_union([near, *gaps])
+    near_adj = near_closed.difference(roads)
+    merged = unary_union([roads, near_adj]) if not near_adj.is_empty else roads
+    interface = None
+    if not near_adj.is_empty:
+        hit = roads.boundary.intersection(near_adj.buffer(MERGE_INTERFACE_TOL_M))
+        if not hit.is_empty:
+            interface = hit
+    rest_out = rest if rest is not None and not rest.is_empty else None
+    return merged, interface, rest_out
+
+
 def _long_side(poly) -> float:
     """Delší strana opsaného (otočeného) obdélníku polygonu (m) – délka kusu koridoru."""
     rect = poly.minimum_rotated_rectangle

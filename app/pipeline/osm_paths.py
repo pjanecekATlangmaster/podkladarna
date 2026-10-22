@@ -191,6 +191,12 @@ PATH_LINE_SOURCE_PRIORITY: dict[str, int] = {
 # area:highway=* tenčí než toto (m, kratší strana opsaného obdélníku) → střednice
 # do sítě cest (les/MTBO), ne plocha 501 vedle linie (way/60592702 × way/1408205238).
 AREA_HIGHWAY_CORRIDOR_MAX_WIDTH_M = 12.0
+# Dvě souběžné highway=pedestrian (way/60592678 × way/60592718) → jedna zpevněná plocha.
+PEDESTRIAN_CORRIDOR_MAX_GAP_M = 12.0
+PEDESTRIAN_CORRIDOR_MIN_LEN_M = 25.0
+PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M = 20.0
+# Sousední pěší zóny se sloučí, škvíra do tolika m se zacelí (navázání okrajů).
+PEDESTRIAN_AREA_MERGE_GAP_M = 1.5
 
 
 def resolve_path_source(raw: str | None) -> str:
@@ -552,6 +558,132 @@ def area_highway_corridor_centerline(
     return center
 
 
+def _pedestrian_corridor_polygon(coords_a: list, coords_b: list):
+    """Polygon mezi dvěma souběžnými čarami (shapely), nebo None."""
+    from shapely.geometry import LineString, Point, Polygon
+
+    if len(coords_a) < 2 or len(coords_b) < 2:
+        return None
+    a, b = LineString(coords_a), LineString(coords_b)
+    if a.length < PEDESTRIAN_CORRIDOR_MIN_LEN_M or b.length < PEDESTRIAN_CORRIDOR_MIN_LEN_M:
+        return None
+    # Stejný směr: začátek B blíž k začátku A než ke konci A.
+    if Point(b.coords[0]).distance(Point(a.coords[0])) > Point(b.coords[0]).distance(Point(a.coords[-1])):
+        b = LineString(list(b.coords)[::-1])
+    gap = a.distance(b)
+    if gap <= 0 or gap > PEDESTRIAN_CORRIDOR_MAX_GAP_M:
+        return None
+    # Překryv podél delší čáry: společná projekce.
+    overlap = min(a.length, b.length)
+    if overlap < PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M:
+        return None
+    ring = list(a.coords) + list(b.coords)[::-1] + [a.coords[0]]
+    try:
+        poly = Polygon(ring)
+        poly = poly if poly.is_valid else poly.buffer(0)
+    except (ValueError, TypeError):
+        return None
+    if poly.is_empty or poly.geom_type not in {"Polygon", "MultiPolygon"}:
+        return None
+    if poly.area < gap * PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M * 0.5:
+        return None
+    return poly
+
+
+def merge_parallel_pedestrian_to_areas(
+    osm_items: list[tuple[list[tuple[float, float]], str]],
+) -> tuple[list[tuple[list[tuple[float, float]], str]], list[list[list[tuple[float, float]]]]]:
+    """Souběžné ``sidewalk``/``pedestrian`` linie → polygony pěší zóny; zbylé položky beze změny.
+
+    Typicky dvě osy téhož koridoru (way/60592678 × way/60592718) se nahradí jednou plochou 501
+    s okrajem místo čtyř překrytých čar.
+    """
+    walk_idx = [
+        i
+        for i, (_pts, hw) in enumerate(osm_items)
+        if path_draw_highway(hw) in {"sidewalk", "pedestrian"} and len(_pts) >= 2
+    ]
+    if len(walk_idx) < 2:
+        return osm_items, []
+    used: set[int] = set()
+    areas: list[list[list[tuple[float, float]]]] = []
+    for ai, i in enumerate(walk_idx):
+        if i in used:
+            continue
+        best_j = None
+        best_poly = None
+        for j in walk_idx[ai + 1 :]:
+            if j in used:
+                continue
+            poly = _pedestrian_corridor_polygon(osm_items[i][0], osm_items[j][0])
+            if poly is None:
+                continue
+            if best_poly is None or poly.area > best_poly.area:
+                best_poly, best_j = poly, j
+        if best_j is None or best_poly is None:
+            continue
+        used.add(i)
+        used.add(best_j)
+        polys = [best_poly] if best_poly.geom_type == "Polygon" else list(best_poly.geoms)
+        for poly in polys:
+            if poly.geom_type != "Polygon" or poly.is_empty:
+                continue
+            exterior = [(float(x), float(y)) for x, y in poly.exterior.coords]
+            holes = [[(float(x), float(y)) for x, y in r.coords] for r in poly.interiors]
+            areas.append([exterior, *holes])
+    if not used:
+        return osm_items, []
+    kept = [item for i, item in enumerate(osm_items) if i not in used]
+    return kept, areas
+
+
+def merge_adjacent_pedestrian_area_features(
+    features: list[dict],
+    *,
+    gap_m: float = PEDESTRIAN_AREA_MERGE_GAP_M,
+) -> list[dict]:
+    """Sloučí sousední ``pedestrian_area`` (škvíra ≤ ``gap_m``) do souvislé zpevněné plochy s jedním okrajem."""
+    try:
+        from shapely.geometry import mapping, shape
+        from shapely.ops import unary_union
+    except ImportError:
+        return features
+    paved: list = []
+    rest: list[dict] = []
+    for feat in features:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") != "pedestrian_area" or geom.get("type") not in ("Polygon", "MultiPolygon"):
+            rest.append(feat)
+            continue
+        try:
+            g = shape(geom)
+            paved.append(g if g.is_valid else g.buffer(0))
+        except (ValueError, TypeError):
+            rest.append(feat)
+    if len(paved) < 2:
+        return features
+    merged = unary_union(paved)
+    if gap_m > 0:
+        merged = merged.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2)
+    if merged.is_empty:
+        return features
+    out = list(rest)
+    polys = [merged] if merged.geom_type == "Polygon" else [g for g in getattr(merged, "geoms", []) if g.geom_type == "Polygon"]
+    for poly in polys:
+        if poly.is_empty or poly.area < SLIVER_MIN_AREA_M2:
+            continue
+        gj = mapping(poly)
+        out.append(
+            {
+                "type": "Feature",
+                "properties": {"source": "osm", "kind": "pedestrian_area", "oom_code": "501"},
+                "geometry": gj,
+            }
+        )
+    return out
+
+
 # OSM plochy s ořezem proti ZABAGED (priorita ZABAGED).
 # farmland (412) se neořezává – zdroj je OSM, OrnaPuda se do OOM neimportuje.
 _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
@@ -569,6 +701,7 @@ _CLOSED_AREA_KINDS = frozenset(
     {
         "wetland",
         "water_body",
+        "fountain",
         "farmland",
         "residential",
         "garden",
@@ -1104,7 +1237,14 @@ def classify_osm_feature(
     # Nástupiště (tram/vlak/bus) → zpevněná 501 (např. way/180964461).
     if _is_platform_area_tags(tags) and not is_node:
         return "platform", "501"
-    if man_made == "water_well" or amenity == "fountain":
+    if amenity == "fountain":
+        # Uzavřená kašna (netypický tvar) → vodní plocha 301.1; bod / otevřená linie → studna 311.
+        if is_node:
+            return "water_well", "311"
+        if _is_osm_building(tags):
+            return "water_well_building", "521"
+        return "fountain", "301.1"
+    if man_made == "water_well":
         if _is_osm_building(tags):
             return "water_well_building", "521"
         return "water_well", "311"
@@ -1228,6 +1368,9 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "501.1"
     if kind == "water_body":
         return "301"
+    if kind == "fountain":
+        # ISOM/ISSprOM/ISMTBOM výplň 301.1 (plocha bez okraje v sadě).
+        return "301.1"
     if kind == "farmland":
         # ISOM 412 Cultivated land; ISMTBOM 412 = Orchard → 415.
         return "415" if mtbo else "412"
@@ -1289,6 +1432,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "landmark_tree": "417",
         "wetland": "308",
         "water_body": "301",
+        "fountain": "301.1",
         "farmland": "412",
         "garden": "520",
         "playground": "501",
@@ -3200,6 +3344,19 @@ def prepare_osm_paths(
     osm_items, merged_split_ways = merge_osm_items_same_class(osm_items)
     if merged_split_ways and log:
         log(f"OSM cesty: {merged_split_ways} rozdělených úseků spojeno do souvislých linií")
+    # Souběžné pěší zóny (dvě linie vedle sebe) → jedna zpevněná plocha s okrajem.
+    osm_items, ped_corridors = merge_parallel_pedestrian_to_areas(osm_items)
+    for rings in ped_corridors:
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {"source": "osm", "kind": "pedestrian_area", "oom_code": "501"},
+                "geometry": {"type": "Polygon", "coordinates": [[[x, y] for x, y in ring] for ring in rings]},
+            }
+        )
+    if ped_corridors and log:
+        log(f"OSM pěší zóny: {len(ped_corridors)} koridorů z paralelních linií sloučeno do plochy 501")
+    features = merge_adjacent_pedestrian_area_features(features)
     zabaged_lines: list[list[tuple[float, float]]] = []
     if zabaged_clean and zabaged_clean.is_file():
         # Stejný dedup pro všechny disciplíny: OSM > Pesina/Cesta (Ulice zůstává).
@@ -3355,6 +3512,7 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "water_well": ("OSM_studny", "studny / kašny", "311"),
     "spring": ("OSM_prameny", "prameny", "312"),
     "water_body": ("OSM_voda", "vodní plochy", "301"),
+    "fountain": ("OSM_kasny", "kašny (301.1)", "301.1"),
     "farmland": ("OSM_orna", "obdělávaná půda", "412"),
     "garden": ("OSM_zahrady", "zahrady (oliva)", "520"),
     "playground": ("OSM_hriste", "hřiště (zpevněná)", "501"),
@@ -3830,12 +3988,27 @@ def _line_in_zone(coords: list, zone) -> bool:
     return line.length > 0 and line.intersection(zone).length >= 0.9 * line.length
 
 
-# Chodník těsně u parkoviště (do tolika m od jeho okraje) se počítá jako chodník vedle silnice.
+# Chodník těsně u zpevněné plochy (do tolika m od jejího okraje) se počítá jako chodník vedle silnice.
 SIDEWALK_PARKING_NEAR_M = 3.0
+# OSM zpevněné plochy, u kterých se v lese/MTBO potlačí souběžný chodník (ne hřiště / pitch).
+SIDEWALK_BESIDE_PAVED_KINDS = frozenset({"parking", "pedestrian_area", "platform"})
 
 
 def osm_parking_geometry(work_dir: Path):
-    """OSM parkoviště (``kind == "parking"`` z ``osm_paths/features.geojson``) jako shapely plocha nebo None."""
+    """OSM parkoviště (``kind == "parking"``) jako shapely plocha nebo None.
+
+    Zůstává pro volající, kteří chtějí jen parkoviště; pro potlačení chodníku u zpevněných ploch
+    použij ``osm_paved_beside_geometry``.
+    """
+    return osm_paved_beside_geometry(work_dir, kinds=frozenset({"parking"}))
+
+
+def osm_paved_beside_geometry(work_dir: Path, kinds: frozenset[str] | None = None):
+    """OSM zpevněné plochy (parkoviště, pěší zóna, nástupiště) jako shapely plocha nebo None.
+
+    U těchto ploch se v lese/MTBO nekreslí souběžný chodník (stejně jako u silnice).
+    """
+    want = kinds if kinds is not None else SIDEWALK_BESIDE_PAVED_KINDS
     try:
         from shapely.geometry import shape
         from shapely.ops import unary_union
@@ -3846,7 +4019,7 @@ def osm_parking_geometry(work_dir: Path):
     polys = []
     for feat in feats:
         geom = feat.get("geometry") or {}
-        if (feat.get("properties") or {}).get("kind") != "parking" or geom.get("type") not in ("Polygon", "MultiPolygon"):
+        if (feat.get("properties") or {}).get("kind") not in want or geom.get("type") not in ("Polygon", "MultiPolygon"):
             continue
         try:
             g = shape(geom)
@@ -3856,9 +4029,53 @@ def osm_parking_geometry(work_dir: Path):
     return unary_union(polys) if polys else None
 
 
+# Pěšina (ne silnice) se přes zpevněnou plochu / silnici nekreslí — ořez na hraně.
+PATH_CUT_BASES = frozenset({"footway", "path", "sidewalk", "pedestrian"})
+
+
+def road_carriageway_geometry(features: list[dict]):
+    """Pás jízdní šířky kolem os silnic (``road_*``) z prvků cest — shapely nebo None."""
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+    parts = []
+    for feat in features:
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        if not path_draw_highway(hw).startswith("road_"):
+            continue
+        half = max(1.0, drawn_width_m(hw) / 2.0)
+        parts.append(LineString([(float(x), float(y)) for x, y in coords]).buffer(half, cap_style=2, join_style=2))
+    return unary_union(parts) if parts else None
+
+
+def path_cut_zone_geometry(work_dir: Path, path_features: list[dict], extra=None):
+    """Zóna, přes kterou se pěšina nekreslí: OSM zpevněné plochy + pás silnic (+ ``extra`` DTM/koridor).
+
+    Vrací shapely geometrii nebo None.
+    """
+    from shapely.ops import unary_union
+
+    parts = []
+    paved = osm_paved_beside_geometry(work_dir, kinds=_PAVED_AREA_KINDS)
+    if paved is not None and not paved.is_empty:
+        parts.append(paved)
+    roads = road_carriageway_geometry(path_features)
+    if roads is not None and not roads.is_empty:
+        parts.append(roads)
+    if extra is not None and not getattr(extra, "is_empty", True):
+        parts.append(extra)
+    return unary_union(parts) if parts else None
+
+
 def road_zone_geometry(features: list[dict], parking=None):
-    """Pás ``SIDEWALK_ROAD_NEAR_M`` m kolem os silnic (``road_*``, i mosty) z prvků cest, sečtený s parkovištěm
-    (``parking`` = shapely plocha, rozšířená o ``SIDEWALK_PARKING_NEAR_M`` m); None bez silnic i parkoviště."""
+    """Pás ``SIDEWALK_ROAD_NEAR_M`` m kolem os silnic (``road_*``, i mosty) z prvků cest, sečtený se zpevněnou
+    plochou (``parking`` = shapely, rozšířená o ``SIDEWALK_PARKING_NEAR_M`` m); None bez silnic i plochy."""
     try:
         from shapely.geometry import LineString
         from shapely.ops import unary_union
@@ -4074,13 +4291,20 @@ def build_osm_path_parts(
         from app.pipeline.dtm_import import mtbo_sidewalk_geometry
 
         mtbo_sidewalk_zone = mtbo_sidewalk_geometry(work_dir, scale, path_source)
-    # Zpevněná plocha, na jejíž hraně cesty končí: sprint = chodníky a silnice z DTM, MTBO = koridor silnice
-    # a plochy chodníků.
-    edge_area = corridor_zone if corridor_zone is not None else sidewalk_cover
-    if mtbo_sidewalk_zone is not None:
-        from shapely.ops import unary_union as _uu3
+    # Zóna ořezu pěšin: OSM zpevněné + pás silnic + DTM/koridor (pěšina přes ně se nekreslí, končí na hraně).
+    _cut_extra = None
+    for _g in (sidewalk_cover, corridor_zone, mtbo_sidewalk_zone):
+        if _g is None or getattr(_g, "is_empty", True):
+            continue
+        if _cut_extra is None:
+            _cut_extra = _g
+        else:
+            from shapely.ops import unary_union as _uu_cut
 
-        edge_area = _uu3([edge_area, mtbo_sidewalk_zone]) if edge_area is not None else mtbo_sidewalk_zone
+            _cut_extra = _uu_cut([_cut_extra, _g])
+    path_cut_zone = path_cut_zone_geometry(work_dir, data.get("features") or [], extra=_cut_extra)
+    # Obecné ukončení cest na hraně zpevněné (i silnice / DTM).
+    edge_area = path_cut_zone
     # Sprint: pod mostem z DTM se cesty nekreslí (kreslí se most a hrany 512.100), mostní čáry uvnitř DTM mostu také ne.
     deck_zone = None
     deck_zone_steps = None
@@ -4097,11 +4321,11 @@ def build_osm_path_parts(
             from shapely.ops import unary_union as _uu2
 
             deck_cover_zone = _uu2([deck_zone, sidewalk_cover])
-    # Les a MTBO: chodníky vedle silnic se nekreslí (viz ``is_sidewalk_beside_road``).
+    # Les a MTBO: chodníky vedle silnic / zpevněných ploch se nekreslí (viz ``is_sidewalk_beside_road``).
     road_zone = (
         None
         if preset_id.startswith("sprint")
-        else road_zone_geometry(data.get("features") or [], osm_parking_geometry(work_dir))
+        else road_zone_geometry(data.get("features") or [], osm_paved_beside_geometry(work_dir))
     )
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
@@ -4187,8 +4411,17 @@ def build_osm_path_parts(
         ):
             # Chodník / pěšina / zpevněná cyklostezka uvnitř plochy z DTM (501.0) se nekreslí podruhé čárou.
             lines = [seg for ln in lines for seg in clip_outside(ln, mtbo_sidewalk_zone)]
-        if edge_area is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
-            # Cesta končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
+        if (
+            path_cut_zone is not None
+            and path_draw_highway(hw) in PATH_CUT_BASES
+            and not is_bridge_highway(hw)
+            and not is_tunnel_highway(hw)
+        ):
+            # Pěšina křížící zpevněnou plochu / silnici: přes překryv se nekreslí, končí na hraně.
+            lines = [seg for ln in lines for seg in clip_outside(ln, path_cut_zone)]
+            lines = [seg for ln in lines for seg in end_at_edge(ln, path_cut_zone)]
+        elif edge_area is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
+            # Ostatní cesty končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         for piece in pieces:
@@ -4370,6 +4603,7 @@ def build_osm_feature_parts(
         "platform": "OSM nástupiště (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
+        "fountain": "OSM kašny (301.1)",
         "farmland": "OSM obdělávaná půda (412)",
         "garden": "OSM zahrady (520 oliva)",
         "water_well": "OSM studny",
@@ -4405,6 +4639,7 @@ def build_osm_feature_parts(
         "water_well",
         "spring",
         "water_body",
+        "fountain",
         "farmland",
         "garden",
         "playground",
