@@ -306,6 +306,9 @@ SKIP_FOOTWAY_ALWAYS = frozenset()
 SKIP_CYCLEWAY = frozenset({"sidewalk", "crossing", "lane", "share_busway", "track"})
 # Lineární railway=platform (2 uzly) → buffer na plochu.
 PLATFORM_LINE_HALF_WIDTH_M = 1.5
+# Otevřená highway=pedestrian (les/MTBO) → pás zpevněné plochy (ne linie 506/834).
+# Typická pěší zóna ~5 m; width=/est_width= z OSM má přednost.
+PEDESTRIAN_LINE_HALF_WIDTH_M = 2.5
 
 # Plochy → OOM zpevněná (501 / 501.1), ne žlutá 401.
 # leisure=track = běžecká dráha (ne highway=track).
@@ -821,7 +824,8 @@ def sprint_line_highway(
         hw == "footway" and (_is_paved_surface(tags) or all_footways_as_sidewalk)
     ):
         return "sidewalk"
-    # highway=pedestrian (i liniová pěší zóna) – typicky zpevněná; surface=paving_stones apod.
+    # highway=pedestrian: ve sprintu linie 501.10; v lese/MTBO se v prepare
+    # překlápí na pedestrian_area (pás 501), sem sidewalk jen jako vnitřní druh.
     if hw == "pedestrian":
         return "sidewalk"
     if hw == "cycleway" and _is_paved_cycleway(tags):
@@ -2802,6 +2806,38 @@ def _close_ring_5514(
     return out if len(out) >= 4 else None
 
 
+def _parse_width_m(tags: dict, *keys: str) -> float | None:
+    """První kladná šířka v metrech z tagů (``width``, ``est_width``, …)."""
+    for key in keys:
+        raw = (tags.get(key) or "").strip().lower().replace(",", ".")
+        if not raw:
+            continue
+        # „5 m“, „5m“, „4.5“; ber první číslo.
+        num = ""
+        for ch in raw:
+            if ch.isdigit() or ch == ".":
+                num += ch
+            elif num:
+                break
+        if not num:
+            continue
+        try:
+            val = float(num)
+        except ValueError:
+            continue
+        if val > 0:
+            return val
+    return None
+
+
+def pedestrian_line_half_width_m(tags: dict | None = None) -> float:
+    """Polovina šířky pásu pro otevřenou ``highway=pedestrian`` → plocha 501."""
+    w = _parse_width_m(tags or {}, "width", "est_width")
+    if w is not None:
+        return max(0.5, w / 2.0)
+    return PEDESTRIAN_LINE_HALF_WIDTH_M
+
+
 def _line_buffer_ring_5514(
     pts: list[tuple[float, float]],
     *,
@@ -3241,16 +3277,17 @@ def prepare_osm_paths(
             hw = bridge_highway(hw or "path")
         elif _is_osm_tunnel(tags):
             hw = tunnel_highway(hw or "path")
-        # Uzavřená pěší zóna i bez area=yes → zpevněná plocha (ne střednicová pěšina).
+        # Pěší zóna (highway=pedestrian): zpevněná PLOCHA (obrys), ne linie cesty.
         # Kontrola podle tagů – sprint_line_highway už pedestrian přemapuje na sidewalk.
-        if (tags.get("highway") or "").lower() == "pedestrian" and len(pts) >= 3:
+        if (tags.get("highway") or "").lower() == "pedestrian" and len(pts) >= 2:
             ring = list(pts)
-            if ring[0] != ring[-1]:
+            if len(ring) >= 3 and ring[0] != ring[-1]:
                 if math.hypot(ring[0][0] - ring[-1][0], ring[0][1] - ring[-1][1]) < 1.5:
                     ring = ring[:-1] + [ring[0]]
                 else:
                     ring = []
             if len(ring) >= 4 and ring[0] == ring[-1]:
+                # Uzavřený okruh (i bez area=yes) → polygon.
                 features.append(
                     {
                         "type": "Feature",
@@ -3266,6 +3303,28 @@ def prepare_osm_paths(
                     }
                 )
                 continue
+            # Les / MTBO: otevřená osa pěší zóny → pás plochy 501 (fill+okraj),
+            # ne sidewalk/506. Sprint nechá linii 501.10 (šířka v symbolu).
+            if not preset_id.startswith("sprint"):
+                buf = _line_buffer_ring_5514(
+                    pts, half_width_m=pedestrian_line_half_width_m(tags)
+                )
+                if buf is not None:
+                    features.append(
+                        {
+                            "type": "Feature",
+                            "properties": {
+                                "source": "osm",
+                                "kind": "pedestrian_area",
+                                "oom_code": "501",
+                            },
+                            "geometry": {
+                                "type": "Polygon",
+                                "coordinates": [[[x, y] for x, y in buf]],
+                            },
+                        }
+                    )
+                    continue
         osm_items.append((pts, hw))
         if is_bike_allowed(tags) and path_draw_highway(hw) in BIKE_SHARED_BASES:
             bike_lines.append(list(pts))
