@@ -188,9 +188,6 @@ PATH_LINE_SOURCE_PRIORITY: dict[str, int] = {
     PATH_LINE_SOURCE_OSM: 20,
     PATH_LINE_SOURCE_ZABAGED: 10,
 }
-# area:highway=* tenčí než toto (m, kratší strana opsaného obdélníku) → střednice
-# do sítě cest (les/MTBO), ne plocha 501 vedle linie (way/60592702 × way/1408205238).
-AREA_HIGHWAY_CORRIDOR_MAX_WIDTH_M = 12.0
 # Dvě souběžné highway=pedestrian (way/60592678 × way/60592718) → jedna zpevněná plocha.
 PEDESTRIAN_CORRIDOR_MAX_GAP_M = 12.0
 PEDESTRIAN_CORRIDOR_MIN_LEN_M = 25.0
@@ -210,12 +207,6 @@ def path_line_source_rank(source: str | None) -> int:
         (source or PATH_LINE_SOURCE_OSM).strip().lower(),
         PATH_LINE_SOURCE_PRIORITY[PATH_LINE_SOURCE_OSM],
     )
-
-
-def is_line_oriented_path_preset(preset_id: str) -> bool:
-    """Les / MTBO: cesty jako linie; area:highway koridory → střednice, ne 501 plocha."""
-    p = (preset_id or "").strip().lower()
-    return p.startswith(("forest", "mtbo", "les"))
 
 
 def osm_highway_set(path_source: str = PATH_SOURCE_MIXED) -> frozenset[str]:
@@ -503,59 +494,6 @@ def is_sliver_polygon(coords_rings: list) -> bool:
     side_a = ((pts[1][0] - pts[0][0]) ** 2 + (pts[1][1] - pts[0][1]) ** 2) ** 0.5
     side_b = ((pts[2][0] - pts[1][0]) ** 2 + (pts[2][1] - pts[1][1]) ** 2) ** 0.5
     return min(side_a, side_b) < SLIVER_MIN_WIDTH_M
-
-
-def _polygon_mrr_width_m(g) -> float | None:
-    """Kratší strana minimum rotated rectangle (m), nebo None."""
-    try:
-        pts = list(g.minimum_rotated_rectangle.exterior.coords)[:4]
-    except Exception:
-        return None
-    if len(pts) < 3:
-        return None
-    side_a = math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])
-    side_b = math.hypot(pts[2][0] - pts[1][0], pts[2][1] - pts[1][1])
-    return min(side_a, side_b)
-
-
-def area_highway_corridor_centerline(
-    ring: list[tuple[float, float]],
-    *,
-    max_width_m: float = AREA_HIGHWAY_CORRIDOR_MAX_WIDTH_M,
-) -> list[tuple[float, float]] | None:
-    """Střednice tenkého ``area:highway`` koridoru, nebo None (široká plocha / selhání).
-
-    Les/MTBO: micromapping plochy chodníku (např. way/1408205238) se kreslí jako
-    linie a dedupuje se proti ``highway=pedestrian`` (way/60592702) → jedna cesta
-    v maximální délce, ne plocha 501 + paralelní linie.
-    """
-    if len(ring) < 4:
-        return None
-    try:
-        from shapely.geometry import Polygon
-
-        from app.pipeline.dtm_sidewalks import polygon_centerline
-    except ImportError:
-        return None
-    pts = list(ring)
-    if pts[0] != pts[-1]:
-        pts = pts + [pts[0]]
-    try:
-        g = Polygon(pts)
-        g = g if g.is_valid else g.buffer(0)
-    except (ValueError, TypeError):
-        return None
-    if g.is_empty or g.geom_type != "Polygon":
-        return None
-    width = _polygon_mrr_width_m(g)
-    if width is None or width >= max_width_m:
-        return None
-    center = polygon_centerline(g)
-    if center is None or len(center) < 2:
-        return None
-    if polyline_length(center) < MIN_LENGTH_M:
-        return None
-    return center
 
 
 def _pedestrian_corridor_polygon(coords_a: list, coords_b: list):
@@ -3225,19 +3163,10 @@ def prepare_osm_paths(
                     skipped += 1
                     continue
                 code = classified[1]
-                # Les/MTBO: tenký area:highway koridor → střednice do cest (dedup
-                # s highway=pedestrian/footway), ne plocha 501 + paralelní linie.
-                as_corridor = (
-                    kind == "pedestrian_area"
-                    and _is_area_highway_paved_tags(tags)
-                    and is_line_oriented_path_preset(preset_id)
-                )
+                # area:highway / pěší zóna zůstává plochou (reálná šířka 501 + okraj).
+                # Dedup proti souběžné linii: clip/potlačení chodníku u plochy
+                # (``path_cut_zone`` / ``osm_paved_beside_geometry``), ne převod na střednici.
                 for rings in polygons:
-                    if as_corridor and rings:
-                        center = area_highway_corridor_centerline(rings[0])
-                        if center is not None:
-                            osm_items.append((center, "sidewalk"))
-                            continue
                     coords = [[[x, y] for x, y in ring] for ring in rings]
                     features.append(
                         {
