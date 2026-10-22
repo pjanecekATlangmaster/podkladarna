@@ -929,7 +929,7 @@ def test_dedup_path_lines_same_source_keeps_longer():
 
 
 def test_prepare_forest_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypatch):
-    """Les: area:highway zůstává plochou 501 (šířka); souběžná pedestrian linie se při kreslení ořízne."""
+    """Les: area:highway zůstává plochou; souběžná otevřená pedestrian splyne do ní (ne linie)."""
     import app.pipeline.osm_paths as op
 
     pedestrian = {
@@ -989,23 +989,8 @@ def test_prepare_forest_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypa
     assert max(ys) - min(ys) > 1.0
     paths = json.loads((tmp_path / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8"))
     lines = [f for f in paths["features"] if f["geometry"]["type"] == "LineString"]
-    assert len(lines) == 1
-    assert lines[0]["properties"]["highway"] == "sidewalk"
-    # Dedup na úrovni ploch: přes překryv se linie nekreslí (clip), šířka plochy zůstává.
-    from shapely.geometry import LineString, shape
-
-    from app.pipeline.dtm_sidewalks import clip_outside
-
-    area_g = shape(areas[0]["geometry"])
-    line_coords = [(float(x), float(y)) for x, y in lines[0]["geometry"]["coordinates"]]
-    zone = op.path_cut_zone_geometry(tmp_path, paths["features"])
-    assert zone is not None and zone.intersects(area_g)
-    overlap_before = LineString(line_coords).intersection(area_g.buffer(0.5)).length
-    assert overlap_before > 10.0
-    clipped = clip_outside(line_coords, zone, min_len_m=1.0)
-    for seg in clipped:
-        mid = LineString(seg).interpolate(0.5, normalized=True)
-        assert not area_g.buffer(-0.2).contains(mid)
+    # Otevřená pedestrian vedle plochy je pás a splyne — nezůstane druhá čára chodníku.
+    assert lines == []
 
 
 def test_prepare_mtbo_keeps_area_highway_as_pedestrian_area(tmp_path, monkeypatch):
@@ -1326,6 +1311,76 @@ def test_parallel_pedestrian_lines_become_one_paved_area():
     far = [(0.0, 40.0), (60.0, 40.0)]
     kept2, areas2 = merge_parallel_pedestrian_to_areas([(a, "sidewalk"), (far, "sidewalk")])
     assert areas2 == [] and len(kept2) == 2
+
+
+def test_parallel_pedestrian_bands_merge_into_one_area():
+    """way/60592678 × 60592718: dva pásy ~7 m od sebe → jedna plocha, ne čtyři okraje."""
+    from app.pipeline.osm_paths import (
+        merge_adjacent_pedestrian_area_features,
+        pedestrian_line_area_feature,
+    )
+
+    a = pedestrian_line_area_feature([(0.0, 0.0), (70.0, 0.0)])
+    b = pedestrian_line_area_feature([(0.0, 7.0), (70.0, 7.0)])
+    assert a and b
+    out = merge_adjacent_pedestrian_area_features([a, b])
+    ped = [f for f in out if f["properties"]["kind"] == "pedestrian_area"]
+    assert len(ped) == 1
+    # Dál než škvíra 4,5 m mezi okraji (osy 20 m, pás 5 m → škvíra 15 m) se nesloučí.
+    far = pedestrian_line_area_feature([(0.0, 20.0), (70.0, 20.0)])
+    out_far = merge_adjacent_pedestrian_area_features([a, far])
+    assert len([f for f in out_far if f["properties"]["kind"] == "pedestrian_area"]) == 2
+
+
+def test_tilleho_square_tags_are_pedestrian_area():
+    """way/111722935 má i amenity=bicycle_parking — pořád plocha pěší zóny, ne bod."""
+    from app.pipeline.osm_paths import classify_osm_feature
+
+    tags = {
+        "amenity": "bicycle_parking",
+        "bicycle_parking": "wall_loops",
+        "capacity": "5",
+        "covered": "yes",
+        "area": "yes",
+        "bicycle": "yes",
+        "highway": "pedestrian",
+        "surface": "paving_stones",
+        "name": "Tilleho náměstí",
+    }
+    assert classify_osm_feature(tags) == ("pedestrian_area", "501")
+
+
+def test_sidewalk_beside_road_merges_and_keeps_the_spur():
+    """Chodník 60 m podél silnice splyne (501.1 + šev); odbočka mimo pás zůstane linie."""
+    from app.pipeline.osm_paths import absorb_sidewalks_beside_paved
+
+    road = ([(0.0, 0.0), (100.0, 0.0)], "road_3")
+    # 60 m podél (y=4, do 8 m od osy) a pak pryč.
+    sidewalk = ([(0.0, 4.0), (60.0, 4.0), (60.0, 30.0), (80.0, 30.0)], "sidewalk")
+    features, items = absorb_sidewalks_beside_paved([], [road, sidewalk])
+    kinds = [f["properties"]["kind"] for f in features]
+    assert "road_with_sidewalk" in kinds
+    assert "paved_interface" in kinds
+    sidewalks = [pts for pts, hw in items if hw == "sidewalk"]
+    assert sidewalks, "odbočka mimo silnici má zůstat"
+    roads = [pts for pts, hw in items if hw == "road_3"]
+    # Úsek silnice pod sloučenou plochou se nekreslí; konec bez chodníku zůstane.
+    assert roads and min(p[0] for pts in roads for p in pts) > 40.0
+
+
+def test_dtm_priority_roads_drop_osm_sidewalk_beside_them():
+    """Až bude DTM silnice, chodník v jejím pásu se z OSM nekreslí (sloučí ho DTM)."""
+    from shapely.geometry import LineString
+
+    from app.pipeline.osm_paths import absorb_sidewalks_beside_paved
+
+    road = ([(0.0, 0.0), (100.0, 0.0)], "road_3")
+    sidewalk = ([(0.0, 4.0), (80.0, 4.0)], "sidewalk")
+    dtm = LineString([(0.0, 0.0), (100.0, 0.0)]).buffer(3.0)
+    features, items = absorb_sidewalks_beside_paved([], [road, sidewalk], priority_roads=dtm)
+    assert not any(f["properties"]["kind"] == "road_with_sidewalk" for f in features)
+    assert not any(hw == "sidewalk" for _pts, hw in items)
+    assert not any(hw == "road_3" for _pts, hw in items)
 
 
 def test_merge_adjacent_pedestrian_areas_closes_gap():
