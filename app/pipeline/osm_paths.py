@@ -1732,8 +1732,11 @@ def classify_osm_feature(
 
 
 # Les (ISOM): 501.1 = jen výplň zpevněné plochy bez okraje; okraj nese čára 501.2.
+# MTBO stejná výplň, okraj 501.100. 501.0 má okraj v symbolu a nejde ho mezi plochami vystřihnout.
 ISOM_PAVED_FILL_CODE = "501.1"
 ISOM_PAVED_EDGE_CODE = "501.2"
+# Společná hrana dvou ploch téhož druhu (do této vzdálenosti) se nekreslí — plochy na sebe navazují.
+PAVED_SHARED_EDGE_M = 0.45
 
 
 def _closed_edge_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
@@ -1746,30 +1749,67 @@ def _closed_edge_object(symbol_index: int, coords: list[tuple[int, int]]) -> str
     return _path_object(symbol_index, [*ring, (ring[0][0], ring[0][1], 18)])
 
 
+def _paved_edge_polylines(rings: list, avoid) -> list[list[tuple[float, float]]]:
+    """Hranice plochy. Úsek podél jiné plochy téhož druhu (``avoid``) chybí.
+
+    Uzavřený prstenec má první bod shodný s posledním. Otevřený kus je vystřižená hrana.
+    """
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    zone = None
+    if avoid:
+        geoms = [g for g in avoid if g is not None and not g.is_empty]
+        if geoms:
+            zone = unary_union(geoms).buffer(PAVED_SHARED_EDGE_M)
+            if zone.is_empty:
+                zone = None
+    pieces: list[list[tuple[float, float]]] = []
+    for ring in rings:
+        if len(ring) < 3:
+            continue
+        closed = list(ring) if ring[0] == ring[-1] else [*ring, ring[0]]
+        if zone is None:
+            pieces.append([(float(x), float(y)) for x, y in closed])
+            continue
+        line = LineString(closed)
+        if line.is_empty or not line.intersects(zone):
+            pieces.append([(float(x), float(y)) for x, y in closed])
+            continue
+        diff = line.difference(zone)
+        geoms = [diff] if diff.geom_type == "LineString" else list(getattr(diff, "geoms", []))
+        for geom in geoms:
+            if geom.geom_type != "LineString" or geom.length < 0.8:
+                continue
+            pieces.append([(float(x), float(y)) for x, y in geom.coords])
+    return pieces
+
+
 def _paved_edge_objects(
     edge_index: int,
     rings: list[list[tuple[float, float]]],
     clip_bounds: Bounds | None,
     to_map,
+    avoid=None,
 ) -> list[str]:
-    """Okraj 501.2 po SKUTEČNÉ hranici plochy.
+    """Okraj po skutečné hranici plochy, bez společné hrany se sousedem téhož druhu.
 
     Prstenec celý uvnitř výřezu → uzavřená čára; prstenec protínající hranici výřezu
     → jen otevřené kusy uvnitř (podél ořezu na výřez žádná falešná čára).
     """
     out: list[str] = []
-    for ring in rings:
-        if len(ring) < 3:
+    for line in _paved_edge_polylines(rings, avoid):
+        if len(line) < 2:
             continue
-        if clip_bounds is None or all(
-            point_inside(x, y, clip_bounds) for x, y in ring
+        is_closed = len(line) >= 4 and line[0] == line[-1]
+        if is_closed and (
+            clip_bounds is None or all(point_inside(x, y, clip_bounds) for x, y in line)
         ):
-            obj = _closed_edge_object(edge_index, to_map(ring))
+            obj = _closed_edge_object(edge_index, to_map(line))
             if obj:
                 out.append(obj)
             continue
-        closed = list(ring) if ring[0] == ring[-1] else [*ring, ring[0]]
-        for piece in clip_polyline(closed, clip_bounds):
+        for piece in clip_polyline(line, clip_bounds) if clip_bounds else [line]:
             if len(piece) >= 2:
                 obj = _path_object(edge_index, to_map(piece))
                 if obj:
@@ -1817,19 +1857,12 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind == "power_line":
         # ISOM/ISSprOM 510; ISMTBOM 516 Power line.
         return "516" if mtbo else "510"
-    if kind == "parking":
-        # Stejně jako ZABAGED Ostatní plocha – CRT pod silnicemi (ne 529/501.1).
+    if kind == "parking" or kind in _PAVED_AREA_KINDS:
+        # Sprint: 501.0 (okraj je v symbolu; 501.2 je tam plocha dolní úrovně).
+        # Les a MTBO: výplň 501.1 bez okraje. Okraj je samostatná čára a mezi
+        # plochami téhož druhu se vystřihne, aby na sebe navazovaly.
         if sprint:
             return "501.0"
-        if mtbo:
-            return "501.0"
-        return "501"
-    if kind in _PAVED_AREA_KINDS:
-        # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
-        if sprint:
-            return "501.0"
-        if mtbo:
-            return "529"
         return "501.1"
     if kind == "water_body":
         return "301"
@@ -5298,7 +5331,33 @@ def build_osm_feature_parts(
             for x, y in pts
         ]
 
-    for feat in feats:
+    paved_peers: dict[int, list] = {}
+    if not preset_id.startswith("sprint"):
+        from shapely.geometry import shape as shape_geom
+
+        buckets: dict[str, list[tuple[int, object]]] = {}
+        for idx, feat in enumerate(feats):
+            props = feat.get("properties") or {}
+            kind = str(props.get("kind") or "")
+            geom = feat.get("geometry") or {}
+            if geom.get("type") != "Polygon":
+                continue
+            code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
+            if code != ISOM_PAVED_FILL_CODE:
+                continue
+            try:
+                poly = shape_geom(geom)
+                poly = poly if poly.is_valid else poly.buffer(0)
+            except (ValueError, TypeError):
+                continue
+            if poly.is_empty:
+                continue
+            buckets.setdefault(kind, []).append((idx, poly))
+        for items in buckets.values():
+            for idx, _poly in items:
+                paved_peers[idx] = [other for j, other in items if j != idx]
+
+    for feat_i, feat in enumerate(feats):
         props = feat.get("properties") or {}
         kind = str(props.get("kind") or "")
         # residential = subject residual 501; OSM skály (cliff, sutina) = jen osm/
@@ -5399,7 +5458,13 @@ def build_osm_feature_parts(
                     edge_index = symbol_cache[edge_code]
                     if edge_index is not None:
                         grouped[kind].extend(
-                            _paved_edge_objects(edge_index, orig_rings, clip_bounds, to_map)
+                            _paved_edge_objects(
+                                edge_index,
+                                orig_rings,
+                                clip_bounds,
+                                to_map,
+                                avoid=paved_peers.get(feat_i),
+                            )
                         )
             fill_index = olive_index if courtyard_fill == "olive" else symbol_index
             if (

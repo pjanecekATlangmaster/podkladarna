@@ -79,11 +79,12 @@ def test_forest_edge_closed_when_polygon_fully_inside_clip(tmp_path) -> None:
     assert sum(p.objects_xml.count(" 18;") for p in parts) >= 4  # výplň 2× + okraje 2×
 
 
-def test_forest_parking_501_0_has_no_extra_edge(tmp_path) -> None:
-    """501.0 má okraj v sobě – žádná duplicitní čára 501.2."""
+def test_forest_parking_is_fill_plus_edge(tmp_path) -> None:
+    """Parkoviště v lese je výplň 501.1 a samostatný okraj, ne 501.0 s okrajem v symbolu."""
     _parts, cnt = _build(tmp_path, "forest_10000", 10000, kind="parking")
-    assert cnt["501.0"] == 1
-    assert cnt["501.2"] == 0 and cnt["501.1"] == 0
+    assert cnt["501.1"] == 1
+    assert cnt["501.2"] == 2
+    assert cnt["501.0"] == 0
 
 
 def test_sprint_has_no_edge_line(tmp_path) -> None:
@@ -93,9 +94,35 @@ def test_sprint_has_no_edge_line(tmp_path) -> None:
     assert sum(n for c, n in cnt.items() if c != "501.0") == 0
 
 
-def test_mtbo_has_no_edge_line(tmp_path) -> None:
+def test_mtbo_paved_area_gets_separate_edge(tmp_path) -> None:
+    """MTBO: výplň 501.1 a okraj 501.100, ne kombinovaný symbol 501.0."""
     parts, cnt = _build(tmp_path, "mtbo_10000", 10000)
-    assert sum(p.count for p in parts) == 1  # jedna plocha 529, bez okraje
+    assert cnt["501.1"] == 1
+    assert cnt["501.100"] == 2
+    assert cnt["501.0"] == 0
+    assert sum(p.count for p in parts) == 3
+
+
+def test_shared_edge_of_same_kind_is_cut() -> None:
+    """Dvě pěší zóny se společnou stranou: ta hrana se nekreslí, obvod ano."""
+    from shapely.geometry import Polygon
+
+    from app.pipeline.osm_paths import _paved_edge_polylines
+
+    left = [[(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0), (0.0, 0.0)]]
+    right = Polygon([(20.0, 0.0), (40.0, 0.0), (40.0, 20.0), (20.0, 20.0), (20.0, 0.0)])
+    pieces = _paved_edge_polylines(left, [right])
+    assert pieces
+    for line in pieces:
+        xs = [p[0] for p in line]
+        ys = [p[1] for p in line]
+        on_join = max(xs) - min(xs) < 0.5 and max(ys) - min(ys) > 5
+        assert not on_join
+    length = 0.0
+    for line in pieces:
+        for a, b in zip(line, line[1:]):
+            length += ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+    assert 55 < length < 65  # tři strany čtverce 20 m, společná čtvrtá chybí
 
 
 def test_road_with_sidewalk_fill_gets_redrawn_edge(tmp_path) -> None:
