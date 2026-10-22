@@ -1548,6 +1548,30 @@ def test_footpath_crossing_paved_or_road_is_clipped_to_edge(tmp_path):
     assert parts and parts[0].count >= 2  # silnice + zbytky pěšiny (ne celá přes plochu)
 
 
+def test_minor_road_across_paved_road_is_cut_and_close_sidewalk_dropped():
+    """Menší silnice přes plochu silnice končí na hraně. Blízký chodník se nekreslí."""
+    from shapely.geometry import LineString, box
+
+    from app.pipeline.osm_paths import clip_lines_across_paved_road, sidewalk_edge_clear_m
+
+    paved = box(0, 0, 40, 16)
+    road = clip_lines_across_paved_road([[(20.0, -10.0), (20.0, 40.0)]], "road_2", paved, 10000)
+    assert len(road) == 2
+    for seg in road:
+        assert not paved.contains(LineString(seg).interpolate(0.5, normalized=True))
+    # Konce dosednou na hranu plochy.
+    ends = [seg[0][1] for seg in road] + [seg[-1][1] for seg in road]
+    assert any(abs(y) < 0.05 or abs(y - 16) < 0.05 for y in ends)
+
+    clear = sidewalk_edge_clear_m(10000)
+    close_y = 16.0 + clear * 0.4
+    close = [[(0.0, close_y), (40.0, close_y)]]
+    assert clip_lines_across_paved_road(close, "sidewalk", paved, 10000) == []
+    far = [[(0.0, 16.0 + clear + 4.0), (50.0, 16.0 + clear + 4.0)]]
+    kept = clip_lines_across_paved_road(far, "sidewalk", paved, 10000)
+    assert len(kept) == 1 and LineString(kept[0]).length > 40
+
+
 def test_area_highway_footway_multipolygon():
     """relation/19273440: area:highway=footway + díry → zpevněná 501 se inner holes."""
     from app.pipeline.osm_paths import (

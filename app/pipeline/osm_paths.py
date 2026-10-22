@@ -4542,6 +4542,56 @@ def osm_paved_beside_geometry(work_dir: Path, kinds: frozenset[str] | None = Non
 
 # Pěšina (ne silnice) se přes zpevněnou plochu / silnici nekreslí — ořez na hraně.
 PATH_CUT_BASES = frozenset({"footway", "path", "sidewalk", "pedestrian"})
+# Chodník blízko černého okraje zpevněné plochy (816.0 je 0,60 mm, okraj ~0,27 mm
+# a malá mezera) by s ním splynul. Odstup v mm mapy, na metry podle měřítka.
+SIDEWALK_EDGE_CLEAR_MM = 0.64
+# Souběh v tom pásu aspoň takhle dlouhý se nekreslí. Kratší průchod (křížení) zůstane.
+SIDEWALK_EDGE_MIN_RUN_M = 20.0
+
+
+def sidewalk_edge_clear_m(scale: int) -> float:
+    """Metry od okraje plochy, kde by čára chodníku splynula s černým okrajem."""
+    return SIDEWALK_EDGE_CLEAR_MM * float(scale) / 1000.0
+
+
+def _crosses_paved_road(highway: str) -> bool:
+    """Menší silnice, pěšina nebo chodník — přes plochu silnice se nekreslí."""
+    draw = path_draw_highway(highway)
+    return (
+        draw in PATH_CUT_BASES
+        or draw.startswith("road_")
+        or draw.startswith("track")
+        or draw in {"cycleway", "cycleway_paved", "steps"}
+    )
+
+
+def clip_lines_across_paved_road(lines: list, highway: str, paved, scale: int) -> list:
+    """Úseky čar mimo plochu silnice s chodníkem. Blízký souběžný chodník zmizí.
+
+    ``lines`` jsou seznamy souřadnic. Křížení končí na hraně plochy. Chodník,
+    který vede v pásu ``sidewalk_edge_clear_m`` podél okraje, se nekreslí
+    (v MTBO by to byla černá 816.0 slita s okrajem).
+    """
+    from app.pipeline.dtm_sidewalks import clip_outside, end_at_edge
+
+    if paved is None or getattr(paved, "is_empty", True) or not _crosses_paved_road(highway):
+        return lines
+    out: list = []
+    for ln in lines:
+        if len(ln) < 2:
+            continue
+        for seg in clip_outside(ln, paved, min_len_m=1.0):
+            out.extend(end_at_edge(seg, paved))
+    if path_draw_highway(highway) != "sidewalk" or not out:
+        return out
+    band = paved.buffer(sidewalk_edge_clear_m(scale)).difference(paved)
+    if band.is_empty:
+        return out
+    kept: list = []
+    for ln in out:
+        _runs, rest = _line_long_runs(ln, band, SIDEWALK_EDGE_MIN_RUN_M)
+        kept.extend(rest)
+    return kept
 
 
 def road_carriageway_geometry(features: list[dict]):
@@ -4944,6 +4994,14 @@ def build_osm_path_parts(
             from shapely.ops import unary_union as _uu2
 
             deck_cover_zone = _uu2([deck_zone, sidewalk_cover])
+    # Les a MTBO: čára přes plochu silnice+chodník se přeruší na hraně. Sprint neměnit.
+    paved_road_area = None
+    if not preset_id.startswith("sprint"):
+        paved_road_area = osm_paved_beside_geometry(
+            work_dir, kinds=frozenset({"road_with_sidewalk"})
+        )
+        if paved_road_area is not None and paved_road_area.is_empty:
+            paved_road_area = None
     # Les a MTBO: chodníky vedle silnic / zpevněných ploch se nekreslí (viz ``is_sidewalk_beside_road``).
     road_zone = (
         None
@@ -5048,6 +5106,8 @@ def build_osm_path_parts(
         elif edge_area is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
             # Ostatní cesty končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
+        if paved_road_area is not None:
+            lines = clip_lines_across_paved_road(lines, hw, paved_road_area, scale)
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         if (
             building_geom is not None
