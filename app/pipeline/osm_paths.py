@@ -191,6 +191,8 @@ PATH_LINE_SOURCE_PRIORITY: dict[str, int] = {
 # Dvě souběžné highway=pedestrian (way/60592678 × way/60592718) → jedna zpevněná plocha.
 PEDESTRIAN_CORRIDOR_MAX_GAP_M = 12.0
 PEDESTRIAN_CORRIDOR_MIN_LEN_M = 25.0
+# Nejvýš tolik metrů silnice z OSM smí ležet uvnitř slučovaného koridoru.
+PEDESTRIAN_CORRIDOR_MAX_ROAD_M = 3.0
 PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M = 20.0
 # Sousední pěší zóny se sloučí, škvíra do tolika m se zacelí (navázání okrajů).
 PEDESTRIAN_AREA_MERGE_GAP_M = 1.5
@@ -525,6 +527,9 @@ def _pedestrian_corridor_polygon(coords_a: list, coords_b: list):
         return None
     if poly.area < gap * PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M * 0.5:
         return None
+    # Koridor je úzký pruh: plocha nad šířka × délka (se zdvojnásobením rozevření) = zkroucený prstenec.
+    if poly.area > 2.0 * PEDESTRIAN_CORRIDOR_MAX_GAP_M * max(a.length, b.length):
+        return None
     return poly
 
 
@@ -541,6 +546,17 @@ def merge_parallel_pedestrian_to_areas(
         for i, (_pts, hw) in enumerate(osm_items)
         if path_draw_highway(hw) in {"sidewalk", "pedestrian"} and len(_pts) >= 2
     ]
+    # Koridor nesmí vést přes silnici (dva chodníky na opačných stranách ulice by dal plochu přes vozovku).
+    try:
+        from shapely.geometry import LineString as _LS
+        from shapely.ops import unary_union as _uu
+
+        _road_lines = [
+            _LS(pts) for pts, hw in osm_items if path_draw_highway(hw).startswith("road_") and len(pts) >= 2
+        ]
+        roads = _uu(_road_lines) if _road_lines else None
+    except ImportError:
+        roads = None
     if len(walk_idx) < 2:
         return osm_items, []
     used: set[int] = set()
@@ -555,6 +571,8 @@ def merge_parallel_pedestrian_to_areas(
                 continue
             poly = _pedestrian_corridor_polygon(osm_items[i][0], osm_items[j][0])
             if poly is None:
+                continue
+            if roads is not None and poly.intersection(roads).length > PEDESTRIAN_CORRIDOR_MAX_ROAD_M:
                 continue
             if best_poly is None or poly.area > best_poly.area:
                 best_poly, best_j = poly, j

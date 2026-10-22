@@ -1319,13 +1319,17 @@ def test_parallel_pedestrian_lines_become_one_paved_area():
     # Dvě rovnoběžky 6 m od sebe, délka 60 m (S-JTSK metriky).
     a = [(0.0, 0.0), (60.0, 0.0)]
     b = [(0.0, 6.0), (60.0, 6.0)]
-    kept, areas = merge_parallel_pedestrian_to_areas([(a, "sidewalk"), (b, "sidewalk"), ([(0, 40), (30, 40)], "path")])
+    kept, areas = merge_parallel_pedestrian_to_areas([(a, "pedestrian"), (b, "pedestrian"), ([(0, 40), (30, 40)], "path")])
     assert len(areas) == 1 and abs(areas[0][0][0][0] - areas[0][0][-1][0]) < 1e-6
     assert len(kept) == 1 and kept[0][1] == "path"  # pěšina mimo koridor zůstala
     # Daleko od sebe se nesloučí.
     far = [(0.0, 40.0), (60.0, 40.0)]
-    kept2, areas2 = merge_parallel_pedestrian_to_areas([(a, "sidewalk"), (far, "sidewalk")])
+    kept2, areas2 = merge_parallel_pedestrian_to_areas([(a, "pedestrian"), (far, "pedestrian")])
     assert areas2 == [] and len(kept2) == 2
+    # Chodníky na obou stranách ulice se do plochy nesloučí (plocha by vedla přes vozovku).
+    road = [(30.0, -20.0), (30.0, 30.0)]
+    kept3, areas3 = merge_parallel_pedestrian_to_areas([(a, "sidewalk"), (b, "sidewalk"), (road, "road_2")])
+    assert areas3 == [] and len(kept3) == 3
 
 
 def test_merge_adjacent_pedestrian_areas_closes_gap():
