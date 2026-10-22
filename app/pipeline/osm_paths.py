@@ -4349,8 +4349,14 @@ def build_osm_path_parts(
             # Pěšina křížící zpevněnou plochu / silnici: přes překryv se nekreslí, končí na hraně.
             lines = [seg for ln in lines for seg in clip_outside(ln, path_cut_zone)]
             lines = [seg for ln in lines for seg in end_at_edge(ln, path_cut_zone)]
-        elif edge_area is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
+        elif (
+            edge_area is not None
+            and not path_draw_highway(hw).startswith("road_")
+            and not is_bridge_highway(hw)
+            and not is_tunnel_highway(hw)
+        ):
             # Ostatní cesty končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
+            # Silnice ne: zóna obsahuje jejich vlastní jízdní pás, ořez by je zahodil (≈ 84 % délky).
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
         pieces = [p for ln in lines for p in (clip_polyline(ln, clip_bounds) if clip_bounds else [ln])]
         for piece in pieces:
