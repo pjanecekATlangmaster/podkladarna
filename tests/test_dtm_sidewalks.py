@@ -360,16 +360,20 @@ def test_long_merged_sidewalk_is_cut_only_where_it_runs_along_road(tmp_path):
 
     road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-1000, -1000], [-880, -1000]]}}
     zone = op.road_zone_geometry([road])
-    # sloučený chodník 600 m: prvních ~130 m podél silnice (v pásu 12 m), zbytek daleko
+    # sloučený chodník: úsek podél silnice (pás 18 m od osy) odpadne, zbytek daleko zůstane
     long_walk = [(-1000, -995), (-700, -995), (-700, -500)]
     cut = op.sidewalk_parallel_zone("sidewalk", long_walk, zone)
     assert cut is not None
     removed = LineString(long_walk).intersection(cut).length
-    assert 120 < removed < 140
+    assert 120 < removed < 160
     # krátké křížení silnice (průchod pásem < 40 m) se nekreslí jinak než dosud – nic se neřeže
     crossing = [(-940, -1100), (-940, -900)]
     assert op.sidewalk_parallel_zone("sidewalk", crossing, zone) is None
-    assert op.sidewalk_parallel_zone("footway", long_walk, zone) is None  # jen třída chodník
+    # Pěšina souběžná se silnicí (way/227971133 není sidewalk) se řeže stejně. Path ne.
+    foot = op.sidewalk_parallel_zone("footway", long_walk, zone)
+    assert foot is not None
+    assert 120 < LineString(long_walk).intersection(foot).length < 160
+    assert op.sidewalk_parallel_zone("path", long_walk, zone) is None
 
     work = tmp_path
     (work / "osm_paths").mkdir()

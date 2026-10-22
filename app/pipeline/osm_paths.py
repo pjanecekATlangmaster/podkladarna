@@ -4606,7 +4606,9 @@ _BRIDGE_EDGE_MIN_SIN = 0.2
 # Les a MTBO (1:7500–1:15000): chodník souběžný se silnicí se nekreslí (1,4 m je pod šířkou čáry).
 # Zahazuje se čára chodníku, jejíž aspoň ``SIDEWALK_ROAD_SHARE`` délky leží do ``SIDEWALK_ROAD_NEAR_M`` m
 # od osy silnice. Chodník / pěšina v parku mimo silnici zůstává.
-SIDEWALK_ROAD_NEAR_M = 12.0
+# 18 m: u Brichtovy (way/28405477) vede pěšina way/227971133 4,8 m od osy,
+# ale není označená jako chodník, takže ji pás 12 m nebral.
+SIDEWALK_ROAD_NEAR_M = 18.0
 SIDEWALK_ROAD_SHARE = 0.7
 
 
@@ -4769,9 +4771,17 @@ def path_cut_zone_geometry(work_dir: Path, path_features: list[dict], extra=None
     return unary_union(parts) if parts else None
 
 
-def road_zone_geometry(features: list[dict], parking=None):
+def _beside_road_line(highway: str) -> bool:
+    """Chodník nebo pěšina (ne most/tunel), která se vedle silnice nekreslí."""
+    if is_bridge_highway(highway) or is_tunnel_highway(highway):
+        return False
+    return path_draw_highway(highway) in {"sidewalk", "footway"}
+
+
+def road_zone_geometry(features: list[dict], parking=None, road_area=None):
     """Pás ``SIDEWALK_ROAD_NEAR_M`` m kolem os silnic (``road_*``, i mosty) z prvků cest, sečtený se zpevněnou
-    plochou (``parking`` = shapely, rozšířená o ``SIDEWALK_PARKING_NEAR_M`` m); None bez silnic i plochy."""
+    plochou (``parking`` = shapely, rozšířená o ``SIDEWALK_PARKING_NEAR_M`` m) a s pásem silnice
+    (``road_area``, vzdálenost od osy; okraj pásu je o 4 m blíž). None bez silnic i plochy."""
     try:
         from shapely.geometry import LineString
         from shapely.ops import unary_union
@@ -4785,6 +4795,8 @@ def road_zone_geometry(features: list[dict], parking=None):
         if geom.get("type") == "LineString" and len(coords) >= 2 and path_draw_highway(hw).startswith("road_"):
             lines.append(LineString(coords))
     parts = [unary_union(lines).buffer(SIDEWALK_ROAD_NEAR_M)] if lines else []
+    if road_area is not None and not getattr(road_area, "is_empty", True):
+        parts.append(road_area.buffer(max(0.0, SIDEWALK_ROAD_NEAR_M - 4.0)))
     if parking is not None and not parking.is_empty:
         parts.append(parking.buffer(SIDEWALK_PARKING_NEAR_M))
     return unary_union(parts) if parts else None
@@ -4794,7 +4806,7 @@ def is_sidewalk_beside_road(highway: str, coords: list, road_zone) -> bool:
     """Chodník (na povrchu) souběžný se silnicí: aspoň ``SIDEWALK_ROAD_SHARE`` délky v pásu kolem silnice."""
     if road_zone is None or len(coords) < 2:
         return False
-    if path_draw_highway(highway) != "sidewalk" or is_bridge_highway(highway) or is_tunnel_highway(highway):
+    if not _beside_road_line(highway):
         return False
     from shapely.geometry import LineString
 
@@ -4814,7 +4826,7 @@ def sidewalk_parallel_zone(highway: str, coords: list, road_zone):
     """
     if road_zone is None or len(coords) < 2:
         return None
-    if path_draw_highway(highway) != "sidewalk" or is_bridge_highway(highway) or is_tunnel_highway(highway):
+    if not _beside_road_line(highway):
         return None
     from shapely.geometry import LineString
     from shapely.ops import linemerge, unary_union
@@ -5141,7 +5153,11 @@ def build_osm_path_parts(
     road_zone = (
         None
         if preset_id.startswith("sprint")
-        else road_zone_geometry(data.get("features") or [], osm_paved_beside_geometry(work_dir))
+        else road_zone_geometry(
+            data.get("features") or [],
+            osm_paved_beside_geometry(work_dir),
+            road_area=osm_paved_beside_geometry(work_dir, kinds=frozenset({"road_strip"})),
+        )
     )
     # Čára těsně u budovy se odsune, ať nesplyne se zdí. DTM budovy mají přednost.
     building_geom = drawn_building_geometry(work_dir)
