@@ -258,9 +258,14 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **MTBO nepoužívá DTM** (`MTBO_USE_DTM = False` v `app/pipeline/dtm_import.py`, `mtbo_dtm_off`): kreslí se z ZABAGED / OSM. Kód pro DTM v MTBO
   (koridor silnice, chodníky, parkoviště, schodiště, budovy, ploty) zůstává a zapne se příznakem; testy ho zapínají fixturou. LES bere z DTM budovy
   a ploty (včetně výplně oplocení olivou 520), sprint všechno.
-- **Dedup chodníků v lese a MTBO je jen z OSM:** chodník souběžný se silnicí nebo OSM parkovištěm se zahodí (celý při ≥ 70 % délky v pásu 12 m /
-  parkoviště + 3 m, jinak jen souvislé úseky ≥ 40 m). Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic
+- **Dedup chodníků v lese a MTBO je jen z OSM:** chodník souběžný se silnicí nebo OSM zpevněnou plochou se zahodí (celý při ≥ 70 % délky v pásu,
+  jinak jen souvislé úseky ≥ 40 m). Pás se počítá ze skutečných šířek symbolů v sadě (`sidewalk_road_zone_geometry`: půlka silnice / okraje 501.2
+  + půlka chodníku + `LINE_MIN_GAP_MM`, v metrech podle měřítka), ne pevných 12 m. Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic
   jako zóna pro dedup (zatím neudělané, čeká na rozhodnutí Petra).
+- **Zpevněné plochy v lese a MTBO jsou síť** (`build_paved_network` při sestavení mapy): OSM parkoviště, pěší zóny, area:highway, nástupiště
+  a hřiště se sloučí (mezera do 3,5 m), ne přes pás silnice a ne přes plochy na mostě / v tunelu (`structure` z přípravy OSM). Silnice přes
+  plochu se uvnitř nekreslí (`clip_road_in_paved`, jen průchod ≥ 6 m a dál než 2 m od hrany), menší cesty se na ploše přeruší. V lese se okraj
+  501.2 vynechá tam, kde by splýval se silnicí (`paved_edge_omit_zone`); parkoviště je v lese 501.1 + 501.2. DTM se do sítě zatím nepřipojuje.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
