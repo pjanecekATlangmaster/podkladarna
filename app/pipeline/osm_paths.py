@@ -945,6 +945,64 @@ def _as_polygons(geom):
     return [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon" and not g.is_empty]
 
 
+# Mezera na téže ose mezi dvěma dotyky plochy silnice+chodník. Delší úsek zůstane čára,
+# ale musí na plochu dosednout (ořez na hraně). Bez doplnění se ulice kreslí střídavě
+# plochou a čarou a kusy na sebe nenavazují.
+ROAD_AREA_JOIN_M = 60.0
+# Čára, která vede po okraji plochy a končí pár metrů před dalším kusem, je pořád ta silnice.
+ROAD_EDGE_JOIN_M = 8.0
+
+
+def _line_bits(geom):
+    if geom is None or geom.is_empty:
+        return []
+    if geom.geom_type == "LineString":
+        return [geom]
+    return [g for g in getattr(geom, "geoms", []) if g.geom_type == "LineString" and not g.is_empty]
+
+
+def join_road_area_gaps(merged, road_lines):
+    """Doplní jízdní pruh v díře téže silnice, aby plocha a čára na sebe navazovaly.
+
+    ``road_lines`` jsou (souřadnice, highway) os, které plochou procházejí. Díra do
+    ``ROAD_AREA_JOIN_M`` m mezi dvěma dotyky se vyplní šířkou silnice. Odbočka, která
+    plochu jen mine, se nepřidá.
+    """
+    from shapely.geometry import LineString, Point
+    from shapely.ops import unary_union
+
+    if merged is None or merged.is_empty:
+        return merged
+    extra = []
+    for pts, hw in road_lines:
+        draw = path_draw_highway(hw)
+        if len(pts) < 2 or not draw.startswith("road_") or is_bridge_highway(hw) or is_tunnel_highway(hw):
+            continue
+        line = LineString(pts)
+        if line.length < 1.0 or line.distance(merged) > 0.8:
+            continue
+        if line.intersection(merged.buffer(0.4)).length < 15.0:
+            continue
+        half = max(1.0, drawn_width_m(hw) / 2.0)
+        for bit in _line_bits(line.difference(merged.buffer(0.2))):
+            if bit.length < 0.4 or bit.length > ROAD_AREA_JOIN_M:
+                continue
+            d0 = merged.distance(Point(bit.coords[0]))
+            d1 = merged.distance(Point(bit.coords[-1]))
+            both = d0 <= 0.6 and d1 <= 0.6
+            along = (
+                min(d0, d1) <= 0.6
+                and max(d0, d1) <= ROAD_EDGE_JOIN_M
+                and merged.distance(bit.interpolate(0.5, normalized=True)) <= half
+            )
+            if both or along:
+                extra.append(bit.buffer(half, cap_style=1, join_style=2))
+    if not extra:
+        return merged
+    joined = unary_union([merged, *extra])
+    return joined.buffer(0) if not joined.is_valid else joined
+
+
 def _feature_from_polygon(poly, kind: str, code: str = "501") -> dict | None:
     from shapely.geometry import mapping
 
@@ -1100,6 +1158,18 @@ def absorb_sidewalks_beside_paved(
         local_roads = osm_roads.intersection(sw_poly.buffer(CORRIDOR_NEAR_M))
         merged, interface, _rest = merge_sidewalk_with_road(local_roads, sw_poly)
         if merged is not None and not merged.is_empty:
+            # Krátká díra uprostřed téže ulice (chodník na chvíli uhne) zůstane součástí plochy,
+            # aby čára silnice a plocha na sebe dosedly.
+            merged = join_road_area_gaps(
+                merged,
+                [
+                    (pts, hw)
+                    for pts, hw in new_items
+                    if path_draw_highway(hw).startswith("road_")
+                    and not is_bridge_highway(hw)
+                    and not is_tunnel_highway(hw)
+                ],
+            )
             for poly in _as_polygons(merged):
                 feat = _feature_from_polygon(poly, "road_with_sidewalk", "501.1")
                 if feat:

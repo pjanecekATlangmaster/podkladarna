@@ -1380,6 +1380,26 @@ def test_sidewalk_beside_road_merges_and_keeps_the_spur():
     assert roads and min(p[0] for pts in roads for p in pts) > 40.0
 
 
+def test_gap_on_the_same_road_joins_the_paved_area_side_road_stays():
+    """Díra uprostřed ulice mezi dvěma chodníky je pořád ta plocha. Odbočka zůstane čára dosedlá na hranu."""
+    from shapely.geometry import LineString, Point, shape
+
+    from app.pipeline.osm_paths import absorb_sidewalks_beside_paved
+
+    road = ([(0.0, 0.0), (200.0, 0.0)], "road_3")
+    side = ([(70.0, 0.0), (70.0, 40.0)], "road_2")
+    sw_a = ([(0.0, 4.0), (50.0, 4.0)], "sidewalk")
+    sw_b = ([(90.0, 4.0), (150.0, 4.0)], "sidewalk")
+    features, items = absorb_sidewalks_beside_paved([], [road, side, sw_a, sw_b])
+    areas = [shape(f["geometry"]) for f in features if f["properties"]["kind"] == "road_with_sidewalk"]
+    assert areas
+    assert any(a.covers(Point(70.0, 0.0)) for a in areas)
+    roads = [LineString(pts) for pts, hw in items if hw == "road_3"]
+    assert roads and all(g.distance(Point(70.0, 0.0)) > 5.0 for g in roads)
+    sides = [LineString(pts) for pts, hw in items if hw == "road_2"]
+    assert sides and max(p[1] for g in sides for p in g.coords) > 15.0
+
+
 def test_dtm_priority_roads_drop_osm_sidewalk_beside_them():
     """Až bude DTM silnice, chodník v jejím pásu se z OSM nekreslí (sloučí ho DTM)."""
     from shapely.geometry import LineString
