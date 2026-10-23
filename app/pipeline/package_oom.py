@@ -831,6 +831,7 @@ def prepare_oom_map(
         clip_bounds=vector_clip_bounds,
         aopk_tree_points=aopk_pts or None,
         courtyard_fill=courtyard_fill,
+        path_source=path_source,
     )
     osm_under: list[OomObjectPart] = []
     osm_feat_rest: list[OomObjectPart] = []
@@ -1000,7 +1001,7 @@ def prepare_oom_map(
         object_parts.extend(osm_parts)
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
-    # Zaměřené ploty z DTM kraje (jen sprint; chybějící DTM = prázdný seznam).
+    # Zaměřené ploty z DTM kraje (sprint a les, MTBO jen se zapnutým DTM; chybějící DTM = prázdný seznam).
     from app.pipeline.dtm_import import build_dtm_fence_parts
 
     object_parts.extend(

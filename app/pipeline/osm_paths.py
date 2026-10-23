@@ -4469,6 +4469,7 @@ def build_osm_feature_parts(
     clip_bounds: Bounds | None = None,
     aopk_tree_points: list[tuple[float, float]] | None = None,
     courtyard_fill: str = "none",
+    path_source: str = "mixed",
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
     if not gj_path.is_file():
@@ -4535,10 +4536,11 @@ def build_osm_feature_parts(
 
             feats = cut_osm_paved_by_geometry(feats, mtbo_corridor_geometry(work_dir, scale, "mixed"))
     if not preset_id.startswith("sprint"):
-        # Les a MTBO: OSM ploty (pokud je nekreslí DTM) se spojí a otočí čárkami k olivě jako ve sprintu.
+        # Les a MTBO: OSM ploty (pokud je nekreslí DTM) se spojí, otočí čárkami k olivě jako ve sprintu
+        # a odsunou od kreslených cest podle šířky symbolů.
         from app.pipeline.dtm_import import join_and_orient_osm_fences
 
-        feats = join_and_orient_osm_fences(work_dir, feats)
+        feats = join_and_orient_osm_fences(work_dir, feats, preset_id=preset_id, scale=scale, path_source=path_source)
     feats = [
         f
         for f in feats

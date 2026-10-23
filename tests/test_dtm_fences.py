@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import zipfile
 
+import pytest
+
 import app.pipeline.dtm_fences as df
 from app.pipeline.dtm_fences import Fence
 
@@ -527,3 +529,84 @@ def test_osm_fences_without_dtm_are_joined_and_oriented_for_forest_and_mtbo(tmp_
         kw = dict(preset_id=preset, scale=10000, ref_x=-975.0, ref_y=0.0, grivation_deg=0.0)
         parts = {p.name: p.count for p in op.build_osm_feature_parts(tmp_path, **kw)}
         assert parts.get("OSM ploty") == 1
+
+
+def test_path_clearances_in_forest_follow_symbol_widths_at_map_scale(tmp_path):
+    import app.pipeline.dtm_import as di
+    from app.pipeline.oom_symbol_map import symbol_width_mm
+
+    (tmp_path / "osm_paths").mkdir()
+    road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [100, 0]]}}
+    (tmp_path / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8"
+    )
+    sprint = di.path_clearances(tmp_path, "mixed", preset_id="sprint_4000", scale=4000)
+    assert sprint == di.path_clearances(tmp_path, "mixed")  # sprint beze změny
+    for preset, scale in (("forest_10000", 10000), ("forest_15000", 15000)):
+        (_coords, need), = di.path_clearances(tmp_path, "mixed", preset_id=preset, scale=scale)
+        road_mm = symbol_width_mm(preset, scale, "502")
+        fence_mm = symbol_width_mm(preset, scale, "516")
+        assert need == pytest.approx((road_mm / 2 + fence_mm / 2 + di.NONSPRINT_PATH_GAP_MM) * scale / 1000)
+        assert 5.0 < need < 9.0  # silnice 502 je v lese na mapě široká ~6,6 m
+
+
+def test_avoid_paths_keep_crossings_does_not_bend_fence_at_crossing():
+    path = ([(-50.0, 0.0), (50.0, 0.0)], 5.0)
+    parallel = ("516", [(-40.0, 2.0), (40.0, 2.0)])  # 2 m od osy cesty → odsunout na 5 m
+    crossing = ("516", [(-20.0, -30.0), (20.0, 30.0)])  # kříží cestu šikmo → beze změny
+    from shapely.geometry import LineString, Point
+
+    moved = df.avoid_paths([parallel, crossing], [path], max_shift=6.0, keep_crossings=True)
+    assert LineString(moved[0][1]).distance(Point(0, 0)) > 4.5
+    orig = LineString(crossing[1])
+    assert all(orig.distance(Point(p)) < 1e-6 for p in moved[1][1])
+    bent = df.avoid_paths([crossing], [path], max_shift=6.0)
+    assert max(orig.distance(Point(p)) for p in bent[0][1]) > 0.5  # bez keep_crossings by se plot u křížení zalomil
+
+
+def test_forest_fence_beside_path_is_moved_away_after_joining(tmp_path, monkeypatch):
+    import app.pipeline.dtm_import as di
+
+    (tmp_path / "dtm").mkdir()
+    (tmp_path / "dtm" / "fences.json").write_text(
+        json.dumps({"fences": [{"code": "518", "coords": [[-1000.0, 2.0], [-950.0, 2.0]]}]}), encoding="utf-8"
+    )
+    (tmp_path / "osm_paths").mkdir()
+    path = {"type": "Feature", "properties": {"highway": "path"}, "geometry": {"type": "LineString", "coordinates": [[-1010, 0], [-940, 0]]}}
+    (tmp_path / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [path]}), encoding="utf-8"
+    )
+    seen = []
+    real = di.dtm_fences.avoid_paths
+
+    def spy(lines, paths, **kw):
+        out = real(lines, paths, **kw)
+        seen.extend(out)
+        return out
+
+    from shapely.geometry import LineString
+
+    monkeypatch.setattr(di.dtm_fences, "avoid_paths", spy)
+    di.build_dtm_fence_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=-975.0, ref_y=0.0, grivation_deg=0.0)
+    (_code, coords), = seen
+    need = di.path_clearances(tmp_path, "mixed", preset_id="forest_10000", scale=10000)[0][1]
+    mid = LineString(coords).interpolate(0.5, normalized=True)
+    assert need > 3.0 and mid.y == pytest.approx(need, abs=0.3)  # plot 2 m od pěšiny → odsunut na čitelnou vzdálenost
+
+
+def test_mtbo_osm_fence_beside_path_is_moved_away(tmp_path):
+    from shapely.geometry import LineString
+
+    import app.pipeline.dtm_import as di
+
+    (tmp_path / "osm_paths").mkdir()
+    path = {"type": "Feature", "properties": {"highway": "path"}, "geometry": {"type": "LineString", "coordinates": [[-10, 0], [110, 0]]}}
+    (tmp_path / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [path]}), encoding="utf-8"
+    )
+    fence = {"type": "Feature", "properties": {"kind": "fence"}, "geometry": {"type": "LineString", "coordinates": [[0, 1.5], [100, 1.5]]}}
+    out = di.join_and_orient_osm_fences(tmp_path, [fence], preset_id="mtbo_10000", scale=10000)
+    need = di.path_clearances(tmp_path, "mixed", preset_id="mtbo_10000", scale=10000)[0][1]
+    mid = LineString(out[0]["geometry"]["coordinates"]).interpolate(0.5, normalized=True)
+    assert mid.y == pytest.approx(need, abs=0.3)
+    assert di.join_and_orient_osm_fences(tmp_path, [fence])[0]["geometry"]["coordinates"][0][1] == 1.5  # bez měřítka beze změny

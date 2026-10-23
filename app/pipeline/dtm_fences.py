@@ -912,6 +912,7 @@ def avoid_paths(
     *,
     max_shift: float = AVOID_MAX_SHIFT_M,
     step: float = AVOID_STEP_M,
+    keep_crossings: bool = False,
 ) -> list[tuple[str, list[tuple[float, float]]]]:
     """Odsune body plotů od os cest tak, aby bylo mezi osou cesty a plotem aspoň ``clearance`` m.
 
@@ -919,6 +920,9 @@ def avoid_paths(
     Bod se posune po kolmici od nejbližšího bodu cesty (zůstane na své straně), nejvýš o
     ``max_shift`` m; body, které by se musely posunout víc (plot cestu kříží), se nemění.
     Posuny se vyhladí a uzavřené čáry zůstanou uzavřené.
+
+    ``keep_crossings``: kde plot cestu kříží, body do požadované vzdálenosti od průsečíku se od
+    té cesty neodsouvají (jinak by se plot u křížení zalomil).
     """
     from shapely import STRtree
     from shapely.geometry import LineString, Point
@@ -933,12 +937,14 @@ def avoid_paths(
     tree = STRtree(geoms)
     reach = max(req)
 
-    def displacement(x: float, y: float) -> tuple[float, float]:
+    def displacement(x: float, y: float, crossings=None) -> tuple[float, float]:
         pt = Point(x, y)
         best = None  # (nedostatek, dx, dy)
         for k in tree.query(pt.buffer(reach)):
             k = int(k)
             g = geoms[k]
+            if crossings and k in crossings and crossings[k].distance(pt) <= req[k]:
+                continue
             d = g.distance(pt)
             deficit = req[k] - d
             if deficit <= 1e-6 or deficit > max_shift:
@@ -961,7 +967,15 @@ def avoid_paths(
         n_seg = max(1, int(math.ceil(line.length / step)))
         pts = [tuple(line.interpolate(line.length * t / n_seg).coords[0]) for t in range(n_seg + 1)]
         pts[0], pts[-1] = tuple(coords[0]), tuple(coords[-1])
-        disp = [displacement(x, y) for x, y in pts]
+        crossings = None
+        if keep_crossings:
+            crossings = {}
+            for k in tree.query(line):
+                k = int(k)
+                hit = line.intersection(geoms[k])
+                if not hit.is_empty:
+                    crossings[k] = hit
+        disp = [displacement(x, y, crossings) for x, y in pts]
         if not any(dx or dy for dx, dy in disp):
             out.append((code, coords))
             continue
