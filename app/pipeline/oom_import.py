@@ -948,8 +948,11 @@ def build_zabaged_object_parts(
         ZABAGED_PATH_LAYERS_OSM_FIRST,
         _SegmentIndex,
         centerline_cover_fraction,
+        ZABAGED_REMNANT_MIN_M,
         centerline_index,
+        clip_parallel_to_centerlines,
         filter_lines_against_centerlines,
+        polyline_length,
     )
 
     fill_courtyards = bool(courtyard_olive)
@@ -1136,7 +1139,23 @@ def build_zabaged_object_parts(
             min_length_m=MIN_LENGTH_M,
             index=osm_index,
         )
-        return kept
+        if preset_id.startswith("sprint"):
+            return kept
+        # Les / MTBO: souběžné úseky posunuté o pár metrů od OSM (méně než MATCH_M) se ořežou po úsecích;
+        # krátký zbytek, který vznikl ořezem a nikam nevede, se zahodí.
+        out: list[list[tuple[float, float]]] = []
+        for pts in kept:
+            pieces = clip_parallel_to_centerlines(pts, osm_index)
+            if len(pieces) == 1 and pieces[0] is pts:
+                out.append(pts)
+                continue
+            for piece in pieces:
+                # aspoň jeden konec vznikl ořezem (není to původní konec čáry)
+                cut_end = piece[0] != pts[0] or piece[-1] != pts[-1]
+                if cut_end and polyline_length(piece) < ZABAGED_REMNANT_MIN_M:
+                    continue
+                out.append(piece)
+        return out
 
     skip_layers = frozenset(omit_layers or ())
     for shp_name in shp_names:

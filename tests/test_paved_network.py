@@ -632,6 +632,39 @@ def test_black_path_ends_at_road_drawing(tmp_path, hw):
     assert black == pytest.approx(80 - 2 * half, abs=0.5)
 
 
+def test_path_ending_at_dropped_sidewalk_extends_to_road_drawing(tmp_path):
+    # Chodník souběžný se silnicí se zahodí; pěšina, která na něm končila, se prodlouží k okraji kresby silnice.
+    _write_job(
+        tmp_path,
+        [],
+        [
+            _road([(-60, 0), (60, 0)], "road_3"),
+            _line([(-60, 7), (60, 7)], "sidewalk"),
+            _line([(0, 7), (0, 40)], "footway"),
+        ],
+    )
+    lengths = _path_lengths(tmp_path)
+    half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+    black = sum(v for k, v in lengths.items() if not k.startswith("502"))
+    assert black == pytest.approx(40 - half, abs=0.5)
+
+
+def test_path_not_reaching_dropped_sidewalk_not_extended(tmp_path):
+    # Pěšina končí 5 m od zahozeného chodníku: neprodlouží se.
+    _write_job(
+        tmp_path,
+        [],
+        [
+            _road([(-60, 0), (60, 0)], "road_3"),
+            _line([(-60, 7), (60, 7)], "sidewalk"),
+            _line([(0, 12), (0, 40)], "footway"),
+        ],
+    )
+    lengths = _path_lengths(tmp_path)
+    black = sum(v for k, v in lengths.items() if not k.startswith("502"))
+    assert black == pytest.approx(28, abs=0.5)
+
+
 def test_black_path_crosses_narrow_road(tmp_path):
     # Silnice 503 (černá čára) cestu nepřerušuje.
     _write_job(tmp_path, [], [_road([(-60, 0), (60, 0)], "road_2"), _line([(0, -40), (0, 40)], "track")])
