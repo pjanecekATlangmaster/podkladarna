@@ -49,7 +49,7 @@ OSM_MIN_REMAINDER_M = 2.0
 NONSPRINT_FENCE_MIN_LEN_M = 20.0
 # Les a MTBO: mezera mezi okrajem symbolu cesty a čárou plotu (mm na mapě) a největší odsun plotu (mm na mapě).
 NONSPRINT_PATH_GAP_MM = 0.2
-NONSPRINT_AVOID_MAX_SHIFT_MM = 0.6
+NONSPRINT_AVOID_MAX_SHIFT_MM = 0.9
 # MTBO: parkoviště z DTM se kreslí jen od této plochy (m²), menší jsou v 1:10000–1:15000 nečitelná.
 MTBO_PARKING_MIN_M2 = 300.0
 # MTBO: silnice s přilehlými chodníky jednou plochou (koridor); False = jen čáry 502.x jako dřív.
@@ -1696,13 +1696,15 @@ def path_clearances(
         data = json.loads(gj_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    by_symbol = bool(preset_id) and not preset_id.startswith("sprint") and scale > 0
-    if by_symbol:
+    if preset_id and not preset_id.startswith("sprint") and scale > 0:
         from app.pipeline.oom_symbol_map import symbol_width_mm
 
         m_per_mm = scale / 1000.0
         fence_half_mm = (symbol_width_mm(preset_id, scale, feature_code_for_fence(preset_id)) or 0.0) / 2.0
-        width_cache: dict[str, float] = {}
+        return [
+            (coords, (width_mm / 2.0 + fence_half_mm + NONSPRINT_PATH_GAP_MM) * m_per_mm)
+            for coords, width_mm in drawn_path_axes(work_dir, path_source, preset_id=preset_id, scale=scale)
+        ]
     out = []
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
@@ -1712,15 +1714,6 @@ def path_clearances(
         hw = str((feat.get("properties") or {}).get("highway") or "path")
         if op.is_tunnel_highway(hw):
             continue
-        if by_symbol:
-            code = op.osm_oom_code(hw, preset_id)
-            if code not in width_cache:
-                width_cache[code] = symbol_width_mm(preset_id, scale, code) or 0.0
-            if width_cache[code] <= 0:
-                continue
-            need = (width_cache[code] / 2.0 + fence_half_mm + NONSPRINT_PATH_GAP_MM) * m_per_mm
-            out.append(([(float(x), float(y)) for x, y in coords], need))
-            continue
         base = op.path_draw_highway(hw)
         half = op.drawn_width_m(hw) / 2.0
         asphalt = base.startswith("road_") or base == "cycleway_paved"
@@ -1729,6 +1722,43 @@ def path_clearances(
         else:
             need = half + dtm_fences.FENCE_HALF_WIDTH_M + dtm_fences.PATH_GAP_M
         out.append(([(float(x), float(y)) for x, y in coords], need))
+    return out
+
+
+def drawn_path_axes(
+    work_dir: Path, path_source: str, *, preset_id: str, scale: int
+) -> list[tuple[list[tuple[float, float]], float]]:
+    """Osy kreslených cest (S-JTSK) a šířka jejich symbolu v mm na mapě (sada presetu); tunely a cesty bez symbolu ne."""
+    from app.pipeline import osm_paths as op
+    from app.pipeline.oom_symbol_map import symbol_width_mm
+
+    src = op.resolve_path_source(path_source)
+    name = {
+        op.PATH_SOURCE_ZABAGED: "paths_bridges.geojson",
+        op.PATH_SOURCE_OSM: "paths_osm.geojson",
+    }.get(src, "paths_mixed.geojson")
+    gj_path = work_dir / "osm_paths" / name
+    if not gj_path.is_file():
+        gj_path = work_dir / "osm_paths" / "paths.geojson"
+    try:
+        data = json.loads(gj_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    width_cache: dict[str, float] = {}
+    out = []
+    for feat in data.get("features") or []:
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        hw = str((feat.get("properties") or {}).get("highway") or "path")
+        if op.is_tunnel_highway(hw):
+            continue
+        code = op.osm_oom_code(hw, preset_id)
+        if code not in width_cache:
+            width_cache[code] = symbol_width_mm(preset_id, scale, code) or 0.0
+        if width_cache[code] > 0:
+            out.append(([(float(x), float(y)) for x, y, *_ in coords], width_cache[code]))
     return out
 
 

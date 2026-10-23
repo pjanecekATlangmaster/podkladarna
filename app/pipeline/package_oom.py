@@ -1030,6 +1030,20 @@ def prepare_oom_map(
         )
     # Výplň dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
     object_parts.extend(courtyard_parts)
+    # Les a MTBO: objekty u cest (budovy, oliva, zdi, ploty, body) se odsunou od kreslených cest
+    # podle šířky symbolů – až nad hotovou mapou, kdy jsou ploty spojené a deduplikované.
+    from app.pipeline.path_clearance import displace_objects_from_paths
+
+    object_parts = displace_objects_from_paths(
+        object_parts,
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+        path_source=path_source,
+    )
     aoi_part = build_aoi_boundary_part(
         bbox_wgs84,
         preset_id=preset_id,
