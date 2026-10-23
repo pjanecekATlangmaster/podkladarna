@@ -148,14 +148,27 @@ def test_feature_parts_draw_merged_network(tmp_path, preset):
 
 
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
-def test_street_side_parking_drawn_as_road(tmp_path, preset):
-    # Hilmarova (way/1452628243): podélné stání 2–4,5 m od osy silnice leží pod její kresbou – kreslí se jen silnice.
+def test_street_side_parking_merged_with_road(tmp_path, preset):
+    # Hilmarova (way/1452628243): podélné stání 2–4,5 m od osy silnice – s ulicí jedna zpevněná plocha v šířce kresby.
+    from shapely.geometry import shape
+
     feats = [_area(0, 2, 40, 4.5, "parking"), _area(0, 15, 40, 40, "parking")]
     _write_job(tmp_path, feats, [_road([(-20, 0), (60, 0)], "road_3")])
-    kept = op.drop_parking_under_road(tmp_path, feats, op._paths_features_for_network(tmp_path), preset, 10000)
-    assert kept == [feats[1]]
-    assert op.drop_parking_under_road(tmp_path, feats, [], preset, 10000) == feats
-    assert op.drop_parking_under_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "sprint_4000", 4000) == feats
+    out = op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), preset, 10000)
+    assert out[1] == feats[1]
+    merged = shape(out[0]["geometry"])
+    half = op.drawn_symbol_width_m("road_3", preset, 10000) / 2.0
+    assert merged.bounds[1] == pytest.approx(-half, abs=0.01)  # silnice v šířce své kresby
+    assert merged.bounds[0] < 0 and merged.bounds[2] > 40
+    assert op.merge_parking_into_road(tmp_path, feats, [], preset, 10000) == feats
+    assert op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "sprint_4000", 4000) == feats
+
+
+def test_street_side_parking_road_not_drawn_over(tmp_path):
+    # Silnice v místě stání se nekreslí (je plochou 501.1 s okrajem 501.2), mimo něj ano.
+    _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
+    lengths = _path_lengths(tmp_path)
+    assert lengths["502.2"] < 140 - 40
 
 
 def _line(coords, hw):
@@ -469,7 +482,7 @@ def test_wide_parking_with_inner_road_kept(tmp_path):
     # Lidl (way/128405208): parkoviště s obslužnou komunikací uvnitř leží celé v pásu silnice, ale je široké.
     feats = [_area(0, -10, 40, 10, "parking")]
     _write_job(tmp_path, feats, [_road([(-20, 0), (60, 0)], "road_4")])
-    assert op.drop_parking_under_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "forest_10000", 10000) == feats
+    assert op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "forest_10000", 10000) == feats
 
 
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
@@ -532,3 +545,26 @@ def test_dtm_walk_area_not_opened():
 
     dtm = {"type": "Feature", "properties": {"kind": "pedestrian_area", "source": "dtm"}, "geometry": mapping(box(0, 0, 60, 6))}
     assert op.open_narrow_walk_areas([dtm], "forest_10000", 10000) == [dtm]
+
+
+def test_short_pieces_joined_into_one_line(tmp_path):
+    # Pěšina ze tří navazujících úseků (prostřední krátké schody → pěšina) je v lese jedna čára, ve sprintu tři.
+    paths = [_line([(0, 0), (30, 0)], "footway"), _line([(30, 0), (35, 0)], "steps"), _line([(35, 0), (70, 0)], "footway")]
+    _write_job(tmp_path, [], paths)
+
+    def count(preset, scale):
+        op._PAVED_NETWORK_CACHE.clear()
+        parts = op.build_osm_path_parts(tmp_path, preset_id=preset, scale=scale, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+        return sum(p.count for p in parts)
+
+    assert count("forest_10000", 10000) == 1
+    assert count("sprint_4000", 4000) == 3
+    assert op.join_line_pieces([[(0, 0), (1, 0)], [(1, 0), (2, 0)], [(1, 0), (1, 1)]]) != [[(0, 0), (2, 0)]]
+
+
+def test_street_side_parking_edge_continues_to_road(tmp_path):
+    # Ulice slitá se stáním: okraj 501.2 vede po obou dlouhých stranách až k čáře silnice, přes ústí ne.
+    _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    assert 90 < _edge_length(parts) < 105

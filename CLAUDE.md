@@ -268,7 +268,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   a hřiště se sloučí (mezera do 3,5 m), ne přes pás silnice a ne přes plochy na mostě / v tunelu (`structure` z přípravy OSM). Silnice přes
   plochu se uvnitř nekreslí (`clip_road_in_paved`, jen průchod ≥ 6 m a dál než 2 m od hrany), menší cesty se na ploše přeruší. V lese se okraj
   501.2 vynechá tam, kde by splýval se silnicí (`paved_edge_omit_zone`); parkoviště je v lese 501.1 + 501.2. Úzké parkoviště (pruh do 4,5 m), které z ≥ 60 % leží
-  pod kresbou silnice + 1 m (podélné stání), se nekreslí – je součástí silnice (`drop_parking_under_road`); široká parkoviště zůstávají. Pěší plochy
+  pod kresbou silnice + 1 m (podélné stání), se s úsekem ulice slije do jedné plochy 501.1 v šířce kresby silnice s okrajem 501.2 (`merge_parking_into_road`);
+  silnice se tam nekreslí. Široká parkoviště zůstávají samostatně. Navazující kusy čar se stejným symbolem se spojí (`join_line_pieces`). Pěší plochy
   z OSM se kreslí jen tam, kde jsou široké aspoň jako kresba silnice 502 (`open_narrow_walk_areas`); užší výběžky kreslí čára cesty (DTM plochy ne – nemají čáru). Koridor ze dvou souběžných čar
   má v přípravě uloženou osu (`corridor_axes.geojson`), les a MTBO ji kreslí tam, kde úzký koridor odpadne (sprint ne).
 - **Les: symbol cesty podle skutečné šířky z DTM** (`app/pipeline/dtm_widths.py`, `uses_dtm_widths`): kolmé řezy ploch `roads.json` /
