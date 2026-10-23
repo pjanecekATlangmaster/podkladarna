@@ -325,3 +325,48 @@ def test_formline_mode_all_keeps_every_half_line():
     from app.pipeline.job_options import resolve_formline_mode
 
     assert resolve_formline_mode({"contour_formlines": "all"}) == "all"
+
+
+def test_build_gdal_contour_parts_reuses_geometry_between_maps(tmp_path, monkeypatch):
+    """Les + MTBO (plná i „čistá“) z jednoho contours.shp: geometrie jednou, symboly zvlášť."""
+    import os
+
+    from app.pipeline import contours_gdal as cg
+
+    shp_dir = tmp_path / "contours"
+    shp_dir.mkdir()
+    shp = shp_dir / "contours.shp"
+    shp.write_bytes(b"placeholder")
+    reads: list[str] = []
+
+    def fake_rows(path):
+        reads.append(path.name)
+        return [({"elev": 5.0}, _circle(90.0)), ({"elev": 25.0}, _circle(140.0))]
+
+    monkeypatch.setattr(cg, "_iter_contour_rows", fake_rows)
+    monkeypatch.setattr(cg, "_wkb_parts", lambda pts: ([("line", pts, True)], None))
+    symbols = {"forest_10000": {"101": 1, "102": 2}, "mtbo_10000": {"101": 11, "102": 12}}
+    monkeypatch.setattr(
+        cg, "symbol_index_for_code", lambda preset, _s, code: symbols[preset].get(code)
+    )
+    monkeypatch.setattr(
+        cg,
+        "_geom_parts_to_objects",
+        lambda parts, symbol_index, **_kw: [f"<object sym='{symbol_index}' n='{len(p[1])}'/>" for p in parts],
+    )
+    kw = dict(scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0, interval_m=5.0, index_m=25.0)
+    forest = cg.build_gdal_contour_parts(tmp_path, preset_id="forest_10000", **kw)
+    forest_again = cg.build_gdal_contour_parts(tmp_path, preset_id="forest_10000", **kw)
+    mtbo = cg.build_gdal_contour_parts(tmp_path, preset_id="mtbo_10000", **kw)
+    assert reads == ["contours.shp"]
+    assert [(p.name, p.objects_xml) for p in forest_again] == [(p.name, p.objects_xml) for p in forest]
+    assert "sym='11'" in mtbo[0].objects_xml and "sym='12'" in mtbo[1].objects_xml
+    assert [p.objects_xml.replace("sym='1", "sym='") for p in mtbo] == [
+        p.objects_xml for p in forest
+    ]
+
+    # Přegenerované vrstevnice (jiný soubor) se načtou znovu.
+    shp.write_bytes(b"placeholder-new")
+    os.utime(shp, ns=(shp.stat().st_atime_ns, shp.stat().st_mtime_ns + 10**9))
+    cg.build_gdal_contour_parts(tmp_path, preset_id="forest_10000", **kw)
+    assert reads == ["contours.shp", "contours.shp"]
