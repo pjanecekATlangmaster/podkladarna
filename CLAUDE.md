@@ -258,9 +258,28 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **MTBO nepoužívá DTM** (`MTBO_USE_DTM = False` v `app/pipeline/dtm_import.py`, `mtbo_dtm_off`): kreslí se z ZABAGED / OSM. Kód pro DTM v MTBO
   (koridor silnice, chodníky, parkoviště, schodiště, budovy, ploty) zůstává a zapne se příznakem; testy ho zapínají fixturou. LES bere z DTM budovy
   a ploty (včetně výplně oplocení olivou 520), sprint všechno.
-- **Dedup chodníků v lese a MTBO je jen z OSM:** chodník souběžný se silnicí nebo OSM parkovištěm se zahodí (celý při ≥ 70 % délky v pásu 12 m /
-  parkoviště + 3 m, jinak jen souvislé úseky ≥ 40 m). Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic
+- **Dedup chodníků v lese a MTBO je jen z OSM:** chodník i pěšina bez tagu chodníku (`SIDEWALK_DEDUP_BASES`, v lese i cyklostezka) souběžná se silnicí nebo OSM zpevněnou plochou se zahodí (celý při ≥ 70 % délky v pásu,
+  jinak jen souvislé úseky ≥ 40 m). Pás se počítá ze skutečných šířek symbolů v sadě (`sidewalk_road_zone_geometry`: půlka silnice – v lese podle symbolu zvoleného šířkou z DTM – / okraje 501.2
+  + půlka chodníku + `LINE_MIN_GAP_MM`, v metrech podle měřítka), ne pevných 12 m. Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic
   jako zóna pro dedup (zatím neudělané, čeká na rozhodnutí Petra).
+- **Koridor pěší zóny ze dvou souběžných linií** (`merge_parallel_pedestrian_to_areas`) vzniká jen ze zpevněných čar (OSM `surface`), ne z mostů / tunelů,
+  ne přes budovy a ne z rozbíhajících se čar (průměrná šířka ≤ 12 m).
+- **Zpevněné plochy v lese a MTBO jsou síť** (`build_paved_network` při sestavení mapy): OSM parkoviště, pěší zóny, area:highway, nástupiště
+  a hřiště se sloučí (mezera do 3,5 m), ne přes pás silnice a ne přes plochy na mostě / v tunelu (`structure` z přípravy OSM). Silnice přes
+  plochu se uvnitř nekreslí (`clip_road_in_paved`, jen průchod ≥ 6 m a dál než 2 m od hrany), menší cesty se na ploše přeruší. V lese se okraj
+  501.2 vynechá tam, kde by splýval se silnicí (`paved_edge_omit_zone`); parkoviště je v lese 501.1 + 501.2. Úzké parkoviště (pruh do 4,5 m), které z ≥ 60 % leží
+  pod kresbou silnice + 1 m nebo k ní přiléhá dlouhou stranou (podélné stání), se s úsekem ulice slije do jedné plochy 501.1 v šířce kresby silnice s okrajem 501.2 (`merge_parking_into_road`);
+  silnice se tam nekreslí. Široká parkoviště zůstávají samostatně. Navazující kusy čar se stejným symbolem se spojí (`join_line_pieces`).
+  Krátká účelová komunikace (service do 60 m) ze silnice 502 na zpevněnou plochu / budovu se kreslí 502, pokud se kresba vejde mezi budovy (`service_link_indexes`); krátká service šířku z DTM nebere. Pěší plochy
+  z OSM se kreslí jen tam, kde jsou široké aspoň jako kresba silnice 502 (`open_narrow_walk_areas`); užší výběžky kreslí čára cesty (DTM plochy ne – nemají čáru). Koridor ze dvou souběžných čar
+  má v přípravě uloženou osu (`corridor_axes.geojson`), les a MTBO ji kreslí tam, kde úzký koridor odpadne (sprint ne).
+- **Les: symbol cesty podle skutečné šířky z DTM** (`app/pipeline/dtm_widths.py`, `uses_dtm_widths`): kolmé řezy ploch `roads.json` /
+  `sidewalks.json` podél OSM čáry (medián). Silnice ≥ 9 m → 502.1, ≥ 5 m → 502 (užší podle tagů), zpevněná pěšina ≥ 2,5 m → 505; pěší plochy
+  z DTM širší než 0,5 mm mapy se kreslí jako zpevněná plocha a napojí do sítě. MTBO jen se zapnutým `MTBO_USE_DTM`, sprint beze změny.
+- **Tunely v lese a MTBO:** OSM cesta v tunelu / s `layer < 0` delší než 40 m (`TUNNEL_MAX_DRAW_M`) se nekreslí, krátký podchod ano.
+  Železnice a tramvaj ze ZABAGED se nekreslí v okolí 4 m od OSM kolejí v tunelu (`rail_tunnels.geojson` z přípravy OSM, `ZABAGED_RAIL_LAYERS`).
+- **Malé zalomené schody v lese a MTBO** (OSM, `small_complex_steps`): navazující čáry schodů tvaru „L“ / „C“ s rozsahem do 15 m (kratší strana
+  otočeného obdélníku ≥ 2 m) se nekreslí. Složitá schodiště z DTM les nekreslí už dřív (`is_complex_stairs`, sprint je kreslí plochou).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
@@ -277,6 +296,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
+- **Odsun objektů od cest v lese a MTBO** (`app/pipeline/path_clearance.py`) je pozdní krok `prepare_oom_map` nad hotovými objekty:
+  osy cest bere z mapy (OSM i ZABAGED, 502–508, 532, MTBO 8xx), šířky ze sady symbolů. Budovy a body se posunou celé, oliva
+  se ořízne o pás cesty (0,05 mm), zdi/ploty po bodech (0,2 mm) jen bez přiblížení k jiné cestě; max. 0,9 mm na mapě. Ploty se
+  v lese a MTBO spojují, otáčejí čárkami k olivě a uzavřené se plní olivou jako ve sprintu. Lokální otočky dřív běžely s
+  `path_source="osm"` – výchozí v produkci je `mixed` (část cest ze ZABAGED), ověřuj i v něm.
 
 ## Konfigurace a tajemství
 

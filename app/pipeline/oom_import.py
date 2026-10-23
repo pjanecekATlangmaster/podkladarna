@@ -889,6 +889,10 @@ def _hole_rings_as_area_objects(
 OSM_COVER_MIN = 0.7
 
 
+# Liniové vrstvy kolejí ZABAGED (ořez o tratě v tunelu z OSM).
+ZABAGED_RAIL_LAYERS = frozenset({"ZeleznicniTrat", "ZeleznicniVlecka", "TramvajovaDraha"})
+
+
 def build_zabaged_object_parts(
     zabaged_clean: Path,
     *,
@@ -911,8 +915,12 @@ def build_zabaged_object_parts(
     suppress_waterway_in_water: bool = False,
     osm_priority_areas: dict | None = None,
     dtm_cover=None,
+    rail_tunnel_zone=None,
 ) -> list[OomObjectPart]:
-    """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou."""
+    """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
+
+    ``rail_tunnel_zone``: okolí tratí v tunelu z OSM (shapely); železnice a tramvaj ZABAGED se v něm nekreslí.
+    """
     use_ogr = True
     try:
         from osgeo import ogr
@@ -1218,6 +1226,12 @@ def build_zabaged_object_parts(
                         for pts in line_parts:
                             wider_paths.add_line(pts)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif rail_tunnel_zone is not None and layer_name in ZABAGED_RAIL_LAYERS:
+                    # Les / MTBO: trať v tunelu (OSM tunnel / layer < 0) se nekreslí, jen vjezd.
+                    from app.pipeline.dtm_sidewalks import clip_outside
+
+                    kept = [p for pts in line_parts for p in clip_outside(pts, rail_tunnel_zone, MIN_LENGTH_M)]
+                    objects.extend(_emit_line_objects(kept, symbol_index))
                 else:
                     if layer_name == "Cesta":
                         for pts in line_parts:
@@ -1316,6 +1330,12 @@ def build_zabaged_object_parts(
                         for pts in line_parts:
                             wider_paths.add_line(pts)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif rail_tunnel_zone is not None and layer_name in ZABAGED_RAIL_LAYERS:
+                    # Les / MTBO: trať v tunelu (OSM tunnel / layer < 0) se nekreslí, jen vjezd.
+                    from app.pipeline.dtm_sidewalks import clip_outside
+
+                    kept = [p for pts in line_parts for p in clip_outside(pts, rail_tunnel_zone, MIN_LENGTH_M)]
+                    objects.extend(_emit_line_objects(kept, symbol_index))
                 else:
                     if layer_name == "Cesta":
                         for pts in line_parts:

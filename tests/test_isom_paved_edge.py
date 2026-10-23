@@ -79,11 +79,12 @@ def test_forest_edge_closed_when_polygon_fully_inside_clip(tmp_path) -> None:
     assert sum(p.objects_xml.count(" 18;") for p in parts) >= 4  # výplň 2× + okraje 2×
 
 
-def test_forest_parking_501_0_has_no_extra_edge(tmp_path) -> None:
-    """501.0 má okraj v sobě – žádná duplicitní čára 501.2."""
+def test_forest_parking_fill_and_separate_edge(tmp_path) -> None:
+    """Parkoviště v lese jako ostatní zpevněné: výplň 501.1 + okraj 501.2 (501.0 = totéž v jednom symbolu)."""
     _parts, cnt = _build(tmp_path, "forest_10000", 10000, kind="parking")
-    assert cnt["501.0"] == 1
-    assert cnt["501.2"] == 0 and cnt["501.1"] == 0
+    assert cnt["501.1"] == 1
+    assert cnt["501.2"] == 2
+    assert cnt["501.0"] == 0
 
 
 def test_sprint_has_no_edge_line(tmp_path) -> None:
