@@ -583,3 +583,22 @@ def test_service_link_drawn_as_road(tmp_path, squeezed):
     else:
         assert lengths.get("504.0", 0) == 0
         assert lengths["502.2"] > 120 + 20
+
+
+def test_street_side_parking_beside_road_drawing_merged(tmp_path):
+    # way/1452628250: stání 4,1–8,2 m od osy leží hlavně vedle kresby silnice, přiléhá k ní dlouhou stranou → slije se.
+    from shapely.geometry import shape
+
+    feats = [_area(0, 4.1, 30, 8.2, "parking")]
+    _write_job(tmp_path, feats, [_road([(-20, 0), (50, 0)], "road_3")])
+    out = op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "forest_10000", 10000)
+    assert shape(out[0]["geometry"]).bounds[1] < 0
+
+
+def test_short_service_ignores_dtm_width(tmp_path):
+    # way/1032671443: řez DTM zachytí těleso sousední ulice (≥ 9 m) – krátká service nedostane 502.1.
+    _write_job(tmp_path, [], [_line([(0, 0), (25, 0)], "road_1")])
+    _write_dtm(tmp_path, "roads.json", [(-5, -6, 30, 6)])
+    _write_dtm(tmp_path, "sidewalks.json", [(500, 500, 510, 510)])
+    lengths = _path_lengths(tmp_path)
+    assert "502.1" not in lengths

@@ -4472,13 +4472,20 @@ def open_narrow_walk_areas(feats: list[dict], preset_id: str, scale: int) -> lis
     return out
 
 
+def _runs_along(strip, band) -> bool:
+    """Pruh stání leží podél pásu silnice: dotýká se ho aspoň polovinou své délky (≈ obvod / 2)."""
+    edge = strip.exterior if strip.geom_type == "Polygon" else strip.boundary
+    return edge.intersection(band).length >= 0.25 * strip.length
+
+
 def merge_parking_into_road(
     work_dir: Path, feats: list[dict], path_features: list[dict], preset_id: str, scale: int
 ) -> list[dict]:
     """Podélné stání + ulice jako jedna zpevněná plocha (les a MTBO).
 
     Úzké parkoviště (pruh do ``PARKING_STRIP_MAX_WIDTH_M`` m), které aspoň z ``PARKING_IN_ROAD_SHARE`` leží v kresbě
-    silnice (les: šířka symbolu podle DTM) rozšířené o ``PARKING_ROAD_SLACK_M`` m, se sloučí s úsekem silnice podél
+    silnice (les: šířka symbolu podle DTM) rozšířené o ``PARKING_ROAD_SLACK_M`` m, nebo k ní přiléhá dlouhou stranou
+    (way/1452628250 leží vedle kresby), se sloučí s úsekem silnice podél
     něj v šířce její kresby. Silnice se pak přes plochu nekreslí (``clip_road_in_paved``) a plocha s okrajem 501.2
     vypadá v mapě stejně jako čára 502 (Hilmarova way/28405724 + way/1452628243 / way/1452628250).
     """
@@ -4523,7 +4530,10 @@ def merge_parking_into_road(
                 and g.length > 0
                 and 2.0 * g.area / g.length <= PARKING_STRIP_MAX_WIDTH_M
                 and band_p.intersects(g)
-                and g.intersection(band).area >= PARKING_IN_ROAD_SHARE * g.area
+                and (
+                    g.intersection(band).area >= PARKING_IN_ROAD_SHARE * g.area
+                    or _runs_along(g, band)
+                )
             ):
                 pieces = [g]
                 for line, half in roads:
@@ -5207,7 +5217,14 @@ def build_osm_path_parts(
         # Symbol u schodů se volí až podle délky dílku (les/MTBO krátké → pěšina).
         steps_piece = is_surface_steps(hw)
         code = osm_oom_code(hw, preset_id) if not steps_piece else None
-        if code is not None and (road_widths or walk_widths) and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
+        if (
+            code is not None
+            and (road_widths or walk_widths)
+            and not is_bridge_highway(hw)
+            and not is_tunnel_highway(hw)
+            and not (path_draw_highway(hw) in {"road_1", "road_2"} and polyline_length(coords) <= SERVICE_LINK_MAX_M)
+        ):
+            # Krátká účelová komunikace šířku z DTM nebere: řez zachytí těleso sousední ulice (way/1032671443).
             _index = road_widths if path_draw_highway(hw).startswith("road_") else walk_widths
             if _index is not None:
                 code = width_line_code(hw, _index.line_width(coords), code)
