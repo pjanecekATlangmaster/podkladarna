@@ -581,8 +581,61 @@ def test_service_link_drawn_as_road(tmp_path, squeezed):
     if squeezed:
         assert lengths.get("504.0", 0) > 20
     else:
+        # Vjezd na parkoviště kreslí pruh zpevněné plochy (``extend_parking_by_links``), čára ne.
         assert lengths.get("504.0", 0) == 0
-        assert lengths["502.2"] > 120 + 20
+        assert lengths["502.2"] == pytest.approx(120, abs=1.0)
+        half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+        net = op.paved_network_geometry(tmp_path, "forest_10000", 10000)
+        assert net.bounds[1] == pytest.approx(half, abs=0.05)  # plocha od okraje kresby silnice
+        assert net.contains(op_point(0, half + 10))
+
+
+def op_point(x, y):
+    from shapely.geometry import Point
+
+    return Point(x, y)
+
+
+def test_service_link_to_parking_edge_open_at_road(tmp_path):
+    # Okraj 501.2 pruhu vjezdu vede po obou stranách až ke kresbě silnice, přes ústí do silnice ne.
+    _write_job(
+        tmp_path,
+        [_area(-20, 30, 20, 60, "parking")],
+        [_road([(-60, 0), (60, 0)], "road_3"), _line([(0, 0), (0, 30)], "road_1")],
+    )
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+    # parkoviště 40 + 2·30 − šířka ústí do pruhu + 2 · délka pruhu (30 − half), bez ústí do silnice
+    expected = 40 + 2 * 30 + (40 - 2 * half) + 2 * (30 - half)
+    assert _edge_length(parts) < expected
+    assert _edge_length(parts) > expected - 2 * half - 2.0
+
+
+def test_service_link_to_garage_stays_line(tmp_path):
+    _write_job(
+        tmp_path,
+        [_area(-10, 30, 10, 45, "building")],
+        [_road([(-60, 0), (60, 0)], "road_3"), _line([(0, 0), (0, 30)], "road_1")],
+    )
+    lengths = _path_lengths(tmp_path)
+    assert lengths["502.2"] > 120 + 20
+
+
+@pytest.mark.parametrize("hw", ["footway", "track", "road_1"])
+def test_black_path_ends_at_road_drawing(tmp_path, hw):
+    # Černá cesta přes silnici 502 se kreslí jen k okraji kresby silnice (z obou stran), ne přes ni.
+    _write_job(tmp_path, [], [_road([(-60, 0), (60, 0)], "road_3"), _line([(0, -40), (0, 40)], hw)])
+    lengths = _path_lengths(tmp_path)
+    half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+    black = sum(v for k, v in lengths.items() if not k.startswith("502"))
+    assert black == pytest.approx(80 - 2 * half, abs=0.5)
+
+
+def test_black_path_crosses_narrow_road(tmp_path):
+    # Silnice 503 (černá čára) cestu nepřerušuje.
+    _write_job(tmp_path, [], [_road([(-60, 0), (60, 0)], "road_2"), _line([(0, -40), (0, 40)], "track")])
+    assert _path_lengths(tmp_path)["504.0"] == pytest.approx(80, abs=0.5)
 
 
 def test_street_side_parking_beside_road_drawing_merged(tmp_path):
