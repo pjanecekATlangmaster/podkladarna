@@ -1122,6 +1122,44 @@ def mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str = "mixed
     return dtm_sidewalks.wide_parts(sidewalks, width, min_area_m2=width * MTBO_SIDEWALK_MIN_LEN_M)
 
 
+def mtbo_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed"):
+    """MTBO: velká parkoviště z DTM (od ``MTBO_PARKING_MIN_M2``) mimo koridor silnice (shapely) nebo None."""
+    from shapely.ops import unary_union
+
+    if not MTBO_USE_DTM or not parking_path(work_dir).is_file():
+        return None
+    geom = parking_geometry(work_dir)
+    if geom is None:
+        return None
+    corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
+    if corridor is not None and not corridor.is_empty:
+        geom = geom.difference(corridor)  # část v koridoru kreslí koridor
+    polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]
+    big = [g for g in polys if g.area >= MTBO_PARKING_MIN_M2]
+    return unary_union(big) if big else None
+
+
+def mtbo_dtm_area_geometry(work_dir: Path, scale: int, path_source: str = "mixed"):
+    """MTBO: plochy kreslené z DTM (koridor silnice, široké chodníky, velká parkoviště; shapely) nebo None.
+
+    Síť zpevněných ploch z OSM se o ně ořízne, aby se tatáž plocha nekreslila dvakrát.
+    """
+    from shapely.ops import unary_union
+
+    if not MTBO_USE_DTM:
+        return None
+    geoms = [
+        g
+        for g in (
+            mtbo_corridor_geometry(work_dir, scale, path_source),
+            mtbo_sidewalk_geometry(work_dir, scale, path_source),
+            mtbo_parking_geometry(work_dir, scale, path_source),
+        )
+        if g is not None and not g.is_empty
+    ]
+    return unary_union(geoms) if geoms else None
+
+
 def corridor_parking_geometry(work_dir: Path):
     """Parkoviště pro koridor: parkoviště z DTM + OSM parkoviště, které z DTM nemá protějšek (shapely) nebo None."""
     from shapely.geometry import shape
@@ -1409,20 +1447,8 @@ def build_dtm_parking_parts(
     if mtbo_dtm_off(preset_id):
         return []
     if preset_id.startswith("mtbo") and parking_path(work_dir).is_file():
-        geom = parking_geometry(work_dir)
-        if geom is None:
-            return []
-        corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
-        if corridor is not None and not corridor.is_empty:
-            geom = geom.difference(corridor)  # část v koridoru kreslí koridor
-            if geom.is_empty:
-                return []
-        from shapely.ops import unary_union
-
-        polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]
-        big = [g for g in polys if g.area >= MTBO_PARKING_MIN_M2]
         return _geometry_part(
-            unary_union(big) if big else None,
+            mtbo_parking_geometry(work_dir, scale, path_source),
             name="DTM – velká parkoviště (529)",
             code="529",
             preset_id=preset_id,

@@ -639,3 +639,22 @@ def test_network_polygons_valid_after_map_rounding():
             holes = [[(round(x * 100), round(y * 100)) for x, y in h.coords] for h in g.interiors]
             rounded = Polygon(ext, holes)
             assert rounded.is_valid and rounded.exterior.is_simple
+
+
+def test_mtbo_osm_paved_network_does_not_overlap_dtm_areas(tmp_path):
+    # MTBO s DTM: koridor silnice (silnice 12 m z DTM) a široký chodník z DTM kreslí DTM; OSM pěší plocha přes ně
+    # a síť zpevněných ploch je nesmí kreslit podruhé (dřív v1 MTBO DTM: tatáž plocha dvakrát).
+    road = _road([(0, 0), (200, 0)], "road_3")
+    _write_job(tmp_path, [_area(20, -10, 80, 40), _area(120, 60, 180, 90)], [road])
+    _write_dtm(tmp_path, "roads.json", [(-5, -6, 205, 6)])
+    _write_dtm(tmp_path, "sidewalks.json", [(0, 30, 200, 36)])  # 6 m široká pěší cesta 30 m od silnice
+    from app.pipeline import dtm_import as di
+
+    op._PAVED_NETWORK_CACHE.clear()
+    zone = di.mtbo_dtm_area_geometry(tmp_path, 10000)
+    assert zone is not None and zone.area > 200 * 12
+    assert op.with_dtm_walk_areas(tmp_path, [], "mtbo_10000", 10000) == []  # široké chodníky kreslí MTBO zvlášť
+    net = op.paved_network_geometry(tmp_path, "mtbo_10000", 10000)
+    assert net is not None
+    assert net.intersection(zone).area < 1.0
+    assert net.area > 0.9 * 60 * 30  # samostatná plocha mimo DTM zůstává
