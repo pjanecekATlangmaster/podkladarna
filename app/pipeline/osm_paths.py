@@ -4448,11 +4448,21 @@ def road_zone_geometry(features: list[dict], parking=None):
     return unary_union(parts) if parts else None
 
 
-def sidewalk_road_zone_geometry(features: list[dict], paved, *, preset_id: str, scale: int, sidewalk_highway: str = "sidewalk"):
+def sidewalk_road_zone_geometry(
+    features: list[dict],
+    paved,
+    *,
+    preset_id: str,
+    scale: int,
+    sidewalk_highway: str = "sidewalk",
+    road_widths=None,
+):
     """Les / MTBO: pás, ve kterém by chodník splynul se silnicí nebo okrajem zpevněné plochy (shapely nebo None).
 
     Šířka podle skutečných symbolů: půlka kresby silnice (okraje plochy) + půlka kresby chodníku
     + ``LINE_MIN_GAP_MM``; v metrech podle měřítka. Nahrazuje pevných ``SIDEWALK_ROAD_NEAR_M`` m.
+    ``road_widths`` (les, ``dtm_widths.WidthIndex``): silnice má šířku symbolu zvoleného podle DTM
+    (silnice přepnutá na 502.1 dostane širší pás).
     """
     try:
         from shapely.geometry import LineString
@@ -4468,9 +4478,25 @@ def sidewalk_road_zone_geometry(features: list[dict], paved, *, preset_id: str, 
         hw = str((feat.get("properties") or {}).get("highway") or "")
         if geom.get("type") != "LineString" or len(coords) < 2 or not path_draw_highway(hw).startswith("road_"):
             continue
-        if hw not in widths:
-            widths[hw] = drawn_symbol_width_m(hw, preset_id, scale) / 2.0
-        parts.append(LineString(coords).buffer(widths[hw] + reach))
+        key = hw
+        if road_widths is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
+            tag_code = osm_oom_code(hw, preset_id)
+            if tag_code:
+                from app.pipeline.dtm_widths import width_line_code
+
+                code = width_line_code(hw, road_widths.line_width(coords), tag_code)
+                if code != tag_code:
+                    key = "code:" + code
+                    if key not in widths:
+                        from app.pipeline.oom_symbol_map import symbol_line_width_mm
+
+                        mm = symbol_line_width_mm(preset_id, scale, code)
+                        widths[key] = (
+                            mm_to_ground_m(mm, scale) / 2.0 if mm else drawn_symbol_width_m(hw, preset_id, scale) / 2.0
+                        )
+        if key not in widths:
+            widths[key] = drawn_symbol_width_m(hw, preset_id, scale) / 2.0
+        parts.append(LineString(coords).buffer(widths[key] + reach))
     if paved is not None and not paved.is_empty:
         # Jen pás vně plochy: cesta přes plochu se řeže na hraně (``path_cut_zone``), ne tady o kus dřív.
         parts.append(paved.buffer(paved_edge_width_m(preset_id, scale) / 2.0 + reach).difference(paved))
@@ -4480,14 +4506,23 @@ def sidewalk_road_zone_geometry(features: list[dict], paved, *, preset_id: str, 
 # Les a MTBO: kromě chodníku (``footway=sidewalk``) se u silnice zahazuje i pěšina bez tagu chodníku
 # (way/227971133 u Brichtovy je jen ``highway=footway``) – v měřítku se slije stejně.
 SIDEWALK_DEDUP_BASES = frozenset({"sidewalk", "footway", "path"})
+# Les: i cyklostezka souběžná se silnicí (way/69720778 u Ke Smíchovu); MTBO ji kvůli jezdcům nechává.
+SIDEWALK_DEDUP_BASES_LES = SIDEWALK_DEDUP_BASES | {"cycleway", "cycleway_paved"}
 
 
-def is_sidewalk_beside_road(highway: str, coords: list, road_zone) -> bool:
+def sidewalk_dedup_bases(preset_id: str) -> frozenset[str]:
+    """Třídy cest, které se u silnice zahazují (les širší než MTBO)."""
+    return SIDEWALK_DEDUP_BASES if preset_id.startswith("mtbo") else SIDEWALK_DEDUP_BASES_LES
+
+
+def is_sidewalk_beside_road(
+    highway: str, coords: list, road_zone, bases: frozenset[str] = SIDEWALK_DEDUP_BASES
+) -> bool:
     """Chodník (na povrchu) souběžný se silnicí: aspoň ``SIDEWALK_ROAD_SHARE`` délky v pásu kolem silnice."""
     if road_zone is None or len(coords) < 2:
         return False
     if (
-        path_draw_highway(highway) not in SIDEWALK_DEDUP_BASES
+        path_draw_highway(highway) not in bases
         or is_bridge_highway(highway)
         or is_tunnel_highway(highway)
     ):
@@ -4502,7 +4537,7 @@ def is_sidewalk_beside_road(highway: str, coords: list, road_zone) -> bool:
 SIDEWALK_BESIDE_MIN_RUN_M = 40.0
 
 
-def sidewalk_parallel_zone(highway: str, coords: list, road_zone):
+def sidewalk_parallel_zone(highway: str, coords: list, road_zone, bases: frozenset[str] = SIDEWALK_DEDUP_BASES):
     """Úseky chodníku souběžné se silnicí / parkovištěm (shapely) nebo None.
 
     Souvislé části čáry v ``road_zone`` delší než ``SIDEWALK_BESIDE_MIN_RUN_M`` m; sloučený chodník (stovky metrů) se tak
@@ -4511,7 +4546,7 @@ def sidewalk_parallel_zone(highway: str, coords: list, road_zone):
     if road_zone is None or len(coords) < 2:
         return None
     if (
-        path_draw_highway(highway) not in SIDEWALK_DEDUP_BASES
+        path_draw_highway(highway) not in bases
         or is_bridge_highway(highway)
         or is_tunnel_highway(highway)
     ):
@@ -4769,9 +4804,14 @@ def build_osm_path_parts(
         None
         if preset_id.startswith("sprint")
         else sidewalk_road_zone_geometry(
-            data.get("features") or [], osm_paved_beside_geometry(work_dir), preset_id=preset_id, scale=scale
+            data.get("features") or [],
+            osm_paved_beside_geometry(work_dir),
+            preset_id=preset_id,
+            scale=scale,
+            road_widths=road_widths,
         )
     )
+    dedup_bases = sidewalk_dedup_bases(preset_id)
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
@@ -4796,9 +4836,9 @@ def build_osm_path_parts(
             continue  # les / MTBO: dlouhý tunel se nekreslí (krátký podchod ano)
         beside_zone = None
         if road_zone is not None and not _line_in_zone(coords, bike_zone):
-            if is_sidewalk_beside_road(hw, coords, road_zone):
+            if is_sidewalk_beside_road(hw, coords, road_zone, dedup_bases):
                 continue
-            beside_zone = sidewalk_parallel_zone(hw, coords, road_zone)
+            beside_zone = sidewalk_parallel_zone(hw, coords, road_zone, dedup_bases)
         # Symbol u schodů se volí až podle délky dílku (les/MTBO krátké → pěšina).
         steps_piece = is_surface_steps(hw)
         code = osm_oom_code(hw, preset_id) if not steps_piece else None

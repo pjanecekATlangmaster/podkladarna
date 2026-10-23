@@ -273,6 +273,28 @@ def test_footway_beside_road_dropped_like_sidewalk():
     assert not op.is_sidewalk_beside_road("track", walk, zone)
 
 
+def test_cycleway_beside_road_dropped_in_forest_only():
+    # Ke Smíchovu (way/69720778): cyklostezka 5–7 m od osy silnice – v lese se slije, MTBO ji pro jezdce nechá.
+    zone = op.sidewalk_road_zone_geometry([_road([(0, 0), (100, 0)], "road_3")], None, preset_id="forest_10000", scale=10000)
+    bike = [(0, 5.0), (100, 6.5)]
+    assert op.is_sidewalk_beside_road("cycleway", bike, zone, op.sidewalk_dedup_bases("forest_10000"))
+    assert not op.is_sidewalk_beside_road("cycleway", bike, zone, op.sidewalk_dedup_bases("mtbo_10000"))
+
+
+def test_sidewalk_zone_uses_dtm_road_symbol():
+    from shapely.geometry import box
+
+    from app.pipeline.dtm_widths import WidthIndex
+
+    roads = [_road([(0, 0), (100, 0)], "road_2")]
+    plain = op.sidewalk_road_zone_geometry(roads, None, preset_id="forest_10000", scale=10000)
+    wide = op.sidewalk_road_zone_geometry(
+        roads, None, preset_id="forest_10000", scale=10000, road_widths=WidthIndex([box(0, -5, 100, 5)])
+    )
+    # Silnice široká 10 m v DTM se kreslí 502.1 → pás je širší než podle tagu.
+    assert wide.area > plain.area
+
+
 def test_path_crossing_parking_not_cut_before_edge():
     from shapely.geometry import box
 
