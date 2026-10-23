@@ -196,6 +196,8 @@ PEDESTRIAN_CORRIDOR_MAX_ROAD_M = 3.0
 PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M = 20.0
 # Koridor jen ze zpevněných linií (podíl délky na čarách se zpevněným ``surface``) a ne přes budovy.
 PEDESTRIAN_CORRIDOR_PAVED_SHARE = 0.8
+# Osy koridorů (``merge_parallel_pedestrian_to_areas``) pro les / MTBO, vedle ``paths_osm.geojson``.
+CORRIDOR_AXES_NAME = "corridor_axes.geojson"
 PEDESTRIAN_CORRIDOR_MAX_BUILDING_SHARE = 0.05
 # Sousední pěší zóny se sloučí, škvíra do tolika m se zacelí (navázání okrajů).
 PEDESTRIAN_AREA_MERGE_GAP_M = 1.5
@@ -550,11 +552,32 @@ def _pedestrian_corridor_polygon(coords_a: list, coords_b: list):
     return poly
 
 
+def _corridor_axis(coords_a: list, coords_b: list, step_m: float = 2.0) -> list[tuple[float, float]]:
+    """Osa mezi dvěma souběžnými čarami: středy mezi body delší čáry (po ``step_m`` m) a nejbližšími body kratší."""
+    from shapely.geometry import LineString, Point
+
+    a, b = LineString(coords_a), LineString(coords_b)
+    if b.length > a.length:
+        a, b = b, a
+    n = max(2, int(a.length / step_m) + 1)
+    out: list[tuple[float, float]] = []
+    for k in range(n):
+        p = a.interpolate(a.length * k / (n - 1))
+        q = b.interpolate(b.project(p))
+        if p.distance(q) > PEDESTRIAN_CORRIDOR_MAX_GAP_M:
+            continue  # konec delší čáry za kratší
+        out.append(((p.x + q.x) / 2.0, (p.y + q.y) / 2.0))
+    if len(out) < 2:
+        return []
+    return [(float(x), float(y)) for x, y in LineString(out).simplify(0.2).coords]
+
+
 def merge_parallel_pedestrian_to_areas(
     osm_items: list[tuple[list[tuple[float, float]], str]],
     *,
     paved_lines: list[list[tuple[float, float]]] | None = None,
     buildings: list | None = None,
+    axes_out: list | None = None,
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], list[list[list[tuple[float, float]]]]]:
     """Souběžné ``sidewalk``/``pedestrian`` linie → polygony pěší zóny; zbylé položky beze změny.
 
@@ -566,6 +589,8 @@ def merge_parallel_pedestrian_to_areas(
       ležet aspoň z ``PEDESTRIAN_CORRIDOR_PAVED_SHARE`` na nich (cesta je plochou jen při pevném povrchu).
     - ``buildings``: polygony budov; koridor, který z víc než ``PEDESTRIAN_CORRIDOR_MAX_BUILDING_SHARE``
       leží v budově, se zahodí (umělý mnohoúhelník kolem budovy).
+    - ``axes_out``: doplní se osa každého koridoru ``(body, highway)`` – les / MTBO ji kreslí tam, kde je koridor
+      užší než kresba silnice a plocha odpadne (``open_narrow_walk_areas``).
     """
     walk_idx = [
         i
@@ -635,6 +660,10 @@ def merge_parallel_pedestrian_to_areas(
             continue
         used.add(i)
         used.add(best_j)
+        if axes_out is not None:
+            axis = _corridor_axis(osm_items[i][0], osm_items[best_j][0])
+            if axis:
+                axes_out.append((axis, osm_items[i][1]))
         polys = [best_poly] if best_poly.geom_type == "Polygon" else list(best_poly.geoms)
         for poly in polys:
             if poly.geom_type != "Polygon" or poly.is_empty:
@@ -3416,8 +3445,9 @@ def prepare_osm_paths(
                 _buildings.append(_g if _g.is_valid else _g.buffer(0))
     except (ImportError, ValueError, TypeError):
         _buildings = []
+    corridor_axes: list = []
     osm_items, ped_corridors = merge_parallel_pedestrian_to_areas(
-        osm_items, paved_lines=paved_walk_lines, buildings=_buildings
+        osm_items, paved_lines=paved_walk_lines, buildings=_buildings, axes_out=corridor_axes
     )
     for rings in ped_corridors:
         features.append(
@@ -3554,6 +3584,7 @@ def prepare_osm_paths(
         encoding="utf-8",
     )
     write_geojson(kept_osm, "paths_osm.geojson")
+    write_geojson(corridor_axes, CORRIDOR_AXES_NAME)
     # Lávky i do režimu jen-ZABAGED (krátké OSM bridge často v ČÚZK chybí).
     write_geojson(
         [(pts, hw) for pts, hw in kept_osm if is_bridge_highway(hw)],
@@ -4362,7 +4393,7 @@ def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale
 # u Hilmarovy), se kreslí jako součást silnice – samostatná 501.1 by ležela přes čáru 502.x. Běžné parkoviště
 # (Lidl way/128405208, uvnitř s obslužnou komunikací) zůstává: je široké.
 PARKING_IN_ROAD_SHARE = 0.6
-PARKING_STRIP_MAX_WIDTH_M = 3.5  # šířka pruhu ≈ 2 · plocha / obvod
+PARKING_STRIP_MAX_WIDTH_M = 4.5  # šířka pruhu ≈ 2 · plocha / obvod (Hilmarova 4,0 m)
 PARKING_ROAD_SLACK_M = 1.0  # nepřesnost polohy OSM osy silnice a stání
 
 
@@ -4870,6 +4901,17 @@ def build_osm_path_parts(
         if not gj_path.is_file():
             return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
+    if not preset_id.startswith("sprint") and path_source != PATH_SOURCE_ZABAGED:
+        # Les / MTBO: osy koridorů pěších zón; kreslí se jen tam, kde koridor jako úzká plocha odpadl
+        # (jinde je ořízne síť zpevněných ploch).
+        axes_path = work_dir / "osm_paths" / CORRIDOR_AXES_NAME
+        if axes_path.is_file():
+            try:
+                data["features"] = list(data.get("features") or []) + list(
+                    json.loads(axes_path.read_text(encoding="utf-8")).get("features") or []
+                )
+            except (OSError, ValueError):
+                pass
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
     # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.
@@ -4932,8 +4974,13 @@ def build_osm_path_parts(
     # Les a MTBO: zpevněné plochy jako sloučená síť (``build_paved_network``): přes ni se silnice ani menší
     # cesty nekreslí, končí na její hraně.
     paved_network = None if preset_id.startswith("sprint") else paved_network_geometry(work_dir, preset_id, scale)
+    _cut_paved = paved_network
+    if _cut_paved is None and not preset_id.startswith("sprint"):
+        from shapely.geometry import Polygon as _EmptyPoly
+
+        _cut_paved = _EmptyPoly()  # síť je prázdná (např. jen úzké plochy) – ne syrové OSM plochy
     path_cut_zone = path_cut_zone_geometry(
-        work_dir, data.get("features") or [], extra=_cut_extra, paved=paved_network
+        work_dir, data.get("features") or [], extra=_cut_extra, paved=_cut_paved
     )
     road_clip = None if paved_network is None else road_clip_zone(work_dir, preset_id, scale)
     # Les: šířka cest z ploch DTM → symbol podle skutečné šířky (``dtm_widths``).

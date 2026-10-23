@@ -489,3 +489,29 @@ def test_narrow_walk_lobe_removed(tmp_path, preset):
     assert op.open_narrow_walk_areas([narrow], "sprint_4000", 4000) == [narrow]
     parking = {"type": "Feature", "properties": {"kind": "parking"}, "geometry": mapping(box(0, 0, 60, 5))}
     assert op.open_narrow_walk_areas([parking], preset, 10000) == [parking]
+
+
+def test_corridor_axis_between_lines():
+    axes: list = []
+    items = [_walk([(0, 0), (60, 0)], "pedestrian"), _walk([(0, 6), (60, 6)], "pedestrian")]
+    _kept, areas = op.merge_parallel_pedestrian_to_areas(items, axes_out=axes)
+    assert len(areas) == 1 and len(axes) == 1
+    pts, hw = axes[0]
+    assert hw == "pedestrian"
+    assert all(abs(y - 3.0) < 0.01 for _x, y in pts)
+
+
+@pytest.mark.parametrize("width, drawn", [(5, True), (20, False)])
+def test_corridor_axis_drawn_only_where_area_dropped(tmp_path, width, drawn):
+    # Trnkovo nám. (way/1033591397 + /96): úzký koridor odpadne → kreslí se osa; široký zůstane plochou.
+    import json
+
+    feats = [_area(0, 0, 60, width)]
+    _write_job(tmp_path, feats, [])
+    axis = _line([(0, width / 2), (60, width / 2)], "pedestrian")
+    (tmp_path / "osm_paths" / op.CORRIDOR_AXES_NAME).write_text(
+        json.dumps({"type": "FeatureCollection", "features": [axis]}), encoding="utf-8"
+    )
+    total = sum(_path_lengths(tmp_path).values())
+    assert (total > 50) == drawn
+    assert sum(_path_lengths(tmp_path, "sprint_4000", 4000).values()) == 0
