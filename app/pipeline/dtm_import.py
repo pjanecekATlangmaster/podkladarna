@@ -1960,10 +1960,25 @@ def join_and_orient_osm_fences(
             tagged = dtm_fences.orient_fences(tagged, areas)
     except Exception:  # spojení a orientace jsou doplněk, ploty se kreslí i bez nich
         return feats
+    fill_rings: list[list[tuple[float, float]]] = []
+    try:
+        # Uzavřené ploty se vyplní olivou (jako ve sprintu); budovy z OSM pro parcely dovřené cestou.
+        buildings = []
+        for feat in feats:
+            geom = feat.get("geometry") or {}
+            if (feat.get("properties") or {}).get("kind") == "building" and geom.get("type") == "Polygon":
+                buildings.append([[(float(x), float(y)) for x, y, *_ in ring] for ring in geom.get("coordinates") or []])
+        olive_rings = [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in polys]
+        fill_rings = dtm_fences.private_enclosure_rings(tagged, {"olive": olive_rings, "building": buildings})
+    except Exception:  # výplň je doplněk
+        fill_rings = []
     try:
         paths = path_clearances(work_dir, path_source, preset_id=preset_id, scale=scale) if preset_id and scale else []
         if paths:
-            tagged = dtm_fences.avoid_paths(tagged, paths, max_shift=nonsprint_avoid_shift_m(scale), keep_crossings=True)
+            moved = dtm_fences.avoid_paths(
+                tagged + [("520", r) for r in fill_rings], paths, max_shift=nonsprint_avoid_shift_m(scale), keep_crossings=True
+            )
+            tagged, fill_rings = moved[: len(tagged)], [r for _c, r in moved[len(tagged) :]]
     except Exception:  # odsun je kosmetika
         pass
     drop = {id(f) for f in fences}
@@ -1971,7 +1986,12 @@ def join_and_orient_osm_fences(
         {"type": "Feature", "properties": {"kind": "fence"}, "geometry": {"type": "LineString", "coordinates": [list(p) for p in ln]}}
         for _code, ln in tagged
     ]
-    return [f for f in feats if id(f) not in drop] + joined
+    fills = [
+        {"type": "Feature", "properties": {"kind": "garden", "fence_fill": True}, "geometry": {"type": "Polygon", "coordinates": [[list(p) for p in r]]}}
+        for r in fill_rings
+        if len(r) >= 4
+    ]
+    return [f for f in feats if id(f) not in drop] + fills + joined
 
 
 def cut_fences_by_buildings(
@@ -2013,7 +2033,7 @@ def build_dtm_fence_parts(
     se slijí do jedné čáry a ta se otočí tak, aby čárky plotu mířily k olivě (soukromý pozemek) –
     ve všech presetech. Sprint navíc odsune ploty od kreslených cest. Les a MTBO kreslí jen ploty
     (516 / 522, živý plot 416) delší než ``NONSPRINT_FENCE_MIN_LEN_M`` (po spojení); oplocení se
-    olivou vyplňuje ve sprintu a v lese (MTBO ne).
+    olivou vyplňuje ve všech presetech.
     """
     from app.pipeline.oom_import import _area_object_with_holes
     from app.pipeline.osm_paths import _path_object, feature_oom_code
@@ -2021,7 +2041,7 @@ def build_dtm_fence_parts(
     if mtbo_dtm_off(preset_id) or not dtm_owns_fences(work_dir):
         return []
     sprint = preset_id.startswith("sprint")
-    fill_olive = not preset_id.startswith("mtbo")  # výplň oplocení olivou (520): sprint a les, ne MTBO
+    fill_olive = True  # výplň oplocení olivou (520): sprint, les i MTBO
     dtm_lines, fill_rings = _load_fence_data(work_dir)
     osm_lines = _osm_fence_lines(work_dir)
     areas = _load_opl_areas(work_dir)

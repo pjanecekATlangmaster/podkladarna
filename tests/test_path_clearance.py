@@ -90,3 +90,26 @@ def test_sprint_and_map_without_paths_are_unchanged(tmp_path):
     assert displace_objects_from_paths(parts, tmp_path, **KW) == parts  # bez cest
     work = _work(tmp_path)
     assert displace_objects_from_paths(parts, work, **{**KW, "preset_id": "sprint_4000", "scale": 4000}) == parts
+
+
+def test_paths_are_taken_from_drawn_map_objects_without_geojson(tmp_path):
+    from app.pipeline.oom_import import _path_object
+
+    # cesta jen jako objekt mapy (např. ZABAGED), žádný geojson s cestami
+    road = _path_object(symbol_index_for_code(PRESET, SCALE, "502"), _to_map([(-100, 0), (100, 0)]))
+    building = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "521"), [_to_map(_rect(-30, 2, -10, 20))])
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([road, building]), count=2)]
+    r, b = _objects(displace_objects_from_paths(parts, tmp_path, **KW))
+    assert r == road.strip()
+    road_half = symbol_width_mm(PRESET, SCALE, "502") / 2 * 10
+    assert _min_dist_m(b) > road_half + 1.9
+
+
+def test_closed_osm_fence_is_filled_with_olive_in_mtbo(tmp_path):
+    from app.pipeline import dtm_import as di
+
+    ring = [[0, 0], [30, 0], [30, 25], [0, 25], [0, 0]]
+    fence = {"type": "Feature", "properties": {"kind": "fence"}, "geometry": {"type": "LineString", "coordinates": ring}}
+    out = di.join_and_orient_osm_fences(tmp_path, [fence], preset_id="mtbo_10000", scale=10000)
+    kinds = sorted(f["properties"]["kind"] for f in out)
+    assert kinds == ["fence", "garden"]

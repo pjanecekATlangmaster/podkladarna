@@ -4,7 +4,8 @@ Symboly cest jsou v lese a MTBO na mapě širší než cesta v terénu, takže s
 budovy, oliva, zdi, ploty i bodové objekty kolem. Po sestavení všech objektů (ploty už spojené,
 deduplikované a orientované) se proto objekty odsunou od os cest tak, aby mezi okrajem symbolu
 cesty a objektem zbyla mezera: od olivy minimální, od objektů s černou kresbou o něco větší.
-Pracuje se v souřadnicích mapy (1 jednotka = 1 µm), šířky symbolů se berou ze sady.
+Pracuje se v souřadnicích mapy (1 jednotka = 1 µm), šířky symbolů se berou ze sady. Osy cest se
+berou z hotové mapy (všechny kreslené cesty bez ohledu na zdroj – OSM i ZABAGED).
 
 - Oliva se ořízne o pás podél cesty (kousky pod minimální šířku se zahodí).
 - Ostatní plochy (budovy …) a body se posunou celé, tvar se nemění.
@@ -28,6 +29,8 @@ from app.pipeline.oom_import import MAP_COORD_CLOSE_POINT, MAP_COORD_CURVE_START
 # Odsouvané symboly (hlavní číslo kódu v sadě; ISOM 2017 i ISMTBOM 2022 číslují umělé objekty stejně).
 MOVED_MAJORS = frozenset({513, 514, 515, 516, 517, 518, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530, 531})
 OLIVE_MAJOR = 520
+# Symboly cest, od kterých se odsouvá (silnice, cesty, pěšiny, schody; MTBO navíc 8xx).
+PATH_MAJORS = frozenset({502, 503, 504, 505, 506, 507, 508, 532})
 # Mezera mezi okrajem symbolu cesty a objektem (mm na mapě): oliva / ostatní (černá kresba).
 OLIVE_GAP_MM = 0.05
 BLACK_GAP_MM = 0.2
@@ -263,6 +266,27 @@ def _move_line(pts, paths: _Paths, extra, max_shift, step):
     return out
 
 
+def _drawn_path_objects(parts, info, widths) -> list[tuple[list[tuple[float, float]], float]]:
+    """Čárové objekty cest v mapě: ``[(osa v souřadnicích mapy, půlka šířky symbolu v µm)]``."""
+    out = []
+    for part in parts:
+        for m in _OBJECT_RE.finditer(part.objects_xml):
+            if m.group(2) != "1":
+                continue
+            sym = int(m.group(3))
+            major, kind = info.get(sym, (0, "other"))
+            if kind != "line" or not (major in PATH_MAJORS or 800 <= major < 900):
+                continue
+            width = widths.get(sym, 0.0)
+            cm = _COORDS_RE.search(m.group(4))
+            if width <= 0 or not cm:
+                continue
+            pts = _flatten(_parse_coords(cm.group(1)))
+            if len(pts) >= 2:
+                out.append((pts, width * 1000.0 / 2.0))
+    return out
+
+
 def displace_objects_from_paths(
     parts: list[OomObjectPart],
     work_dir: Path,
@@ -289,8 +313,6 @@ def displace_objects_from_paths(
         widths = _symbol_widths(set_path)
     except Exception:  # odsun je kosmetika, mapa se kreslí i bez něj
         return parts
-    if not axes:
-        return parts
 
     def to_map(coords):
         return [
@@ -298,7 +320,14 @@ def displace_objects_from_paths(
             for x, y in coords
         ]
 
-    paths = _Paths([(to_map(c), width_mm * 1000.0 / 2.0) for c, width_mm in axes])
+    # Osy cest z hotové mapy (OSM i ZABAGED, silnice, cesty, pěšiny, schody, MTBO 8xx); bez nich z OSM geojsonu.
+    map_axes = _drawn_path_objects(parts, info, widths)
+    if map_axes:
+        paths = _Paths(map_axes)
+    elif axes:
+        paths = _Paths([(to_map(c), width_mm * 1000.0 / 2.0) for c, width_mm in axes])
+    else:
+        return parts
     max_shift = (NONSPRINT_AVOID_MAX_SHIFT_MM if max_shift_mm is None else max_shift_mm) * 1000.0
     step = DENSIFY_MM * 1000.0
     min_half = MIN_AREA_WIDTH_MM * 1000.0 / 2.0
