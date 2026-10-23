@@ -568,3 +568,18 @@ def test_street_side_parking_edge_continues_to_road(tmp_path):
     op._PAVED_NETWORK_CACHE.clear()
     parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
     assert 90 < _edge_length(parts) < 105
+
+
+@pytest.mark.parametrize("squeezed", [False, True])
+def test_service_link_drawn_as_road(tmp_path, squeezed):
+    # Účelová komunikace ze silnice na parkoviště (way/1032671443): kreslí se 502, pokud se kresba vejde mezi budovy.
+    feats = [_area(-20, 30, 20, 60, "parking")]
+    if squeezed:
+        feats += [_area(-12, 8, -2, 25, "building"), _area(2, 8, 12, 25, "building")]
+    _write_job(tmp_path, feats, [_road([(-60, 0), (60, 0)], "road_3"), _line([(0, 0), (0, 30)], "road_1")])
+    lengths = _path_lengths(tmp_path)
+    if squeezed:
+        assert lengths.get("504.0", 0) > 20
+    else:
+        assert lengths.get("504.0", 0) == 0
+        assert lengths["502.2"] > 120 + 20

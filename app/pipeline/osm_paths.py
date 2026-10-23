@@ -4941,6 +4941,61 @@ def small_complex_steps(features: list[dict]) -> set[int]:
     return out
 
 
+# Les a MTBO: krátká účelová komunikace (service), která napojuje silnici kreslenou 502 na zpevněnou plochu
+# nebo budovu (garáže), se kreslí jako silnice 502 – plynule navazuje (way/1032671443, way/1126936158).
+# Jen když se kresba vejde: mezi budovami musí být místo na šířku symbolu 502.
+SERVICE_LINK_MAX_M = 60.0
+SERVICE_LINK_SNAP_M = 1.5
+SERVICE_LINK_END_FREE_M = 3.0  # konce (vjezd do garáže pod budovou) se na místo nekontrolují
+
+
+def service_link_indexes(features: list[dict], paved, buildings, *, preset_id: str, scale: int) -> set[int]:
+    """Indexy čar ``road_1`` / ``road_2`` (service), které kreslit jako 502 (viz ``SERVICE_LINK_MAX_M``)."""
+    try:
+        from shapely.geometry import LineString, Point
+        from shapely.ops import substring, unary_union
+    except ImportError:
+        return set()
+    major = []
+    cand = []
+    for i, feat in enumerate(features):
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if geom.get("type") != "LineString" or len(coords) < 2 or is_bridge_highway(hw) or is_tunnel_highway(hw):
+            continue
+        base = path_draw_highway(hw)
+        if base in {"road_3", "road_4"}:
+            major.append(LineString(coords))
+        elif base in {"road_1", "road_2"}:
+            cand.append((i, LineString(coords)))
+    if not major or not cand:
+        return set()
+    majors = unary_union(major)
+    targets = [g for g in (paved, buildings) if g is not None and not g.is_empty]
+    if not targets:
+        return set()
+    target = unary_union(targets)
+    half = drawn_symbol_width_m("road_3", preset_id, scale) / 2.0
+    out: set[int] = set()
+    for i, line in cand:
+        if line.length > SERVICE_LINK_MAX_M:
+            continue
+        a, b = Point(line.coords[0]), Point(line.coords[-1])
+        da, db = a.distance(majors), b.distance(majors)
+        far = b if da <= db else a
+        if min(da, db) > SERVICE_LINK_SNAP_M or far.distance(target) > SERVICE_LINK_SNAP_M:
+            continue
+        if far.distance(majors) <= SERVICE_LINK_SNAP_M:
+            continue  # spojka dvou silnic, ne vjezd
+        if buildings is not None and not buildings.is_empty and line.length > 2 * SERVICE_LINK_END_FREE_M:
+            mid = substring(line, SERVICE_LINK_END_FREE_M, line.length - SERVICE_LINK_END_FREE_M)
+            if mid.buffer(half, cap_style=2).intersection(buildings).area > 1.0:
+                continue  # kresba 502 by vedla přes budovu
+        out.add(i)
+    return out
+
+
 def join_line_pieces(pieces: list[list[tuple[float, float]]]) -> list[list[tuple[float, float]]]:
     """Spojí čáry, které na sebe navazují konci (v uzlu stupně 2, souřadnice na mm); jinak beze změny."""
     try:
@@ -5107,6 +5162,17 @@ def build_osm_path_parts(
     )
     dedup_bases = sidewalk_dedup_bases(preset_id)
     skip_steps = set() if preset_id.startswith("sprint") else small_complex_steps(data.get("features") or [])
+    service_links = (
+        set()
+        if preset_id.startswith("sprint")
+        else service_link_indexes(
+            data.get("features") or [],
+            paved_network,
+            osm_paved_beside_geometry(work_dir, kinds=_OSM_BUILDING_KINDS),
+            preset_id=preset_id,
+            scale=scale,
+        )
+    )
     # Les / MTBO: navazující kusy se stejným symbolem (úseky OSM, krátké schody převedené na pěšinu) jako jedna čára.
     join_pieces: dict[int, list] | None = None if preset_id.startswith("sprint") else {}
     for feat_i, feat in enumerate(data.get("features") or []):
@@ -5145,6 +5211,8 @@ def build_osm_path_parts(
             _index = road_widths if path_draw_highway(hw).startswith("road_") else walk_widths
             if _index is not None:
                 code = width_line_code(hw, _index.line_width(coords), code)
+        if feat_i in service_links and code not in {"502", "502.1"}:
+            code = "502"  # účelová spojka silnice → parkoviště / garáž jako silnice
         symbol_index = None
         if code is not None:
             if code not in symbol_cache:
