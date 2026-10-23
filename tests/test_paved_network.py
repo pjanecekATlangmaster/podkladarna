@@ -698,3 +698,37 @@ def test_mixed_uses_osm_roads_for_dedup_and_road_band(tmp_path):
     half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
     assert "502.2" not in lengths  # silnici kreslí ZABAGED
     assert sum(lengths.values()) == pytest.approx(80 - 2 * half, abs=0.5)  # chodník zahozen, pěšina končí u 502
+
+
+@pytest.mark.parametrize("gap, two", [(7.2, True), (4.0, False)])
+def test_narrow_corridor_draws_original_lines_when_legible(tmp_path, gap, two):
+    # Trnkovo nám. (way/1033591396 × way/1033591397, 7,2 m od sebe): úzký koridor odpadne → v lese 1:10000
+    # obě čáry (čitelné), těsnější dvojice jen osa. Chodník na okraji odpadlé plochy se nezahodí jako „podél plochy“.
+    import json
+
+    a = [(0, 0), (60, 0)]
+    b = [(0, gap), (60, gap)]
+    _write_job(tmp_path, [_area(0, 0, 60, gap)], [])
+    axis = {
+        "type": "Feature",
+        "properties": {
+            "source": "osm",
+            "highway": "sidewalk",
+            "lines": [{"highway": "sidewalk", "coordinates": a}, {"highway": "sidewalk", "coordinates": b}],
+        },
+        "geometry": {"type": "LineString", "coordinates": [(0, gap / 2), (60, gap / 2)]},
+    }
+    (tmp_path / "osm_paths" / op.CORRIDOR_AXES_NAME).write_text(
+        json.dumps({"type": "FeatureCollection", "features": [axis]}), encoding="utf-8"
+    )
+    total = sum(_path_lengths(tmp_path).values())
+    assert total == pytest.approx(120 if two else 60, abs=1.0)
+
+
+def test_corridor_pairs_out_matches_axes():
+    axes: list = []
+    pairs: list = []
+    items = [_walk([(0, 0), (60, 0)], "pedestrian"), _walk([(0, 6), (60, 6)], "pedestrian")]
+    op.merge_parallel_pedestrian_to_areas(items, axes_out=axes, pairs_out=pairs)
+    assert len(pairs) == len(axes) == 1
+    assert {tuple(map(tuple, pts))[0] for pts, _hw in pairs[0]} == {(0, 0), (0, 6)}

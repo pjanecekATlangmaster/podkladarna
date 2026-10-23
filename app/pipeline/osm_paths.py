@@ -582,12 +582,54 @@ def _corridor_axis(coords_a: list, coords_b: list, step_m: float = 2.0) -> list[
     return [(float(x), float(y)) for x, y in LineString(out).simplify(0.2).coords]
 
 
+def corridor_axis_features(axes: list[dict], preset_id: str, scale: int) -> list[dict]:
+    """Les / MTBO: místo osy koridoru obě původní čáry, jsou-li v mapě čitelně od sebe.
+
+    Čitelně = medián vzdálenosti čar ≥ půlky kreseb obou čar + ``LINE_MIN_GAP_MM`` (Trnkovo nám. way/1033591396
+    × way/1033591397 7,2 m od sebe: v lese 1:10000 dvě čáry). Jinak osa (čáry by v mapě splynuly). Starší joby
+    bez ``lines`` kreslí osu.
+    """
+    from shapely.geometry import LineString
+
+    out: list[dict] = []
+    for ax in axes:
+        lines = (ax.get("properties") or {}).get("lines") or []
+        pair = [
+            (LineString(ln["coordinates"]), str(ln.get("highway") or "pedestrian"))
+            for ln in lines
+            if len(ln.get("coordinates") or []) >= 2
+        ]
+        if len(pair) == 2:
+            (a, hw_a), (b, hw_b) = sorted(pair, key=lambda it: it[0].length)
+            n = max(2, int(a.length / 2.0) + 1)
+            dists = sorted(b.distance(a.interpolate(a.length * k / (n - 1))) for k in range(n))
+            need = (
+                drawn_symbol_width_m(hw_a, preset_id, scale) / 2.0
+                + drawn_symbol_width_m(hw_b, preset_id, scale) / 2.0
+                + mm_to_ground_m(LINE_MIN_GAP_MM, scale)
+            )
+            if dists[len(dists) // 2] >= need:
+                for ln in lines:
+                    out.append(
+                        {
+                            "type": "Feature",
+                            "properties": {"source": "osm", "highway": ln.get("highway") or "pedestrian"},
+                            "geometry": {"type": "LineString", "coordinates": ln["coordinates"]},
+                        }
+                    )
+                continue
+        props = {k: v for k, v in (ax.get("properties") or {}).items() if k != "lines"}
+        out.append({**ax, "properties": props})
+    return out
+
+
 def merge_parallel_pedestrian_to_areas(
     osm_items: list[tuple[list[tuple[float, float]], str]],
     *,
     paved_lines: list[list[tuple[float, float]]] | None = None,
     buildings: list | None = None,
     axes_out: list | None = None,
+    pairs_out: list | None = None,
 ) -> tuple[list[tuple[list[tuple[float, float]], str]], list[list[list[tuple[float, float]]]]]:
     """Souběžné ``sidewalk``/``pedestrian`` linie → polygony pěší zóny; zbylé položky beze změny.
 
@@ -601,6 +643,8 @@ def merge_parallel_pedestrian_to_areas(
       leží v budově, se zahodí (umělý mnohoúhelník kolem budovy).
     - ``axes_out``: doplní se osa každého koridoru ``(body, highway)`` – les / MTBO ji kreslí tam, kde je koridor
       užší než kresba silnice a plocha odpadne (``open_narrow_walk_areas``).
+    - ``pairs_out``: ke každé ose v ``axes_out`` (stejné pořadí) obě původní čáry ``((body, highway), (body, highway))``
+      – les / MTBO je kreslí místo osy, jsou-li v mapě čitelně od sebe (``corridor_axis_features``).
     """
     walk_idx = [
         i
@@ -674,6 +718,8 @@ def merge_parallel_pedestrian_to_areas(
             axis = _corridor_axis(osm_items[i][0], osm_items[best_j][0])
             if axis:
                 axes_out.append((axis, osm_items[i][1]))
+                if pairs_out is not None:
+                    pairs_out.append((osm_items[i], osm_items[best_j]))
         polys = [best_poly] if best_poly.geom_type == "Polygon" else list(best_poly.geoms)
         for poly in polys:
             if poly.geom_type != "Polygon" or poly.is_empty:
@@ -3456,8 +3502,9 @@ def prepare_osm_paths(
     except (ImportError, ValueError, TypeError):
         _buildings = []
     corridor_axes: list = []
+    corridor_pairs: list = []
     osm_items, ped_corridors = merge_parallel_pedestrian_to_areas(
-        osm_items, paved_lines=paved_walk_lines, buildings=_buildings, axes_out=corridor_axes
+        osm_items, paved_lines=paved_walk_lines, buildings=_buildings, axes_out=corridor_axes, pairs_out=corridor_pairs
     )
     for rings in ped_corridors:
         features.append(
@@ -3594,7 +3641,27 @@ def prepare_osm_paths(
         encoding="utf-8",
     )
     write_geojson(kept_osm, "paths_osm.geojson")
-    write_geojson(corridor_axes, CORRIDOR_AXES_NAME)
+    (dest_dir / CORRIDOR_AXES_NAME).write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "source": "osm",
+                            "highway": hw,
+                            # Původní čáry koridoru (``corridor_axis_features``).
+                            "lines": [{"highway": l_hw, "coordinates": [[x, y] for x, y in l_pts]} for l_pts, l_hw in pair],
+                        },
+                        "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in line]},
+                    }
+                    for (line, hw), pair in zip(corridor_axes, corridor_pairs)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     # Lávky i do režimu jen-ZABAGED (krátké OSM bridge často v ČÚZK chybí).
     write_geojson(
         [(pts, hw) for pts, hw in kept_osm if is_bridge_highway(hw)],
@@ -5210,8 +5277,8 @@ def build_osm_path_parts(
         axes_path = work_dir / "osm_paths" / CORRIDOR_AXES_NAME
         if axes_path.is_file():
             try:
-                data["features"] = list(data.get("features") or []) + list(
-                    json.loads(axes_path.read_text(encoding="utf-8")).get("features") or []
+                data["features"] = list(data.get("features") or []) + corridor_axis_features(
+                    json.loads(axes_path.read_text(encoding="utf-8")).get("features") or [], preset_id, scale
                 )
             except (OSError, ValueError):
                 pass
@@ -5320,12 +5387,17 @@ def build_osm_path_parts(
         if preset_id.startswith("sprint")
         else _paths_features_for_network(work_dir) or (data.get("features") or [])
     )
+    # Plochy jen tam, kde se opravdu kreslí (síť po otevření úzkých částí): čáry odpadlého úzkého koridoru
+    # (``corridor_axis_features``) leží na jeho okraji a zmizely by jako „chodník podél plochy“.
+    beside_paved = None if preset_id.startswith("sprint") else osm_paved_beside_geometry(work_dir)
+    if beside_paved is not None:
+        beside_paved = None if paved_network is None else beside_paved.intersection(paved_network)
     road_zone = (
         None
         if preset_id.startswith("sprint")
         else sidewalk_road_zone_geometry(
             road_feats,
-            osm_paved_beside_geometry(work_dir),
+            beside_paved,
             preset_id=preset_id,
             scale=scale,
             road_widths=road_widths,
