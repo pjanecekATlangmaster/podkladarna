@@ -4241,6 +4241,27 @@ def _paths_features_for_network(work_dir: Path) -> list[dict]:
     return []
 
 
+# Úklid sloučené plochy: mitre buffery a rozdíly s blokery nechávají vlásečnice a hroty, které po zaokrouhlení
+# na souřadnice mapy dají sebeprotínající obrys (Praha 5: 31 nevalidních 501.1). Plocha se zarovná na mřížku
+# ``PAVED_GRID_M`` a krčky užší než 2 × ``PAVED_NECK_M`` se odříznou.
+PAVED_GRID_M = 0.05
+PAVED_NECK_M = 0.1
+
+
+def _clean_paved_geometry(g, neck_m: float = 0.0):
+    """Validní plocha (make_valid, mřížka ``PAVED_GRID_M``), volitelně bez krčků užších než 2 × ``neck_m``."""
+    import shapely
+
+    if g is None or g.is_empty:
+        return g
+    g = shapely.make_valid(g)
+    g = shapely.unary_union([p for p in getattr(g, "geoms", [g]) if p.geom_type in ("Polygon", "MultiPolygon")])
+    if neck_m > 0 and not g.is_empty:
+        g = shapely.make_valid(g.buffer(-neck_m, join_style=2).buffer(neck_m, join_style=2))
+    g = shapely.set_precision(g, PAVED_GRID_M)
+    return shapely.unary_union([p for p in getattr(g, "geoms", [g]) if p.geom_type in ("Polygon", "MultiPolygon")])
+
+
 def build_paved_network(feats: list[dict], path_features: list[dict], *, gap_m: float = PAVED_MERGE_GAP_M):
     """Sloučí zpevněné plochy (``_PAVED_AREA_KINDS``) do souvislé sítě: ``(prvky, plocha sítě)``.
 
@@ -4280,10 +4301,10 @@ def build_paved_network(feats: list[dict], path_features: list[dict], *, gap_m: 
         paved.append((g, str(props.get("kind"))))
     if not paved:
         return feats, None
-    union = unary_union([g for g, _k in paved])
+    union = _clean_paved_geometry(unary_union([g for g, _k in paved]))
     merged = union
     if gap_m > 0:
-        closed = union.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2)
+        closed = _clean_paved_geometry(union.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2))
         fill = closed.difference(union)
         blockers = []
         roads = road_carriageway_geometry(path_features)
@@ -4295,6 +4316,7 @@ def build_paved_network(feats: list[dict], path_features: list[dict], *, gap_m: 
             fill = fill.difference(unary_union(blockers))
         if not fill.is_empty:
             merged = unary_union([union, fill])
+    merged = _clean_paved_geometry(merged, PAVED_NECK_M)
     polys = [merged] if merged.geom_type == "Polygon" else [g for g in getattr(merged, "geoms", []) if g.geom_type == "Polygon"]
     out = list(rest)
     kept = []

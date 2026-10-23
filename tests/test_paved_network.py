@@ -602,3 +602,29 @@ def test_short_service_ignores_dtm_width(tmp_path):
     _write_dtm(tmp_path, "sidewalks.json", [(500, 500, 510, 510)])
     lengths = _path_lengths(tmp_path)
     assert "502.1" not in lengths
+
+
+def test_network_polygons_valid_after_map_rounding():
+    # Praha 5: mitre buffery a ořez blokery dávaly sebeprotínající 501.1 (po zaokrouhlení na souřadnice mapy)
+    # i výjimku GEOS. Náhodné natočené plochy + silnice → všechny výstupy validní i po zaokrouhlení na 1 cm.
+    import random
+
+    from shapely import affinity
+    from shapely.geometry import Polygon, box, mapping
+
+    rnd = random.Random(1)
+    for _ in range(120):
+        feats = []
+        for _k in range(rnd.randint(3, 8)):
+            x, y = rnd.uniform(0, 80), rnd.uniform(0, 80)
+            g = affinity.rotate(box(x, y, x + rnd.uniform(2, 25), y + rnd.uniform(2, 25)), rnd.uniform(0, 90))
+            feats.append({"type": "Feature", "properties": {"kind": "parking"}, "geometry": mapping(g)})
+        road = _road([(rnd.uniform(0, 100), 0), (rnd.uniform(0, 100), 100)], "road_3")
+        out, _net = op.build_paved_network(feats, [road])
+        ang = rnd.uniform(0, 360)
+        for f in out:
+            g = affinity.rotate(Polygon(f["geometry"]["coordinates"][0], f["geometry"]["coordinates"][1:]), ang, origin=(0, 0))
+            ext = [(round(x * 100), round(y * 100)) for x, y in g.exterior.coords]
+            holes = [[(round(x * 100), round(y * 100)) for x, y in h.coords] for h in g.interiors]
+            rounded = Polygon(ext, holes)
+            assert rounded.is_valid and rounded.exterior.is_simple
