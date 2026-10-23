@@ -870,6 +870,136 @@ def _elev_from_props(props: dict) -> float | None:
     return None
 
 
+# Geometrie vrstevnic do OOM (Chaikin → DP, výběr 103) nezávisí na sadě
+# symbolů ani na zdroji cest: les + MTBO × plná + „čistá“ = 4 .omap z jednoho
+# contours.shp. Počítá se jednou, symbol a XML se doplní pro každou mapu zvlášť.
+_GEOMETRY_CACHE: dict[tuple, dict] = {}
+_GEOMETRY_CACHE_MAX = 2
+
+
+def _file_stamp(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def _contour_geometry(
+    shp: Path,
+    *,
+    scale: int,
+    interval_m: float,
+    index_m: float | None,
+    scalefactor: float,
+) -> dict:
+    """Vyhlazené linie 101/102 podle (kód, výška) – sdílené mezi .omap jobu."""
+    key = (
+        str(shp.resolve()),
+        _file_stamp(shp),
+        int(scale),
+        float(interval_m),
+        index_m,
+        float(scalefactor),
+    )
+    cached = _GEOMETRY_CACHE.get(key)
+    if cached is not None:
+        cached["hits"] += 1
+        return cached
+
+    _cell, _window, chaikin_iters = contour_dem_params(scalefactor, interval_m)
+    min_len, stitch_gap = contour_line_params(scalefactor, interval_m)
+
+    by_key: dict[tuple[str, float | None], list[list[tuple[float, float]]]] = {}
+    for props, wkb in _iter_contour_rows(shp):
+        elev = _elev_from_props(props)
+        if elev is None:
+            code = "101"
+        else:
+            code = contour_oom_code(
+                elev,
+                interval_m=interval_m,
+                formline=0,
+                index_m=index_m,
+            )
+        geom_parts, _ = _wkb_parts(wkb)
+        bucket = by_key.setdefault((code if code in ("101", "102", "103") else "101", elev), [])
+        for part in geom_parts:
+            if part[0] == "line" and len(part[1]) >= 2:
+                bucket.append(list(part[1]))  # type: ignore[arg-type]
+
+    simplify_tol = contour_simplify_tol_m(scale)
+    smoothed_by_key: list[tuple[str, list]] = []
+    for (code, _elev), lines in by_key.items():
+        refined = refine_contour_polylines(
+            lines, min_length_m=min_len, stitch_gap_m=stitch_gap
+        )
+        smoothed: list = []
+        for pts in refined:
+            pts = chaikin(pts, iterations=chaikin_iters)
+            pts = simplify_contour_polyline(pts, simplify_tol)
+            if len(pts) < 2:
+                continue
+            closed = is_closed_polyline(pts)
+            smoothed.append(("line", pts, closed))
+        smoothed_by_key.append((code, smoothed))
+
+    entry = {
+        "by_key": by_key,
+        "smoothed": smoothed_by_key,
+        "simplify_tol": simplify_tol,
+        "chaikin_iters": chaikin_iters,
+        "formlines": {},
+        "hits": 0,
+    }
+    while len(_GEOMETRY_CACHE) >= _GEOMETRY_CACHE_MAX:
+        _GEOMETRY_CACHE.pop(next(iter(_GEOMETRY_CACHE)))
+    _GEOMETRY_CACHE[key] = entry
+    return entry
+
+
+def _formline_geometry(
+    entry: dict,
+    formline_shp: Path,
+    *,
+    interval_m: float,
+    scale: int,
+    mode: str,
+) -> tuple[list, int]:
+    """(vyhlazené kusy 103, počet půlových linií) – v rámci položky cache."""
+    fkey = (str(formline_shp.resolve()), _file_stamp(formline_shp), mode)
+    cached = entry["formlines"].get(fkey)
+    if cached is not None:
+        return cached
+    candidates: list[tuple[float, list[tuple[float, float]]]] = []
+    for props, wkb in _iter_contour_rows(formline_shp):
+        elev = _elev_from_props(props)
+        if elev is None:
+            continue
+        geom_parts, _ = _wkb_parts(wkb)
+        for part in geom_parts:
+            if part[0] == "line" and len(part[1]) >= 3:
+                candidates.append((elev, list(part[1])))  # type: ignore[arg-type]
+    main_lines = [
+        (elev, pts)
+        for (_code, elev), lines in entry["by_key"].items()
+        if elev is not None
+        for pts in lines
+    ]
+    pieces = select_formlines(
+        candidates, main_lines, interval_m=interval_m, scale=scale, mode=mode
+    )
+    smoothed = []
+    for _elev, pts, _closed in pieces:
+        pts = chaikin(pts, iterations=entry["chaikin_iters"])
+        pts = simplify_contour_polyline(pts, entry["simplify_tol"])
+        if len(pts) >= 2:
+            smoothed.append(("line", pts, is_closed_polyline(pts)))
+    result = (smoothed, len(candidates))
+    entry["formlines"][fkey] = result
+    return result
+
+
 def build_gdal_contour_parts(
     work_dir: Path,
     *,
@@ -898,51 +1028,34 @@ def build_gdal_contour_parts(
     }
     if scalefactor is None:
         scalefactor = float(scale) / 10000.0 if scale else 1.0
-    _cell, _window, chaikin_iters = contour_dem_params(scalefactor, interval_m)
-    min_len, stitch_gap = contour_line_params(scalefactor, interval_m)
 
-    by_key: dict[tuple[str, float | None], list[list[tuple[float, float]]]] = {}
-    for props, wkb in _iter_contour_rows(shp):
-        elev = _elev_from_props(props)
-        if elev is None:
-            code = "101"
-        else:
-            code = contour_oom_code(
-                elev,
-                interval_m=interval_m,
-                formline=0,
-                index_m=index_m,
-            )
-        geom_parts, _ = _wkb_parts(wkb)
-        bucket = by_key.setdefault((code if code in grouped else "101", elev), [])
-        for part in geom_parts:
-            if part[0] == "line" and len(part[1]) >= 2:
-                bucket.append(list(part[1]))  # type: ignore[arg-type]
-
-    simplify_tol = contour_simplify_tol_m(scale)
-    log_step(
-        log,
-        "Importuji vrstevnice do OOM: Chaikin → DP simplify "
-        f"({_SIMPLIFY_PAPER_MM:g} mm ≈ {simplify_tol:.2f} m) → Bézier",
+    entry = _contour_geometry(
+        shp,
+        scale=scale,
+        interval_m=interval_m,
+        index_m=index_m,
+        scalefactor=scalefactor,
     )
-    for (code, _elev), lines in by_key.items():
+    simplify_tol = entry["simplify_tol"]
+    if entry["hits"]:
+        log_step(
+            log,
+            "Importuji vrstevnice do OOM: geometrie z předchozí mapy jobu "
+            "(stejné vrstevnice, jen jiná sada symbolů)",
+        )
+    else:
+        log_step(
+            log,
+            "Importuji vrstevnice do OOM: Chaikin → DP simplify "
+            f"({_SIMPLIFY_PAPER_MM:g} mm ≈ {simplify_tol:.2f} m) → Bézier",
+        )
+    for code, smoothed in entry["smoothed"]:
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None and not preset_uses_catalog(preset_id, scale):
             # Jen staré sady; u katalogových se chybějící kód nenahrazuje.
             symbol_index = symbol_index_for_code(preset_id, scale, "101")
         if symbol_index is None:
             continue
-        refined = refine_contour_polylines(
-            lines, min_length_m=min_len, stitch_gap_m=stitch_gap
-        )
-        smoothed: list = []
-        for pts in refined:
-            pts = chaikin(pts, iterations=chaikin_iters)
-            pts = simplify_contour_polyline(pts, simplify_tol)
-            if len(pts) < 2:
-                continue
-            closed = is_closed_polyline(pts)
-            smoothed.append(("line", pts, closed))
         if not smoothed:
             continue
         grouped[code].extend(
@@ -961,34 +1074,13 @@ def build_gdal_contour_parts(
     formline_shp = work_dir / "contours" / FORMLINES_ALL_NAME
     symbol_103 = symbol_index_for_code(preset_id, scale, "103")
     if _formlines_on(formlines) and formline_shp.is_file() and symbol_103 is not None:
-        candidates: list[tuple[float, list[tuple[float, float]]]] = []
-        for props, wkb in _iter_contour_rows(formline_shp):
-            elev = _elev_from_props(props)
-            if elev is None:
-                continue
-            geom_parts, _ = _wkb_parts(wkb)
-            for part in geom_parts:
-                if part[0] == "line" and len(part[1]) >= 3:
-                    candidates.append((elev, list(part[1])))  # type: ignore[arg-type]
-        main_lines = [
-            (elev, pts)
-            for (_code, elev), lines in by_key.items()
-            if elev is not None
-            for pts in lines
-        ]
-        pieces = select_formlines(
-            candidates, main_lines, interval_m=interval_m, scale=scale, mode=formlines
+        smoothed, n_candidates = _formline_geometry(
+            entry, formline_shp, interval_m=interval_m, scale=scale, mode=formlines
         )
-        smoothed = []
-        for _elev, pts, _closed in pieces:
-            pts = chaikin(pts, iterations=chaikin_iters)
-            pts = simplify_contour_polyline(pts, simplify_tol)
-            if len(pts) >= 2:
-                smoothed.append(("line", pts, is_closed_polyline(pts)))
         if log:
             log(
                 f"Pomocné vrstevnice 103 ({formlines}): {len(smoothed)} kusů "
-                f"z {len(candidates)} půlových linií"
+                f"z {n_candidates} půlových linií"
             )
         if smoothed:
             grouped["103"].extend(
