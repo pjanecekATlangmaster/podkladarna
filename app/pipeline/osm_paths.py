@@ -553,22 +553,32 @@ def _pedestrian_corridor_polygon(coords_a: list, coords_b: list):
 
 
 def _corridor_axis(coords_a: list, coords_b: list, step_m: float = 2.0) -> list[tuple[float, float]]:
-    """Osa mezi dvěma souběžnými čarami: středy mezi body delší čáry (po ``step_m`` m) a nejbližšími body kratší."""
-    from shapely.geometry import LineString, Point
+    """Osa mezi dvěma souběžnými čarami po celé délce delší čáry.
+
+    Body delší čáry (po ``step_m`` m) se posunou o půl vzdálenosti ke kratší; za koncem kratší čáry se drží
+    posun z nejbližšího bodu, kde kratší čára ještě byla (osa tak nekončí s kratší čárou).
+    """
+    from shapely.geometry import LineString
 
     a, b = LineString(coords_a), LineString(coords_b)
     if b.length > a.length:
         a, b = b, a
     n = max(2, int(a.length / step_m) + 1)
-    out: list[tuple[float, float]] = []
+    pts = []
+    shifts: list[tuple[float, float] | None] = []
     for k in range(n):
         p = a.interpolate(a.length * k / (n - 1))
-        q = b.interpolate(b.project(p))
-        if p.distance(q) > PEDESTRIAN_CORRIDOR_MAX_GAP_M:
-            continue  # konec delší čáry za kratší
-        out.append(((p.x + q.x) / 2.0, (p.y + q.y) / 2.0))
-    if len(out) < 2:
+        t = b.project(p)
+        q = b.interpolate(t)
+        pts.append((p.x, p.y))
+        shifts.append(None if t <= 1e-6 or t >= b.length - 1e-6 else ((q.x - p.x) / 2.0, (q.y - p.y) / 2.0))
+    known = [i for i, sh in enumerate(shifts) if sh is not None]
+    if not known:
         return []
+    out = []
+    for i, (x, y) in enumerate(pts):
+        sh = shifts[i] if shifts[i] is not None else shifts[min(known, key=lambda j: abs(j - i))]
+        out.append((x + sh[0], y + sh[1]))
     return [(float(x), float(y)) for x, y in LineString(out).simplify(0.2).coords]
 
 
@@ -4403,7 +4413,7 @@ NARROW_WALK_MIN_PIECE_FACTOR = 1.0  # zbylý kus plochy aspoň (šířka 502)² 
 
 
 def open_narrow_walk_areas(feats: list[dict], preset_id: str, scale: int) -> list[dict]:
-    """Pěší plochy (``pedestrian_area``, ne mosty / tunely) bez částí užších než kresba silnice 502 (otevření)."""
+    """OSM pěší plochy (``pedestrian_area``, ne mosty / tunely, ne DTM) bez částí užších než kresba silnice 502 (otevření)."""
     if preset_id.startswith("sprint"):
         return feats
     try:
@@ -4420,6 +4430,7 @@ def open_narrow_walk_areas(feats: list[dict], preset_id: str, scale: int) -> lis
         if (
             props.get("kind") != "pedestrian_area"
             or props.get("structure")
+            or props.get("source") == "dtm"  # DTM plocha nemá čáru, která by ji nahradila (je už otevřená 0,5 mm)
             or geom.get("type") not in ("Polygon", "MultiPolygon")
         ):
             out.append(f)

@@ -515,3 +515,20 @@ def test_corridor_axis_drawn_only_where_area_dropped(tmp_path, width, drawn):
     total = sum(_path_lengths(tmp_path).values())
     assert (total > 50) == drawn
     assert sum(_path_lengths(tmp_path, "sprint_4000", 4000).values()) == 0
+
+
+def test_corridor_axis_covers_longer_line():
+    # Delší čára (80 m) s kratší (30 m): osa vede po celé délce delší, ne jen v překryvu.
+    from shapely.geometry import LineString
+
+    axis = op._corridor_axis([(0, 0), (80, 0)], [(20, 4), (50, 4)])
+    line = LineString(axis)
+    assert line.length == pytest.approx(80, abs=1.0)
+    assert all(abs(y - 2.0) < 0.01 for _x, y in axis)
+
+
+def test_dtm_walk_area_not_opened():
+    from shapely.geometry import box, mapping
+
+    dtm = {"type": "Feature", "properties": {"kind": "pedestrian_area", "source": "dtm"}, "geometry": mapping(box(0, 0, 60, 6))}
+    assert op.open_narrow_walk_areas([dtm], "forest_10000", 10000) == [dtm]
