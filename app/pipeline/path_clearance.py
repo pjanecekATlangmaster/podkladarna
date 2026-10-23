@@ -180,11 +180,16 @@ def _clip_olive(pts, paths: _Paths, extra, min_half):
     pieces = [g for g in pieces if not g.buffer(-min_half).is_empty]
     if not pieces or sum(g.area for g in pieces) < MIN_AREA_SHARE * poly.area:
         return None
-    return [
-        [p for ring in [g.exterior, *g.interiors] for p in _ring_coords(ring.coords)]
-        for g in (g.simplify(EPS) for g in pieces)
-        if not g.is_empty and isinstance(g, Polygon)
-    ]
+    out = []
+    for g in (g.simplify(EPS) for g in pieces):
+        if g.is_empty or not isinstance(g, Polygon):
+            continue
+        rings = [_ring_coords(ring.coords) for ring in [g.exterior, *g.interiors]]
+        # Po zaokrouhlení na celé µm musí plocha zůstat validní, jinak se oliva nechá, jak byla.
+        if not Polygon([p[:2] for p in rings[0]], [[p[:2] for p in r] for r in rings[1:]]).is_valid:
+            return None
+        out.append([p for r in rings for p in r])
+    return out or None
 
 
 def _shift_vector(geom, paths: _Paths, extra, max_shift):
