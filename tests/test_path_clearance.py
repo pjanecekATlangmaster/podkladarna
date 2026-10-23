@@ -133,3 +133,11 @@ def test_tiny_self_intersecting_olive_is_repaired_not_kept(tmp_path):
     olive = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "520"), [_to_map(bowtie)])
     out = _objects(displace_objects_from_paths([OomObjectPart(name="x", objects_xml=olive, count=1)], work, **KW))
     assert out and all(_polygon_of(o).is_valid for o in out)
+
+
+def test_olive_lying_under_road_is_dropped(tmp_path):
+    work = _work(tmp_path)
+    strip = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "520"), [_to_map(_rect(-20, -1, 20, 1.5))])
+    parts = [OomObjectPart(name="x", objects_xml=strip, count=1)]
+    out = displace_objects_from_paths(parts, work, **KW)
+    assert out == []

@@ -7,7 +7,7 @@ cesty a objektem zbyla mezera: od olivy minimální, od objektů s černou kresb
 Pracuje se v souřadnicích mapy (1 jednotka = 1 µm), šířky symbolů se berou ze sady. Osy cest se
 berou z hotové mapy (všechny kreslené cesty bez ohledu na zdroj – OSM i ZABAGED).
 
-- Oliva se ořízne o pás podél cesty (kousky pod minimální šířku se zahodí).
+- Oliva se ořízne o pás podél cesty (kousky pod minimální šířku se zahodí; oliva skoro celá pod cestou pryč).
 - Ostatní plochy (budovy …) a body se posunou celé, tvar se nemění.
 - Čáry (zdi, ploty) se odsunou po bodech; nesmí se tím přiblížit k jiné cestě ani výrazně změnit délku.
 
@@ -39,6 +39,8 @@ POINT_RADIUS_MM = 0.3
 # Oliva po ořezu: kousky užší než tato šířka (mm na mapě) se zahodí; zbýt musí aspoň polovina výměry.
 MIN_AREA_WIDTH_MM = 0.4
 MIN_AREA_SHARE = 0.5
+# Oliva, ze které po ořezu nezbude kus širší než minimum a ani tento podíl výměry, leží pod cestou → zahodí se.
+DROP_OLIVE_SHARE = 0.1
 # Čára smí odsunem změnit délku nejvýš o tento podíl.
 LINE_LENGTH_TOL = 0.2
 # Odsun čar: krok zhuštění (mm na mapě); tolerance (µm).
@@ -188,20 +190,37 @@ def _clip_olive(pts, paths: _Paths, extra, min_half):
     pieces = [g for g in getattr(new, "geoms", [new]) if isinstance(g, Polygon) and not g.is_empty]
     if not broken:
         pieces = [g for g in pieces if not g.buffer(-min_half).is_empty]
+        if not pieces and new.area < DROP_OLIVE_SHARE * poly.area:
+            return []  # oliva leží skoro celá pod cestou → zahodí se
         if not pieces or sum(g.area for g in pieces) < MIN_AREA_SHARE * poly.area:
             return None
     elif not pieces:
         return None
     out = []
     for g in (g.simplify(EPS) for g in pieces):
-        if g.is_empty or not isinstance(g, Polygon):
-            continue
-        rings = [_ring_coords(ring.coords) for ring in [g.exterior, *g.interiors]]
-        # Po zaokrouhlení na celé µm musí plocha zůstat validní, jinak se oliva nechá, jak byla.
-        if not Polygon([p[:2] for p in rings[0]], [[p[:2] for p in r] for r in rings[1:]]).is_valid:
-            return None
-        out.append([p for r in rings for p in r])
+        for piece in _rounded_pieces(g):
+            out.append(piece)
     return out or None
+
+
+def _rounded_pieces(g) -> list[list[list[int]]]:
+    """Plocha jako body na celých µm; nevalidní po zaokrouhlení se opraví (buffer(0)), nepovedené kusy pryč."""
+    from shapely.geometry import Polygon
+
+    if g.is_empty or not isinstance(g, Polygon):
+        return []
+    rings = [_ring_coords(ring.coords) for ring in [g.exterior, *g.interiors]]
+    if Polygon([p[:2] for p in rings[0]], [[p[:2] for p in r] for r in rings[1:]]).is_valid:
+        return [[p for r in rings for p in r]]
+    fixed = Polygon([p[:2] for p in rings[0]], [[p[:2] for p in r] for r in rings[1:]]).buffer(0)
+    out = []
+    for part in getattr(fixed, "geoms", [fixed]):
+        if not isinstance(part, Polygon) or part.is_empty:
+            continue
+        rr = [_ring_coords(ring.coords) for ring in [part.exterior, *part.interiors]]
+        if Polygon([p[:2] for p in rr[0]], [[p[:2] for p in r] for r in rr[1:]]).is_valid:
+            out.append([p for r in rr for p in r])
+    return out
 
 
 def _shift_vector(geom, paths: _Paths, extra, max_shift):
@@ -394,5 +413,7 @@ def displace_objects_from_paths(
         if xml == part.objects_xml:
             out.append(part)
         else:
-            out.append(OomObjectPart(name=part.name, objects_xml=xml, count=len(_OBJECT_RE.findall(xml))))
+            count = len(_OBJECT_RE.findall(xml))
+            if count:  # část, ze které nic nezbylo (oliva pod cestou), se vynechá
+                out.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
     return out
