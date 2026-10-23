@@ -1224,3 +1224,73 @@ def test_sidewalks_parts_and_osm_paths_skip_sidewalks(tmp_path):
     paths = op.build_osm_path_parts(work, **kw)
     assert paths and paths[0].count == 1  # jen pěšina, chodník nahradila plocha
     assert di.build_dtm_sidewalk_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+
+
+def _write_polys(work, name, polys):
+    (work / "dtm").mkdir(exist_ok=True)
+    (work / "dtm" / name).write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in poly] for poly in polys]}), encoding="utf-8"
+    )
+
+
+def _write_paths(work, feats):
+    (work / "osm_paths").mkdir(exist_ok=True)
+    for name in ("paths_mixed.geojson", "paths_osm.geojson"):
+        (work / "osm_paths" / name).write_text(json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8")
+
+
+def _feat(coords, hw):
+    return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": coords}}
+
+
+def test_mtbo_corridor_only_along_drawn_roads(tmp_path):
+    # Manipulační plocha / areál 200 × 150 m z DTM (roads.json) bez silnice se koridorem nezalije (Praha 5: 12 ha).
+    work = tmp_path
+    _write_polys(work, "roads.json", [_rect(0, 0, 200, 150)])
+    _write_paths(work, [_feat([(20, 20), (180, 130)], "track")])
+    assert di.mtbo_corridor_geometry(work, 10000) is None
+    # Silnice areálem: koridor jen v pásu kolem její osy, ne celý areál.
+    work2 = tmp_path / "b"
+    work2.mkdir()
+    _write_polys(work2, "roads.json", [_rect(0, 0, 200, 150)])
+    _write_paths(work2, [_feat([(0, 75), (200, 75)], "road_3")])
+    corridor = di.mtbo_corridor_geometry(work2, 10000)
+    assert corridor is not None
+    assert corridor.bounds[1] >= 75 - di.CORRIDOR_ROAD_AXIS_M - 0.1
+    assert corridor.bounds[3] <= 75 + di.CORRIDOR_ROAD_AXIS_M + 0.1
+    assert corridor.is_valid
+
+
+def test_mtbo_footway_along_corridor_edge_is_not_drawn(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    _write_polys(work, "roads.json", [_rect(0, -10, 200, 10)])  # široká ulice (20 m) z DTM
+    road = _feat([(0, 0), (200, 0)], "road_3")
+    edge_path = _feat([(0, 14), (200, 14)], "footway")  # 4 m od okraje koridoru – v 1:10000 splyne s obrubníkem
+    far_path = _feat([(0, 60), (200, 60)], "footway")
+    _write_paths(work, [road, edge_path, far_path])
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_path_parts(work, preset_id="mtbo_10000", scale=10000, ref_x=100.0, ref_y=0.0, grivation_deg=0.0)
+    assert sum(p.count for p in parts) == 1  # zůstane jen vzdálená pěšina
+
+
+def test_mtbo_dtm_geometry_is_cached_until_inputs_change(tmp_path, monkeypatch):
+    work = tmp_path
+    _write_polys(work, "roads.json", [_rect(0, -6, 200, 6)])
+    _write_paths(work, [_feat([(0, 0), (200, 0)], "road_3")])
+    calls = []
+    real = ds.road_corridor
+    monkeypatch.setattr(ds, "road_corridor", lambda *a, **k: calls.append(1) or real(*a, **k))
+    di.mtbo_corridor_geometry(work, 10000)
+    di.mtbo_dtm_area_geometry(work, 10000)
+    di.mtbo_parking_geometry(work, 10000)
+    assert len(calls) == 1
+    import os
+    import time
+
+    p = work / "dtm" / "roads.json"
+    t = time.time() + 5
+    os.utime(p, (t, t))
+    di.mtbo_corridor_geometry(work, 10000)
+    assert len(calls) == 2

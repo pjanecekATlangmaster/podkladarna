@@ -4445,9 +4445,27 @@ def cut_paved_by_mtbo_dtm_areas(work_dir: Path, feats: list[dict], preset_id: st
     """MTBO: zpevněné plochy z OSM (i sloučená síť) bez ploch kreslených z DTM (koridor, chodníky, parkoviště)."""
     if not preset_id.startswith("mtbo"):
         return feats
+    from shapely.geometry import mapping, shape
+
     from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_dtm_area_geometry
 
-    return cut_osm_paved_by_geometry(feats, mtbo_dtm_area_geometry(work_dir, scale, "mixed"))
+    zone = mtbo_dtm_area_geometry(work_dir, scale, "mixed")
+    if zone is None or zone.is_empty:
+        return feats
+    out = []
+    for feat in cut_osm_paved_by_geometry(feats, zone):
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") in _PAVED_AREA_KINDS and geom.get("type") in ("Polygon", "MultiPolygon"):
+            # Ořez nechává u hrany ploch z DTM tenké pruhy a vlásečnice (nevalidní po zaokrouhlení na mapu).
+            g = _clean_paved_geometry(shape(geom), PAVED_NECK_M)
+            if g is None or g.is_empty or g.area < 1.0:
+                continue
+            for part in getattr(g, "geoms", [g]):
+                if part.geom_type == "Polygon" and part.area >= 1.0:
+                    out.append({**feat, "geometry": mapping(part)})
+            continue
+        out.append(feat)
+    return out
 
 
 def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
@@ -5214,6 +5232,15 @@ def build_osm_path_parts(
             road_widths=road_widths,
         )
     )
+    if preset_id.startswith("mtbo"):
+        # MTBO: chodník / pěšina podél koridoru nebo plochy chodníku z DTM by splynula s jejím okrajem 501.100.
+        _mtbo_areas = [g for g in (corridor_zone, mtbo_sidewalk_zone) if g is not None and not g.is_empty]
+        if _mtbo_areas:
+            from shapely.ops import unary_union as _uu_mtbo
+
+            _band = sidewalk_road_zone_geometry([], _uu_mtbo(_mtbo_areas), preset_id=preset_id, scale=scale)
+            if _band is not None:
+                road_zone = _band if road_zone is None else _uu_mtbo([road_zone, _band])
     dedup_bases = sidewalk_dedup_bases(preset_id)
     skip_steps = set() if preset_id.startswith("sprint") else small_complex_steps(data.get("features") or [])
     service_links = (
