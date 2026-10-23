@@ -833,6 +833,30 @@ def test_load_osm_path_lines(tmp_path):
     lines = load_osm_path_lines(tmp_path)
     assert len(lines) == 1
     assert lines[0][0] == (0.0, 0.0)
+    # Les / MTBO: i osy koridorů a jejich původní čáry (ZABAGED pěšina pod nimi se nekreslí podruhé).
+    (dest / "corridor_axes.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "highway": "pedestrian",
+                            "lines": [
+                                {"highway": "pedestrian", "coordinates": [[0, 10], [50, 10]]},
+                                {"highway": "pedestrian", "coordinates": [[0, 17], [50, 17]]},
+                            ],
+                        },
+                        "geometry": {"type": "LineString", "coordinates": [[0, 13.5], [50, 13.5]]},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert len(load_osm_path_lines(tmp_path)) == 1
+    assert len(load_osm_path_lines(tmp_path, corridor_lines=True)) == 4
 
 def test_osm_bench_to_point():
     el = {

@@ -742,7 +742,7 @@ def prepare_oom_map(
     courtyard_parts: list[OomObjectPart] = []
     prefer_osm_paths: list[list[tuple[float, float]]] = []
     if path_source == PATH_SOURCE_MIXED:
-        prefer_osm_paths = load_osm_path_lines(kp_cwd)
+        prefer_osm_paths = load_osm_path_lines(kp_cwd, corridor_lines=not preset_id.startswith("sprint"))
     if zabaged_clean and zabaged_clean.is_file():
         omit = set(ZABAGED_OMIT_BUILDING_LAYERS)
         if osm_features_have_power_lines(kp_cwd):

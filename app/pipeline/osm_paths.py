@@ -2969,8 +2969,12 @@ def filter_lines_against_centerlines(
     return kept, dropped
 
 
-def load_osm_path_lines(work_dir: Path) -> list[list[tuple[float, float]]]:
-    """Načte dedupované OSM cesty z ``work/osm_paths/paths.geojson``."""
+def load_osm_path_lines(work_dir: Path, *, corridor_lines: bool = False) -> list[list[tuple[float, float]]]:
+    """Načte dedupované OSM cesty z ``work/osm_paths/paths.geojson``.
+
+    ``corridor_lines`` (les / MTBO): i osy koridorů a jejich původní čáry (``corridor_axis_features``), aby se
+    pod nimi nekreslila ZABAGED pěšina podruhé.
+    """
     gj_path = work_dir / "osm_paths" / "paths.geojson"
     if not gj_path.is_file():
         return []
@@ -2978,8 +2982,18 @@ def load_osm_path_lines(work_dir: Path) -> list[list[tuple[float, float]]]:
         data = json.loads(gj_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
+    feats = list(data.get("features") or [])
+    axes_path = work_dir / "osm_paths" / CORRIDOR_AXES_NAME
+    if corridor_lines and axes_path.is_file():
+        try:
+            for ax in json.loads(axes_path.read_text(encoding="utf-8")).get("features") or []:
+                feats.append(ax)
+                for ln in (ax.get("properties") or {}).get("lines") or []:
+                    feats.append({"geometry": {"type": "LineString", "coordinates": ln.get("coordinates") or []}})
+        except (OSError, ValueError):
+            pass
     out: list[list[tuple[float, float]]] = []
-    for feat in data.get("features") or []:
+    for feat in feats:
         geom = feat.get("geometry") or {}
         if geom.get("type") != "LineString":
             continue
