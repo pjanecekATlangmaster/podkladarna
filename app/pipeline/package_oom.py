@@ -772,6 +772,11 @@ def prepare_oom_map(
             from app.pipeline.dtm_import import dtm_cover_geometry
 
             dtm_cover = dtm_cover_geometry(kp_cwd, 0.0)
+        elif path_source == PATH_SOURCE_MIXED:
+            # Les a MTBO (mixed): čáry ZABAGED se nekreslí v kresbě OSM silnic (ulice dvakrát), končí na jejím okraji.
+            from app.pipeline.osm_paths import mixed_osm_road_band
+
+            dtm_cover = mixed_osm_road_band(kp_cwd, preset_id, scale)
         # Les a MTBO: železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy.
         rail_tunnel_zone = None
         if not preset_id.startswith("sprint"):

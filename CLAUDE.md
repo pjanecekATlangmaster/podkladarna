@@ -296,6 +296,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
+- **Mixed v lese a MTBO:** ulice kreslí ZABAGED, v `paths_mixed` nejsou OSM silnice residential a výš, proto dedup chodníků, spojky
+  a pás kresby 502 berou silnice z `paths_osm`. OSM silnice, kterou ZABAGED nepokryla z `COVER_DROP` (spojená z více ways), zůstává;
+  ZABAGED Ulice / cesty se pak ořežou o kresbu OSM silnic (`mixed_osm_road_band`, jinak Strakonická dvakrát: 503 + 502.1).
+  Úzký koridor ze dvou čar, který odpadne jako plocha, kreslí obě původní čáry, jsou-li čitelné (`corridor_axis_features`), jinak osu.
 - **Odsun objektů od cest v lese a MTBO** (`app/pipeline/path_clearance.py`) je pozdní krok `prepare_oom_map` nad hotovými objekty:
   osy cest bere z mapy (OSM i ZABAGED, 502–508, 532, MTBO 8xx), šířky ze sady symbolů. Budovy a body se posunou celé, oliva
   se ořízne o pás cesty (0,05 mm), zdi/ploty po bodech (0,2 mm) jen bez přiblížení k jiné cestě; max. 0,9 mm na mapě. Ploty se

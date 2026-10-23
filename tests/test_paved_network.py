@@ -732,3 +732,20 @@ def test_corridor_pairs_out_matches_axes():
     op.merge_parallel_pedestrian_to_areas(items, axes_out=axes, pairs_out=pairs)
     assert len(pairs) == len(axes) == 1
     assert {tuple(map(tuple, pts))[0] for pts, _hw in pairs[0]} == {(0, 0), (0, 6)}
+
+
+def test_mixed_osm_road_band(tmp_path):
+    # Strakonická: ZABAGED Ulice na ose OSM 502.1 (mixed) se ořízne o kresbu OSM silnice; sprint beze změny.
+    from shapely.geometry import LineString
+
+    _write_job(
+        tmp_path,
+        [],
+        [_road([(0, 0), (100, 0)], "road_4"), _line([(0, 50), (100, 50)], op.bridge_highway("road_3"))],
+    )
+    band = op.mixed_osm_road_band(tmp_path, "forest_10000", 10000)
+    half = op.drawn_symbol_width_m("road_4", "forest_10000", 10000) / 2.0
+    assert band.bounds[1] == pytest.approx(-half, abs=0.01)
+    assert band.bounds[3] < 50  # most se nepočítá
+    assert LineString([(10, 1.9), (90, 1.9)]).difference(band).length == pytest.approx(0, abs=0.01)
+    assert op.mixed_osm_road_band(tmp_path, "sprint_4000", 4000) is None

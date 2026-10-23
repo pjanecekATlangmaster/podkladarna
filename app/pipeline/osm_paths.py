@@ -5237,6 +5237,37 @@ def major_road_band(
     return unary_union(parts) if parts else None
 
 
+def mixed_osm_road_band(work_dir: Path, preset_id: str, scale: int):
+    """Les / MTBO v mixed: kresba OSM silnic z ``paths_mixed`` (pás půlky šířky symbolu, rovné konce) – shapely / None.
+
+    ZABAGED Ulice / SilniceDalnice (a cesty) se o něj ořežou: OSM silnice zůstala v mixed, protože ji ZABAGED
+    nepokryla z ``COVER_DROP`` celou (spojená z více ways), a ulice se kreslila dvakrát (Strakonická: ZABAGED 503
+    na ose OSM 502.1). Šířka podle DTM jako při kreslení; mosty a tunely se nepočítají.
+    """
+    if preset_id.startswith("sprint"):
+        return None
+    gj = work_dir / "osm_paths" / "paths_mixed.geojson"
+    try:
+        feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return None
+    try:
+        from shapely.ops import unary_union
+    except ImportError:
+        return None
+    road_widths = None
+    if uses_dtm_widths(preset_id):
+        from app.pipeline.dtm_widths import dtm_width_indexes
+
+        road_widths = dtm_width_indexes(work_dir)[0]
+    parts = [
+        line.buffer(half, cap_style=2)
+        for line, half, hw in road_drawn_halfwidths(feats, preset_id, scale, road_widths)
+        if not is_bridge_highway(hw) and not is_tunnel_highway(hw)
+    ]
+    return unary_union(parts) if parts else None
+
+
 # Kódy silnic kreslených dvojčarou s výplní (502 / 502.1); přes ně černé cesty nevedou.
 MAJOR_ROAD_CODES = frozenset({"502", "502.1", "502.2"})
 
