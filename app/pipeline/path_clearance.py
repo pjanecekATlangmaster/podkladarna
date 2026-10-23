@@ -186,8 +186,11 @@ def _clip_olive(pts, paths: _Paths, extra, min_half):
     if new.area >= poly.area - 1.0 and not broken:
         return None  # beze změny (sebeprotínající se obrys se opraví vždy)
     pieces = [g for g in getattr(new, "geoms", [new]) if isinstance(g, Polygon) and not g.is_empty]
-    pieces = [g for g in pieces if not g.buffer(-min_half).is_empty]
-    if not pieces or sum(g.area for g in pieces) < MIN_AREA_SHARE * poly.area:
+    if not broken:
+        pieces = [g for g in pieces if not g.buffer(-min_half).is_empty]
+        if not pieces or sum(g.area for g in pieces) < MIN_AREA_SHARE * poly.area:
+            return None
+    elif not pieces:
         return None
     out = []
     for g in (g.simplify(EPS) for g in pieces):

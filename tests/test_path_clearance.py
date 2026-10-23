@@ -125,3 +125,11 @@ def test_self_intersecting_olive_is_repaired_even_far_from_paths(tmp_path):
     out = _objects(displace_objects_from_paths(parts, work, **KW))
     assert out and all(_polygon_of(o).is_valid for o in out)
     assert not Polygon([(x, y) for x, y, _f in _parse_coords(_COORDS_RE.search(olive).group(1))]).is_valid
+
+
+def test_tiny_self_intersecting_olive_is_repaired_not_kept(tmp_path):
+    work = _work(tmp_path)
+    bowtie = [(0, 200), (3, 203), (3, 200), (0, 203), (0, 200)]  # užší než minimum (4 m v 1:10 000)
+    olive = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "520"), [_to_map(bowtie)])
+    out = _objects(displace_objects_from_paths([OomObjectPart(name="x", objects_xml=olive, count=1)], work, **KW))
+    assert out and all(_polygon_of(o).is_valid for o in out)
