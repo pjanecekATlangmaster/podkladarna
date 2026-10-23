@@ -610,3 +610,14 @@ def test_mtbo_osm_fence_beside_path_is_moved_away(tmp_path):
     mid = LineString(out[0]["geometry"]["coordinates"]).interpolate(0.5, normalized=True)
     assert mid.y == pytest.approx(need, abs=0.3)
     assert di.join_and_orient_osm_fences(tmp_path, [fence])[0]["geometry"]["coordinates"][0][1] == 1.5  # bez měřítka beze změny
+
+
+def test_valid_fill_rings_fixes_self_intersection_after_move():
+    import app.pipeline.dtm_import as di
+    from shapely.geometry import Polygon
+
+    bowtie = [(0.0, 0.0), (10.0, 10.0), (10.0, 0.0), (0.0, 10.0), (0.0, 0.0)]
+    square = [(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0), (0.0, 0.0)]
+    out = di.valid_fill_rings([bowtie, square])
+    assert len(out) == 2 and all(Polygon(r).is_valid for r in out)
+    assert out[1] == square

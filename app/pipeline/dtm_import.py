@@ -1762,6 +1762,28 @@ def drawn_path_axes(
     return out
 
 
+def valid_fill_rings(rings: list[list[tuple[float, float]]]) -> list[list[tuple[float, float]]]:
+    """Obrysy výplní po odsunu od cest: sebeprotínající se obrys se opraví (největší kus), prázdný zahodí."""
+    from shapely.geometry import Polygon
+
+    out = []
+    for ring in rings:
+        try:
+            poly = Polygon(ring)
+        except ValueError:
+            continue
+        if not poly.is_valid:
+            fixed = poly.buffer(0)
+            parts = [g for g in getattr(fixed, "geoms", [fixed]) if g.geom_type == "Polygon" and not g.is_empty]
+            if not parts:
+                continue
+            poly = max(parts, key=lambda g: g.area)
+            ring = [(float(x), float(y)) for x, y in poly.exterior.coords]
+        if poly.area > 0:
+            out.append(ring)
+    return out
+
+
 def feature_code_for_fence(preset_id: str) -> str:
     """Kód symbolu plotu pro preset (518 sprint, 516 les, 522 MTBO)."""
     from app.pipeline.osm_paths import feature_oom_code
@@ -1978,7 +2000,7 @@ def join_and_orient_osm_fences(
             moved = dtm_fences.avoid_paths(
                 tagged + [("520", r) for r in fill_rings], paths, max_shift=nonsprint_avoid_shift_m(scale), keep_crossings=True
             )
-            tagged, fill_rings = moved[: len(tagged)], [r for _c, r in moved[len(tagged) :]]
+            tagged, fill_rings = moved[: len(tagged)], valid_fill_rings([r for _c, r in moved[len(tagged) :]])
     except Exception:  # odsun je kosmetika
         pass
     drop = {id(f) for f in fences}
@@ -2129,7 +2151,7 @@ def build_dtm_fence_parts(
             # Obrysy výplní se posouvají stejnou funkcí polohy jako ploty → zůstanou na plotech.
             avoid_kw = {} if sprint else {"max_shift": nonsprint_avoid_shift_m(scale), "keep_crossings": True}
             moved = dtm_fences.avoid_paths(lines + [("520", r) for r in fill_rings], paths, **avoid_kw)
-            lines, fill_rings = moved[: len(lines)], [r for _c, r in moved[len(lines) :]]
+            lines, fill_rings = moved[: len(lines)], valid_fill_rings([r for _c, r in moved[len(lines) :]])
     except Exception:  # odsun je kosmetika, ploty se kreslí i bez něj
         pass
     symbol_cache: dict[str, int | None] = {}
