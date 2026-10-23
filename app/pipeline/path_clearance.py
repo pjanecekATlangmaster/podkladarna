@@ -167,18 +167,24 @@ def _ring_coords(coords) -> list[list[int]]:
 
 
 def _clip_olive(pts, paths: _Paths, extra, min_half):
-    """Olivu ořízne o pás podél cest → seznam ploch (body), None = beze změny."""
+    """Olivu ořízne o pás podél cest → seznam ploch (body), None = beze změny. Nevalidní obrys se opraví."""
     from shapely.geometry import Polygon
 
-    poly = _polygon(_rings(pts))
+    rings = _rings(pts)
+    poly = _polygon(rings)
     if poly is None or poly.is_empty:
         return None
+    try:
+        flat = [_flatten(r) for r in rings]
+        broken = not Polygon(flat[0], [r for r in flat[1:] if len(r) >= 3]).is_valid
+    except (ValueError, IndexError):
+        broken = True
     ks = paths.near(poly, extra)
-    if not ks:
+    if not ks and not broken:
         return None
-    new = poly.difference(paths.corridor(ks, extra))
-    if new.area >= poly.area - 1.0:
-        return None
+    new = poly.difference(paths.corridor(ks, extra)) if ks else poly
+    if new.area >= poly.area - 1.0 and not broken:
+        return None  # beze změny (sebeprotínající se obrys se opraví vždy)
     pieces = [g for g in getattr(new, "geoms", [new]) if isinstance(g, Polygon) and not g.is_empty]
     pieces = [g for g in pieces if not g.buffer(-min_half).is_empty]
     if not pieces or sum(g.area for g in pieces) < MIN_AREA_SHARE * poly.area:

@@ -113,3 +113,15 @@ def test_closed_osm_fence_is_filled_with_olive_in_mtbo(tmp_path):
     out = di.join_and_orient_osm_fences(tmp_path, [fence], preset_id="mtbo_10000", scale=10000)
     kinds = sorted(f["properties"]["kind"] for f in out)
     assert kinds == ["fence", "garden"]
+
+
+def test_self_intersecting_olive_is_repaired_even_far_from_paths(tmp_path):
+    from shapely.geometry import Polygon
+
+    work = _work(tmp_path)
+    bowtie = [(0, 200), (20, 220), (20, 200), (0, 220), (0, 200)]  # daleko od silnice
+    olive = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "520"), [_to_map(bowtie)])
+    parts = [OomObjectPart(name="x", objects_xml=olive, count=1)]
+    out = _objects(displace_objects_from_paths(parts, work, **KW))
+    assert out and all(_polygon_of(o).is_valid for o in out)
+    assert not Polygon([(x, y) for x, y, _f in _parse_coords(_COORDS_RE.search(olive).group(1))]).is_valid

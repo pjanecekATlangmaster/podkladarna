@@ -1991,7 +1991,7 @@ def join_and_orient_osm_fences(
             if (feat.get("properties") or {}).get("kind") == "building" and geom.get("type") == "Polygon":
                 buildings.append([[(float(x), float(y)) for x, y, *_ in ring] for ring in geom.get("coordinates") or []])
         olive_rings = [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in polys]
-        fill_rings = dtm_fences.private_enclosure_rings(tagged, {"olive": olive_rings, "building": buildings})
+        fill_rings = valid_fill_rings(dtm_fences.private_enclosure_rings(tagged, {"olive": olive_rings, "building": buildings}))
     except Exception:  # výplň je doplněk
         fill_rings = []
     try:
