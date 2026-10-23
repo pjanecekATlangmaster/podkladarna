@@ -63,9 +63,10 @@ def mtbo_dtm_off(preset_id: str) -> bool:
     """Je to MTBO a DTM se pro něj nepoužívá (``MTBO_USE_DTM`` = False)?"""
     return preset_id.startswith("mtbo") and not MTBO_USE_DTM
 # MTBO: chodníky a zpevněné cesty z DTM mimo silnice jako plocha 501.0 (False = jen čáry z OSM jako dřív);
-# jen části široké aspoň tolik mm mapy a s plochou aspoň ``MTBO_SIDEWALK_MIN_LEN_M`` × šířka.
+# jen části široké aspoň tolik mm mapy a s plochou aspoň ``MTBO_SIDEWALK_MIN_LEN_M`` × šířka. 0,5 mm jako v lese
+# (``dtm_widths.WALK_AREA_MIN_MM``): užší pruh by v 1:10000 byl jen dvojitá tenká čára kolem čáry cesty (Praha 5).
 MTBO_SIDEWALK_AREAS = True
-MTBO_SIDEWALK_MIN_WIDTH_MM = 0.25
+MTBO_SIDEWALK_MIN_WIDTH_MM = 0.5
 MTBO_SIDEWALK_MIN_LEN_M = 15.0
 
 

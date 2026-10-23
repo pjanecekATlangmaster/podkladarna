@@ -595,9 +595,9 @@ def test_mtbo_draws_wide_dtm_sidewalks_away_from_roads_and_drops_osm_line_inside
     work = tmp_path
     (work / "dtm").mkdir()
     (work / "osm_paths").mkdir()
-    wide = _rect(0, 0, 80, 4)  # široká cesta daleko od silnice
-    narrow = _rect(0, 30, 80, 31.5)  # úzký chodník
-    near = _rect(0, 200, 80, 204)  # široký, ale u silnice
+    wide = _rect(0, 0, 80, 6)  # široká cesta daleko od silnice
+    narrow = _rect(0, 30, 80, 33.5)  # úzký pruh (3,5 m < 0,5 mm v 1:10000) – kreslí ho čára cesty
+    near = _rect(0, 200, 80, 206)  # široký, ale u silnice
     road = _rect(0, 190, 80, 198)
     for name, polys in (("sidewalks.json", [wide, narrow, near]), ("roads.json", [road])):
         (work / "dtm" / name).write_text(
@@ -605,7 +605,7 @@ def test_mtbo_draws_wide_dtm_sidewalks_away_from_roads_and_drops_osm_line_inside
         )
     geom = di.mtbo_sidewalk_geometry(work, 10000, "mixed")
     assert geom is not None
-    assert geom.intersection(ds.dtm_union([wide])).area > 0.9 * 80 * 4
+    assert geom.intersection(ds.dtm_union([wide])).area > 0.9 * 80 * 6
     assert geom.intersection(ds.dtm_union([narrow])).area < 1.0
     assert geom.intersection(ds.dtm_union([near])).area < 1.0
     parts = di.build_dtm_sidewalk_parts(
