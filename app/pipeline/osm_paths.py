@@ -4358,15 +4358,60 @@ def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale
     return feats + extra if extra else feats
 
 
-# Les a MTBO: parkoviště, které z větší části leží pod kresbou silnice (podélné stání, way/1452628243 u Hilmarovy),
-# se kreslí jako součást silnice – samostatná 501.1 by ležela přes čáru 502.x.
+# Les a MTBO: úzký pruh parkoviště, který z větší části leží pod kresbou silnice (podélné stání, way/1452628243
+# u Hilmarovy), se kreslí jako součást silnice – samostatná 501.1 by ležela přes čáru 502.x. Běžné parkoviště
+# (Lidl way/128405208, uvnitř s obslužnou komunikací) zůstává: je široké.
 PARKING_IN_ROAD_SHARE = 0.6
+PARKING_STRIP_MAX_WIDTH_M = 3.5  # šířka pruhu ≈ 2 · plocha / obvod
+PARKING_ROAD_SLACK_M = 1.0  # nepřesnost polohy OSM osy silnice a stání
+
+
+# Les a MTBO: pěší plocha (OSM i DTM) se kreslí plochou jen tam, kde je aspoň tak široká jako kresba silnice 502;
+# užší výběžky (Trnkovo nám., relation/12302035) by se v mapě zužovaly do nečitelného klínu – tam kreslí čára cesty.
+NARROW_WALK_MIN_PIECE_FACTOR = 1.0  # zbylý kus plochy aspoň (šířka 502)² · faktor
+
+
+def open_narrow_walk_areas(feats: list[dict], preset_id: str, scale: int) -> list[dict]:
+    """Pěší plochy (``pedestrian_area``, ne mosty / tunely) bez částí užších než kresba silnice 502 (otevření)."""
+    if preset_id.startswith("sprint"):
+        return feats
+    try:
+        from shapely.geometry import mapping, shape
+    except ImportError:
+        return feats
+    width = drawn_symbol_width_m("road_3", preset_id, scale)
+    r = width / 2.0
+    min_area = NARROW_WALK_MIN_PIECE_FACTOR * width * width
+    out: list[dict] = []
+    for f in feats:
+        props = f.get("properties") or {}
+        geom = f.get("geometry") or {}
+        if (
+            props.get("kind") != "pedestrian_area"
+            or props.get("structure")
+            or geom.get("type") not in ("Polygon", "MultiPolygon")
+        ):
+            out.append(f)
+            continue
+        try:
+            g = shape(geom)
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, TypeError):
+            out.append(f)
+            continue
+        opened = g.buffer(-r, join_style=2).buffer(r, join_style=2).intersection(g)
+        pieces = [opened] if opened.geom_type == "Polygon" else list(getattr(opened, "geoms", []))
+        for piece in pieces:
+            if piece.geom_type == "Polygon" and not piece.is_empty and piece.area >= min_area:
+                out.append({"type": "Feature", "properties": dict(props), "geometry": mapping(piece)})
+    return out
 
 
 def drop_parking_under_road(
     work_dir: Path, feats: list[dict], path_features: list[dict], preset_id: str, scale: int
 ) -> list[dict]:
-    """Bez parkovišť ležících aspoň z ``PARKING_IN_ROAD_SHARE`` plochy v kresbě silnice (les: šířka symbolu podle DTM)."""
+    """Bez úzkých parkovišť (pruh do ``PARKING_STRIP_MAX_WIDTH_M`` m) ležících aspoň z ``PARKING_IN_ROAD_SHARE`` plochy
+    v kresbě silnice (les: šířka symbolu podle DTM) rozšířené o ``PARKING_ROAD_SLACK_M`` m."""
     if preset_id.startswith("sprint") or not any(
         (f.get("properties") or {}).get("kind") == "parking" for f in feats
     ):
@@ -4381,7 +4426,7 @@ def drop_parking_under_road(
 
         road_widths = dtm_width_indexes(work_dir)[0]
     band = sidewalk_road_zone_geometry(
-        path_features, None, preset_id=preset_id, scale=scale, road_widths=road_widths, reach_m=0.0
+        path_features, None, preset_id=preset_id, scale=scale, road_widths=road_widths, reach_m=PARKING_ROAD_SLACK_M
     )
     if band is None or band.is_empty:
         return feats
@@ -4401,6 +4446,8 @@ def drop_parking_under_road(
             if (
                 g is not None
                 and g.area > 0
+                and g.length > 0
+                and 2.0 * g.area / g.length <= PARKING_STRIP_MAX_WIDTH_M
                 and band_p.intersects(g)
                 and g.intersection(band).area >= PARKING_IN_ROAD_SHARE * g.area
             ):
@@ -4425,6 +4472,7 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
         _path_feats = _paths_features_for_network(work_dir)
         if preset_id:
             feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)
+            feats = open_narrow_walk_areas(feats, preset_id, scale)
             feats = drop_parking_under_road(work_dir, feats, _path_feats, preset_id, scale)
         _PAVED_NETWORK_CACHE.clear()
         network = build_paved_network(feats, _path_feats)[1]
@@ -4741,6 +4789,63 @@ def bridge_entrance_edges(
     return edges
 
 
+# Les a MTBO: malé zalomené schody (do „L“, „C“, typicky o patro níž na pár metrech) se nekreslí – v měřítku
+# z nich zbude nečitelný háček. Obdoba ``dtm_sidewalks.is_complex_stairs`` ze sprintu (tam pro schodiště z DTM).
+COMPLEX_STEPS_MAX_EXTENT_M = 15.0
+COMPLEX_STEPS_MIN_SPREAD_M = 2.0
+_STEPS_JOIN_M = 0.5
+
+
+def small_complex_steps(features: list[dict]) -> set[int]:
+    """Indexy prvků OSM schodů (na povrchu), které tvoří malé zalomené schodiště.
+
+    Navazující čáry schodů (konce do ``_STEPS_JOIN_M`` m) tvoří jedno schodiště. Je zalomené, když jeho nejmenší
+    otočený obdélník má kratší stranu aspoň ``COMPLEX_STEPS_MIN_SPREAD_M`` m (rovné schody ~0), a malé, když delší
+    strana nepřesáhne ``COMPLEX_STEPS_MAX_EXTENT_M`` m.
+    """
+    try:
+        from shapely.geometry import LineString, MultiLineString
+    except ImportError:
+        return set()
+    from app.pipeline.dtm_import import is_surface_steps
+
+    idx: list[int] = []
+    for i, feat in enumerate(features):
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if geom.get("type") == "LineString" and len(coords) >= 2 and is_surface_steps(hw):
+            idx.append(i)
+    if not idx:
+        return set()
+    lines = {i: LineString(features[i]["geometry"]["coordinates"]) for i in idx}
+    parent = {i: i for i in idx}
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for n, i in enumerate(idx):
+        for j in idx[n + 1 :]:
+            if lines[i].distance(lines[j]) <= _STEPS_JOIN_M:
+                parent[find(i)] = find(j)
+    groups: dict[int, list[int]] = {}
+    for i in idx:
+        groups.setdefault(find(i), []).append(i)
+    out: set[int] = set()
+    for members in groups.values():
+        rect = MultiLineString([lines[i] for i in members]).minimum_rotated_rectangle
+        if rect.geom_type != "Polygon":
+            continue  # rovná čára
+        pts = list(rect.exterior.coords)
+        sides = sorted(LineString(pts[k : k + 2]).length for k in range(2))
+        if sides[0] >= COMPLEX_STEPS_MIN_SPREAD_M and sides[1] <= COMPLEX_STEPS_MAX_EXTENT_M:
+            out.update(members)
+    return out
+
+
 def build_osm_path_parts(
     work_dir: Path,
     *,
@@ -4870,11 +4975,14 @@ def build_osm_path_parts(
         )
     )
     dedup_bases = sidewalk_dedup_bases(preset_id)
-    for feat in data.get("features") or []:
+    skip_steps = set() if preset_id.startswith("sprint") else small_complex_steps(data.get("features") or [])
+    for feat_i, feat in enumerate(data.get("features") or []):
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
         if geom.get("type") != "LineString" or len(coords) < 2:
             continue
+        if feat_i in skip_steps:
+            continue  # les / MTBO: malé zalomené schody se nekreslí
         hw = str((feat.get("properties") or {}).get("highway") or "path")
         if sidewalks_from_dtm and is_surface_sidewalk(hw):
             continue
@@ -5158,6 +5266,7 @@ def build_osm_feature_parts(
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
         _path_feats = _paths_features_for_network(work_dir)
         feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)  # les: široké pěší plochy z DTM
+        feats = open_narrow_walk_areas(feats, preset_id, scale)  # úzké výběžky pěších ploch kreslí čára
         feats = drop_parking_under_road(work_dir, feats, _path_feats, preset_id, scale)  # podélné stání = silnice
         _road_clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
         feats, _network = build_paved_network(feats, _path_feats)

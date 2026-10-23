@@ -445,3 +445,47 @@ def test_long_tunnel_not_drawn_in_forest(tmp_path):
     assert sum(lengths.values()) == pytest.approx(20, abs=1.0)  # jen krátký podchod
     lengths = _path_lengths(tmp_path, preset="mtbo_10000")
     assert sum(lengths.values()) == pytest.approx(20, abs=1.0)
+
+
+def test_small_complex_steps_not_drawn():
+    feats = [
+        _line([(0, 0), (5, 0)], "steps"),  # „L“ ze dvou ramen 5 + 5 m
+        _line([(5, 0), (5, 5)], "steps"),
+        _line([(50, 0), (50, 3), (54, 3), (54, 0)], "steps"),  # „C“ v jedné čáře
+        _line([(100, 0), (108, 0.3)], "steps"),  # rovné krátké schody zůstávají
+        _line([(200, 0), (220, 0), (220, 10)], "steps"),  # velké zalomené schodiště zůstává
+        _line([(0, 10), (5, 10), (5, 15)], "footway"),
+    ]
+    assert op.small_complex_steps(feats) == {0, 1, 2}
+
+
+def test_small_complex_steps_skipped_outside_sprint(tmp_path):
+    _write_job(tmp_path, [], [_line([(0, 0), (5, 0)], "steps"), _line([(5, 0), (5, 5)], "steps")])
+    assert _path_lengths(tmp_path) == {}
+    assert sum(_path_lengths(tmp_path, "sprint_4000", 4000).values()) > 0
+
+
+def test_wide_parking_with_inner_road_kept(tmp_path):
+    # Lidl (way/128405208): parkoviště s obslužnou komunikací uvnitř leží celé v pásu silnice, ale je široké.
+    feats = [_area(0, -10, 40, 10, "parking")]
+    _write_job(tmp_path, feats, [_road([(-20, 0), (60, 0)], "road_4")])
+    assert op.drop_parking_under_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "forest_10000", 10000) == feats
+
+
+@pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
+def test_narrow_walk_lobe_removed(tmp_path, preset):
+    from shapely.geometry import box, shape
+
+    # Náměstí 40 × 40 m s výběžkem širokým 4 m – výběžek kreslí čára cesty, náměstí zůstává plochou.
+    from shapely.geometry import mapping
+
+    square = box(0, 0, 40, 40).union(box(40, 18, 80, 22))
+    feat = {"type": "Feature", "properties": {"kind": "pedestrian_area"}, "geometry": mapping(square)}
+    out = op.open_narrow_walk_areas([feat], preset, 10000)
+    assert len(out) == 1
+    assert shape(out[0]["geometry"]).bounds[2] == pytest.approx(40, abs=0.5)
+    narrow = {"type": "Feature", "properties": {"kind": "pedestrian_area"}, "geometry": mapping(box(0, 0, 60, 5))}
+    assert op.open_narrow_walk_areas([narrow], preset, 10000) == []
+    assert op.open_narrow_walk_areas([narrow], "sprint_4000", 4000) == [narrow]
+    parking = {"type": "Feature", "properties": {"kind": "parking"}, "geometry": mapping(box(0, 0, 60, 5))}
+    assert op.open_narrow_walk_areas([parking], preset, 10000) == [parking]
