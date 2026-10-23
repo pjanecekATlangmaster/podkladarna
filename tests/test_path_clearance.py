@@ -36,7 +36,7 @@ def _objects(parts):
     return [m.group(0) for p in parts for m in _OBJECT_RE.finditer(p.objects_xml)]
 
 
-def test_building_olive_and_point_move_away_from_road_but_forest_and_tiny_building_stay(tmp_path):
+def test_building_olive_and_point_move_away_from_road_forest_stays(tmp_path):
     work = _work(tmp_path)
     road_half = symbol_width_mm(PRESET, SCALE, "502") / 2 * 10  # m
     building = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "521"), [_to_map(_rect(-30, 2, -10, 20))])
@@ -51,7 +51,37 @@ def test_building_olive_and_point_move_away_from_road_but_forest_and_tiny_buildi
     assert _min_dist_m(b) > road_half + 1.9  # budova: černá kresba → mezera 0,2 mm (2 m)
     assert road_half + 0.4 < _min_dist_m(o) < road_half + 1.5  # oliva: jen minimální odstup
     assert _min_dist_m(p) > road_half + 4.0  # bod: poloměr 0,3 mm + mezera
-    assert t == tiny.strip() and f == forest.strip()  # malá budova by se zmenšila pod minimum; les se nemění
+    assert f == forest.strip()  # les se nemění
+    assert _min_dist_m(t) > road_half + 1.9 and _area(t) == _area(tiny)  # budova se posune celá, tvar zůstane
+    assert _area(b) == _area(building)
+    assert _polygon_of(o).is_valid and _area(o) < _area(olive)  # oliva se ořízne o pás cesty
+
+
+def _polygon_of(xml):
+    from shapely.geometry import Polygon
+
+    pts = _parse_coords(_COORDS_RE.search(xml).group(1))
+    return Polygon([(x, y) for x, y, _f in pts])
+
+
+def _area(xml):
+    return round(_polygon_of(xml).area)
+
+
+def test_building_crossed_by_path_and_wall_pushed_onto_other_path_stay(tmp_path):
+    work = _work(tmp_path)
+    # druhá silnice rovnoběžně 9 m severně: zeď mezi nimi by se odsunula k ní
+    other = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-100, 9], [100, 9]]}}
+    road = json.loads((work / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8"))
+    road["features"].append(other)
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps(road), encoding="utf-8")
+    from app.pipeline.oom_import import _path_object
+
+    wall = _path_object(symbol_index_for_code(PRESET, SCALE, "513"), _to_map([(-40, 3), (40, 3)]))
+    crossed = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "521"), [_to_map(_rect(50, -5, 60, 20))])
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([wall, crossed]), count=2)]
+    w, c = _objects(displace_objects_from_paths(parts, work, **KW))
+    assert w == wall.strip() and c == crossed.strip()
 
 
 def test_sprint_and_map_without_paths_are_unchanged(tmp_path):

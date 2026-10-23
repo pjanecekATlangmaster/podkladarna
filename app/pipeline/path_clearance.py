@@ -2,12 +2,16 @@
 
 Symboly cest jsou v lese a MTBO na mapě širší než cesta v terénu, takže se jimi překrývají
 budovy, oliva, zdi, ploty i bodové objekty kolem. Po sestavení všech objektů (ploty už spojené,
-deduplikované a orientované) se proto body objektů odsunou od os cest tak, aby mezi okrajem
-symbolu cesty a objektem zbyla mezera: od olivy minimální, od objektů s černou kresbou o něco
-větší. Pracuje se v souřadnicích mapy (1 jednotka = 1 µm), šířky symbolů se berou ze sady.
+deduplikované a orientované) se proto objekty odsunou od os cest tak, aby mezi okrajem symbolu
+cesty a objektem zbyla mezera: od olivy minimální, od objektů s černou kresbou o něco větší.
+Pracuje se v souřadnicích mapy (1 jednotka = 1 µm), šířky symbolů se berou ze sady.
 
-Vegetace (les, louka, houštiny …), terén, voda, cesty a zpevněné plochy se nemění. Plocha,
-která by se odsunem zmenšila pod minimální rozměr (nebo o víc než polovinu), zůstane, jak byla.
+- Oliva se ořízne o pás podél cesty (kousky pod minimální šířku se zahodí).
+- Ostatní plochy (budovy …) a body se posunou celé, tvar se nemění.
+- Čáry (zdi, ploty) se odsunou po bodech; nesmí se tím přiblížit k jiné cestě ani výrazně změnit délku.
+
+Objekt, který cestu kříží nebo by se musel posunout víc než ``NONSPRINT_AVOID_MAX_SHIFT_MM``,
+zůstane. Vegetace (les, louka, houštiny …), terén, voda, cesty a zpevněné plochy se nemění.
 Sprint se nemění.
 """
 
@@ -19,7 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.pipeline.oom_coords import projected_to_map_coord
-from app.pipeline.oom_import import MAP_COORD_CLOSE_POINT, MAP_COORD_CURVE_START, OomObjectPart, _fmt
+from app.pipeline.oom_import import MAP_COORD_CLOSE_POINT, MAP_COORD_CURVE_START, MAP_COORD_HOLE_POINT, OomObjectPart, _fmt
 
 # Odsouvané symboly (hlavní číslo kódu v sadě; ISOM 2017 i ISMTBOM 2022 číslují umělé objekty stejně).
 MOVED_MAJORS = frozenset({513, 514, 515, 516, 517, 518, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530, 531})
@@ -29,12 +33,14 @@ OLIVE_GAP_MM = 0.05
 BLACK_GAP_MM = 0.2
 # Bodové objekty: poloměr kresby (mm na mapě).
 POINT_RADIUS_MM = 0.3
-# Plocha musí po odsunu mít aspoň tuto šířku (mm na mapě) a polovinu původní výměry, jinak se nemění.
+# Oliva po ořezu: kousky užší než tato šířka (mm na mapě) se zahodí; zbýt musí aspoň polovina výměry.
 MIN_AREA_WIDTH_MM = 0.4
 MIN_AREA_SHARE = 0.5
-# Zhuštění rovných úseků (mm na mapě) a tolerance pro zahození nepotřebných vložených bodů (µm).
+# Čára smí odsunem změnit délku nejvýš o tento podíl.
+LINE_LENGTH_TOL = 0.2
+# Odsun čar: krok zhuštění (mm na mapě); tolerance (µm).
 DENSIFY_MM = 0.2
-COLLINEAR_TOL = 5.0
+EPS = 5.0
 
 _OBJECT_RE = re.compile(r'(<object type="(\d)" symbol="(-?\d+)"[^>]*>)(.*?)(</object>)', re.S)
 _COORDS_RE = re.compile(r'<coords count="\d+">(.*?)</coords>', re.S)
@@ -95,36 +101,16 @@ class _Paths:
         self.tree = STRtree(self.geoms)
         self.reach = max(self.half) if self.half else 0.0
 
-    def displacement(self, x, y, extra, max_shift, crossings=None):
-        from shapely.geometry import Point
+    def near(self, geom, extra):
+        return [int(k) for k in self.tree.query(geom.buffer(self.reach + extra))]
 
-        pt = Point(x, y)
-        best = None
-        for k in self.tree.query(pt.buffer(self.reach + extra)):
-            k = int(k)
-            need = self.half[k] + extra
-            if crossings and k in crossings and crossings[k].distance(pt) <= need:
-                continue
-            g = self.geoms[k]
-            deficit = need - g.distance(pt)
-            if deficit <= 1e-6 or deficit > max_shift:
-                continue
-            q = g.interpolate(g.project(pt))
-            vx, vy = x - q.x, y - q.y
-            n = math.hypot(vx, vy)
-            if n < 1e-6:
-                continue
-            if best is None or deficit > best[0]:
-                best = (deficit, vx / n * deficit, vy / n * deficit)
-        return (best[1], best[2]) if best else (0.0, 0.0)
+    def min_dist(self, geom, ks) -> float:
+        return min((self.geoms[k].distance(geom) for k in ks), default=math.inf)
 
-    def crossings(self, geom):
-        out = {}
-        for k in self.tree.query(geom):
-            hit = geom.intersection(self.geoms[int(k)])
-            if not hit.is_empty:
-                out[int(k)] = hit
-        return out
+    def corridor(self, ks, extra):
+        from shapely.ops import unary_union
+
+        return unary_union([self.geoms[k].buffer(self.half[k] + extra, cap_style="flat") for k in ks])
 
 
 def _rings(pts: list[list[int]]) -> list[list[list[int]]]:
@@ -139,76 +125,137 @@ def _rings(pts: list[list[int]]) -> list[list[list[int]]]:
     return rings
 
 
-def _move_ring(ring, paths: _Paths, extra, max_shift, step):
-    """Body prstence / linie odsunuté od cest (rovné úseky zhuštěné); vložené body navíc se zahodí."""
-    from shapely.geometry import LineString
-
-    curved = any(p[2] & MAP_COORD_CURVE_START for p in ring)
-    dense: list[tuple[list[int], bool]] = []  # (bod, vložený)
-    for i, p in enumerate(ring):
-        dense.append((p, False))
-        if curved or i + 1 >= len(ring):
+def _flatten(ring: list[list[int]], steps: int = 8) -> list[tuple[float, float]]:
+    """Body prstence s Bézierovými úseky převedenými na lomenou čáru."""
+    out: list[tuple[float, float]] = []
+    i = 0
+    while i < len(ring):
+        p = ring[i]
+        out.append((p[0], p[1]))
+        if p[2] & MAP_COORD_CURVE_START and i + 3 < len(ring):
+            c1, c2, q = ring[i + 1], ring[i + 2], ring[i + 3]
+            for j in range(1, steps):
+                t = j / steps
+                a, b, c, d = (1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t**3
+                out.append((a * p[0] + b * c1[0] + c * c2[0] + d * q[0], a * p[1] + b * c1[1] + c * c2[1] + d * q[1]))
+            i += 3
             continue
-        q = ring[i + 1]
-        n = int(math.hypot(q[0] - p[0], q[1] - p[1]) // step)
-        for j in range(1, n + 1):
-            t = j / (n + 1)
-            dense.append(([round(p[0] + (q[0] - p[0]) * t), round(p[1] + (q[1] - p[1]) * t), 0], True))
-    geom = LineString([(p[0], p[1]) for p, _ins in dense]) if len(dense) >= 2 else None
-    crossings = paths.crossings(geom) if geom is not None else None
-    moved = []
-    changed = False
-    for p, ins in dense:
-        dx, dy = paths.displacement(p[0], p[1], extra, max_shift, crossings)
-        if dx or dy:
-            changed = True
-        moved.append(([round(p[0] + dx), round(p[1] + dy), p[2]], ins))
-    if not changed:
-        return ring, False
-    keep = [moved[0]]
-    for i in range(1, len(moved) - 1):
-        p, ins = moved[i]
-        if ins:
-            a, b = keep[-1][0], moved[i + 1][0]
-            if _dist_to_segment(p, a, b) <= COLLINEAR_TOL:
-                continue
-        keep.append(moved[i])
-    if len(moved) > 1:
-        keep.append(moved[-1])
-    return [p for p, _ins in keep], True
-
-
-def _dist_to_segment(p, a, b) -> float:
-    ax, ay, bx, by = a[0], a[1], b[0], b[1]
-    dx, dy = bx - ax, by - ay
-    L = dx * dx + dy * dy
-    if L <= 0:
-        return math.hypot(p[0] - ax, p[1] - ay)
-    t = max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / L))
-    return math.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy)
+        i += 1
+    return out
 
 
 def _polygon(rings):
     from shapely.geometry import Polygon
 
     try:
-        shell = [(p[0], p[1]) for p in rings[0]]
-        holes = [[(p[0], p[1]) for p in r] for r in rings[1:] if len(r) >= 3]
-        poly = Polygon(shell, holes)
+        flat = [_flatten(r) for r in rings]
+        poly = Polygon(flat[0], [r for r in flat[1:] if len(r) >= 3])
         return poly if poly.is_valid else poly.buffer(0)
     except (ValueError, IndexError):
         return None
 
 
-def _area_ok(old_rings, new_rings, min_half) -> bool:
-    old, new = _polygon(old_rings), _polygon(new_rings)
-    if old is None or new is None or new.is_empty or old.area <= 0:
-        return False
-    if new.area < MIN_AREA_SHARE * old.area:
-        return False
-    if not old.buffer(-min_half).is_empty and new.buffer(-min_half).is_empty:
-        return False
-    return True
+def _ring_coords(coords) -> list[list[int]]:
+    pts = [[round(x), round(y), 0] for x, y in coords]
+    if len(pts) >= 2 and pts[0][:2] != pts[-1][:2]:
+        pts.append([pts[0][0], pts[0][1], 0])
+    pts[-1][2] = MAP_COORD_CLOSE_POINT | MAP_COORD_HOLE_POINT
+    return pts
+
+
+def _clip_olive(pts, paths: _Paths, extra, min_half):
+    """Olivu ořízne o pás podél cest → seznam ploch (body), None = beze změny."""
+    from shapely.geometry import Polygon
+
+    poly = _polygon(_rings(pts))
+    if poly is None or poly.is_empty:
+        return None
+    ks = paths.near(poly, extra)
+    if not ks:
+        return None
+    new = poly.difference(paths.corridor(ks, extra))
+    if new.area >= poly.area - 1.0:
+        return None
+    pieces = [g for g in getattr(new, "geoms", [new]) if isinstance(g, Polygon) and not g.is_empty]
+    pieces = [g for g in pieces if not g.buffer(-min_half).is_empty]
+    if not pieces or sum(g.area for g in pieces) < MIN_AREA_SHARE * poly.area:
+        return None
+    return [
+        [p for ring in [g.exterior, *g.interiors] for p in _ring_coords(ring.coords)]
+        for g in (g.simplify(EPS) for g in pieces)
+        if not g.is_empty and isinstance(g, Polygon)
+    ]
+
+
+def _shift_vector(geom, paths: _Paths, extra, max_shift):
+    """Posun celého objektu od cest (dx, dy), None = beze změny (kříží cestu, nevejde se, moc daleko)."""
+    from shapely.affinity import translate
+    from shapely.ops import nearest_points
+
+    ks = paths.near(geom, extra)
+    if not ks:
+        return None
+    before = {k: paths.geoms[k].distance(geom) for k in ks}
+    if min(before.values()) <= EPS:
+        return None  # dotýká se osy / kříží ji (cesta k budově, do areálu …)
+    tx = ty = 0.0
+    g = geom
+    for _ in range(4):
+        worst = None
+        for k in ks:
+            d = paths.geoms[k].distance(g)
+            deficit = paths.half[k] + extra - d
+            if deficit > EPS and (worst is None or deficit > worst[0]):
+                a, b = nearest_points(g, paths.geoms[k])
+                n = math.hypot(a.x - b.x, a.y - b.y)
+                if n > 1e-6:
+                    worst = (deficit, (a.x - b.x) / n, (a.y - b.y) / n)
+        if worst is None:
+            break
+        tx += worst[1] * (worst[0] + 1.0)
+        ty += worst[2] * (worst[0] + 1.0)
+        g = translate(geom, tx, ty)
+    if (tx == 0 and ty == 0) or math.hypot(tx, ty) > max_shift:
+        return None
+    # Nikam se nesmí přiblížit víc než předtím (a do pásu jiné cesty).
+    for k in paths.near(g, extra):
+        need = paths.half[k] + extra
+        d = paths.geoms[k].distance(g)
+        if d + EPS < min(before.get(k, math.inf), need):
+            return None
+    return tx, ty
+
+
+def _move_line(pts, paths: _Paths, extra, max_shift, step):
+    """Odsune čáru po bodech (``avoid_paths``); None = beze změny / odsun by čáru zhoršil."""
+    from shapely.geometry import LineString
+
+    from app.pipeline import dtm_fences
+
+    if any(p[2] & MAP_COORD_CURVE_START for p in pts) or any(p[2] for p in pts[:-1]):
+        return None  # křivky / značené body (zlomy čárkování) se nechají
+    line = LineString([(p[0], p[1]) for p in pts])
+    ks = paths.near(line, extra)
+    if not ks:
+        return None
+    axes = [(list(paths.geoms[k].coords), paths.half[k] + extra) for k in ks]
+    moved = dtm_fences.avoid_paths([("", [(p[0], p[1]) for p in pts])], axes, max_shift=max_shift, step=step, keep_crossings=True)
+    coords = moved[0][1]
+    if len(coords) < 2:
+        return None
+    new = LineString(coords)
+    if new.equals_exact(line, EPS):
+        return None
+    if abs(new.length - line.length) > LINE_LENGTH_TOL * line.length:
+        return None
+    # Čára se nesmí dostat blíž k žádné cestě než předtím (zeď odsunutá na jinou cestu).
+    for k in paths.near(new, extra):
+        need = paths.half[k] + extra
+        if paths.geoms[k].distance(new) + EPS < min(paths.geoms[k].distance(line), need):
+            return None
+    out = [[round(x), round(y), 0] for x, y in coords]
+    out[-1][2] = pts[-1][2]
+    return out
 
 
 def displace_objects_from_paths(
@@ -252,6 +299,8 @@ def displace_objects_from_paths(
     min_half = MIN_AREA_WIDTH_MM * 1000.0 / 2.0
 
     def move_object(match: re.Match) -> str:
+        from shapely.geometry import Point
+
         head, otype, sym, body, tail = match.groups()
         major, kind = info.get(int(sym), (0, "other"))
         if major not in MOVED_MAJORS:
@@ -263,38 +312,44 @@ def displace_objects_from_paths(
         if not pts:
             return match.group(0)
         gap = (OLIVE_GAP_MM if major == OLIVE_MAJOR else BLACK_GAP_MM) * 1000.0
+
+        def rebuilt(new_pts):
+            return head + body[: cm.start()] + _format_coords(new_pts) + body[cm.end() :] + tail
+
         try:
             if otype == "0" or kind == "point":
                 if len(pts) != 1:
                     return match.group(0)
-                dx, dy = paths.displacement(pts[0][0], pts[0][1], POINT_RADIUS_MM * 1000.0 + gap, max_shift)
-                if not (dx or dy):
+                v = _shift_vector(Point(pts[0][0], pts[0][1]), paths, POINT_RADIUS_MM * 1000.0 + gap, max_shift)
+                if v is None:
                     return match.group(0)
-                new = [[round(pts[0][0] + dx), round(pts[0][1] + dy), pts[0][2]]]
-            elif otype == "1":
-                half = widths.get(int(sym), 0.0) * 1000.0 / 2.0
-                extra = half + gap
-                rings = _rings(pts) if kind == "area" else [pts]
-                new_rings, changed = [], False
-                for ring in rings:
-                    r, ch = _move_ring(ring, paths, extra, max_shift, step)
-                    new_rings.append(r)
-                    changed = changed or ch
-                if not changed:
-                    return match.group(0)
-                if kind == "area" and not _area_ok(rings, new_rings, min_half):
-                    return match.group(0)
-                if kind != "area" and len(new_rings[0]) < 2:
-                    return match.group(0)
-                new = [p for r in new_rings for p in r]
-            else:
+                return rebuilt([[round(pts[0][0] + v[0]), round(pts[0][1] + v[1]), pts[0][2]]])
+            if otype != "1":
                 return match.group(0)
+            extra = widths.get(int(sym), 0.0) * 1000.0 / 2.0 + gap
+            if kind == "area" and major == OLIVE_MAJOR:
+                pieces = _clip_olive(pts, paths, extra, min_half)
+                if pieces is None:
+                    return match.group(0)
+                return "\n".join(rebuilt(p) for p in pieces)
+            if kind == "area":
+                poly = _polygon(_rings(pts))
+                if poly is None or poly.is_empty:
+                    return match.group(0)
+                v = _shift_vector(poly, paths, extra, max_shift)
+                if v is None:
+                    return match.group(0)
+                return rebuilt([[round(x + v[0]), round(y + v[1]), f] for x, y, f in pts])
+            new = _move_line(pts, paths, extra, max_shift, step)
+            return match.group(0) if new is None else rebuilt(new)
         except Exception:  # jeden objekt se nepovede → zůstane, jak byl
             return match.group(0)
-        return head + body[: cm.start()] + _format_coords(new) + body[cm.end() :] + tail
 
     out = []
     for part in parts:
         xml = _OBJECT_RE.sub(move_object, part.objects_xml)
-        out.append(part if xml == part.objects_xml else OomObjectPart(name=part.name, objects_xml=xml, count=part.count))
+        if xml == part.objects_xml:
+            out.append(part)
+        else:
+            out.append(OomObjectPart(name=part.name, objects_xml=xml, count=len(_OBJECT_RE.findall(xml))))
     return out
