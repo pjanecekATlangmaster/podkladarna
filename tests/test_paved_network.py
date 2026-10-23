@@ -147,6 +147,17 @@ def test_feature_parts_draw_merged_network(tmp_path, preset):
         assert sum(cnt.values()) == 1
 
 
+@pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
+def test_street_side_parking_drawn_as_road(tmp_path, preset):
+    # Hilmarova (way/1452628243): podélné stání 2–4,5 m od osy silnice leží pod její kresbou – kreslí se jen silnice.
+    feats = [_area(0, 2, 40, 4.5, "parking"), _area(0, 15, 40, 40, "parking")]
+    _write_job(tmp_path, feats, [_road([(-20, 0), (60, 0)], "road_3")])
+    kept = op.drop_parking_under_road(tmp_path, feats, op._paths_features_for_network(tmp_path), preset, 10000)
+    assert kept == [feats[1]]
+    assert op.drop_parking_under_road(tmp_path, feats, [], preset, 10000) == feats
+    assert op.drop_parking_under_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "sprint_4000", 4000) == feats
+
+
 def _line(coords, hw):
     return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": coords}}
 

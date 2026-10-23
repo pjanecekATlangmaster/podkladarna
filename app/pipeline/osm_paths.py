@@ -4358,12 +4358,63 @@ def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale
     return feats + extra if extra else feats
 
 
+# Les a MTBO: parkoviště, které z větší části leží pod kresbou silnice (podélné stání, way/1452628243 u Hilmarovy),
+# se kreslí jako součást silnice – samostatná 501.1 by ležela přes čáru 502.x.
+PARKING_IN_ROAD_SHARE = 0.6
+
+
+def drop_parking_under_road(
+    work_dir: Path, feats: list[dict], path_features: list[dict], preset_id: str, scale: int
+) -> list[dict]:
+    """Bez parkovišť ležících aspoň z ``PARKING_IN_ROAD_SHARE`` plochy v kresbě silnice (les: šířka symbolu podle DTM)."""
+    if preset_id.startswith("sprint") or not any(
+        (f.get("properties") or {}).get("kind") == "parking" for f in feats
+    ):
+        return feats
+    try:
+        from shapely.geometry import shape
+    except ImportError:
+        return feats
+    road_widths = None
+    if uses_dtm_widths(preset_id):
+        from app.pipeline.dtm_widths import dtm_width_indexes
+
+        road_widths = dtm_width_indexes(work_dir)[0]
+    band = sidewalk_road_zone_geometry(
+        path_features, None, preset_id=preset_id, scale=scale, road_widths=road_widths, reach_m=0.0
+    )
+    if band is None or band.is_empty:
+        return feats
+    from shapely.prepared import prep
+
+    band_p = prep(band)
+    out = []
+    for f in feats:
+        props = f.get("properties") or {}
+        geom = f.get("geometry") or {}
+        if props.get("kind") == "parking" and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+            except (ValueError, TypeError):
+                g = None
+            if (
+                g is not None
+                and g.area > 0
+                and band_p.intersects(g)
+                and g.intersection(band).area >= PARKING_IN_ROAD_SHARE * g.area
+            ):
+                continue
+        out.append(f)
+    return out
+
+
 def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -> tuple:
     gj = work_dir / "osm_paths" / "features.geojson"
     if not gj.is_file():
         return None, None
     try:
-        key = (str(gj), gj.stat().st_mtime_ns, uses_dtm_widths(preset_id) if preset_id else False, scale)
+        key = (str(gj), gj.stat().st_mtime_ns, preset_id, scale)
     except OSError:
         return None, None
     if key not in _PAVED_NETWORK_CACHE:
@@ -4371,10 +4422,12 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
             feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
         except (OSError, ValueError):
             feats = []
+        _path_feats = _paths_features_for_network(work_dir)
         if preset_id:
             feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)
+            feats = drop_parking_under_road(work_dir, feats, _path_feats, preset_id, scale)
         _PAVED_NETWORK_CACHE.clear()
-        network = build_paved_network(feats, _paths_features_for_network(work_dir))[1]
+        network = build_paved_network(feats, _path_feats)[1]
         _PAVED_NETWORK_CACHE[key] = (network, road_clip_geometry(feats))
     return _PAVED_NETWORK_CACHE[key]
 
@@ -4456,20 +4509,25 @@ def sidewalk_road_zone_geometry(
     scale: int,
     sidewalk_highway: str = "sidewalk",
     road_widths=None,
+    reach_m: float | None = None,
 ):
     """Les / MTBO: pás, ve kterém by chodník splynul se silnicí nebo okrajem zpevněné plochy (shapely nebo None).
 
     Šířka podle skutečných symbolů: půlka kresby silnice (okraje plochy) + půlka kresby chodníku
     + ``LINE_MIN_GAP_MM``; v metrech podle měřítka. Nahrazuje pevných ``SIDEWALK_ROAD_NEAR_M`` m.
     ``road_widths`` (les, ``dtm_widths.WidthIndex``): silnice má šířku symbolu zvoleného podle DTM
-    (silnice přepnutá na 502.1 dostane širší pás).
+    (silnice přepnutá na 502.1 dostane širší pás). ``reach_m`` místo půlky chodníku a mezery (0 = jen kresba silnice).
     """
     try:
         from shapely.geometry import LineString
         from shapely.ops import unary_union
     except ImportError:
         return None
-    reach = drawn_symbol_width_m(sidewalk_highway, preset_id, scale) / 2.0 + mm_to_ground_m(LINE_MIN_GAP_MM, scale)
+    reach = (
+        reach_m
+        if reach_m is not None
+        else drawn_symbol_width_m(sidewalk_highway, preset_id, scale) / 2.0 + mm_to_ground_m(LINE_MIN_GAP_MM, scale)
+    )
     widths: dict[str, float] = {}
     parts = []
     for feat in features:
@@ -5100,6 +5158,7 @@ def build_osm_feature_parts(
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
         _path_feats = _paths_features_for_network(work_dir)
         feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)  # les: široké pěší plochy z DTM
+        feats = drop_parking_under_road(work_dir, feats, _path_feats, preset_id, scale)  # podélné stání = silnice
         _road_clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
         feats, _network = build_paved_network(feats, _path_feats)
         if not preset_id.startswith("mtbo"):
