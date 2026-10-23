@@ -1226,6 +1226,19 @@ def build_zabaged_object_parts(
                         for pts in line_parts:
                             wider_paths.add_line(pts)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif (
+                    dtm_cover is not None
+                    and not preset_id.startswith("sprint")
+                    and layer_name in _DTM_CLIPPED_PATH_LAYERS
+                ):
+                    # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
+                    # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
+                    if not line_parts:
+                        continue
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif rail_tunnel_zone is not None and layer_name in ZABAGED_RAIL_LAYERS:
                     # Les / MTBO: trať v tunelu (OSM tunnel / layer < 0) se nekreslí, jen vjezd.
                     from app.pipeline.dtm_sidewalks import clip_outside
@@ -1324,6 +1337,19 @@ def build_zabaged_object_parts(
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
                 ):
+                    if not line_parts:
+                        continue
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif (
+                    dtm_cover is not None
+                    and not preset_id.startswith("sprint")
+                    and layer_name in _DTM_CLIPPED_PATH_LAYERS
+                ):
+                    # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
+                    # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":

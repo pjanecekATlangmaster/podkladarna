@@ -626,3 +626,53 @@ def test_osm_priority_area_geometries_by_kind(tmp_path):
     assert set(got) == {"VodniPlocha", "ParkovisteOdpocivka"}
     assert abs(got["VodniPlocha"].area - 100.0) < 1e-9
     assert op.osm_priority_area_geometries(tmp_path / "neni") == {}
+
+
+def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
+    """Les (mixed): ZABAGED Ulice se ořízne o kresbu OSM silnice (``dtm_cover``); sprint beze změny."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+    import zipfile
+
+    import numpy as np
+    import pyogrio.raw as pr
+    from shapely.geometry import LineString, box
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    arr = np.array([LineString([(x0, y0), (x0 + 300, y0)]).wkb], dtype=object)
+    pr.write(
+        str(tmp_path / "Ulice.shp"),
+        geometry=arr,
+        field_data=[],
+        fields=[],
+        geometry_type="LineString",
+        crs="EPSG:5514",
+        driver="ESRI Shapefile",
+    )
+    z = tmp_path / "z.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in tmp_path.iterdir():
+            if f.suffix in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                zf.write(f, f.name)
+    band = box(x0 + 100, y0 - 6, x0 + 200, y0 + 6)  # OSM silnice přes prostřední třetinu
+
+    def count(preset, scale, cover):
+        parts = build_zabaged_object_parts(
+            z,
+            vectorconf_name="zabaged.txt",
+            preset_id=preset,
+            scale=scale,
+            ref_x=x0,
+            ref_y=y0,
+            grivation_deg=0.0,
+            work_dir=Path(tempfile.mkdtemp()),
+            dtm_cover=cover,
+        )
+        return sum(p.count for p in parts if "Ulice" in p.name)
+
+    assert count("forest_10000", 10000, None) == 1
+    assert count("forest_10000", 10000, band) == 2
+    assert count("sprint_4000", 4000, band) == 1
