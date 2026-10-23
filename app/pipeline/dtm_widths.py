@@ -15,7 +15,7 @@ import math
 import statistics
 from pathlib import Path
 
-ROAD_502_1_MIN_M = 7.0
+ROAD_502_1_MIN_M = 9.0  # Praha 5: od 7 m vycházelo 502.1 dvakrát víc než na masteru
 ROAD_502_MIN_M = 5.0
 WALK_505_MIN_M = 2.5
 # Pěší plocha z DTM užší než tolik mm mapy se nekreslí plochou (zůstane čára 505 / 506).

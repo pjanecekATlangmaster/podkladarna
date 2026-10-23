@@ -371,7 +371,8 @@ def test_dtm_width_index_measures_strip():
 def test_width_line_code_rules():
     from app.pipeline.dtm_widths import width_line_code
 
-    assert width_line_code("road_2", 8.0, "503") == "502.1"
+    assert width_line_code("road_2", 10.0, "503") == "502.1"
+    assert width_line_code("road_2", 8.0, "503") == "502"
     assert width_line_code("road_2", 6.0, "503") == "502"
     assert width_line_code("road_2", 4.0, "503") == "503"
     assert width_line_code("road_2", None, "503") == "503"
@@ -388,7 +389,7 @@ def test_forest_symbols_from_dtm_width(tmp_path, monkeypatch):
     _write_dtm(tmp_path, "roads.json", [(-5, -3, 205, 3)])
     _write_dtm(tmp_path, "sidewalks.json", [(-5, 48.5, 205, 51.5)])
     lengths = _path_lengths(tmp_path)
-    assert lengths["502.2"] == pytest.approx(200, abs=1.0)  # generátor 502 = v sadě 502.2 (5–7 m)
+    assert lengths["502.2"] == pytest.approx(200, abs=1.0)  # generátor 502 = v sadě 502.2 (5–9 m)
     assert lengths["505.0"] == pytest.approx(200, abs=1.0)
 
 
