@@ -810,3 +810,26 @@ def test_mixed_restores_osm_roads_dropped_against_zabaged(tmp_path):
     shutil.copy(tmp_path / "osm_paths" / "paths_mixed.geojson", tmp_path / "osm_paths" / "paths.geojson")
     assert len(op.load_osm_path_lines(tmp_path)) == 1
     assert len(op.load_osm_path_lines(tmp_path, corridor_lines=True)) == 2  # + OSM ulice: ZABAGED Ulice pod ní ustoupí
+
+
+def test_mixed_restored_roads_dedup_parallel(tmp_path):
+    # Vrácené OSM silnice mezi sebou: souběžná service 3 m vedle primary (50.03286, 14.38235) se nevrací.
+    import json
+
+    primary = _road([(0, 0), (200, 0)], "road_4")
+    service = _road([(0, 3), (200, 3)], "road_1")
+    _write_job(tmp_path, [], [])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [primary, service]}), encoding="utf-8"
+    )
+    assert [f["properties"]["highway"] for f in op.mixed_osm_roads_missing(tmp_path)] == ["road_4"]
+
+
+def test_path_extension_not_across_other_line(tmp_path):
+    # Prodloužení k silnici, které by křížilo jinou kreslenou cestu (ponechaný chodník, schody), se nedělá.
+    road = _road([(-100, 0), (100, 0)], "road_3")
+    sidewalk = _line([(-100, 7), (100, 7)], "sidewalk")
+    path = _line([(0, 7), (0, 40)], "footway")
+    cross = _line([(-20, 5.5), (20, 5.5)], "steps")
+    _write_job(tmp_path, [], [road, sidewalk, path, cross])
+    assert _path_lengths(tmp_path).get("506.0", 0) == pytest.approx(33, abs=0.5)

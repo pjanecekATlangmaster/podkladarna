@@ -659,7 +659,7 @@ def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
                 zf.write(f, f.name)
     band = box(x0 + 100, y0 - 6, x0 + 200, y0 + 6)  # OSM silnice přes prostřední třetinu
 
-    def count(preset, scale, cover, osm=None):
+    def count(preset, scale, cover, osm=None, roads=None):
         parts = build_zabaged_object_parts(
             z,
             vectorconf_name="zabaged.txt",
@@ -671,6 +671,7 @@ def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
             work_dir=Path(tempfile.mkdtemp()),
             dtm_cover=cover,
             prefer_osm_path_lines=osm,
+            prefer_osm_road_lines=roads,
         )
         return sum(p.count for p in parts if "Ulice" in p.name)
 
@@ -681,6 +682,9 @@ def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
     osm = [[(x0, y0 + 2), (x0 + 300, y0 + 2)]]
     assert count("forest_10000", 10000, None, osm) == 0
     assert count("sprint_4000", 4000, None, osm) == 1
+    # OSM chodník vedle ulice (sám se nekreslí) ulici nenahradí: dedup ulic jen proti OSM silnicím (50.02916, 14.36073).
+    assert count("forest_10000", 10000, None, osm, roads=[]) == 1
+    assert count("forest_10000", 10000, None, osm, roads=osm) == 0
 
 
 def _zabaged_line_zip(tmp_path, layer, lines):

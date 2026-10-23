@@ -5359,6 +5359,36 @@ def mixed_osm_roads_missing(work_dir: Path) -> list[dict]:
             and centerline_cover_fraction([(float(x), float(y)) for x, y, *_ in coords], index, match_m=MATCH_M) < COVER_DROP
         ):
             out.append(f)
+    if len(out) < 2:
+        return out
+    # Vrácené silnice mezi sebou: souběžné jízdní pásy / service podél hlavní (50.03286, 14.38235) jako v mixed
+    # (``dedup_osm_prefer_wider``), jinak by se kresby 502.1 překrývaly.
+    items = [
+        ([(float(x), float(y)) for x, y, *_ in f["geometry"]["coordinates"]], str((f.get("properties") or {}).get("highway") or ""))
+        for f in out
+    ]
+    kept, _dropped = dedup_osm_prefer_wider(items)
+    keep = {tuple(tuple(round(v, 2) for v in c) for c in pts) for pts, _hw in kept}
+    return [f for f in out if _key(f) in keep]
+
+
+def load_osm_road_lines(work_dir: Path) -> list[list[tuple[float, float]]]:
+    """Les / MTBO (mixed): kreslené OSM silnice (``road_*`` z ``paths.geojson`` + ``mixed_osm_roads_missing``).
+
+    ZABAGED Ulice / SilniceDalnice se dedupují jen proti nim, ne proti OSM chodníku vedle ulice (ten se často
+    sám nekreslí – dedup u silnice – a ulice by zmizela úplně, 50.02916, 14.36073).
+    """
+    try:
+        feats = json.loads((work_dir / "osm_paths" / "paths.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        feats = []
+    out: list[list[tuple[float, float]]] = []
+    for f in feats + mixed_osm_roads_missing(work_dir):
+        geom = f.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((f.get("properties") or {}).get("highway") or "")
+        if geom.get("type") == "LineString" and len(coords) >= 2 and path_draw_highway(hw).startswith("road_"):
+            out.append([(float(x), float(y)) for x, y, *_ in coords])
     return out
 
 
@@ -5422,6 +5452,8 @@ def join_line_pieces(pieces: list[list[tuple[float, float]]]) -> list[list[tuple
 SIDEWALK_END_EXTEND_M = 10.0
 # Konec cesty do této vzdálenosti od zahozeného chodníku se pokládá za napojený na něj.
 SIDEWALK_END_NEAR_M = 1.0
+# Začátek prodloužení se při kontrole křížení vynechá (v uzlu na konci cesty se potkávají i jiné čáry).
+SIDEWALK_END_JOIN_M = 0.3
 
 
 def dropped_sidewalk_geometry(features: list[dict], road_zone, bike_zone, bases: frozenset[str]):
@@ -5465,10 +5497,12 @@ def extend_ends_to_road_band(
     *,
     near_m: float = SIDEWALK_END_NEAR_M,
     max_m: float = SIDEWALK_END_EXTEND_M,
+    others=None,
 ) -> list[tuple[float, float]]:
     """Konec čáry do ``near_m`` od zahozeného chodníku prodlouží ve směru posledního úseku na okraj kresby silnice.
 
     Nejvýš o ``max_m``; když prodloužení na ``band`` nenarazí (nebo konec už leží v ní), čára zůstane beze změny.
+    ``others`` (shapely, prepared): ostatní kreslené čáry; prodloužení, které by některou křížilo, se nedělá.
     """
     if dropped is None or band is None or len(line) < 2:
         return line
@@ -5495,6 +5529,12 @@ def extend_ends_to_road_band(
         if hit.is_empty:
             continue
         nx, ny = nearest_points(hit, end)[0].coords[0][:2]
+        ext_len = math.hypot(nx - ex, ny - ey)
+        if others is not None and ext_len > SIDEWALK_END_JOIN_M:
+            f = SIDEWALK_END_JOIN_M / ext_len
+            probe = LineString([(ex + (nx - ex) * f, ey + (ny - ey) * f), (nx, ny)])
+            if others.intersects(probe):
+                continue  # přes ponechaný chodník / schody / jinou cestu se neprodlužuje
         seq = seq + [(float(nx), float(ny))]
         out = seq[::-1] if at_start else seq
     return out
@@ -5702,7 +5742,7 @@ def build_osm_path_parts(
     # Les / MTBO: cesta, která končila na zahozeném chodníku, se prodlouží na okraj kresby silnice
     # (jinak by končila „ve vzduchu“ pár metrů od silnice).
     dropped_sidewalks, dropped_owners = (None, set())
-    road_band = None
+    road_band = other_lines = None
     if road_zone is not None:
         dropped_sidewalks, dropped_owners = dropped_sidewalk_geometry(
             data.get("features") or [], road_zone, bike_zone, dedup_bases
@@ -5716,6 +5756,18 @@ def build_osm_path_parts(
                 if not is_bridge_highway(rhw) and not is_tunnel_highway(rhw)
             ]
             road_band = _uu_band(_bands) if _bands else None
+            from shapely.geometry import LineString as _LS_other
+            from shapely.prepared import prep as _prep_other
+
+            _other = [
+                _LS_other(f["geometry"]["coordinates"])
+                for i, f in enumerate(data.get("features") or [])
+                if i not in dropped_owners
+                and (f.get("geometry") or {}).get("type") == "LineString"
+                and len(f["geometry"].get("coordinates") or []) >= 2
+                and not path_draw_highway(str((f.get("properties") or {}).get("highway") or "")).startswith("road_")
+            ]
+            other_lines = _prep_other(_uu_band(_other)) if _other else None
     # Les / MTBO: navazující kusy se stejným symbolem (úseky OSM, krátké schody převedené na pěšinu) jako jedna čára.
     join_pieces: dict[int, list] | None = None if preset_id.startswith("sprint") else {}
     for feat_i, feat in enumerate(data.get("features") or []):
@@ -5790,7 +5842,7 @@ def build_osm_path_parts(
             and not is_bridge_highway(hw)
             and not is_tunnel_highway(hw)
         ):
-            line = extend_ends_to_road_band(line, dropped_sidewalks, road_band)
+            line = extend_ends_to_road_band(line, dropped_sidewalks, road_band, others=other_lines)
         lines = [line]
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian", "cycleway_paved"}:
             # Pěšina / zpevněná cyklostezka uvnitř plochy chodníku nebo silnice z DTM by se kreslila dvakrát

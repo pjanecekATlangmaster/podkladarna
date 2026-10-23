@@ -741,8 +741,13 @@ def prepare_oom_map(
     zabaged_rest: list[OomObjectPart] = []
     courtyard_parts: list[OomObjectPart] = []
     prefer_osm_paths: list[list[tuple[float, float]]] = []
+    prefer_osm_roads: list[list[tuple[float, float]]] | None = None
     if path_source == PATH_SOURCE_MIXED:
         prefer_osm_paths = load_osm_path_lines(kp_cwd, corridor_lines=not preset_id.startswith("sprint"))
+        if not preset_id.startswith("sprint"):
+            from app.pipeline.osm_paths import load_osm_road_lines
+
+            prefer_osm_roads = load_osm_road_lines(kp_cwd)
     if zabaged_clean and zabaged_clean.is_file():
         omit = set(ZABAGED_OMIT_BUILDING_LAYERS)
         if osm_features_have_power_lines(kp_cwd):
@@ -795,6 +800,7 @@ def prepare_oom_map(
             clip_bounds=vector_clip_bounds,
             courtyard_olive=False,  # výplň dvorů z OSM budov
             prefer_osm_path_lines=prefer_osm_paths or None,
+            prefer_osm_road_lines=prefer_osm_roads,
             omit_path_layers=path_source == PATH_SOURCE_OSM,
             omit_layers=omit,
             max_ostatni_m2=max_ostatni_m2,
