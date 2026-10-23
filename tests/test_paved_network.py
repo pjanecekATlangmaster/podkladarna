@@ -681,3 +681,20 @@ def test_network_polygons_valid_after_map_rounding():
             holes = [[(round(x * 100), round(y * 100)) for x, y in h.coords] for h in g.interiors]
             rounded = Polygon(ext, holes)
             assert rounded.is_valid and rounded.exterior.is_simple
+
+
+def test_mixed_uses_osm_roads_for_dedup_and_road_band(tmp_path):
+    # mixed: ulice kreslí ZABAGED, v paths_mixed nejsou – dedup chodníků a konec cest u 502 bere silnice z paths_osm.
+    import json
+
+    road = _road([(-60, 0), (60, 0)], "road_3")
+    crossing = _line([(0, -40), (0, 40)], "footway")
+    sidewalk = _line([(-50, 6), (50, 6)], "sidewalk")
+    _write_job(tmp_path, [], [crossing, sidewalk])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [road, crossing, sidewalk]}), encoding="utf-8"
+    )
+    lengths = _path_lengths(tmp_path)
+    half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+    assert "502.2" not in lengths  # silnici kreslí ZABAGED
+    assert sum(lengths.values()) == pytest.approx(80 - 2 * half, abs=0.5)  # chodník zahozen, pěšina končí u 502

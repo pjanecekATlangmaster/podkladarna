@@ -4983,11 +4983,19 @@ SERVICE_LINK_END_FREE_M = 3.0  # konce (vjezd do garáže pod budovou) se na mí
 
 
 def service_link_indexes(
-    features: list[dict], paved, buildings, *, preset_id: str, scale: int, to_buildings: bool = True
+    features: list[dict],
+    paved,
+    buildings,
+    *,
+    preset_id: str,
+    scale: int,
+    to_buildings: bool = True,
+    road_features: list[dict] | None = None,
 ) -> set[int]:
     """Indexy čar ``road_1`` / ``road_2`` (service), které kreslit jako 502 (viz ``SERVICE_LINK_MAX_M``).
 
     ``to_buildings=False``: jen spojky končící na ``paved`` (budovy slouží jen ke kontrole, zda se kresba vejde).
+    ``road_features``: silnice 502 / 502.1 z jiného seznamu (mixed: ulice kreslí ZABAGED, v ``features`` nejsou).
     """
     try:
         from shapely.geometry import LineString, Point
@@ -4996,17 +5004,18 @@ def service_link_indexes(
         return set()
     major = []
     cand = []
-    for i, feat in enumerate(features):
-        geom = feat.get("geometry") or {}
-        coords = geom.get("coordinates") or []
-        hw = str((feat.get("properties") or {}).get("highway") or "")
-        if geom.get("type") != "LineString" or len(coords) < 2 or is_bridge_highway(hw) or is_tunnel_highway(hw):
-            continue
-        base = path_draw_highway(hw)
-        if base in {"road_3", "road_4"}:
-            major.append(LineString(coords))
-        elif base in {"road_1", "road_2"}:
-            cand.append((i, LineString(coords)))
+    for src, items in (("cand", features), ("major", features if road_features is None else road_features)):
+        for i, feat in enumerate(items):
+            geom = feat.get("geometry") or {}
+            coords = geom.get("coordinates") or []
+            hw = str((feat.get("properties") or {}).get("highway") or "")
+            if geom.get("type") != "LineString" or len(coords) < 2 or is_bridge_highway(hw) or is_tunnel_highway(hw):
+                continue
+            base = path_draw_highway(hw)
+            if src == "major" and base in {"road_3", "road_4"}:
+                major.append(LineString(coords))
+            elif src == "cand" and base in {"road_1", "road_2"}:
+                cand.append((i, LineString(coords)))
     if not major or not cand:
         return set()
     majors = unary_union(major)
@@ -5304,11 +5313,18 @@ def build_osm_path_parts(
             deck_cover_zone = _uu2([deck_zone, sidewalk_cover])
     # Les a MTBO: chodníky vedle silnic / zpevněných ploch se nekreslí (viz ``is_sidewalk_beside_road``);
     # „vedle“ = čáry by se v měřítku mapy slily (``sidewalk_road_zone_geometry``).
+    # Les / MTBO: silnice pro dedup chodníků, spojky a pás kresby 502 z OSM (mixed: ulice v ``data`` nejsou,
+    # kreslí je ZABAGED – bez nich by dedup ani ukončení cest u silnice nefungovalo).
+    road_feats = (
+        []
+        if preset_id.startswith("sprint")
+        else _paths_features_for_network(work_dir) or (data.get("features") or [])
+    )
     road_zone = (
         None
         if preset_id.startswith("sprint")
         else sidewalk_road_zone_geometry(
-            data.get("features") or [],
+            road_feats,
             osm_paved_beside_geometry(work_dir),
             preset_id=preset_id,
             scale=scale,
@@ -5326,6 +5342,7 @@ def build_osm_path_parts(
             osm_paved_beside_geometry(work_dir, kinds=_OSM_BUILDING_KINDS),
             preset_id=preset_id,
             scale=scale,
+            road_features=road_feats,
         )
     )
     # Les / MTBO: spojka silnice → parkoviště se nekreslí čárou, kreslí ji pruh zpevněné plochy (``extend_parking_by_links``).
@@ -5339,6 +5356,7 @@ def build_osm_path_parts(
             preset_id=preset_id,
             scale=scale,
             to_buildings=False,
+            road_features=road_feats,
         )
     )
     # Les / MTBO: černé cesty přes kresbu silnice 502 / 502.1 nevedou, končí na jejím okraji.
@@ -5346,11 +5364,11 @@ def build_osm_path_parts(
         None
         if preset_id.startswith("sprint")
         else major_road_band(
-            data.get("features") or [],
+            road_feats + [(data.get("features") or [])[i] for i in sorted(service_links - parking_links)],
             preset_id=preset_id,
             scale=scale,
             road_widths=road_widths,
-            service_links=frozenset(service_links - parking_links),
+            service_links=frozenset(range(len(road_feats), len(road_feats) + len(service_links - parking_links))),
         )
     )
     # Les / MTBO: navazující kusy se stejným symbolem (úseky OSM, krátké schody převedené na pěšinu) jako jedna čára.
