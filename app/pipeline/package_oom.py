@@ -772,6 +772,12 @@ def prepare_oom_map(
             from app.pipeline.dtm_import import dtm_cover_geometry
 
             dtm_cover = dtm_cover_geometry(kp_cwd, 0.0)
+        # Les a MTBO: železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy.
+        rail_tunnel_zone = None
+        if not preset_id.startswith("sprint"):
+            from app.pipeline.osm_paths import rail_tunnel_geometry
+
+            rail_tunnel_zone = rail_tunnel_geometry(kp_cwd)
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,
@@ -793,6 +799,7 @@ def prepare_oom_map(
             suppress_waterway_in_water=preset_id.startswith("sprint"),
             osm_priority_areas=osm_priority_areas or None,
             dtm_cover=dtm_cover,
+            rail_tunnel_zone=rail_tunnel_zone,
         ):
             if _COURTYARD_MARK in part.name:
                 courtyard_parts.append(part)

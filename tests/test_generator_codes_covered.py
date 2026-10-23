@@ -332,7 +332,10 @@ def test_spy_osm_paths_codes_in_catalog(tmp_path: Path, seen_generator_codes, ke
             if osm_paths.is_tunnel_highway(hw) and osm_paths.path_draw_highway(hw).startswith("road_"):
                 dropped += 1
                 continue
-        elif osm_paths.is_sidewalk_beside_road(hw, coords, zone):
+        elif osm_paths.is_tunnel_highway(hw) and osm_paths.polyline_length(coords) > osm_paths.TUNNEL_MAX_DRAW_M:
+            dropped += 1  # les / MTBO: dlouhý tunel se nekreslí
+            continue
+        elif osm_paths.is_sidewalk_beside_road(hw, coords, zone, osm_paths.sidewalk_dedup_bases(preset)):
             dropped += 1
             continue
         if (
@@ -343,7 +346,11 @@ def test_spy_osm_paths_codes_in_catalog(tmp_path: Path, seen_generator_codes, ke
             and osm_paths._line_in_zone(coords, cut)
         ):
             dropped += 1
-    assert sum(p.count for p in parts) == len(feats) - dropped
+    if key == "sprint":
+        assert sum(p.count for p in parts) == len(feats) - dropped
+    else:
+        # les / MTBO spojují navazující kusy se stejným symbolem (join_line_pieces)
+        assert 0 < sum(p.count for p in parts) <= len(feats) - dropped
 
 
 @pytest.mark.parametrize("key,preset,scale", [("isom", "forest_10000", 10000), ("sprint", "sprint_2m", 4000), ("mtbo", "mtbo_10000", 10000)])
