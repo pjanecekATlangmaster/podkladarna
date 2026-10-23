@@ -13,7 +13,7 @@ from app.pipeline.dtm_fences import Fence
 
 @pytest.fixture(autouse=True)
 def _mtbo_dtm_on(monkeypatch):
-    monkeypatch.setattr(di, "MTBO_USE_DTM", True)  # MTBO má DTM ve výchozím stavu vypnuté
+    monkeypatch.setattr(di, "MTBO_USE_DTM", True)  # MTBO s DTM nezávisle na výchozí hodnotě
 
 X0, Y0 = -744000.0, -1047000.0
 BBOX = (14.405, 50.046, 14.419, 50.054)

@@ -418,12 +418,23 @@ def test_forest_wide_dtm_walk_becomes_paved_area(tmp_path):
     assert sum(_path_lengths(tmp_path).values()) == pytest.approx(0, abs=1.0)
 
 
-def test_mtbo_ignores_dtm_widths(tmp_path):
+def test_mtbo_ignores_dtm_widths_when_off(tmp_path, monkeypatch):
+    from app.pipeline import dtm_import as di
+
+    monkeypatch.setattr(di, "MTBO_USE_DTM", False)
     road = _line([(0, 0), (200, 0)], "road_2")
     _write_job(tmp_path, [], [road])
     _write_dtm(tmp_path, "roads.json", [(-5, -5, 205, 5)])
     lengths = _path_lengths(tmp_path, preset="mtbo_10000")
-    assert len(lengths) == 1  # jeden symbol podle tagů, DTM se v MTBO nepoužívá
+    assert len(lengths) == 1  # jeden symbol podle tagů, DTM je v MTBO vypnuté
+
+
+def test_mtbo_wide_dtm_road_drawn_by_corridor(tmp_path):
+    # MTBO s DTM: silnice široká 10 m (1 mm v 1:10000) kreslí koridor plochou, čára uvnitř se nekreslí.
+    road = _line([(0, 0), (200, 0)], "road_2")
+    _write_job(tmp_path, [], [road])
+    _write_dtm(tmp_path, "roads.json", [(-5, -5, 205, 5)])
+    assert _path_lengths(tmp_path, preset="mtbo_10000") == {}
 
 
 def test_prepare_stores_rail_tunnels_only(tmp_path, monkeypatch):

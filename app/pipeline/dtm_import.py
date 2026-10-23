@@ -54,9 +54,9 @@ NONSPRINT_AVOID_MAX_SHIFT_MM = 0.9
 MTBO_PARKING_MIN_M2 = 300.0
 # MTBO: silnice s přilehlými chodníky jednou plochou (koridor); False = jen čáry 502.x jako dřív.
 MTBO_ROAD_CORRIDOR = True
-# MTBO zatím DTM nepoužívá (budovy, ploty, koridor, chodníky, parkoviště, schodiště): False = MTBO se kreslí
-# z ZABAGED / OSM jako před zavedením DTM. Zapnout až po odladění (viz ``mtbo_dtm_off``).
-MTBO_USE_DTM = False
+# MTBO bere z DTM to, co je v 1:10000–1:15000 čitelné (budovy, ploty, koridor silnice, široké chodníky, velká
+# parkoviště, schodiště, šířky cest): False = MTBO se kreslí z ZABAGED / OSM jako před zavedením DTM (``mtbo_dtm_off``).
+MTBO_USE_DTM = True
 
 
 def mtbo_dtm_off(preset_id: str) -> bool:

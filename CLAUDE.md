@@ -255,9 +255,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 
 - **Testovací B verze** (`https://pt.kibos.link`, data `\\192.168.10.11\docker\podkladarna\data-test\jobs\`) se aktualizuje z `master`
   (`:latest` → `update-nas-ab.sh test`, cron jen když neběží job). „Push do testu“ = commit + push do `master`. Jak dohledat job, bbox a DTM balíky: `DEV.md`.
-- **MTBO nepoužívá DTM** (`MTBO_USE_DTM = False` v `app/pipeline/dtm_import.py`, `mtbo_dtm_off`): kreslí se z ZABAGED / OSM. Kód pro DTM v MTBO
-  (koridor silnice, chodníky, parkoviště, schodiště, budovy, ploty) zůstává a zapne se příznakem; testy ho zapínají fixturou. LES bere z DTM budovy
-  a ploty (včetně výplně oplocení olivou 520), sprint všechno.
+- **MTBO používá DTM** (`MTBO_USE_DTM = True` v `app/pipeline/dtm_import.py` od 2.32.0, `mtbo_dtm_off`): koridor silnice, široké chodníky,
+  parkoviště od 300 m², schodiště, budovy, ploty a šířky cest z DTM – vše s prahy čitelnosti v měřítku. `False` vrátí kreslení z ZABAGED / OSM.
+  LES bere z DTM budovy, ploty (včetně výplně oplocení olivou 520), šířky cest a široké pěší plochy, sprint všechno.
 - **Dedup chodníků v lese a MTBO je jen z OSM:** chodník i pěšina bez tagu chodníku (`SIDEWALK_DEDUP_BASES`, v lese i cyklostezka) souběžná se silnicí nebo OSM zpevněnou plochou se zahodí (celý při ≥ 70 % délky v pásu,
   jinak jen souvislé úseky ≥ 40 m). Pás se počítá ze skutečných šířek symbolů v sadě (`sidewalk_road_zone_geometry`: půlka silnice – v lese podle symbolu zvoleného šířkou z DTM – / okraje 501.2
   + půlka chodníku + `LINE_MIN_GAP_MM`, v metrech podle měřítka), ne pevných 12 m. Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic

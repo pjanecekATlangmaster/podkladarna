@@ -8,7 +8,7 @@ from app.pipeline import dtm_sidewalks as ds
 
 @pytest.fixture(autouse=True)
 def _mtbo_dtm_on(monkeypatch):
-    """MTBO má DTM ve výchozím stavu vypnuté (``MTBO_USE_DTM``); testy MTBO funkcí ho zapínají."""
+    """MTBO má DTM zapnuté (``MTBO_USE_DTM``); fixtura ho drží zapnuté nezávisle na výchozí hodnotě."""
     monkeypatch.setattr(di, "MTBO_USE_DTM", True)
 
 

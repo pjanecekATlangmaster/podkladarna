@@ -177,7 +177,7 @@ PATH_SOURCE_CHOICES = frozenset(
 
 # Priorita zdroje střednic cest při překryvu (vyšší vyhraje).
 # DTM je připravené na budoucí feed střednic silnic/chodníků; zatím se neplní
-# (``MTBO_USE_DTM`` / feed cest nezapínat naplocho). Po zapojení DTM stačí
+# (DTM má plochy, ne osy; feed cest nezapínat naplocho). Po zapojení DTM stačí
 # přidat položky se ``PATH_LINE_SOURCE_DTM`` do ``dedup_path_lines``.
 # Pořadí: DTM > OSM > ZABAGED (mixed už dnes bere OSM před Pesina/Cesta).
 PATH_LINE_SOURCE_DTM = "dtm"
