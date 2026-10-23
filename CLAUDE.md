@@ -271,6 +271,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **Les: symbol cesty podle skutečné šířky z DTM** (`app/pipeline/dtm_widths.py`, `uses_dtm_widths`): kolmé řezy ploch `roads.json` /
   `sidewalks.json` podél OSM čáry (medián). Silnice ≥ 7 m → 502.1, ≥ 5 m → 502 (užší podle tagů), zpevněná pěšina ≥ 2,5 m → 505; pěší plochy
   z DTM širší než 0,5 mm mapy se kreslí jako zpevněná plocha a napojí do sítě. MTBO jen se zapnutým `MTBO_USE_DTM`, sprint beze změny.
+- **Tunely v lese a MTBO:** OSM cesta v tunelu / s `layer < 0` delší než 40 m (`TUNNEL_MAX_DRAW_M`) se nekreslí, krátký podchod ano.
+  Železnice a tramvaj ze ZABAGED se nekreslí v okolí 4 m od OSM kolejí v tunelu (`rail_tunnels.geojson` z přípravy OSM, `ZABAGED_RAIL_LAYERS`).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.

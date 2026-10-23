@@ -325,6 +325,13 @@ _AREA_HIGHWAY_WALK = frozenset(
 _FENCED_COMPOUND_LANDUSE = frozenset({"recreation_ground"})
 
 
+# Druhy kolejí z OSM, jejichž úseky v tunelu ořezávají ZABAGED železnici / tramvaj (les, MTBO).
+OSM_RAIL_KINDS = frozenset({"rail", "tram", "light_rail", "narrow_gauge", "subway"})
+RAIL_TUNNELS_NAME = "rail_tunnels.geojson"
+# Trať ZABAGED do tolika m od osy OSM tratě v tunelu se nekreslí.
+RAIL_TUNNEL_NEAR_M = 4.0
+
+
 def _overpass_ql(
     south: float,
     west: float,
@@ -342,6 +349,7 @@ def _overpass_ql(
     hw = "|".join(sorted(osm_highway_set(path_source)))
     paved = "|".join(sorted(OSM_PAVED_AREA_LEISURE))
     area_hw = "|".join(sorted(_AREA_HIGHWAY_WALK))
+    rails = "|".join(sorted(OSM_RAIL_KINDS))
     parts = [
         f'way["highway"~"^({hw})$"]({bbox});',
         f'way["man_made"="boardwalk"]({bbox});',
@@ -372,6 +380,9 @@ def _overpass_ql(
         f'relation["type"="multipolygon"]["railway"="platform"]({bbox});',
         f'relation["type"="multipolygon"]["public_transport"="platform"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
+        # Koleje v tunelu / pod terénem: ZABAGED trať se v lese a MTBO v tunelu nekreslí.
+        f'way["railway"~"^({rails})$"]["tunnel"]({bbox});',
+        f'way["railway"~"^({rails})$"]["layer"~"^-"]({bbox});',
         # Vodní plochy → OOM 301 (nepřekonatelné). ČÚZK často nemá celou nádrž.
         f'way["natural"="water"]({bbox});',
         f'way["landuse"~"^(reservoir|basin)$"]({bbox});',
@@ -3179,6 +3190,7 @@ def prepare_osm_paths(
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     # Chodníky / pěšiny, po kterých smějí jezdit cyklisté (sdílený provoz) – pro MTBO koridor silnice.
     bike_lines: list[list[tuple[float, float]]] = []
+    rail_tunnels: list[list[tuple[float, float]]] = []
     # Cesty se zpevněným povrchem (surface=asphalt, paving_stones …) – jen z nich vzniká koridor pěší zóny.
     paved_walk_lines: list[list[tuple[float, float]]] = []
     features: list[dict] = []
@@ -3213,6 +3225,17 @@ def prepare_osm_paths(
     allow_sidewalk = True
     for el in elements:
         tags = el.get("tags") or {}
+        if (
+            (tags.get("railway") or "").lower() in OSM_RAIL_KINDS
+            and el.get("type") == "way"
+            and not tags.get("highway")  # tramvaj v ose silnice (jedna way) zůstává silnicí
+        ):
+            # Kolej v tunelu → jen pro ořez ZABAGED (sama se nekreslí).
+            if _is_osm_tunnel(tags):
+                rail_pts = _nodes_geometry_to_5514(el.get("geometry"))
+                if len(rail_pts) >= 2:
+                    rail_tunnels.append(rail_pts)
+            continue
         # Metro do podkladu nepatří (ani jako cesta, ani jako objekt).
         railway = (tags.get("railway") or "").lower()
         if railway in {"subway", "subway_entrance"}:
@@ -3550,6 +3573,19 @@ def prepare_osm_paths(
         encoding="utf-8",
     )
 
+    (dest_dir / RAIL_TUNNELS_NAME).write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature", "properties": {"source": "osm", "railway_tunnel": True},
+                     "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in pts]}}
+                    for pts in rail_tunnels
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     feat_out = dest_dir / "features.geojson"
     feat_out.write_text(
         json.dumps({"type": "FeatureCollection", "features": features}),
@@ -3926,6 +3962,26 @@ OSM_PRIORITY_AREA_LAYERS: dict[str, str] = {
     "VodniPlocha": "water_body",
     "ParkovisteOdpocivka": "parking",
 }
+
+
+def rail_tunnel_geometry(work_dir: Path):
+    """Okolí (``RAIL_TUNNEL_NEAR_M``) OSM kolejí v tunelu jobu (shapely) nebo None (starší joby soubor nemají)."""
+    path = work_dir / "osm_paths" / RAIL_TUNNELS_NAME
+    if not path.is_file():
+        return None
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+
+        feats = json.loads(path.read_text(encoding="utf-8")).get("features") or []
+    except (ImportError, OSError, ValueError):
+        return None
+    lines = [
+        LineString(f["geometry"]["coordinates"])
+        for f in feats
+        if (f.get("geometry") or {}).get("type") == "LineString" and len(f["geometry"].get("coordinates") or []) >= 2
+    ]
+    return unary_union(lines).buffer(RAIL_TUNNEL_NEAR_M) if lines else None
 
 
 def osm_priority_area_geometries(work_dir: Path) -> dict:
@@ -4493,6 +4549,8 @@ def drawn_width_m(highway: str) -> float:
     return 1.0
 
 
+# Les a MTBO: cesta v tunelu / pod terénem delší než tolik m se nekreslí (podchod pod silnicí zůstává).
+TUNNEL_MAX_DRAW_M = 40.0
 # Les a MTBO: mezi kresbou dvou souběžných čar (silnice × chodník, okraj plochy × silnice) musí zůstat aspoň
 # tolik mm bílé, jinak čáry splynou a nejsou čitelné.
 LINE_MIN_GAP_MM = 0.35
@@ -4730,6 +4788,12 @@ def build_osm_path_parts(
             and path_draw_highway(hw).startswith("road_")
         ):
             continue  # silniční tunel ve sprintu nekreslíme; pěší podchody zůstávají
+        if (
+            not preset_id.startswith("sprint")
+            and is_tunnel_highway(hw)
+            and polyline_length(coords) > TUNNEL_MAX_DRAW_M
+        ):
+            continue  # les / MTBO: dlouhý tunel se nekreslí (krátký podchod ano)
         beside_zone = None
         if road_zone is not None and not _line_in_zone(coords, bike_zone):
             if is_sidewalk_beside_road(hw, coords, road_zone):

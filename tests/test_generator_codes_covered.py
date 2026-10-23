@@ -332,6 +332,9 @@ def test_spy_osm_paths_codes_in_catalog(tmp_path: Path, seen_generator_codes, ke
             if osm_paths.is_tunnel_highway(hw) and osm_paths.path_draw_highway(hw).startswith("road_"):
                 dropped += 1
                 continue
+        elif osm_paths.is_tunnel_highway(hw) and osm_paths.polyline_length(coords) > osm_paths.TUNNEL_MAX_DRAW_M:
+            dropped += 1  # les / MTBO: dlouhý tunel se nekreslí
+            continue
         elif osm_paths.is_sidewalk_beside_road(hw, coords, zone):
             dropped += 1
             continue

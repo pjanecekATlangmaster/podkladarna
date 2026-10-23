@@ -377,3 +377,37 @@ def test_mtbo_ignores_dtm_widths(tmp_path):
     _write_dtm(tmp_path, "roads.json", [(-5, -5, 205, 5)])
     lengths = _path_lengths(tmp_path, preset="mtbo_10000")
     assert len(lengths) == 1  # jeden symbol podle tagů, DTM se v MTBO nepoužívá
+
+
+def test_prepare_stores_rail_tunnels_only(tmp_path, monkeypatch):
+    import json
+
+    def way(i, tags, lon0):
+        return {
+            "type": "way",
+            "id": i,
+            "tags": tags,
+            "geometry": [{"lat": 50.0345, "lon": lon0}, {"lat": 50.0345, "lon": lon0 + 0.003}],
+        }
+
+    tram_tunnel = way(1177591713, {"railway": "tram", "layer": "-1", "tunnel": "yes"}, 14.372)
+    tram_street = way(2, {"railway": "tram", "highway": "residential", "surface": "asphalt"}, 14.380)
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [tram_tunnel, tram_street])
+    op.prepare_osm_paths(tmp_path, (14.37, 50.03, 14.39, 50.04), None, preset_id="forest_10000", log=lambda m: None)
+    rails = json.loads((tmp_path / "osm_paths" / op.RAIL_TUNNELS_NAME).read_text(encoding="utf-8"))["features"]
+    assert len(rails) == 1
+    zone = op.rail_tunnel_geometry(tmp_path)
+    assert zone is not None and zone.area > 0
+    # Tramvaj v ose silnice (jedna way s highway) zůstává silnicí.
+    paths = json.loads((tmp_path / "osm_paths" / "paths_osm.geojson").read_text(encoding="utf-8"))["features"]
+    assert any(str(f["properties"]["highway"]).startswith("road_") for f in paths)
+
+
+def test_long_tunnel_not_drawn_in_forest(tmp_path):
+    long_tunnel = _line([(0, 0), (200, 0)], op.tunnel_highway("road_3"))
+    underpass = _line([(0, 50), (20, 50)], op.tunnel_highway("footway"))
+    _write_job(tmp_path, [], [long_tunnel, underpass])
+    lengths = _path_lengths(tmp_path)
+    assert sum(lengths.values()) == pytest.approx(20, abs=1.0)  # jen krátký podchod
+    lengths = _path_lengths(tmp_path, preset="mtbo_10000")
+    assert sum(lengths.values()) == pytest.approx(20, abs=1.0)
