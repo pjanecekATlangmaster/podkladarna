@@ -296,9 +296,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
-- **Mixed v lese a MTBO:** ulice kreslí ZABAGED, v `paths_mixed` nejsou OSM silnice residential a výš, proto dedup chodníků, spojky
-  a pás kresby 502 berou silnice z `paths_osm`. OSM silnice, kterou ZABAGED nepokryla z `COVER_DROP` (spojená z více ways), zůstává;
-  ZABAGED Ulice / cesty se pak ořežou o kresbu OSM silnic (`mixed_osm_road_band`, jinak Strakonická dvakrát: 503 + 502.1).
+- **Mixed je jediný režim v GUI** (Petr 2026-10-23): OSM je hlavní, ZABAGED (postupně opouštíme) a DTM (vtahujeme) kresbu doplňují.
+  Příprava OSM (sdílená se sprintem) ale v `paths_mixed` zahazuje OSM silnice proti ZABAGED Ulice; les a MTBO je proto při kreslení vracejí
+  z `paths_osm` (`mixed_osm_roads_missing`, bez souběžných užších – OSM×OSM dedup platí). ZABAGED Ulice / SilniceDalnice v lese a MTBO
+  ustoupí OSM (dedup celé čáry jako Pěšina / Cesta) a zbytek se ořízne o kresbu OSM silnic (`mixed_osm_road_band`). Sprint beze změny.
+  Dedup chodníků, spojky a pás kresby 502 berou silnice z `paths_osm`.
   Úzký koridor ze dvou čar, který odpadne jako plocha, kreslí obě původní čáry, jsou-li čitelné (`corridor_axis_features`), jinak osu.
 - **Odsun objektů od cest v lese a MTBO** (`app/pipeline/path_clearance.py`) je pozdní krok `prepare_oom_map` nad hotovými objekty:
   osy cest bere z mapy (OSM i ZABAGED, 502–508, 532, MTBO 8xx), šířky ze sady symbolů. Budovy a body se posunou celé, oliva

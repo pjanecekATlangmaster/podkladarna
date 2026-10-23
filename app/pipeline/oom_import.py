@@ -1110,6 +1110,11 @@ def build_zabaged_object_parts(
             )
         return out
 
+    # Les / MTBO (mixed = OSM + detaily ze ZABAGED): i ulice ustoupí OSM; sprint beze změny.
+    osm_first_layers = ZABAGED_PATH_LAYERS_OSM_FIRST | (
+        frozenset() if preset_id.startswith("sprint") else frozenset({"Ulice", "SilniceDalnice"})
+    )
+
     def _filter_vs_osm(
         line_parts: list[list[tuple[float, float]]],
         layer_name: str,
@@ -1119,7 +1124,7 @@ def build_zabaged_object_parts(
             from app.pipeline.dtm_sidewalks import clip_outside
 
             line_parts = [p for pts in line_parts for p in clip_outside(pts, dtm_cover, MIN_LENGTH_M)]
-        if not osm_blockers or layer_name not in ZABAGED_PATH_LAYERS_OSM_FIRST:
+        if not osm_blockers or layer_name not in osm_first_layers:
             return line_parts
         if osm_index is None:
             osm_index = centerline_index(osm_blockers)
@@ -1227,7 +1232,7 @@ def build_zabaged_object_parts(
                             wider_paths.add_line(pts)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif (
-                    dtm_cover is not None
+                    (dtm_cover is not None or osm_first)
                     and not preset_id.startswith("sprint")
                     and layer_name in _DTM_CLIPPED_PATH_LAYERS
                 ):
@@ -1344,7 +1349,7 @@ def build_zabaged_object_parts(
                             wider_paths.add_line(pts)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif (
-                    dtm_cover is not None
+                    (dtm_cover is not None or osm_first)
                     and not preset_id.startswith("sprint")
                     and layer_name in _DTM_CLIPPED_PATH_LAYERS
                 ):

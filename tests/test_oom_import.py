@@ -659,7 +659,7 @@ def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
                 zf.write(f, f.name)
     band = box(x0 + 100, y0 - 6, x0 + 200, y0 + 6)  # OSM silnice přes prostřední třetinu
 
-    def count(preset, scale, cover):
+    def count(preset, scale, cover, osm=None):
         parts = build_zabaged_object_parts(
             z,
             vectorconf_name="zabaged.txt",
@@ -670,9 +670,14 @@ def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
             grivation_deg=0.0,
             work_dir=Path(tempfile.mkdtemp()),
             dtm_cover=cover,
+            prefer_osm_path_lines=osm,
         )
         return sum(p.count for p in parts if "Ulice" in p.name)
 
     assert count("forest_10000", 10000, None) == 1
     assert count("forest_10000", 10000, band) == 2
     assert count("sprint_4000", 4000, band) == 1
+    # mixed = OSM + detaily ze ZABAGED: ulici, kterou má OSM, ZABAGED nekreslí (les / MTBO); sprint beze změny.
+    osm = [[(x0, y0 + 2), (x0 + 300, y0 + 2)]]
+    assert count("forest_10000", 10000, None, osm) == 0
+    assert count("sprint_4000", 4000, None, osm) == 1

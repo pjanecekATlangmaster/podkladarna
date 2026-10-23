@@ -749,3 +749,31 @@ def test_mixed_osm_road_band(tmp_path):
     assert band.bounds[3] < 50  # most se nepočítá
     assert LineString([(10, 1.9), (90, 1.9)]).difference(band).length == pytest.approx(0, abs=0.01)
     assert op.mixed_osm_road_band(tmp_path, "sprint_4000", 4000) is None
+
+
+def test_mixed_restores_osm_roads_dropped_against_zabaged(tmp_path):
+    # mixed = OSM + detaily ze ZABAGED: OSM ulice zahozená v přípravě proti ZABAGED Ulice (Voskovcova way/25464790)
+    # se v lese kreslí z OSM; souběžná užší OSM silnice (OSM×OSM dedup) se nevrací. Sprint beze změny.
+    import json
+
+    street = _road([(0, 0), (200, 0)], "road_3")
+    service = _road([(0, 0.5), (200, 0.5)], "road_1")  # souběžná užší – v mixed zahozená prefer-wider
+    path = _line([(0, 50), (100, 50)], "path")
+    _write_job(tmp_path, [], [path, _road([(0, 1), (200, 1)], "road_4")])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [street, service, path]}), encoding="utf-8"
+    )
+    missing = op.mixed_osm_roads_missing(tmp_path)
+    assert missing == []  # obě silnice leží na road_4 z mixed
+    _write_job(tmp_path, [], [path])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [street, path]}), encoding="utf-8"
+    )
+    assert [f["properties"]["highway"] for f in op.mixed_osm_roads_missing(tmp_path)] == ["road_3"]
+    assert _path_lengths(tmp_path)["502.2"] == pytest.approx(200, abs=1.0)
+    assert "501.30" not in _path_lengths(tmp_path, "sprint_4000", 4000)
+    import shutil
+
+    shutil.copy(tmp_path / "osm_paths" / "paths_mixed.geojson", tmp_path / "osm_paths" / "paths.geojson")
+    assert len(op.load_osm_path_lines(tmp_path)) == 1
+    assert len(op.load_osm_path_lines(tmp_path, corridor_lines=True)) == 2  # + OSM ulice: ZABAGED Ulice pod ní ustoupí

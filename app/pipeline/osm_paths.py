@@ -2972,8 +2972,8 @@ def filter_lines_against_centerlines(
 def load_osm_path_lines(work_dir: Path, *, corridor_lines: bool = False) -> list[list[tuple[float, float]]]:
     """Načte dedupované OSM cesty z ``work/osm_paths/paths.geojson``.
 
-    ``corridor_lines`` (les / MTBO): i osy koridorů a jejich původní čáry (``corridor_axis_features``), aby se
-    pod nimi nekreslila ZABAGED pěšina podruhé.
+    ``corridor_lines`` (les / MTBO): i osy koridorů a jejich původní čáry (``corridor_axis_features``) a OSM silnice
+    chybějící v mixed (``mixed_osm_roads_missing``), aby se pod nimi nekreslila ZABAGED pěšina / ulice podruhé.
     """
     gj_path = work_dir / "osm_paths" / "paths.geojson"
     if not gj_path.is_file():
@@ -2983,6 +2983,8 @@ def load_osm_path_lines(work_dir: Path, *, corridor_lines: bool = False) -> list
     except (OSError, json.JSONDecodeError):
         return []
     feats = list(data.get("features") or [])
+    if corridor_lines:
+        feats += mixed_osm_roads_missing(work_dir)  # les / MTBO: ulice z OSM, ZABAGED Ulice pod nimi ustoupí
     axes_path = work_dir / "osm_paths" / CORRIDOR_AXES_NAME
     if corridor_lines and axes_path.is_file():
         try:
@@ -5237,6 +5239,46 @@ def major_road_band(
     return unary_union(parts) if parts else None
 
 
+def mixed_osm_roads_missing(work_dir: Path) -> list[dict]:
+    """OSM silnice (``road_*``) z ``paths_osm``, které v ``paths_mixed`` nejsou (zahozené proti ZABAGED Ulice, service).
+
+    Les / MTBO: mixed je OSM doplněné o detaily ze ZABAGED, ulice tedy kreslí OSM (šířka z DTM, symbol podle tagů)
+    a ZABAGED Ulice / SilniceDalnice se vynechají tam, kde je OSM má. Příprava OSM (sdílená se sprintem) zůstává.
+    """
+    out: list[dict] = []
+    try:
+        osm = json.loads((work_dir / "osm_paths" / "paths_osm.geojson").read_text(encoding="utf-8")).get("features") or []
+        mixed = json.loads((work_dir / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return out
+
+    def _key(f):
+        return tuple(tuple(round(float(v), 2) for v in c[:2]) for c in ((f.get("geometry") or {}).get("coordinates") or []))
+
+    have = {_key(f) for f in mixed}
+    index = centerline_index(
+        [
+            [(float(x), float(y)) for x, y, *_ in (f.get("geometry") or {}).get("coordinates") or []]
+            for f in mixed
+            if len((f.get("geometry") or {}).get("coordinates") or []) >= 2
+        ]
+    )
+    for f in osm:
+        geom = f.get("geometry") or {}
+        hw = str((f.get("properties") or {}).get("highway") or "")
+        coords = geom.get("coordinates") or []
+        if (
+            geom.get("type") == "LineString"
+            and len(coords) >= 2
+            and path_draw_highway(hw).startswith("road_")
+            and _key(f) not in have
+            # OSM×OSM dedup v mixed (``dedup_osm_prefer_wider``) platí dál: souběžná užší silnice se nevrací.
+            and centerline_cover_fraction([(float(x), float(y)) for x, y, *_ in coords], index, match_m=MATCH_M) < COVER_DROP
+        ):
+            out.append(f)
+    return out
+
+
 def mixed_osm_road_band(work_dir: Path, preset_id: str, scale: int):
     """Les / MTBO v mixed: kresba OSM silnic z ``paths_mixed`` (pás půlky šířky symbolu, rovné konce) – shapely / None.
 
@@ -5251,6 +5293,7 @@ def mixed_osm_road_band(work_dir: Path, preset_id: str, scale: int):
         feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
     except (OSError, ValueError):
         return None
+    feats = feats + mixed_osm_roads_missing(work_dir)
     try:
         from shapely.ops import unary_union
     except ImportError:
@@ -5316,6 +5359,9 @@ def build_osm_path_parts(
         if not gj_path.is_file():
             return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
+    if not preset_id.startswith("sprint") and path_source == PATH_SOURCE_MIXED and gj_path.name == filename:
+        # Les / MTBO: mixed = OSM + detaily ze ZABAGED; ulice kreslí OSM (``mixed_osm_roads_missing``).
+        data["features"] = list(data.get("features") or []) + mixed_osm_roads_missing(work_dir)
     if not preset_id.startswith("sprint") and path_source != PATH_SOURCE_ZABAGED:
         # Les / MTBO: osy koridorů pěších zón; kreslí se jen tam, kde koridor jako úzká plocha odpadl
         # (jinde je ořízne síť zpevněných ploch).
