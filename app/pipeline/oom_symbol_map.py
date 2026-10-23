@@ -308,6 +308,51 @@ def _code_to_index(symbol_set: Path) -> dict[str, int]:
     return out
 
 
+@lru_cache(maxsize=8)
+def _symbol_widths(symbol_set: Path) -> dict[int, float]:
+    """Celková šířka čárových symbolů sady v mm na mapě (``{index symbolu: šířka}``).
+
+    Šířka = nejširší čára symbolu (u kombinovaného přes všechny části); okraje (``border``)
+    přidají ``width − shift`` na každou stranu. Body na čáře (čárky plotu …) se nepočítají.
+    """
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(symbol_set).getroot()
+    symbols = [el for el in root.iter() if el.tag.rsplit("}", 1)[-1] == "symbol" and el.get("id") is not None]
+    by_id = {int(el.get("id")): el for el in symbols}
+
+    def own_width(el) -> float:
+        best = 0.0
+        for line in (x for x in el.iter() if x.tag.rsplit("}", 1)[-1] == "line_symbol"):
+            w = float(line.get("line_width") or 0)
+            for border in (x for x in line.iter() if x.tag.rsplit("}", 1)[-1] == "border"):
+                w = max(w, w + 2 * (float(border.get("width") or 0) - float(border.get("shift") or 0)))
+            best = max(best, w)
+        return best
+
+    out: dict[int, float] = {}
+    for sid, el in by_id.items():
+        w = own_width(el)
+        for part in (x for x in el.iter() if x.tag.rsplit("}", 1)[-1] == "part"):
+            ref = part.get("symbol")
+            if ref is not None and ref.lstrip("-").isdigit() and int(ref) in by_id:
+                w = max(w, own_width(by_id[int(ref)]))
+        if w > 0:
+            out[sid] = w / 1000.0
+    return out
+
+
+def symbol_width_mm(preset_id: str, scale: int, code: str) -> float | None:
+    """Šířka čárového symbolu ``code`` v mm na mapě (sada presetu); None, když symbol není nebo nemá čáru."""
+    idx = symbol_index_for_code(preset_id, scale, code)
+    if idx is None:
+        return None
+    try:
+        return _symbol_widths(symbol_set_path(preset_id, scale)).get(idx)
+    except Exception:  # sada nejde načíst → odsazení se nepočítá
+        return None
+
+
 def symbol_index_for_code(preset_id: str, scale: int, code: str) -> int | None:
     path = symbol_set_path(preset_id, scale)
     if _uses_catalog(path):

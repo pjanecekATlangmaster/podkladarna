@@ -2,6 +2,8 @@
 # Jen opravdové produktové zlomy — ne každý commit.
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
+  - date: "2026-10-23"
+    title: "Les a MTBO: ploty spojené a natočené k olivě jako ve sprintu, uzavřené ploty vyplněné olivou, budovy, oliva, zdi a ploty odsunuté od cest pro čitelnost"
   - date: "2026-10-22"
     title: "Les a MTBO: zpevněné plochy jako souvislá síť, silnice na parkovišti jen napojení, chodník u silnice podle šířky symbolů; v lese symbol cesty podle skutečné šířky z DTM"
   - date: "2026-10-16"

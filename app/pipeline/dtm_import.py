@@ -47,6 +47,9 @@ OSM_DEDUP_BUFFER_M = 3.0
 OSM_MIN_REMAINDER_M = 2.0
 # Les a MTBO (1:7500–1:15000): ploty kratší než tato délka (m) se nekreslí (zahradní oplocení by zahltilo mapu).
 NONSPRINT_FENCE_MIN_LEN_M = 20.0
+# Les a MTBO: mezera mezi okrajem symbolu cesty a čárou plotu (mm na mapě) a největší odsun plotu (mm na mapě).
+NONSPRINT_PATH_GAP_MM = 0.2
+NONSPRINT_AVOID_MAX_SHIFT_MM = 0.9
 # MTBO: parkoviště z DTM se kreslí jen od této plochy (m²), menší jsou v 1:10000–1:15000 nečitelná.
 MTBO_PARKING_MIN_M2 = 300.0
 # MTBO: silnice s přilehlými chodníky jednou plochou (koridor); False = jen čáry 502.x jako dřív.
@@ -1666,12 +1669,16 @@ def load_fence_lines(work_dir: Path) -> list[tuple[str, list[tuple[float, float]
     return _load_fence_data(work_dir)[0]
 
 
-def path_clearances(work_dir: Path, path_source: str) -> list[tuple[list[tuple[float, float]], float]]:
+def path_clearances(
+    work_dir: Path, path_source: str, *, preset_id: str = "", scale: int = 0
+) -> list[tuple[list[tuple[float, float]], float]]:
     """Osy kreslených cest a požadovaná vzdálenost osy plotu od nich (m).
 
-    Černě kreslené cesty (pěšina, chodník, schody …) mají mezeru navíc; u asfaltových
-    (silnice, zpevněná cyklostezka) stačí plot nezasahovat do osy – dotyk s okrajem je
-    menší problém. Tunely se přeskakují.
+    Sprint (a bez ``preset_id``): černě kreslené cesty (pěšina, chodník, schody …) mají mezeru
+    navíc; u asfaltových (silnice, zpevněná cyklostezka) stačí plot nezasahovat do osy – dotyk
+    s okrajem je menší problém. Les a MTBO: podle skutečné šířky symbolů v měřítku mapy –
+    půlka symbolu cesty + půlka čáry plotu + mezera ``NONSPRINT_PATH_GAP_MM``, aby byl plot
+    vedle cesty čitelný. Tunely se přeskakují.
     """
     from app.pipeline import osm_paths as op
 
@@ -1689,6 +1696,15 @@ def path_clearances(work_dir: Path, path_source: str) -> list[tuple[list[tuple[f
         data = json.loads(gj_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
+    if preset_id and not preset_id.startswith("sprint") and scale > 0:
+        from app.pipeline.oom_symbol_map import symbol_width_mm
+
+        m_per_mm = scale / 1000.0
+        fence_half_mm = (symbol_width_mm(preset_id, scale, feature_code_for_fence(preset_id)) or 0.0) / 2.0
+        return [
+            (coords, (width_mm / 2.0 + fence_half_mm + NONSPRINT_PATH_GAP_MM) * m_per_mm)
+            for coords, width_mm in drawn_path_axes(work_dir, path_source, preset_id=preset_id, scale=scale)
+        ]
     out = []
     for feat in data.get("features") or []:
         geom = feat.get("geometry") or {}
@@ -1707,6 +1723,77 @@ def path_clearances(work_dir: Path, path_source: str) -> list[tuple[list[tuple[f
             need = half + dtm_fences.FENCE_HALF_WIDTH_M + dtm_fences.PATH_GAP_M
         out.append(([(float(x), float(y)) for x, y in coords], need))
     return out
+
+
+def drawn_path_axes(
+    work_dir: Path, path_source: str, *, preset_id: str, scale: int
+) -> list[tuple[list[tuple[float, float]], float]]:
+    """Osy kreslených cest (S-JTSK) a šířka jejich symbolu v mm na mapě (sada presetu); tunely a cesty bez symbolu ne."""
+    from app.pipeline import osm_paths as op
+    from app.pipeline.oom_symbol_map import symbol_width_mm
+
+    src = op.resolve_path_source(path_source)
+    name = {
+        op.PATH_SOURCE_ZABAGED: "paths_bridges.geojson",
+        op.PATH_SOURCE_OSM: "paths_osm.geojson",
+    }.get(src, "paths_mixed.geojson")
+    gj_path = work_dir / "osm_paths" / name
+    if not gj_path.is_file():
+        gj_path = work_dir / "osm_paths" / "paths.geojson"
+    try:
+        data = json.loads(gj_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    width_cache: dict[str, float] = {}
+    out = []
+    for feat in data.get("features") or []:
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        hw = str((feat.get("properties") or {}).get("highway") or "path")
+        if op.is_tunnel_highway(hw):
+            continue
+        code = op.osm_oom_code(hw, preset_id)
+        if code not in width_cache:
+            width_cache[code] = symbol_width_mm(preset_id, scale, code) or 0.0
+        if width_cache[code] > 0:
+            out.append(([(float(x), float(y)) for x, y, *_ in coords], width_cache[code]))
+    return out
+
+
+def valid_fill_rings(rings: list[list[tuple[float, float]]]) -> list[list[tuple[float, float]]]:
+    """Obrysy výplní po odsunu od cest: sebeprotínající se obrys se opraví (největší kus), prázdný zahodí."""
+    from shapely.geometry import Polygon
+
+    out = []
+    for ring in rings:
+        try:
+            poly = Polygon(ring)
+        except ValueError:
+            continue
+        if not poly.is_valid:
+            fixed = poly.buffer(0)
+            parts = [g for g in getattr(fixed, "geoms", [fixed]) if g.geom_type == "Polygon" and not g.is_empty]
+            if not parts:
+                continue
+            poly = max(parts, key=lambda g: g.area)
+            ring = [(float(x), float(y)) for x, y in poly.exterior.coords]
+        if poly.area > 0:
+            out.append(ring)
+    return out
+
+
+def feature_code_for_fence(preset_id: str) -> str:
+    """Kód symbolu plotu pro preset (518 sprint, 516 les, 522 MTBO)."""
+    from app.pipeline.osm_paths import feature_oom_code
+
+    return feature_oom_code("fence", preset_id)
+
+
+def nonsprint_avoid_shift_m(scale: int) -> float:
+    """Největší odsun plotu od cesty v lese a MTBO (m v terénu)."""
+    return NONSPRINT_AVOID_MAX_SHIFT_MM * scale / 1000.0
 
 
 def dtm_owns_fences(work_dir: Path) -> bool:
@@ -1853,6 +1940,82 @@ def _zabaged_olive_polygons(work_dir: Path) -> list:
         return []
 
 
+def join_and_orient_osm_fences(
+    work_dir: Path, feats: list[dict], *, preset_id: str = "", scale: int = 0, path_source: str = "mixed"
+) -> list[dict]:
+    """Les a MTBO bez plotů z DTM: OSM ploty (``kind == "fence"``) se spojí do souvislých čar a otočí tak,
+    aby čárky symbolu mířily k olivě – stejně jako ve sprintu. Se ``scale`` se pak odsunou od kreslených
+    cest podle šířky symbolů (``path_clearances``).
+
+    Oliva = zahrady z OSM (``kind == "garden"``) a olivové vrstvy ZABAGED. Bez olivy se ploty jen spojí;
+    při chybě se vrátí ``feats`` beze změny.
+    """
+    fences = [
+        f
+        for f in feats
+        if (f.get("properties") or {}).get("kind") == "fence"
+        and (f.get("geometry") or {}).get("type") == "LineString"
+        and len((f.get("geometry") or {}).get("coordinates") or []) >= 2
+    ]
+    if not fences:
+        return feats
+    try:
+        from shapely.geometry import shape
+
+        lines = dtm_fences.merge_lines(
+            [[(float(x), float(y)) for x, y, *_ in f["geometry"]["coordinates"]] for f in fences]
+        )
+        olive = []
+        for feat in feats:
+            geom = feat.get("geometry") or {}
+            if (feat.get("properties") or {}).get("kind") == "garden" and geom.get("type") in ("Polygon", "MultiPolygon"):
+                try:
+                    g = shape(geom)
+                    olive.append(g if g.is_valid else g.buffer(0))
+                except (ValueError, TypeError):
+                    continue
+        olive.extend(_zabaged_olive_polygons(work_dir))
+        polys = [p for g in olive for p in ([g] if g.geom_type == "Polygon" else getattr(g, "geoms", [])) if p.geom_type == "Polygon" and not p.is_empty]
+        tagged = [(dtm_fences.CODE_FENCE, ln) for ln in lines]
+        if polys:
+            areas = {"olive": [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in polys]}
+            tagged = dtm_fences.orient_fences(tagged, areas)
+    except Exception:  # spojení a orientace jsou doplněk, ploty se kreslí i bez nich
+        return feats
+    fill_rings: list[list[tuple[float, float]]] = []
+    try:
+        # Uzavřené ploty se vyplní olivou (jako ve sprintu); budovy z OSM pro parcely dovřené cestou.
+        buildings = []
+        for feat in feats:
+            geom = feat.get("geometry") or {}
+            if (feat.get("properties") or {}).get("kind") == "building" and geom.get("type") == "Polygon":
+                buildings.append([[(float(x), float(y)) for x, y, *_ in ring] for ring in geom.get("coordinates") or []])
+        olive_rings = [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in polys]
+        fill_rings = valid_fill_rings(dtm_fences.private_enclosure_rings(tagged, {"olive": olive_rings, "building": buildings}))
+    except Exception:  # výplň je doplněk
+        fill_rings = []
+    try:
+        paths = path_clearances(work_dir, path_source, preset_id=preset_id, scale=scale) if preset_id and scale else []
+        if paths:
+            moved = dtm_fences.avoid_paths(
+                tagged + [("520", r) for r in fill_rings], paths, max_shift=nonsprint_avoid_shift_m(scale), keep_crossings=True
+            )
+            tagged, fill_rings = moved[: len(tagged)], valid_fill_rings([r for _c, r in moved[len(tagged) :]])
+    except Exception:  # odsun je kosmetika
+        pass
+    drop = {id(f) for f in fences}
+    joined = [
+        {"type": "Feature", "properties": {"kind": "fence"}, "geometry": {"type": "LineString", "coordinates": [list(p) for p in ln]}}
+        for _code, ln in tagged
+    ]
+    fills = [
+        {"type": "Feature", "properties": {"kind": "garden", "fence_fill": True}, "geometry": {"type": "Polygon", "coordinates": [[list(p) for p in r]]}}
+        for r in fill_rings
+        if len(r) >= 4
+    ]
+    return [f for f in feats if id(f) not in drop] + fills + joined
+
+
 def cut_fences_by_buildings(
     lines: list[tuple[str, list[tuple[float, float]]]], zone, min_piece_m: float = FENCE_BUILDING_MIN_PIECE_M
 ) -> list[tuple[str, list[tuple[float, float]]]]:
@@ -1888,11 +2051,11 @@ def build_dtm_fence_parts(
 ) -> list[OomObjectPart]:
     """Objekty plotů z DTM i OSM: jedna síť, společné zpracování.
 
-    OSM ploty (po ořezu o DTM) se spojí a vnitřní se zahodí. Sprint navíc otočí čárky k olivě,
-    vyplní oplocení olivou a odsune ploty od kreslených cest – stejně jako ploty z DTM (ty jsou
-    spojené, filtrované a orientované už při přípravě). Les a MTBO kreslí jen spojené ploty
-    (516 / 522, živý plot 416) delší než ``NONSPRINT_FENCE_MIN_LEN_M`` bez orientace; oplocení se
-    olivou vyplňuje ve sprintu a v lese (MTBO ne).
+    OSM ploty (po ořezu o DTM) se spojí a vnitřní se zahodí. Navazující úseky (i přes spojky mezer)
+    se slijí do jedné čáry a ta se otočí tak, aby čárky plotu mířily k olivě (soukromý pozemek) –
+    ve všech presetech. Sprint navíc odsune ploty od kreslených cest. Les a MTBO kreslí jen ploty
+    (516 / 522, živý plot 416) delší než ``NONSPRINT_FENCE_MIN_LEN_M`` (po spojení); oplocení se
+    olivou vyplňuje ve všech presetech.
     """
     from app.pipeline.oom_import import _area_object_with_holes
     from app.pipeline.osm_paths import _path_object, feature_oom_code
@@ -1900,20 +2063,22 @@ def build_dtm_fence_parts(
     if mtbo_dtm_off(preset_id) or not dtm_owns_fences(work_dir):
         return []
     sprint = preset_id.startswith("sprint")
-    fill_olive = not preset_id.startswith("mtbo")  # výplň oplocení olivou (520): sprint a les, ne MTBO
+    fill_olive = True  # výplň oplocení olivou (520): sprint, les i MTBO
     dtm_lines, fill_rings = _load_fence_data(work_dir)
     osm_lines = _osm_fence_lines(work_dir)
     areas = _load_opl_areas(work_dir)
-    if not sprint:
-        if not fill_olive:
-            fill_rings = []
-        # Symboly podle presetu: plot 516 (les) / 522 (MTBO), živý plot 416.
-        code_map = {
+    if not fill_olive:
+        fill_rings = []
+    # Uvnitř se pracuje s kódy sprintu (518 plot, 416 živý plot – podle nich se ploty spojují a orientují);
+    # na symboly presetu (plot 516 les / 522 MTBO) se převedou až při kreslení.
+    code_map = (
+        {}
+        if sprint
+        else {
             dtm_fences.CODE_FENCE: feature_oom_code("fence", preset_id),
             dtm_fences.CODE_HEDGE: feature_oom_code("hedge", preset_id),
         }
-        dtm_lines = [(code_map.get(c, c), ln) for c, ln in dtm_lines]
-        osm_lines = [(code_map.get(c, c), ln) for c, ln in osm_lines]
+    )
     lines = list(dtm_lines)
     if osm_lines:
         try:
@@ -1922,15 +2087,11 @@ def build_dtm_fence_parts(
             tagged = [item for i, item in enumerate(tagged) if i not in dropped]
             keep_dtm = [(c, ln) for c, ln, is_osm in tagged if not is_osm]
             keep_osm = [(c, ln) for c, ln, is_osm in tagged if is_osm]
-            if sprint and keep_osm and (areas["olive"] or areas["public"]):
+            if keep_osm and (areas["olive"] or areas["public"]):
                 keep_osm = dtm_fences.orient_fences(keep_osm, areas)
             lines = keep_dtm + keep_osm
         except Exception:  # sjednocení je doplněk, ploty se kreslí i bez něj
             lines = dtm_lines + osm_lines
-    if not sprint:
-        from shapely.geometry import LineString
-
-        lines = [(c, ln) for c, ln in lines if len(ln) >= 2 and LineString(ln).length >= NONSPRINT_FENCE_MIN_LEN_M]
     if not lines and not _load_dubious_fences(work_dir):
         return []
     if fill_olive and osm_lines and (areas["olive"] or areas["building"]):
@@ -1942,14 +2103,6 @@ def build_dtm_fence_parts(
         olive_geom = _olive_geometry(work_dir, fill_rings if fill_olive else [])
         # Podezřelé ploty ležící na hraně kreslené olivy se vracejí (hranice soukromého pozemku).
         dubious_back = fences_on_olive_edge(_load_dubious_fences(work_dir), olive_geom)
-        if not sprint:
-            from shapely.geometry import LineString as _L2
-
-            dubious_back = [
-                (code_map.get(c, c), ln)
-                for c, ln in dubious_back
-                if _L2(ln).length >= NONSPRINT_FENCE_MIN_LEN_M
-            ]
         lines = lines + dubious_back
         # Plot na obrysu budovy se nekreslí (budova má přednost, kreslí se z DTM / OSM).
         buildings_zone = _buildings_zone(work_dir)
@@ -1963,15 +2116,16 @@ def build_dtm_fence_parts(
         connectors = dtm_fences.fence_gap_connectors(
             lines, forbidden=_uu(blockers) if blockers else None, near=olive_geom
         )
-        if connectors or dubious_back:
-            # Spojky se slijí s ploty do jedné linie (po kódu symbolu); ve sprintu se pak celá linie otočí tak, aby
+        if connectors or dubious_back or not sprint:
+            # Spojky se slijí s ploty do jedné linie (po kódu symbolu); celá linie se pak otočí tak, aby
             # čárky plotu mířily do olivy (OPL zahrady + kreslená oliva z OSM / ZABAGED / DTM).
+            # Les a MTBO spojují a orientují vždy (sprint beze změny: jen když přibyla spojka nebo vrácený plot).
             joined: list[tuple[str, list[tuple[float, float]]]] = []
             for code in dict.fromkeys(c for c, _ln in lines + connectors):
                 group = [ln for c, ln in lines + connectors if c == code]
                 joined.extend((code, ln) for ln in dtm_fences.merge_lines(group))
             lines = joined
-            if sprint and not olive_geom.is_empty:
+            if not olive_geom.is_empty or (not sprint and (areas["olive"] or areas["public"])):
                 polys = [olive_geom] if olive_geom.geom_type == "Polygon" else list(getattr(olive_geom, "geoms", []))
                 olive_polys = [
                     [list(p.exterior.coords)] + [list(r.coords) for r in p.interiors]
@@ -1981,12 +2135,23 @@ def build_dtm_fence_parts(
                 lines = dtm_fences.orient_fences(lines, {**areas, "olive": list(areas["olive"]) + olive_polys})
     except Exception:  # dedup a propojení jsou doplněk, ploty se kreslí i bez nich
         pass
+    if not sprint:
+        # Krátké kousky se v lese a MTBO nekreslí (posuzuje se až spojená čára); symboly presetu.
+        from shapely.geometry import LineString
+
+        lines = [
+            (code_map.get(c, c), ln)
+            for c, ln in lines
+            if len(ln) >= 2 and LineString(ln).length >= NONSPRINT_FENCE_MIN_LEN_M
+        ]
     try:
-        paths = path_clearances(work_dir, path_source) if sprint else []
+        # Odsun od kreslených cest až po spojení, dedupu a orientaci (sprint beze změny; les a MTBO podle šířky symbolů).
+        paths = path_clearances(work_dir, path_source, preset_id=preset_id, scale=scale)
         if paths:
             # Obrysy výplní se posouvají stejnou funkcí polohy jako ploty → zůstanou na plotech.
-            moved = dtm_fences.avoid_paths(lines + [("520", r) for r in fill_rings], paths)
-            lines, fill_rings = moved[: len(lines)], [r for _c, r in moved[len(lines) :]]
+            avoid_kw = {} if sprint else {"max_shift": nonsprint_avoid_shift_m(scale), "keep_crossings": True}
+            moved = dtm_fences.avoid_paths(lines + [("520", r) for r in fill_rings], paths, **avoid_kw)
+            lines, fill_rings = moved[: len(lines)], valid_fill_rings([r for _c, r in moved[len(lines) :]])
     except Exception:  # odsun je kosmetika, ploty se kreslí i bez něj
         pass
     symbol_cache: dict[str, int | None] = {}

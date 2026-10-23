@@ -488,7 +488,7 @@ def test_forest_uses_dtm_buildings_and_fences_replace_osm(tmp_path):
     assert fences and fences[0].count == 2  # spojené ploty DTM (50 m) + OSM (50 m)
 
 
-def test_forest_fills_dtm_fence_enclosures_with_olive_but_mtbo_does_not(tmp_path):
+def test_forest_and_mtbo_fill_dtm_fence_enclosures_with_olive(tmp_path):
     work = tmp_path
     (work / "dtm").mkdir()
     ring = [[-1000, -980], [-950, -980], [-950, -940], [-1000, -940], [-1000, -980]]
@@ -499,7 +499,7 @@ def test_forest_fills_dtm_fence_enclosures_with_olive_but_mtbo_does_not(tmp_path
     forest = di.build_dtm_fence_parts(work, preset_id="forest_10000", **kw)
     assert [p.name for p in forest] == ["DTM – oplocené plochy", "Ploty (DTM + OSM)"]
     mtbo = di.build_dtm_fence_parts(work, preset_id="mtbo_10000", **kw)
-    assert [p.name for p in mtbo] == ["Ploty (DTM + OSM)"]
+    assert [p.name for p in mtbo] == ["DTM – oplocené plochy", "Ploty (DTM + OSM)"]
 
 
 def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path):
