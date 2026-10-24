@@ -5959,6 +5959,8 @@ def build_osm_path_parts(
             other_lines = _prep_other(_uu_band(_other)) if _other else None
     # Les / MTBO: navazující kusy se stejným symbolem (úseky OSM, krátké schody převedené na pěšinu) jako jedna čára.
     join_pieces: dict[int, list] | None = None if preset_id.startswith("sprint") else {}
+    _corridor_bands: dict[float, object] = {}  # pás ``corridor_zone.buffer(w / 2)`` podle šířky (jednou na šířku, ne na čáru)
+    _corridor_boundary = corridor_zone.boundary if corridor_zone is not None else None
     for feat_i, feat in enumerate(data.get("features") or []):
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
@@ -6041,7 +6043,10 @@ def build_osm_path_parts(
             lines = clip_outside(line, corridor_zone)
             # čára podél hrany koridoru by svou šířkou překrývala plochu → úseky podél hrany pryč (viz ``corridor_junction_omit``)
             _w = drawn_symbol_width_m(path_draw_highway(hw), preset_id, scale)
-            lines = [seg for ln in lines for seg in trim_along_corridor(ln, corridor_zone, _w)]
+            _band = _corridor_bands.get(round(_w, 3))
+            if _band is None:
+                _band = _corridor_bands[round(_w, 3)] = corridor_zone.buffer(_w / 2)
+            lines = [seg for ln in lines for seg in trim_along_corridor(ln, corridor_zone, _w, band=_band, boundary=_corridor_boundary)]
         elif (
             corridor_zone is not None
             and path_draw_highway(hw) in {"sidewalk", "footway", "pedestrian"}

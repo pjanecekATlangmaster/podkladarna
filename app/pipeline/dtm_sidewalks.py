@@ -725,13 +725,33 @@ def clip_outside(coords: list[tuple[float, float]], cover, min_len_m: float = OS
     return [[(float(x), float(y)) for x, y in g.coords] for g in pieces if g.length >= min_len_m]
 
 
-def trim_along_corridor(coords: list[tuple[float, float]], corridor, width_m: float, touch_m: float = 0.1):
+def _drop_band_stubs(pieces, band, width_m: float):
+    """Pahýly: kusy kratší než ``1.5 * width_m`` ležící celé v pásu podél koridoru se zahodí."""
+    from shapely.geometry import LineString
+
+    out = []
+    for piece in pieces:
+        if len(piece) >= 2:
+            ln = LineString(piece)
+            if ln.length < 1.5 * width_m and band.covers(ln):
+                continue
+        out.append(piece)
+    return out
+
+
+def trim_along_corridor(
+    coords: list[tuple[float, float]], corridor, width_m: float, touch_m: float = 0.1, band=None, boundary=None
+):
     """Čára mimo ``corridor`` (shapely) bez úseků, které vedou podél jeho hrany v pásu ``width_m / 2`` (kresba čáry
     široká ``width_m`` by tam překrývala plochu): souvislé části uvnitř pásu delší než ``width_m`` se odstraní.
 
     Konec zbytku, který navazoval na odstraněný úsek při konci čáry dotýkajícím se koridoru (do ``touch_m``), se
     prodlouží rovně k nejbližšímu bodu hrany. Kratší průniky (napojení napříč) se nemění. Seznam souřadnic kusů.
+
+    ``band`` (``corridor.buffer(width_m / 2)``) a ``boundary`` (``corridor.boundary``) lze předat předpočítané,
+    když se funkce volá pro mnoho čar nad týmž koridorem.
     """
+    import shapely
     from shapely.geometry import LineString, Point
     from shapely.ops import nearest_points, substring
 
@@ -740,7 +760,11 @@ def trim_along_corridor(coords: list[tuple[float, float]], corridor, width_m: fl
     line = LineString(coords)
     if line.length <= 0:
         return [coords]
-    band = corridor.buffer(width_m / 2)
+    if band is None:
+        band = corridor.buffer(width_m / 2)
+    shapely.prepare(band)  # opakované ``intersects`` nad velkým pásem; opakované volání nic nestojí
+    if not band.intersects(line):
+        return [coords]
     inside = line.intersection(band)
     parts = [inside] if inside.geom_type == "LineString" else [g for g in getattr(inside, "geoms", []) if g.geom_type == "LineString"]
     parts = [g for g in parts if not g.is_empty]  # čára pás neprotne → prázdný LineString
@@ -754,12 +778,19 @@ def trim_along_corridor(coords: list[tuple[float, float]], corridor, width_m: fl
             merged[-1][1] = max(merged[-1][1], b)
         else:
             merged.append([a, b])
-    removed = [(a, b) for a, b in merged if b - a > width_m]
-    if not removed:
-        return [coords]
-    boundary = corridor.boundary
     start_touch = corridor.distance(Point(coords[0])) <= touch_m
     end_touch = corridor.distance(Point(coords[-1])) <= touch_m
+    removed = []
+    for a, b in merged:
+        # konec dotýkající se koridoru se zkracuje, dokud je osa v pásu, i když je úsek kratší než ``width_m``;
+        # skoro kolmé napojení (úsek ≤ 1,5 × půlka šířky) se nemění
+        at_end = (start_touch and a <= 1e-6) or (end_touch and b >= line.length - 1e-6)
+        if b - a > width_m or (at_end and b - a > 0.75 * width_m):
+            removed.append((a, b))
+    if not removed:
+        return _drop_band_stubs([coords], band, width_m)
+    if boundary is None:
+        boundary = corridor.boundary
     result = []
     pos = 0.0
     for a, b in [*removed, (line.length, line.length)]:
@@ -774,7 +805,7 @@ def trim_along_corridor(coords: list[tuple[float, float]], corridor, width_m: fl
                 piece = [*piece, (float(q.x), float(q.y))]
             result.append(piece)
         pos = b
-    return result
+    return _drop_band_stubs(result, band, width_m)
 
 
 def unify_sidewalks(

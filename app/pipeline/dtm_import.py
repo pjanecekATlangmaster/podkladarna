@@ -1393,6 +1393,7 @@ def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int)
     from app.pipeline.dtm_sidewalks import clip_outside, trim_along_corridor
 
     boundary = corridor.boundary
+    bands: dict[float, object] = {}
     circles = []
     for feat in op._paths_features_for_network(work_dir):
         geom = feat.get("geometry") or {}
@@ -1409,7 +1410,12 @@ def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int)
             continue
         w = op.drawn_symbol_width_m(base, preset_id, scale)
         # stejné kusy čáry jako při kreslení (``build_osm_path_parts``): mimo koridor a bez úseků podél hrany
-        pieces = [seg for part in clip_outside(coords, corridor) for seg in trim_along_corridor(part, corridor, w)]
+        band = bands.get(round(w, 3))
+        if band is None:
+            band = bands[round(w, 3)] = corridor.buffer(w / 2)
+        pieces = [
+            seg for part in clip_outside(coords, corridor) for seg in trim_along_corridor(part, corridor, w, band=band, boundary=boundary)
+        ]
         r = w / 2 + JUNCTION_EXTRA_M
         for seg in pieces:
             for pt in (Point(seg[0]), Point(seg[-1])):

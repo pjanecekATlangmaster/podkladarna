@@ -1543,6 +1543,58 @@ def test_trim_along_corridor():
     assert piece[-1] == (60.0, 40.0)
 
 
+def test_trim_along_corridor_precomputed_band_and_boundary_give_same_result():
+    from shapely.geometry import box
+
+    corridor = box(0, 0, 100, 10)
+    band = corridor.buffer(2.0)
+    for line in (
+        [(0, 12), (100, 12)],
+        [(50, 10), (50, 40)],
+        [(0, 10), (0, 12), (40, 12), (60, 40)],
+        [(0.0, 100.0), (50.0, 100.0)],
+    ):
+        assert ds.trim_along_corridor(line, corridor, 4.0, band=band, boundary=corridor.boundary) == ds.trim_along_corridor(
+            line, corridor, 4.0
+        )
+
+
+def test_trim_along_corridor_shallow_end_is_cut_and_snapped_to_edge():
+    import math
+
+    from shapely.geometry import LineString, box
+
+    corridor = box(0, 0, 100, 10)
+    w = 4.0
+    # konec dobíhá k hraně pod 15° (poslední úsek v pásu je dlouhý, konec musí skončit na hraně)
+    t = math.tan(math.radians(15))
+    line = [(10.0, 40.0), (10.0, 12.0), (10.0 + 2.0 / t, 12.0), (10.0 + 2.0 / t + 2.0 / t, 10.0)]
+    out = ds.trim_along_corridor(line, corridor, w)
+    assert len(out) == 1
+    assert abs(corridor.boundary.distance(__import__("shapely.geometry").geometry.Point(out[0][-1]))) < 1e-6
+    in_band = LineString(out[0]).intersection(corridor.buffer(w / 2)).length
+    old_in_band = LineString(line).intersection(corridor.buffer(w / 2)).length
+    assert in_band < old_in_band
+
+
+def test_trim_along_corridor_perpendicular_end_stays_on_edge():
+    from shapely.geometry import LineString, Point, box
+
+    corridor = box(0, 0, 100, 10)
+    perp = [(50.0, 10.0), (50.0, 40.0)]
+    out = ds.trim_along_corridor(perp, corridor, 4.0)
+    assert len(out) == 1
+    assert corridor.boundary.distance(Point(out[0][0])) < 1e-6
+    assert abs(LineString(out[0]).length - 30.0) < 0.5
+
+
+def test_trim_along_corridor_drops_stub_near_edge():
+    from shapely.geometry import box
+
+    corridor = box(0, 0, 100, 10)
+    assert ds.trim_along_corridor([(20.0, 11.0), (26.0, 11.0)], corridor, 4.0) == []
+
+
 def test_trim_along_corridor_line_far_from_corridor_is_unchanged():
     from shapely.geometry import box
 
