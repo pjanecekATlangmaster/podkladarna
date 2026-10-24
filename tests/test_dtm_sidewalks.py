@@ -1552,7 +1552,7 @@ def test_drawn_path_ends_roundtrip():
     assert drawn_path_ends([OomObjectPart("x", xml, 1)], majors=frozenset({815}), **kw) == []
 
 
-def test_corridor_adjacent_paved_zone_ignores_slivers(tmp_path, monkeypatch):
+def test_corridor_adjacent_paved_ignores_slivers(tmp_path, monkeypatch):
     from shapely.geometry import Point, box
     from shapely.ops import unary_union
 
@@ -1563,9 +1563,9 @@ def test_corridor_adjacent_paved_zone_ignores_slivers(tmp_path, monkeypatch):
     sliver = box(60, 0, 90, 10.4)  # síť OSM přes silnici: po ořezu koridorem jen pruh 0,4 m
     monkeypatch.setattr(di, "dtm_parking_geometry", lambda *a, **k: parking)
     monkeypatch.setattr(op, "paved_network_geometry", lambda *a, **k: unary_union([sliver]))
-    zone = di._corridor_adjacent_paved_zone(tmp_path, corridor, "mtbo_10000", 10000, "mixed")
-    assert zone is not None
-    assert zone.contains(Point(35, 10)) and not zone.contains(Point(75, 10))
+    adj = di._corridor_adjacent_paved(tmp_path, corridor, "mtbo_10000", 10000, "mixed")
+    assert adj is not None
+    assert adj.buffer(0.1).contains(Point(35, 10)) and adj.distance(Point(75, 10)) > 1.0
 
 
 def test_edge_omit_drops_short_stub_between_two_omits():
@@ -1665,3 +1665,22 @@ def test_trim_along_corridor_line_far_from_corridor_is_unchanged():
 
     coords = [(0.0, 100.0), (50.0, 100.0)]
     assert ds.trim_along_corridor(coords, box(0, 0, 50, 10), 8.7) == [coords]
+
+
+def test_corridor_edge_merged_with_adjacent_parking_reaches_corner(tmp_path, monkeypatch):
+    from shapely.geometry import Point, box
+
+    corridor, parking = box(0, 0, 100, 10), box(20, 10, 50, 40)
+    seen = {}
+    monkeypatch.setattr(di, "dtm_area_preset", lambda p: True)
+    monkeypatch.setattr(di, "corridor_geometry_for", lambda *a, **k: corridor)
+    monkeypatch.setattr(di, "_corridor_adjacent_paved", lambda *a, **k: parking)
+    monkeypatch.setattr(di, "corridor_junction_omit", lambda *a, **k: None)
+    monkeypatch.setattr(di, "_geometry_part", lambda geom, **k: seen.update(k) or [])
+    di.build_mtbo_corridor_parts(tmp_path, preset_id="mtbo_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    lines = seen["edge_lines"]
+    assert lines.distance(Point(35, 10)) > 1.0  # společná hranice bez okraje
+    assert lines.distance(Point(10, 10)) < 0.01 and lines.distance(Point(60, 10)) < 0.01  # zbytek hrany koridoru
+    # u rohu obrys koridoru pokračuje po hraně parkoviště dál, než parkoviště svůj okraj vynechá (0,5 m)
+    assert lines.distance(Point(20, 10 + di.CORRIDOR_SHARED_EDGE_M)) < 0.01
+    assert lines.distance(Point(50, 10 + di.CORRIDOR_SHARED_EDGE_M)) < 0.01

@@ -885,6 +885,7 @@ def _geometry_part(
     edge_omit=None,
     fill_code: str | None = None,
     edge_code: str = EDGE_CODE,
+    edge_lines=None,
 ) -> list[OomObjectPart]:
     """Plocha (shapely) jako části .omap se symbolem ``code``; prázdný seznam bez geometrie / symbolu.
 
@@ -895,6 +896,9 @@ def _geometry_part(
     dotýkají, se kreslí s obrysem zvlášť (spodní plocha pod mostem končí u trojúhelníků, ne obrysovou čárou).
 
     ``edge_omit``: plocha (shapely); obrys se o ni zkrátí (napojení kreslené cesty na hranu koridoru), výplň zůstává.
+    Kus obrysu kratší než ``EDGE_STUB_MIN_MM`` mezi dvěma přerušeními se zahodí.
+    ``edge_lines``: čáry obrysu (shapely) místo hranice polygonů, bere se jejich část do ``EDGE_LINES_REACH_M`` m od polygonu
+    (koridor: obrys sloučený s přiléhající plochou, viz ``build_mtbo_corridor_parts``).
 
     Polygony nad ``AREA_SPLIT_VERTICES`` vrcholů: bezobrysová výplň rozřezaná na díly + zvláštní část
     s obrysem (čára 501.100) po skutečné hranici (ne podél ořezu na výřez ani podél řezů).
@@ -944,7 +948,12 @@ def _geometry_part(
                 obj = _area_object_with_holes(fill_idx, [to_map(ring), *[to_map(h) for h in holes]])
                 if obj:
                     objects.append(obj)
-            outline = unary_union([LineString(r) for r in rings])
+            if edge_lines is not None:
+                from shapely.geometry import Polygon as _EdgePoly
+
+                outline = edge_lines.intersection(_EdgePoly(rings[0], rings[1:]).buffer(EDGE_LINES_REACH_M))
+            else:
+                outline = unary_union([LineString(r) for r in rings])
             if clip is not None:
                 outline = outline.difference(clip.exterior.buffer(0.02))
             if exclude_zone is not None:
@@ -953,8 +962,17 @@ def _geometry_part(
                 outline = outline.difference(edge_omit)
             lines = [outline] if outline.geom_type == "LineString" else [g for g in getattr(outline, "geoms", []) if g.geom_type == "LineString"]
             if edge_omit is not None and not edge_omit.is_empty:
+                # pahýl mezi dvěma přerušeními pryč; kus navazující na obrys jiné plochy (``edge_lines``) zůstává
+                from shapely.geometry import Point as _StubPt
+
                 stub_m = EDGE_STUB_MIN_MM * scale / 1000.0
-                lines = [ln for ln in lines if ln.length >= stub_m]
+                lines = [
+                    ln
+                    for ln in lines
+                    if ln.length >= stub_m
+                    or ln.is_closed
+                    or not all(edge_omit.distance(_StubPt(c)) <= 0.05 for c in (ln.coords[0], ln.coords[-1]))
+                ]
             for ln in lines:
                 for piece in _chunk_line([(float(x), float(y)) for x, y in ln.coords], OUTLINE_CHUNK_VERTICES):
                     obj = _path_object_mapped(edge_idx, to_map(piece))
@@ -1138,6 +1156,7 @@ JUNCTION_END_TOL_M = 0.5  # konec čáry z hotové mapy do této vzdálenosti od
 JUNCTION_MAJORS = frozenset({502, 503, 504, 815})
 # Okraj koridoru a přiléhající zpevněné plochy (parkoviště, síť OSM) se na společné hranici nekreslí (m).
 CORRIDOR_SHARED_EDGE_M = 0.5
+EDGE_LINES_REACH_M = CORRIDOR_SHARED_EDGE_M + 0.1  # obrys koridoru zasahuje k rohu přiléhající plochy dál, než ta svůj vynechá
 
 
 def _corridor_road_axes(work_dir: Path):
@@ -1449,8 +1468,8 @@ def corridor_shared_edge_zone(work_dir: Path, preset_id: str, scale: int, path_s
     return corridor.buffer(CORRIDOR_SHARED_EDGE_M)
 
 
-def _corridor_adjacent_paved_zone(work_dir: Path, corridor, preset_id: str, scale: int, path_source: str):
-    """Pás ``CORRIDOR_SHARED_EDGE_M`` m kolem zpevněných ploch mimo koridor (parkoviště z DTM, síť OSM; shapely) nebo None."""
+def _corridor_adjacent_paved(work_dir: Path, corridor, preset_id: str, scale: int, path_source: str):
+    """Zpevněné plochy mimo koridor do ``CORRIDOR_SHARED_EDGE_M`` m od něj (parkoviště z DTM, síť OSM; shapely) nebo None."""
     if corridor is None or corridor.is_empty:
         return None
     from shapely.ops import unary_union
@@ -1467,7 +1486,9 @@ def _corridor_adjacent_paved_zone(work_dir: Path, corridor, preset_id: str, scal
     h = CORRIDOR_SHARED_EDGE_M
     outside = unary_union(areas).difference(corridor)
     outside = outside.buffer(-h, join_style=2).buffer(h, join_style=2)  # pruhy podél hrany (zbytky ořezu) se nepočítají
-    return None if outside.is_empty else outside.buffer(h)
+    near = corridor.buffer(h)
+    pieces = [g for g in getattr(outside, "geoms", [outside]) if g.geom_type == "Polygon" and g.intersects(near)]
+    return unary_union(pieces) if pieces else None
 
 
 def build_mtbo_corridor_parts(
@@ -1493,19 +1514,19 @@ def build_mtbo_corridor_parts(
         return []
     corridor = corridor_geometry_for(work_dir, preset_id, scale, path_source)
     mtbo = preset_id.startswith("mtbo")
-    omit = [
-        g
-        for g in (
-            corridor_junction_omit(work_dir, corridor, preset_id, scale, road_ends),
-            _corridor_adjacent_paved_zone(work_dir, corridor, preset_id, scale, path_source),
-        )
-        if g is not None and not g.is_empty
-    ]
-    from shapely.ops import unary_union
+    edge_lines = None
+    adjacent = _corridor_adjacent_paved(work_dir, corridor, preset_id, scale, path_source)
+    if adjacent is not None:
+        # obrys po hranici koridoru sloučeného s přiléhajícími plochami: společná hranice bez okraje, u rohu navazuje
+        from shapely.ops import unary_union
 
+        c = CORRIDOR_SHARED_EDGE_M / 2
+        merged = unary_union([corridor, adjacent]).buffer(c, join_style=2).buffer(-c, join_style=2)
+        edge_lines = merged.boundary.intersection(corridor.buffer(EDGE_LINES_REACH_M))
     return _geometry_part(
         corridor,
-        edge_omit=unary_union(omit) if omit else None,
+        edge_omit=corridor_junction_omit(work_dir, corridor, preset_id, scale, road_ends),
+        edge_lines=edge_lines,
         name="MTBO – silnice s chodníky (koridor)" if mtbo else "Les – silnice s chodníky z DTM (koridor)",
         code="501.0" if mtbo else "501.1",
         preset_id=preset_id,
