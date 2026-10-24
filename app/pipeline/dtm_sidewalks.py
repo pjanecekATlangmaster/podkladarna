@@ -725,6 +725,57 @@ def clip_outside(coords: list[tuple[float, float]], cover, min_len_m: float = OS
     return [[(float(x), float(y)) for x, y in g.coords] for g in pieces if g.length >= min_len_m]
 
 
+def trim_along_corridor(coords: list[tuple[float, float]], corridor, width_m: float, touch_m: float = 0.1):
+    """Čára mimo ``corridor`` (shapely) bez úseků, které vedou podél jeho hrany v pásu ``width_m / 2`` (kresba čáry
+    široká ``width_m`` by tam překrývala plochu): souvislé části uvnitř pásu delší než ``width_m`` se odstraní.
+
+    Konec zbytku, který navazoval na odstraněný úsek při konci čáry dotýkajícím se koridoru (do ``touch_m``), se
+    prodlouží rovně k nejbližšímu bodu hrany. Kratší průniky (napojení napříč) se nemění. Seznam souřadnic kusů.
+    """
+    from shapely.geometry import LineString, Point
+    from shapely.ops import nearest_points, substring
+
+    if corridor is None or corridor.is_empty or len(coords) < 2 or width_m <= 0:
+        return [coords]
+    line = LineString(coords)
+    if line.length <= 0:
+        return [coords]
+    band = corridor.buffer(width_m / 2)
+    inside = line.intersection(band)
+    parts = [inside] if inside.geom_type == "LineString" else [g for g in getattr(inside, "geoms", []) if g.geom_type == "LineString"]
+    spans = sorted(
+        (min(line.project(Point(g.coords[0])), line.project(Point(g.coords[-1]))), max(line.project(Point(g.coords[0])), line.project(Point(g.coords[-1]))))
+        for g in parts
+    )
+    merged: list[list[float]] = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1] + 1e-6:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    removed = [(a, b) for a, b in merged if b - a > width_m]
+    if not removed:
+        return [coords]
+    boundary = corridor.boundary
+    start_touch = corridor.distance(Point(coords[0])) <= touch_m
+    end_touch = corridor.distance(Point(coords[-1])) <= touch_m
+    result = []
+    pos = 0.0
+    for a, b in [*removed, (line.length, line.length)]:
+        if a - pos > 1e-6:
+            piece = [(float(x), float(y)) for x, y in substring(line, pos, a).coords]
+            # konec zbytku po odstraněném úseku u začátku / konce čáry, který se dotýkal koridoru, se napojí na hranu
+            if pos > 1e-6 and start_touch and removed[0][0] <= 1e-6 and abs(removed[0][1] - pos) < 1e-6:
+                q = nearest_points(boundary, Point(piece[0]))[0]
+                piece = [(float(q.x), float(q.y)), *piece]
+            if a < line.length - 1e-6 and end_touch and removed[-1][1] >= line.length - 1e-6 and abs(removed[-1][0] - a) < 1e-6:
+                q = nearest_points(boundary, Point(piece[-1]))[0]
+                piece = [*piece, (float(q.x), float(q.y))]
+            result.append(piece)
+        pos = b
+    return result
+
+
 def unify_sidewalks(
     dtm_polys: list[list[list[tuple[float, float]]]],
     osm_lines: list[list[tuple[float, float]]],

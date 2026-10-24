@@ -5742,7 +5742,7 @@ def build_osm_path_parts(
         is_surface_steps,
         stairs_zone_geometry,
     )
-    from app.pipeline.dtm_sidewalks import clip_outside, end_at_edge, steps_keep
+    from app.pipeline.dtm_sidewalks import clip_outside, end_at_edge, steps_keep, trim_along_corridor
 
     sidewalks_from_dtm = preset_id.startswith("sprint") and dtm_owns_sidewalks(work_dir)
     roads_from_dtm = preset_id.startswith("sprint") and dtm_owns_roads(work_dir)
@@ -6039,6 +6039,9 @@ def build_osm_path_parts(
             lines = clip_outside(line, sidewalk_cover)
         elif corridor_zone is not None and is_surface_road(hw):
             lines = clip_outside(line, corridor_zone)
+            # čára podél hrany koridoru by svou šířkou překrývala plochu → úseky podél hrany pryč (viz ``corridor_junction_omit``)
+            _w = drawn_symbol_width_m(path_draw_highway(hw), preset_id, scale)
+            lines = [seg for ln in lines for seg in trim_along_corridor(ln, corridor_zone, _w)]
         elif (
             corridor_zone is not None
             and path_draw_highway(hw) in {"sidewalk", "footway", "pedestrian"}

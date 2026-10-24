@@ -854,6 +854,8 @@ FILL_ONLY_CODE = {"501.0": "501.1", ROAD_CODE: "501.21"}
 EDGE_CODE = "501.100"
 # Šířka pásu kolem hrany mostu (m), v němž se obrys spodní plochy nekreslí.
 EDGE_EXCLUDE_BUFFER_M = 0.15
+# Kus obrysu kratší než tohle (mm mapy) se po zkrácení o ``edge_omit`` (napojení cest) zahodí – vypadá jako úlomek.
+EDGE_STUB_MIN_MM = 1.0
 
 
 def _chunk_line(coords: list[tuple[float, float]], size: int) -> list[list[tuple[float, float]]]:
@@ -950,6 +952,9 @@ def _geometry_part(
             if edge_omit is not None and not edge_omit.is_empty:
                 outline = outline.difference(edge_omit)
             lines = [outline] if outline.geom_type == "LineString" else [g for g in getattr(outline, "geoms", []) if g.geom_type == "LineString"]
+            if edge_omit is not None and not edge_omit.is_empty:
+                stub_m = EDGE_STUB_MIN_MM * scale / 1000.0
+                lines = [ln for ln in lines if ln.length >= stub_m]
             for ln in lines:
                 for piece in _chunk_line([(float(x), float(y)) for x, y in ln.coords], OUTLINE_CHUNK_VERTICES):
                     obj = _path_object_mapped(edge_idx, to_map(piece))
@@ -1381,10 +1386,11 @@ def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int)
     """
     if corridor is None or corridor.is_empty:
         return None
-    from shapely.geometry import LineString
+    from shapely.geometry import Point
     from shapely.ops import unary_union
 
     from app.pipeline import osm_paths as op
+    from app.pipeline.dtm_sidewalks import clip_outside, trim_along_corridor
 
     boundary = corridor.boundary
     circles = []
@@ -1401,11 +1407,14 @@ def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int)
             or op.is_tunnel_highway(hw)
         ):
             continue
-        hit = LineString(coords).intersection(boundary)
-        if hit.is_empty:
-            continue
-        r = op.drawn_symbol_width_m(base, preset_id, scale) / 2 + JUNCTION_EXTRA_M
-        circles.extend(p.buffer(r) for p in getattr(hit, "geoms", [hit]) if p.geom_type == "Point")
+        w = op.drawn_symbol_width_m(base, preset_id, scale)
+        # stejné kusy čáry jako při kreslení (``build_osm_path_parts``): mimo koridor a bez úseků podél hrany
+        pieces = [seg for part in clip_outside(coords, corridor) for seg in trim_along_corridor(part, corridor, w)]
+        r = w / 2 + JUNCTION_EXTRA_M
+        for seg in pieces:
+            for pt in (Point(seg[0]), Point(seg[-1])):
+                if boundary.distance(pt) <= 0.1:
+                    circles.append(pt.buffer(r))
     return unary_union(circles) if circles else None
 
 

@@ -826,3 +826,35 @@ def test_zabaged_road_bridge_yields_to_osm_bridge(tmp_path):
     assert _zabaged_line_lengths(z, "Most", "mtbo_10000", 10000, x0, y0, osm) == []
     assert _zabaged_line_lengths(z, "Most", "forest_10000", 10000, x0, y0, osm) == []
     assert len(_zabaged_line_lengths(z, "Most", "sprint_4000", 4000, x0, y0, osm)) == 1
+
+
+def test_zabaged_tunnel_clipped_by_dtm_cover_in_forest(tmp_path):
+    """Les / MTBO: ZABAGED Tunel (silniční) se uvnitř DTM koridoru nekreslí; sprint beze změny."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+
+    from shapely.geometry import box
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Tunel", [[(x0, y0), (x0 + 300, y0)]])
+    cover = box(x0 + 100, y0 - 10, x0 + 200, y0 + 10)
+
+    def count(preset, scale):
+        parts = build_zabaged_object_parts(
+            z,
+            vectorconf_name="zabaged.txt",
+            preset_id=preset,
+            scale=scale,
+            ref_x=x0,
+            ref_y=y0,
+            grivation_deg=0.0,
+            work_dir=Path(tempfile.mkdtemp()),
+            dtm_cover=cover,
+        )
+        return sum(p.count for p in parts if "Tunel" in p.name)
+
+    assert count("forest_10000", 10000) == 2  # před a za koridorem, uvnitř ne
+    assert count("sprint_4000", 4000) == 1

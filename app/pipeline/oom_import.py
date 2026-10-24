@@ -57,6 +57,8 @@ _DTM_CLIPPED_PATH_LAYERS = frozenset({"Ulice", "SilniceDalnice", "Cesta", "Pesin
 # Les / MTBO: silniční most ze ZABAGED (vrstva Most, road-path) se dedupuje proti OSM silnicím včetně mostů
 # (way/4878104: ZABAGED Most 252 m nakreslený souběžně s OSM mostem). Železniční mosty ne.
 _ROAD_BRIDGE_LAYER = "Most:silnice"
+# Les / MTBO: silniční Tunel a Podjezd (road-path) se ořežou o plochy silnic a chodníků z DTM (koridor je kreslí plochou). Lávka a Most ne.
+_DTM_CLIPPED_UNDER_LAYERS = frozenset({"Tunel:silnice", "Podjezd:silnice"})
 
 # ZABAGED vrstvy, které skálu NEpřebíjejí (zelená / bílá / vegetační pozadí).
 # Vrstevnice sem nepatří – nejsou v ZABAGED a do blockerů se vůbec nenačítají.
@@ -1160,6 +1162,10 @@ def build_zabaged_object_parts(
             from app.pipeline.dtm_sidewalks import clip_outside
 
             line_parts = [p for pts in line_parts for p in clip_outside(pts, dtm_cover, MIN_LENGTH_M)]
+        elif dtm_cover is not None and layer_name in _DTM_CLIPPED_UNDER_LAYERS and not preset_id.startswith("sprint"):
+            from app.pipeline.dtm_sidewalks import clip_outside
+
+            line_parts = [p for pts in line_parts for p in clip_outside(pts, dtm_cover, MIN_LENGTH_M)]
         if paved_clip is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
             line_parts = _clip_by_paved(line_parts, layer_name in road_layers)
         if not osm_blockers or layer_name not in osm_first_layers:
@@ -1267,7 +1273,11 @@ def build_zabaged_object_parts(
                 ):
                     continue
                 line_parts = _ogr_line_parts_5514(geom)
-                flt_layer = _ROAD_BRIDGE_LAYER if layer_name == "Most" and rule.symbol_name == "road-path" else layer_name
+                flt_layer = (
+                    f"{layer_name}:silnice"
+                    if layer_name in ("Most", "Tunel", "Podjezd") and rule.symbol_name == "road-path"
+                    else layer_name
+                )
                 line_parts = _filter_vs_osm(line_parts, flt_layer)
                 if layer_name == "Pesina" and line_parts:
                     if all(
@@ -1295,7 +1305,11 @@ def build_zabaged_object_parts(
                 elif (
                     (dtm_cover is not None or paved_clip is not None or osm_first)
                     and not preset_id.startswith("sprint")
-                    and (layer_name in _DTM_CLIPPED_PATH_LAYERS or flt_layer == _ROAD_BRIDGE_LAYER)
+                    and (
+                        layer_name in _DTM_CLIPPED_PATH_LAYERS
+                        or flt_layer == _ROAD_BRIDGE_LAYER
+                        or (flt_layer in _DTM_CLIPPED_UNDER_LAYERS and dtm_cover is not None)
+                    )
                 ):
                     # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
@@ -1386,7 +1400,11 @@ def build_zabaged_object_parts(
                 if osm_priority_areas and _covered_by_osm_area(layer_name, bytes(wkb)):
                     continue
                 line_parts = _wkb_line_parts_5514(wkb)
-                flt_layer = _ROAD_BRIDGE_LAYER if layer_name == "Most" and rule.symbol_name == "road-path" else layer_name
+                flt_layer = (
+                    f"{layer_name}:silnice"
+                    if layer_name in ("Most", "Tunel", "Podjezd") and rule.symbol_name == "road-path"
+                    else layer_name
+                )
                 line_parts = _filter_vs_osm(line_parts, flt_layer)
                 if layer_name == "Pesina" and line_parts:
                     if all(
@@ -1413,7 +1431,11 @@ def build_zabaged_object_parts(
                 elif (
                     (dtm_cover is not None or paved_clip is not None or osm_first)
                     and not preset_id.startswith("sprint")
-                    and (layer_name in _DTM_CLIPPED_PATH_LAYERS or flt_layer == _ROAD_BRIDGE_LAYER)
+                    and (
+                        layer_name in _DTM_CLIPPED_PATH_LAYERS
+                        or flt_layer == _ROAD_BRIDGE_LAYER
+                        or (flt_layer in _DTM_CLIPPED_UNDER_LAYERS and dtm_cover is not None)
+                    )
                 ):
                     # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).

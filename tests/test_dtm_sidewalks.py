@@ -1501,3 +1501,43 @@ def test_corridor_edge_omitted_where_drawn_road_meets_corridor(tmp_path):
     full = di._geometry_part(corridor, name="x", code="501.0", outline_separate=True, clip_bounds=None, **kw)
     assert parts[1].count >= 1 and full[1].count >= 1
     assert parts[1].objects_xml != full[1].objects_xml  # obrys s mezerou na napojení se liší od celého
+
+
+def test_edge_omit_drops_short_stub_between_two_omits():
+    from shapely.geometry import Point, box
+
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-900.0, ref_y=-1000.0, grivation_deg=0.0)
+    rect = box(-950, -1006, -850, -994)
+
+    def edges(omit):
+        parts = di._geometry_part(rect, name="x", code="501.0", outline_separate=True, clip_bounds=None, edge_omit=omit, **kw)
+        return parts[1].count
+
+    a, b, far = Point(-920, -1006).buffer(2.0), Point(-911, -1006).buffer(2.0), Point(-870, -1006).buffer(2.0)  # mezi a, b 5 m (0,5 mm)
+    base = edges(a)  # obrys uzavřeného obdélníku přerušený jedním kruhem
+    assert edges(a.union(b)) == base  # pahýl 5 m mezi kruhy se zahodí, zbytek obrysu zůstane
+    assert edges(a.union(far)) == base + 1  # daleké přerušení: oba kusy zůstanou
+    assert edges(a.union(b).union(far)) == base + 1
+    # pahýl s jedním koncem u přerušení (kruh blízko rohu) se také zahodí
+    corner = Point(-950, -1006).buffer(2.0)
+    assert edges(corner.union(Point(-945, -1006).buffer(0.6))) <= edges(corner)
+
+
+def test_trim_along_corridor():
+    from shapely.geometry import box
+
+    from app.pipeline.dtm_sidewalks import trim_along_corridor
+
+    corridor = box(0, 0, 100, 10)
+    # souběžně 2 m od hrany, 100 m: zmizí
+    assert trim_along_corridor([(0, 12), (100, 12)], corridor, 4.0) == []
+    # kolmé napojení: beze změny
+    perp = [(50, 10), (50, 40)]
+    assert trim_along_corridor(perp, corridor, 4.0) == [perp]
+    # 40 m podél hrany a odbočka pryč: zbude odbočka napojená na hranu
+    line = [(0, 10), (0, 12), (40, 12), (60, 40)]
+    out = trim_along_corridor(line, corridor, 4.0)
+    assert len(out) == 1
+    piece = out[0]
+    assert abs(piece[0][1] - 10.0) < 1e-6  # začátek leží na hraně koridoru
+    assert piece[-1] == (60.0, 40.0)
