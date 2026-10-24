@@ -781,6 +781,39 @@ def test_zabaged_remnant_after_parallel_clip_dropped(tmp_path):
     assert len(lengths) == 2 and lengths[0] == pytest.approx(36, abs=4)
 
 
+def test_zabaged_street_not_drawn_across_paved_area_in_forest(tmp_path):
+    """Les / MTBO: ZABAGED Ulice přes zpevněnou plochu (parkoviště, slité podélné stání) se uvnitř nekreslí, jen
+    napojení na hranu – jako OSM silnice (``clip_road_in_paved``); Pesina končí na hraně plochy."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+
+    from shapely.geometry import box
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Ulice", [[(x0, y0), (x0 + 300, y0)]])
+    paved = box(x0 + 100, y0 - 10, x0 + 200, y0 + 10)
+
+    def count(clip):
+        parts = build_zabaged_object_parts(
+            z,
+            vectorconf_name="zabaged.txt",
+            preset_id="forest_10000",
+            scale=10000,
+            ref_x=x0,
+            ref_y=y0,
+            grivation_deg=0.0,
+            work_dir=Path(tempfile.mkdtemp()),
+            paved_clip=clip,
+        )
+        return sum(p.count for p in parts if "Ulice" in p.name)
+
+    assert count(None) == 1
+    assert count((paved, paved)) == 2  # ulice před a za plochou, uvnitř ne
+
+
 def test_zabaged_road_bridge_yields_to_osm_bridge(tmp_path):
     """Les / MTBO: silniční most ze ZABAGED (vrstva Most) souběžný s OSM silnicí / mostem se nekreslí; sprint ano."""
     pytest.importorskip("pyogrio")

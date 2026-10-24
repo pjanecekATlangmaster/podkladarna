@@ -920,8 +920,13 @@ def build_zabaged_object_parts(
     dtm_cover=None,
     rail_tunnel_zone=None,
     prefer_osm_road_lines: list[list[tuple[float, float]]] | None = None,
+    paved_clip=None,
 ) -> list[OomObjectPart]:
     """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
+
+    ``paved_clip`` (les / MTBO): ``(road_clip, paved_network)`` jako u OSM cest – Ulice / SilniceDalnice se přes
+    zpevněnou plochu (parkoviště, podélné stání slité s ulicí) nekreslí, jen napojení na hranu (``clip_road_in_paved``);
+    Cesta / Pesina končí na hraně sítě zpevněných ploch.
 
     ``rail_tunnel_zone``: okolí tratí v tunelu z OSM (shapely); železnice a tramvaj ZABAGED se v něm nekreslí.
 
@@ -1127,6 +1132,24 @@ def build_zabaged_object_parts(
 
     road_layers = frozenset({"Ulice", "SilniceDalnice", _ROAD_BRIDGE_LAYER})
     road_index = None
+    paved_core = None
+
+    def _clip_by_paved(line_parts: list[list[tuple[float, float]]], is_road: bool) -> list[list[tuple[float, float]]]:
+        nonlocal paved_core
+        from app.pipeline.dtm_sidewalks import clip_outside, end_at_edge
+        from app.pipeline.osm_paths import ROAD_IN_PAVED_EDGE_M, clip_road_in_paved
+
+        road_clip, network = paved_clip
+        zone = road_clip if is_road else network
+        if zone is None or zone.is_empty:
+            return line_parts
+        if is_road:
+            if paved_core is None:
+                paved_core = road_clip.buffer(-ROAD_IN_PAVED_EDGE_M)
+            line_parts = [seg for pts in line_parts for seg in clip_road_in_paved(pts, road_clip, core=paved_core)]
+        else:
+            line_parts = [seg for pts in line_parts for seg in clip_outside(pts, network, MIN_LENGTH_M)]
+        return [seg for pts in line_parts for seg in end_at_edge(pts, zone) if len(seg) >= 2]
 
     def _filter_vs_osm(
         line_parts: list[list[tuple[float, float]]],
@@ -1137,6 +1160,8 @@ def build_zabaged_object_parts(
             from app.pipeline.dtm_sidewalks import clip_outside
 
             line_parts = [p for pts in line_parts for p in clip_outside(pts, dtm_cover, MIN_LENGTH_M)]
+        if paved_clip is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
+            line_parts = _clip_by_paved(line_parts, layer_name in road_layers)
         if not osm_blockers or layer_name not in osm_first_layers:
             return line_parts
         if osm_index is None:
@@ -1268,7 +1293,7 @@ def build_zabaged_object_parts(
                             wider_paths.add_line(pts)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif (
-                    (dtm_cover is not None or osm_first)
+                    (dtm_cover is not None or paved_clip is not None or osm_first)
                     and not preset_id.startswith("sprint")
                     and (layer_name in _DTM_CLIPPED_PATH_LAYERS or flt_layer == _ROAD_BRIDGE_LAYER)
                 ):
@@ -1386,7 +1411,7 @@ def build_zabaged_object_parts(
                             wider_paths.add_line(pts)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif (
-                    (dtm_cover is not None or osm_first)
+                    (dtm_cover is not None or paved_clip is not None or osm_first)
                     and not preset_id.startswith("sprint")
                     and (layer_name in _DTM_CLIPPED_PATH_LAYERS or flt_layer == _ROAD_BRIDGE_LAYER)
                 ):

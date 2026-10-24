@@ -416,12 +416,23 @@ def test_forest_wide_dtm_walk_becomes_paved_area(tmp_path):
     assert sum(_path_lengths(tmp_path).values()) == pytest.approx(0, abs=1.0)
 
 
-def test_mtbo_ignores_dtm_widths(tmp_path):
+def test_mtbo_ignores_dtm_widths_when_off(tmp_path, monkeypatch):
+    from app.pipeline import dtm_import as di
+
+    monkeypatch.setattr(di, "MTBO_USE_DTM", False)
     road = _line([(0, 0), (200, 0)], "road_2")
     _write_job(tmp_path, [], [road])
     _write_dtm(tmp_path, "roads.json", [(-5, -5, 205, 5)])
     lengths = _path_lengths(tmp_path, preset="mtbo_10000")
-    assert len(lengths) == 1  # jeden symbol podle tagů, DTM se v MTBO nepoužívá
+    assert len(lengths) == 1  # jeden symbol podle tagů, DTM je v MTBO vypnuté
+
+
+def test_mtbo_wide_dtm_road_drawn_by_corridor(tmp_path):
+    # MTBO s DTM: silnice široká 10 m (1 mm v 1:10000) kreslí koridor plochou, čára uvnitř se nekreslí.
+    road = _line([(0, 0), (200, 0)], "road_2")
+    _write_job(tmp_path, [], [road])
+    _write_dtm(tmp_path, "roads.json", [(-5, -5, 205, 5)])
+    assert _path_lengths(tmp_path, preset="mtbo_10000") == {}
 
 
 def test_prepare_stores_rail_tunnels_only(tmp_path, monkeypatch):
@@ -712,6 +723,25 @@ def test_network_polygons_valid_after_map_rounding():
             holes = [[(round(x * 100), round(y * 100)) for x, y in h.coords] for h in g.interiors]
             rounded = Polygon(ext, holes)
             assert rounded.is_valid and rounded.exterior.is_simple
+
+
+def test_mtbo_osm_paved_network_does_not_overlap_dtm_areas(tmp_path):
+    # MTBO s DTM: koridor silnice (silnice 12 m z DTM) a široký chodník z DTM kreslí DTM; OSM pěší plocha přes ně
+    # a síť zpevněných ploch je nesmí kreslit podruhé (dřív v1 MTBO DTM: tatáž plocha dvakrát).
+    road = _road([(0, 0), (200, 0)], "road_3")
+    _write_job(tmp_path, [_area(20, -10, 80, 40), _area(120, 60, 180, 90)], [road])
+    _write_dtm(tmp_path, "roads.json", [(-5, -6, 205, 6)])
+    _write_dtm(tmp_path, "sidewalks.json", [(0, 30, 200, 36)])  # 6 m široká pěší cesta 30 m od silnice
+    from app.pipeline import dtm_import as di
+
+    op._PAVED_NETWORK_CACHE.clear()
+    zone = di.mtbo_dtm_area_geometry(tmp_path, 10000)
+    assert zone is not None and zone.area > 200 * 12
+    assert op.with_dtm_walk_areas(tmp_path, [], "mtbo_10000", 10000) == []  # široké chodníky kreslí MTBO zvlášť
+    net = op.paved_network_geometry(tmp_path, "mtbo_10000", 10000)
+    assert net is not None
+    assert net.intersection(zone).area < 1.0
+    assert net.area > 0.9 * 60 * 30  # samostatná plocha mimo DTM zůstává
 
 
 def test_mixed_uses_osm_roads_for_dedup_and_road_band(tmp_path):

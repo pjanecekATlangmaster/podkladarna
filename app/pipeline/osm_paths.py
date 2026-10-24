@@ -177,7 +177,7 @@ PATH_SOURCE_CHOICES = frozenset(
 
 # Priorita zdroje střednic cest při překryvu (vyšší vyhraje).
 # DTM je připravené na budoucí feed střednic silnic/chodníků; zatím se neplní
-# (``MTBO_USE_DTM`` / feed cest nezapínat naplocho). Po zapojení DTM stačí
+# (DTM má plochy, ne osy; feed cest nezapínat naplocho). Po zapojení DTM stačí
 # přidat položky se ``PATH_LINE_SOURCE_DTM`` do ``dedup_path_lines``.
 # Pořadí: DTM > OSM > ZABAGED (mixed už dnes bere OSM před Pesina/Cesta).
 PATH_LINE_SOURCE_DTM = "dtm"
@@ -4596,9 +4596,46 @@ def uses_dtm_widths(preset_id: str) -> bool:
     return not preset_id.startswith("sprint") and not mtbo_dtm_off(preset_id)
 
 
+def _minus_mtbo_dtm_areas(work_dir: Path, geom, scale: int):
+    from app.pipeline.dtm_import import mtbo_dtm_area_geometry
+
+    zone = mtbo_dtm_area_geometry(work_dir, scale, "mixed")
+    return geom if zone is None or zone.is_empty else geom.difference(zone)
+
+
+def cut_paved_by_mtbo_dtm_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
+    """MTBO: zpevněné plochy z OSM (i sloučená síť) bez ploch kreslených z DTM (koridor, chodníky, parkoviště)."""
+    if not preset_id.startswith("mtbo"):
+        return feats
+    from shapely.geometry import mapping, shape
+
+    from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_dtm_area_geometry
+
+    zone = mtbo_dtm_area_geometry(work_dir, scale, "mixed")
+    if zone is None or zone.is_empty:
+        return feats
+    out = []
+    for feat in cut_osm_paved_by_geometry(feats, zone):
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") in _PAVED_AREA_KINDS and geom.get("type") in ("Polygon", "MultiPolygon"):
+            # Ořez nechává u hrany ploch z DTM tenké pruhy a vlásečnice (nevalidní po zaokrouhlení na mapu).
+            g = _clean_paved_geometry(shape(geom), PAVED_NECK_M)
+            if g is None or g.is_empty or g.area < 1.0:
+                continue
+            for part in getattr(g, "geoms", [g]):
+                if part.geom_type == "Polygon" and part.area >= 1.0:
+                    out.append({**feat, "geometry": mapping(part)})
+            continue
+        out.append(feat)
+    return out
+
+
 def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
-    """Les: k prvkům přidá široké pěší plochy z DTM (``dtm_widths.wide_walk_area_features``)."""
-    if not uses_dtm_widths(preset_id):
+    """Les: k prvkům přidá široké pěší plochy z DTM (``dtm_widths.wide_walk_area_features``).
+
+    MTBO ne: široké chodníky z DTM kreslí ``dtm_import.mtbo_sidewalk_geometry`` (jinak by se kreslily dvakrát).
+    """
+    if not uses_dtm_widths(preset_id) or preset_id.startswith("mtbo"):
         return feats
     from app.pipeline.dtm_widths import wide_walk_area_features
 
@@ -4753,8 +4790,11 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
             feats = open_narrow_walk_areas(feats, preset_id, scale)
             feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)
             feats = extend_parking_by_links(work_dir, feats, _path_feats, preset_id, scale)
+            feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)
         _PAVED_NETWORK_CACHE.clear()
         network = build_paved_network(feats, _path_feats)[1]
+        if network is not None and preset_id.startswith("mtbo"):
+            network = _minus_mtbo_dtm_areas(work_dir, network, scale)
         _PAVED_NETWORK_CACHE[key] = (network, road_clip_geometry(feats))
     return _PAVED_NETWORK_CACHE[key]
 
@@ -4985,6 +5025,9 @@ TUNNEL_MAX_DRAW_M = 40.0
 # Les a MTBO: mezi kresbou dvou souběžných čar (silnice × chodník, okraj plochy × silnice) musí zůstat aspoň
 # tolik mm bílé, jinak čáry splynou a nejsou čitelné.
 LINE_MIN_GAP_MM = 0.35
+# MTBO: pěšina podél okraje ploch z DTM (koridor, chodníky) se zahodí jen do této mezery od obrubníku 501.100;
+# 0,35 mm by v Praze 5 zahodilo i chodníky za pásem zeleně a samostatné cesty (čitelné od 0,15 mm).
+MTBO_DTM_EDGE_GAP_MM = 0.15
 # Okraj zpevněné plochy (ISOM 501.2 0,14 mm), když ho sada nemá (MTBO kreslí okraj v 501.0).
 PAVED_EDGE_FALLBACK_MM = 0.14
 
@@ -5750,6 +5793,22 @@ def build_osm_path_parts(
             road_widths=road_widths,
         )
     )
+    if preset_id.startswith("mtbo"):
+        # MTBO: chodník / pěšina podél koridoru nebo plochy chodníku z DTM by splynula s jejím okrajem 501.100.
+        _mtbo_areas = [g for g in (corridor_zone, mtbo_sidewalk_zone) if g is not None and not g.is_empty]
+        if _mtbo_areas:
+            from shapely.ops import unary_union as _uu_mtbo
+
+            _band = sidewalk_road_zone_geometry(
+                [],
+                _uu_mtbo(_mtbo_areas),
+                preset_id=preset_id,
+                scale=scale,
+                reach_m=drawn_symbol_width_m("sidewalk", preset_id, scale) / 2.0
+                + mm_to_ground_m(MTBO_DTM_EDGE_GAP_MM, scale),
+            )
+            if _band is not None:
+                road_zone = _band if road_zone is None else _uu_mtbo([road_zone, _band])
     dedup_bases = sidewalk_dedup_bases(preset_id)
     skip_steps = set() if preset_id.startswith("sprint") else small_complex_steps(data.get("features") or [])
     service_links = (
@@ -6157,10 +6216,6 @@ def build_osm_feature_parts(
             from app.pipeline.dtm_import import drop_osm_parking_covered_by_dtm
 
             feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
-            # Zpevněné plochy (parkoviště …) v koridoru silnice kreslí koridor, ne zvlášť.
-            from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_corridor_geometry
-
-            feats = cut_osm_paved_by_geometry(feats, mtbo_corridor_geometry(work_dir, scale, "mixed"))
     edge_omit_zone = None
     if not preset_id.startswith("sprint"):
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
@@ -6169,8 +6224,10 @@ def build_osm_feature_parts(
         feats = open_narrow_walk_areas(feats, preset_id, scale)  # úzké výběžky pěších ploch kreslí čára
         feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)  # podélné stání = silnice
         feats = extend_parking_by_links(work_dir, feats, _path_feats, preset_id, scale)  # vjezd na parkoviště = plocha
+        feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # MTBO: plochy z DTM mají přednost
         _road_clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
         feats, _network = build_paved_network(feats, _path_feats)
+        feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # zacelené mezery sítě také
         # Les a MTBO: okraj 501.2 se nekreslí tam, kde by splýval se silnicí (vjezd silnice do plochy).
         edge_omit_zone = paved_edge_omit_zone(_path_feats, _road_clip, preset_id=preset_id, scale=scale)
         # Les a MTBO: OSM ploty (pokud je nekreslí DTM) se spojí, otočí čárkami k olivě jako ve sprintu
