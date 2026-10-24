@@ -1269,10 +1269,11 @@ def test_mtbo_footway_along_corridor_edge_is_not_drawn(tmp_path):
     road = _feat([(0, 0), (200, 0)], "road_3")
     edge_path = _feat([(0, 14), (200, 14)], "footway")  # 4 m od okraje koridoru – v 1:10000 splyne s obrubníkem
     far_path = _feat([(0, 60), (200, 60)], "footway")
-    _write_paths(work, [road, edge_path, far_path])
+    green_path = _feat([(0, 16), (200, 16)], "footway")  # 6 m od okraje (za pásem zeleně) – čitelně oddělená
+    _write_paths(work, [road, edge_path, far_path, green_path])
     op._PAVED_NETWORK_CACHE.clear()
     parts = op.build_osm_path_parts(work, preset_id="mtbo_10000", scale=10000, ref_x=100.0, ref_y=0.0, grivation_deg=0.0)
-    assert sum(p.count for p in parts) == 1  # zůstane jen vzdálená pěšina
+    assert sum(p.count for p in parts) == 2  # zůstane vzdálená pěšina a chodník za pásem zeleně
 
 
 def test_mtbo_dtm_geometry_is_cached_until_inputs_change(tmp_path, monkeypatch):
