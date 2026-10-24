@@ -465,6 +465,29 @@ class OomObjectPart:
     count: int
 
 
+# Les / MTBO: zbytek ZABAGED silnice po ořezu plochami z DTM a kresbou OSM kratší než tolik mm mapy, s koncem
+# u plochy z DTM, se nekreslí (pahýl u koridoru, jako ``trim_along_corridor`` u OSM).
+ZABAGED_COVER_STUB_MM = 1.0
+ZABAGED_COVER_STUB_NEAR_M = 3.0
+
+
+def _drop_cover_stubs(line_parts, cover, scale: int):
+    """Kusy čar bez pahýlů kratších než ``ZABAGED_COVER_STUB_MM`` mm s koncem do ``ZABAGED_COVER_STUB_NEAR_M`` m od ``cover``."""
+    from shapely.geometry import LineString, Point
+
+    stub_m = ZABAGED_COVER_STUB_MM * scale / 1000.0
+    out = []
+    for pts in line_parts:
+        if len(pts) >= 2:
+            ln = LineString(pts)
+            if ln.length < stub_m and any(
+                cover.distance(Point(p)) <= ZABAGED_COVER_STUB_NEAR_M for p in (pts[0], pts[-1])
+            ):
+                continue
+        out.append(pts)
+    return out
+
+
 def _fmt(x: int, y: int, flags: int = 0) -> str:
     if flags:
         return f"{x} {y} {flags}"
@@ -1313,6 +1336,8 @@ def build_zabaged_object_parts(
                 ):
                     # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
+                    if dtm_cover is not None and layer_name in road_layers:
+                        line_parts = _drop_cover_stubs(line_parts, dtm_cover, scale)
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":
@@ -1439,6 +1464,8 @@ def build_zabaged_object_parts(
                 ):
                     # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
+                    if dtm_cover is not None and layer_name in road_layers:
+                        line_parts = _drop_cover_stubs(line_parts, dtm_cover, scale)
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":

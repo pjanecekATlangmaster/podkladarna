@@ -858,3 +858,15 @@ def test_zabaged_tunnel_clipped_by_dtm_cover_in_forest(tmp_path):
 
     assert count("forest_10000", 10000) == 2  # před a za koridorem, uvnitř ne
     assert count("sprint_4000", 4000) == 1
+
+
+def test_drop_cover_stubs_keeps_long_and_far_pieces():
+    from shapely.geometry import box
+
+    from app.pipeline.oom_import import _drop_cover_stubs
+
+    cover = box(0, 0, 100, 10)
+    stub = [(50, 12), (50, 18)]  # 6 m, konec 2 m od plochy
+    far = [(50, 30), (50, 36)]  # krátký, ale daleko
+    long = [(50, 12), (50, 40)]
+    assert _drop_cover_stubs([stub, far, long], cover, 10000) == [far, long]

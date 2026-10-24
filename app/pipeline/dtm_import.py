@@ -1469,16 +1469,21 @@ def corridor_shared_edge_zone(work_dir: Path, preset_id: str, scale: int, path_s
 
 
 def _corridor_adjacent_paved(work_dir: Path, corridor, preset_id: str, scale: int, path_source: str):
-    """Zpevněné plochy mimo koridor do ``CORRIDOR_SHARED_EDGE_M`` m od něj (parkoviště z DTM, síť OSM; shapely) nebo None."""
+    """Zpevněné plochy mimo koridor do ``CORRIDOR_SHARED_EDGE_M`` m od něj (parkoviště z DTM, síť OSM, MTBO chodníky z DTM; shapely) nebo None."""
     if corridor is None or corridor.is_empty:
         return None
     from shapely.ops import unary_union
 
     from app.pipeline.osm_paths import paved_network_geometry
 
+    sidewalks = mtbo_sidewalk_geometry(work_dir, scale, path_source, preset_id) if preset_id.startswith("mtbo") else None
     areas = [
         g
-        for g in (dtm_parking_geometry(work_dir, scale, path_source, preset_id), paved_network_geometry(work_dir, preset_id, scale))
+        for g in (
+            dtm_parking_geometry(work_dir, scale, path_source, preset_id),
+            paved_network_geometry(work_dir, preset_id, scale),
+            sidewalks,  # MTBO: pěší a zpevněné plochy z DTM (ulice bez silnice v DTM)
+        )
         if g is not None and not g.is_empty
     ]
     if not areas:
@@ -1708,6 +1713,7 @@ def build_dtm_sidewalk_parts(
             grivation_deg=grivation_deg,
             clip_bounds=clip_bounds,
             outline_separate=True,
+            edge_omit=corridor_shared_edge_zone(work_dir, preset_id, scale, path_source),  # s koridorem splývá
         )
     if not preset_id.startswith("sprint") or not dtm_owns_sidewalks(work_dir):
         return []
