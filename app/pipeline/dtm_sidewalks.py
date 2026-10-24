@@ -290,8 +290,12 @@ def road_corridor(
         # nikde užší než kresba silnice: zbylé zúžení (semínka, napojení) se odřízne
         h = min_drawn_m / 2
         result = result.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(result)
-        if result.is_empty:
+        # kruhový objezd: otevřením se prstenec rozpadne na tříšť malých kusů, ty musí splnit kritéria jako semínka
+        pieces = [result] if result.geom_type == "Polygon" else [x for x in getattr(result, "geoms", []) if x.geom_type == "Polygon"]
+        pieces = [x for x in pieces if x.area >= width * CORRIDOR_MIN_LEN_M and _long_side(x) >= CORRIDOR_MIN_LEN_M]
+        if not pieces:
             return None
+        result = unary_union(pieces)
     return result
 
 

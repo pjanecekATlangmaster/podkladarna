@@ -1445,6 +1445,18 @@ def test_road_corridor_min_drawn_drops_narrower_roads_and_keeps_wider():
     assert cor.intersection(wide).area > 0.95 * wide.area
 
 
+def test_road_corridor_min_drawn_drops_roundabout_ring_but_keeps_wide_straight_road():
+    from shapely.geometry import Point, box
+
+    kw = dict(scale=10000, min_drawn_m=9.9)
+    for inner in (12, 10.5):  # jízdní pás 8 m a 9,5 m < 9,9 m: prstenec se nesmí rozpadnout na tříšť
+        ring = Point(0, 0).buffer(20).difference(Point(0, 0).buffer(inner))
+        assert ds.road_corridor(ring, None, **kw) is None
+    road = box(0, 0, 200, 12)
+    cor = ds.road_corridor(road, None, **kw)
+    assert cor is not None and cor.area > 0.95 * road.area
+
+
 def test_corridor_without_sidewalks_does_not_widen(tmp_path, monkeypatch):
     work = tmp_path
     (work / "dtm").mkdir()
