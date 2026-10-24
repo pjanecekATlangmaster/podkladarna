@@ -5056,6 +5056,9 @@ LINE_MIN_GAP_MM = 0.35
 # MTBO: pěšina podél okraje ploch z DTM (koridor, chodníky) se zahodí jen do této mezery od obrubníku 501.100;
 # 0,35 mm by v Praze 5 zahodilo i chodníky za pásem zeleně a samostatné cesty (čitelné od 0,15 mm).
 MTBO_DTM_EDGE_GAP_MM = 0.15
+# Les: koridor z DTM je širší než dřívější čára silnice a chodník 3,5 m od jeho hrany by v 1:10000 splýval s okrajem 501.2,
+# proto stejná mezera jako u pásu podél čáry silnice.
+FOREST_DTM_EDGE_GAP_MM = LINE_MIN_GAP_MM
 # Okraj zpevněné plochy (ISOM 501.2 0,14 mm), když ho sada nemá (MTBO kreslí okraj v 501.0).
 PAVED_EDGE_FALLBACK_MM = 0.14
 
@@ -5843,7 +5846,10 @@ def build_osm_path_parts(
                 preset_id=preset_id,
                 scale=scale,
                 reach_m=drawn_symbol_width_m("sidewalk", preset_id, scale) / 2.0
-                + mm_to_ground_m(MTBO_DTM_EDGE_GAP_MM, scale),
+                + mm_to_ground_m(
+                    MTBO_DTM_EDGE_GAP_MM if preset_id.startswith("mtbo") else FOREST_DTM_EDGE_GAP_MM,
+                    scale,
+                ),
             )
             if _band is not None:
                 road_zone = _band if road_zone is None else _uu_mtbo([road_zone, _band])

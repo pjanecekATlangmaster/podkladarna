@@ -1293,6 +1293,20 @@ def test_mtbo_footway_along_corridor_edge_is_not_drawn(tmp_path):
     assert sum(p.count for p in parts) == 2  # zůstane vzdálená pěšina a chodník za pásem zeleně
 
 
+def test_forest_footway_near_corridor_edge_is_dropped_with_line_gap(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    _write_polys(work, "roads.json", [_rect(0, -10, 200, 10)])  # široká ulice (20 m) z DTM
+    near_path = _feat([(0, 15), (200, 15)], "footway")  # 5 m od okraje koridoru – v lese (mezera 0,35 mm) splyne s okrajem 501.2
+    far_path = _feat([(0, 18), (200, 18)], "footway")  # 8 m od okraje – čitelně oddělená
+    _write_paths(work, [_feat([(0, 0), (200, 0)], "road_3"), near_path, far_path])
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_path_parts(work, preset_id="forest_10000", scale=10000, ref_x=100.0, ref_y=0.0, grivation_deg=0.0)
+    assert sum(p.count for p in parts) == 1  # zůstane jen vzdálená pěšina
+    assert op.FOREST_DTM_EDGE_GAP_MM == op.LINE_MIN_GAP_MM > op.MTBO_DTM_EDGE_GAP_MM
+
+
 def test_mtbo_dtm_geometry_is_cached_until_inputs_change(tmp_path, monkeypatch):
     work = tmp_path
     _write_polys(work, "roads.json", [_rect(0, -6, 200, 6)])
