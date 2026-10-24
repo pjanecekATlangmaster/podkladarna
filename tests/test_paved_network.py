@@ -717,7 +717,7 @@ def test_network_polygons_valid_after_map_rounding():
 
 
 def test_mixed_uses_osm_roads_for_dedup_and_road_band(tmp_path):
-    # mixed: ulice kreslí ZABAGED, v paths_mixed nejsou – dedup chodníků a konec cest u 502 bere silnice z paths_osm.
+    # mixed: OSM silnice zahozená v paths_mixed proti ZABAGED se vrátí z paths_osm – dedup chodníků a konec cest u 502.
     import json
 
     road = _road([(-60, 0), (60, 0)], "road_3")
@@ -729,7 +729,7 @@ def test_mixed_uses_osm_roads_for_dedup_and_road_band(tmp_path):
     )
     lengths = _path_lengths(tmp_path)
     half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
-    assert "502.2" not in lengths  # silnici kreslí ZABAGED
+    assert lengths.pop("502.2") == pytest.approx(120, abs=0.5)  # OSM silnice vrácena
     assert sum(lengths.values()) == pytest.approx(80 - 2 * half, abs=0.5)  # chodník zahozen, pěšina končí u 502
 
 
@@ -825,6 +825,23 @@ def test_mixed_restored_roads_dedup_parallel(tmp_path):
     assert [f["properties"]["highway"] for f in op.mixed_osm_roads_missing(tmp_path)] == ["road_4"]
 
 
+def test_mixed_restored_wider_road_supersedes_mixed_service(tmp_path):
+    # Vrácená širší OSM silnice nahradí souběžnou užší silnici z paths_mixed (kreslí se jen jednou).
+    import json
+
+    primary = _road([(0, 0), (200, 0)], "road_4")
+    service = _road([(0, 3), (200, 3)], "road_1")
+    _write_job(tmp_path, [], [service])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [primary, service]}), encoding="utf-8"
+    )
+    added, superseded = op.mixed_osm_road_fix(tmp_path)
+    assert [f["properties"]["highway"] for f in added] == ["road_4"]
+    assert superseded == {op._road_feature_key(service)}
+    lengths = _path_lengths(tmp_path)
+    assert sum(lengths.values()) == pytest.approx(200, abs=0.5)
+
+
 def test_path_extension_not_across_other_line(tmp_path):
     # Prodloužení k silnici, které by křížilo jinou kreslenou cestu (ponechaný chodník, schody), se nedělá.
     road = _road([(-100, 0), (100, 0)], "road_3")
@@ -833,3 +850,15 @@ def test_path_extension_not_across_other_line(tmp_path):
     cross = _line([(-20, 5.5), (20, 5.5)], "steps")
     _write_job(tmp_path, [], [road, sidewalk, path, cross])
     assert _path_lengths(tmp_path).get("506.0", 0) == pytest.approx(33, abs=0.5)
+
+
+def test_path_extension_not_across_kept_part_of_dropped_sidewalk(tmp_path):
+    # Chodník zahozený jen zčásti: jeho ponechaný krátký úsek u silnice je pro prodloužení cesty překážkou.
+    road = _road([(-100, 0), (100, 0)], "road_3")
+    dropped = _line([(-100, 7), (100, 7)], "sidewalk")
+    partly = _line([(-100, 7.2), (-30, 7.2), (-30, 30), (20, 30), (20, 5), (-10, 5), (-10, 30)], "sidewalk")
+    path = _line([(0, 7.5), (0, 40)], "footway")
+    _write_job(tmp_path, [], [road, dropped, partly])
+    base = _path_lengths(tmp_path).get("506.0", 0)
+    _write_job(tmp_path, [], [road, dropped, partly, path])
+    assert _path_lengths(tmp_path).get("506.0", 0) - base == pytest.approx(32.5, abs=0.3)

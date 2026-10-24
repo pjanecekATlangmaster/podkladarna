@@ -5322,54 +5322,56 @@ def major_road_band(
     return unary_union(parts) if parts else None
 
 
+def _road_feature_key(f: dict) -> tuple:
+    return tuple(tuple(round(float(v), 2) for v in c[:2]) for c in ((f.get("geometry") or {}).get("coordinates") or []))
+
+
+def mixed_osm_road_fix(work_dir: Path) -> tuple[list[dict], set]:
+    """``(vrácené OSM silnice, klíče silnic z paths_mixed, které nahradí širší vrácená)`` – viz ``mixed_osm_roads_missing``.
+
+    OSM silnice z ``paths_osm``, které v ``paths_mixed`` nejsou, se s jejími silnicemi (jen ``road_*``, ne chodníky –
+    souběžný chodník by tertiary way/930887514 „pokryl“) dedupují jako v mixed (``dedup_osm_prefer_wider``): užší
+    souběžná se nevrací, a když je vrácená širší než silnice z mixed (primary + service, 50.03286, 14.38235), užší
+    z mixed se nekreslí.
+    """
+    try:
+        osm = json.loads((work_dir / "osm_paths" / "paths_osm.geojson").read_text(encoding="utf-8")).get("features") or []
+        mixed = json.loads((work_dir / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return [], set()
+
+    def _is_road(f):
+        geom = f.get("geometry") or {}
+        return (
+            geom.get("type") == "LineString"
+            and len(geom.get("coordinates") or []) >= 2
+            and path_draw_highway(str((f.get("properties") or {}).get("highway") or "")).startswith("road_")
+        )
+
+    mixed_roads = [f for f in mixed if _is_road(f)]
+    have = {_road_feature_key(f) for f in mixed}
+    cand = [f for f in osm if _is_road(f) and _road_feature_key(f) not in have]
+    if not cand:
+        return [], set()
+    both = mixed_roads + cand
+    items = [
+        ([(float(x), float(y)) for x, y, *_ in f["geometry"]["coordinates"]], str((f.get("properties") or {}).get("highway") or ""))
+        for f in both
+    ]
+    kept, _dropped = dedup_osm_prefer_wider(items)
+    keep = {tuple(tuple(round(v, 2) for v in c) for c in pts) for pts, _hw in kept}
+    added = [f for f in cand if _road_feature_key(f) in keep]
+    superseded = {_road_feature_key(f) for f in mixed_roads if _road_feature_key(f) not in keep} if added else set()
+    return added, superseded
+
+
 def mixed_osm_roads_missing(work_dir: Path) -> list[dict]:
     """OSM silnice (``road_*``) z ``paths_osm``, které v ``paths_mixed`` nejsou (zahozené proti ZABAGED Ulice, service).
 
     Les / MTBO: mixed je OSM doplněné o detaily ze ZABAGED, ulice tedy kreslí OSM (šířka z DTM, symbol podle tagů)
     a ZABAGED Ulice / SilniceDalnice se vynechají tam, kde je OSM má. Příprava OSM (sdílená se sprintem) zůstává.
     """
-    out: list[dict] = []
-    try:
-        osm = json.loads((work_dir / "osm_paths" / "paths_osm.geojson").read_text(encoding="utf-8")).get("features") or []
-        mixed = json.loads((work_dir / "osm_paths" / "paths_mixed.geojson").read_text(encoding="utf-8")).get("features") or []
-    except (OSError, ValueError):
-        return out
-
-    def _key(f):
-        return tuple(tuple(round(float(v), 2) for v in c[:2]) for c in ((f.get("geometry") or {}).get("coordinates") or []))
-
-    have = {_key(f) for f in mixed}
-    index = centerline_index(
-        [
-            [(float(x), float(y)) for x, y, *_ in (f.get("geometry") or {}).get("coordinates") or []]
-            for f in mixed
-            if len((f.get("geometry") or {}).get("coordinates") or []) >= 2
-        ]
-    )
-    for f in osm:
-        geom = f.get("geometry") or {}
-        hw = str((f.get("properties") or {}).get("highway") or "")
-        coords = geom.get("coordinates") or []
-        if (
-            geom.get("type") == "LineString"
-            and len(coords) >= 2
-            and path_draw_highway(hw).startswith("road_")
-            and _key(f) not in have
-            # OSM×OSM dedup v mixed (``dedup_osm_prefer_wider``) platí dál: souběžná užší silnice se nevrací.
-            and centerline_cover_fraction([(float(x), float(y)) for x, y, *_ in coords], index, match_m=MATCH_M) < COVER_DROP
-        ):
-            out.append(f)
-    if len(out) < 2:
-        return out
-    # Vrácené silnice mezi sebou: souběžné jízdní pásy / service podél hlavní (50.03286, 14.38235) jako v mixed
-    # (``dedup_osm_prefer_wider``), jinak by se kresby 502.1 překrývaly.
-    items = [
-        ([(float(x), float(y)) for x, y, *_ in f["geometry"]["coordinates"]], str((f.get("properties") or {}).get("highway") or ""))
-        for f in out
-    ]
-    kept, _dropped = dedup_osm_prefer_wider(items)
-    keep = {tuple(tuple(round(v, 2) for v in c) for c in pts) for pts, _hw in kept}
-    return [f for f in out if _key(f) in keep]
+    return mixed_osm_road_fix(work_dir)[0]
 
 
 def load_osm_road_lines(work_dir: Path) -> list[list[tuple[float, float]]]:
@@ -5565,8 +5567,11 @@ def build_osm_path_parts(
             return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
     if not preset_id.startswith("sprint") and path_source == PATH_SOURCE_MIXED and gj_path.name == filename:
-        # Les / MTBO: mixed = OSM + detaily ze ZABAGED; ulice kreslí OSM (``mixed_osm_roads_missing``).
-        data["features"] = list(data.get("features") or []) + mixed_osm_roads_missing(work_dir)
+        # Les / MTBO: mixed = OSM + detaily ze ZABAGED; ulice kreslí OSM (``mixed_osm_road_fix``).
+        _added, _superseded = mixed_osm_road_fix(work_dir)
+        data["features"] = [
+            f for f in data.get("features") or [] if not _superseded or _road_feature_key(f) not in _superseded
+        ] + _added
     if not preset_id.startswith("sprint") and path_source != PATH_SOURCE_ZABAGED:
         # Les / MTBO: osy koridorů pěších zón; kreslí se jen tam, kde koridor jako úzká plocha odpadl
         # (jinde je ořízne síť zpevněných ploch).
@@ -5761,13 +5766,14 @@ def build_osm_path_parts(
 
             _other = [
                 _LS_other(f["geometry"]["coordinates"])
-                for i, f in enumerate(data.get("features") or [])
-                if i not in dropped_owners
-                and (f.get("geometry") or {}).get("type") == "LineString"
+                for f in data.get("features") or []
+                if (f.get("geometry") or {}).get("type") == "LineString"
                 and len(f["geometry"].get("coordinates") or []) >= 2
                 and not path_draw_highway(str((f.get("properties") or {}).get("highway") or "")).startswith("road_")
             ]
-            other_lines = _prep_other(_uu_band(_other)) if _other else None
+            # Zahozené úseky chodníků nejsou překážkou; ponechaný zbytek částečně zahozeného chodníku ano.
+            _other_geom = _uu_band(_other).difference(dropped_sidewalks.buffer(0.05)) if _other else None
+            other_lines = _prep_other(_other_geom) if _other_geom is not None and not _other_geom.is_empty else None
     # Les / MTBO: navazující kusy se stejným symbolem (úseky OSM, krátké schody převedené na pěšinu) jako jedna čára.
     join_pieces: dict[int, list] | None = None if preset_id.startswith("sprint") else {}
     for feat_i, feat in enumerate(data.get("features") or []):
