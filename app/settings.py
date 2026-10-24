@@ -192,6 +192,9 @@ DEFAULT_OPTIONS = {
     "contour_formlines": "off",
     # Zaoblení louek (401) a hustého porostu (410): 0 (kostičky) až 3 (silně vyhladit).
     "veg_smooth": "2",
+    # Zdroj kresby: sprint z DTM (výchozí ano), les + MTBO z DTM (výchozí ne).
+    "dtm_sprint": True,
+    "dtm_forest": False,
     # Sprint: mezery v OSM landuse=residential jako zpevněná 501 – default vypnuto.
     "sprint_residual_paved": False,
     # Max. velikost zbytku do auto .omap: small | medium | large (ZIP má vždy pásma).

@@ -51,6 +51,7 @@ from app.pipeline.job_options import (
     resolve_courtyard_fill,
     resolve_formline_mode,
     resolve_vege_height,
+    resolve_use_dtm,
     resolve_veg_smooth,
 )
 from app.pipeline.package_oom import (
@@ -758,6 +759,10 @@ async def api_create_job(request: Request):
     veg_smooth_raw = _form_str(form, "veg_smooth").strip().lower()
     if veg_smooth_raw.isdigit() and int(veg_smooth_raw) in VEG_SMOOTH_LEVELS:
         options["veg_smooth"] = veg_smooth_raw
+    for dtm_key in ("dtm_sprint", "dtm_forest"):
+        dtm_raw = _form_str(form, dtm_key).strip().lower()
+        if dtm_raw in {"1", "0", "true", "false", "on", "off"}:
+            options[dtm_key] = dtm_raw in {"1", "true", "on"}
     options["sprint_residual_paved"] = _opt_bool("sprint_residual_paved")
     residual_size_raw = _form_str(form, "sprint_residual_size").strip().lower()
     if residual_size_raw in {"small", "medium", "large"}:
@@ -841,6 +846,8 @@ async def api_create_job(request: Request):
     log(
         f"  Terén: vegetace {options.get('kp_vege_height', 2.0)} m · "
         f"tvar vegetace {resolve_veg_smooth(options)} · "
+        f"kresba sprint {'DTM' if resolve_use_dtm(options, 'sprint') else 'OSM+ZABAGED'}/"
+        f"les+MTBO {'DTM' if resolve_use_dtm(options, 'forest') else 'OSM+ZABAGED'} · "
         f"srázy {options.get('kp_cliff_sensitivity', 'low')}/"
         f"{options.get('kp_cliff_symbol', 'auto')} · "
         f"pomocné vrstevnice {_FORMLINE_LABEL[resolve_formline_mode(options)]}"

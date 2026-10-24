@@ -30,6 +30,7 @@ from app.pipeline.job_options import (
     resolve_courtyard_fill,
     resolve_formline_mode,
     resolve_vege_height,
+    resolve_use_dtm,
     resolve_veg_smooth,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
@@ -376,7 +377,16 @@ def run_job_pipeline(
         # DTM kraje (zaměřené ploty, budovy, chodníky, silnice …; sprint, les i MTBO): příprava na pozadí,
         # výsledek se vezme při sestavení mapy (každý preset si z něj bere, co dává smysl).
         try:
-            if options.get("dtm_fences", True):
+            dtm_used = any(
+                resolve_use_dtm(options, disc_preset)
+                for _tag, disc_preset, _scale in resolve_discipline_presets(
+                    preset_id,
+                    load_presets(),
+                    map_scale=options.get("map_scale"),
+                    contour_interval=options.get("contour_interval"),
+                )
+            )
+            if options.get("dtm_fences", True) and dtm_used:
                 dtm_prefetch = start_dtm_prefetch(
                     work_dir,
                     tuple(bbox),
@@ -926,6 +936,7 @@ def _package_output(
                         ostatni_as_403=ostatni_as_403,
                         residual_paved=residual_paved,
                         veg_smooth=resolve_veg_smooth(options),
+                        use_dtm=resolve_use_dtm(options, disc_preset_id),
                         max_residual_m2=max_residual_m2,
                         certain_only=certain,
                         log=log,

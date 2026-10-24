@@ -14,6 +14,7 @@ from typing import Any
 from app.pipeline.job_options import (
     resolve_courtyard_fill,
     resolve_formline_mode,
+    resolve_use_dtm,
     resolve_veg_smooth,
 )
 from app.settings import (
@@ -426,6 +427,8 @@ def find_duplicate_active_job(
             resolve_courtyard_fill(opts),
             resolve_formline_mode(opts),
             resolve_veg_smooth(opts),
+            resolve_use_dtm(opts, "sprint"),
+            resolve_use_dtm(opts, "forest"),
             bool(opts.get("sprint_residual_paved")),
             str(opts.get("sprint_residual_size") or "small"),
             str(opts.get("kp_cliff_symbol") or "auto"),

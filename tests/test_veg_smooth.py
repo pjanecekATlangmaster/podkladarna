@@ -64,3 +64,17 @@ def test_higher_level_removes_small_notches():
     lvl2 = [Polygon(*p) for p in smooth_area(ring, [], 2)]
     assert not any(p.contains(notch) for p in lvl1)
     assert any(p.contains(notch) for p in lvl2)
+
+
+def test_resolve_use_dtm_defaults_and_values():
+    from app.pipeline.job_options import resolve_use_dtm
+
+    assert resolve_use_dtm({}, "sprint_2m") is True
+    assert resolve_use_dtm({}, "forest_10000") is False
+    assert resolve_use_dtm({}, "mtbo_15000") is False
+    assert resolve_use_dtm({"dtm_sprint": "0"}, "sprint_2m") is False
+    assert resolve_use_dtm({"dtm_sprint": False}, "sprint_2m") is False
+    assert resolve_use_dtm({"dtm_forest": "1"}, "forest_7500") is True
+    assert resolve_use_dtm({"dtm_forest": "on"}, "mtbo_10000") is True
+    assert resolve_use_dtm({"dtm_forest": True, "dtm_sprint": False}, "sprint_2m") is False
+    assert resolve_use_dtm({"dtm_sprint": "x"}, "sprint_2m") is True

@@ -94,6 +94,25 @@
           <p class="hint" id="veg-smooth-hint">Vyšší stupeň odstraní schodky a obrysy korun jednotlivých stromů, hranice se ale odchýlí o 2 až 6&nbsp;m. Louka se přitom nepřeleje přes cesty, budovy ani vodu z OSM (v těch místech se přírůstek odřízne). Ostatní zeleň zůstává beze změny.</p>
         </div>
 
+        <div class="form-section">
+          <h3 class="form-section-title">Zdroj kresby</h3>
+          <label>
+            Sprint
+            <select name="dtm_sprint" id="dtm_sprint">
+              <option value="1" selected>Kresba z DTM, kde je DTM k dispozici – doporučeno</option>
+              <option value="0">Jen OSM + ZABAGED</option>
+            </select>
+          </label>
+          <label>
+            Les a MTBO
+            <select name="dtm_forest" id="dtm_forest">
+              <option value="0" selected>Jen OSM + ZABAGED – výchozí</option>
+              <option value="1">DTM – zkušebně</option>
+            </select>
+          </label>
+          <p class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj, ale jeho zapojení do lesní a MTBO kresby se teprve ladí – může dát lepší kresbu, zatím ale není dotažené. Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED.</p>
+        </div>
+
         <div class="form-section" id="map-mode">
           <h3 class="form-section-title">Výřez</h3>
           <p class="hint">Dva protilehlé rohy, nebo klik na hotový job vpravo. Hotový výřez doladíte tažením za rohy, křížkem uprostřed ho posunete. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozího jobu se při iteraci znovu použije. Jen Česko, max cca 36&nbsp;km² (např. 6&nbsp;×&nbsp;6 nebo 8&nbsp;×&nbsp;4,5&nbsp;km).</p>

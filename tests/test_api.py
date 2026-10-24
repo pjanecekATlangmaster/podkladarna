@@ -232,6 +232,41 @@ def test_create_job_sprint_courtyard_fill(client, monkeypatch):
     assert post("legacy-on", sprint_courtyard_olive="1") == "building"
 
 
+def test_create_job_dtm_source_options(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+
+    def post(name: str, **extra: str):
+        r = client.post(
+            "/api/jobs",
+            data={
+                "name": name,
+                "preset_id": "sprint_2m",
+                "bbox": "14.40,50.08,14.42,50.09",
+                "output_mode": "png_zip",
+                "output_references": "1",
+                **extra,
+            },
+        )
+        assert r.status_code == 200, r.text
+        return r.json()["options"]
+
+    opts = post("dtm-default")
+    assert "dtm_sprint" not in opts or opts["dtm_sprint"] is True
+    assert not opts.get("dtm_forest")
+    opts = post("dtm-explicit", dtm_sprint="0", dtm_forest="1")
+    assert opts["dtm_sprint"] is False
+    assert opts["dtm_forest"] is True
+
+
 def test_create_job_contour_formlines(client, monkeypatch):
     import app.main as main
 
