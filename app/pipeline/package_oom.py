@@ -741,8 +741,13 @@ def prepare_oom_map(
     zabaged_rest: list[OomObjectPart] = []
     courtyard_parts: list[OomObjectPart] = []
     prefer_osm_paths: list[list[tuple[float, float]]] = []
+    prefer_osm_roads: list[list[tuple[float, float]]] | None = None
     if path_source == PATH_SOURCE_MIXED:
-        prefer_osm_paths = load_osm_path_lines(kp_cwd)
+        prefer_osm_paths = load_osm_path_lines(kp_cwd, corridor_lines=not preset_id.startswith("sprint"))
+        if not preset_id.startswith("sprint"):
+            from app.pipeline.osm_paths import load_osm_road_lines
+
+            prefer_osm_roads = load_osm_road_lines(kp_cwd)
     if zabaged_clean and zabaged_clean.is_file():
         omit = set(ZABAGED_OMIT_BUILDING_LAYERS)
         if osm_features_have_power_lines(kp_cwd):
@@ -772,6 +777,11 @@ def prepare_oom_map(
             from app.pipeline.dtm_import import dtm_cover_geometry
 
             dtm_cover = dtm_cover_geometry(kp_cwd, 0.0)
+        elif path_source == PATH_SOURCE_MIXED:
+            # Les a MTBO (mixed): čáry ZABAGED se nekreslí v kresbě OSM silnic (ulice dvakrát), končí na jejím okraji.
+            from app.pipeline.osm_paths import mixed_osm_road_band
+
+            dtm_cover = mixed_osm_road_band(kp_cwd, preset_id, scale)
         # Les a MTBO: železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy.
         rail_tunnel_zone = None
         if not preset_id.startswith("sprint"):
@@ -790,6 +800,7 @@ def prepare_oom_map(
             clip_bounds=vector_clip_bounds,
             courtyard_olive=False,  # výplň dvorů z OSM budov
             prefer_osm_path_lines=prefer_osm_paths or None,
+            prefer_osm_road_lines=prefer_osm_roads,
             omit_path_layers=path_source == PATH_SOURCE_OSM,
             omit_layers=omit,
             max_ostatni_m2=max_ostatni_m2,

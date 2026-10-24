@@ -255,7 +255,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 
 - **Testovací B verze** (`https://pt.kibos.link`, data `\\192.168.10.11\docker\podkladarna\data-test\jobs\`) se aktualizuje z `master`
   (`:latest` → `update-nas-ab.sh test`, cron jen když neběží job). „Push do testu“ = commit + push do `master`. Jak dohledat job, bbox a DTM balíky: `DEV.md`.
-- **MTBO používá DTM** (`MTBO_USE_DTM = True` v `app/pipeline/dtm_import.py` od 2.32.0, `mtbo_dtm_off`): koridor silnice (jen do 10 m od osy
+- **MTBO používá DTM** (`MTBO_USE_DTM = True` v `app/pipeline/dtm_import.py` od 2.33.0, `mtbo_dtm_off`): koridor silnice (jen do 10 m od osy
   silnice), chodníky od 0,5 mm, parkoviště od 300 m², schodiště, budovy, ploty a šířky cest z DTM – vše s prahy čitelnosti v měřítku. `False` vrátí kreslení z ZABAGED / OSM.
   LES bere z DTM budovy, ploty (včetně výplně oplocení olivou 520), šířky cest a široké pěší plochy, sprint všechno.
 - **Dedup chodníků v lese a MTBO je jen z OSM:** chodník i pěšina bez tagu chodníku (`SIDEWALK_DEDUP_BASES`, v lese i cyklostezka) souběžná se silnicí nebo OSM zpevněnou plochou se zahodí (celý při ≥ 70 % délky v pásu,
@@ -296,6 +296,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
+- **Mixed je jediný režim v GUI** (Petr 2026-10-23): OSM je hlavní, ZABAGED (postupně opouštíme) a DTM (vtahujeme) kresbu doplňují.
+  Příprava OSM (sdílená se sprintem) ale v `paths_mixed` zahazuje OSM silnice proti ZABAGED Ulice; les a MTBO je proto při kreslení vracejí
+  z `paths_osm` (`mixed_osm_roads_missing`, bez souběžných užších – OSM×OSM dedup platí). ZABAGED Ulice / SilniceDalnice v lese a MTBO
+  ustoupí OSM (dedup celé čáry jako Pěšina / Cesta) a zbytek se ořízne o kresbu OSM silnic (`mixed_osm_road_band`). Sprint beze změny.
+  Dedup chodníků, spojky a pás kresby 502 berou silnice z `paths_osm`.
+  Úzký koridor ze dvou čar, který odpadne jako plocha, kreslí obě původní čáry, jsou-li čitelné (`corridor_axis_features`), jinak osu.
 - **Odsun objektů od cest v lese a MTBO** (`app/pipeline/path_clearance.py`) je pozdní krok `prepare_oom_map` nad hotovými objekty:
   osy cest bere z mapy (OSM i ZABAGED, 502–508, 532, MTBO 8xx), šířky ze sady symbolů. Budovy a body se posunou celé, oliva
   se ořízne o pás cesty (0,05 mm), zdi/ploty po bodech (0,2 mm) jen bez přiblížení k jiné cestě; max. 0,9 mm na mapě. Ploty se

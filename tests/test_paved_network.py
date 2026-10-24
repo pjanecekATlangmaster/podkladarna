@@ -592,8 +592,94 @@ def test_service_link_drawn_as_road(tmp_path, squeezed):
     if squeezed:
         assert lengths.get("504.0", 0) > 20
     else:
+        # Vjezd na parkoviště kreslí pruh zpevněné plochy (``extend_parking_by_links``), čára ne.
         assert lengths.get("504.0", 0) == 0
-        assert lengths["502.2"] > 120 + 20
+        assert lengths["502.2"] == pytest.approx(120, abs=1.0)
+        half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+        net = op.paved_network_geometry(tmp_path, "forest_10000", 10000)
+        assert net.bounds[1] == pytest.approx(half, abs=0.05)  # plocha od okraje kresby silnice
+        assert net.contains(op_point(0, half + 10))
+
+
+def op_point(x, y):
+    from shapely.geometry import Point
+
+    return Point(x, y)
+
+
+def test_service_link_to_parking_edge_open_at_road(tmp_path):
+    # Okraj 501.2 pruhu vjezdu vede po obou stranách až ke kresbě silnice, přes ústí do silnice ne.
+    _write_job(
+        tmp_path,
+        [_area(-20, 30, 20, 60, "parking")],
+        [_road([(-60, 0), (60, 0)], "road_3"), _line([(0, 0), (0, 30)], "road_1")],
+    )
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+    # parkoviště 40 + 2·30 − šířka ústí do pruhu + 2 · délka pruhu (30 − half), bez ústí do silnice
+    expected = 40 + 2 * 30 + (40 - 2 * half) + 2 * (30 - half)
+    assert _edge_length(parts) < expected
+    assert _edge_length(parts) > expected - 2 * half - 2.0
+
+
+def test_service_link_to_garage_stays_line(tmp_path):
+    _write_job(
+        tmp_path,
+        [_area(-10, 30, 10, 45, "building")],
+        [_road([(-60, 0), (60, 0)], "road_3"), _line([(0, 0), (0, 30)], "road_1")],
+    )
+    lengths = _path_lengths(tmp_path)
+    assert lengths["502.2"] > 120 + 20
+
+
+@pytest.mark.parametrize("hw", ["footway", "track", "road_1"])
+def test_black_path_ends_at_road_drawing(tmp_path, hw):
+    # Černá cesta přes silnici 502 se kreslí jen k okraji kresby silnice (z obou stran), ne přes ni.
+    _write_job(tmp_path, [], [_road([(-60, 0), (60, 0)], "road_3"), _line([(0, -40), (0, 40)], hw)])
+    lengths = _path_lengths(tmp_path)
+    half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+    black = sum(v for k, v in lengths.items() if not k.startswith("502"))
+    assert black == pytest.approx(80 - 2 * half, abs=0.5)
+
+
+def test_path_ending_at_dropped_sidewalk_extends_to_road_drawing(tmp_path):
+    # Chodník souběžný se silnicí se zahodí; pěšina, která na něm končila, se prodlouží k okraji kresby silnice.
+    _write_job(
+        tmp_path,
+        [],
+        [
+            _road([(-60, 0), (60, 0)], "road_3"),
+            _line([(-60, 7), (60, 7)], "sidewalk"),
+            _line([(0, 7), (0, 40)], "footway"),
+        ],
+    )
+    lengths = _path_lengths(tmp_path)
+    half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+    black = sum(v for k, v in lengths.items() if not k.startswith("502"))
+    assert black == pytest.approx(40 - half, abs=0.5)
+
+
+def test_path_not_reaching_dropped_sidewalk_not_extended(tmp_path):
+    # Pěšina končí 5 m od zahozeného chodníku: neprodlouží se.
+    _write_job(
+        tmp_path,
+        [],
+        [
+            _road([(-60, 0), (60, 0)], "road_3"),
+            _line([(-60, 7), (60, 7)], "sidewalk"),
+            _line([(0, 12), (0, 40)], "footway"),
+        ],
+    )
+    lengths = _path_lengths(tmp_path)
+    black = sum(v for k, v in lengths.items() if not k.startswith("502"))
+    assert black == pytest.approx(28, abs=0.5)
+
+
+def test_black_path_crosses_narrow_road(tmp_path):
+    # Silnice 503 (černá čára) cestu nepřerušuje.
+    _write_job(tmp_path, [], [_road([(-60, 0), (60, 0)], "road_2"), _line([(0, -40), (0, 40)], "track")])
+    assert _path_lengths(tmp_path)["504.0"] == pytest.approx(80, abs=0.5)
 
 
 def test_street_side_parking_beside_road_drawing_merged(tmp_path):
@@ -658,3 +744,169 @@ def test_mtbo_osm_paved_network_does_not_overlap_dtm_areas(tmp_path):
     assert net is not None
     assert net.intersection(zone).area < 1.0
     assert net.area > 0.9 * 60 * 30  # samostatná plocha mimo DTM zůstává
+
+
+def test_mixed_uses_osm_roads_for_dedup_and_road_band(tmp_path):
+    # mixed: OSM silnice zahozená v paths_mixed proti ZABAGED se vrátí z paths_osm – dedup chodníků a konec cest u 502.
+    import json
+
+    road = _road([(-60, 0), (60, 0)], "road_3")
+    crossing = _line([(0, -40), (0, 40)], "footway")
+    sidewalk = _line([(-50, 6), (50, 6)], "sidewalk")
+    _write_job(tmp_path, [], [crossing, sidewalk])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [road, crossing, sidewalk]}), encoding="utf-8"
+    )
+    lengths = _path_lengths(tmp_path)
+    half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
+    assert lengths.pop("502.2") == pytest.approx(120, abs=0.5)  # OSM silnice vrácena
+    assert sum(lengths.values()) == pytest.approx(80 - 2 * half, abs=0.5)  # chodník zahozen, pěšina končí u 502
+
+
+@pytest.mark.parametrize("gap, two", [(7.2, True), (4.0, False)])
+def test_narrow_corridor_draws_original_lines_when_legible(tmp_path, gap, two):
+    # Trnkovo nám. (way/1033591396 × way/1033591397, 7,2 m od sebe): úzký koridor odpadne → v lese 1:10000
+    # obě čáry (čitelné), těsnější dvojice jen osa. Chodník na okraji odpadlé plochy se nezahodí jako „podél plochy“.
+    import json
+
+    a = [(0, 0), (60, 0)]
+    b = [(0, gap), (60, gap)]
+    _write_job(tmp_path, [_area(0, 0, 60, gap)], [])
+    axis = {
+        "type": "Feature",
+        "properties": {
+            "source": "osm",
+            "highway": "sidewalk",
+            "lines": [{"highway": "sidewalk", "coordinates": a}, {"highway": "sidewalk", "coordinates": b}],
+        },
+        "geometry": {"type": "LineString", "coordinates": [(0, gap / 2), (60, gap / 2)]},
+    }
+    (tmp_path / "osm_paths" / op.CORRIDOR_AXES_NAME).write_text(
+        json.dumps({"type": "FeatureCollection", "features": [axis]}), encoding="utf-8"
+    )
+    total = sum(_path_lengths(tmp_path).values())
+    assert total == pytest.approx(120 if two else 60, abs=1.0)
+
+
+def test_corridor_pairs_out_matches_axes():
+    axes: list = []
+    pairs: list = []
+    items = [_walk([(0, 0), (60, 0)], "pedestrian"), _walk([(0, 6), (60, 6)], "pedestrian")]
+    op.merge_parallel_pedestrian_to_areas(items, axes_out=axes, pairs_out=pairs)
+    assert len(pairs) == len(axes) == 1
+    assert {tuple(map(tuple, pts))[0] for pts, _hw in pairs[0]} == {(0, 0), (0, 6)}
+
+
+def test_mixed_osm_road_band(tmp_path):
+    # Strakonická: ZABAGED Ulice na ose OSM 502.1 (mixed) se ořízne o kresbu OSM silnice; sprint beze změny.
+    from shapely.geometry import LineString
+
+    _write_job(
+        tmp_path,
+        [],
+        [_road([(0, 0), (100, 0)], "road_4"), _line([(0, 50), (100, 50)], op.bridge_highway("road_3"))],
+    )
+    band = op.mixed_osm_road_band(tmp_path, "forest_10000", 10000)
+    half = op.drawn_symbol_width_m("road_4", "forest_10000", 10000) / 2.0
+    assert band.bounds[1] == pytest.approx(-half, abs=0.01)
+    assert band.bounds[3] < 50  # most se nepočítá
+    assert LineString([(10, 1.9), (90, 1.9)]).difference(band).length == pytest.approx(0, abs=0.01)
+    assert op.mixed_osm_road_band(tmp_path, "sprint_4000", 4000) is None
+
+
+def test_mixed_restores_osm_roads_dropped_against_zabaged(tmp_path):
+    # mixed = OSM + detaily ze ZABAGED: OSM ulice zahozená v přípravě proti ZABAGED Ulice (Voskovcova way/25464790)
+    # se v lese kreslí z OSM; souběžná užší OSM silnice (OSM×OSM dedup) se nevrací. Sprint beze změny.
+    import json
+
+    street = _road([(0, 0), (200, 0)], "road_3")
+    service = _road([(0, 0.5), (200, 0.5)], "road_1")  # souběžná užší – v mixed zahozená prefer-wider
+    path = _line([(0, 50), (100, 50)], "path")
+    _write_job(tmp_path, [], [path, _road([(0, 1), (200, 1)], "road_4")])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [street, service, path]}), encoding="utf-8"
+    )
+    missing = op.mixed_osm_roads_missing(tmp_path)
+    assert missing == []  # obě silnice leží na road_4 z mixed
+    _write_job(tmp_path, [], [path])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [street, path]}), encoding="utf-8"
+    )
+    assert [f["properties"]["highway"] for f in op.mixed_osm_roads_missing(tmp_path)] == ["road_3"]
+    assert _path_lengths(tmp_path)["502.2"] == pytest.approx(200, abs=1.0)
+    assert "501.30" not in _path_lengths(tmp_path, "sprint_4000", 4000)
+    import shutil
+
+    shutil.copy(tmp_path / "osm_paths" / "paths_mixed.geojson", tmp_path / "osm_paths" / "paths.geojson")
+    assert len(op.load_osm_path_lines(tmp_path)) == 1
+    assert len(op.load_osm_path_lines(tmp_path, corridor_lines=True)) == 2  # + OSM ulice: ZABAGED Ulice pod ní ustoupí
+
+
+def test_mixed_restored_roads_dedup_parallel(tmp_path):
+    # Vrácené OSM silnice mezi sebou: souběžná service 3 m vedle primary (50.03286, 14.38235) se nevrací.
+    import json
+
+    primary = _road([(0, 0), (200, 0)], "road_4")
+    service = _road([(0, 3), (200, 3)], "road_1")
+    _write_job(tmp_path, [], [])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [primary, service]}), encoding="utf-8"
+    )
+    assert [f["properties"]["highway"] for f in op.mixed_osm_roads_missing(tmp_path)] == ["road_4"]
+
+
+def test_mixed_restored_wider_road_supersedes_mixed_service(tmp_path):
+    # Vrácená širší OSM silnice nahradí souběžnou užší silnici z paths_mixed (kreslí se jen jednou).
+    import json
+
+    primary = _road([(0, 0), (200, 0)], "road_4")
+    service = _road([(0, 3), (200, 3)], "road_1")
+    _write_job(tmp_path, [], [service])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [primary, service]}), encoding="utf-8"
+    )
+    added, superseded = op.mixed_osm_road_fix(tmp_path)
+    assert [f["properties"]["highway"] for f in added] == ["road_4"]
+    assert superseded == {op._road_feature_key(service)}
+    lengths = _path_lengths(tmp_path)
+    assert sum(lengths.values()) == pytest.approx(200, abs=0.5)
+
+
+def test_mixed_restored_road_clips_partial_parallel(tmp_path):
+    # Souběh jen na části (50.03286): užší service se ořízne o vrácenou primary po úsecích, zbytek zůstane.
+    import json
+
+    primary = _road([(0, 0), (300, 0)], "road_4")
+    service = _road([(100, 3), (160, 3), (160, 80)], "road_2")
+    _write_job(tmp_path, [], [service])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [primary, service]}), encoding="utf-8"
+    )
+    added, superseded = op.mixed_osm_road_fix(tmp_path)
+    assert superseded == {op._road_feature_key(service)}
+    hws = sorted(f["properties"]["highway"] for f in added)
+    assert hws == ["road_2", "road_4"]
+    rest = next(f for f in added if f["properties"]["highway"] == "road_2")
+    assert op.polyline_length(rest["geometry"]["coordinates"]) == pytest.approx(80, abs=8)
+
+
+def test_path_extension_not_across_other_line(tmp_path):
+    # Prodloužení k silnici, které by křížilo jinou kreslenou cestu (ponechaný chodník, schody), se nedělá.
+    road = _road([(-100, 0), (100, 0)], "road_3")
+    sidewalk = _line([(-100, 7), (100, 7)], "sidewalk")
+    path = _line([(0, 7), (0, 40)], "footway")
+    cross = _line([(-20, 5.5), (20, 5.5)], "steps")
+    _write_job(tmp_path, [], [road, sidewalk, path, cross])
+    assert _path_lengths(tmp_path).get("506.0", 0) == pytest.approx(33, abs=0.5)
+
+
+def test_path_extension_not_across_kept_part_of_dropped_sidewalk(tmp_path):
+    # Chodník zahozený jen zčásti: jeho ponechaný krátký úsek u silnice je pro prodloužení cesty překážkou.
+    road = _road([(-100, 0), (100, 0)], "road_3")
+    dropped = _line([(-100, 7), (100, 7)], "sidewalk")
+    partly = _line([(-100, 7.2), (-30, 7.2), (-30, 30), (20, 30), (20, 5), (-10, 5), (-10, 30)], "sidewalk")
+    path = _line([(0, 7.5), (0, 40)], "footway")
+    _write_job(tmp_path, [], [road, dropped, partly])
+    base = _path_lengths(tmp_path).get("506.0", 0)
+    _write_job(tmp_path, [], [road, dropped, partly, path])
+    assert _path_lengths(tmp_path).get("506.0", 0) - base == pytest.approx(32.5, abs=0.3)

@@ -916,10 +916,14 @@ def build_zabaged_object_parts(
     osm_priority_areas: dict | None = None,
     dtm_cover=None,
     rail_tunnel_zone=None,
+    prefer_osm_road_lines: list[list[tuple[float, float]]] | None = None,
 ) -> list[OomObjectPart]:
     """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
 
     ``rail_tunnel_zone``: okolí tratí v tunelu z OSM (shapely); železnice a tramvaj ZABAGED se v něm nekreslí.
+
+    ``prefer_osm_road_lines`` (les / MTBO): kreslené OSM silnice; ZABAGED Ulice / SilniceDalnice se dedupují jen proti
+    nim (ne proti OSM chodníku vedle ulice). Bez nich proti ``prefer_osm_path_lines``.
     """
     use_ogr = True
     try:
@@ -948,8 +952,11 @@ def build_zabaged_object_parts(
         ZABAGED_PATH_LAYERS_OSM_FIRST,
         _SegmentIndex,
         centerline_cover_fraction,
+        ZABAGED_REMNANT_MIN_M,
         centerline_index,
+        clip_parallel_to_centerlines,
         filter_lines_against_centerlines,
+        polyline_length,
     )
 
     fill_courtyards = bool(courtyard_olive)
@@ -1110,28 +1117,58 @@ def build_zabaged_object_parts(
             )
         return out
 
+    # Les / MTBO (mixed = OSM + detaily ze ZABAGED): i ulice ustoupí OSM; sprint beze změny.
+    osm_first_layers = ZABAGED_PATH_LAYERS_OSM_FIRST | (
+        frozenset() if preset_id.startswith("sprint") else frozenset({"Ulice", "SilniceDalnice"})
+    )
+
+    road_layers = frozenset({"Ulice", "SilniceDalnice"})
+    road_index = None
+
     def _filter_vs_osm(
         line_parts: list[list[tuple[float, float]]],
         layer_name: str,
     ) -> list[list[tuple[float, float]]]:
-        nonlocal osm_index
+        nonlocal osm_index, road_index
         if dtm_cover is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
             from app.pipeline.dtm_sidewalks import clip_outside
 
             line_parts = [p for pts in line_parts for p in clip_outside(pts, dtm_cover, MIN_LENGTH_M)]
-        if not osm_blockers or layer_name not in ZABAGED_PATH_LAYERS_OSM_FIRST:
+        if not osm_blockers or layer_name not in osm_first_layers:
             return line_parts
         if osm_index is None:
             osm_index = centerline_index(osm_blockers)
+        blockers, index = osm_blockers, osm_index
+        if prefer_osm_road_lines is not None and layer_name in road_layers:
+            # Ulice jen proti OSM silnicím: chodník vedle ulice ji nesmí nahradit.
+            if road_index is None:
+                road_index = centerline_index(prefer_osm_road_lines)
+            blockers, index = prefer_osm_road_lines, road_index
         kept, _dropped = filter_lines_against_centerlines(
             line_parts,
-            osm_blockers,
+            blockers,
             near_m=MATCH_M,
             overlap_drop=COVER_DROP,
             min_length_m=MIN_LENGTH_M,
-            index=osm_index,
+            index=index,
         )
-        return kept
+        if preset_id.startswith("sprint"):
+            return kept
+        # Les / MTBO: souběžné úseky posunuté o pár metrů od OSM (méně než MATCH_M) se ořežou po úsecích;
+        # krátký zbytek, který vznikl ořezem a nikam nevede, se zahodí.
+        out: list[list[tuple[float, float]]] = []
+        for pts in kept:
+            pieces = clip_parallel_to_centerlines(pts, index)
+            if len(pieces) == 1 and pieces[0] is pts:
+                out.append(pts)
+                continue
+            for piece in pieces:
+                # aspoň jeden konec vznikl ořezem (není to původní konec čáry)
+                cut_end = piece[0] != pts[0] or piece[-1] != pts[-1]
+                if cut_end and polyline_length(piece) < ZABAGED_REMNANT_MIN_M:
+                    continue
+                out.append(piece)
+        return out
 
     skip_layers = frozenset(omit_layers or ())
     for shp_name in shp_names:
@@ -1220,6 +1257,19 @@ def build_zabaged_object_parts(
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
                 ):
+                    if not line_parts:
+                        continue
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif (
+                    (dtm_cover is not None or osm_first)
+                    and not preset_id.startswith("sprint")
+                    and layer_name in _DTM_CLIPPED_PATH_LAYERS
+                ):
+                    # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
+                    # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":
@@ -1324,6 +1374,19 @@ def build_zabaged_object_parts(
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
                 ):
+                    if not line_parts:
+                        continue
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif (
+                    (dtm_cover is not None or osm_first)
+                    and not preset_id.startswith("sprint")
+                    and layer_name in _DTM_CLIPPED_PATH_LAYERS
+                ):
+                    # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
+                    # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":

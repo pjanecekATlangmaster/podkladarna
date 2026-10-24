@@ -213,7 +213,7 @@ Pravidlo: **tvar bere DTM, aktuálnost OSM** – zbytky OSM, které DTM nezná, 
 | Zeleň | `UdrzovanaPlochaZelenePlocha` | nekreslí se | vystřihne se z OSM zpevněných ploch (parkoviště, pěší zóna …); **dětská hřiště z OSM se nevystřihují** (OSM je přesnější, `DTM_GREEN_KEEP_KINDS`) |
 | Mosty (více úrovní) | `PlochaMostniKonstrukcePlocha` a povrchy na úrovni ≥ 1 (`ChodnikPlocha`, `SchodistePlocha`, `StavbaProZpevneniPovrchu`, `ProvozniPlocha…`) | mostovka po úrovních barvou povrchu (chodník 501.0, silnice 501.20) + hrany 512.100 pod mostem | spodní úroveň pod mostem (chodníky, silnice, parkoviště, voda), OSM cesty pod mostem a OSM lávky uvnitř mostu z DTM |
 
-**MTBO používá DTM** (`MTBO_USE_DTM = True` v `dtm_import.py`, od 2.32.0): jen to, co je v měřítku čitelné (níže), včetně
+**MTBO používá DTM** (`MTBO_USE_DTM = True` v `dtm_import.py`, od 2.33.0): jen to, co je v měřítku čitelné (níže), včetně
 šířek cest z DTM jako v lese. `False` vrátí kreslení z ZABAGED / OSM jako před zavedením DTM (`mtbo_dtm_off`).
 
 **Les a MTBO** berou z DTM jen to, co je v 1:7500–1:15000 čitelné: **budovy** (stejné skládání jako ve sprintu, 521 / 526)
