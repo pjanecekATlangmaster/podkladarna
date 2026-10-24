@@ -266,8 +266,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ne přes budovy a ne z rozbíhajících se čar (průměrná šířka ≤ 12 m).
 - **Zpevněné plochy v lese a MTBO jsou síť** (`build_paved_network` při sestavení mapy): OSM parkoviště, pěší zóny, area:highway, nástupiště
   a hřiště se sloučí (mezera do 3,5 m), ne přes pás silnice a ne přes plochy na mostě / v tunelu (`structure` z přípravy OSM). Silnice přes
-  plochu se uvnitř nekreslí (`clip_road_in_paved`, jen průchod ≥ 6 m a dál než 2 m od hrany), menší cesty se na ploše přeruší. V lese se okraj
-  501.2 vynechá tam, kde by splýval se silnicí (`paved_edge_omit_zone`); parkoviště je v lese 501.1 + 501.2. Úzké parkoviště (pruh do 4,5 m), které z ≥ 60 % leží
+  plochu se uvnitř nekreslí (`clip_road_in_paved`, jen průchod ≥ 6 m a dál než 2 m od hrany), menší cesty se na ploše přeruší. V lese a MTBO (výplň 501.1 + okraj 501.2)
+  se okraj vynechá tam, kde by splýval se silnicí (`paved_edge_omit_zone`); parkoviště je v lese 501.1 + 501.2. Úzké parkoviště (pruh do 4,5 m), které z ≥ 60 % leží
   pod kresbou silnice + 1 m nebo k ní přiléhá dlouhou stranou (podélné stání), se s úsekem ulice slije do jedné plochy 501.1 v šířce kresby silnice s okrajem 501.2 (`merge_parking_into_road`);
   silnice se tam nekreslí. Široká parkoviště zůstávají samostatně. Navazující kusy čar se stejným symbolem se spojí (`join_line_pieces`).
   Krátká účelová komunikace (service do 60 m) ze silnice 502 na zpevněnou plochu / budovu se kreslí 502, pokud se kresba vejde mezi budovy (`service_link_indexes`); krátká service šířku z DTM nebere. Pěší plochy
