@@ -1700,3 +1700,15 @@ def test_classified_polygons_mixed_uses_osm_roads_dropped_for_zabaged(tmp_path):
     (work / "osm_paths" / "paths_osm.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8")
     sidewalks, roads = di.classified_polygons(work, "mixed")
     assert sidewalks == [] and len(roads) == 1  # chodník z DTM s OSM ulicí uvnitř je silnice i v mixed
+
+
+def test_dtm_disabled_hides_job_dtm_data(tmp_path):
+    (tmp_path / "dtm").mkdir()
+    (tmp_path / "dtm" / "roads.json").write_text(json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, 0, 100, 10)]]}), encoding="utf-8")
+    assert di.dtm_owns_roads(tmp_path)
+    with di.dtm_disabled():
+        assert di.dtm_is_disabled() and not di.dtm_owns_roads(tmp_path)
+        assert di.road_geometry(tmp_path) is None
+    assert di.dtm_owns_roads(tmp_path) and not di.dtm_is_disabled()
+    with di.dtm_disabled(False):
+        assert di.dtm_owns_roads(tmp_path)

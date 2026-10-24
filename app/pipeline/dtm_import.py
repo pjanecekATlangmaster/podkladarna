@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from app.pipeline import dtm_fences, dtm_sources
@@ -65,6 +67,40 @@ MTBO_USE_DTM = True
 FOREST_DTM_AREAS = True
 
 
+# Volba jobu „kreslit z OSM + ZABAGED“ (bez DTM) pro les / MTBO či sprint: data DTM v jobu zůstanou (jiná disciplína
+# je může kreslit), ale po dobu sestavení té mapy je pipeline nevidí (``dtm_disabled``) – kreslí se jako bez DTM.
+_DTM_OFF: ContextVar[bool] = ContextVar("podkladarna_dtm_off", default=False)
+DTM_OFF_DIR = "dtm_off"  # neexistující složka místo ``dtm`` (všechny ``*_path`` pak vrací chybějící soubor)
+
+
+def dtm_dir(work_dir: Path) -> Path:
+    """Složka s připravenými daty DTM jobu (``dtm``), při ``dtm_disabled`` neexistující ``dtm_off``."""
+    return work_dir / (DTM_OFF_DIR if _DTM_OFF.get() else "dtm")
+
+
+def dtm_is_disabled() -> bool:
+    return _DTM_OFF.get()
+
+
+@contextmanager
+def dtm_disabled(off: bool = True):
+    """Po dobu bloku se DTM jobu nepoužívá (``off``); paměťové cache geometrií se vyprázdní na vstupu i výstupu."""
+    if not off:
+        yield
+        return
+    from app.pipeline import osm_paths as op
+
+    token = _DTM_OFF.set(True)
+    _MTBO_GEOMETRY_CACHE.clear()
+    op._PAVED_NETWORK_CACHE.clear()
+    try:
+        yield
+    finally:
+        _DTM_OFF.reset(token)
+        _MTBO_GEOMETRY_CACHE.clear()
+        op._PAVED_NETWORK_CACHE.clear()
+
+
 def mtbo_dtm_off(preset_id: str) -> bool:
     """Je to MTBO a DTM se pro něj nepoužívá (``MTBO_USE_DTM`` = False)?"""
     return preset_id.startswith("mtbo") and not MTBO_USE_DTM
@@ -77,7 +113,7 @@ MTBO_SIDEWALK_MIN_LEN_M = 15.0
 
 
 def fences_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / FENCES_NAME
+    return dtm_dir(work_dir) / FENCES_NAME
 
 
 class DtmPrefetch:
@@ -209,15 +245,15 @@ def prepare_dtm_fences(
 
 
 def sidewalks_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / SIDEWALKS_NAME
+    return dtm_dir(work_dir) / SIDEWALKS_NAME
 
 
 def roads_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / ROADS_NAME
+    return dtm_dir(work_dir) / ROADS_NAME
 
 
 def decks_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / DECKS_NAME
+    return dtm_dir(work_dir) / DECKS_NAME
 
 
 def _write_decks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) -> None:
@@ -282,23 +318,23 @@ def _minus_decks(geom, work_dir: Path):
 
 
 def buildings_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / BUILDINGS_NAME
+    return dtm_dir(work_dir) / BUILDINGS_NAME
 
 
 def small_paved_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / SMALL_PAVED_NAME
+    return dtm_dir(work_dir) / SMALL_PAVED_NAME
 
 
 def stairs_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / STAIRS_NAME
+    return dtm_dir(work_dir) / STAIRS_NAME
 
 
 def parking_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / PARKING_NAME
+    return dtm_dir(work_dir) / PARKING_NAME
 
 
 def green_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / GREEN_NAME
+    return dtm_dir(work_dir) / GREEN_NAME
 
 
 def dtm_owns_stairs(work_dir: Path) -> bool:
@@ -1122,7 +1158,7 @@ _MTBO_GEOMETRY_CACHE: dict[tuple, object] = {}
 
 def _mtbo_cached(name: str, work_dir: Path, scale: int, path_source: str, compute, extra: tuple = ()):
     stamps = []
-    for sub in ("dtm", "osm_paths"):
+    for sub in (dtm_dir(work_dir).name, "osm_paths"):
         d = work_dir / sub
         if d.is_dir():
             stamps.extend((f.name, f.stat().st_mtime_ns) for f in sorted(d.iterdir()) if f.is_file())

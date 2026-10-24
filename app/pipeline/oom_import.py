@@ -943,11 +943,14 @@ def build_zabaged_object_parts(
     suppress_waterway_in_water: bool = False,
     osm_priority_areas: dict | None = None,
     dtm_cover=None,
+    stub_cover=None,
     rail_tunnel_zone=None,
     prefer_osm_road_lines: list[list[tuple[float, float]]] | None = None,
     paved_clip=None,
 ) -> list[OomObjectPart]:
     """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
+    ``stub_cover``: les / MTBO plochy z DTM (koridor, parkoviště, chodníky); pahýl ZABAGED silnice u nich se nekreslí
+    (``_drop_cover_stubs``). Bez DTM None – kresba beze změny.
 
     ``paved_clip`` (les / MTBO): ``(road_clip, paved_network)`` jako u OSM cest – Ulice / SilniceDalnice se přes
     zpevněnou plochu (parkoviště, podélné stání slité s ulicí) nekreslí, jen napojení na hranu (``clip_road_in_paved``);
@@ -1336,8 +1339,8 @@ def build_zabaged_object_parts(
                 ):
                     # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
-                    if dtm_cover is not None and layer_name in road_layers:
-                        line_parts = _drop_cover_stubs(line_parts, dtm_cover, scale)
+                    if stub_cover is not None and layer_name in road_layers:
+                        line_parts = _drop_cover_stubs(line_parts, stub_cover, scale)
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":
@@ -1464,8 +1467,8 @@ def build_zabaged_object_parts(
                 ):
                     # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
-                    if dtm_cover is not None and layer_name in road_layers:
-                        line_parts = _drop_cover_stubs(line_parts, dtm_cover, scale)
+                    if stub_cover is not None and layer_name in road_layers:
+                        line_parts = _drop_cover_stubs(line_parts, stub_cover, scale)
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":

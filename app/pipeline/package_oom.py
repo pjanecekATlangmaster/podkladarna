@@ -686,7 +686,16 @@ def _write_ostatni_band_shapefiles(
     return written
 
 
-def prepare_oom_map(
+def prepare_oom_map(kp_cwd: Path, dest: Path, *, use_dtm: bool = True, **kwargs) -> Path | None:
+    """Sestaví .omap (``_prepare_oom_map``). ``use_dtm`` False: mapa se kreslí jen z OSM + ZABAGED, jako by výřez
+    neměl data DTM (volba jobu; data DTM zůstávají pro ostatní disciplíny)."""
+    from app.pipeline.dtm_import import dtm_disabled
+
+    with dtm_disabled(not use_dtm):
+        return _prepare_oom_map(kp_cwd, dest, **kwargs)
+
+
+def _prepare_oom_map(
     kp_cwd: Path,
     dest: Path,
     *,
@@ -773,6 +782,7 @@ def prepare_oom_map(
             osm_water_area = osm_water_area_geometry(kp_cwd)
         # Sprint: čáry cest ZABAGED se nekreslí uvnitř ploch chodníků a silnic z DTM.
         dtm_cover = None
+        stub_cover = None
         if preset_id.startswith("sprint"):
             from app.pipeline.dtm_import import dtm_cover_geometry
 
@@ -799,6 +809,7 @@ def prepare_oom_map(
                 from shapely.ops import unary_union
 
                 dtm_cover = _dtm_areas if dtm_cover is None else unary_union([dtm_cover, _dtm_areas])
+                stub_cover = _dtm_areas
         # Les a MTBO: železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy.
         rail_tunnel_zone = None
         if not preset_id.startswith("sprint"):
@@ -827,6 +838,7 @@ def prepare_oom_map(
             suppress_waterway_in_water=preset_id.startswith("sprint"),
             osm_priority_areas=osm_priority_areas or None,
             dtm_cover=dtm_cover,
+            stub_cover=stub_cover,
             rail_tunnel_zone=rail_tunnel_zone,
             paved_clip=paved_clip,
         ):
