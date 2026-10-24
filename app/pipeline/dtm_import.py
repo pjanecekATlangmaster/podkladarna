@@ -1812,7 +1812,7 @@ def classified_polygons(
     """``(chodníky, silnice)`` z DTM po přeřazení chybně zařazených ploch.
 
     ``ChodnikPlocha`` s OSM silnicemi uvnitř (viz ``dtm_sidewalks.reclassify_sidewalks_as_roads``)
-    se bere jako silnice.
+    se bere jako silnice; v mixed se počítají i OSM silnice, které kresbu přenechaly ZABAGED (``paths_osm``).
     """
     import logging
 
@@ -1821,7 +1821,13 @@ def classified_polygons(
     sidewalks = _load_sidewalk_polygons(work_dir)
     roads = _load_road_polygons(work_dir)
     if sidewalks:
-        road_lines, _widths = road_osm_lines(work_dir, path_source)
+        from app.pipeline import osm_paths as op
+
+        # mixed: OSM silnice nahrazené ZABAGED Ulice v ``paths_mixed`` chybí, o zařazení plochy rozhoduje i tak OSM
+        src = path_source
+        if op.resolve_path_source(path_source) != op.PATH_SOURCE_ZABAGED and (work_dir / "osm_paths" / "paths_osm.geojson").is_file():
+            src = op.PATH_SOURCE_OSM
+        road_lines, _widths = road_osm_lines(work_dir, src)
         sidewalks, moved = dtm_sidewalks.reclassify_sidewalks_as_roads(sidewalks, road_lines)
         if moved:
             roads = roads + moved

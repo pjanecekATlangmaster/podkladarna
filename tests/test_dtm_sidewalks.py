@@ -1684,3 +1684,19 @@ def test_corridor_edge_merged_with_adjacent_parking_reaches_corner(tmp_path, mon
     # u rohu obrys koridoru pokračuje po hraně parkoviště dál, než parkoviště svůj okraj vynechá (0,5 m)
     assert lines.distance(Point(20, 10 + di.CORRIDOR_SHARED_EDGE_M)) < 0.01
     assert lines.distance(Point(50, 10 + di.CORRIDOR_SHARED_EDGE_M)) < 0.01
+
+
+def test_classified_polygons_mixed_uses_osm_roads_dropped_for_zabaged(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1007, -800, -993)]]}), encoding="utf-8"
+    )
+    (work / "dtm" / "roads.json").write_text(json.dumps({"polygons": []}), encoding="utf-8")
+    (work / "osm_paths").mkdir()
+    road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-990, -1000], [-810, -1000]]}}
+    empty = {"type": "FeatureCollection", "features": []}
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps(empty), encoding="utf-8")  # ulici kreslí ZABAGED
+    (work / "osm_paths" / "paths_osm.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8")
+    sidewalks, roads = di.classified_polygons(work, "mixed")
+    assert sidewalks == [] and len(roads) == 1  # chodník z DTM s OSM ulicí uvnitř je silnice i v mixed
