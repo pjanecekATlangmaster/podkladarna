@@ -1330,3 +1330,11 @@ def test_generalize_area_fills_bays_drops_spurs_and_small_holes():
     assert blocked.intersection(box(40, 15, 42, 20)).area < 0.5
     # malý samostatný kus (< 0,5 mm² = 50 m²) se zahodí
     assert ds.generalize_area(box(0, 0, 6, 6), 10000) is None
+
+
+def test_end_at_edge_accepts_geometry_collection_with_lines():
+    from shapely.geometry import GeometryCollection, LineString, box
+
+    area = GeometryCollection([box(0, -5, 10, 5), LineString([(20, 0), (30, 0)])])  # boundary je None
+    out = ds.end_at_edge([(-20.0, 0.0), (5.0, 0.0)], area)
+    assert len(out) == 1 and abs(out[0][-1][0]) < 1e-6  # končí na hraně plochy

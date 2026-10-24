@@ -356,6 +356,14 @@ def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SN
     if line.length <= 0:
         return [coords]
     boundary = area.boundary
+    if boundary is None:  # GeometryCollection: hrana jen z ploch
+        polys = [g for g in getattr(area, "geoms", []) if g.geom_type in ("Polygon", "MultiPolygon")]
+        if not polys:
+            return [coords]
+        from shapely.ops import unary_union
+
+        area = unary_union(polys)
+        boundary = area.boundary
     start_in = area.contains(Point(coords[0]))
     end_in = area.contains(Point(coords[-1]))
     s, e = 0.0, line.length

@@ -4600,7 +4600,14 @@ def _minus_mtbo_dtm_areas(work_dir: Path, geom, scale: int, preset_id: str = "mt
     from app.pipeline.dtm_import import dtm_area_geometry_for
 
     zone = dtm_area_geometry_for(work_dir, preset_id, scale, "mixed")
-    return geom if zone is None or zone.is_empty else geom.difference(zone)
+    if zone is None or zone.is_empty:
+        return geom
+    # Rozdíl může vrátit GeometryCollection s čarami po hraně (její ``boundary`` je None) – jen plochy.
+    from shapely.ops import unary_union
+
+    rest = geom.difference(zone)
+    polys = [g for g in getattr(rest, "geoms", [rest]) if g.geom_type in ("Polygon", "MultiPolygon") and not g.is_empty]
+    return unary_union(polys) if polys else None
 
 
 def cut_paved_by_mtbo_dtm_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
