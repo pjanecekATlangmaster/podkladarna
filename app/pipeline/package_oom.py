@@ -782,6 +782,23 @@ def prepare_oom_map(
             from app.pipeline.osm_paths import mixed_osm_road_band
 
             dtm_cover = mixed_osm_road_band(kp_cwd, preset_id, scale)
+        paved_clip = None
+        if not preset_id.startswith("sprint"):
+            # Les a MTBO: ZABAGED ulice přes zpevněnou plochu (parkoviště, podélné stání) jen napojení jako OSM silnice.
+            from app.pipeline.osm_paths import paved_network_geometry, road_clip_zone
+
+            _network = paved_network_geometry(kp_cwd, preset_id, scale)
+            if _network is not None:
+                paved_clip = (road_clip_zone(kp_cwd, preset_id, scale), _network)
+            if preset_id.startswith("mtbo"):
+                # MTBO s DTM: uvnitř koridoru silnice, ploch chodníků a parkovišť z DTM se čáry ZABAGED nekreslí.
+                from app.pipeline.dtm_import import mtbo_dtm_area_geometry
+
+                _mtbo_areas = mtbo_dtm_area_geometry(kp_cwd, scale, path_source)
+                if _mtbo_areas is not None and not _mtbo_areas.is_empty:
+                    from shapely.ops import unary_union
+
+                    dtm_cover = _mtbo_areas if dtm_cover is None else unary_union([dtm_cover, _mtbo_areas])
         # Les a MTBO: železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy.
         rail_tunnel_zone = None
         if not preset_id.startswith("sprint"):
@@ -811,6 +828,7 @@ def prepare_oom_map(
             osm_priority_areas=osm_priority_areas or None,
             dtm_cover=dtm_cover,
             rail_tunnel_zone=rail_tunnel_zone,
+            paved_clip=paved_clip,
         ):
             if _COURTYARD_MARK in part.name:
                 courtyard_parts.append(part)
