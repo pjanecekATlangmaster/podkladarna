@@ -266,8 +266,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ne přes budovy a ne z rozbíhajících se čar (průměrná šířka ≤ 12 m).
 - **Zpevněné plochy v lese a MTBO jsou síť** (`build_paved_network` při sestavení mapy): OSM parkoviště, pěší zóny, area:highway, nástupiště
   a hřiště se sloučí (mezera do 3,5 m), ne přes pás silnice a ne přes plochy na mostě / v tunelu (`structure` z přípravy OSM). Silnice přes
-  plochu se uvnitř nekreslí (`clip_road_in_paved`, jen průchod ≥ 6 m a dál než 2 m od hrany), menší cesty se na ploše přeruší. V lese se okraj
-  501.2 vynechá tam, kde by splýval se silnicí (`paved_edge_omit_zone`); parkoviště je v lese 501.1 + 501.2. Úzké parkoviště (pruh do 4,5 m), které z ≥ 60 % leží
+  plochu se uvnitř nekreslí (`clip_road_in_paved`, jen průchod ≥ 6 m a dál než 2 m od hrany), menší cesty se na ploše přeruší. V lese a MTBO (výplň 501.1 + okraj 501.2)
+  se okraj vynechá tam, kde by splýval se silnicí (`paved_edge_omit_zone`); parkoviště je v lese 501.1 + 501.2. Úzké parkoviště (pruh do 4,5 m), které z ≥ 60 % leží
   pod kresbou silnice + 1 m nebo k ní přiléhá dlouhou stranou (podélné stání), se s úsekem ulice slije do jedné plochy 501.1 v šířce kresby silnice s okrajem 501.2 (`merge_parking_into_road`);
   silnice se tam nekreslí. Široká parkoviště zůstávají samostatně. Navazující kusy čar se stejným symbolem se spojí (`join_line_pieces`).
   Krátká účelová komunikace (service do 60 m) ze silnice 502 na zpevněnou plochu / budovu se kreslí 502, pokud se kresba vejde mezi budovy (`service_link_indexes`); krátká service šířku z DTM nebere. Pěší plochy
@@ -296,6 +296,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
+- **Mixed je jediný režim v GUI** (Petr 2026-10-23): OSM je hlavní, ZABAGED (postupně opouštíme) a DTM (vtahujeme) kresbu doplňují.
+  Příprava OSM (sdílená se sprintem) ale v `paths_mixed` zahazuje OSM silnice proti ZABAGED Ulice; les a MTBO je proto při kreslení vracejí
+  z `paths_osm` (`mixed_osm_roads_missing`, bez souběžných užších – OSM×OSM dedup platí). ZABAGED Ulice / SilniceDalnice v lese a MTBO
+  ustoupí OSM (dedup celé čáry jako Pěšina / Cesta) a zbytek se ořízne o kresbu OSM silnic (`mixed_osm_road_band`). Sprint beze změny.
+  Dedup chodníků, spojky a pás kresby 502 berou silnice z `paths_osm`.
+  Úzký koridor ze dvou čar, který odpadne jako plocha, kreslí obě původní čáry, jsou-li čitelné (`corridor_axis_features`), jinak osu.
 - **Odsun objektů od cest v lese a MTBO** (`app/pipeline/path_clearance.py`) je pozdní krok `prepare_oom_map` nad hotovými objekty:
   osy cest bere z mapy (OSM i ZABAGED, 502–508, 532, MTBO 8xx), šířky ze sady symbolů. Budovy a body se posunou celé, oliva
   se ořízne o pás cesty (0,05 mm), zdi/ploty po bodech (0,2 mm) jen bez přiblížení k jiné cestě; max. 0,9 mm na mapě. Ploty se

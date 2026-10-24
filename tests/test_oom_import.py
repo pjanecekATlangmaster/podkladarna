@@ -626,3 +626,170 @@ def test_osm_priority_area_geometries_by_kind(tmp_path):
     assert set(got) == {"VodniPlocha", "ParkovisteOdpocivka"}
     assert abs(got["VodniPlocha"].area - 100.0) < 1e-9
     assert op.osm_priority_area_geometries(tmp_path / "neni") == {}
+
+
+def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
+    """Les (mixed): ZABAGED Ulice se ořízne o kresbu OSM silnice (``dtm_cover``); sprint beze změny."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+    import zipfile
+
+    import numpy as np
+    import pyogrio.raw as pr
+    from shapely.geometry import LineString, box
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    arr = np.array([LineString([(x0, y0), (x0 + 300, y0)]).wkb], dtype=object)
+    pr.write(
+        str(tmp_path / "Ulice.shp"),
+        geometry=arr,
+        field_data=[],
+        fields=[],
+        geometry_type="LineString",
+        crs="EPSG:5514",
+        driver="ESRI Shapefile",
+    )
+    z = tmp_path / "z.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in tmp_path.iterdir():
+            if f.suffix in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                zf.write(f, f.name)
+    band = box(x0 + 100, y0 - 6, x0 + 200, y0 + 6)  # OSM silnice přes prostřední třetinu
+
+    def count(preset, scale, cover, osm=None, roads=None):
+        parts = build_zabaged_object_parts(
+            z,
+            vectorconf_name="zabaged.txt",
+            preset_id=preset,
+            scale=scale,
+            ref_x=x0,
+            ref_y=y0,
+            grivation_deg=0.0,
+            work_dir=Path(tempfile.mkdtemp()),
+            dtm_cover=cover,
+            prefer_osm_path_lines=osm,
+            prefer_osm_road_lines=roads,
+        )
+        return sum(p.count for p in parts if "Ulice" in p.name)
+
+    assert count("forest_10000", 10000, None) == 1
+    assert count("forest_10000", 10000, band) == 2
+    assert count("sprint_4000", 4000, band) == 1
+    # mixed = OSM + detaily ze ZABAGED: ulici, kterou má OSM, ZABAGED nekreslí (les / MTBO); sprint beze změny.
+    osm = [[(x0, y0 + 2), (x0 + 300, y0 + 2)]]
+    assert count("forest_10000", 10000, None, osm) == 0
+    assert count("sprint_4000", 4000, None, osm) == 1
+    # OSM chodník vedle ulice (sám se nekreslí) ulici nenahradí: dedup ulic jen proti OSM silnicím (50.02916, 14.36073).
+    assert count("forest_10000", 10000, None, osm, roads=[]) == 1
+    assert count("forest_10000", 10000, None, osm, roads=osm) == 0
+
+
+def _zabaged_line_zip(tmp_path, layer, lines):
+    """ZIP s jednou vrstvou čar ZABAGED (EPSG:5514) pro ``build_zabaged_object_parts``."""
+    import zipfile
+
+    import numpy as np
+    import pyogrio.raw as pr
+    from shapely.geometry import LineString
+
+    arr = np.array([LineString(c).wkb for c in lines], dtype=object)
+    pr.write(
+        str(tmp_path / f"{layer}.shp"),
+        geometry=arr,
+        field_data=[],
+        fields=[],
+        geometry_type="LineString",
+        crs="EPSG:5514",
+        driver="ESRI Shapefile",
+    )
+    z = tmp_path / "z.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in tmp_path.iterdir():
+            if f.suffix in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                zf.write(f, f.name)
+    return z
+
+
+def _zabaged_line_lengths(z, layer, preset, scale, x0, y0, osm):
+    """Délky (m) čar vrstvy ``layer`` po dedupu proti OSM, z map souřadnic zpět."""
+    import re
+    import tempfile
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    parts = build_zabaged_object_parts(
+        z,
+        vectorconf_name="zabaged.txt",
+        preset_id=preset,
+        scale=scale,
+        ref_x=x0,
+        ref_y=y0,
+        grivation_deg=0.0,
+        work_dir=Path(tempfile.mkdtemp()),
+        prefer_osm_path_lines=osm,
+    )
+    out = []
+    for p in parts:
+        if layer not in p.name:
+            continue
+        for m in re.finditer(r"<coords[^>]*>(.*?)</coords>", p.objects_xml, re.DOTALL):
+            pts = [tuple(int(v) for v in c.split()[:2]) for c in m.group(1).split(";") if c.strip()]
+            n = sum(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 for a, b in zip(pts, pts[1:]))
+            out.append(n / 1000.0 * scale / 1000.0)
+    return out
+
+
+def test_zabaged_street_clips_parallel_section_to_osm(tmp_path):
+    """Les: souběžný úsek ZABAGED (4,5 m od OSM) se ořízne po úsecích; sprint zůstává celý."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Ulice", [[(x0, y0), (x0 + 300, y0)]])
+    osm = [[(x0 + 75, y0 + 4.5), (x0 + 225, y0 + 4.5)]]
+    forest = _zabaged_line_lengths(z, "Ulice", "forest_10000", 10000, x0, y0, osm)
+    assert len(forest) == 2
+    assert all(60 <= v <= 80 for v in forest)
+    assert len(_zabaged_line_lengths(z, "Ulice", "sprint_4000", 4000, x0, y0, osm)) == 1
+
+
+def test_zabaged_path_crossing_osm_not_shortened(tmp_path):
+    """Kolmé křížení OSM čáry ZABAGED cestu nezkrátí."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Cesta", [[(x0 + 150, y0 - 100), (x0 + 150, y0 + 100)]])
+    osm = [[(x0, y0), (x0 + 300, y0)]]
+    lengths = _zabaged_line_lengths(z, "Cesta", "forest_10000", 10000, x0, y0, osm)
+    assert len(lengths) == 1
+    assert lengths[0] == pytest.approx(200, abs=1)
+
+
+def test_zabaged_remnant_after_parallel_clip_dropped(tmp_path):
+    """Zbytek kratší než 15 m vzniklý ořezem souběžného úseku zmizí; dlouhý zbytek zůstane."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Ulice", [[(x0, y0), (x0 + 300, y0)]])
+    osm = [[(x0 + 10, y0 + 4.5), (x0 + 190, y0 + 4.5)]]  # souběh od 10 m: zbytek vlevo je kratší než 15 m
+    lengths = _zabaged_line_lengths(z, "Ulice", "forest_10000", 10000, x0, y0, osm)
+    assert len(lengths) == 1 and lengths[0] == pytest.approx(106, abs=4)
+    osm = [[(x0 + 40, y0 + 4.5), (x0 + 220, y0 + 4.5)]]  # zbytek vlevo ~ 36 m zůstane
+    lengths = sorted(_zabaged_line_lengths(z, "Ulice", "forest_10000", 10000, x0, y0, osm))
+    assert len(lengths) == 2 and lengths[0] == pytest.approx(36, abs=4)
+
+
+def test_zabaged_road_bridge_yields_to_osm_bridge(tmp_path):
+    """Les / MTBO: silniční most ze ZABAGED (vrstva Most) souběžný s OSM silnicí / mostem se nekreslí; sprint ano."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Most", [[(x0, y0), (x0 + 250, y0)]])
+    osm = [[(x0 - 20, y0 + 1.0), (x0 + 270, y0 + 1.0)]]
+    assert len(_zabaged_line_lengths(z, "Most", "sprint_4000", 4000, x0, y0, None)) == 1
+    assert len(_zabaged_line_lengths(z, "Most", "mtbo_10000", 10000, x0, y0, None)) == 1
+    assert _zabaged_line_lengths(z, "Most", "mtbo_10000", 10000, x0, y0, osm) == []
+    assert _zabaged_line_lengths(z, "Most", "forest_10000", 10000, x0, y0, osm) == []
+    assert len(_zabaged_line_lengths(z, "Most", "sprint_4000", 4000, x0, y0, osm)) == 1

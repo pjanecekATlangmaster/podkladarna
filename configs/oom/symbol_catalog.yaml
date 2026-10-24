@@ -2089,7 +2089,7 @@ mtbo:
     review: false
   - ocad_code: "501.2"
     cz_name: "Zpevněná plocha (okraj)"
-    generator_codes: []
+    generator_codes: ["501.2"]
     geom: line
     review: false
   - ocad_code: "501.400"

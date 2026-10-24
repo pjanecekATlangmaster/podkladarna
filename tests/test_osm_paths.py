@@ -397,7 +397,7 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("pedestrian_area", "forest_10000") == "501.1"
     assert feature_oom_code("parking", "sprint_2m") == "501.0"
     assert feature_oom_code("parking", "forest_10000") == "501.1"
-    assert feature_oom_code("parking", "mtbo_10000") == "501.0"
+    assert feature_oom_code("parking", "mtbo_10000") == "501.1"
     assert feature_oom_code("garden", "sprint_2m") == "520"
     assert feature_oom_code("garden", "forest_10000") == "520"
     assert feature_oom_code("water_body", "sprint_2m") == "301"
@@ -407,7 +407,7 @@ def test_feature_oom_code_preset():
     assert feature_oom_code("building", "mtbo_10000") == "526"
     assert feature_oom_code("garden", "mtbo_10000") == "527"
     assert feature_oom_code("fence", "mtbo_10000") == "522"
-    assert feature_oom_code("playground", "mtbo_10000") == "529"
+    assert feature_oom_code("playground", "mtbo_10000") == "501.1"
     assert feature_oom_code("farmland", "mtbo_10000") == "415"
     assert feature_oom_code("cave_entrance", "mtbo_10000") == "205"
     assert feature_oom_code("lamp", "mtbo_10000") == "539"
@@ -833,6 +833,30 @@ def test_load_osm_path_lines(tmp_path):
     lines = load_osm_path_lines(tmp_path)
     assert len(lines) == 1
     assert lines[0][0] == (0.0, 0.0)
+    # Les / MTBO: i osy koridorů a jejich původní čáry (ZABAGED pěšina pod nimi se nekreslí podruhé).
+    (dest / "corridor_axes.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {
+                            "highway": "pedestrian",
+                            "lines": [
+                                {"highway": "pedestrian", "coordinates": [[0, 10], [50, 10]]},
+                                {"highway": "pedestrian", "coordinates": [[0, 17], [50, 17]]},
+                            ],
+                        },
+                        "geometry": {"type": "LineString", "coordinates": [[0, 13.5], [50, 13.5]]},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert len(load_osm_path_lines(tmp_path)) == 1
+    assert len(load_osm_path_lines(tmp_path, corridor_lines=True)) == 4
 
 def test_osm_bench_to_point():
     el = {
