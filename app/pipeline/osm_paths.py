@@ -4596,22 +4596,22 @@ def uses_dtm_widths(preset_id: str) -> bool:
     return not preset_id.startswith("sprint") and not mtbo_dtm_off(preset_id)
 
 
-def _minus_mtbo_dtm_areas(work_dir: Path, geom, scale: int):
-    from app.pipeline.dtm_import import mtbo_dtm_area_geometry
+def _minus_mtbo_dtm_areas(work_dir: Path, geom, scale: int, preset_id: str = "mtbo"):
+    from app.pipeline.dtm_import import dtm_area_geometry_for
 
-    zone = mtbo_dtm_area_geometry(work_dir, scale, "mixed")
+    zone = dtm_area_geometry_for(work_dir, preset_id, scale, "mixed")
     return geom if zone is None or zone.is_empty else geom.difference(zone)
 
 
 def cut_paved_by_mtbo_dtm_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
-    """MTBO: zpevněné plochy z OSM (i sloučená síť) bez ploch kreslených z DTM (koridor, chodníky, parkoviště)."""
-    if not preset_id.startswith("mtbo"):
+    """Les a MTBO: zpevněné plochy z OSM (i sloučená síť) bez ploch kreslených z DTM (koridor, parkoviště, MTBO i chodníky)."""
+    from app.pipeline.dtm_import import cut_osm_paved_by_geometry, dtm_area_geometry_for, dtm_area_preset
+
+    if not dtm_area_preset(preset_id):
         return feats
     from shapely.geometry import mapping, shape
 
-    from app.pipeline.dtm_import import cut_osm_paved_by_geometry, mtbo_dtm_area_geometry
-
-    zone = mtbo_dtm_area_geometry(work_dir, scale, "mixed")
+    zone = dtm_area_geometry_for(work_dir, preset_id, scale, "mixed")
     if zone is None or zone.is_empty:
         return feats
     out = []
@@ -4793,8 +4793,8 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
             feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)
         _PAVED_NETWORK_CACHE.clear()
         network = build_paved_network(feats, _path_feats)[1]
-        if network is not None and preset_id.startswith("mtbo"):
-            network = _minus_mtbo_dtm_areas(work_dir, network, scale)
+        if network is not None and preset_id:
+            network = _minus_mtbo_dtm_areas(work_dir, network, scale, preset_id)
         _PAVED_NETWORK_CACHE[key] = (network, road_clip_geometry(feats))
     return _PAVED_NETWORK_CACHE[key]
 
@@ -5698,13 +5698,15 @@ def build_osm_path_parts(
     stairs_zone = (
         stairs_zone_geometry(work_dir) if dtm_owns_stairs(work_dir) and not mtbo_dtm_off(preset_id) else None
     )
-    # MTBO: uvnitř koridoru silnice (silnice + přilehlé chodníky) se čára 502.x nekreslí.
+    # Les a MTBO: uvnitř koridoru silnice (silnice + přilehlé chodníky z DTM) se čára 502.x nekreslí.
     corridor_zone = None
     bike_zone = None
-    if preset_id.startswith("mtbo"):
-        from app.pipeline.dtm_import import mtbo_corridor_geometry
+    from app.pipeline.dtm_import import dtm_area_preset
 
-        _corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
+    if dtm_area_preset(preset_id):
+        from app.pipeline.dtm_import import corridor_geometry_for
+
+        _corridor = corridor_geometry_for(work_dir, preset_id, scale, path_source)
         corridor_zone = _corridor  # přesná hrana: cesty končí přímo na ní
         # Sdílený provoz (kolo povoleno): chodník / pěšina se nezahazuje ani neořezává koridorem.
         from shapely.geometry import LineString as _LS
@@ -5793,8 +5795,8 @@ def build_osm_path_parts(
             road_widths=road_widths,
         )
     )
-    if preset_id.startswith("mtbo"):
-        # MTBO: chodník / pěšina podél koridoru nebo plochy chodníku z DTM by splynula s jejím okrajem 501.100.
+    if dtm_area_preset(preset_id):
+        # Les a MTBO: chodník / pěšina podél koridoru nebo plochy chodníku z DTM by splynula s jejím okrajem.
         _mtbo_areas = [g for g in (corridor_zone, mtbo_sidewalk_zone) if g is not None and not g.is_empty]
         if _mtbo_areas:
             from shapely.ops import unary_union as _uu_mtbo
@@ -6211,7 +6213,9 @@ def build_osm_feature_parts(
         dtm_buildings = dtm_owns_buildings(work_dir)
         if dtm_buildings:
             feats = merge_dtm_buildings(work_dir, feats)
-        if preset_id.startswith("mtbo"):
+        from app.pipeline.dtm_import import dtm_area_preset
+
+        if dtm_area_preset(preset_id):
             # OSM parkoviště překrývající parkoviště z DTM se nekreslí (kreslí je build_dtm_parking_parts).
             from app.pipeline.dtm_import import drop_osm_parking_covered_by_dtm
 

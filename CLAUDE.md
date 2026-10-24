@@ -258,6 +258,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **MTBO používá DTM** (`MTBO_USE_DTM = True` v `app/pipeline/dtm_import.py` od 2.33.0, `mtbo_dtm_off`): koridor silnice (jen do 10 m od osy
   silnice), chodníky od 0,5 mm, parkoviště od 300 m², schodiště, budovy, ploty a šířky cest z DTM – vše s prahy čitelnosti v měřítku. `False` vrátí kreslení z ZABAGED / OSM.
   LES bere z DTM budovy, ploty (včetně výplně oplocení olivou 520), šířky cest a široké pěší plochy, sprint všechno.
+  Od 2.34.0 les jako MTBO kreslí i koridor silnice a parkoviště od 300 m² z DTM (`FOREST_DTM_AREAS`, `dtm_area_preset`; les 501.1 + okraj 501.2,
+  parkoviště z DTM v lese i MTBO 501.1 + 501.2). Plochy z DTM se v lese i MTBO generalizují podle mm mapy (`dtm_sidewalks.generalize_area`:
+  zálivy do 0,4 mm, výběžky do 0,3 mm, díry pod 1 mm², kusy pod 0,5 mm²; ne do budov).
+  Ploty v lese a MTBO: výplň olivou se hledá až po dedupu a propojení mezer (`fence_gap_connectors(same_line=True)` uzavře i mezeru v jedné čáře, `merge_fill_rings`).
 - **Dedup chodníků v lese a MTBO je jen z OSM:** chodník i pěšina bez tagu chodníku (`SIDEWALK_DEDUP_BASES`, v lese i cyklostezka) souběžná se silnicí nebo OSM zpevněnou plochou se zahodí (celý při ≥ 70 % délky v pásu,
   jinak jen souvislé úseky ≥ 40 m). Pás se počítá ze skutečných šířek symbolů v sadě (`sidewalk_road_zone_geometry`: půlka silnice – v lese podle symbolu zvoleného šířkou z DTM – / okraje 501.2
   + půlka chodníku + `LINE_MIN_GAP_MM`, v metrech podle měřítka), ne pevných 12 m. Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic

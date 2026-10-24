@@ -278,7 +278,16 @@ def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
     assert geom.intersection(di.road_geometry(work)).area < 1e-6  # parkoviště po ořezu o silnici
     names = [p.name for p in op.build_osm_feature_parts(work, **kw)]
     assert names.count("OSM parkoviště (501 zpevněná)") == 1  # OSM parkoviště nad DTM zahozeno, vzdálené zůstává
-    assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    forest = {**kw, "preset_id": "forest_10000", "scale": 10000}
+    assert [p.name for p in di.build_dtm_parking_parts(work, **forest)] == [
+        "DTM – velká parkoviště",
+        "DTM – velká parkoviště – obrys (501.2)",
+    ]
+    di.FOREST_DTM_AREAS = False
+    try:
+        assert di.build_dtm_parking_parts(work, **forest) == []  # les bez ploch z DTM: parkoviště jen z OSM
+    finally:
+        di.FOREST_DTM_AREAS = True
 
 
 def test_geometry_part_without_fill_only_variant_reports_no_unmapped_code():
@@ -530,10 +539,13 @@ def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path
     )
     kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-985.0, ref_y=-990.0, grivation_deg=0.0)
     parts = di.build_dtm_parking_parts(work, **kw)
-    assert [p.name for p in parts] == ["DTM – velká parkoviště (529)"] and parts[0].count == 1
+    assert [p.name for p in parts] == ["DTM – velká parkoviště", "DTM – velká parkoviště – obrys (501.2)"]
+    assert parts[0].count == 1
     assert op.build_osm_feature_parts(work, **kw) == []  # OSM parkoviště nad DTM parkovištěm zahozeno
-    # les nic; sprint dál 501.0
-    assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    # les stejně (výplň 501.1 + okraj 501.2); sprint dál 501.0
+    forest = {**kw, "preset_id": "forest_10000"}
+    assert [p.count for p in di.build_dtm_parking_parts(work, **forest)] == [1, 1]
+    assert op.build_osm_feature_parts(work, **forest) == []
     assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "sprint_4000"}) != []
 
 
@@ -676,7 +688,12 @@ def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
     )
     shared = op.build_osm_path_parts(work, **kw)
     assert shared and shared[0].count == 1  # sdílený chodník se kreslí jako cesta
-    assert di.build_mtbo_corridor_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    forest = {**kw, "preset_id": "forest_10000"}
+    assert [p.name for p in di.build_mtbo_corridor_parts(work, **forest)] == [
+        "Les – silnice s chodníky z DTM (koridor)",
+        "Les – silnice s chodníky z DTM (koridor) – obrys (501.2)",
+    ]
+    assert [p.count for p in op.build_osm_path_parts(work, **forest)] == [1]  # silnice v koridoru ne, sdílený chodník ano
     di.MTBO_ROAD_CORRIDOR = False
     try:
         assert di.build_mtbo_corridor_parts(work, **kw) == []
@@ -1295,3 +1312,21 @@ def test_mtbo_dtm_geometry_is_cached_until_inputs_change(tmp_path, monkeypatch):
     os.utime(p, (t, t))
     di.mtbo_corridor_geometry(work, 10000)
     assert len(calls) == 2
+
+
+def test_generalize_area_fills_bays_drops_spurs_and_small_holes():
+    from shapely.geometry import Polygon, box
+
+    # pás 100 × 20 m se zálivem 2 m, výběžkem 2 m a ostrůvkem 4 × 4 m (1:10000: zaliv < 4 m, výběžek < 3 m, díra < 100 m²)
+    base = box(0, 0, 100, 20).difference(box(40, 15, 42, 20)).difference(box(70, 8, 74, 12))
+    spur = box(20, 20, 22, 30)
+    g = ds.generalize_area(base.union(spur), 10000)
+    assert g.is_valid and len(g.interiors if g.geom_type == "Polygon" else []) == 0  # ostrůvek zacelen
+    assert g.contains(Polygon([(40.5, 15.5), (41.5, 15.5), (41.5, 19.5), (40.5, 19.5)]))  # záliv zacelen
+    assert g.bounds[3] < 21  # výběžek odříznut
+    assert abs(g.area - 2000) < 30
+    # budova v zálivu: zacelení do ní nezasáhne
+    blocked = ds.generalize_area(base, 10000, blockers=box(40, 15, 42, 20))
+    assert blocked.intersection(box(40, 15, 42, 20)).area < 0.5
+    # malý samostatný kus (< 0,5 mm² = 50 m²) se zahodí
+    assert ds.generalize_area(box(0, 0, 6, 6), 10000) is None
