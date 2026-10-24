@@ -222,7 +222,9 @@ a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výp
 (výplň 501.1) + černý obrubník (501.100), jen kde je širší než 0,9 mm mapy a delší než 50 m a jen do 10 m od osy silnice z OSM / ZABAGED (`CORRIDOR_ROAD_AXIS_M`; manipulační plochy a areály bez silnice se nezalijí); chodník / pěšina podél okraje koridoru se nekreslí; užší silnice zůstávají
 čárou 502.x, uvnitř koridoru se čára nekreslí; chodník se sdíleným provozem (OSM `bicycle=yes|designated`, soubor
 `osm_paths/bike_paths.geojson`) a cyklostezky se nesloučí (vypnutí: `MTBO_ROAD_CORRIDOR = False`). MTBO navíc
-**velká parkoviště** z DTM (od 300 m², plocha 529; OSM parkoviště pod nimi se zahodí). **Schodiště z DTM** (po ose, 532 / 843, od 3 m; OSM schody v nich pryč). Chodníky, silnice a malé stavby
+**velká parkoviště** z DTM (od 300 m², výplň 501.1 + okraj 501.2; OSM parkoviště pod nimi se zahodí). Od 2.34.0 kreslí koridor
+silnice (501.1 + okraj 501.2) a velká parkoviště z DTM i les (`FOREST_DTM_AREAS = True`, `dtm_area_preset`); plochy z DTM se v lese
+i MTBO generalizují podle mm mapy (`dtm_sidewalks.generalize_area`). **Schodiště z DTM** (po ose, 532 / 843, od 3 m; OSM schody v nich pryč). Chodníky, silnice a malé stavby
 z DTM se tam nekreslí (kromě chodníků níže); šířka silnic zůstává z OSM. MTBO navíc **chodníky a zpevněné cesty z DTM mimo silnice** (plocha 501.0 + obrys 501.100,
 `mtbo_sidewalk_geometry`): jen části široké aspoň 0,5 mm mapy (5 m v 1:10000, užší pruh kreslí čára cesty), mimo koridor a dál než 8 m od silnice (sdílený provoz / cyklostezky zůstávají); OSM
 chodník / pěšina / zpevněná cyklostezka uvnitř plochy se nekreslí a končí na její hraně, užší cesty zůstávají čárou 834 (vypnutí: `MTBO_SIDEWALK_AREAS = False`). Navíc se v lese i MTBO (jen z OSM, bez DTM) zahazuje **chodník souběžný

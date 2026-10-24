@@ -141,3 +141,31 @@ def test_olive_lying_under_road_is_dropped(tmp_path):
     parts = [OomObjectPart(name="x", objects_xml=strip, count=1)]
     out = displace_objects_from_paths(parts, work, **KW)
     assert out == []
+
+
+def test_osm_fence_gap_is_connected_before_olive_fill_in_forest(tmp_path):
+    from app.pipeline import dtm_import as di
+
+    # plot kolem zahrady s mezerou 4 m (konce na sebe míří) – uzavře ho až spojka, pak se vyplní olivou
+    gap = [[10, 0], [30, 0], [30, 25], [0, 25], [0, 0], [6, 0]]
+    fence = {"type": "Feature", "properties": {"kind": "fence"}, "geometry": {"type": "LineString", "coordinates": gap}}
+    garden = {
+        "type": "Feature",
+        "properties": {"kind": "garden"},
+        "geometry": {"type": "Polygon", "coordinates": [[[1, 1], [29, 1], [29, 24], [1, 24], [1, 1]]]},
+    }
+    out = di.join_and_orient_osm_fences(tmp_path, [fence, garden], preset_id="forest_10000", scale=10000)
+    fills = [f for f in out if (f["properties"] or {}).get("fence_fill")]
+    fences = [f for f in out if f["properties"]["kind"] == "fence"]
+    assert len(fills) == 1 and len(fences) == 1
+    assert len(fences[0]["geometry"]["coordinates"]) >= 6  # spojka je součástí čáry plotu
+
+
+def test_merge_fill_rings_adds_only_new_enclosures():
+    from app.pipeline import dtm_import as di
+
+    a = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
+    same = [(0, 0), (10, 0), (10, 9), (0, 9), (0, 0)]
+    other = [(20, 0), (30, 0), (30, 10), (20, 10), (20, 0)]
+    assert di.merge_fill_rings([a], [same, other]) == [a, other]
+    assert di.merge_fill_rings([], [other]) == [other]

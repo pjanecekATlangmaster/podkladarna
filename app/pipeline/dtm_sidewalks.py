@@ -277,6 +277,46 @@ def road_corridor(
     return unary_union(kept) if kept else None
 
 
+# Les a MTBO: generalizace ploch z DTM podle mm mapy (tvar z DTM jako ve sprintu, ale zjednodušený pro měřítko).
+GENERALIZE_CLOSE_MM = 0.2  # zálivy a škvíry užší než 2× se zacelí
+GENERALIZE_OPEN_MM = 0.15  # výběžky užší než 2× se odříznou
+GENERALIZE_SIMPLIFY_MM = 0.05  # zjednodušení obrysu (Douglas–Peucker)
+GENERALIZE_MIN_HOLE_MM2 = 1.0  # díry (ostrůvky, záhonky) menší se zacelí
+GENERALIZE_MIN_PART_MM2 = 0.5  # samostatné kusy menší se zahodí
+
+
+def generalize_area(geom, scale: int, blockers=None):
+    """Plocha z DTM zjednodušená pro měřítko ``scale`` (shapely) nebo None.
+
+    Zacelí zálivy a škvíry, odřízne úzké výběžky, zjednoduší obrys a zahodí malé díry i kusy (prahy v mm mapy).
+    ``blockers`` (shapely, např. budovy): zacelení do nich nezasáhne.
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    if geom is None or geom.is_empty or scale <= 0:
+        return geom
+    m = scale / 1000.0
+    c = GENERALIZE_CLOSE_MM * m
+    o = GENERALIZE_OPEN_MM * m
+    closed = geom.buffer(c, join_style=2, mitre_limit=2.0).buffer(-c, join_style=2, mitre_limit=2.0)
+    if blockers is not None and not blockers.is_empty:
+        closed = unary_union([geom, closed.difference(blockers)])
+    opened = closed.buffer(-o).buffer(o)
+    g = opened.intersection(closed)
+    g = g.simplify(GENERALIZE_SIMPLIFY_MM * m, preserve_topology=True)
+    if not g.is_valid:
+        g = g.buffer(0)
+    min_hole = GENERALIZE_MIN_HOLE_MM2 * m * m
+    min_part = GENERALIZE_MIN_PART_MM2 * m * m
+    out = []
+    for p in [g] if g.geom_type == "Polygon" else [x for x in getattr(g, "geoms", []) if x.geom_type == "Polygon"]:
+        if p.is_empty or p.area < min_part:
+            continue
+        out.append(Polygon(p.exterior, [h for h in p.interiors if Polygon(h).area >= min_hole]))
+    return unary_union(out) if out else None
+
+
 def wide_parts(geom, width_m: float, min_area_m2: float = 0.0):
     """Části plochy ``geom`` (shapely) široké aspoň ``width_m`` m (otevření) a s plochou aspoň ``min_area_m2``; None bez nich."""
     from shapely.ops import unary_union
@@ -316,6 +356,14 @@ def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SN
     if line.length <= 0:
         return [coords]
     boundary = area.boundary
+    if boundary is None:  # GeometryCollection: hrana jen z ploch
+        polys = [g for g in getattr(area, "geoms", []) if g.geom_type in ("Polygon", "MultiPolygon")]
+        if not polys:
+            return [coords]
+        from shapely.ops import unary_union
+
+        area = unary_union(polys)
+        boundary = area.boundary
     start_in = area.contains(Point(coords[0]))
     end_in = area.contains(Point(coords[-1]))
     s, e = 0.0, line.length
