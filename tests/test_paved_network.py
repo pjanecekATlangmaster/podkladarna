@@ -28,8 +28,8 @@ def test_drawn_symbol_width_in_ground_metres():
     # MTBO pěšina 834 (0,4 mm) v 1:15000 = 6 m.
     assert op.drawn_symbol_width_m("footway", "mtbo", 15000) == pytest.approx(6.0)
     assert op.paved_edge_width_m("les", 15000) == pytest.approx(2.1)
-    # MTBO sada 501.2 v katalogu nemá → ISOM 0,14 mm.
-    assert op.paved_edge_width_m("mtbo", 15000) == pytest.approx(2.1)
+    # MTBO okraj 501.2 (ISMTBOM 0,18 mm v 1:15000).
+    assert op.paved_edge_width_m("mtbo", 15000) == pytest.approx(2.7)
 
 
 def _road(coords, hw="road_2"):
@@ -141,10 +141,7 @@ def test_feature_parts_draw_merged_network(tmp_path, preset):
     _write_job(tmp_path, [_area(0, 0, 20, 20, "parking"), _area(22, 0, 60, 20)])
     parts = op.build_osm_feature_parts(tmp_path, preset_id=preset, scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
     cnt = _codes(parts, preset, 10000)
-    if preset.startswith("forest"):
-        assert cnt["501.1"] == 1 and cnt["501.2"] == 1  # jedna plocha, jeden okraj
-    else:
-        assert sum(cnt.values()) == 1
+    assert cnt["501.1"] == 1 and cnt["501.2"] == 1  # jedna plocha, jeden okraj
 
 
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
@@ -260,12 +257,13 @@ def test_edge_omitted_along_road(tmp_path):
     assert _edge_length(parts) == pytest.approx(160, abs=1.0)
 
 
-def test_edge_kept_along_road_inside_parking(tmp_path):
-    # Jízdní pruh uvnitř parkoviště (nekreslí se) okraj nemaže; vjezd ano jen kolem napojení.
+@pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
+def test_edge_kept_along_road_inside_parking(tmp_path, preset):
+    # Jízdní pruh uvnitř parkoviště (nekreslí se) okraj nemaže; vjezd ano jen kolem napojení (MTBO jako les).
     road = _line([(-50, 20), (90, 20)], "road_2")
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
-    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
-    length = _edge_length(parts)
+    parts = op.build_osm_feature_parts(tmp_path, preset_id=preset, scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    length = _edge_length(parts, preset)
     assert 160 - 2 * 25 < length < 160  # chybí jen okolí dvou vjezdů
 
 

@@ -94,9 +94,12 @@ def test_sprint_has_no_edge_line(tmp_path) -> None:
     assert sum(n for c, n in cnt.items() if c != "501.0") == 0
 
 
-def test_mtbo_has_no_edge_line(tmp_path) -> None:
-    parts, cnt = _build(tmp_path, "mtbo_10000", 10000)
-    assert sum(p.count for p in parts) == 1  # jedna plocha 529, bez okraje
+def test_mtbo_fill_and_separate_edge(tmp_path) -> None:
+    """MTBO jako les: výplň 501.1 + okraj 501.2 zvlášť, aby šel okraj u vjezdu silnice vynechat."""
+    _parts, cnt = _build(tmp_path, "mtbo_10000", 10000)
+    assert cnt["501.1"] == 1
+    assert cnt["501.2"] == 2
+    assert cnt["501.0"] == 0
 
 
 def test_edge_is_drawn_above_fill() -> None:

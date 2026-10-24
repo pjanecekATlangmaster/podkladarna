@@ -1380,7 +1380,7 @@ def classify_osm_feature(
     return None
 
 
-# Les (ISOM): 501.1 = jen výplň zpevněné plochy bez okraje; okraj nese čára 501.2.
+# Les a MTBO: 501.1 = jen výplň zpevněné plochy bez okraje; okraj nese čára 501.2.
 ISOM_PAVED_FILL_CODE = "501.1"
 ISOM_PAVED_EDGE_CODE = "501.2"
 
@@ -1496,18 +1496,14 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         # Stejně jako ZABAGED Ostatní plocha – CRT pod silnicemi (ne 529/501.1).
         if sprint:
             return "501.0"
-        if mtbo:
-            return "501.0"
-        # Les: výplň 501.1 + samostatný okraj 501.2 (vypadá jako 501.0), aby se parkoviště
+        # Les a MTBO: výplň 501.1 + samostatný okraj 501.2 (vypadá jako 501.0), aby se parkoviště
         # sloučilo s ostatními zpevněnými plochami a okraj šel vynechat u silnice.
         return ISOM_PAVED_FILL_CODE
     if kind in _PAVED_AREA_KINDS:
         # Zpevněná plocha – žlutá 401 splyne se ZABAGED open land.
         if sprint:
             return "501.0"
-        if mtbo:
-            return "529"
-        return "501.1"
+        return ISOM_PAVED_FILL_CODE  # les a MTBO: výplň + okraj 501.2 zvlášť (viz parkoviště)
     if kind == "water_body":
         return "301"
     if kind == "fountain":
@@ -4508,7 +4504,7 @@ def build_paved_network(feats: list[dict], path_features: list[dict], *, gap_m: 
 
 
 def paved_edge_omit_zone(path_features: list[dict], road_clip, *, preset_id: str, scale: int):
-    """Les: pás kolem kreslených silnic, ve kterém by okraj zpevněné plochy 501.2 splynul se silnicí (shapely / None).
+    """Les a MTBO: pás kolem kreslených silnic, ve kterém by okraj zpevněné plochy 501.2 splynul se silnicí (shapely / None).
 
     Půlka kresby silnice + půlka okraje + ``LINE_MIN_GAP_MM``. Silnice se berou až po ořezu zpevněnou plochou
     (``clip_road_in_paved``), takže jízdní pruh uvnitř parkoviště okraj nemaže; mosty a tunely se nepočítají.
@@ -6232,9 +6228,8 @@ def build_osm_feature_parts(
         _road_clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
         feats, _network = build_paved_network(feats, _path_feats)
         feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # zacelené mezery sítě také
-        if not preset_id.startswith("mtbo"):
-            # Les: okraj 501.2 se nekreslí tam, kde by splýval se silnicí.
-            edge_omit_zone = paved_edge_omit_zone(_path_feats, _road_clip, preset_id=preset_id, scale=scale)
+        # Les a MTBO: okraj 501.2 se nekreslí tam, kde by splýval se silnicí (vjezd silnice do plochy).
+        edge_omit_zone = paved_edge_omit_zone(_path_feats, _road_clip, preset_id=preset_id, scale=scale)
         # Les a MTBO: OSM ploty (pokud je nekreslí DTM) se spojí, otočí čárkami k olivě jako ve sprintu
         # a odsunou od kreslených cest podle šířky symbolů.
         from app.pipeline.dtm_import import join_and_orient_osm_fences
@@ -6444,9 +6439,7 @@ def build_osm_feature_parts(
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
-                if code == ISOM_PAVED_FILL_CODE and not (
-                    preset_id.startswith("sprint") or mtbo
-                ):
+                if code == ISOM_PAVED_FILL_CODE and not preset_id.startswith("sprint"):
                     # ISOM 501.1 je jen výplň bez okraje → černý okraj 501.2 po skutečné
                     # hranici plochy (vnější obrys i díry); podél ořezu na výřez se nekreslí.
                     if ISOM_PAVED_EDGE_CODE not in symbol_cache:
