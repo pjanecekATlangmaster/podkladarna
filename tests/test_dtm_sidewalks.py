@@ -1541,3 +1541,10 @@ def test_trim_along_corridor():
     piece = out[0]
     assert abs(piece[0][1] - 10.0) < 1e-6  # začátek leží na hraně koridoru
     assert piece[-1] == (60.0, 40.0)
+
+
+def test_trim_along_corridor_line_far_from_corridor_is_unchanged():
+    from shapely.geometry import box
+
+    coords = [(0.0, 100.0), (50.0, 100.0)]
+    assert ds.trim_along_corridor(coords, box(0, 0, 50, 10), 8.7) == [coords]

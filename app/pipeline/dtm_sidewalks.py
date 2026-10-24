@@ -743,6 +743,7 @@ def trim_along_corridor(coords: list[tuple[float, float]], corridor, width_m: fl
     band = corridor.buffer(width_m / 2)
     inside = line.intersection(band)
     parts = [inside] if inside.geom_type == "LineString" else [g for g in getattr(inside, "geoms", []) if g.geom_type == "LineString"]
+    parts = [g for g in parts if not g.is_empty]  # čára pás neprotne → prázdný LineString
     spans = sorted(
         (min(line.project(Point(g.coords[0])), line.project(Point(g.coords[-1]))), max(line.project(Point(g.coords[0])), line.project(Point(g.coords[-1]))))
         for g in parts
