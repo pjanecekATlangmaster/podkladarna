@@ -471,6 +471,9 @@ ZABAGED_COVER_STUB_MM = 1.0
 ZABAGED_COVER_STUB_NEAR_M = 3.0
 
 
+ZABAGED_TUNNEL_RAIL_EXTRA_M = 4.0  # navíc k okolí OSM kolejí v tunelu pro ZABAGED Tunel
+
+
 def _polyline_length(pts) -> float:
     return sum(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 for a, b in zip(pts, pts[1:]))
 
@@ -1203,7 +1206,9 @@ def build_zabaged_object_parts(
             from app.pipeline.osm_paths import TUNNEL_MAX_DRAW_M
 
             if rail_tunnel_zone is not None:
-                line_parts = [p for pts in line_parts for p in clip_outside(pts, rail_tunnel_zone, MIN_LENGTH_M)]
+                # osa tunelu ZABAGED vede od OSM kolejí až ~8 m → širší okolí než u kolejí ZABAGED
+                zone = rail_tunnel_zone.buffer(ZABAGED_TUNNEL_RAIL_EXTRA_M)
+                line_parts = [p for pts in line_parts for p in clip_outside(pts, zone, MIN_LENGTH_M)]
             line_parts = [pts for pts in line_parts if _polyline_length(pts) <= TUNNEL_MAX_DRAW_M]
         if paved_clip is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
             line_parts = _clip_by_paved(line_parts, layer_name in road_layers)
