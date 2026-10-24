@@ -2,6 +2,8 @@
 # Jen opravdové produktové zlomy — ne každý commit.
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
+  - date: "2026-10-24"
+    title: "Volba zdroje kresby: sprint z DTM, les a MTBO zatím z OSM + ZABAGED; les a MTBO s DTM kreslí silnice a parkoviště plochou"
   - date: "2026-10-23"
     title: "Les a MTBO: ploty spojené a natočené k olivě jako ve sprintu, uzavřené ploty vyplněné olivou, budovy, oliva, zdi a ploty odsunuté od cest pro čitelnost"
   - date: "2026-10-22"
