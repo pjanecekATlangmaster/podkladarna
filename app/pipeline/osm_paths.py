@@ -5362,7 +5362,57 @@ def mixed_osm_road_fix(work_dir: Path) -> tuple[list[dict], set]:
     keep = {tuple(tuple(round(v, 2) for v in c) for c in pts) for pts, _hw in kept}
     added = [f for f in cand if _road_feature_key(f) in keep]
     superseded = {_road_feature_key(f) for f in mixed_roads if _road_feature_key(f) not in keep} if added else set()
-    return added, superseded
+    if not added:
+        return added, superseded
+    # Souběh jen na části (service 118 m vedle primary 775 m, 50.03286, 14.38235) celá čára nepokryje:
+    # užší silnice se ořízne po úsecích o širší, kde aspoň jedna z dvojice je vrácená z paths_osm.
+    mixed_kept = [f for f in mixed_roads if _road_feature_key(f) not in superseded]
+
+    def _pts(f):
+        return [(float(c[0]), float(c[1])) for c in f["geometry"]["coordinates"]]
+
+    def _hw(f):
+        return str((f.get("properties") or {}).get("highway") or "")
+
+    def _clippable(f):
+        return not is_bridge_highway(_hw(f)) and not is_tunnel_highway(_hw(f))
+
+    roads = [(f, False) for f in mixed_kept] + [(f, True) for f in added]
+    ranks = sorted({highway_width_rank(_hw(f)) for f, _a in roads})
+    idx_cache: dict[tuple[int, bool], _SegmentIndex | None] = {}
+
+    def _wider_index(rank: int, added_only: bool):
+        key = (rank, added_only)
+        if key not in idx_cache:
+            idx = None
+            for f, is_added in roads:
+                if (is_added or not added_only) and _clippable(f) and highway_width_rank(_hw(f)) > rank:
+                    idx = idx or _SegmentIndex()
+                    idx.add_line(_pts(f))
+            idx_cache[key] = idx
+        return idx_cache[key]
+
+    out_added: list[dict] = []
+    for f, is_added in roads:
+        if not _clippable(f) or highway_width_rank(_hw(f)) >= ranks[-1]:
+            if is_added:
+                out_added.append(f)
+            continue
+        idx = _wider_index(highway_width_rank(_hw(f)), not is_added)
+        pts = _pts(f)
+        pieces = clip_parallel_to_centerlines(pts, idx) if idx is not None else [pts]
+        if len(pieces) == 1 and pieces[0] is pts:
+            if is_added:
+                out_added.append(f)
+            continue
+        for piece in pieces:
+            cut_end = piece[0] != pts[0] or piece[-1] != pts[-1]
+            if len(piece) < 2 or (cut_end and polyline_length(piece) < ZABAGED_REMNANT_MIN_M):
+                continue
+            out_added.append({**f, "geometry": {"type": "LineString", "coordinates": [list(c) for c in piece]}})
+        if not is_added:
+            superseded.add(_road_feature_key(f))
+    return out_added, superseded
 
 
 def mixed_osm_roads_missing(work_dir: Path) -> list[dict]:
@@ -5764,16 +5814,24 @@ def build_osm_path_parts(
             from shapely.geometry import LineString as _LS_other
             from shapely.prepared import prep as _prep_other
 
-            _other = [
-                _LS_other(f["geometry"]["coordinates"])
-                for f in data.get("features") or []
-                if (f.get("geometry") or {}).get("type") == "LineString"
-                and len(f["geometry"].get("coordinates") or []) >= 2
-                and not path_draw_highway(str((f.get("properties") or {}).get("highway") or "")).startswith("road_")
-            ]
-            # Zahozené úseky chodníků nejsou překážkou; ponechaný zbytek částečně zahozeného chodníku ano.
-            _other_geom = _uu_band(_other).difference(dropped_sidewalks.buffer(0.05)) if _other else None
-            other_lines = _prep_other(_other_geom) if _other_geom is not None and not _other_geom.is_empty else None
+            # Překážky jako při kreslení: chodník u silnice celý pryč, částečně zahozený jen ponechané kusy.
+            _other = []
+            for f in data.get("features") or []:
+                _g = f.get("geometry") or {}
+                _c = _g.get("coordinates") or []
+                _hw = str((f.get("properties") or {}).get("highway") or "")
+                if _g.get("type") != "LineString" or len(_c) < 2 or path_draw_highway(_hw).startswith("road_"):
+                    continue
+                _ln = [(float(x), float(y)) for x, y, *_ in _c]
+                if not _line_in_zone(_c, bike_zone):
+                    if is_sidewalk_beside_road(_hw, _c, road_zone, dedup_bases):
+                        continue
+                    _bz = sidewalk_parallel_zone(_hw, _c, road_zone, dedup_bases)
+                    if _bz is not None:
+                        _other.extend(_LS_other(seg) for seg in clip_outside(_ln, _bz) if len(seg) >= 2)
+                        continue
+                _other.append(_LS_other(_ln))
+            other_lines = _prep_other(_uu_band(_other)) if _other else None
     # Les / MTBO: navazující kusy se stejným symbolem (úseky OSM, krátké schody převedené na pěšinu) jako jedna čára.
     join_pieces: dict[int, list] | None = None if preset_id.startswith("sprint") else {}
     for feat_i, feat in enumerate(data.get("features") or []):

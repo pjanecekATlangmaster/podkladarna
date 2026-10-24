@@ -842,6 +842,24 @@ def test_mixed_restored_wider_road_supersedes_mixed_service(tmp_path):
     assert sum(lengths.values()) == pytest.approx(200, abs=0.5)
 
 
+def test_mixed_restored_road_clips_partial_parallel(tmp_path):
+    # Souběh jen na části (50.03286): užší service se ořízne o vrácenou primary po úsecích, zbytek zůstane.
+    import json
+
+    primary = _road([(0, 0), (300, 0)], "road_4")
+    service = _road([(100, 3), (160, 3), (160, 80)], "road_2")
+    _write_job(tmp_path, [], [service])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [primary, service]}), encoding="utf-8"
+    )
+    added, superseded = op.mixed_osm_road_fix(tmp_path)
+    assert superseded == {op._road_feature_key(service)}
+    hws = sorted(f["properties"]["highway"] for f in added)
+    assert hws == ["road_2", "road_4"]
+    rest = next(f for f in added if f["properties"]["highway"] == "road_2")
+    assert op.polyline_length(rest["geometry"]["coordinates"]) == pytest.approx(80, abs=8)
+
+
 def test_path_extension_not_across_other_line(tmp_path):
     # Prodloužení k silnici, které by křížilo jinou kreslenou cestu (ponechaný chodník, schody), se nedělá.
     road = _road([(-100, 0), (100, 0)], "road_3")
