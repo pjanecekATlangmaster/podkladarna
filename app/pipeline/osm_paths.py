@@ -4616,7 +4616,7 @@ def _plus_dtm_parking(work_dir: Path, geom, preset_id: str, scale: int):
 
     if not dtm_area_preset(preset_id):
         return geom
-    parking = dtm_parking_geometry(work_dir, scale, "mixed")
+    parking = dtm_parking_geometry(work_dir, scale, "mixed", preset_id)
     if parking is None or parking.is_empty:
         return geom
     if geom is None or geom.is_empty:
@@ -4665,7 +4665,33 @@ def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale
     from app.pipeline.dtm_widths import wide_walk_area_features
 
     extra = wide_walk_area_features(work_dir, scale)
+    if extra:
+        extra = _minus_corridor_sidewalk_zone(work_dir, extra, preset_id, scale)
     return feats + extra if extra else feats
+
+
+def _minus_corridor_sidewalk_zone(work_dir: Path, extra: list[dict], preset_id: str, scale: int) -> list[dict]:
+    """Bez chodníků v koridoru (``CORRIDOR_WITH_SIDEWALKS`` False) odečte od pěších ploch z DTM pás ``CORRIDOR_NEAR_M`` m
+    od silnic z DTM (chodník podél silnice se nekreslí); zůstanou polygony aspoň (``WALK_AREA_MIN_MM``)²."""
+    from app.pipeline import dtm_import, dtm_sidewalks
+    from app.pipeline.dtm_widths import WALK_AREA_MIN_MM
+
+    if dtm_import.CORRIDOR_WITH_SIDEWALKS or not dtm_import.dtm_area_preset(preset_id):
+        return extra
+    roads = dtm_import.road_geometry(work_dir, "mixed")
+    if roads is None or roads.is_empty:
+        return extra
+    from shapely.geometry import mapping, shape
+
+    near = roads.buffer(dtm_sidewalks.CORRIDOR_NEAR_M)
+    t = WALK_AREA_MIN_MM * scale / 1000.0
+    out: list[dict] = []
+    for feat in extra:
+        rest = shape(feat["geometry"]).difference(near)
+        for g in getattr(rest, "geoms", [rest]):
+            if g.geom_type == "Polygon" and g.area >= t * t:
+                out.append({**feat, "geometry": mapping(g)})
+    return out
 
 
 # Les a MTBO: úzký pruh parkoviště, který z větší části leží pod kresbou silnice (podélné stání, way/1452628243
@@ -5752,7 +5778,7 @@ def build_osm_path_parts(
     if preset_id.startswith("mtbo"):
         from app.pipeline.dtm_import import mtbo_sidewalk_geometry
 
-        mtbo_sidewalk_zone = mtbo_sidewalk_geometry(work_dir, scale, path_source)
+        mtbo_sidewalk_zone = mtbo_sidewalk_geometry(work_dir, scale, path_source, preset_id)
     # Zóna ořezu pěšin: OSM zpevněné + pás silnic + DTM/koridor (pěšina přes ně se nekreslí, končí na hraně).
     _cut_extra = None
     _dtm_parking_zone = _plus_dtm_parking(work_dir, None, preset_id, scale)

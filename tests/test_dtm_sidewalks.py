@@ -640,8 +640,10 @@ def test_mtbo_corridor_bridges_narrower_stretch_between_wide_pieces():
     assert ds.road_corridor(far, None, scale=10000).bounds[2] <= 100 + ds.CORRIDOR_BRIDGE_M + 5
 
 
-def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
+def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path, monkeypatch):
     from app.pipeline import osm_paths as op
+
+    monkeypatch.setattr(di, "CORRIDOR_WITH_SIDEWALKS", True)  # test původního chování s chodníky v koridoru
 
     work = tmp_path
     (work / "dtm").mkdir()
@@ -1426,3 +1428,64 @@ def test_forest_and_mtbo_roads_and_paths_are_cut_by_dtm_parking(tmp_path):
         assert _drawn_length_in_rect(parts, inside, ref, 10000) < 1.0
         assert sum(p.count for p in parts) >= 2  # napojení na hranu parkoviště zůstává
         op._PAVED_NETWORK_CACHE.clear()
+
+
+def test_road_corridor_min_drawn_drops_narrower_roads_and_keeps_wider():
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    wide, narrow = box(0, 40, 100, 52), box(100, 43, 130, 50)  # 12 m široká silnice + navazující úsek 7 m
+    roads = unary_union([wide, narrow])
+    kw = dict(scale=10000)
+    base = ds.road_corridor(roads, None, **kw)
+    assert base is not None and base.intersection(narrow).area > 0.9 * narrow.area  # navazující úsek >= 5 m zůstane
+    cor = ds.road_corridor(roads, None, min_drawn_m=9.9, **kw)
+    assert cor is not None
+    assert cor.intersection(narrow).area < 0.05 * narrow.area  # užší než kresba silnice 502 zmizí
+    assert cor.intersection(wide).area > 0.95 * wide.area
+
+
+def test_corridor_without_sidewalks_does_not_widen(tmp_path, monkeypatch):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1006, -900, -994)]]}), encoding="utf-8"
+    )
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -993, -900, -990)]]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+    road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-1000, -1000], [-900, -1000]]}}
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8")
+    monkeypatch.setattr(di, "CORRIDOR_WITH_SIDEWALKS", False)
+    plain = di.mtbo_corridor_geometry(work, 10000)
+    assert plain is not None and plain.bounds[3] < -993.9  # chodník (od -993) není součástí
+    monkeypatch.setattr(di, "CORRIDOR_WITH_SIDEWALKS", True)
+    with_sw = di.mtbo_corridor_geometry(work, 10000)
+    assert with_sw is not None and with_sw.bounds[3] > -991.5 and with_sw.area > plain.area
+
+
+def test_corridor_edge_omitted_where_drawn_road_meets_corridor(tmp_path):
+    from shapely.geometry import Point
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-950, -1006, -850, -994)]]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+    road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-1000, -1000], [-800, -1000]]}}
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8")
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-900.0, ref_y=-1000.0, grivation_deg=0.0)
+    corridor = di.mtbo_corridor_geometry(work, 10000)
+    assert corridor is not None
+    omit = di.corridor_junction_omit(work, corridor, "mtbo_10000", 10000)
+    assert omit is not None
+    r = 9.9 / 2 + di.JUNCTION_EXTRA_M
+    for x in (-950, -850):
+        assert omit.contains(Point(x, -1000)) and omit.contains(Point(x, -1000 + r - 0.1))
+    parts = di.build_mtbo_corridor_parts(work, **kw)
+    assert [p.count for p in parts] == [1, parts[1].count]  # výplň celá, obrys zvlášť
+    full = di._geometry_part(corridor, name="x", code="501.0", outline_separate=True, clip_bounds=None, **kw)
+    assert parts[1].count >= 1 and full[1].count >= 1
+    assert parts[1].objects_xml != full[1].objects_xml  # obrys s mezerou na napojení se liší od celého

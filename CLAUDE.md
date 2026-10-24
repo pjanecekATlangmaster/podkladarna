@@ -261,6 +261,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Od 2.34.0 les jako MTBO kreslí i koridor silnice a parkoviště od 300 m² z DTM (`FOREST_DTM_AREAS`, `dtm_area_preset`; les 501.1 + okraj 501.2,
   parkoviště z DTM v lese i MTBO 501.1 + 501.2). Plochy z DTM se v lese i MTBO generalizují podle mm mapy (`dtm_sidewalks.generalize_area`:
   zálivy do 0,4 mm, výběžky do 0,3 mm, díry pod 1 mm², kusy pod 0,5 mm²; ne do budov).
+  Koridor je jen jízdní pás bez chodníků (`CORRIDOR_WITH_SIDEWALKS = False`, Petr 2026-10-24 po srovnání variant), nikde užší než kresba
+  silnice 502 v presetu (`corridor_min_drawn_m`); okraj se u napojení čáry silnice přeruší (`corridor_junction_omit`). Les pak nebere
+  široké pěší plochy z DTM do 8 m od silnice. Záloha „silnice jen čárou“: `MTBO_ROAD_CORRIDOR = False`.
   Ploty v lese a MTBO: výplň olivou se hledá až po dedupu a propojení mezer (`fence_gap_connectors(same_line=True)` uzavře i mezeru v jedné čáře, `merge_fill_rings`).
 - **Dedup chodníků v lese a MTBO je jen z OSM:** chodník i pěšina bez tagu chodníku (`SIDEWALK_DEDUP_BASES`, v lese i cyklostezka) souběžná se silnicí nebo OSM zpevněnou plochou se zahodí (celý při ≥ 70 % délky v pásu,
   jinak jen souvislé úseky ≥ 40 m). Pás se počítá ze skutečných šířek symbolů v sadě (`sidewalk_road_zone_geometry`: půlka silnice – v lese podle symbolu zvoleného šířkou z DTM – / okraje 501.2

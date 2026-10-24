@@ -219,7 +219,14 @@ def _long_side(poly) -> float:
 
 
 def road_corridor(
-    roads, sidewalks, bike_lines=None, *, scale: int, min_width_mm: float = CORRIDOR_MIN_WIDTH_MM, parking=None
+    roads,
+    sidewalks,
+    bike_lines=None,
+    *,
+    scale: int,
+    min_width_mm: float = CORRIDOR_MIN_WIDTH_MM,
+    parking=None,
+    min_drawn_m: float = 0.0,
 ):
     """Koridor silnice pro MTBO: silnice + přilehlé chodníky jedním polygonem (shapely) nebo None.
 
@@ -228,6 +235,8 @@ def road_corridor(
     část do ``CORRIDOR_PARKING_NEAR_M`` m od silnice patří ke koridoru (chodník za parkovištěm se tak
     taky sloučí). Mezera do ``CORRIDOR_GAP_M`` m (pruh zeleně) se zacelí. Zůstanou jen části širší než
     ``min_width_mm`` mm mapy (v ``scale``) a delší než ``CORRIDOR_MIN_LEN_M`` m.
+    ``sidewalks`` None: koridor je jen silnice (+ parkoviště). ``min_drawn_m``: kreslená šířka silnice 502, kterou
+    koridor nahrazuje; užší než ona nesmí být nikde (navazující úseky i celý výsledek se otevřou touto šířkou).
     """
     from shapely.geometry import LineString
     from shapely.ops import unary_union
@@ -268,13 +277,22 @@ def road_corridor(
         return None
     seeds = unary_union(keep)
     # navazující užší úseky (aspoň jízdní šířky) – bez nich se silnice kreslí střídavě plochou a čárou
-    r = CORRIDOR_MIN_ROADWAY_M / 2
+    r = max(CORRIDOR_MIN_ROADWAY_M, min_drawn_m) / 2
     soft = corridor.buffer(-r, join_style=2).buffer(r, join_style=2).intersection(corridor)
     ext = soft.intersection(seeds.buffer(CORRIDOR_BRIDGE_M))
     merged = unary_union([seeds, ext]).buffer(0.05).buffer(-0.05)
     comps = [merged] if merged.geom_type == "Polygon" else [x for x in getattr(merged, "geoms", []) if x.geom_type == "Polygon"]
     kept = [x for x in comps if x.intersects(seeds)]
-    return unary_union(kept) if kept else None
+    if not kept:
+        return None
+    result = unary_union(kept)
+    if min_drawn_m > 0:
+        # nikde užší než kresba silnice: zbylé zúžení (semínka, napojení) se odřízne
+        h = min_drawn_m / 2
+        result = result.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(result)
+        if result.is_empty:
+            return None
+    return result
 
 
 # Les a MTBO: generalizace ploch z DTM podle mm mapy (tvar z DTM jako ve sprintu, ale zjednodušený pro měřítko).
