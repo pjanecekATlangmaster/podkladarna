@@ -1560,12 +1560,13 @@ def test_corridor_adjacent_paved_ignores_slivers(tmp_path, monkeypatch):
 
     corridor = box(0, 0, 100, 10)
     parking = box(20, 10, 50, 40)  # přiléhá k hraně koridoru
-    sliver = box(60, 0, 90, 10.4)  # síť OSM přes silnici: po ořezu koridorem jen pruh 0,4 m
-    monkeypatch.setattr(di, "dtm_parking_geometry", lambda *a, **k: parking)
-    monkeypatch.setattr(op, "paved_network_geometry", lambda *a, **k: unary_union([sliver]))
+    sliver = box(60, 0, 90, 10.4)  # plocha přes silnici: po ořezu koridorem jen pruh 0,4 m
+    monkeypatch.setattr(di, "dtm_parking_geometry", lambda *a, **k: unary_union([parking, sliver]))
+    monkeypatch.setattr(op, "paved_network_geometry", lambda *a, **k: box(0, -20, 100, -10.2))  # OSM síť se nepočítá
     adj = di._corridor_adjacent_paved(tmp_path, corridor, "mtbo_10000", 10000, "mixed")
     assert adj is not None
     assert adj.buffer(0.1).contains(Point(35, 10)) and adj.distance(Point(75, 10)) > 1.0
+    assert adj.distance(Point(50, -10)) > 1.0
 
 
 def test_edge_omit_drops_short_stub_between_two_omits():
@@ -1578,7 +1579,7 @@ def test_edge_omit_drops_short_stub_between_two_omits():
         parts = di._geometry_part(rect, name="x", code="501.0", outline_separate=True, clip_bounds=None, edge_omit=omit, **kw)
         return parts[1].count
 
-    a, b, far = Point(-920, -1006).buffer(2.0), Point(-911, -1006).buffer(2.0), Point(-870, -1006).buffer(2.0)  # mezi a, b 5 m (0,5 mm)
+    a, b, far = Point(-920, -1006).buffer(2.0), Point(-913, -1006).buffer(2.0), Point(-870, -1006).buffer(2.0)  # mezi a, b 3 m (0,3 mm)
     base = edges(a)  # obrys uzavřeného obdélníku přerušený jedním kruhem
     assert edges(a.union(b)) == base  # pahýl 5 m mezi kruhy se zahodí, zbytek obrysu zůstane
     assert edges(a.union(far)) == base + 1  # daleké přerušení: oba kusy zůstanou

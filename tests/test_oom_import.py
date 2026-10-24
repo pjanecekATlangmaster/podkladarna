@@ -839,12 +839,12 @@ def test_zabaged_tunnel_clipped_by_dtm_cover_in_forest(tmp_path):
     from app.pipeline.oom_import import build_zabaged_object_parts
 
     x0, y0 = -744000.0, -1047000.0
-    z = _zabaged_line_zip(tmp_path, "Tunel", [[(x0, y0), (x0 + 300, y0)]])
-    cover = box(x0 + 100, y0 - 10, x0 + 200, y0 + 10)
+    z = _zabaged_line_zip(tmp_path, "Tunel", [[(x0, y0), (x0 + 35, y0)]])  # krátký podchod
+    cover = box(x0 + 10, y0 - 10, x0 + 25, y0 + 10)
 
-    def count(preset, scale):
+    def count(preset, scale, zip_path=None):
         parts = build_zabaged_object_parts(
-            z,
+            zip_path or z,
             vectorconf_name="zabaged.txt",
             preset_id=preset,
             scale=scale,
@@ -858,6 +858,15 @@ def test_zabaged_tunnel_clipped_by_dtm_cover_in_forest(tmp_path):
 
     assert count("forest_10000", 10000) == 2  # před a za koridorem, uvnitř ne
     assert count("sprint_4000", 4000) == 1
+    # dlouhý tunel (i tramvaj pod povrchem bez kódu železnice) se v lese nekreslí, ve sprintu ano
+    long_dir = tmp_path / "long"
+    long_dir.mkdir()
+    z_long = _zabaged_line_zip(long_dir, "Tunel", [[(x0, y0 + 50), (x0 + 300, y0 + 50)]])
+    assert count("forest_10000", 10000, z_long) == 0
+    assert count("sprint_4000", 4000, z_long) == 1
+    cover = None  # bez DTM (volba OSM + ZABAGED): dlouhý tunel se v lese nekreslí ani tak
+    assert count("forest_10000", 10000, z_long) == 0
+    assert count("forest_10000", 10000) == 1
 
 
 def test_drop_cover_stubs_keeps_long_and_far_pieces():

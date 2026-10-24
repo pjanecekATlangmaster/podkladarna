@@ -891,7 +891,7 @@ EDGE_CODE = "501.100"
 # Šířka pásu kolem hrany mostu (m), v němž se obrys spodní plochy nekreslí.
 EDGE_EXCLUDE_BUFFER_M = 0.15
 # Kus obrysu kratší než tohle (mm mapy) se po zkrácení o ``edge_omit`` (napojení cest) zahodí – vypadá jako úlomek.
-EDGE_STUB_MIN_MM = 1.0
+EDGE_STUB_MIN_MM = 0.4
 
 
 def _chunk_line(coords: list[tuple[float, float]], size: int) -> list[list[tuple[float, float]]]:
@@ -1505,19 +1505,19 @@ def corridor_shared_edge_zone(work_dir: Path, preset_id: str, scale: int, path_s
 
 
 def _corridor_adjacent_paved(work_dir: Path, corridor, preset_id: str, scale: int, path_source: str):
-    """Zpevněné plochy mimo koridor do ``CORRIDOR_SHARED_EDGE_M`` m od něj (parkoviště z DTM, síť OSM, MTBO chodníky z DTM; shapely) nebo None."""
+    """Zpevněné plochy z DTM mimo koridor do ``CORRIDOR_SHARED_EDGE_M`` m od něj (parkoviště, MTBO chodníky; shapely) nebo None.
+
+    OSM síť ne: její okraj se místy nekreslí (nástupiště, napojení silnice), obrys koridoru by tam zůstal otevřený.
+    """
     if corridor is None or corridor.is_empty:
         return None
     from shapely.ops import unary_union
-
-    from app.pipeline.osm_paths import paved_network_geometry
 
     sidewalks = mtbo_sidewalk_geometry(work_dir, scale, path_source, preset_id) if preset_id.startswith("mtbo") else None
     areas = [
         g
         for g in (
             dtm_parking_geometry(work_dir, scale, path_source, preset_id),
-            paved_network_geometry(work_dir, preset_id, scale),
             sidewalks,  # MTBO: pěší a zpevněné plochy z DTM (ulice bez silnice v DTM)
         )
         if g is not None and not g.is_empty
