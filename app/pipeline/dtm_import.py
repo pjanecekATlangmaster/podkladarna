@@ -2096,6 +2096,17 @@ def join_and_orient_osm_fences(
             if (feat.get("properties") or {}).get("kind") == "building" and geom.get("type") == "Polygon":
                 buildings.append([[(float(x), float(y)) for x, y, *_ in ring] for ring in geom.get("coordinates") or []])
         olive_rings = [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in polys]
+        if polys:
+            # Mezery mezi konci plotů u olivy se nejdřív propojí (ne přes budovu ani cestu), pak se hledá oplocení.
+            from shapely.geometry import LineString as _LS, Polygon as _P
+            from shapely.ops import unary_union as _uu
+
+            blockers = [_P(r[0], r[1:]).buffer(0) for r in buildings if r and len(r[0]) >= 4]
+            blockers.extend(_LS(c).buffer(0.2) for c, _need in path_clearances(work_dir, path_source) if len(c) >= 2)
+            connectors = dtm_fences.fence_gap_connectors(tagged, forbidden=_uu(blockers) if blockers else None, near=_uu(polys), same_line=True)
+            if connectors:
+                joined_lines = dtm_fences.merge_lines([ln for _c, ln in tagged + connectors])
+                tagged = dtm_fences.orient_fences([(dtm_fences.CODE_FENCE, ln) for ln in joined_lines], {"olive": olive_rings})
         fill_rings = valid_fill_rings(dtm_fences.private_enclosure_rings(tagged, {"olive": olive_rings, "building": buildings}))
     except Exception:  # výplň je doplněk
         fill_rings = []
@@ -2211,6 +2222,7 @@ def build_dtm_fence_parts(
         lines = lines + dubious_back
         # Plot na obrysu budovy se nekreslí (budova má přednost, kreslí se z DTM / OSM).
         buildings_zone = _buildings_zone(work_dir)
+        uncut_lines = lines
         lines = cut_fences_by_buildings(lines, buildings_zone)
         # Data DTM bývají neúplná: mezery mezi konci plotů, které na sebe míří, se propojí (ne přes budovu ani cestu).
         from shapely.geometry import LineString as _LS
@@ -2219,7 +2231,7 @@ def build_dtm_fence_parts(
         blockers = [buildings_zone] if buildings_zone is not None else []
         blockers.extend(_LS(c).buffer(0.2) for c, _need in path_clearances(work_dir, path_source) if len(c) >= 2)
         connectors = dtm_fences.fence_gap_connectors(
-            lines, forbidden=_uu(blockers) if blockers else None, near=olive_geom
+            lines, forbidden=_uu(blockers) if blockers else None, near=olive_geom, same_line=not sprint
         )
         if connectors or dubious_back or not sprint:
             # Spojky se slijí s ploty do jedné linie (po kódu symbolu); celá linie se pak otočí tak, aby
@@ -2238,6 +2250,16 @@ def build_dtm_fence_parts(
                     if p.geom_type == "Polygon" and not p.is_empty
                 ]
                 lines = dtm_fences.orient_fences(lines, {**areas, "olive": list(areas["olive"]) + olive_polys})
+        if fill_olive and not sprint and connectors:
+            # Les a MTBO: oplocení k výplni olivou se hledá znovu až po dedupu a napojení mezer – spojky uzavřou
+            # další parcely. Ploty před ořezem o budovy, ať obrys budovy oplocení neotevře; oliva i kreslená.
+            drawn = [olive_geom] if olive_geom.geom_type == "Polygon" else list(getattr(olive_geom, "geoms", []))
+            fill_areas = {
+                **areas,
+                "olive": list(areas["olive"])
+                + [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in drawn if p.geom_type == "Polygon" and not p.is_empty],
+            }
+            fill_rings = merge_fill_rings(fill_rings, dtm_fences.private_enclosure_rings(uncut_lines + connectors, fill_areas))
     except Exception:  # dedup a propojení jsou doplněk, ploty se kreslí i bez nich
         pass
     if not sprint:
@@ -2303,6 +2325,39 @@ def build_dtm_fence_parts(
     if objects:
         parts.append(OomObjectPart(name="Ploty (DTM + OSM)", objects_xml="\n".join(objects), count=len(objects)))
     return parts
+
+
+# Nové oplocení se k výplni přidá, jen když je z menší části než tolik pokryté už vyplněnými.
+FILL_RING_NEW_MAX_COVER = 0.5
+
+
+def merge_fill_rings(
+    rings: list[list[tuple[float, float]]], extra: list[list[tuple[float, float]]]
+) -> list[list[tuple[float, float]]]:
+    """``rings`` doplněné o obrysy z ``extra``, které se s nimi (z většiny) nepřekrývají."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    def poly(r):
+        try:
+            g = Polygon(r)
+        except ValueError:
+            return None
+        g = g if g.is_valid else g.buffer(0)
+        return None if g.is_empty or g.area <= 0 else g
+
+    have = [g for g in (poly(r) for r in rings if len(r) >= 4) if g is not None]
+    covered = unary_union(have) if have else None
+    out = list(rings)
+    for r in valid_fill_rings(extra):
+        g = poly(r)
+        if g is None:
+            continue
+        if covered is not None and g.intersection(covered).area > FILL_RING_NEW_MAX_COVER * g.area:
+            continue
+        out.append(r)
+        covered = g if covered is None else covered.union(g)
+    return out
 
 
 def _fill_ring(line, clip_bounds):

@@ -621,3 +621,32 @@ def test_valid_fill_rings_fixes_self_intersection_after_move():
     out = di.valid_fill_rings([bowtie, square])
     assert len(out) == 2 and all(Polygon(r).is_valid for r in out)
     assert out[1] == square
+
+
+def test_forest_fills_dtm_enclosure_closed_by_gap_connector(tmp_path):
+    import io
+
+    import shapefile
+
+    import app.pipeline.dtm_import as di
+
+    (tmp_path / "dtm").mkdir()
+    # plot kolem zahrady s mezerou 4 m: les a MTBO ho spojkou uzavřou a vyplní olivou, sprint beze změny
+    fences = [{"code": "518", "coords": [[14.0, 0.0], [40.0, 0.0], [40.0, 30.0], [0.0, 30.0], [0.0, 0.0], [10.0, 0.0]]}]
+    (tmp_path / "dtm" / "fences.json").write_text(json.dumps({"fences": fences}), encoding="utf-8")
+    shp, shx, dbf = io.BytesIO(), io.BytesIO(), io.BytesIO()
+    with shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYGON) as w:
+        w.field("id", "N")
+        w.poly([[(1, 1), (1, 29), (39, 29), (39, 1), (1, 1)]])
+        w.record(1)
+    with zipfile.ZipFile(tmp_path / "zabaged_clean.zip", "w") as zf:
+        for ext, buf in (("shp", shp), ("shx", shx), ("dbf", dbf)):
+            zf.writestr(f"OvocnySadZahrada.{ext}", buf.getvalue())
+
+    def fills(preset_id, scale):
+        parts = di.build_dtm_fence_parts(tmp_path, preset_id=preset_id, scale=scale, ref_x=20.0, ref_y=15.0, grivation_deg=0.0)
+        return sum(p.count for p in parts if p.name == "DTM – oplocené plochy")
+
+    assert fills("forest_10000", 10000) == 1
+    assert fills("mtbo_10000", 10000) == 1
+    assert fills("sprint_4000", 4000) == 0
