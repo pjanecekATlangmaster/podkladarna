@@ -974,18 +974,9 @@ def prepare_oom_map(
             path_source=path_source,
         )
     )
-    object_parts.extend(
-        build_mtbo_corridor_parts(
-            kp_cwd,
-            preset_id=preset_id,
-            scale=scale,
-            ref_x=ref_x,
-            ref_y=ref_y,
-            grivation_deg=grivation,
-            clip_bounds=vector_clip_bounds,
-            path_source=path_source,
-        )
-    )
+    # Koridor silnice z DTM se skládá až nad hotovými čarami cest (okraj se přeruší přesně u jejich konců),
+    # ale kreslí se na tomto místě pořadí.
+    corridor_at = len(object_parts)
     object_parts.extend(
         build_dtm_parking_parts(
             kp_cwd,
@@ -1037,6 +1028,30 @@ def prepare_oom_map(
         object_parts.extend(osm_parts)
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
+    from app.pipeline.dtm_import import JUNCTION_MAJORS, dtm_area_preset
+    from app.pipeline.path_clearance import drawn_path_ends
+
+    object_parts[corridor_at:corridor_at] = build_mtbo_corridor_parts(
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+        clip_bounds=vector_clip_bounds,
+        path_source=path_source,
+        road_ends=drawn_path_ends(
+            object_parts,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            majors=JUNCTION_MAJORS,
+        )
+        if dtm_area_preset(preset_id)
+        else None,
+    )
     # Zaměřené ploty z DTM kraje (sprint a les, MTBO jen se zapnutým DTM; chybějící DTM = prázdný seznam).
     from app.pipeline.dtm_import import build_dtm_fence_parts
 

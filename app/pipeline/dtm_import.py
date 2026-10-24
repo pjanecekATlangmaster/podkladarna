@@ -1133,6 +1133,11 @@ CORRIDOR_ROAD_BASES = frozenset({"road_2", "road_3", "road_4"})
 # Napojení kreslené cesty na koridor: okraj koridoru se vynechá kolem průsečíku osy cesty s jeho hranou.
 JUNCTION_BASES = frozenset({"road_1", "road_2", "road_3", "road_4"})
 JUNCTION_EXTRA_M = 0.3
+JUNCTION_END_TOL_M = 0.5  # konec čáry z hotové mapy do této vzdálenosti od hrany koridoru = napojení
+# Hlavní čísla kódů čar, jejichž napojení přeruší okraj koridoru (les 502–504, MTBO navíc 815 = road_1 / track_fast).
+JUNCTION_MAJORS = frozenset({502, 503, 504, 815})
+# Okraj koridoru a přiléhající zpevněné plochy (parkoviště, síť OSM) se na společné hranici nekreslí (m).
+CORRIDOR_SHARED_EDGE_M = 0.5
 
 
 def _corridor_road_axes(work_dir: Path):
@@ -1380,15 +1385,26 @@ def corridor_parking_geometry(work_dir: Path):
     return unary_union(geoms) if geoms else None
 
 
-def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int):
+def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int, road_ends=None):
     """Kruhy kolem průsečíků os kreslených silnic a cest (road_1..road_4, ne mosty a tunely) s hranou koridoru (shapely) nebo None.
 
     Poloměr = půlka kreslené šířky cesty + 0,3 m; obrys koridoru se tam nekreslí, ať čára cesty plynule naváže.
+    ``road_ends``: konce čar z hotové mapy ``[(x, y, půlka šířky m)]`` (``path_clearance.drawn_path_ends``) – přesně tam,
+    kde čára opravdu končí (v mixed kreslí ulici i ZABAGED); bez nich se konce odhadnou z OSM os.
     """
     if corridor is None or corridor.is_empty:
         return None
     from shapely.geometry import Point
     from shapely.ops import unary_union
+
+    if road_ends is not None:
+        boundary = corridor.boundary
+        circles = [
+            Point(x, y).buffer(half + JUNCTION_EXTRA_M)
+            for x, y, half in road_ends
+            if boundary.distance(Point(x, y)) <= JUNCTION_END_TOL_M
+        ]
+        return unary_union(circles) if circles else None
 
     from app.pipeline import osm_paths as op
     from app.pipeline.dtm_sidewalks import clip_outside, trim_along_corridor
@@ -1425,6 +1441,35 @@ def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int)
     return unary_union(circles) if circles else None
 
 
+def corridor_shared_edge_zone(work_dir: Path, preset_id: str, scale: int, path_source: str = "mixed"):
+    """Pás ``CORRIDOR_SHARED_EDGE_M`` m kolem koridoru (shapely) nebo None: okraj přiléhající zpevněné plochy se v něm nekreslí."""
+    corridor = corridor_geometry_for(work_dir, preset_id, scale, path_source)
+    if corridor is None or corridor.is_empty:
+        return None
+    return corridor.buffer(CORRIDOR_SHARED_EDGE_M)
+
+
+def _corridor_adjacent_paved_zone(work_dir: Path, corridor, preset_id: str, scale: int, path_source: str):
+    """Pás ``CORRIDOR_SHARED_EDGE_M`` m kolem zpevněných ploch mimo koridor (parkoviště z DTM, síť OSM; shapely) nebo None."""
+    if corridor is None or corridor.is_empty:
+        return None
+    from shapely.ops import unary_union
+
+    from app.pipeline.osm_paths import paved_network_geometry
+
+    areas = [
+        g
+        for g in (dtm_parking_geometry(work_dir, scale, path_source, preset_id), paved_network_geometry(work_dir, preset_id, scale))
+        if g is not None and not g.is_empty
+    ]
+    if not areas:
+        return None
+    h = CORRIDOR_SHARED_EDGE_M
+    outside = unary_union(areas).difference(corridor)
+    outside = outside.buffer(-h, join_style=2).buffer(h, join_style=2)  # pruhy podél hrany (zbytky ořezu) se nepočítají
+    return None if outside.is_empty else outside.buffer(h)
+
+
 def build_mtbo_corridor_parts(
     work_dir: Path,
     *,
@@ -1435,19 +1480,32 @@ def build_mtbo_corridor_parts(
     grivation_deg: float,
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
+    road_ends=None,
 ) -> list[OomObjectPart]:
     """MTBO a les: silnice s přilehlými chodníky jednou plochou (výplň 501.1) + obrys (MTBO obrubník 501.100, les 501.2).
 
     Jen tam, kde je koridor dost široký (viz ``dtm_sidewalks.road_corridor``); užší silnice kreslí
     čára 502.x z OSM cest. Čáry 502.x se uvnitř koridoru nekreslí (``build_osm_path_parts``).
+    ``road_ends``: konce kreslených čar z hotové mapy (viz ``corridor_junction_omit``). Na hranici s přiléhající
+    zpevněnou plochou (parkoviště z DTM, síť OSM) se okraj nekreslí, plochy tak splynou.
     """
     if not dtm_area_preset(preset_id):
         return []
     corridor = corridor_geometry_for(work_dir, preset_id, scale, path_source)
     mtbo = preset_id.startswith("mtbo")
+    omit = [
+        g
+        for g in (
+            corridor_junction_omit(work_dir, corridor, preset_id, scale, road_ends),
+            _corridor_adjacent_paved_zone(work_dir, corridor, preset_id, scale, path_source),
+        )
+        if g is not None and not g.is_empty
+    ]
+    from shapely.ops import unary_union
+
     return _geometry_part(
         corridor,
-        edge_omit=corridor_junction_omit(work_dir, corridor, preset_id, scale),
+        edge_omit=unary_union(omit) if omit else None,
         name="MTBO – silnice s chodníky (koridor)" if mtbo else "Les – silnice s chodníky z DTM (koridor)",
         code="501.0" if mtbo else "501.1",
         preset_id=preset_id,
@@ -1701,6 +1759,7 @@ def build_dtm_parking_parts(
             outline_separate=True,
             fill_code="501.1",
             edge_code="501.2",
+            edge_omit=corridor_shared_edge_zone(work_dir, preset_id, scale, path_source),
         )
     if not preset_id.startswith("sprint") or not parking_path(work_dir).is_file():
         return []

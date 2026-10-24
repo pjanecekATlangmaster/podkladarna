@@ -1520,6 +1520,54 @@ def test_corridor_edge_omitted_where_drawn_road_meets_corridor(tmp_path):
     assert parts[1].objects_xml != full[1].objects_xml  # obrys s mezerou na napojení se liší od celého
 
 
+def test_corridor_junction_omit_from_drawn_road_ends():
+    from shapely.geometry import Point, box
+
+    corridor = box(0, 0, 100, 12)
+    ends = [(100.3, 6.0, 4.0), (50.0, 40.0, 4.0), (30.0, 12.2, 2.0)]  # u hrany, daleko, u hrany (užší čára)
+    omit = di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=ends)
+    assert omit is not None
+    assert omit.contains(Point(100, 6 + 4.0)) and not omit.contains(Point(50, 35))
+    assert omit.contains(Point(30, 12 + 2.0)) and not omit.contains(Point(30, 12 - 2.5))
+    assert di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=[(50, 40, 4.0)]) is None
+
+
+def test_drawn_path_ends_roundtrip():
+    from app.pipeline.oom_coords import projected_to_map_coord
+    from app.pipeline.oom_import import OomObjectPart
+    from app.pipeline.oom_symbols import symbol_set_path
+    from app.pipeline.path_clearance import _symbol_info, drawn_path_ends
+
+    kw = dict(preset_id="forest_10000", scale=10000, ref_x=-900.0, ref_y=-1000.0, grivation_deg=3.0)
+    info = _symbol_info(symbol_set_path("forest_10000", 10000))
+    sym = next(i for i, (major, kind) in info.items() if major == 502 and kind == "line")
+    a = projected_to_map_coord(-950.0, -1000.0, ref_x=-900.0, ref_y=-1000.0, scale=10000, grivation_deg=3.0)
+    b = projected_to_map_coord(-850.0, -990.0, ref_x=-900.0, ref_y=-1000.0, scale=10000, grivation_deg=3.0)
+    xml = f'<object type="1" symbol="{sym}"><coords count="2">{a[0]} {a[1]};{b[0]} {b[1]};</coords></object>'
+    ends = drawn_path_ends([OomObjectPart("x", xml, 1)], majors=frozenset({502}), **kw)
+    assert len(ends) == 2
+    assert abs(ends[0][0] + 950) < 0.05 and abs(ends[0][1] + 1000) < 0.05
+    assert abs(ends[1][0] + 850) < 0.05 and abs(ends[1][1] + 990) < 0.05
+    assert ends[0][2] > 1.0  # půlka šířky 502 v metrech
+    assert drawn_path_ends([OomObjectPart("x", xml, 1)], majors=frozenset({815}), **kw) == []
+
+
+def test_corridor_adjacent_paved_zone_ignores_slivers(tmp_path, monkeypatch):
+    from shapely.geometry import Point, box
+    from shapely.ops import unary_union
+
+    from app.pipeline import osm_paths as op
+
+    corridor = box(0, 0, 100, 10)
+    parking = box(20, 10, 50, 40)  # přiléhá k hraně koridoru
+    sliver = box(60, 0, 90, 10.4)  # síť OSM přes silnici: po ořezu koridorem jen pruh 0,4 m
+    monkeypatch.setattr(di, "dtm_parking_geometry", lambda *a, **k: parking)
+    monkeypatch.setattr(op, "paved_network_geometry", lambda *a, **k: unary_union([sliver]))
+    zone = di._corridor_adjacent_paved_zone(tmp_path, corridor, "mtbo_10000", 10000, "mixed")
+    assert zone is not None
+    assert zone.contains(Point(35, 10)) and not zone.contains(Point(75, 10))
+
+
 def test_edge_omit_drops_short_stub_between_two_omits():
     from shapely.geometry import Point, box
 

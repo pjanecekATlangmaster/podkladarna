@@ -5810,6 +5810,13 @@ def build_osm_path_parts(
         if paved_network is None and _dtm_parking_zone is None
         else road_clip_zone(work_dir, preset_id, scale)
     )
+    if mtbo_sidewalk_zone is not None and not mtbo_sidewalk_zone.is_empty:
+        # MTBO: chodníky a pěší plochy z DTM (501.0) jsou jako síť v lese – silnice i vozové cesty přes ně
+        # se nekreslí, končí na hraně.
+        from shapely.ops import unary_union as _uu_msz
+
+        minor_clip_zone = mtbo_sidewalk_zone if minor_clip_zone is None else _uu_msz([minor_clip_zone, mtbo_sidewalk_zone])
+        road_clip = mtbo_sidewalk_zone if road_clip is None else _uu_msz([road_clip, mtbo_sidewalk_zone])
     # Les: šířka cest z ploch DTM → symbol podle skutečné šířky (``dtm_widths``).
     road_widths = walk_widths = None
     if uses_dtm_widths(preset_id):
@@ -6310,6 +6317,15 @@ def build_osm_feature_parts(
         feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # zacelené mezery sítě také
         # Les a MTBO: okraj 501.2 se nekreslí tam, kde by splýval se silnicí (vjezd silnice do plochy).
         edge_omit_zone = paved_edge_omit_zone(_path_feats, _road_clip, preset_id=preset_id, scale=scale)
+        # ani na hranici s koridorem silnice z DTM (plochy splynou, okraj kreslí jen koridor)
+        from app.pipeline.dtm_import import corridor_shared_edge_zone, dtm_area_preset as _dap
+
+        if _dap(preset_id):
+            _shared = corridor_shared_edge_zone(work_dir, preset_id, scale, path_source)
+            if _shared is not None:
+                from shapely.ops import unary_union as _uu_edge
+
+                edge_omit_zone = _shared if edge_omit_zone is None else _uu_edge([edge_omit_zone, _shared])
         # Les a MTBO: OSM ploty (pokud je nekreslí DTM) se spojí, otočí čárkami k olivě jako ve sprintu
         # a odsunou od kreslených cest podle šířky symbolů.
         from app.pipeline.dtm_import import join_and_orient_osm_fences
