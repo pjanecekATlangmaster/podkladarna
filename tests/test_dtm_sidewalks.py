@@ -1338,3 +1338,77 @@ def test_end_at_edge_accepts_geometry_collection_with_lines():
     area = GeometryCollection([box(0, -5, 10, 5), LineString([(20, 0), (30, 0)])])  # boundary je None
     out = ds.end_at_edge([(-20.0, 0.0), (5.0, 0.0)], area)
     assert len(out) == 1 and abs(out[0][-1][0]) < 1e-6  # končí na hraně plochy
+
+
+def _drawn_length_in_rect(parts, rect, ref, scale):
+    """Délka kreslených čar (m) uvnitř obdélníku ve světových souřadnicích (mapa v 0,001 mm, osa y obrácená)."""
+    import re
+
+    from shapely.geometry import LineString, box
+
+    zone = box(*rect)
+    total = 0.0
+    for part in parts:
+        for body in re.findall(r"<coords[^>]*>([^<]*)</coords>", part.objects_xml):
+            pts = [
+                (ref[0] + int(mx) * scale / 1e6, ref[1] - int(my) * scale / 1e6)
+                for mx, my in re.findall(r"(-?\d+) (-?\d+)(?: \d+)?;", body)
+            ]
+            if len(pts) >= 2:
+                total += LineString(pts).intersection(zone).length
+    return total
+
+
+def test_forest_and_mtbo_roads_and_paths_are_cut_by_dtm_parking(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    def make(work, with_parking):
+        (work / "dtm").mkdir()
+        if with_parking:
+            (work / "dtm" / "parking.json").write_text(
+                json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1000, -970, -985)]]}),
+                encoding="utf-8",
+            )
+        (work / "osm_paths").mkdir()
+        ring = [[-1100, -1100], [-1090, -1100], [-1090, -1090], [-1100, -1090], [-1100, -1100]]
+        zone = {  # vzdálená OSM plocha: síť zpevněných ploch tak není prázdná
+            "type": "Feature",
+            "properties": {"source": "osm", "kind": "parking", "oom_code": "501"},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+        (work / "osm_paths" / "features.geojson").write_text(
+            json.dumps({"type": "FeatureCollection", "features": [zone]}), encoding="utf-8"
+        )
+
+        def line(hw, a, b):
+            return {
+                "type": "Feature",
+                "properties": {"highway": hw},
+                "geometry": {"type": "LineString", "coordinates": [a, b]},
+            }
+
+        feats = [
+            line("road_3", [-1020, -992], [-950, -992]),
+            line("track", [-1020, -999], [-950, -999]),
+        ]
+        (work / "osm_paths" / "paths_mixed.geojson").write_text(
+            json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+        )
+
+    inside = (-1000, -1000, -970, -985)
+    ref = (-985.0, -990.0)
+    for preset in ("forest_10000", "mtbo_10000"):
+        kw = dict(preset_id=preset, scale=10000, ref_x=ref[0], ref_y=ref[1], grivation_deg=0.0)
+        free = tmp_path / preset / "free"
+        free.mkdir(parents=True)
+        make(free, False)
+        base = op.build_osm_path_parts(free, **kw)
+        assert _drawn_length_in_rect(base, inside, ref, 10000) > 50  # bez parkoviště se kreslí celé
+        op._PAVED_NETWORK_CACHE.clear()
+        cut = tmp_path / preset / "cut"
+        cut.mkdir(parents=True)
+        make(cut, True)
+        parts = op.build_osm_path_parts(cut, **kw)
+        assert _drawn_length_in_rect(parts, inside, ref, 10000) < 1.0
+        assert sum(p.count for p in parts) >= 2  # napojení na hranu parkoviště zůstává
+        op._PAVED_NETWORK_CACHE.clear()

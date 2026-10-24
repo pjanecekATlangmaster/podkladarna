@@ -4610,6 +4610,24 @@ def _minus_mtbo_dtm_areas(work_dir: Path, geom, scale: int, preset_id: str = "mt
     return unary_union(polys) if polys else None
 
 
+def _plus_dtm_parking(work_dir: Path, geom, preset_id: str, scale: int):
+    """Les a MTBO: ke ``geom`` (shapely / None) přidá parkoviště kreslená z DTM (jen polygony), ať se přes ně nekreslí silnice ani cesty."""
+    from app.pipeline.dtm_import import dtm_area_preset, dtm_parking_geometry
+
+    if not dtm_area_preset(preset_id):
+        return geom
+    parking = dtm_parking_geometry(work_dir, scale, "mixed")
+    if parking is None or parking.is_empty:
+        return geom
+    if geom is None or geom.is_empty:
+        return parking
+    from shapely.ops import unary_union
+
+    both = unary_union([geom, parking])
+    polys = [g for g in getattr(both, "geoms", [both]) if g.geom_type in ("Polygon", "MultiPolygon") and not g.is_empty]
+    return unary_union(polys) if polys else geom
+
+
 def cut_paved_by_mtbo_dtm_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
     """Les a MTBO: zpevněné plochy z OSM (i sloučená síť) bez ploch kreslených z DTM (koridor, parkoviště, MTBO i chodníky)."""
     from app.pipeline.dtm_import import cut_osm_paved_by_geometry, dtm_area_geometry_for, dtm_area_preset
@@ -4802,7 +4820,10 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
         network = build_paved_network(feats, _path_feats)[1]
         if network is not None and preset_id:
             network = _minus_mtbo_dtm_areas(work_dir, network, scale, preset_id)
-        _PAVED_NETWORK_CACHE[key] = (network, road_clip_geometry(feats))
+        clip = road_clip_geometry(feats)
+        if preset_id:
+            clip = _plus_dtm_parking(work_dir, clip, preset_id, scale)
+        _PAVED_NETWORK_CACHE[key] = (network, clip)
     return _PAVED_NETWORK_CACHE[key]
 
 
@@ -5731,7 +5752,8 @@ def build_osm_path_parts(
         mtbo_sidewalk_zone = mtbo_sidewalk_geometry(work_dir, scale, path_source)
     # Zóna ořezu pěšin: OSM zpevněné + pás silnic + DTM/koridor (pěšina přes ně se nekreslí, končí na hraně).
     _cut_extra = None
-    for _g in (sidewalk_cover, corridor_zone, mtbo_sidewalk_zone):
+    _dtm_parking_zone = _plus_dtm_parking(work_dir, None, preset_id, scale)
+    for _g in (sidewalk_cover, corridor_zone, mtbo_sidewalk_zone, _dtm_parking_zone):
         if _g is None or getattr(_g, "is_empty", True):
             continue
         if _cut_extra is None:
@@ -5751,7 +5773,14 @@ def build_osm_path_parts(
     path_cut_zone = path_cut_zone_geometry(
         work_dir, data.get("features") or [], extra=_cut_extra, paved=_cut_paved
     )
-    road_clip = None if paved_network is None else road_clip_zone(work_dir, preset_id, scale)
+    # Síť je o plochy z DTM ořezaná; menší cesty se přerušují i na parkovištích z DTM.
+    minor_clip_zone = None if preset_id.startswith("sprint") else _plus_dtm_parking(work_dir, paved_network, preset_id, scale)
+    # Zóna i bez sítě, jsou-li parkoviště z DTM (síť o ně ořezaná): silnici přeruší, i když je síť prázdná.
+    road_clip = (
+        None
+        if paved_network is None and _dtm_parking_zone is None
+        else road_clip_zone(work_dir, preset_id, scale)
+    )
     # Les: šířka cest z ploch DTM → symbol podle skutečné šířky (``dtm_widths``).
     road_widths = walk_widths = None
     if uses_dtm_widths(preset_id):
@@ -6030,9 +6059,9 @@ def build_osm_path_parts(
         ):
             # Ostatní cesty končící na zpevněné ploše (nebo kousek před ní) se ukončí přesně na její hraně.
             # Silnice ne: zóna obsahuje jejich vlastní jízdní pás, ořez by je zahodil (≈ 84 % délky).
-            if paved_network is not None and not steps_piece:
-                # Les/MTBO: menší cesta (vozová, cyklostezka …) se přes zpevněnou plochu přeruší.
-                lines = [seg for ln in lines for seg in clip_outside(ln, paved_network)]
+            if minor_clip_zone is not None and not steps_piece:
+                # Les/MTBO: menší cesta (vozová, cyklostezka …) se přes zpevněnou plochu (i parkoviště z DTM) přeruší.
+                lines = [seg for ln in lines for seg in clip_outside(ln, minor_clip_zone)]
             lines = [seg for ln in lines for seg in end_at_edge(ln, edge_area)]
         elif (
             road_clip is not None
