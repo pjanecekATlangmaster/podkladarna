@@ -51,6 +51,7 @@ CORRIDOR_MIN_LEN_M = 50.0
 # Hystereze: k širokým kusům koridoru se připojí navazující část do ``CORRIDOR_BRIDGE_M`` m, která je
 # aspoň ``CORRIDOR_MIN_ROADWAY_M`` m široká (silnice 7–9 m jinak střídavě vypadává z koridoru a kreslí se po kouscích).
 CORRIDOR_BRIDGE_M = 60.0
+CORRIDOR_AXIS_GAP_M = 20.0  # zúžení koridoru pod kresbu 502 do této délky se podél osy silnice doplní (jinak kusy „kapslí“)
 BUILDING_CACHE_SUFFIX = ".bld1.json"
 # Schody, rampy, zápraží u vchodů: v DTM bez atributu druhu, kreslí se jako zpevněná plocha 501.0.
 SMALL_PAVED_TYPES = ("StavbaProZpevneniPovrchuPlocha",)
@@ -227,6 +228,7 @@ def road_corridor(
     min_width_mm: float = CORRIDOR_MIN_WIDTH_MM,
     parking=None,
     min_drawn_m: float = 0.0,
+    axes=None,
 ):
     """Koridor silnice pro MTBO: silnice + přilehlé chodníky jedním polygonem (shapely) nebo None.
 
@@ -236,7 +238,8 @@ def road_corridor(
     taky sloučí). Mezera do ``CORRIDOR_GAP_M`` m (pruh zeleně) se zacelí. Zůstanou jen části širší než
     ``min_width_mm`` mm mapy (v ``scale``) a delší než ``CORRIDOR_MIN_LEN_M`` m.
     ``sidewalks`` None: koridor je jen silnice (+ parkoviště). ``min_drawn_m``: kreslená šířka silnice 502, kterou
-    koridor nahrazuje; užší než ona nesmí být nikde (navazující úseky i celý výsledek se otevřou touto šířkou).
+    koridor nahrazuje; užší než ona nesmí být nikde. ``axes``: osy silnic (čáry); zúžení a krátké mezery mezi kusy
+    koridoru se podél nich doplní pásem šířky ``min_drawn_m`` (jinak se koridor rozpadne na samostatné kusy).
     """
     from shapely.geometry import LineString
     from shapely.ops import unary_union
@@ -287,8 +290,10 @@ def road_corridor(
         return None
     result = unary_union(kept)
     if min_drawn_m > 0:
-        # nikde užší než kresba silnice: zbylé zúžení (semínka, napojení) se odřízne
         h = min_drawn_m / 2
+        if axes is not None and not axes.is_empty:
+            result = _fill_along_axes(result, corridor, axes, h + 0.1)  # rezerva, ať pás přežije otevření šířkou kresby
+        # nikde užší než kresba silnice: zbylé zúžení (semínka, napojení) se odřízne
         result = result.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(result)
         # kruhový objezd: otevřením se prstenec rozpadne na tříšť malých kusů, ty musí splnit kritéria jako semínka
         pieces = [result] if result.geom_type == "Polygon" else [x for x in getattr(result, "geoms", []) if x.geom_type == "Polygon"]
@@ -297,6 +302,22 @@ def road_corridor(
             return None
         result = unary_union(pieces)
     return result
+
+
+def _fill_along_axes(result, roadway, axes, h: float):
+    """Koridor ``result`` doplněný pásem šířky 2·``h`` podél os silnic ``axes``: uvnitř koridoru (zúžení)
+    a v mezerách do ``CORRIDOR_AXIS_GAP_M`` m mezi kusy, kde osa vede po jízdní ploše ``roadway`` a oba konce úseku leží v koridoru."""
+    from shapely.ops import unary_union
+
+    add = [axes.intersection(result).buffer(h, cap_style=2)]
+    gaps = axes.intersection(roadway.buffer(0.5)).difference(result)
+    for ln in [gaps] if gaps.geom_type == "LineString" else [x for x in getattr(gaps, "geoms", []) if x.geom_type == "LineString"]:
+        if ln.length < 1.0 or ln.length > CORRIDOR_AXIS_GAP_M:
+            continue
+        ends = ln.boundary
+        if len(getattr(ends, "geoms", [])) == 2 and all(result.distance(p) <= 0.1 for p in ends.geoms):
+            add.append(ln.buffer(h, cap_style=2))
+    return unary_union([result, *add]).buffer(0.05).buffer(-0.05)
 
 
 # Les a MTBO: generalizace ploch z DTM podle mm mapy (tvar z DTM jako ve sprintu, ale zjednodušený pro měřítko).

@@ -1445,6 +1445,23 @@ def test_road_corridor_min_drawn_drops_narrower_roads_and_keeps_wider():
     assert cor.intersection(wide).area > 0.95 * wide.area
 
 
+def test_road_corridor_min_drawn_fills_short_neck_along_axis():
+    from shapely.geometry import LineString, box
+    from shapely.ops import unary_union
+
+    # 12 m široká silnice se zúžením na 7 m v délce 10 m: bez osy se rozpadne na dva kusy, s osou zůstane celá
+    roads = unary_union([box(0, 0, 95, 12), box(95, 2.5, 105, 9.5), box(105, 0, 200, 12)])
+    kw = dict(scale=10000, min_drawn_m=9.9)
+    split = ds.road_corridor(roads, None, **kw)
+    assert split is not None and split.geom_type == "MultiPolygon"
+    axis = LineString([(-20, 6), (220, 6)])
+    cor = ds.road_corridor(roads, None, axes=axis, **kw)
+    assert cor is not None and cor.geom_type == "Polygon"
+    neck = cor.intersection(box(97, -5, 103, 20))
+    assert neck.bounds[3] - neck.bounds[1] >= 9.8  # zúžení má šířku kresby silnice
+    assert cor.bounds[0] >= -0.1 and cor.bounds[2] <= 200.1  # osa koridor neprodlouží
+
+
 def test_road_corridor_min_drawn_drops_roundabout_ring_but_keeps_wide_straight_road():
     from shapely.geometry import Point, box
 

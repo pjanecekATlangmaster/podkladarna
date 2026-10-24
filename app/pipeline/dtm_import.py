@@ -1135,8 +1135,8 @@ JUNCTION_BASES = frozenset({"road_1", "road_2", "road_3", "road_4"})
 JUNCTION_EXTRA_M = 0.3
 
 
-def _corridor_road_axis_zone(work_dir: Path):
-    """Pás ``CORRIDOR_ROAD_AXIS_M`` m kolem os silnic (OSM / ZABAGED, mimo mosty a tunely; shapely) nebo None."""
+def _corridor_road_axes(work_dir: Path):
+    """Osy silnic (OSM / ZABAGED, mimo mosty a tunely) sloučené do jedné geometrie (shapely) nebo None."""
     from shapely.geometry import LineString
     from shapely.ops import unary_union
 
@@ -1151,7 +1151,7 @@ def _corridor_road_axis_zone(work_dir: Path):
             continue
         if op.path_draw_highway(hw) in CORRIDOR_ROAD_BASES:
             lines.append(LineString(coords))
-    return unary_union(lines).buffer(CORRIDOR_ROAD_AXIS_M, cap_style=2) if lines else None
+    return unary_union(lines) if lines else None
 
 
 def dtm_area_preset(preset_id: str) -> bool:
@@ -1208,10 +1208,10 @@ def dtm_corridor_geometry(work_dir: Path, scale: int, path_source: str = "mixed"
         roads = road_geometry(work_dir, path_source)
         if roads is None:
             return None
-        axis = _corridor_road_axis_zone(work_dir)
-        if axis is None:
+        axes = _corridor_road_axes(work_dir)
+        if axes is None:
             return None
-        roads = roads.intersection(axis)
+        roads = roads.intersection(axes.buffer(CORRIDOR_ROAD_AXIS_M, cap_style=2))
         if roads.is_empty:
             return None
         sidewalks = sidewalk_geometry(work_dir, path_source, roads=None) if CORRIDOR_WITH_SIDEWALKS else None
@@ -1223,6 +1223,7 @@ def dtm_corridor_geometry(work_dir: Path, scale: int, path_source: str = "mixed"
                 scale=scale,
                 parking=corridor_parking_geometry(work_dir),
                 min_drawn_m=min_drawn_m,
+                axes=axes,
             ),
             work_dir,
             scale,
