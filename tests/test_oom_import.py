@@ -812,3 +812,17 @@ def test_zabaged_street_not_drawn_across_paved_area_in_forest(tmp_path):
 
     assert count(None) == 1
     assert count((paved, paved)) == 2  # ulice před a za plochou, uvnitř ne
+
+
+def test_zabaged_road_bridge_yields_to_osm_bridge(tmp_path):
+    """Les / MTBO: silniční most ze ZABAGED (vrstva Most) souběžný s OSM silnicí / mostem se nekreslí; sprint ano."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Most", [[(x0, y0), (x0 + 250, y0)]])
+    osm = [[(x0 - 20, y0 + 1.0), (x0 + 270, y0 + 1.0)]]
+    assert len(_zabaged_line_lengths(z, "Most", "sprint_4000", 4000, x0, y0, None)) == 1
+    assert len(_zabaged_line_lengths(z, "Most", "mtbo_10000", 10000, x0, y0, None)) == 1
+    assert _zabaged_line_lengths(z, "Most", "mtbo_10000", 10000, x0, y0, osm) == []
+    assert _zabaged_line_lengths(z, "Most", "forest_10000", 10000, x0, y0, osm) == []
+    assert len(_zabaged_line_lengths(z, "Most", "sprint_4000", 4000, x0, y0, osm)) == 1

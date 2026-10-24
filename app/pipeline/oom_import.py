@@ -54,6 +54,9 @@ _CLIFF_DXF_NAMES = frozenset(
 _TAG_SIDE_OFFSET_M = 2.0
 # Čáry těchto vrstev ZABAGED se ořežou o plochy chodníků a silnic z DTM (nekreslí se podruhé).
 _DTM_CLIPPED_PATH_LAYERS = frozenset({"Ulice", "SilniceDalnice", "Cesta", "Pesina"})
+# Les / MTBO: silniční most ze ZABAGED (vrstva Most, road-path) se dedupuje proti OSM silnicím včetně mostů
+# (way/4878104: ZABAGED Most 252 m nakreslený souběžně s OSM mostem). Železniční mosty ne.
+_ROAD_BRIDGE_LAYER = "Most:silnice"
 
 # ZABAGED vrstvy, které skálu NEpřebíjejí (zelená / bílá / vegetační pozadí).
 # Vrstevnice sem nepatří – nejsou v ZABAGED a do blockerů se vůbec nenačítají.
@@ -1124,10 +1127,10 @@ def build_zabaged_object_parts(
 
     # Les / MTBO (mixed = OSM + detaily ze ZABAGED): i ulice ustoupí OSM; sprint beze změny.
     osm_first_layers = ZABAGED_PATH_LAYERS_OSM_FIRST | (
-        frozenset() if preset_id.startswith("sprint") else frozenset({"Ulice", "SilniceDalnice"})
+        frozenset() if preset_id.startswith("sprint") else frozenset({"Ulice", "SilniceDalnice", _ROAD_BRIDGE_LAYER})
     )
 
-    road_layers = frozenset({"Ulice", "SilniceDalnice"})
+    road_layers = frozenset({"Ulice", "SilniceDalnice", _ROAD_BRIDGE_LAYER})
     road_index = None
     paved_core = None
 
@@ -1264,7 +1267,8 @@ def build_zabaged_object_parts(
                 ):
                     continue
                 line_parts = _ogr_line_parts_5514(geom)
-                line_parts = _filter_vs_osm(line_parts, layer_name)
+                flt_layer = _ROAD_BRIDGE_LAYER if layer_name == "Most" and rule.symbol_name == "road-path" else layer_name
+                line_parts = _filter_vs_osm(line_parts, flt_layer)
                 if layer_name == "Pesina" and line_parts:
                     if all(
                         centerline_cover_fraction(pts, wider_paths, match_m=MATCH_M)
@@ -1291,7 +1295,7 @@ def build_zabaged_object_parts(
                 elif (
                     (dtm_cover is not None or paved_clip is not None or osm_first)
                     and not preset_id.startswith("sprint")
-                    and layer_name in _DTM_CLIPPED_PATH_LAYERS
+                    and (layer_name in _DTM_CLIPPED_PATH_LAYERS or flt_layer == _ROAD_BRIDGE_LAYER)
                 ):
                     # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
@@ -1382,7 +1386,8 @@ def build_zabaged_object_parts(
                 if osm_priority_areas and _covered_by_osm_area(layer_name, bytes(wkb)):
                     continue
                 line_parts = _wkb_line_parts_5514(wkb)
-                line_parts = _filter_vs_osm(line_parts, layer_name)
+                flt_layer = _ROAD_BRIDGE_LAYER if layer_name == "Most" and rule.symbol_name == "road-path" else layer_name
+                line_parts = _filter_vs_osm(line_parts, flt_layer)
                 if layer_name == "Pesina" and line_parts:
                     if all(
                         centerline_cover_fraction(pts, wider_paths, match_m=MATCH_M)
@@ -1408,7 +1413,7 @@ def build_zabaged_object_parts(
                 elif (
                     (dtm_cover is not None or paved_clip is not None or osm_first)
                     and not preset_id.startswith("sprint")
-                    and layer_name in _DTM_CLIPPED_PATH_LAYERS
+                    and (layer_name in _DTM_CLIPPED_PATH_LAYERS or flt_layer == _ROAD_BRIDGE_LAYER)
                 ):
                     # Les / MTBO (mixed): Ulice / SilniceDalnice ořezané o kresbu OSM silnic (``_filter_vs_osm``),
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
