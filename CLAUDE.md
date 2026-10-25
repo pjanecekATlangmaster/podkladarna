@@ -287,6 +287,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Železnice a tramvaj ze ZABAGED se nekreslí v okolí 4 m od OSM kolejí v tunelu (`rail_tunnels.geojson` z přípravy OSM, `ZABAGED_RAIL_LAYERS`).
 - **Malé zalomené schody v lese a MTBO** (OSM, `small_complex_steps`): navazující čáry schodů tvaru „L“ / „C“ s rozsahem do 15 m (kratší strana
   otočeného obdélníku ≥ 2 m) se nekreslí. Složitá schodiště z DTM les nekreslí už dřív (`is_complex_stairs`, sprint je kreslí plochou).
+- **Plochy pod olivou v lese a MTBO** (Petr 2026-10-25, `paved_fill_outside_olive`): výplň 501.1 se o kreslenou olivu do 5 000 m² ořízne (`PAVED_FILL_OLIVE_MAX_M2`; velké areály jako ateliéry Barrandov ne), plocha
+  uvnitř olivy (vstup může být povolený) zůstane jen okrajem 501.2 a oliva se nevyřízne. ZABAGED `OstatniPlochaVSidlech` se v lese a MTBO
+  kreslí v síti zpevněných ploch (`zabaged_paved_areas`, `with_zabaged_paved_areas`, kind `pedestrian_area`, zdroj `zabaged`), ne 501.0
+  s pevným obrysem – silnice se v ní ořízne a okraj se u silnice přeruší (Sedlčany). Smíšená stezka zasahující čárou do kresby silnice
+  nebo koridoru se nekreslí (`bike_road_zone`).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.

@@ -686,12 +686,19 @@ def _write_ostatni_band_shapefiles(
     return written
 
 
+# Výchozí horní mez výměry ZABAGED ostatní plochy v sídlech (m²).
+DEFAULT_MAX_OSTATNI_M2 = 50_000.0
+
+
 def prepare_oom_map(kp_cwd: Path, dest: Path, *, use_dtm: bool = True, **kwargs) -> Path | None:
     """Sestaví .omap (``_prepare_oom_map``). ``use_dtm`` False: mapa se kreslí jen z OSM + ZABAGED, jako by výřez
     neměl data DTM (volba jobu; data DTM zůstávají pro ostatní disciplíny)."""
     from app.pipeline.dtm_import import dtm_disabled
+    from app.pipeline.osm_paths import zabaged_paved_areas
 
-    with dtm_disabled(not use_dtm):
+    # Les a MTBO: ZABAGED ostatní plochy v sídlech (kreslené jako zpevněná plocha, ne 403) v síti zpevněných ploch.
+    paved_zip = None if kwargs.get("ostatni_as_403") else kwargs.get("zabaged_clean")
+    with dtm_disabled(not use_dtm), zabaged_paved_areas(paved_zip, kwargs.get("max_ostatni_m2", DEFAULT_MAX_OSTATNI_M2)):
         return _prepare_oom_map(kp_cwd, dest, **kwargs)
 
 
@@ -715,7 +722,7 @@ def _prepare_oom_map(
     contour_formlines: str = "off",
     path_source: str = PATH_SOURCE_MIXED,
     aopk_trees: Path | None = None,
-    max_ostatni_m2: float | None = 50_000.0,
+    max_ostatni_m2: float | None = DEFAULT_MAX_OSTATNI_M2,
     ostatni_as_403: bool = False,
     residual_paved: bool = False,
     max_residual_m2: float = 500.0,
@@ -764,6 +771,10 @@ def _prepare_oom_map(
         # ZABAGED louky/parková zeleň nesmí řídit vegetaci v auto .omap
         # (vegetace = hustota LiDAR odrazů / CHM záloha).
         omit |= set(_ZABAGED_UNDER_VEGETATION)
+        from app.pipeline.osm_paths import ZABAGED_PAVED_LAYER, zabaged_paved_active
+
+        if zabaged_paved_active(preset_id):
+            omit.add(ZABAGED_PAVED_LAYER)  # les a MTBO: kreslí ji síť zpevněných ploch
         # Sprint: voda (modrá) by překryla výplň mostu → vodní plocha se pod mostovkami vystřihne.
         water_deck = None
         if preset_id.startswith("sprint"):
@@ -1107,6 +1118,10 @@ def _prepare_oom_map(
         grivation_deg=grivation,
         path_source=path_source,
     )
+    # Les a MTBO: výplň zpevněné plochy se pod olivou nekreslí, oliva zůstává celá (plocha jen okrajem).
+    from app.pipeline.path_clearance import paved_fill_outside_olive
+
+    object_parts = paved_fill_outside_olive(object_parts, preset_id=preset_id, scale=scale)
     aoi_part = build_aoi_boundary_part(
         bbox_wgs84,
         preset_id=preset_id,
