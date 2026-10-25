@@ -12,6 +12,8 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -4655,6 +4657,83 @@ def cut_paved_by_mtbo_dtm_areas(work_dir: Path, feats: list[dict], preset_id: st
     return out
 
 
+# Les a MTBO: plochy ZABAGED ``OstatniPlochaVSidlech`` se kreslí jako součást sítě zpevněných ploch (silnice se uvnitř
+# ořízne, okraj se u silnice přeruší), ne samostatným symbolem 501.0 s pevným obrysem (Sedlčany, Petr 2026-10-25).
+# Hodnota: ``(zabaged_clean.zip, max. výměra m²)`` po dobu sestavení mapy (``zabaged_paved_areas``), jinak None.
+ZABAGED_PAVED_LAYER = "OstatniPlochaVSidlech"
+_ZABAGED_PAVED: ContextVar[tuple[str, float] | None] = ContextVar("zabaged_paved", default=None)
+
+
+@contextmanager
+def zabaged_paved_areas(archive: Path | None, max_m2: float | None):
+    """Po dobu bloku les a MTBO berou ``ZABAGED_PAVED_LAYER`` z ``archive`` (do ``max_m2`` m²) do sítě zpevněných ploch.
+
+    ``archive`` None / neexistující nebo ``max_m2`` None (vrstva se nekreslí) = beze změny.
+    """
+    if archive is None or max_m2 is None or not Path(archive).is_file():
+        yield
+        return
+    token = _ZABAGED_PAVED.set((str(archive), float(max_m2)))
+    _PAVED_NETWORK_CACHE.clear()
+    try:
+        yield
+    finally:
+        _ZABAGED_PAVED.reset(token)
+        _PAVED_NETWORK_CACHE.clear()
+
+
+def zabaged_paved_active(preset_id: str) -> bool:
+    """Kreslí se ``ZABAGED_PAVED_LAYER`` v síti zpevněných ploch (les a MTBO uvnitř ``zabaged_paved_areas``)?"""
+    return bool(preset_id) and not preset_id.startswith("sprint") and _ZABAGED_PAVED.get() is not None
+
+
+def with_zabaged_paved_areas(feats: list[dict], preset_id: str) -> list[dict]:
+    """Les a MTBO: k prvkům přidá plochy ``ZABAGED_PAVED_LAYER`` jako ``pedestrian_area`` (zdroj ``zabaged``)."""
+    if not zabaged_paved_active(preset_id):
+        return feats
+    archive, max_m2 = _ZABAGED_PAVED.get()
+    try:
+        import io
+
+        import shapefile
+        from shapely.geometry import mapping, shape
+
+        from app.pipeline.fetch_zabaged import ostatni_plocha_too_large
+
+        extra = []
+        stem = ZABAGED_PAVED_LAYER
+        with ZipFile(archive) as zf:
+            if not {f"{stem}.shp", f"{stem}.shx", f"{stem}.dbf"} <= set(zf.namelist()):
+                return feats
+            reader = shapefile.Reader(
+                shp=io.BytesIO(zf.read(f"{stem}.shp")),
+                shx=io.BytesIO(zf.read(f"{stem}.shx")),
+                dbf=io.BytesIO(zf.read(f"{stem}.dbf")),
+            )
+            for rec in reader.iterShapeRecords():
+                if rec.shape.shapeType == 0:
+                    continue
+                try:
+                    g = shape(rec.shape.__geo_interface__)
+                except (ValueError, TypeError, AttributeError):
+                    continue
+                if g.geom_type not in ("Polygon", "MultiPolygon"):
+                    continue
+                g = g if g.is_valid else g.buffer(0)
+                if g.is_empty or ostatni_plocha_too_large(rec.record.as_dict(), geom_area_m2=g.area, max_area_m2=max_m2):
+                    continue
+                extra.append(
+                    {
+                        "type": "Feature",
+                        "properties": {"source": "zabaged", "kind": "pedestrian_area", "oom_code": "501"},
+                        "geometry": mapping(g),
+                    }
+                )
+    except Exception:  # bez pyshp / s vadným archivem zůstane kresba z OSM
+        return feats
+    return feats + extra if extra else feats
+
+
 def with_dtm_walk_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
     """Les: k prvkům přidá široké pěší plochy z DTM (``dtm_widths.wide_walk_area_features``).
 
@@ -4725,7 +4804,7 @@ def open_narrow_walk_areas(feats: list[dict], preset_id: str, scale: int) -> lis
         if (
             props.get("kind") != "pedestrian_area"
             or props.get("structure")
-            or props.get("source") == "dtm"  # DTM plocha nemá čáru, která by ji nahradila (je už otevřená 0,5 mm)
+            or props.get("source") in ("dtm", "zabaged")  # DTM / ZABAGED plocha nemá čáru, která by ji nahradila (je už otevřená 0,5 mm)
             or geom.get("type") not in ("Polygon", "MultiPolygon")
         ):
             out.append(f)
@@ -4827,7 +4906,7 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
     if not gj.is_file():
         return None, None
     try:
-        key = (str(gj), gj.stat().st_mtime_ns, preset_id, scale)
+        key = (str(gj), gj.stat().st_mtime_ns, preset_id, scale, _ZABAGED_PAVED.get())
     except OSError:
         return None, None
     if key not in _PAVED_NETWORK_CACHE:
@@ -4837,6 +4916,7 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
             feats = []
         _path_feats = _paths_features_for_network(work_dir)
         if preset_id:
+            feats = with_zabaged_paved_areas(feats, preset_id)
             feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)
             feats = open_narrow_walk_areas(feats, preset_id, scale)
             feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)
@@ -6346,6 +6426,7 @@ def build_osm_feature_parts(
     if not preset_id.startswith("sprint"):
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
         _path_feats = _paths_features_for_network(work_dir)
+        feats = with_zabaged_paved_areas(feats, preset_id)  # ZABAGED ostatní plochy v sídlech do sítě
         feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)  # les: široké pěší plochy z DTM
         feats = open_narrow_walk_areas(feats, preset_id, scale)  # úzké výběžky pěších ploch kreslí čára
         feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)  # podélné stání = silnice
