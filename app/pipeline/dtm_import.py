@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from app.pipeline import dtm_fences, dtm_sources
@@ -54,9 +56,49 @@ NONSPRINT_AVOID_MAX_SHIFT_MM = 0.9
 MTBO_PARKING_MIN_M2 = 300.0
 # MTBO: silnice s přilehlými chodníky jednou plochou (koridor); False = jen čáry 502.x jako dřív.
 MTBO_ROAD_CORRIDOR = True
+# Petr 2026-10-24: tvary chodníků podél silnice se do koridoru nepřidávají (koridor je jen silnice + parkoviště).
+CORRIDOR_WITH_SIDEWALKS = False
 # MTBO bere z DTM to, co je v 1:10000–1:15000 čitelné (budovy, ploty, koridor silnice, široké chodníky, velká
 # parkoviště, schodiště, šířky cest): False = MTBO se kreslí z ZABAGED / OSM jako před zavedením DTM (``mtbo_dtm_off``).
 MTBO_USE_DTM = True
+
+
+# Les kreslí z DTM koridor silnice a velká parkoviště plochou jako MTBO (výplň 501.1 + okraj 501.2); False = jen čáry.
+FOREST_DTM_AREAS = True
+
+
+# Volba jobu „kreslit z OSM + ZABAGED“ (bez DTM) pro les / MTBO či sprint: data DTM v jobu zůstanou (jiná disciplína
+# je může kreslit), ale po dobu sestavení té mapy je pipeline nevidí (``dtm_disabled``) – kreslí se jako bez DTM.
+_DTM_OFF: ContextVar[bool] = ContextVar("podkladarna_dtm_off", default=False)
+DTM_OFF_DIR = "dtm_off"  # neexistující složka místo ``dtm`` (všechny ``*_path`` pak vrací chybějící soubor)
+
+
+def dtm_dir(work_dir: Path) -> Path:
+    """Složka s připravenými daty DTM jobu (``dtm``), při ``dtm_disabled`` neexistující ``dtm_off``."""
+    return work_dir / (DTM_OFF_DIR if _DTM_OFF.get() else "dtm")
+
+
+def dtm_is_disabled() -> bool:
+    return _DTM_OFF.get()
+
+
+@contextmanager
+def dtm_disabled(off: bool = True):
+    """Po dobu bloku se DTM jobu nepoužívá (``off``); paměťové cache geometrií se vyprázdní na vstupu i výstupu."""
+    if not off:
+        yield
+        return
+    from app.pipeline import osm_paths as op
+
+    token = _DTM_OFF.set(True)
+    _MTBO_GEOMETRY_CACHE.clear()
+    op._PAVED_NETWORK_CACHE.clear()
+    try:
+        yield
+    finally:
+        _DTM_OFF.reset(token)
+        _MTBO_GEOMETRY_CACHE.clear()
+        op._PAVED_NETWORK_CACHE.clear()
 
 
 def mtbo_dtm_off(preset_id: str) -> bool:
@@ -71,7 +113,7 @@ MTBO_SIDEWALK_MIN_LEN_M = 15.0
 
 
 def fences_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / FENCES_NAME
+    return dtm_dir(work_dir) / FENCES_NAME
 
 
 class DtmPrefetch:
@@ -203,15 +245,15 @@ def prepare_dtm_fences(
 
 
 def sidewalks_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / SIDEWALKS_NAME
+    return dtm_dir(work_dir) / SIDEWALKS_NAME
 
 
 def roads_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / ROADS_NAME
+    return dtm_dir(work_dir) / ROADS_NAME
 
 
 def decks_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / DECKS_NAME
+    return dtm_dir(work_dir) / DECKS_NAME
 
 
 def _write_decks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) -> None:
@@ -276,23 +318,23 @@ def _minus_decks(geom, work_dir: Path):
 
 
 def buildings_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / BUILDINGS_NAME
+    return dtm_dir(work_dir) / BUILDINGS_NAME
 
 
 def small_paved_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / SMALL_PAVED_NAME
+    return dtm_dir(work_dir) / SMALL_PAVED_NAME
 
 
 def stairs_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / STAIRS_NAME
+    return dtm_dir(work_dir) / STAIRS_NAME
 
 
 def parking_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / PARKING_NAME
+    return dtm_dir(work_dir) / PARKING_NAME
 
 
 def green_path(work_dir: Path) -> Path:
-    return work_dir / "dtm" / GREEN_NAME
+    return dtm_dir(work_dir) / GREEN_NAME
 
 
 def dtm_owns_stairs(work_dir: Path) -> bool:
@@ -848,6 +890,8 @@ FILL_ONLY_CODE = {"501.0": "501.1", ROAD_CODE: "501.21"}
 EDGE_CODE = "501.100"
 # Šířka pásu kolem hrany mostu (m), v němž se obrys spodní plochy nekreslí.
 EDGE_EXCLUDE_BUFFER_M = 0.15
+# Kus obrysu kratší než tohle (mm mapy) se po zkrácení o ``edge_omit`` (napojení cest) zahodí – vypadá jako úlomek.
+EDGE_STUB_MIN_MM = 0.4
 
 
 def _chunk_line(coords: list[tuple[float, float]], size: int) -> list[list[tuple[float, float]]]:
@@ -874,12 +918,23 @@ def _geometry_part(
     clip_bounds: Bounds | None,
     outline_separate: bool = False,
     edge_exclude=None,
+    edge_omit=None,
+    fill_code: str | None = None,
+    edge_code: str = EDGE_CODE,
+    edge_lines=None,
 ) -> list[OomObjectPart]:
     """Plocha (shapely) jako části .omap se symbolem ``code``; prázdný seznam bez geometrie / symbolu.
+
+    ``fill_code`` / ``edge_code``: bezobrysová výplň a obrys místo ``FILL_ONLY_CODE[code]`` / 501.100 (les: 501.1 + 501.2).
 
     ``outline_separate``: vždy bezobrysová výplň + zvláštní obrys 501.100 (i u malých polygonů).
     ``edge_exclude``: plocha (půdorys mostu, shapely); obrys podél její hrany se nekreslí a polygony, které se jí
     dotýkají, se kreslí s obrysem zvlášť (spodní plocha pod mostem končí u trojúhelníků, ne obrysovou čárou).
+
+    ``edge_omit``: plocha (shapely); obrys se o ni zkrátí (napojení kreslené cesty na hranu koridoru), výplň zůstává.
+    Kus obrysu kratší než ``EDGE_STUB_MIN_MM`` mezi dvěma přerušeními se zahodí.
+    ``edge_lines``: čáry obrysu (shapely) místo hranice polygonů, bere se jejich část do ``EDGE_LINES_REACH_M`` m od polygonu
+    (koridor: obrys sloučený s přiléhající plochou, viz ``build_mtbo_corridor_parts``).
 
     Polygony nad ``AREA_SPLIT_VERTICES`` vrcholů: bezobrysová výplň rozřezaná na díly + zvláštní část
     s obrysem (čára 501.100) po skutečné hranici (ne podél ořezu na výřez ani podél řezů).
@@ -899,9 +954,9 @@ def _geometry_part(
     idx = symbol_index_for_code(preset_id, scale, code)
     if idx is None:
         return []
-    fill_code = FILL_ONLY_CODE.get(code)
+    fill_code = fill_code or FILL_ONLY_CODE.get(code)
     fill_idx = symbol_index_for_code(preset_id, scale, fill_code) if fill_code else None
-    edge_idx = symbol_index_for_code(preset_id, scale, EDGE_CODE)
+    edge_idx = symbol_index_for_code(preset_id, scale, edge_code)
 
     def to_map(ring):
         return [
@@ -929,12 +984,31 @@ def _geometry_part(
                 obj = _area_object_with_holes(fill_idx, [to_map(ring), *[to_map(h) for h in holes]])
                 if obj:
                     objects.append(obj)
-            outline = unary_union([LineString(r) for r in rings])
+            if edge_lines is not None:
+                from shapely.geometry import Polygon as _EdgePoly
+
+                outline = edge_lines.intersection(_EdgePoly(rings[0], rings[1:]).buffer(EDGE_LINES_REACH_M))
+            else:
+                outline = unary_union([LineString(r) for r in rings])
             if clip is not None:
                 outline = outline.difference(clip.exterior.buffer(0.02))
             if exclude_zone is not None:
                 outline = outline.difference(exclude_zone)  # podél hrany mostu obrys není (trojúhelníky)
+            if edge_omit is not None and not edge_omit.is_empty:
+                outline = outline.difference(edge_omit)
             lines = [outline] if outline.geom_type == "LineString" else [g for g in getattr(outline, "geoms", []) if g.geom_type == "LineString"]
+            if edge_omit is not None and not edge_omit.is_empty:
+                # pahýl mezi dvěma přerušeními pryč; kus navazující na obrys jiné plochy (``edge_lines``) zůstává
+                from shapely.geometry import Point as _StubPt
+
+                stub_m = EDGE_STUB_MIN_MM * scale / 1000.0
+                lines = [
+                    ln
+                    for ln in lines
+                    if ln.length >= stub_m
+                    or ln.is_closed
+                    or not all(edge_omit.distance(_StubPt(c)) <= 0.05 for c in (ln.coords[0], ln.coords[-1]))
+                ]
             for ln in lines:
                 for piece in _chunk_line([(float(x), float(y)) for x, y in ln.coords], OUTLINE_CHUNK_VERTICES):
                     obj = _path_object_mapped(edge_idx, to_map(piece))
@@ -948,7 +1022,7 @@ def _geometry_part(
     if objects:
         parts.append(OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects)))
     if edges:
-        parts.append(OomObjectPart(name=f"{name} – obrys (501.100)", objects_xml="\n".join(edges), count=len(edges)))
+        parts.append(OomObjectPart(name=f"{name} – obrys ({edge_code})", objects_xml="\n".join(edges), count=len(edges)))
     return parts
 
 
@@ -1082,13 +1156,13 @@ def _load_bike_lines(work_dir: Path) -> list[list[tuple[float, float]]]:
 _MTBO_GEOMETRY_CACHE: dict[tuple, object] = {}
 
 
-def _mtbo_cached(name: str, work_dir: Path, scale: int, path_source: str, compute):
+def _mtbo_cached(name: str, work_dir: Path, scale: int, path_source: str, compute, extra: tuple = ()):
     stamps = []
-    for sub in ("dtm", "osm_paths"):
+    for sub in (dtm_dir(work_dir).name, "osm_paths"):
         d = work_dir / sub
         if d.is_dir():
             stamps.extend((f.name, f.stat().st_mtime_ns) for f in sorted(d.iterdir()) if f.is_file())
-    key = (name, str(work_dir), scale, path_source, MTBO_USE_DTM, MTBO_ROAD_CORRIDOR, MTBO_SIDEWALK_AREAS, tuple(stamps))
+    key = (name, str(work_dir), scale, path_source, MTBO_USE_DTM, FOREST_DTM_AREAS, MTBO_ROAD_CORRIDOR, MTBO_SIDEWALK_AREAS, CORRIDOR_WITH_SIDEWALKS, extra, tuple(stamps))
     if key not in _MTBO_GEOMETRY_CACHE:
         if len(_MTBO_GEOMETRY_CACHE) > 32:
             _MTBO_GEOMETRY_CACHE.clear()
@@ -1110,10 +1184,19 @@ def _clean_area(g):
 # ``ManipulacniPlocha`` (areály, dvory, údolí – Praha 5 až 12 ha) a plochy kolem lesních cest se tak koridorem nezalijí.
 CORRIDOR_ROAD_AXIS_M = 10.0
 CORRIDOR_ROAD_BASES = frozenset({"road_2", "road_3", "road_4"})
+# Napojení kreslené cesty na koridor: okraj koridoru se vynechá kolem průsečíku osy cesty s jeho hranou.
+JUNCTION_BASES = frozenset({"road_1", "road_2", "road_3", "road_4"})
+JUNCTION_EXTRA_M = 0.3
+JUNCTION_END_TOL_M = 0.5  # konec čáry z hotové mapy do této vzdálenosti od hrany koridoru = napojení
+# Hlavní čísla kódů čar, jejichž napojení přeruší okraj koridoru (les 502–504, MTBO navíc 815 = road_1 / track_fast).
+JUNCTION_MAJORS = frozenset({502, 503, 504, 815})
+# Okraj koridoru a přiléhající zpevněné plochy (parkoviště, síť OSM) se na společné hranici nekreslí (m).
+CORRIDOR_SHARED_EDGE_M = 0.5
+EDGE_LINES_REACH_M = CORRIDOR_SHARED_EDGE_M + 0.1  # obrys koridoru zasahuje k rohu přiléhající plochy dál, než ta svůj vynechá
 
 
-def _corridor_road_axis_zone(work_dir: Path):
-    """Pás ``CORRIDOR_ROAD_AXIS_M`` m kolem os silnic (OSM / ZABAGED, mimo mosty a tunely; shapely) nebo None."""
+def _corridor_road_axes(work_dir: Path):
+    """Osy silnic (OSM / ZABAGED, mimo mosty a tunely) sloučené do jedné geometrie (shapely) nebo None."""
     from shapely.geometry import LineString
     from shapely.ops import unary_union
 
@@ -1128,37 +1211,88 @@ def _corridor_road_axis_zone(work_dir: Path):
             continue
         if op.path_draw_highway(hw) in CORRIDOR_ROAD_BASES:
             lines.append(LineString(coords))
-    return unary_union(lines).buffer(CORRIDOR_ROAD_AXIS_M, cap_style=2) if lines else None
+    return unary_union(lines) if lines else None
 
 
-def mtbo_corridor_geometry(work_dir: Path, scale: int, path_source: str = "mixed"):
-    """Koridor silnice pro MTBO (silnice + přilehlé chodníky, jen dost široké části; shapely) nebo None."""
+def dtm_area_preset(preset_id: str) -> bool:
+    """Kreslí preset koridor silnice a parkoviště z DTM plochou? (MTBO s ``MTBO_USE_DTM``, les s ``FOREST_DTM_AREAS``.)"""
+    if preset_id.startswith("sprint"):
+        return False
+    if preset_id.startswith("mtbo"):
+        return MTBO_USE_DTM
+    return FOREST_DTM_AREAS
+
+
+MTBO_CORRIDOR_PRESET = "mtbo_10000"  # preset pro šířku kresby silnice, když funkce MTBO nedostane ``preset_id``
+
+
+def corridor_min_drawn_m(preset_id: str | None, scale: int) -> float:
+    """Kreslená šířka silnice 502 (m) v presetu = nejmenší šířka koridoru, který ji nahrazuje."""
+    from app.pipeline.osm_paths import drawn_symbol_width_m
+
+    return round(drawn_symbol_width_m("road_3", preset_id or MTBO_CORRIDOR_PRESET, scale), 3)
+
+
+def corridor_geometry_for(work_dir: Path, preset_id: str, scale: int, path_source: str = "mixed"):
+    """Koridor silnice z DTM pro les / MTBO (``dtm_corridor_geometry``), None u presetu bez ploch z DTM."""
+    if not dtm_area_preset(preset_id):
+        return None
+    return dtm_corridor_geometry(work_dir, scale, path_source, corridor_min_drawn_m(preset_id, scale))
+
+
+def mtbo_corridor_geometry(work_dir: Path, scale: int, path_source: str = "mixed", preset_id: str | None = None):
+    """Koridor silnice pro MTBO (silnice, jen dost široké části; s ``CORRIDOR_WITH_SIDEWALKS`` i chodníky; shapely) nebo None."""
+    if not MTBO_USE_DTM:
+        return None
+    return dtm_corridor_geometry(work_dir, scale, path_source, corridor_min_drawn_m(preset_id, scale))
+
+
+def _generalized(g, work_dir: Path, scale: int):
+    """Plocha z DTM generalizovaná pro měřítko (zacelení nezasáhne do kreslených budov) a vyčištěná."""
     from app.pipeline import dtm_sidewalks
 
-    if not MTBO_USE_DTM or not MTBO_ROAD_CORRIDOR or not (dtm_owns_roads(work_dir) or dtm_owns_sidewalks(work_dir)):
+    if g is None or g.is_empty:
+        return None
+    return _clean_area(dtm_sidewalks.generalize_area(g, scale, blockers=_buildings_zone(work_dir, tol_m=0.0)))
+
+
+def dtm_corridor_geometry(work_dir: Path, scale: int, path_source: str = "mixed", min_drawn_m: float = 0.0):
+    """Koridor silnice z DTM (silnice, s ``CORRIDOR_WITH_SIDEWALKS`` i přilehlé chodníky; jen dost široké části,
+    generalizovaný; shapely) nebo None. ``min_drawn_m``: nejmenší šířka (kresba silnice 502), viz ``corridor_min_drawn_m``."""
+    from app.pipeline import dtm_sidewalks
+
+    if not MTBO_ROAD_CORRIDOR or not (dtm_owns_roads(work_dir) or dtm_owns_sidewalks(work_dir)):
         return None
 
     def compute():
         roads = road_geometry(work_dir, path_source)
         if roads is None:
             return None
-        axis = _corridor_road_axis_zone(work_dir)
-        if axis is None:
+        axes = _corridor_road_axes(work_dir)
+        if axes is None:
             return None
-        roads = roads.intersection(axis)
+        roads = roads.intersection(axes.buffer(CORRIDOR_ROAD_AXIS_M, cap_style=2))
         if roads.is_empty:
             return None
-        sidewalks = sidewalk_geometry(work_dir, path_source, roads=None)
-        return _clean_area(
+        sidewalks = sidewalk_geometry(work_dir, path_source, roads=None) if CORRIDOR_WITH_SIDEWALKS else None
+        return _generalized(
             dtm_sidewalks.road_corridor(
-                roads, sidewalks, _load_bike_lines(work_dir), scale=scale, parking=corridor_parking_geometry(work_dir)
-            )
+                roads,
+                sidewalks,
+                _load_bike_lines(work_dir),
+                scale=scale,
+                parking=corridor_parking_geometry(work_dir),
+                min_drawn_m=min_drawn_m,
+                axes=axes,
+            ),
+            work_dir,
+            scale,
         )
 
-    return _mtbo_cached("corridor", work_dir, scale, path_source, compute)
+    return _mtbo_cached("corridor", work_dir, scale, path_source, compute, (min_drawn_m,))
 
 
-def mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str = "mixed"):
+def mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str = "mixed", preset_id: str | None = None):
     """Chodníky a zpevněné cesty z DTM mimo silnice pro MTBO (shapely) nebo None.
 
     Jako ve sprintu tvar bere DTM (+ zbytky OSM), ale jen části široké aspoň ``MTBO_SIDEWALK_MIN_WIDTH_MM`` mm mapy
@@ -1167,10 +1301,17 @@ def mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str = "mixed
     """
     if not MTBO_USE_DTM or not MTBO_SIDEWALK_AREAS or not dtm_owns_sidewalks(work_dir):
         return None
-    return _mtbo_cached("sidewalks", work_dir, scale, path_source, lambda: _mtbo_sidewalk_geometry(work_dir, scale, path_source))
+    return _mtbo_cached(
+        "sidewalks",
+        work_dir,
+        scale,
+        path_source,
+        lambda: _mtbo_sidewalk_geometry(work_dir, scale, path_source, preset_id),
+        (corridor_min_drawn_m(preset_id, scale),),
+    )
 
 
-def _mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str):
+def _mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str, preset_id: str | None = None):
     from shapely.geometry import LineString
     from shapely.ops import unary_union
 
@@ -1179,7 +1320,7 @@ def _mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str):
     sidewalks = sidewalk_geometry(work_dir, path_source, roads=None)
     if sidewalks is None or sidewalks.is_empty:
         return None
-    corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
+    corridor = mtbo_corridor_geometry(work_dir, scale, path_source, preset_id)
     if corridor is not None and not corridor.is_empty:
         sidewalks = sidewalks.difference(corridor)
     roads = road_geometry(work_dir, path_source)
@@ -1190,31 +1331,38 @@ def _mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str):
             near = near.difference(unary_union(bike).buffer(dtm_sidewalks.CORRIDOR_BIKE_PROTECT_M))
         sidewalks = sidewalks.difference(near)
     width = MTBO_SIDEWALK_MIN_WIDTH_MM * scale / 1000.0
-    return _clean_area(dtm_sidewalks.wide_parts(sidewalks, width, min_area_m2=width * MTBO_SIDEWALK_MIN_LEN_M))
+    return _generalized(dtm_sidewalks.wide_parts(sidewalks, width, min_area_m2=width * MTBO_SIDEWALK_MIN_LEN_M), work_dir, scale)
 
 
-def mtbo_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed"):
+def mtbo_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed", preset_id: str | None = None):
     """MTBO: velká parkoviště z DTM (od ``MTBO_PARKING_MIN_M2``) mimo koridor silnice (shapely) nebo None."""
+    if not MTBO_USE_DTM:
+        return None
+    return dtm_parking_geometry(work_dir, scale, path_source, preset_id)
+
+
+def dtm_parking_geometry(work_dir: Path, scale: int, path_source: str = "mixed", preset_id: str | None = None):
+    """Les a MTBO: velká parkoviště z DTM (od ``MTBO_PARKING_MIN_M2``) mimo koridor silnice, generalizovaná (shapely) nebo None."""
     from shapely.ops import unary_union
 
-    if not MTBO_USE_DTM or not parking_path(work_dir).is_file():
+    if not parking_path(work_dir).is_file():
         return None
 
     def compute():
         geom = parking_geometry(work_dir)
         if geom is None:
             return None
-        corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
+        corridor = dtm_corridor_geometry(work_dir, scale, path_source, corridor_min_drawn_m(preset_id, scale))
         if corridor is not None and not corridor.is_empty:
             geom = geom.difference(corridor)  # část v koridoru kreslí koridor
         polys = [geom] if geom.geom_type == "Polygon" else [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon"]
         big = [g for g in polys if g.area >= MTBO_PARKING_MIN_M2]
-        return _clean_area(unary_union(big)) if big else None
+        return _generalized(unary_union(big), work_dir, scale) if big else None
 
-    return _mtbo_cached("parking", work_dir, scale, path_source, compute)
+    return _mtbo_cached("parking", work_dir, scale, path_source, compute, (corridor_min_drawn_m(preset_id, scale),))
 
 
-def mtbo_dtm_area_geometry(work_dir: Path, scale: int, path_source: str = "mixed"):
+def mtbo_dtm_area_geometry(work_dir: Path, scale: int, path_source: str = "mixed", preset_id: str | None = None):
     """MTBO: plochy kreslené z DTM (koridor silnice, široké chodníky, velká parkoviště; shapely) nebo None.
 
     Síť zpevněných ploch z OSM se o ně ořízne, aby se tatáž plocha nekreslila dvakrát.
@@ -1228,15 +1376,39 @@ def mtbo_dtm_area_geometry(work_dir: Path, scale: int, path_source: str = "mixed
         geoms = [
             g
             for g in (
-                mtbo_corridor_geometry(work_dir, scale, path_source),
-                mtbo_sidewalk_geometry(work_dir, scale, path_source),
-                mtbo_parking_geometry(work_dir, scale, path_source),
+                mtbo_corridor_geometry(work_dir, scale, path_source, preset_id),
+                mtbo_sidewalk_geometry(work_dir, scale, path_source, preset_id),
+                mtbo_parking_geometry(work_dir, scale, path_source, preset_id),
             )
             if g is not None and not g.is_empty
         ]
         return unary_union(geoms) if geoms else None
 
-    return _mtbo_cached("areas", work_dir, scale, path_source, compute)
+    return _mtbo_cached("areas", work_dir, scale, path_source, compute, (corridor_min_drawn_m(preset_id, scale),))
+
+
+def dtm_area_geometry_for(work_dir: Path, preset_id: str, scale: int, path_source: str = "mixed"):
+    """Plochy kreslené z DTM v presetu (shapely) nebo None: MTBO ``mtbo_dtm_area_geometry``, les koridor + parkoviště
+    (široké pěší plochy z DTM jsou v lese součástí sítě zpevněných ploch, viz ``osm_paths.with_dtm_walk_areas``)."""
+    from shapely.ops import unary_union
+
+    if not dtm_area_preset(preset_id):
+        return None
+    if preset_id.startswith("mtbo"):
+        return mtbo_dtm_area_geometry(work_dir, scale, path_source, preset_id)
+
+    def compute():
+        geoms = [
+            g
+            for g in (
+                corridor_geometry_for(work_dir, preset_id, scale, path_source),
+                dtm_parking_geometry(work_dir, scale, path_source, preset_id),
+            )
+            if g is not None and not g.is_empty
+        ]
+        return unary_union(geoms) if geoms else None
+
+    return _mtbo_cached("forest_areas", work_dir, scale, path_source, compute, (corridor_min_drawn_m(preset_id, scale),))
 
 
 def corridor_parking_geometry(work_dir: Path):
@@ -1268,6 +1440,98 @@ def corridor_parking_geometry(work_dir: Path):
     return unary_union(geoms) if geoms else None
 
 
+def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int, road_ends=None):
+    """Kruhy kolem průsečíků os kreslených silnic a cest (road_1..road_4, ne mosty a tunely) s hranou koridoru (shapely) nebo None.
+
+    Poloměr = půlka kreslené šířky cesty + 0,3 m; obrys koridoru se tam nekreslí, ať čára cesty plynule naváže.
+    ``road_ends``: konce čar z hotové mapy ``[(x, y, půlka šířky m)]`` (``path_clearance.drawn_path_ends``) – přesně tam,
+    kde čára opravdu končí (v mixed kreslí ulici i ZABAGED); bez nich se konce odhadnou z OSM os.
+    """
+    if corridor is None or corridor.is_empty:
+        return None
+    from shapely.geometry import Point
+    from shapely.ops import unary_union
+
+    if road_ends is not None:
+        boundary = corridor.boundary
+        circles = [
+            Point(x, y).buffer(half + JUNCTION_EXTRA_M)
+            for x, y, half in road_ends
+            if boundary.distance(Point(x, y)) <= JUNCTION_END_TOL_M
+        ]
+        return unary_union(circles) if circles else None
+
+    from app.pipeline import osm_paths as op
+    from app.pipeline.dtm_sidewalks import clip_outside, trim_along_corridor
+
+    boundary = corridor.boundary
+    bands: dict[float, object] = {}
+    circles = []
+    for feat in op._paths_features_for_network(work_dir):
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        base = op.path_draw_highway(hw)
+        if (
+            geom.get("type") != "LineString"
+            or len(coords) < 2
+            or base not in JUNCTION_BASES
+            or op.is_bridge_highway(hw)
+            or op.is_tunnel_highway(hw)
+        ):
+            continue
+        w = op.drawn_symbol_width_m(base, preset_id, scale)
+        # stejné kusy čáry jako při kreslení (``build_osm_path_parts``): mimo koridor a bez úseků podél hrany
+        band = bands.get(round(w, 3))
+        if band is None:
+            band = bands[round(w, 3)] = corridor.buffer(w / 2)
+        pieces = [
+            seg for part in clip_outside(coords, corridor) for seg in trim_along_corridor(part, corridor, w, band=band, boundary=boundary)
+        ]
+        r = w / 2 + JUNCTION_EXTRA_M
+        for seg in pieces:
+            for pt in (Point(seg[0]), Point(seg[-1])):
+                if boundary.distance(pt) <= 0.1:
+                    circles.append(pt.buffer(r))
+    return unary_union(circles) if circles else None
+
+
+def corridor_shared_edge_zone(work_dir: Path, preset_id: str, scale: int, path_source: str = "mixed"):
+    """Pás ``CORRIDOR_SHARED_EDGE_M`` m kolem koridoru (shapely) nebo None: okraj přiléhající zpevněné plochy se v něm nekreslí."""
+    corridor = corridor_geometry_for(work_dir, preset_id, scale, path_source)
+    if corridor is None or corridor.is_empty:
+        return None
+    return corridor.buffer(CORRIDOR_SHARED_EDGE_M)
+
+
+def _corridor_adjacent_paved(work_dir: Path, corridor, preset_id: str, scale: int, path_source: str):
+    """Zpevněné plochy z DTM mimo koridor do ``CORRIDOR_SHARED_EDGE_M`` m od něj (parkoviště, MTBO chodníky; shapely) nebo None.
+
+    OSM síť ne: její okraj se místy nekreslí (nástupiště, napojení silnice), obrys koridoru by tam zůstal otevřený.
+    """
+    if corridor is None or corridor.is_empty:
+        return None
+    from shapely.ops import unary_union
+
+    sidewalks = mtbo_sidewalk_geometry(work_dir, scale, path_source, preset_id) if preset_id.startswith("mtbo") else None
+    areas = [
+        g
+        for g in (
+            dtm_parking_geometry(work_dir, scale, path_source, preset_id),
+            sidewalks,  # MTBO: pěší a zpevněné plochy z DTM (ulice bez silnice v DTM)
+        )
+        if g is not None and not g.is_empty
+    ]
+    if not areas:
+        return None
+    h = CORRIDOR_SHARED_EDGE_M
+    outside = unary_union(areas).difference(corridor)
+    outside = outside.buffer(-h, join_style=2).buffer(h, join_style=2)  # pruhy podél hrany (zbytky ořezu) se nepočítají
+    near = corridor.buffer(h)
+    pieces = [g for g in getattr(outside, "geoms", [outside]) if g.geom_type == "Polygon" and g.intersects(near)]
+    return unary_union(pieces) if pieces else None
+
+
 def build_mtbo_corridor_parts(
     work_dir: Path,
     *,
@@ -1278,19 +1542,34 @@ def build_mtbo_corridor_parts(
     grivation_deg: float,
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
+    road_ends=None,
 ) -> list[OomObjectPart]:
-    """MTBO: silnice s přilehlými chodníky jednou plochou (výplň 501.1) + černý obrubník (501.100).
+    """MTBO a les: silnice s přilehlými chodníky jednou plochou (výplň 501.1) + obrys (MTBO obrubník 501.100, les 501.2).
 
     Jen tam, kde je koridor dost široký (viz ``dtm_sidewalks.road_corridor``); užší silnice kreslí
     čára 502.x z OSM cest. Čáry 502.x se uvnitř koridoru nekreslí (``build_osm_path_parts``).
+    ``road_ends``: konce kreslených čar z hotové mapy (viz ``corridor_junction_omit``). Na hranici s přiléhající
+    zpevněnou plochou (parkoviště z DTM, síť OSM) se okraj nekreslí, plochy tak splynou.
     """
-    if not preset_id.startswith("mtbo") or mtbo_dtm_off(preset_id):
+    if not dtm_area_preset(preset_id):
         return []
-    corridor = mtbo_corridor_geometry(work_dir, scale, path_source)
+    corridor = corridor_geometry_for(work_dir, preset_id, scale, path_source)
+    mtbo = preset_id.startswith("mtbo")
+    edge_lines = None
+    adjacent = _corridor_adjacent_paved(work_dir, corridor, preset_id, scale, path_source)
+    if adjacent is not None:
+        # obrys po hranici koridoru sloučeného s přiléhajícími plochami: společná hranice bez okraje, u rohu navazuje
+        from shapely.ops import unary_union
+
+        c = CORRIDOR_SHARED_EDGE_M / 2
+        merged = unary_union([corridor, adjacent]).buffer(c, join_style=2).buffer(-c, join_style=2)
+        edge_lines = merged.boundary.intersection(corridor.buffer(EDGE_LINES_REACH_M))
     return _geometry_part(
         corridor,
-        name="MTBO – silnice s chodníky (koridor)",
-        code="501.0",
+        edge_omit=corridor_junction_omit(work_dir, corridor, preset_id, scale, road_ends),
+        edge_lines=edge_lines,
+        name="MTBO – silnice s chodníky (koridor)" if mtbo else "Les – silnice s chodníky z DTM (koridor)",
+        code="501.0" if mtbo else "501.1",
         preset_id=preset_id,
         scale=scale,
         ref_x=ref_x,
@@ -1298,6 +1577,7 @@ def build_mtbo_corridor_parts(
         grivation_deg=grivation_deg,
         clip_bounds=clip_bounds,
         outline_separate=True,
+        **({} if mtbo else {"fill_code": "501.1", "edge_code": "501.2"}),
     )
 
 
@@ -1459,7 +1739,7 @@ def build_dtm_sidewalk_parts(
         return []
     if preset_id.startswith("mtbo"):
         return _geometry_part(
-            mtbo_sidewalk_geometry(work_dir, scale, path_source),
+            mtbo_sidewalk_geometry(work_dir, scale, path_source, preset_id),
             name="MTBO – chodníky a zpevněné cesty z DTM",
             code="501.0",
             preset_id=preset_id,
@@ -1469,6 +1749,7 @@ def build_dtm_sidewalk_parts(
             grivation_deg=grivation_deg,
             clip_bounds=clip_bounds,
             outline_separate=True,
+            edge_omit=corridor_shared_edge_zone(work_dir, preset_id, scale, path_source),  # s koridorem splývá
         )
     if not preset_id.startswith("sprint") or not dtm_owns_sidewalks(work_dir):
         return []
@@ -1520,22 +1801,28 @@ def build_dtm_parking_parts(
 ) -> list[OomObjectPart]:
     """Parkoviště a odstavné plochy z DTM jako samostatná část.
 
-    Sprint: 501.0, ořezaná o silnice a chodníky. MTBO: jen velká parkoviště (od ``MTBO_PARKING_MIN_M2``)
-    zpevněnou plochou 529; silnice jsou tam čáry, takže se neořezává. Les: nic.
+    Sprint: 501.0, ořezaná o silnice a chodníky. Les a MTBO: jen velká parkoviště (od ``MTBO_PARKING_MIN_M2``)
+    mimo koridor, generalizovaná, výplní 501.1 s okrajem 501.2 jako OSM zpevněné plochy.
     """
     if mtbo_dtm_off(preset_id):
         return []
-    if preset_id.startswith("mtbo") and parking_path(work_dir).is_file():
+    if dtm_area_preset(preset_id):
+        if not parking_path(work_dir).is_file():
+            return []
         return _geometry_part(
-            mtbo_parking_geometry(work_dir, scale, path_source),
-            name="DTM – velká parkoviště (529)",
-            code="529",
+            dtm_parking_geometry(work_dir, scale, path_source, preset_id),
+            name="DTM – velká parkoviště",
+            code="501.1",
             preset_id=preset_id,
             scale=scale,
             ref_x=ref_x,
             ref_y=ref_y,
             grivation_deg=grivation_deg,
             clip_bounds=clip_bounds,
+            outline_separate=True,
+            fill_code="501.1",
+            edge_code="501.2",
+            edge_omit=corridor_shared_edge_zone(work_dir, preset_id, scale, path_source),
         )
     if not preset_id.startswith("sprint") or not parking_path(work_dir).is_file():
         return []
@@ -1561,7 +1848,7 @@ def classified_polygons(
     """``(chodníky, silnice)`` z DTM po přeřazení chybně zařazených ploch.
 
     ``ChodnikPlocha`` s OSM silnicemi uvnitř (viz ``dtm_sidewalks.reclassify_sidewalks_as_roads``)
-    se bere jako silnice.
+    se bere jako silnice; v mixed se počítají i OSM silnice, které kresbu přenechaly ZABAGED (``paths_osm``).
     """
     import logging
 
@@ -1570,7 +1857,13 @@ def classified_polygons(
     sidewalks = _load_sidewalk_polygons(work_dir)
     roads = _load_road_polygons(work_dir)
     if sidewalks:
-        road_lines, _widths = road_osm_lines(work_dir, path_source)
+        from app.pipeline import osm_paths as op
+
+        # mixed: OSM silnice nahrazené ZABAGED Ulice v ``paths_mixed`` chybí, o zařazení plochy rozhoduje i tak OSM
+        src = path_source
+        if op.resolve_path_source(path_source) != op.PATH_SOURCE_ZABAGED and (work_dir / "osm_paths" / "paths_osm.geojson").is_file():
+            src = op.PATH_SOURCE_OSM
+        road_lines, _widths = road_osm_lines(work_dir, src)
         sidewalks, moved = dtm_sidewalks.reclassify_sidewalks_as_roads(sidewalks, road_lines)
         if moved:
             roads = roads + moved
@@ -2096,6 +2389,17 @@ def join_and_orient_osm_fences(
             if (feat.get("properties") or {}).get("kind") == "building" and geom.get("type") == "Polygon":
                 buildings.append([[(float(x), float(y)) for x, y, *_ in ring] for ring in geom.get("coordinates") or []])
         olive_rings = [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in polys]
+        if polys:
+            # Mezery mezi konci plotů u olivy se nejdřív propojí (ne přes budovu ani cestu), pak se hledá oplocení.
+            from shapely.geometry import LineString as _LS, Polygon as _P
+            from shapely.ops import unary_union as _uu
+
+            blockers = [_P(r[0], r[1:]).buffer(0) for r in buildings if r and len(r[0]) >= 4]
+            blockers.extend(_LS(c).buffer(0.2) for c, _need in path_clearances(work_dir, path_source) if len(c) >= 2)
+            connectors = dtm_fences.fence_gap_connectors(tagged, forbidden=_uu(blockers) if blockers else None, near=_uu(polys), same_line=True)
+            if connectors:
+                joined_lines = dtm_fences.merge_lines([ln for _c, ln in tagged + connectors])
+                tagged = dtm_fences.orient_fences([(dtm_fences.CODE_FENCE, ln) for ln in joined_lines], {"olive": olive_rings})
         fill_rings = valid_fill_rings(dtm_fences.private_enclosure_rings(tagged, {"olive": olive_rings, "building": buildings}))
     except Exception:  # výplň je doplněk
         fill_rings = []
@@ -2211,6 +2515,7 @@ def build_dtm_fence_parts(
         lines = lines + dubious_back
         # Plot na obrysu budovy se nekreslí (budova má přednost, kreslí se z DTM / OSM).
         buildings_zone = _buildings_zone(work_dir)
+        uncut_lines = lines
         lines = cut_fences_by_buildings(lines, buildings_zone)
         # Data DTM bývají neúplná: mezery mezi konci plotů, které na sebe míří, se propojí (ne přes budovu ani cestu).
         from shapely.geometry import LineString as _LS
@@ -2219,7 +2524,7 @@ def build_dtm_fence_parts(
         blockers = [buildings_zone] if buildings_zone is not None else []
         blockers.extend(_LS(c).buffer(0.2) for c, _need in path_clearances(work_dir, path_source) if len(c) >= 2)
         connectors = dtm_fences.fence_gap_connectors(
-            lines, forbidden=_uu(blockers) if blockers else None, near=olive_geom
+            lines, forbidden=_uu(blockers) if blockers else None, near=olive_geom, same_line=not sprint
         )
         if connectors or dubious_back or not sprint:
             # Spojky se slijí s ploty do jedné linie (po kódu symbolu); celá linie se pak otočí tak, aby
@@ -2238,6 +2543,16 @@ def build_dtm_fence_parts(
                     if p.geom_type == "Polygon" and not p.is_empty
                 ]
                 lines = dtm_fences.orient_fences(lines, {**areas, "olive": list(areas["olive"]) + olive_polys})
+        if fill_olive and not sprint and connectors:
+            # Les a MTBO: oplocení k výplni olivou se hledá znovu až po dedupu a napojení mezer – spojky uzavřou
+            # další parcely. Ploty před ořezem o budovy, ať obrys budovy oplocení neotevře; oliva i kreslená.
+            drawn = [olive_geom] if olive_geom.geom_type == "Polygon" else list(getattr(olive_geom, "geoms", []))
+            fill_areas = {
+                **areas,
+                "olive": list(areas["olive"])
+                + [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in drawn if p.geom_type == "Polygon" and not p.is_empty],
+            }
+            fill_rings = merge_fill_rings(fill_rings, dtm_fences.private_enclosure_rings(uncut_lines + connectors, fill_areas))
     except Exception:  # dedup a propojení jsou doplněk, ploty se kreslí i bez nich
         pass
     if not sprint:
@@ -2303,6 +2618,39 @@ def build_dtm_fence_parts(
     if objects:
         parts.append(OomObjectPart(name="Ploty (DTM + OSM)", objects_xml="\n".join(objects), count=len(objects)))
     return parts
+
+
+# Nové oplocení se k výplni přidá, jen když je z menší části než tolik pokryté už vyplněnými.
+FILL_RING_NEW_MAX_COVER = 0.5
+
+
+def merge_fill_rings(
+    rings: list[list[tuple[float, float]]], extra: list[list[tuple[float, float]]]
+) -> list[list[tuple[float, float]]]:
+    """``rings`` doplněné o obrysy z ``extra``, které se s nimi (z většiny) nepřekrývají."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    def poly(r):
+        try:
+            g = Polygon(r)
+        except ValueError:
+            return None
+        g = g if g.is_valid else g.buffer(0)
+        return None if g.is_empty or g.area <= 0 else g
+
+    have = [g for g in (poly(r) for r in rings if len(r) >= 4) if g is not None]
+    covered = unary_union(have) if have else None
+    out = list(rings)
+    for r in valid_fill_rings(extra):
+        g = poly(r)
+        if g is None:
+            continue
+        if covered is not None and g.intersection(covered).area > FILL_RING_NEW_MAX_COVER * g.area:
+            continue
+        out.append(r)
+        covered = g if covered is None else covered.union(g)
+    return out
 
 
 def _fill_ring(line, clip_bounds):

@@ -258,6 +258,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **MTBO používá DTM** (`MTBO_USE_DTM = True` v `app/pipeline/dtm_import.py` od 2.33.0, `mtbo_dtm_off`): koridor silnice (jen do 10 m od osy
   silnice), chodníky od 0,5 mm, parkoviště od 300 m², schodiště, budovy, ploty a šířky cest z DTM – vše s prahy čitelnosti v měřítku. `False` vrátí kreslení z ZABAGED / OSM.
   LES bere z DTM budovy, ploty (včetně výplně oplocení olivou 520), šířky cest a široké pěší plochy, sprint všechno.
+  Od 2.34.0 les jako MTBO kreslí i koridor silnice a parkoviště od 300 m² z DTM (`FOREST_DTM_AREAS`, `dtm_area_preset`; les 501.1 + okraj 501.2,
+  parkoviště z DTM v lese i MTBO 501.1 + 501.2). Plochy z DTM se v lese i MTBO generalizují podle mm mapy (`dtm_sidewalks.generalize_area`:
+  zálivy do 0,4 mm, výběžky do 0,3 mm, díry pod 1 mm², kusy pod 0,5 mm²; ne do budov).
+  Koridor je jen jízdní pás bez chodníků (`CORRIDOR_WITH_SIDEWALKS = False`, Petr 2026-10-24 po srovnání variant), nikde užší než kresba
+  silnice 502 v presetu (`corridor_min_drawn_m`); okraj se u napojení čáry silnice přeruší (`corridor_junction_omit`). Les pak nebere
+  široké pěší plochy z DTM do 8 m od silnice. Záloha „silnice jen čárou“: `MTBO_ROAD_CORRIDOR = False`.
+  Ploty v lese a MTBO: výplň olivou se hledá až po dedupu a propojení mezer (`fence_gap_connectors(same_line=True)` uzavře i mezeru v jedné čáře, `merge_fill_rings`).
 - **Dedup chodníků v lese a MTBO je jen z OSM:** chodník i pěšina bez tagu chodníku (`SIDEWALK_DEDUP_BASES`, v lese i cyklostezka) souběžná se silnicí nebo OSM zpevněnou plochou se zahodí (celý při ≥ 70 % délky v pásu,
   jinak jen souvislé úseky ≥ 40 m). Pás se počítá ze skutečných šířek symbolů v sadě (`sidewalk_road_zone_geometry`: půlka silnice – v lese podle symbolu zvoleného šířkou z DTM – / okraje 501.2
   + půlka chodníku + `LINE_MIN_GAP_MM`, v metrech podle měřítka), ne pevných 12 m. Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic
@@ -296,6 +303,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
+- **Zdroj kresby v GUI** (Petr 2026-10-24, 2.34.0): volba DTM / OSM + ZABAGED zvlášť pro sprint (výchozí DTM) a les + MTBO
+  (výchozí OSM + ZABAGED, DTM „zkušebně“, dokud se kresba z DTM v lese nedoladí). Volby jobu `dtm_sprint` / `dtm_forest`,
+  `prepare_oom_map(use_dtm=…)`, podrobnosti v `DEV.md`. Lokální otočky s DTM volají `prepare_oom_map` s výchozím `use_dtm=True`.
 - **Mixed je jediný režim v GUI** (Petr 2026-10-23): OSM je hlavní, ZABAGED (postupně opouštíme) a DTM (vtahujeme) kresbu doplňují.
   Příprava OSM (sdílená se sprintem) ale v `paths_mixed` zahazuje OSM silnice proti ZABAGED Ulice; les a MTBO je proto při kreslení vracejí
   z `paths_osm` (`mixed_osm_roads_missing`, bez souběžných užších – OSM×OSM dedup platí). ZABAGED Ulice / SilniceDalnice v lese a MTBO

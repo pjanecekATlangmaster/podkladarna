@@ -340,7 +340,7 @@ def test_package_oom_gates_residual_call():
 
     from app.pipeline import package_oom as po
 
-    src = inspect.getsource(po.prepare_oom_map)
+    src = inspect.getsource(po._prepare_oom_map)
     assert "if residual_paved:" in src
     assert "vždy spočítat" not in src
     assert "max_piece_m2=max_residual_m2 if residual_paved else 0.0" not in src

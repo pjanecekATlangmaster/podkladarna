@@ -686,7 +686,16 @@ def _write_ostatni_band_shapefiles(
     return written
 
 
-def prepare_oom_map(
+def prepare_oom_map(kp_cwd: Path, dest: Path, *, use_dtm: bool = True, **kwargs) -> Path | None:
+    """Sestaví .omap (``_prepare_oom_map``). ``use_dtm`` False: mapa se kreslí jen z OSM + ZABAGED, jako by výřez
+    neměl data DTM (volba jobu; data DTM zůstávají pro ostatní disciplíny)."""
+    from app.pipeline.dtm_import import dtm_disabled
+
+    with dtm_disabled(not use_dtm):
+        return _prepare_oom_map(kp_cwd, dest, **kwargs)
+
+
+def _prepare_oom_map(
     kp_cwd: Path,
     dest: Path,
     *,
@@ -773,6 +782,7 @@ def prepare_oom_map(
             osm_water_area = osm_water_area_geometry(kp_cwd)
         # Sprint: čáry cest ZABAGED se nekreslí uvnitř ploch chodníků a silnic z DTM.
         dtm_cover = None
+        stub_cover = None
         if preset_id.startswith("sprint"):
             from app.pipeline.dtm_import import dtm_cover_geometry
 
@@ -785,20 +795,21 @@ def prepare_oom_map(
         paved_clip = None
         if not preset_id.startswith("sprint"):
             # Les a MTBO: ZABAGED ulice přes zpevněnou plochu (parkoviště, podélné stání) jen napojení jako OSM silnice.
-            from app.pipeline.osm_paths import paved_network_geometry, road_clip_zone
+            from app.pipeline.osm_paths import _plus_dtm_parking, paved_network_geometry, road_clip_zone
 
-            _network = paved_network_geometry(kp_cwd, preset_id, scale)
+            # Síť je o plochy z DTM ořezaná; pro ořez cest ZABAGED se k ní parkoviště z DTM přidá (kreslí se plochou).
+            _network = _plus_dtm_parking(kp_cwd, paved_network_geometry(kp_cwd, preset_id, scale), preset_id, scale)
             if _network is not None:
                 paved_clip = (road_clip_zone(kp_cwd, preset_id, scale), _network)
-            if preset_id.startswith("mtbo"):
-                # MTBO s DTM: uvnitř koridoru silnice, ploch chodníků a parkovišť z DTM se čáry ZABAGED nekreslí.
-                from app.pipeline.dtm_import import mtbo_dtm_area_geometry
+            # Les a MTBO s DTM: uvnitř koridoru silnice, ploch chodníků a parkovišť z DTM se čáry ZABAGED nekreslí.
+            from app.pipeline.dtm_import import dtm_area_geometry_for
 
-                _mtbo_areas = mtbo_dtm_area_geometry(kp_cwd, scale, path_source)
-                if _mtbo_areas is not None and not _mtbo_areas.is_empty:
-                    from shapely.ops import unary_union
+            _dtm_areas = dtm_area_geometry_for(kp_cwd, preset_id, scale, path_source)
+            if _dtm_areas is not None and not _dtm_areas.is_empty:
+                from shapely.ops import unary_union
 
-                    dtm_cover = _mtbo_areas if dtm_cover is None else unary_union([dtm_cover, _mtbo_areas])
+                dtm_cover = _dtm_areas if dtm_cover is None else unary_union([dtm_cover, _dtm_areas])
+                stub_cover = _dtm_areas
         # Les a MTBO: železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy.
         rail_tunnel_zone = None
         if not preset_id.startswith("sprint"):
@@ -827,6 +838,7 @@ def prepare_oom_map(
             suppress_waterway_in_water=preset_id.startswith("sprint"),
             osm_priority_areas=osm_priority_areas or None,
             dtm_cover=dtm_cover,
+            stub_cover=stub_cover,
             rail_tunnel_zone=rail_tunnel_zone,
             paved_clip=paved_clip,
         ):
@@ -974,18 +986,9 @@ def prepare_oom_map(
             path_source=path_source,
         )
     )
-    object_parts.extend(
-        build_mtbo_corridor_parts(
-            kp_cwd,
-            preset_id=preset_id,
-            scale=scale,
-            ref_x=ref_x,
-            ref_y=ref_y,
-            grivation_deg=grivation,
-            clip_bounds=vector_clip_bounds,
-            path_source=path_source,
-        )
-    )
+    # Koridor silnice z DTM se skládá až nad hotovými čarami cest (okraj se přeruší přesně u jejich konců),
+    # ale kreslí se na tomto místě pořadí.
+    corridor_at = len(object_parts)
     object_parts.extend(
         build_dtm_parking_parts(
             kp_cwd,
@@ -1037,6 +1040,30 @@ def prepare_oom_map(
         object_parts.extend(osm_parts)
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
+    from app.pipeline.dtm_import import JUNCTION_MAJORS, dtm_area_preset
+    from app.pipeline.path_clearance import drawn_path_ends
+
+    object_parts[corridor_at:corridor_at] = build_mtbo_corridor_parts(
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+        clip_bounds=vector_clip_bounds,
+        path_source=path_source,
+        road_ends=drawn_path_ends(
+            object_parts,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            majors=JUNCTION_MAJORS,
+        )
+        if dtm_area_preset(preset_id)
+        else None,
+    )
     # Zaměřené ploty z DTM kraje (sprint a les, MTBO jen se zapnutým DTM; chybějící DTM = prázdný seznam).
     from app.pipeline.dtm_import import build_dtm_fence_parts
 

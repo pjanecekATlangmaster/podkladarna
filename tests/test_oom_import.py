@@ -826,3 +826,56 @@ def test_zabaged_road_bridge_yields_to_osm_bridge(tmp_path):
     assert _zabaged_line_lengths(z, "Most", "mtbo_10000", 10000, x0, y0, osm) == []
     assert _zabaged_line_lengths(z, "Most", "forest_10000", 10000, x0, y0, osm) == []
     assert len(_zabaged_line_lengths(z, "Most", "sprint_4000", 4000, x0, y0, osm)) == 1
+
+
+def test_zabaged_tunnel_clipped_by_dtm_cover_in_forest(tmp_path):
+    """Les / MTBO: ZABAGED Tunel (silniční) se uvnitř DTM koridoru nekreslí; sprint beze změny."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+
+    from shapely.geometry import box
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Tunel", [[(x0, y0), (x0 + 35, y0)]])  # krátký podchod
+    cover = box(x0 + 10, y0 - 10, x0 + 25, y0 + 10)
+
+    def count(preset, scale, zip_path=None):
+        parts = build_zabaged_object_parts(
+            zip_path or z,
+            vectorconf_name="zabaged.txt",
+            preset_id=preset,
+            scale=scale,
+            ref_x=x0,
+            ref_y=y0,
+            grivation_deg=0.0,
+            work_dir=Path(tempfile.mkdtemp()),
+            dtm_cover=cover,
+        )
+        return sum(p.count for p in parts if "Tunel" in p.name)
+
+    assert count("forest_10000", 10000) == 2  # před a za koridorem, uvnitř ne
+    assert count("sprint_4000", 4000) == 1
+    # dlouhý tunel (i tramvaj pod povrchem bez kódu železnice) se v lese nekreslí, ve sprintu ano
+    long_dir = tmp_path / "long"
+    long_dir.mkdir()
+    z_long = _zabaged_line_zip(long_dir, "Tunel", [[(x0, y0 + 50), (x0 + 300, y0 + 50)]])
+    assert count("forest_10000", 10000, z_long) == 0
+    assert count("sprint_4000", 4000, z_long) == 1
+    cover = None  # bez DTM (volba OSM + ZABAGED): dlouhý tunel se v lese nekreslí ani tak
+    assert count("forest_10000", 10000, z_long) == 0
+    assert count("forest_10000", 10000) == 1
+
+
+def test_drop_cover_stubs_keeps_long_and_far_pieces():
+    from shapely.geometry import box
+
+    from app.pipeline.oom_import import _drop_cover_stubs
+
+    cover = box(0, 0, 100, 10)
+    stub = [(50, 12), (50, 18)]  # 6 m, konec 2 m od plochy
+    far = [(50, 30), (50, 36)]  # krátký, ale daleko
+    long = [(50, 12), (50, 40)]
+    assert _drop_cover_stubs([stub, far, long], cover, 10000) == [far, long]

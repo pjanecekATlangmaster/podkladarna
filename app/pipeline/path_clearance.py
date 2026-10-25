@@ -315,6 +315,49 @@ def _drawn_path_objects(parts, info, widths) -> list[tuple[list[tuple[float, flo
     return out
 
 
+def drawn_path_ends(
+    parts: list[OomObjectPart],
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    majors: frozenset[int],
+) -> list[tuple[float, float, float]]:
+    """Konce kreslených čar cest (hlavní číslo kódu v ``majors``) v hotové mapě: ``[(x, y, půlka šířky v m)]`` v S-JTSK."""
+    from app.pipeline.oom_coords import map_to_projected
+    from app.pipeline.oom_symbol_map import _symbol_widths
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        set_path = symbol_set_path(preset_id, scale)
+        info = _symbol_info(set_path)
+        widths = _symbol_widths(set_path)
+    except Exception:
+        return []
+    out = []
+    for part in parts:
+        for m in _OBJECT_RE.finditer(part.objects_xml):
+            if m.group(2) != "1":
+                continue
+            sym = int(m.group(3))
+            major, kind = info.get(sym, (0, "other"))
+            if kind != "line" or major not in majors:
+                continue
+            cm = _COORDS_RE.search(m.group(4))
+            if not cm:
+                continue
+            pts = _parse_coords(cm.group(1))
+            if len(pts) < 2:
+                continue
+            half_m = widths.get(sym, 0.0) / 2.0 * scale / 1000.0
+            for mx, my, _f in (pts[0], pts[-1]):
+                x, y = map_to_projected(mx, my, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                out.append((x, y, half_m))
+    return out
+
+
 def displace_objects_from_paths(
     parts: list[OomObjectPart],
     work_dir: Path,

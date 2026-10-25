@@ -222,7 +222,9 @@ a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výp
 (výplň 501.1) + černý obrubník (501.100), jen kde je širší než 0,9 mm mapy a delší než 50 m a jen do 10 m od osy silnice z OSM / ZABAGED (`CORRIDOR_ROAD_AXIS_M`; manipulační plochy a areály bez silnice se nezalijí); chodník / pěšina podél okraje koridoru se nekreslí; užší silnice zůstávají
 čárou 502.x, uvnitř koridoru se čára nekreslí; chodník se sdíleným provozem (OSM `bicycle=yes|designated`, soubor
 `osm_paths/bike_paths.geojson`) a cyklostezky se nesloučí (vypnutí: `MTBO_ROAD_CORRIDOR = False`). MTBO navíc
-**velká parkoviště** z DTM (od 300 m², plocha 529; OSM parkoviště pod nimi se zahodí). **Schodiště z DTM** (po ose, 532 / 843, od 3 m; OSM schody v nich pryč). Chodníky, silnice a malé stavby
+**velká parkoviště** z DTM (od 300 m², výplň 501.1 + okraj 501.2; OSM parkoviště pod nimi se zahodí). Od 2.34.0 kreslí koridor
+silnice (501.1 + okraj 501.2) a velká parkoviště z DTM i les (`FOREST_DTM_AREAS = True`, `dtm_area_preset`); plochy z DTM se v lese
+i MTBO generalizují podle mm mapy (`dtm_sidewalks.generalize_area`). **Schodiště z DTM** (po ose, 532 / 843, od 3 m; OSM schody v nich pryč). Chodníky, silnice a malé stavby
 z DTM se tam nekreslí (kromě chodníků níže); šířka silnic zůstává z OSM. MTBO navíc **chodníky a zpevněné cesty z DTM mimo silnice** (plocha 501.0 + obrys 501.100,
 `mtbo_sidewalk_geometry`): jen části široké aspoň 0,5 mm mapy (5 m v 1:10000, užší pruh kreslí čára cesty), mimo koridor a dál než 8 m od silnice (sdílený provoz / cyklostezky zůstávají); OSM
 chodník / pěšina / zpevněná cyklostezka uvnitř plochy se nekreslí a končí na její hraně, užší cesty zůstávají čárou 834 (vypnutí: `MTBO_SIDEWALK_AREAS = False`). Navíc se v lese i MTBO (jen z OSM, bez DTM) zahazuje **chodník souběžný
@@ -230,7 +232,18 @@ se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`
 (+ 3 m od okraje, `osm_parking_geometry`), takže chodník podél parkoviště se také nekreslí.
 
 - `ChodnikPlocha` s OSM silnicí uvnitř (≥ 150 m, nebo ≥ 30 m a šířka ≥ 4 m) se bere jako silnice
-  (chyba v DTM, `reclassify_sidewalks_as_roads`).
+  (chyba v DTM, `reclassify_sidewalks_as_roads`); v mixed rozhodují i OSM ulice, které kresbu přenechaly ZABAGED (`paths_osm`).
+- **Volba zdroje kresby (od 2.34.0):** formulář „Zdroj kresby“ – volby jobu `dtm_sprint` (výchozí ano) a `dtm_forest`
+  (les + MTBO, výchozí ne; `job_options.resolve_use_dtm`). `prepare_oom_map(..., use_dtm=False)` sestaví mapu jako bez DTM
+  (`dtm_import.dtm_disabled`: `dtm_dir` vrací neexistující `work/dtm_off`, paměťové cache se vyprázdní); data DTM v jobu
+  zůstanou pro disciplínu, která je chce. DTM se stahuje, jen když ho některá disciplína jobu použije. Pozor: les bez DTM
+  nebere z DTM ani ploty a budovy.
+- **Koridor silnice z DTM (les a MTBO, varianta D):** jen jízdní pás (`CORRIDOR_WITH_SIDEWALKS = False`), nikde užší než
+  kresba 502 (`corridor_min_drawn_m`; zúžení a mezery do 20 m se podél osy silnice doplní pásem, `_fill_along_axes`).
+  Obrys se přeruší u konců čar z hotové mapy (`path_clearance.drawn_path_ends` → `corridor_junction_omit`, koridor se proto
+  skládá až po čarách cest) a na společné hranici s parkovištěm / MTBO pěší plochou z DTM se nekreslí (`_corridor_adjacent_paved`,
+  `corridor_shared_edge_zone`). MTBO: silnice a vozové cesty přes pěší plochy z DTM se nekreslí. Pahýly ZABAGED silnic
+  pod 1 mm u ploch z DTM pryč (`_drop_cover_stubs`); ZABAGED `Tunel` v lese / MTBO jen do 40 m a mimo OSM koleje v tunelu.
 - Čáry cest ZABAGED (`Ulice`, `SilniceDalnice`, `Cesta`, `Pesina`) se o plochy chodníků a silnic ořežou.
 - **Mosty / více úrovní (jen sprint, `app/pipeline/dtm_bridges.py`):** mostovka není vždy `PlochaMostniKonstrukcePlocha` – lávky a rampy jsou často jen `ChodnikPlocha` na úrovni +1 (`UrovenUmisteniObjektuZPS`), proto se půdorys skládá z konstrukce i z povrchů téže úrovně; vyšší úroveň vystřihuje nižší. Hrany 512.100 (trojúhelníky) se kreslí tam, kde pod mostem **prochází** chodník (vstup a výstup napříč hranami), jinak silnice (jen tam, kde u ní do 5 m není chodník); orientace: vnitřek mostu vlevo od směru kreslení. Most, pod kterým prochází spodní zpevněná plocha (chodník / silnice / parkoviště), se kreslí **celý** (od napojení na cestu k další cestě) symbolem **512.311** (oblast průběžná v nižší úrovni, bílý základ + barva spodní plochy), voda **512.302**, plus obrys mostu čarou 501.100 (mostovka 501.0 / 501.20 se pak zvlášť nekreslí; most nad ničím zůstává 501.0 / 501.20); spodní úroveň se jinak pod mostem nekreslí a obrys spodní plochy se nekreslí podél hrany mostu (plocha končí u trojúhelníků). Složitá schodiště pod 4 m² se nekreslí; OSM zpevněné plochy, které jsou sliver (plocha < 3 m² nebo užší než 0,8 m), také ne. Schodiště na úrovni 0 pod mostem nebo složité (zahnuté do „C“, více ramen: podíl plochy a konvexního obalu < 0,72) se čárou 532.7 nekreslí, kreslí se jako plocha 501.0 v samostatné části „složitá schodiště“ (schody doplní mapař). Podchody a tunely (úroveň < 0, metro) se nekreslí. Železnice a tramvaj mostovku neplní.
 - Cesty končící na zpevněné ploše (chodníky / silnice z DTM ve sprintu, koridor v MTBO) se ukončí přesně na její hraně:

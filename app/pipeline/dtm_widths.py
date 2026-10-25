@@ -107,10 +107,10 @@ def width_line_code(highway: str, width_m: float | None, tag_code: str) -> str:
 def _load(work_dir: Path, name: str) -> list:
     from shapely.geometry import Polygon
 
-    from app.pipeline.dtm_import import _load_polygons_file
+    from app.pipeline.dtm_import import _load_polygons_file, dtm_dir
 
     out = []
-    for poly in _load_polygons_file(work_dir / "dtm" / name):
+    for poly in _load_polygons_file(dtm_dir(work_dir) / name):
         try:
             g = Polygon(poly[0], poly[1:])
             out.append(g if g.is_valid else g.buffer(0))

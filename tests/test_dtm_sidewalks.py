@@ -278,7 +278,16 @@ def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
     assert geom.intersection(di.road_geometry(work)).area < 1e-6  # parkoviště po ořezu o silnici
     names = [p.name for p in op.build_osm_feature_parts(work, **kw)]
     assert names.count("OSM parkoviště (501 zpevněná)") == 1  # OSM parkoviště nad DTM zahozeno, vzdálené zůstává
-    assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    forest = {**kw, "preset_id": "forest_10000", "scale": 10000}
+    assert [p.name for p in di.build_dtm_parking_parts(work, **forest)] == [
+        "DTM – velká parkoviště",
+        "DTM – velká parkoviště – obrys (501.2)",
+    ]
+    di.FOREST_DTM_AREAS = False
+    try:
+        assert di.build_dtm_parking_parts(work, **forest) == []  # les bez ploch z DTM: parkoviště jen z OSM
+    finally:
+        di.FOREST_DTM_AREAS = True
 
 
 def test_geometry_part_without_fill_only_variant_reports_no_unmapped_code():
@@ -530,10 +539,13 @@ def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path
     )
     kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-985.0, ref_y=-990.0, grivation_deg=0.0)
     parts = di.build_dtm_parking_parts(work, **kw)
-    assert [p.name for p in parts] == ["DTM – velká parkoviště (529)"] and parts[0].count == 1
+    assert [p.name for p in parts] == ["DTM – velká parkoviště", "DTM – velká parkoviště – obrys (501.2)"]
+    assert parts[0].count == 1
     assert op.build_osm_feature_parts(work, **kw) == []  # OSM parkoviště nad DTM parkovištěm zahozeno
-    # les nic; sprint dál 501.0
-    assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    # les stejně (výplň 501.1 + okraj 501.2); sprint dál 501.0
+    forest = {**kw, "preset_id": "forest_10000"}
+    assert [p.count for p in di.build_dtm_parking_parts(work, **forest)] == [1, 1]
+    assert op.build_osm_feature_parts(work, **forest) == []
     assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "sprint_4000"}) != []
 
 
@@ -628,8 +640,10 @@ def test_mtbo_corridor_bridges_narrower_stretch_between_wide_pieces():
     assert ds.road_corridor(far, None, scale=10000).bounds[2] <= 100 + ds.CORRIDOR_BRIDGE_M + 5
 
 
-def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
+def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path, monkeypatch):
     from app.pipeline import osm_paths as op
+
+    monkeypatch.setattr(di, "CORRIDOR_WITH_SIDEWALKS", True)  # test původního chování s chodníky v koridoru
 
     work = tmp_path
     (work / "dtm").mkdir()
@@ -676,7 +690,12 @@ def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path):
     )
     shared = op.build_osm_path_parts(work, **kw)
     assert shared and shared[0].count == 1  # sdílený chodník se kreslí jako cesta
-    assert di.build_mtbo_corridor_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    forest = {**kw, "preset_id": "forest_10000"}
+    assert [p.name for p in di.build_mtbo_corridor_parts(work, **forest)] == [
+        "Les – silnice s chodníky z DTM (koridor)",
+        "Les – silnice s chodníky z DTM (koridor) – obrys (501.2)",
+    ]
+    assert [p.count for p in op.build_osm_path_parts(work, **forest)] == [1]  # silnice v koridoru ne, sdílený chodník ano
     di.MTBO_ROAD_CORRIDOR = False
     try:
         assert di.build_mtbo_corridor_parts(work, **kw) == []
@@ -1276,6 +1295,20 @@ def test_mtbo_footway_along_corridor_edge_is_not_drawn(tmp_path):
     assert sum(p.count for p in parts) == 2  # zůstane vzdálená pěšina a chodník za pásem zeleně
 
 
+def test_forest_footway_near_corridor_edge_is_dropped_with_line_gap(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    _write_polys(work, "roads.json", [_rect(0, -10, 200, 10)])  # široká ulice (20 m) z DTM
+    near_path = _feat([(0, 15), (200, 15)], "footway")  # 5 m od okraje koridoru – v lese (mezera 0,35 mm) splyne s okrajem 501.2
+    far_path = _feat([(0, 18), (200, 18)], "footway")  # 8 m od okraje – čitelně oddělená
+    _write_paths(work, [_feat([(0, 0), (200, 0)], "road_3"), near_path, far_path])
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_path_parts(work, preset_id="forest_10000", scale=10000, ref_x=100.0, ref_y=0.0, grivation_deg=0.0)
+    assert sum(p.count for p in parts) == 1  # zůstane jen vzdálená pěšina
+    assert op.FOREST_DTM_EDGE_GAP_MM == op.LINE_MIN_GAP_MM > op.MTBO_DTM_EDGE_GAP_MM
+
+
 def test_mtbo_dtm_geometry_is_cached_until_inputs_change(tmp_path, monkeypatch):
     work = tmp_path
     _write_polys(work, "roads.json", [_rect(0, -6, 200, 6)])
@@ -1295,3 +1328,388 @@ def test_mtbo_dtm_geometry_is_cached_until_inputs_change(tmp_path, monkeypatch):
     os.utime(p, (t, t))
     di.mtbo_corridor_geometry(work, 10000)
     assert len(calls) == 2
+
+
+def test_generalize_area_fills_bays_drops_spurs_and_small_holes():
+    from shapely.geometry import Polygon, box
+
+    # pás 100 × 20 m se zálivem 2 m, výběžkem 2 m a ostrůvkem 4 × 4 m (1:10000: zaliv < 4 m, výběžek < 3 m, díra < 100 m²)
+    base = box(0, 0, 100, 20).difference(box(40, 15, 42, 20)).difference(box(70, 8, 74, 12))
+    spur = box(20, 20, 22, 30)
+    g = ds.generalize_area(base.union(spur), 10000)
+    assert g.is_valid and len(g.interiors if g.geom_type == "Polygon" else []) == 0  # ostrůvek zacelen
+    assert g.contains(Polygon([(40.5, 15.5), (41.5, 15.5), (41.5, 19.5), (40.5, 19.5)]))  # záliv zacelen
+    assert g.bounds[3] < 21  # výběžek odříznut
+    assert abs(g.area - 2000) < 30
+    # budova v zálivu: zacelení do ní nezasáhne
+    blocked = ds.generalize_area(base, 10000, blockers=box(40, 15, 42, 20))
+    assert blocked.intersection(box(40, 15, 42, 20)).area < 0.5
+    # malý samostatný kus (< 0,5 mm² = 50 m²) se zahodí
+    assert ds.generalize_area(box(0, 0, 6, 6), 10000) is None
+
+
+def test_end_at_edge_accepts_geometry_collection_with_lines():
+    from shapely.geometry import GeometryCollection, LineString, box
+
+    area = GeometryCollection([box(0, -5, 10, 5), LineString([(20, 0), (30, 0)])])  # boundary je None
+    out = ds.end_at_edge([(-20.0, 0.0), (5.0, 0.0)], area)
+    assert len(out) == 1 and abs(out[0][-1][0]) < 1e-6  # končí na hraně plochy
+
+
+def _drawn_length_in_rect(parts, rect, ref, scale):
+    """Délka kreslených čar (m) uvnitř obdélníku ve světových souřadnicích (mapa v 0,001 mm, osa y obrácená)."""
+    import re
+
+    from shapely.geometry import LineString, box
+
+    zone = box(*rect)
+    total = 0.0
+    for part in parts:
+        for body in re.findall(r"<coords[^>]*>([^<]*)</coords>", part.objects_xml):
+            pts = [
+                (ref[0] + int(mx) * scale / 1e6, ref[1] - int(my) * scale / 1e6)
+                for mx, my in re.findall(r"(-?\d+) (-?\d+)(?: \d+)?;", body)
+            ]
+            if len(pts) >= 2:
+                total += LineString(pts).intersection(zone).length
+    return total
+
+
+def test_forest_and_mtbo_roads_and_paths_are_cut_by_dtm_parking(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    def make(work, with_parking):
+        (work / "dtm").mkdir()
+        if with_parking:
+            (work / "dtm" / "parking.json").write_text(
+                json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1000, -970, -985)]]}),
+                encoding="utf-8",
+            )
+        (work / "osm_paths").mkdir()
+        ring = [[-1100, -1100], [-1090, -1100], [-1090, -1090], [-1100, -1090], [-1100, -1100]]
+        zone = {  # vzdálená OSM plocha: síť zpevněných ploch tak není prázdná
+            "type": "Feature",
+            "properties": {"source": "osm", "kind": "parking", "oom_code": "501"},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+        (work / "osm_paths" / "features.geojson").write_text(
+            json.dumps({"type": "FeatureCollection", "features": [zone]}), encoding="utf-8"
+        )
+
+        def line(hw, a, b):
+            return {
+                "type": "Feature",
+                "properties": {"highway": hw},
+                "geometry": {"type": "LineString", "coordinates": [a, b]},
+            }
+
+        feats = [
+            line("road_3", [-1020, -992], [-950, -992]),
+            line("track", [-1020, -999], [-950, -999]),
+        ]
+        (work / "osm_paths" / "paths_mixed.geojson").write_text(
+            json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+        )
+
+    inside = (-1000, -1000, -970, -985)
+    ref = (-985.0, -990.0)
+    for preset in ("forest_10000", "mtbo_10000"):
+        kw = dict(preset_id=preset, scale=10000, ref_x=ref[0], ref_y=ref[1], grivation_deg=0.0)
+        free = tmp_path / preset / "free"
+        free.mkdir(parents=True)
+        make(free, False)
+        base = op.build_osm_path_parts(free, **kw)
+        assert _drawn_length_in_rect(base, inside, ref, 10000) > 50  # bez parkoviště se kreslí celé
+        op._PAVED_NETWORK_CACHE.clear()
+        cut = tmp_path / preset / "cut"
+        cut.mkdir(parents=True)
+        make(cut, True)
+        parts = op.build_osm_path_parts(cut, **kw)
+        assert _drawn_length_in_rect(parts, inside, ref, 10000) < 1.0
+        assert sum(p.count for p in parts) >= 2  # napojení na hranu parkoviště zůstává
+        op._PAVED_NETWORK_CACHE.clear()
+
+
+def test_road_corridor_min_drawn_drops_narrower_roads_and_keeps_wider():
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    wide, narrow = box(0, 40, 100, 52), box(100, 43, 130, 50)  # 12 m široká silnice + navazující úsek 7 m
+    roads = unary_union([wide, narrow])
+    kw = dict(scale=10000)
+    base = ds.road_corridor(roads, None, **kw)
+    assert base is not None and base.intersection(narrow).area > 0.9 * narrow.area  # navazující úsek >= 5 m zůstane
+    cor = ds.road_corridor(roads, None, min_drawn_m=9.9, **kw)
+    assert cor is not None
+    assert cor.intersection(narrow).area < 0.05 * narrow.area  # užší než kresba silnice 502 zmizí
+    assert cor.intersection(wide).area > 0.95 * wide.area
+
+
+def test_road_corridor_min_drawn_fills_short_neck_along_axis():
+    from shapely.geometry import LineString, box
+    from shapely.ops import unary_union
+
+    # 12 m široká silnice se zúžením na 7 m v délce 10 m: bez osy se rozpadne na dva kusy, s osou zůstane celá
+    roads = unary_union([box(0, 0, 95, 12), box(95, 2.5, 105, 9.5), box(105, 0, 200, 12)])
+    kw = dict(scale=10000, min_drawn_m=9.9)
+    split = ds.road_corridor(roads, None, **kw)
+    assert split is not None and split.geom_type == "MultiPolygon"
+    axis = LineString([(-20, 6), (220, 6)])
+    cor = ds.road_corridor(roads, None, axes=axis, **kw)
+    assert cor is not None and cor.geom_type == "Polygon"
+    neck = cor.intersection(box(97, -5, 103, 20))
+    assert neck.bounds[3] - neck.bounds[1] >= 9.8  # zúžení má šířku kresby silnice
+    assert cor.bounds[0] >= -0.1 and cor.bounds[2] <= 200.1  # osa koridor neprodlouží
+
+
+def test_road_corridor_min_drawn_drops_roundabout_ring_but_keeps_wide_straight_road():
+    from shapely.geometry import Point, box
+
+    kw = dict(scale=10000, min_drawn_m=9.9)
+    for inner in (12, 10.5):  # jízdní pás 8 m a 9,5 m < 9,9 m: prstenec se nesmí rozpadnout na tříšť
+        ring = Point(0, 0).buffer(20).difference(Point(0, 0).buffer(inner))
+        assert ds.road_corridor(ring, None, **kw) is None
+    road = box(0, 0, 200, 12)
+    cor = ds.road_corridor(road, None, **kw)
+    assert cor is not None and cor.area > 0.95 * road.area
+
+
+def test_corridor_without_sidewalks_does_not_widen(tmp_path, monkeypatch):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1006, -900, -994)]]}), encoding="utf-8"
+    )
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -993, -900, -990)]]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+    road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-1000, -1000], [-900, -1000]]}}
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8")
+    monkeypatch.setattr(di, "CORRIDOR_WITH_SIDEWALKS", False)
+    plain = di.mtbo_corridor_geometry(work, 10000)
+    assert plain is not None and plain.bounds[3] < -993.9  # chodník (od -993) není součástí
+    monkeypatch.setattr(di, "CORRIDOR_WITH_SIDEWALKS", True)
+    with_sw = di.mtbo_corridor_geometry(work, 10000)
+    assert with_sw is not None and with_sw.bounds[3] > -991.5 and with_sw.area > plain.area
+
+
+def test_corridor_edge_omitted_where_drawn_road_meets_corridor(tmp_path):
+    from shapely.geometry import Point
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-950, -1006, -850, -994)]]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+    road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-1000, -1000], [-800, -1000]]}}
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8")
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-900.0, ref_y=-1000.0, grivation_deg=0.0)
+    corridor = di.mtbo_corridor_geometry(work, 10000)
+    assert corridor is not None
+    omit = di.corridor_junction_omit(work, corridor, "mtbo_10000", 10000)
+    assert omit is not None
+    r = 9.9 / 2 + di.JUNCTION_EXTRA_M
+    for x in (-950, -850):
+        assert omit.contains(Point(x, -1000)) and omit.contains(Point(x, -1000 + r - 0.1))
+    parts = di.build_mtbo_corridor_parts(work, **kw)
+    assert [p.count for p in parts] == [1, parts[1].count]  # výplň celá, obrys zvlášť
+    full = di._geometry_part(corridor, name="x", code="501.0", outline_separate=True, clip_bounds=None, **kw)
+    assert parts[1].count >= 1 and full[1].count >= 1
+    assert parts[1].objects_xml != full[1].objects_xml  # obrys s mezerou na napojení se liší od celého
+
+
+def test_corridor_junction_omit_from_drawn_road_ends():
+    from shapely.geometry import Point, box
+
+    corridor = box(0, 0, 100, 12)
+    ends = [(100.3, 6.0, 4.0), (50.0, 40.0, 4.0), (30.0, 12.2, 2.0)]  # u hrany, daleko, u hrany (užší čára)
+    omit = di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=ends)
+    assert omit is not None
+    assert omit.contains(Point(100, 6 + 4.0)) and not omit.contains(Point(50, 35))
+    assert omit.contains(Point(30, 12 + 2.0)) and not omit.contains(Point(30, 12 - 2.5))
+    assert di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=[(50, 40, 4.0)]) is None
+
+
+def test_drawn_path_ends_roundtrip():
+    from app.pipeline.oom_coords import projected_to_map_coord
+    from app.pipeline.oom_import import OomObjectPart
+    from app.pipeline.oom_symbols import symbol_set_path
+    from app.pipeline.path_clearance import _symbol_info, drawn_path_ends
+
+    kw = dict(preset_id="forest_10000", scale=10000, ref_x=-900.0, ref_y=-1000.0, grivation_deg=3.0)
+    info = _symbol_info(symbol_set_path("forest_10000", 10000))
+    sym = next(i for i, (major, kind) in info.items() if major == 502 and kind == "line")
+    a = projected_to_map_coord(-950.0, -1000.0, ref_x=-900.0, ref_y=-1000.0, scale=10000, grivation_deg=3.0)
+    b = projected_to_map_coord(-850.0, -990.0, ref_x=-900.0, ref_y=-1000.0, scale=10000, grivation_deg=3.0)
+    xml = f'<object type="1" symbol="{sym}"><coords count="2">{a[0]} {a[1]};{b[0]} {b[1]};</coords></object>'
+    ends = drawn_path_ends([OomObjectPart("x", xml, 1)], majors=frozenset({502}), **kw)
+    assert len(ends) == 2
+    assert abs(ends[0][0] + 950) < 0.05 and abs(ends[0][1] + 1000) < 0.05
+    assert abs(ends[1][0] + 850) < 0.05 and abs(ends[1][1] + 990) < 0.05
+    assert ends[0][2] > 1.0  # půlka šířky 502 v metrech
+    assert drawn_path_ends([OomObjectPart("x", xml, 1)], majors=frozenset({815}), **kw) == []
+
+
+def test_corridor_adjacent_paved_ignores_slivers(tmp_path, monkeypatch):
+    from shapely.geometry import Point, box
+    from shapely.ops import unary_union
+
+    from app.pipeline import osm_paths as op
+
+    corridor = box(0, 0, 100, 10)
+    parking = box(20, 10, 50, 40)  # přiléhá k hraně koridoru
+    sliver = box(60, 0, 90, 10.4)  # plocha přes silnici: po ořezu koridorem jen pruh 0,4 m
+    monkeypatch.setattr(di, "dtm_parking_geometry", lambda *a, **k: unary_union([parking, sliver]))
+    monkeypatch.setattr(op, "paved_network_geometry", lambda *a, **k: box(0, -20, 100, -10.2))  # OSM síť se nepočítá
+    adj = di._corridor_adjacent_paved(tmp_path, corridor, "mtbo_10000", 10000, "mixed")
+    assert adj is not None
+    assert adj.buffer(0.1).contains(Point(35, 10)) and adj.distance(Point(75, 10)) > 1.0
+    assert adj.distance(Point(50, -10)) > 1.0
+
+
+def test_edge_omit_drops_short_stub_between_two_omits():
+    from shapely.geometry import Point, box
+
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-900.0, ref_y=-1000.0, grivation_deg=0.0)
+    rect = box(-950, -1006, -850, -994)
+
+    def edges(omit):
+        parts = di._geometry_part(rect, name="x", code="501.0", outline_separate=True, clip_bounds=None, edge_omit=omit, **kw)
+        return parts[1].count
+
+    a, b, far = Point(-920, -1006).buffer(2.0), Point(-913, -1006).buffer(2.0), Point(-870, -1006).buffer(2.0)  # mezi a, b 3 m (0,3 mm)
+    base = edges(a)  # obrys uzavřeného obdélníku přerušený jedním kruhem
+    assert edges(a.union(b)) == base  # pahýl 5 m mezi kruhy se zahodí, zbytek obrysu zůstane
+    assert edges(a.union(far)) == base + 1  # daleké přerušení: oba kusy zůstanou
+    assert edges(a.union(b).union(far)) == base + 1
+    # pahýl s jedním koncem u přerušení (kruh blízko rohu) se také zahodí
+    corner = Point(-950, -1006).buffer(2.0)
+    assert edges(corner.union(Point(-945, -1006).buffer(0.6))) <= edges(corner)
+
+
+def test_trim_along_corridor():
+    from shapely.geometry import box
+
+    from app.pipeline.dtm_sidewalks import trim_along_corridor
+
+    corridor = box(0, 0, 100, 10)
+    # souběžně 2 m od hrany, 100 m: zmizí
+    assert trim_along_corridor([(0, 12), (100, 12)], corridor, 4.0) == []
+    # kolmé napojení: beze změny
+    perp = [(50, 10), (50, 40)]
+    assert trim_along_corridor(perp, corridor, 4.0) == [perp]
+    # 40 m podél hrany a odbočka pryč: zbude odbočka napojená na hranu
+    line = [(0, 10), (0, 12), (40, 12), (60, 40)]
+    out = trim_along_corridor(line, corridor, 4.0)
+    assert len(out) == 1
+    piece = out[0]
+    assert abs(piece[0][1] - 10.0) < 1e-6  # začátek leží na hraně koridoru
+    assert piece[-1] == (60.0, 40.0)
+
+
+def test_trim_along_corridor_precomputed_band_and_boundary_give_same_result():
+    from shapely.geometry import box
+
+    corridor = box(0, 0, 100, 10)
+    band = corridor.buffer(2.0)
+    for line in (
+        [(0, 12), (100, 12)],
+        [(50, 10), (50, 40)],
+        [(0, 10), (0, 12), (40, 12), (60, 40)],
+        [(0.0, 100.0), (50.0, 100.0)],
+    ):
+        assert ds.trim_along_corridor(line, corridor, 4.0, band=band, boundary=corridor.boundary) == ds.trim_along_corridor(
+            line, corridor, 4.0
+        )
+
+
+def test_trim_along_corridor_shallow_end_is_cut_and_snapped_to_edge():
+    import math
+
+    from shapely.geometry import LineString, box
+
+    corridor = box(0, 0, 100, 10)
+    w = 4.0
+    # konec dobíhá k hraně pod 15° (poslední úsek v pásu je dlouhý, konec musí skončit na hraně)
+    t = math.tan(math.radians(15))
+    line = [(10.0, 40.0), (10.0, 12.0), (10.0 + 2.0 / t, 12.0), (10.0 + 2.0 / t + 2.0 / t, 10.0)]
+    out = ds.trim_along_corridor(line, corridor, w)
+    assert len(out) == 1
+    assert abs(corridor.boundary.distance(__import__("shapely.geometry").geometry.Point(out[0][-1]))) < 1e-6
+    in_band = LineString(out[0]).intersection(corridor.buffer(w / 2)).length
+    old_in_band = LineString(line).intersection(corridor.buffer(w / 2)).length
+    assert in_band < old_in_band
+
+
+def test_trim_along_corridor_perpendicular_end_stays_on_edge():
+    from shapely.geometry import LineString, Point, box
+
+    corridor = box(0, 0, 100, 10)
+    perp = [(50.0, 10.0), (50.0, 40.0)]
+    out = ds.trim_along_corridor(perp, corridor, 4.0)
+    assert len(out) == 1
+    assert corridor.boundary.distance(Point(out[0][0])) < 1e-6
+    assert abs(LineString(out[0]).length - 30.0) < 0.5
+
+
+def test_trim_along_corridor_drops_stub_near_edge():
+    from shapely.geometry import box
+
+    corridor = box(0, 0, 100, 10)
+    assert ds.trim_along_corridor([(20.0, 11.0), (26.0, 11.0)], corridor, 4.0) == []
+
+
+def test_trim_along_corridor_line_far_from_corridor_is_unchanged():
+    from shapely.geometry import box
+
+    coords = [(0.0, 100.0), (50.0, 100.0)]
+    assert ds.trim_along_corridor(coords, box(0, 0, 50, 10), 8.7) == [coords]
+
+
+def test_corridor_edge_merged_with_adjacent_parking_reaches_corner(tmp_path, monkeypatch):
+    from shapely.geometry import Point, box
+
+    corridor, parking = box(0, 0, 100, 10), box(20, 10, 50, 40)
+    seen = {}
+    monkeypatch.setattr(di, "dtm_area_preset", lambda p: True)
+    monkeypatch.setattr(di, "corridor_geometry_for", lambda *a, **k: corridor)
+    monkeypatch.setattr(di, "_corridor_adjacent_paved", lambda *a, **k: parking)
+    monkeypatch.setattr(di, "corridor_junction_omit", lambda *a, **k: None)
+    monkeypatch.setattr(di, "_geometry_part", lambda geom, **k: seen.update(k) or [])
+    di.build_mtbo_corridor_parts(tmp_path, preset_id="mtbo_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    lines = seen["edge_lines"]
+    assert lines.distance(Point(35, 10)) > 1.0  # společná hranice bez okraje
+    assert lines.distance(Point(10, 10)) < 0.01 and lines.distance(Point(60, 10)) < 0.01  # zbytek hrany koridoru
+    # u rohu obrys koridoru pokračuje po hraně parkoviště dál, než parkoviště svůj okraj vynechá (0,5 m)
+    assert lines.distance(Point(20, 10 + di.CORRIDOR_SHARED_EDGE_M)) < 0.01
+    assert lines.distance(Point(50, 10 + di.CORRIDOR_SHARED_EDGE_M)) < 0.01
+
+
+def test_classified_polygons_mixed_uses_osm_roads_dropped_for_zabaged(tmp_path):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1007, -800, -993)]]}), encoding="utf-8"
+    )
+    (work / "dtm" / "roads.json").write_text(json.dumps({"polygons": []}), encoding="utf-8")
+    (work / "osm_paths").mkdir()
+    road = {"type": "Feature", "properties": {"highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[-990, -1000], [-810, -1000]]}}
+    empty = {"type": "FeatureCollection", "features": []}
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps(empty), encoding="utf-8")  # ulici kreslí ZABAGED
+    (work / "osm_paths" / "paths_osm.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8")
+    sidewalks, roads = di.classified_polygons(work, "mixed")
+    assert sidewalks == [] and len(roads) == 1  # chodník z DTM s OSM ulicí uvnitř je silnice i v mixed
+
+
+def test_dtm_disabled_hides_job_dtm_data(tmp_path):
+    (tmp_path / "dtm").mkdir()
+    (tmp_path / "dtm" / "roads.json").write_text(json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, 0, 100, 10)]]}), encoding="utf-8")
+    assert di.dtm_owns_roads(tmp_path)
+    with di.dtm_disabled():
+        assert di.dtm_is_disabled() and not di.dtm_owns_roads(tmp_path)
+        assert di.road_geometry(tmp_path) is None
+    assert di.dtm_owns_roads(tmp_path) and not di.dtm_is_disabled()
+    with di.dtm_disabled(False):
+        assert di.dtm_owns_roads(tmp_path)

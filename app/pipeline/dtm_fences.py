@@ -653,6 +653,10 @@ FENCE_BRIDGE_DIR_LEN_M = 3.0
 FENCE_BRIDGE_OLIVE_NEAR_M = 1.5
 
 
+# Spojka konců téže čáry (uzavření parcely) jen u čáry aspoň tolikrát delší než mezera.
+FENCE_BRIDGE_SAME_LINE_FACTOR = 5.0
+
+
 def fence_gap_connectors(
     lines: list[tuple[str, list[tuple[float, float]]]],
     *,
@@ -661,8 +665,12 @@ def fence_gap_connectors(
     forbidden=None,
     near=None,
     near_m: float = FENCE_BRIDGE_OLIVE_NEAR_M,
+    same_line: bool = False,
 ) -> list[tuple[str, list[tuple[float, float]]]]:
     """Spojky ``(kód, [konec A, konec B])`` mezi volnými konci plotů téhož kódu, které na sebe míří.
+
+    ``same_line`` (les a MTBO): spojit smí i oba konce téže čáry – plot kolem parcely s mezerou se tak uzavře
+    (čára aspoň ``FENCE_BRIDGE_SAME_LINE_FACTOR``× delší než mezera).
 
     Volný konec = nedotýká se jiné čáry (do ``JOIN_TOLERANCE_M``). Spojka nesmí protínat ``forbidden`` (shapely: budovy,
     cesty) ani jiný plot; každý konec se použije nejvýš jednou, přednost má nejkratší mezera.
@@ -674,7 +682,7 @@ def fence_gap_connectors(
 
     items = [(code, [(float(x), float(y)) for x, y in c]) for code, c in lines if len(c) >= 2]
     geoms = [LineString(c) for _code, c in items]
-    if len(geoms) < 2 or max_gap_m <= JOIN_TOLERANCE_M:
+    if len(geoms) < (1 if same_line else 2) or max_gap_m <= JOIN_TOLERANCE_M:
         return []
     if near is not None and near.is_empty:
         return []
@@ -703,11 +711,13 @@ def fence_gap_connectors(
         ia, pa, da = ends[a]
         for b in range(a + 1, len(ends)):
             ib, pb, db = ends[b]
-            if ia == ib or items[ia][0] != items[ib][0]:
+            if (ia == ib and not same_line) or items[ia][0] != items[ib][0]:
                 continue
             vx, vy = pb[0] - pa[0], pb[1] - pa[1]
             gap = math.hypot(vx, vy)
             if gap <= JOIN_TOLERANCE_M or gap > max_gap_m:
+                continue
+            if ia == ib and geoms[ia].length < FENCE_BRIDGE_SAME_LINE_FACTOR * gap:
                 continue
             ux, uy = vx / gap, vy / gap
             if da[0] * ux + da[1] * uy < cos_turn or db[0] * -ux + db[1] * -uy < cos_turn:

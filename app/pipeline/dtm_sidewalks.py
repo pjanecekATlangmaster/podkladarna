@@ -51,6 +51,7 @@ CORRIDOR_MIN_LEN_M = 50.0
 # Hystereze: k širokým kusům koridoru se připojí navazující část do ``CORRIDOR_BRIDGE_M`` m, která je
 # aspoň ``CORRIDOR_MIN_ROADWAY_M`` m široká (silnice 7–9 m jinak střídavě vypadává z koridoru a kreslí se po kouscích).
 CORRIDOR_BRIDGE_M = 60.0
+CORRIDOR_AXIS_GAP_M = 20.0  # zúžení koridoru pod kresbu 502 do této délky se podél osy silnice doplní (jinak kusy „kapslí“)
 BUILDING_CACHE_SUFFIX = ".bld1.json"
 # Schody, rampy, zápraží u vchodů: v DTM bez atributu druhu, kreslí se jako zpevněná plocha 501.0.
 SMALL_PAVED_TYPES = ("StavbaProZpevneniPovrchuPlocha",)
@@ -219,7 +220,15 @@ def _long_side(poly) -> float:
 
 
 def road_corridor(
-    roads, sidewalks, bike_lines=None, *, scale: int, min_width_mm: float = CORRIDOR_MIN_WIDTH_MM, parking=None
+    roads,
+    sidewalks,
+    bike_lines=None,
+    *,
+    scale: int,
+    min_width_mm: float = CORRIDOR_MIN_WIDTH_MM,
+    parking=None,
+    min_drawn_m: float = 0.0,
+    axes=None,
 ):
     """Koridor silnice pro MTBO: silnice + přilehlé chodníky jedním polygonem (shapely) nebo None.
 
@@ -228,6 +237,9 @@ def road_corridor(
     část do ``CORRIDOR_PARKING_NEAR_M`` m od silnice patří ke koridoru (chodník za parkovištěm se tak
     taky sloučí). Mezera do ``CORRIDOR_GAP_M`` m (pruh zeleně) se zacelí. Zůstanou jen části širší než
     ``min_width_mm`` mm mapy (v ``scale``) a delší než ``CORRIDOR_MIN_LEN_M`` m.
+    ``sidewalks`` None: koridor je jen silnice (+ parkoviště). ``min_drawn_m``: kreslená šířka silnice 502, kterou
+    koridor nahrazuje; užší než ona nesmí být nikde. ``axes``: osy silnic (čáry); zúžení a krátké mezery mezi kusy
+    koridoru se podél nich doplní pásem šířky ``min_drawn_m`` (jinak se koridor rozpadne na samostatné kusy).
     """
     from shapely.geometry import LineString
     from shapely.ops import unary_union
@@ -268,13 +280,84 @@ def road_corridor(
         return None
     seeds = unary_union(keep)
     # navazující užší úseky (aspoň jízdní šířky) – bez nich se silnice kreslí střídavě plochou a čárou
-    r = CORRIDOR_MIN_ROADWAY_M / 2
+    r = max(CORRIDOR_MIN_ROADWAY_M, min_drawn_m) / 2
     soft = corridor.buffer(-r, join_style=2).buffer(r, join_style=2).intersection(corridor)
     ext = soft.intersection(seeds.buffer(CORRIDOR_BRIDGE_M))
     merged = unary_union([seeds, ext]).buffer(0.05).buffer(-0.05)
     comps = [merged] if merged.geom_type == "Polygon" else [x for x in getattr(merged, "geoms", []) if x.geom_type == "Polygon"]
     kept = [x for x in comps if x.intersects(seeds)]
-    return unary_union(kept) if kept else None
+    if not kept:
+        return None
+    result = unary_union(kept)
+    if min_drawn_m > 0:
+        h = min_drawn_m / 2
+        if axes is not None and not axes.is_empty:
+            result = _fill_along_axes(result, corridor, axes, h + 0.1)  # rezerva, ať pás přežije otevření šířkou kresby
+        # nikde užší než kresba silnice: zbylé zúžení (semínka, napojení) se odřízne
+        result = result.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(result)
+        # kruhový objezd: otevřením se prstenec rozpadne na tříšť malých kusů, ty musí splnit kritéria jako semínka
+        pieces = [result] if result.geom_type == "Polygon" else [x for x in getattr(result, "geoms", []) if x.geom_type == "Polygon"]
+        pieces = [x for x in pieces if x.area >= width * CORRIDOR_MIN_LEN_M and _long_side(x) >= CORRIDOR_MIN_LEN_M]
+        if not pieces:
+            return None
+        result = unary_union(pieces)
+    return result
+
+
+def _fill_along_axes(result, roadway, axes, h: float):
+    """Koridor ``result`` doplněný pásem šířky 2·``h`` podél os silnic ``axes``: uvnitř koridoru (zúžení)
+    a v mezerách do ``CORRIDOR_AXIS_GAP_M`` m mezi kusy, kde osa vede po jízdní ploše ``roadway`` a oba konce úseku leží v koridoru."""
+    from shapely.ops import unary_union
+
+    add = [axes.intersection(result).buffer(h, cap_style=2)]
+    gaps = axes.intersection(roadway.buffer(0.5)).difference(result)
+    for ln in [gaps] if gaps.geom_type == "LineString" else [x for x in getattr(gaps, "geoms", []) if x.geom_type == "LineString"]:
+        if ln.length < 1.0 or ln.length > CORRIDOR_AXIS_GAP_M:
+            continue
+        ends = ln.boundary
+        if len(getattr(ends, "geoms", [])) == 2 and all(result.distance(p) <= 0.1 for p in ends.geoms):
+            add.append(ln.buffer(h, cap_style=2))
+    return unary_union([result, *add]).buffer(0.05).buffer(-0.05)
+
+
+# Les a MTBO: generalizace ploch z DTM podle mm mapy (tvar z DTM jako ve sprintu, ale zjednodušený pro měřítko).
+GENERALIZE_CLOSE_MM = 0.2  # zálivy a škvíry užší než 2× se zacelí
+GENERALIZE_OPEN_MM = 0.15  # výběžky užší než 2× se odříznou
+GENERALIZE_SIMPLIFY_MM = 0.05  # zjednodušení obrysu (Douglas–Peucker)
+GENERALIZE_MIN_HOLE_MM2 = 1.0  # díry (ostrůvky, záhonky) menší se zacelí
+GENERALIZE_MIN_PART_MM2 = 0.5  # samostatné kusy menší se zahodí
+
+
+def generalize_area(geom, scale: int, blockers=None):
+    """Plocha z DTM zjednodušená pro měřítko ``scale`` (shapely) nebo None.
+
+    Zacelí zálivy a škvíry, odřízne úzké výběžky, zjednoduší obrys a zahodí malé díry i kusy (prahy v mm mapy).
+    ``blockers`` (shapely, např. budovy): zacelení do nich nezasáhne.
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    if geom is None or geom.is_empty or scale <= 0:
+        return geom
+    m = scale / 1000.0
+    c = GENERALIZE_CLOSE_MM * m
+    o = GENERALIZE_OPEN_MM * m
+    closed = geom.buffer(c, join_style=2, mitre_limit=2.0).buffer(-c, join_style=2, mitre_limit=2.0)
+    if blockers is not None and not blockers.is_empty:
+        closed = unary_union([geom, closed.difference(blockers)])
+    opened = closed.buffer(-o).buffer(o)
+    g = opened.intersection(closed)
+    g = g.simplify(GENERALIZE_SIMPLIFY_MM * m, preserve_topology=True)
+    if not g.is_valid:
+        g = g.buffer(0)
+    min_hole = GENERALIZE_MIN_HOLE_MM2 * m * m
+    min_part = GENERALIZE_MIN_PART_MM2 * m * m
+    out = []
+    for p in [g] if g.geom_type == "Polygon" else [x for x in getattr(g, "geoms", []) if x.geom_type == "Polygon"]:
+        if p.is_empty or p.area < min_part:
+            continue
+        out.append(Polygon(p.exterior, [h for h in p.interiors if Polygon(h).area >= min_hole]))
+    return unary_union(out) if out else None
 
 
 def wide_parts(geom, width_m: float, min_area_m2: float = 0.0):
@@ -316,6 +399,14 @@ def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SN
     if line.length <= 0:
         return [coords]
     boundary = area.boundary
+    if boundary is None:  # GeometryCollection: hrana jen z ploch
+        polys = [g for g in getattr(area, "geoms", []) if g.geom_type in ("Polygon", "MultiPolygon")]
+        if not polys:
+            return [coords]
+        from shapely.ops import unary_union
+
+        area = unary_union(polys)
+        boundary = area.boundary
     start_in = area.contains(Point(coords[0]))
     end_in = area.contains(Point(coords[-1]))
     s, e = 0.0, line.length
@@ -653,6 +744,89 @@ def clip_outside(coords: list[tuple[float, float]], cover, min_len_m: float = OS
     rest = LineString(coords).difference(cover)
     pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
     return [[(float(x), float(y)) for x, y in g.coords] for g in pieces if g.length >= min_len_m]
+
+
+def _drop_band_stubs(pieces, band, width_m: float):
+    """Pahýly: kusy kratší než ``1.5 * width_m`` ležící celé v pásu podél koridoru se zahodí."""
+    from shapely.geometry import LineString
+
+    out = []
+    for piece in pieces:
+        if len(piece) >= 2:
+            ln = LineString(piece)
+            if ln.length < 1.5 * width_m and band.covers(ln):
+                continue
+        out.append(piece)
+    return out
+
+
+def trim_along_corridor(
+    coords: list[tuple[float, float]], corridor, width_m: float, touch_m: float = 0.1, band=None, boundary=None
+):
+    """Čára mimo ``corridor`` (shapely) bez úseků, které vedou podél jeho hrany v pásu ``width_m / 2`` (kresba čáry
+    široká ``width_m`` by tam překrývala plochu): souvislé části uvnitř pásu delší než ``width_m`` se odstraní.
+
+    Konec zbytku, který navazoval na odstraněný úsek při konci čáry dotýkajícím se koridoru (do ``touch_m``), se
+    prodlouží rovně k nejbližšímu bodu hrany. Kratší průniky (napojení napříč) se nemění. Seznam souřadnic kusů.
+
+    ``band`` (``corridor.buffer(width_m / 2)``) a ``boundary`` (``corridor.boundary``) lze předat předpočítané,
+    když se funkce volá pro mnoho čar nad týmž koridorem.
+    """
+    import shapely
+    from shapely.geometry import LineString, Point
+    from shapely.ops import nearest_points, substring
+
+    if corridor is None or corridor.is_empty or len(coords) < 2 or width_m <= 0:
+        return [coords]
+    line = LineString(coords)
+    if line.length <= 0:
+        return [coords]
+    if band is None:
+        band = corridor.buffer(width_m / 2)
+    shapely.prepare(band)  # opakované ``intersects`` nad velkým pásem; opakované volání nic nestojí
+    if not band.intersects(line):
+        return [coords]
+    inside = line.intersection(band)
+    parts = [inside] if inside.geom_type == "LineString" else [g for g in getattr(inside, "geoms", []) if g.geom_type == "LineString"]
+    parts = [g for g in parts if not g.is_empty]  # čára pás neprotne → prázdný LineString
+    spans = sorted(
+        (min(line.project(Point(g.coords[0])), line.project(Point(g.coords[-1]))), max(line.project(Point(g.coords[0])), line.project(Point(g.coords[-1]))))
+        for g in parts
+    )
+    merged: list[list[float]] = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1] + 1e-6:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    start_touch = corridor.distance(Point(coords[0])) <= touch_m
+    end_touch = corridor.distance(Point(coords[-1])) <= touch_m
+    removed = []
+    for a, b in merged:
+        # konec dotýkající se koridoru se zkracuje, dokud je osa v pásu, i když je úsek kratší než ``width_m``;
+        # skoro kolmé napojení (úsek ≤ 1,5 × půlka šířky) se nemění
+        at_end = (start_touch and a <= 1e-6) or (end_touch and b >= line.length - 1e-6)
+        if b - a > width_m or (at_end and b - a > 0.75 * width_m):
+            removed.append((a, b))
+    if not removed:
+        return _drop_band_stubs([coords], band, width_m)
+    if boundary is None:
+        boundary = corridor.boundary
+    result = []
+    pos = 0.0
+    for a, b in [*removed, (line.length, line.length)]:
+        if a - pos > 1e-6:
+            piece = [(float(x), float(y)) for x, y in substring(line, pos, a).coords]
+            # konec zbytku po odstraněném úseku u začátku / konce čáry, který se dotýkal koridoru, se napojí na hranu
+            if pos > 1e-6 and start_touch and removed[0][0] <= 1e-6 and abs(removed[0][1] - pos) < 1e-6:
+                q = nearest_points(boundary, Point(piece[0]))[0]
+                piece = [(float(q.x), float(q.y)), *piece]
+            if a < line.length - 1e-6 and end_touch and removed[-1][1] >= line.length - 1e-6 and abs(removed[-1][0] - a) < 1e-6:
+                q = nearest_points(boundary, Point(piece[-1]))[0]
+                piece = [*piece, (float(q.x), float(q.y))]
+            result.append(piece)
+        pos = b
+    return _drop_band_stubs(result, band, width_m)
 
 
 def unify_sidewalks(

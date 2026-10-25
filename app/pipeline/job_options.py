@@ -55,6 +55,25 @@ def resolve_veg_smooth(options: dict | None) -> int:
     return level if level in VEG_SMOOTH_LEVELS else VEG_SMOOTH_DEFAULT
 
 
+def _as_bool(raw, default: bool) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "on", "dtm"}:
+        return True
+    if text in {"0", "false", "no", "off", "osm"}:
+        return False
+    return default
+
+
+def resolve_use_dtm(options: dict | None, preset_id: str) -> bool:
+    """Kreslit preset z DTM? Sprint: `dtm_sprint` (výchozí ano); les a MTBO: `dtm_forest` (výchozí ne)."""
+    opts = options or {}
+    if str(preset_id).startswith("sprint"):
+        return _as_bool(opts.get("dtm_sprint"), True)
+    return _as_bool(opts.get("dtm_forest"), False)
+
+
 def load_presets() -> dict:
     return yaml.safe_load((CONFIG_DIR / "presets.yaml").read_text(encoding="utf-8"))
 
