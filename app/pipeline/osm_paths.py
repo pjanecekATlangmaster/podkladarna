@@ -5604,11 +5604,14 @@ SIDEWALK_END_NEAR_M = 1.0
 SIDEWALK_END_JOIN_M = 0.3
 
 
-def dropped_sidewalk_geometry(features: list[dict], road_zone, bike_zone, bases: frozenset[str]):
+def dropped_sidewalk_geometry(
+    features: list[dict], road_zone, bike_zone, bases: frozenset[str], bike_road_zone=None, bike_bases: frozenset[str] | None = None
+):
     """Zahozené chodníky u silnice (celé čáry i souběžné úseky) jako shapely geometrie nebo None.
 
     Stejné podmínky jako při kreslení v ``build_osm_path_parts`` (``is_sidewalk_beside_road`` /
     ``sidewalk_parallel_zone``); vrací i množinu indexů prvků, které mají zahozenou aspoň část.
+    Smíšená stezka (v ``bike_zone``) se posuzuje v užším pásu ``bike_road_zone`` (bez něj zůstává).
     """
     if road_zone is None:
         return None, set()
@@ -5623,13 +5626,16 @@ def dropped_sidewalk_geometry(features: list[dict], road_zone, bike_zone, bases:
         if geom.get("type") != "LineString" or len(coords) < 2:
             continue
         hw = str((feat.get("properties") or {}).get("highway") or "path")
+        zone_i, bases_i = road_zone, bases
         if _line_in_zone(coords, bike_zone):
-            continue
-        if is_sidewalk_beside_road(hw, coords, road_zone, bases):
+            if bike_road_zone is None:
+                continue
+            zone_i, bases_i = bike_road_zone, bike_bases or bases
+        if is_sidewalk_beside_road(hw, coords, zone_i, bases_i):
             geoms.append(LineString(coords))
             owners.add(i)
             continue
-        zone = sidewalk_parallel_zone(hw, coords, road_zone, bases)
+        zone = sidewalk_parallel_zone(hw, coords, zone_i, bases_i)
         if zone is not None:
             part = LineString(coords).intersection(zone)
             if not part.is_empty:
@@ -5887,6 +5893,38 @@ def build_osm_path_parts(
             if _band is not None:
                 road_zone = _band if road_zone is None else _uu_mtbo([road_zone, _band])
     dedup_bases = sidewalk_dedup_bases(preset_id)
+    # Smíšená stezka (chodník s povoleným kolem, cyklostezka) se nezahazuje kvůli mezeře mezi kresbami, jen když
+    # by čárou zasahovala do kresby silnice / okraje plochy (pás bez ``LINE_MIN_GAP_MM``; Petr 2026-10-25).
+    bike_road_zone = None
+    if road_zone is not None and bike_zone is not None:
+        from shapely.ops import unary_union as _uu_bike
+
+        _half = drawn_symbol_width_m("sidewalk", preset_id, scale) / 2.0
+        _bike_parts = [
+            g
+            for g in (
+                sidewalk_road_zone_geometry(road_feats, beside_paved, preset_id=preset_id, scale=scale, road_widths=road_widths, reach_m=_half),
+                sidewalk_road_zone_geometry(
+                    [],
+                    _uu_bike([g for g in (corridor_zone, mtbo_sidewalk_zone) if g is not None and not g.is_empty]),
+                    preset_id=preset_id,
+                    scale=scale,
+                    reach_m=_half,
+                )
+                if dtm_area_preset(preset_id) and (corridor_zone is not None or mtbo_sidewalk_zone is not None)
+                else None,
+            )
+            if g is not None and not g.is_empty
+        ]
+        bike_road_zone = _uu_bike(_bike_parts) if _bike_parts else None
+    bike_bases = dedup_bases | {"cycleway", "cycleway_paved"}
+
+    def _dedup_args(coords):
+        """(pás, třídy) pro dedup čáry u silnice: smíšená stezka jen při zásahu do kresby silnice."""
+        if _line_in_zone(coords, bike_zone):
+            return bike_road_zone, bike_bases
+        return road_zone, dedup_bases
+
     skip_steps = set() if preset_id.startswith("sprint") else small_complex_steps(data.get("features") or [])
     service_links = (
         set()
@@ -5932,7 +5970,7 @@ def build_osm_path_parts(
     road_band = other_lines = None
     if road_zone is not None:
         dropped_sidewalks, dropped_owners = dropped_sidewalk_geometry(
-            data.get("features") or [], road_zone, bike_zone, dedup_bases
+            data.get("features") or [], road_zone, bike_zone, dedup_bases, bike_road_zone, bike_bases
         )
         if dropped_sidewalks is not None:
             from shapely.ops import unary_union as _uu_band
@@ -5955,10 +5993,11 @@ def build_osm_path_parts(
                 if _g.get("type") != "LineString" or len(_c) < 2 or path_draw_highway(_hw).startswith("road_"):
                     continue
                 _ln = [(float(x), float(y)) for x, y, *_ in _c]
-                if not _line_in_zone(_c, bike_zone):
-                    if is_sidewalk_beside_road(_hw, _c, road_zone, dedup_bases):
+                _rz, _bases = _dedup_args(_c)
+                if _rz is not None:
+                    if is_sidewalk_beside_road(_hw, _c, _rz, _bases):
                         continue
-                    _bz = sidewalk_parallel_zone(_hw, _c, road_zone, dedup_bases)
+                    _bz = sidewalk_parallel_zone(_hw, _c, _rz, _bases)
                     if _bz is not None:
                         _other.extend(_LS_other(seg) for seg in clip_outside(_ln, _bz) if len(seg) >= 2)
                         continue
@@ -5995,10 +6034,11 @@ def build_osm_path_parts(
         ):
             continue  # les / MTBO: dlouhý tunel se nekreslí (krátký podchod ano)
         beside_zone = None
-        if road_zone is not None and not _line_in_zone(coords, bike_zone):
-            if is_sidewalk_beside_road(hw, coords, road_zone, dedup_bases):
+        _rz, _bases = _dedup_args(coords)
+        if _rz is not None:
+            if is_sidewalk_beside_road(hw, coords, _rz, _bases):
                 continue
-            beside_zone = sidewalk_parallel_zone(hw, coords, road_zone, dedup_bases)
+            beside_zone = sidewalk_parallel_zone(hw, coords, _rz, _bases)
         # Symbol u schodů se volí až podle délky dílku (les/MTBO krátké → pěšina).
         steps_piece = is_surface_steps(hw)
         code = osm_oom_code(hw, preset_id) if not steps_piece else None
@@ -6056,12 +6096,11 @@ def build_osm_path_parts(
             lines = [seg for ln in lines for seg in trim_along_corridor(ln, corridor_zone, _w, band=_band, boundary=_corridor_boundary)]
         elif (
             corridor_zone is not None
-            and path_draw_highway(hw) in {"sidewalk", "footway", "pedestrian"}
+            and path_draw_highway(hw) in {"sidewalk", "footway", "pedestrian", "cycleway", "cycleway_paved"}
             and not is_bridge_highway(hw)
             and not is_tunnel_highway(hw)
-            and not _line_in_zone(line, bike_zone)
         ):
-            # Chodník / pěšina uvnitř koridoru je jeho součástí; sdílený provoz (kolo povoleno) zůstává.
+            # Chodník / pěšina / stezka uvnitř koridoru je jeho součástí (i smíšená – v ploše silnice není čitelná).
             lines = clip_outside(line, corridor_zone)
         elif stairs_zone is not None and steps_piece:
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).

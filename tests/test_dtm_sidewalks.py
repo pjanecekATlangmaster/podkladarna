@@ -675,7 +675,7 @@ def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path, monkeypatch
     parts = di.build_mtbo_corridor_parts(work, **kw)
     assert [p.name for p in parts] == ["MTBO – silnice s chodníky (koridor)", "MTBO – silnice s chodníky (koridor) – obrys (501.100)"]
     assert op.build_osm_path_parts(work, **kw) == []  # čára silnice leží uvnitř koridoru → nekreslí se
-    # chodník uvnitř koridoru je jeho součástí (nekreslí se); se sdíleným provozem (kolo povoleno) zůstává
+    # chodník uvnitř koridoru je jeho součástí (nekreslí se)
     sw_line = {
         "type": "Feature",
         "properties": {"highway": "sidewalk"},
@@ -688,8 +688,8 @@ def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path, monkeypatch
     (work / "osm_paths" / "bike_paths.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": [{**sw_line, "properties": {"bike": True}}]}), encoding="utf-8"
     )
-    shared = op.build_osm_path_parts(work, **kw)
-    assert shared and shared[0].count == 1  # sdílený chodník se kreslí jako cesta
+    # smíšená stezka, která by čárou zasahovala do kresby silnice / koridoru, se nekreslí (Petr 2026-10-25)
+    assert op.build_osm_path_parts(work, **kw) == []
     forest = {**kw, "preset_id": "forest_10000"}
     assert [p.name for p in di.build_mtbo_corridor_parts(work, **forest)] == [
         "Les – silnice s chodníky z DTM (koridor)",
@@ -1713,3 +1713,20 @@ def test_dtm_disabled_hides_job_dtm_data(tmp_path):
     assert di.dtm_owns_roads(tmp_path) and not di.dtm_is_disabled()
     with di.dtm_disabled(False):
         assert di.dtm_owns_roads(tmp_path)
+
+
+def test_dropped_sidewalk_shared_with_bikes_only_when_overlapping_road():
+    from app.pipeline import osm_paths as op
+
+    from shapely.geometry import LineString, box
+
+    road_zone, bike_road_zone = box(0, -8, 200, 8), box(0, -5, 200, 5)  # pás s mezerou / jen zásah do kresby
+    near = {"type": "Feature", "properties": {"highway": "footway"}, "geometry": {"type": "LineString", "coordinates": [[0, 4], [200, 4]]}}
+    gap = {"type": "Feature", "properties": {"highway": "footway"}, "geometry": {"type": "LineString", "coordinates": [[0, -7], [200, -7]]}}
+    bike_zone = LineString([(0, 4), (200, 4)]).union(LineString([(0, -7), (200, -7)])).buffer(1.0)
+    _geom, owners = op.dropped_sidewalk_geometry([near, gap], road_zone, bike_zone, op.SIDEWALK_DEDUP_BASES, bike_road_zone)
+    assert owners == {0}  # smíšená stezka v mezeře zůstává, zasahující do kresby silnice pryč
+    _geom, owners = op.dropped_sidewalk_geometry([near, gap], road_zone, bike_zone, op.SIDEWALK_DEDUP_BASES)
+    assert owners == set()  # bez užšího pásu se smíšená stezka nezahazuje
+    _geom, owners = op.dropped_sidewalk_geometry([near, gap], road_zone, None, op.SIDEWALK_DEDUP_BASES)
+    assert owners == {0, 1}
