@@ -375,10 +375,13 @@ def _symbol_codes(symbol_set: Path) -> dict[int, str]:
 PAVED_FILL_CODES = frozenset({"501.1"})
 # Zbytek výplně menší než tento čtverec (mm na mapě) se zahodí.
 PAVED_FILL_MIN_MM = 0.3
+# Výplň ustoupí jen menší olivě (zahrada, oplocení) do této výměry v terénu (m²); ve velkých areálech zůstane vidět
+# (vnitřní ulice ateliérů Barrandov, Petr 2026-10-25).
+PAVED_FILL_OLIVE_MAX_M2 = 5000.0
 
 
 def paved_fill_outside_olive(parts: list[OomObjectPart], *, preset_id: str, scale: int) -> list[OomObjectPart]:
-    """Les a MTBO: výplň zpevněných ploch (501.1) se ořízne o kreslenou olivu (520).
+    """Les a MTBO: výplň zpevněných ploch (501.1) se ořízne o kreslenou olivu (520) do ``PAVED_FILL_OLIVE_MAX_M2``.
 
     Výplň 501.1 leží v sadě nad olivou, takže pěší plocha nebo parkoviště uvnitř oplocení olivu
     „vyřízne“. Plocha uvnitř olivy se kreslí jen okrajem 501.2 (vstup může být povolený), oliva
@@ -409,6 +412,10 @@ def paved_fill_outside_olive(parts: list[OomObjectPart], *, preset_id: str, scal
                 poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
                 if poly is not None and not poly.is_empty:
                     olive.append(poly)
+    # Souvislé olivy (sousední objekty sloučené) jen do PAVED_FILL_OLIVE_MAX_M2; 1 m v terénu = 1e6 / scale µm mapy.
+    max_area = PAVED_FILL_OLIVE_MAX_M2 * (1e6 / scale) ** 2
+    merged = unary_union(olive) if olive else None
+    olive = [g for g in getattr(merged, "geoms", [merged]) if isinstance(g, Polygon) and g.area <= max_area] if merged is not None else []
     if not olive:
         return parts
     from shapely import STRtree
