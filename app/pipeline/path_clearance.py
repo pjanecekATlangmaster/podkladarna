@@ -358,6 +358,106 @@ def drawn_path_ends(
     return out
 
 
+@lru_cache(maxsize=8)
+def _symbol_codes(symbol_set: Path) -> dict[int, str]:
+    """``{index symbolu: kód}`` ze sady (celý kód, např. ``501.1``)."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(symbol_set).getroot()
+    return {
+        int(el.get("id")): str(el.get("code") or "")
+        for el in root.iter()
+        if el.tag.rsplit("}", 1)[-1] == "symbol" and el.get("id") is not None
+    }
+
+
+# Bezobrysová výplň zpevněné plochy, která se pod olivou nekreslí (okraj 501.2 zůstává).
+PAVED_FILL_CODES = frozenset({"501.1"})
+# Zbytek výplně menší než tento čtverec (mm na mapě) se zahodí.
+PAVED_FILL_MIN_MM = 0.3
+
+
+def paved_fill_outside_olive(parts: list[OomObjectPart], *, preset_id: str, scale: int) -> list[OomObjectPart]:
+    """Les a MTBO: výplň zpevněných ploch (501.1) se ořízne o kreslenou olivu (520).
+
+    Výplň 501.1 leží v sadě nad olivou, takže pěší plocha nebo parkoviště uvnitř oplocení olivu
+    „vyřízne“. Plocha uvnitř olivy se kreslí jen okrajem 501.2 (vstup může být povolený), oliva
+    zůstává celá (Petr 2026-10-25). Sprint beze změny.
+    """
+    if preset_id.startswith("sprint") or not parts:
+        return parts
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        set_path = symbol_set_path(preset_id, scale)
+        info = _symbol_info(set_path)
+        codes = _symbol_codes(set_path)
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+    fill_ids = {i for i, c in codes.items() if c in PAVED_FILL_CODES}
+    olive_ids = {i for i, (major, kind) in info.items() if major == OLIVE_MAJOR and kind == "area"}
+    if not fill_ids or not olive_ids:
+        return parts
+    olive = []
+    for part in parts:
+        for m in _OBJECT_RE.finditer(part.objects_xml):
+            if m.group(2) == "1" and int(m.group(3)) in olive_ids:
+                cm = _COORDS_RE.search(m.group(4))
+                poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
+                if poly is not None and not poly.is_empty:
+                    olive.append(poly)
+    if not olive:
+        return parts
+    from shapely import STRtree
+
+    tree = STRtree(olive)
+    min_area = (PAVED_FILL_MIN_MM * 1000.0) ** 2
+    min_half = PAVED_FILL_MIN_MM * 1000.0 / 2.0
+
+    def clip_fill(match: re.Match) -> str:
+        head, otype, sym, body, tail = match.groups()
+        if otype != "1" or int(sym) not in fill_ids:
+            return match.group(0)
+        cm = _COORDS_RE.search(body)
+        if not cm:
+            return match.group(0)
+        try:
+            poly = _polygon(_rings(_parse_coords(cm.group(1))))
+            if poly is None or poly.is_empty:
+                return match.group(0)
+            ks = [int(k) for k in tree.query(poly, predicate="intersects")]
+            if not ks:
+                return match.group(0)
+            new = poly.difference(unary_union([olive[k] for k in ks]))
+            if new.area >= poly.area - 1.0:
+                return match.group(0)
+            pieces = [
+                g
+                for g in getattr(new, "geoms", [new])
+                if isinstance(g, Polygon) and g.area >= min_area and not g.buffer(-min_half).is_empty
+            ]
+            out = []
+            for g in (g.simplify(EPS) for g in pieces):
+                out.extend(_rounded_pieces(g))
+            return "\n".join(head + body[: cm.start()] + _format_coords(p) + body[cm.end() :] + tail for p in out)
+        except Exception:  # jeden objekt se nepovede → zůstane, jak byl
+            return match.group(0)
+
+    out_parts = []
+    for part in parts:
+        xml = _OBJECT_RE.sub(clip_fill, part.objects_xml)
+        if xml == part.objects_xml:
+            out_parts.append(part)
+        else:
+            count = len(_OBJECT_RE.findall(xml))
+            if count:
+                out_parts.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
+    return out_parts
+
+
 def displace_objects_from_paths(
     parts: list[OomObjectPart],
     work_dir: Path,

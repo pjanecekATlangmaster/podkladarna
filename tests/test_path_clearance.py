@@ -169,3 +169,18 @@ def test_merge_fill_rings_adds_only_new_enclosures():
     other = [(20, 0), (30, 0), (30, 10), (20, 10), (20, 0)]
     assert di.merge_fill_rings([a], [same, other]) == [a, other]
     assert di.merge_fill_rings([], [other]) == [other]
+
+
+def test_paved_fill_inside_olive_is_not_drawn_olive_stays_whole():
+    from app.pipeline.path_clearance import paved_fill_outside_olive
+
+    olive = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "520"), [_to_map(_rect(0, 0, 100, 100))])
+    inside = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "501.1"), [_to_map(_rect(20, 20, 40, 40))])
+    across = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "501.1"), [_to_map(_rect(80, 40, 140, 60))])
+    forest = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "406"), [_to_map(_rect(20, 20, 40, 40))])
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([olive, inside, across, forest]), count=4)]
+    out = _objects(paved_fill_outside_olive(parts, preset_id=PRESET, scale=SCALE))
+    assert len(out) == 3 and out[0] == olive.strip() and out[2] == forest.strip()  # oliva i jiné plochy beze změny
+    assert abs(_area(out[1]) - _area(across) / 1.5) < _area(across) * 0.01  # výplň jen mimo olivu
+    sprint = paved_fill_outside_olive(parts, preset_id="sprint_4000", scale=4000)
+    assert sprint == parts

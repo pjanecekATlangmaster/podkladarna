@@ -1107,6 +1107,10 @@ def _prepare_oom_map(
         grivation_deg=grivation,
         path_source=path_source,
     )
+    # Les a MTBO: výplň zpevněné plochy se pod olivou nekreslí, oliva zůstává celá (plocha jen okrajem).
+    from app.pipeline.path_clearance import paved_fill_outside_olive
+
+    object_parts = paved_fill_outside_olive(object_parts, preset_id=preset_id, scale=scale)
     aoi_part = build_aoi_boundary_part(
         bbox_wgs84,
         preset_id=preset_id,
