@@ -72,3 +72,11 @@ def seen_generator_codes(monkeypatch: pytest.MonkeyPatch):
 def _no_osm_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """OSM cache (DOWNLOADS_DIR) by mezi testy vracela cizí odpovědi."""
     monkeypatch.setenv("PODKLADARNA_OSM_CACHE_HOURS", "0")
+
+
+@pytest.fixture(autouse=True)
+def _corridor_seeds_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Testy koridoru silnice jsou na malých tvarech; semínka varianty E (12 m × 100 m) se zapínají jen v jejím testu."""
+    from app.pipeline import dtm_sidewalks
+
+    monkeypatch.setattr(dtm_sidewalks, "CORRIDOR_SEEDS_E", False)

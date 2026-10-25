@@ -51,6 +51,13 @@ CORRIDOR_MIN_LEN_M = 50.0
 # Hystereze: k širokým kusům koridoru se připojí navazující část do ``CORRIDOR_BRIDGE_M`` m, která je
 # aspoň ``CORRIDOR_MIN_ROADWAY_M`` m široká (silnice 7–9 m jinak střídavě vypadává z koridoru a kreslí se po kouscích).
 CORRIDOR_BRIDGE_M = 60.0
+# Varianta E (Petr 2026-10-25): plochou se kreslí jen souvisle široká silnice (semínko aspoň ``CORRIDOR_SEED_WIDTH_M`` m
+# na ``CORRIDOR_SEED_LEN_M`` m) nebo rozšíření u parkoviště; jinde čára 502.x podle základní šířky. False = semínka podle
+# ``CORRIDOR_MIN_WIDTH_MM`` / ``CORRIDOR_MIN_LEN_M`` jako do 2.34.4.
+CORRIDOR_SEEDS_E = True
+CORRIDOR_SEED_WIDTH_M = 12.0
+CORRIDOR_SEED_LEN_M = 100.0
+CORRIDOR_SEED_PARKING_M2 = 100.0
 CORRIDOR_AXIS_GAP_M = 20.0  # zúžení koridoru pod kresbu 502 do této délky se podél osy silnice doplní (jinak kusy „kapslí“)
 BUILDING_CACHE_SUFFIX = ".bld1.json"
 # Schody, rampy, zápraží u vchodů: v DTM bez atributu druhu, kreslí se jako zpevněná plocha 501.0.
@@ -253,6 +260,7 @@ def road_corridor(
         return None
     parts = [roads]
     base = roads
+    park_near = None
     if parking is not None and not parking.is_empty:
         park_near = parking.intersection(roads.buffer(CORRIDOR_PARKING_NEAR_M))
         if not park_near.is_empty:
@@ -276,6 +284,8 @@ def road_corridor(
     wide = wide.intersection(corridor)
     pieces = [wide] if wide.geom_type == "Polygon" else [x for x in getattr(wide, "geoms", []) if x.geom_type == "Polygon"]
     keep = [x for x in pieces if x.area >= width * CORRIDOR_MIN_LEN_M and _long_side(x) >= CORRIDOR_MIN_LEN_M]
+    if CORRIDOR_SEEDS_E and keep:
+        keep = _seeds_e(keep, corridor, park_near)
     if not keep:
         return None
     seeds = unary_union(keep)
@@ -302,6 +312,25 @@ def road_corridor(
             return None
         result = unary_union(pieces)
     return result
+
+
+def _seeds_e(pieces, corridor, parking):
+    """Varianta E: semínka koridoru jen ze souvisle široké silnice nebo u parkoviště.
+
+    Kus zůstane, obsahuje-li část širokou aspoň ``CORRIDOR_SEED_WIDTH_M`` m a dlouhou ``CORRIDOR_SEED_LEN_M`` m,
+    nebo leží-li v něm aspoň ``CORRIDOR_SEED_PARKING_M2`` m² parkoviště u silnice (``parking``, None = bez parkovišť).
+    """
+    h = CORRIDOR_SEED_WIDTH_M / 2
+    wide = corridor.buffer(-h, join_style=2).buffer(h, join_style=2).intersection(corridor)
+    wide = [wide] if wide.geom_type == "Polygon" else [x for x in getattr(wide, "geoms", []) if x.geom_type == "Polygon"]
+    wide = [x for x in wide if _long_side(x) >= CORRIDOR_SEED_LEN_M]
+    out = []
+    for x in pieces:
+        if any(x.intersects(w) for w in wide):
+            out.append(x)
+        elif parking is not None and x.intersection(parking).area >= CORRIDOR_SEED_PARKING_M2:
+            out.append(x)
+    return out
 
 
 def _fill_along_axes(result, roadway, axes, h: float):

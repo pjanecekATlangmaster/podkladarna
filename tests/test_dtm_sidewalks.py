@@ -1730,3 +1730,18 @@ def test_dropped_sidewalk_shared_with_bikes_only_when_overlapping_road():
     assert owners == set()  # bez užšího pásu se smíšená stezka nezahazuje
     _geom, owners = op.dropped_sidewalk_geometry([near, gap], road_zone, None, op.SIDEWALK_DEDUP_BASES)
     assert owners == {0, 1}
+
+
+def test_corridor_variant_e_keeps_only_continuously_wide_road_or_parking(monkeypatch):
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    monkeypatch.setattr(ds, "CORRIDOR_SEEDS_E", True)
+    kw = dict(scale=10000, min_drawn_m=9.9)
+    short_wide = unary_union([box(0, 0, 60, 12), box(60, 2, 300, 10)])  # 12 m jen na 60 m, jinak 8 m
+    assert ds.road_corridor(short_wide, None, **kw) is None  # kreslí se čarou
+    long_wide = unary_union([box(0, 0, 150, 13), box(150, 2, 300, 10)])
+    cor = ds.road_corridor(long_wide, None, **kw)
+    assert cor is not None and cor.area > 150 * 12
+    parking = box(10, 12, 50, 30)  # parkoviště u krátkého širokého kusu
+    assert ds.road_corridor(short_wide, None, parking=parking, **kw) is not None
