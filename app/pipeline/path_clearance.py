@@ -31,6 +31,14 @@ MOVED_MAJORS = frozenset({513, 514, 515, 516, 517, 518, 520, 521, 522, 523, 524,
 OLIVE_MAJOR = 520
 # Symboly cest, od kterých se odsouvá (silnice, cesty, pěšiny, schody; MTBO navíc 8xx).
 PATH_MAJORS = frozenset({502, 503, 504, 505, 506, 507, 508, 532})
+# Srázy (ISOM 104 hliněný sráz, 201 nepřekonatelný, 202 překonatelný; ISMTBOM stejně): kvůli čárkám symbolu se nesmí
+# kreslit na cestě. Úsek podél cesty se odsune ven (po bodech jako plot), úsek, který cestu kříží nebo se nevejde,
+# se vynechá (Petr 2026-10-26, Barrandov u tramvaje). Délka čárek symbolu nad šířku čáry (mm) a nejkratší ponechaný kus.
+CLIFF_MAJORS = frozenset({104, 201, 202})
+CLIFF_TICK_MM = 0.5
+CLIFF_MIN_PIECE_MM = 0.5
+CLIFF_MAX_SHIFT_MM = 1.5
+PAVED_MAJOR = 501
 # Mezera mezi okrajem symbolu cesty a objektem (mm na mapě): oliva / ostatní (černá kresba).
 OLIVE_GAP_MM = 0.05
 BLACK_GAP_MM = 0.2
@@ -292,6 +300,62 @@ def _move_line(pts, paths: _Paths, extra, max_shift, step):
     out = [[round(x), round(y), 0] for x, y in coords]
     out[-1][2] = pts[-1][2]
     return out
+
+
+def _tick_side_faces(pts, paths: _Paths, ks) -> bool:
+    """True, když nejbližší cesta leží na straně čárek srázu (vpravo od směru čáry; ``<coords>0 0;0 800</coords>``
+    mid-symbolu 104 / 201 = +y, v mapě y dolů)."""
+    from shapely.geometry import LineString, Point
+
+    line = LineString([(p[0], p[1]) for p in pts])
+    best = None
+    for k in ks:
+        g = paths.geoms[k]
+        d = g.distance(line)
+        if best is None or d < best[0]:
+            best = (d, g)
+    if best is None:
+        return True
+    g = best[1]
+    # bod čáry nejblíž cestě a směr čáry v něm
+    t = line.project(g.interpolate(g.project(line.centroid)))
+    p = line.interpolate(t)
+    q = g.interpolate(g.project(p))
+    p0 = line.interpolate(max(0.0, t - 100.0))
+    p1 = line.interpolate(min(line.length, t + 100.0))
+    dx, dy = p1.x - p0.x, p1.y - p0.y
+    vx, vy = q.x - p.x, q.y - p.y
+    return dx * vy - dy * vx > 0  # y dolů: kladný součin = vpravo od směru
+
+
+def _clear_cliff(pts, paths: _Paths, extra_line, extra_tick, max_shift, step, min_piece, paved=None):
+    """Sráz u cesty nebo na zpevněné ploše (``paved``, shapely): odsune se po bodech, co zůstane v pásu cesty /
+    na ploše (křížení, moc daleko), se vynechá. Odstup od cesty je ``extra_tick`` (čárky) jen když cesta leží na
+    straně čárek, jinak ``extra_line``. Vrací None (beze změny), [] (celý pryč) nebo seznam kusů (body)."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    line = LineString([(p[0], p[1]) for p in pts])
+    ks = paths.near(line, extra_tick)
+    extra = extra_tick if ks and _tick_side_faces(pts, paths, ks) else extra_line
+    ks = [k for k in ks if paths.geoms[k].distance(line) <= paths.half[k] + extra]
+    zones = [paths.corridor(ks, extra)] if ks else []
+    if paved is not None and not paved.is_empty and line.intersects(paved):
+        zones.append(paved)  # jen část uvnitř plochy (parkoviště), okraj plochy čárky snesou
+    if not zones:
+        return None
+    corridor = unary_union(zones)
+    if not line.intersects(corridor):
+        return None
+    moved = None
+    if ks and not any(p[2] & MAP_COORD_CURVE_START for p in pts):
+        moved = _move_line(pts, paths, extra, max_shift, step)
+    base = LineString([(p[0], p[1]) for p in moved]) if moved else line
+    rest = base.difference(corridor.buffer(-EPS))  # odsunutá čára leží přesně na hranici pásu, ta se nevyřezává
+    pieces = [g for g in getattr(rest, "geoms", [rest]) if g.geom_type == "LineString" and g.length >= min_piece]
+    if moved is None and len(pieces) == 1 and pieces[0].equals_exact(line, EPS):
+        return None
+    return [[[round(x), round(y), 0] for x, y in g.coords] for g in pieces]
 
 
 def _drawn_path_objects(parts, info, widths) -> list[tuple[list[tuple[float, float]], float]]:
@@ -564,13 +628,29 @@ def displace_objects_from_paths(
     max_shift = (NONSPRINT_AVOID_MAX_SHIFT_MM if max_shift_mm is None else max_shift_mm) * 1000.0
     step = DENSIFY_MM * 1000.0
     min_half = MIN_AREA_WIDTH_MM * 1000.0 / 2.0
+    # Zpevněné plochy z mapy (501.x): sráz na nich nemá co dělat (parkoviště u tramvaje, Barrandov).
+    paved_polys = []
+    for part in parts:
+        for m in _OBJECT_RE.finditer(part.objects_xml):
+            if m.group(2) != "1" or info.get(int(m.group(3)), (0, ""))[0] != PAVED_MAJOR or info[int(m.group(3))][1] != "area":
+                continue
+            cm = _COORDS_RE.search(m.group(4))
+            poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
+            if poly is not None and not poly.is_empty:
+                paved_polys.append(poly)
+    try:
+        from shapely.ops import unary_union as _uu_paved
+
+        paved_union = _uu_paved(paved_polys) if paved_polys else None
+    except Exception:
+        paved_union = None
 
     def move_object(match: re.Match) -> str:
         from shapely.geometry import Point
 
         head, otype, sym, body, tail = match.groups()
         major, kind = info.get(int(sym), (0, "other"))
-        if major not in MOVED_MAJORS:
+        if major not in MOVED_MAJORS and major not in CLIFF_MAJORS:
             return match.group(0)
         cm = _COORDS_RE.search(body)
         if not cm:
@@ -584,6 +664,16 @@ def displace_objects_from_paths(
             return head + body[: cm.start()] + _format_coords(new_pts) + body[cm.end() :] + tail
 
         try:
+            if major in CLIFF_MAJORS:
+                if otype != "1" or kind != "line":
+                    return match.group(0)
+                extra_l = widths.get(int(sym), 0.0) * 1000.0 / 2.0 + BLACK_GAP_MM * 1000.0
+                extra_t = extra_l + CLIFF_TICK_MM * 1000.0
+                shift_c = max(max_shift, CLIFF_MAX_SHIFT_MM * 1000.0)  # sráz radši posunout dál než zahodit (Petr: „do lesa posunul“)
+                pieces = _clear_cliff(pts, paths, extra_l, extra_t, shift_c, step, CLIFF_MIN_PIECE_MM * 1000.0, paved_union)
+                if pieces is None:
+                    return match.group(0)
+                return "\n".join(rebuilt(p) for p in pieces)
             if otype == "0" or kind == "point":
                 if len(pts) != 1:
                     return match.group(0)

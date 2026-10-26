@@ -256,3 +256,60 @@ def test_sprint_without_covered_only_cuts_lines_and_non_sprint_unchanged(tmp_pat
     assert len(_line_lengths_m(out, "506")) == 5  # obě cesty rozpůlené + obrysová
     assert not any(int(m.group(3)) == symbol_index_for_code("sprint_2m", 4000, "522") for p in out for m in _OBJECT_RE.finditer(p.objects_xml))
     assert sprint_building_passages(parts, tmp_path, **dict(SPRINT_KW, preset_id="forest_10000", scale=10000)) is parts
+
+
+# Srázy (104 / 201 / 202) u cest v lese a MTBO (Petr 2026-10-26, Barrandov, parkoviště u tramvaje):
+# podél cesty se odsunou, přes cestu / po ploše 501 se vynechají, drobky < 0,5 mm pryč.
+@pytest.mark.parametrize(
+    "code, coords, expect",
+    [
+        ("201", [(-40, 5), (40, 5)], "moved"),  # podél silnice 5 m od osy, čárky k silnici: odsun za pás silnice + čárky
+        ("201", [(40, 5), (-40, 5)], "moved_line"),  # čárky od silnice: stačí odstup čáry + mezera
+        ("201", [(0, -30), (0, 30)], "cut"),  # kolmo přes silnici: uprostřed se vyřízne, zůstanou dva kusy
+        ("104", [(-40, 5), (40, 5)], "moved"),
+        ("201", [(-40, 1), (40, 1)], "moved"),  # těsně u osy: sráz se radši posune (až 1,5 mm), než zahodí
+        ("201", [(-2, 1), (2, 1)], "dropped"),  # drobek pod 0,5 mm v pásu silnice: pryč
+        ("201", [(-40, 60), (40, 60)], "same"),  # daleko: beze změny
+    ],
+)
+def test_cliff_moves_off_path_or_is_cut(tmp_path, code, coords, expect):
+    from app.pipeline.oom_import import _path_object
+    from app.pipeline.path_clearance import CLIFF_TICK_MM, BLACK_GAP_MM
+
+    work = _work(tmp_path)
+    cliff = _path_object(symbol_index_for_code(PRESET, SCALE, code), _to_map(coords))
+    parts = [OomObjectPart(name="x", objects_xml=cliff, count=1)]
+    out = _objects(displace_objects_from_paths(parts, work, **KW))
+    road_half = symbol_width_mm(PRESET, SCALE, "502") / 2 * 10
+    line_clear = road_half + symbol_width_mm(PRESET, SCALE, code) / 2 * 10 + BLACK_GAP_MM * 10
+    clearance = line_clear + CLIFF_TICK_MM * 10
+    if expect == "same":
+        assert out == [cliff.strip()]
+    elif expect == "dropped":
+        assert out == []
+    elif expect == "moved":
+        assert len(out) == 1 and _min_dist_m(out[0]) >= clearance - 0.3
+    elif expect == "moved_line":
+        assert len(out) == 1 and line_clear - 0.3 <= _min_dist_m(out[0]) < clearance - 0.3
+    else:
+        assert len(out) == 2
+        for o in out:
+            assert _min_dist_m(o) >= line_clear - 0.3
+
+
+def test_cliff_on_paved_area_is_cut(tmp_path):
+    # Sráz vedoucí po zpevněné ploše 501.1 (parkoviště) se na ploše vynechá, mimo ni zůstane.
+    from app.pipeline.oom_import import _path_object
+
+    work = _work(tmp_path)
+    paved = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "501.1"), [_to_map(_rect(-20, 30, 20, 60))])
+    cliff = _path_object(symbol_index_for_code(PRESET, SCALE, "201"), _to_map([(-60, 45), (60, 45)]))
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([paved, cliff]), count=2)]
+    out = _objects(displace_objects_from_paths(parts, work, **KW))
+    assert out[0] == paved.strip()
+    pieces = out[1:]
+    assert len(pieces) == 2
+    for o in pieces:
+        xs = [x / 100.0 for x, _y, _f in _parse_coords(_COORDS_RE.search(o).group(1))]
+        assert all(abs(x) >= 19.9 for x in xs)
+
