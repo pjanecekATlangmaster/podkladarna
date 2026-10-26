@@ -3098,11 +3098,14 @@ def load_osm_path_lines(
 ) -> list[list[tuple[float, float]]]:
     """Načte dedupované OSM cesty z ``work/osm_paths/paths.geojson``.
 
-    ``ground_only``: bez mostů a lávek (OSM tam most nemá).
+    ``ground_only``: bez mostů a lávek (OSM tam most nemá), ze všech OSM cest (``paths_osm.geojson``, v mixed
+    i silnice, které kresbu přenechaly ZABAGED nebo DTM).
     ``corridor_lines`` (les / MTBO): i osy koridorů a jejich původní čáry (``corridor_axis_features``) a OSM silnice
     chybějící v mixed (``mixed_osm_roads_missing``), aby se pod nimi nekreslila ZABAGED pěšina / ulice podruhé.
     """
     gj_path = work_dir / "osm_paths" / "paths.geojson"
+    if ground_only and (work_dir / "osm_paths" / "paths_osm.geojson").is_file():
+        gj_path = work_dir / "osm_paths" / "paths_osm.geojson"
     if not gj_path.is_file():
         return []
     try:

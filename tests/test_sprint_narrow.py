@@ -56,8 +56,8 @@ def test_narrow_dtm_sidewalk_drawn_as_line(tmp_path):
 
 
 def test_short_gap_between_runs_is_bridged(tmp_path):
-    """Křížení s tunelem (krátké rozšíření do 5 m) nenechá mezi úseky čáry kousek plochy."""
-    strip_a, portal, strip_b = _rect(0, 1.4, 40, 2.9), _rect(40, -6, 43, 6), _rect(43, 1.4, 80, 2.9)
+    """Křížení s tunelem (krátké rozšíření do 8 m) nenechá mezi úseky čáry kousek plochy."""
+    strip_a, portal, strip_b = _rect(0, 1.4, 40, 2.9), _rect(40, -6, 46, 6), _rect(46, 1.4, 80, 2.9)
     _job(tmp_path, [strip_a, portal, strip_b], [("cycleway_paved", [(0, 0), (80, 0)])])
     zone = sn.narrow_line_zone(tmp_path, "mixed", "sprint_2_5m", 4000)
     geom = sn.minus_zone(di.sidewalk_geometry(tmp_path, "mixed"), zone)

@@ -16,8 +16,8 @@ NARROW_TOL_MM = 0.25
 # Krok kolmých řezů podél čáry (m) a nejkratší posuzovaný úsek (m).
 STEP_M = 2.0
 MIN_RUN_M = 10.0
-# Úseky oddělené kratší mezerou (křížení s tunelem, přechod) se spojí, ať mezi nimi nezůstane kousek plochy.
-MAX_GAP_M = 5.0
+# Úseky oddělené kratší mezerou (křížení s pěším tunelem 6 m u way/156838225, přechod) se spojí, ať mezi nimi nezůstane kousek plochy.
+MAX_GAP_M = 8.0
 # Dosah řezu za okraj kresby čáry (m): plocha těsně vedle čáry (klín) se počítá do šířky.
 REACH_M = 2.5
 # Druhy čar (po ``path_draw_highway``), které ve sprintu kreslí symbol 501.xxx.
