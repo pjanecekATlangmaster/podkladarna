@@ -328,7 +328,19 @@ nas_digest_match() {
 }
 
 nas_container_running() {
-  docker ps -q -f name=^podkladarna$ -f status=running 2>/dev/null | grep -q .
+  _cr_name="${1:-podkladarna}"
+  docker ps -q -f "name=^${_cr_name}\$" -f status=running 2>/dev/null | grep -q .
+}
+
+# Běžící kontejner jede na jiném image, než je teď lokálně pod jeho tagem
+# (po pullu) → `compose up -d` ho znovu vytvoří.
+nas_container_image_changed() {
+  _ic_name="$1"
+  nas_container_running "$_ic_name" || return 1
+  _ic_ref="$(docker inspect --format='{{.Config.Image}}' "$_ic_name" 2>/dev/null || true)"
+  _ic_cur="$(docker inspect --format='{{.Image}}' "$_ic_name" 2>/dev/null || true)"
+  _ic_new="$(docker image inspect --format='{{.Id}}' "$_ic_ref" 2>/dev/null || true)"
+  [ -n "$_ic_ref" ] && [ -n "$_ic_cur" ] && [ -n "$_ic_new" ] && [ "$_ic_cur" != "$_ic_new" ]
 }
 
 nas_health_check() {
@@ -422,7 +434,7 @@ nas_check_up_to_date() {
 # synowebapi to udělá stejně jako tlačítko Stop v Container Manageru.
 nas_synology_stop_container() {
   _name="${1:-podkladarna}"
-  if ! nas_container_running; then
+  if ! nas_container_running "$_name"; then
     return 0
   fi
   if ! command -v synowebapi >/dev/null 2>&1; then
@@ -435,7 +447,7 @@ nas_synology_stop_container() {
     return 1
   _tries=30
   while [ "$_tries" -gt 0 ]; do
-    nas_container_running || return 0
+    nas_container_running "$_name" || return 0
     _tries=$((_tries - 1))
     sleep 1
   done
@@ -451,6 +463,30 @@ nas_recreate_container() {
   docker rm -f podkladarna 2>/dev/null || true
   nas_remove_compose_network
   $_compose $_compose_file up -d --no-build --pull never
+}
+
+# Úklid po úspěšném nasazení, jen podkladarna:
+# - zastavené zbytky po přerušeném recreate (compose je přejmenuje na <id>_podkladarna…),
+# - image ghcr.io/<owner>/podkladarna bez tagu (starší :latest / :stable po pullu).
+# Bez -f: image používaný kontejnerem (i zastaveným) docker nesmaže.
+nas_cleanup_old() {
+  docker ps -a --filter status=exited --filter status=created --format '{{.ID}} {{.Names}}' 2>/dev/null | \
+    while read -r _cl_id _cl_name; do
+      case "$_cl_name" in
+        *_podkladarna|*_podkladarna-test)
+          echo "Mažu starý kontejner ${_cl_name}..."
+          docker rm "$_cl_id" >/dev/null 2>&1 || true
+          ;;
+      esac
+    done
+  docker images "ghcr.io/${GHCR_OWNER}/podkladarna" --format '{{.ID}} {{.Tag}}' 2>/dev/null | \
+    while read -r _cl_id _cl_tag; do
+      [ "$_cl_tag" = "<none>" ] || continue
+      if docker rmi "$_cl_id" >/dev/null 2>&1; then
+        echo "Smazán starý image ${_cl_id}."
+      fi
+    done
+  return 0
 }
 
 # Po přechodu na network_mode: bridge zbývá starý compose bridge bez NAT.
