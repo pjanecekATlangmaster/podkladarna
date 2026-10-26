@@ -96,12 +96,22 @@ def dual_axes(work_dir: Path, preset_id: str, scale: int):
         return _CACHE[key]
     if len(_CACHE) > 16:
         _CACHE.clear()
-    out = _compute(_load(work_dir), max_axis_m(preset_id, scale))
+    out = _compute(_load(work_dir), max_axis_m(preset_id, scale), zone_half_m(preset_id, scale))
     _CACHE[key] = out
     return out
 
 
-def _compute(feats: list[dict], max_m: float):
+def zone_half_m(preset_id: str, scale: int) -> float | None:
+    """Půlka pásu kolem osy 502.0, ve kterém se původní pásy a konce bočních ulic nekreslí: půlka výplně symbolu
+    502.0 (boční ulice tak končí na okrajové lince 502.0, Petr 2026-10-26); bez symbolu None (= podle vzdálenosti os)."""
+    from app.pipeline.oom_symbol_map import symbol_fill_width_mm
+    from app.pipeline.osm_paths import mm_to_ground_m
+
+    mm = symbol_fill_width_mm(preset_id, scale, "502.0")
+    return mm_to_ground_m(mm, scale) / 2.0 if mm else None
+
+
+def _compute(feats: list[dict], max_m: float, zone_half: float | None = None):
     from shapely.geometry import LineString, MultiLineString
     from shapely.ops import linemerge, substring, unary_union
 
@@ -145,7 +155,8 @@ def _compute(feats: list[dict], max_m: float):
     kept = [LineString(c) for c in pieces if len(c) >= 2 and LineString(c).length >= DUAL_MIN_LEN_M]
     if not kept:
         return [], None
-    zone = unary_union([ln.buffer(max_m / 2.0 + 2.0, cap_style=2) for ln in kept])  # oba pásy leží do max_m/2 od osy
+    r = max(max_m / 2.0 + 1.0, zone_half or 0.0)  # oba pásy leží do max_m/2 od osy; boční ulice končí na okraji výplně 502.0
+    zone = unary_union([ln.buffer(r, cap_style=2) for ln in kept])
     return [[(float(x), float(y)) for x, y in ln.coords] for ln in kept], zone
 
 

@@ -6244,6 +6244,7 @@ def build_osm_path_parts(
                 pass
     # Les / MTBO: rozdělená vozovka (dva souběžné jednosměrné pásy) jedním 502.0 po střední ose; pásy se v jejím pásu nekreslí.
     dual_zone = None
+    _dual_axes: list = []
     if not preset_id.startswith("sprint") and path_source != PATH_SOURCE_ZABAGED:
         from app.pipeline.dual_carriageway import DUAL_HIGHWAY, dual_axes
 
@@ -6503,15 +6504,45 @@ def build_osm_path_parts(
         )
     )
     # Les / MTBO: černé cesty přes kresbu silnice 502 / 502.1 nevedou, končí na jejím okraji.
+    # Pás se bere z kreslených silnic: u rozdělené vozovky z osy 502.0 (šířka 502.0), ne z pásů, které se nekreslí –
+    # boční ulice tak dojde až k okraji kresby 502.0 (Petr 2026-10-26, D23).
+    _major_feats = road_feats
+    if dual_zone is not None:
+        _major_feats = []
+        for _f in road_feats:
+            _g = _f.get("geometry") or {}
+            _c = _g.get("coordinates") or []
+            _hw = str((_f.get("properties") or {}).get("highway") or "")
+            if _g.get("type") != "LineString" or len(_c) < 2:
+                continue
+            if path_draw_highway(_hw).startswith("road_") and not is_bridge_highway(_hw) and not is_tunnel_highway(_hw):
+                for _seg in clip_outside([(float(x), float(y)) for x, y in _c], dual_zone):
+                    _major_feats.append(
+                        {
+                            "type": "Feature",
+                            "properties": dict(_f.get("properties") or {}),
+                            "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in _seg]},
+                        }
+                    )
+            else:
+                _major_feats.append(_f)
+        _major_feats += [
+            {
+                "type": "Feature",
+                "properties": {"source": "osm", "highway": DUAL_HIGHWAY},
+                "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in c]},
+            }
+            for c in _dual_axes
+        ]
     major_band = (
         None
         if preset_id.startswith("sprint")
         else major_road_band(
-            road_feats + [(data.get("features") or [])[i] for i in sorted(service_links - parking_links)],
+            _major_feats + [(data.get("features") or [])[i] for i in sorted(service_links - parking_links)],
             preset_id=preset_id,
             scale=scale,
             road_widths=road_widths,
-            service_links=frozenset(range(len(road_feats), len(road_feats) + len(service_links - parking_links))),
+            service_links=frozenset(range(len(_major_feats), len(_major_feats) + len(service_links - parking_links))),
         )
     )
     # Les / MTBO: cesta, která končila na zahozeném chodníku, se prodlouží na okraj kresby silnice
