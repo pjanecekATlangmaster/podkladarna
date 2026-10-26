@@ -113,6 +113,33 @@ class ReferenceDownload:
             self._executor.shutdown(wait=False)
 
 
+def job_has_sprint(preset_id: str, options: dict) -> bool:
+    """Job kreslí sprint (podle disciplín z měřítka; sprint má vlastní job)."""
+    return any(
+        str(disc_preset).startswith("sprint")
+        for _tag, disc_preset, _scale in resolve_discipline_presets(
+            preset_id,
+            load_presets(),
+            map_scale=options.get("map_scale"),
+            contour_interval=options.get("contour_interval"),
+        )
+    )
+
+
+def vegetation_density_params(preset_id: str, options: dict):
+    """Parametry vegetace z hustoty bodů pro job.
+
+    Veto 401 pod korunou je ověřené jen na lese / MTBO; sprint beze změny.
+    """
+    return replace(
+        DEFAULT_DENSITY_PARAMS,
+        green_high_m=resolve_vege_height(options),
+        canopy_veto_chm_m=0.0
+        if job_has_sprint(preset_id, options)
+        else DEFAULT_DENSITY_PARAMS.canopy_veto_chm_m,
+    )
+
+
 def background_log(log: callable, label: str) -> callable:
     """Log vlákna na pozadí: ``[label] …`` od kraje řádku, jen souhrnné hlášky.
 
@@ -357,14 +384,8 @@ def run_job_pipeline(
         # Zbytek zpevněné (501, jen sprint): vlastní velký OSM dump, stahuje se
         # sériově po hlavním OSM dotazu a build ho pak vezme z cache.
         try:
-            if options.get("sprint_residual_paved") and any(
-                str(disc_preset).startswith("sprint")
-                for _tag, disc_preset, _scale in resolve_discipline_presets(
-                    preset_id,
-                    load_presets(),
-                    map_scale=options.get("map_scale"),
-                    contour_interval=options.get("contour_interval"),
-                )
+            if options.get("sprint_residual_paved") and job_has_sprint(
+                preset_id, options
             ):
                 start_residual_osm_prefetch(
                     work_dir,
@@ -625,10 +646,7 @@ def run_job_pipeline(
     try:
         vege_shp = generate_job_vegetation_density(
             work_dir,
-            params=replace(
-                DEFAULT_DENSITY_PARAMS,
-                green_high_m=resolve_vege_height(options),
-            ),
+            params=vegetation_density_params(preset_id, options),
             log=log,
             veg_size_profile=veg_size_profile,
             wait_chm=_wait_surfaces,
