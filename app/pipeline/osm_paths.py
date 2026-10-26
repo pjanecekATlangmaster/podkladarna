@@ -913,6 +913,15 @@ def _is_osm_tunnel(tags: dict) -> bool:
     return layer is not None and layer < 0
 
 
+def _is_track_cutting(tags: dict) -> bool:
+    """Polní / lesní cesta jen s ``layer`` < 0 (bez ``tunnel`` / ``covered``) vede v zářezu, ne v tunelu (way/530615139)."""
+    if (tags.get("highway") or "").lower() != "track":
+        return False
+    if (tags.get("tunnel") or "").lower() not in {"", "no"}:
+        return False
+    return (tags.get("covered") or "").lower() in {"", "no"}
+
+
 def paved_area_structure(tags: dict) -> str | None:
     """Zpevněná plocha na mostě / nad terénem (``bridge``) nebo v tunelu / pod terénem (``tunnel``), jinak None."""
     if _is_osm_bridge(tags) or (tags.get("man_made") or "").lower() == "bridge":
@@ -3587,7 +3596,7 @@ def prepare_osm_paths(
         # Krátké lávky (bridge=yes) – zachovej typ cesty pro sprint značku.
         if _is_osm_bridge(tags):
             hw = bridge_highway(hw or "path")
-        elif _is_osm_tunnel(tags):
+        elif _is_osm_tunnel(tags) and not _is_track_cutting(tags):
             hw = tunnel_highway(hw or "path")
             if (tags.get("highway") or "").lower() in WALK_TUNNEL_BASES:
                 walk_tunnels.append(list(pts))
