@@ -674,3 +674,23 @@ def test_sprint_drops_fences_inside_olive_keeps_edge():
     far = ("518", [(0.0, 100.0), (40.0, 100.0)])  # mimo olivu → zůstane
     assert di.drop_fences_inside_olive([on_edge, inside, half, far], olive) == [on_edge, half, far]
     assert di.drop_fences_inside_olive([inside], Polygon()) == [inside]
+
+
+def test_sprint_cuts_fences_across_dtm_sidewalk():
+    from shapely.geometry import LineString, Polygon
+
+    import app.pipeline.dtm_import as di
+
+    sidewalk = Polygon([(10, -1.5), (20, -1.5), (20, 1.5), (10, 1.5)])  # chodník z DTM, 10 m dlouhý, 3 m široký
+    osm_along = ("518", [(0.0, 0.0), (30.0, 0.0)])  # OSM plot po chodníku → na ploše se nekreslí
+    dtm_across = ("518", [(15.0, -5.0), (15.0, 5.0)])  # DTM plot napříč chodníkem → mezera
+    dtm_along = ("518", [(0.0, 1.0), (30.0, 1.0)])  # DTM plot souběžně 10 m uvnitř → zůstane
+    out = di.cut_fences_in_sidewalks([dtm_along, osm_along, dtm_across], {di._line_key(osm_along[1][::-1])}, sidewalk)
+    assert out[0] == dtm_along and len(out) == 5
+    core = sidewalk.buffer(-0.3)
+    assert all(LineString(ln).intersection(core).length < 0.1 for _c, ln in out[1:])
+    # výplň oplocení olivou se přes chodník nekreslí, jinde zůstává
+    fill = [(0.0, -10.0), (30.0, -10.0), (30.0, 10.0), (0.0, 10.0), (0.0, -10.0)]
+    fills = di._fills_outside_sidewalks([fill], sidewalk)
+    assert sum(Polygon(r[0], r[1:]).area for r in fills) == pytest.approx(600 - 30, abs=0.5)
+    assert di._fills_outside_sidewalks([fill], None) == [[fill]]

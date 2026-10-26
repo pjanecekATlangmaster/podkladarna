@@ -116,6 +116,7 @@ def _zones(work_dir: Path, path_source: str, preset_id: str, scale: int):
 
         tol_m = op.mm_to_ground_m(NARROW_TOL_MM, scale)
         parts = []
+        axes = []  # (úsek čáry, pás kolem, pás samotné kresby)
         for feat in dtm_import._path_features(work_dir, path_source):
             geom = feat.get("geometry") or {}
             coords = geom.get("coordinates") or []
@@ -132,12 +133,37 @@ def _zones(work_dir: Path, path_source: str, preset_id: str, scale: int):
                 piece = substring(line, d0, d1)
                 if piece.length > 0:
                     parts.append(piece.buffer(width / 2.0 + REACH_M, cap_style=2))
+                    axes.append((piece, parts[-1], piece.buffer(width / 2.0, cap_style=2)))
         if parts:
             band = unary_union(parts)
             zone = band.intersection(sidewalks.buffer(0.1))
+            zone = _minus_mouths(zone, sidewalks.difference(zone), axes)
             zone = None if zone.is_empty else zone
     _CACHE[key] = (zone, band)
     return zone, band
+
+
+def _minus_mouths(zone, rest, axes):
+    """``zone`` bez ústí: plocha mimo pás (``rest``), která do čáry ústí (kolmý pruh chodníku bez vlastní čáry), se
+    dotáhne kolmo k okraji kresby čáry – jinak by mezi ní a čárou zůstala mezera šířky ``REACH_M`` (Trnkovo nám.).
+    Ústí = obal styku plochy s okrajem pásu a jeho průmětu na osu čáry; souběžné klíny v pásu zůstávají vynechané."""
+    from shapely.geometry import MultiPoint, Point
+    from shapely.ops import unary_union
+
+    if rest is None or rest.is_empty:
+        return zone
+    mouths = []
+    for axis, band, drawn in axes:
+        contact = rest.intersection(band.buffer(0.2))
+        for c in getattr(contact, "geoms", [contact]):
+            if c.geom_type != "Polygon" or c.is_empty:
+                continue
+            pts = list(c.exterior.coords)
+            pts += [axis.interpolate(axis.project(Point(p))).coords[0] for p in pts]
+            mouths.append(MultiPoint(pts).convex_hull.intersection(band).difference(drawn))
+    if not mouths:
+        return zone
+    return zone.difference(unary_union(mouths))
 
 
 def minus_zone(geom, zone):

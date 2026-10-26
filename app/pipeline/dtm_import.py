@@ -2261,6 +2261,77 @@ SPRINT_FENCE_INSIDE_OLIVE_M = 1.5
 SPRINT_FENCE_INSIDE_OLIVE_SHARE = 0.8
 
 
+# Sprint: plot přes plochu chodníku z DTM (dál než tolik m od okraje) se na ní přeruší – chodník tudy prochází
+# (Trnkovo nám.). OSM plot celý (povrch z DTM má přednost), plot z DTM jen v krátkých přechodech napříč chodníkem
+# (do ``SPRINT_DTM_FENCE_CROSSING_MAX_M``); delší souběh s chodníkem je posun dat a plot zůstává.
+SPRINT_OSM_FENCE_SIDEWALK_INSET_M = 0.3
+SPRINT_DTM_FENCE_CROSSING_MAX_M = 6.0
+
+
+def cut_fences_in_sidewalks(
+    lines: list[tuple[str, list[tuple[float, float]]]],
+    osm_keys: set,
+    sidewalks,
+    *,
+    inset_m: float = SPRINT_OSM_FENCE_SIDEWALK_INSET_M,
+    crossing_max_m: float = SPRINT_DTM_FENCE_CROSSING_MAX_M,
+    min_piece_m: float = 1.5,
+) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Ploty přerušené na ploše chodníků ``sidewalks`` (shapely); ``osm_keys`` = souřadnice čar z OSM."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    if sidewalks is None or sidewalks.is_empty:
+        return lines
+    core = sidewalks.buffer(-inset_m)
+    if core.is_empty:
+        return lines
+    out: list[tuple[str, list[tuple[float, float]]]] = []
+    for code, ln in lines:
+        if len(ln) < 2:
+            continue
+        if _line_key(ln) in osm_keys:
+            out.extend(cut_fences_by_buildings([(code, ln)], core, min_piece_m))
+            continue
+        inside = LineString(ln).intersection(core)
+        crossings = [g for g in getattr(inside, "geoms", [inside]) if g.geom_type == "LineString" and 0 < g.length <= crossing_max_m]
+        if not crossings:
+            out.append((code, ln))
+            continue
+        out.extend(cut_fences_by_buildings([(code, ln)], unary_union([g.buffer(0.05) for g in crossings]), min_piece_m))
+    return out
+
+
+def _fills_outside_sidewalks(fill_rings, sidewalks, min_area_m2: float = 1.0):
+    """Výplně oplocení jako ``[vnější obrys, díry …]``; se ``sidewalks`` (sprint) bez ploch chodníků z DTM – chodník
+    oplocením prochází, oliva se přes něj nekreslí (Trnkovo nám., hřiště)."""
+    if sidewalks is None or sidewalks.is_empty:
+        return [[r] for r in fill_rings]
+    from shapely.geometry import Polygon
+
+    out = []
+    for ring in fill_rings:
+        try:
+            poly = Polygon(ring).buffer(0)
+            if not poly.intersects(sidewalks):
+                out.append([ring])
+                continue
+            rest = poly.difference(sidewalks)
+        except Exception:  # výplň se kreslí, jak byla
+            out.append([ring])
+            continue
+        for p in getattr(rest, "geoms", [rest]):
+            if p.geom_type == "Polygon" and p.area >= min_area_m2:
+                out.append([list(p.exterior.coords)] + [list(r.coords) for r in p.interiors])
+    return out
+
+
+def _line_key(ln) -> frozenset:
+    """Klíč čáry nezávislý na směru (ploty se otáčejí čárkami k olivě)."""
+    pts = tuple((round(float(x), 2), round(float(y), 2)) for x, y in ln)
+    return frozenset({pts, pts[::-1]})
+
+
 def drop_fences_inside_olive(
     lines: list[tuple[str, list[tuple[float, float]]]],
     olive,
@@ -2711,9 +2782,11 @@ def build_dtm_fence_parts(
         }
     )
     lines = list(dtm_lines)
+    osm_keys: set = set()
+    sidewalk_area = None
     if osm_lines:
         try:
-            tagged = [(c, ln, False) for c, ln in dtm_lines] + [(c, ln, True) for c, ln in osm_lines]
+            tagged =[(c, ln, False) for c, ln in dtm_lines] + [(c, ln, True) for c, ln in osm_lines]
             dropped = dtm_fences.fences_inside_enclosures([(c, ln) for c, ln, _o in tagged])
             tagged = [item for i, item in enumerate(tagged) if i not in dropped]
             keep_dtm = [(c, ln) for c, ln, is_osm in tagged if not is_osm]
@@ -2721,8 +2794,10 @@ def build_dtm_fence_parts(
             if keep_osm and (areas["olive"] or areas["public"]):
                 keep_osm = dtm_fences.orient_fences(keep_osm, areas)
             lines = keep_dtm + keep_osm
+            osm_keys = {_line_key(ln) for _c, ln in keep_osm}
         except Exception:  # sjednocení je doplněk, ploty se kreslí i bez něj
             lines = dtm_lines + osm_lines
+            osm_keys = {_line_key(ln) for _c, ln in osm_lines}
     if not lines and not _load_dubious_fences(work_dir):
         return []
     if fill_olive and osm_lines and (areas["olive"] or areas["building"]):
@@ -2742,11 +2817,17 @@ def build_dtm_fence_parts(
         if sprint:
             # Sprint: dělicí ploty zahrad uvnitř olivového bloku se nekreslí (oliva po obou stranách).
             lines = drop_fences_inside_olive(lines, olive_geom)
+            # Sprint: plot přes plochu chodníku z DTM se na ní přeruší (chodník tudy prochází); výplň olivou
+            # se hledala už před tím, takže oliva v oplocení zůstává.
+            sidewalk_area = dtm_sidewalks.dtm_union(_load_sidewalk_polygons(work_dir))
+            lines = cut_fences_in_sidewalks(lines, osm_keys, sidewalk_area)
         # Data DTM bývají neúplná: mezery mezi konci plotů, které na sebe míří, se propojí (ne přes budovu ani cestu).
         from shapely.geometry import LineString as _LS
         from shapely.ops import unary_union as _uu
 
         blockers = [buildings_zone] if buildings_zone is not None else []
+        if sprint and sidewalk_area is not None and not sidewalk_area.is_empty:
+            blockers.append(sidewalk_area.buffer(-SPRINT_OSM_FENCE_SIDEWALK_INSET_M))  # mezeru na chodníku spojka nezavře
         blockers.extend(_LS(c).buffer(0.2) for c, _need in path_clearances(work_dir, path_source) if len(c) >= 2)
         connectors = dtm_fences.fence_gap_connectors(
             lines, forbidden=_uu(blockers) if blockers else None, near=olive_geom, same_line=not sprint
@@ -2804,17 +2885,16 @@ def build_dtm_fence_parts(
     area_objects: list[str] = []
     olive_idx = symbol_index_for_code(preset_id, scale, "520") if fill_olive else None
     if olive_idx is not None:
-        for raw_ring in fill_rings:
-            ring = _fill_ring(raw_ring, clip_bounds)
-            if not ring:
+        for raw_rings in _fills_outside_sidewalks(fill_rings, sidewalk_area if sprint else None):
+            outer = _fill_ring(raw_rings[0], clip_bounds)
+            if not outer:
                 continue
-            mapped_ring = [
-                projected_to_map_coord(
-                    x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg
-                )
-                for x, y in ring
+            rings = [outer] + [h for h in (_fill_ring(raw, clip_bounds) for raw in raw_rings[1:]) if h]
+            mapped = [
+                [projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg) for x, y in ring]
+                for ring in rings
             ]
-            obj = _area_object_with_holes(olive_idx, [mapped_ring])
+            obj = _area_object_with_holes(olive_idx, mapped)
             if obj:
                 area_objects.append(obj)
     for code, line in lines:
