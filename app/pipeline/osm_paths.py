@@ -403,6 +403,9 @@ def _overpass_ql(
         # Parkoviště → zpevněná plocha 501 (stejně jako hřiště).
         f'way["amenity"="parking"]({bbox});',
         f'relation["type"="multipolygon"]["amenity"="parking"]({bbox});',
+        # Autobusové nádraží (plocha) → zpevněná 501.
+        f'way["amenity"="bus_station"]({bbox});',
+        f'relation["type"="multipolygon"]["amenity"="bus_station"]({bbox});',
         # Pěší zóna / náměstí jako plocha (ne linie).
         f'way["highway"="pedestrian"]["area"="yes"]({bbox});',
         f'relation["type"="multipolygon"]["highway"="pedestrian"]({bbox});',
@@ -1423,6 +1426,11 @@ def classify_osm_feature(
         return kind, "501"
     # Parkoviště (vč. street_side) → zpevněná 501; budova garáže zůstane 521.
     if amenity == "parking" and not _is_osm_building(tags):
+        if is_node:
+            return None
+        return "parking", "501"
+    # Autobusové nádraží (plocha) → zpevněná 501, jako parkoviště; bod zůstává zastávkou.
+    if amenity == "bus_station" and not _is_osm_building(tags):
         if is_node:
             return None
         return "parking", "501"
@@ -5155,6 +5163,16 @@ def road_clip_zone(work_dir: Path, preset_id: str = "", scale: int = 0):
     return _paved_network_cached(work_dir, preset_id, scale)[1]
 
 
+def sprint_parking_zone(work_dir: Path):
+    """Sprint: sjednocení OSM parkovišť (``kind == "parking"``, bez mostů / tunelů) z ``features.geojson`` – shapely / None."""
+    gj = work_dir / "osm_paths" / "features.geojson"
+    try:
+        feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return None
+    return road_clip_geometry([f for f in feats if (f.get("properties") or {}).get("kind") == "parking"])
+
+
 # Les a MTBO: silnice přes zpevněnou plochu (typicky jízdní pruh na parkovišti) se uvnitř plochy nekreslí,
 # zůstane jen napojení na hranu. Kratší průchod nebo silnice jen podél okraje (do ``ROAD_IN_PAVED_EDGE_M`` m
 # od hrany, nepřesnost OSM) se neřeže.
@@ -6378,6 +6396,8 @@ def build_osm_path_parts(
         from app.pipeline.dtm_widths import dtm_width_indexes, width_line_code
 
         road_widths, walk_widths = dtm_width_indexes(work_dir)
+    if preset_id.startswith("sprint"):
+        road_clip = sprint_parking_zone(work_dir)  # sprint: silnice se uvnitř parkoviště nekreslí (uličky mezi místy)
     paved_core = road_clip.buffer(-ROAD_IN_PAVED_EDGE_M) if road_clip is not None else None
     # Obecné ukončení cest na hraně zpevněné (i silnice / DTM).
     edge_area = path_cut_zone

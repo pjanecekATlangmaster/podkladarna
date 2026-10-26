@@ -315,6 +315,14 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   od okraje se nekreslí (`drop_fences_inside_olive`, dělicí ploty zahrad); brány a sloupky (`gate`, `wicket_gate`, `lift_gate`,
   `bollard`) nejsou 531 (`sprint_skips_barrier_point`); čáry cest se uvnitř budov (> 1 m od obrysu) nekreslí a OSM `covered=yes` /
   `tunnel=building_passage` je v budově průchod 522 vyříznutý z budovy (`sprint_building_passages`, `covered_passages.geojson`).
+- **Sprint podle srovnání s Českým Krumlovem** (Petr 2026-10-26, 2.40.0, data `local_test\cesky_krumlov`): budovy 521 ze všech zdrojů se
+  slučují do bloků, mezery pod 0,4 mm mapy bez cesty se zavřou, dvůr bez cesty a bez kreslené zahrady / plochy (≥ 30 %) se zaleje
+  (`sprint_merge_buildings`). Ulice: parcely RÚIAN se způsobem využití komunikace (15–17) minus budovy minus zeleň z ortofota, jen kusy se
+  zpevněnou OSM čárou ≥ 10 m, jako 501 pod ostatními objekty (`street_parcels.py`, `SPRINT_STREET_PARCELS`; ortofoto a maska zeleně jsou
+  společný modul `orthophoto.py` s vláknem ortofota: ExG > 0,02 a sytost > 0,12). `amenity=bus_station` je parkoviště 501; silnice se ve
+  sprintu uvnitř OSM parkoviště nekreslí (`sprint_parking_zone`). Kupky / prohlubně / jámy ve sprintu jen mimo zástavbu (`sprint_knolls_outside_town`,
+  artefakty DMR 5G u domů). Srázy ve sprintu jen se skutečným skokem (`SPRINT_STEP_SIDE_RATIO`: strany sondy nejvýš 0,5 × sklon schodu)
+  a ZABAGED `StupenSraz` jen do 3 m od ticků z DEM (`dem_step_zone`; Petr: cizí data náš algoritmus jen potvrzují).
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
 - **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé
