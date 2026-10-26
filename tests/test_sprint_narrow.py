@@ -65,3 +65,19 @@ def test_short_gap_between_runs_is_bridged(tmp_path):
 
     # v pásu čáry nic nezbude, plocha dál od osy (příjezd k portálu) zůstává
     assert geom is not None and geom.intersection(box(0, -4.8, 80, 4.8)).area < 0.01
+
+
+def test_narrow_dtm_sidewalk_line_not_cut_by_osm_pedestrian_area(tmp_path):
+    """Čára, která nahrazuje úzkou plochu chodníku z DTM, se neřeže o OSM pěší plochu (Trnkovo nám.)."""
+    from app.pipeline.osm_paths import build_osm_path_parts
+
+    _job(tmp_path, [_rect(0, -1, 50, 1)], [("sidewalk", [(0, 0), (50, 0)])])
+    area = {"type": "Feature", "properties": {"source": "osm", "kind": "pedestrian_area"},
+            "geometry": {"type": "Polygon", "coordinates": [[[-10, -20], [60, -20], [60, 20], [-10, 20], [-10, -20]]]}}
+    (tmp_path / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [area]}), encoding="utf-8"
+    )
+    kw = dict(preset_id="sprint_2_5m", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=109):
+        parts = build_osm_path_parts(tmp_path, **kw)
+    assert sum(p.count for p in parts) == 1

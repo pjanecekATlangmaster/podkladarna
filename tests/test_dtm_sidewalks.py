@@ -896,6 +896,12 @@ def test_steps_keep_only_osm_steps_outside_dtm_stairs_and_sidewalks():
     # bez ploch chodníků zůstane vše kromě schodiště z DTM
     pieces = ds.steps_keep([(0.0, 0.0), (60.0, 0.0)], stair_zone, None)
     assert len(pieces) == 2
+    # sprint (cover_near_m): schody v ploše chodníku daleko od schodiště z DTM se kreslí, u něj (do 3 m) dál odpadnou
+    far = [(25.0, 0.0), (35.0, 0.0)]
+    assert ds.steps_keep(far, stair_zone, cover) == []
+    assert len(ds.steps_keep(far, stair_zone, cover, cover_near_m=3.0)) == 1
+    x = 12.0 + ds.STAIRS_ZONE_M + 1.0
+    assert ds.steps_keep([(x, 0.0), (x + 0.5, 0.0)], stair_zone, cover, cover_near_m=3.0) == []
 
 
 def test_stairs_axis_follows_reference_path_and_centroid():
