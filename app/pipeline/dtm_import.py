@@ -1761,9 +1761,13 @@ def build_dtm_sidewalk_parts(
         grivation_deg=grivation_deg,
         clip_bounds=clip_bounds,
     )
+    from app.pipeline.sprint_narrow import minus_zone, narrow_line_zone
+
+    narrow = narrow_line_zone(work_dir, path_source, preset_id, scale)  # úzký pás kreslí čára OSM
     merged = _sprint_merged_road_sidewalk(work_dir, path_source)
     if merged is not None:
         _fill, _interface, rest = merged
+        rest = minus_zone(rest, narrow)
         if rest is None or rest.is_empty:
             return []
         return _geometry_part(
@@ -1779,6 +1783,7 @@ def build_dtm_sidewalk_parts(
         roads=road_geometry(work_dir, path_source),
         cut_decks=True,
     )
+    geom = minus_zone(geom, narrow)
     return _geometry_part(
         geom,
         edge_exclude=deck_footprint_geometry(work_dir),
@@ -1987,9 +1992,14 @@ def build_dtm_road_parts(
         grivation_deg=grivation_deg,
         clip_bounds=clip_bounds,
     )
+    from app.pipeline.sprint_narrow import minus_zone, narrow_line_zone
+
+    narrow = narrow_line_zone(work_dir, path_source, preset_id, scale)  # úzký pás kreslí čára OSM
     merged = _sprint_merged_road_sidewalk(work_dir, path_source)
     if merged is not None:
         fill, interface, _rest = merged
+        fill = minus_zone(fill, narrow)
+        interface = minus_zone(interface, narrow)
         parts = _geometry_part(
             fill,
             edge_exclude=deck_footprint_geometry(work_dir),
@@ -2009,7 +2019,7 @@ def build_dtm_road_parts(
             )
         return parts
     return _geometry_part(
-        road_geometry(work_dir, path_source, cut_decks=True),
+        minus_zone(road_geometry(work_dir, path_source, cut_decks=True), narrow),
         edge_exclude=deck_footprint_geometry(work_dir),
         name="Silnice (DTM + OSM)",
         code=ROAD_CODE,

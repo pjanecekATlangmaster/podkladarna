@@ -5833,6 +5833,15 @@ def extend_ends_to_road_band(
     return out
 
 
+def _inside_zone(coords, zone) -> list[list[tuple[float, float]]]:
+    """Části čáry uvnitř ``zone`` (seznamy souřadnic), kratší než 1 m vynechá."""
+    from shapely.geometry import LineString
+
+    inter = LineString([(float(c[0]), float(c[1])) for c in coords]).intersection(zone)
+    parts = [inter] if inter.geom_type == "LineString" else [g for g in getattr(inter, "geoms", []) if g.geom_type == "LineString"]
+    return [[(float(x), float(y)) for x, y in g.coords] for g in parts if g.length >= 1.0]
+
+
 def _walk_tunnel_zone(work_dir: Path):
     """Pás kolem tunelů cest, které v OSM nejsou silnicí (``walk_tunnels.geojson``), nebo None."""
     gj = work_dir / "osm_paths" / WALK_TUNNELS_NAME
@@ -5924,6 +5933,16 @@ def build_osm_path_parts(
     # ani pěšina v ploše chodníku): jen části mimo plochy.
     sidewalk_cover = dtm_cover_geometry(work_dir, 0.0) if (sidewalks_from_dtm or roads_from_dtm) else None
     walk_tunnel_zone = _walk_tunnel_zone(work_dir) if preset_id.startswith("sprint") else None
+    # Sprint: úzká stejně široká plocha podél čáry 501.xxx se nekreslí, kreslí ji čára (``sprint_narrow``).
+    from app.pipeline.sprint_narrow import minus_zone as _minus_narrow, narrow_line_zone
+
+    narrow_zone = (
+        narrow_line_zone(work_dir, path_source, preset_id, scale) if (sidewalks_from_dtm or roads_from_dtm) else None
+    )
+    sidewalk_cover = _minus_narrow(sidewalk_cover, narrow_zone)
+    narrow_band = (
+        narrow_line_zone(work_dir, path_source, preset_id, scale, draw=True) if narrow_zone is not None else None
+    )
     # OSM schody uvnitř schodišť z DTM se nekreslí (schodiště kreslí build_dtm_stairs_parts; všechny presety).
     from app.pipeline.dtm_import import mtbo_dtm_off
 
@@ -6186,8 +6205,13 @@ def build_osm_path_parts(
         if feat_i in parking_links:
             continue  # les / MTBO: vjezd na parkoviště kreslí zpevněná plocha
         hw = str((feat.get("properties") or {}).get("highway") or "path")
+        narrow_pieces = None
         if sidewalks_from_dtm and is_surface_sidewalk(hw):
-            continue
+            if narrow_zone is None:
+                continue
+            narrow_pieces = _inside_zone(coords, narrow_band)  # jen úseky, kde úzkou plochu nahrazuje čára
+            if not narrow_pieces:
+                continue
         if roads_from_dtm and is_surface_road(hw):
             continue  # silnice kreslí plocha DTM + OSM (build_dtm_road_parts)
         if (
@@ -6251,7 +6275,7 @@ def build_osm_path_parts(
             and not is_tunnel_highway(hw)
         ):
             line = extend_ends_to_road_band(line, dropped_sidewalks, road_band, others=other_lines)
-        lines = [line]
+        lines = narrow_pieces if narrow_pieces is not None else [line]
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian", "cycleway_paved"}:
             # Pěšina / zpevněná cyklostezka uvnitř plochy chodníku nebo silnice z DTM by se kreslila dvakrát
             # (plocha už je nakreslená) → jen části mimo plochu.

@@ -1217,7 +1217,8 @@ def test_sidewalks_parts_and_osm_paths_skip_sidewalks(tmp_path):
     work = tmp_path
     (work / "dtm").mkdir()
     (work / "dtm" / "sidewalks.json").write_text(
-        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1000, -970, -998)]]}),
+        # 4 m široký: užší chodník by ve sprintu nahradila čára (``sprint_narrow``)
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(-1000, -1001, -970, -997)]]}),
         encoding="utf-8",
     )
     (work / "osm_paths").mkdir()
