@@ -60,6 +60,14 @@ if [ "$IF_IDLE" = true ]; then
     fi
   done
 fi
+# Kontejner s novým image nejdřív zastavíme přes Synology API (jako Stop v Container
+# Manageru), jinak ho `up -d` zastaví přes docker CLI a DSM pošle mail „stopped
+# unexpectedly“. Když synowebapi selže, pokračuje se jako dřív.
+for svc in $SERVICES; do
+  if nas_container_image_changed "$svc"; then
+    nas_synology_stop_container "$svc" || true
+  fi
+done
 echo "Spouštím: $SERVICES"
 # shellcheck disable=SC2086
 $COMPOSE -f "$COMPOSE_FILE" up -d --no-deps $SERVICES
@@ -76,3 +84,5 @@ for port in $PORTS; do
   done
   echo "OK: http://127.0.0.1:${port}/ → 200"
 done
+
+nas_cleanup_old

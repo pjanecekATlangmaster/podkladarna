@@ -4,6 +4,8 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from app.pipeline.build_oom_map import CRS_PROJ4
 from app.pipeline.oom_layers import collect_oom_templates
 from app.pipeline.package_oom import (
@@ -13,6 +15,23 @@ from app.pipeline.package_oom import (
     oom_readme,
     prepare_oom_map,
 )
+
+
+@pytest.mark.parametrize(
+    ("options", "preset_id", "expected"),
+    [
+        ({}, "forest_10000", "mixed"),  # GUI volbu neposílá → les kreslí mixed
+        (None, "mtbo_10000", "mixed"),
+        ({"path_source": "mixed"}, "forest_10000", "mixed"),
+        ({"path_source": "osm"}, "forest_10000", "osm"),  # diagnostika
+        ({"path_source": "nesmysl"}, "forest_10000", "mixed"),
+        ({"path_source": "mixed"}, "sprint_2_5m", "osm"),  # sprint: ZABAGED Ulice by zdvojily OSM silnice
+    ],
+)
+def test_oom_path_source_from_job_options(options, preset_id, expected):
+    from app.pipeline.package_oom import oom_path_source
+
+    assert oom_path_source(options, preset_id) == expected
 
 
 def test_resolve_omap_job_by_scale():

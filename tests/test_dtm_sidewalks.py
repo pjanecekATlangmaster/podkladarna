@@ -1529,6 +1529,31 @@ def test_corridor_without_sidewalks_does_not_widen(tmp_path, monkeypatch):
     assert with_sw is not None and with_sw.bounds[3] > -991.5 and with_sw.area > plain.area
 
 
+def test_sidewalk_beside_dtm_only_road_is_dropped(tmp_path):
+    # Silnice jen v DTM (v OSM chybí): chodník 3 m od její plochy se zahodí jako u silnice z OSM, chodník 20 m dál zůstává.
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, -3, 200, 3)]]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+    near = {"type": "Feature", "properties": {"highway": "sidewalk"}, "geometry": {"type": "LineString", "coordinates": [[0, 6], [200, 6]]}}
+    far = {"type": "Feature", "properties": {"highway": "sidewalk"}, "geometry": {"type": "LineString", "coordinates": [[0, 26], [200, 26]]}}
+    for name in ("paths_mixed.geojson", "paths_osm.geojson"):
+        (work / "osm_paths" / name).write_text(json.dumps({"type": "FeatureCollection", "features": [near, far]}), encoding="utf-8")
+    (work / "osm_paths" / "features.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    op._PAVED_NETWORK_CACHE.clear()
+    assert op.dtm_only_road_geometry(work, []) is not None
+    kw = dict(preset_id="forest_10000", scale=10000, ref_x=100.0, ref_y=0.0, grivation_deg=0.0)
+    parts = op.build_osm_path_parts(work, **kw)
+    assert sum(p.count for p in parts) == 1  # jen vzdálený chodník
+    # s OSM silnicí v ose plochy není plocha „jen v DTM“ (chodník řeší běžný dedup u silnice)
+    road = {"type": "Feature", "properties": {"highway": "road_2"}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [200, 0]]}}
+    assert op.dtm_only_road_geometry(work, [road]) is None
+
+
 def test_corridor_edge_omitted_where_drawn_road_meets_corridor(tmp_path, monkeypatch):
     from shapely.geometry import Point
 

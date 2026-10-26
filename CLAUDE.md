@@ -283,8 +283,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Ploty v lese a MTBO: výplň olivou se hledá až po dedupu a propojení mezer (`fence_gap_connectors(same_line=True)` uzavře i mezeru v jedné čáře, `merge_fill_rings`).
 - **Dedup chodníků v lese a MTBO je jen z OSM:** chodník i pěšina bez tagu chodníku (`SIDEWALK_DEDUP_BASES`, v lese i cyklostezka) souběžná se silnicí nebo OSM zpevněnou plochou se zahodí (celý při ≥ 70 % délky v pásu,
   jinak jen souvislé úseky ≥ 40 m). Pás se počítá ze skutečných šířek symbolů v sadě (`sidewalk_road_zone_geometry`: půlka silnice – v lese podle symbolu zvoleného šířkou z DTM – / okraje 501.2
-  + půlka chodníku + `LINE_MIN_GAP_MM`, v metrech podle měřítka), ne pevných 12 m. Kde silnice v OSM chybí (je jen v DTM), se chodník nezahodí – k tomu by bylo potřeba DTM silnic
-  jako zóna pro dedup (zatím neudělané, čeká na rozhodnutí Petra).
+  + půlka chodníku + `LINE_MIN_GAP_MM`, v metrech podle měřítka), ne pevných 12 m. Chodník ≥ 70 % v pásu se zahodí celý jen bez souvislého
+  zbytku ≥ 30 m mimo pás (`SIDEWALK_KEEP_REST_M`, way/1451823252). Od 2.38.2 (Petr 2026-10-26) se chodník zahazuje i podél silnice, která je
+  jen v DTM (plocha silnic z DTM dál než 8 m od každé OSM silnice, `dtm_only_road_geometry`; v mixed ji kreslí ZABAGED).
 - **Koridor pěší zóny ze dvou souběžných linií** (`merge_parallel_pedestrian_to_areas`) vzniká jen ze zpevněných čar (OSM `surface`), ne z mostů / tunelů,
   ne přes budovy a ne z rozbíhajících se čar (průměrná šířka ≤ 12 m).
 - **Zpevněné plochy v lese a MTBO jsou síť** (`build_paved_network` při sestavení mapy): OSM parkoviště, pěší zóny, area:highway, nástupiště
@@ -332,7 +333,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
 - **Zdroj kresby v GUI** (Petr 2026-10-24, 2.34.0): volba DTM / OSM + ZABAGED zvlášť pro sprint (výchozí DTM) a les + MTBO
-  (výchozí OSM + ZABAGED, DTM „zkušebně“, dokud se kresba z DTM v lese nedoladí). Volby jobu `dtm_sprint` / `dtm_forest`,
+  (od 2.38.1 výchozí DTM, Petr 2026-10-26; OSM + ZABAGED zůstává jako záložní volba a kreslí se vždy tam, kde DTM není). Volby jobu `dtm_sprint` / `dtm_forest`,
   `prepare_oom_map(use_dtm=…)`, podrobnosti v `DEV.md`. Lokální otočky s DTM volají `prepare_oom_map` s výchozím `use_dtm=True`.
 - **Mixed je jediný režim v GUI** (Petr 2026-10-23): OSM je hlavní, ZABAGED (postupně opouštíme) a DTM (vtahujeme) kresbu doplňují.
   Příprava OSM (sdílená se sprintem) ale v `paths_mixed` zahazuje OSM silnice proti ZABAGED Ulice; les a MTBO je proto při kreslení vracejí

@@ -67,11 +67,12 @@ def _as_bool(raw, default: bool) -> bool:
 
 
 def resolve_use_dtm(options: dict | None, preset_id: str) -> bool:
-    """Kreslit preset z DTM? Sprint: `dtm_sprint` (výchozí ano); les a MTBO: `dtm_forest` (výchozí ne)."""
+    """Kreslit preset z DTM? Sprint: `dtm_sprint` (výchozí ano); les a MTBO: `dtm_forest` (výchozí ano od 2.38.1,
+    OSM + ZABAGED jako záložní volba)."""
     opts = options or {}
     if str(preset_id).startswith("sprint"):
         return _as_bool(opts.get("dtm_sprint"), True)
-    return _as_bool(opts.get("dtm_forest"), False)
+    return _as_bool(opts.get("dtm_forest"), True)
 
 
 def load_presets() -> dict:

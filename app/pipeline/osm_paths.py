@@ -5248,6 +5248,41 @@ def road_drawn_halfwidths(features: list[dict], preset_id: str, scale: int, road
     return out
 
 
+# Les a MTBO: plocha silnic z DTM dál než tolik m od každé OSM silnice je silnice, která v OSM chybí (kreslí ji ZABAGED);
+# chodník podél ní se zahazuje jako u silnic z OSM. Kusy menší než ``DTM_ONLY_ROAD_MIN_M2`` / kratší než ``DTM_ONLY_ROAD_MIN_LEN_M``
+# jsou zbytky rozšíření a zálivů, ne silnice.
+DTM_ONLY_ROAD_OSM_M = 8.0
+DTM_ONLY_ROAD_MIN_M2 = 30.0
+DTM_ONLY_ROAD_MIN_LEN_M = 15.0
+
+
+def dtm_only_road_geometry(work_dir: Path, road_feats: list[dict]):
+    """Části plochy silnic z DTM bez OSM silnice do ``DTM_ONLY_ROAD_OSM_M`` m (shapely) nebo None."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_import as di
+    from app.pipeline.dtm_sidewalks import _long_side
+
+    roads = di.road_geometry(work_dir, "mixed")
+    if roads is None or roads.is_empty:
+        return None
+    lines = []
+    for feat in road_feats:
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if geom.get("type") == "LineString" and len(coords) >= 2 and path_draw_highway(hw).startswith("road_"):
+            lines.append(LineString([(float(x), float(y)) for x, y in coords]))
+    rest = roads.difference(unary_union(lines).buffer(DTM_ONLY_ROAD_OSM_M)) if lines else roads
+    polys = [
+        g
+        for g in getattr(rest, "geoms", [rest])
+        if g.geom_type == "Polygon" and g.area >= DTM_ONLY_ROAD_MIN_M2 and _long_side(g) >= DTM_ONLY_ROAD_MIN_LEN_M
+    ]
+    return unary_union(polys) if polys else None
+
+
 def sidewalk_road_zone_geometry(
     features: list[dict],
     paved,
@@ -6337,8 +6372,13 @@ def build_osm_path_parts(
         )
     )
     if dtm_area_preset(preset_id):
-        # Les a MTBO: chodník / pěšina podél koridoru nebo plochy chodníku z DTM by splynula s jejím okrajem.
-        _mtbo_areas = [g for g in (corridor_zone, mtbo_sidewalk_zone) if g is not None and not g.is_empty]
+        # Les a MTBO: chodník / pěšina podél koridoru nebo plochy chodníku z DTM by splynula s jejím okrajem;
+        # a podél silnice, která je jen v DTM (v OSM chybí, kreslí ji ZABAGED), se zahodí jako u silnic z OSM (Petr 2026-10-26).
+        _mtbo_areas = [
+            g
+            for g in (corridor_zone, mtbo_sidewalk_zone, dtm_only_road_geometry(work_dir, road_feats))
+            if g is not None and not g.is_empty
+        ]
         if _mtbo_areas:
             from shapely.ops import unary_union as _uu_mtbo
 

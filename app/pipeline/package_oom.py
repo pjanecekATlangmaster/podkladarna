@@ -87,10 +87,22 @@ Souřadnice: EPSG:5514 (S-JTSK).
 
 OUTPUT_ZIP_NAME = "podkladarna_output.zip"
 # Zdroje cest × disciplíny (počet disciplín závisí na měřítku).
-# V .omap jen OSM cesty; ZABAGED cesty zůstávají ve zabaged/ pro ruční import.
+# Jedna kresba cest do .omap; zdroj bere job z voleb (``oom_path_source``), výchozí mixed
+# = OSM hlavní + ZABAGED Cesta / Pěšina jen tam, kde OSM chybí (Petr 2026-10-23, Vyšší Brod 2026-10-26); sprint OSM.
 OOM_PATH_VARIANTS: tuple[tuple[str, str], ...] = (
-    ("cesty_osm", PATH_SOURCE_OSM),
+    ("cesty", PATH_SOURCE_MIXED),
 )
+
+
+def oom_path_source(options: dict | None, preset_id: str = "") -> str:
+    """Zdroj cest pro .omap jobu: ``options["path_source"]``, chybějící / neznámá hodnota = mixed.
+
+    Sprint zůstává na OSM: ZABAGED Ulice tam OSM silnicím neustupují a kreslily by se podruhé vedle nich
+    (otočka Barrandov po 2.39.4).
+    """
+    if preset_id.startswith("sprint"):
+        return PATH_SOURCE_OSM
+    return resolve_path_source((options or {}).get("path_source"))
 MAP_SCALES: tuple[int, ...] = (4000, 7500, 10000, 15000)
 # Povolené ekvidistance (m) podle zvoleného měřítka.
 CONTOURS_BY_SCALE: dict[int, tuple[float, ...]] = {
@@ -385,7 +397,7 @@ def omap_variant_filename(
     *,
     certain_only: bool = False,
 ) -> str:
-    # Jediný auto zdroj cest je OSM – bez přípony cesty_*.
+    # Jediná kresba cest (viz ``OOM_PATH_VARIANTS``) – bez přípony cesty_*.
     del path_tag
     suffix = CERTAIN_TAG if certain_only else ""
     return f"{omap_map_stem(map_name)}-{discipline_tag}{suffix}.omap"

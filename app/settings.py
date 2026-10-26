@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "2.39.2"
+APP_VERSION = "2.39.5"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -192,9 +192,10 @@ DEFAULT_OPTIONS = {
     "contour_formlines": "off",
     # Zaoblení louek (401) a hustého porostu (410): 0 (kostičky) až 3 (silně vyhladit).
     "veg_smooth": "2",
-    # Zdroj kresby: sprint z DTM (výchozí ano), les + MTBO z DTM (výchozí ne).
+    # Zdroj kresby: sprint i les + MTBO z DTM (výchozí ano; les a MTBO od 2.38.1 po sjednocení zpevněného povrchu,
+    # Petr 2026-10-26); OSM + ZABAGED zůstává jako záložní volba.
     "dtm_sprint": True,
-    "dtm_forest": False,
+    "dtm_forest": True,
     # Sprint: mezery v OSM landuse=residential jako zpevněná 501 – default vypnuto.
     "sprint_residual_paved": False,
     # Max. velikost zbytku do auto .omap: small | medium | large (ZIP má vždy pásma).

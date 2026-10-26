@@ -50,6 +50,7 @@ from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
     CERTAIN_MAP_NAME_SUFFIX,
     OOM_PATH_VARIANTS,
+    oom_path_source,
     build_oom_zip,
     oom_metadata,
     omap_variant_filename,
@@ -919,7 +920,8 @@ def _package_output(
                 vectorconf = Path(
                     str(disc_preset.get("vectorconf", "zabaged.txt"))
                 ).name
-                for (path_tag, path_src), certain in (
+                path_src = oom_path_source(options, disc_preset_id)
+                for (path_tag, _), certain in (
                     (v, c) for v in OOM_PATH_VARIANTS for c in (False, True)
                 ):
                     variant_name = omap_variant_filename(

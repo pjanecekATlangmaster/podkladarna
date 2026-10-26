@@ -1286,7 +1286,7 @@ function applyJobToForm(job) {
     const vsVal = String(opts.veg_smooth ?? "2");
     vegSmooth.value = [...vegSmooth.options].some((o) => o.value === vsVal) ? vsVal : "2";
   }
-  for (const [key, def] of [["dtm_sprint", "1"], ["dtm_forest", "0"]]) {
+  for (const [key, def] of [["dtm_sprint", "1"], ["dtm_forest", "1"]]) {
     const dtmSel = form[key];
     if (dtmSel) {
       const v = opts[key] === undefined ? def : opts[key] ? "1" : "0";
