@@ -8,3 +8,5 @@ pyproj>=3.6.0
 # Lokální fallback pro geom_diff / residual_paved, když chybí osgeo.
 shapely>=2.0.0
 pyshp>=2.3.0
+# Čtení SHP/GPKG v oom_import (v produkci z conda GDAL); bez něj se 12 testů přeskočí.
+pyogrio>=0.7
