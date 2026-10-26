@@ -145,7 +145,8 @@ def test_road_parts_replace_osm_road_lines_and_keep_widths(tmp_path):
     assert [p.name for p in parts] == ["Silnice (DTM + OSM)"] and parts[0].count == 1  # jedna sloučená plocha
     assert di.is_surface_road("road_2") and not di.is_surface_road("bridge:road_2")
     paths = op.build_osm_path_parts(work, **kw)
-    assert paths and paths[0].count == 4  # most + pěšina + 2 hrany lávky 512.100; silnice nahradila plocha
+    # most + pěšina + 2 hrany lávky 512.100 + pokračování silnice za plochou DTM čarou; uvnitř ji nahradila plocha
+    assert paths and paths[0].count == 5
     assert di.build_dtm_road_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
 
 
@@ -1767,3 +1768,21 @@ def test_dtm_road_area_with_only_unpaved_track_is_not_road(tmp_path):
     assert len(roads) == 1 and roads[0][0][0][1] == 96  # zůstane plocha se zpevněnou polní cestou (grade1)
     cover = di.dtm_cover_geometry(work, 0.0)
     assert cover is not None and cover.bounds[1] >= 96
+
+
+def test_sprint_osm_road_outside_dtm_is_line_touching_dtm_edge(tmp_path):
+    """way/160570420: OSM silnice mimo plochu DTM se ve sprintu kreslí čarou (ne pásem), dotaženou na hranu plochy."""
+    from shapely.geometry import LineString
+
+    road_dtm = ds.dtm_union([_rect(0, -4, 50, 4)])
+    pieces = di.road_residue_lines([(25, 0), (120, 0)], road_dtm)
+    assert len(pieces) == 1 and abs(pieces[0][0][0] - 50) < 0.01 and pieces[0][-1][0] == 120
+    assert di.road_residue_lines([(0, 5), (50, 5)], road_dtm) == []  # souběžná těsně vedle plochy = táž silnice
+    (tmp_path / "dtm").mkdir()
+    (tmp_path / "dtm" / "roads.json").write_text(json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, -4, 50, 4)]]}), encoding="utf-8")
+    (tmp_path / "osm_paths").mkdir()
+    feat = {"type": "Feature", "properties": {"highway": "road_2"}, "geometry": {"type": "LineString", "coordinates": [[25, 0], [120, 0]]}}
+    (tmp_path / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [feat]}), encoding="utf-8")
+    area = di.road_geometry(tmp_path, osm_residue=False)
+    assert area.bounds[2] <= 50.01  # bez pásu z OSM
+    assert LineString([(60, 0), (120, 0)]).intersects(di.road_geometry(tmp_path))  # les / MTBO dál s pásem

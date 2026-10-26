@@ -741,19 +741,51 @@ def sidewalk_osm_lines(work_dir: Path, path_source: str) -> list[list[tuple[floa
     return lines
 
 
-def road_geometry(work_dir: Path, path_source: str = "mixed", cut_decks: bool = False):
+def road_geometry(work_dir: Path, path_source: str = "mixed", cut_decks: bool = False, osm_residue: bool = True):
     """Sjednocená plocha silnic (DTM + zbytky OSM; shapely) nebo None.
 
     ``cut_decks``: bez půdorysu mostů (sprint; pod mostem se kreslí most).
+    ``osm_residue`` False (sprint): bez pásů OSM silnic mimo DTM – kreslí je čára 501.3x (``road_residue_lines``).
     """
     from app.pipeline import dtm_sidewalks
 
     polys = classified_polygons(work_dir, path_source)[1]  # vč. chodníků přeřazených mezi silnice
     if not polys:
         return None
-    lines, widths = road_osm_lines(work_dir, path_source)
+    lines, widths = road_osm_lines(work_dir, path_source) if osm_residue else ([], [])
     geom = dtm_sidewalks.unify_sidewalks(polys, lines, widths=widths)
     return _minus_decks(geom, work_dir) if cut_decks else geom
+
+
+def road_dtm_geometry(work_dir: Path, path_source: str = "mixed"):
+    """Plocha silnic jen z DTM (po přeřazení chodníků; shapely) nebo None."""
+    from app.pipeline import dtm_sidewalks
+
+    polys = classified_polygons(work_dir, path_source)[1]
+    return dtm_sidewalks.dtm_union(polys) if polys else None
+
+
+def road_residue_lines(coords, road_dtm) -> list[list[tuple[float, float]]]:
+    """Sprint: části OSM silnice mimo plochu silnic z DTM (čára 501.3x místo pásu), dotažené na její hranu.
+
+    Stejný výběr jako zbytky v ``unify_sidewalks``: krátké kusy a čára souběžná těsně vedle plochy se nekreslí.
+    """
+    from shapely.geometry import LineString
+
+    from app.pipeline import dtm_sidewalks as ds
+
+    if road_dtm is None or road_dtm.is_empty:
+        return [list(coords)]
+    line = LineString(coords)
+    rest = line.difference(road_dtm.buffer(ds.OSM_COVER_M))
+    pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
+    near = road_dtm.buffer(ds.PARALLEL_NEAR_M)
+    out = []
+    for piece in pieces:
+        if piece.length < ds.OSM_MIN_REMAINDER_M or piece.intersection(near).length >= ds.PARALLEL_SHARE * piece.length:
+            continue
+        out.extend(seg for seg in ds.end_at_edge([(float(x), float(y)) for x, y in piece.coords], road_dtm) if len(seg) >= 2)
+    return out
 
 
 def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None, cut_decks: bool = False):
@@ -1117,7 +1149,7 @@ def _sprint_merged_road_sidewalk(work_dir: Path, path_source: str = "mixed"):
 
     if not dtm_owns_sidewalks(work_dir) and not dtm_owns_roads(work_dir):
         return None
-    roads = road_geometry(work_dir, path_source, cut_decks=True)
+    roads = road_geometry(work_dir, path_source, cut_decks=True, osm_residue=False)
     if roads is None or roads.is_empty:
         return None
     if not dtm_owns_sidewalks(work_dir):
@@ -1780,7 +1812,7 @@ def build_dtm_sidewalk_parts(
     geom = sidewalk_geometry(
         work_dir,
         path_source,
-        roads=road_geometry(work_dir, path_source),
+        roads=road_geometry(work_dir, path_source, osm_residue=False),
         cut_decks=True,
     )
     geom = minus_zone(geom, narrow)
@@ -1831,7 +1863,7 @@ def build_dtm_parking_parts(
         )
     if not preset_id.startswith("sprint") or not parking_path(work_dir).is_file():
         return []
-    roads = road_geometry(work_dir, path_source)
+    roads = road_geometry(work_dir, path_source, osm_residue=False)
     sidewalks = sidewalk_geometry(work_dir, path_source, roads=roads) if dtm_owns_sidewalks(work_dir) else None
     return _geometry_part(
         parking_geometry(work_dir, roads, sidewalks, cut_decks=True),
@@ -2019,7 +2051,7 @@ def build_dtm_road_parts(
             )
         return parts
     return _geometry_part(
-        minus_zone(road_geometry(work_dir, path_source, cut_decks=True), narrow),
+        minus_zone(road_geometry(work_dir, path_source, cut_decks=True, osm_residue=False), narrow),
         edge_exclude=deck_footprint_geometry(work_dir),
         name="Silnice (DTM + OSM)",
         code=ROAD_CODE,

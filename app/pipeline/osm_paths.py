@@ -5924,6 +5924,8 @@ def build_osm_path_parts(
     symbol_cache: dict[str, int | None] = {}
     # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.
     from app.pipeline.dtm_import import (
+        road_dtm_geometry,
+        road_residue_lines,
         dtm_owns_roads,
         dtm_owns_sidewalks,
         is_surface_road,
@@ -5941,6 +5943,7 @@ def build_osm_path_parts(
     # ani pěšina v ploše chodníku): jen části mimo plochy.
     sidewalk_cover = dtm_cover_geometry(work_dir, 0.0) if (sidewalks_from_dtm or roads_from_dtm) else None
     walk_tunnel_zone = _walk_tunnel_zone(work_dir) if preset_id.startswith("sprint") else None
+    road_dtm = road_dtm_geometry(work_dir, path_source) if roads_from_dtm else None
     # Sprint: úzká stejně široká plocha podél čáry 501.xxx se nekreslí, kreslí ji čára (``sprint_narrow``).
     from app.pipeline.sprint_narrow import minus_zone as _minus_narrow, narrow_line_zone
 
@@ -6221,7 +6224,11 @@ def build_osm_path_parts(
             if not narrow_pieces:
                 continue
         if roads_from_dtm and is_surface_road(hw):
-            continue  # silnice kreslí plocha DTM + OSM (build_dtm_road_parts)
+            # silnici kreslí plocha DTM (build_dtm_road_parts); kde DTM plochu nemá, kreslí ji čára 501.3x
+            # stejně široká po celé délce (way/160570420), dotažená na hranu plochy
+            narrow_pieces = road_residue_lines([(float(c[0]), float(c[1])) for c in coords], road_dtm)
+            if not narrow_pieces:
+                continue
         if (
             preset_id.startswith("sprint")
             and is_tunnel_highway(hw)
