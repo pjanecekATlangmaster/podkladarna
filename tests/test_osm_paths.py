@@ -100,6 +100,21 @@ def test_classify_osm_well_and_playground():
         {"type": "multipolygon", "highway": "pedestrian"}
     ) == ("pedestrian_area", "501")
     assert classify_osm_feature({"highway": "pedestrian"}) is None
+    # way/532655852: highway=service + area=yes (dvůr) → zpevněná plocha, ne zahozená čára.
+    assert classify_osm_feature(
+        {"highway": "service", "area": "yes"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature(
+        {"highway": "footway", "area": "yes"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature(
+        {"highway": "service", "area": "yes", "surface": "gravel"}
+    ) is None
+    assert classify_osm_feature({"highway": "track", "area": "yes"}) is None
+    assert classify_osm_feature(
+        {"highway": "track", "area": "yes", "surface": "asphalt"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature({"highway": "service"}) is None
     # relation/19273440: area:highway=footway + paving_stones → zpevněná plocha.
     assert classify_osm_feature(
         {
@@ -757,8 +772,13 @@ def test_overpass_ql_includes_roads_when_path_source_osm():
     ql_mixed = _overpass_ql(50.0, 14.0, 50.1, 14.1, path_source="mixed")
     # Mixed: landuse=residential ano, highway=residential (silnice) ne.
     assert 'landuse"="residential"' in ql_mixed
-    assert "|residential|" not in ql_mixed
+    # Hlavní regex cest je první dotaz; silnice jako plocha (area=yes) se stahuje zvlášť.
+    main_mixed = next(line for line in ql_mixed.split(";") if 'way["highway"~' in line)
+    assert "residential" not in main_mixed
     assert 'highway"="residential"' not in ql_mixed
+    assert any(
+        "residential" in line and '["area"="yes"]' in line for line in ql_mixed.split(";")
+    )
 
 
 def test_dedup_osm_prefers_steps_over_path():
@@ -1788,6 +1808,27 @@ def test_sprint_drops_road_tunnel_keeps_footway_tunnel(tmp_path):
                 work, preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0
             )
         assert sum(p.count for p in parts) == expected
+
+
+def test_sprint_keeps_paved_track_tunnel(tmp_path):
+    """way/160570380: asfaltový track v tunelu je po refine ``tunnel:road_2``, ale sprint ho kreslí (podchod)."""
+    feat = {
+        "type": "Feature",
+        "properties": {"highway": "tunnel:road_2"},
+        "geometry": {"type": "LineString", "coordinates": [[0.0, 0.0], [40.0, 0.0]]},
+    }
+    walk = {
+        "type": "Feature",
+        "properties": {"walk_tunnel": True},
+        "geometry": {"type": "LineString", "coordinates": [[0.0, 0.2], [40.0, 0.2]]},
+    }
+    _write_osm_geojson(tmp_path, "paths.geojson", [feat])
+    _write_osm_geojson(tmp_path, "walk_tunnels.geojson", [walk])
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=109):
+        parts = build_osm_path_parts(
+            tmp_path, preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0
+        )
+    assert sum(p.count for p in parts) == 1
 
 
 def test_forest_mtbo_sidewalk_is_path_line_not_area(tmp_path):

@@ -1885,6 +1885,64 @@ def build_dtm_parking_parts(
     )
 
 
+# DTM plocha komunikace, ve které OSM vede jen nezpevněnou cestu (štěrková lesní / lyžařská cesta,
+# way/256370567), se nekreslí jako silnice 501 – kreslí ji čára OSM. Nezpevněná = ``highway`` po refine
+# bez zpevněného surface (zpevněný track je už ``road_*``); ``track_fast`` (grade1) se počítá jako silnice.
+UNPAVED_TRACK_BASES = frozenset({"track", "track_slow", "path", "bridleway"})
+UNPAVED_TRACK_MIN_M = 20.0
+# OSM silnice uvnitř plochy smí mít nejvýš tolik délky nezpevněné cesty (napojení na křižovatce).
+UNPAVED_TRACK_ROAD_SHARE = 0.25
+
+
+def drop_unpaved_track_roads(
+    work_dir: Path, path_source: str, polys: list[list[list[tuple[float, float]]]]
+) -> list[list[list[tuple[float, float]]]]:
+    """Plochy silnic z DTM bez těch, ve kterých OSM vede jen nezpevněnou cestu (ne silnici)."""
+    from shapely.geometry import LineString, Polygon
+    from shapely.strtree import STRtree
+
+    from app.pipeline import osm_paths as op
+
+    if not polys:
+        return polys
+    src = path_source
+    if op.resolve_path_source(path_source) != op.PATH_SOURCE_ZABAGED and (work_dir / "osm_paths" / "paths_osm.geojson").is_file():
+        src = op.PATH_SOURCE_OSM
+    unpaved, roads = [], []
+    for feat in _path_features(work_dir, src):
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        hw = str((feat.get("properties") or {}).get("highway") or "path")
+        line = LineString([(float(c[0]), float(c[1])) for c in coords])
+        if is_surface_road(hw) or hw == "track_fast":
+            roads.append(line)  # zpevněná polní cesta (grade1) drží plochu jako silnice
+        elif not op.is_bridge_highway(hw) and not op.is_tunnel_highway(hw) and hw in UNPAVED_TRACK_BASES:
+            unpaved.append(line)
+    if not unpaved:
+        return polys
+    unpaved_tree = STRtree(unpaved)
+    road_tree = STRtree(roads) if roads else None
+    out = []
+    for rings in polys:
+        try:
+            poly = Polygon(rings[0], rings[1:])
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+        except (ValueError, TypeError):
+            out.append(rings)
+            continue
+        inside_unpaved = sum(unpaved[i].intersection(poly).length for i in unpaved_tree.query(poly))
+        inside_road = (
+            sum(roads[i].intersection(poly).length for i in road_tree.query(poly)) if road_tree is not None else 0.0
+        )
+        if inside_unpaved >= UNPAVED_TRACK_MIN_M and inside_road <= UNPAVED_TRACK_ROAD_SHARE * inside_unpaved:
+            continue
+        out.append(rings)
+    return out
+
+
 def classified_polygons(
     work_dir: Path, path_source: str
 ) -> tuple[list[list[list[tuple[float, float]]]], list[list[list[tuple[float, float]]]]]:
@@ -1913,7 +1971,7 @@ def classified_polygons(
             logging.getLogger(__name__).info(
                 "DTM: %s ploch chodníků s OSM silnicí uvnitř přeřazeno mezi silnice", len(moved)
             )
-    return sidewalks, roads
+    return sidewalks, drop_unpaved_track_roads(work_dir, path_source, roads)
 
 
 def is_surface_road(highway: str) -> bool:
@@ -2012,7 +2070,8 @@ def dtm_cover_geometry(work_dir: Path, buffer_m: float | None = None):
     from app.pipeline import dtm_sidewalks
 
     parts = []
-    for polys in (_load_sidewalk_polygons(work_dir), _load_road_polygons(work_dir)):
+    road_polys = drop_unpaved_track_roads(work_dir, "mixed", _load_road_polygons(work_dir))
+    for polys in (_load_sidewalk_polygons(work_dir), road_polys):
         dtm = dtm_sidewalks.dtm_union(polys)
         if dtm is not None and not dtm.is_empty:
             parts.append(dtm)
