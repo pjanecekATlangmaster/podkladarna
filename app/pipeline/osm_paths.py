@@ -5256,14 +5256,57 @@ DTM_ONLY_ROAD_MIN_M2 = 30.0
 DTM_ONLY_ROAD_MIN_LEN_M = 15.0
 
 
+# Silnice jen v DTM se bere jen tam, kde ji opravdu kreslí ZABAGED (osa Ulice / SilniceDalnice do tolika m od plochy);
+# jinak by se zahodil chodník podél silnice, kterou mapa vůbec nekreslí (D23: pěšina 216 m u 50.024969, 14.380944).
+DTM_ONLY_ROAD_ZABAGED_M = 6.0
+_ZABAGED_ROAD_LAYERS = ("Ulice", "SilniceDalnice")
+
+
+def _zabaged_road_lines(archive: Path):
+    """Osy ZABAGED Ulice / SilniceDalnice z archivu (shapely) nebo None."""
+    try:
+        import io
+
+        import shapefile
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+
+        lines = []
+        with ZipFile(archive) as zf:
+            names = set(zf.namelist())
+            for stem in _ZABAGED_ROAD_LAYERS:
+                if not {f"{stem}.shp", f"{stem}.shx", f"{stem}.dbf"} <= names:
+                    continue
+                reader = shapefile.Reader(
+                    shp=io.BytesIO(zf.read(f"{stem}.shp")),
+                    shx=io.BytesIO(zf.read(f"{stem}.shx")),
+                    dbf=io.BytesIO(zf.read(f"{stem}.dbf")),
+                )
+                for shp in reader.iterShapes():
+                    if shp.shapeType == 0 or len(shp.points) < 2:
+                        continue
+                    parts = list(shp.parts) + [len(shp.points)]
+                    for a, b in zip(parts, parts[1:]):
+                        pts = [(float(x), float(y)) for x, y in shp.points[a:b]]
+                        if len(pts) >= 2:
+                            lines.append(LineString(pts))
+        return unary_union(lines) if lines else None
+    except Exception:
+        return None
+
+
 def dtm_only_road_geometry(work_dir: Path, road_feats: list[dict]):
-    """Části plochy silnic z DTM bez OSM silnice do ``DTM_ONLY_ROAD_OSM_M`` m (shapely) nebo None."""
+    """Části plochy silnic z DTM bez OSM silnice do ``DTM_ONLY_ROAD_OSM_M`` m, které kreslí ZABAGED (shapely) nebo None."""
     from shapely.geometry import LineString
     from shapely.ops import unary_union
 
     from app.pipeline import dtm_import as di
     from app.pipeline.dtm_sidewalks import _long_side
 
+    zab = _ZABAGED_PAVED.get()
+    zab_roads = _zabaged_road_lines(Path(zab[0])) if zab else None
+    if zab_roads is None or zab_roads.is_empty:
+        return None  # bez ZABAGED mapa takovou silnici nekreslí → chodník zůstává
     roads = di.road_geometry(work_dir, "mixed")
     if roads is None or roads.is_empty:
         return None
@@ -5275,10 +5318,14 @@ def dtm_only_road_geometry(work_dir: Path, road_feats: list[dict]):
         if geom.get("type") == "LineString" and len(coords) >= 2 and path_draw_highway(hw).startswith("road_"):
             lines.append(LineString([(float(x), float(y)) for x, y in coords]))
     rest = roads.difference(unary_union(lines).buffer(DTM_ONLY_ROAD_OSM_M)) if lines else roads
+    near_zab = zab_roads.buffer(DTM_ONLY_ROAD_ZABAGED_M)
     polys = [
         g
         for g in getattr(rest, "geoms", [rest])
-        if g.geom_type == "Polygon" and g.area >= DTM_ONLY_ROAD_MIN_M2 and _long_side(g) >= DTM_ONLY_ROAD_MIN_LEN_M
+        if g.geom_type == "Polygon"
+        and g.area >= DTM_ONLY_ROAD_MIN_M2
+        and _long_side(g) >= DTM_ONLY_ROAD_MIN_LEN_M
+        and g.intersects(near_zab)
     ]
     return unary_union(polys) if polys else None
 

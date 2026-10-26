@@ -1545,13 +1545,39 @@ def test_sidewalk_beside_dtm_only_road_is_dropped(tmp_path):
         (work / "osm_paths" / name).write_text(json.dumps({"type": "FeatureCollection", "features": [near, far]}), encoding="utf-8")
     (work / "osm_paths" / "features.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
     op._PAVED_NETWORK_CACHE.clear()
-    assert op.dtm_only_road_geometry(work, []) is not None
     kw = dict(preset_id="forest_10000", scale=10000, ref_x=100.0, ref_y=0.0, grivation_deg=0.0)
-    parts = op.build_osm_path_parts(work, **kw)
-    assert sum(p.count for p in parts) == 1  # jen vzdálený chodník
-    # s OSM silnicí v ose plochy není plocha „jen v DTM“ (chodník řeší běžný dedup u silnice)
-    road = {"type": "Feature", "properties": {"highway": "road_2"}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [200, 0]]}}
-    assert op.dtm_only_road_geometry(work, [road]) is None
+    # Bez ZABAGED mapa silnici z DTM nekreslí → chodník zůstává (oba).
+    assert op.dtm_only_road_geometry(work, []) is None
+    assert sum(p.count for p in op.build_osm_path_parts(work, **kw)) == 2
+    # Se ZABAGED Ulicí v ose plochy (ta silnici kreslí) se blízký chodník zahodí.
+    archive = _zabaged_zip(work / "zabaged_clean.zip", "Ulice", [[(0, 0), (200, 0)]])
+    with op.zabaged_paved_areas(archive, 1e9):
+        assert op.dtm_only_road_geometry(work, []) is not None
+        parts = op.build_osm_path_parts(work, **kw)
+        assert sum(p.count for p in parts) == 1  # jen vzdálený chodník
+        # s OSM silnicí v ose plochy není plocha „jen v DTM“ (chodník řeší běžný dedup u silnice)
+        road = {"type": "Feature", "properties": {"highway": "road_2"}, "geometry": {"type": "LineString", "coordinates": [[0, 0], [200, 0]]}}
+        assert op.dtm_only_road_geometry(work, [road]) is None
+
+
+def _zabaged_zip(path, layer, lines):
+    """Archiv ZABAGED s jednou čárovou vrstvou (pyshp), pro testy ploch a silnic jen v DTM."""
+    import io
+    import zipfile
+
+    import shapefile
+
+    shp, shx, dbf = io.BytesIO(), io.BytesIO(), io.BytesIO()
+    w = shapefile.Writer(shp=shp, shx=shx, dbf=dbf, shapeType=shapefile.POLYLINE)
+    w.field("ID", "N")
+    for i, pts in enumerate(lines):
+        w.line([list(map(list, pts))])
+        w.record(i)
+    w.close()
+    with zipfile.ZipFile(path, "w") as zf:
+        for ext, buf in (("shp", shp), ("shx", shx), ("dbf", dbf)):
+            zf.writestr(f"{layer}.{ext}", buf.getvalue())
+    return path
 
 
 def test_corridor_edge_omitted_where_drawn_road_meets_corridor(tmp_path, monkeypatch):
