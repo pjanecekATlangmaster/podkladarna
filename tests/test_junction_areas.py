@@ -46,7 +46,7 @@ def test_island_makes_junction_complex(tmp_path):
     # Tatáž křižovatka s ostrůvkem (díra v ploše silnic z DTM) → plocha z DTM v okolí shluku, daleká silnice čarou.
     _write(
         tmp_path,
-        [_rect(-200, -15, 200, 15, holes=[(6, 3, 9, 9)]), _rect(-5, -200, 5, 200)],  # ostrůvek mimo příčnou silnici
+        [_rect(-200, -15, 200, 15, holes=[(6, 3, 11, 10)]), _rect(-5, -200, 5, 200)],  # ostrůvek 35 m² mimo příčnou silnici
         [[[-200, 0], [0, 0], [200, 0]], [[0, -200], [0, 0], [0, 200]]],
     )
     hulls = ja.complex_junction_hulls(tmp_path)

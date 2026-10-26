@@ -12,14 +12,18 @@ import json
 from pathlib import Path
 
 JUNCTION_AREAS = True
+# Třídy silnic, jejichž uzly tvoří křižovatky (bez účelových komunikací ``road_1``: vjezdy a parkoviště nejsou křižovatky).
+JUNCTION_ROAD_BASES = frozenset({"road_2", "road_3", "road_4"})
 # Uzly OSM silnic blíž než tolik m tvoří jednu křižovatku; obal shluku; dosah plochy silnic z DTM kolem obalu.
 CLUSTER_M = 30.0
 HULL_PAD_M = 12.0
 AREA_PAD_M = 15.0
-# Nejmenší ostrůvek (díra v ploše silnic z DTM) v m², který znamená složitou křižovatku.
-ISLAND_MIN_M2 = 5.0
-# Počet jednosměrných pásů ve shluku, od kterého je křižovatka složitá (rozpletené pásy s ostrůvky bývají jednosměrné).
+# Nejmenší ostrůvek (díra v ploše silnic z DTM) v m², který znamená složitou křižovatku (menší jsou mísy stromů).
+ISLAND_MIN_M2 = 20.0
+# Počet jednosměrných pásů ve shluku, od kterého je křižovatka složitá (rozpletené pásy s ostrůvky bývají jednosměrné);
+# počítají se jen silnice od třídy tertiary (``ONEWAY_BASES``) a ne pásy rozdělené vozovky, kterou kreslí 502.0.
 MIN_ONEWAY = 4
+ONEWAY_BASES = frozenset({"road_3", "road_4"})
 
 _CACHE: dict[tuple, object] = {}
 
@@ -34,7 +38,7 @@ def _road_lines(work_dir: Path):
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
         hw = str((feat.get("properties") or {}).get("highway") or "")
-        if geom.get("type") != "LineString" or len(coords) < 2 or not op.path_draw_highway(hw).startswith("road_"):
+        if geom.get("type") != "LineString" or len(coords) < 2 or op.path_draw_highway(hw) not in JUNCTION_ROAD_BASES:
             continue
         if op.is_bridge_highway(hw) or op.is_tunnel_highway(hw):
             continue
@@ -56,12 +60,19 @@ def _oneway(work_dir: Path):
         feats = json.loads(path.read_text(encoding="utf-8")).get("features") or []
     except (OSError, ValueError):
         return ones, rbs
+    from app.pipeline.osm_paths import path_draw_highway
+
     for f in feats:
+        props = f.get("properties") or {}
         coords = (f.get("geometry") or {}).get("coordinates") or []
-        if len(coords) < 2:
+        base = path_draw_highway(str(props.get("highway") or ""))
+        if len(coords) < 2 or base not in JUNCTION_ROAD_BASES:
             continue
         ln = LineString([(float(x), float(y)) for x, y in coords])
-        (rbs if (f.get("properties") or {}).get("roundabout") else ones).append(ln)
+        if props.get("roundabout"):
+            rbs.append(ln)
+        elif base in ONEWAY_BASES:
+            ones.append(ln)
     return ones, rbs
 
 
@@ -101,16 +112,24 @@ def junction_clusters(work_dir: Path):
     return [(MultiPoint(pts).convex_hull.buffer(HULL_PAD_M), pts) for pts in groups.values()]
 
 
-def complex_junction_hulls(work_dir: Path, path_source: str = "mixed"):
-    """Obaly složitých křižovatek (shapely polygony); u kruhového objezdu i celý prstenec."""
+def complex_junction_hulls(work_dir: Path, path_source: str = "mixed", preset_id: str = "forest_10000", scale: int = 10000):
+    """Obaly složitých křižovatek (shapely polygony); u kruhového objezdu i celý prstenec.
+
+    Dělicí pás rozdělené vozovky (kreslí ji 502.0, ``dual_carriageway``) není ostrůvek a její pásy se nepočítají
+    mezi jednosměrky: jinak by každá křižovatka na K Barrandovu byla plochou a 502.0 by se střídalo s plochou.
+    """
     from shapely import STRtree
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
 
     from app.pipeline import dtm_import as di
+    from app.pipeline.dual_carriageway import dual_axes
 
     roads_dtm = di.road_geometry(work_dir, path_source)
     ones, rbs = _oneway(work_dir)
+    _axes, dual_zone = dual_axes(work_dir, preset_id, scale)
+    if dual_zone is not None:
+        ones = [ln for ln in ones if ln.difference(dual_zone).length > 0.5 * ln.length]
     ot = STRtree(ones) if ones else None
     rt = STRtree(rbs) if rbs else None
     out = []
@@ -126,8 +145,11 @@ def complex_junction_hulls(work_dir: Path, path_source: str = "mixed"):
                     continue
                 for h in g.interiors:
                     hp = Polygon(h)
-                    if hp.area >= ISLAND_MIN_M2 and hull.contains(hp.centroid):
-                        islands += 1
+                    if hp.area < ISLAND_MIN_M2 or not hull.contains(hp.centroid):
+                        continue
+                    if dual_zone is not None and dual_zone.contains(hp.centroid):
+                        continue  # dělicí pás rozdělené vozovky
+                    islands += 1
         if islands >= 1 or rb_hit or n_one >= MIN_ONEWAY:
             if rb_hit:
                 hull = unary_union([hull, *[g.buffer(HULL_PAD_M) for g in rb_hit]])
@@ -156,7 +178,7 @@ def junction_area_geometry(work_dir: Path, preset_id: str, scale: int, path_sour
     result = None
     roads_dtm = di.road_geometry(work_dir, path_source)
     if roads_dtm is not None and not roads_dtm.is_empty:
-        hulls = complex_junction_hulls(work_dir, path_source)
+        hulls = complex_junction_hulls(work_dir, path_source, preset_id, scale)
         if hulls:
             area = roads_dtm.intersection(unary_union([h.buffer(AREA_PAD_M) for h in hulls]))
             polys = [g for g in getattr(area, "geoms", [area]) if g.geom_type == "Polygon" and not g.is_empty]
