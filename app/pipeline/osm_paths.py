@@ -266,6 +266,9 @@ ZABAGED_REMNANT_MIN_M = 15.0
 # Les / MTBO: ZABAGED Cesta / Pěšina bývá posunutá vůči OSM až o ~10 m (Ochoza); souběh do 1 mm mapy
 # je jen zdvojená kresba, proto se proti OSM cestám porovnává se širší tolerancí než MATCH_M.
 ZABAGED_PARALLEL_MATCH_M = 10.0
+# Les / MTBO: souběh v širším pásu (2,5 mm mapy 1:10 000) – ZABAGED čára z ≥ COVER_DROP délky souběžná s OSM se zahodí
+# celá (stejná cesta / ulice s jiným tvarem; reference E1–E3 mají kresbu hlavně na místě OSM, Ochoza ulice ~15 m vedle).
+ZABAGED_CORRIDOR_MATCH_M = 25.0
 # Krátká linie (schody, spojka) leží vždy blízko delší cesty; za duplicitu se bere jen při těsné shodě.
 SHORT_LINE_M = 12.0
 SHORT_LINE_MATCH_M = 1.5
@@ -5274,14 +5277,57 @@ DTM_ONLY_ROAD_MIN_M2 = 30.0
 DTM_ONLY_ROAD_MIN_LEN_M = 15.0
 
 
+# Silnice jen v DTM se bere jen tam, kde ji opravdu kreslí ZABAGED (osa Ulice / SilniceDalnice do tolika m od plochy);
+# jinak by se zahodil chodník podél silnice, kterou mapa vůbec nekreslí (D23: pěšina 216 m u 50.024969, 14.380944).
+DTM_ONLY_ROAD_ZABAGED_M = 6.0
+_ZABAGED_ROAD_LAYERS = ("Ulice", "SilniceDalnice")
+
+
+def _zabaged_road_lines(archive: Path):
+    """Osy ZABAGED Ulice / SilniceDalnice z archivu (shapely) nebo None."""
+    try:
+        import io
+
+        import shapefile
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+
+        lines = []
+        with ZipFile(archive) as zf:
+            names = set(zf.namelist())
+            for stem in _ZABAGED_ROAD_LAYERS:
+                if not {f"{stem}.shp", f"{stem}.shx", f"{stem}.dbf"} <= names:
+                    continue
+                reader = shapefile.Reader(
+                    shp=io.BytesIO(zf.read(f"{stem}.shp")),
+                    shx=io.BytesIO(zf.read(f"{stem}.shx")),
+                    dbf=io.BytesIO(zf.read(f"{stem}.dbf")),
+                )
+                for shp in reader.iterShapes():
+                    if shp.shapeType == 0 or len(shp.points) < 2:
+                        continue
+                    parts = list(shp.parts) + [len(shp.points)]
+                    for a, b in zip(parts, parts[1:]):
+                        pts = [(float(x), float(y)) for x, y in shp.points[a:b]]
+                        if len(pts) >= 2:
+                            lines.append(LineString(pts))
+        return unary_union(lines) if lines else None
+    except Exception:
+        return None
+
+
 def dtm_only_road_geometry(work_dir: Path, road_feats: list[dict]):
-    """Části plochy silnic z DTM bez OSM silnice do ``DTM_ONLY_ROAD_OSM_M`` m (shapely) nebo None."""
+    """Části plochy silnic z DTM bez OSM silnice do ``DTM_ONLY_ROAD_OSM_M`` m, které kreslí ZABAGED (shapely) nebo None."""
     from shapely.geometry import LineString
     from shapely.ops import unary_union
 
     from app.pipeline import dtm_import as di
     from app.pipeline.dtm_sidewalks import _long_side
 
+    zab = _ZABAGED_PAVED.get()
+    zab_roads = _zabaged_road_lines(Path(zab[0])) if zab else None
+    if zab_roads is None or zab_roads.is_empty:
+        return None  # bez ZABAGED mapa takovou silnici nekreslí → chodník zůstává
     roads = di.road_geometry(work_dir, "mixed")
     if roads is None or roads.is_empty:
         return None
@@ -5293,10 +5339,14 @@ def dtm_only_road_geometry(work_dir: Path, road_feats: list[dict]):
         if geom.get("type") == "LineString" and len(coords) >= 2 and path_draw_highway(hw).startswith("road_"):
             lines.append(LineString([(float(x), float(y)) for x, y in coords]))
     rest = roads.difference(unary_union(lines).buffer(DTM_ONLY_ROAD_OSM_M)) if lines else roads
+    near_zab = zab_roads.buffer(DTM_ONLY_ROAD_ZABAGED_M)
     polys = [
         g
         for g in getattr(rest, "geoms", [rest])
-        if g.geom_type == "Polygon" and g.area >= DTM_ONLY_ROAD_MIN_M2 and _long_side(g) >= DTM_ONLY_ROAD_MIN_LEN_M
+        if g.geom_type == "Polygon"
+        and g.area >= DTM_ONLY_ROAD_MIN_M2
+        and _long_side(g) >= DTM_ONLY_ROAD_MIN_LEN_M
+        and g.intersects(near_zab)
     ]
     return unary_union(polys) if polys else None
 
@@ -6215,6 +6265,7 @@ def build_osm_path_parts(
                 pass
     # Les / MTBO: rozdělená vozovka (dva souběžné jednosměrné pásy) jedním 502.0 po střední ose; pásy se v jejím pásu nekreslí.
     dual_zone = None
+    _dual_axes: list = []
     if not preset_id.startswith("sprint") and path_source != PATH_SOURCE_ZABAGED:
         from app.pipeline.dual_carriageway import DUAL_HIGHWAY, dual_axes
 
@@ -6476,15 +6527,45 @@ def build_osm_path_parts(
         )
     )
     # Les / MTBO: černé cesty přes kresbu silnice 502 / 502.1 nevedou, končí na jejím okraji.
+    # Pás se bere z kreslených silnic: u rozdělené vozovky z osy 502.0 (šířka 502.0), ne z pásů, které se nekreslí –
+    # boční ulice tak dojde až k okraji kresby 502.0 (Petr 2026-10-26, D23).
+    _major_feats = road_feats
+    if dual_zone is not None:
+        _major_feats = []
+        for _f in road_feats:
+            _g = _f.get("geometry") or {}
+            _c = _g.get("coordinates") or []
+            _hw = str((_f.get("properties") or {}).get("highway") or "")
+            if _g.get("type") != "LineString" or len(_c) < 2:
+                continue
+            if path_draw_highway(_hw).startswith("road_") and not is_bridge_highway(_hw) and not is_tunnel_highway(_hw):
+                for _seg in clip_outside([(float(x), float(y)) for x, y in _c], dual_zone):
+                    _major_feats.append(
+                        {
+                            "type": "Feature",
+                            "properties": dict(_f.get("properties") or {}),
+                            "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in _seg]},
+                        }
+                    )
+            else:
+                _major_feats.append(_f)
+        _major_feats += [
+            {
+                "type": "Feature",
+                "properties": {"source": "osm", "highway": DUAL_HIGHWAY},
+                "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in c]},
+            }
+            for c in _dual_axes
+        ]
     major_band = (
         None
         if preset_id.startswith("sprint")
         else major_road_band(
-            road_feats + [(data.get("features") or [])[i] for i in sorted(service_links - parking_links)],
+            _major_feats + [(data.get("features") or [])[i] for i in sorted(service_links - parking_links)],
             preset_id=preset_id,
             scale=scale,
             road_widths=road_widths,
-            service_links=frozenset(range(len(road_feats), len(road_feats) + len(service_links - parking_links))),
+            service_links=frozenset(range(len(_major_feats), len(_major_feats) + len(service_links - parking_links))),
         )
     )
     # Les / MTBO: cesta, která končila na zahozeném chodníku, se prodlouží na okraj kresby silnice
@@ -6628,9 +6709,10 @@ def build_osm_path_parts(
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian", "cycleway_paved"}:
             # Pěšina / zpevněná cyklostezka uvnitř plochy chodníku nebo silnice z DTM by se kreslila dvakrát
             # (plocha už je nakreslená) → jen části mimo plochu.
-            lines = clip_outside(line, sidewalk_cover)
+            lines = [seg for ln in lines for seg in clip_outside(ln, sidewalk_cover)]
         elif corridor_zone is not None and is_surface_road(hw):
-            lines = clip_outside(line, corridor_zone)
+            # z ``lines`` (ne ``line``): pásy rozdělené vozovky už oříznuté zónou 502.0 se nesmí vrátit (Lamačova, D25)
+            lines = [seg for ln in lines for seg in clip_outside(ln, corridor_zone)]
             # čára podél hrany koridoru by svou šířkou překrývala plochu → úseky podél hrany pryč (viz ``corridor_junction_omit``)
             _w = drawn_symbol_width_m(path_draw_highway(hw), preset_id, scale)
             _band = _corridor_bands.get(round(_w, 3))
@@ -6644,7 +6726,7 @@ def build_osm_path_parts(
             and not is_tunnel_highway(hw)
         ):
             # Chodník / pěšina / stezka uvnitř koridoru je jeho součástí (i smíšená – v ploše silnice není čitelná).
-            lines = clip_outside(line, corridor_zone)
+            lines = [seg for ln in lines for seg in clip_outside(ln, corridor_zone)]
         elif stairs_zone is not None and steps_piece:
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
             lines = steps_keep(

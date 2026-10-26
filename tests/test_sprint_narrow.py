@@ -63,8 +63,12 @@ def test_short_gap_between_runs_is_bridged(tmp_path):
     geom = sn.minus_zone(di.sidewalk_geometry(tmp_path, "mixed"), zone)
     from shapely.geometry import box
 
-    # v pásu čáry nic nezbude, plocha dál od osy (příjezd k portálu) zůstává
-    assert geom is not None and geom.intersection(box(0, -4.8, 80, 4.8)).area < 0.01
+    # souběžné pruhy v pásu čáry odpadnou; příjezd k portálu (plocha napříč) ústí až k okraji kresby čáry
+    assert geom is not None
+    assert geom.intersection(box(0, -4.8, 39.5, 4.8)).area < 0.01 and geom.intersection(box(46.5, -4.8, 80, 4.8)).area < 0.01
+    half = 2.4  # půlka kresby 501.x ve sprintu 1:4000
+    assert geom.intersection(box(40, half + 0.1, 46, 4.8)).area > 0.95 * 6 * (4.7 - half)
+    assert geom.intersection(box(40, -half + 0.1, 46, half - 0.1)).area < 0.01
 
 
 def test_narrow_dtm_sidewalk_line_not_cut_by_osm_pedestrian_area(tmp_path):

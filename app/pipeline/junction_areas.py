@@ -18,6 +18,8 @@ JUNCTION_ROAD_BASES = frozenset({"road_2", "road_3", "road_4"})
 CLUSTER_M = 30.0
 HULL_PAD_M = 12.0
 AREA_PAD_M = 15.0
+# Nejmenší kus plochy křižovatky (m²); menší odřezky u hranice obalu se nekreslí.
+AREA_MIN_M2 = 300.0
 # Nejmenší ostrůvek (díra v ploše silnic z DTM) v m², který znamená složitou křižovatku (menší jsou mísy stromů).
 ISLAND_MIN_M2 = 20.0
 # Počet jednosměrných pásů ve shluku, od kterého je křižovatka složitá (rozpletené pásy s ostrůvky bývají jednosměrné);
@@ -157,6 +159,17 @@ def complex_junction_hulls(work_dir: Path, path_source: str = "mixed", preset_id
     return out
 
 
+def without_small_pieces(geom):
+    """Plocha křižovatky bez kusů pod ``AREA_MIN_M2`` (odřezky plochy silnic u hranice obalu, 76–85 m² vedle kruhového
+    objezdu, D25) nebo None."""
+    if geom is None or geom.is_empty:
+        return None
+    from shapely.ops import unary_union
+
+    kept = [g for g in getattr(geom, "geoms", [geom]) if g.geom_type == "Polygon" and g.area >= AREA_MIN_M2]
+    return unary_union(kept) if kept else None
+
+
 def junction_area_geometry(work_dir: Path, preset_id: str, scale: int, path_source: str = "mixed"):
     """Plocha silnic z DTM u složitých křižovatek (generalizovaná, shapely) nebo None; cache podle souborů."""
     from shapely.ops import unary_union
@@ -183,8 +196,6 @@ def junction_area_geometry(work_dir: Path, preset_id: str, scale: int, path_sour
             area = roads_dtm.intersection(unary_union([h.buffer(AREA_PAD_M) for h in hulls]))
             polys = [g for g in getattr(area, "geoms", [area]) if g.geom_type == "Polygon" and not g.is_empty]
             if polys:
-                result = di._generalized(unary_union(polys), work_dir, scale)
-                if result is not None and result.is_empty:
-                    result = None
+                result = without_small_pieces(di._generalized(unary_union(polys), work_dir, scale))
     _CACHE[key] = result
     return result
