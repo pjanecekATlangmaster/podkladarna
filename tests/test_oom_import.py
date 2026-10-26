@@ -755,6 +755,24 @@ def test_zabaged_street_clips_parallel_section_to_osm(tmp_path):
     assert len(_zabaged_line_lengths(z, "Ulice", "sprint_4000", 4000, x0, y0, osm)) == 1
 
 
+@pytest.mark.parametrize(
+    ("layer", "offset_m", "preset", "scale", "kept"),
+    [
+        ("Ulice", 15.0, "forest_10000", 10000, False),  # Ochoza: táž ulice ~15 m vedle OSM
+        ("Cesta", 22.0, "mtbo_10000", 10000, False),  # táž lesní cesta s jiným tvarem
+        ("Ulice", 15.0, "sprint_4000", 4000, True),  # sprint beze změny
+    ],
+)
+def test_zabaged_line_along_osm_in_wide_corridor_dropped(tmp_path, layer, offset_m, preset, scale, kept):
+    """Les / MTBO: ZABAGED čára souběžná s OSM do 25 m z ≥ 70 % délky se nekreslí (OSM má přednost)."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, layer, [[(x0, y0), (x0 + 200, y0)]])
+    osm = [[(x0 - 10, y0 + offset_m), (x0 + 210, y0 + offset_m)]]
+    assert bool(_zabaged_line_lengths(z, layer, preset, scale, x0, y0, osm)) is kept
+
+
 def test_zabaged_path_crossing_osm_not_shortened(tmp_path):
     """Kolmé křížení OSM čáry ZABAGED cestu nezkrátí."""
     pytest.importorskip("pyogrio")
@@ -959,7 +977,7 @@ def test_zabaged_path_beside_osm_dedup_wider_in_forest(tmp_path):
     pytest.importorskip("pyogrio")
     pytest.importorskip("shapely")
     assert _count_cesta_objects(tmp_path, "forest_10000", 10000, 8.0) == 0
-    assert _count_cesta_objects(tmp_path, "forest_10000", 10000, 15.0) == 1
+    assert _count_cesta_objects(tmp_path, "forest_10000", 10000, 35.0) == 1  # mimo pás souběhu 25 m
     assert _count_cesta_objects(tmp_path, "sprint_4000", 4000, 8.0) == 1
 
 
