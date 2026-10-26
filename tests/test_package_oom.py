@@ -18,19 +18,20 @@ from app.pipeline.package_oom import (
 
 
 @pytest.mark.parametrize(
-    ("options", "expected"),
+    ("options", "preset_id", "expected"),
     [
-        ({}, "mixed"),  # GUI volbu neposílá → produkce kreslí mixed
-        (None, "mixed"),
-        ({"path_source": "mixed"}, "mixed"),
-        ({"path_source": "osm"}, "osm"),  # diagnostika
-        ({"path_source": "nesmysl"}, "mixed"),
+        ({}, "forest_10000", "mixed"),  # GUI volbu neposílá → les kreslí mixed
+        (None, "mtbo_10000", "mixed"),
+        ({"path_source": "mixed"}, "forest_10000", "mixed"),
+        ({"path_source": "osm"}, "forest_10000", "osm"),  # diagnostika
+        ({"path_source": "nesmysl"}, "forest_10000", "mixed"),
+        ({"path_source": "mixed"}, "sprint_2_5m", "osm"),  # sprint: ZABAGED Ulice by zdvojily OSM silnice
     ],
 )
-def test_oom_path_source_from_job_options(options, expected):
+def test_oom_path_source_from_job_options(options, preset_id, expected):
     from app.pipeline.package_oom import oom_path_source
 
-    assert oom_path_source(options) == expected
+    assert oom_path_source(options, preset_id) == expected
 
 
 def test_resolve_omap_job_by_scale():

@@ -920,7 +920,7 @@ def _package_output(
                 vectorconf = Path(
                     str(disc_preset.get("vectorconf", "zabaged.txt"))
                 ).name
-                path_src = oom_path_source(options)
+                path_src = oom_path_source(options, disc_preset_id)
                 for (path_tag, _), certain in (
                     (v, c) for v in OOM_PATH_VARIANTS for c in (False, True)
                 ):
