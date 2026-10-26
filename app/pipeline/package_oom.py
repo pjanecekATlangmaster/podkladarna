@@ -771,10 +771,10 @@ def _prepare_oom_map(
         # ZABAGED louky/parková zeleň nesmí řídit vegetaci v auto .omap
         # (vegetace = hustota LiDAR odrazů / CHM záloha).
         omit |= set(_ZABAGED_UNDER_VEGETATION)
-        from app.pipeline.osm_paths import ZABAGED_PAVED_LAYER, zabaged_paved_active
+        from app.pipeline.osm_paths import ZABAGED_PAVED_LAYERS, zabaged_paved_active
 
         if zabaged_paved_active(preset_id):
-            omit.add(ZABAGED_PAVED_LAYER)  # les a MTBO: kreslí ji síť zpevněných ploch
+            omit.update(ZABAGED_PAVED_LAYERS)  # les a MTBO: kreslí je síť zpevněných ploch (ostatní plocha i parkoviště)
         # Sprint: voda (modrá) by překryla výplň mostu → vodní plocha se pod mostovkami vystřihne.
         water_deck = None
         if preset_id.startswith("sprint"):
@@ -1055,17 +1055,10 @@ def _prepare_oom_map(
         object_parts.extend(osm_feat_rest)
     from app.pipeline.dtm_import import JUNCTION_MAJORS, dtm_area_preset
     from app.pipeline.path_clearance import drawn_path_bands
+    from app.pipeline.paved_surface import build_paved_edge_parts, unified as unified_paved
 
-    object_parts[corridor_at:corridor_at] = build_mtbo_corridor_parts(
-        kp_cwd,
-        preset_id=preset_id,
-        scale=scale,
-        ref_x=ref_x,
-        ref_y=ref_y,
-        grivation_deg=grivation,
-        clip_bounds=vector_clip_bounds,
-        path_source=path_source,
-        road_bands=drawn_path_bands(
+    _bands = (
+        drawn_path_bands(
             object_parts,
             preset_id=preset_id,
             scale=scale,
@@ -1074,9 +1067,14 @@ def _prepare_oom_map(
             grivation_deg=grivation,
             majors=JUNCTION_MAJORS,
         )
-        if dtm_area_preset(preset_id)
-        else None,
+        if dtm_area_preset(preset_id) or unified_paved(preset_id)
+        else None
     )
+    _area_kw = dict(preset_id=preset_id, scale=scale, ref_x=ref_x, ref_y=ref_y, grivation_deg=grivation, clip_bounds=vector_clip_bounds)
+    # Sjednocený režim (``paved_surface``): okraj jedné plochy zpevněného povrchu nad hotovými čarami; jinak koridor z DTM.
+    object_parts[corridor_at:corridor_at] = build_mtbo_corridor_parts(
+        kp_cwd, path_source=path_source, road_bands=_bands, **_area_kw
+    ) + build_paved_edge_parts(kp_cwd, road_bands=_bands, **_area_kw)
     # Zaměřené ploty z DTM kraje (sprint a les, MTBO jen se zapnutým DTM; chybějící DTM = prázdný seznam).
     from app.pipeline.dtm_import import build_dtm_fence_parts
 

@@ -10,6 +10,7 @@ import pytest
 
 import app.pipeline.oom_symbol_map as sm
 from app.pipeline.osm_paths import build_osm_feature_parts
+from app.pipeline.paved_surface import build_paved_edge_parts
 
 OUTER = [[0.0, 0.0], [60.0, 0.0], [60.0, 60.0], [0.0, 60.0], [0.0, 0.0]]
 HOLE = [[20.0, 20.0], [40.0, 20.0], [40.0, 40.0], [20.0, 40.0], [20.0, 20.0]]
@@ -37,6 +38,11 @@ def _build(tmp_path, preset: str, scale: int, kind: str = "pitch", clip_bounds=N
         tmp_path, preset_id=preset, scale=scale, ref_x=0.0, ref_y=0.0, grivation_deg=0.0,
         clip_bounds=clip_bounds,
     )
+    # Les a MTBO: okraj kreslí až paved_surface nad hotovými čarami cest (bez čar cest = okraj celý).
+    parts = parts + build_paved_edge_parts(
+        tmp_path, preset_id=preset, scale=scale, ref_x=0.0, ref_y=0.0, grivation_deg=0.0,
+        clip_bounds=clip_bounds,
+    )
     path = sm.symbol_set_path(preset, scale)
     id2code = {v: k for k, v in sm._code_to_index(path).items()}
     cnt: Counter[str] = Counter()
@@ -54,7 +60,7 @@ def test_forest_paved_area_gets_edge_line_per_ring(tmp_path, scale) -> None:
     assert cnt["501.2"] == 2  # vnější obrys + díra
     assert sum(p.count for p in parts) == 3
     assert sm.drain_unmapped_codes() == {}
-    # uzavřená cesta: poslední souřadnice nese flag 18 (ClosePoint)
+    # uzavřená cesta: poslední souřadnice nese flag 18 (ClosePoint) i u okraje z paved_surface
     xml = "\n".join(p.objects_xml for p in parts)
     edge_id = sm._code_to_index(sm.symbol_set_path("forest_10000", scale))["501.2"]
     edge_objs = re.findall(rf'<object\b[^>]*\bsymbol="{edge_id}".*?</object>', xml, re.DOTALL)

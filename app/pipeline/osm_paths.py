@@ -530,8 +530,8 @@ _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
 # Plochy z OSM_PAVED_AREA_LEISURE / pěší zóna / parkoviště / nástupiště → kind … (501).
 _PAVED_AREA_KINDS = frozenset(
-    {"playground", "pitch", "pedestrian_area", "parking", "platform"}
-)
+    {"playground", "pitch", "pedestrian_area", "parking", "platform", "paved_dtm"}
+)  # ``paved_dtm``: plochy z DTM v síti zpevněných ploch (``paved_surface.DTM_PAVED_KIND``)
 # OSM zpevněná plocha, která je jen sliver (plocha < ``SLIVER_MIN_AREA_M2`` nebo užší než ``SLIVER_MIN_WIDTH_M``,
 # např. nástupiště nakreslené téměř do přímky), se nekreslí.
 SLIVER_MIN_AREA_M2 = 3.0
@@ -4701,7 +4701,7 @@ def _extend_ends(coords: list, dist: float) -> list:
 
 # Silnice se ořezávají jen plochami, kde jízdní pruh uvnitř nedává v mapě smysl (parkoviště, pěší zóna, nástupiště).
 # Hřiště / sportoviště ne: silnice přes ně je spíš nepřesnost OSM (Praha 5: 0,5 km silnic přes pitch).
-ROAD_CLIP_KINDS = frozenset({"parking", "pedestrian_area", "platform"})
+ROAD_CLIP_KINDS = frozenset({"parking", "pedestrian_area", "platform", "paved_dtm"})
 
 
 def road_clip_geometry(feats: list[dict]):
@@ -4739,7 +4739,10 @@ def uses_dtm_widths(preset_id: str) -> bool:
 
 def _minus_mtbo_dtm_areas(work_dir: Path, geom, scale: int, preset_id: str = "mtbo"):
     from app.pipeline.dtm_import import dtm_area_geometry_for
+    from app.pipeline.paved_surface import unified
 
+    if unified(preset_id):
+        return geom  # plochy z DTM jsou součástí sítě
     zone = dtm_area_geometry_for(work_dir, preset_id, scale, "mixed")
     if zone is None or zone.is_empty:
         return geom
@@ -4754,9 +4757,10 @@ def _minus_mtbo_dtm_areas(work_dir: Path, geom, scale: int, preset_id: str = "mt
 def _plus_dtm_parking(work_dir: Path, geom, preset_id: str, scale: int):
     """Les a MTBO: ke ``geom`` (shapely / None) přidá parkoviště kreslená z DTM (jen polygony), ať se přes ně nekreslí silnice ani cesty."""
     from app.pipeline.dtm_import import dtm_area_preset, dtm_parking_geometry
+    from app.pipeline.paved_surface import unified
 
-    if not dtm_area_preset(preset_id):
-        return geom
+    if not dtm_area_preset(preset_id) or unified(preset_id):
+        return geom  # sjednocený režim: parkoviště z DTM jsou součástí sítě
     parking = dtm_parking_geometry(work_dir, scale, "mixed", preset_id)
     if parking is None or parking.is_empty:
         return geom
@@ -4772,9 +4776,10 @@ def _plus_dtm_parking(work_dir: Path, geom, preset_id: str, scale: int):
 def cut_paved_by_mtbo_dtm_areas(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
     """Les a MTBO: zpevněné plochy z OSM (i sloučená síť) bez ploch kreslených z DTM (koridor, parkoviště, MTBO i chodníky)."""
     from app.pipeline.dtm_import import cut_osm_paved_by_geometry, dtm_area_geometry_for, dtm_area_preset
+    from app.pipeline.paved_surface import unified
 
-    if not dtm_area_preset(preset_id):
-        return feats
+    if not dtm_area_preset(preset_id) or unified(preset_id):
+        return feats  # sjednocený režim: plochy z DTM se do sítě přidají, neořezávají ji
     from shapely.geometry import mapping, shape
 
     zone = dtm_area_geometry_for(work_dir, preset_id, scale, "mixed")
@@ -4800,6 +4805,9 @@ def cut_paved_by_mtbo_dtm_areas(work_dir: Path, feats: list[dict], preset_id: st
 # ořízne, okraj se u silnice přeruší), ne samostatným symbolem 501.0 s pevným obrysem (Sedlčany, Petr 2026-10-25).
 # Hodnota: ``(zabaged_clean.zip, max. výměra m²)`` po dobu sestavení mapy (``zabaged_paved_areas``), jinak None.
 ZABAGED_PAVED_LAYER = "OstatniPlochaVSidlech"
+# Les a MTBO: i ZABAGED parkoviště jde do sítě (bez limitu výměry) – jinak přes ně vedla čára 502.1 a okraj se nepřerušil
+# (K Barrandovu 50.030003, 14.379914, nedodělek D14E č. 3).
+ZABAGED_PAVED_LAYERS = (ZABAGED_PAVED_LAYER, "ParkovisteOdpocivka")
 _ZABAGED_PAVED: ContextVar[tuple[str, float] | None] = ContextVar("zabaged_paved", default=None)
 
 
@@ -4840,34 +4848,40 @@ def with_zabaged_paved_areas(feats: list[dict], preset_id: str) -> list[dict]:
         from app.pipeline.fetch_zabaged import ostatni_plocha_too_large
 
         extra = []
-        stem = ZABAGED_PAVED_LAYER
         with ZipFile(archive) as zf:
-            if not {f"{stem}.shp", f"{stem}.shx", f"{stem}.dbf"} <= set(zf.namelist()):
-                return feats
-            reader = shapefile.Reader(
-                shp=io.BytesIO(zf.read(f"{stem}.shp")),
-                shx=io.BytesIO(zf.read(f"{stem}.shx")),
-                dbf=io.BytesIO(zf.read(f"{stem}.dbf")),
-            )
-            for rec in reader.iterShapeRecords():
-                if rec.shape.shapeType == 0:
+            names = set(zf.namelist())
+            for stem in ZABAGED_PAVED_LAYERS:
+                if not {f"{stem}.shp", f"{stem}.shx", f"{stem}.dbf"} <= names:
                     continue
-                try:
-                    g = shape(rec.shape.__geo_interface__)
-                except (ValueError, TypeError, AttributeError):
-                    continue
-                if g.geom_type not in ("Polygon", "MultiPolygon"):
-                    continue
-                g = g if g.is_valid else g.buffer(0)
-                if g.is_empty or ostatni_plocha_too_large(rec.record.as_dict(), geom_area_m2=g.area, max_area_m2=max_m2):
-                    continue
-                extra.append(
-                    {
-                        "type": "Feature",
-                        "properties": {"source": "zabaged", "kind": "pedestrian_area", "oom_code": "501"},
-                        "geometry": mapping(g),
-                    }
+                reader = shapefile.Reader(
+                    shp=io.BytesIO(zf.read(f"{stem}.shp")),
+                    shx=io.BytesIO(zf.read(f"{stem}.shx")),
+                    dbf=io.BytesIO(zf.read(f"{stem}.dbf")),
                 )
+                kind = "parking" if stem == "ParkovisteOdpocivka" else "pedestrian_area"
+                for rec in reader.iterShapeRecords():
+                    if rec.shape.shapeType == 0:
+                        continue
+                    try:
+                        g = shape(rec.shape.__geo_interface__)
+                    except (ValueError, TypeError, AttributeError):
+                        continue
+                    if g.geom_type not in ("Polygon", "MultiPolygon"):
+                        continue
+                    g = g if g.is_valid else g.buffer(0)
+                    if g.is_empty:
+                        continue
+                    if stem == ZABAGED_PAVED_LAYER and ostatni_plocha_too_large(
+                        rec.record.as_dict(), geom_area_m2=g.area, max_area_m2=max_m2
+                    ):
+                        continue
+                    extra.append(
+                        {
+                            "type": "Feature",
+                            "properties": {"source": "zabaged", "kind": kind, "oom_code": "501"},
+                            "geometry": mapping(g),
+                        }
+                    )
     except Exception:  # bez pyshp / s vadným archivem zůstane kresba z OSM
         return feats
     return feats + extra if extra else feats
@@ -5055,26 +5069,56 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
             feats = []
         _path_feats = _paths_features_for_network(work_dir)
         if preset_id:
+            from app.pipeline.dtm_import import dtm_area_preset, drop_osm_parking_covered_by_dtm
+
+            if dtm_area_preset(preset_id):
+                feats = drop_osm_parking_covered_by_dtm(work_dir, feats)  # jako v ``build_osm_feature_parts``
             feats = with_zabaged_paved_areas(feats, preset_id)
             feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)
             feats = open_narrow_walk_areas(feats, preset_id, scale)
             feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)
             feats = extend_parking_by_links(work_dir, feats, _path_feats, preset_id, scale)
             feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)
+            from app.pipeline.paved_surface import dtm_area_features
+
+            feats = feats + dtm_area_features(work_dir, preset_id, scale)  # sjednocený režim: plochy z DTM v síti
         _PAVED_NETWORK_CACHE.clear()
-        network = build_paved_network(feats, _path_feats)[1]
+        clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
+        merged_feats, network = build_paved_network(feats, _path_feats)
+        if preset_id:
+            merged_feats = cut_paved_by_mtbo_dtm_areas(work_dir, merged_feats, preset_id, scale)  # zacelené mezery sítě také
+        # Kreslené plochy sítě (bez sliverů) – výplň i okraj z téže geometrie (``paved_surface``).
+        paved_feats = [
+            f
+            for f in merged_feats
+            if (f.get("properties") or {}).get("kind") in _PAVED_AREA_KINDS
+            and (f.get("geometry") or {}).get("type") in ("Polygon", "MultiPolygon")
+            and not ((f["geometry"].get("type") == "Polygon") and is_sliver_polygon(f["geometry"].get("coordinates") or [[]]))
+        ]
         if network is not None and preset_id:
             network = _minus_mtbo_dtm_areas(work_dir, network, scale, preset_id)
-        clip = road_clip_geometry(feats)
+            from app.pipeline.paved_surface import unified
+
+            if unified(preset_id):
+                from shapely.geometry import shape as _shape
+                from shapely.ops import unary_union as _uu_net
+
+                polys = [_shape(f["geometry"]) for f in paved_feats if not (f.get("properties") or {}).get("structure")]
+                network = _uu_net([g if g.is_valid else g.buffer(0) for g in polys]) if polys else None
         if preset_id:
             clip = _plus_dtm_parking(work_dir, clip, preset_id, scale)
-        _PAVED_NETWORK_CACHE[key] = (network, clip)
+        _PAVED_NETWORK_CACHE[key] = (network, clip, paved_feats)
     return _PAVED_NETWORK_CACHE[key]
 
 
 def paved_network_geometry(work_dir: Path, preset_id: str = "", scale: int = 0):
     """Plocha sítě zpevněných ploch (``build_paved_network``) z ``features.geojson`` jobu (les i s DTM); cache."""
     return _paved_network_cached(work_dir, preset_id, scale)[0]
+
+
+def paved_network_feats(work_dir: Path, preset_id: str, scale: int) -> list[dict]:
+    """Prvky zpevněných ploch po sloučení do sítě (les a MTBO), stejná geometrie jako ``paved_network_geometry``; cache."""
+    return _paved_network_cached(work_dir, preset_id, scale)[2] or []
 
 
 def road_clip_zone(work_dir: Path, preset_id: str = "", scale: int = 0):
@@ -5239,11 +5283,19 @@ def is_sidewalk_beside_road(
     from shapely.geometry import LineString
 
     line = LineString(coords)
-    return line.length > 0 and line.intersection(road_zone).length >= SIDEWALK_ROAD_SHARE * line.length
+    if line.length <= 0 or line.intersection(road_zone).length < SIDEWALK_ROAD_SHARE * line.length:
+        return False
+    # Zbytek mimo pás, který je sám o sobě souvislá cesta (way/1451823252: chodník podél K Barrandovu pokračuje
+    # kolem hřiště), se nezahazuje s celou čárou – souběžné úseky ořízne ``sidewalk_parallel_zone``.
+    rest = line.difference(road_zone)
+    pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
+    return not any(p.length >= SIDEWALK_KEEP_REST_M for p in pieces)
 
 
 # Chodník je „vedle silnice“, když v jejím pásu (``road_zone``) běží souvisle aspoň tolik m (kratší průchod = přechod / křížení).
 SIDEWALK_BESIDE_MIN_RUN_M = 40.0
+# Souvislý zbytek chodníku mimo pás silnice aspoň tolik m je samostatná cesta: čára se nezahodí celá, jen souběžné úseky.
+SIDEWALK_KEEP_REST_M = 30.0
 
 
 def sidewalk_parallel_zone(highway: str, coords: list, road_zone, bases: frozenset[str] = SIDEWALK_DEDUP_BASES):
@@ -6713,21 +6765,37 @@ def build_osm_feature_parts(
     if not preset_id.startswith("sprint"):
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
         _path_feats = _paths_features_for_network(work_dir)
-        feats = with_zabaged_paved_areas(feats, preset_id)  # ZABAGED ostatní plochy v sídlech do sítě
-        feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)  # les: široké pěší plochy z DTM
-        feats = open_narrow_walk_areas(feats, preset_id, scale)  # úzké výběžky pěších ploch kreslí čára
-        feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)  # podélné stání = silnice
-        feats = extend_parking_by_links(work_dir, feats, _path_feats, preset_id, scale)  # vjezd na parkoviště = plocha
-        feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # MTBO: plochy z DTM mají přednost
-        _road_clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
-        feats, _network = build_paved_network(feats, _path_feats)
-        feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # zacelené mezery sítě také
+        from app.pipeline.paved_surface import unified as _unified_paved
+
+        if _unified_paved(preset_id):
+            # Sjednocený režim: plochy sítě (OSM + ZABAGED + DTM) z téže cache jako okraj (``paved_network_feats``),
+            # ať výplň a okraj sedí na stejné geometrii. Plochy na mostě / v tunelu (``structure``) jsou v cache také.
+            _road_clip = None
+            feats = [
+                f
+                for f in feats
+                if (f.get("properties") or {}).get("kind") not in _PAVED_AREA_KINDS
+                or (f.get("geometry") or {}).get("type") not in ("Polygon", "MultiPolygon")
+            ] + paved_network_feats(work_dir, preset_id, scale)
+        else:
+            feats = with_zabaged_paved_areas(feats, preset_id)  # ZABAGED ostatní plochy v sídlech do sítě
+            feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)  # les: široké pěší plochy z DTM
+            feats = open_narrow_walk_areas(feats, preset_id, scale)  # úzké výběžky pěších ploch kreslí čára
+            feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)  # podélné stání = silnice
+            feats = extend_parking_by_links(work_dir, feats, _path_feats, preset_id, scale)  # vjezd na parkoviště = plocha
+            feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # MTBO: plochy z DTM mají přednost
+            _road_clip = road_clip_geometry(feats)  # z původních ploch, před sloučením
+            feats, _network = build_paved_network(feats, _path_feats)
+            feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # zacelené mezery sítě také
         # Les a MTBO: okraj 501.2 se nekreslí tam, kde by splýval se silnicí (vjezd silnice do plochy).
-        edge_omit_zone = paved_edge_omit_zone(_path_feats, _road_clip, preset_id=preset_id, scale=scale)
+        # Sjednocený režim: okraj kreslí až ``paved_surface.build_paved_edge_parts`` nad hotovými čarami.
+        edge_omit_zone = (
+            None if _unified_paved(preset_id) else paved_edge_omit_zone(_path_feats, _road_clip, preset_id=preset_id, scale=scale)
+        )
         # ani na hranici s koridorem silnice z DTM (plochy splynou, okraj kreslí jen koridor)
         from app.pipeline.dtm_import import corridor_shared_edge_zone, dtm_area_preset as _dap
 
-        if _dap(preset_id):
+        if _dap(preset_id) and not _unified_paved(preset_id):
             _shared = corridor_shared_edge_zone(work_dir, preset_id, scale, path_source)
             if _shared is not None:
                 from shapely.ops import unary_union as _uu_edge
@@ -6758,6 +6826,7 @@ def build_osm_feature_parts(
         "pedestrian_area": "OSM pěší zóny (501 zpevněná)",
         "parking": "OSM parkoviště (501 zpevněná)",
         "platform": "OSM nástupiště (501 zpevněná)",
+        "paved_dtm": "DTM – silnice, parkoviště a chodníky (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
         "fountain": "OSM kašny (301.1)",
@@ -6804,6 +6873,7 @@ def build_osm_feature_parts(
         "pedestrian_area",
         "parking",
         "platform",
+        "paved_dtm",
         "playground_equipment",
         "wetland",
         "cave_entrance",
@@ -6831,6 +6901,9 @@ def build_osm_feature_parts(
     symbol_cache: dict[str, int | None] = {}
     mtbo = preset_id.startswith("mtbo")
     olive_code = "527" if mtbo else "520"
+    from app.pipeline.paved_surface import unified as _unified_edge
+
+    _edge_late = _unified_edge(preset_id)  # okraj sítě kreslí ``paved_surface.build_paved_edge_parts``
     # Díra v budově = nepřístupný dvůr: oliva, nebo stejná značka jako budova.
     fill_courtyards = courtyard_fill in ("olive", "building")
     olive_index = (
@@ -6944,7 +7017,7 @@ def build_osm_feature_parts(
             if obj:
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
-                if code == ISOM_PAVED_FILL_CODE and not preset_id.startswith("sprint"):
+                if code == ISOM_PAVED_FILL_CODE and not preset_id.startswith("sprint") and not _edge_late:
                     # ISOM 501.1 je jen výplň bez okraje → černý okraj (les 501.2, MTBO 501.100) po skutečné
                     # hranici plochy (vnější obrys i díry); podél ořezu na výřez se nekreslí.
                     _edge_code = paved_edge_code(preset_id)

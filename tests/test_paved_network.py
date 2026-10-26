@@ -142,7 +142,7 @@ def _codes(parts, preset, scale):
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
 def test_feature_parts_draw_merged_network(tmp_path, preset):
     _write_job(tmp_path, [_area(0, 0, 20, 20, "parking"), _area(22, 0, 60, 20)])
-    parts = op.build_osm_feature_parts(tmp_path, preset_id=preset, scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    parts = _parts_with_edge(tmp_path, preset)  # výplň ze sítě + okraj z paved_surface
     cnt = _codes(parts, preset, 10000)
     assert cnt["501.1"] == 1 and cnt[op.paved_edge_code(preset)] == 1  # jedna plocha, jeden okraj (les 501.2, MTBO 501.100)
 
@@ -231,6 +231,19 @@ def test_sprint_road_over_parking_unchanged(tmp_path):
     assert sum(lengths.values()) == pytest.approx(140, abs=1.0)
 
 
+def _parts_with_edge(tmp_path, preset="forest_10000", scale=10000):
+    """Výplň sítě (``build_osm_feature_parts``) + okraj z hotových čar cest (les a MTBO: ``paved_surface``)."""
+    from app.pipeline import dtm_import as di
+    from app.pipeline import paved_surface
+    from app.pipeline.path_clearance import drawn_path_bands
+
+    kw = dict(preset_id=preset, scale=scale, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    op._PAVED_NETWORK_CACHE.clear()
+    feature_parts = op.build_osm_feature_parts(tmp_path, **kw)
+    path_parts = op.build_osm_path_parts(tmp_path, **kw)
+    bands = drawn_path_bands(path_parts, majors=di.JUNCTION_MAJORS, **kw)
+    return feature_parts + paved_surface.build_paved_edge_parts(tmp_path, road_bands=bands, **kw)
+
 def _edge_length(parts, preset="forest_10000", scale=10000):
     import re
 
@@ -249,14 +262,13 @@ def test_edge_omitted_along_road(tmp_path):
     # Parkoviště 40 × 40 m, silnice podél spodní hrany 3 m od ní: tam okraj nekreslit.
     road = _line([(-50, -3), (90, -3)], "road_2")
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
-    op._PAVED_NETWORK_CACHE.clear()
-    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    parts = _parts_with_edge(tmp_path)
     length = _edge_length(parts)
     assert length < 160 - 30  # spodní hrana (40 m) a kousky boků chybí
     assert length > 100  # horní hrana a většina boků zůstává
     # Bez silnice celý obvod.
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [])
-    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    parts = _parts_with_edge(tmp_path)
     assert _edge_length(parts) == pytest.approx(160, abs=1.0)
 
 
@@ -265,7 +277,7 @@ def test_edge_kept_along_road_inside_parking(tmp_path, preset):
     # Jízdní pruh uvnitř parkoviště (nekreslí se) okraj nemaže; vjezd ano jen kolem napojení (MTBO jako les).
     road = _line([(-50, 20), (90, 20)], "road_2")
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
-    parts = op.build_osm_feature_parts(tmp_path, preset_id=preset, scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    parts = _parts_with_edge(tmp_path, preset)
     length = _edge_length(parts, preset)
     assert 160 - 2 * 25 < length < 160  # chybí jen okolí dvou vjezdů
 
@@ -596,9 +608,10 @@ def test_join_through_junction_straightest_continuation():
 def test_street_side_parking_edge_continues_to_road(tmp_path):
     # Ulice slitá se stáním: okraj 501.2 vede po obou dlouhých stranách až k čáře silnice, přes ústí ne.
     _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
-    op._PAVED_NETWORK_CACHE.clear()
-    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
-    assert 90 < _edge_length(parts) < 105
+    parts = _parts_with_edge(tmp_path)
+    # Ústí do silnice: okraj končí u pásu kresby čáry + 0,3 m (dřív pás + 0,35 mm = 3,5 m), proto dosáhne o pár metrů
+    # blíž k silnici a je o ~0,3 m delší než dřívější horní mez 105 m (dlouhé strany 2 × 51 m + zbytky u rohů).
+    assert 100 < _edge_length(parts) < 110
 
 
 @pytest.mark.parametrize("squeezed", [False, True])
@@ -634,13 +647,28 @@ def test_service_link_to_parking_edge_open_at_road(tmp_path):
         [_area(-20, 30, 20, 60, "parking")],
         [_road([(-60, 0), (60, 0)], "road_3"), _line([(0, 0), (0, 30)], "road_1")],
     )
-    op._PAVED_NETWORK_CACHE.clear()
-    parts = op.build_osm_feature_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    parts = _parts_with_edge(tmp_path)
     half = op.drawn_symbol_width_m("road_3", "forest_10000", 10000) / 2.0
     # parkoviště 40 + 2·30 − šířka ústí do pruhu + 2 · délka pruhu (30 − half), bez ústí do silnice
     expected = 40 + 2 * 30 + (40 - 2 * half) + 2 * (30 - half)
-    assert _edge_length(parts) < expected
-    assert _edge_length(parts) > expected - 2 * half - 2.0
+    # Ústí do silnice je teď jen pás kresby čáry + 0,3 m (dřív + půlka okraje + mezera čitelnosti 0,35 mm),
+    # okraj pruhu proto sahá na obou stranách o tolik blíž k čáře silnice.
+    from app.pipeline.dtm_import import JUNCTION_EXTRA_M
+
+    closer = op.paved_edge_width_m("forest_10000", 10000) / 2.0 + op.mm_to_ground_m(op.LINE_MIN_GAP_MM, 10000) - JUNCTION_EXTRA_M
+    assert expected - 2 * half - 2.0 < _edge_length(parts) < expected + 2 * closer + 1.0
+
+
+def test_sidewalk_beside_road_keeps_long_remainder_away_from_road(tmp_path):
+    # Chodník 150 m podél silnice (zahodí se) pokračuje 56 m pryč od ní kolem hřiště (way/1451823252): zbytek zůstává.
+    _write_job(tmp_path, [], [_road([(0, 0), (200, 0)], "road_3"), _line([(0, 4), (150, 4), (150, 60)], "sidewalk")])
+    lengths = _path_lengths(tmp_path)
+    drawn = sum(v for c, v in lengths.items() if not c.startswith("502"))
+    assert 40 < drawn < 58
+    # Bez zbytku (celý podél silnice) se chodník zahodí celý.
+    _write_job(tmp_path, [], [_road([(0, 0), (200, 0)], "road_3"), _line([(0, 4), (150, 4), (150, 20)], "sidewalk")])
+    lengths = _path_lengths(tmp_path)
+    assert sum(v for c, v in lengths.items() if not c.startswith("502")) == 0
 
 
 def test_service_link_to_garage_stays_line(tmp_path):
@@ -747,9 +775,10 @@ def test_network_polygons_valid_after_map_rounding():
             assert rounded.is_valid and rounded.exterior.is_simple
 
 
-def test_mtbo_osm_paved_network_does_not_overlap_dtm_areas(tmp_path):
-    # MTBO s DTM: koridor silnice (silnice 12 m z DTM) a široký chodník z DTM kreslí DTM; OSM pěší plocha přes ně
-    # a síť zpevněných ploch je nesmí kreslit podruhé (dřív v1 MTBO DTM: tatáž plocha dvakrát).
+def test_mtbo_paved_network_contains_dtm_areas(tmp_path):
+    # MTBO s DTM: koridor silnice (silnice 12 m z DTM) a široký chodník z DTM už nejsou samostatné části, ale prvky
+    # (kind "paved_dtm") sítě zpevněných ploch – síť je MÁ pokrývat (jedna plocha, jeden okraj z paved_surface);
+    # dřív (UNIFIED_PAVED = False) se z nich síť ořezávala, aby se tatáž plocha nekreslila dvakrát.
     road = _road([(0, 0), (200, 0)], "road_3")
     _write_job(tmp_path, [_area(20, -10, 80, 40), _area(120, 60, 180, 90)], [road])
     _write_dtm(tmp_path, "roads.json", [(-5, -6, 205, 6)])
@@ -759,11 +788,20 @@ def test_mtbo_osm_paved_network_does_not_overlap_dtm_areas(tmp_path):
     op._PAVED_NETWORK_CACHE.clear()
     zone = di.mtbo_dtm_area_geometry(tmp_path, 10000)
     assert zone is not None and zone.area > 200 * 12
-    assert op.with_dtm_walk_areas(tmp_path, [], "mtbo_10000", 10000) == []  # široké chodníky kreslí MTBO zvlášť
+    assert op.with_dtm_walk_areas(tmp_path, [], "mtbo_10000", 10000) == []  # široké chodníky nejsou v MTBO z OSM walk
     net = op.paved_network_geometry(tmp_path, "mtbo_10000", 10000)
     assert net is not None
-    assert net.intersection(zone).area < 1.0
-    assert net.area > 0.9 * 60 * 30  # samostatná plocha mimo DTM zůstává
+    # nový režim: plochy z DTM jsou součástí sítě (dřív: průnik < 1 m²)
+    assert net.intersection(zone).area > 0.95 * zone.area
+    assert net.area > zone.area + 0.9 * 60 * 30  # samostatná OSM plocha mimo DTM zůstává
+    # a kreslí se jako výplň 501.1 sítě, ne jako samostatná část koridoru / chodníků
+    from app.pipeline import dtm_import as di2
+
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    assert di2.build_mtbo_corridor_parts(tmp_path, **kw) == []
+    assert di2.build_dtm_sidewalk_parts(tmp_path, **kw) == []
+    op._PAVED_NETWORK_CACHE.clear()
+    assert _codes(op.build_osm_feature_parts(tmp_path, **kw), "mtbo_10000", 10000)["501.1"] >= 1
 
 
 def test_mixed_uses_osm_roads_for_dedup_and_road_band(tmp_path):

@@ -280,13 +280,17 @@ def test_dtm_parking_part_and_osm_parking_dedup(tmp_path):
     names = [p.name for p in op.build_osm_feature_parts(work, **kw)]
     assert names.count("OSM parkoviště (501 zpevněná)") == 1  # OSM parkoviště nad DTM zahozeno, vzdálené zůstává
     forest = {**kw, "preset_id": "forest_10000", "scale": 10000}
-    assert [p.name for p in di.build_dtm_parking_parts(work, **forest)] == [
-        "DTM – velká parkoviště",
-        "DTM – velká parkoviště – obrys (501.2)",
-    ]
+    # les: velké parkoviště z DTM už není samostatná část, ale prvek sítě zpevněných ploch (výplň 501.1)
+    assert di.build_dtm_parking_parts(work, **forest) == []
+    op._PAVED_NETWORK_CACHE.clear()
+    forest_names = [p.name for p in op.build_osm_feature_parts(work, **forest)]
+    assert "DTM – silnice, parkoviště a chodníky (501 zpevněná)" in forest_names
+    assert "OSM parkoviště (501 zpevněná)" in forest_names  # vzdálené OSM parkoviště zůstává
     di.FOREST_DTM_AREAS = False
     try:
         assert di.build_dtm_parking_parts(work, **forest) == []  # les bez ploch z DTM: parkoviště jen z OSM
+        op._PAVED_NETWORK_CACHE.clear()
+        assert "DTM – silnice, parkoviště a chodníky (501 zpevněná)" not in [p.name for p in op.build_osm_feature_parts(work, **forest)]
     finally:
         di.FOREST_DTM_AREAS = True
 
@@ -539,14 +543,18 @@ def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path
         json.dumps({"type": "FeatureCollection", "features": [feat]}), encoding="utf-8"
     )
     kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-985.0, ref_y=-990.0, grivation_deg=0.0)
-    parts = di.build_dtm_parking_parts(work, **kw)
-    assert [p.name for p in parts] == ["DTM – velká parkoviště", "DTM – velká parkoviště – obrys (501.100)"]  # MTBO okraj 501.100
-    assert parts[0].count == 1
-    assert op.build_osm_feature_parts(work, **kw) == []  # OSM parkoviště nad DTM parkovištěm zahozeno
-    # les stejně (výplň 501.1 + okraj 501.2); sprint dál 501.0
+    # les a MTBO: velké parkoviště z DTM není samostatná část, ale prvek sítě zpevněných ploch (výplň 501.1,
+    # okraj 501.100 / 501.2 kreslí paved_surface); OSM parkoviště nad ním je zahozeno, malé DTM parkoviště se nekreslí
+    assert di.build_dtm_parking_parts(work, **kw) == []
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_feature_parts(work, **kw)
+    assert [p.name for p in parts] == ["DTM – silnice, parkoviště a chodníky (501 zpevněná)"] and parts[0].count == 1
+    # les stejně (výplň 501.1); sprint dál 501.0 jako samostatná část
     forest = {**kw, "preset_id": "forest_10000"}
-    assert [p.count for p in di.build_dtm_parking_parts(work, **forest)] == [1, 1]
-    assert op.build_osm_feature_parts(work, **forest) == []
+    assert di.build_dtm_parking_parts(work, **forest) == []
+    op._PAVED_NETWORK_CACHE.clear()
+    forest_parts = op.build_osm_feature_parts(work, **forest)
+    assert [p.name for p in forest_parts] == ["DTM – silnice, parkoviště a chodníky (501 zpevněná)"] and forest_parts[0].count == 1
     assert di.build_dtm_parking_parts(work, **{**kw, "preset_id": "sprint_4000"}) != []
 
 
@@ -621,10 +629,19 @@ def test_mtbo_draws_wide_dtm_sidewalks_away_from_roads_and_drops_osm_line_inside
     assert geom.intersection(ds.dtm_union([wide])).area > 0.9 * 80 * 6
     assert geom.intersection(ds.dtm_union([narrow])).area < 1.0
     assert geom.intersection(ds.dtm_union([near])).area < 1.0
-    parts = di.build_dtm_sidewalk_parts(
-        work, preset_id="mtbo_10000", scale=10000, ref_x=40.0, ref_y=2.0, grivation_deg=0.0
-    )
-    assert parts and parts[0].count >= 1
+    kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=40.0, ref_y=2.0, grivation_deg=0.0)
+    # široké chodníky z DTM už nejsou samostatná část, ale prvek sítě zpevněných ploch (výplň 501.1)
+    assert di.build_dtm_sidewalk_parts(work, **kw) == []
+    from app.pipeline import osm_paths as op
+
+    # síť zpevněných ploch se staví z features.geojson jobu (sem i bez OSM ploch přidá plochy z DTM)
+    (work / "osm_paths" / "features.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    op._PAVED_NETWORK_CACHE.clear()
+    net = op.paved_network_geometry(work, "mtbo_10000", 10000)
+    assert net is not None and net.intersection(ds.dtm_union([wide])).area > 0.9 * 80 * 6
+    assert net.intersection(ds.dtm_union([narrow])).area < 1.0
+    feature_parts = op.build_osm_feature_parts(work, **kw)
+    assert [p.name for p in feature_parts] == ["DTM – silnice, parkoviště a chodníky (501 zpevněná)"] and feature_parts[0].count >= 1
     assert di.build_dtm_sidewalk_parts(
         work, preset_id="forest_10000", scale=10000, ref_x=40.0, ref_y=2.0, grivation_deg=0.0
     ) == []
@@ -673,8 +690,15 @@ def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path, monkeypatch
         json.dumps({"type": "FeatureCollection", "features": [road]}), encoding="utf-8"
     )
     kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-950.0, ref_y=-1000.0, grivation_deg=0.0)
-    parts = di.build_mtbo_corridor_parts(work, **kw)
-    assert [p.name for p in parts] == ["MTBO – silnice s chodníky (koridor)", "MTBO – silnice s chodníky (koridor) – obrys (501.100)"]
+    # koridor už není samostatná část (ani v lese), je prvkem sítě zpevněných ploch: výplň 501.1 pokrývá koridor
+    assert di.build_mtbo_corridor_parts(work, **kw) == []
+    (work / "osm_paths" / "features.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    corridor = di.corridor_geometry_for(work, "mtbo_10000", 10000)
+    assert corridor is not None
+    op._PAVED_NETWORK_CACHE.clear()
+    net = op.paved_network_geometry(work, "mtbo_10000", 10000)
+    assert net is not None and net.intersection(corridor).area > 0.95 * corridor.area
+    assert [p.name for p in op.build_osm_feature_parts(work, **kw)] == ["DTM – silnice, parkoviště a chodníky (501 zpevněná)"]
     assert op.build_osm_path_parts(work, **kw) == []  # čára silnice leží uvnitř koridoru → nekreslí se
     # chodník uvnitř koridoru je jeho součástí (nekreslí se)
     sw_line = {
@@ -692,10 +716,9 @@ def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path, monkeypatch
     # smíšená stezka, která by čárou zasahovala do kresby silnice / koridoru, se nekreslí (Petr 2026-10-25)
     assert op.build_osm_path_parts(work, **kw) == []
     forest = {**kw, "preset_id": "forest_10000"}
-    assert [p.name for p in di.build_mtbo_corridor_parts(work, **forest)] == [
-        "Les – silnice s chodníky z DTM (koridor)",
-        "Les – silnice s chodníky z DTM (koridor) – obrys (501.2)",
-    ]
+    assert di.build_mtbo_corridor_parts(work, **forest) == []  # les stejně: koridor jde do sítě (výplň 501.1)
+    op._PAVED_NETWORK_CACHE.clear()
+    assert [p.name for p in op.build_osm_feature_parts(work, **forest)] == ["DTM – silnice, parkoviště a chodníky (501 zpevněná)"]
     assert [p.count for p in op.build_osm_path_parts(work, **forest)] == [1]  # silnice v koridoru ne, sdílený chodník ano
     di.MTBO_ROAD_CORRIDOR = False
     try:
@@ -1496,9 +1519,12 @@ def test_corridor_without_sidewalks_does_not_widen(tmp_path, monkeypatch):
     assert with_sw is not None and with_sw.bounds[3] > -991.5 and with_sw.area > plain.area
 
 
-def test_corridor_edge_omitted_where_drawn_road_meets_corridor(tmp_path):
+def test_corridor_edge_omitted_where_drawn_road_meets_corridor(tmp_path, monkeypatch):
     from shapely.geometry import Point
 
+    from app.pipeline import paved_surface
+
+    monkeypatch.setattr(paved_surface, "UNIFIED_PAVED", False)  # záložní režim: samostatný koridor s vlastním obrysem
     work = tmp_path
     (work / "dtm").mkdir()
     (work / "dtm" / "roads.json").write_text(
@@ -1692,6 +1718,9 @@ def test_corridor_edge_merged_with_adjacent_parking_reaches_corner(tmp_path, mon
 
     corridor, parking = box(0, 0, 100, 10), box(20, 10, 50, 40)
     seen = {}
+    from app.pipeline import paved_surface
+
+    monkeypatch.setattr(paved_surface, "UNIFIED_PAVED", False)  # záložní režim: obrys koridoru sloučený s parkovištěm
     monkeypatch.setattr(di, "dtm_area_preset", lambda p: True)
     monkeypatch.setattr(di, "corridor_geometry_for", lambda *a, **k: corridor)
     monkeypatch.setattr(di, "_corridor_adjacent_paved", lambda *a, **k: parking)
