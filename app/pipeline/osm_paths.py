@@ -3093,9 +3093,12 @@ def filter_lines_against_centerlines(
     return kept, dropped
 
 
-def load_osm_path_lines(work_dir: Path, *, corridor_lines: bool = False) -> list[list[tuple[float, float]]]:
+def load_osm_path_lines(
+    work_dir: Path, *, corridor_lines: bool = False, ground_only: bool = False
+) -> list[list[tuple[float, float]]]:
     """Načte dedupované OSM cesty z ``work/osm_paths/paths.geojson``.
 
+    ``ground_only``: bez mostů a lávek (OSM tam most nemá).
     ``corridor_lines`` (les / MTBO): i osy koridorů a jejich původní čáry (``corridor_axis_features``) a OSM silnice
     chybějící v mixed (``mixed_osm_roads_missing``), aby se pod nimi nekreslila ZABAGED pěšina / ulice podruhé.
     """
@@ -3125,6 +3128,8 @@ def load_osm_path_lines(work_dir: Path, *, corridor_lines: bool = False) -> list
             continue
         coords = geom.get("coordinates") or []
         if len(coords) < 2:
+            continue
+        if ground_only and is_bridge_highway(str((feat.get("properties") or {}).get("highway") or "")):
             continue
         out.append([(float(x), float(y)) for x, y in coords])
     return out
