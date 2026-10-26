@@ -1532,16 +1532,15 @@ def test_corridor_junction_omit_from_drawn_road_ends():
     assert omit.contains(Point(100, 6 + 4.0)) and not omit.contains(Point(50, 35))
     assert omit.contains(Point(30, 12 + 2.0)) and not omit.contains(Point(30, 12 - 2.5))
     assert di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=[(50, 40, 4.0)]) is None
-    # Se směrem čáry je ústí čtverec po čáře: kolmá čára zdola vynechá hranu jen v šířce kresby + 2 × 0,3 m,
-    # šikmá (45°) o něco víc; kruh by bral i okraj vedle (ostrůvek mezi dvěma pásy).
+    # Ústí z pásu kreslené čáry: silnice pokračující za koncem koridoru vynechá jen čelo (šířka kresby + 2 × 0,3 m),
+    # boky koridoru ne (kruh je bral); čára daleko od hrany nic; čára zdola kolmo totéž.
     r = 4.0 + di.JUNCTION_EXTRA_M
-    square = di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=[(60.0, 0.0, 4.0, 0.0, -1.0)])
-    cut = corridor.boundary.intersection(square)
-    assert cut.length == pytest.approx(2 * r, abs=0.05)
-    assert square.contains(Point(60 + r - 0.1, 0)) and not square.contains(Point(60 + r + 0.2, 0))
-    d = 2**-0.5
-    slanted = di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=[(60.0, 0.0, 4.0, d, -d)])
-    assert 2 * r < corridor.boundary.intersection(slanted).length < 2 * r * 2**0.5 + 0.05
+    bands = [([(100.0, 6.0), (150.0, 6.0)], 4.0), ([(50.0, 40.0), (50.0, 60.0)], 4.0), ([(30.0, 12.0), (30.0, 40.0)], 2.0)]
+    omit = di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_bands=bands)
+    cut = corridor.boundary.intersection(omit)
+    assert cut.length == pytest.approx(2 * r + 2 * (2.0 + di.JUNCTION_EXTRA_M), abs=0.05)  # čelo + horní hrana u užší čáry
+    assert omit.contains(Point(100 + 0.2, 6 + r - 0.1)) and not omit.contains(Point(99.0, 6 + r + 0.2))
+    assert not omit.contains(Point(98, 12)) and not omit.contains(Point(50, 35))
 
 
 def test_drawn_path_ends_roundtrip():

@@ -366,6 +366,48 @@ def drawn_path_ends(
     return out
 
 
+def drawn_path_bands(
+    parts: list[OomObjectPart],
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+    majors: frozenset[int],
+) -> list[tuple[list[tuple[float, float]], float]]:
+    """Kreslené čáry cest (hlavní číslo kódu v ``majors``) v hotové mapě: ``[(osa v S-JTSK, půlka šířky v m)]``.
+    Pás čáry o této šířce je místo, kde by se okraj plochy s čárou překrýval (ústí, viz ``dtm_import.corridor_junction_omit``)."""
+    from app.pipeline.oom_coords import map_to_projected
+    from app.pipeline.oom_symbol_map import _symbol_widths
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        set_path = symbol_set_path(preset_id, scale)
+        info = _symbol_info(set_path)
+        widths = _symbol_widths(set_path)
+    except Exception:
+        return []
+    out = []
+    for part in parts:
+        for m in _OBJECT_RE.finditer(part.objects_xml):
+            if m.group(2) != "1":
+                continue
+            sym = int(m.group(3))
+            major, kind = info.get(sym, (0, "other"))
+            if kind != "line" or major not in majors:
+                continue
+            cm = _COORDS_RE.search(m.group(4))
+            if not cm:
+                continue
+            pts = _flatten(_parse_coords(cm.group(1)))
+            if len(pts) < 2:
+                continue
+            half_m = widths.get(sym, 0.0) / 2.0 * scale / 1000.0
+            out.append(([map_to_projected(mx, my, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg) for mx, my in pts], half_m))
+    return out
+
+
 @lru_cache(maxsize=8)
 def _symbol_codes(symbol_set: Path) -> dict[int, str]:
     """``{index symbolu: kód}`` ze sady (celý kód, např. ``501.1``)."""

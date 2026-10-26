@@ -5769,7 +5769,71 @@ def join_line_pieces(pieces: list[list[tuple[float, float]]]) -> list[list[tuple
         return pieces
     merged = linemerge(MultiLineString(lines))
     geoms = [merged] if merged.geom_type == "LineString" else list(getattr(merged, "geoms", []))
-    return [[(float(x), float(y)) for x, y in g.coords] for g in geoms if g.geom_type == "LineString"]
+    out = [[(float(x), float(y)) for x, y in g.coords] for g in geoms if g.geom_type == "LineString"]
+    return _join_through_junctions(out)
+
+
+# Spojení přes křižovatku: pokračování, které se od směru čáry odchyluje nejvýš o tolik stupňů.
+JOIN_MAX_TURN_DEG = 45.0
+
+
+def _end_dir(coords: list[tuple[float, float]], at_start: bool) -> tuple[float, float] | None:
+    """Jednotkový směr od krajního bodu dovnitř čáry (přes duplicitní vrcholy)."""
+    pts = coords if at_start else coords[::-1]
+    x0, y0 = pts[0]
+    for x, y in pts[1:]:
+        d = math.hypot(x - x0, y - y0)
+        if d > 0.01:
+            return ((x - x0) / d, (y - y0) / d)
+    return None
+
+
+def _join_through_junctions(lines: list[list[tuple[float, float]]]) -> list[list[tuple[float, float]]]:
+    """Les a MTBO: v uzlu, kde se potkává víc kusů téhož symbolu (křižovatka, rameno kruhového objezdu), se spojí
+    dvojice s nejpřímějším pokračováním (odchylka do ``JOIN_MAX_TURN_DEG``); ``linemerge`` spojuje jen uzly stupně 2.
+    Prstenec (objezd) se uzavře. Opakuje se, dokud je co spojovat."""
+    lines = [list(ln) for ln in lines]
+    cos_max = math.cos(math.radians(JOIN_MAX_TURN_DEG))
+    while True:
+        nodes: dict[tuple[float, float], list[tuple[int, bool]]] = {}
+        for i, ln in enumerate(lines):
+            if len(ln) < 2 or ln[0] == ln[-1]:
+                continue
+            nodes.setdefault(ln[0], []).append((i, True))
+            nodes.setdefault(ln[-1], []).append((i, False))
+        used: set[int] = set()
+        merges: list[tuple[tuple[int, bool], tuple[int, bool]]] = []
+        for inc in nodes.values():
+            if len(inc) < 2:
+                continue
+            best = None
+            for a in range(len(inc)):
+                for b in range(a + 1, len(inc)):
+                    (i, si), (j, sj) = inc[a], inc[b]
+                    if i in used or j in used:
+                        continue
+                    da, db = _end_dir(lines[i], si), _end_dir(lines[j], sj)
+                    if da is None or db is None:
+                        continue
+                    straight = -(da[0] * db[0] + da[1] * db[1])  # 1 = přímé pokračování
+                    if straight >= cos_max and (best is None or straight > best[0]):
+                        best = (straight, inc[a], inc[b])
+            if best is not None:
+                merges.append((best[1], best[2]))
+                used.add(best[1][0])
+                used.add(best[2][0])
+        if not merges:
+            return lines
+        drop: set[int] = set()
+        for (i, si), (j, sj) in merges:
+            a = lines[i][::-1] if si else lines[i]  # ``a`` končí v uzlu
+            if i == j:
+                lines[i] = [*lines[i], lines[i][0]]  # oba konce téže čáry v uzlu → uzavřený prstenec
+                continue
+            b = lines[j] if sj else lines[j][::-1]  # ``b`` v uzlu začíná
+            lines[i] = [*a, *b[1:]]
+            drop.add(j)
+        lines = [ln for k, ln in enumerate(lines) if k not in drop]
 
 
 # Les a MTBO: cesta, která končila na zahozeném chodníku, se prodlouží k okraji kresby silnice nejvýš o tolik m.

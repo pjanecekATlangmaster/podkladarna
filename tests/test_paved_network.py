@@ -577,6 +577,22 @@ def test_short_pieces_joined_into_one_line(tmp_path):
     assert len(op.join_line_pieces([[(0, 0), (10, 0)], [(10.5, 0), (20, 0)]])) == 2
 
 
+def test_join_through_junction_straightest_continuation():
+    # T křižovatka: průběžná ulice se spojí přes uzel, rameno zůstane zvlášť; rameno pod 45° se nespojí s ničím.
+    out = op.join_line_pieces([[(0, 0), (10, 0)], [(10, 0), (20, 1)], [(10, 0), (10, 10)]])
+    assert sorted(len(p) for p in out) == [2, 3]
+    assert [p for p in out if len(p) == 3][0] == [(0, 0), (10, 0), (20, 1)]
+    # Kruhový objezd ze čtyř oblouků s radiálními rameny v uzlech → jeden uzavřený prstenec + čtyři ramena.
+    import math
+
+    arc = lambda a0, a1: [(round(10 * math.cos(math.radians(a)), 3), round(10 * math.sin(math.radians(a)), 3)) for a in range(a0, a1 + 1, 15)]
+    ring = [arc(0, 90), arc(90, 180), arc(180, 270), arc(270, 360)]
+    arms = [[(10, 0), (30, 0)], [(0, 10), (0, 30)], [(-10, 0), (-30, 0)], [(0, -10), (0, -30)]]
+    out = op.join_line_pieces(ring + arms)
+    closed = [p for p in out if p[0] == p[-1]]
+    assert len(closed) == 1 and len(closed[0]) == 25 and len(out) == 5
+
+
 def test_street_side_parking_edge_continues_to_road(tmp_path):
     # Ulice slitá se stáním: okraj 501.2 vede po obou dlouhých stranách až k čáře silnice, přes ústí ne.
     _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])

@@ -1516,35 +1516,37 @@ def corridor_parking_geometry(work_dir: Path):
     return unary_union(geoms) if geoms else None
 
 
-def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int, road_ends=None):
-    """Kruhy kolem průsečíků os kreslených silnic a cest (road_1..road_4, ne mosty a tunely) s hranou koridoru (shapely) nebo None.
+def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int, road_ends=None, road_bands=None):
+    """Ústí kreslených silnic a cest (road_1..road_4, ne mosty a tunely) v hraně koridoru (shapely) nebo None:
+    obrys koridoru se tam nekreslí, ať čára cesty plynule naváže.
 
-    Poloměr = půlka kreslené šířky cesty + 0,3 m; obrys koridoru se tam nekreslí, ať čára cesty plynule naváže.
-    ``road_ends``: konce čar z hotové mapy ``[(x, y, půlka šířky m, dx, dy)]`` (``path_clearance.drawn_path_ends``) – přesně
-    tam, kde čára opravdu končí (v mixed kreslí ulici i ZABAGED). Se směrem ``(dx, dy)`` je ústí čtverec o straně kresby
-    čáry + 2 × 0,3 m orientovaný po čáře (okraj se vynechá jen v šířce čáry; kruh bral i okraj ostrůvku mezi dvěma
-    jízdními pásy), bez směru kruh. Bez ``road_ends`` se konce odhadnou z OSM os.
+    ``road_bands``: kreslené čáry z hotové mapy ``[(osa, půlka šířky m)]`` (``path_clearance.drawn_path_bands``): ústí je pás
+    čáry (půlka šířky + 0,3 m, konce o ``JUNCTION_END_TOL_M`` m prodloužené) – okraj se vynechá přesně tam, kde by ho kresba
+    čáry překryla, na konci koridoru jen napříč, ne po bocích. ``road_ends`` (starší): kruhy kolem konců čar
+    ``[(x, y, půlka šířky m, …)]`` u hrany. Bez obojího se konce odhadnou z OSM os.
     """
     if corridor is None or corridor.is_empty:
         return None
     from shapely.geometry import LineString, Point
     from shapely.ops import unary_union
 
-    if road_ends is not None:
-        boundary = corridor.boundary
+    boundary = corridor.boundary
+    if road_bands is not None:
+        from app.pipeline.osm_paths import _extend_ends
+
         mouths = []
-        for end in road_ends:
-            x, y, half = end[0], end[1], end[2]
-            pt = Point(x, y)
-            if boundary.distance(pt) > JUNCTION_END_TOL_M:
+        for coords, half in road_bands:
+            if len(coords) < 2:
                 continue
             r = half + JUNCTION_EXTRA_M
-            dx, dy = (end[3], end[4]) if len(end) >= 5 else (0.0, 0.0)
-            if dx or dy:
-                mouths.append(LineString([(x - dx * r, y - dy * r), (x + dx * r, y + dy * r)]).buffer(r, cap_style=2))
-            else:
-                mouths.append(pt.buffer(r))
+            line = LineString(coords)
+            if line.distance(boundary) > r:
+                continue
+            mouths.append(LineString(_extend_ends(coords, JUNCTION_END_TOL_M)).buffer(r, cap_style=2))
         return unary_union(mouths) if mouths else None
+    if road_ends is not None:
+        circles = [Point(e[0], e[1]).buffer(e[2] + JUNCTION_EXTRA_M) for e in road_ends if boundary.distance(Point(e[0], e[1])) <= JUNCTION_END_TOL_M]
+        return unary_union(circles) if circles else None
 
     from app.pipeline import osm_paths as op
     from app.pipeline.dtm_sidewalks import clip_outside, trim_along_corridor
@@ -1628,6 +1630,7 @@ def build_mtbo_corridor_parts(
     clip_bounds: Bounds | None = None,
     path_source: str = "mixed",
     road_ends=None,
+    road_bands=None,
 ) -> list[OomObjectPart]:
     """MTBO a les: silnice s přilehlými chodníky jednou plochou (výplň 501.1) + obrys (MTBO obrubník 501.100, les 501.2).
 
@@ -1651,7 +1654,7 @@ def build_mtbo_corridor_parts(
         edge_lines = merged.boundary.intersection(corridor.buffer(EDGE_LINES_REACH_M))
     return _geometry_part(
         corridor,
-        edge_omit=corridor_junction_omit(work_dir, corridor, preset_id, scale, road_ends),
+        edge_omit=corridor_junction_omit(work_dir, corridor, preset_id, scale, road_ends, road_bands),
         edge_lines=edge_lines,
         name="MTBO – silnice s chodníky (koridor)" if mtbo else "Les – silnice s chodníky z DTM (koridor)",
         code="501.0" if mtbo else "501.1",
