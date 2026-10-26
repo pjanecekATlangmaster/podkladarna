@@ -95,10 +95,12 @@ def test_sprint_has_no_edge_line(tmp_path) -> None:
 
 
 def test_mtbo_fill_and_separate_edge(tmp_path) -> None:
-    """MTBO jako les: výplň 501.1 + okraj 501.2 zvlášť, aby šel okraj u vjezdu silnice vynechat."""
+    """MTBO jako les: výplň 501.1 + okraj zvlášť, aby šel okraj u vjezdu silnice vynechat; okraj je 501.100
+    (Petr 2026-10-26), 501.2 je v ISMTBOM pozůstatek slučování symbolů."""
     _parts, cnt = _build(tmp_path, "mtbo_10000", 10000)
     assert cnt["501.1"] == 1
-    assert cnt["501.2"] == 2
+    assert cnt["501.100"] == 2
+    assert cnt["501.2"] == 0
     assert cnt["501.0"] == 0
 
 

@@ -1054,7 +1054,7 @@ def _prepare_oom_map(
     if osm_feat_rest:
         object_parts.extend(osm_feat_rest)
     from app.pipeline.dtm_import import JUNCTION_MAJORS, dtm_area_preset
-    from app.pipeline.path_clearance import drawn_path_ends
+    from app.pipeline.path_clearance import drawn_path_bands
 
     object_parts[corridor_at:corridor_at] = build_mtbo_corridor_parts(
         kp_cwd,
@@ -1065,7 +1065,7 @@ def _prepare_oom_map(
         grivation_deg=grivation,
         clip_bounds=vector_clip_bounds,
         path_source=path_source,
-        road_ends=drawn_path_ends(
+        road_bands=drawn_path_bands(
             object_parts,
             preset_id=preset_id,
             scale=scale,

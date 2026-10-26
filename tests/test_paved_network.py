@@ -28,8 +28,11 @@ def test_drawn_symbol_width_in_ground_metres():
     # MTBO pěšina 834 (0,4 mm) v 1:15000 = 6 m.
     assert op.drawn_symbol_width_m("footway", "mtbo", 15000) == pytest.approx(6.0)
     assert op.paved_edge_width_m("les", 15000) == pytest.approx(2.1)
-    # MTBO okraj 501.2 (ISMTBOM 0,18 mm v 1:15000).
-    assert op.paved_edge_width_m("mtbo", 15000) == pytest.approx(2.7)
+    # MTBO okraj 501.100 (ISMTBOM „schod nebo okraj zpevněné plochy“) v 1:15000.
+    from app.pipeline.oom_symbol_map import symbol_line_width_mm
+
+    mm = symbol_line_width_mm("mtbo", 15000, "501.100")
+    assert mm and op.paved_edge_width_m("mtbo", 15000) == pytest.approx(mm * 15)
 
 
 def _road(coords, hw="road_2"):
@@ -141,7 +144,7 @@ def test_feature_parts_draw_merged_network(tmp_path, preset):
     _write_job(tmp_path, [_area(0, 0, 20, 20, "parking"), _area(22, 0, 60, 20)])
     parts = op.build_osm_feature_parts(tmp_path, preset_id=preset, scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
     cnt = _codes(parts, preset, 10000)
-    assert cnt["501.1"] == 1 and cnt["501.2"] == 1  # jedna plocha, jeden okraj
+    assert cnt["501.1"] == 1 and cnt[op.paved_edge_code(preset)] == 1  # jedna plocha, jeden okraj (les 501.2, MTBO 501.100)
 
 
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
@@ -233,7 +236,7 @@ def _edge_length(parts, preset="forest_10000", scale=10000):
 
     import app.pipeline.oom_symbol_map as sm
 
-    edge_id = sm._code_to_index(sm.symbol_set_path(preset, scale))["501.2"]
+    edge_id = sm._code_to_index(sm.symbol_set_path(preset, scale))[op.paved_edge_code(preset)]
     total = 0.0
     for p in parts:
         for m in re.finditer(rf'<object\b[^>]*\bsymbol="{edge_id}".*?<coords[^>]*>(.*?)</coords>', p.objects_xml, re.DOTALL):
@@ -569,6 +572,25 @@ def test_short_pieces_joined_into_one_line(tmp_path):
     assert count("forest_10000", 10000) == 1
     assert count("sprint_4000", 4000) == 3
     assert op.join_line_pieces([[(0, 0), (1, 0)], [(1, 0), (2, 0)], [(1, 0), (1, 1)]]) != [[(0, 0), (2, 0)]]
+    # Konce do JOIN_SNAP_M (0,2 m) od sebe se spojí (po ořezech končí kusy v různých bodech), dál ne.
+    assert op.join_line_pieces([[(0, 0), (10, 0)], [(10.15, 0.1), (20, 0)]]) == [[(0, 0), (10, 0), (20, 0)]]
+    assert len(op.join_line_pieces([[(0, 0), (10, 0)], [(10.5, 0), (20, 0)]])) == 2
+
+
+def test_join_through_junction_straightest_continuation():
+    # T křižovatka: průběžná ulice se spojí přes uzel, rameno zůstane zvlášť; rameno pod 45° se nespojí s ničím.
+    out = op.join_line_pieces([[(0, 0), (10, 0)], [(10, 0), (20, 1)], [(10, 0), (10, 10)]])
+    assert sorted(len(p) for p in out) == [2, 3]
+    assert [p for p in out if len(p) == 3][0] == [(0, 0), (10, 0), (20, 1)]
+    # Kruhový objezd ze čtyř oblouků s radiálními rameny v uzlech → jeden uzavřený prstenec + čtyři ramena.
+    import math
+
+    arc = lambda a0, a1: [(round(10 * math.cos(math.radians(a)), 3), round(10 * math.sin(math.radians(a)), 3)) for a in range(a0, a1 + 1, 15)]
+    ring = [arc(0, 90), arc(90, 180), arc(180, 270), arc(270, 360)]
+    arms = [[(10, 0), (30, 0)], [(0, 10), (0, 30)], [(-10, 0), (-30, 0)], [(0, -10), (0, -30)]]
+    out = op.join_line_pieces(ring + arms)
+    closed = [p for p in out if p[0] == p[-1]]
+    assert len(closed) == 1 and len(closed[0]) == 25 and len(out) == 5
 
 
 def test_street_side_parking_edge_continues_to_road(tmp_path):
