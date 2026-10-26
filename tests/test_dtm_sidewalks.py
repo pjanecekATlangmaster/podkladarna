@@ -1745,3 +1745,24 @@ def test_corridor_variant_e_keeps_only_continuously_wide_road_or_parking(monkeyp
     assert cor is not None and cor.area > 150 * 12
     parking = box(10, 12, 50, 30)  # parkoviště u krátkého širokého kusu
     assert ds.road_corridor(short_wide, None, parking=parking, **kw) is not None
+
+
+def test_dtm_road_area_with_only_unpaved_track_is_not_road(tmp_path):
+    """way/256370567: štěrková cesta (track) v DTM ploše komunikace → plochu nekreslit, kreslí čára OSM."""
+    work = tmp_path
+    (work / "dtm").mkdir()
+    gravel, street = _rect(0, -4, 300, 4), _rect(0, 96, 300, 104)
+    (work / "dtm" / "roads.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in poly] for poly in (gravel, street)]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+
+    def line(hw, y):
+        return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": [[-5, y], [305, y]]}}
+
+    paths = {"type": "FeatureCollection", "features": [line("track", 0), line("track_fast", 100), line("track", 101)]}
+    (work / "osm_paths" / "paths_osm.geojson").write_text(json.dumps(paths), encoding="utf-8")
+    _sidewalks, roads = di.classified_polygons(work, "mixed")
+    assert len(roads) == 1 and roads[0][0][0][1] == 96  # zůstane plocha se zpevněnou polní cestou (grade1)
+    cover = di.dtm_cover_geometry(work, 0.0)
+    assert cover is not None and cover.bounds[1] >= 96
