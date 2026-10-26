@@ -540,7 +540,7 @@ def test_mtbo_draws_only_large_dtm_parking_and_osm_duplicate_is_dropped(tmp_path
     )
     kw = dict(preset_id="mtbo_10000", scale=10000, ref_x=-985.0, ref_y=-990.0, grivation_deg=0.0)
     parts = di.build_dtm_parking_parts(work, **kw)
-    assert [p.name for p in parts] == ["DTM – velká parkoviště", "DTM – velká parkoviště – obrys (501.2)"]
+    assert [p.name for p in parts] == ["DTM – velká parkoviště", "DTM – velká parkoviště – obrys (501.100)"]  # MTBO okraj 501.100
     assert parts[0].count == 1
     assert op.build_osm_feature_parts(work, **kw) == []  # OSM parkoviště nad DTM parkovištěm zahozeno
     # les stejně (výplň 501.1 + okraj 501.2); sprint dál 501.0
@@ -1532,6 +1532,16 @@ def test_corridor_junction_omit_from_drawn_road_ends():
     assert omit.contains(Point(100, 6 + 4.0)) and not omit.contains(Point(50, 35))
     assert omit.contains(Point(30, 12 + 2.0)) and not omit.contains(Point(30, 12 - 2.5))
     assert di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=[(50, 40, 4.0)]) is None
+    # Se směrem čáry je ústí čtverec po čáře: kolmá čára zdola vynechá hranu jen v šířce kresby + 2 × 0,3 m,
+    # šikmá (45°) o něco víc; kruh by bral i okraj vedle (ostrůvek mezi dvěma pásy).
+    r = 4.0 + di.JUNCTION_EXTRA_M
+    square = di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=[(60.0, 0.0, 4.0, 0.0, -1.0)])
+    cut = corridor.boundary.intersection(square)
+    assert cut.length == pytest.approx(2 * r, abs=0.05)
+    assert square.contains(Point(60 + r - 0.1, 0)) and not square.contains(Point(60 + r + 0.2, 0))
+    d = 2**-0.5
+    slanted = di.corridor_junction_omit(None, corridor, "mtbo_10000", 10000, road_ends=[(60.0, 0.0, 4.0, d, -d)])
+    assert 2 * r < corridor.boundary.intersection(slanted).length < 2 * r * 2**0.5 + 0.05
 
 
 def test_drawn_path_ends_roundtrip():
@@ -1551,6 +1561,12 @@ def test_drawn_path_ends_roundtrip():
     assert abs(ends[0][0] + 950) < 0.05 and abs(ends[0][1] + 1000) < 0.05
     assert abs(ends[1][0] + 850) < 0.05 and abs(ends[1][1] + 990) < 0.05
     assert ends[0][2] > 1.0  # půlka šířky 502 v metrech
+    # směr od konce dovnitř čáry (jednotkový): z (-950, -1000) k (-850, -990) a zpět
+    import math
+
+    ux, uy = 100 / math.hypot(100, 10), 10 / math.hypot(100, 10)
+    assert abs(ends[0][3] - ux) < 0.01 and abs(ends[0][4] - uy) < 0.01
+    assert abs(ends[1][3] + ux) < 0.01 and abs(ends[1][4] + uy) < 0.01
     assert drawn_path_ends([OomObjectPart("x", xml, 1)], majors=frozenset({815}), **kw) == []
 
 
@@ -1581,14 +1597,16 @@ def test_edge_omit_drops_short_stub_between_two_omits():
         parts = di._geometry_part(rect, name="x", code="501.0", outline_separate=True, clip_bounds=None, edge_omit=omit, **kw)
         return parts[1].count
 
-    a, b, far = Point(-920, -1006).buffer(2.0), Point(-913, -1006).buffer(2.0), Point(-870, -1006).buffer(2.0)  # mezi a, b 3 m (0,3 mm)
+    a, b, far = Point(-920, -1006).buffer(2.0), Point(-915, -1006).buffer(2.0), Point(-870, -1006).buffer(2.0)  # mezi a, b 1 m (0,1 mm)
     base = edges(a)  # obrys uzavřeného obdélníku přerušený jedním kruhem
-    assert edges(a.union(b)) == base  # pahýl 5 m mezi kruhy se zahodí, zbytek obrysu zůstane
+    assert edges(a.union(b)) == base  # pahýl 1 m mezi kruhy se zahodí, zbytek obrysu zůstane
     assert edges(a.union(far)) == base + 1  # daleké přerušení: oba kusy zůstanou
     assert edges(a.union(b).union(far)) == base + 1
+    # Kus 3 m (0,3 mm) mezi dvěma ústími zůstává: okraj ostrůvku mezi dvěma jízdními pásy (K Barrandovu)
+    assert edges(a.union(Point(-913, -1006).buffer(2.0))) == base + 1
     # pahýl s jedním koncem u přerušení (kruh blízko rohu) se také zahodí
     corner = Point(-950, -1006).buffer(2.0)
-    assert edges(corner.union(Point(-945, -1006).buffer(0.6))) <= edges(corner)
+    assert edges(corner.union(Point(-947, -1006).buffer(0.6))) <= edges(corner)  # pahýl 0,4 m
 
 
 def test_trim_along_corridor():

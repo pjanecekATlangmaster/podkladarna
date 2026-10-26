@@ -1428,6 +1428,13 @@ def classify_osm_feature(
 # Les a MTBO: 501.1 = jen výplň zpevněné plochy bez okraje; okraj nese čára 501.2.
 ISOM_PAVED_FILL_CODE = "501.1"
 ISOM_PAVED_EDGE_CODE = "501.2"
+# MTBO: okraj zpevněné plochy je 501.100 (Petr 2026-10-26); 501.2 je v sadě ISMTBOM pozůstatek slučování symbolů.
+MTBO_PAVED_EDGE_CODE = "501.100"
+
+
+def paved_edge_code(preset_id: str) -> str:
+    """Kód okraje zpevněné plochy kreslené výplní 501.1: les 501.2, MTBO 501.100."""
+    return MTBO_PAVED_EDGE_CODE if preset_id.startswith("mtbo") else ISOM_PAVED_EDGE_CODE
 
 
 def _closed_edge_object(symbol_index: int, coords: list[tuple[int, int]]) -> str:
@@ -5253,10 +5260,10 @@ def drawn_symbol_width_m(highway: str, preset_id: str, scale: int) -> float:
 
 
 def paved_edge_width_m(preset_id: str, scale: int) -> float:
-    """Šířka okraje zpevněné plochy 501.2 v terénu (m)."""
+    """Šířka okraje zpevněné plochy (les 501.2, MTBO 501.100) v terénu (m)."""
     from app.pipeline.oom_symbol_map import symbol_line_width_mm
 
-    mm = symbol_line_width_mm(preset_id, scale, ISOM_PAVED_EDGE_CODE) or PAVED_EDGE_FALLBACK_MM
+    mm = symbol_line_width_mm(preset_id, scale, paved_edge_code(preset_id)) or PAVED_EDGE_FALLBACK_MM
     return mm_to_ground_m(mm, scale)
 
 
@@ -5723,19 +5730,41 @@ def mixed_osm_road_band(work_dir: Path, preset_id: str, scale: int):
 MAJOR_ROAD_CODES = frozenset({"502", "502.1", "502.2"})
 
 
+# Konce kusů čar do této vzdálenosti (m) se před spojením přitáhnou k sobě (po ořezech končí sousední kusy
+# v různých bodech – kruhový objezd z 11 kusů 502.1 vypadal čárkovaně).
+JOIN_SNAP_M = 0.2
+
+
 def join_line_pieces(pieces: list[list[tuple[float, float]]]) -> list[list[tuple[float, float]]]:
-    """Spojí čáry, které na sebe navazují konci (v uzlu stupně 2, souřadnice na mm); jinak beze změny."""
+    """Spojí čáry, které na sebe navazují konci (v uzlu stupně 2); konce do ``JOIN_SNAP_M`` m se nejdřív
+    přitáhnou k sobě. Jinak beze změny."""
     try:
-        from shapely.geometry import LineString, MultiLineString
+        from shapely import STRtree
+        from shapely.geometry import LineString, MultiLineString, Point
         from shapely.ops import linemerge
     except ImportError:
         return pieces
-    lines = [
-        LineString([(round(x, 3), round(y, 3)) for x, y in p])
-        for p in pieces
-        if len(p) >= 2
-    ]
-    lines = [ln for ln in lines if ln.length > 0]
+    coords = [[(round(x, 3), round(y, 3)) for x, y in p] for p in pieces if len(p) >= 2]
+    coords = [c for c in coords if LineString(c).length > 0]
+    if len(coords) < 2:
+        return pieces
+    ends = [Point(c[k]) for c in coords for k in (0, -1)]
+    tree = STRtree(ends)
+    rep: dict[int, tuple[float, float]] = {}
+    for i, pt in enumerate(ends):
+        if i in rep:
+            continue
+        rep[i] = ends[i].coords[0]
+        for j in tree.query(pt.buffer(JOIN_SNAP_M)):
+            j = int(j)
+            if j not in rep and ends[j].distance(pt) <= JOIN_SNAP_M:
+                rep[j] = rep[i]
+    lines = []
+    for n, c in enumerate(coords):
+        c = [rep[2 * n], *c[1:-1], rep[2 * n + 1]]
+        ln = LineString(c)
+        if ln.length > 0:
+            lines.append(ln)
     if len(lines) < 2:
         return pieces
     merged = linemerge(MultiLineString(lines))
@@ -6785,13 +6814,12 @@ def build_osm_feature_parts(
                 grouped[kind].append(obj)
                 kind_codes[kind] = code
                 if code == ISOM_PAVED_FILL_CODE and not preset_id.startswith("sprint"):
-                    # ISOM 501.1 je jen výplň bez okraje → černý okraj 501.2 po skutečné
+                    # ISOM 501.1 je jen výplň bez okraje → černý okraj (les 501.2, MTBO 501.100) po skutečné
                     # hranici plochy (vnější obrys i díry); podél ořezu na výřez se nekreslí.
-                    if ISOM_PAVED_EDGE_CODE not in symbol_cache:
-                        symbol_cache[ISOM_PAVED_EDGE_CODE] = symbol_index_for_code(
-                            preset_id, scale, ISOM_PAVED_EDGE_CODE
-                        )
-                    edge_index = symbol_cache[ISOM_PAVED_EDGE_CODE]
+                    _edge_code = paved_edge_code(preset_id)
+                    if _edge_code not in symbol_cache:
+                        symbol_cache[_edge_code] = symbol_index_for_code(preset_id, scale, _edge_code)
+                    edge_index = symbol_cache[_edge_code]
                     if edge_index is not None:
                         grouped[kind].extend(
                             _paved_edge_objects(

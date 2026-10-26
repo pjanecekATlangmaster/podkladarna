@@ -966,7 +966,8 @@ EDGE_CODE = "501.100"
 # Šířka pásu kolem hrany mostu (m), v němž se obrys spodní plochy nekreslí.
 EDGE_EXCLUDE_BUFFER_M = 0.15
 # Kus obrysu kratší než tohle (mm mapy) se po zkrácení o ``edge_omit`` (napojení cest) zahodí – vypadá jako úlomek.
-EDGE_STUB_MIN_MM = 0.4
+# Jen opravdu drobný: okraj ostrůvku mezi dvěma jízdními pásy (K Barrandovu, 2–4 m) musí zůstat.
+EDGE_STUB_MIN_MM = 0.15
 
 
 def _chunk_line(coords: list[tuple[float, float]], size: int) -> list[list[tuple[float, float]]]:
@@ -1519,22 +1520,31 @@ def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int,
     """Kruhy kolem průsečíků os kreslených silnic a cest (road_1..road_4, ne mosty a tunely) s hranou koridoru (shapely) nebo None.
 
     Poloměr = půlka kreslené šířky cesty + 0,3 m; obrys koridoru se tam nekreslí, ať čára cesty plynule naváže.
-    ``road_ends``: konce čar z hotové mapy ``[(x, y, půlka šířky m)]`` (``path_clearance.drawn_path_ends``) – přesně tam,
-    kde čára opravdu končí (v mixed kreslí ulici i ZABAGED); bez nich se konce odhadnou z OSM os.
+    ``road_ends``: konce čar z hotové mapy ``[(x, y, půlka šířky m, dx, dy)]`` (``path_clearance.drawn_path_ends``) – přesně
+    tam, kde čára opravdu končí (v mixed kreslí ulici i ZABAGED). Se směrem ``(dx, dy)`` je ústí čtverec o straně kresby
+    čáry + 2 × 0,3 m orientovaný po čáře (okraj se vynechá jen v šířce čáry; kruh bral i okraj ostrůvku mezi dvěma
+    jízdními pásy), bez směru kruh. Bez ``road_ends`` se konce odhadnou z OSM os.
     """
     if corridor is None or corridor.is_empty:
         return None
-    from shapely.geometry import Point
+    from shapely.geometry import LineString, Point
     from shapely.ops import unary_union
 
     if road_ends is not None:
         boundary = corridor.boundary
-        circles = [
-            Point(x, y).buffer(half + JUNCTION_EXTRA_M)
-            for x, y, half in road_ends
-            if boundary.distance(Point(x, y)) <= JUNCTION_END_TOL_M
-        ]
-        return unary_union(circles) if circles else None
+        mouths = []
+        for end in road_ends:
+            x, y, half = end[0], end[1], end[2]
+            pt = Point(x, y)
+            if boundary.distance(pt) > JUNCTION_END_TOL_M:
+                continue
+            r = half + JUNCTION_EXTRA_M
+            dx, dy = (end[3], end[4]) if len(end) >= 5 else (0.0, 0.0)
+            if dx or dy:
+                mouths.append(LineString([(x - dx * r, y - dy * r), (x + dx * r, y + dy * r)]).buffer(r, cap_style=2))
+            else:
+                mouths.append(pt.buffer(r))
+        return unary_union(mouths) if mouths else None
 
     from app.pipeline import osm_paths as op
     from app.pipeline.dtm_sidewalks import clip_outside, trim_along_corridor
@@ -1889,6 +1899,8 @@ def build_dtm_parking_parts(
     if dtm_area_preset(preset_id):
         if not parking_path(work_dir).is_file():
             return []
+        from app.pipeline.osm_paths import paved_edge_code
+
         return _geometry_part(
             dtm_parking_geometry(work_dir, scale, path_source, preset_id),
             name="DTM – velká parkoviště",
@@ -1901,7 +1913,7 @@ def build_dtm_parking_parts(
             clip_bounds=clip_bounds,
             outline_separate=True,
             fill_code="501.1",
-            edge_code="501.2",
+            edge_code=paved_edge_code(preset_id),
             edge_omit=corridor_shared_edge_zone(work_dir, preset_id, scale, path_source),
         )
     if not preset_id.startswith("sprint") or not parking_path(work_dir).is_file():
