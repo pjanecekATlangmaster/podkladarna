@@ -474,6 +474,8 @@ nas_cleanup_old() {
     while read -r _cl_id _cl_name; do
       case "$_cl_name" in
         *_podkladarna|*_podkladarna-test)
+          # Jen hexa prefix, který dává compose (<id>_jméno); nic cizího.
+          case "${_cl_name%_podkladarna*}" in ""|*[!0-9a-f]*) continue ;; esac
           echo "Mažu starý kontejner ${_cl_name}..."
           docker rm "$_cl_id" >/dev/null 2>&1 || true
           ;;
