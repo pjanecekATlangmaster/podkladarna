@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from app.pipeline.cliff_merge import merge_cliff_ticks
+from app.pipeline.cliff_merge import filter_rocks_overlapping_blockers, merge_cliff_ticks
 from app.pipeline.oom_symbol_map import symbol_index_for_code
 
 
@@ -648,3 +648,61 @@ def test_merge_cliff_ticks_memo_returns_independent_copies():
     assert len(cmod._MERGE_MEMO) == 1
     assert len(b.polygons) == len(a.polygons) - 1
     assert b.polygons == a.polygons[:-1]
+
+
+def _rect(x0, y0, x1, y1):
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
+
+
+def test_rock_cut_by_path_becomes_two_pieces():
+    pytest.importorskip("shapely")
+    rock = _rect(0, 0, 20, 10)
+    path = [[(10.0, -5.0), (10.0, 15.0)]]
+    kept, dropped, rings = filter_rocks_overlapping_blockers(
+        [rock], None, path, line_buffer_m=1.0, clip_lines=True, return_dropped=True
+    )
+    from shapely.geometry import Polygon
+
+    assert dropped == 0 and rings == []
+    assert len(kept) == 2
+    assert all(Polygon(k).area >= 25.0 for k in kept)
+
+
+def test_rock_lightly_touched_by_line_is_shrunk_not_dropped():
+    pytest.importorskip("shapely")
+    rock = _rect(0, 0, 20, 10)
+    path = [[(-5.0, 10.5), (25.0, 10.5)]]
+    kept, dropped = filter_rocks_overlapping_blockers(
+        [rock], None, path, line_buffer_m=1.0, clip_lines=True
+    )
+    from shapely.geometry import Polygon
+
+    assert dropped == 0 and len(kept) == 1
+    assert 0 < Polygon(kept[0]).area < 200.0
+
+
+def test_rock_small_remainder_after_clip_vanishes():
+    pytest.importorskip("shapely")
+    rock = _rect(0, 0, 6, 6)
+    path = [[(3.0, -5.0), (3.0, 15.0)]]
+    kept, dropped, rings = filter_rocks_overlapping_blockers(
+        [rock], None, path, line_buffer_m=0.5, clip_lines=True, return_dropped=True
+    )
+    assert kept == [] and dropped == 1 and rings == [rock]
+
+
+def test_rock_over_building_polygon_dropped_even_with_clip():
+    pytest.importorskip("shapely")
+    rock = _rect(0, 0, 20, 10)
+    kept, dropped = filter_rocks_overlapping_blockers(
+        [rock], [_rect(15, 2, 30, 8)], None, clip_lines=True
+    )
+    assert kept == [] and dropped == 1
+
+
+def test_rock_clip_lines_off_drops_whole_rock():
+    pytest.importorskip("shapely")
+    rock = _rect(0, 0, 20, 10)
+    path = [[(10.0, -5.0), (10.0, 15.0)]]
+    kept, dropped = filter_rocks_overlapping_blockers([rock], None, path, line_buffer_m=1.0)
+    assert kept == [] and dropped == 1

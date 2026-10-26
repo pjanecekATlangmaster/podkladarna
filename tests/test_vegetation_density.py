@@ -22,6 +22,7 @@ from app.pipeline.vegetation_density import (
     reclaim_yellow_under_canopy,
     reinforce_open_from_chm,
     soften_meadow_forest_edge,
+    veto_open_under_canopy,
     yellow_mask_from_hits,
 )
 
@@ -369,3 +370,44 @@ def test_fill_small_holes_scipy_matches_python_fallback():
                 fill_small_holes(mask, max_hole_px=max_px),
                 _fill_small_holes_py(mask, max_hole_px=max_px),
             )
+
+
+def test_veto_meadow_with_low_chm_stays_open():
+    cls = np.full((30, 30), OPEN, dtype=np.uint8)
+    out = veto_open_under_canopy(cls, np.full((30, 30), 0.5, dtype=np.float32))
+    assert np.array_equal(out, cls)
+
+
+def test_veto_open_under_tall_canopy_becomes_white():
+    cls = np.full((30, 30), OPEN, dtype=np.uint8)
+    chm = np.zeros((30, 30), dtype=np.float32)
+    chm[5:25, 5:25] = 15.0
+    out = veto_open_under_canopy(cls, chm)
+    assert np.all(out[8:22, 8:22] == WHITE)
+    assert np.all(out[:3, :] == OPEN)
+    assert np.all(cls == OPEN)  # vstup beze změny
+
+
+def test_veto_keeps_green_class_under_canopy():
+    cls = np.full((20, 20), MID, dtype=np.uint8)
+    cls[:5] = OPEN
+    out = veto_open_under_canopy(cls, np.full((20, 20), 15.0, dtype=np.float32))
+    assert np.all(out[5:] == MID)
+    assert np.all(out[:3] == WHITE)
+
+
+def test_veto_isolated_tall_pixel_ignored_by_median():
+    cls = np.full((30, 30), OPEN, dtype=np.uint8)
+    chm = np.zeros((30, 30), dtype=np.float32)
+    chm[15, 15] = 20.0
+    out = veto_open_under_canopy(cls, chm)
+    assert np.array_equal(out, cls)
+
+
+def test_veto_nan_chm_counts_as_open_and_zero_disables():
+    cls = np.full((20, 20), OPEN, dtype=np.uint8)
+    assert np.array_equal(veto_open_under_canopy(cls, np.full((20, 20), np.nan, dtype=np.float32)), cls)
+    tall = np.full((20, 20), 15.0, dtype=np.float32)
+    assert np.array_equal(veto_open_under_canopy(cls, tall, max_chm_m=0), cls)
+    assert np.array_equal(veto_open_under_canopy(cls, None), cls)
+    assert np.array_equal(veto_open_under_canopy(cls, tall[:5]), cls)
