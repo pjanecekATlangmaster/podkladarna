@@ -1,0 +1,250 @@
+{
+ "Ochoza-les-mixed": {
+  "cycleway": {
+   "503.0 Silnice": 785,
+   "bez symbolu (< 50 %)": 356
+  },
+  "footway": {
+   "bez symbolu (< 50 %)": 4748,
+   "506.0 Pěšina": 2605,
+   "505.0 Pěší cesta": 602,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 240,
+   "501.0 Zpevněná plocha": 226,
+   "503.0 Silnice": 182,
+   "502.2 Široká silnice 5–7 m": 58,
+   "502.1 Široká silnice nad 7 m": 35,
+   "509.0 Železnice": 17,
+   "512.0 Most / tunel": 14,
+   "501.2 Zpevněná plocha (okraj)": 6
+  },
+  "path": {
+   "506.0 Pěšina": 37152,
+   "512.0 Most / tunel": 47,
+   "bez symbolu (< 50 %)": 43,
+   "501.2 Zpevněná plocha (okraj)": 21,
+   "502.2 Široká silnice 5–7 m": 6,
+   "503.0 Silnice": 4,
+   "504.0 Vozová cesta": 2
+  },
+  "residential": {
+   "502.2 Široká silnice 5–7 m": 23705,
+   "bez symbolu (< 50 %)": 811,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 325,
+   "502.1 Široká silnice nad 7 m": 9,
+   "512.0 Most / tunel": 9
+  },
+  "secondary": {
+   "502.1 Široká silnice nad 7 m": 8169
+  },
+  "service": {
+   "504.0 Vozová cesta": 5271,
+   "503.0 Silnice": 1888,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 1527,
+   "bez symbolu (< 50 %)": 576,
+   "501.2 Zpevněná plocha (okraj)": 348,
+   "512.0 Most / tunel": 28,
+   "502.2 Široká silnice 5–7 m": 18
+  },
+  "steps": {
+   "506.0 Pěšina": 37,
+   "501.0 Zpevněná plocha": 3
+  },
+  "tertiary": {
+   "502.1 Široká silnice nad 7 m": 6637,
+   "502.2 Široká silnice 5–7 m": 3927
+  },
+  "track": {
+   "504.0 Vozová cesta": 46975,
+   "506.0 Pěšina": 19990,
+   "503.0 Silnice": 5595,
+   "bez symbolu (< 50 %)": 95,
+   "501.2 Zpevněná plocha (okraj)": 92,
+   "512.0 Most / tunel": 64
+  },
+  "unclassified": {
+   "502.2 Široká silnice 5–7 m": 5133
+  }
+ },
+ "Ochoza-les-osm": {
+  "cycleway": {
+   "503.0 Silnice": 785,
+   "bez symbolu (< 50 %)": 356
+  },
+  "footway": {
+   "bez symbolu (< 50 %)": 5217,
+   "506.0 Pěšina": 2753,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 250,
+   "501.0 Zpevněná plocha": 226,
+   "505.0 Pěší cesta": 167,
+   "502.2 Široká silnice 5–7 m": 58,
+   "502.1 Široká silnice nad 7 m": 25,
+   "509.0 Železnice": 17,
+   "512.0 Most / tunel": 14,
+   "501.2 Zpevněná plocha (okraj)": 6
+  },
+  "path": {
+   "506.0 Pěšina": 37204,
+   "512.0 Most / tunel": 52,
+   "bez symbolu (< 50 %)": 11,
+   "502.2 Široká silnice 5–7 m": 6,
+   "504.0 Vozová cesta": 2
+  },
+  "residential": {
+   "502.2 Široká silnice 5–7 m": 23705,
+   "bez symbolu (< 50 %)": 811,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 325,
+   "502.1 Široká silnice nad 7 m": 9,
+   "512.0 Most / tunel": 9
+  },
+  "secondary": {
+   "502.1 Široká silnice nad 7 m": 8169
+  },
+  "service": {
+   "504.0 Vozová cesta": 5290,
+   "503.0 Silnice": 1888,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 1527,
+   "bez symbolu (< 50 %)": 557,
+   "501.2 Zpevněná plocha (okraj)": 348,
+   "512.0 Most / tunel": 28,
+   "502.2 Široká silnice 5–7 m": 18
+  },
+  "steps": {
+   "506.0 Pěšina": 37,
+   "501.0 Zpevněná plocha": 3
+  },
+  "tertiary": {
+   "502.1 Široká silnice nad 7 m": 6637,
+   "502.2 Široká silnice 5–7 m": 3927
+  },
+  "track": {
+   "504.0 Vozová cesta": 47320,
+   "506.0 Pěšina": 20256,
+   "503.0 Silnice": 4984,
+   "bez symbolu (< 50 %)": 95,
+   "501.2 Zpevněná plocha (okraj)": 92,
+   "512.0 Most / tunel": 64
+  },
+  "unclassified": {
+   "502.2 Široká silnice 5–7 m": 5133
+  }
+ },
+ "Ochoza-mtbo-mixed": {
+  "cycleway": {
+   "502.2 Zpevněná silnice 5–7 m": 974,
+   "bez symbolu (< 50 %)": 168
+  },
+  "footway": {
+   "bez symbolu (< 50 %)": 5472,
+   "816.0 Pěšina: rychlá jízda": 2499,
+   "502.2 Zpevněná silnice 5–7 m": 241,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 240,
+   "501.0 Zpevněná plocha": 226,
+   "502.1 Zpevněná silnice nad 7 m": 35,
+   "509.0 Železnice": 17,
+   "501.2 Zpevněná plocha (okraj)": 4
+  },
+  "path": {
+   "816.0 Pěšina: rychlá jízda": 37199,
+   "bez symbolu (< 50 %)": 43,
+   "501.2 Zpevněná plocha (okraj)": 21,
+   "502.2 Zpevněná silnice 5–7 m": 9,
+   "817.0 Vozová cesta: střední rychlost jízdy": 2
+  },
+  "residential": {
+   "502.2 Zpevněná silnice 5–7 m": 23705,
+   "bez symbolu (< 50 %)": 811,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 325,
+   "502.1 Zpevněná silnice nad 7 m": 9,
+   "816.0 Pěšina: rychlá jízda": 9
+  },
+  "secondary": {
+   "502.1 Zpevněná silnice nad 7 m": 8169
+  },
+  "service": {
+   "815.0 Vozová cesta: rychlá jízda": 5263,
+   "502.2 Zpevněná silnice 5–7 m": 1906,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 1527,
+   "bez symbolu (< 50 %)": 584,
+   "501.2 Zpevněná plocha (okraj)": 348,
+   "816.0 Pěšina: rychlá jízda": 28
+  },
+  "steps": {
+   "816.0 Pěšina: rychlá jízda": 37,
+   "501.0 Zpevněná plocha": 3
+  },
+  "tertiary": {
+   "502.1 Zpevněná silnice nad 7 m": 6637,
+   "502.2 Zpevněná silnice 5–7 m": 3927
+  },
+  "track": {
+   "817.0 Vozová cesta: střední rychlost jízdy": 43700,
+   "816.0 Pěšina: rychlá jízda": 20054,
+   "502.2 Zpevněná silnice 5–7 m": 5602,
+   "815.0 Vozová cesta: rychlá jízda": 3268,
+   "bez symbolu (< 50 %)": 95,
+   "501.2 Zpevněná plocha (okraj)": 92
+  },
+  "unclassified": {
+   "502.2 Zpevněná silnice 5–7 m": 5133
+  }
+ },
+ "Ochoza-mtbo-osm": {
+  "cycleway": {
+   "502.2 Zpevněná silnice 5–7 m": 974,
+   "bez symbolu (< 50 %)": 168
+  },
+  "footway": {
+   "bez symbolu (< 50 %)": 5506,
+   "816.0 Pěšina: rychlá jízda": 2647,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 250,
+   "501.0 Zpevněná plocha": 226,
+   "502.2 Zpevněná silnice 5–7 m": 58,
+   "502.1 Zpevněná silnice nad 7 m": 25,
+   "509.0 Železnice": 17,
+   "501.2 Zpevněná plocha (okraj)": 4
+  },
+  "path": {
+   "816.0 Pěšina: rychlá jízda": 37241,
+   "bez symbolu (< 50 %)": 26,
+   "502.2 Zpevněná silnice 5–7 m": 6,
+   "817.0 Vozová cesta: střední rychlost jízdy": 2
+  },
+  "residential": {
+   "502.2 Zpevněná silnice 5–7 m": 23705,
+   "bez symbolu (< 50 %)": 811,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 325,
+   "502.1 Zpevněná silnice nad 7 m": 9,
+   "816.0 Pěšina: rychlá jízda": 9
+  },
+  "secondary": {
+   "502.1 Zpevněná silnice nad 7 m": 8169
+  },
+  "service": {
+   "815.0 Vozová cesta: rychlá jízda": 5282,
+   "502.2 Zpevněná silnice 5–7 m": 1906,
+   "501.1 Zpevněná plocha (plocha) (plocha)": 1527,
+   "bez symbolu (< 50 %)": 565,
+   "501.2 Zpevněná plocha (okraj)": 348,
+   "816.0 Pěšina: rychlá jízda": 28
+  },
+  "steps": {
+   "816.0 Pěšina: rychlá jízda": 37,
+   "501.0 Zpevněná plocha": 3
+  },
+  "tertiary": {
+   "502.1 Zpevněná silnice nad 7 m": 6637,
+   "502.2 Zpevněná silnice 5–7 m": 3927
+  },
+  "track": {
+   "817.0 Vozová cesta: střední rychlost jízdy": 43977,
+   "816.0 Pěšina: rychlá jízda": 20320,
+   "502.2 Zpevněná silnice 5–7 m": 4984,
+   "815.0 Vozová cesta: rychlá jízda": 3344,
+   "bez symbolu (< 50 %)": 95,
+   "501.2 Zpevněná plocha (okraj)": 92
+  },
+  "unclassified": {
+   "502.2 Zpevněná silnice 5–7 m": 5133
+  }
+ }
+}

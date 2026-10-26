@@ -1,0 +1,64 @@
+Ochoza 2025 – srovnání kresby Podkladárny s ruční OB mapou (Vysočina Aréna, Nové Město na Moravě)
+Vygenerováno 2026-10-26 na vývojovém PC, worktree ..\podkladarna-ochoza (master a8d20eb, APP_VERSION 2.34.7)
++ LOKÁLNÍ OPRAVA (necommitnutá) v app/pipeline/osm_paths.py, viz Chyby.
+
+SOUŘADNICE (OSM, Overpass)
+- Vysočina Arena: leisure=stadium way/156838237, střed 49.57714 N, 16.05318 E
+- Vlachovice: place=village node/1586412195, 49.59703 N, 16.04116 E (2,2 km S a 0,8 km Z od arény)
+- Bbox jobu (WGS84, lon/lat): 16.03102, 49.56905, 16.07673, 49.60322
+  (od arény 1,6 km Z, 1,7 km V, 0,9 km J, 2,9 km S; ~3,3 × 3,8 km; listy SM5 NOMM25–27, 35–37, 45–47)
+  Obsahuje Vlachovice, arénu, Koupaliště (way/53155287), Černý rybník (way/53155286), Cihelský a Klečkovský rybník.
+- Mapa OCHOZA 2025 z portálu (polygon 14236) leží celá uvnitř: lon 16.04055–16.06823, lat 49.57176–49.59826.
+
+VOLBY
+Job přes API (lokální server port 8673, vlastní data ve worktree): map_scale 10000 → forest_10000 + mtbo_10000,
+ekvidistance 5 m, dtm_forest=1, dtm_sprint=1, kp_osm_priority=1, vegetace 2 m, srázy low/auto, veg_smooth 2.
+Mapy pak přegenerovány přes prepare_oom_map(use_dtm=True) ze stejného work adresáře ve 2 variantách:
+- *-mixed  = path_source "mixed" (podle zadání),
+- *-osm    = path_source "osm" (tak staví .omap produkční job: OOM_PATH_VARIANTS = cesty_osm).
+
+DOBA BĚHU
+- celý job (stažení LiDAR 9 listů ~1–2 min/list, ZABAGED, DTM, vrstevnice, vegetace, srázy, ZIP): 34:12
+- znovu příprava OSM: 99 s; mapy: les-mixed 167 s, les-osm 147 s, mtbo-mixed 200 s, mtbo-osm 190 s
+
+CHYBY
+1) OSM v jobu spadla: „OSM: přeskočeno ('NoneType' object has no attribute 'get')“ → původní mapy jobu jsou BEZ OSM.
+   Příčina: Overpass vrátil u way/287894939 (landuse=residential, corine, 436 bodů) v poli geometry jeden null.
+   _nodes_geometry_to_5514 (osm_paths.py:3180) volá node.get() bez kontroly → výjimka shodí celou přípravu OSM.
+   Chyba je v masteru, týká se i produkce (stačí jeden null uzel v libovolném OSM prvku ve výřezu).
+   Lokálně ve worktree opraveno (`if not isinstance(node, dict): continue`), necommitnuto; mapy v mapy\ jsou s touto opravou.
+2) Ortofoto do referenčních podkladů: přeskočeno (IncompleteRead) – síť, pro srovnání nepodstatné.
+3) OCD export přeskočen – na PC není Mapper CLI.
+Původní výstup jobu (bez OSM, 227 MB): ..\podkladarna-ochoza\data\jobs\474e1638ee75\output\podkladarna_output.zip
+
+SOUBORY
+mapy\Ochoza-{les,mtbo}-{mixed,osm}.omap  (+ Ochoza_mapy_omap.zip = všechny 4), build.log, options.json
+nahledy\*.png + .pgw + .prj – Pillow render (oom_preview.render_omap_to_png, engine pillow), 254 DPI → 1 px = 0,891 m,
+   BEZ deklinace (grid north nahoru), world file bez rotace, CRS EPSG:5514 S-JTSK / Krovak East North (.prj).
+   Výřez náhledu je o něco větší než bbox (mřížka jobu + okraj): ~3,83 × 4,28 km.
+symboly.json – počty objektů podle symbolu (les-mixed 12 092, les-osm 11 518, mtbo-mixed 12 071, mtbo-osm 11 488 obj.)
+osm_highway_x_symbol_m.json – metry OSM highway podle symbolu přiděleného v mapě (všechny 4 mapy)
+geojson\ (všechny WGS84 / CRS84):
+   osm_cesty.geojson – 910 OSM ways s highway, VŠECHNY tagy (surface, tracktype, width…), osm_id, delka_m,
+      symbol_<mapa> = symbol mapy pokrývající ≥ 50 % délky (čáry 50x/51x/53x/8xx do 3 m, nebo plocha 501),
+      pokryti_<mapa> = podíly délky pod nejčastějšími symboly (párování prostorové, ne z kódu)
+   osm_voda.geojson – 38 vodních ploch/toků z OSM (se všemi tagy)
+   work_osm_{buildings,features,paths_osm,paths_mixed}.geojson – připravené vrstvy pipeline (kind, oom_code / třída)
+   zabaged_{Cesta,Pesina,Ulice,SilniceDalnice,ParkovisteOdpocivka,VodniPlocha,VodniTok,BudovaJednotlivaNeboBlokBudov,Most,Lavka}.geojson
+   dtm_*.geojson – DTM Kraje Vysočina (CZ063, export 2026-09-30): buildings 562, roads 173, sidewalks 149, small_paved 430,
+      parking 30, stairs 199, green 592, fences 1970 čar + 59 výplní, decks 4
+portal_geometrie.geojson / .txt – polygon mapy OCHOZA 2025 z https://mapy.ceskyorientak.cz/mapa/ochoza-2025
+   (inline JS setMapPolygon v HTML stránky mapy, map_browser id 14236, 40 bodů). Surové HTML v portal_raw\.
+   Rohy průhledného překrytí (KML GroundOverlay /data/kml/<id>.kml, /api/select) jsem NEZÍSKAL – další dotazy
+   na API portálu zablokoval bezpečnostní filtr na tomto PC; neobcházel jsem ho.
+referencni_mapa_MO_nocni.png – Petrem dodaná mapa (Livelox, 1591×2388 px, 190,45 DPI)
+   + .pgw/.prj: MOJE GEOREFERENCE (EPSG:5514) podobnostní transformací ze 3 vodních ploch (centroidy modrých ploch ↔ OSM):
+     Koupaliště way/53155287, Černý rybník way/53155286, nádrž way/51040396; residua ≤ 3,1 m.
+     Výsledek 1,3356 m/px = 190,2 DPI při 1:10 000 (nezávisle sedí na DPI v PNG), rotace −11,69° (magnetický sever vs. S-JTSK).
+   referencni_mapa_v_mrizce_nahledu.png (+ .pgw) – reference přetransformovaná do mřížky našich náhledů (pixel na pixel)
+   prolnuti_les_mixed_x_reference.png – 50/50 prolnutí naší les-mixed a reference (areál, silnice, nádrže lícují)
+
+POZNÁMKY K VÝSLEDKU
+- les-mixed vs les-osm: mixed kreslí navíc cesty ze ZABAGED (505 Pěší cesta 292 vs 3 obj., 503 Silnice 238 vs 46).
+- OSM track: v lese 47 km 504 Vozová cesta, 20 km 506 Pěšina, 5,6 km 503 Silnice; path → 506 (37 km).
+- footway: ~4,7 km bez symbolu (< 50 % pokrytí) – hlavně dedup chodníků podél silnic a plochy areálu.

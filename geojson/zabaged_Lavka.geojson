@@ -1,0 +1,10 @@
+{
+"type": "FeatureCollection",
+"name": "Lavka",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{"type":"Feature","properties":{"OBJECTID":1190,"fid_zbg":"4874723255123968","jmeno":null,"Shape_Leng":6.5112175562235954,"vrstva":"Lavka"},"geometry":{"type":"LineString","coordinates":[[16.036974752079775,49.606383347979424],[16.037017139466663,49.606386075459397],[16.037064120958622,49.606390614993096]]}},
+{"type":"Feature","properties":{"OBJECTID":6983,"fid_zbg":"55505274672250880","jmeno":null,"Shape_Leng":6.8675736676308219,"vrstva":"Lavka"},"geometry":{"type":"LineString","coordinates":[[16.068391726730038,49.564937161551534],[16.068408102580278,49.564926197650756],[16.068430859026101,49.564909466844171],[16.068454984520169,49.564891137043858]]}},
+{"type":"Feature","properties":{"OBJECTID":7077,"fid_zbg":"4874723355787264","jmeno":null,"Shape_Leng":7.773774182994261,"vrstva":"Lavka"},"geometry":{"type":"LineString","coordinates":[[16.039314777778031,49.606336840077489],[16.039364335611037,49.606347248030325],[16.039410770343501,49.606366979916466]]}}
+]
+}
