@@ -996,6 +996,7 @@ def build_zabaged_object_parts(
         ZABAGED_PATH_LAYERS_OSM_FIRST,
         _SegmentIndex,
         centerline_cover_fraction,
+        ZABAGED_PARALLEL_MATCH_M,
         ZABAGED_REMNANT_MIN_M,
         centerline_index,
         clip_parallel_to_centerlines,
@@ -1229,6 +1230,8 @@ def build_zabaged_object_parts(
         if osm_index is None:
             osm_index = centerline_index(osm_blockers)
         blockers, index = osm_blockers, osm_index
+        # Les / MTBO: pěšiny a cesty ZABAGED proti OSM se širší tolerancí (ulice ne – ty řeší pás kresby silnice).
+        match_m = MATCH_M if preset_id.startswith("sprint") or layer_name in road_layers else ZABAGED_PARALLEL_MATCH_M
         if prefer_osm_road_lines is not None and layer_name in road_layers:
             # Ulice jen proti OSM silnicím: chodník vedle ulice ji nesmí nahradit.
             if road_index is None:
@@ -1237,7 +1240,7 @@ def build_zabaged_object_parts(
         kept, _dropped = filter_lines_against_centerlines(
             line_parts,
             blockers,
-            near_m=MATCH_M,
+            near_m=match_m,
             overlap_drop=COVER_DROP,
             min_length_m=MIN_LENGTH_M,
             index=index,
@@ -1248,7 +1251,7 @@ def build_zabaged_object_parts(
         # krátký zbytek, který vznikl ořezem a nikam nevede, se zahodí.
         out: list[list[tuple[float, float]]] = []
         for pts in kept:
-            pieces = clip_parallel_to_centerlines(pts, index)
+            pieces = clip_parallel_to_centerlines(pts, index, match_m=match_m)
             if len(pieces) == 1 and pieces[0] is pts:
                 out.append(pts)
                 continue

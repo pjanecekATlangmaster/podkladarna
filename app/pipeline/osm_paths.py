@@ -261,6 +261,9 @@ MATCH_M = 6.0
 COVER_DROP = 0.70
 # Zbytek ZABAGED čáry po ořezu souběžného úseku s OSM, který nikam nevede, se zahodí pod touto délkou.
 ZABAGED_REMNANT_MIN_M = 15.0
+# Les / MTBO: ZABAGED Cesta / Pěšina bývá posunutá vůči OSM až o ~10 m (Ochoza); souběh do 1 mm mapy
+# je jen zdvojená kresba, proto se proti OSM cestám porovnává se širší tolerancí než MATCH_M.
+ZABAGED_PARALLEL_MATCH_M = 10.0
 # Krátká linie (schody, spojka) leží vždy blízko delší cesty; za duplicitu se bere jen při těsné shodě.
 SHORT_LINE_M = 12.0
 SHORT_LINE_MATCH_M = 1.5
