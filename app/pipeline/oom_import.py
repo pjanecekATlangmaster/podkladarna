@@ -1004,6 +1004,7 @@ def build_zabaged_object_parts(
         ZABAGED_PATH_LAYERS_OSM_FIRST,
         _SegmentIndex,
         centerline_cover_fraction,
+        ZABAGED_CORRIDOR_MATCH_M,
         ZABAGED_PARALLEL_MATCH_M,
         ZABAGED_REMNANT_MIN_M,
         centerline_index,
@@ -1271,7 +1272,13 @@ def build_zabaged_object_parts(
                 if cut_end and polyline_length(piece) < ZABAGED_REMNANT_MIN_M:
                     continue
                 out.append(piece)
-        return out
+        # Les / MTBO: ZABAGED čára, která z většiny vede souběžně s OSM čarou dál než match_m (táž cesta nebo ulice
+        # s jiným tvarem, Ochoza ~15 m, Vyšší Brod / Harrachov 10–40 m), se zahodí celá – OSM má přednost.
+        return [
+            pts
+            for pts in out
+            if centerline_cover_fraction(pts, index, match_m=ZABAGED_CORRIDOR_MATCH_M) < COVER_DROP
+        ]
 
     skip_layers = frozenset(omit_layers or ())
     for shp_name in shp_names:
