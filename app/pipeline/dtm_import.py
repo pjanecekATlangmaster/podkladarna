@@ -2247,6 +2247,36 @@ def fences_on_olive_edge(
     return out
 
 
+# Sprint: plot, který z aspoň ``SPRINT_FENCE_INSIDE_OLIVE_SHARE`` délky leží uvnitř kreslené olivy dál než
+# ``SPRINT_FENCE_INSIDE_OLIVE_M`` m od jejího okraje (oliva po obou stranách), je dělicí plot zahrad uvnitř olivového bloku.
+SPRINT_FENCE_INSIDE_OLIVE_M = 1.5
+SPRINT_FENCE_INSIDE_OLIVE_SHARE = 0.8
+
+
+def drop_fences_inside_olive(
+    lines: list[tuple[str, list[tuple[float, float]]]],
+    olive,
+    *,
+    inset_m: float = SPRINT_FENCE_INSIDE_OLIVE_M,
+    share: float = SPRINT_FENCE_INSIDE_OLIVE_SHARE,
+) -> list[tuple[str, list[tuple[float, float]]]]:
+    """Ploty bez těch, které leží uvnitř olivy ``olive`` (shapely) dál než ``inset_m`` od okraje; ploty na okraji zůstávají."""
+    from shapely.geometry import LineString
+
+    if olive is None or olive.is_empty:
+        return lines
+    core = olive.buffer(-inset_m)
+    if core.is_empty:
+        return lines
+    out = []
+    for code, ln in lines:
+        g = LineString(ln) if len(ln) >= 2 else None
+        if g is not None and g.length > 0 and g.intersection(core).length >= share * g.length:
+            continue
+        out.append((code, ln))
+    return out
+
+
 def load_fence_lines(work_dir: Path) -> list[tuple[str, list[tuple[float, float]]]]:
     return _load_fence_data(work_dir)[0]
 
@@ -2701,6 +2731,9 @@ def build_dtm_fence_parts(
         buildings_zone = _buildings_zone(work_dir)
         uncut_lines = lines
         lines = cut_fences_by_buildings(lines, buildings_zone)
+        if sprint:
+            # Sprint: dělicí ploty zahrad uvnitř olivového bloku se nekreslí (oliva po obou stranách).
+            lines = drop_fences_inside_olive(lines, olive_geom)
         # Data DTM bývají neúplná: mezery mezi konci plotů, které na sebe míří, se propojí (ne přes budovu ani cestu).
         from shapely.geometry import LineString as _LS
         from shapely.ops import unary_union as _uu

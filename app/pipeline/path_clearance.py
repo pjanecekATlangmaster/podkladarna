@@ -617,3 +617,193 @@ def displace_objects_from_paths(
             if count:  # část, ze které nic nezbylo (oliva pod cestou), se vynechá
                 out.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
     return out
+
+
+# Sprint: cesty v budovách a kryté průchody domem.
+# Kreslené čáry cest (zpevněné pěšiny / ulice 501.1x a 501.3x, 505–508, schody 532).
+SPRINT_PATH_LINE_CODES = frozenset({"501.10", "501.11", "501.12", "501.13", "501.30", "501.31", "501.32", "501.33"})
+SPRINT_PATH_LINE_MAJORS = frozenset({502, 503, 504, 505, 506, 507, 508, 532})
+BUILDING_CODE = "521.0"
+PASSAGE_CODE = "522.0"
+# Čára cesty se v budově nekreslí dál než tolik m od obrysu (u kratší cesty podél zdi zůstane).
+SPRINT_BUILDING_INNER_M = 1.0
+# Průchod domem: nejmenší šířka pásu (m v terénu), kratší úsek v budově (m) se nekreslí; rezerva při hledání čáry cesty v pásu (m).
+SPRINT_PASSAGE_MIN_WIDTH_M = 2.0
+SPRINT_PASSAGE_MIN_LEN_M = 1.0
+SPRINT_PASSAGE_CUT_MARGIN_M = 0.5
+# Zbytek čáry cesty po ořezu kratší než tolik µm na mapě se zahodí.
+SPRINT_PATH_PIECE_MIN_UM = 100.0
+# Zbytek budovy po vyříznutí průchodu s menší výměrou (µm² na mapě, čtverec 0,3 mm) se zahodí.
+MIN_BUILDING_PIECE_UM2 = 300.0**2
+
+
+def sprint_passage_geometry(buildings, covered_lines, half_widths, *, scale: int):
+    """Pásy průchodů domem (shapely, v souřadnicích mapy): části ``covered_lines`` uvnitř ``buildings``
+    rozšířené na šířku ``max(2 m, kresba cesty)``; ``half_widths`` je půlka šířky kresby u každé čáry (µm)."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    m = 1e6 / scale  # µm na mapě na 1 m v terénu
+    strips = []
+    for line, half in zip(covered_lines, half_widths):
+        if len(line) < 2:
+            continue
+        inside = LineString(line).intersection(buildings)
+        for piece in getattr(inside, "geoms", [inside]):
+            if piece.geom_type != "LineString" or piece.length < SPRINT_PASSAGE_MIN_LEN_M * m:
+                continue
+            strips.append(piece.buffer(max(half, SPRINT_PASSAGE_MIN_WIDTH_M * m / 2.0), cap_style="flat").intersection(buildings))
+    return unary_union(strips) if strips else None
+
+
+def sprint_path_cut_zone(buildings, strips, *, scale: int):
+    """Zóna, ve které se čára cesty v budově nekreslí: vnitřek budov dál než 1 m od obrysu + pásy průchodů."""
+    from shapely.ops import unary_union
+
+    m = 1e6 / scale
+    zones = [buildings.buffer(-SPRINT_BUILDING_INNER_M * m)]
+    if strips is not None and not strips.is_empty:
+        zones.append(strips.buffer(SPRINT_PASSAGE_CUT_MARGIN_M * m).intersection(buildings))
+    return unary_union(zones)
+
+
+def sprint_building_passages(
+    parts: list[OomObjectPart],
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+) -> list[OomObjectPart]:
+    """Sprint: čáry cest uvnitř budov se nekreslí; kryté průchody (OSM ``covered=yes`` / ``tunnel=building_passage``,
+    ``covered_passages.geojson``) se v budově kreslí jako zastřešení 522 v šířce kresby cesty (min. 2 m) a o jejich pás
+    se ořízne budova 521. Les, MTBO a mapa bez budov beze změny."""
+    if not preset_id.startswith("sprint") or not parts:
+        return parts
+    import json
+
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    from app.pipeline.oom_import import _area_object_with_holes
+    from app.pipeline.oom_symbol_map import _symbol_widths
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        set_path = symbol_set_path(preset_id, scale)
+        info = _symbol_info(set_path)
+        codes = _symbol_codes(set_path)
+        widths = _symbol_widths(set_path)
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+    building_ids = {i for i, c in codes.items() if c == BUILDING_CODE}
+    passage_ids = [i for i, c in codes.items() if c == PASSAGE_CODE]
+    path_ids = {
+        i
+        for i, c in codes.items()
+        if info.get(i, (0, ""))[1] == "line" and (c in SPRINT_PATH_LINE_CODES or info[i][0] in SPRINT_PATH_LINE_MAJORS)
+    }
+    if not building_ids or not path_ids:
+        return parts
+    try:
+        polys = []
+        axes: list[tuple[LineString, float]] = []  # kreslené cesty: osa, půlka šířky (µm)
+        for part in parts:
+            for m in _OBJECT_RE.finditer(part.objects_xml):
+                if m.group(2) != "1":
+                    continue
+                sym = int(m.group(3))
+                cm = _COORDS_RE.search(m.group(4))
+                if not cm:
+                    continue
+                if sym in building_ids:
+                    poly = _polygon(_rings(_parse_coords(cm.group(1))))
+                    if poly is not None and not poly.is_empty:
+                        polys.append(poly)
+                elif sym in path_ids:
+                    pts = _flatten(_parse_coords(cm.group(1)))
+                    if len(pts) >= 2:
+                        axes.append((LineString(pts), widths.get(sym, 0.0) * 1000.0 / 2.0))
+        if not polys:
+            return parts
+        buildings = unary_union(polys)
+        covered: list[list[tuple[float, float]]] = []
+        gj = work_dir / "osm_paths" / "covered_passages.geojson"
+        if gj.is_file():
+            for feat in json.loads(gj.read_text(encoding="utf-8")).get("features") or []:
+                coords = (feat.get("geometry") or {}).get("coordinates") or []
+                if len(coords) >= 2:
+                    covered.append(
+                        [
+                            projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+                            for x, y in coords
+                        ]
+                    )
+        # Šířka průchodu = kresba nejbližší cesty (do 3 m od osy průchodu), jinak jen minimum.
+        near = 3.0 * 1e6 / scale
+        halves = []
+        for line in covered:
+            ls = LineString(line)
+            halves.append(max((h for g, h in axes if g.distance(ls) <= near), default=0.0))
+        strips = sprint_passage_geometry(buildings, covered, halves, scale=scale) if covered else None
+        zone = sprint_path_cut_zone(buildings, strips, scale=scale)
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+    has_strips = strips is not None and not strips.is_empty
+
+    def edit(match: re.Match) -> str:
+        head, otype, sym, body, tail = match.groups()
+        if otype != "1":
+            return match.group(0)
+        sym = int(sym)
+        cm = _COORDS_RE.search(body)
+        if not cm:
+            return match.group(0)
+
+        def rebuilt(new_pts):
+            return head + body[: cm.start()] + _format_coords(new_pts) + body[cm.end() :] + tail
+
+        try:
+            if sym in path_ids:
+                line = LineString(_flatten(_parse_coords(cm.group(1))))
+                if line.is_empty or not line.intersects(zone):
+                    return match.group(0)
+                rest = line.difference(zone)
+                pieces = [g for g in getattr(rest, "geoms", [rest]) if g.geom_type == "LineString" and g.length >= SPRINT_PATH_PIECE_MIN_UM]
+                return "\n".join(rebuilt([[round(x), round(y), 0] for x, y in g.coords]) for g in pieces)
+            if has_strips and sym in building_ids:
+                poly = _polygon(_rings(_parse_coords(cm.group(1))))
+                if poly is None or poly.is_empty or not poly.intersects(strips):
+                    return match.group(0)
+                new = poly.difference(strips)
+                out = []
+                for g in getattr(new, "geoms", [new]):
+                    if isinstance(g, Polygon) and g.area >= MIN_BUILDING_PIECE_UM2:
+                        out.extend(_rounded_pieces(g.simplify(EPS)))
+                return "\n".join(rebuilt(p) for p in out)
+        except Exception:  # jeden objekt se nepovede → zůstane, jak byl
+            return match.group(0)
+        return match.group(0)
+
+    out_parts = []
+    for part in parts:
+        xml = _OBJECT_RE.sub(edit, part.objects_xml)
+        if xml == part.objects_xml:
+            out_parts.append(part)
+        else:
+            count = len(_OBJECT_RE.findall(xml))
+            if count:
+                out_parts.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
+    if has_strips and passage_ids:
+        objs = []
+        for g in getattr(strips, "geoms", [strips]):
+            if isinstance(g, Polygon) and not g.is_empty:
+                ring = [(round(x), round(y)) for x, y in g.simplify(EPS).exterior.coords]
+                obj = _area_object_with_holes(passage_ids[0], [ring])
+                if obj:
+                    objs.append(obj)
+        if objs:
+            out_parts.append(OomObjectPart(name="Sprint – kryté průchody domem", objects_xml="\n".join(objs), count=len(objs)))
+    return out_parts

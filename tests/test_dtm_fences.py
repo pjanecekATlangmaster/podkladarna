@@ -660,3 +660,17 @@ def test_load_building_points_count_counts_and_caches(tmp_path, monkeypatch):
     assert cache.is_file()
     monkeypatch.setattr(df, "iter_records", lambda *a, **k: (_ for _ in ()).throw(AssertionError("cache")))
     assert df.load_building_points_count(z) == 7
+
+
+def test_sprint_drops_fences_inside_olive_keeps_edge():
+    from shapely.geometry import Polygon
+
+    import app.pipeline.dtm_import as di
+
+    olive = Polygon([(0, 0), (40, 0), (40, 30), (0, 30)])
+    on_edge = ("518", [(0.0, 0.2), (40.0, 0.2)])  # po okraji olivy → zůstane
+    inside = ("518", [(0.0, 15.0), (40.0, 15.0)])  # dělicí plot uprostřed → pryč
+    half = ("518", [(-30.0, 15.0), (10.0, 15.0)])  # jen čtvrtina uvnitř → zůstane
+    far = ("518", [(0.0, 100.0), (40.0, 100.0)])  # mimo olivu → zůstane
+    assert di.drop_fences_inside_olive([on_edge, inside, half, far], olive) == [on_edge, half, far]
+    assert di.drop_fences_inside_olive([inside], Polygon()) == [inside]

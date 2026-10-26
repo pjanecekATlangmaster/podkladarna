@@ -2706,3 +2706,36 @@ def test_major_path_draws_505_in_forest_only():
     assert osm_oom_code("path_major", "sprint_4000") == osm_oom_code("path", "sprint_4000")
     assert osm_oom_code("path_major", "mtbo_10000") == osm_oom_code("path", "mtbo_10000")
     assert osm_oom_code("bridge:path_major", "forest_10000") == "512"
+
+
+def test_sprint_skips_gates_and_bollards_but_keeps_stiles(tmp_path):
+    """Sprint nekreslí brány a sloupky (531); přelez ano; les beze změny."""
+    _write_osm_geojson(
+        tmp_path,
+        "features.geojson",
+        [
+            {
+                "type": "Feature",
+                "properties": {"kind": "barrier_point", "oom_code": "531", "barrier": b},
+                "geometry": {"type": "Point", "coordinates": [float(i), 0.0]},
+            }
+            for i, b in enumerate(("gate", "bollard", "lift_gate", "stile", "cycle_barrier"))
+        ],
+    )
+
+    def count(preset_id):
+        kw = dict(_build_kwargs(), preset_id=preset_id, scale=4000 if preset_id.startswith("sprint") else 10000)
+        with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=7):
+            return sum(p.count for p in build_osm_feature_parts(tmp_path, **kw))
+
+    assert count("sprint_2m") == 2
+    assert count("forest_10000") == 5
+
+
+def test_prepare_marks_barrier_value_and_covered_passage(tmp_path):
+    from app.pipeline.osm_paths import is_covered_passage
+
+    assert is_covered_passage({"highway": "footway", "covered": "yes"})
+    assert is_covered_passage({"highway": "footway", "tunnel": "building_passage"})
+    assert not is_covered_passage({"highway": "footway", "covered": "no"})
+    assert not is_covered_passage({"highway": "footway"})
