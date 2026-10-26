@@ -998,8 +998,11 @@ def _geometry_part(
     fill_code: str | None = None,
     edge_code: str = EDGE_CODE,
     edge_lines=None,
+    edge_only: bool = False,
 ) -> list[OomObjectPart]:
     """Plocha (shapely) jako části .omap se symbolem ``code``; prázdný seznam bez geometrie / symbolu.
+
+    ``edge_only``: jen obrys (výplň kreslí někdo jiný), platí s ``outline_separate``.
 
     ``fill_code`` / ``edge_code``: bezobrysová výplň a obrys místo ``FILL_ONLY_CODE[code]`` / 501.100 (les: 501.1 + 501.2).
 
@@ -1056,7 +1059,7 @@ def _geometry_part(
             and fill_idx is not None
             and edge_idx is not None
         ):
-            for ring, holes in split_area(rings[0], rings[1:], AREA_SPLIT_VERTICES):
+            for ring, holes in ([] if edge_only else split_area(rings[0], rings[1:], AREA_SPLIT_VERTICES)):
                 obj = _area_object_with_holes(fill_idx, [to_map(ring), *[to_map(h) for h in holes]])
                 if obj:
                     objects.append(obj)
@@ -1073,6 +1076,7 @@ def _geometry_part(
             if edge_omit is not None and not edge_omit.is_empty:
                 outline = outline.difference(edge_omit)
             lines = [outline] if outline.geom_type == "LineString" else [g for g in getattr(outline, "geoms", []) if g.geom_type == "LineString"]
+            lines = [ln for ln in lines if not ln.is_empty and len(ln.coords) >= 2]
             if edge_omit is not None and not edge_omit.is_empty:
                 # pahýl mezi dvěma přerušeními pryč; kus navazující na obrys jiné plochy (``edge_lines``) zůstává
                 from shapely.geometry import Point as _StubPt
@@ -1086,7 +1090,15 @@ def _geometry_part(
                     or not all(edge_omit.distance(_StubPt(c)) <= 0.05 for c in (ln.coords[0], ln.coords[-1]))
                 ]
             for ln in lines:
-                for piece in _chunk_line([(float(x), float(y)) for x, y in ln.coords], OUTLINE_CHUNK_VERTICES):
+                coords = [(float(x), float(y)) for x, y in ln.coords]
+                if ln.is_closed and len(coords) <= OUTLINE_CHUNK_VERTICES:
+                    from app.pipeline.osm_paths import _closed_edge_object
+
+                    obj = _closed_edge_object(edge_idx, to_map(coords))  # celý prstenec jako uzavřená cesta
+                    if obj:
+                        edges.append(obj)
+                    continue
+                for piece in _chunk_line(coords, OUTLINE_CHUNK_VERTICES):
                     obj = _path_object_mapped(edge_idx, to_map(piece))
                     if obj:
                         edges.append(obj)
@@ -1584,7 +1596,12 @@ def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int,
 
 
 def corridor_shared_edge_zone(work_dir: Path, preset_id: str, scale: int, path_source: str = "mixed"):
-    """Pás ``CORRIDOR_SHARED_EDGE_M`` m kolem koridoru (shapely) nebo None: okraj přiléhající zpevněné plochy se v něm nekreslí."""
+    """Pás ``CORRIDOR_SHARED_EDGE_M`` m kolem koridoru (shapely) nebo None: okraj přiléhající zpevněné plochy se v něm nekreslí.
+    Ve sjednoceném režimu (``paved_surface``) None – koridor je součástí sítě a samostatný okraj nemá."""
+    from app.pipeline.paved_surface import unified
+
+    if unified(preset_id):
+        return None
     corridor = corridor_geometry_for(work_dir, preset_id, scale, path_source)
     if corridor is None or corridor.is_empty:
         return None
@@ -1639,8 +1656,10 @@ def build_mtbo_corridor_parts(
     ``road_ends``: konce kreslených čar z hotové mapy (viz ``corridor_junction_omit``). Na hranici s přiléhající
     zpevněnou plochou (parkoviště z DTM, síť OSM) se okraj nekreslí, plochy tak splynou.
     """
-    if not dtm_area_preset(preset_id):
-        return []
+    from app.pipeline.paved_surface import unified
+
+    if not dtm_area_preset(preset_id) or unified(preset_id):
+        return []  # sjednocený režim: koridor je v síti zpevněných ploch (``paved_surface``)
     corridor = corridor_geometry_for(work_dir, preset_id, scale, path_source)
     mtbo = preset_id.startswith("mtbo")
     edge_lines = None
@@ -1826,6 +1845,10 @@ def build_dtm_sidewalk_parts(
     if mtbo_dtm_off(preset_id):
         return []
     if preset_id.startswith("mtbo"):
+        from app.pipeline.paved_surface import unified
+
+        if unified(preset_id):
+            return []  # sjednocený režim: chodníky z DTM jsou v síti zpevněných ploch
         return _geometry_part(
             mtbo_sidewalk_geometry(work_dir, scale, path_source, preset_id),
             name="MTBO – chodníky a zpevněné cesty z DTM",
@@ -1900,8 +1923,10 @@ def build_dtm_parking_parts(
     if mtbo_dtm_off(preset_id):
         return []
     if dtm_area_preset(preset_id):
-        if not parking_path(work_dir).is_file():
-            return []
+        from app.pipeline.paved_surface import unified
+
+        if not parking_path(work_dir).is_file() or unified(preset_id):
+            return []  # sjednocený režim: parkoviště z DTM jsou v síti zpevněných ploch
         from app.pipeline.osm_paths import paved_edge_code
 
         return _geometry_part(
