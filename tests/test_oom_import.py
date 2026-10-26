@@ -909,3 +909,55 @@ def test_sprint_zabaged_road_bridge_on_osm_path_dropped(tmp_path):
 
     assert count(None) == 2
     assert count([[(x0 - 50, y0 + 1), (x0 + 60, y0 + 1)]]) == 1  # druhý most OSM cesta nemá
+
+
+def _count_cesta_objects(tmp_path, preset, scale, offset_m):
+    import tempfile
+    import zipfile
+
+    import numpy as np
+    import pyogrio.raw as pr
+    from shapely.geometry import LineString
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    d = tmp_path / f"{preset}_{offset_m}"
+    d.mkdir()
+    cesta = LineString([(x0, y0 + offset_m), (x0 + 200, y0 + offset_m)])
+    pr.write(
+        str(d / "Cesta.shp"),
+        geometry=np.array([cesta.wkb], dtype=object),
+        field_data=[],
+        fields=[],
+        geometry_type="LineString",
+        crs="EPSG:5514",
+        driver="ESRI Shapefile",
+    )
+    z = d / "z.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in d.iterdir():
+            if f.suffix in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                zf.write(f, f.name)
+    osm = [[(x0, y0), (x0 + 200, y0)]]
+    parts = build_zabaged_object_parts(
+        z,
+        vectorconf_name="zabaged.txt",
+        preset_id=preset,
+        scale=scale,
+        ref_x=x0,
+        ref_y=y0,
+        grivation_deg=0.0,
+        work_dir=Path(tempfile.mkdtemp()),
+        prefer_osm_path_lines=osm,
+    )
+    return sum(p.objects_xml.count("<object ") for p in parts if "Cesta" in p.name)
+
+
+def test_zabaged_path_beside_osm_dedup_wider_in_forest(tmp_path):
+    """Les / MTBO: ZABAGED Cesta 8 m vedle OSM cesty je zdvojená kresba (Ochoza); sprint drží MATCH_M 6 m."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    assert _count_cesta_objects(tmp_path, "forest_10000", 10000, 8.0) == 0
+    assert _count_cesta_objects(tmp_path, "forest_10000", 10000, 15.0) == 1
+    assert _count_cesta_objects(tmp_path, "sprint_4000", 4000, 8.0) == 1

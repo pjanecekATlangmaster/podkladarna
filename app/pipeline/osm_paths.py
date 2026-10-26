@@ -104,6 +104,11 @@ OSM_ROAD_HIGHWAYS = frozenset(
 # Syntetické šířky po refine (rank 0→road_1 … rank 3→road_4).
 ROAD_DRAW_HIGHWAYS = frozenset({f"road_{i}" for i in range(1, 5)})
 TRACK_DRAW_HIGHWAYS = frozenset({"track", "track_fast", "track_slow"})
+# Výrazná pěšina po refine (pevný nezpevněný povrch / výborná viditelnost) → les 505,
+# jinde se chová jako ``path`` (path_draw_highway ji vrací jako path).
+PATH_MAJOR_HIGHWAY = "path_major"
+PATH_MAJOR_BASES = frozenset({"path"})
+PATH_MAJOR_SURFACES = frozenset({"compacted", "fine_gravel", "gravel", "pebblestone"})
 # highway base → výchozí rank 0–3 (před lanes/surface).
 # secondary+ = silnice II. třídy / vyšší → rank 3 → les 502.1.
 _ROAD_BASE_RANK: dict[str, int] = {
@@ -256,6 +261,9 @@ MATCH_M = 6.0
 COVER_DROP = 0.70
 # Zbytek ZABAGED čáry po ořezu souběžného úseku s OSM, který nikam nevede, se zahodí pod touto délkou.
 ZABAGED_REMNANT_MIN_M = 15.0
+# Les / MTBO: ZABAGED Cesta / Pěšina bývá posunutá vůči OSM až o ~10 m (Ochoza); souběh do 1 mm mapy
+# je jen zdvojená kresba, proto se proti OSM cestám porovnává se širší tolerancí než MATCH_M.
+ZABAGED_PARALLEL_MATCH_M = 10.0
 # Krátká linie (schody, spojka) leží vždy blízko delší cesty; za duplicitu se bere jen při těsné shodě.
 SHORT_LINE_M = 12.0
 SHORT_LINE_MATCH_M = 1.5
@@ -307,9 +315,12 @@ def path_draw_highway(highway: str) -> str:
     hw = (highway or "path").lower()
     for s in _STRUCTURE_HIGHWAYS:
         if hw.startswith(f"{s}:"):
-            return hw.split(":", 1)[1] or "path"
+            hw = hw.split(":", 1)[1] or "path"
+            break
         if hw == s:
             return "path"
+    if hw == PATH_MAJOR_HIGHWAY:
+        return "path"
     return hw or "path"
 GRID_M = 30.0
 # crossing / přechody bereme (pod silnicemi); dřív se zahazovaly.
@@ -1102,8 +1113,17 @@ def refine_track_highway(tags: dict) -> str:
     return "track"
 
 
+def is_major_path_tags(tags: dict) -> bool:
+    """Výrazná pěšina: pevný nezpevněný povrch nebo trail_visibility=excellent (ne asfalt)."""
+    if _is_paved_surface(tags):
+        return False
+    surface = (tags.get("surface") or "").lower()
+    visibility = (tags.get("trail_visibility") or "").lower()
+    return surface in PATH_MAJOR_SURFACES or visibility == "excellent"
+
+
 def refine_path_highway(tags: dict, highway: str) -> str:
-    """Silnice → road_1..road_4; track → road_*/track_*; jinak beze změny."""
+    """Silnice → road_1..road_4; track → road_*/track_*; výrazná pěšina → path_major; jinak beze změny."""
     hw = (highway or "path").lower() or "path"
     draw = path_draw_highway(hw)
     if draw in OSM_ROAD_HIGHWAYS:
@@ -1111,6 +1131,8 @@ def refine_path_highway(tags: dict, highway: str) -> str:
         return f"road_{rank + 1}"
     if draw == "track":
         return refine_track_highway(tags)
+    if hw in PATH_MAJOR_BASES and is_major_path_tags(tags):
+        return PATH_MAJOR_HIGHWAY
     return hw
 
 
@@ -2152,6 +2174,8 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
         return "512"
 
     hw = path_draw_highway(raw)
+    if raw.split(":", 1)[-1] == PATH_MAJOR_HIGHWAY and not sprint and not mtbo:
+        return "505"  # les: výrazná pěšina (compacted / gravel / trail_visibility=excellent)
 
     # Legacy OSM road names (starší geojson) → rank podle base (bez tagů).
     if hw in OSM_ROAD_HIGHWAYS:
