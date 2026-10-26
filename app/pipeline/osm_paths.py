@@ -2417,6 +2417,8 @@ def osm_way_to_5514(
         return None
     pts: list[tuple[float, float]] = []
     for node in element.get("geometry") or []:
+        if not isinstance(node, dict):  # Overpass občas vrátí null uzel
+            continue
         lat = node.get("lat")
         lon = node.get("lon")
         if lat is None or lon is None:
@@ -3188,6 +3190,8 @@ def _line_buffer_ring_5514(
 def _nodes_geometry_to_5514(geometry: list[dict] | None) -> list[tuple[float, float]]:
     pts: list[tuple[float, float]] = []
     for node in geometry or []:
+        if not isinstance(node, dict):  # Overpass občas vrátí null uzel (way/287894939)
+            continue
         lat = node.get("lat")
         lon = node.get("lon")
         if lat is None or lon is None:
@@ -3451,7 +3455,7 @@ def prepare_osm_paths(
         ring = [
             wgs84_to_projected(float(g["lat"]), float(g["lon"]))
             for g in (el.get("geometry") or [])
-            if g.get("lat") is not None and g.get("lon") is not None
+            if isinstance(g, dict) and g.get("lat") is not None and g.get("lon") is not None
         ]
         if len(ring) >= 4 and ring[0] == ring[-1]:
             bridge_decks.append(ring)
