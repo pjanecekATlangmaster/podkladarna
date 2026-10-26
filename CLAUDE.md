@@ -111,6 +111,8 @@ python -m pytest tests/ --tb=short -q                       # celá sada: před 
 - Jeden vlastník běhu testů; ostatní přebírají příkaz a výsledek. Testy opakuj jen po změně relevantního kódu nebo při konkrétní pochybnosti.
 - Reportuj souhrn a relevantní traceback, ne celé logy. Při chybě prostředí uveď příčinu, neopakuj stejný příkaz beze změny podmínek.
 - E2E a Docker (`dev.ps1 up`, `dev.ps1 e2e`) jen u změn pipeline, Dockerfile nebo závislostí.
+- Sada nemá bobtnat: jedno pravidlo kresby = jeden test. Nový případ téhož pravidla přidej jako řádek do existující tabulky (`pytest.mark.parametrize`), ne jako novou funkci. Když Petr pravidlo změní nebo zruší, test uprav nebo smaž, nepřidávej další vedle.
+- Scénářové testy kresby ověřují vlastnosti (nakresleno / vynecháno, symbol, napojení, přibližná plocha), ne přesné souřadnice, které se mění s laděním.
 
 ### Pomocné příkazy
 
