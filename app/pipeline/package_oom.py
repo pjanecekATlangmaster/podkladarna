@@ -477,7 +477,7 @@ def oom_metadata(
     }
     if reference_layers:
         meta["reference_layers"] = reference_layers
-    meta["path_source"] = resolve_path_source(options.get("path_source"))
+    meta["path_source"] = oom_path_source(options, preset_id)
     if lidar_sources:
         meta["lidar_sources"] = lidar_sources
         meta["dmp_mode"] = lidar_sources.get("dmp_mode")
