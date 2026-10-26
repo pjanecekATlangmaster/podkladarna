@@ -1,0 +1,94 @@
+Harrachov – Šablaturova cesta (E2 Czech O-Tour, 25. 10. 2026; Čertova hora, skokanské můstky) – srovnání Podkladárny s ruční OB mapou
+Vygenerováno 2026-10-26 na vývojovém PC. Kód: worktree ..\podkladarna-harrachov = origin/master 6309dc5 (APP_VERSION 2.35.4), bez lokálních úprav.
+Skripty v skripty\ (běží s worktree na sys.path, PODKLADARNA_DATA = data hlavního repa kvůli cache DTM).
+
+JOB
+- Testovací verze B (pt.kibos.link), job 4522ee23f2a9 „Harrachov“, založil Petr ručně, doběhl za 32:37 (status done).
+  preset forest_10000 → les + MTBO 1:10 000, ekvidistance 5 m, index 25 m, path_source mixed, vegetace 2 m, veg_smooth 2,
+  srázy low/auto, kp_osm_priority ano, listy SM5 TANV48, TANV49, TANV58, TANV59.
+  Bbox WGS84: 15.395794, 50.749599, 15.434589, 50.775224; mřížka EPSG:5514 [-664606, -661473] × [-979350, -976119], 1 m.
+  Volby jobu: job_options_testB.json; log a výstupní ZIP jobu: job_testB\ (log.txt, podkladarna_output.zip 26,9 MB).
+- Job pokrývá obrys reference celý (rezerva Z ~230 m, V ~170 m, S ~190 m, J ~770 m).
+- ODCHYLKA: job běžel s dtm_forest = false (les + MTBO kreslené jen z OSM + ZABAGED, DTM se v jobu vůbec nepřipravilo).
+  Proto jsem DTM Libereckého kraje (CZ051, export 2026-09-30, 8 balíků ZPS_KR/OPL, 4 obce) připravil lokálně
+  (skripty\dtm_prep.py → prepare_dtm_fences(force=True), 85 s): 598 budov, 82 ploch silnic, 209 chodníků, 179 malých zpevněných,
+  115 schodišť, 64 parkovišť, 573 udržované zeleně, 52 mostů, 639 úseků plotů → 429 čar, 13 oplocení.
+  Nový job přes API jsem NEzakládal – terén (LiDAR, vegetace, srázy) z jobu je použitelný a DTM se kreslí až v prepare_oom_map.
+- Work kopie jobu (bez LAZ) je v ..\harrachov_work (mimo tuto složku a mimo ZIP).
+
+MAPY (mapy\, skripty\mapa.py → prepare_oom_map(use_dtm=True) ze work kopie, volby mapy\options.json = job + dtm_forest true)
+  Harrachov-les-mixed.omap   131 s   11 452 objektů
+  Harrachov-les-osm.omap      66 s   11 199
+  Harrachov-mtbo-mixed.omap   83 s   11 392
+  Harrachov-mtbo-osm.omap     71 s   11 122
+  mixed = produkční režim (OSM hlavní, ZABAGED doplňuje); osm = diagnosticky jen OSM cesty. Všechny 4 s DTM.
+  symboly.json – počty objektů podle symbolu pro všechny 4 mapy.
+  Bez OCD (na PC není Mapper CLI). Mapy z jobu (bez DTM, varianta osm) jsou v job_testB\podkladarna_output.zip.
+
+NÁHLEDY (nahledy\, skripty\nahledy.py → oom_preview.render_omap_to_png(engine pillow, 254 DPI, undo_grivation))
+  Harrachov-{les,mtbo}-{mixed,osm}.png + .pgw + .prj: 4650 × 4800 px, 0,679 m/px, sever mřížky nahoru (bez deklinace),
+  EPSG:5514 S-JTSK / Krovak East North. Všechny 4 mají stejnou mřížku (pixel na pixel).
+  referencni_mapa_v_mrizce_nahledu.png (+ .pgw/.prj): reference převzorkovaná do stejné mřížky (bilineárně), mimo mapové pole průhledná.
+  prolnuti_les_mixed_x_reference.png (+ .pgw): 50/50 prolnutí les-mixed a reference v mapovém poli (lícování vrstevnic a cest sedí).
+
+REFERENCE (ref\)
+  harrachov_ref.png – Livelox class 1308125 (MapImage, controlNumbers, bez tratí), 8220 × 6450 px, 571,98 DPI (metadata PNG).
+    Mapa: „Šablaturova cesta“, E2 Harrachov 25. 10. 2026, 1:10 000, e = 5 m, ISOM 2017-2, mapoval a kreslil Tomáš Leštínský.
+  harrachov_ref.pgw / .prj – MOJE GEOREFERENCE do EPSG:5514 (world file s rotačními členy, střed pixelu).
+  georeference.json – měřítko, DPI, m/px, rotace, RMS, max, obrys bbox, metoda:
+    podobnostní transformace nejmenšími čtverci z 39 řídicích bodů (vyřazeno 13 s residuem > 3,5 m),
+    0,44506 m/px (= 570,7 DPI při 1:10 000, o 0,3 % menší než DPI v PNG), rotace −12,35° (magnetický sever vs. S-JTSK),
+    RMS 1,87 m, max 3,15 m. Body pokrývají x −664 289 … −661 827, y −976 380 … −978 304 (jižních ~270 m mapy bez bodu,
+    ale podle překryvu s OSM sedí i tam).
+  ridici_body.csv – px reference ↔ S-JTSK / WGS84, residua. Body: lokální korelace okna 160 m OSM kresby
+    (cesty, budovy, vodní toky z Overpassu) s černou a modrou kresbou reference kolem křižovatek / lomových bodů cest.
+  obrys.geojson – obrys mapového pole (EPSG:5514, 3,98 km²; z masky nebílých pixelů, bez legendy a log).
+  maska_8.png – maska mapového pole v 1/8 rozlišení; georef_hrube.json, georef_body.json, georef_pary.json – mezivýsledky.
+  osm_overpass.json – OSM (Overpass lz4.overpass-api.de, 2026-10-26) použité pro georeferenci a tagy cest.
+  kontrola_georeference.png – reference v S-JTSK (1 m/px) s OSM cestami (červeně), toky (modře), budovami a řídicími body (zeleně).
+
+GEOJSON (geojson\, EPSG:5514, jen do 50 m od obrysu reference; skripty\geojson_cesty.py)
+  cesty_{les,mtbo}_{mixed,osm}.geojson – objekty cest z hotových .omap (čáry 502–508, 532, MTBO 8xx; plochy 501.x):
+    symbol, nazev_symbolu, typ, delka_m / plocha_m2,
+    zdroj = OSM / ZABAGED / DTM podle největšího podílu délky do 3 m od OSM cesty / ZABAGED čáry (Cesta, Pesina, Ulice,
+      SilniceDalnice, Lavka, Most) / do 1 m od DTM plochy (roads, sidewalks, small_paved, parking, stairs); pod 50 % „nejasný“;
+    podil_osm / podil_zabaged / podil_dtm,
+    osm_id + osm_highway, osm_surface, osm_tracktype, osm_trail_visibility, osm_width, osm_smoothness, osm_source, … (nejlépe překrytá
+      OSM cesta, pokud podíl OSM ≥ 30 %), zabaged_vrstva, dtm_vrstva.
+    Pozn.: zdroj je určen prostorově, ne z kódu pipeline. Plochy 501 „nejasný“ jsou hlavně OSM plochy (parkoviště, areály),
+    které se s OSM čarami cest nepárují.
+  osm_cesty.geojson – všechny OSM cesty (highway) v oblasti se všemi tagy, osm_id, delka_m.
+  Souhrn délek čar (m) les-mixed: OSM 50 434, ZABAGED 4 348 (505 2 156, 506 1 888), DTM 4 374 (hlavně okraje 501.2, 503, 502.2), nejasný 2 308.
+
+POROSTY (porosty\, skripty\porosty.py; rastry ořezané na obrys reference + 150 m, EPSG:5514)
+  chm.tif – výška porostu (DSM − DEM), 1 m; dem.tif – dem_filled (DMR 5G), 1 m; dsm.tif – dsm_raw (DMP OK), 1 m.
+  vegetace_trida_chm_tint.png (+ .pgw/.prj) – výsledná třída vegetace z jobu jako barevný rastr (chm_tint, mřížka chm.tif).
+  hillshade.png (+ .pgw/.prj) – stínování reliéfu z jobu.
+  vegetation.shp/.dbf/.shx/.prj – výsledná klasifikace vegetace (polygony, cls / code 401/406/408/410), celé území jobu.
+  uzitecne\ – z jobu: pouzite\ (vegetace, skaly_201 v mapě) a vyhozene\ (kandidáti s atributem duvod) + README.txt.
+  c_rock.dxf, dotknolls.dxf, dotdepressions.dxf, dotpits.dxf – skalní / srázové ticky a kupky/ďolíky (temp\ jobu).
+  osm\ – OSM_skaly, OSM_skaly_linie, OSM_mokrad, OSM_voda, OSM_residential (SHP z přípravy OSM).
+  zabaged\ – TrvalyTravniPorost (louky), UdrzovanaZelen, LiniovaVegetace, VyznamnyStromLesik, OvocnySadZahrada, SkupinaBalvanu,
+    OsamelyBalvanSkalaSkalniSuk, StupenSraz, ArealUceloveZastavby, Hrbitov (ze zabaged_clean.zip jobu; lesní půda v něm není).
+  NEULOŽENO: poměry hustoty LiDAR odrazů ani rastr tříd před polygonizací – pipeline (vegetation_density) je neukládá.
+  LAZ nejsou přiloženy (jsou v cache testu B, ořezy ~10–210 MB na list).
+
+CO SELHALO / ODCHYLKY
+1) Job bez DTM pro les/MTBO (viz JOB) – vyřešeno lokální přípravou DTM; DTM Libereckého kraje funguje bez chyb.
+2) Overpass: overpass.openstreetmap.fr odmítá (jen white-list), overpass-api.de vrátil 406 bez User-Agentu; staženo z lz4.overpass-api.de.
+   Job sám OSM stáhl v pořádku (overpass.openstreetmap.fr z NAS).
+3) Livelox: v pořádku.
+4) Na PC není Mapper CLI → bez OCD a bez Mapper renderu (náhledy jsou Pillow).
+
+PŘÍKAZY (z kořene repa podkladarna, PowerShell)
+  python local_test\harrachov_srovnani\skripty\maska.py <kontrola.png>
+  python local_test\harrachov_srovnani\skripty\georef_hrube.py
+  python local_test\harrachov_srovnani\skripty\georef_presne.py
+  python local_test\harrachov_srovnani\skripty\georef_body.py
+  python local_test\harrachov_srovnani\skripty\georef_vystup.py
+  python local_test\harrachov_srovnani\skripty\kontrola_georef.py ref\kontrola_georeference.png 1.0
+  python local_test\harrachov_srovnani\skripty\dtm_prep.py
+  python local_test\harrachov_srovnani\skripty\mapa.py les:mixed les:osm mtbo:mixed mtbo:osm
+  python local_test\harrachov_srovnani\skripty\nahledy.py
+  python local_test\harrachov_srovnani\skripty\geojson_cesty.py
+  python local_test\harrachov_srovnani\skripty\porosty.py

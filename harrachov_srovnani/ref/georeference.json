@@ -1,0 +1,36 @@
+{
+ "meritko": 10000,
+ "ekvidistance_m": 5,
+ "dpi_png": 571.9826,
+ "dpi_z_transformace": 570.71,
+ "m_na_px": 0.445058,
+ "rotace_deg": -12.3474,
+ "rotace_popis": "úhel osy x obrázku vůči ose x (východ) S-JTSK EAST-NORTH, kladný = proti směru hodinových ručiček; sever mapy (magnetický) je od severu mřížky odkloněn o tento úhel",
+ "rms_m": 1.87,
+ "max_residuum_m": 3.15,
+ "pocet_bodu": 39,
+ "vyrazeno_bodu": 13,
+ "world_file": [
+  0.4347631069459306,
+  -0.09517035857425071,
+  -0.09517035857425071,
+  -0.4347631069459306,
+  -664992.510863723,
+  -975756.9194209912
+ ],
+ "crs": "EPSG:5514",
+ "obrys_bbox_5514": [
+  -664379.4725346582,
+  -978574.6362862943,
+  -661642.4678886475,
+  -976307.1056075034
+ ],
+ "obrys_bbox_wgs84": [
+  15.396049526439658,
+  50.7549794364265,
+  15.433531779938173,
+  50.774824326788
+ ],
+ "obrys_plocha_km2": 3.977,
+ "metoda": "hrubě: korelace černé kresby/modrých toků s OSM přes rotace; přesně: lokální korelace oken 160 m kolem křižovatek OSM, LSQ podobnost, vyřazení bodů s residuem > 3,5 m"
+}
