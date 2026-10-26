@@ -257,6 +257,20 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 
 - **Testovací B verze** (`https://pt.kibos.link`, data `\\192.168.10.11\docker\podkladarna\data-test\jobs\`) se aktualizuje z `master`
   (`:latest` → `update-nas-ab.sh test`, cron jen když neběží job). „Push do testu“ = commit + push do `master`. Jak dohledat job, bbox a DTM balíky: `DEV.md`.
+- **Zpevněný povrch v lese a MTBO je jedna plocha** (2.37.0, `app/pipeline/paved_surface.py`, `UNIFIED_PAVED`; návrh a diagnóza
+  Barrandov 2026-10-26): koridor silnice, velká parkoviště a (MTBO) široké chodníky z DTM, OSM plochy a ZABAGED `OstatniPlochaVSidlech`
+  i `ParkovisteOdpocivka` jdou jako prvky (kind `paved_dtm` / `parking` / `pedestrian_area`) do `build_paved_network`; výplň 501.1 i okraj
+  (les 501.2, MTBO 501.100 – 501.2 je v ISMTBOM pozůstatek) vznikají z téže cache (`paved_network_feats`). Okraj kreslí až
+  `build_paved_edge_parts` v `package_oom` nad hotovými čarami (`path_clearance.drawn_path_bands`): vynechá se v ústí = půlka výplně
+  symbolu silnice (`symbol_fill_width_mm`, okraj končí na okrajové lince 502.x) a tam, kde čára vede souběžně s okrajem blíž než
+  `LINE_MIN_GAP_MM`. Plocha silnic z DTM se kreslí jen u **složitých křižovatek** (2.38.0, `app/pipeline/junction_areas.py`: shluk uzlů
+  OSM silnic od třídy residential do 30 m s ostrůvkem ≥ 20 m² v ploše silnic z DTM, kruhovým objezdem nebo ≥ 4 jednosměrnými pásy od
+  tertiary; Petr: jednoduché křižovatky čarami, napojení dělá OOMapper); jinde je silnice čára podle šířky. **Rozdělená vozovka**
+  (`app/pipeline/dual_carriageway.py`): dva protisměrné jednosměrné pásy téže silnice s osami do 1,31 mm mapy souvisle ≥ 100 m kreslí
+  jeden symbol 502.0 po střední ose (příprava OSM ukládá `osm_paths/oneway_roads.geojson`; starší joby bez něj kreslí pásy zvlášť).
+  Kusy čar téhož symbolu se spojují i přes křižovatky (`_join_through_junctions`, nejpřímější pokračování do 45°). Metriky otoček
+  (vynechané úseky okraje, dvojitý okraj, úlomky) jsou ve scratchpadu vlákna, mapy v `local_test\otocka_D2x_*`. Záložní režimy:
+  `UNIFIED_PAVED = False` (2.35.4), `JUNCTION_AREAS = False` (koridor podle šířky).
 - **MTBO používá DTM** (`MTBO_USE_DTM = True` v `app/pipeline/dtm_import.py` od 2.33.0, `mtbo_dtm_off`): koridor silnice (jen do 10 m od osy
   silnice), chodníky od 0,5 mm, parkoviště od 300 m², schodiště, budovy, ploty a šířky cest z DTM – vše s prahy čitelnosti v měřítku. `False` vrátí kreslení z ZABAGED / OSM.
   LES bere z DTM budovy, ploty (včetně výplně oplocení olivou 520), šířky cest a široké pěší plochy, sprint všechno.
