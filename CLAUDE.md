@@ -263,7 +263,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (les 501.2, MTBO 501.100 – 501.2 je v ISMTBOM pozůstatek) vznikají z téže cache (`paved_network_feats`). Okraj kreslí až
   `build_paved_edge_parts` v `package_oom` nad hotovými čarami (`path_clearance.drawn_path_bands`): vynechá se v ústí = půlka výplně
   symbolu silnice (`symbol_fill_width_mm`, okraj končí na okrajové lince 502.x) a tam, kde čára vede souběžně s okrajem blíž než
-  `LINE_MIN_GAP_MM`. Plocha silnic z DTM se kreslí jen u **složitých křižovatek** (2.38.0, `app/pipeline/junction_areas.py`: shluk uzlů
+  `LINE_MIN_GAP_MM`; u souběžné silnice se výplň dotáhne k vnější hraně její okrajové linky (`road_fill_strips`, 2.39.6), kus okraje
+  pod 0,8 mm mezi ústími se nekreslí (`EDGE_PIECE_MIN_MM`). Plocha silnic z DTM se kreslí jen u **složitých křižovatek** (2.38.0, `app/pipeline/junction_areas.py`: shluk uzlů
   OSM silnic od třídy residential do 30 m s ostrůvkem ≥ 20 m² v ploše silnic z DTM, kruhovým objezdem nebo ≥ 4 jednosměrnými pásy od
   tertiary; Petr: jednoduché křižovatky čarami, napojení dělá OOMapper); jinde je silnice čára podle šířky. **Rozdělená vozovka**
   (`app/pipeline/dual_carriageway.py`): dva protisměrné jednosměrné pásy téže silnice s osami do 1,31 mm mapy souvisle ≥ 100 m kreslí
@@ -346,6 +347,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   se ořízne o pás cesty (0,05 mm), zdi/ploty po bodech (0,2 mm) jen bez přiblížení k jiné cestě; max. 0,9 mm na mapě. Ploty se
   v lese a MTBO spojují, otáčejí čárkami k olivě a uzavřené se plní olivou jako ve sprintu. Lokální otočky dřív běžely s
   `path_source="osm"` – výchozí v produkci je `mixed` (část cest ze ZABAGED), ověřuj i v něm.
+  **Srázy** (104, 201; ZABAGED StupenSraz i DEM, Petr 2026-10-26 Barrandov): sráz podél cesty se posune po bodech (až
+  `CLIFF_MAX_SHIFT_MM` 1,5 mm; odstup o délku čárek navíc jen když cesta leží na straně čárek = vpravo od směru),
+  křížení cesty a část na ploše 501 se vyřízne, drobky pod 0,5 mm pryč (`_clear_cliff`). Otočky s `include_dxf=False`
+  srázy z DEM nemají, jen ZABAGED.
 
 ## Konfigurace a tajemství
 

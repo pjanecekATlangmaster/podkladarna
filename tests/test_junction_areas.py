@@ -8,6 +8,16 @@ from app.pipeline import junction_areas as ja
 from app.pipeline import osm_paths as op
 
 
+def test_small_pieces_of_junction_area_are_dropped():
+    # Odřezky plochy silnic u hranice obalu (pod 300 m²) nejsou křižovatka; bez velkého kusu nic.
+    from shapely.geometry import MultiPolygon, box
+
+    big, small = box(0, 0, 50, 50), box(100, 0, 109, 9)
+    out = ja.without_small_pieces(MultiPolygon([big, small]))
+    assert out.area == big.area and out.contains(Point(25, 25)) and not out.intersects(small)
+    assert ja.without_small_pieces(small) is None and ja.without_small_pieces(None) is None
+
+
 def _write(work, roads_polys, lines, oneway=()):
     (work / "dtm").mkdir(exist_ok=True)
     (work / "osm_paths").mkdir(exist_ok=True)

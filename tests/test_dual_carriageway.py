@@ -42,6 +42,10 @@ def test_short_split_and_far_lanes_are_not_dual():
     assert dc._compute(far, 13.1) == ([], None)
     same_dir = [_feat([(0, 0), (300, 0)]), _feat([(0, 10), (300, 10)])]
     assert dc._compute(same_dir, 13.1) == ([], None)
+    # odbočka šikmo od pásu (50°) není protisměrný pás, i když vede do 13 m: směry musí být proti sobě
+    turn = [_feat([(0, 0), (300, 0)]), _feat([(300, 0), (200, 10), (0, 10)])]
+    assert dc._runs(LineString([(0, 0), (300, 0)]), LineString([(300, 0), (240, 50)]), 13.1) == []
+    assert dc._compute(turn, 13.1)[0]  # pás, který se po krátké odbočce vrací souběžně, osu dá
 
 
 def test_axes_of_split_ways_join_across_gap():
@@ -73,3 +77,30 @@ def test_dual_axis_drawn_as_502_0_and_lanes_dropped(tmp_path):
         codes = [id2code[int(m.group(1))] for p in parts for m in re.finditer(r'<object\b[^>]*\bsymbol="(\d+)"', p.objects_xml)]
         assert codes == ["502.0"], (preset, codes)  # jen osa 502.0, původní pásy 502.1 ne
     assert op.osm_oom_code("road_dual", "sprint_4000") != "502.0"
+
+
+def test_side_road_reaches_edge_of_dual_symbol(tmp_path):
+    # Boční ulice končící na jižním pásu (y = 0) dojde až k okraji kresby 502.0 (osa y = 5,75, půlka šířky 9,6 m),
+    # ne jen k pásu nekresleného jízdního pruhu (Petr 2026-10-26, D23).
+    import re
+
+    (tmp_path / "osm_paths").mkdir()
+    a = [(0.0, 0.0), (150.0, 0.0), (300.0, 0.0)]
+    b = [(300.0, 11.5), (150.0, 11.5), (0.0, 11.5)]
+    side = {"type": "Feature", "properties": {"source": "osm", "highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[150.0, -60.0], [150.0, 0.0]]}}
+    paths = {"type": "FeatureCollection", "features": [_feat(a), _feat(b), side]}
+    for name in ("paths_mixed.geojson", "paths_osm.geojson"):
+        (tmp_path / "osm_paths" / name).write_text(json.dumps(paths), encoding="utf-8")
+    (tmp_path / "osm_paths" / op.ONEWAY_ROADS_NAME).write_text(json.dumps({"type": "FeatureCollection", "features": [_feat(a), _feat(b)]}), encoding="utf-8")
+    (tmp_path / "osm_paths" / "features.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": []}), encoding="utf-8")
+    op._PAVED_NETWORK_CACHE.clear()
+    parts = op.build_osm_path_parts(tmp_path, preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    half = dc.zone_half_m("forest_10000", 10000)  # půlka výplně 502.0 (8,55 m): konec na okrajové lince
+    tops = []
+    for p in parts:
+        for m in re.finditer(r"<coords[^>]*>(.*?)</coords>", p.objects_xml, re.DOTALL):
+            pts = [(int(c.split()[0]) * 0.01, -int(c.split()[1]) * 0.01) for c in m.group(1).split(";") if c.strip()]
+            if len(pts) >= 2 and all(abs(x - 150.0) < 0.5 for x, _y in pts):
+                tops.append(max(y for _x, y in pts))
+    assert tops, "boční ulice se nekreslí"
+    assert max(tops) == pytest.approx(5.75 - half, abs=0.6)
