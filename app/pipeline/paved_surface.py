@@ -114,6 +114,60 @@ def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
     return unary_union(zones) if zones else None
 
 
+def road_fill_strips(network, road_bands, preset_id: str, scale: int):
+    """Pásy výplně mezi obrysem plochy ``network`` a vnější hranou okrajové linky silnice, která vede souběžně s okrajem
+    (stejné kritérium souběhu jako ``edge_omit_zone``): okraj plochy se u souběžné silnice vynechá a bez dotažení
+    výplně zůstával otevřený obrys s mezerou (Petr 2026-10-26: „navazovat okraje plochy a silnice kreslené rovnou
+    s okrajem“; Lamačova, D25). Vrací shapely nebo None."""
+    if network is None or network.is_empty or not road_bands:
+        return None
+    from shapely import STRtree
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import nearest_points, unary_union
+
+    from app.pipeline.dtm_import import JUNCTION_END_TOL_M, JUNCTION_EXTRA_M
+    from app.pipeline.osm_paths import LINE_MIN_GAP_MM, _extend_ends, mm_to_ground_m, paved_edge_width_m
+
+    rings = []
+    for poly in _polygons(network):
+        rings.append(LineString(poly.exterior.coords))
+        rings.extend(LineString(r.coords) for r in poly.interiors)
+    if not rings:
+        return None
+    tree = STRtree(rings)
+    gap = paved_edge_width_m(preset_id, scale) / 2.0 + mm_to_ground_m(LINE_MIN_GAP_MM, scale)
+    strips = []
+    for band in road_bands:
+        coords, half = band[0], band[1]
+        fill = band[2] if len(band) > 2 else half + JUNCTION_EXTRA_M
+        if len(coords) < 2 or fill <= 0:
+            continue  # čára bez výplně (pěšina) okraj nenahradí
+        wide_r = half + gap
+        line = LineString(coords)
+        near = [rings[int(k)] for k in tree.query(line.buffer(wide_r))]
+        near = [r for r in near if r.distance(line) <= wide_r]
+        if not near:
+            continue
+        ext = LineString(_extend_ends(coords, JUNCTION_END_TOL_M))
+        wide = ext.buffer(wide_r, cap_style=2)
+        border = ext.buffer(half, cap_style=2).exterior  # vnější hrana okrajové linky silnice
+        limit = EDGE_PARALLEL_FACTOR * 2.0 * wide_r
+        for ring in near:
+            cut = ring.intersection(wide)
+            for piece in [cut] if cut.geom_type == "LineString" else getattr(cut, "geoms", []):
+                if piece.geom_type != "LineString" or piece.length <= limit:
+                    continue
+                pts = [(float(x), float(y)) for x, y in piece.coords]
+                qs = [nearest_points(Point(p), border)[1] for p in pts]
+                poly = Polygon(pts + [(q.x, q.y) for q in reversed(qs)]).buffer(0)
+                if not poly.is_empty and poly.area > 0.5:
+                    strips.append(poly)
+    if not strips:
+        return None
+    out = unary_union(strips).difference(network)
+    return None if out.is_empty else out
+
+
 def build_paved_edge_parts(
     work_dir: Path,
     *,
@@ -135,7 +189,31 @@ def build_paved_edge_parts(
     network = paved_network_geometry(work_dir, preset_id, scale)
     if network is None or network.is_empty:
         return []
-    return _geometry_part(
+    extra: list[OomObjectPart] = []
+    strips = road_fill_strips(network, road_bands, preset_id, scale)
+    if strips is not None and not strips.is_empty:
+        from shapely.geometry import box
+        from shapely.ops import unary_union
+
+        from app.pipeline.dtm_sidewalks import polygon_rings
+        from app.pipeline.oom_coords import projected_to_map_coord
+        from app.pipeline.oom_import import _area_object_with_holes
+        from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+        network = unary_union([network, strips])
+        fill_idx = symbol_index_for_code(preset_id, scale, "501.1")
+        drawn = strips.intersection(box(*clip_bounds)) if clip_bounds is not None else strips
+        objs = []
+        for rings in polygon_rings(drawn) if fill_idx is not None else []:
+            obj = _area_object_with_holes(
+                fill_idx,
+                [[projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg) for x, y in r] for r in rings],
+            )
+            if obj:
+                objs.append(obj)
+        if objs:
+            extra.append(OomObjectPart(name="Zpevněné plochy (síť) – dotažení k silnici (501.1)", objects_xml="\n".join(objs), count=len(objs)))
+    return extra + _geometry_part(
         network,
         name="Zpevněné plochy (síť)",
         code="501.1",  # lesní sada ISOM 2017-2 nemá 501.0; symbol výplně se tu stejně nekreslí

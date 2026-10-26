@@ -671,7 +671,7 @@ def run_job_pipeline(
 
     progress.begin("srázy")
     try:
-        generate_job_cliffs_dem(work_dir, options=options, log=log)
+        generate_job_cliffs_dem(work_dir, options=options, sprint=job_has_sprint(preset_id, options), log=log)
     except Exception as exc:
         log_issue(log, f"Srázy: přeskočeno ({exc})")
     progress.done()

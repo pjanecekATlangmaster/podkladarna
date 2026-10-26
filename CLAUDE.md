@@ -263,7 +263,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (les 501.2, MTBO 501.100 – 501.2 je v ISMTBOM pozůstatek) vznikají z téže cache (`paved_network_feats`). Okraj kreslí až
   `build_paved_edge_parts` v `package_oom` nad hotovými čarami (`path_clearance.drawn_path_bands`): vynechá se v ústí = půlka výplně
   symbolu silnice (`symbol_fill_width_mm`, okraj končí na okrajové lince 502.x) a tam, kde čára vede souběžně s okrajem blíž než
-  `LINE_MIN_GAP_MM`. Plocha silnic z DTM se kreslí jen u **složitých křižovatek** (2.38.0, `app/pipeline/junction_areas.py`: shluk uzlů
+  `LINE_MIN_GAP_MM`; u souběžné silnice se výplň dotáhne k vnější hraně její okrajové linky (`road_fill_strips`, 2.39.6), kus okraje
+  pod 0,8 mm mezi ústími se nekreslí (`EDGE_PIECE_MIN_MM`). Plocha silnic z DTM se kreslí jen u **složitých křižovatek** (2.38.0, `app/pipeline/junction_areas.py`: shluk uzlů
   OSM silnic od třídy residential do 30 m s ostrůvkem ≥ 20 m² v ploše silnic z DTM, kruhovým objezdem nebo ≥ 4 jednosměrnými pásy od
   tertiary; Petr: jednoduché křižovatky čarami, napojení dělá OOMapper); jinde je silnice čára podle šířky. **Rozdělená vozovka**
   (`app/pipeline/dual_carriageway.py`): dva protisměrné jednosměrné pásy téže silnice s osami do 1,31 mm mapy souvisle ≥ 100 m kreslí
@@ -314,6 +315,14 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   od okraje se nekreslí (`drop_fences_inside_olive`, dělicí ploty zahrad); brány a sloupky (`gate`, `wicket_gate`, `lift_gate`,
   `bollard`) nejsou 531 (`sprint_skips_barrier_point`); čáry cest se uvnitř budov (> 1 m od obrysu) nekreslí a OSM `covered=yes` /
   `tunnel=building_passage` je v budově průchod 522 vyříznutý z budovy (`sprint_building_passages`, `covered_passages.geojson`).
+- **Sprint podle srovnání s Českým Krumlovem** (Petr 2026-10-26, 2.40.0, data `local_test\cesky_krumlov`): budovy 521 ze všech zdrojů se
+  slučují do bloků, mezery pod 0,4 mm mapy bez cesty se zavřou, dvůr bez cesty a bez kreslené zahrady / plochy (≥ 30 %) se zaleje
+  (`sprint_merge_buildings`). Ulice: parcely RÚIAN se způsobem využití komunikace (15–17) minus budovy minus zeleň z ortofota, jen kusy se
+  zpevněnou OSM čárou ≥ 10 m, jako 501 pod ostatními objekty (`street_parcels.py`, `SPRINT_STREET_PARCELS`; ortofoto a maska zeleně jsou
+  společný modul `orthophoto.py` s vláknem ortofota: ExG > 0,02 a sytost > 0,12). `amenity=bus_station` je parkoviště 501; silnice se ve
+  sprintu uvnitř OSM parkoviště nekreslí (`sprint_parking_zone`). Kupky / prohlubně / jámy ve sprintu jen mimo zástavbu (`sprint_knolls_outside_town`,
+  artefakty DMR 5G u domů). Srázy ve sprintu jen se skutečným skokem (`SPRINT_STEP_SIDE_RATIO`: strany sondy nejvýš 0,5 × sklon schodu)
+  a ZABAGED `StupenSraz` jen do 3 m od ticků z DEM (`dem_step_zone`; Petr: cizí data náš algoritmus jen potvrzují).
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
 - **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé
@@ -346,6 +355,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   se ořízne o pás cesty (0,05 mm), zdi/ploty po bodech (0,2 mm) jen bez přiblížení k jiné cestě; max. 0,9 mm na mapě. Ploty se
   v lese a MTBO spojují, otáčejí čárkami k olivě a uzavřené se plní olivou jako ve sprintu. Lokální otočky dřív běžely s
   `path_source="osm"` – výchozí v produkci je `mixed` (část cest ze ZABAGED), ověřuj i v něm.
+  **Srázy** (104, 201; ZABAGED StupenSraz i DEM, Petr 2026-10-26 Barrandov): sráz podél cesty se posune po bodech (až
+  `CLIFF_MAX_SHIFT_MM` 1,5 mm; odstup o délku čárek navíc jen když cesta leží na straně čárek = vpravo od směru),
+  křížení cesty a část na ploše 501 se vyřízne, drobky pod 0,5 mm pryč (`_clear_cliff`). Otočky s `include_dxf=False`
+  srázy z DEM nemají, jen ZABAGED.
 
 ## Konfigurace a tajemství
 
