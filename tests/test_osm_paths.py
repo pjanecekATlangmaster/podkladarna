@@ -100,6 +100,21 @@ def test_classify_osm_well_and_playground():
         {"type": "multipolygon", "highway": "pedestrian"}
     ) == ("pedestrian_area", "501")
     assert classify_osm_feature({"highway": "pedestrian"}) is None
+    # way/532655852: highway=service + area=yes (dvůr) → zpevněná plocha, ne zahozená čára.
+    assert classify_osm_feature(
+        {"highway": "service", "area": "yes"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature(
+        {"highway": "footway", "area": "yes"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature(
+        {"highway": "service", "area": "yes", "surface": "gravel"}
+    ) is None
+    assert classify_osm_feature({"highway": "track", "area": "yes"}) is None
+    assert classify_osm_feature(
+        {"highway": "track", "area": "yes", "surface": "asphalt"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature({"highway": "service"}) is None
     # relation/19273440: area:highway=footway + paving_stones → zpevněná plocha.
     assert classify_osm_feature(
         {
@@ -757,8 +772,13 @@ def test_overpass_ql_includes_roads_when_path_source_osm():
     ql_mixed = _overpass_ql(50.0, 14.0, 50.1, 14.1, path_source="mixed")
     # Mixed: landuse=residential ano, highway=residential (silnice) ne.
     assert 'landuse"="residential"' in ql_mixed
-    assert "|residential|" not in ql_mixed
+    # Hlavní regex cest je první dotaz; silnice jako plocha (area=yes) se stahuje zvlášť.
+    main_mixed = next(line for line in ql_mixed.split(";") if 'way["highway"~' in line)
+    assert "residential" not in main_mixed
     assert 'highway"="residential"' not in ql_mixed
+    assert any(
+        "residential" in line and '["area"="yes"]' in line for line in ql_mixed.split(";")
+    )
 
 
 def test_dedup_osm_prefers_steps_over_path():

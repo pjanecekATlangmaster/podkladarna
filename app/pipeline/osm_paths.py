@@ -355,6 +355,7 @@ def _overpass_ql(
     hw = "|".join(sorted(osm_highway_set(path_source)))
     paved = "|".join(sorted(OSM_PAVED_AREA_LEISURE))
     area_hw = "|".join(sorted(_AREA_HIGHWAY_WALK))
+    area_road_hw = "|".join(sorted(_HIGHWAY_AREA_PAVED | _HIGHWAY_AREA_IF_SURFACE))
     rails = "|".join(sorted(OSM_RAIL_KINDS))
     parts = [
         f'way["highway"~"^({hw})$"]({bbox});',
@@ -376,6 +377,9 @@ def _overpass_ql(
         # Pěší zóna / náměstí jako plocha (ne linie).
         f'way["highway"="pedestrian"]["area"="yes"]({bbox});',
         f'relation["type"="multipolygon"]["highway"="pedestrian"]({bbox});',
+        # Plocha silnice / chodníku (highway=service + area=yes apod.), i když silnice z OSM nebereme.
+        f'way["highway"~"^({area_road_hw})$"]["area"="yes"]({bbox});',
+        f'relation["type"="multipolygon"]["highway"~"^({area_road_hw})$"]({bbox});',
         # Plocha chodníku / pěší (area:highway) – micromapping, vč. děr (relation).
         f'way["area:highway"~"^({area_hw})$"]({bbox});',
         f'relation["type"="multipolygon"]["area:highway"~"^({area_hw})$"]({bbox});',
@@ -1125,6 +1129,26 @@ def _is_pedestrian_area_tags(tags: dict) -> bool:
     return (tags.get("type") or "").lower() == "multipolygon"
 
 
+# highway=* + area=yes (náměstí, dvůr, točna – např. way/532655852 service + area) → zpevněná plocha.
+# Silnice a chodník jsou zpevněné i bez surface, pěšina / cyklostezka / polní cesta jen se zpevněným surface.
+_HIGHWAY_AREA_PAVED = OSM_ROAD_HIGHWAYS | {"footway"}
+_HIGHWAY_AREA_IF_SURFACE = frozenset({"path", "cycleway", "bridleway", "track"})
+
+
+def _is_highway_area_paved_tags(tags: dict) -> bool:
+    """Plocha silnice / chodníku (highway=service|residential|footway|… + area=yes nebo multipolygon)."""
+    hw = (tags.get("highway") or "").lower()
+    if hw not in _HIGHWAY_AREA_PAVED and hw not in _HIGHWAY_AREA_IF_SURFACE:
+        return False
+    area = (tags.get("area") or "").lower()
+    if area not in {"yes", "true", "1"} and (tags.get("type") or "").lower() != "multipolygon":
+        return False
+    if _is_paved_surface(tags):
+        return True
+    # Nezpevněný surface (gravel, grass …) → ne 501; bez surface jen silnice a chodník.
+    return hw in _HIGHWAY_AREA_PAVED and not (tags.get("surface") or "").strip()
+
+
 def _is_area_highway_paved_tags(tags: dict) -> bool:
     """area:highway=footway|… – plocha chodníku; zpevněný surface, nebo typicky chodník/pěší."""
     ah = (tags.get("area:highway") or "").lower()
@@ -1344,6 +1368,11 @@ def classify_osm_feature(
         return "parking", "501"
     # Pěší zóna / náměstí (area) → zpevněná 501; linie bez area zůstane cestou.
     if _is_pedestrian_area_tags(tags) and not is_node:
+        if _is_osm_building(tags):
+            return "building", "521"
+        return "pedestrian_area", "501"
+    # Plocha silnice / chodníku (highway=service + area=yes apod.) → zpevněná 501.
+    if _is_highway_area_paved_tags(tags) and not is_node:
         if _is_osm_building(tags):
             return "building", "521"
         return "pedestrian_area", "501"
