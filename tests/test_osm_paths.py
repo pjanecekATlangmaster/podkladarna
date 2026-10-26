@@ -1810,6 +1810,27 @@ def test_sprint_drops_road_tunnel_keeps_footway_tunnel(tmp_path):
         assert sum(p.count for p in parts) == expected
 
 
+def test_sprint_keeps_paved_track_tunnel(tmp_path):
+    """way/160570380: asfaltový track v tunelu je po refine ``tunnel:road_2``, ale sprint ho kreslí (podchod)."""
+    feat = {
+        "type": "Feature",
+        "properties": {"highway": "tunnel:road_2"},
+        "geometry": {"type": "LineString", "coordinates": [[0.0, 0.0], [40.0, 0.0]]},
+    }
+    walk = {
+        "type": "Feature",
+        "properties": {"walk_tunnel": True},
+        "geometry": {"type": "LineString", "coordinates": [[0.0, 0.2], [40.0, 0.2]]},
+    }
+    _write_osm_geojson(tmp_path, "paths.geojson", [feat])
+    _write_osm_geojson(tmp_path, "walk_tunnels.geojson", [walk])
+    with patch("app.pipeline.osm_paths.symbol_index_for_code", return_value=109):
+        parts = build_osm_path_parts(
+            tmp_path, preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0
+        )
+    assert sum(p.count for p in parts) == 1
+
+
 def test_forest_mtbo_sidewalk_is_path_line_not_area(tmp_path):
     """Les/MTBO chodník = linie (506/834), ne area strip / fill."""
     _write_osm_geojson(

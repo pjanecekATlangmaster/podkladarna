@@ -908,3 +908,23 @@ def test_path_extension_not_across_kept_part_of_dropped_sidewalk(tmp_path):
     base = _path_lengths(tmp_path).get("506.0", 0)
     _write_job(tmp_path, [], [road, dropped, partly, path])
     assert _path_lengths(tmp_path).get("506.0", 0) - base == pytest.approx(32.5, abs=0.3)
+
+
+def test_prepare_stores_walk_tunnels_and_service_area(tmp_path, monkeypatch):
+    import json
+
+    def way(i, tags, lon0, closed=False):
+        g = [{"lat": 50.0345, "lon": lon0}, {"lat": 50.0345, "lon": lon0 + 0.0006}]
+        if closed:
+            g = g + [{"lat": 50.0349, "lon": lon0 + 0.0006}, {"lat": 50.0349, "lon": lon0}, g[0]]
+        return {"type": "way", "id": i, "tags": tags, "geometry": g}
+
+    ski = way(160570380, {"highway": "track", "tracktype": "grade1", "surface": "asphalt", "tunnel": "yes", "layer": "-1"}, 14.372)
+    car = way(3, {"highway": "tertiary", "tunnel": "yes", "layer": "-1"}, 14.376)
+    yard = way(532655852, {"highway": "service", "area": "yes"}, 14.380, closed=True)
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [ski, car, yard])
+    op.prepare_osm_paths(tmp_path, (14.37, 50.03, 14.39, 50.04), None, preset_id="sprint_4000", log=lambda m: None)
+    walk = json.loads((tmp_path / "osm_paths" / op.WALK_TUNNELS_NAME).read_text(encoding="utf-8"))["features"]
+    assert len(walk) == 1  # jen lyžařský podchod, silniční tunel ne
+    feats = json.loads((tmp_path / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))["features"]
+    assert any(f["properties"]["kind"] == "pedestrian_area" for f in feats)  # dvůr service + area=yes

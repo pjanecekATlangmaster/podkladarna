@@ -334,6 +334,11 @@ _FENCED_COMPOUND_LANDUSE = frozenset({"recreation_ground"})
 # Druhy kolejí z OSM, jejichž úseky v tunelu ořezávají ZABAGED železnici / tramvaj (les, MTBO).
 OSM_RAIL_KINDS = frozenset({"rail", "tram", "light_rail", "narrow_gauge", "subway"})
 RAIL_TUNNELS_NAME = "rail_tunnels.geojson"
+# Tunely / podchody cest, které v OSM nejsou silnicí (track, path …): asfaltový track je po refine ``road_*``,
+# sprint ho ale jako silniční tunel nezahazuje (way/160570380, lyžařský podchod).
+WALK_TUNNELS_NAME = "walk_tunnels.geojson"
+WALK_TUNNEL_BASES = frozenset({"track", "path", "footway", "cycleway", "bridleway", "steps", "pedestrian"})
+WALK_TUNNEL_TOL_M = 1.0
 # Trať ZABAGED do tolika m od osy OSM tratě v tunelu se nekreslí.
 RAIL_TUNNEL_NEAR_M = 4.0
 
@@ -3402,6 +3407,7 @@ def prepare_osm_paths(
     # Chodníky / pěšiny, po kterých smějí jezdit cyklisté (sdílený provoz) – pro MTBO koridor silnice.
     bike_lines: list[list[tuple[float, float]]] = []
     rail_tunnels: list[list[tuple[float, float]]] = []
+    walk_tunnels: list[list[tuple[float, float]]] = []
     # Cesty se zpevněným povrchem (surface=asphalt, paving_stones …) – jen z nich vzniká koridor pěší zóny.
     paved_walk_lines: list[list[tuple[float, float]]] = []
     features: list[dict] = []
@@ -3583,6 +3589,8 @@ def prepare_osm_paths(
             hw = bridge_highway(hw or "path")
         elif _is_osm_tunnel(tags):
             hw = tunnel_highway(hw or "path")
+            if (tags.get("highway") or "").lower() in WALK_TUNNEL_BASES:
+                walk_tunnels.append(list(pts))
         # Uzavřená pěší zóna i bez area=yes → zpevněná plocha (ne střednicová pěšina).
         # Kontrola podle tagů – sprint_line_highway už pedestrian přemapuje na sidewalk.
         if (tags.get("highway") or "").lower() == "pedestrian" and len(pts) >= 3:
@@ -3815,6 +3823,19 @@ def prepare_osm_paths(
                     {"type": "Feature", "properties": {"source": "osm", "railway_tunnel": True},
                      "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in pts]}}
                     for pts in rail_tunnels
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (dest_dir / WALK_TUNNELS_NAME).write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature", "properties": {"source": "osm", "walk_tunnel": True},
+                     "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in pts]}}
+                    for pts in walk_tunnels
                 ],
             }
         ),
@@ -5803,6 +5824,35 @@ def extend_ends_to_road_band(
     return out
 
 
+def _walk_tunnel_zone(work_dir: Path):
+    """Pás kolem tunelů cest, které v OSM nejsou silnicí (``walk_tunnels.geojson``), nebo None."""
+    gj = work_dir / "osm_paths" / WALK_TUNNELS_NAME
+    if not gj.is_file():
+        return None
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+
+        lines = [
+            LineString([(float(c[0]), float(c[1])) for c in (f.get("geometry") or {}).get("coordinates") or []])
+            for f in json.loads(gj.read_text(encoding="utf-8")).get("features") or []
+            if len((f.get("geometry") or {}).get("coordinates") or []) >= 2
+        ]
+    except (OSError, ValueError, ImportError):
+        return None
+    return unary_union([ln.buffer(WALK_TUNNEL_TOL_M) for ln in lines]) if lines else None
+
+
+def _in_walk_tunnel(coords, zone) -> bool:
+    """Leží tunel ``coords`` z většiny v pásu pěších tunelů ``zone``?"""
+    if zone is None or len(coords) < 2:
+        return False
+    from shapely.geometry import LineString
+
+    ln = LineString([(float(c[0]), float(c[1])) for c in coords])
+    return ln.length > 0 and ln.intersection(zone).length >= 0.8 * ln.length
+
+
 def build_osm_path_parts(
     work_dir: Path,
     *,
@@ -5864,6 +5914,7 @@ def build_osm_path_parts(
     # Pěšina (footway) uvnitř plochy chodníku nebo silnice z DTM se nekreslí (přechod přes silnici
     # ani pěšina v ploše chodníku): jen části mimo plochy.
     sidewalk_cover = dtm_cover_geometry(work_dir, 0.0) if (sidewalks_from_dtm or roads_from_dtm) else None
+    walk_tunnel_zone = _walk_tunnel_zone(work_dir) if preset_id.startswith("sprint") else None
     # OSM schody uvnitř schodišť z DTM se nekreslí (schodiště kreslí build_dtm_stairs_parts; všechny presety).
     from app.pipeline.dtm_import import mtbo_dtm_off
 
@@ -6134,8 +6185,9 @@ def build_osm_path_parts(
             preset_id.startswith("sprint")
             and is_tunnel_highway(hw)
             and path_draw_highway(hw).startswith("road_")
+            and not _in_walk_tunnel(coords, walk_tunnel_zone)
         ):
-            continue  # silniční tunel ve sprintu nekreslíme; pěší podchody zůstávají
+            continue  # silniční tunel ve sprintu nekreslíme; pěší podchody (i asfaltový track) zůstávají
         if (
             not preset_id.startswith("sprint")
             and is_tunnel_highway(hw)
