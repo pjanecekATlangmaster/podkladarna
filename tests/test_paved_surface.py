@@ -46,6 +46,23 @@ def test_fill_strip_reaches_border_of_parallel_road():
     assert ps.road_fill_strips(network, [([(0.0, -6.0), (100.0, -6.0)], 4.0, 0.0)], "forest_10000", 10000) is None
 
 
+def test_short_edge_piece_between_mouths_is_not_drawn():
+    # Dvě ústí na spodní hraně 5 m od sebe: úlomek okraje mezi nimi (pod 0,8 mm) se nekreslí, zbylé dva kusy ano.
+    import re
+
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_import as di
+
+    network = box(0, 0, 100, 40)
+    omit = unary_union([box(30, -1, 38, 1), box(43, -1, 51, 1)])
+    kw = dict(preset_id="forest_10000", scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0, clip_bounds=None)
+    parts = di._geometry_part(network, name="x", code="501.1", fill_code="501.1", edge_code="501.2", outline_separate=True, edge_omit=omit, edge_only=True, **kw)
+    n = sum(len(re.findall(r"<object\b", p.objects_xml)) for p in parts)
+    assert n == 2  # bez EDGE_PIECE_MIN_MM by byly tři
+    assert di.EDGE_PIECE_MIN_MM * 10 > 5
+
+
 def test_dtm_area_features_empty_without_dtm(tmp_path):
     assert ps.dtm_area_features(tmp_path, "forest_10000", 10000) == []
     assert ps.dtm_area_features(tmp_path, "sprint_4000", 4000) == []

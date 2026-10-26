@@ -312,4 +312,3 @@ def test_cliff_on_paved_area_is_cut(tmp_path):
     for o in pieces:
         xs = [x / 100.0 for x, _y, _f in _parse_coords(_COORDS_RE.search(o).group(1))]
         assert all(abs(x) >= 19.9 for x in xs)
-
