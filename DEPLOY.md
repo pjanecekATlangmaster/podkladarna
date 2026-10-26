@@ -280,6 +280,7 @@ Společné: **cache stažených dat** (`./data/cache`, v B připojená nad `./da
 ### Běžný tok
 `merge do master` → CI sestaví `:latest` → `sudo ./update-nas-ab.sh test` → ověření na `pt.kibos.link` → **Promote to stable** → `sudo ./update-nas-ab.sh stable`.
 Automatická aktualizace B (cron, např. každých 5 min): `flock -n /tmp/update-ab.lock /volume1/docker/podkladarna/update-nas-ab.sh test --if-idle`. Bez nového image se kontejner nerestartuje; s novým image se restart odloží, dokud na B běží job (`/api/health` → `busy`).
+Kontejner s novým image `update-nas-ab.sh` nejdřív zastaví přes `synowebapi` (jako Stop v Container Manageru), aby DSM neposílal mail „stopped unexpectedly“; bez `synowebapi` (nebo bez práv) pokračuje jako dřív přes docker. Po úspěšném nasazení smaže zastavené zbytky `<id>_podkladarna*` a image `ghcr.io/<owner>/podkladarna` bez tagu, které žádný kontejner nepoužívá (nic jiného).
 Rollback A: do `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh stable`.
 
 ### Pozor
