@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS,
@@ -22,6 +23,7 @@ from app.pipeline.vegetation_density import (
     reclaim_yellow_under_canopy,
     reinforce_open_from_chm,
     soften_meadow_forest_edge,
+    veto_open_under_canopy,
     yellow_mask_from_hits,
 )
 
@@ -369,3 +371,43 @@ def test_fill_small_holes_scipy_matches_python_fallback():
                 fill_small_holes(mask, max_hole_px=max_px),
                 _fill_small_holes_py(mask, max_hole_px=max_px),
             )
+
+
+
+def _veto_case(name):
+    """(třídy, CHM, kw, maska pixelů, které mají skončit bílé) pro veto 401 pod korunou."""
+    cls = np.full((30, 30), OPEN, dtype=np.uint8)
+    chm = np.zeros((30, 30), dtype=np.float32)
+    white = np.zeros((30, 30), dtype=bool)
+    kw = {}
+    if name == "koruna":
+        chm[5:25, 5:25] = 15.0
+        white[8:22, 8:22] = True
+    elif name == "osamely_strom":
+        chm[15, 15] = 20.0
+    elif name == "zelen_zustane":
+        cls[10:] = MID
+        chm[:] = 15.0
+        white[:10] = True
+    elif name == "bez_dmp":
+        chm[:] = np.nan
+    elif name == "vypnuto":
+        chm[:] = 15.0
+        kw = {"max_chm_m": 0}
+    return cls, chm, kw, white
+
+
+@pytest.mark.parametrize(
+    "name", ["louka", "koruna", "osamely_strom", "zelen_zustane", "bez_dmp", "vypnuto"]
+)
+def test_veto_open_under_canopy(name):
+    cls, chm, kw, white = _veto_case(name)
+    out = veto_open_under_canopy(cls, chm, **kw)
+    expected = cls.copy()
+    expected[white] = WHITE
+    if name == "koruna":
+        # okraj koruny rozhoduje medián – testuje se jen jádro a volná louka
+        assert np.all(out[white] == WHITE) and np.all(out[:3] == OPEN)
+    else:
+        assert np.array_equal(out, expected)
+    assert veto_open_under_canopy(cls, None).tolist() == cls.tolist()

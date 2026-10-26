@@ -70,6 +70,10 @@ class DensityVegeParams:
     meadow_edge_passes: int = 2
     # Legacy / testy: invent 410 na zlomu je vypnuté (0 = nepoužít).
     meadow_edge_green_chm_max_m: float = 0.0
+    # 401 pod korunou = les s nízkým podrostem: OPEN pixel s vyhlazeným CHM
+    # ≥ canopy_veto_chm_m → bílá (okno canopy_veto_median_px; 0 = vypnuto).
+    canopy_veto_chm_m: float = 4.0
+    canopy_veto_median_px: int = 5
     # --- zeleně ---
     block_m: float = 2.0
     green_ground_m: float = 0.9
@@ -310,6 +314,35 @@ def reclaim_yellow_under_canopy(
     frac = _neighbor_fraction(open_m)
     reclaim = (out == WHITE) & (frac >= frac_min)
     out[reclaim] = OPEN
+    return out
+
+
+def veto_open_under_canopy(
+    classified,
+    chm,
+    *,
+    max_chm_m: float = 4.0,
+    median_px: int = 5,
+):
+    """401 pod korunou → bílá (les s nízkým podrostem není louka).
+
+    OPEN pixel, u něhož je mediánově vyhlazené CHM (okno ``median_px``²)
+    ≥ ``max_chm_m``, se změní na WHITE. NaN (bez DMP bodu) = 0 = otevřeno.
+    Medián potlačí osamělý vysoký pixel uprostřed louky. Ostatní třídy
+    zůstanou; bez CHM / jiný tvar / ``max_chm_m <= 0`` vrátí kopii.
+    """
+    import numpy as np
+    from scipy.ndimage import median_filter
+
+    out = np.asarray(classified, dtype=np.uint8).copy()
+    if chm is None or max_chm_m <= 0:
+        return out
+    h = np.asarray(chm, dtype=np.float32)
+    if h.shape != out.shape:
+        return out
+    h = np.nan_to_num(h, nan=0.0)
+    smooth = median_filter(h, size=max(1, int(median_px)), mode="nearest")
+    out[(out == OPEN) & (smooth >= float(max_chm_m))] = WHITE
     return out
 
 
@@ -815,6 +848,7 @@ def generate_job_vegetation_density(
             if np.any(bad):
                 dem = np.where(bad, np.nanmedian(np.where(bad, np.nan, dem)), dem)
         classified, n_points = classify_point_files(files, dem, gt, params)
+        veto_chm = None
         if wait_chm is not None:
             wait_chm()
         chm_tif = work_dir / DEM_DIR_NAME / "chm.tif"
@@ -827,6 +861,7 @@ def generate_job_vegetation_density(
                         chm_arr = np.where(
                             chm_arr == float(chm_nodata), np.nan, chm_arr
                         )
+                    veto_chm = chm_arr
                     before = int(np.count_nonzero(classified == OPEN))
                     classified = reinforce_open_from_chm(
                         classified,
@@ -864,6 +899,19 @@ def generate_job_vegetation_density(
         if log:
             log(f"Vegetace (hustota bodů): selhalo ({exc}) – fallback CHM")
         return None
+    if veto_chm is not None:
+        # Až po CHM prioru a okraji louky (ty by 401 pod korunu vrátily); zástavba se
+        # zjednodušuje až potom a může stromy v zahradách zase zaplnit 401.
+        n_open = int(np.count_nonzero(classified == OPEN))
+        classified = veto_open_under_canopy(
+            classified,
+            veto_chm,
+            max_chm_m=params.canopy_veto_chm_m,
+            median_px=params.canopy_veto_median_px,
+        )
+        vetoed = n_open - int(np.count_nonzero(classified == OPEN))
+        if log and vetoed > 0:
+            log(f"Vegetace (hustota bodů): 401 pod korunou → bílý les: {vetoed} px")
     shares = np.bincount(classified.ravel(), minlength=5) / classified.size * 100
     if log:
         log(

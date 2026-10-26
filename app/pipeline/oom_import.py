@@ -59,6 +59,14 @@ _DTM_CLIPPED_PATH_LAYERS = frozenset({"Ulice", "SilniceDalnice", "Cesta", "Pesin
 _ROAD_BRIDGE_LAYER = "Most:silnice"
 # Les / MTBO: silniční Tunel a Podjezd (road-path) se ořežou o plochy silnic a chodníků z DTM (koridor je kreslí plochou). Lávka a Most ne.
 _DTM_CLIPPED_UNDER_LAYERS = frozenset({"Tunel:silnice", "Podjezd:silnice"})
+# Les / MTBO: ZABAGED Pěšina, která po dedupu proti OSM zůstala (nemá OSM protějšek), se nekreslí – v ruční mapě
+# (Harrachov, Ochoza) ji podporuje jen asi třetina délky. Platí jen když OSM data jsou; sprint beze změny.
+_FOREST_ZABAGED_DROP_WITHOUT_OSM = frozenset({"Pesina"})
+
+
+def forest_drops_zabaged_without_osm(layer_name: str, preset_id: str, has_osm: bool) -> bool:
+    """True, když se ZABAGED vrstva bez OSM protějšku v lese / MTBO vůbec nekreslí."""
+    return has_osm and not preset_id.startswith("sprint") and layer_name in _FOREST_ZABAGED_DROP_WITHOUT_OSM
 
 # ZABAGED vrstvy, které skálu NEpřebíjejí (zelená / bílá / vegetační pozadí).
 # Vrstevnice sem nepatří – nejsou v ZABAGED a do blockerů se vůbec nenačítají.
@@ -1227,6 +1235,8 @@ def build_zabaged_object_parts(
             ]
         if not osm_blockers or layer_name not in osm_first_layers:
             return line_parts
+        if forest_drops_zabaged_without_osm(layer_name, preset_id, bool(osm_blockers)):
+            return []
         if osm_index is None:
             osm_index = centerline_index(osm_blockers)
         blockers, index = osm_blockers, osm_index

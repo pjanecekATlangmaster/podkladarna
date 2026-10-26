@@ -961,3 +961,13 @@ def test_zabaged_path_beside_osm_dedup_wider_in_forest(tmp_path):
     assert _count_cesta_objects(tmp_path, "forest_10000", 10000, 8.0) == 0
     assert _count_cesta_objects(tmp_path, "forest_10000", 10000, 15.0) == 1
     assert _count_cesta_objects(tmp_path, "sprint_4000", 4000, 8.0) == 1
+
+
+def test_forest_drops_zabaged_pesina_only_with_osm_in_forest():
+    from app.pipeline.oom_import import forest_drops_zabaged_without_osm as f
+
+    assert f("Pesina", "forest_10000", True)
+    assert f("Pesina", "mtbo_10000", True)
+    assert not f("Pesina", "forest_10000", False)  # OSM chybí → kreslí se
+    assert not f("Pesina", "sprint_4000", True)
+    assert not f("Cesta", "forest_10000", True)
