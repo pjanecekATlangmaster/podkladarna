@@ -205,6 +205,8 @@ PEDESTRIAN_CORRIDOR_MIN_OVERLAP_M = 20.0
 PEDESTRIAN_CORRIDOR_PAVED_SHARE = 0.8
 # Osy koridorů (``merge_parallel_pedestrian_to_areas``) pro les / MTBO, vedle ``paths_osm.geojson``.
 CORRIDOR_AXES_NAME = "corridor_axes.geojson"
+# Jednosměrné silnice s názvem z přípravy OSM (les a MTBO: rozdělená vozovka jedním symbolem 502.0, viz ``dual_carriageway``).
+ONEWAY_ROADS_NAME = "oneway_roads.geojson"
 PEDESTRIAN_CORRIDOR_MAX_BUILDING_SHARE = 0.05
 # Sousední pěší zóny se sloučí, škvíra do tolika m se zacelí (navázání okrajů).
 PEDESTRIAN_AREA_MERGE_GAP_M = 1.5
@@ -2202,6 +2204,8 @@ def osm_oom_code(highway: str, preset_id: str) -> str:
     hw = path_draw_highway(raw)
     if raw.split(":", 1)[-1] == PATH_MAJOR_HIGHWAY and not sprint and not mtbo:
         return "505"  # les: výrazná pěšina (compacted / gravel / trail_visibility=excellent)
+    if hw == "road_dual" and not sprint:
+        return "502.0"  # les a MTBO: rozdělená vozovka jedním symbolem (``dual_carriageway``)
 
     # Legacy OSM road names (starší geojson) → rank podle base (bez tagů).
     if hw in OSM_ROAD_HIGHWAYS:
@@ -3482,6 +3486,8 @@ def prepare_osm_paths(
     covered_passages: list[list[tuple[float, float]]] = []
     # Cesty se zpevněným povrchem (surface=asphalt, paving_stones …) – jen z nich vzniká koridor pěší zóny.
     paved_walk_lines: list[list[tuple[float, float]]] = []
+    # Jednosměrné silnice s názvem (``ONEWAY_ROADS_NAME``): les a MTBO z nich skládají rozdělenou vozovku (502.0).
+    oneway_roads: list[dict] = []
     features: list[dict] = []
     skipped = 0
     # Sloupy/stožáry pro DashPoint na vedení (nejsou samostatné OOM objekty).
@@ -3692,6 +3698,21 @@ def prepare_osm_paths(
                 )
                 continue
         osm_items.append((pts, hw))
+        _rb = (tags.get("junction") or "").lower() == "roundabout"
+        if ((tags.get("oneway") or "").lower() == "yes" or _rb) and path_draw_highway(hw).startswith("road_") and len(pts) >= 2:
+            oneway_roads.append(
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "source": "osm",
+                        "highway": hw,
+                        "name": tags.get("name") or "",
+                        "roundabout": _rb,
+                        "lanes": tags.get("lanes") or "",
+                    },
+                    "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in pts]},
+                }
+            )
         if is_bike_allowed(tags) and path_draw_highway(hw) in BIKE_SHARED_BASES:
             bike_lines.append(list(pts))
         if _is_paved_surface(tags):
@@ -3851,6 +3872,9 @@ def prepare_osm_paths(
         encoding="utf-8",
     )
     write_geojson(kept_osm, "paths_osm.geojson")
+    (dest_dir / ONEWAY_ROADS_NAME).write_text(
+        json.dumps({"type": "FeatureCollection", "features": oneway_roads}), encoding="utf-8"
+    )
     (dest_dir / CORRIDOR_AXES_NAME).write_text(
         json.dumps(
             {
@@ -5373,6 +5397,10 @@ def drawn_symbol_width_m(highway: str, preset_id: str, scale: int) -> float:
 
     code = osm_oom_code(highway, preset_id)
     mm = symbol_line_width_mm(preset_id, scale, code) if code else None
+    if not mm and code:
+        from app.pipeline.oom_symbol_map import symbol_width_mm
+
+        mm = symbol_width_mm(preset_id, scale, code)  # kombinovaný symbol (502.0 dálnice: nejširší část)
     if not mm:
         return drawn_width_m(highway)
     return mm_to_ground_m(mm, scale)
@@ -5846,7 +5874,7 @@ def mixed_osm_road_band(work_dir: Path, preset_id: str, scale: int):
 
 
 # Kódy silnic kreslených dvojčarou s výplní (502 / 502.1); přes ně černé cesty nevedou.
-MAJOR_ROAD_CODES = frozenset({"502", "502.1", "502.2"})
+MAJOR_ROAD_CODES = frozenset({"502", "502.0", "502.1", "502.2"})
 
 
 # Konce kusů čar do této vzdálenosti (m) se před spojením přitáhnou k sobě (po ořezech končí sousední kusy
@@ -6132,6 +6160,21 @@ def build_osm_path_parts(
                 )
             except (OSError, ValueError):
                 pass
+    # Les / MTBO: rozdělená vozovka (dva souběžné jednosměrné pásy) jedním 502.0 po střední ose; pásy se v jejím pásu nekreslí.
+    dual_zone = None
+    if not preset_id.startswith("sprint") and path_source != PATH_SOURCE_ZABAGED:
+        from app.pipeline.dual_carriageway import DUAL_HIGHWAY, dual_axes
+
+        _dual_axes, dual_zone = dual_axes(work_dir, preset_id, scale)
+        if _dual_axes:
+            data["features"] = list(data.get("features") or []) + [
+                {
+                    "type": "Feature",
+                    "properties": {"source": "osm", "highway": DUAL_HIGHWAY},
+                    "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in c]},
+                }
+                for c in _dual_axes
+            ]
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
     # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.
@@ -6477,6 +6520,7 @@ def build_osm_path_parts(
             and (road_widths or walk_widths)
             and not is_bridge_highway(hw)
             and not is_tunnel_highway(hw)
+            and path_draw_highway(hw) != "road_dual"  # rozdělená vozovka má symbol 502.0 pevně
             and not (path_draw_highway(hw) in {"road_1", "road_2"} and polyline_length(coords) <= SERVICE_LINK_MAX_M)
         ):
             # Krátká účelová komunikace šířku z DTM nebere: řez zachytí těleso sousední ulice (way/1032671443).
@@ -6512,6 +6556,15 @@ def build_osm_path_parts(
         ):
             line = extend_ends_to_road_band(line, dropped_sidewalks, road_band, others=other_lines)
         lines = narrow_pieces if narrow_pieces is not None else [line]
+        if (
+            dual_zone is not None
+            and path_draw_highway(hw).startswith("road_")
+            and path_draw_highway(hw) != "road_dual"
+            and not is_bridge_highway(hw)
+            and not is_tunnel_highway(hw)
+        ):
+            # původní jízdní pásy rozdělené vozovky kreslí 502.0 po ose
+            lines = [seg for ln in lines for seg in clip_outside(ln, dual_zone)]
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian", "cycleway_paved"}:
             # Pěšina / zpevněná cyklostezka uvnitř plochy chodníku nebo silnice z DTM by se kreslila dvakrát
             # (plocha už je nakreslená) → jen části mimo plochu.

@@ -350,9 +350,10 @@ def _fill_along_axes(result, roadway, axes, h: float):
 
 
 # Les a MTBO: generalizace ploch z DTM podle mm mapy (tvar z DTM jako ve sprintu, ale zjednodušený pro měřítko).
-GENERALIZE_CLOSE_MM = 0.2  # zálivy a škvíry užší než 2× se zacelí
-GENERALIZE_OPEN_MM = 0.15  # výběžky užší než 2× se odříznou
-GENERALIZE_SIMPLIFY_MM = 0.05  # zjednodušení obrysu (Douglas–Peucker)
+# Petr 2026-10-26: v lese a MTBO se okraje ploch a zálivy smějí zjednodušit víc (dřív 0,2 / 0,15 / 0,05 mm).
+GENERALIZE_CLOSE_MM = 0.3  # zálivy a škvíry užší než 2× se zacelí
+GENERALIZE_OPEN_MM = 0.25  # výběžky užší než 2× se odříznou
+GENERALIZE_SIMPLIFY_MM = 0.08  # zjednodušení obrysu (Douglas–Peucker)
 GENERALIZE_MIN_HOLE_MM2 = 1.0  # díry (ostrůvky, záhonky) menší se zacelí
 GENERALIZE_MIN_PART_MM2 = 0.5  # samostatné kusy menší se zahodí
 

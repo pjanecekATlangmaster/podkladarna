@@ -659,9 +659,10 @@ def test_mtbo_corridor_bridges_narrower_stretch_between_wide_pieces():
 
 
 def test_mtbo_corridor_parts_and_road_lines_removed_inside(tmp_path, monkeypatch):
-    from app.pipeline import osm_paths as op
+    from app.pipeline import junction_areas, osm_paths as op
 
     monkeypatch.setattr(di, "CORRIDOR_WITH_SIDEWALKS", True)  # test původního chování s chodníky v koridoru
+    monkeypatch.setattr(junction_areas, "JUNCTION_AREAS", False)  # koridor podle šířky (ne jen složité křižovatky)
 
     work = tmp_path
     (work / "dtm").mkdir()
@@ -1311,9 +1312,10 @@ def test_mtbo_corridor_only_along_drawn_roads(tmp_path):
     assert corridor.is_valid
 
 
-def test_mtbo_footway_along_corridor_edge_is_not_drawn(tmp_path):
-    from app.pipeline import osm_paths as op
+def test_mtbo_footway_along_corridor_edge_is_not_drawn(tmp_path, monkeypatch):
+    from app.pipeline import junction_areas, osm_paths as op
 
+    monkeypatch.setattr(junction_areas, "JUNCTION_AREAS", False)  # koridor podle šířky (ne jen složité křižovatky)
     work = tmp_path
     _write_polys(work, "roads.json", [_rect(0, -10, 200, 10)])  # široká ulice (20 m) z DTM
     road = _feat([(0, 0), (200, 0)], "road_3")
@@ -1326,9 +1328,10 @@ def test_mtbo_footway_along_corridor_edge_is_not_drawn(tmp_path):
     assert sum(p.count for p in parts) == 2  # zůstane vzdálená pěšina a chodník za pásem zeleně
 
 
-def test_forest_footway_near_corridor_edge_is_dropped_with_line_gap(tmp_path):
-    from app.pipeline import osm_paths as op
+def test_forest_footway_near_corridor_edge_is_dropped_with_line_gap(tmp_path, monkeypatch):
+    from app.pipeline import junction_areas, osm_paths as op
 
+    monkeypatch.setattr(junction_areas, "JUNCTION_AREAS", False)  # koridor podle šířky (ne jen složité křižovatky)
     work = tmp_path
     _write_polys(work, "roads.json", [_rect(0, -10, 200, 10)])  # široká ulice (20 m) z DTM
     near_path = _feat([(0, 15), (200, 15)], "footway")  # 5 m od okraje koridoru – v lese (mezera 0,35 mm) splyne s okrajem 501.2
@@ -1456,7 +1459,8 @@ def test_forest_and_mtbo_roads_and_paths_are_cut_by_dtm_parking(tmp_path):
         cut.mkdir(parents=True)
         make(cut, True)
         parts = op.build_osm_path_parts(cut, **kw)
-        assert _drawn_length_in_rect(parts, inside, ref, 10000) < 1.0
+        # generalizace plochy (otevření 0,25 mm) zaoblí rohy parkoviště, cesta u rohu proto sahá ~1 m do obdélníku
+        assert _drawn_length_in_rect(parts, inside, ref, 10000) < 3.0
         assert sum(p.count for p in parts) >= 2  # napojení na hranu parkoviště zůstává
         op._PAVED_NETWORK_CACHE.clear()
 

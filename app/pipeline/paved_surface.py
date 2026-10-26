@@ -90,7 +90,9 @@ def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
     tree = STRtree(rings)
     gap = paved_edge_width_m(preset_id, scale) / 2.0 + mm_to_ground_m(LINE_MIN_GAP_MM, scale)
     zones = []
-    for coords, half in road_bands:
+    for band in road_bands:
+        coords, half = band[0], band[1]
+        fill = band[2] if len(band) > 2 else half + JUNCTION_EXTRA_M  # půlka výplně mezi okrajovými linkami silnice
         if len(coords) < 2:
             continue
         wide_r = half + gap
@@ -100,7 +102,8 @@ def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
         if not near:
             continue
         ext = LineString(_extend_ends(coords, JUNCTION_END_TOL_M))
-        zones.append(ext.buffer(half + JUNCTION_EXTRA_M, cap_style=2))  # ústí: kresba čáry překrývá okraj
+        # ústí: okraj plochy končí na okrajové lince silnice (šířka výplně), u čáry bez okrajů na jejím kraji
+        zones.append(ext.buffer(fill, cap_style=2))
         wide = ext.buffer(wide_r, cap_style=2)
         limit = EDGE_PARALLEL_FACTOR * 2.0 * wide_r
         for ring in near:

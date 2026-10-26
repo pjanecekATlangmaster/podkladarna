@@ -596,7 +596,7 @@ isom:
     review: false
   - ocad_code: "502.0"
     cz_name: "Široká silnice (dálnice)"
-    generator_codes: []
+    generator_codes: ["502.0"]
     geom: line
     review: false
   - ocad_code: "502.1"
@@ -2014,7 +2014,7 @@ sprint:
 mtbo:
   - ocad_code: "502.0"
     cz_name: "Zpevněná silnice (dálnice)"
-    generator_codes: []
+    generator_codes: ["502.0"]
     geom: line
     review: false
   - ocad_code: "502.1"

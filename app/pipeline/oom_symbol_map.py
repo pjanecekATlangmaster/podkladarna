@@ -342,6 +342,40 @@ def _symbol_widths(symbol_set: Path) -> dict[int, float]:
     return out
 
 
+@lru_cache(maxsize=8)
+def _symbol_fill_widths(symbol_set: Path) -> dict[int, float]:
+    """Šířka výplně čárového symbolu v mm (``{index: šířka}``): u symbolu s okrajovými linkami (``border``, silnice
+    502.x) šířka čáry mezi nimi, jinak nejširší čára. Okraj plochy navazuje na okrajovou linku silnice právě tam."""
+    import xml.etree.ElementTree as ET
+
+    root = ET.parse(symbol_set).getroot()
+    symbols = [el for el in root.iter() if el.tag.rsplit("}", 1)[-1] == "symbol" and el.get("id") is not None]
+    out: dict[int, float] = {}
+    for el in symbols:
+        bordered, plain = 0.0, 0.0
+        for line in (x for x in el.iter() if x.tag.rsplit("}", 1)[-1] == "line_symbol"):
+            w = float(line.get("line_width") or 0)
+            if any(x.tag.rsplit("}", 1)[-1] == "border" for x in line.iter()):
+                bordered = max(bordered, w)
+            else:
+                plain = max(plain, w)
+        w = bordered or plain
+        if w > 0:
+            out[int(el.get("id"))] = w / 1000.0
+    return out
+
+
+def symbol_fill_width_mm(preset_id: str, scale: int, code: str) -> float | None:
+    """Šířka výplně čárového symbolu ``code`` (mezi okrajovými linkami; bez nich celá čára) v mm, nebo None."""
+    idx = symbol_index_for_code(preset_id, scale, code)
+    if idx is None:
+        return None
+    try:
+        return _symbol_fill_widths(symbol_set_path(preset_id, scale)).get(idx)
+    except Exception:
+        return None
+
+
 def symbol_width_mm(preset_id: str, scale: int, code: str) -> float | None:
     """Šířka čárového symbolu ``code`` v mm na mapě (sada presetu); None, když symbol není nebo nemá čáru."""
     idx = symbol_index_for_code(preset_id, scale, code)
