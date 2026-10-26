@@ -2660,3 +2660,31 @@ def test_load_osm_path_lines_ground_only_uses_all_osm_without_bridges(tmp_path):
     _write_osm_geojson(tmp_path, "paths_osm.geojson", [f("cycleway_paved", 0), f("road_3", 5), f("bridge:road_3", 9)])
     assert len(load_osm_path_lines(tmp_path)) == 1
     assert [ln[0][1] for ln in load_osm_path_lines(tmp_path, ground_only=True)] == [0, 5]
+
+
+def test_overpass_null_node_in_geometry_is_skipped():
+    # Overpass občas vrátí v poli geometry null uzel (way/287894939, Ochoza).
+    from app.pipeline.osm_paths import osm_area_polygons_5514, osm_way_to_5514
+
+    area = {
+        "type": "way",
+        "tags": {"landuse": "residential"},
+        "geometry": [
+            {"lat": 49.590, "lon": 16.040},
+            None,
+            {"lat": 49.590, "lon": 16.042},
+            {"lat": 49.592, "lon": 16.042},
+            {"lat": 49.592, "lon": 16.040},
+            {"lat": 49.590, "lon": 16.040},
+        ],
+    }
+    polys = osm_area_polygons_5514(area)
+    assert len(polys) == 1
+    assert len(polys[0][0]) == 5
+
+    way = {
+        "type": "way",
+        "tags": {"highway": "track"},
+        "geometry": [{"lat": 49.590, "lon": 16.040}, None, {"lat": 49.591, "lon": 16.041}],
+    }
+    assert len(osm_way_to_5514(way)) == 2
