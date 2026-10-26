@@ -261,7 +261,7 @@ def test_create_job_dtm_source_options(client, monkeypatch):
 
     opts = post("dtm-default")
     assert "dtm_sprint" not in opts or opts["dtm_sprint"] is True
-    assert not opts.get("dtm_forest")
+    assert "dtm_forest" not in opts or opts["dtm_forest"] is True  # les a MTBO z DTM výchozí (2.38.1)
     opts = post("dtm-explicit", dtm_sprint="0", dtm_forest="1")
     assert opts["dtm_sprint"] is False
     assert opts["dtm_forest"] is True
