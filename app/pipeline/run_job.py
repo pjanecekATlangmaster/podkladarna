@@ -611,6 +611,16 @@ def run_job_pipeline(
         if scalefactor
         else None,
     )
+    # Veto 401 pod korunou je ověřené jen na lese / MTBO; sprint beze změny.
+    sprint_job = any(
+        str(disc_preset).startswith("sprint")
+        for _tag, disc_preset, _scale in resolve_discipline_presets(
+            preset_id,
+            load_presets(),
+            map_scale=options.get("map_scale"),
+            contour_interval=options.get("contour_interval"),
+        )
+    )
     progress.begin("vegetace")
     if veg_size_profile != "default":
         log(f"Filtr velikosti/tvaru: {veg_size_profile}")
@@ -628,6 +638,9 @@ def run_job_pipeline(
             params=replace(
                 DEFAULT_DENSITY_PARAMS,
                 green_high_m=resolve_vege_height(options),
+                canopy_veto_chm_m=0.0
+                if sprint_job
+                else DEFAULT_DENSITY_PARAMS.canopy_veto_chm_m,
             ),
             log=log,
             veg_size_profile=veg_size_profile,
