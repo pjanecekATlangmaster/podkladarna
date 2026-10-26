@@ -650,3 +650,13 @@ def test_forest_fills_dtm_enclosure_closed_by_gap_connector(tmp_path):
     assert fills("forest_10000", 10000) == 1
     assert fills("mtbo_10000", 10000) == 1
     assert fills("sprint_4000", 4000) == 0
+
+
+def test_load_building_points_count_counts_and_caches(tmp_path, monkeypatch):
+    z = _jvf_zip(tmp_path)
+    monkeypatch.setattr(df, "iter_records", lambda *a, **k: iter(range(7)))
+    assert df.load_building_points_count(z) == 7
+    cache = z.with_name(z.name + df.BUILDING_POINTS_CACHE_SUFFIX)
+    assert cache.is_file()
+    monkeypatch.setattr(df, "iter_records", lambda *a, **k: (_ for _ in ()).throw(AssertionError("cache")))
+    assert df.load_building_points_count(z) == 7

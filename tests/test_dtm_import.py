@@ -224,3 +224,53 @@ def test_osm_feature_parts_skip_fences_when_dtm_owns_them(tmp_path):
     (tmp_path / "dtm" / "fences.json").unlink()  # bez DTM kreslí OSM ploty původní cestou
     parts = o.build_osm_feature_parts(tmp_path, **KW)
     assert any(p.name == "OSM ploty" for p in parts)
+
+
+def _unit_pkgs(code, set_name):
+    return ds.DtmPackage(
+        url=f"https://x/VS_CZ010_OBEC_{code}_20260930_{set_name}.jvf.zip",
+        kraj="CZ010", unit_kind="OBEC", unit_code=code, date="20260930", set_name=set_name, fmt="jvf",
+    )
+
+
+def test_incomplete_opl_units_by_building_share(tmp_path, monkeypatch):
+    counts = {
+        (1, "ZPS_OPL"): 10, (1, "ZPS_KR"): 1000,  # neúplná
+        (2, "ZPS_OPL"): 950, (2, "ZPS_KR"): 1000,  # úplná
+        (3, "ZPS_OPL"): 5, (3, "ZPS_KR"): 20,  # pod OPL_COMPLETE_MIN_POINTS
+    }
+    pkgs = [_unit_pkgs(c, s) for c in (1, 2, 3) for s in ("ZPS_OPL", "ZPS_KR")]
+    pkgs.append(_unit_pkgs(4, "ZPS_OPL"))  # bez KR → nelze posoudit
+    files = {p.filename: tmp_path / p.filename for p in pkgs}
+    name = {str(v): (p.unit_code, p.set_name) for p, v in zip(pkgs, files.values())}
+    monkeypatch.setattr(
+        di.dtm_sidewalks, "load_building_polygons", lambda f, **k: [None] * counts[name[str(f)]]
+    )
+    monkeypatch.setattr(di.dtm_fences, "load_building_points_count", lambda f, **k: counts[name[str(f)]])
+    logs: list[str] = []
+    assert di.incomplete_opl_units(pkgs, files, logs.append) == {("OBEC", 1)}
+    assert any("neúplné" in m and "10 / 1000" in m for m in logs)
+
+    def boom(f, **k):
+        raise ValueError("poškozeno")
+
+    monkeypatch.setattr(di.dtm_fences, "load_building_points_count", boom)
+    assert di.incomplete_opl_units(pkgs, files) == set()
+
+
+def test_prepare_skips_incomplete_opl_for_sidewalks_and_decks(tmp_path, monkeypatch):
+    kr, opl = _unit_pkgs(1, "ZPS_KR"), _unit_pkgs(1, "ZPS_OPL")
+    ok_kr, ok_opl = _unit_pkgs(2, "ZPS_KR"), _unit_pkgs(2, "ZPS_OPL")
+    monkeypatch.setattr(ds, "find_packages_for_bbox", lambda bbox, **k: [kr, opl, ok_kr, ok_opl])
+    monkeypatch.setattr(ds, "download_packages", lambda pkgs, **k: {p.filename: tmp_path / p.filename for p in pkgs})
+    monkeypatch.setattr(di.dtm_fences, "load_fences", lambda path, **k: [])
+    monkeypatch.setattr(di.dtm_fences, "load_orientation_areas", lambda path, **k: {})
+    monkeypatch.setattr(di, "incomplete_opl_units", lambda pkgs, files, log=None: {("OBEC", 1)})
+    seen: dict[str, list] = {}
+    monkeypatch.setattr(di, "_write_sidewalks", lambda w, opl_files, b, log=None: seen.__setitem__("sw", opl_files))
+    monkeypatch.setattr(di, "_write_decks", lambda w, opl_files, b, log=None: seen.__setitem__("decks", opl_files))
+    out = di.prepare_dtm_fences(tmp_path / "work", BBOX)
+    assert seen["sw"] == seen["decks"] == [tmp_path / ok_opl.filename]
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["incomplete_opl"] == ["OBEC_1"]
+    assert len(data["opl_files"]) == 2  # orientační plochy beze změny
