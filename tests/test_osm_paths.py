@@ -2732,10 +2732,42 @@ def test_sprint_skips_gates_and_bollards_but_keeps_stiles(tmp_path):
     assert count("forest_10000") == 5
 
 
-def test_prepare_marks_barrier_value_and_covered_passage(tmp_path):
+def test_is_covered_passage_tags():
     from app.pipeline.osm_paths import is_covered_passage
 
     assert is_covered_passage({"highway": "footway", "covered": "yes"})
     assert is_covered_passage({"highway": "footway", "tunnel": "building_passage"})
     assert not is_covered_passage({"highway": "footway", "covered": "no"})
     assert not is_covered_passage({"highway": "footway"})
+
+
+def test_prepare_writes_barrier_value_and_covered_passages_file(tmp_path, monkeypatch):
+    """``prepare_osm_paths`` zapíše ``props["barrier"]`` u bodu brány a ``covered_passages.geojson``."""
+    import app.pipeline.osm_paths as op
+
+    elements = [
+        {"type": "node", "id": 1, "lat": 50.0005, "lon": 14.4005, "tags": {"barrier": "Bollard"}},
+        {
+            "type": "way",
+            "id": 2,
+            "tags": {"highway": "footway", "covered": "yes"},
+            "geometry": [{"lat": 50.0, "lon": 14.4000}, {"lat": 50.0, "lon": 14.4010}],
+        },
+        {
+            "type": "way",
+            "id": 3,
+            "tags": {"highway": "footway"},
+            "geometry": [{"lat": 50.0003, "lon": 14.4000}, {"lat": 50.0003, "lon": 14.4010}],
+        },
+    ]
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: elements)
+    op.prepare_osm_paths(tmp_path, (14.39, 49.99, 14.41, 50.01), None, preset_id="sprint_4000", osm_priority=True, log=lambda m: None)
+    out = tmp_path / "osm_paths"
+    barriers = [
+        f["properties"]
+        for f in json.loads((out / "features.geojson").read_text(encoding="utf-8"))["features"]
+        if f["properties"].get("kind") == "barrier_point"
+    ]
+    assert [p["barrier"] for p in barriers] == ["bollard"]
+    passages = json.loads((out / "covered_passages.geojson").read_text(encoding="utf-8"))["features"]
+    assert len(passages) == 1 and passages[0]["geometry"]["type"] == "LineString"

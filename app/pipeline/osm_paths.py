@@ -4479,6 +4479,8 @@ def osm_paved_beside_geometry(work_dir: Path, kinds: frozenset[str] | None = Non
     return unary_union(polys) if polys else None
 
 
+# Sprint: OSM schody v ploše chodníku z DTM se kreslí, pokud do tolika m není schodiště z DTM.
+SPRINT_STEPS_COVER_NEAR_M = 3.0
 # Pěšina (ne silnice) se přes zpevněnou plochu / silnici nekreslí — ořez na hraně.
 PATH_CUT_BASES = frozenset({"footway", "path", "sidewalk", "pedestrian"})
 
@@ -6217,6 +6219,15 @@ def build_osm_path_parts(
     path_cut_zone = path_cut_zone_geometry(
         work_dir, data.get("features") or [], extra=_cut_extra, paved=_cut_paved
     )
+    # Sprint: čára, která nahrazuje úzkou plochu chodníku z DTM (``narrow_line_zone``), se neřeže o OSM zpevněné
+    # plochy (plocha za ni už vynechaná, jinak by tam nebylo nic – Trnkovo nám.); silnice a plochy z DTM ořez drží.
+    narrow_cut_zone = None
+    if sidewalks_from_dtm:
+        from shapely.geometry import Polygon as _NoPaved
+
+        narrow_cut_zone = path_cut_zone_geometry(
+            work_dir, data.get("features") or [], extra=_cut_extra, paved=_NoPaved()
+        )
     # Síť je o plochy z DTM ořezaná; menší cesty se přerušují i na parkovištích z DTM.
     minor_clip_zone = None if preset_id.startswith("sprint") else _plus_dtm_parking(work_dir, paved_network, preset_id, scale)
     # Zóna i bez sítě, jsou-li parkoviště z DTM (síť o ně ořezaná): silnici přeruší, i když je síť prázdná.
@@ -6523,7 +6534,12 @@ def build_osm_path_parts(
             lines = clip_outside(line, corridor_zone)
         elif stairs_zone is not None and steps_piece:
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
-            lines = steps_keep(line, stairs_zone, sidewalk_cover)
+            lines = steps_keep(
+                line,
+                stairs_zone,
+                sidewalk_cover,
+                cover_near_m=SPRINT_STEPS_COVER_NEAR_M if preset_id.startswith("sprint") else None,
+            )
         if deck_zone is not None and not is_tunnel_highway(hw):
             if is_bridge_highway(hw):
                 if _line_in_zone(line, deck_zone):
@@ -6554,8 +6570,10 @@ def build_osm_path_parts(
             and not is_tunnel_highway(hw)
         ):
             # Pěšina křížící zpevněnou plochu / silnici: přes překryv se nekreslí, končí na hraně.
-            lines = [seg for ln in lines for seg in clip_outside(ln, path_cut_zone)]
-            lines = [seg for ln in lines for seg in end_at_edge(ln, path_cut_zone)]
+            _cut = narrow_cut_zone if sidewalks_from_dtm and narrow_pieces is not None and is_surface_sidewalk(hw) else path_cut_zone
+            if _cut is not None:
+                lines = [seg for ln in lines for seg in clip_outside(ln, _cut)]
+                lines = [seg for ln in lines for seg in end_at_edge(ln, _cut)]
         elif (
             edge_area is not None
             and not path_draw_highway(hw).startswith("road_")

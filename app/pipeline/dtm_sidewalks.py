@@ -468,17 +468,28 @@ def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SN
     return [pts_out]
 
 
-def steps_keep(coords: list[tuple[float, float]], stair_zone, cover, min_len_m: float = STAIRS_MIN_LEN_M):
+def steps_keep(
+    coords: list[tuple[float, float]],
+    stair_zone,
+    cover,
+    min_len_m: float = STAIRS_MIN_LEN_M,
+    cover_near_m: float | None = None,
+):
     """Části OSM čáry schodů, které se mají kreslit, jako seznamy souřadnic.
 
     Zůstává jen to, co leží mimo schodiště z DTM (``stair_zone``; ta se kreslí z DTM) a mimo
     plochy chodníků a silnic z DTM (``cover``; uvnitř nich DTM o schodech nic neví, takže OSM
     schody „přes“ celý chodník odpadnou – DTM má přednost).
+
+    ``cover_near_m`` (sprint): OSM schody uvnitř ``cover`` se kreslí, pokud v okolí tolik metrů
+    není schodiště z DTM (Trnkovo nám. – DTM schody v ploše chodníku nemá); u schodiště z DTM dál odpadnou.
     """
     from shapely.geometry import LineString
     from shapely.ops import linemerge, unary_union
 
     line = LineString(coords)
+    if cover is not None and cover_near_m is not None:
+        cover = cover.intersection(stair_zone.buffer(cover_near_m))
     blocked = stair_zone if cover is None else unary_union([stair_zone, cover])
     merged = line.difference(blocked)
     if merged.is_empty:
