@@ -1844,7 +1844,7 @@ def build_dtm_parking_parts(
 
 # DTM plocha komunikace, ve které OSM vede jen nezpevněnou cestu (štěrková lesní / lyžařská cesta,
 # way/256370567), se nekreslí jako silnice 501 – kreslí ji čára OSM. Nezpevněná = ``highway`` po refine
-# bez zpevněného surface (zpevněný track je už ``road_*``); ``track_fast`` (grade1) se bere jako zpevněný.
+# bez zpevněného surface (zpevněný track je už ``road_*``); ``track_fast`` (grade1) se počítá jako silnice.
 UNPAVED_TRACK_BASES = frozenset({"track", "track_slow", "path", "bridleway"})
 UNPAVED_TRACK_MIN_M = 20.0
 # OSM silnice uvnitř plochy smí mít nejvýš tolik délky nezpevněné cesty (napojení na křižovatce).
@@ -1873,8 +1873,8 @@ def drop_unpaved_track_roads(
             continue
         hw = str((feat.get("properties") or {}).get("highway") or "path")
         line = LineString([(float(c[0]), float(c[1])) for c in coords])
-        if is_surface_road(hw):
-            roads.append(line)
+        if is_surface_road(hw) or hw == "track_fast":
+            roads.append(line)  # zpevněná polní cesta (grade1) drží plochu jako silnice
         elif not op.is_bridge_highway(hw) and not op.is_tunnel_highway(hw) and hw in UNPAVED_TRACK_BASES:
             unpaved.append(line)
     if not unpaved:

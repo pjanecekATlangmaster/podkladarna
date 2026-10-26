@@ -1760,9 +1760,9 @@ def test_dtm_road_area_with_only_unpaved_track_is_not_road(tmp_path):
     def line(hw, y):
         return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": [[-5, y], [305, y]]}}
 
-    paths = {"type": "FeatureCollection", "features": [line("track", 0), line("road_3", 100), line("track", 101)]}
+    paths = {"type": "FeatureCollection", "features": [line("track", 0), line("track_fast", 100), line("track", 101)]}
     (work / "osm_paths" / "paths_osm.geojson").write_text(json.dumps(paths), encoding="utf-8")
     _sidewalks, roads = di.classified_polygons(work, "mixed")
-    assert len(roads) == 1 and roads[0][0][0][1] == 96  # zůstane jen ulice (silnice v ní má přednost)
+    assert len(roads) == 1 and roads[0][0][0][1] == 96  # zůstane plocha se zpevněnou polní cestou (grade1)
     cover = di.dtm_cover_geometry(work, 0.0)
     assert cover is not None and cover.bounds[1] >= 96
