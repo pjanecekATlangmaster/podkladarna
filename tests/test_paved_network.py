@@ -442,8 +442,12 @@ def test_mtbo_ignores_dtm_widths_when_off(tmp_path, monkeypatch):
     assert len(lengths) == 1  # jeden symbol podle tagů, DTM je v MTBO vypnuté
 
 
-def test_mtbo_wide_dtm_road_drawn_by_corridor(tmp_path):
-    # MTBO s DTM: silnice široká 10 m (1 mm v 1:10000) kreslí koridor plochou, čára uvnitř se nekreslí.
+def test_mtbo_wide_dtm_road_drawn_by_corridor(tmp_path, monkeypatch):
+    # MTBO s DTM: silnice široká 10 m (1 mm v 1:10000) kreslí koridor plochou, čára uvnitř se nekreslí
+    # (záložní režim koridoru podle šířky; s JUNCTION_AREAS je plocha jen u složitých křižovatek).
+    from app.pipeline import junction_areas
+
+    monkeypatch.setattr(junction_areas, "JUNCTION_AREAS", False)
     road = _line([(0, 0), (200, 0)], "road_2")
     _write_job(tmp_path, [], [road])
     _write_dtm(tmp_path, "roads.json", [(-5, -5, 205, 5)])
@@ -775,7 +779,10 @@ def test_network_polygons_valid_after_map_rounding():
             assert rounded.is_valid and rounded.exterior.is_simple
 
 
-def test_mtbo_paved_network_contains_dtm_areas(tmp_path):
+def test_mtbo_paved_network_contains_dtm_areas(tmp_path, monkeypatch):
+    from app.pipeline import junction_areas
+
+    monkeypatch.setattr(junction_areas, "JUNCTION_AREAS", False)  # koridor podle šířky (záložní režim)
     # MTBO s DTM: koridor silnice (silnice 12 m z DTM) a široký chodník z DTM už nejsou samostatné části, ale prvky
     # (kind "paved_dtm") sítě zpevněných ploch – síť je MÁ pokrývat (jedna plocha, jeden okraj z paved_surface);
     # dřív (UNIFIED_PAVED = False) se z nich síť ořezávala, aby se tatáž plocha nekreslila dvakrát.
