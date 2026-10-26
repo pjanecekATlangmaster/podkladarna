@@ -6686,9 +6686,10 @@ def build_osm_path_parts(
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian", "cycleway_paved"}:
             # Pěšina / zpevněná cyklostezka uvnitř plochy chodníku nebo silnice z DTM by se kreslila dvakrát
             # (plocha už je nakreslená) → jen části mimo plochu.
-            lines = clip_outside(line, sidewalk_cover)
+            lines = [seg for ln in lines for seg in clip_outside(ln, sidewalk_cover)]
         elif corridor_zone is not None and is_surface_road(hw):
-            lines = clip_outside(line, corridor_zone)
+            # z ``lines`` (ne ``line``): pásy rozdělené vozovky už oříznuté zónou 502.0 se nesmí vrátit (Lamačova, D25)
+            lines = [seg for ln in lines for seg in clip_outside(ln, corridor_zone)]
             # čára podél hrany koridoru by svou šířkou překrývala plochu → úseky podél hrany pryč (viz ``corridor_junction_omit``)
             _w = drawn_symbol_width_m(path_draw_highway(hw), preset_id, scale)
             _band = _corridor_bands.get(round(_w, 3))
@@ -6702,7 +6703,7 @@ def build_osm_path_parts(
             and not is_tunnel_highway(hw)
         ):
             # Chodník / pěšina / stezka uvnitř koridoru je jeho součástí (i smíšená – v ploše silnice není čitelná).
-            lines = clip_outside(line, corridor_zone)
+            lines = [seg for ln in lines for seg in clip_outside(ln, corridor_zone)]
         elif stairs_zone is not None and steps_piece:
             # Schody z OSM jen tam, kde je schodiště z DTM, nebo mimo plochy DTM (DTM má pravdu).
             lines = steps_keep(

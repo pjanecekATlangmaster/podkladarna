@@ -18,6 +18,9 @@ DUAL_GAP_M = 25.0
 # Pásy blíž než tolik m nejsou dva pásy, ale tatáž osa (chyba dat).
 DUAL_MIN_AXIS_M = 3.0
 STEP_M = 2.0
+# Pásy jsou protisměrné jen se směry do tolika stupňů od sebe (po otočení); jinak by navazující úseky jedné čáry
+# nebo zatáčka k druhému pásu dávaly falešnou osu (Lipského / Lamačova u kruhového objezdu, D25).
+OPPOSITE_MAX_DEG = 30.0
 DUAL_HIGHWAY = "road_dual"
 
 _CACHE: dict[tuple, tuple] = {}
@@ -46,8 +49,23 @@ def _load(work_dir: Path) -> list[dict]:
         return []
 
 
+def _tangent(line, d: float):
+    """Jednotkový směr čáry v délce ``d`` (m)."""
+    import math
+
+    p0 = line.interpolate(max(0.0, d - 1.0))
+    p1 = line.interpolate(min(line.length, d + 1.0))
+    vx, vy = p1.x - p0.x, p1.y - p0.y
+    n = math.hypot(vx, vy)
+    return (vx / n, vy / n) if n > 1e-9 else (0.0, 0.0)
+
+
 def _runs(a, b, max_m: float):
-    """Úseky čáry ``a`` ``(od, do)`` v m, kde protisměrná ``b`` vede do ``max_m`` (a dál než ``DUAL_MIN_AXIS_M``)."""
+    """Úseky čáry ``a`` ``(od, do)`` v m, kde protisměrná ``b`` vede do ``max_m`` (a dál než ``DUAL_MIN_AXIS_M``)
+    souběžně (směry proti sobě do ``OPPOSITE_MAX_DEG``; navazující kusy téže čáry nebo zatáčka k pásu nejsou dvojice)."""
+    import math
+
+    cos_lim = -math.cos(math.radians(OPPOSITE_MAX_DEG))
     n = max(2, int(a.length // STEP_M) + 1)
     ok = []
     for k in range(n):
@@ -57,7 +75,9 @@ def _runs(a, b, max_m: float):
         q = b.interpolate(t)
         dist = p.distance(q)
         inner = 0.5 < t < b.length - 0.5
-        ok.append((d, inner and DUAL_MIN_AXIS_M <= dist <= max_m))
+        ta, tb = _tangent(a, d), _tangent(b, t)
+        opposite = ta[0] * tb[0] + ta[1] * tb[1] <= cos_lim
+        ok.append((d, inner and opposite and DUAL_MIN_AXIS_M <= dist <= max_m))
     runs = []
     start = None
     for d, good in ok:

@@ -18,6 +18,8 @@ JUNCTION_ROAD_BASES = frozenset({"road_2", "road_3", "road_4"})
 CLUSTER_M = 30.0
 HULL_PAD_M = 12.0
 AREA_PAD_M = 15.0
+# Nejmenší kus plochy křižovatky (m²); menší odřezky u hranice obalu se nekreslí.
+AREA_MIN_M2 = 300.0
 # Nejmenší ostrůvek (díra v ploše silnic z DTM) v m², který znamená složitou křižovatku (menší jsou mísy stromů).
 ISLAND_MIN_M2 = 20.0
 # Počet jednosměrných pásů ve shluku, od kterého je křižovatka složitá (rozpletené pásy s ostrůvky bývají jednosměrné);
@@ -184,6 +186,10 @@ def junction_area_geometry(work_dir: Path, preset_id: str, scale: int, path_sour
             polys = [g for g in getattr(area, "geoms", [area]) if g.geom_type == "Polygon" and not g.is_empty]
             if polys:
                 result = di._generalized(unary_union(polys), work_dir, scale)
+                if result is not None and not result.is_empty:
+                    # odřezky plochy silnic u hranice obalu (76–85 m² vedle kruhového objezdu, D25) nejsou křižovatka
+                    kept = [g for g in getattr(result, "geoms", [result]) if g.geom_type == "Polygon" and g.area >= AREA_MIN_M2]
+                    result = unary_union(kept) if kept else None
                 if result is not None and result.is_empty:
                     result = None
     _CACHE[key] = result

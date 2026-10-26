@@ -42,6 +42,10 @@ def test_short_split_and_far_lanes_are_not_dual():
     assert dc._compute(far, 13.1) == ([], None)
     same_dir = [_feat([(0, 0), (300, 0)]), _feat([(0, 10), (300, 10)])]
     assert dc._compute(same_dir, 13.1) == ([], None)
+    # odbočka šikmo od pásu (50°) není protisměrný pás, i když vede do 13 m: směry musí být proti sobě
+    turn = [_feat([(0, 0), (300, 0)]), _feat([(300, 0), (200, 10), (0, 10)])]
+    assert dc._runs(LineString([(0, 0), (300, 0)]), LineString([(300, 0), (240, 50)]), 13.1) == []
+    assert dc._compute(turn, 13.1)[0]  # pás, který se po krátké odbočce vrací souběžně, osu dá
 
 
 def test_axes_of_split_ways_join_across_gap():

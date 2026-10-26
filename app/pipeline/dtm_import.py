@@ -968,6 +968,9 @@ EDGE_EXCLUDE_BUFFER_M = 0.15
 # Kus obrysu kratší než tohle (mm mapy) se po zkrácení o ``edge_omit`` (napojení cest) zahodí – vypadá jako úlomek.
 # Jen opravdu drobný: okraj ostrůvku mezi dvěma jízdními pásy (K Barrandovu, 2–4 m) musí zůstat.
 EDGE_STUB_MIN_MM = 0.15
+# Les / MTBO, okraj sítě zpevněných ploch: kus obrysu kratší než tohle (mm mapy) se nekreslí vůbec – mezi blízkými
+# ústími cest (parkoviště s vjezdy) zůstávaly úlomky 1–10 m (Petr 2026-10-26, D25 Barrandov).
+EDGE_PIECE_MIN_MM = 0.8
 
 
 def _chunk_line(coords: list[tuple[float, float]], size: int) -> list[list[tuple[float, float]]]:
@@ -1082,12 +1085,15 @@ def _geometry_part(
                 from shapely.geometry import Point as _StubPt
 
                 stub_m = EDGE_STUB_MIN_MM * scale / 1000.0
+                piece_m = EDGE_PIECE_MIN_MM * scale / 1000.0 if edge_only else 0.0  # síť ploch: úlomky mezi ústími pryč
                 lines = [
                     ln
                     for ln in lines
-                    if ln.length >= stub_m
-                    or ln.is_closed
-                    or not all(edge_omit.distance(_StubPt(c)) <= 0.05 for c in (ln.coords[0], ln.coords[-1]))
+                    if ln.is_closed
+                    or (
+                        ln.length >= piece_m
+                        and (ln.length >= stub_m or not all(edge_omit.distance(_StubPt(c)) <= 0.05 for c in (ln.coords[0], ln.coords[-1])))
+                    )
                 ]
             for ln in lines:
                 coords = [(float(x), float(y)) for x, y in ln.coords]
