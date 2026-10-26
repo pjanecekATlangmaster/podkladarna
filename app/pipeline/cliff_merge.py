@@ -69,8 +69,6 @@ COMPACT_MIN_AREA_M2 = 42.0
 ROCK_CELL_M = 3.0
 ROCK_MIN_TICKS_PER_CELL = 2
 ROCK_MIN_CORE_CELLS = 2
-# Skála ořezaná o čáru (cesta, tok…) si ponechá jen kusy od této plochy (m²); menší zbytky zmizí.
-ROCK_MIN_CLIP_AREA_M2 = 25.0
 
 # Min. délka na mapě: skála ~1,2 mm, zem ~5,0 mm (Petr 2026-10-03:
 # krátké 104 pryč; min ~50 m @ 1:10 000). 1:10 000 → skála 12 m, zem 50 m;
@@ -443,40 +441,25 @@ def filter_rocks_overlapping_blockers(
     blocker_lines: list[list[tuple[float, float]]] | None = None,
     *,
     line_buffer_m: float = ROCK_OCCUPANCY_LINE_BUFFER_M,
-    clip_lines: bool = False,
-    min_clip_area_m2: float = ROCK_MIN_CLIP_AREA_M2,
-    return_dropped: bool = False,
-):
+) -> tuple[list[list[tuple[float, float]]], int]:
     """Zahodí skálu, která geometricky koliduje s jiným mapovým objektem.
 
     Výjimky (zelená / bílá / vrstevnice) se sem vůbec nepředávají – volající
     je do blockerů nezařazuje. Dotyk hranou nestačí (``touches`` OK).
-
-    ``clip_lines``: polygonové blokery (budovy, voda…) skálu dál zahazují celou,
-    liniové (buffer ``line_buffer_m``) se z ní jen odečtou a ponechají se kusy
-    od ``min_clip_area_m2``; nezbyde-li nic, skála se počítá jako zahozená.
-    ``return_dropped``: vrátí navíc seznam úplně zahozených ringů (3. prvek).
     """
-
-    def _result(kept, dropped, dropped_rings):
-        if return_dropped:
-            return kept, dropped, dropped_rings
-        return kept, dropped
-
     if not rock_rings:
-        return _result(rock_rings, 0, [])
+        return rock_rings, 0
     polys_in = blocker_rings or []
     lines_in = blocker_lines or []
     if not polys_in and not lines_in:
-        return _result(rock_rings, 0, [])
+        return rock_rings, 0
     try:
         from shapely.geometry import LineString, Polygon
         from shapely.ops import unary_union
     except ImportError:
-        return _result(rock_rings, 0, [])
+        return rock_rings, 0
 
-    poly_parts: list[object] = []
-    line_parts: list[object] = []
+    parts: list[object] = []
     for ring in polys_in:
         if len(ring) < 3:
             continue
@@ -487,7 +470,7 @@ def filter_rocks_overlapping_blockers(
             if not poly.is_valid:
                 poly = poly.buffer(0)
             if not poly.is_empty:
-                poly_parts.append(poly)
+                parts.append(poly)
         except Exception:
             continue
     buf = max(0.0, float(line_buffer_m))
@@ -498,65 +481,36 @@ def filter_rocks_overlapping_blockers(
             line = LineString(pts)
             if line.is_empty:
                 continue
-            line_parts.append(line.buffer(buf) if buf > 0 else line)
+            parts.append(line.buffer(buf) if buf > 0 else line)
         except Exception:
             continue
-    if not poly_parts and not line_parts:
-        return _result(rock_rings, 0, [])
+    if not parts:
+        return rock_rings, 0
     try:
-        mask = unary_union(poly_parts + line_parts)
-        poly_mask = unary_union(poly_parts) if poly_parts else None
-        line_mask = unary_union(line_parts) if line_parts else None
+        mask = unary_union(parts)
     except Exception:
-        return _result(rock_rings, 0, [])
+        return rock_rings, 0
 
     kept: list[list[tuple[float, float]]] = []
-    dropped_rings: list[list[tuple[float, float]]] = []
+    dropped = 0
     for ring in rock_rings:
         if len(ring) < 3:
-            dropped_rings.append(ring)
+            dropped += 1
             continue
         try:
             geom = Polygon(ring)
             if not geom.is_valid:
                 geom = geom.buffer(0)
             if geom.is_empty:
-                dropped_rings.append(ring)
+                dropped += 1
                 continue
-            if not clip_lines:
-                if geom.intersects(mask) and not geom.touches(mask):
-                    dropped_rings.append(ring)
-                    continue
-            else:
-                if (
-                    poly_mask is not None
-                    and geom.intersects(poly_mask)
-                    and not geom.touches(poly_mask)
-                ):
-                    dropped_rings.append(ring)
-                    continue
-                if (
-                    line_mask is not None
-                    and geom.intersects(line_mask)
-                    and not geom.touches(line_mask)
-                ):
-                    rest = geom.difference(line_mask)
-                    pieces = [
-                        p
-                        for p in getattr(rest, "geoms", [rest])
-                        if p.geom_type == "Polygon"
-                        and p.area >= float(min_clip_area_m2)
-                    ]
-                    if not pieces:
-                        dropped_rings.append(ring)
-                        continue
-                    for piece in pieces:
-                        kept.append([(float(x), float(y)) for x, y in piece.exterior.coords])
-                    continue
+            if geom.intersects(mask) and not geom.touches(mask):
+                dropped += 1
+                continue
         except Exception:
             pass
         kept.append(ring)
-    return _result(kept, len(dropped_rings), dropped_rings)
+    return kept, dropped
 
 
 def _local_grade(elev_at, x: float, y: float, step_m: float) -> float | None:

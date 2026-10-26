@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS,
@@ -372,42 +373,41 @@ def test_fill_small_holes_scipy_matches_python_fallback():
             )
 
 
-def test_veto_meadow_with_low_chm_stays_open():
-    cls = np.full((30, 30), OPEN, dtype=np.uint8)
-    out = veto_open_under_canopy(cls, np.full((30, 30), 0.5, dtype=np.float32))
-    assert np.array_equal(out, cls)
 
-
-def test_veto_open_under_tall_canopy_becomes_white():
+def _veto_case(name):
+    """(třídy, CHM, kw, maska pixelů, které mají skončit bílé) pro veto 401 pod korunou."""
     cls = np.full((30, 30), OPEN, dtype=np.uint8)
     chm = np.zeros((30, 30), dtype=np.float32)
-    chm[5:25, 5:25] = 15.0
-    out = veto_open_under_canopy(cls, chm)
-    assert np.all(out[8:22, 8:22] == WHITE)
-    assert np.all(out[:3, :] == OPEN)
-    assert np.all(cls == OPEN)  # vstup beze změny
+    white = np.zeros((30, 30), dtype=bool)
+    kw = {}
+    if name == "koruna":
+        chm[5:25, 5:25] = 15.0
+        white[8:22, 8:22] = True
+    elif name == "osamely_strom":
+        chm[15, 15] = 20.0
+    elif name == "zelen_zustane":
+        cls[10:] = MID
+        chm[:] = 15.0
+        white[:10] = True
+    elif name == "bez_dmp":
+        chm[:] = np.nan
+    elif name == "vypnuto":
+        chm[:] = 15.0
+        kw = {"max_chm_m": 0}
+    return cls, chm, kw, white
 
 
-def test_veto_keeps_green_class_under_canopy():
-    cls = np.full((20, 20), MID, dtype=np.uint8)
-    cls[:5] = OPEN
-    out = veto_open_under_canopy(cls, np.full((20, 20), 15.0, dtype=np.float32))
-    assert np.all(out[5:] == MID)
-    assert np.all(out[:3] == WHITE)
-
-
-def test_veto_isolated_tall_pixel_ignored_by_median():
-    cls = np.full((30, 30), OPEN, dtype=np.uint8)
-    chm = np.zeros((30, 30), dtype=np.float32)
-    chm[15, 15] = 20.0
-    out = veto_open_under_canopy(cls, chm)
-    assert np.array_equal(out, cls)
-
-
-def test_veto_nan_chm_counts_as_open_and_zero_disables():
-    cls = np.full((20, 20), OPEN, dtype=np.uint8)
-    assert np.array_equal(veto_open_under_canopy(cls, np.full((20, 20), np.nan, dtype=np.float32)), cls)
-    tall = np.full((20, 20), 15.0, dtype=np.float32)
-    assert np.array_equal(veto_open_under_canopy(cls, tall, max_chm_m=0), cls)
-    assert np.array_equal(veto_open_under_canopy(cls, None), cls)
-    assert np.array_equal(veto_open_under_canopy(cls, tall[:5]), cls)
+@pytest.mark.parametrize(
+    "name", ["louka", "koruna", "osamely_strom", "zelen_zustane", "bez_dmp", "vypnuto"]
+)
+def test_veto_open_under_canopy(name):
+    cls, chm, kw, white = _veto_case(name)
+    out = veto_open_under_canopy(cls, chm, **kw)
+    expected = cls.copy()
+    expected[white] = WHITE
+    if name == "koruna":
+        # okraj koruny rozhoduje medián – testuje se jen jádro a volná louka
+        assert np.all(out[white] == WHITE) and np.all(out[:3] == OPEN)
+    else:
+        assert np.array_equal(out, expected)
+    assert veto_open_under_canopy(cls, None).tolist() == cls.tolist()

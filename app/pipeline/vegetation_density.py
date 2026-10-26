@@ -848,6 +848,7 @@ def generate_job_vegetation_density(
             if np.any(bad):
                 dem = np.where(bad, np.nanmedian(np.where(bad, np.nan, dem)), dem)
         classified, n_points = classify_point_files(files, dem, gt, params)
+        veto_chm = None
         if wait_chm is not None:
             wait_chm()
         chm_tif = work_dir / DEM_DIR_NAME / "chm.tif"
@@ -860,19 +861,7 @@ def generate_job_vegetation_density(
                         chm_arr = np.where(
                             chm_arr == float(chm_nodata), np.nan, chm_arr
                         )
-                    n_open = int(np.count_nonzero(classified == OPEN))
-                    classified = veto_open_under_canopy(
-                        classified,
-                        chm_arr,
-                        max_chm_m=params.canopy_veto_chm_m,
-                        median_px=params.canopy_veto_median_px,
-                    )
-                    vetoed = n_open - int(np.count_nonzero(classified == OPEN))
-                    if log and vetoed > 0:
-                        log(
-                            f"Vegetace (hustota bodů): 401 pod korunou → "
-                            f"bílý les: {vetoed} px"
-                        )
+                    veto_chm = chm_arr
                     before = int(np.count_nonzero(classified == OPEN))
                     classified = reinforce_open_from_chm(
                         classified,
@@ -910,6 +899,19 @@ def generate_job_vegetation_density(
         if log:
             log(f"Vegetace (hustota bodů): selhalo ({exc}) – fallback CHM")
         return None
+    if veto_chm is not None:
+        # Až po CHM prioru a okraji louky (ty by 401 pod korunu vrátily); zástavba se
+        # zjednodušuje až potom a může stromy v zahradách zase zaplnit 401.
+        n_open = int(np.count_nonzero(classified == OPEN))
+        classified = veto_open_under_canopy(
+            classified,
+            veto_chm,
+            max_chm_m=params.canopy_veto_chm_m,
+            median_px=params.canopy_veto_median_px,
+        )
+        vetoed = n_open - int(np.count_nonzero(classified == OPEN))
+        if log and vetoed > 0:
+            log(f"Vegetace (hustota bodů): 401 pod korunou → bílý les: {vetoed} px")
     shares = np.bincount(classified.ravel(), minlength=5) / classified.size * 100
     if log:
         log(

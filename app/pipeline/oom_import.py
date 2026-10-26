@@ -2076,15 +2076,11 @@ def build_dxf_object_part(
             zabaged_clean=zabaged_clean, work_dir=kp_cwd
         )
         if blocker_polys or blocker_lines:
-            # Čáry (cesta, tok…) skálu ořežou; jako zahozené se hlásí jen úplně zmizelé.
-            pending_rocks, occupancy_drop, occupancy_rings = filter_rocks_overlapping_blockers(
-                pending_rocks,
-                blocker_polys,
-                blocker_lines,
-                clip_lines=True,
-                return_dropped=True,
+            before_r = list(pending_rocks)
+            pending_rocks, occupancy_drop = filter_rocks_overlapping_blockers(
+                pending_rocks, blocker_polys, blocker_lines
             )
-            for ring in occupancy_rings:
+            for ring in dropped_by_identity(before_r, pending_rocks):
                 discarded_rocks.append((ring, "occupancy"))
     # Husté vrstevnice → jen 104 pryč. Skály (201.2/206) ne – detekce skal je
     # právě na strmém schodu; dense-contour by je systematicky vymazal (Sachrův
