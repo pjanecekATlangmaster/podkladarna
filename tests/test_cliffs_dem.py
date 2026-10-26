@@ -6,6 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import pytest
+from shapely.geometry import Point
 
 from app.pipeline.cliffs_dem import (
     detect_cliff_ticks,
@@ -54,6 +56,43 @@ def test_step_dem_yields_ticks():
     )
     assert len(earth) + len(rock) > 0
     assert len(rock) > len(earth)
+
+
+@pytest.mark.parametrize(
+    "base_grade, step_m, ratio, expect_ticks",
+    [
+        (0.0, 4.0, None, True),  # schod mezi rovinami
+        (0.0, 4.0, 0.5, True),  # sprint: skutečný skok zůstává
+        (1.2, 2.5, None, True),  # strmý svah s malým zlomem – bez testu skoku sráz
+        (1.2, 2.5, 0.5, False),  # sprint: na souvislém strmém svahu ne (ukážou vrstevnice)
+    ],
+)
+def test_sprint_step_side_ratio(base_grade, step_m, ratio, expect_ticks):
+    """Sprint (``step_side_ratio``): sráz jen tam, kde je terén po obou stranách výrazně méně strmý než schod."""
+    x = np.arange(50, dtype=np.float32)
+    row = -base_grade * x - np.where(x >= 25, step_m, 0.0)
+    elev = np.tile(row, (50, 1)).astype(np.float32)
+    gt = (0.0, 1.0, 0.0, 50.0, 0.0, -1.0)
+    earth, rock = detect_cliff_ticks(elev, gt, min_drop_m=1.8, major_drop_m=3.4, stride=1, step_side_ratio=ratio)
+    assert bool(earth or rock) is expect_ticks
+
+
+@pytest.mark.parametrize("ticks, expected", [(None, None), ([], 0.0), ([((0.0, 0.0), (0.0, 2.9))], "area")])
+def test_dem_step_zone(tmp_path, ticks, expected):
+    """Okolí ticků z DEM, ve kterém ZABAGED terénní stupeň ve sprintu skok potvrzuje; bez souborů detekce None."""
+    from app.pipeline.cliffs_dem import dem_step_zone
+
+    if ticks is not None:
+        (tmp_path / "temp").mkdir()
+        write_cliff_ticks_dxf(ticks, tmp_path / "temp" / "c_rock.dxf")
+        (tmp_path / "temp" / "c2g.dxf").write_text("0\nEOF\n", encoding="utf-8")
+    zone = dem_step_zone(tmp_path)
+    if expected is None:
+        assert zone is None
+    elif expected == "area":
+        assert zone.area > 20 and zone.contains(Point(2.0, 1.0)) and not zone.contains(Point(5.0, 1.0))
+    else:
+        assert zone.area == expected
 
 
 def test_gentle_bank_is_mostly_earth():
@@ -130,7 +169,7 @@ def test_generate_job_cliffs_dem_calls_generator(tmp_path: Path):
     (dem / "dem_filled.tif").write_bytes(b"dem" * 200)
     marker = tmp_path / "temp" / "c2g.dxf"
 
-    def fake_gen(dem_tif, temp_dir, *, min_drop_m=1.4, major_drop_m=2.8, log=None):
+    def fake_gen(dem_tif, temp_dir, *, min_drop_m=1.4, major_drop_m=2.8, step_side_ratio=None, log=None):
         temp_dir.mkdir(parents=True, exist_ok=True)
         path = temp_dir / "c2g.dxf"
         path.write_text("0\nEOF\n", encoding="utf-8")

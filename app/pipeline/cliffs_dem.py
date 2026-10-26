@@ -41,6 +41,10 @@ ROCK_MIN_GRADE = 0.55
 # se do 104, aby srázy zůstaly beze změny.
 # 1.23.2/1.25.0 = 0.7 (málo skal); 1.25.4 mírně níž – víc 201.2, ne flood.
 ROCK_MIN_DROP_BONUS_M = 0.5
+# Sprint: sráz jen jako skutečný skok – terén po obou stranách sondy (near…far) musí být výrazně méně strmý
+# než samotný schod (sklon strany ≤ poměr × sklon schodu). Na souvislém strmém svahu (břehy řek) jinak vznikaly
+# řady zemních srázů nad sebou; svah tam ukážou vrstevnice (Č. Krumlov, Petr 2026-10-26).
+SPRINT_STEP_SIDE_RATIO = 0.5
 
 
 def dem_filled_path(work_dir: Path) -> Path | None:
@@ -74,6 +78,7 @@ def detect_cliff_ticks(
     nodata=None,
     stride: int = SAMPLE_STRIDE_CELLS,
     max_ticks: int = MAX_TICKS,
+    step_side_ratio: float | None = None,
 ) -> tuple[list[tuple[tuple[float, float], tuple[float, float]]], list[tuple[tuple[float, float], tuple[float, float]]]]:
     """Vrátí (zemní_ticky, skalní_ticky) jako 2bodové úsečky kolmo na spád.
 
@@ -81,7 +86,8 @@ def detect_cliff_ticks(
     na krátké vzdálenosti (``ROCK_MIN_GRADE``) **a** vyšší drop
     (``min_drop_m + ROCK_MIN_DROP_BONUS_M``); nižší sklon při stejném prahu
     výšky je zemní sráz. Strmé ale nízké kandidáty se zahodí (ne → 104).
-    ``major_drop_m`` zůstává v signatuře kvůli volajícím.
+    ``major_drop_m`` zůstává v signatuře kvůli volajícím. ``step_side_ratio`` (sprint): sklon terénu po obou
+    stranách schodu (mezi ``near`` a ``far``) smí být nejvýš tolikrát sklon schodu, jinak jde o svah, ne sráz.
     """
     import numpy as np
 
@@ -116,6 +122,7 @@ def detect_cliff_ticks(
         rock_min_drop=rock_min_drop,
         stride=stride,
         max_ticks=int(max_ticks),
+        step_side_ratio=step_side_ratio,
     )
 
 
@@ -134,6 +141,7 @@ def _detect_cliff_ticks_np(
     stride: int,
     max_ticks: int,
     rows_per_block: int = 256,
+    step_side_ratio: float | None = None,
 ):
     """Vektorová verze smyčky ``_detect_cliff_ticks_loop`` – stejné ticky i pořadí.
 
@@ -208,6 +216,10 @@ def _detect_cliff_ticks_np(
         expected = grade * 2.0 * near * step_m
         drop = np.abs((near_hi - near_lo) - expected)
         ok &= drop >= min_drop_m
+        if step_side_ratio is not None:
+            step_grade = np.abs(near_hi - near_lo) / run_m
+            side = np.maximum(np.abs(near_lo - far_lo), np.abs(far_hi - near_hi)) / span_m
+            ok &= side <= step_side_ratio * step_grade
         grade2 = drop / run_m if run_m > 0 else np.zeros_like(drop)
         steep = (grade2 >= ROCK_MIN_GRADE) | (
             (drop >= major_drop_m) & (grade2 >= ROCK_MIN_GRADE * 0.75)
@@ -431,12 +443,31 @@ def parse_cliff_ticks_dxf(
     return ticks
 
 
+# Sprint: okolí ticků z detekce (m), ve kterém cizí data (ZABAGED terénní stupeň) skok potvrzují.
+STEP_CONFIRM_BUFFER_M = 3.0
+
+
+def dem_step_zone(work_dir: Path, buffer_m: float = STEP_CONFIRM_BUFFER_M):
+    """Okolí ticků srázů z DEM (``temp/c2g.dxf`` + ``temp/c_rock.dxf``) jako shapely plocha; None bez souborů
+    detekce (job bez srázů), prázdná plocha, když detekce nic nenašla."""
+    temp = Path(work_dir) / "temp"
+    files = [temp / "c2g.dxf", temp / "c_rock.dxf"]
+    if not any(f.is_file() for f in files):
+        return None
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    segs = [LineString([a, b]) for f in files for a, b in parse_cliff_ticks_dxf(f)]
+    return unary_union(segs).buffer(buffer_m) if segs else Polygon()
+
+
 def generate_cliffs_from_dem(
     dem_tif: Path,
     temp_dir: Path,
     *,
     min_drop_m: float = 1.8,
     major_drop_m: float = 3.4,
+    step_side_ratio: float | None = None,
     log=None,
 ) -> dict[str, Path]:
     """Detekce → ``temp/c2g.dxf`` (zem) + ``temp/c_rock.dxf`` (skála)."""
@@ -460,6 +491,7 @@ def generate_cliffs_from_dem(
         min_drop_m=min_drop_m,
         major_drop_m=major_drop_m,
         nodata=nodata,
+        step_side_ratio=step_side_ratio,
     )
     temp_dir = Path(temp_dir)
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -485,9 +517,11 @@ def generate_job_cliffs_dem(
     work_dir: Path,
     *,
     options: dict | None = None,
+    sprint: bool = False,
     log=None,
 ) -> dict[str, Path]:
-    """Job fáze: kandidáti srázů do ``work/temp/`` pro OOM import."""
+    """Job fáze: kandidáti srázů do ``work/temp/`` pro OOM import. ``sprint``: jen skutečné skoky
+    (``SPRINT_STEP_SIDE_RATIO``), souvislý strmý svah ukážou vrstevnice."""
     work_dir = Path(work_dir)
     cliff_symbol = str((options or {}).get("kp_cliff_symbol") or "auto").strip().lower()
     if cliff_symbol == "off":
@@ -508,5 +542,6 @@ def generate_job_cliffs_dem(
         work_dir / "temp",
         min_drop_m=c1,
         major_drop_m=c2,
+        step_side_ratio=SPRINT_STEP_SIDE_RATIO if sprint else None,
         log=log,
     )

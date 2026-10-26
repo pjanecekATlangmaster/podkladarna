@@ -812,3 +812,209 @@ def sprint_building_passages(
         if objs:
             out_parts.append(OomObjectPart(name="Sprint – kryté průchody domem", objects_xml="\n".join(objs), count=len(objs)))
     return out_parts
+
+
+# Sprint: slučování navazujících budov (zavírání mezer užších než 0,4 mm mapy, zalití dvorků).
+SPRINT_BUILDING_GAP_MM = 0.4
+# Mezera / dvůr, kterým vede kreslená čára cesty, se nezavírá: pás kolem čáry (m v terénu).
+SPRINT_BUILDING_PATH_BAND_M = 0.5
+# Díra ve sloučeném bloku menší než tolik µm² na mapě (1 mm²) zmizí vždy.
+SPRINT_BUILDING_HOLE_MIN_UM2 = 1000.0**2
+# Dvůr bez cesty zůstane, je-li aspoň z tolika procent pokrytý kreslenou plochou zahrady / dvora (oliva, zpevněná,
+# otevřená) – ruční mapy kreslí zahrady uvnitř bloků olivou; bílé (nezmapované) dvorky se zalijí.
+SPRINT_BUILDING_HOLE_KEEP_MAJORS = frozenset({401, 402, 403, 404, 501, 520, 527})
+SPRINT_BUILDING_HOLE_KEEP_COVER = 0.3
+
+
+def sprint_merge_buildings(
+    parts: list[OomObjectPart],
+    work_dir: Path,
+    *,
+    preset_id: str,
+    scale: int,
+    ref_x: float,
+    ref_y: float,
+    grivation_deg: float,
+) -> list[OomObjectPart]:
+    """Sprint: budovy (521) ze všech částí (OSM, DTM, ZABAGED) se sjednotí a mezery užší než 0,4 mm mapy se zavřou
+    (morfologické uzavření). Mezera, kterou vede kreslená čára cesty, zůstane (pás 0,5 m kolem čáry). Díra ve sloučeném
+    bloku (dvůr) bez cesty se zaplní, díra s cestou nebo z ≥ 30 % pokrytá kreslenou zahradou / dvorem (oliva, 501,
+    otevřená plocha) zůstane; díry pod 1 mm² mapy zmizí vždy. Výsledek je v části
+    s první budovou. Les, MTBO a mapa bez budov beze změny."""
+    if not preset_id.startswith("sprint") or not parts:
+        return parts
+    from shapely import STRtree
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        set_path = symbol_set_path(preset_id, scale)
+        info = _symbol_info(set_path)
+        codes = _symbol_codes(set_path)
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+    building_ids = {i for i, c in codes.items() if c == BUILDING_CODE}
+    path_ids = {
+        i
+        for i, c in codes.items()
+        if info.get(i, (0, ""))[1] == "line" and (c in SPRINT_PATH_LINE_CODES or info[i][0] in SPRINT_PATH_LINE_MAJORS)
+    }
+    if not building_ids:
+        return parts
+    try:
+        polys = []
+        lines = []
+        fills = []
+        template = None  # první objekt budovy (hlavička, tělo, konec)
+        for part in parts:
+            for m in _OBJECT_RE.finditer(part.objects_xml):
+                if m.group(2) != "1":
+                    continue
+                sym = int(m.group(3))
+                cm = _COORDS_RE.search(m.group(4))
+                if not cm:
+                    continue
+                if sym in building_ids:
+                    poly = _polygon(_rings(_parse_coords(cm.group(1))))
+                    if poly is not None and not poly.is_empty:
+                        polys.append(poly)
+                        if template is None:
+                            template = m
+                elif sym in path_ids:
+                    pts = _flatten(_parse_coords(cm.group(1)))
+                    if len(pts) >= 2:
+                        lines.append(LineString(pts))
+                elif info.get(sym, (0, ""))[1] == "area" and info[sym][0] in SPRINT_BUILDING_HOLE_KEEP_MAJORS:
+                    poly = _polygon(_rings(_parse_coords(cm.group(1))))
+                    if poly is not None and not poly.is_empty:
+                        fills.append(poly)
+        if not polys:
+            return parts
+        union = unary_union(polys)
+        half_gap = SPRINT_BUILDING_GAP_MM * 1000.0 / 2.0
+        closed = union.buffer(half_gap, join_style="mitre").buffer(-half_gap, join_style="mitre")
+        if lines:
+            band = unary_union(lines).buffer(SPRINT_BUILDING_PATH_BAND_M * 1e6 / scale)
+            closed = closed.difference(band).union(union)
+        tree = STRtree(lines) if lines else None
+        fill_union = unary_union(fills) if fills else None
+        merged = []
+        for g in getattr(closed, "geoms", [closed]):
+            if not isinstance(g, Polygon) or g.is_empty:
+                continue
+            keep = []
+            for hole in g.interiors:
+                hp = Polygon(hole)
+                if hp.area < SPRINT_BUILDING_HOLE_MIN_UM2:
+                    continue
+                if tree is not None and len(tree.query(hp, predicate="intersects")):
+                    keep.append(hole)
+                elif fill_union is not None and hp.intersection(fill_union).area >= SPRINT_BUILDING_HOLE_KEEP_COVER * hp.area:
+                    keep.append(hole)  # zahrada / dvůr s kreslenou plochou (oliva, zpevněná, otevřená) zůstává
+            merged.append(Polygon(g.exterior, keep))
+        head, body, tail = template.group(1), template.group(4), template.group(5)
+        cm0 = _COORDS_RE.search(body)
+        new_objs = [
+            head + body[: cm0.start()] + _format_coords(p) + body[cm0.end() :] + tail
+            for g in merged
+            for p in _rounded_pieces(g.simplify(EPS))
+        ]
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+    if not new_objs:
+        return parts
+    placed = False
+
+    def edit(match: re.Match) -> str:
+        nonlocal placed
+        if match.group(2) != "1" or int(match.group(3)) not in building_ids:
+            return match.group(0)
+        if placed:
+            return ""
+        placed = True
+        return "\n".join(new_objs)
+
+    out_parts = []
+    for part in parts:
+        xml = _OBJECT_RE.sub(edit, part.objects_xml)
+        if xml == part.objects_xml:
+            out_parts.append(part)
+            continue
+        count = len(_OBJECT_RE.findall(xml))
+        if count:
+            out_parts.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
+    return out_parts
+
+
+# Sprint: kupky (109), prohlubně (111) a jámy (112) jen v lese a na loukách.
+SPRINT_KNOLL_MAJORS = frozenset({109, 111, 112})
+SPRINT_KNOLL_BUILDING_MAJORS = frozenset({521, 522})
+SPRINT_KNOLL_TOWN_AREA_MAJORS = frozenset({501, 520, 527})
+SPRINT_KNOLL_BUILDING_DIST_M = 5.0
+
+
+def sprint_knolls_outside_town(parts: list[OomObjectPart], *, preset_id: str, scale: int) -> list[OomObjectPart]:
+    """Sprint: kupky, prohlubně a jámy (109, 111, 112) uvnitř nebo do 5 m od budovy 521 / zastřešení 522, nebo uvnitř
+    zpevněné plochy (501) či olivy (520, 527) se nekreslí. DMR 5G je terén bez budov; v zástavbě a úzkých ulicích je
+    dopočítaný z mála bodů, takže u obrysů domů vznikají falešné kupky a prohlubně. V lese a na loukách zůstávají.
+    Les a MTBO beze změny."""
+    if not preset_id.startswith("sprint") or not parts:
+        return parts
+    from shapely.geometry import Point
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+
+    from app.pipeline.oom_symbols import symbol_set_path
+
+    try:
+        info = _symbol_info(symbol_set_path(preset_id, scale))
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+    knoll_ids = {i for i, (major, kind) in info.items() if major in SPRINT_KNOLL_MAJORS and kind == "point"}
+    if not knoll_ids:
+        return parts
+    near = SPRINT_KNOLL_BUILDING_DIST_M * 1e6 / scale
+    try:
+        zones = []
+        for part in parts:
+            for m in _OBJECT_RE.finditer(part.objects_xml):
+                if m.group(2) != "1":
+                    continue
+                major, kind = info.get(int(m.group(3)), (0, "other"))
+                if kind != "area" or not (major in SPRINT_KNOLL_BUILDING_MAJORS or major in SPRINT_KNOLL_TOWN_AREA_MAJORS):
+                    continue
+                cm = _COORDS_RE.search(m.group(4))
+                poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
+                if poly is None or poly.is_empty:
+                    continue
+                zones.append(poly.buffer(near) if major in SPRINT_KNOLL_BUILDING_MAJORS else poly)
+        if not zones:
+            return parts
+        town = prep(unary_union(zones))
+    except Exception:  # kosmetika, mapa se kreslí i bez ní
+        return parts
+
+    def edit(match: re.Match) -> str:
+        if int(match.group(3)) not in knoll_ids:
+            return match.group(0)
+        try:
+            cm = _COORDS_RE.search(match.group(4))
+            pts = _parse_coords(cm.group(1)) if cm else []
+            if len(pts) == 1 and town.intersects(Point(pts[0][0], pts[0][1])):
+                return ""
+        except Exception:  # jeden objekt se nepovede → zůstane, jak byl
+            pass
+        return match.group(0)
+
+    out_parts = []
+    for part in parts:
+        xml = _OBJECT_RE.sub(edit, part.objects_xml)
+        if xml == part.objects_xml:
+            out_parts.append(part)
+            continue
+        count = len(_OBJECT_RE.findall(xml))
+        if count:
+            out_parts.append(OomObjectPart(name=part.name, objects_xml=xml, count=count))
+    return out_parts

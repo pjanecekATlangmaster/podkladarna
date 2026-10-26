@@ -936,6 +936,10 @@ OSM_COVER_MIN = 0.7
 ZABAGED_RAIL_LAYERS = frozenset({"ZeleznicniTrat", "ZeleznicniVlecka", "TramvajovaDraha"})
 
 
+# Sprint: kratší potvrzený kus ZABAGED terénního stupně se nekreslí (m).
+SPRINT_BANK_MIN_PIECE_M = 5.0
+
+
 def build_zabaged_object_parts(
     zabaged_clean: Path,
     *,
@@ -963,6 +967,7 @@ def build_zabaged_object_parts(
     rail_tunnel_zone=None,
     prefer_osm_road_lines: list[list[tuple[float, float]]] | None = None,
     paved_clip=None,
+    cliff_work_dir: Path | None = None,
 ) -> list[OomObjectPart]:
     """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
     ``stub_cover``: les / MTBO plochy z DTM (koridor, parkoviště, chodníky); pahýl ZABAGED silnice u nich se nekreslí
@@ -976,7 +981,35 @@ def build_zabaged_object_parts(
 
     ``prefer_osm_road_lines`` (les / MTBO): kreslené OSM silnice; ZABAGED Ulice / SilniceDalnice se dedupují jen proti
     nim (ne proti OSM chodníku vedle ulice). Bez nich proti ``prefer_osm_path_lines``.
+
+    Sprint: ZABAGED ``StupenSraz`` (104) jen v okolí skoků z naší detekce srázů (``cliffs_dem.dem_step_zone``
+    nad ``cliff_work_dir``, pracovní adresář s ``temp/``; bez něj ``work_dir``).
     """
+    _bank_zone: list = []
+
+    def _sprint_bank_confirmed(line_parts: list[list[tuple[float, float]]]) -> list[list[tuple[float, float]]]:
+        """Sprint: ZABAGED terénní stupeň jen tam, kde skok potvrdí naše detekce srázů z DEM (cizí data jen potvrzují)."""
+        if not preset_id.startswith("sprint") or not line_parts:
+            return line_parts
+        if not _bank_zone:
+            from app.pipeline.cliffs_dem import dem_step_zone
+
+            _bank_zone.append(dem_step_zone(cliff_work_dir or work_dir))
+        zone = _bank_zone[0]
+        if zone is None:
+            return line_parts  # bez detekce z DEM (job bez srázů) kresba beze změny
+        from shapely.geometry import LineString
+
+        out: list[list[tuple[float, float]]] = []
+        for pts in line_parts:
+            if len(pts) < 2:
+                continue
+            inside = LineString(pts).intersection(zone)
+            for g in getattr(inside, "geoms", [inside]):
+                if g.geom_type == "LineString" and g.length >= SPRINT_BANK_MIN_PIECE_M:
+                    out.append([(c[0], c[1]) for c in g.coords])
+        return out
+
     use_ogr = True
     try:
         from osgeo import ogr
@@ -1357,7 +1390,7 @@ def build_zabaged_object_parts(
                         continue
                 # StupenSraz → 104: stejný min-length + zamotané jako DEM (~50 m @ 10k).
                 if layer_name == "StupenSraz":
-                    line_parts = filter_earth_bank_lines(line_parts, scale=scale)
+                    line_parts = filter_earth_bank_lines(_sprint_bank_confirmed(line_parts), scale=scale)
                     if not line_parts:
                         continue
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
@@ -1496,7 +1529,7 @@ def build_zabaged_object_parts(
                     ):
                         continue
                 if layer_name == "StupenSraz":
-                    line_parts = filter_earth_bank_lines(line_parts, scale=scale)
+                    line_parts = filter_earth_bank_lines(_sprint_bank_confirmed(line_parts), scale=scale)
                     if not line_parts:
                         continue
                     objects.extend(_emit_line_objects(line_parts, symbol_index))

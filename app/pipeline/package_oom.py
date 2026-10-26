@@ -848,6 +848,7 @@ def _prepare_oom_map(
             ref_y=ref_y,
             grivation_deg=grivation,
             work_dir=kp_cwd.parent,
+            cliff_work_dir=kp_cwd,
             clip_bounds=vector_clip_bounds,
             courtyard_olive=False,  # výplň dvorů z OSM budov
             prefer_osm_path_lines=prefer_osm_paths or None,
@@ -1131,8 +1132,17 @@ def _prepare_oom_map(
         path_source=path_source,
     )
     # Sprint: čáry cest se v budovách nekreslí, kryté průchody domem jsou zastřešení 522 (les a MTBO beze změny).
-    from app.pipeline.path_clearance import sprint_building_passages
+    from app.pipeline.path_clearance import sprint_building_passages, sprint_knolls_outside_town, sprint_merge_buildings
 
+    object_parts = sprint_merge_buildings(
+        object_parts,
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+    )
     object_parts = sprint_building_passages(
         object_parts,
         kp_cwd,
@@ -1141,6 +1151,23 @@ def _prepare_oom_map(
         ref_x=ref_x,
         ref_y=ref_y,
         grivation_deg=grivation,
+    )
+    # Sprint: kupky, prohlubně a jámy jen v lese a na loukách (ne v zástavbě).
+    object_parts = sprint_knolls_outside_town(object_parts, preset_id=preset_id, scale=scale)
+    # Sprint: ulice historických center jako zpevněná plocha 501 z parcel katastru (pod ostatními objekty).
+    from app.pipeline.street_parcels import sprint_street_parcel_part
+
+    object_parts = sprint_street_parcel_part(
+        object_parts,
+        kp_cwd,
+        bbox_wgs84,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+        clip_bounds=vector_clip_bounds,
+        log=log,
     )
     # Les a MTBO: výplň zpevněné plochy se pod olivou nekreslí, oliva zůstává celá (plocha jen okrajem).
     from app.pipeline.path_clearance import paved_fill_outside_olive

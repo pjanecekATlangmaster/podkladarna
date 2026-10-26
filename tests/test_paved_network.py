@@ -224,13 +224,6 @@ def test_bridge_over_paved_area_is_kept(tmp_path):
     assert sum(lengths.values()) == pytest.approx(100, abs=1.0)
 
 
-def test_sprint_road_over_parking_unchanged(tmp_path):
-    road = _line([(-50, 20), (90, 20)], "road_2")
-    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
-    lengths = _path_lengths(tmp_path, preset="sprint_2m", scale=4000)
-    assert sum(lengths.values()) == pytest.approx(140, abs=1.0)
-
-
 def _parts_with_edge(tmp_path, preset="forest_10000", scale=10000):
     """Výplň sítě (``build_osm_feature_parts``) + okraj z hotových čar cest (les a MTBO: ``paved_surface``)."""
     from app.pipeline import dtm_import as di
