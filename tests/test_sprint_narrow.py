@@ -53,3 +53,15 @@ def test_narrow_dtm_sidewalk_drawn_as_line(tmp_path):
     assert sum(p.count for p in parts) == 1
     with patch("app.pipeline.dtm_import._geometry_part", side_effect=lambda geom, **k: [geom] if geom is not None else []):
         assert di.build_dtm_sidewalk_parts(tmp_path, **kw) == []
+
+
+def test_short_gap_between_runs_is_bridged(tmp_path):
+    """Křížení s tunelem (krátké rozšíření do 5 m) nenechá mezi úseky čáry kousek plochy."""
+    strip_a, portal, strip_b = _rect(0, 1.4, 40, 2.9), _rect(40, -6, 43, 6), _rect(43, 1.4, 80, 2.9)
+    _job(tmp_path, [strip_a, portal, strip_b], [("cycleway_paved", [(0, 0), (80, 0)])])
+    zone = sn.narrow_line_zone(tmp_path, "mixed", "sprint_2_5m", 4000)
+    geom = sn.minus_zone(di.sidewalk_geometry(tmp_path, "mixed"), zone)
+    from shapely.geometry import box
+
+    # v pásu čáry nic nezbude, plocha dál od osy (příjezd k portálu) zůstává
+    assert geom is not None and geom.intersection(box(0, -4.8, 80, 4.8)).area < 0.01

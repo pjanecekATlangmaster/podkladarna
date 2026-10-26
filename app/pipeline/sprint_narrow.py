@@ -16,6 +16,8 @@ NARROW_TOL_MM = 0.25
 # Krok kolmých řezů podél čáry (m) a nejkratší posuzovaný úsek (m).
 STEP_M = 2.0
 MIN_RUN_M = 10.0
+# Úseky oddělené kratší mezerou (křížení s tunelem, přechod) se spojí, ať mezi nimi nezůstane kousek plochy.
+MAX_GAP_M = 5.0
 # Dosah řezu za okraj kresby čáry (m): plocha těsně vedle čáry (klín) se počítá do šířky.
 REACH_M = 2.5
 # Druhy čar (po ``path_draw_highway``), které ve sprintu kreslí symbol 501.xxx.
@@ -71,10 +73,13 @@ def narrow_runs(line, area, width_m: float, tol_m: float) -> list[tuple[float, f
             p90 = widths[int(round(0.9 * (len(widths) - 1)))]
             # Stejně široká (rozptyl do tolerance), nebo celá užší než kresba čáry (klín vedle osy).
             uniform = p90 - p10 <= tol_m or p90 <= width_m
-            if d1 - d0 >= MIN_RUN_M and uniform and statistics.median(widths) <= width_m + tol_m:
-                runs.append((max(0.0, d0), min(line.length, d1)))
+            if uniform and statistics.median(widths) <= width_m + tol_m:
+                if runs and d0 - runs[-1][1] <= MAX_GAP_M:
+                    runs[-1] = (runs[-1][0], d1)
+                else:
+                    runs.append((d0, d1))
             run = []
-    return runs
+    return [(max(0.0, d0), min(line.length, d1)) for d0, d1 in runs if d1 - d0 >= MIN_RUN_M]
 
 
 def narrow_line_zone(work_dir: Path, path_source: str, preset_id: str, scale: int, *, draw: bool = False):
