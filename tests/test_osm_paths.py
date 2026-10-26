@@ -2688,3 +2688,21 @@ def test_overpass_null_node_in_geometry_is_skipped():
         "geometry": [{"lat": 49.590, "lon": 16.040}, None, {"lat": 49.591, "lon": 16.041}],
     }
     assert len(osm_way_to_5514(way)) == 2
+
+
+def test_major_path_draws_505_in_forest_only():
+    # Ochoza: upravená pěšina (compacted, trail_visibility=excellent) je v ruční mapě 505, ne 506.
+    from app.pipeline.osm_paths import osm_oom_code, path_draw_highway, refine_path_highway
+
+    assert refine_path_highway({"surface": "compacted"}, "path") == "path_major"
+    assert refine_path_highway({"trail_visibility": "excellent"}, "path") == "path_major"
+    assert refine_path_highway({"surface": "ground", "trail_visibility": "good"}, "path") == "path"
+    assert refine_path_highway({"surface": "asphalt"}, "path") == "path"
+    assert refine_path_highway({"surface": "compacted"}, "footway") == "footway"
+    assert path_draw_highway("path_major") == "path"
+    assert path_draw_highway("bridge:path_major") == "path"
+    assert osm_oom_code("path_major", "forest_10000") == "505"
+    assert osm_oom_code("path_major", "forest_15000") == "505"
+    assert osm_oom_code("path_major", "sprint_4000") == osm_oom_code("path", "sprint_4000")
+    assert osm_oom_code("path_major", "mtbo_10000") == osm_oom_code("path", "mtbo_10000")
+    assert osm_oom_code("bridge:path_major", "forest_10000") == "512"

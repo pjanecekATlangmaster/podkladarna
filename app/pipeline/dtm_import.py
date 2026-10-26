@@ -1940,7 +1940,7 @@ def build_dtm_parking_parts(
 # DTM plocha komunikace, ve které OSM vede jen nezpevněnou cestu (štěrková lesní / lyžařská cesta,
 # way/256370567), se nekreslí jako silnice 501 – kreslí ji čára OSM. Nezpevněná = ``highway`` po refine
 # bez zpevněného surface (zpevněný track je už ``road_*``); ``track_fast`` (grade1) se počítá jako silnice.
-UNPAVED_TRACK_BASES = frozenset({"track", "track_slow", "path", "bridleway"})
+UNPAVED_TRACK_BASES = frozenset({"track", "track_slow", "path", "path_major", "bridleway"})
 UNPAVED_TRACK_MIN_M = 20.0
 # OSM silnice uvnitř plochy smí mít nejvýš tolik délky nezpevněné cesty (napojení na křižovatce).
 UNPAVED_TRACK_ROAD_SHARE = 0.25
