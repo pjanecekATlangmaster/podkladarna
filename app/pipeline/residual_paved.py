@@ -814,6 +814,8 @@ def _subjects_and_mask_wkbs(
 def _way_pts_5514(el: dict) -> list[tuple[float, float]]:
     pts: list[tuple[float, float]] = []
     for node in el.get("geometry") or []:
+        if not isinstance(node, dict):  # Overpass občas vrátí null uzel
+            continue
         lat = node.get("lat")
         lon = node.get("lon")
         if lat is None or lon is None:
