@@ -839,6 +839,8 @@ def _prepare_oom_map(
             clip_bounds=vector_clip_bounds,
             courtyard_olive=False,  # výplň dvorů z OSM budov
             prefer_osm_path_lines=prefer_osm_paths or None,
+            # sprint: ZABAGED most na OSM cestě, která v OSM most není, se nekreslí
+            osm_ground_lines=load_osm_path_lines(kp_cwd, ground_only=True) if preset_id.startswith("sprint") else None,
             prefer_osm_road_lines=prefer_osm_roads,
             omit_path_layers=path_source == PATH_SOURCE_OSM,
             omit_layers=omit,

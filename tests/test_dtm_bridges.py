@@ -172,7 +172,7 @@ def test_osm_footbridge_partly_inside_dtm_deck_draws_no_edges_and_nothing_on_dtm
 
     feats = [
         line("bridge:footway", [-1030, -1002], [-940, -1002]),  # OSM lávka: 20 m uvnitř DTM mostu, zbytek na DTM silnici
-        line("road_4", [-980, -1040], [-980, -960]),  # OSM silnice kolmo pod lávkou
+        line("road_4", [-980, -1015], [-980, -985]),  # OSM silnice kolmo pod lávkou (celá v ploše silnice z DTM)
     ]
     (work / "osm_paths" / "paths_mixed.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"

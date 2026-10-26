@@ -677,7 +677,7 @@ def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
 
     assert count("forest_10000", 10000, None) == 1
     assert count("forest_10000", 10000, band) == 2
-    assert count("sprint_4000", 4000, band) == 1
+    assert count("sprint_4000", 4000, band) == 2  # sprint: ořez o DTM kryt platí taky (Vlachovická way/664421805)
     # mixed = OSM + detaily ze ZABAGED: ulici, kterou má OSM, ZABAGED nekreslí (les / MTBO); sprint beze změny.
     osm = [[(x0, y0 + 2), (x0 + 300, y0 + 2)]]
     assert count("forest_10000", 10000, None, osm) == 0
@@ -879,3 +879,33 @@ def test_drop_cover_stubs_keeps_long_and_far_pieces():
     far = [(50, 30), (50, 36)]  # krátký, ale daleko
     long = [(50, 12), (50, 40)]
     assert _drop_cover_stubs([stub, far, long], cover, 10000) == [far, long]
+
+
+def test_sprint_zabaged_road_bridge_on_osm_path_dropped(tmp_path):
+    """Sprint: ZABAGED Most na OSM cestě, která v OSM most není (cyklostezka nad pěším tunelem way/160570380), se nekreslí."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    z = _zabaged_line_zip(tmp_path, "Most", [[(x0, y0), (x0 + 8, y0)], [(x0, y0 + 50), (x0 + 8, y0 + 50)]])
+
+    def count(ground):
+        parts = build_zabaged_object_parts(
+            z,
+            vectorconf_name="zabaged.txt",
+            preset_id="sprint_4000",
+            scale=4000,
+            ref_x=x0,
+            ref_y=y0,
+            grivation_deg=0.0,
+            work_dir=Path(tempfile.mkdtemp()),
+            prefer_osm_path_lines=ground,
+            osm_ground_lines=ground,
+        )
+        return sum(p.count for p in parts if "Most" in p.name)
+
+    assert count(None) == 2
+    assert count([[(x0 - 50, y0 + 1), (x0 + 60, y0 + 1)]]) == 1  # druhý most OSM cesta nemá

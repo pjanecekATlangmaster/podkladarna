@@ -2648,3 +2648,15 @@ def test_overpass_ql_requests_bridge_outlines():
 
     ql = op._overpass_ql(50.0, 14.0, 50.1, 14.1)
     assert 'way["man_made"="bridge"]' in ql
+
+
+def test_load_osm_path_lines_ground_only_uses_all_osm_without_bridges(tmp_path):
+    from app.pipeline.osm_paths import load_osm_path_lines
+
+    def f(hw, y):
+        return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": [[0, y], [10, y]]}}
+
+    _write_osm_geojson(tmp_path, "paths.geojson", [f("cycleway_paved", 0)])
+    _write_osm_geojson(tmp_path, "paths_osm.geojson", [f("cycleway_paved", 0), f("road_3", 5), f("bridge:road_3", 9)])
+    assert len(load_osm_path_lines(tmp_path)) == 1
+    assert [ln[0][1] for ln in load_osm_path_lines(tmp_path, ground_only=True)] == [0, 5]
