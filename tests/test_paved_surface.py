@@ -33,6 +33,19 @@ def test_edge_omit_parallel_line_removes_edge_along_it():
     assert ps.edge_omit_zone(network, [([(0.0, -25.0), (100.0, -25.0)], 4.0)], "forest_10000", 10000) is None
 
 
+def test_fill_strip_reaches_border_of_parallel_road():
+    # Silnice (půlka kresby 4 m, osa y = -6) souběžná se spodní hranou plochy: mezi hranou (y = 0) a vnější hranou
+    # okrajové linky (y = -2) se doplní výplň, aby okraj plochy navázal na linku silnice; kolmá silnice ani pěšina
+    # bez výplně pás nedají.
+    network = box(0, 0, 100, 40)
+    strips = ps.road_fill_strips(network, [([(0.0, -6.0), (100.0, -6.0)], 4.0, 3.0)], "forest_10000", 10000)
+    assert strips is not None
+    assert strips.bounds == pytest.approx((0.0, -2.0, 100.0, 0.0), abs=0.2)
+    assert strips.area == pytest.approx(200.0, rel=0.05)
+    assert ps.road_fill_strips(network, [([(50.0, -30.0), (50.0, 0.0)], 4.0, 3.0)], "forest_10000", 10000) is None
+    assert ps.road_fill_strips(network, [([(0.0, -6.0), (100.0, -6.0)], 4.0, 0.0)], "forest_10000", 10000) is None
+
+
 def test_dtm_area_features_empty_without_dtm(tmp_path):
     assert ps.dtm_area_features(tmp_path, "forest_10000", 10000) == []
     assert ps.dtm_area_features(tmp_path, "sprint_4000", 4000) == []
