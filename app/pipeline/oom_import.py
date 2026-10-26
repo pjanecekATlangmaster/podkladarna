@@ -1378,6 +1378,13 @@ def build_zabaged_object_parts(
                         for pts in line_parts:
                             wider_paths.add_line(pts)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif preset_id.startswith("sprint") and dtm_cover is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
+                    # Sprint: Ulice / SilniceDalnice ořezané o plochy z DTM (``_filter_vs_osm``), ne původní geometrie –
+                    # jinak čára 501.31 přes plochu silnice z DTM (Vlachovická way/664421805, 718 m dvakrát).
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif preset_id.startswith("sprint") and flt_layer == _ROAD_BRIDGE_LAYER and osm_ground_lines:
                     # Sprint: silniční most bez protějšku v OSM (``_filter_vs_osm``)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
@@ -1506,6 +1513,13 @@ def build_zabaged_object_parts(
                         line_parts = _drop_cover_stubs(line_parts, stub_cover, scale)
                     if not line_parts:
                         continue
+                    if layer_name == "Cesta":
+                        for pts in line_parts:
+                            wider_paths.add_line(pts)
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif preset_id.startswith("sprint") and dtm_cover is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
+                    # Sprint: Ulice / SilniceDalnice ořezané o plochy z DTM (``_filter_vs_osm``), ne původní geometrie –
+                    # jinak čára 501.31 přes plochu silnice z DTM (Vlachovická way/664421805, 718 m dvakrát).
                     if layer_name == "Cesta":
                         for pts in line_parts:
                             wider_paths.add_line(pts)

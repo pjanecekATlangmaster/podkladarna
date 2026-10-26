@@ -677,7 +677,7 @@ def test_zabaged_street_clipped_by_osm_road_band_in_forest(tmp_path):
 
     assert count("forest_10000", 10000, None) == 1
     assert count("forest_10000", 10000, band) == 2
-    assert count("sprint_4000", 4000, band) == 1
+    assert count("sprint_4000", 4000, band) == 2  # sprint: ořez o DTM kryt platí taky (Vlachovická way/664421805)
     # mixed = OSM + detaily ze ZABAGED: ulici, kterou má OSM, ZABAGED nekreslí (les / MTBO); sprint beze změny.
     osm = [[(x0, y0 + 2), (x0 + 300, y0 + 2)]]
     assert count("forest_10000", 10000, None, osm) == 0
