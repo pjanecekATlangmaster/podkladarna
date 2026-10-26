@@ -350,6 +350,14 @@ RAIL_TUNNELS_NAME = "rail_tunnels.geojson"
 WALK_TUNNELS_NAME = "walk_tunnels.geojson"
 WALK_TUNNEL_BASES = frozenset({"track", "path", "footway", "cycleway", "bridleway", "steps", "pedestrian"})
 WALK_TUNNEL_TOL_M = 1.0
+# Kryté průchody (``covered=yes`` / ``tunnel=building_passage``): sprint je v budově kreslí jako zastřešení 522
+# (``sprint_building_passages`` v ``path_clearance.py``).
+COVERED_PASSAGES_NAME = "covered_passages.geojson"
+
+
+def is_covered_passage(tags: dict) -> bool:
+    """Cesta pod střechou (průchod domem, podloubí): ``covered=yes`` nebo ``tunnel=building_passage``."""
+    return (tags.get("covered") or "").lower() == "yes" or (tags.get("tunnel") or "").lower() == "building_passage"
 # Trať ZABAGED do tolika m od osy OSM tratě v tunelu se nekreslí.
 RAIL_TUNNEL_NEAR_M = 4.0
 
@@ -505,6 +513,17 @@ _BARRIER_LINES = frozenset({"fence", "wall", "hedge", "retaining_wall"})
 _BARRIER_POINTS = frozenset(
     {"gate", "bollard", "stile", "cycle_barrier", "block", "lift_gate"}
 )
+# Sprint nekreslí brány a sloupky (křížek 531 jen u zábran, přelezů a závor pro kola).
+_SPRINT_SKIP_BARRIERS = frozenset({"gate", "wicket_gate", "lift_gate", "bollard"})
+
+
+def sprint_skips_barrier_point(preset_id: str, kind: str, props: dict) -> bool:
+    """True, pokud se bod brány / sloupku ve sprintu nekreslí (starší data bez tagu ``barrier`` se kreslí)."""
+    return (
+        preset_id.startswith("sprint")
+        and kind == "barrier_point"
+        and str(props.get("barrier") or "").lower() in _SPRINT_SKIP_BARRIERS
+    )
 # Volitelné skupiny (rozšířená nastavení).
 _BENCH_KINDS = frozenset({"bench", "info_board", "picnic_table", "firepit"})
 _LAMP_KINDS = frozenset({"lamp"})
@@ -3460,6 +3479,7 @@ def prepare_osm_paths(
     bike_lines: list[list[tuple[float, float]]] = []
     rail_tunnels: list[list[tuple[float, float]]] = []
     walk_tunnels: list[list[tuple[float, float]]] = []
+    covered_passages: list[list[tuple[float, float]]] = []
     # Cesty se zpevněným povrchem (surface=asphalt, paving_stones …) – jen z nich vzniká koridor pěší zóny.
     paved_walk_lines: list[list[tuple[float, float]]] = []
     features: list[dict] = []
@@ -3602,6 +3622,8 @@ def prepare_osm_paths(
                 "kind": kind,
                 "oom_code": code,
             }
+            if kind == "barrier_point":
+                props["barrier"] = (tags.get("barrier") or "").lower()  # sprint brány a sloupky nekreslí
             if kind in {"power_line", "power_line_major"} and len(pts) >= 2:
                 dash = _dash_indices_near_supports(pts, power_supports)
                 if dash:
@@ -3636,6 +3658,8 @@ def prepare_osm_paths(
             hw = "path"
         # Šířka silnice / track podle lanes + surface (road_1..4, track_*).
         hw = refine_path_highway(tags, hw)
+        if is_covered_passage(tags):
+            covered_passages.append(list(pts))
         # Krátké lávky (bridge=yes) – zachovej typ cesty pro sprint značku.
         if _is_osm_bridge(tags):
             hw = bridge_highway(hw or "path")
@@ -3888,6 +3912,19 @@ def prepare_osm_paths(
                     {"type": "Feature", "properties": {"source": "osm", "walk_tunnel": True},
                      "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in pts]}}
                     for pts in walk_tunnels
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (dest_dir / COVERED_PASSAGES_NAME).write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature", "properties": {"source": "osm", "covered": True},
+                     "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in pts]}}
+                    for pts in covered_passages
                 ],
             }
         ),
@@ -6825,6 +6862,8 @@ def build_osm_feature_parts(
             or kind == "residential"
             or (kind in _OSM_ROCK_UNDERLAY_KINDS and kind != "bare_rock")
         ):
+            continue
+        if sprint_skips_barrier_point(preset_id, kind, props):
             continue
         code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
         if not code:

@@ -293,6 +293,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   s pevným obrysem – silnice se v ní ořízne a okraj se u silnice přeruší (Sedlčany). Smíšená stezka zasahující čárou do kresby silnice
   nebo koridoru se nekreslí (`bike_road_zone`).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
+- **Sprint podle srovnání s DS26 Barrandov** (Petr 2026-10-26, 2.36.0): plot ležící z ≥ 80 % uvnitř kreslené olivy dál než 1,5 m
+  od okraje se nekreslí (`drop_fences_inside_olive`, dělicí ploty zahrad); brány a sloupky (`gate`, `wicket_gate`, `lift_gate`,
+  `bollard`) nejsou 531 (`sprint_skips_barrier_point`); čáry cest se uvnitř budov (> 1 m od obrysu) nekreslí a OSM `covered=yes` /
+  `tunnel=building_passage` je v budově průchod 522 vyříznutý z budovy (`sprint_building_passages`, `covered_passages.geojson`).
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
 - **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé

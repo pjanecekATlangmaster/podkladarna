@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import OomObjectPart, _area_object_with_holes, _point_object
 from app.pipeline.oom_symbol_map import symbol_index_for_code, symbol_width_mm
@@ -195,3 +197,62 @@ def test_paved_fill_stays_visible_in_large_olive_area():
     parts = [OomObjectPart(name="x", objects_xml="\n".join([big, big2, inside]), count=3)]
     # dva sousední kusy olivy = jeden areál 1 ha → výplň zůstane
     assert paved_fill_outside_olive(parts, preset_id=PRESET, scale=SCALE) == parts
+
+
+SPRINT_KW = dict(preset_id="sprint_2m", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+
+
+def _sprint_map(tmp_path, covered):
+    """Budova 20 × 20 m (0–20), dvě cesty 506 napříč ní (y = 5 jen krytá, y = 15 obyčejná) a jedna podél obrysu."""
+    from app.pipeline.oom_import import _path_object
+
+    def to_map(pts):
+        return [projected_to_map_coord(x, y, ref_x=0.0, ref_y=0.0, scale=4000, grivation_deg=0.0) for x, y in pts]
+
+    (tmp_path / "osm_paths").mkdir()
+    feats = [{"type": "Feature", "properties": {"covered": True}, "geometry": {"type": "LineString", "coordinates": [[-10, 5], [30, 5]]}}] if covered else []
+    (tmp_path / "osm_paths" / "covered_passages.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8")
+    sym = symbol_index_for_code("sprint_2m", 4000, "506")
+    building = _area_object_with_holes(symbol_index_for_code("sprint_2m", 4000, "521"), [to_map(_rect(0, 0, 20, 20))])
+    lines = [_path_object(sym, to_map([(-10, y), (30, y)])) for y in (5, 15)] + [_path_object(sym, to_map([(-10, 0.4), (30, 0.4)]))]
+    return [OomObjectPart(name="x", objects_xml="\n".join([building, *lines]), count=4)]
+
+
+def _line_lengths_m(parts, sym_code):
+    from shapely.geometry import LineString
+
+    sym = symbol_index_for_code("sprint_2m", 4000, sym_code)
+    out = []
+    for p in parts:
+        for m in _OBJECT_RE.finditer(p.objects_xml):
+            if int(m.group(3)) == sym and m.group(2) == "1":
+                pts = _parse_coords(_COORDS_RE.search(m.group(4)).group(1))
+                out.append(LineString([(x, y) for x, y, _f in pts]).length / 250.0)  # 1:4000 → 250 µm na metr
+    return sorted(out)
+
+
+def test_sprint_covered_passage_becomes_roof_and_cuts_building(tmp_path):
+    from app.pipeline.path_clearance import sprint_building_passages
+
+    parts = _sprint_map(tmp_path, covered=True)
+    out = sprint_building_passages(parts, tmp_path, **SPRINT_KW)
+    # Obyčejná cesta y = 15 uvnitř budovy zmizí (zbydou dvě poloviny venku), krytá y = 5 také; podél obrysu (0,4 m) zůstane celá.
+    assert _line_lengths_m(out, "506") == [10.0, 10.0, 11.0, 11.0, 40.0]  # krytá: celý průchod; obyčejná: 1 m od obrysu zůstává
+    roof_sym = symbol_index_for_code("sprint_2m", 4000, "522")
+    roofs = [m for p in out for m in _OBJECT_RE.finditer(p.objects_xml) if int(m.group(3)) == roof_sym]
+    assert len(roofs) == 1
+    roof = _polygon_of(roofs[0].group(0))
+    assert 20 <= roof.area / 250.0**2 <= 60  # 20 m dlouhý pás široký aspoň 2 m
+    b = [m.group(0) for p in out for m in _OBJECT_RE.finditer(p.objects_xml) if int(m.group(3)) == symbol_index_for_code("sprint_2m", 4000, "521")]
+    assert len(b) == 2  # budova je průchodem rozříznutá na dva kusy
+    assert sum(_area(x) for x in b) + roof.area == pytest.approx(400 * 250.0**2, rel=0.01)
+
+
+def test_sprint_without_covered_only_cuts_lines_and_non_sprint_unchanged(tmp_path):
+    from app.pipeline.path_clearance import sprint_building_passages
+
+    parts = _sprint_map(tmp_path, covered=False)
+    out = sprint_building_passages(parts, tmp_path, **SPRINT_KW)
+    assert len(_line_lengths_m(out, "506")) == 5  # obě cesty rozpůlené + obrysová
+    assert not any(int(m.group(3)) == symbol_index_for_code("sprint_2m", 4000, "522") for p in out for m in _OBJECT_RE.finditer(p.objects_xml))
+    assert sprint_building_passages(parts, tmp_path, **dict(SPRINT_KW, preset_id="forest_10000", scale=10000)) is parts

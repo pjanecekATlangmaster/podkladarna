@@ -1120,6 +1120,18 @@ def _prepare_oom_map(
         grivation_deg=grivation,
         path_source=path_source,
     )
+    # Sprint: čáry cest se v budovách nekreslí, kryté průchody domem jsou zastřešení 522 (les a MTBO beze změny).
+    from app.pipeline.path_clearance import sprint_building_passages
+
+    object_parts = sprint_building_passages(
+        object_parts,
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+    )
     # Les a MTBO: výplň zpevněné plochy se pod olivou nekreslí, oliva zůstává celá (plocha jen okrajem).
     from app.pipeline.path_clearance import paved_fill_outside_olive
 
