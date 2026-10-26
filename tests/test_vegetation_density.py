@@ -411,3 +411,14 @@ def test_veto_open_under_canopy(name):
     else:
         assert np.array_equal(out, expected)
     assert veto_open_under_canopy(cls, None).tolist() == cls.tolist()
+
+
+@pytest.mark.parametrize(
+    ("preset_id", "veto_on"),
+    [("sprint_2m", False), ("forest_10000", True), ("mtbo_15000", True)],
+)
+def test_job_canopy_veto_only_forest_and_mtbo(preset_id, veto_on):
+    from app.pipeline.run_job import vegetation_density_params
+
+    params = vegetation_density_params(preset_id, {})
+    assert (params.canopy_veto_chm_m > 0) is veto_on
