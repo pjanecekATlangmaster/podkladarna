@@ -35,8 +35,8 @@ from pathlib import Path
 from app.pipeline.prepare_lidar import log_step
 
 # Výstupní třídy (stejné jako vegetation_chm / vegetation_gdal):
-# 0 bílý les, 1 = 401, 2 = 406, 3 = 408, 4 = 410.
-WHITE, OPEN, LIGHT, MID, DENSE = 0, 1, 2, 3, 4
+# 0 bílý les, 1 = 401, 2 = 406, 3 = 408, 4 = 410, 5 = 403 (drsný otevřený terén z ortofota).
+WHITE, OPEN, LIGHT, MID, DENSE, ROUGH = 0, 1, 2, 3, 4, 5
 
 _NO_ZONE_ROOF = 1e9
 
@@ -74,6 +74,8 @@ class DensityVegeParams:
     # ≥ canopy_veto_chm_m → bílá (okno canopy_veto_median_px; 0 = vypnuto).
     canopy_veto_chm_m: float = 4.0
     canopy_veto_median_px: int = 5
+    # 401 → louka / 403 podle ortofota (ortho_rough); sprint vypíná.
+    ortho_rough_open: bool = True
     # --- zeleně ---
     block_m: float = 2.0
     green_ground_m: float = 0.9
@@ -912,12 +914,23 @@ def generate_job_vegetation_density(
         vetoed = n_open - int(np.count_nonzero(classified == OPEN))
         if log and vetoed > 0:
             log(f"Vegetace (hustota bodů): 401 pod korunou → bílý les: {vetoed} px")
-    shares = np.bincount(classified.ravel(), minlength=5) / classified.size * 100
+    if params.ortho_rough_open:
+        try:
+            from app.pipeline.ortho_rough import split_open_by_orthophoto
+
+            classified = split_open_by_orthophoto(
+                classified, gt, work_dir, chm=veto_chm, rough_cls=ROUGH, open_cls=OPEN, log=log
+            )
+        except Exception as exc:
+            if log:
+                log(f"⚠ Ortofoto 401/403: přeskočeno ({exc})")
+    shares = np.bincount(classified.ravel(), minlength=6) / classified.size * 100
     if log:
         log(
             "Vegetace (hustota bodů): "
             f"{n_points} bodů, bílý {shares[0]:.1f} %, 401 {shares[1]:.1f} %, "
-            f"406 {shares[2]:.1f} %, 408 {shares[3]:.1f} %, 410 {shares[4]:.1f} %"
+            f"406 {shares[2]:.1f} %, 408 {shares[3]:.1f} %, 410 {shares[4]:.1f} %, "
+            f"403 {shares[5]:.1f} %"
         )
     if buildings_geojson is not None and Path(buildings_geojson).is_file():
         try:

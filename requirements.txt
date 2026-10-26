@@ -16,5 +16,8 @@ pyshp>=2.3.0
 # Vegetace: komponenty děr ve žluté (fill_small_holes) – C místo Python smyčky.
 scipy>=1.11
 
+# Ortofoto 401/403: malý klasifikátor louka / paseka učený v každém jobu (ortho_rough).
+scikit-learn>=1.3
+
 # Náhled .omap → PNG, když Mapper nemá headless export.
 pillow>=10.0.0
