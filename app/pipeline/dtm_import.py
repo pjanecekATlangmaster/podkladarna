@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from app.pipeline import dtm_fences, dtm_sources
+from app.pipeline import dtm_fences, dtm_sidewalks, dtm_sources
 from app.pipeline.fetch_openzu import VECTOR_FETCH_BUFFER_M, crop_bounds_5514
 from app.pipeline.geom_clip import Bounds, clip_polyline
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -110,6 +110,36 @@ def mtbo_dtm_off(preset_id: str) -> bool:
 MTBO_SIDEWALK_AREAS = True
 MTBO_SIDEWALK_MIN_WIDTH_MM = 0.5
 MTBO_SIDEWALK_MIN_LEN_M = 15.0
+
+
+# Některé obce mají v ZPS_OPL neúplné plochy (Jihlava: 932 budov proti 11 661 bodům budov v ZPS_KR; Telč a Praha
+# odpovídají zhruba 1:1). Plochy z OPL takové obce se do ploch DTM neberou, kreslí je OSM.
+OPL_COMPLETE_MIN_SHARE = 0.5
+OPL_COMPLETE_MIN_POINTS = 50
+
+
+def incomplete_opl_units(packages, files, log=None) -> set[tuple[str, int]]:
+    """Jednotky (druh, kód), jejichž ZPS_OPL má méně než ``OPL_COMPLETE_MIN_SHARE`` budov proti bodům budov v ZPS_KR."""
+    by_unit: dict[tuple[str, int], dict[str, object]] = {}
+    for pkg in packages:
+        by_unit.setdefault((pkg.unit_kind, pkg.unit_code), {})[pkg.set_name] = files[pkg.filename]
+    out: set[tuple[str, int]] = set()
+    for unit, sets in by_unit.items():
+        opl_file, kr_file = sets.get(dtm_sources.SET_OPL), sets.get(dtm_sources.SET_KR)
+        if opl_file is None or kr_file is None:
+            continue
+        try:
+            polygons = len(dtm_sidewalks.load_building_polygons(opl_file))
+            points = dtm_fences.load_building_points_count(kr_file)
+        except Exception as exc:  # úplnost je jen heuristika, při chybě plochy ponecháme
+            if log:
+                log(f"DTM: úplnost ploch obce {unit[1]} nelze ověřit ({type(exc).__name__}: {exc})")
+            continue
+        if points >= OPL_COMPLETE_MIN_POINTS and polygons / points < OPL_COMPLETE_MIN_SHARE:
+            out.add(unit)
+            if log:
+                log(f"DTM: plochy obce {unit[1]} neúplné (budovy {polygons} / {points} bodů), plochy kreslí OSM")
+    return out
 
 
 def fences_path(work_dir: Path) -> Path:
@@ -211,13 +241,25 @@ def prepare_dtm_fences(
     except Exception as exc:  # orientace je jen kosmetika
         if log:
             log(f"DTM: orientace plotů přeskočena ({type(exc).__name__}: {exc})")
+    incomplete: set[tuple[str, int]] = set()
     try:
-        _write_decks(work_dir, [files[p.filename] for p in packages if p.set_name == dtm_sources.SET_OPL], bounds, log)
+        incomplete = incomplete_opl_units(packages, files, log)
+    except Exception as exc:  # kontrola úplnosti je doplněk, plochy se pak berou ze všech OPL
+        if log:
+            log(f"DTM: kontrola úplnosti ploch přeskočena ({type(exc).__name__}: {exc})")
+    # Plochy pro budovy, chodníky, silnice atd. jen z úplných OPL; ploty a orientace výše berou všechny.
+    area_opl_files = [
+        files[p.filename]
+        for p in packages
+        if p.set_name == dtm_sources.SET_OPL and (p.unit_kind, p.unit_code) not in incomplete
+    ]
+    try:
+        _write_decks(work_dir, area_opl_files, bounds, log)
     except Exception as exc:  # mosty z DTM jsou doplněk, kreslí se i z OSM
         if log:
             log(f"DTM: mosty přeskočeny ({type(exc).__name__}: {exc})")
     try:
-        _write_sidewalks(work_dir, [files[p.filename] for p in packages if p.set_name == dtm_sources.SET_OPL], bounds, log)
+        _write_sidewalks(work_dir, area_opl_files, bounds, log)
     except Exception as exc:  # chodníky z DTM jsou doplněk, kreslí se i z OSM
         if log:
             log(f"DTM: chodníky přeskočeny ({type(exc).__name__}: {exc})")
@@ -232,6 +274,7 @@ def prepare_dtm_fences(
                 "dubious_removed": dubious,
                 "dubious": dubious_lines,
                 "inner_removed": inner_dropped,
+                "incomplete_opl": sorted(f"{kind}_{code}" for kind, code in incomplete),
                 "opl_files": [str(files[p.filename]) for p in packages if p.set_name == dtm_sources.SET_OPL],
                 "fences": [{"code": code, "coords": [list(p) for p in line]} for code, line in merged],
                 "fills": [[list(p) for p in ring] for ring in fill_rings],

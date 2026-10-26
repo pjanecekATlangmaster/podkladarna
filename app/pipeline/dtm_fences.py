@@ -28,6 +28,8 @@ CACHE_SUFFIX = ".plot2.json"
 CONSTRUCTION_TYPES = ("HraniceStavby", "HraniceBudovy")
 CONSTRUCTION_CACHE_SUFFIX = ".cons1.json"
 AREAS_CACHE_SUFFIX = ".orient3.json"
+# Počet bodů budov (``BudovaDefinicniBod``) v ZPS_KR – měřítko úplnosti ploch budov v ZPS_OPL.
+BUILDING_POINTS_CACHE_SUFFIX = ".bdb1.json"
 
 # Plochy z ZPS_OPL, podle kterých se orientují ploty (čárky symbolu 518 mají mířit
 # k „olivě“ = soukromá plocha, ne k chodníku / silnici).
@@ -176,6 +178,24 @@ def load_construction_borders(
         except OSError:
             pass
     return lines
+
+
+def load_building_points_count(package_zip: str | Path, *, use_cache: bool = True) -> int:
+    """Počet záznamů ``BudovaDefinicniBod`` v balíku ZPS_KR; cache u balíku."""
+    package_zip = Path(package_zip)
+    cache = package_zip.with_name(package_zip.name + BUILDING_POINTS_CACHE_SUFFIX)
+    if use_cache and cache.is_file() and cache.stat().st_mtime >= package_zip.stat().st_mtime:
+        try:
+            return int(json.loads(cache.read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            pass
+    count = sum(1 for _ in iter_records(package_zip, {"BudovaDefinicniBod"}))
+    if use_cache:
+        try:
+            cache.write_text(json.dumps(count), encoding="utf-8")
+        except OSError:
+            pass
+    return count
 
 
 def fences_in_bounds(

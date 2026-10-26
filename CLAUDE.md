@@ -306,6 +306,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **Propojení mezer mezi ploty** (`fence_gap_connectors`, sprint a les): dva volné konce téhož druhu plotu do 6 m, které na sebe míří (≤ 35°), se spojí
   čárou, pokud spojka leží do 1,5 m od kreslené olivy (OSM zahrada, oplocení z DTM, ZABAGED `ArealUceloveZastavby` / `OvocnySadZahrada` / `Hrbitov` – tak je oliva
   ve sprintu hlavně kreslená, `configs/zabaged.txt` „settlement“) a neprochází budovou, cestou ani jiným plotem. Bez olivy se nespojuje nic.
+- **DTM mimo Prahu:** `dtm_sources` bere balíky z celostátního API DMVS pro všech 14 krajů (Vysočina ověřena 2026-10-26). Některé obce mají
+  ZPS_OPL neúplné (Jihlava: 932 ploch budov proti 11 661 `BudovaDefinicniBod` v ZPS_KR); u obce s podílem pod 0,5 se plochy z jejího OPL
+  neberou (`incomplete_opl_units`, klíč `incomplete_opl` ve `fences.json`), ploty z KR zůstávají a plochy kreslí OSM.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
 - **Zdroj kresby v GUI** (Petr 2026-10-24, 2.34.0): volba DTM / OSM + ZABAGED zvlášť pro sprint (výchozí DTM) a les + MTBO
