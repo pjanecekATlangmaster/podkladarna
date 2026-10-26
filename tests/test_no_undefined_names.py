@@ -65,14 +65,25 @@ def _module_names(tree: ast.Module) -> set[str]:
 def _undefined(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     module = _module_names(tree)
+    # obklopující funkce každé funkce, spočtené jedním průchodem (dřív O(n²) přes ast.walk)
+    ancestors: dict[ast.AST, list[ast.AST]] = {}
+
+    def visit(node: ast.AST, stack: list[ast.AST]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                ancestors[child] = stack
+                visit(child, stack + [child])
+            else:
+                visit(child, stack)
+
+    visit(tree, [])
+    stores = {func: _stores(func) for func in ancestors}
     problems: list[str] = []
-    for func in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
-        defined = _stores(func) | module | _BUILTINS
+    for func, parents in ancestors.items():
+        defined = stores[func] | module | _BUILTINS
         # vnořená funkce vidí i proměnné obklopujících funkcí – přidej všechny předky
-        for parent in ast.walk(tree):
-            if parent is not func and isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if any(child is func for child in ast.walk(parent)):
-                    defined |= _stores(parent)
+        for parent in parents:
+            defined |= stores[parent]
         for n in ast.walk(func):
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id not in defined:
                 problems.append(f"{path.name}:{n.lineno} {func.name}(): '{n.id}'")
