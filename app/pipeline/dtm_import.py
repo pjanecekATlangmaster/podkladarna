@@ -1554,7 +1554,8 @@ def corridor_junction_omit(work_dir: Path, corridor, preset_id: str, scale: int,
         from app.pipeline.osm_paths import _extend_ends
 
         mouths = []
-        for coords, half in road_bands:
+        for band in road_bands:
+            coords, half = band[0], band[1]
             if len(coords) < 2:
                 continue
             r = half + JUNCTION_EXTRA_M

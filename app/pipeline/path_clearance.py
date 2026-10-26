@@ -375,17 +375,19 @@ def drawn_path_bands(
     ref_y: float,
     grivation_deg: float,
     majors: frozenset[int],
-) -> list[tuple[list[tuple[float, float]], float]]:
-    """Kreslené čáry cest (hlavní číslo kódu v ``majors``) v hotové mapě: ``[(osa v S-JTSK, půlka šířky v m)]``.
-    Pás čáry o této šířce je místo, kde by se okraj plochy s čárou překrýval (ústí, viz ``dtm_import.corridor_junction_omit``)."""
+) -> list[tuple[list[tuple[float, float]], float, float]]:
+    """Kreslené čáry cest (hlavní číslo kódu v ``majors``) v hotové mapě: ``[(osa v S-JTSK, půlka šířky v m, půlka výplně v m)]``.
+    Pás čáry o celé šířce je místo, kde by se okraj plochy s čárou překrýval; půlka výplně (mezi okrajovými linkami
+    silnice 502.x) je ústí: okraj plochy končí na okrajové lince silnice a navazuje na ni (Petr 2026-10-26)."""
     from app.pipeline.oom_coords import map_to_projected
-    from app.pipeline.oom_symbol_map import _symbol_widths
+    from app.pipeline.oom_symbol_map import _symbol_fill_widths, _symbol_widths
     from app.pipeline.oom_symbols import symbol_set_path
 
     try:
         set_path = symbol_set_path(preset_id, scale)
         info = _symbol_info(set_path)
         widths = _symbol_widths(set_path)
+        fills = _symbol_fill_widths(set_path)
     except Exception:
         return []
     out = []
@@ -404,7 +406,10 @@ def drawn_path_bands(
             if len(pts) < 2:
                 continue
             half_m = widths.get(sym, 0.0) / 2.0 * scale / 1000.0
-            out.append(([map_to_projected(mx, my, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg) for mx, my in pts], half_m))
+            fill_m = fills.get(sym, widths.get(sym, 0.0)) / 2.0 * scale / 1000.0
+            out.append(
+                ([map_to_projected(mx, my, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg) for mx, my in pts], half_m, fill_m)
+            )
     return out
 
 

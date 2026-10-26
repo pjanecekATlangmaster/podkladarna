@@ -613,9 +613,9 @@ def test_street_side_parking_edge_continues_to_road(tmp_path):
     # Ulice slitá se stáním: okraj 501.2 vede po obou dlouhých stranách až k čáře silnice, přes ústí ne.
     _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
     parts = _parts_with_edge(tmp_path)
-    # Ústí do silnice: okraj končí u pásu kresby čáry + 0,3 m (dřív pás + 0,35 mm = 3,5 m), proto dosáhne o pár metrů
-    # blíž k silnici a je o ~0,3 m delší než dřívější horní mez 105 m (dlouhé strany 2 × 51 m + zbytky u rohů).
-    assert 100 < _edge_length(parts) < 110
+    # Ústí do silnice: okraj končí na okrajové lince silnice (půlka výplně 502, dřív pás kresby + 0,35 mm = 3,5 m),
+    # proto dosáhne o pár metrů blíž k silnici než dřívější horní mez 105 m (dlouhé strany 2 × 51 m + zbytky u rohů).
+    assert 100 < _edge_length(parts) < 114
 
 
 @pytest.mark.parametrize("squeezed", [False, True])
