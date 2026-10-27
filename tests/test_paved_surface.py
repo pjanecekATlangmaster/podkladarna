@@ -66,3 +66,68 @@ def test_short_edge_piece_between_mouths_is_not_drawn():
 def test_dtm_area_features_empty_without_dtm(tmp_path):
     assert ps.dtm_area_features(tmp_path, "forest_10000", 10000) == []
     assert ps.dtm_area_features(tmp_path, "sprint_4000", 4000) == []
+
+
+def test_fill_strips_survive_geos_topology_error(monkeypatch):
+    # Job 61ce38ad5427 (MTBO Barrandov): GEOS odmítl sjednocení pásů (TopologyException). Překryv se zopakuje
+    # s přichycením na mřížku; když selže i to, dotažení výplně se vynechá a mapa vznikne.
+    import shapely
+    from shapely.errors import GEOSException
+
+    network = box(0, 0, 100, 40)
+    bands = [([(0.0, -6.0), (100.0, -6.0)], 4.0, 3.0)]
+    real = shapely.union_all
+
+    def flaky(geoms, grid_size=None, **kw):
+        if grid_size is None:
+            raise GEOSException("TopologyException: unable to assign free hole to a shell")
+        return real(geoms, grid_size=grid_size, **kw)
+
+    monkeypatch.setattr(shapely, "union_all", flaky)
+    strips = ps.road_fill_strips(network, bands, "forest_10000", 10000)
+    assert strips is not None and strips.area == pytest.approx(200.0, rel=0.05)
+
+    def broken(*a, **kw):
+        raise GEOSException("TopologyException")
+
+    monkeypatch.setattr(shapely, "union_all", broken)
+    assert ps.road_fill_strips(network, bands, "forest_10000", 10000) is None
+
+
+@pytest.mark.parametrize(
+    "op_name, fail_grids, expect_none",
+    [
+        ("union_all", {None, 0.01}, False),  # 1 cm selže, 5 cm projde
+        ("difference", {None}, False),
+        ("difference", {None, 0.01, 0.05}, True),
+    ],
+)
+def test_overlay_retries_on_grid(monkeypatch, caplog, op_name, fail_grids, expect_none):
+    import shapely
+    from shapely.errors import GEOSException
+
+    real = getattr(shapely, op_name)
+
+    def flaky(*a, grid_size=None, **kw):
+        if grid_size in fail_grids:
+            raise GEOSException("TopologyException")
+        return real(*a, grid_size=grid_size, **kw)
+
+    monkeypatch.setattr(shapely, op_name, flaky)
+    out = ps.road_fill_strips(box(0, 0, 100, 40), [([(0.0, -6.0), (100.0, -6.0)], 4.0, 3.0)], "forest_10000", 10000)
+    if expect_none:
+        assert out is None and "dotažení výplně se vynechá" in caplog.text
+    else:
+        assert out is not None and out.area == pytest.approx(200.0, rel=0.05)
+
+
+def test_overlay_survives_make_valid_error(monkeypatch):
+    import shapely
+    from shapely.errors import GEOSException
+
+    def broken(*a, **kw):
+        raise GEOSException("TopologyException")
+
+    monkeypatch.setattr(shapely, "union_all", broken)
+    monkeypatch.setattr(shapely, "make_valid", broken)
+    assert ps._overlay(shapely.union_all, [box(0, 0, 1, 1)]) is None

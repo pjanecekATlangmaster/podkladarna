@@ -38,6 +38,40 @@ def _polygons(geom):
     return [g for g in getattr(geom, "geoms", []) if g.geom_type == "Polygon" and not g.is_empty]
 
 
+# Mřížky přichycení (m) pro opakování překryvu ploch, který GEOS odmítl (TopologyException u téměř shodných hran).
+OVERLAY_RETRY_GRIDS = (0.01, 0.05)
+
+
+def _overlay(op, *args):
+    """``op`` (shapely ``union_all`` / ``difference`` …) s pojistkou: při ``GEOSException`` se vstupy opraví
+    ``make_valid`` a zkusí se znovu s přichycením na mřížku ``OVERLAY_RETRY_GRIDS``. Nevyjde-li ani to, vrátí None –
+    dotažení výplně se vynechá, ale mapa vznikne (job 61ce38ad5427, MTBO Barrandov 2026-10-27)."""
+    import logging
+
+    import shapely
+    from shapely.errors import GEOSException
+
+    try:
+        return op(*args)
+    except GEOSException as exc:
+        err = exc
+    try:
+        fixed = [[shapely.make_valid(g) for g in a] if isinstance(a, list) else shapely.make_valid(a) for a in args]
+    except GEOSException as exc:
+        err, fixed = exc, None
+    for grid in OVERLAY_RETRY_GRIDS if fixed is not None else ():
+        try:
+            return op(*fixed, grid_size=grid)
+        except GEOSException as exc:
+            err = exc
+    geoms = [g for a in args for g in (a if isinstance(a, list) else [a])]
+    logging.getLogger(__name__).warning(
+        "Zpevněné plochy: překryv %s selhal i s přichycením na mřížku, dotažení výplně se vynechá (rozsah %s): %s",
+        getattr(op, "__name__", op), shapely.total_bounds(geoms).round(1).tolist(), err,
+    )
+    return None
+
+
 def dtm_area_features(work_dir: Path, preset_id: str, scale: int, path_source: str = "mixed") -> list[dict]:
     """Plochy kreslené z DTM (koridor silnice, velká parkoviště, MTBO široké chodníky) jako prvky GeoJSON pro síť
     zpevněných ploch (``kind`` ``DTM_PAVED_KIND``, ``source`` ``dtm``); prázdný seznam bez DTM / mimo sjednocený režim."""
@@ -123,7 +157,7 @@ def road_fill_strips(network, road_bands, preset_id: str, scale: int):
         return None
     from shapely import STRtree
     from shapely.geometry import LineString, Point, Polygon
-    from shapely.ops import nearest_points, unary_union
+    from shapely.ops import nearest_points
 
     from app.pipeline.dtm_import import JUNCTION_END_TOL_M, JUNCTION_EXTRA_M
     from app.pipeline.osm_paths import LINE_MIN_GAP_MM, _extend_ends, mm_to_ground_m, paved_edge_width_m
@@ -164,8 +198,11 @@ def road_fill_strips(network, road_bands, preset_id: str, scale: int):
                     strips.append(poly)
     if not strips:
         return None
-    out = unary_union(strips).difference(network)
-    return None if out.is_empty else out
+    import shapely
+
+    out = _overlay(shapely.union_all, strips)
+    out = _overlay(shapely.difference, out, network) if out is not None else None
+    return None if out is None or out.is_empty else out
 
 
 def build_paved_edge_parts(
@@ -192,15 +229,17 @@ def build_paved_edge_parts(
     extra: list[OomObjectPart] = []
     strips = road_fill_strips(network, road_bands, preset_id, scale)
     if strips is not None and not strips.is_empty:
+        import shapely
         from shapely.geometry import box
-        from shapely.ops import unary_union
 
         from app.pipeline.dtm_sidewalks import polygon_rings
         from app.pipeline.oom_coords import projected_to_map_coord
         from app.pipeline.oom_import import _area_object_with_holes
         from app.pipeline.oom_symbol_map import symbol_index_for_code
 
-        network = unary_union([network, strips])
+        merged = _overlay(shapely.union_all, [network, strips])
+        if merged is not None:
+            network = merged
         fill_idx = symbol_index_for_code(preset_id, scale, "501.1")
         drawn = strips.intersection(box(*clip_bounds)) if clip_bounds is not None else strips
         objs = []
