@@ -434,8 +434,9 @@ def _forks(feats: list[dict], max_m: float, dual_zone=None):
     def _close(p, q, tol=0.5):
         return math.hypot(p[0] - q[0], p[1] - q[1]) <= tol
 
-    links, zones, used = [], [], set()
+    links, zones = [], []
     for arms in by_name.values():
+        used: set[int] = set()  # indexy ramen v rámci jedné ulice
         for i, (a, hw_a) in enumerate(arms):
             for j, (b, hw_b) in enumerate(arms):
                 if i == j or i in used or j in used or not _close(a[-1], b[0]):

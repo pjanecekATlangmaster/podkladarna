@@ -193,6 +193,10 @@ def test_short_fork_drawn_as_one_line(arm_in, arm_out, linked):
     feats = [_feat(arm_in, name="Lipského", hw="road_3"), _feat(arm_out, name="Lipského", hw="road_3")]
     links, zone = dc._forks(feats, 13.1)
     assert bool(links) is linked
+    # stejné rozvětvení jiné ulice o 1 km dál se najde také (ramena se párují v rámci ulice)
+    far = [[(x + 1000, y) for x, y in arm] for arm in (arm_in, arm_out)]
+    both, _z = dc._forks(feats + [_feat(far[0], name="Jiná", hw="road_3"), _feat(far[1], name="Jiná", hw="road_3")], 13.1)
+    assert len(both) == (2 if linked else 0)
     if linked:
         (mid, hw), = links
         assert hw == "road_3" and mid[0] == pytest.approx((0, 25)) and abs(mid[-1][0]) < 0.5
