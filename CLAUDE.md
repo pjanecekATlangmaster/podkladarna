@@ -333,6 +333,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (`_fork_dists`, `FORK_RUN_MAX_M` 40 m, konec užší na širší a křížení v uzlu `FORK_END_RUN_MAX_M` 20 m); parkoviště z ≥ 80 % pod kresbou silnice se slije
   s ulicí i když je širší než pruh 4,5 m (`PARKING_UNDER_ROAD_SHARE`); silnice kreslená symbolem s výplní (MTBO `503` → 502.2,
   `is_major_road_code`) nekončí na okraji jiné silnice jako černá cesta.
+  Osa rozdělené vozovky pokračuje přes obousměrný úsek za sloučením pásů až do křižovatky (do 60 m, `_extend_to_continuation`,
+  Lamačova × K Barrandovu 2.43.5); jinak by mezi 502.0 a křižovatkou zůstal užší kus 502.1.
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
 - **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé

@@ -123,3 +123,24 @@ def test_axis_not_bridged_through_roundabout():
     assert not zone.intersects(LineString(ring))
     # bez ostrůvku se osa přes objezd spojí (původní chování)
     assert len(dc._compute(feats[:4], 13.1, 8.4)[0]) == 1
+
+
+@pytest.mark.parametrize(
+    "cont, other, extended",
+    [
+        # pásy se slijí v (300, 5.5), obousměrná silnice 36 m do křižovatky (Lamačova × K Barrandovu): osa až do uzlu
+        ([[(300, 5.5), (318, 5.5)], [(318, 5.5), (336, 5.5)]], [[(336, -50), (336, 50)]], True),
+        # pokračování nekončí na křižovatce (slepý konec) – osa zůstává
+        ([[(300, 5.5), (336, 5.5)]], [], False),
+        # odbočka do strany (60°) není pokračování
+        ([[(300, 5.5), (318, 36.5)]], [[(318, 36.5), (318, 80)], [(318, 36.5), (360, 36.5)]], False),
+    ],
+)
+def test_axis_extended_along_continuation_to_junction(cont, other, extended):
+    lanes = [_feat([(0, 0), (290, 0), (300, 5.5)]), _feat([(300, 5.5), (290, 11), (0, 11)])]
+    roads = [[(float(x), float(y)) for x, y in c] for c in cont + other]
+    axes, zone = dc._compute(lanes, 13.1, None, None, roads)
+    assert len(axes) == 1
+    far = max(axes[0], key=lambda p: p[0])
+    assert (far[0] > 330) is extended
+    assert zone.contains(Point(320, 5.5)) is extended
