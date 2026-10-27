@@ -10,6 +10,7 @@ DXF_PRODUCTS: tuple[tuple[str, str], ...] = (
     ("dotknolls.dxf", "dotknolls.dxf"),
     ("dotdepressions.dxf", "dotdepressions.dxf"),
     ("dotpits.dxf", "dotpits.dxf"),
+    ("dotboulders.dxf", "dotboulders.dxf"),
     ("c2g.dxf", "cliffs_small.dxf"),
     ("c_rock.dxf", "cliffs_rock.dxf"),
 )

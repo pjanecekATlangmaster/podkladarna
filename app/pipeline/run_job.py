@@ -81,6 +81,7 @@ from app.pipeline.prepare_zabaged import clean_zabaged
 from app.pipeline.source_meta import collect_lidar_source_meta
 from app.pipeline.cliffs_dem import generate_job_cliffs_dem
 from app.pipeline.knolls_dem import generate_job_knolls
+from app.pipeline.boulders_dem import generate_job_boulders
 from app.pipeline.vegetation_chm import generate_job_vegetation_chm
 from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS as DEFAULT_DENSITY_PARAMS,
@@ -680,6 +681,10 @@ def run_job_pipeline(
         generate_job_knolls(work_dir, options=options, log=log)
     except Exception as exc:
         log_issue(log, f"Kupky a ďolíky: přeskočeno ({exc})")
+    try:
+        generate_job_boulders(work_dir, options=options, log=log)
+    except Exception as exc:
+        log_issue(log, f"Balvany: přeskočeno ({exc})")
     progress.done()
 
     if not has_zabaged or not zabaged_clean.is_file():

@@ -311,6 +311,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   s pevným obrysem – silnice se v ní ořízne a okraj se u silnice přeruší (Sedlčany). Smíšená stezka zasahující čárou do kresby silnice
   nebo koridoru se nekreslí (`bike_road_zone`).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
+- **Skály a balvany v lese a MTBO jen jisté** (Petr 2026-10-27, srovnání Harrachov a Vyšší Brod E1–E3): balvany 204 z DEM
+  (`app/pipeline/boulders_dem.py`, `dotboulders.dxf`): vyvýšenina 1,2–3 m nad průměrem protilehlých bodů ve 3 m ve všech čtyřech
+  směrech (násep / hrana jen napříč neprojde), rozestup 6 m; při sestavení se zahodí do 2 m od skalní plochy, 6 m od kupky, 25 m od
+  čar cest / vody / plotů a 12 m od budov a vodních ploch (`filter_boulder_points`). Přesnost nových bodů proti ručním mapám 0,85–1,0.
+  Drobné balvany a skalky pod ~1 m z DMR 5G nevyčteme (přesnost ~0,45); zahozené samostatné skalní linie mají jen 0,46–0,67, proto se dál nekreslí. Sprint beze změny.
 - **Sprint podle srovnání s DS26 Barrandov** (Petr 2026-10-26, 2.36.0): plot ležící z ≥ 80 % uvnitř kreslené olivy dál než 1,5 m
   od okraje se nekreslí (`drop_fences_inside_olive`, dělicí ploty zahrad); brány a sloupky (`gate`, `wicket_gate`, `lift_gate`,
   `bollard`) nejsou 531 (`sprint_skips_barrier_point`); čáry cest se uvnitř budov (> 1 m od obrysu) nekreslí a OSM `covered=yes` /

@@ -105,6 +105,8 @@ _DXF_OOM_CODE_FOREST: dict[str, str] = {
     "dotknolls.dxf": "109",
     "dotdepressions.dxf": "111",
     "dotpits.dxf": "112",
+    # Balvany z DEM (boulders_dem) – jen les a MTBO, sprint ne.
+    "dotboulders.dxf": "204",
 }
 
 _CLIFF_DXF = frozenset({"cliffs_small.dxf", "cliffs_large.dxf"})
@@ -502,6 +504,8 @@ def oom_code_for_dxf(
     ``earth_bank`` / ``symbol_206`` přebarví obě sady.
     ``off`` srázy vynechá. Knolly (dotknolls) symbol nemění.
     """
+    if filename == "dotboulders.dxf" and cliff_symbol == KP_CLIFF_OFF:
+        return None
     if filename in _ROCK_DXF or filename in _CLIFF_DXF:
         if cliff_symbol == KP_CLIFF_OFF:
             return None
