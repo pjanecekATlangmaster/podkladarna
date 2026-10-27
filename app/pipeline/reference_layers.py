@@ -1330,6 +1330,11 @@ def _store_references_cache(
         log(f"Referenční PNG: uloženo do cache ({stored} vrstev) → {cache_dir.name}")
 
 
+# Podklady, které jdou do ZIPu vždy (i s vypnutými referenčními podklady):
+# ortofoto slouží i sprintu (zeleň v ulicích z katastru), katastr je k parcelám ulic.
+ALWAYS_REFERENCE_KEYS = frozenset({"orthophoto", "katastr"})
+
+
 def build_reference_layers(
     job_dir: Path,
     bbox_wgs84: tuple[float, float, float, float],
@@ -1340,12 +1345,19 @@ def build_reference_layers(
     log: callable | None = None,
     force_refresh: bool = False,
     job_shade: Path | None = None,
+    only: frozenset[str] | None = None,
 ) -> dict[str, Path]:
     """Vytvoří referenční PNG+PGW pro OOM (hillshade, ortofoto, OSM).
 
     ``job_shade``: už stažený hillshade jobu (stejná WMS vrstva); hlavní
     referenční hillshade se z něj odvodí místo druhého stahování.
+    ``only``: jen vybrané vrstvy (``ALWAYS_REFERENCE_KEYS`` při vypnutých podkladech),
+    bez sdílené cache celé sady.
     """
+
+    def want(key: str) -> bool:
+        return only is None or key in only
+
     if not template_png.is_file() or not template_pgw.is_file():
         return {}
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1355,7 +1367,7 @@ def build_reference_layers(
     ref_wh = _ref_target_size(template_png, template_pgw)[:2]
     osm_wh = _osm_target_size(template_png, template_pgw)[:2]
     cache_dir = references_cache_dir(bbox_wgs84, ref_wh=ref_wh, osm_wh=osm_wh)
-    if not force_refresh:
+    if not force_refresh and only is None:
         cached = _try_load_references_cache(cache_dir, out_dir, log=log)
         if cached is not None:
             return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
@@ -1363,12 +1375,35 @@ def build_reference_layers(
     built: dict[str, Path] = {}
 
     try:
-        built.update(
-            fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
-        )
+        if want("orthophoto"):
+            built.update(
+                fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
+            )
     except Exception as exc:
         if log:
             log_issue(log, f"Ortofoto: přeskočeno ({exc})")
+    if only is not None:
+        km_png = out_dir / "katastr.png"
+        if want("katastr"):
+            try:
+                if fetch_cuzk_wms_png(
+                    KM_WMS,
+                    KM_LAYER,
+                    bounds,
+                    template_png,
+                    template_pgw,
+                    km_png,
+                    km_png.with_suffix(".pgw"),
+                    label="Katastrální mapa",
+                    transparent=True,
+                    log=log,
+                ):
+                    built["katastr"] = km_png
+            except Exception as exc:
+                if log:
+                    log_issue(log, f"Katastrální mapa: přeskočeno ({exc})")
+            return _with_katastr_vectors(built, bbox_wgs84, out_dir, log=log)
+        return built
 
     osm_png = out_dir / "osm.png"
     osm_pgw = osm_png.with_suffix(".pgw")

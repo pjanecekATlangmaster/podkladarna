@@ -9,6 +9,8 @@ from pathlib import Path
 CACHE_SUBDIR = "orthophoto"
 ORTHO_NAME = "ortofoto.png"
 ORTHO_META_NAME = "ortofoto.json"
+# Ortofoto referenčního podkladu (``work/references/orthophoto*.jpg`` + ``.jgw``, 0,25 m/px).
+REFERENCE_SUBDIR = "references"
 # Nad tento počet pixelů (při 0,5 m/px cca 12 × 12 km) se ortofoto nestahuje (paměť, počet dlaždic).
 MAX_PIXELS = 150_000_000
 
@@ -40,6 +42,14 @@ def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None):
         from app.pipeline.reference_layers import ORTOFOTO_WMS, _download_wms_raster, _write_pgw_for_extent
 
         out_dir.mkdir(parents=True, exist_ok=True)
+        rgb = _from_reference_tiles(Path(work_dir) / REFERENCE_SUBDIR, (xmin, ymin, xmax, ymax), width, height)
+        if rgb is not None:  # stejná WMS vrstva už stažená jako podklad – nestahovat podruhé
+            Image.fromarray(rgb).save(png)
+            _write_pgw_for_extent(png.with_suffix(".pgw"), xmin, ymin, xmax, ymax, width, height)
+            meta_path.write_text(json.dumps(want), encoding="utf-8")
+            if log:
+                log("Ortofoto: z referenčního podkladu (bez dalšího stahování)")
+            return rgb, gt
         ok = _download_wms_raster(
             ORTOFOTO_WMS,
             "0",
@@ -61,6 +71,40 @@ def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None):
         if log:
             log(f"⚠ Ortofoto: přeskočeno ({exc})")
         return None
+
+
+def _from_reference_tiles(ref_dir: Path, bounds, width: int, height: int):
+    """Mozaika ``orthophoto*.jpg`` (+ ``.jgw``) převzorkovaná do mřížky ``bounds`` × ``width`` × ``height``.
+
+    ``None``, když dlaždice chybí nebo nepokryjí aspoň polovinu výřezu (pak se stahuje)."""
+    import numpy as np
+    from PIL import Image
+
+    from app.pipeline.georef import read_pgw
+
+    tiles = sorted(p for p in Path(ref_dir).glob("orthophoto*.jpg") if p.with_suffix(".jgw").is_file()) if Path(ref_dir).is_dir() else []
+    if not tiles:
+        return None
+    xmin, _ymin, xmax, ymax = bounds
+    mpp = (xmax - xmin) / width
+    canvas = Image.new("RGB", (width, height))
+    covered = 0
+    for tile in tiles:
+        geo = read_pgw(tile.with_suffix(".jgw"))
+        with Image.open(tile) as im:
+            tw, th = im.size
+            out_w = max(1, round(tw * abs(geo.pixel_x) / mpp))
+            out_h = max(1, round(th * abs(geo.pixel_y) / mpp))
+            im.draft("RGB", (out_w, out_h))  # JPEG se rovnou dekóduje zmenšený
+            part = im.convert("RGB").resize((out_w, out_h), Image.Resampling.BOX)
+        tx0 = geo.origin_x - geo.pixel_x / 2
+        ty1 = geo.origin_y - geo.pixel_y / 2
+        col, row = round((tx0 - xmin) / mpp), round((ymax - ty1) / mpp)
+        canvas.paste(part, (col, row))
+        covered += max(0, min(width, col + out_w) - max(0, col)) * max(0, min(height, row + out_h) - max(0, row))
+    if covered < 0.5 * width * height:
+        return None
+    return np.asarray(canvas)
 
 
 def exg(rgb):

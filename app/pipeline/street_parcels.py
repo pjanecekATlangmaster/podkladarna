@@ -102,6 +102,19 @@ def fetch_street_parcels(work_dir: Path, bbox_wgs84, log=None) -> Path | None:
     return dest
 
 
+def street_fetch_bounds_5514(bbox_wgs84) -> tuple[float, float, float, float]:
+    """Obálka stahování parcel a ortofota (S-JTSK, výřez + ``VECTOR_FETCH_BUFFER_M``)."""
+    return crop_bounds_5514(*expand_bbox_wgs84(tuple(bbox_wgs84), VECTOR_FETCH_BUFFER_M), buffer_m=0.0)
+
+
+def prefetch_street_inputs(work_dir: Path, bbox_wgs84, log=None) -> None:
+    """Na pozadí od začátku jobu: parcely komunikací do cache jobu.
+
+    Masku zeleně dělá až sestavení mapy z ortofota referenčního podkladu (stahuje se jednou)."""
+    if SPRINT_STREET_PARCELS:
+        fetch_street_parcels(work_dir, bbox_wgs84, log=log)
+
+
 def _prepare_green_mask(work_dir: Path, bounds_5514, log=None) -> Path | None:
     """Maska zeleně z ortofota (``orthophoto.green_mask`` + morfologické otevření 1 px) → ``zelen.png`` + ``zelen.json``."""
     out_dir = Path(work_dir) / CACHE_SUBDIR
@@ -306,6 +319,10 @@ def load_buildings_5514(work_dir: Path):
     return unary_union(polys) if polys else None
 
 
+# Poslední spočtená plocha ulic (S-JTSK) pro ``(work_dir, měřítko, ořez)`` – jen v rámci jobu.
+_GEOM_CACHE: dict = {}
+
+
 def sprint_street_parcel_part(
     parts,
     work_dir: Path,
@@ -349,15 +366,20 @@ def sprint_street_parcel_part(
             return parts
         if fetch_street_parcels(work_dir, bbox_wgs84, log=log) is None:
             return parts
-        xmin, ymin, xmax, ymax = crop_bounds_5514(*expand_bbox_wgs84(tuple(bbox_wgs84), VECTOR_FETCH_BUFFER_M), buffer_m=0.0)
-        _prepare_green_mask(work_dir, (xmin, ymin, xmax, ymax), log=log)
-        geom = street_paved_geometry(
-            work_dir, load_buildings_5514(work_dir), load_street_osm_lines(work_dir), scale=scale
-        )
-        if geom is not None and clip_bounds:
-            from shapely.geometry import box as _box
+        key = (str(Path(work_dir).resolve()), int(scale), tuple(clip_bounds) if clip_bounds else None)
+        if _GEOM_CACHE.get("key") == key:
+            geom = _GEOM_CACHE["geom"]  # plná a „čistá“ mapa mají stejné vstupy
+        else:
+            _prepare_green_mask(work_dir, street_fetch_bounds_5514(bbox_wgs84), log=log)
+            geom = street_paved_geometry(
+                work_dir, load_buildings_5514(work_dir), load_street_osm_lines(work_dir), scale=scale
+            )
+            if geom is not None and clip_bounds:
+                from shapely.geometry import box as _box
 
-            geom = geom.intersection(_box(*clip_bounds))  # parcely se stahují s přesahem
+                geom = geom.intersection(_box(*clip_bounds))  # parcely se stahují s přesahem
+            _GEOM_CACHE.clear()
+            _GEOM_CACHE.update(key=key, geom=geom)
         if geom is None or geom.is_empty:
             return parts
 

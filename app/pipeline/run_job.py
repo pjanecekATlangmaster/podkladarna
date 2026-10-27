@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import threading
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -62,11 +63,16 @@ from app.pipeline.preview import (
     ensure_georef_template,
     resolve_preview_png,
 )
-from app.pipeline.reference_layers import build_reference_layers, list_reference_rasters
+from app.pipeline.reference_layers import (
+    ALWAYS_REFERENCE_KEYS,
+    build_reference_layers,
+    list_reference_rasters,
+)
 from app.pipeline.shade import build_job_shade
 from app.pipeline.job_progress import (
     IssueCollector,
     JobProgress,
+    format_elapsed,
     indented_log,
     log_issue,
     plan_pipeline_steps,
@@ -94,6 +100,7 @@ REF_LOG_LABEL = "podklady"
 SURFACE_LOG_LABEL = "DSM/CHM"
 OSM_LOG_LABEL = "OSM"
 DTM_LOG_LABEL = "DTM"
+VECTOR_LOG_LABEL = "vektory"
 
 
 @dataclass
@@ -113,6 +120,88 @@ class ReferenceDownload:
             return self.future.result()
         finally:
             self._executor.shutdown(wait=False)
+
+
+@dataclass
+class VectorPrefetch:
+    """Vektorová data stažená na pozadí od začátku jobu (ZABAGED, RÚIAN, AOPK, ulice z katastru).
+
+    ZABAGED běží souběžně se stahováním LiDARu, zbytek sériově ve druhém vlákně. Kroky
+    jen převezmou výsledek (``zabaged()``, ``ruian()``, …); chyba = stejná jako při
+    stahování v hlavním vlákně (ZABAGED výjimku vyhodí, ostatní vrací None).
+    """
+
+    futures: dict[str, Future]
+    _executor: ThreadPoolExecutor
+
+    def _wait(self, key: str, log: callable | None, label: str):
+        future = self.futures.get(key)
+        if future is None:
+            return None
+        if not future.done() and log is not None:
+            log(f"Čekám na {label} z pozadí…")
+        return future.result()
+
+    def zabaged(self, log: callable | None = None) -> Path:
+        return self._wait("zabaged", log, "ZABAGED")
+
+    def ruian(self, log: callable | None = None) -> Path | None:
+        return self._wait("ruian", log, "RÚIAN budovy")
+
+    def aopk(self, log: callable | None = None) -> Path | None:
+        return self._wait("aopk", log, "AOPK stromy")
+
+    def streets(self, log: callable | None = None) -> None:
+        self._wait("streets", log, "parcely ulic z katastru")
+
+    def shutdown(self) -> None:
+        self._executor.shutdown(wait=False)
+
+
+def start_vector_prefetch(
+    work_dir: Path,
+    bbox_wgs84: tuple[float, float, float, float],
+    *,
+    force_refresh: bool,
+    with_streets: bool,
+    log: callable,
+) -> VectorPrefetch:
+    """Spustí stahování vektorových dat na pozadí (viz ``VectorPrefetch``)."""
+    executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vec-dl")
+    bg_log = background_log(log, VECTOR_LOG_LABEL)
+    futures: dict[str, Future] = {
+        "zabaged": executor.submit(
+            fetch_zabaged_for_bbox, tuple(bbox_wgs84), bg_log, force_refresh=force_refresh
+        )
+    }
+    # Jedno vlákno sériově: ČÚZK služby nezahlcovat souběžnými dotazy.
+    serial = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vec-dl-s")
+
+    def _safe(fn, label):
+        def _run():
+            try:
+                return fn()
+            except Exception as exc:  # krok si případně stáhne sám
+                bg_log(f"{label}: přeskočeno ({exc})")
+                return None
+
+        return _run
+
+    futures["ruian"] = serial.submit(
+        _safe(lambda: fetch_ruian_buildings_for_bbox(tuple(bbox_wgs84), log=bg_log), "RÚIAN budovy")
+    )
+    futures["aopk"] = serial.submit(
+        _safe(lambda: fetch_aopk_trees_for_bbox(tuple(bbox_wgs84), log=bg_log), "AOPK stromy")
+    )
+    if with_streets:
+        from app.pipeline.street_parcels import prefetch_street_inputs
+
+        futures["streets"] = serial.submit(
+            _safe(lambda: prefetch_street_inputs(work_dir, tuple(bbox_wgs84), log=bg_log), "Ulice z katastru")
+        )
+    serial.shutdown(wait=False)  # úlohy doběhnou, vlákno pak skončí
+    bg_log("Start stahování na pozadí (ZABAGED, RÚIAN, AOPK" + (", parcely ulic)" if with_streets else ")"))
+    return VectorPrefetch(futures=futures, _executor=executor)
 
 
 def job_has_sprint(preset_id: str, options: dict) -> bool:
@@ -170,6 +259,7 @@ def start_reference_download(
     log: callable,
     shade_bounds: tuple[float, float, float, float] | None = None,
     shade_cache_dir: Path | None = None,
+    with_references: bool = True,
 ) -> ReferenceDownload | None:
     """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
 
@@ -177,6 +267,8 @@ def start_reference_download(
     ČÚZK/vrstvy uvnitř zůstávají sériové — paralelní je jen overlap s hlavním buildem.
     Když je zadané ``shade_bounds``, stáhne se v témže vlákně nejdřív hillshade
     jobu (``work/shade``) a referenční hillshade z něj vznikne bez dalšího stahování.
+    ``with_references=False`` (podklady vypnuté ve formuláři): jen hillshade a
+    ``ALWAYS_REFERENCE_KEYS`` (ortofoto, katastr) – ty jdou do ZIPu vždy.
     """
     georef = ensure_georef_template(work_dir, prefer_preview=False)
     if georef is None:
@@ -184,10 +276,16 @@ def start_reference_download(
     template_png, template_pgw = georef
     reference_dir = work_dir / "references"
     ref_log = background_log(log, REF_LOG_LABEL)
-    ref_log(
-        "Start stahování na pozadí (stínování, ortofoto, OSM, ZTM, katastr); "
-        "výsledek se převezme v kroku „referenční podklady“."
-    )
+    if with_references:
+        ref_log(
+            "Start stahování na pozadí (stínování, ortofoto, OSM, ZTM, katastr); "
+            "výsledek se převezme v kroku „referenční podklady“."
+        )
+    else:
+        ref_log(
+            "Start stahování na pozadí (stínování, ortofoto, katastr; ostatní "
+            "referenční podklady vypnuté)."
+        )
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-dl")
     shade_done = threading.Event() if shade_bounds is not None else None
     handle = ReferenceDownload(
@@ -225,6 +323,7 @@ def start_reference_download(
                 reference_dir,
                 log=ref_log,
                 force_refresh=force_refresh,
+                only=None if with_references else ALWAYS_REFERENCE_KEYS,
                 **extra,
             )
         except Exception as exc:
@@ -256,9 +355,14 @@ def join_reference_download(
     """
     built_refs: dict[str, Path] = {}
     reference_dir = work_dir / "references"
-    if not want_refs:
-        log("Referenční podklady: vypnuto ve formuláři")
+    if not want_refs and ref_download is None:
+        if progress is not None:
+            progress.skip("referenční podklady", reason="vypnuto ve formuláři")
+        else:
+            log("Referenční podklady: vypnuto ve formuláři")
         return built_refs, []
+    if not want_refs:
+        log("Referenční podklady: vypnuto ve formuláři – přibalím jen ortofoto a katastr")
     if not bbox:
         return built_refs, []
 
@@ -357,7 +461,7 @@ def run_job_pipeline(
             bbox=bbox,
             reused_from=reused_from,
             want_zip=want_zip,
-            want_refs=want_refs,
+            want_refs=True,  # ortofoto a katastr jdou do ZIPu vždy
         ),
     )
     progress.announce_plan()
@@ -368,6 +472,7 @@ def run_job_pipeline(
     # se na pozadí hned, souběžně s LiDAR/ZABAGED, a krok OSM jen převezme výsledek.
     osm_prefetch = None
     dtm_prefetch = None
+    vector_prefetch: VectorPrefetch | None = None
     if bbox:
         try:
             osm_prefetch = start_osm_prefetch(
@@ -418,6 +523,17 @@ def run_job_pipeline(
                 )
         except Exception as exc:
             log_issue(log, f"DTM: příprava na pozadí se nespustila ({exc})")
+        # ZABAGED (souběžně s LiDARem), RÚIAN, AOPK a u sprintu katastr + ortofoto na pozadí.
+        try:
+            vector_prefetch = start_vector_prefetch(
+                work_dir,
+                tuple(bbox),
+                force_refresh=force_refresh,
+                with_streets=job_has_sprint(preset_id, options),
+                log=raw_log,
+            )
+        except Exception as exc:
+            log_issue(log, f"Vektory: stahování na pozadí se nespustilo ({exc})")
 
     lidar_work = work_dir / "lidar"
     if reused_from:
@@ -447,11 +563,14 @@ def run_job_pipeline(
         progress.done()
 
         progress.begin("stažení ZABAGED")
-        zabaged_src = fetch_zabaged_for_bbox(
-            (west, south, east, north),
-            log,
-            force_refresh=force_refresh,
-        )
+        if vector_prefetch is not None:
+            zabaged_src = vector_prefetch.zabaged(log)
+        else:
+            zabaged_src = fetch_zabaged_for_bbox(
+                (west, south, east, north),
+                log,
+                force_refresh=force_refresh,
+            )
         progress.done()
 
     scalefactor = float(
@@ -486,8 +605,9 @@ def run_job_pipeline(
             log=log,
         )
         progress.done()
-        # Referenční PNG na pozadí (sériově ČÚZK) × overlap s těžkým buildem.
-        if want_refs and bbox:
+        # Referenční PNG na pozadí (sériově ČÚZK) × overlap s těžkým buildem;
+        # bez podkladů se na pozadí stahuje aspoň stínování.
+        if bbox:
             ref_download = start_reference_download(
                 job_dir,
                 work_dir,
@@ -496,6 +616,7 @@ def run_job_pipeline(
                 log=raw_log,
                 shade_bounds=grid_bounds,
                 shade_cache_dir=surfaces_cache,
+                with_references=want_refs,
             )
 
     if reused_from and merged_existing:
@@ -642,7 +763,9 @@ def run_job_pipeline(
     if bbox:
         # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
         try:
-            veg_buildings = fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
+            veg_buildings = (
+                vector_prefetch.ruian(log) if vector_prefetch is not None else None
+            ) or fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
         except Exception as exc:
             log(f"RÚIAN budovy pro vegetaci: přeskočeno ({exc})")
     try:
@@ -767,7 +890,10 @@ def run_job_pipeline(
         progress=progress,
         ref_download=ref_download,
         dtm_prefetch=dtm_prefetch,
+        vector_prefetch=vector_prefetch,
     )
+    if vector_prefetch is not None:
+        vector_prefetch.shutdown()
     progress.finish_all()
     issues.report()
     raw_log("")
@@ -800,6 +926,7 @@ def _package_output(
     progress: JobProgress | None = None,
     ref_download: ReferenceDownload | None = None,
     dtm_prefetch=None,
+    vector_prefetch: VectorPrefetch | None = None,
 ) -> None:
     zip_path = output_dir / OUTPUT_ZIP_NAME
     if zip_path.exists():
@@ -849,12 +976,16 @@ def _package_output(
             if progress is not None:
                 progress.begin("RÚIAN a AOPK")
             try:
-                ruian_path = fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
+                ruian_path = (
+                    vector_prefetch.ruian(log) if vector_prefetch is not None else None
+                ) or fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
             except Exception as exc:
                 log_issue(log, f"RÚIAN budovy: přeskočeno ({exc})")
                 ruian_path = None
             try:
-                aopk_path = fetch_aopk_trees_for_bbox(tuple(bbox), log=log)
+                aopk_path = (
+                    vector_prefetch.aopk(log) if vector_prefetch is not None else None
+                ) or fetch_aopk_trees_for_bbox(tuple(bbox), log=log)
             except Exception as exc:
                 log_issue(log, f"AOPK stromy: přeskočeno ({exc})")
                 aopk_path = None
@@ -911,6 +1042,8 @@ def _package_output(
                 if not dtm_prefetch.future.done():
                     log("Čekám na přípravu DTM (ploty) z pozadí…")
                 dtm_prefetch.result()  # chyby řeší vlákno samo (job pokračuje bez DTM)
+            if vector_prefetch is not None:
+                vector_prefetch.streets(log)  # sprint: parcely ulic už v cache jobu
             log_step(
                 log,
                 "Sestavuji mapu OOM (vrstevnice, zeleň a polohopis do .omap)",
@@ -937,6 +1070,7 @@ def _package_output(
                         f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src}"
                         + (", jen čistá data)" if certain else ")")
                     )
+                    t_map = time.monotonic()
                     omap_p = prepare_oom_map(
                         kp_cwd,
                         output_dir / variant_name,
@@ -967,17 +1101,21 @@ def _package_output(
                         log=log,
                     )
                     if omap_p:
+                        log(f"OOM: {variant_name} hotovo za {format_elapsed(time.monotonic() - t_map)}")
                         # Náhled jen z plné mapy; „čistá“ jde do ZIPu a OCD navíc.
                         (certain_paths if certain else omap_paths).append(omap_p)
+                        t_ocd = time.monotonic()
                         try:
                             from app.pipeline.oom_preview import convert_omap_to_ocd
 
                             convert_omap_to_ocd(omap_p, log=log)
                         except Exception as exc:
                             log_issue(log, f"OOM OCD: přeskočeno ({variant_name}): {exc}")
+                        log(f"OOM OCD: {variant_name} za {format_elapsed(time.monotonic() - t_ocd)}")
                     else:
                         log_issue(log, f"OOM: {variant_name} nevytvořeno")
 
+            t_prev = time.monotonic()
             try:
                 # Web/georef náhled: vnitřní timeout + catch; selhání nesmí
                 # blokovat ZIP/OCD (ostrý hang b15bc8d21895: bomb→fallback).
@@ -990,6 +1128,7 @@ def _package_output(
                 )
             except Exception as exc:
                 log_issue(log, f"OOM náhled: přeskočeno ({exc})")
+            log(f"OOM náhled: za {format_elapsed(time.monotonic() - t_prev)}")
 
             if output_georef_enabled(options):
                 try:
@@ -1010,6 +1149,7 @@ def _package_output(
             if output_georef_enabled(options)
             else None
         )
+        t_zip = time.monotonic()
         build_oom_zip(
             kp_cwd,
             zip_path,
@@ -1017,7 +1157,7 @@ def _package_output(
             metadata=meta,
             reference_dir=(
                 reference_dir
-                if want_refs and reference_dir and reference_dir.is_dir()
+                if (want_refs or built_refs) and reference_dir and reference_dir.is_dir()
                 else None
             ),
             omap_paths=[*omap_paths, *certain_paths],
@@ -1030,6 +1170,7 @@ def _package_output(
             include_cliffs=cliff_symbol != "off",
             georef_preview_dir=georef_dir,
         )
+        log(f"ZIP: zabaleno za {format_elapsed(time.monotonic() - t_zip)}")
     else:
         if progress is not None:
             progress.begin("balení výstupu")
@@ -1048,7 +1189,7 @@ def _package_output(
                 shutil.copy2(src, shade_dst / name)
     # Stejná struktura jako v ZIPu, ať jde otevřít i output/*-{sprint,les,mtbo}.omap.
     if want_zip and omap_paths:
-        if bool(options.get("output_references", True)):
+        if bool(options.get("output_references", True)) or built_refs:
             refs_src = kp_cwd / "references"
             if refs_src.is_dir():
                 refs_dst = output_dir / "references"
