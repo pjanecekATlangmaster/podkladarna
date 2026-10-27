@@ -120,6 +120,9 @@ def startup() -> None:
     interrupted = worker.recover_after_restart()
     if interrupted:
         logger.info("Recovered %s interrupted job(s): %s", len(interrupted), interrupted)
+    requeued = worker.requeue_after_restart()
+    if requeued:
+        logger.info("Requeued %s waiting job(s): %s", len(requeued), requeued)
     from app.job_worker import retry_missed_private_mails
 
     resent = retry_missed_private_mails()

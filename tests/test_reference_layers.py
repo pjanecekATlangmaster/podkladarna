@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.pipeline.build_oom_map import build_oom_map_xml, write_oom_map
 from app.pipeline.oom_layers import OomTemplate
 from app.pipeline.georef import PgwGeoref, read_pgw
@@ -88,6 +90,17 @@ def test_split_pixel_grid_stays_under_wms_limit():
     for x0, y0, x1, y1 in tiles:
         assert x1 - x0 <= WMS_MAX_GETMAP_PX
         assert y1 - y0 <= WMS_MAX_GETMAP_PX
+
+
+@pytest.mark.parametrize(
+    ("url_attr", "max_px"),
+    [("DMPOK_WMS", 2000), ("HILLSHADE_WMS", 2000), ("KM_WMS", 4000)],
+)
+def test_imageserver_wms_uses_smaller_tiles(url_attr, max_px):
+    # ČÚZK ImageServer vrací na GetMap 4000 px HTTP 400 (náhled DMP OK, Tanvald).
+    from app.pipeline import reference_layers as rl
+
+    assert rl._wms_max_getmap_px(getattr(rl, url_attr)) == max_px
 
 
 def test_pixel_window_bounds_top_left_is_north():
