@@ -2,91 +2,31 @@
 
 LiDAR (hustota odrazů, CHM) louku od paseky s náletem nebo mladého porostu
 neodliší: obojí má CHM ≈ 0. Ortofoto ano – louka je hladká, nálet drsný.
-Pevný práh textury se ale mezi snímky nepřenáší (roční období, slunce), proto
-se v každém jobu naučí malý klasifikátor ze štítků, které dává LiDAR sám:
-
-* **louka** = 401, kde je otevřeno ve starém DMP 1G i v současném DMP OK,
-* **paseka / nálet** = 401, kde DMP 1G měl les a DMP OK už ne.
-
-Rysy jsou jen z ortofota (barva, ExG, sytost, textura 2,5 m a 11 m). Bez
-štítků nebo bez ``scikit-learn`` rozhodne textura proti lesu v témže snímku
-(drsnější než ``TEXTURE_FOREST_FRAC`` × medián lesa → 403). Bez ortofota se
-nic nemění. Měřeno na 5 ručních mapách (Ochoza, Harrachov, Vyšší Brod E1–E3),
-viz ``/mnt/project-files/ortofoto/ortofoto-pruzkum.md``.
+Rozhoduje předučená logistická regrese nad rysy z ortofota (barva, ExG,
+sytost, textura 2,5 m a 11 m). Rysy se v každém jobu normují vůči naší 401
+v témže snímku (z-skóre), takže koeficienty platí i při jiném ročním období
+a osvětlení. Učeno na ručních mapách (Ochoza, Harrachov, Vyšší Brod E1–E3,
+štítky = 401 / 403 mapaře uvnitř naší 401); při vynechání území z učení
+401 F1 Ochoza 0,82, Harrachov 0,75, VB E2 0,67 (dnes 0,74 / 0,58 / 0,36), viz
+``/mnt/project-files/ortofoto/ortofoto-pruzkum.md``. Bez ortofota se nic nemění.
+Starší DMP 1G se nepoužívá (ČÚZK ho přestane poskytovat).
 """
 
 from __future__ import annotations
 
-import io
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 # Hlavní vypínač (les a MTBO; sprint nevolá).
 ORTHO_ROUGH_OPEN = True
 ORTHO_MPP = 0.5
-IMAGE_SERVER = "https://ags.cuzk.gov.cz/arcgis2/rest/services/{service}/ImageServer/exportImage"
-# Štítky z LiDARu (m, průměr v okně LABEL_WINDOW_M).
-LABEL_WINDOW_M = 11.0
-MEADOW_MAX_M = 0.5
-CLEARED_OLD_MIN_M = 8.0
-CLEARED_NOW_MAX_M = 2.0
-MIN_LABEL_M2 = 2_000.0
-MAX_TRAIN_PER_CLASS = 40_000
+# Koeficienty pro 12 rysů ``ortho_features`` (z-skóre vůči 401 v jobu) a posun.
+ROUGH_COEF = (-0.165, 1.082, -0.550, -0.038, -0.125, 0.141, -0.454, 3.058, -0.934, 0.176, -2.133, -1.539)
+ROUGH_INTERCEPT = 0.246
 ROUGH_PROBA = 0.5
-TEXTURE_FOREST_FRAC = 0.75
-DMP1G_MIN_M, DMP1G_MAX_M = 100.0, 1700.0
-# Úklid masky 403 (m): uzavření a otevření, ať nezůstanou pixelové fleky.
+MIN_OPEN_PX = 1000
+# Úklid masky 403 (m): průměr pravděpodobnosti v okně, pak uzavření a otevření.
+PROBA_WINDOW_M = 5.0
 CLEAN_M = 2.0
-
-
-def fetch_dmp1g(bbox_5514, shape, *, timeout: float = 180.0, log=None):
-    """DMP 1G (starší LiDAR povrch) z ImageServer ČÚZK na mřížce ``shape`` = (H, W), nebo ``None``."""
-    import numpy as np
-    from PIL import Image
-
-    xmin, ymin, xmax, ymax = (float(v) for v in bbox_5514)
-    h, w = shape
-    tile = 2000
-    out = np.full((h, w), np.nan, dtype=np.float32)
-    px, py = (xmax - xmin) / w, (ymax - ymin) / h
-    failed = 0
-    for r0 in range(0, h, tile):
-        for c0 in range(0, w, tile):
-            tw, th = min(tile, w - c0), min(tile, h - r0)
-            bx0, by1 = xmin + c0 * px, ymax - r0 * py
-            q = urllib.parse.urlencode(
-                {
-                    "bbox": f"{bx0},{by1 - th * py},{bx0 + tw * px},{by1}",
-                    "bboxSR": 5514,
-                    "imageSR": 5514,
-                    "size": f"{tw},{th}",
-                    "format": "tiff",
-                    "pixelType": "F32",
-                    "interpolation": "RSP_BilinearInterpolation",
-                    "f": "image",
-                }
-            )
-            url = IMAGE_SERVER.format(service="dmp1g") + "?" + q
-            try:
-                with urllib.request.urlopen(url, timeout=timeout) as resp:
-                    arr = np.asarray(Image.open(io.BytesIO(resp.read())), dtype=np.float32)
-                out[r0 : r0 + th, c0 : c0 + tw] = arr[:th, :tw]
-            except Exception as exc:  # síť / dlaždice mimo pokrytí (hranice státu): zůstane NaN
-                failed += 1
-                if log:
-                    log(f"⚠ Ortofoto 401/403: dlaždice DMP 1G nestažena ({exc})")
-    # NoData mimo pokrytí vrací služba jako 0 nebo -5e26; výšky v ČR jsou 115–1603 m.
-    # Bilineární interpolace rozmaže NoData do okraje pokrytí → okraj o 3 px pryč.
-    from scipy import ndimage as ndi
-
-    bad = ~np.isfinite(out) | (out < DMP1G_MIN_M) | (out > DMP1G_MAX_M)
-    out[ndi.binary_dilation(bad, iterations=3)] = np.nan
-    if not np.isfinite(out).any():
-        if log and not failed:
-            log("⚠ Ortofoto 401/403: DMP 1G v území není")
-        return None
-    return out
 
 
 def _resize(arr, shape):
@@ -136,58 +76,24 @@ def _clean(mask, open_mask, cell_m: float):
     return ndi.binary_opening(ndi.binary_closing(mask, iterations=it), iterations=it) & open_mask
 
 
-def rough_open_mask(classified, feats, cell_m: float, *, chm_now=None, chm_old=None, open_cls: int = 1, log=None):
+def rough_open_mask(classified, feats, cell_m: float, *, open_cls: int = 1, log=None):
     """bool maska pixelů 401, které jsou drsný otevřený terén (403)."""
     import numpy as np
     from scipy import ndimage as ndi
 
     open_mask = classified == open_cls
-    if not open_mask.any():
-        return open_mask
-    k = max(1, int(round(LABEL_WINDOW_M / cell_m)))
-    tex11 = feats[..., 7]
-    if chm_now is not None and chm_old is not None:
-        old = ndi.uniform_filter(np.nan_to_num(chm_old), k)
-        now = ndi.uniform_filter(np.nan_to_num(chm_now), k)
-        # Štítky jen tam, kde je DMP 1G v celém okně (mimo pokrytí je NaN).
-        has_old = ndi.uniform_filter(np.isfinite(chm_old).astype(np.float32), k) > 0.999
-        meadow = open_mask & has_old & (old < MEADOW_MAX_M) & (now < MEADOW_MAX_M)
-        cleared = open_mask & has_old & (old > CLEARED_OLD_MIN_M) & (now < CLEARED_NOW_MAX_M)
-        min_px = MIN_LABEL_M2 / (cell_m * cell_m)
-        if meadow.sum() >= min_px and cleared.sum() >= min_px:
-            try:
-                from sklearn.ensemble import HistGradientBoostingClassifier
-
-                rng = np.random.default_rng(0)
-                im, ic = np.flatnonzero(meadow.ravel()), np.flatnonzero(cleared.ravel())
-                n = min(len(im), len(ic), MAX_TRAIN_PER_CLASS)
-                idx = np.concatenate([rng.choice(im, n, replace=False), rng.choice(ic, n, replace=False)])
-                flat = feats.reshape(-1, feats.shape[-1])
-                y = np.r_[np.zeros(n), np.ones(n)]
-                clf = HistGradientBoostingClassifier(max_iter=200, max_leaf_nodes=31, random_state=0)
-                clf.fit(flat[idx], y)
-                proba = np.zeros(open_mask.size, dtype=np.float32)
-                io_ = np.flatnonzero(open_mask.ravel())
-                proba[io_] = clf.predict_proba(flat[io_])[:, 1]
-                proba = ndi.uniform_filter(proba.reshape(open_mask.shape), max(1, int(round(5 / cell_m))))
-                if log:
-                    log(
-                        "Ortofoto 401/403: model naučen ze štítků LiDARu "
-                        f"(louka {meadow.sum() * cell_m**2 / 1e4:.1f} ha, paseka {cleared.sum() * cell_m**2 / 1e4:.1f} ha)"
-                    )
-                return _clean(proba > ROUGH_PROBA, open_mask, cell_m)
-            except ImportError:
-                pass
-    forest = (classified != open_cls) & (feats[..., 0] > 0)
-    if forest.sum() < 1000:
+    if int(open_mask.sum()) < MIN_OPEN_PX:
         return np.zeros_like(open_mask)
-    thr = TEXTURE_FOREST_FRAC * float(np.median(tex11[forest]))
-    if log:
-        log(f"Ortofoto 401/403: práh textury {thr:.1f} (bez štítků z LiDARu)")
-    return _clean(open_mask & (tex11 > thr), open_mask, cell_m)
+    f = feats[open_mask].astype(np.float64)
+    z = (f - f.mean(axis=0)) / (f.std(axis=0) + 1e-6)
+    logit = z @ np.asarray(ROUGH_COEF) + ROUGH_INTERCEPT
+    proba = np.zeros(open_mask.shape, dtype=np.float32)
+    proba[open_mask] = 1.0 / (1.0 + np.exp(-logit))
+    proba = ndi.uniform_filter(proba, max(1, int(round(PROBA_WINDOW_M / cell_m))))
+    return _clean(proba > ROUGH_PROBA, open_mask, cell_m)
 
 
-def split_open_by_orthophoto(classified, gt, work_dir: Path, *, chm=None, rough_cls: int, open_cls: int = 1, log=None):
+def split_open_by_orthophoto(classified, gt, work_dir: Path, *, rough_cls: int, open_cls: int = 1, log=None):
     """Rastr vegetace s 401 rozdělenou na 401 / ``rough_cls`` (403). Bez ortofota beze změny."""
     import numpy as np
 
@@ -203,21 +109,7 @@ def split_open_by_orthophoto(classified, gt, work_dir: Path, *, chm=None, rough_
         return classified
     rgb, _ogt = got
     feats = ortho_features(rgb, (h, w), cell_m)
-    chm_old = None
-    if chm is not None:
-        from app.pipeline.dem_prep import DEM_DIR_NAME
-        from app.pipeline.gdal_cli_raster import read_float32_geotiff
-
-        dem_tif = Path(work_dir) / DEM_DIR_NAME / "dem_filled.tif"
-        dmp1g = fetch_dmp1g(bbox, (h, w), log=log)
-        if dmp1g is not None and dem_tif.is_file():
-            dem, _g, _nd = read_float32_geotiff(dem_tif, log=log)
-            dem = np.asarray(dem, dtype=np.float32)
-            if dem.shape == (h, w):
-                chm_old = np.clip(dmp1g - dem, 0, 50)  # NaN mimo pokrytí DMP 1G zůstane
-    rough = rough_open_mask(
-        classified, feats, cell_m, chm_now=chm, chm_old=chm_old, open_cls=open_cls, log=log
-    )
+    rough = rough_open_mask(classified, feats, cell_m, open_cls=open_cls, log=log)
     out = classified.copy()
     out[rough] = rough_cls
     if log:

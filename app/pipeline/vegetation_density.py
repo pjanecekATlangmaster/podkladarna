@@ -952,7 +952,7 @@ def generate_job_vegetation_density(
             from app.pipeline.ortho_rough import split_open_by_orthophoto
 
             classified = split_open_by_orthophoto(
-                classified, gt, work_dir, chm=veto_chm, rough_cls=ROUGH, open_cls=OPEN, log=log
+                classified, gt, work_dir, rough_cls=ROUGH, open_cls=OPEN, log=log
             )
         except Exception as exc:
             if log:
