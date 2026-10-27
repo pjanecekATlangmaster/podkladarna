@@ -97,20 +97,14 @@
         <div class="form-section">
           <h3 class="form-section-title">Zdroj kresby</h3>
           <label>
-            Sprint
-            <select name="dtm_sprint" id="dtm_sprint">
-              <option value="1" selected>Kresba z DTM, kde je DTM k dispozici – doporučeno</option>
-              <option value="0">Jen OSM + ZABAGED</option>
+            DTM
+            <select name="dtm" id="dtm">
+              <option value="auto" selected>Podle presetu – sprint z DTM, les a MTBO z OSM + ZABAGED (výchozí)</option>
+              <option value="1">Kresba z DTM, kde je DTM k dispozici (sprint, les i MTBO)</option>
+              <option value="0">Jen OSM + ZABAGED (bez DTM)</option>
             </select>
           </label>
-          <label>
-            Les a MTBO
-            <select name="dtm_forest" id="dtm_forest">
-              <option value="1" selected>Kresba z DTM, kde je DTM k dispozici – doporučeno</option>
-              <option value="0">Jen OSM + ZABAGED (záložní kresba)</option>
-            </select>
-          </label>
-          <p class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou. Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“.</p>
+          <p class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou. Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Les a MTBO z DTM jsou zatím ve vývoji, proto se ve výchozím stavu kreslí z OSM + ZABAGED.</p>
         </div>
 
         <div class="form-section" id="map-mode">

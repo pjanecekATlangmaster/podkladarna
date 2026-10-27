@@ -346,8 +346,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   neberou (`incomplete_opl_units`, klíč `incomplete_opl` ve `fences.json`), ploty z KR zůstávají a plochy kreslí OSM.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
-- **Zdroj kresby v GUI** (Petr 2026-10-24, 2.34.0): volba DTM / OSM + ZABAGED zvlášť pro sprint (výchozí DTM) a les + MTBO
-  (od 2.38.1 výchozí DTM, Petr 2026-10-26; OSM + ZABAGED zůstává jako záložní volba a kreslí se vždy tam, kde DTM není). Volby jobu `dtm_sprint` / `dtm_forest`,
+- **Zdroj kresby v GUI** (Petr 2026-10-27, 2.43.0): jedna volba „DTM“ (`dtm`: `auto` podle presetu = sprint z DTM, les + MTBO
+  z OSM + ZABAGED; `1` DTM všude; `0` bez DTM). OSM + ZABAGED se kreslí vždy tam, kde DTM není. Volby jobu `dtm_sprint` / `dtm_forest` (API je přijímá dál),
   `prepare_oom_map(use_dtm=…)`, podrobnosti v `DEV.md`. Lokální otočky s DTM volají `prepare_oom_map` s výchozím `use_dtm=True`.
 - **Mixed je jediný režim v GUI** (Petr 2026-10-23): OSM je hlavní, ZABAGED (postupně opouštíme) a DTM (vtahujeme) kresbu doplňují.
   Příprava OSM (sdílená se sprintem) ale v `paths_mixed` zahazuje OSM silnice proti ZABAGED Ulice; les a MTBO je proto při kreslení vracejí
