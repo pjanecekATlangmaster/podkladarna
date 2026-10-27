@@ -35,6 +35,7 @@ MIN_LABEL_M2 = 2_000.0
 MAX_TRAIN_PER_CLASS = 40_000
 ROUGH_PROBA = 0.5
 TEXTURE_FOREST_FRAC = 0.75
+DMP1G_MIN_M, DMP1G_MAX_M = 100.0, 1700.0
 # Úklid masky 403 (m): uzavření a otevření, ať nezůstanou pixelové fleky.
 CLEAN_M = 2.0
 
@@ -49,30 +50,41 @@ def fetch_dmp1g(bbox_5514, shape, *, timeout: float = 180.0, log=None):
     tile = 2000
     out = np.full((h, w), np.nan, dtype=np.float32)
     px, py = (xmax - xmin) / w, (ymax - ymin) / h
-    try:
-        for r0 in range(0, h, tile):
-            for c0 in range(0, w, tile):
-                tw, th = min(tile, w - c0), min(tile, h - r0)
-                bx0, by1 = xmin + c0 * px, ymax - r0 * py
-                q = urllib.parse.urlencode(
-                    {
-                        "bbox": f"{bx0},{by1 - th * py},{bx0 + tw * px},{by1}",
-                        "bboxSR": 5514,
-                        "imageSR": 5514,
-                        "size": f"{tw},{th}",
-                        "format": "tiff",
-                        "pixelType": "F32",
-                        "interpolation": "RSP_BilinearInterpolation",
-                        "f": "image",
-                    }
-                )
-                url = IMAGE_SERVER.format(service="dmp1g") + "?" + q
+    failed = 0
+    for r0 in range(0, h, tile):
+        for c0 in range(0, w, tile):
+            tw, th = min(tile, w - c0), min(tile, h - r0)
+            bx0, by1 = xmin + c0 * px, ymax - r0 * py
+            q = urllib.parse.urlencode(
+                {
+                    "bbox": f"{bx0},{by1 - th * py},{bx0 + tw * px},{by1}",
+                    "bboxSR": 5514,
+                    "imageSR": 5514,
+                    "size": f"{tw},{th}",
+                    "format": "tiff",
+                    "pixelType": "F32",
+                    "interpolation": "RSP_BilinearInterpolation",
+                    "f": "image",
+                }
+            )
+            url = IMAGE_SERVER.format(service="dmp1g") + "?" + q
+            try:
                 with urllib.request.urlopen(url, timeout=timeout) as resp:
                     arr = np.asarray(Image.open(io.BytesIO(resp.read())), dtype=np.float32)
                 out[r0 : r0 + th, c0 : c0 + tw] = arr[:th, :tw]
-    except Exception as exc:  # síť / formát: rozhodne textura
-        if log:
-            log(f"⚠ Ortofoto 401/403: DMP 1G nestaženo ({exc})")
+            except Exception as exc:  # síť / dlaždice mimo pokrytí (hranice státu): zůstane NaN
+                failed += 1
+                if log:
+                    log(f"⚠ Ortofoto 401/403: dlaždice DMP 1G nestažena ({exc})")
+    # NoData mimo pokrytí vrací služba jako 0 nebo -5e26; výšky v ČR jsou 115–1603 m.
+    # Bilineární interpolace rozmaže NoData do okraje pokrytí → okraj o 3 px pryč.
+    from scipy import ndimage as ndi
+
+    bad = ~np.isfinite(out) | (out < DMP1G_MIN_M) | (out > DMP1G_MAX_M)
+    out[ndi.binary_dilation(bad, iterations=3)] = np.nan
+    if not np.isfinite(out).any():
+        if log and not failed:
+            log("⚠ Ortofoto 401/403: DMP 1G v území není")
         return None
     return out
 
@@ -137,8 +149,10 @@ def rough_open_mask(classified, feats, cell_m: float, *, chm_now=None, chm_old=N
     if chm_now is not None and chm_old is not None:
         old = ndi.uniform_filter(np.nan_to_num(chm_old), k)
         now = ndi.uniform_filter(np.nan_to_num(chm_now), k)
-        meadow = open_mask & (old < MEADOW_MAX_M) & (now < MEADOW_MAX_M)
-        cleared = open_mask & (old > CLEARED_OLD_MIN_M) & (now < CLEARED_NOW_MAX_M)
+        # Štítky jen tam, kde je DMP 1G v celém okně (mimo pokrytí je NaN).
+        has_old = ndi.uniform_filter(np.isfinite(chm_old).astype(np.float32), k) > 0.999
+        meadow = open_mask & has_old & (old < MEADOW_MAX_M) & (now < MEADOW_MAX_M)
+        cleared = open_mask & has_old & (old > CLEARED_OLD_MIN_M) & (now < CLEARED_NOW_MAX_M)
         min_px = MIN_LABEL_M2 / (cell_m * cell_m)
         if meadow.sum() >= min_px and cleared.sum() >= min_px:
             try:
@@ -200,7 +214,7 @@ def split_open_by_orthophoto(classified, gt, work_dir: Path, *, chm=None, rough_
             dem, _g, _nd = read_float32_geotiff(dem_tif, log=log)
             dem = np.asarray(dem, dtype=np.float32)
             if dem.shape == (h, w):
-                chm_old = np.clip(np.nan_to_num(dmp1g - dem), 0, 50)
+                chm_old = np.clip(dmp1g - dem, 0, 50)  # NaN mimo pokrytí DMP 1G zůstane
     rough = rough_open_mask(
         classified, feats, cell_m, chm_now=chm, chm_old=chm_old, open_cls=open_cls, log=log
     )

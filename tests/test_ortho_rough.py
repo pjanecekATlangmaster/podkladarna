@@ -26,10 +26,12 @@ def _scene():
     return rgb, classified, chm_now, chm_old
 
 
-@pytest.mark.parametrize("with_lidar_labels", [True, False])
+@pytest.mark.parametrize("with_lidar_labels", [True, False, "partial"])
 def test_rough_open_split(with_lidar_labels):
     pytest.importorskip("sklearn")
     rgb, classified, chm_now, chm_old = _scene()
+    if with_lidar_labels == "partial":  # část území mimo pokrytí DMP 1G
+        chm_old[:, :30] = np.nan
     feats = ortho_rough.ortho_features(rgb, classified.shape, 1.0)
     rough = ortho_rough.rough_open_mask(
         classified,
