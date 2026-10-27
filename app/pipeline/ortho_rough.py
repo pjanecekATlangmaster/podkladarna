@@ -7,7 +7,9 @@ sytost, textura 2,5 m a 11 m). Rysy se v každém jobu normují vůči naší 40
 v témže snímku (z-skóre), takže koeficienty platí i při jiném ročním období
 a osvětlení. Učeno na ručních mapách (Ochoza, Harrachov, Vyšší Brod E1–E3,
 štítky = 401 / 403 mapaře uvnitř naší 401); při vynechání území z učení
-401 F1 Ochoza 0,82, Harrachov 0,75, VB E2 0,67 (dnes 0,74 / 0,58 / 0,36), viz
+401 F1 Ochoza 0,82, Harrachov 0,75, VB E2 0,67 (dnes 0,74 / 0,58 / 0,36);
+s ucelenými bloky (okno 25 m, min. 2 500 m²) 0,77 / 0,59 / 0,48 a podíl 403
+na Ochoze jako u mapaře, viz
 ``/mnt/project-files/ortofoto/ortofoto-pruzkum.md``. Bez ortofota se nic nemění.
 Starší DMP 1G se nepoužívá (ČÚZK ho přestane poskytovat).
 """
@@ -25,10 +27,11 @@ ROUGH_INTERCEPT = 0.246
 ROUGH_PROBA = 0.5
 MIN_OPEN_PX = 1000
 # Úklid masky 403 (m): průměr pravděpodobnosti v okně, pak uzavření a otevření.
-PROBA_WINDOW_M = 5.0
+PROBA_WINDOW_M = 25.0
 CLEAN_M = 2.0
-# Kusy 403 a ostrůvky louky uvnitř 403 menší než tohle (3 mm² v 1 : 10 000) se slijí s okolím.
-ROUGH_MIN_M2 = 300.0
+# Kusy 403 a ostrůvky louky uvnitř 403 menší než tohle (25 mm² v 1 : 10 000) se slijí s okolím:
+# 403 jen v ucelených blocích, ne přelévání s 401 (Petr 2026-10-27).
+ROUGH_MIN_M2 = 2500.0
 
 
 def _resize(arr, shape):
@@ -125,5 +128,8 @@ def split_open_by_orthophoto(classified, gt, work_dir: Path, *, rough_cls: int, 
     out = classified.copy()
     out[rough] = rough_cls
     if log:
-        log(f"Ortofoto 401/403: {int(rough.sum()) * cell_m**2 / 1e4:.1f} ha 401 → 403")
+        log(
+            f"Ortofoto 401/403 (předučený model, bloky ≥ {ROUGH_MIN_M2:.0f} m²): "
+            f"{int(rough.sum()) * cell_m**2 / 1e4:.1f} ha 401 → 403"
+        )
     return out

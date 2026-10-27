@@ -38,7 +38,7 @@ def test_rough_small_pieces_merge():
     mask[5:9, 5:9] = True  # drobný kus 403 → louka
     mask[20:55, 10:45] = True
     mask[30:35, 20:25] = False  # ostrůvek louky uvnitř 403 → 403
-    out = ortho_rough._clean(mask, open_mask, 1.0)
+    out = ortho_rough._clean(mask, open_mask, 2.0)  # 4 m² na pixel
     assert not out[5:9, 5:9].any()
     assert out[30:35, 20:25].all()
     assert not out[0:3, 30:40].any()  # louka u okraje zůstane
