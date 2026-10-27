@@ -79,3 +79,11 @@ def test_resolve_use_dtm_defaults_and_values():
     assert resolve_use_dtm({"dtm_forest": "on"}, "mtbo_10000") is True
     assert resolve_use_dtm({"dtm_forest": True, "dtm_sprint": False}, "sprint_2m") is False
     assert resolve_use_dtm({"dtm_sprint": "x"}, "sprint_2m") is True
+
+
+def test_smoothed_codes_forest_and_sprint():
+    from app.pipeline.vegetation_gdal import VEG_SMOOTH_CODES, VEG_SMOOTH_CODES_FOREST
+
+    assert "408" in VEG_SMOOTH_CODES_FOREST  # les / MTBO: zeleň jednou úrovní 408
+    assert "408" not in VEG_SMOOTH_CODES  # sprint beze změny
+    assert {"401", "403"} <= VEG_SMOOTH_CODES
