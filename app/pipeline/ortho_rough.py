@@ -27,6 +27,8 @@ MIN_OPEN_PX = 1000
 # Úklid masky 403 (m): průměr pravděpodobnosti v okně, pak uzavření a otevření.
 PROBA_WINDOW_M = 5.0
 CLEAN_M = 2.0
+# Kusy 403 a ostrůvky louky uvnitř 403 menší než tohle (3 mm² v 1 : 10 000) se slijí s okolím.
+ROUGH_MIN_M2 = 300.0
 
 
 def _resize(arr, shape):
@@ -70,10 +72,20 @@ def ortho_features(rgb, shape, cell_m: float, ortho_mpp: float = ORTHO_MPP):
 
 
 def _clean(mask, open_mask, cell_m: float):
+    import numpy as np
     from scipy import ndimage as ndi
 
     it = max(1, int(round(CLEAN_M / cell_m)))
-    return ndi.binary_opening(ndi.binary_closing(mask, iterations=it), iterations=it) & open_mask
+    mask = ndi.binary_opening(ndi.binary_closing(mask, iterations=it), iterations=it) & open_mask
+    min_px = ROUGH_MIN_M2 / (cell_m * cell_m)
+    lab, _n = ndi.label(mask)
+    mask &= ~(np.bincount(lab.ravel())[lab] < min_px)
+    # Ostrůvek louky celý uvnitř 403 (nedotýká se lesa) → 403.
+    lab, _n = ndi.label(open_mask & ~mask)
+    small = np.bincount(lab.ravel()) < min_px
+    small[np.unique(lab[ndi.binary_dilation(~open_mask)])] = False
+    small[0] = False
+    return mask | small[lab]
 
 
 def rough_open_mask(classified, feats, cell_m: float, *, open_cls: int = 1, log=None):

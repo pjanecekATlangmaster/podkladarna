@@ -29,3 +29,16 @@ def test_rough_open_split():
     assert rough[core, 10:50].mean() < 0.05  # louka zůstane 401
     assert rough[core, 70:110].mean() > 0.95  # paseka → 403
     assert not rough[:, 120:].any()  # mimo 401 se nic nemění
+
+
+def test_rough_small_pieces_merge():
+    open_mask = np.ones((60, 60), dtype=bool)
+    open_mask[:, 50:] = False  # les
+    mask = np.zeros((60, 60), dtype=bool)
+    mask[5:9, 5:9] = True  # drobný kus 403 → louka
+    mask[20:55, 10:45] = True
+    mask[30:35, 20:25] = False  # ostrůvek louky uvnitř 403 → 403
+    out = ortho_rough._clean(mask, open_mask, 1.0)
+    assert not out[5:9, 5:9].any()
+    assert out[30:35, 20:25].all()
+    assert not out[0:3, 30:40].any()  # louka u okraje zůstane
