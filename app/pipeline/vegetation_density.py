@@ -35,8 +35,8 @@ from pathlib import Path
 from app.pipeline.prepare_lidar import log_step
 
 # Výstupní třídy (stejné jako vegetation_chm / vegetation_gdal):
-# 0 bílý les, 1 = 401, 2 = 406, 3 = 408, 4 = 410, 5 = 403 (drsný otevřený terén z ortofota).
-WHITE, OPEN, LIGHT, MID, DENSE, ROUGH = 0, 1, 2, 3, 4, 5
+# 0 bílý les, 1 = 401, 2 = 406, 3 = 408, 4 = 410.
+WHITE, OPEN, LIGHT, MID, DENSE = 0, 1, 2, 3, 4
 
 _NO_ZONE_ROOF = 1e9
 
@@ -74,16 +74,6 @@ class DensityVegeParams:
     # ≥ canopy_veto_chm_m → bílá (okno canopy_veto_median_px; 0 = vypnuto).
     canopy_veto_chm_m: float = 4.0
     canopy_veto_median_px: int = 5
-    # 401 → louka / 403 podle ortofota (ortho_rough); sprint vypíná.
-    ortho_rough_open: bool = True
-    # Zeleň = mladý / nízký porost z CHM (DMP OK) v jedné úrovni 408 (les a MTBO; sprint vypíná).
-    # Mapař kreslí zeleň hlavně jako mladý porost; úrovně z hustoty bodů DMP OK oporu nemají
-    # (povrch ze snímků pod korunu nevidí). Měřeno na 5 ručních mapách: zelená F1 0,15–0,40 → 0,59–0,71.
-    young_stand_green: bool = True
-    young_min_m: float = 1.0
-    young_max_m: float = 12.0
-    young_window_m: float = 11.0
-    young_open_m: float = 3.0
     # --- zeleně ---
     block_m: float = 2.0
     green_ground_m: float = 0.9
@@ -353,31 +343,6 @@ def veto_open_under_canopy(
     h = np.nan_to_num(h, nan=0.0)
     smooth = median_filter(h, size=max(1, int(median_px)), mode="nearest")
     out[(out == OPEN) & (smooth >= float(max_chm_m))] = WHITE
-    return out
-
-
-def young_stand_to_green(classified, chm, cell_m: float, params: DensityVegeParams = DEFAULT_PARAMS):
-    """Zeleň v jedné úrovni (408): dosavadní 406/408/410 + les s nízkým porostem z CHM.
-
-    Nízký porost = průměr CHM v okně ``young_window_m`` mezi ``young_min_m`` a
-    ``young_max_m``, otevřený o ``young_open_m`` (pryč úzké pásy podél okrajů).
-    Louka 401 / 403 se nemění.
-    """
-    import numpy as np
-    from scipy import ndimage as ndi
-
-    out = classified.copy()
-    out[np.isin(out, (LIGHT, DENSE))] = MID
-    if chm is None:
-        return out
-    k = max(1, int(round(params.young_window_m / cell_m)))
-    h = ndi.uniform_filter(np.nan_to_num(np.asarray(chm, dtype=np.float32)), k)
-    young = (h >= params.young_min_m) & (h < params.young_max_m)
-    it = max(1, int(round(params.young_open_m / cell_m)))
-    young = ndi.binary_dilation(
-        ndi.binary_erosion(young, iterations=it, border_value=1), iterations=it
-    ) & young
-    out[young & (out == WHITE)] = MID
     return out
 
 
@@ -947,31 +912,12 @@ def generate_job_vegetation_density(
         vetoed = n_open - int(np.count_nonzero(classified == OPEN))
         if log and vetoed > 0:
             log(f"Vegetace (hustota bodů): 401 pod korunou → bílý les: {vetoed} px")
-    if params.ortho_rough_open:
-        try:
-            from app.pipeline.ortho_rough import split_open_by_orthophoto
-
-            classified = split_open_by_orthophoto(
-                classified, gt, work_dir, rough_cls=ROUGH, open_cls=OPEN, log=log
-            )
-        except Exception as exc:
-            if log:
-                log(f"⚠ Ortofoto 401/403: přeskočeno ({exc})")
-    if params.young_stand_green:
-        n_white = int(np.count_nonzero(classified == WHITE))
-        classified = young_stand_to_green(classified, veto_chm, abs(float(gt[1])), params)
-        if log:
-            log(
-                "Vegetace: zeleň jednou úrovní 408, nízký porost z CHM "
-                f"+{n_white - int(np.count_nonzero(classified == WHITE))} px"
-            )
-    shares = np.bincount(classified.ravel(), minlength=6) / classified.size * 100
+    shares = np.bincount(classified.ravel(), minlength=5) / classified.size * 100
     if log:
         log(
             "Vegetace (hustota bodů): "
             f"{n_points} bodů, bílý {shares[0]:.1f} %, 401 {shares[1]:.1f} %, "
-            f"406 {shares[2]:.1f} %, 408 {shares[3]:.1f} %, 410 {shares[4]:.1f} %, "
-            f"403 {shares[5]:.1f} %"
+            f"406 {shares[2]:.1f} %, 408 {shares[3]:.1f} %, 410 {shares[4]:.1f} %"
         )
     if buildings_geojson is not None and Path(buildings_geojson).is_file():
         try:

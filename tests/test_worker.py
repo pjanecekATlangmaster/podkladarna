@@ -54,3 +54,31 @@ def test_worker_timeout_frees_slot(monkeypatch, data_dir):
     assert got["status"] == "failed"
     assert "časový limit" in (got["error"] or "")
     assert worker._running is None
+
+
+def test_requeue_after_restart_starts_waiting_jobs(monkeypatch, data_dir):
+    import app.worker as worker
+
+    importlib.reload(worker)
+    db.init_db()
+    first = db.create_job("a", "sprint_2m", {})["id"]
+    second = db.create_job("b", "sprint_2m", {})["id"]
+    db.update_job(first, status="queued", phase="waiting")
+    db.update_job(second, status="queued", phase="waiting")
+    started: list[str] = []
+
+    class FakeThread:
+        def __init__(self, target, args, daemon):
+            started.append(args[0])
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(worker.threading, "Thread", FakeThread)
+
+    assert worker.requeue_after_restart() == [first, second]
+    assert started == [first]
+    assert worker._running == first
+    assert worker._queue == [second]
+    assert db.get_job(first)["status"] == "running"
+    assert db.get_job(second)["status"] == "queued"

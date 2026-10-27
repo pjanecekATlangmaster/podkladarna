@@ -83,7 +83,7 @@
           <p class="hint" id="formlines-hint">V polovině ekvidistance. „Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.</p>
 
           <label>
-            Tvar luk, 403 a zeleně (401, 403, 408 / 410)
+            Tvar luk a hustého porostu (401, 410)
             <select name="veg_smooth" id="veg_smooth">
               <option value="0">0 – kostičky z rastru (nejpřesnější, bez zaoblení)</option>
               <option value="1">1 – zjednodušit + křivky</option>
@@ -91,26 +91,20 @@
               <option value="3">3 – silné vyhlazení ve větším okolí</option>
             </select>
           </label>
-          <p class="hint" id="veg-smooth-hint">Vyšší stupeň odstraní schodky a obrysy korun jednotlivých stromů, hranice se ale odchýlí o 2 až 6&nbsp;m. Louka se přitom nepřeleje přes cesty, budovy ani vodu z OSM (v těch místech se přírůstek odřízne). V lese a MTBO se zaobluje i zeleň 408, ve sprintu jen 410.</p>
+          <p class="hint" id="veg-smooth-hint">Vyšší stupeň odstraní schodky a obrysy korun jednotlivých stromů, hranice se ale odchýlí o 2 až 6&nbsp;m. Louka se přitom nepřeleje přes cesty, budovy ani vodu z OSM (v těch místech se přírůstek odřízne). Ostatní zeleň zůstává beze změny.</p>
         </div>
 
         <div class="form-section">
           <h3 class="form-section-title">Zdroj kresby</h3>
           <label>
-            Sprint
-            <select name="dtm_sprint" id="dtm_sprint">
-              <option value="1" selected>Kresba z DTM, kde je DTM k dispozici – doporučeno</option>
-              <option value="0">Jen OSM + ZABAGED</option>
+            DTM
+            <select name="dtm" id="dtm">
+              <option value="auto" selected>Podle presetu – sprint z DTM, les a MTBO z OSM + ZABAGED (výchozí)</option>
+              <option value="1">Kresba z DTM, kde je DTM k dispozici (sprint, les i MTBO)</option>
+              <option value="0">Jen OSM + ZABAGED (bez DTM)</option>
             </select>
           </label>
-          <label>
-            Les a MTBO
-            <select name="dtm_forest" id="dtm_forest">
-              <option value="1" selected>Kresba z DTM, kde je DTM k dispozici – doporučeno</option>
-              <option value="0">Jen OSM + ZABAGED (záložní kresba)</option>
-            </select>
-          </label>
-          <p class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou. Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“.</p>
+          <p class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou. Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba „Podle presetu“ kreslí sprint z DTM, les a MTBO z OSM + ZABAGED.</p>
         </div>
 
         <div class="form-section" id="map-mode">
@@ -264,7 +258,7 @@
             <input type="checkbox" name="output_references" id="output_references" value="1" checked />
             Referenční PNG šablony (orto, OSM, ZTM, katastr, hillshade, DMP)
           </label>
-          <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP.</p>
+          <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP; ortofoto a katastr se přibalí vždy.</p>
 
           <details class="advanced-options" id="output-advanced">
             <summary>Pokročilé (mezipaměť podkladů)</summary>

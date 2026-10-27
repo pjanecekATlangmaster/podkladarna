@@ -19,7 +19,6 @@ _CLASS_TO_CODE: dict[int, str] = {
     2: "406",
     3: "408",
     4: "410",
-    5: "403",
 }
 
 # Max. vrcholů a plochy na jeden plošný objekt – větší louka/porost se rozřízne,
@@ -33,16 +32,13 @@ VEG_MAX_AREA_M2 = 40_000.0
 # Stupně zaoblení (tolerance DP, poloměr vyhlazení) viz veg_smooth.SMOOTH_LEVELS.
 VEG_AS_CURVES = True
 # Jen louky (401) a hustý porost (410) – tam jsou schodky nejvíc vidět.
-VEG_SMOOTH_CODES = frozenset({"401", "403", "410"})
-# Les a MTBO mají zeleň jednou úrovní 408 (mladý porost z CHM) – zaobluje se taky; sprint beze změny.
-VEG_SMOOTH_CODES_FOREST = VEG_SMOOTH_CODES | {"408"}
+VEG_SMOOTH_CODES = frozenset({"401", "410"})
 # Otevřený terén (401) se podle plochy neřeže (velká louka s jednoduchým obrysem
 # je v OCADu v pohodě, řezy jsou vidět); dělí se jen kvůli počtu vrcholů.
-_NO_AREA_SPLIT_CODES = frozenset({"401", "403"})
+_NO_AREA_SPLIT_CODES = frozenset({"401"})
 
 _CLASS_NAMES: dict[str, str] = {
     "401": "Otevřený terén",
-    "403": "Drsný otevřený terén",
     "406": "Vegetace pomalý běh",
     "408": "Vegetace chůze",
     "410": "Vegetace boj",
@@ -105,7 +101,7 @@ def build_vegetation_parts(
     grivation_deg: float,
     smooth_level: int = 0,
 ) -> list[OomObjectPart]:
-    """``smooth_level``: 0 = kostičky z rastru, 1–3 = stupeň zaoblení (401, 403, 410; les a MTBO i 408)."""
+    """``smooth_level``: 0 = kostičky z rastru, 1–3 = stupeň zaoblení (401, 410)."""
     shp = work_dir / "vegetation" / "vegetation.shp"
     if not shp.is_file():
         return []
@@ -116,7 +112,6 @@ def build_vegetation_parts(
 
         barriers = load_smooth_barriers(work_dir)
 
-    smooth_codes = VEG_SMOOTH_CODES if preset_id.startswith("sprint") else VEG_SMOOTH_CODES_FOREST
     grouped: dict[str, list[str]] = {code: [] for code in _CLASS_TO_CODE.values()}
     for props, wkb in _iter_vege_rows(shp):
         code = str(props.get("code") or "")
@@ -132,7 +127,7 @@ def build_vegetation_parts(
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             continue
-        smooth = bool(smooth_level) and code in smooth_codes
+        smooth = bool(smooth_level) and code in VEG_SMOOTH_CODES
         geom_parts, _ = _wkb_parts(wkb)
         grouped[code].extend(
             _geom_parts_to_objects(
@@ -152,7 +147,7 @@ def build_vegetation_parts(
         )
 
     parts: list[OomObjectPart] = []
-    for code in ("401", "403", "406", "408", "410"):
+    for code in ("401", "406", "408", "410"):
         objects = grouped[code]
         if objects:
             parts.append(

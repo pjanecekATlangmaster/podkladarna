@@ -1885,6 +1885,9 @@ def test_sprint_osm_road_outside_dtm_is_line_touching_dtm_edge(tmp_path):
     pieces = di.road_residue_lines([(25, 0), (120, 0)], road_dtm)
     assert len(pieces) == 1 and abs(pieces[0][0][0] - 50) < 0.01 and pieces[0][-1][0] == 120
     assert di.road_residue_lines([(0, 5), (50, 5)], road_dtm) == []  # souběžná těsně vedle plochy = táž silnice
+    # výřez kolem čáry dává totéž jako práce s celou plochou (vzdálená plocha výsledek nemění)
+    far = ds.dtm_union([_rect(0, -4, 50, 4), _rect(2000, 2000, 2100, 2010)])
+    assert di.road_residue_lines([(25, 0), (120, 0)], far) == pieces
     (tmp_path / "dtm").mkdir()
     (tmp_path / "dtm" / "roads.json").write_text(json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, -4, 50, 4)]]}), encoding="utf-8")
     (tmp_path / "osm_paths").mkdir()
@@ -1893,3 +1896,38 @@ def test_sprint_osm_road_outside_dtm_is_line_touching_dtm_edge(tmp_path):
     area = di.road_geometry(tmp_path, osm_residue=False)
     assert area.bounds[2] <= 50.01  # bez pásu z OSM
     assert LineString([(60, 0), (120, 0)]).intersects(di.road_geometry(tmp_path))  # les / MTBO dál s pásem
+
+
+def test_dtm_geometry_memo_per_job_and_inputs(tmp_path, monkeypatch):
+    """Plocha silnic z DTM se v jobu počítá jednou (plná i čistá mapa); změna vstupu v ``dtm/`` = nový výpočet."""
+    import os
+
+    (tmp_path / "dtm").mkdir()
+    roads = tmp_path / "dtm" / "roads.json"
+    roads.write_text(json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, -4, 50, 4)]]}), encoding="utf-8")
+    calls = []
+    real = ds.unify_sidewalks
+    monkeypatch.setattr(ds, "unify_sidewalks", lambda *a, **k: calls.append(1) or real(*a, **k))
+    g1 = di.road_geometry(tmp_path, "osm")
+    g2 = di.road_geometry(tmp_path, "osm")
+    assert g1 is g2 and len(calls) == 1
+    sw, rd = di.classified_polygons(tmp_path, "osm")
+    rd.append("x")  # volající dostane vlastní seznam
+    assert "x" not in di.classified_polygons(tmp_path, "osm")[1]
+    os.utime(roads, ns=(1, 1))
+    di.road_geometry(tmp_path, "osm")
+    assert len(calls) == 2
+    # jiný work_dir, vypnuté DTM i změněný práh = vlastní výpočet
+    other = tmp_path / "jiny"
+    (other / "dtm").mkdir(parents=True)
+    (other / "dtm" / "roads.json").write_text(roads.read_text(encoding="utf-8"), encoding="utf-8")
+    di.road_geometry(other, "osm")
+    assert len(calls) == 3
+    with di.dtm_disabled():
+        assert di.road_geometry(tmp_path, "osm") is None
+    monkeypatch.setattr(ds, "OSM_COVER_M", ds.OSM_COVER_M + 0.1)
+    di.road_geometry(tmp_path, "osm")
+    assert len(calls) == 4
+    di.clear_job_memo()
+    di.road_geometry(other, "osm")
+    assert len(calls) == 5

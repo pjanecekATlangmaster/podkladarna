@@ -102,7 +102,20 @@ def fetch_street_parcels(work_dir: Path, bbox_wgs84, log=None) -> Path | None:
     return dest
 
 
-def _prepare_green_mask(work_dir: Path, bounds_5514, log=None) -> Path | None:
+def street_fetch_bounds_5514(bbox_wgs84) -> tuple[float, float, float, float]:
+    """Obálka stahování parcel a ortofota (S-JTSK, výřez + ``VECTOR_FETCH_BUFFER_M``)."""
+    return crop_bounds_5514(*expand_bbox_wgs84(tuple(bbox_wgs84), VECTOR_FETCH_BUFFER_M), buffer_m=0.0)
+
+
+def prefetch_street_inputs(work_dir: Path, bbox_wgs84, log=None) -> None:
+    """Na pozadí od začátku jobu: parcely komunikací do cache jobu.
+
+    Masku zeleně dělá až sestavení mapy z ortofota referenčního podkladu (stahuje se jednou)."""
+    if SPRINT_STREET_PARCELS:
+        fetch_street_parcels(work_dir, bbox_wgs84, log=log)
+
+
+def _prepare_green_mask(work_dir: Path, bounds_5514, log=None, need_bounds=None) -> Path | None:
     """Maska zeleně z ortofota (``orthophoto.green_mask`` + morfologické otevření 1 px) → ``zelen.png`` + ``zelen.json``."""
     out_dir = Path(work_dir) / CACHE_SUBDIR
     dest = out_dir / GREEN_PNG_NAME
@@ -115,7 +128,7 @@ def _prepare_green_mask(work_dir: Path, bounds_5514, log=None) -> Path | None:
 
         from app.pipeline.orthophoto import fetch_orthophoto, green_mask
 
-        got = fetch_orthophoto(work_dir, bounds_5514, ORTHO_MPP, log=log)
+        got = fetch_orthophoto(work_dir, bounds_5514, ORTHO_MPP, log=log, need_bounds=need_bounds)
         if got is None:
             return None
         rgb, gt = got
@@ -179,8 +192,11 @@ def _mask_polygons(mask, x0: float, y_top: float, mpp: float, region=None):
     return unary_union(boxes) if boxes else None
 
 
-def _load_green(work_dir: Path, bounds):
-    """Polygonizovaná zeleň z uložené masky v obálce ``bounds`` (S-JTSK) nebo None."""
+def _load_green(work_dir: Path, bounds, within=None):
+    """Polygonizovaná zeleň z uložené masky v obálce ``bounds`` (S-JTSK) nebo None.
+
+    ``within`` (shapely): polygonizují se jen pixely do 1 px od této plochy (parcely ulic) – zeleň mimo ni
+    výsledek rozdílu nemění a maska celého výřezu má statisíce obdélníků (Barrandov: 6 min na mapu)."""
     import numpy as np
     from PIL import Image
 
@@ -200,7 +216,30 @@ def _load_green(work_dir: Path, bounds):
     r0, r1 = max(0, int((ymax - by1) / mpp_y)), min(h, int(math.ceil((ymax - by0) / mpp_y)))
     if c1 <= c0 or r1 <= r0:
         return None
+    if within is not None and not within.is_empty:
+        mask = mask & _rasterize_area(within.buffer(max(mpp_x, mpp_y)), mask.shape, xmin, ymax, mpp_x, mpp_y)
     return _mask_polygons(mask, xmin, ymax, mpp_x, region=(c0, r0, c1, r1))
+
+
+def _rasterize_area(area, shape, x0: float, y_top: float, mpp_x: float, mpp_y: float):
+    """bool maska pixelů (``shape`` = řádky × sloupce) pokrytých plochou ``area`` (shapely, S-JTSK)."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    h, w = shape
+    img = Image.new("1", (w, h), 0)
+    draw = ImageDraw.Draw(img)
+
+    def px(ring):
+        return [((x - x0) / mpp_x, (y_top - y) / mpp_y) for x, y in ring.coords]
+
+    for poly in getattr(area, "geoms", [area]):
+        if poly.geom_type != "Polygon" or poly.is_empty:
+            continue
+        draw.polygon(px(poly.exterior), fill=1)
+        for hole in poly.interiors:
+            draw.polygon(px(hole), fill=0)
+    return np.asarray(img, dtype=bool)
 
 
 def load_street_osm_lines(work_dir: Path) -> list[tuple[list[tuple[float, float]], str]]:
@@ -253,7 +292,7 @@ def street_paved_geometry(work_dir: Path, buildings, osm_lines, *, scale: int, g
         cand = cand.difference(buildings)
     if green is None:
         try:
-            green = _load_green(work_dir, cand.bounds)
+            green = _load_green(work_dir, cand.bounds, within=cand)
         except Exception:  # bez zeleně se kreslí dál
             green = None
     if green is not None and not green.is_empty:
@@ -306,6 +345,31 @@ def load_buildings_5514(work_dir: Path):
     return unary_union(polys) if polys else None
 
 
+# Poslední spočtená plocha ulic (S-JTSK): ``(klíč, plocha)``, klíč = work_dir, měřítko, ořez a mtime vstupů
+# (``_street_inputs_stamp``); jedno přiřazení n-tice, takže souběžné joby si ji nerozbijí.
+_GEOM_CACHE: tuple | None = None
+
+
+def _street_inputs_stamp(work_dir: Path) -> tuple:
+    """mtime vstupů plochy ulic (parcely, maska zeleně, OSM, budovy, DTM) – změna = nový výpočet."""
+    base = Path(work_dir)
+    stamp = []
+    for rel in (
+        f"{CACHE_SUBDIR}/{PARCELS_NAME}",
+        f"{CACHE_SUBDIR}/{GREEN_PNG_NAME}",
+        "osm_paths/paths_osm.geojson",
+        "osm_paths/paths.geojson",
+        "osm_paths/buildings.geojson",
+        "dtm",
+    ):
+        p = base / rel
+        try:
+            stamp.append(p.stat().st_mtime_ns)
+        except OSError:
+            stamp.append(None)
+    return tuple(stamp)
+
+
 def sprint_street_parcel_part(
     parts,
     work_dir: Path,
@@ -322,6 +386,8 @@ def sprint_street_parcel_part(
     """Sprint: seznam částí s přidanou plochou ulic z katastru (501) na začátku (pod ostatními objekty).
 
     Od plochy se odečte už kreslená voda (301) a oliva (520). Bez sítě / dat / symbolu vrací ``parts`` beze změny."""
+    global _GEOM_CACHE
+
     if not SPRINT_STREET_PARCELS or not preset_id.startswith("sprint"):
         return parts
     try:
@@ -349,15 +415,30 @@ def sprint_street_parcel_part(
             return parts
         if fetch_street_parcels(work_dir, bbox_wgs84, log=log) is None:
             return parts
-        xmin, ymin, xmax, ymax = crop_bounds_5514(*expand_bbox_wgs84(tuple(bbox_wgs84), VECTOR_FETCH_BUFFER_M), buffer_m=0.0)
-        _prepare_green_mask(work_dir, (xmin, ymin, xmax, ymax), log=log)
-        geom = street_paved_geometry(
-            work_dir, load_buildings_5514(work_dir), load_street_osm_lines(work_dir), scale=scale
+        _prepare_green_mask(
+            work_dir,
+            street_fetch_bounds_5514(bbox_wgs84),
+            log=log,
+            need_bounds=crop_bounds_5514(*tuple(bbox_wgs84), buffer_m=0.0),
         )
-        if geom is not None and clip_bounds:
-            from shapely.geometry import box as _box
+        key = (
+            str(Path(work_dir).resolve()),
+            int(scale),
+            tuple(clip_bounds) if clip_bounds else None,
+            _street_inputs_stamp(work_dir),
+        )
+        cached = _GEOM_CACHE
+        if cached is not None and cached[0] == key:
+            geom = cached[1]  # plná a „čistá“ mapa mají stejné vstupy
+        else:
+            geom = street_paved_geometry(
+                work_dir, load_buildings_5514(work_dir), load_street_osm_lines(work_dir), scale=scale
+            )
+            if geom is not None and clip_bounds:
+                from shapely.geometry import box as _box
 
-            geom = geom.intersection(_box(*clip_bounds))  # parcely se stahují s přesahem
+                geom = geom.intersection(_box(*clip_bounds))  # parcely se stahují s přesahem
+            _GEOM_CACHE = (key, geom)
         if geom is None or geom.is_empty:
             return parts
 

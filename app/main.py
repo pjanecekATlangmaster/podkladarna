@@ -120,6 +120,9 @@ def startup() -> None:
     interrupted = worker.recover_after_restart()
     if interrupted:
         logger.info("Recovered %s interrupted job(s): %s", len(interrupted), interrupted)
+    requeued = worker.requeue_after_restart()
+    if requeued:
+        logger.info("Requeued %s waiting job(s): %s", len(requeued), requeued)
     from app.job_worker import retry_missed_private_mails
 
     resent = retry_missed_private_mails()
@@ -759,6 +762,11 @@ async def api_create_job(request: Request):
     veg_smooth_raw = _form_str(form, "veg_smooth").strip().lower()
     if veg_smooth_raw.isdigit() and int(veg_smooth_raw) in VEG_SMOOTH_LEVELS:
         options["veg_smooth"] = veg_smooth_raw
+    # Jedna volba `dtm` v GUI: auto (podle presetu) | 1 (DTM všude) | 0 (jen OSM + ZABAGED).
+    # Starší klienti API mohou dál posílat `dtm_sprint` / `dtm_forest` zvlášť.
+    dtm_all = _form_str(form, "dtm").strip().lower()
+    if dtm_all in {"1", "0", "true", "false", "on", "off"}:
+        options["dtm_sprint"] = options["dtm_forest"] = dtm_all in {"1", "true", "on"}
     for dtm_key in ("dtm_sprint", "dtm_forest"):
         dtm_raw = _form_str(form, dtm_key).strip().lower()
         if dtm_raw in {"1", "0", "true", "false", "on", "off"}:

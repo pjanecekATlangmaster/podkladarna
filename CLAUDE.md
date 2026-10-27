@@ -311,6 +311,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   s pevným obrysem – silnice se v ní ořízne a okraj se u silnice přeruší (Sedlčany). Smíšená stezka zasahující čárou do kresby silnice
   nebo koridoru se nekreslí (`bike_road_zone`).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
+- **Skály a balvany v lese a MTBO jen jisté** (Petr 2026-10-27, srovnání Harrachov a Vyšší Brod E1–E3): balvany 204 z DEM
+  (`app/pipeline/boulders_dem.py`, `dotboulders.dxf`): vyvýšenina 1,2–3 m nad průměrem protilehlých bodů ve 3 m ve všech čtyřech
+  směrech (násep / hrana jen napříč neprojde), rozestup 6 m; při sestavení se zahodí do 2 m od skalní plochy, 6 m od kupky, 25 m od
+  čar cest / vody / plotů a 12 m od budov a vodních ploch (`filter_boulder_points`). Přesnost nových bodů proti ručním mapám 0,85–1,0.
+  Drobné balvany a skalky pod ~1 m z DMR 5G nevyčteme (přesnost ~0,45); zahozené samostatné skalní linie mají jen 0,46–0,67, proto se dál nekreslí. Sprint beze změny.
 - **Sprint podle srovnání s DS26 Barrandov** (Petr 2026-10-26, 2.36.0): plot ležící z ≥ 80 % uvnitř kreslené olivy dál než 1,5 m
   od okraje se nekreslí (`drop_fences_inside_olive`, dělicí ploty zahrad); brány a sloupky (`gate`, `wicket_gate`, `lift_gate`,
   `bollard`) nejsou 531 (`sprint_skips_barrier_point`); čáry cest se uvnitř budov (> 1 m od obrysu) nekreslí a OSM `covered=yes` /
@@ -323,6 +328,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   sprintu uvnitř OSM parkoviště nekreslí (`sprint_parking_zone`). Kupky / prohlubně / jámy ve sprintu jen mimo zástavbu (`sprint_knolls_outside_town`,
   artefakty DMR 5G u domů). Srázy ve sprintu jen se skutečným skokem (`SPRINT_STEP_SIDE_RATIO`: strany sondy nejvýš 0,5 × sklon schodu)
   a ZABAGED `StupenSraz` jen do 3 m od ticků z DEM (`dem_step_zone`; Petr: cizí data náš algoritmus jen potvrzují).
+- **Napojení silnic v lese a MTBO** (Petr 2026-10-27, job 4486336340e5 bez DTM): osa rozdělené vozovky se nepřemosťuje přes ostrůvek
+  kruhového objezdu a končí na prstenci (`roundabout_islands`); užší OSM silnice se u uzlu rozvětvení se širší neořezává jako souběžná
+  (`_fork_dists`, `FORK_RUN_MAX_M` 40 m, konec užší na širší a křížení v uzlu `FORK_END_RUN_MAX_M` 20 m); parkoviště z ≥ 80 % pod kresbou silnice se slije
+  s ulicí i když je širší než pruh 4,5 m (`PARKING_UNDER_ROAD_SHARE`); silnice kreslená symbolem s výplní (MTBO `503` → 502.2,
+  `is_major_road_code`) nekončí na okraji jiné silnice jako černá cesta.
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
 - **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé
@@ -341,8 +351,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   neberou (`incomplete_opl_units`, klíč `incomplete_opl` ve `fences.json`), ploty z KR zůstávají a plochy kreslí OSM.
 - **ID objektu z portálu DTM** je `<atr:ID>` v JVF (12–13 číslic); ID mohou být i v sadě **DI** (dopravní infrastruktura), kterou pipeline nepoužívá.
   Portál ukazuje živá data, balíky jsou měsíční export – čerstvý objekt v balíku být nemusí.
-- **Zdroj kresby v GUI** (Petr 2026-10-24, 2.34.0): volba DTM / OSM + ZABAGED zvlášť pro sprint (výchozí DTM) a les + MTBO
-  (od 2.38.1 výchozí DTM, Petr 2026-10-26; OSM + ZABAGED zůstává jako záložní volba a kreslí se vždy tam, kde DTM není). Volby jobu `dtm_sprint` / `dtm_forest`,
+- **Zdroj kresby v GUI** (Petr 2026-10-27, 2.43.0): jedna volba „DTM“ (`dtm`: `auto` podle presetu = sprint z DTM, les + MTBO
+  z OSM + ZABAGED; `1` DTM všude; `0` bez DTM). OSM + ZABAGED se kreslí vždy tam, kde DTM není. Volby jobu `dtm_sprint` / `dtm_forest` (API je přijímá dál),
   `prepare_oom_map(use_dtm=…)`, podrobnosti v `DEV.md`. Lokální otočky s DTM volají `prepare_oom_map` s výchozím `use_dtm=True`.
 - **Mixed je jediný režim v GUI** (Petr 2026-10-23): OSM je hlavní, ZABAGED (postupně opouštíme) a DTM (vtahujeme) kresbu doplňují.
   Příprava OSM (sdílená se sprintem) ale v `paths_mixed` zahazuje OSM silnice proti ZABAGED Ulice; les a MTBO je proto při kreslení vracejí

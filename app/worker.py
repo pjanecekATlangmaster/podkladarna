@@ -88,14 +88,25 @@ def recover_after_restart() -> list[str]:
     )
 
 
-def enqueue(job_id: str) -> None:
+def requeue_after_restart() -> list[str]:
+    """Vrátí do fronty joby, které v DB čekaly ve stavu queued (fronta v paměti restart nepřežije)."""
+    ids = db.list_queued_job_ids()
+    for job_id in ids:
+        with _lock:
+            if job_id == _running or job_id in _queue:
+                continue
+        enqueue(job_id, force=True)
+    return ids
+
+
+def enqueue(job_id: str, *, force: bool = False) -> None:
     global _running
     with _lock:
-        if len(_queue) >= MAX_QUEUE_SIZE and _running is not None:
+        if not force and len(_queue) >= MAX_QUEUE_SIZE and _running is not None:
             raise RuntimeError("Fronta je plná")
         if _running is not None:
             if job_id not in _queue:
-                if len(_queue) >= MAX_QUEUE_SIZE:
+                if not force and len(_queue) >= MAX_QUEUE_SIZE:
                     raise RuntimeError("Fronta je plná")
                 _queue.append(job_id)
             db.update_job(job_id, status="queued", phase="waiting")

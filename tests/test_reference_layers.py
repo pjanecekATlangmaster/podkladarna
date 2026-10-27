@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from PIL import Image
+
 from app.pipeline.build_oom_map import build_oom_map_xml, write_oom_map
 from app.pipeline.oom_layers import OomTemplate
 from app.pipeline.georef import PgwGeoref, read_pgw
@@ -88,6 +91,17 @@ def test_split_pixel_grid_stays_under_wms_limit():
     for x0, y0, x1, y1 in tiles:
         assert x1 - x0 <= WMS_MAX_GETMAP_PX
         assert y1 - y0 <= WMS_MAX_GETMAP_PX
+
+
+@pytest.mark.parametrize(
+    ("url_attr", "max_px"),
+    [("DMPOK_WMS", 2000), ("HILLSHADE_WMS", 2000), ("KM_WMS", 4000)],
+)
+def test_imageserver_wms_uses_smaller_tiles(url_attr, max_px):
+    # ČÚZK ImageServer vrací na GetMap 4000 px HTTP 400 (náhled DMP OK, Tanvald).
+    from app.pipeline import reference_layers as rl
+
+    assert rl._wms_max_getmap_px(getattr(rl, url_attr)) == max_px
 
 
 def test_pixel_window_bounds_top_left_is_north():
@@ -809,3 +823,24 @@ def test_png_has_content_detects_empty_overlay(tmp_path):
     im.putpixel((3, 3), (0, 0, 0, 255))
     im.save(full)
     assert png_has_content(full) is True
+
+
+def test_build_reference_layers_only_ortho_and_katastr(tmp_path, monkeypatch):
+    """Vypnuté podklady: jen ortofoto a katastr, ostatní vrstvy ani sdílená cache se nesahají."""
+    from app.pipeline import reference_layers as rl
+
+    tpl = tmp_path / "job.png"
+    Image.new("RGB", (10, 10)).save(tpl)
+    tpl.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0.5\n9.5\n", encoding="utf-8")
+    labels = []
+    monkeypatch.setattr(rl, "fetch_orthophoto_wms", lambda *a, **k: {"orthophoto": tmp_path / "o.jpg"})
+    monkeypatch.setattr(rl, "fetch_cuzk_wms_png", lambda *a, label="", **k: labels.append(label) or True)
+    monkeypatch.setattr(rl, "build_osm_reference", lambda *a, **k: pytest.fail("OSM"))
+    monkeypatch.setattr(rl, "_try_load_references_cache", lambda *a, **k: pytest.fail("cache"))
+    monkeypatch.setattr(rl, "_with_katastr_vectors", lambda built, *a, **k: {**built, "katastr_vector": tmp_path / "k.gpkg"})
+    built = rl.build_reference_layers(
+        tmp_path, (14.0, 50.0, 14.01, 50.01), tpl, tpl.with_suffix(".pgw"), tmp_path / "ref",
+        only=rl.ALWAYS_REFERENCE_KEYS,
+    )
+    assert set(built) == {"orthophoto", "katastr", "katastr_vector"}
+    assert labels == ["Katastrální mapa"]

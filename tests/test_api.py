@@ -260,11 +260,16 @@ def test_create_job_dtm_source_options(client, monkeypatch):
         return r.json()["options"]
 
     opts = post("dtm-default")
-    assert "dtm_sprint" not in opts or opts["dtm_sprint"] is True
-    assert "dtm_forest" not in opts or opts["dtm_forest"] is True  # les a MTBO z DTM výchozí (2.38.1)
+    assert opts["dtm_sprint"] is True
+    assert opts["dtm_forest"] is False  # les a MTBO výchozí bez DTM (2.43.0)
     opts = post("dtm-explicit", dtm_sprint="0", dtm_forest="1")
     assert opts["dtm_sprint"] is False
     assert opts["dtm_forest"] is True
+    for dtm, expected in (("1", True), ("0", False)):  # jedna volba v GUI nastaví obě
+        opts = post(f"dtm-all-{dtm}", dtm=dtm)
+        assert opts["dtm_sprint"] is expected and opts["dtm_forest"] is expected
+    opts = post("dtm-auto", dtm="auto")
+    assert opts["dtm_sprint"] is True and opts["dtm_forest"] is False
 
 
 def test_create_job_contour_formlines(client, monkeypatch):

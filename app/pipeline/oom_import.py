@@ -28,6 +28,7 @@ from app.pipeline.cliff_merge import (
     resolve_rock_scarp_overlaps,
     shapely_available,
 )
+from app.pipeline.boulders_dem import DXF_BOULDERS, filter_boulder_points, parse_point_dxf
 from app.pipeline.dxf_products import collect_dxf_for_zip
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_symbol_map import (
@@ -1955,6 +1956,8 @@ def build_dxf_object_part(
     building_drop = 0
     occupancy_drop = 0
     dense_contour_drop = 0
+    boulder_pts: list[tuple[float, float]] = []
+    boulder_index: int | None = None
     for zip_name, path in sorted(dxf_map.items()):
         code = oom_code_for_dxf(
             zip_name, preset_id=preset_id, cliff_symbol=cliff_symbol
@@ -1963,6 +1966,10 @@ def build_dxf_object_part(
             continue
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
+            continue
+        if zip_name == DXF_BOULDERS:
+            boulder_index = symbol_index
+            boulder_pts = parse_point_dxf(path)
             continue
         if zip_name in _CLIFF_DXF_NAMES:
             group = cliff_groups.setdefault(code, [])
@@ -2111,10 +2118,13 @@ def build_dxf_object_part(
         )
         for ring in dropped_by_identity(before_r, pending_rocks):
             discarded_rocks.append((ring, "prekryv_104"))
-    if pending_rocks:
+    blocker_polys: list[list[tuple[float, float]]] = []
+    blocker_lines: list[list[tuple[float, float]]] = []
+    if pending_rocks or boulder_pts:
         blocker_polys, blocker_lines = _load_rock_occupancy_blockers(
             zabaged_clean=zabaged_clean, work_dir=kp_cwd
         )
+    if pending_rocks:
         if blocker_polys or blocker_lines:
             before_r = list(pending_rocks)
             pending_rocks, occupancy_drop = filter_rocks_overlapping_blockers(
@@ -2192,6 +2202,29 @@ def build_dxf_object_part(
                 )
             )
 
+    boulders_n = 0
+    if boulder_pts and boulder_index is not None:
+        knoll_path = dxf_map.get("dotknolls.dxf")
+        boulder_pts, boulder_stats = filter_boulder_points(
+            boulder_pts,
+            rock_rings=pending_rocks,
+            blocker_rings=list(blocker_polys) + list(bldg or []),
+            blocker_lines=blocker_lines,
+            knolls=parse_point_dxf(knoll_path) if knoll_path else None,
+        )
+        boulders_n = len(boulder_pts)
+        objects.extend(
+            _geom_parts_to_objects(
+                [("point", x, y) for x, y in boulder_pts],
+                boulder_index,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                scale=scale,
+                grivation_deg=grivation_deg,
+                clip_bounds=clip_bounds,
+            )
+        )
+
     if not objects:
         return None
     codes = set(cliff_groups)
@@ -2261,6 +2294,8 @@ def build_dxf_object_part(
         )
     if building_drop:
         detail_bits.append(f"{building_drop} přes budovu zahozeno")
+    if boulders_n:
+        detail_bits.append(f"{boulders_n} balvanů {display_code(preset_id, scale, '204')} z DEM")
     if detail_bits:
         cliff_label += "; " + "; ".join(detail_bits)
     if drop_dropped:

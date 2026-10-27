@@ -15,7 +15,10 @@ zůstane z OSM.
 
 from __future__ import annotations
 
+import functools
+import hashlib
 import json
+import os
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -73,6 +76,77 @@ _DTM_OFF: ContextVar[bool] = ContextVar("podkladarna_dtm_off", default=False)
 DTM_OFF_DIR = "dtm_off"  # neexistující složka místo ``dtm`` (všechny ``*_path`` pak vrací chybějící soubor)
 
 
+# Plochy cest z DTM (silnice, chodníky, jejich sloučení) se v jedné mapě počítají několikrát a pro plnou i „čistou“
+# mapu stejně (Barrandov sprint: ~5 min na mapu). Výsledky se pamatují pro work_dir; klíč je i otisk vstupů
+# (soubory v ``dtm*/`` a ``osm_paths/``) a kontext (DTM vypnuté, ZABAGED plochy), změna = nový výpočet.
+_JOB_MEMO: dict[str, tuple] = {}
+_JOB_MEMO_MAX_DIRS = 4
+
+
+def _inputs_stamp(work_dir: Path) -> tuple:
+    out = []
+    for sub in ("dtm", DTM_OFF_DIR, "osm_paths"):
+        try:
+            with os.scandir(work_dir / sub) as it:
+                out.extend(sorted((sub, e.name, e.stat().st_mtime_ns, e.stat().st_size) for e in it if e.is_file()))
+        except OSError:
+            continue
+    return tuple(out)
+
+
+def _module_settings() -> tuple:
+    """Modulové konstanty (přepínače a prahy) ``dtm_import`` a ``dtm_sidewalks`` – testy a ladění je přepínají."""
+    out = []
+    for mod in (globals(), vars(dtm_sidewalks)):
+        out.extend(
+            (k, v)
+            for k, v in mod.items()
+            if k.isupper() and isinstance(v, (bool, int, float, str, tuple, frozenset))
+        )
+    return tuple(sorted(out, key=lambda kv: kv[0]))
+
+
+def clear_job_memo() -> None:
+    """Vyprázdní paměť ploch (na začátku a konci jobu)."""
+    _JOB_MEMO.clear()
+
+
+def _memo_arg(value):
+    if hasattr(value, "wkb"):  # shapely: obsah, ne id (to se po uvolnění objektu recykluje)
+        return ("geom", hashlib.blake2b(value.wkb, digest_size=16).digest())
+    return value
+
+
+def _job_memo(fn):
+    """Výsledek ``fn(work_dir, …)`` v rámci jobu; geometrie shapely jsou neměnné, sdílení je bezpečné."""
+
+    @functools.wraps(fn)
+    def wrapper(work_dir, *args, **kwargs):
+        from app.pipeline import osm_paths as op
+
+        work_dir = Path(work_dir)
+        wd = str(work_dir.resolve())
+        stamp = (_inputs_stamp(work_dir), _DTM_OFF.get(), op._ZABAGED_PAVED.get(), _module_settings())
+        entry = _JOB_MEMO.get(wd)
+        if entry is None or entry[0] != stamp:
+            if wd not in _JOB_MEMO and len(_JOB_MEMO) >= _JOB_MEMO_MAX_DIRS:
+                _JOB_MEMO.clear()
+            entry = (stamp, {})
+            _JOB_MEMO[wd] = entry
+        key = (
+            fn.__name__,
+            tuple(_memo_arg(a) for a in args),
+            tuple(sorted((k, _memo_arg(v)) for k, v in kwargs.items())),
+        )
+        cache = entry[1]
+        if key not in cache:
+            cache[key] = fn(work_dir, *args, **kwargs)
+        return cache[key]
+
+    wrapper.uncached = fn
+    return wrapper
+
+
 def dtm_dir(work_dir: Path) -> Path:
     """Složka s připravenými daty DTM jobu (``dtm``), při ``dtm_disabled`` neexistující ``dtm_off``."""
     return work_dir / (DTM_OFF_DIR if _DTM_OFF.get() else "dtm")
@@ -92,6 +166,7 @@ def dtm_disabled(off: bool = True):
 
     token = _DTM_OFF.set(True)
     _MTBO_GEOMETRY_CACHE.clear()
+    _JOB_MEMO.clear()
     op._PAVED_NETWORK_CACHE.clear()
     try:
         yield
@@ -784,6 +859,7 @@ def sidewalk_osm_lines(work_dir: Path, path_source: str) -> list[list[tuple[floa
     return lines
 
 
+@_job_memo
 def road_geometry(work_dir: Path, path_source: str = "mixed", cut_decks: bool = False, osm_residue: bool = True):
     """Sjednocená plocha silnic (DTM + zbytky OSM; shapely) nebo None.
 
@@ -800,6 +876,7 @@ def road_geometry(work_dir: Path, path_source: str = "mixed", cut_decks: bool = 
     return _minus_decks(geom, work_dir) if cut_decks else geom
 
 
+@_job_memo
 def road_dtm_geometry(work_dir: Path, path_source: str = "mixed"):
     """Plocha silnic jen z DTM (po přeřazení chodníků; shapely) nebo None."""
     from app.pipeline import dtm_sidewalks
@@ -817,20 +894,48 @@ def road_residue_lines(coords, road_dtm) -> list[list[tuple[float, float]]]:
 
     from app.pipeline import dtm_sidewalks as ds
 
+    from shapely import clip_by_rect
+
     if road_dtm is None or road_dtm.is_empty:
         return [list(coords)]
+    cover, near = _residue_zones(road_dtm)
     line = LineString(coords)
-    rest = line.difference(road_dtm.buffer(ds.OSM_COVER_M))
+    # Plocha celého výřezu je velká: pracuje se jen s výřezem kolem čáry (okraj > přichycení na hranu).
+    x0, y0, x1, y1 = line.bounds
+    m = max(ds.PARALLEL_NEAR_M, ds.EDGE_SNAP_M) + 5.0
+    rect = (x0 - m, y0 - m, x1 + m, y1 + m)
+    rest = line.difference(clip_by_rect(cover, *rect))
     pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
-    near = road_dtm.buffer(ds.PARALLEL_NEAR_M)
+    near_local = clip_by_rect(near, *rect)
+    area_local = None
     out = []
     for piece in pieces:
-        if piece.length < ds.OSM_MIN_REMAINDER_M or piece.intersection(near).length >= ds.PARALLEL_SHARE * piece.length:
+        if piece.length < ds.OSM_MIN_REMAINDER_M or piece.intersection(near_local).length >= ds.PARALLEL_SHARE * piece.length:
             continue
-        out.extend(seg for seg in ds.end_at_edge([(float(x), float(y)) for x, y in piece.coords], road_dtm) if len(seg) >= 2)
+        if area_local is None:
+            area_local = clip_by_rect(road_dtm, *rect)
+        out.extend(seg for seg in ds.end_at_edge([(float(x), float(y)) for x, y in piece.coords], area_local) if len(seg) >= 2)
     return out
 
 
+# Pásy kolem plochy silnic z DTM pro ``road_residue_lines`` – jednou na plochu, ne na každou čáru.
+_RESIDUE_ZONES: tuple | None = None  # (plocha, (pás krytí, pás souběhu)) – jedno přiřazení, bez zámku
+
+
+def _residue_zones(road_dtm):
+    from app.pipeline import dtm_sidewalks as ds
+
+    global _RESIDUE_ZONES
+
+    cached = _RESIDUE_ZONES
+    if cached is not None and cached[0] is road_dtm:
+        return cached[1]
+    zones = (road_dtm.buffer(ds.OSM_COVER_M), road_dtm.buffer(ds.PARALLEL_NEAR_M))
+    _RESIDUE_ZONES = (road_dtm, zones)
+    return zones
+
+
+@_job_memo
 def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None, cut_decks: bool = False):
     """Sjednocená plocha chodníků (DTM + OSM / ZABAGED; shapely) po ořezu o silnice, nebo None.
 
@@ -1201,6 +1306,7 @@ def _lines_part(
     return [OomObjectPart(name=name, objects_xml="\n".join(objects), count=len(objects))] if objects else []
 
 
+@_job_memo
 def _sprint_merged_road_sidewalk(work_dir: Path, path_source: str = "mixed"):
     """Sprint: sloučení silnice + přilehlého chodníku, nebo ``None`` když není co sloučit.
 
@@ -2034,7 +2140,23 @@ def drop_unpaved_track_roads(
     return out
 
 
-def classified_polygons(
+def classified_polygons(work_dir: Path, path_source: str):
+    """Viz ``_classified_polygons``; v rámci jobu se počítá jednou, volající dostanou vlastní seznamy."""
+    sidewalks, roads = _classified_polygons_memo(work_dir, path_source)
+    return [[list(r) for r in p] for p in sidewalks], [[list(r) for r in p] for p in roads]
+
+
+@_job_memo
+def _classified_polygons_memo(work_dir: Path, path_source: str):
+    """Neměnná kopie (n-tice) – volající nemohou změnit paměť."""
+    sidewalks, roads = _classified_polygons(work_dir, path_source)
+    return (
+        tuple(tuple(tuple(r) for r in p) for p in sidewalks),
+        tuple(tuple(tuple(r) for r in p) for p in roads),
+    )
+
+
+def _classified_polygons(
     work_dir: Path, path_source: str
 ) -> tuple[list[list[list[tuple[float, float]]]], list[list[list[tuple[float, float]]]]]:
     """``(chodníky, silnice)`` z DTM po přeřazení chybně zařazených ploch.
