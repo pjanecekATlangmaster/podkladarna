@@ -928,6 +928,10 @@ def test_mixed_restored_wider_road_supersedes_mixed_service(tmp_path):
     added, superseded = op.mixed_osm_road_fix(tmp_path)
     assert [f["properties"]["highway"] for f in added] == ["road_4"]
     assert superseded == {op._road_feature_key(service)}
+    added[0]["properties"]["highway"] = "x"  # výsledek je v paměti jobu: volající ho nesmí změnit
+    superseded.clear()
+    added2, superseded2 = op.mixed_osm_road_fix(tmp_path)
+    assert [f["properties"]["highway"] for f in added2] == ["road_4"] and superseded2 == {op._road_feature_key(service)}
     lengths = _path_lengths(tmp_path)
     assert sum(lengths.values()) == pytest.approx(200, abs=0.5)
 
