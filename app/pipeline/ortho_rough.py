@@ -83,10 +83,13 @@ def _clean(mask, open_mask, cell_m: float):
     min_px = ROUGH_MIN_M2 / (cell_m * cell_m)
     lab, _n = ndi.label(mask)
     mask &= ~(np.bincount(lab.ravel())[lab] < min_px)
-    # Ostrůvek louky celý uvnitř 403 (nedotýká se lesa) → 403.
-    lab, _n = ndi.label(open_mask & ~mask)
-    small = np.bincount(lab.ravel()) < min_px
-    small[np.unique(lab[ndi.binary_dilation(~open_mask)])] = False
+    # Malý kus louky, který sousedí s 403 (i proužek mezi 403 a lesem) → 403, ať se 401
+    # a 403 nepřelévají. Malá mýtina bez 403 v sousedství zůstane 401.
+    lab, n = ndi.label(open_mask & ~mask)
+    small = np.bincount(lab.ravel(), minlength=n + 1) < min_px
+    near = np.zeros(n + 1, dtype=bool)
+    near[np.unique(lab[ndi.binary_dilation(mask)])] = True
+    small &= near
     small[0] = False
     return mask | small[lab]
 
