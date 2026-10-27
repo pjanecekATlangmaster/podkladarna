@@ -152,10 +152,12 @@ def test_street_side_parking_merged_with_road(tmp_path, preset):
     # Hilmarova (way/1452628243): podélné stání 2–4,5 m od osy silnice – s ulicí jedna zpevněná plocha v šířce kresby.
     from shapely.geometry import shape
 
-    feats = [_area(0, 2, 40, 4.5, "parking"), _area(0, 15, 40, 40, "parking")]
-    _write_job(tmp_path, feats, [_road([(-20, 0), (60, 0)], "road_3")])
+    # Lohniského: kolmé stání 6 m (širší než pruh), ale celé pod kresbou silnice – také s ulicí (2026-10-27).
+    feats = [_area(0, 2, 40, 4.5, "parking"), _area(0, 15, 40, 40, "parking"), _area(70, -3, 110, 3, "parking")]
+    _write_job(tmp_path, feats, [_road([(-20, 0), (130, 0)], "road_3")])
     out = op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), preset, 10000)
     assert out[1] == feats[1]
+    assert shape(out[2]["geometry"]).area > shape(feats[2]["geometry"]).area
     merged = shape(out[0]["geometry"])
     half = op.drawn_symbol_width_m("road_3", preset, 10000) / 2.0
     assert merged.bounds[1] == pytest.approx(-half, abs=0.01)  # silnice v šířce své kresby
@@ -948,6 +950,31 @@ def test_mixed_restored_road_clips_partial_parallel(tmp_path):
     assert op.polyline_length(rest["geometry"]["coordinates"]) == pytest.approx(80, abs=8)
 
 
+@pytest.mark.parametrize(
+    "narrow, wider",
+    [
+        # Wassermannova × K Barrandovu: užší silnice vede uzlem, odkud vychází širší nájezd (rozvětvení), 2026-10-27
+        ([(0, -100), (0, 100)], [[(0, 0), (30, -40), (80, -60)], [(0, -20), (-40, -50), (-90, -60)]]),
+        # souběžná obslužná komunikace napojená šikmo koncem na širší silnici
+        ([(50, 0), (60, 8), (200, 8)], [[(-100, 0), (300, 0)]]),
+        # křížení v rohu: rameno užší leží v prodloužení ramene širší (Do Klukovic × Tréglova × Werichova)
+        ([(0, 100), (0, 0), (-100, -10)], [[(100, 0), (0, 0), (10, -100)]]),
+    ],
+)
+def test_mixed_restored_narrow_road_kept_at_fork(tmp_path, narrow, wider):
+    # Rozbíhání u uzlu není souběh: užší silnice se neořízne a navazuje na širší.
+    import json
+
+    feats = [_road(narrow, "road_2")] + [_road(w, "road_4") for w in wider]
+    _write_job(tmp_path, [], [])
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    added, _superseded = op.mixed_osm_road_fix(tmp_path)
+    rest = [f for f in added if f["properties"]["highway"] == "road_2"]
+    assert sum(op.polyline_length(f["geometry"]["coordinates"]) for f in rest) == pytest.approx(op.polyline_length(narrow), abs=0.5)
+
+
 def test_path_extension_not_across_other_line(tmp_path):
     # Prodloužení k silnici, které by křížilo jinou kreslenou cestu (ponechaný chodník, schody), se nedělá.
     road = _road([(-100, 0), (100, 0)], "road_3")
@@ -992,3 +1019,16 @@ def test_prepare_stores_walk_tunnels_and_service_area(tmp_path, monkeypatch):
     paths = json.loads((tmp_path / "osm_paths" / "paths_osm.geojson").read_text(encoding="utf-8"))["features"]
     hws = [f["properties"]["highway"] for f in paths]
     assert "road_2" in hws  # asfaltový track jen s layer=-1 je zářez, ne tunel
+
+
+@pytest.mark.parametrize(
+    "code, preset, major",
+    [
+        ("502.1", "forest_10000", True),
+        ("503", "mtbo_10000", True),  # MTBO kreslí asfaltovou účelovou 502.2: navazuje do výplně, nekončí na okraji
+        ("503", "forest_10000", False),  # les 503 je černá čára: končí na okraji kresby silnice
+        ("505", "mtbo_10000", False),
+    ],
+)
+def test_major_road_code_by_drawn_symbol(code, preset, major):
+    assert op.is_major_road_code(code, preset, 10000) is major

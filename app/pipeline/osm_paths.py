@@ -2664,17 +2664,27 @@ def _polyline_substring(
     return out
 
 
+# Souběh užší silnice se širší, který začíná v uzlu, odkud širší vychází (rozvětvení: Wassermannova a nájezdy
+# na K Barrandovu), do této délky (m) není zdvojení – užší se tam neořízne a navazuje na uzel (Petr 2026-10-27).
+FORK_RUN_MAX_M = 40.0
+# Totéž pro konec užší silnice na širší (šikmé napojení souběžné obslužné komunikace) a jejich křížení, jen kratší souběh.
+FORK_END_RUN_MAX_M = 20.0
+
+
 def clip_parallel_to_centerlines(
     pts: list[tuple[float, float]],
     index: _SegmentIndex,
     *,
     match_m: float = MATCH_M,
     sample_m: float = 2.0,
+    fork_dists: list[tuple[float, float]] | None = None,
 ) -> list[list[tuple[float, float]]]:
     """Kusy čáry po odstranění úseků souběžných s cizí střednicí (délka úseku > ~2·sample_m).
 
     Vzorkování i test „na střednici“ jako ``centerline_cover_fraction``; kolmé křížení
     (jiný směr) se nezkrátí. Bez souběžného úseku vrací původní čáru.
+    ``fork_dists``: ``(vzdálenost po čáře, nejdelší souběh)`` uzlů, kde se čára s cizí střednicí větví (``_fork_dists``);
+    souběh do té délky, který tam začíná nebo končí, je jen rozbíhání čar u uzlu a nezkrátí se.
     """
     samples = sample_polyline(pts, sample_m)
     if len(samples) < 2:
@@ -2697,7 +2707,9 @@ def clip_parallel_to_centerlines(
         j = k
         while j + 1 < n and hit[j + 1]:
             j += 1
-        if dist[j] - dist[k] >= 2.0 * sample_m - 1e-6:
+        run = dist[j] - dist[k]
+        at_fork = any(dist[k] - sample_m <= fd <= dist[j] + sample_m and run <= max_run for fd, max_run in fork_dists or ())
+        if run >= 2.0 * sample_m - 1e-6 and not at_fork:
             cuts.append((dist[k], dist[j]))
         k = j + 1
     if not cuts:
@@ -4969,6 +4981,9 @@ def _minus_corridor_sidewalk_zone(work_dir: Path, extra: list[dict], preset_id: 
 PARKING_IN_ROAD_SHARE = 0.6
 PARKING_STRIP_MAX_WIDTH_M = 4.5  # šířka pruhu ≈ 2 · plocha / obvod (Hilmarova 4,0 m)
 PARKING_ROAD_SLACK_M = 1.0  # nepřesnost polohy OSM osy silnice a stání
+# Parkoviště, které z takového podílu leží pod kresbou silnice + ``PARKING_ROAD_SLACK_M``, se slije s ulicí bez ohledu
+# na šířku pruhu (kolmé stání 5,3 m u Lohniského: samostatná plocha vedle čáry silnice vypadala jako zdvojená silnice).
+PARKING_UNDER_ROAD_SHARE = 0.8
 
 
 # Les a MTBO: pěší plocha (OSM i DTM) se kreslí plochou jen tam, kde je aspoň tak široká jako kresba silnice 502;
@@ -5017,6 +5032,15 @@ def _runs_along(strip, band) -> bool:
     """Pruh stání leží podél pásu silnice: dotýká se ho aspoň polovinou své délky (≈ obvod / 2)."""
     edge = strip.exterior if strip.geom_type == "Polygon" else strip.boundary
     return edge.intersection(band).length >= 0.25 * strip.length
+
+
+def _parking_merges_with_road(g, band) -> bool:
+    """Slije se parkoviště ``g`` s ulicí? Úzký pruh (do ``PARKING_STRIP_MAX_WIDTH_M``) z větší části pod kresbou nebo
+    podél ní, širší jen když skoro celý leží pod kresbou silnice (``PARKING_UNDER_ROAD_SHARE``)."""
+    share = g.intersection(band).area / g.area
+    if 2.0 * g.area / g.length <= PARKING_STRIP_MAX_WIDTH_M:
+        return share >= PARKING_IN_ROAD_SHARE or _runs_along(g, band)
+    return share >= PARKING_UNDER_ROAD_SHARE
 
 
 def merge_parking_into_road(
@@ -5069,12 +5093,8 @@ def merge_parking_into_road(
                 g is not None
                 and g.area > 0
                 and g.length > 0
-                and 2.0 * g.area / g.length <= PARKING_STRIP_MAX_WIDTH_M
                 and band_p.intersects(g)
-                and (
-                    g.intersection(band).area >= PARKING_IN_ROAD_SHARE * g.area
-                    or _runs_along(g, band)
-                )
+                and _parking_merges_with_road(g, band)
             ):
                 pieces = [g]
                 for line, half in roads:
@@ -5811,9 +5831,9 @@ def major_road_band(
             from app.pipeline.dtm_widths import width_line_code
 
             code = width_line_code(hw, road_widths.line_width(coords), code)
-        if i in service_links and code not in MAJOR_ROAD_CODES:
+        if i in service_links and not is_major_road_code(code, preset_id, scale):
             code = "502"
-        if code not in MAJOR_ROAD_CODES:
+        if not is_major_road_code(code, preset_id, scale):
             continue
         if code not in widths:
             mm = symbol_line_width_mm(preset_id, scale, code)
@@ -5824,6 +5844,35 @@ def major_road_band(
 
 def _road_feature_key(f: dict) -> tuple:
     return tuple(tuple(round(float(v), 2) for v in c[:2]) for c in ((f.get("geometry") or {}).get("coordinates") or []))
+
+
+def _fork_dists(
+    pts: list[tuple[float, float]], others: list[list[tuple[float, float]]], tol_m: float = 0.5
+) -> list[tuple[float, float]]:
+    """Uzly rozvětvení na čáře ``pts`` jako ``(vzdálenost po čáře, nejdelší souběh)``: konce čar ``others``, které na ní
+    leží (do ``tol_m``, ``FORK_RUN_MAX_M``), konce ``pts`` ležící na některé z ``others`` a křížení s nimi (``FORK_END_RUN_MAX_M``)."""
+    if len(pts) < 2 or not others:
+        return []
+    from shapely.geometry import LineString, Point
+
+    ln = LineString(pts)
+    lines = [LineString(o) for o in others if len(o) >= 2]
+    out = []
+    for o in lines:
+        for e in (o.coords[0], o.coords[-1]):
+            p = Point(e)
+            if ln.distance(p) <= tol_m:
+                out.append((ln.project(p), FORK_RUN_MAX_M))
+    for d, e in ((0.0, pts[0]), (ln.length, pts[-1])):
+        if any(o.distance(Point(e)) <= tol_m for o in lines):
+            out.append((d, FORK_END_RUN_MAX_M))
+    for o in lines:
+        # křížení v uzlu (Do Klukovic × Tréglova × Werichova: rameno užší leží v prodloužení ramene širší)
+        hit = ln.intersection(o)
+        for g in getattr(hit, "geoms", [hit]):
+            if g.geom_type == "Point":
+                out.append((ln.project(g), FORK_END_RUN_MAX_M))
+    return out
 
 
 def mixed_osm_road_fix(work_dir: Path) -> tuple[list[dict], set]:
@@ -5900,7 +5949,8 @@ def mixed_osm_road_fix(work_dir: Path) -> tuple[list[dict], set]:
             continue
         idx = _wider_index(highway_width_rank(_hw(f)), not is_added)
         pts = _pts(f)
-        pieces = clip_parallel_to_centerlines(pts, idx) if idx is not None else [pts]
+        forks = _fork_dists(pts, [_pts(g) for g, g_added in roads if (g_added or is_added) and _clippable(g) and highway_width_rank(_hw(g)) > highway_width_rank(_hw(f))])
+        pieces = clip_parallel_to_centerlines(pts, idx, fork_dists=forks) if idx is not None else [pts]
         if len(pieces) == 1 and pieces[0] is pts:
             if is_added:
                 out_added.append(f)
@@ -5978,6 +6028,19 @@ def mixed_osm_road_band(work_dir: Path, preset_id: str, scale: int):
 
 # Kódy silnic kreslených dvojčarou s výplní (502 / 502.1); přes ně černé cesty nevedou.
 MAJOR_ROAD_CODES = frozenset({"502", "502.0", "502.1", "502.2"})
+
+
+def is_major_road_code(code: str | None, preset_id: str, scale: int) -> bool:
+    """Kreslí se ``code`` v sadě presetu silnicí s výplní (502.x)? MTBO kreslí i ``503`` (asfaltová účelová) symbolem
+    502.2 – taková silnice nekončí na okraji jiné jako černá cesta, ale navazuje do její výplně (Petr 2026-10-27)."""
+    if not code:
+        return False
+    if code in MAJOR_ROAD_CODES:
+        return True
+    from app.pipeline.oom_symbol_map import _translate, _uses_catalog, symbol_set_path
+
+    path = symbol_set_path(preset_id, scale)
+    return _uses_catalog(path) and _translate(path, code) in MAJOR_ROAD_CODES  # bez počítání nepřeložených kódů
 
 
 # Konce kusů čar do této vzdálenosti (m) se před spojením přitáhnou k sobě (po ořezech končí sousední kusy
@@ -6793,7 +6856,7 @@ def build_osm_path_parts(
             lines = [seg for ln in lines for seg in end_at_edge(ln, road_clip)]
         if (
             major_band is not None
-            and code not in MAJOR_ROAD_CODES
+            and not is_major_road_code(code, preset_id, scale)
             and not is_bridge_highway(hw)
             and not is_tunnel_highway(hw)
         ):

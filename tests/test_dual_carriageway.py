@@ -104,3 +104,22 @@ def test_side_road_reaches_edge_of_dual_symbol(tmp_path):
                 tops.append(max(y for _x, y in pts))
     assert tops, "boční ulice se nekreslí"
     assert max(tops) == pytest.approx(5.75 - half, abs=0.6)
+
+
+def test_axis_not_bridged_through_roundabout():
+    # Pásy končí po obou stranách kruhového objezdu (r = 11 m): osa se přes ostrůvek nespojí, končí na prstenci
+    # a prstenec zóna neořízne (Lamačova, Petr 2026-10-27).
+    import math
+
+    ring = [(11 * math.cos(math.radians(a)), 11 * math.sin(math.radians(a))) for a in range(0, 360, 10)]
+    ring.append(ring[0])
+    west_a, west_b = _feat([(-311, -5), (-11, -5)]), _feat([(-11, 5), (-311, 5)])
+    east_a, east_b = _feat([(11, -5), (311, -5)]), _feat([(311, 5), (11, 5)])
+    feats = [west_a, west_b, east_a, east_b, _feat(ring, roundabout=True)]
+    islands = dc.roundabout_islands(feats)
+    axes, zone = dc._compute(feats[:4], 13.1, 8.4, islands)
+    assert len(axes) == 2
+    assert all(LineString(a).distance(Point(0, 0)) > 9.0 for a in axes)
+    assert not zone.intersects(LineString(ring))
+    # bez ostrůvku se osa přes objezd spojí (původní chování)
+    assert len(dc._compute(feats[:4], 13.1, 8.4)[0]) == 1

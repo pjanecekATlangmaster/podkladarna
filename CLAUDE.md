@@ -328,6 +328,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   sprintu uvnitř OSM parkoviště nekreslí (`sprint_parking_zone`). Kupky / prohlubně / jámy ve sprintu jen mimo zástavbu (`sprint_knolls_outside_town`,
   artefakty DMR 5G u domů). Srázy ve sprintu jen se skutečným skokem (`SPRINT_STEP_SIDE_RATIO`: strany sondy nejvýš 0,5 × sklon schodu)
   a ZABAGED `StupenSraz` jen do 3 m od ticků z DEM (`dem_step_zone`; Petr: cizí data náš algoritmus jen potvrzují).
+- **Napojení silnic v lese a MTBO** (Petr 2026-10-27, job 4486336340e5 bez DTM): osa rozdělené vozovky se nepřemosťuje přes ostrůvek
+  kruhového objezdu a končí na prstenci (`roundabout_islands`); užší OSM silnice se u uzlu rozvětvení se širší neořezává jako souběžná
+  (`_fork_dists`, `FORK_RUN_MAX_M` 40 m, konec užší na širší a křížení v uzlu `FORK_END_RUN_MAX_M` 20 m); parkoviště z ≥ 80 % pod kresbou silnice se slije
+  s ulicí i když je širší než pruh 4,5 m (`PARKING_UNDER_ROAD_SHARE`); silnice kreslená symbolem s výplní (MTBO `503` → 502.2,
+  `is_major_road_code`) nekončí na okraji jiné silnice jako černá cesta.
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
 - **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé
