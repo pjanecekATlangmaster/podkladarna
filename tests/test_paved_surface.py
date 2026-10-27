@@ -66,3 +66,29 @@ def test_short_edge_piece_between_mouths_is_not_drawn():
 def test_dtm_area_features_empty_without_dtm(tmp_path):
     assert ps.dtm_area_features(tmp_path, "forest_10000", 10000) == []
     assert ps.dtm_area_features(tmp_path, "sprint_4000", 4000) == []
+
+
+def test_fill_strips_survive_geos_topology_error(monkeypatch):
+    # Job 61ce38ad5427 (MTBO Barrandov): GEOS odmítl sjednocení pásů (TopologyException). Překryv se zopakuje
+    # s přichycením na mřížku; když selže i to, dotažení výplně se vynechá a mapa vznikne.
+    import shapely
+    from shapely.errors import GEOSException
+
+    network = box(0, 0, 100, 40)
+    bands = [([(0.0, -6.0), (100.0, -6.0)], 4.0, 3.0)]
+    real = shapely.union_all
+
+    def flaky(geoms, grid_size=None, **kw):
+        if grid_size is None:
+            raise GEOSException("TopologyException: unable to assign free hole to a shell")
+        return real(geoms, grid_size=grid_size, **kw)
+
+    monkeypatch.setattr(shapely, "union_all", flaky)
+    strips = ps.road_fill_strips(network, bands, "forest_10000", 10000)
+    assert strips is not None and strips.area == pytest.approx(200.0, rel=0.05)
+
+    def broken(*a, **kw):
+        raise GEOSException("TopologyException")
+
+    monkeypatch.setattr(shapely, "union_all", broken)
+    assert ps.road_fill_strips(network, bands, "forest_10000", 10000) is None
