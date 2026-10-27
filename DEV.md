@@ -233,8 +233,8 @@ se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`
 
 - `ChodnikPlocha` s OSM silnicí uvnitř (≥ 150 m, nebo ≥ 30 m a šířka ≥ 4 m) se bere jako silnice
   (chyba v DTM, `reclassify_sidewalks_as_roads`); v mixed rozhodují i OSM ulice, které kresbu přenechaly ZABAGED (`paths_osm`).
-- **Volba zdroje kresby (od 2.34.0):** formulář „Zdroj kresby“ – volby jobu `dtm_sprint` (výchozí ano) a `dtm_forest`
-  (les + MTBO, výchozí ano od 2.38.1, dřív ne; OSM + ZABAGED zůstává jako záložní volba; `job_options.resolve_use_dtm`). `prepare_oom_map(..., use_dtm=False)` sestaví mapu jako bez DTM
+- **Volba zdroje kresby (od 2.34.0):** formulář „Zdroj kresby“ – od 2.43.0 jedna volba `dtm` (auto / 1 / 0), která nastaví volby jobu `dtm_sprint` (výchozí ano) a `dtm_forest`
+  (les + MTBO, výchozí ne; 2.38.1–2.42.x výchozí ano; `job_options.resolve_use_dtm`). API dál přijímá `dtm_sprint` / `dtm_forest` zvlášť. `prepare_oom_map(..., use_dtm=False)` sestaví mapu jako bez DTM
   (`dtm_import.dtm_disabled`: `dtm_dir` vrací neexistující `work/dtm_off`, paměťové cache se vyprázdní); data DTM v jobu
   zůstanou pro disciplínu, která je chce. DTM se stahuje, jen když ho některá disciplína jobu použije. Pozor: les bez DTM
   nebere z DTM ani ploty a budovy.

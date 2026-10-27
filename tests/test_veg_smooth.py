@@ -70,8 +70,8 @@ def test_resolve_use_dtm_defaults_and_values():
     from app.pipeline.job_options import resolve_use_dtm
 
     assert resolve_use_dtm({}, "sprint_2m") is True
-    assert resolve_use_dtm({}, "forest_10000") is True  # od 2.38.1 výchozí DTM i v lese a MTBO
-    assert resolve_use_dtm({}, "mtbo_15000") is True
+    assert resolve_use_dtm({}, "forest_10000") is False  # od 2.43.0 les a MTBO výchozí OSM + ZABAGED
+    assert resolve_use_dtm({}, "mtbo_15000") is False
     assert resolve_use_dtm({"dtm_forest": "0"}, "forest_10000") is False  # záložní kresba OSM + ZABAGED
     assert resolve_use_dtm({"dtm_sprint": "0"}, "sprint_2m") is False
     assert resolve_use_dtm({"dtm_sprint": False}, "sprint_2m") is False

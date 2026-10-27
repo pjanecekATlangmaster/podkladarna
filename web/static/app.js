@@ -1286,12 +1286,16 @@ function applyJobToForm(job) {
     const vsVal = String(opts.veg_smooth ?? "2");
     vegSmooth.value = [...vegSmooth.options].some((o) => o.value === vsVal) ? vsVal : "2";
   }
-  for (const [key, def] of [["dtm_sprint", "1"], ["dtm_forest", "1"]]) {
-    const dtmSel = form[key];
-    if (dtmSel) {
-      const v = opts[key] === undefined ? def : opts[key] ? "1" : "0";
-      dtmSel.value = v;
-    }
+  const dtmSel = form.dtm;
+  if (dtmSel) {
+    // Jedna volba pro sprint i les + MTBO; starší joby měly dtm_sprint / dtm_forest zvlášť.
+    const hasS = opts.dtm_sprint !== undefined;
+    const hasF = opts.dtm_forest !== undefined;
+    const s = hasS ? !!opts.dtm_sprint : true;
+    const f = hasF ? !!opts.dtm_forest : false;
+    if (s && f) dtmSel.value = "1";
+    else if (!s && !f) dtmSel.value = "0";
+    else dtmSel.value = "auto";
   }
   updateOsmHintsForScale(scaleSel ? scaleSel.value : scale);
   const cliff = form.kp_cliff_symbol;
