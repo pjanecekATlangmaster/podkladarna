@@ -44,6 +44,9 @@ def test_fill_strip_reaches_border_of_parallel_road():
     assert strips.area == pytest.approx(200.0, rel=0.05)
     assert ps.road_fill_strips(network, [([(50.0, -30.0), (50.0, 0.0)], 4.0, 3.0)], "forest_10000", 10000) is None
     assert ps.road_fill_strips(network, [([(0.0, -6.0), (100.0, -6.0)], 4.0, 0.0)], "forest_10000", 10000) is None
+    # krátká zalomená čára: buffer okrajové linky je MultiPolygon (job 3082b1ae8292, MTBO)
+    hook = [(8.7, -8.5), (8.4, -9.5), (7.3, -9.0)]
+    assert ps.road_fill_strips(network, [([(0.0, -6.0), (100.0, -6.0)], 4.0, 3.0), (hook, 4.0, 3.0)], "forest_10000", 10000).area == pytest.approx(200.0, rel=0.05)
 
 
 def test_short_edge_piece_between_mouths_is_not_drawn():
