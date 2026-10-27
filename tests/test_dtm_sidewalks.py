@@ -1896,3 +1896,24 @@ def test_sprint_osm_road_outside_dtm_is_line_touching_dtm_edge(tmp_path):
     area = di.road_geometry(tmp_path, osm_residue=False)
     assert area.bounds[2] <= 50.01  # bez pásu z OSM
     assert LineString([(60, 0), (120, 0)]).intersects(di.road_geometry(tmp_path))  # les / MTBO dál s pásem
+
+
+def test_dtm_geometry_memo_per_job_and_inputs(tmp_path, monkeypatch):
+    """Plocha silnic z DTM se v jobu počítá jednou (plná i čistá mapa); změna vstupu v ``dtm/`` = nový výpočet."""
+    import os
+
+    (tmp_path / "dtm").mkdir()
+    roads = tmp_path / "dtm" / "roads.json"
+    roads.write_text(json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, -4, 50, 4)]]}), encoding="utf-8")
+    calls = []
+    real = ds.unify_sidewalks
+    monkeypatch.setattr(ds, "unify_sidewalks", lambda *a, **k: calls.append(1) or real(*a, **k))
+    g1 = di.road_geometry(tmp_path, "osm")
+    g2 = di.road_geometry(tmp_path, "osm")
+    assert g1 is g2 and len(calls) == 1
+    sw, rd = di.classified_polygons(tmp_path, "osm")
+    rd.append("x")  # volající dostane vlastní seznam
+    assert "x" not in di.classified_polygons(tmp_path, "osm")[1]
+    os.utime(roads, ns=(1, 1))
+    di.road_geometry(tmp_path, "osm")
+    assert len(calls) == 2
