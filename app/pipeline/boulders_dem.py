@@ -11,7 +11,7 @@ Nižší (0,8–1 m) jsou v DMR 5G už šum. Nad 3 m jde spíš o skalní stěnu
 hranu terasy, ty kreslí plochy skal. Výběr čistí až sestavení mapy
 (``filter_boulder_points``): blízko skalní plochy, kupky nebo cesty, budovy
 či vody balvan nekreslíme – u cest a staveb jsou to náspy a zídky
-(Harrachov: přesnost bodů do 15 m od cest 0,19–0,55).
+(Harrachov: přesnost bodů do 25 m od cest 0,19–0,55).
 
 Výstup ``work/temp/dotboulders.dxf`` jako POINT.
 """
@@ -35,7 +35,9 @@ BOULDER_MIN_SPACING_M = 6.0
 BOULDER_MAX_POINTS = 8_000
 # Sestavení mapy: odstup od čar cest / vody / plotů a od ploch budov a vody
 # (náspy, zářezy, zídky), od skalních ploch (skálu už kreslí plocha) a od kupek.
-BOULDER_LINE_CLEAR_M = 15.0
+# Harrachov: body 15–20 m od osy cesty mají přesnost 0,43, od 25 m 0,88 (řady
+# bodů podél hrany zářezu silnice v otočce 2026-10-27).
+BOULDER_LINE_CLEAR_M = 25.0
 BOULDER_AREA_CLEAR_M = 12.0
 BOULDER_ROCK_CLEAR_M = 2.0
 BOULDER_KNOLL_CLEAR_M = 6.0
