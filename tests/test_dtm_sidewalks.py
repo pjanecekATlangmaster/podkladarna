@@ -1885,6 +1885,9 @@ def test_sprint_osm_road_outside_dtm_is_line_touching_dtm_edge(tmp_path):
     pieces = di.road_residue_lines([(25, 0), (120, 0)], road_dtm)
     assert len(pieces) == 1 and abs(pieces[0][0][0] - 50) < 0.01 and pieces[0][-1][0] == 120
     assert di.road_residue_lines([(0, 5), (50, 5)], road_dtm) == []  # souběžná těsně vedle plochy = táž silnice
+    # výřez kolem čáry dává totéž jako práce s celou plochou (vzdálená plocha výsledek nemění)
+    far = ds.dtm_union([_rect(0, -4, 50, 4), _rect(2000, 2000, 2100, 2010)])
+    assert di.road_residue_lines([(25, 0), (120, 0)], far) == pieces
     (tmp_path / "dtm").mkdir()
     (tmp_path / "dtm" / "roads.json").write_text(json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, -4, 50, 4)]]}), encoding="utf-8")
     (tmp_path / "osm_paths").mkdir()

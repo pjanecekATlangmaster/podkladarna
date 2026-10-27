@@ -215,9 +215,31 @@ def test_sprint_street_parcel_part_under_olive_and_mask(tmp_path, monkeypatch):
     mask[5:15, 4:10] = True
     g = street_parcels._mask_polygons(mask, 100.0, 200.0, 0.5)
     assert g.area == pytest.approx(10 * 6 * 0.25) and g.bounds == (102.0, 192.5, 105.0, 197.5)
+    # jen pixely u parcel ulic (do 1 px): ulice x 100–102,5 → zeleň x 102–103 (2 px sloupce)
+    from shapely.geometry import box
+
+    inside = street_parcels._rasterize_area(box(100.0, 190.0, 102.5, 200.0).buffer(0.5), mask.shape, 100.0, 200.0, 0.5, 0.5)
+    g2 = street_parcels._mask_polygons(mask & inside, 100.0, 200.0, 0.5)
+    assert g2.bounds[0] == 102.0 and g2.bounds[2] <= 103.5
 
 
 def _polygon_um2(m):
     from app.pipeline.path_clearance import _polygon
 
     return _polygon(_rings(_parse_coords(_COORDS_RE.search(m.group(4)).group(1)))).area
+
+
+def test_street_geometry_cache_key_follows_inputs(tmp_path):
+    """Plocha ulic se pro čistou mapu převezme jen při stejných vstupech (mtime parcel / masky / OSM)."""
+    import os
+
+    from app.pipeline import street_parcels
+
+    d = tmp_path / street_parcels.CACHE_SUBDIR
+    d.mkdir()
+    parcels = d / street_parcels.PARCELS_NAME
+    parcels.write_text("{}", encoding="utf-8")
+    before = street_parcels._street_inputs_stamp(tmp_path)
+    assert street_parcels._street_inputs_stamp(tmp_path) == before
+    os.utime(parcels, ns=(1, 1))
+    assert street_parcels._street_inputs_stamp(tmp_path) != before

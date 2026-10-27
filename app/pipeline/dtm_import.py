@@ -817,18 +817,45 @@ def road_residue_lines(coords, road_dtm) -> list[list[tuple[float, float]]]:
 
     from app.pipeline import dtm_sidewalks as ds
 
+    from shapely import clip_by_rect
+
     if road_dtm is None or road_dtm.is_empty:
         return [list(coords)]
+    cover, near = _residue_zones(road_dtm)
     line = LineString(coords)
-    rest = line.difference(road_dtm.buffer(ds.OSM_COVER_M))
+    # Plocha celého výřezu je velká: pracuje se jen s výřezem kolem čáry (okraj > přichycení na hranu).
+    x0, y0, x1, y1 = line.bounds
+    m = max(ds.PARALLEL_NEAR_M, ds.EDGE_SNAP_M) + 5.0
+    rect = (x0 - m, y0 - m, x1 + m, y1 + m)
+    rest = line.difference(clip_by_rect(cover, *rect))
     pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
-    near = road_dtm.buffer(ds.PARALLEL_NEAR_M)
+    near_local = clip_by_rect(near, *rect)
+    area_local = None
     out = []
     for piece in pieces:
-        if piece.length < ds.OSM_MIN_REMAINDER_M or piece.intersection(near).length >= ds.PARALLEL_SHARE * piece.length:
+        if piece.length < ds.OSM_MIN_REMAINDER_M or piece.intersection(near_local).length >= ds.PARALLEL_SHARE * piece.length:
             continue
-        out.extend(seg for seg in ds.end_at_edge([(float(x), float(y)) for x, y in piece.coords], road_dtm) if len(seg) >= 2)
+        if area_local is None:
+            area_local = clip_by_rect(road_dtm, *rect)
+        out.extend(seg for seg in ds.end_at_edge([(float(x), float(y)) for x, y in piece.coords], area_local) if len(seg) >= 2)
     return out
+
+
+# Pásy kolem plochy silnic z DTM pro ``road_residue_lines`` – jednou na plochu, ne na každou čáru.
+_RESIDUE_ZONES: tuple | None = None  # (plocha, (pás krytí, pás souběhu)) – jedno přiřazení, bez zámku
+
+
+def _residue_zones(road_dtm):
+    from app.pipeline import dtm_sidewalks as ds
+
+    global _RESIDUE_ZONES
+
+    cached = _RESIDUE_ZONES
+    if cached is not None and cached[0] is road_dtm:
+        return cached[1]
+    zones = (road_dtm.buffer(ds.OSM_COVER_M), road_dtm.buffer(ds.PARALLEL_NEAR_M))
+    _RESIDUE_ZONES = (road_dtm, zones)
+    return zones
 
 
 def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None, cut_decks: bool = False):

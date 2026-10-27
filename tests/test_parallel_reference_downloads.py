@@ -11,6 +11,7 @@ from unittest.mock import patch
 from app.pipeline.job_grid import write_job_grid
 from app.pipeline.job_progress import JobProgress
 from app.pipeline.preview import ensure_georef_template
+from app.pipeline.reference_layers import ALWAYS_REFERENCE_KEYS
 from app.pipeline.run_job import (
     ReferenceDownload,
     join_reference_download,
@@ -73,8 +74,10 @@ def test_start_creates_future_with_force_refresh(tmp_path: Path):
         *,
         log=None,
         force_refresh=False,
+        only=None,
     ):
         seen["force_refresh"] = force_refresh
+        seen["only"] = only
         seen["template"] = Path(template_png).name
         if log:
             log("orto ok")
@@ -236,6 +239,29 @@ def test_join_want_refs_false_skips_build(tmp_path: Path):
     assert any("vypnuto ve formuláři" in ln for ln in lines)
 
 
+def test_want_refs_false_still_bundles_ortho_and_katastr(tmp_path: Path):
+    """Vypnuté podklady: na pozadí jen ALWAYS_REFERENCE_KEYS a join je vrátí do ZIPu."""
+    write_job_grid(tmp_path, (-700005.0, -1050005.0, -700000.0, -1050000.0), resolution_m=1.0)
+    seen: dict = {}
+
+    def fake_build(*_a, only=None, **_k):
+        seen["only"] = only
+        return {"orthophoto": tmp_path / "references" / "orthophoto.jpg"}
+
+    lines: list[str] = []
+    with patch("app.pipeline.run_job.build_reference_layers", side_effect=fake_build):
+        handle = start_reference_download(
+            tmp_path, tmp_path, (14.0, 50.0, 14.01, 50.01),
+            force_refresh=False, log=lines.append, with_references=False,
+        )
+        built, layers = join_reference_download(
+            handle, log=lines.append, want_refs=False, bbox=(14.0, 50.0, 14.01, 50.01),
+            work_dir=tmp_path, job_dir=tmp_path, force_refresh=False,
+        )
+    assert seen["only"] == ALWAYS_REFERENCE_KEYS
+    assert "orthophoto" in built and layers == ["orthophoto.jpg"]
+
+
 def test_ref_log_prefix_and_lock(tmp_path: Path):
     write_job_grid(
         tmp_path,
@@ -325,3 +351,28 @@ def test_progress_begin_done_only_on_join(tmp_path: Path):
             progress=progress,
         )
     assert any("referenční podklady" in ln.lower() for ln in progress_lines)
+
+
+def test_vector_prefetch_results_and_errors(tmp_path: Path, monkeypatch):
+    """ZABAGED, RÚIAN, AOPK a parcely ulic na pozadí; chyba RÚIAN = None (krok si stáhne sám)."""
+    from app.pipeline import run_job, street_parcels
+
+    monkeypatch.setattr(run_job, "fetch_zabaged_for_bbox", lambda bbox, log, force_refresh: tmp_path / "z.zip")
+
+    def boom(*_a, **_k):
+        raise OSError("síť")
+
+    monkeypatch.setattr(run_job, "fetch_ruian_buildings_for_bbox", boom)
+    monkeypatch.setattr(run_job, "fetch_aopk_trees_for_bbox", lambda *a, **k: tmp_path / "a.geojson")
+    streets: list = []
+    monkeypatch.setattr(street_parcels, "prefetch_street_inputs", lambda *a, **k: streets.append(1))
+    lines: list[str] = []
+    vp = run_job.start_vector_prefetch(
+        tmp_path, (14.0, 50.0, 14.01, 50.01), force_refresh=False, with_streets=True, log=lines.append
+    )
+    assert vp.zabaged() == tmp_path / "z.zip"
+    assert vp.ruian() is None
+    assert vp.aopk() == tmp_path / "a.geojson"
+    vp.streets()
+    assert streets == [1]
+    assert any(ln.startswith("[vektory] RÚIAN budovy: přeskočeno") for ln in lines)
