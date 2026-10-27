@@ -46,19 +46,29 @@ def _overlay(op, *args):
     """``op`` (shapely ``union_all`` / ``difference`` …) s pojistkou: při ``GEOSException`` se vstupy opraví
     ``make_valid`` a zkusí se znovu s přichycením na mřížku ``OVERLAY_RETRY_GRIDS``. Nevyjde-li ani to, vrátí None –
     dotažení výplně se vynechá, ale mapa vznikne (job 61ce38ad5427, MTBO Barrandov 2026-10-27)."""
+    import logging
+
     import shapely
     from shapely.errors import GEOSException
 
     try:
         return op(*args)
-    except GEOSException:
-        pass
-    fixed = [shapely.make_valid(a) if not isinstance(a, list) else [shapely.make_valid(g) for g in a] for a in args]
-    for grid in OVERLAY_RETRY_GRIDS:
+    except GEOSException as exc:
+        err = exc
+    try:
+        fixed = [[shapely.make_valid(g) for g in a] if isinstance(a, list) else shapely.make_valid(a) for a in args]
+    except GEOSException as exc:
+        err, fixed = exc, None
+    for grid in OVERLAY_RETRY_GRIDS if fixed is not None else ():
         try:
             return op(*fixed, grid_size=grid)
-        except GEOSException:
-            continue
+        except GEOSException as exc:
+            err = exc
+    geoms = [g for a in args for g in (a if isinstance(a, list) else [a])]
+    logging.getLogger(__name__).warning(
+        "Zpevněné plochy: překryv %s selhal i s přichycením na mřížku, dotažení výplně se vynechá (rozsah %s): %s",
+        getattr(op, "__name__", op), shapely.total_bounds(geoms).round(1).tolist(), err,
+    )
     return None
 
 
