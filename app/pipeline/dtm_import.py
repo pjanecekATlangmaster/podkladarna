@@ -842,19 +842,20 @@ def road_residue_lines(coords, road_dtm) -> list[list[tuple[float, float]]]:
 
 
 # Pásy kolem plochy silnic z DTM pro ``road_residue_lines`` – jednou na plochu, ne na každou čáru.
-_RESIDUE_ZONES: dict = {}
+_RESIDUE_ZONES: tuple | None = None  # (plocha, (pás krytí, pás souběhu)) – jedno přiřazení, bez zámku
 
 
 def _residue_zones(road_dtm):
     from app.pipeline import dtm_sidewalks as ds
 
-    if _RESIDUE_ZONES.get("geom") is not road_dtm:
-        _RESIDUE_ZONES.clear()
-        _RESIDUE_ZONES.update(
-            geom=road_dtm,
-            zones=(road_dtm.buffer(ds.OSM_COVER_M), road_dtm.buffer(ds.PARALLEL_NEAR_M)),
-        )
-    return _RESIDUE_ZONES["zones"]
+    global _RESIDUE_ZONES
+
+    cached = _RESIDUE_ZONES
+    if cached is not None and cached[0] is road_dtm:
+        return cached[1]
+    zones = (road_dtm.buffer(ds.OSM_COVER_M), road_dtm.buffer(ds.PARALLEL_NEAR_M))
+    _RESIDUE_ZONES = (road_dtm, zones)
+    return zones
 
 
 def sidewalk_geometry(work_dir: Path, path_source: str = "mixed", roads=None, cut_decks: bool = False):

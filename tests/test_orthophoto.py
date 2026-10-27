@@ -41,21 +41,28 @@ def test_fetch_orthophoto_cache_and_error(tmp_path, monkeypatch):
     assert not calls and rgb.shape == (10, 20, 3) and gt == (0.0, 0.5, 0.0, 5.0, 0.0, -0.5)
 
 
-def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch):
-    """Ortofoto podkladu (JPEG dlaždice 0,25 m + .jgw) se převezme bez druhého stahování."""
+@pytest.mark.parametrize("tiles, downloads", [(2, False), (1, True)])
+def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, downloads):
+    """Ortofoto podkladu (JPEG dlaždice 0,25 m + .jgw) se převezme bez druhého stahování; nepokryje-li výřez, stáhne se."""
     from PIL import Image
 
     from app.pipeline import reference_layers
 
-    monkeypatch.setattr(reference_layers, "_download_wms_raster", lambda *a, **k: pytest.fail("stahuje"))
+    calls = []
+    monkeypatch.setattr(reference_layers, "_download_wms_raster", lambda *a, **k: calls.append(1) or False)
     ref = tmp_path / "references"
     ref.mkdir()
     # dvě dlaždice vedle sebe, každá 5 × 5 m po 0,25 m; levá zelená, pravá šedá
-    for name, x0, color in (("orthophoto_r0c0", 0.0, (0, 200, 0)), ("orthophoto_r0c1", 5.0, (100, 100, 100))):
+    for name, x0, color in (("orthophoto_r0c0", 0.0, (0, 200, 0)), ("orthophoto_r0c1", 5.0, (100, 100, 100)))[:tiles]:
         Image.new("RGB", (20, 20), color).save(ref / f"{name}.jpg", quality=95)
         (ref / f"{name}.jgw").write_text(f"0.25\n0\n0\n-0.25\n{x0 + 0.125}\n{5 - 0.125}\n", encoding="utf-8")
     logs = []
-    rgb, _gt = orthophoto.fetch_orthophoto(tmp_path, BOUNDS, 0.5, log=logs.append)
+    got = orthophoto.fetch_orthophoto(tmp_path, BOUNDS, 0.5, log=logs.append)
+    assert bool(calls) == downloads
+    if downloads:
+        assert got is None  # WMS v testu nic nevrátí
+        return
+    rgb, _gt = got
     assert rgb.shape == (10, 20, 3)
     mask = orthophoto.green_mask(rgb)
     assert mask[:, :10].all() and not mask[:, 10:].any()

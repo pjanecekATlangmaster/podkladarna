@@ -374,6 +374,5 @@ def test_vector_prefetch_results_and_errors(tmp_path: Path, monkeypatch):
     assert vp.ruian() is None
     assert vp.aopk() == tmp_path / "a.geojson"
     vp.streets()
-    vp.shutdown()
     assert streets == [1]
     assert any(ln.startswith("[vektory] RÚIAN budovy: přeskočeno") for ln in lines)

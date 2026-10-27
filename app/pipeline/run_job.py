@@ -132,7 +132,6 @@ class VectorPrefetch:
     """
 
     futures: dict[str, Future]
-    _executor: ThreadPoolExecutor
 
     def _wait(self, key: str, log: callable | None, label: str):
         future = self.futures.get(key)
@@ -154,9 +153,6 @@ class VectorPrefetch:
     def streets(self, log: callable | None = None) -> None:
         self._wait("streets", log, "parcely ulic z katastru")
 
-    def shutdown(self) -> None:
-        self._executor.shutdown(wait=False)
-
 
 def start_vector_prefetch(
     work_dir: Path,
@@ -167,13 +163,15 @@ def start_vector_prefetch(
     log: callable,
 ) -> VectorPrefetch:
     """Spustí stahování vektorových dat na pozadí (viz ``VectorPrefetch``)."""
-    executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vec-dl")
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vec-dl")
     bg_log = background_log(log, VECTOR_LOG_LABEL)
     futures: dict[str, Future] = {
         "zabaged": executor.submit(
             fetch_zabaged_for_bbox, tuple(bbox_wgs84), bg_log, force_refresh=force_refresh
         )
     }
+    # Odeslané úlohy doběhnou i po shutdown; vlákna pak skončí sama (i když job spadne dřív).
+    executor.shutdown(wait=False)
     # Jedno vlákno sériově: ČÚZK služby nezahlcovat souběžnými dotazy.
     serial = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vec-dl-s")
 
@@ -199,9 +197,9 @@ def start_vector_prefetch(
         futures["streets"] = serial.submit(
             _safe(lambda: prefetch_street_inputs(work_dir, tuple(bbox_wgs84), log=bg_log), "Ulice z katastru")
         )
-    serial.shutdown(wait=False)  # úlohy doběhnou, vlákno pak skončí
+    serial.shutdown(wait=False)
     bg_log("Start stahování na pozadí (ZABAGED, RÚIAN, AOPK" + (", parcely ulic)" if with_streets else ")"))
-    return VectorPrefetch(futures=futures, _executor=executor)
+    return VectorPrefetch(futures=futures)
 
 
 def job_has_sprint(preset_id: str, options: dict) -> bool:
@@ -892,8 +890,6 @@ def run_job_pipeline(
         dtm_prefetch=dtm_prefetch,
         vector_prefetch=vector_prefetch,
     )
-    if vector_prefetch is not None:
-        vector_prefetch.shutdown()
     progress.finish_all()
     issues.report()
     raw_log("")

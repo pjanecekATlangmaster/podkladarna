@@ -11,14 +11,18 @@ ORTHO_NAME = "ortofoto.png"
 ORTHO_META_NAME = "ortofoto.json"
 # Ortofoto referenčního podkladu (``work/references/orthophoto*.jpg`` + ``.jgw``, 0,25 m/px).
 REFERENCE_SUBDIR = "references"
+# Podklad je ořezaný na mřížku mapy (výřez + ~1 m), parcely se stahují s přesahem 80 m: pokrytí se měří na výřezu
+# mapy; když ho dlaždice nepokryjí, stahuje se zvlášť (jinak by uvnitř mapy chyběla zeleň).
+REFERENCE_MIN_COVER = 0.97
 # Nad tento počet pixelů (při 0,5 m/px cca 12 × 12 km) se ortofoto nestahuje (paměť, počet dlaždic).
 MAX_PIXELS = 150_000_000
 
 
-def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None):
+def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need_bounds=None):
     """``(rgb uint8 HxWx3, geotransform GDAL)`` pro obálku S-JTSK, nebo ``None`` (síť, příliš velký výřez).
 
-    Dlaždice nad ``WMS_MAX_GETMAP_PX`` skládá existující helper z ``reference_layers``. Cache:
+    Ortofoto referenčního podkladu (``work/references``) se převezme, pokrývá-li ``need_bounds`` (výřez mapy;
+    jinak celou obálku). Dlaždice nad ``WMS_MAX_GETMAP_PX`` skládá existující helper z ``reference_layers``. Cache:
     ``work_dir/orthophoto/`` (platí jen pro stejnou obálku a rozlišení)."""
     xmin, ymin, xmax, ymax = (float(v) for v in bbox_5514)
     width = max(1, math.ceil((xmax - xmin) / mpp))
@@ -42,7 +46,9 @@ def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None):
         from app.pipeline.reference_layers import ORTOFOTO_WMS, _download_wms_raster, _write_pgw_for_extent
 
         out_dir.mkdir(parents=True, exist_ok=True)
-        rgb = _from_reference_tiles(Path(work_dir) / REFERENCE_SUBDIR, (xmin, ymin, xmax, ymax), width, height)
+        rgb = _from_reference_tiles(
+            Path(work_dir) / REFERENCE_SUBDIR, (xmin, ymin, xmax, ymax), width, height, need_bounds=need_bounds
+        )
         if rgb is not None:  # stejná WMS vrstva už stažená jako podklad – nestahovat podruhé
             Image.fromarray(rgb).save(png)
             _write_pgw_for_extent(png.with_suffix(".pgw"), xmin, ymin, xmax, ymax, width, height)
@@ -73,10 +79,11 @@ def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None):
         return None
 
 
-def _from_reference_tiles(ref_dir: Path, bounds, width: int, height: int):
+def _from_reference_tiles(ref_dir: Path, bounds, width: int, height: int, need_bounds=None):
     """Mozaika ``orthophoto*.jpg`` (+ ``.jgw``) převzorkovaná do mřížky ``bounds`` × ``width`` × ``height``.
 
-    ``None``, když dlaždice chybí nebo nepokryjí aspoň polovinu výřezu (pak se stahuje)."""
+    ``None``, když dlaždice chybí nebo nepokryjí aspoň ``REFERENCE_MIN_COVER`` z ``need_bounds`` (jinak z celé
+    obálky) – pak se stahuje z WMS. Mimo dlaždice zůstane černá (není zeleň)."""
     import numpy as np
     from PIL import Image
 
@@ -88,7 +95,16 @@ def _from_reference_tiles(ref_dir: Path, bounds, width: int, height: int):
     xmin, _ymin, xmax, ymax = bounds
     mpp = (xmax - xmin) / width
     canvas = Image.new("RGB", (width, height))
-    covered = 0
+    need = np.zeros((height, width), dtype=bool)
+    if need_bounds is None:
+        need[:, :] = True
+    else:
+        nx0, ny0, nx1, ny1 = need_bounds
+        need[
+            max(0, int((ymax - ny1) / mpp)) : max(0, math.ceil((ymax - ny0) / mpp)),
+            max(0, int((nx0 - xmin) / mpp)) : max(0, math.ceil((nx1 - xmin) / mpp)),
+        ] = True
+    covered = np.zeros((height, width), dtype=bool)
     for tile in tiles:
         geo = read_pgw(tile.with_suffix(".jgw"))
         with Image.open(tile) as im:
@@ -101,8 +117,9 @@ def _from_reference_tiles(ref_dir: Path, bounds, width: int, height: int):
         ty1 = geo.origin_y - geo.pixel_y / 2
         col, row = round((tx0 - xmin) / mpp), round((ymax - ty1) / mpp)
         canvas.paste(part, (col, row))
-        covered += max(0, min(width, col + out_w) - max(0, col)) * max(0, min(height, row + out_h) - max(0, row))
-    if covered < 0.5 * width * height:
+        covered[max(0, row) : max(0, row + out_h), max(0, col) : max(0, col + out_w)] = True
+    n_need = int(need.sum())
+    if n_need == 0 or int((covered & need).sum()) < REFERENCE_MIN_COVER * n_need:
         return None
     return np.asarray(canvas)
 

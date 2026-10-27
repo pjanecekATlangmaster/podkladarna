@@ -115,7 +115,7 @@ def prefetch_street_inputs(work_dir: Path, bbox_wgs84, log=None) -> None:
         fetch_street_parcels(work_dir, bbox_wgs84, log=log)
 
 
-def _prepare_green_mask(work_dir: Path, bounds_5514, log=None) -> Path | None:
+def _prepare_green_mask(work_dir: Path, bounds_5514, log=None, need_bounds=None) -> Path | None:
     """Maska zeleně z ortofota (``orthophoto.green_mask`` + morfologické otevření 1 px) → ``zelen.png`` + ``zelen.json``."""
     out_dir = Path(work_dir) / CACHE_SUBDIR
     dest = out_dir / GREEN_PNG_NAME
@@ -128,7 +128,7 @@ def _prepare_green_mask(work_dir: Path, bounds_5514, log=None) -> Path | None:
 
         from app.pipeline.orthophoto import fetch_orthophoto, green_mask
 
-        got = fetch_orthophoto(work_dir, bounds_5514, ORTHO_MPP, log=log)
+        got = fetch_orthophoto(work_dir, bounds_5514, ORTHO_MPP, log=log, need_bounds=need_bounds)
         if got is None:
             return None
         rgb, gt = got
@@ -345,8 +345,29 @@ def load_buildings_5514(work_dir: Path):
     return unary_union(polys) if polys else None
 
 
-# Poslední spočtená plocha ulic (S-JTSK) pro ``(work_dir, měřítko, ořez)`` – jen v rámci jobu.
-_GEOM_CACHE: dict = {}
+# Poslední spočtená plocha ulic (S-JTSK): ``(klíč, plocha)``, klíč = work_dir, měřítko, ořez a mtime vstupů
+# (``_street_inputs_stamp``); jedno přiřazení n-tice, takže souběžné joby si ji nerozbijí.
+_GEOM_CACHE: tuple | None = None
+
+
+def _street_inputs_stamp(work_dir: Path) -> tuple:
+    """mtime vstupů plochy ulic (parcely, maska zeleně, OSM, budovy, DTM) – změna = nový výpočet."""
+    base = Path(work_dir)
+    stamp = []
+    for rel in (
+        f"{CACHE_SUBDIR}/{PARCELS_NAME}",
+        f"{CACHE_SUBDIR}/{GREEN_PNG_NAME}",
+        "osm_paths/paths_osm.geojson",
+        "osm_paths/paths.geojson",
+        "osm_paths/buildings.geojson",
+        "dtm",
+    ):
+        p = base / rel
+        try:
+            stamp.append(p.stat().st_mtime_ns)
+        except OSError:
+            stamp.append(None)
+    return tuple(stamp)
 
 
 def sprint_street_parcel_part(
@@ -365,6 +386,8 @@ def sprint_street_parcel_part(
     """Sprint: seznam částí s přidanou plochou ulic z katastru (501) na začátku (pod ostatními objekty).
 
     Od plochy se odečte už kreslená voda (301) a oliva (520). Bez sítě / dat / symbolu vrací ``parts`` beze změny."""
+    global _GEOM_CACHE
+
     if not SPRINT_STREET_PARCELS or not preset_id.startswith("sprint"):
         return parts
     try:
@@ -392,11 +415,22 @@ def sprint_street_parcel_part(
             return parts
         if fetch_street_parcels(work_dir, bbox_wgs84, log=log) is None:
             return parts
-        key = (str(Path(work_dir).resolve()), int(scale), tuple(clip_bounds) if clip_bounds else None)
-        if _GEOM_CACHE.get("key") == key:
-            geom = _GEOM_CACHE["geom"]  # plná a „čistá“ mapa mají stejné vstupy
+        _prepare_green_mask(
+            work_dir,
+            street_fetch_bounds_5514(bbox_wgs84),
+            log=log,
+            need_bounds=crop_bounds_5514(*tuple(bbox_wgs84), buffer_m=0.0),
+        )
+        key = (
+            str(Path(work_dir).resolve()),
+            int(scale),
+            tuple(clip_bounds) if clip_bounds else None,
+            _street_inputs_stamp(work_dir),
+        )
+        cached = _GEOM_CACHE
+        if cached is not None and cached[0] == key:
+            geom = cached[1]  # plná a „čistá“ mapa mají stejné vstupy
         else:
-            _prepare_green_mask(work_dir, street_fetch_bounds_5514(bbox_wgs84), log=log)
             geom = street_paved_geometry(
                 work_dir, load_buildings_5514(work_dir), load_street_osm_lines(work_dir), scale=scale
             )
@@ -404,8 +438,7 @@ def sprint_street_parcel_part(
                 from shapely.geometry import box as _box
 
                 geom = geom.intersection(_box(*clip_bounds))  # parcely se stahují s přesahem
-            _GEOM_CACHE.clear()
-            _GEOM_CACHE.update(key=key, geom=geom)
+            _GEOM_CACHE = (key, geom)
         if geom is None or geom.is_empty:
             return parts
 

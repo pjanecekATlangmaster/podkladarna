@@ -227,3 +227,19 @@ def _polygon_um2(m):
     from app.pipeline.path_clearance import _polygon
 
     return _polygon(_rings(_parse_coords(_COORDS_RE.search(m.group(4)).group(1)))).area
+
+
+def test_street_geometry_cache_key_follows_inputs(tmp_path):
+    """Plocha ulic se pro čistou mapu převezme jen při stejných vstupech (mtime parcel / masky / OSM)."""
+    import os
+
+    from app.pipeline import street_parcels
+
+    d = tmp_path / street_parcels.CACHE_SUBDIR
+    d.mkdir()
+    parcels = d / street_parcels.PARCELS_NAME
+    parcels.write_text("{}", encoding="utf-8")
+    before = street_parcels._street_inputs_stamp(tmp_path)
+    assert street_parcels._street_inputs_stamp(tmp_path) == before
+    os.utime(parcels, ns=(1, 1))
+    assert street_parcels._street_inputs_stamp(tmp_path) != before
