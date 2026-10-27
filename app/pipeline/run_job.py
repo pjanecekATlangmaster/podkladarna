@@ -169,8 +169,11 @@ def start_reference_download(
     log: callable,
     shade_bounds: tuple[float, float, float, float] | None = None,
     shade_cache_dir: Path | None = None,
+    basic_only: bool = False,
 ) -> ReferenceDownload | None:
     """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
+
+    ``basic_only``: referenční podklady vypnuté ve formuláři – jen ortofoto a katastr.
 
     Vrací handle pro join v ``_package_output``, nebo None když chybí georef šablona.
     ČÚZK/vrstvy uvnitř zůstávají sériové — paralelní je jen overlap s hlavním buildem.
@@ -184,8 +187,9 @@ def start_reference_download(
     reference_dir = work_dir / "references"
     ref_log = background_log(log, REF_LOG_LABEL)
     ref_log(
-        "Start stahování na pozadí (stínování, ortofoto, OSM, ZTM, katastr); "
-        "výsledek se převezme v kroku „referenční podklady“."
+        "Start stahování na pozadí ("
+        + ("ortofoto, katastr" if basic_only else "stínování, ortofoto, OSM, ZTM, katastr")
+        + "); výsledek se převezme v kroku „referenční podklady“."
     )
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-dl")
     shade_done = threading.Event() if shade_bounds is not None else None
@@ -224,6 +228,7 @@ def start_reference_download(
                 reference_dir,
                 log=ref_log,
                 force_refresh=force_refresh,
+                basic_only=basic_only,
                 **extra,
             )
         except Exception as exc:
@@ -256,8 +261,7 @@ def join_reference_download(
     built_refs: dict[str, Path] = {}
     reference_dir = work_dir / "references"
     if not want_refs:
-        log("Referenční podklady: vypnuto ve formuláři")
-        return built_refs, []
+        log("Referenční podklady: vypnuto ve formuláři, přibalím jen ortofoto a katastr")
     if not bbox:
         return built_refs, []
 
@@ -284,6 +288,7 @@ def join_reference_download(
                 reference_dir,
                 log=log,
                 force_refresh=force_refresh,
+                basic_only=not want_refs,
             )
         except Exception as exc:
             log_issue(log, f"Referenční podklady: přeskočeno ({exc})")
@@ -356,7 +361,8 @@ def run_job_pipeline(
             bbox=bbox,
             reused_from=reused_from,
             want_zip=want_zip,
-            want_refs=want_refs,
+            # Ortofoto a katastr se přibalují vždy (vypnuté podklady = jen tyto dva).
+            want_refs=True,
         ),
     )
     progress.announce_plan()
@@ -486,15 +492,17 @@ def run_job_pipeline(
         )
         progress.done()
         # Referenční PNG na pozadí (sériově ČÚZK) × overlap s těžkým buildem.
-        if want_refs and bbox:
+        # Bez referenčních podkladů jen ortofoto a katastr; stínování pak běží v hlavním vlákně.
+        if bbox:
             ref_download = start_reference_download(
                 job_dir,
                 work_dir,
                 tuple(bbox),
                 force_refresh=force_refresh,
                 log=raw_log,
-                shade_bounds=grid_bounds,
-                shade_cache_dir=surfaces_cache,
+                shade_bounds=grid_bounds if want_refs else None,
+                shade_cache_dir=surfaces_cache if want_refs else None,
+                basic_only=not want_refs,
             )
 
     if reused_from and merged_existing:
@@ -1011,9 +1019,7 @@ def _package_output(
             zabaged_clean=zabaged,
             metadata=meta,
             reference_dir=(
-                reference_dir
-                if want_refs and reference_dir and reference_dir.is_dir()
-                else None
+                reference_dir if reference_dir and reference_dir.is_dir() else None
             ),
             omap_paths=[*omap_paths, *certain_paths],
             include_zabaged_archive=bool(
@@ -1043,21 +1049,21 @@ def _package_output(
                 shutil.copy2(src, shade_dst / name)
     # Stejná struktura jako v ZIPu, ať jde otevřít i output/*-{sprint,les,mtbo}.omap.
     if want_zip and omap_paths:
-        if bool(options.get("output_references", True)):
-            refs_src = kp_cwd / "references"
-            if refs_src.is_dir():
-                refs_dst = output_dir / "references"
-                refs_dst.mkdir(parents=True, exist_ok=True)
-                for path in refs_src.glob("*"):
-                    if path.is_file() and path.suffix.lower() in {
-                        ".png",
-                        ".pgw",
-                        ".jpg",
-                        ".jgw",
-                        ".gpkg",
-                        ".dxf",
-                    }:
-                        shutil.copy2(path, refs_dst / path.name)
+        # Ortofoto a katastr jsou v references/ i při vypnutých referenčních podkladech.
+        refs_src = kp_cwd / "references"
+        if refs_src.is_dir():
+            refs_dst = output_dir / "references"
+            refs_dst.mkdir(parents=True, exist_ok=True)
+            for path in refs_src.glob("*"):
+                if path.is_file() and path.suffix.lower() in {
+                    ".png",
+                    ".pgw",
+                    ".jpg",
+                    ".jgw",
+                    ".gpkg",
+                    ".dxf",
+                }:
+                    shutil.copy2(path, refs_dst / path.name)
         # Vegetace / srázy / skály (použité vs vyhozené) – stejné jako v ZIPu.
         try:
             from app.pipeline.uzitecne_vectors import (

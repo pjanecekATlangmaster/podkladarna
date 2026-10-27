@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.pipeline.build_oom_map import build_oom_map_xml, write_oom_map
 from app.pipeline.oom_layers import OomTemplate
 from app.pipeline.georef import PgwGeoref, read_pgw
@@ -643,6 +645,57 @@ def test_references_cache_roundtrip_with_ortho_tiles(tmp_path):
     assert (out / "orthophoto_r0c1.jgw").is_file()
     assert (out / "osm.pgw").is_file()
     assert [k for k, _p in rl.orthophoto_items(got)] == ["orthophoto_r0c0", "orthophoto_r0c1"]
+
+
+@pytest.mark.parametrize("full_cache", [False, True])
+def test_build_reference_layers_basic_only(tmp_path, monkeypatch, full_cache):
+    """Vypnuté referenční podklady: jen ortofoto a katastr; z plné cache jen tyto dvě vrstvy,
+    jinak stažení do vlastní cache (plná cache zůstane netknutá)."""
+    from app.pipeline import reference_layers as rl
+
+    template = _fake_png(tmp_path / "job.png")
+    cache = tmp_path / "refcache"
+    monkeypatch.setattr(rl, "references_cache_dir", lambda *a, **k: cache)
+    monkeypatch.setattr(rl, "_ref_target_size", lambda *a: (10, 10, 1.0))
+    monkeypatch.setattr(rl, "_osm_target_size", lambda *a: (10, 10, 1.0))
+    monkeypatch.setattr(rl, "_with_katastr_vectors", lambda built, *a, **k: built)
+    fetched: list[str] = []
+
+    def fake_ortho(bounds, tpng, tpgw, out_dir, log=None):
+        fetched.append("orthophoto")
+        return {"orthophoto": _fake_jpg(out_dir / "orthophoto.jpg")}
+
+    def fake_wms(wms, layer, bounds, tpng, tpgw, png, pgw, *, label, **kw):
+        fetched.append(label)
+        _fake_png(png)
+        return True
+
+    monkeypatch.setattr(rl, "fetch_orthophoto_wms", fake_ortho)
+    monkeypatch.setattr(rl, "fetch_cuzk_wms_png", fake_wms)
+    monkeypatch.setattr(rl, "build_osm_reference", lambda *a, **k: fetched.append("osm"))
+    monkeypatch.setattr(rl, "fetch_hillshade_wms", lambda *a, **k: fetched.append("hill"))
+    if full_cache:
+        work = tmp_path / "w"
+        work.mkdir()
+        rl._store_references_cache(
+            cache, work,
+            {"orthophoto": _fake_jpg(work / "orthophoto.jpg"), "osm": _fake_png(work / "osm.png"),
+             "katastr": _fake_png(work / "katastr.png")},
+            bbox_wgs84=(14.0, 50.0, 14.1, 50.1), ref_wh=(10, 10), osm_wh=(10, 10),
+        )
+    out = tmp_path / "references"
+    built = rl.build_reference_layers(
+        tmp_path, (14.0, 50.0, 14.1, 50.1), template, template.with_suffix(".pgw"), out,
+        basic_only=True,
+    )
+    assert sorted(built) == ["katastr", "orthophoto"]
+    assert not (out / "osm.png").exists()
+    if full_cache:
+        assert fetched == []
+    else:
+        assert fetched == ["orthophoto", "Katastrální mapa"]
+        assert not cache.exists()
+        assert (cache.with_name(cache.name + rl.BASIC_CACHE_SUFFIX) / "katastr.png").is_file()
 
 
 def test_references_cache_legacy_png_orthophoto_is_miss(tmp_path):

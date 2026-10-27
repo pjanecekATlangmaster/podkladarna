@@ -35,11 +35,8 @@ def test_start_gate_none_without_grid(tmp_path: Path):
     assert ensure_georef_template(tmp_path, prefer_preview=False) is None
 
 
-def test_want_refs_false_does_not_start(tmp_path: Path):
-    """Pipeline gate: bez want_refs se start_reference_download nevolá.
-
-    Helper samotný nemá want_refs — ověříme, že bez volání future nevznikne.
-    """
+def test_start_without_grid_does_not_start(tmp_path: Path):
+    """Bez mřížky jobu (georef šablony) start_reference_download nic nespustí."""
     lines: list[str] = []
     # Bez mřížky by i při volání vrátil None.
     assert (
@@ -73,6 +70,7 @@ def test_start_creates_future_with_force_refresh(tmp_path: Path):
         *,
         log=None,
         force_refresh=False,
+        basic_only=False,
     ):
         seen["force_refresh"] = force_refresh
         seen["template"] = Path(template_png).name
@@ -218,9 +216,18 @@ def test_join_serial_fallback_when_no_future(tmp_path: Path):
     assert layers == ["ztm.png"]
 
 
-def test_join_want_refs_false_skips_build(tmp_path: Path):
+def test_join_want_refs_false_builds_basic_only(tmp_path: Path):
+    """Vypnuté referenční podklady: ortofoto a katastr se stáhnou a přibalí i tak."""
+    write_job_grid(
+        tmp_path,
+        (-700005.0, -1050005.0, -700000.0, -1050000.0),
+        resolution_m=1.0,
+    )
     lines: list[str] = []
-    with patch("app.pipeline.run_job.build_reference_layers") as mocked:
+    with patch(
+        "app.pipeline.run_job.build_reference_layers",
+        return_value={"katastr": tmp_path / "references" / "katastr.png"},
+    ) as mocked:
         built, layers = join_reference_download(
             None,
             log=lines.append,
@@ -230,9 +237,9 @@ def test_join_want_refs_false_skips_build(tmp_path: Path):
             job_dir=tmp_path,
             force_refresh=False,
         )
-        mocked.assert_not_called()
-    assert built == {}
-    assert layers == []
+    assert mocked.call_args.kwargs["basic_only"] is True
+    assert "katastr" in built
+    assert layers == ["katastr.png"]
     assert any("vypnuto ve formuláři" in ln for ln in lines)
 
 

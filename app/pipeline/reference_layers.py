@@ -59,6 +59,8 @@ KM_WHITE_THRESHOLD = 250
 # 3 = ortofoto z PNG dlaždic q95 v jemnějším rozlišení, world file ve středu pixelu).
 # 4 = přibyly vrstvy DTM kraje (DMVS WMS: dtm_plochy.png, dtm_linie.png).
 REF_CACHE_FORMAT = 4
+# Cache jen ortofota a katastru (job s vypnutými referenčními podklady) vedle plné cache.
+BASIC_CACHE_SUFFIX = "_zakladni"
 # DMR 5G má ~0,5 m mezi body – jemnější raster dělá díry a kostičkovaný hillshade.
 WEB_MERCATOR_HALF = 20037508.342789244
 
@@ -1232,13 +1234,19 @@ def _ref_png_key(filename: str) -> str | None:
     return mapping.get(filename)
 
 
+def is_basic_reference_key(key: str) -> bool:
+    """Základní podklady (ortofoto a katastr) se přibalují i při vypnutých referenčních podkladech."""
+    return key == "katastr" or bool(_ORTHO_KEY_RE.match(key))
+
+
 def _try_load_references_cache(
     cache_dir: Path,
     out_dir: Path,
     *,
     log: callable | None = None,
+    basic_only: bool = False,
 ) -> dict[str, Path] | None:
-    """Vrátí built_refs z cache, nebo None při miss."""
+    """Vrátí built_refs z cache, nebo None při miss (``basic_only``: jen ortofoto a katastr)."""
     meta = read_meta(cache_dir)
     if not meta or meta.get("ref_format") != REF_CACHE_FORMAT:
         # Stará cache (ortofoto PNG, nepruhledný katastr) → znovu stáhnout.
@@ -1252,7 +1260,7 @@ def _try_load_references_cache(
     built: dict[str, Path] = {}
     for src in list_reference_rasters(cache_dir):
         key = _ref_png_key(src.name)
-        if not key:
+        if not key or (basic_only and not is_basic_reference_key(key)):
             continue
         dest = out_dir / src.name
         link_or_copy(src, dest)
@@ -1329,11 +1337,14 @@ def build_reference_layers(
     log: callable | None = None,
     force_refresh: bool = False,
     job_shade: Path | None = None,
+    basic_only: bool = False,
 ) -> dict[str, Path]:
     """Vytvoří referenční PNG+PGW pro OOM (hillshade, ortofoto, OSM).
 
     ``job_shade``: už stažený hillshade jobu (stejná WMS vrstva); hlavní
     referenční hillshade se z něj odvodí místo druhého stahování.
+    ``basic_only``: jen ortofoto a katastr (referenční podklady vypnuté ve formuláři);
+    bere je i z plné cache, vlastní cache má zvlášť, ať plná cache nezůstane bez vrstev.
     """
     if not template_png.is_file() or not template_pgw.is_file():
         return {}
@@ -1344,10 +1355,12 @@ def build_reference_layers(
     ref_wh = _ref_target_size(template_png, template_pgw)[:2]
     osm_wh = _osm_target_size(template_png, template_pgw)[:2]
     cache_dir = references_cache_dir(bbox_wgs84, ref_wh=ref_wh, osm_wh=osm_wh)
+    basic_cache_dir = cache_dir.with_name(cache_dir.name + BASIC_CACHE_SUFFIX)
     if not force_refresh:
-        cached = _try_load_references_cache(cache_dir, out_dir, log=log)
-        if cached is not None:
-            return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
+        for cdir in (cache_dir, basic_cache_dir) if basic_only else (cache_dir,):
+            cached = _try_load_references_cache(cdir, out_dir, log=log, basic_only=basic_only)
+            if cached is not None:
+                return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
 
     built: dict[str, Path] = {}
 
@@ -1358,6 +1371,37 @@ def build_reference_layers(
     except Exception as exc:
         if log:
             log_issue(log, f"Ortofoto: přeskočeno ({exc})")
+
+    km_png = out_dir / "katastr.png"
+    km_pgw = km_png.with_suffix(".pgw")
+    try:
+        if fetch_cuzk_wms_png(
+            KM_WMS,
+            KM_LAYER,
+            bounds,
+            template_png,
+            template_pgw,
+            km_png,
+            km_pgw,
+            label="Katastrální mapa",
+            transparent=True,
+            log=log,
+        ):
+            built["katastr"] = km_png
+    except Exception as exc:
+        if log:
+            log_issue(log, f"Katastrální mapa: přeskočeno ({exc})")
+
+    if basic_only:
+        try:
+            _store_references_cache(
+                basic_cache_dir, out_dir, built,
+                bbox_wgs84=bbox_wgs84, ref_wh=ref_wh, osm_wh=osm_wh, log=log,
+            )
+        except Exception as exc:
+            if log:
+                log(f"Referenční PNG: cache zápis selhal ({exc})")
+        return _with_katastr_vectors(built, bbox_wgs84, out_dir, log=log)
 
     osm_png = out_dir / "osm.png"
     osm_pgw = osm_png.with_suffix(".pgw")
@@ -1390,26 +1434,6 @@ def build_reference_layers(
     except Exception as exc:
         if log:
             log_issue(log, f"Mapa ZTM: přeskočeno ({exc})")
-
-    km_png = out_dir / "katastr.png"
-    km_pgw = km_png.with_suffix(".pgw")
-    try:
-        if fetch_cuzk_wms_png(
-            KM_WMS,
-            KM_LAYER,
-            bounds,
-            template_png,
-            template_pgw,
-            km_png,
-            km_pgw,
-            label="Katastrální mapa",
-            transparent=True,
-            log=log,
-        ):
-            built["katastr"] = km_png
-    except Exception as exc:
-        if log:
-            log_issue(log, f"Katastrální mapa: přeskočeno ({exc})")
 
     # DTM kraje (zaměřená situace): plochy + linie jako průhledné PNG pro dokreslení detailů.
     for key, wms, layer, fname, label in (
