@@ -156,7 +156,7 @@ def road_fill_strips(network, road_bands, preset_id: str, scale: int):
     if network is None or network.is_empty or not road_bands:
         return None
     from shapely import STRtree
-    from shapely.geometry import LineString, Point, Polygon
+    from shapely.geometry import LineString, MultiLineString, Point, Polygon
     from shapely.ops import nearest_points
 
     from app.pipeline.dtm_import import JUNCTION_END_TOL_M, JUNCTION_EXTRA_M
@@ -184,7 +184,10 @@ def road_fill_strips(network, road_bands, preset_id: str, scale: int):
             continue
         ext = LineString(_extend_ends(coords, JUNCTION_END_TOL_M))
         wide = ext.buffer(wide_r, cap_style=2)
-        border = ext.buffer(half, cap_style=2).exterior  # vnější hrana okrajové linky silnice
+        # vnější hrana okrajové linky silnice; zalomená čára dá i MultiPolygon (job 3082b1ae8292, MTBO)
+        border = MultiLineString([q.exterior.coords for q in _polygons(ext.buffer(half, cap_style=2))])
+        if border.is_empty:
+            continue
         limit = EDGE_PARALLEL_FACTOR * 2.0 * wide_r
         for ring in near:
             cut = ring.intersection(wide)

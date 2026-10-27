@@ -79,7 +79,8 @@ def init_db() -> None:
 
 @contextmanager
 def connect():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    # Joby logují i z vláken na pozadí (DTM, ortofoto): čekat na zámek déle než výchozích 5 s.
+    conn = sqlite3.connect(DB_PATH, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -479,12 +480,16 @@ def append_log(job_id: str, line: str) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with log_file.open("a", encoding="utf-8") as f:
         f.write(line.rstrip() + "\n")
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO job_logs (job_id, line, created_at) VALUES (?, ?, ?)",
-            (job_id, line.rstrip(), _utcnow()),
-        )
-        conn.commit()
+    try:
+        with connect() as conn:
+            conn.execute(
+                "INSERT INTO job_logs (job_id, line, created_at) VALUES (?, ?, ?)",
+                (job_id, line.rstrip(), _utcnow()),
+            )
+            conn.commit()
+    except sqlite3.OperationalError:
+        # Zamčená DB nesmí shodit krok pipeline (job 3082b1ae8292: „výplň oplocení přeskočena“); řádek je v log.txt.
+        pass
 
 
 def get_logs(job_id: str, after_id: int = 0) -> list[dict[str, Any]]:
