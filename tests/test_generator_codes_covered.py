@@ -76,7 +76,7 @@ _RULE_GEOM = {
 _DXF_GEOM = {
     "contours.dxf": "line", "cliffs_small.dxf": "line", "cliffs_large.dxf": "line",
     "cliffs_rock.dxf": "line", "dotknolls.dxf": "point", "dotdepressions.dxf": "point",
-    "dotpits.dxf": "point",
+    "dotpits.dxf": "point", "dotboulders.dxf": "point",
 }
 
 
