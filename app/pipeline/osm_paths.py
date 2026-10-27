@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import shutil
@@ -328,6 +329,8 @@ def path_draw_highway(highway: str) -> str:
         return "path"
     return hw or "path"
 GRID_M = 30.0
+# Mřížka obálek ponechaných linií v ``dedup_path_lines`` (m).
+DEDUP_GRID_M = 250.0
 # crossing / přechody bereme (pod silnicemi); dřív se zahazovaly.
 SKIP_FOOTWAY_ALWAYS = frozenset()
 SKIP_CYCLEWAY = frozenset({"sidewalk", "crossing", "lane", "share_busway", "track"})
@@ -2433,28 +2436,55 @@ def dedup_path_lines(
         ),
     )
     kept: list[tuple[list[tuple[float, float]], str, str]] = []
+    # Ponechané linie v mřížce podle obálky: překryv se počítá jen s linií, jejíž obálka je do ``match_m``
+    # (dál je pokrytí 0, výsledek stejný jako při procházení všech), index segmentů se staví jednou.
+    kept_idx: list[_SegmentIndex] = []
+    grid: dict[tuple[int, int], list[int]] = defaultdict(list)
+
+    def _cells(x0: float, y0: float, x1: float, y1: float):
+        for ii in range(int(math.floor(x0 / DEDUP_GRID_M)), int(math.floor(x1 / DEDUP_GRID_M)) + 1):
+            for jj in range(int(math.floor(y0 / DEDUP_GRID_M)), int(math.floor(y1 / DEDUP_GRID_M)) + 1):
+                yield ii, jj
+
     dropped = 0
     for pts, hw, source in ordered:
         if polyline_length(pts) < path_min_length_m(hw):
             dropped += 1
             continue
+        if not pts:
+            kept_idx.append(_SegmentIndex())
+            kept.append((pts, hw, source))
+            continue
+        xs, ys = [x for x, _y in pts], [y for _x, y in pts]
         if not is_bridge_highway(hw) and kept:
             max_cover = 0.0
             line_match_m = (
                 min(match_m, SHORT_LINE_MATCH_M) if polyline_length(pts) < SHORT_LINE_M else match_m
             )
-            for kpts, _khw, _ksrc in kept:
-                idx = _SegmentIndex()
-                idx.add_line(kpts)
+            near = sorted(
+                {
+                    k
+                    for c in _cells(
+                        min(xs) - line_match_m, min(ys) - line_match_m, max(xs) + line_match_m, max(ys) + line_match_m
+                    )
+                    for k in grid.get(c, ())
+                }
+            )
+            for k in near:
                 max_cover = max(
                     max_cover,
-                    centerline_cover_fraction(pts, idx, match_m=line_match_m),
+                    centerline_cover_fraction(pts, kept_idx[k], match_m=line_match_m),
                 )
                 if max_cover >= cover_drop:
                     break
             if max_cover >= cover_drop:
                 dropped += 1
                 continue
+        idx = _SegmentIndex()
+        idx.add_line(pts)
+        for c in _cells(min(xs), min(ys), max(xs), max(ys)):
+            grid[c].append(len(kept))
+        kept_idx.append(idx)
         kept.append((pts, hw, source))
     return kept, dropped
 
@@ -5875,8 +5905,30 @@ def _fork_dists(
     return out
 
 
+# Výsledek ``mixed_osm_road_fix`` podle (work_dir, stav souborů) – během sestavení mapy se volá několikrát.
+_MIXED_ROAD_FIX_CACHE: dict[tuple, tuple[list[dict], set]] = {}
+
+
 def mixed_osm_road_fix(work_dir: Path) -> tuple[list[dict], set]:
     """``(vrácené OSM silnice, klíče silnic z paths_mixed, které nahradí širší vrácená)`` – viz ``mixed_osm_roads_missing``.
+
+    Výsledek se pamatuje, dokud se ``paths_osm`` / ``paths_mixed`` nezmění (volání vrací hluboké kopie).
+    """
+    paths = [work_dir / "osm_paths" / "paths_osm.geojson", work_dir / "osm_paths" / "paths_mixed.geojson"]
+    try:
+        key = (str(work_dir.resolve()), *((st.st_mtime_ns, st.st_size) for st in (q.stat() for q in paths)))
+    except OSError:
+        return [], set()
+    if key not in _MIXED_ROAD_FIX_CACHE:
+        if len(_MIXED_ROAD_FIX_CACHE) >= 8:
+            _MIXED_ROAD_FIX_CACHE.clear()
+        _MIXED_ROAD_FIX_CACHE[key] = _mixed_osm_road_fix(work_dir)
+    added, superseded = _MIXED_ROAD_FIX_CACHE[key]
+    return copy.deepcopy(added), set(superseded)  # volající prvky upravují
+
+
+def _mixed_osm_road_fix(work_dir: Path) -> tuple[list[dict], set]:
+    """Výpočet pro ``mixed_osm_road_fix``.
 
     OSM silnice z ``paths_osm``, které v ``paths_mixed`` nejsou, se s jejími silnicemi (jen ``road_*``, ne chodníky –
     souběžný chodník by tertiary way/930887514 „pokryl“) dedupují jako v mixed (``dedup_osm_prefer_wider``): užší
@@ -5941,6 +5993,20 @@ def mixed_osm_road_fix(work_dir: Path) -> tuple[list[dict], set]:
             idx_cache[key] = idx
         return idx_cache[key]
 
+    # Kandidáti pro ``_fork_dists`` jen z okolí čáry (obálka + tolerance), ne všechny širší silnice mapy.
+    from shapely.geometry import LineString, box
+    from shapely.strtree import STRtree
+
+    fork_cand = [(_pts(g), g_added, highway_width_rank(_hw(g))) for g, g_added in roads if _clippable(g)]
+    fork_tree = STRtree([LineString(c[0]) for c in fork_cand]) if fork_cand else None
+
+    def _fork_others(pts, rank: int, is_added: bool):
+        if fork_tree is None:
+            return []
+        xs, ys = [x for x, _y in pts], [y for _x, y in pts]
+        near = fork_tree.query(box(min(xs) - 1.0, min(ys) - 1.0, max(xs) + 1.0, max(ys) + 1.0))
+        return [fork_cand[i][0] for i in sorted(int(i) for i in near) if (fork_cand[i][1] or is_added) and fork_cand[i][2] > rank]
+
     out_added: list[dict] = []
     for f, is_added in roads:
         if not _clippable(f) or highway_width_rank(_hw(f)) >= ranks[-1]:
@@ -5949,7 +6015,7 @@ def mixed_osm_road_fix(work_dir: Path) -> tuple[list[dict], set]:
             continue
         idx = _wider_index(highway_width_rank(_hw(f)), not is_added)
         pts = _pts(f)
-        forks = _fork_dists(pts, [_pts(g) for g, g_added in roads if (g_added or is_added) and _clippable(g) and highway_width_rank(_hw(g)) > highway_width_rank(_hw(f))])
+        forks = _fork_dists(pts, _fork_others(pts, highway_width_rank(_hw(f)), is_added))
         pieces = clip_parallel_to_centerlines(pts, idx, fork_dists=forks) if idx is not None else [pts]
         if len(pieces) == 1 and pieces[0] is pts:
             if is_added:
