@@ -957,6 +957,8 @@ def test_mixed_restored_road_clips_partial_parallel(tmp_path):
         ([(0, -100), (0, 100)], [[(0, 0), (30, -40), (80, -60)], [(0, -20), (-40, -50), (-90, -60)]]),
         # souběžná obslužná komunikace napojená šikmo koncem na širší silnici
         ([(50, 0), (60, 8), (200, 8)], [[(-100, 0), (300, 0)]]),
+        # křížení v rohu: rameno užší leží v prodloužení ramene širší (Do Klukovic × Tréglova × Werichova)
+        ([(0, 100), (0, 0), (-100, -10)], [[(100, 0), (0, 0), (10, -100)]]),
     ],
 )
 def test_mixed_restored_narrow_road_kept_at_fork(tmp_path, narrow, wider):

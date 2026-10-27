@@ -2667,7 +2667,7 @@ def _polyline_substring(
 # Souběh užší silnice se širší, který začíná v uzlu, odkud širší vychází (rozvětvení: Wassermannova a nájezdy
 # na K Barrandovu), do této délky (m) není zdvojení – užší se tam neořízne a navazuje na uzel (Petr 2026-10-27).
 FORK_RUN_MAX_M = 40.0
-# Totéž pro konec užší silnice na širší (šikmé napojení souběžné obslužné komunikace), jen kratší souběh.
+# Totéž pro konec užší silnice na širší (šikmé napojení souběžné obslužné komunikace) a jejich křížení, jen kratší souběh.
 FORK_END_RUN_MAX_M = 20.0
 
 
@@ -5850,7 +5850,7 @@ def _fork_dists(
     pts: list[tuple[float, float]], others: list[list[tuple[float, float]]], tol_m: float = 0.5
 ) -> list[tuple[float, float]]:
     """Uzly rozvětvení na čáře ``pts`` jako ``(vzdálenost po čáře, nejdelší souběh)``: konce čar ``others``, které na ní
-    leží (do ``tol_m``, ``FORK_RUN_MAX_M``), a konce ``pts`` ležící na některé z ``others`` (``FORK_END_RUN_MAX_M``)."""
+    leží (do ``tol_m``, ``FORK_RUN_MAX_M``), konce ``pts`` ležící na některé z ``others`` a křížení s nimi (``FORK_END_RUN_MAX_M``)."""
     if len(pts) < 2 or not others:
         return []
     from shapely.geometry import LineString, Point
@@ -5866,6 +5866,12 @@ def _fork_dists(
     for d, e in ((0.0, pts[0]), (ln.length, pts[-1])):
         if any(o.distance(Point(e)) <= tol_m for o in lines):
             out.append((d, FORK_END_RUN_MAX_M))
+    for o in lines:
+        # křížení v uzlu (Do Klukovic × Tréglova × Werichova: rameno užší leží v prodloužení ramene širší)
+        hit = ln.intersection(o)
+        for g in getattr(hit, "geoms", [hit]):
+            if g.geom_type == "Point":
+                out.append((ln.project(g), FORK_END_RUN_MAX_M))
     return out
 
 
