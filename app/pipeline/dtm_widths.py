@@ -39,6 +39,8 @@ class WidthIndex:
         self.polys = [p for p in polys if p is not None and not p.is_empty]
         self.prepared = [prep(p) for p in self.polys]
         self.tree = STRtree(self.polys) if self.polys else None
+        # Šířka čáry podle souřadnic – během sestavení mapy se tytéž silnice měří mnohokrát (pás silnic, síť ploch…).
+        self._line_cache: dict[tuple, float | None] = {}
 
     def width_at(self, x: float, y: float, nx: float, ny: float, max_half: float = MAX_HALF_M) -> float | None:
         """Šířka plochy v bodě (x, y) ve směru normály (nx, ny); None, když bod neleží v ploše."""
@@ -51,19 +53,43 @@ class WidthIndex:
         hits = [self.polys[i] for i in self.tree.query(p) if self.prepared[i].covers(p)]
         if not hits:
             return None
-        from shapely.ops import unary_union
-
-        inter = seg.intersection(unary_union(hits) if len(hits) > 1 else hits[0])
-        parts = [inter] if inter.geom_type == "LineString" else [g for g in getattr(inter, "geoms", []) if g.geom_type == "LineString"]
-        for g in parts:
-            if g.distance(p) < 1e-6:
-                return float(g.length)
+        if len(hits) == 1:
+            inter = seg.intersection(hits[0])
+            parts = [inter] if inter.geom_type == "LineString" else [g for g in getattr(inter, "geoms", []) if g.geom_type == "LineString"]
+            for g in parts:
+                if g.distance(p) < 1e-6:
+                    return float(g.length)
+            return None
+        # Víc ploch: řez s každou zvlášť a sjednocení úseků po řezu (= řez se sjednocením ploch, bez drahého unary_union).
+        spans = []
+        for poly in hits:
+            inter = seg.intersection(poly)
+            for g in [inter] if inter.geom_type == "LineString" else getattr(inter, "geoms", []):
+                if g.geom_type == "LineString" and not g.is_empty:
+                    t0, t1 = seg.project(Point(g.coords[0])), seg.project(Point(g.coords[-1]))
+                    spans.append((min(t0, t1), max(t0, t1)))
+        spans.sort()
+        merged: list[list[float]] = []
+        for a, b in spans:
+            if merged and a <= merged[-1][1] + 1e-6:
+                merged[-1][1] = max(merged[-1][1], b)
+            else:
+                merged.append([a, b])
+        for a, b in merged:
+            if a - 1e-6 <= max_half <= b + 1e-6:
+                return float(b - a)
         return None
 
     def line_width(self, coords: list, step_m: float = SAMPLE_STEP_M) -> float | None:
         """Medián šířky plochy podél čáry, nebo None (čára leží v ploše méně než z ``MIN_INSIDE_SHARE``)."""
         if self.tree is None or len(coords) < 2:
             return None
+        key = (step_m, tuple((float(c[0]), float(c[1])) for c in coords))
+        if key not in self._line_cache:
+            self._line_cache[key] = self._line_width(coords, step_m)
+        return self._line_cache[key]
+
+    def _line_width(self, coords: list, step_m: float) -> float | None:
         from shapely.geometry import LineString
 
         line = LineString(coords)
@@ -119,10 +145,30 @@ def _load(work_dir: Path, name: str) -> list:
     return out
 
 
+# Indexy podle (work_dir, stav souborů) – sestavení mapy je volá několikrát, les i MTBO z týchž ploch.
+_INDEX_CACHE: dict[tuple, tuple[WidthIndex | None, WidthIndex | None]] = {}
+
+
 def dtm_width_indexes(work_dir: Path) -> tuple[WidthIndex | None, WidthIndex | None]:
     """(silnice, chodníky) z DTM jobu, nebo None tam, kde data nejsou."""
-    from app.pipeline.dtm_import import ROADS_NAME, SIDEWALKS_NAME
+    from app.pipeline.dtm_import import ROADS_NAME, SIDEWALKS_NAME, dtm_dir
 
+    stamp = []
+    for name in (ROADS_NAME, SIDEWALKS_NAME):
+        try:
+            st = (dtm_dir(work_dir) / name).stat()
+            stamp.append((st.st_mtime_ns, st.st_size))
+        except OSError:
+            stamp.append(None)
+    key = (str(dtm_dir(work_dir).resolve()), *stamp)
+    if key not in _INDEX_CACHE:
+        if len(_INDEX_CACHE) >= 4:
+            _INDEX_CACHE.clear()
+        _INDEX_CACHE[key] = _dtm_width_indexes(work_dir, ROADS_NAME, SIDEWALKS_NAME)
+    return _INDEX_CACHE[key]
+
+
+def _dtm_width_indexes(work_dir: Path, ROADS_NAME: str, SIDEWALKS_NAME: str) -> tuple[WidthIndex | None, WidthIndex | None]:
     try:
         roads = _load(work_dir, ROADS_NAME)
         walks = _load(work_dir, SIDEWALKS_NAME)
