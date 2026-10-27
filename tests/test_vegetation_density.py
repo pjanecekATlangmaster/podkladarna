@@ -25,6 +25,7 @@ from app.pipeline.vegetation_density import (
     soften_meadow_forest_edge,
     veto_open_under_canopy,
     yellow_mask_from_hits,
+    young_stand_to_green,
 )
 
 SIZE = 60  # m, 1 m grid
@@ -422,3 +423,24 @@ def test_job_canopy_veto_only_forest_and_mtbo(preset_id, veto_on):
 
     params = vegetation_density_params(preset_id, {})
     assert (params.canopy_veto_chm_m > 0) is veto_on
+
+
+@pytest.mark.parametrize(
+    "cls_in, chm_m, expected",
+    [
+        (WHITE, 5.0, MID),  # mladý porost v lese → zeleň
+        (WHITE, 20.0, WHITE),  # vzrostlý les zůstane bílý
+        (WHITE, 0.3, WHITE),  # holina bez porostu se nemění
+        (OPEN, 5.0, OPEN),  # louka se nemění
+        (LIGHT, 20.0, MID),  # zeleň jednou úrovní
+        (DENSE, 20.0, MID),
+    ],
+)
+def test_young_stand_to_green(cls_in, chm_m, expected):
+    cls = np.full((40, 40), WHITE, dtype=np.uint8)
+    chm = np.full((40, 40), 20.0, dtype=np.float32)
+    cls[:, :20] = cls_in
+    chm[:, :20] = chm_m
+    out = young_stand_to_green(cls, chm, 1.0)
+    assert np.all(out[:, :10] == expected)
+    assert np.all(out[:, 30:] == WHITE)
