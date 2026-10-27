@@ -176,3 +176,26 @@ def test_axis_not_extended_along_diverging_lane():
     ]
     axes, _zone = dc._compute([lane_a, lane_b], 13.1, None, None, roads)
     assert len(axes) == 1 and max(p[0] for p in axes[0]) < 270
+
+
+@pytest.mark.parametrize(
+    "arm_in, arm_out, linked",
+    [
+        # Lipského u zastávky: dvě ramena 25 m z vrcholu (0, 25) k hlavní silnici y = 0, konce 8 m od sebe → jedna čára
+        ([(-4, 0), (0, 25)], [(0, 25), (4, 0)], True),
+        # konce ramen 30 m od sebe (dvě samostatné ulice) – ne
+        ([(-15, 0), (0, 25)], [(0, 25), (15, 0)], False),
+        # ramena ve vrcholu nenavazují protisměrně (obě do vrcholu) – ne
+        ([(-4, 0), (0, 25)], [(4, 0), (0, 25)], False),
+    ],
+)
+def test_short_fork_drawn_as_one_line(arm_in, arm_out, linked):
+    feats = [_feat(arm_in, name="Lipského", hw="road_3"), _feat(arm_out, name="Lipského", hw="road_3")]
+    links, zone = dc._forks(feats, 13.1)
+    assert bool(links) is linked
+    if linked:
+        (mid, hw), = links
+        assert hw == "road_3" and mid[0] == pytest.approx((0, 25)) and abs(mid[-1][0]) < 0.5
+        main = LineString([(-50, 0), (50, 0)])
+        assert zone.intersection(main).length < 0.5  # hlavní silnice u konců ramen zůstane
+        assert zone.intersection(LineString(arm_in)).length > 15  # rameno se nekreslí

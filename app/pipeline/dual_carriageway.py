@@ -383,3 +383,82 @@ def _bridge_gaps(pieces: list[list[tuple[float, float]]], gap_m: float, islands=
             del lines[j]
             changed = True
     return lines
+
+
+# Rozvětvení napojení: dvě krátká jednosměrná ramena téže ulice ze společného vrcholu k jiné silnici (Lipského u
+# zastávky na Lamačově, Petr 2026-10-27: „v lese a MTBO jednou linií“). Ramena do této délky (m).
+FORK_ARM_MAX_M = 60.0
+# Ramena svírají ve vrcholu nejvýš tolik stupňů.
+FORK_MAX_DEG = 60.0
+# Okolí vrcholu a konců ramen (m), kde zóna ramen neořezává jiné silnice.
+FORK_NODE_KEEP_M = 3.0
+# Vlastnost čáry, která ramena nahrazuje (zóna ramen ji neořízne).
+FORK_LINK_PROP = "fork_link"
+_FORK_CACHE: dict[tuple, tuple] = {}
+
+
+def fork_links(work_dir: Path, preset_id: str, scale: int):
+    """``([(čára [(x, y), …], highway)], zóna nebo None)``: krátká rozvětvení ze dvou jednosměrných ramen nahrazená
+    jednou čarou po středu ramen; v zóně se původní ramena nekreslí."""
+    if preset_id.startswith("sprint"):
+        return [], None
+    from app.pipeline.osm_paths import ONEWAY_ROADS_NAME
+
+    path = work_dir / "osm_paths" / ONEWAY_ROADS_NAME
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return [], None
+    key = (str(path), stamp, preset_id, scale)
+    if key not in _FORK_CACHE:
+        if len(_FORK_CACHE) > 16:
+            _FORK_CACHE.clear()
+        _FORK_CACHE[key] = _forks(_load(work_dir), max_axis_m(preset_id, scale), dual_axes(work_dir, preset_id, scale)[1])
+    return _FORK_CACHE[key]
+
+
+def _forks(feats: list[dict], max_m: float, dual_zone=None):
+    import math
+
+    from shapely.geometry import LineString, Point
+    from shapely.ops import unary_union
+
+    by_name: dict[str, list] = {}
+    for f in feats:
+        p = f.get("properties") or {}
+        coords = [(float(x), float(y)) for x, y in (f.get("geometry") or {}).get("coordinates") or []]
+        name = str(p.get("name") or "")
+        if name and len(coords) >= 2 and LineString(coords).length <= FORK_ARM_MAX_M:
+            by_name.setdefault(name, []).append((coords, str(p.get("highway") or "")))
+
+    def _close(p, q, tol=0.5):
+        return math.hypot(p[0] - q[0], p[1] - q[1]) <= tol
+
+    links, zones, used = [], [], set()
+    for arms in by_name.values():
+        for i, (a, hw_a) in enumerate(arms):
+            for j, (b, hw_b) in enumerate(arms):
+                if i == j or i in used or j in used or not _close(a[-1], b[0]):
+                    continue
+                # a vede do vrcholu, b z něj: ramena ve vrcholu spojená protisměrně
+                apex, fa, fb = b[0], a[0], b[-1]
+                if math.hypot(fa[0] - fb[0], fa[1] - fb[1]) > max_m or _close(fa, fb, 1.0):
+                    continue
+                va, vb = (fa[0] - apex[0], fa[1] - apex[1]), (fb[0] - apex[0], fb[1] - apex[1])
+                na, nb = math.hypot(*va), math.hypot(*vb)
+                if na < 1.0 or nb < 1.0 or (va[0] * vb[0] + va[1] * vb[1]) / (na * nb) < math.cos(math.radians(FORK_MAX_DEG)):
+                    continue
+                la, lb = LineString(a[::-1]), LineString(b)  # obě od vrcholu
+                if dual_zone is not None and (la.intersection(dual_zone).length + lb.intersection(dual_zone).length) > 0.5 * (la.length + lb.length):
+                    continue  # pásy u konce rozdělené vozovky kreslí osa 502.0
+                n = max(2, int(max(la.length, lb.length) // 2.0) + 1)
+                mid = []
+                for k in range(n):
+                    t = k / (n - 1)
+                    p, q = la.interpolate(t, normalized=True), lb.interpolate(t, normalized=True)
+                    mid.append(((p.x + q.x) / 2.0, (p.y + q.y) / 2.0))
+                links.append((mid, hw_a))
+                keep = unary_union([Point(c).buffer(FORK_NODE_KEEP_M) for c in (apex, fa, fb)])
+                zones.append(unary_union([la, lb]).buffer(1.0, cap_style=2).difference(keep))
+                used.update((i, j))
+    return links, (unary_union(zones) if zones else None)
