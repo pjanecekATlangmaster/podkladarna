@@ -22,6 +22,8 @@ STEP_M = 2.0
 # nebo zatáčka k druhému pásu dávaly falešnou osu (Lipského / Lamačova u kruhového objezdu, D25).
 OPPOSITE_MAX_DEG = 30.0
 DUAL_HIGHWAY = "road_dual"
+# Pás kolem ostrůvku kruhového objezdu (m), ve kterém zóna osy neořízne prstenec.
+ROUNDABOUT_KEEP_M = 1.0
 
 _CACHE: dict[tuple, tuple] = {}
 
@@ -37,16 +39,35 @@ def max_axis_m(preset_id: str, scale: int) -> float:
     return mm_to_ground_m(DUAL_MAX_AXIS_MM, scale)
 
 
-def _load(work_dir: Path) -> list[dict]:
+def _load(work_dir: Path, *, roundabouts: bool = False) -> list[dict]:
+    """Jednosměrné silnice z přípravy OSM; prstence kruhových objezdů jen s ``roundabouts``."""
     from app.pipeline.osm_paths import ONEWAY_ROADS_NAME
 
     path = work_dir / "osm_paths" / ONEWAY_ROADS_NAME
     if not path.is_file():
         return []
     try:
-        return [f for f in json.loads(path.read_text(encoding="utf-8")).get("features") or [] if not (f.get("properties") or {}).get("roundabout")]
+        feats = json.loads(path.read_text(encoding="utf-8")).get("features") or []
     except (OSError, ValueError):
         return []
+    return [f for f in feats if roundabouts or not (f.get("properties") or {}).get("roundabout")]
+
+
+def roundabout_islands(feats: list[dict]):
+    """Plochy uvnitř uzavřených prstenců kruhových objezdů (shapely) nebo None. Osa rozdělené vozovky přes ně nevede
+    (Lamačova: mezera osy se překlenula středem ostrůvku, Petr 2026-10-27)."""
+    from shapely.geometry import LineString
+    from shapely.ops import polygonize, unary_union
+
+    rings = []
+    for f in feats:
+        coords = (f.get("geometry") or {}).get("coordinates") or []
+        if (f.get("properties") or {}).get("roundabout") and len(coords) >= 2:
+            rings.append(LineString([(float(x), float(y)) for x, y in coords]))
+    if not rings:
+        return None
+    polys = list(polygonize(unary_union(rings)))
+    return unary_union(polys) if polys else None
 
 
 def _tangent(line, d: float):
@@ -116,7 +137,13 @@ def dual_axes(work_dir: Path, preset_id: str, scale: int):
         return _CACHE[key]
     if len(_CACHE) > 16:
         _CACHE.clear()
-    out = _compute(_load(work_dir), max_axis_m(preset_id, scale), zone_half_m(preset_id, scale))
+    feats = _load(work_dir, roundabouts=True)
+    out = _compute(
+        [f for f in feats if not (f.get("properties") or {}).get("roundabout")],
+        max_axis_m(preset_id, scale),
+        zone_half_m(preset_id, scale),
+        roundabout_islands(feats),
+    )
     _CACHE[key] = out
     return out
 
@@ -131,7 +158,7 @@ def zone_half_m(preset_id: str, scale: int) -> float | None:
     return mm_to_ground_m(mm, scale) / 2.0 if mm else None
 
 
-def _compute(feats: list[dict], max_m: float, zone_half: float | None = None):
+def _compute(feats: list[dict], max_m: float, zone_half: float | None = None, islands=None):
     from shapely.geometry import LineString, MultiLineString
     from shapely.ops import linemerge, substring, unary_union
 
@@ -169,22 +196,29 @@ def _compute(feats: list[dict], max_m: float, zone_half: float | None = None):
         return [], None
     # Osy z navazujících OSM ways se překrývají nebo na sebe navazují: sjednotit, spojit v uzlech, překlenout mezery.
     union = unary_union([LineString(c) for c in axes])
+    if islands is not None:
+        union = union.difference(islands)  # osa končí na prstenci kruhového objezdu
+        if union.is_empty:
+            return [], None
     merged = linemerge(union) if union.geom_type == "MultiLineString" else union
     pieces = [[(float(x), float(y)) for x, y in g.coords] for g in getattr(merged, "geoms", [merged]) if g.geom_type == "LineString"]
-    pieces = _bridge_gaps(join_line_pieces(pieces), DUAL_GAP_M)
+    pieces = _bridge_gaps(join_line_pieces(pieces), DUAL_GAP_M, islands)
     kept = [LineString(c) for c in pieces if len(c) >= 2 and LineString(c).length >= DUAL_MIN_LEN_M]
     if not kept:
         return [], None
     r = max(max_m / 2.0 + 1.0, zone_half or 0.0)  # oba pásy leží do max_m/2 od osy; boční ulice končí na okraji výplně 502.0
     zone = unary_union([ln.buffer(r, cap_style=2) for ln in kept])
+    if islands is not None:
+        zone = zone.difference(islands.buffer(ROUNDABOUT_KEEP_M))  # prstenec objezdu se neořízne
     return [[(float(x), float(y)) for x, y in ln.coords] for ln in kept], zone
 
 
-def _bridge_gaps(pieces: list[list[tuple[float, float]]], gap_m: float) -> list[list[tuple[float, float]]]:
-    """Kusy osy, jejichž konce jsou do ``gap_m`` od sebe a míří na sebe (do 45°), se spojí rovnou spojkou."""
+def _bridge_gaps(pieces: list[list[tuple[float, float]]], gap_m: float, islands=None) -> list[list[tuple[float, float]]]:
+    """Kusy osy, jejichž konce jsou do ``gap_m`` od sebe a míří na sebe (do 45°), se spojí rovnou spojkou;
+    ne přes ostrůvek kruhového objezdu (``islands``)."""
     import math
 
-    from shapely.geometry import Point
+    from shapely.geometry import LineString
 
     lines = [list(c) for c in pieces if len(c) >= 2]
     changed = True
@@ -206,6 +240,8 @@ def _bridge_gaps(pieces: list[list[tuple[float, float]]], gap_m: float) -> list[
                     vb = (pb[0] - pa[0], pb[1] - pa[1])
                     na, nb = math.hypot(*va), math.hypot(*vb)
                     if na < 1e-6 or nb < 1e-6 or (va[0] * vb[0] + va[1] * vb[1]) / (na * nb) < math.cos(math.radians(45)):
+                        continue
+                    if islands is not None and LineString([pa, pb]).intersection(islands).length > 0.5:
                         continue
                     if best is None or d < best[0]:
                         best = (d, i, j, ea, eb)
