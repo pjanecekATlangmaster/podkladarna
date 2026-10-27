@@ -34,6 +34,9 @@ HILLSHADE_ALTITUDE = 45
 MAX_REF_PIXELS = 8192
 # ČÚZK WMS MaxWidth/MaxHeight = 4096 – nad tím skládáme dlaždice.
 WMS_MAX_GETMAP_PX = 4000
+# ČÚZK ImageServer WMS (DMP OK, DMR 5G) odmítá velké GetMap (HTTP 400 od ~4000 px,
+# např. u Tanvaldu; 3000 px ještě projde) a 4000 px dlaždice se stahuje přes minutu.
+WMS_IMAGESERVER_MAX_PX = 2000
 # OSM podklad – stejný strop, ať jdou ulice čitelně (ne jen velikost KP šablony).
 MAX_OSM_REF_PIXELS = 8192
 # Cílové rozlišení v metrech/px (nejjemnější, co se vejde do stropu pixelů).
@@ -314,6 +317,13 @@ def _split_pixel_grid(
     return tiles
 
 
+def _wms_max_getmap_px(wms_url: str) -> int:
+    """Strop jedné GetMap dlaždice v px pro danou službu."""
+    if "/ImageServer/" in wms_url:
+        return min(WMS_MAX_GETMAP_PX, WMS_IMAGESERVER_MAX_PX)
+    return WMS_MAX_GETMAP_PX
+
+
 def _wms_getmap_url(
     wms_url: str,
     layer: str,
@@ -514,7 +524,8 @@ def _download_wms_raster(
     xmin, ymin, xmax, ymax = bounds_5514
     jpeg = image_format == "image/jpeg"
     dest_png.parent.mkdir(parents=True, exist_ok=True)
-    windows = _split_pixel_grid(width, height)
+    max_px = _wms_max_getmap_px(wms_url)
+    windows = _split_pixel_grid(width, height, max_px)
     # JPEG výstup: server JPEG komprimuje agresivně (artefakty), proto dlaždice
     # stahujeme jako PNG a JPEG vzniká až jednou při skládání.
     image_format = "image/png" if jpeg else image_format
@@ -538,7 +549,7 @@ def _download_wms_raster(
         return dest_png.is_file() and dest_png.stat().st_size > 500
 
     if log:
-        log(f"WMS {layer}: {len(windows)} dlaždic (limit {WMS_MAX_GETMAP_PX} px)…")
+        log(f"WMS {layer}: {len(windows)} dlaždic (limit {max_px} px)…")
     work = dest_png.parent / f"_{dest_png.stem}_wms_tiles"
     work.mkdir(parents=True, exist_ok=True)
     ext = ".jpg" if image_format == "image/jpeg" else ".png"

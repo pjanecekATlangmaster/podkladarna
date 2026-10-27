@@ -322,6 +322,15 @@ def mark_interrupted_running_jobs(reason: str) -> list[str]:
     return ids
 
 
+def list_queued_job_ids() -> list[str]:
+    """Joby ve stavu „queued“ v pořadí vzniku (fronta je v paměti, po restartu se obnoví)."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at",
+        ).fetchall()
+    return [row["id"] for row in rows]
+
+
 def _parse_iso(value: str | None) -> datetime | None:
     if not value:
         return None
