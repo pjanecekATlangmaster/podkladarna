@@ -35,7 +35,7 @@ from app.pipeline.job_options import (
     resolve_veg_smooth,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
-from app.pipeline.dtm_import import start_dtm_prefetch
+from app.pipeline.dtm_import import clear_job_memo, start_dtm_prefetch
 from app.pipeline.residual_paved import start_residual_osm_prefetch
 from app.pipeline.osm_paths import (
     prepare_osm_paths,
@@ -426,6 +426,7 @@ def run_job_pipeline(
     job_name: str = "",
 ) -> list[str]:
     """Celý běh jobu. Vrací neopravené chyby (prázdný seznam = vše v pořádku)."""
+    clear_job_memo()
     work_dir = job_dir / "work"
     output_dir = job_dir / "output"
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -890,6 +891,7 @@ def run_job_pipeline(
         dtm_prefetch=dtm_prefetch,
         vector_prefetch=vector_prefetch,
     )
+    clear_job_memo()  # plochy DTM drží jen sestavení map tohoto jobu
     progress.finish_all()
     issues.report()
     raw_log("")

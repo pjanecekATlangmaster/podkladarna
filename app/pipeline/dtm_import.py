@@ -94,6 +94,23 @@ def _inputs_stamp(work_dir: Path) -> tuple:
     return tuple(out)
 
 
+def _module_settings() -> tuple:
+    """Modulové konstanty (přepínače a prahy) ``dtm_import`` a ``dtm_sidewalks`` – testy a ladění je přepínají."""
+    out = []
+    for mod in (globals(), vars(dtm_sidewalks)):
+        out.extend(
+            (k, v)
+            for k, v in mod.items()
+            if k.isupper() and isinstance(v, (bool, int, float, str, tuple, frozenset))
+        )
+    return tuple(sorted(out, key=lambda kv: kv[0]))
+
+
+def clear_job_memo() -> None:
+    """Vyprázdní paměť ploch (na začátku a konci jobu)."""
+    _JOB_MEMO.clear()
+
+
 def _memo_arg(value):
     if hasattr(value, "wkb"):  # shapely: obsah, ne id (to se po uvolnění objektu recykluje)
         return ("geom", hashlib.blake2b(value.wkb, digest_size=16).digest())
@@ -109,7 +126,7 @@ def _job_memo(fn):
 
         work_dir = Path(work_dir)
         wd = str(work_dir.resolve())
-        stamp = (_inputs_stamp(work_dir), _DTM_OFF.get(), op._ZABAGED_PAVED.get())
+        stamp = (_inputs_stamp(work_dir), _DTM_OFF.get(), op._ZABAGED_PAVED.get(), _module_settings())
         entry = _JOB_MEMO.get(wd)
         if entry is None or entry[0] != stamp:
             if wd not in _JOB_MEMO and len(_JOB_MEMO) >= _JOB_MEMO_MAX_DIRS:
@@ -149,6 +166,7 @@ def dtm_disabled(off: bool = True):
 
     token = _DTM_OFF.set(True)
     _MTBO_GEOMETRY_CACHE.clear()
+    _JOB_MEMO.clear()
     op._PAVED_NETWORK_CACHE.clear()
     try:
         yield
@@ -1481,7 +1499,6 @@ def dtm_corridor_geometry(work_dir: Path, scale: int, path_source: str = "mixed"
     return _mtbo_cached("corridor", work_dir, scale, path_source, compute, (min_drawn_m,))
 
 
-@_job_memo
 def mtbo_sidewalk_geometry(work_dir: Path, scale: int, path_source: str = "mixed", preset_id: str | None = None):
     """Chodníky a zpevněné cesty z DTM mimo silnice pro MTBO (shapely) nebo None.
 
@@ -2126,12 +2143,17 @@ def drop_unpaved_track_roads(
 def classified_polygons(work_dir: Path, path_source: str):
     """Viz ``_classified_polygons``; v rámci jobu se počítá jednou, volající dostanou vlastní seznamy."""
     sidewalks, roads = _classified_polygons_memo(work_dir, path_source)
-    return list(sidewalks), list(roads)
+    return [[list(r) for r in p] for p in sidewalks], [[list(r) for r in p] for p in roads]
 
 
 @_job_memo
 def _classified_polygons_memo(work_dir: Path, path_source: str):
-    return _classified_polygons(work_dir, path_source)
+    """Neměnná kopie (n-tice) – volající nemohou změnit paměť."""
+    sidewalks, roads = _classified_polygons(work_dir, path_source)
+    return (
+        tuple(tuple(tuple(r) for r in p) for p in sidewalks),
+        tuple(tuple(tuple(r) for r in p) for p in roads),
+    )
 
 
 def _classified_polygons(

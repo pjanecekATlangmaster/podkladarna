@@ -1917,3 +1917,17 @@ def test_dtm_geometry_memo_per_job_and_inputs(tmp_path, monkeypatch):
     os.utime(roads, ns=(1, 1))
     di.road_geometry(tmp_path, "osm")
     assert len(calls) == 2
+    # jiný work_dir, vypnuté DTM i změněný práh = vlastní výpočet
+    other = tmp_path / "jiny"
+    (other / "dtm").mkdir(parents=True)
+    (other / "dtm" / "roads.json").write_text(roads.read_text(encoding="utf-8"), encoding="utf-8")
+    di.road_geometry(other, "osm")
+    assert len(calls) == 3
+    with di.dtm_disabled():
+        assert di.road_geometry(tmp_path, "osm") is None
+    monkeypatch.setattr(ds, "OSM_COVER_M", ds.OSM_COVER_M + 0.1)
+    di.road_geometry(tmp_path, "osm")
+    assert len(calls) == 4
+    di.clear_job_memo()
+    di.road_geometry(other, "osm")
+    assert len(calls) == 5
