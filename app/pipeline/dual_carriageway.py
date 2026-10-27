@@ -29,6 +29,8 @@ ROUNDABOUT_KEEP_M = 1.0
 CONT_MAX_M = 60.0
 # Pokračování se bere jen ve směru osy (do tolika stupňů).
 CONT_MAX_DEG = 30.0
+# Okolí uzlu křižovatky na konci prodloužení (m), kde zóna osy nic neořezává (příčná silnice zůstane celá).
+CONT_NODE_KEEP_M = 3.0
 
 _CACHE: dict[tuple, tuple] = {}
 
@@ -154,7 +156,11 @@ def dual_axes(work_dir: Path, preset_id: str, scale: int):
         stamp = path.stat().st_mtime_ns
     except OSError:
         return [], None
-    key = (str(path), stamp, preset_id, scale)
+    try:
+        roads_stamp = (work_dir / "osm_paths" / "paths_osm.geojson").stat().st_mtime_ns
+    except OSError:
+        roads_stamp = None
+    key = (str(path), stamp, roads_stamp, preset_id, scale)
     if key in _CACHE:
         return _CACHE[key]
     if len(_CACHE) > 16:
@@ -188,6 +194,7 @@ def _compute(feats: list[dict], max_m: float, zone_half: float | None = None, is
     from app.pipeline.osm_paths import join_line_pieces
 
     by_name: dict[str, list] = {}
+    lane_lines: list[list[tuple[float, float]]] = []
     for f in feats:
         p = f.get("properties") or {}
         coords = (f.get("geometry") or {}).get("coordinates") or []
@@ -196,6 +203,8 @@ def _compute(feats: list[dict], max_m: float, zone_half: float | None = None, is
             ln = LineString([(float(x), float(y)) for x, y in coords])
             if ln.length > 0:
                 by_name.setdefault(name, []).append(ln)
+        if len(coords) >= 2:
+            lane_lines.append([(float(x), float(y)) for x, y in coords])
     axes = []
     for name, lines in by_name.items():
         if len(lines) < 2:
@@ -229,30 +238,47 @@ def _compute(feats: list[dict], max_m: float, zone_half: float | None = None, is
     kept = [LineString(c) for c in pieces if len(c) >= 2 and LineString(c).length >= DUAL_MIN_LEN_M]
     if not kept:
         return [], None
-    if roads:
-        lanes = unary_union([LineString(c) for c in axes]).buffer(max_m / 2.0 + 1.0)
-        kept = [_extend_to_continuation(ln, roads, lanes, max_m / 2.0 + 3.0, islands) for ln in kept]
     r = max(max_m / 2.0 + 1.0, zone_half or 0.0)  # oba pásy leží do max_m/2 od osy; boční ulice končí na okraji výplně 502.0
-    zone = unary_union([ln.buffer(r, cap_style=2) for ln in kept])
+    zones = [ln.buffer(r, cap_style=2) for ln in kept]
+    if roads:
+        oneway = unary_union([LineString(c) for c in lane_lines]).buffer(1.0)
+        extended = []
+        for ln in kept:
+            ln, exts = _extend_to_continuation(ln, roads, oneway, max_m / 2.0 + 3.0, islands)
+            extended.append(ln)
+            zones += [_continuation_zone(ext, r) for ext in exts]
+        kept = extended
+    zone = unary_union(zones)
     if islands is not None:
         zone = zone.difference(islands.buffer(ROUNDABOUT_KEEP_M))  # prstenec objezdu se neořízne
     return [[(float(x), float(y)) for x, y in ln.coords] for ln in kept], zone
 
 
-def _extend_to_continuation(axis, roads, lanes, reach_m: float, islands=None):
-    """Osa prodloužená na obou koncích o obousměrnou silnici, která ve směru osy navazuje na místo sloučení pásů
-    (začátek do ``reach_m`` od konce osy, odbočení do ``CONT_MAX_DEG``, celkem do ``CONT_MAX_M``). Pokračování jde
-    přes navazující kusy čáry až ke křižovatce (uzel s více silnicemi); jízdní pásy (z většiny v ``lanes``) nejsou pokračování."""
+def _continuation_zone(ext, r: float):
+    """Zóna prodloužení osy: v plné šířce ``r`` jen po bod ``r`` + 1 m před uzlem křižovatky, dál úzký pás 1 m kolem
+    pokračování bez okolí uzlu – příčná silnice v křižovatce se tak neořízne (review PR 134)."""
+    from shapely.geometry import Point
+    from shapely.ops import substring
+
+    wide_len = ext.length - r - 1.0
+    parts = [ext.buffer(1.0, cap_style=2).difference(Point(ext.coords[-1]).buffer(CONT_NODE_KEEP_M))]
+    if wide_len > 0.5:
+        parts.append(substring(ext, 0.0, wide_len).buffer(r, cap_style=2))
+    from shapely.ops import unary_union
+
+    return unary_union(parts)
+
+
+def _extend_to_continuation(axis, roads, oneway, reach_m: float, islands=None):
+    """``(osa, [prodloužení])``: osa prodloužená na obou koncích o obousměrnou silnici, která ve směru osy navazuje na
+    místo sloučení pásů (začátek do ``reach_m`` od konce osy, odbočení do ``CONT_MAX_DEG``, celkem do ``CONT_MAX_M``).
+    Pokračování jde přes navazující kusy čáry až ke křižovatce (uzel s více silnicemi); jednosměrné pásy (z většiny
+    v ``oneway``) pokračováním nejsou – osa nepůjde po jednom z rozbíhajících se pásů. Prodloužení vede od konce osy k uzlu."""
     import math
 
     from shapely.geometry import LineString, Point
 
     road_lines = [LineString(c) for c in roads]
-    cand = [
-        roads[k]
-        for k, ln in enumerate(road_lines)
-        if ln.length <= CONT_MAX_M and ln.difference(lanes).length >= 0.5 * ln.length
-    ]
 
     def _dir(seq):
         q = LineString(seq).interpolate(min(5.0, LineString(seq).length))
@@ -262,18 +288,27 @@ def _extend_to_continuation(axis, roads, lanes, reach_m: float, islands=None):
         na, nb = math.hypot(*a), math.hypot(*b)
         return (a[0] * b[0] + a[1] * b[1]) / (na * nb) if na > 1e-6 and nb > 1e-6 else -1.0
 
-    def _starting(p, tol):
-        return [
-            (math.hypot(seq[0][0] - p[0], seq[0][1] - p[1]), i, list(seq))
-            for i, c in enumerate(cand)
-            for seq in (c, c[::-1])
-            if math.hypot(seq[0][0] - p[0], seq[0][1] - p[1]) <= tol
-        ]
-
     coords = [(float(x), float(y)) for x, y in axis.coords]
     cos_lim = math.cos(math.radians(CONT_MAX_DEG))
+    exts = []
     for at_end in (False, True):
         e = coords[-1] if at_end else coords[0]
+        pe0 = Point(e)
+        near = [k for k, ln in enumerate(road_lines) if ln.distance(pe0) <= CONT_MAX_M + reach_m]
+        cand = [
+            k
+            for k in near
+            if road_lines[k].length <= CONT_MAX_M and road_lines[k].difference(oneway).length >= 0.5 * road_lines[k].length
+        ]
+
+        def _starting(p, tol):
+            return [
+                (math.hypot(seq[0][0] - p[0], seq[0][1] - p[1]), k, list(seq))
+                for k in cand
+                for seq in (roads[k], roads[k][::-1])
+                if math.hypot(seq[0][0] - p[0], seq[0][1] - p[1]) <= tol
+            ]
+
         inner = axis.interpolate(axis.length - 5.0 if at_end else 5.0)
         v = (e[0] - inner.x, e[1] - inner.y)
         ext: list[tuple[float, float]] = []
@@ -281,31 +316,30 @@ def _extend_to_continuation(axis, roads, lanes, reach_m: float, islands=None):
         opts = [o for o in _starting(e, reach_m) if _cos(v, _dir(o[2])) >= cos_lim]
         at_junction = False
         while opts:
-            _d, i, seq = min(opts, key=lambda o: o[0])
+            _d, k, seq = min(opts, key=lambda o: o[0])
             ext_new = ext + seq
             if LineString([e, *ext_new]).length > CONT_MAX_M + reach_m:
                 break
             if islands is not None and LineString([e, *ext_new]).intersection(islands).length > 0.5:
                 break
             ext = ext_new
-            used.add(i)
+            used.add(k)
             end = seq[-1]
             # dál jen přes prostý uzel (navazující kus téže čáry); na křižovatce pokračování končí
             pe = Point(end)
-            touching = [k for k, ln in enumerate(road_lines) if roads[k] is not cand[i] and ln.distance(pe) <= 0.5]
+            touching = [j for j in near if j != k and road_lines[j].distance(pe) <= 0.5]
+            ends_here = [j for j in touching if Point(roads[j][0]).distance(pe) <= 0.5 or Point(roads[j][-1]).distance(pe) <= 0.5]
+            simple = len(touching) == 1 and len(ends_here) == 1  # jen navazující kus téže silnice
             nxt = [o for o in _starting(end, 0.5) if o[1] not in used]
             seg = (end[0] - seq[-2][0], end[1] - seq[-2][1])
-            ends_here = [k for k in touching if Point(roads[k][0]).distance(pe) <= 0.5 or Point(roads[k][-1]).distance(pe) <= 0.5]
-            simple = len(touching) == 1 and len(ends_here) == 1  # jen navazující kus téže silnice
             if not simple or len(nxt) != 1 or _cos(seg, _dir(nxt[0][2])) < cos_lim:
                 at_junction = not simple and bool(touching)
                 break
             opts = nxt
-        if not at_junction:
-            ext = []  # pokračování nedošlo ke křižovatce (dlouhá silnice, slepý konec) – osa zůstává
-        if ext:
+        if at_junction and ext:
+            exts.append(LineString([e, *ext]))
             coords = coords + ext if at_end else ext[::-1] + coords
-    return LineString(coords)
+    return LineString(coords), exts
 
 
 def _bridge_gaps(pieces: list[list[tuple[float, float]]], gap_m: float, islands=None) -> list[list[tuple[float, float]]]:

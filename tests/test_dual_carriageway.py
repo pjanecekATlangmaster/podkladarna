@@ -144,3 +144,35 @@ def test_axis_extended_along_continuation_to_junction(cont, other, extended):
     far = max(axes[0], key=lambda p: p[0])
     assert (far[0] > 330) is extended
     assert zone.contains(Point(320, 5.5)) is extended
+
+
+@pytest.mark.parametrize("angle_deg", [90, 60, 45])
+def test_continuation_zone_keeps_crossing_road(angle_deg):
+    # Osa prodloužená do T-křižovatky: příčná silnice v uzlu (336, 5.5) zůstane celá, i šikmá.
+    import math
+
+    lanes = [_feat([(0, 0), (290, 0), (300, 5.5)]), _feat([(300, 5.5), (290, 11), (0, 11)])]
+    a = math.radians(angle_deg)
+    dx, dy = 60 * math.cos(a), 60 * math.sin(a)
+    node = (336.0, 5.5)
+    crossing = [(node[0] - dx, node[1] - dy), node, (node[0] + dx, node[1] + dy)]
+    roads = [[(300.0, 5.5), node], crossing[:2], crossing[1:]]
+    axes, zone = dc._compute(lanes, 13.1, 8.4, None, roads)
+    assert max(p[0] for p in axes[0]) > 330
+    assert zone.intersection(LineString(crossing)).length < 0.5
+
+
+def test_axis_not_extended_along_diverging_lane():
+    # Rozplet: za koncem osy se pásy rozbíhají (9°) – osa po jednom z nich nepokračuje, i když vede ke křižovatce.
+    import math
+
+    t = math.tan(math.radians(9))
+    lane_a = _feat([(0, 0), (250, 0), (300, -50 * t)])
+    lane_b = _feat([(300, 11 + 50 * t), (250, 11), (0, 11)])
+    roads = [
+        [(250.0, 0.0), (300.0, -50 * t)],
+        [(300.0, 11 + 50 * t), (250.0, 11.0)],
+        [(300.0, -60.0), (300.0, 60.0)],
+    ]
+    axes, _zone = dc._compute([lane_a, lane_b], 13.1, None, None, roads)
+    assert len(axes) == 1 and max(p[0] for p in axes[0]) < 270
