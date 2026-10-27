@@ -215,6 +215,12 @@ def test_sprint_street_parcel_part_under_olive_and_mask(tmp_path, monkeypatch):
     mask[5:15, 4:10] = True
     g = street_parcels._mask_polygons(mask, 100.0, 200.0, 0.5)
     assert g.area == pytest.approx(10 * 6 * 0.25) and g.bounds == (102.0, 192.5, 105.0, 197.5)
+    # jen pixely u parcel ulic (do 1 px): ulice x 100–102,5 → zeleň x 102–103 (2 px sloupce)
+    from shapely.geometry import box
+
+    inside = street_parcels._rasterize_area(box(100.0, 190.0, 102.5, 200.0).buffer(0.5), mask.shape, 100.0, 200.0, 0.5, 0.5)
+    g2 = street_parcels._mask_polygons(mask & inside, 100.0, 200.0, 0.5)
+    assert g2.bounds[0] == 102.0 and g2.bounds[2] <= 103.5
 
 
 def _polygon_um2(m):
