@@ -47,7 +47,7 @@ def _part(*objs):
         ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 1, None),  # dvůr bez cesty se zaplní
         ([_rect(0, 0, 30, 30)], [(8, 13), (18, 13)], [_rect(10, 10, 16, 16)], 1, 2, None),  # dvůr s cestou zůstane
         ([_rect(0, 0, 30, 30)], [(8, 13), (18, 13)], [_rect(10, 10, 12, 12)], 1, 1, None),  # díra pod 1 mm² zmizí i s cestou
-        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 2, _rect(10, 10, 16, 16)),  # zahrada (oliva) v bloku zůstane
+        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 1, _rect(10, 10, 16, 16)),  # zahrada (oliva) v uzavřeném bloku = budova (ISSprOM 521)
     ],
 )
 def test_sprint_merge_buildings(tmp_path, rects, path, holes, expected_objects, expected_rings, olive):
@@ -64,6 +64,8 @@ def test_sprint_merge_buildings(tmp_path, rects, path, holes, expected_objects, 
     buildings = _objects_of(out, "521")
     assert len(buildings) == expected_objects
     assert max(len(_rings(_parse_coords(_COORDS_RE.search(m.group(4)).group(1)))) for m in buildings) == expected_rings
+    if olive:
+        assert not _objects_of(out, "520")  # oliva v zalitém dvoře se ořízne pryč
 
 
 def test_sprint_merge_buildings_forest_unchanged(tmp_path):

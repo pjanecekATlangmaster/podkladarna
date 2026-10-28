@@ -910,10 +910,9 @@ SPRINT_BUILDING_GAP_MM = 0.4
 SPRINT_BUILDING_PATH_BAND_M = 0.5
 # Díra ve sloučeném bloku menší než tolik µm² na mapě (1 mm²) zmizí vždy.
 SPRINT_BUILDING_HOLE_MIN_UM2 = 1000.0**2
-# Dvůr bez cesty zůstane, je-li aspoň z tolika procent pokrytý kreslenou plochou zahrady / dvora (oliva, zpevněná,
-# otevřená) – ruční mapy kreslí zahrady uvnitř bloků olivou; bílé (nezmapované) dvorky se zalijí.
-SPRINT_BUILDING_HOLE_KEEP_MAJORS = frozenset({401, 402, 403, 404, 501, 520, 527})
-SPRINT_BUILDING_HOLE_KEEP_COVER = 0.3
+# Dvůr bez cesty se zaleje vždy (ISSprOM 521: plocha zcela uzavřená budovami je součást budovy, Petr 2026-10-28);
+# kreslené plochy (oliva, zpevněná, otevřená) se o zalitý dvůr oříznou, ať nezůstanou čtverce na budově.
+SPRINT_BUILDING_HOLE_FILL_MAJORS = frozenset({401, 402, 403, 404, 501, 520, 527})
 
 
 def sprint_merge_buildings(
@@ -928,8 +927,8 @@ def sprint_merge_buildings(
 ) -> list[OomObjectPart]:
     """Sprint: budovy (521) ze všech částí (OSM, DTM, ZABAGED) se sjednotí a mezery užší než 0,4 mm mapy se zavřou
     (morfologické uzavření). Mezera, kterou vede kreslená čára cesty, zůstane (pás 0,5 m kolem čáry). Díra ve sloučeném
-    bloku (dvůr) bez cesty se zaplní, díra s cestou nebo z ≥ 30 % pokrytá kreslenou zahradou / dvorem (oliva, 501,
-    otevřená plocha) zůstane; díry pod 1 mm² mapy zmizí vždy. Výsledek je v části
+    bloku (dvůr) bez cesty se zaplní (ISSprOM 521) a kreslené plochy (oliva, 501, otevřená) se o něj oříznou; díra
+    s cestou zůstane, díry pod 1 mm² mapy zmizí vždy. Výsledek je v části
     s první budovou. Les, MTBO a mapa bez budov beze změny."""
     if not preset_id.startswith("sprint") or not parts:
         return parts
@@ -956,7 +955,6 @@ def sprint_merge_buildings(
     try:
         polys = []
         lines = []
-        fills = []
         template = None  # první objekt budovy (hlavička, tělo, konec)
         for part in parts:
             for m in _OBJECT_RE.finditer(part.objects_xml):
@@ -976,10 +974,6 @@ def sprint_merge_buildings(
                     pts = _flatten(_parse_coords(cm.group(1)))
                     if len(pts) >= 2:
                         lines.append(LineString(pts))
-                elif info.get(sym, (0, ""))[1] == "area" and info[sym][0] in SPRINT_BUILDING_HOLE_KEEP_MAJORS:
-                    poly = _polygon(_rings(_parse_coords(cm.group(1))))
-                    if poly is not None and not poly.is_empty:
-                        fills.append(poly)
         if not polys:
             return parts
         union = unary_union(polys)
@@ -989,8 +983,8 @@ def sprint_merge_buildings(
             band = unary_union(lines).buffer(SPRINT_BUILDING_PATH_BAND_M * 1e6 / scale)
             closed = closed.difference(band).union(union)
         tree = STRtree(lines) if lines else None
-        fill_union = unary_union(fills) if fills else None
         merged = []
+        filled = []  # zalité dvory – kreslené plochy se o ně oříznou
         for g in getattr(closed, "geoms", [closed]):
             if not isinstance(g, Polygon) or g.is_empty:
                 continue
@@ -998,11 +992,11 @@ def sprint_merge_buildings(
             for hole in g.interiors:
                 hp = Polygon(hole)
                 if hp.area < SPRINT_BUILDING_HOLE_MIN_UM2:
-                    continue
-                if tree is not None and len(tree.query(hp, predicate="intersects")):
+                    filled.append(hp)
+                elif tree is not None and len(tree.query(hp, predicate="intersects")):
                     keep.append(hole)
-                elif fill_union is not None and hp.intersection(fill_union).area >= SPRINT_BUILDING_HOLE_KEEP_COVER * hp.area:
-                    keep.append(hole)  # zahrada / dvůr s kreslenou plochou (oliva, zpevněná, otevřená) zůstává
+                else:
+                    filled.append(hp)
             merged.append(Polygon(g.exterior, keep))
         head, body, tail = template.group(1), template.group(4), template.group(5)
         cm0 = _COORDS_RE.search(body)
@@ -1011,15 +1005,42 @@ def sprint_merge_buildings(
             for g in merged
             for p in _rounded_pieces(g.simplify(EPS))
         ]
+        filled_union = unary_union(filled) if filled else None
     except Exception:  # kosmetika, mapa se kreslí i bez ní
         return parts
     if not new_objs:
         return parts
     placed = False
+    fill_ids = {i for i, (major, kind) in info.items() if kind == "area" and major in SPRINT_BUILDING_HOLE_FILL_MAJORS}
+
+    def cut_fill(match: re.Match) -> str:
+        """Kreslená plocha zasahující do zalitého dvora se o něj ořízne (celá uvnitř zmizí)."""
+        cm = _COORDS_RE.search(match.group(4))
+        if filled_union is None or not cm:
+            return match.group(0)
+        try:
+            poly = _polygon(_rings(_parse_coords(cm.group(1))))
+            if poly is None or poly.is_empty or not poly.intersects(filled_union):
+                return match.group(0)
+            rest = poly.difference(filled_union)
+        except Exception:
+            return match.group(0)
+        head, body, tail = match.group(1), match.group(4), match.group(5)
+        return "\n".join(
+            head + body[: cm.start()] + _format_coords(p) + body[cm.end() :] + tail
+            for g in getattr(rest, "geoms", [rest])
+            if isinstance(g, Polygon) and g.area >= SPRINT_BUILDING_HOLE_MIN_UM2
+            for p in _rounded_pieces(g.simplify(EPS))
+        )
 
     def edit(match: re.Match) -> str:
         nonlocal placed
-        if match.group(2) != "1" or int(match.group(3)) not in building_ids:
+        if match.group(2) != "1":
+            return match.group(0)
+        sym = int(match.group(3))
+        if sym in fill_ids:
+            return cut_fill(match)
+        if sym not in building_ids:
             return match.group(0)
         if placed:
             return ""
