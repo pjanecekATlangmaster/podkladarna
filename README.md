@@ -2,6 +2,8 @@
 
 Webová služba pro generování orientačních podkladů z **ČÚZK LiDAR** (DMR 5G + DMP OK) a **ZABAGED**. Volně inspirováno [Karttapullautinem](https://github.com/karttapullautin/karttapullautin); pipeline jde vlastní cestou (vegetace / srázy / DEM).
 
+Výstup je georeferencovaný v S-JTSK (EPSG:5514) včetně magnetické deklinace a grivace. Vegetace je výška a hustota porostu z LiDARu (DMP OK), ne průběžnost – kresbu vegetace doladí terén.
+
 Výstup: jeden ZIP pro OpenOrienteering Mapper (`podkladarna_output.zip`).
 
 ## Rychlý start (Synology / Docker)

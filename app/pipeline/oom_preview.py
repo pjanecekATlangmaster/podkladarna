@@ -55,6 +55,9 @@ GEOREF_PREVIEWS_ZIP_NAME = "podkladarna_georef_previews.zip"
 # než dřívějších 600 (6×6 km @ 1:10000 ≈ 12,7k px na stranu místo 25k, které
 # uživatel neotevřel); na podklad pro OOM/OCAD/QGIS to stačí.
 GEOREF_MAPPER_DPI = 300
+# Strop georef rastru: velký výřez (sprint 1:4000 přes 30 km² @ 300 DPI ≈ 20k px
+# na stranu) by se na běžném PC neotevřel – DPI se sníží, aby full-map ≤ ~12k × 12k.
+GEOREF_MAPPER_MAX_PIXELS = 150_000_000
 # Dodaný GeoTIFF: dlaždice + interní přehledky (viz try_write_geotiff_from_png_pgw).
 GEOTIFF_BLOCK_SIZE = 512
 GEOTIFF_OVERVIEW_LEVELS = (2, 4, 8, 16)
@@ -235,9 +238,9 @@ def capped_web_mapper_dpi(
     desired_dpi: int | None = None,
     max_pixels: int | None = None,
 ) -> int:
-    """Web Mapper DPI ≤ ``desired``, tak aby odhad full-map px ≤ ``max_pixels``.
+    """Mapper DPI ≤ ``desired``, tak aby odhad full-map px ≤ ``max_pixels``.
 
-    Georef se nemění – jen webová cesta, ať Pillow nedostane stovky Mpx.
+    Web: ať Pillow nedostane stovky Mpx. Georef: ``GEOREF_MAPPER_MAX_PIXELS``.
     """
     dpi = (
         int(desired_dpi)
@@ -2099,7 +2102,15 @@ def write_job_oom_preview(
                     write_geotiff=want_geotiff,
                     undo_grivation=False,
                     engine=georef_engine,
-                    target_dpi=None if use_mapper else pillow_dpi,
+                    target_dpi=(
+                        capped_web_mapper_dpi(
+                            omap,
+                            desired_dpi=GEOREF_MAPPER_DPI,
+                            max_pixels=GEOREF_MAPPER_MAX_PIXELS,
+                        )
+                        if use_mapper
+                        else pillow_dpi
+                    ),
                 )
             except MapperExportError as exc:
                 if log:

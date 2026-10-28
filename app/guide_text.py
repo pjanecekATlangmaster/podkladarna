@@ -39,6 +39,12 @@ WEB_ABOUT_HTML = """
   Podklady (ortofoto, katastr, hillshade…) i vektory tak v OOM / OCAD sedí na
   sebe bez ručního lícování a do vlastní šablony je jde rovnou podložit.
 </p>
+<p>
+  <strong>Vegetace je výška a hustota porostu z LiDARu (DMP&nbsp;OK), ne průběžnost.</strong>
+  Zeleň a louky ukazují, kde je les vysoký, nízký nebo žádný – jak se lesem běží
+  (podrost, viditelnost) z dat nepoznáme. Berte je jako přehled, kresbu vegetace
+  doladí až terén.
+</p>
 <details class="about-zip">
   <summary><strong>V ZIPu je mimo jiné</strong></summary>
 <ul>
@@ -134,6 +140,8 @@ Hlavní výstup jsou vektory pro OOM (.omap; cesty, plochy, budovy, vrstevnice�
 a stejnojmenné .ocd (OCD12) pro OCAD.
 Mapa je georeferencovaná v S-JTSK (EPSG:5514) včetně magnetické deklinace
 a grivace pro střed výřezu – podklady i vektory sedí na sebe bez lícování.
+Vegetace je výška a hustota porostu z LiDARu (DMP OK), ne průběžnost – jak
+se lesem běží (podrost, viditelnost), z dat nepoznáme; kresbu vegetace doladí terén.
 PNG náhled mapy je hlavně orientační.
 Data ČÚZK i OSM nejsou dokonalá a automatika je jen skládá dohromady –
 něco chybí, něco se překrývá. Tento balíček je pracovní podklad,
