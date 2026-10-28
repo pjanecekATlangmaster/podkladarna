@@ -5298,12 +5298,13 @@ def road_drawn_halfwidths(features: list[dict], preset_id: str, scale: int, road
         if geom.get("type") != "LineString" or len(coords) < 2 or not path_draw_highway(hw).startswith("road_"):
             continue
         key = hw
-        if road_widths is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw):
+        if (feat.get("properties") or {}).get(STROKE_CODE_PROP) or (
+            road_widths is not None and not is_bridge_highway(hw) and not is_tunnel_highway(hw)
+        ):
             tag_code = osm_oom_code(hw, preset_id)
             if tag_code:
-                from app.pipeline.dtm_widths import width_line_code
-
-                code = width_line_code(hw, road_widths.line_width(coords), tag_code)
+                # symbol po pravidle tahu (``stroke_code``), jinak podle šířky z DTM
+                code = _osm_line_code(-1, feat, preset_id, road_widths=road_widths)
                 if code != tag_code:
                     key = "code:" + code
                     if key not in widths:
@@ -5852,17 +5853,7 @@ def major_road_band(
             continue
         if is_bridge_highway(hw) or is_tunnel_highway(hw):
             continue
-        code = osm_oom_code(hw, preset_id)
-        if (
-            code
-            and road_widths is not None
-            and not (path_draw_highway(hw) in {"road_1", "road_2"} and polyline_length(coords) <= SERVICE_LINK_MAX_M)
-        ):
-            from app.pipeline.dtm_widths import width_line_code
-
-            code = width_line_code(hw, road_widths.line_width(coords), code)
-        if i in service_links and not is_major_road_code(code, preset_id, scale):
-            code = "502"
+        code = _osm_line_code(i, feat, preset_id, road_widths=road_widths, service_links=service_links)
         if not is_major_road_code(code, preset_id, scale):
             continue
         if code not in widths:
@@ -6351,6 +6342,73 @@ def _in_walk_tunnel(coords, zone) -> bool:
     return ln.length > 0 and ln.intersection(zone).length >= 0.8 * ln.length
 
 
+STROKE_CODE_PROP = "stroke_code"
+
+
+def _osm_line_code(
+    feat_i: int, feat: dict, preset_id: str, *, road_widths=None, walk_widths=None, service_links=frozenset()
+) -> str | None:
+    """Symbol čáry OSM: podle tagů, u lesa / MTBO podle šířky z DTM, účelová spojka 502; silnice po pravidle tahu
+    (``road_strokes``, vlastnost ``stroke_code`` z ``_apply_road_strokes``) má symbol už rozhodnutý."""
+    props = feat.get("properties") or {}
+    hw = str(props.get("highway") or "path")
+    if props.get(STROKE_CODE_PROP):
+        return str(props[STROKE_CODE_PROP])
+    coords = (feat.get("geometry") or {}).get("coordinates") or []
+    code = osm_oom_code(hw, preset_id)
+    if (
+        code is not None
+        and (road_widths or walk_widths)
+        and not is_bridge_highway(hw)
+        and not is_tunnel_highway(hw)
+        and path_draw_highway(hw) != "road_dual"  # rozdělená vozovka má symbol 502.0 pevně
+        and not (path_draw_highway(hw) in {"road_1", "road_2"} and polyline_length(coords) <= SERVICE_LINK_MAX_M)
+    ):
+        from app.pipeline.dtm_widths import width_line_code
+
+        # Krátká účelová komunikace šířku z DTM nebere: řez zachytí těleso sousední ulice (way/1032671443).
+        _index = road_widths if path_draw_highway(hw).startswith("road_") else walk_widths
+        if _index is not None:
+            code = width_line_code(hw, _index.line_width(coords), code)
+    if feat_i in service_links and code not in {"502", "502.1"}:
+        code = "502"  # účelová spojka silnice → parkoviště / garáž jako silnice
+    return code
+
+
+def _apply_road_strokes(
+    features: list[dict], preset_id: str, scale: int, *, road_widths=None, service_links=frozenset()
+) -> None:
+    """Les a MTBO: silnicím (``road_*`` mimo mosty a tunely) zapíše ``stroke_code`` po pravidle tahu (``road_strokes``):
+    jeden symbol na souvislý úsek, krátké kusy jiné šířky převezmou symbol souseda; osa 502.0 je pevná."""
+    from app.pipeline.road_strokes import MIN_RUN_MM, stroke_codes
+
+    idx, lines, codes, fixed = [], [], [], set()
+    for i, feat in enumerate(features):
+        props = feat.get("properties") or {}
+        hw = str(props.get("highway") or "")
+        coords = (feat.get("geometry") or {}).get("coordinates") or []
+        if (
+            (feat.get("geometry") or {}).get("type") != "LineString"
+            or len(coords) < 2
+            or not path_draw_highway(hw).startswith("road_")
+            or is_bridge_highway(hw)
+            or is_tunnel_highway(hw)
+        ):
+            continue
+        code = _osm_line_code(i, feat, preset_id, road_widths=road_widths, service_links=service_links)
+        if code is None:
+            continue
+        if path_draw_highway(hw) == "road_dual":
+            fixed.add(len(idx))
+        idx.append(i)
+        lines.append([(float(x), float(y)) for x, y in coords])
+        codes.append(code)
+    if not idx:
+        return
+    for i, code in zip(idx, stroke_codes(lines, codes, min_run_m=mm_to_ground_m(MIN_RUN_MM, scale), fixed=fixed)):
+        features[i].setdefault("properties", {})[STROKE_CODE_PROP] = code
+
+
 def build_osm_path_parts(
     work_dir: Path,
     *,
@@ -6681,6 +6739,19 @@ def build_osm_path_parts(
     # Les / MTBO: černé cesty přes kresbu silnice 502 / 502.1 nevedou, končí na jejím okraji.
     # Pás se bere z kreslených silnic: u rozdělené vozovky z osy 502.0 (šířka 502.0), ne z pásů, které se nekreslí –
     # boční ulice tak dojde až k okraji kresby 502.0 (Petr 2026-10-26, D23).
+    if not preset_id.startswith("sprint"):
+        # Pravidlo tahu: jeden symbol na souvislý úsek (``road_strokes``); platí pro kresbu i pás silnic níže.
+        _apply_road_strokes(
+            data.get("features") or [], preset_id, scale, road_widths=road_widths, service_links=service_links
+        )
+        if road_feats is not (data.get("features") or []):
+            _extra = [
+                f
+                for f in data.get("features") or []
+                if path_draw_highway(str((f.get("properties") or {}).get("highway") or "")) == "road_dual"
+                or (f.get("properties") or {}).get("fork_link")
+            ]
+            _apply_road_strokes(road_feats + _extra, preset_id, scale, road_widths=road_widths)
     _major_feats = road_feats
     if lane_zone is not None:
         _major_feats = []
@@ -6807,21 +6878,11 @@ def build_osm_path_parts(
             beside_zone = sidewalk_parallel_zone(hw, coords, _rz, _bases)
         # Symbol u schodů se volí až podle délky dílku (les/MTBO krátké → pěšina).
         steps_piece = is_surface_steps(hw)
-        code = osm_oom_code(hw, preset_id) if not steps_piece else None
-        if (
-            code is not None
-            and (road_widths or walk_widths)
-            and not is_bridge_highway(hw)
-            and not is_tunnel_highway(hw)
-            and path_draw_highway(hw) != "road_dual"  # rozdělená vozovka má symbol 502.0 pevně
-            and not (path_draw_highway(hw) in {"road_1", "road_2"} and polyline_length(coords) <= SERVICE_LINK_MAX_M)
-        ):
-            # Krátká účelová komunikace šířku z DTM nebere: řez zachytí těleso sousední ulice (way/1032671443).
-            _index = road_widths if path_draw_highway(hw).startswith("road_") else walk_widths
-            if _index is not None:
-                code = width_line_code(hw, _index.line_width(coords), code)
-        if feat_i in service_links and code not in {"502", "502.1"}:
-            code = "502"  # účelová spojka silnice → parkoviště / garáž jako silnice
+        code = (
+            _osm_line_code(feat_i, feat, preset_id, road_widths=road_widths, walk_widths=walk_widths, service_links=service_links)
+            if not steps_piece
+            else None
+        )
         symbol_index = None
         if code is not None:
             if code not in symbol_cache:
