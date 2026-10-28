@@ -975,6 +975,31 @@ def test_capped_web_mapper_dpi_reduces_for_large_paper(tmp_path: Path):
     assert capped_web_mapper_dpi(small, desired_dpi=150, max_pixels=limit) == 150
 
 
+def test_write_job_georef_mapper_dpi_capped(tmp_path: Path, monkeypatch):
+    """Georef Mapper: velký výřez → DPI pod 300, ať se rastr dá otevřít."""
+    import app.pipeline.oom_preview as oom_mod
+
+    monkeypatch.setattr(oom_mod, "mapper_export_configured", lambda: True)
+    monkeypatch.setattr(oom_mod, "GEOREF_MAPPER_MAX_PIXELS", 1000)
+    seen: list = []
+
+    def _fake_render(omap, dest, **kw):
+        seen.append(kw.get("target_dpi"))
+        return "fake"
+
+    monkeypatch.setattr(oom_mod, "render_omap_to_png", _fake_render)
+    omap = tmp_path / "out" / "Park-les.omap"
+    omap.parent.mkdir()
+    omap.write_text(_MAP, encoding="utf-8")
+    write_job_oom_preview(
+        [omap],
+        tmp_path / "work",
+        tmp_path / "out",
+        {"oom_preview": False, "output_georef": True},
+    )
+    assert seen and seen[0] is not None and 1 <= seen[0] < oom_mod.GEOREF_MAPPER_DPI
+
+
 def test_write_job_skips_huge_georef_reuse_for_web(
     tmp_path: Path, monkeypatch
 ):
