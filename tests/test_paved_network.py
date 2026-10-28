@@ -441,7 +441,7 @@ def test_mtbo_ignores_dtm_widths_when_off(tmp_path, monkeypatch):
 def test_mtbo_wide_dtm_road_drawn_by_corridor(tmp_path, monkeypatch, road_areas, expected):
     # MTBO s DTM: silnice široká 10 m (1 mm v 1:10000) kreslí koridor plochou, čára uvnitř se nekreslí
     # (záložní režim koridoru podle šířky; s JUNCTION_AREAS je plocha jen u složitých křižovatek).
-    # Výchozí (ROAD_AREAS = False, Petr 2026-10-28): les a MTBO kreslí silnici jen čarou.
+    # ``ROAD_AREAS = False`` (2.45.0): les a MTBO kreslí silnici jen čarou.
     from app.pipeline import junction_areas
 
     monkeypatch.setattr(junction_areas, "ROAD_AREAS", road_areas)

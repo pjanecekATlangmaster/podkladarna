@@ -65,9 +65,12 @@ def test_island_makes_junction_complex(tmp_path):
     assert area is not None and area.contains(Point(0, -2)) and not area.contains(Point(150, 0))
 
 
-def test_roundabout_and_many_oneway_lanes_are_complex(tmp_path):
+def test_roundabout_and_many_oneway_lanes_are_complex(tmp_path, monkeypatch):
     lines = [[[-200, 0], [0, 0], [200, 0]], [[0, -200], [0, 0], [0, 200]]]
     _write(tmp_path, [_rect(-200, -5, 200, 5)], lines, oneway=[([[-20, 0], [20, 0]], True)])
+    # kruhový objezd kreslí čáry (Petr 2026-10-28), plochu jen s ``ROUNDABOUT_AREAS``
+    assert ja.complex_junction_hulls(tmp_path) == []
+    monkeypatch.setattr(ja, "ROUNDABOUT_AREAS", True)
     assert len(ja.complex_junction_hulls(tmp_path)) == 1
     _write(tmp_path, [_rect(-200, -5, 200, 5)], lines, oneway=[([[-20, 0], [20, 0]], False)] * 4)
     assert len(ja.complex_junction_hulls(tmp_path)) == 1

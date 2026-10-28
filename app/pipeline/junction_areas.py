@@ -12,9 +12,12 @@ import json
 from pathlib import Path
 
 JUNCTION_AREAS = True
-# Petr 2026-10-28: les a MTBO kreslí silnice jen čarou (i kruhové objezdy a složité křižovatky) – přechod plochy
-# křižovatky na čáru 502.x dělal zuby a kousky jiné kresby (Lamačova). True vrátí plochy podle ``JUNCTION_AREAS``.
-ROAD_AREAS = False
+# Petr 2026-10-28: les a MTBO kreslí kruhové objezdy jen čarou – přechod plochy objezdu na čáru 502.x dělal zuby
+# a kousky jiné kresby (Lamačova, 2.45.0). Plocha složité křižovatky ale nese detail z DTM (Lamačova × K Barrandovu),
+# proto zůstává (2.46.0). ``ROAD_AREAS = False`` kreslí silnice v lese a MTBO jen čarou; ``ROUNDABOUT_AREAS = True``
+# vrátí plochy i u kruhových objezdů.
+ROAD_AREAS = True
+ROUNDABOUT_AREAS = False
 # Třídy silnic, jejichž uzly tvoří křižovatky (bez účelových komunikací ``road_1``: vjezdy a parkoviště nejsou křižovatky).
 JUNCTION_ROAD_BASES = frozenset({"road_2", "road_3", "road_4"})
 # Uzly OSM silnic blíž než tolik m tvoří jednu křižovatku; obal shluku; dosah plochy silnic z DTM kolem obalu.
@@ -155,6 +158,8 @@ def complex_junction_hulls(work_dir: Path, path_source: str = "mixed", preset_id
                     if dual_zone is not None and dual_zone.contains(hp.centroid):
                         continue  # dělicí pás rozdělené vozovky
                     islands += 1
+        if rb_hit and not ROUNDABOUT_AREAS:
+            continue  # kruhový objezd kreslí čáry (prstenec a ramena)
         if islands >= 1 or rb_hit or n_one >= MIN_ONEWAY:
             if rb_hit:
                 hull = unary_union([hull, *[g.buffer(HULL_PAD_M) for g in rb_hit]])
