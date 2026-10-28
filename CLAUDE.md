@@ -328,8 +328,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `bollard`) nejsou 531 (`sprint_skips_barrier_point`); čáry cest se uvnitř budov (> 1 m od obrysu) nekreslí a OSM `covered=yes` /
   `tunnel=building_passage` je v budově průchod 522 vyříznutý z budovy (`sprint_building_passages`, `covered_passages.geojson`).
 - **Sprint podle srovnání s Českým Krumlovem** (Petr 2026-10-26, 2.40.0, data `local_test\cesky_krumlov`): budovy 521 ze všech zdrojů se
-  slučují do bloků, mezery pod 0,4 mm mapy bez cesty se zavřou, dvůr bez cesty a bez kreslené zahrady / plochy (≥ 30 %) se zaleje
-  (`sprint_merge_buildings`). Ulice: parcely RÚIAN se způsobem využití komunikace (15–17) minus budovy minus zeleň z ortofota, jen kusy se
+  slučují do bloků, mezery pod 0,4 mm mapy bez cesty se zavřou, dvůr bez cesty se zaleje vždy a kreslené plochy (oliva, 501, louka)
+  se o něj oříznou (`sprint_merge_buildings`; ISSprOM 521, Petr 2026-10-28 na podnět mapaře A. Hájka, 2.46.5). Ulice: parcely RÚIAN se způsobem využití komunikace (15–17) minus budovy minus zeleň z ortofota, jen kusy se
   zpevněnou OSM čárou ≥ 10 m, jako 501 pod ostatními objekty (`street_parcels.py`, `SPRINT_STREET_PARCELS`; ortofoto a maska zeleně jsou
   společný modul `orthophoto.py` s vláknem ortofota: ExG > 0,02 a sytost > 0,12). `amenity=bus_station` je parkoviště 501; silnice se ve
   sprintu uvnitř OSM parkoviště nekreslí (`sprint_parking_zone`). Kupky / prohlubně / jámy ve sprintu jen mimo zástavbu (`sprint_knolls_outside_town`,
