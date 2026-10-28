@@ -463,3 +463,89 @@ def _forks(feats: list[dict], max_m: float, dual_zone=None):
                 zones.append(unary_union([la, lb]).buffer(1.0, cap_style=2).difference(keep))
                 used.update((i, j))
     return links, (unary_union(zones) if zones else None)
+
+
+# Odbočovací rampa (Petr 2026-10-28, U Náhonu × K Barrandovu): nepojmenovaná jednosměrná silnice do ``SLIP_MAX_M`` m,
+# která spojuje dvě silnice kříženec od křížení vzdálený nejvýš ``SLIP_NODE_MAX_M`` m a míjí ho aspoň o ``SLIP_MIN_OFFSET_M``,
+# je v lese a MTBO jen trojúhelník vedle křižovatky – nekreslí se, křižovatku nese hlavní čára.
+SLIP_MAX_M = 80.0
+SLIP_NODE_MAX_M = 50.0
+SLIP_MIN_OFFSET_M = 5.0
+# Pás kolem ostatních silnic (m), který zóna rampy neořízne.
+SLIP_KEEP_M = 0.3
+_SLIP_CACHE: dict[tuple, object] = {}
+
+
+def slip_lane_zone(work_dir: Path, preset_id: str, scale: int):
+    """Zóna (shapely) odbočovacích ramp, ve které se silnice nekreslí, nebo None; sprint None."""
+    if preset_id.startswith("sprint"):
+        return None
+    from app.pipeline.osm_paths import ONEWAY_ROADS_NAME
+
+    path = work_dir / "osm_paths" / ONEWAY_ROADS_NAME
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return None
+    key = (str(path), stamp)
+    if key not in _SLIP_CACHE:
+        if len(_SLIP_CACHE) > 16:
+            _SLIP_CACHE.clear()
+        _SLIP_CACHE[key] = _slip_zone(_load(work_dir), _road_lines(work_dir))
+    return _SLIP_CACHE[key]
+
+
+def _slip_zone(feats: list[dict], roads: list[list[tuple[float, float]]]):
+    from shapely.geometry import LineString, Point
+    from shapely.ops import unary_union
+    from shapely.strtree import STRtree
+
+    ramps = []
+    for f in feats:
+        p = f.get("properties") or {}
+        coords = [(float(x), float(y)) for x, y in (f.get("geometry") or {}).get("coordinates") or []]
+        if not str(p.get("name") or "") and len(coords) >= 2 and LineString(coords).length <= SLIP_MAX_M:
+            ramps.append(LineString(coords))
+    if not ramps:
+        return None
+    ramp_set = {tuple(r.coords[0]) + tuple(r.coords[-1]) for r in ramps}
+    others = [LineString(c) for c in roads if tuple(c[0]) + tuple(c[-1]) not in ramp_set]
+    others += [LineString(c) for c in (f["geometry"]["coordinates"] for f in feats if str((f.get("properties") or {}).get("name") or ""))]
+    if not others:
+        return None
+    tree = STRtree(others)
+    zones = []
+    for r in ramps:
+        a, b = Point(r.coords[0]), Point(r.coords[-1])
+        at_a = [others[i] for i in tree.query(a.buffer(1.0)) if others[i].distance(a) <= 1.0]
+        at_b = [others[i] for i in tree.query(b.buffer(1.0)) if others[i].distance(b) <= 1.0]
+        hit = False
+        for ra in at_a:
+            for rb in at_b:
+                if ra.equals(rb):
+                    continue
+                x = ra.intersection(rb)
+                if x.is_empty:
+                    continue
+                for c in getattr(x, "geoms", [x]):
+                    c = c.representative_point()
+                    if (
+                        c.distance(a) <= SLIP_NODE_MAX_M
+                        and c.distance(b) <= SLIP_NODE_MAX_M
+                        and r.distance(c) >= SLIP_MIN_OFFSET_M
+                    ):
+                        hit = True
+                        break
+                if hit:
+                    break
+            if hit:
+                break
+        if hit:
+            # ostatní silnice (hlavní čára u konců rampy, kříženci) zóna neořízne; zbytky rampy podél nich jsou
+            # kratší než ``OSM_MIN_REMAINDER_M`` a při ořezu odpadnou
+            zone = r.buffer(1.0, cap_style=2)
+            near = [others[i] for i in tree.query(zone) if others[i].intersects(zone)]
+            if near:
+                zone = zone.difference(unary_union(near).buffer(SLIP_KEEP_M))
+            zones.append(zone)
+    return unary_union(zones) if zones else None

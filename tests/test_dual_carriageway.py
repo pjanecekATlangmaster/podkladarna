@@ -203,3 +203,24 @@ def test_short_fork_drawn_as_one_line(arm_in, arm_out, linked):
         main = LineString([(-50, 0), (50, 0)])
         assert zone.intersection(main).length < 0.5  # hlavní silnice u konců ramen zůstane
         assert zone.intersection(LineString(arm_in)).length > 15  # rameno se nekreslí
+
+
+@pytest.mark.parametrize(
+    "ramp, name, dropped",
+    [
+        ([(0, 20), (12, 12), (20, 0)], "", True),  # rampa vedle křížení (0, 0) – trojúhelník
+        ([(0, 20), (12, 12), (20, 0)], "Jiná", False),  # pojmenovaná jednosměrka je ulice, ne rampa
+        ([(0, 20), (2, 2), (20, 0)], "", False),  # vede přes křižovatku (míjí ji o < 5 m)
+        ([(0, 70), (60, 60), (70, 0)], "", False),  # konce daleko od křížení
+    ],
+)
+def test_slip_lane_beside_junction_not_drawn(ramp, name, dropped):
+    # U Náhonu × K Barrandovu: odbočovací rampa mezi dvěma kříženci se v lese a MTBO nekreslí (Petr 2026-10-28)
+    roads = [[(0, -100), (0, 100)], [(-100, 0), (100, 0)]]
+    zone = dc._slip_zone([_feat(ramp, name=name)], roads)
+    assert (zone is not None and zone.contains(LineString(ramp).interpolate(0.5, normalized=True))) == dropped
+    # hlavní silnice se u konců rampy nepřeruší a zbytek rampy u ní je kratší než nejkratší kreslený kus
+    assert zone is None or all(zone.intersection(LineString(r)).length < 0.01 for r in roads)
+    from app.pipeline.dtm_sidewalks import clip_outside
+
+    assert not dropped or not clip_outside(ramp, zone)

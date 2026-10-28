@@ -12,6 +12,9 @@ import json
 from pathlib import Path
 
 JUNCTION_AREAS = True
+# Petr 2026-10-28: les a MTBO kreslí silnice jen čarou (i kruhové objezdy a složité křižovatky) – přechod plochy
+# křižovatky na čáru 502.x dělal zuby a kousky jiné kresby (Lamačova). True vrátí plochy podle ``JUNCTION_AREAS``.
+ROAD_AREAS = False
 # Třídy silnic, jejichž uzly tvoří křižovatky (bez účelových komunikací ``road_1``: vjezdy a parkoviště nejsou křižovatky).
 JUNCTION_ROAD_BASES = frozenset({"road_2", "road_3", "road_4"})
 # Uzly OSM silnic blíž než tolik m tvoří jednu křižovatku; obal shluku; dosah plochy silnic z DTM kolem obalu.
