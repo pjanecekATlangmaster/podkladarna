@@ -6408,6 +6408,23 @@ def build_osm_path_parts(
                 }
                 for c in _dual_axes
             ]
+    # Les / MTBO: krátké rozvětvení ze dvou jednosměrných ramen jednou čarou po středu; ramena se v jejich pásu nekreslí.
+    lane_zone = dual_zone
+    if not preset_id.startswith("sprint") and path_source != PATH_SOURCE_ZABAGED:
+        from app.pipeline.dual_carriageway import FORK_LINK_PROP, fork_links
+
+        _fork_links, fork_zone = fork_links(work_dir, preset_id, scale)
+        if _fork_links:
+            data["features"] = list(data.get("features") or []) + [
+                {
+                    "type": "Feature",
+                    "properties": {"source": "osm", "highway": hw, FORK_LINK_PROP: True},
+                    "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in c]},
+                }
+                for c, hw in _fork_links
+            ]
+        if fork_zone is not None:
+            lane_zone = fork_zone if lane_zone is None else lane_zone.union(fork_zone)
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
     # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.
@@ -6659,7 +6676,7 @@ def build_osm_path_parts(
     # Pás se bere z kreslených silnic: u rozdělené vozovky z osy 502.0 (šířka 502.0), ne z pásů, které se nekreslí –
     # boční ulice tak dojde až k okraji kresby 502.0 (Petr 2026-10-26, D23).
     _major_feats = road_feats
-    if dual_zone is not None:
+    if lane_zone is not None:
         _major_feats = []
         for _f in road_feats:
             _g = _f.get("geometry") or {}
@@ -6668,7 +6685,7 @@ def build_osm_path_parts(
             if _g.get("type") != "LineString" or len(_c) < 2:
                 continue
             if path_draw_highway(_hw).startswith("road_") and not is_bridge_highway(_hw) and not is_tunnel_highway(_hw):
-                for _seg in clip_outside([(float(x), float(y)) for x, y in _c], dual_zone):
+                for _seg in clip_outside([(float(x), float(y)) for x, y in _c], lane_zone):
                     _major_feats.append(
                         {
                             "type": "Feature",
@@ -6685,7 +6702,7 @@ def build_osm_path_parts(
                 "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in c]},
             }
             for c in _dual_axes
-        ]
+        ] + [f for f in data.get("features") or [] if (f.get("properties") or {}).get("fork_link")]
     major_band = (
         None
         if preset_id.startswith("sprint")
@@ -6826,15 +6843,16 @@ def build_osm_path_parts(
         ):
             line = extend_ends_to_road_band(line, dropped_sidewalks, road_band, others=other_lines)
         lines = narrow_pieces if narrow_pieces is not None else [line]
+        _lanes = dual_zone if (feat.get("properties") or {}).get("fork_link") else lane_zone
         if (
-            dual_zone is not None
+            _lanes is not None
             and path_draw_highway(hw).startswith("road_")
             and path_draw_highway(hw) != "road_dual"
             and not is_bridge_highway(hw)
             and not is_tunnel_highway(hw)
         ):
-            # původní jízdní pásy rozdělené vozovky kreslí 502.0 po ose
-            lines = [seg for ln in lines for seg in clip_outside(ln, dual_zone)]
+            # původní jízdní pásy rozdělené vozovky kreslí 502.0 po ose, ramena rozvětvení čára po jejich středu
+            lines = [seg for ln in lines for seg in clip_outside(ln, _lanes)]
         if sidewalk_cover is not None and path_draw_highway(hw) in {"footway", "pedestrian", "cycleway_paved"}:
             # Pěšina / zpevněná cyklostezka uvnitř plochy chodníku nebo silnice z DTM by se kreslila dvakrát
             # (plocha už je nakreslená) → jen části mimo plochu.

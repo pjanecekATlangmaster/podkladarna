@@ -335,6 +335,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `is_major_road_code`) nekončí na okraji jiné silnice jako černá cesta.
   Osa rozdělené vozovky pokračuje přes obousměrný úsek za sloučením pásů až do křižovatky (do 60 m, `_extend_to_continuation`,
   Lamačova × K Barrandovu 2.43.5); jinak by mezi 502.0 a křižovatkou zůstal užší kus 502.1.
+  Krátké rozvětvení ze dvou jednosměrných ramen téže ulice (do 60 m, konce do 1,31 mm mapy od sebe, ve vrcholu do 60°) se kreslí
+  jednou čarou po středu ramen (`fork_links`, Lipského u zastávky na Lamačově, Petr 2026-10-27 „jednou linií“, 2.43.6).
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
 - **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé
