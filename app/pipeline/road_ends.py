@@ -8,6 +8,11 @@ a zbývají krátké pahýly (Barrandov, les bez DTM: 98 konců 4–15 m od jin�
   nebo – u čáry bez OSM opory (ZABAGED) – přímé prodloužení. Silnice s výplní jde do výplně cíle až k jeho ose: výplň je
   v sadách nad okrajovými linkami, takže Mapper ústí otevře. Černá silnice (les ``503``) končí na okraji silnice s výplní
   (přes výplň by se kreslila), na černou silnici jde k ose. Přes budovu, vodu ani zpevněnou plochu (``blockers``) se nedotahuje.
+  Když OSM silnice osu cíle neprotne, ale do ``EXTEND_MAX_MM`` vstoupí do jeho kresby (rampa z pruhu rozdělené vozovky
+  kreslené jednou osou, K Barrandovu, Petr Retest 6 2026-10-28: oblouk visel vedle silnice), dotáhne se po ní na okraj
+  kresby a dál kolmo k ose. Běží-li OSM silnice dál souběžně těsně vedle kresby (pruh na hraně pásu 502.0, do
+  ``JOIN_PARALLEL_GAP_MM`` od ní) a do ``JOIN_PARALLEL_RUN_MM`` do kresby vstoupí, napojí se konec silnice s výplní kolmo
+  k ose cíle (kus pod výplní není vidět). Konec, jehož OSM čára k cíli nevede (slepá obslužná vedle ulice), se nenapojuje.
 - **Pahýl:** kus silnice kratší než ``STUB_MAX_MM`` mm mapy, který jedním koncem nikam nevede (ani k ploše / budově
   z ``blockers``), se nekreslí; osamělý kus (oba konce volné) se nekreslí vždy. Totéž pro ostatní kreslené čáry cest
   (``stub_by_code``: pěšiny, vozové cesty, krátké schody – zbytky po ořezu plochou a pásem silnice, Petr Retest 5
@@ -32,6 +37,10 @@ OSM_SUPPORT_M = 1.5
 STUB_TARGET_M = 1.0
 # Přímé prodloužení (čára bez OSM opory) jen na silnici, kterou protne pod úhlem aspoň tolik stupňů.
 RAY_MIN_ANGLE_DEG = 30.0
+# Konec silnice s výplní do tolika mm mapy od kresby jiné silnice s výplní, jejíž OSM čára dál běží těsně podél té kresby
+# a do ``JOIN_PARALLEL_RUN_MM`` do ní vstoupí (rampa splývající s pruhem), se napojí kolmo k ose cíle.
+JOIN_PARALLEL_GAP_MM = 0.5
+JOIN_PARALLEL_RUN_MM = 10.0
 # Blokující plochy se pro test průchodu zmenší o tolik m (dotyk hrany nevadí).
 BLOCKER_SHRINK_M = 0.3
 
@@ -165,6 +174,75 @@ def tidy_road_ends(
     def _blocked(path) -> bool:
         return blk is not None and blk.intersects(path)
 
+    def _into_band(i: int, path):
+        """Prodloužení po ``path`` do kresby silnice s výplní, jejíž osu ``path`` neprotne (rampa odbočující z pruhu
+        rozdělené vozovky kreslené jednou osou), nebo None: po OSM čáře na okraj kresby a dál (silnice s výplní)
+        kolmo k ose cíle – kus pod výplní cíle není vidět, ústí otevře Mapper."""
+        code = items[i][0]
+        best = None
+        for j in tree.query(path.buffer(reach_touch)):
+            j = int(j)
+            if j == i or not items[j][2] or not is_major_road_code(items[j][0], preset_id, scale):
+                continue
+            half = _half_width_m(items[j][0], preset_id, scale, halves)
+            if half <= 0 or geoms[j].distance(path) > half:
+                continue
+            # první bod cesty uvnitř kresby cíle (vzorky po 1 m)
+            n = max(1, int(math.ceil(path.length)))
+            for k in range(n + 1):
+                d = min(path.length, k * (path.length / n))
+                if geoms[j].distance(path.interpolate(d)) <= half:
+                    if d > END_TOUCH_M and (best is None or d < best[1]):
+                        best = (j, d)
+                    break
+        if best is None or best[1] > extend_max:
+            return None
+        ext = substring(path, 0.0, best[1])
+        if ext.is_empty or ext.geom_type != "LineString":
+            return None
+        if not is_major_road_code(code, preset_id, scale):
+            return ext  # černá silnice končí na okraji výplně
+        tg = geoms[best[0]]
+        q = tg.interpolate(tg.project(Point(ext.coords[-1])))
+        return LineString([*ext.coords, (q.x, q.y)])
+
+    def _hook_into(i: int, p, long):
+        """Konec silnice s výplní těsně (``JOIN_PARALLEL_GAP_MM``) vedle kresby jiné silnice s výplní, podél níž OSM čára
+        ``long`` dál běží a do níž vstoupí: kolmo k její ose; jinak None."""
+        code = items[i][0]
+        if not is_major_road_code(code, preset_id, scale) or long.is_empty or long.length <= END_TOUCH_M:
+            return None
+        gap_max = mm_to_ground_m(JOIN_PARALLEL_GAP_MM, scale)
+        n = max(1, int(math.ceil(long.length)))
+        samples = [long.interpolate(min(long.length, k * (long.length / n))) for k in range(n + 1)]
+        best = None
+        for j in tree.query(p.buffer(gap_max + reach_touch)):
+            j = int(j)
+            if j == i or not items[j][2] or not is_major_road_code(items[j][0], preset_id, scale):
+                continue
+            half = _half_width_m(items[j][0], preset_id, scale, halves)
+            gap = geoms[j].distance(p) - half
+            if gap > gap_max or (best is not None and gap >= best[1]):
+                continue
+            # OSM čára musí podél kresby cíle (do gap_max od ní) dojít dovnitř kresby
+            inside = False
+            for q in samples:
+                d = geoms[j].distance(q)
+                if d <= half:
+                    inside = True
+                    break
+                if d > half + gap_max:
+                    break
+            if inside:
+                best = (j, gap)
+        if best is None:
+            return None
+        tg = geoms[best[0]]
+        q = tg.interpolate(tg.project(p))
+        if q.distance(p) <= END_TOUCH_M:
+            return None
+        return LineString([(p.x, p.y), (q.x, q.y)])
+
     def _extend(i: int, at_start: bool) -> list[tuple[float, float]] | None:
         c = items[i][1]
         p = Point(c[0] if at_start else c[-1])
@@ -190,6 +268,13 @@ def tidy_road_ends(
                     continue
                 hit = _first_target(i, path)
                 if hit is None:
+                    ext = _into_band(i, path)
+                    if ext is None:
+                        run = mm_to_ground_m(JOIN_PARALLEL_RUN_MM, scale)
+                        long = substring(g, s0, min(g.length, s0 + run) if s_in < s0 else max(0.0, s0 - run))
+                        ext = _hook_into(i, p, long) if long.geom_type == "LineString" else None
+                    if ext is not None and not _blocked(ext):
+                        return [(float(x), float(y)) for x, y in ext.coords]
                     continue
                 stop = _stop_on(i, hit[0], hit[1])
                 if stop is None:

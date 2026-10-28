@@ -846,6 +846,52 @@ _OSM_AREA_DEDUP_LAYERS: dict[str, frozenset[str]] = {
 }
 # Budovy z OSM do auto OOM i do osm/OSM_budovy.shp (ruční import).
 _OSM_BUILDING_KINDS = frozenset({"building", "water_well_building"})
+
+# Les a MTBO: budova menší než tolik mm² mapy (ISOM / ISMTBOM minimální velikost 0,5 × 0,5 mm) se kreslí bodovou značkou
+# 521.3 „Budova (minimální velikost)“ v těžišti, ne plochou: kiosek 8 m² na okraji parkoviště dělal v okraji plochy zub
+# a díru (Barrandov u Lidlu, Petr Retest 6 2026-10-28). Sprint beze změny. Totéž v ``paved_surface`` – generalizace sítě
+# zpevněných ploch takové budovy nebere jako překážku.
+BUILDING_MIN_AREA_MM2 = 0.25
+BUILDING_MIN_SIZE_CODE = "521.3"
+BUILDING_SMALL_KIND = "building_small"
+
+
+def building_min_area_m2(preset_id: str, scale: int) -> float:
+    """Plocha (m²), pod kterou se budova v lese a MTBO kreslí bodem 521.3; 0 = všechny plochou (sprint)."""
+    if not preset_id or preset_id.startswith("sprint") or scale <= 0:
+        return 0.0
+    return BUILDING_MIN_AREA_MM2 * (scale / 1000.0) ** 2
+
+
+def small_buildings_as_points(feats: list[dict], preset_id: str, scale: int) -> list[dict]:
+    """Les a MTBO: budovy pod ``building_min_area_m2`` jako bodové prvky ``building_small`` (kód 521.3) v těžišti."""
+    min_area = building_min_area_m2(preset_id, scale)
+    if min_area <= 0:
+        return feats
+    from shapely.geometry import shape
+
+    out: list[dict] = []
+    for f in feats:
+        props = f.get("properties") or {}
+        geom = f.get("geometry") or {}
+        if props.get("kind") in _OSM_BUILDING_KINDS and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+            except (ValueError, TypeError):
+                g = None
+            if g is not None and not g.is_empty and g.area < min_area:
+                c = g.representative_point()
+                out.append(
+                    {
+                        **f,
+                        "geometry": {"type": "Point", "coordinates": [float(c.x), float(c.y)]},
+                        "properties": {**props, "kind": BUILDING_SMALL_KIND, "oom_code": BUILDING_MIN_SIZE_CODE},
+                    }
+                )
+                continue
+        out.append(f)
+    return out
 # OSM skály / srázy: jen užitečný podklad (osm/*.shp), ne do auto .omap.
 # Ve výstupu zůstávají jen LiDAR/DEM skály (206) z cliffs_rock.dxf.
 # way/553090030 bare_rock; way/373494169 cliff; way/746567272 bare_rock.
@@ -5184,9 +5230,10 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
         ]
         if network is not None and preset_id:
             network = _minus_mtbo_dtm_areas(work_dir, network, scale, preset_id)
-            from app.pipeline.paved_surface import unified
+            from app.pipeline.paved_surface import generalize_paved_feats, unified
 
             if unified(preset_id):
+                paved_feats = generalize_paved_feats(work_dir, paved_feats, preset_id, scale)
                 from shapely.geometry import shape as _shape
                 from shapely.ops import unary_union as _uu_net
 
@@ -6579,6 +6626,16 @@ def build_osm_path_parts(
     stairs_zone = (
         stairs_zone_geometry(work_dir) if dtm_owns_stairs(work_dir) and not mtbo_dtm_off(preset_id) else None
     )
+    if stairs_zone is not None:
+        # krátké schodiště z DTM s OSM schody se z DTM nekreslí → OSM schody se o ně neřežou (celá čára)
+        from app.pipeline.dtm_import import short_stairs_with_osm_steps
+        from app.pipeline.dtm_sidewalks import STAIRS_ZONE_M as _stairs_zone_m
+
+        _short = short_stairs_with_osm_steps(work_dir, preset_id, path_source)
+        if _short is not None:
+            stairs_zone = stairs_zone.difference(_short.buffer(_stairs_zone_m + 0.01))
+            if stairs_zone.is_empty:
+                stairs_zone = None
     # Les a MTBO: uvnitř koridoru silnice (silnice + přilehlé chodníky z DTM) se čára 502.x nekreslí.
     corridor_zone = None
     bike_zone = None
@@ -7137,6 +7194,25 @@ def build_osm_path_parts(
                 and not is_bridge_highway(str((f.get("properties") or {}).get("highway") or ""))
                 and not is_tunnel_highway(str((f.get("properties") or {}).get("highway") or ""))
             ]
+            # Silnice vrácené z ``paths_osm`` jsou už oříznuté o souběh (``_mixed_osm_road_fix``): opora pro dotažení
+            # je původní OSM čára (rampa po ořezu vede dál podél pruhu až do uzlu).
+            try:
+                _orig = json.loads((work_dir / "osm_paths" / "paths_osm.geojson").read_text(encoding="utf-8")).get("features") or []
+            except (OSError, ValueError):
+                _orig = []
+            _have = {tuple(tuple(round(float(v), 2) for v in c[:2]) for c in ln) for ln in osm_roads}
+            for f in _orig:
+                _hw = str((f.get("properties") or {}).get("highway") or "")
+                _coords = (f.get("geometry") or {}).get("coordinates") or []
+                if (
+                    (f.get("geometry") or {}).get("type") == "LineString"
+                    and len(_coords) >= 2
+                    and path_draw_highway(_hw).startswith("road_")
+                    and not is_bridge_highway(_hw)
+                    and not is_tunnel_highway(_hw)
+                    and tuple(tuple(round(float(v), 2) for v in c[:2]) for c in _coords) not in _have
+                ):
+                    osm_roads.append([(float(x), float(y)) for x, y, *_ in _coords])
             from app.pipeline.dtm_import import _buildings_zone
 
             # plochy, ke kterým čára smí vést (pahýl k nim zůstává): zpevněné plochy, budovy, plochy z DTM
@@ -7300,6 +7376,7 @@ def build_osm_feature_parts(
             feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
     edge_omit_zone = None
     if not preset_id.startswith("sprint"):
+        feats = small_buildings_as_points(feats, preset_id, scale)  # drobné budovy bodem 521.3
         # Les a MTBO: zpevněné plochy jako souvislá síť (sloučené, ne přes silnici ani most).
         _path_feats = _paths_features_for_network(work_dir)
         from app.pipeline.paved_surface import unified as _unified_paved
@@ -7357,6 +7434,7 @@ def build_osm_feature_parts(
     courtyard_objects: list[str] = []
     names = {
         "building": "OSM budovy",
+        "building_small": "Budovy – minimální velikost (521.3)",
         "water_well_building": "OSM budovy (studny)",
         "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (501 zpevněná)",
@@ -7398,6 +7476,7 @@ def build_osm_feature_parts(
         names["building"] = "Budovy (DTM + OSM)"
     kind_order = (
         "building",
+        "building_small",
         "water_well_building",
         "water_well",
         "spring",

@@ -69,6 +69,8 @@ STAIRS_CACHE_SUFFIX = ".stairs1.json"
 # OSM čára schodů se v něm nekreslí (schodiště kreslí DTM).
 STAIRS_MIN_LEN_M = 1.0
 STAIRS_ZONE_M = 0.5
+# Krátké schodiště z DTM je „s OSM schody“, vede-li čára OSM schodů do této vzdálenosti (m) od něj (bývá vedle, ne skrz).
+STAIRS_OSM_STEPS_NEAR_M = 2.0
 # Spodní schodiště se pod mostem nekreslí; od hrany mostu končí s tímto odstupem (m), ať se neslévá s trojúhelníky.
 STAIRS_DECK_CLEAR_M = 0.6
 # Složité schodiště (polygon zahnutý do „C“ / „U“, více ramen s podestou, např. kolem hlavy lávky) se jednou čárou

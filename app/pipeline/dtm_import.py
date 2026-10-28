@@ -478,6 +478,38 @@ def stairs_zone_geometry(work_dir: Path):
     return unary_union(geoms).buffer(dtm_sidewalks.STAIRS_ZONE_M) if geoms else None
 
 
+def short_stairs_with_osm_steps(work_dir: Path, preset_id: str, path_source: str = "mixed"):
+    """Les a MTBO: krátká schodiště z DTM (pod ``STAIRS_AS_PATH_MAX_M``, kreslila by se jako pěšina), kterými vede OSM
+    čára schodů (shapely) nebo None. Schody tu kreslí celé OSM: DTM dílek jako pěšina + zbytek OSM schodů vedle něj
+    byly dvě překrývající se čáry a zub (zastávka na Lamačově, Petr Retest 6, 2026-10-28)."""
+    if preset_id.startswith("sprint"):
+        return None
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_sidewalks
+
+    steps = []
+    for feat in _path_features(work_dir, path_source):
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") == "LineString" and len(coords) >= 2 and is_surface_steps(str((feat.get("properties") or {}).get("highway") or "")):
+            steps.append(LineString(coords))
+    if not steps:
+        return None
+    steps_zone = unary_union(steps).buffer(dtm_sidewalks.STAIRS_OSM_STEPS_NEAR_M)
+    short = []
+    for poly in _load_polygons_file(stairs_path(work_dir)):
+        try:
+            g = Polygon(poly[0], poly[1:])
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, IndexError):
+            continue
+        if not g.is_empty and dtm_sidewalks._long_side(g) < dtm_sidewalks.STAIRS_AS_PATH_MAX_M and g.intersects(steps_zone):
+            short.append(g)
+    return unary_union(short) if short else None
+
+
 def is_surface_steps(highway: str) -> bool:
     """Schody na povrchu (ne lávka, tunel)."""
     from app.pipeline import osm_paths as op
@@ -536,6 +568,7 @@ def build_dtm_stairs_parts(
     ref_lines = [steps_refs, path_refs]
     symbol_cache: dict[str, int | None] = {}
     objects_by_code: dict[str, list[str]] = {}
+    osm_short = short_stairs_with_osm_steps(work_dir, preset_id, path_source)
     for poly in _load_polygons_file(stairs_path(work_dir)):
         try:
             g = Polygon(poly[0], poly[1:])
@@ -544,6 +577,8 @@ def build_dtm_stairs_parts(
             continue
         if g.is_empty:
             continue
+        if osm_short is not None and osm_short.intersects(g) and osm_short.intersection(g).area >= 0.9 * g.area:
+            continue  # krátké schodiště s OSM schody: kreslí je OSM celé
         if dtm_sidewalks.is_complex_stairs(poly, foot):
             if g.area >= dtm_sidewalks.STAIRS_COMPLEX_MIN_AREA_M2:
                 complex_polys.append(g)  # více ramen / u mostu: čáru nelze spolehlivě odvodit, plocha pro mapaře
@@ -2666,8 +2701,11 @@ FENCE_BUILDING_MIN_PIECE_M = 1.5
 
 
 @_job_memo
-def _buildings_zone(work_dir: Path, tol_m: float = FENCE_BUILDING_TOL_M):
-    """Budovy tak, jak se kreslí (DTM budovy + OSM bez protějšku), rozšířené o ``tol_m`` m (shapely) nebo None."""
+def _buildings_zone(work_dir: Path, tol_m: float = FENCE_BUILDING_TOL_M, min_area_m2: float = 0.0):
+    """Budovy tak, jak se kreslí (DTM budovy + OSM bez protějšku), rozšířené o ``tol_m`` m (shapely) nebo None.
+
+    ``min_area_m2``: menší budovy se nepočítají (les a MTBO je kreslí bodem, ``osm_paths.small_buildings_as_points``).
+    """
     from shapely.geometry import shape
     from shapely.ops import unary_union
 
@@ -2685,9 +2723,12 @@ def _buildings_zone(work_dir: Path, tol_m: float = FENCE_BUILDING_TOL_M):
             continue
         try:
             g = shape(geom)
-            polys.append(g if g.is_valid else g.buffer(0))
+            g = g if g.is_valid else g.buffer(0)
         except (ValueError, TypeError):
             continue
+        if min_area_m2 > 0 and g.area < min_area_m2:
+            continue
+        polys.append(g)
     return unary_union(polys).buffer(tol_m) if polys else None
 
 

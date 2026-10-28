@@ -134,3 +134,40 @@ def test_overlay_survives_make_valid_error(monkeypatch):
     monkeypatch.setattr(shapely, "union_all", broken)
     monkeypatch.setattr(shapely, "make_valid", broken)
     assert ps._overlay(shapely.union_all, [box(0, 0, 1, 1)]) is None
+
+
+# (případ, budova v zálivu [m²], záliv zacelený)
+@pytest.mark.parametrize(
+    "case, building_m2, closed",
+    [
+        ("záliv u kiosku 8 m² se zacelí (kiosek je bod 521.3)", 8.0, True),
+        ("záliv u budovy 40 m² zůstane (budova je překážka)", 40.0, False),
+        ("bez budovy se záliv zacelí", 0.0, True),
+    ],
+)
+def test_generalize_paved_feats_closes_bay_unless_building(tmp_path, case, building_m2, closed):
+    import json
+    import math
+
+    from shapely.geometry import mapping, shape
+
+    # Parkoviště 60 × 40 m se zálivem 3 m širokým a 3 m hlubokým v horní hraně (obrys OSM kolem kiosku).
+    bay = box(28, 37, 31, 40.001)
+    parking = box(0, 0, 60, 40).difference(bay)
+    feats = [{"type": "Feature", "properties": {"kind": "parking"}, "geometry": mapping(parking)}]
+    (tmp_path / "osm_paths").mkdir()
+    buildings = []
+    if building_m2:
+        side = math.sqrt(building_m2)
+        b = box(29.5 - side / 2, 38.5 - side / 2, 29.5 + side / 2, 38.5 + side / 2)
+        buildings.append({"type": "Feature", "properties": {"kind": "building"}, "geometry": mapping(b)})
+    (tmp_path / "osm_paths" / "features.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": buildings}), encoding="utf-8"
+    )
+    out = ps.generalize_paved_feats(tmp_path, feats, "forest_10000", 10000)
+    assert len(out) == 1 and out[0]["properties"]["kind"] == "parking", case
+    g = shape(out[0]["geometry"])
+    assert g.contains(Point(29.5, 38.5)) == closed, case
+    assert g.area == pytest.approx(60 * 40 if closed else parking.area, rel=0.03), case  # zaoblení rohů
+    # sprint beze změny
+    assert ps.generalize_paved_feats(tmp_path, feats, "sprint_4000", 4000) is feats

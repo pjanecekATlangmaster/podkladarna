@@ -215,8 +215,9 @@ def test_track_and_path_interrupted_on_paved_area(tmp_path):
     path = _line([(-30, 30), (70, 30)], "footway")
     _write_job(tmp_path, [_area(0, 0, 40, 40)], [track, path])
     lengths = _path_lengths(tmp_path)
-    assert lengths["504.0"] == pytest.approx(60, abs=1.0)  # vozová cesta
-    assert lengths["506.0"] == pytest.approx(60, abs=1.0)  # pěšina
+    # generalizace sítě (``paved_surface.generalize_paved_feats``) obrys zjednoduší o ~0,5 m
+    assert lengths["504.0"] == pytest.approx(60, abs=1.5)  # vozová cesta
+    assert lengths["506.0"] == pytest.approx(60, abs=1.5)  # pěšina
 
 
 def test_bridge_over_paved_area_is_kept(tmp_path):
@@ -264,7 +265,7 @@ def test_edge_omitted_along_road(tmp_path):
     # Bez silnice celý obvod.
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [])
     parts = _parts_with_edge(tmp_path)
-    assert _edge_length(parts) == pytest.approx(160, abs=1.0)
+    assert _edge_length(parts) == pytest.approx(160, abs=8.0)  # generalizace sítě zaoblí rohy (~1,5 m na roh)
 
 
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
