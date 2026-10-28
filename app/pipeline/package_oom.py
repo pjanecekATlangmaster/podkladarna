@@ -713,6 +713,7 @@ def prepare_oom_map(kp_cwd: Path, dest: Path, *, use_dtm: bool = True, **kwargs)
 
     # Les a MTBO: ZABAGED ostatní plochy v sídlech (kreslené jako zpevněná plocha, ne 403) v síti zpevněných ploch.
     paved_zip = None if kwargs.get("ostatni_as_403") else kwargs.get("zabaged_clean")
+    kwargs.pop("courtyard_fill", None)  # starší skripty otoček – dvory kreslí vždy budova
     with dtm_disabled(not use_dtm), zabaged_paved_areas(paved_zip, kwargs.get("max_ostatni_m2", DEFAULT_MAX_OSTATNI_M2)):
         return _prepare_oom_map(kp_cwd, dest, **kwargs)
 
@@ -733,7 +734,6 @@ def _prepare_oom_map(
     formline: float = 0,
     indexcontours_m: float | None = None,
     cliff_symbol: str = "auto",
-    courtyard_fill: str = "none",
     contour_formlines: str = "off",
     path_source: str = PATH_SOURCE_MIXED,
     aopk_trees: Path | None = None,
@@ -907,7 +907,6 @@ def _prepare_oom_map(
         grivation_deg=grivation,
         clip_bounds=vector_clip_bounds,
         aopk_tree_points=aopk_pts or None,
-        courtyard_fill=courtyard_fill,
         path_source=path_source,
     )
     osm_under: list[OomObjectPart] = []

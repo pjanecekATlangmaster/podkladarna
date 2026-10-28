@@ -22,12 +22,6 @@ KP_CLIFF_SENSITIVITY: dict[str, tuple[float, float]] = {
 }
 KP_CLIFF_SENSITIVITY_DEFAULT = "low"
 
-# Nepřístupné dvory (díry v budovách) → plná plocha přes detaily uvnitř:
-# olive = 520 (MTBO 527), building = stejná značka jako budova kolem.
-# „none“ jen pro API a staré joby s vypnutým checkboxem sprint_courtyard_olive.
-COURTYARD_FILL_CHOICES = ("olive", "building", "none")
-COURTYARD_FILL_DEFAULT = "building"
-
 # Pomocné vrstevnice 103 (půl ekvidistance): sparse/more jen kde ukážou tvar
 # navíc, all = všude jako vodítko (jako OCAD z LAZ).
 FORMLINE_MODES = ("off", "sparse", "more", "all")
@@ -97,17 +91,6 @@ def resolve_cliff_sensitivity(options: dict | None) -> str:
     if key in KP_CLIFF_SENSITIVITY:
         return key
     return KP_CLIFF_SENSITIVITY_DEFAULT
-
-
-def resolve_courtyard_fill(options: dict | None) -> str:
-    opts = options or {}
-    raw = str(opts.get("sprint_courtyard_fill") or "").strip().lower()
-    if raw in COURTYARD_FILL_CHOICES:
-        return raw
-    # Starý checkbox: vypnutý = dvory nevyplňovat, zapnutý = oliva (tehdejší default).
-    if "sprint_courtyard_olive" in opts:
-        return "olive" if opts["sprint_courtyard_olive"] else "none"
-    return COURTYARD_FILL_DEFAULT
 
 
 def resolve_formline_mode(options: dict | None) -> str:

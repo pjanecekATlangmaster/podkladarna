@@ -1965,8 +1965,8 @@ def test_osm_point_feature_outside_bounds_is_dropped(tmp_path):
     assert sum(p.count for p in got) == 1
 
 
-def test_courtyard_fill_olive_or_building_symbol(tmp_path):
-    """Díra v budově = dvůr: oliva 520, nebo stejná značka jako budova; navrch."""
+def test_courtyard_fill_building_symbol(tmp_path):
+    """Díra v budově = dvůr: vždy stejná značka jako budova (ISSprOM 521); navrch."""
     from app.pipeline.osm_paths import feature_oom_code
 
     outer = [[0.0, 0.0], [60.0, 0.0], [60.0, 60.0], [0.0, 60.0], [0.0, 0.0]]
@@ -1985,29 +1985,15 @@ def test_courtyard_fill_olive_or_building_symbol(tmp_path):
     building_code = feature_oom_code("building", "isom2017")
     indices = {building_code: 11, "520": 22}
 
-    def build(fill: str):
-        with patch(
-            "app.pipeline.osm_paths.symbol_index_for_code",
-            side_effect=lambda _p, _s, code: indices.get(code),
-        ):
-            return {
-                p.name: p
-                for p in build_osm_feature_parts(
-                    tmp_path, **_build_kwargs(), courtyard_fill=fill
-                )
-            }
-
-    olive = build("olive")
-    assert olive["OSM – dvory (oliva)"].count == 1
-    assert 'symbol="22"' in olive["OSM – dvory (oliva)"].objects_xml
-
-    same = build("building")
+    with patch(
+        "app.pipeline.osm_paths.symbol_index_for_code",
+        side_effect=lambda _p, _s, code: indices.get(code),
+    ):
+        same = {p.name: p for p in build_osm_feature_parts(tmp_path, **_build_kwargs())}
     assert same["OSM – dvory (budova)"].count == 1
     assert 'symbol="11"' in same["OSM – dvory (budova)"].objects_xml
     # Budova sama zůstává s dírou; výplň je samostatný objekt navrch.
     assert same["OSM budovy"].count == 1
-
-    assert not any("dvory" in name for name in build("none"))
 
 
 def test_classify_power_line_major_minor():

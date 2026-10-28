@@ -28,7 +28,6 @@ from app.pipeline.fetch_ruian import fetch_ruian_buildings_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.job_options import (
     load_presets,
-    resolve_courtyard_fill,
     resolve_formline_mode,
     resolve_vege_height,
     resolve_use_dtm,
@@ -996,7 +995,6 @@ def _package_output(
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
-            courtyard_fill = resolve_courtyard_fill(options)
             cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
             include_dxf = bool(options.get("output_dxf", True))
             contour_interval_m = meta.get("contour_interval_m")
@@ -1088,7 +1086,6 @@ def _package_output(
                         formline=0,
                         indexcontours_m=indexcontours_m,
                         cliff_symbol=cliff_symbol,
-                        courtyard_fill=courtyard_fill,
                         contour_formlines=resolve_formline_mode(options),
                         path_source=path_src,
                         aopk_trees=aopk_path,

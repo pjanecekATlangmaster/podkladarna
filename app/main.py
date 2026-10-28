@@ -48,7 +48,6 @@ from app.pipeline.job_options import (
     VEG_SMOOTH_LEVELS,
     load_presets,
     resolve_cliff_sensitivity,
-    resolve_courtyard_fill,
     resolve_formline_mode,
     resolve_vege_height,
     resolve_use_dtm,
@@ -101,7 +100,6 @@ def _form_str(form, key: str, default: str = "") -> str:
     return str(val)
 
 
-_COURTYARD_FILL_LABEL = {"olive": "oliva", "building": "budova", "none": "ne"}
 _FORMLINE_LABEL = {"off": "ne", "sparse": "střídmě", "more": "víc", "all": "všude"}
 
 app = FastAPI(title="Podkladarna", version=APP_VERSION)
@@ -749,13 +747,11 @@ async def api_create_job(request: Request):
         "kp_osm_playground_equipment"
     )
     options["kp_osm_priority"] = _opt_bool("kp_osm_priority")
-    # Pevný default (bez volby ve formuláři): footway jako zpevněný chodník jen ve sprintu,
-    # nepřístupné dvory v budovách kreslí budova.
+    # Pevný default (bez volby ve formuláři): footway jako zpevněný chodník jen ve sprintu.
     options["kp_osm_footway_as_sidewalk"] = default_footway_as_sidewalk(
         options.get("map_scale"),
         preset_id,
     )
-    options["sprint_courtyard_fill"] = "building"
     formlines_raw = _form_str(form, "contour_formlines").strip().lower()
     if formlines_raw in FORMLINE_MODES:
         options["contour_formlines"] = formlines_raw
@@ -867,8 +863,7 @@ async def api_create_job(request: Request):
         f"footway jako chodník {_yn('kp_osm_footway_as_sidewalk')}"
     )
     log(
-        f"  Sídla: dvory {_COURTYARD_FILL_LABEL[resolve_courtyard_fill(options)]} · "
-        f"residential 501 {_yn('sprint_residual_paved')}"
+        f"  Sídla: residential 501 {_yn('sprint_residual_paved')}"
         f"/{options.get('sprint_residual_size', 'small')} · "
         f"ostatní plocha {options.get('ostatni_plocha', 'small')}"
         f"{'/403' if options.get('ostatni_plocha_as_403') else ''}"
