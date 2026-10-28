@@ -18,6 +18,9 @@ DUAL_GAP_M = 25.0
 # Pásy blíž než tolik m nejsou dva pásy, ale tatáž osa (chyba dat).
 DUAL_MIN_AXIS_M = 3.0
 STEP_M = 2.0
+# Osa se vyhladí klouzavým průměrem v okně ± tolik m: střed pásů skáče o 1–2 m u zálivu nebo napojení vedlejší
+# (Lamačova u Lipského, Petr 2026-10-28 „podivně se vlní“); oblouk R 200 m se posune jen o ~0,3 m.
+AXIS_SMOOTH_M = 20.0
 # Pásy jsou protisměrné jen se směry do tolika stupňů od sebe (po otočení); jinak by navazující úseky jedné čáry
 # nebo zatáčka k druhému pásu dávaly falešnou osu (Lipského / Lamačova u kruhového objezdu, D25).
 OPPOSITE_MAX_DEG = 30.0
@@ -235,7 +238,7 @@ def _compute(feats: list[dict], max_m: float, zone_half: float | None = None, is
     merged = linemerge(union) if union.geom_type == "MultiLineString" else union
     pieces = [[(float(x), float(y)) for x, y in g.coords] for g in getattr(merged, "geoms", [merged]) if g.geom_type == "LineString"]
     pieces = _bridge_gaps(join_line_pieces(pieces), DUAL_GAP_M, islands)
-    kept = [LineString(c) for c in pieces if len(c) >= 2 and LineString(c).length >= DUAL_MIN_LEN_M]
+    kept = [LineString(_smooth(c, AXIS_SMOOTH_M)) for c in pieces if len(c) >= 2 and LineString(c).length >= DUAL_MIN_LEN_M]
     if not kept:
         return [], None
     r = max(max_m / 2.0 + 1.0, zone_half or 0.0)  # oba pásy leží do max_m/2 od osy; boční ulice končí na okraji výplně 502.0
@@ -252,6 +255,25 @@ def _compute(feats: list[dict], max_m: float, zone_half: float | None = None, is
     if islands is not None:
         zone = zone.difference(islands.buffer(ROUNDABOUT_KEEP_M))  # prstenec objezdu se neořízne
     return [[(float(x), float(y)) for x, y in ln.coords] for ln in kept], zone
+
+
+def _smooth(coords: list[tuple[float, float]], half_m: float) -> list[tuple[float, float]]:
+    """Klouzavý průměr bodů čáry převzorkované po ``STEP_M`` v okně ± ``half_m`` (u konců se okno souměrně zúží,
+    konce zůstanou na místě)."""
+    from shapely.geometry import LineString
+
+    ln = LineString(coords)
+    n = int(ln.length // STEP_M) + 1
+    if n < 3 or half_m <= 0:
+        return coords
+    pts = [ln.interpolate(ln.length * k / (n - 1)).coords[0] for k in range(n)]
+    w = max(1, int(round(half_m / (ln.length / (n - 1)))))
+    out = []
+    for k in range(n):
+        h = min(w, k, n - 1 - k)
+        win = pts[k - h:k + h + 1]
+        out.append((sum(p[0] for p in win) / len(win), sum(p[1] for p in win) / len(win)))
+    return out
 
 
 def _continuation_zone(ext, r: float):
@@ -394,6 +416,8 @@ FORK_MAX_DEG = 60.0
 FORK_NODE_KEEP_M = 3.0
 # Vlastnost čáry, která ramena nahrazuje (zóna ramen ji neořízne).
 FORK_LINK_PROP = "fork_link"
+# Úseky téhož ramene se spojí, odbočují-li od sebe nejvýš o tolik stupňů.
+JOIN_TURN_DEG = 45.0
 _FORK_CACHE: dict[tuple, tuple] = {}
 
 
@@ -434,6 +458,8 @@ def _forks(feats: list[dict], max_m: float, dual_zone=None):
     def _close(p, q, tol=0.5):
         return math.hypot(p[0] - q[0], p[1] - q[1]) <= tol
 
+    by_name = {name: _chain_arms(arms, _close) for name, arms in by_name.items()}
+
     links, zones = [], []
     for arms in by_name.values():
         used: set[int] = set()  # indexy ramen v rámci jedné ulice
@@ -463,6 +489,43 @@ def _forks(feats: list[dict], max_m: float, dual_zone=None):
                 zones.append(unary_union([la, lb]).buffer(1.0, cap_style=2).difference(keep))
                 used.update((i, j))
     return links, (unary_union(zones) if zones else None)
+
+
+def _chain_arms(arms: list, close) -> list:
+    """Rameno rozdělené v OSM na víc úseků (Pražského u objezdu na Lamačově: 41 + 13 m) se spojí do jednoho, dokud
+    úsek přímo navazuje (konec na začátek, odbočení do ``JOIN_TURN_DEG``, v uzlu nic dalšího) a délka nepřesáhne
+    ``FORK_ARM_MAX_M``; jinak by krátký zbytek ramene zůstal u vrcholu jako samostatný pahýl jiné šířky."""
+    import math
+
+    from shapely.geometry import LineString
+
+    def _dir(a, b):
+        d = math.hypot(b[0] - a[0], b[1] - a[1])
+        return ((b[0] - a[0]) / d, (b[1] - a[1]) / d) if d > 0.01 else None
+
+    arms = [(list(c), hw) for c, hw in arms]
+    cos_max = math.cos(math.radians(JOIN_TURN_DEG))
+    merged = True
+    while merged:
+        merged = False
+        for i, (a, hw_a) in enumerate(arms):
+            nxt = [j for j, (b, _hw) in enumerate(arms) if j != i and close(a[-1], b[0])]
+            others = [j for j, (b, _hw) in enumerate(arms) if j != i and close(a[-1], b[-1])]
+            if len(nxt) != 1 or others:
+                continue
+            j = nxt[0]
+            b, hw_b = arms[j]
+            da, db = _dir(a[-2], a[-1]), _dir(b[0], b[1])
+            if hw_b != hw_a or da is None or db is None or da[0] * db[0] + da[1] * db[1] < cos_max:
+                continue
+            joined = [*a, *b[1:]]
+            if LineString(joined).length > FORK_ARM_MAX_M:
+                continue
+            arms[i] = (joined, hw_a)
+            del arms[j]
+            merged = True
+            break
+    return arms
 
 
 # Odbočovací rampa (Petr 2026-10-28, U Náhonu × K Barrandovu): nepojmenovaná jednosměrná silnice do ``SLIP_MAX_M`` m,

@@ -179,18 +179,27 @@ def test_axis_not_extended_along_diverging_lane():
 
 
 @pytest.mark.parametrize(
-    "arm_in, arm_out, linked",
+    "arm_in, arm_out, linked, split",
     [
         # Lipského u zastávky: dvě ramena 25 m z vrcholu (0, 25) k hlavní silnici y = 0, konce 8 m od sebe → jedna čára
-        ([(-4, 0), (0, 25)], [(0, 25), (4, 0)], True),
+        ([(-4, 0), (0, 25)], [(0, 25), (4, 0)], True, False),
+        # Pražského u objezdu: každé rameno jsou v OSM dva úseky – spojí se, u silnice nezůstane pahýl
+        ([(-4, 0), (0, 25)], [(0, 25), (4, 0)], True, True),
         # konce ramen 30 m od sebe (dvě samostatné ulice) – ne
-        ([(-15, 0), (0, 25)], [(0, 25), (15, 0)], False),
+        ([(-15, 0), (0, 25)], [(0, 25), (15, 0)], False, False),
         # ramena ve vrcholu nenavazují protisměrně (obě do vrcholu) – ne
-        ([(-4, 0), (0, 25)], [(4, 0), (0, 25)], False),
+        ([(-4, 0), (0, 25)], [(4, 0), (0, 25)], False, False),
     ],
 )
-def test_short_fork_drawn_as_one_line(arm_in, arm_out, linked):
-    feats = [_feat(arm_in, name="Lipského", hw="road_3"), _feat(arm_out, name="Lipského", hw="road_3")]
+def test_short_fork_drawn_as_one_line(arm_in, arm_out, linked, split):
+    def _ways(arm):
+        if not split:
+            return [arm]
+        (x0, y0), (x1, y1) = arm
+        m = (x0 + 0.3 * (x1 - x0), y0 + 0.3 * (y1 - y0))
+        return [[arm[0], m], [m, arm[1]]]
+
+    feats = [_feat(w, name="Lipského", hw="road_3") for arm in (arm_in, arm_out) for w in _ways(arm)]
     links, zone = dc._forks(feats, 13.1)
     assert bool(links) is linked
     # stejné rozvětvení jiné ulice o 1 km dál se najde také (ramena se párují v rámci ulice)
@@ -199,7 +208,7 @@ def test_short_fork_drawn_as_one_line(arm_in, arm_out, linked):
     assert len(both) == (2 if linked else 0)
     if linked:
         (mid, hw), = links
-        assert hw == "road_3" and mid[0] == pytest.approx((0, 25)) and abs(mid[-1][0]) < 0.5
+        assert hw == "road_3" and mid[0] == pytest.approx((0, 25)) and abs(mid[-1][0]) < 0.5 and mid[-1][1] < 0.5
         main = LineString([(-50, 0), (50, 0)])
         assert zone.intersection(main).length < 0.5  # hlavní silnice u konců ramen zůstane
         assert zone.intersection(LineString(arm_in)).length > 15  # rameno se nekreslí
@@ -224,3 +233,13 @@ def test_slip_lane_beside_junction_not_drawn(ramp, name, dropped):
     from app.pipeline.dtm_sidewalks import clip_outside
 
     assert not dropped or not clip_outside(ramp, zone)
+
+
+def test_axis_smoothed_at_bay():
+    # Záliv zastávky: jeden pás uhne o 2 m na 20 m – osa se nevlní (střed by uhnul o 1 m), konce zůstanou.
+    lane_a = _feat([(0, 0), (300, 0)])
+    lane_b = _feat([(300, 10), (160, 10), (155, 12), (145, 12), (140, 10), (0, 10)])
+    axes, _zone = dc._compute([lane_a, lane_b], 13.1)
+    (axis,) = axes
+    assert max(abs(y - 5.0) for _x, y in axis) < 0.5
+    assert axis[0][0] < 3 and axis[-1][0] > 297  # konce osy zůstanou

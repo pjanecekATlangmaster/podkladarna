@@ -80,34 +80,45 @@ class WidthIndex:
                 return float(b - a)
         return None
 
-    def line_width(self, coords: list, step_m: float = SAMPLE_STEP_M) -> float | None:
-        """Medián šířky plochy podél čáry, nebo None (čára leží v ploše méně než z ``MIN_INSIDE_SHARE``)."""
+    def line_width(self, coords: list, step_m: float = SAMPLE_STEP_M, exclude=None, exclude_key=None) -> float | None:
+        """Medián šířky plochy podél čáry, nebo None (čára leží v ploše méně než z ``MIN_INSIDE_SHARE``).
+
+        ``exclude`` (shapely, prepared): řezy v této zóně se neberou – okolí křižovatek, kde řez měří rozšíření
+        křižovatky (16–36 m u Lidlu), ne silnici; čára celá v zóně dá None (symbol podle tagů / souseda v tahu).
+        ``exclude_key``: hashovatelný popis zóny do cache (bez něj se se zónou necachuje).
+        """
         if self.tree is None or len(coords) < 2:
             return None
-        key = (step_m, tuple((float(c[0]), float(c[1])) for c in coords))
+        if exclude is not None and exclude_key is None:
+            return self._line_width(coords, step_m, exclude)
+        key = (step_m, exclude_key, tuple((float(c[0]), float(c[1])) for c in coords))
         if key not in self._line_cache:
-            self._line_cache[key] = self._line_width(coords, step_m)
+            self._line_cache[key] = self._line_width(coords, step_m, exclude)
         return self._line_cache[key]
 
-    def _line_width(self, coords: list, step_m: float) -> float | None:
-        from shapely.geometry import LineString
+    def _line_width(self, coords: list, step_m: float, exclude=None) -> float | None:
+        from shapely.geometry import LineString, Point
 
         line = LineString(coords)
         if line.length <= 0:
             return None
         n = max(1, int(line.length // step_m))
         widths: list[float] = []
+        kept = 0
         for k in range(n):
             d = (k + 0.5) * line.length / n
+            p = line.interpolate(d)
+            if exclude is not None and exclude.contains(Point(p.x, p.y)):
+                continue
+            kept += 1
             a = line.interpolate(max(0.0, d - 0.5))
             b = line.interpolate(min(line.length, d + 0.5))
             tx, ty = b.x - a.x, b.y - a.y
             norm = math.hypot(tx, ty) or 1.0
-            p = line.interpolate(d)
             w = self.width_at(p.x, p.y, -ty / norm, tx / norm)
             if w is not None:
                 widths.append(w)
-        if len(widths) < MIN_INSIDE_SHARE * n:
+        if kept == 0 or len(widths) < MIN_INSIDE_SHARE * kept:
             return None
         return statistics.median(widths)
 

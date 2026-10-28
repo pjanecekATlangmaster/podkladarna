@@ -12,9 +12,12 @@ import json
 from pathlib import Path
 
 JUNCTION_AREAS = True
-# Petr 2026-10-28: les a MTBO kreslí silnice jen čarou (i kruhové objezdy a složité křižovatky) – přechod plochy
-# křižovatky na čáru 502.x dělal zuby a kousky jiné kresby (Lamačova). True vrátí plochy podle ``JUNCTION_AREAS``.
-ROAD_AREAS = False
+# Petr 2026-10-28: les a MTBO kreslí kruhové objezdy jen čarou – přechod plochy objezdu na čáru 502.x dělal zuby
+# a kousky jiné kresby (Lamačova, 2.45.0). Plocha složité křižovatky ale nese detail z DTM (Lamačova × K Barrandovu),
+# proto zůstává (2.46.0). ``ROAD_AREAS = False`` kreslí silnice v lese a MTBO jen čarou; ``ROUNDABOUT_AREAS = True``
+# vrátí plochy i u kruhových objezdů.
+ROAD_AREAS = True
+ROUNDABOUT_AREAS = False
 # Třídy silnic, jejichž uzly tvoří křižovatky (bez účelových komunikací ``road_1``: vjezdy a parkoviště nejsou křižovatky).
 JUNCTION_ROAD_BASES = frozenset({"road_2", "road_3", "road_4"})
 # Uzly OSM silnic blíž než tolik m tvoří jednu křižovatku; obal shluku; dosah plochy silnic z DTM kolem obalu.
@@ -155,6 +158,8 @@ def complex_junction_hulls(work_dir: Path, path_source: str = "mixed", preset_id
                     if dual_zone is not None and dual_zone.contains(hp.centroid):
                         continue  # dělicí pás rozdělené vozovky
                     islands += 1
+        if rb_hit and not ROUNDABOUT_AREAS:
+            continue  # kruhový objezd kreslí čáry (prstenec a ramena)
         if islands >= 1 or rb_hit or n_one >= MIN_ONEWAY:
             if rb_hit:
                 hull = unary_union([hull, *[g.buffer(HULL_PAD_M) for g in rb_hit]])
@@ -200,5 +205,107 @@ def junction_area_geometry(work_dir: Path, preset_id: str, scale: int, path_sour
             polys = [g for g in getattr(area, "geoms", [area]) if g.geom_type == "Polygon" and not g.is_empty]
             if polys:
                 result = without_small_pieces(di._generalized(unary_union(polys), work_dir, scale))
+                if result is not None and MOUTH_TAPER_MM > 0:
+                    from app.pipeline.osm_paths import mm_to_ground_m
+
+                    result = funnel_mouths(result, _entering_lines(work_dir, preset_id, scale), mm_to_ground_m(MOUTH_TAPER_MM, scale))
     _CACHE[key] = result
     return result
+
+
+# Ústí čáry do plochy křižovatky: v posledních tolika mm mapy před ústím se plocha zúží na šířku výplně vstupující čáry a
+# plynule (trychtýřem) rozšíří – vstup 502.0 Lamačovy do plochy měl zub (Petr, Retest 3, 2026-10-28). 0 = beze změny.
+MOUTH_TAPER_MM = 1.0
+# Šířka trychtýře na vnitřním konci (půlka, m) – víc než nejširší křižovatka.
+MOUTH_WIDE_HALF_M = 30.0
+
+
+def _entering_lines(work_dir: Path, preset_id: str, scale: int) -> list[tuple]:
+    """Kreslené čáry silnic ``(LineString, půlka šířky výplně m)``: osy 502.0 a OSM silnice mimo pás os (symbol podle tagů)."""
+    from shapely.geometry import LineString
+
+    from app.pipeline import osm_paths as op
+    from app.pipeline.dtm_sidewalks import clip_outside
+    from app.pipeline.dual_carriageway import dual_axes
+    from app.pipeline.oom_symbol_map import symbol_fill_width_mm
+
+    def _half(code: str) -> float:
+        mm = symbol_fill_width_mm(preset_id, scale, code)
+        return op.mm_to_ground_m(mm, scale) / 2.0 if mm else op.drawn_symbol_width_m("road_3", preset_id, scale) * 0.4
+
+    out = []
+    axes, zone = dual_axes(work_dir, preset_id, scale)
+    out += [(LineString(c), _half("502.0")) for c in axes if len(c) >= 2]
+    for feat in op._paths_features_for_network(work_dir):
+        geom = feat.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        hw = str((feat.get("properties") or {}).get("highway") or "")
+        if geom.get("type") != "LineString" or len(coords) < 2 or not op.path_draw_highway(hw).startswith("road_"):
+            continue
+        if op.is_bridge_highway(hw) or op.is_tunnel_highway(hw):
+            continue
+        pts = [(float(x), float(y)) for x, y in coords]
+        parts = clip_outside(pts, zone) if zone is not None else [pts]
+        half = _half(op.osm_oom_code(hw, preset_id) or "502")
+        out += [(LineString(p), half) for p in parts if len(p) >= 2]
+    return out
+
+
+def funnel_mouths(area, lines: list[tuple], taper_m: float):
+    """Plocha ``area`` bez zubů v ústích: tam, kde čára ``(LineString, půlka výplně)`` vstupuje do plochy, se plocha
+    v délce ``taper_m`` od vstupu ořízne na lichoběžník od šířky výplně čáry po ``MOUTH_WIDE_HALF_M``. Ústí jiných čar
+    (jejich lichoběžníky a pásy) ořez nezasáhne."""
+    import math
+
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import unary_union
+
+    if area is None or area.is_empty or not lines:
+        return area
+    boundary = area.boundary
+    tapers, cuts = [], []
+    for ln, half in lines:
+        hit = ln.intersection(boundary)
+        pts = [g for g in getattr(hit, "geoms", [hit]) if g.geom_type == "Point"]
+        for p in pts:
+            t = ln.project(p)
+            inner = ln.interpolate(min(ln.length, t + 1.0))
+            if not area.contains(inner):
+                inner = ln.interpolate(max(0.0, t - 1.0))
+                if not area.contains(inner):
+                    continue
+            dx, dy = inner.x - p.x, inner.y - p.y
+            n = math.hypot(dx, dy)
+            if n < 1e-6:
+                continue
+            dx, dy = dx / n, dy / n
+            nx, ny = -dy, dx
+            q = (p.x + dx * taper_m, p.y + dy * taper_m)
+            back = (p.x - dx * 1.0, p.y - dy * 1.0)
+            wide = MOUTH_WIDE_HALF_M
+            taper = Polygon(
+                [
+                    (back[0] + nx * half, back[1] + ny * half),
+                    (q[0] + nx * wide, q[1] + ny * wide),
+                    (q[0] - nx * wide, q[1] - ny * wide),
+                    (back[0] - nx * half, back[1] - ny * half),
+                ]
+            )
+            box_ = Polygon(
+                [
+                    (back[0] + nx * wide, back[1] + ny * wide),
+                    (q[0] + nx * wide, q[1] + ny * wide),
+                    (q[0] - nx * wide, q[1] - ny * wide),
+                    (back[0] - nx * wide, back[1] - ny * wide),
+                ]
+            )
+            tapers.append(taper)
+            cuts.append(box_.difference(taper))
+    if not cuts:
+        return area
+    keep = unary_union(tapers + [ln.buffer(half, cap_style=2) for ln, half in lines])
+    cut = unary_union(cuts).difference(keep)
+    if cut.is_empty:
+        return area
+    out = area.difference(cut)
+    return without_small_pieces(out) if not out.is_empty else None
