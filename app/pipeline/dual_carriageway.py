@@ -471,6 +471,8 @@ def _forks(feats: list[dict], max_m: float, dual_zone=None):
 SLIP_MAX_M = 80.0
 SLIP_NODE_MAX_M = 50.0
 SLIP_MIN_OFFSET_M = 5.0
+# Pás kolem ostatních silnic (m), který zóna rampy neořízne.
+SLIP_KEEP_M = 0.3
 _SLIP_CACHE: dict[tuple, object] = {}
 
 
@@ -539,5 +541,11 @@ def _slip_zone(feats: list[dict], roads: list[list[tuple[float, float]]]):
             if hit:
                 break
         if hit:
-            zones.append(r.buffer(1.0, cap_style=2))
+            # ostatní silnice (hlavní čára u konců rampy, kříženci) zóna neořízne; zbytky rampy podél nich jsou
+            # kratší než ``OSM_MIN_REMAINDER_M`` a při ořezu odpadnou
+            zone = r.buffer(1.0, cap_style=2)
+            near = [others[i] for i in tree.query(zone) if others[i].intersects(zone)]
+            if near:
+                zone = zone.difference(unary_union(near).buffer(SLIP_KEEP_M))
+            zones.append(zone)
     return unary_union(zones) if zones else None
