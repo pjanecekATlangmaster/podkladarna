@@ -6882,6 +6882,7 @@ def build_osm_path_parts(
             other_lines = _prep_other(_uu_band(_other)) if _other else None
     # Les / MTBO: navazující kusy se stejným symbolem (úseky OSM, krátké schody převedené na pěšinu) jako jedna čára.
     join_pieces: dict[int, list] | None = None if preset_id.startswith("sprint") else {}
+    unjoined_pieces: dict[int, list] = {}  # mosty, tunely, schody (kreslí se rovnou) – jen napojení pro ``road_ends``
     _corridor_bands: dict[float, object] = {}  # pás ``corridor_zone.buffer(w / 2)`` podle šířky (jednou na šířku, ne na čáru)
     _corridor_boundary = corridor_zone.boundary if corridor_zone is not None else None
     for feat_i, feat in enumerate(data.get("features") or []):
@@ -7099,6 +7100,8 @@ def build_osm_path_parts(
             ):
                 join_pieces.setdefault(piece_idx, []).append(piece)
                 continue
+            if join_pieces is not None:
+                unjoined_pieces.setdefault(piece_idx, []).append(piece)  # most, tunel, schody: napojení pro ``road_ends``
             mapped = [
                 projected_to_map_coord(
                     x,
@@ -7136,18 +7139,27 @@ def build_osm_path_parts(
             ]
             from app.pipeline.dtm_import import _buildings_zone
 
-            _blockers = [g for g in (paved_network, _buildings_zone(work_dir, tol_m=0.0)) if g is not None and not g.is_empty]
+            # plochy, ke kterým čára smí vést (pahýl k nim zůstává): zpevněné plochy, budovy, plochy z DTM
+            _blockers = [
+                g
+                for g in (paved_network, _buildings_zone(work_dir, tol_m=0.0), sidewalk_cover, mtbo_sidewalk_zone, corridor_zone, _dtm_parking_zone)
+                if g is not None and not g.is_empty
+            ]
             from shapely.ops import unary_union as _uu_blk
 
-            # ostatní kreslené čáry (pěšiny, vozové cesty…) jsou napojení a cíl dotažení, samy se nemění
+            # ostatní kreslené čáry (pěšiny, vozové cesty…) jsou napojení; samy se jen zbaví pahýlů (``stub_by_code``);
+            # mosty, tunely a schody (``unjoined_pieces``) jsou jen napojení
             others_by_code = {idx_to_code[i]: pieces for i, pieces in joined.items() if i in idx_to_code and idx_to_code[i] not in by_code}
+            fixed_by_code = {f"_{i}": pieces for i, pieces in unjoined_pieces.items()}
             tidy = tidy_road_ends(
                 by_code,
                 osm_roads,
                 preset_id=preset_id,
                 scale=scale,
                 blockers=_uu_blk(_blockers) if _blockers else None,
-                fixed_by_code=others_by_code or None,
+                fixed_by_code=fixed_by_code or None,
+                stub_by_code=others_by_code or None,
+                bounds=tuple(clip_bounds) if clip_bounds else None,
             )
             for code, pieces in tidy.items():
                 joined[symbol_cache[code]] = pieces

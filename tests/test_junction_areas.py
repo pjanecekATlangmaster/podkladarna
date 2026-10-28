@@ -79,13 +79,33 @@ def test_roundabout_and_many_oneway_lanes_are_complex(tmp_path, monkeypatch):
 
 
 def test_funnel_mouth_narrows_area_to_line_fill():
-    # Plocha křižovatky 40 m široká, silnice (výplň ± 4 m) vstupuje zleva: v ústí má plocha šířku výplně, 10 m dál je plná.
+    # Plocha křižovatky 40 m široká, silnice (ústí ± 4 m) vstupuje zleva: v ústí má plocha šířku ústí, trychtýř 45°
+    # (5 m dál ± 9 m), 10 m dál je plná.
     from shapely.geometry import LineString, box
 
     area = box(0, -20, 60, 20)
     line = LineString([(-50, 0), (30, 0)])
     out = ja.funnel_mouths(area, [(line, 4.0)], 10.0)
     assert out.contains(Point(0.5, 3)) and not out.contains(Point(0.5, 10))
+    assert out.contains(Point(5, 8)) and not out.contains(Point(5, 10))
     assert out.contains(Point(11, 19)) and out.contains(Point(40, 19))
     # bez čáry beze změny
     assert ja.funnel_mouths(area, [], 10.0).equals(area)
+
+
+def test_funnel_mouth_ends_area_square_to_line():
+    # Šikmý konec plochy z DTM (Retest 5): plocha končí kolmo na čáru v místě vstupu, nic z ní nepřesahuje za konec
+    # kresby silnice; ústí jiné čáry (její pás) se neořízne.
+    from shapely.geometry import LineString, Polygon
+
+    area = Polygon([(0, -20), (60, -20), (60, 20), (-8, 20)])  # levý okraj šikmo, osa protne v x = -4
+    line = LineString([(-50, 0), (30, 0)])
+    out = ja.funnel_mouths(area, [(line, 4.0)], 10.0)
+    assert not out.contains(Point(-6, 15)) and not out.contains(Point(-5, 2))
+    assert out.contains(Point(-3.5, 2)) and out.contains(Point(20, 15))
+    # na druhé straně šikmý konec nedosahoval ke konci kresby (x = -4): plocha se k němu doplní
+    assert out.contains(Point(-3.5, -3))
+    # druhá čára vstupuje shora vedle ústí: její pás zůstane
+    other = LineString([(-6, 40), (-6, -10)])
+    out2 = ja.funnel_mouths(area, [(line, 4.0), (other, 3.0)], 10.0)
+    assert out2.contains(Point(-6, 15))
