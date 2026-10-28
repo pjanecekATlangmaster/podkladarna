@@ -80,15 +80,18 @@ class WidthIndex:
                 return float(b - a)
         return None
 
-    def line_width(self, coords: list, step_m: float = SAMPLE_STEP_M, exclude=None) -> float | None:
+    def line_width(self, coords: list, step_m: float = SAMPLE_STEP_M, exclude=None, exclude_key=None) -> float | None:
         """Medián šířky plochy podél čáry, nebo None (čára leží v ploše méně než z ``MIN_INSIDE_SHARE``).
 
         ``exclude`` (shapely, prepared): řezy v této zóně se neberou – okolí křižovatek, kde řez měří rozšíření
         křižovatky (16–36 m u Lidlu), ne silnici; čára celá v zóně dá None (symbol podle tagů / souseda v tahu).
+        ``exclude_key``: hashovatelný popis zóny do cache (bez něj se se zónou necachuje).
         """
         if self.tree is None or len(coords) < 2:
             return None
-        key = (step_m, id(exclude), tuple((float(c[0]), float(c[1])) for c in coords))
+        if exclude is not None and exclude_key is None:
+            return self._line_width(coords, step_m, exclude)
+        key = (step_m, exclude_key, tuple((float(c[0]), float(c[1])) for c in coords))
         if key not in self._line_cache:
             self._line_cache[key] = self._line_width(coords, step_m, exclude)
         return self._line_cache[key]

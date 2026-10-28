@@ -6361,6 +6361,7 @@ def _osm_line_code(
     walk_widths=None,
     service_links=frozenset(),
     width_exclude=None,
+    width_exclude_key=None,
 ) -> str | None:
     """Symbol čáry OSM: podle tagů, u lesa / MTBO podle šířky z DTM, účelová spojka 502; silnice po pravidle tahu
     (``road_strokes``, vlastnost ``stroke_code`` z ``_apply_road_strokes``) má symbol už rozhodnutý."""
@@ -6383,7 +6384,7 @@ def _osm_line_code(
         # Krátká účelová komunikace šířku z DTM nebere: řez zachytí těleso sousední ulice (way/1032671443).
         _index = road_widths if path_draw_highway(hw).startswith("road_") else walk_widths
         if _index is not None:
-            code = width_line_code(hw, _index.line_width(coords, exclude=width_exclude), code)
+            code = width_line_code(hw, _index.line_width(coords, exclude=width_exclude, exclude_key=width_exclude_key), code)
     if feat_i in service_links and code not in {"502", "502.1"}:
         code = "502"  # účelová spojka silnice → parkoviště / garáž jako silnice
     return code
@@ -6416,9 +6417,21 @@ def _apply_road_strokes(
     if not idx:
         return
     # šířka z DTM se měří mimo okolí křižovatek (řez tam měří rozšíření křižovatky, ne silnici)
-    exclude = junction_zone(lines, mm_to_ground_m(JUNCTION_EXCL_MM, scale)) if road_widths is not None else None
+    exclude = exclude_key = None
+    if road_widths is not None:
+        _r = mm_to_ground_m(JUNCTION_EXCL_MM, scale)
+        exclude, _pts = junction_zone(lines, _r)
+        exclude_key = (_r, tuple(sorted(_pts)))
     codes = [
-        _osm_line_code(i, features[i], preset_id, road_widths=road_widths, service_links=service_links, width_exclude=exclude)
+        _osm_line_code(
+            i,
+            features[i],
+            preset_id,
+            road_widths=road_widths,
+            service_links=service_links,
+            width_exclude=exclude,
+            width_exclude_key=exclude_key,
+        )
         for i in idx
     ]
     keep = [k for k, c in enumerate(codes) if c is not None]
@@ -7098,12 +7111,15 @@ def build_osm_path_parts(
             _blockers = [g for g in (paved_network, _buildings_zone(work_dir, tol_m=0.0)) if g is not None and not g.is_empty]
             from shapely.ops import unary_union as _uu_blk
 
+            # ostatní kreslené čáry (pěšiny, vozové cesty…) jsou napojení a cíl dotažení, samy se nemění
+            others_by_code = {idx_to_code[i]: pieces for i, pieces in joined.items() if i in idx_to_code and idx_to_code[i] not in by_code}
             tidy = tidy_road_ends(
                 by_code,
                 osm_roads,
                 preset_id=preset_id,
                 scale=scale,
                 blockers=_uu_blk(_blockers) if _blockers else None,
+                fixed_by_code=others_by_code or None,
             )
             for code, pieces in tidy.items():
                 joined[symbol_cache[code]] = pieces

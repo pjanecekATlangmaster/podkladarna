@@ -65,9 +65,9 @@ def test_ring_is_one_stroke():
 
 
 def test_dead_end_branch_narrows_to_feeder():
-    # slepá větev (odbočka 120 m k domům + otočka) visí na síti v jednom uzlu: nikdy širší než silnice, na které visí
+    # slepá větev (odbočka 80 m k domům + otočka) visí na síti v jednom uzlu: nikdy širší než silnice, na které visí
     main = [_h(0, 200), _h(200, 400)]
-    branch = [[(200.0, 0.0), (200.0, 120.0)], [(200.0, 120.0), (207.0, 127.0), (200.0, 134.0), (193.0, 127.0), (200.0, 120.0)]]
+    branch = [[(200.0, 0.0), (200.0, 80.0)], [(200.0, 80.0), (207.0, 87.0), (200.0, 94.0), (193.0, 87.0), (200.0, 80.0)]]
     assert rs.stroke_codes(main + branch, ["502.2", "502.2", "502.1", "502.1"], min_run_m=MIN_RUN) == ["502.2"] * 4
     # hlavní tah s odbočkou uprostřed není slepá větev
     side = [[(200.0, 0.0), (200.0, 80.0)]]
@@ -78,9 +78,9 @@ def test_junction_zone_excludes_width_samples():
     from shapely.geometry import Point
 
     lines = [_h(0, 100), _h(100, 200), [(100.0, 0.0), (100.0, 50.0)]]
-    zone = rs.junction_zone(lines, 15.0)
-    assert zone.contains(Point(105, 0)) and not zone.contains(Point(130, 0))
-    assert rs.junction_zone([_h(0, 100), _h(100, 200)], 15.0) is None
+    zone, pts = rs.junction_zone(lines, 15.0)
+    assert zone.contains(Point(105, 0)) and not zone.contains(Point(130, 0)) and pts == [(100.0, 0.0)]
+    assert rs.junction_zone([_h(0, 100), _h(100, 200)], 15.0) == (None, [])
 
 
 def test_dead_end_tail_of_stroke_narrows():
@@ -90,7 +90,24 @@ def test_dead_end_tail_of_stroke_narrows():
     tail = [_h(269, 331), [(331.0, 0.0), (345.0, 14.0), (331.0, 28.0), (317.0, 14.0), (331.0, 0.0)]]
     out = rs.stroke_codes(main + side + tail, ["502", "502", "503", "502.1", "502.1"], min_run_m=MIN_RUN)
     assert out == ["502", "502", "503", "502", "502"]
-    # tah visící na síti jen začátkem (odbočka ze silnice 502.2 k domům, dál otočka): celá větev nejvýš 502.2
+    # tah visící na síti jen začátkem (odbočka ze silnice 502.2 k domům, dál otočka, do 15 mm): celá větev nejvýš 502.2
     feeder = [_h(-200, 0), [(0.0, 0.0), (0.0, 200.0)]]
-    out = rs.stroke_codes(feeder + [_h(0, 269)] + tail, ["502.2", "502.2", "502.1", "502.1", "502.1"], min_run_m=MIN_RUN)
+    short_tail = [_h(0, 40), _h(40, 60), [(60.0, 0.0), (67.0, 7.0), (60.0, 14.0), (53.0, 7.0), (60.0, 0.0)]]
+    out = rs.stroke_codes(feeder + short_tail, ["502.2", "502.2", "502.1", "502.1", "502.1"], min_run_m=MIN_RUN)
     assert out == ["502.2", "502.2", "502.2", "502.2", "502.2"]
+
+
+def test_through_road_ending_in_t_is_not_dead_end():
+    # 503 (200 m) → křižovatka → 502 (400 m) končící v T na 502.1: průjezdný úsek se nezužuje (review Opus)
+    cross = [[(200.0, -50.0), (200.0, 50.0)]]
+    t_road = [[(600.0, -100.0), (600.0, 100.0)]]
+    lines = [_h(0, 200), _h(200, 600)] + cross + t_road
+    out = rs.stroke_codes(lines, ["503", "502", "503", "502.1", ], min_run_m=MIN_RUN)
+    assert out[:2] == ["503", "502"]
+    # tah bez vnitřní křižovatky s oběma konci v T: také beze změny
+    lines = [_h(0, 100), _h(100, 400), [(0.0, -50.0), (0.0, 50.0)], [(400.0, -50.0), (400.0, 50.0)]]
+    out = rs.stroke_codes(lines, ["503", "502", "502.1", "502.1"], min_run_m=MIN_RUN)
+    assert out[:2] == ["503", "502"]
+    # dlouhá slepá silnice (500 m 502 k areálu) na 503 si symbol drží
+    lines = [_h(-300, 0), [(0.0, 0.0), (0.0, 500.0)], [(0.0, 0.0), (300.0, 0.0)]]
+    assert rs.stroke_codes(lines, ["503", "502", "503"], min_run_m=MIN_RUN)[1] == "502"
