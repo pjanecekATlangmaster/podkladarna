@@ -1437,10 +1437,14 @@ def corridor_geometry_for(work_dir: Path, preset_id: str, scale: int, path_sourc
     """Koridor silnice z DTM pro les / MTBO (``dtm_corridor_geometry``), None u presetu bez ploch z DTM.
 
     Ve sjednoceném režimu (``paved_surface``) s ``junction_areas.JUNCTION_AREAS`` je koridorem jen plocha silnic z DTM
-    u složitých křižovatek; jinde se silnice kreslí čarou podle šířky (Petr 2026-10-26)."""
+    u složitých křižovatek; jinde se silnice kreslí čarou podle šířky (Petr 2026-10-26). Bez
+    ``junction_areas.ROAD_AREAS`` žádný koridor – silnice jen čarou (Petr 2026-10-28)."""
     if not dtm_area_preset(preset_id):
         return None
     from app.pipeline import junction_areas, paved_surface
+
+    if not junction_areas.ROAD_AREAS:
+        return None
 
     if paved_surface.unified(preset_id) and junction_areas.JUNCTION_AREAS:
         return junction_areas.junction_area_geometry(work_dir, preset_id, scale, path_source)

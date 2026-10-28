@@ -12,6 +12,14 @@ def _mtbo_dtm_on(monkeypatch):
     monkeypatch.setattr(di, "MTBO_USE_DTM", True)
 
 
+@pytest.fixture(autouse=True)
+def _road_areas_on(monkeypatch):
+    """Testy koridoru a ploch silnic z DTM: plochy silnic zapnuté (výchozí les a MTBO kreslí silnice jen čarou)."""
+    from app.pipeline import junction_areas
+
+    monkeypatch.setattr(junction_areas, "ROAD_AREAS", True)
+
+
 def test_mtbo_without_dtm_flag_draws_nothing_from_dtm(tmp_path, monkeypatch):
     monkeypatch.setattr(di, "MTBO_USE_DTM", False)
     work = tmp_path
