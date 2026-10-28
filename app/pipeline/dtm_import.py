@@ -2661,6 +2661,7 @@ FENCE_BUILDING_TOL_M = 0.5
 FENCE_BUILDING_MIN_PIECE_M = 1.5
 
 
+@_job_memo
 def _buildings_zone(work_dir: Path, tol_m: float = FENCE_BUILDING_TOL_M):
     """Budovy tak, jak se kreslí (DTM budovy + OSM bez protějšku), rozšířené o ``tol_m`` m (shapely) nebo None."""
     from shapely.geometry import shape
