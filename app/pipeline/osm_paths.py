@@ -6425,6 +6425,12 @@ def build_osm_path_parts(
             ]
         if fork_zone is not None:
             lane_zone = fork_zone if lane_zone is None else lane_zone.union(fork_zone)
+        from app.pipeline.dual_carriageway import slip_lane_zone
+
+        # odbočovací rampy u křižovatky (trojúhelník vedle ní) se nekreslí, křižovatku nese hlavní čára
+        slip_zone = slip_lane_zone(work_dir, preset_id, scale)
+        if slip_zone is not None:
+            lane_zone = slip_zone if lane_zone is None else lane_zone.union(slip_zone)
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
     # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.

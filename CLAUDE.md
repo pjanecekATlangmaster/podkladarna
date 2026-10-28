@@ -339,6 +339,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Lamačova × K Barrandovu 2.43.5); jinak by mezi 502.0 a křižovatkou zůstal užší kus 502.1.
   Krátké rozvětvení ze dvou jednosměrných ramen téže ulice (do 60 m, konce do 1,31 mm mapy od sebe, ve vrcholu do 60°) se kreslí
   jednou čarou po středu ramen (`fork_links`, Lipského u zastávky na Lamačově, Petr 2026-10-27 „jednou linií“, 2.43.6).
+  Odbočovací rampa (nepojmenovaná jednosměrka do 80 m, oba konce do 50 m od křížení silnic, které spojuje, a míjí ho ≥ 5 m) se
+  nekreslí – trojúhelník vedle křižovatky (`slip_lane_zone`, U Náhonu × K Barrandovu, Petr 2026-10-28: celý úsek jedním způsobem, 2.43.8).
 - **MTBO koridor silnice** drží hystereze: k širokým kusům (≥ 9 m, ≥ 50 m) se připojí navazující úseky ≥ 5 m do 60 m (`CORRIDOR_BRIDGE_M`),
   jinak se silnice kreslila střídavě plochou a čárou.
 - **Ploty z DTM (`filter_dubious_fences`):** plot s neznámým původem (`ZpusobPorizeniZPS = 99`) + `HraniceJinehoObjektu` se zahodí, když není u soukromé
