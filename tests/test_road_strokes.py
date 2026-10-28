@@ -62,3 +62,35 @@ def test_ring_is_one_stroke():
     arm = [[(100.0, 0.0), (200.0, 0.0)]]
     chains = rs.strokes(ring + arm)
     assert sorted(sorted(c) for c in chains) == [[0, 1, 2, 3], [4]]
+
+
+def test_dead_end_branch_narrows_to_feeder():
+    # slepá větev (odbočka 120 m k domům + otočka) visí na síti v jednom uzlu: nikdy širší než silnice, na které visí
+    main = [_h(0, 200), _h(200, 400)]
+    branch = [[(200.0, 0.0), (200.0, 120.0)], [(200.0, 120.0), (207.0, 127.0), (200.0, 134.0), (193.0, 127.0), (200.0, 120.0)]]
+    assert rs.stroke_codes(main + branch, ["502.2", "502.2", "502.1", "502.1"], min_run_m=MIN_RUN) == ["502.2"] * 4
+    # hlavní tah s odbočkou uprostřed není slepá větev
+    side = [[(200.0, 0.0), (200.0, 80.0)]]
+    assert rs.stroke_codes(main + side, ["502.1", "502.1", "503"], min_run_m=MIN_RUN) == ["502.1", "502.1", "503"]
+
+
+def test_junction_zone_excludes_width_samples():
+    from shapely.geometry import Point
+
+    lines = [_h(0, 100), _h(100, 200), [(100.0, 0.0), (100.0, 50.0)]]
+    zone = rs.junction_zone(lines, 15.0)
+    assert zone.contains(Point(105, 0)) and not zone.contains(Point(130, 0))
+    assert rs.junction_zone([_h(0, 100), _h(100, 200)], 15.0) is None
+
+
+def test_dead_end_tail_of_stroke_narrows():
+    # příjezd 62 m + otočka 83 m (502.1 z DTM) na konci tahu silnice 502 (269 m): konec za posledním uzlem je 502
+    main = [_h(0, 100), _h(100, 269)]
+    side = [[(100.0, 0.0), (100.0, 60.0)]]
+    tail = [_h(269, 331), [(331.0, 0.0), (345.0, 14.0), (331.0, 28.0), (317.0, 14.0), (331.0, 0.0)]]
+    out = rs.stroke_codes(main + side + tail, ["502", "502", "503", "502.1", "502.1"], min_run_m=MIN_RUN)
+    assert out == ["502", "502", "503", "502", "502"]
+    # tah visící na síti jen začátkem (odbočka ze silnice 502.2 k domům, dál otočka): celá větev nejvýš 502.2
+    feeder = [_h(-200, 0), [(0.0, 0.0), (0.0, 200.0)]]
+    out = rs.stroke_codes(feeder + [_h(0, 269)] + tail, ["502.2", "502.2", "502.1", "502.1", "502.1"], min_run_m=MIN_RUN)
+    assert out == ["502.2", "502.2", "502.2", "502.2", "502.2"]

@@ -6343,10 +6343,24 @@ def _in_walk_tunnel(coords, zone) -> bool:
 
 
 STROKE_CODE_PROP = "stroke_code"
+# Kódy symbolů, kterými se v lese a MTBO kreslí silnice (``osm_oom_code`` pro road_1–4 a osa 502.0).
+_ROAD_CODES = frozenset({"502.0", "502.1", "502", "503", "504", "831"})
+
+
+def _code_highway(code: str, preset_id: str) -> str:
+    """``road_x`` pro kód silnice, jinak ``path`` (pro filtr silnic podle kódu)."""
+    return "road_3" if code in _ROAD_CODES else "path"
 
 
 def _osm_line_code(
-    feat_i: int, feat: dict, preset_id: str, *, road_widths=None, walk_widths=None, service_links=frozenset()
+    feat_i: int,
+    feat: dict,
+    preset_id: str,
+    *,
+    road_widths=None,
+    walk_widths=None,
+    service_links=frozenset(),
+    width_exclude=None,
 ) -> str | None:
     """Symbol čáry OSM: podle tagů, u lesa / MTBO podle šířky z DTM, účelová spojka 502; silnice po pravidle tahu
     (``road_strokes``, vlastnost ``stroke_code`` z ``_apply_road_strokes``) má symbol už rozhodnutý."""
@@ -6369,7 +6383,7 @@ def _osm_line_code(
         # Krátká účelová komunikace šířku z DTM nebere: řez zachytí těleso sousední ulice (way/1032671443).
         _index = road_widths if path_draw_highway(hw).startswith("road_") else walk_widths
         if _index is not None:
-            code = width_line_code(hw, _index.line_width(coords), code)
+            code = width_line_code(hw, _index.line_width(coords, exclude=width_exclude), code)
     if feat_i in service_links and code not in {"502", "502.1"}:
         code = "502"  # účelová spojka silnice → parkoviště / garáž jako silnice
     return code
@@ -6380,9 +6394,9 @@ def _apply_road_strokes(
 ) -> None:
     """Les a MTBO: silnicím (``road_*`` mimo mosty a tunely) zapíše ``stroke_code`` po pravidle tahu (``road_strokes``):
     jeden symbol na souvislý úsek, krátké kusy jiné šířky převezmou symbol souseda; osa 502.0 je pevná."""
-    from app.pipeline.road_strokes import MIN_RUN_MM, stroke_codes
+    from app.pipeline.road_strokes import JUNCTION_EXCL_MM, MIN_RUN_MM, junction_zone, stroke_codes
 
-    idx, lines, codes, fixed = [], [], [], set()
+    idx, lines, fixed = [], [], set()
     for i, feat in enumerate(features):
         props = feat.get("properties") or {}
         hw = str(props.get("highway") or "")
@@ -6395,16 +6409,21 @@ def _apply_road_strokes(
             or is_tunnel_highway(hw)
         ):
             continue
-        code = _osm_line_code(i, feat, preset_id, road_widths=road_widths, service_links=service_links)
-        if code is None:
-            continue
         if path_draw_highway(hw) == "road_dual":
             fixed.add(len(idx))
         idx.append(i)
         lines.append([(float(x), float(y)) for x, y in coords])
-        codes.append(code)
     if not idx:
         return
+    # šířka z DTM se měří mimo okolí křižovatek (řez tam měří rozšíření křižovatky, ne silnici)
+    exclude = junction_zone(lines, mm_to_ground_m(JUNCTION_EXCL_MM, scale)) if road_widths is not None else None
+    codes = [
+        _osm_line_code(i, features[i], preset_id, road_widths=road_widths, service_links=service_links, width_exclude=exclude)
+        for i in idx
+    ]
+    keep = [k for k, c in enumerate(codes) if c is not None]
+    idx, lines, codes = [idx[k] for k in keep], [lines[k] for k in keep], [codes[k] for k in keep]
+    fixed = {keep.index(k) for k in fixed if k in keep}
     for i, code in zip(idx, stroke_codes(lines, codes, min_run_m=mm_to_ground_m(MIN_RUN_MM, scale), fixed=fixed)):
         features[i].setdefault("properties", {})[STROKE_CODE_PROP] = code
 
@@ -7053,8 +7072,43 @@ def build_osm_path_parts(
             obj = _path_object(piece_idx, mapped)
             if obj:
                 objects.append(obj)
-    for piece_idx, group in (join_pieces or {}).items():
-        for piece in join_line_pieces(group):
+    joined = {piece_idx: join_line_pieces(group) for piece_idx, group in (join_pieces or {}).items()}
+    if joined and not preset_id.startswith("sprint"):
+        # Les / MTBO: volné konce silnic se dotáhnou k jiné silnici, pahýly, které nikam nevedou, pryč (``road_ends``).
+        from app.pipeline.road_ends import tidy_road_ends
+
+        idx_to_code = {v: k for k, v in symbol_cache.items() if v is not None}
+        by_code = {
+            idx_to_code[i]: pieces
+            for i, pieces in joined.items()
+            if i in idx_to_code and path_draw_highway(_code_highway(idx_to_code[i], preset_id)).startswith("road_")
+        }
+        if by_code:
+            osm_roads = [
+                [(float(x), float(y)) for x, y in (f.get("geometry") or {}).get("coordinates") or []]
+                for f in data.get("features") or []
+                if (f.get("geometry") or {}).get("type") == "LineString"
+                and len((f.get("geometry") or {}).get("coordinates") or []) >= 2
+                and path_draw_highway(str((f.get("properties") or {}).get("highway") or "")).startswith("road_")
+                and not is_bridge_highway(str((f.get("properties") or {}).get("highway") or ""))
+                and not is_tunnel_highway(str((f.get("properties") or {}).get("highway") or ""))
+            ]
+            from app.pipeline.dtm_import import _buildings_zone
+
+            _blockers = [g for g in (paved_network, _buildings_zone(work_dir, tol_m=0.0)) if g is not None and not g.is_empty]
+            from shapely.ops import unary_union as _uu_blk
+
+            tidy = tidy_road_ends(
+                by_code,
+                osm_roads,
+                preset_id=preset_id,
+                scale=scale,
+                blockers=_uu_blk(_blockers) if _blockers else None,
+            )
+            for code, pieces in tidy.items():
+                joined[symbol_cache[code]] = pieces
+    for piece_idx, group in joined.items():
+        for piece in group:
             mapped = [
                 projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
                 for x, y in piece

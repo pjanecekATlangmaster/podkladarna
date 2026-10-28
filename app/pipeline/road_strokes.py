@@ -18,6 +18,8 @@ MIN_RUN_MM = 5.0
 MAX_TURN_DEG = 45.0
 # Konce úseků do tolika m se pokládají za týž uzel.
 NODE_SNAP_M = 0.5
+# Okolí křižovatky (uzel se třemi a více úseky) v mm mapy, kde se šířka z DTM neměří (řez měří rozšíření křižovatky).
+JUNCTION_EXCL_MM = 1.5
 # Pořadí šířek: index = širší symbol; kód mimo seznam je nejužší (černá cesta). MTBO ``503`` se katalogem překládá na 502.2.
 WIDTH_ORDER = ("504", "831", "815", "503", "502.2", "502", "502.1", "502.0")
 
@@ -61,6 +63,18 @@ def _nodes(lines: list[list[tuple[float, float]]]) -> dict[tuple[float, float], 
                 reps.append(key)
             nodes.setdefault(key, []).append((i, at_start))
     return nodes
+
+
+def junction_zone(lines: list[list[tuple[float, float]]], radius_m: float):
+    """Okolí křižovatek (uzly se třemi a více konci) jako shapely (prepared) nebo None."""
+    pts = [node for node, inc in _nodes(lines).items() if len(inc) >= 3]
+    if not pts:
+        return None
+    from shapely.geometry import Point
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+
+    return prep(unary_union([Point(p).buffer(radius_m) for p in pts]))
 
 
 def strokes(lines: list[list[tuple[float, float]]]) -> list[list[int]]:
@@ -136,22 +150,33 @@ def stroke_codes(
     lens = [_length(ln) for ln in lines]
     chains = strokes(lines)
     stroke_of = {i: k for k, ch in enumerate(chains) for i in ch}
-    for chain in chains:
-        _merge_short_runs(chain, out, lens, min_run_m, fixed)
-    # krátké tahy (pahýl, otočka, slepá spojka): jen zúžení na symbol jediného sousedního tahu
     nodes = _nodes(lines)
     for k, chain in enumerate(chains):
-        if sum(lens[i] for i in chain) >= min_run_m or any(i in fixed for i in chain):
+        _merge_short_runs(chain, out, lens, min_run_m, fixed)
+        _narrow_dead_end_tails(chain, out, nodes, stroke_of, k, fixed)
+    # krátké tahy (pahýl, slepá spojka) a slepé větve (otočka, odbočka k domům, visí na síti v jediném uzlu):
+    # jen zúžení na symbol jediného sousedního symbolu
+    for k, chain in enumerate(chains):
+        if any(i in fixed for i in chain):
             continue
         own = {out[i] for i in chain}
         if len(own) != 1:
             continue
         own_code = next(iter(own))
         touching: set[str | None] = set()
+        touch_nodes = 0
+        touch_at_end = False  # jediný dotyk s ostatními je v koncovém uzlu tahu (slepá větev), ne uprostřed
         for inc in nodes.values():
-            if any(stroke_of[i] == k for i, _s in inc):
-                touching.update(out[i] for i, _s in inc if stroke_of[i] != k)
-        if len(touching) == 1:
+            mine = sum(1 for i, _s in inc if stroke_of[i] == k)
+            if not mine:
+                continue
+            others = {out[i] for i, _s in inc if stroke_of[i] != k}
+            if others:
+                touch_nodes += 1
+                touch_at_end = mine == 1 or len(chain) == 1 and mine == 2
+            touching.update(others)
+        short = sum(lens[i] for i in chain) < min_run_m
+        if len(touching) == 1 and (short or (touch_nodes == 1 and touch_at_end)):
             other = next(iter(touching))
             if width_rank(other) < width_rank(own_code):
                 for i in chain:
@@ -188,3 +213,40 @@ def _merge_short_runs(chain: list[int], out: list[str | None], lens: list[float]
         code = out[runs[tgt][0]]
         for i in runs[k]:
             out[i] = code
+
+
+def _narrow_dead_end_tails(chain: list[int], out, nodes, stroke_of, k: int, fixed) -> None:
+    """Slepý konec tahu (od posledního uzlu s jiným tahem k volnému konci: příjezd k parkovišti s otočkou) není nikdy
+    širší než úsek před ním – jen se zužuje (kapka 502.1 na 502.2, Retest 4 M4)."""
+    if len(chain) < 2:
+        return
+    touch = {node for node, inc in nodes.items() if any(stroke_of[i] != k for i, _s in inc) and any(stroke_of[i] == k for i, _s in inc)}
+    # uzly tahu v pořadí: hranice mezi sousedními čarami (a konce)
+    def _shared(a: int, b: int):
+        for node, inc in nodes.items():
+            ids = {i for i, _s in inc}
+            if a in ids and b in ids:
+                return node
+        return None
+
+    for seq in (chain, chain[::-1]):
+        # od konce dozadu: čáry, jejichž vnější hranice (směrem ke konci) nemá jiný tah
+        tail: list[int] = []
+        broke = False
+        for pos in range(len(seq) - 1, 0, -1):
+            tail.append(seq[pos])
+            if _shared(seq[pos - 1], seq[pos]) in touch:
+                broke = True
+                break
+        if not broke:
+            # žádný vnitřní uzel s jiným tahem: slepá větev je celý tah za prvním úsekem, visí-li na síti jeho vnějším koncem
+            first = seq[0]
+            outer = [node for node, inc in nodes.items() if sum(1 for i, _s in inc if i == first) == 1 and not any(i == seq[1] for i, _s in inc)]
+            if not any(node in touch for node in outer):
+                tail = []
+        if not tail or any(i in fixed for i in tail):
+            continue
+        before = out[seq[len(seq) - 1 - len(tail)]]
+        for i in tail:
+            if width_rank(out[i]) > width_rank(before):
+                out[i] = before

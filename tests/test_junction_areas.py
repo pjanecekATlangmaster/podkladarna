@@ -76,3 +76,16 @@ def test_roundabout_and_many_oneway_lanes_are_complex(tmp_path, monkeypatch):
     assert len(ja.complex_junction_hulls(tmp_path)) == 1
     _write(tmp_path, [_rect(-200, -5, 200, 5)], lines, oneway=[([[-20, 0], [20, 0]], False)] * 3)
     assert ja.complex_junction_hulls(tmp_path) == []
+
+
+def test_funnel_mouth_narrows_area_to_line_fill():
+    # Plocha křižovatky 40 m široká, silnice (výplň ± 4 m) vstupuje zleva: v ústí má plocha šířku výplně, 10 m dál je plná.
+    from shapely.geometry import LineString, box
+
+    area = box(0, -20, 60, 20)
+    line = LineString([(-50, 0), (30, 0)])
+    out = ja.funnel_mouths(area, [(line, 4.0)], 10.0)
+    assert out.contains(Point(0.5, 3)) and not out.contains(Point(0.5, 10))
+    assert out.contains(Point(11, 19)) and out.contains(Point(40, 19))
+    # bez čáry beze změny
+    assert ja.funnel_mouths(area, [], 10.0).equals(area)
