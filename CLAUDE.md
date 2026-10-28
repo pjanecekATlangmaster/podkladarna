@@ -267,8 +267,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   pod 0,8 mm mezi ústími se nekreslí (`EDGE_PIECE_MIN_MM`). Plocha silnic z DTM se kreslí jen u **složitých křižovatek** (2.38.0, `app/pipeline/junction_areas.py`: shluk uzlů
   OSM silnic od třídy residential do 30 m s ostrůvkem ≥ 20 m² v ploše silnic z DTM, kruhovým objezdem nebo ≥ 4 jednosměrnými pásy od
   tertiary; Petr: jednoduché křižovatky čarami, napojení dělá OOMapper); jinde je silnice čára podle šířky. Od 2.45.0 (Petr 2026-10-28,
-  ošklivé přechody plochy na čáru kolem objezdu na Lamačově) se ani ty nekreslí: `junction_areas.ROAD_AREAS = False` = les a MTBO
-  kreslí silnice jen čarou (`corridor_geometry_for` vrací None); `True` vrátí plochy křižovatek. **Rozdělená vozovka**
+  ošklivé přechody plochy na čáru kolem objezdu na Lamačově) se plochou nekreslí kruhové objezdy (`ROUNDABOUT_AREAS = False`);
+  plocha složité křižovatky bez objezdu nese detail z DTM a od 2.46.0 zůstává (`junction_areas.ROAD_AREAS = True`, `False` = les
+  a MTBO kreslí silnice jen čarou, `corridor_geometry_for` vrací None). **Rozdělená vozovka**
   (`app/pipeline/dual_carriageway.py`): dva protisměrné jednosměrné pásy téže silnice s osami do 1,31 mm mapy souvisle ≥ 100 m kreslí
   jeden symbol 502.0 po střední ose (příprava OSM ukládá `osm_paths/oneway_roads.geojson`; starší joby bez něj kreslí pásy zvlášť).
   Kusy čar téhož symbolu se spojují i přes křižovatky (`_join_through_junctions`, nejpřímější pokračování do 45°). Metriky otoček
