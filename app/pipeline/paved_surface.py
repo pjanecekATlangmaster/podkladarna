@@ -102,6 +102,42 @@ def dtm_area_features(work_dir: Path, preset_id: str, scale: int, path_source: s
     return out
 
 
+def generalize_paved_feats(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
+    """Plochy sítě zpevněných ploch (OSM, ZABAGED i DTM) generalizované podle mm mapy jako plochy z DTM
+    (``dtm_sidewalks.generalize_area``: zálivy a škvíry do 0,6 mm, výběžky do 0,5 mm, díry pod 1 mm², kusy pod 0,5 mm²).
+
+    Obrys z OSM kopíruje kiosky a záhonky u parkoviště a okraj 501.2 pak kreslí zuby (Barrandov u Lidlu, Petr Retest 6
+    2026-10-28). Budovy aspoň minimální velikosti (``osm_paths.building_min_area_m2``) zacelení nepřekročí; každá plocha
+    zvlášť (plochy na mostě / v tunelu a kusy rozdělené silnicí se nespojí).
+    """
+    if not unified(preset_id) or scale <= 0 or not feats:
+        return feats
+    from shapely.errors import GEOSException
+    from shapely.geometry import mapping, shape
+
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline.dtm_import import _buildings_zone
+    from app.pipeline.osm_paths import building_min_area_m2
+
+    blockers = _buildings_zone(work_dir, tol_m=0.0, min_area_m2=building_min_area_m2(preset_id, scale))
+    out: list[dict] = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        if geom.get("type") not in ("Polygon", "MultiPolygon"):
+            out.append(f)
+            continue
+        try:
+            g = shape(geom)
+            g = g if g.is_valid else g.buffer(0)
+            gen = dtm_sidewalks.generalize_area(g, scale, blockers=blockers)
+        except (ValueError, TypeError, GEOSException):
+            out.append(f)
+            continue
+        for poly in _polygons(gen):
+            out.append({**f, "geometry": mapping(poly)})
+    return out
+
+
 def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
     """Kde se okraj plochy ``network`` nekreslí (shapely) nebo None: pás každé kreslené čáry cesty (``road_bands`` =
     ``path_clearance.drawn_path_bands``: ``(osa, půlka šířky m)``) rozšířený o 0,3 m – ústí čáry do plochy;

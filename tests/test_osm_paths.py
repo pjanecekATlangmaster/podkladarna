@@ -2771,3 +2771,38 @@ def test_prepare_writes_barrier_value_and_covered_passages_file(tmp_path, monkey
     assert [p["barrier"] for p in barriers] == ["bollard"]
     passages = json.loads((out / "covered_passages.geojson").read_text(encoding="utf-8"))["features"]
     assert len(passages) == 1 and passages[0]["geometry"]["type"] == "LineString"
+
+
+# (případ, preset, měřítko, plocha budovy m², bodem)
+# Les a MTBO: budova pod 0,25 mm² mapy (0,5 × 0,5 mm; 25 m² v 1:10 000, 56 m² v 1:15 000) je bod 521.3; sprint plochou.
+@pytest.mark.parametrize(
+    "case, preset, scale, area_m2, as_point",
+    [
+        ("kiosek 8 m² v lese", "forest_10000", 10000, 8.0, True),
+        ("kiosek 8 m² v MTBO", "mtbo_10000", 10000, 8.0, True),
+        ("chata 40 m² v lese 1:10 000 plochou", "forest_10000", 10000, 40.0, False),
+        ("chata 40 m² v lese 1:15 000 bodem", "forest_15000", 15000, 40.0, True),
+        ("sprint vždy plochou", "sprint_4000", 4000, 8.0, False),
+    ],
+)
+def test_small_buildings_as_points(case, preset, scale, area_m2, as_point):
+    import math
+
+    from shapely.geometry import mapping, box as _box
+
+    from app.pipeline.osm_paths import feature_oom_code, small_buildings_as_points
+
+    side = math.sqrt(area_m2)
+    feats = [
+        {"type": "Feature", "properties": {"kind": "building"}, "geometry": mapping(_box(10, 10, 10 + side, 10 + side))},
+        {"type": "Feature", "properties": {"kind": "parking"}, "geometry": mapping(_box(0, 0, 50, 50))},
+    ]
+    out = small_buildings_as_points(feats, preset, scale)
+    assert len(out) == 2 and out[1] is feats[1], case
+    b = out[0]
+    if as_point:
+        assert b["geometry"]["type"] == "Point" and b["properties"]["kind"] == "building_small", case
+        assert b["geometry"]["coordinates"] == pytest.approx([10 + side / 2, 10 + side / 2], abs=0.01), case
+        assert feature_oom_code("building_small", preset, b["properties"]["oom_code"]) == "521.3", case
+    else:
+        assert b is feats[0], case

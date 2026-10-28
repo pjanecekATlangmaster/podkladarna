@@ -313,6 +313,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   s pevným obrysem – silnice se v ní ořízne a okraj se u silnice přeruší (Sedlčany). Smíšená stezka zasahující čárou do kresby silnice
   nebo koridoru se nekreslí (`bike_road_zone`).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
+- **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
+  25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
+  (OSM i ZABAGED, každá zvlášť) jdou přes `dtm_sidewalks.generalize_area` jako plochy z DTM (`paved_surface.generalize_paved_feats`,
+  zálivy do 0,6 mm, výběžky do 0,5 mm, rohy zaoblené ~0,25 mm; budovy aspoň minimální velikosti zacelení nepřekročí). Krátké
+  schodiště z DTM (pod 10 m) do 2 m od OSM schodů se nekreslí, OSM schody zůstanou celé (`short_stairs_with_osm_steps`).
 - **Skály a balvany v lese a MTBO jen jisté** (Petr 2026-10-27, srovnání Harrachov a Vyšší Brod E1–E3): balvany 204 z DEM
   (`app/pipeline/boulders_dem.py`, `dotboulders.dxf`): vyvýšenina 1,2–3 m nad průměrem protilehlých bodů ve 3 m ve všech čtyřech
   směrech (násep / hrana jen napříč neprojde), rozestup 6 m; při sestavení se zahodí do 2 m od skalní plochy, 6 m od kupky, 25 m od
@@ -337,6 +342,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `is_major_road_code`) nekončí na okraji jiné silnice jako černá cesta.
   Osa rozdělené vozovky pokračuje přes obousměrný úsek za sloučením pásů až do křižovatky (do 60 m, `_extend_to_continuation`,
   Lamačova × K Barrandovu 2.43.5); jinak by mezi 502.0 a křižovatkou zůstal užší kus 502.1.
+  Rampa odbočující z pruhu rozdělené vozovky (kreslené jednou osou) se po ořezu souběhu dotáhne po OSM čáře do kresby hlavní
+  silnice a kolmo k její ose, i když OSM čára osu neprotne (`road_ends._into_band`, K Barrandovu 2.46.3, Petr Retest 6 2026-10-28).
   Krátké rozvětvení ze dvou jednosměrných ramen téže ulice (do 60 m, konce do 1,31 mm mapy od sebe, ve vrcholu do 60°) se kreslí
   jednou čarou po středu ramen (`fork_links`, Lipského u zastávky na Lamačově, Petr 2026-10-27 „jednou linií“, 2.43.6).
   Odbočovací rampa (nepojmenovaná jednosměrka do 80 m, oba konce do 50 m od křížení silnic, které spojuje, a míjí ho ≥ 5 m) se

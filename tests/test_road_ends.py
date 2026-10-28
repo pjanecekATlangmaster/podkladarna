@@ -98,3 +98,35 @@ def test_short_path_stub_dropped_but_not_extended(case, path, blocker, bounds, k
     # volný konec pěšiny se nedotahuje (jen silnice)
     assert all(ln == path for ln in out["505"])
 
+
+
+# (případ, preset, kód hlavní, kód rampy, začátek rampy, OSM rampa k pruhu, očekávané y začátku)
+# Rampa odbočující z pruhu rozdělené vozovky: OSM čára vede do kresby hlavní (pruh uvnitř pásu), ale její osu neprotne.
+# mtbo_10000: 502.0 = 2,22 mm (půlka 11,1 m); forest_10000: 502 = 0,87 mm (půlka 4,35 m), 503 černá.
+@pytest.mark.parametrize(
+    "case, preset, main_code, ramp_code, start, osm_head, end_y",
+    [
+        ("rampa s výplní na okraj kresby a k ose", "mtbo_10000", "502.0", "502.2", (125.0, 14.0), [(100.0, 6.0), (112.0, 10.0)], 0.0),
+        ("černá cesta končí na okraji kresby", "forest_10000", "502", "503", (125.0, 8.0), [(100.0, 2.0), (112.0, 4.0)], 4.35),
+        ("mezera do kresby nad 1,5 mm", "mtbo_10000", "502.0", "502.2", (135.0, 18.0), [(100.0, 6.0), (115.0, 12.0)], None),
+        # OSM pruh běží souběžně na hraně kresby 502.0 (y = 11,5–12), konec 0,9 m od kresby: kolmo k ose
+        ("souběžný pruh na hraně kresby, OSM dál vede do ní: kolmo k ose", "mtbo_10000", "502.0", "502.2", (125.0, 12.0), [(40.0, 8.0), (60.0, 11.5), (100.0, 11.8)], "hook"),
+        ("souběžný pruh 6 m od kresby zůstává", "mtbo_10000", "502.0", "502.2", (125.0, 17.5), [(40.0, 8.0), (60.0, 17.0), (100.0, 17.3)], None),
+        ("slepá obslužná vedle ulice (OSM do kresby nevede) zůstává", "mtbo_10000", "502.0", "502.2", (125.0, 12.0), [(60.0, 11.5), (100.0, 11.8)], None),
+    ],
+)
+def test_free_end_extended_into_band_without_axis_hit(case, preset, main_code, ramp_code, start, osm_head, end_y):
+    ramp = [start, (160.0, 30.0), (190.0, 60.0)]
+    pieces = {main_code: [MAIN], ramp_code: [ramp]}
+    out = tidy_road_ends(pieces, [MAIN, [*osm_head, *ramp]], preset_id=preset, scale=10000)
+    side = next(ln for ln in out[ramp_code] if ln[-1] == (190.0, 60.0))
+    assert side[-3:] == ramp, case
+    if end_y is None:
+        assert side[0] == start, case
+    elif end_y == "hook":
+        assert side[0] == pytest.approx((start[0], 0.0), abs=0.05) and side[1] == start, case
+    elif end_y == 0.0:
+        assert side[0][1] == pytest.approx(0.0, abs=0.05), case  # kolmo k ose
+        assert abs(side[1][1]) <= 11.1 + 1.0, case  # předtím vstup do kresby po OSM čáře
+    else:
+        assert side[0][1] == pytest.approx(end_y, abs=1.0), case  # na okraji kresby
