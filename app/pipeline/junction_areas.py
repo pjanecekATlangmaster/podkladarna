@@ -225,6 +225,7 @@ def _entering_lines(work_dir: Path, preset_id: str, scale: int) -> list[tuple]:
     from shapely.geometry import LineString
 
     from app.pipeline import osm_paths as op
+    from app.pipeline.dtm_sidewalks import clip_outside
     from app.pipeline.dual_carriageway import dual_axes
     from app.pipeline.oom_symbol_map import symbol_fill_width_mm
 
@@ -244,7 +245,7 @@ def _entering_lines(work_dir: Path, preset_id: str, scale: int) -> list[tuple]:
         if op.is_bridge_highway(hw) or op.is_tunnel_highway(hw):
             continue
         pts = [(float(x), float(y)) for x, y in coords]
-        parts = op.clip_outside(pts, zone) if zone is not None else [pts]
+        parts = clip_outside(pts, zone) if zone is not None else [pts]
         half = _half(op.osm_oom_code(hw, preset_id) or "502")
         out += [(LineString(p), half) for p in parts if len(p) >= 2]
     return out
