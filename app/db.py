@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from app.pipeline.job_options import (
-    resolve_courtyard_fill,
     resolve_formline_mode,
     resolve_use_dtm,
     resolve_veg_smooth,
@@ -434,7 +433,7 @@ def find_duplicate_active_job(
             bool(opts.get("output_zip", True)),
             bool(opts.get("output_georef")),
             bool(opts.get("output_references", True)),
-            resolve_courtyard_fill(opts),
+            "building",  # dřív volba výplně dvorů (od 2.46.6 vždy budova) – otisk starých jobů beze změny
             resolve_formline_mode(opts),
             resolve_veg_smooth(opts),
             resolve_use_dtm(opts, "sprint"),

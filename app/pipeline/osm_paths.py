@@ -7309,7 +7309,6 @@ def build_osm_feature_parts(
     grivation_deg: float,
     clip_bounds: Bounds | None = None,
     aopk_tree_points: list[tuple[float, float]] | None = None,
-    courtyard_fill: str = "none",
     path_source: str = "mixed",
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
@@ -7515,18 +7514,10 @@ def build_osm_feature_parts(
         "fitness",
     )
     symbol_cache: dict[str, int | None] = {}
-    mtbo = preset_id.startswith("mtbo")
-    olive_code = "527" if mtbo else "520"
     from app.pipeline.paved_surface import unified as _unified_edge
 
     _edge_late = _unified_edge(preset_id)  # okraj sítě kreslí ``paved_surface.build_paved_edge_parts``
-    # Díra v budově = nepřístupný dvůr: oliva, nebo stejná značka jako budova.
-    fill_courtyards = courtyard_fill in ("olive", "building")
-    olive_index = (
-        symbol_index_for_code(preset_id, scale, olive_code)
-        if courtyard_fill == "olive"
-        else None
-    )
+    # Díra v budově = nepřístupný dvůr: stejná značka jako budova (ISSprOM 521).
 
     def to_map(pts):
         return [
@@ -7646,10 +7637,9 @@ def build_osm_feature_parts(
                                 edge_index, orig_rings, clip_bounds, to_map, omit_zone=edge_omit_zone
                             )
                         )
-            fill_index = olive_index if courtyard_fill == "olive" else symbol_index
+            fill_index = symbol_index
             if (
-                fill_courtyards
-                and fill_index is not None
+                fill_index is not None
                 and kind in _OSM_BUILDING_KINDS
                 and len(rings) > 1
             ):
@@ -7683,7 +7673,7 @@ def build_osm_feature_parts(
     if courtyard_objects:
         parts.append(
             OomObjectPart(
-                name=f"OSM – dvory ({'oliva' if courtyard_fill == 'olive' else 'budova'})",
+                name="OSM – dvory (budova)",
                 objects_xml="\n".join(courtyard_objects),
                 count=len(courtyard_objects),
             )

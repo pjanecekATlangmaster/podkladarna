@@ -199,39 +199,6 @@ def test_create_job_skips_reference_pngs(client, monkeypatch):
 
 
 
-def test_create_job_sprint_courtyard_fill(client, monkeypatch):
-    import app.main as main
-
-    monkeypatch.setattr(
-        main,
-        "query_sm5_sheets",
-        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
-    )
-    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
-    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
-    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
-
-    def post(name: str, **extra: str):
-        r = client.post(
-            "/api/jobs",
-            data={
-                "name": name,
-                "preset_id": "sprint_2m",
-                "bbox": "14.40,50.08,14.42,50.09",
-                "output_mode": "png_zip",
-                "output_references": "1",
-                **extra,
-            },
-        )
-        assert r.status_code == 200, r.text
-        return r.json()["options"]["sprint_courtyard_fill"]
-
-    # Pevný default bez volby ve formuláři: vnitřek jako budova (staré hodnoty z API se ignorují).
-    assert post("default") == "building"
-    assert post("olive", sprint_courtyard_fill="olive") == "building"
-    assert post("legacy-on", sprint_courtyard_olive="1") == "building"
-
-
 def test_create_job_dtm_source_options(client, monkeypatch):
     import app.main as main
 
@@ -302,16 +269,6 @@ def test_create_job_contour_formlines(client, monkeypatch):
     assert post(contour_formlines="sparse") == "sparse"
     assert post(contour_formlines="more") == "more"
     assert post(contour_formlines="nonsense") == "off"
-
-
-def test_resolve_courtyard_fill_legacy_jobs():
-    from app.pipeline.job_options import resolve_courtyard_fill
-
-    assert resolve_courtyard_fill({}) == "building"
-    assert resolve_courtyard_fill({"sprint_courtyard_fill": "building"}) == "building"
-    assert resolve_courtyard_fill({"sprint_courtyard_olive": True}) == "olive"
-    assert resolve_courtyard_fill({"sprint_courtyard_olive": False}) == "none"
-    assert resolve_courtyard_fill({"sprint_courtyard_fill": "nonsense"}) == "building"
 
 
 def test_create_job_sprint_residual_paved(client, monkeypatch):
