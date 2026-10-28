@@ -213,11 +213,16 @@ def junction_area_geometry(work_dir: Path, preset_id: str, scale: int, path_sour
     return result
 
 
-# Ústí čáry do plochy křižovatky: v posledních tolika mm mapy před ústím se plocha zúží na šířku výplně vstupující čáry a
-# plynule (trychtýřem) rozšíří – vstup 502.0 Lamačovy do plochy měl zub (Petr, Retest 3, 2026-10-28). 0 = beze změny.
+# Ústí čáry do plochy křižovatky: plocha končí kolmo na čáru přesně na jejím konci (šikmý konec plochy z DTM nesedí
+# na rovný konec kresby silnice → zuby okraje vedle silnice, Petr Retest 5, 2026-10-28) a v posledních tolika mm mapy
+# před ústím se zúží na šířku kresby čáry a trychtýřem (``MOUTH_FLARE``) rozšíří – vstup 502.0 Lamačovy měl zub
+# (Retest 3). 0 = beze změny.
 MOUTH_TAPER_MM = 1.0
-# Šířka trychtýře na vnitřním konci (půlka, m) – víc než nejširší křižovatka.
-MOUTH_WIDE_HALF_M = 30.0
+# Rozšíření trychtýře: o tolik m půlky šířky na 1 m hloubky (1,0 = 45°). Dřívější pevných 30 m na vnitřním konci se
+# u plochy do 20 m šířky vůbec neuplatnilo.
+MOUTH_FLARE = 1.0
+# Plocha za ústím (vně čáry) se odřízne do této hloubky (m) – šikmý konec plochy přesahující konec kresby.
+MOUTH_OUTSIDE_M = 12.0
 
 
 def _entering_lines(work_dir: Path, preset_id: str, scale: int) -> list[tuple]:
@@ -227,11 +232,20 @@ def _entering_lines(work_dir: Path, preset_id: str, scale: int) -> list[tuple]:
     from app.pipeline import osm_paths as op
     from app.pipeline.dtm_sidewalks import clip_outside
     from app.pipeline.dual_carriageway import dual_axes
-    from app.pipeline.oom_symbol_map import symbol_fill_width_mm
+    from app.pipeline.oom_symbol_map import symbol_fill_width_mm, symbol_line_width_mm
+
+    edge_half = op.paved_edge_width_m(preset_id, scale) / 2.0
 
     def _half(code: str) -> float:
-        mm = symbol_fill_width_mm(preset_id, scale, code)
-        return op.mm_to_ground_m(mm, scale) / 2.0 if mm else op.drawn_symbol_width_m("road_3", preset_id, scale) * 0.4
+        """Půlka šířky ústí: okraj plochy navazuje na okrajovou linku silnice (střed linky = půlka celé šířky bez půlky
+        okraje plochy; výplň i okrajová linka tak lícují), u čáry bez okrajů půlka výplně."""
+        fill = symbol_fill_width_mm(preset_id, scale, code)
+        total = symbol_line_width_mm(preset_id, scale, code)
+        if not fill and not total:
+            return op.drawn_symbol_width_m("road_3", preset_id, scale) * 0.4
+        fill_half = op.mm_to_ground_m(fill or total or 0.0, scale) / 2.0
+        total_half = op.mm_to_ground_m(total or fill or 0.0, scale) / 2.0
+        return max(fill_half, total_half - edge_half)
 
     out = []
     axes, zone = dual_axes(work_dir, preset_id, scale)
@@ -252,9 +266,10 @@ def _entering_lines(work_dir: Path, preset_id: str, scale: int) -> list[tuple]:
 
 
 def funnel_mouths(area, lines: list[tuple], taper_m: float):
-    """Plocha ``area`` bez zubů v ústích: tam, kde čára ``(LineString, půlka výplně)`` vstupuje do plochy, se plocha
-    v délce ``taper_m`` od vstupu ořízne na lichoběžník od šířky výplně čáry po ``MOUTH_WIDE_HALF_M``. Ústí jiných čar
-    (jejich lichoběžníky a pásy) ořez nezasáhne."""
+    """Plocha ``area`` bez zubů v ústích: tam, kde čára ``(LineString, půlka šířky ústí)`` vstupuje do plochy, plocha
+    končí kolmo na čáru v místě vstupu (nic za ním do ``MOUTH_OUTSIDE_M``) a v délce ``taper_m`` od vstupu se ořízne
+    na lichoběžník od šířky ústí rozšiřující se o ``MOUTH_FLARE``. Ústí jiných čar (jejich lichoběžníky a pásy) ořez
+    nezasáhne."""
     import math
 
     from shapely.geometry import LineString, Point, Polygon
@@ -263,10 +278,11 @@ def funnel_mouths(area, lines: list[tuple], taper_m: float):
     if area is None or area.is_empty or not lines:
         return area
     boundary = area.boundary
-    tapers, cuts = [], []
+    entries = []  # (lichoběžník, ořez: box bez lichoběžníku + plocha za ústím, pás čáry, pás ústí k doplnění)
     for ln, half in lines:
         hit = ln.intersection(boundary)
         pts = [g for g in getattr(hit, "geoms", [hit]) if g.geom_type == "Point"]
+        band = ln.buffer(half, cap_style=2)
         for p in pts:
             t = ln.project(p)
             inner = ln.interpolate(min(ln.length, t + 1.0))
@@ -280,32 +296,55 @@ def funnel_mouths(area, lines: list[tuple], taper_m: float):
                 continue
             dx, dy = dx / n, dy / n
             nx, ny = -dy, dx
+            wide = half + taper_m * MOUTH_FLARE
             q = (p.x + dx * taper_m, p.y + dy * taper_m)
-            back = (p.x - dx * 1.0, p.y - dy * 1.0)
-            wide = MOUTH_WIDE_HALF_M
+            back = (p.x - dx * MOUTH_OUTSIDE_M, p.y - dy * MOUTH_OUTSIDE_M)
             taper = Polygon(
                 [
-                    (back[0] + nx * half, back[1] + ny * half),
+                    (p.x + nx * half, p.y + ny * half),
                     (q[0] + nx * wide, q[1] + ny * wide),
                     (q[0] - nx * wide, q[1] - ny * wide),
-                    (back[0] - nx * half, back[1] - ny * half),
+                    (p.x - nx * half, p.y - ny * half),
                 ]
             )
             box_ = Polygon(
                 [
-                    (back[0] + nx * wide, back[1] + ny * wide),
+                    (p.x + nx * wide, p.y + ny * wide),
                     (q[0] + nx * wide, q[1] + ny * wide),
                     (q[0] - nx * wide, q[1] - ny * wide),
-                    (back[0] - nx * wide, back[1] - ny * wide),
+                    (p.x - nx * wide, p.y - ny * wide),
                 ]
             )
-            tapers.append(taper)
-            cuts.append(box_.difference(taper))
-    if not cuts:
+            # za ústím (vně čáry) nic: šikmý konec plochy přesahuje konec kresby i do strany, proto širší pás
+            out_w = wide + MOUTH_OUTSIDE_M
+            outside = Polygon(
+                [
+                    (p.x + nx * out_w, p.y + ny * out_w),
+                    (back[0] + nx * out_w, back[1] + ny * out_w),
+                    (back[0] - nx * out_w, back[1] - ny * out_w),
+                    (p.x - nx * out_w, p.y - ny * out_w),
+                ]
+            )
+            # plocha až ke kolmému konci: šikmý konec plochy z DTM na jedné straně nedosahuje ke konci kresby,
+            # okraj plochy by vedl napříč koncem silnice → pás čáry mezi ústím a koncem trychtýře se doplní
+            mouth = Polygon(
+                [
+                    (p.x + nx * half, p.y + ny * half),
+                    (q[0] + nx * half, q[1] + ny * half),
+                    (q[0] - nx * half, q[1] - ny * half),
+                    (p.x - nx * half, p.y - ny * half),
+                ]
+            )
+            entries.append((taper, box_.difference(taper).union(outside), band, mouth))
+    if not entries:
         return area
-    keep = unary_union(tapers + [ln.buffer(half, cap_style=2) for ln, half in lines])
-    cut = unary_union(cuts).difference(keep)
-    if cut.is_empty:
-        return area
-    out = area.difference(cut)
+    cuts = []
+    for k, (taper, cut, band, _mouth) in enumerate(entries):
+        others = [g for m, (t2, _c, b2, _m2) in enumerate(entries) if m != k for g in (t2, b2)]
+        if others:
+            cut = cut.difference(unary_union(others))
+        if not cut.is_empty:
+            cuts.append(cut)
+    out = area.difference(unary_union(cuts)) if cuts else area
+    out = unary_union([out, *[e[3] for e in entries]])
     return without_small_pieces(out) if not out.is_empty else None

@@ -70,3 +70,31 @@ def test_short_dead_end_stub_dropped(case, stub, blocker, kept):
     out = tidy_road_ends(pieces, [], preset_id="forest_10000", scale=10000, blockers=blocker, fixed_by_code=fixed)
     assert (stub in out["503"]) is kept, case
     assert all(r in out["502"] for r in roads)
+
+
+# (případ, pěšina, překážka, výřez, zůstane) – pěšiny jen pravidlo pahýlu (``stub_by_code``), nedotahují se
+@pytest.mark.parametrize(
+    "case, path, blocker, bounds, kept",
+    [
+        ("zbytek schodů 7 m ve vzduchu", [(50.0, 30.0), (50.0, 37.0)], None, None, False),
+        ("pahýl pěšiny 10 m od silnice", [(50.0, 0.0), (50.0, 10.0)], None, None, False),
+        ("pěšina 10 m od silnice k ploše", [(50.0, 0.0), (50.0, 10.0)], box(45, 10.5, 55, 20), None, True),
+        ("zbytek schodů 7 m od ničeho k ploše", [(50.0, 30.0), (50.0, 37.0)], box(45, 37.5, 55, 45), None, False),
+        ("pěšina 10 m končí na kresbě silnice", [(50.0, 4.0), (50.0, 14.0)], "spojka", None, True),
+        ("pěšina 10 m k hranici výřezu", [(50.0, 0.0), (50.0, 10.0)], None, (0.0, -50.0, 200.0, 10.0), True),
+        ("pěšina 20 m", [(50.0, 0.0), (50.0, 20.0)], None, None, True),
+    ],
+)
+def test_short_path_stub_dropped_but_not_extended(case, path, blocker, bounds, kept):
+    roads = [MAIN]
+    if blocker == "spojka":
+        roads.append([(0.0, 14.0), (200.0, 14.0)])  # pěšina končí na okraji kresby 502 (půlka 4,35 m) – napojená
+    blocker = None if isinstance(blocker, str) else blocker
+    out = tidy_road_ends(
+        {"502": roads}, [], preset_id="forest_10000", scale=10000, blockers=blocker, stub_by_code={"505": [path]}, bounds=bounds
+    )
+    assert (path in out["505"]) is kept, case
+    assert all(r in out["502"] for r in roads)
+    # volný konec pěšiny se nedotahuje (jen silnice)
+    assert all(ln == path for ln in out["505"])
+

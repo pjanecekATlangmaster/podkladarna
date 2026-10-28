@@ -9,9 +9,11 @@ a zbývají krátké pahýly (Barrandov, les bez DTM: 98 konců 4–15 m od jin�
   v sadách nad okrajovými linkami, takže Mapper ústí otevře. Černá silnice (les ``503``) končí na okraji silnice s výplní
   (přes výplň by se kreslila), na černou silnici jde k ose. Přes budovu, vodu ani zpevněnou plochu (``blockers``) se nedotahuje.
 - **Pahýl:** kus silnice kratší než ``STUB_MAX_MM`` mm mapy, který jedním koncem nikam nevede (ani k ploše / budově
-  z ``blockers``), se nekreslí; osamělý kus (oba konce volné) se nekreslí vždy.
+  z ``blockers``), se nekreslí; osamělý kus (oba konce volné) se nekreslí vždy. Totéž pro ostatní kreslené čáry cest
+  (``stub_by_code``: pěšiny, vozové cesty, krátké schody – zbytky po ořezu plochou a pásem silnice, Petr Retest 5
+  2026-10-28), ty se ale nedotahují. Konec na hranici výřezu mapy (``bounds``) je napojení, ne volný konec.
 
-Ostatní čáry (cesty, pěšiny) se nemění, jen se počítají jako napojení. Sprint se nevolá.
+Ostatní čáry (``fixed_by_code``) se nemění, jen se počítají jako napojení. Sprint se nevolá.
 """
 
 from __future__ import annotations
@@ -58,11 +60,14 @@ def tidy_road_ends(
     scale: int,
     blockers=None,
     fixed_by_code: dict[str, list[list[tuple[float, float]]]] | None = None,
+    stub_by_code: dict[str, list[list[tuple[float, float]]]] | None = None,
+    bounds: tuple[float, float, float, float] | None = None,
 ) -> dict[str, list[list[tuple[float, float]]]]:
     """Dotáhne volné konce silnic a zahodí pahýly (viz modul). Klíč = kód symbolu, hodnoty čáry v metrech (S-JTSK).
 
     ``fixed_by_code``: čáry kreslené jinde (ZABAGED ulice z ``oom_import``) – počítají se jako napojení a cíl dotažení,
-    samy se nemění a nevrací.
+    samy se nemění a nevrací. ``stub_by_code``: ostatní kreslené čáry (pěšiny…) – jen pravidlo pahýlu, vrací se.
+    ``bounds``: výřez mapy (xmin, ymin, xmax, ymax) v metrech – konec na jeho hranici není volný.
     """
     try:
         from shapely import STRtree
@@ -75,15 +80,15 @@ def tidy_road_ends(
     extend_max = mm_to_ground_m(EXTEND_MAX_MM, scale)
     stub_max = mm_to_ground_m(STUB_MAX_MM, scale)
     halves: dict[str, float] = {}
-    items: list[list] = []  # [kód, souřadnice, je silnice, pevná]
-    for fixed, src in ((False, pieces_by_code), (True, fixed_by_code or {})):
+    items: list[list] = []  # [kód, souřadnice, je silnice, pevná, jen pahýl]
+    for fixed, stub_only, src in ((False, False, pieces_by_code), (True, False, fixed_by_code or {}), (False, True, stub_by_code or {})):
         for code, lines in src.items():
-            road = _is_road(code, preset_id, scale)
+            road = _is_road(code, preset_id, scale) and not stub_only
             for ln in lines:
                 if len(ln) >= 2:
-                    items.append([code, [(float(x), float(y)) for x, y in ln], road, fixed])
-    if not any(it[2] for it in items):
-        return pieces_by_code
+                    items.append([code, [(float(x), float(y)) for x, y in ln], road, fixed, stub_only])
+    if not any(it[2] or it[4] for it in items):
+        return {**pieces_by_code, **(stub_by_code or {})}
     geoms = [LineString(it[1]) for it in items]
     tree = STRtree(geoms)
     osm = [LineString(c) for c in osm_roads if len(c) >= 2]
@@ -101,10 +106,17 @@ def tidy_road_ends(
 
         blockers_prep = prep(blockers.buffer(STUB_TARGET_M))
 
-    def _touches(i: int, p) -> bool:
-        for j in tree.query(p.buffer(END_TOUCH_M)):
+    reach_touch = END_TOUCH_M + max((_half_width_m(it[0], preset_id, scale, halves) for it in items), default=0.0)
+
+    def _touches(i: int, p, on_drawing: bool = False) -> bool:
+        # silnice: konec na ose jiné čáry; pěšina (``on_drawing``) i na kresbě jiné čáry (do půlky její šířky –
+        # pěšina končí na okraji kresby silnice ``end_at_edge``)
+        for j in tree.query(p.buffer(reach_touch if on_drawing else END_TOUCH_M)):
             j = int(j)
-            if j != i and geoms[j].distance(p) <= END_TOUCH_M:
+            if j == i:
+                continue
+            tol = END_TOUCH_M + (_half_width_m(items[j][0], preset_id, scale, halves) if on_drawing else 0.0)
+            if geoms[j].distance(p) <= tol:
                 return True
         return False
 
@@ -112,7 +124,12 @@ def tidy_road_ends(
         c = items[i][1]
         if c[0] == c[-1]:
             return False
-        return not _touches(i, Point(c[0] if at_start else c[-1]))
+        x, y = c[0] if at_start else c[-1]
+        if bounds is not None and (
+            min(abs(x - bounds[0]), abs(x - bounds[2]), abs(y - bounds[1]), abs(y - bounds[3])) <= END_TOUCH_M
+        ):
+            return False  # konec na hranici výřezu mapy
+        return not _touches(i, Point(x, y), on_drawing=items[i][4])
 
     def _stop_on(i: int, target: int, dist_axis: float) -> float | None:
         """Kde má prodloužení skončit (m od konce), nebo None."""
@@ -231,7 +248,7 @@ def tidy_road_ends(
     # 2. Pahýly.
     drop: set[int] = set()
     for i, it in enumerate(items):
-        if not it[2] or it[3] or geoms[i].length >= stub_max:
+        if not (it[2] or it[4]) or it[3] or geoms[i].length >= stub_max:
             continue
         free = [at_start for at_start in (True, False) if _free_end(i, at_start)]
         if len(free) == 2:
@@ -242,7 +259,7 @@ def tidy_road_ends(
             if blockers_prep is not None and blockers_prep.contains(p):
                 continue  # vede k ploše / budově
             drop.add(i)
-    out: dict[str, list[list[tuple[float, float]]]] = {code: [] for code in pieces_by_code}
+    out: dict[str, list[list[tuple[float, float]]]] = {code: [] for code in (*pieces_by_code, *(stub_by_code or {}))}
     for i, it in enumerate(items):
         if i not in drop and not it[3]:
             out[it[0]].append(it[1])
