@@ -6521,6 +6521,24 @@ def build_osm_path_parts(
         slip_zone = slip_lane_zone(work_dir, preset_id, scale)
         if slip_zone is not None:
             lane_zone = slip_zone if lane_zone is None else lane_zone.union(slip_zone)
+    # Zóna nahrazených čar pro silnice s výplní: pásy a osy rozdělené vozovky (do 1 m) uvnitř zóny 502.0 + ramena + rampy.
+    narrow_lane_zone = None
+    if dual_zone is not None and _dual_axes:
+        from shapely.geometry import LineString as _LS_lane
+        from shapely.ops import unary_union as _uu_lane
+
+        from app.pipeline.dual_carriageway import _load as _load_lanes
+
+        _lane_geoms = [
+            _LS_lane([(float(x), float(y)) for x, y in (f.get("geometry") or {}).get("coordinates") or []])
+            for f in _load_lanes(work_dir)
+            if len((f.get("geometry") or {}).get("coordinates") or []) >= 2
+        ] + [_LS_lane(c) for c in _dual_axes if len(c) >= 2]
+        narrow_lane_zone = _uu_lane(_lane_geoms).buffer(0.3, cap_style=2).intersection(dual_zone)
+    if lane_zone is not None and lane_zone is not dual_zone:
+        # ramena rozvětvení a rampy jsou v zóně jen úzkým pásem kolem nahrazených čar
+        _rest = lane_zone.difference(dual_zone) if dual_zone is not None else lane_zone
+        narrow_lane_zone = _rest if narrow_lane_zone is None else narrow_lane_zone.union(_rest)
     objects: list[str] = []
     symbol_cache: dict[str, int | None] = {}
     # Jsou-li data DTM kraje, kreslí chodníky (plocha DTM + zbytky OSM) dtm_import.build_dtm_sidewalk_parts.
@@ -6943,6 +6961,16 @@ def build_osm_path_parts(
             line = extend_ends_to_road_band(line, dropped_sidewalks, road_band, others=other_lines)
         lines = narrow_pieces if narrow_pieces is not None else [line]
         _lanes = dual_zone if (feat.get("properties") or {}).get("fork_link") else lane_zone
+        if (
+            _lanes is not None
+            and narrow_lane_zone is not None
+            and not (feat.get("properties") or {}).get("fork_link")
+            and is_major_road_code(code, preset_id, scale)
+        ):
+            # Vedlejší silnice s výplní jde do výplně 502.0 (k pásu, tj. až k ose), ne jen na okrajovou linku – výplň je
+            # v sadách nad okrajovými linkami, dotažení dá čisté ústí (Petr 2026-10-28). Nekreslí se jen nahrazené
+            # čáry: pásy a osy rozdělené vozovky, ramena rozvětvení, rampy.
+            _lanes = narrow_lane_zone
         if (
             _lanes is not None
             and path_draw_highway(hw).startswith("road_")

@@ -79,15 +79,17 @@ def test_dual_axis_drawn_as_502_0_and_lanes_dropped(tmp_path):
     assert op.osm_oom_code("road_dual", "sprint_4000") != "502.0"
 
 
-def test_side_road_reaches_edge_of_dual_symbol(tmp_path):
-    # Boční ulice končící na jižním pásu (y = 0) dojde až k okraji kresby 502.0 (osa y = 5,75, půlka šířky 9,6 m),
-    # ne jen k pásu nekresleného jízdního pruhu (Petr 2026-10-26, D23).
+@pytest.mark.parametrize("side_hw, into_fill", [("road_3", True), ("road_1", False)])
+def test_side_road_reaches_fill_or_edge_of_dual_symbol(tmp_path, side_hw, into_fill):
+    # Boční silnice s výplní (road_3 → 502) končící na jižním pásu (y = 0) dojde až k němu, tj. do výplně 502.0 (osa
+    # y = 5,75): výplň je nad okrajovými linkami, ústí je čisté (Petr 2026-10-28). Černá cesta (road_1 → 504) končí
+    # na okrajové lince 502.0 (půlka výplně od osy; Petr 2026-10-26, D23).
     import re
 
     (tmp_path / "osm_paths").mkdir()
     a = [(0.0, 0.0), (150.0, 0.0), (300.0, 0.0)]
     b = [(300.0, 11.5), (150.0, 11.5), (0.0, 11.5)]
-    side = {"type": "Feature", "properties": {"source": "osm", "highway": "road_3"}, "geometry": {"type": "LineString", "coordinates": [[150.0, -60.0], [150.0, 0.0]]}}
+    side = {"type": "Feature", "properties": {"source": "osm", "highway": side_hw}, "geometry": {"type": "LineString", "coordinates": [[150.0, -60.0], [150.0, 0.0]]}}
     paths = {"type": "FeatureCollection", "features": [_feat(a), _feat(b), side]}
     for name in ("paths_mixed.geojson", "paths_osm.geojson"):
         (tmp_path / "osm_paths" / name).write_text(json.dumps(paths), encoding="utf-8")
@@ -103,7 +105,10 @@ def test_side_road_reaches_edge_of_dual_symbol(tmp_path):
             if len(pts) >= 2 and all(abs(x - 150.0) < 0.5 for x, _y in pts):
                 tops.append(max(y for _x, y in pts))
     assert tops, "boční ulice se nekreslí"
-    assert max(tops) == pytest.approx(5.75 - half, abs=0.6)
+    if into_fill:
+        assert max(tops) == pytest.approx(0.0, abs=0.6)  # až k pásu (0,3 m), hluboko ve výplni 502.0
+    else:
+        assert max(tops) <= 5.75 - half + 0.6  # nejdál na okrajové lince 502.0 (černá cesta končí na okraji kresby)
 
 
 def test_axis_not_bridged_through_roundabout():
