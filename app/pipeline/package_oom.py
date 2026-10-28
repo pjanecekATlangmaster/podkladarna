@@ -144,6 +144,9 @@ _OSM_UNDER_VEGETATION_MARK = "(412)"
 # z LiDAR/DEM (srázy, skály, ďolíky, knolly). Zbytek (ZABAGED, RÚIAN, OSM, AOPK,
 # vrstevnice) zůstává.
 CERTAIN_TAG = "-ciste"
+# Petr 2026-10-28: čisté mapy job zatím neskládá (zdvojnásobují čas skládání);
+# kód zůstává, ``True`` je vrátí.
+BUILD_CERTAIN_MAPS = False
 CERTAIN_MAP_NAME_SUFFIX = " (čistá data)"
 # Dvory v budovách (oliva / značka budovy) až navrch – překryjí detaily uvnitř.
 _COURTYARD_MARK = "dvory ("

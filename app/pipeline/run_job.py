@@ -49,6 +49,7 @@ from app.pipeline.oom_preview import (
 )
 from app.pipeline.package_oom import (
     OUTPUT_ZIP_NAME,
+    BUILD_CERTAIN_MAPS,
     CERTAIN_MAP_NAME_SUFFIX,
     OOM_PATH_VARIANTS,
     oom_path_source,
@@ -1058,7 +1059,9 @@ def _package_output(
                 ).name
                 path_src = oom_path_source(options, disc_preset_id)
                 for (path_tag, _), certain in (
-                    (v, c) for v in OOM_PATH_VARIANTS for c in (False, True)
+                    (v, c)
+                    for v in OOM_PATH_VARIANTS
+                    for c in ((False, True) if BUILD_CERTAIN_MAPS else (False,))
                 ):
                     variant_name = omap_variant_filename(
                         disc_tag, path_tag, map_name=job_name or "",
