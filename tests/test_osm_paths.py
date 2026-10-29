@@ -2311,7 +2311,14 @@ def test_overpass_mirrors_demotes_failed_and_honors_env(monkeypatch):
     assert got[1:] == list(OVERPASS_URLS)
 
 
-def test_fetch_overpass_rejects_runtime_error_remark():
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"elements": [], "remark": "runtime error: Query timed out"},
+        None,  # přetížené zrcadlo: HTTP 200 s tělem null (ostrý job b366b9482e12)
+    ],
+)
+def test_fetch_overpass_rejects_invalid_response(bad):
     import app.pipeline.osm_paths as op
 
     class _Resp(io.BytesIO):
@@ -2321,9 +2328,9 @@ def test_fetch_overpass_rejects_runtime_error_remark():
         def __exit__(self, *args):
             return False
 
-    bad = {"elements": [], "remark": "runtime error: Query timed out"}
     good = {
         "elements": [
+            None,
             {
                 "type": "way",
                 "geometry": [{"lat": 50.0, "lon": 14.4}, {"lat": 50.001, "lon": 14.4}],
