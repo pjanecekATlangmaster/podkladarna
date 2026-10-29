@@ -714,8 +714,13 @@ def prepare_oom_map(kp_cwd: Path, dest: Path, *, use_dtm: bool = True, **kwargs)
     # Les a MTBO: ZABAGED ostatní plochy v sídlech (kreslené jako zpevněná plocha, ne 403) v síti zpevněných ploch.
     paved_zip = None if kwargs.get("ostatni_as_403") else kwargs.get("zabaged_clean")
     kwargs.pop("courtyard_fill", None)  # starší skripty otoček – dvory kreslí vždy budova
-    with dtm_disabled(not use_dtm), zabaged_paved_areas(paved_zip, kwargs.get("max_ostatni_m2", DEFAULT_MAX_OSTATNI_M2)):
-        return _prepare_oom_map(kp_cwd, dest, **kwargs)
+    from app.pipeline.dtm_sidewalks import release_zone_memos
+
+    try:
+        with dtm_disabled(not use_dtm), zabaged_paved_areas(paved_zip, kwargs.get("max_ostatni_m2", DEFAULT_MAX_OSTATNI_M2)):
+            return _prepare_oom_map(kp_cwd, dest, **kwargs)
+    finally:
+        release_zone_memos()  # zóny ořezu čar patří jen k této mapě
 
 
 def _prepare_oom_map(

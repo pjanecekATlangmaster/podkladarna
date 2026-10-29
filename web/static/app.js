@@ -1436,9 +1436,19 @@ function selectedEstimateMinutes() {
     wantRefs && lastSheets.estimate_minutes_with_refs != null
       ? lastSheets.estimate_minutes_with_refs
       : lastSheets.estimate_minutes;
+  const scale = document.getElementById("map_scale");
+  // Skládání .omap podle měřítka a volby DTM (sprint 1 mapa, les + MTBO 2) – nejdelší část jobu.
+  const base = lastSheets.estimate_base_minutes;
+  const maps = lastSheets.estimate_map_minutes;
+  if (base && maps && scale && maps[scale.value]) {
+    const dtmSel = document.getElementById("dtm");
+    const dtm = dtmSel ? dtmSel.value : "auto";
+    const sprint = Number(scale.value) <= 5000;
+    const useDtm = dtm === "1" || (dtm === "auto" && sprint);
+    mins = Math.ceil((wantRefs ? base.refs : base.plain) + maps[scale.value][useDtm ? "dtm" : "nodtm"]);
+  }
   // Georef GeoTIFF @ 300 DPI podle měřítka (sprint 1 varianta, les + MTBO 2).
   const georef = document.getElementById("output_georef");
-  const scale = document.getElementById("map_scale");
   const byScale = lastSheets.estimate_georef_minutes;
   if (georef && georef.checked && byScale && scale && byScale[scale.value] != null) {
     mins += byScale[scale.value];
@@ -1597,7 +1607,7 @@ initBboxMap();
   }
   const refs = document.getElementById("output_references");
   if (refs) refs.addEventListener("change", updateSubmitButtonLabel);
-  for (const id of ["output_georef", "map_scale"]) {
+  for (const id of ["output_georef", "map_scale", "dtm"]) {
     const el = document.getElementById(id);
     if (el) el.addEventListener("change", updateSubmitButtonLabel);
   }

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.pipeline import zone_index
 from app.pipeline.jvf_reader import iter_records
 
 SIDEWALK_TYPES = ("ChodnikPlocha",)
@@ -415,6 +416,54 @@ def load_stairs_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list
     return load_polygons(opl_zip, STAIRS_TYPES, STAIRS_CACHE_SUFFIX, use_cache=use_cache)
 
 
+# Plocha pro ``end_at_edge`` a zóna ``steps_keep`` jsou pro celou mapu stejné – počítají se jednou (dřív u každé čáry,
+# sprint cf5b78724d57: 2 800 s sjednocování), ne znovu pro každou čáru.
+_EDGE_AREAS: dict[int, tuple[object, object]] = {}
+_STAIRS_BLOCKED: dict[tuple[int, int, float | None], tuple[object, object, object]] = {}
+
+
+def release_zone_memos() -> None:
+    """Uvolní zapamatované zóny (konec skládání mapy)."""
+    _EDGE_AREAS.clear()
+    _STAIRS_BLOCKED.clear()
+    zone_index.clear()
+
+
+def _edge_area(area):
+    """Plocha s hranou: GeometryCollection → sjednocení jejích ploch (None bez ploch)."""
+    if area.geom_type != "GeometryCollection":  # jen ta nemá hranu (boundary None); hranu celé plochy nepočítat
+        return area
+    hit = _EDGE_AREAS.get(id(area))
+    if hit is not None and hit[0] is area:
+        return hit[1]
+    from shapely.ops import unary_union
+
+    polys = [g for g in getattr(area, "geoms", []) if g.geom_type in ("Polygon", "MultiPolygon")]
+    merged = unary_union(polys) if polys else None
+    if len(_EDGE_AREAS) >= 8:
+        _EDGE_AREAS.clear()
+    _EDGE_AREAS[id(area)] = (area, merged)  # drží odkaz, id nepřipadne jinému objektu
+    return merged
+
+
+def _stairs_blocked(stair_zone, cover, cover_near_m):
+    """Zóna, kde se OSM schody nekreslí (``steps_keep``), jednou pro dvojici zón."""
+    from shapely.ops import unary_union
+
+    key = (id(stair_zone), id(cover), cover_near_m)
+    hit = _STAIRS_BLOCKED.get(key)
+    if hit is not None and hit[0] is stair_zone and hit[1] is cover:
+        return hit[2]
+    near = cover
+    if near is not None and cover_near_m is not None:
+        near = near.intersection(stair_zone.buffer(cover_near_m))
+    blocked = stair_zone if near is None else unary_union([stair_zone, near])
+    if len(_STAIRS_BLOCKED) >= 8:
+        _STAIRS_BLOCKED.clear()
+    _STAIRS_BLOCKED[key] = (stair_zone, cover, blocked)
+    return blocked
+
+
 def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SNAP_M, min_len_m: float = STAIRS_MIN_LEN_M):
     """Čára ukončená přesně na hraně zpevněné plochy ``area`` (shapely): seznam souřadnic (0–1 čára).
 
@@ -430,15 +479,12 @@ def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SN
     line = LineString(coords)
     if line.length <= 0:
         return [coords]
+    area = _edge_area(area)
+    if area is None:
+        return [coords]
+    # okolí čáry: hrany výřezu jsou dál než přichycení ke hraně, výsledek je stejný jako s celou plochou
+    area = zone_index.local_zone(area, line, snap_m + 1.0)
     boundary = area.boundary
-    if boundary is None:  # GeometryCollection: hrana jen z ploch
-        polys = [g for g in getattr(area, "geoms", []) if g.geom_type in ("Polygon", "MultiPolygon")]
-        if not polys:
-            return [coords]
-        from shapely.ops import unary_union
-
-        area = unary_union(polys)
-        boundary = area.boundary
     start_in = area.contains(Point(coords[0]))
     end_in = area.contains(Point(coords[-1]))
     s, e = 0.0, line.length
@@ -488,13 +534,11 @@ def steps_keep(
     není schodiště z DTM (Trnkovo nám. – DTM schody v ploše chodníku nemá); u schodiště z DTM dál odpadnou.
     """
     from shapely.geometry import LineString
-    from shapely.ops import linemerge, unary_union
+    from shapely.ops import linemerge
 
     line = LineString(coords)
-    if cover is not None and cover_near_m is not None:
-        cover = cover.intersection(stair_zone.buffer(cover_near_m))
-    blocked = stair_zone if cover is None else unary_union([stair_zone, cover])
-    merged = line.difference(blocked)
+    blocked = _stairs_blocked(stair_zone, cover, cover_near_m)
+    merged = line.difference(zone_index.local_zone(blocked, line, 1.0))
     if merged.is_empty:
         return []
     if merged.geom_type == "MultiLineString":
@@ -784,7 +828,8 @@ def clip_outside(coords: list[tuple[float, float]], cover, min_len_m: float = OS
     """Části čáry mimo ``cover`` (kratší než ``min_len_m`` se zahodí) jako seznamy souřadnic."""
     from shapely.geometry import LineString
 
-    rest = LineString(coords).difference(cover)
+    line = LineString(coords)
+    rest = line.difference(zone_index.local_zone(cover, line, 1.0))
     pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
     return [[(float(x), float(y)) for x, y in g.coords] for g in pieces if g.length >= min_len_m]
 
