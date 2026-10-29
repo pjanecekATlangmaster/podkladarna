@@ -316,8 +316,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **Tvar hranic porostů 401–410** (3.1.0, Petr + mapař Martin 2026-10-29, srovnání Janov Okrouhlice a Vyšší Brod E2): `vegetation.shp`
   nese přesný obrys z rastru (`_SIMPLIFY_M = 0`), tvar dělá až `veg_smooth.smooth_area` při sestavení mapy pro všechny porosty
   v lese a MTBO: středy hran pixelů → Gauss podél obvodu s posunem bodu ≤ 1,5 m → DP → dorovnání plochy i o zaoblení křivek.
-  Volba `veg_smooth`: 0 kostičky 1:1, 1 výchozí (posun v průměru 0,4 m, plocha ±0,5 %), 2 / 3 navíc zalití zátok a ustřižení výběžků
-  do 6 / 12 m. Dřívější výchozí 2 (DP 3 m + křivky) posouval hranici o 1 m (95 % do 2,5 m) a zvětšoval 410 o 3–5 %. Sprint beze
+  Volba `veg_smooth`: 0 kostičky 1:1, 1 výchozí (hladký obrys kostiček, nic nemaže, plocha ±0,6 %), 2 / 3 navíc zalití zátok a ustřižení
+  výběžků do 6 / 12 m. Proti ručním mapám jsou všechny stupně stejně přesné (hrana do 0,1 m stejně, IoU v tisícinách, rozhoduje
+  klasifikace); dřívější výchozí 2 (DP 3 m + křivky) mazal drobnosti do 12 m a nafukoval 410 o 3–5 %. Sprint beze
   změny (`smooth_area_legacy`, `_SPRINT_LEVEL`). Metriky a výřezy: `/mnt/project-files/porosty-vyhlazeni/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,

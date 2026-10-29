@@ -11,10 +11,10 @@ schodky vyhlazují tak, aby hranice zůstala na místě:
 
 Stupně 2 a 3 před tím navíc zalijí zátoky a ustřihnou výběžky užší než
 2 × poloměr (zjednodušení drobností jako dřív). Srovnání s ručními mapami
-(Janov Okrouhlice, Vyšší Brod E2, 2026-10-29): dřívější výchozí stupeň 2
-(DP 3 m + křivky) posunul hranici v průměru o 1 m (95 % do 2,5 m) a zvětšil
-plochy o 2–3 %; nový stupeň 1 o 0,4 m (95 % do 1 m) při stejně málo
-ostrých zlomech.
+(Janov Okrouhlice, Vyšší Brod E2, 2026-10-29): proti ruční mapě jsou stupně
+stejně přesné (rozhoduje klasifikace); dřívější výchozí stupeň 2 (DP 3 m +
+křivky) ale mazal drobnosti do ~12 m a zvětšil 410 o 3–5 %, stupeň 1 nic
+nemaže, plochu drží (±0,6 %) a má nejméně ostrých zlomů.
 
 Kde by tvar přibyl, plocha se odřízne v překážkách (cesta s bufferem,
 budova, vodní plocha) a odpadnou ostrůvky, které s původní plochou
