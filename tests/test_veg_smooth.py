@@ -124,3 +124,4 @@ def test_resolve_use_dtm_defaults_and_values():
     assert resolve_use_dtm({"dtm_forest": "on"}, "mtbo_10000") is True
     assert resolve_use_dtm({"dtm_forest": True, "dtm_sprint": False}, "sprint_2m") is False
     assert resolve_use_dtm({"dtm_sprint": "x"}, "sprint_2m") is True
+

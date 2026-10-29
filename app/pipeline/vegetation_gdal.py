@@ -19,6 +19,7 @@ _CLASS_TO_CODE: dict[int, str] = {
     2: "406",
     3: "408",
     4: "410",
+    5: "403",
 }
 
 # Max. vrcholů a plochy na jeden plošný objekt – větší louka/porost se rozřízne,
@@ -40,10 +41,11 @@ SPRINT_SIMPLIFY_M = 1.5
 _SPRINT_LEVEL = {0: 0, 1: 2, 2: 2, 3: 3}
 # Otevřený terén (401) se podle plochy neřeže (velká louka s jednoduchým obrysem
 # je v OCADu v pohodě, řezy jsou vidět); dělí se jen kvůli počtu vrcholů.
-_NO_AREA_SPLIT_CODES = frozenset({"401"})
+_NO_AREA_SPLIT_CODES = frozenset({"401", "403"})
 
 _CLASS_NAMES: dict[str, str] = {
     "401": "Otevřený terén",
+    "403": "Drsný otevřený terén",
     "406": "Vegetace pomalý běh",
     "408": "Vegetace chůze",
     "410": "Vegetace boj",
@@ -191,7 +193,7 @@ def build_vegetation_parts(
         )
 
     parts: list[OomObjectPart] = []
-    for code in ("401", "406", "408", "410"):
+    for code in ("401", "403", "406", "408", "410"):
         objects = grouped[code]
         if objects:
             parts.append(

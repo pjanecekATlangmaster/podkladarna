@@ -18,7 +18,7 @@ from typing import Any, Literal
 VegSizeProfile = Literal["default", "strict"]
 
 _GREEN_CODES = frozenset({"406", "408", "410"})
-_VEG_CODES = frozenset({"401"}) | _GREEN_CODES
+_VEG_CODES = frozenset({"401", "403"}) | _GREEN_CODES
 
 # Důvody pro uzitecne/vyhozene (SHP pole duvod, ASCII) — legacy, filtr je off.
 REASON_SMALL_AREA = "mala_plocha"

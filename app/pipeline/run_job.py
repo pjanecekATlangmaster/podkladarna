@@ -226,6 +226,8 @@ def vegetation_density_params(preset_id: str, options: dict):
         canopy_veto_chm_m=0.0
         if job_has_sprint(preset_id, options)
         else DEFAULT_DENSITY_PARAMS.canopy_veto_chm_m,
+        ortho_rough_open=not job_has_sprint(preset_id, options),
+        young_stand_green=not job_has_sprint(preset_id, options),
     )
 
 
