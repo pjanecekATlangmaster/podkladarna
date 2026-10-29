@@ -2,6 +2,8 @@
 # Jen opravdové produktové zlomy — ne každý commit.
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
+  - date: "2026-10-29"
+    title: "Verze 3.1 – hranice porostů v lese a MTBO hladké bez posunu (nový výchozí stupeň 1), stupeň 0 = přesné kostičky z rastru; drobné výběžky se už nemažou a malé plochy nenafukují"
   - date: "2026-10-28"
     title: "Verze 3.0 – pozor: barvy vegetace jsou výška a hustota porostu z DMP OK (povrch korun), ne průběžnost; hranice porostů berte jako náčrt, ne hotovou kresbu"
   - date: "2026-10-28"

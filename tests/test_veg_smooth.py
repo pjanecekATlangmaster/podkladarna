@@ -1,9 +1,11 @@
-"""Zaoblení luk: zjednodušení bez přelití přes překážky (cesty, budovy, voda)."""
+"""Tvar hranic porostů: vyhlazení bez posunu hranice a bez přelití přes překážky."""
 
+import pytest
 from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
 
 from app.pipeline.job_options import resolve_veg_smooth
-from app.pipeline.veg_smooth import SmoothBarriers, smooth_area
+from app.pipeline.veg_smooth import SmoothBarriers, _curve_area_gain, smooth_area
 
 
 def _stair_diagonal(n: int = 40, step: float = 1.0):
@@ -46,12 +48,12 @@ def test_smooth_drops_island_behind_barrier():
 
 
 def test_resolve_veg_smooth_default_and_values():
-    assert resolve_veg_smooth({}) == 2
+    assert resolve_veg_smooth({}) == 1
     assert resolve_veg_smooth({"veg_smooth": "3"}) == 3
     assert resolve_veg_smooth({"veg_smooth": "ROUND"}) == 1  # starý přepínač
     assert resolve_veg_smooth({"veg_smooth": "off"}) == 0
-    assert resolve_veg_smooth({"veg_smooth": "9"}) == 2
-    assert resolve_veg_smooth({"veg_smooth": "x"}) == 2
+    assert resolve_veg_smooth({"veg_smooth": "9"}) == 1
+    assert resolve_veg_smooth({"veg_smooth": "x"}) == 1
     assert resolve_veg_smooth({"veg_smooth": "0"}) == 0  # vypnuto
     assert resolve_veg_smooth({"veg_smooth": 0}) == 0
 
@@ -64,6 +66,49 @@ def test_higher_level_removes_small_notches():
     lvl2 = [Polygon(*p) for p in smooth_area(ring, [], 2)]
     assert not any(p.contains(notch) for p in lvl1)
     assert any(p.contains(notch) for p in lvl2)
+
+
+@pytest.mark.parametrize("as_curves", [False, True])
+def test_smooth_level1_keeps_boundary(as_curves):
+    # stupeň 1: plocha ±1 %, obrys se od původního vzdálí nejvýš o max_shift (1,5 m) + půl pixelu
+    # a tolerance DP; mez 2,2 m je rozumná horní hranice, ne přesná hodnota.
+    ring = _stair_diagonal()
+    orig = Polygon(ring)
+    out = smooth_area(ring, [], 1, as_curves=as_curves)
+    shaped = unary_union([Polygon(*p) for p in out])
+    # s křivkami se plocha dorovná i o jejich zaoblení – měří se kreslená plocha
+    drawn = shaped.area + (_curve_area_gain(shaped) if as_curves else 0.0)
+    assert drawn == pytest.approx(orig.area, rel=0.01)
+    if not as_curves:
+        assert shaped.exterior.hausdorff_distance(orig.exterior) <= 2.2
+
+
+def test_smooth_level3_keeps_narrow_area():
+    ring = [(0, 0), (30, 0), (30, 8), (0, 8), (0, 0)]  # 8 m < 2 × 6 m
+    out = smooth_area(ring, [], 3)
+    assert out
+    assert sum(Polygon(*p).area for p in out) > 100
+
+
+def test_shaped_parts_by_mode():
+    from app.pipeline.vegetation_gdal import SPRINT_SIMPLIFY_M, _shaped_parts
+
+    poly = Polygon(_stair_diagonal())
+    wkb = poly.wkb
+
+    parts, curves = _shaped_parts(wkb, "406", 2, None, True)
+    assert curves is False
+    ring = next(p[1] for p in parts if p[0] == "line")
+    expected = poly.simplify(SPRINT_SIMPLIFY_M, preserve_topology=True)
+    assert Polygon(ring).symmetric_difference(expected).area < 1e-6
+
+    parts, curves = _shaped_parts(wkb, "406", 0, None, False)
+    assert curves is False
+    ring = next(p[1] for p in parts if p[0] == "line")
+    assert list(ring) == list(poly.exterior.coords)
+
+    parts, curves = _shaped_parts(wkb, "406", 1, None, False)
+    assert curves is True
 
 
 def test_resolve_use_dtm_defaults_and_values():
