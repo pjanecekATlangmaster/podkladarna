@@ -49,7 +49,10 @@ ORTHO_MPP = 0.25
 # Nativní rozlišení ČÚZK ortofota je ~0,125 m/px (při 0,25 je znatelně měkčí).
 # Nejjemnější krok, při kterém celkový počet pixelů nepřekročí strop; jinak hrubší.
 ORTHO_MPP_CANDIDATES = (0.125, 0.2, ORTHO_MPP)
-ORTHO_MAX_TOTAL_PX = 600_000_000
+# Strop pokryje největší výřez (36 km², MAX_BBOX_AREA_KM2) v nativních 0,125 m (2,3 Gpx, JPEG
+# ~1 GB v dlaždicích ≤ 8000 px). Jemněji ČÚZK nedává; dřív 600 Mpx = 0,25 m už nad ~15 km²
+# (mapař ČSOS: na les nepoužitelné), Petr 2026-10-29: velikost nevadí.
+ORTHO_MAX_TOTAL_PX = 2_400_000_000
 # 8192² RGB32 = přesně 256 MiB – Qt (Mapper) má na obrázek alokační limit
 # 256 MB, proto rezerva.
 ORTHO_MAX_TILE_PX = 8000
@@ -777,7 +780,7 @@ def fetch_hillshade_wms(
 def _ortho_target_size(
     template_png: Path, template_pgw: Path
 ) -> tuple[int, int, float]:
-    """Ortofoto vždy 0,25 m/px – bez ohledu na velikost AOI (strop řeší dlaždice)."""
+    """Ortofoto v nejjemnějším kroku pod ``ORTHO_MAX_TOTAL_PX`` (do 36 km² nativních 0,125 m/px; strop jedné šablony řeší dlaždice)."""
     xmin, ymin, xmax, ymax, _, _ = _template_extent(template_png, template_pgw)
     for mpp in ORTHO_MPP_CANDIDATES:
         tw = max(1, int(round(abs(xmax - xmin) / mpp)))
@@ -853,7 +856,7 @@ def fetch_orthophoto_wms(
     *,
     log: callable | None = None,
 ) -> dict[str, Path]:
-    """Ortofoto 0,25 m/px jako JPEG + .jgw; nad 8192 px mřížka dlaždic.
+    """Ortofoto 0,125 m/px (viz ``_ortho_target_size``) jako JPEG + .jgw; nad 8000 px mřížka dlaždic.
 
     Vrací ``{klíč: jpg}`` (``orthophoto`` pro jednu dlaždici, jinak
     ``orthophoto_r0c0`` …). Při selhání jakékoli dlaždice smaže vše a vrátí ``{}``.
@@ -1243,6 +1246,14 @@ def _ref_png_key(filename: str) -> str | None:
     return mapping.get(filename)
 
 
+def _cached_ortho_mpp(jpg: Path) -> float:
+    """Velikost pixelu ortofota v cache (m) z .jgw; bez world file 0 (cache se nezahazuje)."""
+    try:
+        return abs(float(world_file_for(jpg).read_text().split()[0]))
+    except (OSError, ValueError, IndexError):
+        return 0.0
+
+
 def _try_load_references_cache(
     cache_dir: Path,
     out_dir: Path,
@@ -1256,6 +1267,9 @@ def _try_load_references_cache(
         return None
     ortho = sorted(cache_dir.glob("orthophoto*.jpg"))
     primary = ortho[0] if ortho else cache_dir / "osm.png"
+    if ortho and _cached_ortho_mpp(ortho[0]) > ORTHO_MPP_CANDIDATES[0] * 1.05:
+        # Ortofoto z doby stropu 600 Mpx (0,2 / 0,25 m) – stáhnout znovu v plném rozlišení.
+        return None
     if not is_fresh(
         cache_dir, primary, REF_CACHE_MAX_AGE_DAYS, min_size=500
     ):

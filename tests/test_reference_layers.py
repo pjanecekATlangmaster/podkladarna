@@ -398,25 +398,25 @@ def test_mosaic_wms_tiles_keeps_alpha(tmp_path):
     assert left == (0, 255) and right == (0, 255)
 
 
-# --- Ortofoto 0,25 m/px, dlaždice, JPEG --------------------------------------
+# --- Ortofoto 0,125 m/px, dlaždice, JPEG --------------------------------------
 
 
-def test_ortho_target_size_steps_down_with_aoi_size(tmp_path):
+def test_ortho_target_size_steps_down_only_over_max_area(tmp_path):
     from app.pipeline.reference_layers import _ortho_target_size
 
-    # 2,5 km → 0,125; 4 km → 0,2 (0,125 by přesáhlo strop pixelů)
+    # do největšího výřezu 6 × 6 km nativně 0,125; větší (jen API / testy) hrubší
     assert _ortho_target_size(*_mini_template(tmp_path, 2500.0))[2] == 0.125
     sub = tmp_path / "b"
     sub.mkdir()
-    assert _ortho_target_size(*_mini_template(sub, 4000.0))[2] == 0.2
+    assert _ortho_target_size(*_mini_template(sub, 7000.0))[2] == 0.2
 
 
-def test_ortho_target_size_is_quarter_meter_for_big_aoi(tmp_path):
+def test_ortho_target_size_is_native_for_max_aoi(tmp_path):
     from app.pipeline.reference_layers import _ref_target_size, _ortho_target_size
 
     png, pgw = _mini_template(tmp_path, 6000.0)  # 6×6 km
     tw, th, mpp = _ortho_target_size(png, pgw)
-    assert (tw, th, mpp) == (24000, 24000, 0.25)
+    assert (tw, th, mpp) == (48000, 48000, 0.125)
     # ostatní vrstvy zůstávají pod stropem 8192 px (jemnost ~1 m/px)
     rw, rh, rmpp = _ref_target_size(png, pgw)
     assert max(rw, rh) <= 8192
@@ -481,31 +481,31 @@ def test_fetch_orthophoto_wms_tiles_and_world_files(tmp_path, monkeypatch):
     assert calls[0][5] == "image/jpeg"
     assert calls[0][2].name == "orthophoto.jgw"
 
-    # 6×6 km → 24000 px → 3×3 dlaždice po 8000 px
+    # 6×6 km → 48000 px (0,125 m) → 6×6 dlaždic po 8000 px
     calls.clear()
     png, pgw = _mini_template(tmp_path, 6000.0)
     bounds = (1000.0, 2000.0, 7000.0, 8000.0)
     built = rl.fetch_orthophoto_wms(bounds, png, pgw, out)
     assert "orthophoto" not in built and (out / "orthophoto.jpg").exists() is False
-    assert sorted(built) == [f"orthophoto_r{r}c{c}" for r in range(3) for c in range(3)]
-    assert len(calls) == 9
+    assert sorted(built) == [f"orthophoto_r{r}c{c}" for r in range(6) for c in range(6)]
+    assert len(calls) == 36
     for b, dest, dest_pgw, w, h, _fmt in calls:
         assert w <= 8192 and h <= 8192
         assert dest_pgw.suffix == ".jgw" and dest.suffix == ".jpg"
         georef = read_pgw(dest_pgw)
-        assert abs(georef.pixel_x - 0.25) < 1e-9
-        assert abs(georef.pixel_y + 0.25) < 1e-9
+        assert abs(georef.pixel_x - 0.125) < 1e-9
+        assert abs(georef.pixel_y + 0.125) < 1e-9
         # world file = střed horního levého pixelu
-        assert abs(georef.origin_x - (b[0] + 0.125)) < 1e-9
-        assert abs(georef.origin_y - (b[3] - 0.125)) < 1e-9
-        assert abs((b[2] - b[0]) - w * 0.25) < 1e-6
+        assert abs(georef.origin_x - (b[0] + 0.0625)) < 1e-9
+        assert abs(georef.origin_y - (b[3] - 0.0625)) < 1e-9
+        assert abs((b[2] - b[0]) - w * 0.125) < 1e-6
     by_name = {c[1].stem: c[0] for c in calls}
     r0c0, r0c1, r1c0 = by_name["orthophoto_r0c0"], by_name["orthophoto_r0c1"], by_name["orthophoto_r1c0"]
     assert abs(r0c0[0] - 1000.0) < 1e-9 and abs(r0c0[3] - 8000.0) < 1e-9
     assert abs(r0c0[2] - r0c1[0]) < 1e-9  # sousedé na sebe navazují
     assert abs(r0c0[1] - r1c0[3]) < 1e-9
-    assert abs(by_name["orthophoto_r2c2"][2] - 7000.0) < 1e-9
-    assert abs(by_name["orthophoto_r2c2"][1] - 2000.0) < 1e-9
+    assert abs(by_name["orthophoto_r5c5"][2] - 7000.0) < 1e-9
+    assert abs(by_name["orthophoto_r5c5"][1] - 2000.0) < 1e-9
 
 
 def test_fetch_orthophoto_wms_failure_removes_partial(tmp_path, monkeypatch):
@@ -621,7 +621,7 @@ def test_download_wms_raster_jpeg_mosaic(tmp_path, monkeypatch):
 
 def _fake_jpg(path: Path) -> Path:
     path.write_bytes(b"\xff\xd8" + b"j" * 600)
-    path.with_suffix(".jgw").write_text("0.25\n0\n0\n-0.25\n0\n0\n")
+    path.with_suffix(".jgw").write_text("0.125\n0\n0\n-0.125\n0\n0\n")
     return path
 
 
@@ -657,6 +657,9 @@ def test_references_cache_roundtrip_with_ortho_tiles(tmp_path):
     assert (out / "orthophoto_r0c1.jgw").is_file()
     assert (out / "osm.pgw").is_file()
     assert [k for k, _p in rl.orthophoto_items(got)] == ["orthophoto_r0c0", "orthophoto_r0c1"]
+    # ortofoto z doby stropu 600 Mpx (0,25 m) = miss, stáhne se znovu nativně
+    (cache / "orthophoto_r0c0.jgw").write_text("0.25\n0\n0\n-0.25\n0\n0\n")
+    assert rl._try_load_references_cache(cache, tmp_path / "job2" / "references") is None
 
 
 def test_references_cache_legacy_png_orthophoto_is_miss(tmp_path):
