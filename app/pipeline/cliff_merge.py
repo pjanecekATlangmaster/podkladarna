@@ -994,29 +994,10 @@ def shapely_available() -> bool:
     return True
 
 
-# Les a MTBO jednoho jobu skládají plochy skal ze stejných čárek (morfologie celé mapy ~130 s): poslední výsledek se
-# použije znovu, když jsou čárky shodné.
-_ROCK_RINGS_MEMO: list[tuple[tuple, list[list[tuple[float, float]]]]] = []
-
-
 def _rock_footprint_rings(ticks: list[_Tick]) -> list[list[tuple[float, float]]]:
-    """Vyhlazený footprint z bufferovaných ticků (memo posledních čárek). [] když shapely chybí."""
+    """Vyhlazený footprint z bufferovaných ticků. [] když shapely chybí."""
     if not ticks:
         return []
-    key = (
-        tuple(ticks),
-        ROCK_BUFFER_M, ROCK_CLOSE_M, ROCK_OPEN_M, ROCK_SHRINK_M, ROCK_SMOOTH_M,
-        ROCK_SIMPLIFY_M, ROCK_DEGENERATE_AREA_M2, MAX_ROCK_ASPECT, MAX_ROCK_ASPECT_WIDTH_M,
-    )
-    if _ROCK_RINGS_MEMO and _ROCK_RINGS_MEMO[0][0] == key:
-        return [list(ring) for ring in _ROCK_RINGS_MEMO[0][1]]
-    rings = _rock_footprint_rings_uncached(ticks)
-    if rings:  # [] může být i chybějící shapely – nepamatovat
-        _ROCK_RINGS_MEMO[:] = [(key, [list(ring) for ring in rings])]
-    return rings
-
-
-def _rock_footprint_rings_uncached(ticks: list[_Tick]) -> list[list[tuple[float, float]]]:
     try:
         from shapely import make_valid
         from shapely.geometry import LineString

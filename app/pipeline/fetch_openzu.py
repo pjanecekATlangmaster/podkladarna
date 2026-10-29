@@ -36,21 +36,21 @@ CROP_BUFFER_M = 30.0
 # Polohopis (ZABAGED/OSM/RÚIAN/AOPK) stahovat s přesahu přes AOI –
 # LiDAR/KP mají ~CROP_BUFFER_M + KP pad; radši přesah než holé kraje.
 VECTOR_FETCH_BUFFER_M = 80.0
-# Odhad délky jobu (min). Kalibrace NAS R1600 / 2.3.x: 6×6 km 16 listů bez
-# cache 55 min, 5,4 km² 4 listy z cache 10 min, sprint 0,7 km² 2 listy 9,5 min.
-# Schválně mírně nadsazené (~+20 %): radši doběhne dřív, než slíbí tlačítko.
+# Odhad délky jobu (min). Schválně mírně nadsazené: radši doběhne dřív, než slíbí tlačítko.
 # Kalibrace 3.1 (joby NAS 2026-10-27 až 29): skládání .omap je 60–85 % jobu a liší se podle druhu mapy a DTM, proto
 # se počítá zvlášť (``estimate_map_minutes``); krok OSM čeká ~3 min na podklady stahované na pozadí (DTM, ortofoto).
 _EST_FIXED_MIN = 3.5  # ZABAGED, OSM + čekání na podklady na pozadí, RÚIAN/AOPK, web náhled, ZIP
 _EST_DOWNLOAD_MIN_PER_SHEET = 1.0  # DMR5G + DMPOK ~350 MB; ČÚZK 0,5–2,2 min
 _EST_CROP_MIN_PER_SHEET = 1.25  # PDAL ořez (dekomprese celého listu)
-_EST_MIN_PER_KM2 = 0.35  # sloučení mračna, DEM/DSM/CHM, vegetace, srázy (bez skládání .omap)
+_EST_MIN_PER_KM2 = 0.5  # sloučení mračna, DEM/DSM/CHM, vegetace, srázy (bez skládání .omap)
 # Skládání jedné .omap (min/km²) podle druhu mapy a toho, zda kreslí z DTM. Les a MTBO jsou dvě mapy.
+# NAS: sprint z DTM 11,6 km² 27 min (Final 2, po zrychlení 3.2.0), les / MTBO z DTM 8,9 km² 8–9 min (Retest 6),
+# les bez DTM 3,6 km² 2,5 min (Barrandov); venkov bez DTM bývá výrazně rychlejší (ostrý server), odhad je spíš horní.
 _EST_MAP_MIN_PER_KM2 = {
-    ("sprint", True): 1.2,
-    ("sprint", False): 0.8,
-    ("forest", True): 0.8,
-    ("forest", False): 0.5,
+    ("sprint", True): 2.0,
+    ("sprint", False): 1.0,
+    ("forest", True): 1.0,
+    ("forest", False): 0.4,
 }
 _EST_MAP_FIXED_MIN = 0.5  # načtení podkladů a zápis jedné .omap + OCD
 # Georef GeoTIFF @ 300 DPI: Mapper + GeoTIFF/náhledy na variantu (sprint 1, les + MTBO 2).

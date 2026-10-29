@@ -101,15 +101,15 @@ def test_estimate_minutes_accounts_for_dmpok(tmp_path, monkeypatch):
 
     monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
     names = ["PRAH03", "PRAH04", "PRAH13", "PRAH14"]
-    # 2 pevné + stažení 1/list + ořez 1,25/list (plocha 0)
-    assert estimate_minutes(names) == 11
+    # 3,5 pevné + stažení 1/list + ořez 1,25/list + 2 mapy les a MTBO po 0,5 (plocha 0)
+    assert estimate_minutes(names) == 14
 
     folder = tmp_path / "lidar" / "sm5" / "PRAH03"
     folder.mkdir(parents=True)
     (folder / "DMPOK.laz").write_bytes(b"x" * 2000)
     write_meta(folder, downloaded_at=datetime.now(timezone.utc).isoformat())
     assert dmpok_cached_mapnoms(names) == {"PRAH03"}
-    assert estimate_minutes(names) == 10
+    assert estimate_minutes(names) == 13
     assert estimate_note(names).startswith("Stahuje se DMP OK")
 
     for mapnom in names:
@@ -117,7 +117,7 @@ def test_estimate_minutes_accounts_for_dmpok(tmp_path, monkeypatch):
         f.mkdir(parents=True, exist_ok=True)
         (f / "DMPOK.laz").write_bytes(b"x" * 2000)
         write_meta(f, downloaded_at=datetime.now(timezone.utc).isoformat())
-    assert estimate_minutes(names) == 7
+    assert estimate_minutes(names) == 10
     assert estimate_note(names) == "DMP OK v cache."
 
 
@@ -158,9 +158,13 @@ def test_api_sheets(client, monkeypatch):
     body = r.json()
     assert body["count"] == 1
     assert body["sheets"][0]["mapnom"] == "PRAH77"
-    # 1 nestažený list, ~1,6 km²: 2 + 1 + 1,25 + 0,55·1,6 → 6 (+1 reference)
-    assert body["estimate_minutes"] == 6
-    assert body["estimate_minutes_with_refs"] == 6 + 1
+    # 1 nestažený list, ~1,6 km²: 3,5 + 1 + 1,25 + 0,5·1,6 + les a MTBO 2·(0,5 + 0,4·1,6) → 9 (+1 reference)
+    assert body["estimate_minutes"] == 9
+    assert body["estimate_minutes_with_refs"] == 9 + 1
+    # bez map 7; GUI přičte mapy podle měřítka a DTM (sprint z DTM 0,5 + 2·1,6)
+    assert body["estimate_base_minutes"] == {"plain": 7, "refs": 8}
+    assert body["estimate_map_minutes"]["4000"]["dtm"] == pytest.approx(3.68, abs=0.01)
+    assert body["estimate_map_minutes"]["10000"]["nodtm"] == pytest.approx(2.27, abs=0.01)
     assert body["estimate_georef_minutes"]["10000"] == 2
     assert body["estimate_georef_minutes"]["4000"] == 1
     assert body["estimate_note"]
@@ -372,21 +376,20 @@ def test_cached_dmp_laz_falls_back_to_dmp1g(tmp_path, monkeypatch):
 
 
 def test_estimate_calibrated_on_nas_jobs(monkeypatch):
-    """Kalibrace NAS (2.3.x): odhad mírně nad skutečností, ne dvojnásobek."""
+    """Kalibrace NAS (3.2.0): odhad mírně nad skutečností, ne dvojnásobek."""
     import app.pipeline.fetch_openzu as f
 
-    def total(sheets, area, scale, *, cached):
+    def total(sheets, area, scale, use_dtm):
         names = [f"S{i}" for i in range(sheets)]
-        monkeypatch.setattr(f, "dmpok_cached_mapnoms", lambda n: set(n) if cached else set())
-        return f.estimate_minutes(names, area_km2=area, include_references=True) + (
-            f.estimate_georef_minutes(area, scale)
-        )
+        monkeypatch.setattr(f, "dmpok_cached_mapnoms", lambda n: set(n))
+        return f.estimate_minutes(names, area_km2=area, include_maps=False) + f.estimate_map_minutes(area, scale, use_dtm)
 
-    # (skutečnost v min) → odhad do +35 %
+    # (odhad, skutečnost v min) → do +35 %
     for got, actual in (
-        (total(16, 35.6, 10000, cached=False), 55),
-        (total(4, 5.4, 10000, cached=True), 10),
-        (total(2, 0.65, 4000, cached=False), 9.5),
+        # sprint Final 2 (cf5b78724d57): příprava 16,7 min + mapa 26,8 min (3.2.0) + ZIP
+        (total(6, 11.6, 4000, True), 44),
+        # Retest 6 (9d6aa03b612c): iterace 23,5 min + ořez LiDAR ~6,5 min (Final 2, stejné listy)
+        (total(6, 8.91, 10000, True), 30),
     ):
         assert 0.9 * actual <= got <= 1.35 * actual
 
