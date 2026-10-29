@@ -796,7 +796,7 @@ isom:
     review: false
   - ocad_code: "521.3"
     cz_name: "Budova (minimální velikost)"
-    generator_codes: []
+    generator_codes: ["521.3"]
     geom: point
     review: false
   - ocad_code: "522.0"
@@ -2585,7 +2585,7 @@ mtbo:
     review: false
   - ocad_code: "521.3"
     cz_name: "Budova (minimální velikost)"
-    generator_codes: []
+    generator_codes: ["521.3"]
     geom: point
     review: false
   - ocad_code: "522.0"
