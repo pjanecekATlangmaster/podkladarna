@@ -49,10 +49,11 @@ ORTHO_MPP = 0.25
 # Nativní rozlišení ČÚZK ortofota je ~0,125 m/px (při 0,25 je znatelně měkčí).
 # Nejjemnější krok, při kterém celkový počet pixelů nepřekročí strop; jinak hrubší.
 ORTHO_MPP_CANDIDATES = (0.125, 0.2, ORTHO_MPP)
-# Strop pokryje největší výřez (36 km², MAX_BBOX_AREA_KM2) v nativních 0,125 m (2,3 Gpx, JPEG
-# ~1 GB v dlaždicích ≤ 8000 px). Jemněji ČÚZK nedává; dřív 600 Mpx = 0,25 m už nad ~15 km²
-# (mapař ČSOS: na les nepoužitelné), Petr 2026-10-29: velikost nevadí.
-ORTHO_MAX_TOTAL_PX = 2_400_000_000
+# Strop pokryje největší výřez (36 km², MAX_BBOX_AREA_KM2) v nativních 0,125 m. Počítá se z obálky
+# v S-JTSK – pootočený Křovák z 36 km² dělá obálku až ~48 km² (3,1 Gpx, JPEG ~1–1,5 GB v dlaždicích
+# ≤ 8000 px). Jemněji ČÚZK nedává; dřív 600 Mpx = 0,25 m už nad ~15 km² (mapař ČSOS: na les
+# nepoužitelné), Petr 2026-10-29: velikost nevadí.
+ORTHO_MAX_TOTAL_PX = 3_300_000_000
 # 8192² RGB32 = přesně 256 MiB – Qt (Mapper) má na obrázek alokační limit
 # 256 MB, proto rezerva.
 ORTHO_MAX_TILE_PX = 8000
@@ -1258,17 +1259,18 @@ def _try_load_references_cache(
     cache_dir: Path,
     out_dir: Path,
     *,
+    ortho_mpp: float | None = None,
     log: callable | None = None,
 ) -> dict[str, Path] | None:
-    """Vrátí built_refs z cache, nebo None při miss."""
+    """Vrátí built_refs z cache, nebo None při miss (i když je ortofoto hrubší než ``ortho_mpp``)."""
     meta = read_meta(cache_dir)
     if not meta or meta.get("ref_format") != REF_CACHE_FORMAT:
         # Stará cache (ortofoto PNG, nepruhledný katastr) → znovu stáhnout.
         return None
     ortho = sorted(cache_dir.glob("orthophoto*.jpg"))
     primary = ortho[0] if ortho else cache_dir / "osm.png"
-    if ortho and _cached_ortho_mpp(ortho[0]) > ORTHO_MPP_CANDIDATES[0] * 1.05:
-        # Ortofoto z doby stropu 600 Mpx (0,2 / 0,25 m) – stáhnout znovu v plném rozlišení.
+    if ortho and ortho_mpp and _cached_ortho_mpp(ortho[0]) > ortho_mpp * 1.05:
+        # Ortofoto z doby stropu 600 Mpx (0,2 / 0,25 m) – stáhnout znovu v kroku, který dnes vychází.
         return None
     if not is_fresh(
         cache_dir, primary, REF_CACHE_MAX_AGE_DAYS, min_size=500
@@ -1382,7 +1384,9 @@ def build_reference_layers(
     osm_wh = _osm_target_size(template_png, template_pgw)[:2]
     cache_dir = references_cache_dir(bbox_wgs84, ref_wh=ref_wh, osm_wh=osm_wh)
     if not force_refresh and only is None:
-        cached = _try_load_references_cache(cache_dir, out_dir, log=log)
+        cached = _try_load_references_cache(
+            cache_dir, out_dir, ortho_mpp=_ortho_target_size(template_png, template_pgw)[2], log=log
+        )
         if cached is not None:
             return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
 

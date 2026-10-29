@@ -404,11 +404,15 @@ def test_mosaic_wms_tiles_keeps_alpha(tmp_path):
 def test_ortho_target_size_steps_down_only_over_max_area(tmp_path):
     from app.pipeline.reference_layers import _ortho_target_size
 
-    # do největšího výřezu 6 × 6 km nativně 0,125; větší (jen API / testy) hrubší
+    # do největšího výřezu 6 × 6 km nativně 0,125 – i s obálkou pootočeného Křováku (~6,95 km, 48 km²);
+    # větší (jen API / testy) hrubší
     assert _ortho_target_size(*_mini_template(tmp_path, 2500.0))[2] == 0.125
     sub = tmp_path / "b"
     sub.mkdir()
-    assert _ortho_target_size(*_mini_template(sub, 7000.0))[2] == 0.2
+    assert _ortho_target_size(*_mini_template(sub, 6950.0))[2] == 0.125
+    sub2 = tmp_path / "c"
+    sub2.mkdir()
+    assert _ortho_target_size(*_mini_template(sub2, 7500.0))[2] == 0.2
 
 
 def test_ortho_target_size_is_native_for_max_aoi(tmp_path):
@@ -657,9 +661,10 @@ def test_references_cache_roundtrip_with_ortho_tiles(tmp_path):
     assert (out / "orthophoto_r0c1.jgw").is_file()
     assert (out / "osm.pgw").is_file()
     assert [k for k, _p in rl.orthophoto_items(got)] == ["orthophoto_r0c0", "orthophoto_r0c1"]
-    # ortofoto z doby stropu 600 Mpx (0,25 m) = miss, stáhne se znovu nativně
+    # ortofoto z doby stropu 600 Mpx (0,25 m) = miss, stáhne se znovu v dnešním kroku; stejný krok = hit
     (cache / "orthophoto_r0c0.jgw").write_text("0.25\n0\n0\n-0.25\n0\n0\n")
-    assert rl._try_load_references_cache(cache, tmp_path / "job2" / "references") is None
+    assert rl._try_load_references_cache(cache, tmp_path / "job2" / "references", ortho_mpp=0.125) is None
+    assert rl._try_load_references_cache(cache, tmp_path / "job3" / "references", ortho_mpp=0.25) is not None
 
 
 def test_references_cache_legacy_png_orthophoto_is_miss(tmp_path):
