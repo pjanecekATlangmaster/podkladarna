@@ -109,3 +109,21 @@ def test_funnel_mouth_ends_area_square_to_line():
     other = LineString([(-6, 40), (-6, -10)])
     out2 = ja.funnel_mouths(area, [(line, 4.0), (other, 3.0)], 10.0)
     assert out2.contains(Point(-6, 15))
+
+
+def test_restore_mouths_after_generalization():
+    # Plocha po generalizaci sítě (Petr 2026-10-29, K Barrandovu): roh ústí zaoblený a výběžek za ústím; obnova vrátí
+    # kolmý konec plochy na vstupu silnice (okraj navazuje na okrajovou linku), plocha křižovatky vedle ústí zůstane.
+    from shapely.geometry import LineString, box
+
+    line = LineString([(-50, 0), (30, 0)])
+    entries = ja.mouth_entries(box(0, -20, 60, 20), [(line, 4.0)])
+    generalized = box(0, -20, 60, 20).buffer(2.5)  # zaoblené rohy, přesah za ústí
+    out = ja.restore_mouths(generalized, entries, 10000)
+    assert out.contains(Point(0.2, 3.8)) and out.contains(Point(0.2, -3.8))  # roh ústí ostrý
+    assert not out.contains(Point(-1.0, 0)) and not out.contains(Point(-1.0, 10))  # nic za ústím
+    assert out.contains(Point(-1.0, -18))  # plocha za ústím daleko do strany (u jiného ústí) zůstane
+    assert not out.contains(Point(3, 9))  # trychtýř 45°
+    # vstup daleko od plochy ji nezmění
+    far = ja.mouth_entries(box(200, -20, 260, 20), [(LineString([(150, 0), (230, 0)]), 4.0)])
+    assert ja.restore_mouths(generalized, far, 10000).equals(generalized)

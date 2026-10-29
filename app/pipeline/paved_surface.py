@@ -138,6 +138,42 @@ def generalize_paved_feats(work_dir: Path, feats: list[dict], preset_id: str, sc
     return out
 
 
+def restore_junction_mouths(work_dir: Path, feats: list[dict], preset_id: str, scale: int) -> list[dict]:
+    """Ústí silnic do ploch složitých křižovatek (``junction_areas.restore_mouths``) znovu po generalizaci sítě:
+    generalizace zaoblí rohy ústí a sloučení přidá výběžky okolních ploch, okraj 501.2 pak nenavazuje na okrajové linky
+    silnice, která končí přesně na ústí (zlomy a háčky okraje, Petr 2026-10-29, K Barrandovu u tramvaje)."""
+    from app.pipeline import dtm_import as di
+    from app.pipeline import junction_areas
+
+    if not feats or not unified(preset_id) or not di.dtm_area_preset(preset_id):
+        return feats
+    if not (junction_areas.ROAD_AREAS and junction_areas.JUNCTION_AREAS):
+        return feats
+    entries = junction_areas.junction_mouths(work_dir, preset_id, scale)
+    if not entries:
+        return feats
+    from shapely.errors import GEOSException
+    from shapely.geometry import mapping, shape
+
+    out: list[dict] = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        if geom.get("type") not in ("Polygon", "MultiPolygon") or (f.get("properties") or {}).get("structure"):
+            out.append(f)
+            continue
+        try:
+            g = shape(geom)
+            new = junction_areas.restore_mouths(g if g.is_valid else g.buffer(0), entries, scale)
+        except (ValueError, TypeError, GEOSException):
+            out.append(f)
+            continue
+        if new is None or new is g:
+            out.append(f)
+            continue
+        out.extend({**f, "geometry": mapping(poly)} for poly in _polygons(new))
+    return out
+
+
 def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
     """Kde se okraj plochy ``network`` nekreslí (shapely) nebo None: pás každé kreslené čáry cesty (``road_bands`` =
     ``path_clearance.drawn_path_bands``: ``(osa, půlka šířky m)``) rozšířený o 0,3 m – ústí čáry do plochy;
