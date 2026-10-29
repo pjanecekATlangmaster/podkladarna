@@ -15,6 +15,8 @@ milestones:
   - date: "2026-10-28"
     title: "Verze 3.0 – les a MTBO: jisté balvany z výškového modelu, srázy a budovy odsunuté od cest, malé budovy bodem, ploty spojené a natočené k olivě"
   - date: "2026-10-28"
+    title: "Verze 3.0 – ortofoto jako podklad v plném rozlišení ČÚZK 0,125 m pro výřez až 36 km² (dřív nad 15 km² jen 0,25 m)"
+  - date: "2026-10-28"
     title: "Verze 3.0 – rychlejší job (podklady se stahují souběžně od začátku, celý job zhruba o třetinu kratší), přehledový rastr omezený na ~150 Mpx, aby šel otevřít"
   - date: "2026-10-26"
     title: "Sprint: souvislá zástavba jako bloky, ulice historických center jako zpevněná plocha podle katastru a ortofota, srázy jen tam, kde je skutečný skok"
