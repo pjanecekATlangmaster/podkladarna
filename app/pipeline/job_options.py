@@ -28,12 +28,12 @@ FORMLINE_MODES = ("off", "sparse", "more", "all")
 FORMLINE_MODE_DEFAULT = "off"
 
 
-# Stupeň zaoblení plošné vegetace (louky 401, hustý porost 410):
-# 0 = kostičky z rastru, 1 = zjednodušit + křivky, 2 = navíc vyhladit drobné
-# výběžky a zátoky (obrysy korun stromů), 3 = silné vyhlazení ve větším okolí.
-# Plocha se nikdy nepřelije přes cesty, budovy a vodu z OSM (viz veg_smooth).
+# Tvar hranic porostů 401–410 v lese a MTBO (sprint beze změny, viz veg_smooth):
+# 0 = kostičky 1:1 z rastru, 1 = vyhladit schodky bez posunu hranice (do ~1,5 m),
+# 2 = navíc zjednodušit drobné výběžky a zátoky do 6 m, 3 = do 12 m.
+# Plocha se nikdy nepřelije přes cesty, budovy a vodu z OSM.
 VEG_SMOOTH_LEVELS = (0, 1, 2, 3)
-VEG_SMOOTH_DEFAULT = 2
+VEG_SMOOTH_DEFAULT = 1
 # Starý dvouhodnotový přepínač (off / round).
 _VEG_SMOOTH_LEGACY = {"off": 0, "round": 1}
 

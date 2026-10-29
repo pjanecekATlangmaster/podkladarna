@@ -27,12 +27,17 @@ _CLASS_TO_CODE: dict[int, str] = {
 # řez není vidět. 4 ha ≈ 200 × 200 m (2 × 2 cm v 1 : 10 000).
 VEG_MAX_AREA_VERTICES = 1000
 VEG_MAX_AREA_M2 = 40_000.0
-# Vyhlazení tvarů z rastru (schodky po pixelech): Douglas–Peucker + převod na
-# Bézierovy křivky jako „Zjednodušit“ + „Převést na křivky“ v Mapperu.
-# Stupně zaoblení (tolerance DP, poloměr vyhlazení) viz veg_smooth.SMOOTH_LEVELS.
+# Vyhlazení tvarů z rastru (schodky po pixelech) + převod na Bézierovy křivky
+# jako „Převést na křivky“ v Mapperu. Les a MTBO: všechny porosty bez posunu
+# hranice (veg_smooth.smooth_area, stupně SMOOTH_LEVELS). vegetation.shp nese
+# přesný obrys z rastru, stupeň 0 jsou kostičky 1:1.
 VEG_AS_CURVES = True
-# Jen louky (401) a hustý porost (410) – tam jsou schodky nejvíc vidět.
+# Sprint beze změny (do 2.46): DP 1,5 m pro všechny porosty, zaoblení
+# (veg_smooth.smooth_area_legacy) jen louky (401) a hustý porost (410).
 VEG_SMOOTH_CODES = frozenset({"401", "410"})
+SPRINT_SIMPLIFY_M = 1.5
+# Stupeň z GUI → původní stupeň sprintu: výchozí 1 kreslí sprint jako dřív výchozí 2.
+_SPRINT_LEVEL = {0: 0, 1: 2, 2: 2, 3: 3}
 # Otevřený terén (401) se podle plochy neřeže (velká louka s jednoduchým obrysem
 # je v OCADu v pohodě, řezy jsou vidět); dělí se jen kvůli počtu vrcholů.
 _NO_AREA_SPLIT_CODES = frozenset({"401"})
@@ -91,6 +96,43 @@ def _iter_vege_rows(shp: Path):
         yield from _pyogrio_layer_rows(shp, layer=layer_name)
 
 
+def _shaped_parts(wkb: bytes, code: str, smooth_level: int, barriers, sprint: bool):
+    """Obrys porostu podle stupně → (díly pro ``_geom_parts_to_objects``, křivky?)."""
+    from shapely import from_wkb
+
+    from app.pipeline.area_split import polygons_of
+    from app.pipeline.veg_smooth import smooth_area, smooth_area_legacy
+
+    try:
+        polys = polygons_of(from_wkb(bytes(wkb)))
+    except Exception:
+        return _wkb_parts(wkb)[0], False
+    areas: list[tuple[list, list]] = []
+    curves = False
+    for poly in polys:
+        if sprint:
+            poly = poly.simplify(SPRINT_SIMPLIFY_M, preserve_topology=True)
+            if poly.is_empty:
+                continue
+        ring = list(poly.exterior.coords)
+        holes = [list(i.coords) for i in poly.interiors]
+        if sprint and smooth_level and code in VEG_SMOOTH_CODES:
+            areas.extend(smooth_area_legacy(ring, holes, smooth_level, barriers))
+            curves = VEG_AS_CURVES
+        elif not sprint and smooth_level:
+            areas.extend(
+                smooth_area(ring, holes, smooth_level, barriers, as_curves=VEG_AS_CURVES)
+            )
+            curves = VEG_AS_CURVES
+        else:
+            areas.append((ring, holes))
+    parts: list = []
+    for ring, holes in areas:
+        parts.append(("line", ring, True))
+        parts.extend(("hole", h) for h in holes)
+    return parts, curves
+
+
 def build_vegetation_parts(
     work_dir: Path,
     *,
@@ -101,11 +143,16 @@ def build_vegetation_parts(
     grivation_deg: float,
     smooth_level: int = 0,
 ) -> list[OomObjectPart]:
-    """``smooth_level``: 0 = kostičky z rastru, 1–3 = stupeň zaoblení (401, 410)."""
+    """``smooth_level``: 0 = kostičky z rastru, 1–3 = stupeň vyhlazení (viz veg_smooth)."""
     shp = work_dir / "vegetation" / "vegetation.shp"
     if not shp.is_file():
         return []
 
+    from app.pipeline.veg_size_filter import is_sprint_preset
+
+    sprint = is_sprint_preset(preset_id=preset_id, map_scale=scale)
+    if sprint:
+        smooth_level = _SPRINT_LEVEL.get(smooth_level, 2)
     barriers = None
     if smooth_level:
         from app.pipeline.veg_smooth import load_smooth_barriers
@@ -127,8 +174,7 @@ def build_vegetation_parts(
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             continue
-        smooth = bool(smooth_level) and code in VEG_SMOOTH_CODES
-        geom_parts, _ = _wkb_parts(wkb)
+        geom_parts, curves = _shaped_parts(wkb, code, smooth_level, barriers, sprint)
         grouped[code].extend(
             _geom_parts_to_objects(
                 geom_parts,
@@ -140,9 +186,7 @@ def build_vegetation_parts(
                 as_area=True,
                 max_area_vertices=VEG_MAX_AREA_VERTICES,
                 max_area_m2=None if code in _NO_AREA_SPLIT_CODES else VEG_MAX_AREA_M2,
-                area_smooth_level=smooth_level if smooth else 0,
-                area_smooth_barriers=barriers,
-                area_as_curves=VEG_AS_CURVES and smooth,
+                area_as_curves=curves,
             )
         )
 

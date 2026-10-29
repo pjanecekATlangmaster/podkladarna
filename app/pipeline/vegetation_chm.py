@@ -44,7 +44,9 @@ CHM_MEDIAN_SIZE = 7
 # Soft_min (zpětná kompatibilita testů) — skutečný filtr: veg_size_filter.
 _MIN_AREA_M2 = 12.0
 _MIN_GREEN_AREA_M2 = 25.0
-_SIMPLIFY_M = 1.5
+# vegetation.shp nese přesný obrys z rastru (0 = jen vrcholy na přímce pryč);
+# zjednodušení a vyhlazení až při sestavení mapy (vegetation_gdal, veg_smooth).
+_SIMPLIFY_M = 0.0
 
 # Stejné kódy jako vegetation_gdal (OOM build_vegetation_parts).
 _CLASS_TO_CODE = {

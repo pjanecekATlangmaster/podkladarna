@@ -313,6 +313,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   kreslí v síti zpevněných ploch (`zabaged_paved_areas`, `with_zabaged_paved_areas`, kind `pedestrian_area`, zdroj `zabaged`), ne 501.0
   s pevným obrysem – silnice se v ní ořízne a okraj se u silnice přeruší (Sedlčany). Smíšená stezka zasahující čárou do kresby silnice
   nebo koridoru se nekreslí (`bike_road_zone`).
+- **Tvar hranic porostů 401–410** (3.1.0, Petr + mapař Martin 2026-10-29, srovnání Janov Okrouhlice a Vyšší Brod E2): `vegetation.shp`
+  nese přesný obrys z rastru (`_SIMPLIFY_M = 0`), tvar dělá až `veg_smooth.smooth_area` při sestavení mapy pro všechny porosty
+  v lese a MTBO: středy hran pixelů → Gauss podél obvodu s posunem bodu ≤ 1,5 m → DP → dorovnání plochy i o zaoblení křivek.
+  Volba `veg_smooth`: 0 kostičky 1:1, 1 výchozí (posun v průměru 0,4 m, plocha ±0,5 %), 2 / 3 navíc zalití zátok a ustřižení výběžků
+  do 6 / 12 m. Dřívější výchozí 2 (DP 3 m + křivky) posouval hranici o 1 m (95 % do 2,5 m) a zvětšoval 410 o 3–5 %. Sprint beze
+  změny (`smooth_area_legacy`, `_SPRINT_LEVEL`). Metriky a výřezy: `/mnt/project-files/porosty-vyhlazeni/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

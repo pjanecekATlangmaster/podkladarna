@@ -1283,8 +1283,8 @@ function applyJobToForm(job) {
   }
   const vegSmooth = form.veg_smooth;
   if (vegSmooth) {
-    const vsVal = String(opts.veg_smooth ?? "2");
-    vegSmooth.value = [...vegSmooth.options].some((o) => o.value === vsVal) ? vsVal : "2";
+    const vsVal = String(opts.veg_smooth ?? "1");
+    vegSmooth.value = [...vegSmooth.options].some((o) => o.value === vsVal) ? vsVal : "1";
   }
   const dtmSel = form.dtm;
   if (dtmSel) {
