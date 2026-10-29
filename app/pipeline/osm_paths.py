@@ -1872,6 +1872,9 @@ def _fetch_overpass(
         try:
             with urllib.request.urlopen(req, timeout=QUERY_TIMEOUT_S) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
+            # Přetížené zrcadlo občas vrátí HTTP 200 s tělem ``null`` – chyba zrcadla, zkus další.
+            if not isinstance(data, dict):
+                raise OSError("Overpass: neplatná odpověď (není JSON objekt)")
             # Přetížený server občas vrátí HTTP 200 s neúplnou odpovědí a chybou
             # jen v „remark“ – to by se jinak tiše zacachovalo jako úplné.
             remark = str(data.get("remark") or "")
@@ -1880,6 +1883,7 @@ def _fetch_overpass(
             elements = [
                 e
                 for e in (data.get("elements") or [])
+                if isinstance(e, dict)  # null prvek z přetíženého zrcadla
                 if (
                     e.get("type") in {"way", "node"}
                     and (
