@@ -278,7 +278,7 @@ def api_sheets(bbox: str):
             "hint": (
                 f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.0f} km²) je moc velký "
                 f"(max {MAX_BBOX_AREA_KM2:.0f} km², např. {MAX_BBOX_KM:.0f}×{MAX_BBOX_KM:.0f} "
-                f"nebo 8×4,5 km). Zmenšete ho."
+                f"nebo 7×3,5 km). Zmenšete ho."
             ),
         }
     try:

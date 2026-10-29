@@ -86,7 +86,7 @@ WEB_ABOUT_HTML = """
 </details>
 <h2>Jak na to</h2>
 <p>
-  Nakreslete obdélník (max cca 36&nbsp;km², např. 6&nbsp;×&nbsp;6&nbsp;km), vyberte
+  Nakreslete obdélník (max cca 25&nbsp;km², např. 5&nbsp;×&nbsp;5&nbsp;km), vyberte
   <strong>mapový klíč</strong>, <strong>měřítko</strong>, případně zvolte další
   parametry a spusťte generování. Na tlačítku je hrubý odhad potřebného času.
   Stránku mezitím můžete zavřít.
