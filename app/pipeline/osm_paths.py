@@ -5234,10 +5234,11 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
         ]
         if network is not None and preset_id:
             network = _minus_mtbo_dtm_areas(work_dir, network, scale, preset_id)
-            from app.pipeline.paved_surface import generalize_paved_feats, unified
+            from app.pipeline.paved_surface import generalize_paved_feats, restore_junction_mouths, unified
 
             if unified(preset_id):
                 paved_feats = generalize_paved_feats(work_dir, paved_feats, preset_id, scale)
+                paved_feats = restore_junction_mouths(work_dir, paved_feats, preset_id, scale)
                 from shapely.geometry import shape as _shape
                 from shapely.ops import unary_union as _uu_net
 
