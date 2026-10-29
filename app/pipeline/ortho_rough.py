@@ -21,6 +21,8 @@ from pathlib import Path
 # Hlavní vypínač (les a MTBO; sprint nevolá).
 ORTHO_ROUGH_OPEN = True
 ORTHO_MPP = 0.5
+# Nejdelší čekání na předstažení ortofota na pozadí; pak si ho vegetace stáhne sama.
+PREFETCH_WAIT_S = 180.0
 # Koeficienty pro 12 rysů ``ortho_features`` (z-skóre vůči 401 v jobu) a posun.
 ROUGH_COEF = (-0.165, 1.082, -0.550, -0.038, -0.125, 0.141, -0.454, 3.058, -0.934, 0.176, -2.133, -1.539)
 ROUGH_INTERCEPT = 0.246
@@ -32,8 +34,8 @@ CLEAN_M = 2.0
 # Kusy 403 a ostrůvky louky uvnitř 403 menší než tohle (25 mm² v 1 : 10 000) se slijí s okolím:
 # 403 jen v ucelených blocích, ne přelévání s 401 (Petr 2026-10-27).
 ROUGH_MIN_M2 = 2500.0
-# Řádky ortofota na jeden pruh při výpočtu rysů v plném rozlišení.
-_STRIP_ROWS = 1024
+# Řádky mřížky vegetace na jeden pruh při výpočtu rysů v plném rozlišení ortofota.
+_STRIP_ROWS = 512
 
 
 def _resize(arr, shape):
@@ -53,36 +55,48 @@ def _local_std(a, size: int):
     return np.sqrt(np.maximum(m2 - m * m, 0.0))
 
 
-def ortho_features(rgb, shape, cell_m: float, ortho_mpp: float = ORTHO_MPP):
-    """Rysy pro mřížku vegetace ``shape``: (H, W, 12) float32 – barva, ExG, sytost, textura.
-
-    Plné rozlišení ortofota se počítá po pruzích a do předem alokovaného pole (25 km² = 10 000² px;
-    float32 kopie celého RGB by sama vzala 1,2 GB)."""
+def _full_res_strip(src, y0: int, y1: int, tex_px: int):
+    """Řádky ``y0:y1`` ortofota → (textura 2,5 m, ExG, sytost) v plném rozlišení, float32."""
     import numpy as np
-    from scipy import ndimage as ndi
 
     from app.pipeline.orthophoto import exg, saturation
 
+    a = src[y0:y1].astype(np.float32)
+    return _local_std(a.mean(axis=-1), tex_px), exg(a), saturation(a)
+
+
+def ortho_features(rgb, shape, cell_m: float, ortho_mpp: float = ORTHO_MPP):
+    """Rysy pro mřížku vegetace ``shape``: (H, W, 12) float32 – barva, ExG, sytost, textura.
+
+    Plné rozlišení ortofota se počítá po pruzích s přesahem (``_STRIP_ROWS`` řádků mřížky), takže
+    paměť navíc nad rysy na mřížce je jen jeden pruh – i u obálky na hranici ``MAX_PIXELS`` (~37 km²).
+    Výsledek je stejný jako výpočet celého snímku najednou."""
+    import numpy as np
+    from scipy import ndimage as ndi
+
     src = np.asarray(rgb)
-    h0 = src.shape[0]
-    gray = np.empty(src.shape[:2], dtype=np.float32)
-    e_full = np.empty(src.shape[:2], dtype=np.float32)
-    s_full = np.empty(src.shape[:2], dtype=np.float32)
-    for y in range(0, h0, _STRIP_ROWS):
-        a = src[y : y + _STRIP_ROWS].astype(np.float32)
-        gray[y : y + _STRIP_ROWS] = a.mean(axis=-1)
-        e_full[y : y + _STRIP_ROWS] = exg(a)
-        s_full[y : y + _STRIP_ROWS] = saturation(a)
+    h, w = shape
     tex_px = max(3, int(round(2.5 / ortho_mpp)) | 1)
-    out = np.empty((*shape, 12), dtype=np.float32)
-    out[..., 5] = _resize(_local_std(gray, tex_px), shape)
-    del gray
+    out = np.empty((h, w, 12), dtype=np.float32)
+    r = src.shape[0] // h if h and src.shape[0] % h == 0 else 0
+    if r:
+        # Přesah: textura (půl okna) + převzorkování (podpora filtru), v celých řádcích mřížky.
+        pad = -(-(tex_px + 2 * r) // r)
+        for gy in range(0, h, _STRIP_ROWS):
+            g0, g1 = max(0, gy - pad), min(h, gy + _STRIP_ROWS + pad)
+            tex, e, sat = _full_res_strip(src, g0 * r, g1 * r, tex_px)
+            sl = slice(gy - g0, gy - g0 + min(_STRIP_ROWS, h - gy))
+            rows = (g1 - g0, w)
+            for i, arr in ((5, tex), (3, e), (4, sat)):
+                out[gy : gy + _STRIP_ROWS, :, i] = _resize(arr, rows)[sl]
+            del tex, e, sat
+    else:
+        tex, e, sat = _full_res_strip(src, 0, src.shape[0], tex_px)
+        for i, arr in ((5, tex), (3, e), (4, sat)):
+            out[..., i] = _resize(arr, shape)
+        del tex, e, sat
     for i in range(3):
         out[..., i] = _resize(src[..., i], shape)
-    out[..., 3] = _resize(e_full, shape)
-    del e_full
-    out[..., 4] = _resize(s_full, shape)
-    del s_full
     k = lambda m: max(1, int(round(m / cell_m)))  # noqa: E731
     u = lambda x, m: ndi.uniform_filter(x, k(m))  # noqa: E731
     lum = out[..., 0] + out[..., 1] + out[..., 2]
@@ -158,7 +172,7 @@ def split_open_by_orthophoto(
     h, w = classified.shape
     cell_m = abs(float(gt[1]))
     bbox = (gt[0], gt[3] - h * cell_m, gt[0] + w * cell_m, gt[3])
-    got = fetch_orthophoto(work_dir, bbox, ORTHO_MPP, log=log)
+    got = fetch_orthophoto(work_dir, bbox, ORTHO_MPP, log=log, wait_s=PREFETCH_WAIT_S)
     if got is None:
         return classified
     rgb, _ogt = got

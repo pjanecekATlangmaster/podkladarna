@@ -8,6 +8,8 @@ import threading
 from pathlib import Path
 
 CACHE_SUBDIR = "orthophoto"
+# Vlastní stažení, když se vegetace nedočká předstažení (sdílenou cache nepřepisuje).
+OWN_SUBDIR = "orthophoto_own"
 ORTHO_NAME = "ortofoto.png"
 ORTHO_META_NAME = "ortofoto.json"
 # Ortofoto referenčního podkladu (``work/references/orthophoto*.jpg`` + ``.jgw``, 0,125–0,25 m/px).
@@ -21,15 +23,24 @@ MAX_PIXELS = 150_000_000
 _FETCH_LOCK = threading.Lock()
 
 
-def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need_bounds=None):
+def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need_bounds=None, wait_s=None):
     """``(rgb uint8 HxWx3, geotransform GDAL)`` pro obálku S-JTSK, nebo ``None`` (síť, příliš velký výřez).
 
     Ortofoto referenčního podkladu (``work/references``) se převezme, pokrývá-li ``need_bounds`` (výřez mapy;
     jinak celou obálku). Dlaždice nad ``WMS_MAX_GETMAP_PX`` skládá existující helper z ``reference_layers``. Cache:
     ``work_dir/orthophoto/`` (stejná obálka a rozlišení, nebo větší obálka ve stejném rozlišení – třeba
-    z ``prefetch_orthophoto``)."""
-    with _FETCH_LOCK:
+    z ``prefetch_orthophoto``).
+
+    ``wait_s``: jak dlouho nejvýš čekat na souběžné stahování (předstažení na pozadí). Když se nedočká
+    (zaseknutá WMS), stáhne si ortofoto samo do ``OWN_SUBDIR`` mimo sdílenou cache."""
+    if not _FETCH_LOCK.acquire(timeout=-1 if wait_s is None else wait_s):
+        if log:
+            log(f"Ortofoto: předstažení běží déle než {wait_s:.0f} s – stahuji zvlášť")
+        return _fetch_orthophoto(work_dir, bbox_5514, mpp, log=log, need_bounds=need_bounds, subdir=OWN_SUBDIR)
+    try:
         return _fetch_orthophoto(work_dir, bbox_5514, mpp, log=log, need_bounds=need_bounds)
+    finally:
+        _FETCH_LOCK.release()
 
 
 def prefetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None) -> bool:
@@ -37,12 +48,12 @@ def prefetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None) -
     return fetch_orthophoto(work_dir, bbox_5514, mpp, log=log) is not None
 
 
-def _fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float, log=None, need_bounds=None):
+def _fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float, log=None, need_bounds=None, subdir: str = CACHE_SUBDIR):
     xmin, ymin, xmax, ymax = (float(v) for v in bbox_5514)
     width = max(1, math.ceil((xmax - xmin) / mpp))
     height = max(1, math.ceil((ymax - ymin) / mpp))
     gt = (xmin, (xmax - xmin) / width, 0.0, ymax, 0.0, -(ymax - ymin) / height)
-    out_dir = Path(work_dir) / CACHE_SUBDIR
+    out_dir = Path(work_dir) / subdir
     png, meta_path = out_dir / ORTHO_NAME, out_dir / ORTHO_META_NAME
     want = {"bounds": [xmin, ymin, xmax, ymax], "width": width, "height": height}
     try:
@@ -57,7 +68,7 @@ def _fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float, log=None, need_boun
             # Větší obálka ve stejném rozlišení (předstažení): výřez bez dalšího stahování, cache se nepřepisuje.
             rgb = _from_reference_tiles(
                 out_dir, (xmin, ymin, xmax, ymax), width, height, need_bounds=need_bounds,
-                pattern=ORTHO_NAME, max_mpp=mpp * 1.01,
+                pattern=ORTHO_NAME, max_mpp=mpp * 1.01, min_cover=1.0,
             )
             if rgb is not None:
                 return rgb, gt
@@ -102,7 +113,8 @@ def _fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float, log=None, need_boun
 
 
 def _from_reference_tiles(
-    ref_dir: Path, bounds, width: int, height: int, need_bounds=None, pattern: str = "orthophoto*.jpg", max_mpp=None
+    ref_dir: Path, bounds, width: int, height: int, need_bounds=None, pattern: str = "orthophoto*.jpg", max_mpp=None,
+    min_cover: float = REFERENCE_MIN_COVER,
 ):
     """Mozaika ``orthophoto*.jpg`` (+ ``.jgw``) převzorkovaná do mřížky ``bounds`` × ``width`` × ``height``.
 
@@ -148,7 +160,7 @@ def _from_reference_tiles(
         canvas.paste(part, (col, row))
         covered[max(0, row) : max(0, row + out_h), max(0, col) : max(0, col + out_w)] = True
     n_need = int(need.sum())
-    if n_need == 0 or int((covered & need).sum()) < REFERENCE_MIN_COVER * n_need:
+    if n_need == 0 or int((covered & need).sum()) < min_cover * n_need:
         return None
     return np.asarray(canvas)
 
