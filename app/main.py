@@ -36,6 +36,7 @@ from app.pipeline.fetch_openzu import (
     bbox_exceeds_limit,
     bbox_size_km,
     estimate_georef_minutes,
+    estimate_map_minutes,
     estimate_note,
     estimate_minutes,
     parse_bbox,
@@ -298,6 +299,26 @@ def api_sheets(bbox: str):
         if can_estimate
         else None
     )
+    # Bez skládání .omap: tlačítko si přičte mapy podle měřítka a volby DTM (sprint 1 mapa, les + MTBO 2).
+    est_base = (
+        {
+            "plain": estimate_minutes(names, area_km2=area_km2, include_maps=False),
+            "refs": estimate_minutes(names, area_km2=area_km2, include_maps=False, include_references=True),
+        }
+        if can_estimate
+        else None
+    )
+    est_maps = (
+        {
+            str(s): {
+                "dtm": estimate_map_minutes(area_km2, s, True),
+                "nodtm": estimate_map_minutes(area_km2, s, False),
+            }
+            for s in MAP_SCALES
+        }
+        if can_estimate
+        else None
+    )
     # Georef GeoTIFF závisí na měřítku – tlačítko si přičte podle formuláře.
     est_georef = (
         {str(s): estimate_georef_minutes(area_km2, s) for s in MAP_SCALES}
@@ -319,6 +340,8 @@ def api_sheets(bbox: str):
         "estimate_minutes": est,
         "estimate_minutes_with_refs": est_refs,
         "estimate_georef_minutes": est_georef,
+        "estimate_base_minutes": est_base,
+        "estimate_map_minutes": est_maps,
         "estimate_note": estimate_note(names) if can_estimate else None,
         "label": (
             f"Protíná listy: {', '.join(names)} ({len(sheets)})"
