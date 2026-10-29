@@ -9,7 +9,7 @@ from pathlib import Path
 CACHE_SUBDIR = "orthophoto"
 ORTHO_NAME = "ortofoto.png"
 ORTHO_META_NAME = "ortofoto.json"
-# Ortofoto referenčního podkladu (``work/references/orthophoto*.jpg`` + ``.jgw``, 0,25 m/px).
+# Ortofoto referenčního podkladu (``work/references/orthophoto*.jpg`` + ``.jgw``, 0,125–0,25 m/px).
 REFERENCE_SUBDIR = "references"
 # Podklad je ořezaný na mřížku mapy (výřez + ~1 m), parcely se stahují s přesahem 80 m: pokrytí se měří na výřezu
 # mapy; když ho dlaždice nepokryjí, stahuje se zvlášť (jinak by uvnitř mapy chyběla zeleň).
