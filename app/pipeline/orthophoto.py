@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from pathlib import Path
 
 CACHE_SUBDIR = "orthophoto"
@@ -16,6 +17,8 @@ REFERENCE_SUBDIR = "references"
 REFERENCE_MIN_COVER = 0.97
 # Nad tento počet pixelů (při 0,5 m/px cca 12 × 12 km) se ortofoto nestahuje (paměť, počet dlaždic).
 MAX_PIXELS = 150_000_000
+# Jedno stahování / čtení cache naráz (předstažení na pozadí a vegetace sdílí ``work/orthophoto``).
+_FETCH_LOCK = threading.Lock()
 
 
 def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need_bounds=None):
@@ -23,7 +26,18 @@ def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need
 
     Ortofoto referenčního podkladu (``work/references``) se převezme, pokrývá-li ``need_bounds`` (výřez mapy;
     jinak celou obálku). Dlaždice nad ``WMS_MAX_GETMAP_PX`` skládá existující helper z ``reference_layers``. Cache:
-    ``work_dir/orthophoto/`` (platí jen pro stejnou obálku a rozlišení)."""
+    ``work_dir/orthophoto/`` (stejná obálka a rozlišení, nebo větší obálka ve stejném rozlišení – třeba
+    z ``prefetch_orthophoto``)."""
+    with _FETCH_LOCK:
+        return _fetch_orthophoto(work_dir, bbox_5514, mpp, log=log, need_bounds=need_bounds)
+
+
+def prefetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None) -> bool:
+    """Na pozadí od začátku jobu: ortofoto do cache jobu, ať ho vegetace nestahuje sama (souběžně s podkladem)."""
+    return fetch_orthophoto(work_dir, bbox_5514, mpp, log=log) is not None
+
+
+def _fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float, log=None, need_bounds=None):
     xmin, ymin, xmax, ymax = (float(v) for v in bbox_5514)
     width = max(1, math.ceil((xmax - xmin) / mpp))
     height = max(1, math.ceil((ymax - ymin) / mpp))
@@ -39,6 +53,14 @@ def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need
         if png.is_file() and meta_path.is_file() and json.loads(meta_path.read_text(encoding="utf-8")) == want:
             with Image.open(png) as im:
                 return np.asarray(im.convert("RGB")), gt
+        if png.is_file() and meta_path.is_file() and png.with_suffix(".pgw").is_file():
+            # Větší obálka ve stejném rozlišení (předstažení): výřez bez dalšího stahování, cache se nepřepisuje.
+            rgb = _from_reference_tiles(
+                out_dir, (xmin, ymin, xmax, ymax), width, height, need_bounds=need_bounds,
+                pattern=ORTHO_NAME, max_mpp=mpp * 1.01,
+            )
+            if rgb is not None:
+                return rgb, gt
         if width * height > MAX_PIXELS:
             if log:
                 log(f"⚠ Ortofoto: výřez je příliš velký ({width}×{height} px), vynecháno")
@@ -79,7 +101,9 @@ def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need
         return None
 
 
-def _from_reference_tiles(ref_dir: Path, bounds, width: int, height: int, need_bounds=None):
+def _from_reference_tiles(
+    ref_dir: Path, bounds, width: int, height: int, need_bounds=None, pattern: str = "orthophoto*.jpg", max_mpp=None
+):
     """Mozaika ``orthophoto*.jpg`` (+ ``.jgw``) převzorkovaná do mřížky ``bounds`` × ``width`` × ``height``.
 
     ``None``, když dlaždice chybí nebo nepokryjí aspoň ``REFERENCE_MIN_COVER`` z ``need_bounds`` (jinak z celé
@@ -89,7 +113,10 @@ def _from_reference_tiles(ref_dir: Path, bounds, width: int, height: int, need_b
 
     from app.pipeline.georef import read_pgw
 
-    tiles = sorted(p for p in Path(ref_dir).glob("orthophoto*.jpg") if p.with_suffix(".jgw").is_file()) if Path(ref_dir).is_dir() else []
+    def world(p: Path) -> Path:
+        return p.with_suffix(".jgw" if p.suffix.lower() == ".jpg" else ".pgw")
+
+    tiles = sorted(p for p in Path(ref_dir).glob(pattern) if world(p).is_file()) if Path(ref_dir).is_dir() else []
     if not tiles:
         return None
     xmin, _ymin, xmax, ymax = bounds
@@ -106,7 +133,9 @@ def _from_reference_tiles(ref_dir: Path, bounds, width: int, height: int, need_b
         ] = True
     covered = np.zeros((height, width), dtype=bool)
     for tile in tiles:
-        geo = read_pgw(tile.with_suffix(".jgw"))
+        geo = read_pgw(world(tile))
+        if max_mpp is not None and abs(geo.pixel_x) > max_mpp:
+            return None
         with Image.open(tile) as im:
             tw, th = im.size
             out_w = max(1, round(tw * abs(geo.pixel_x) / mpp))
