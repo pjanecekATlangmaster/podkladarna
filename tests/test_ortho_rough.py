@@ -49,3 +49,11 @@ def test_rough_small_pieces_merge():
     assert out[30:35, 20:25].all()
     assert out[20:55, 45:50].all()
     assert not out[0:3, 30:40].any()  # louka u okraje zůstane
+
+
+def test_features_in_strips_match_whole(monkeypatch):
+    """Rysy po pruzích (paměť u velké obálky) dávají totéž co výpočet celého snímku."""
+    rgb, classified = _scene()
+    whole = ortho_rough.ortho_features(rgb, classified.shape, 1.0)
+    monkeypatch.setattr(ortho_rough, "_STRIP_ROWS", 7)
+    assert np.array_equal(ortho_rough.ortho_features(rgb, classified.shape, 1.0), whole)

@@ -69,29 +69,60 @@ def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, dow
     assert any("referenčního podkladu" in ln for ln in logs)
 
 
-def test_fetch_orthophoto_from_larger_prefetch(tmp_path, monkeypatch):
-    """Předstažené ortofoto větší obálky (stejné rozlišení) se pro menší výřez ořízne bez stahování a cache zůstane."""
+def _fake_wms(calls):
     from PIL import Image
 
     from app.pipeline import reference_layers
-    from app.pipeline.run_job import ortho_prefetch_bounds
-
-    calls = []
 
     def fake_download(_url, _layer, bounds, png, pgw, *, width, height, **_k):
         calls.append(bounds)
         arr = np.zeros((height, width, 3), dtype=np.uint8)
-        arr[:, : width // 2] = (0, 200, 0)  # levá půlka (x < 5 m) zelená
+        arr[:, : width // 2] = (0, 200, 0)  # levá půlka obálky zelená
         Image.fromarray(arr).save(png)
         reference_layers._write_pgw_for_extent(pgw, *bounds, width, height)
         return True
 
-    monkeypatch.setattr(reference_layers, "_download_wms_raster", fake_download)
-    assert orthophoto.prefetch_orthophoto(tmp_path, (-5.0, -5.0, 15.0, 10.0), 0.5)
-    rgb, gt = orthophoto.fetch_orthophoto(tmp_path, (0.3, 0.0, 10.3, 5.0), 0.5)
-    assert len(calls) == 1 and rgb.shape == (10, 20, 3) and gt[0] == 0.3
-    mask = orthophoto.green_mask(rgb)
-    assert mask[:, :9].all() and not mask[:, 11:].any()
-    assert json.loads((tmp_path / "orthophoto" / "ortofoto.json").read_text())["bounds"][0] == -5.0
+    return fake_download
+
+
+@pytest.mark.parametrize(
+    "prefetch, downloads",
+    [
+        ((-5.0, -5.0, 55.0, 10.0), 1),  # pokryje výřez celý → jen výřez z cache
+        ((1.3, -5.0, 55.0, 10.0), 2),  # chybí 2 sloupce ze 100 (98 %) → nebrat (černý okraj), stáhnout
+    ],
+)
+def test_fetch_orthophoto_from_larger_prefetch(tmp_path, monkeypatch, prefetch, downloads):
+    """Předstažené ortofoto větší obálky (stejné rozlišení) se pro menší výřez ořízne bez stahování, jen pokryje-li ho celý."""
+    from app.pipeline import reference_layers
+    from app.pipeline.run_job import ortho_prefetch_bounds
+
+    calls = []
+    monkeypatch.setattr(reference_layers, "_download_wms_raster", _fake_wms(calls))
+    assert orthophoto.prefetch_orthophoto(tmp_path, prefetch, 0.5)
+    rgb, gt = orthophoto.fetch_orthophoto(tmp_path, (0.3, 0.0, 50.3, 5.0), 0.5)
+    assert len(calls) == downloads and rgb.shape == (10, 100, 3) and gt[0] == 0.3
+    if downloads == 1:
+        mask = orthophoto.green_mask(rgb)  # zelená předstažená obálka do x = 25 m
+        assert mask[:, :49].all() and not mask[:, 51:].any()
+        assert json.loads((tmp_path / "orthophoto" / "ortofoto.json").read_text())["bounds"][0] == -5.0
     assert ortho_prefetch_bounds((0, 0, 10, 10), "sprint_2m", {}) is None
     assert ortho_prefetch_bounds((0, 0, 10, 10), "forest_10000", {}) == (-10.0, -10.0, 20.0, 20.0)
+
+
+def test_fetch_orthophoto_does_not_wait_for_stuck_prefetch(tmp_path, monkeypatch):
+    """Zaseknuté předstažení (drží zámek) vegetaci neblokuje: po ``wait_s`` si ortofoto stáhne zvlášť."""
+    from app.pipeline import reference_layers
+
+    calls = []
+    monkeypatch.setattr(reference_layers, "_download_wms_raster", _fake_wms(calls))
+    assert orthophoto._FETCH_LOCK.acquire()
+    try:
+        logs = []
+        got = orthophoto.fetch_orthophoto(tmp_path, (0.0, 0.0, 10.0, 5.0), 0.5, log=logs.append, wait_s=0.05)
+    finally:
+        orthophoto._FETCH_LOCK.release()
+    assert got is not None and len(calls) == 1
+    assert (tmp_path / orthophoto.OWN_SUBDIR / orthophoto.ORTHO_NAME).is_file()
+    assert not (tmp_path / orthophoto.CACHE_SUBDIR).exists()
+    assert any("zvlášť" in ln for ln in logs)
