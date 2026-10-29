@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from app.pipeline import dtm_fences, dtm_sidewalks, dtm_sources
+from app.pipeline import dtm_fences, dtm_sidewalks, dtm_sources, zone_index
 from app.pipeline.fetch_openzu import VECTOR_FETCH_BUFFER_M, crop_bounds_5514
 from app.pipeline.geom_clip import Bounds, clip_polyline
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -684,6 +684,46 @@ def dtm_owns_buildings(work_dir: Path) -> bool:
     return buildings_path(work_dir).is_file()
 
 
+# Sloučené budovy z DTM pro ``merge_dtm_buildings``: volá se v jedné mapě 5× a v lese i MTBO znovu, vstupem je jen soubor
+# ``buildings.json`` (memo podle cesty, času a velikosti).
+_FUSED_BUILDINGS: dict[str, tuple[tuple, object]] = {}
+
+
+def _fused_dtm_buildings(path: Path):
+    """``(budovy po sloučení, jejich sjednocení)`` z DTM, nebo None bez budov."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    try:
+        st = path.stat()
+        stamp = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        stamp = None
+    hit = _FUSED_BUILDINGS.get(str(path))
+    if stamp is not None and hit is not None and hit[0] == stamp:
+        return hit[1]
+    dtm_polys = _load_polygons_file(path)
+    result = None
+    if dtm_polys:
+        dtm_geoms = []
+        for poly in dtm_polys:
+            try:
+                g = Polygon(poly[0], poly[1:])
+                g = g if g.is_valid else g.buffer(0)
+            except (ValueError, IndexError):
+                continue
+            if not g.is_empty:
+                dtm_geoms.append(g)
+        # Těsně navazující části jedné budovy (společná stěna, škvíra pár cm) se kreslí jako jeden objekt.
+        fused = unary_union(dtm_geoms).buffer(BUILDING_FUSE_M, join_style=2).buffer(-BUILDING_FUSE_M, join_style=2)
+        dtm_geoms = [g for g in ([fused] if fused.geom_type == "Polygon" else list(getattr(fused, "geoms", []))) if g.geom_type == "Polygon" and not g.is_empty]
+        result = (dtm_geoms, unary_union(dtm_geoms))
+    if stamp is not None:
+        _FUSED_BUILDINGS.clear()  # jen poslední výřez
+        _FUSED_BUILDINGS[str(path)] = (stamp, result)
+    return result
+
+
 def merge_dtm_buildings(work_dir: Path, features: list[dict]) -> list[dict]:
     """OSM prvky bez OSM budov, které mají v DTM protějšek, plus budovy z DTM jako prvky ``building``.
 
@@ -691,26 +731,11 @@ def merge_dtm_buildings(work_dir: Path, features: list[dict]) -> list[dict]:
     Budovy z DTM (přesné zaměření) tak mají přednost, OSM zůstává pro novější budovy.
     """
     from shapely.geometry import mapping, shape
-    from shapely.ops import unary_union
 
-    dtm_polys = _load_polygons_file(buildings_path(work_dir))
-    if not dtm_polys:
+    fused_buildings = _fused_dtm_buildings(buildings_path(work_dir))
+    if fused_buildings is None:
         return features
-    from shapely.geometry import Polygon
-
-    dtm_geoms = []
-    for poly in dtm_polys:
-        try:
-            g = Polygon(poly[0], poly[1:])
-            g = g if g.is_valid else g.buffer(0)
-        except (ValueError, IndexError):
-            continue
-        if not g.is_empty:
-            dtm_geoms.append(g)
-    # Těsně navazující části jedné budovy (společná stěna, škvíra pár cm) se kreslí jako jeden objekt.
-    fused = unary_union(dtm_geoms).buffer(BUILDING_FUSE_M, join_style=2).buffer(-BUILDING_FUSE_M, join_style=2)
-    dtm_geoms = [g for g in ([fused] if fused.geom_type == "Polygon" else list(getattr(fused, "geoms", []))) if g.geom_type == "Polygon" and not g.is_empty]
-    dtm_union = unary_union(dtm_geoms)
+    dtm_geoms, dtm_union = fused_buildings
     kept = []
     for feat in features:
         props = feat.get("properties") or {}
@@ -719,7 +744,8 @@ def merge_dtm_buildings(work_dir: Path, features: list[dict]) -> list[dict]:
             try:
                 g = shape(geom)
                 g = g if g.is_valid else g.buffer(0)
-                if g.area > 0 and g.intersection(dtm_union).area / g.area >= BUILDING_TWIN_SHARE:
+                # okolí budovy stačí (průnik leží v její obálce), celé sjednocení budov výřezu by se procházelo pokaždé
+                if g.area > 0 and g.intersection(zone_index.local_zone(dtm_union, g, 1.0)).area / g.area >= BUILDING_TWIN_SHARE:
                     continue
             except (ValueError, TypeError):
                 pass
@@ -2908,7 +2934,7 @@ def cut_fences_by_buildings(
         if not line.intersects(zone):
             out.append((code, ln))
             continue
-        rest = line.difference(zone)
+        rest = line.difference(zone_index.local_zone(zone, line, 1.0))
         pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
         out.extend((code, [(float(x), float(y)) for x, y in g.coords]) for g in pieces if g.length >= min_piece_m)
     return out
@@ -3182,7 +3208,7 @@ def subtract_dtm_from_osm_fences(feats: list[dict], buffer) -> list[dict]:
             out.append(feat)
             continue
         line = LineString(coords)
-        rest = line.difference(buffer)
+        rest = line.difference(zone_index.local_zone(buffer, line, 1.0))
         if rest.is_empty:
             continue
         if rest.equals(line):
