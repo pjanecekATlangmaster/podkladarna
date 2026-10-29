@@ -32,6 +32,8 @@ CLEAN_M = 2.0
 # Kusy 403 a ostrůvky louky uvnitř 403 menší než tohle (25 mm² v 1 : 10 000) se slijí s okolím:
 # 403 jen v ucelených blocích, ne přelévání s 401 (Petr 2026-10-27).
 ROUGH_MIN_M2 = 2500.0
+# Řádky ortofota na jeden pruh při výpočtu rysů v plném rozlišení.
+_STRIP_ROWS = 1024
 
 
 def _resize(arr, shape):
@@ -52,26 +54,45 @@ def _local_std(a, size: int):
 
 
 def ortho_features(rgb, shape, cell_m: float, ortho_mpp: float = ORTHO_MPP):
-    """Rysy pro mřížku vegetace ``shape``: (H, W, 12) float32 – barva, ExG, sytost, textura."""
+    """Rysy pro mřížku vegetace ``shape``: (H, W, 12) float32 – barva, ExG, sytost, textura.
+
+    Plné rozlišení ortofota se počítá po pruzích a do předem alokovaného pole (25 km² = 10 000² px;
+    float32 kopie celého RGB by sama vzala 1,2 GB)."""
     import numpy as np
     from scipy import ndimage as ndi
 
     from app.pipeline.orthophoto import exg, saturation
 
-    a = np.asarray(rgb, dtype=np.float32)
-    gray = a.mean(axis=-1)
+    src = np.asarray(rgb)
+    h0 = src.shape[0]
+    gray = np.empty(src.shape[:2], dtype=np.float32)
+    e_full = np.empty(src.shape[:2], dtype=np.float32)
+    s_full = np.empty(src.shape[:2], dtype=np.float32)
+    for y in range(0, h0, _STRIP_ROWS):
+        a = src[y : y + _STRIP_ROWS].astype(np.float32)
+        gray[y : y + _STRIP_ROWS] = a.mean(axis=-1)
+        e_full[y : y + _STRIP_ROWS] = exg(a)
+        s_full[y : y + _STRIP_ROWS] = saturation(a)
     tex_px = max(3, int(round(2.5 / ortho_mpp)) | 1)
-    tex = _resize(_local_std(gray, tex_px), shape)
-    r, g, b = (_resize(a[..., i], shape) for i in range(3))
-    e = _resize(exg(a), shape)
-    s = _resize(saturation(a), shape)
+    out = np.empty((*shape, 12), dtype=np.float32)
+    out[..., 5] = _resize(_local_std(gray, tex_px), shape)
+    del gray
+    for i in range(3):
+        out[..., i] = _resize(src[..., i], shape)
+    out[..., 3] = _resize(e_full, shape)
+    del e_full
+    out[..., 4] = _resize(s_full, shape)
+    del s_full
     k = lambda m: max(1, int(round(m / cell_m)))  # noqa: E731
     u = lambda x, m: ndi.uniform_filter(x, k(m))  # noqa: E731
-    lum = r + g + b
-    return np.stack(
-        [r, g, b, e, s, tex, u(tex, 5), u(tex, 11), u(e, 11), u(s, 11), u(lum, 11), _local_std(lum, k(11))],
-        axis=-1,
-    ).astype(np.float32)
+    lum = out[..., 0] + out[..., 1] + out[..., 2]
+    out[..., 6] = u(out[..., 5], 5)
+    out[..., 7] = u(out[..., 5], 11)
+    out[..., 8] = u(out[..., 3], 11)
+    out[..., 9] = u(out[..., 4], 11)
+    out[..., 10] = u(lum, 11)
+    out[..., 11] = _local_std(lum, k(11))
+    return out
 
 
 def _clean(mask, open_mask, cell_m: float):

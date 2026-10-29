@@ -250,6 +250,23 @@ def background_log(log: callable, label: str) -> callable:
     return _log
 
 
+# Přesah předstaženého ortofota kolem mřížky mapy (mřížka vegetace z DEM se liší o zlomky metru).
+ORTHO_PREFETCH_PAD_M = 10.0
+
+
+def ortho_prefetch_bounds(grid_bounds, preset_id: str, options: dict):
+    """Obálka předstažení ortofota pro louku / 403 (les a MTBO), jinak ``None`` (sprint)."""
+    if grid_bounds is None or not vegetation_density_params(preset_id, options).ortho_rough_open:
+        return None
+    from app.pipeline.ortho_rough import ORTHO_ROUGH_OPEN
+
+    if not ORTHO_ROUGH_OPEN:
+        return None
+    xmin, ymin, xmax, ymax = (float(v) for v in grid_bounds)
+    p = ORTHO_PREFETCH_PAD_M
+    return (xmin - p, ymin - p, xmax + p, ymax + p)
+
+
 def start_reference_download(
     job_dir: Path,
     work_dir: Path,
@@ -260,6 +277,7 @@ def start_reference_download(
     shade_bounds: tuple[float, float, float, float] | None = None,
     shade_cache_dir: Path | None = None,
     with_references: bool = True,
+    ortho_prefetch_bounds: tuple[float, float, float, float] | None = None,
 ) -> ReferenceDownload | None:
     """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
 
@@ -269,6 +287,8 @@ def start_reference_download(
     jobu (``work/shade``) a referenční hillshade z něj vznikne bez dalšího stahování.
     ``with_references=False`` (podklady vypnuté ve formuláři): jen hillshade a
     ``ALWAYS_REFERENCE_KEYS`` (ortofoto, katastr) – ty jdou do ZIPu vždy.
+    ``ortho_prefetch_bounds`` (les a MTBO): po stínování ortofoto 0,5 m pro louku / 403
+    (``ortho_rough``), ať ho vegetace nestahuje souběžně s podkladem.
     """
     georef = ensure_georef_template(work_dir, prefer_preview=False)
     if georef is None:
@@ -314,6 +334,14 @@ def start_reference_download(
                 ref_log(f"Stínování reliéfu: selhalo ({exc})")
             finally:
                 shade_done.set()
+        if ortho_prefetch_bounds is not None:
+            try:
+                from app.pipeline.ortho_rough import ORTHO_MPP
+                from app.pipeline.orthophoto import prefetch_orthophoto
+
+                prefetch_orthophoto(work_dir, ortho_prefetch_bounds, ORTHO_MPP, log=ref_log)
+            except Exception as exc:  # vegetace si ho případně stáhne sama
+                ref_log(f"Ortofoto pro vegetaci: přeskočeno ({exc})")
         try:
             built = build_reference_layers(
                 job_dir,
@@ -618,6 +646,7 @@ def run_job_pipeline(
                 shade_bounds=grid_bounds,
                 shade_cache_dir=surfaces_cache,
                 with_references=want_refs,
+                ortho_prefetch_bounds=ortho_prefetch_bounds(grid_bounds, preset_id, options),
             )
 
     if reused_from and merged_existing:

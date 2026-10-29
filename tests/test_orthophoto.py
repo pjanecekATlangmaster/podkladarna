@@ -67,3 +67,31 @@ def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, dow
     mask = orthophoto.green_mask(rgb)
     assert mask[:, :10].all() and not mask[:, 10:].any()
     assert any("referenčního podkladu" in ln for ln in logs)
+
+
+def test_fetch_orthophoto_from_larger_prefetch(tmp_path, monkeypatch):
+    """Předstažené ortofoto větší obálky (stejné rozlišení) se pro menší výřez ořízne bez stahování a cache zůstane."""
+    from PIL import Image
+
+    from app.pipeline import reference_layers
+    from app.pipeline.run_job import ortho_prefetch_bounds
+
+    calls = []
+
+    def fake_download(_url, _layer, bounds, png, pgw, *, width, height, **_k):
+        calls.append(bounds)
+        arr = np.zeros((height, width, 3), dtype=np.uint8)
+        arr[:, : width // 2] = (0, 200, 0)  # levá půlka (x < 5 m) zelená
+        Image.fromarray(arr).save(png)
+        reference_layers._write_pgw_for_extent(pgw, *bounds, width, height)
+        return True
+
+    monkeypatch.setattr(reference_layers, "_download_wms_raster", fake_download)
+    assert orthophoto.prefetch_orthophoto(tmp_path, (-5.0, -5.0, 15.0, 10.0), 0.5)
+    rgb, gt = orthophoto.fetch_orthophoto(tmp_path, (0.3, 0.0, 10.3, 5.0), 0.5)
+    assert len(calls) == 1 and rgb.shape == (10, 20, 3) and gt[0] == 0.3
+    mask = orthophoto.green_mask(rgb)
+    assert mask[:, :9].all() and not mask[:, 11:].any()
+    assert json.loads((tmp_path / "orthophoto" / "ortofoto.json").read_text())["bounds"][0] == -5.0
+    assert ortho_prefetch_bounds((0, 0, 10, 10), "sprint_2m", {}) is None
+    assert ortho_prefetch_bounds((0, 0, 10, 10), "forest_10000", {}) == (-10.0, -10.0, 20.0, 20.0)
