@@ -14,6 +14,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.fsutil import atomic_write_text
 from app.pipeline.jvf_reader import iter_records
 
 # ISSprOM: nepřekonatelný plot / zábradlí, živý plot = zřetelná hranice vegetace.
@@ -136,7 +137,8 @@ def load_fences(package_zip: str | Path, *, use_cache: bool = True) -> list[Fenc
         )
     if use_cache:
         try:
-            cache.write_text(
+            atomic_write_text(
+                cache,
                 json.dumps(
                     [
                         {
@@ -174,7 +176,7 @@ def load_construction_borders(
             lines.append([(float(c[0]), float(c[1])) for c in rec.coords])
     if use_cache:
         try:
-            cache.write_text(json.dumps([[list(p) for p in line] for line in lines]), encoding="utf-8")
+            atomic_write_text(cache, json.dumps([[list(p) for p in line] for line in lines]), encoding="utf-8")
         except OSError:
             pass
     return lines
@@ -192,7 +194,7 @@ def load_building_points_count(package_zip: str | Path, *, use_cache: bool = Tru
     count = sum(1 for _ in iter_records(package_zip, {"BudovaDefinicniBod"}))
     if use_cache:
         try:
-            cache.write_text(json.dumps(count), encoding="utf-8")
+            atomic_write_text(cache, json.dumps(count), encoding="utf-8")
         except OSError:
             pass
     return count
@@ -344,7 +346,8 @@ def load_orientation_areas(
             out["public"].append(poly)
     if use_cache:
         try:
-            cache.write_text(
+            atomic_write_text(
+                cache,
                 json.dumps({k: [[[list(p) for p in ring] for ring in poly] for poly in v] for k, v in out.items()}),
                 encoding="utf-8",
             )

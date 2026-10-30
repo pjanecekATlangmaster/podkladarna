@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.fsutil import atomic_write_text
 from app.pipeline import zone_index
 from app.pipeline.jvf_reader import iter_records
 
@@ -735,7 +736,8 @@ def load_polygons(
             out.append(poly)
     if use_cache:
         try:
-            cache.write_text(
+            atomic_write_text(
+                cache,
                 json.dumps([[[list(p) for p in ring] for ring in poly] for poly in out]), encoding="utf-8"
             )
         except OSError:

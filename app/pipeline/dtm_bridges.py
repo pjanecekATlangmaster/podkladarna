@@ -13,6 +13,7 @@ import json
 import math
 from pathlib import Path
 
+from app.fsutil import atomic_write_text
 from app.pipeline.jvf_reader import iter_records
 
 DECK_CACHE_SUFFIX = ".deck1.json"
@@ -66,7 +67,8 @@ def load_deck_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[d
             out.append({"l": rec.level, "t": rec.type_name, "p": poly})
     if use_cache:
         try:
-            cache.write_text(
+            atomic_write_text(
+                cache,
                 json.dumps([{"l": d["l"], "t": d["t"], "p": [[list(p) for p in ring] for ring in d["p"]]} for d in out]),
                 encoding="utf-8",
             )
