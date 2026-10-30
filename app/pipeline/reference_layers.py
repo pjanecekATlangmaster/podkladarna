@@ -63,6 +63,8 @@ _HTTP_RETRY_WAIT_S = 2.0
 ORTHO_JPEG_QUALITY = 95
 # Dlaždice ortofota podkladu stahované naráz (sériově ~10 min u Prahy 7 × 7 km; víc nezatěžovat ČÚZK).
 ORTHO_TILE_WORKERS = 2
+# Rozepsaná dlaždice ortofota (mimo vzor ``orthophoto*``, který čtou podklady i vegetace).
+ORTHO_TMP_PREFIX = "_tmp_"
 # Katastr: bílé (a téměř bílé) pixely → alfa 0, když server TRANSPARENT ignoruje.
 KM_WHITE_THRESHOLD = 250
 # Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice,
@@ -880,13 +882,16 @@ def fetch_orthophoto_wms(
         r, c, x0, y0, x1, y1 = cell
         stem = ortho_tile_stem(r, c, single=single)
         jpg = dest_dir / f"{stem}.jpg"
+        # Zápis pod dočasným jménem a přejmenování (world file poslední): vegetace může dlaždice číst
+        # souběžně (``orthophoto._from_reference_tiles``) a nesmí vidět rozepsaný JPEG.
+        tmp = dest_dir / f"{ORTHO_TMP_PREFIX}{stem}.jpg"
         tile_bounds = _pixel_window_bounds(bounds_5514, tw, th, (x0, y0, x1, y1))
         ok = _download_wms_raster(
             ORTOFOTO_WMS,
             "0",
             tile_bounds,
-            jpg,
-            world_file_for(jpg),
+            tmp,
+            world_file_for(tmp),
             width=x1 - x0,
             height=y1 - y0,
             image_format="image/jpeg",
@@ -894,6 +899,8 @@ def fetch_orthophoto_wms(
         )
         if not ok:
             raise RuntimeError(f"dlaždice {stem} se nepodařila")
+        tmp.replace(jpg)
+        world_file_for(tmp).replace(world_file_for(jpg))
         return stem, jpg
 
     built: dict[str, Path] = {}
@@ -905,7 +912,7 @@ def fetch_orthophoto_wms(
             for stem, jpg in pool.map(_tile, grid):
                 built[stem] = jpg
     except Exception:
-        for old in dest_dir.glob("orthophoto*"):
+        for old in (*dest_dir.glob("orthophoto*"), *dest_dir.glob(f"{ORTHO_TMP_PREFIX}*")):
             old.unlink(missing_ok=True)
         raise
     if log:

@@ -4,6 +4,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from app.pipeline.prepare_lidar import (
     expand_crop_bounds,
     kp_pad_crop_bounds,
@@ -262,10 +264,15 @@ def test_merge_dmr_dmp_force_refresh_ignores_sheet_cache(tmp_path, monkeypatch):
     assert all("--stream" in c for c in translates)
 
 
-def test_merge_dmr_dmp_parallel_keeps_sheet_order(tmp_path, monkeypatch):
-    """Souběžné ořezy listů: pořadí částí v merge pipeline = pořadí listů."""
+@pytest.mark.parametrize("as_futures", [False, True])
+def test_merge_dmr_dmp_parallel_keeps_sheet_order(tmp_path, monkeypatch, as_futures):
+    """Souběžné ořezy listů: pořadí částí v merge pipeline = pořadí listů.
+
+    ``as_futures``: listy se teprve „stahují“ (``start_lidar_download``) a dokončí se v opačném pořadí."""
     import json
+    import threading
     import time
+    from concurrent.futures import Future
 
     pipelines: list[list[str]] = []
 
@@ -301,8 +308,32 @@ def test_merge_dmr_dmp_parallel_keeps_sheet_order(tmp_path, monkeypatch):
     work = tmp_path / "lidar"
     (work).mkdir()
     (work / "merged_crop.laz").write_bytes(b"old" * 1000)  # stará KP kopie z reuse
+    if as_futures:
+        futs = [Future() for _ in dmr + dmp]
+
+        def _finish() -> None:
+            for fut, path in reversed(list(zip(futs, dmr + dmp))):
+                time.sleep(0.01)
+                fut.set_result(path)
+
+        threading.Thread(target=_finish).start()
+        dmr, dmp = futs[:3], futs[3:]
     out = merge_dmr_dmp(dmr, dmp, work, crop_bounds=(0.0, 0.0, 10.0, 10.0), scalefactor=0.4)
     assert out.name == "ground_merged.laz"
     assert [Path(p).name for p in pipelines[0]] == [f"dmr_ground_{i}.laz" for i in range(3)]
     assert [Path(p).name for p in pipelines[1]] == [f"dmp_veg_{i}.laz" for i in range(3)]
     assert not (work / "merged_crop.laz").exists()
+
+
+def test_merge_dmr_dmp_download_error_cancels_rest(tmp_path, monkeypatch):
+    """Selhané stažení listu: merge hned vyhodí jeho chybu a zbylé stahování zruší."""
+    from concurrent.futures import Future
+
+    monkeypatch.setattr("app.pipeline.prepare_lidar.find_tool", lambda _n: "pdal")
+    monkeypatch.setenv("PODKLADARNA_LIDAR_WORKERS", "2")
+    dmr = [Future() for _ in range(2)]
+    dmp = [Future() for _ in range(2)]
+    dmr[0].set_exception(RuntimeError("list S0 se nestáhl"))
+    with pytest.raises(RuntimeError, match="S0"):
+        merge_dmr_dmp(dmr, dmp, tmp_path / "lidar", crop_bounds=(0.0, 0.0, 10.0, 10.0), scalefactor=0.4)
+    assert all(f.cancelled() for f in (dmr[1], *dmp))

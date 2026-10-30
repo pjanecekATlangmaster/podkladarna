@@ -483,7 +483,9 @@ def test_fetch_orthophoto_wms_tiles_and_world_files(tmp_path, monkeypatch):
     assert list(built) == ["orthophoto"]
     assert built["orthophoto"].name == "orthophoto.jpg"
     assert calls[0][5] == "image/jpeg"
-    assert calls[0][2].name == "orthophoto.jgw"
+    # zápis pod dočasným jménem, po stažení přejmenováno
+    assert calls[0][2].name == "_tmp_orthophoto.jgw"
+    assert (out / "orthophoto.jgw").is_file() and not list(out.glob("_tmp_*"))
 
     # 6×6 km → 48000 px (0,125 m) → 6×6 dlaždic po 8000 px
     calls.clear()
@@ -496,14 +498,14 @@ def test_fetch_orthophoto_wms_tiles_and_world_files(tmp_path, monkeypatch):
     for b, dest, dest_pgw, w, h, _fmt in calls:
         assert w <= 8192 and h <= 8192
         assert dest_pgw.suffix == ".jgw" and dest.suffix == ".jpg"
-        georef = read_pgw(dest_pgw)
+        georef = read_pgw(dest_pgw.with_name(dest_pgw.name.removeprefix("_tmp_")))
         assert abs(georef.pixel_x - 0.125) < 1e-9
         assert abs(georef.pixel_y + 0.125) < 1e-9
         # world file = střed horního levého pixelu
         assert abs(georef.origin_x - (b[0] + 0.0625)) < 1e-9
         assert abs(georef.origin_y - (b[3] - 0.0625)) < 1e-9
         assert abs((b[2] - b[0]) - w * 0.125) < 1e-6
-    by_name = {c[1].stem: c[0] for c in calls}
+    by_name = {c[1].stem.removeprefix("_tmp_"): c[0] for c in calls}
     r0c0, r0c1, r1c0 = by_name["orthophoto_r0c0"], by_name["orthophoto_r0c1"], by_name["orthophoto_r1c0"]
     assert abs(r0c0[0] - 1000.0) < 1e-9 and abs(r0c0[3] - 8000.0) < 1e-9
     assert abs(r0c0[2] - r0c1[0]) < 1e-9  # sousedé na sebe navazují
@@ -870,6 +872,7 @@ def test_fetch_orthophoto_wms_tiles_parallel_keep_grid_order(tmp_path, monkeypat
         if fail_stem and fail_stem[0] in dest_png.name:
             return False
         dest_png.write_bytes(b"jpg")
+        _wf.write_text("0")
         return True
 
     monkeypatch.setattr(rl, "_download_wms_raster", fake_download)
