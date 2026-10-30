@@ -1,4 +1,7 @@
 import json
+import math
+
+import pytest
 
 from app.pipeline import dtm_bridges as db
 from app.pipeline import dtm_import as di
@@ -243,3 +246,67 @@ def test_bridge_parts_cut_lower_levels_and_osm_lines_under_deck(tmp_path):
     # les a MTBO mosty z DTM nekreslí
     assert di.build_dtm_bridge_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
     assert di.build_dtm_bridge_parts(work, **{**kw, "preset_id": "mtbo_10000"}) == []
+
+
+def _osm_footbridge_work(work, *, dtm: bool, crossing: str = "road"):
+    """Lávka (osa x, y = 0) přes OSM silnici (osa y, x = 0); v DTM chodníkový pás úrovně 0 a silnice 20 m široká pod ním vystřižená."""
+    (work / "osm_paths").mkdir()
+    if dtm:
+        (work / "dtm").mkdir()
+        polys = {
+            "sidewalks": [_rect(-60, -2, 60, 2)],  # lávka v DTM = chodník úrovně 0
+            "roads": [_rect(-10, 2, 10, 60), _rect(-10, -60, 10, -2)],  # silnice pod lávkou vystřižená
+        }
+        for name, rects in polys.items():
+            (work / "dtm" / f"{name}.json").write_text(
+                json.dumps({"polygons": [[[list(p) for p in ring] for ring in r] for r in rects]}), encoding="utf-8"
+            )
+    feats = [
+        {"type": "Feature", "properties": {"highway": "bridge:footway"}, "geometry": {"type": "LineString", "coordinates": [[-60, 0], [60, 0]]}},
+        {
+            "type": "Feature",
+            "properties": {"highway": "steps" if crossing == "steps_end" else "road_4"},
+            "geometry": {
+                "type": "LineString",
+                "coordinates": {"road": [[0, -60], [0, 60]], "none": [[100, 0], [100, 60]], "steps_end": [[0, 0], [0, 20]]}[crossing],
+            },
+        },
+    ]
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8")
+    return dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+
+
+@pytest.mark.parametrize("dtm,edge_len", [(True, 20.0), (False, 5.0)])
+def test_osm_footbridge_over_road_draws_deck_lower_paved_and_edges_across_the_road(tmp_path, dtm, edge_len):
+    from app.pipeline import osm_paths as op
+
+    kw = _osm_footbridge_work(tmp_path, dtm=dtm)
+    parts = di.build_dtm_bridge_parts(tmp_path, **kw)
+    assert any("512.311" in p.name for p in parts)  # mostovka přes celý most nad spodní zpevněnou plochou
+    edges = di.bridge_entrance_edge_lines(tmp_path)
+    assert len(edges) == 2
+    for e in edges:  # hrany přes šířku silnice na okrajích mostovky (y = ±2), ne na koncích lávky (x = ±60)
+        (x0, y0), (x1, y1) = e[0], e[-1]
+        assert abs(math.hypot(x1 - x0, y1 - y0) - edge_len) <= 1.2
+        assert abs(abs(y0) - 2.0) < 0.3 and abs(x0) < 11 and abs(x1) < 11
+    paths = op.build_osm_path_parts(tmp_path, **kw)
+    assert not any("512.100" in p.name or "Lávk" in p.name for p in paths)
+    assert not any(f'symbol="{edge_idx}"' in p.objects_xml for p in paths for edge_idx in [_symbol_index("512.100")])
+
+
+def _symbol_index(code):
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    return symbol_index_for_code("sprint_4000", 4000, code)
+
+
+@pytest.mark.parametrize("crossing", ["none", "steps_end"])  # nic nekříží / schody končí na lávce (napojení)
+def test_osm_footbridge_crossing_nothing_has_no_deck_and_no_edges(tmp_path, crossing):
+    from app.pipeline import osm_paths as op
+
+    kw = _osm_footbridge_work(tmp_path, dtm=True, crossing=crossing)
+    assert di.deck_levels(tmp_path) == {}
+    assert di.build_dtm_bridge_parts(tmp_path, **kw) == []
+    assert di.bridge_entrance_edge_lines(tmp_path) == []
+    paths = op.build_osm_path_parts(tmp_path, **kw)  # ani záložní hrany 512.100 z OSM
+    assert not any(f'symbol="{_symbol_index("512.100")}"' in p.objects_xml for p in paths)

@@ -4533,6 +4533,8 @@ BRIDGE_EDGE_CODE = "512.100"
 _BRIDGE_EDGE_MAX_HALF_M = 15.0
 # Úhel křížení, pod kterým se cesty berou jako rovnoběžné (sin úhlu).
 _BRIDGE_EDGE_MIN_SIN = 0.2
+# Křížení blíž než tolik m ke konci lávky je její napojení na cestu (sdílí ``osm_bridge_decks.END_CLEAR_M``).
+_BRIDGE_EDGE_END_CLEAR_M = 1.5
 
 
 # Les a MTBO (1:7500–1:15000): chodník souběžný se silnicí se nekreslí (1,4 m je pod šířkou čáry).
@@ -5671,7 +5673,15 @@ def bridge_entrance_edges(
                 else [g for g in getattr(inter, "geoms", []) if g.geom_type == "Point"]
             )
             for p in points:
-                tb = tangent(bridge, bridge.project(p))
+                s_b = bridge.project(p)
+                if s_b <= _BRIDGE_EDGE_END_CLEAR_M or bridge.length - s_b <= _BRIDGE_EDGE_END_CLEAR_M:
+                    continue  # křížení u konce lávky je napojení na cestu, ne průchod
+                s_l = line.project(p)
+                if (s_l <= _BRIDGE_EDGE_END_CLEAR_M or line.length - s_l <= _BRIDGE_EDGE_END_CLEAR_M) and sum(
+                    1 for other, _ohw in lower if other.distance(p) <= 0.5
+                ) < 2:
+                    continue  # cesta končí na lávce a dál nepokračuje (schody na lávku)
+                tb = tangent(bridge, s_b)
                 tl = tangent(line, line.project(p))
                 sin = abs(tb[0] * tl[1] - tb[1] * tl[0])
                 if sin < _BRIDGE_EDGE_MIN_SIN:

@@ -405,23 +405,35 @@ def dtm_owns_decks(work_dir: Path) -> bool:
     return decks_path(work_dir).is_file()
 
 
-def deck_levels(work_dir: Path):
-    """``{úroveň: {"light", "heavy", "all"}}`` (shapely) z ``decks.json``; prázdný dict bez mostů."""
-    from app.pipeline import dtm_bridges
-
+def _dtm_deck_list(work_dir: Path) -> list[dict]:
     try:
         data = json.loads(decks_path(work_dir).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {}
-    decks = [{"l": d["l"], "t": d["t"], "p": [[(x, y) for x, y in ring] for ring in d["p"]]} for d in data.get("decks") or []]
-    return dtm_bridges.level_decks(decks)
+        return []
+    return [{"l": d["l"], "t": d["t"], "p": [[(x, y) for x, y in ring] for ring in d["p"]]} for d in data.get("decks") or []]
+
+
+@_job_memo
+def dtm_deck_levels(work_dir: Path):
+    """``{úroveň: {"light", "heavy", "all"}}`` (shapely) jen z ``decks.json`` (DTM); prázdný dict bez mostů."""
+    from app.pipeline import dtm_bridges
+
+    return dtm_bridges.level_decks(_dtm_deck_list(work_dir))
+
+
+@_job_memo
+def deck_levels(work_dir: Path):
+    """Jako ``dtm_deck_levels`` + mostovky OSM lávek křížících cestu, které DTM nemá (``osm_bridge_decks``)."""
+    from app.pipeline import dtm_bridges, osm_bridge_decks
+
+    return dtm_bridges.level_decks(_dtm_deck_list(work_dir) + list(osm_bridge_decks.osm_decks(work_dir)))
 
 
 def deck_footprint_geometry(work_dir: Path):
-    """Sjednocený půdorys mostů z DTM (shapely) nebo None."""
+    """Sjednocený půdorys mostů z DTM a OSM lávek (shapely) nebo None."""
     from app.pipeline import dtm_bridges
 
-    return dtm_bridges.footprint(deck_levels(work_dir)) if dtm_owns_decks(work_dir) else None
+    return dtm_bridges.footprint(deck_levels(work_dir))
 
 
 def _minus_decks(geom, work_dir: Path):
@@ -1890,17 +1902,38 @@ def _osm_water_geometry(work_dir: Path):
 
 
 def bridge_entrance_edge_lines(work_dir: Path, path_source: str = "mixed") -> list[list[tuple[float, float]]]:
-    """Hrany 512.100 pod mosty z DTM (S-JTSK): přes chodník pod mostem, jinak přes silnici (viz ``dtm_bridges``)."""
-    from app.pipeline import dtm_bridges, dtm_sidewalks
+    """Hrany 512.100 pod mosty z DTM (S-JTSK): přes chodník pod mostem, jinak přes silnici (viz ``dtm_bridges``); + OSM lávky."""
+    from app.pipeline import dtm_bridges, dtm_sidewalks, osm_bridge_decks
 
-    levels = deck_levels(work_dir)
-    foot = dtm_bridges.footprint(levels)
+    edges = list(osm_bridge_decks.osm_entrance_edges(work_dir))
+    foot = dtm_bridges.footprint(dtm_deck_levels(work_dir))
     if foot is None:
-        return []
+        return edges
     sw_polys, road_polys = classified_polygons(work_dir, path_source)
     return dtm_bridges.entrance_edges(
         foot, dtm_sidewalks.dtm_union(sw_polys), dtm_sidewalks.dtm_union(road_polys)
-    )
+    ) + edges
+
+
+def _bridge_lower_surfaces(work_dir: Path, sw_polys, road_polys) -> list:
+    """Spodní zpevněné plochy pod mosty (chodníky, silnice, parkoviště z DTM + OSM čáry pod lávkami); bez mostovek lávek."""
+    from app.pipeline import osm_bridge_decks
+
+    sources = osm_bridge_decks.deck_sources(work_dir)  # chodník, který tvoří mostovku lávky, není pod mostem
+    out = []
+    for g in (
+        dtm_sidewalks_union(sw_polys),
+        dtm_sidewalks_union(road_polys),
+        dtm_sidewalks_union(_load_polygons_file(parking_path(work_dir))),
+    ):
+        if g is not None and sources is not None:
+            g = g.difference(sources)
+        if g is not None and not g.is_empty:
+            out.append(g)
+    osm_lower = osm_bridge_decks.osm_lower_paved(work_dir)
+    if osm_lower is not None and not osm_lower.is_empty:
+        out.append(osm_lower)
+    return out
 
 
 def build_dtm_bridge_parts(
@@ -1921,9 +1954,13 @@ def build_dtm_bridge_parts(
     """
     from app.pipeline.osm_paths import _path_object
 
-    if not preset_id.startswith("sprint") or not dtm_owns_decks(work_dir):
+    if not preset_id.startswith("sprint"):
         return []
     from app.pipeline import dtm_bridges
+
+    levels = deck_levels(work_dir)
+    if not levels:
+        return []
 
     kw = dict(
         preset_id=preset_id,
@@ -1933,20 +1970,11 @@ def build_dtm_bridge_parts(
         grivation_deg=grivation_deg,
         clip_bounds=clip_bounds,
     )
-    levels = deck_levels(work_dir)
     parts: list[OomObjectPart] = []
     # Mosty nad spodní zpevněnou plochou / vodou kreslí celé 512.311 / 512.302 (a obrys 501.100), ne mostovka 501.0 / 501.20.
     foot0 = dtm_bridges.footprint(levels)
     sw_polys0, road_polys0 = classified_polygons(work_dir, path_source)
-    paved_parts0 = [
-        g
-        for g in (
-            dtm_sidewalks_union(sw_polys0),
-            dtm_sidewalks_union(road_polys0),
-            dtm_sidewalks_union(_load_polygons_file(parking_path(work_dir))),
-        )
-        if g is not None and not g.is_empty
-    ]
+    paved_parts0 = _bridge_lower_surfaces(work_dir, sw_polys0, road_polys0)
     from shapely.ops import unary_union as _uu0
 
     lower0 = dtm_bridges.lower_level_areas(foot0, _uu0(paved_parts0) if paved_parts0 else None, _osm_water_geometry(work_dir))
@@ -1984,12 +2012,8 @@ def build_dtm_bridge_parts(
                     **kw,
                 )
             )
-    from shapely.ops import unary_union as _uu
-
-    foot = dtm_bridges.footprint(levels)
-    sw_polys, road_polys = classified_polygons(work_dir, path_source)
-    paved_parts = [g for g in (dtm_sidewalks_union(sw_polys), dtm_sidewalks_union(road_polys), dtm_sidewalks_union(_load_polygons_file(parking_path(work_dir)))) if g is not None and not g.is_empty]
-    lower = dtm_bridges.lower_level_areas(foot, _uu(paved_parts) if paved_parts else None, _osm_water_geometry(work_dir))
+    foot, paved_parts = foot0, paved_parts0
+    lower = dtm_bridges.lower_level_areas(foot, _uu0(paved_parts) if paved_parts else None, _osm_water_geometry(work_dir))
     for key, code, label in (("paved", dtm_bridges.LOWER_PAVED_CODE, "zpevněná plocha 512.311"), ("water", dtm_bridges.LOWER_WATER_CODE, "voda 512.302")):
         if lower.get(key) is not None:
             parts.extend(_geometry_part(lower[key], name=f"Mosty (DTM) – nižší úroveň, {label}", code=code, **kw))
