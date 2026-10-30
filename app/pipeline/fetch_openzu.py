@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from app import settings
@@ -297,13 +298,37 @@ def expand_bbox_wgs84(
     return min(lons), min(lats), max(lons), max(lats)
 
 
-def fetch_lidar_for_bbox(
+class LidarDownload:
+    """Stahování listů SM5 na pozadí: nejdřív všechny DMR (malé), pak DMP po listech.
+
+    ``merge_dmr_dmp`` dostane futures a ořez listu začne, jakmile je jeho soubor stažený
+    (místo čekání na všechny listy). Pořadí listů v ``dmr`` / ``dmp`` je jako ``names``."""
+
+    def __init__(self, names: list[str], dmr: list[Future], dmp: list[Future]) -> None:
+        self.names = names
+        self.dmr = dmr
+        self.dmp = dmp
+
+    def wait(self) -> tuple[list[Path], list[Path], list[str]]:
+        """Počká na všechny listy (při chybě zruší zbytek a vyhodí ji)."""
+        try:
+            return [f.result() for f in self.dmr], [f.result() for f in self.dmp], self.names
+        except BaseException:
+            self.cancel()
+            raise
+
+    def cancel(self) -> None:
+        for fut in (*self.dmr, *self.dmp):
+            fut.cancel()
+
+
+def start_lidar_download(
     bbox: tuple[float, float, float, float],
     log: callable | None = None,
     *,
     force_refresh: bool = False,
-) -> tuple[list[Path], list[Path], list[str]]:
-    """Vrátí cesty k LAZ v sdílené cache (stáhne jen chybějící / zastaralé listy)."""
+) -> LidarDownload:
+    """Ověří výřez a listy (hned, chyby jako dřív) a stahuje LAZ jedním vláknem na pozadí."""
     west, south, east, north = bbox
     if bbox_exceeds_limit(west, south, east, north):
         width_km, height_km = bbox_size_km(west, south, east, north)
@@ -325,20 +350,35 @@ def fetch_lidar_for_bbox(
     if log:
         log(f"Listy SM5 ({len(names)}): {', '.join(names)}")
 
-    dmr_paths: list[Path] = []
-    dmp_paths: list[Path] = []
-    for mapnom in names:
-        dmr = _cached_laz(
+    # Jedno vlákno = stejná zátěž ČÚZK i linky jako dřív, jen se stahování překrývá s ořezem.
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lidar-dl")
+    dmr = [
+        executor.submit(
+            _cached_laz,
             mapnom,
             "DMR5G",
             OPENZU_DMR.format(mapnom=mapnom),
             log,
             force_refresh=force_refresh,
         )
-        dmp = _cached_dmp_laz(mapnom, log, force_refresh=force_refresh)
-        dmr_paths.append(dmr)
-        dmp_paths.append(dmp)
-    return dmr_paths, dmp_paths, names
+        for mapnom in names
+    ]
+    dmp = [
+        executor.submit(_cached_dmp_laz, mapnom, log, force_refresh=force_refresh)
+        for mapnom in names
+    ]
+    executor.shutdown(wait=False)
+    return LidarDownload(names, dmr, dmp)
+
+
+def fetch_lidar_for_bbox(
+    bbox: tuple[float, float, float, float],
+    log: callable | None = None,
+    *,
+    force_refresh: bool = False,
+) -> tuple[list[Path], list[Path], list[str]]:
+    """Vrátí cesty k LAZ v sdílené cache (stáhne jen chybějící / zastaralé listy)."""
+    return start_lidar_download(bbox, log, force_refresh=force_refresh).wait()
 
 
 def _cached_dmp_laz(

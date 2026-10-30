@@ -22,7 +22,8 @@ from app.pipeline.dem_prep import SurfacesPrep, start_job_surfaces
 from app.pipeline.fetch_aopk import fetch_aopk_trees_for_bbox
 from app.pipeline.fetch_openzu import (
     crop_bounds_5514,
-    fetch_lidar_for_bbox,
+    LidarDownload,
+    start_lidar_download,
 )
 from app.pipeline.fetch_ruian import fetch_ruian_buildings_for_bbox
 from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
@@ -100,6 +101,7 @@ REF_LOG_LABEL = "podklady"
 SURFACE_LOG_LABEL = "DSM/CHM"
 OSM_LOG_LABEL = "OSM"
 DTM_LOG_LABEL = "DTM"
+LIDAR_LOG_LABEL = "LiDAR"
 VECTOR_LOG_LABEL = "vektory"
 
 
@@ -475,9 +477,10 @@ def run_job_pipeline(
         west, south, east, north = bbox
         crop = crop_bounds_5514(west, south, east, north)
 
-    dmr_files: list[Path] = []
-    dmp_files: list[Path] = []
+    dmr_files: list[Path | Future] = []
+    dmp_files: list[Path | Future] = []
     sheet_names: list[str] = []
+    lidar_download: LidarDownload | None = None
     zabaged_src: Path | None = None
     force_refresh = force_refresh_enabled(options)
 
@@ -584,11 +587,14 @@ def run_job_pipeline(
     if bbox:
         west, south, east, north = bbox
         progress.begin("stažení LiDAR")
-        dmr_files, dmp_files, sheet_names = fetch_lidar_for_bbox(
+        # Listy se stahují na pozadí; ořez listu (příprava LiDAR) začne hned po stažení jeho souboru.
+        lidar_download = start_lidar_download(
             (west, south, east, north),
-            log,
+            background_log(raw_log, LIDAR_LOG_LABEL),
             force_refresh=force_refresh,
         )
+        sheet_names = lidar_download.names
+        dmr_files, dmp_files = lidar_download.dmr, lidar_download.dmp
         progress.done()
 
         progress.begin("stažení ZABAGED")
@@ -723,6 +729,8 @@ def run_job_pipeline(
         except Exception as exc:
             log_issue(log, f"DSM/CHM: přeskočeno ({exc})")
 
+    if lidar_download is not None:
+        lidar_download.wait()  # i při ořezu z cache: metadata listů (DMP OK / 1G) až po stažení všech
     lidar_sources = (
         collect_lidar_source_meta(sheet_names) if sheet_names else None
     )

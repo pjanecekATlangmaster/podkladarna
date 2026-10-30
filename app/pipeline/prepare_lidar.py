@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
 from app.download_cache import (
@@ -325,8 +325,8 @@ def lidar_workers() -> int:
 
 
 def merge_dmr_dmp(
-    dmr_files: list[Path],
-    dmp_files: list[Path],
+    dmr_files: list[Path | Future],
+    dmp_files: list[Path | Future],
     work_dir: Path,
     log: callable | None = None,
     crop_bounds: tuple[float, float, float, float] | None = None,
@@ -337,6 +337,7 @@ def merge_dmr_dmp(
 ) -> Path:
     """Připraví dvojici DMR ground + DMP vegetace; vrací ground LAZ.
 
+    Listy mohou být i ``Future`` ze ``start_lidar_download``: ořez listu čeká jen na svůj soubor.
     Je-li ``crop_bounds``, ořezává **každý list před merge** (stejný finální bbox
     jako dřív: user + buffer + KP pad). Tím se nečtou celé SM5 listy.
     Výstup: ``ground_merged`` / ``veg_merged`` (víc listů) nebo ořez jediného
@@ -418,11 +419,14 @@ def merge_dmr_dmp(
 
     def _run_task(task: tuple[str, int, dict]) -> Path | None:
         kind, i, spec = task
+        src = spec["src"]
+        if isinstance(src, Future):  # list se ještě stahuje (``start_lidar_download``)
+            src = src.result()
         if kind == "veg":
-            _safe_log(f"DMP zdroj {i + 1}/{len(dmp_files)}: {spec['src'].name}")
+            _safe_log(f"DMP zdroj {i + 1}/{len(dmp_files)}: {src.name}")
         return _translate_sheet(
             pdal,
-            spec["src"],
+            src,
             spec["dest"],
             stages=spec["stages"],
             stage_opts=spec["stage_opts"],
@@ -439,7 +443,16 @@ def merge_dmr_dmp(
         log(f"PDAL ořezy listů: {len(tasks)} úloh, souběžně {workers} (CPU {available_cpus()})")
     if workers > 1:
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="pdal-crop") as ex:
-            results = list(ex.map(_run_task, tasks))
+            futs = [ex.submit(_run_task, t) for t in tasks]
+            wait(futs, return_when=FIRST_EXCEPTION)
+            failed = [f for f in futs if f.done() and not f.cancelled() and f.exception() is not None]
+            if failed:
+                # Chyba (i stažení listu): zbytek stahování a ořezů nečeká, job hned skončí.
+                for fut in (*futs, *dmr_files, *dmp_files):
+                    if isinstance(fut, Future):
+                        fut.cancel()
+                raise failed[0].exception()
+            results = [f.result() for f in futs]
     else:
         results = [_run_task(t) for t in tasks]
 
