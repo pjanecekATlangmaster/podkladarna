@@ -2,6 +2,7 @@ import json
 import math
 
 import pytest
+from shapely.geometry import LineString
 
 from app.pipeline import dtm_bridges as db
 from app.pipeline import dtm_import as di
@@ -248,21 +249,22 @@ def test_bridge_parts_cut_lower_levels_and_osm_lines_under_deck(tmp_path):
     assert di.build_dtm_bridge_parts(work, **{**kw, "preset_id": "mtbo_10000"}) == []
 
 
-def _osm_footbridge_work(work, *, dtm: bool, crossing: str = "road"):
+def _osm_footbridge_work(work, *, dtm: bool, crossing: str = "road", half: float = 2.0, axis_y: float = 0.0, strip_gap: bool = False):
     """Lávka (osa x, y = 0) přes OSM silnici (osa y, x = 0); v DTM chodníkový pás úrovně 0 a silnice 20 m široká pod ním vystřižená."""
     (work / "osm_paths").mkdir()
     if dtm:
         (work / "dtm").mkdir()
         polys = {
-            "sidewalks": [_rect(-60, -2, 60, 2)],  # lávka v DTM = chodník úrovně 0
-            "roads": [_rect(-10, 2, 10, 60), _rect(-10, -60, 10, -2)],  # silnice pod lávkou vystřižená
+            # lávka v DTM = chodník úrovně 0 (případně jen mimo silnici – nad silnicí v DTM nic)
+            "sidewalks": [_rect(-60, -half, -10, half), _rect(10, -half, 60, half)] if strip_gap else [_rect(-60, -half, 60, half)],
+            "roads": [_rect(-10, half, 10, 60), _rect(-10, -60, 10, -half)],  # silnice pod lávkou vystřižená
         }
         for name, rects in polys.items():
             (work / "dtm" / f"{name}.json").write_text(
                 json.dumps({"polygons": [[[list(p) for p in ring] for ring in r] for r in rects]}), encoding="utf-8"
             )
     feats = [
-        {"type": "Feature", "properties": {"highway": "bridge:footway"}, "geometry": {"type": "LineString", "coordinates": [[-60, 0], [60, 0]]}},
+        {"type": "Feature", "properties": {"highway": "bridge:footway"}, "geometry": {"type": "LineString", "coordinates": [[-60, axis_y], [60, axis_y]]}},
         {
             "type": "Feature",
             "properties": {"highway": "steps" if crossing == "steps_end" else "road_4"},
@@ -276,11 +278,23 @@ def _osm_footbridge_work(work, *, dtm: bool, crossing: str = "road"):
     return dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
 
 
-@pytest.mark.parametrize("dtm,edge_len", [(True, 20.0), (False, 5.0)])
-def test_osm_footbridge_over_road_draws_deck_lower_paved_and_edges_across_the_road(tmp_path, dtm, edge_len):
+@pytest.mark.parametrize(
+    "dtm,half,axis_y,strip_gap,edge_len",
+    [
+        (True, 2.0, 0.0, False, 20.0),
+        (True, 1.5, 0.0, False, 20.0),  # užší lávka než pás kolem OSM osy
+        (True, 2.0, 1.0, False, 20.0),  # OSM osa posunutá proti DTM
+        (True, 1.5, 0.0, True, 20.0),  # chodník lávky v DTM nad silnicí chybí – mezeru vyplní pás v šířce lávky
+        (False, 2.0, 0.0, False, 5.0),
+    ],
+)
+def test_osm_footbridge_over_road_draws_deck_lower_paved_and_edges_across_the_road(tmp_path, dtm, half, axis_y, strip_gap, edge_len):
     from app.pipeline import osm_paths as op
 
-    kw = _osm_footbridge_work(tmp_path, dtm=dtm)
+    kw = _osm_footbridge_work(tmp_path, dtm=dtm, half=half, axis_y=axis_y, strip_gap=strip_gap)
+    if dtm:  # mostovka nesahá na silnici z DTM (hrana DTM se nehýbe)
+        roads = ds.dtm_union([_rect(-10, half, 10, 60), _rect(-10, -60, 10, -half)])
+        assert di.deck_footprint_geometry(tmp_path).intersection(roads).area < 0.05
     parts = di.build_dtm_bridge_parts(tmp_path, **kw)
     assert any("512.311" in p.name for p in parts)  # mostovka přes celý most nad spodní zpevněnou plochou
     edges = di.bridge_entrance_edge_lines(tmp_path)
@@ -288,7 +302,8 @@ def test_osm_footbridge_over_road_draws_deck_lower_paved_and_edges_across_the_ro
     for e in edges:  # hrany přes šířku silnice na okrajích mostovky (y = ±2), ne na koncích lávky (x = ±60)
         (x0, y0), (x1, y1) = e[0], e[-1]
         assert abs(math.hypot(x1 - x0, y1 - y0) - edge_len) <= 1.2
-        assert abs(abs(y0) - 2.0) < 0.3 and abs(x0) < 11 and abs(x1) < 11
+        mid = LineString(e).interpolate(0.5, normalized=True)  # přes silnici na okraji lávky z DTM (bez DTM kolem osy)
+        assert abs(abs(mid.y - (0.0 if dtm else axis_y)) - half) < 0.3 and abs(x0) < 11 and abs(x1) < 11
     paths = op.build_osm_path_parts(tmp_path, **kw)
     assert not any("512.100" in p.name or "Lávk" in p.name for p in paths)
     assert not any(f'symbol="{edge_idx}"' in p.objects_xml for p in paths for edge_idx in [_symbol_index("512.100")])

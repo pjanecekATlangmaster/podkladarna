@@ -90,6 +90,33 @@ def _dtm_polygons(work_dir: Path, kind: str) -> tuple:
     return tuple(g for g in (dtm_bridges._poly(r) for r in raw) if g is not None)
 
 
+def _gaps_along(line, polys: list) -> list:
+    """Úseky čáry ``line``, vedle kterých (napříč) neleží žádná z ploch ``polys`` – průmět ploch na čáru se vynechá."""
+    from shapely.geometry import Point
+    from shapely.ops import substring
+
+    covered = []
+    for g in polys:
+        for poly in _polygons(g):
+            s = [line.project(Point(c)) for c in poly.exterior.coords]
+            covered.append((min(s), max(s)))
+    covered.sort()
+    gaps, pos = [], 0.0
+    for a, b in covered:
+        if a > pos:
+            gaps.append((pos, a))
+        pos = max(pos, b)
+    if pos < line.length:
+        gaps.append((pos, line.length))
+    out = []
+    for a, b in gaps:
+        if b - a >= 0.1:
+            piece = substring(line, a, b)
+            if piece.geom_type == "LineString" and piece.length > 0:
+                out.append(piece)
+    return out
+
+
 @_job_memo
 def _buildings(work_dir: Path):
     """Budovy z OSM a DTM (shapely) nebo None – lávka vedoucí do budovy se v budově nekreslí."""
@@ -190,15 +217,24 @@ def _analysis(work_dir: Path) -> dict:
         if grp not in taken:
             continue
         band = bridge.buffer(DECK_BAND_M, cap_style="flat")
-        parts = [bridge.buffer(max(op.drawn_width_m(hw) / 2.0, DECK_MIN_HALF_M), cap_style="flat")]
+        axis = bridge.buffer(max(op.drawn_width_m(hw) / 2.0, DECK_MIN_HALF_M), cap_style="flat")
+        own = []
         for g in surfaces:
             if not band.intersects(g):
                 continue
             inside = g.intersection(band)
             if inside.area >= DECK_DTM_SHARE * g.area:
-                parts.append(inside)
+                own.append(inside)
                 sources.append(g)
-        deck = unary_union(parts)
+        if own:
+            # Lávka je v DTM: kde ji DTM má, platí jen tvar z DTM (hrana silnice / chodníku z DTM se nehýbe ani u užší
+            # lávky nebo posunuté OSM osy); pás kolem osy v šířce lávky z DTM jen vyplní mezery (vystřiženou silnici).
+            own_u = unary_union(own)
+            on_line = bridge.intersection(own_u).length
+            half = min(max(op.drawn_width_m(hw) / 2.0, DECK_MIN_HALF_M), max(0.5, own_u.area / (2.0 * on_line))) if on_line > 0 else DECK_MIN_HALF_M
+            gaps = _gaps_along(bridge, own)
+            axis = unary_union([g.buffer(half, cap_style="flat") for g in gaps]) if gaps else None
+        deck = unary_union([g for g in (axis, *own) if g is not None])
         if buildings is not None:
             deck = deck.difference(buildings)  # lávka vedoucí do budovy končí na jejím obrysu
         typ = HEAVY_TYPE if op.path_draw_highway(hw).startswith("road_") else LIGHT_TYPE
