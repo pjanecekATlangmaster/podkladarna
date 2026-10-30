@@ -5,8 +5,7 @@ Cíl: **https://podkladarna.kibos.link** → NAS → Docker → port **8672**
 Veškeré směrování (router, reverse proxy) míří na **Synology NAS**, ne na PC.
 
 **Aktuální provoz je A/B (sekce 9):** ostrá A (`podkladarna.kibos.link`, port 8672) běží z image `:stable`,
-test B (`pt.kibos.link`, port 8673) z `:latest`. Sekce 1–8 popisují společné části (proxy, DNS, GHCR); starý
-jednoinstanční režim (`deploy-nas.sh`, `update-nas.sh`, `docker-compose.nas.yml`) je jen v sekci „Legacy“ níže.
+test B (`pt.kibos.link`, port 8673) z `:latest`. Sekce 1–8 popisují společné části (proxy, DNS, GHCR).
 
 ---
 
@@ -112,34 +111,6 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
 ```
 
 Kdyby chodil mail „kontejner byl ukončen nečekaně“, v DSM: **Ovládací panel → Oznámení → Pravidla** a u Container Manageru vypnout „Neočekávaně zastaveno“. Ruční `docker compose down` ten mail pořád spustí.
-
-### Legacy: jednoinstanční režim (nepoužívat s A/B)
-
-> **Varování:** `docker-compose.nas.yml` i A služba v `docker-compose.nas-ab.yml` mají `container_name: podkladarna`.
-> Spuštění `update-nas.sh` / `deploy-nas.sh` na NAS s A/B by tedy vytvořilo kontejner stejného jména, který kolidoval
-> s A, a stahoval by `:latest`. Na NAS s A/B je nepoužívejte; `docker-compose.nas.yml` zůstává v repu jen pro jednu instanci.
-
-Starý režim (jedna instance, image `:latest`) používá `deploy-nas.sh` (první deploy / chytrý restart, **nesmaže** starý image před pull),
-`update-nas.sh`, `nas-lib.sh` a `docker-compose.nas.yml`:
-
-```bash
-cd /volume1/docker/podkladarna
-cp .env.example .env
-chmod +x deploy-nas.sh update-nas.sh
-./deploy-nas.sh        # první nasazení
-sudo ./update-nas.sh   # aktualizace po novém buildu v GHCR
-```
-
-`update-nas.sh` (chytrý režim, výchozí):
-- **syncne `docker-compose.nas.yml`** z GitHubu (`GITHUB_REPO` / `GITHUB_BRANCH`, default `master`) – host `.env` **nepřepisuje**
-- počká na doběhnutí GitHub Actions workflow `docker.yml` pro aktuální `master` (až 40 min)
-- porovná **digest** lokálního image s GHCR (`docker manifest inspect`)
-- stejný digest + běžící kontejner + compose beze změny → **nic nestahuje**
-- stejný digest, ale compose se změnil → recreate (nové `environment:` mapování)
-- stejný digest, kontejner neběží → restart bez pull
-- nový digest → stop, pull, start
-
-Repo je veřejné, takže čekání na Actions nepotřebuje token (anonymní API, poll 45 s). Volitelný `GH_TOKEN` zrychlí poll na 15 s. Přeskočit čekání: `./update-nas.sh --no-wait`. Přeskočit sync compose: `NAS_SKIP_COMPOSE_SYNC=1 ./update-nas.sh`. Vynucení plného stažení: `./update-nas.sh --force`. Konkrétní tag: `./update-nas.sh v1.0.0`. Starý image ponechat (rollback): `./update-nas.sh --keep-image`.
 
 Aktualizace **nepoužívá** `docker compose down` napřímo na běžící kontejner. Nejdřív ho zastaví přes `synowebapi` (stejně jako Stop v Container Manageru).
 
@@ -271,13 +242,13 @@ Dvě instance ze stejného image repozitáře, každá s vlastními jobami a dat
 | Data | `./data` | `./data-test` |
 | Banner | žádný | „Testovací verze“ + odkaz na A |
 
-Společné: **cache stažených dat** (`./data/cache`, v B připojená nad `./data-test`) a **zámek těžkého jobu** (`./shared/slots`) – počítá jen jeden job napříč A i B. Čekající job má štítek „čeká na uvolnění serveru“; druhá instance se o cizím jobu nedozví nic než „server je vytížený“. Soubor `docker-compose.nas-ab.yml` je vedle původního `docker-compose.nas.yml` (ten zůstává pro jednu instanci, s A/B ho nespouštějte).
+Společné: **cache stažených dat** (`./data/cache`, v B připojená nad `./data-test`) a **zámek těžkého jobu** (`./shared/slots`) – počítá jen jeden job napříč A i B. Čekající job má štítek „čeká na uvolnění serveru“; druhá instance se o cizím jobu nedozví nic než „server je vytížený“.
 
 ### První nasazení A/B
 1. GitHub → Actions → **Promote to stable** → Run (přetaguje `:latest` na `:stable`; bez toho A nenastartuje).
 2. DNS (Cloudflare): `pt.kibos.link` → stejná IP jako `podkladarna.kibos.link`. DSM → Reverse Proxy: `pt.kibos.link` → `http://127.0.0.1:8673` + certifikát; stejné limity uploadu jako u A (sekce 4).
 3. Na NAS do `/volume1/docker/podkladarna/`: `docker-compose.nas-ab.yml`, `update-nas-ab.sh`, doplnit `.env` (viz `.env.example`, sekce A/B).
-4. Zastavit starý stack (`docker compose -f docker-compose.nas.yml down`) a spustit `sudo ./update-nas-ab.sh both`. A používá stejné `./data`, takže joby zůstanou.
+4. Spustit `sudo ./update-nas-ab.sh both`.
 5. Ověřit `curl http://127.0.0.1:8672/` a `:8673/` → 200 a banner na `https://pt.kibos.link`.
 
 ### Běžný tok
@@ -289,7 +260,6 @@ Rollback A: do `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh 
 ### Pozor
 - Restart služby přeruší její běžící job. Aktualizujte instanci, která zrovna nepočítá.
 - Sdílená cache: když B změní formát odvozené cache (reference, DTM JSON…), musí změnit i klíč / verzi formátu, aby A nečetl nekompatibilní soubor (`REF_CACHE_FORMAT` to už dělá).
-- Starý `update-nas.sh` / `deploy-nas.sh` na NAS s A/B nespouštějte: oba compose soubory (`docker-compose.nas.yml` i `docker-compose.nas-ab.yml`, služba A) mají `container_name: podkladarna`, takže by si kolidovaly.
 
 ## Env soubor (`.env` vedle compose)
 
@@ -310,7 +280,7 @@ SMTP_FROM_NAME=OB podklady
 
 `GHCR_OWNER` musí být **lowercase** – GHCR ukládá image jako `ghcr.io/pjanecekatlangmaster/podkladarna`.
 
-`docker-compose.nas-ab.yml` (stejně jako legacy `docker-compose.nas.yml`) předává `SMTP_*` / `PUBLIC_BASE_URL` / `FEEDBACK_TO`
+`docker-compose.nas-ab.yml` předává `SMTP_*` / `PUBLIC_BASE_URL` / `FEEDBACK_TO`
 z tohoto `.env` do kontejneru. Od **2.2.12** má compose **product default**
 `SMTP_HOST` (M365 relay) a `PUBLIC_BASE_URL=https://podkladarna.kibos.link`
 i když host `.env` SMTP řádky nemá. Image navíc při prázdném injectu
@@ -320,13 +290,10 @@ Samotný `.env` u compose **není** automaticky celý injectnutý – bez řádk
 v `environment:` (starý compose před #55) kontejner SMTP z host `.env`
 nevidí.
 
-Od **2.2.13** legacy `./update-nas.sh` / `./deploy-nas.sh` **syncne**
-`docker-compose.nas.yml` z masteru (raw GitHub) před pull/recreate (`update-nas-ab.sh` compose nesyncuje, zkopírujte ho ručně).
-Host `.env` **nepřepisuje** a do logu nevypisuje hodnoty SMTP.
-Po sync + recreate `printenv` v kontejneru ukáže `SMTP_*` z host `.env`
-(nebo compose defaults). Přeskočení sync: `NAS_SKIP_COMPOSE_SYNC=1`.
+Host `.env` se při aktualizaci nepřepisuje a hodnoty SMTP se nevypisují do logu; `update-nas-ab.sh` compose nesyncuje, nový `docker-compose.nas-ab.yml` zkopírujte na NAS ručně.
+Po recreate `printenv` v kontejneru ukáže `SMTP_*` z host `.env` (nebo compose defaults).
 
-Po změně `.env` (bez změny compose): `sudo ./update-nas-ab.sh <test|stable|both>` pro dotčenou instanci (legacy režim: `./update-nas.sh --force`).
+Po změně `.env` (bez změny compose): `sudo ./update-nas-ab.sh <test|stable|both>` pro dotčenou instanci.
 
 Alternativa od 2.2.10 (`data/.env` na volume): od **2.2.11** doplní i klíče,
 které compose injectne jako prázdné (`SMTP_HOST=`). Restart kontejneru stačí.

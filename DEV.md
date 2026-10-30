@@ -288,8 +288,6 @@ Nasazení je A/B (podrobně `DEPLOY.md` §9):
 3. Po ověření na B: GitHub akce **Promote to stable** (`promote-stable.yml`, `:latest` → `:stable`).
 4. Petr na NAS: `cd /volume1/docker/podkladarna && sudo ./update-nas-ab.sh stable` (ostrá A, port 8672).
 
-Starý `deploy-nas.sh` / `update-nas.sh` s A/B nepoužívat.
-
 ---
 
 ## Volby jobu a limity
@@ -364,7 +362,7 @@ Checkbox **„Privátní režim generování mapy…“** vyžaduje e-mail. Job 
 Env (doporučeno v `.env` vedle checkoutu / compose; necommitujte hesla).
 `app.settings` a `scripts/dev.ps1` `.env` načtou automaticky (nepřepisují
 **neprázdné** proměnné; prázdný compose inject se z `/data/.env` doplní).
-Na NAS `docker-compose.nas-ab.yml` (legacy `docker-compose.nas.yml`) předává `SMTP_*` /
+Na NAS `docker-compose.nas-ab.yml` předává `SMTP_*` /
 `PUBLIC_BASE_URL` / `FEEDBACK_TO` z host `.env` do kontejneru; alternativně
 stačí `/data/.env` uvnitř volume. Od **2.2.12** Docker image při prázdném
 injectu doplní NAS default (`datais-cz.mail.protection.outlook.com` +

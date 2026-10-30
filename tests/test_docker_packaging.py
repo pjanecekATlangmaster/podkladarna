@@ -33,10 +33,9 @@ def test_dockerfile_ships_mapper_cli_pin():
 def test_compose_and_nas_scripts_have_no_kp_runtime():
     for name in (
         "docker-compose.yml",
-        "docker-compose.nas.yml",
+        "docker-compose.nas-ab.yml",
         "docker-compose.dev.yml",
-        "deploy-nas.sh",
-        "update-nas.sh",
+        "update-nas-ab.sh",
         "nas-lib.sh",
     ):
         text = (ROOT / name).read_text(encoding="utf-8")
@@ -47,31 +46,7 @@ def test_compose_and_nas_scripts_have_no_kp_runtime():
 
 def test_nas_compose_has_smtp_env_mapping():
     """Compose must map SMTP_*/PUBLIC_BASE so host .env reaches the container."""
-    text = (ROOT / "docker-compose.nas.yml").read_text(encoding="utf-8")
-    assert "SMTP_HOST=${SMTP_HOST:-" in text
-    assert "PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-" in text
-    assert "SMTP_FROM=${SMTP_FROM:-" in text
-
-
-def test_update_nas_syncs_compose_from_repo():
-    """update-nas must refresh compose from GitHub; never overwrite .env."""
-    lib = (ROOT / "nas-lib.sh").read_text(encoding="utf-8")
-    update = (ROOT / "update-nas.sh").read_text(encoding="utf-8")
-    deploy = (ROOT / "deploy-nas.sh").read_text(encoding="utf-8")
-    assert "nas_sync_compose_file" in lib
-    assert "raw.githubusercontent.com" in lib
-    assert "NAS_COMPOSE_SYNCED" in lib
-    assert "nas_compose_requires_recreate" in lib
-    assert "nas_sync_compose_file" in update
-    assert "nas_compose_requires_recreate" in update
-    assert "nas_sync_compose_file" in deploy
-
-    sync_body = lib.split("nas_sync_compose_file()")[1].split(
-        "nas_compose_requires_recreate"
-    )[0]
-    assert 'mv "$_tmp" "$_dest"' in sync_body
-    assert "./.env" not in sync_body
-    assert ">.env" not in sync_body
-    assert "SMTP_PASSWORD" not in sync_body
-    assert "printenv" not in sync_body
-    assert "NAS_SKIP_COMPOSE_SYNC" in sync_body
+    text = (ROOT / "docker-compose.nas-ab.yml").read_text(encoding="utf-8")
+    assert "SMTP_HOST: ${SMTP_HOST:-" in text
+    assert "PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-" in text
+    assert "SMTP_FROM: ${SMTP_FROM:-" in text

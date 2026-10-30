@@ -10,7 +10,6 @@
 #
 # Povýšení B na A: GitHub Actions „Promote to stable“ (přetaguje :latest na :stable),
 # pak ./update-nas-ab.sh stable. Rollback A = předchozí digest :stable.
-# Starší jednokontejnerový docker-compose.nas.yml zůstává beze změny.
 x-app: &app
   restart: unless-stopped
   init: true

@@ -27,7 +27,6 @@ Kompletní návod: **[DEPLOY.md](./DEPLOY.md)**
 - Reverse proxy na NAS, port nemusí být otevřený na routeru; DNS/router: veškerý veřejný provoz → **Synology NAS**
 - Tok: merge do `master` → workflow `docker.yml` publikuje `:latest` → B se aktualizuje (cron `update-nas-ab.sh test --if-idle`)
   → po ověření GitHub akce **Promote to stable** (`:latest` → `:stable`) → na NAS `cd /volume1/docker/podkladarna && sudo ./update-nas-ab.sh stable`.
-- Starý `deploy-nas.sh` / `update-nas.sh` s A/B nepoužívejte (jednoinstanční režim).
 
 ## Vstup
 
