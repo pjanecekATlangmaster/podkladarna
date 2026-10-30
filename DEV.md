@@ -272,6 +272,13 @@ se silnicí** (≥ 70 % délky v pásu kolem silnice; pás se počítá ze skute
   (k poslednímu dni měsíce) – čerstvě založený objekt v balíku být nemusí (ID 1000427416976 se v pražských OPL / KR / DI k 30. 9. 2026 nenašlo).
 - Chybí-li balík pro místo, najdi kraj a MČ / obec podle bbox z `work/job_grid.json` nebo z řádku `ZABAGED cache (<lon>_<lat>_…)` v logu jobu.
 
+## Souběžné sestavení map les ‖ MTBO (3.4.0)
+
+Job s lesem i MTBO (ne sprint) staví obě mapy ve dvou procesech (`app/pipeline/discipline_maps.py`, spawn; OCD konverze běží v potomkovi). Vypnutí: `PARALLEL_DISCIPLINE_MAPS=0`.
+Pojistka: při volné paměti (MemAvailable / limit cgroup v2) pod 6 GB se jede sériově a zapíše se to do logu; spadne-li celý pool, chybějící mapy se dostaví sériově.
+Podklady (`built_refs`) předává rodič souborem `kp_cwd/_refs_built.json`. MTBO v souběhu nesdílí paměťové cache s lesem (`_SHAPED_MEMO`, vrstevnice, `_MERGE_MEMO` srázů, DEM), proto je zrychlení menší než 2×.
+Špička paměti každého potomka je v logu („špička paměti … MB“); pro test bajtové shody spouštěj sériový i souběžný běh s `PYTHONHASHSEED=0`.
+
 ## 4. Nasazení až po zelených testech
 
 Nasazení je A/B (podrobně `DEPLOY.md` §9):

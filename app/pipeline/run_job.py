@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from app import db
+from app import settings as app_settings
 from app.download_cache import (
     force_refresh_enabled,
     lidar_pair_paths,
@@ -59,6 +60,7 @@ from app.pipeline.package_oom import (
     prepare_oom_map,
     resolve_discipline_presets,
 )
+from app.pipeline.discipline_maps import DisciplineTask, MapCall, build_discipline_maps
 from app.pipeline.preview import (
     compose_job_preview,
     ensure_georef_template,
@@ -1108,6 +1110,7 @@ def _package_output(
                 log,
                 "Sestavuji mapu OOM (vrstevnice, zeleň a polohopis do .omap)",
             )
+            tasks: list[DisciplineTask] = []
             for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
                 preset_id,
                 presets,
@@ -1119,6 +1122,7 @@ def _package_output(
                     str(disc_preset.get("vectorconf", "zabaged.txt"))
                 ).name
                 path_src = oom_path_source(options, disc_preset_id)
+                calls: list[MapCall] = []
                 for (path_tag, _), certain in (
                     (v, c)
                     for v in OOM_PATH_VARIANTS
@@ -1128,53 +1132,57 @@ def _package_output(
                         disc_tag, path_tag, map_name=job_name or "",
                         certain_only=certain,
                     )
-                    log(
-                        f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src}"
-                        + (", jen čistá data)" if certain else ")")
+                    calls.append(
+                        MapCall(
+                            variant_name=variant_name,
+                            certain=certain,
+                            header=(
+                                f"OOM: {variant_name} ({disc_preset_id}, 1:{scale}, {path_src}"
+                                + (", jen čistá data)" if certain else ")")
+                            ),
+                            dest=output_dir / variant_name,
+                            kwargs=dict(
+                                map_name=(job_name or disc_preset_id)
+                                + (CERTAIN_MAP_NAME_SUFFIX if certain else ""),
+                                scale=scale,
+                                preset_id=disc_preset_id,
+                                bbox_wgs84=tuple(bbox),
+                                zabaged_clean=zabaged,
+                                vectorconf_name=vectorconf,
+                                include_dxf=include_dxf,
+                                contour_interval_m=contour_interval_m,
+                                formline=0,
+                                indexcontours_m=indexcontours_m,
+                                cliff_symbol=cliff_symbol,
+                                contour_formlines=resolve_formline_mode(options),
+                                path_source=path_src,
+                                aopk_trees=aopk_path,
+                                max_ostatni_m2=max_ostatni_m2,
+                                ostatni_as_403=ostatni_as_403,
+                                residual_paved=residual_paved,
+                                veg_smooth=resolve_veg_smooth(options),
+                                use_dtm=resolve_use_dtm(options, disc_preset_id),
+                                max_residual_m2=max_residual_m2,
+                                certain_only=certain,
+                            ),
+                        )
                     )
-                    t_map = time.monotonic()
-                    omap_p = prepare_oom_map(
-                        kp_cwd,
-                        output_dir / variant_name,
-                        map_name=(job_name or disc_preset_id)
-                        + (CERTAIN_MAP_NAME_SUFFIX if certain else ""),
-                        scale=scale,
-                        preset_id=disc_preset_id,
-                        bbox_wgs84=tuple(bbox),
-                        built_refs=built_refs or None,
-                        zabaged_clean=zabaged,
-                        vectorconf_name=vectorconf,
-                        include_dxf=include_dxf,
-                        contour_interval_m=contour_interval_m,
-                        formline=0,
-                        indexcontours_m=indexcontours_m,
-                        cliff_symbol=cliff_symbol,
-                        contour_formlines=resolve_formline_mode(options),
-                        path_source=path_src,
-                        aopk_trees=aopk_path,
-                        max_ostatni_m2=max_ostatni_m2,
-                        ostatni_as_403=ostatni_as_403,
-                        residual_paved=residual_paved,
-                        veg_smooth=resolve_veg_smooth(options),
-                        use_dtm=resolve_use_dtm(options, disc_preset_id),
-                        max_residual_m2=max_residual_m2,
-                        certain_only=certain,
-                        log=log,
-                    )
+                tasks.append(DisciplineTask(disc_tag, calls))
+            # Souběh les ‖ MTBO jen mimo sprint (sprint čte sdílené cache jobu a Overpass prefetch v procesu jobu).
+            results = build_discipline_maps(
+                kp_cwd,
+                tasks,
+                built_refs=built_refs,
+                join_refs=_join_refs if defer_refs else None,
+                log=log,
+                parallel=app_settings.PARALLEL_DISCIPLINE_MAPS and not job_has_sprint(preset_id, options),
+                prepare=prepare_oom_map,
+            )
+            for task, paths in zip(tasks, results):
+                for call, omap_p in zip(task.calls, paths):
                     if omap_p:
-                        log(f"OOM: {variant_name} hotovo za {format_elapsed(time.monotonic() - t_map)}")
                         # Náhled jen z plné mapy; „čistá“ jde do ZIPu a OCD navíc.
-                        (certain_paths if certain else omap_paths).append(omap_p)
-                        t_ocd = time.monotonic()
-                        try:
-                            from app.pipeline.oom_preview import convert_omap_to_ocd
-
-                            convert_omap_to_ocd(omap_p, log=log)
-                        except Exception as exc:
-                            log_issue(log, f"OOM OCD: přeskočeno ({variant_name}): {exc}")
-                        log(f"OOM OCD: {variant_name} za {format_elapsed(time.monotonic() - t_ocd)}")
-                    else:
-                        log_issue(log, f"OOM: {variant_name} nevytvořeno")
+                        (certain_paths if call.certain else omap_paths).append(omap_p)
 
             if defer_refs:
                 built_refs = _join_refs()  # i když žádná mapa nevznikla: podklady jdou do ZIPu

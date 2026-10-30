@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.3.8"
+APP_VERSION = "3.4.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -68,6 +68,8 @@ DOWNLOADS_DIR = CACHE_DIR
 DB_PATH = DATA_ROOT / "podkladarna.db"
 
 MAX_CONCURRENT_LIDAR = int(os.environ.get("MAX_CONCURRENT_LIDAR", "1"))
+# Les a MTBO jednoho jobu se sestavují souběžně ve dvou procesech (ne sprint; viz discipline_maps.py).
+PARALLEL_DISCIPLINE_MAPS = os.environ.get("PARALLEL_DISCIPLINE_MAPS", "1").strip().lower() not in ("0", "false", "no", "off", "")
 # Provoz A/B (stabilní + test) na jednom HW: sdílený adresář se zámkem těžkého jobu.
 # Bez PODKLADARNA_SHARED_SLOTS se nic nesdílí (jedna instance).
 _shared_slots = os.environ.get("PODKLADARNA_SHARED_SLOTS", "").strip()
