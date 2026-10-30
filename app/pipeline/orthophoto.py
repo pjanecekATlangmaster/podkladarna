@@ -145,15 +145,23 @@ def _from_reference_tiles(
         ] = True
     covered = np.zeros((height, width), dtype=bool)
     for tile in tiles:
-        geo = read_pgw(world(tile))
+        try:
+            geo = read_pgw(world(tile))
+        except (OSError, ValueError):
+            continue
         if max_mpp is not None and abs(geo.pixel_x) > max_mpp:
             return None
-        with Image.open(tile) as im:
-            tw, th = im.size
-            out_w = max(1, round(tw * abs(geo.pixel_x) / mpp))
-            out_h = max(1, round(th * abs(geo.pixel_y) / mpp))
-            im.draft("RGB", (out_w, out_h))  # JPEG se rovnou dekóduje zmenšený
-            part = im.convert("RGB").resize((out_w, out_h), Image.Resampling.BOX)
+        try:
+            with Image.open(tile) as im:
+                tw, th = im.size
+                out_w = max(1, round(tw * abs(geo.pixel_x) / mpp))
+                out_h = max(1, round(th * abs(geo.pixel_y) / mpp))
+                im.draft("RGB", (out_w, out_h))  # JPEG se rovnou dekóduje zmenšený
+                part = im.convert("RGB").resize((out_w, out_h), Image.Resampling.BOX)
+        except (OSError, ValueError, SyntaxError):
+            # Dlaždici podkladu ještě zapisuje souběžné stahování (useknutý JPEG): nepokrývá nic, chybí-li pokrytí,
+            # stáhne se ortofoto samo – jinak by celé ortofoto spadlo a les se kreslil bez něj.
+            continue
         tx0 = geo.origin_x - geo.pixel_x / 2
         ty1 = geo.origin_y - geo.pixel_y / 2
         col, row = round((tx0 - xmin) / mpp), round((ymax - ty1) / mpp)
