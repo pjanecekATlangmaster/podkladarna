@@ -124,3 +124,28 @@ def test_resolve_use_dtm_defaults_and_values():
     assert resolve_use_dtm({"dtm_forest": "on"}, "mtbo_10000") is True
     assert resolve_use_dtm({"dtm_forest": True, "dtm_sprint": False}, "sprint_2m") is False
     assert resolve_use_dtm({"dtm_sprint": "x"}, "sprint_2m") is True
+
+
+def test_shaped_parts_memo_shared_by_maps(tmp_path, monkeypatch):
+    """Les a MTBO jednoho jobu vyhlazují tentýž vegetation.shp jen jednou; jiný soubor / stupeň počítá znovu."""
+    import app.pipeline.vegetation_gdal as vg
+
+    rows = [({"cls": 4, "code": "410"}, Polygon(_stair_diagonal()).wkb)]
+    monkeypatch.setattr(vg, "_iter_vege_rows", lambda _shp: rows)
+    calls = []
+    real = vg._shaped_parts
+    monkeypatch.setattr(vg, "_shaped_parts", lambda *a: calls.append(a[2]) or real(*a))
+    (tmp_path / "vegetation").mkdir()
+    shp = tmp_path / "vegetation" / "vegetation.shp"
+    shp.write_bytes(b"placeholder")
+    kw = dict(scale=10000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0, smooth_level=1)
+    forest = vg.build_vegetation_parts(tmp_path, preset_id="forest_10000", **kw)
+    mtbo = vg.build_vegetation_parts(tmp_path, preset_id="mtbo_10000", **kw)
+    assert forest and mtbo and calls == [1]
+    assert [p.objects_xml for p in vg.build_vegetation_parts(tmp_path, preset_id="forest_10000", **kw)] == [
+        p.objects_xml for p in forest
+    ]
+    vg.build_vegetation_parts(tmp_path, preset_id="forest_10000", **{**kw, "smooth_level": 2})
+    shp.write_bytes(b"placeholder, nova data")
+    vg.build_vegetation_parts(tmp_path, preset_id="forest_10000", **kw)
+    assert calls == [1, 2, 1]

@@ -41,8 +41,8 @@ def test_fetch_orthophoto_cache_and_error(tmp_path, monkeypatch):
     assert not calls and rgb.shape == (10, 20, 3) and gt == (0.0, 0.5, 0.0, 5.0, 0.0, -0.5)
 
 
-@pytest.mark.parametrize("tiles, downloads", [(2, False), (1, True)])
-def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, downloads):
+@pytest.mark.parametrize("tiles, truncated, downloads", [(2, False, False), (1, False, True), (2, True, True)])
+def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, truncated, downloads):
     """Ortofoto podkladu (JPEG dlaždice 0,25 m + .jgw) se převezme bez druhého stahování; nepokryje-li výřez, stáhne se."""
     from PIL import Image
 
@@ -56,6 +56,9 @@ def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, dow
     for name, x0, color in (("orthophoto_r0c0", 0.0, (0, 200, 0)), ("orthophoto_r0c1", 5.0, (100, 100, 100)))[:tiles]:
         Image.new("RGB", (20, 20), color).save(ref / f"{name}.jpg", quality=95)
         (ref / f"{name}.jgw").write_text(f"0.25\n0\n0\n-0.25\n{x0 + 0.125}\n{5 - 0.125}\n", encoding="utf-8")
+    if truncated:  # pravou dlaždici ještě zapisuje předstažení podkladu
+        jpg = ref / "orthophoto_r0c1.jpg"
+        jpg.write_bytes(jpg.read_bytes()[:200])
     logs = []
     got = orthophoto.fetch_orthophoto(tmp_path, BOUNDS, 0.5, log=logs.append)
     assert bool(calls) == downloads

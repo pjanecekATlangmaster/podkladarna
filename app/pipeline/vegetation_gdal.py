@@ -135,6 +135,38 @@ def _shaped_parts(wkb: bytes, code: str, smooth_level: int, barriers, sprint: bo
     return parts, curves
 
 
+# Vyhlazené obrysy porostů po řádcích ``vegetation.shp``: les a MTBO jednoho jobu skládají mapu ze stejného
+# souboru se stejným stupněm (``smooth_area`` je ~20 % skládání lesa), MTBO je tak vezme hotové. Klíč jsou
+# cesty a časy / velikosti vstupů (shp, dbf, překážky z ``osm_paths``) + stupeň; drží se jen poslední výřez.
+_SHAPED_MEMO: dict[tuple, dict[int, tuple[list, bool]]] = {}
+
+
+def _file_stamp(path: Path) -> tuple:
+    try:
+        st = path.stat()
+    except OSError:
+        return (str(path), None)
+    return (str(path.resolve()), st.st_mtime_ns, st.st_size)
+
+
+def _shaped_memo(work_dir: Path, shp: Path, smooth_level: int, sprint: bool) -> dict[int, tuple[list, bool]]:
+    osm_dir = Path(work_dir) / "osm_paths"
+    key = (
+        _file_stamp(shp),
+        _file_stamp(shp.with_suffix(".dbf")),
+        _file_stamp(osm_dir / "paths_mixed.geojson"),
+        _file_stamp(osm_dir / "features.geojson"),
+        smooth_level,
+        sprint,
+        VEG_AS_CURVES,
+    )
+    rows = _SHAPED_MEMO.get(key)
+    if rows is None:
+        _SHAPED_MEMO.clear()
+        rows = _SHAPED_MEMO[key] = {}
+    return rows
+
+
 def build_vegetation_parts(
     work_dir: Path,
     *,
@@ -155,14 +187,11 @@ def build_vegetation_parts(
     sprint = is_sprint_preset(preset_id=preset_id, map_scale=scale)
     if sprint:
         smooth_level = _SPRINT_LEVEL.get(smooth_level, 2)
-    barriers = None
-    if smooth_level:
-        from app.pipeline.veg_smooth import load_smooth_barriers
-
-        barriers = load_smooth_barriers(work_dir)
+    shaped_rows = _shaped_memo(work_dir, shp, smooth_level, sprint)
+    barriers = None  # načtou se až u prvního řádku, který memo ještě nemá
 
     grouped: dict[str, list[str]] = {code: [] for code in _CLASS_TO_CODE.values()}
-    for props, wkb in _iter_vege_rows(shp):
+    for row, (props, wkb) in enumerate(_iter_vege_rows(shp)):
         code = str(props.get("code") or "")
         if code not in grouped:
             cls = props.get("cls")
@@ -176,7 +205,14 @@ def build_vegetation_parts(
         symbol_index = symbol_index_for_code(preset_id, scale, code)
         if symbol_index is None:
             continue
-        geom_parts, curves = _shaped_parts(wkb, code, smooth_level, barriers, sprint)
+        hit = shaped_rows.get(row)
+        if hit is None:
+            if smooth_level and barriers is None:
+                from app.pipeline.veg_smooth import load_smooth_barriers
+
+                barriers = load_smooth_barriers(work_dir)
+            hit = shaped_rows[row] = _shaped_parts(wkb, code, smooth_level, barriers, sprint)
+        geom_parts, curves = hit
         grouped[code].extend(
             _geom_parts_to_objects(
                 geom_parts,

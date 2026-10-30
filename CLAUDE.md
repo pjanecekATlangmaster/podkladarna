@@ -111,6 +111,7 @@ python -m pytest tests/ --tb=short -q                       # celá sada: před 
 - Jeden vlastník běhu testů; ostatní přebírají příkaz a výsledek. Testy opakuj jen po změně relevantního kódu nebo při konkrétní pochybnosti.
 - Reportuj souhrn a relevantní traceback, ne celé logy. Při chybě prostředí uveď příčinu, neopakuj stejný příkaz beze změny podmínek.
 - E2E a Docker (`dev.ps1 up`, `dev.ps1 e2e`) jen u změn pipeline, Dockerfile nebo závislostí.
+- U změn skládání mapy (ořezy, dotazy proti zónám celé mapy) před PR pusť proti běžící instanci (`dev.ps1 run` nebo `dev.ps1 up`) škálovací test `python scripts/scaling_check.py` (vnořená území 0,5 / 1 / 2 km², limit 20 min, exponent růstu ≤ 1,3; sprint `--preset sprint_2m --map-scale 4000`). Kvadratický růst se ukáže už na malém území.
 - Sada nemá bobtnat: jedno pravidlo kresby = jeden test. Nový případ téhož pravidla přidej jako řádek do existující tabulky (`pytest.mark.parametrize`), ne jako novou funkci. Když Petr pravidlo změní nebo zruší, test uprav nebo smaž, nepřidávej další vedle.
 - Scénářové testy kresby ověřují vlastnosti (nakresleno / vynecháno, symbol, napojení, přibližná plocha), ne přesné souřadnice, které se mění s laděním.
 

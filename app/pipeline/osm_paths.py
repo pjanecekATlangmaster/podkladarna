@@ -18,6 +18,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from zipfile import ZipFile
 
+from app.pipeline import zone_index
 from app.pipeline.crs_5514 import wgs84_to_projected, write_prj
 from app.pipeline.fetch_openzu import USER_AGENT, VECTOR_FETCH_BUFFER_M, expand_bbox_wgs84
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
@@ -4562,7 +4563,7 @@ def _line_in_zone(coords: list, zone) -> bool:
     from shapely.geometry import LineString
 
     line = LineString(coords)
-    return line.length > 0 and line.intersection(zone).length >= 0.9 * line.length
+    return line.length > 0 and line.intersection(zone_index.local_zone(zone, line, 1.0)).length >= 0.9 * line.length
 
 
 # Chodník těsně u zpevněné plochy (do tolika m od jejího okraje) se počítá jako chodník vedle silnice.
@@ -5296,7 +5297,7 @@ def clip_road_in_paved(
     from shapely.ops import linemerge, unary_union
 
     line = LineString(coords)
-    inside = line.intersection(paved)
+    inside = line.intersection(zone_index.local_zone(paved, line, 1.0))
     if inside.is_empty:
         return [coords]
     parts = [inside] if inside.geom_type == "LineString" else [g for g in getattr(inside, "geoms", []) if g.geom_type == "LineString"]
@@ -5515,11 +5516,12 @@ def is_sidewalk_beside_road(
     from shapely.geometry import LineString
 
     line = LineString(coords)
-    if line.length <= 0 or line.intersection(road_zone).length < SIDEWALK_ROAD_SHARE * line.length:
+    local = zone_index.local_zone(road_zone, line, 1.0)  # pás silnic celé mapy jen v okolí čáry
+    if line.length <= 0 or line.intersection(local).length < SIDEWALK_ROAD_SHARE * line.length:
         return False
     # Zbytek mimo pás, který je sám o sobě souvislá cesta (way/1451823252: chodník podél K Barrandovu pokračuje
     # kolem hřiště), se nezahazuje s celou čárou – souběžné úseky ořízne ``sidewalk_parallel_zone``.
-    rest = line.difference(road_zone)
+    rest = line.difference(local)
     pieces = [rest] if rest.geom_type == "LineString" else [g for g in getattr(rest, "geoms", []) if g.geom_type == "LineString"]
     return not any(p.length >= SIDEWALK_KEEP_REST_M for p in pieces)
 
@@ -5550,7 +5552,7 @@ def sidewalk_parallel_zone(highway: str, coords: list, road_zone, bases: frozens
     line = LineString(coords)
     if line.length <= 0:
         return None
-    inside = line.intersection(road_zone)
+    inside = line.intersection(zone_index.local_zone(road_zone, line, 1.0))
     if inside.is_empty:
         return None
     parts = [inside] if inside.geom_type == "LineString" else [g for g in getattr(inside, "geoms", []) if g.geom_type == "LineString"]
@@ -6391,7 +6393,7 @@ def _in_walk_tunnel(coords, zone) -> bool:
     from shapely.geometry import LineString
 
     ln = LineString([(float(c[0]), float(c[1])) for c in coords])
-    return ln.length > 0 and ln.intersection(zone).length >= 0.8 * ln.length
+    return ln.length > 0 and ln.intersection(zone_index.local_zone(zone, ln, 1.0)).length >= 0.8 * ln.length
 
 
 STROKE_CODE_PROP = "stroke_code"
