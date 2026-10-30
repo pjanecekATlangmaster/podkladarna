@@ -81,13 +81,13 @@ WEB_ABOUT_HTML = """
   </ol>
   <p>
     Sprint (1:4000) z DTM těží nejvíc. V lese a u MTBO se DTM využívá pro budovy, ploty,
-    schodiště a koridor silnice (MTBO). Zpevněné plochy teprve přijdou.
+    schodiště a koridor silnice (MTBO). Zpevněné plochy (silnice, parkoviště, pěší zóny) se v lese a MTBO kreslí z OSM, ZABAGED a DTM jako jedna síť.
   </p>
 </details>
 <h2>Jak na to</h2>
 <p>
   Nakreslete obdélník (max cca 25&nbsp;km², např. 5&nbsp;×&nbsp;5&nbsp;km), vyberte
-  <strong>mapový klíč</strong>, <strong>měřítko</strong>, případně zvolte další
+  <strong>měřítko</strong> (podle něj se zvolí sprint, nebo les a MTBO), případně zvolte další
   parametry a spusťte generování. Na tlačítku je hrubý odhad potřebného času.
   Stránku mezitím můžete zavřít.
   Po dokončení stáhněte ZIP, v OOM otevřete vybraný

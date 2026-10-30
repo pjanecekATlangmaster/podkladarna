@@ -3,6 +3,12 @@
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
   - date: "2026-10-29"
+    title: "Verze 3.3 – les a MTBO: louky a paseky (louka 401, drsný terén 403) a zeleň 408 podle ortofota"
+  - date: "2026-10-29"
+    title: "Verze 3.2 – výběr území omezen na 25 km², aby se job vešel do časového limitu"
+  - date: "2026-10-29"
+    title: "Verze 3.2 – rychlejší skládání mapy, sprint výrazně rychlejší; odhad času podle skutečně sestavovaných map"
+  - date: "2026-10-29"
     title: "Verze 3.1 – hranice porostů v lese a MTBO hladké bez posunu (nový výchozí stupeň 1), stupeň 0 = přesné kostičky z rastru; drobné výběžky se už nemažou a malé plochy nenafukují"
   - date: "2026-10-28"
     title: "Verze 3.0 – pozor: barvy vegetace jsou výška a hustota porostu z DMP OK (povrch korun), ne průběžnost; hranice porostů berte jako náčrt, ne hotovou kresbu"

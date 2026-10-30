@@ -31,7 +31,7 @@ Podkladárna je webová služba pro generování orientačních podkladů z ČÚ
 
 ### Jen se souhlasem Petra
 
-- Spouštět `./deploy-nas.sh` nebo `./update-nas.sh` na ostré NAS; do produkce na NAS nesahat vůbec.
+- Spouštět `./update-nas-ab.sh`, `./deploy-nas.sh` nebo `./update-nas.sh` na ostré NAS, spouštět GitHub akci „Promote to stable“; do produkce na NAS nesahat vůbec.
 - Mazat data, joby, cache nebo Docker image.
 - Měnit DNS, router, Synology reverse proxy, certifikáty nebo firewall.
 - Měnit produkční `.env`, SMTP údaje nebo secrets (ani `.env` lokálně nepřepisovat).
@@ -86,11 +86,11 @@ Agenti jsou v `.claude/agents/` (každý má `maxTurns` a nízký/střední `eff
 - `Dockerfile` — produkční image včetně PDAL, GDAL a Mapper CLI
 - `docker-compose.yml` — obecný compose
 - `docker-compose.dev.yml` — lokální vývojový stack
-- `docker-compose.nas.yml` — produkční compose pro Synology NAS
-- `deploy-nas.sh` — první deploy / šetrný restart na NAS
-- `update-nas.sh` — aktualizace image z GHCR na NAS
+- `docker-compose.nas-ab.yml` — A/B compose pro Synology NAS: A ostrá (`podkladarna`, port 8672, `:stable`, `./data`) a B test (`podkladarna-test`, port 8673, `:latest`, `./data-test`)
+- `update-nas-ab.sh` — aktualizace A/B (`test` | `stable` | `both`, `--if-idle` pro cron)
+- `docker-compose.nas.yml`, `deploy-nas.sh`, `update-nas.sh` — legacy jednoinstanční režim; s A/B na NAS nepoužívat (obě compose mají `container_name: podkladarna`)
 - `nas-lib.sh` — sdílené funkce pro NAS deploy
-- `.github/workflows/` — GitHub Actions (`test.yml`, `docker.yml`)
+- `.github/workflows/` — GitHub Actions (`test.yml`, `docker.yml`, `promote-stable.yml` — ruční přetagování `:latest` → `:stable`)
 - `DEV.md` — podrobný vývojový workflow; sekce „Ladění na testovací verzi B a dohledání DTM objektu podle ID“ (pt.kibos.link, `data-test\jobs`, cache a stahování DTM balíků)
 - `DEPLOY.md` — podrobný postup nasazení a provozu na NAS
 
@@ -180,29 +180,31 @@ docker compose -f docker-compose.nas.yml logs --tail=100
 - Hosting: Synology NAS
 - Provoz: Internet/Cloudflare → router → Synology DSM reverse proxy → `127.0.0.1:8672` → Docker kontejner
 - Interní port kontejneru: `8672`
-- Docker image: `ghcr.io/pjanecekatlangmaster/podkladarna:latest`
+- Test B: `https://pt.kibos.link` → `127.0.0.1:8673` (kontejner `podkladarna-test`, data `./data-test`), image `:latest`
+- Docker image: `ghcr.io/pjanecekatlangmaster/podkladarna` — ostrá A `:stable`, test B `:latest`
 - NAS složka: `/volume1/docker/podkladarna/`
 - Perzistentní data: `./data` na NAS, uvnitř kontejneru `/data`
 
 ## Release proces
 
-Agent dělá kroky 1–7, nasazení na NAS (od kroku 8) dělá Petr.
+Agent dělá kroky 1–7, ověření na B a nasazení na NAS (od kroku 8) dělá Petr.
 
 1. Vytvoř feature větev z aktuálního `master`.
 2. Proveď změny, zvyš `APP_VERSION` (kromě čistě dokumentačních změn) a lokálně spusť `python -m pytest tests/ -v`.
 3. Pro změny pipeline, Dockerfile nebo závislostí navíc `.\scripts\dev.ps1 up` a `.\scripts\dev.ps1 e2e`. U změn s vizuálním dopadem na mapu nabídni Petrovi lokální otočku s `.omap` (viz „Ověření novinky").
 4. Commitni změny a pushni větev do GitHubu.
 5. Vytvoř Pull Request do `master`.
-6. Po merge do `master` workflow `docker.yml` sestaví a publikuje `ghcr.io/pjanecekatlangmaster/podkladarna:latest`.
+6. Po merge do `master` workflow `docker.yml` sestaví a publikuje `ghcr.io/pjanecekatlangmaster/podkladarna:latest`; test B (`pt.kibos.link`) si ho bere cronem (`update-nas-ab.sh test --if-idle`, jen když neběží job).
 7. Zkontroluj, že Actions workflow je zelené.
-8. (Petr) Na NAS spusť aktualizaci:
+8. (Petr) Ověř změnu na testu B (`https://pt.kibos.link`).
+9. (Petr) Spusť GitHub akci „Promote to stable“ (`.github/workflows/promote-stable.yml`, přetaguje `:latest` → `:stable`) a na NAS aktualizuj ostrou A:
 
 ```bash
 cd /volume1/docker/podkladarna
-sudo ./update-nas.sh
+sudo ./update-nas-ab.sh stable
 ```
 
-9. (Petr) Ověř funkčnost, očekávaný výsledek je `200`:
+10. (Petr) Ověř funkčnost ostré A, očekávaný výsledek je `200`, a verzi v patičce webu:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
@@ -211,8 +213,8 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
 ## Kde se co spouští (Docker a NAS)
 
 - **Vývojový stroj (Windows):** tady je repozitář. `dev.ps1 up` / `dev.ps1 e2e` staví image z lokálního pracovního stromu (`docker-compose.dev.yml`) a zkouší tedy kód z aktuální větve. Je to volitelná kontrola před mergem; nutná je jen u změn pipeline, Dockerfile nebo závislostí (viz „Release proces").
-- **NAS:** repozitář se tam nestahuje. Běží jen hotový image `ghcr.io/pjanecekatlangmaster/podkladarna:latest` sestavený workflow `docker.yml` po mergu do `master` (kopíruje se `configs/`, `app/`, `web/`). Na NAS se proto nikdy nezkouší kód z větve ani se tam nespouští `dev.ps1`; po `update-nas.sh` se jen ověřuje nasazený image (health `200`, testovací job, log jobu, stažený ZIP).
-- Agent proto při předávání pokynů „co pustit" vždy rozlišuje: před mergem = vývojový stroj, po mergu = NAS (jen `update-nas.sh` + ruční ověření podle `DEPLOY.md`).
+- **NAS:** repozitář se tam nestahuje. Běží jen hotový image `ghcr.io/pjanecekatlangmaster/podkladarna` sestavený workflow `docker.yml` po mergu do `master` (kopíruje se `configs/`, `app/`, `web/`): test B z `:latest`, ostrá A z `:stable` (po akci „Promote to stable“). Na NAS se proto nikdy nezkouší kód z větve ani se tam nespouští `dev.ps1`; po `update-nas-ab.sh` se jen ověřuje nasazený image (health `200`, testovací job, log jobu, stažený ZIP).
+- Agent proto při předávání pokynů „co pustit" vždy rozlišuje: před mergem = vývojový stroj, po mergu = test B (automaticky) a po Promote ostrá A (`sudo ./update-nas-ab.sh stable` + ruční ověření podle `DEPLOY.md`).
 
 ## Ověření novinky: lokální otočka, nebo až po nasazení
 
@@ -225,31 +227,25 @@ Neptej se u drobností, dokumentace a změn bez vizuálního dopadu. Lokální o
 
 ## Nasazení na NAS (dělá Petr)
 
-`update-nas.sh` ve výchozím režimu:
-
-- synchronizuje `docker-compose.nas.yml` z GitHubu,
-- čeká na dokončení GitHub Actions workflow,
-- porovnává digest lokálního image a GHCR,
-- při novém digestu zastaví kontejner, stáhne nový image a spustí jej,
-- nepřepisuje host `.env`.
-
-Užitečné varianty:
-
-```bash
-./update-nas.sh --no-wait       # nečekat na GitHub Actions
-./update-nas.sh --force         # vynutit pull / recreate
-./update-nas.sh v1.0.0          # nasadit konkrétní tag
-./update-nas.sh --keep-image    # ponechat starý image pro rollback
-```
-
-Ruční postup:
+Provoz je A/B (`docker-compose.nas-ab.yml`, podrobně `DEPLOY.md` §9). `update-nas-ab.sh`:
 
 ```bash
 cd /volume1/docker/podkladarna
-docker compose -f docker-compose.nas.yml pull
-docker compose -f docker-compose.nas.yml down
-docker compose -f docker-compose.nas.yml up -d
+sudo ./update-nas-ab.sh test            # B (pt.kibos.link, :latest) – výchozí
+sudo ./update-nas-ab.sh stable          # A (podkladarna.kibos.link, :stable)
+sudo ./update-nas-ab.sh both
+sudo ./update-nas-ab.sh test --if-idle  # pro cron: při běžícím jobu restart odloží
 ```
+
+- stáhne nový image a znovu vytvoří jen vybranou službu (druhá běží dál),
+- kontejner s novým image nejdřív zastaví přes Synology API (jako Stop v Container Manageru), pak `up -d`,
+- čeká na odpověď `200` na příslušném portu,
+- nepřepisuje host `.env`.
+
+Tok: merge do `master` → `:latest` → B (cron) → ověření → „Promote to stable“ → `sudo ./update-nas-ab.sh stable`.
+Rollback A: v `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh stable`.
+
+**Nepoužívat** `update-nas.sh`, `deploy-nas.sh` ani ruční `docker compose -f docker-compose.nas.yml` na NAS s A/B: obě compose mají `container_name: podkladarna` a rozbila by A.
 
 Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažení ZIP a otevření v OpenOrienteering Mapperu, u SMTP e-mail s odkazem) je popsán v `DEPLOY.md`.
 

@@ -11,7 +11,7 @@ Výstup: jeden ZIP pro OpenOrienteering Mapper (`podkladarna_output.zip`).
 **Lokální vývoj a testy:** viz **[DEV.md](./DEV.md)** – pytest + docker compose dev, deploy na NAS až potom.
 
 ```bash
-# Upravte ghcr.io/OWNER/podkladarna v docker-compose.yml
+# GHCR_OWNER (lowercase) nastavte v .env (vzor: .env.example)
 docker compose up -d --build
 ```
 
@@ -21,15 +21,13 @@ Otevřete: http://localhost:8672 nebo https://podkladarna.kibos.link
 
 Kompletní návod: **[DEPLOY.md](./DEPLOY.md)**
 
-- Port kontejneru: **8672** (reverse proxy na NAS, ne nutně otevřený na routeru)
-- DNS/router: veškerý veřejný provoz → **Synology NAS**
-- Image: `ghcr.io/pjanecekatlangmaster/podkladarna:latest` (lowercase)
-
-```bash
-cp .env.example .env
-chmod +x deploy-nas.sh
-./deploy-nas.sh
-```
+- Provoz A/B na jednom NAS (`docker-compose.nas-ab.yml`, `update-nas-ab.sh`):
+  - **A – ostrá** `podkladarna.kibos.link`, port **8672**, image `ghcr.io/pjanecekatlangmaster/podkladarna:stable` (lowercase)
+  - **B – test** `pt.kibos.link`, port **8673**, image `:latest` (po každém mergi do `master`)
+- Reverse proxy na NAS, port nemusí být otevřený na routeru; DNS/router: veškerý veřejný provoz → **Synology NAS**
+- Tok: merge do `master` → workflow `docker.yml` publikuje `:latest` → B se aktualizuje (cron `update-nas-ab.sh test --if-idle`)
+  → po ověření GitHub akce **Promote to stable** (`:latest` → `:stable`) → na NAS `cd /volume1/docker/podkladarna && sudo ./update-nas-ab.sh stable`.
+- Starý `deploy-nas.sh` / `update-nas.sh` s A/B nepoužívejte (jednoinstanční režim).
 
 ## Vstup
 
@@ -52,7 +50,6 @@ Postup přegenerování a katalog kódů: **[DEV.md](./DEV.md)**, původ a licen
 ## Logo
 
 - `web/static/logo.svg` – vektorové logo (lampion, barvy O-mapy)
-- Volitelně PNG: zkopírujte `assets/podkladarna-logo.png` do `web/static/logo.png`
 
 ## Lokální vývoj (bez Docker)
 

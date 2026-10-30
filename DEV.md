@@ -6,19 +6,19 @@
 2. **docker compose dev** – plný stack s PDAL + GDAL lokálně
 3. **smoke_e2e.py** – end-to-end proti běžící instanci
 4. **GitHub Actions `test.yml`** – pytest na každý push
-5. **Teprve pak** `./deploy-nas.sh` na Synology
+5. **Teprve pak** merge do `master` (test B se aktualizuje sám) a po ověření **Promote to stable** (viz sekce 4 a `DEPLOY.md` §9)
 
 ---
 
 ## 1. Rychlé testy API (doporučeno před každým commitem)
 
 ```powershell
-cd C:\Users\PetrJanecek\.cursor\projects\podkladarna
+# z kořene repozitáře
 python -m pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Ověří: health, presety, multipart upload, log jobu, chybové stavy.
+Ověří: health, presety, multipart upload, log jobu, chybové stavy a pravidla kresby. Celá sada běží zhruba 100 s; při vývoji spouštěj cíleně (`-k`).
 
 ---
 
@@ -77,7 +77,7 @@ Agenti editují jen worktree `C:\Users\PetrJanecek\.cursor\projects\podkladarna-
 jinak `--reload` / file-watch zabije běžící job.
 
 ```powershell
-.\scripts\dev.ps1 test        # pytest (~2 s)
+.\scripts\dev.ps1 test        # pytest
 .\scripts\dev.ps1 run         # uvicorn bez --reload (smoke / dlouhé joby)
 .\scripts\dev.ps1 run-reload  # uvicorn s --reload (jen krátký UI vývoj)
 .\scripts\dev.ps1 up          # docker compose dev
@@ -85,6 +85,8 @@ jinak `--reload` / file-watch zabije běžící job.
 .\scripts\dev.ps1 e2e-upload  # testdata → upload
 .\scripts\dev.ps1 e2e         # testdata → celá pipeline
 .\scripts\dev.ps1 all         # pytest → docker → e2e
+.\scripts\dev.ps1 down        # zastavit docker compose dev
+.\scripts\dev.ps1 logs        # log docker compose dev
 ```
 
 ### Důležité: `--reload` zabíjí běžící joby
@@ -194,9 +196,10 @@ v katalogu a geometrie symbolu odpovídá použití).
 4. Uprav `symbol_set_path` (`app/pipeline/oom_symbols.py`) a `catalog_key` (`app/pipeline/symbol_catalog.py`).
 5. `python -m pytest tests/ -q` – výčtový test ukáže kódy generátoru bez mapování.
 
-## DTM kraje ve sprintu (priorita DTM, doplněk OSM)
+## DTM kraje (sprint; les a MTBO podle volby `dtm`; priorita DTM, doplněk OSM)
 
-Jen sprint a jen tam, kde pro výřez existují data DMVS (jinak se kreslí OSM / ZABAGED jako dřív).
+Jen tam, kde pro výřez existují data DMVS (jinak se kreslí OSM / ZABAGED jako dřív). Sprint kreslí z DTM
+ve výchozím stavu, les a MTBO jen s volbou `dtm=1` (viz „Volby jobu a limity“ níže).
 Příprava běží na pozadí na začátku jobu (`app/pipeline/dtm_import.py`, `prepare_dtm_fences`) a zapíše
 `work/dtm/*.json`: `fences`, `sidewalks`, `roads`, `buildings`, `small_paved`, `stairs`, `parking`, `green`.
 Pravidlo: **tvar bere DTM, aktuálnost OSM** – zbytky OSM, které DTM nezná, se k ploše přidají.
@@ -218,17 +221,17 @@ Pravidlo: **tvar bere DTM, aktuálnost OSM** – zbytky OSM, které DTM nezná, 
 
 **Les a MTBO** berou z DTM jen to, co je v 1:7500–1:15000 čitelné: **budovy** (stejné skládání jako ve sprintu, 521 / 526)
 a **ploty** (516 / 522, živý plot 416; spojené, bez orientace a olivové výplně, jen delší než 20 m). MTBO navíc
-**koridor silnice**: silnice + přilehlé chodníky (do 8 m od silnice, pruh zeleně do 3 m se přeskočí) jednou plochou
-(výplň 501.1) + černý obrubník (501.100), jen kde je širší než 0,9 mm mapy a delší než 50 m a jen do 10 m od osy silnice z OSM / ZABAGED (`CORRIDOR_ROAD_AXIS_M`; manipulační plochy a areály bez silnice se nezalijí); chodník / pěšina podél okraje koridoru se nekreslí; užší silnice zůstávají
+**koridor silnice**: jízdní pás z DTM bez chodníků (`CORRIDOR_WITH_SIDEWALKS = False`) jednou plochou
+(výplň 501.1) + černý obrubník (501.100), jen kde je širší než 0,9 mm mapy a delší než 50 m a jen do 10 m od osy silnice z OSM / ZABAGED (`CORRIDOR_ROAD_AXIS_M`; manipulační plochy a areály bez silnice se nezalijí); užší silnice zůstávají
 čárou 502.x, uvnitř koridoru se čára nekreslí; chodník se sdíleným provozem (OSM `bicycle=yes|designated`, soubor
 `osm_paths/bike_paths.geojson`) a cyklostezky se nesloučí (vypnutí: `MTBO_ROAD_CORRIDOR = False`). MTBO navíc
 **velká parkoviště** z DTM (od 300 m², výplň 501.1 + okraj 501.2; OSM parkoviště pod nimi se zahodí). Od 2.34.0 kreslí koridor
 silnice (501.1 + okraj 501.2) a velká parkoviště z DTM i les (`FOREST_DTM_AREAS = True`, `dtm_area_preset`); plochy z DTM se v lese
-i MTBO generalizují podle mm mapy (`dtm_sidewalks.generalize_area`). **Schodiště z DTM** (po ose, 532 / 843, od 3 m; OSM schody v nich pryč). Chodníky, silnice a malé stavby
-z DTM se tam nekreslí (kromě chodníků níže); šířka silnic zůstává z OSM. MTBO navíc **chodníky a zpevněné cesty z DTM mimo silnice** (plocha 501.0 + obrys 501.100,
+i MTBO generalizují podle mm mapy (`dtm_sidewalks.generalize_area`). **Schodiště z DTM** (po ose, 532 / 843, od 3 m; OSM schody v nich pryč). Šířky cest a silnic bere les i MTBO z DTM
+(`app/pipeline/dtm_widths.py`, `uses_dtm_widths`); zpevněné plochy tvoří jednotnou síť (`paved_surface.py`, viz CLAUDE.md). MTBO navíc **chodníky a zpevněné cesty z DTM mimo silnice** (plocha 501.0 + obrys 501.100,
 `mtbo_sidewalk_geometry`): jen části široké aspoň 0,5 mm mapy (5 m v 1:10000, užší pruh kreslí čára cesty), mimo koridor a dál než 8 m od silnice (sdílený provoz / cyklostezky zůstávají); OSM
 chodník / pěšina / zpevněná cyklostezka uvnitř plochy se nekreslí a končí na její hraně, užší cesty zůstávají čárou 834 (vypnutí: `MTBO_SIDEWALK_AREAS = False`). Navíc se v lese i MTBO (jen z OSM, bez DTM) zahazuje **chodník souběžný
-se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`); k pásu kolem silnice se sčítá i OSM parkoviště
+se silnicí** (≥ 70 % délky v pásu kolem silnice; pás se počítá ze skutečných šířek symbolů v sadě, `sidewalk_road_zone_geometry`, ne z pevných 12 m); k pásu kolem silnice se sčítá i OSM parkoviště
 (+ 3 m od okraje, `osm_parking_geometry`), takže chodník podél parkoviště se také nekreslí.
 
 - `ChodnikPlocha` s OSM silnicí uvnitř (≥ 150 m, nebo ≥ 30 m a šířka ≥ 4 m) se bere jako silnice
@@ -264,17 +267,31 @@ se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`
   (`find_packages_for_bbox`, `download_package`; seznam URL přes DMVS API). Lokálně je stažená celá Praha (CZ010) pro sady OPL, KR a DI k 30. 9. 2026.
 - **ID objektu z portálu DTM** (pole „ID objektu v rámci DTM ČR“) je v JVF XML jako `<atr:ID>…</atr:ID>` (12–13 číslic). Hledání: projdi `*.zip` v cache
   `zipfile` a v bajtech hledej `>ID<`. Sady: **ZPS_OPL** (odvozené plochy – chodníky, silnice, budovy), **ZPS_KR** (kresba – ploty, obvody),
-  **DI** (dopravní infrastruktura, např. `ObvodPozemniKomunikace` = element `obvopk`). **DI pipeline zatím nepoužívá** (`DEFAULT_SETS` = OPL + KR);
+  **DI** (dopravní infrastruktura, např. `ObvodPozemniKomunikace` = element `obvopk`). **DI pipeline nepoužívá** (`DEFAULT_SETS` = OPL + KR);
   např. ID 100056111929 / 100056111932 jsou DI „obvod pozemní komunikace“ v Praze 5 (MČ 500143). Portál ukazuje živý stav, balíky jsou měsíční export
   (k poslednímu dni měsíce) – čerstvě založený objekt v balíku být nemusí (ID 1000427416976 se v pražských OPL / KR / DI k 30. 9. 2026 nenašlo).
 - Chybí-li balík pro místo, najdi kraj a MČ / obec podle bbox z `work/job_grid.json` nebo z řádku `ZABAGED cache (<lon>_<lat>_…)` v logu jobu.
 
-## 4. NAS deploy až po zelených testech
+## 4. Nasazení až po zelených testech
 
-```bash
-# na NAS
-./deploy-nas.sh
-```
+Nasazení je A/B (podrobně `DEPLOY.md` §9):
+
+1. Merge do `master` → workflow `docker.yml` publikuje `:latest`.
+2. Test B (`pt.kibos.link`, port 8673, `docker-compose.nas-ab.yml`) se aktualizuje cronem `update-nas-ab.sh test --if-idle` (restart se odloží, dokud na B běží job).
+3. Po ověření na B: GitHub akce **Promote to stable** (`promote-stable.yml`, `:latest` → `:stable`).
+4. Petr na NAS: `cd /volume1/docker/podkladarna && sudo ./update-nas-ab.sh stable` (ostrá A, port 8672).
+
+Starý `deploy-nas.sh` / `update-nas.sh` s A/B nepoužívat.
+
+---
+
+## Volby jobu a limity
+
+- `veg_smooth` (0–3, výchozí 1): tvar hranic porostů 401–410 v lese a MTBO (`app/pipeline/job_options.py`, `app/pipeline/veg_smooth.py`);
+  0 = kostičky 1:1 z rastru, 1 = hladký obrys bez posunu hranice (do ~1,5 m), 2 / 3 navíc zalijí zátoky a ustřihnou výběžky do 6 / 12 m. Sprint beze změny.
+- `dtm` (`auto` / `1` / `0`, výchozí `auto`): zdroj kresby; `auto` = sprint z DTM, les a MTBO z OSM + ZABAGED, `1` = DTM všude, kde je k dispozici, `0` = jen OSM + ZABAGED (viz „Volba zdroje kresby“ výše).
+- Velikost výběru: nejvýš 25 km² (`MAX_BBOX_AREA_KM2` v `app/pipeline/fetch_openzu.py`, od 3.2.2; `MAX_BBOX_KM = 5` jen jako odkaz v textech).
+- Časový limit jobu: `JOB_TIMEOUT_MINUTES` (výchozí 90, `app/settings.py`); další limity (`SHARED_SLOT_WAIT_MINUTES`, limity na IP, `JOB_RETENTION_HOURS`) viz `DEPLOY.md` §6.
 
 ---
 
@@ -285,13 +302,13 @@ se silnicí** (≥ 70 % délky do 12 m od osy silnice; `is_sidewalk_beside_road`
 | pytest | `pytest tests/ -v --tb=short` |
 | Docker log | `docker compose -f docker-compose.dev.yml logs -f` |
 | Job log API | `curl http://127.0.0.1:8672/api/jobs/<id>/log` |
-| NAS | `docker compose -f docker-compose.nas.yml logs --tail=100` |
+| NAS (A/B) | `docker compose -f docker-compose.nas-ab.yml logs --tail=100 podkladarna` (A) / `podkladarna-test` (B) |
 
 ---
 
 ## Co pytest neřeší
 
-- PDAL merge / celá pipeline – to až `docker compose dev` + `--data-dir`
+- PDAL merge / celá pipeline – to až `docker compose dev` + `.\scripts\dev.ps1 e2e`
 - Reverse proxy limit – testujte HTTPS zvlášť po nasazení nginx conf
 
 ---
@@ -324,7 +341,7 @@ $env:PODKLADARNA_MAPPER_TIMEOUT = "600"
 
 Bez CLI: Pillow georef cílí **300 DPI papíru** (`map_per_px = 25400/DPI`), nejméně delší strana **4800 px** (3× starý cap), max **10 000 px**. Override: `PODKLADARNA_GEOREF_PILLOW_DPI`.
 
-Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. **Docker image** (tip ≥1.26.1) Mapper CLI už obsahuje (`/opt/mapper/bin/Mapper`, pin `mfbehrens/oo-mapper` `cli` @ `6dc1fd72`) a nastaví `PODKLADARNA_MAPPER` + `PODKLADARNA_MAPPER_EXPORT` + `PODKLADARNA_MAPPER_CONVERT` — viz `DEPLOY.md` / `Dockerfile`. Windows tip (`:8672`) bez CLI buildu dál padá na Pillow georef @ 300 DPI-eq (floor 4800) a bez `.ocd`; Docker změna je pro budoucí NAS/ostrý image, ne nutně lokální tip.
+Na Linuxu CLI build defaultně nastaví `QT_QPA_PLATFORM=offscreen`. **Docker image** Mapper CLI už obsahuje (`/opt/mapper/bin/Mapper`, pin `mfbehrens/oo-mapper` `cli` @ `6dc1fd72`) a nastaví `PODKLADARNA_MAPPER` + `PODKLADARNA_MAPPER_EXPORT` + `PODKLADARNA_MAPPER_CONVERT` — viz `DEPLOY.md` / `Dockerfile`. Windows tip (`:8672`) bez CLI buildu dál padá na Pillow georef @ 300 DPI-eq (floor 4800) a bez `.ocd`; Docker změna je pro budoucí NAS/ostrý image, ne nutně lokální tip.
 
 Vestavěný Pillow kreslí zjednodušenou symboliku. Orientace: nižší map Y nahoru. Web ořez kolem AOI (708 / 705).
 
@@ -340,7 +357,7 @@ Checkbox **„Privátní režim generování mapy…“** vyžaduje e-mail. Job 
 Env (doporučeno v `.env` vedle checkoutu / compose; necommitujte hesla).
 `app.settings` a `scripts/dev.ps1` `.env` načtou automaticky (nepřepisují
 **neprázdné** proměnné; prázdný compose inject se z `/data/.env` doplní).
-Na NAS `docker-compose.nas.yml` předává `SMTP_*` /
+Na NAS `docker-compose.nas-ab.yml` (legacy `docker-compose.nas.yml`) předává `SMTP_*` /
 `PUBLIC_BASE_URL` / `FEEDBACK_TO` z host `.env` do kontejneru; alternativně
 stačí `/data/.env` uvnitř volume. Od **2.2.12** Docker image při prázdném
 injectu doplní NAS default (`datais-cz.mail.protection.outlook.com` +
