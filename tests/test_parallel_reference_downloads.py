@@ -422,6 +422,7 @@ def test_package_output_defers_refs_join_except_sprint(
 
     monkeypatch.setattr(run_job, "join_reference_download", fake_join)
     monkeypatch.setattr(run_job, "prepare_oom_map", fake_prepare)
+    monkeypatch.setattr(run_job.app_settings, "PARALLEL_DISCIPLINE_MAPS", False)  # sériová cesta (fake v procesu)
     monkeypatch.setattr(run_job, "fetch_ruian_buildings_for_bbox", lambda *a, **k: None)
     monkeypatch.setattr(run_job, "fetch_aopk_trees_for_bbox", lambda *a, **k: None)
     monkeypatch.setattr(run_job, "write_job_oom_preview", lambda *a, **k: None)

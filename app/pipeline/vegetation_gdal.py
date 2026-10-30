@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from app.pipeline.oom_import import (
@@ -64,14 +65,22 @@ def _iter_vege_rows(shp: Path):
     except ImportError:
         ogr = None
     if ogr is not None:
-        prj = shp.with_suffix(".prj")
-        prj_aside: Path | None = None
-        if prj.is_file():
-            prj_aside = prj.with_suffix(".prj.aside")
-            prj_aside.unlink(missing_ok=True)
-            prj.rename(prj_aside)
+        # .prj se nečte (PROJ identify padá): čte se kopie souborů bez něj v dočasné složce, originál
+        # se nemění (les a MTBO se mohou sestavovat souběžně).
+        import shutil
+        import tempfile
+
+        tmp = Path(tempfile.mkdtemp(prefix="vege_noprj_"))
         try:
-            ds = ogr.Open(str(shp))
+            for suffix in (".shp", ".shx", ".dbf", ".cpg"):
+                src = shp.with_suffix(suffix)
+                if not src.is_file():
+                    continue
+                try:
+                    os.link(src, tmp / src.name)
+                except OSError:
+                    shutil.copy2(src, tmp / src.name)
+            ds = ogr.Open(str(tmp / shp.name))
             if ds:
                 layer = ds.GetLayer(0)
                 if layer is not None:
@@ -87,9 +96,8 @@ def _iter_vege_rows(shp: Path):
                         yield props, bytes(geom.ExportToWkb())
                     return
         finally:
-            if prj_aside is not None and prj_aside.is_file():
-                prj.unlink(missing_ok=True)
-                prj_aside.rename(prj)
+            ds = None
+            shutil.rmtree(tmp, ignore_errors=True)
     try:
         import pyogrio
     except ImportError:

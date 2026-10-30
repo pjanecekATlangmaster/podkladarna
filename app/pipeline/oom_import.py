@@ -928,9 +928,23 @@ ZABAGED_RAIL_LAYERS = frozenset({"ZeleznicniTrat", "ZeleznicniVlecka", "Tramvajo
 SPRINT_BANK_MIN_PIECE_M = 5.0
 
 
-def build_zabaged_object_parts(
+def build_zabaged_object_parts(zabaged_clean: Path, **kwargs) -> list[OomObjectPart]:
+    """Objekty ZABAGED pro mapu; shp z ZIPu se rozbalují do vlastní dočasné složky volání
+    (les a MTBO se mohou sestavovat souběžně v různých procesech), po návratu se smaže."""
+    import shutil
+    import tempfile
+
+    stage = Path(tempfile.mkdtemp(prefix="_oom_objects_", dir=kwargs["work_dir"]))
+    try:
+        return _build_zabaged_object_parts(zabaged_clean, stage=stage, **kwargs)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def _build_zabaged_object_parts(
     zabaged_clean: Path,
     *,
+    stage: Path,
     vectorconf_name: str,
     preset_id: str,
     scale: int,
@@ -1009,13 +1023,6 @@ def build_zabaged_object_parts(
             return []
 
     rules = load_vectorconf(vectorconf_name)
-    stage = work_dir / "_oom_objects"
-    if stage.exists():
-        import shutil
-
-        shutil.rmtree(stage)
-    stage.mkdir(parents=True)
-
     # Cesta (širší) má přednost před Pesina na stejné střednici.
     from app.pipeline.osm_paths import (
         COVER_DROP,
