@@ -98,6 +98,15 @@ def _side_offset(line, point) -> float:
     return (point.x - foot.x) * -ty + (point.y - foot.y) * tx
 
 
+def _shift_to(gap, own):
+    """Úsek ``gap`` posunutý napříč do osy sousedních ploch ``own`` (lávka z DTM u konců mezery); bez nich beze změny."""
+    near = own.intersection(gap.buffer(DECK_BAND_M + 2.0, cap_style="round"))
+    if near.is_empty:
+        return gap
+    shift = _side_offset(gap, near.centroid)
+    return gap.offset_curve(shift) if abs(shift) > 0.05 else gap
+
+
 def _gaps_along(line, polys: list) -> list:
     """Úseky čáry ``line``, vedle kterých (napříč) neleží žádná z ploch ``polys`` – průmět ploch na čáru se vynechá."""
     from shapely.geometry import Point
@@ -219,6 +228,7 @@ def _analysis(work_dir: Path) -> dict:
     if not taken:
         return empty
     surfaces = _dtm_polygons(work_dir, "sidewalks")
+    lower_polys = _dtm_polygons(work_dir, "lower")
     decks, deck_geoms, sources = [], {}, []
     for i, (bridge, hw) in enumerate(bridges):
         grp = find(i)
@@ -238,13 +248,19 @@ def _analysis(work_dir: Path) -> dict:
             # Lávka je v DTM: kde ji DTM má, platí jen tvar z DTM (hrana silnice / chodníku z DTM se nehýbe ani u užší
             # lávky nebo posunuté OSM osy); pás kolem osy v šířce lávky z DTM jen vyplní mezery (vystřiženou silnici).
             own_u = unary_union(own)
-            on_line = bridge.intersection(own_u).length
-            half = min(max(op.drawn_width_m(hw) / 2.0, DECK_MIN_HALF_M), max(0.5, own_u.area / (2.0 * on_line))) if on_line > 0 else DECK_MIN_HALF_M
             gaps = _gaps_along(bridge, own)
+            on_line = bridge.length - sum(g.length for g in gaps)  # délka lávky, vedle které DTM lávku má
+            half = min(max(op.drawn_width_m(hw) / 2.0, DECK_MIN_HALF_M), max(0.5, own_u.area / (2.0 * on_line))) if on_line > 0 else DECK_MIN_HALF_M
             # pás v mezeře leží v ose lávky z DTM, ne v posunuté OSM ose (jinak by zasáhl do vystřižené silnice)
-            shift = _side_offset(bridge, own_u.centroid)
-            gaps = [g.offset_curve(shift) if abs(shift) > 0.05 else g for g in gaps]
-            axis = unary_union([g.buffer(half, cap_style="flat") for g in gaps if g.geom_type == "LineString" and g.length > 0]) if gaps else None
+            gaps = [g for g in (_shift_to(g, own_u) for g in gaps) if g.geom_type == "LineString" and g.length > 0]
+            axis = None
+            if gaps:
+                axis = unary_union([g.buffer(half, cap_style="flat") for g in gaps])
+                # plochy DTM jen vedle mezery (silnice vystřižená pod lávkou) pás ořežou – jejich hrana se nehýbe;
+                # plocha, přes kterou lávka vede (chodník pod ní), zůstane pod mostovkou
+                beside = [g for g in lower_polys if g.intersects(axis) and not any(g.intersects(gp) for gp in gaps)]
+                if beside:
+                    axis = axis.difference(unary_union(beside).difference(own_u))
         deck = unary_union([g for g in (axis, *own) if g is not None])
         if buildings is not None:
             deck = deck.difference(buildings)  # lávka vedoucí do budovy končí na jejím obrysu
