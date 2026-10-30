@@ -66,6 +66,10 @@ GREEN_SIMPLIFY_M = 0.5
 PAVED_CUT_M = 3.0
 # Mostovka (501 na mostě) parcelu pod mostem neořezává: silnice pod lávkou bývá jen v parcele (Wassermannova).
 BRIDGE_PART_PREFIX = "Mosty"
+# Výplň bez obrysu: okraj se smí zjednodušit (mm mapy) a velká plocha se rozřeže na díly do tolika vrcholů jako plochy
+# z DTM (``dtm_import.AREA_SPLIT_VERTICES``) – parcela přes celou mapu měla 76 000 vrcholů a brzdila Mapper.
+PARCEL_SIMPLIFY_MM = 0.1
+PARCEL_SPLIT_VERTICES = 1000
 
 
 def is_paved_street_highway(highway: str) -> bool:
@@ -510,11 +514,18 @@ def sprint_street_parcel_part(
             half = MIN_WIDTH_MM * 1000 / 2.0
             area = area.buffer(-half).buffer(half)
             area = unary_union([g for g in getattr(area, "geoms", [area]) if isinstance(g, Polygon) and g.area >= MIN_AREA_MM2 * 1e6])
+        from app.pipeline.area_split import split_area
+
         objs = []
         for g in getattr(area, "geoms", [area]):
-            if isinstance(g, Polygon) and not g.is_empty:
-                for pts in _rounded_pieces(g.simplify(EPS)):
-                    rings = [[(p[0], p[1]) for p in ring] for ring in _rings(pts)]
+            if not isinstance(g, Polygon) or g.is_empty:
+                continue
+            g = g.simplify(max(EPS, PARCEL_SIMPLIFY_MM * 1000), preserve_topology=True)
+            if not isinstance(g, Polygon) or g.is_empty:
+                continue
+            for ring, holes in split_area(list(g.exterior.coords), [list(h.coords) for h in g.interiors], PARCEL_SPLIT_VERTICES):
+                for pts in _rounded_pieces(Polygon(ring, holes)):
+                    rings = [[(p[0], p[1]) for p in r] for r in _rings(pts)]
                     obj = _area_object_with_holes(sym, rings)
                     if obj:
                         objs.append(obj)

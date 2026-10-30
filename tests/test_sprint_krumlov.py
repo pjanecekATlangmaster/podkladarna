@@ -252,6 +252,47 @@ def test_sprint_street_parcel_not_under_dtm_area(tmp_path, monkeypatch, part_nam
     assert area == pytest.approx(expected_m2, rel=0.05)
 
 
+def _comb(teeth, depth):
+    """Pás 10 m × 4·teeth m se zuby ``depth`` m dolů po 4 m (2 m široké)."""
+    pts = [(0.0, 10.0), (4.0 * teeth, 10.0), (4.0 * teeth, 0.0)]
+    for i in range(teeth - 1, -1, -1):
+        x = 4.0 * i
+        pts += [(x + 3.0, 0.0), (x + 3.0, -depth), (x + 1.0, -depth), (x + 1.0, 0.0)]
+    return pts + [(0.0, 0.0), (0.0, 10.0)]
+
+
+@pytest.mark.parametrize(
+    "teeth, depth, max_objects",
+    [
+        (400, 3.0, None),  # 1 600 vrcholů → díly do 1 000 vrcholů
+        (400, 0.05, 1),  # zuby 5 cm (pod 0,1 mm mapy) zjednodušení smaže
+    ],
+)
+def test_sprint_street_parcel_simplified_and_split(tmp_path, monkeypatch, teeth, depth, max_objects):
+    """Parcela bez obrysu: okraj zjednodušený o 0,1 mm mapy, díly do PARCEL_SPLIT_VERTICES vrcholů."""
+    from app.pipeline import street_parcels
+
+    work = _street_dir(tmp_path, _comb(teeth, depth))
+    (tmp_path / "osm_paths").mkdir()
+    (tmp_path / "osm_paths" / "paths.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"highway": "residential"}, "geometry": {"type": "LineString", "coordinates": [[-5, 5], [4 * teeth + 5, 5]]}}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(street_parcels, "fetch_street_parcels", lambda *a, **k: work / "ruian_parcels" / "komunikace.geojson")
+    monkeypatch.setattr(street_parcels, "_prepare_green_mask", lambda *a, **k: None)
+    street_parcels._GEOM_CACHE = None
+    out = street_parcels.sprint_street_parcel_part([], work, (14.31, 48.81, 14.32, 48.82), **KW)
+    objs = _objects_of(out[:1], "501.1")
+    counts = [len(_parse_coords(_COORDS_RE.search(m.group(4)).group(1))) for m in objs]
+    assert objs and max(counts) <= street_parcels.PARCEL_SPLIT_VERTICES + 10
+    if max_objects:
+        assert len(objs) <= max_objects and max(counts) < 20
+    else:
+        assert len(objs) >= 2
+    area = sum(_polygon_um2(m) for m in objs) / UM_PER_M**2
+    assert area == pytest.approx(40.0 * teeth + 2 * teeth * depth, rel=0.05)
+
+
 def _polygon_um2(m):
     from app.pipeline.path_clearance import _polygon
 
