@@ -192,7 +192,6 @@ def test_fetch_street_parcels_cache_and_error(tmp_path, monkeypatch):
 
 def test_sprint_street_parcel_part_under_olive_and_mask(tmp_path, monkeypatch):
     import numpy as np
-    from shapely.geometry import shape
 
     from app.pipeline import street_parcels
 

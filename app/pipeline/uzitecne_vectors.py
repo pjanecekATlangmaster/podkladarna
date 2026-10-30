@@ -167,64 +167,6 @@ def write_polygon_shapefile(
     return dest_shp
 
 
-def write_vegetation_discarded_shp(
-    dest_shp: Path,
-    features: list[tuple],
-    *,
-    reason: str = "min_plocha",
-) -> Path | None:
-    """``features`` = (cls, code, shapely geom[, duvod]) zahozené při size/tvar filtru.
-
-    Čtyřprvkový tuple má vlastní ``duvod``; u trojice se použije ``reason``.
-    """
-    if not features:
-        return None
-    try:
-        import shapefile
-    except ImportError:
-        return None
-    dest_shp = Path(dest_shp)
-    dest_shp.parent.mkdir(parents=True, exist_ok=True)
-    _clear_stem(dest_shp.parent, dest_shp.stem)
-    n = 0
-    with shapefile.Writer(str(dest_shp.with_suffix("")), shapeType=shapefile.POLYGON) as w:
-        w.field("cls", "N", size=10)
-        w.field("code", "C", size=8)
-        w.field("duvod", "C", size=40)
-        for row in features:
-            try:
-                if len(row) >= 4:
-                    cls, code, geom, duvod = row[0], row[1], row[2], row[3]
-                else:
-                    cls, code, geom = row[0], row[1], row[2]
-                    duvod = reason
-                if geom is None or geom.is_empty:
-                    continue
-                if geom.geom_type == "MultiPolygon":
-                    polys = list(geom.geoms)
-                elif geom.geom_type == "Polygon":
-                    polys = [geom]
-                else:
-                    continue
-                for poly in polys:
-                    if poly.is_empty or float(poly.area) <= 0:
-                        continue
-                    exterior = [[float(x), float(y)] for x, y in poly.exterior.coords]
-                    parts = [exterior]
-                    for hole in poly.interiors:
-                        parts.append([[float(x), float(y)] for x, y in hole.coords])
-                    w.poly(parts)
-                    w.record(int(cls), str(code)[:8], str(duvod or reason)[:40])
-                    n += 1
-            except Exception:
-                continue
-    if n <= 0 or not dest_shp.is_file():
-        _clear_stem(dest_shp.parent, dest_shp.stem)
-        return None
-    write_prj(dest_shp)
-    return dest_shp
-
-
 def write_cliff_inspection_vectors(
     kp_cwd: Path,
     *,

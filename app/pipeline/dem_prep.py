@@ -442,13 +442,3 @@ def _finish_job_surfaces(job: _SurfaceJob, *, log=None) -> DemPrepResult:
             parts.append(f"CHM={chm.name}")
         log("Hotovo: " + ", ".join(parts))
     return result
-
-
-def load_dem_meta(work_dir: Path) -> dict | None:
-    path = work_dir / DEM_DIR_NAME / DEM_META_NAME
-    if not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None

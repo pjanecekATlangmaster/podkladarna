@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,11 +11,117 @@ import pytest
 from shapely.geometry import Point
 
 from app.pipeline.cliffs_dem import (
+    ROCK_MIN_GRADE,
+    TICK_HALF_LEN_M,
     detect_cliff_ticks,
     generate_job_cliffs_dem,
     resolve_drop_thresholds,
     write_cliff_ticks_dxf,
 )
+
+
+def _pixel_to_world(gt, col: float, row: float) -> tuple[float, float]:
+    x = gt[0] + col * gt[1] + row * gt[2]
+    y = gt[3] + col * gt[4] + row * gt[5]
+    return x, y
+
+
+def _detect_cliff_ticks_loop(
+    arr,
+    valid,
+    gt,
+    *,
+    near: int,
+    far: int,
+    px: float,
+    py: float,
+    min_drop_m: float,
+    major_drop_m: float,
+    rock_min_drop: float,
+    stride: int,
+    max_ticks: int,
+):
+    """Původní smyčka (reference pro testy vektorové verze)."""
+    h, w = arr.shape
+    small: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    large: list[tuple[tuple[float, float], tuple[float, float]]] = []
+
+    for r in range(far, h - far, stride):
+        for c in range(far, w - far, stride):
+            if not valid[r, c]:
+                continue
+            z0 = float(arr[r, c])
+            # Gradient in world units (X east / Y north). gt[5] usually < 0.
+            z_e = float(arr[r, c + near]) if valid[r, c + near] else z0
+            z_w = float(arr[r, c - near]) if valid[r, c - near] else z0
+            z_s = float(arr[r + near, c]) if valid[r + near, c] else z0
+            z_n = float(arr[r - near, c]) if valid[r - near, c] else z0
+            gx = (z_e - z_w) / (2.0 * near * px)  # dZ/dX
+            # Row+ is south when gt[5] < 0 → dZ/dY_north = -(z_s - z_n)/(2*near*py)
+            gy = -(z_s - z_n) / (2.0 * near * py)
+            gmag = math.hypot(gx, gy)
+            if gmag < 1e-6:
+                continue
+            ux, uy = gx / gmag, gy / gmag  # unit downhill in world XY
+            # Pixel step along downhill (col east, row south when gt[5]<0).
+            dcol = ux
+            drow = -uy if gt[5] < 0 else uy
+            plen = math.hypot(dcol, drow)
+            if plen < 1e-9:
+                continue
+            dcol /= plen
+            drow /= plen
+
+            def _at(dist_px: float) -> float | None:
+                cc = int(round(c + dcol * dist_px))
+                rr = int(round(r + drow * dist_px))
+                if rr < 0 or rr >= h or cc < 0 or cc >= w or not valid[rr, cc]:
+                    return None
+                return float(arr[rr, cc])
+
+            near_lo = _at(-near)
+            near_hi = _at(near)
+            far_lo = _at(-far)
+            far_hi = _at(far)
+            if None in (near_lo, near_hi, far_lo, far_hi):
+                continue
+            step_m = min(px, py)
+            span_m = (far - near) * step_m
+            if span_m <= 0:
+                continue
+            grade = ((near_lo - far_lo) + (far_hi - near_hi)) / (2.0 * span_m)
+            expected = grade * 2.0 * near * step_m
+            drop = abs((near_hi - near_lo) - expected)
+            if drop < min_drop_m:
+                continue
+            run_m = 2.0 * near * step_m
+            grade = drop / run_m if run_m > 0 else 0.0
+            # major_drop_m: vysoký schod, který je pořád dost strmý, ber jako skálu.
+            steep_enough = grade >= ROCK_MIN_GRADE or (
+                drop >= major_drop_m and grade >= ROCK_MIN_GRADE * 0.75
+            )
+
+            # Tick perpendicular to downhill (along contour / cliff face).
+            nx, ny = -uy, ux
+            nlen = math.hypot(nx, ny)
+            if nlen < 1e-9:
+                continue
+            nx /= nlen
+            ny /= nlen
+            cx, cy = _pixel_to_world(gt, c + 0.5, r + 0.5)
+            a = (cx - nx * TICK_HALF_LEN_M, cy - ny * TICK_HALF_LEN_M)
+            b = (cx + nx * TICK_HALF_LEN_M, cy + ny * TICK_HALF_LEN_M)
+            if steep_enough:
+                # Přísnější práh jen pro skálu; slabé strmé → pryč (ne 104).
+                if drop >= rock_min_drop:
+                    large.append((a, b))
+            else:
+                small.append((a, b))
+            if len(small) + len(large) >= max_ticks:
+                return small, large
+
+    return small, large
+
 
 
 def test_resolve_drop_thresholds_normal():
@@ -202,6 +309,6 @@ def test_vectorized_cliff_ticks_match_reference_loop():
         kw = dict(near=2, far=8, px=1.0, py=1.0, min_drop_m=c1, major_drop_m=c2,
                   rock_min_drop=c1 + cd.ROCK_MIN_DROP_BONUS_M, stride=2, max_ticks=cap)
         got = cd._detect_cliff_ticks_np(arr, valid, gt, rows_per_block=7, **kw)
-        ref = cd._detect_cliff_ticks_loop(arr, valid, gt, **kw)
+        ref = _detect_cliff_ticks_loop(arr, valid, gt, **kw)
         assert got == ref
         assert sum(map(len, got)) > 0

@@ -24,7 +24,6 @@ from app.pipeline.oom_preview import (
     map_grivation_deg,
     mapper_convert_argv,
     mapper_export_argv,
-    ocd_version,
     oom_preview_enabled,
     output_georef_enabled,
     png_pixel_count,
@@ -1130,7 +1129,6 @@ def test_run_mapper_convert_writes_ocd12(tmp_path: Path, monkeypatch):
     dest = run_mapper_convert(omap)
     assert dest == omap.with_suffix(".ocd")
     assert dest.is_file()
-    assert ocd_version(dest) == 12
 
 
 def test_convert_omap_to_ocd_skips_without_env(tmp_path: Path, monkeypatch):

@@ -117,7 +117,6 @@ def strokes(lines: list[list[tuple[float, float]]]) -> list[list[int]]:
         # dojít na začátek tahu (nebo dokola u prstence)
         cur, at_start = i, True
         chain = []
-        start = (cur, at_start)
         while True:
             seen[cur] = True
             chain.append(cur)

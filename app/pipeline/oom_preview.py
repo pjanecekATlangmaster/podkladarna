@@ -435,16 +435,6 @@ def _is_ocd(path: Path) -> bool:
     return path.read_bytes()[:2] == _OCD_MAGIC
 
 
-def ocd_version(path: Path) -> int | None:
-    """Verze OCD formátu (uint16 LE na offsetu 4), nebo None."""
-    import struct
-
-    data = Path(path).read_bytes()[:6]
-    if len(data) < 6 or data[:2] != _OCD_MAGIC:
-        return None
-    return int(struct.unpack_from("<H", data, 4)[0])
-
-
 class MapperConvertError(RuntimeError):
     """``Mapper --cli convert`` chybí, selhal, nebo není nakonfigurovaný."""
 

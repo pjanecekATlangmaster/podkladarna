@@ -11,14 +11,12 @@ from app.download_cache import (
     LEGACY_MERGED_LAZ_NAMES,
     SHEET_CROP_GROUND,
     SHEET_CROP_VEG,
+    _laz_usable,
     link_or_copy,
     persist_sheet_crop,
     try_lookup_sheet_crop,
 )
 from app.tool_env import gis_subprocess_env, which_tool
-
-# Menší než tohle = prázdný / nepoužitelný LAZ (stejný práh jako reuse v run_job).
-MIN_LAZ_BYTES = 1000
 
 
 def kp_grid_scale_m(scalefactor: float) -> float:
@@ -135,13 +133,6 @@ def run_cmd(
             result.returncode, cmd, result.stdout, result.stderr
         )
     return result
-
-
-def _laz_usable(path: Path) -> bool:
-    try:
-        return path.is_file() and path.stat().st_size >= MIN_LAZ_BYTES
-    except OSError:
-        return False
 
 
 def _translate_sheet(

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 from app.pipeline.dem_prep import (
     DemPrepResult,
     dem_work_dir,
-    load_dem_meta,
     prepare_job_surfaces,
 )
 
@@ -38,8 +38,7 @@ def test_prepare_job_surfaces_dem_only(tmp_path: Path):
     assert result.dsm_filled is None
     assert result.chm is None
     assert result.ground_laz == "ground_merged.laz"
-    meta = load_dem_meta(work)
-    assert meta is not None
+    meta = json.loads((dem_work_dir(work) / "dem_meta.json").read_text(encoding="utf-8"))
     assert meta["resolution_m"] == 1.0
     assert (dem_work_dir(work) / "dem_meta.json").is_file()
 

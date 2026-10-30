@@ -25,6 +25,7 @@ from pathlib import Path
 from app.pipeline.dem_prep import DEM_DIR_NAME
 from app.pipeline.job_grid import JobGrid
 from app.pipeline.prepare_lidar import log_step
+from app.pipeline.vegetation_density import _neighbor_fraction as _open_neighbor_fraction
 
 # --- Prahy CHM (metry nad terénem), kalibrace vs. KP – viz docstring. ---
 CHM_OPEN_MAX_M = 1.0
@@ -41,9 +42,6 @@ OPEN_REINFORCE_ITERS = 0
 # Median filtr klasifikace (liché); KP medianboxsize=6 → okno 7 px (radius 3).
 CHM_MEDIAN_SIZE = 7
 
-# Soft_min (zpětná kompatibilita testů) — skutečný filtr: veg_size_filter.
-_MIN_AREA_M2 = 12.0
-_MIN_GREEN_AREA_M2 = 25.0
 # vegetation.shp nese přesný obrys z rastru (0 = jen vrcholy na přímce pryč);
 # zjednodušení a vyhlazení až při sestavení mapy (vegetation_gdal, veg_smooth).
 _SIMPLIFY_M = 0.0
@@ -58,13 +56,6 @@ _CLASS_TO_CODE = {
 }
 
 _GREEN_CODES = frozenset({"406", "408", "410"})
-
-
-def _min_area_for_code(code: str) -> float:
-    """Soft_min pro kód (profil default). Preferuj ``keep_veg_polygon``."""
-    from app.pipeline.veg_size_filter import soft_min_for_code
-
-    return soft_min_for_code(code, "default")
 
 
 @dataclass(frozen=True)
@@ -174,19 +165,6 @@ def _touches_open(classified, open_cls: int = 1):
     near[:, 1:] |= open_m[:, :-1]
     near[:, :-1] |= open_m[:, 1:]
     return near
-
-
-def _open_neighbor_fraction(open_mask):
-    """Podíl open sousedů v 3×3 (včetně self) – KP yellow-threshold analog."""
-    import numpy as np
-
-    m = np.asarray(open_mask, dtype=np.float32)
-    padded = np.pad(m, 1, mode="edge")
-    acc = np.zeros_like(m, dtype=np.float32)
-    for di in (-1, 0, 1):
-        for dj in (-1, 0, 1):
-            acc += padded[1 + di : 1 + di + m.shape[0], 1 + dj : 1 + dj + m.shape[1]]
-    return acc / 9.0
 
 
 def reinforce_open_land(
@@ -338,14 +316,11 @@ def _simplify_vegetation_shp(
     dest_shp: Path,
     *,
     log=None,
-    veg_size_profile: str = "default",
 ) -> int:
-    """Filtr + simplify (pyogrio/shapely → pyshp); fallback osgeo.ogr."""
+    """Simplify (pyogrio/shapely → pyshp); fallback osgeo.ogr."""
     from app.pipeline.crs_5514 import write_prj
-    from app.pipeline.veg_size_filter import keep_veg_polygon
 
     kept: list[tuple[int, str, object]] = []
-    discarded: list[tuple[int, str, object, str]] = []
 
     try:
         from shapely import from_wkb
@@ -361,12 +336,6 @@ def _simplify_vegetation_shp(
                 continue
             simplified = geom.simplify(_SIMPLIFY_M, preserve_topology=True)
             if simplified is None or simplified.is_empty:
-                continue
-            keep, reason = keep_veg_polygon(
-                code, simplified, profile=veg_size_profile
-            )
-            if not keep:
-                discarded.append((cls, code, simplified, reason or "mala_plocha"))
                 continue
             kept.append((cls, code, simplified))
     except Exception as exc:
@@ -398,11 +367,6 @@ def _simplify_vegetation_shp(
                 simplified = geom.SimplifyPreserveTopology(_SIMPLIFY_M)
                 if simplified is None or simplified.IsEmpty():
                     continue
-                keep, _reason = keep_veg_polygon(
-                    code, simplified, profile=veg_size_profile
-                )
-                if not keep:
-                    continue
                 local_kept.append((cls, code, simplified.Clone()))
             for fid in to_delete:
                 layer.DeleteFeature(fid)
@@ -427,17 +391,6 @@ def _simplify_vegetation_shp(
 
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
-
-    # Zahozené min-size/tvar polygony pro uzitecne/vyhozene (prohlížení filtrů).
-    try:
-        from app.pipeline.uzitecne_vectors import write_vegetation_discarded_shp
-
-        write_vegetation_discarded_shp(
-            dest_shp.parent / "vyhozene_vegetace.shp",
-            discarded,
-        )
-    except Exception:
-        pass
 
     writer = shapefile.Writer(str(dest_shp), shapeType=shapefile.POLYGON)
     writer.field("cls", "N", size=10)
@@ -471,7 +424,6 @@ def generate_vegetation_from_chm(
     thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
     tint_png: Path | None = None,
     log=None,
-    veg_size_profile: str = "default",
 ) -> Path | None:
     """Klasifikuje CHM → polygony vegetation.shp (cls, code)."""
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
@@ -503,7 +455,6 @@ def generate_vegetation_from_chm(
         dest_shp,
         log=log,
         label=label,
-        veg_size_profile=veg_size_profile,
     )
 
 
@@ -514,7 +465,6 @@ def polygonize_vegetation_classes(
     *,
     log=None,
     label: str = "",
-    veg_size_profile: str = "default",
 ) -> Path | None:
     """uint8 třídy (0 bílý, 1–4 = 401/406/408/410) → ``vegetation.shp`` (cls, code).
 
@@ -525,8 +475,6 @@ def polygonize_vegetation_classes(
         polygonize_byte_raster,
         write_uint8_geotiff,
     )
-    from app.pipeline.veg_size_filter import keep_veg_polygon
-
     from app.pipeline.vegetation_merge import merge_small_regions
 
     merged = merge_small_regions(classified, abs(gt[1] * gt[5]))
@@ -574,11 +522,6 @@ def polygonize_vegetation_classes(
             simplified = geom.SimplifyPreserveTopology(_SIMPLIFY_M)
             if simplified is None or simplified.IsEmpty():
                 continue
-            keep, _reason = keep_veg_polygon(
-                code, simplified, profile=veg_size_profile
-            )
-            if not keep:
-                continue
             kept.append((cls, code, simplified.Clone()))
         for fid in to_delete:
             layer.DeleteFeature(fid)
@@ -598,7 +541,7 @@ def polygonize_vegetation_classes(
         if log:
             log(
                 f"Vegetace: {n_kept} polygonů → {dest_shp.name} "
-                f"({label}; veg_size={veg_size_profile})"
+                f"({label})"
             )
         return dest_shp if dest_shp.is_file() else None
     except ImportError:
@@ -613,9 +556,7 @@ def polygonize_vegetation_classes(
         polygonize_byte_raster(
             class_tif, dest_shp, layer_name="vegetation", field_name="cls", log=log
         )
-        n_kept = _simplify_vegetation_shp(
-            dest_shp, log=log, veg_size_profile=veg_size_profile
-        )
+        n_kept = _simplify_vegetation_shp(dest_shp, log=log)
     except Exception as exc:
         if log:
             log(f"Vegetace: CLI polygonize selhalo ({exc})")
@@ -627,7 +568,7 @@ def polygonize_vegetation_classes(
     if log and n_kept is not None:
         log(
             f"Vegetace: {n_kept} polygonu -> {dest_shp.name} "
-            f"(CLI polygonize; {label}; veg_size={veg_size_profile})"
+            f"(CLI polygonize; {label})"
         )
     return dest_shp if dest_shp.is_file() else None
 
@@ -637,7 +578,7 @@ def generate_job_vegetation_chm(
     *,
     thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
     log=None,
-    veg_size_profile: str = "default",
+    veg_size_profile: str = "default",  # bez účinku; odstraní se po úpravě run_job
 ) -> Path | None:
     """Job fáze: CHM → work/vegetation/vegetation.shp (+ volitelný tint)."""
     work_dir = Path(work_dir)
@@ -659,5 +600,4 @@ def generate_job_vegetation_chm(
         thresholds=thresholds,
         tint_png=tint,
         log=log,
-        veg_size_profile=veg_size_profile,
     )
