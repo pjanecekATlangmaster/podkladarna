@@ -285,6 +285,7 @@ def _osm_footbridge_work(work, *, dtm: bool, crossing: str = "road", half: float
         (True, 1.5, 0.0, False, 20.0),  # užší lávka než pás kolem OSM osy
         (True, 2.0, 1.0, False, 20.0),  # OSM osa posunutá proti DTM
         (True, 1.5, 0.0, True, 20.0),  # chodník lávky v DTM nad silnicí chybí – mezeru vyplní pás v šířce lávky
+        (True, 1.5, 1.0, True, 20.0),  # … a OSM osa je posunutá – pás leží v ose lávky z DTM
         (False, 2.0, 0.0, False, 5.0),
     ],
 )

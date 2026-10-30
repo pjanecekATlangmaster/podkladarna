@@ -90,6 +90,14 @@ def _dtm_polygons(work_dir: Path, kind: str) -> tuple:
     return tuple(g for g in (dtm_bridges._poly(r) for r in raw) if g is not None)
 
 
+def _side_offset(line, point) -> float:
+    """Kolmá vzdálenost bodu od čáry se znaménkem (kladná vlevo od směru čáry)."""
+    s = line.project(point)
+    foot = line.interpolate(s)
+    tx, ty = _tangent(line, s)
+    return (point.x - foot.x) * -ty + (point.y - foot.y) * tx
+
+
 def _gaps_along(line, polys: list) -> list:
     """Úseky čáry ``line``, vedle kterých (napříč) neleží žádná z ploch ``polys`` – průmět ploch na čáru se vynechá."""
     from shapely.geometry import Point
@@ -233,7 +241,10 @@ def _analysis(work_dir: Path) -> dict:
             on_line = bridge.intersection(own_u).length
             half = min(max(op.drawn_width_m(hw) / 2.0, DECK_MIN_HALF_M), max(0.5, own_u.area / (2.0 * on_line))) if on_line > 0 else DECK_MIN_HALF_M
             gaps = _gaps_along(bridge, own)
-            axis = unary_union([g.buffer(half, cap_style="flat") for g in gaps]) if gaps else None
+            # pás v mezeře leží v ose lávky z DTM, ne v posunuté OSM ose (jinak by zasáhl do vystřižené silnice)
+            shift = _side_offset(bridge, own_u.centroid)
+            gaps = [g.offset_curve(shift) if abs(shift) > 0.05 else g for g in gaps]
+            axis = unary_union([g.buffer(half, cap_style="flat") for g in gaps if g.geom_type == "LineString" and g.length > 0]) if gaps else None
         deck = unary_union([g for g in (axis, *own) if g is not None])
         if buildings is not None:
             deck = deck.difference(buildings)  # lávka vedoucí do budovy končí na jejím obrysu
