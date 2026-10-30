@@ -136,7 +136,7 @@ def _street_dir(tmp_path, parcel):
     d = tmp_path / "ruian_parcels"
     d.mkdir()
     (d / "komunikace.geojson").write_text(
-        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {}, "geometry": {"type": "Polygon", "coordinates": [parcel]}}]}),
+        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {}, "geometry": {"type": "Polygon", "coordinates": parcel if isinstance(parcel, tuple) else [parcel]}}]}),
         encoding="utf-8",
     )
     return tmp_path
@@ -261,27 +261,46 @@ def _comb(teeth, depth):
     return pts + [(0.0, 0.0), (0.0, 10.0)]
 
 
+def _grid(n):
+    """Souvislá síť ulic 10 m: čtverec s n × n bloky 40 m jako dírami (5 vrcholů na blok)."""
+    size = 50.0 * n + 10.0
+    holes = [_rect(10 + 50 * i, 10 + 50 * j, 50 + 50 * i, 50 + 50 * j) for i in range(n) for j in range(n)]
+    return (_rect(0, 0, size, size), *holes)
+
+
 @pytest.mark.parametrize(
-    "teeth, depth, max_objects",
+    "parcel, expected_m2, max_objects",
     [
-        (400, 3.0, None),  # 1 600 vrcholů → díly do 1 000 vrcholů
-        (400, 0.05, 1),  # zuby 5 cm (pod 0,1 mm mapy) zjednodušení smaže
+        (_comb(400, 3.0), 400 * 46.0, None),  # 1 600 vrcholů → díly do 1 000 vrcholů
+        (_comb(400, 0.05), 400 * 40.1, 1),  # zuby 5 cm (pod 0,1 mm mapy) zjednodušení smaže
+        (_grid(40), 2010.0**2 - 1600 * 1600.0, None),  # souvislá síť ulic, 8 005 vrcholů
     ],
 )
-def test_sprint_street_parcel_simplified_and_split(tmp_path, monkeypatch, teeth, depth, max_objects):
+def test_sprint_street_parcel_simplified_and_split(tmp_path, monkeypatch, parcel, expected_m2, max_objects):
     """Parcela bez obrysu: okraj zjednodušený o 0,1 mm mapy, díly do PARCEL_SPLIT_VERTICES vrcholů."""
     from app.pipeline import street_parcels
 
-    work = _street_dir(tmp_path, _comb(teeth, depth))
+    work = _street_dir(tmp_path, parcel)
     (tmp_path / "osm_paths").mkdir()
     (tmp_path / "osm_paths" / "paths.geojson").write_text(
-        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"highway": "residential"}, "geometry": {"type": "LineString", "coordinates": [[-5, 5], [4 * teeth + 5, 5]]}}]}),
+        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"highway": "residential"}, "geometry": {"type": "LineString", "coordinates": [[-5, 5], [2000, 5]]}}]}),
         encoding="utf-8",
     )
     monkeypatch.setattr(street_parcels, "fetch_street_parcels", lambda *a, **k: work / "ruian_parcels" / "komunikace.geojson")
     monkeypatch.setattr(street_parcels, "_prepare_green_mask", lambda *a, **k: None)
     street_parcels._GEOM_CACHE = None
+    from app.pipeline import area_split
+
+    spans, orig = [], area_split.split_area
+
+    def spy(ring, holes, *a, **k):
+        xs = [p[0] for p in ring]
+        spans.append(max(xs) - min(xs))
+        return orig(ring, holes, *a, **k)
+
+    monkeypatch.setattr(area_split, "split_area", spy)
     out = street_parcels.sprint_street_parcel_part([], work, (14.31, 48.81, 14.32, 48.82), **KW)
+    assert spans and max(spans) < 2100  # dělí se v metrech terénu (prahy hrdel v m), ne v µm mapy
     objs = _objects_of(out[:1], "501.1")
     counts = [len(_parse_coords(_COORDS_RE.search(m.group(4)).group(1))) for m in objs]
     assert objs and max(counts) <= street_parcels.PARCEL_SPLIT_VERTICES + 10
@@ -290,7 +309,7 @@ def test_sprint_street_parcel_simplified_and_split(tmp_path, monkeypatch, teeth,
     else:
         assert len(objs) >= 2
     area = sum(_polygon_um2(m) for m in objs) / UM_PER_M**2
-    assert area == pytest.approx(40.0 * teeth + 2 * teeth * depth, rel=0.05)
+    assert area == pytest.approx(expected_m2, rel=0.05)
 
 
 def _polygon_um2(m):

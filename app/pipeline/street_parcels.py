@@ -523,8 +523,13 @@ def sprint_street_parcel_part(
             g = g.simplify(max(EPS, PARCEL_SIMPLIFY_MM * 1000), preserve_topology=True)
             if not isinstance(g, Polygon) or g.is_empty:
                 continue
-            for ring, holes in split_area(list(g.exterior.coords), [list(h.coords) for h in g.interiors], PARCEL_SPLIT_VERTICES):
-                for pts in _rounded_pieces(Polygon(ring, holes)):
+            # split_area má prahy v metrech (hrdla, NECK_MIN_PIECE_M2) → dělí se v metrech terénu, ne v µm mapy
+            k = 1e6 / scale
+            m_ring = [(x / k, y / k) for x, y in g.exterior.coords]
+            m_holes = [[(x / k, y / k) for x, y in h.coords] for h in g.interiors]
+            for ring, holes in split_area(m_ring, m_holes, PARCEL_SPLIT_VERTICES):
+                piece = Polygon([(x * k, y * k) for x, y in ring], [[(x * k, y * k) for x, y in h] for h in holes])
+                for pts in _rounded_pieces(piece):
                     rings = [[(p[0], p[1]) for p in r] for r in _rings(pts)]
                     obj = _area_object_with_holes(sym, rings)
                     if obj:
