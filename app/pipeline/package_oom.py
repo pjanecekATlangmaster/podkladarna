@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import unicodedata
 import zipfile
 from collections.abc import Callable
@@ -1195,7 +1196,10 @@ def _prepare_oom_map(
     # Podklady (``built_refs``) jdou do .omap jen jako šablony; callable = stahování ještě běží na pozadí
     # a čeká se na něj až teď, těsně před zápisem (les a MTBO, viz ``run_job._package_output``).
     if callable(built_refs):
+        t_wait = time.monotonic()
         built_refs = built_refs()
+        if (waited := time.monotonic() - t_wait) >= 1.0:
+            log(f"OOM: čekání na referenční podklady (šablony) {waited:.0f} s")
     templates = collect_oom_templates(kp_cwd, built_refs=built_refs)
     # Prázdné šablony jsou OK: bez referenčních PNG je výchozí pohled
     # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty).

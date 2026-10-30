@@ -856,6 +856,44 @@ def test_build_reference_layers_only_ortho_and_katastr(tmp_path, monkeypatch):
     assert labels == ["Katastrální mapa"]
 
 
+def test_build_reference_layers_ortho_parallel_with_other_layers(tmp_path, monkeypatch):
+    """Ortofoto běží souběžně s ostatními vrstvami; pořadí klíčů (ortofoto první) a cache beze změny."""
+    import threading
+
+    from app.pipeline import reference_layers as rl
+
+    tpl = tmp_path / "job.png"
+    Image.new("RGB", (10, 10)).save(tpl)
+    tpl.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0.5\n9.5\n", encoding="utf-8")
+    katastr_started = threading.Event()
+
+    def fake_ortho(*_a, **_k):
+        assert katastr_started.wait(5), "ortofoto čeká na ostatní vrstvy"
+        return {"orthophoto": tmp_path / "o.jpg"}
+
+    def fake_wms(_wms, _layer, _bounds, _tpl, _pgw, dest, _wf, *, label="", **_k):
+        if label == "Katastrální mapa":
+            katastr_started.set()
+        return True
+
+    stored = {}
+    monkeypatch.setattr(rl, "fetch_orthophoto_wms", fake_ortho)
+    monkeypatch.setattr(rl, "fetch_cuzk_wms_png", fake_wms)
+    monkeypatch.setattr(rl, "png_has_content", lambda *_a: True)
+    monkeypatch.setattr(rl, "build_osm_reference", lambda *a, **k: True)
+    monkeypatch.setattr(rl, "fetch_hillshade_wms", lambda *a, **k: True)
+    monkeypatch.setattr(rl, "_try_load_references_cache", lambda *a, **k: None)
+    monkeypatch.setattr(rl, "_store_references_cache", lambda _d, _o, built, **k: stored.update(built))
+    monkeypatch.setattr(rl, "_with_katastr_vectors", lambda built, *a, **k: {**built, "katastr_vector": tmp_path / "k.gpkg"})
+    built = rl.build_reference_layers(
+        tmp_path, (14.0, 50.0, 14.01, 50.01), tpl, tpl.with_suffix(".pgw"), tmp_path / "ref"
+    )
+    keys = list(built)
+    assert keys[0] == "orthophoto" and keys[-1] == "katastr_vector"
+    assert {"osm", "ztm", "katastr", "dmpok"} <= set(keys)
+    assert "katastr_vector" not in stored and list(stored) == keys[:-1]
+
+
 def test_fetch_orthophoto_wms_tiles_parallel_keep_grid_order(tmp_path, monkeypatch):
     import random
     import time

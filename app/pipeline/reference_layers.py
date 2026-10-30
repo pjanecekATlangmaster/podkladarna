@@ -1410,15 +1410,17 @@ def build_reference_layers(
 
     built: dict[str, Path] = {}
 
-    try:
-        if want("orthophoto"):
-            built.update(
-                fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
-            )
-    except Exception as exc:
-        if log:
-            log_issue(log, f"Ortofoto: přeskočeno ({exc})")
+    def _orthophoto() -> dict[str, Path]:
+        try:
+            if want("orthophoto"):
+                return fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
+        except Exception as exc:
+            if log:
+                log_issue(log, f"Ortofoto: přeskočeno ({exc})")
+        return {}
+
     if only is not None:
+        built.update(_orthophoto())
         km_png = out_dir / "katastr.png"
         if want("katastr"):
             try:
@@ -1441,6 +1443,51 @@ def build_reference_layers(
             return _with_katastr_vectors(built, bbox_wgs84, out_dir, log=log)
         return built
 
+    # Ortofoto (nejdelší, jiná služba ČÚZK) běží souběžně s ostatními vrstvami; pořadí klíčů
+    # ve výsledku zůstává (ortofoto první), cache a šablony se tím nemění.
+    ortho_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-ortho")
+    ortho_fut = ortho_pool.submit(_orthophoto)
+    ortho_pool.shutdown(wait=False)
+    rest: dict[str, Path] = {}
+    try:
+        _fetch_other_layers(
+            rest, bounds, bbox_wgs84, template_png, template_pgw, out_dir, ref_wh, job_shade, log
+        )
+        vectors = _with_katastr_vectors({}, bbox_wgs84, out_dir, log=log)
+    finally:
+        built.update(ortho_fut.result())
+    built.update(rest)
+
+    try:
+        _store_references_cache(
+            cache_dir,
+            out_dir,
+            built,
+            bbox_wgs84=bbox_wgs84,
+            ref_wh=ref_wh,
+            osm_wh=osm_wh,
+            log=log,
+        )
+    except Exception as exc:
+        if log:
+            log(f"Referenční PNG: cache zápis selhal ({exc})")
+
+    built.update(vectors)
+    return built
+
+
+def _fetch_other_layers(
+    built: dict[str, Path],
+    bounds,
+    bbox_wgs84: tuple[float, float, float, float],
+    template_png: Path,
+    template_pgw: Path,
+    out_dir: Path,
+    ref_wh: tuple[int, int],
+    job_shade: Path | None,
+    log: callable | None,
+) -> None:
+    """Podklady kromě ortofota (OSM, ZTM, katastr, DTM kraje, DMP OK, stínování) po řadě do ``built``."""
     osm_png = out_dir / "osm.png"
     osm_pgw = osm_png.with_suffix(".pgw")
     try:
@@ -1563,22 +1610,6 @@ def build_reference_layers(
                 log_issue(log, f"{label}: přeskočeno ({exc})")
     if log and not hill_ok:
         log_issue(log, "Stínování: WMS ČÚZK nevrátil žádnou vrstvu")
-
-    try:
-        _store_references_cache(
-            cache_dir,
-            out_dir,
-            built,
-            bbox_wgs84=bbox_wgs84,
-            ref_wh=ref_wh,
-            osm_wh=osm_wh,
-            log=log,
-        )
-    except Exception as exc:
-        if log:
-            log(f"Referenční PNG: cache zápis selhal ({exc})")
-
-    return _with_katastr_vectors(built, bbox_wgs84, out_dir, log=log)
 
 
 def _derive_hillshade_from_job_shade(
