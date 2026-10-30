@@ -142,7 +142,7 @@ def test_road_parts_replace_osm_road_lines_and_keep_widths(tmp_path):
     feats = [
         line("road_3", [-1000, -1000], [-940, -1000]),  # uvnitř DTM plochy → duplicitní
         line("road_3", [-940, -1000], [-900, -1000]),  # pokračování za plochou → doplní se
-        line("bridge:road_3", [-960, -1010], [-960, -990]),  # most zůstává čárou
+        line("bridge:road_3", [-960, -1010], [-960, -1002]),  # most nic nekříží → zůstává čárou, bez hran
         line("path", [-1000, -980], [-940, -980]),
     ]
     (work / "osm_paths" / "paths_mixed.geojson").write_text(
@@ -153,8 +153,8 @@ def test_road_parts_replace_osm_road_lines_and_keep_widths(tmp_path):
     assert [p.name for p in parts] == ["Silnice (DTM + OSM)"] and parts[0].count == 1  # jedna sloučená plocha
     assert di.is_surface_road("road_2") and not di.is_surface_road("bridge:road_2")
     paths = op.build_osm_path_parts(work, **kw)
-    # most + pěšina + 2 hrany lávky 512.100 + pokračování silnice za plochou DTM čarou; uvnitř ji nahradila plocha
-    assert paths and paths[0].count == 5
+    # most + pěšina + pokračování silnice za plochou DTM čarou; uvnitř ji nahradila plocha
+    assert paths and paths[0].count == 3
     assert di.build_dtm_road_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
 
 

@@ -2538,6 +2538,12 @@ def test_build_osm_path_parts_adds_bridge_edges_only_in_sprint(tmp_path):
         )
         from app.pipeline.oom_symbol_map import symbol_index_for_code
 
+        from app.pipeline import dtm_import
+
+        # lávka přes cestu bez mostu z DTM: hrany 512.100 kreslí ``build_dtm_bridge_parts`` (sprint)
+        parts += dtm_import.build_dtm_bridge_parts(
+            tmp_path, preset_id=preset, scale=scale, ref_x=x0, ref_y=y0, grivation_deg=0.0, path_source=op.PATH_SOURCE_OSM
+        )
         idx = symbol_index_for_code(preset, scale, op.BRIDGE_EDGE_CODE)
         xml = "\n".join(p.objects_xml for p in parts)
         return idx, xml.count(f'symbol="{idx}"') if idx is not None else 0
