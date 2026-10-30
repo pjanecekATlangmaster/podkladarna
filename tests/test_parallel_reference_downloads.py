@@ -8,6 +8,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from app.pipeline.job_grid import write_job_grid
 from app.pipeline.job_progress import JobProgress
 from app.pipeline.preview import ensure_georef_template
@@ -376,3 +378,73 @@ def test_vector_prefetch_results_and_errors(tmp_path: Path, monkeypatch):
     vp.streets()
     assert streets == [1]
     assert any(ln.startswith("[vektory] RÚIAN budovy: přeskočeno") for ln in lines)
+
+
+@pytest.mark.parametrize(
+    ("preset_id", "deferred"),
+    [("forest_10000", True), ("sprint_2_5m", False)],
+)
+def test_package_output_defers_refs_join_except_sprint(
+    tmp_path: Path, monkeypatch, preset_id: str, deferred: bool
+):
+    """Les/MTBO: join podkladů až uvnitř první mapy (jednou); sprint hned, built_refs je dict."""
+    from types import SimpleNamespace
+
+    from app.pipeline import oom_preview, run_job
+
+    kp_cwd = tmp_path / "work"
+    ref_dir = kp_cwd / "references"
+    ref_dir.mkdir(parents=True)
+    ortho = ref_dir / "orthophoto.jpg"
+    ortho.write_bytes(b"x")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    events: list[str] = []
+    seen_refs: list[object] = []
+    captured: dict = {}
+
+    def fake_join(*_a, **_k):
+        events.append("join")
+        return {"orthophoto": ortho}, ["orthophoto.jpg"]
+
+    def fake_prepare(_cwd, dest, **kw):
+        refs = kw["built_refs"]
+        seen_refs.append(refs)
+        events.append("prepare")
+        if callable(refs):
+            refs()
+        Path(dest).write_bytes(b"")
+        return Path(dest)
+
+    def fake_zip(*_a, **kw):
+        captured["metadata"] = kw["metadata"]
+
+    monkeypatch.setattr(run_job, "join_reference_download", fake_join)
+    monkeypatch.setattr(run_job, "prepare_oom_map", fake_prepare)
+    monkeypatch.setattr(run_job, "fetch_ruian_buildings_for_bbox", lambda *a, **k: None)
+    monkeypatch.setattr(run_job, "fetch_aopk_trees_for_bbox", lambda *a, **k: None)
+    monkeypatch.setattr(run_job, "write_job_oom_preview", lambda *a, **k: None)
+    monkeypatch.setattr(run_job, "build_oom_zip", fake_zip)
+    monkeypatch.setattr(oom_preview, "convert_omap_to_ocd", lambda *a, **k: None)
+
+    run_job._package_output(
+        kp_cwd,
+        output_dir,
+        None,
+        {"bbox_wgs84": [14.35, 50.02, 14.36, 50.03]},
+        lambda *_a, **_k: None,
+        preset_id=preset_id,
+        ref_download=SimpleNamespace(reference_dir=ref_dir),
+    )
+
+    assert events.count("join") == 1
+    assert seen_refs
+    if deferred:
+        assert events[0] == "prepare"
+        assert events.index("join") == 1  # uvnitř první mapy
+        assert callable(seen_refs[0])
+    else:
+        assert events[0] == "join"
+        assert isinstance(seen_refs[0], dict)
+    assert captured["metadata"]["reference_layers"] == ["orthophoto.jpg"]

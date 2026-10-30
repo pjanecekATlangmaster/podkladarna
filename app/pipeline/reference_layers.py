@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app.download_cache import (
@@ -60,6 +61,8 @@ ORTHO_MAX_TILE_PX = 8000
 _HTTP_RETRIES = 3
 _HTTP_RETRY_WAIT_S = 2.0
 ORTHO_JPEG_QUALITY = 95
+# Dlaždice ortofota podkladu stahované naráz (sériově ~10 min u Prahy 7 × 7 km; víc nezatěžovat ČÚZK).
+ORTHO_TILE_WORKERS = 2
 # Katastr: bílé (a téměř bílé) pixely → alfa 0, když server TRANSPARENT ignoruje.
 KM_WHITE_THRESHOLD = 250
 # Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice,
@@ -873,26 +876,34 @@ def fetch_orthophoto_wms(
     dest_dir.mkdir(parents=True, exist_ok=True)
     for old in dest_dir.glob("orthophoto*"):
         old.unlink(missing_ok=True)
+    def _tile(cell) -> tuple[str, Path]:
+        r, c, x0, y0, x1, y1 = cell
+        stem = ortho_tile_stem(r, c, single=single)
+        jpg = dest_dir / f"{stem}.jpg"
+        tile_bounds = _pixel_window_bounds(bounds_5514, tw, th, (x0, y0, x1, y1))
+        ok = _download_wms_raster(
+            ORTOFOTO_WMS,
+            "0",
+            tile_bounds,
+            jpg,
+            world_file_for(jpg),
+            width=x1 - x0,
+            height=y1 - y0,
+            image_format="image/jpeg",
+            log=log,
+        )
+        if not ok:
+            raise RuntimeError(f"dlaždice {stem} se nepodařila")
+        return stem, jpg
+
     built: dict[str, Path] = {}
     try:
-        for r, c, x0, y0, x1, y1 in grid:
-            stem = ortho_tile_stem(r, c, single=single)
-            jpg = dest_dir / f"{stem}.jpg"
-            tile_bounds = _pixel_window_bounds(bounds_5514, tw, th, (x0, y0, x1, y1))
-            ok = _download_wms_raster(
-                ORTOFOTO_WMS,
-                "0",
-                tile_bounds,
-                jpg,
-                world_file_for(jpg),
-                width=x1 - x0,
-                height=y1 - y0,
-                image_format="image/jpeg",
-                log=log,
-            )
-            if not ok:
-                raise RuntimeError(f"dlaždice {stem} se nepodařila")
-            built[stem] = jpg
+        # Dlaždice souběžně (každá má vlastní pracovní složku), pořadí klíčů jako mřížka.
+        with ThreadPoolExecutor(
+            max_workers=min(ORTHO_TILE_WORKERS, len(grid)), thread_name_prefix="ortho-tile"
+        ) as pool:
+            for stem, jpg in pool.map(_tile, grid):
+                built[stem] = jpg
     except Exception:
         for old in dest_dir.glob("orthophoto*"):
             old.unlink(missing_ok=True)

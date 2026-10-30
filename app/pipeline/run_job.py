@@ -975,28 +975,52 @@ def _package_output(
 
     if want_zip:
         want_refs = bool(options.get("output_references", True))
-        built_refs, ref_layers = join_reference_download(
-            ref_download,
-            log=log,
-            want_refs=want_refs,
-            bbox=bbox,
-            work_dir=kp_cwd,
-            job_dir=job_dir,
-            force_refresh=force_refresh_enabled(options),
-            progress=progress,
-        )
+        refs_joined: dict[str, tuple[dict[str, Path], list[str]]] = {}
+
+        def _join_refs(join_progress: JobProgress | None = None) -> dict[str, Path]:
+            """Join podkladů jen jednou (hned, nebo až před zápisem první mapy)."""
+            if "refs" not in refs_joined:
+                refs_joined["refs"] = join_reference_download(
+                    ref_download,
+                    log=log,
+                    want_refs=want_refs,
+                    bbox=bbox,
+                    work_dir=kp_cwd,
+                    job_dir=job_dir,
+                    force_refresh=force_refresh_enabled(options),
+                    progress=join_progress,
+                )
+            return refs_joined["refs"][0]
+
+        def _metadata() -> dict:
+            ref_layers = refs_joined["refs"][1] if "refs" in refs_joined else []
+            meta = oom_metadata(
+                preset_id,
+                preset,
+                options,
+                job_name,
+                reference_layers=ref_layers or None,
+                lidar_sources=options.get("_lidar_sources"),
+            )
+            meta["output_georef"] = output_georef_enabled(options)
+            return meta
+
+        # Les a MTBO potřebují z podkladů jen seznam šablon .omap → sestavení na stahování (ortofoto ~10 min)
+        # nečeká a join je až před zápisem mapy. Sprint čte dlaždice ortofota (maska zeleně ulic), čeká hned.
+        defer_refs = bool(bbox) and ref_download is not None and not job_has_sprint(preset_id, options)
+        if defer_refs:
+            if progress is not None:
+                progress.begin("referenční podklady")
+            log("Stahování podkladů běží dál na pozadí; šablony se doplní před zápisem mapy.")
+            if progress is not None:
+                progress.done()
+            built_refs = lambda: _join_refs() or None  # noqa: E731  # vyhodnotí až _prepare_oom_map
+        else:
+            built_refs = _join_refs(progress)
         if ref_download is not None:
             reference_dir = ref_download.reference_dir
 
-        meta = oom_metadata(
-            preset_id,
-            preset,
-            options,
-            job_name,
-            reference_layers=ref_layers or None,
-            lidar_sources=options.get("_lidar_sources"),
-        )
-        meta["output_georef"] = output_georef_enabled(options)
+        meta = _metadata()
         omap_paths: list[Path] = []
         certain_paths: list[Path] = []
         ruian_path: Path | None = None
@@ -1144,6 +1168,9 @@ def _package_output(
                     else:
                         log_issue(log, f"OOM: {variant_name} nevytvořeno")
 
+            if defer_refs:
+                built_refs = _join_refs()  # i když žádná mapa nevznikla: podklady jdou do ZIPu
+                meta = _metadata()
             t_prev = time.monotonic()
             try:
                 # Web/georef náhled: vnitřní timeout + catch; selhání nesmí
