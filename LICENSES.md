@@ -26,12 +26,30 @@ LiDAR a polohopis se stahují jako otevřená data Zeměměřického úřadu / �
 - [DMP OK](https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/) — digitální model povrchu (obrazová korelace)
 - [ZABAGED®](https://geoportal.cuzk.gov.cz/) — polohopis (ArcGIS REST / Geoprohlížeč)
 - [RÚIAN / INSPIRE](https://ags.cuzk.gov.cz/arcgis/rest/services/RUIAN/MapServer) — budovy (`StavebniObjekt`) jako SHP podklad ve `zabaged/`
+- Ortofoto ČÚZK ([WMS ORTOFOTO](https://ags.cuzk.gov.cz/arcgis1/services/ORTOFOTO/MapServer/WMSServer)) — podkladová vrstva v `references/`
+  a podklad pro rozlišení louky / drsného terénu a zeleně
+- Katastrální mapa (WMS ČÚZK, [services.cuzk.gov.cz](https://services.cuzk.gov.cz/wms/local-km-wms.asp)) — podkladová vrstva v `references/`
 
 Licence: [Creative Commons Uveďte původ 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs).
 
 Podmínky ČÚZK: [Podmínky poskytování prostorových dat](https://www.cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/Podminky-poskytovani-prostorovych-dat-CUZK.aspx).
 
 Citace na tiskových výstupech: **ČÚZK, [rok]** (rok = aktuálnost použitých dat).
+
+## DTM kraje (DMVS)
+
+Zaměřený polohopis (chodníky, silnice, budovy, schodiště, ploty, mosty…) se bere z
+**digitální technické mapy kraje**, kterou vede kraj a zpřístupňuje ji ČÚZK v Informačním
+systému DMVS (veřejné datové sady `ZPS`). Veřejná data jsou dostupná zdarma a bez přihlášení
+(„bez jakýchkoliv podmínek“); informační systém DMVS byl vybudován z IROP (spolufinancováno
+Evropskou unií).
+
+U těchto datových sad není výslovná licence (např. CC BY) uvedena a podmínky poskytování dat
+ČÚZK (CC BY 4.0, „ČÚZK, [rok]“) DTM kraje výslovně neřeší. Využití dat ve výstupech Podkladárny
+je ale potvrzeno. Zdroj se uvádí v duchu těchto podmínek: **DTM kraje · ČÚZK / DMVS, [rok]**.
+
+- [DMVS – poskytování dat](https://cuzk.gov.cz/DMVS/Poskytovani-dat.aspx)
+- [Projekt Vybudování IS DMVS ČR (IROP)](https://cuzk.gov.cz/O-resortu/Strukturalni-fondy/Projekty-CUZK-z-IROP/Projekt-Vybudovani-IS-DMVS-CR.aspx)
 
 ## AOPK památné stromy (CC BY 4.0)
 

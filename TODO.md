@@ -11,8 +11,9 @@ v .omap, cache, odhad času). Polygon jde vždy převést na obalový obdélník
 Přínos: hlavně čistší výstup (žádné objekty v nezajímavých místech, méně
 objektů pro OCAD) a limit plochy by šel počítat z polygonu (protáhlá území).
 Zrychlení jen částečné – ořez listu čte vždy celý list; zrychlí se kroky po
-bodech (sloučení mračna, DEM, vegetace) úměrně vynechané ploše. Odhad: polygon
-na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
+bodech (sloučení mračna, DEM, vegetace) úměrně vynechané ploše. Dřívější odhad:
+polygon na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %); limit výběru je
+dnes 25 km² (3.2.2), časy nově neměřeny.
 
 1. fáze – polygon jako maska (~2–3 dny):
    - kreslení polygonu v mapě (vrcholy, úchyty jako u obdélníku), obdélník
@@ -22,7 +23,8 @@ na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
    - PDAL ořez mračna polygonem (`filters.crop` s WKT);
    - ořez vektorů a objektů .omap polygonem (dnes `clip_ring` /
      `clip_polyline` jen na obdélník), ohraničení AOI v .omap jako polygon;
-   - limit: plocha polygonu ≤ 36 km² a obalový obdélník ≤ ~60 km² (rastry).
+   - limit: plocha polygonu ≤ 25 km² (`MAX_BBOX_AREA_KM2`); limit obalového
+     obdélníku pro rastry znovu určit (dřívější ~60 km² platil při limitu 36 km²).
 2. fáze (podle potřeby): maskování rastrů, výběr jen nutných listů SM5,
    cache klíčovaná polygonem.
 
@@ -30,7 +32,8 @@ na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
 
 - Volba „Obsah mapy“: jen podklady + vrstevnice + budovy (+ cesty) vs. plná
   automatická mapa; plošné symboly (louky, zpevněné) mapař nepoužije.
-- Vyhlazení schodovitých okrajů ploch z rastru.
+- Vyhlazení schodovitých okrajů ploch z rastru. HOTOVO (3.1.0, volba
+  `veg_smooth` pro porosty 401–410 v lese a MTBO, viz DEV.md „Volby jobu a limity“).
 - Vlastní šablona mapového klíče (nahrát .omap; import jde podle kódů značek)
   a výchozí ISSprOM 2019-2 rev. 6 (chybí např. trojúhelníky víceúrovňových
   staveb). Uživatel hledá úplnou sadu pro OOM.
@@ -66,14 +69,15 @@ na 60 % obdélníku 6×6 km ušetří ~8 min z 55 (~15 %).
   data; .ru mrtvé, odstraněno). Záloha `api.openstreetmap.org/api/0.6/map`
   funguje spolehlivě, ale:
   - `parse_osm_api_map_xml` ignoruje relace (multipolygony: budovy s dvorky,
-    zahrady, parkoviště, hřiště, bare_rock…) → při záloze chybí tyto objekty,
-    a dlaždice se přesto zacachuje jako úplná;
+    zahrady, parkoviště, hřiště, bare_rock…) → při záloze tyto objekty chybí
+    (dlaždice se už necachuje jako úplná a log to hlásí – HOTOVO);
   - HTTP 400 při > 50 000 uzlech (husté centrum) se neřeší – dlaždici půlit;
-  - selhaná zrcadla si pamatovat v rámci jobu (neopakovat u každé dlaždice);
-  - zalogovat, že záloha je neúplná.
-  - Overpass s API klíčem (NextGIS, FairwayMapper, Geofabrik, Tracestrack,
-    Overspan…) brzy prozkoumat; URL s klíčem číst z proměnné prostředí
-    (např. `PODKLADARNA_OVERPASS_URL`) a zkoušet jako první, klíč nedávat do repa.
+  - HOTOVO: selhaná zrcadla se pamatují (`_MIRROR_FAILED_AT`, `MIRROR_COOLDOWN_S`)
+    a záloha se loguje jako neúplná;
+  - HOTOVO: vlastní Overpass URL (např. s API klíčem) se čtou z proměnné
+    prostředí `PODKLADARNA_OVERPASS_URLS` (čárkami oddělené) a zkoušejí se jako první;
+    zbývá jen prozkoumat poskytovatele s klíčem (NextGIS, FairwayMapper, Geofabrik,
+    Tracestrack, Overspan…), klíč nedávat do repa.
 
 - Krok DEM z DMR 5G trval na NAS u 6×6 km 9 min (lokálně stejná pipeline
   21 s, u 5,4 km² na NAS 6 s) – zjistit příčinu při dalším velkém jobu.
