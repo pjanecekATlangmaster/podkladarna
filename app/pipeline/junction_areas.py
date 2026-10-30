@@ -327,16 +327,8 @@ def mouth_entries(area, lines: list[tuple]) -> list[tuple]:
     return out
 
 
-def funnel_mouths(area, lines: list[tuple], taper_m: float):
-    """Plocha ``area`` bez zubů v ústích: tam, kde čára ``(LineString, půlka šířky ústí)`` vstupuje do plochy, plocha
-    končí kolmo na čáru v místě vstupu (nic za ním do ``MOUTH_OUTSIDE_M``) a v délce ``taper_m`` od vstupu se ořízne
-    na lichoběžník od šířky ústí rozšiřující se o ``MOUTH_FLARE``. Ústí jiných čar (jejich lichoběžníky a pásy) ořez
-    nezasáhne."""
-    return shape_mouths(area, mouth_entries(area, lines), taper_m)
-
-
 def shape_mouths(area, entries: list[tuple], taper_m: float, drop_small: bool = True, side_m: float = MOUTH_OUTSIDE_M):
-    """Tvar ústí podle ``entries`` (``mouth_entries``) – viz ``funnel_mouths``. ``drop_small`` zahodí kusy pod
+    """Tvar ústí podle ``entries`` (``mouth_entries``) – plocha ``area`` bez zubů v ústích. ``drop_small`` zahodí kusy pod
     ``AREA_MIN_M2``; za ústím se plocha ořízne do stran o ``side_m`` dál než trychtýř."""
     from shapely.geometry import Point, Polygon
     from shapely.ops import unary_union

@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 from app.pipeline.vegetation_chm import (
     CHM_GREEN_DENSE_MAX_M,
@@ -32,24 +31,6 @@ def test_default_thresholds_calibrated_vs_kp():
     assert WHITE_EDGE_STRICT_M >= CHM_GREEN_DENSE_MAX_M + 5.0
     assert WHITE_MORPH_OPEN_ITERS >= 1
     assert OPEN_REINFORCE_ITERS >= 0
-
-
-def test_green_min_area_constants_legacy():
-    """Legacy soft_min konstanty (dokumentace); keep_veg_polygon je off."""
-    from app.pipeline.vegetation_chm import (
-        _MIN_AREA_M2,
-        _MIN_GREEN_AREA_M2,
-        _min_area_for_code,
-    )
-    from app.pipeline.veg_size_filter import VEG_SIZE_FILTER_ENABLED, keep_veg_polygon
-    from shapely.geometry import box
-
-    assert VEG_SIZE_FILTER_ENABLED is False
-    assert _MIN_AREA_M2 == pytest.approx(12.0)
-    assert _MIN_GREEN_AREA_M2 == pytest.approx(25.0)
-    assert _min_area_for_code("401") == pytest.approx(12.0)
-    assert _min_area_for_code("408") == pytest.approx(25.0)
-    assert keep_veg_polygon("408", box(0, 0, 3, 3))[0] is True
 
 
 def test_classify_open_vs_white_thresholds():

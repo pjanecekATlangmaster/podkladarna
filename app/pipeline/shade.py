@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.download_cache import file_fingerprint, persist_shade, try_restore_shade
-from app.pipeline.dem_prep import DEM_DIR_NAME
+from app.pipeline.cliffs_dem import dem_filled_path
 from app.pipeline.job_grid import JobGrid
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.job_progress import log_issue
@@ -37,13 +37,6 @@ def shade_work_dir(work_dir: Path) -> Path:
     path = Path(work_dir) / SHADE_DIR_NAME
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def dem_filled_path(work_dir: Path) -> Path | None:
-    path = Path(work_dir) / DEM_DIR_NAME / "dem_filled.tif"
-    if path.is_file() and path.stat().st_size > 500:
-        return path
-    return None
 
 
 def resolve_shade_png(work_dir: Path) -> Path | None:

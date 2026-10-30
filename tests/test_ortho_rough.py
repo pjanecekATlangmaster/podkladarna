@@ -1,7 +1,6 @@
 """Ortofoto 401/403: drsná část louky (nálet, paseka) → 403, hladká louka zůstane 401."""
 
 import numpy as np
-import pytest
 
 from app.pipeline import ortho_rough
 

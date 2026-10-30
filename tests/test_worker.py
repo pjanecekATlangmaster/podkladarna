@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib
 import subprocess
 
-import pytest
 
 from app import db
 

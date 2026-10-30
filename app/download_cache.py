@@ -369,7 +369,7 @@ def _copy_named_artifacts(
 
 
 def _laz_usable(path: Path) -> bool:
-    """Shodný práh jako ``prepare_lidar.MIN_LAZ_BYTES`` (prázdný ořez < 1 KB)."""
+    """Prázdný ořez (< 1 KB) není použitelný LAZ."""
     try:
         return path.is_file() and path.stat().st_size >= LIDAR_MIN_BYTES
     except OSError:

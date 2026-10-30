@@ -12,7 +12,6 @@ from app.pipeline.uzitecne_vectors import (
     write_cliff_inspection_vectors,
     write_line_shapefile,
     write_polygon_shapefile,
-    write_vegetation_discarded_shp,
 )
 
 
@@ -118,16 +117,3 @@ def test_build_oom_zip_includes_uzitecne(tmp_path: Path):
     assert "uzitecne/pouzite/srazy_104.shp" in names
     readme = zipfile.ZipFile(dest).read("README_OOM.txt").decode("utf-8")
     assert "uzitecne" in readme
-
-
-def test_vegetation_discarded_shp(tmp_path: Path):
-    try:
-        from shapely.geometry import box
-    except ImportError:
-        return
-    out = write_vegetation_discarded_shp(
-        tmp_path / "vyhozene_vegetace.shp",
-        [(2, "406", box(0, 0, 2, 2))],
-        reason="min_plocha",
-    )
-    assert out is not None and out.is_file()

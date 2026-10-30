@@ -841,7 +841,6 @@ def test_dtm_buildings_replace_osm_twins_and_keep_osm_only_buildings(tmp_path):
 
 
 def test_touching_dtm_buildings_are_fused_into_one_object_and_shp_uses_dtm(tmp_path):
-    from app.pipeline import osm_paths as op
 
     work = tmp_path
     (work / "dtm").mkdir()
@@ -1662,32 +1661,6 @@ def test_corridor_junction_omit_from_drawn_road_ends():
     assert cut.length == pytest.approx(2 * r + 2 * (2.0 + di.JUNCTION_EXTRA_M), abs=0.05)  # čelo + horní hrana u užší čáry
     assert omit.contains(Point(100 + 0.2, 6 + r - 0.1)) and not omit.contains(Point(99.0, 6 + r + 0.2))
     assert not omit.contains(Point(98, 12)) and not omit.contains(Point(50, 35))
-
-
-def test_drawn_path_ends_roundtrip():
-    from app.pipeline.oom_coords import projected_to_map_coord
-    from app.pipeline.oom_import import OomObjectPart
-    from app.pipeline.oom_symbols import symbol_set_path
-    from app.pipeline.path_clearance import _symbol_info, drawn_path_ends
-
-    kw = dict(preset_id="forest_10000", scale=10000, ref_x=-900.0, ref_y=-1000.0, grivation_deg=3.0)
-    info = _symbol_info(symbol_set_path("forest_10000", 10000))
-    sym = next(i for i, (major, kind) in info.items() if major == 502 and kind == "line")
-    a = projected_to_map_coord(-950.0, -1000.0, ref_x=-900.0, ref_y=-1000.0, scale=10000, grivation_deg=3.0)
-    b = projected_to_map_coord(-850.0, -990.0, ref_x=-900.0, ref_y=-1000.0, scale=10000, grivation_deg=3.0)
-    xml = f'<object type="1" symbol="{sym}"><coords count="2">{a[0]} {a[1]};{b[0]} {b[1]};</coords></object>'
-    ends = drawn_path_ends([OomObjectPart("x", xml, 1)], majors=frozenset({502}), **kw)
-    assert len(ends) == 2
-    assert abs(ends[0][0] + 950) < 0.05 and abs(ends[0][1] + 1000) < 0.05
-    assert abs(ends[1][0] + 850) < 0.05 and abs(ends[1][1] + 990) < 0.05
-    assert ends[0][2] > 1.0  # půlka šířky 502 v metrech
-    # směr od konce dovnitř čáry (jednotkový): z (-950, -1000) k (-850, -990) a zpět
-    import math
-
-    ux, uy = 100 / math.hypot(100, 10), 10 / math.hypot(100, 10)
-    assert abs(ends[0][3] - ux) < 0.01 and abs(ends[0][4] - uy) < 0.01
-    assert abs(ends[1][3] + ux) < 0.01 and abs(ends[1][4] + uy) < 0.01
-    assert drawn_path_ends([OomObjectPart("x", xml, 1)], majors=frozenset({815}), **kw) == []
 
 
 def test_corridor_adjacent_paved_ignores_slivers(tmp_path, monkeypatch):

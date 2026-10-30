@@ -117,9 +117,6 @@ class _Paths:
     def near(self, geom, extra):
         return [int(k) for k in self.tree.query(geom.buffer(self.reach + extra))]
 
-    def min_dist(self, geom, ks) -> float:
-        return min((self.geoms[k].distance(geom) for k in ks), default=math.inf)
-
     def corridor(self, ks, extra):
         from shapely.ops import unary_union
 
@@ -305,7 +302,7 @@ def _move_line(pts, paths: _Paths, extra, max_shift, step):
 def _tick_side_faces(pts, paths: _Paths, ks) -> bool:
     """True, když nejbližší cesta leží na straně čárek srázu (vpravo od směru čáry; ``<coords>0 0;0 800</coords>``
     mid-symbolu 104 / 201 = +y, v mapě y dolů)."""
-    from shapely.geometry import LineString, Point
+    from shapely.geometry import LineString
 
     line = LineString([(p[0], p[1]) for p in pts])
     best = None
@@ -376,57 +373,6 @@ def _drawn_path_objects(parts, info, widths) -> list[tuple[list[tuple[float, flo
             pts = _flatten(_parse_coords(cm.group(1)))
             if len(pts) >= 2:
                 out.append((pts, width * 1000.0 / 2.0))
-    return out
-
-
-def drawn_path_ends(
-    parts: list[OomObjectPart],
-    *,
-    preset_id: str,
-    scale: int,
-    ref_x: float,
-    ref_y: float,
-    grivation_deg: float,
-    majors: frozenset[int],
-) -> list[tuple[float, float, float, float, float]]:
-    """Konce kreslených čar cest (hlavní číslo kódu v ``majors``) v hotové mapě v S-JTSK:
-    ``[(x, y, půlka šířky v m, dx, dy)]``, kde ``(dx, dy)`` je jednotkový směr od konce dovnitř čáry
-    (ústí v okraji plochy se vynechá ve směru čáry, viz ``dtm_import.corridor_junction_omit``)."""
-    from app.pipeline.oom_coords import map_to_projected
-    from app.pipeline.oom_symbol_map import _symbol_widths
-    from app.pipeline.oom_symbols import symbol_set_path
-
-    try:
-        set_path = symbol_set_path(preset_id, scale)
-        info = _symbol_info(set_path)
-        widths = _symbol_widths(set_path)
-    except Exception:
-        return []
-    out = []
-    for part in parts:
-        for m in _OBJECT_RE.finditer(part.objects_xml):
-            if m.group(2) != "1":
-                continue
-            sym = int(m.group(3))
-            major, kind = info.get(sym, (0, "other"))
-            if kind != "line" or major not in majors:
-                continue
-            cm = _COORDS_RE.search(m.group(4))
-            if not cm:
-                continue
-            pts = _parse_coords(cm.group(1))
-            if len(pts) < 2:
-                continue
-            half_m = widths.get(sym, 0.0) / 2.0 * scale / 1000.0
-            proj = [map_to_projected(mx, my, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg) for mx, my, _f in pts]
-            for end, inner in ((proj[0], proj[1:]), (proj[-1], proj[-2::-1])):
-                dx = dy = 0.0
-                for nx, ny in inner:  # první vnitřní bod dál než 1 cm (duplicitní vrcholy)
-                    d = math.hypot(nx - end[0], ny - end[1])
-                    if d > 0.01:
-                        dx, dy = (nx - end[0]) / d, (ny - end[1]) / d
-                        break
-                out.append((end[0], end[1], half_m, dx, dy))
     return out
 
 

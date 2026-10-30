@@ -4,6 +4,7 @@ import json
 import math
 from pathlib import Path
 
+from app.pipeline.cliff_merge import _point_seg_dist
 from app.pipeline.dem_prep import DEM_DIR_NAME, _pick_ground_laz
 from app.pipeline.job_grid import resolve_job_extent
 from app.pipeline.job_options import FORMLINE_MODE_DEFAULT, FORMLINE_MODES
@@ -138,18 +139,6 @@ def contour_simplify_tol_m(
 ) -> float:
     """Douglas–Peucker práh před převodem na Bézier (~Mapper 0,08 mm)."""
     return paper_mm_to_ground_m(threshold_mm, scale)
-
-
-def _point_seg_dist(
-    px: float, py: float, ax: float, ay: float, bx: float, by: float
-) -> float:
-    dx = bx - ax
-    dy = by - ay
-    denom = dx * dx + dy * dy
-    if denom < 1e-18:
-        return math.hypot(px - ax, py - ay)
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / denom))
-    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 
 
 def simplify_polyline_dp(

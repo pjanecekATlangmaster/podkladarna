@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-GML = "http://www.opengis.net/gml/3.2"
 _OBJTYP = "objtyp"
 
 

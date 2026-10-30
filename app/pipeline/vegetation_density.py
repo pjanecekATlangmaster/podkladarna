@@ -38,7 +38,6 @@ from app.pipeline.prepare_lidar import log_step
 # 0 bílý les, 1 = 401, 2 = 406, 3 = 408, 4 = 410, 5 = 403 (drsný otevřený terén z ortofota).
 WHITE, OPEN, LIGHT, MID, DENSE, ROUGH = 0, 1, 2, 3, 4, 5
 
-_NO_ZONE_ROOF = 1e9
 
 
 @dataclass(frozen=True)
@@ -845,7 +844,7 @@ def generate_job_vegetation_density(
     *,
     params: DensityVegeParams = DEFAULT_PARAMS,
     log=None,
-    veg_size_profile: str = "default",
+    veg_size_profile: str = "default",  # bez účinku; odstraní se po úpravě run_job
     wait_chm=None,
     buildings_geojson: Path | None = None,
 ) -> Path | None:
@@ -1015,5 +1014,4 @@ def generate_job_vegetation_density(
         dest,
         log=log,
         label="hustota bodů",
-        veg_size_profile=veg_size_profile,
     )
