@@ -31,7 +31,7 @@ Podkladárna je webová služba pro generování orientačních podkladů z ČÚ
 
 ### Jen se souhlasem Petra
 
-- Spouštět `./update-nas-ab.sh`, `./deploy-nas.sh` nebo `./update-nas.sh` na ostré NAS, spouštět GitHub akci „Promote to stable“; do produkce na NAS nesahat vůbec.
+- Spouštět `./update-nas-ab.sh` na ostré NAS, spouštět GitHub akci „Promote to stable“; do produkce na NAS nesahat vůbec.
 - Mazat data, joby, cache nebo Docker image.
 - Měnit DNS, router, Synology reverse proxy, certifikáty nebo firewall.
 - Měnit produkční `.env`, SMTP údaje nebo secrets (ani `.env` lokálně nepřepisovat).
@@ -88,7 +88,6 @@ Agenti jsou v `.claude/agents/` (každý má `maxTurns` a nízký/střední `eff
 - `docker-compose.dev.yml` — lokální vývojový stack
 - `docker-compose.nas-ab.yml` — A/B compose pro Synology NAS: A ostrá (`podkladarna`, port 8672, `:stable`, `./data`) a B test (`podkladarna-test`, port 8673, `:latest`, `./data-test`)
 - `update-nas-ab.sh` — aktualizace A/B (`test` | `stable` | `both`, `--if-idle` pro cron)
-- `docker-compose.nas.yml`, `deploy-nas.sh`, `update-nas.sh` — legacy jednoinstanční režim; s A/B na NAS nepoužívat (obě compose mají `container_name: podkladarna`)
 - `nas-lib.sh` — sdílené funkce pro NAS deploy
 - `.github/workflows/` — GitHub Actions (`test.yml`, `docker.yml`, `promote-stable.yml` — ruční přetagování `:latest` → `:stable`)
 - `DEV.md` — podrobný vývojový workflow; sekce „Ladění na testovací verzi B a dohledání DTM objektu podle ID“ (pt.kibos.link, `data-test\jobs`, cache a stahování DTM balíků)
@@ -165,7 +164,7 @@ curl http://127.0.0.1:8672/api/jobs/<id>/log
 
 ```bash
 # log na NAS
-docker compose -f docker-compose.nas.yml logs --tail=100
+docker compose -f docker-compose.nas-ab.yml logs --tail=100 podkladarna
 ```
 
 ## Verze a Novinky
@@ -245,8 +244,6 @@ sudo ./update-nas-ab.sh test --if-idle  # pro cron: při běžícím jobu restar
 
 Tok: merge do `master` → `:latest` → B (cron) → ověření → „Promote to stable“ → `sudo ./update-nas-ab.sh stable`.
 Rollback A: v `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh stable`.
-
-**Nepoužívat** `update-nas.sh`, `deploy-nas.sh` ani ruční `docker compose -f docker-compose.nas.yml` na NAS s A/B: obě compose mají `container_name: podkladarna` a rozbila by A.
 
 Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažení ZIP a otevření v OpenOrienteering Mapperu, u SMTP e-mail s odkazem) je popsán v `DEPLOY.md`.
 
@@ -394,7 +391,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 ## Konfigurace a tajemství
 
 - Lokálně vycházej z `.env.example`; skutečný `.env` necommituj.
-- Na NAS je `.env` vedle `docker-compose.nas.yml`.
+- Na NAS je `.env` vedle `docker-compose.nas-ab.yml`.
 - `GHCR_OWNER=pjanecekatlangmaster` musí být lowercase.
 - SMTP je nutné pro privátní joby a zpětnou vazbu.
 - Důležité proměnné: `SMTP_HOST`, `SMTP_PORT`, `SMTP_ENCRYPTION`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `PUBLIC_BASE_URL`, `FEEDBACK_TO`, `PRIVATE_JOB_RETENTION_HOURS`.
