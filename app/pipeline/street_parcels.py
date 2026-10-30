@@ -55,6 +55,17 @@ MIN_OSM_LENGTH_M = 10.0
 # Kusy menší než 0,5 mm² mapy a výběžky užší než 0,4 mm se zahodí.
 MIN_AREA_MM2 = 0.5
 MIN_WIDTH_MM = 0.4
+# Zeleň z ortofota ubírá z parcely jen spolehlivě doloženou: pás širší než GREEN_MIN_WIDTH_M a kus aspoň
+# GREEN_MIN_AREA_M2, obrys vyhlazený o GREEN_SIMPLIFY_M. Koruny stromů nad okrajem ulice ji nevykousnou (zuby
+# po pixelech 0,5 m, Petr 2026-10-30, cesta do Klukovic).
+GREEN_MIN_WIDTH_M = 2.0
+GREEN_MIN_AREA_M2 = 20.0
+GREEN_SIMPLIFY_M = 0.5
+# Plocha z DTM / OSM / ZABAGED (501) má přednost i s okrajem: parcela se pod ní ani do tohoto pásu kolem ní
+# nekreslí (m v terénu), jinak by se pod pevnou hranou objevila druhá kresba (Wassermannova).
+PAVED_CUT_M = 3.0
+# Mostovka (501 na mostě) parcelu pod mostem neořezává: silnice pod lávkou bývá jen v parcele (Wassermannova).
+BRIDGE_PART_PREFIX = "Mosty"
 
 
 def is_paved_street_highway(highway: str) -> bool:
@@ -263,6 +274,22 @@ def load_street_osm_lines(work_dir: Path) -> list[tuple[list[tuple[float, float]
     return out
 
 
+def reliable_green(green):
+    """Jen spolehlivě doložená zeleň (shapely) nebo None: pásy širší než ``GREEN_MIN_WIDTH_M``, kusy od
+    ``GREEN_MIN_AREA_M2``, vyhlazený obrys."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    if green is None or green.is_empty:
+        return None
+    r = GREEN_MIN_WIDTH_M / 2.0
+    g = green.buffer(-r).buffer(r)
+    keep = [p for p in getattr(g, "geoms", [g]) if isinstance(p, Polygon) and p.area >= GREEN_MIN_AREA_M2]
+    if not keep:
+        return None
+    return unary_union(keep).simplify(GREEN_SIMPLIFY_M, preserve_topology=True)
+
+
 def street_paved_geometry(work_dir: Path, buildings, osm_lines, *, scale: int, green=None):
     """Plocha ulic (S-JTSK) nebo None: parcely komunikací − budovy − zeleň, jen souvislé kusy s ≥ 10 m zpevněné OSM ulice.
 
@@ -295,6 +322,7 @@ def street_paved_geometry(work_dir: Path, buildings, osm_lines, *, scale: int, g
             green = _load_green(work_dir, cand.bounds, within=cand)
         except Exception:  # bez zeleně se kreslí dál
             green = None
+    green = reliable_green(green)
     if green is not None and not green.is_empty:
         cand = cand.difference(green)
     mm = scale / 1000.0  # metrů v terénu na 1 mm mapy
@@ -383,9 +411,11 @@ def sprint_street_parcel_part(
     clip_bounds=None,
     log=None,
 ):
-    """Sprint: seznam částí s přidanou plochou ulic z katastru (501) na začátku (pod ostatními objekty).
+    """Sprint: seznam částí s přidanou plochou ulic z katastru (501.1 bez obrysu) na začátku (pod ostatními objekty).
 
-    Od plochy se odečte už kreslená voda (301) a oliva (520). Bez sítě / dat / symbolu vrací ``parts`` beze změny."""
+    Od plochy se odečte už kreslená voda (301) a oliva (520) a zpevněné plochy 501 z DTM / OSM / ZABAGED i s pásem
+    ``PAVED_CUT_M`` kolem (DTM má přednost, parcela jen doplní, co jiný zdroj nezná). Bez sítě / dat / symbolu vrací
+    ``parts`` beze změny."""
     global _GEOM_CACHE
 
     if not SPRINT_STREET_PARCELS or not preset_id.startswith("sprint"):
@@ -410,7 +440,9 @@ def sprint_street_parcel_part(
             _symbol_info,
         )
 
-        sym = symbol_index_for_code(preset_id, scale, feature_oom_code("pedestrian_area", preset_id, "501"))
+        sym = symbol_index_for_code(preset_id, scale, "501.1")  # výplň bez obrysu: hranu dávají jiné zdroje
+        if sym is None:
+            sym = symbol_index_for_code(preset_id, scale, feature_oom_code("pedestrian_area", preset_id, "501"))
         if sym is None:
             return parts
         if fetch_street_parcels(work_dir, bbox_wgs84, log=log) is None:
@@ -454,18 +486,30 @@ def sprint_street_parcel_part(
 
         area = to_map(geom)
         info = _symbol_info(symbol_set_path(preset_id, scale))
-        covered = []
+        covered, paved = [], []
         for part in parts:
+            on_bridge = str(part.name).startswith(BRIDGE_PART_PREFIX)
             for m in _OBJECT_RE.finditer(part.objects_xml):
-                if m.group(2) != "1" or info.get(int(m.group(3)), (0, ""))[0] not in {301, 520}:
+                if m.group(2) != "1":
+                    continue
+                major, kind = info.get(int(m.group(3)), (0, ""))
+                if major not in {301, 520} and not (major == 501 and kind == "area" and not on_bridge):
                     continue
                 cm = _COORDS_RE.search(m.group(4))
                 poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
                 if poly is not None and not poly.is_empty:
-                    covered.append(poly if poly.is_valid else poly.buffer(0))
+                    (paved if major == 501 else covered).append(poly if poly.is_valid else poly.buffer(0))
+        um_per_m = 1e6 / scale
+        if paved:
+            covered.append(unary_union([p.buffer(PAVED_CUT_M * um_per_m, quad_segs=2) for p in paved]))
         if covered:
             # objekty z mapy bývají po zaokrouhlení na µm mírně neplatné (TopologyException v difference)
             area = (area if area.is_valid else area.buffer(0)).difference(unary_union(covered).buffer(0))
+        if paved and not area.is_empty:
+            # po ořezu pryč úzké zbytky a drobky (prahy v mm mapy, µm = mm × 1000)
+            half = MIN_WIDTH_MM * 1000 / 2.0
+            area = area.buffer(-half).buffer(half)
+            area = unary_union([g for g in getattr(area, "geoms", [area]) if isinstance(g, Polygon) and g.area >= MIN_AREA_MM2 * 1e6])
         objs = []
         for g in getattr(area, "geoms", [area]):
             if isinstance(g, Polygon) and not g.is_empty:

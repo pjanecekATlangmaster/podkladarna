@@ -148,6 +148,7 @@ def _street_dir(tmp_path, parcel):
         (_rect(0, 0, 40, 10), "residential", None, 320.0),  # ulice mezi budovou a hranicí, OSM residential
         (_rect(0, 0, 40, 10), "road_3", None, 320.0),  # syntetické highway z přípravy OSM
         (_rect(0, 0, 40, 10), "residential", _rect(0, 0, 40, 3), 200.0),  # zelený pás se vyřízne
+        (_rect(0, 0, 40, 10), "residential", _rect(0, 0, 40, 1), 320.0),  # úzký pás (koruny nad okrajem) ne
         (_rect(0, 0, 40, 10), "path", None, 0.0),  # jen pěšina = nezpevněná
         (_rect(0, 0, 2.5, 2.5), "residential", None, 0.0),  # kus pod 0,5 mm² mapy
     ],
@@ -165,7 +166,7 @@ def test_street_paved_geometry(tmp_path, parcel, highway, green, expected_area):
         return
     assert out.area == pytest.approx(expected_area, rel=0.05)
     assert out.intersection(building).area < 1.0
-    if green:
+    if green and expected_area < 320.0:
         assert out.intersection(Polygon(green)).area < 1.0
 
 
@@ -206,8 +207,8 @@ def test_sprint_street_parcel_part_under_olive_and_mask(tmp_path, monkeypatch):
     olive = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "520"), [_to_map(_rect(0, 0, 40, 4))])
     out = street_parcels.sprint_street_parcel_part(_part(olive), work, (14.31, 48.81, 14.32, 48.82), **KW)
     assert out[0].name.startswith("Sprint – ulice z katastru") and len(out) == 2  # pod ostatními
-    street = _objects_of(out[:1], "501")
-    assert street
+    street = _objects_of(out[:1], "501.1")  # výplň bez obrysu
+    assert street and not _objects_of(out[:1], "501")
     # oliva se nepřekrývá: zbývá ~ 40 × 6 m (v µm mapy)
     area = sum(_polygon_um2(m) for m in street) / UM_PER_M**2
     assert area == pytest.approx(240.0, rel=0.1)
@@ -222,6 +223,33 @@ def test_sprint_street_parcel_part_under_olive_and_mask(tmp_path, monkeypatch):
     inside = street_parcels._rasterize_area(box(100.0, 190.0, 102.5, 200.0).buffer(0.5), mask.shape, 100.0, 200.0, 0.5, 0.5)
     g2 = street_parcels._mask_polygons(mask & inside, 100.0, 200.0, 0.5)
     assert g2.bounds[0] == 102.0 and g2.bounds[2] <= 103.5
+
+
+@pytest.mark.parametrize(
+    "part_name, expected_m2",
+    [
+        ("Silnice (DTM + OSM)", 22 * 10),  # zbývá x 18–40
+        ("Mosty (DTM) úr. +1 – lávka", 40 * 10),  # mostovka parcelu pod mostem neořezává
+    ],
+)
+def test_sprint_street_parcel_not_under_dtm_area(tmp_path, monkeypatch, part_name, expected_m2):
+    """Plocha z DTM má přednost i s okrajem: parcela se pod ní ani do 3 m kolem ní nekreslí (Wassermannova)."""
+    from app.pipeline import street_parcels
+
+    work = _street_dir(tmp_path, _rect(0, 0, 40, 10))
+    (tmp_path / "osm_paths").mkdir()
+    (tmp_path / "osm_paths" / "paths.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"highway": "residential"}, "geometry": {"type": "LineString", "coordinates": [[-5, 5], [45, 5]]}}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(street_parcels, "fetch_street_parcels", lambda *a, **k: work / "ruian_parcels" / "komunikace.geojson")
+    monkeypatch.setattr(street_parcels, "_prepare_green_mask", lambda *a, **k: None)
+    street_parcels._GEOM_CACHE = None
+    dtm = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "501.1"), [_to_map(_rect(0, -2, 15, 12))])
+    parts = [OomObjectPart(name=part_name, objects_xml=dtm, count=1)]
+    out = street_parcels.sprint_street_parcel_part(parts, work, (14.31, 48.81, 14.32, 48.82), **KW)
+    area = sum(_polygon_um2(m) for m in _objects_of(out[:1], "501.1")) / UM_PER_M**2
+    assert area == pytest.approx(expected_m2, rel=0.05)
 
 
 def _polygon_um2(m):
