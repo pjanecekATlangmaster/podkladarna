@@ -5,6 +5,7 @@ import os
 import re
 import unicodedata
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from app.pipeline.dxf_products import (
@@ -731,7 +732,7 @@ def _prepare_oom_map(
     scale: int,
     preset_id: str,
     bbox_wgs84: tuple[float, float, float, float],
-    built_refs: dict[str, Path] | None = None,
+    built_refs: dict[str, Path] | Callable[[], dict[str, Path] | None] | None = None,
     zabaged_clean: Path | None = None,
     vectorconf_name: str = "zabaged.txt",
     include_dxf: bool = True,
@@ -768,9 +769,6 @@ def _prepare_oom_map(
     aoi_bounds = crop_bounds_5514(west, south, east, north, buffer_m=0.0)
     dxf_clip_bounds = expand(aoi_bounds, CLIP_MARGIN_M)
     vector_clip_bounds = expand(aoi_bounds, VECTOR_CLIP_MARGIN_M)
-    templates = collect_oom_templates(kp_cwd, built_refs=built_refs)
-    # Prázdné šablony jsou OK: bez referenčních PNG je výchozí pohled
-    # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty).
 
     object_parts: list[OomObjectPart] = []
     zabaged_base_paved: list[OomObjectPart] = []
@@ -1194,6 +1192,13 @@ def _prepare_oom_map(
     unmapped_msg = unmapped_codes_message(drain_unmapped_codes())
     if unmapped_msg and log:
         log(unmapped_msg)
+    # Podklady (``built_refs``) jdou do .omap jen jako šablony; callable = stahování ještě běží na pozadí
+    # a čeká se na něj až teď, těsně před zápisem (les a MTBO, viz ``run_job._package_output``).
+    if callable(built_refs):
+        built_refs = built_refs()
+    templates = collect_oom_templates(kp_cwd, built_refs=built_refs)
+    # Prázdné šablony jsou OK: bez referenčních PNG je výchozí pohled
+    # jen vektorová mapa (vegetace/vrstevnice/OSM/ZABAGED objekty).
     return write_oom_map(
         dest,
         map_name=map_name,

@@ -852,3 +852,36 @@ def test_build_reference_layers_only_ortho_and_katastr(tmp_path, monkeypatch):
     )
     assert set(built) == {"orthophoto", "katastr", "katastr_vector"}
     assert labels == ["Katastrální mapa"]
+
+
+def test_fetch_orthophoto_wms_tiles_parallel_keep_grid_order(tmp_path, monkeypatch):
+    import random
+    import time
+
+    from app.pipeline import reference_layers as rl
+
+    # 20 000 × 12 000 px při max. 8 000 px → mřížka 3 × 2 dlaždic.
+    monkeypatch.setattr(rl, "_ortho_target_size", lambda *_a: (20000, 12000, 0.125))
+    rnd = random.Random(1)
+    fail_stem: list[str] = []
+
+    def fake_download(_url, _layer, _bounds, dest_png, _wf, **_kw):
+        time.sleep(rnd.uniform(0, 0.05))  # dokončení mimo pořadí mřížky
+        if fail_stem and fail_stem[0] in dest_png.name:
+            return False
+        dest_png.write_bytes(b"jpg")
+        return True
+
+    monkeypatch.setattr(rl, "_download_wms_raster", fake_download)
+    bounds = (0.0, 0.0, 2500.0, 1500.0)
+    tpl = (tmp_path / "t.png", tmp_path / "t.pgw")
+    dest = tmp_path / "refs"
+
+    built = rl.fetch_orthophoto_wms(bounds, *tpl, dest)
+    assert list(built) == [f"orthophoto_r{r}c{c}" for r in range(2) for c in range(3)]
+    assert all(p.is_file() for p in built.values())
+
+    fail_stem.append("r1c1")
+    with pytest.raises(RuntimeError):
+        rl.fetch_orthophoto_wms(bounds, *tpl, dest)
+    assert list(dest.glob("orthophoto*")) == []
