@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from app.pipeline.job_options import (
+    resolve_contour_smooth,
     resolve_formline_mode,
     resolve_use_dtm,
     resolve_veg_smooth,
@@ -453,6 +454,7 @@ def find_duplicate_active_job(
             bool(opts.get("private")),
             str(opts.get("notify_email") or "").strip().casefold(),
             str(opts.get("client_ip") or ""),
+            resolve_contour_smooth(opts),
         )
 
     want = _fp(options)

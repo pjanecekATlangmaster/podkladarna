@@ -19,6 +19,8 @@ from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_layers import _fill_dem_nodata, _pdal_dem_from_laz
 
 CONTOUR_META_NAME = "contour_meta.json"
+# Souhrn adaptivního vyhlazení posledního běhu podle složky (pro contour_meta).
+_LAST_ADAPTIVE: dict[str, dict | None] = {}
 FORMLINES_ALL_NAME = "formlines_all.shp"
 
 # Pomocné vrstevnice 103 (volba jobu contour_formlines, viz job_options).
@@ -579,6 +581,7 @@ def _write_contour_meta(
     dem_path: Path | None,
     interval_m: float,
     scalefactor: float,
+    adaptive: dict | None = None,
 ) -> Path:
     meta = {
         "dem_source": dem_source,
@@ -588,6 +591,9 @@ def _write_contour_meta(
         "scalefactor": float(scalefactor),
         "single_truth": True,
     }
+    if adaptive:
+        # Jen v režimu „adaptivní“ – „jako dosud“ má meta beze změny.
+        meta["contour_smooth"] = adaptive
     path = contours_dir / CONTOUR_META_NAME
     path.write_text(
         json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
@@ -672,12 +678,46 @@ def _run_gdal_contour(
     return dest_shp
 
 
+def _contour_source_dem(
+    dem_smooth: Path,
+    *,
+    contour_smooth: int,
+    interval_m: float,
+    scalefactor: float,
+    log=None,
+) -> tuple[Path, dict | None]:
+    """DEM pro gdal_contour: 0 = ``dem_smooth.tif`` jako dosud, 1 = adaptivní ``dem_contour.tif``.
+
+    ``dem_smooth.tif`` zůstává vždy beze změny (čte ho i import srázů).
+    """
+    from app.pipeline.contours_adaptive import (
+        DEM_CONTOUR_NAME,
+        write_adaptive_contour_dem,
+    )
+
+    adaptive = dem_smooth.with_name(DEM_CONTOUR_NAME)
+    if not contour_smooth:
+        adaptive.unlink(missing_ok=True)
+        return dem_smooth, None
+    log_step(log, "Adaptivně vyhlazuji DEM pro vrstevnice (rovina víc, členitý terén jako dosud)")
+    summary = write_adaptive_contour_dem(
+        dem_smooth,
+        adaptive,
+        interval_m=interval_m,
+        scale=int(round(10000 * float(scalefactor or 1.0))),
+        scalefactor=scalefactor,
+        log=log,
+    )
+    return adaptive, summary
+
+
 def generate_contours_from_dem(
     dem_filled: Path,
     dest_shp: Path,
     *,
     interval_m: float,
     scalefactor: float,
+    contour_smooth: int = 0,
     log=None,
 ) -> Path:
     """Vrstevnice z filled DMR DEM (sdílený dem_prep / shade) – nikdy z DMP."""
@@ -688,9 +728,16 @@ def generate_contours_from_dem(
     _smooth_dem(
         dem_filled, dem_smooth, cell_m=cell_m, window_m=window_m, log=log
     )
-    return _run_gdal_contour(
-        dem_smooth, dest_shp, interval_m=interval_m, log=log
+    source, summary = _contour_source_dem(
+        dem_smooth,
+        contour_smooth=contour_smooth,
+        interval_m=interval_m,
+        scalefactor=scalefactor,
+        log=log,
     )
+    _run_gdal_contour(source, dest_shp, interval_m=interval_m, log=log)
+    _LAST_ADAPTIVE[str(dest_shp.parent)] = summary
+    return dest_shp
 
 
 def generate_contours_shapefile(
@@ -701,6 +748,7 @@ def generate_contours_shapefile(
     interval_m: float,
     formline: float,
     scalefactor: float,
+    contour_smooth: int = 0,
     log=None,
 ) -> Path:
     """Fallback: DEM z ground LAZ (DMR Classification), ne z vegetace/DMP."""
@@ -718,9 +766,16 @@ def generate_contours_shapefile(
     _smooth_dem(
         dem_filled, dem_smooth, cell_m=cell_m, window_m=window_m, log=log
     )
-    return _run_gdal_contour(
-        dem_smooth, dest_shp, interval_m=interval_m, log=log
+    source, summary = _contour_source_dem(
+        dem_smooth,
+        contour_smooth=contour_smooth,
+        interval_m=interval_m,
+        scalefactor=scalefactor,
+        log=log,
     )
+    _run_gdal_contour(source, dest_shp, interval_m=interval_m, log=log)
+    _LAST_ADAPTIVE[str(dest_shp.parent)] = summary
+    return dest_shp
 
 
 def generate_job_contours(
@@ -732,6 +787,7 @@ def generate_job_contours(
     scalefactor: float,
     crop_bounds: tuple[float, float, float, float] | None,
     formlines: str = FORMLINE_MODE_DEFAULT,
+    contour_smooth: int = 0,
     log=None,
 ) -> Path:
     """Jediná pravda vrstevnic: GDAL z DMR (sdílený dem_filled), ne KP DXF / DMP."""
@@ -758,10 +814,12 @@ def generate_job_contours(
             dest,
             interval_m=interval_m,
             scalefactor=scalefactor,
+            contour_smooth=contour_smooth,
             log=log,
         )
         _write_contour_meta(
             dest.parent,
+            adaptive=_LAST_ADAPTIVE.pop(str(dest.parent), None),
             dem_source="shared_dem",
             dem_path=shared,
             interval_m=interval_m,
@@ -784,10 +842,12 @@ def generate_job_contours(
         interval_m=interval_m,
         formline=0,
         scalefactor=scalefactor,
+        contour_smooth=contour_smooth,
         log=log,
     )
     _write_contour_meta(
         dest.parent,
+        adaptive=_LAST_ADAPTIVE.pop(str(dest.parent), None),
         dem_source="laz_ground_fallback",
         dem_path=ground,
         interval_m=interval_m,
@@ -810,7 +870,12 @@ def _formline_candidates(
         for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
             dest.with_suffix(suffix).unlink(missing_ok=True)
         return None
-    dem_smooth = contours_dir / "dem_smooth.tif"
+    from app.pipeline.contours_adaptive import DEM_CONTOUR_NAME
+
+    # Půlové linie ze stejného DEM jako vrstevnice (i v adaptivním režimu).
+    dem_smooth = contours_dir / DEM_CONTOUR_NAME
+    if not dem_smooth.is_file():
+        dem_smooth = contours_dir / "dem_smooth.tif"
     if not dem_smooth.is_file():
         return None
     return _run_gdal_contour(

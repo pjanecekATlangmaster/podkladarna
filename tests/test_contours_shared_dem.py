@@ -32,7 +32,7 @@ def test_generate_job_contours_prefers_shared_dem(tmp_path: Path, monkeypatch):
 
     calls: list[Path] = []
 
-    def fake_from_dem(dem, dest, *, interval_m, scalefactor, log=None):
+    def fake_from_dem(dem, dest, *, interval_m, scalefactor, contour_smooth=0, log=None):
         calls.append(dem)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"shp")
@@ -79,7 +79,7 @@ def test_generate_job_contours_fallback_ground_laz(tmp_path: Path, monkeypatch):
 
     used: list[Path] = []
 
-    def fake_shp(src_laz, bounds, dest, *, interval_m, formline, scalefactor, log=None):
+    def fake_shp(src_laz, bounds, dest, *, interval_m, formline, scalefactor, contour_smooth=0, log=None):
         used.append(src_laz)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"shp")
