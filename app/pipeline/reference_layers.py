@@ -65,6 +65,9 @@ ORTHO_JPEG_QUALITY = 95
 ORTHO_TILE_WORKERS = 2
 # Rozepsaná dlaždice ortofota (mimo vzor ``orthophoto*``, který čtou podklady i vegetace).
 ORTHO_TMP_PREFIX = "_tmp_"
+# Ortofoto 0,125 m jako šablona v .omap a soubor v ZIPu (Petr 2026-10-31: nepřibalovat, ZIP zbytečně roste).
+# Ortofoto pro pravidla (vegetace, zeleň ulic ve sprintu, 0,5 m) se stahuje zvlášť (``orthophoto.fetch_orthophoto``).
+ZIP_ORTHOPHOTO = False
 # Katastr: bílé (a téměř bílé) pixely → alfa 0, když server TRANSPARENT ignoruje.
 KM_WHITE_THRESHOLD = 250
 # Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice,
@@ -1285,7 +1288,7 @@ def _try_load_references_cache(
     if not meta or meta.get("ref_format") != REF_CACHE_FORMAT:
         # Stará cache (ortofoto PNG, nepruhledný katastr) → znovu stáhnout.
         return None
-    ortho = sorted(cache_dir.glob("orthophoto*.jpg"))
+    ortho = sorted(cache_dir.glob("orthophoto*.jpg")) if ZIP_ORTHOPHOTO else []
     primary = ortho[0] if ortho else cache_dir / "osm.png"
     if ortho and ortho_mpp and _cached_ortho_mpp(ortho[0]) > ortho_mpp * 1.05:
         # Ortofoto z doby stropu 600 Mpx (0,2 / 0,25 m) – stáhnout znovu v kroku, který dnes vychází.
@@ -1297,7 +1300,7 @@ def _try_load_references_cache(
     built: dict[str, Path] = {}
     for src in list_reference_rasters(cache_dir):
         key = _ref_png_key(src.name)
-        if not key:
+        if not key or (not ZIP_ORTHOPHOTO and _ORTHO_KEY_RE.match(key)):
             continue
         dest = out_dir / src.name
         link_or_copy(src, dest)
@@ -1364,8 +1367,8 @@ def _store_references_cache(
         log(f"Referenční PNG: uloženo do cache ({stored} vrstev) → {cache_dir.name}")
 
 
-# Podklady, které jdou do ZIPu vždy (i s vypnutými referenčními podklady):
-# ortofoto slouží i sprintu (zeleň v ulicích z katastru), katastr je k parcelám ulic.
+# Podklady, které jdou do ZIPu vždy (i s vypnutými referenčními podklady): katastr je k parcelám ulic,
+# ortofoto jen se zapnutým ``ZIP_ORTHOPHOTO`` (hlídá ``want`` v ``build_reference_layers``).
 ALWAYS_REFERENCE_KEYS = frozenset({"orthophoto", "katastr"})
 
 
@@ -1390,6 +1393,8 @@ def build_reference_layers(
     """
 
     def want(key: str) -> bool:
+        if key == "orthophoto" and not ZIP_ORTHOPHOTO:
+            return False
         return only is None or key in only
 
     if not template_png.is_file() or not template_pgw.is_file():

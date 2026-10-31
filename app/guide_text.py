@@ -36,7 +36,7 @@ WEB_ABOUT_HTML = """
 <p>
   <strong>Mapa je rovnou georeferencovaná v S-JTSK (EPSG:5514)</strong> – včetně
   magnetické deklinace a grivace pro střed výřezu.
-  Podklady (ortofoto, katastr, hillshade…) i vektory tak v OOM / OCAD sedí na
+  Podklady (katastr, hillshade…) i vektory tak v OOM / OCAD sedí na
   sebe bez ručního lícování a do vlastní šablony je jde rovnou podložit.
 </p>
 <p>
@@ -48,7 +48,7 @@ WEB_ABOUT_HTML = """
 <details class="about-zip">
   <summary><strong>V ZIPu je mimo jiné</strong></summary>
 <ul>
-  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (ortofoto, OSM, ZTM, katastr, DTM kraje, DMP OK, hillshade, reliéf)</li>
+  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> (+ stejnojmenné <code>.ocd</code>) – podle názvu projektu a měřítka; cesty z OSM; <code>.omap</code> v OOM, <code>.ocd</code> v OCAD (OSM, ZTM, katastr, DTM kraje, DMP OK, hillshade, reliéf)</li>
   <li>DXF srázy, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky ve <code>base/</code>, ZABAGED, budovy z OSM v .omap, RÚIAN/ZABAGED budovy ve složce <code>zabaged/</code>, OSM SHP ve složce <code>osm/</code>, památné stromy AOPK, návod <code>README_OOM.txt</code></li>
 </ul>
 </details>
@@ -156,7 +156,7 @@ Co je uvnitř
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, skály podklad, …)
 - zabaged/             … polohopis ZABAGED (shapefile včetně budov + RUIAN_budovy.shp; výchozí budovy v .omap jsou z OSM)
                        … Ostatní plocha v sídlech jako OstatniPlochaVSidlech_mensi / _stredni / _velke (podle velikosti; prázdné pásmo chybí)
-- references/          … ortofoto, OSM, ZTM, katastr, DTM kraje (zaměřená situace), náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
+- references/          … OSM, ZTM, katastr, DTM kraje (zaměřená situace), náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM
 - metadata.json        … měřítko, preset, CRS, epochy LiDAR / režim DMP
 

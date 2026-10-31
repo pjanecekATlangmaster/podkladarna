@@ -290,7 +290,7 @@ def start_reference_download(
     Když je zadané ``shade_bounds``, stáhne se v témže vlákně nejdřív hillshade
     jobu (``work/shade``) a referenční hillshade z něj vznikne bez dalšího stahování.
     ``with_references=False`` (podklady vypnuté ve formuláři): jen hillshade a
-    ``ALWAYS_REFERENCE_KEYS`` (ortofoto, katastr) – ty jdou do ZIPu vždy.
+    ``ALWAYS_REFERENCE_KEYS`` (katastr) – ty jdou do ZIPu vždy.
     ``ortho_prefetch_bounds`` (les a MTBO): po stínování ortofoto 0,5 m pro louku / 403
     (``ortho_rough``), ať ho vegetace nestahuje souběžně s podkladem.
     """
@@ -302,12 +302,12 @@ def start_reference_download(
     ref_log = background_log(log, REF_LOG_LABEL)
     if with_references:
         ref_log(
-            "Start stahování na pozadí (stínování, ortofoto, OSM, ZTM, katastr); "
+            "Start stahování na pozadí (stínování, OSM, ZTM, katastr); "
             "výsledek se převezme v kroku „referenční podklady“."
         )
     else:
         ref_log(
-            "Start stahování na pozadí (stínování, ortofoto, katastr; ostatní "
+            "Start stahování na pozadí (stínování, katastr; ostatní "
             "referenční podklady vypnuté)."
         )
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-dl")
@@ -394,7 +394,7 @@ def join_reference_download(
             log("Referenční podklady: vypnuto ve formuláři")
         return built_refs, []
     if not want_refs:
-        log("Referenční podklady: vypnuto ve formuláři – přibalím jen ortofoto a katastr")
+        log("Referenční podklady: vypnuto ve formuláři – přibalím jen katastr")
     if not bbox:
         return built_refs, []
 
