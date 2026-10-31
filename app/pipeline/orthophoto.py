@@ -14,6 +14,8 @@ ORTHO_NAME = "ortofoto.png"
 ORTHO_META_NAME = "ortofoto.json"
 # Ortofoto referenčního podkladu (``work/references/orthophoto*.jpg`` + ``.jgw``, 0,125–0,25 m/px).
 REFERENCE_SUBDIR = "references"
+# Tytéž dlaždice mimo podklady (sprint bez ``reference_layers.ZIP_ORTHOPHOTO``, ne do ZIPu); čtou se přednostně.
+REFERENCE_SUBDIRS = ("ortho_ref", REFERENCE_SUBDIR)
 # Podklad je ořezaný na mřížku mapy (výřez + ~1 m), parcely se stahují s přesahem 80 m: pokrytí se měří na výřezu
 # mapy; když ho dlaždice nepokryjí, stahuje se zvlášť (jinak by uvnitř mapy chyběla zeleň).
 REFERENCE_MIN_COVER = 0.97
@@ -79,9 +81,13 @@ def _fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float, log=None, need_boun
         from app.pipeline.reference_layers import ORTOFOTO_WMS, _download_wms_raster, _write_pgw_for_extent
 
         out_dir.mkdir(parents=True, exist_ok=True)
-        rgb = _from_reference_tiles(
-            Path(work_dir) / REFERENCE_SUBDIR, (xmin, ymin, xmax, ymax), width, height, need_bounds=need_bounds
-        )
+        rgb = None
+        for sub in REFERENCE_SUBDIRS:
+            rgb = _from_reference_tiles(
+                Path(work_dir) / sub, (xmin, ymin, xmax, ymax), width, height, need_bounds=need_bounds
+            )
+            if rgb is not None:
+                break
         if rgb is not None:  # stejná WMS vrstva už stažená jako podklad – nestahovat podruhé
             Image.fromarray(rgb).save(png)
             _write_pgw_for_extent(png.with_suffix(".pgw"), xmin, ymin, xmax, ymax, width, height)

@@ -160,7 +160,7 @@ DEFAULT_OPTIONS = {
     "output_zip": True,
     # Georef GeoTIFF (300 DPI, dlaždice + náhledy) do výstupního ZIPu – GUI checkbox, default off.
     "output_georef": False,
-    # Ortofoto / OSM / ZTM / katastr / hillshade / DMP – stahovat a dát do ZIPu.
+    # OSM / ZTM / katastr / hillshade / DMP – stahovat a dát do ZIPu (ortofoto jen se ZIP_ORTHOPHOTO).
     "output_references": True,
     "output_dxf": True,
     "output_zabaged_clean": False,
