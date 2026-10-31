@@ -347,6 +347,9 @@ OSM_PAVED_AREA_LEISURE = frozenset(
 _AREA_HIGHWAY_WALK = frozenset(
     {"footway", "pedestrian", "path", "steps", "cycleway"}
 )
+# area:highway=service – obratiště / smyčka (konečná autobusu Klukovice, way/60596451) často nemá střednici.
+# Plochy běžných silnic (primary, residential …) ne: silnice se v lese a MTBO kreslí čarou.
+_AREA_HIGHWAY_SERVICE = frozenset({"service"})
 # Areál typicky ohraničený plotem (bez barrier=*) → plot po vnějším obrysu.
 _FENCED_COMPOUND_LANDUSE = frozenset({"recreation_ground"})
 
@@ -387,7 +390,7 @@ def _overpass_ql(
     # Jedna regex vrstva – méně Overpass zátěže než 6 samostatných way[...].
     hw = "|".join(sorted(osm_highway_set(path_source)))
     paved = "|".join(sorted(OSM_PAVED_AREA_LEISURE))
-    area_hw = "|".join(sorted(_AREA_HIGHWAY_WALK))
+    area_hw = "|".join(sorted(_AREA_HIGHWAY_WALK | _AREA_HIGHWAY_SERVICE))
     area_road_hw = "|".join(sorted(_HIGHWAY_AREA_PAVED | _HIGHWAY_AREA_IF_SURFACE))
     rails = "|".join(sorted(OSM_RAIL_KINDS))
     parts = [
@@ -1265,6 +1268,9 @@ def _is_highway_area_paved_tags(tags: dict) -> bool:
 def _is_area_highway_paved_tags(tags: dict) -> bool:
     """area:highway=footway|… – plocha chodníku; zpevněný surface, nebo typicky chodník/pěší."""
     ah = (tags.get("area:highway") or "").lower()
+    if ah in _AREA_HIGHWAY_SERVICE:
+        # Jako highway=service + area=yes: bez surface zpevněná, nezpevněný surface ne.
+        return _is_paved_surface(tags) or not (tags.get("surface") or "").strip()
     if ah not in _AREA_HIGHWAY_WALK:
         return False
     if _is_paved_surface(tags):

@@ -131,6 +131,12 @@ def test_classify_osm_well_and_playground():
     ) == ("pedestrian_area", "501")
     assert classify_osm_feature({"area:highway": "path"}) is None
     assert classify_osm_feature({"area:highway": "residential"}) is None
+    # way/60596451: smyčka konečné Klukovice bez střednice → zpevněná plocha.
+    assert classify_osm_feature(
+        {"area:highway": "service", "surface": "asphalt"}
+    ) == ("pedestrian_area", "501")
+    assert classify_osm_feature({"area:highway": "service"}) == ("pedestrian_area", "501")
+    assert classify_osm_feature({"area:highway": "service", "surface": "gravel"}) is None
     # way/180964461: tram railway=platform → zpevněná plocha.
     assert classify_osm_feature(
         {
