@@ -70,6 +70,10 @@ BRIDGE_PART_PREFIX = "Mosty"
 # z DTM (``dtm_import.AREA_SPLIT_VERTICES``) – parcela přes celou mapu měla 76 000 vrcholů a brzdila Mapper.
 PARCEL_SIMPLIFY_MM = 0.1
 PARCEL_SPLIT_VERTICES = 1000
+# Chodník 501.10, který z aspoň SIDEWALK_EDGE_SHARE délky leží v parcelní ulici nebo v pásu podél její hrany (půlka
+# chodníku + ``osm_paths.LINE_MIN_GAP_MM``), se nekreslí – parcela chodník zahrnuje (Petr 2026-10-31, Do Klukovic).
+SIDEWALK_CODE = "501.10"
+SIDEWALK_EDGE_SHARE = 0.7
 
 
 def is_paved_street_highway(highway: str) -> bool:
@@ -540,6 +544,53 @@ def sprint_street_parcel_part(
         return parts
     if not objs:
         return parts
+    try:
+        parts = _drop_edge_sidewalks(parts, area, preset_id=preset_id, scale=scale, log=log)
+    except Exception as exc:  # kosmetika, chodníky zůstanou
+        if log:
+            log(f"⚠ Chodníky u ulic z katastru: přeskočeno ({exc})")
     if log:
         log(f"Ulice z katastru (501): {len(objs)} ploch")
     return [OomObjectPart(name="Sprint – ulice z katastru (501)", objects_xml="\n".join(objs), count=len(objs))] + list(parts)
+
+
+def _drop_edge_sidewalks(parts, area, *, preset_id: str, scale: int, log=None):
+    """Části bez čar 501.10, které z ``SIDEWALK_EDGE_SHARE`` délky leží v ``area`` (µm mapy) nebo v pásu podél ní."""
+    from dataclasses import replace
+
+    from shapely import STRtree
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    from app.pipeline.oom_symbol_map import symbol_index_for_code, symbol_line_width_mm
+    from app.pipeline.osm_paths import LINE_MIN_GAP_MM
+    from app.pipeline.path_clearance import _COORDS_RE, _OBJECT_RE, _parse_coords
+
+    sym = symbol_index_for_code(preset_id, scale, SIDEWALK_CODE)
+    if sym is None or area is None or area.is_empty:
+        return parts
+    band = ((symbol_line_width_mm(preset_id, scale, SIDEWALK_CODE) or 0.0) / 2.0 + LINE_MIN_GAP_MM) * 1000
+    pieces = [p.buffer(band) for p in getattr(area, "geoms", [area])]
+    tree = STRtree(pieces)
+    out, dropped = [], 0
+    for part in parts:
+        kept, n = [], 0
+        for m in _OBJECT_RE.finditer(part.objects_xml):
+            if m.group(2) == "1" and int(m.group(3)) == sym:
+                cm = _COORDS_RE.search(m.group(4))
+                pts = [(p[0], p[1]) for p in _parse_coords(cm.group(1))] if cm else []
+                if len(pts) >= 2:
+                    line = LineString(pts)
+                    hits = [pieces[int(k)] for k in tree.query(line)]
+                    inside = line.intersection(unary_union(hits)).length if hits else 0.0
+                    if line.length > 0 and inside >= SIDEWALK_EDGE_SHARE * line.length:
+                        n += 1
+                        continue
+            kept.append(m.group(0))
+        if n:
+            dropped += n
+            part = replace(part, objects_xml="\n".join(kept), count=len(kept))
+        out.append(part)
+    if dropped and log:
+        log(f"Chodníky podél ulic z katastru (501.10): {dropped} nekresleno")
+    return out

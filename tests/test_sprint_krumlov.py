@@ -252,6 +252,33 @@ def test_sprint_street_parcel_not_under_dtm_area(tmp_path, monkeypatch, part_nam
     assert area == pytest.approx(expected_m2, rel=0.05)
 
 
+@pytest.mark.parametrize(
+    "line_y, dropped",
+    [
+        (10.2, True),  # chodník těsně vně hrany parcelní ulice (Do Klukovic)
+        (6.0, True),  # chodník uvnitř parcely
+        (14.0, False),  # samostatná cesta 4 m od hrany zůstane
+    ],
+)
+def test_sprint_sidewalk_along_parcel_street_dropped(tmp_path, monkeypatch, line_y, dropped):
+    """Chodník 501.10, který jen lemuje parcelní ulici, se ve sprintu nekreslí (Petr 2026-10-31)."""
+    from app.pipeline import street_parcels
+
+    work = _street_dir(tmp_path, _rect(0, 0, 40, 10))
+    (tmp_path / "osm_paths").mkdir()
+    (tmp_path / "osm_paths" / "paths.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"highway": "residential"}, "geometry": {"type": "LineString", "coordinates": [[-5, 5], [45, 5]]}}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(street_parcels, "fetch_street_parcels", lambda *a, **k: work / "ruian_parcels" / "komunikace.geojson")
+    monkeypatch.setattr(street_parcels, "_prepare_green_mask", lambda *a, **k: None)
+    street_parcels._GEOM_CACHE = None
+    walk = _path_object(symbol_index_for_code(PRESET, SCALE, "501.10"), _to_map([(2.0, line_y), (38.0, line_y)]))
+    out = street_parcels.sprint_street_parcel_part(_part(walk), work, (14.31, 48.81, 14.32, 48.82), **KW)
+    assert _objects_of(out[:1], "501.1")
+    assert bool(_objects_of(out[1:], "501.10")) is not dropped
+
+
 def _comb(teeth, depth):
     """Pás 10 m × 4·teeth m se zuby ``depth`` m dolů po 4 m (2 m široké)."""
     pts = [(0.0, 10.0), (4.0 * teeth, 10.0), (4.0 * teeth, 0.0)]
