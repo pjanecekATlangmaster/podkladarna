@@ -282,6 +282,7 @@ def start_reference_download(
     shade_cache_dir: Path | None = None,
     with_references: bool = True,
     ortho_prefetch_bounds: tuple[float, float, float, float] | None = None,
+    sprint_ortho: bool = False,
 ) -> ReferenceDownload | None:
     """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
 
@@ -290,7 +291,7 @@ def start_reference_download(
     Když je zadané ``shade_bounds``, stáhne se v témže vlákně nejdřív hillshade
     jobu (``work/shade``) a referenční hillshade z něj vznikne bez dalšího stahování.
     ``with_references=False`` (podklady vypnuté ve formuláři): jen hillshade a
-    ``ALWAYS_REFERENCE_KEYS`` (ortofoto, katastr) – ty jdou do ZIPu vždy.
+    ``ALWAYS_REFERENCE_KEYS`` (katastr) – ty jdou do ZIPu vždy.
     ``ortho_prefetch_bounds`` (les a MTBO): po stínování ortofoto 0,5 m pro louku / 403
     (``ortho_rough``), ať ho vegetace nestahuje souběžně s podkladem.
     """
@@ -302,12 +303,12 @@ def start_reference_download(
     ref_log = background_log(log, REF_LOG_LABEL)
     if with_references:
         ref_log(
-            "Start stahování na pozadí (stínování, ortofoto, OSM, ZTM, katastr); "
+            "Start stahování na pozadí (stínování, OSM, ZTM, katastr); "
             "výsledek se převezme v kroku „referenční podklady“."
         )
     else:
         ref_log(
-            "Start stahování na pozadí (stínování, ortofoto, katastr; ostatní "
+            "Start stahování na pozadí (stínování, katastr; ostatní "
             "referenční podklady vypnuté)."
         )
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-dl")
@@ -356,6 +357,7 @@ def start_reference_download(
                 log=ref_log,
                 force_refresh=force_refresh,
                 only=None if with_references else ALWAYS_REFERENCE_KEYS,
+                sprint_ortho=sprint_ortho,
                 **extra,
             )
         except Exception as exc:
@@ -378,6 +380,7 @@ def join_reference_download(
     job_dir: Path,
     force_refresh: bool,
     progress: JobProgress | None = None,
+    sprint_ortho: bool = False,
 ) -> tuple[dict[str, Path], list[str]]:
     """Tvrdý join před prepare_oom_map. Nespuští download dvakrát, když future běží.
 
@@ -394,7 +397,7 @@ def join_reference_download(
             log("Referenční podklady: vypnuto ve formuláři")
         return built_refs, []
     if not want_refs:
-        log("Referenční podklady: vypnuto ve formuláři – přibalím jen ortofoto a katastr")
+        log("Referenční podklady: vypnuto ve formuláři – přibalím jen katastr")
     if not bbox:
         return built_refs, []
 
@@ -421,6 +424,7 @@ def join_reference_download(
                 reference_dir,
                 log=log,
                 force_refresh=force_refresh,
+                sprint_ortho=sprint_ortho,
             )
         except Exception as exc:
             log_issue(log, f"Referenční podklady: přeskočeno ({exc})")
@@ -655,6 +659,7 @@ def run_job_pipeline(
                 shade_cache_dir=surfaces_cache,
                 with_references=want_refs,
                 ortho_prefetch_bounds=ortho_prefetch_bounds(grid_bounds, preset_id, options),
+                sprint_ortho=job_has_sprint(preset_id, options),
             )
 
     if reused_from and merged_existing:
@@ -999,6 +1004,7 @@ def _package_output(
                     job_dir=job_dir,
                     force_refresh=force_refresh_enabled(options),
                     progress=join_progress,
+                    sprint_ortho=job_has_sprint(preset_id, options),
                 )
             return refs_joined["refs"][0]
 

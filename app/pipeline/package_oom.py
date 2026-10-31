@@ -533,7 +533,7 @@ def oom_readme(meta: dict) -> str:
             + "\n"
         )
     kp_steps = (
-        "2. PNG podklady (OSM, ortofoto, hillshade, …) zapněte dle potřeby\n"
+        "2. PNG podklady (OSM, hillshade, …) zapněte dle potřeby\n"
         "   v Šablony → Nastavení šablon (Template Setup).\n"
         "3. Budovy v .omap jsou z DTM kraje (kde je) doplněné OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
         "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
@@ -564,7 +564,7 @@ def oom_readme(meta: dict) -> str:
         f"{epochs_block}\n"
         f"Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
         "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa a náhled DMP OK.\n"
-        "Ortofoto slouží jen k vizuální kontrole (QA), ne jako vstup klasifikátoru.\n"
+        "Ortofoto se nepřibaluje (velikost ZIPu); v OOM ho lze připojit jako WMS ČÚZK.\n"
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"

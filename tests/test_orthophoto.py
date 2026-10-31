@@ -41,8 +41,16 @@ def test_fetch_orthophoto_cache_and_error(tmp_path, monkeypatch):
     assert not calls and rgb.shape == (10, 20, 3) and gt == (0.0, 0.5, 0.0, 5.0, 0.0, -0.5)
 
 
-@pytest.mark.parametrize("tiles, truncated, downloads", [(2, False, False), (1, False, True), (2, True, True)])
-def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, truncated, downloads):
+@pytest.mark.parametrize(
+    "tiles, truncated, downloads, subdir",
+    [
+        (2, False, False, "references"),
+        (1, False, True, "references"),
+        (2, True, True, "references"),
+        (2, False, False, "ortho_ref"),  # sprint bez ortofota v ZIPu: tytéž dlaždice mimo podklady
+    ],
+)
+def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, truncated, downloads, subdir):
     """Ortofoto podkladu (JPEG dlaždice 0,25 m + .jgw) se převezme bez druhého stahování; nepokryje-li výřez, stáhne se."""
     from PIL import Image
 
@@ -50,7 +58,7 @@ def test_fetch_orthophoto_from_reference_tiles(tmp_path, monkeypatch, tiles, tru
 
     calls = []
     monkeypatch.setattr(reference_layers, "_download_wms_raster", lambda *a, **k: calls.append(1) or False)
-    ref = tmp_path / "references"
+    ref = tmp_path / subdir
     ref.mkdir()
     # dvě dlaždice vedle sebe, každá 5 × 5 m po 0,25 m; levá zelená, pravá šedá
     for name, x0, color in (("orthophoto_r0c0", 0.0, (0, 200, 0)), ("orthophoto_r0c1", 5.0, (100, 100, 100)))[:tiles]:

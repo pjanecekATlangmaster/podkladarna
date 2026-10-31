@@ -65,6 +65,11 @@ ORTHO_JPEG_QUALITY = 95
 ORTHO_TILE_WORKERS = 2
 # Rozepsaná dlaždice ortofota (mimo vzor ``orthophoto*``, který čtou podklady i vegetace).
 ORTHO_TMP_PREFIX = "_tmp_"
+# Ortofoto 0,125 m jako šablona v .omap a soubor v ZIPu (Petr 2026-10-31: nepřibalovat, ZIP zbytečně roste).
+# Sprint z něj dál bere masku zeleně ulic (``street_parcels``): dlaždice se stáhnou do ``work/ORTHO_SPRINT_SUBDIR``
+# mimo podklady (bez šablony a ZIPu), les a MTBO je nestahují (vegetace má vlastní ortofoto 0,5 m).
+ZIP_ORTHOPHOTO = False
+ORTHO_SPRINT_SUBDIR = "ortho_ref"
 # Katastr: bílé (a téměř bílé) pixely → alfa 0, když server TRANSPARENT ignoruje.
 KM_WHITE_THRESHOLD = 250
 # Verze obsahu referenční cache (2 = průhledný katastr + ortofoto jako JPEG dlaždice,
@@ -1278,14 +1283,21 @@ def _try_load_references_cache(
     out_dir: Path,
     *,
     ortho_mpp: float | None = None,
+    ortho_dir: Path | None = None,
+    need_ortho: bool = True,
     log: callable | None = None,
 ) -> dict[str, Path] | None:
-    """Vrátí built_refs z cache, nebo None při miss (i když je ortofoto hrubší než ``ortho_mpp``)."""
+    """Vrátí built_refs z cache, nebo None při miss (i když je ortofoto hrubší než ``ortho_mpp``).
+
+    ``ortho_dir``: dlaždice ortofota se zkopírují sem a do výsledku nejdou (sprint bez ``ZIP_ORTHOPHOTO``);
+    cache bez ortofota je pak miss. ``need_ortho=False``: ortofoto se z cache vůbec nebere."""
     meta = read_meta(cache_dir)
     if not meta or meta.get("ref_format") != REF_CACHE_FORMAT:
         # Stará cache (ortofoto PNG, nepruhledný katastr) → znovu stáhnout.
         return None
-    ortho = sorted(cache_dir.glob("orthophoto*.jpg"))
+    ortho = sorted(cache_dir.glob("orthophoto*.jpg")) if need_ortho else []
+    if ortho_dir is not None and not ortho:
+        return None  # sprint potřebuje dlaždice ortofota (maska zeleně) – stáhnout znovu
     primary = ortho[0] if ortho else cache_dir / "osm.png"
     if ortho and ortho_mpp and _cached_ortho_mpp(ortho[0]) > ortho_mpp * 1.05:
         # Ortofoto z doby stropu 600 Mpx (0,2 / 0,25 m) – stáhnout znovu v kroku, který dnes vychází.
@@ -1298,6 +1310,14 @@ def _try_load_references_cache(
     for src in list_reference_rasters(cache_dir):
         key = _ref_png_key(src.name)
         if not key:
+            continue
+        is_ortho = bool(_ORTHO_KEY_RE.match(key))
+        if is_ortho and (not need_ortho or ortho_dir is not None):
+            if need_ortho:
+                ortho_dir.mkdir(parents=True, exist_ok=True)
+                link_or_copy(src, ortho_dir / src.name)
+                if world_file_for(src).is_file():
+                    link_or_copy(world_file_for(src), world_file_for(ortho_dir / src.name))
             continue
         dest = out_dir / src.name
         link_or_copy(src, dest)
@@ -1337,8 +1357,10 @@ def _store_references_cache(
     keep = {p.name for p in built.values()} | {
         world_file_for(p).name for p in built.values()
     }
+    # Bez ortofota v ``built`` (les / MTBO bez ZIP_ORTHOPHOTO) se dlaždice JPEG v cache nechají pro sprint.
+    has_ortho = any(_ORTHO_KEY_RE.match(k) for k in built)
     for old in cache_dir.glob("orthophoto*"):
-        if old.name not in keep:
+        if old.name not in keep and (has_ortho or old.suffix.lower() not in {".jpg", ".jgw"}):
             old.unlink(missing_ok=True)
     stored = 0
     for path in built.values():
@@ -1364,8 +1386,8 @@ def _store_references_cache(
         log(f"Referenční PNG: uloženo do cache ({stored} vrstev) → {cache_dir.name}")
 
 
-# Podklady, které jdou do ZIPu vždy (i s vypnutými referenčními podklady):
-# ortofoto slouží i sprintu (zeleň v ulicích z katastru), katastr je k parcelám ulic.
+# Podklady, které jdou do ZIPu vždy (i s vypnutými referenčními podklady): katastr je k parcelám ulic,
+# ortofoto jen se zapnutým ``ZIP_ORTHOPHOTO`` (hlídá ``want`` v ``build_reference_layers``).
 ALWAYS_REFERENCE_KEYS = frozenset({"orthophoto", "katastr"})
 
 
@@ -1380,6 +1402,7 @@ def build_reference_layers(
     force_refresh: bool = False,
     job_shade: Path | None = None,
     only: frozenset[str] | None = None,
+    sprint_ortho: bool = False,
 ) -> dict[str, Path]:
     """Vytvoří referenční PNG+PGW pro OOM (hillshade, ortofoto, OSM).
 
@@ -1387,10 +1410,16 @@ def build_reference_layers(
     referenční hillshade se z něj odvodí místo druhého stahování.
     ``only``: jen vybrané vrstvy (``ALWAYS_REFERENCE_KEYS`` při vypnutých podkladech),
     bez sdílené cache celé sady.
+    ``sprint_ortho``: bez ``ZIP_ORTHOPHOTO`` stáhnout ortofoto do ``out_dir.parent / ORTHO_SPRINT_SUBDIR``
+    (maska zeleně sprintu); ve výsledku ani v šablonách není.
     """
 
     def want(key: str) -> bool:
         return only is None or key in only
+
+    # Ortofoto mimo podklady (sprint bez ZIP_ORTHOPHOTO), jinak None = do out_dir a built.
+    ortho_dir = out_dir.parent / ORTHO_SPRINT_SUBDIR if sprint_ortho and not ZIP_ORTHOPHOTO else None
+    fetch_ortho = ZIP_ORTHOPHOTO or ortho_dir is not None
 
     if not template_png.is_file() or not template_pgw.is_file():
         return {}
@@ -1403,17 +1432,25 @@ def build_reference_layers(
     cache_dir = references_cache_dir(bbox_wgs84, ref_wh=ref_wh, osm_wh=osm_wh)
     if not force_refresh and only is None:
         cached = _try_load_references_cache(
-            cache_dir, out_dir, ortho_mpp=_ortho_target_size(template_png, template_pgw)[2], log=log
+            cache_dir,
+            out_dir,
+            ortho_mpp=_ortho_target_size(template_png, template_pgw)[2] if fetch_ortho else None,
+            ortho_dir=ortho_dir,
+            need_ortho=fetch_ortho,
+            log=log,
         )
         if cached is not None:
             return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
 
     built: dict[str, Path] = {}
+    ortho_side: dict[str, Path] = {}  # dlaždice v ortho_dir: jen do cache, ne do výsledku
 
     def _orthophoto() -> dict[str, Path]:
         try:
-            if want("orthophoto"):
-                return fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
+            if fetch_ortho and want("orthophoto"):
+                if ortho_dir is None:
+                    return fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
+                ortho_side.update(fetch_orthophoto_wms(bounds, template_png, template_pgw, ortho_dir, log=log))
         except Exception as exc:
             if log:
                 log_issue(log, f"Ortofoto: přeskočeno ({exc})")
@@ -1462,7 +1499,7 @@ def build_reference_layers(
         _store_references_cache(
             cache_dir,
             out_dir,
-            built,
+            {**ortho_side, **built},
             bbox_wgs84=bbox_wgs84,
             ref_wh=ref_wh,
             osm_wh=osm_wh,

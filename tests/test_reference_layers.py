@@ -637,8 +637,10 @@ def _fake_png(path: Path) -> Path:
     return path
 
 
-def test_references_cache_roundtrip_with_ortho_tiles(tmp_path):
+def test_references_cache_roundtrip_with_ortho_tiles(tmp_path, monkeypatch):
     from app.pipeline import reference_layers as rl
+
+    monkeypatch.setattr(rl, "ZIP_ORTHOPHOTO", True)
 
     work = tmp_path / "work"
     work.mkdir()
@@ -667,6 +669,25 @@ def test_references_cache_roundtrip_with_ortho_tiles(tmp_path):
     (cache / "orthophoto_r0c0.jgw").write_text("0.25\n0\n0\n-0.25\n0\n0\n")
     assert rl._try_load_references_cache(cache, tmp_path / "job2" / "references", ortho_mpp=0.125) is None
     assert rl._try_load_references_cache(cache, tmp_path / "job3" / "references", ortho_mpp=0.25) is not None
+    # les / MTBO bez ortofota v ZIPu: cache hit bez dlaždic, i s hrubým ortofotem v cache
+    got = rl._try_load_references_cache(cache, tmp_path / "job4" / "references", need_ortho=False)
+    assert got is not None and sorted(got) == ["katastr", "osm"]
+    assert not list((tmp_path / "job4").rglob("orthophoto*"))
+    # sprint: dlaždice do work/ortho_ref (maska zeleně), ne do podkladů / šablon / ZIPu
+    side = tmp_path / "job5" / rl.ORTHO_SPRINT_SUBDIR
+    got = rl._try_load_references_cache(cache, tmp_path / "job5" / "references", ortho_mpp=0.25, ortho_dir=side)
+    assert got is not None and sorted(got) == ["katastr", "osm"]
+    assert {p.name for p in side.iterdir()} >= {"orthophoto_r0c0.jpg", "orthophoto_r0c0.jgw", "orthophoto_r0c1.jpg"}
+    assert not list((tmp_path / "job5" / "references").glob("orthophoto*"))
+    # cache bez ortofota (z jobu lesa) je pro sprint miss; uložení bez ortofota dlaždice JPEG v cache nechá
+    rl._store_references_cache(
+        cache, work, {"osm": built["osm"], "katastr": built["katastr"]},
+        bbox_wgs84=(14.0, 50.0, 14.1, 50.1), ref_wh=(100, 100), osm_wh=(100, 100),
+    )
+    assert (cache / "orthophoto_r0c1.jpg").is_file()
+    for old in cache.glob("orthophoto*"):
+        old.unlink()
+    assert rl._try_load_references_cache(cache, tmp_path / "job6" / "references", ortho_dir=side) is None
 
 
 def test_references_cache_legacy_png_orthophoto_is_miss(tmp_path):
@@ -682,8 +703,10 @@ def test_references_cache_legacy_png_orthophoto_is_miss(tmp_path):
     assert rl._try_load_references_cache(cache, tmp_path / "out") is None
 
 
-def test_references_cache_store_drops_legacy_ortho_png(tmp_path):
+def test_references_cache_store_drops_legacy_ortho_png(tmp_path, monkeypatch):
     from app.pipeline import reference_layers as rl
+
+    monkeypatch.setattr(rl, "ZIP_ORTHOPHOTO", True)
 
     cache = tmp_path / "cache"
     cache.mkdir()
@@ -835,15 +858,21 @@ def test_png_has_content_detects_empty_overlay(tmp_path):
     assert png_has_content(full) is True
 
 
-def test_build_reference_layers_only_ortho_and_katastr(tmp_path, monkeypatch):
-    """Vypnuté podklady: jen ortofoto a katastr, ostatní vrstvy ani sdílená cache se nesahají."""
+@pytest.mark.parametrize("zip_ortho", [False, True])
+def test_build_reference_layers_only_ortho_and_katastr(tmp_path, monkeypatch, zip_ortho):
+    """Vypnuté podklady: jen katastr (+ ortofoto se ZIP_ORTHOPHOTO), ostatní vrstvy ani sdílená cache se nesahají."""
     from app.pipeline import reference_layers as rl
+
+    monkeypatch.setattr(rl, "ZIP_ORTHOPHOTO", zip_ortho)
 
     tpl = tmp_path / "job.png"
     Image.new("RGB", (10, 10)).save(tpl)
     tpl.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0.5\n9.5\n", encoding="utf-8")
     labels = []
-    monkeypatch.setattr(rl, "fetch_orthophoto_wms", lambda *a, **k: {"orthophoto": tmp_path / "o.jpg"})
+    monkeypatch.setattr(
+        rl, "fetch_orthophoto_wms",
+        lambda *a, **k: {"orthophoto": tmp_path / "o.jpg"} if zip_ortho else pytest.fail("ortofoto"),
+    )
     monkeypatch.setattr(rl, "fetch_cuzk_wms_png", lambda *a, label="", **k: labels.append(label) or True)
     monkeypatch.setattr(rl, "build_osm_reference", lambda *a, **k: pytest.fail("OSM"))
     monkeypatch.setattr(rl, "_try_load_references_cache", lambda *a, **k: pytest.fail("cache"))
@@ -852,8 +881,47 @@ def test_build_reference_layers_only_ortho_and_katastr(tmp_path, monkeypatch):
         tmp_path, (14.0, 50.0, 14.01, 50.01), tpl, tpl.with_suffix(".pgw"), tmp_path / "ref",
         only=rl.ALWAYS_REFERENCE_KEYS,
     )
-    assert set(built) == {"orthophoto", "katastr", "katastr_vector"}
+    assert set(built) == {"katastr", "katastr_vector"} | ({"orthophoto"} if zip_ortho else set())
     assert labels == ["Katastrální mapa"]
+
+
+def test_build_reference_layers_sprint_ortho_outside_references(tmp_path, monkeypatch):
+    """Sprint bez ZIP_ORTHOPHOTO: dlaždice ortofota do work/ortho_ref (maska zeleně), ne do podkladů ani výsledku."""
+    from app.pipeline import reference_layers as rl
+
+    monkeypatch.setattr(rl, "ZIP_ORTHOPHOTO", False)
+    tpl = tmp_path / "job.png"
+    Image.new("RGB", (10, 10)).save(tpl)
+    tpl.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0.5\n9.5\n", encoding="utf-8")
+    dests, stored = [], {}
+
+    def fake_ortho(_b, _t, _p, dest_dir, **_k):
+        dests.append(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        return {"orthophoto": _fake_jpg(dest_dir / "orthophoto.jpg")}
+
+    monkeypatch.setattr(rl, "fetch_orthophoto_wms", fake_ortho)
+    monkeypatch.setattr(rl, "fetch_cuzk_wms_png", lambda *a, **k: True)
+    monkeypatch.setattr(rl, "png_has_content", lambda *_a: True)
+    monkeypatch.setattr(rl, "build_osm_reference", lambda *a, **k: True)
+    monkeypatch.setattr(rl, "fetch_hillshade_wms", lambda *a, **k: True)
+    monkeypatch.setattr(rl, "_try_load_references_cache", lambda *a, **k: None)
+    monkeypatch.setattr(rl, "_store_references_cache", lambda _d, _o, built, **k: stored.update(built))
+    monkeypatch.setattr(rl, "_with_katastr_vectors", lambda built, *a, **k: built)
+    work = tmp_path / "work"
+    built = rl.build_reference_layers(
+        tmp_path, (14.0, 50.0, 14.01, 50.01), tpl, tpl.with_suffix(".pgw"), work / "references", sprint_ortho=True
+    )
+    assert dests == [work / rl.ORTHO_SPRINT_SUBDIR]
+    assert not any(k.startswith("orthophoto") for k in built)
+    assert "orthophoto" in stored  # sdílená cache dlaždice drží pro další sprint
+    assert not list((work / "references").glob("orthophoto*"))
+    # les / MTBO: ortofoto 0,125 m se nestahuje vůbec
+    dests.clear()
+    built = rl.build_reference_layers(
+        tmp_path, (14.0, 50.0, 14.01, 50.01), tpl, tpl.with_suffix(".pgw"), tmp_path / "w2" / "references"
+    )
+    assert dests == [] and not any(k.startswith("orthophoto") for k in built)
 
 
 def test_build_reference_layers_ortho_parallel_with_other_layers(tmp_path, monkeypatch):
@@ -862,6 +930,7 @@ def test_build_reference_layers_ortho_parallel_with_other_layers(tmp_path, monke
 
     from app.pipeline import reference_layers as rl
 
+    monkeypatch.setattr(rl, "ZIP_ORTHOPHOTO", True)
     tpl = tmp_path / "job.png"
     Image.new("RGB", (10, 10)).save(tpl)
     tpl.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0.5\n9.5\n", encoding="utf-8")
