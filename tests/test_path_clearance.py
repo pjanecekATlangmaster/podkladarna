@@ -107,6 +107,38 @@ def test_paths_are_taken_from_drawn_map_objects_without_geojson(tmp_path):
     assert _min_dist_m(b) > road_half + 1.9
 
 
+@pytest.mark.parametrize(
+    "road_code, roads_y, rect, expect",
+    [
+        ("502", [0], (-10, -12, 10, 20), "clipped"),  # budova přeťatá osou silnice → oříznutá
+        ("505", [0], (-10, -12, 10, 20), "same"),  # pěšina budovu neořezává
+        ("502", [0], (-3, -2, 3, 2), "dropped"),  # malá budova na silnici → pryč
+        ("502", [0, 14], (-10, 3, 10, 11), "clipped"),  # mezi dvěma silnicemi, posun nejde → zbyde kus mimo oba pásy
+    ],
+)
+def test_building_that_cannot_move_is_clipped_by_road_corridor_only(tmp_path, road_code, roads_y, rect, expect):
+    from app.pipeline.oom_import import _path_object
+    from shapely.geometry import LineString
+
+    roads = [_path_object(symbol_index_for_code(PRESET, SCALE, road_code), _to_map([(-100, y), (100, y)])) for y in roads_y]
+    building = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "521"), [_to_map(_rect(*rect))])
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([*roads, building]), count=len(roads) + 1)]
+    out = _objects(displace_objects_from_paths(parts, tmp_path, **KW))
+    buildings = out[len(roads) :]
+    if expect == "same":
+        assert buildings == [building.strip()]
+        return
+    if expect == "dropped":
+        assert buildings == []
+        return
+    assert buildings and all(_area(b) < _area(building) for b in buildings)
+    half = symbol_width_mm(PRESET, SCALE, road_code) / 2 * 10  # m
+    for b in buildings:
+        poly = _polygon_of(b)
+        for y in roads_y:
+            assert poly.distance(LineString([(-1e5, y * 100), (1e5, y * 100)])) >= (half + 1.9) * 100 - 5  # pás + mezera 0,2 mm
+
+
 def test_closed_osm_fence_is_filled_with_olive_in_mtbo(tmp_path):
     from app.pipeline import dtm_import as di
 

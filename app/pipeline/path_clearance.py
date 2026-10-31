@@ -8,11 +8,12 @@ Pracuje se v souřadnicích mapy (1 jednotka = 1 µm), šířky symbolů se bero
 berou z hotové mapy (všechny kreslené cesty bez ohledu na zdroj – OSM i ZABAGED).
 
 - Oliva se ořízne o pás podél cesty (kousky pod minimální šířku se zahodí; oliva skoro celá pod cestou pryč).
-- Ostatní plochy (budovy …) a body se posunou celé, tvar se nemění.
+- Ostatní plochy (budovy …) a body se posunou celé, tvar se nemění. Budova, kterou nejde odsunout a zasahuje do silnice
+  (502, 503), se o pás silnice ořízne; drobné zbytky se zahodí (silnice mají přednost).
 - Čáry (zdi, ploty) se odsunou po bodech; nesmí se tím přiblížit k jiné cestě ani výrazně změnit délku.
 
 Objekt, který cestu kříží nebo by se musel posunout víc než ``NONSPRINT_AVOID_MAX_SHIFT_MM``,
-zůstane. Vegetace (les, louka, houštiny …), terén, voda, cesty a zpevněné plochy se nemění.
+zůstane (budova kříženou silnicí 502 / 503 se ořízne, viz výše). Vegetace (les, louka, houštiny …), terén, voda, cesty a zpevněné plochy se nemění.
 Sprint se nemění.
 """
 
@@ -39,6 +40,12 @@ CLIFF_TICK_MM = 0.5
 CLIFF_MIN_PIECE_MM = 0.5
 CLIFF_MAX_SHIFT_MM = 1.5
 PAVED_MAJOR = 501
+# Silnice (502 a 503): budova, kterou nejde odsunout, se o jejich pás ořízne (Petr: silnice mají přednost). Ostatní cesty
+# (504–508, 532, MTBO 8xx) budovu neořezávají, budova přeťatá pěšinou zůstává.
+ROAD_MAJORS = frozenset({502, 503})
+BUILDING_MAJOR = 521
+# Kus budovy po ořezu o silnici: nejmenší šířka (mm na mapě); nejmenší výměra bere BUILDING_MIN_AREA_MM2 z osm_paths.
+MIN_BUILDING_WIDTH_MM = 0.2
 # Mezera mezi okrajem symbolu cesty a objektem (mm na mapě): oliva / ostatní (černá kresba).
 OLIVE_GAP_MM = 0.05
 BLACK_GAP_MM = 0.2
@@ -105,12 +112,13 @@ def _format_coords(pts: list[list[int]]) -> str:
 class _Paths:
     """Osy cest v souřadnicích mapy s půlkou šířky symbolu (µm), prostorový index."""
 
-    def __init__(self, axes: list[tuple[list[tuple[int, int]], float]]):
+    def __init__(self, axes: list[tuple[list[tuple[int, int]], float]], majors: list[int] | None = None):
         from shapely import STRtree
         from shapely.geometry import LineString
 
         self.geoms = [LineString(c) for c, _h in axes]
         self.half = [h for _c, h in axes]
+        self.majors = majors  # hlavní číslo symbolu u každé osy; None = neznámé (ořez o silnice se nedělá)
         self.tree = STRtree(self.geoms)
         self.reach = max(self.half) if self.half else 0.0
 
@@ -206,6 +214,33 @@ def _clip_olive(pts, paths: _Paths, extra, min_half):
         for piece in _rounded_pieces(g):
             out.append(piece)
     return out or None
+
+
+def _clip_building(pts, paths: _Paths, extra, min_half, min_area):
+    """Budovu, kterou nejde odsunout, ořízne o pás silnic (``ROAD_MAJORS``) → seznam ploch (body), [] = leží pod silnicí,
+    None = beze změny (osy bez známého symbolu, silnice se jí netýká)."""
+    from shapely.geometry import Polygon
+
+    if not paths.majors:
+        return None
+    poly = _polygon(_rings(pts))
+    if poly is None or poly.is_empty:
+        return None
+    ks = [k for k in paths.near(poly, extra) if paths.majors[k] in ROAD_MAJORS]
+    if not ks:
+        return None
+    new = poly.difference(paths.corridor(ks, extra))
+    if new.area >= poly.area - 1.0:
+        return None
+    pieces = [
+        g
+        for g in getattr(new, "geoms", [new])
+        if isinstance(g, Polygon) and g.area >= min_area and not g.buffer(-min_half).is_empty
+    ]
+    out = []
+    for g in (g.simplify(EPS) for g in pieces):
+        out.extend(_rounded_pieces(g))
+    return out
 
 
 def _rounded_pieces(g) -> list[list[list[int]]]:
@@ -355,8 +390,8 @@ def _clear_cliff(pts, paths: _Paths, extra_line, extra_tick, max_shift, step, mi
     return [[[round(x), round(y), 0] for x, y in g.coords] for g in pieces]
 
 
-def _drawn_path_objects(parts, info, widths) -> list[tuple[list[tuple[float, float]], float]]:
-    """Čárové objekty cest v mapě: ``[(osa v souřadnicích mapy, půlka šířky symbolu v µm)]``."""
+def _drawn_path_objects(parts, info, widths) -> list[tuple[list[tuple[float, float]], float, int]]:
+    """Čárové objekty cest v mapě: ``[(osa v souřadnicích mapy, půlka šířky symbolu v µm, hlavní číslo symbolu)]``."""
     out = []
     for part in parts:
         for m in _OBJECT_RE.finditer(part.objects_xml):
@@ -372,7 +407,7 @@ def _drawn_path_objects(parts, info, widths) -> list[tuple[list[tuple[float, flo
                 continue
             pts = _flatten(_parse_coords(cm.group(1)))
             if len(pts) >= 2:
-                out.append((pts, width * 1000.0 / 2.0))
+                out.append((pts, width * 1000.0 / 2.0, major))
     return out
 
 
@@ -566,7 +601,7 @@ def displace_objects_from_paths(
     # Osy cest z hotové mapy (OSM i ZABAGED, silnice, cesty, pěšiny, schody, MTBO 8xx); bez nich z OSM geojsonu.
     map_axes = _drawn_path_objects(parts, info, widths)
     if map_axes:
-        paths = _Paths(map_axes)
+        paths = _Paths([(c, h) for c, h, _m in map_axes], [m for _c, _h, m in map_axes])
     elif axes:
         paths = _Paths([(to_map(c), width_mm * 1000.0 / 2.0) for c, width_mm in axes])
     else:
@@ -574,6 +609,9 @@ def displace_objects_from_paths(
     max_shift = (NONSPRINT_AVOID_MAX_SHIFT_MM if max_shift_mm is None else max_shift_mm) * 1000.0
     step = DENSIFY_MM * 1000.0
     min_half = MIN_AREA_WIDTH_MM * 1000.0 / 2.0
+    from app.pipeline.osm_paths import BUILDING_MIN_AREA_MM2
+
+    building_min_area = BUILDING_MIN_AREA_MM2 * 1e6  # mm² mapy → µm²
     # Zpevněné plochy z mapy (501.x): sráz na nich nemá co dělat (parkoviště u tramvaje, Barrandov).
     paved_polys = []
     for part in parts:
@@ -641,7 +679,13 @@ def displace_objects_from_paths(
                     return match.group(0)
                 v = _shift_vector(poly, paths, extra, max_shift)
                 if v is None:
-                    return match.group(0)
+                    if major != BUILDING_MAJOR:
+                        return match.group(0)
+                    # budovu nejde odsunout → ořízne se o pás silnic (silnice mají přednost), kus pod minimum se zahodí
+                    pieces = _clip_building(pts, paths, extra, MIN_BUILDING_WIDTH_MM * 1000.0 / 2.0, building_min_area)
+                    if pieces is None:
+                        return match.group(0)
+                    return "\n".join(rebuilt(p) for p in pieces)
                 return rebuilt([[round(x + v[0]), round(y + v[1]), f] for x, y, f in pts])
             new = _move_line(pts, paths, extra, max_shift, step)
             return match.group(0) if new is None else rebuilt(new)
