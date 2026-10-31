@@ -49,6 +49,22 @@ def resolve_veg_smooth(options: dict | None) -> int:
     return level if level in VEG_SMOOTH_LEVELS else VEG_SMOOTH_DEFAULT
 
 
+# Vyhlazení vrstevnic (contour_smooth, viz contours_adaptive): 0 = jako dosud,
+# 1 = adaptivní (víc vyhladit rovinu, členitý terén bit po bitu jako dosud).
+CONTOUR_SMOOTH_LEVELS = (0, 1)
+CONTOUR_SMOOTH_DEFAULT = 0
+
+
+def resolve_contour_smooth(options: dict | None) -> int:
+    """Stupeň vyhlazení vrstevnic; neplatná nebo chybějící hodnota = výchozí."""
+    raw = str((options or {}).get("contour_smooth", "")).strip().lower()
+    try:
+        level = int(raw)
+    except ValueError:
+        return CONTOUR_SMOOTH_DEFAULT
+    return level if level in CONTOUR_SMOOTH_LEVELS else CONTOUR_SMOOTH_DEFAULT
+
+
 def _as_bool(raw, default: bool) -> bool:
     if isinstance(raw, bool):
         return raw

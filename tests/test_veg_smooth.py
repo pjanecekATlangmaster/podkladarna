@@ -4,7 +4,7 @@ import pytest
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
-from app.pipeline.job_options import resolve_veg_smooth
+from app.pipeline.job_options import resolve_contour_smooth, resolve_veg_smooth
 from app.pipeline.veg_smooth import SmoothBarriers, _curve_area_gain, smooth_area
 
 
@@ -56,6 +56,15 @@ def test_resolve_veg_smooth_default_and_values():
     assert resolve_veg_smooth({"veg_smooth": "x"}) == 1
     assert resolve_veg_smooth({"veg_smooth": "0"}) == 0  # vypnuto
     assert resolve_veg_smooth({"veg_smooth": 0}) == 0
+
+
+@pytest.mark.parametrize(
+    "opts, expected",
+    [({}, 0), (None, 0), ({"contour_smooth": "1"}, 1), ({"contour_smooth": 1}, 1),
+     ({"contour_smooth": "0"}, 0), ({"contour_smooth": "2"}, 0), ({"contour_smooth": "x"}, 0)],
+)
+def test_resolve_contour_smooth(opts, expected):
+    assert resolve_contour_smooth(opts) == expected
 
 
 def test_higher_level_removes_small_notches():

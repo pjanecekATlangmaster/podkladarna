@@ -34,6 +34,7 @@ from app.pipeline.job_options import (
     resolve_vege_height,
     resolve_use_dtm,
     resolve_veg_smooth,
+    resolve_contour_smooth,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
 from app.pipeline.dtm_import import clear_job_memo, start_dtm_prefetch
@@ -787,6 +788,7 @@ def run_job_pipeline(
         scalefactor=scalefactor,
         crop_bounds=crop,
         formlines=resolve_formline_mode(options),
+        contour_smooth=resolve_contour_smooth(options),
         log=log,
     )
     progress.done()

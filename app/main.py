@@ -46,12 +46,14 @@ from app.pipeline.job_options import (
     FORMLINE_MODES,
     KP_CLIFF_SENSITIVITY,
     KP_VEGE_HEIGHT_CHOICES,
+    CONTOUR_SMOOTH_LEVELS,
     VEG_SMOOTH_LEVELS,
     load_presets,
     resolve_cliff_sensitivity,
     resolve_formline_mode,
     resolve_vege_height,
     resolve_use_dtm,
+    resolve_contour_smooth,
     resolve_veg_smooth,
 )
 from app.pipeline.package_oom import (
@@ -781,6 +783,9 @@ async def api_create_job(request: Request):
     formlines_raw = _form_str(form, "contour_formlines").strip().lower()
     if formlines_raw in FORMLINE_MODES:
         options["contour_formlines"] = formlines_raw
+    contour_smooth_raw = _form_str(form, "contour_smooth").strip().lower()
+    if contour_smooth_raw.isdigit() and int(contour_smooth_raw) in CONTOUR_SMOOTH_LEVELS:
+        options["contour_smooth"] = contour_smooth_raw
     veg_smooth_raw = _form_str(form, "veg_smooth").strip().lower()
     if veg_smooth_raw.isdigit() and int(veg_smooth_raw) in VEG_SMOOTH_LEVELS:
         options["veg_smooth"] = veg_smooth_raw
@@ -875,6 +880,7 @@ async def api_create_job(request: Request):
     log(
         f"  Terén: vegetace {options.get('kp_vege_height', 2.0)} m · "
         f"tvar vegetace {resolve_veg_smooth(options)} · "
+        f"vrstevnice {'adaptivní' if resolve_contour_smooth(options) else 'jako dosud'} · "
         f"kresba sprint {'DTM' if resolve_use_dtm(options, 'sprint') else 'OSM+ZABAGED'}/"
         f"les+MTBO {'DTM' if resolve_use_dtm(options, 'forest') else 'OSM+ZABAGED'} · "
         f"srázy {options.get('kp_cliff_sensitivity', 'low')}/"

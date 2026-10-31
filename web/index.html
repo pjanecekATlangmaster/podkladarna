@@ -89,6 +89,15 @@
           <p class="hint" id="formlines-hint">V polovině ekvidistance. „Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.</p>
 
           <label>
+            Vyhlazení vrstevnic
+            <select name="contour_smooth" id="contour_smooth">
+              <option value="0" selected>0 – jako dosud (výchozí)</option>
+              <option value="1">1 – adaptivní: víc vyhladit rovinu</option>
+            </select>
+          </label>
+          <p class="hint" id="contour-smooth-hint">Adaptivní vyhladí vrstevnice tam, kde jsou na mapě daleko od sebe (rovina, šum DMR); v členitém terénu zůstanou bit po bitu jako dosud a přechod je plynulý i podél jedné vrstevnice. Kupky a žlaby vyšší než ~0,5&nbsp;m se nemažou, výška se změní nejvýš o 0,3 ekvidistance. Zatím zkušebně.</p>
+
+          <label>
             Tvar hranic porostů (401–410)
             <select name="veg_smooth" id="veg_smooth">
               <option value="0">0 – kostičky 1:1 z rastru (bez úprav)</option>

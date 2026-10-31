@@ -1281,6 +1281,11 @@ function applyJobToForm(job) {
     const flVal = opts.contour_formlines || "off";
     formlines.value = [...formlines.options].some((o) => o.value === flVal) ? flVal : "off";
   }
+  const contourSmooth = form.contour_smooth;
+  if (contourSmooth) {
+    const csVal = String(opts.contour_smooth ?? "0");
+    contourSmooth.value = [...contourSmooth.options].some((o) => o.value === csVal) ? csVal : "0";
+  }
   const vegSmooth = form.veg_smooth;
   if (vegSmooth) {
     const vsVal = String(opts.veg_smooth ?? "1");
