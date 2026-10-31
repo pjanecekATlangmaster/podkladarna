@@ -314,7 +314,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   výběžků do 6 / 12 m. Proti ručním mapám jsou všechny stupně stejně přesné (hrana do 0,1 m stejně, IoU v tisícinách, rozhoduje
   klasifikace); dřívější výchozí 2 (DP 3 m + křivky) mazal drobnosti do 12 m a nafukoval 410 o 3–5 %. Sprint beze
   změny (`smooth_area_legacy`, `_SPRINT_LEVEL`). Metriky a výřezy: `/mnt/project-files/porosty-vyhlazeni/`.
-- **Adaptivní vyhlazení vrstevnic** (3.5.0, Petr 2026-10-31, volba jobu `contour_smooth`: 0 jako dosud – výchozí, 1 adaptivní;
+- **Adaptivní vyhlazení vrstevnic** (3.5.0, masky 3.5.1, Petr 2026-10-31, volba jobu `contour_smooth`: 0 jako dosud – výchozí, 1 adaptivní;
   `app/pipeline/contours_adaptive.py`): vyhlazuje se DEM, ne čáry – `dem_contour.tif` = `dem_smooth.tif` + w · clip(Gauss σ' − base, ±0,3·I),
   w podle rozestupu vrstevnic na papíře (les 2–5 mm, sprint 1–2 mm), ochrana tvarů nad 0,5–1,2 m; kde w = 0, pixel bit po bitu jako dosud.
   `dem_smooth.tif` zůstává (čte ho import srázů). Metriky: `scripts/contour_smooth_metrics.py <work>`; návrh, oponentura a výřezy
