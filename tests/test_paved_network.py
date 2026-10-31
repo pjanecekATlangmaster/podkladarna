@@ -201,7 +201,8 @@ def test_road_over_parking_kept_only_as_connection(tmp_path):
     road = _line([(-50, 20), (90, 20)], "road_2")
     _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [road])
     lengths = _path_lengths(tmp_path)
-    assert lengths["503.0"] == pytest.approx(100, abs=1.0)  # 140 m − 40 m uvnitř parkoviště
+    # 140 m − 40 m uvnitř parkoviště; silnice končí na kreslené (generalizované, o ~0,5 m menší) ploše
+    assert lengths["503.0"] == pytest.approx(100, abs=1.5)
 
 
 def test_road_grazing_corner_is_not_cut(tmp_path):
@@ -1041,3 +1042,22 @@ def test_prepare_stores_walk_tunnels_and_service_area(tmp_path, monkeypatch):
 )
 def test_major_road_code_by_drawn_symbol(code, preset, major):
     assert op.is_major_road_code(code, preset, 10000) is major
+
+
+def test_road_clip_only_where_area_is_drawn(tmp_path):
+    # Smyčka konečné Klukovice (way/60596451): špičku plochy uřízne generalizace (výběžek do 0,5 mm), silnice se
+    # ale ořezávala o původní plochu z OSM – mezi koncem silnice a plochou zůstala mezera 3,9 m (Petr 2026-10-31).
+    ring = [[0, -15], [40, -15], [40, 15], [0, 15], [-4, 3], [-14, 0.2], [-14, -0.2], [-4, -3], [0, -15]]
+    area = {
+        "type": "Feature",
+        "properties": {"source": "osm", "kind": "pedestrian_area", "oom_code": "501"},
+        "geometry": {"type": "Polygon", "coordinates": [ring]},
+    }
+    _write_job(tmp_path, [area], [_road([(-60, 0), (100, 0)], "road_3")])
+    from shapely.geometry import Polygon
+
+    op._PAVED_NETWORK_CACHE.clear()
+    net = op.paved_network_geometry(tmp_path, "forest_10000", 10000)
+    clip = op.road_clip_zone(tmp_path, "forest_10000", 10000)
+    assert Polygon(ring).difference(net).area > 1.0  # špička je generalizací uříznutá
+    assert clip.difference(net).area < 0.01  # silnice se neořezává tam, kde plocha nakreslená není
