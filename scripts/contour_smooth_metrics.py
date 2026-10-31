@@ -71,6 +71,7 @@ def main() -> int:
         adaptive_contour_array,
         adaptive_params,
         write_adaptive_contour_dem,
+        zabaged_masks,
     )
     from app.pipeline.contours_gdal import _run_gdal_contour
 
@@ -79,7 +80,10 @@ def main() -> int:
     base_dem = cont / "dem_smooth.tif"
     tmp = Path(tempfile.mkdtemp(prefix="cmetr_"))
     adapt_dem = tmp / "dem_contour.tif"
-    write_adaptive_contour_dem(base_dem, adapt_dem, interval_m=args.interval, scale=args.scale, scalefactor=sf, log=print)
+    zab = args.work_dir / "zabaged_clean.zip"
+    write_adaptive_contour_dem(
+        base_dem, adapt_dem, interval_m=args.interval, scale=args.scale, scalefactor=sf, zabaged_zip=zab, log=print
+    )
     shp0 = _run_gdal_contour(base_dem, tmp / "c0.shp", interval_m=args.interval)
     shp1 = _run_gdal_contour(adapt_dem, tmp / "c1.shp", interval_m=args.interval)
 
@@ -89,8 +93,11 @@ def main() -> int:
     z = band.ReadAsArray().astype(np.float32)
     nd = band.GetNoDataValue()
     valid = np.isfinite(z) & ((z != np.float32(nd)) if nd is not None else True)
+    params = adaptive_params(sf)
+    urban, green, protect = zabaged_masks(zab, z.shape, gt, ds.GetProjection(), params)
     _out, w = adaptive_contour_array(
-        z, valid, cell_m=abs(gt[1]), interval_m=args.interval, scale=args.scale, params=adaptive_params(sf)
+        z, valid, cell_m=abs(gt[1]), interval_m=args.interval, scale=args.scale, params=params,
+        urban=urban, green=green, protect=protect,
     )
 
     def w_at(x, y):

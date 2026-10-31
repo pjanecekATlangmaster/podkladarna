@@ -120,3 +120,31 @@ def test_transition_within_one_contour():
     assert row[260:].max() == 0.0
     # Na zlomu svahu chrání tvar ostrá ochrana detailu – i tak bez skoku.
     assert np.abs(np.diff(row)).max() < 0.25
+
+
+def test_urban_mask_smooths_moderate_slope_and_green_kept_in_sprint():
+    """Zástavba se vyhladí i v mírném svahu; ve sprintu zeleň zůstane beze změny."""
+    x, _y = _grid()
+    z = 250.0 + 0.3 * x + _noise()  # 30 %: les i bez masky beze změny
+    urban = np.zeros(z.shape, dtype=bool)
+    urban[:, :150] = True
+    _out, w_plain = _run(z)
+    _out, w_urban = adaptive_contour_array(
+        z.astype(np.float32), np.ones(z.shape, bool), cell_m=1.0, interval_m=5.0, scale=10000,
+        params=adaptive_params(1.0), urban=urban,
+    )
+    assert not w_plain.any()
+    assert w_urban[:, 30:120].mean() > 0.5
+    assert w_urban[:, 200:].max() == 0.0
+
+    # Sprint: rovina všude, louka vpravo zůstane bit po bitu.
+    z = 250.0 + _noise()
+    green = np.zeros(z.shape, dtype=bool)
+    green[:, 180:] = True
+    out, w = adaptive_contour_array(
+        z.astype(np.float32), np.ones(z.shape, bool), cell_m=1.0, interval_m=2.0, scale=4000,
+        params=adaptive_params(0.4), green=green,
+    )
+    assert w[:, 40:150].min() > 0.5
+    assert not w[:, 200:].any()
+    assert np.array_equal(out[:, 200:], z.astype(np.float32)[:, 200:])
