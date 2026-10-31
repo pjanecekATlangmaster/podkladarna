@@ -90,6 +90,60 @@ nas_synology_stop_container() {
 }
 
 
+nas_service_port() {
+  case "$1" in
+    podkladarna) echo 8672 ;;
+    podkladarna-test) echo 8673 ;;
+    *) return 1 ;;
+  esac
+}
+
+
+# Host složka /data instance (docker-compose.nas-ab.yml).
+nas_service_data_dir() {
+  case "$1" in
+    podkladarna) echo data ;;
+    podkladarna-test) echo data-test ;;
+    *) return 1 ;;
+  esac
+}
+
+
+nas_drain_clear() {
+  for _dc_f in "$@"; do
+    rm -f "$_dc_f"
+  done
+}
+
+
+# Čeká, až instance na portu nepočítá (/api/health → "busy": false, nebo neodpovídá).
+# Další argumenty: soubory .deploy-drain, kterým se průběžně obnovuje čas (jinak by je
+# aplikace po čase považovala za zapomenuté). 0 = volno, 1 = vypršel limit v minutách.
+# NAS_POLL_S zkracuje interval (testy).
+nas_wait_until_idle() {
+  _wi_port="$1"
+  _wi_left=$(( $2 * 60 ))
+  shift 2
+  _wi_poll="${NAS_POLL_S:-15}"
+  # Job, který se rozbíhal právě v okamžiku založení .deploy-drain, se stihne ukázat jako busy.
+  sleep "${NAS_DRAIN_GRACE_S:-3}"
+  while :; do
+    _wi_health="$(curl -s --connect-timeout 2 --max-time 5 "http://127.0.0.1:${_wi_port}/api/health" 2>/dev/null || true)"
+    if ! printf '%s' "$_wi_health" | grep -q '"busy": *true'; then
+      return 0
+    fi
+    if [ "$_wi_left" -le 0 ]; then
+      return 1
+    fi
+    for _wi_f in "$@"; do
+      touch "$_wi_f" 2>/dev/null || true
+    done
+    sleep "$_wi_poll"
+    _wi_left=$(( _wi_left - _wi_poll ))
+  done
+}
+
+
 # Úklid po úspěšném nasazení, jen podkladarna:
 # - zastavené zbytky po přerušeném recreate (compose je přejmenuje na <id>_podkladarna…),
 # - image ghcr.io/<owner>/podkladarna bez tagu (starší :latest / :stable po pullu).

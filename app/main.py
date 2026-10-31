@@ -122,6 +122,7 @@ def startup() -> None:
     requeued = worker.requeue_after_restart()
     if requeued:
         logger.info("Requeued %s waiting job(s): %s", len(requeued), requeued)
+    worker.start_drain_watch()
     from app.job_worker import retry_missed_private_mails
 
     resent = retry_missed_private_mails()
@@ -527,6 +528,8 @@ def api_health():
         "downloads_dir": str(DOWNLOADS_DIR),
         "disk_free_gb": round(usage.free / 1e9, 2),
         "busy": worker.is_busy(),
+        # Čeká nasazení nové verze (update-nas-ab.sh): nové joby jen do fronty.
+        "draining": worker.is_draining(),
         "channel": app_settings.INSTANCE_CHANNEL,
         "instance": app_settings.INSTANCE_NAME or None,
         "tools": tools,
@@ -667,7 +670,7 @@ async def api_create_job(request: Request):
     if preset_id not in presets:
         raise HTTPException(400, f"Neznamy preset: {preset_id}")
 
-    if worker.is_busy() and not worker.can_accept_job():
+    if (worker.is_busy() or worker.is_draining()) and not worker.can_accept_job():
         raise HTTPException(
             503,
             f"Fronta je plná (max {MAX_QUEUE_SIZE} čekajících jobů). "
@@ -958,7 +961,7 @@ def api_start_job(job_id: str):
         raise HTTPException(404, "Job nenalezen")
     if job["status"] == "running":
         return job
-    if worker.is_busy() and not worker.can_accept_job():
+    if (worker.is_busy() or worker.is_draining()) and not worker.can_accept_job():
         raise HTTPException(503, f"Fronta je plná (max {MAX_QUEUE_SIZE}).")
     worker.enqueue(job_id)
     return db.get_job(job_id)

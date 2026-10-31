@@ -85,8 +85,9 @@ class SharedSlot:
         poll_s: float = 2.0,
         timeout_s: float | None = None,
         on_wait: Callable[[], None] | None = None,
+        abort: Callable[[], bool] | None = None,
     ) -> bool:
-        """Počká na slot (polling). False = vypršel ``timeout_s``."""
+        """Počká na slot (polling). False = vypršel ``timeout_s`` nebo ``abort()`` vrátil True."""
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
         notified = False
         while not self.try_acquire():
@@ -94,6 +95,8 @@ class SharedSlot:
                 on_wait()
                 notified = True
             if deadline is not None and time.monotonic() >= deadline:
+                return False
+            if abort is not None and abort():
                 return False
             time.sleep(poll_s)
         return True

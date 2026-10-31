@@ -5,6 +5,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 
 from app import db, settings
 from app.rate_limit import queue_priority_key
@@ -51,10 +52,35 @@ def is_busy() -> bool:
     return _running is not None
 
 
+# Nasazení (update-nas-ab.sh) před restartem kontejneru založí v DATA_ROOT tento soubor:
+# běžící job doběhne, nové joby se přijímají jen do fronty (stav queued přežije restart
+# a po startu nové verze se spustí). Zapomenutý soubor po čase přestane platit.
+DRAIN_FILE_NAME = ".deploy-drain"
+_DRAIN_POLL_S = 15.0
+
+
+def drain_file():
+    return settings.DATA_ROOT / DRAIN_FILE_NAME
+
+
+def drain_max_age_s() -> float:
+    return (2 * JOB_TIMEOUT_MINUTES + 60) * 60
+
+
+def is_draining() -> bool:
+    """True, když čeká nasazení nové verze: nový job se nespouští, jen řadí do fronty."""
+    try:
+        mtime = drain_file().stat().st_mtime
+    except OSError:
+        return False
+    return time.time() - mtime < drain_max_age_s()
+
+
 def queue_snapshot() -> dict:
     with _lock:
         return {
             "busy": _running is not None,
+            "draining": is_draining(),
             "shared_busy": shared_busy(),
             "current": _running,
             "queued": list(_queue),
@@ -102,9 +128,9 @@ def requeue_after_restart() -> list[str]:
 def enqueue(job_id: str, *, force: bool = False) -> None:
     global _running
     with _lock:
-        if not force and len(_queue) >= MAX_QUEUE_SIZE and _running is not None:
+        if not force and len(_queue) >= MAX_QUEUE_SIZE and (_running is not None or is_draining()):
             raise RuntimeError("Fronta je plná")
-        if _running is not None:
+        if _running is not None or is_draining():
             if job_id not in _queue:
                 if not force and len(_queue) >= MAX_QUEUE_SIZE:
                     raise RuntimeError("Fronta je plná")
@@ -127,13 +153,41 @@ def _pop_next_queued() -> str | None:
 def _start_next() -> None:
     global _running
     next_id: str | None = None
+    if is_draining():
+        return
     with _lock:
-        if _queue:
+        if _queue and _running is None:
             next_id = _pop_next_queued()
             _running = next_id
     if next_id:
         db.update_job(next_id, status="running", phase="starting", started_at=db._utcnow())
         threading.Thread(target=_run, args=(next_id,), daemon=True).start()
+
+
+def _return_to_queue(job_id: str) -> None:
+    """Job ještě nezačal počítat a čeká se na nasazení: zpět na začátek fronty."""
+    global _running
+    with _lock:
+        if _running == job_id:
+            _running = None
+        if job_id not in _queue:
+            _queue.insert(0, job_id)
+    db.update_job(job_id, status="queued", phase="waiting")
+
+
+def _drain_watch() -> None:
+    """Po skončení nasazení (soubor zmizel / přestal platit) spustí čekající joby."""
+    while True:
+        time.sleep(_DRAIN_POLL_S)
+        try:
+            if _running is None and _queue and not is_draining():
+                _start_next()
+        except Exception:  # noqa: BLE001 – hlídač nesmí spadnout
+            pass
+
+
+def start_drain_watch() -> None:
+    threading.Thread(target=_drain_watch, daemon=True, name="drain-watch").start()
 
 
 def _job_worker_cmd(job_id: str) -> list[str]:
@@ -186,6 +240,10 @@ def _run(job_id: str) -> None:
         if not (JOBS_DIR / job_id).is_dir():
             raise FileNotFoundError(f"Chybí složka jobu: {job_id}")
 
+        if is_draining():
+            _return_to_queue(job_id)
+            return
+
         if slot is not None:
             # Těžký job smí počítat jen jeden napříč instancemi A/B. Druhá instance se
             # o něm nedozví nic než „vytíženo“; zde jen čekáme, až se slot uvolní.
@@ -193,12 +251,20 @@ def _run(job_id: str) -> None:
                 db.update_job(job_id, status="queued", phase="waiting_server")
 
             if not slot.acquire(
-                timeout_s=settings.SHARED_SLOT_WAIT_MINUTES * 60, on_wait=_mark_waiting
+                timeout_s=settings.SHARED_SLOT_WAIT_MINUTES * 60,
+                on_wait=_mark_waiting,
+                abort=is_draining,
             ):
+                if is_draining():
+                    _return_to_queue(job_id)
+                    return
                 raise TimeoutError(
                     f"Server byl obsazený déle než {settings.SHARED_SLOT_WAIT_MINUTES} min – "
                     "spusťte job znovu."
                 )
+            if is_draining():
+                _return_to_queue(job_id)
+                return
             db.update_job(job_id, status="running", phase="starting", started_at=db._utcnow())
 
         proc = _popen_job(job_id)
