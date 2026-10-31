@@ -87,7 +87,7 @@ Agenti jsou v `.claude/agents/` (každý má `maxTurns` a nízký/střední `eff
 - `docker-compose.yml` — obecný compose
 - `docker-compose.dev.yml` — lokální vývojový stack
 - `docker-compose.nas-ab.yml` — A/B compose pro Synology NAS: A ostrá (`podkladarna`, port 8672, `:stable`, `./data`) a B test (`podkladarna-test`, port 8673, `:latest`, `./data-test`)
-- `update-nas-ab.sh` — aktualizace A/B (`test` | `stable` | `both`, `--if-idle` pro cron)
+- `update-nas-ab.sh` — aktualizace A/B (`test` | `stable` | `both`); běžící job nepřeruší (`.deploy-drain`, čeká na `busy: false`), `--force` restart hned
 - `nas-lib.sh` — sdílené funkce pro NAS deploy
 - `.github/workflows/` — GitHub Actions (`test.yml`, `docker.yml`, `promote-stable.yml` — ruční přetagování `:latest` → `:stable`)
 - `DEV.md` — podrobný vývojový workflow; sekce „Ladění na testovací verzi B a dohledání DTM objektu podle ID“ (pt.kibos.link, `data-test\jobs`, cache a stahování DTM balíků)
@@ -234,7 +234,7 @@ cd /volume1/docker/podkladarna
 sudo ./update-nas-ab.sh test            # B (pt.kibos.link, :latest) – výchozí
 sudo ./update-nas-ab.sh stable          # A (podkladarna.kibos.link, :stable)
 sudo ./update-nas-ab.sh both
-sudo ./update-nas-ab.sh test --if-idle  # pro cron: při běžícím jobu restart odloží
+sudo ./update-nas-ab.sh test --if-idle  # pro cron (čekání na doběhnutí jobu je výchozí i ručně)
 ```
 
 - stáhne nový image a znovu vytvoří jen vybranou službu (druhá běží dál),
