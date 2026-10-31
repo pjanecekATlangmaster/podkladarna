@@ -92,10 +92,10 @@
             Vyhlazení vrstevnic
             <select name="contour_smooth" id="contour_smooth">
               <option value="0" selected>0 – jako dosud (výchozí)</option>
-              <option value="1">1 – adaptivní: víc vyhladit rovinu</option>
+              <option value="1">1 – adaptivní: víc vyhladit rovinu a zástavbu</option>
             </select>
           </label>
-          <p class="hint" id="contour-smooth-hint">Adaptivní vyhladí vrstevnice tam, kde jsou na mapě daleko od sebe (rovina, šum DMR); v členitém terénu zůstanou bit po bitu jako dosud a přechod je plynulý i podél jedné vrstevnice. Kupky a žlaby vyšší než ~0,5&nbsp;m se nemažou, výška se změní nejvýš o 0,3 ekvidistance. Zatím zkušebně.</p>
+          <p class="hint" id="contour-smooth-hint">Adaptivní vyhladí vrstevnice tam, kde jsou na mapě daleko od sebe (rovina, šum DMR), a silněji v zástavbě (budovy, parkoviště a areály ze ZABAGED); v členitém terénu zůstanou bit po bitu jako dosud a přechod je plynulý i podél jedné vrstevnice. Ve sprintu zůstanou louky, parky a sady beze změny. Kupky a žlaby vyšší než ~0,5&nbsp;m (v zástavbě ~1,5&nbsp;m), náspy drah a valy se nemažou; výška se změní nejvýš o 0,3 ekvidistance. Zatím zkušebně.</p>
 
           <label>
             Tvar hranic porostů (401–410)
