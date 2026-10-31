@@ -94,12 +94,13 @@ fi
 for svc in $CHANGED; do
   nas_synology_stop_container "$svc" || true
 done
-# Nová instance startuje bez .deploy-drain a spustí joby, které čekaly ve frontě.
-nas_drain_clear $DRAIN_FILES
-DRAIN_FILES=""
 echo "Spouštím: $SERVICES"
 # shellcheck disable=SC2086
 $COMPOSE -f "$COMPOSE_FILE" up -d --no-deps $SERVICES
+# .deploy-drain až po `up -d`: kdyby synowebapi stop selhal, starý kontejner do restartu
+# nic z fronty nespustí. Nová instance frontu po smazání spustí sama (drain_watch, ~15 s).
+nas_drain_clear $DRAIN_FILES
+DRAIN_FILES=""
 
 for port in $PORTS; do
   i=0

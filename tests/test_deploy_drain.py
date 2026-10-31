@@ -177,4 +177,5 @@ def test_update_script_waits_for_running_job(tmp_path, args, env, rc, waited, de
     assert proc.returncode == rc, proc.stdout + proc.stderr
     assert ("HEALTH_WITH_DRAIN" in log) is waited
     assert (" up -d " in log) is deployed
-    assert "UP_WITH_DRAIN" not in log
+    # drain drží až do `up -d` (starý kontejner mezitím z fronty nic nespustí)
+    assert ("UP_WITH_DRAIN" in log) is (waited and deployed)
