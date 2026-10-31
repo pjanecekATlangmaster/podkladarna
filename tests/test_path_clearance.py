@@ -108,35 +108,47 @@ def test_paths_are_taken_from_drawn_map_objects_without_geojson(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "road_code, roads_y, rect, expect",
+    "obj_code, road_code, roads_y, rect, expect",
     [
-        ("502", [0], (-10, -12, 10, 20), "clipped"),  # budova přeťatá osou silnice → oříznutá
-        ("505", [0], (-10, -12, 10, 20), "same"),  # pěšina budovu neořezává
-        ("502", [0], (-3, -2, 3, 2), "dropped"),  # malá budova na silnici → pryč
-        ("502", [0, 14], (-10, 3, 10, 11), "clipped"),  # mezi dvěma silnicemi, posun nejde → zbyde kus mimo oba pásy
+        ("521", "502", [0], (-10, -12, 10, 20), "clipped"),  # budova přeťatá osou silnice → oříznutá
+        ("521", "505", [0], (-10, -12, 10, 20), "same"),  # pěšina budovu neořezává
+        ("521", "502", [0], (-3, -2, 3, 2), "dropped"),  # malá budova na silnici → pryč
+        ("521", "502", [0, 14], (-10, 3, 10, 11), "clipped"),  # mezi dvěma silnicemi, posun nejde → zbyde kus mimo oba pásy
+        ("520", "502", [0], (-10, -6, 10, 20), "clipped"),  # oliva většinou pod silnicí (zbude < 50 % výměry) → přesto oříznutá
+        ("516", "502", [0], (0, -20, 0, 20), "clipped"),  # plot kolmo přes silnici → dva kusy mimo pás
+        ("516", "505", [0], (0, -20, 0, 20), "same"),  # plot přes pěšinu zůstane
     ],
 )
-def test_building_that_cannot_move_is_clipped_by_road_corridor_only(tmp_path, road_code, roads_y, rect, expect):
+def test_object_that_cannot_move_is_clipped_by_road_corridor_only(tmp_path, obj_code, road_code, roads_y, rect, expect):
     from app.pipeline.oom_import import _path_object
     from shapely.geometry import LineString
 
     roads = [_path_object(symbol_index_for_code(PRESET, SCALE, road_code), _to_map([(-100, y), (100, y)])) for y in roads_y]
-    building = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "521"), [_to_map(_rect(*rect))])
-    parts = [OomObjectPart(name="x", objects_xml="\n".join([*roads, building]), count=len(roads) + 1)]
+    sym = symbol_index_for_code(PRESET, SCALE, obj_code)
+    if obj_code == "516":  # čára: rect = (x0, y0, x1, y1) úsečky
+        obj = _path_object(sym, _to_map([(rect[0], rect[1]), (rect[2], rect[3])]))
+    else:
+        obj = _area_object_with_holes(sym, [_to_map(_rect(*rect))])
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([*roads, obj]), count=len(roads) + 1)]
     out = _objects(displace_objects_from_paths(parts, tmp_path, **KW))
-    buildings = out[len(roads) :]
+    objs = out[len(roads) :]
     if expect == "same":
-        assert buildings == [building.strip()]
+        assert objs == [obj.strip()]
         return
     if expect == "dropped":
-        assert buildings == []
+        assert objs == []
         return
-    assert buildings and all(_area(b) < _area(building) for b in buildings)
+    if obj_code == "516":
+        assert len(objs) == 2
+    else:
+        assert objs and all(_area(b) < _area(obj) for b in objs)
     half = symbol_width_mm(PRESET, SCALE, road_code) / 2 * 10  # m
-    for b in buildings:
-        poly = _polygon_of(b)
+    gap = 0.5 if obj_code == "520" else 1.9  # m: oliva 0,05 mm, ostatní 0,2 mm mapy
+    for b in objs:
+        pts = [(x, y) for x, y, _f in _parse_coords(_COORDS_RE.search(b).group(1))]
+        geom = LineString(pts) if obj_code == "516" else _polygon_of(b)
         for y in roads_y:
-            assert poly.distance(LineString([(-1e5, y * 100), (1e5, y * 100)])) >= (half + 1.9) * 100 - 5  # pás + mezera 0,2 mm
+            assert geom.distance(LineString([(-1e5, y * 100), (1e5, y * 100)])) >= (half + gap) * 100 - 5  # pás + mezera
 
 
 def test_closed_osm_fence_is_filled_with_olive_in_mtbo(tmp_path):

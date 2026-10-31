@@ -7,10 +7,12 @@ cesty a objektem zbyla mezera: od olivy minimální, od objektů s černou kresb
 Pracuje se v souřadnicích mapy (1 jednotka = 1 µm), šířky symbolů se berou ze sady. Osy cest se
 berou z hotové mapy (všechny kreslené cesty bez ohledu na zdroj – OSM i ZABAGED).
 
-- Oliva se ořízne o pás podél cesty (kousky pod minimální šířku se zahodí; oliva skoro celá pod cestou pryč).
+- Oliva se ořízne o pás podél cesty (kousky pod minimální šířku se zahodí; oliva skoro celá pod cestou pryč). Oliva, která by
+  jinak zůstala celá, se aspoň o pás silnic (502, 503) ořízne vždy.
 - Ostatní plochy (budovy …) a body se posunou celé, tvar se nemění. Budova, kterou nejde odsunout a zasahuje do silnice
   (502, 503), se o pás silnice ořízne; drobné zbytky se zahodí (silnice mají přednost).
-- Čáry (zdi, ploty) se odsunou po bodech; nesmí se tím přiblížit k jiné cestě ani výrazně změnit délku.
+- Čáry (zdi, ploty) se odsunou po bodech; nesmí se tím přiblížit k jiné cestě ani výrazně změnit délku. Čára, kterou nejde
+  odsunout, se z pásu silnic (502, 503) vyřízne (kusy pod ``CLIFF_MIN_PIECE_MM`` pryč).
 
 Objekt, který cestu kříží nebo by se musel posunout víc než ``NONSPRINT_AVOID_MAX_SHIFT_MM``,
 zůstane (budova kříženou silnicí 502 / 503 se ořízne, viz výše). Vegetace (les, louka, houštiny …), terén, voda, cesty a zpevněné plochy se nemění.
@@ -216,9 +218,9 @@ def _clip_olive(pts, paths: _Paths, extra, min_half):
     return out or None
 
 
-def _clip_building(pts, paths: _Paths, extra, min_half, min_area):
-    """Budovu, kterou nejde odsunout, ořízne o pás silnic (``ROAD_MAJORS``) → seznam ploch (body), [] = leží pod silnicí,
-    None = beze změny (osy bez známého symbolu, silnice se jí netýká)."""
+def _clip_by_roads(pts, paths: _Paths, extra, min_half, min_area):
+    """Plochu (budova, oliva), kterou nejde odsunout, ořízne o pás silnic (``ROAD_MAJORS``) → seznam ploch (body),
+    [] = leží pod silnicí, None = beze změny (osy bez známého symbolu, silnice se jí netýká)."""
     from shapely.geometry import Polygon
 
     if not paths.majors:
@@ -241,6 +243,27 @@ def _clip_building(pts, paths: _Paths, extra, min_half, min_area):
     for g in (g.simplify(EPS) for g in pieces):
         out.extend(_rounded_pieces(g))
     return out
+
+
+def _clip_line_by_roads(pts, paths: _Paths, extra, min_piece):
+    """Čáru (plot, zeď), kterou nejde odsunout, vyřízne z pásu silnic (``ROAD_MAJORS``) → seznam kusů (body), [] = celá
+    leží v pásu, None = beze změny (křivky / značené body, silnice se jí netýká). Kusy pod ``min_piece`` (µm) pryč."""
+    from shapely.geometry import LineString
+
+    if not paths.majors or any(p[2] & MAP_COORD_CURVE_START for p in pts) or any(p[2] for p in pts[:-1]):
+        return None
+    line = LineString([(p[0], p[1]) for p in pts])
+    ks = [k for k in paths.near(line, extra) if paths.majors[k] in ROAD_MAJORS]
+    if not ks:
+        return None
+    corridor = paths.corridor(ks, extra)
+    if not line.intersects(corridor):
+        return None
+    rest = line.difference(corridor.buffer(-EPS))
+    pieces = [g for g in getattr(rest, "geoms", [rest]) if g.geom_type == "LineString" and g.length >= min_piece]
+    if len(pieces) == 1 and pieces[0].equals_exact(line, EPS):
+        return None
+    return [[[round(x), round(y), 0] for x, y in g.coords] for g in pieces]
 
 
 def _rounded_pieces(g) -> list[list[list[int]]]:
@@ -670,6 +693,8 @@ def displace_objects_from_paths(
             extra = widths.get(int(sym), 0.0) * 1000.0 / 2.0 + gap
             if kind == "area" and major == OLIVE_MAJOR:
                 pieces = _clip_olive(pts, paths, extra, min_half)
+                if pieces is None:  # oliva zůstává celá → aspoň ji nesmí překrýt silnice (bez pravidla o podílu výměry)
+                    pieces = _clip_by_roads(pts, paths, extra, min_half, 0.0)
                 if pieces is None:
                     return match.group(0)
                 return "\n".join(rebuilt(p) for p in pieces)
@@ -682,13 +707,16 @@ def displace_objects_from_paths(
                     if major != BUILDING_MAJOR:
                         return match.group(0)
                     # budovu nejde odsunout → ořízne se o pás silnic (silnice mají přednost), kus pod minimum se zahodí
-                    pieces = _clip_building(pts, paths, extra, MIN_BUILDING_WIDTH_MM * 1000.0 / 2.0, building_min_area)
+                    pieces = _clip_by_roads(pts, paths, extra, MIN_BUILDING_WIDTH_MM * 1000.0 / 2.0, building_min_area)
                     if pieces is None:
                         return match.group(0)
                     return "\n".join(rebuilt(p) for p in pieces)
                 return rebuilt([[round(x + v[0]), round(y + v[1]), f] for x, y, f in pts])
             new = _move_line(pts, paths, extra, max_shift, step)
-            return match.group(0) if new is None else rebuilt(new)
+            if new is None:  # čáru nejde odsunout → vyřízne se z pásu silnic (silnice mají přednost)
+                pieces = _clip_line_by_roads(pts, paths, extra, CLIFF_MIN_PIECE_MM * 1000.0)
+                return match.group(0) if pieces is None else "\n".join(rebuilt(p) for p in pieces)
+            return rebuilt(new)
         except Exception:  # jeden objekt se nepovede → zůstane, jak byl
             return match.group(0)
 
