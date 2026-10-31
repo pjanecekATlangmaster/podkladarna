@@ -797,9 +797,8 @@ async def api_create_job(request: Request):
     residual_size_raw = _form_str(form, "sprint_residual_size").strip().lower()
     if residual_size_raw in {"small", "medium", "large"}:
         options["sprint_residual_size"] = residual_size_raw
-    ostatni_raw = _form_str(form, "ostatni_plocha").strip().lower()
-    if ostatni_raw in {"none", "small", "medium", "large"}:
-        options["ostatni_plocha"] = ostatni_raw
+    # Ostatní plocha v sídlech: volba z GUI i formuláře odebrána (Petr 2026-10-31),
+    # pipeline bere výchozí "small" (resolve_ostatni_plocha); parametr zůstává pro návrat.
     options["ostatni_plocha_as_403"] = _opt_bool("ostatni_plocha_as_403")
     # Zpětná kompatibilita starého checkboxu.
     if _opt_bool("kp_osm_furniture"):

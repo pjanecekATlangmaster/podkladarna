@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.4.8"
+APP_VERSION = "3.4.10"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -201,6 +201,7 @@ DEFAULT_OPTIONS = {
     "sprint_residual_size": "small",
     # Ostatní plocha v sídlech do auto .omap: none | small | medium | large.
     # Default small = jen ≤5 ha (současné chování). ZIP má vždy pásma SHP.
+    # Volba z GUI i formuláře odebrána (2026-10-31); pipeline parametr zůstává.
     "ostatni_plocha": "small",
     # Ostatní plocha jako 403 (rough open) místo 501 – default vypnuto.
     # GUI skryté (2026-10); API/pipeline flag zůstává.
