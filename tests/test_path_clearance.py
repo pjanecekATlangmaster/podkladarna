@@ -151,6 +151,44 @@ def test_object_that_cannot_move_is_clipped_by_road_corridor_only(tmp_path, obj_
             assert geom.distance(LineString([(-1e5, y * 100), (1e5, y * 100)])) >= (half + gap) * 100 - 5  # pás + mezera
 
 
+@pytest.mark.parametrize(
+    "preset, roads_y, y, expect",
+    [
+        ("mtbo_10000", [0], 13, "moved"),  # čtverec 1,5 mm těsně u silnice (střed 1,3 mm od osy) → odsunut celý mimo pás
+        ("mtbo_10000", [0], 5, "moved"),  # čtverec přesahuje osu, bod leží vedle silnice (0,5 mm) → odsunut, ne zahozen
+        ("mtbo_10000", [0, 14], 7, "dropped"),  # mezi dvěma blízkými silnicemi se nevejde → pryč
+        ("forest_10000", [0], 60, "same"),  # daleko od silnice beze změny
+    ],
+)
+def test_point_building_moves_by_symbol_size_or_drops_on_road(tmp_path, preset, roads_y, y, expect):
+    from app.pipeline.oom_import import _path_object
+    from shapely.geometry import LineString, box
+
+    from app.pipeline.oom_symbols import symbol_set_path
+    from app.pipeline.path_clearance import _point_symbol_boxes
+
+    kw = {**KW, "preset_id": preset}
+    roads = [_path_object(symbol_index_for_code(preset, SCALE, "502"), _to_map([(-100, ry), (100, ry)])) for ry in roads_y]
+    sym = symbol_index_for_code(preset, SCALE, "521.3")
+    px, py = _to_map([(0, y)])[0]
+    pt = _point_object(sym, px, py)
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([*roads, pt]), count=len(roads) + 1)]
+    objs = _objects(displace_objects_from_paths(parts, tmp_path, **kw))[len(roads) :]
+    if expect == "dropped":
+        assert objs == []
+        return
+    assert len(objs) == 1
+    if expect == "same":
+        assert objs == [pt.strip()]
+        return
+    bx = _point_symbol_boxes(symbol_set_path(preset, SCALE))[sym]
+    assert bx == (-750, -750, 750, 750)
+    x, yy, _f = _parse_coords(_COORDS_RE.search(objs[0]).group(1))[0]
+    sq = box(x + bx[0], yy + bx[1], x + bx[2], yy + bx[3])
+    half = symbol_width_mm(preset, SCALE, "502") / 2 * 1000  # µm
+    assert sq.distance(LineString([(-1e5, 0), (1e5, 0)])) >= half + 200 - 5  # pás silnice + mezera 0,2 mm
+
+
 def test_closed_osm_fence_is_filled_with_olive_in_mtbo(tmp_path):
     from app.pipeline import dtm_import as di
 

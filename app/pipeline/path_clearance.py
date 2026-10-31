@@ -9,7 +9,8 @@ berou z hotové mapy (všechny kreslené cesty bez ohledu na zdroj – OSM i ZAB
 
 - Oliva se ořízne o pás podél cesty (kousky pod minimální šířku se zahodí; oliva skoro celá pod cestou pryč). Oliva, která by
   jinak zůstala celá, se aspoň o pás silnic (502, 503) ořízne vždy.
-- Ostatní plochy (budovy …) a body se posunou celé, tvar se nemění. Budova, kterou nejde odsunout a zasahuje do silnice
+- Ostatní plochy (budovy …) a body se posunou celé, tvar se nemění. Bodová budova (521.3) se odsouvá podle skutečné velikosti
+  symbolu v sadě (čtverec, ne kolečko); když se nevejde vedle silnice (502, 503), nekreslí se. Budova, kterou nejde odsunout a zasahuje do silnice
   (502, 503), se o pás silnice ořízne; drobné zbytky se zahodí (silnice mají přednost).
 - Čáry (zdi, ploty) se odsunou po bodech; nesmí se tím přiblížit k jiné cestě ani výrazně změnit délku. Čára, kterou nejde
   odsunout, se z pásu silnic (502, 503) vyřízne (kusy pod ``CLIFF_MIN_PIECE_MM`` pryč).
@@ -95,6 +96,32 @@ def _symbol_info(symbol_set: Path) -> dict[int, tuple[int, str]]:
         else:
             kind = "other"
         out[int(el.get("id"))] = (major, kind)
+    return out
+
+
+@lru_cache(maxsize=8)
+def _point_symbol_boxes(symbol_set: Path) -> dict[int, tuple[float, float, float, float]]:
+    """``{index bodového symbolu: (minx, miny, maxx, maxy) v µm}`` – obálka všech souřadnic elementů ``<point_symbol>``."""
+    import xml.etree.ElementTree as ET
+
+    out: dict[int, tuple[float, float, float, float]] = {}
+    root = ET.parse(symbol_set).getroot()
+    for el in root.iter():
+        if el.tag.rsplit("}", 1)[-1] != "symbol" or el.get("id") is None or el.get("type") != "1":
+            continue
+        xs: list[float] = []
+        ys: list[float] = []
+        for ps in el.iter():
+            if ps.tag.rsplit("}", 1)[-1] != "point_symbol":
+                continue
+            for c in ps.iter():
+                if c.tag.rsplit("}", 1)[-1] != "coords":
+                    continue
+                for pt in _parse_coords(c.text or ""):
+                    xs.append(pt[0])
+                    ys.append(pt[1])
+        if xs:
+            out[int(el.get("id"))] = (min(xs), min(ys), max(xs), max(ys))
     return out
 
 
@@ -322,6 +349,39 @@ def _shift_vector(geom, paths: _Paths, extra, max_shift):
         d = paths.geoms[k].distance(g)
         if d + EPS < min(before.get(k, math.inf), need):
             return None
+    return tx, ty
+
+
+def _shift_point_box(x0, y0, box, paths: _Paths, gap, max_shift):
+    """Posun bodové budovy (čtverec ``box`` kolem bodu) od cest (dx, dy), None = beze změny / nevejde se.
+
+    Čtverec často přesahuje osu cesty, i když bod leží vedle ní (symbol je větší než budova), a ``_shift_vector`` objekt
+    na ose nechá. Proto se nejdřív odsune samotný bod jako kolečko vepsané do čtverce, pak se dorovná čtverec (rohy)."""
+    from shapely.affinity import translate
+    from shapely.geometry import Point
+    from shapely.geometry import box as shp_box
+
+    geom = shp_box(x0 + box[0], y0 + box[1], x0 + box[2], y0 + box[3])
+
+    def clear(g):
+        return all(paths.geoms[k].distance(g) >= paths.half[k] + gap - EPS for k in paths.near(g, gap))
+
+    if clear(geom):
+        return None
+    r_in = min(-box[0], -box[1], box[2], box[3])
+    tx = ty = 0.0
+    v1 = _shift_vector(Point(x0, y0), paths, max(r_in, 0.0) + gap, max_shift) if r_in > 0 else None
+    if v1 is not None:
+        tx, ty = v1
+    g = translate(geom, tx, ty)
+    if not clear(g):
+        v2 = _shift_vector(g, paths, gap, max_shift - math.hypot(tx, ty))
+        if v2 is None:
+            return None
+        tx, ty = tx + v2[0], ty + v2[1]
+        g = translate(geom, tx, ty)
+    if not clear(g) or math.hypot(tx, ty) > max_shift:
+        return None
     return tx, ty
 
 
@@ -612,6 +672,7 @@ def displace_objects_from_paths(
         set_path = symbol_set_path(preset_id, scale)
         info = _symbol_info(set_path)
         widths = _symbol_widths(set_path)
+        point_boxes = _point_symbol_boxes(set_path)
     except Exception:  # odsun je kosmetika, mapa se kreslí i bez něj
         return parts
 
@@ -654,6 +715,7 @@ def displace_objects_from_paths(
 
     def move_object(match: re.Match) -> str:
         from shapely.geometry import Point
+        from shapely.geometry import box as shp_box
 
         head, otype, sym, body, tail = match.groups()
         major, kind = info.get(int(sym), (0, "other"))
@@ -684,9 +746,22 @@ def displace_objects_from_paths(
             if otype == "0" or kind == "point":
                 if len(pts) != 1:
                     return match.group(0)
-                v = _shift_vector(Point(pts[0][0], pts[0][1]), paths, POINT_RADIUS_MM * 1000.0 + gap, max_shift)
-                if v is None:
-                    return match.group(0)
+                box = point_boxes.get(int(sym)) if major == BUILDING_MAJOR else None
+                if box is not None:
+                    # bodová budova: čtverec podle skutečné velikosti symbolu (osy symbolu = osy mapy, bez rotace)
+                    x0, y0 = pts[0][0], pts[0][1]
+                    v = _shift_point_box(x0, y0, box, paths, gap, max_shift)
+                    if v is None:
+                        if paths.majors:
+                            geom = shp_box(x0 + box[0], y0 + box[1], x0 + box[2], y0 + box[3])
+                            ks = [k for k in paths.near(geom, 0.0) if paths.majors[k] in ROAD_MAJORS]
+                            if ks and geom.intersects(paths.corridor(ks, 0.0)):
+                                return ""  # nevejde se vedle silnice → nekreslí se (silnice mají přednost)
+                        return match.group(0)
+                else:
+                    v = _shift_vector(Point(pts[0][0], pts[0][1]), paths, POINT_RADIUS_MM * 1000.0 + gap, max_shift)
+                    if v is None:
+                        return match.group(0)
                 return rebuilt([[round(pts[0][0] + v[0]), round(pts[0][1] + v[1]), pts[0][2]]])
             if otype != "1":
                 return match.group(0)
