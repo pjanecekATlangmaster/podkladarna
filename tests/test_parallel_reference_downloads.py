@@ -77,9 +77,11 @@ def test_start_creates_future_with_force_refresh(tmp_path: Path):
         log=None,
         force_refresh=False,
         only=None,
+        sprint_ortho=False,
     ):
         seen["force_refresh"] = force_refresh
         seen["only"] = only
+        seen["sprint_ortho"] = sprint_ortho
         seen["template"] = Path(template_png).name
         if log:
             log("orto ok")

@@ -282,6 +282,7 @@ def start_reference_download(
     shade_cache_dir: Path | None = None,
     with_references: bool = True,
     ortho_prefetch_bounds: tuple[float, float, float, float] | None = None,
+    sprint_ortho: bool = False,
 ) -> ReferenceDownload | None:
     """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
 
@@ -356,6 +357,7 @@ def start_reference_download(
                 log=ref_log,
                 force_refresh=force_refresh,
                 only=None if with_references else ALWAYS_REFERENCE_KEYS,
+                sprint_ortho=sprint_ortho,
                 **extra,
             )
         except Exception as exc:
@@ -378,6 +380,7 @@ def join_reference_download(
     job_dir: Path,
     force_refresh: bool,
     progress: JobProgress | None = None,
+    sprint_ortho: bool = False,
 ) -> tuple[dict[str, Path], list[str]]:
     """Tvrdý join před prepare_oom_map. Nespuští download dvakrát, když future běží.
 
@@ -421,6 +424,7 @@ def join_reference_download(
                 reference_dir,
                 log=log,
                 force_refresh=force_refresh,
+                sprint_ortho=sprint_ortho,
             )
         except Exception as exc:
             log_issue(log, f"Referenční podklady: přeskočeno ({exc})")
@@ -655,6 +659,7 @@ def run_job_pipeline(
                 shade_cache_dir=surfaces_cache,
                 with_references=want_refs,
                 ortho_prefetch_bounds=ortho_prefetch_bounds(grid_bounds, preset_id, options),
+                sprint_ortho=job_has_sprint(preset_id, options),
             )
 
     if reused_from and merged_existing:
@@ -999,6 +1004,7 @@ def _package_output(
                     job_dir=job_dir,
                     force_refresh=force_refresh_enabled(options),
                     progress=join_progress,
+                    sprint_ortho=job_has_sprint(preset_id, options),
                 )
             return refs_joined["refs"][0]
 
