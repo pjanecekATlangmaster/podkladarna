@@ -1492,8 +1492,9 @@ def test_forest_and_mtbo_roads_and_paths_are_cut_by_dtm_parking(tmp_path):
         cut.mkdir(parents=True)
         make(cut, True)
         parts = op.build_osm_path_parts(cut, **kw)
-        # generalizace plochy (otevření 0,25 mm) zaoblí rohy parkoviště, cesta u rohu proto sahá ~1 m do obdélníku
-        assert _drawn_length_in_rect(parts, inside, ref, 10000) < 3.0
+        # generalizace plochy (otevření 0,25 mm) zaoblí rohy a obrys parkoviště zjednoduší; čáry končí na kreslené
+        # ploše (ořez jen tam, kde plocha je), proto sahají do původního obdélníku o něco dál (~0,8 m na konec)
+        assert _drawn_length_in_rect(parts, inside, ref, 10000) < 4.0
         assert sum(p.count for p in parts) >= 2  # napojení na hranu parkoviště zůstává
         op._PAVED_NETWORK_CACHE.clear()
 

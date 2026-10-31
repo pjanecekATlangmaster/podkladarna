@@ -5253,6 +5253,13 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
 
                 polys = [_shape(f["geometry"]) for f in paved_feats if not (f.get("properties") or {}).get("structure")]
                 network = _uu_net([g if g.is_valid else g.buffer(0) for g in polys]) if polys else None
+                # Silnice se nekreslí jen tam, kde plocha opravdu je: výběžek uříznutý generalizací (špička smyčky
+                # konečné Klukovice, 3,9 m) by jinak zůstal mezerou mezi koncem silnice a plochou (Petr 2026-10-31).
+                if clip is not None and network is not None and not clip.is_empty:
+                    from shapely import get_parts
+
+                    kept = [g for g in get_parts(clip.intersection(network)) if g.geom_type in ("Polygon", "MultiPolygon")]
+                    clip = _uu_net(kept) if kept else None
         if preset_id:
             clip = _plus_dtm_parking(work_dir, clip, preset_id, scale)
         _PAVED_NETWORK_CACHE[key] = (network, clip, paved_feats)
