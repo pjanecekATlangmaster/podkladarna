@@ -314,11 +314,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   výběžků do 6 / 12 m. Proti ručním mapám jsou všechny stupně stejně přesné (hrana do 0,1 m stejně, IoU v tisícinách, rozhoduje
   klasifikace); dřívější výchozí 2 (DP 3 m + křivky) mazal drobnosti do 12 m a nafukoval 410 o 3–5 %. Sprint beze
   změny (`smooth_area_legacy`, `_SPRINT_LEVEL`). Metriky a výřezy: `/mnt/project-files/porosty-vyhlazeni/`.
-- **Adaptivní vyhlazení vrstevnic** (3.5.0, Petr 2026-10-31, volba jobu `contour_smooth`: 0 jako dosud – výchozí, 1 adaptivní;
+- **Adaptivní vyhlazení vrstevnic** (3.5.0, masky 3.5.1, Petr 2026-10-31, volba jobu `contour_smooth`: 0 jako dosud – výchozí, 1 adaptivní;
   `app/pipeline/contours_adaptive.py`): vyhlazuje se DEM, ne čáry – `dem_contour.tif` = `dem_smooth.tif` + w · clip(Gauss σ' − base, ±0,3·I),
   w podle rozestupu vrstevnic na papíře (les 2–5 mm, sprint 1–2 mm), ochrana tvarů nad 0,5–1,2 m; kde w = 0, pixel bit po bitu jako dosud.
   `dem_smooth.tif` zůstává (čte ho import srázů). Metriky: `scripts/contour_smooth_metrics.py <work>`; návrh, oponentura a výřezy
-  `/mnt/project-files/vrstevnice-vyhlazeni/`. Další krok: maska zástavby (les) a zeleně (sprint, louky beze změny).
+  `/mnt/project-files/vrstevnice-vyhlazeni/`. Masky ze ZABAGED (`zabaged_masks`): zástavba (budovy + 10 m, parkoviště, areály)
+  silněji (σ' 12 m, sprint 6 m) i v mírném svahu, ve sprintu louky / parky / sady beze změny, dráhy a valy chráněné.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

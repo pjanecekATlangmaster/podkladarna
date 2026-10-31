@@ -120,3 +120,68 @@ def test_transition_within_one_contour():
     assert row[260:].max() == 0.0
     # Na zlomu svahu chrání tvar ostrá ochrana detailu – i tak bez skoku.
     assert np.abs(np.diff(row)).max() < 0.25
+
+
+def test_urban_mask_smooths_moderate_slope_and_green_kept_in_sprint():
+    """Zástavba se vyhladí i v mírném svahu; ve sprintu zeleň zůstane beze změny."""
+    x, _y = _grid()
+    z = 250.0 + 0.3 * x + _noise()  # 30 %: les i bez masky beze změny
+    urban = np.zeros(z.shape, dtype=bool)
+    urban[:, :150] = True
+    _out, w_plain = _run(z)
+    _out, w_urban = adaptive_contour_array(
+        z.astype(np.float32), np.ones(z.shape, bool), cell_m=1.0, interval_m=5.0, scale=10000,
+        params=adaptive_params(1.0), urban=urban,
+    )
+    assert not w_plain.any()
+    assert w_urban[:, 30:120].mean() > 0.5
+    assert w_urban[:, 200:].max() == 0.0
+
+    # Sprint: rovina všude, louka vpravo zůstane bit po bitu.
+    z = 250.0 + _noise()
+    green = np.zeros(z.shape, dtype=bool)
+    green[:, 180:] = True
+    out, w = adaptive_contour_array(
+        z.astype(np.float32), np.ones(z.shape, bool), cell_m=1.0, interval_m=2.0, scale=4000,
+        params=adaptive_params(0.4), green=green,
+    )
+    assert w[:, 40:150].min() > 0.5
+    assert not w[:, 200:].any()
+    assert np.array_equal(out[:, 200:], z.astype(np.float32)[:, 200:])
+
+
+def test_zabaged_masks_missing_layers_with_ogr_exceptions(tmp_path):
+    """Chybějící vrstvy (HradbaVal aj.) v zabaged_clean.zip nesmí shodit job ani s UseExceptions()."""
+    import zipfile
+
+    ogr = pytest.importorskip("osgeo.ogr")
+    osr = pytest.importorskip("osgeo.osr")
+    from app.pipeline.contours_adaptive import zabaged_masks
+
+    src = tmp_path / "BudovaJednotlivaNeboBlokBudov.shp"
+    drv = ogr.GetDriverByName("ESRI Shapefile")
+    ds = drv.CreateDataSource(str(src))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(5514)
+    lyr = ds.CreateLayer(src.stem, srs, ogr.wkbPolygon)
+    feat = ogr.Feature(lyr.GetLayerDefn())
+    feat.SetGeometry(ogr.CreateGeometryFromWkt("POLYGON((40 -40,60 -40,60 -60,40 -60,40 -40))"))
+    lyr.CreateFeature(feat)
+    ds = None
+    zab = tmp_path / "zabaged_clean.zip"
+    with zipfile.ZipFile(zab, "w") as zf:
+        for f in tmp_path.glob("BudovaJednotlivaNeboBlokBudov.*"):
+            zf.write(f, f.name)
+
+    was = ogr.GetUseExceptions()
+    ogr.UseExceptions()
+    try:
+        urban, green, protect = zabaged_masks(
+            zab, (100, 100), (0.0, 1.0, 0.0, 0.0, 0.0, -1.0), srs.ExportToWkt(), adaptive_params(0.4)
+        )
+    finally:
+        if not was:
+            ogr.DontUseExceptions()
+    assert urban[50, 50] and urban.sum() > 400
+    assert green is not None and not green.any()
+    assert protect is None

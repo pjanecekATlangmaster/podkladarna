@@ -706,6 +706,8 @@ def _contour_source_dem(
         interval_m=interval_m,
         scale=int(round(10000 * float(scalefactor or 1.0))),
         scalefactor=scalefactor,
+        # contours/ leží ve work/ jobu vedle zabaged_clean.zip (hotový před vrstevnicemi).
+        zabaged_zip=dem_smooth.parent.parent / "zabaged_clean.zip",
         log=log,
     )
     return adaptive, summary
