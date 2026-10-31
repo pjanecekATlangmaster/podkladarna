@@ -21,6 +21,7 @@ Návrh a oponentura: /mnt/project-files/vrstevnice-vyhlazeni/.
 
 from __future__ import annotations
 
+import zipfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -216,8 +217,17 @@ def _rasterize_layers(zabaged_zip: Path, layers, shape, gt, srs_wkt: str):
     mem.SetGeoTransform(gt)
     if srs_wkt:
         mem.SetProjection(srs_wkt)
+    # Prázdné vrstvy clean_zabaged do ZIPu nezapisuje; ogr.Open by s
+    # UseExceptions() (jiné moduly je zapínají, GDAL 4 výchozí) vyhodil chybu.
+    with zipfile.ZipFile(zabaged_zip) as zf:
+        present = {Path(n).name for n in zf.namelist()}
     for name in layers:
-        ds = ogr.Open(f"/vsizip/{Path(zabaged_zip).as_posix()}/{name}.shp")
+        if f"{name}.shp" not in present:
+            continue
+        try:
+            ds = ogr.Open(f"/vsizip/{Path(zabaged_zip).as_posix()}/{name}.shp")
+        except RuntimeError:
+            ds = None
         if ds is None:
             continue
         band = mem.GetRasterBand(1)

@@ -148,3 +148,40 @@ def test_urban_mask_smooths_moderate_slope_and_green_kept_in_sprint():
     assert w[:, 40:150].min() > 0.5
     assert not w[:, 200:].any()
     assert np.array_equal(out[:, 200:], z.astype(np.float32)[:, 200:])
+
+
+def test_zabaged_masks_missing_layers_with_ogr_exceptions(tmp_path):
+    """Chybějící vrstvy (HradbaVal aj.) v zabaged_clean.zip nesmí shodit job ani s UseExceptions()."""
+    import zipfile
+
+    ogr = pytest.importorskip("osgeo.ogr")
+    osr = pytest.importorskip("osgeo.osr")
+    from app.pipeline.contours_adaptive import zabaged_masks
+
+    src = tmp_path / "BudovaJednotlivaNeboBlokBudov.shp"
+    drv = ogr.GetDriverByName("ESRI Shapefile")
+    ds = drv.CreateDataSource(str(src))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(5514)
+    lyr = ds.CreateLayer(src.stem, srs, ogr.wkbPolygon)
+    feat = ogr.Feature(lyr.GetLayerDefn())
+    feat.SetGeometry(ogr.CreateGeometryFromWkt("POLYGON((40 -40,60 -40,60 -60,40 -60,40 -40))"))
+    lyr.CreateFeature(feat)
+    ds = None
+    zab = tmp_path / "zabaged_clean.zip"
+    with zipfile.ZipFile(zab, "w") as zf:
+        for f in tmp_path.glob("BudovaJednotlivaNeboBlokBudov.*"):
+            zf.write(f, f.name)
+
+    was = ogr.GetUseExceptions()
+    ogr.UseExceptions()
+    try:
+        urban, green, protect = zabaged_masks(
+            zab, (100, 100), (0.0, 1.0, 0.0, 0.0, 0.0, -1.0), srs.ExportToWkt(), adaptive_params(0.4)
+        )
+    finally:
+        if not was:
+            ogr.DontUseExceptions()
+    assert urban[50, 50] and urban.sum() > 400
+    assert green is not None and not green.any()
+    assert protect is None
