@@ -1355,13 +1355,6 @@ function applyJobToForm(job) {
     }
   }
   updateResidualPavedControls();
-  const ostatni = form.ostatni_plocha;
-  if (ostatni) {
-    const ostatniVal = opts.ostatni_plocha || "small";
-    if ([...ostatni.options].some((o) => o.value === ostatniVal)) {
-      ostatni.value = ostatniVal;
-    }
-  }
   const outGeoref = form.output_georef;
   if (outGeoref) {
     outGeoref.checked = Boolean(opts.output_georef);
