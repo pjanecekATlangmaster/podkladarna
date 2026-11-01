@@ -466,11 +466,57 @@ def _stairs_blocked(stair_zone, cover, cover_near_m):
     return blocked
 
 
-def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SNAP_M, min_len_m: float = STAIRS_MIN_LEN_M):
+# Prodloužení konce čáry na hranu plochy (``end_at_edge(extend_m=…)``): paprsek musí hranu protnout aspoň pod tímto
+# úhlem (°), jinak jde o souběh s hranou a konec se jen přichytí na nejbližší bod.
+EDGE_RAY_MIN_DEG = 30.0
+
+
+def _ray_hit(pts: list[tuple[float, float]], idx: int, boundary, extend_m: float):
+    """První průsečík paprsku z krajního bodu ``pts[idx]`` (směr krajního úseku) s ``boundary`` do ``extend_m`` m,
+    ne tečný (``EDGE_RAY_MIN_DEG``); jinak None."""
+    import math
+
+    from shapely.geometry import LineString, Point
+
+    (x0, y0), (x1, y1) = (pts[0], pts[1]) if idx == 0 else (pts[-1], pts[-2])
+    d = math.hypot(x0 - x1, y0 - y1)
+    if d <= 1e-9:
+        return None
+    ux, uy = (x0 - x1) / d, (y0 - y1) / d
+    ray = LineString([(x0, y0), (x0 + ux * extend_m, y0 + uy * extend_m)])
+    hit = ray.intersection(boundary)
+    pts_hit = [hit] if hit.geom_type == "Point" else [g for g in getattr(hit, "geoms", []) if g.geom_type == "Point"]
+    if not pts_hit:
+        return None
+    q = min(pts_hit, key=lambda g: ray.project(g))
+    if ray.project(q) <= 1e-6:
+        return None
+    # směr hrany v místě protnutí: body ±1 m po hranici
+    ring = min(getattr(boundary, "geoms", [boundary]), key=lambda r: r.distance(q))
+    t = ring.project(q)
+    a, b = ring.interpolate(max(0.0, t - 1.0)), ring.interpolate(min(ring.length, t + 1.0))
+    ex, ey = b.x - a.x, b.y - a.y
+    e = math.hypot(ex, ey)
+    if e > 1e-9:
+        cross = abs(ux * ey - uy * ex) / e
+        if cross < math.sin(math.radians(EDGE_RAY_MIN_DEG)):
+            return None
+    return (float(q.x), float(q.y))
+
+
+def end_at_edge(
+    coords: list[tuple[float, float]],
+    area,
+    snap_m: float = EDGE_SNAP_M,
+    min_len_m: float = STAIRS_MIN_LEN_M,
+    extend_m: float = 0.0,
+):
     """Čára ukončená přesně na hraně zpevněné plochy ``area`` (shapely): seznam souřadnic (0–1 čára).
 
     - Začíná-li / končí-li čára uvnitř plochy, odřízne se část uvnitř po první / poslední hranu.
     - Končí-li čára mimo plochu do ``snap_m`` m od její hrany, prodlouží se na nejbližší bod hrany.
+    - ``extend_m`` > 0: konec se nejdřív zkusí prodloužit ve směru krajního úseku až o tolik m, pokud tak hranu
+      protne (ne tečně, ``EDGE_RAY_MIN_DEG``) – silnice končící kus před plochou (OSM) pokračuje rovně, bez zalomení.
     - Čára procházející plochou (oba konce venku) se nemění. Čára celá uvnitř zmizí.
     """
     from shapely.geometry import LineString, Point
@@ -485,7 +531,7 @@ def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SN
     if area is None:
         return [coords]
     # okolí čáry: hrany výřezu jsou dál než přichycení ke hraně, výsledek je stejný jako s celou plochou
-    area = zone_index.local_zone(area, line, snap_m + 1.0)
+    area = zone_index.local_zone(area, line, max(snap_m, extend_m) + 1.0)
     boundary = area.boundary
     start_in = area.contains(Point(coords[0]))
     end_in = area.contains(Point(coords[-1]))
@@ -509,6 +555,14 @@ def end_at_edge(coords: list[tuple[float, float]], area, snap_m: float = EDGE_SN
         if area.contains(p) or area.touches(p):
             continue
         d = p.distance(area)
+        if extend_m > 0 and 1e-6 < d <= extend_m:
+            hit = _ray_hit(pts_out, idx, boundary, extend_m)
+            if hit is not None:
+                if idx == 0:
+                    pts_out.insert(0, hit)
+                else:
+                    pts_out.append(hit)
+                continue
         if 1e-6 < d <= snap_m:
             q = nearest_points(boundary, p)[0]
             new = (float(q.x), float(q.y))

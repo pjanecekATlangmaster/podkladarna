@@ -174,6 +174,97 @@ def restore_junction_mouths(work_dir: Path, feats: list[dict], preset_id: str, s
     return out
 
 
+def square_road_mouths(work_dir: Path, feats: list[dict], preset_id: str, scale: int, path_feats: list[dict] | None = None) -> list[dict]:
+    """Ústí každé kreslené silnice do plochy sítě kolmo na čáru (``junction_areas.square_mouths``), les a MTBO, i bez DTM:
+    šikmá hrana plochy nechávala vedle kolmého konce silnice bílý klín a na druhé straně okraj 501.2 křižoval
+    okrajovou linku silnice (oponentura 2026-10-31, mezera 1). Čáry silnic se prodlouží o ``ROAD_EDGE_REACH_MM``
+    jako při dotažení konců (``end_at_edge``). ``SQUARE_MOUTHS = False`` vypne."""
+    if not SQUARE_MOUTHS or not feats or not unified(preset_id):
+        return feats
+    from shapely import STRtree
+    from shapely.errors import GEOSException
+    from shapely.geometry import mapping, shape
+
+    from app.pipeline import junction_areas
+    from app.pipeline.osm_paths import ROAD_EDGE_REACH_MM, mm_to_ground_m
+
+    reach = mm_to_ground_m(ROAD_EDGE_REACH_MM, scale)
+    lines = junction_areas._entering_lines(work_dir, preset_id, scale, features=path_feats, extend_m=reach + 2.0)
+    if not lines:
+        return feats
+    tree = STRtree([ln for ln, _half in lines])
+    depth = mm_to_ground_m(junction_areas.MOUTH_TAPER_MM, scale)
+    out: list[dict] = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        if geom.get("type") not in ("Polygon", "MultiPolygon") or (f.get("properties") or {}).get("structure"):
+            out.append(f)
+            continue
+        try:
+            g = shape(geom)
+            g = g if g.is_valid else g.buffer(0)
+            near = [lines[int(k)] for k in tree.query(g)]
+            entries = junction_areas.road_mouth_entries(g, near) if near else []
+            new = junction_areas.square_mouths(g, entries, depth) if entries else g
+        except (ValueError, TypeError, GEOSException):
+            out.append(f)
+            continue
+        if new is None or new is g:
+            out.append(f)
+            continue
+        out.extend({**f, "geometry": mapping(poly)} for poly in _polygons(new))
+    return out
+
+
+# Ústí silnic kolmo na čáru u všech ploch sítě (``square_road_mouths``); False = jen křižovatky z DTM jako dřív.
+SQUARE_MOUTHS = True
+
+
+def _merged_pieces(cut):
+    """Kusy okraje v pásu čáry spojené přes počáteční vrchol obrysu (průnik je tam rozdělený na dva kusy a krátký
+    souběh by se počítal po částech)."""
+    if cut.geom_type != "MultiLineString":
+        return cut
+    from shapely.ops import linemerge
+
+    return linemerge(cut)
+
+
+def _parallel_piece(piece, line, wide_r: float, scale: int) -> bool:
+    """Je kus okraje ``piece`` (uvnitř pásu ``wide_r`` kolem čáry ``line``) souběh s čárou, ne křížení? Souběh: delší než
+    ``EDGE_PARALLEL_FACTOR`` × šířka pásu (dřívější jediné kritérium, ~21 m v lese 1:10 000 – krátký souběh dával
+    dvojitou linii), nebo aspoň ``EDGE_PARALLEL_MIN_MM`` mapy a tětiva kusu s čárou svírá nejvýš ``EDGE_PARALLEL_MAX_DEG``."""
+    import math
+
+    from shapely.geometry import Point
+
+    from app.pipeline.osm_paths import mm_to_ground_m
+
+    if piece.length > EDGE_PARALLEL_FACTOR * 2.0 * wide_r:
+        return True
+    if piece.length < mm_to_ground_m(EDGE_PARALLEL_MIN_MM, scale):
+        return False
+    c = list(piece.coords)
+    (ax, ay), (bx, by) = c[0], c[-1]
+    cx, cy = bx - ax, by - ay
+    n = math.hypot(cx, cy)
+    if n < 1e-6:
+        return False
+    mid = piece.interpolate(0.5, normalized=True)
+    t = line.project(mid)
+    a, b = line.interpolate(max(0.0, t - 1.0)), line.interpolate(min(line.length, t + 1.0))
+    ex, ey = b.x - a.x, b.y - a.y
+    e = math.hypot(ex, ey)
+    if e < 1e-9:
+        return False
+    return abs(cx * ex + cy * ey) / (n * e) >= math.cos(math.radians(EDGE_PARALLEL_MAX_DEG))
+
+
+# Krátký souběh okraje s čárou (``_parallel_piece``): od této délky na mapě (mm) a do tohoto úhlu tětivy k čáře (°).
+EDGE_PARALLEL_MIN_MM = 0.6
+EDGE_PARALLEL_MAX_DEG = 30.0
+
+
 def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
     """Kde se okraj plochy ``network`` nekreslí (shapely) nebo None: pás každé kreslené čáry cesty (``road_bands`` =
     ``path_clearance.drawn_path_bands``: ``(osa, půlka šířky m)``) rozšířený o 0,3 m – ústí čáry do plochy;
@@ -211,11 +302,10 @@ def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
         # ústí: okraj plochy končí na okrajové lince silnice (šířka výplně), u čáry bez okrajů na jejím kraji
         zones.append(ext.buffer(fill, cap_style=2))
         wide = ext.buffer(wide_r, cap_style=2)
-        limit = EDGE_PARALLEL_FACTOR * 2.0 * wide_r
         for ring in near:
-            cut = ring.intersection(wide)
+            cut = _merged_pieces(ring.intersection(wide))
             for piece in [cut] if cut.geom_type == "LineString" else getattr(cut, "geoms", []):
-                if piece.geom_type == "LineString" and piece.length > limit:
+                if piece.geom_type == "LineString" and _parallel_piece(piece, line, wide_r, scale):
                     zones.append(piece.buffer(0.1))  # souběh: okraj vedle čáry by byl dvojitá linie
     return unary_union(zones) if zones else None
 
@@ -260,11 +350,10 @@ def road_fill_strips(network, road_bands, preset_id: str, scale: int):
         border = MultiLineString([q.exterior.coords for q in _polygons(ext.buffer(half, cap_style=2))])
         if border.is_empty:
             continue
-        limit = EDGE_PARALLEL_FACTOR * 2.0 * wide_r
         for ring in near:
-            cut = ring.intersection(wide)
+            cut = _merged_pieces(ring.intersection(wide))
             for piece in [cut] if cut.geom_type == "LineString" else getattr(cut, "geoms", []):
-                if piece.geom_type != "LineString" or piece.length <= limit:
+                if piece.geom_type != "LineString" or not _parallel_piece(piece, line, wide_r, scale):
                     continue
                 pts = [(float(x), float(y)) for x, y in piece.coords]
                 qs = [nearest_points(Point(p), border)[1] for p in pts]
@@ -299,9 +388,39 @@ def build_paved_edge_parts(
     from app.pipeline.osm_paths import paved_edge_code, paved_network_geometry
 
     network = paved_network_geometry(work_dir, preset_id, scale)
-    if network is None or network.is_empty:
-        return []
     extra: list[OomObjectPart] = []
+    # Plochy na mostě / v tunelu (``structure``) nejsou v síti (neslučují se), výplň se kreslí, okraj dosud ne.
+    from shapely.geometry import shape as _shape
+    from shapely.ops import unary_union as _uu_struct
+
+    from app.pipeline.osm_paths import paved_network_feats
+
+    _structs = [
+        _shape(f["geometry"])
+        for f in paved_network_feats(work_dir, preset_id, scale)
+        if (f.get("properties") or {}).get("structure") and (f.get("geometry") or {}).get("type") in ("Polygon", "MultiPolygon")
+    ]
+    if _structs:
+        structures = _uu_struct([g if g.is_valid else g.buffer(0) for g in _structs])
+        if not structures.is_empty:
+            extra += _geometry_part(
+                structures,
+                name="Zpevněné plochy na mostě / v tunelu",
+                code="501.1",
+                fill_code="501.1",
+                edge_code=paved_edge_code(preset_id),
+                preset_id=preset_id,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                grivation_deg=grivation_deg,
+                clip_bounds=clip_bounds,
+                outline_separate=True,
+                edge_omit=edge_omit_zone(structures, road_bands, preset_id, scale),
+                edge_only=True,
+            )
+    if network is None or network.is_empty:
+        return extra
     strips = road_fill_strips(network, road_bands, preset_id, scale)
     if strips is not None and not strips.is_empty:
         import shapely

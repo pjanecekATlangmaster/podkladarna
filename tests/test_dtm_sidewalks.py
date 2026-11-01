@@ -1939,3 +1939,22 @@ def test_dtm_geometry_memo_per_job_and_inputs(tmp_path, monkeypatch):
     di.clear_job_memo()
     di.road_geometry(other, "osm")
     assert len(calls) == 5
+
+
+def test_end_at_edge_extends_straight_to_edge_within_reach():
+    # Silnice končí 4 m před plochou (OSM konec nedotažený): s ``extend_m`` pokračuje rovně na hranu bez zalomení;
+    # bez ``extend_m`` zůstává (dál než přichycení 1,5 m). Tečný směr k hraně se jen přichytí; dál než dosah nic.
+    area = ds.dtm_union([_rect(10, -5, 20, 5)])
+    (line,) = ds.end_at_edge([(0.0, 2.0), (6.0, 2.0)], area, extend_m=5.0)
+    assert line[-1] == pytest.approx((10.0, 2.0)) and len(line) == 3
+    (line,) = ds.end_at_edge([(0.0, 2.0), (6.0, 2.0)], area)
+    assert line[-1] == (6.0, 2.0)
+    # šikmo 45° k hraně: průsečík paprsku, ne nejbližší bod
+    (line,) = ds.end_at_edge([(4.0, -2.0), (7.0, 1.0)], area, extend_m=5.0)
+    assert line[-1] == pytest.approx((10.0, 4.0))
+    # podél hrany (tečně, 1 m od ní): paprsek hranu neprotne, konec se přichytí na nejbližší bod
+    (line,) = ds.end_at_edge([(12.0, 6.0), (15.0, 6.0)], area, extend_m=5.0)
+    assert line[-1] == pytest.approx((15.0, 5.0))
+    # dál než dosah: beze změny
+    (line,) = ds.end_at_edge([(0.0, 2.0), (3.0, 2.0)], area, extend_m=5.0)
+    assert line[-1] == (3.0, 2.0)

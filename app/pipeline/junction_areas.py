@@ -261,8 +261,12 @@ MOUTH_CLOSE_M = 3.0
 MOUTH_NEAR_M = 1.0
 
 
-def _entering_lines(work_dir: Path, preset_id: str, scale: int) -> list[tuple]:
-    """Kreslené čáry silnic ``(LineString, půlka šířky výplně m)``: osy 502.0 a OSM silnice mimo pás os (symbol podle tagů)."""
+def _entering_lines(
+    work_dir: Path, preset_id: str, scale: int, features: list[dict] | None = None, extend_m: float = 0.0
+) -> list[tuple]:
+    """Kreslené čáry silnic ``(LineString, půlka šířky výplně m)``: osy 502.0 a OSM silnice mimo pás os (symbol po
+    pravidle tahu ``stroke_code``, jinak podle tagů). ``features`` místo čtení z jobu; ``extend_m`` prodlouží konce
+    (silnice končící kus před plochou, ``osm_paths.ROAD_EDGE_REACH_MM``)."""
     from shapely.geometry import LineString
 
     from app.pipeline import osm_paths as op
@@ -286,17 +290,20 @@ def _entering_lines(work_dir: Path, preset_id: str, scale: int) -> list[tuple]:
     out = []
     axes, zone = dual_axes(work_dir, preset_id, scale)
     out += [(LineString(c), _half("502.0")) for c in axes if len(c) >= 2]
-    for feat in op._paths_features_for_network(work_dir):
+    for feat in features if features is not None else op._paths_features_for_network(work_dir):
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
-        hw = str((feat.get("properties") or {}).get("highway") or "")
+        props = feat.get("properties") or {}
+        hw = str(props.get("highway") or "")
         if geom.get("type") != "LineString" or len(coords) < 2 or not op.path_draw_highway(hw).startswith("road_"):
             continue
         if op.is_bridge_highway(hw) or op.is_tunnel_highway(hw):
             continue
         pts = [(float(x), float(y)) for x, y in coords]
+        if extend_m > 0:
+            pts = op._extend_ends(pts, extend_m)
         parts = clip_outside(pts, zone) if zone is not None else [pts]
-        half = _half(op.osm_oom_code(hw, preset_id) or "502")
+        half = _half(str(props.get(op.STROKE_CODE_PROP) or op.osm_oom_code(hw, preset_id) or "502"))
         out += [(LineString(p), half) for p in parts if len(p) >= 2]
     return out
 
@@ -398,3 +405,70 @@ def shape_mouths(area, entries: list[tuple], taper_m: float, drop_small: bool = 
         closed = out.buffer(MOUTH_CLOSE_M, join_style=2).buffer(-MOUTH_CLOSE_M, join_style=2)
         out = unary_union([out, closed.intersection(unary_union([e[0] for e in parts]))])
     return without_small_pieces(out) if drop_small else out
+
+
+# Ústí silnice do libovolné plochy sítě (``square_mouths``): vstup pod menším úhlem k hraně (°) je souběh, ne ústí.
+MOUTH_MIN_ANGLE_DEG = 25.0
+
+
+def road_mouth_entries(area, lines: list[tuple], min_angle_deg: float = MOUTH_MIN_ANGLE_DEG) -> list[tuple]:
+    """``mouth_entries`` bez vstupů, kde čára protíná hranu plochy tečně (úhel k hraně pod ``min_angle_deg``)."""
+    import math
+
+    from shapely.geometry import Point
+
+    entries = mouth_entries(area, lines)
+    if not entries or min_angle_deg <= 0:
+        return entries
+    rings = [r for r in getattr(area.boundary, "geoms", [area.boundary]) if r.geom_type == "LineString"]
+    if not rings:
+        return entries
+    lim = math.sin(math.radians(min_angle_deg))
+    out = []
+    for entry in entries:
+        (px, py), (dx, dy), _half, _ln = entry
+        p = Point(px, py)
+        ring = min(rings, key=lambda r: r.distance(p))
+        t = ring.project(p)
+        a, b = ring.interpolate(max(0.0, t - 1.0)), ring.interpolate(min(ring.length, t + 1.0))
+        ex, ey = b.x - a.x, b.y - a.y
+        e = math.hypot(ex, ey)
+        if e > 1e-9 and abs(dx * ey - dy * ex) / e < lim:
+            continue
+        out.append(entry)
+    return out
+
+
+def square_mouths(area, entries: list[tuple], depth_m: float, back_m: float = MOUTH_OUTSIDE_M):
+    """Ústí silnic (``road_mouth_entries``) kolmo na čáru na ploše ``area`` (les a MTBO, všechny plochy sítě): v pásu
+    kresby silnice se plocha doplní od vstupu ``depth_m`` m dovnitř (šikmá hrana nechávala vedle konce silnice bílý
+    klín) a za vstupem se v pásu o ``back_m`` m odřízne (okraj plochy jinak křižoval okrajovou linku silnice). Bez
+    trychtýře ``shape_mouths`` – u parkoviště je hrana vedle vjezdu správně rovná. Pás jiného vstupu se neřeže."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    if area is None or area.is_empty or not entries or depth_m <= 0:
+        return area
+    from shapely.geometry import Point
+
+    mouths, backs, bands = [], [], []
+    inside = area.buffer(0.3)
+    for (px, py), (dx, dy), half, ln in entries:
+        nx, ny = -dy, dx
+        q = (px + dx * depth_m, py + dy * depth_m)
+        # silnice jen škrtne roh plochy (vstup s koncem pásu mimo plochu): není ústí, pás by plochu rozšířil
+        if not (inside.contains(Point(q[0] + nx * half, q[1] + ny * half)) and inside.contains(Point(q[0] - nx * half, q[1] - ny * half))):
+            continue
+        b = (px - dx * back_m, py - dy * back_m)
+        mouths.append(Polygon([(px + nx * half, py + ny * half), (q[0] + nx * half, q[1] + ny * half), (q[0] - nx * half, q[1] - ny * half), (px - nx * half, py - ny * half)]))
+        backs.append(Polygon([(px + nx * half, py + ny * half), (b[0] + nx * half, b[1] + ny * half), (b[0] - nx * half, b[1] - ny * half), (px - nx * half, py - ny * half)]))
+        bands.append(ln.buffer(half, cap_style=2))
+    cuts = []
+    for k, back in enumerate(backs):
+        others = [g for m in range(len(backs)) if m != k for g in (mouths[m], bands[m])]
+        cut = back.difference(unary_union(others)) if others else back
+        if not cut.is_empty:
+            cuts.append(cut)
+    out = area.difference(unary_union(cuts)) if cuts else area
+    out = unary_union([out, *mouths])
+    return None if out.is_empty else out

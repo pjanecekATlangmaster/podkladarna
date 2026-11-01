@@ -171,3 +171,20 @@ def test_generalize_paved_feats_closes_bay_unless_building(tmp_path, case, build
     assert g.area == pytest.approx(60 * 40 if closed else parking.area, rel=0.03), case  # zaoblení rohů
     # sprint beze změny
     assert ps.generalize_paved_feats(tmp_path, feats, "sprint_4000", 4000) is feats
+
+
+def test_short_parallel_edge_piece_is_omitted_but_crossing_kept():
+    # Silnice (půlka kresby 4 m) souběžná se spodní hranou jen na 12 m (dřív práh ~21 m): krátký souběh se vynechá;
+    # kolmé křížení pásu (18 m dlouhý kus okraje) ne.
+    network = box(0, 0, 100, 40)
+    zone = ps.edge_omit_zone(network, [([(40.0, -5.0), (52.0, -5.0)], 4.0)], "forest_10000", 10000)
+    assert zone is not None and zone.contains(Point(46, 0)) and not zone.contains(Point(30, 0))
+    # pěšina kolmo přes plochu: okraj se vynechá jen v ústí (pás čáry), ne po celé délce křížení
+    zone = ps.edge_omit_zone(network, [([(50.0, -30.0), (50.0, 70.0)], 4.0)], "forest_10000", 10000)
+    assert zone.contains(Point(50, 0)) and not zone.contains(Point(60, 0)) and not zone.contains(Point(60, 40))
+    # kus souběhu rozdělený počátečním vrcholem obrysu na dva kratší se počítá vcelku
+    from shapely.geometry import Polygon
+
+    ring = Polygon([(46, 0), (100, 0), (100, 40), (0, 40), (0, 0), (46, 0)])
+    zone = ps.edge_omit_zone(ring, [([(40.0, -5.0), (52.0, -5.0)], 4.0)], "forest_10000", 10000)
+    assert zone is not None and zone.contains(Point(44, 0)) and zone.contains(Point(48, 0))
