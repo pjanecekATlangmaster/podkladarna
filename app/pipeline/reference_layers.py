@@ -58,8 +58,10 @@ ORTHO_MAX_TOTAL_PX = 3_300_000_000
 # 8192² RGB32 = přesně 256 MiB – Qt (Mapper) má na obrázek alokační limit
 # 256 MB, proto rezerva.
 ORTHO_MAX_TILE_PX = 8000
-_HTTP_RETRIES = 3
-_HTTP_RETRY_WAIT_S = 2.0
+# WMS DTM (dmvs.cuzk.gov.cz) občas vrací 503 déle než pár sekund (job 5ff750f56872,
+# 2026-11-01: obě vrstvy ZPS přeskočeny); prodlevy 5 + 10 + 15 s výpadek přečkají.
+_HTTP_RETRIES = 4
+_HTTP_RETRY_WAIT_S = 5.0
 ORTHO_JPEG_QUALITY = 95
 # Dlaždice ortofota podkladu stahované naráz (sériově ~10 min u Prahy 7 × 7 km; víc nezatěžovat ČÚZK).
 ORTHO_TILE_WORKERS = 2
