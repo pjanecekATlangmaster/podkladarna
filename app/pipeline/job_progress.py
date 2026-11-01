@@ -15,8 +15,6 @@ DETAIL_INDENT = "  "
 # Značka neopravené chyby (krok/podklad chybí ve výstupu). Fallback, který
 # uspěl, se takto neoznačuje.
 ISSUE_LOG_PREFIX = "⚠ "
-# Délka souhrnu chyb ve sloupci ``error`` (karta jobu ve webu).
-ISSUES_SUMMARY_MAX_CHARS = 300
 
 
 def log_issue(log: LogFn | None, message: str) -> None:
@@ -52,14 +50,6 @@ class IssueCollector:
         self._log(f"{ISSUE_LOG_PREFIX}Dokončeno s chybami ({len(self.items)}):")
         for item in self.items:
             self._log(f"{DETAIL_INDENT}- {item}")
-
-
-def issues_summary(issues: list[str]) -> str:
-    """Krátký souhrn do ``jobs.error`` (karta jobu)."""
-    text = f"Dokončeno s chybami ({len(issues)}): " + "; ".join(issues)
-    if len(text) > ISSUES_SUMMARY_MAX_CHARS:
-        text = text[: ISSUES_SUMMARY_MAX_CHARS - 1].rstrip() + "…"
-    return text
 
 
 def format_elapsed(seconds: float) -> str:

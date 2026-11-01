@@ -299,8 +299,13 @@ def update_job(job_id: str, **fields: Any) -> None:
         conn.commit()
 
 
-def mark_interrupted_running_jobs(reason: str) -> list[str]:
-    """Po restartu serveru – joby „running“ v DB uvolní frontu."""
+def mark_interrupted_running_jobs(
+    reason: str, *, user_message: str | None = None
+) -> list[str]:
+    """Po restartu serveru – joby „running“ v DB uvolní frontu.
+
+    ``reason`` jde do logu, ``user_message`` (je-li) na kartu jobu.
+    """
     now = _utcnow()
     with connect() as conn:
         rows = conn.execute(
@@ -315,7 +320,7 @@ def mark_interrupted_running_jobs(reason: str) -> list[str]:
             SET status = 'failed', phase = 'error', error = ?, updated_at = ?
             WHERE status = 'running'
             """,
-            (reason, now),
+            (user_message or reason, now),
         )
         conn.commit()
     for job_id in ids:
