@@ -10,7 +10,7 @@ import traceback
 from app import db
 from app import settings as app_settings
 from app.mail import MailError, build_private_ready_email, send_mail
-from app.pipeline.job_progress import issues_summary
+from app.pipeline.issue_explain import failure_summary, user_summary
 from app.pipeline.preview import resolve_preview_png
 from app.pipeline.run_job import run_job_pipeline
 from app.proj_env import ensure_proj_data
@@ -168,11 +168,13 @@ def run_job(job_id: str) -> int:
             job_name=job["name"],
         )
         if issues:
+            summary = user_summary(issues)
+            log(f"Shrnutí pro uživatele: {summary}")
             db.update_job(
                 job_id,
                 status=db.STATUS_DONE_WITH_ERRORS,
                 phase="done",
-                error=issues_summary(issues),
+                error=summary,
             )
             log(f"Status: {db.STATUS_DONE_WITH_ERRORS}")
         else:
@@ -187,7 +189,9 @@ def run_job(job_id: str) -> int:
         tb = traceback.format_exc()
         log(f"CHYBA: {exc}")
         log(tb)
-        db.update_job(job_id, status="failed", phase="error", error=str(exc))
+        db.update_job(
+            job_id, status="failed", phase="error", error=failure_summary(str(exc))
+        )
         return 1
 
 
