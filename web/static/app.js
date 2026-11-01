@@ -268,6 +268,20 @@ function jobIsLive(status) {
   return status === "running" || status === "queued" || status === "pending";
 }
 
+/** Stav jobu česky pro uživatele (technický kód zůstává v třídě CSS). */
+const JOB_STATUS_LABELS = {
+  pending: "čeká",
+  queued: "ve frontě",
+  running: "běží",
+  done: "hotovo",
+  done_with_errors: "hotovo s upozorněním",
+  failed: "nepodařilo se",
+};
+
+function jobStatusLabel(status) {
+  return JOB_STATUS_LABELS[status] || status;
+}
+
 /** Doběhl (i s chybami nebo neúspěšně) – má konečné trvání. */
 function jobIsFinished(status) {
   return status === "done" || status === "done_with_errors" || status === "failed";
@@ -290,7 +304,7 @@ function jobItemHeadHtml(job) {
   const privateLabel = jobIsPrivate(job) ? " · privátní session" : "";
   return `
     <strong>${escapeHtml(job.name)}</strong>
-    <div class="status status-${job.status}">${job.status}${job.phase ? " · " + job.phase : ""}${queueLabel}${timing}${privateLabel}</div>
+    <div class="status status-${job.status}">${escapeHtml(jobStatusLabel(job.status))}${job.phase && !jobIsFinished(job.status) ? " · " + job.phase : ""}${queueLabel}${timing}${privateLabel}</div>
     <div class="status">${escapeHtml(jobScaleLabel(job))} · ${escapeHtml(formatWhen(job.created_at))}</div>
     ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
   `;
@@ -453,7 +467,7 @@ async function loadJobs() {
       : "";
     document.getElementById("detail-title").textContent = selected.name;
     document.getElementById("detail-status").textContent =
-      `Stav: ${selected.status} · ${jobScaleLabel(selected)}` +
+      `Stav: ${jobStatusLabel(selected.status)} · ${jobScaleLabel(selected)}` +
       privateNote +
       (selected.error ? ` · ${selected.error}` : "");
     const timingEl = document.getElementById("detail-timing");
@@ -694,7 +708,7 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
     : "";
   document.getElementById("detail-title").textContent = job.name;
   document.getElementById("detail-status").textContent =
-    `Stav: ${job.status} · ${jobScaleLabel(job)}` +
+    `Stav: ${jobStatusLabel(job.status)} · ${jobScaleLabel(job)}` +
     privateNote +
     (job.error ? ` · ${job.error}` : "");
   const timingEl = document.getElementById("detail-timing");

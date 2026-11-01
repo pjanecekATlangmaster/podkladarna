@@ -8,6 +8,7 @@ import threading
 import time
 
 from app import db, settings
+from app.pipeline.issue_explain import failure_summary
 from app.rate_limit import queue_priority_key
 from app.settings import (
     APP_ROOT,
@@ -108,9 +109,12 @@ def can_accept_job() -> bool:
 
 def recover_after_restart() -> list[str]:
     """Uvolní joby zůstávající ve stavu running po pádu/restartu procesu."""
-    return db.mark_interrupted_running_jobs(
+    reason = (
         "Přerušeno restartem serveru (uvicorn reload / pád procesu) – "
         "spusťte job znovu. Pro smoke bez reloadu: .\\scripts\\dev.ps1 run"
+    )
+    return db.mark_interrupted_running_jobs(
+        reason, user_message=failure_summary(reason)
     )
 
 
@@ -280,23 +284,26 @@ def _run(job_id: str) -> None:
             db.append_log(job_id, f"CHYBA: {msg}")
             job = db.get_job(job_id)
             if job["status"] == "running":
-                db.update_job(job_id, status="failed", phase="error", error=msg)
+                db.update_job(
+                    job_id, status="failed", phase="error", error=failure_summary(msg)
+                )
             return
 
         if proc.returncode != 0:
             job = db.get_job(job_id)
             if job["status"] == "running":
+                msg = f"Pipeline skončila s kódem {proc.returncode}"
+                db.append_log(job_id, f"CHYBA: {msg}")
                 db.update_job(
-                    job_id,
-                    status="failed",
-                    phase="error",
-                    error=f"Pipeline skončila s kódem {proc.returncode}",
+                    job_id, status="failed", phase="error", error=failure_summary(msg)
                 )
     except Exception as exc:
         db.append_log(job_id, f"CHYBA worker: {exc}")
         job = db.get_job(job_id)
         if job["status"] == "running":
-            db.update_job(job_id, status="failed", phase="error", error=str(exc))
+            db.update_job(
+                job_id, status="failed", phase="error", error=failure_summary(str(exc))
+            )
         if proc is not None and proc.poll() is None:
             _terminate_process_tree(proc)
     finally:

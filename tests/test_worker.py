@@ -51,7 +51,9 @@ def test_worker_timeout_frees_slot(monkeypatch, data_dir):
 
     got = db.get_job(job_id)
     assert got["status"] == "failed"
-    assert "časový limit" in (got["error"] or "")
+    assert "trval příliš dlouho" in (got["error"] or "")
+    lines = [e["line"] for e in db.get_logs(job_id)]
+    assert any("časový limit" in ln for ln in lines)
     assert worker._running is None
 
 

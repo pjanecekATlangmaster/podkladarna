@@ -6,10 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 from app import db
 from app.pipeline.job_progress import (
-    ISSUES_SUMMARY_MAX_CHARS,
     IssueCollector,
     indented_log,
-    issues_summary,
     log_issue,
 )
 from app.pipeline.run_job import background_log
@@ -54,14 +52,6 @@ def test_collector_without_issues_reports_nothing():
     assert issues.items == []
 
 
-def test_issues_summary_truncates():
-    short = issues_summary(["OSM: přeskočeno"])
-    assert short == "Dokončeno s chybami (1): OSM: přeskočeno"
-    long = issues_summary(["x" * 400, "y"])
-    assert len(long) == ISSUES_SUMMARY_MAX_CHARS
-    assert long.endswith("…")
-
-
 def _isolated_db(tmp_path, monkeypatch):
     from app import job_worker
 
@@ -88,8 +78,10 @@ def test_run_job_with_issues_sets_done_with_errors(tmp_path, monkeypatch):
 
     saved = db.get_job(job["id"])
     assert saved["status"] == db.STATUS_DONE_WITH_ERRORS
-    assert saved["error"].startswith("Dokončeno s chybami (1): OSM")
+    assert saved["error"].startswith("Mapa je hotová, ale je neúplná")
+    assert "OpenStreetMap" in saved["error"]
     lines = [e["line"] for e in db.get_logs(job["id"])]
+    assert any(ln.startswith("Shrnutí pro uživatele: Mapa je hotová") for ln in lines)
     assert "Status: done_with_errors" in lines
     assert db.STATUS_DONE_WITH_ERRORS in db.JOB_DONE_STATUSES
     assert db.STATUS_DONE_WITH_ERRORS in db.JOB_FINISHED_STATUSES
