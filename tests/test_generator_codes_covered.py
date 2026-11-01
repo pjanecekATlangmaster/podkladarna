@@ -53,7 +53,7 @@ _KIND_GEOM = {
         "fence", "wall", "hedge", "power_line", "power_line_major", "cliff",
     )},
     **{k: "area" for k in (
-        "wetland", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "parking",
+        "wetland", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "pitch_open", "parking",
         "pedestrian_area", "platform", "water_well_building", "building", "bare_rock",
         "scree", "rock_area", "residential", "shelter",
         "paved_dtm",  # plocha z DTM (koridor, parkoviště, chodníky) ve sjednocené síti lesa a MTBO

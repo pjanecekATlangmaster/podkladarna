@@ -1061,6 +1061,19 @@ _PAVED_CYCLEWAY_SMOOTHNESS = frozenset(
 )
 
 
+# Nezpevněný povrch (surface=*): hřiště je 401, parkoviště se nekreslí (ISOM 501 = tvrdý povrch).
+_OPEN_SURFACES = frozenset(
+    {"grass", "ground", "dirt", "earth", "mud", "sand", "clay", "gravel", "fine_gravel", "unpaved", "artificial_turf", "woodchips"}
+)
+# parking=* bez building=*: plocha 501 by byla střecha / podzemí.
+_COVERED_PARKING = frozenset({"underground", "multi-storey", "rooftop", "carports", "garage_boxes"})
+
+
+def _is_open_surface(tags: dict) -> bool:
+    surface = (tags.get("surface") or "").lower()
+    return bool(surface) and all(part.strip() in _OPEN_SURFACES for part in surface.split(";") if part.strip())
+
+
 def _is_paved_surface(tags: dict) -> bool:
     surface = (tags.get("surface") or "").lower()
     if not surface:
@@ -1478,12 +1491,16 @@ def classify_osm_feature(
     if leisure in OSM_PAVED_AREA_LEISURE and not _is_osm_building(tags):
         if is_node:
             return None
+        if leisure != "playground" and _is_open_surface(tags):
+            return "pitch_open", "401"  # travnaté / škvárové hřiště není tvrdý povrch (ISOM 501), kreslí se 401 (Petr 2026-11-01)
         kind = "playground" if leisure == "playground" else "pitch"
         return kind, "501"
     # Parkoviště (vč. street_side) → zpevněná 501; budova garáže zůstane 521.
     if amenity == "parking" and not _is_osm_building(tags):
         if is_node:
             return None
+        if (tags.get("parking") or "").lower() in _COVERED_PARKING or _is_open_surface(tags):
+            return None  # podzemní / patrové parkoviště bez building=* a nezpevněné parkoviště nejsou plocha 501
         return "parking", "501"
     # Autobusové nádraží (plocha) → zpevněná 501, jako parkoviště; bod zůstává zastávkou.
     if amenity == "bus_station" and not _is_osm_building(tags):
@@ -1737,6 +1754,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "garden": "520",
         "playground": "501",
         "pitch": "501",
+        "pitch_open": "401",
         "pedestrian_area": "501",
         "parking": "501",
         "platform": "501",
@@ -4081,6 +4099,7 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "garden": ("OSM_zahrady", "zahrady (oliva)", "520"),
     "playground": ("OSM_hriste", "hřiště (zpevněná)", "501"),
     "pitch": ("OSM_sport", "sportoviště (zpevněná)", "501"),
+    "pitch_open": ("OSM_sport_trava", "sportoviště travnaté (401)", "401"),
     "pedestrian_area": ("OSM_pesi_zony", "pěší zóny (zpevněná)", "501"),
     "parking": ("OSM_parkoviste", "parkoviště (zpevněná)", "501"),
     "platform": ("OSM_nastupiste", "nástupiště (zpevněná)", "501"),
@@ -5078,19 +5097,59 @@ PARKING_UNDER_ROAD_SHARE = 0.8
 # Les a MTBO: pěší plocha (OSM i DTM) se kreslí plochou jen tam, kde je aspoň tak široká jako kresba silnice 502;
 # užší výběžky (Trnkovo nám., relation/12302035) by se v mapě zužovaly do nečitelného klínu – tam kreslí čára cesty.
 NARROW_WALK_MIN_PIECE_FACTOR = 1.0  # zbylý kus plochy aspoň (šířka 502)² · faktor
+# Odříznutá úzká část, kterou do tolika m nevede žádná čára cesty, zůstává plochou (dvůr / obratiště bez střednice).
+NARROW_WALK_LINE_M = 2.0
+# Úzká část bez čáry, která z tohoto podílu leží v pásu kresby silnice, je chodník u silnice – odpadne.
+NARROW_WALK_ROAD_SHARE = 0.5
 
 
-def open_narrow_walk_areas(feats: list[dict], preset_id: str, scale: int) -> list[dict]:
-    """OSM pěší plochy (``pedestrian_area``, ne mosty / tunely, ne DTM) bez částí užších než kresba silnice 502 (otevření)."""
+def _narrow_walk_line_features(work_dir: Path) -> list[dict]:
+    """Čáry pro ``open_narrow_walk_areas``: cesty sítě + osy a původní linie koridorů (``corridor_axes.geojson``) –
+    koridor ze dvou souběžných linií je úzká plocha, kterou po otevření kreslí čáry."""
+    feats = list(_paths_features_for_network(work_dir))
+    axes_path = work_dir / "osm_paths" / CORRIDOR_AXES_NAME
+    if axes_path.is_file():
+        try:
+            for f in json.loads(axes_path.read_text(encoding="utf-8")).get("features") or []:
+                feats.append(f)
+                for ln in (f.get("properties") or {}).get("lines") or []:
+                    feats.append({"type": "Feature", "properties": {}, "geometry": {"type": "LineString", "coordinates": ln.get("coordinates") or []}})
+        except (OSError, ValueError):
+            pass
+    return feats
+
+
+def open_narrow_walk_areas(
+    feats: list[dict], preset_id: str, scale: int, path_features: list[dict] | None = None
+) -> list[dict]:
+    """OSM pěší plochy (``pedestrian_area``, ne mosty / tunely, ne DTM) bez částí užších než kresba silnice 502 (otevření).
+
+    ``path_features``: čáry cest; odříznutá část, kterou nevede žádná čára do ``NARROW_WALK_LINE_M`` m (dvůr
+    ``highway=service`` + ``area=yes``, obratiště ``area:highway=service`` – bez střednice) a která neleží v pásu
+    kresby silnice (pruh podél ulice = nalepený chodník), zůstává plochou, jinak by na mapě chyběla celá.
+    Bez ``path_features`` se odřízne všechno (starší chování).
+    """
     if preset_id.startswith("sprint"):
         return feats
     try:
-        from shapely.geometry import mapping, shape
+        from shapely.geometry import LineString, mapping, shape
+        from shapely.ops import unary_union
     except ImportError:
         return feats
     width = drawn_symbol_width_m("road_3", preset_id, scale)
     r = width / 2.0
     min_area = NARROW_WALK_MIN_PIECE_FACTOR * width * width
+    lines = None
+    if path_features is not None:
+        _ls = [
+            LineString([(float(x), float(y)) for x, y, *_ in c])
+            for f in path_features
+            for c in [((f.get("geometry") or {}).get("coordinates") or [])]
+            if (f.get("geometry") or {}).get("type") == "LineString" and len(c) >= 2
+        ]
+        lines = unary_union(_ls).buffer(NARROW_WALK_LINE_M) if _ls else None
+        # pás kresby silnic: úzký pruh plochy podél silnice je chodník nalepený na silnici – nekreslí se (Petr 2026-10-22)
+        road_zone = sidewalk_road_zone_geometry(path_features, None, preset_id=preset_id, scale=scale)
     out: list[dict] = []
     for f in feats:
         props = f.get("properties") or {}
@@ -5111,9 +5170,20 @@ def open_narrow_walk_areas(feats: list[dict], preset_id: str, scale: int) -> lis
             continue
         opened = g.buffer(-r, join_style=2).buffer(r, join_style=2).intersection(g)
         pieces = [opened] if opened.geom_type == "Polygon" else list(getattr(opened, "geoms", []))
-        for piece in pieces:
-            if piece.geom_type == "Polygon" and not piece.is_empty and piece.area >= min_area:
-                out.append({"type": "Feature", "properties": dict(props), "geometry": mapping(piece)})
+        kept = [p for p in pieces if p.geom_type == "Polygon" and not p.is_empty and p.area >= min_area]
+        if path_features is not None:
+            # úzká část bez čáry zůstává (nic jiného by ji nenakreslilo); s čárou ji kreslí čára
+            removed = g.difference(unary_union(kept)) if kept else g
+            removed = removed.difference(zone_index.local_zone(lines, g, 1.0)) if lines is not None else removed
+            stay = [p for p in getattr(removed, "geoms", [removed]) if p.geom_type == "Polygon" and p.area >= min_area]
+            if road_zone is not None and stay:
+                _rz = zone_index.local_zone(road_zone, g, 1.0)
+                stay = [p for p in stay if p.intersection(_rz).area < NARROW_WALK_ROAD_SHARE * p.area]
+            if stay:
+                merged = unary_union(kept + stay)
+                kept = [p for p in getattr(merged, "geoms", [merged]) if p.geom_type == "Polygon" and not p.is_empty]
+        for piece in kept:
+            out.append({"type": "Feature", "properties": dict(props), "geometry": mapping(piece)})
     return out
 
 
@@ -5221,7 +5291,7 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
                 feats = drop_osm_parking_covered_by_dtm(work_dir, feats)  # jako v ``build_osm_feature_parts``
             feats = with_zabaged_paved_areas(feats, preset_id)
             feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)
-            feats = open_narrow_walk_areas(feats, preset_id, scale)
+            feats = open_narrow_walk_areas(feats, preset_id, scale, _narrow_walk_line_features(work_dir))
             feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)
             feats = extend_parking_by_links(work_dir, feats, _path_feats, preset_id, scale)
             feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)
@@ -5255,10 +5325,19 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
                 network = _uu_net([g if g.is_valid else g.buffer(0) for g in polys]) if polys else None
                 # Silnice se nekreslí jen tam, kde plocha opravdu je: výběžek uříznutý generalizací (špička smyčky
                 # konečné Klukovice, 3,9 m) by jinak zůstal mezerou mezi koncem silnice a plochou (Petr 2026-10-31).
+                # Zacelené zátoky a mezery sítě do zóny patří také (silnice jinak končila pahýlem uvnitř výplně): zóna je
+                # kreslená síť bez ploch druhů mimo ``ROAD_CLIP_KINDS`` (hřiště), ne průnik s původními plochami.
                 if clip is not None and network is not None and not clip.is_empty:
                     from shapely import get_parts
 
-                    kept = [g for g in get_parts(clip.intersection(network)) if g.geom_type in ("Polygon", "MultiPolygon")]
+                    _other = [
+                        _shape(f["geometry"])
+                        for f in feats
+                        if (f.get("properties") or {}).get("kind") in _PAVED_AREA_KINDS - ROAD_CLIP_KINDS
+                        and (f.get("geometry") or {}).get("type") in ("Polygon", "MultiPolygon")
+                    ]
+                    _zone = network.difference(_uu_net([g if g.is_valid else g.buffer(0) for g in _other])) if _other else network
+                    kept = [g for g in get_parts(_zone) if g.geom_type in ("Polygon", "MultiPolygon")]
                     clip = _uu_net(kept) if kept else None
         if preset_id:
             clip = _plus_dtm_parking(work_dir, clip, preset_id, scale)
@@ -7423,7 +7502,7 @@ def build_osm_feature_parts(
         else:
             feats = with_zabaged_paved_areas(feats, preset_id)  # ZABAGED ostatní plochy v sídlech do sítě
             feats = with_dtm_walk_areas(work_dir, feats, preset_id, scale)  # les: široké pěší plochy z DTM
-            feats = open_narrow_walk_areas(feats, preset_id, scale)  # úzké výběžky pěších ploch kreslí čára
+            feats = open_narrow_walk_areas(feats, preset_id, scale, _narrow_walk_line_features(work_dir))  # úzké výběžky pěších ploch kreslí čára
             feats = merge_parking_into_road(work_dir, feats, _path_feats, preset_id, scale)  # podélné stání = silnice
             feats = extend_parking_by_links(work_dir, feats, _path_feats, preset_id, scale)  # vjezd na parkoviště = plocha
             feats = cut_paved_by_mtbo_dtm_areas(work_dir, feats, preset_id, scale)  # MTBO: plochy z DTM mají přednost
@@ -7467,6 +7546,7 @@ def build_osm_feature_parts(
         "water_well_building": "OSM budovy (studny)",
         "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (501 zpevněná)",
+        "pitch_open": "OSM sportoviště travnaté (401)",
         "pedestrian_area": "OSM pěší zóny (501 zpevněná)",
         "parking": "OSM parkoviště (501 zpevněná)",
         "platform": "OSM nástupiště (501 zpevněná)",
@@ -7512,6 +7592,7 @@ def build_osm_feature_parts(
         "water_body",
         "fountain",
         "farmland",
+        "pitch_open",
         "garden",
         "playground",
         "pitch",

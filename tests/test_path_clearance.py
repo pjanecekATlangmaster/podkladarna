@@ -1,5 +1,7 @@
 import json
 
+import math
+
 import pytest
 
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -112,6 +114,7 @@ def test_paths_are_taken_from_drawn_map_objects_without_geojson(tmp_path):
     [
         ("521", "502", [0], (-10, -12, 10, 20), "clipped"),  # budova přeťatá osou silnice → oříznutá
         ("521", "505", [0], (-10, -12, 10, 20), "same"),  # pěšina budovu neořezává
+        ("521", "504", [0], (-10, -12, 10, 20), "clipped"),  # vozová cesta má přednost jako silnice (Petr 2026-11-01)
         ("521", "502", [0], (-3, -2, 3, 2), "dropped"),  # malá budova na silnici → pryč
         ("521", "502", [0, 14], (-10, 3, 10, 11), "clipped"),  # mezi dvěma silnicemi, posun nejde → zbyde kus mimo oba pásy
         ("520", "502", [0], (-10, -6, 10, 20), "clipped"),  # oliva většinou pod silnicí (zbude < 50 % výměry) → přesto oříznutá
@@ -394,3 +397,34 @@ def test_cliff_on_paved_area_is_cut(tmp_path):
     for o in pieces:
         xs = [x / 100.0 for x, _y, _f in _parse_coords(_COORDS_RE.search(o).group(1))]
         assert all(abs(x) >= 19.9 for x in xs)
+
+
+@pytest.mark.parametrize(
+    "roads_y, y, expect",
+    [
+        ([0], 0, "moved"),  # kříž jako uzel OSM silnice: přímo na ose → kolmo na volnou stranu
+        ([0], 2, "moved"),  # v pásu silnice
+        ([0, 5], 2.5, "moved"),  # mezi dvěma pruhy 5 m od sebe → přes pruh ven (do 1,5 mm)
+        ([-10, -5, 0, 5, 10, 15], 2.5, "same"),  # svazek pruhů: volné místo dál než 1,5 mm → zůstane
+        ([0], 60, "same"),
+    ],
+)
+def test_cross_on_road_axis_moves_perpendicular(tmp_path, roads_y, y, expect):
+    from app.pipeline.oom_import import _path_object
+    from shapely.geometry import LineString, Point
+
+    roads = [_path_object(symbol_index_for_code(PRESET, SCALE, "502"), _to_map([(-100, ry), (100, ry)])) for ry in roads_y]
+    sym = symbol_index_for_code(PRESET, SCALE, "531")
+    px, py = _to_map([(0, y)])[0]
+    pt = _point_object(sym, px, py)
+    parts = [OomObjectPart(name="x", objects_xml="\n".join([*roads, pt]), count=len(roads) + 1)]
+    objs = _objects(displace_objects_from_paths(parts, tmp_path, **KW))[len(roads) :]
+    assert len(objs) == 1
+    if expect == "same":
+        assert objs == [pt.strip()]
+        return
+    x, yy, _f = _parse_coords(_COORDS_RE.search(objs[0]).group(1))[0]
+    half = symbol_width_mm(PRESET, SCALE, "502") / 2 * 1000  # µm
+    assert abs(x - px) < 5  # posun jen kolmo k ose
+    assert Point(x, yy).distance(LineString([(-1e5, 0), (1e5, 0)])) >= half + 300 + 200 - 5  # pás + kolečko + mezera
+    assert math.hypot(x - px, yy - py) <= 1500 + 5
