@@ -530,6 +530,18 @@ def test_narrow_walk_lobe_removed(tmp_path, preset):
     assert op.open_narrow_walk_areas([narrow], "sprint_4000", 4000) == [narrow]
     parking = {"type": "Feature", "properties": {"kind": "parking"}, "geometry": mapping(box(0, 0, 60, 5))}
     assert op.open_narrow_walk_areas([parking], preset, 10000) == [parking]
+    # Dvůr highway=service + area=yes bez střednice (7 × 30 m): s čarami cest zůstává, s čárou uprostřed odpadne.
+    yard = {"type": "Feature", "properties": {"kind": "pedestrian_area"}, "geometry": mapping(box(0, 0, 30, 7))}
+    assert op.open_narrow_walk_areas([yard], preset, 10000, []) == [yard]
+    assert op.open_narrow_walk_areas([yard], preset, 10000, [_road([(-5, 3.5), (35, 3.5)], "road_1")]) == []
+    # výběžek náměstí s čárou odpadne, bez čáry zůstane
+    with_line = op.open_narrow_walk_areas([feat], preset, 10000, [_road([(40, 20), (80, 20)], "footway")])
+    assert shape(with_line[0]["geometry"]).bounds[2] == pytest.approx(40, abs=0.5)
+    no_line = op.open_narrow_walk_areas([feat], preset, 10000, [])
+    assert shape(no_line[0]["geometry"]).bounds[2] == pytest.approx(80, abs=0.5)
+    # pruh 5 m podél silnice bez čáry je nalepený chodník – odpadne
+    strip = {"type": "Feature", "properties": {"kind": "pedestrian_area"}, "geometry": mapping(box(0, 6, 60, 11))}
+    assert op.open_narrow_walk_areas([strip], preset, 10000, [_road([(-5, 0), (65, 0)], "road_3")]) == []
 
 
 def test_corridor_axis_between_lines():
@@ -1061,3 +1073,17 @@ def test_road_clip_only_where_area_is_drawn(tmp_path):
     clip = op.road_clip_zone(tmp_path, "forest_10000", 10000)
     assert Polygon(ring).difference(net).area > 1.0  # špička je generalizací uříznutá
     assert clip.difference(net).area < 0.01  # silnice se neořezává tam, kde plocha nakreslená není
+    # zacelená zátoka (4 m) je v zóně ořezu: silnice končí na kreslené hraně, ne pahýlem uvnitř výplně
+    bay = [[0, -15], [40, -15], [40, 15], [0, 15], [0, 2], [10, 2], [10, -2], [0, -2], [0, -15]]
+    area2 = {**area, "geometry": {"type": "Polygon", "coordinates": [bay]}}
+    _write_job(tmp_path, [area2], [_road([(-60, 0), (100, 0)], "road_3")])
+    op._PAVED_NETWORK_CACHE.clear()
+    net2 = op.paved_network_geometry(tmp_path, "forest_10000", 10000)
+    clip2 = op.road_clip_zone(tmp_path, "forest_10000", 10000)
+    assert net2.area > Polygon(bay).area + 20  # zátoka zacelená
+    assert net2.difference(clip2).area < 0.01
+    # hřiště v zóně není: silnice přes něj se kreslí dál
+    pitch = {**area, "properties": {"source": "osm", "kind": "pitch", "oom_code": "501"}}
+    _write_job(tmp_path, [pitch], [_road([(-60, 0), (100, 0)], "road_3")])
+    op._PAVED_NETWORK_CACHE.clear()
+    assert op.road_clip_zone(tmp_path, "forest_10000", 10000) is None

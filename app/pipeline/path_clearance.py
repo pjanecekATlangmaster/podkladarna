@@ -43,9 +43,11 @@ CLIFF_TICK_MM = 0.5
 CLIFF_MIN_PIECE_MM = 0.5
 CLIFF_MAX_SHIFT_MM = 1.5
 PAVED_MAJOR = 501
-# Silnice (502 a 503): budova, kterou nejde odsunout, se o jejich pás ořízne (Petr: silnice mají přednost). Ostatní cesty
-# (504–508, 532, MTBO 8xx) budovu neořezávají, budova přeťatá pěšinou zůstává.
-ROAD_MAJORS = frozenset({502, 503})
+# Silnice a vozové cesty (502, 503, 504; MTBO 815): budova, kterou nejde odsunout, se o jejich pás ořízne (Petr: cesta má
+# přednost, 2026-10-31 a 2026-11-01). Pěšiny (505–508, 532, MTBO 816+) budovu neořezávají, budova přeťatá pěšinou zůstává.
+ROAD_MAJORS = frozenset({502, 503, 504, 815})
+# Bod (kříž 531, pomník …) ležící přímo na ose cesty (uzel OSM na silnici) se odsune kolmo k ose nejvýš o tolik mm.
+POINT_MAX_SHIFT_MM = 1.5
 BUILDING_MAJOR = 521
 # Kus budovy po ořezu o silnici: nejmenší šířka (mm na mapě); nejmenší výměra bere BUILDING_MIN_AREA_MM2 z osm_paths.
 MIN_BUILDING_WIDTH_MM = 0.2
@@ -350,6 +352,45 @@ def _shift_vector(geom, paths: _Paths, extra, max_shift):
         if d + EPS < min(before.get(k, math.inf), need):
             return None
     return tx, ty
+
+
+def _shift_point_off_axis(x0, y0, radius, paths: _Paths, gap, max_shift):
+    """Posun bodu (kolečko ``radius``), který leží na ose cesty nebo v jejím pásu, kolmo k ose na bližší volnou stranu
+    (dx, dy); None = nevejde se do ``max_shift`` ani na jedné straně. ``_shift_vector`` bod na ose nechává."""
+    from shapely.geometry import Point
+    from shapely.ops import nearest_points
+
+    p = Point(x0, y0)
+    ks = paths.near(p, radius + gap)
+    hits = [(paths.geoms[k].distance(p), k) for k in ks]
+    hits = [(d, k) for d, k in hits if d < paths.half[k] + radius + gap - EPS]
+    if not hits:
+        return None
+    d, k = min(hits)
+    line = paths.geoms[k]
+    need = paths.half[k] + radius + gap
+    q = nearest_points(line, p)[0]
+    nx, ny = p.x - q.x, p.y - q.y
+    n = math.hypot(nx, ny)
+    if n < 1.0:
+        # bod na ose: kolmice k úseku osy v tom místě
+        t = line.project(p)
+        a, b = line.interpolate(max(0.0, t - 100.0)), line.interpolate(min(line.length, t + 100.0))
+        tx, ty = b.x - a.x, b.y - a.y
+        tn = math.hypot(tx, ty)
+        if tn < 1e-6:
+            return None
+        nx, ny, n, d = -ty / tn, tx / tn, 1.0, 0.0
+    nx, ny = nx / n, ny / n
+    best = None
+    for sign, dist in ((1.0, need - d + 1.0), (-1.0, need + d + 1.0)):
+        if dist > max_shift:
+            continue
+        g = Point(x0 + sign * nx * dist, y0 + sign * ny * dist)
+        if all(paths.geoms[j].distance(g) >= paths.half[j] + radius + gap - EPS for j in paths.near(g, radius + gap)):
+            if best is None or dist < best[0]:
+                best = (dist, sign * nx * dist, sign * ny * dist)
+    return None if best is None else (best[1], best[2])
 
 
 def _shift_point_box(x0, y0, box, paths: _Paths, gap, max_shift):
@@ -760,6 +801,11 @@ def displace_objects_from_paths(
                         return match.group(0)
                 else:
                     v = _shift_vector(Point(pts[0][0], pts[0][1]), paths, POINT_RADIUS_MM * 1000.0 + gap, max_shift)
+                    if v is None:
+                        # bod na ose / v pásu cesty (kříž 531 jako uzel OSM silnice): kolmo na volnou stranu
+                        v = _shift_point_off_axis(
+                            pts[0][0], pts[0][1], POINT_RADIUS_MM * 1000.0, paths, gap, max(max_shift, POINT_MAX_SHIFT_MM * 1000.0)
+                        )
                     if v is None:
                         return match.group(0)
                 return rebuilt([[round(pts[0][0] + v[0]), round(pts[0][1] + v[1]), pts[0][2]]])

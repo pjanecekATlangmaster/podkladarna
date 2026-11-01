@@ -87,6 +87,14 @@ def test_classify_osm_well_and_playground():
         {"leisure": "pitch", "sport": "basketball"}
     ) == ("pitch", "501")
     assert classify_osm_feature({"leisure": "track"}) == ("pitch", "501")
+    # travnaté hřiště není tvrdý povrch → 401 (Petr 2026-11-01); umělý trávník také; asfalt zůstává 501
+    assert classify_osm_feature({"leisure": "pitch", "surface": "grass"}) == ("pitch_open", "401")
+    assert classify_osm_feature({"leisure": "pitch", "surface": "asphalt"}) == ("pitch", "501")
+    assert classify_osm_feature({"leisure": "playground", "surface": "grass"}) == ("playground", "501")
+    # podzemní parkoviště bez building=* a štěrkové parkoviště se nekreslí; parkoviště bez surface ano
+    assert classify_osm_feature({"amenity": "parking", "parking": "underground"}) is None
+    assert classify_osm_feature({"amenity": "parking", "surface": "gravel"}) is None
+    assert classify_osm_feature({"amenity": "parking", "parking": "surface"}) == ("parking", "501")
     assert classify_osm_feature({"leisure": "sports_centre"}) == ("pitch", "501")
     assert classify_osm_feature(
         {"leisure": "sports_centre", "building": "yes"}

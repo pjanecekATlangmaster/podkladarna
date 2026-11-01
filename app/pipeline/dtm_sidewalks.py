@@ -379,7 +379,8 @@ def generalize_area(geom, scale: int, blockers=None):
     closed = geom.buffer(c, join_style=2, mitre_limit=2.0).buffer(-c, join_style=2, mitre_limit=2.0)
     if blockers is not None and not blockers.is_empty:
         closed = unary_union([geom, closed.difference(blockers)])
-    opened = closed.buffer(-o).buffer(o)
+    # otevření s ostrými rohy (mitre): kulatý buffer zaobloval každý roh parkoviště na 0,25 mm (Petr 2026-10-31)
+    opened = closed.buffer(-o, join_style=2, mitre_limit=2.0).buffer(o, join_style=2, mitre_limit=2.0)
     g = opened.intersection(closed)
     g = g.simplify(GENERALIZE_SIMPLIFY_MM * m, preserve_topology=True)
     if not g.is_valid:
