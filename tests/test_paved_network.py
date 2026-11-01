@@ -1087,3 +1087,36 @@ def test_road_clip_only_where_area_is_drawn(tmp_path):
     _write_job(tmp_path, [pitch], [_road([(-60, 0), (100, 0)], "road_3")])
     op._PAVED_NETWORK_CACHE.clear()
     assert op.road_clip_zone(tmp_path, "forest_10000", 10000) is None
+
+
+def test_road_ending_short_of_parking_reaches_its_edge(tmp_path):
+    # Silnice končí 4 m před parkovištěm (OSM nedotažený konec): prodlouží se rovně na hranu (do 0,5 mm mapy);
+    # 8 m před plochou zůstává.
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [_line([(-50, 20), (-4, 20)], "road_2")])
+    assert _path_lengths(tmp_path)["503.0"] == pytest.approx(50, abs=0.6)
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking")], [_line([(-50, 20), (-8, 20)], "road_2")])
+    assert _path_lengths(tmp_path)["503.0"] == pytest.approx(42, abs=0.6)
+
+
+def test_oblique_parking_edge_is_squared_at_road_mouth(tmp_path):
+    # Parkoviště se šikmou levou hranou, silnice vstupuje po ose y = 20 a končí uvnitř: síť má v pásu kresby plochu
+    # hned za vstupem a nic za vstupem; hrana dál od pásu zůstává šikmá.
+    from shapely.geometry import Point
+
+    parking = {
+        "type": "Feature",
+        "properties": {"kind": "parking", "source": "osm"},
+        "geometry": {"type": "Polygon", "coordinates": [[[0, 20], [-15, 35], [40, 35], [40, 5], [15, 5], [0, 20]]]},
+    }
+    _write_job(tmp_path, [parking], [_line([(-50, 20), (20, 20)], "road_2")])
+    op._PAVED_NETWORK_CACHE.clear()
+    net = op.paved_network_geometry(tmp_path, "forest_10000", 10000)
+    assert net.contains(Point(1, 22)) and net.contains(Point(1, 18))
+    assert not net.contains(Point(-3, 22.5)) and net.contains(Point(-8, 30))
+
+
+def test_paved_area_on_bridge_gets_edge(tmp_path):
+    # Plocha na mostě není v síti (neslučuje se), výplň se kreslí – okraj 501.2 dosud chyběl.
+    _write_job(tmp_path, [_area(0, 0, 40, 40, "parking", structure="bridge")], [])
+    assert _edge_length(_parts_with_edge(tmp_path)) == pytest.approx(160, abs=2.0)
+

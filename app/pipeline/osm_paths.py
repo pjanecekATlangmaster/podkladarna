@@ -5273,17 +5273,26 @@ def merge_parking_into_road(
 def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -> tuple:
     gj = work_dir / "osm_paths" / "features.geojson"
     if not gj.is_file():
-        return None, None
+        return None, None, None
     try:
         key = (str(gj), gj.stat().st_mtime_ns, preset_id, scale, _ZABAGED_PAVED.get())
     except OSError:
-        return None, None
+        return None, None, None
     if key not in _PAVED_NETWORK_CACHE:
         try:
             feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
         except (OSError, ValueError):
             feats = []
         _path_feats = _paths_features_for_network(work_dir)
+        if preset_id and not preset_id.startswith("sprint"):
+            # Pravidlo tahu jako při kresbě: pásy silnic (blokery sítě, slití parkoviště s ulicí, ústí) mají šířku
+            # kresleného symbolu, ne symbolu z tagů (oponentura 2026-10-31, mezera 7).
+            _widths = None
+            if uses_dtm_widths(preset_id):
+                from app.pipeline.dtm_widths import dtm_width_indexes
+
+                _widths = dtm_width_indexes(work_dir)[0]
+            _apply_road_strokes(_path_feats, preset_id, scale, road_widths=_widths)
         if preset_id:
             from app.pipeline.dtm_import import dtm_area_preset, drop_osm_parking_covered_by_dtm
 
@@ -5313,7 +5322,7 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
         ]
         if network is not None and preset_id:
             network = _minus_mtbo_dtm_areas(work_dir, network, scale, preset_id)
-            from app.pipeline.paved_surface import generalize_paved_feats, restore_junction_mouths, unified
+            from app.pipeline.paved_surface import generalize_paved_feats, restore_junction_mouths, square_road_mouths, unified
 
             if unified(preset_id):
                 paved_feats = generalize_paved_feats(work_dir, paved_feats, preset_id, scale)
@@ -5321,8 +5330,15 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
                 from shapely.geometry import shape as _shape
                 from shapely.ops import unary_union as _uu_net
 
-                polys = [_shape(f["geometry"]) for f in paved_feats if not (f.get("properties") or {}).get("structure")]
-                network = _uu_net([g if g.is_valid else g.buffer(0) for g in polys]) if polys else None
+                def _union(fs):
+                    polys = [_shape(f["geometry"]) for f in fs if not (f.get("properties") or {}).get("structure")]
+                    return _uu_net([g if g.is_valid else g.buffer(0) for g in polys]) if polys else None
+
+                # Zóna ořezu silnic ze sítě před úpravou ústí: pás ústí doplněný do plochy (``square_road_mouths``)
+                # nesmí zónu rozšířit, silnice vedoucí těsně u hrany plochy by se jinak uvnitř zahodila (Barrandov).
+                network = _union(paved_feats)
+                paved_feats = square_road_mouths(work_dir, paved_feats, preset_id, scale, _path_feats)
+                drawn_network = _union(paved_feats)
                 # Silnice se nekreslí jen tam, kde plocha opravdu je: výběžek uříznutý generalizací (špička smyčky
                 # konečné Klukovice, 3,9 m) by jinak zůstal mezerou mezi koncem silnice a plochou (Petr 2026-10-31).
                 # Zacelené zátoky a mezery sítě do zóny patří také (silnice jinak končila pahýlem uvnitř výplně): zóna je
@@ -5339,6 +5355,7 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
                     _zone = network.difference(_uu_net([g if g.is_valid else g.buffer(0) for g in _other])) if _other else network
                     kept = [g for g in get_parts(_zone) if g.geom_type in ("Polygon", "MultiPolygon")]
                     clip = _uu_net(kept) if kept else None
+                network = drawn_network
         if preset_id:
             clip = _plus_dtm_parking(work_dir, clip, preset_id, scale)
         _PAVED_NETWORK_CACHE[key] = (network, clip, paved_feats)
@@ -5375,6 +5392,9 @@ def sprint_parking_zone(work_dir: Path):
 # od hrany, nepřesnost OSM) se neřeže.
 ROAD_IN_PAVED_MIN_M = 6.0
 ROAD_IN_PAVED_EDGE_M = 2.0
+# Silnice končící kus před plochou sítě (OSM konec nedotažený k parkovišti): konec se prodlouží rovně až o tolik mm
+# mapy k hraně plochy (``end_at_edge(extend_m=…)``), dřív jen přichycení do 1,5 m na nejbližší bod.
+ROAD_EDGE_REACH_MM = 0.5
 
 
 def clip_road_in_paved(
@@ -6857,6 +6877,50 @@ def build_osm_path_parts(
     beside_paved = None if preset_id.startswith("sprint") else osm_paved_beside_geometry(work_dir)
     if beside_paved is not None:
         beside_paved = None if paved_network is None else beside_paved.intersection(paved_network)
+    # Pravidlo tahu před pásy silnic: dedup chodníků, pás kresby 502 i blokery sítě berou šířku kresleného symbolu
+    # (oponentura 2026-10-31, mezera 7).
+    service_links = (
+        set()
+        if preset_id.startswith("sprint")
+        else service_link_indexes(
+            data.get("features") or [],
+            paved_network,
+            osm_paved_beside_geometry(work_dir, kinds=_OSM_BUILDING_KINDS),
+            preset_id=preset_id,
+            scale=scale,
+            road_features=road_feats,
+        )
+    )
+    # Les / MTBO: spojka silnice → parkoviště se nekreslí čárou, kreslí ji pruh zpevněné plochy (``extend_parking_by_links``).
+    parking_links = (
+        set()
+        if preset_id.startswith("sprint") or not service_links
+        else service_link_indexes(
+            data.get("features") or [],
+            osm_parking_geometry(work_dir),
+            osm_paved_beside_geometry(work_dir, kinds=_OSM_BUILDING_KINDS),
+            preset_id=preset_id,
+            scale=scale,
+            to_buildings=False,
+            road_features=road_feats,
+        )
+    )
+    # Les / MTBO: černé cesty přes kresbu silnice 502 / 502.1 nevedou, končí na jejím okraji.
+    # Pás se bere z kreslených silnic: u rozdělené vozovky z osy 502.0 (šířka 502.0), ne z pásů, které se nekreslí –
+    # boční ulice tak dojde až k okraji kresby 502.0 (Petr 2026-10-26, D23).
+    if not preset_id.startswith("sprint"):
+        # Pravidlo tahu: jeden symbol na souvislý úsek (``road_strokes``); platí pro kresbu i pás silnic níže.
+        _apply_road_strokes(
+            data.get("features") or [], preset_id, scale, road_widths=road_widths, service_links=service_links
+        )
+        if road_feats is not (data.get("features") or []):
+            _extra = [
+                f
+                for f in data.get("features") or []
+                if path_draw_highway(str((f.get("properties") or {}).get("highway") or "")) == "road_dual"
+                or (f.get("properties") or {}).get("fork_link")
+            ]
+            _apply_road_strokes(road_feats + _extra, preset_id, scale, road_widths=road_widths)
     road_zone = (
         None
         if preset_id.startswith("sprint")
@@ -6926,48 +6990,6 @@ def build_osm_path_parts(
         return road_zone, dedup_bases
 
     skip_steps = set() if preset_id.startswith("sprint") else small_complex_steps(data.get("features") or [])
-    service_links = (
-        set()
-        if preset_id.startswith("sprint")
-        else service_link_indexes(
-            data.get("features") or [],
-            paved_network,
-            osm_paved_beside_geometry(work_dir, kinds=_OSM_BUILDING_KINDS),
-            preset_id=preset_id,
-            scale=scale,
-            road_features=road_feats,
-        )
-    )
-    # Les / MTBO: spojka silnice → parkoviště se nekreslí čárou, kreslí ji pruh zpevněné plochy (``extend_parking_by_links``).
-    parking_links = (
-        set()
-        if preset_id.startswith("sprint") or not service_links
-        else service_link_indexes(
-            data.get("features") or [],
-            osm_parking_geometry(work_dir),
-            osm_paved_beside_geometry(work_dir, kinds=_OSM_BUILDING_KINDS),
-            preset_id=preset_id,
-            scale=scale,
-            to_buildings=False,
-            road_features=road_feats,
-        )
-    )
-    # Les / MTBO: černé cesty přes kresbu silnice 502 / 502.1 nevedou, končí na jejím okraji.
-    # Pás se bere z kreslených silnic: u rozdělené vozovky z osy 502.0 (šířka 502.0), ne z pásů, které se nekreslí –
-    # boční ulice tak dojde až k okraji kresby 502.0 (Petr 2026-10-26, D23).
-    if not preset_id.startswith("sprint"):
-        # Pravidlo tahu: jeden symbol na souvislý úsek (``road_strokes``); platí pro kresbu i pás silnic níže.
-        _apply_road_strokes(
-            data.get("features") or [], preset_id, scale, road_widths=road_widths, service_links=service_links
-        )
-        if road_feats is not (data.get("features") or []):
-            _extra = [
-                f
-                for f in data.get("features") or []
-                if path_draw_highway(str((f.get("properties") or {}).get("highway") or "")) == "road_dual"
-                or (f.get("properties") or {}).get("fork_link")
-            ]
-            _apply_road_strokes(road_feats + _extra, preset_id, scale, road_widths=road_widths)
     _major_feats = road_feats
     if lane_zone is not None:
         _major_feats = []
@@ -7231,7 +7253,7 @@ def build_osm_path_parts(
             # Les/MTBO: silnice přes zpevněnou plochu (parkoviště) se uvnitř nekreslí, jen napojení na hranu.
             # Zóna je jen plocha, bez jízdního pásu silnic (ten by silnici zahodil celou).
             lines = [seg for ln in lines for seg in clip_road_in_paved(ln, road_clip, core=paved_core)]
-            lines = [seg for ln in lines for seg in end_at_edge(ln, road_clip)]
+            lines = [seg for ln in lines for seg in end_at_edge(ln, road_clip, extend_m=mm_to_ground_m(ROAD_EDGE_REACH_MM, scale))]
         if (
             major_band is not None
             and not is_major_road_code(code, preset_id, scale)
