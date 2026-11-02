@@ -185,6 +185,10 @@ def build_residual_paved_parts(
         mask_wkbs = list(mask_wkbs) + dtm_mask_wkbs(work_dir)
     except Exception:  # maska z DTM je doplněk
         pass
+    from app.pipeline import residual_verify as rv
+
+    # Ulice z katastru (sprint, 501.1) kreslí svou plochu samy – mezera se s nimi nezdvojí.
+    mask_wkbs = list(mask_wkbs) + rv.street_parcel_wkbs(work_dir)
     if not mask_wkbs:
         _emit("residual_paved: prázdná OSM maska – residential bez výřezu")
     # OCAD ISSprOM: zpevněná plocha light = 501.0 (OOM „501“ v merged sadě není).
@@ -210,6 +214,19 @@ def build_residual_paved_parts(
     # Jeden STRtree na celou masku (ne znovu u každého subjectu).
     mask_index = _build_mask_index(mask_wkbs)
     deadline = time.monotonic() + max(0.0, float(soft_timeout_s))
+    evidence = None
+    osm_buildings: list = []
+    dtm_buildings: list = []
+    skipped_dtm = 0
+    rejected = 0
+    if rv.VERIFY_PIECES:
+        evidence = rv.load_evidence(work_dir, bbox_wgs84, elements, log=log)
+        if not evidence.usable:
+            _emit("residual_paved: bez ortofota i CHM – platí pravidlo 25 % pro celé residential")
+            evidence = None
+        dtm_buildings = rv.dtm_building_geoms(work_dir)
+        if dtm_buildings:
+            osm_buildings = rv.osm_building_geoms(elements)
 
     for i, subject in enumerate(subjects, start=1):
         if time.monotonic() >= deadline:
@@ -220,6 +237,15 @@ def build_residual_paved_parts(
             )
             break
         t0 = time.monotonic()
+        if dtm_buildings:
+            try:
+                from shapely import from_wkb as _from_wkb
+
+                if rv.dtm_complete(_from_wkb(subject), osm_buildings, dtm_buildings):
+                    skipped_dtm += 1  # zpevněné plochy kreslí DTM, mezery bývají zeleň
+                    continue
+            except Exception:  # kontrola DTM je doplněk
+                pass
         pieces = _difference_one_subject(subject, mask_index)
         exploded = _explode_polygon_wkbs(pieces)
         subj_area = _wkb_area_m2(subject)
@@ -230,7 +256,8 @@ def build_residual_paved_parts(
             f"({rem_area:.0f}/{subj_area:.0f} m², {dt:.1f} s)"
         )
         if (
-            subj_area > 0
+            evidence is None
+            and subj_area > 0
             and rem_area / subj_area > _MAX_RESIDUAL_FRACTION
         ):
             skipped_sparse += 1
@@ -241,6 +268,17 @@ def build_residual_paved_parts(
             area = _wkb_area_m2(piece)
             if area <= 0:
                 continue
+            if evidence is not None:
+                try:
+                    from shapely import from_wkb as _from_wkb
+
+                    ok = rv.piece_is_paved(evidence, _from_wkb(piece))
+                except Exception:
+                    ok = False
+                if not ok:
+                    rejected += 1
+                    sparse_wkbs.append(piece)  # do ZIPu k ručnímu importu (zeleň / stromy / neověřené)
+                    continue
             kept_by_band[residual_band_stem(area)].append(piece)
             if area > max_piece_m2:
                 skipped_oversized += 1
@@ -270,7 +308,7 @@ def build_residual_paved_parts(
         _emit(
             "residual_paved: nic k vykreslení "
             f"(řídkých={skipped_sparse}, příliš velkých={skipped_oversized}, "
-            f"subjectů={n_subj}"
+            f"zeleň/neověřené={rejected}, s DTM={skipped_dtm}, subjectů={n_subj}"
             + (", soft timeout" if timed_out else "")
             + ")"
         )
@@ -278,7 +316,7 @@ def build_residual_paved_parts(
     _emit(
         f"residual_paved: {len(objects)} polygonů, ~{total_m2:.0f} m² "
         f"(OSM {len(elements)}, mask {len(mask_wkbs)}, residential ok={kept_subjects}, "
-        f"řídké={skipped_sparse}, >max={skipped_oversized}"
+        f"řídké={skipped_sparse}, >max={skipped_oversized}, zeleň/neověřené={rejected}, s DTM={skipped_dtm}"
         + (", soft timeout" if timed_out else "")
         + ")"
     )
