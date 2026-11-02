@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.fsutil import atomic_write_text
+from app.pipeline import build_stats
 from app.pipeline.job_progress import ISSUE_LOG_PREFIX, format_elapsed, log_issue
 from app.pipeline.package_oom import prepare_oom_map
 
@@ -79,6 +80,7 @@ def build_discipline_maps_serial(
     """Sestaví mapy disciplíny po řadě (+ OCD); vrací cesty podle ``task.calls`` (None = nevytvořeno)."""
     prepare = prepare or prepare_oom_map
     out: list[Path | None] = []
+    t_task = time.monotonic()
     for call in task.calls:
         log(call.header)
         t_map = time.monotonic()
@@ -96,6 +98,8 @@ def build_discipline_maps_serial(
         else:
             log_issue(log, f"OOM: {call.variant_name} nevytvořeno")
         out.append(Path(omap_p) if omap_p else None)
+    # Statistiky buildu (v potomkovi souběhu se zahodí, tam čas zapíše rodič).
+    build_stats.note_map(task.tag, time.monotonic() - t_task)
     return out
 
 
@@ -262,6 +266,7 @@ def _build_parallel(kp_cwd, tasks, built_refs, join_refs, log, prepare, executor
                     log_issue(log, f"OOM: {', '.join(c.variant_name for c in task.calls)} nevytvořeno ({exc})")
                 else:
                     results[i] = [Path(p) if p else None for p in paths]
+                    build_stats.note_map(task.tag, elapsed, parallel=True)
                     log(
                         f"OOM: {task.tag} hotovo za {format_elapsed(elapsed)}, "
                         f"špička paměti {rss_kb / 1024:.0f} MB"

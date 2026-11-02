@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.pipeline import build_stats
+
 import json
 import urllib.error
 from pathlib import Path
@@ -45,6 +47,7 @@ def fetch_aopk_trees_for_bbox(
             meta = read_meta(cache_dir) or {}
             age = (meta.get("downloaded_at") or "?")[:10]
             log(f"AOPK stromy cache ({cache_dir.name}, staženo {age})")
+        build_stats.note_file("aopk", dest, cached=True)
         return dest
 
     west, south, east, north = fetch_bbox
@@ -77,4 +80,5 @@ def fetch_aopk_trees_for_bbox(
     )
     if log:
         log(f"AOPK památné stromy: {n} jedinců, {dest.stat().st_size / 1e3:.0f} kB")
+    build_stats.note_file("aopk", dest, cached=False)
     return dest

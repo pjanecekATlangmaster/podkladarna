@@ -13,6 +13,8 @@ na serverech krajů. Odkazy se mění (nové datum, nové UUID), proto se vždy 
 
 from __future__ import annotations
 
+from app.pipeline import build_stats
+
 import json
 import re
 import time
@@ -208,6 +210,7 @@ def download_package(pkg: DtmPackage, *, force: bool = False, log=None) -> Path:
     dest = package_path(pkg)
     if not force and dest.is_file() and zipfile.is_zipfile(dest):
         prune_older_packages(pkg)
+        build_stats.note_file("dtm", dest, cached=True)
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
@@ -233,6 +236,7 @@ def download_package(pkg: DtmPackage, *, force: bool = False, log=None) -> Path:
     if log:
         log(f"DTM: staženo {pkg.filename} ({total / 1e6:.1f} MB, {time.time() - t0:.0f} s)")
     prune_older_packages(pkg)
+    build_stats.note_file("dtm", dest, cached=False)
     return dest
 
 

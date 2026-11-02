@@ -15,6 +15,8 @@ vynecháváme – v podkladu jen zahlcují. Vrstva ``Layer`` = kód značky KM.
 
 from __future__ import annotations
 
+from app.pipeline import build_stats
+
 import zipfile
 from pathlib import Path
 
@@ -69,6 +71,7 @@ def fetch_ku_dxf(kod: int, *, log=None) -> Path | None:
     folder = katastr_cache_dir(kod)
     dxf = folder / f"{kod}.dxf"
     if is_fresh(folder, dxf, settings.RUIAN_CACHE_MAX_AGE_DAYS, min_size=100):
+        build_stats.note_file("katastr", dxf, cached=True)
         return dxf
     folder.mkdir(parents=True, exist_ok=True)
     zpath = folder / f"{kod}.zip"
@@ -87,6 +90,7 @@ def fetch_ku_dxf(kod: int, *, log=None) -> Path | None:
     finally:
         zpath.unlink(missing_ok=True)
     write_meta(folder, kind="katastr_dxf", kod=kod, downloaded_at=utcnow_iso())
+    build_stats.note_file("katastr", dxf, cached=False)
     return dxf
 
 

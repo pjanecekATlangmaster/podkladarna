@@ -95,9 +95,28 @@ class JobProgress:
         self._clock = clock
         self._start = clock()
         self._emitted_header = False
+        self._open_at: float | None = None
+        # Časy kroků pro statistiky buildu (GUI): label, sekundy, přeskočeno + důvod.
+        self._timings: list[dict] = []
 
     def elapsed(self) -> str:
-        return format_elapsed(self._clock() - self._start)
+        return format_elapsed(self.elapsed_seconds())
+
+    def elapsed_seconds(self) -> float:
+        return max(0.0, self._clock() - self._start)
+
+    def timings(self) -> list[dict]:
+        """Hotové kroky (+ právě běžící s dosavadním časem) v pořadí běhu."""
+        out = [dict(t) for t in self._timings]
+        if self._open_label is not None and self._open_at is not None:
+            out.append(
+                {
+                    "label": self._open_label,
+                    "seconds": round(max(0.0, self._clock() - self._open_at), 1),
+                    "open": True,
+                }
+            )
+        return out
 
     def announce_plan(self) -> None:
         """Jednou na začátku: co všechno job udělá."""
@@ -114,6 +133,7 @@ class JobProgress:
         self._seek(text)
         self._header(f"{_label(text)} · {self.elapsed()}")
         self._open_label = text
+        self._open_at = self._clock()
 
     def done(self) -> None:
         """Ukončí aktuální krok (posune pořadí)."""
@@ -121,6 +141,11 @@ class JobProgress:
             return
         label = self._open_label
         self._open_label = None
+        if self._open_at is not None:
+            self._timings.append(
+                {"label": label, "seconds": round(max(0.0, self._clock() - self._open_at), 1)}
+            )
+        self._open_at = None
         self._advance_past(label)
 
     def skip(self, label: str, *, reason: str | None = None) -> None:
@@ -133,6 +158,9 @@ class JobProgress:
         self._seek(text)
         note = f" ({reason})" if reason else ""
         self._header(f"{_label(text)} – přeskočeno{note}")
+        self._timings.append(
+            {"label": text, "seconds": 0.0, "skipped": True, **({"reason": reason} if reason else {})}
+        )
         self._advance_past(text)
 
     def finish_all(self) -> None:
