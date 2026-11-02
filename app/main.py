@@ -41,6 +41,8 @@ from app.pipeline.fetch_openzu import (
     estimate_minutes,
     parse_bbox,
     query_sm5_sheets,
+    sprint_area_hint,
+    sprint_max_area_km2,
 )
 from app.pipeline.job_options import (
     FORMLINE_MODES,
@@ -286,6 +288,7 @@ def api_sheets(bbox: str):
             "area_km2": round(area_km2, 1),
             "max_km": MAX_BBOX_KM,
             "max_area_km2": MAX_BBOX_AREA_KM2,
+            "sprint_max_area_km2": sprint_max_area_km2(),
             "too_large": True,
             "too_large_reason": "size",
             "estimate_minutes": None,
@@ -350,6 +353,11 @@ def api_sheets(bbox: str):
         "area_km2": round(area_km2, 1),
         "max_km": MAX_BBOX_KM,
         "max_area_km2": MAX_BBOX_AREA_KM2,
+        # Sprint (1:4000) má přísnější strop; GUI ho porovná s `area_km2` podle zvoleného měřítka.
+        "sprint_max_area_km2": sprint_max_area_km2(),
+        "sprint_hint": sprint_area_hint(area_km2, width_km, height_km)
+        if area_km2 > sprint_max_area_km2() + 1e-6
+        else None,
         "ref_png_estimate_minutes": REF_PNG_ESTIMATE_MINUTES,
         "too_large": sheets_too_big,
         "too_large_reason": "sheets" if sheets_too_big else None,
@@ -721,6 +729,12 @@ async def api_create_job(request: Request):
             f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
             f"{area:.0f} km²; max {MAX_BBOX_AREA_KM2:.0f} km²).",
         )
+    # Sprint (1:4000) jen pro menší území – kontrola na serveru, GUI jde obejít.
+    is_sprint = int(resolved["map_scale"]) <= 5000 or str(preset_id).startswith("sprint")
+    if is_sprint:
+        area = bbox_area_km2(*bbox)
+        if area > sprint_max_area_km2() + 1e-6:
+            raise HTTPException(400, sprint_area_hint(area, width_km, height_km))
     # Listy SM5: preferuj výsledek z /api/sheets (UI už ověřilo) – ušetří další ArcGIS call.
     sheets: list[dict] = []
     sheets_raw = _form_str(form, "sm5_sheets").strip()

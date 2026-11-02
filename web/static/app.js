@@ -103,6 +103,8 @@ let bboxRect = null;
 let bboxHandles = [];
 let bboxFirstCorner = null;
 let bboxMaxAreaKm2 = 25;
+// Sprint (1:4000) má přísnější strop plochy (server: SPRINT_MAX_BBOX_AREA_KM2, vrací /api/sheets).
+let sprintMaxAreaKm2 = 9;
 let sheetsLookupSeq = 0;
 let bboxAllowed = false;
 let lastSheets = null;
@@ -159,6 +161,8 @@ function applyMapTypeDefaults(scale) {
   if (residualWrap) residualWrap.classList.toggle("hidden", Number(scale) !== 4000);
   updateOutputHints();
   updateSubmitButtonLabel();
+  // Sprint má menší strop plochy: ověřený výřez znovu posoudit podle měřítka.
+  applySheetsLimit();
 }
 
 function disciplinesForScale(scale) {
@@ -912,6 +916,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   if (!bboxAllowed) {
     showFormError(
       (lastSheets && lastSheets.hint) ||
+        (lastSheets && isSprintSelected() && lastSheets.sprint_hint) ||
         "Výřez je moc velký nebo ještě není ověřený. Max cca 25 km² (např. 5 × 5 km)."
     );
     return;
@@ -1278,15 +1283,27 @@ function onBboxEditStart() {
   updateSubmitButtonLabel();
 }
 
+function isSprintSelected() {
+  const scale = document.getElementById("map_scale");
+  return Boolean(scale && scale.value && Number(scale.value) <= 5000);
+}
+
+function currentMaxAreaKm2() {
+  return isSprintSelected() ? Math.min(sprintMaxAreaKm2, bboxMaxAreaKm2) : bboxMaxAreaKm2;
+}
+
 function updateBboxDraft(b, skip) {
   bboxRect.setBounds(b);
   positionBboxHandles(skip);
   const { w, h, area } = approxBboxSizeKm(b);
-  const tooLarge = area > bboxMaxAreaKm2;
+  const limit = currentMaxAreaKm2();
+  const tooLarge = area > limit;
   styleBboxRect(tooLarge);
   setSheetInfo(
     `${w.toFixed(1)} × ${h.toFixed(1)} km (cca ${area.toFixed(1)} km²)` +
-      (tooLarge ? ` – nad limit ${bboxMaxAreaKm2} km².` : " – po puštění ověřím listy."),
+      (tooLarge
+        ? ` – nad limit ${limit} km²${isSprintSelected() ? " pro sprint" : ""}.`
+        : " – po puštění ověřím listy."),
     tooLarge ? "warn" : ""
   );
 }
@@ -1560,6 +1577,24 @@ function updateSubmitButtonLabel() {
   }
 }
 
+/** Ověřený výřez (listy OK) proti limitu zvoleného měřítka; volá se i při změně měřítka. */
+function applySheetsLimit() {
+  const data = lastSheets;
+  if (!data || data.too_large || !data.count) return;
+  if (isSprintSelected() && data.sprint_hint) {
+    bboxAllowed = false;
+    styleBboxRect(true);
+    setSheetInfo(data.sprint_hint, "warn");
+  } else {
+    bboxAllowed = true;
+    styleBboxRect(false);
+    const size = `${data.width_km} × ${data.height_km} km`;
+    const area = data.area_km2 != null ? ` (${data.area_km2} km²)` : "";
+    setSheetInfo(`${data.label} · ${size}${area}.`, "ok");
+  }
+  updateSubmitButtonLabel();
+}
+
 async function lookupSheets() {
   const bbox = document.getElementById("bbox-input").value;
   if (!bbox) return;
@@ -1576,6 +1611,7 @@ async function lookupSheets() {
     if (seq !== sheetsLookupSeq) return;
     lastSheets = data;
     if (data.max_area_km2) bboxMaxAreaKm2 = data.max_area_km2;
+    if (data.sprint_max_area_km2) sprintMaxAreaKm2 = data.sprint_max_area_km2;
     if (data.too_large) {
       styleBboxRect(true);
       setSheetInfo(
@@ -1592,16 +1628,10 @@ async function lookupSheets() {
       updateSubmitButtonLabel();
       return;
     }
-    styleBboxRect(false);
-    bboxAllowed = true;
     if (sheetsInput && Array.isArray(data.sheets)) {
       sheetsInput.value = data.sheets.map((s) => s.mapnom).filter(Boolean).join(",");
     }
-    const size = `${data.width_km} × ${data.height_km} km`;
-    const area =
-      data.area_km2 != null ? ` (${data.area_km2} km²)` : "";
-    setSheetInfo(`${data.label} · ${size}${area}.`, "ok");
-    updateSubmitButtonLabel();
+    applySheetsLimit();
   } catch (err) {
     if (seq !== sheetsLookupSeq) return;
     styleBboxRect(true);

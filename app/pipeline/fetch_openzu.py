@@ -139,6 +139,27 @@ def bbox_exceeds_limit(west: float, south: float, east: float, north: float) -> 
     return bbox_area_km2(west, south, east, north) > MAX_BBOX_AREA_KM2 + 1e-6
 
 
+def sprint_max_area_km2() -> float:
+    """Strop plochy výřezu pro sprint (1:4000), nejvýš obecný limit."""
+    return min(float(settings.SPRINT_MAX_BBOX_AREA_KM2), MAX_BBOX_AREA_KM2)
+
+
+def _fmt(x: float) -> str:
+    return f"{x:.1f}".rstrip("0").rstrip(".").replace(".", ",")
+
+
+def sprint_area_hint(area_km2: float, width_km: float, height_km: float) -> str:
+    """Hláška pro sprint nad limitem (GUI i API)."""
+    lim = sprint_max_area_km2()
+    side = math.sqrt(lim)
+    return (
+        f"Sprint (1:4000) jde vygenerovat jen pro menší území: výřez má "
+        f"{_fmt(width_km)} × {_fmt(height_km)} km ({_fmt(area_km2)} km²), max {_fmt(lim)} km² "
+        f"(např. {_fmt(side)} × {_fmt(side)} km). Sprint na větším území se nestaví a kresba "
+        f"z DTM by trvala dlouho. Zmenšete výřez, nebo zvolte lesní měřítko."
+    )
+
+
 def estimate_minutes(
     sheet_names: list[str],
     *,
