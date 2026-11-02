@@ -974,6 +974,61 @@ def test_capped_web_mapper_dpi_reduces_for_large_paper(tmp_path: Path):
     assert capped_web_mapper_dpi(small, desired_dpi=150, max_pixels=limit) == 150
 
 
+def _square_omap(path: Path, side: int) -> Path:
+    """Čtverec 406 o straně ``side`` map. j. (1/1000 mm papíru)."""
+    path.write_text(
+        f"""<?xml version="1.0" encoding="UTF-8"?>
+<map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
+  <georeferencing scale="4000" declination="0" grivation="0">
+    <projected_crs id="EPSG"><ref_point x="-750000" y="-1050000"/></projected_crs>
+  </georeferencing>
+  <colors count="1"><color priority="26" name="G"><rgb r="0" g="1" b="0"/></color></colors>
+  <symbols count="1">
+    <symbol type="4" id="1" code="406"><area_symbol inner_color="26"/></symbol>
+  </symbols>
+  <parts count="1" current="0"><part name="Mapa"><objects count="1">
+    <object type="1" symbol="1">
+      <coords count="5">0 0;0 {side};{side} {side};{side} 0;0 0 18;</coords>
+    </object>
+  </objects></part></parts>
+</map>
+""",
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.mark.parametrize(
+    "side_mm, expected_dpi",
+    [
+        (1400, 73),  # velký sprint (~55 palců): ~2,5× z 1600 px místo stropu 150 DPI
+        (460, 150),  # les ~18 palců: 2,5× by chtělo 221 DPI → strop 150 beze změny
+    ],
+)
+def test_web_preview_dpi_oversamples_output(tmp_path: Path, side_mm: int, expected_dpi: int):
+    from app.pipeline.oom_preview import web_preview_desired_dpi
+
+    omap = _square_omap(tmp_path / "m.omap", side_mm * 1000)
+    assert web_preview_desired_dpi(omap, max_dpi=150) == expected_dpi
+
+
+def test_omap_parsed_once_inside_cache(tmp_path: Path, monkeypatch):
+    import app.pipeline.oom_preview as op
+
+    omap = _square_omap(tmp_path / "m.omap", 100_000)
+    calls = []
+    real = op._read_omap_bytes
+    monkeypatch.setattr(op, "_read_omap_bytes", lambda p: calls.append(p) or real(p))
+    with op._omap_cache():
+        a = op.estimate_omap_fullmap_paper_inches(omap)
+        op.capped_web_mapper_dpi(omap, desired_dpi=150)
+        op.web_preview_desired_dpi(omap)
+    assert len(calls) == 1
+    assert op._OMAP_CACHE is None
+    assert op.estimate_omap_fullmap_paper_inches(omap) == a
+    assert len(calls) == 2
+
+
 def test_write_job_georef_mapper_dpi_capped(tmp_path: Path, monkeypatch):
     """Georef Mapper: velký výřez → DPI pod 300, ať se rastr dá otevřít."""
     import app.pipeline.oom_preview as oom_mod
