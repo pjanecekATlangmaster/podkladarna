@@ -201,6 +201,63 @@ def adaptive_contour_array(
     return out, w.astype(np.float32)
 
 
+# Velký výřez (les ~25 km² po 1 m = 25 Mpx) by v jednom kuse držel ~10 polí float64
+# (~2 GB). Počítá se proto po pásech řádků s přesahem, který pokryje řetěz Gaussů
+# (sklon → zóna, maska zástavby → zóna; truncate 4σ) – jádro pásu je stejné jako
+# při výpočtu celku najednou.
+_TILE_PIXELS = 4_000_000
+
+
+def _halo_px(params: AdaptiveParams, cell_m: float) -> int:
+    reach_m = 4.0 * (
+        params.zone_sigma_m
+        + max(params.slope_sigma_m, params.urban_sigma_m, params.sigma_strong_m, params.urban_sigma_strong_m)
+    )
+    return int(reach_m / max(float(cell_m), 1e-6)) + 8
+
+
+def adaptive_contour_tiled(
+    z_base,
+    valid,
+    *,
+    cell_m: float,
+    interval_m: float,
+    scale: int,
+    params: AdaptiveParams,
+    urban=None,
+    green=None,
+    protect=None,
+    tile_pixels: int = _TILE_PIXELS,
+):
+    """Jako :func:`adaptive_contour_array`, ale po pásech řádků s přesahem (paměť)."""
+    import numpy as np
+
+    z_base = np.asarray(z_base, dtype=np.float32)
+    valid = np.asarray(valid, dtype=bool)
+    rows, cols = z_base.shape
+    halo = _halo_px(params, cell_m)
+    step = max(int(tile_pixels) // max(cols, 1), halo, 64)
+    kw = dict(cell_m=cell_m, interval_m=interval_m, scale=scale, params=params)
+    if rows <= step + 2 * halo:
+        return adaptive_contour_array(z_base, valid, urban=urban, green=green, protect=protect, **kw)
+    out = np.empty(z_base.shape, dtype=np.float32)
+    w = np.empty(z_base.shape, dtype=np.float32)
+    for r0 in range(0, rows, step):
+        r1 = min(r0 + step, rows)
+        a, b = max(r0 - halo, 0), min(r1 + halo, rows)
+        sl = slice(a, b)
+        o, ww = adaptive_contour_array(
+            z_base[sl], valid[sl],
+            urban=None if urban is None else urban[sl],
+            green=None if green is None else green[sl],
+            protect=None if protect is None else protect[sl],
+            **kw,
+        )
+        out[r0:r1] = o[r0 - a:r1 - a]
+        w[r0:r1] = ww[r0 - a:r1 - a]
+    return out, w
+
+
 # ZABAGED (zabaged_clean.zip, hotový před krokem vrstevnic – deterministické).
 URBAN_BUILDING_LAYERS = ("BudovaJednotlivaNeboBlokBudov",)
 URBAN_AREA_LAYERS = ("ParkovisteOdpocivka", "OstatniPlochaVSidlech", "ArealUceloveZastavby")
@@ -293,7 +350,7 @@ def write_adaptive_contour_dem(
         valid &= z != np.float32(nodata)
     cell_m = (abs(gt[1]) + abs(gt[5])) / 2.0
     urban, green, protect = zabaged_masks(zabaged_zip, z.shape, gt, src.GetProjection(), params)
-    out, w = adaptive_contour_array(
+    out, w = adaptive_contour_tiled(
         z, valid, cell_m=cell_m, interval_m=interval_m, scale=scale, params=params,
         urban=urban, green=green, protect=protect,
     )

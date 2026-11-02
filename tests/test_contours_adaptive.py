@@ -185,3 +185,47 @@ def test_zabaged_masks_missing_layers_with_ogr_exceptions(tmp_path):
     assert urban[50, 50] and urban.sum() > 400
     assert green is not None and not green.any()
     assert protect is None
+
+
+def test_adaptive_failure_falls_back_to_dem_smooth(tmp_path, monkeypatch):
+    """Adaptivní je výchozí: výjimka (i MemoryError) nesmí shodit job, jde se z dem_smooth.tif."""
+    from app.pipeline import contours_adaptive
+    from app.pipeline.contours_gdal import _contour_source_dem
+
+    def boom(*args, **kwargs):
+        raise MemoryError("velký výřez")
+
+    monkeypatch.setattr(contours_adaptive, "write_adaptive_contour_dem", boom)
+    dem_smooth = tmp_path / "contours" / "dem_smooth.tif"
+    dem_smooth.parent.mkdir()
+    dem_smooth.write_bytes(b"")
+    lines = []
+    src, summary = _contour_source_dem(
+        dem_smooth, contour_smooth=1, interval_m=5, scalefactor=1.0, log=lines.append
+    )
+    assert src == dem_smooth and summary is None
+    assert not dem_smooth.with_name(contours_adaptive.DEM_CONTOUR_NAME).exists()
+    assert any("Varování" in line for line in lines)
+
+
+@pytest.mark.parametrize("sf,interval,scale", [(1.0, 5.0, 10000), (0.4, 2.0, 4000)])
+def test_tiled_matches_whole(sf, interval, scale):
+    """Výpočet po pásech (paměť u velkých výřezů) dává totéž co celek najednou."""
+    from app.pipeline.contours_adaptive import adaptive_contour_tiled
+
+    rng = np.random.default_rng(1)
+    rows, cols = 900, 120
+    y, x = np.mgrid[0:rows, 0:cols].astype(np.float64)
+    z = (250.0 + 0.02 * y + 8.0 * np.sin(y / 60.0) + rng.normal(0, 0.15, (rows, cols))).astype(np.float32)
+    valid = np.ones(z.shape, bool)
+    valid[400:420, 10:30] = False
+    urban = (y > 300) & (y < 500) & (x < 60)
+    green = (y > 600) & (x > 60)
+    protect = (np.abs(y - 700) < 3)
+    params = adaptive_params(sf)
+    kw = dict(cell_m=1.0, interval_m=interval, scale=scale, params=params,
+              urban=urban, green=green, protect=protect)
+    out_all, w_all = adaptive_contour_array(z, valid, **kw)
+    out_t, w_t = adaptive_contour_tiled(z, valid, tile_pixels=60 * cols, **kw)
+    assert np.allclose(out_t, out_all, atol=1e-4)
+    assert np.allclose(w_t, w_all, atol=1e-5)
