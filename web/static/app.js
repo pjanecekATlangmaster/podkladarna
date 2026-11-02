@@ -2278,7 +2278,6 @@ const SETTINGS_CHIPS = [
   { id: "dtm", label: "DTM" },
   { id: "kp_osm_objects", label: "Objekty OSM", bool: true },
   { id: "output_georef", label: "GeoTIFF", bool: true },
-  { id: "output_references", label: "PNG šablony", bool: true },
   {
     id: "sprint_residual_paved",
     label: "Zpevněné mezery",
@@ -2367,7 +2366,17 @@ function selectedEstimateMinutes() {
   return mins;
 }
 
+/** Orientační prodloužení jobu referenčními PNG pro zvolený výřez (rozdíl serverových odhadů). */
+function refreshReferencesEstimate() {
+  const el = document.getElementById("references-estimate");
+  if (!el) return;
+  const base = lastSheets && lastSheets.estimate_base_minutes;
+  const extra = base && base.refs != null && base.plain != null ? Math.ceil(base.refs - base.plain) : null;
+  el.textContent = extra != null && extra > 0 ? ` (u zvoleného výřezu odhadem o ~${extra} min)` : "";
+}
+
 function updateSubmitButtonLabel() {
+  refreshReferencesEstimate();
   refreshBboxBadge();
   refreshSubmitChecklist();
   refreshSettingsSummary();
