@@ -1199,6 +1199,16 @@ def _prepare_oom_map(
     )
     if aoi_part:
         object_parts.append(aoi_part)
+    # Zjednodušení tvaru jako Ctrl+M v Mapperu (0,1 mm mapy), až nad hotovými objekty.
+    from app.pipeline.oom_simplify import SIMPLIFY_TOLERANCE_MM, simplify_object_parts
+
+    simp_stats: dict = {}
+    object_parts = simplify_object_parts(object_parts, stats=simp_stats)
+    if log and simp_stats:
+        log(
+            f"OOM: zjednodušení tvaru ({SIMPLIFY_TOLERANCE_MM:g} mm): "
+            f"{simp_stats['before']} → {simp_stats['after']} souřadnic"
+        )
     # Kódy generátoru, které katalogová sada nezná (u starých sad vždy prázdné).
     unmapped_msg = unmapped_codes_message(drain_unmapped_codes())
     if unmapped_msg and log:
