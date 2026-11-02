@@ -50,7 +50,7 @@ ORTHO_MPP = 0.25
 # Nativní rozlišení ČÚZK ortofota je ~0,125 m/px (při 0,25 je znatelně měkčí).
 # Nejjemnější krok, při kterém celkový počet pixelů nepřekročí strop; jinak hrubší.
 ORTHO_MPP_CANDIDATES = (0.125, 0.2, ORTHO_MPP)
-# Strop pokryje největší výřez (36 km², MAX_BBOX_AREA_KM2) v nativních 0,125 m. Počítá se z obálky
+# Strop pokryje výřez až 36 km² (dřívější MAX_BBOX_AREA_KM2, dnes 25 km²) v nativních 0,125 m. Počítá se z obálky
 # v S-JTSK – pootočený Křovák z 36 km² dělá obálku až ~48 km² (3,1 Gpx, JPEG ~1–1,5 GB v dlaždicích
 # ≤ 8000 px). Jemněji ČÚZK nedává; dřív 600 Mpx = 0,25 m už nad ~15 km² (mapař ČSOS: na les
 # nepoužitelné), Petr 2026-10-29: velikost nevadí.

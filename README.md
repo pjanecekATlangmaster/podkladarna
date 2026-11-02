@@ -30,7 +30,7 @@ Kompletní návod: **[DEPLOY.md](./DEPLOY.md)**
 
 ## Vstup
 
-Výřez na mapě (Česko, max cca 25 km², např. 5 × 5 nebo 7 × 3,5 km). LiDAR i ZABAGED se stahují do sdílené cache (`data/cache/`), ne do jednotlivých jobů.
+Výřez na mapě (Česko; les a MTBO max 25 km², např. 5 × 5 nebo 7 × 3,5 km; sprint 1:4000 max 9 km², např. 3 × 3 km). LiDAR i ZABAGED se stahují do sdílené cache (`data/cache/`), ne do jednotlivých jobů.
 
 ## Presety
 

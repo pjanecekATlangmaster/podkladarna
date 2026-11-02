@@ -293,11 +293,11 @@ def api_sheets(bbox: str):
             "too_large_reason": "size",
             "estimate_minutes": None,
             "estimate_minutes_with_refs": None,
-            "label": f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.0f} km²)",
+            "label": f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.1f} km²)",
             "hint": (
-                f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.0f} km²) je moc velký "
-                f"(max {MAX_BBOX_AREA_KM2:.0f} km², např. {MAX_BBOX_KM:.0f}×{MAX_BBOX_KM:.0f} "
-                f"nebo 7×3,5 km). Zmenšete ho."
+                f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.1f} km²) je moc velký "
+                f"(max {MAX_BBOX_AREA_KM2:.0f} km², např. {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} "
+                f"nebo 7 × 3,5 km; sprint 1:4000 max {sprint_max_area_km2():.0f} km²). Zmenšete ho."
             ),
         }
     try:
@@ -727,7 +727,7 @@ async def api_create_job(request: Request):
         raise HTTPException(
             400,
             f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
-            f"{area:.0f} km²; max {MAX_BBOX_AREA_KM2:.0f} km²).",
+            f"{area:.1f} km²; max {MAX_BBOX_AREA_KM2:.0f} km²).",
         )
     # Sprint (1:4000) jen pro menší území – kontrola na serveru, GUI jde obejít.
     is_sprint = int(resolved["map_scale"]) <= 5000 or str(preset_id).startswith("sprint")

@@ -917,7 +917,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     showFormError(
       (lastSheets && lastSheets.hint) ||
         (lastSheets && isSprintSelected() && lastSheets.sprint_hint) ||
-        "Výřez je moc velký nebo ještě není ověřený. Max cca 25 km² (např. 5 × 5 km)."
+        `Výřez je moc velký nebo ještě není ověřený. Les a MTBO max ${bboxMaxAreaKm2} km² (např. 5 × 5 km), sprint 1:4000 max ${sprintMaxAreaKm2} km² (např. 3 × 3 km).`
     );
     return;
   }
@@ -1616,7 +1616,7 @@ async function lookupSheets() {
       styleBboxRect(true);
       setSheetInfo(
         data.hint ||
-          `Výřez je moc velký (max ${data.max_area_km2 || 25} km², např. 5×5 km). Zmenšete ho.`,
+          `Výřez je moc velký (max ${data.max_area_km2 || 25} km², např. 5 × 5 km; sprint 1:4000 max ${data.sprint_max_area_km2 || 9} km²). Zmenšete ho.`,
         "warn"
       );
       updateSubmitButtonLabel();

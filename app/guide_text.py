@@ -85,8 +85,15 @@ WEB_ABOUT_HTML = """
   </p>
 </details>
 <h2>Jak na to</h2>
+<p class="about-note">
+  <strong>Prosba na začátek:</strong> Podkladárna běží na jednom sdíleném serveru, takže každý
+  velký job na chvíli zdrží všechny ostatní. Generujte prosím jen to, co opravdu využijete,
+  ať už na zkoušku, nebo pro práci na mapě. Na první pokus stačí menší výřez a jedno měřítko;
+  celé území a další varianty má smysl pustit, až když výsledek sedí. Děkujeme.
+</p>
 <p>
-  Nakreslete obdélník (max cca 25&nbsp;km², např. 5&nbsp;×&nbsp;5&nbsp;km; sprint max 9&nbsp;km², např. 3&nbsp;×&nbsp;3&nbsp;km), vyberte
+  Nakreslete obdélník (les a MTBO max 25&nbsp;km², např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km;
+  sprint 1:4000 max 9&nbsp;km², např. 3&nbsp;×&nbsp;3&nbsp;km), vyberte
   <strong>měřítko</strong> (podle něj se zvolí sprint, nebo les a MTBO), případně zvolte další
   parametry a spusťte generování. Na tlačítku je hrubý odhad potřebného času.
   Stránku mezitím můžete zavřít.
