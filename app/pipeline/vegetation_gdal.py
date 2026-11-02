@@ -34,6 +34,9 @@ VEG_MAX_AREA_M2 = 40_000.0
 # hranice (veg_smooth.smooth_area, stupně SMOOTH_LEVELS). vegetation.shp nese
 # přesný obrys z rastru, stupeň 0 jsou kostičky 1:1.
 VEG_AS_CURVES = True
+# Les a MTBO: obrys porostu se před převodem na XML zjednoduší jako Ctrl+M v Mapperu (0,1 mm mapy,
+# oom_simplify). Záložní vypínač; sprint beze změny.
+VEG_SIMPLIFY = True
 # Sprint beze změny (do 2.46): DP 1,5 m pro všechny porosty, zaoblení
 # (veg_smooth.smooth_area_legacy) jen louky (401) a hustý porost (410).
 VEG_SMOOTH_CODES = frozenset({"401", "410"})
@@ -149,6 +152,22 @@ def _shaped_parts(wkb: bytes, code: str, smooth_level: int, barriers, sprint: bo
 _SHAPED_MEMO: dict[tuple, dict[int, tuple[list, bool]]] = {}
 
 
+def _simplified_geom_parts(geom_parts: list, scale: int) -> list:
+    """Zjednoduší každý prstenec i díru (tolerance v metrech v terénu podle měřítka)."""
+    from app.pipeline.oom_simplify import SIMPLIFY_TOLERANCE_MM, simplify_ring
+
+    tol = SIMPLIFY_TOLERANCE_MM * scale / 1000.0
+    out: list = []
+    for part in geom_parts:
+        if part[0] == "line":
+            out.append(("line", simplify_ring(part[1], tol, closed=True), *part[2:]))
+        elif part[0] == "hole":
+            out.append(("hole", simplify_ring(part[1], tol, closed=True), *part[2:]))
+        else:
+            out.append(part)
+    return out
+
+
 def _file_stamp(path: Path) -> tuple:
     try:
         st = path.stat()
@@ -221,6 +240,9 @@ def build_vegetation_parts(
                 barriers = load_smooth_barriers(work_dir)
             hit = shaped_rows[row] = _shaped_parts(wkb, code, smooth_level, barriers, sprint)
         geom_parts, curves = hit
+        if VEG_SIMPLIFY and curves and not sprint:
+            # Až po memo (les a MTBO mají jiné měřítko, memo drží neupravený tvar).
+            geom_parts = _simplified_geom_parts(geom_parts, scale)
         grouped[code].extend(
             _geom_parts_to_objects(
                 geom_parts,
