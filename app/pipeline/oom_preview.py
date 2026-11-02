@@ -63,6 +63,9 @@ GEOTIFF_BLOCK_SIZE = 512
 GEOTIFF_OVERVIEW_LEVELS = (2, 4, 8, 16)
 # Web náhled: Mapper @ nižší DPI (nebo downscale z georef) → JPEG.
 WEB_MAPPER_DPI = 150
+# Web Mapper DPI jen tak vysoké, aby ořez AOI měl ~2,5× pixelů výstupu (≤1600; les zůstane na 150 DPI):
+# sprint dřív kreslil ~6 100 px na 1 600 (Mapper 15 s, BILINEAR ořez vynechával čáry).
+WEB_MAPPER_OVERSAMPLE = 2.5
 WEB_PREVIEW_MAX_SIDE = 1600
 WEB_JPEG_QUALITY = 82
 # Pillow MAX_IMAGE_PIXELS bývá ~89M–179M. Nad tím Image.open → bomb.
@@ -217,10 +220,59 @@ def assert_png_within_web_pixel_limit(
     return width, height
 
 
+# Jeden náhled jobu sahá na tentýž .omap několikrát (odhad DPI, rozsah Mapper PNG,
+# ořez AOI); parsování + _collect_ops stojí 3–5 s. Cache platí jen uvnitř _omap_cache().
+_OMAP_CACHE: dict | None = None
+
+
+@contextmanager
+def _omap_cache():
+    """Uvnitř bloku se .omap parsuje jednou (klíč cesta + mtime + velikost); pak se cache zahodí."""
+    global _OMAP_CACHE
+    outer = _OMAP_CACHE
+    if outer is None:
+        _OMAP_CACHE = {}
+    try:
+        yield
+    finally:
+        if outer is None:
+            _OMAP_CACHE = None
+
+
+def _omap_key(omap: Path) -> tuple:
+    st = Path(omap).stat()
+    return (str(Path(omap).resolve()), st.st_mtime_ns, st.st_size)
+
+
+def _omap_root(omap: Path) -> ET.Element:
+    """Kořen XML .omap (z cache, je-li aktivní). Volající strom nemění."""
+    if _OMAP_CACHE is None:
+        return ET.fromstring(_read_omap_bytes(Path(omap)))
+    key = ("root",) + _omap_key(omap)
+    root = _OMAP_CACHE.get(key)
+    if root is None:
+        root = ET.fromstring(_read_omap_bytes(Path(omap)))
+        _OMAP_CACHE.clear()  # drží se jen jeden .omap (paměť)
+        _OMAP_CACHE[key] = root
+    return root
+
+
+def _omap_ops(omap: Path, root: ET.Element, grivation_deg: float) -> list[_DrawOp]:
+    """``_collect_ops`` pro .omap (z cache, je-li aktivní). Volající seznam nemění."""
+    if _OMAP_CACHE is None:
+        return _collect_ops(root, grivation_deg=grivation_deg)
+    key = ("ops", float(grivation_deg)) + _omap_key(omap)
+    ops = _OMAP_CACHE.get(key)
+    if ops is None:
+        ops = _collect_ops(root, grivation_deg=grivation_deg)
+        _OMAP_CACHE[key] = ops
+    return ops
+
+
 def estimate_omap_fullmap_paper_inches(omap: Path) -> tuple[float, float]:
     """Odhad papíru Mapper ``--full-map`` z bbox objektů (map. j. = 1/1000 mm)."""
-    root = ET.fromstring(_read_omap_bytes(Path(omap)))
-    ops = _collect_ops(root, grivation_deg=0.0)
+    root = _omap_root(Path(omap))
+    ops = _omap_ops(Path(omap), root, 0.0)
     if not ops:
         return (1.0, 1.0)
     minx, miny, maxx, maxy = _ops_bbox(ops)
@@ -255,6 +307,21 @@ def capped_web_mapper_dpi(
         return max(1, dpi)
     capped = int(math.floor(math.sqrt(limit / area)))
     return max(1, min(dpi, capped))
+
+
+def web_preview_desired_dpi(
+    omap: Path,
+    *,
+    max_dpi: int | None = None,
+    max_side: int = WEB_PREVIEW_MAX_SIDE,
+    oversample: float = WEB_MAPPER_OVERSAMPLE,
+) -> int:
+    """DPI web Mapper exportu: ořez (≈ bbox objektů) ~``oversample`` × ``max_side`` px, nejvýš ``max_dpi``."""
+    cap = int(max_dpi) if max_dpi is not None and int(max_dpi) > 0 else web_mapper_dpi()
+    width_in, height_in = estimate_omap_fullmap_paper_inches(omap)
+    content_in = max(width_in, height_in) / _WEB_MAPPER_PAPER_MARGIN
+    needed = int(math.ceil(float(oversample) * max(1, int(max_side)) / max(content_in, 1e-6)))
+    return max(1, min(cap, needed))
 
 
 def write_web_preview_jpeg(
@@ -638,9 +705,9 @@ def extent_for_mapper_png(
     Bere bbox objektů v nativních mapových souřadnicích (s grivací) a
     roztáhne ho na skutečné rozměry PNG (čtvercové pixely).
     """
-    root = ET.fromstring(_read_omap_bytes(Path(omap)))
+    root = _omap_root(Path(omap))
     georef = parse_omap_georef(root)
-    ops = _collect_ops(root, grivation_deg=0.0)
+    ops = _omap_ops(Path(omap), root, 0.0)
     if not ops:
         raise ValueError(f"{Path(omap).name}: .omap nemá objekty pro georef extent")
     minx, miny, maxx, maxy = _ops_bbox(ops)
@@ -684,10 +751,10 @@ def prepare_mapper_web_preview(
     mapper_png = Path(mapper_png)
     dest_png = Path(dest_png)
     src_extent, georef = extent_for_mapper_png(omap, mapper_png)
-    root = ET.fromstring(_read_omap_bytes(omap))
+    root = _omap_root(omap)
     g = float(georef.grivation_deg)
     g_undo = g  # aoi_frame_bbox / _collect_ops: odrotovat
-    ops = _collect_ops(root, grivation_deg=g_undo)
+    ops = _omap_ops(omap, root, g_undo)
     if not ops:
         raise ValueError(f"{omap.name}: .omap nemá objekty pro webový ořez")
     minx, miny, maxx, maxy, padx, pady = preview_crop_box(
@@ -2027,6 +2094,18 @@ def write_job_oom_preview(
     options: dict | None,
     log=None,
 ) -> Path | None:
+    """Webový náhled (± georef) z hotových ``.omap``; každý .omap se parsuje jednou (viz ``_omap_cache``)."""
+    with _omap_cache():
+        return _write_job_oom_preview(omap_paths, work_dir, output_dir, options, log=log)
+
+
+def _write_job_oom_preview(
+    omap_paths: list[Path],
+    work_dir: Path,
+    output_dir: Path,
+    options: dict | None,
+    log=None,
+) -> Path | None:
     """Po zápisu ``.omap`` uloží webový JPEG náhled (± volitelně georef).
 
     Web (náhled jobu / klik): preferuje **Mapper CLI** (reuse georef PNG @ GEOREF_MAPPER_DPI
@@ -2209,13 +2288,13 @@ def write_job_oom_preview(
         if src_png is None and use_mapper:
             dpi = capped_web_mapper_dpi(
                 preferred,
-                desired_dpi=web_dpi,
+                desired_dpi=web_preview_desired_dpi(preferred, max_dpi=web_dpi),
                 max_pixels=web_px_limit,
             )
             if log and dpi < web_dpi:
                 log(
-                    f"OOM náhled (web): DPI capped {web_dpi} → {dpi} "
-                    f"(max {web_px_limit} px)"
+                    f"OOM náhled (web): DPI {web_dpi} → {dpi} "
+                    f"(~{WEB_MAPPER_OVERSAMPLE:g}× výstupu, max {web_px_limit} px)"
                 )
             render_omap_to_png(
                 preferred,
