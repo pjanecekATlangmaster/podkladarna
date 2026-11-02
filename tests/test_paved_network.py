@@ -167,6 +167,31 @@ def test_street_side_parking_merged_with_road(tmp_path, preset):
     assert op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "sprint_4000", 4000) == feats
 
 
+@pytest.mark.parametrize(
+    "strips, roads, n_out",
+    [
+        # Černokostelecká (Říčany, Petr 2026-11-02): stání po kusech s mezerou 10 m – ulice jedna plocha, ne přerušená
+        ([(0, 40), (50, 90)], [[(-20, 0), (130, 0)]], 1),
+        # mezera přes hranici dvou OSM ways téže ulice
+        ([(0, 40), (50, 90)], [[(-20, 0), (45, 0)], [(45, 0), (130, 0)]], 1),
+        # stání na protější straně ulice
+        ([(0, 40), (50, 90, -4.5, -2)], [[(-20, 0), (130, 0)]], 1),
+        # dlouhá mezera (40 m) – mezi plochami kreslí čára silnice
+        ([(0, 40), (80, 120)], [[(-20, 0), (140, 0)]], 2),
+    ],
+)
+def test_street_parking_gap_bridged(tmp_path, strips, roads, n_out):
+    from shapely.geometry import shape
+
+    feats = [_area(s[0], s[2] if len(s) > 2 else 2, s[1], s[3] if len(s) > 2 else 4.5, "parking") for s in strips]
+    _write_job(tmp_path, feats, [_road(r, "road_3") for r in roads])
+    out = op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "forest_10000", 10000)
+    assert len(out) == n_out
+    if n_out == 1:
+        g = shape(out[0]["geometry"])
+        assert g.geom_type == "Polygon" and g.bounds[0] == pytest.approx(0, abs=0.01) and g.bounds[2] == pytest.approx(90, abs=0.01)
+
+
 def test_street_side_parking_road_not_drawn_over(tmp_path):
     # Silnice v místě stání se nekreslí (je plochou 501.1 s okrajem 501.2), mimo něj ano.
     _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
