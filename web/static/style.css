@@ -574,6 +574,18 @@ legend {
   margin-top: 0.2rem;
 }
 
+/* Volby vedle sebe v jednom řádku, na úzkém displeji se zalomí. */
+.checkbox-inline {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1.5rem;
+  row-gap: 0;
+}
+
+.checkbox-inline .checkbox-row {
+  margin: 0.4rem 0 0.25rem;
+}
+
 .private-email-wrap {
   margin: 0.35rem 0 1rem 1.5rem;
 }
