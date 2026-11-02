@@ -20,6 +20,7 @@ _lock = threading.Lock()
 _sources: dict[str, dict[str, int]] = {}
 _seen: set[str] = set()
 _maps: dict[str, dict[str, Any]] = {}
+_background: dict[str, dict[str, Any]] = {}
 _info: dict[str, Any] = {}
 _progress = None
 _started_at: float | None = None
@@ -32,6 +33,7 @@ def reset() -> None:
         _sources.clear()
         _seen.clear()
         _maps.clear()
+        _background.clear()
         _info.clear()
         _progress = None
         _started_at = time.time()
@@ -94,6 +96,18 @@ def note_map(name: str, seconds: float, *, parallel: bool = False) -> None:
         _maps[str(name)] = {"name": str(name), "seconds": round(float(seconds), 1), "parallel": bool(parallel)}
 
 
+def note_background(name: str, **fields) -> None:
+    """Úloha na pozadí (DTM): ``seconds`` trvání, ``wait_seconds`` čekání hlavního běhu, další údaje."""
+    with _lock:
+        entry = _background.setdefault(str(name), {"name": str(name)})
+        for key, value in fields.items():
+            if value is None:
+                continue
+            if key in ("seconds", "wait_seconds"):
+                value = round(float(value), 1)
+            entry[key] = value
+
+
 def _output_zip_bytes(job_dir: Path) -> int | None:
     from app.pipeline.package_oom import OUTPUT_ZIP_NAME
 
@@ -108,6 +122,7 @@ def snapshot(job_dir: Path | None = None, *, status: str | None = None) -> dict[
     with _lock:
         sources = {k: dict(v) for k, v in _sources.items()}
         maps = list(_maps.values())
+        background = [dict(v) for v in _background.values()]
         info = dict(_info)
     progress = _progress
     steps: list[dict[str, Any]] = []
@@ -122,6 +137,7 @@ def snapshot(job_dir: Path | None = None, *, status: str | None = None) -> dict[
         "total_seconds": total_s,
         "steps": steps,
         "maps": maps,
+        "background": background,
         "sources": sources,
         "downloaded_bytes": sum(v["downloaded_bytes"] for v in sources.values()),
         "cached_bytes": sum(v["cached_bytes"] for v in sources.values()),

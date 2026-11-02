@@ -1181,6 +1181,34 @@ const BUILD_SOURCE_LABELS = {
 
 const BUILD_MAP_LABELS = { les: "les", mtbo: "MTBO", sprint: "sprint" };
 
+/** Kraje podle NUTS kódu (balíky DTM ČÚZK). */
+const NUTS_KRAJ = {
+  CZ010: "Praha", CZ020: "Středočeský kraj", CZ031: "Jihočeský kraj", CZ032: "Plzeňský kraj",
+  CZ041: "Karlovarský kraj", CZ042: "Ústecký kraj", CZ051: "Liberecký kraj", CZ052: "Královéhradecký kraj",
+  CZ053: "Pardubický kraj", CZ063: "Kraj Vysočina", CZ064: "Jihomoravský kraj", CZ071: "Olomoucký kraj",
+  CZ072: "Zlínský kraj", CZ080: "Moravskoslezský kraj",
+};
+
+/** Řádek o přípravě DTM na pozadí (nemá vlastní krok v plánu). */
+function dtmBackgroundText(bg) {
+  if (!bg) return "";
+  if (bg.failed) return "Příprava DTM na pozadí selhala, mapa se kreslila bez DTM.";
+  if (!bg.packages) return "DTM pro toto území není k dispozici, mapa se kreslila z OSM a ZABAGED.";
+  const where = (bg.regions || []).map((k) => NUTS_KRAJ[k] || k).join(", ");
+  const d = String(bg.date || "");
+  const date = /^\d{8}$/.test(d) ? `${Number(d.slice(6))}. ${Number(d.slice(4, 6))}. ${d.slice(0, 4)}` : "";
+  const src = [where, date ? `export k ${date}` : "", `${bg.packages} balíků obcí`].filter(Boolean).join(", ");
+  let text = `Digitální technická mapa ČÚZK (${src}): příprava na pozadí ${formatDuration(bg.seconds) || "0 s"}`;
+  if (bg.wait_seconds != null) {
+    text += bg.wait_seconds >= 1
+      ? `, sestavení mapy na ni čekalo ${formatDuration(bg.wait_seconds)}.`
+      : ", byla hotová dřív, než ji sestavení mapy potřebovalo.";
+  } else {
+    text += ".";
+  }
+  return text;
+}
+
 function formatBytes(n) {
   const v = Number(n) || 0;
   const fmt = (x, d) => x.toLocaleString("cs-CZ", { maximumFractionDigits: d, minimumFractionDigits: d });
@@ -1275,6 +1303,9 @@ function renderJobStats(job) {
         .join(", ")}.</p>`
     : "";
 
+  const dtmBg = (stats.background || []).find((b) => b && b.name === "dtm");
+  const dtmNote = stats.dtm ? dtmBackgroundText(dtmBg) : "";
+
   const order = Object.keys(BUILD_SOURCE_LABELS);
   srcKeys.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
   const rows = srcKeys
@@ -1306,6 +1337,7 @@ function renderJobStats(job) {
         `<p class="stats-note">Část stahování a příprav běží souběžně na pozadí; čas se počítá u kroku, který na ně čekal.</p>`
       : "") +
     skippedNote +
+    (dtmNote ? `<h4>Souběžně na pozadí</h4><p class="stats-bg">${escapeHtml(dtmNote)}</p>` : "") +
     table;
 }
 

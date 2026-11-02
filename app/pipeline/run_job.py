@@ -563,8 +563,16 @@ def run_job_pipeline(
                     map_types=resolve_map_types(options),
                 )
             )
-            build_stats.set_info(dtm=bool(dtm_used))
-            if options.get("dtm_fences", True) and dtm_used:
+            dtm_on = bool(options.get("dtm_fences", True) and dtm_used)
+            build_stats.set_info(dtm=dtm_on)
+            # DTM nemá vlastní krok v plánu (běží souběžně na pozadí), proto ho log zmíní hned pod plánem.
+            raw_log(
+                "Kresba z DTM: ano – data DTM (ploty, budovy, chodníky, silnice) se připravují na pozadí, "
+                "do mapy jdou při sestavení."
+                if dtm_on
+                else "Kresba z DTM: ne – mapa se kreslí z OSM a ZABAGED."
+            )
+            if dtm_on:
                 dtm_prefetch = start_dtm_prefetch(
                     work_dir,
                     tuple(bbox),
@@ -1129,9 +1137,11 @@ def _package_output(
                 )
 
             if dtm_prefetch is not None:
+                t_dtm_wait = time.monotonic()
                 if not dtm_prefetch.future.done():
                     log("Čekám na přípravu DTM (ploty) z pozadí…")
                 dtm_prefetch.result()  # chyby řeší vlákno samo (job pokračuje bez DTM)
+                build_stats.note_background("dtm", wait_seconds=time.monotonic() - t_dtm_wait)
             if vector_prefetch is not None:
                 vector_prefetch.streets(log)  # sprint: parcely ulic už v cache jobu
             log_step(

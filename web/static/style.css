@@ -1291,6 +1291,7 @@ select:focus-visible {
 .stats-table thead th { color: var(--muted); font-weight: 600; }
 .stats-table tbody th { font-weight: 400; }
 .stats-table tfoot td { font-weight: 700; border-bottom: 0; }
+.stats-bg { margin: 0; }
 .stats-note { color: var(--muted); font-size: 0.82rem; margin: 0.35rem 0 0; }
 
 .tech-log { margin: 0.75rem 0; }
