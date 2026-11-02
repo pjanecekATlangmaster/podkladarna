@@ -86,7 +86,7 @@ WEB_ABOUT_HTML = """
 </details>
 <h2>Jak na to</h2>
 <p>
-  Nakreslete obdélník (max cca 25&nbsp;km², např. 5&nbsp;×&nbsp;5&nbsp;km), vyberte
+  Nakreslete obdélník (max cca 25&nbsp;km², např. 5&nbsp;×&nbsp;5&nbsp;km; sprint max 9&nbsp;km², např. 3&nbsp;×&nbsp;3&nbsp;km), vyberte
   <strong>měřítko</strong> (podle něj se zvolí sprint, nebo les a MTBO), případně zvolte další
   parametry a spusťte generování. Na tlačítku je hrubý odhad potřebného času.
   Stránku mezitím můžete zavřít.

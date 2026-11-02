@@ -168,6 +168,11 @@ def test_api_sheets(client, monkeypatch):
     assert body["estimate_note"]
     assert "PRAH77" in body["label"]
     assert body["too_large"] is False
+    # Sprint má strop 9 km²; malý výřez hlášku nemá, ~16 km² ano (les ho dál smí).
+    assert body["sprint_max_area_km2"] == 9
+    assert body["sprint_hint"] is None
+    big = client.get("/api/sheets", params={"bbox": "14.40,50.08,14.456,50.116"}).json()
+    assert big["too_large"] is False and "max 9 km²" in big["sprint_hint"]
     assert body["max_km"] == 5.0
     assert body["max_area_km2"] == 25.0
     assert body["max_sheets"] == 20

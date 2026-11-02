@@ -851,3 +851,29 @@ def test_copy_reusable_lidar_pair_skips_kp_merged(data_dir):
     assert names == ["ground_merged.laz", "veg_merged.laz"]
     dest_lidar = db.JOBS_DIR / dest["id"] / "work" / "lidar"
     assert (dest_lidar / "ground_merged.laz").read_bytes() == b"x" * 2000
+
+
+@pytest.mark.parametrize(
+    "scale, contour, bbox, ok",
+    [
+        ("4000", "2.5", "14.40,50.08,14.43,50.10", True),  # sprint ~4,8 km² pod limitem
+        ("4000", "2.5", "14.40,50.08,14.456,50.116", False),  # sprint ~16 km² nad limitem 9 km²
+        ("10000", "5", "14.40,50.08,14.456,50.116", True),  # les ~16 km²: limit beze změny
+    ],
+)
+def test_create_job_sprint_area_limit(client, monkeypatch, scale, contour, bbox, ok):
+    """Sprint (1:4000) jen do SPRINT_MAX_BBOX_AREA_KM2; les a MTBO dál do MAX_BBOX_AREA_KM2."""
+    from app import main
+
+    monkeypatch.setattr(main, "query_sm5_sheets", lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}])
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    data = {"name": f"limit-{scale}-{bbox}", "map_scale": scale, "contour_interval": contour, "bbox": bbox}
+    r = client.post("/api/jobs", data=data)
+    if ok:
+        assert r.status_code == 200, r.text
+    else:
+        assert r.status_code == 400
+        detail = r.json()["detail"]
+        assert "Sprint" in detail and "max 9 km²" in detail and "3 × 3 km" in detail
