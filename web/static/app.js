@@ -2407,14 +2407,39 @@ function refreshReferencesEstimate() {
   el.textContent = extra != null && extra > 0 ? ` (u zvoleného výřezu odhadem o ~${extra} min)` : "";
 }
 
+/** Varování, když odhad doby běhu dosáhne limitu jobu nebo se k němu blíží. */
+function refreshEstimateWarning(mins) {
+  const el = document.getElementById("estimate-warning");
+  if (!el) return;
+  const limit = (lastSheets && lastSheets.job_timeout_minutes) || 90;
+  const warn = (lastSheets && lastSheets.estimate_warn_minutes) || 75;
+  if (!bboxAllowed || mins == null || mins < warn) {
+    el.hidden = true;
+    if (el.textContent) el.textContent = "";
+    return;
+  }
+  const head =
+    mins < limit
+      ? `Odhad ~${mins} min se blíží limitu ${limit} min.`
+      : `Odhad ~${mins} min přesahuje limit ${limit} min.`;
+  const text =
+    `${head} Job nemusí včas doběhnout a po ${limit} minutách se ukončí nedokončený. ` +
+    "Skutečná doba záleží na rychlosti stahování dat (LiDAR, DTM, ortofoto) a na tom, " +
+    "co už je v cache z minulých běhů ve stejném místě. Zvažte menší výřez nebo méně výstupů.";
+  // role="status" by čtečce hlásil totéž při každém přepočtu formuláře.
+  if (el.textContent !== text) el.textContent = text;
+  el.hidden = false;
+}
+
 function updateSubmitButtonLabel() {
   refreshReferencesEstimate();
   refreshBboxBadge();
   refreshSubmitChecklist();
   refreshSettingsSummary();
+  const mins = selectedEstimateMinutes();
+  refreshEstimateWarning(mins);
   const btn = document.getElementById("submit-btn");
   if (!btn || jobSubmitInFlight || generateStartedJobId) return;
-  const mins = selectedEstimateMinutes();
   if (mins != null && bboxAllowed) {
     btn.textContent = `Spustit generování (~${mins} min)`;
   } else {

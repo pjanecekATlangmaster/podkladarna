@@ -145,6 +145,7 @@ def test_query_sm5_sheets_parses_arcgis(monkeypatch):
 
 def test_api_sheets(client, monkeypatch):
     import app.main as main
+    from app import settings
 
     monkeypatch.setattr(
         main,
@@ -165,6 +166,8 @@ def test_api_sheets(client, monkeypatch):
     assert body["estimate_map_minutes"]["10000"]["nodtm"] == pytest.approx(2.27, abs=0.01)
     assert body["estimate_georef_minutes"]["10000"] == 2
     assert body["estimate_georef_minutes"]["4000"] == 1
+    assert body["job_timeout_minutes"] == settings.JOB_TIMEOUT_MINUTES
+    assert body["estimate_warn_minutes"] == settings.ESTIMATE_WARN_MINUTES == settings.JOB_TIMEOUT_MINUTES * 5 // 6
     assert body["estimate_note"]
     assert "PRAH77" in body["label"]
     assert body["too_large"] is False

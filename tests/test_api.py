@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.settings import APP_VERSION
@@ -603,6 +605,8 @@ def test_index_html(client):
     assert "Knolly z DMR" not in r.text
     assert 'id="knoll-hint"' not in r.text
     assert 'name="force_refresh"' in r.text
+    assert 'id="estimate-warning"' in r.text
+    assert "refreshEstimateWarning" in (Path(__file__).resolve().parent.parent / "web/static/app.js").read_text(encoding="utf-8")
     assert 'id="output-advanced"' in r.text
     assert "Znovu stáhnout a spočítat podklady" in r.text
     assert "Force refresh" not in r.text
