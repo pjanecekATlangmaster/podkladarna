@@ -140,6 +140,27 @@ def test_orient_fence_keeps_ties_hedges_and_respects_switch():
     assert df.orient_fences([("518", list(FENCE_EAST))], olive_south, ticks_on_left=True)[0][1] == list(reversed(FENCE_EAST))
 
 
+RING_CW = [(0.0, 0.0), (0.0, 30.0), (40.0, 30.0), (40.0, 0.0), (0.0, 0.0)]  # vnitřek vpravo
+RING_CCW = list(reversed(RING_CW))  # vnitřek vlevo
+# oliva jen VNĚ oplocení (ateliéry Barrandov): pravidlo „k olivě“ by čárky otočilo ven
+OLIVE_AROUND = {"olive": [[[(-20, -20), (60, -20), (60, 50), (-20, 50), (-20, -20)], RING_CW[::-1]]], "public": []}
+
+
+@pytest.mark.parametrize(
+    "coords, areas, ticks_on_left, expected",
+    [
+        (RING_CW, OLIVE_AROUND, False, RING_CW),  # čárky vpravo = uvnitř → beze změny
+        (RING_CCW, OLIVE_AROUND, False, RING_CW),  # otočit dovnitř navzdory olivě vně
+        (RING_CCW, {"olive": [], "public": []}, False, RING_CW),  # i bez ploch kolem
+        (RING_CW, {"olive": [], "public": []}, True, RING_CCW),  # přepínač strany čárek
+        (RING_CCW[:-1] + [(0.0, 3.0)], {"olive": [], "public": []}, False, [(0.0, 3.0)] + RING_CW[1:]),  # branka 3 m
+        ([(0.0, 0.0), (40.0, 0.0), (40.0, 30.0)], OLIVE_AROUND, False, [(0.0, 0.0), (40.0, 0.0), (40.0, 30.0)]),  # otevřený: k olivě
+    ],
+)
+def test_orient_closed_fence_ticks_inward(coords, areas, ticks_on_left, expected):
+    assert df.orient_fences([("518", list(coords))], areas, ticks_on_left=ticks_on_left)[0][1] == expected
+
+
 def test_load_orientation_areas_reads_opl_and_caches(tmp_path):
     import zipfile as zf_mod
 
