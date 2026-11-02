@@ -538,9 +538,15 @@ async function verifySavedJobs(publicJobs) {
 }
 
 // --- Lidská věta k chybě jobu ---
+/** Stav v detailu: přepiš jen při změně, ať aria-live neohlašuje každý polling. */
+function setDetailStatus(text) {
+  const el = document.getElementById("detail-status");
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
 function friendlyJobError(errorText, { short = false } = {}) {
   const text = String(errorText || "");
-  if (/ČÚZK|ATOM|timeout|Timeout|HTTP|Overpass/.test(text)) {
+  if (/ČÚZK|ATOM|[Tt]ime ?out|Overpass|HTTP (?:Error )?(?:429|5\d\d)|Connection(?:Error| reset| refused)/.test(text)) {
     return "Stahování dat ze serveru se nepovedlo (výpadek nebo pomalá odpověď). Zkuste to prosím za chvíli znovu.";
   }
   return short
@@ -897,8 +903,9 @@ async function loadJobs() {
         : " · privátní (ZIP přijde e-mailem)"
       : "";
     document.getElementById("detail-title").textContent = selected.name;
-    document.getElementById("detail-status").textContent =
-      `Stav: ${jobStatusLabel(selected.status)} · ${jobScaleLabel(selected)}` + privateNote;
+    setDetailStatus(
+      `Stav: ${jobStatusLabel(selected.status)} · ${jobScaleLabel(selected)}` + privateNote
+    );
     const timingEl = document.getElementById("detail-timing");
     if (timingEl) {
       timingEl.textContent = jobTimingText(selected);
@@ -1195,8 +1202,7 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
       : " · privátní (ZIP přijde e-mailem)"
     : "";
   document.getElementById("detail-title").textContent = job.name;
-  document.getElementById("detail-status").textContent =
-    `Stav: ${jobStatusLabel(job.status)} · ${jobScaleLabel(job)}` + privateNote;
+  setDetailStatus(`Stav: ${jobStatusLabel(job.status)} · ${jobScaleLabel(job)}` + privateNote);
   const timingEl = document.getElementById("detail-timing");
   if (timingEl) {
     timingEl.textContent = jobTimingText(job);
