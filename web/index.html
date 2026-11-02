@@ -148,6 +148,24 @@
           <button type="button" class="btn" id="bbox-clear">Vymazat výběr</button>
         </div>
 
+        <div class="form-section references-section">
+          <h3 class="form-section-title">Podklady k mapě</h3>
+          <label class="checkbox-row">
+            <input type="checkbox" name="output_references" id="output_references" value="1" checked aria-describedby="references-hint" />
+            Referenční PNG šablony (OSM, ZTM, katastr, hillshade, DMP)
+          </label>
+          <div class="hint" id="references-hint">
+            Doporučeno: rastrové podklady pro kontrolu a dokreslení mapy, v Mapperu se otevřou jako šablony.
+            Prodlouží generování<span id="references-estimate"></span> a zvětší ZIP.
+            <details class="hint-more"><summary>Více</summary>
+              Přibalí se OSM, ZTM (Základní mapa ČR), katastr, stínovaný reliéf (hillshade) a výšky povrchu DMP,
+              georeferencované jako mapa. Katastr a stínování se přibalí vždy. Ortofoto se do ZIPu nepřibaluje
+              (velikost), v Mapperu ho lze připojit jako WMS ČÚZK. Vypnout se vyplatí při opakovaném ladění
+              téhož výřezu, kdy podklady už máte.
+            </details>
+          </div>
+        </div>
+
         <details class="advanced-settings" id="advanced-settings">
           <summary>Upravit nastavení <span class="hint">– výchozí hodnoty jsou doporučené</span><span id="advanced-changed" class="advanced-changed"></span></summary>
           <p class="advanced-reset"><button type="button" class="link-btn" id="reset-options">Obnovit výchozí nastavení</button></p>
@@ -292,12 +310,6 @@
                 Raster mapy s PGW (± GeoTIFF) přes Mapper CLI @ 300 DPI (web náhled 150 DPI), jinak Pillow fallback.
               </details>
             </div>
-
-            <label class="checkbox-row">
-              <input type="checkbox" name="output_references" id="output_references" value="1" checked />
-              Referenční PNG šablony (OSM, ZTM, katastr, hillshade, DMP)
-            </label>
-            <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš generování a zmenšíš ZIP; katastr se přibalí vždy. Ortofoto se do ZIPu nepřibaluje (velikost), v OOM ho lze připojit jako WMS ČÚZK.</p>
 
             <details class="advanced-options" id="output-advanced">
               <summary>Pokročilé (mezipaměť podkladů)</summary>
