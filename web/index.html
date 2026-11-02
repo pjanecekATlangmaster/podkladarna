@@ -52,7 +52,7 @@
       <h2>Nový job</h2>
       <form id="job-form">
         <div class="form-section">
-          <h3 class="form-section-title">Základ</h3>
+          <h3 class="form-section-title">Mapa</h3>
           <label>
             Název
             <input type="text" name="name" required placeholder="např. Šance sprint" />
@@ -90,50 +90,6 @@
             </select>
           </label>
           <p class="hint" id="contour-hint">Nabídka závisí na měřítku.</p>
-
-          <label>
-            Pomocné vrstevnice (103)
-            <select name="contour_formlines" id="contour_formlines">
-              <option value="off" selected>Ne – výchozí</option>
-              <option value="sparse">Střídmě</option>
-              <option value="more">Víc</option>
-              <option value="all">Všude (vodítko jako OCAD)</option>
-            </select>
-          </label>
-          <p class="hint" id="formlines-hint">V polovině ekvidistance. „Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.</p>
-
-          <label>
-            Vyhlazení vrstevnic
-            <select name="contour_smooth" id="contour_smooth">
-              <option value="0" selected>0 – jako dosud (výchozí)</option>
-              <option value="1">1 – adaptivní: víc vyhladit rovinu a zástavbu</option>
-            </select>
-          </label>
-          <p class="hint" id="contour-smooth-hint">Adaptivní vyhladí vrstevnice tam, kde jsou na mapě daleko od sebe (rovina, šum DMR), a silněji v zástavbě (budovy, parkoviště a areály ze ZABAGED); v členitém terénu zůstanou bit po bitu jako dosud a přechod je plynulý i podél jedné vrstevnice. Ve sprintu zůstanou louky, parky a sady beze změny. Kupky a žlaby vyšší než ~0,5&nbsp;m (v zástavbě ~1,5&nbsp;m), náspy drah a valy se nemažou; výška se změní nejvýš o 0,3 ekvidistance. Zatím zkušebně.</p>
-
-          <label>
-            Tvar hranic porostů (401–410)
-            <select name="veg_smooth" id="veg_smooth">
-              <option value="0">0 – kostičky 1:1 z rastru (bez úprav)</option>
-              <option value="1" selected>1 – hladké bez posunu hranice – výchozí</option>
-              <option value="2">2 – + zjednodušit drobné výběžky a zátoky (do 6&nbsp;m)</option>
-              <option value="3">3 – + zjednodušit větší drobnosti (do 12&nbsp;m)</option>
-            </select>
-          </label>
-          <p class="hint" id="veg-smooth-hint">Stupeň 1 vyhladí schodky po pixelech (1&nbsp;m) a hranici nechá na místě: posun nejvýš 1,5&nbsp;m, v průměru 0,4&nbsp;m, plocha se nemění. Stupně 2 a 3 navíc zalijí úzké zátoky a ustřihnou úzké výběžky (obrysy korun jednotlivých stromů). Plocha se nepřeleje přes cesty, budovy ani vodu z OSM. Sprint kreslí porosty beze změny.</p>
-        </div>
-
-        <div class="form-section">
-          <h3 class="form-section-title">Zdroj kresby</h3>
-          <label>
-            DTM
-            <select name="dtm" id="dtm">
-              <option value="auto" selected>Podle presetu – sprint z DTM, les a MTBO z OSM + ZABAGED (výchozí)</option>
-              <option value="1">Kresba z DTM, kde je DTM k dispozici (sprint, les i MTBO)</option>
-              <option value="0">Jen OSM + ZABAGED (bez DTM)</option>
-            </select>
-          </label>
-          <p class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou. Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba „Podle presetu“ kreslí sprint z DTM, les a MTBO z OSM + ZABAGED.</p>
         </div>
 
         <div class="form-section" id="map-mode">
@@ -159,7 +115,30 @@
         </div>
 
         <div class="form-section">
-          <h3 class="form-section-title">Reliéf a vegetace</h3>
+          <h3 class="form-section-title">Vrstevnice</h3>
+          <label>
+            Pomocné vrstevnice (103)
+            <select name="contour_formlines" id="contour_formlines">
+              <option value="off" selected>Ne – výchozí</option>
+              <option value="sparse">Střídmě</option>
+              <option value="more">Víc</option>
+              <option value="all">Všude (vodítko jako OCAD)</option>
+            </select>
+          </label>
+          <p class="hint" id="formlines-hint">V polovině ekvidistance. „Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.</p>
+
+          <label>
+            Vyhlazení vrstevnic
+            <select name="contour_smooth" id="contour_smooth">
+              <option value="0" selected>0 – jako dosud (výchozí)</option>
+              <option value="1">1 – adaptivní: víc vyhladit rovinu a zástavbu</option>
+            </select>
+          </label>
+          <p class="hint" id="contour-smooth-hint">Adaptivní vyhladí vrstevnice tam, kde jsou na mapě daleko od sebe (rovina, šum DMR), a silněji v zástavbě (budovy, parkoviště a areály ze ZABAGED); v členitém terénu zůstanou bit po bitu jako dosud a přechod je plynulý i podél jedné vrstevnice. Ve sprintu zůstanou louky, parky a sady beze změny. Kupky a žlaby vyšší než ~0,5&nbsp;m (v zástavbě ~1,5&nbsp;m), náspy drah a valy se nemažou; výška se změní nejvýš o 0,3 ekvidistance. Zatím zkušebně.</p>
+        </div>
+
+        <div class="form-section">
+          <h3 class="form-section-title">Vegetace a reliéf</h3>
           <label>
             Výška vegetace (LiDAR)
             <select name="kp_vege_height" id="kp_vege_height">
@@ -170,6 +149,17 @@
             </select>
           </label>
           <p class="hint">LiDAR zeleň (<code>greenhigh</code>). Nižší hodnota = víc nízkého porostu jako vegetace.</p>
+
+          <label>
+            Tvar hranic porostů (401–410)
+            <select name="veg_smooth" id="veg_smooth">
+              <option value="0">0 – kostičky 1:1 z rastru (bez úprav)</option>
+              <option value="1" selected>1 – hladké bez posunu hranice – výchozí</option>
+              <option value="2">2 – + zjednodušit drobné výběžky a zátoky (do 6&nbsp;m)</option>
+              <option value="3">3 – + zjednodušit větší drobnosti (do 12&nbsp;m)</option>
+            </select>
+          </label>
+          <p class="hint" id="veg-smooth-hint">Stupeň 1 vyhladí schodky po pixelech (1&nbsp;m) a hranici nechá na místě: posun nejvýš 1,5&nbsp;m, v průměru 0,4&nbsp;m, plocha se nemění. Stupně 2 a 3 navíc zalijí úzké zátoky a ustřihnou úzké výběžky (obrysy korun jednotlivých stromů). Plocha se nepřeleje přes cesty, budovy ani vodu z OSM. Sprint kreslí porosty beze změny.</p>
 
           <label>
             Strmé změny reliéfu – symbol
@@ -195,7 +185,17 @@
         </div>
 
         <div class="form-section">
-          <h3 class="form-section-title">OSM detaily</h3>
+          <h3 class="form-section-title">Zdroje kresby</h3>
+          <label>
+            DTM
+            <select name="dtm" id="dtm">
+              <option value="auto" selected>Podle presetu – sprint z DTM, les a MTBO z OSM + ZABAGED (výchozí)</option>
+              <option value="1">Kresba z DTM, kde je DTM k dispozici (sprint, les i MTBO)</option>
+              <option value="0">Jen OSM + ZABAGED (bez DTM)</option>
+            </select>
+          </label>
+          <p class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou. Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba „Podle presetu“ kreslí sprint z DTM, les a MTBO z OSM + ZABAGED.</p>
+
           <label class="checkbox-row">
             <input type="checkbox" name="kp_osm_priority" id="kp_osm_priority" value="1" checked />
             OSM detaily – ploty, zdi, brány, pomníky…
