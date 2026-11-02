@@ -12,6 +12,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from app import settings
+from app.pipeline import build_stats
 from app.download_cache import (
     age_days,
     is_fresh,
@@ -466,6 +467,7 @@ def _cached_dmp_laz(
                 dmp_degraded=True,
                 mapnom=mapnom,
             )
+            build_stats.note_file("lidar_dmp", dmp1g, cached=True)
             return dmp1g
         if log:
             log(
@@ -500,7 +502,9 @@ def _cached_laz(
     folder = lidar_sheet_dir(mapnom)
     folder.mkdir(parents=True, exist_ok=True)
     laz = folder / f"{kind}.laz"
+    stats_source = "lidar_dmr" if kind.upper().startswith("DMR") else "lidar_dmp"
     if not force_refresh and _sheet_laz_current(folder, laz, kind, url, mapnom, log):
+        build_stats.note_file(stats_source, laz, cached=True)
         return laz
 
     zpath = folder / f"{kind}.zip"
@@ -508,6 +512,7 @@ def _cached_laz(
         log(f"Stahuji {kind} {mapnom} …")
     remote = _http_download(url, zpath)
     _extract_laz(zpath, laz)
+    build_stats.note_file(stats_source, laz, cached=False)
     # Rozbalený LAZ zůstává v cache, ZIP je jen jeho kopie (~350 MB u DMP OK).
     zpath.unlink(missing_ok=True)
     now = utcnow_iso()

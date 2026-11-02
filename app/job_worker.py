@@ -24,6 +24,7 @@ from app.mail import (
     build_private_ready_email,
     send_mail,
 )
+from app.pipeline import build_stats
 from app.pipeline.issue_explain import failure_summary, user_summary
 from app.pipeline.preview import resolve_preview_png
 from app.pipeline.run_job import run_job_pipeline
@@ -212,6 +213,7 @@ def run_job(job_id: str) -> int:
             log,
             job_name=job["name"],
         )
+        build_stats.write(job_dir, status="done_with_errors" if issues else "done")
         if issues:
             summary = user_summary(issues)
             log(f"Shrnutí pro uživatele: {summary}")
@@ -232,6 +234,7 @@ def run_job(job_id: str) -> int:
         return 0
     except Exception as exc:
         tb = traceback.format_exc()
+        build_stats.write(job_dir, status="failed")
         log(f"CHYBA: {exc}")
         log(tb)
         db.update_job(

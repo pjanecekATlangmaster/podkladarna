@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.pipeline import build_stats
+
 import json
 import math
 import re
@@ -392,7 +394,9 @@ def _http_get_bytes(url: str, timeout: int = 120) -> bytes:
     for attempt in range(_HTTP_RETRIES):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.read()
+                data = resp.read()
+            build_stats.note_bytes("reference", len(data), cached=False)
+            return data
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             # 4xx se opakováním nespraví – jen výpadky sítě a 5xx.
             client_error = isinstance(exc, urllib.error.HTTPError) and exc.code < 500
@@ -1322,11 +1326,13 @@ def _try_load_references_cache(
             if need_ortho:
                 ortho_dir.mkdir(parents=True, exist_ok=True)
                 link_or_copy(src, ortho_dir / src.name)
+                build_stats.note_file("reference", src, cached=True)
                 if world_file_for(src).is_file():
                     link_or_copy(world_file_for(src), world_file_for(ortho_dir / src.name))
             continue
         dest = out_dir / src.name
         link_or_copy(src, dest)
+        build_stats.note_file("reference", src, cached=True)
         world = world_file_for(src)
         if world.is_file():
             link_or_copy(world, world_file_for(dest))

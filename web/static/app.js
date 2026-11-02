@@ -1145,6 +1145,170 @@ function renderJobSources(el, job) {
     `<code>${escapeHtml(info.detail)}</code></details>`;
 }
 
+/** Lidské názvy kroků jobu (štítky z app/pipeline/job_progress.py). */
+const BUILD_STEP_LABELS = {
+  "kopie LAZ z předchozího jobu": "Převzetí laserových dat z předchozí mapy",
+  "stažení LiDAR": "Zahájení stahování laserových dat",
+  "stažení ZABAGED": "Stažení polohopisu ZABAGED",
+  "mřížka mapy": "Rozvržení území mapy",
+  "příprava LiDAR": "Stažení a zpracování laserových dat (LiDAR)",
+  "výškové modely": "Výškový model terénu a povrchu",
+  "příprava ZABAGED": "Úprava polohopisu ZABAGED",
+  "vrstevnice": "Vrstevnice",
+  "vegetace": "Vegetace a průchodnost lesa",
+  "srázy": "Srázy a skály",
+  "kupky a ďolíky": "Kupky, prohlubně a balvany",
+  "OSM pěšiny a objekty": "Cesty a objekty z OpenStreetMap",
+  "stínování reliéfu": "Stínování reliéfu",
+  "referenční podklady": "Ortofoto a katastr jako podklad",
+  "RÚIAN a AOPK": "Budovy RÚIAN a památné stromy",
+  "sestavení mapy a ZIP": "Sestavení map a zabalení ZIPu",
+  "balení výstupu": "Zabalení výstupu",
+};
+
+/** Zdroje dat (klíče z app/pipeline/build_stats.py). */
+const BUILD_SOURCE_LABELS = {
+  lidar_dmr: "Laserové skenování – terén (DMR 5G)",
+  lidar_dmp: "Laserové skenování – stromy a budovy (DMP)",
+  zabaged: "Polohopis ZABAGED",
+  osm: "OpenStreetMap",
+  dtm: "Digitální technická mapa (DTM)",
+  ruian: "Budovy RÚIAN",
+  aopk: "Památné stromy AOPK",
+  katastr: "Katastrální mapa",
+  reference: "Ortofoto a rastrové podklady",
+};
+
+const BUILD_MAP_LABELS = { les: "les", mtbo: "MTBO", sprint: "sprint" };
+
+function formatBytes(n) {
+  const v = Number(n) || 0;
+  const fmt = (x, d) => x.toLocaleString("cs-CZ", { maximumFractionDigits: d, minimumFractionDigits: d });
+  if (v >= 1e9) return `${fmt(v / 1e9, 1)} GB`;
+  if (v >= 1e6) return `${fmt(v / 1e6, v >= 1e8 ? 0 : 1)} MB`;
+  if (v >= 1e3) return `${fmt(v / 1e3, 0)} kB`;
+  return v > 0 ? `${v} B` : "–";
+}
+
+/** Kroky se stejným štítkem (krok začatý víckrát) sečte, pořadí podle prvního výskytu. */
+function mergedBuildSteps(steps) {
+  const out = [];
+  const byLabel = new Map();
+  for (const st of steps || []) {
+    if (!st || !st.label) continue;
+    const prev = byLabel.get(st.label);
+    if (prev) {
+      prev.seconds += Number(st.seconds) || 0;
+      prev.skipped = prev.skipped && !!st.skipped;
+      continue;
+    }
+    const row = { label: st.label, seconds: Number(st.seconds) || 0, skipped: !!st.skipped, reason: st.reason || "" };
+    byLabel.set(st.label, row);
+    out.push(row);
+  }
+  return out;
+}
+
+/** Sekce „Statistiky zpracování“ u doběhlého jobu: souhrn, časy kroků, data podkladů. */
+function renderJobStats(job) {
+  const box = document.getElementById("detail-stats");
+  if (!box) return;
+  const stats = job && job.build_stats;
+  const steps = stats ? mergedBuildSteps(stats.steps) : [];
+  const sources = (stats && stats.sources) || {};
+  const srcKeys = Object.keys(sources);
+  const show = !!stats && !jobIsLive(job.status) && (steps.length > 0 || srcKeys.length > 0);
+  box.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  const total = Number(stats.total_seconds) || steps.reduce((a, st) => a + st.seconds, 0);
+  const dataTotal = (Number(stats.downloaded_bytes) || 0) + (Number(stats.cached_bytes) || 0);
+  const summaryParts = ["Statistiky zpracování"];
+  if (total) summaryParts.push(formatDuration(total));
+  if (dataTotal) summaryParts.push(`${formatBytes(dataTotal)} dat`);
+  document.getElementById("detail-stats-summary").textContent = summaryParts.join(" · ");
+
+  const facts = [];
+  if (total) facts.push(["Celkový čas", formatDuration(total)]);
+  if (dataTotal) {
+    const parts = [];
+    if (stats.downloaded_bytes) parts.push(`nově staženo ${formatBytes(stats.downloaded_bytes)}`);
+    if (stats.cached_bytes) parts.push(`z mezipaměti ${formatBytes(stats.cached_bytes)}`);
+    facts.push(["Data podkladů", `${formatBytes(dataTotal)} (${parts.join(", ")})`]);
+  }
+  if (stats.area_km2) facts.push(["Území", `${Number(stats.area_km2).toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} km²`]);
+  if (stats.lidar_sheets) facts.push(["Listy laserového skenování", String(stats.lidar_sheets)]);
+  if (stats.dtm != null) facts.push(["Kresba z DTM", stats.dtm ? "ano" : "ne"]);
+  if (stats.output_zip_bytes) facts.push(["Velikost ZIPu", formatBytes(stats.output_zip_bytes)]);
+  if (stats.app_version) facts.push(["Verze Podkladárny", stats.app_version]);
+
+  const maps = (stats.maps || []).filter((m) => m && m.name);
+  const parallel = maps.length > 1 && maps.every((m) => m.parallel);
+  const mapsNote = maps.length
+    ? "Z toho mapy: " +
+      maps.map((m) => `${BUILD_MAP_LABELS[m.name] || m.name} ${formatDuration(m.seconds)}`).join(", ") +
+      (parallel ? " (souběžně)" : "")
+    : "";
+
+  const shown = steps.filter((st) => !st.skipped);
+  const skipped = steps.filter((st) => st.skipped);
+  const stepItems = shown
+    .map((st) => {
+      const name = BUILD_STEP_LABELS[st.label] || st.label;
+      const pct = total > 0 ? Math.round((st.seconds / total) * 100) : 0;
+      const pctText = pct < 1 ? "pod 1 %" : `${pct} %`;
+      const sub = st.label === "sestavení mapy a ZIP" && mapsNote
+        ? `<span class="stats-sub">${escapeHtml(mapsNote)}</span>`
+        : "";
+      return (
+        `<li><span>${escapeHtml(name)}</span>` +
+        `<span class="stats-time">${escapeHtml(formatDuration(st.seconds) || "0 s")} · ${pctText}</span>` +
+        `<span class="stats-bar" aria-hidden="true"><i style="width:${Math.min(100, Math.max(0, pct))}%"></i></span>` +
+        sub +
+        `</li>`
+      );
+    })
+    .join("");
+  const skippedNote = skipped.length
+    ? `<p class="stats-note">Přeskočeno: ${skipped
+        .map((st) => escapeHtml((BUILD_STEP_LABELS[st.label] || st.label) + (st.reason ? ` (${st.reason})` : "")))
+        .join(", ")}.</p>`
+    : "";
+
+  const order = Object.keys(BUILD_SOURCE_LABELS);
+  srcKeys.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+  const rows = srcKeys
+    .map((k) => {
+      const v = sources[k] || {};
+      return (
+        `<tr><th scope="row">${escapeHtml(BUILD_SOURCE_LABELS[k] || k)}</th>` +
+        `<td>${formatBytes(v.downloaded_bytes)}</td><td>${formatBytes(v.cached_bytes)}</td></tr>`
+      );
+    })
+    .join("");
+  const table = srcKeys.length
+    ? `<h4>Data podkladů</h4><table class="stats-table">` +
+      `<caption>Mezipaměť = data stažená dřív pro jinou mapu; počítají se stejně, jen se nestahovala znovu.</caption>` +
+      `<thead><tr><th scope="col">Zdroj</th><th scope="col">Nově staženo</th><th scope="col">Z mezipaměti</th></tr></thead>` +
+      `<tbody>${rows}</tbody>` +
+      `<tfoot><tr><td>Celkem</td><td>${formatBytes(stats.downloaded_bytes)}</td><td>${formatBytes(stats.cached_bytes)}</td></tr></tfoot>` +
+      `</table>`
+    : "";
+
+  document.getElementById("detail-stats-body").innerHTML =
+    (facts.length
+      ? `<h4>Souhrn</h4><dl class="stats-facts">${facts
+          .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
+          .join("")}</dl>`
+      : "") +
+    (stepItems
+      ? `<h4>Jak dlouho trvaly kroky</h4><ol class="stats-steps">${stepItems}</ol>` +
+        `<p class="stats-note">Část stahování a příprav běží souběžně na pozadí; čas se počítá u kroku, který na ně čekal.</p>`
+      : "") +
+    skippedNote +
+    table;
+}
+
 function setJobActionLinks(job) {
   const dl = document.getElementById("detail-download");
   const prev = document.getElementById("detail-preview");
@@ -1212,6 +1376,7 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
   if (applyForm) applyJobToForm(job);
   setJobActionLinks(job);
   renderJobDetailExtras(job);
+  renderJobStats(job);
   const img = document.getElementById("detail-img");
   // Privátní: náhled PNG jen e-mailem.
   if (!jobIsPrivate(job) && job.has_preview) {

@@ -1256,6 +1256,43 @@ select:focus-visible {
 .job-steps .step-skipped { color: #767676; }
 .job-steps .step-note { font-size: 0.82rem; }
 
+/* Statistiky zpracování hotového jobu (sbalitelné, styl jako zpětná vazba). */
+.build-stats h4 { margin: 0.7rem 0 0.3rem; font-size: 0.92rem; }
+.build-stats h4:first-child { margin-top: 0.1rem; }
+.stats-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 0.8rem;
+  margin: 0;
+}
+.stats-facts dt { color: var(--muted); }
+.stats-facts dd { margin: 0; font-weight: 600; }
+.stats-steps { list-style: none; margin: 0; padding: 0; }
+.stats-steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 0.6rem;
+  padding: 0.18rem 0;
+}
+.stats-steps .stats-time { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.stats-steps .stats-bar {
+  grid-column: 1 / -1;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #e6e9df;
+  overflow: hidden;
+}
+.stats-steps .stats-bar > i { display: block; height: 100%; background: var(--green); min-width: 2px; }
+.stats-steps .stats-sub { color: var(--muted); font-size: 0.82rem; grid-column: 1 / -1; }
+.stats-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.stats-table caption { text-align: left; color: var(--muted); font-size: 0.82rem; caption-side: bottom; padding-top: 0.3rem; }
+.stats-table th, .stats-table td { padding: 0.18rem 0.4rem; border-bottom: 1px solid var(--border); text-align: right; }
+.stats-table th:first-child, .stats-table td:first-child { text-align: left; padding-left: 0; }
+.stats-table thead th { color: var(--muted); font-weight: 600; }
+.stats-table tbody th { font-weight: 400; }
+.stats-table tfoot td { font-weight: 700; border-bottom: 0; }
+.stats-note { color: var(--muted); font-size: 0.82rem; margin: 0.35rem 0 0; }
+
 .tech-log { margin: 0.75rem 0; }
 .tech-log > summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; }
 .tech-log > .log { margin-top: 0.4rem; }

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from app import db
 from app import settings as app_settings
+from app.pipeline import build_stats
 from app.download_cache import (
     force_refresh_enabled,
     lidar_pair_paths,
@@ -470,6 +471,7 @@ def run_job_pipeline(
 ) -> list[str]:
     """Celý běh jobu. Vrací neopravené chyby (prázdný seznam = vše v pořádku)."""
     clear_job_memo()
+    build_stats.reset()
     work_dir = job_dir / "work"
     output_dir = job_dir / "output"
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -487,6 +489,8 @@ def run_job_pipeline(
     if bbox:
         west, south, east, north = bbox
         crop = crop_bounds_5514(west, south, east, north)
+        bx0, by0, bx1, by1 = crop_bounds_5514(west, south, east, north, buffer_m=0.0)
+        build_stats.set_info(area_km2=round((bx1 - bx0) * (by1 - by0) / 1e6, 2))
 
     dmr_files: list[Path | Future] = []
     dmp_files: list[Path | Future] = []
@@ -509,6 +513,8 @@ def run_job_pipeline(
         ),
     )
     progress.announce_plan()
+    build_stats.attach_progress(progress)
+    build_stats.set_info(app_version=app_settings.APP_VERSION, preset_id=preset_id, force_refresh=force_refresh)
     if force_refresh:
         raw_log("Vynucené obnovení: cache (LiDAR, ZABAGED, podklady) se nepoužije.")
 
@@ -557,6 +563,7 @@ def run_job_pipeline(
                     map_types=resolve_map_types(options),
                 )
             )
+            build_stats.set_info(dtm=bool(dtm_used))
             if options.get("dtm_fences", True) and dtm_used:
                 dtm_prefetch = start_dtm_prefetch(
                     work_dir,
@@ -605,6 +612,7 @@ def run_job_pipeline(
             force_refresh=force_refresh,
         )
         sheet_names = lidar_download.names
+        build_stats.set_info(lidar_sheets=len(sheet_names))
         dmr_files, dmp_files = lidar_download.dmr, lidar_download.dmp
         progress.done()
 

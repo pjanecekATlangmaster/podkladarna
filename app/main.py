@@ -26,6 +26,7 @@ from app.feedback import (
 from app.guide_text import WEB_ABOUT_HTML
 from app.mail import MailError
 from app.rate_limit import check_create_job
+from app.pipeline import build_stats
 from app.pipeline.fetch_openzu import (
     FetchError,
     MAX_BBOX_AREA_KM2,
@@ -411,6 +412,10 @@ def api_get_job(job_id: str):
     if db.job_is_expired(job):
         db.delete_job(job_id)
         raise HTTPException(410, "Privátní job vypršel a byl smazán.")
+    # Statistiky buildu (data, časy kroků) jen v detailu – seznam jobů zůstane lehký.
+    stats = build_stats.read(JOBS_DIR / job_id)
+    if stats:
+        job["build_stats"] = stats
     return job
 
 

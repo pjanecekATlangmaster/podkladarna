@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.pipeline import build_stats
+
 import copy
 import json
 import math
@@ -2093,6 +2095,7 @@ def fetch_osm_path_elements(
                         f"OSM cache zásah ({len(elements)} prvků, stáří {age_h:.1f} h) "
                         "– Overpass přeskakuji"
                     )
+                build_stats.note_file("osm", cache_path, cached=True)
                 return elements
             except (OSError, json.JSONDecodeError):
                 pass
@@ -2100,11 +2103,17 @@ def fetch_osm_path_elements(
     elements = _fetch_osm_path_elements_net(
         bbox_wgs84, log=log, status=status, **params
     )
+    raw = json.dumps(elements) if elements else ""
+    if raw:
+        build_stats.note_bytes(
+            "osm", len(raw.encode("utf-8")), cached=False,
+            key=f"osm:{cache_path.resolve() if cache_path is not None else id(elements)}",
+        )
     if cache_path is not None and elements and status.get("complete", True):
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = cache_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(elements), encoding="utf-8")
+            tmp.write_text(raw, encoding="utf-8")
             tmp.replace(cache_path)
         except OSError:
             pass

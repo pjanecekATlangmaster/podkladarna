@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.pipeline import build_stats
+
 import json
 import shutil
 import subprocess
@@ -76,6 +78,7 @@ def fetch_zabaged_for_bbox(
             meta = read_meta(cache_dir) or {}
             age = (meta.get("downloaded_at") or "?")[:10]
             log(f"ZABAGED cache ({cache_dir.name}, staženo {age})")
+        build_stats.note_file("zabaged", dest_zip, cached=True)
         return dest_zip
 
     ogr2ogr = which_tool("ogr2ogr")
@@ -156,6 +159,7 @@ def fetch_zabaged_for_bbox(
                 f"ZABAGED: {kept} vrstev (+{VECTOR_FETCH_BUFFER_M:.0f} m přesah), "
                 f"{dest_zip.stat().st_size / 1e3:.0f} kB"
             )
+        build_stats.note_file("zabaged", dest_zip, cached=False)
         return dest_zip
     finally:
         shutil.rmtree(stage, ignore_errors=True)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.pipeline import build_stats
+
 import json
 import urllib.error
 from pathlib import Path
@@ -43,6 +45,7 @@ def fetch_ruian_buildings_for_bbox(
             meta = read_meta(cache_dir) or {}
             age = (meta.get("downloaded_at") or "?")[:10]
             log(f"RÚIAN budovy cache ({cache_dir.name}, staženo {age})")
+        build_stats.note_file("ruian", dest, cached=True)
         return dest
 
     west, south, east, north = fetch_bbox
@@ -75,4 +78,5 @@ def fetch_ruian_buildings_for_bbox(
     )
     if log:
         log(f"RÚIAN budovy: {n} objektů, {dest.stat().st_size / 1e3:.0f} kB")
+    build_stats.note_file("ruian", dest, cached=False)
     return dest
