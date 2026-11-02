@@ -186,7 +186,7 @@ def test_street_parking_not_in_dtm_road_width(tmp_path, parking, code):
     _write_job(tmp_path, feats)
     dtm = WidthIndex([Polygon([(0, -3), (10, -3), (10, -7.5), (70, -7.5), (70, -3), (80, -3), (80, 3), (70, 3), (70, 7.5), (10, 7.5), (10, 3), (0, 3)])])
     roads = [_road([(0, 0), (80, 0)], "road_3")]
-    op._apply_road_strokes(roads, "forest_10000", 10000, road_widths=dtm, parking_zone=op.street_parking_zone(tmp_path, "forest_10000"))
+    op._apply_road_strokes(roads, "forest_10000", 10000, road_widths=dtm, parking_strips=op.street_parking_strips(tmp_path, "forest_10000"))
     assert roads[0]["properties"][op.STROKE_CODE_PROP] == code
 
 
