@@ -49,10 +49,12 @@ def resolve_veg_smooth(options: dict | None) -> int:
     return level if level in VEG_SMOOTH_LEVELS else VEG_SMOOTH_DEFAULT
 
 
-# Vyhlazení vrstevnic (contour_smooth, viz contours_adaptive): 0 = jako dosud,
-# 1 = adaptivní (víc vyhladit rovinu, členitý terén bit po bitu jako dosud).
+# Vyhlazení vrstevnic (contour_smooth, viz contours_adaptive): 0 = méně vyhlazení
+# (původní chování do 3.6.x), 1 = adaptivní (víc vyhladit rovinu a zástavbu, členitý
+# terén bit po bitu jako 0). Od 3.7.0 je výchozí 1 (Petr 2026-11-02), i pro API a
+# starší joby bez volby.
 CONTOUR_SMOOTH_LEVELS = (0, 1)
-CONTOUR_SMOOTH_DEFAULT = 0
+CONTOUR_SMOOTH_DEFAULT = 1
 
 
 def resolve_contour_smooth(options: dict | None) -> int:
