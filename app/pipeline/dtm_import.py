@@ -2560,10 +2560,14 @@ def drop_fences_inside_olive(
     inset_m: float = SPRINT_FENCE_INSIDE_OLIVE_M,
     share: float = SPRINT_FENCE_INSIDE_OLIVE_SHARE,
     keep_zone=None,
+    cut: bool = False,
+    min_piece_m: float = 3.0,
 ) -> list[tuple[str, list[tuple[float, float]]]]:
     """Ploty bez těch, které leží uvnitř olivy ``olive`` (shapely) dál než ``inset_m`` od okraje; ploty na okraji zůstávají.
 
-    ``keep_zone`` (shapely, les a MTBO: pás kreslených cest) se z vnitřku olivy vyjme – plot v něm platí za okrajový."""
+    ``keep_zone`` (shapely, les a MTBO: pás kreslených cest) se z vnitřku olivy vyjme – plot v něm platí za okrajový.
+    ``cut`` (les a MTBO): z každého plotu se vyřízne část uvnitř olivy a zůstanou jen kusy na okraji (od ``min_piece_m``),
+    takže zmizí i krátké výběžky plotů od okraje dovnitř bloku, které sdílené kritérium podílu délky nechá."""
     from shapely.geometry import LineString
 
     if olive is None or olive.is_empty:
@@ -2573,6 +2577,8 @@ def drop_fences_inside_olive(
         core = core.difference(keep_zone)
     if core.is_empty:
         return lines
+    if cut:
+        return cut_fences_by_buildings(lines, core, min_piece_m)
     out = []
     for code, ln in lines:
         g = LineString(ln) if len(ln) >= 2 else None
@@ -3064,8 +3070,11 @@ def build_dtm_fence_parts(
             # Sprint: dělicí ploty zahrad uvnitř olivového bloku se nekreslí (oliva po obou stranách).
             lines = drop_fences_inside_olive(lines, olive_geom)
         else:
-            # Les a MTBO: totéž, ale plot podél kreslené cesty uvnitř olivy (ulice v obci) zůstává.
-            lines = drop_fences_inside_olive(lines, olive_geom, keep_zone=_fence_path_keep_zone(work_dir, path_source, preset_id, scale))
+            # Les a MTBO: z plotů se vyřízne část uvnitř olivy (zůstane obvod); plot podél kreslené cesty uvnitř olivy
+            # (ulice v obci) zůstává.
+            lines = drop_fences_inside_olive(
+                lines, olive_geom, keep_zone=_fence_path_keep_zone(work_dir, path_source, preset_id, scale), cut=True
+            )
         if sprint:
             # Sprint: plot přes plochu chodníku z DTM se na ní přeruší (chodník tudy prochází); výplň olivou
             # se hledala už před tím, takže oliva v oplocení zůstává.
