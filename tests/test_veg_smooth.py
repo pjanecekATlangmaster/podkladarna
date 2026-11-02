@@ -60,8 +60,9 @@ def test_resolve_veg_smooth_default_and_values():
 
 @pytest.mark.parametrize(
     "opts, expected",
-    [({}, 0), (None, 0), ({"contour_smooth": "1"}, 1), ({"contour_smooth": 1}, 1),
-     ({"contour_smooth": "0"}, 0), ({"contour_smooth": "2"}, 0), ({"contour_smooth": "x"}, 0)],
+    [({}, 1), (None, 1), ({"contour_smooth": "1"}, 1), ({"contour_smooth": 1}, 1),
+     ({"contour_smooth": "0"}, 0), ({"contour_smooth": 0}, 0), ({"contour_smooth": "2"}, 1),
+     ({"contour_smooth": "x"}, 1)],
 )
 def test_resolve_contour_smooth(opts, expected):
     assert resolve_contour_smooth(opts) == expected

@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.7.2"
+APP_VERSION = "3.8.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -189,8 +189,8 @@ DEFAULT_OPTIONS = {
     "path_source": "mixed",
     # Pomocné vrstevnice 103: off | sparse | more (jen kde ukážou tvar navíc).
     "contour_formlines": "off",
-    # Vyhlazení vrstevnic: 0 = jako dosud (výchozí), 1 = adaptivní (rovina víc).
-    "contour_smooth": "0",
+    # Vyhlazení vrstevnic: 1 = adaptivní (výchozí, rovina a zástavba víc), 0 = méně vyhlazení (původní).
+    "contour_smooth": "1",
     # Tvar hranic porostů: 0 (kostičky 1:1) až 3 (zjednodušit drobnosti do 12 m), výchozí 1.
     "veg_smooth": "1",
     # Zdroj kresby (jedna volba „DTM“ v GUI, Petr 2026-10-27): výchozí podle presetu – sprint z DTM,

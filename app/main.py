@@ -914,7 +914,7 @@ async def api_create_job(request: Request):
     log(
         f"  Terén: vegetace {options.get('kp_vege_height', 2.0)} m · "
         f"tvar vegetace {resolve_veg_smooth(options)} · "
-        f"vrstevnice {'adaptivní' if resolve_contour_smooth(options) else 'jako dosud'} · "
+        f"vrstevnice {'adaptivní' if resolve_contour_smooth(options) else 'méně vyhlazení'} · "
         f"kresba sprint {'DTM' if resolve_use_dtm(options, 'sprint') else 'OSM+ZABAGED'}/"
         f"les+MTBO {'DTM' if resolve_use_dtm(options, 'forest') else 'OSM+ZABAGED'} · "
         f"srázy {options.get('kp_cliff_sensitivity', 'low')}/"

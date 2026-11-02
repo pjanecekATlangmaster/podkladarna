@@ -700,16 +700,27 @@ def _contour_source_dem(
         adaptive.unlink(missing_ok=True)
         return dem_smooth, None
     log_step(log, "Adaptivně vyhlazuji DEM pro vrstevnice (rovina víc, členitý terén jako dosud)")
-    summary = write_adaptive_contour_dem(
-        dem_smooth,
-        adaptive,
-        interval_m=interval_m,
-        scale=int(round(10000 * float(scalefactor or 1.0))),
-        scalefactor=scalefactor,
-        # contours/ leží ve work/ jobu vedle zabaged_clean.zip (hotový před vrstevnicemi).
-        zabaged_zip=dem_smooth.parent.parent / "zabaged_clean.zip",
-        log=log,
-    )
+    try:
+        summary = write_adaptive_contour_dem(
+            dem_smooth,
+            adaptive,
+            interval_m=interval_m,
+            scale=int(round(10000 * float(scalefactor or 1.0))),
+            scalefactor=scalefactor,
+            # contours/ leží ve work/ jobu vedle zabaged_clean.zip (hotový před vrstevnicemi).
+            zabaged_zip=dem_smooth.parent.parent / "zabaged_clean.zip",
+            log=log,
+        )
+    except Exception as exc:  # noqa: BLE001 – adaptivní je výchozí, job kvůli němu nesmí spadnout
+        # Včetně MemoryError u velkých výřezů: vrstevnice pak jdou z dem_smooth.tif jako
+        # při volbě „méně vyhlazení“.
+        adaptive.unlink(missing_ok=True)
+        log_step(
+            log,
+            f"Varování: adaptivní vyhlazení vrstevnic selhalo ({type(exc).__name__}: {exc}); "
+            "vrstevnice se kreslí s menším vyhlazením (původní).",
+        )
+        return dem_smooth, None
     return adaptive, summary
 
 

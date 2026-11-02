@@ -130,11 +130,11 @@
           <label>
             Vyhlazení vrstevnic
             <select name="contour_smooth" id="contour_smooth">
-              <option value="0" selected>0 – jako dosud (výchozí)</option>
-              <option value="1">1 – adaptivní: víc vyhladit rovinu a zástavbu</option>
+              <option value="1" selected>Adaptivní – výchozí</option>
+              <option value="0">Méně vyhlazení (původní)</option>
             </select>
           </label>
-          <p class="hint" id="contour-smooth-hint">Adaptivní vyhladí vrstevnice tam, kde jsou na mapě daleko od sebe (rovina, šum DMR), a silněji v zástavbě (budovy, parkoviště a areály ze ZABAGED); v členitém terénu zůstanou bit po bitu jako dosud a přechod je plynulý i podél jedné vrstevnice. Ve sprintu zůstanou louky, parky a sady beze změny. Kupky a žlaby vyšší než ~0,5&nbsp;m (v zástavbě ~1,5&nbsp;m), náspy drah a valy se nemažou; výška se změní nejvýš o 0,3 ekvidistance. Zatím zkušebně.</p>
+          <p class="hint" id="contour-smooth-hint"><b>Adaptivní</b> (doporučeno): v rovině a v zástavbě, kde DMR kreslí drobné zuby a vlnky od šumu, vrstevnice zklidní do plynulých čar; ve svazích a členitém terénu zůstanou stejné jako dřív. Skutečné kupky, žlaby, náspy a valy se nemažou. <b>Méně vyhlazení</b> je původní kresba: vrstevnice věrněji kopírují každý drobný hrbol z laserového skenování, v rovině a mezi domy proto bývají zubaté a neklidné. Zvol ji, když chceš vidět i drobné nerovnosti (např. pro kontrolu v terénu nebo srovnání se starší mapou).</p>
         </div>
 
         <div class="form-section">

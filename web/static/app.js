@@ -1396,8 +1396,8 @@ function applyJobToForm(job) {
   }
   const contourSmooth = form.contour_smooth;
   if (contourSmooth) {
-    const csVal = String(opts.contour_smooth ?? "0");
-    contourSmooth.value = [...contourSmooth.options].some((o) => o.value === csVal) ? csVal : "0";
+    const csVal = String(opts.contour_smooth ?? "1");
+    contourSmooth.value = [...contourSmooth.options].some((o) => o.value === csVal) ? csVal : "1";
   }
   const vegSmooth = form.veg_smooth;
   if (vegSmooth) {
