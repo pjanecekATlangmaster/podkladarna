@@ -50,15 +50,20 @@ def read_meta(folder: Path) -> dict | None:
         return None
 
 
+# DMR a DMP téhož listu se stahují souběžně do jedné složky → read-modify-write meta pod zámkem.
+_META_LOCK = threading.Lock()
+
+
 def write_meta(folder: Path, **fields) -> None:
     folder.mkdir(parents=True, exist_ok=True)
-    meta = read_meta(folder) or {}
-    meta.update(fields)
-    meta.setdefault("downloaded_at", utcnow_iso())
-    (folder / META_FILENAME).write_text(
-        json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    with _META_LOCK:
+        meta = read_meta(folder) or {}
+        meta.update(fields)
+        meta.setdefault("downloaded_at", utcnow_iso())
+        (folder / META_FILENAME).write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def age_days(downloaded_at: str | None) -> float | None:

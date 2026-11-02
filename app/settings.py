@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.8.10"
+APP_VERSION = "3.8.11"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -108,6 +108,9 @@ def _parse_ip_list(raw: str) -> frozenset[str]:
 RATE_LIMIT_EXEMPT_IPS = _parse_ip_list(os.environ.get("RATE_LIMIT_EXEMPT_IPS", ""))
 CLEANUP_INTERVAL_HOURS = int(os.environ.get("CLEANUP_INTERVAL_HOURS", "24"))
 LIDAR_CACHE_MAX_AGE_DAYS = int(os.environ.get("LIDAR_CACHE_MAX_AGE_DAYS", "180"))
+# Souběžná stahování listů LiDARu z ČÚZK (OpenZU). Jedno spojení dává ~2 MB/s, list DMP OK má ~340 MB
+# (Most 12 listů 2026-11-02: ~35 min jen čekání na stažení); 3 spojení = mírná zátěž ČÚZK.
+LIDAR_DOWNLOAD_WORKERS = max(1, int(os.environ.get("LIDAR_DOWNLOAD_WORKERS", "3")))
 ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "30"))
 # Ortofoto / OSM / ZTM / katastr / hillshade PNG pro OOM.
 REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))
