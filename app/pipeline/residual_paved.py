@@ -176,6 +176,7 @@ def build_residual_paved_parts(
     subjects, mask_wkbs = _load_or_build_subject_mask(work_dir, elements)
     if not subjects:
         subjects = _residential_from_features(work_dir)
+    subjects = _clip_subjects_to_map(subjects, bbox_wgs84)
     if not subjects:
         return []
     try:
@@ -327,6 +328,33 @@ def build_residual_paved_parts(
             count=len(objects),
         )
     ]
+
+
+def _clip_subjects_to_map(subjects: list[bytes], bbox_wgs84) -> list[bytes]:
+    """Residential oříznutá rámem mapy (výřez jobu). Mimo rám chybí výšky (CHM) a mezery by se kreslily zbytečně."""
+    if bbox_wgs84 is None or not subjects:
+        return subjects
+    try:
+        from shapely import box, from_wkb, to_wkb
+
+        from app.pipeline.fetch_openzu import crop_bounds_5514
+
+        frame = box(*crop_bounds_5514(*tuple(bbox_wgs84), buffer_m=0.0))
+    except Exception:  # bez rámu se počítá jako dřív
+        return subjects
+    out: list[bytes] = []
+    for raw in subjects:
+        try:
+            g = from_wkb(raw)
+            if not g.intersects(frame):
+                continue
+            g = g.intersection(frame)
+        except Exception:
+            out.append(raw)
+            continue
+        polys = [p for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and p.area >= 1.0]
+        out.extend(bytes(to_wkb(p, hex=False)) for p in polys)
+    return out
 
 
 def write_residual_band_shapefiles(

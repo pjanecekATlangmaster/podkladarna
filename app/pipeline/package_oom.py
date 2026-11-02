@@ -908,6 +908,7 @@ def _prepare_oom_map(
             grivation_deg=grivation,
             bbox_wgs84=bbox_wgs84,
             max_piece_m2=max_residual_m2,
+            log=log,
         )
         if residual_parts:
             object_parts.extend(residual_parts)

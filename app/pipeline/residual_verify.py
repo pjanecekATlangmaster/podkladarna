@@ -223,6 +223,7 @@ def load_evidence(work_dir: Path, bbox_wgs84, elements: list[dict], log=None) ->
     if ev.ortho is not None:
         roads, grass = calibration_geoms(elements)
         ev.exg_min, note = calibrate_exg(ev.ortho, roads, grass, ev.chm)
+        logger.info("residual_paved: práh zeleně z ortofota %s", note)
         if log:
             log(f"residual_paved: práh zeleně z ortofota {note}")
     return ev
