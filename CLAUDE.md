@@ -329,6 +329,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   znovu nestahuje, jednou za `LIDAR_VERSION_CHECK_DAYS` (30) se HEAD na OpenZU ověří novější verze (Last-Modified + velikost);
   ZIP se po rozbalení maže, LAZ zůstává. První výřez v listu vyfiltruje celý list do `lidar_sheet_crop/<list>/<recept>/full_<zdroj>`,
   další výřezy se ořezávají z něj. Strop `LIDAR_CACHE_MAX_GB` (250) maže po přípravě LiDARu nejdéle nepoužité listy a AOI ořezy (`prune_lidar_cache`).
+- **Stání pod kresbou silnice** (3.12.4, Petr 2026-11-02, Černokostelecká Říčany): stání, které kresbu nejbližší silnice přesahuje
+  méně než `PARKING_ABSORB_MM` (0,15 mm), a osamělé krátké stání (průmět pod `PARKING_ISOLATED_MM` 3 mm) se v lese a MTBO neslévá
+  s ulicí a nekreslí – pohltí ho čára (`merge_parking_into_road`). Slití po kusech stání pod 502.1 rozsekalo ulici na plochy
+  s příčnými okraji. Mezery mezi slitými úseky do 2 mm zacelí `_bridge_parking_gaps` (3.9.1). Další krok (úseky ulice mezi
+  křižovatkami) a srovnání návrhů: `/mnt/project-files/ulice-jako-celek/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
