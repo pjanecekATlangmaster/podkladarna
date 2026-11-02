@@ -7,6 +7,15 @@ import os
 import sys
 import traceback
 
+# numpy načíst v hlavním vlákně dřív, než run_job_pipeline spustí vlákna na pozadí
+# (OSM, DTM, podklady). Souběžný první import ve dvou vláknech nechá v sys.modules
+# napůl inicializovaný numpy a každý další import v procesu padá
+# („cannot load module more than once per process“, job a8b5f9a18917 na testu B).
+try:
+    import numpy  # noqa: F401
+except ImportError:  # pragma: no cover - numpy je v image vždy (GDAL)
+    pass
+
 from app import db
 from app import settings as app_settings
 from app.mail import MailError, build_private_ready_email, send_mail
