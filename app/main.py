@@ -683,11 +683,12 @@ async def api_create_job(request: Request):
     if preset_id not in presets:
         raise HTTPException(400, f"Neznamy preset: {preset_id}")
 
-    # Typy map (les / MTBO) jen u lesních měřítek; bez pole výchozí podle měřítka.
+    # Typy map (les / MTBO) jen u lesních měřítek; bez pole výchozí podle měřítka (API klienti).
+    # GUI posílá skryté `map_types_form`, protože nezaškrtnutý checkbox se neodešle vůbec.
     map_types: list[str] | None = None
     if int(resolved["map_scale"]) != 4000:
         map_types_raw = _form_list(form, "map_types")
-        if "map_types" not in form:
+        if "map_types" not in form and "map_types_form" not in form:
             map_types = default_map_types(resolved["map_scale"])
         else:
             map_types = parse_map_types(map_types_raw)

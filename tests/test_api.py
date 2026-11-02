@@ -366,6 +366,7 @@ def test_map_options(client):
         ("15000", {}, 200, ["mtbo"]),
         ("10000", {"map_types": ["les", "mtbo"]}, 200, ["les", "mtbo"]),
         ("10000", {"map_types": "xyz"}, 400, None),
+        ("10000", {"map_types_form": "1"}, 400, None),  # GUI bez zaškrtnutí
     ],
 )
 def test_create_job_map_types(client, monkeypatch, scale, extra, status, expected):
