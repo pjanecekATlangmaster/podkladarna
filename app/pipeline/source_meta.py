@@ -117,8 +117,9 @@ def format_source_epochs_readme(source_meta: dict | None) -> str:
     if not source_meta or not source_meta.get("sheets"):
         return ""
     lines = [
-        "Zdroje LiDAR (epochy = stažení do cache, ne datum pořízení ČÚZK)",
-        "----------------------------------------------------------------",
+        "Výšková data ČÚZK (letecké laserové skenování: DMR 5G terén, DMP OK stromy a budovy)",
+        "Datum = kdy je Podkladárna stáhla, ne kdy ČÚZK území skenoval.",
+        "------------------------------------------------------------------------------------",
     ]
     for sheet in source_meta["sheets"]:
         mapnom = sheet.get("mapnom") or "?"
@@ -134,8 +135,9 @@ def format_source_epochs_readme(source_meta: dict | None) -> str:
         )
     if source_meta.get("dmp_degraded"):
         lines.append(
-            "VAROVÁNÍ: alespoň jeden list používá DMP 1G místo DMP OK "
-            "(nižší kvalita povrchu / CHM) – není tichý fallback."
+            "VAROVÁNÍ: pro část území nebyla dostupná přesná data o výšce stromů "
+            "a budov (DMP OK), použila se starší hrubší náhrada DMP 1G. Porosty "
+            "mohou být méně přesné; doporučujeme mapu za pár dní vygenerovat znovu."
         )
     lines.append(INDICATIVE_LABEL_CS)
     return "\n".join(lines) + "\n"
