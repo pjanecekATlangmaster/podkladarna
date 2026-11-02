@@ -18,7 +18,12 @@ except ImportError:  # pragma: no cover - numpy je v image vždy (GDAL)
 
 from app import db
 from app import settings as app_settings
-from app.mail import MailError, build_private_ready_email, send_mail
+from app.mail import (
+    MailError,
+    build_private_failed_email,
+    build_private_ready_email,
+    send_mail,
+)
 from app.pipeline.issue_explain import failure_summary, user_summary
 from app.pipeline.preview import resolve_preview_png
 from app.pipeline.run_job import run_job_pipeline
@@ -28,6 +33,7 @@ from app.settings import JOBS_DIR
 logger = logging.getLogger("podkladarna.job_worker")
 
 _MAIL_SENT_PREFIX = "E-mail s odkazem odeslán"
+_FAIL_MAIL_SENT_PREFIX = "E-mail o chybě odeslán"
 
 
 def _job_token(job_id: str) -> str | None:
@@ -49,10 +55,8 @@ def _public_base_url() -> str:
     ).rstrip("/")
 
 
-def _mail_already_sent(job_id: str) -> bool:
-    return any(
-        _MAIL_SENT_PREFIX in (entry.get("line") or "") for entry in db.get_logs(job_id)
-    )
+def _mail_already_sent(job_id: str, prefix: str = _MAIL_SENT_PREFIX) -> bool:
+    return any(prefix in (entry.get("line") or "") for entry in db.get_logs(job_id))
 
 
 def _notify_private_job(job_id: str) -> None:
@@ -104,6 +108,9 @@ def _notify_private_job(job_id: str) -> None:
         georef_url=georef_url,
         preview_attached=preview_attached,
         duration_s=job.get("duration_s"),
+        issues_summary=(
+            job.get("error") if job.get("status") == db.STATUS_DONE_WITH_ERRORS else None
+        ),
     )
     try:
         send_mail(
@@ -115,6 +122,35 @@ def _notify_private_job(job_id: str) -> None:
         db.append_log(job_id, f"{_MAIL_SENT_PREFIX} na {email}.")
     except MailError as exc:
         db.append_log(job_id, f"CHYBA odeslání e-mailu: {exc}")
+
+
+def notify_private_failure(job_id: str) -> None:
+    """Privátní job skončil chybou: e-mail zadavateli, skrytá kopie FEEDBACK_TO.
+
+    Best-effort, nikdy nevyhazuje. Volá se z job_worker (výjimka v pipeline),
+    worker.py (timeout, pád subprocesu) i po restartu serveru.
+    """
+    try:
+        job = db.get_job(job_id)
+        if not db.job_is_private(job) or job.get("status") != "failed":
+            return
+        email = str((job.get("options") or {}).get("notify_email") or "").strip()
+        if not email:
+            return
+        if _mail_already_sent(job_id, _FAIL_MAIL_SENT_PREFIX):
+            return
+        subject, body = build_private_failed_email(
+            job_name=job.get("name") or job_id,
+            error=job.get("error"),
+            duration_s=job.get("duration_s"),
+        )
+        try:
+            send_mail(email, subject, body, bcc=app_settings.FEEDBACK_TO or None)
+            db.append_log(job_id, f"{_FAIL_MAIL_SENT_PREFIX} na {email}.")
+        except MailError as exc:
+            db.append_log(job_id, f"CHYBA odeslání e-mailu o chybě: {exc}")
+    except Exception:
+        logger.exception("E-mail o chybě privátního jobu %s selhal", job_id)
 
 
 def retry_missed_private_mails(*, limit: int = 50) -> list[str]:
@@ -201,6 +237,7 @@ def run_job(job_id: str) -> int:
         db.update_job(
             job_id, status="failed", phase="error", error=failure_summary(str(exc))
         )
+        notify_private_failure(job_id)
         return 1
 
 
