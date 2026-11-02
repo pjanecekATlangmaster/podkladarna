@@ -262,11 +262,12 @@ MOUTH_NEAR_M = 1.0
 
 
 def _entering_lines(
-    work_dir: Path, preset_id: str, scale: int, features: list[dict] | None = None, extend_m: float = 0.0
+    work_dir: Path, preset_id: str, scale: int, features: list[dict] | None = None, extend_m: float = 0.0, sided: bool = False
 ) -> list[tuple]:
     """Kreslené čáry silnic ``(LineString, půlka šířky výplně m)``: osy 502.0 a OSM silnice mimo pás os (symbol po
     pravidle tahu ``stroke_code``, jinak podle tagů). ``features`` místo čtení z jobu; ``extend_m`` prodlouží konce
-    (silnice končící kus před plochou, ``osm_paths.ROAD_EDGE_REACH_MM``)."""
+    (silnice končící kus před plochou, ``osm_paths.ROAD_EDGE_REACH_MM``). ``sided`` přidá třetí prvek: symbol má výplň
+    s okrajovými linkami (les 502 / 502.1, MTBO i 503), ne jen černou čáru."""
     from shapely.geometry import LineString
 
     from app.pipeline import osm_paths as op
@@ -287,9 +288,17 @@ def _entering_lines(
         total_half = op.mm_to_ground_m(total or fill or 0.0, scale) / 2.0
         return max(fill_half, total_half - edge_half)
 
+    def _sided(code: str) -> bool:
+        fill = symbol_fill_width_mm(preset_id, scale, code)
+        total = symbol_line_width_mm(preset_id, scale, code)
+        return bool(fill and total and total > fill + 1e-6)
+
+    def _item(ln, code: str) -> tuple:
+        return (ln, _half(code), _sided(code)) if sided else (ln, _half(code))
+
     out = []
     axes, zone = dual_axes(work_dir, preset_id, scale)
-    out += [(LineString(c), _half("502.0")) for c in axes if len(c) >= 2]
+    out += [_item(LineString(c), "502.0") for c in axes if len(c) >= 2]
     for feat in features if features is not None else op._paths_features_for_network(work_dir):
         geom = feat.get("geometry") or {}
         coords = geom.get("coordinates") or []
@@ -303,8 +312,8 @@ def _entering_lines(
         if extend_m > 0:
             pts = op._extend_ends(pts, extend_m)
         parts = clip_outside(pts, zone) if zone is not None else [pts]
-        half = _half(str(props.get(op.STROKE_CODE_PROP) or op.osm_oom_code(hw, preset_id) or "502"))
-        out += [(LineString(p), half) for p in parts if len(p) >= 2]
+        code = str(props.get(op.STROKE_CODE_PROP) or op.osm_oom_code(hw, preset_id) or "502")
+        out += [_item(LineString(p), code) for p in parts if len(p) >= 2]
     return out
 
 
@@ -409,6 +418,10 @@ def shape_mouths(area, entries: list[tuple], taper_m: float, drop_small: bool = 
 
 # Ústí silnice do libovolné plochy sítě (``square_mouths``): vstup pod menším úhlem k hraně (°) je souběh, ne ústí.
 MOUTH_MIN_ANGLE_DEG = 25.0
+# Špička plochy užší než kresba silnice (``square_mouths``): pás ústí se protáhne nejvýš tolik mm mapy dovnitř
+# (hledá se po ``MOUTH_TIP_STEP_M`` m); 0 = špička se přeskočí jako dřív.
+MOUTH_TIP_MAX_MM = 3.0
+MOUTH_TIP_STEP_M = 0.5
 
 
 def road_mouth_entries(area, lines: list[tuple], min_angle_deg: float = MOUTH_MIN_ANGLE_DEG) -> list[tuple]:
@@ -439,26 +452,49 @@ def road_mouth_entries(area, lines: list[tuple], min_angle_deg: float = MOUTH_MI
     return out
 
 
-def square_mouths(area, entries: list[tuple], depth_m: float, back_m: float = MOUTH_OUTSIDE_M):
+def square_mouths(area, entries: list[tuple], depth_m: float, back_m: float = MOUTH_OUTSIDE_M, tip_max_m: float = 0.0, tip_lines=None):
     """Ústí silnic (``road_mouth_entries``) kolmo na čáru na ploše ``area`` (les a MTBO, všechny plochy sítě): v pásu
     kresby silnice se plocha doplní od vstupu ``depth_m`` m dovnitř (šikmá hrana nechávala vedle konce silnice bílý
     klín) a za vstupem se v pásu o ``back_m`` m odřízne (okraj plochy jinak křižoval okrajovou linku silnice). Bez
-    trychtýře ``shape_mouths`` – u parkoviště je hrana vedle vjezdu správně rovná. Pás jiného vstupu se neřeže."""
+    trychtýře ``shape_mouths`` – u parkoviště je hrana vedle vjezdu správně rovná. Pás jiného vstupu se neřeže.
+    Do špičky užší než kresba silnice se pás protáhne až ``tip_max_m`` m (kde se kresba do plochy vejde), jinak by
+    okraj plochy ve špičce lomil a konec silnice přečníval; jen u čar z ``tip_lines`` (id čar silnic s výplní a
+    okrajovými linkami, ``None`` = všechny)."""
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
 
     if area is None or area.is_empty or not entries or depth_m <= 0:
         return area
-    from shapely.geometry import Point
+    from shapely.geometry import LineString, Point
 
     mouths, backs, bands = [], [], []
     inside = area.buffer(0.3)
     for (px, py), (dx, dy), half, ln in entries:
         nx, ny = -dy, dx
-        q = (px + dx * depth_m, py + dy * depth_m)
-        # silnice jen škrtne roh plochy (vstup s koncem pásu mimo plochu): není ústí, pás by plochu rozšířil
-        if not (inside.contains(Point(q[0] + nx * half, q[1] + ny * half)) and inside.contains(Point(q[0] - nx * half, q[1] - ny * half))):
-            continue
+
+        def _fits(d, px=px, py=py, dx=dx, dy=dy, nx=nx, ny=ny, half=half):
+            c = (px + dx * d, py + dy * d)
+            return inside.contains(Point(c[0] + nx * half, c[1] + ny * half)) and inside.contains(Point(c[0] - nx * half, c[1] - ny * half))
+
+        d = depth_m
+        if not _fits(d):
+            # špička plochy užší než kresba silnice (klín smyčky konečné Do Klukovic, Petr 2026-11-02): pás ústí se
+            # protáhne dovnitř, dokud se kresba do plochy nevejde, jen když osa vede celou cestu plochou. Silnice,
+            # která jen škrtne roh plochy (osa z plochy zase vyjde), pahýl bez kresby za ústím a černá čára bez
+            # výplně (končí na okraji plochy) ústí nemají – pás by plochu jen rozšířil.
+            d = None
+            tip_ok = (tip_lines is None or id(ln) in tip_lines) and ln.difference(inside).length >= depth_m
+            k = depth_m + MOUTH_TIP_STEP_M if tip_ok else tip_max_m + depth_m + 1.0
+            while k <= max(tip_max_m, depth_m) + 1e-9:
+                if not LineString([(px, py), (px + dx * k, py + dy * k)]).within(inside):
+                    break
+                if _fits(k):
+                    d = k
+                    break
+                k += MOUTH_TIP_STEP_M
+            if d is None:
+                continue
+        q = (px + dx * d, py + dy * d)
         b = (px - dx * back_m, py - dy * back_m)
         mouths.append(Polygon([(px + nx * half, py + ny * half), (q[0] + nx * half, q[1] + ny * half), (q[0] - nx * half, q[1] - ny * half), (px - nx * half, py - ny * half)]))
         backs.append(Polygon([(px + nx * half, py + ny * half), (b[0] + nx * half, b[1] + ny * half), (b[0] - nx * half, b[1] - ny * half), (px - nx * half, py - ny * half)]))

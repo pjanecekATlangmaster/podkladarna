@@ -189,11 +189,14 @@ def square_road_mouths(work_dir: Path, feats: list[dict], preset_id: str, scale:
     from app.pipeline.osm_paths import ROAD_EDGE_REACH_MM, mm_to_ground_m
 
     reach = mm_to_ground_m(ROAD_EDGE_REACH_MM, scale)
-    lines = junction_areas._entering_lines(work_dir, preset_id, scale, features=path_feats, extend_m=reach + 2.0)
-    if not lines:
+    sided = junction_areas._entering_lines(work_dir, preset_id, scale, features=path_feats, extend_m=reach + 2.0, sided=True)
+    if not sided:
         return feats
+    lines = [(ln, half) for ln, half, _s in sided]
+    tip_lines = {id(ln) for ln, _half, s in sided if s}
     tree = STRtree([ln for ln, _half in lines])
     depth = mm_to_ground_m(junction_areas.MOUTH_TAPER_MM, scale)
+    tip_max = mm_to_ground_m(junction_areas.MOUTH_TIP_MAX_MM, scale)
     out: list[dict] = []
     for f in feats:
         geom = f.get("geometry") or {}
@@ -205,7 +208,7 @@ def square_road_mouths(work_dir: Path, feats: list[dict], preset_id: str, scale:
             g = g if g.is_valid else g.buffer(0)
             near = [lines[int(k)] for k in tree.query(g)]
             entries = junction_areas.road_mouth_entries(g, near) if near else []
-            new = junction_areas.square_mouths(g, entries, depth) if entries else g
+            new = junction_areas.square_mouths(g, entries, depth, tip_max_m=tip_max, tip_lines=tip_lines) if entries else g
         except (ValueError, TypeError, GEOSException):
             out.append(f)
             continue
