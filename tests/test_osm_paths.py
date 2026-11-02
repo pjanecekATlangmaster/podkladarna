@@ -518,8 +518,10 @@ def test_osm_priority_overpass_includes_barriers():
     assert "street_lamp" in ql_l
     ql_off = _overpass_ql(50.0, 14.0, 50.1, 14.1, osm_priority=False)
     assert "fitness_station" not in ql_off
-    assert "barrier" not in ql_off
-    assert "recreation_ground" not in ql_off
+    assert "gate|bollard" not in ql_off
+    # Ploty, zdi, živé ploty a oplocené areály vždy, i bez dalších objektů (Petr 2026-11-02).
+    assert 'way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]' in ql_off
+    assert "recreation_ground" in ql_off
     # Budovy vždy (doplnky), i bez priority.
     assert 'way["building"]' in ql_off
     assert 'relation["type"="multipolygon"]["building"]' in ql_off
@@ -2844,3 +2846,34 @@ def test_natural_cover_is_not_drawn_feature():
     assert op.is_natural_cover({"landuse": "meadow"}) and op.is_natural_cover({"natural": "wood"})
     assert not op.is_natural_cover({"leisure": "park"})
     assert op.classify_osm_feature({"landuse": "forest"}, geom="way") is None
+
+
+def test_fences_kept_without_osm_objects(tmp_path, monkeypatch):
+    """Ploty a zdi z OSM vždy, pomník a lavička jen se zapnutými dalšími objekty (Petr 2026-11-02)."""
+    import app.pipeline.osm_paths as op
+
+    elements = [
+        {
+            "type": "way",
+            "id": 1,
+            "tags": {"barrier": "fence"},
+            "geometry": [{"lat": 50.0001, "lon": 14.4000}, {"lat": 50.0001, "lon": 14.4010}],
+        },
+        {
+            "type": "way",
+            "id": 2,
+            "tags": {"barrier": "wall"},
+            "geometry": [{"lat": 50.0005, "lon": 14.4000}, {"lat": 50.0005, "lon": 14.4010}],
+        },
+        {"type": "node", "id": 3, "lat": 50.0003, "lon": 14.4005, "tags": {"historic": "memorial"}},
+        {"type": "node", "id": 4, "lat": 50.0004, "lon": 14.4006, "tags": {"amenity": "bench"}},
+    ]
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: elements)
+    for objects, want in ((False, {"fence", "wall"}), (True, {"fence", "wall", "memorial", "bench"})):
+        op.prepare_osm_paths(
+            tmp_path, (14.39, 49.99, 14.41, 50.01), None, preset_id="sprint_4000",
+            include_benches=objects, include_lamps=objects, include_playground_equipment=objects,
+            osm_priority=objects, log=lambda m: None,
+        )
+        feats = json.loads((tmp_path / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))["features"]
+        assert {f["properties"].get("kind") for f in feats} == want

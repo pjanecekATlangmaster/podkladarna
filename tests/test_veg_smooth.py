@@ -159,3 +159,20 @@ def test_shaped_parts_memo_shared_by_maps(tmp_path, monkeypatch):
     shp.write_bytes(b"placeholder, nova data")
     vg.build_vegetation_parts(tmp_path, preset_id="forest_10000", **kw)
     assert calls == [1, 2, 1]
+
+
+@pytest.mark.parametrize(
+    ("opts", "want"),
+    [
+        ({}, False),
+        ({"kp_osm_objects": True}, True),
+        ({"kp_osm_objects": "0", "kp_osm_benches": True}, False),
+        ({"kp_osm_lamps": True}, True),  # starší job / API
+        ({"kp_osm_furniture": "1"}, True),
+        ({"kp_osm_priority": True}, False),  # „OSM detaily“ zrušeny, ploty a zdi vždy
+    ],
+)
+def test_resolve_osm_objects(opts, want):
+    from app.pipeline.job_options import resolve_osm_objects
+
+    assert resolve_osm_objects(opts) is want

@@ -54,7 +54,9 @@ from app.pipeline.job_options import (
     resolve_cliff_sensitivity,
     resolve_formline_mode,
     resolve_vege_height,
+    resolve_osm_objects,
     resolve_use_dtm,
+    OSM_OBJECTS_LEGACY_KEYS,
     resolve_contour_smooth,
     resolve_veg_smooth,
 )
@@ -794,12 +796,15 @@ async def api_create_job(request: Request):
     def _opt_bool(key: str) -> bool:
         return _form_str(form, key).strip().lower() in {"1", "true", "yes", "on"}
 
-    options["kp_osm_benches"] = _opt_bool("kp_osm_benches")
-    options["kp_osm_lamps"] = _opt_bool("kp_osm_lamps")
-    options["kp_osm_playground_equipment"] = _opt_bool(
-        "kp_osm_playground_equipment"
+    # Jedna volba „Další objekty OSM“; starší klienti API mohou poslat dílčí volby
+    # (lavičky / lampy / herní prvky / kp_osm_furniture) – kterákoli zapne celou skupinu.
+    # kp_osm_priority („OSM detaily“) se ignoruje: ploty a zdi se načítají vždy.
+    options["kp_osm_objects"] = resolve_osm_objects(
+        {
+            key: _form_str(form, key).strip() or None
+            for key in ("kp_osm_objects", *OSM_OBJECTS_LEGACY_KEYS)
+        }
     )
-    options["kp_osm_priority"] = _opt_bool("kp_osm_priority")
     # Pevný default (bez volby ve formuláři): footway jako zpevněný chodník jen ve sprintu.
     options["kp_osm_footway_as_sidewalk"] = default_footway_as_sidewalk(
         options.get("map_scale"),
@@ -832,10 +837,6 @@ async def api_create_job(request: Request):
     # Ostatní plocha v sídlech: volba z GUI i formuláře odebrána (Petr 2026-10-31),
     # pipeline bere výchozí "small" (resolve_ostatni_plocha); parametr zůstává pro návrat.
     options["ostatni_plocha_as_403"] = _opt_bool("ostatni_plocha_as_403")
-    # Zpětná kompatibilita starého checkboxu.
-    if _opt_bool("kp_osm_furniture"):
-        options["kp_osm_benches"] = True
-        options["kp_osm_lamps"] = True
     mode_raw = _form_str(form, "output_mode").strip().lower()
     if mode_raw in {"png", "png_only"}:
         options["output_zip"] = False
@@ -922,9 +923,7 @@ async def api_create_job(request: Request):
         f"pomocné vrstevnice {_FORMLINE_LABEL[resolve_formline_mode(options)]}"
     )
     log(
-        f"  OSM: lavičky {_yn('kp_osm_benches')} · lampy {_yn('kp_osm_lamps')} · "
-        f"herní prvky {_yn('kp_osm_playground_equipment')} · "
-        f"priorita OSM {_yn('kp_osm_priority')} · "
+        f"  OSM: další objekty {'ano' if resolve_osm_objects(options) else 'ne'} · ploty a zdi vždy · "
         f"footway jako chodník {_yn('kp_osm_footway_as_sidewalk')}"
     )
     log(

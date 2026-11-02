@@ -528,16 +528,21 @@ def _overpass_ql(
             f'relation["type"="multipolygon"]["building"]({bbox});',
         ]
     )
+    # Ploty, zdi, živé ploty vždy (Petr 2026-11-02) – bez volby, v každém presetu.
+    parts.extend(
+        [
+            f'way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]({bbox});',
+            # Areály (recreation_ground…) – plot po vnějším obrysu, ne výplň.
+            f'way["landuse"~"^({"|".join(sorted(_FENCED_COMPOUND_LANDUSE))})$"]({bbox});',
+            f'relation["type"="multipolygon"]["landuse"~"^({"|".join(sorted(_FENCED_COMPOUND_LANDUSE))})$"]({bbox});',
+        ]
+    )
     if osm_priority:
-        # Hlavně sprint / urban: ploty, zdi, brány, přístřešky, pomníky, fitness…
+        # Další objekty OSM (jedna volba s lavičkami a lampami): brány, přístřešky, pomníky, fitness…
         parts.extend(
             [
-                f'way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]({bbox});',
                 f'node["barrier"~"^(gate|bollard|stile|cycle_barrier|block|lift_gate)$"]({bbox});',
                 f'way["barrier"~"^(gate|bollard|stile|cycle_barrier|block|lift_gate)$"]({bbox});',
-                # Areály (recreation_ground…) – plot po vnějším obrysu, ne výplň.
-                f'way["landuse"~"^({"|".join(sorted(_FENCED_COMPOUND_LANDUSE))})$"]({bbox});',
-                f'relation["type"="multipolygon"]["landuse"~"^({"|".join(sorted(_FENCED_COMPOUND_LANDUSE))})$"]({bbox});',
                 f'node["historic"~"^(memorial|monument)$"]({bbox});',
                 f'way["historic"~"^(memorial|monument)$"]({bbox});',
                 f'node["man_made"="cross"]({bbox});',
@@ -954,12 +959,9 @@ _CLOSED_AREA_KINDS = frozenset(
         "scree",
     }
 ) | _PAVED_AREA_KINDS
-# Jen při kp_osm_priority (hlavně sprint urban pack).
+# Jen se zapnutými dalšími objekty OSM (``kp_osm_objects``); ploty, zdi a živé ploty vždy.
 _PRIORITY_KINDS = frozenset(
     {
-        "fence",
-        "wall",
-        "hedge",
         "barrier_point",
         "memorial",
         "shelter",
@@ -1422,7 +1424,7 @@ def classify_osm_feature(
 
     Dřevěný chodník sem nepatří – mapuje se jako běžná pěšina.
     Nábytek filtruje prepare podle include_benches / include_lamps /
-    include_playground_equipment. PRIORITY pack (ploty, pomníky, …) podle osm_priority.
+    include_playground_equipment. PRIORITY pack (brány, pomníky, …) podle osm_priority, ploty a zdi vždy.
     Lampy → 530 (kolečko); lavičky/ohniště/herní prvky/… → 531 (křížek).
     """
     leisure = (tags.get("leisure") or "").lower()
