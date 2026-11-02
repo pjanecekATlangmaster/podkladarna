@@ -944,9 +944,7 @@ async def api_create_job(request: Request):
     # Kopie LAZ z předchozího jobu běží až ve workeru (run_job_pipeline),
     # ať odpověď „job založen“ nepřijde až po dlouhém copy.
     if options.get("reused_from"):
-        log(
-            f"Iterace z jobu {options['reused_from']}: LAZ se zkopíruje na začátku běhu."
-        )
+        log("Data LiDAR se převezmou z předchozí mapy.")
 
     def _yn(key: str, default: bool = False) -> str:
         return "ano" if options.get(key, default) else "ne"
