@@ -321,7 +321,7 @@ def expand_bbox_wgs84(
 
 
 class LidarDownload:
-    """Stahování listů SM5 na pozadí: nejdřív všechny DMR (malé), pak DMP po listech.
+    """Stahování listů SM5 na pozadí (souběžně, ``LIDAR_DOWNLOAD_WORKERS``): nejdřív DMR (malé), pak DMP.
 
     ``merge_dmr_dmp`` dostane futures a ořez listu začne, jakmile je jeho soubor stažený
     (místo čekání na všechny listy). Pořadí listů v ``dmr`` / ``dmp`` je jako ``names``."""
@@ -350,7 +350,7 @@ def start_lidar_download(
     *,
     force_refresh: bool = False,
 ) -> LidarDownload:
-    """Ověří výřez a listy (hned, chyby jako dřív) a stahuje LAZ jedním vláknem na pozadí."""
+    """Ověří výřez a listy (hned, chyby jako dřív) a stahuje LAZ na pozadí (souběžně, ``LIDAR_DOWNLOAD_WORKERS``)."""
     west, south, east, north = bbox
     if bbox_exceeds_limit(west, south, east, north):
         width_km, height_km = bbox_size_km(west, south, east, north)
@@ -372,8 +372,11 @@ def start_lidar_download(
     if log:
         log(f"Listy SM5 ({len(names)}): {', '.join(names)}")
 
-    # Jedno vlákno = stejná zátěž ČÚZK i linky jako dřív, jen se stahování překrývá s ořezem.
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lidar-dl")
+    # Několik souběžných spojení (``LIDAR_DOWNLOAD_WORKERS``): jedno spojení na OpenZU je pomalé
+    # a ořez listu čeká jen na svůj soubor. Malé DMR jdou první, pak velké DMP OK.
+    executor = ThreadPoolExecutor(
+        max_workers=settings.LIDAR_DOWNLOAD_WORKERS, thread_name_prefix="lidar-dl"
+    )
     dmr = [
         executor.submit(
             _cached_laz,

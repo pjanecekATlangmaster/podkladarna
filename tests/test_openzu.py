@@ -406,3 +406,28 @@ def test_lidar_workers_from_cpus(monkeypatch):
         assert pl.lidar_workers() == want
     monkeypatch.setenv("PODKLADARNA_LIDAR_WORKERS", "5")
     assert pl.lidar_workers() == 5
+
+
+def test_start_lidar_download_runs_sheets_concurrently(monkeypatch):
+    """DMP OK listy se stahují souběžně (LIDAR_DOWNLOAD_WORKERS), výsledky zůstávají v pořadí listů."""
+    import threading
+    from pathlib import Path
+
+    from app import settings
+    import app.pipeline.fetch_openzu as fo
+
+    names = ["MOST53", "MOST54", "MOST55"]
+    monkeypatch.setattr(settings, "LIDAR_DOWNLOAD_WORKERS", 3)
+    monkeypatch.setattr(fo, "query_sm5_sheets", lambda *a, **k: [{"mapnom": n} for n in names])
+    barrier = threading.Barrier(3, timeout=5)
+
+    def fake_dmp(mapnom, log, *, force_refresh=False):
+        barrier.wait()  # projde jen když běží tři stažení naráz
+        return Path(f"/x/{mapnom}/DMPOK.laz")
+
+    monkeypatch.setattr(fo, "_cached_laz", lambda m, k, u, log, **kw: Path(f"/x/{m}/{k}.laz"))
+    monkeypatch.setattr(fo, "_cached_dmp_laz", fake_dmp)
+    dmr, dmp, got = fo.start_lidar_download((14.40, 50.05, 14.41, 50.06)).wait()
+    assert got == names
+    assert [p.parent.name for p in dmp] == names
+    assert [p.name for p in dmr] == ["DMR5G.laz"] * 3
