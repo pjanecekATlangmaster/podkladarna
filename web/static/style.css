@@ -952,3 +952,9 @@ footer {
 }
 
 footer a { color: var(--green); }
+
+.detail-sources { margin: 0.35rem 0 0.6rem; }
+.detail-sources.warn > div:first-child { color: var(--orange); font-weight: 600; }
+.detail-sources .sources-detail { margin-top: 0.25rem; font-size: 0.85em; }
+.detail-sources .sources-detail > summary { cursor: pointer; color: var(--muted); }
+.detail-sources .sources-detail code { white-space: normal; word-break: break-word; }

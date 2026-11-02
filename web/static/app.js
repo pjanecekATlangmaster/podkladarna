@@ -510,11 +510,7 @@ async function loadJobs() {
       timingEl.textContent = jobTimingText(selected);
       timingEl.classList.toggle("hidden", !timingEl.textContent);
     }
-    const sourcesEl = document.getElementById("detail-sources");
-    if (sourcesEl) {
-      sourcesEl.textContent = jobSourcesText(selected);
-      sourcesEl.classList.toggle("hidden", !sourcesEl.textContent);
-    }
+    renderJobSources(document.getElementById("detail-sources"), selected);
     setJobActionLinks(selected);
     const img = document.getElementById("detail-img");
     // Privátní: náhled PNG jen e-mailem, na webu nikdy.
@@ -658,18 +654,28 @@ function jobTimingText(job) {
   return start ? `Zařazeno ${start}` : "";
 }
 
-function jobSourcesText(job) {
+/** „před 61 dny“ – stáří stažení podkladů v době zpracování jobu. */
+function daysAgoText(days) {
+  const d = Math.round(days);
+  if (d <= 0) return "v den zpracování";
+  if (d === 1) return "den před zpracováním";
+  return `${d} dní před zpracováním`;
+}
+
+/**
+ * Výšková data (LiDAR ČÚZK) u jobu srozumitelně pro uživatele.
+ * Vrací { level: "ok" | "warn", lines: [...], detail } nebo null;
+ * detail je původní technický popis (rozbalovací blok pro diagnostiku).
+ */
+function jobSourcesInfo(job) {
   const meta = job.source_meta;
-  if (!meta && !job.dmp_mode) return "";
+  if (!meta && !job.dmp_mode) return null;
   const mode = job.dmp_mode || (meta && meta.dmp_mode);
+  const degraded = !!(job.dmp_degraded || (meta && meta.dmp_degraded));
   let dmpLabel = "DMP ?";
   if (mode === "ok") dmpLabel = "DMP OK";
   else if (mode === "1g") dmpLabel = "DMP 1G";
   else if (mode === "mixed") dmpLabel = "DMP OK+1G";
-  const parts = [dmpLabel];
-  if (job.dmp_degraded || (meta && meta.dmp_degraded)) {
-    parts.push("degradace 1G viditelná");
-  }
   const sheets = (meta && meta.sheets) || [];
   const ages = [];
   for (const sheet of sheets) {
@@ -678,14 +684,62 @@ function jobSourcesText(job) {
     if (dmr != null) ages.push(dmr);
     if (dmp != null) ages.push(dmp);
   }
-  if (ages.length) {
-    const maxAge = Math.max(...ages);
-    parts.push(`cache ~${Math.round(maxAge)} d`);
-  } else if (sheets.length) {
-    parts.push(`${sheets.length} list${sheets.length === 1 ? "" : "y"} SM5`);
+  const maxAge = ages.length ? Math.max(...ages) : null;
+  const limit = Number(job.lidar_cache_max_age_days) || 180;
+
+  let level = "ok";
+  const lines = [
+    "Výška terénu, stromů a budov je z leteckého laserového skenování ČÚZK.",
+  ];
+  if (degraded || mode === "1g" || mode === "mixed") {
+    level = "warn";
+    lines.unshift(
+      (mode === "mixed" ? "Pro část území" : "Pro toto území") +
+        " nebyla při zpracování dostupná přesná data o výšce stromů a budov," +
+        " použila se starší hrubší náhrada. Porosty a průchodnost mohou být méně přesné." +
+        " Doporučení: vygenerujte mapu znovu za pár dní."
+    );
   }
-  parts.push("epochy = stáří cache, ne pořízení ČÚZK");
-  return parts.join(" · ");
+  if (maxAge != null && (level === "warn" || maxAge > limit)) {
+    lines.push(
+      `Data byla stažena ${daysAgoText(maxAge)}.` +
+        (maxAge > limit
+          ? " Příští mapa tohoto území si je stáhne znovu automaticky."
+          : "")
+    );
+  } else if (maxAge != null) {
+    lines.push(
+      `Data jsou aktuální (stažena ${daysAgoText(maxAge)}; ČÚZK území` +
+        " přeskenovává jen jednou za několik let). Nic není potřeba dělat."
+    );
+  } else if (level === "ok") {
+    lines.push("Data jsou v pořádku, nic není potřeba dělat.");
+  }
+
+  const detail = [dmpLabel];
+  if (degraded) detail.push("degradace 1G viditelná");
+  if (maxAge != null) detail.push(`cache ~${Math.round(maxAge)} d (obnova po ${limit} d)`);
+  if (sheets.length) {
+    detail.push(`listy SM5: ${sheets.map((s) => s.mapnom).filter(Boolean).join(", ")}`);
+  }
+  detail.push("stáří = stažení do cache, ne datum pořízení ČÚZK");
+  return { level, lines, detail: detail.join(" · ") };
+}
+
+function renderJobSources(el, job) {
+  if (!el) return;
+  const info = jobSourcesInfo(job);
+  el.classList.toggle("hidden", !info);
+  el.classList.toggle("warn", !!info && info.level === "warn");
+  if (!info) {
+    el.innerHTML = "";
+    return;
+  }
+  const icon = info.level === "warn" ? "⚠ " : "";
+  el.innerHTML =
+    `<div>${icon}${info.lines.map(escapeHtml).join(" ")}</div>` +
+    `<details class="sources-detail"><summary>Technické podrobnosti</summary>` +
+    `<code>${escapeHtml(info.detail)}</code></details>`;
 }
 
 function setJobActionLinks(job) {
@@ -751,11 +805,7 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
     timingEl.textContent = jobTimingText(job);
     timingEl.classList.toggle("hidden", !timingEl.textContent);
   }
-  const sourcesEl = document.getElementById("detail-sources");
-  if (sourcesEl) {
-    sourcesEl.textContent = jobSourcesText(job);
-    sourcesEl.classList.toggle("hidden", !sourcesEl.textContent);
-  }
+  renderJobSources(document.getElementById("detail-sources"), job);
   if (applyForm) applyJobToForm(job);
   setJobActionLinks(job);
   const img = document.getElementById("detail-img");

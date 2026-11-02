@@ -22,6 +22,7 @@ from app.settings import (
     DB_PATH,
     DOWNLOADS_DIR,
     JOBS_DIR,
+    LIDAR_CACHE_MAX_AGE_DAYS,
     PRIVATE_JOB_RETENTION_HOURS,
 )
 
@@ -597,4 +598,5 @@ def _row_to_job(
         job["source_meta"] = source_meta
         job["dmp_mode"] = source_meta.get("dmp_mode")
         job["dmp_degraded"] = bool(source_meta.get("dmp_degraded"))
+        job["lidar_cache_max_age_days"] = LIDAR_CACHE_MAX_AGE_DAYS
     return job
