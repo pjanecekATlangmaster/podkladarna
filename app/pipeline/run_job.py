@@ -31,6 +31,7 @@ from app.pipeline.fetch_zabaged import fetch_zabaged_for_bbox
 from app.pipeline.job_options import (
     load_presets,
     resolve_formline_mode,
+    resolve_map_types,
     resolve_vege_height,
     resolve_use_dtm,
     resolve_veg_smooth,
@@ -216,6 +217,7 @@ def job_has_sprint(preset_id: str, options: dict) -> bool:
             load_presets(),
             map_scale=options.get("map_scale"),
             contour_interval=options.get("contour_interval"),
+            map_types=resolve_map_types(options),
         )
     )
 
@@ -551,6 +553,7 @@ def run_job_pipeline(
                     load_presets(),
                     map_scale=options.get("map_scale"),
                     contour_interval=options.get("contour_interval"),
+                    map_types=resolve_map_types(options),
                 )
             )
             if options.get("dtm_fences", True) and dtm_used:
@@ -1119,12 +1122,17 @@ def _package_output(
                 "Sestavuji mapu OOM (vrstevnice, zeleň a polohopis do .omap)",
             )
             tasks: list[DisciplineTask] = []
-            for disc_tag, disc_preset_id, scale in resolve_discipline_presets(
+            disc_list = resolve_discipline_presets(
                 preset_id,
                 presets,
                 map_scale=options.get("map_scale"),
                 contour_interval=options.get("contour_interval"),
-            ):
+                map_types=resolve_map_types(options),
+            )
+            if resolve_map_types(options) and len(disc_list) == 1:
+                only = "MTBO" if disc_list[0][0] == "mtbo" else "les"
+                log(f"OOM: typ mapy – jen {only} (vybráno v GUI)")
+            for disc_tag, disc_preset_id, scale in disc_list:
                 disc_preset = presets.get(disc_preset_id, {})
                 vectorconf = Path(
                     str(disc_preset.get("vectorconf", "zabaged.txt"))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 
 from app.settings import APP_VERSION
 
@@ -356,6 +357,40 @@ def test_map_options(client):
     assert body["contours_by_scale"]["4000"] == [2.0, 2.5, 5.0]
     assert body["contours_by_scale"]["10000"] == [5.0]
     assert body["default_contour_by_scale"]["4000"] == 2.5
+
+
+@pytest.mark.parametrize(
+    "scale, extra, status, expected",
+    [
+        ("10000", {}, 200, ["les"]),
+        ("15000", {}, 200, ["mtbo"]),
+        ("10000", {"map_types": ["les", "mtbo"]}, 200, ["les", "mtbo"]),
+        ("10000", {"map_types": "xyz"}, 400, None),
+    ],
+)
+def test_create_job_map_types(client, monkeypatch, scale, extra, status, expected):
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    data = {
+        "name": "mt-job",
+        "map_scale": scale,
+        "contour_interval": "5",
+        "bbox": "14.40,50.08,14.42,50.09",
+        "output_mode": "png_zip",
+        **extra,
+    }
+    r = client.post("/api/jobs", data=data)
+    assert r.status_code == status
+    if expected is not None:
+        assert r.json()["options"]["map_types"] == expected
 
 
 def test_create_job_with_map_scale(client, monkeypatch):

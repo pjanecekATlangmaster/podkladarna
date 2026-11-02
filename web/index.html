@@ -63,11 +63,24 @@
             <select name="map_scale" id="map_scale" required>
               <option value="" selected disabled>Vyberte měřítko</option>
               <option value="4000">1:4000 (sprint)</option>
-              <option value="7500">1:7500 (les + MTBO)</option>
-              <option value="10000">1:10000 (les + MTBO)</option>
-              <option value="15000">1:15000 (les + MTBO)</option>
+              <option value="7500">1:7500 (les / MTBO)</option>
+              <option value="10000">1:10000 (les / MTBO)</option>
+              <option value="15000">1:15000 (les / MTBO)</option>
             </select>
           </label>
+
+          <div id="map-types-wrap" class="hidden">
+            <span class="field-label">Typ mapy</span>
+            <label class="checkbox-row">
+              <input type="checkbox" name="map_types" id="map_type_les" value="les" />
+              Les
+            </label>
+            <label class="checkbox-row">
+              <input type="checkbox" name="map_types" id="map_type_mtbo" value="mtbo" />
+              MTBO
+            </label>
+            <p class="hint" id="map-types-hint">Každá mapa se skládá zvlášť (~polovina času). Výchozí 1:7500 a 1:10000 les, 1:15000 MTBO; lze obě.</p>
+          </div>
 
           <label>
             Ekvidistance

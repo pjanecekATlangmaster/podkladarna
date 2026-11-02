@@ -112,3 +112,37 @@ def resolve_cliff_sensitivity(options: dict | None) -> str:
 def resolve_formline_mode(options: dict | None) -> str:
     raw = str((options or {}).get("contour_formlines") or "").strip().lower()
     return raw if raw in FORMLINE_MODES else FORMLINE_MODE_DEFAULT
+
+
+# Typy map v lesních měřítkách (1:7500 / 1:10000 / 1:15000): job staví jen vybrané.
+# Sprint (1:4000) je vždy jedna mapa a typ nevolí.
+MAP_TYPES = ("les", "mtbo")
+
+
+def default_map_types(map_scale) -> list[str]:
+    """Výchozí typy map: 1:15000 jen MTBO, jinak jen les."""
+    try:
+        scale = int(float(map_scale))
+    except (TypeError, ValueError):
+        scale = 0
+    return ["mtbo"] if scale == 15000 else ["les"]
+
+
+def parse_map_types(raw_values: list[str]) -> list[str]:
+    """Hodnoty formuláře (i „les,mtbo“) → platné typy v pořadí MAP_TYPES, bez duplikátů."""
+    found: set[str] = set()
+    for raw in raw_values or []:
+        for part in str(raw).split(","):
+            item = part.strip().lower()
+            if item in MAP_TYPES:
+                found.add(item)
+    return [t for t in MAP_TYPES if t in found]
+
+
+def resolve_map_types(options: dict | None) -> list[str] | None:
+    """Typy map z voleb jobu; None = všechny disciplíny (starší joby bez klíče)."""
+    raw = (options or {}).get("map_types")
+    if not isinstance(raw, (list, tuple)):
+        return None
+    types = parse_map_types([str(x) for x in raw])
+    return types or None

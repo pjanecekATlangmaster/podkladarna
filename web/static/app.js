@@ -128,6 +128,36 @@ function formatContourLabel(meters) {
   return `${String(n).replace(".", ",")} m`;
 }
 
+/** Zaškrtnuté typy map (les / mtbo) v pořadí les, mtbo. */
+function selectedMapTypes() {
+  const out = [];
+  for (const t of ["les", "mtbo"]) {
+    const el = document.getElementById(`map_type_${t}`);
+    if (el && el.checked) out.push(t);
+  }
+  return out;
+}
+
+function defaultMapTypes(scale) {
+  return Number(scale) === 15000 ? ["mtbo"] : ["les"];
+}
+
+function setMapTypes(types) {
+  for (const t of ["les", "mtbo"]) {
+    const el = document.getElementById(`map_type_${t}`);
+    if (el) el.checked = types.includes(t);
+  }
+}
+
+/** Při změně měřítka: výchozí typy map a zobrazení bloku (sprint ho nemá). */
+function applyMapTypeDefaults(scale) {
+  const wrap = document.getElementById("map-types-wrap");
+  if (wrap) wrap.classList.toggle("hidden", !(Number(scale) > 5000));
+  if (Number(scale) > 5000) setMapTypes(defaultMapTypes(scale));
+  updateOutputHints();
+  updateSubmitButtonLabel();
+}
+
 function disciplinesForScale(scale) {
   const s = Number(scale);
   if (s === 4000) {
@@ -136,23 +166,14 @@ function disciplinesForScale(scale) {
       text: "1× .omap: jen sprint (ISSprOM)",
     };
   }
-  if (s === 7500) {
-    return {
-      count: 2,
-      text: "2× .omap: les + MTBO (oba 1:7500) — bez sprintu",
-    };
-  }
-  if (s === 10000) {
-    return {
-      count: 2,
-      text: "2× .omap: les + MTBO (1:10000)",
-    };
-  }
-  if (s === 15000) {
-    return {
-      count: 2,
-      text: "2× .omap: les + MTBO (1:15000)",
-    };
+  if (s === 7500 || s === 10000 || s === 15000) {
+    const types = selectedMapTypes();
+    if (!types.length) {
+      return { count: 0, text: "Vyberte alespoň jeden typ mapy (les nebo MTBO)." };
+    }
+    const names = types.map((t) => (t === "mtbo" ? "MTBO" : "les")).join(" + ");
+    const tail = s === 7500 && types.length === 2 ? " (oba 1:7500) — bez sprintu" : ` (1:${s})`;
+    return { count: types.length, text: `${types.length}× .omap: ${names}${tail}` };
   }
   return { count: 0, text: "Vyberte měřítko — ukáže se, kolik omapů vznikne." };
 }
@@ -171,7 +192,10 @@ function jobScaleLabel(job) {
     const cTxt = Number.isInteger(contour)
       ? String(contour)
       : String(contour).replace(".", ",");
-    return `1:${scale} · ${cTxt} m`;
+    const mt = Array.isArray(opts.map_types) && scale > 5000
+      ? ` · ${opts.map_types.map((t) => (t === "mtbo" ? "MTBO" : "les")).join(" + ")}`
+      : "";
+    return `1:${scale} · ${cTxt} m${mt}`;
   }
   return job.preset_id || "?";
 }
@@ -250,11 +274,22 @@ async function loadMapOptions() {
     scaleSel.value = "10000";
   }
   rebuildContourOptions();
+  if (scaleSel) applyMapTypeDefaults(scaleSel.value);
   if (scaleSel) {
     scaleSel.addEventListener("change", () => {
       const scale = Number(scaleSel.value);
       rebuildContourOptions(mapOptions.default_contour_by_scale[scale]);
+      applyMapTypeDefaults(scale);
     });
+  }
+  for (const t of ["les", "mtbo"]) {
+    const el = document.getElementById(`map_type_${t}`);
+    if (el) {
+      el.addEventListener("change", () => {
+        updateOutputHints();
+        updateSubmitButtonLabel();
+      });
+    }
   }
 }
 
@@ -808,6 +843,10 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     if (form.map_scale) form.map_scale.focus();
     return;
   }
+  if (Number(form.map_scale.value) > 5000 && !selectedMapTypes().length) {
+    showFormError("Vyberte alespoň jeden typ mapy (les nebo MTBO).");
+    return;
+  }
   if (!form.contour_interval || !form.contour_interval.value) {
     showFormError("Vyberte ekvidistanci.");
     if (form.contour_interval) form.contour_interval.focus();
@@ -1290,6 +1329,16 @@ function applyJobToForm(job) {
     if (match) scaleSel.value = match.value;
   }
   rebuildContourOptions(opts.contour_interval);
+  // Typy map: starší joby bez klíče stavěly obě; programové nastavení `change` nevyvolá.
+  applyMapTypeDefaults(scale);
+  if (scale > 5000) {
+    const saved = Array.isArray(opts.map_types)
+      ? opts.map_types.filter((t) => t === "les" || t === "mtbo")
+      : [];
+    setMapTypes(saved.length ? saved : ["les", "mtbo"]);
+    updateOutputHints();
+    updateSubmitButtonLabel();
+  }
   const formlines = form.contour_formlines;
   if (formlines) {
     const flVal = opts.contour_formlines || "off";
@@ -1457,13 +1506,17 @@ function selectedEstimateMinutes() {
     const dtm = dtmSel ? dtmSel.value : "auto";
     const sprint = Number(scale.value) <= 5000;
     const useDtm = dtm === "1" || (dtm === "auto" && sprint);
-    mins = Math.ceil((wantRefs ? base.refs : base.plain) + maps[scale.value][useDtm ? "dtm" : "nodtm"]);
+    // Serverový odhad počítá u lesních měřítek obě mapy; platí lineárně v počtu map.
+    const share = sprint ? 1 : selectedMapTypes().length / 2;
+    mins = Math.ceil(
+      (wantRefs ? base.refs : base.plain) + maps[scale.value][useDtm ? "dtm" : "nodtm"] * share
+    );
   }
   // Georef GeoTIFF @ 300 DPI podle měřítka (sprint 1 varianta, les + MTBO 2).
   const georef = document.getElementById("output_georef");
   const byScale = lastSheets.estimate_georef_minutes;
   if (georef && georef.checked && byScale && scale && byScale[scale.value] != null) {
-    mins += byScale[scale.value];
+    mins += Math.ceil(byScale[scale.value] * (Number(scale.value) > 5000 ? selectedMapTypes().length / 2 : 1));
   }
   return mins;
 }
