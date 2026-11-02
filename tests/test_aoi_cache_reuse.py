@@ -382,6 +382,36 @@ def test_lidar_pair_paths_multi_and_single_sheet(tmp_path: Path):
     assert lidar_pair_paths(lidar)[1] == lidar / "dmp_veg_0.laz"
 
 
+def test_lidar_veg_parts_order_and_cache_roundtrip(tmp_path: Path, monkeypatch, bbox):
+    """DMP ořezy listů bez sloučení (3.8.12): pořadí listů (2 < 10), veg_merged má přednost, cache uloží všechny."""
+    from app import settings
+    from app.download_cache import lidar_point_files, lidar_veg_parts, read_meta
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    src = tmp_path / "job1" / "lidar"
+    src.mkdir(parents=True)
+    (src / "ground_merged.laz").write_bytes(b"g" * 2000)
+    for i in (10, 2, 0):
+        (src / f"dmp_veg_{i}.laz").write_bytes(bytes([i]) * (2000 + i))
+    names = ["dmp_veg_0.laz", "dmp_veg_2.laz", "dmp_veg_10.laz"]
+    assert [p.name for p in lidar_veg_parts(src)] == names
+    assert [p.name for p in lidar_point_files(src)] == ["ground_merged.laz", *names]
+
+    cache = lidar_crop_cache_dir(bbox, scalefactor=1.0, sheet_ids=["A", "B", "C"])
+    (cache).mkdir(parents=True, exist_ok=True)
+    (cache / "veg_merged.laz").write_bytes(b"old" * 1000)  # starší cache téže AOI
+    persist_lidar_crop(cache, src, bbox_wgs84=bbox, sheet_ids=["A", "B", "C"], scalefactor=1.0)
+    assert read_meta(cache)["veg_parts"] == names
+    assert not (cache / "veg_merged.laz").exists()
+    dest = tmp_path / "job2" / "lidar"
+    assert try_restore_lidar_crop(cache, dest) == dest / "ground_merged.laz"
+    assert [p.stat().st_size for p in lidar_veg_parts(dest)] == [2000, 2002, 2010]
+
+    # Starší job se sloučeným DMP: čte se jen veg_merged.
+    (src / "veg_merged.laz").write_bytes(b"m" * 5000)
+    assert lidar_veg_parts(src) == [src / "veg_merged.laz"]
+
+
 def test_lidar_crop_single_sheet_pair_roundtrip(tmp_path: Path, monkeypatch, bbox):
     """Jednolistový výřez: cache uloží/obnoví dmr_ground_0 + dmp_veg_0 pod stejnými jmény."""
     from app import settings

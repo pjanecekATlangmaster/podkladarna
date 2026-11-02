@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+
+import pytest
 from unittest.mock import patch
 
 from app.pipeline.dem_prep import (
@@ -43,12 +45,23 @@ def test_prepare_job_surfaces_dem_only(tmp_path: Path):
     assert (dem_work_dir(work) / "dem_meta.json").is_file()
 
 
-def test_prepare_job_surfaces_with_chm(tmp_path: Path):
+@pytest.mark.parametrize(
+    "veg_files, surface_name, dsm_input",
+    [
+        (["veg_merged.laz"], "veg_merged.laz", "veg_merged.laz"),  # starší joby / cache
+        # 3.8.12: DMP ořezy listů bez sloučení → DSM z několika readerů v pořadí listů
+        (["dmp_veg_10.laz", "dmp_veg_0.laz", "dmp_veg_2.laz"], "dmp_veg_0.laz+dmp_veg_2.laz+dmp_veg_10.laz",
+         ["dmp_veg_0.laz", "dmp_veg_2.laz", "dmp_veg_10.laz"]),
+    ],
+)
+def test_prepare_job_surfaces_with_chm(tmp_path: Path, veg_files, surface_name, dsm_input):
     work = tmp_path / "work"
     lidar = work / "lidar"
     lidar.mkdir(parents=True)
     (lidar / "ground_merged.laz").write_bytes(b"laz" * 400)
-    (lidar / "veg_merged.laz").write_bytes(b"veg" * 400)
+    for name in veg_files:
+        (lidar / name).write_bytes(b"veg" * 400)
+    dsm_inputs: list[object] = []
 
     pdal_calls: list[tuple[str, dict]] = []
     chm_inputs: list[str] = []
@@ -56,6 +69,8 @@ def test_prepare_job_surfaces_with_chm(tmp_path: Path):
 
     def fake_pdal(laz, bounds, dest, *, resolution_m=1.0, log=None, **kw):
         pdal_calls.append((dest.name, kw))
+        if dest.name == "dsm_raw.tif":
+            dsm_inputs.append([p.name for p in laz] if isinstance(laz, list) else laz.name)
         dest.write_bytes(b"tif" * 200)
 
     def fake_fill(src, dest, *, log=None):
@@ -80,7 +95,8 @@ def test_prepare_job_surfaces_with_chm(tmp_path: Path):
     assert result.dsm_filled is None
     assert not (dem_work_dir(work) / "dsm_filled.tif").exists()
     assert result.chm is not None and result.chm.is_file()
-    assert result.surface_laz == "veg_merged.laz"
+    assert result.surface_laz == surface_name
+    assert dsm_inputs == [dsm_input]
     # DSM na mřížce DEM; CHM z raw DSM (ne fillnodata přes louky)
     assert dict(pdal_calls)["dsm_raw.tif"] == {"grid": (0.0, 0.0, 10, 10)}
     assert chm_inputs == ["dsm_raw.tif"]
@@ -154,3 +170,26 @@ def test_gdal_chm_open_cells_are_zero_not_interpolated(tmp_path: Path):
     assert arr[0, 1] == 20.0
     assert arr[1, 0] == 0.0
     assert arr[1, 1] == nodata
+
+
+def test_pdal_dem_from_laz_streams_several_readers(tmp_path: Path, monkeypatch):
+    """Seznam ořezů listů → jeden pipeline: readery v pořadí, crop, writers.gdal max (jako sloučený LAZ)."""
+    import json
+
+    from app.pipeline import reference_layers
+
+    seen: list[dict] = []
+
+    def fake_run(cmd, **kw):
+        seen.append(json.loads(Path(cmd[2]).read_text(encoding="utf-8")))
+
+    monkeypatch.setattr(reference_layers, "run_cmd", fake_run)
+    monkeypatch.setattr(reference_layers, "find_tool", lambda _n: "pdal")
+    parts = [tmp_path / "dmp_veg_0.laz", tmp_path / "dmp_veg_1.laz"]
+    reference_layers._pdal_dem_from_laz(
+        parts, (0.0, 0.0, 10.0, 10.0), tmp_path / "dsm.tif", resolution_m=1.0, grid=(0.0, 0.0, 10, 10)
+    )
+    steps = seen[0]["pipeline"]
+    assert steps[:2] == [str(p) for p in parts]
+    assert steps[2]["type"] == "filters.crop"
+    assert steps[3]["type"] == "writers.gdal" and steps[3]["output_type"] == "max"

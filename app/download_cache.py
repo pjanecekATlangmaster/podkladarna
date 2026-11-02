@@ -386,23 +386,48 @@ def _single_usable(lidar_dir: Path, pattern: str) -> Path | None:
     return usable[0] if len(usable) == 1 else None
 
 
-def lidar_pair_paths(lidar_dir: Path) -> tuple[Path, Path] | None:
-    """Dvojice (ground, veg) LAZ jobu, jak ji nechá ``merge_dmr_dmp``.
+def _part_index(path: Path) -> tuple[int, str]:
+    """``dmp_veg_10.laz`` řadit za ``dmp_veg_2.laz`` (pořadí listů jako při ořezu)."""
+    tail = path.stem.rsplit("_", 1)[-1]
+    return (int(tail), path.name) if tail.isdigit() else (1 << 30, path.name)
 
-    Víc listů → ``ground_merged`` / ``veg_merged``; jediný použitelný list →
-    jeho ořez (``dmr_ground_N`` / ``dmp_veg_N``) bez kopie. Jména zůstávají
-    stejná jako dřív, ať sedí fingerprinty AOI surfaces cache.
+
+def lidar_veg_parts(lidar_dir: Path) -> list[Path]:
+    """DMP (vegetace) LAZ jobu: ``veg_merged`` (starší joby a cache), jinak ořezy listů ``dmp_veg_N``.
+
+    Od 3.8.12 se ořezy DMP neslučují (sloučení = další čtení i zápis všech bodů); DSM i vegetace
+    čtou ořezy listů přímo v pořadí listů. Listy SM5 se nepřekrývají, výsledek je stejný.
     """
+    lidar_dir = Path(lidar_dir)
+    merged = lidar_dir / LIDAR_VEG_MERGED
+    if _laz_usable(merged):
+        return [merged]
+    parts = [p for p in lidar_dir.glob("dmp_veg_*.laz") if _laz_usable(p)]
+    return sorted(parts, key=_part_index)
+
+
+def lidar_point_files(lidar_dir: Path) -> list[Path] | None:
+    """Ground LAZ + všechny DMP části (``lidar_veg_parts``); None = chybí ground nebo DMP."""
     lidar_dir = Path(lidar_dir)
     ground = lidar_dir / LIDAR_GROUND_MERGED
     if not _laz_usable(ground):
         ground = _single_usable(lidar_dir, "dmr_ground_*.laz")
-    veg = lidar_dir / LIDAR_VEG_MERGED
-    if not _laz_usable(veg):
-        veg = _single_usable(lidar_dir, "dmp_veg_*.laz")
-    if ground is None or veg is None:
+    veg = lidar_veg_parts(lidar_dir)
+    if ground is None or not veg:
         return None
-    return ground, veg
+    return [ground, *veg]
+
+
+def lidar_pair_paths(lidar_dir: Path) -> tuple[Path, Path] | None:
+    """(ground, první DMP část) LAZ jobu, jak je nechá ``merge_dmr_dmp``; None = nepoužitelné.
+
+    Víc listů → ``ground_merged`` + ořezy ``dmp_veg_N`` (všechny vrací ``lidar_point_files``);
+    starší joby ``veg_merged``; jediný list → jeho ořezy bez kopie.
+    """
+    files = lidar_point_files(lidar_dir)
+    if files is None:
+        return None
+    return files[0], files[1]
 
 
 def try_restore_lidar_crop(
@@ -427,17 +452,18 @@ def try_restore_lidar_crop(
     pair = meta.get("pair") or [LIDAR_GROUND_MERGED, LIDAR_VEG_MERGED]
     if not isinstance(pair, list) or len(pair) != 2:
         return None
-    ground_name, veg_name = (str(n) for n in pair)
+    ground_name = str(pair[0])
+    # Od 3.8.12 víc DMP částí (``veg_parts``); starší cache jen ``pair[1]``.
+    veg_names = meta.get("veg_parts") or [pair[1]]
+    if not isinstance(veg_names, list) or not veg_names:
+        return None
+    veg_names = [str(n) for n in veg_names]
     if not is_fresh(cache_dir, cache_dir / ground_name, age_limit, min_size=LIDAR_MIN_BYTES):
         return None
-    if not _laz_usable(cache_dir / veg_name):
+    if not all(_laz_usable(cache_dir / n) for n in veg_names):
         return None
-    _copy_named_artifacts(
-        cache_dir,
-        lidar_work,
-        (ground_name, veg_name),
-        required=(ground_name, veg_name),
-    )
+    names = (ground_name, *veg_names)
+    _copy_named_artifacts(cache_dir, lidar_work, names, required=names)
     # KP merged_crop ze starší cache už nic nečte – uvolni místo.
     for name in LEGACY_MERGED_LAZ_NAMES:
         (cache_dir / name).unlink(missing_ok=True)
@@ -460,11 +486,15 @@ def persist_lidar_crop(
     scalefactor: float | None = None,
     log=None,
 ) -> None:
-    pair = lidar_pair_paths(lidar_work)
-    if pair is None:
+    files = lidar_point_files(lidar_work)
+    if files is None:
         return
-    ground, veg = pair
-    copied = _copy_named_artifacts(lidar_work, cache_dir, (ground.name, veg.name))
+    ground, veg_parts = files[0], files[1:]
+    veg = veg_parts[0]
+    copied = _copy_named_artifacts(lidar_work, cache_dir, tuple(p.name for p in files))
+    if veg.name != LIDAR_VEG_MERGED:
+        # Starší sloučený DMP téže AOI by jen zabíral místo (čte se ``veg_parts``).
+        (cache_dir / LIDAR_VEG_MERGED).unlink(missing_ok=True)
     # Uvolni místo po KP merged_crop ze starší cache stejné AOI.
     for name in LEGACY_MERGED_LAZ_NAMES:
         (cache_dir / name).unlink(missing_ok=True)
@@ -476,6 +506,7 @@ def persist_lidar_crop(
         scalefactor=scalefactor,
         files=copied,
         pair=[ground.name, veg.name],
+        veg_parts=[p.name for p in veg_parts],
         ground_fp=file_fingerprint(ground),
         veg_fp=file_fingerprint(veg),
         merged_fp=None,

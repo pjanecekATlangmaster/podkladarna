@@ -715,7 +715,7 @@ def _fill_dem_nodata(src: Path, dest: Path, *, log: callable | None = None) -> P
 
 
 def _pdal_dem_from_laz(
-    laz: Path,
+    laz: Path | list[Path],
     bounds: tuple[float, float, float, float],
     dest_tif: Path,
     *,
@@ -727,11 +727,15 @@ def _pdal_dem_from_laz(
 
     Bez ní writers.gdal odvodí extent z bodů, takže DEM a DSM z různých LAZ
     mají posunuté počátky (gdal_calc pak odečítá pixel po pixelu ne ty samé).
+
+    ``laz`` může být seznam (ořezy listů): víc readerů do jednoho writeru proudově, stejně jako
+    sloučení v ``prepare_lidar._merge_parts``, jen bez zápisu sloučeného LAZ.
     """
     xmin, ymin, xmax, ymax = bounds
     pdal = find_tool("pdal")
+    sources = laz if isinstance(laz, (list, tuple)) else [laz]
     steps: list[object] = [
-        str(laz),
+        *[str(p) for p in sources],
         {
             "type": "filters.crop",
             "bounds": f"([{xmin},{xmax}],[{ymin},{ymax}])",
