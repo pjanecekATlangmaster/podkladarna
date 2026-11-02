@@ -33,6 +33,7 @@ from app.pipeline.job_options import (
     resolve_formline_mode,
     resolve_map_types,
     resolve_vege_height,
+    resolve_osm_objects,
     resolve_use_dtm,
     resolve_veg_smooth,
     resolve_contour_smooth,
@@ -491,6 +492,7 @@ def run_job_pipeline(
     sheet_names: list[str] = []
     lidar_download: LidarDownload | None = None
     zabaged_src: Path | None = None
+    osm_objects = resolve_osm_objects(options)
     force_refresh = force_refresh_enabled(options)
 
     want_zip, _ = resolve_want_zip(options)
@@ -518,12 +520,10 @@ def run_job_pipeline(
         try:
             osm_prefetch = start_osm_prefetch(
                 tuple(bbox),
-                include_benches=bool(options.get("kp_osm_benches")),
-                include_lamps=bool(options.get("kp_osm_lamps")),
-                include_playground_equipment=bool(
-                    options.get("kp_osm_playground_equipment")
-                ),
-                osm_priority=bool(options.get("kp_osm_priority")),
+                include_benches=osm_objects,
+                include_lamps=osm_objects,
+                include_playground_equipment=osm_objects,
+                osm_priority=osm_objects,
                 force_refresh=force_refresh,
                 log=background_log(raw_log, OSM_LOG_LABEL),
             )
@@ -872,12 +872,10 @@ def run_job_pipeline(
                 work_dir,
                 tuple(bbox),
                 zabaged_clean,
-                include_benches=bool(options.get("kp_osm_benches")),
-                include_lamps=bool(options.get("kp_osm_lamps")),
-                include_playground_equipment=bool(
-                    options.get("kp_osm_playground_equipment")
-                ),
-                osm_priority=bool(options.get("kp_osm_priority")),
+                include_benches=osm_objects,
+                include_lamps=osm_objects,
+                include_playground_equipment=osm_objects,
+                osm_priority=osm_objects,
                 all_footways_as_sidewalk=bool(
                     options.get("kp_osm_footway_as_sidewalk")
                 ),

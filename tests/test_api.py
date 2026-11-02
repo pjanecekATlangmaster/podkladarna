@@ -571,6 +571,24 @@ def test_create_job_ignores_legacy_use_kp(client, monkeypatch):
     assert "use_kp" not in r1.json()["options"]
 
 
+def test_create_job_osm_objects_option(client, monkeypatch):
+    """Jedna volba „Další objekty OSM“; dílčí volby starších klientů ji zapnou, „OSM detaily“ se ignorují."""
+    from app import main
+
+    monkeypatch.setattr(main, "query_sm5_sheets", lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}])
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
+    base = {"name": "OSM objekty", "map_scale": "4000", "bbox": "14.40,50.08,14.401,50.081"}
+    cases = [({}, False), ({"kp_osm_objects": "1"}, True), ({"kp_osm_lamps": "1"}, True), ({"kp_osm_priority": "1"}, False)]
+    for i, (extra, want) in enumerate(cases):
+        r = client.post("/api/jobs", data={**base, **extra, "bbox": f"14.40,50.08,14.40{i + 1},50.081"})
+        assert r.status_code == 200, r.text
+        opts = r.json()["options"]
+        assert opts["kp_osm_objects"] is want
+        assert "kp_osm_priority" not in opts
+
+
 def test_index_html(client):
     r = client.get("/")
     assert r.status_code == 200
@@ -622,7 +640,8 @@ def test_index_html(client):
     assert 'name="sprint_residual_paved"' in html
     assert 'name="sprint_residual_size"' in html
     assert "OSM_residential_zbytek" in html
-    assert "OSM detaily" in html
+    assert "Další objekty OSM" in html and "OSM detaily" not in html
+    assert "kp_osm_priority" not in html and "kp_osm_benches" not in html
     assert "kp_osm_footway_as_sidewalk" not in html
     assert "Dřevěný chodník" not in html
     assert "boardwalk" not in html.lower()

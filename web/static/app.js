@@ -1313,23 +1313,6 @@ function setReuseJob(id) {
   if (el) el.value = id || "";
 }
 
-function updateOsmHintsForScale(scale) {
-  const hint = document.getElementById("osm-priority-hint");
-  const s = Number(scale);
-  if (hint) {
-    if (s === 4000) {
-      hint.textContent =
-        "Sprintový výřez: stáhne ploty, zdi, brány, přístřešky, pomníky… Budovy, chodníky a silnice z DTM kraje (kde je) a OSM.";
-    } else if (s === 7500 || s === 10000 || s === 15000) {
-      hint.textContent =
-        "Les / MTBO: urban pack (ploty, brány…) často zbytečný – spíš vypnout. Studny a hřiště podle nastavení níže.";
-    } else {
-      hint.textContent =
-        "Urban pack z OSM (ploty, zdi, brány, pomníky…). U sprintu užitečné; v lese často vypnout.";
-    }
-  }
-}
-
 function updateResidualPavedControls() {
   const cb = document.getElementById("sprint_residual_paved");
   const opts = document.getElementById("residual-paved-options");
@@ -1415,7 +1398,6 @@ function applyJobToForm(job) {
     else if (!s && !f) dtmSel.value = "0";
     else dtmSel.value = "auto";
   }
-  updateOsmHintsForScale(scaleSel ? scaleSel.value : scale);
   const cliff = form.kp_cliff_symbol;
   if (cliff) {
     let cliffVal = (job.options || {}).kp_cliff_symbol || "auto";
@@ -1442,24 +1424,17 @@ function applyJobToForm(job) {
     }
   }
   updateCliffControls();
-  const benches = form.kp_osm_benches;
-  if (benches) {
-    benches.checked = Boolean(
-      opts.kp_osm_benches || opts.kp_osm_furniture
+  const osmObjects = form.kp_osm_objects;
+  if (osmObjects) {
+    // Starší joby: kterákoli dřívější dílčí volba (lavičky, lampy, herní prvky).
+    osmObjects.checked = Boolean(
+      opts.kp_osm_objects != null
+        ? opts.kp_osm_objects
+        : opts.kp_osm_benches ||
+            opts.kp_osm_lamps ||
+            opts.kp_osm_playground_equipment ||
+            opts.kp_osm_furniture
     );
-  }
-  const lamps = form.kp_osm_lamps;
-  if (lamps) {
-    lamps.checked = Boolean(opts.kp_osm_lamps || opts.kp_osm_furniture);
-  }
-  const playEq = form.kp_osm_playground_equipment;
-  if (playEq) {
-    playEq.checked = Boolean(opts.kp_osm_playground_equipment);
-  }
-  const priority = form.kp_osm_priority;
-  if (priority) {
-    priority.checked =
-      opts.kp_osm_priority == null ? true : Boolean(opts.kp_osm_priority);
   }
   const residualPaved = form.sprint_residual_paved;
   if (residualPaved) {
@@ -1727,13 +1702,6 @@ initBboxMap();
     if (el) el.addEventListener("change", updateSubmitButtonLabel);
   }
   updateSubmitButtonLabel();
-})();
-(() => {
-  const scaleSel = document.getElementById("map_scale");
-  if (!scaleSel) return;
-  const sync = () => updateOsmHintsForScale(scaleSel.value);
-  scaleSel.addEventListener("change", sync);
-  sync();
 })();
 (() => {
   const cliff = document.getElementById("kp_cliff_symbol");

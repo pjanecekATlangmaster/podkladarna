@@ -78,6 +78,28 @@ def _as_bool(raw, default: bool) -> bool:
     return default
 
 
+# Další objekty OSM (lavičky, lampy, herní prvky, brány, pomníky, přístřešky, fitness…): jedna volba
+# `kp_osm_objects` (Petr 2026-11-02, nahradila „OSM detaily“ `kp_osm_priority` a tři dílčí volby).
+# Ploty, zdi a živé ploty z OSM se načítají vždy, na volbě nezávisí.
+OSM_OBJECTS_LEGACY_KEYS = (
+    "kp_osm_benches",
+    "kp_osm_lamps",
+    "kp_osm_playground_equipment",
+    "kp_osm_furniture",
+)
+
+
+def resolve_osm_objects(options: dict | None) -> bool:
+    """Kreslit další objekty OSM? `kp_osm_objects`; starší joby / API: kterákoli z dřívějších dílčích voleb.
+
+    Starý `kp_osm_priority` se ignoruje (byl ve výchozím stavu zapnutý a nesl hlavně ploty, které jsou teď vždy).
+    """
+    opts = options or {}
+    if opts.get("kp_osm_objects") is not None:
+        return _as_bool(opts.get("kp_osm_objects"), False)
+    return any(_as_bool(opts.get(k), False) for k in OSM_OBJECTS_LEGACY_KEYS)
+
+
 def resolve_use_dtm(options: dict | None, preset_id: str) -> bool:
     """Kreslit preset z DTM? Sprint: `dtm_sprint` (výchozí ano); les a MTBO: `dtm_forest` (výchozí ne od 2.43.0,
     Petr 2026-10-27; GUI má jednu volbu `dtm`, která nastaví obě)."""
