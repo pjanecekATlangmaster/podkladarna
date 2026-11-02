@@ -618,7 +618,7 @@ def test_index_html(client):
     assert "48 hodin" in html
     assert "spam" in html
     assert "obvykle hotové do hodiny" in html
-    assert "Webový náhled" in html
+    assert "Webový náhled" not in html
     assert "Jen PNG náhled" not in html
     assert 'name="map_scale"' in html
     assert 'name="contour_interval"' in html

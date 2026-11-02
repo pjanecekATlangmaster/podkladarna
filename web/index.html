@@ -9,6 +9,12 @@
   <link rel="stylesheet" href="/static/leaflet/leaflet.css" />
 </head>
 <body>
+  <div id="mobile-job-bar" class="mobile-job-bar" role="status" aria-live="polite" hidden>
+    <span id="mobile-job-text" class="mobile-job-text"></span>
+    <a id="mobile-job-download" class="mobile-job-link" href="#" hidden>Stáhnout</a>
+    <a id="mobile-job-detail" class="mobile-job-link" href="#">Detail ›</a>
+    <button type="button" id="mobile-job-close" class="mobile-job-close" aria-label="Skrýt lištu" hidden>×</button>
+  </div>
   <header class="header">
     <div class="page-wrap header-inner">
       <img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" />
@@ -20,36 +26,56 @@
   </header>
 
   <main class="page-wrap">
+    <details class="whats-new" id="whats-new" hidden>
+      <summary class="whats-new-summary">
+        <span class="whats-new-badge" id="whats-new-badge">Novinky</span>
+        <span class="whats-new-title" id="whats-new-title">Co je nového</span>
+        <span class="whats-new-meta" id="whats-new-meta"></span>
+        <span class="whats-new-warning" id="whats-new-warning" hidden></span>
+      </summary>
+      <div class="whats-new-body">
+        <p class="whats-new-disclaimer" id="whats-new-disclaimer"></p>
+        <p class="whats-new-lead" id="whats-new-lead"></p>
+        <div class="whats-new-scroll">
+          <ul class="whats-new-list" id="whats-new-list"></ul>
+          <p class="whats-new-lead whats-new-milestones-lead">Plánujeme (záměr, bez termínu):</p>
+          <ul class="whats-new-list whats-new-roadmap">
+            <li><strong>Zpracování ortofota: přesnější hranice porostů, louky a paseky podle ortofota (v provozu od verze 3.3 pro louky 403 a zeleň 408 v lese a MTBO; ladění dál pokračuje)</strong></li>
+            <li><strong>Přesnější rozpoznání porostů (klasifikace), aby hranice šly použít s menším překreslováním</strong></li>
+            <li><strong>Další ladění kresby silnic, křižovatek a zpevněných ploch v lese a MTBO podle zpětné vazby</strong></li>
+          </ul>
+          <p class="whats-new-lead whats-new-milestones-lead" id="whats-new-milestones-lead" hidden></p>
+          <ul class="whats-new-list whats-new-milestones" id="whats-new-milestones"></ul>
+        </div>
+      </div>
+    </details>
     <section class="card about-card">
       <h2>O co jde</h2>
-      <div class="about-body"><!-- PODKLADARNA_ABOUT --></div>
+      <div class="about-body">
+        <p class="about-lead">Vyberte území a typ mapy – za pár minut stáhnete ZIP s mapou pro OpenOrienteering Mapper.</p>
+        <p>
+          Podkladárna sama skládá podklady pro orientační mapy z dat <strong>LiDAR ČÚZK</strong> (DMR&nbsp;5G, DMP&nbsp;OK),
+          <strong>DTM kraje</strong>, <strong>OSM</strong> a <strong>ZABAGED</strong>. Výstupem je ZIP s <code>.omap</code>
+          (OpenOrienteering Mapper) a <code>.ocd</code> (OCAD), georeferencovanými v S-JTSK.
+          Je to <em>pracovní podklad</em>, ne hotová mapa – v Mapperu a v terénu ještě budete upravovat.
+          Podkladárna je experiment, proto ocením zpětnou vazbu.
+        </p>
+        <ol class="about-steps" aria-label="Postup">
+          <li><span class="step-no">1</span> Typ mapy a měřítko</li>
+          <li><span class="step-no">2</span> Výřez</li>
+          <li><span class="step-no">3</span> Spustit</li>
+          <li><span class="step-no">4</span> Stáhnout ZIP</li>
+        </ol>
+        <details class="about-more">
+          <summary>Jak Podkladárna funguje, limity a pravidla</summary>
+          <!-- PODKLADARNA_ABOUT -->
+        </details>
+      </div>
     </section>
 
     <div class="layout">
     <section class="card job-form-card">
-      <details class="whats-new" id="whats-new" hidden>
-        <summary class="whats-new-summary">
-          <span class="whats-new-badge" id="whats-new-badge">Novinky</span>
-          <span class="whats-new-title" id="whats-new-title">Co je nového</span>
-          <span class="whats-new-meta" id="whats-new-meta"></span>
-        </summary>
-        <div class="whats-new-body">
-          <p class="whats-new-disclaimer" id="whats-new-disclaimer"></p>
-          <p class="whats-new-lead" id="whats-new-lead"></p>
-          <div class="whats-new-scroll">
-            <ul class="whats-new-list" id="whats-new-list"></ul>
-            <p class="whats-new-lead whats-new-milestones-lead">Plánujeme (záměr, bez termínu):</p>
-            <ul class="whats-new-list whats-new-roadmap">
-              <li><strong>Zpracování ortofota: přesnější hranice porostů, louky a paseky podle ortofota (v provozu od verze 3.3 pro louky 403 a zeleň 408 v lese a MTBO; ladění dál pokračuje)</strong></li>
-              <li><strong>Přesnější rozpoznání porostů (klasifikace), aby hranice šly použít s menším překreslováním</strong></li>
-              <li><strong>Další ladění kresby silnic, křižovatek a zpevněných ploch v lese a MTBO podle zpětné vazby</strong></li>
-            </ul>
-            <p class="whats-new-lead whats-new-milestones-lead" id="whats-new-milestones-lead" hidden></p>
-            <ul class="whats-new-list whats-new-milestones" id="whats-new-milestones"></ul>
-          </div>
-        </div>
-      </details>
-      <h2>Nový job</h2>
+      <h2>Nová mapa</h2>
       <form id="job-form">
         <div class="form-section">
           <h3 class="form-section-title">Mapa</h3>
@@ -57,6 +83,13 @@
             Název
             <input type="text" name="name" required placeholder="např. Šance sprint" />
           </label>
+
+          <div class="field-label" id="map-kind-label">Typ mapy</div>
+          <div class="map-kind" role="radiogroup" aria-labelledby="map-kind-label">
+            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="sprint" /> <b>Sprint</b><span>město a park, 1:4000</span></label>
+            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="les" checked /> <b>Les</b><span>klasická OB, 1:7500–1:15 000</span></label>
+            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="mtbo" /> <b>MTBO</b><span>mapa pro kolo, 1:10 000 nebo 1:15 000</span></label>
+          </div>
 
           <label>
             Měřítko
@@ -71,18 +104,17 @@
 
           <div id="map-types-wrap" class="hidden">
             <input type="hidden" name="map_types_form" value="1" />
-            <span class="field-label">Typ mapy</span>
             <div class="checkbox-inline">
-              <label class="checkbox-row">
+              <label class="checkbox-row" id="map_type_les_row">
                 <input type="checkbox" name="map_types" id="map_type_les" value="les" />
-                Les
+                <span id="map_type_les_text">Navíc i lesní mapa</span>
               </label>
-              <label class="checkbox-row">
+              <label class="checkbox-row" id="map_type_mtbo_row">
                 <input type="checkbox" name="map_types" id="map_type_mtbo" value="mtbo" />
-                MTBO
+                <span id="map_type_mtbo_text">Navíc i MTBO mapa (stejný výřez, ~+50 % času)</span>
               </label>
             </div>
-            <p class="hint" id="map-types-hint">Každá mapa se skládá zvlášť (~polovina času). Výchozí 1:7500 a 1:10000 les, 1:15000 MTBO; lze obě.</p>
+            <p class="hint" id="map-types-hint">Každá mapa se skládá zvlášť (~polovina času); obě vzniknou ze stejného výřezu.</p>
           </div>
 
           <label>
@@ -96,7 +128,7 @@
 
         <div class="form-section" id="map-mode">
           <h3 class="form-section-title">Výřez</h3>
-          <p class="hint">Dva protilehlé rohy, nebo klik na hotový job vpravo. Hotový výřez doladíte tažením za rohy, křížkem uprostřed ho posunete. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozího jobu se při iteraci znovu použije. Jen Česko. Les a MTBO max 25&nbsp;km² (např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km), sprint 1:4000 max 9&nbsp;km² (např. 3&nbsp;×&nbsp;3&nbsp;km).</p>
+          <p class="hint">Dva protilehlé rohy, nebo v detailu hotové mapy zvolte Použít nastavení a výřez. Hotový výřez doladíte tažením za rohy, křížkem uprostřed ho posunete. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozí mapy se při iteraci znovu použije. Jen Česko. Les a MTBO max 25&nbsp;km² (např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km), sprint 1:4000 max 9&nbsp;km² (např. 3&nbsp;×&nbsp;3&nbsp;km).</p>
           <div id="bbox-map" aria-label="Mapa výřezu"></div>
           <div
             id="bbox-map-resize"
@@ -116,174 +148,179 @@
           <button type="button" class="btn" id="bbox-clear">Vymazat výběr</button>
         </div>
 
-        <div class="form-section">
-          <h3 class="form-section-title">Vrstevnice</h3>
-          <label>
-            Pomocné vrstevnice (103)
-            <select name="contour_formlines" id="contour_formlines">
-              <option value="off" selected>Ne – výchozí</option>
-              <option value="sparse">Střídmě</option>
-              <option value="more">Víc</option>
-              <option value="all">Všude (vodítko jako OCAD)</option>
-            </select>
-          </label>
-          <p class="hint" id="formlines-hint">V polovině ekvidistance. „Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.</p>
-
-          <label>
-            Vyhlazení vrstevnic
-            <select name="contour_smooth" id="contour_smooth">
-              <option value="1" selected>Adaptivní – výchozí</option>
-              <option value="0">Méně vyhlazení (původní)</option>
-            </select>
-          </label>
-          <p class="hint" id="contour-smooth-hint"><b>Adaptivní</b> (doporučeno): v rovině a v zástavbě, kde DMR kreslí drobné zuby a vlnky od šumu, vrstevnice zklidní do plynulých čar; ve svazích a členitém terénu zůstanou stejné jako dřív. Skutečné kupky, žlaby, náspy a valy se nemažou. <b>Méně vyhlazení</b> je původní kresba: vrstevnice věrněji kopírují každý drobný hrbol z laserového skenování, v rovině a mezi domy proto bývají zubaté a neklidné. Zvol ji, když chceš vidět i drobné nerovnosti (např. pro kontrolu v terénu nebo srovnání se starší mapou).</p>
-        </div>
-
-        <div class="form-section">
-          <h3 class="form-section-title">Vegetace a reliéf</h3>
-          <label>
-            Výška vegetace (LiDAR)
-            <select name="kp_vege_height" id="kp_vege_height">
-              <option value="1.5">1,5 m – nízká</option>
-              <option value="2" selected>2 m – výchozí</option>
-              <option value="2.5">2,5 m</option>
-              <option value="3">3 m – vysoká</option>
-            </select>
-          </label>
-          <p class="hint">LiDAR zeleň (<code>greenhigh</code>). Nižší hodnota = víc nízkého porostu jako vegetace.</p>
-
-          <label>
-            Tvar hranic porostů (401–410)
-            <select name="veg_smooth" id="veg_smooth">
-              <option value="0">0 – kostičky 1:1 z rastru (bez úprav)</option>
-              <option value="1" selected>1 – hladké bez posunu hranice – výchozí</option>
-              <option value="2">2 – + zjednodušit drobné výběžky a zátoky (do 6&nbsp;m)</option>
-              <option value="3">3 – + zjednodušit větší drobnosti (do 12&nbsp;m)</option>
-            </select>
-          </label>
-          <p class="hint" id="veg-smooth-hint">Stupeň 1 vyhladí schodky po pixelech (1&nbsp;m) a hranici nechá na místě: posun nejvýš 1,5&nbsp;m, v průměru 0,4&nbsp;m, plocha se nemění. Stupně 2 a 3 navíc zalijí úzké zátoky a ustřihnou úzké výběžky (obrysy korun jednotlivých stromů). Plocha se nepřeleje přes cesty, budovy ani vodu z OSM. Sprint kreslí porosty beze změny.</p>
-
-          <label>
-            Strmé změny reliéfu – symbol
-            <select name="kp_cliff_symbol" id="kp_cliff_symbol">
-              <option value="auto" selected>Automaticky: skála (206) vs. zem (104)</option>
-              <option value="earth_bank">Vše jako zemní sráz (104)</option>
-              <option value="symbol_206">Vše jako skála (206, plocha)</option>
-              <option value="off">Nevykreslovat (ani nepočítat)</option>
-            </select>
-          </label>
-          <p class="hint" id="cliff-symbol-hint">Detektor rozliší strmý schod (skalní plochy 206) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. Samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</p>
-
-          <label id="cliff-sensitivity-label">
-            Citlivost srázů / skal
-            <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
-              <option value="low" selected>Méně citlivé (méně srázů)</option>
-              <option value="normal">Střední (1,8 / 3,4 m)</option>
-              <option value="high">Citlivější (1,4 / 2,8 m)</option>
-              <option value="very_high">Velmi citlivé (více drobných srázů)</option>
-            </select>
-          </label>
-          <p class="hint" id="cliff-sensitivity-hint">Výchozí „méně citlivé“ (cliff1=2,2 m). Vyšší práh = méně falešných zemních srázů. Skalní plochy (206) mají ještě přísnější drop (+0,7 m) a menší footprint (shrink); zamotané 104 a krátké pahýly se filtrují při sestavení OOM.</p>
-        </div>
-
-        <div class="form-section">
-          <h3 class="form-section-title">Zdroje kresby</h3>
-          <label>
-            DTM
-            <select name="dtm" id="dtm">
-              <option value="auto" selected>Podle presetu – sprint z DTM, les a MTBO z OSM + ZABAGED (výchozí)</option>
-              <option value="1">Kresba z DTM, kde je DTM k dispozici (sprint, les i MTBO)</option>
-              <option value="0">Jen OSM + ZABAGED (bez DTM)</option>
-            </select>
-          </label>
-          <p class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou. Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba „Podle presetu“ kreslí sprint z DTM, les a MTBO z OSM + ZABAGED.</p>
-
-          <label class="checkbox-row">
-            <input type="checkbox" name="kp_osm_objects" id="kp_osm_objects" value="1" />
-            Další objekty OSM – lavičky, lampy, pomníky, brány, přístřešky…
-          </label>
-          <p class="hint" id="osm-objects-hint">Drobné objekty z OSM: lavičky, stoly, ohniště, tabule (531), lampy (530), herní prvky na hřišti, brány a sloupky, pomníky a kříže, přístřešky, fitness prvky a památné stromy. Default vypnuto; spíš ve sprintu. Ploty, zdi a živé ploty z OSM se kreslí vždy. Hřiště a pěší zóny jako zpevněná 501, voda 301, orná 412, studny, prameny a mokřady také vždy.</p>
-
-          <div id="residual-paved-wrap">
-            <label class="checkbox-row">
-              <input type="checkbox" name="sprint_residual_paved" id="sprint_residual_paved" value="1" />
-              Zpevněná plocha do mezer v residential (OSM)
+        <details class="advanced-settings" id="advanced-settings">
+          <summary>Upravit nastavení <span class="hint">– výchozí hodnoty jsou doporučené</span><span id="advanced-changed" class="advanced-changed"></span></summary>
+          <p class="advanced-reset"><button type="button" class="link-btn" id="reset-options">Obnovit výchozí nastavení</button></p>
+          <div class="form-section">
+            <h3 class="form-section-title">Vrstevnice</h3>
+            <label>
+              Pomocné vrstevnice (103)
+              <select name="contour_formlines" id="contour_formlines">
+                <option value="off" selected>Ne – výchozí</option>
+                <option value="sparse">Střídmě</option>
+                <option value="more">Víc</option>
+                <option value="all">Všude (vodítko jako OCAD)</option>
+              </select>
             </label>
-            <div id="residual-paved-options" class="hidden">
-              <label>
-                Max. velikost do auto .omap
-                <select name="sprint_residual_size" id="sprint_residual_size">
-                  <option value="small" selected>Jen menší (≤ 500 m²) – výchozí</option>
-                  <option value="medium">Včetně středních (≤ 2000 m²)</option>
-                  <option value="large">I velké (všechny hustě zmapované)</option>
-                </select>
-              </label>
-              <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Ostatní velikosti (a řídké) jsou v&nbsp;ZIPu v&nbsp;<code>osm/</code> k ručnímu importu.</p>
-              <p class="hint" id="residual-paved-hint">
-                Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.
-                Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
-                (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
-                které jinak nekreslíme). Výsledek jde pod silnice.
-                Každý kus se ověří ortofotem (zeleň) a výškou z DMP OK (stromy, nezmapované budovy);
-                kde má residential úplné plochy z DTM, mezery se nekreslí (zpevněné kreslí DTM).
-                Bez ortofota i výšek platí dřívější pravidlo: residential, kde po odečtu zbývá
-                víc než 25&nbsp;%, se nebere. Zahodí se i kusy nad zvolenou max. velikostí.
-                Do ZIPu (<code>osm/</code>) vždy přibudou SHP
-                <code>OSM_residential_zbytek_mensi</code> /
-                <code>_stredni</code> /
-                <code>_velke</code>
-                a <code>_ridke</code> (zeleň, stromy a jinak neověřené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
-                (symbol 501). Heuristika; v OOM jde smazat. Default vypnuto.
-              </p>
-            </div>
+            <div class="hint" id="formlines-hint">V polovině ekvidistance, jen kde ukážou tvar, který vrstevnice minou.<details class="hint-more"><summary>Více</summary> „Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.</details></div>
+
+            <label>
+              Vyhlazení vrstevnic
+              <select name="contour_smooth" id="contour_smooth">
+                <option value="1" selected>Adaptivní – výchozí</option>
+                <option value="0">Méně vyhlazení (původní)</option>
+              </select>
+            </label>
+            <div class="hint" id="contour-smooth-hint"><b>Adaptivní</b> (doporučeno) zklidní zubaté vrstevnice v rovině a v zástavbě; ve svazích zůstanou jako dřív.<details class="hint-more"><summary>Více</summary> Skutečné kupky, žlaby, náspy a valy se nemažou. <b>Méně vyhlazení</b> je původní kresba: vrstevnice věrněji kopírují každý drobný hrbol z laserového skenování, v rovině a mezi domy proto bývají zubaté a neklidné. Zvol ji, když chceš vidět i drobné nerovnosti (např. pro kontrolu v terénu nebo srovnání se starší mapou).</details></div>
           </div>
 
-        </div>
-
-        <div class="form-section">
-          <h3 class="form-section-title">Výstup</h3>
-          <p class="hint" id="output-omap-hint">
-            Primární výstup je <code>.omap</code> (+ <code>.ocd</code> pro OCAD) v ZIPu:
-            vegetace z hustoty LiDAR odrazů (výška porostu, ne průběžnost), srázy z DMR, vrstevnice GDAL.
-            Mapa je georeferencovaná v S-JTSK včetně deklinace a grivace.
-            Webový náhled (Pillow) vzniká až po sestavení mapy — není rychlejší bez ZIPu.
-          </p>
-          <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
-
-          <label class="checkbox-row">
-            <input type="checkbox" name="output_georef" id="output_georef" value="1" />
-            Georeferencovaný GeoTIFF do ZIPu
-          </label>
-          <p class="hint">
-            Volitelně: raster mapy s PGW (± GeoTIFF) přes Mapper CLI @ 300 DPI (web náhled 150 DPI),
-            jinak Pillow fallback. Default vypnuto — šetří čas a velikost ZIPu.
-          </p>
-
-          <label class="checkbox-row">
-            <input type="checkbox" name="output_references" id="output_references" value="1" checked />
-            Referenční PNG šablony (OSM, ZTM, katastr, hillshade, DMP)
-          </label>
-          <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš job a zmenšíš ZIP; katastr se přibalí vždy. Ortofoto se do ZIPu nepřibaluje (velikost), v OOM ho lze připojit jako WMS ČÚZK.</p>
-
-          <details class="advanced-options" id="output-advanced">
-            <summary>Pokročilé (mezipaměť podkladů)</summary>
-            <label class="checkbox-row">
-              <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
-              Znovu stáhnout a spočítat podklady
+          <div class="form-section">
+            <h3 class="form-section-title">Vegetace a reliéf</h3>
+            <label>
+              Výška vegetace (LiDAR)
+              <select name="kp_vege_height" id="kp_vege_height">
+                <option value="1.5">1,5 m – nízká</option>
+                <option value="2" selected>2 m – výchozí</option>
+                <option value="2.5">2,5 m</option>
+                <option value="3">3 m – vysoká</option>
+              </select>
             </label>
-            <p class="hint" id="force-refresh-hint">
-              Při stejném výřezu mapy se obvykle znovu použijí už uložená data
-              (LiDAR, výškový model, stínování…). Zapněte jen když výsledek vypadá
-              jako ze starých nebo poškozených dat, nebo chcete vše stáhnout znovu
-              od ČÚZK — job bude výrazně pomalejší. Běžné změny nastavení
-              (ekvidistance, lavičky…) tuto mezipaměť samy o sobě nezneplatní.
-            </p>
-          </details>
-        </div>
+            <div class="hint">Od jaké výšky brát porost jako zeleň. Nižší = víc zelené.<details class="hint-more"><summary>Více</summary> Technicky LiDAR zeleň (<code>greenhigh</code>).</details></div>
+
+            <label>
+              Tvar hranic porostů (401–410)
+              <select name="veg_smooth" id="veg_smooth">
+                <option value="0">0 – kostičky 1:1 z rastru (bez úprav)</option>
+                <option value="1" selected>1 – hladké bez posunu hranice – výchozí</option>
+                <option value="2">2 – + zjednodušit drobné výběžky a zátoky (do 6&nbsp;m)</option>
+                <option value="3">3 – + zjednodušit větší drobnosti (do 12&nbsp;m)</option>
+              </select>
+            </label>
+            <div class="hint" id="veg-smooth-hint">Vyhladí schodky po pixelech (1&nbsp;m), stupeň 1 nechá hranici na místě.<details class="hint-more"><summary>Více</summary> Stupeň 1: posun nejvýš 1,5&nbsp;m, v průměru 0,4&nbsp;m, plocha se nemění. Stupně 2 a 3 navíc zalijí úzké zátoky a ustřihnou úzké výběžky (obrysy korun jednotlivých stromů). Plocha se nepřeleje přes cesty, budovy ani vodu z OSM. Sprint kreslí porosty beze změny.</details></div>
+
+            <label>
+              Strmé změny reliéfu – symbol
+              <select name="kp_cliff_symbol" id="kp_cliff_symbol">
+                <option value="auto" selected>Automaticky: skála (206) vs. zem (104)</option>
+                <option value="earth_bank">Vše jako zemní sráz (104)</option>
+                <option value="symbol_206">Vše jako skála (206, plocha)</option>
+                <option value="off">Nevykreslovat (ani nepočítat)</option>
+              </select>
+            </label>
+            <div class="hint" id="cliff-symbol-hint"><span id="cliff-symbol-text">Strmý schod = skalní plocha (206), mírnější = zem (104).</span><details class="hint-more"><summary>Více</summary> Detektor rozliší strmý schod (skalní plochy 206) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. Kupky a ďolíky z DEM se kreslí jen v lese (ne ve sprintu a MTBO). Samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</details></div>
+
+            <label id="cliff-sensitivity-label">
+              Citlivost srázů / skal
+              <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
+                <option value="low" selected>Méně citlivé (méně srázů)</option>
+                <option value="normal">Střední (1,8 / 3,4 m)</option>
+                <option value="high">Citlivější (1,4 / 2,8 m)</option>
+                <option value="very_high">Velmi citlivé (více drobných srázů)</option>
+              </select>
+            </label>
+            <div class="hint" id="cliff-sensitivity-hint"><span id="cliff-sensitivity-text">Méně citlivé = jen výrazné srázy, méně falešných.</span><details class="hint-more"><summary>Více</summary> Výchozí „méně citlivé“ (cliff1=2,2 m). Vyšší práh = méně falešných zemních srázů. Skalní plochy (206) mají ještě přísnější drop (+0,7 m) a menší footprint (shrink); zamotané 104 a krátké pahýly se filtrují při sestavení OOM.</details></div>
+          </div>
+
+          <div class="form-section">
+            <h3 class="form-section-title">Zdroje kresby</h3>
+            <label>
+              DTM
+              <select name="dtm" id="dtm">
+                <option value="auto" selected>Podle presetu – sprint z DTM, les a MTBO z OSM + ZABAGED (výchozí)</option>
+                <option value="1">Kresba z DTM, kde je DTM k dispozici (sprint, les i MTBO)</option>
+                <option value="0">Jen OSM + ZABAGED (bez DTM)</option>
+              </select>
+            </label>
+            <div class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou.<details class="hint-more"><summary>Více</summary> Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba „Podle presetu“ kreslí sprint z DTM, les a MTBO z OSM + ZABAGED.</details></div>
+
+            <label class="checkbox-row">
+              <input type="checkbox" name="kp_osm_objects" id="kp_osm_objects" value="1" />
+              Další objekty OSM – lavičky, lampy, pomníky, brány, přístřešky…
+            </label>
+            <div class="hint" id="osm-objects-hint">Drobné objekty z OSM: lavičky, lampy, tabule, pomníky, brány, přístřešky. Výchozí: vypnuto; spíš ve sprintu.<details class="hint-more"><summary>Více</summary> Dále stoly, ohniště, herní prvky na hřišti, sloupky, kříže, fitness prvky a památné stromy. Ploty, zdi a živé ploty z OSM se kreslí vždy. Hřiště a pěší zóny jako zpevněná 501, voda 301, orná 412, studny, prameny a mokřady také vždy.</details></div>
+
+            <div id="residual-paved-wrap">
+              <label class="checkbox-row">
+                <input type="checkbox" name="sprint_residual_paved" id="sprint_residual_paved" value="1" />
+                Doplnit zpevněné plochy v zástavbě (odhad, hlavně sprint)
+              </label>
+              <div id="residual-paved-options" class="hidden">
+                <label>
+                  Největší doplněná plocha v mapě
+                  <select name="sprint_residual_size" id="sprint_residual_size">
+                    <option value="small" selected>Jen menší (≤ 500 m²) – výchozí</option>
+                    <option value="medium">Včetně středních (≤ 2000 m²)</option>
+                    <option value="large">I velké (všechny hustě zmapované)</option>
+                  </select>
+                </label>
+                <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Ostatní velikosti (a řídké) jsou v&nbsp;ZIPu v&nbsp;<code>osm/</code> k ručnímu importu.</p>
+                <div class="hint" id="residual-paved-hint">Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.<details class="hint-more"><summary>Více</summary> Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
+                  (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
+                  které jinak nekreslíme). Výsledek jde pod silnice.
+                  Každý kus se ověří ortofotem (zeleň) a výškou z DMP OK (stromy, nezmapované budovy);
+                  kde má residential úplné plochy z DTM, mezery se nekreslí (zpevněné kreslí DTM).
+                  Bez ortofota i výšek platí dřívější pravidlo: residential, kde po odečtu zbývá
+                  víc než 25&nbsp;%, se nebere. Zahodí se i kusy nad zvolenou max. velikostí.
+                  Do ZIPu (<code>osm/</code>) vždy přibudou SHP
+                  <code>OSM_residential_zbytek_mensi</code> /
+                  <code>_stredni</code> /
+                  <code>_velke</code>
+                  a <code>_ridke</code> (zeleň, stromy a jinak neověřené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
+                  (symbol 501). Heuristika; v OOM jde smazat. Výchozí: vypnuto.</details></div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="form-section">
+            <h3 class="form-section-title">Výstup</h3>
+            <div class="hint" id="output-omap-hint">
+              Hlavní výstup je <code>.omap</code> (+ <code>.ocd</code> pro OCAD) v ZIPu, georeferencovaný v S-JTSK včetně deklinace a grivace.
+              <details class="hint-more"><summary>Více</summary>
+                Vegetace z hustoty LiDAR odrazů (výška porostu, ne průběžnost), srázy z DMR, vrstevnice GDAL.
+              </details>
+            </div>
+            <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
+
+            <label class="checkbox-row">
+              <input type="checkbox" name="output_georef" id="output_georef" value="1" />
+              Georeferencovaný GeoTIFF do ZIPu
+            </label>
+            <div class="hint">
+              Rastr mapy s georeferencí. Vypnuto šetří čas a velikost ZIPu.
+              <details class="hint-more"><summary>Více</summary>
+                Raster mapy s PGW (± GeoTIFF) přes Mapper CLI @ 300 DPI (web náhled 150 DPI), jinak Pillow fallback.
+              </details>
+            </div>
+
+            <label class="checkbox-row">
+              <input type="checkbox" name="output_references" id="output_references" value="1" checked />
+              Referenční PNG šablony (OSM, ZTM, katastr, hillshade, DMP)
+            </label>
+            <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš generování a zmenšíš ZIP; katastr se přibalí vždy. Ortofoto se do ZIPu nepřibaluje (velikost), v OOM ho lze připojit jako WMS ČÚZK.</p>
+
+            <details class="advanced-options" id="output-advanced">
+              <summary>Pokročilé (mezipaměť podkladů)</summary>
+              <label class="checkbox-row">
+                <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
+                Znovu stáhnout a spočítat podklady
+              </label>
+              <div class="hint" id="force-refresh-hint">
+                Při stejném výřezu se obvykle znovu použijí už uložená data. Zapněte jen když výsledek vypadá jako ze starých nebo poškozených dat.
+                <details class="hint-more"><summary>Více</summary>
+                  Uložená jsou např. LiDAR, výškový model, stínování. Chcete-li vše stáhnout znovu
+                  od ČÚZK, generování bude výrazně pomalejší. Běžné změny nastavení
+                  (ekvidistance, lavičky…) tuto mezipaměť samy o sobě nezneplatní.
+                </details>
+              </div>
+            </details>
+          </div>
+        </details>
+        <div id="settings-summary" class="settings-summary" aria-live="polite"></div>
 
         <label class="checkbox-row">
           <input type="checkbox" name="private" id="private" value="1" />
-          Privátní režim generování mapy (nebude veřejně viditelná)
+          Soukromě – mapu uvidíte jen vy, odkaz přijde e-mailem
         </label>
         <div id="private-email-wrap" class="private-email-wrap hidden">
           <label>
@@ -292,47 +329,78 @@
           </label>
           <p class="hint">
             Po dokončení přijde odkaz e-mailem — zkontrolujte i spam složku.
-            Mapa se neobjeví ve veřejném seznamu jobů a náhled/ZIP tu neuvidíte.
+            Mapa se neobjeví ve veřejném seznamu a náhled/ZIP tu neuvidíte.
             Během běhu uvidíte pipeline log stejně jako u veřejných jobů.
-            Odkaz platí 48 hodin. I nejdelší joby jsou obvykle hotové do hodiny.
+            Odkaz platí 48 hodin. I nejdelší mapy jsou obvykle hotové do hodiny.
           </p>
         </div>
 
-        <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
+        <p class="hint submit-ask">Server je sdílený: na první pokus stačí menší výřez a jedno měřítko.</p>
+        <div class="submit-bar">
+          <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
+          <p id="submit-checklist" class="submit-checklist" aria-live="polite"></p>
+        </div>
         <p id="form-notice" class="form-notice hidden" role="status"></p>
         <p id="form-error" class="form-error hidden" role="alert"></p>
       </form>
     </section>
 
     <section class="card jobs-card">
-      <h2>Joby</h2>
+      <h2>Mapy</h2>
       <p id="worker-status" class="worker-status">Načítám stav serveru…</p>
 
       <div id="jobs-view-list" class="jobs-view">
-        <h3 class="jobs-section-title">Běžící a fronta</h3>
+        <div class="jobs-tabs" role="tablist" aria-label="Které mapy zobrazit">
+          <button type="button" role="tab" class="jobs-tab" id="jobs-tab-mine" data-tab="mine" aria-selected="false" tabindex="-1">Moje mapy (0)</button>
+          <button type="button" role="tab" class="jobs-tab" id="jobs-tab-all" data-tab="all" aria-selected="false" tabindex="-1">Všechny veřejné</button>
+        </div>
+        <h3 class="jobs-section-title">Právě se generují</h3>
         <p id="jobs-live-empty" class="jobs-empty hint">Teď nic neběží.</p>
         <div id="jobs-live" class="jobs-list"></div>
 
         <h3 class="jobs-section-title" id="jobs-finished-label">Hotové</h3>
-        <p id="jobs-finished-empty" class="jobs-empty hint hidden">Zatím žádné hotové joby.</p>
+        <p id="jobs-finished-empty" class="jobs-empty hint hidden">Zatím žádné hotové mapy.</p>
         <div id="jobs-list" class="jobs-list"></div>
         <button type="button" class="btn jobs-more hidden" id="jobs-more">Zobrazit starší</button>
       </div>
 
       <div id="jobs-view-detail" class="jobs-view hidden">
-        <button type="button" class="btn jobs-back" id="jobs-back">← Všechny joby</button>
+        <button type="button" class="btn jobs-back" id="jobs-back">← Všechny mapy</button>
         <div id="job-detail" class="job-detail">
           <h3 id="detail-title"></h3>
-          <p id="detail-status"></p>
+          <p id="detail-status" aria-live="polite"></p>
+          <div id="detail-error" class="detail-error hidden">
+            <p id="detail-error-human" class="detail-error-human"></p>
+            <details id="detail-error-tech"><summary>Technický popis</summary><pre id="detail-error-text" class="log"></pre></details>
+          </div>
           <p id="detail-timing" class="hint"></p>
           <div id="detail-sources" class="hint detail-sources hidden"></div>
           <div class="actions">
             <a id="detail-download" class="btn primary" href="#" download>Stáhnout ZIP</a>
             <a id="detail-download-georef" class="btn" href="#" download>Stáhnout georef náhledy</a>
             <a id="detail-preview" class="btn" href="#" target="_blank">Otevřít PNG</a>
+            <button type="button" class="btn primary hidden" id="detail-retry">Zkusit znovu</button>
+            <button type="button" class="btn" id="detail-use-template">Použít nastavení a výřez pro novou mapu</button>
           </div>
+          <div id="detail-next" class="next-steps hidden">
+            <strong>Co dál</strong>
+            <ol>
+              <li>Rozbalte ZIP.</li>
+              <li>V OpenOrienteering Mapperu otevřete <code>*-les.omap</code> / <code>*-sprint.omap</code> / <code>*-mtbo.omap</code> (v OCADu stejnojmenný <code>.ocd</code>).</li>
+              <li>Mapa je georeferencovaná, podklady najdete jako šablony.</li>
+            </ol>
+          </div>
+          <div id="detail-progress" class="job-progress hidden">
+            <p id="detail-progress-text" class="job-progress-text"></p>
+            <div id="detail-meter" class="meter" role="progressbar" aria-label="Průběh generování" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div>
+            <ol id="detail-steps" class="job-steps"></ol>
+          </div>
+          <p id="detail-close-hint" class="hint hidden">Stránku můžete zavřít – mapu najdete v seznamu „Moje mapy“ v tomto prohlížeči.</p>
           <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />
-          <pre id="detail-log" class="log"></pre>
+          <details class="tech-log" id="detail-log-box">
+            <summary>Technický log</summary>
+            <pre id="detail-log" class="log"></pre>
+          </details>
           <details class="feedback-box" id="job-feedback">
             <summary>Napsat zpětnou vazbu</summary>
             <form id="feedback-form" class="feedback-form" novalidate>

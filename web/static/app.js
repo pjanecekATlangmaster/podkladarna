@@ -108,6 +108,10 @@ let sprintMaxAreaKm2 = 9;
 let sheetsLookupSeq = 0;
 let bboxAllowed = false;
 let lastSheets = null;
+// Stav odznaku výřezu na mapě: rozpracovaný (tažení) a chyba dotazu na listy.
+let bboxDraft = null;
+let sheetsError = null;
+let bboxBadgeEl = null;
 let mapOptions = {
   scales: [4000, 7500, 10000, 15000],
   contours_by_scale: {
@@ -140,8 +144,54 @@ function selectedMapTypes() {
   return out;
 }
 
-function defaultMapTypes(scale) {
-  return Number(scale) === 15000 ? ["mtbo"] : ["les"];
+/** Karty „Typ mapy“: povolená měřítka a výchozí měřítko podle typu. */
+const MAP_KIND_SCALES = { sprint: [4000], les: [7500, 10000, 15000], mtbo: [10000, 15000] };
+const MAP_KIND_DEFAULT_SCALE = { sprint: 4000, les: 10000, mtbo: 15000 };
+let allScaleOptions = null;
+
+function currentMapKind() {
+  const el = document.querySelector('input[name="map_kind_ui"]:checked');
+  return el ? el.value : "les";
+}
+
+/** Typ mapy podle měřítka a typů (4000 → sprint; jen mtbo → MTBO; jinak les). */
+function mapKindFor(scale, types) {
+  if (Number(scale) === 4000) return "sprint";
+  if (Array.isArray(types) && types.length === 1 && types[0] === "mtbo") return "mtbo";
+  return "les";
+}
+
+/** Nabídka měřítek jen pro zvolený typ; zachová měřítko, je-li povolené, jinak výchozí. */
+function filterScaleOptions(kind, preferred) {
+  const sel = document.getElementById("map_scale");
+  if (!sel) return;
+  if (!allScaleOptions) allScaleOptions = [...sel.options].filter((o) => o.value);
+  const allowed = MAP_KIND_SCALES[kind] || MAP_KIND_SCALES.les;
+  let want = Number(preferred != null ? preferred : sel.value);
+  if (!allowed.includes(want)) want = MAP_KIND_DEFAULT_SCALE[kind];
+  sel.innerHTML = "";
+  for (const o of allScaleOptions) {
+    if (allowed.includes(Number(o.value))) sel.appendChild(o);
+  }
+  sel.value = String(want);
+}
+
+/** Viditelnost a popisky checkboxů: ten odpovídající kartě je skrytý a zaškrtnutý, druhý je „Navíc“. */
+function updateMapKindUi() {
+  const kind = currentMapKind();
+  for (const t of ["les", "mtbo"]) {
+    document.getElementById(`map_type_${t}_row`)?.classList.toggle("hidden", t === kind);
+  }
+}
+
+/** Přepnutí karty: přefiltruje měřítka a spustí stejnou logiku jako ruční změna měřítka. */
+function setMapKind(kind, preferredScale) {
+  const radio = document.querySelector(`input[name="map_kind_ui"][value="${kind}"]`);
+  if (radio) radio.checked = true;
+  filterScaleOptions(kind, preferredScale);
+  const scale = Number(document.getElementById("map_scale").value);
+  rebuildContourOptions(mapOptions.default_contour_by_scale[scale]);
+  applyMapTypeDefaults(scale);
 }
 
 function setMapTypes(types) {
@@ -155,7 +205,13 @@ function setMapTypes(types) {
 function applyMapTypeDefaults(scale) {
   const wrap = document.getElementById("map-types-wrap");
   if (wrap) wrap.classList.toggle("hidden", !(Number(scale) > 5000));
-  if (Number(scale) > 5000) setMapTypes(defaultMapTypes(scale));
+  // Typ mapy z karty má přednost před výchozím podle měřítka; druhý typ zůstává, jak je.
+  if (Number(scale) > 5000) {
+    const kind = currentMapKind();
+    const el = document.getElementById(`map_type_${kind === "mtbo" ? "mtbo" : "les"}`);
+    if (el) el.checked = true;
+  }
+  updateMapKindUi();
   // Mezery v residential kreslí jen sprint (les a MTBO je nepoužijí).
   const residualWrap = document.getElementById("residual-paved-wrap");
   if (residualWrap) residualWrap.classList.toggle("hidden", Number(scale) !== 4000);
@@ -280,8 +336,19 @@ async function loadMapOptions() {
   if (scaleSel && !scaleSel.value) {
     scaleSel.value = "10000";
   }
+  // Výchozí karta podle dnešního výchozího měřítka (10000 → Les).
+  filterScaleOptions(currentMapKind(), scaleSel ? scaleSel.value : null);
   rebuildContourOptions();
   if (scaleSel) applyMapTypeDefaults(scaleSel.value);
+  for (const r of document.querySelectorAll('input[name="map_kind_ui"]')) {
+    r.addEventListener("change", () => {
+      if (r.checked) {
+        setMapTypes([]);
+        // Klik na kartu = výchozí měřítko typu (MTBO 1:15 000, les 1:10 000).
+        setMapKind(r.value, MAP_KIND_DEFAULT_SCALE[r.value]);
+      }
+    });
+  }
   if (scaleSel) {
     scaleSel.addEventListener("change", () => {
       const scale = Number(scaleSel.value);
@@ -302,8 +369,275 @@ async function loadMapOptions() {
 
 /** Log úspěšně dokončeného jobu (i s opakovanými pokusy o stažení) se neukazuje; u chyby a běhu ano. */
 function syncDetailLogVisibility(job) {
-  const pre = document.getElementById("detail-log");
-  if (pre) pre.classList.toggle("hidden", job.status === "done");
+  const box = document.getElementById("detail-log-box");
+  if (!box) return;
+  box.classList.toggle("hidden", job.status === "done");
+  // U neúspěšného jobu je technický log hned vidět.
+  if (job.status === "failed" && box.dataset.autoOpened !== job.id) {
+    box.open = true;
+    box.dataset.autoOpened = job.id;
+  }
+}
+
+// --- Paměť v prohlížeči (localStorage může v anonymním okně házet) ---
+const MY_JOBS_KEY = "podkladarna-my-jobs";
+const JOBS_TAB_KEY = "podkladarna-jobs-tab";
+const LAST_OPTIONS_KEY = "podkladarna-last-options";
+const MY_JOBS_MAX = 30;
+
+function storageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (_) {
+    return null;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (_) {
+    /* bez paměti se stránka chová jako dřív */
+  }
+}
+
+function storageRemove(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch (_) {
+    /* viz výše */
+  }
+}
+
+function loadMyJobs() {
+  try {
+    const arr = JSON.parse(storageGet(MY_JOBS_KEY) || "[]");
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((r) => r && typeof r.id === "string" && r.id).slice(0, MY_JOBS_MAX);
+  } catch (_) {
+    return [];
+  }
+}
+
+let myJobs = loadMyJobs();
+
+function saveMyJobs() {
+  storageSet(MY_JOBS_KEY, JSON.stringify(myJobs));
+}
+
+function myJobRecord(id) {
+  return myJobs.find((r) => r.id === id) || null;
+}
+
+function isMyJob(id) {
+  return Boolean(id && myJobRecord(id));
+}
+
+function addMyJob(job, estimateMinutes) {
+  if (!job || !job.id) return;
+  const rec = {
+    id: job.id,
+    name: job.name || "",
+    created_at: job.created_at || new Date().toISOString(),
+    estimate_minutes: Number.isFinite(estimateMinutes) ? estimateMinutes : null,
+  };
+  if (jobIsPrivate(job)) rec.private = true;
+  myJobs = [rec, ...myJobs.filter((r) => r.id !== job.id)].slice(0, MY_JOBS_MAX);
+  saveMyJobs();
+}
+
+function removeMyJob(id) {
+  myJobs = myJobs.filter((r) => r.id !== id);
+  saveMyJobs();
+}
+
+let jobsTab = "all";
+
+function initJobsTab() {
+  const stored = storageGet(JOBS_TAB_KEY);
+  jobsTab = stored === "mine" || stored === "all" ? stored : myJobs.length ? "mine" : "all";
+}
+
+function syncJobsTabs() {
+  const mine = document.getElementById("jobs-tab-mine");
+  const all = document.getElementById("jobs-tab-all");
+  if (mine) mine.textContent = `Moje mapy (${myJobs.length})`;
+  for (const tab of [mine, all]) {
+    if (!tab) continue;
+    const on = tab.dataset.tab === jobsTab;
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+    tab.tabIndex = on ? 0 : -1;
+    tab.classList.toggle("active", on);
+  }
+}
+
+function setJobsTab(tab, { focus = false } = {}) {
+  jobsTab = tab;
+  storageSet(JOBS_TAB_KEY, tab);
+  syncJobsTabs();
+  if (focus) document.getElementById(`jobs-tab-${tab}`)?.focus();
+  loadJobs();
+}
+
+function initJobsTabs() {
+  initJobsTab();
+  const tabs = ["mine", "all"].map((t) => document.getElementById(`jobs-tab-${t}`));
+  tabs.forEach((el) => {
+    if (!el) return;
+    el.addEventListener("click", () => setJobsTab(el.dataset.tab));
+    el.addEventListener("keydown", (e) => {
+      let next = null;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        next = el.dataset.tab === "mine" ? "all" : "mine";
+      } else if (e.key === "Home") next = "mine";
+      else if (e.key === "End") next = "all";
+      if (next) {
+        e.preventDefault();
+        setJobsTab(next, { focus: true });
+      }
+    });
+  });
+  syncJobsTabs();
+}
+
+/** Záznam z „Mojí mapy“, který není ve veřejném seznamu (soukromá mapa), jako položka seznamu. */
+function savedRecordAsJob(rec) {
+  return {
+    id: rec.id,
+    name: rec.name || "Mapa",
+    created_at: rec.created_at,
+    status: "saved",
+    _saved: true,
+    _private: Boolean(rec.private),
+  };
+}
+
+let savedJobsVerified = false;
+
+/** Jednou za načtení stránky: záznamy, které server už nezná (404/410), tiše zahodit. */
+async function verifySavedJobs(publicJobs) {
+  if (savedJobsVerified) return;
+  savedJobsVerified = true;
+  const known = new Set(publicJobs.map((j) => j.id));
+  const missing = myJobs.filter((r) => !known.has(r.id));
+  const gone = [];
+  await Promise.all(
+    missing.map(async (rec) => {
+      try {
+        const res = await fetch(`/api/jobs/${encodeURIComponent(rec.id)}`);
+        if (res.status === 404 || res.status === 410) gone.push(rec.id);
+      } catch (_) {
+        /* síť: záznam necháme */
+      }
+    })
+  );
+  if (gone.length) {
+    myJobs = myJobs.filter((r) => !gone.includes(r.id));
+    saveMyJobs();
+  }
+}
+
+// --- Lidská věta k chybě jobu ---
+/** Stav v detailu: přepiš jen při změně, ať aria-live neohlašuje každý polling. */
+function setDetailStatus(text) {
+  const el = document.getElementById("detail-status");
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
+function friendlyJobError(errorText, { short = false } = {}) {
+  const text = String(errorText || "");
+  if (/ČÚZK|ATOM|[Tt]ime ?out|Overpass|HTTP (?:Error )?(?:429|5\d\d)|Connection(?:Error| reset| refused)/.test(text)) {
+    return "Stahování dat ze serveru se nepovedlo (výpadek nebo pomalá odpověď). Zkuste to prosím za chvíli znovu.";
+  }
+  return short
+    ? "Generování se nepovedlo."
+    : "Generování se nepovedlo. Technický popis je níže; můžete to zkusit znovu nebo nám napsat.";
+}
+
+// --- Průběh mapy po krocích (z hlaviček v logu, viz app/pipeline/job_progress.py) ---
+const PROGRESS_LINE_RE = /^\s*(Plán \(|\[\d+\/\d+\]|Hotovo za )/;
+
+function capitalizeCs(text) {
+  const t = String(text || "").trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** Čas „m:ss“ nebo „h:mm:ss“ na sekundy. */
+function clockToSeconds(txt) {
+  const parts = String(txt).split(":").map(Number);
+  if (parts.some((n) => !Number.isFinite(n))) return null;
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
+}
+
+/**
+ * Z řádků logu poskládá stav kroků:
+ * {steps:[{label, state:'done'|'now'|'skipped'|'todo', note}], current, total, elapsed, finished}.
+ * Detailní (odsazené) řádky se ignorují, protože hlavičku nepřipomínají.
+ */
+function parseJobProgress(lines) {
+  let steps = [];
+  let finished = false;
+  let elapsed = null;
+  let currentIdx = -1;
+  const ensure = (total) => {
+    while (steps.length < total) steps.push({ label: "", state: "todo", note: "" });
+  };
+  for (const raw of lines) {
+    const line = String(raw || "").trim();
+    let m = line.match(/^Plán \((\d+) krok[^)]*\):\s*(.+)$/);
+    if (m) {
+      const labels = m[2].split(" · ").map(capitalizeCs);
+      steps = labels.map((label) => ({ label, state: "todo", note: "" }));
+      ensure(Number(m[1]));
+      continue;
+    }
+    m = line.match(/^\[(\d+)\/(\d+)\]\s+(.+)$/);
+    if (m) {
+      const n = Number(m[1]);
+      const total = Number(m[2]);
+      if (n < 1 || n > total) continue;
+      ensure(total);
+      let body = m[3];
+      for (let i = 0; i < n - 1; i++) {
+        if (steps[i].state === "now" || steps[i].state === "todo") steps[i].state = "done";
+      }
+      const skip = body.match(/^(.+?)\s+–\s+přeskočeno(?:\s*\((.+)\))?\s*$/);
+      if (skip) {
+        steps[n - 1] = { label: capitalizeCs(skip[1]), state: "skipped", note: skip[2] || "" };
+        continue;
+      }
+      const timed = body.match(/^(.+?)\s+·\s+(\d+(?::\d{2}){1,2})\s*$/);
+      if (timed) {
+        body = timed[1];
+        elapsed = clockToSeconds(timed[2]);
+      }
+      steps[n - 1] = { label: capitalizeCs(body), state: "now", note: "" };
+      currentIdx = n - 1;
+      continue;
+    }
+    if (line.startsWith("Hotovo za ")) {
+      finished = true;
+      for (const st of steps) if (st.state === "now" || st.state === "todo") st.state = "done";
+    }
+  }
+  const nowIdx = steps.findIndex((st) => st.state === "now");
+  const doneCount = steps.filter((st) => st.state === "done" || st.state === "skipped").length;
+  return {
+    steps,
+    current: finished ? steps.length : nowIdx >= 0 ? nowIdx + 1 : Math.max(currentIdx + 1, doneCount),
+    total: steps.length,
+    elapsed,
+    finished,
+  };
+}
+
+/** Odhad zbývajícího času podle uloženého odhadu mapy a uplynulých sekund. */
+function remainingText(estimateMinutes, elapsedSec) {
+  if (!Number.isFinite(estimateMinutes) || estimateMinutes <= 0 || elapsedSec == null) return "";
+  const left = estimateMinutes * 60 - elapsedSec;
+  if (left <= 0) return "déle než odhad";
+  if (left < 60) return "zbývá méně než minuta";
+  return `zbývá asi ${Math.ceil(left / 60)} min`;
 }
 
 function jobIsLive(status) {
@@ -320,6 +654,21 @@ const JOB_STATUS_LABELS = {
   failed: "nepodařilo se",
 };
 
+/** Krátký štítek stavu v seznamu map (kromě barvy i slovo). */
+const JOB_STATUS_TAGS = {
+  pending: "ve frontě",
+  queued: "ve frontě",
+  running: "běží",
+  done: "hotovo",
+  done_with_errors: "hotovo s chybami",
+  failed: "chyba",
+  saved: "soukromá",
+};
+
+function jobStatusTag(status) {
+  return JOB_STATUS_TAGS[status] || status || "";
+}
+
 function jobStatusLabel(status) {
   return JOB_STATUS_LABELS[status] || status;
 }
@@ -327,6 +676,13 @@ function jobStatusLabel(status) {
 /** Doběhl (i s chybami nebo neúspěšně) – má konečné trvání. */
 function jobIsFinished(status) {
   return status === "done" || status === "done_with_errors" || status === "failed";
+}
+
+/** Stavový řádek bez úvodního slova stavu, které už ukazuje štítek (fáze, fronta, trvání, privátní zůstanou). */
+function statusLineText(job, tail) {
+  const lead = jobStatusLabel(job.status) === jobStatusTag(job.status) ? "" : jobStatusLabel(job.status);
+  const phase = job.phase && !jobIsFinished(job.status) ? " · " + job.phase : "";
+  return (lead + phase + tail).replace(/^ · /, "");
 }
 
 function jobItemHeadHtml(job) {
@@ -344,11 +700,20 @@ function jobItemHeadHtml(job) {
     if (dur) timing = ` · ${dur}`;
   }
   const privateLabel = jobIsPrivate(job) ? " · privátní session" : "";
+  if (job._saved) {
+    return `
+    <strong>${escapeHtml(job.name)}</strong> <span class="status-tag status-tag-saved">${job._private ? "soukromá" : "uložená"}</span>
+    <div class="status">${job._private ? "soukromá – odkaz přijde e-mailem" : "mapa už není ve veřejném seznamu"}</div>
+    <div class="status">${escapeHtml(formatWhen(job.created_at))}</div>
+  `;
+  }
+  const mineTag =
+    jobsTab === "all" && isMyJob(job.id) ? ' <span class="mine-tag">moje</span>' : "";
   return `
-    <strong>${escapeHtml(job.name)}</strong>
-    <div class="status status-${job.status}">${escapeHtml(jobStatusLabel(job.status))}${job.phase && !jobIsFinished(job.status) ? " · " + job.phase : ""}${queueLabel}${timing}${privateLabel}</div>
+    <strong>${escapeHtml(job.name)}</strong>${mineTag} <span class="status-tag status-tag-${escapeHtml(job.status || "")}">${escapeHtml(jobStatusTag(job.status))}</span>
+    <div class="status status-${job.status}">${escapeHtml(statusLineText(job, queueLabel + timing + privateLabel))}</div>
     <div class="status">${escapeHtml(jobScaleLabel(job))} · ${escapeHtml(formatWhen(job.created_at))}</div>
-    ${job.error ? `<div class="status error">${escapeHtml(job.error)}</div>` : ""}
+    ${job.error ? `<div class="status error">${escapeHtml(friendlyJobError(job.error, { short: true }))}</div>` : ""}
   `;
 }
 
@@ -382,6 +747,15 @@ function upsertJobItem(list, job, order) {
     div.className = "job-item";
     div.dataset.id = job.id;
     div.onclick = () => selectJob(job.id);
+    div.tabIndex = 0;
+    div.setAttribute("role", "button");
+    div.addEventListener("keydown", (e) => {
+      if (e.target !== div) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectJob(job.id);
+      }
+    });
   }
   div.classList.toggle("selected", job.id === selectedJobId);
   div.classList.toggle("private-session", jobIsPrivate(job));
@@ -447,6 +821,8 @@ function initJobsPager() {
 async function loadJobs() {
   const data = await api("/api/jobs");
   updateWorkerStatus(data);
+  await verifySavedJobs(data.jobs);
+  syncJobsTabs();
 
   let selected = data.jobs.find((j) => j.id === selectedJobId);
   // Privátní job není ve veřejném seznamu – drž detail přes /api/jobs/{id}.
@@ -458,7 +834,24 @@ async function loadJobs() {
     }
   }
 
-  let { live, finished } = splitJobs(data.jobs);
+  // „Moje mapy“: jen mé joby z veřejného seznamu + uložené záznamy, které v něm nejsou (soukromé).
+  let listJobs = data.jobs;
+  if (jobsTab === "mine") {
+    const known = new Set(data.jobs.map((j) => j.id));
+    const saved = myJobs.filter((r) => !known.has(r.id)).map(savedRecordAsJob);
+    listJobs = [...data.jobs.filter((j) => isMyJob(j.id)), ...saved];
+  }
+  let { live, finished } = splitJobs(listJobs);
+  if (finished.some((j) => j._saved)) {
+    finished.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  }
+  const doneEmptyEl = document.getElementById("jobs-finished-empty");
+  if (doneEmptyEl) {
+    doneEmptyEl.textContent =
+      jobsTab === "mine"
+        ? "V tomto prohlížeči zatím nemáte žádné mapy – objeví se tu po spuštění generování."
+        : "Zatím žádné hotové mapy.";
+  }
   // Privátní joby do veřejného panelu neinjektovat (bez jména/logů).
   // Místo toho anonymní placeholder „Běží privátní job“ + stopky.
   let privateLive = data.private_live || null;
@@ -480,6 +873,7 @@ async function loadJobs() {
   updateFinishedMore(finished.length);
   syncJobsList(live, finished.slice(0, finishedShown));
   syncPrivateLivePlaceholder(privateLive);
+  await updateMobileJobBar(data, selected);
 
   if (generateStartedJobId) {
     const started =
@@ -493,6 +887,7 @@ async function loadJobs() {
   if (!selected) {
     selectedJobId = null;
     selectedJobStatus = null;
+    resetDetailProgress();
     syncFeedbackForJob(null);
     setJobsView("list");
     return;
@@ -508,10 +903,9 @@ async function loadJobs() {
         : " · privátní (ZIP přijde e-mailem)"
       : "";
     document.getElementById("detail-title").textContent = selected.name;
-    document.getElementById("detail-status").textContent =
-      `Stav: ${jobStatusLabel(selected.status)} · ${jobScaleLabel(selected)}` +
-      privateNote +
-      (selected.error ? ` · ${selected.error}` : "");
+    setDetailStatus(
+      `Stav: ${jobStatusLabel(selected.status)} · ${jobScaleLabel(selected)}` + privateNote
+    );
     const timingEl = document.getElementById("detail-timing");
     if (timingEl) {
       timingEl.textContent = jobTimingText(selected);
@@ -519,18 +913,20 @@ async function loadJobs() {
     }
     renderJobSources(document.getElementById("detail-sources"), selected);
     setJobActionLinks(selected);
+    renderJobDetailExtras(selected);
     const img = document.getElementById("detail-img");
     // Privátní: náhled PNG jen e-mailem, na webu nikdy.
     if (!jobIsPrivate(selected) && selected.has_preview) {
-      if (img.classList.contains("hidden")) {
+      if (img.classList.contains("hidden") && img.dataset.failedFor !== selected.id) {
         img.src = `/api/jobs/${selected.id}/preview.png?t=${Date.now()}`;
       }
-      img.classList.remove("hidden");
+      if (img.dataset.failedFor !== selected.id) img.classList.remove("hidden");
     } else {
       img.classList.add("hidden");
       if (jobIsPrivate(selected)) img.removeAttribute("src");
     }
     await refreshLog();
+    renderJobProgress(selected);
   }
 }
 
@@ -542,11 +938,11 @@ function updateWorkerStatus(data) {
     const maxQ = data.max_queue_size || "?";
     el.textContent =
       `Generování běží` +
-      (q ? ` · ${q} job${q === 1 ? "" : "ů"} ve frontě (max ${maxQ})` : "");
+      (q ? ` · ${q} ${q === 1 ? "mapa" : q < 5 ? "mapy" : "map"} ve frontě (max ${maxQ})` : "");
     el.classList.add("busy");
   } else if (data.shared_busy) {
     // Těžký job právě počítá jiná instance serveru – detail se nezveřejňuje.
-    el.textContent = "Server je právě vytížený – nový job chvíli počká na uvolnění";
+    el.textContent = "Server je právě vytížený – nová mapa chvíli počká na uvolnění";
     el.classList.add("busy");
   } else {
     el.textContent = "Server volný – lze spustit nové generování";
@@ -793,8 +1189,11 @@ function escapeHtml(s) {
   }[c]));
 }
 
+let detailJob = null;
+
 async function fillJobDetail(id, { applyForm = false } = {}) {
   const job = await api(`/api/jobs/${id}`);
+  detailJob = job;
   selectedJobStatus = job.status;
   syncDetailLogVisibility(job);
   const privateNote = jobIsPrivate(job)
@@ -803,10 +1202,7 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
       : " · privátní (ZIP přijde e-mailem)"
     : "";
   document.getElementById("detail-title").textContent = job.name;
-  document.getElementById("detail-status").textContent =
-    `Stav: ${jobStatusLabel(job.status)} · ${jobScaleLabel(job)}` +
-    privateNote +
-    (job.error ? ` · ${job.error}` : "");
+  setDetailStatus(`Stav: ${jobStatusLabel(job.status)} · ${jobScaleLabel(job)}` + privateNote);
   const timingEl = document.getElementById("detail-timing");
   if (timingEl) {
     timingEl.textContent = jobTimingText(job);
@@ -815,9 +1211,11 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
   renderJobSources(document.getElementById("detail-sources"), job);
   if (applyForm) applyJobToForm(job);
   setJobActionLinks(job);
+  renderJobDetailExtras(job);
   const img = document.getElementById("detail-img");
   // Privátní: náhled PNG jen e-mailem.
   if (!jobIsPrivate(job) && job.has_preview) {
+    img.dataset.failedFor = "";
     img.src = `/api/jobs/${id}/preview.png?t=${Date.now()}`;
     img.classList.remove("hidden");
   } else {
@@ -836,12 +1234,99 @@ async function selectJob(id) {
     logAfter = 0;
     logSettledForJob = null;
     document.getElementById("detail-log").textContent = "";
+    resetDetailProgress();
   }
   setJobsView("detail");
-  await fillJobDetail(id, { applyForm: true });
+  await fillJobDetail(id, { applyForm: false });
   await loadJobs();
   const card = document.querySelector(".jobs-card");
   if (card) card.scrollTop = 0;
+}
+
+/** Průběh vybraného jobu: jen řádky s hlavičkami kroků (plán, [n/N], Hotovo). */
+let detailProgressLines = [];
+let detailProgress = null;
+
+function resetDetailProgress() {
+  detailProgressLines = [];
+  detailProgress = null;
+}
+
+/** Stavy hotového / neúspěšného jobu: lidská chyba, Zkusit znovu, Co dál, věta o zavření stránky. */
+function renderJobDetailExtras(job) {
+  const priv = jobIsPrivate(job);
+  const live = jobIsLive(job.status);
+  const failed = job.status === "failed";
+  const errBox = document.getElementById("detail-error");
+  const hasErr = Boolean(job.error) && (failed || job.status === "done_with_errors");
+  if (errBox) {
+    errBox.classList.toggle("hidden", !hasErr);
+    if (hasErr) {
+      document.getElementById("detail-error-human").textContent = friendlyJobError(job.error);
+      document.getElementById("detail-error-text").textContent = job.error;
+    }
+  }
+  const retry = document.getElementById("detail-retry");
+  if (retry) retry.classList.toggle("hidden", !(failed && !priv));
+  const tplBtn = document.getElementById("detail-use-template");
+  if (tplBtn) tplBtn.classList.toggle("hidden", priv || failed);
+  const dl = document.getElementById("detail-download");
+  const done = job.status === "done" || job.status === "done_with_errors";
+  if (dl) dl.classList.toggle("download-main", done && !priv && Boolean(job.has_output));
+  const next = document.getElementById("detail-next");
+  if (next) next.classList.toggle("hidden", !(done && !priv && job.has_output));
+  const closeHint = document.getElementById("detail-close-hint");
+  if (closeHint) closeHint.classList.toggle("hidden", !live || priv);
+  const prog = document.getElementById("detail-progress");
+  if (prog) prog.classList.toggle("hidden", !live);
+}
+
+/** Překreslí průběh po krocích (jen live joby). Volá se při každém pollu, čas tedy běží. */
+function renderJobProgress(job) {
+  const box = document.getElementById("detail-progress");
+  if (!box || !job || !jobIsLive(job.status)) return;
+  const text = document.getElementById("detail-progress-text");
+  const meter = document.getElementById("detail-meter");
+  const list = document.getElementById("detail-steps");
+  if (job.status !== "running") {
+    const pos = job.queue_position;
+    text.textContent = `Ve frontě${pos ? `, pořadí #${pos}` : ""} – začne, až doběhnou předchozí.`;
+    list.innerHTML = "";
+    meter.hidden = true;
+    return;
+  }
+  meter.hidden = false;
+  const prog = detailProgress;
+  const steps = prog ? prog.steps : [];
+  const startedElapsed = elapsedSinceIso(job.started_at);
+  const elapsed = startedElapsed != null ? startedElapsed : prog ? prog.elapsed : null;
+  const est = (myJobRecord(job.id) || {}).estimate_minutes;
+  const parts = [];
+  if (prog && prog.total) parts.push(`Krok ${Math.max(1, prog.current)} z ${prog.total}`);
+  else parts.push("Připravuji kroky…");
+  if (elapsed != null) parts.push(`běží ${formatDuration(elapsed)}`);
+  const left = remainingText(Number(est), elapsed);
+  if (left) parts.push(left);
+  text.textContent = parts.join(" · ");
+  const doneCount = steps.filter((st) => st.state === "done" || st.state === "skipped").length;
+  const hasNow = steps.some((st) => st.state === "now");
+  const pct = steps.length
+    ? Math.min(100, Math.round(((doneCount + (hasNow ? 0.5 : 0)) / steps.length) * 100))
+    : 0;
+  meter.setAttribute("aria-valuenow", String(pct));
+  meter.querySelector("i").style.width = `${pct}%`;
+  const html = steps
+    .map((st) => {
+      const mark = st.state === "done" ? "✓" : st.state === "now" ? "●" : st.state === "skipped" ? "–" : "○";
+      const note = st.state === "skipped" ? ` <span class="step-note">přeskočeno${st.note ? ` (${escapeHtml(st.note)})` : ""}</span>` : "";
+      const cur = st.state === "now" ? ' aria-current="step"' : "";
+      return `<li class="step-${st.state}"${cur}><span class="step-mark" aria-hidden="true">${mark}</span> ${escapeHtml(st.label || "…")}${note}</li>`;
+    })
+    .join("");
+  if (list._html !== html) {
+    list.innerHTML = html;
+    list._html = html;
+  }
 }
 
 async function refreshLog() {
@@ -857,7 +1342,9 @@ async function refreshLog() {
   for (const line of data.lines) {
     pre.textContent += line.line + "\n";
     logAfter = line.id;
+    if (PROGRESS_LINE_RE.test(line.line)) detailProgressLines.push(line.line);
   }
+  if (hadNew) detailProgress = parseJobProgress(detailProgressLines);
   if (jobIsLive(selectedJobStatus)) {
     if (hadNew) pre.scrollTop = pre.scrollHeight;
     return;
@@ -895,6 +1382,11 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   const form = e.target;
   const btn = document.getElementById("submit-btn");
   clearFormError();
+  if (form.name && !form.name.value.trim()) {
+    showFormError("Zadejte název mapy.");
+    form.name.focus();
+    return;
+  }
   if (!form.map_scale || !form.map_scale.value) {
     showFormError("Vyberte měřítko.");
     if (form.map_scale) form.map_scale.focus();
@@ -902,6 +1394,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   }
   if (Number(form.map_scale.value) > 5000 && !selectedMapTypes().length) {
     showFormError("Vyberte alespoň jeden typ mapy (les nebo MTBO).");
+    document.getElementById("map_type_les")?.focus();
     return;
   }
   if (!form.contour_interval || !form.contour_interval.value) {
@@ -911,6 +1404,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   }
   if (!document.getElementById("bbox-input").value) {
     showFormError("Nakreslete výřez na mapě (dva protilehlé rohy).");
+    document.getElementById("bbox-map")?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
   if (!bboxAllowed) {
@@ -919,6 +1413,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
         (lastSheets && isSprintSelected() && lastSheets.sprint_hint) ||
         `Výřez je moc velký nebo ještě není ověřený. Les a MTBO max ${bboxMaxAreaKm2} km² (např. 5 × 5 km), sprint 1:4000 max ${sprintMaxAreaKm2} km² (např. 3 × 3 km).`
     );
+    document.getElementById("bbox-map")?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
   const privateEl = document.getElementById("private");
@@ -931,9 +1426,10 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
       return;
     }
   }
+  const estimateAtSubmit = selectedEstimateMinutes();
   jobSubmitInFlight = true;
   btn.disabled = true;
-  btn.textContent = "Zakládám job…";
+  btn.textContent = "Zakládám…";
   let startedId = null;
   try {
     const fd = new FormData(form);
@@ -942,16 +1438,15 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     if (job && job.duplicate_skipped) {
       const msg =
         job.duplicate_message ||
-        "Nový job se nezaložil – stejný výřez už běží nebo čeká.";
+        "Nová mapa se nezaložila – stejný výřez už běží nebo čeká.";
       showFormError(msg);
-      alert(msg);
     } else if (job && jobIsPrivate(job)) {
       const mail =
         (job.options && job.options.notify_email) ||
         (document.getElementById("notify_email") || {}).value ||
         "";
       showFormNotice(
-        `Privátní job běží – pipeline log uvidíte níže u jobu. ` +
+        `Privátní mapa se generuje – průběh uvidíte níže v detailu. ` +
           `ZIP/náhled nepřijdou do veřejného seznamu; odkazy přijdou na ${mail || "váš e-mail"} (platí 48 hodin).`
       );
       if (job.id) startedId = job.id;
@@ -959,10 +1454,19 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
       clearFormNotice();
       startedId = job.id;
     }
+    if (startedId) {
+      addMyJob(job, estimateAtSubmit);
+      saveLastOptions();
+      // První mapa v tomto prohlížeči: rovnou ukaž „Moje mapy“ (uložená volba záložky má přednost).
+      if (!storageGet(JOBS_TAB_KEY)) jobsTab = "mine";
+      syncJobsTabs();
+    }
     await selectJob(job.id);
+    if (startedId && MOBILE_MQ.matches) {
+      document.querySelector(".jobs-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   } catch (err) {
     showFormError(err.message);
-    alert(err.message);
     await loadJobs();
   } finally {
     jobSubmitInFlight = false;
@@ -1115,6 +1619,7 @@ function initBboxMap() {
   });
   osm.addTo(bboxMap);
   bboxMap.on("click", onMapClick);
+  initBboxBadge();
   initBboxMapResize();
   // Po obnovení výšky z localStorage ještě jednou po layoutu.
   requestAnimationFrame(() => {
@@ -1135,7 +1640,8 @@ function onMapClick(e) {
   }
   bboxCorners.push(e.latlng);
   if (bboxCorners.length === 1) {
-    setSheetInfo("Druhý roh výřezu…", "");
+    setSheetInfo("", "");
+    refreshBboxBadge();
     bboxFirstCorner = L.circleMarker(e.latlng, { radius: 5, color: "#cc00cc" }).addTo(bboxMap);
   }
   if (bboxCorners.length === 2) {
@@ -1278,6 +1784,7 @@ function onBboxEditStart() {
   sheetsLookupSeq++;
   bboxAllowed = false;
   lastSheets = null;
+  sheetsError = null;
   const sheetsInput = document.getElementById("sm5-sheets-input");
   if (sheetsInput) sheetsInput.value = "";
   updateSubmitButtonLabel();
@@ -1299,13 +1806,11 @@ function updateBboxDraft(b, skip) {
   const limit = currentMaxAreaKm2();
   const tooLarge = area > limit;
   styleBboxRect(tooLarge);
-  setSheetInfo(
-    `${w.toFixed(1)} × ${h.toFixed(1)} km (cca ${area.toFixed(1)} km²)` +
-      (tooLarge
-        ? ` – nad limit ${limit} km²${isSprintSelected() ? " pro sprint" : ""}.`
-        : " – po puštění ověřím listy."),
-    tooLarge ? "warn" : ""
-  );
+  setSheetInfo("", "");
+  bboxDraft = tooLarge
+    ? { cls: "err", text: `✕ Příliš velký výřez: cca ${formatAreaKm2(area)} (limit ${formatNumCz(limit)} km²)` }
+    : { cls: "", text: `cca ${formatSizeKm(w, h)} (${formatAreaKm2(area)}) – po puštění ověřím` };
+  refreshBboxBadge();
 }
 
 function commitBboxEdit() {
@@ -1322,7 +1827,7 @@ function styleBboxRect(tooLarge) {
   if (el) el.classList.toggle("bbox-too-large", Boolean(tooLarge && bboxRect));
   if (!bboxRect) return;
   bboxRect.setStyle({
-    color: tooLarge ? "#ff6600" : "#cc00cc",
+    color: tooLarge ? "#c00" : "#cc00cc",
     weight: 2,
     fillOpacity: 0.15,
   });
@@ -1350,14 +1855,17 @@ function updateCliffControls() {
   sens.disabled = off;
   if (sensLabel) sensLabel.style.opacity = off ? "0.45" : "";
   if (sensHint) {
-    sensHint.textContent = off
-      ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
-      : "Jak přísně hledat strmé skoky v DMR. Skála a zem se rozliší sklonem.";
+    const txt = document.getElementById("cliff-sensitivity-text");
+    if (txt) {
+      txt.textContent = off
+        ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
+        : "Méně citlivé = jen výrazné srázy, méně falešných.";
+    }
   }
-  const symbolHint = document.getElementById("cliff-symbol-hint");
-  if (symbolHint) {
-    symbolHint.textContent =
-      "Strmý schod = skalní plocha (206), mírnější = zem (104). „Vše jako…“ přebije detektor. Vypnuto = ani nepočítat. Kupky a ďolíky z DEM se kreslí jen v lese (ne ve sprintu a MTBO).";
+  const symbolTxt = document.getElementById("cliff-symbol-text");
+  if (symbolTxt) {
+    symbolTxt.textContent =
+      "Strmý schod = skalní plocha (206), mírnější = zem (104).";
   }
 }
 
@@ -1377,9 +1885,15 @@ function applyJobToForm(job) {
     else scale = 10000;
   }
   const scaleSel = form.map_scale;
+  const jobTypes = Array.isArray(opts.map_types)
+    ? opts.map_types.filter((t) => t === "les" || t === "mtbo")
+    : [];
   if (scaleSel && Number.isFinite(scale)) {
-    const match = [...scaleSel.options].find((o) => Number(o.value) === scale);
-    if (match) scaleSel.value = match.value;
+    filterScaleOptions(mapKindFor(scale, jobTypes), scale);
+    const kindRadio = document.querySelector(
+      `input[name="map_kind_ui"][value="${mapKindFor(scale, jobTypes)}"]`
+    );
+    if (kindRadio) kindRadio.checked = true;
   }
   rebuildContourOptions(opts.contour_interval);
   // Typy map: starší joby bez klíče stavěly obě; programové nastavení `change` nevyvolá.
@@ -1477,6 +1991,8 @@ function applyJobToForm(job) {
     outRefs.checked =
       opts.output_references == null ? true : Boolean(opts.output_references);
   }
+  refreshSettingsSummary();
+  refreshSubmitChecklist();
   const bbox = opts.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {
     applyBbox(bbox[0], bbox[1], bbox[2], bbox[3], {
@@ -1513,6 +2029,8 @@ function clearBbox(opts = {}) {
   sheetsLookupSeq++;
   bboxAllowed = false;
   lastSheets = null;
+  bboxDraft = null;
+  sheetsError = null;
   document.getElementById("bbox-input").value = "";
   const sheetsInput = document.getElementById("sm5-sheets-input");
   if (sheetsInput) sheetsInput.value = "";
@@ -1524,12 +2042,196 @@ function clearBbox(opts = {}) {
       }
     });
   }
-  setSheetInfo("Nakreslete obdélník dvěma kliknutími.", "");
+  setSheetInfo("", "");
   updateSubmitButtonLabel();
+}
+
+// --- Česky formátovaná čísla a odznak stavu výřezu přímo na mapě ---
+function formatNumCz(x, digits = 1) {
+  return Number(x).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: digits });
+}
+
+/** Rozměr: pod 1 km v metrech (na 10 m), jinak km na 1 desetinné místo. */
+function formatLengthKm(km) {
+  if (km < 1) return `${formatNumCz(Math.max(10, Math.round(km * 100) * 10), 0)} m`;
+  return `${formatNumCz(km, 1)} km`;
+}
+
+function formatSizeKm(w, h) {
+  const a = formatLengthKm(w);
+  const b = formatLengthKm(h);
+  // „800 × 600 m“ – stejnou jednotku řekni jen jednou.
+  const unitA = a.split(" ").pop();
+  return unitA === b.split(" ").pop() ? `${a.replace(` ${unitA}`, "")} × ${b}` : `${a} × ${b}`;
+}
+
+/** Plocha: pod 1 km² v ha, jinak km² na 1 desetinné místo. */
+function formatAreaKm2(km2) {
+  if (km2 < 1) return `${formatNumCz(Math.round(km2 * 100), 0)} ha`;
+  return `${formatNumCz(km2, 1)} km²`;
+}
+
+function sheetNamesText(data) {
+  const names = (data.sheets || []).map((x) => x.mapnom).filter(Boolean);
+  return names.length ? `Listy SM5: ${names.join(", ")}` : "";
+}
+
+function setBboxBadge(cls, text) {
+  if (!bboxBadgeEl) return;
+  bboxBadgeEl.className = "bbox-badge" + (cls ? " " + cls : "");
+  bboxBadgeEl.textContent = text;
+}
+
+function refreshBboxBadge() {
+  if (!bboxBadgeEl) return;
+  const hasBbox = Boolean((document.getElementById("bbox-input") || {}).value);
+  if (!hasBbox) {
+    setBboxBadge("", bboxCorners.length === 1 ? "Klikněte na druhý roh výřezu" : "Klikněte na dva protilehlé rohy výřezu");
+    return;
+  }
+  if (bboxDraft && !lastSheets) {
+    setBboxBadge(bboxDraft.cls, bboxDraft.text);
+    return;
+  }
+  if (sheetsError) {
+    setBboxBadge("err", `✕ ${sheetsError}`);
+    return;
+  }
+  const data = lastSheets;
+  if (!data) {
+    setBboxBadge("", "Ověřuji výřez…");
+    return;
+  }
+  const area = data.area_km2 != null ? formatAreaKm2(data.area_km2) : "";
+  if (data.too_large) {
+    if (data.too_large_reason === "sheets") {
+      setBboxBadge("err", `✕ Příliš velký výřez: ${data.count} listů SM5 (max ${data.max_sheets})`);
+    } else {
+      setBboxBadge("err", `✕ Příliš velký výřez: ${area} (limit ${formatNumCz(data.max_area_km2 || bboxMaxAreaKm2)} km²)`);
+    }
+    return;
+  }
+  if (!data.count) {
+    setBboxBadge("err", "✕ Výřez je mimo data (jen Česko)");
+    return;
+  }
+  if (isSprintSelected() && data.sprint_hint) {
+    setBboxBadge("err", `✕ Příliš velký výřez pro sprint: ${area} (limit ${formatNumCz(sprintMaxAreaKm2)} km²)`);
+    return;
+  }
+  const limit = isSprintSelected() ? Math.min(sprintMaxAreaKm2, bboxMaxAreaKm2) : bboxMaxAreaKm2;
+  const mins = selectedEstimateMinutes();
+  setBboxBadge(
+    "ok",
+    `✓ ${formatSizeKm(data.width_km, data.height_km)} (${area}) · limit ${formatNumCz(limit)} km²` +
+      (mins != null ? ` · odhad ~${mins} min` : "")
+  );
+}
+
+function initBboxBadge() {
+  if (!bboxMap || typeof L === "undefined") return;
+  const ctl = L.control({ position: "bottomleft" });
+  ctl.onAdd = () => {
+    const div = L.DomUtil.create("div", "bbox-badge");
+    L.DomEvent.disableClickPropagation(div);
+    bboxBadgeEl = div;
+    return div;
+  };
+  ctl.addTo(bboxMap);
+  refreshBboxBadge();
+}
+
+// --- Kontrolní seznam u tlačítka Spustit ---
+function refreshSubmitChecklist() {
+  const el = document.getElementById("submit-checklist");
+  const form = document.getElementById("job-form");
+  if (!el || !form) return;
+  const scale = form.map_scale ? Number(form.map_scale.value) : NaN;
+  const items = [
+    ["Název", Boolean(form.name && form.name.value.trim())],
+    ["Typ mapy a měřítko", Number.isFinite(scale) && scale > 0],
+  ];
+  items.push(["Výřez", Boolean(document.getElementById("bbox-input").value) && bboxAllowed]);
+  const privateEl = document.getElementById("private");
+  if (privateEl && privateEl.checked) {
+    const email = ((document.getElementById("notify_email") || {}).value || "").trim();
+    items.push(["E-mail", email.includes("@") && email.split("@").pop().includes(".")]);
+  }
+  el.innerHTML = items
+    .map(([label, ok]) => `<span class="${ok ? "done" : "todo"}">${ok ? "✓" : "○"} ${label}</span>`)
+    .join(" · ");
+}
+
+// --- Souhrn pokročilého nastavení (chips) ---
+const SETTINGS_VALUE_NAMES = {
+  veg_smooth: { 0: "kostičky", 1: "hladké", 2: "zjednodušené do 6 m", 3: "zjednodušené do 12 m" },
+  kp_cliff_symbol: { auto: "automaticky", earth_bank: "zemní sráz", symbol_206: "skála", off: "vypnuto" },
+  dtm: { auto: "podle presetu", 1: "všude", 0: "vypnuto" },
+};
+
+const SETTINGS_CHIPS = [
+  { id: "contour_formlines", label: "Pomocné vrstevnice" },
+  { id: "contour_smooth", label: "Vyhlazení vrstevnic" },
+  { id: "kp_vege_height", label: "Výška vegetace" },
+  { id: "veg_smooth", label: "Tvar porostů" },
+  { id: "kp_cliff_symbol", label: "Srázy (symbol)" },
+  { id: "kp_cliff_sensitivity", label: "Citlivost srázů", skipWhen: () => (document.getElementById("kp_cliff_symbol") || {}).value === "off" },
+  { id: "dtm", label: "DTM" },
+  { id: "kp_osm_objects", label: "Objekty OSM", bool: true },
+  { id: "output_georef", label: "GeoTIFF", bool: true },
+  { id: "output_references", label: "PNG šablony", bool: true },
+  {
+    id: "sprint_residual_paved",
+    label: "Zpevněné mezery",
+    bool: true,
+    skipWhen: () => {
+      const wrap = document.getElementById("residual-paved-wrap");
+      return !wrap || wrap.classList.contains("hidden");
+    },
+  },
+];
+
+/** Krátká hodnota pole: vlastní název, nebo text option před „–“ / „(“. */
+function settingsChipValue(chip, el) {
+  if (chip.bool) return el.checked ? "ano" : "ne";
+  const names = SETTINGS_VALUE_NAMES[chip.id];
+  if (names && names[el.value] != null) return names[el.value];
+  const opt = el.options[el.selectedIndex];
+  const text = (opt ? opt.textContent : el.value).split(/\s+–\s+|\s*\(/)[0].trim();
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+/** Výchozí hodnota = jak je pole v HTML (selected / checked), nezávisle na obnově formuláře prohlížečem. */
+function settingsDefaultValue(chip, el) {
+  if (chip.bool) return el.defaultChecked;
+  const opt = [...el.options].find((o) => o.defaultSelected) || el.options[0];
+  return opt ? opt.value : "";
+}
+
+function refreshSettingsSummary() {
+  const box = document.getElementById("settings-summary");
+  if (!box) return;
+  let changed = 0;
+  const parts = [];
+  for (const chip of SETTINGS_CHIPS) {
+    const el = document.getElementById(chip.id);
+    if (!el || (chip.skipWhen && chip.skipWhen())) continue;
+    const isChanged = chip.bool
+      ? el.checked !== settingsDefaultValue(chip, el)
+      : el.value !== settingsDefaultValue(chip, el);
+    if (isChanged) changed++;
+    parts.push(
+      `<span class="chip${isChanged ? " changed" : ""}">${chip.label}: ${escapeHtml(settingsChipValue(chip, el))}</span>`
+    );
+  }
+  box.innerHTML = parts.join("");
+  const mark = document.getElementById("advanced-changed");
+  if (mark) mark.textContent = changed ? ` (změněno: ${changed})` : "";
 }
 
 function setSheetInfo(text, cls) {
   const el = document.getElementById("sheet-info");
+  if (!el) return;
   el.textContent = text;
   el.className = "sheet-info" + (cls ? " " + cls : "");
 }
@@ -1567,6 +2269,9 @@ function selectedEstimateMinutes() {
 }
 
 function updateSubmitButtonLabel() {
+  refreshBboxBadge();
+  refreshSubmitChecklist();
+  refreshSettingsSummary();
   const btn = document.getElementById("submit-btn");
   if (!btn || jobSubmitInFlight || generateStartedJobId) return;
   const mins = selectedEstimateMinutes();
@@ -1588,9 +2293,7 @@ function applySheetsLimit() {
   } else {
     bboxAllowed = true;
     styleBboxRect(false);
-    const size = `${data.width_km} × ${data.height_km} km`;
-    const area = data.area_km2 != null ? ` (${data.area_km2} km²)` : "";
-    setSheetInfo(`${data.label} · ${size}${area}.`, "ok");
+    setSheetInfo(sheetNamesText(data), "");
   }
   updateSubmitButtonLabel();
 }
@@ -1600,6 +2303,8 @@ async function lookupSheets() {
   if (!bbox) return;
   bboxAllowed = false;
   lastSheets = null;
+  bboxDraft = null;
+  sheetsError = null;
   updateSubmitButtonLabel();
   const sheetsInput = document.getElementById("sm5-sheets-input");
   if (sheetsInput) sheetsInput.value = "";
@@ -1635,9 +2340,184 @@ async function lookupSheets() {
   } catch (err) {
     if (seq !== sheetsLookupSeq) return;
     styleBboxRect(true);
+    sheetsError = err.message;
     setSheetInfo(err.message, "err");
     updateSubmitButtonLabel();
   }
+}
+
+// --- Mobil: lišta s běžící mapou nahoře ---
+const MOBILE_MQ = window.matchMedia("(max-width: 700px)");
+const mobileBarDismissed = new Set();
+let mobileBarJobId = null;
+const barTracker = { id: null, after: 0, lines: [], progress: null };
+
+/** Průběh jobu, který není vybraný v detailu (vlastní přírůstkové čtení logu, jen na mobilu). */
+async function barProgressFor(id) {
+  if (id === selectedJobId) return detailProgress;
+  if (barTracker.id !== id) Object.assign(barTracker, { id, after: 0, lines: [], progress: null });
+  try {
+    const d = await api(`/api/jobs/${id}/log?after=${barTracker.after}`);
+    for (const l of d.lines) {
+      barTracker.after = l.id;
+      if (PROGRESS_LINE_RE.test(l.line)) barTracker.lines.push(l.line);
+    }
+    if (d.lines.length) barTracker.progress = parseJobProgress(barTracker.lines);
+  } catch (_) {
+    /* lišta zůstane bez kroků */
+  }
+  return barTracker.progress;
+}
+
+async function updateMobileJobBar(data, selected) {
+  const bar = document.getElementById("mobile-job-bar");
+  if (!bar) return;
+  if (!MOBILE_MQ.matches) {
+    bar.hidden = true;
+    return;
+  }
+  const pool = [...data.jobs];
+  if (selected && !pool.some((j) => j.id === selected.id)) pool.push(selected);
+  const mine = pool.filter((j) => isMyJob(j.id));
+  const live = mine.filter((j) => jobIsLive(j.status));
+  let job = live.find((j) => j.status === "running") || live[0] || null;
+  if (job) mobileBarJobId = job.id;
+  else if (mobileBarJobId) job = mine.find((j) => j.id === mobileBarJobId) || null;
+  if (!job || mobileBarDismissed.has(job.id)) {
+    bar.hidden = true;
+    return;
+  }
+  const text = document.getElementById("mobile-job-text");
+  const dl = document.getElementById("mobile-job-download");
+  const close = document.getElementById("mobile-job-close");
+  bar.dataset.jobId = job.id;
+  let canDownload = false;
+  if (jobIsLive(job.status)) {
+    const parts = [`⏳ ${job.name}`];
+    if (job.status === "running") {
+      const prog = await barProgressFor(job.id);
+      if (prog && prog.total) parts.push(`krok ${Math.max(1, prog.current)}/${prog.total}`);
+      else parts.push("běží");
+      const est = Number((myJobRecord(job.id) || {}).estimate_minutes);
+      const el = elapsedSinceIso(job.started_at);
+      if (est > 0 && el != null) {
+        const left = Math.ceil((est * 60 - el) / 60);
+        parts.push(left > 0 ? `~${left} min` : "déle než odhad");
+      }
+    } else {
+      parts.push(job.queue_position ? `ve frontě #${job.queue_position}` : "ve frontě");
+    }
+    text.textContent = parts.join(" · ");
+    close.hidden = true;
+  } else if (job.status === "failed") {
+    text.textContent = `✗ ${job.name} se nepovedla`;
+    close.hidden = false;
+  } else {
+    canDownload = Boolean(job.has_output) && !jobIsPrivate(job);
+    text.textContent = `✓ ${job.name} je hotová${canDownload ? " –" : ""}`;
+    close.hidden = false;
+  }
+  dl.hidden = !canDownload;
+  if (canDownload) dl.href = `/api/jobs/${job.id}/download`;
+  bar.hidden = false;
+}
+
+function initMobileJobBar() {
+  const bar = document.getElementById("mobile-job-bar");
+  if (!bar) return;
+  document.getElementById("mobile-job-detail")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const id = bar.dataset.jobId;
+    if (!id) return;
+    await selectJob(id);
+    document.querySelector(".jobs-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  document.getElementById("mobile-job-close")?.addEventListener("click", () => {
+    if (bar.dataset.jobId) mobileBarDismissed.add(bar.dataset.jobId);
+    bar.hidden = true;
+  });
+  const onChange = () => {
+    if (!MOBILE_MQ.matches) bar.hidden = true;
+    else loadJobs().catch(() => {});
+  };
+  if (MOBILE_MQ.addEventListener) MOBILE_MQ.addEventListener("change", onChange);
+}
+
+// --- Paměť posledních voleb formuláře ---
+/** Pole, která se nepamatují: identita mapy, výřez, kontakt, soukromí a jednorázové obnovení dat. */
+const LAST_OPTIONS_SKIP = new Set([
+  "name", "bbox", "reuse_job_id", "sm5_sheets", "notify_email", "private",
+  "map_types_form", "force_refresh", "map_kind_ui",
+]);
+let factoryOptions = null;
+
+function collectFormOptions() {
+  const form = document.getElementById("job-form");
+  const out = {};
+  if (!form) return out;
+  for (const el of form.elements) {
+    const key = el.name;
+    if (!key || LAST_OPTIONS_SKIP.has(key) || key === "map_types") continue;
+    if (["hidden", "submit", "button", "text", "email"].includes(el.type)) continue;
+    out[key] = el.type === "checkbox" ? el.checked : el.value;
+  }
+  out.map_types = selectedMapTypes();
+  return out;
+}
+
+/** Pořadí je důležité: měřítko přestaví ekvidistance a typy map, teprve pak ostatní pole. */
+function applyFormOptions(opts) {
+  const form = document.getElementById("job-form");
+  if (!form || !opts) return;
+  const scaleSel = form.map_scale;
+  if (scaleSel && opts.map_scale != null) {
+    const kind = mapKindFor(opts.map_scale, opts.map_types);
+    const kindRadio = document.querySelector(`input[name="map_kind_ui"][value="${kind}"]`);
+    if (kindRadio) kindRadio.checked = true;
+    filterScaleOptions(kind, opts.map_scale);
+  }
+  rebuildContourOptions(opts.contour_interval);
+  const scale = scaleSel ? Number(scaleSel.value) : NaN;
+  applyMapTypeDefaults(scale);
+  if (scale > 5000 && Array.isArray(opts.map_types)) {
+    const types = opts.map_types.filter((t) => t === "les" || t === "mtbo");
+    if (types.length) setMapTypes(types.includes(currentMapKind()) ? types : [...types, currentMapKind()]);
+  }
+  for (const [key, value] of Object.entries(opts)) {
+    if (["map_scale", "contour_interval", "map_types"].includes(key)) continue;
+    if (LAST_OPTIONS_SKIP.has(key)) continue;
+    const el = form.elements[key];
+    if (!el || !el.tagName) continue;
+    if (el.type === "checkbox") {
+      el.checked = Boolean(value);
+    } else if (el.tagName === "SELECT") {
+      if ([...el.options].some((o) => o.value === String(value))) el.value = String(value);
+    }
+  }
+  updateCliffControls();
+  updateResidualPavedControls();
+  updateOutputHints();
+  updateSubmitButtonLabel();
+}
+
+function saveLastOptions() {
+  storageSet(LAST_OPTIONS_KEY, JSON.stringify(collectFormOptions()));
+}
+
+/** Po načtení voleb měřítek: zapamatuj tovární hodnoty a obnov poslední použité. */
+function initLastOptions() {
+  factoryOptions = collectFormOptions();
+  try {
+    const saved = JSON.parse(storageGet(LAST_OPTIONS_KEY) || "null");
+    if (saved && typeof saved === "object") applyFormOptions(saved);
+  } catch (_) {
+    /* poškozená paměť: zůstanou výchozí hodnoty */
+  }
+  document.getElementById("reset-options")?.addEventListener("click", () => {
+    storageRemove(LAST_OPTIONS_KEY);
+    applyFormOptions(factoryOptions);
+    showFormNotice("Nastavení je vrácené na výchozí hodnoty.");
+  });
 }
 
 function startPolling() {
@@ -1661,7 +2541,16 @@ async function loadWhatsNew() {
     const tone = data.tone || "calm";
     box.classList.remove("tone-hot", "tone-warm", "tone-mild", "tone-calm");
     box.classList.add(`tone-${tone}`);
-    box.open = Boolean(data.open);
+    // Seznam změn se sám nerozbaluje – rozbalí ho jen klik na „Co je nového“.
+    box.open = false;
+    const warning = document.getElementById("whats-new-warning");
+    if (warning) {
+      const fresh = tone === "hot" || tone === "warm";
+      warning.textContent = fresh
+        ? data.disclaimer || "Nový build – něco nemusí fungovat."
+        : "";
+      warning.hidden = !fresh;
+    }
     if (badge) badge.textContent = data.label || "Novinky";
     if (title) {
       title.textContent = `v${data.version || "?"} · Co je nového`;
@@ -1719,7 +2608,9 @@ async function loadWhatsNew() {
 }
 
 loadWhatsNew();
-loadMapOptions().then(loadJobs).then(startPolling);
+initJobsTabs();
+initMobileJobBar();
+loadMapOptions().then(initLastOptions).then(loadJobs).then(startPolling);
 initJobsPager();
 initBboxMap();
 (() => {
@@ -1727,6 +2618,34 @@ initBboxMap();
   if (form) {
     form.addEventListener("input", clearGenerateStarted);
     form.addEventListener("change", clearGenerateStarted);
+    const refreshForm = () => {
+      refreshSubmitChecklist();
+      refreshSettingsSummary();
+    };
+    form.addEventListener("input", refreshForm);
+    form.addEventListener("change", refreshForm);
+    refreshForm();
+  }
+  // „Zkusit znovu“ i „Použít nastavení a výřez“: vyplní formulář, spustí až uživatel.
+  const fillFromDetail = () => {
+    if (!detailJob) return;
+    applyJobToForm(detailJob);
+    showFormNotice(
+      `Formulář je vyplněný podle mapy „${detailJob.name}“. Upravte, co potřebujete, a spusťte.`
+    );
+    const formCard = document.querySelector(".job-form-card");
+    if (formCard) formCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  for (const id of ["detail-use-template", "detail-retry"]) {
+    document.getElementById(id)?.addEventListener("click", fillFromDetail);
+  }
+  // Rozbitý náhled neukazuj (žádná rozbitá ikona).
+  const previewImg = document.getElementById("detail-img");
+  if (previewImg) {
+    previewImg.addEventListener("error", () => {
+      previewImg.classList.add("hidden");
+      previewImg.dataset.failedFor = selectedJobId || "";
+    });
   }
   const refs = document.getElementById("output_references");
   if (refs) refs.addEventListener("change", updateSubmitButtonLabel);
@@ -1787,7 +2706,7 @@ initBboxMap();
       return;
     }
     if (!jobId) {
-      setStatus("Vyberte job v seznamu — zpětná vazba patří ke konkrétní mapě.", "err");
+      setStatus("Vyberte mapu v seznamu — zpětná vazba patří ke konkrétní mapě.", "err");
       return;
     }
     if (submitBtn) submitBtn.disabled = true;
