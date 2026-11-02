@@ -131,6 +131,14 @@ main.page-wrap {
   margin: 0.7rem 0;
 }
 
+.about-body p.about-note {
+  margin: 0.5rem 0 0.9rem;
+  padding: 0.7rem 0.9rem;
+  border-left: 4px solid var(--green);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
 .about-body p:first-child {
   margin-top: 0.35rem;
 }

@@ -30,7 +30,8 @@ USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladar
 # takže 25 km² podle polohy protne až ~18 listů; 20 = rezerva, ne hlavní limit.
 MAX_SHEETS = 20
 # Plocha výřezu (km²) – např. 5×5, 7×3,5; ne tvrdý strop na jednu stranu. 25 km² (3.2.2): les + MTBO
-# s DTM se do limitu jobu (JOB_TIMEOUT_MINUTES) vejde do ~25 km², sprint do ~30 km² (měření 3.2.0).
+# s DTM se do limitu jobu (JOB_TIMEOUT_MINUTES) vejde do ~25 km². Sprint má od 3.8.9 přísnější strop
+# settings.SPRINT_MAX_BBOX_AREA_KM2 (9 km², ``sprint_max_area_km2``).
 MAX_BBOX_AREA_KM2 = 25.0
 # Zpětná kompatibilita / odkaz v textech („cca 5 km“).
 MAX_BBOX_KM = 5.0
@@ -356,7 +357,7 @@ def start_lidar_download(
         area = bbox_area_km2(west, south, east, north)
         raise FetchError(
             f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
-            f"{area:.0f} km²; max {MAX_BBOX_AREA_KM2:.0f} km²)."
+            f"{area:.1f} km²; max {MAX_BBOX_AREA_KM2:.0f} km²)."
         )
     sheets = query_sm5_sheets(west, south, east, north)
     if not sheets:
