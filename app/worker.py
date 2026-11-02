@@ -107,15 +107,35 @@ def can_accept_job() -> bool:
         return len(_queue) < MAX_QUEUE_SIZE
 
 
+def _notify_failure_async(job_ids: list[str]) -> None:
+    """E-mail o chybě privátních jobů v pozadí (SMTP nesmí zdržet frontu ani start).
+
+    notify_private_failure sama ověří, že job je privátní a ve stavu failed,
+    a pošle nejvýš jeden e-mail na job.
+    """
+    if not job_ids:
+        return
+
+    def _send() -> None:
+        from app.job_worker import notify_private_failure
+
+        for job_id in job_ids:
+            notify_private_failure(job_id)
+
+    threading.Thread(target=_send, name="private-fail-mail", daemon=True).start()
+
+
 def recover_after_restart() -> list[str]:
     """Uvolní joby zůstávající ve stavu running po pádu/restartu procesu."""
     reason = (
         "Přerušeno restartem serveru (uvicorn reload / pád procesu) – "
         "spusťte job znovu. Pro smoke bez reloadu: .\\scripts\\dev.ps1 run"
     )
-    return db.mark_interrupted_running_jobs(
+    ids = db.mark_interrupted_running_jobs(
         reason, user_message=failure_summary(reason)
     )
+    _notify_failure_async(ids)
+    return ids
 
 
 def requeue_after_restart() -> list[str]:
@@ -314,4 +334,6 @@ def _run(job_id: str) -> None:
         with _lock:
             if _running == job_id:
                 _running = None
+        # Timeout / pád subprocesu: job_worker e-mail o chybě nestihl poslat.
+        _notify_failure_async([job_id])
         _start_next()

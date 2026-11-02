@@ -70,8 +70,9 @@ def send_mail(
     from_addr: str | None = None,
     from_name: str | None = None,
     attachments: Sequence[Path] | None = None,
+    bcc: str | None = None,
 ) -> None:
-    """Pošle plain-text e-mail (volitelně s přílohami). Při chybě MailError."""
+    """Pošle plain-text e-mail (volitelně s přílohami a skrytou kopií). Při chybě MailError."""
     to = (to or "").strip()
     if not to:
         raise MailError("Chybí adresa příjemce.")
@@ -87,6 +88,10 @@ def send_mail(
     msg["Subject"] = subject
     msg["From"] = formataddr((name, sender)) if name else sender
     msg["To"] = to
+    bcc = (bcc or "").strip()
+    if bcc and bcc.lower() != to.lower():
+        # send_message pošle i na Bcc a hlavičku z odeslané zprávy vypustí.
+        msg["Bcc"] = bcc
     msg.set_content(body)
 
     for path in attachments or ():
@@ -162,6 +167,7 @@ def build_private_ready_email(
     georef_url: str | None = None,
     preview_attached: bool = False,
     duration_s: int | float | None = None,
+    issues_summary: str | None = None,
 ) -> tuple[str, str]:
     """Vrací (předmět, tělo) pro hotový privátní job – česky.
 
@@ -178,6 +184,8 @@ def build_private_ready_email(
     duration_label = format_duration_cs(duration_s)
     if duration_label:
         parts.append(f"Doba běhu: {duration_label}.\n")
+    if issues_summary:
+        parts.append(f"\nUpozornění: {issues_summary}\n")
     parts.extend(
         [
             "\n",
@@ -205,6 +213,38 @@ def build_private_ready_email(
             "\n",
             "Mapa není veřejně viditelná v seznamu jobů "
             "a na stránce jobu se náhled/ZIP nezobrazují.\n",
+            "\n",
+            f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n",
+        ]
+    )
+    return subject, "".join(parts)
+
+
+def build_private_failed_email(
+    *,
+    job_name: str,
+    error: str | None,
+    duration_s: int | float | None = None,
+) -> tuple[str, str]:
+    """Vrací (předmět, tělo) pro privátní job, který skončil chybou – česky."""
+    subject = f"Podkladárna: mapu „{job_name}“ se nepodařilo vytvořit"
+    parts = [
+        "Dobrý den,\n",
+        "\n",
+        f"vaši mapu „{job_name}“ se bohužel nepodařilo vytvořit.\n",
+    ]
+    duration_label = format_duration_cs(duration_s)
+    if duration_label:
+        parts.append(f"Doba běhu: {duration_label}.\n")
+    if error:
+        parts.append(f"\nDůvod: {error}\n")
+    parts.extend(
+        [
+            "\n",
+            "Zkuste job spustit znovu, případně s menším výřezem. "
+            "Pokud chyba trvá, odpovězte nám přes formulář zpětné vazby na webu.\n",
+            "\n",
+            "O chybě víme, provozovatel dostal kopii této zprávy.\n",
             "\n",
             f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n",
         ]

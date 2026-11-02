@@ -228,6 +228,14 @@ def test_build_private_ready_email_mentions_expiry():
     assert "\n\nvaše mapa" in body
     assert "\n\nStažení (privátní odkazy):\n\n" in body
     assert "\n\nOdkazy platí 48 hodin" in body
+    assert "Upozornění" not in body
+    _, body = build_private_ready_email(
+        job_name="Test mapa",
+        download_url="https://example/d/abc",
+        retention_hours=48,
+        issues_summary="Chybí vrstevnice.",
+    )
+    assert "Upozornění: Chybí vrstevnice." in body
 
 
 def test_build_private_ready_email_includes_duration():
@@ -686,3 +694,36 @@ def test_api_private_live_in_jobs_list(client, monkeypatch, data_dir):
     assert listed["private_live"] is not None
     assert listed["private_live"]["status"] == "running"
     assert listed["private_live"]["started_at"]
+
+
+def test_notify_private_failure_mails_once_with_bcc(tmp_path, monkeypatch):
+    """Privátní job ve stavu failed: e-mail s důvodem, skrytá kopie provozovateli, jen jednou."""
+    import app.job_worker as job_worker
+
+    monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr("app.db.DOWNLOADS_DIR", tmp_path / "dl")
+    (tmp_path / "jobs").mkdir()
+    db.init_db()
+    monkeypatch.setattr(job_worker.app_settings, "FEEDBACK_TO", "petr@example.com")
+    sent = []
+    monkeypatch.setattr(
+        job_worker, "send_mail", lambda to, subj, body, **kw: sent.append((to, subj, body, kw))
+    )
+
+    priv = db.create_job("Most", "sprint_2m", {"private": True, "notify_email": "u@example.com"})
+    pub = db.create_job("Verejny", "sprint_2m", {})
+    running = db.create_job("Bezi", "sprint_2m", {"private": True, "notify_email": "u@example.com"})
+    for job in (priv, pub):
+        db.update_job(job["id"], status="failed", phase="error", error="Job trval příliš dlouho.")
+    db.update_job(running["id"], status="running")
+
+    for job in (priv, priv, pub, running):
+        job_worker.notify_private_failure(job["id"])
+
+    assert len(sent) == 1
+    to, subject, body, kw = sent[0]
+    assert to == "u@example.com"
+    assert kw["bcc"] == "petr@example.com"
+    assert "Most" in subject and "nepodařilo" in subject
+    assert "Důvod: Job trval příliš dlouho." in body
