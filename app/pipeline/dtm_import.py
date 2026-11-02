@@ -2472,10 +2472,14 @@ def fences_on_olive_edge(
     return out
 
 
-# Sprint: plot, který z aspoň ``SPRINT_FENCE_INSIDE_OLIVE_SHARE`` délky leží uvnitř kreslené olivy dál než
+# Plot, který z aspoň ``SPRINT_FENCE_INSIDE_OLIVE_SHARE`` délky leží uvnitř kreslené olivy dál než
 # ``SPRINT_FENCE_INSIDE_OLIVE_M`` m od jejího okraje (oliva po obou stranách), je dělicí plot zahrad uvnitř olivového bloku.
+# Sprint od 2.36.0, les a MTBO od 3.6.2 (Petr 2026-11-02) – tam navíc zůstává plot souběžný s kreslenou cestou.
 SPRINT_FENCE_INSIDE_OLIVE_M = 1.5
 SPRINT_FENCE_INSIDE_OLIVE_SHARE = 0.8
+# Les a MTBO: pás kolem osy kreslené cesty, ve kterém plot uvnitř olivy platí za okrajový (m navíc k požadovanému
+# odstupu plotu od cesty z ``path_clearances``) – plot podél ulice uvnitř obce zůstane.
+NONSPRINT_FENCE_PATH_KEEP_M = 3.0
 
 
 # Sprint: plot přes plochu chodníku z DTM (dál než tolik m od okraje) se na ní přeruší – chodník tudy prochází
@@ -2555,13 +2559,18 @@ def drop_fences_inside_olive(
     *,
     inset_m: float = SPRINT_FENCE_INSIDE_OLIVE_M,
     share: float = SPRINT_FENCE_INSIDE_OLIVE_SHARE,
+    keep_zone=None,
 ) -> list[tuple[str, list[tuple[float, float]]]]:
-    """Ploty bez těch, které leží uvnitř olivy ``olive`` (shapely) dál než ``inset_m`` od okraje; ploty na okraji zůstávají."""
+    """Ploty bez těch, které leží uvnitř olivy ``olive`` (shapely) dál než ``inset_m`` od okraje; ploty na okraji zůstávají.
+
+    ``keep_zone`` (shapely, les a MTBO: pás kreslených cest) se z vnitřku olivy vyjme – plot v něm platí za okrajový."""
     from shapely.geometry import LineString
 
     if olive is None or olive.is_empty:
         return lines
     core = olive.buffer(-inset_m)
+    if keep_zone is not None and not keep_zone.is_empty and not core.is_empty:
+        core = core.difference(keep_zone)
     if core.is_empty:
         return lines
     out = []
@@ -2571,6 +2580,19 @@ def drop_fences_inside_olive(
             continue
         out.append((code, ln))
     return out
+
+
+def _fence_path_keep_zone(work_dir: Path, path_source: str, preset_id: str, scale: int, extra_m: float = NONSPRINT_FENCE_PATH_KEEP_M):
+    """Pás kolem os kreslených cest (odstup plotu podle symbolu + ``extra_m``); bez cest ``None``."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
+    bands = [
+        LineString(c).buffer(need + extra_m)
+        for c, need in path_clearances(work_dir, path_source, preset_id=preset_id, scale=scale)
+        if len(c) >= 2
+    ]
+    return unary_union(bands) if bands else None
 
 
 def load_fence_lines(work_dir: Path) -> list[tuple[str, list[tuple[float, float]]]]:
@@ -3041,6 +3063,10 @@ def build_dtm_fence_parts(
         if sprint:
             # Sprint: dělicí ploty zahrad uvnitř olivového bloku se nekreslí (oliva po obou stranách).
             lines = drop_fences_inside_olive(lines, olive_geom)
+        else:
+            # Les a MTBO: totéž, ale plot podél kreslené cesty uvnitř olivy (ulice v obci) zůstává.
+            lines = drop_fences_inside_olive(lines, olive_geom, keep_zone=_fence_path_keep_zone(work_dir, path_source, preset_id, scale))
+        if sprint:
             # Sprint: plot přes plochu chodníku z DTM se na ní přeruší (chodník tudy prochází); výplň olivou
             # se hledala už před tím, takže oliva v oplocení zůstává.
             sidewalk_area = dtm_sidewalks.dtm_union(_load_sidewalk_polygons(work_dir))
