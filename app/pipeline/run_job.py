@@ -685,9 +685,7 @@ def run_job_pipeline(
 
     if reused_from and merged_existing:
         merged = merged_existing
-        progress.skip(
-            "příprava LiDAR", reason=f"LAZ z jobu {reused_from}"
-        )
+        progress.skip("příprava LiDAR")
     else:
         cached_merged = None
         progress.begin("příprava LiDAR")
