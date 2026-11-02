@@ -19,12 +19,13 @@ import functools
 import hashlib
 import json
 import os
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from app.pipeline import dtm_fences, dtm_sidewalks, dtm_sources, zone_index
+from app.pipeline import build_stats, dtm_fences, dtm_sidewalks, dtm_sources, zone_index
 from app.pipeline.fetch_openzu import VECTOR_FETCH_BUFFER_M, crop_bounds_5514
 from app.pipeline.geom_clip import Bounds, clip_polyline
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -253,6 +254,12 @@ def prepare_dtm_fences(
         return None
     bounds = crop_bounds_5514(west, south, east, north, buffer_m=VECTOR_FETCH_BUFFER_M)
     # Stažení více balíků souběžně (I/O); parsování a cache JSON pak postupně.
+    build_stats.note_background(
+        "dtm",
+        packages=len(packages),
+        regions=sorted({p.kraj for p in packages}),
+        date=max(p.date for p in packages),
+    )
     files = dtm_sources.download_packages(packages, log=log)
     kr_packages = [p for p in packages if p.set_name == dtm_sources.SET_KR]
     if not kr_packages:
@@ -2457,12 +2464,16 @@ def start_dtm_prefetch(
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dtm-dl")
 
     def _run() -> Path | None:
+        t0 = time.monotonic()
         try:
             return prepare_dtm_fences(work_dir, bbox_wgs84, log=log, force=force)
         except Exception as exc:  # výpadek DMVS / poškozený balík nesmí shodit job
             if log:
                 log(f"DTM: ploty přeskočeny ({type(exc).__name__}: {exc})")
+            build_stats.note_background("dtm", failed=True)
             return None
+        finally:
+            build_stats.note_background("dtm", seconds=time.monotonic() - t0)
 
     if log:
         log("Start přípravy DTM (ploty) na pozadí.")
