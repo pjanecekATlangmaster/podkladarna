@@ -65,20 +65,65 @@ def test_entrance_edges_are_oriented_with_deck_on_the_left():
         assert foot.contains(left)
 
 
-def test_lower_level_areas_cover_the_whole_bridge_that_crosses_paved_or_water():
+def test_lower_level_areas_cover_whole_bridge_over_paved_but_not_over_water():
     bridge_road = ds.dtm_union([_rect(0, 0, 40, 10)])  # most přes silnici
-    bridge_water = ds.dtm_union([_rect(100, 0, 140, 10)])  # most přes vodu
-    bridge_none = ds.dtm_union([_rect(200, 0, 240, 10)])  # most přes nic
-    foot = ds.dtm_union([_rect(0, 0, 40, 10), _rect(100, 0, 140, 10), _rect(200, 0, 240, 10)])
-    paved = ds.dtm_union([_rect(10, -5, 20, 15)])  # silnice pod prvním mostem (10 × 10)
-    water = ds.dtm_union([_rect(110, -5, 118, 15)])  # řeka pod druhým mostem (8 × 10)
+    foot = ds.dtm_union([_rect(0, 0, 40, 10), _rect(100, 0, 200, 10), _rect(300, 0, 340, 10)])
+    paved = ds.dtm_union([_rect(10, -5, 20, 15), _rect(105, -5, 110, 15)])  # silnice pod 1. mostem, cesta na břehu pod 2.
+    water = ds.dtm_union([_rect(120, -5, 180, 15)])  # řeka pod druhým mostem (most 100…200)
     out = db.lower_level_areas(foot, paved, water)
-    # celý most (ne jen průnik se spodní plochou): 400 m² každý; třetí most bez spodního povrchu se nevrací
-    assert abs(out["paved"].area - bridge_road.area) < 1e-6 and abs(out["water"].area - bridge_water.area) < 1e-6
-    assert out["paved"].intersection(bridge_none).area < 1e-6 and out["water"].intersection(bridge_none).area < 1e-6
-    assert db.lower_level_areas(foot, None, None) == {"paved": None, "water": None}
-    tiny = ds.dtm_union([_rect(300, 0, 300.5, 0.5)])
+    # 1. most celý (ne jen průnik se silnicí); 2. most jen kus na břehu s cestou (100…120), nad vodou ani na druhém
+    # břehu bez cesty (180…200) nic; 3. most přes nic se nevrací
+    assert set(out) == {"paved"}
+    assert abs(out["paved"].area - (bridge_road.area + 20 * 10)) < 1e-6
+    assert out["paved"].intersection(ds.dtm_union([_rect(120, 0, 200, 10)])).area < 1e-6
+    assert db.lower_level_areas(foot, None, water) == {"paved": None}
+    tiny = ds.dtm_union([_rect(400, 0, 400.5, 0.5)])
     assert db.lower_level_areas(foot, tiny)["paved"] is None  # mimo most
+
+
+@pytest.mark.parametrize("angle_deg", [90, 45, 25])
+def test_entrance_edges_mark_road_passing_under_bridge_at_acute_angle(angle_deg):
+    from shapely import affinity
+
+    foot = ds.dtm_union([_rect(-200, -10, 200, 10)])  # most 20 m široký podél osy x
+    road = affinity.rotate(ds.dtm_union([_rect(-4, -100, 4, 100)]), 90 - angle_deg, origin=(0, 0))  # silnice pod mostem
+    edges = db.entrance_edges(foot, None, road)
+    assert len(edges) == 2  # vstup a výstup na obou okrajích mostu
+    assert sorted(round(LineString(e).centroid.y) for e in edges) == [-10, 10]
+
+
+def _line_feature(hw, coords):
+    return {"type": "Feature", "properties": {"highway": hw}, "geometry": {"type": "LineString", "coordinates": coords}}
+
+
+@pytest.mark.parametrize(
+    "coords,hw,count",
+    [
+        ([[0, -50], [0, 50]], "footway", 2),  # cesta pod mostem napříč (jen čára OSM, bez plochy z DTM)
+        ([[-50, -50], [50, 50]], "footway", 2),  # šikmo (45°)
+        ([[0, -50], [0, 0]], "footway", 0),  # končí pod mostem
+        ([[0, -50], [0, -10]], "steps", 0),  # končí na okraji mostu (napojení)
+        ([[-150, -9], [150, 9]], "footway", 0),  # souběžně s mostem (pod ostrým úhlem < 20°)
+        ([[0, -50], [0, 50]], "bridge:footway", 0),  # čára na mostě
+    ],
+)
+def test_bridge_entrance_edges_from_osm_lines_under_dtm_bridge(tmp_path, coords, hw, count):
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "decks.json").write_text(
+        json.dumps({"decks": [{"l": 1, "t": "ProvozniPlochaPozemniKomunikacePlocha", "p": [[list(p) for p in ring] for ring in _rect(-200, -10, 200, 10)]}]}),
+        encoding="utf-8",
+    )
+    (work / "osm_paths").mkdir()
+    (work / "osm_paths" / "paths_mixed.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [_line_feature(hw, coords)]}), encoding="utf-8"
+    )
+    edges = di.bridge_entrance_edge_lines(work)
+    assert len(edges) == count
+    for e in edges:  # na okrajích mostu, vnitřek vlevo
+        assert abs(abs(LineString(e).centroid.y) - 10) < 0.01
+        (x0, y0), (x1, y1) = e[0], e[-1]
+        assert (x1 - x0) * (-1 if y0 > 0 else 1) > 0
 
 
 def test_bridge_parts_draw_lower_paved_with_512_311_and_hide_lower_stairs(tmp_path):

@@ -41,6 +41,8 @@ EDGE_MAX_LEN_M = 15.0
 # nejvýš tuto složku (|cos| ≤ ..., tj. vede napříč hranami).
 THROUGH_MIN_DIST_M = 2.5
 THROUGH_MAX_ALONG = 0.6
+# S půdorysem mostu: spojnice středů hran míří dovnitř mostu aspoň takto (kosinus k normále, ~73°) – i šikmé křížení.
+THROUGH_MIN_INWARD = 0.3
 # Silnice pod mostem bývá širší než chodník.
 ROAD_EDGE_MAX_LEN_M = 30.0
 EDGE_MIN_LEN_M = 1.0
@@ -173,16 +175,18 @@ def _crossings(deck, surface, max_len_m: float):
         crossing = deck.boundary.intersection(comp.buffer(0.03))  # hrana části leží na hraně mostu jen přibližně
         pieces = [crossing] if crossing.geom_type == "LineString" else [g for g in getattr(crossing, "geoms", []) if g.geom_type == "LineString"]
         pieces = [pc for pc in pieces if EDGE_MIN_LEN_M <= pc.length <= max_len_m]
-        pieces = _through_pairs(pieces)
+        pieces = _through_pairs(pieces, deck)
         if len(pieces) >= 2:
             out.append((comp, pieces))
     return out
 
 
-def _through_pairs(pieces: list) -> list:
+def _through_pairs(pieces: list, deck=None) -> list:
     """Hrany, které tvoří dvojici „vstup – výstup“: spojnice jejich středů vede napříč hranami (ne podél nich).
 
-    Povrch, který jen sousedí s obloukem mostu (rampa, přistání), má hrany podél sebe a vypadne.
+    Povrch, který jen sousedí s obloukem mostu (rampa, přistání), má hrany podél sebe a vypadne. S půdorysem
+    ``deck`` se hrany posuzují podle normál dovnitř mostu: spojnice vede od jedné hrany dovnitř a do druhé zevnitř
+    (každá svírá s normálou nejvýš ~73°), takže projde i šikmé křížení (silnice pod mostem pod ostrým úhlem).
     """
     if len(pieces) < 2:
         return []
@@ -193,7 +197,15 @@ def _through_pairs(pieces: list) -> list:
         b = pc.interpolate(min(pc.length, pc.length / 2.0 + 0.5))
         tx, ty = b.x - a.x, b.y - a.y
         n = math.hypot(tx, ty) or 1.0
-        info.append((mid.x, mid.y, tx / n, ty / n))
+        tx, ty = tx / n, ty / n
+        nx = ny = None
+        if deck is not None:
+            from shapely.geometry import Point
+
+            nx, ny = -ty, tx  # levá normála; dovnitř mostu?
+            if not deck.contains(Point(mid.x + nx * 0.4, mid.y + ny * 0.4)):
+                nx, ny = -nx, -ny
+        info.append((mid.x, mid.y, tx, ty, nx, ny))
     keep = set()
     for i in range(len(info)):
         for j in range(i + 1, len(info)):
@@ -202,44 +214,42 @@ def _through_pairs(pieces: list) -> list:
             if d < THROUGH_MIN_DIST_M:
                 continue
             vx, vy = vx / d, vy / d
-            if abs(vx * info[i][2] + vy * info[i][3]) <= THROUGH_MAX_ALONG and abs(vx * info[j][2] + vy * info[j][3]) <= THROUGH_MAX_ALONG:
+            if deck is not None:
+                ok = vx * info[i][4] + vy * info[i][5] >= THROUGH_MIN_INWARD and -(vx * info[j][4] + vy * info[j][5]) >= THROUGH_MIN_INWARD
+            else:
+                ok = abs(vx * info[i][2] + vy * info[i][3]) <= THROUGH_MAX_ALONG and abs(vx * info[j][2] + vy * info[j][3]) <= THROUGH_MAX_ALONG
+            if ok:
                 keep.update((i, j))
     return [pieces[i] for i in sorted(keep)]
 
 
 LOWER_PAVED_CODE = "512.311"  # oblast průběžná v nižší úrovni (zpevněná plocha 501, 501.3)
-LOWER_WATER_CODE = "512.302"  # oblast průběžná v nižší úrovni (voda 301)
 # Průnik mostovky se spodním povrchem menší než tato plocha (m²) se nekreslí.
 MIN_LOWER_AREA_M2 = 1.0
 
 
 def lower_level_areas(foot, paved0, water0=None) -> dict[str, object]:
-    """Mosty, pod kterými prochází spodní povrch: ``{"paved": geom, "water": geom}`` (shapely nebo None).
+    """Části mostů, pod kterými prochází spodní zpevněná plocha: ``{"paved": geom}`` (shapely nebo None).
 
-    Každý souvislý most ``foot``, který kříží zpevněné plochy ``paved0`` (chodníky, silnice, parkoviště) nebo vodu
-    ``water0`` na úrovni 0, se vrací **celý** (od napojení na cestu po napojení na další cestu), do ``paved`` nebo
-    ``water`` podle toho, pod kterým povrchem leží větší plocha. V ISSprOM se takový most kreslí symbolem 512.3xx
-    (bílý základ a barva spodní plochy): 512.311 zpevněná plocha, 512.302 voda.
+    Část mostu nad vodou ``water0`` se nebere (pod mostem tam nikdo neběží, mostovka se kreslí barvou svého povrchu).
+    Zbytek každého souvislého mostu ``foot`` se rozdělí na souvislé kusy (na každém břehu zvlášť) a kus, který kříží
+    zpevněné plochy ``paved0`` (chodníky, silnice, parkoviště) na úrovni 0, se vrací **celý** (od napojení na cestu
+    po napojení na další cestu nebo po vodu). V ISSprOM se kreslí symbolem 512.311 (bílý základ a šrafa barvou
+    zpevněné plochy).
     """
     from shapely.ops import unary_union
 
-    out: dict[str, object] = {"paved": None, "water": None}
-    if foot is None or foot.is_empty:
+    out: dict[str, object] = {"paved": None}
+    if foot is None or foot.is_empty or paved0 is None or paved0.is_empty:
         return out
+    if water0 is not None and not water0.is_empty:
+        foot = foot.difference(water0)
     comps = [foot] if foot.geom_type == "Polygon" else [g for g in getattr(foot, "geoms", []) if g.geom_type == "Polygon"]
-    paved_parts, water_parts = [], []
-    for comp in comps:
-        if comp.area < MIN_DECK_AREA_M2:
-            continue
-        pa = comp.intersection(paved0).area if paved0 is not None and not paved0.is_empty else 0.0
-        wa = comp.intersection(water0).area if water0 is not None and not water0.is_empty else 0.0
-        if max(pa, wa) < MIN_LOWER_AREA_M2:
-            continue
-        (paved_parts if pa >= wa else water_parts).append(comp)
+    paved_parts = [
+        comp for comp in comps if comp.area >= MIN_DECK_AREA_M2 and comp.intersection(paved0).area >= MIN_LOWER_AREA_M2
+    ]
     if paved_parts:
         out["paved"] = unary_union(paved_parts)
-    if water_parts:
-        out["water"] = unary_union(water_parts)
     return out
 
 
@@ -269,4 +279,79 @@ def entrance_edges(foot, light0, heavy0, near_m: float = SIDEWALK_NEAR_M) -> lis
             coords = _orient_inside(piece, deck)
             if coords is not None:
                 edges.append(coords)
+    return edges
+
+
+# Průchody pod mostem podle čar cest (OSM): křížení s okrajem mostu do této vzdálenosti (m) od konce čáry je napojení.
+LINE_END_CLEAR_M = 1.5
+# Čára pod mostem: úsek uvnitř půdorysu nejvýš tak dlouhý (m) – delší vede po mostě / podél něj, ne pod ním napříč.
+LINE_THROUGH_MAX_M = 80.0
+# Nejmenší sinus úhlu čáry s okrajem mostu (souběžná čára hranu nedostane).
+LINE_MIN_SIN = 0.34
+# Hrana z čáry se nekreslí, když už do této vzdálenosti (m) od místa křížení leží hrana ze spodní plochy.
+LINE_EDGE_DUP_M = 3.0
+
+
+def line_entrance_edges(foot, lines, existing=()) -> list[list[tuple[float, float]]]:
+    """Hrany 512.100 tam, kde pod mostem ``foot`` prochází čára cesty na úrovni 0, kterou plochy z DTM nezachytily.
+
+    ``lines``: ``[(LineString, šířka kresby v m)]`` (bez čar na mostech a v tunelech). Čára musí půdorysem projít
+    (vstup a výstup na okraji mostu, ne konec čáry pod mostem ani na něm). Hrana leží na okraji mostu kolem
+    místa křížení v délce šířky kresby / sin úhlu (nejvýš ``ROAD_EDGE_MAX_LEN_M``); kde už je hrana z plochy
+    (``existing``), se nepřidává. Čáry jsou orientované tak, že vnitřek mostu leží vlevo od směru kreslení.
+    """
+    from shapely.geometry import LineString, Point
+    from shapely.ops import substring
+
+    if foot is None or foot.is_empty or not lines:
+        return []
+    comps = [foot] if foot.geom_type == "Polygon" else [g for g in getattr(foot, "geoms", []) if g.geom_type == "Polygon"]
+    taken = [LineString(e) for e in existing if len(e) >= 2]
+    edges: list[list[tuple[float, float]]] = []
+    for deck in comps:
+        if deck.area < MIN_DECK_AREA_M2:
+            continue
+        ring = deck.exterior
+        for line, width_m in lines:
+            if not line.intersects(deck):
+                continue
+            inside = line.intersection(deck)
+            segs = [inside] if inside.geom_type == "LineString" else [g for g in getattr(inside, "geoms", []) if g.geom_type == "LineString"]
+            for seg in segs:
+                if seg.length < EDGE_MIN_LEN_M or seg.length > LINE_THROUGH_MAX_M:
+                    continue
+                ends = [Point(seg.coords[0]), Point(seg.coords[-1])]
+                if any(ring.distance(q) > 0.05 for q in ends):
+                    continue  # čára končí pod mostem (nebo vede dírou v půdorysu)
+                if any(line.project(q) <= LINE_END_CLEAR_M or line.length - line.project(q) <= LINE_END_CLEAR_M for q in ends):
+                    continue  # čára na okraji mostu končí (napojení, schody na most)
+                for q in ends:
+                    if any(t.distance(q) <= LINE_EDGE_DUP_M for t in taken):
+                        continue
+                    s_r = ring.project(q)
+                    a, b = ring.interpolate(max(0.0, s_r - 0.5)), ring.interpolate(min(ring.length, s_r + 0.5))
+                    s_l = line.project(q)
+                    c, d = line.interpolate(max(0.0, s_l - 0.5)), line.interpolate(min(line.length, s_l + 0.5))
+                    tr = (b.x - a.x, b.y - a.y)
+                    tl = (d.x - c.x, d.y - c.y)
+                    nr, nl = math.hypot(*tr), math.hypot(*tl)
+                    if nr < 1e-9 or nl < 1e-9:
+                        continue
+                    sin = abs(tr[0] * tl[1] - tr[1] * tl[0]) / (nr * nl)
+                    if sin < LINE_MIN_SIN:
+                        continue
+                    half = min(ROAD_EDGE_MAX_LEN_M / 2.0, (width_m / 2.0 + 0.5) / sin)
+                    lo, hi = s_r - half, s_r + half
+                    if lo < 0.0 or hi > ring.length:  # kus přes začátek obrysu
+                        piece = LineString(
+                            [ring.interpolate(s % ring.length).coords[0] for s in [lo + (hi - lo) * k / 20.0 for k in range(21)]]
+                        )
+                    else:
+                        piece = substring(ring, lo, hi)
+                    if piece.geom_type != "LineString" or piece.length < EDGE_MIN_LEN_M:
+                        continue
+                    coords = _orient_inside(piece, deck)
+                    if coords is not None:
+                        edges.append(coords)
+                        taken.append(piece)
     return edges
