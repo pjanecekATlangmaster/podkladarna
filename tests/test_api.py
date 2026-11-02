@@ -881,3 +881,10 @@ def test_create_job_sprint_area_limit(client, monkeypatch, scale, contour, bbox,
         assert r.status_code == 400
         detail = r.json()["detail"]
         assert "Sprint" in detail and "max 9 km²" in detail and "3 × 3 km" in detail
+
+
+def test_mtbo_scale_7500_in_web():
+    root = Path(__file__).resolve().parent.parent / "web"
+    assert "mtbo: [7500, 10000, 15000]" in (root / "static" / "app.js").read_text(encoding="utf-8")
+    html = (root / "index.html").read_text(encoding="utf-8")
+    assert any("MTBO" in ln and "1:7500" in ln for ln in html.splitlines() if "map-kind-card" in ln)

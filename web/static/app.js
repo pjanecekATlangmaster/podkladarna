@@ -145,7 +145,7 @@ function selectedMapTypes() {
 }
 
 /** Karty „Typ mapy“: povolená měřítka a výchozí měřítko podle typu. */
-const MAP_KIND_SCALES = { sprint: [4000], les: [7500, 10000, 15000], mtbo: [10000, 15000] };
+const MAP_KIND_SCALES = { sprint: [4000], les: [7500, 10000, 15000], mtbo: [7500, 10000, 15000] };
 const MAP_KIND_DEFAULT_SCALE = { sprint: 4000, les: 10000, mtbo: 15000 };
 let allScaleOptions = null;
 
