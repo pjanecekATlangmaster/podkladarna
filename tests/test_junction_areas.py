@@ -145,6 +145,29 @@ def test_square_mouth_oblique_entry_fills_wedge_and_cuts_behind():
     assert ja.square_mouths(area, [], 10.0) is area
 
 
+@pytest.mark.parametrize(
+    "line_xs, sided, widened",
+    [
+        ((50.0, -2.0), True, True),  # silnice s výplní pokračuje za špičkou → pás do klínu (Do Klukovic, 2026-11-02)
+        ((50.0, -2.0), False, False),  # černá čára bez výplně končí na okraji
+        ((3.0, -2.0), True, False),  # pahýl bez kresby za ústím
+    ],
+)
+def test_square_mouth_extends_into_narrow_tip(line_xs, sided, widened):
+    # Klín (špička v x = 0, šířka 0,4·hloubky) užší než kresba silnice (ústí ± 4 m): kresba se do něj vejde až ~20 m
+    # od špičky. Silnice s výplní zleva → pás ústí se protáhne do klínu, okraj navazuje na okrajové linky silnice.
+    from shapely.geometry import LineString, Polygon
+
+    area = Polygon([(0, 0.8), (-60, 12.8), (-60, -12.8), (0, -0.8)])
+    x0, x1 = line_xs
+    line = LineString([(x0, 0), (x1, 0)])
+    entries = ja.road_mouth_entries(area, [(line, 4.0)])
+    out = ja.square_mouths(area, entries, 10.0, tip_max_m=30.0, tip_lines={id(line)} if sided else set())
+    assert out.contains(Point(-3, 3.5)) is widened and out.contains(Point(-10, -3.5)) is widened
+    assert not out.contains(Point(-30, 9))  # mimo pás klín beze změny
+    assert ja.square_mouths(area, entries, 10.0).equals(area)  # bez tip_max_m jako dřív
+
+
 def test_road_mouth_entries_skip_grazing_and_corner_clips():
     from shapely.geometry import LineString, box
 
