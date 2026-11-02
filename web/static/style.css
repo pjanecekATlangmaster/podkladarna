@@ -323,6 +323,13 @@ main.page-wrap {
   color: #fff;
 }
 
+.field-label {
+  display: block;
+  margin: 0.75rem 0 0.25rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
 label {
   display: block;
   margin: 0.75rem 0;

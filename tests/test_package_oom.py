@@ -34,6 +34,32 @@ def test_oom_path_source_from_job_options(options, preset_id, expected):
     assert oom_path_source(options, preset_id) == expected
 
 
+@pytest.mark.parametrize(
+    "scale, map_types, expected",
+    [
+        (10000, None, ["les", "mtbo"]),
+        (10000, ["les"], ["les"]),
+        (15000, ["mtbo"], ["mtbo"]),
+        (7500, ("les", "mtbo"), ["les", "mtbo"]),
+        (4000, ["mtbo"], ["sprint"]),  # sprint se nefiltruje
+        (10000, [], ["les", "mtbo"]),  # pojistka
+        (10000, ["xyz"], ["les", "mtbo"]),
+    ],
+)
+def test_resolve_discipline_presets_map_types(scale, map_types, expected):
+    from app.pipeline.job_options import load_presets
+    from app.pipeline.package_oom import resolve_discipline_presets
+
+    got = resolve_discipline_presets(
+        "forest_10000",
+        load_presets(),
+        map_scale=scale,
+        contour_interval=2.5 if scale == 4000 else 5,
+        map_types=map_types,
+    )
+    assert [d[0] for d in got] == expected
+
+
 def test_resolve_omap_job_by_scale():
     from app.pipeline.job_options import load_presets
     from app.pipeline.package_oom import (

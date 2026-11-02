@@ -48,7 +48,9 @@ from app.pipeline.job_options import (
     KP_VEGE_HEIGHT_CHOICES,
     CONTOUR_SMOOTH_LEVELS,
     VEG_SMOOTH_LEVELS,
+    default_map_types,
     load_presets,
+    parse_map_types,
     resolve_cliff_sensitivity,
     resolve_formline_mode,
     resolve_vege_height,
@@ -101,6 +103,15 @@ def _form_str(form, key: str, default: str = "") -> str:
     if val is None:
         return default
     return str(val)
+
+
+def _form_list(form, key: str) -> list[str]:
+    """Všechny hodnoty pole formuláře (opakované pole / getlist)."""
+    getlist = getattr(form, "getlist", None)
+    if getlist is None:
+        val = form.get(key)
+        return [] if val is None else [str(val)]
+    return [str(v) for v in getlist(key)]
 
 
 _FORMLINE_LABEL = {"off": "ne", "sparse": "střídmě", "more": "víc", "all": "všude"}
@@ -672,6 +683,20 @@ async def api_create_job(request: Request):
     if preset_id not in presets:
         raise HTTPException(400, f"Neznamy preset: {preset_id}")
 
+    # Typy map (les / MTBO) jen u lesních měřítek; bez pole výchozí podle měřítka (API klienti).
+    # GUI posílá skryté `map_types_form`, protože nezaškrtnutý checkbox se neodešle vůbec.
+    map_types: list[str] | None = None
+    if int(resolved["map_scale"]) != 4000:
+        map_types_raw = _form_list(form, "map_types")
+        if "map_types" not in form and "map_types_form" not in form:
+            map_types = default_map_types(resolved["map_scale"])
+        else:
+            map_types = parse_map_types(map_types_raw)
+            if not map_types:
+                raise HTTPException(
+                    400, "Vyberte alespoň jeden typ mapy (les nebo MTBO)."
+                )
+
     if (worker.is_busy() or worker.is_draining()) and not worker.can_accept_job():
         raise HTTPException(
             503,
@@ -780,6 +805,8 @@ async def api_create_job(request: Request):
         options.get("map_scale"),
         preset_id,
     )
+    if map_types:
+        options["map_types"] = map_types
     formlines_raw = _form_str(form, "contour_formlines").strip().lower()
     if formlines_raw in FORMLINE_MODES:
         options["contour_formlines"] = formlines_raw
@@ -876,6 +903,13 @@ async def api_create_job(request: Request):
         f"Přijato: preset {preset_id} · 1:{resolved['map_scale']} · "
         f"ekvidistance {resolved['contour_interval']} m · "
         f"listy SM5 {', '.join(options['sm5_sheets'])}"
+        + (
+            " · mapy les + MTBO"
+            if map_types and len(map_types) > 1
+            else f" · mapa {'MTBO' if map_types[0] == 'mtbo' else 'les'}"
+            if map_types
+            else ""
+        )
     )
     log(
         f"  Terén: vegetace {options.get('kp_vege_height', 2.0)} m · "

@@ -364,8 +364,12 @@ def resolve_discipline_presets(
     *,
     map_scale: object = None,
     contour_interval: object = None,
+    map_types: "list[str] | tuple[str, ...] | None" = None,
 ) -> list[tuple[str, str, int]]:
-    """Vrátí [(tag, preset_id, scale), ...] podle měřítka (ne vždy všechny disciplíny)."""
+    """Vrátí [(tag, preset_id, scale), ...] podle měřítka (ne vždy všechny disciplíny).
+
+    ``map_types`` (les / mtbo) omezí lesní disciplíny; sprint se nefiltruje.
+    """
     presets = presets or {}
     resolved = resolve_omap_job(
         map_scale,
@@ -373,7 +377,13 @@ def resolve_discipline_presets(
         presets=presets,
         preset_id_fallback=selected_preset_id,
     )
-    return list(resolved["disciplines"])
+    disciplines = list(resolved["disciplines"])
+    if map_types is not None:
+        wanted = {str(t).lower() for t in map_types}
+        filtered = [d for d in disciplines if d[0] == "sprint" or d[0] in wanted]
+        if filtered:  # pojistka: prázdný / neplatný výběr nevyřadí všechno
+            return filtered
+    return disciplines
 
 
 def omap_map_stem(map_name: str, *, max_len: int = 12) -> str:
