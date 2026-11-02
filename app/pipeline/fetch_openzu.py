@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import email.utils
 import json
 import math
 import shutil
@@ -12,9 +13,12 @@ from pathlib import Path
 
 from app import settings
 from app.download_cache import (
+    age_days,
     is_fresh,
     lidar_sheet_dir,
     read_meta,
+    touch_last_used,
+    utcnow_iso,
     write_meta,
 )
 
@@ -63,6 +67,8 @@ _EST_GEOREF_MIN_PER_PAPER_M2 = 2.5  # 600 DPI bylo 7 (4× víc px); s rezervou
 REF_PNG_ESTIMATE_MINUTES = 1
 QUERY_TIMEOUT_S = 30
 DOWNLOAD_TIMEOUT_S = 180
+# HEAD na OpenZU (ověření novější verze listu); při výpadku se bere cache.
+VERSION_CHECK_TIMEOUT_S = 15
 
 # Obdélník Česka + cca 15 km (listy SM5 u hranic).
 CZ_WEST = 11.85
@@ -216,11 +222,11 @@ def estimate_georef_minutes(area_km2: float, scale: int) -> int:
 
 
 def dmpok_cached_mapnoms(mapnoms: list[str]) -> set[str]:
-    """Listy SM5, u kterých je v cache čerstvý DMPOK.laz."""
+    """Listy SM5, u kterých je v cache DMPOK.laz (od 3.9.0 se podle stáří znovu nestahuje)."""
     cached: set[str] = set()
     for mapnom in mapnoms:
-        folder = lidar_sheet_dir(mapnom)
-        if is_fresh(folder, folder / "DMPOK.laz", settings.LIDAR_CACHE_MAX_AGE_DAYS):
+        laz = lidar_sheet_dir(mapnom) / "DMPOK.laz"
+        if laz.is_file() and laz.stat().st_size >= 1000:
             cached.add(mapnom)
     return cached
 
@@ -415,13 +421,9 @@ def _cached_dmp_laz(
     """Model povrchu: primárně DMP OK (obrazová korelace), záloha DMP 1G."""
     folder = lidar_sheet_dir(mapnom)
     dmpok = folder / "DMPOK.laz"
-    if not force_refresh and is_fresh(
-        folder, dmpok, settings.LIDAR_CACHE_MAX_AGE_DAYS
+    if not force_refresh and _sheet_laz_current(
+        folder, dmpok, "DMPOK", OPENZU_DMPOK.format(mapnom=mapnom), mapnom, log
     ):
-        if log:
-            meta = read_meta(folder) or {}
-            age = meta.get("downloaded_at", "?")[:10]
-            log(f"LiDAR cache {mapnom} DMPOK (staženo {age})")
         write_meta(
             folder,
             dmp_product="DMPOK",
@@ -498,24 +500,108 @@ def _cached_laz(
     folder = lidar_sheet_dir(mapnom)
     folder.mkdir(parents=True, exist_ok=True)
     laz = folder / f"{kind}.laz"
-    if not force_refresh and is_fresh(
-        folder, laz, settings.LIDAR_CACHE_MAX_AGE_DAYS
-    ):
-        if log:
-            meta = read_meta(folder) or {}
-            age = meta.get("downloaded_at", "?")[:10]
-            log(f"LiDAR cache {mapnom} {kind} (staženo {age})")
+    if not force_refresh and _sheet_laz_current(folder, laz, kind, url, mapnom, log):
         return laz
 
     zpath = folder / f"{kind}.zip"
     if log:
         log(f"Stahuji {kind} {mapnom} …")
-    _http_download(url, zpath)
+    remote = _http_download(url, zpath)
     _extract_laz(zpath, laz)
-    write_meta(folder, kind=kind, mapnom=mapnom, url=url, source="openzu")
+    # Rozbalený LAZ zůstává v cache, ZIP je jen jeho kopie (~350 MB u DMP OK).
+    zpath.unlink(missing_ok=True)
+    now = utcnow_iso()
+    write_meta(
+        folder,
+        kind=kind,
+        mapnom=mapnom,
+        url=url,
+        source="openzu",
+        downloaded_at=now,
+        **{
+            f"{kind}_downloaded_at": now,
+            f"{kind}_checked_at": now,
+            f"{kind}_remote": remote,
+        },
+    )
+    touch_last_used(folder)
     if log:
         log(f"OK {laz.name} ({laz.stat().st_size / 1e6:.1f} MB)")
     return laz
+
+
+def _remote_version(url: str) -> dict | None:
+    """Verze souboru na OpenZU (HEAD): Last-Modified + velikost; None = nezjištěno."""
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=VERSION_CHECK_TIMEOUT_S) as resp:
+            return _version_from_headers(resp.headers)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def _version_from_headers(headers) -> dict | None:
+    last_modified = (headers.get("Last-Modified") or "").strip()
+    size = (headers.get("Content-Length") or "").strip()
+    if not last_modified and not size:
+        return None
+    return {"last_modified": last_modified, "size": int(size) if size.isdigit() else None}
+
+
+def _remote_is_newer(remote: dict, stored: dict | None, laz: Path) -> bool:
+    if stored:
+        return (remote.get("last_modified"), remote.get("size")) != (
+            stored.get("last_modified"),
+            stored.get("size"),
+        )
+    # Cache z doby před ověřováním verzí: novější je, když ČÚZK soubor změnil po rozbalení našeho LAZ.
+    try:
+        published = email.utils.parsedate_to_datetime(remote.get("last_modified") or "")
+    except (TypeError, ValueError):
+        return False
+    if published is None:
+        return False
+    return published.timestamp() > laz.stat().st_mtime
+
+
+def _sheet_laz_current(
+    folder: Path, laz: Path, kind: str, url: str, mapnom: str, log: callable | None
+) -> bool:
+    """List v cache je použitelný a aktuální (jednou za ``LIDAR_VERSION_CHECK_DAYS`` se ověří u ČÚZK).
+
+    Podle stáří se list znovu nestahuje; novější verze na OpenZU → False (stáhne se znovu).
+    Ověření nevyjde (výpadek) → bere se cache a ověří se při dalším jobu."""
+    if not laz.is_file() or laz.stat().st_size < 1000:
+        return False
+    meta = read_meta(folder) or {}
+    checked = meta.get(f"{kind}_checked_at") or meta.get(f"{kind}_downloaded_at") or meta.get("downloaded_at")
+    age = age_days(checked)
+    stamp = (meta.get(f"{kind}_downloaded_at") or meta.get("downloaded_at") or "?")[:10]
+    interval = settings.LIDAR_VERSION_CHECK_DAYS
+    if interval > 0 and (age is None or age > interval):
+        remote = _remote_version(url)
+        if remote is None:
+            if log:
+                log(f"LiDAR {mapnom} {kind}: novější verzi u ČÚZK nejde ověřit, beru cache (staženo {stamp})")
+        elif _remote_is_newer(remote, meta.get(f"{kind}_remote"), laz):
+            if log:
+                log(
+                    f"LiDAR {mapnom} {kind}: ČÚZK vydal novější verzi ({remote.get('last_modified')}), "
+                    f"stahuji znovu (v cache z {stamp})"
+                )
+            return False
+        else:
+            write_meta(folder, **{f"{kind}_checked_at": utcnow_iso(), f"{kind}_remote": remote})
+    _drop_redundant_zip(folder, kind)
+    touch_last_used(folder)
+    if log:
+        log(f"LiDAR cache {mapnom} {kind} (staženo {stamp})")
+    return True
+
+
+def _drop_redundant_zip(folder: Path, kind: str) -> None:
+    """ZIP vedle rozbaleného LAZ (stažení před 3.9.0) je jen kopie – uvolní místo."""
+    (folder / f"{kind}.zip").unlink(missing_ok=True)
 
 
 def _extract_laz(zpath: Path, dest_laz: Path) -> None:
@@ -549,12 +635,15 @@ def _http_json(url: str, timeout: int) -> dict:
         raise FetchError("ArcGIS vrátil neplatný JSON") from exc
 
 
-def _http_download(url: str, dest: Path) -> None:
+def _http_download(url: str, dest: Path) -> dict | None:
+    """Stáhne soubor; vrací verzi z hlaviček odpovědi (``_version_from_headers``)."""
     tmp = dest.with_suffix(dest.suffix + ".part")
     try:
         with urllib.request.urlopen(_request(url, DOWNLOAD_TIMEOUT_S), timeout=DOWNLOAD_TIMEOUT_S) as resp:
             if getattr(resp, "status", 200) >= 400:
                 raise FetchError(f"Stažení selhalo HTTP {resp.status}: {url}")
+            headers = getattr(resp, "headers", None)
+            version = _version_from_headers(headers) if headers is not None else None
             with tmp.open("wb") as out:
                 shutil.copyfileobj(resp, out)
     except urllib.error.HTTPError as exc:
@@ -567,3 +656,4 @@ def _http_download(url: str, dest: Path) -> None:
     if dest.stat().st_size < 1000:
         dest.unlink(missing_ok=True)
         raise FetchError(f"Stažený soubor je podezřele malý: {url}")
+    return version

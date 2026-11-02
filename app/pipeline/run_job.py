@@ -15,6 +15,7 @@ from app.download_cache import (
     lidar_pair_paths,
     lidar_crop_cache_dir,
     persist_lidar_crop,
+    prune_lidar_cache,
     surfaces_cache_dir,
     try_restore_lidar_crop,
 )
@@ -704,6 +705,16 @@ def run_job_pipeline(
                     log=log,
                 )
             progress.done()
+    if bbox:
+        # Strop cache LiDARu (``LIDAR_CACHE_MAX_GB``): smaže nejdéle nepoužité listy, ne listy tohoto jobu.
+        try:
+            prune_lidar_cache(
+                keep_sheets=set(sheet_names or options.get("sm5_sheets") or ()),
+                keep_dirs=tuple(p for p in (crop_cache,) if p is not None),
+                log=log,
+            )
+        except Exception as exc:  # úklid cache nesmí shodit job
+            log(f"Úklid cache LiDARu selhal: {exc}")
 
     surfaces: SurfacesPrep | None = None
     if grid_bounds is not None:

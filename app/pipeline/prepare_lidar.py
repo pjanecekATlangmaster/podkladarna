@@ -12,7 +12,10 @@ from app.download_cache import (
     SHEET_CROP_GROUND,
     SHEET_CROP_VEG,
     _laz_usable,
+    full_sheet_crop_dir,
     link_or_copy,
+    lookup_full_sheet_crop,
+    persist_full_sheet_crop,
     persist_sheet_crop,
     try_lookup_sheet_crop,
 )
@@ -157,6 +160,7 @@ def _translate_sheet(
 
     read_src = src
     cache_kind: str | None = None
+    from_full_sheet = False
     if crop is not None and recipe and not force_refresh:
         hit = try_lookup_sheet_crop(src, crop, recipe, force=force_refresh)
         if hit is not None:
@@ -183,11 +187,16 @@ def _translate_sheet(
                 "– PDAL ořez jen z menšího LAZ (ne z plného listu)",
             )
         else:
-            log_step(
-                log,
-                f"PDAL ořez listu {src.parent.name}/{src.name} ({recipe}) běží – "
-                "cache miss (jiný výřez/list/filtr nebo prázdná cache)",
-            )
+            # Žádný ořez v cache: jednou vyfiltrovat celý list (dekomprese celého listu se stejně
+            # platí) a uložit ho; tento i každý další výřez v listu se pak ořízne z menšího LAZ.
+            full = _build_full_sheet(pdal, src, recipe, stages, stage_opts, log)
+            if full is None:
+                if log:
+                    log(f"  skip (prázdný list po filtru): {src.name}")
+                return None
+            read_src = full
+            cache_kind = "superset"
+            from_full_sheet = True
     elif crop is not None:
         log_step(
             log,
@@ -224,9 +233,49 @@ def _translate_sheet(
         if log:
             log(f"  skip (prázdný): {src.name}")
         return None
-    if crop is not None and recipe:
+    if crop is not None and recipe and not from_full_sheet and not _full_sheet_cached(src, recipe):
         persist_sheet_crop(src, dest, crop, recipe, log=log)
     return dest
+
+
+def _full_sheet_cached(src: Path, recipe: str) -> bool:
+    """Celý list je v cache → ořezy jednotlivých výřezů se už neukládají (jen by zabíraly místo)."""
+    return lookup_full_sheet_crop(src, recipe) is not None
+
+
+def _build_full_sheet(
+    pdal: str,
+    src: Path,
+    recipe: str,
+    stages: list[str],
+    stage_opts: list[str],
+    log: callable | None,
+) -> Path | None:
+    """Celý list vyfiltrovaný receptem (bez ořezu) do cache; None = po filtru prázdný."""
+    hit = lookup_full_sheet_crop(src, recipe)
+    if hit is not None:
+        return hit
+    log_step(
+        log,
+        f"PDAL filtr celého listu {src.parent.name}/{src.name} ({recipe}) běží – "
+        "první výřez v listu, uloží se do cache",
+    )
+    folder = full_sheet_crop_dir(src, recipe)
+    folder.mkdir(parents=True, exist_ok=True)
+    tmp = folder / f"building_{os.getpid()}_{threading.get_ident()}.laz"
+    tmp.unlink(missing_ok=True)
+    cmd = [pdal, "translate", str(src), str(tmp), *stages, *stage_opts, "--stream"]
+    try:
+        run_cmd(cmd, log=log)
+    except subprocess.CalledProcessError:
+        if not _laz_usable(tmp):
+            tmp.unlink(missing_ok=True)
+            return None
+        raise
+    if not _laz_usable(tmp):
+        tmp.unlink(missing_ok=True)
+        return None
+    return persist_full_sheet_crop(src, tmp, recipe, log=log)
 
 
 def _merge_parts(

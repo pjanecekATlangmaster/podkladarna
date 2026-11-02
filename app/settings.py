@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.8.13"
+APP_VERSION = "3.9.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -108,6 +108,12 @@ def _parse_ip_list(raw: str) -> frozenset[str]:
 RATE_LIMIT_EXEMPT_IPS = _parse_ip_list(os.environ.get("RATE_LIMIT_EXEMPT_IPS", ""))
 CLEANUP_INTERVAL_HOURS = int(os.environ.get("CLEANUP_INTERVAL_HOURS", "24"))
 LIDAR_CACHE_MAX_AGE_DAYS = int(os.environ.get("LIDAR_CACHE_MAX_AGE_DAYS", "180"))
+# Listy LiDARu (DMR 5G, DMP OK) se podle stáří znovu nestahují: jednou za tolik dní se u ČÚZK ověří
+# (HEAD: Last-Modified + velikost), jestli nevyšla novější verze; jinak se list bere z cache.
+LIDAR_VERSION_CHECK_DAYS = int(os.environ.get("LIDAR_VERSION_CHECK_DAYS", "30"))
+# Strop velikosti cache LiDARu (listy SM5, jejich ořezy, AOI ořezy) v GB; nad ním se mažou nejdéle
+# nepoužité listy / výřezy (Petr 2026-11-02: 200–300 GB). 0 = bez limitu.
+LIDAR_CACHE_MAX_GB = float(os.environ.get("LIDAR_CACHE_MAX_GB", "250"))
 # Souběžná stahování listů LiDARu z ČÚZK (OpenZU). Jedno spojení dává ~2 MB/s, list DMP OK má ~340 MB
 # (Most 12 listů 2026-11-02: ~35 min jen čekání na stažení); 3 spojení = mírná zátěž ČÚZK.
 LIDAR_DOWNLOAD_WORKERS = max(1, int(os.environ.get("LIDAR_DOWNLOAD_WORKERS", "3")))

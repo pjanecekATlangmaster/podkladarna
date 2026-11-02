@@ -325,6 +325,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (`osm_paths/natural_cover.geojson`: les, louka, travní porost, křoviny, pole, sad) bez OSM silnice, se zpevněnými čarami pod 10 % a převahou
   nezpevněných (`path_surfaces.geojson`) se nebere jako chodník (`dtm_sidewalks.drop_nature_sidewalks` v `_load_sidewalk_polygons`), kreslí OSM čára;
   bez OSM čáry zůstává. Starší joby bez souborů beze změny. Měření: `/mnt/project-files/dtm-chodnik-vada/`.
+- **Cache LiDAR listů** (3.9.0, Petr 2026-11-02: celou ČR nepředstahovat, málo místa): stažený list (DMR 5G, DMP OK) se podle stáří
+  znovu nestahuje, jednou za `LIDAR_VERSION_CHECK_DAYS` (30) se HEAD na OpenZU ověří novější verze (Last-Modified + velikost);
+  ZIP se po rozbalení maže, LAZ zůstává. První výřez v listu vyfiltruje celý list do `lidar_sheet_crop/<list>/<recept>/full_<zdroj>`,
+  další výřezy se ořezávají z něj. Strop `LIDAR_CACHE_MAX_GB` (250) maže po přípravě LiDARu nejdéle nepoužité listy a AOI ořezy (`prune_lidar_cache`).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
