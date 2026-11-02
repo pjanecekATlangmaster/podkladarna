@@ -24,6 +24,7 @@ from app.feedback import (
     send_feedback,
 )
 from app.guide_text import WEB_ABOUT_HTML
+from app.job_template import job_form_template
 from app.mail import MailError
 from app.rate_limit import check_create_job
 from app.pipeline import build_stats
@@ -377,9 +378,23 @@ def api_sheets(bbox: str):
     }
 
 
+# Volby jobu, které se ven neposílají (IP klienta, e-mail privátního jobu).
+_JOB_OPTIONS_HIDDEN = ("client_ip", "notify_email")
+
+
+def _public_job(job: dict) -> dict:
+    """Kopie jobu pro odpověď API bez osobních údajů v `options`."""
+    opts = job.get("options")
+    if not isinstance(opts, dict) or not any(k in opts for k in _JOB_OPTIONS_HIDDEN):
+        return job
+    out = dict(job)
+    out["options"] = {k: v for k, v in opts.items() if k not in _JOB_OPTIONS_HIDDEN}
+    return out
+
+
 @app.get("/api/jobs")
 def api_list_jobs():
-    jobs = db.list_jobs(include_private=False)
+    jobs = [_public_job(j) for j in db.list_jobs(include_private=False)]
     for job in jobs:
         pos = worker.queue_position(job["id"])
         if pos is not None:
@@ -416,7 +431,20 @@ def api_get_job(job_id: str):
     stats = build_stats.read(JOBS_DIR / job_id)
     if stats:
         job["build_stats"] = stats
-    return job
+    return _public_job(job)
+
+
+@app.get("/api/jobs/{job_id}/template")
+def api_job_template(job_id: str):
+    """Zadání jobu pro formulář nové mapy (název, výřez, volby) – i u běžícího jobu."""
+    try:
+        job = db.get_job(job_id)
+    except KeyError:
+        raise HTTPException(404, "Job nenalezen")
+    if db.job_is_expired(job):
+        db.delete_job(job_id)
+        raise HTTPException(410, "Privátní job vypršel a byl smazán.")
+    return job_form_template(job, presets=load_presets())
 
 
 @app.get("/api/jobs/{job_id}/log")
@@ -899,7 +927,7 @@ async def api_create_job(request: Request):
             f"(job {dup['id'][:8]}…, „{dup.get('name') or 'bez názvu'}“)."
         )
         db.append_log(dup["id"], msg)
-        out = dict(dup)
+        out = _public_job(dict(dup))
         out["duplicate_skipped"] = True
         out["duplicate_message"] = msg
         return out
@@ -1017,11 +1045,11 @@ def api_start_job(job_id: str):
     except KeyError:
         raise HTTPException(404, "Job nenalezen")
     if job["status"] == "running":
-        return job
+        return _public_job(job)
     if (worker.is_busy() or worker.is_draining()) and not worker.can_accept_job():
         raise HTTPException(503, f"Fronta je plná (max {MAX_QUEUE_SIZE}).")
     worker.enqueue(job_id)
-    return db.get_job(job_id)
+    return _public_job(db.get_job(job_id))
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
