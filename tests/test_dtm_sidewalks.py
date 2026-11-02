@@ -787,6 +787,44 @@ def test_reclassify_sidewalk_with_osm_road_inside_as_road():
     assert ds.reclassify_sidewalks_as_roads([wide], []) == ([wide], [])
 
 
+_MEADOW = [_rect(-50, -50, 150, 50)]
+_IN_PATH = [(0.0, 0.0), (100.0, 0.0)]  # 100 m uvnitř plochy 100 × 20 m
+
+
+@pytest.mark.parametrize(
+    "cover, lines, dropped",
+    [
+        (_MEADOW, [(_IN_PATH, "unpaved", False)], True),  # louka + hliněná cesta (Prokopské údolí)
+        (_MEADOW, [(_IN_PATH, "paved", False)], False),  # asfaltová cesta v přírodě = skutečný chodník
+        (_MEADOW, [(_IN_PATH, "unknown", False)], False),  # povrch neznámý → opatrně ponechat
+        (_MEADOW, [], False),  # OSM čára chybí → ponechat
+        (_MEADOW, [(_IN_PATH, "unpaved", False), ([(0.0, 5.0), (40.0, 5.0)], "unpaved", True)], False),  # silnice uvnitř
+        ([_rect(-50, -50, 30, 50)], [(_IN_PATH, "unpaved", False)], False),  # v přírodě jen 40 % plochy (park / město)
+    ],
+)
+def test_drop_nature_sidewalks(cover, lines, dropped):
+    poly = _rect(0, -10, 100, 10)
+    keep, out = ds.drop_nature_sidewalks([poly], cover, lines)
+    assert (out == [poly]) is dropped and (keep == [poly]) is not dropped
+
+
+def test_nature_sidewalk_is_not_paved_area(tmp_path):
+    from app.pipeline import osm_paths as op
+
+    work = tmp_path
+    (work / "dtm").mkdir()
+    (work / "dtm" / "sidewalks.json").write_text(
+        json.dumps({"polygons": [[[list(p) for p in ring] for ring in _rect(0, -10, 100, 10)]]}), encoding="utf-8"
+    )
+    (work / "osm_paths").mkdir()
+    assert len(di._load_sidewalk_polygons(work)) == 1  # starší job bez přírodního krytu → beze změny
+    cover = {"type": "Feature", "properties": {}, "geometry": {"type": "Polygon", "coordinates": [[list(p) for p in _MEADOW[0][0]]]}}
+    line = {"type": "Feature", "properties": {"surface": "unpaved", "road": False}, "geometry": {"type": "LineString", "coordinates": [list(p) for p in _IN_PATH]}}
+    (work / "osm_paths" / op.NATURAL_COVER_NAME).write_text(json.dumps({"type": "FeatureCollection", "features": [cover]}), encoding="utf-8")
+    (work / "osm_paths" / op.PATH_SURFACES_NAME).write_text(json.dumps({"type": "FeatureCollection", "features": [line]}), encoding="utf-8")
+    assert di._load_sidewalk_polygons(work) == []
+
+
 def test_misclassified_sidewalk_is_drawn_as_road_part(tmp_path):
     work = tmp_path
     (work / "dtm").mkdir()

@@ -96,6 +96,15 @@ STAIRS_LONG_ELONGATION = 6.0
 RECLASS_MIN_WIDTH_M = 4.0
 RECLASS_MIN_ROAD_M = 30.0
 RECLASS_ROAD_ONLY_M = 150.0
+# ChodnikPlocha v přírodě (Petr 2026-11-02, ID 1000194429416 v Prokopském údolí: louka a les 14 000 m²): DTM vede
+# jako „chodník“ i nezpevněné lesní a polní cesty, často v šířce celého pruhu. Taková plocha se nebere jako zpevněná,
+# cestu kreslí OSM čára (``drop_nature_sidewalks``). Praha: 0,7 % ploch, vzorek 20 / 20 nezpevněné cesty.
+NATURE_SIDEWALKS = True
+NATURE_COVER_SHARE = 0.5  # podíl plochy v přírodním krytu OSM (les, louka, pole …)
+NATURE_PAVED_SHARE = 0.1  # zpevněné OSM čáry nejvýš takový podíl délky čar uvnitř
+NATURE_ROAD_MAX_M = 10.0  # OSM silnice uvnitř nejvýš tolik m
+NATURE_UNPAVED_MIN_M = 10.0  # nezpevněné OSM čáry uvnitř aspoň tolik m (bez OSM čáry plocha zůstává)
+NATURE_LINE_BUFFER_M = 1.0  # čáry se počítají v ploše rozšířené o tolik m (OSM bývá posunuté)
 CENTERLINE_STEP_M = 0.25
 STAIRS_AXIS_EXTRA_M = 0.3
 # Sloučení sousedních ploch a zacelení škvír užších než 2 × tato hodnota (m).
@@ -860,6 +869,79 @@ def reclassify_sidewalks_as_roads(
         else:
             keep.append(poly)
     return keep, moved
+
+
+def drop_nature_sidewalks(
+    sidewalk_polys: list[list[list[tuple[float, float]]]],
+    cover_polys: list[list[list[tuple[float, float]]]],
+    lines: list[tuple[list[tuple[float, float]], str, bool]],
+):
+    """``ChodnikPlocha`` v přírodě (nezpevněná cesta, louka) → ``(chodníky, vyřazené)``.
+
+    ``cover_polys``: přírodní kryt OSM (les, louka, travní porost, křoviny, pole, sad …), ``[obrys, díra, …]``.
+    ``lines``: OSM čáry na povrchu ``(souřadnice, povrch, silnice)``, povrch ``paved`` / ``unpaved`` / ``unknown``.
+    Plocha se vyřadí, když leží aspoň z ``NATURE_COVER_SHARE`` v přírodním krytu, nevede jí OSM silnice
+    (nejvýš ``NATURE_ROAD_MAX_M``), zpevněné čáry mají nejvýš ``NATURE_PAVED_SHARE`` délky a nezpevněných
+    je aspoň ``NATURE_UNPAVED_MIN_M`` m a víc než čar bez povrchu. Bez OSM čáry uvnitř plocha zůstává.
+    """
+    from shapely import STRtree
+    from shapely.geometry import LineString, Polygon
+
+    if not sidewalk_polys or not cover_polys or not lines:
+        return sidewalk_polys, []
+
+    def _poly(rings):
+        try:
+            g = Polygon(rings[0], [r for r in rings[1:] if len(r) >= 4])
+            return g if g.is_valid else g.buffer(0)
+        except (ValueError, IndexError, TypeError):
+            return None
+
+    cover = [g for g in (_poly(r) for r in cover_polys) if g is not None and not g.is_empty]
+    segs = [(LineString(c), surf, road) for c, surf, road in lines if len(c) >= 2]
+    if not cover or not segs:
+        return sidewalk_polys, []
+    cover_tree = STRtree(cover)
+    line_tree = STRtree([s[0] for s in segs])
+    keep, dropped = [], []
+    for rings in sidewalk_polys:
+        g = _poly(rings)
+        if g is None or g.is_empty or g.area <= 0:
+            keep.append(rings)
+            continue
+        near = [cover[int(i)] for i in cover_tree.query(g)]
+        covered = g.intersection(_union_of(near)).area if near else 0.0
+        if covered < NATURE_COVER_SHARE * g.area:
+            keep.append(rings)
+            continue
+        zone = g.buffer(NATURE_LINE_BUFFER_M)
+        length = {"paved": 0.0, "unpaved": 0.0, "unknown": 0.0}
+        road = 0.0
+        for i in line_tree.query(zone):
+            line, surf, is_road = segs[int(i)]
+            inside = line.intersection(zone).length
+            if inside <= 0:
+                continue
+            length[surf if surf in length else "unknown"] += inside
+            if is_road:
+                road += inside
+        total = sum(length.values())
+        if (
+            road <= NATURE_ROAD_MAX_M
+            and length["unpaved"] >= NATURE_UNPAVED_MIN_M
+            and length["unpaved"] >= length["unknown"]
+            and length["paved"] <= NATURE_PAVED_SHARE * total
+        ):
+            dropped.append(rings)
+        else:
+            keep.append(rings)
+    return keep, dropped
+
+
+def _union_of(geoms):
+    from shapely.ops import unary_union
+
+    return unary_union(geoms) if len(geoms) != 1 else geoms[0]
 
 
 def dtm_union(dtm_polys: list[list[list[tuple[float, float]]]]):

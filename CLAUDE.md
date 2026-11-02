@@ -320,6 +320,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `dem_smooth.tif` zůstává (čte ho import srázů). Metriky: `scripts/contour_smooth_metrics.py <work>`; návrh, oponentura a výřezy
   `/mnt/project-files/vrstevnice-vyhlazeni/`. Masky ze ZABAGED (`zabaged_masks`): zástavba (budovy + 10 m, parkoviště, areály)
   silněji (σ' 12 m, sprint 6 m) i v mírném svahu, ve sprintu louky / parky / sady beze změny, dráhy a valy chráněné.
+- **Chodníky z DTM v přírodě** (3.6.2, Petr 2026-11-02, ID 1000194429416 Prokopské údolí: louka a les 14 000 m²): DTM vede jako
+  `ChodnikPlocha` i nezpevněné lesní / polní cesty (Praha 0,7 % ploch, vzorek 20 / 20). Plocha z ≥ 50 % v přírodním krytu OSM
+  (`osm_paths/natural_cover.geojson`: les, louka, travní porost, křoviny, pole, sad) bez OSM silnice, se zpevněnými čarami pod 10 % a převahou
+  nezpevněných (`path_surfaces.geojson`) se nebere jako chodník (`dtm_sidewalks.drop_nature_sidewalks` v `_load_sidewalk_polygons`), kreslí OSM čára;
+  bez OSM čáry zůstává. Starší joby bez souborů beze změny. Měření: `/mnt/project-files/dtm-chodnik-vada/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
