@@ -740,17 +740,37 @@ function jobItemEl(jobId) {
   return document.querySelector(`.job-item[data-id="${CSS.escape(jobId)}"]`);
 }
 
+/** Tlačítko „Načíst zadání“ u položky v „Moje mapy“ (název mapy pro čtečky v aria-label). */
+function jobItemActionsHtml(job) {
+  if (jobsTab !== "mine") return "";
+  const label = `Načíst zadání mapy „${job.name || "Mapa"}“ do nové mapy`;
+  return `
+    <div class="job-item-actions">
+      <button type="button" class="btn btn-small job-load-template" data-job-id="${escapeHtml(job.id)}" aria-label="${escapeHtml(label)}">Načíst zadání</button>
+    </div>
+  `;
+}
+
 function upsertJobItem(list, job, order) {
   let div = jobItemEl(job.id);
   if (!div) {
     div = document.createElement("div");
     div.className = "job-item";
     div.dataset.id = job.id;
-    div.onclick = () => selectJob(job.id);
-    div.tabIndex = 0;
-    div.setAttribute("role", "button");
+    // Klik kamkoli na položku otevře detail; klávesnice přes vnitřní role=button (tlačítko akce
+    // nesmí být uvnitř jiného tlačítka).
+    div.addEventListener("click", (e) => {
+      const loadBtn = e.target.closest(".job-load-template");
+      if (loadBtn) {
+        e.stopPropagation();
+        loadJobTemplate(job.id, { trigger: loadBtn });
+        return;
+      }
+      if (e.target.closest(".job-item-actions")) return;
+      selectJob(job.id);
+    });
     div.addEventListener("keydown", (e) => {
-      if (e.target !== div) return;
+      if (!e.target.classList.contains("job-item-open")) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         selectJob(job.id);
@@ -761,10 +781,15 @@ function upsertJobItem(list, job, order) {
   div.classList.toggle("private-session", jobIsPrivate(job));
   div.dataset.status = job.status || "";
   div.dataset.private = jobIsPrivate(job) ? "1" : "0";
-  const html = jobItemHeadHtml(job);
+  const html =
+    `<div class="job-item-open" role="button" tabindex="0">${jobItemHeadHtml(job)}</div>` +
+    jobItemActionsHtml(job);
   if (div._html !== html) {
+    const hadFocus = div.contains(document.activeElement);
+    const focusLoad = hadFocus && document.activeElement.classList.contains("job-load-template");
     div.innerHTML = html;
     div._html = html;
+    if (hadFocus) div.querySelector(focusLoad ? ".job-load-template" : ".job-item-open")?.focus();
   }
   const at = [...list.children].indexOf(div);
   const want = order.findIndex((j) => j.id === job.id);
@@ -1387,7 +1412,7 @@ function escapeHtml(s) {
 
 let detailJob = null;
 
-async function fillJobDetail(id, { applyForm = false } = {}) {
+async function fillJobDetail(id) {
   const job = await api(`/api/jobs/${id}`);
   detailJob = job;
   selectedJobStatus = job.status;
@@ -1405,7 +1430,6 @@ async function fillJobDetail(id, { applyForm = false } = {}) {
     timingEl.classList.toggle("hidden", !timingEl.textContent);
   }
   renderJobSources(document.getElementById("detail-sources"), job);
-  if (applyForm) applyJobToForm(job);
   setJobActionLinks(job);
   renderJobDetailExtras(job);
   renderJobStats(job);
@@ -1434,7 +1458,7 @@ async function selectJob(id) {
     resetDetailProgress();
   }
   setJobsView("detail");
-  await fillJobDetail(id, { applyForm: false });
+  await fillJobDetail(id);
   await loadJobs();
   const card = document.querySelector(".jobs-card");
   if (card) card.scrollTop = 0;
@@ -1464,9 +1488,9 @@ function renderJobDetailExtras(job) {
     }
   }
   const retry = document.getElementById("detail-retry");
-  if (retry) retry.classList.toggle("hidden", !(failed && !priv));
+  if (retry) retry.classList.toggle("hidden", !failed);
   const tplBtn = document.getElementById("detail-use-template");
-  if (tplBtn) tplBtn.classList.toggle("hidden", priv || failed);
+  if (tplBtn) tplBtn.classList.toggle("hidden", failed);
   const dl = document.getElementById("detail-download");
   const done = job.status === "done" || job.status === "done_with_errors";
   if (dl) dl.classList.toggle("download-main", done && !priv && Boolean(job.has_output));
@@ -2066,138 +2090,48 @@ function updateCliffControls() {
   }
 }
 
-function applyJobToForm(job) {
+/** Zadání jobu (název, výřez, volby) ze serveru do formuláře nové mapy; spustí až uživatel. */
+async function loadJobTemplate(jobId, { trigger = null } = {}) {
   const form = document.getElementById("job-form");
-  if (!form) return;
-  const opts = job.options || {};
-  let scale = opts.map_scale != null ? Number(opts.map_scale) : NaN;
-  if (!Number.isFinite(scale) && opts.scalefactor != null) {
-    scale = Math.round(Number(opts.scalefactor) * 10000);
+  if (!form || !jobId) return;
+  if (trigger) trigger.disabled = true;
+  let tpl;
+  try {
+    tpl = await api(`/api/jobs/${encodeURIComponent(jobId)}/template`);
+  } catch (err) {
+    showFormError(`Zadání mapy se nepodařilo načíst: ${err.message || err}`);
+    return;
+  } finally {
+    if (trigger) trigger.disabled = false;
   }
-  if (!Number.isFinite(scale) && job.preset_id) {
-    const pid = String(job.preset_id);
-    if (pid.startsWith("sprint")) scale = 4000;
-    else if (pid === "forest_7500") scale = 7500;
-    else if (pid.includes("15000")) scale = 15000;
-    else scale = 10000;
+  clearFormError();
+  clearGenerateStarted();
+  applyFormOptions(tpl.form || {});
+  if (form.name && tpl.name) form.name.value = tpl.name;
+  // Soukromá mapa: režim zapnout znovu, e-mail se ze serveru neposílá – vyplní ho uživatel.
+  const privateEl = document.getElementById("private");
+  if (privateEl && tpl.source_private && !privateEl.checked) {
+    privateEl.checked = true;
+    privateEl.dispatchEvent(new Event("change", { bubbles: true }));
   }
-  const scaleSel = form.map_scale;
-  const jobTypes = Array.isArray(opts.map_types)
-    ? opts.map_types.filter((t) => t === "les" || t === "mtbo")
-    : [];
-  if (scaleSel && Number.isFinite(scale)) {
-    filterScaleOptions(mapKindFor(scale, jobTypes), scale);
-    const kindRadio = document.querySelector(
-      `input[name="map_kind_ui"][value="${mapKindFor(scale, jobTypes)}"]`
-    );
-    if (kindRadio) kindRadio.checked = true;
-  }
-  rebuildContourOptions(opts.contour_interval);
-  // Typy map: starší joby bez klíče stavěly obě; programové nastavení `change` nevyvolá.
-  applyMapTypeDefaults(scale);
-  if (scale > 5000) {
-    const saved = Array.isArray(opts.map_types)
-      ? opts.map_types.filter((t) => t === "les" || t === "mtbo")
-      : [];
-    setMapTypes(saved.length ? saved : ["les", "mtbo"]);
-    updateOutputHints();
-    updateSubmitButtonLabel();
-  }
-  const formlines = form.contour_formlines;
-  if (formlines) {
-    const flVal = opts.contour_formlines || "off";
-    formlines.value = [...formlines.options].some((o) => o.value === flVal) ? flVal : "off";
-  }
-  const contourSmooth = form.contour_smooth;
-  if (contourSmooth) {
-    const csVal = String(opts.contour_smooth ?? "1");
-    contourSmooth.value = [...contourSmooth.options].some((o) => o.value === csVal) ? csVal : "1";
-  }
-  const vegSmooth = form.veg_smooth;
-  if (vegSmooth) {
-    const vsVal = String(opts.veg_smooth ?? "1");
-    vegSmooth.value = [...vegSmooth.options].some((o) => o.value === vsVal) ? vsVal : "1";
-  }
-  const dtmSel = form.dtm;
-  if (dtmSel) {
-    // Jedna volba pro sprint i les + MTBO; starší joby měly dtm_sprint / dtm_forest zvlášť.
-    const hasS = opts.dtm_sprint !== undefined;
-    const hasF = opts.dtm_forest !== undefined;
-    const s = hasS ? !!opts.dtm_sprint : true;
-    const f = hasF ? !!opts.dtm_forest : false;
-    if (s && f) dtmSel.value = "1";
-    else if (!s && !f) dtmSel.value = "0";
-    else dtmSel.value = "auto";
-  }
-  const cliff = form.kp_cliff_symbol;
-  if (cliff) {
-    let cliffVal = (job.options || {}).kp_cliff_symbol || "auto";
-    // Legacy „rock_face“ (force linear 201) → auto; skály jsou plochy 206.
-    if (cliffVal === "rock_face") cliffVal = "auto";
-    if ([...cliff.options].some((o) => o.value === cliffVal)) {
-      cliff.value = cliffVal;
-    }
-  }
-  const vege = form.kp_vege_height;
-  if (vege) {
-    const raw = (job.options || {}).kp_vege_height;
-    const vegeVal = raw == null || raw === "" ? "2" : String(raw);
-    const match = [...vege.options].find(
-      (o) => Math.abs(parseFloat(o.value) - parseFloat(vegeVal)) < 1e-6
-    );
-    if (match) vege.value = match.value;
-  }
-  const sens = form.kp_cliff_sensitivity;
-  if (sens) {
-    const sensVal = (job.options || {}).kp_cliff_sensitivity || "low";
-    if ([...sens.options].some((o) => o.value === sensVal)) {
-      sens.value = sensVal;
-    }
-  }
-  updateCliffControls();
-  const osmObjects = form.kp_osm_objects;
-  if (osmObjects) {
-    // Starší joby: kterákoli dřívější dílčí volba (lavičky, lampy, herní prvky).
-    osmObjects.checked = Boolean(
-      opts.kp_osm_objects != null
-        ? opts.kp_osm_objects
-        : opts.kp_osm_benches ||
-            opts.kp_osm_lamps ||
-            opts.kp_osm_playground_equipment ||
-            opts.kp_osm_furniture
-    );
-  }
-  const residualPaved = form.sprint_residual_paved;
-  if (residualPaved) {
-    residualPaved.checked = Boolean(opts.sprint_residual_paved);
-  }
-  const residualSize = form.sprint_residual_size;
-  if (residualSize) {
-    const sizeVal = opts.sprint_residual_size || "small";
-    if ([...residualSize.options].some((o) => o.value === sizeVal)) {
-      residualSize.value = sizeVal;
-    }
-  }
-  updateResidualPavedControls();
-  const outGeoref = form.output_georef;
-  if (outGeoref) {
-    outGeoref.checked = Boolean(opts.output_georef);
-  }
-  const outRefs = form.output_references;
-  if (outRefs) {
-    outRefs.checked =
-      opts.output_references == null ? true : Boolean(opts.output_references);
-  }
-  refreshSettingsSummary();
-  refreshSubmitChecklist();
-  const bbox = opts.bbox_wgs84;
+  const bbox = tpl.bbox_wgs84;
   if (Array.isArray(bbox) && bbox.length === 4) {
-    applyBbox(bbox[0], bbox[1], bbox[2], bbox[3], {
-      reuseJobId: job.has_reusable_lidar ? job.id : "",
-    });
+    applyBbox(bbox[0], bbox[1], bbox[2], bbox[3], { reuseJobId: tpl.reuse_job_id || "" });
   } else {
     setReuseJob("");
   }
+  refreshSettingsSummary();
+  refreshSubmitChecklist();
+  const parts = [
+    `Formulář je vyplněný podle mapy „${tpl.name || "bez názvu"}“ (název, výřez a nastavení). ` +
+      "Upravte, co potřebujete – třeba posuňte výřez nebo změňte název – a spusťte.",
+  ];
+  if (tpl.source_private) parts.push("Mapa byla soukromá: doplňte e-mail pro odkaz ke stažení.");
+  for (const note of tpl.notes || []) parts.push(note);
+  showFormNotice(parts.join(" "));
+  const formCard = document.querySelector(".job-form-card");
+  if (formCard) formCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  form.name?.focus({ preventScroll: true });
 }
 
 function applyBbox(west, south, east, north, extra = {}) {
@@ -2376,7 +2310,6 @@ const SETTINGS_CHIPS = [
   { id: "dtm", label: "DTM" },
   { id: "kp_osm_objects", label: "Objekty OSM", bool: true },
   { id: "output_georef", label: "GeoTIFF", bool: true },
-  { id: "output_references", label: "PNG šablony", bool: true },
   {
     id: "sprint_residual_paved",
     label: "Zpevněné mezery",
@@ -2465,7 +2398,17 @@ function selectedEstimateMinutes() {
   return mins;
 }
 
+/** Orientační prodloužení jobu referenčními PNG pro zvolený výřez (rozdíl serverových odhadů). */
+function refreshReferencesEstimate() {
+  const el = document.getElementById("references-estimate");
+  if (!el) return;
+  const base = lastSheets && lastSheets.estimate_base_minutes;
+  const extra = base && base.refs != null && base.plain != null ? Math.ceil(base.refs - base.plain) : null;
+  el.textContent = extra != null && extra > 0 ? ` (u zvoleného výřezu odhadem o ~${extra} min)` : "";
+}
+
 function updateSubmitButtonLabel() {
+  refreshReferencesEstimate();
   refreshBboxBadge();
   refreshSubmitChecklist();
   refreshSettingsSummary();
@@ -2823,18 +2766,12 @@ initBboxMap();
     form.addEventListener("change", refreshForm);
     refreshForm();
   }
-  // „Zkusit znovu“ i „Použít nastavení a výřez“: vyplní formulář, spustí až uživatel.
-  const fillFromDetail = () => {
-    if (!detailJob) return;
-    applyJobToForm(detailJob);
-    showFormNotice(
-      `Formulář je vyplněný podle mapy „${detailJob.name}“. Upravte, co potřebujete, a spusťte.`
-    );
-    const formCard = document.querySelector(".job-form-card");
-    if (formCard) formCard.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  // „Zkusit znovu“ i „Načíst zadání do nové mapy“: vyplní formulář, spustí až uživatel.
   for (const id of ["detail-use-template", "detail-retry"]) {
-    document.getElementById(id)?.addEventListener("click", fillFromDetail);
+    const btn = document.getElementById(id);
+    btn?.addEventListener("click", () => {
+      if (detailJob) loadJobTemplate(detailJob.id, { trigger: btn });
+    });
   }
   // Rozbitý náhled neukazuj (žádná rozbitá ikona).
   const previewImg = document.getElementById("detail-img");

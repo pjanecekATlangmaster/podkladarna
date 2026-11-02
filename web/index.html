@@ -148,6 +148,24 @@
           <button type="button" class="btn" id="bbox-clear">Vymazat výběr</button>
         </div>
 
+        <div class="form-section references-section">
+          <h3 class="form-section-title">Podklady k mapě</h3>
+          <label class="checkbox-row">
+            <input type="checkbox" name="output_references" id="output_references" value="1" checked aria-describedby="references-hint" />
+            Referenční PNG šablony (OSM, ZTM, katastr, hillshade, DMP)
+          </label>
+          <div class="hint" id="references-hint">
+            Doporučeno: rastrové podklady pro kontrolu a dokreslení mapy, v Mapperu se otevřou jako šablony.
+            Prodlouží generování<span id="references-estimate"></span> a zvětší ZIP.
+            <details class="hint-more"><summary>Více</summary>
+              Přibalí se OSM, ZTM (Základní mapa ČR), katastr, stínovaný reliéf (hillshade) a výšky povrchu DMP,
+              georeferencované jako mapa. Katastr a stínování se přibalí vždy. Ortofoto se do ZIPu nepřibaluje
+              (velikost), v Mapperu ho lze připojit jako WMS ČÚZK. Vypnout se vyplatí při opakovaném ladění
+              téhož výřezu, kdy podklady už máte.
+            </details>
+          </div>
+        </div>
+
         <details class="advanced-settings" id="advanced-settings">
           <summary>Upravit nastavení <span class="hint">– výchozí hodnoty jsou doporučené</span><span id="advanced-changed" class="advanced-changed"></span></summary>
           <p class="advanced-reset"><button type="button" class="link-btn" id="reset-options">Obnovit výchozí nastavení</button></p>
@@ -293,12 +311,6 @@
               </details>
             </div>
 
-            <label class="checkbox-row">
-              <input type="checkbox" name="output_references" id="output_references" value="1" checked />
-              Referenční PNG šablony (OSM, ZTM, katastr, hillshade, DMP)
-            </label>
-            <p class="hint">Do ZIPu jako podkladové vrstvy v OOM. Vypnutím zrychlíš generování a zmenšíš ZIP; katastr se přibalí vždy. Ortofoto se do ZIPu nepřibaluje (velikost), v OOM ho lze připojit jako WMS ČÚZK.</p>
-
             <details class="advanced-options" id="output-advanced">
               <summary>Pokročilé (mezipaměť podkladů)</summary>
               <label class="checkbox-row">
@@ -380,7 +392,7 @@
             <a id="detail-download-georef" class="btn" href="#" download>Stáhnout georef náhledy</a>
             <a id="detail-preview" class="btn" href="#" target="_blank">Otevřít PNG</a>
             <button type="button" class="btn primary hidden" id="detail-retry">Zkusit znovu</button>
-            <button type="button" class="btn" id="detail-use-template">Použít nastavení a výřez pro novou mapu</button>
+            <button type="button" class="btn" id="detail-use-template" title="Vyplní formulář nové mapy názvem, výřezem a nastavením této mapy">Načíst zadání do nové mapy</button>
           </div>
           <div id="detail-next" class="next-steps hidden">
             <strong>Co dál</strong>

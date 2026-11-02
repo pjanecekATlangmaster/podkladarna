@@ -714,6 +714,21 @@ legend {
 }
 .job-item:hover { border-color: var(--purple); }
 
+.job-item-open { border-radius: 4px; }
+
+/* „Moje mapy“: akce u položky (Načíst zadání do nové mapy). */
+.job-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.4rem;
+}
+
+.btn.btn-small {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.82rem;
+  min-height: 2rem;
+}
+
 .job-item .status {
   font-size: 0.8rem;
   color: var(--muted);
@@ -1160,7 +1175,8 @@ footer a { color: var(--green); }
 .status-tag-running,
 .status-tag-done_with_errors { color: var(--orange-text); }
 
-.job-item:focus-visible {
+.job-item:focus-visible,
+.job-item-open:focus-visible {
   outline: 3px solid var(--green);
   outline-offset: 2px;
 }
