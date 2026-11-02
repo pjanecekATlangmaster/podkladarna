@@ -2819,3 +2819,28 @@ def test_small_buildings_as_points(case, preset, scale, area_m2, as_point):
         assert feature_oom_code("building_small", preset, b["properties"]["oom_code"]) == "521.3", case
     else:
         assert b is feats[0], case
+
+
+@pytest.mark.parametrize(
+    "tags, expected",
+    [
+        ({"highway": "path", "surface": "dirt"}, "unpaved"),
+        ({"highway": "track", "tracktype": "grade3"}, "unpaved"),
+        ({"highway": "track", "tracktype": "grade1"}, "unknown"),
+        ({"highway": "footway", "surface": "asphalt"}, "paved"),
+        ({"highway": "path"}, "unknown"),
+        ({"highway": "path", "surface": "gravel;asphalt"}, "paved"),
+    ],
+)
+def test_path_surface_class(tags, expected):
+    from app.pipeline import osm_paths as op
+
+    assert op.path_surface_class(tags) == expected
+
+
+def test_natural_cover_is_not_drawn_feature():
+    from app.pipeline import osm_paths as op
+
+    assert op.is_natural_cover({"landuse": "meadow"}) and op.is_natural_cover({"natural": "wood"})
+    assert not op.is_natural_cover({"leisure": "park"})
+    assert op.classify_osm_feature({"landuse": "forest"}, geom="way") is None

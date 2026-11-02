@@ -682,7 +682,55 @@ def _load_polygons_file(path: Path) -> list[list[list[tuple[float, float]]]]:
 
 
 def _load_sidewalk_polygons(work_dir: Path) -> list[list[list[tuple[float, float]]]]:
-    return _load_polygons_file(sidewalks_path(work_dir))
+    """Chodníky z DTM bez ploch v přírodě (``dtm_sidewalks.drop_nature_sidewalks``); vlastní kopie seznamů."""
+    return [[list(r) for r in p] for p in _surface_sidewalks_memo(work_dir)]
+
+
+@_job_memo
+def _surface_sidewalks_memo(work_dir: Path):
+    import logging
+
+    from app.pipeline import dtm_sidewalks
+
+    polys = _load_polygons_file(sidewalks_path(work_dir))
+    if not polys or not dtm_sidewalks.NATURE_SIDEWALKS:
+        return tuple(tuple(tuple(r) for r in p) for p in polys)
+    cover, lines = _nature_inputs(work_dir)
+    polys, dropped = dtm_sidewalks.drop_nature_sidewalks(polys, cover, lines)
+    if dropped:
+        logging.getLogger(__name__).info(
+            "DTM: %s ploch chodníků v přírodě (nezpevněná cesta / louka podle OSM) se nebere jako zpevněná plocha",
+            len(dropped),
+        )
+    return tuple(tuple(tuple(r) for r in p) for p in polys)
+
+
+def _nature_inputs(work_dir: Path):
+    """Přírodní kryt OSM ``[[obrys, díra, …], …]`` a OSM čáry ``[(souřadnice, povrch, silnice), …]`` z přípravy OSM.
+
+    Starší joby soubory nemají – pak se nic nevyřazuje.
+    """
+    from app.pipeline import osm_paths as op
+
+    def _features(name: str) -> list[dict]:
+        try:
+            return json.loads((work_dir / "osm_paths" / name).read_text(encoding="utf-8")).get("features") or []
+        except (OSError, ValueError):
+            return []
+
+    cover = []
+    for f in _features(op.NATURAL_COVER_NAME):
+        geom = f.get("geometry") or {}
+        if geom.get("type") == "Polygon" and geom.get("coordinates"):
+            cover.append([[(float(x), float(y)) for x, y in ring] for ring in geom["coordinates"]])
+    lines = []
+    for f in _features(op.PATH_SURFACES_NAME):
+        geom = f.get("geometry") or {}
+        props = f.get("properties") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") == "LineString" and len(coords) >= 2:
+            lines.append(([(float(x), float(y)) for x, y in coords], str(props.get("surface") or "unknown"), bool(props.get("road"))))
+    return cover, lines
 
 
 def _load_road_polygons(work_dir: Path) -> list[list[list[tuple[float, float]]]]:

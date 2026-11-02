@@ -365,6 +365,39 @@ WALK_TUNNEL_TOL_M = 1.0
 # Kryté průchody (``covered=yes`` / ``tunnel=building_passage``): sprint je v budově kreslí jako zastřešení 522
 # (``sprint_building_passages`` v ``path_clearance.py``).
 COVERED_PASSAGES_NAME = "covered_passages.geojson"
+# Přírodní kryt (les, louka, travní porost, křoviny, pole, sad, vinice, mokřad) – jen pro rozpoznání ``ChodnikPlocha``
+# z DTM v přírodě (``dtm_sidewalks.drop_nature_sidewalks``), sám se nekreslí. Povrch OSM čar k tomu je v ``PATH_SURFACES_NAME``.
+NATURAL_COVER_NAME = "natural_cover.geojson"
+NATURAL_COVER_LANDUSE = frozenset({"forest", "meadow", "orchard", "vineyard", "farmland"})
+NATURAL_COVER_NATURAL = frozenset({"wood", "grassland", "scrub", "heath", "wetland"})
+PATH_SURFACES_NAME = "path_surfaces.geojson"
+# Nezpevněný povrch čáry (surface=*) pro ``path_surface_class``.
+_UNPAVED_LINE_SURFACES = frozenset(
+    {
+        "dirt", "ground", "grass", "gravel", "fine_gravel", "compacted", "earth", "mud", "sand", "unpaved",
+        "pebblestone", "woodchips", "grass_paver", "rock", "soil", "clay",
+    }
+)
+
+
+def is_natural_cover(tags: dict) -> bool:
+    """Plocha přírodního krytu OSM (``NATURAL_COVER_LANDUSE`` / ``NATURAL_COVER_NATURAL``)?"""
+    return (tags.get("landuse") or "").lower() in NATURAL_COVER_LANDUSE or (
+        tags.get("natural") or ""
+    ).lower() in NATURAL_COVER_NATURAL
+
+
+def path_surface_class(tags: dict) -> str:
+    """Povrch OSM cesty: ``paved`` (asfalt, dlažba …), ``unpaved`` (hlína, štěrk, track grade2+) nebo ``unknown``."""
+    if _is_paved_surface(tags):
+        return "paved"
+    surface = (tags.get("surface") or "").lower()
+    parts = [p.strip() for p in surface.split(";") if p.strip()]
+    if parts and all(p in _UNPAVED_LINE_SURFACES for p in parts):
+        return "unpaved"
+    if not parts and (tags.get("highway") or "").lower() == "track" and (tags.get("tracktype") or "grade2").lower() != "grade1":
+        return "unpaved"
+    return "unknown"
 
 
 def is_covered_passage(tags: dict) -> bool:
@@ -429,6 +462,11 @@ def _overpass_ql(
         f'relation["type"="multipolygon"]["railway"="platform"]({bbox});',
         f'relation["type"="multipolygon"]["public_transport"="platform"]({bbox});',
         f'way["natural"="wetland"]({bbox});',
+        # Přírodní kryt jen pro rozpoznání „chodníků“ z DTM v přírodě (``NATURAL_COVER_NAME``), nekreslí se.
+        f'way["landuse"~"^(forest|meadow|orchard|vineyard)$"]({bbox});',
+        f'way["natural"~"^(wood|grassland|scrub|heath)$"]({bbox});',
+        f'relation["type"="multipolygon"]["landuse"~"^(forest|meadow|orchard|vineyard|farmland)$"]({bbox});',
+        f'relation["type"="multipolygon"]["natural"~"^(wood|grassland|scrub|heath|wetland)$"]({bbox});',
         # Koleje v tunelu / pod terénem: ZABAGED trať se v lese a MTBO v tunelu nekreslí.
         f'way["railway"~"^({rails})$"]["tunnel"]({bbox});',
         f'way["railway"~"^({rails})$"]["layer"~"^-"]({bbox});',
@@ -3612,6 +3650,8 @@ def prepare_osm_paths(
     rail_tunnels: list[list[tuple[float, float]]] = []
     walk_tunnels: list[list[tuple[float, float]]] = []
     covered_passages: list[list[tuple[float, float]]] = []
+    natural_cover: list[list[list[tuple[float, float]]]] = []
+    path_surfaces: list[dict] = []
     # Cesty se zpevněným povrchem (surface=asphalt, paving_stones …) – jen z nich vzniká koridor pěší zóny.
     paved_walk_lines: list[list[tuple[float, float]]] = []
     # Jednosměrné silnice s názvem (``ONEWAY_ROADS_NAME``): les a MTBO z nich skládají rozdělenou vozovku (502.0).
@@ -3671,6 +3711,10 @@ def prepare_osm_paths(
         if el.get("type") == "relation":
             el_geom = "way"
         classified = classify_osm_feature(tags, geom=el_geom)
+        if el.get("type") != "node" and is_natural_cover(tags):
+            natural_cover.extend(osm_area_polygons_5514(el))
+            if not classified and not tags.get("highway"):
+                continue
         if classified:
             kind, _code = classified
             if kind in _BENCH_KINDS and not include_benches:
@@ -3826,6 +3870,14 @@ def prepare_osm_paths(
                 )
                 continue
         osm_items.append((pts, hw))
+        if not is_bridge_highway(hw) and not is_tunnel_highway(hw) and len(pts) >= 2:
+            path_surfaces.append(
+                {
+                    "type": "Feature",
+                    "properties": {"surface": path_surface_class(tags), "road": path_draw_highway(hw).startswith("road_")},
+                    "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in pts]},
+                }
+            )
         _rb = (tags.get("junction") or "").lower() == "roundabout"
         if ((tags.get("oneway") or "").lower() == "yes" or _rb) and path_draw_highway(hw).startswith("road_") and len(pts) >= 2:
             oneway_roads.append(
@@ -4080,6 +4132,23 @@ def prepare_osm_paths(
                 ],
             }
         ),
+        encoding="utf-8",
+    )
+    (dest_dir / NATURAL_COVER_NAME).write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature", "properties": {"source": "osm", "natural_cover": True},
+                     "geometry": {"type": "Polygon", "coordinates": [[[x, y] for x, y in ring] for ring in rings]}}
+                    for rings in natural_cover
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (dest_dir / PATH_SURFACES_NAME).write_text(
+        json.dumps({"type": "FeatureCollection", "features": path_surfaces}),
         encoding="utf-8",
     )
     feat_out = dest_dir / "features.geojson"

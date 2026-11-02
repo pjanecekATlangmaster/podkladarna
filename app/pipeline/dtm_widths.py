@@ -144,10 +144,12 @@ def width_line_code(highway: str, width_m: float | None, tag_code: str) -> str:
 def _load(work_dir: Path, name: str) -> list:
     from shapely.geometry import Polygon
 
-    from app.pipeline.dtm_import import _load_polygons_file, dtm_dir
+    from app.pipeline.dtm_import import SIDEWALKS_NAME, _load_polygons_file, _load_sidewalk_polygons, dtm_dir
 
+    # Chodníky bez ploch v přírodě (nezpevněné cesty, které DTM vede jako chodník; ``drop_nature_sidewalks``).
+    polys = _load_sidewalk_polygons(work_dir) if name == SIDEWALKS_NAME else _load_polygons_file(dtm_dir(work_dir) / name)
     out = []
-    for poly in _load_polygons_file(dtm_dir(work_dir) / name):
+    for poly in polys:
         try:
             g = Polygon(poly[0], poly[1:])
             out.append(g if g.is_valid else g.buffer(0))
