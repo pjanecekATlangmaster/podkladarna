@@ -67,6 +67,10 @@ ORIENT_OFFSET_M = 1.2
 FENCE_SETBACK_M = 0.0
 # Oplocení (uzavřený plot): uvnitř ležící ploty se zahodí, oplocení se zvenku vyplní olivou.
 ENCLOSURE_CLOSE_TOL_M = 0.3
+# Plot uzavřený až na mezeru (branka) do ``RING_ORIENT_GAP_M`` m a do ``RING_ORIENT_GAP_SHARE`` délky
+# se orientuje jako oplocení: čárky dovnitř podle orientace obvodu (``orient_fences``).
+RING_ORIENT_GAP_M = 6.0
+RING_ORIENT_GAP_SHARE = 0.1
 ENCLOSURE_MIN_AREA_M2 = 15.0
 ENCLOSURE_MAX_AREA_M2 = 100_000.0
 # Oplocení se vyplní olivou, jen když aspoň tento podíl jeho vnitřku je zahrada/dvůr (OPL).
@@ -366,7 +370,10 @@ def orient_fences(
 ) -> list[tuple[str, list[tuple[float, float]]]]:
     """Otočí směr plotů (kód 518) tak, aby čárky symbolu mířily k olivě, ne k chodníku.
 
-    Podél čáry se po ``ORIENT_STEP_M`` m zkoumají body vlevo / vpravo; zahrada nebo dvůr
+    Uzavřený plot (konce do ``RING_ORIENT_GAP_M`` m, viz ``_closed_ring_reverse``) má čárky vždy dovnitř oplocení – strana je
+    dána orientací obvodu, plochy kolem se neposuzují (ateliéry Barrandov: oliva vně louky).
+
+    Otevřený plot: podél čáry se po ``ORIENT_STEP_M`` m zkoumají body vlevo / vpravo; zahrada nebo dvůr
     = +1 (oliva), chodník / komunikace / parkoviště = −1. Čára se otočí, když by na straně
     čárek bylo méně „olivy“ než na druhé. Remíza nebo žádná plocha = beze změny. Živý plot
     (416) čárky nemá a zůstává.
@@ -401,8 +408,6 @@ def orient_fences(
 
     olive = _polys(_in_bounds(areas.get("olive") or []))
     public = _polys(_in_bounds(areas.get("public") or []))
-    if not olive and not public:
-        return lines
     tree_o = STRtree(olive) if olive else None
     tree_p = STRtree(public) if public else None
 
@@ -421,6 +426,10 @@ def orient_fences(
     for code, coords in lines:
         if code not in (CODE_FENCE, CODE_HEDGE) or len(coords) < 2:
             out.append((code, coords))
+            continue
+        ring_reverse = _closed_ring_reverse(coords, ticks_on_left) if code == CODE_FENCE else None
+        if not olive and not public:
+            out.append((code, list(reversed(coords)) if ring_reverse else coords))
             continue
         line = LineString(coords)
         length = line.length
@@ -443,12 +452,35 @@ def orient_fences(
                 if (left == -1) != (right == -1):
                     road_votes += 1
             d += ORIENT_STEP_M
-        if code == CODE_FENCE and net < 0:
+        reverse = code == CODE_FENCE and (net < 0 if ring_reverse is None else ring_reverse)
+        if reverse:
             coords = list(reversed(coords))
         if setback_m > 0 and raw != 0 and road_votes > 0:
-            coords = _setback(coords, setback_m if raw > 0 else -setback_m, line_in=line, reversed_=code == CODE_FENCE and net < 0)
+            coords = _setback(coords, setback_m if raw > 0 else -setback_m, line_in=line, reversed_=reverse)
         out.append((code, coords))
     return out
+
+
+def _closed_ring_reverse(coords, ticks_on_left: bool) -> bool | None:
+    """Uzavřený plot: True = otočit, aby čárky mířily dovnitř, False = už míří; otevřený plot None."""
+    if len(coords) < 4:
+        return None
+    (x0, y0), (x1, y1) = coords[0][:2], coords[-1][:2]
+    gap = math.hypot(x1 - x0, y1 - y0)
+    length = sum(math.hypot(coords[i + 1][0] - coords[i][0], coords[i + 1][1] - coords[i][1]) for i in range(len(coords) - 1))
+    if gap > ENCLOSURE_CLOSE_TOL_M and (gap > RING_ORIENT_GAP_M or gap > RING_ORIENT_GAP_SHARE * length):
+        return None
+    # dvojnásobek orientované plochy (shoelace): > 0 = proti směru hodinových ručiček → vnitřek vlevo
+    area2 = 0.0
+    n = len(coords)
+    for i in range(n):
+        xa, ya = coords[i][0] - x0, coords[i][1] - y0  # posun k počátku kvůli přesnosti v S-JTSK
+        xb, yb = coords[(i + 1) % n][0] - x0, coords[(i + 1) % n][1] - y0
+        area2 += xa * yb - xb * ya
+    if abs(area2) < 2.0 * ENCLOSURE_MIN_AREA_M2:  # degenerovaný / drobný obvod – rozhodne okolí jako u otevřeného plotu
+        return None
+    inside_left = area2 > 0
+    return inside_left != ticks_on_left
 
 
 def _setback(coords, signed_m, *, line_in, reversed_):
