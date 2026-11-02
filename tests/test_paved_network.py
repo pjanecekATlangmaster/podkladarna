@@ -149,11 +149,11 @@ def test_feature_parts_draw_merged_network(tmp_path, preset):
 
 @pytest.mark.parametrize("preset", ["forest_10000", "mtbo_10000"])
 def test_street_side_parking_merged_with_road(tmp_path, preset):
-    # Hilmarova (way/1452628243): podélné stání 2–4,5 m od osy silnice – s ulicí jedna zpevněná plocha v šířce kresby.
+    # Hilmarova (way/1452628243): podélné stání přesahující kresbu silnice – s ulicí jedna zpevněná plocha v šířce kresby.
     from shapely.geometry import shape
 
-    # Lohniského: kolmé stání 6 m (širší než pruh), ale celé pod kresbou silnice – také s ulicí (2026-10-27).
-    feats = [_area(0, 2, 40, 4.5, "parking"), _area(0, 15, 40, 40, "parking"), _area(70, -3, 110, 3, "parking")]
+    # Lohniského: kolmé stání 10 m (širší než pruh), z ≥ 80 % pod kresbou silnice – také s ulicí (2026-10-27).
+    feats = [_area(0, 3, 40, 7.5, "parking"), _area(0, 15, 40, 40, "parking"), _area(70, -3, 110, 7, "parking")]
     _write_job(tmp_path, feats, [_road([(-20, 0), (130, 0)], "road_3")])
     out = op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), preset, 10000)
     assert out[1] == feats[1]
@@ -175,7 +175,7 @@ def test_street_side_parking_merged_with_road(tmp_path, preset):
         # mezera přes hranici dvou OSM ways téže ulice
         ([(0, 40), (50, 90)], [[(-20, 0), (45, 0)], [(45, 0), (130, 0)]], 1),
         # stání na protější straně ulice
-        ([(0, 40), (50, 90, -4.5, -2)], [[(-20, 0), (130, 0)]], 1),
+        ([(0, 40), (50, 90, -7.5, -3)], [[(-20, 0), (130, 0)]], 1),
         # dlouhá mezera (40 m) – mezi plochami kreslí čára silnice
         ([(0, 40), (80, 120)], [[(-20, 0), (140, 0)]], 2),
     ],
@@ -183,7 +183,7 @@ def test_street_side_parking_merged_with_road(tmp_path, preset):
 def test_street_parking_gap_bridged(tmp_path, strips, roads, n_out):
     from shapely.geometry import shape
 
-    feats = [_area(s[0], s[2] if len(s) > 2 else 2, s[1], s[3] if len(s) > 2 else 4.5, "parking") for s in strips]
+    feats = [_area(s[0], s[2] if len(s) > 2 else 3, s[1], s[3] if len(s) > 2 else 7.5, "parking") for s in strips]
     _write_job(tmp_path, feats, [_road(r, "road_3") for r in roads])
     out = op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "forest_10000", 10000)
     assert len(out) == n_out
@@ -192,9 +192,33 @@ def test_street_parking_gap_bridged(tmp_path, strips, roads, n_out):
         assert g.geom_type == "Polygon" and g.bounds[0] == pytest.approx(0, abs=0.01) and g.bounds[2] == pytest.approx(90, abs=0.01)
 
 
+@pytest.mark.parametrize(
+    "strips, merged",
+    [
+        # Černokostelecká (Petr 2026-11-02, fáze 1): stání pod kresbou silnice (přesah < 0,15 mm) pohltí čára
+        ([(0, 40, 2, 4.5)], []),
+        # stání přesahující kresbu (Hilmarova) se slije s ulicí
+        ([(0, 40, 3, 7.5)], [0]),
+        # osamělé krátké stání (průmět < 3 mm) pohltí čára
+        ([(0, 15, 3, 7.5)], []),
+        # krátké stání se sousedem do 1,2 · 3 mm osamělé není
+        ([(0, 15, 3, 7.5), (25, 40, 3, 7.5)], [0, 1]),
+    ],
+)
+def test_street_parking_absorbed_by_road(tmp_path, strips, merged):
+    from shapely.geometry import shape
+
+    feats = [_area(x0, y0, x1, y1, "parking") for x0, x1, y0, y1 in strips]
+    _write_job(tmp_path, feats, [_road([(-50, 0), (90, 0)], "road_3")])
+    for preset in ("forest_10000", "mtbo_10000"):
+        out = op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), preset, 10000)
+        kept = [i for i, f in enumerate(feats) if any(shape(o["geometry"]).contains(shape(f["geometry"]).centroid) for o in out)]
+        assert kept == merged, preset
+
+
 def test_street_side_parking_road_not_drawn_over(tmp_path):
     # Silnice v místě stání se nekreslí (je plochou 501.1 s okrajem 501.2), mimo něj ano.
-    _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
+    _write_job(tmp_path, [_area(0, 3, 40, 7.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
     lengths = _path_lengths(tmp_path)
     assert lengths["502.2"] == pytest.approx(140 - 40, abs=0.5)  # silnice dojde až ke konci stání
 
@@ -665,7 +689,7 @@ def test_join_through_junction_straightest_continuation():
 
 def test_street_side_parking_edge_continues_to_road(tmp_path):
     # Ulice slitá se stáním: okraj 501.2 vede po obou dlouhých stranách až k čáře silnice, přes ústí ne.
-    _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
+    _write_job(tmp_path, [_area(0, 3, 40, 7.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
     parts = _parts_with_edge(tmp_path)
     # Ústí do silnice: okraj končí na okrajové lince silnice (půlka výplně 502). Pás ulice jen v rozsahu stání
     # (2026-11-02): dlouhé strany 2 × 40 m + kolmé konce stání k silnici.

@@ -5301,6 +5301,74 @@ def _parking_span(line, g, half: float):
     return substring(line, a, b).buffer(half + 50.0, cap_style=2)
 
 
+# Stání, které kresbu nejbližší silnice přesahuje méně než o tolik mm mapy, leží pod symbolem: neslévá se a nekreslí,
+# pohltí ho čára (Černokostelecká v Říčanech: 502.1 11,7 m, podélné stání přesahuje 0–1 m a slitím se ulice rozpadla na
+# kusy ploch; Petr 2026-11-02 „fáze 1“). Barrandov (Lohniského, Hilmarova, Schránilova) přesahuje 2,5–5 m – slévá se dál.
+PARKING_ABSORB_MM = 0.15
+# Osamělé krátké stání (průmět na osu ulice pod tolik mm mapy, žádné jiné slévané stání do 1,2× té vzdálenosti) se
+# také neslévá a nekreslí: krátká plocha uprostřed čáry dává dva přechody plocha / čára.
+PARKING_ISOLATED_MM = 3.0
+
+
+def _near_roads(g, roads):
+    """Silnice z ``roads`` ([(LineString, půlka kresby)]), jejichž kresba + ``PARKING_ROAD_SLACK_M`` sahá k ``g``.
+    Prostorový index se drží u seznamu (``id(roads)``), dotaz je lokální i na velké mapě."""
+    from shapely.strtree import STRtree
+
+    cached = _NEAR_ROADS_TREE.get(id(roads))
+    if cached is None or cached[0] is not roads:
+        _NEAR_ROADS_TREE.clear()
+        cached = (roads, STRtree([line for line, _ in roads]), max((h for _, h in roads), default=0.0))
+        _NEAR_ROADS_TREE[id(roads)] = cached
+    _, tree, hmax = cached
+    idx = tree.query(g, predicate="dwithin", distance=hmax + PARKING_ROAD_SLACK_M)
+    return [roads[int(i)] for i in idx if roads[int(i)][0].distance(g) <= roads[int(i)][1] + PARKING_ROAD_SLACK_M]
+
+
+_NEAR_ROADS_TREE: dict = {}
+
+
+def _parking_overhang_m(g, roads) -> float:
+    """O kolik m stání ``g`` nejvýš přesahuje kresbu nejbližší silnice (vrcholy obrysu mimo pás kresby = kladně)."""
+    from shapely.geometry import Point
+
+    near = _near_roads(g, roads)
+    if not near:
+        return float("inf")
+    best = 0.0
+    for poly in getattr(g, "geoms", [g]):
+        for c in poly.exterior.coords:
+            p = Point(c)
+            best = max(best, min(line.distance(p) - half for line, half in near))
+    return best
+
+
+def _isolated_parking(cands: dict, roads: list, span_m: float) -> set:
+    """Indexy osamělých krátkých stání z ``cands`` ({index: geometrie}): průmět na osu nejbližší silnice pod ``span_m``
+    a žádné jiné stání z ``cands`` do ``1,2 · span_m``."""
+    if span_m <= 0 or not cands:
+        return set()
+    from shapely.geometry import Point
+    from shapely.strtree import STRtree
+
+    keys = list(cands)
+    tree = STRtree([cands[k] for k in keys])
+    out = set()
+    for i, k in enumerate(keys):
+        g = cands[k]
+        near = _near_roads(g, roads)
+        if not near:
+            continue
+        line = min(near, key=lambda lh: lh[0].distance(g))[0]
+        ts = [line.project(Point(c)) for poly in getattr(g, "geoms", [g]) for c in poly.exterior.coords]
+        if max(ts) - min(ts) >= span_m:
+            continue
+        if any(int(j) != i for j in tree.query(g, predicate="dwithin", distance=1.2 * span_m)):
+            continue
+        out.add(k)
+    return out
+
+
 def merge_parking_into_road(
     work_dir: Path, feats: list[dict], path_features: list[dict], preset_id: str, scale: int
 ) -> list[dict]:
@@ -5352,40 +5420,50 @@ def merge_parking_into_road(
     from shapely.prepared import prep
 
     band_p = prep(band)
-    out = []
-    merged_idx: list[int] = []
-    for f in feats:
+    # Kandidáti na slití: (index prvku, geometrie). Stání pod kresbou silnice a osamělé krátké stání pohltí čára.
+    cands: dict[int, object] = {}
+    for k, f in enumerate(feats):
         props = f.get("properties") or {}
         geom = f.get("geometry") or {}
-        if props.get("kind") == "parking" and geom.get("type") in ("Polygon", "MultiPolygon"):
-            try:
-                g = shape(geom)
-                g = g if g.is_valid else g.buffer(0)
-            except (ValueError, TypeError):
-                g = None
-            if (
-                g is not None
-                and g.area > 0
-                and g.length > 0
-                and band_p.intersects(g)
-                and _parking_merges_with_road(g, band)
-            ):
-                pieces = [g]
-                for line, half in roads:
-                    if line.distance(g) > half + PARKING_ROAD_SLACK_M:
-                        continue
-                    seg = line.intersection(g.buffer(half + PARKING_ROAD_SLACK_M + 0.5))
-                    if PARKING_SPAN_ONLY and not seg.is_empty:
-                        # úsek ulice jen v rozsahu stání: přesah pásu za konec stání dával klínový přechod
-                        # z čáry na plochu (Schránilova, Petr 2026-11-02, DTM rozšíření kolmé)
-                        seg = seg.intersection(_parking_span(line, g, half))
-                    if not seg.is_empty and seg.length > 0:
-                        pieces.append(seg.buffer(half, cap_style=2))
-                merged = unary_union(pieces)
-                if merged.geom_type in ("Polygon", "MultiPolygon") and not merged.is_empty:
-                    merged_idx.append(len(out))
-                    out.append({"type": "Feature", "properties": dict(props), "geometry": mapping(merged)})
+        if props.get("kind") != "parking" or geom.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            g = shape(geom)
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, TypeError):
+            continue
+        if g.area > 0 and g.length > 0 and band_p.intersects(g) and _parking_merges_with_road(g, band):
+            cands[k] = g
+    absorbed = {
+        k for k, g in cands.items() if _parking_overhang_m(g, roads) < mm_to_ground_m(PARKING_ABSORB_MM, scale)
+    }
+    absorbed |= _isolated_parking(
+        {k: g for k, g in cands.items() if k not in absorbed}, roads, mm_to_ground_m(PARKING_ISOLATED_MM, scale)
+    )
+    out = []
+    merged_idx: list[int] = []
+    for k, f in enumerate(feats):
+        if k in absorbed:
+            continue  # stání pod kresbou / osamělé krátké stání: pohltí ho čára silnice, samostatně se nekreslí
+        g = cands.get(k)
+        if g is not None:
+            props = f.get("properties") or {}
+            pieces = [g]
+            for line, half in roads:
+                if line.distance(g) > half + PARKING_ROAD_SLACK_M:
                     continue
+                seg = line.intersection(g.buffer(half + PARKING_ROAD_SLACK_M + 0.5))
+                if PARKING_SPAN_ONLY and not seg.is_empty:
+                    # úsek ulice jen v rozsahu stání: přesah pásu za konec stání dával klínový přechod
+                    # z čáry na plochu (Schránilova, Petr 2026-11-02, DTM rozšíření kolmé)
+                    seg = seg.intersection(_parking_span(line, g, half))
+                if not seg.is_empty and seg.length > 0:
+                    pieces.append(seg.buffer(half, cap_style=2))
+            merged = unary_union(pieces)
+            if merged.geom_type in ("Polygon", "MultiPolygon") and not merged.is_empty:
+                merged_idx.append(len(out))
+                out.append({"type": "Feature", "properties": dict(props), "geometry": mapping(merged)})
+                continue
         out.append(f)
     return _bridge_parking_gaps(out, merged_idx, roads, mm_to_ground_m(PARKING_GAP_BRIDGE_MM, scale))
 
