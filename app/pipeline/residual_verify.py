@@ -121,6 +121,11 @@ def _low_mask(chm: Raster | None, ortho: Raster, r0: int, r1: int, c0: int, c1: 
     return ~(sub > TALL_M)
 
 
+def _has_data(rgb):
+    """Pixely ortofota s daty: černý okraj (0, 0, 0) mimo snímek referenčního podkladu se nepočítá."""
+    return rgb.max(axis=-1) > 0
+
+
 def _sample_exg(r: Raster, geoms, chm: Raster | None = None) -> list:
     """ExG pixelů ortofota v plochách ``geoms``; s CHM bez pixelů pod korunami stromů (silnice v aleji)."""
     import numpy as np
@@ -134,6 +139,7 @@ def _sample_exg(r: Raster, geoms, chm: Raster | None = None) -> list:
         low = _low_mask(chm, r, r0, r1, c0, c1)
         if low is not None:
             mask = mask & low
+        mask = mask & _has_data(r.data[r0:r1, c0:c1])
         exg, _ = _exg_sat(r.data[r0:r1, c0:c1])
         vals.append(exg[mask])
     return np.concatenate(vals) if vals else np.zeros(0, dtype=np.float32)
@@ -238,8 +244,11 @@ def piece_shares(ev: Evidence, geom) -> tuple[float | None, float | None]:
         win = _window(ev.ortho, geom)
         if win is not None:
             r0, r1, c0, c1, mask = win
-            exg, sat = _exg_sat(ev.ortho.data[r0:r1, c0:c1])
-            green = float(((exg > ev.exg_min) & (sat > SAT_MIN))[mask].mean())
+            sub = ev.ortho.data[r0:r1, c0:c1]
+            mask = mask & _has_data(sub)
+            if mask.any():
+                exg, sat = _exg_sat(sub)
+                green = float(((exg > ev.exg_min) & (sat > SAT_MIN))[mask].mean())
     if ev.chm is not None:
         win = _window(ev.chm, geom)
         if win is not None:
