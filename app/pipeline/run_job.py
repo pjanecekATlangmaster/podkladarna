@@ -596,12 +596,12 @@ def run_job_pipeline(
     lidar_work = work_dir / "lidar"
     if reused_from:
         progress.begin("kopie LAZ z předchozího jobu")
-        log(f"Kopíruji LAZ z jobu {reused_from}…")
+        log("Připravuji data LiDAR…")
         copied = db.copy_reusable_work(str(reused_from), job_dir.name)
         if copied:
             log(f"Zkopírováno {len(copied)} souborů (sloučený LAZ).")
         else:
-            log("Varování: v předchozím jobu není použitelný LAZ ke kopírování.")
+            log("Varování: data LiDAR se nepodařilo použít.")
         progress.done()
 
     merged_existing = None
@@ -685,9 +685,7 @@ def run_job_pipeline(
 
     if reused_from and merged_existing:
         merged = merged_existing
-        progress.skip(
-            "příprava LiDAR", reason=f"LAZ z jobu {reused_from}"
-        )
+        progress.skip("příprava LiDAR")
     else:
         cached_merged = None
         progress.begin("příprava LiDAR")
