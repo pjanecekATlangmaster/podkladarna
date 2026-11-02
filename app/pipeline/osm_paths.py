@@ -5344,6 +5344,7 @@ def merge_parking_into_road(
 
     band_p = prep(band)
     out = []
+    merged_idx: list[int] = []
     for f in feats:
         props = f.get("properties") or {}
         geom = f.get("geometry") or {}
@@ -5373,10 +5374,81 @@ def merge_parking_into_road(
                         pieces.append(seg.buffer(half, cap_style=2))
                 merged = unary_union(pieces)
                 if merged.geom_type in ("Polygon", "MultiPolygon") and not merged.is_empty:
+                    merged_idx.append(len(out))
                     out.append({"type": "Feature", "properties": dict(props), "geometry": mapping(merged)})
                     continue
         out.append(f)
-    return out
+    return _bridge_parking_gaps(out, merged_idx, roads, mm_to_ground_m(PARKING_GAP_BRIDGE_MM, scale))
+
+
+# Mezera podél ulice mezi dvěma úseky slitými se stáním (``merge_parking_into_road``) do tolika mm mapy se zacelí pásem
+# ulice v šířce kresby: zbylý kus čáry silnice mezi plochami je pahýl (``road_ends.STUB_MAX_MM``) a zahodil se –
+# ulice byla v mapě přerušená (Černokostelecká v Říčanech, stání po obou stranách po kusech, Petr 2026-11-02).
+PARKING_GAP_BRIDGE_MM = 2.0
+
+
+def _bridge_parking_gaps(out: list[dict], merged_idx: list[int], roads: list, gap_m: float) -> list[dict]:
+    """Slité plochy stání + ulice (``out[i]`` pro ``i`` z ``merged_idx``) ležící na téže ose ulice s mezerou do
+    ``gap_m`` (podél osy) spojí pásem ulice v šířce kresby do jedné plochy. Osa = OSM silnice téže šířky kresby
+    spojené přes prosté uzly (``linemerge``), takže se zacelí i mezera přes hranici dvou OSM ways."""
+    if len(merged_idx) < 2 or not roads or gap_m <= 0:
+        return out
+    from shapely.geometry import Point, mapping, shape
+    from shapely.ops import linemerge, substring, unary_union
+
+    geoms = {i: shape(out[i]["geometry"]) for i in merged_idx}
+    parent = {i: i for i in merged_idx}
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    bands: dict[int, list] = {}
+    by_half: dict[float, list] = {}
+    for line, half in roads:
+        by_half.setdefault(round(half, 3), []).append(line)
+    for half, lines in by_half.items():
+        _u = unary_union(lines)
+        chains = linemerge(_u) if _u.geom_type == "MultiLineString" else _u
+        for chain in getattr(chains, "geoms", [chains]):
+            if chain.geom_type != "LineString" or chain.length <= 0:
+                continue
+            spans = []
+            for i in merged_idx:
+                g = geoms[i]
+                if chain.distance(g) > 0.5:
+                    continue
+                inside = chain.intersection(g)
+                parts = [p for p in getattr(inside, "geoms", [inside]) if p.geom_type == "LineString" and p.length > 0]
+                if not parts:
+                    continue
+                ts = [chain.project(Point(c)) for p in parts for c in (p.coords[0], p.coords[-1])]
+                spans.append((min(ts), max(ts), i))
+            spans.sort()
+            for (a0, a1, i), (b0, b1, j) in zip(spans, spans[1:]):
+                if find(i) == find(j) or not (0.0 < b0 - a1 <= gap_m):
+                    continue
+                piece = substring(chain, a1, b0).buffer(half, cap_style=2)
+                if piece.is_empty:
+                    continue
+                parent[find(j)] = find(i)
+                bands.setdefault(i, []).append(piece)
+    if not bands:
+        return out
+    groups: dict[int, list[int]] = {}
+    for i in merged_idx:
+        groups.setdefault(find(i), []).append(i)
+    drop: set[int] = set()
+    for root, members in groups.items():
+        if len(members) < 2:
+            continue
+        geom = unary_union([geoms[i] for i in members] + [b for i in members for b in bands.get(i, [])])
+        first = min(members)
+        out[first] = {"type": "Feature", "properties": dict(out[first].get("properties") or {}), "geometry": mapping(geom)}
+        drop.update(m for m in members if m != first)
+    return [f for k, f in enumerate(out) if k not in drop]
 
 
 def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -> tuple:
