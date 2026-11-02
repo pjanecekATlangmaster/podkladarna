@@ -224,14 +224,15 @@
                 Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
                 (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
                 které jinak nekreslíme). Výsledek jde pod silnice.
-                Když po odečtu zbývá víc než 25&nbsp;% plochy residential, oblast je řídce
-                zmapovaná a do auto&nbsp;<code>.omap</code> se nebere;
-                stejně se zahodí kusy nad zvolenou max. velikostí.
+                Každý kus se ověří ortofotem (zeleň) a výškou z DMP OK (stromy, nezmapované budovy);
+                kde má residential úplné plochy z DTM, mezery se nekreslí (zpevněné kreslí DTM).
+                Bez ortofota i výšek platí dřívější pravidlo: residential, kde po odečtu zbývá
+                víc než 25&nbsp;%, se nebere. Zahodí se i kusy nad zvolenou max. velikostí.
                 Do ZIPu (<code>osm/</code>) vždy přibudou SHP
                 <code>OSM_residential_zbytek_mensi</code> /
                 <code>_stredni</code> /
                 <code>_velke</code>
-                a <code>_ridke</code> (přeskočené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
+                a <code>_ridke</code> (zeleň, stromy a jinak neověřené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
                 (symbol 501). Heuristika; v OOM jde smazat. Default vypnuto.
               </p>
             </div>

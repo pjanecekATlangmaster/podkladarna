@@ -391,3 +391,88 @@ def test_residual_prefetch_failure_falls_back_to_normal_fetch(tmp_path, monkeypa
         fut.result(5)
     els = rp._load_or_fetch_all_osm(tmp_path, (14.39, 49.99, 14.41, 50.01))
     assert len(els) == 1 and state["n"] == 2
+
+
+# --- Ověření kusů ortofotem a CHM (residual_verify, Petr 2026-11-02) ---
+
+
+def _evidence(green_rgb, chm_val, size=100):
+    """Syntetický podklad 0,5 m na čtverci (0..50 m): ortofoto jedné barvy a CHM jedné výšky."""
+    import numpy as np
+
+    from app.pipeline.residual_verify import Evidence, Raster
+
+    rgb = np.zeros((size, size, 3), dtype=np.uint8)
+    rgb[...] = green_rgb
+    chm = np.full((size, size), chm_val, dtype=np.float32)
+    return Evidence(ortho=Raster(rgb, 0.0, 50.0, 0.5, 0.5), chm=Raster(chm, 0.0, 50.0, 0.5, 0.5))
+
+
+@pytest.mark.parametrize(
+    "rgb, chm, paved",
+    [
+        ((110, 110, 115), 0.0, True),  # šedý asfalt, nízko → zpevněné
+        ((70, 130, 50), 0.0, False),  # trávník
+        ((110, 110, 115), 8.0, False),  # stromy / nezmapovaná budova
+        ((70, 130, 50), 8.0, False),
+    ],
+)
+def test_piece_verified_by_green_and_height(rgb, chm, paved):
+    from shapely.geometry import box
+
+    from app.pipeline.residual_verify import piece_is_paved
+
+    assert piece_is_paved(_evidence(rgb, chm), box(10, 10, 30, 20)) is paved
+
+
+def test_exg_calibrated_between_roads_and_grass():
+    import numpy as np
+    from shapely.geometry import box
+
+    from app.pipeline.residual_verify import EXG_DEFAULT, Raster, calibrate_exg
+
+    rgb = np.zeros((100, 100, 3), dtype=np.uint8)
+    rgb[:, :50] = (100, 100, 100)  # silnice (x 0..25 m)
+    rgb[:, 50:] = (100, 104, 100)  # vybledlý trávník, ExG ~0,03: práh se sníží (zvýšit ho kalibrace nesmí)
+    r = Raster(rgb, 0.0, 50.0, 0.5, 0.5)
+    thr, _ = calibrate_exg(r, [box(1, 1, 24, 49)], [box(26, 1, 49, 49)])
+    assert 0.0 < thr < EXG_DEFAULT
+    thr2, note = calibrate_exg(r, [box(1, 1, 2, 2)], [box(26, 1, 49, 49)])  # málo vzorků silnic
+    assert thr2 == EXG_DEFAULT and "málo" in note
+
+
+@pytest.mark.parametrize(
+    "dtm_share, complete",
+    [(0.9, True), (0.2, False), (0.0, False)],
+)
+def test_dtm_complete_by_building_cover(dtm_share, complete):
+    from shapely.geometry import box
+
+    from app.pipeline.residual_verify import dtm_complete
+
+    subject = box(0, 0, 100, 100)
+    osm = [box(10, 10, 30, 30)]  # 400 m²
+    dtm = [box(10, 10, 10 + 20 * dtm_share, 30)] if dtm_share else []
+    assert dtm_complete(subject, osm, dtm) is complete
+
+
+def test_sparse_residential_drawn_when_pieces_verified(tmp_path: Path, monkeypatch):
+    """S ortofotem a CHM se řídké residential nezahodí celé: šedý (zpevněný) kus se kreslí, zelený ne."""
+    from app.pipeline import residual_verify as rv
+
+    residential = {
+        "type": "way",
+        "id": 1,
+        "tags": {"landuse": "residential"},
+        "geometry": _sq_wgs(50.10, 14.56, 0.0002, 0.0002),
+    }
+    tiny = {"type": "way", "id": 2, "tags": {"building": "yes"}, "geometry": _sq_wgs(50.10005, 14.56005, 0.00002, 0.00002)}
+    _write_cache(tmp_path, [residential, tiny])
+    verdict = {"paved": True}
+    monkeypatch.setattr(rv, "load_evidence", lambda *a, **k: rv.Evidence(ortho=object()))
+    monkeypatch.setattr(rv, "piece_is_paved", lambda ev, geom: verdict["paved"])
+    kw = dict(preset_id="sprint_2m", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0, max_piece_m2=float("inf"))
+    assert len(build_residual_paved_parts(tmp_path, **kw)) == 1
+    verdict["paved"] = False
+    assert build_residual_paved_parts(tmp_path, **kw) == []
+    assert (tmp_path / _RESIDUAL_BANDS_DIR / f"{RESIDUAL_SPARSE_STEM}.shp").is_file()

@@ -154,6 +154,9 @@ function applyMapTypeDefaults(scale) {
   const wrap = document.getElementById("map-types-wrap");
   if (wrap) wrap.classList.toggle("hidden", !(Number(scale) > 5000));
   if (Number(scale) > 5000) setMapTypes(defaultMapTypes(scale));
+  // Mezery v residential kreslí jen sprint (les a MTBO je nepoužijí).
+  const residualWrap = document.getElementById("residual-paved-wrap");
+  if (residualWrap) residualWrap.classList.toggle("hidden", Number(scale) !== 4000);
   updateOutputHints();
   updateSubmitButtonLabel();
 }
