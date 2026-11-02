@@ -71,8 +71,38 @@ def _pick_ground_laz(lidar_dir: Path) -> Path | None:
     return _pick_laz(lidar_dir, "ground_merged.laz", "dmr_ground_*.laz")
 
 
-def _pick_surface_laz(lidar_dir: Path) -> Path | None:
-    return _pick_laz(lidar_dir, "veg_merged.laz", "dmp_veg_*.laz")
+def _pick_surface_laz(lidar_dir: Path) -> list[Path] | None:
+    """DMP LAZ pro DSM: ``veg_merged`` nebo všechny ořezy listů (od 3.8.12 se neslučují)."""
+    from app.download_cache import lidar_veg_parts
+
+    return lidar_veg_parts(lidar_dir) or None
+
+
+def _surface_list(surface) -> list[Path] | None:
+    if surface is None:
+        return None
+    paths = [Path(p) for p in (surface if isinstance(surface, (list, tuple)) else [surface])]
+    return paths or None
+
+
+def _surface_fingerprint(paths: list[Path] | None) -> dict | None:
+    """Jeden soubor jako dřív (AOI cache sedí); víc částí = jména spojená ``+`` a součet velikostí."""
+    if not paths:
+        return None
+    if len(paths) == 1:
+        return file_fingerprint(paths[0])
+    fps = [file_fingerprint(p) for p in paths]
+    if any(fp is None for fp in fps):
+        return None
+    return {
+        "name": "+".join(fp["name"] for fp in fps),
+        "size": sum(int(fp["size"]) for fp in fps),
+        "mtime_ns": max(int(fp["mtime_ns"]) for fp in fps),
+    }
+
+
+def _surface_name(paths: list[Path] | None) -> str | None:
+    return "+".join(p.name for p in paths) if paths else None
 
 
 def _raster_grid(path: Path, *, log=None) -> tuple[float, float, int, int] | None:
@@ -207,7 +237,7 @@ class _SurfaceJob:
     dem_raw: Path
     dem_filled: Path
     ground: Path
-    surface: Path | None
+    surface: list[Path] | None
     ground_fp: dict | None
     surface_fp: dict | None
     bounds: tuple[float, float, float, float]
@@ -249,7 +279,7 @@ def prepare_job_surfaces(
     *,
     resolution_m: float = DEFAULT_SURFACE_RESOLUTION_M,
     ground_laz: Path | None = None,
-    surface_laz: Path | None = None,
+    surface_laz: Path | list[Path] | None = None,
     cache_dir: Path | None = None,
     force_refresh: bool = False,
     log=None,
@@ -278,7 +308,7 @@ def start_job_surfaces(
     *,
     resolution_m: float = DEFAULT_SURFACE_RESOLUTION_M,
     ground_laz: Path | None = None,
-    surface_laz: Path | None = None,
+    surface_laz: Path | list[Path] | None = None,
     cache_dir: Path | None = None,
     force_refresh: bool = False,
     log=None,
@@ -297,11 +327,11 @@ def start_job_surfaces(
         raise FileNotFoundError(
             "DEM prep: chybí ground LAZ (ground_merged / dmr_ground_*)"
         )
-    surface = surface_laz if surface_laz is not None else _pick_surface_laz(lidar_dir)
+    surface = _surface_list(surface_laz) if surface_laz is not None else _pick_surface_laz(lidar_dir)
 
     dem_dir = dem_work_dir(work_dir)
     ground_fp = file_fingerprint(ground)
-    surface_fp = file_fingerprint(surface) if surface is not None else None
+    surface_fp = _surface_fingerprint(surface)
 
     if cache_dir is not None and try_restore_surfaces(
         cache_dir,
@@ -318,7 +348,7 @@ def start_job_surfaces(
             bounds=bounds,
             resolution_m=float(resolution_m),
             ground_name=ground.name,
-            surface_name=surface.name if surface else None,
+            surface_name=_surface_name(surface),
         )
         result.write_meta(dem_dir)
         return SurfacesPrep(result)
@@ -349,7 +379,7 @@ def start_job_surfaces(
         resolution_m=float(resolution_m),
         cache_dir=cache_dir,
     )
-    has_surface = surface is not None and surface.is_file()
+    has_surface = bool(surface) and all(p.is_file() for p in surface)
     if not background or not has_surface:
         return SurfacesPrep(_finish_job_surfaces(job, log=log))
 
@@ -375,7 +405,7 @@ def _finish_job_surfaces(job: _SurfaceJob, *, log=None) -> DemPrepResult:
 
     dsm_raw: Path | None = None
     chm: Path | None = None
-    if surface is not None and surface.is_file():
+    if surface and all(p.is_file() for p in surface):
         dsm_raw = dem_dir / "dsm_raw.tif"
         dsm_kwargs = {}
         dem_grid = _raster_grid(dem_raw, log=log)
@@ -383,7 +413,7 @@ def _finish_job_surfaces(job: _SurfaceJob, *, log=None) -> DemPrepResult:
             dsm_kwargs["grid"] = dem_grid
         log_step(log, "Připravuji DSM z DMP (povrch pro výšku vegetace)")
         _pdal_dem_from_laz(
-            surface,
+            surface[0] if len(surface) == 1 else surface,
             bounds,
             dsm_raw,
             resolution_m=float(resolution_m),
@@ -421,7 +451,7 @@ def _finish_job_surfaces(job: _SurfaceJob, *, log=None) -> DemPrepResult:
         bounds=bounds,
         resolution_m=float(resolution_m),
         ground_laz=ground.name,
-        surface_laz=surface.name if surface else None,
+        surface_laz=_surface_name(surface),
     )
     result.write_meta(dem_dir)
     if cache_dir is not None:

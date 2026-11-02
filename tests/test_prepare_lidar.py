@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.download_cache import lidar_veg_parts
 from app.pipeline.prepare_lidar import (
     expand_crop_bounds,
     kp_pad_crop_bounds,
@@ -95,7 +96,9 @@ def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
     # KP merged_crop (ground+veg v jednom LAZ) se už nevytváří.
     assert out.name == "ground_merged.laz"
     assert out.is_file()
-    assert (work / "veg_merged.laz").is_file()
+    # DMP se neslučuje (3.8.12): DSM i vegetace čtou ořezy listů.
+    assert not (work / "veg_merged.laz").exists()
+    assert [p.name for p in lidar_veg_parts(work)] == ["dmp_veg_0.laz", "dmp_veg_1.laz"]
     assert not (work / "merged_crop.laz").exists()
 
     translates = [c for c in cmds if len(c) > 1 and c[1] == "translate"]
@@ -108,7 +111,7 @@ def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
     # Merge listů proudově (pdal pipeline --stream), ne in-memory `pdal merge`.
     assert not [c for c in cmds if len(c) > 1 and c[1] == "merge"]
     merges = [c for c in cmds if len(c) > 1 and c[1] == "pipeline"]
-    assert len(merges) == 2
+    assert len(merges) == 1
     assert all("--stream" in c for c in merges)
     post_merge_crop = [
         c
@@ -321,7 +324,8 @@ def test_merge_dmr_dmp_parallel_keeps_sheet_order(tmp_path, monkeypatch, as_futu
     out = merge_dmr_dmp(dmr, dmp, work, crop_bounds=(0.0, 0.0, 10.0, 10.0), scalefactor=0.4)
     assert out.name == "ground_merged.laz"
     assert [Path(p).name for p in pipelines[0]] == [f"dmr_ground_{i}.laz" for i in range(3)]
-    assert [Path(p).name for p in pipelines[1]] == [f"dmp_veg_{i}.laz" for i in range(3)]
+    assert len(pipelines) == 1  # jen ground; DMP části zůstávají v pořadí listů
+    assert [p.name for p in lidar_veg_parts(work)] == [f"dmp_veg_{i}.laz" for i in range(3)]
     assert not (work / "merged_crop.laz").exists()
 
 

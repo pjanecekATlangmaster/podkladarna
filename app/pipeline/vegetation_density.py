@@ -832,11 +832,10 @@ def classify_point_files(
 
 
 def _pick_point_files(lidar_dir: Path) -> list[Path]:
-    """Dvojice DMR ground + DMP veg."""
-    from app.download_cache import lidar_pair_paths
+    """DMR ground + DMP části (``veg_merged`` nebo ořezy listů v pořadí listů)."""
+    from app.download_cache import lidar_point_files
 
-    pair = lidar_pair_paths(Path(lidar_dir))
-    return list(pair) if pair is not None else []
+    return lidar_point_files(Path(lidar_dir)) or []
 
 
 def generate_job_vegetation_density(

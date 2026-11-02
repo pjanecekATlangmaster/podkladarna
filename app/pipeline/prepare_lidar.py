@@ -262,6 +262,10 @@ def _merge_parts(
     return dest
 
 
+def _veg_label(parts: list[Path]) -> str:
+    return parts[0].name if len(parts) == 1 else f"DMP ořezy listů ({len(parts)} souborů, neslučují se)"
+
+
 def _laz_point_count(pdal: str, path: Path) -> int | None:
     """Počet bodů z hlavičky (``--summary`` nečte body, na rozdíl od ``--stats``)."""
     info = subprocess.run(
@@ -340,7 +344,7 @@ def merge_dmr_dmp(
     Listy mohou být i ``Future`` ze ``start_lidar_download``: ořez listu čeká jen na svůj soubor.
     Je-li ``crop_bounds``, ořezává **každý list před merge** (stejný finální bbox
     jako dřív: user + buffer + KP pad). Tím se nečtou celé SM5 listy.
-    Výstup: ``ground_merged`` / ``veg_merged`` (víc listů) nebo ořez jediného
+    Výstup: ``ground_merged`` (víc listů) + ořezy DMP ``dmp_veg_N`` (od 3.8.12 neslučované), nebo ořezy jediného
     listu – viz ``download_cache.lidar_pair_paths``. Společný ``merged_crop``
     (vstup KP pullauta) se už nevytváří.
     """
@@ -473,12 +477,15 @@ def merge_dmr_dmp(
         )
 
     ground = _merge_parts(pdal, ground_parts, work_dir / "ground_merged.laz", log=log)
-    veg = _merge_parts(pdal, veg_parts, work_dir / "veg_merged.laz", log=log)
+    # DMP (vegetace) se neslučuje: DSM i vegetace čtou ořezy listů přímo (``lidar_veg_parts``).
+    # Sloučení = další dekomprese a komprese všech bodů (Most 334 mil. bodů, ČVUT 145 mil.).
 
     if log:
-        for path in (ground, veg):
-            n = _laz_point_count(pdal, path)
+        for label, paths in ((ground.name, [ground]), (_veg_label(veg_parts), veg_parts)):
+            counts = [_laz_point_count(pdal, p) for p in paths]
+            n = None if any(c is None for c in counts) else sum(counts)
             count = f"{n:,} bodů, ".replace(",", " ") if n is not None else ""
-            log(f"OK {path.name} ({count}{path.stat().st_size / 1e6:.1f} MB)")
+            size = sum(p.stat().st_size for p in paths)
+            log(f"OK {label} ({count}{size / 1e6:.1f} MB)")
 
     return ground
