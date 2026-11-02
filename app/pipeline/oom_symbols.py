@@ -52,7 +52,7 @@ def symbol_set_path(preset_id: str, scale: int) -> Path:
     # Čisté české OCAD sady (scripts/build_symbol_sets.py); kódy generátoru
     # se na kódy sady překládají přes symbol_catalog.yaml (set_code).
     if preset_id.startswith("mtbo"):
-        # Presety MTBO jsou 1:10000 a 1:15000; jiné měřítko spadne na bližší sadu.
+        # Presety MTBO jsou 1:10000 a 1:15000; 1:7500 (stejně jako les) používá sadu 1:10000.
         name = "ISMTBOM_2022_15000_cz.omap" if scale >= 15000 else "ISMTBOM_2022_10000_cz.omap"
     elif preset_id.startswith("sprint"):
         name = "ISSprOM_2019_4000_cz.omap"
