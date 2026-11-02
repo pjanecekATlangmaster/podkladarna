@@ -161,7 +161,8 @@ def test_street_side_parking_merged_with_road(tmp_path, preset):
     merged = shape(out[0]["geometry"])
     half = op.drawn_symbol_width_m("road_3", preset, 10000) / 2.0
     assert merged.bounds[1] == pytest.approx(-half, abs=0.01)  # silnice v šířce své kresby
-    assert merged.bounds[0] < 0 and merged.bounds[2] > 40
+    # pás ulice jen v rozsahu stání: rozšíření kolmo na konci stání, ne klín za ním (Schránilova, 2026-11-02)
+    assert merged.bounds[0] == pytest.approx(0, abs=0.01) and merged.bounds[2] == pytest.approx(40, abs=0.01)
     assert op.merge_parking_into_road(tmp_path, feats, [], preset, 10000) == feats
     assert op.merge_parking_into_road(tmp_path, feats, op._paths_features_for_network(tmp_path), "sprint_4000", 4000) == feats
 
@@ -170,7 +171,23 @@ def test_street_side_parking_road_not_drawn_over(tmp_path):
     # Silnice v místě stání se nekreslí (je plochou 501.1 s okrajem 501.2), mimo něj ano.
     _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
     lengths = _path_lengths(tmp_path)
-    assert lengths["502.2"] < 140 - 40
+    assert lengths["502.2"] == pytest.approx(140 - 40, abs=0.5)  # silnice dojde až ke konci stání
+
+
+@pytest.mark.parametrize("parking, code", [(True, "502"), (False, "502.1")])
+def test_street_parking_not_in_dtm_road_width(tmp_path, parking, code):
+    # DTM vede podélné stání jako část plochy silnice (Schránilova: vozovka 6 m, se stáním 15,5 m). Vedle stání, které
+    # se slévá s ulicí do plochy, se šířka z DTM neměří – jinak celá ulice vyjde 502.1 a přechod na plochu je klín.
+    from shapely.geometry import Polygon
+
+    from app.pipeline.dtm_widths import WidthIndex
+
+    feats = [_area(10, 3, 70, 7.5, "parking"), _area(10, -7.5, 70, -3, "parking")] if parking else []
+    _write_job(tmp_path, feats)
+    dtm = WidthIndex([Polygon([(0, -3), (10, -3), (10, -7.5), (70, -7.5), (70, -3), (80, -3), (80, 3), (70, 3), (70, 7.5), (10, 7.5), (10, 3), (0, 3)])])
+    roads = [_road([(0, 0), (80, 0)], "road_3")]
+    op._apply_road_strokes(roads, "forest_10000", 10000, road_widths=dtm, parking_strips=op.street_parking_strips(tmp_path, "forest_10000"))
+    assert roads[0]["properties"][op.STROKE_CODE_PROP] == code
 
 
 def _line(coords, hw):
@@ -625,9 +642,9 @@ def test_street_side_parking_edge_continues_to_road(tmp_path):
     # Ulice slitá se stáním: okraj 501.2 vede po obou dlouhých stranách až k čáře silnice, přes ústí ne.
     _write_job(tmp_path, [_area(0, 2, 40, 4.5, "parking")], [_road([(-50, 0), (90, 0)], "road_3")])
     parts = _parts_with_edge(tmp_path)
-    # Ústí do silnice: okraj končí na okrajové lince silnice (půlka výplně 502, dřív pás kresby + 0,35 mm = 3,5 m),
-    # proto dosáhne o pár metrů blíž k silnici než dřívější horní mez 105 m (dlouhé strany 2 × 51 m + zbytky u rohů).
-    assert 100 < _edge_length(parts) < 114
+    # Ústí do silnice: okraj končí na okrajové lince silnice (půlka výplně 502). Pás ulice jen v rozsahu stání
+    # (2026-11-02): dlouhé strany 2 × 40 m + kolmé konce stání k silnici.
+    assert 80 < _edge_length(parts) < 95
 
 
 @pytest.mark.parametrize("squeezed", [False, True])

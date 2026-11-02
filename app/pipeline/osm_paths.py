@@ -5156,7 +5156,9 @@ def _minus_corridor_sidewalk_zone(work_dir: Path, extra: list[dict], preset_id: 
 # u Hilmarovy), se s ulicí slije do jedné zpevněné plochy (``merge_parking_into_road``). Běžné parkoviště
 # (Lidl way/128405208, uvnitř s obslužnou komunikací) zůstává samostatně: je široké.
 PARKING_IN_ROAD_SHARE = 0.6
-PARKING_STRIP_MAX_WIDTH_M = 4.5  # šířka pruhu ≈ 2 · plocha / obvod (Hilmarova 4,0 m)
+# šířka pruhu ≈ 2 · plocha / obvod (Hilmarova 4,0 m, Schránilova 4,6 m – pruh šikmo; kolmé stání ~5 m); od 3.6.5
+# i měření šířky silnice z DTM bez stání (``ROAD_WIDTH_WITHOUT_PARKING``)
+PARKING_STRIP_MAX_WIDTH_M = 6.0
 PARKING_ROAD_SLACK_M = 1.0  # nepřesnost polohy OSM osy silnice a stání
 # Parkoviště, které z takového podílu leží pod kresbou silnice + ``PARKING_ROAD_SLACK_M``, se slije s ulicí bez ohledu
 # na šířku pruhu (kolmé stání 5,3 m u Lohniského: samostatná plocha vedle čáry silnice vypadala jako zdvojená silnice).
@@ -5271,6 +5273,23 @@ def _parking_merges_with_road(g, band) -> bool:
     return share >= PARKING_UNDER_ROAD_SHARE
 
 
+# Úsek ulice slitý se stáním (``merge_parking_into_road``) jen v rozsahu stání podél osy; False = pás přesahuje
+# konec stání o půlku kresby + rezervu jako dřív.
+PARKING_SPAN_ONLY = True
+
+
+def _parking_span(line, g, half: float):
+    """Pás kolmý k ose ``line`` v rozsahu průmětu stání ``g`` na osu (široký 2 · (``half`` + 50 m))."""
+    from shapely.geometry import Point
+    from shapely.ops import substring
+
+    ts = [line.project(Point(c)) for poly in getattr(g, "geoms", [g]) for c in poly.exterior.coords]
+    a, b = min(ts), max(ts)
+    if b - a <= 1e-6:
+        return g
+    return substring(line, a, b).buffer(half + 50.0, cap_style=2)
+
+
 def merge_parking_into_road(
     work_dir: Path, feats: list[dict], path_features: list[dict], preset_id: str, scale: int
 ) -> list[dict]:
@@ -5304,6 +5323,21 @@ def merge_parking_into_road(
     if not roads:
         return feats
     band = unary_union([line.buffer(half + PARKING_ROAD_SLACK_M) for line, half in roads])
+    if road_widths is not None and ROAD_WIDTH_WITHOUT_PARKING:
+        # O slití rozhoduje i kresba podle celé plochy silnice z DTM (se stáním, jako před 3.7.1): ulice zúžená
+        # na vozovku bez stání by jinak pustila kolmé stání, které dřív leželo pod kresbou (2026-11-02).
+        _full = [
+            {**f, "properties": {k: v for k, v in (f.get("properties") or {}).items() if k != STROKE_CODE_PROP}}
+            for f in path_features
+        ]
+        band = unary_union(
+            [band]
+            + [
+                line.buffer(half + PARKING_ROAD_SLACK_M)
+                for line, half, hw in road_drawn_halfwidths(_full, preset_id, scale, road_widths)
+                if not is_bridge_highway(hw) and not is_tunnel_highway(hw)
+            ]
+        )
     from shapely.prepared import prep
 
     band_p = prep(band)
@@ -5329,6 +5363,10 @@ def merge_parking_into_road(
                     if line.distance(g) > half + PARKING_ROAD_SLACK_M:
                         continue
                     seg = line.intersection(g.buffer(half + PARKING_ROAD_SLACK_M + 0.5))
+                    if PARKING_SPAN_ONLY and not seg.is_empty:
+                        # úsek ulice jen v rozsahu stání: přesah pásu za konec stání dával klínový přechod
+                        # z čáry na plochu (Schránilova, Petr 2026-11-02, DTM rozšíření kolmé)
+                        seg = seg.intersection(_parking_span(line, g, half))
                     if not seg.is_empty and seg.length > 0:
                         pieces.append(seg.buffer(half, cap_style=2))
                 merged = unary_union(pieces)
@@ -5361,7 +5399,9 @@ def _paved_network_cached(work_dir: Path, preset_id: str = "", scale: int = 0) -
                 from app.pipeline.dtm_widths import dtm_width_indexes
 
                 _widths = dtm_width_indexes(work_dir)[0]
-            _apply_road_strokes(_path_feats, preset_id, scale, road_widths=_widths)
+            _apply_road_strokes(
+                _path_feats, preset_id, scale, road_widths=_widths, parking_strips=street_parking_strips(work_dir, preset_id)
+            )
         if preset_id:
             from app.pipeline.dtm_import import dtm_area_preset, drop_osm_parking_covered_by_dtm
 
@@ -6635,11 +6675,101 @@ def _osm_line_code(
     return code
 
 
+# Šířka silnice z DTM se měří na ploše silnic bez pruhů stání z OSM, které se slévají s ulicí do plochy
+# (``street_parking_strips``, ``_parking_merges_with_road``): DTM vede stání jako část plochy silnice, takže ulice se
+# stáním vycházela 502.1 (Schránilova 15,5 m místo 6 m vozovky) a pás slití i zbytky čáry u konců stání byly širší
+# než navazující silnice – klínový přechod z čáry na plochu (Petr 2026-11-02). Široká vozovka (≥ 9 m bez stání)
+# zůstává 502.1. False = měří se celá plocha silnice z DTM jako dřív.
+ROAD_WIDTH_WITHOUT_PARKING = True
+_WIDTHS_NO_PARKING: dict = {}
+
+
+def street_parking_strips(work_dir: Path, preset_id: str) -> tuple:
+    """``(pruhy OSM stání (shapely Polygon), klíč do cache)``: parkoviště užší než ``PARKING_STRIP_MAX_WIDTH_M``, která
+    zůstanou v síti zpevněných ploch (u presetů s plochami z DTM ne ta, která DTM vede jako parkoviště – ta se
+    nekreslí a šířka ulice je dál nese). Které se s ulicí opravdu slijí, rozhodne ``_apply_road_strokes``."""
+    if not ROAD_WIDTH_WITHOUT_PARKING or preset_id.startswith("sprint"):
+        return (), None
+    try:
+        from shapely.geometry import shape
+
+        feats = json.loads((work_dir / "osm_paths" / "features.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (ImportError, OSError, ValueError):
+        return (), None
+    feats = [f for f in feats if (f.get("properties") or {}).get("kind") == "parking"]
+    from app.pipeline.dtm_import import dtm_area_preset, drop_osm_parking_covered_by_dtm
+
+    if feats and dtm_area_preset(preset_id):
+        feats = drop_osm_parking_covered_by_dtm(work_dir, feats)
+    strips = []
+    for feat in feats:
+        geom = feat.get("geometry") or {}
+        if geom.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            g = shape(geom)
+            g = g if g.is_valid else g.buffer(0)
+        except (ValueError, TypeError):
+            continue
+        for poly in getattr(g, "geoms", [g]):
+            if poly.geom_type == "Polygon" and poly.length > 0 and 2.0 * poly.area / poly.length <= PARKING_STRIP_MAX_WIDTH_M:
+                strips.append(poly)
+    return tuple(strips), tuple(sorted(tuple(round(v, 2) for v in p.bounds) for p in strips))
+
+
+def _widths_without_parking(road_widths, lines: list, codes: list, preset_id: str, scale: int, strips: tuple, key):
+    """``WidthIndex`` ploch silnic z DTM bez pruhů stání ``strips``, které se slijí s kresbou silnic ``lines`` /
+    ``codes`` (symboly podle celé plochy DTM, jako slití před 3.7.1); ``road_widths``, když se žádný neslije."""
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+    from shapely.strtree import STRtree
+
+    from app.pipeline.dtm_widths import WidthIndex
+    from app.pipeline.oom_symbol_map import symbol_line_width_mm
+
+    bands = []
+    for ln, code in zip(lines, codes):
+        mm = symbol_line_width_mm(preset_id, scale, code) if code else None
+        half = mm_to_ground_m(mm, scale) / 2.0 if mm else drawn_symbol_width_m("road_3", preset_id, scale) / 2.0
+        bands.append(LineString(ln).buffer(half + PARKING_ROAD_SLACK_M))
+    tree = STRtree(bands)
+    merged = []
+    for g in strips:
+        near = [bands[int(k)] for k in tree.query(g)]
+        if near and _parking_merges_with_road(g, unary_union(near)):
+            merged.append(g)
+    if not merged:
+        return road_widths
+    ckey = (id(road_widths), preset_id, scale, key, tuple(sorted(tuple(round(v, 2) for v in g.bounds) for g in merged)))
+    if ckey not in _WIDTHS_NO_PARKING:
+        if len(_WIDTHS_NO_PARKING) >= 8:
+            _WIDTHS_NO_PARKING.clear()
+        stree = STRtree(merged)
+        polys = []
+        for poly in road_widths.polys:
+            near = [merged[int(k)] for k in stree.query(poly)]
+            if near:
+                try:
+                    poly = poly.difference(unary_union(near))
+                except Exception:  # noqa: BLE001 – geometrie z dat; při chybě se měří celá plocha
+                    pass
+            polys.extend(p for p in getattr(poly, "geoms", [poly]) if p.geom_type == "Polygon" and not p.is_empty)
+        _WIDTHS_NO_PARKING[ckey] = (road_widths, WidthIndex(polys))  # road_widths drží id platné
+    return _WIDTHS_NO_PARKING[ckey][1]
+
+
 def _apply_road_strokes(
-    features: list[dict], preset_id: str, scale: int, *, road_widths=None, service_links=frozenset()
+    features: list[dict],
+    preset_id: str,
+    scale: int,
+    *,
+    road_widths=None,
+    service_links=frozenset(),
+    parking_strips: tuple = ((), None),
 ) -> None:
     """Les a MTBO: silnicím (``road_*`` mimo mosty a tunely) zapíše ``stroke_code`` po pravidle tahu (``road_strokes``):
-    jeden symbol na souvislý úsek, krátké kusy jiné šířky převezmou symbol souseda; osa 502.0 je pevná."""
+    jeden symbol na souvislý úsek, krátké kusy jiné šířky převezmou symbol souseda; osa 502.0 je pevná.
+    ``parking_strips`` (``street_parking_strips``): šířka z DTM se měří bez pruhů stání, které se s ulicí slijí."""
     from app.pipeline.road_strokes import JUNCTION_EXCL_MM, MIN_RUN_MM, junction_zone, stroke_codes
 
     idx, lines, fixed = [], [], set()
@@ -6667,6 +6797,16 @@ def _apply_road_strokes(
         _r = mm_to_ground_m(JUNCTION_EXCL_MM, scale)
         exclude, _pts = junction_zone(lines, _r)
         exclude_key = (_r, tuple(sorted(_pts)))
+    _strips, _skey = parking_strips
+    if road_widths is not None and _strips:
+        codes0 = [
+            _osm_line_code(
+                i, features[i], preset_id, road_widths=road_widths, service_links=service_links,
+                width_exclude=exclude, width_exclude_key=exclude_key,
+            )
+            for i in idx
+        ]
+        road_widths = _widths_without_parking(road_widths, lines, codes0, preset_id, scale, _strips, _skey)
     codes = [
         _osm_line_code(
             i,
@@ -6979,8 +7119,14 @@ def build_osm_path_parts(
     # boční ulice tak dojde až k okraji kresby 502.0 (Petr 2026-10-26, D23).
     if not preset_id.startswith("sprint"):
         # Pravidlo tahu: jeden symbol na souvislý úsek (``road_strokes``); platí pro kresbu i pás silnic níže.
+        _parking_strips = street_parking_strips(work_dir, preset_id) if road_widths is not None else ((), None)
         _apply_road_strokes(
-            data.get("features") or [], preset_id, scale, road_widths=road_widths, service_links=service_links
+            data.get("features") or [],
+            preset_id,
+            scale,
+            road_widths=road_widths,
+            service_links=service_links,
+            parking_strips=_parking_strips,
         )
         if road_feats is not (data.get("features") or []):
             _extra = [
@@ -6989,7 +7135,7 @@ def build_osm_path_parts(
                 if path_draw_highway(str((f.get("properties") or {}).get("highway") or "")) == "road_dual"
                 or (f.get("properties") or {}).get("fork_link")
             ]
-            _apply_road_strokes(road_feats + _extra, preset_id, scale, road_widths=road_widths)
+            _apply_road_strokes(road_feats + _extra, preset_id, scale, road_widths=road_widths, parking_strips=_parking_strips)
     road_zone = (
         None
         if preset_id.startswith("sprint")
