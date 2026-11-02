@@ -431,3 +431,45 @@ def test_start_lidar_download_runs_sheets_concurrently(monkeypatch):
     assert got == names
     assert [p.parent.name for p in dmp] == names
     assert [p.name for p in dmr] == ["DMR5G.laz"] * 3
+
+
+@pytest.mark.parametrize(
+    ("checked_days_ago", "stored", "remote", "expected", "head_called"),
+    [
+        (5, {"last_modified": "A", "size": 10}, None, True, False),  # ověřeno nedávno → bez HEAD
+        (40, {"last_modified": "A", "size": 10}, {"last_modified": "A", "size": 10}, True, True),
+        (40, {"last_modified": "A", "size": 10}, {"last_modified": "B", "size": 10}, False, True),
+        (40, {"last_modified": "A", "size": 10}, None, True, True),  # výpadek ČÚZK → cache
+        # Cache z doby před ověřováním: rozhoduje Last-Modified proti rozbalení LAZ.
+        (40, None, {"last_modified": "Wed, 01 Apr 2099 21:05:37 GMT", "size": 10}, False, True),
+        (40, None, {"last_modified": "Wed, 01 Apr 2020 21:05:37 GMT", "size": 10}, True, True),
+    ],
+)
+def test_sheet_laz_version_check(
+    tmp_path, monkeypatch, checked_days_ago, stored, remote, expected, head_called
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app import settings
+    from app.download_cache import read_meta, write_meta
+    from app.pipeline import fetch_openzu
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    monkeypatch.setattr(settings, "LIDAR_VERSION_CHECK_DAYS", 30)
+    folder = tmp_path / "lidar" / "sm5" / "MOST53"
+    folder.mkdir(parents=True)
+    laz = folder / "DMPOK.laz"
+    laz.write_bytes(b"x" * 2000)
+    (folder / "DMPOK.zip").write_bytes(b"z" * 2000)  # kopie z doby před 3.9.0
+    checked = (datetime.now(timezone.utc) - timedelta(days=checked_days_ago)).isoformat()
+    write_meta(folder, downloaded_at=checked, **({"DMPOK_remote": stored} if stored else {}))
+    calls = []
+    monkeypatch.setattr(fetch_openzu, "_remote_version", lambda url: calls.append(url) or remote)
+
+    got = fetch_openzu._sheet_laz_current(folder, laz, "DMPOK", "https://x/MOST53.zip", "MOST53", None)
+    assert got is expected
+    assert bool(calls) is head_called
+    if expected:
+        assert not (folder / "DMPOK.zip").exists()
+        if remote is not None:
+            assert read_meta(folder)["DMPOK_remote"] == remote

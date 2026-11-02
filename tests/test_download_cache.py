@@ -158,3 +158,34 @@ def test_sheet_crop_cache_exact_and_superset(tmp_path: Path, monkeypatch):
     # Jiny fingerprint zdroje -> miss
     src.write_bytes(b"T" * 6000)
     assert try_lookup_sheet_crop(src, outer, SHEET_CROP_VEG) is None
+
+
+def test_prune_lidar_cache_drops_least_recently_used(tmp_path: Path, monkeypatch):
+    import os
+
+    from app import settings
+    from app.download_cache import prune_lidar_cache, touch_last_used
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    units = {
+        "OLD": tmp_path / "lidar" / "sm5" / "OLD",
+        "MID": tmp_path / "lidar" / "sm5" / "MID",
+        "NEW": tmp_path / "lidar" / "sm5" / "NEW",
+        "JOB": tmp_path / "lidar" / "sm5" / "JOB",  # list běžícího jobu, i když nejstarší
+    }
+    for age, (name, folder) in zip((300, 200, 100, 400), units.items()):
+        folder.mkdir(parents=True)
+        (folder / "DMPOK.laz").write_bytes(b"x" * 1000)
+        crop = tmp_path / "lidar_sheet_crop" / name / "veg_cls5_6" / "full_DMPOK"
+        crop.mkdir(parents=True)
+        (crop / "cropped.laz").write_bytes(b"v" * 500)
+        touch_last_used(folder)
+        t = 1_000_000 - age
+        os.utime(folder / ".last_used", (t, t))
+
+    freed = prune_lidar_cache(max_bytes=3200, keep_sheets={"job"})
+    assert freed == 3000  # OLD + MID (každý 1 500 B), JOB zůstává
+    assert not units["OLD"].exists() and not units["MID"].exists()
+    assert not (tmp_path / "lidar_sheet_crop" / "OLD").exists()
+    assert units["NEW"].exists() and units["JOB"].exists()
+    assert prune_lidar_cache(max_bytes=0) == 0  # 0 = bez limitu

@@ -192,6 +192,8 @@ def lidar_crop_cache_dir(
 SHEET_CROP_GROUND = "ground_cls2"
 SHEET_CROP_VEG = "veg_cls5_6"
 SHEET_CROP_ARTIFACT = "cropped.laz"
+# Celý list vyfiltrovaný receptem (bez ořezu na výřez): ``lidar_sheet_crop/<list>/<recept>/full_<zdroj>``.
+SHEET_CROP_FULL_PREFIX = "full_"
 # Prázdný ořez může být < 1 KB; použitelný sheet crop bereme stejně jako prepare_lidar.
 MIN_LAZ_BYTES_SHEET = 1000
 
@@ -279,15 +281,21 @@ def try_lookup_sheet_crop(
         if fingerprints_equal(meta.get("src_fp"), src_fp):
             return "exact", exact_laz, bounds
 
-    # Nejmenší nadmnožina (méně bodů k dořezání).
+    # Nejmenší nadmnožina (méně bodů k dořezání); celý list (``full_*``) až nakonec.
     best: tuple[float, Path, tuple[float, float, float, float]] | None = None
     for child in recipe_root.iterdir():
         if not child.is_dir():
             continue
         laz = child / SHEET_CROP_ARTIFACT
+        meta = read_meta(child) or {}
+        if meta.get("full_sheet"):
+            # Celý vyfiltrovaný list platí, dokud se nezmění zdrojový list (ne podle stáří).
+            if _laz_usable(laz) and fingerprints_equal(meta.get("src_fp"), src_fp):
+                if best is None:
+                    best = (float("inf"), laz, bounds)
+            continue
         if not is_fresh(child, laz, age_limit, min_size=MIN_LAZ_BYTES_SHEET):
             continue
-        meta = read_meta(child) or {}
         if not fingerprints_equal(meta.get("src_fp"), src_fp):
             continue
         cached_bounds = meta.get("bounds")
@@ -347,6 +355,173 @@ def persist_sheet_crop(
             f"({dest.stat().st_size / 1e6:.1f} MB) → {cache_dir.name}"
         )
     return dest
+
+
+def full_sheet_crop_dir(src: Path, recipe: str) -> Path:
+    """Cache celého listu vyfiltrovaného podle receptu (bez ořezu na výřez).
+
+    Klíč obsahuje jméno zdroje (DMPOK / DMP1G mají stejný recept vegetace)."""
+    stem = "".join(c if c.isalnum() or c in "-_" else "_" for c in src.stem.upper())
+    return sheet_crop_recipe_dir(sheet_id_for_laz(src), recipe) / f"{SHEET_CROP_FULL_PREFIX}{stem}"
+
+
+def lookup_full_sheet_crop(src: Path, recipe: str) -> Path | None:
+    folder = full_sheet_crop_dir(src, recipe)
+    laz = folder / SHEET_CROP_ARTIFACT
+    meta = read_meta(folder) or {}
+    if meta.get("full_sheet") and _laz_usable(laz) and fingerprints_equal(
+        meta.get("src_fp"), file_fingerprint(src)
+    ):
+        return laz
+    return None
+
+
+def persist_full_sheet_crop(src: Path, built: Path, recipe: str, *, log=None) -> Path | None:
+    """Přesune hotový vyfiltrovaný celý list (``built``) do cache; vrací cestu v cache."""
+    if not _laz_usable(built):
+        return None
+    folder = full_sheet_crop_dir(src, recipe)
+    dest = folder / SHEET_CROP_ARTIFACT
+    with _SHEET_CROP_LOCK:
+        folder.mkdir(parents=True, exist_ok=True)
+        os.replace(built, dest)
+        write_meta(
+            folder,
+            kind="lidar_sheet_crop",
+            full_sheet=True,
+            recipe=recipe,
+            sheet_id=sheet_id_for_laz(src),
+            src_fp=file_fingerprint(src),
+            crop_fp=file_fingerprint(dest),
+            source_name=src.name,
+            downloaded_at=utcnow_iso(),
+        )
+    if log:
+        log(
+            f"Cache celého listu {sheet_id_for_laz(src)}/{recipe} uložena "
+            f"({dest.stat().st_size / 1e6:.1f} MB) – další výřezy v listu bez dekomprese celého listu"
+        )
+    return dest
+
+
+# --- Strop velikosti cache LiDARu (LRU) ---------------------------------------------------------
+
+LAST_USED_FILENAME = ".last_used"
+
+
+def touch_last_used(folder: Path) -> None:
+    """Poznamená použití položky cache (čas souboru ``.last_used``); chyba nevadí."""
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        marker = folder / LAST_USED_FILENAME
+        marker.touch(exist_ok=True)
+        os.utime(marker, None)
+    except OSError:
+        pass
+
+
+def _last_used(folders: list[Path]) -> float:
+    best = 0.0
+    for folder in folders:
+        for probe in (folder / LAST_USED_FILENAME, folder / META_FILENAME, folder):
+            try:
+                best = max(best, probe.stat().st_mtime)
+                break
+            except OSError:
+                continue
+    return best
+
+
+def _tree_files(folder: Path):
+    try:
+        for root, _dirs, files in os.walk(folder):
+            for name in files:
+                yield Path(root) / name
+    except OSError:
+        return
+
+
+def _unit_bytes(folders: list[Path], seen: set[tuple[int, int]]) -> int:
+    """Velikost položky; tvrdé odkazy (link_or_copy) se počítají jednou."""
+    total = 0
+    for folder in folders:
+        for path in _tree_files(folder):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            key = (st.st_dev, st.st_ino)
+            if key in seen:
+                continue
+            seen.add(key)
+            total += st.st_size
+    return total
+
+
+def lidar_cache_units() -> list[tuple[str, list[Path]]]:
+    """Položky cache LiDARu k mazání jako celek: list SM5 (stažené LAZ + jeho ořezy) a AOI ořez."""
+    root = settings.DOWNLOADS_DIR
+    sheets: dict[str, list[Path]] = {}
+    for base in (root / "lidar" / "sm5", root / "sm5", root / "lidar_sheet_crop"):
+        if not base.is_dir():
+            continue
+        for child in base.iterdir():
+            if child.is_dir():
+                sheets.setdefault(child.name.upper(), []).append(child)
+    units = [(f"sheet:{name}", dirs) for name, dirs in sorted(sheets.items())]
+    aoi_root = root / "lidar_crop"
+    if aoi_root.is_dir():
+        units.extend(
+            (f"aoi:{child.name}", [child]) for child in sorted(aoi_root.iterdir()) if child.is_dir()
+        )
+    return units
+
+
+def prune_lidar_cache(
+    *,
+    max_bytes: int | None = None,
+    keep_sheets: set[str] | frozenset[str] = frozenset(),
+    keep_dirs: tuple[Path, ...] = (),
+    log=None,
+) -> int:
+    """Nad stropem ``LIDAR_CACHE_MAX_GB`` smaže nejdéle nepoužité listy / AOI ořezy; vrací uvolněné bajty.
+
+    Listy a AOI právě běžícího jobu (``keep_sheets``, ``keep_dirs``) se nemažou."""
+    if max_bytes is None:
+        max_bytes = int(float(settings.LIDAR_CACHE_MAX_GB) * 1e9)
+    if max_bytes <= 0:
+        return 0
+    keep_sheets = {s.upper() for s in keep_sheets}
+    keep_resolved = set()
+    for d in keep_dirs:
+        try:
+            keep_resolved.add(Path(d).resolve())
+        except OSError:
+            continue
+    seen: set[tuple[int, int]] = set()
+    sized = [(name, dirs, _unit_bytes(dirs, seen), _last_used(dirs)) for name, dirs in lidar_cache_units()]
+    total = sum(size for _n, _d, size, _t in sized)
+    if total <= max_bytes:
+        return 0
+    freed = 0
+    removed: list[str] = []
+    for name, dirs, size, _t in sorted(sized, key=lambda u: u[3]):
+        if total - freed <= max_bytes:
+            break
+        if name.startswith("sheet:") and name[6:] in keep_sheets:
+            continue
+        if any(d.resolve() in keep_resolved for d in dirs):
+            continue
+        for d in dirs:
+            shutil.rmtree(d, ignore_errors=True)
+        freed += size
+        removed.append(name.split(":", 1)[1])
+    if log and removed:
+        log(
+            f"Cache LiDARu nad limitem {max_bytes / 1e9:.0f} GB ({total / 1e9:.1f} GB): smazáno "
+            f"{len(removed)} nejdéle nepoužitých položek ({freed / 1e9:.1f} GB), např. {', '.join(removed[:5])}"
+        )
+    return freed
 
 
 def shade_cache_dir(surfaces_dir: Path) -> Path:
@@ -467,6 +642,7 @@ def try_restore_lidar_crop(
     # KP merged_crop ze starší cache už nic nečte – uvolni místo.
     for name in LEGACY_MERGED_LAZ_NAMES:
         (cache_dir / name).unlink(missing_ok=True)
+    touch_last_used(cache_dir)
     if log:
         age = age_days(meta.get("downloaded_at"))
         age_s = f", stáří {age:.1f} d" if age is not None else ""
@@ -511,6 +687,7 @@ def persist_lidar_crop(
         veg_fp=file_fingerprint(veg),
         merged_fp=None,
     )
+    touch_last_used(cache_dir)
     if log:
         log(f"AOI lidar crop uložen → {cache_dir.name} ({len(copied)} souborů)")
 

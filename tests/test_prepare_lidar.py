@@ -102,11 +102,18 @@ def test_merge_dmr_dmp_crops_each_sheet_before_merge(tmp_path, monkeypatch):
     assert not (work / "merged_crop.laz").exists()
 
     translates = [c for c in cmds if len(c) > 1 and c[1] == "translate"]
-    assert len(translates) == 4
-    for c in translates:
-        assert "crop" in c
-        assert "--stream" in c
-        assert any(a.startswith("--filters.crop.bounds=") for a in c)
+    # 3.9.0: první výřez v listu nejdřív vyfiltruje celý list do cache, výřez se ořízne z něj.
+    full = [c for c in translates if "crop" not in c]
+    crops = [c for c in translates if "crop" in c]
+    assert len(full) == 4 and len(crops) == 4
+    assert all("--stream" in c for c in translates)
+    assert all(any(a.startswith("--filters.crop.bounds=") for a in c) for c in crops)
+    assert all("full_" in c[2] for c in crops)
+    # Druhý job s jiným výřezem ve stejných listech: celé listy se znovu nefiltrují.
+    cmds.clear()
+    merge_dmr_dmp(dmr, dmp, tmp_path / "lidar2", crop_bounds=(10.0, 10.0, 50.0, 50.0), scalefactor=0.4)
+    again = [c for c in cmds if len(c) > 1 and c[1] == "translate"]
+    assert len(again) == 4 and all("crop" in c and "full_" in c[2] for c in again)
 
     # Merge listů proudově (pdal pipeline --stream), ne in-memory `pdal merge`.
     assert not [c for c in cmds if len(c) > 1 and c[1] == "merge"]
@@ -209,9 +216,10 @@ def test_merge_dmr_dmp_sheet_cache_skips_pdal(tmp_path, monkeypatch):
     )
     assert out.is_file()
     translates = [c for c in cmds if len(c) > 1 and c[1] == "translate"]
-    # Jen DMR ground – DMP veg z cache bez PDAL.
-    assert len(translates) == 1
-    assert "dmr_ground_0.laz" in translates[0][3]
+    # Jen DMR ground (filtr celého listu + ořez) – DMP veg z cache bez PDAL.
+    assert len(translates) == 2
+    assert not any("DMPOK" in c[2] or "dmp_veg" in c[3] for c in translates)
+    assert "dmr_ground_0.laz" in translates[-1][3]
     assert any("přeskakuji PDAL" in m or "preskakuji PDAL" in m for m in logs) or any(
         "Cache zásah" in m or "Cache zasah" in m for m in logs
     )
