@@ -308,11 +308,9 @@ def prepare_dtm_fences(
         if log:
             log(f"DTM: výplň oplocení přeskočena ({type(exc).__name__}: {exc})")
     try:
-        if areas["olive"] or areas["public"]:
-            merged = dtm_fences.orient_fences(
-                merged, areas, bounds=bounds, setback_m=dtm_fences.FENCE_SETBACK_M
-            )
-            oriented = True
+        # bez ploch se otočí jen uzavřené ploty (čárky dovnitř)
+        merged = dtm_fences.orient_fences(merged, areas, bounds=bounds, setback_m=dtm_fences.FENCE_SETBACK_M)
+        oriented = bool(areas["olive"] or areas["public"])
     except Exception as exc:  # orientace je jen kosmetika
         if log:
             log(f"DTM: orientace plotů přeskočena ({type(exc).__name__}: {exc})")
@@ -2968,9 +2966,9 @@ def join_and_orient_osm_fences(
         olive.extend(_zabaged_olive_polygons(work_dir))
         polys = [p for g in olive for p in ([g] if g.geom_type == "Polygon" else getattr(g, "geoms", [])) if p.geom_type == "Polygon" and not p.is_empty]
         tagged = [(dtm_fences.CODE_FENCE, ln) for ln in lines]
-        if polys:
-            areas = {"olive": [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in polys]}
-            tagged = dtm_fences.orient_fences(tagged, areas)
+        # uzavřené ploty se otočí čárkami dovnitř i bez olivy kolem
+        areas = {"olive": [[list(p.exterior.coords)] + [list(r.coords) for r in p.interiors] for p in polys]}
+        tagged = dtm_fences.orient_fences(tagged, areas)
     except Exception:  # spojení a orientace jsou doplněk, ploty se kreslí i bez nich
         return feats
     fill_rings: list[list[tuple[float, float]]] = []
@@ -3091,7 +3089,7 @@ def build_dtm_fence_parts(
             tagged = [item for i, item in enumerate(tagged) if i not in dropped]
             keep_dtm = [(c, ln) for c, ln, is_osm in tagged if not is_osm]
             keep_osm = [(c, ln) for c, ln, is_osm in tagged if is_osm]
-            if keep_osm and (areas["olive"] or areas["public"]):
+            if keep_osm:  # bez ploch se otočí jen uzavřené ploty (čárky dovnitř)
                 keep_osm = dtm_fences.orient_fences(keep_osm, areas)
             lines = keep_dtm + keep_osm
             osm_keys = {_line_key(ln) for _c, ln in keep_osm}
@@ -3148,14 +3146,14 @@ def build_dtm_fence_parts(
                 group = [ln for c, ln in lines + connectors if c == code]
                 joined.extend((code, ln) for ln in dtm_fences.merge_lines(group))
             lines = joined
-            if not olive_geom.is_empty or (not sprint and (areas["olive"] or areas["public"])):
-                polys = [olive_geom] if olive_geom.geom_type == "Polygon" else list(getattr(olive_geom, "geoms", []))
-                olive_polys = [
-                    [list(p.exterior.coords)] + [list(r.coords) for r in p.interiors]
-                    for p in polys
-                    if p.geom_type == "Polygon" and not p.is_empty
-                ]
-                lines = dtm_fences.orient_fences(lines, {**areas, "olive": list(areas["olive"]) + olive_polys})
+            # i bez olivy: uzavřené ploty se otočí čárkami dovnitř
+            polys = [olive_geom] if olive_geom.geom_type == "Polygon" else list(getattr(olive_geom, "geoms", []))
+            olive_polys = [
+                [list(p.exterior.coords)] + [list(r.coords) for r in p.interiors]
+                for p in polys
+                if p.geom_type == "Polygon" and not p.is_empty
+            ]
+            lines = dtm_fences.orient_fences(lines, {**areas, "olive": list(areas["olive"]) + olive_polys})
         if fill_olive and not sprint and connectors:
             # Les a MTBO: oplocení k výplni olivou se hledá znovu až po dedupu a napojení mezer – spojky uzavřou
             # další parcely. Ploty před ořezem o budovy, ať obrys budovy oplocení neotevře; oliva i kreslená.
