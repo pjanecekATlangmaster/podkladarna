@@ -476,3 +476,21 @@ def test_sparse_residential_drawn_when_pieces_verified(tmp_path: Path, monkeypat
     verdict["paved"] = False
     assert build_residual_paved_parts(tmp_path, **kw) == []
     assert (tmp_path / _RESIDUAL_BANDS_DIR / f"{RESIDUAL_SPARSE_STEM}.shp").is_file()
+
+
+def test_residential_clipped_to_map_frame():
+    """Residential přesahující mapu se počítá jen uvnitř rámu (mimo něj chybí CHM)."""
+    from shapely import box, from_wkb
+
+    from app.pipeline.fetch_openzu import crop_bounds_5514
+    from app.pipeline.residual_paved import _clip_subjects_to_map
+
+    bbox = (14.56, 50.10, 14.562, 50.101)
+    frame = box(*crop_bounds_5514(*bbox, buffer_m=0.0))
+    x0, y0, x1, y1 = frame.bounds
+    inside_half = box(x0 - (x1 - x0), y0, (x0 + x1) / 2, y1)  # půlka v rámu, zbytek mimo
+    outside = box(x1 + 100, y0, x1 + 200, y1)
+    out = _clip_subjects_to_map([inside_half.wkb, outside.wkb], bbox)
+    assert len(out) == 1
+    assert abs(from_wkb(out[0]).area - frame.area / 2) < frame.area * 0.01
+    assert _clip_subjects_to_map([outside.wkb], None) == [outside.wkb]
