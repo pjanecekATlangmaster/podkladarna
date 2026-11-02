@@ -331,30 +331,33 @@ def build_residual_paved_parts(
 
 
 def _clip_subjects_to_map(subjects: list[bytes], bbox_wgs84) -> list[bytes]:
-    """Residential oříznutá rámem mapy (výřez jobu). Mimo rám chybí výšky (CHM) a mezery by se kreslily zbytečně."""
+    """Residential oříznutá rámem mapy (výřez jobu) a sloučená (překryv = jedna mezera). Mimo rám chybí výšky (CHM)."""
     if bbox_wgs84 is None or not subjects:
         return subjects
     try:
-        from shapely import box, from_wkb, to_wkb
+        from shapely import box, from_wkb, to_wkb, unary_union
 
         from app.pipeline.fetch_openzu import crop_bounds_5514
 
         frame = box(*crop_bounds_5514(*tuple(bbox_wgs84), buffer_m=0.0))
     except Exception:  # bez rámu se počítá jako dřív
         return subjects
-    out: list[bytes] = []
+    geoms = []
     for raw in subjects:
         try:
             g = from_wkb(raw)
-            if not g.intersects(frame):
-                continue
-            g = g.intersection(frame)
+            if g.intersects(frame):
+                geoms.append(g.buffer(0).intersection(frame))
         except Exception:
-            out.append(raw)
             continue
-        polys = [p for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and p.area >= 1.0]
-        out.extend(bytes(to_wkb(p, hex=False)) for p in polys)
-    return out
+    if not geoms:
+        return []
+    try:
+        merged = unary_union(geoms)  # překrývající se residential: mezera jen jednou
+    except Exception:
+        return [bytes(to_wkb(g, hex=False)) for g in geoms if not g.is_empty]
+    polys = [p for p in getattr(merged, "geoms", [merged]) if p.geom_type == "Polygon" and p.area >= 1.0]
+    return [bytes(to_wkb(p, hex=False)) for p in polys]
 
 
 def write_residual_band_shapefiles(

@@ -494,3 +494,26 @@ def test_residential_clipped_to_map_frame():
     assert len(out) == 1
     assert abs(from_wkb(out[0]).area - frame.area / 2) < frame.area * 0.01
     assert _clip_subjects_to_map([outside.wkb], None) == [outside.wkb]
+
+
+def test_overlapping_residential_merged_and_black_border_ignored():
+    """Překrývající se residential dají mezeru jednou; černý okraj ortofota se nepočítá jako „nezelené“."""
+    import numpy as np
+    from shapely import box, from_wkb
+
+    from app.pipeline.fetch_openzu import crop_bounds_5514
+    from app.pipeline.residual_paved import _clip_subjects_to_map
+    from app.pipeline.residual_verify import Evidence, Raster, piece_shares
+
+    bbox = (14.56, 50.10, 14.562, 50.101)
+    x0, y0, x1, y1 = crop_bounds_5514(*bbox, buffer_m=0.0)
+    a = box(x0 + 10, y0 + 10, x0 + 60, y0 + 60)
+    out = _clip_subjects_to_map([a.wkb, a.wkb], bbox)
+    assert len(out) == 1 and abs(from_wkb(out[0]).area - a.area) < 1.0
+
+    rgb = np.zeros((100, 100, 3), dtype=np.uint8)
+    rgb[:, 50:] = (70, 130, 50)  # vpravo trávník, vlevo černý okraj bez dat
+    ev = Evidence(ortho=Raster(rgb, 0.0, 50.0, 0.5, 0.5))
+    green, _ = piece_shares(ev, box(5, 5, 45, 45))
+    assert green == pytest.approx(1.0)
+    assert piece_shares(ev, box(1, 1, 20, 20))[0] is None  # celé bez dat → nerozhoduje
