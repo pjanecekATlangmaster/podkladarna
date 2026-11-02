@@ -662,7 +662,7 @@ def test_load_building_points_count_counts_and_caches(tmp_path, monkeypatch):
     assert df.load_building_points_count(z) == 7
 
 
-def test_sprint_drops_fences_inside_olive_keeps_edge():
+def test_drops_fences_inside_olive_keeps_edge():
     from shapely.geometry import Polygon
 
     import app.pipeline.dtm_import as di
@@ -674,6 +674,13 @@ def test_sprint_drops_fences_inside_olive_keeps_edge():
     far = ("518", [(0.0, 100.0), (40.0, 100.0)])  # mimo olivu → zůstane
     assert di.drop_fences_inside_olive([on_edge, inside, half, far], olive) == [on_edge, half, far]
     assert di.drop_fences_inside_olive([inside], Polygon()) == [inside]
+    # les a MTBO: plot podél kreslené cesty uvnitř olivy zůstává (pás cesty platí za okraj)
+    road_band = Polygon([(-50, 13), (90, 13), (90, 17), (-50, 17)])
+    assert di.drop_fences_inside_olive([inside], olive, keep_zone=road_band) == [inside]
+    # les a MTBO (cut): z výběžku od okraje dovnitř bloku zbude jen kus na okraji – pod 3 m nic
+    stub = ("518", [(20.0, 0.2), (20.0, 6.0)])  # 3,9 m z 5,8 m uvnitř (pod 80 %) → podílem zůstane
+    assert di.drop_fences_inside_olive([stub], olive) == [stub]
+    assert di.drop_fences_inside_olive([stub, on_edge], olive, cut=True) == [on_edge]
 
 
 def test_sprint_cuts_fences_across_dtm_sidewalk():
