@@ -1956,9 +1956,21 @@ def bridge_entrance_edge_lines(work_dir: Path, path_source: str = "mixed") -> li
     if foot is None:
         return edges
     sw_polys, road_polys = classified_polygons(work_dir, path_source)
-    return dtm_bridges.entrance_edges(
-        foot, dtm_sidewalks.dtm_union(sw_polys), dtm_sidewalks.dtm_union(road_polys)
-    ) + edges
+    edges = dtm_bridges.entrance_edges(foot, dtm_sidewalks.dtm_union(sw_polys), dtm_sidewalks.dtm_union(road_polys)) + edges
+    # průchody podle čar cest pod mostem, které plochy z DTM nezachytily (cesta podél řeky, silnice pod ostrým úhlem)
+    return edges + dtm_bridges.line_entrance_edges(foot, _lines_under_bridges(work_dir), edges)
+
+
+def _lines_under_bridges(work_dir: Path) -> list[tuple[object, float]]:
+    """Čáry cest na úrovni 0 (OSM, bez mostů a tunelů) se šířkou kresby (m) pro průchody pod mosty z DTM."""
+    from app.pipeline import osm_bridge_decks
+    from app.pipeline import osm_paths as op
+
+    return [
+        (line, op.drawn_width_m(hw))
+        for line, hw in osm_bridge_decks._read_lines(work_dir)
+        if not op.is_bridge_highway(hw) and not op.is_tunnel_highway(hw)
+    ]
 
 
 def _bridge_lower_surfaces(work_dir: Path, sw_polys, road_polys) -> list:
@@ -2017,14 +2029,15 @@ def build_dtm_bridge_parts(
         clip_bounds=clip_bounds,
     )
     parts: list[OomObjectPart] = []
-    # Mosty nad spodní zpevněnou plochou / vodou kreslí celé 512.311 / 512.302 (a obrys 501.100), ne mostovka 501.0 / 501.20.
+    # Části mostů nad spodní zpevněnou plochou kreslí celé 512.311 (a obrys 501.100), ne mostovka 501.0 / 501.20.
+    # Nad vodou se křížení úrovní nekreslí (pod mostem se neběží): mostovka tam má barvu svého povrchu.
     foot0 = dtm_bridges.footprint(levels)
     sw_polys0, road_polys0 = classified_polygons(work_dir, path_source)
     paved_parts0 = _bridge_lower_surfaces(work_dir, sw_polys0, road_polys0)
     from shapely.ops import unary_union as _uu0
 
     lower0 = dtm_bridges.lower_level_areas(foot0, _uu0(paved_parts0) if paved_parts0 else None, _osm_water_geometry(work_dir))
-    covered = _uu0([g for g in (lower0.get("paved"), lower0.get("water")) if g is not None]) if (lower0.get("paved") is not None or lower0.get("water") is not None) else None
+    covered = lower0.get("paved")
     for level in sorted(levels):
         for key, code, label in (("light", "501.0", "chodník 501.0"), ("heavy", ROAD_CODE, "silnice 501.20")):
             geom = levels[level][key]
@@ -2046,7 +2059,7 @@ def build_dtm_bridge_parts(
                     **kw,
                 )
             )
-    # Křížení úrovní: spodní zpevněná plocha / voda pod mostem symbolem 512.311 / 512.302 (bílý základ + barva spodní plochy).
+    # Křížení úrovní: spodní zpevněná plocha pod mostem symbolem 512.311 (bílý základ + barva spodní plochy).
     if covered is not None:
         outline_lines = [g for lv in levels.values() if lv["all"] is not None for g in [lv["all"].intersection(covered)] if not g.is_empty]
         if outline_lines:
@@ -2058,11 +2071,10 @@ def build_dtm_bridge_parts(
                     **kw,
                 )
             )
-    foot, paved_parts = foot0, paved_parts0
-    lower = dtm_bridges.lower_level_areas(foot, _uu0(paved_parts) if paved_parts else None, _osm_water_geometry(work_dir))
-    for key, code, label in (("paved", dtm_bridges.LOWER_PAVED_CODE, "zpevněná plocha 512.311"), ("water", dtm_bridges.LOWER_WATER_CODE, "voda 512.302")):
-        if lower.get(key) is not None:
-            parts.extend(_geometry_part(lower[key], name=f"Mosty (DTM) – nižší úroveň, {label}", code=code, **kw))
+    if covered is not None:
+        parts.extend(
+            _geometry_part(covered, name="Mosty (DTM) – nižší úroveň, zpevněná plocha 512.311", code=dtm_bridges.LOWER_PAVED_CODE, **kw)
+        )
     edge_idx = symbol_index_for_code(preset_id, scale, "512.100")
     if edge_idx is not None:
         objects: list[str] = []
