@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.12.2"
+APP_VERSION = "3.12.3"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -89,6 +89,8 @@ JOB_TIMEOUT_MINUTES = int(os.environ.get("JOB_TIMEOUT_MINUTES", "90"))
 SPRINT_MAX_BBOX_AREA_KM2 = float(os.environ.get("SPRINT_MAX_BBOX_AREA_KM2", "9"))
 # Jak dlouho nejvýš job čeká na sdílený slot (druhá instance má vlastní limit jobu).
 SHARED_SLOT_WAIT_MINUTES = int(os.environ.get("SHARED_SLOT_WAIT_MINUTES", str(JOB_TIMEOUT_MINUTES + 15)))
+# Od kdy formulář varuje, že odhad doby běhu jobu se blíží limitu (5/6 limitu, pro 90 min → 75 min).
+ESTIMATE_WARN_MINUTES = JOB_TIMEOUT_MINUTES * 5 // 6
 if os.environ.get("JOB_TIMEOUT_SECONDS"):
     JOB_TIMEOUT_SECONDS = max(1, int(os.environ["JOB_TIMEOUT_SECONDS"]))
 else:

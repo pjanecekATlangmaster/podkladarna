@@ -74,6 +74,8 @@ from app.settings import (
     CLEANUP_INTERVAL_HOURS,
     DEFAULT_OPTIONS,
     DOWNLOADS_DIR,
+    ESTIMATE_WARN_MINUTES,
+    JOB_TIMEOUT_MINUTES,
     JOBS_DIR,
     MAX_QUEUE_SIZE,
     APP_VERSION,
@@ -367,6 +369,8 @@ def api_sheets(bbox: str):
         "estimate_minutes_with_refs": est_refs,
         "estimate_georef_minutes": est_georef,
         "estimate_base_minutes": est_base,
+        "job_timeout_minutes": JOB_TIMEOUT_MINUTES,
+        "estimate_warn_minutes": ESTIMATE_WARN_MINUTES,
         "estimate_map_minutes": est_maps,
         "estimate_note": estimate_note(names) if can_estimate else None,
         "label": (
