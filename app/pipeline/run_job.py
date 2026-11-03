@@ -783,6 +783,15 @@ def run_job_pipeline(
                 "VAROVÁNÍ: DMP 1G místo DMP OK u alespoň jednoho listu "
                 f"(režim={lidar_sources.get('dmp_mode')}) – vegetace je méně přesná."
             )
+        if lidar_sources.get("dmp_leafless"):
+            flown = ", ".join(
+                f"{x.get('mapnom')} {x.get('acquired_on')}"
+                for x in lidar_sources.get("dmp_leafless_sheets") or []
+            )
+            log(
+                f"VAROVÁNÍ: DMP OK nalétaný v bezlistém období ({flown}) – "
+                "v listnatém lese chybí výška stromů, 403 a porosty tam mohou být chybné."
+            )
 
     zabaged_clean = work_dir / "zabaged_clean.zip"
     has_zabaged = zabaged_src is not None and zabaged_src.is_file()

@@ -497,6 +497,7 @@ def oom_metadata(
         meta["lidar_sources"] = lidar_sources
         meta["dmp_mode"] = lidar_sources.get("dmp_mode")
         meta["dmp_degraded"] = bool(lidar_sources.get("dmp_degraded"))
+        meta["dmp_leafless"] = bool(lidar_sources.get("dmp_leafless"))
     return meta
 
 

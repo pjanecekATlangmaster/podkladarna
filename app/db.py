@@ -596,5 +596,6 @@ def _row_to_job(
         job["source_meta"] = source_meta
         job["dmp_mode"] = source_meta.get("dmp_mode")
         job["dmp_degraded"] = bool(source_meta.get("dmp_degraded"))
+        job["dmp_leafless"] = bool(source_meta.get("dmp_leafless"))
         job["lidar_cache_max_age_days"] = LIDAR_CACHE_MAX_AGE_DAYS
     return job
