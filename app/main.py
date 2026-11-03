@@ -435,7 +435,12 @@ def api_get_job(job_id: str):
     stats = build_stats.read(JOBS_DIR / job_id)
     if stats:
         job["build_stats"] = stats
-    return _public_job(job)
+    out = _public_job(job)
+    # Pozice ve frontě i u privátního jobu (není ve veřejném seznamu, „Moje mapy“ ji čtou odtud).
+    pos = worker.queue_position(job_id)
+    if pos is not None:
+        out["queue_position"] = pos
+    return out
 
 
 @app.get("/api/jobs/{job_id}/template")

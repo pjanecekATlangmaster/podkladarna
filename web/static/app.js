@@ -537,6 +537,44 @@ async function verifySavedJobs(publicJobs) {
   }
 }
 
+/** Poslední načtený stav privátních jobů (id → job); doběhlé se znovu nenačítají. */
+const myPrivateJobCache = new Map();
+
+/**
+ * „Moje mapy“: záznamy, které nejsou ve veřejném seznamu (privátní), načte z /api/jobs/{id},
+ * aby měly živý průběh. 404/410 záznam odebere, při síťové chybě platí poslední známý stav.
+ */
+async function loadMyPrivateJobs(publicJobs) {
+  const known = new Set(publicJobs.map((j) => j.id));
+  const missing = myJobs.filter((r) => !known.has(r.id));
+  const gone = [];
+  const jobs = await Promise.all(
+    missing.map(async (rec) => {
+      const cached = myPrivateJobCache.get(rec.id);
+      if (cached && jobIsFinished(cached.status)) return cached;
+      try {
+        const res = await fetch(`/api/jobs/${encodeURIComponent(rec.id)}`);
+        if (res.status === 404 || res.status === 410) {
+          gone.push(rec.id);
+          myPrivateJobCache.delete(rec.id);
+          return null;
+        }
+        if (!res.ok) throw new Error(String(res.status));
+        const job = await res.json();
+        myPrivateJobCache.set(rec.id, job);
+        return job;
+      } catch (_) {
+        return cached || savedRecordAsJob(rec);
+      }
+    })
+  );
+  if (gone.length) {
+    myJobs = myJobs.filter((r) => !gone.includes(r.id));
+    saveMyJobs();
+  }
+  return jobs.filter(Boolean);
+}
+
 // --- Lidská věta k chybě jobu ---
 /** Stav v detailu: přepiš jen při změně, ať aria-live neohlašuje každý polling. */
 function setDetailStatus(text) {
@@ -699,7 +737,11 @@ function jobItemHeadHtml(job) {
     const dur = formatDuration(job.duration_s);
     if (dur) timing = ` · ${dur}`;
   }
-  const privateLabel = jobIsPrivate(job) ? " · privátní session" : "";
+  const privateLabel = jobIsPrivate(job)
+    ? jobIsFinished(job.status)
+      ? " · privátní, ZIP přijde e-mailem"
+      : " · privátní session"
+    : "";
   if (job._saved) {
     return `
     <strong>${escapeHtml(job.name)}</strong> <span class="status-tag status-tag-saved">${job._private ? "soukromá" : "uložená"}</span>
@@ -849,7 +891,11 @@ async function loadJobs() {
   await verifySavedJobs(data.jobs);
   syncJobsTabs();
 
-  let selected = data.jobs.find((j) => j.id === selectedJobId);
+  // „Moje mapy“: privátní joby (mimo veřejný seznam) s živým průběhem.
+  const myPrivate = jobsTab === "mine" ? await loadMyPrivateJobs(data.jobs) : [];
+  let selected =
+    data.jobs.find((j) => j.id === selectedJobId) ||
+    myPrivate.find((j) => j.id === selectedJobId && !j._saved);
   // Privátní job není ve veřejném seznamu – drž detail přes /api/jobs/{id}.
   if (!selected && selectedJobId) {
     try {
@@ -862,12 +908,10 @@ async function loadJobs() {
   // „Moje mapy“: jen mé joby z veřejného seznamu + uložené záznamy, které v něm nejsou (soukromé).
   let listJobs = data.jobs;
   if (jobsTab === "mine") {
-    const known = new Set(data.jobs.map((j) => j.id));
-    const saved = myJobs.filter((r) => !known.has(r.id)).map(savedRecordAsJob);
-    listJobs = [...data.jobs.filter((j) => isMyJob(j.id)), ...saved];
+    listJobs = [...data.jobs.filter((j) => isMyJob(j.id)), ...myPrivate];
   }
   let { live, finished } = splitJobs(listJobs);
-  if (finished.some((j) => j._saved)) {
+  if (finished.some((j) => j._saved || !data.jobs.some((p) => p.id === j.id))) {
     finished.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   }
   const doneEmptyEl = document.getElementById("jobs-finished-empty");
@@ -879,8 +923,10 @@ async function loadJobs() {
   }
   // Privátní joby do veřejného panelu neinjektovat (bez jména/logů).
   // Místo toho anonymní placeholder „Běží privátní job“ + stopky.
-  let privateLive = data.private_live || null;
+  // V „Moje mapy“ se placeholder nekreslí: mé joby jsou vidět jako skutečné položky.
+  let privateLive = jobsTab === "mine" ? null : data.private_live || null;
   if (
+    jobsTab !== "mine" &&
     !privateLive &&
     selected &&
     jobIsPrivate(selected) &&
