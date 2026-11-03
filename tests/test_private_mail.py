@@ -613,6 +613,37 @@ def test_notify_private_job_mail_includes_preview_and_georef(tmp_path, monkeypat
     assert atts[0].read_bytes() == b"\xff\xd8\xff"
 
 
+def test_api_private_job_detail_has_queue_position(client, monkeypatch):
+    """Privátní job ve frontě: detail nese queue_position, veřejný seznam ho dál nezná."""
+    import app.main as main
+
+    monkeypatch.setattr(
+        main,
+        "query_sm5_sheets",
+        lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}],
+    )
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
+    monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 2)
+
+    r = client.post(
+        "/api/jobs",
+        data={
+            "name": "priv-queue",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "private": "1",
+            "notify_email": "petr@example.com",
+        },
+    )
+    assert r.status_code == 200
+    job_id = r.json()["id"]
+
+    assert client.get(f"/api/jobs/{job_id}").json()["queue_position"] == 2
+    listed = client.get("/api/jobs").json()["jobs"]
+    assert all(j["id"] != job_id for j in listed)
+
+
 def test_ui_private_session_log_hooks():
     """UI: detail/log u privátního jobu + anonymní placeholder ve frontě."""
     from pathlib import Path
@@ -627,6 +658,7 @@ def test_ui_private_session_log_hooks():
     assert "showFormNotice" in app_js
     assert "privátní session" in app_js
     assert "syncPrivateLivePlaceholder" in app_js
+    assert "loadMyPrivateJobs" in app_js
     assert "Běží privátní job" in app_js
     assert "private_live" in app_js
     assert "!jobIsPrivate(selected) && selected.has_preview" in app_js
