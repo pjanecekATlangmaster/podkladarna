@@ -1174,6 +1174,26 @@ function jobSourcesInfo(job) {
         " Doporučení: vygenerujte mapu znovu za pár dní."
     );
   }
+  const leafless = !!(job.dmp_leafless || (meta && meta.dmp_leafless));
+  const flownDates = [];
+  if (leafless) {
+    level = "warn";
+    const flown = (meta && meta.dmp_leafless_sheets) || [];
+    for (const sh of flown) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(sh.acquired_on || "");
+      if (!m) continue;
+      const txt = `${Number(m[3])}. ${Number(m[2])}. ${m[1]}`;
+      if (!flownDates.includes(txt)) flownDates.push(txt);
+    }
+    const partial = flown.length > 0 && flown.length < sheets.length;
+    lines.unshift(
+      `Výška stromů je pro ${partial ? "část území" : "toto území"} ze snímkování` +
+        " na jaře bez listí" +
+        (flownDates.length ? ` (${flownDates.join(", ")})` : "") +
+        ". V listnatém lese proto mohou být chybně louky a paseky;" +
+        " porosty tam ověřte v terénu nebo na ortofotu."
+    );
+  }
   if (maxAge != null && (level === "warn" || maxAge > limit)) {
     lines.push(
       `Data byla stažena ${daysAgoText(maxAge)}.` +
@@ -1192,6 +1212,7 @@ function jobSourcesInfo(job) {
 
   const detail = [dmpLabel];
   if (degraded) detail.push("degradace 1G viditelná");
+  if (flownDates.length) detail.push(`nálet DMP OK: ${flownDates.join(", ")}`);
   if (maxAge != null) detail.push(`cache ~${Math.round(maxAge)} d (obnova po ${limit} d)`);
   if (sheets.length) {
     detail.push(`listy SM5: ${sheets.map((s) => s.mapnom).filter(Boolean).join(", ")}`);
