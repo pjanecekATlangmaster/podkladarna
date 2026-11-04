@@ -55,6 +55,7 @@ from app.pipeline.ruian_buildings import (
     ZABAGED_OMIT_BUILDING_LAYERS,
     write_ruian_buildings_shapefile,
 )
+from app.pipeline import dtm_summary
 from app.pipeline.source_meta import (
     INDICATIVE_LABEL_CS,
     citation_line,
@@ -535,6 +536,9 @@ def oom_readme(meta: dict) -> str:
     epochs_block = format_source_epochs_readme(meta.get("lidar_sources"))
     if epochs_block:
         epochs_block = "\n" + epochs_block + "\n"
+    dtm_block = dtm_summary.readme_block(meta.get("dtm"))
+    if dtm_block:
+        epochs_block += "\n" + dtm_block + "\n"
     ref_block = ""
     if refs:
         ref_block = (

@@ -592,6 +592,11 @@ def _row_to_job(
         job["expires_at"] = expires.isoformat()
     if include_token and token:
         job["download_token"] = token
+    from app.pipeline.dtm_summary import read_summary
+
+    dtm_summary = read_summary(job_dir)
+    if dtm_summary:
+        job["dtm_summary"] = dtm_summary
     if source_meta:
         job["source_meta"] = source_meta
         job["dmp_mode"] = source_meta.get("dmp_mode")
