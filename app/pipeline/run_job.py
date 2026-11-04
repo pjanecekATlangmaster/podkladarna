@@ -41,6 +41,7 @@ from app.pipeline.job_options import (
     resolve_contour_smooth,
 )
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
+from app.pipeline import dtm_summary
 from app.pipeline.dtm_import import clear_job_memo, start_dtm_prefetch
 from app.pipeline.residual_paved import start_residual_osm_prefetch
 from app.pipeline.osm_paths import (
@@ -553,17 +554,26 @@ def run_job_pipeline(
         # DTM kraje (zaměřené ploty, budovy, chodníky, silnice …; sprint, les i MTBO): příprava na pozadí,
         # výsledek se vezme při sestavení mapy (každý preset si z něj bere, co dává smysl).
         try:
-            dtm_used = any(
-                resolve_use_dtm(options, disc_preset)
-                for _tag, disc_preset, _scale in resolve_discipline_presets(
+            dtm_maps = {
+                tag: bool(resolve_use_dtm(options, disc_preset) and options.get("dtm_fences", True))
+                for tag, disc_preset, _scale in resolve_discipline_presets(
                     preset_id,
                     load_presets(),
                     map_scale=options.get("map_scale"),
                     contour_interval=options.get("contour_interval"),
                     map_types=resolve_map_types(options),
                 )
-            )
+            }
+            dtm_used = any(dtm_maps.values())
             dtm_on = bool(options.get("dtm_fences", True) and dtm_used)
+            dtm_summary_data = dtm_summary.initial_summary(
+                dtm_maps,
+                dtm_on,
+                # „automaticky“ = les/MTBO bez výslovné volby (GUI auto nic neposílá) a DTM nevypnuté
+                auto=options.get("dtm_forest") is None and options.get("dtm_fences", True) is not False,
+            )
+            dtm_summary.write_summary(work_dir, dtm_summary_data)
+            options = {**options, "_dtm_summary": dtm_summary_data}
             build_stats.set_info(dtm=dtm_on)
             # DTM nemá vlastní krok v plánu (běží souběžně na pozadí), proto ho log zmíní hned pod plánem.
             raw_log(
@@ -1056,6 +1066,8 @@ def _package_output(
                 lidar_sources=options.get("_lidar_sources"),
             )
             meta["output_georef"] = output_georef_enabled(options)
+            if options.get("_dtm_summary"):
+                meta["dtm"] = options["_dtm_summary"]
             return meta
 
         # Les a MTBO potřebují z podkladů jen seznam šablon .omap → sestavení na stahování (ortofoto ~10 min)
@@ -1148,6 +1160,15 @@ def _package_output(
                 if not dtm_prefetch.future.done():
                     log("Čekám na přípravu DTM (ploty) z pozadí…")
                 dtm_prefetch.result()  # chyby řeší vlákno samo (job pokračuje bez DTM)
+                if options.get("_dtm_summary"):
+                    dtm_final = dtm_summary.finalize_summary(
+                        options["_dtm_summary"], kp_cwd, failed=dtm_prefetch.failed
+                    )
+                    options = {**options, "_dtm_summary": dtm_final}
+                    meta["dtm"] = dtm_final
+                    dtm_summary.write_summary(kp_cwd, dtm_final)
+                    for line in dtm_summary.log_lines(dtm_final):
+                        log(line)
                 build_stats.note_background("dtm", wait_seconds=time.monotonic() - t_dtm_wait)
             if vector_prefetch is not None:
                 vector_prefetch.streets(log)  # sprint: parcely ulic už v cache jobu

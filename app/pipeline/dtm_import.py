@@ -228,6 +228,7 @@ class DtmPrefetch:
     def __init__(self, future: Future, executor: ThreadPoolExecutor) -> None:
         self.future = future
         self._executor = executor
+        self.failed = False  # příprava skončila výjimkou (nastaví ``start_dtm_prefetch``)
 
     def result(self) -> Path | None:
         try:
@@ -245,8 +246,9 @@ def prepare_dtm_fences(
 ) -> Path | None:
     """Ploty z DTM pro výřez → ``work_dir/dtm/fences.json``; None, když data nejsou."""
     west, south, east, north = bbox_wgs84
+    units: list = []
     packages = dtm_sources.find_packages_for_bbox(
-        bbox_wgs84, sets=(dtm_sources.SET_KR, dtm_sources.SET_OPL), force=force, log=log
+        bbox_wgs84, sets=(dtm_sources.SET_KR, dtm_sources.SET_OPL), force=force, log=log, units_out=units
     )
     if not packages:
         if log:
@@ -355,6 +357,7 @@ def prepare_dtm_fences(
                 "dubious": dubious_lines,
                 "inner_removed": inner_dropped,
                 "incomplete_opl": sorted(f"{kind}_{code}" for kind, code in incomplete),
+                "units": _summary_units(units, packages),
                 "opl_files": [str(files[p.filename]) for p in packages if p.set_name == dtm_sources.SET_OPL],
                 "fences": [{"code": code, "coords": [list(p) for p in line]} for code, line in merged],
                 "fills": [[list(p) for p in ring] for ring in fill_rings],
@@ -365,6 +368,17 @@ def prepare_dtm_fences(
     if log:
         log(f"DTM ploty: {len(all_fences)} úseků → {len(merged)} napojených čar ({len(packages)} balíků)")
     return dest
+
+
+def _summary_units(units: list, packages: list) -> list[dict]:
+    """Jednotky výřezu pro souhrn DTM; když jsou balíky po MOMC, obce (OBEC) se vynechají."""
+    have = {(p.unit_kind, p.unit_code) for p in packages}
+    have_momc = any(kind == "MOMC" for kind, _code in have)
+    return [
+        {"kind": u.kind, "code": u.code, "name": u.name, "has_data": (u.kind, u.code) in have}
+        for u in units
+        if not (u.kind == "OBEC" and have_momc)
+    ]
 
 
 def sidewalks_path(work_dir: Path) -> Path:
@@ -2463,6 +2477,8 @@ def start_dtm_prefetch(
 ) -> DtmPrefetch:
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dtm-dl")
 
+    prefetch: DtmPrefetch | None = None
+
     def _run() -> Path | None:
         t0 = time.monotonic()
         try:
@@ -2471,13 +2487,16 @@ def start_dtm_prefetch(
             if log:
                 log(f"DTM: ploty přeskočeny ({type(exc).__name__}: {exc})")
             build_stats.note_background("dtm", failed=True)
+            if prefetch is not None:
+                prefetch.failed = True
             return None
         finally:
             build_stats.note_background("dtm", seconds=time.monotonic() - t0)
 
     if log:
         log("Start přípravy DTM (ploty) na pozadí.")
-    return DtmPrefetch(executor.submit(_run), executor)
+    prefetch = DtmPrefetch(executor.submit(_run), executor)
+    return prefetch
 
 
 def _load_fence_data(

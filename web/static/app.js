@@ -1142,6 +1142,20 @@ function daysAgoText(days) {
  * detail je původní technický popis (rozbalovací blok pro diagnostiku).
  */
 function jobSourcesInfo(job) {
+  const lidar = lidarSourcesInfo(job);
+  const dtm = job.dtm_summary;
+  if (!dtm || !Array.isArray(dtm.lines) || !dtm.lines.length) return lidar;
+  const dtmWarn = dtm.level === "warn";
+  const dtmDetail = `DTM: ${dtm.state || "?"}`;
+  if (!lidar) return { level: dtmWarn ? "warn" : "ok", lines: dtm.lines, detail: dtmDetail };
+  return {
+    level: dtmWarn ? "warn" : lidar.level,
+    lines: [...lidar.lines, ...dtm.lines],
+    detail: `${lidar.detail} · ${dtmDetail}`,
+  };
+}
+
+function lidarSourcesInfo(job) {
   const meta = job.source_meta;
   if (!meta && !job.dmp_mode) return null;
   const mode = job.dmp_mode || (meta && meta.dmp_mode);
@@ -1358,7 +1372,16 @@ function renderJobStats(job) {
   }
   if (stats.area_km2) facts.push(["Území", `${Number(stats.area_km2).toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} km²`]);
   if (stats.lidar_sheets) facts.push(["Listy laserového skenování", String(stats.lidar_sheets)]);
-  if (stats.dtm != null) facts.push(["Kresba z DTM", stats.dtm ? "ano" : "ne"]);
+  if (stats.dtm != null) {
+    const dtmMaps = job.dtm_summary && job.dtm_summary.maps
+      ? Object.keys(job.dtm_summary.maps).filter((t) => job.dtm_summary.maps[t])
+      : [];
+    const dtmNames = { sprint: "sprint", les: "les", mtbo: "MTBO" };
+    facts.push([
+      "Kresba z DTM",
+      stats.dtm ? `ano${dtmMaps.length ? ` (${dtmMaps.map((t) => dtmNames[t] || t).join(", ")})` : ""}` : "ne",
+    ]);
+  }
   if (stats.output_zip_bytes) facts.push(["Velikost ZIPu", formatBytes(stats.output_zip_bytes)]);
   if (stats.app_version) facts.push(["Verze Podkladárny", stats.app_version]);
 

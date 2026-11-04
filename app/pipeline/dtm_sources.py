@@ -338,9 +338,15 @@ def find_packages_for_bbox(
     fmt: str = "jvf",
     force: bool = False,
     log=None,
+    units_out: list | None = None,
 ) -> list[DtmPackage]:
-    """Aktuální balíky DTM (ZPS_OPL + ZPS_KR) pro výřez; prázdné, když data nejsou."""
+    """Aktuální balíky DTM (ZPS_OPL + ZPS_KR) pro výřez; prázdné, když data nejsou.
+
+    ``units_out`` (volitelný seznam) se doplní jednotkami výřezu (obce / MOMC) pro souhrn DTM.
+    """
     units = units_for_bbox(bbox_wgs84)
+    if units_out is not None:
+        units_out.extend(units)
     if not units:
         return []
     regions = fetch_regions()
