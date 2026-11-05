@@ -503,7 +503,8 @@ def oom_metadata(
     return meta
 
 
-def oom_readme(meta: dict) -> str:
+def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
+    """``sentinel_info``: popis snímků Sentinel-2 (datum, soubory, citace) do části o podkladech."""
     def _c(code: str) -> str:
         """Kód symbolu v sadě jobu (staré sady: beze změny)."""
         pid = meta.get("preset_id")
@@ -541,13 +542,14 @@ def oom_readme(meta: dict) -> str:
     if dtm_block:
         epochs_block += "\n" + dtm_block + "\n"
     ref_block = ""
-    if refs:
+    if refs or sentinel_info:
         ref_block = (
             "\nReferenční podklady (složka references/)\n"
             "----------------------------------------\n"
-            + "\n".join(f"- {name}" for name in refs)
-            + "\n"
+            + "".join(f"- {name}\n" for name in refs)
         )
+        if sentinel_info:
+            ref_block += "\n" + sentinel_info.strip() + "\n"
     kp_steps = (
         "2. PNG podklady (OSM, hillshade, …) zapněte dle potřeby\n"
         "   v Šablony → Nastavení šablon (Template Setup).\n"
@@ -1292,7 +1294,14 @@ def build_oom_zip(
                     if ocd_path.is_file():
                         zf.write(ocd_path, ocd_path.name)
             _write_ocad_symbol_sets(zf, omap_paths, metadata)
-        zf.writestr("README_OOM.txt", oom_readme(metadata))
+        # Popis Sentinel-2 jde do společného README k podkladům, ne jako zvláštní soubor.
+        sentinel_txt = reference_dir / SENTINEL_INFO_NAME if reference_dir else None
+        sentinel_info = (
+            sentinel_txt.read_text(encoding="utf-8")
+            if sentinel_txt is not None and sentinel_txt.is_file()
+            else ""
+        )
+        zf.writestr("README_OOM.txt", oom_readme(metadata, sentinel_info=sentinel_info))
         zf.writestr(
             "metadata.json",
             json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
@@ -1325,7 +1334,7 @@ def build_oom_zip(
                 if world.is_file():
                     zf.write(world, f"references/{world.name}")
             # Vektorový katastr: GeoPackage (podklad OOM) + DXF (OCAD).
-            for name in ("katastr.gpkg", "katastr.dxf", SENTINEL_INFO_NAME):
+            for name in ("katastr.gpkg", "katastr.dxf"):
                 _write_if_exists(zf, reference_dir / name, f"references/{name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():

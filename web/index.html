@@ -151,30 +151,20 @@
           <h3 class="form-section-title">Podklady k mapě</h3>
           <label class="checkbox-row">
             <input type="checkbox" name="output_references" id="output_references" value="1" checked aria-describedby="references-hint" />
-            Referenční PNG šablony (OSM, ZTM, katastr, hillshade, DMP)
+            Referenční šablony (OSM, ZTM, katastr, hillshade, DMP, Sentinel-2)
           </label>
           <div class="hint" id="references-hint">
             Doporučeno: rastrové podklady pro kontrolu a dokreslení mapy, v Mapperu se otevřou jako šablony.
             Prodlouží generování<span id="references-estimate"></span> a zvětší ZIP.
             <details class="hint-more"><summary>Více</summary>
               Přibalí se OSM, ZTM (Základní mapa ČR), katastr, stínovaný reliéf (hillshade) a výšky povrchu DMP,
-              georeferencované jako mapa. Katastr a stínování se přibalí vždy. Ortofoto se do ZIPu nepřibaluje
+              georeferencované jako mapa, a družicové snímky Copernicus Sentinel-2 (10 m/px, pravé barvy) s datem snímku v názvu souboru:
+              nejnovější bezoblačný a starší zhruba po 3 měsících za poslední půlrok, jsou-li bez mraků.
+              Ukážou změny po ortofotu a LiDARu (paseky, polomy, nové stavby); v Mapperu jsou jako skryté šablony,
+              do kresby mapy nevstupují.
+              Katastr a stínování se přibalí vždy. Ortofoto se do ZIPu nepřibaluje
               (velikost), v Mapperu ho lze připojit jako WMS ČÚZK. Vypnout se vyplatí při opakovaném ladění
               téhož výřezu, kdy podklady už máte.
-            </details>
-          </div>
-          <label class="checkbox-row">
-            <input type="checkbox" name="output_sentinel" id="output_sentinel" value="1" checked aria-describedby="sentinel-hint" />
-            Družicový snímek Sentinel-2 s datem snímku
-          </label>
-          <div class="hint" id="sentinel-hint">
-            Nejnovější bezoblačný snímek výřezu (10 m/px) v pravých a infračervených barvách, často jen pár dní starý.
-            Ukáže změny po ortofotu a LiDARu (paseky, polomy, nové stavby); ZIP zvětší jen o stovky kB.
-            <details class="hint-more"><summary>Více</summary>
-              Copernicus Sentinel-2 L2A. Přibalí se nejnovější snímek bez mraků ve výřezu, a pokud není z vegetační
-              sezóny (květen–září), i nejnovější letní. Soubory references/sentinel2_RRRR-MM-DD.jpg (pravé barvy)
-              a _nir.jpg (živá vegetace červeně, holiny šedohnědě); v Mapperu jsou jako skryté šablony.
-              Do kresby mapy nevstupuje.
             </details>
           </div>
         </div>

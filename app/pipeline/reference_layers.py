@@ -1532,7 +1532,7 @@ def add_sentinel2_reference(
     *,
     log: callable | None = None,
 ) -> dict[str, Path]:
-    """Doplní do ``built`` snímky Sentinel-2 (``sentinel2_<datum>``, ``..._nir``) do ``out_dir``.
+    """Doplní do ``built`` snímky Sentinel-2 (``sentinel2_<datum>``) do ``out_dir``.
 
     Mimo sdílenou cache podkladů (snímek má být čerstvý); selhání job nezastaví.
     """

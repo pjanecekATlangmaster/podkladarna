@@ -184,6 +184,7 @@ def test_create_job_skips_reference_pngs(client, monkeypatch):
     )
     assert r.status_code == 200
     assert r.json()["options"]["output_references"] is False
+    assert r.json()["options"]["output_sentinel"] is False
 
     r2 = client.post(
         "/api/jobs",
@@ -197,6 +198,20 @@ def test_create_job_skips_reference_pngs(client, monkeypatch):
     )
     assert r2.status_code == 200
     assert r2.json()["options"]["output_references"] is True
+    # Sentinel-2 jde s referenčními podklady; starší klient ho může vypnout zvlášť.
+    assert r2.json()["options"]["output_sentinel"] is True
+    r3 = client.post(
+        "/api/jobs",
+        data={
+            "name": "refs-no-s2",
+            "preset_id": "sprint_2m",
+            "bbox": "14.40,50.08,14.42,50.09",
+            "output_mode": "png_zip",
+            "output_references": "1",
+            "output_sentinel": "0",
+        },
+    )
+    assert r3.json()["options"]["output_sentinel"] is False
 
 
 

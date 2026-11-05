@@ -108,18 +108,15 @@ def collect_oom_templates(
                     group=GROUP_REFERENCE,
                 )
             )
-        # Sentinel-2 (sentinel2_<datum>[_nir]) – skryté šablony, datum snímku v názvu.
+        # Sentinel-2 (sentinel2_<datum>, pravé barvy) – skryté šablony od nejnovějšího, datum v názvu.
         for skey in sorted((k for k in built_refs if k.startswith("sentinel2_")), reverse=True):
             spath = built_refs[skey]
             if not spath.is_file():
                 continue
-            stamp = skey[len("sentinel2_"):]
-            nir = stamp.endswith("_nir")
-            stamp = stamp[: -len("_nir")] if nir else stamp
             templates.append(
                 OomTemplate(
                     "image",
-                    f"Sentinel-2 {stamp} " + ("infračervené barvy" if nir else "pravé barvy"),
+                    f"Sentinel-2 {skey[len('sentinel2_'):]}",
                     f"references/{spath.name}",
                     visible=False,
                     opacity=1.0,
