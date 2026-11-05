@@ -48,8 +48,6 @@ SQUARE_MAX_DEG = 60.0
 # Přechod širší silnice v užší (konec na konci, Lamačova × K Barrandovu, Petr 2026-11-05): užší čára se protáhne
 # po ose širší o půlku její kresby, aby roh konce širší netrčel; jen při rozdílu půlek kreseb aspoň tolik m.
 WIDTH_STEP_MIN_M = 0.3
-# Užší čára odbočující od osy širší víc než v tomto poměru (příčně / podélně) jde v širší podél jejího okraje (vějíř).
-FAN_SIDE_RATIO = 0.25
 # Blokující plochy se pro test průchodu zmenší o tolik m (dotyk hrany nevadí).
 BLOCKER_SHRINK_M = 0.3
 
@@ -443,34 +441,19 @@ def tidy_road_ends(
             and math.dist(q, node) <= END_TOUCH_M
             and _half_width_m(items[ni][0], preset_id, scale, halves) < hw - WIDTH_STEP_MIN_M
         ]
+        if len(narrow) != 1:
+            continue  # rozvětvení do více užších (rampy): protažené kusy by se překryly a odpadly jako souběh
         wl = geoms[wi]
-        reach = min(2.0 * hw, wl.length / 2)
+        reach = min(hw, wl.length / 2)
         if reach <= END_TOUCH_M:
             continue
         inside = wl.interpolate(reach if w_start else wl.length - reach)
-        # směr osy širší od konce dovnitř a kolmice; užší čára dostane bod uvnitř širší posunutý ke své straně
-        # (vějíř jako ruční úprava v Mapperu, Petr 2026-11-05), přímé pokračování jde po ose
-        ux, uy = inside.x - node[0], inside.y - node[1]
-        ul = math.hypot(ux, uy)
-        if ul <= 0:
-            continue
-        ux, uy = ux / ul, uy / ul
         for ni, n_start in narrow:
             c = items[ni][1]
-            hn = _half_width_m(items[ni][0], preset_id, scale, halves)
-            ref = geoms[ni].interpolate(min(2.0 * hw, geoms[ni].length / 2) if n_start else max(0.0, geoms[ni].length - 2.0 * hw))
-            # odchylka užší čáry od prodloužené osy širší; směr ven z uzlu o = -u, levá kolmice k o = (uy, -ux)
-            vx, vy = ref.x - node[0], ref.y - node[1]
-            side = uy * vx - ux * vy
-            along = -(ux * vx + uy * vy)
-            off = 0.0
-            if along > 0 and abs(side) > FAN_SIDE_RATIO * along:
-                off = math.copysign(hw - hn, side)
-            px, py = inside.x + uy * off, inside.y - ux * off
             if n_start:
-                items[ni][1] = [(px, py), *c]
+                items[ni][1] = [(inside.x, inside.y), *c]
             else:
-                items[ni][1] = [*c, (px, py)]
+                items[ni][1] = [*c, (inside.x, inside.y)]
             geoms[ni] = LineString(items[ni][1])
     out: dict[str, list[list[tuple[float, float]]]] = {code: [] for code in (*pieces_by_code, *(stub_by_code or {}))}
     for i, it in enumerate(items):
