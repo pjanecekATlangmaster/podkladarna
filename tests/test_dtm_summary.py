@@ -82,3 +82,29 @@ def test_readme_block_and_roundtrip(tmp_path):
     first, underline = block.splitlines()[:2]
     assert first == "Digitální technická mapa (DTM)"
     assert set(underline) == {"-"}
+
+
+@pytest.mark.parametrize(
+    "setup, failed, warned",
+    [
+        ({"units": [_unit(1, "Praha"), _unit(2, "Lety")]}, False, []),
+        ({"units": [_unit(7, "Kolín")], "incomplete": ["OBEC_7"]}, False, ["neúplné"]),
+        ({"units": [_unit(1, "Praha"), _unit(2, "Lety", False)]}, False, ["chybí: Lety"]),
+        ("bez souboru", False, ["není k dispozici"]),
+        (None, True, ["selhala"]),
+    ],
+)
+@pytest.mark.parametrize("legacy", [False, True])
+def test_warning_only_on_problem_lines(tmp_path, setup, failed, warned, legacy):
+    """⚠ / VAROVÁNÍ jen u vět o skutečném problému; zdroje, počty a volba mapy jsou neutrální (i u starších jobů)."""
+    maps = {"sprint": True, "les": False}
+    if isinstance(setup, dict):
+        _write(tmp_path, units=setup["units"], incomplete=setup.get("incomplete", []))
+    result = dtm_summary.finalize_summary(dtm_summary.initial_summary(maps, True), tmp_path, failed=failed)
+    if legacy:
+        result.pop("warn_lines", None)
+    warn = dtm_summary.warning_lines(result)
+    assert sorted(warn) == sorted(line for line in result["lines"] if any(w in line for w in warned))
+    assert len(warn) == len(warned)
+    logged = dtm_summary.log_lines(result)
+    assert [line.startswith("VAROVÁNÍ: ") for line in logged] == [line in warn for line in result["lines"]]
