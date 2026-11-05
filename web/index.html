@@ -163,6 +163,20 @@
               téhož výřezu, kdy podklady už máte.
             </details>
           </div>
+          <label class="checkbox-row">
+            <input type="checkbox" name="output_sentinel" id="output_sentinel" value="1" checked aria-describedby="sentinel-hint" />
+            Družicový snímek Sentinel-2 s datem snímku
+          </label>
+          <div class="hint" id="sentinel-hint">
+            Nejnovější bezoblačný snímek výřezu (10 m/px) v pravých a infračervených barvách, často jen pár dní starý.
+            Ukáže změny po ortofotu a LiDARu (paseky, polomy, nové stavby); ZIP zvětší jen o stovky kB.
+            <details class="hint-more"><summary>Více</summary>
+              Copernicus Sentinel-2 L2A. Přibalí se nejnovější snímek bez mraků ve výřezu, a pokud není z vegetační
+              sezóny (květen–září), i nejnovější letní. Soubory references/sentinel2_RRRR-MM-DD.jpg (pravé barvy)
+              a _nir.jpg (živá vegetace červeně, holiny šedohnědě); v Mapperu jsou jako skryté šablony.
+              Do kresby mapy nevstupuje.
+            </details>
+          </div>
         </div>
 
         <details class="advanced-settings" id="advanced-settings">

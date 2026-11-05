@@ -72,8 +72,10 @@ from app.pipeline.preview import (
     ensure_georef_template,
     resolve_preview_png,
 )
+from app.pipeline.sentinel2 import INFO_NAME as SENTINEL_INFO_NAME
 from app.pipeline.reference_layers import (
     ALWAYS_REFERENCE_KEYS,
+    add_sentinel2_reference,
     build_reference_layers,
     list_reference_rasters,
 )
@@ -290,6 +292,7 @@ def start_reference_download(
     with_references: bool = True,
     ortho_prefetch_bounds: tuple[float, float, float, float] | None = None,
     sprint_ortho: bool = False,
+    sentinel: bool = False,
 ) -> ReferenceDownload | None:
     """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
 
@@ -301,6 +304,7 @@ def start_reference_download(
     ``ALWAYS_REFERENCE_KEYS`` (katastr) – ty jdou do ZIPu vždy.
     ``ortho_prefetch_bounds`` (les a MTBO): po stínování ortofoto 0,5 m pro louku / 403
     (``ortho_rough``), ať ho vegetace nestahuje souběžně s podkladem.
+    ``sentinel``: po podkladech snímky Sentinel-2 do ``references`` (i s vypnutými podklady).
     """
     georef = ensure_georef_template(work_dir, prefer_preview=False)
     if georef is None:
@@ -370,6 +374,8 @@ def start_reference_download(
         except Exception as exc:
             ref_log(f"Selhalo ({exc})")
             raise
+        if sentinel:
+            built = add_sentinel2_reference(dict(built or {}), tuple(bbox_wgs84), reference_dir, log=ref_log)
         ref_log(f"Hotovo ({len(built or {})} vrstev)")
         return built
 
@@ -388,6 +394,7 @@ def join_reference_download(
     force_refresh: bool,
     progress: JobProgress | None = None,
     sprint_ortho: bool = False,
+    sentinel: bool = False,
 ) -> tuple[dict[str, Path], list[str]]:
     """Tvrdý join před prepare_oom_map. Nespuští download dvakrát, když future běží.
 
@@ -436,6 +443,8 @@ def join_reference_download(
         except Exception as exc:
             log_issue(log, f"Referenční podklady: přeskočeno ({exc})")
             built_refs = {}
+        if sentinel:
+            add_sentinel2_reference(built_refs, tuple(bbox), reference_dir, log=log)
     else:
         reference_dir = ref_download.reference_dir
         if progress is not None:
@@ -691,6 +700,7 @@ def run_job_pipeline(
                 with_references=want_refs,
                 ortho_prefetch_bounds=ortho_prefetch_bounds(grid_bounds, preset_id, options),
                 sprint_ortho=job_has_sprint(preset_id, options),
+                sentinel=bool(options.get("output_sentinel")),
             )
 
     if reused_from and merged_existing:
@@ -1052,6 +1062,7 @@ def _package_output(
                     force_refresh=force_refresh_enabled(options),
                     progress=join_progress,
                     sprint_ortho=job_has_sprint(preset_id, options),
+                    sentinel=bool(options.get("output_sentinel")),
                 )
             return refs_joined["refs"][0]
 
@@ -1345,7 +1356,7 @@ def _package_output(
                         ".jgw",
                         ".gpkg",
                         ".dxf",
-                    }:
+                    } or path.name == SENTINEL_INFO_NAME:
                         shutil.copy2(path, refs_dst / path.name)
         # Vegetace / srázy / skály (použité vs vyhozené) – stejné jako v ZIPu.
         try:

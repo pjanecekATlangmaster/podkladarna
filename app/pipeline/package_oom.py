@@ -51,6 +51,7 @@ from app.pipeline.reference_layers import (
     reference_metadata,
     world_file_for,
 )
+from app.pipeline.sentinel2 import INFO_NAME as SENTINEL_INFO_NAME
 from app.pipeline.ruian_buildings import (
     ZABAGED_OMIT_BUILDING_LAYERS,
     write_ruian_buildings_shapefile,
@@ -1324,7 +1325,7 @@ def build_oom_zip(
                 if world.is_file():
                     zf.write(world, f"references/{world.name}")
             # Vektorový katastr: GeoPackage (podklad OOM) + DXF (OCAD).
-            for name in ("katastr.gpkg", "katastr.dxf"):
+            for name in ("katastr.gpkg", "katastr.dxf", SENTINEL_INFO_NAME):
                 _write_if_exists(zf, reference_dir / name, f"references/{name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():

@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.15.1"
+APP_VERSION = "3.16.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -187,6 +187,8 @@ DEFAULT_OPTIONS = {
     "output_georef": False,
     # OSM / ZTM / katastr / hillshade / DMP – stahovat a dát do ZIPu (ortofoto jen se ZIP_ORTHOPHOTO).
     "output_references": True,
+    # Družicový snímek Sentinel-2 (nejnovější bezoblačný, pravé + falešné barvy) jako šablona a do ZIPu.
+    "output_sentinel": True,
     "output_dxf": True,
     "output_zabaged_clean": False,
     # §10: default reuse AOI cache; True / PODKLADARNA_FORCE_REFRESH = přegenerovat.
