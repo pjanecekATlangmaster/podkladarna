@@ -532,6 +532,9 @@ def _chain_arms(arms: list, close) -> list:
 # která spojuje dvě silnice kříženec od křížení vzdálený nejvýš ``SLIP_NODE_MAX_M`` m a míjí ho aspoň o ``SLIP_MIN_OFFSET_M``,
 # je v lese a MTBO jen trojúhelník vedle křižovatky – nekreslí se, křižovatku nese hlavní čára.
 SLIP_MAX_M = 80.0
+# Mazání ramp vypnuté (Petr 2026-11-05: „když budou navazovat, trojúhelníky nevadí“ – pravidlo záviselo na tom, na kolik
+# OSM ways je rampa rozdělená, a křižovatky vycházely nesouměrně). Rampy napojí dotažení konců a vějíř v ``road_ends``.
+SLIP_DROP = False
 SLIP_NODE_MAX_M = 50.0
 SLIP_MIN_OFFSET_M = 5.0
 # Pás kolem ostatních silnic (m), který zóna rampy neořízne.
@@ -540,8 +543,8 @@ _SLIP_CACHE: dict[tuple, object] = {}
 
 
 def slip_lane_zone(work_dir: Path, preset_id: str, scale: int):
-    """Zóna (shapely) odbočovacích ramp, ve které se silnice nekreslí, nebo None; sprint None."""
-    if preset_id.startswith("sprint"):
+    """Zóna (shapely) odbočovacích ramp, ve které se silnice nekreslí, nebo None; sprint a ``SLIP_DROP = False`` None."""
+    if preset_id.startswith("sprint") or not SLIP_DROP:
         return None
     from app.pipeline.osm_paths import ONEWAY_ROADS_NAME
 
@@ -550,15 +553,17 @@ def slip_lane_zone(work_dir: Path, preset_id: str, scale: int):
         stamp = path.stat().st_mtime_ns
     except OSError:
         return None
-    key = (str(path), stamp)
+    key = (str(path), stamp, preset_id, scale)
     if key not in _SLIP_CACHE:
         if len(_SLIP_CACHE) > 16:
             _SLIP_CACHE.clear()
-        _SLIP_CACHE[key] = _slip_zone(_load(work_dir), _road_lines(work_dir))
+        _SLIP_CACHE[key] = _slip_zone(_load(work_dir), _road_lines(work_dir), keep_ends=[p for c in dual_axes(work_dir, preset_id, scale)[0] if len(c) >= 2 for p in (c[0], c[-1])])
     return _SLIP_CACHE[key]
 
 
-def _slip_zone(feats: list[dict], roads: list[list[tuple[float, float]]]):
+def _slip_zone(feats: list[dict], roads: list[list[tuple[float, float]]], keep_ends=None):
+    """``keep_ends``: konce os rozdělených vozovek 502.0 (``dual_axes``); rampa s koncem do 1 m od nich zůstane –
+    napojí ji vějíř v konci osy (``road_ends``, Lamačova × K Barrandovu, Petr 2026-11-05: rampy na obou stranách)."""
     from shapely.geometry import LineString, Point
     from shapely.ops import unary_union
     from shapely.strtree import STRtree
@@ -578,9 +583,17 @@ def _slip_zone(feats: list[dict], roads: list[list[tuple[float, float]]]):
         return None
     tree = STRtree(others)
     zones = []
+    # konce os 502.0: rampa, která v konci osy začíná, zůstane (vějíř v ``road_ends``)
+    dual_lanes = None
+    if keep_ends:
+        from shapely.geometry import MultiPoint
+
+        dual_lanes = MultiPoint([tuple(p) for p in keep_ends])
     for r in ramps:
         a, b = Point(r.coords[0]), Point(r.coords[-1])
-        at_a = [others[i] for i in tree.query(a.buffer(1.0)) if others[i].distance(a) <= 1.0]
+        if dual_lanes is not None and (dual_lanes.distance(a) <= 1.0 or dual_lanes.distance(b) <= 1.0):
+            continue  # rampa z pásu rozdělené vozovky – zůstane, napojí ji vějíř v konci osy
+        at_a =[others[i] for i in tree.query(a.buffer(1.0)) if others[i].distance(a) <= 1.0]
         at_b = [others[i] for i in tree.query(b.buffer(1.0)) if others[i].distance(b) <= 1.0]
         hit = False
         for ra in at_a:

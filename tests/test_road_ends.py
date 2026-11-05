@@ -130,3 +130,35 @@ def test_free_end_extended_into_band_without_axis_hit(case, preset, main_code, r
         assert abs(side[1][1]) <= 11.1 + 1.0, case  # předtím vstup do kresby po OSM čáře
     else:
         assert side[0][1] == pytest.approx(end_y, abs=1.0), case  # na okraji kresby
+
+
+# Vějíř: 502.0 (mtbo_10000: 2,22 mm, půlka 11,1 m) končí v uzlu (100, 0), dál vedou užší 502.1 (1,29 mm, půlka 6,45 m);
+# posun k okraji = 11,1 − 6,45 = 4,65 m, bod 1 mm (10 m) před uzlem. (případ, pokračování z uzlu, očekávané posuny
+# po jednotlivých čarách: None = beze změny)
+WIDE = [(0.0, 0.0), (100.0, 0.0)]
+STRAIGHT = [(100.0, 0.0), (160.0, 0.0)]
+LEFT = [(100.0, 0.0), (130.0, 25.0), (160.0, 60.0)]
+RIGHT = [(100.0, 0.0), (130.0, -25.0), (160.0, -60.0)]
+CROSS = [(100.0, -60.0), (100.0, 0.0), (100.0, 60.0)]
+
+
+@pytest.mark.parametrize(
+    "case, narrow, offsets",
+    [
+        ("pruh a dvě rampy: rampy k okraji, pruh rovně pod širší", [STRAIGHT, LEFT, RIGHT], [0.0, 4.65, -4.65]),
+        ("dvě rampy bez pruhu", [LEFT, RIGHT], [4.65, -4.65]),
+        ("jediné pokračování (skok šířky) beze změny", [STRAIGHT], [None]),
+        ("příčná silnice uzlem beze změny", [STRAIGHT, LEFT, CROSS], [None, None, None]),
+        ("kolmá odbočka není pokračování", [STRAIGHT, [(100.0, 0.0), (100.0, 60.0)]], [None, None]),
+    ],
+)
+def test_fan_of_narrow_roads_at_wide_road_end(case, narrow, offsets):
+    out = tidy_road_ends({"502.0": [WIDE], "502.1": narrow}, [WIDE, *narrow], preset_id="mtbo_10000", scale=10000)
+    assert WIDE in out["502.0"], case
+    for ln, off in zip(narrow, offsets):
+        got = next(o for o in out["502.1"] if o[-2:] == ln[-2:] or o[:2] == ln[:2])
+        if off is None:
+            assert got == ln, case
+        else:
+            assert got[:2] == [pytest.approx((90.0, off), abs=0.01), pytest.approx((100.0, off), abs=0.01)], case
+            assert got[2:] == ln[1:], case

@@ -43,6 +43,15 @@ JOIN_PARALLEL_GAP_MM = 0.5
 JOIN_PARALLEL_RUN_MM = 10.0
 # Blokující plochy se pro test průchodu zmenší o tolik m (dotyk hrany nevadí).
 BLOCKER_SHRINK_M = 0.3
+# Vějíř (Petr 2026-11-05, Lamačova × K Barrandovu): širší silnice s výplní (502.0) končí v uzlu, ze kterého pokračují
+# aspoň dvě užší silnice s výplní (pruh a rampy). Každá užší dostane před uzlem bod uvnitř kresby širší, posunutý
+# k tomu okraji širší, na který odbočuje, o rozdíl půlek šířek – její vnější okrajová linka tak navazuje na okrajovou
+# linku širší a čelo širší zakryjí výplně užších. Bod leží tolik mm mapy před uzlem (po ose širší).
+FAN_BACK_MM = 1.0
+# Užší čára, která z uzlu odbočuje do tolika stupňů od směru širší, pokračuje rovně (bez posunu k okraji).
+FAN_STRAIGHT_DEG = 12.0
+# Užší čára odbočující o víc stupňů od směru širší není pokračování (příčná silnice v uzlu) – vějíř se nedělá.
+FAN_MAX_DEG = 70.0
 
 
 def _is_road(code: str, preset_id: str, scale: int) -> bool:
@@ -344,8 +353,86 @@ def tidy_road_ends(
             if blockers_prep is not None and blockers_prep.contains(p):
                 continue  # vede k ploše / budově
             drop.add(i)
+    # 3. Vějíř užších silnic v konci širší (viz ``FAN_BACK_MM``).
+    _fan_narrow_continuations(items, geoms, drop, preset_id, scale, halves)
     out: dict[str, list[list[tuple[float, float]]]] = {code: [] for code in (*pieces_by_code, *(stub_by_code or {}))}
     for i, it in enumerate(items):
         if i not in drop and not it[3]:
             out[it[0]].append(it[1])
     return out
+
+
+def _fan_narrow_continuations(items: list[list], geoms: list, drop: set[int], preset_id: str, scale: int, halves: dict) -> None:
+    """Konec širší silnice s výplní, ze kterého vedou aspoň dvě užší silnice s výplní (a nic širšího ani příčného):
+    začátek každé užší se přesune o ``FAN_BACK_MM`` dovnitř kresby širší a k okraji, na který odbočuje (viz modul).
+    Mění ``items[i][1]`` na místě."""
+    from shapely import STRtree
+    from shapely.geometry import LineString, Point
+
+    from app.pipeline.osm_paths import is_major_road_code, mm_to_ground_m
+
+    back = mm_to_ground_m(FAN_BACK_MM, scale)
+    live = [i for i, it in enumerate(items) if i not in drop and it[2] and is_major_road_code(it[0], preset_id, scale)]
+    if len(live) < 3:
+        return
+    tree = STRtree([geoms[i] for i in live])
+    cos_straight = math.cos(math.radians(FAN_STRAIGHT_DEG))
+    cos_max = math.cos(math.radians(FAN_MAX_DEG))
+
+    def _unit(a, b):
+        d = math.hypot(b[0] - a[0], b[1] - a[1])
+        return ((b[0] - a[0]) / d, (b[1] - a[1]) / d) if d > 1e-6 else None
+
+    moved: set[int] = set()
+    for w in live:
+        if items[w][3]:
+            continue  # pevná čára se nemění, ale jako širší by vějíř dostala – zatím jen vlastní silnice
+        hw_w = _half_width_m(items[w][0], preset_id, scale, halves)
+        lw = geoms[w]
+        if lw.length < 2.0 * back:
+            continue
+        for at_start in (True, False):
+            c = items[w][1]
+            e = c[0] if at_start else c[-1]
+            pe = Point(e)
+            q = lw.interpolate(back if at_start else lw.length - back)
+            t = _unit((q.x, q.y), e)  # směr širší ven z konce
+            if t is None:
+                continue
+            n = (-t[1], t[0])
+            narrow: list[tuple[int, bool, float]] = []  # (index, začátek?, strana)
+            ok = True
+            for k in tree.query(pe.buffer(END_TOUCH_M)):
+                j = live[int(k)]
+                if j == w or j in moved or geoms[j].distance(pe) > END_TOUCH_M:
+                    continue
+                cj = items[j][1]
+                j_start = Point(cj[0]).distance(pe) <= END_TOUCH_M
+                j_end = Point(cj[-1]).distance(pe) <= END_TOUCH_M
+                hw_j = _half_width_m(items[j][0], preset_id, scale, halves)
+                if not (j_start or j_end) or hw_j >= hw_w - 1e-6 or items[j][3]:
+                    ok = False  # příčná / širší / pevná čára v uzlu – není to konec širší do užších
+                    break
+                seq = cj if j_start else cj[::-1]
+                far = LineString(seq).interpolate(min(3.0, LineString(seq).length))
+                d = _unit(e, (far.x, far.y))
+                if d is None:
+                    continue
+                cos = t[0] * d[0] + t[1] * d[1]
+                if cos < cos_max:
+                    ok = False  # odbočuje příliš – příčná silnice
+                    break
+                cross = t[0] * d[1] - t[1] * d[0]
+                side = 0.0 if cos >= cos_straight else (1.0 if cross > 0 else -1.0)
+                narrow.append((j, j_start, side * (hw_w - hw_j)))
+            if not ok or len(narrow) < 2:
+                continue
+            for j, j_start, off in narrow:
+                p0 = (q.x + n[0] * off, q.y + n[1] * off)
+                p1 = (e[0] + n[0] * off, e[1] + n[1] * off)
+                cj = items[j][1]
+                rest = cj[1:] if j_start else cj[:-1]
+                new = [p0, p1, *rest] if j_start else [*rest, p1, p0]
+                items[j][1] = new
+                geoms[j] = LineString(new)
+                moved.add(j)
