@@ -621,6 +621,7 @@ def find_duplicate_active_job(
             str(opts.get("client_ip") or ""),
             resolve_contour_smooth(opts),
             tuple(resolve_map_types(opts) or ()),
+            bool(opts.get("output_sentinel")),
         )
 
     want = _fp(options)

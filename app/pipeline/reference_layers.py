@@ -1525,6 +1525,38 @@ def build_reference_layers(
     return built
 
 
+def add_sentinel2_reference(
+    built: dict[str, Path],
+    bbox_wgs84: tuple[float, float, float, float],
+    out_dir: Path,
+    *,
+    log: callable | None = None,
+) -> dict[str, Path]:
+    """Doplní do ``built`` snímky Sentinel-2 (``sentinel2_<datum>``, ``..._nir``) do ``out_dir``.
+
+    Mimo sdílenou cache podkladů (snímek má být čerstvý); selhání job nezastaví.
+    """
+    from app.pipeline.sentinel2 import build_sentinel2_reference
+
+    west, south, east, north = bbox_wgs84
+    try:
+        built.update(
+            build_sentinel2_reference(
+                tuple(bbox_wgs84),
+                crop_bounds_5514(west, south, east, north),
+                out_dir,
+                run_cmd=run_cmd,
+                gdal_tool=_gdal_tool,
+                write_world=_write_pgw_for_extent,
+                log=log,
+            )
+        )
+    except Exception as exc:
+        if log:
+            log_issue(log, f"Sentinel-2: přeskočeno ({exc})")
+    return built
+
+
 def _fetch_other_layers(
     built: dict[str, Path],
     bounds,

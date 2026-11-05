@@ -3,6 +3,8 @@
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
   - date: "2026-11-05"
+    title: "Verze 3.16 – v ZIPu a jako šablona v Mapperu nejnovější bezoblačný družicový snímek Sentinel-2 s datem snímku (pravé i infračervené barvy), ukáže změny po ortofotu: paseky, polomy, nové stavby"
+  - date: "2026-11-05"
     title: "Verze 3.15 – menší výřezy: sprint 1:4 000 nejvýš 4 km² (2 × 2 km), les nejvýš 15 km², MTBO dál 25 km²"
   - date: "2026-11-03"
     title: "Verze 3.12 – upozornění, když byl povrch korun (DMP OK) nalétán v bezlistém období: listnaté porosty pak v mapě chybí nebo vycházejí jako drsný terén 403"
