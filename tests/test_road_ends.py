@@ -162,3 +162,27 @@ def test_fan_of_narrow_roads_at_wide_road_end(case, narrow, offsets):
         else:
             assert got[:2] == [pytest.approx((90.0, off), abs=0.01), pytest.approx((100.0, off), abs=0.01)], case
             assert got[2:] == ln[1:], case
+
+
+# (případ, začátek černé 503 šikmo pod 30° k 502, konec má zůstat na okraji kresby 502 – půlka šířky 4,35 m od osy)
+# Černá, kterou ``major_band`` ukončil na okraji, je napojená; šikmé dotažení končí na okraji, ne ve výplni.
+@pytest.mark.parametrize(
+    "case, start_dist",
+    [
+        ("už na okraji – beze změny", 4.35),
+        ("šikmo 5 m před okrajem – dotažení na okraj", 9.35),
+    ],
+)
+def test_black_road_ends_on_edge_of_fill(case, start_dist):
+    import math
+
+    from shapely.geometry import LineString, Point
+
+    ang = math.radians(30.0)
+    dx, dy = math.cos(ang), math.sin(ang)
+    s = start_dist / dy  # vzdálenost po šikmé čáře od osy hlavní
+    side = [(100.0 + 60.0 * dx, 60.0 * dy), (100.0 + s * dx, s * dy)]
+    osm = [MAIN, [(100.0 + 60.0 * dx, 60.0 * dy), (100.0, 0.0)]]
+    out = tidy_road_ends({"502": [MAIN], "503": [side]}, osm, preset_id="forest_10000", scale=10000)
+    end = out["503"][0][-1]
+    assert LineString(MAIN).distance(Point(end)) == pytest.approx(4.35, abs=0.1), case
