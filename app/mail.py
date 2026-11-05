@@ -158,6 +158,14 @@ def format_duration_cs(seconds: int | float | None) -> str | None:
     return f"{sec} s"
 
 
+def format_area_km2_cs(area_km2: float | None) -> str | None:
+    """Plocha v km² s desetinnou čárkou jako ve web UI („2,4 km²“, pod 1 km² „0,85 km²“)."""
+    if area_km2 is None or area_km2 <= 0:
+        return None
+    text = f"{area_km2:.2f}" if area_km2 < 1 else f"{area_km2:.1f}"
+    return text.replace(".", ",") + " km²"
+
+
 def build_private_ready_email(
     *,
     job_name: str,
@@ -168,6 +176,7 @@ def build_private_ready_email(
     preview_attached: bool = False,
     duration_s: int | float | None = None,
     issues_summary: str | None = None,
+    area_km2: float | None = None,
 ) -> tuple[str, str]:
     """Vrací (předmět, tělo) pro hotový privátní job – česky.
 
@@ -184,6 +193,9 @@ def build_private_ready_email(
     duration_label = format_duration_cs(duration_s)
     if duration_label:
         parts.append(f"Doba běhu: {duration_label}.\n")
+    area_label = format_area_km2_cs(area_km2)
+    if area_label:
+        parts.append(f"Plocha mapy: {area_label}.\n")
     if issues_summary:
         parts.append(f"\nUpozornění: {issues_summary}\n")
     parts.extend(
