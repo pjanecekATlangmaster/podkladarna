@@ -147,13 +147,37 @@ def tidy_road_ends(
             min(abs(x - bounds[0]), abs(x - bounds[2]), abs(y - bounds[1]), abs(y - bounds[3])) <= END_TOUCH_M
         ):
             return False  # konec na hranici výřezu mapy
+        if items[i][2] and not is_major_road_code(items[i][0], preset_id, scale) and _on_major_edge(i, Point(x, y)):
+            return False  # černá silnice končí na okraji kresby silnice s výplní (``major_band``) – je napojená
         return not _touches(i, Point(x, y), on_drawing=items[i][4])
 
-    def _stop_on(i: int, target: int, dist_axis: float) -> float | None:
-        """Kde má prodloužení skončit (m od konce), nebo None."""
+    def _on_major_edge(i: int, p) -> bool:
+        for j in tree.query(p.buffer(reach_touch)):
+            j = int(j)
+            if j == i or not items[j][2] or not is_major_road_code(items[j][0], preset_id, scale):
+                continue
+            if geoms[j].distance(p) <= _half_width_m(items[j][0], preset_id, scale, halves) + END_TOUCH_M:
+                return True
+        return False
+
+    def _stop_on(i: int, target: int, dist_axis: float, path=None) -> float | None:
+        """Kde má prodloužení skončit (m od konce), nebo None. Černá silnice končí tam, kde ``path`` vstoupí do kresby
+        silnice s výplní (u šikmého napojení ne o půlku šířky před osou po ``path`` – to by vedlo do výplně)."""
         code, tcode = items[i][0], items[target][0]
         if is_major_road_code(tcode, preset_id, scale) and not is_major_road_code(code, preset_id, scale):
-            stop = dist_axis - _half_width_m(tcode, preset_id, scale, halves)
+            half = _half_width_m(tcode, preset_id, scale, halves)
+            stop = dist_axis - half
+            if path is not None:
+                n = max(1, int(math.ceil(dist_axis / 0.25)))
+                for k in range(n + 1):
+                    d = dist_axis * k / n
+                    if geoms[target].distance(path.interpolate(d)) <= half:
+                        lo, hi = max(0.0, d - dist_axis / n), d  # zpřesnění vstupu na okraj
+                        for _ in range(12):
+                            mid = (lo + hi) / 2.0
+                            lo, hi = (lo, mid) if geoms[target].distance(path.interpolate(mid)) <= half else (mid, hi)
+                        stop = hi
+                        break
         else:
             stop = dist_axis
         reach = dist_axis - _half_width_m(tcode, preset_id, scale, halves)  # mezera do kresby cíle
@@ -285,7 +309,7 @@ def tidy_road_ends(
                     if ext is not None and not _blocked(ext):
                         return [(float(x), float(y)) for x, y in ext.coords]
                     continue
-                stop = _stop_on(i, hit[0], hit[1])
+                stop = _stop_on(i, hit[0], hit[1], path)
                 if stop is None:
                     continue
                 ext = substring(path, 0.0, stop)
@@ -311,7 +335,7 @@ def tidy_road_ends(
             cos = abs((b.x - a.x) * dx + (b.y - a.y) * dy) / (tl * n)
             if math.degrees(math.acos(min(1.0, cos))) < RAY_MIN_ANGLE_DEG:
                 return None
-        stop = _stop_on(i, hit[0], hit[1])
+        stop = _stop_on(i, hit[0], hit[1], ray)
         if stop is None:
             return None
         ext = substring(ray, 0.0, stop)

@@ -1124,6 +1124,33 @@ def test_major_road_code_by_drawn_symbol(code, preset, major):
     assert op.is_major_road_code(code, preset, 10000) is major
 
 
+def _stroke_road(coords, code):
+    return {
+        "type": "Feature",
+        "properties": {"source": "osm", "highway": "road_2", op.STROKE_CODE_PROP: code},
+        "geometry": {"type": "LineString", "coordinates": [list(c) for c in coords]},
+    }
+
+
+# (případ, kreslená černá silnice, délka pásu silnice s výplní, která zbude)
+@pytest.mark.parametrize(
+    "case, drawn, kept_m",
+    [
+        ("kopie téže silnice kreslená černě", [(0, 0.3), (200, 0.3)], 0.0),  # pás z vlastní kopie silnici nesmaže
+        ("černá silnice kříží", [(100, -50), (100, 50)], 200.0),  # křížení zůstane: černá končí na okraji
+        ("černá souběžně dál než 1 m", [(0, 6), (200, 6)], 200.0),
+    ],
+)
+def test_major_band_not_from_own_black_copy(case, drawn, kept_m):
+    band = [_stroke_road([(0, 0), (200, 0)], "502")]
+    out = op.drop_own_black_runs(band, [_stroke_road(drawn, "503")], preset_id="forest_10000", scale=10000)
+    length = sum(
+        sum(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 for a, b in zip(c, c[1:]))
+        for c in (f["geometry"]["coordinates"] for f in out)
+    )
+    assert length == pytest.approx(kept_m, abs=2.5), case
+
+
 def test_road_clip_only_where_area_is_drawn(tmp_path):
     # Smyčka konečné Klukovice (way/60596451): špičku plochy uřízne generalizace (výběžek do 0,5 mm), silnice se
     # ale ořezávala o původní plochu z OSM – mezi koncem silnice a plochou zůstala mezera 3,9 m (Petr 2026-10-31).
