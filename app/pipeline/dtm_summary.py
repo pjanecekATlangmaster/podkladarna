@@ -2,7 +2,8 @@
 
 Čisté funkce bez sítě. Texty vět se skládají tady, log, README a web je jen vypisují.
 Soubor ``work/dtm_summary.json``: ``state`` (off | pending | used | weak | unavailable | failed),
-``level`` (ok | warn | info), ``lines`` (hotové české věty) a podpůrné údaje.
+``level`` (ok | warn | info), ``lines`` (hotové české věty), ``warn_lines`` (jen věty o skutečném problému –
+log, README i web zvýrazní varováním jen je, ostatní věty jsou neutrální informace) a podpůrné údaje.
 """
 
 from __future__ import annotations
@@ -98,16 +99,14 @@ def finalize_summary(summary: dict[str, Any], work_dir: Path, *, failed: bool) -
     if not used:
         return out
     if failed:
-        out.update(state="failed", level="warn", lines=["Příprava DTM selhala, mapa se kreslila bez DTM."])
+        line = "Příprava DTM selhala, mapa se kreslila bez DTM."
+        out.update(state="failed", level="warn", lines=[line], warn_lines=[line])
         return out
     dtm = work_dir / "dtm"
     fences = _read_json(dtm / FENCES_NAME)
     if not isinstance(fences, dict):
-        out.update(
-            state="unavailable",
-            level="warn",
-            lines=["DTM pro toto území není k dispozici, mapa se kreslí z OSM a ZABAGED."],
-        )
+        line = "DTM pro toto území není k dispozici, mapa se kreslí z OSM a ZABAGED."
+        out.update(state="unavailable", level="warn", lines=[line], warn_lines=[line])
         return out
 
     units = [u for u in fences.get("units") or [] if isinstance(u, dict)]
@@ -131,26 +130,26 @@ def finalize_summary(summary: dict[str, Any], work_dir: Path, *, failed: bool) -
         f"Digitální technická mapa (DTM) ČÚZK: použita pro {_join(_labels(used))} "
         f"({covered}{', ' + detail if detail else ''})."
     )
-    lines = [head]
+    problems: list[str] = []
     if missing:
-        lines.append(
+        problems.append(
             f"DTM pokrývá jen {len(units) - len(missing)} z {len(units)} "
             f"{'obce' if len(units) == 1 else 'obcí'} výřezu (chybí: {', '.join(missing)}); "
             "jinde se kreslí z OSM a ZABAGED."
         )
     if incomplete:
-        lines.append(
+        problems.append(
             (f"V obci {incomplete[0]} jsou" if len(incomplete) == 1 else f"V obcích {', '.join(incomplete)} jsou")
             + " plochy DTM neúplné, budovy a chodníky tam kreslí OSM."
         )
     if empty:
-        lines.append("DTM ve výřezu neobsahuje ploty ani plochy.")
-    lines.extend(selection)
-    weak = bool(missing or incomplete or empty)
+        problems.append("DTM ve výřezu neobsahuje ploty ani plochy.")
+    weak = bool(problems)
     out.update(
         state="weak" if weak else "used",
         level="warn" if weak else "ok",
-        lines=lines,
+        lines=[head, *problems, *selection],
+        warn_lines=problems,
         packages=packages,
         units_total=len(units),
         units_with_data=len(units) - len(missing),
@@ -175,13 +174,25 @@ def read_summary(job_dir_or_work: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) and data.get("lines") else None
 
 
-def log_lines(summary: dict[str, Any]) -> list[str]:
-    """Věty pro log a README; u varování s prefixem „VAROVÁNÍ: “ (úvodní věta o použití DTM bez něj)."""
-    warn = summary.get("level") == "warn"
-    return [
-        f"VAROVÁNÍ: {line}" if warn and not line.startswith("Digitální technická mapa") else line
+def warning_lines(summary: dict[str, Any]) -> set[str]:
+    """Věty o skutečném problému. Starší souhrny bez ``warn_lines``: u úrovně warn vše kromě úvodní
+    věty o použití DTM a vět o volbě mapy (ty jsou jen informace)."""
+    if "warn_lines" in summary:
+        return set(summary.get("warn_lines") or [])
+    if summary.get("level") != "warn":
+        return set()
+    info = set(_selection_lines(summary.get("maps") or {}, True, bool(summary.get("auto", True))))
+    return {
+        line
         for line in summary.get("lines") or []
-    ]
+        if not line.startswith("Digitální technická mapa") and line not in info
+    }
+
+
+def log_lines(summary: dict[str, Any]) -> list[str]:
+    """Věty pro log a README; prefix „VAROVÁNÍ: “ jen u vět o skutečném problému."""
+    warn = warning_lines(summary)
+    return [f"VAROVÁNÍ: {line}" if line in warn else line for line in summary.get("lines") or []]
 
 
 def readme_block(summary: dict[str, Any] | None) -> str:

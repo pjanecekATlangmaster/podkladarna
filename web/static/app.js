@@ -1154,21 +1154,23 @@ function daysAgoText(days) {
 }
 
 /**
- * Výšková data (LiDAR ČÚZK) u jobu srozumitelně pro uživatele.
- * Vrací { level: "ok" | "warn", lines: [...], detail } nebo null;
+ * Zdroje dat u jobu (LiDAR ČÚZK, DTM) srozumitelně pro uživatele.
+ * Vrací { level: "ok" | "warn", lines: [{ text, warn }], detail } nebo null;
+ * ``warn`` mají jen věty o skutečném problému (zvýrazní se ⚠), ostatní jsou neutrální informace.
  * detail je původní technický popis (rozbalovací blok pro diagnostiku).
  */
 function jobSourcesInfo(job) {
   const lidar = lidarSourcesInfo(job);
   const dtm = job.dtm_summary;
   if (!dtm || !Array.isArray(dtm.lines) || !dtm.lines.length) return lidar;
-  const dtmWarn = dtm.level === "warn";
+  const warnSet = new Set(Array.isArray(dtm.warn_lines) ? dtm.warn_lines : []);
+  const dtmLines = dtm.lines.map((text) => ({ text, warn: warnSet.has(text) }));
   const dtmDetail = `DTM: ${dtm.state || "?"}`;
-  if (!lidar) return { level: dtmWarn ? "warn" : "ok", lines: dtm.lines, detail: dtmDetail };
+  const all = lidar ? [...lidar.lines, ...dtmLines] : dtmLines;
   return {
-    level: dtmWarn ? "warn" : lidar.level,
-    lines: [...lidar.lines, ...dtm.lines],
-    detail: `${lidar.detail} · ${dtmDetail}`,
+    level: all.some((l) => l.warn) ? "warn" : "ok",
+    lines: all,
+    detail: lidar ? `${lidar.detail} · ${dtmDetail}` : dtmDetail,
   };
 }
 
@@ -1193,17 +1195,18 @@ function lidarSourcesInfo(job) {
   const limit = Number(job.lidar_cache_max_age_days) || 180;
 
   let level = "ok";
-  const lines = [
-    "Výška terénu, stromů a budov je z leteckého laserového skenování ČÚZK.",
-  ];
+  const info = (text) => ({ text, warn: false });
+  const lines = [info("Výška terénu, stromů a budov je z leteckého laserového skenování ČÚZK.")];
   if (degraded || mode === "1g" || mode === "mixed") {
     level = "warn";
-    lines.unshift(
-      (mode === "mixed" ? "Pro část území" : "Pro toto území") +
+    lines.unshift({
+      text:
+        (mode === "mixed" ? "Pro část území" : "Pro toto území") +
         " nebyla při zpracování dostupná přesná data o výšce stromů a budov," +
         " použila se starší hrubší náhrada. Porosty a průchodnost mohou být méně přesné." +
-        " Doporučení: vygenerujte mapu znovu za pár dní."
-    );
+        " Doporučení: vygenerujte mapu znovu za pár dní.",
+      warn: true,
+    });
   }
   const leafless = !!(job.dmp_leafless || (meta && meta.dmp_leafless));
   const flownDates = [];
@@ -1217,28 +1220,32 @@ function lidarSourcesInfo(job) {
       if (!flownDates.includes(txt)) flownDates.push(txt);
     }
     const partial = flown.length > 0 && flown.length < sheets.length;
-    lines.unshift(
-      `Výška stromů je pro ${partial ? "část území" : "toto území"} ze snímkování` +
+    lines.unshift({
+      text:
+        `Výška stromů je pro ${partial ? "část území" : "toto území"} ze snímkování` +
         " na jaře bez listí" +
         (flownDates.length ? ` (${flownDates.join(", ")})` : "") +
         ". V listnatém lese proto mohou být chybně louky a paseky;" +
-        " porosty tam ověřte v terénu nebo na ortofotu."
-    );
+        " porosty tam ověřte v terénu nebo na ortofotu.",
+      warn: true,
+    });
   }
   if (maxAge != null && (level === "warn" || maxAge > limit)) {
     lines.push(
-      `Data byla stažena ${daysAgoText(maxAge)}.` +
-        (maxAge > limit
-          ? " Příští mapa tohoto území si je stáhne znovu automaticky."
-          : "")
+      info(
+        `Data byla stažena ${daysAgoText(maxAge)}.` +
+          (maxAge > limit ? " Příští mapa tohoto území si je stáhne znovu automaticky." : "")
+      )
     );
   } else if (maxAge != null) {
     lines.push(
-      `Data jsou aktuální (stažena ${daysAgoText(maxAge)}; ČÚZK území` +
-        " přeskenovává jen jednou za několik let). Nic není potřeba dělat."
+      info(
+        `Data jsou aktuální (stažena ${daysAgoText(maxAge)}; ČÚZK území` +
+          " přeskenovává jen jednou za několik let). Nic není potřeba dělat."
+      )
     );
   } else if (level === "ok") {
-    lines.push("Data jsou v pořádku, nic není potřeba dělat.");
+    lines.push(info("Data jsou v pořádku, nic není potřeba dělat."));
   }
 
   const detail = [dmpLabel];
@@ -1261,9 +1268,12 @@ function renderJobSources(el, job) {
     el.innerHTML = "";
     return;
   }
-  const icon = info.level === "warn" ? "⚠ " : "";
+  // ⚠ a zvýraznění jen u vět o skutečném problému; běžné informace o zdrojích zůstávají neutrální.
+  const warnings = info.lines.filter((l) => l.warn);
+  const notes = info.lines.filter((l) => !l.warn);
   el.innerHTML =
-    `<div>${icon}${info.lines.map(escapeHtml).join(" ")}</div>` +
+    warnings.map((l) => `<div class="sources-warn">⚠ ${escapeHtml(l.text)}</div>`).join("") +
+    (notes.length ? `<div>${notes.map((l) => escapeHtml(l.text)).join(" ")}</div>` : "") +
     `<details class="sources-detail"><summary>Technické podrobnosti</summary>` +
     `<code>${escapeHtml(info.detail)}</code></details>`;
 }
