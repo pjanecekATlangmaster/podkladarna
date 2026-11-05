@@ -355,6 +355,29 @@ python scripts/oom_export_png.py C:\cesta\Mapa-mtbo.omap -o preview.png
 .\scripts\fetch_openorienteering_mapper.ps1
 ```
 
+## API pro externí klienty (Stavitel) – stabilní kontrakt
+
+Projekt Stavitel zakládá joby přes API a z výsledného `.omap` (S-JTSK) přenáší kontroly přes georeferenci.
+Následující části API jsou **stabilní kontrakt**: bez dohody se nemění (zamyká je `tests/test_api_contract.py`).
+
+- **Autentizace:** hlavička `X-Api-Key` = `API_CLIENT_KEY` z `.env` (porovnání v konstantním čase, klíč se neloguje
+  ani nevrací). Bez hlavičky se job zakládá jako dosud; neplatný klíč nebo klíč nenastavený na serveru → `401`.
+- **`POST /api/jobs`** (multipart / form): `name`, `map_scale` (`4000` sprint, `7500`, `10000`, `15000`),
+  `bbox` = `W,S,E,N` ve WGS84 (stupně), volitelně `contour_interval` a `map_types` (`les`, `mtbo`, opakované pole
+  nebo `les,mtbo`; jen u lesních měřítek, bez pole výchozí `les`, u 1:15000 `mtbo`; sprint 1:4000 se volí měřítkem
+  a `map_types` ignoruje). Job s klíčem je vždy soukromý (mimo veřejný `GET /api/jobs`), e-mail není potřeba.
+- **Odpověď:** `id`, `status`, `private: true`, `options.map_scale`, `options.bbox_wgs84`, `options.map_types`
+  (lesní měřítka) a `download_token`. Stejný běžící job (týž výřez a volby) vrátí existující job
+  s `duplicate_skipped: true` a jeho tokenem.
+- **Stav:** `GET /api/jobs/{id}` → `status`: `pending` / `queued` / `running` → `done`, `done_with_errors`
+  (ZIP je, něco chybí) nebo `failed`.
+- **Stažení:** `GET /api/jobs/{id}/download?token=<download_token>` → ZIP (`409` dokud job běží, `404` bez
+  platného tokenu, `410` po vypršení `PRIVATE_JOB_RETENTION_HOURS`, výchozí 48 h od založení).
+- **ZIP:** mapy v kořeni jako `<Název>-les.omap`, `<Název>-mtbo.omap`, `<Název>-sprint.omap` (název bez diakritiky
+  a mezer, CamelCase, nejvýš 12 znaků, prázdný → `Mapa`), vedle případně stejnojmenné `.ocd`.
+- **Limit:** joby s klíčem mají vlastní limit místo limitu podle IP: `API_KEY_MAX_ACTIVE_JOBS` (3) běžících
+  / čekajících a `API_KEY_MAX_JOBS_HOUR` (20) za hodinu, při překročení `429`. Plná fronta serveru dál vrací `503`.
+
 ## SMTP a privátní joby
 
 Checkbox **„Privátní režim generování mapy…“** vyžaduje e-mail. Job se neobjeví ve veřejném `/api/jobs`, UI neukáže náhled ani ZIP. Po `done` worker pošle plain-text e-mail s odkazem `/d/{token}` (platí `PRIVATE_JOB_RETENTION_HOURS`, default 48). Expirované privátní joby maže startup/cleanup sweep (a 410 při přístupu po splatnosti).

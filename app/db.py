@@ -190,6 +190,40 @@ def count_active_jobs_for_ip(client_ip: str) -> int:
     return int(row[0]) if row else 0
 
 
+def count_active_api_jobs() -> int:
+    """Běžící / čekající joby založené API klíčem (`options.api_client`)."""
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) FROM jobs
+            WHERE status IN ('pending', 'queued', 'running')
+              AND json_extract(options_json, '$.api_client') = 1
+            """
+        ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def count_api_jobs_since(since: datetime) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) FROM jobs
+            WHERE json_extract(options_json, '$.api_client') = 1
+              AND created_at >= ?
+            """,
+            (since.isoformat(),),
+        ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def get_download_token(job_id: str) -> str | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT download_token FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+    return (row["download_token"] if row else None) or None
+
+
 def count_jobs_for_ip_since(client_ip: str, since: datetime) -> int:
     since_s = since.isoformat()
     with connect() as conn:
