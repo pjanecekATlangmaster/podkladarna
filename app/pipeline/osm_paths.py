@@ -5465,7 +5465,26 @@ def merge_parking_into_road(
                 out.append({"type": "Feature", "properties": dict(props), "geometry": mapping(merged)})
                 continue
         out.append(f)
+    if merged_idx:
+        # Zpevněná plocha, přes kterou vede osa ulice (silnice se v ní nekreslí, ``clip_road_in_paved``), se se slitým
+        # stáním zacelí také – jinak zbyl mezi nimi pahýl čáry a ulice byla přerušená (Lohniského: úzké stání
+        # a vedle za 4 m vjezdem široké parkoviště, Petr 2026-11-05).
+        for k, f in enumerate(out):
+            if k in merged_idx or (f.get("properties") or {}).get("kind") not in _PAVED_AREA_KINDS:
+                continue
+            if (f.get("properties") or {}).get("structure") or (f.get("geometry") or {}).get("type") not in ("Polygon", "MultiPolygon"):
+                continue
+            try:
+                g = shape(f["geometry"])
+            except (ValueError, TypeError):
+                continue
+            if any(line.intersection(g).length > PARKING_AXIS_INSIDE_M for line, _h in roads if line.distance(g) == 0):
+                merged_idx.append(k)
     return _bridge_parking_gaps(out, merged_idx, roads, mm_to_ground_m(PARKING_GAP_BRIDGE_MM, scale))
+
+
+# Plocha se k zacelení mezery podél ulice (``_bridge_parking_gaps``) bere, vede-li jí osa ulice aspoň tolik m.
+PARKING_AXIS_INSIDE_M = 2.0
 
 
 # Mezera podél ulice mezi dvěma úseky slitými se stáním (``merge_parking_into_road``) do tolika mm mapy se zacelí pásem
