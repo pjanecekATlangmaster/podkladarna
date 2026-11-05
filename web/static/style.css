@@ -944,7 +944,33 @@ legend {
   }
 }
 
-.site-footer {
+.site-.support-pay {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: center;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.support-qr {
+  width: 200px;
+  height: 200px;
+  background: #fff;
+  border-radius: 6px;
+}
+
+.support-account { margin: 0; }
+.support-account dt { font-size: 0.8rem; opacity: 0.75; margin-top: 0.5rem; }
+.support-account dd { margin: 0; }
+.support-hint { font-size: 0.85rem; opacity: 0.8; }
+
+.support-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+footer {
   text-align: center;
   padding-top: 1.25rem;
   padding-bottom: 2rem;

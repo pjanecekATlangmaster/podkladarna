@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Podpora vývoje – Podkladárna</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="page-wrap header-inner">
+      <a href="/"><img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" /></a>
+      <div>
+        <h1>Podpora vývoje</h1>
+        <p class="tagline"><a href="/">← zpět na Podkladárnu</a></p>
+      </div>
+    </div>
+  </header>
+
+  <main class="licence-page support-page">
+    <p>
+      Podkladárna je nyní zdarma, bez registrace a bez reklam, a dál se vyvíjí.
+      Na vývoj používám AI, za jejíž tokeny platím.
+    </p>
+    <p>
+      Pokud se vám služba osvědčila nebo chcete pomoct s dalším vývojem,
+      ocením příspěvek v jakékoli výši. Je to čistě dobrovolné
+      a nic se tím neodemyká.
+    </p>
+
+    <div class="support-pay">
+      <img src="/static/podpora-qr.svg" alt="QR Platba na účet 78821001/5500" class="support-qr" width="200" height="200" />
+      <dl class="support-account">
+        <dt>Číslo účtu</dt>
+        <dd><strong>78821001/5500</strong></dd>
+        <dt>IBAN</dt>
+        <dd>CZ03 5500 0000 0000 7882 1001</dd>
+        <dt>Variabilní symbol</dt>
+        <dd>8801</dd>
+        <dt>Zpráva pro příjemce</dt>
+        <dd>Příspěvek na vývoj podkladárny</dd>
+      </dl>
+    </div>
+    <p class="support-hint">
+      QR kód načte mobilní bankovnictví (QR Platba); částku zadáte sami.
+    </p>
+
+    <p>Děkuji. Petr Janeček</p>
+
+    <h2 lang="en">Support development</h2>
+    <p lang="en">
+      Podkladárna is currently free and under active development, which relies on paid AI tools.
+      If the service proved useful, any voluntary contribution is appreciated
+      (IBAN above, Raiffeisenbank, BIC RZBCCZPP). Nothing is unlocked by it.
+    </p>
+  </main>
+
+  <footer class="site-footer">
+    <p><a href="/">Podkladárna</a> v{{APP_VERSION}} · <a href="/licence">licence</a></p>
+  </footer>
+</body>
+</html>
