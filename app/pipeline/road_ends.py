@@ -441,8 +441,8 @@ def tidy_road_ends(
             and math.dist(q, node) <= END_TOUCH_M
             and _half_width_m(items[ni][0], preset_id, scale, halves) < hw - WIDTH_STEP_MIN_M
         ]
-        if not narrow:
-            continue
+        if len(narrow) != 1:
+            continue  # rozvětvení do více užších (rampy): protažené kusy by se překryly a odpadly jako souběh
         wl = geoms[wi]
         reach = min(hw, wl.length / 2)
         if reach <= END_TOUCH_M:
