@@ -340,6 +340,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   na okraj, na černou k ose). Kresbu nemění. Úpravy napojení silnic ověřuj těmito čísly před / po
   (`build_osm_path_parts(..., road_report={})` + `connection_report`). Revize a návrh: Claude Doc „Revize skládání silnic v lese
   a MTBO“, data `/mnt/project-files/silnice-skladani/`.
+- **Statistika původu jobů** (3.14.0, Petr 2026-11-05): tabulka `job_origin` v `podkladarna.db` (čas, API / privátní,
+  preset, typy map, bbox, konečný stav; IP, síť /24 a e-mail privátních jen jako HMAC značky se solí `origin_salt` vedle DB) přežije úklid jobů, maže se po `ORIGIN_RETENTION_DAYS` (365).
+  API ani web ji nečtou; přehled na NAS `sudo docker exec podkladarna python -m app.origin_stats [od] [do]` (test B `podkladarna-test`).
+  Informace o ukládání je v patičce webu.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
