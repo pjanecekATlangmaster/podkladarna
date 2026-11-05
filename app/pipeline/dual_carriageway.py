@@ -532,6 +532,8 @@ def _chain_arms(arms: list, close) -> list:
 # která spojuje dvě silnice kříženec od křížení vzdálený nejvýš ``SLIP_NODE_MAX_M`` m a míjí ho aspoň o ``SLIP_MIN_OFFSET_M``,
 # je v lese a MTBO jen trojúhelník vedle křižovatky – nekreslí se, křižovatku nese hlavní čára.
 SLIP_MAX_M = 80.0
+# Rampa spojená z více OSM ways smí měřit až tolik m (Lamačova × K Barrandovu: 41 + 40 m).
+SLIP_CHAIN_MAX_M = 100.0
 SLIP_NODE_MAX_M = 50.0
 SLIP_MIN_OFFSET_M = 5.0
 # Pás kolem ostatních silnic (m), který zóna rampy neořízne.
@@ -563,15 +565,21 @@ def _slip_zone(feats: list[dict], roads: list[list[tuple[float, float]]]):
     from shapely.ops import unary_union
     from shapely.strtree import STRtree
 
-    ramps = []
+    pieces = []
     for f in feats:
         p = f.get("properties") or {}
         coords = [(float(x), float(y)) for x, y in (f.get("geometry") or {}).get("coordinates") or []]
         if not str(p.get("name") or "") and len(coords) >= 2 and LineString(coords).length <= SLIP_MAX_M:
-            ramps.append(LineString(coords))
-    if not ramps:
+            pieces.append(LineString(coords))
+    if not pieces:
         return None
-    ramp_set = {tuple(r.coords[0]) + tuple(r.coords[-1]) for r in ramps}
+    ramp_set = {tuple(r.coords[0]) + tuple(r.coords[-1]) for r in pieces}
+    # rampa rozdělená do více OSM ways (Lamačova × K Barrandovu, Petr 2026-11-05): kusy se spojí přes uzly,
+    # kde navazují jen na sebe – jinak konec kusu uprostřed rampy nevedl ke kříženci a rampa zůstala
+    from shapely.ops import linemerge
+
+    _m = linemerge(unary_union(pieces)) if len(pieces) > 1 else pieces[0]
+    ramps = [g for g in getattr(_m, "geoms", [_m]) if g.geom_type == "LineString" and g.length <= SLIP_CHAIN_MAX_M]
     others = [LineString(c) for c in roads if tuple(c[0]) + tuple(c[-1]) not in ramp_set]
     others += [LineString(c) for c in (f["geometry"]["coordinates"] for f in feats if str((f.get("properties") or {}).get("name") or ""))]
     if not others:
