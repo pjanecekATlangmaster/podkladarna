@@ -298,3 +298,34 @@ Po změně `.env` (bez změny compose): `sudo ./update-nas-ab.sh <test|stable|bo
 Alternativa od 2.2.10 (`data/.env` na volume): od **2.2.11** doplní i klíče,
 které compose injectne jako prázdné (`SMTP_HOST=`). Restart kontejneru stačí.
 Health `/api/health` má `mail_configured` (true/false, bez hesel).
+
+## Statistika původu jobů (od 3.14.0)
+
+Kdo zadává joby (jeden člověk, nebo různí), se dá zjistit z interní tabulky `job_origin`
+v `data/podkladarna.db` (test B: `data-test/podkladarna.db`). API ani web ji nečtou.
+
+- **Co ukládá:** čas založení, id jobu, příznak API klienta (Stavitel) a privátního jobu,
+  preset, typy map, bbox a konečný stav (doplní se při úklidu jobu).
+- **IP a e-mail jen jako značky:** IP adresa, její síť (IPv4 /24, IPv6 /48) a u privátních jobů
+  e-mail se ukládají jako 12znakový otisk HMAC-SHA256 s tajnou solí `data/origin_salt`
+  (vznikne sama při prvním jobu, A a B mají každá svou). Stejný zdroj = stejná značka,
+  zpět adresu zjistit nejde. Smazáním `origin_salt` dostanou nové joby jiné značky
+  (staré už nejdou porovnat s novými).
+- **Retence:** `ORIGIN_RETENTION_DAYS` v `.env` (výchozí 365); starší řádky maže úklid jobů.
+  Smazání jobu (48 h) řádek nesmaže. Při startu 3.14.0 se doplní joby, které ještě existují.
+
+Přehled na NAS (repozitář ani skript není potřeba kopírovat, je v image):
+
+```bash
+cd /volume1/docker/podkladarna
+sudo docker exec podkladarna python -m app.origin_stats                        # dnešek (UTC)
+sudo docker exec podkladarna python -m app.origin_stats 2026-11-05             # jeden den
+sudo docker exec podkladarna python -m app.origin_stats 2026-11-01 2026-11-05  # období včetně obou dnů
+sudo docker exec podkladarna-test python -m app.origin_stats                   # test B
+```
+
+Výstup: počet jobů, rozdělení API / privátní / veřejný, počet různých IP, sítí a e-mailů,
+pak joby seskupené podle značky IP (`IP <značka> (síť <značka>): N jobů`) a u každého
+čas, id, stav, preset, typy map, druh, značka e-mailu, střed území (lat,lon) a název
+(jen u jobů, které ještě úklid nesmazal). Víc IP se stejnou značkou sítě = nejspíš stejný
+poskytovatel nebo místo.
