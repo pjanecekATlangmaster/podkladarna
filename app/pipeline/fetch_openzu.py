@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import email.utils
+import http.client
 import json
 import math
 import shutil
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+import zlib
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
@@ -70,6 +73,10 @@ QUERY_TIMEOUT_S = 30
 DOWNLOAD_TIMEOUT_S = 180
 # HEAD na OpenZU (ověření novější verze listu); při výpadku se bere cache.
 VERSION_CHECK_TIMEOUT_S = 15
+# Stažení listu z OpenZU občas skončí useknutým nebo vadným souborem (job 046c4604c4cf,
+# „File is not a zip file“ u DMP OK); list se pak stáhne znovu (pauzy mezi pokusy v s).
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_RETRY_WAIT_S = (10, 30)
 
 # Obdélník Česka + cca 15 km (listy SM5 u hranic).
 CZ_WEST = 11.85
@@ -510,8 +517,7 @@ def _cached_laz(
     zpath = folder / f"{kind}.zip"
     if log:
         log(f"Stahuji {kind} {mapnom} …")
-    remote = _http_download(url, zpath)
-    _extract_laz(zpath, laz)
+    remote = _download_and_extract(url, zpath, laz, f"{kind} {mapnom}", log)
     build_stats.note_file(stats_source, laz, cached=False)
     # Rozbalený LAZ zůstává v cache, ZIP je jen jeho kopie (~350 MB u DMP OK).
     zpath.unlink(missing_ok=True)
@@ -609,7 +615,38 @@ def _drop_redundant_zip(folder: Path, kind: str) -> None:
     (folder / f"{kind}.zip").unlink(missing_ok=True)
 
 
+def _download_and_extract(
+    url: str, zpath: Path, laz: Path, label: str, log: callable | None
+) -> dict | None:
+    """Stáhne ZIP listu a rozbalí LAZ; useknutý / vadný soubor stáhne znovu (``DOWNLOAD_ATTEMPTS``).
+
+    Po posledním neúspěchu FetchError (u DMP OK pak nastoupí DMP 1G)."""
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        try:
+            remote = _http_download(url, zpath)
+            _extract_laz(zpath, laz)
+            return remote
+        except FetchError as exc:
+            zpath.unlink(missing_ok=True)
+            laz.unlink(missing_ok=True)
+            if attempt >= DOWNLOAD_ATTEMPTS:
+                raise
+            wait = DOWNLOAD_RETRY_WAIT_S[min(attempt, len(DOWNLOAD_RETRY_WAIT_S)) - 1]
+            if log:
+                log(f"Stažení {label} selhalo ({exc}), pokus {attempt + 1}/{DOWNLOAD_ATTEMPTS} za {wait} s …")
+            time.sleep(wait)
+    raise AssertionError("nedosažitelné")
+
+
 def _extract_laz(zpath: Path, dest_laz: Path) -> None:
+    try:
+        _extract_laz_unchecked(zpath, dest_laz)
+    except (zipfile.BadZipFile, EOFError, zlib.error) as exc:
+        dest_laz.unlink(missing_ok=True)
+        raise FetchError(f"Stažený {zpath.name} není platný ZIP ({exc})") from exc
+
+
+def _extract_laz_unchecked(zpath: Path, dest_laz: Path) -> None:
     with zipfile.ZipFile(zpath) as zf:
         names = [n for n in zf.namelist() if n.lower().endswith((".laz", ".las"))]
         if not names:
@@ -657,6 +694,16 @@ def _http_download(url: str, dest: Path) -> dict | None:
     except urllib.error.URLError as exc:
         tmp.unlink(missing_ok=True)
         raise FetchError(f"Síťová chyba při stahování: {exc.reason}") from exc
+    except (http.client.HTTPException, OSError) as exc:
+        # Spojení přerušené uprostřed těla (reset, timeout čtení, IncompleteRead).
+        tmp.unlink(missing_ok=True)
+        raise FetchError(f"Stahování přerušeno ({exc!r}): {url}") from exc
+    expected = (version or {}).get("size")
+    got = tmp.stat().st_size
+    if expected and got != expected:
+        # urllib při předčasném konci těla nevyhodí chybu – useknutý soubor by prošel dál.
+        tmp.unlink(missing_ok=True)
+        raise FetchError(f"Neúplné stažení ({got} z {expected} B): {url}")
     tmp.replace(dest)
     if dest.stat().st_size < 1000:
         dest.unlink(missing_ok=True)
