@@ -677,9 +677,21 @@ def test_index_html(client):
     assert "jobs-live" in html
     assert "jobs-view-list" in html
     assert 'href="/licence"' in html
+    assert 'href="/podpora"' in html
     assert "creativecommons.org/licenses/by/4.0" in html
     assert "DEPLOY.md" not in html
     assert "output-disciplines-hint" in html
+
+def test_support_page(client):
+    r = client.get("/podpora")
+    assert r.status_code == 200
+    html = r.text
+    assert "78821001/5500" in html
+    assert "/static/podpora-qr.svg" in html
+    assert "dobrovolné" in html
+    assert f"/static/style.css?v={APP_VERSION}" in html
+    assert client.get("/static/podpora-qr.svg").status_code == 200
+
 
 def test_licence_page(client):
     r = client.get("/licence")

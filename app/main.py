@@ -244,6 +244,15 @@ def licence_page() -> HTMLResponse:
     return HTMLResponse(html)
 
 
+@app.get("/podpora", response_class=HTMLResponse)
+def support_page() -> HTMLResponse:
+    html = (WEB_DIR / "podpora.html").read_text(encoding="utf-8")
+    html = html.replace("{{APP_VERSION}}", APP_VERSION)
+    v = urllib.parse.quote(APP_VERSION, safe="")
+    html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
+    return HTMLResponse(html)
+
+
 @app.get("/api/presets")
 def api_presets():
     presets = load_presets()
