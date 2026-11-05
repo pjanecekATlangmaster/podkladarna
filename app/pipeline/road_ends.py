@@ -45,6 +45,9 @@ JOIN_PARALLEL_RUN_MM = 10.0
 # konec (``_square_end``); ostřejší úhel je rozvětvení, ne ústí.
 SQUARE_MIN_DEG = 20.0
 SQUARE_MAX_DEG = 60.0
+# Přechod širší silnice v užší (konec na konci, Lamačova × K Barrandovu, Petr 2026-11-05): užší čára se protáhne
+# po ose širší o půlku její kresby, aby roh konce širší netrčel; jen při rozdílu půlek kreseb aspoň tolik m.
+WIDTH_STEP_MIN_M = 0.3
 # Blokující plochy se pro test průchodu zmenší o tolik m (dotyk hrany nevadí).
 BLOCKER_SHRINK_M = 0.3
 
@@ -421,6 +424,37 @@ def tidy_road_ends(
             if sq is not None:
                 it[1] = sq
                 geoms[i] = LineString(sq)
+    # 4. Přechod širší silnice v užší (konec na konci): užší se protáhne po ose širší dovnitř její kresby.
+    ends_at: list[tuple[int, bool, tuple[float, float]]] = []
+    for i, it in enumerate(items):
+        if i in drop or not it[2] or not is_major_road_code(it[0], preset_id, scale) or it[1][0] == it[1][-1]:
+            continue
+        ends_at.append((i, True, it[1][0]))
+        ends_at.append((i, False, it[1][-1]))
+    for wi, w_start, node in ends_at:
+        hw =_half_width_m(items[wi][0], preset_id, scale, halves)
+        narrow = [
+            (ni, n_start)
+            for ni, n_start, q in ends_at
+            if ni != wi
+            and not items[ni][3]
+            and math.dist(q, node) <= END_TOUCH_M
+            and _half_width_m(items[ni][0], preset_id, scale, halves) < hw - WIDTH_STEP_MIN_M
+        ]
+        if not narrow:
+            continue
+        wl = geoms[wi]
+        reach = min(hw, wl.length / 2)
+        if reach <= END_TOUCH_M:
+            continue
+        inside = wl.interpolate(reach if w_start else wl.length - reach)
+        for ni, n_start in narrow:
+            c = items[ni][1]
+            if n_start:
+                items[ni][1] = [(inside.x, inside.y), *c]
+            else:
+                items[ni][1] = [*c, (inside.x, inside.y)]
+            geoms[ni] = LineString(items[ni][1])
     out: dict[str, list[list[tuple[float, float]]]] = {code: [] for code in (*pieces_by_code, *(stub_by_code or {}))}
     for i, it in enumerate(items):
         if i not in drop and not it[3]:

@@ -151,3 +151,15 @@ def test_acute_side_road_meets_main_square(case, end, squared):
         assert y1 >= 8.7 - 0.6, case  # bod před ústím za okrajem hlavní silnice (půlky kreseb 4,35 + 4,35 m)
     else:
         assert got == side, case
+
+
+def test_narrow_road_continues_into_wider_end():
+    # Lamačova (Petr 2026-11-05): osa rozdělené vozovky 502.0 končí v uzlu, odkud pokračují užší 502.1 – užší se
+    # protáhne po ose širší dovnitř její kresby, roh konce širší netrčí
+    wide = [(0.0, 0.0), (100.0, 0.0)]
+    a = [(100.0, 0.0), (160.0, 30.0)]
+    b = [(100.0, 0.0), (160.0, -30.0)]
+    out = tidy_road_ends({"502.0": [wide], "502.1": [a, b]}, [wide, a, b], preset_id="mtbo_10000", scale=7500)
+    for ln in out["502.1"]:
+        assert ln[0][1] == pytest.approx(0.0, abs=0.01) and ln[0][0] < 99.0 and ln[1] == (100.0, 0.0)
+    assert out["502.0"] == [wide]
