@@ -178,6 +178,8 @@ def test_street_side_parking_merged_with_road(tmp_path, preset):
         ([(0, 40), (50, 90, -7.5, -3)], [[(-20, 0), (130, 0)]], 1),
         # dlouhá mezera (40 m) – mezi plochami kreslí čára silnice
         ([(0, 40), (80, 120)], [[(-20, 0), (140, 0)]], 2),
+        # za vjezdem široké parkoviště přes osu ulice (Lohniského, Petr 2026-11-05) – také jedna plocha
+        ([(0, 40), (44, 90, -6, 12)], [[(-20, 0), (130, 0)]], 1),
     ],
 )
 def test_street_parking_gap_bridged(tmp_path, strips, roads, n_out):

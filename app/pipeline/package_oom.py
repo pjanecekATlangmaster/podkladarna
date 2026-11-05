@@ -837,6 +837,7 @@ def _prepare_oom_map(
             from app.pipeline.osm_paths import mixed_osm_road_band
 
             dtm_cover = mixed_osm_road_band(kp_cwd, preset_id, scale)
+        road_join_band = dtm_cover  # ulice ZABAGED končící na kresbě OSM silnice se dotáhne do její výplně
         paved_clip = None
         if not preset_id.startswith("sprint"):
             # Les a MTBO: ZABAGED ulice přes zpevněnou plochu (parkoviště, podélné stání) jen napojení jako OSM silnice.
@@ -889,6 +890,7 @@ def _prepare_oom_map(
             stub_cover=stub_cover,
             rail_tunnel_zone=rail_tunnel_zone,
             paved_clip=paved_clip,
+            road_join_band=None if preset_id.startswith("sprint") else road_join_band,
         ):
             if _COURTYARD_MARK in part.name:
                 courtyard_parts.append(part)

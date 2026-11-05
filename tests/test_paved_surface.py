@@ -30,6 +30,8 @@ def test_edge_omit_parallel_line_removes_edge_along_it():
     assert zone is not None
     assert network.boundary.intersection(zone).length > 95
     assert zone.contains(Point(50, 0)) and not zone.contains(Point(50, 40))
+    # boční hrana plochy kolmo k silnici v pásu zůstává – okraj dojde až k silnici (dřív končil o mezeru před ní)
+    assert not zone.contains(Point(0, 2)) and not zone.contains(Point(100, 2))
     assert ps.edge_omit_zone(network, [([(0.0, -25.0), (100.0, -25.0)], 4.0)], "forest_10000", 10000) is None
 
 

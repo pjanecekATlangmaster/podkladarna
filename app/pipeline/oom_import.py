@@ -491,6 +491,52 @@ def _drop_cover_stubs(line_parts, cover, scale: int):
     return out
 
 
+# Les / MTBO (mixed): ulice ZABAGED oříznutá o kresbu OSM silnice (``mixed_osm_road_band``) končila na její vnější hraně,
+# takže okrajová linka OSM silnice zůstala přes ústí jako černá příčka (test B Barrandov 2026-11-04: 217 z 229 takových
+# konců). Konec se prodlouží o tolik mm mapy (okrajová linka 0,27 mm + rezerva) do výplně – výplň je v sadě nad
+# okrajovými linkami, ústí otevře Mapper.
+ZABAGED_ROAD_JOIN_MM = 0.4
+# Konec je na hraně pásu, je-li od ní do tolika m.
+ZABAGED_ROAD_JOIN_TOL_M = 0.5
+
+
+def _join_into_road_band(line_parts, band, scale: int):
+    """Konce kusů ``line_parts`` na hraně ``band`` (pás kresby OSM silnic) prodlouží ve směru čáry o
+    ``ZABAGED_ROAD_JOIN_MM`` do pásu; konec, jehož prodloužení by z pásu vyšlo (čára hranu jen míjí), zůstane."""
+    import math
+
+    from shapely.geometry import Point
+    from shapely.prepared import prep
+
+    if band is None or band.is_empty:
+        return line_parts
+    reach = ZABAGED_ROAD_JOIN_MM * scale / 1000.0
+    edge = band.boundary
+    inside = prep(band)
+    out = []
+    for pts in line_parts:
+        pts = [(float(x), float(y)) for x, y, *_ in pts]
+        if len(pts) < 2:
+            out.append(pts)
+            continue
+        for at_start in (True, False):
+            seq = pts if at_start else pts[::-1]
+            end = seq[0]
+            if edge.distance(Point(end)) > ZABAGED_ROAD_JOIN_TOL_M:
+                continue
+            ref = next((q for q in seq[1:] if math.dist(q, end) >= 2.0), seq[-1])
+            d = math.dist(ref, end)
+            if d <= 0:
+                continue
+            new = (end[0] + (end[0] - ref[0]) / d * reach, end[1] + (end[1] - ref[1]) / d * reach)
+            mid = ((end[0] + new[0]) / 2, (end[1] + new[1]) / 2)
+            if not (inside.contains(Point(new)) and inside.contains(Point(mid))):
+                continue
+            pts = [new, *pts] if at_start else [*pts, new]
+        out.append(pts)
+    return out
+
+
 def _fmt(x: int, y: int, flags: int = 0) -> str:
     if flags:
         return f"{x} {y} {flags}"
@@ -970,8 +1016,11 @@ def _build_zabaged_object_parts(
     prefer_osm_road_lines: list[list[tuple[float, float]]] | None = None,
     paved_clip=None,
     cliff_work_dir: Path | None = None,
+    road_join_band=None,
 ) -> list[OomObjectPart]:
     """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
+    ``road_join_band`` (les / MTBO mixed): pás kresby OSM silnic; ulice s výplní, která na něm končí, se dotáhne do
+    výplně OSM silnice (``_join_into_road_band``).
     ``stub_cover``: les / MTBO plochy z DTM (koridor, parkoviště, chodníky); pahýl ZABAGED silnice u nich se nekreslí
     (``_drop_cover_stubs``). Bez DTM None – kresba beze změny.
 
@@ -1205,6 +1254,11 @@ def _build_zabaged_object_parts(
     )
 
     road_layers = frozenset({"Ulice", "SilniceDalnice", _ROAD_BRIDGE_LAYER})
+
+    def _major_road(code: str | None) -> bool:
+        from app.pipeline.osm_paths import is_major_road_code
+
+        return is_major_road_code(code, preset_id, scale)
     road_index = None
     ground_index = None
     paved_core = None
@@ -1420,6 +1474,8 @@ def _build_zabaged_object_parts(
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
                     if stub_cover is not None and layer_name in road_layers:
                         line_parts = _drop_cover_stubs(line_parts, stub_cover, scale)
+                    if road_join_band is not None and layer_name in road_layers and _major_road(code):
+                        line_parts = _join_into_road_band(line_parts, road_join_band, scale)
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":
@@ -1559,6 +1615,8 @@ def _build_zabaged_object_parts(
                     # ne původní geometrie (Strakonická dvakrát: ZABAGED 503 + OSM 502.1).
                     if stub_cover is not None and layer_name in road_layers:
                         line_parts = _drop_cover_stubs(line_parts, stub_cover, scale)
+                    if road_join_band is not None and layer_name in road_layers and _major_road(code):
+                        line_parts = _join_into_road_band(line_parts, road_join_band, scale)
                     if not line_parts:
                         continue
                     if layer_name == "Cesta":

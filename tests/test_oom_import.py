@@ -899,6 +899,27 @@ def test_drop_cover_stubs_keeps_long_and_far_pieces():
     assert _drop_cover_stubs([stub, far, long], cover, 10000) == [far, long]
 
 
+@pytest.mark.parametrize(
+    "line, joined",
+    [
+        ([(50.0, 40.0), (50.0, 10.0)], True),  # ulice kolmo končí na hraně pásu → konec 4 m dovnitř (do výplně)
+        ([(0.0, 10.0), (40.0, 10.0)], False),  # čára podél hrany pásu – prodloužení by z pásu vyšlo
+        ([(50.0, 40.0), (50.0, 20.0)], False),  # konec daleko od pásu
+    ],
+)
+def test_zabaged_road_end_joins_into_osm_road_band(line, joined):
+    from shapely.geometry import box
+
+    from app.pipeline.oom_import import ZABAGED_ROAD_JOIN_MM, _join_into_road_band
+
+    band = box(0, 0, 100, 10)  # kresba OSM silnice
+    out = _join_into_road_band([line], band, 10000)
+    if joined:
+        assert out[0][-1] == pytest.approx((50.0, 10.0 - ZABAGED_ROAD_JOIN_MM * 10))
+    else:
+        assert out == [line]
+
+
 def test_sprint_zabaged_road_bridge_on_osm_path_dropped(tmp_path):
     """Sprint: ZABAGED Most na OSM cestě, která v OSM most není (cyklostezka nad pěším tunelem way/160570380), se nekreslí."""
     pytest.importorskip("pyogrio")
