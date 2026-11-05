@@ -92,8 +92,8 @@ WEB_ABOUT_HTML = """
   celé území a další varianty má smysl pustit, až když výsledek sedí. Děkujeme.
 </p>
 <p>
-  Nakreslete obdélník (les a MTBO max 25&nbsp;km², např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km;
-  sprint 1:4000 max 9&nbsp;km², např. 3&nbsp;×&nbsp;3&nbsp;km), vyberte
+  Nakreslete obdélník (MTBO max 25&nbsp;km², např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km; les max 15&nbsp;km²;
+  sprint 1:4000 max 4&nbsp;km², např. 2&nbsp;×&nbsp;2&nbsp;km), vyberte
   <strong>měřítko</strong> (podle něj se zvolí sprint, nebo les a MTBO), případně zvolte další
   parametry a spusťte generování. Na tlačítku je hrubý odhad potřebného času.
   Stránku mezitím můžete zavřít.
