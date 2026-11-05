@@ -233,6 +233,8 @@ def test_slip_lane_beside_junction_not_drawn(ramp, name, dropped):
     roads = [[(0, -100), (0, 100)], [(-100, 0), (100, 0)]]
     zone = dc._slip_zone([_feat(ramp, name=name)], roads)
     assert (zone is not None and zone.contains(LineString(ramp).interpolate(0.5, normalized=True))) == dropped
+    # rampa začínající v konci osy rozdělené vozovky 502.0 zůstane (Lamačova, Petr 2026-11-05) – napojí ji vějíř
+    assert dc._slip_zone([_feat(ramp, name=name)], roads, keep_ends=[ramp[0]]) is None
     # hlavní silnice se u konců rampy nepřeruší a zbytek rampy u ní je kratší než nejkratší kreslený kus
     assert zone is None or all(zone.intersection(LineString(r)).length < 0.01 for r in roads)
     from app.pipeline.dtm_sidewalks import clip_outside
