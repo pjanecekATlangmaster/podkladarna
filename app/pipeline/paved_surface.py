@@ -268,6 +268,38 @@ EDGE_PARALLEL_MIN_MM = 0.6
 EDGE_PARALLEL_MAX_DEG = 30.0
 
 
+def _parallel_part(piece, line):
+    """Úseky souběhu ``piece`` (LineString) odchýlené od ``line`` nejvýš o ``EDGE_PARALLEL_MAX_DEG``, nebo None. Kolmý
+    příjezd okraje k silnici (roh plochy u ulice) v pásu zůstává a okraj se kreslí až k ústí – dřív se vynechal se
+    souběhem celý a okraj končil o mezeru čitelnosti (0,35 mm) před silnicí (test B Barrandov 2026-11-04)."""
+    import math
+
+    from shapely.geometry import LineString
+    from shapely.ops import linemerge, unary_union
+
+    coords = list(piece.coords)
+    keep = []
+    for a, b in zip(coords, coords[1:]):
+        seg = LineString([a, b])
+        if seg.length <= 0:
+            continue
+        s = line.project(seg.interpolate(0.5, normalized=True))
+        p0 = line.interpolate(max(0.0, s - 1.0))
+        p1 = line.interpolate(min(line.length, s + 1.0))
+        dx, dy = p1.x - p0.x, p1.y - p0.y
+        if dx == 0 and dy == 0:
+            continue
+        ang = abs(math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]) - math.atan2(dy, dx))) % 180.0
+        if min(ang, 180.0 - ang) <= EDGE_PARALLEL_MAX_DEG:
+            keep.append(seg)
+    if not keep:
+        return None
+    merged = unary_union(keep)
+    if merged.geom_type == "MultiLineString":
+        merged = linemerge(merged)
+    return merged if not merged.is_empty else None
+
+
 def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
     """Kde se okraj plochy ``network`` nekreslí (shapely) nebo None: pás každé kreslené čáry cesty (``road_bands`` =
     ``path_clearance.drawn_path_bands``: ``(osa, půlka šířky m)``) rozšířený o 0,3 m – ústí čáry do plochy;
@@ -309,7 +341,9 @@ def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
             cut = _merged_pieces(ring.intersection(wide))
             for piece in [cut] if cut.geom_type == "LineString" else getattr(cut, "geoms", []):
                 if piece.geom_type == "LineString" and _parallel_piece(piece, line, wide_r, scale):
-                    zones.append(piece.buffer(0.1))  # souběh: okraj vedle čáry by byl dvojitá linie
+                    run = _parallel_part(piece, line)  # souběh: okraj vedle čáry by byl dvojitá linie
+                    if run is not None:
+                        zones.append(run.buffer(0.1))
     return unary_union(zones) if zones else None
 
 
