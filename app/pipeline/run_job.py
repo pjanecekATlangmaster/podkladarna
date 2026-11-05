@@ -72,7 +72,6 @@ from app.pipeline.preview import (
     ensure_georef_template,
     resolve_preview_png,
 )
-from app.pipeline.sentinel2 import INFO_NAME as SENTINEL_INFO_NAME
 from app.pipeline.reference_layers import (
     ALWAYS_REFERENCE_KEYS,
     add_sentinel2_reference,
@@ -1356,7 +1355,7 @@ def _package_output(
                         ".jgw",
                         ".gpkg",
                         ".dxf",
-                    } or path.name == SENTINEL_INFO_NAME:
+                    }:
                         shutil.copy2(path, refs_dst / path.name)
         # Vegetace / srázy / skály (použité vs vyhozené) – stejné jako v ZIPu.
         try:

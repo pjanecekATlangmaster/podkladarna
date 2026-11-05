@@ -124,7 +124,6 @@ def job_form_template(job: dict[str, Any], presets: dict | None = None) -> dict[
         "sprint_residual_size": residual_size,
         "output_georef": _bool(opts.get("output_georef"), False),
         "output_references": _bool(opts.get("output_references"), True),
-        "output_sentinel": _bool(opts.get("output_sentinel"), False),
     }
 
     bbox = _bbox(opts.get("bbox_wgs84"))

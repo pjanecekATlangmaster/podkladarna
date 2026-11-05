@@ -1,16 +1,17 @@
 """Družicový snímek Sentinel-2 jako podklad pro mapaře (šablona v .omap a soubor v ZIPu).
 
-Petr 2026-11-05: „oko mapaře může vidět co my ne“ – nejnovější bezoblačný snímek výřezu
-(pravé barvy a infračervené falešné barvy), s datem snímku v názvu souboru. Do kresby
+Petr 2026-11-05: „oko mapaře může vidět co my ne“ – bezoblačné snímky výřezu v pravých
+barvách s datem snímku v názvu souboru, mezi ostatními referenčními podklady. Do kresby
 nevstupuje (Sentinel-2 má 10 m/px, viz zamítnutý návrh pasek S1).
 
 Zdroj: Sentinel-2 L2A jako Cloud Optimized GeoTIFF na AWS (Element84 earth-search STAC,
 bez registrace, licence Copernicus – volné užití s uvedením zdroje). Čte se jen okno
 výřezu přes ``/vsicurl/`` (GDAL), ne celé dlaždice 110 × 110 km.
 
-Výběr snímku: nejnovější s jasným výřezem podle masky SCL (mraky, stíny, sníh do
-``MAX_BAD_SHARE``) a navíc nejnovější jasný z vegetační sezóny, pokud ten první
-v sezóně není (listnatý les vypadá v zimě jinak).
+Výběr snímků (Petr 2026-11-05: „poslední půl rok po 3 měsících“, bez NIR): v každém
+z ``SLOT_COUNT`` období po ``SLOT_DAYS`` dnech od dneška zpět nejnovější snímek s jasným
+výřezem podle masky SCL (mraky, stíny, sníh do ``MAX_BAD_SHARE``) – tedy nejnovější,
+zhruba před 3 a před 6 měsíci. Období bez jasného snímku se vynechá.
 """
 
 from __future__ import annotations
@@ -27,25 +28,22 @@ from app.pipeline.fetch_openzu import USER_AGENT
 
 STAC_SEARCH_URL = "https://earth-search.aws.element84.com/v1/search"
 STAC_COLLECTION = "sentinel-2-l2a"
-# Jak daleko do minulosti hledat (pokryje i poslední vegetační sezónu).
-SEARCH_DAYS = 400
+# Období výběru: nejnovější jasný snímek v každém z SLOT_COUNT úseků po SLOT_DAYS dnech zpět.
+SLOT_DAYS = 90
+SLOT_COUNT = 3
+SEARCH_DAYS = SLOT_DAYS
 # Předfiltr podle oblačnosti celé dlaždice (%); přesně rozhoduje maska SCL ve výřezu.
 TILE_CLOUD_MAX = 60
 SEARCH_LIMIT = 100
-# Kolik kandidátů nejvýš ověřit maskou SCL (každý = jedno malé čtení COG).
-MAX_SCL_CHECKS = 12
+# Kolik kandidátů v jednom období nejvýš ověřit maskou SCL (každý = jedno malé čtení COG).
+MAX_SCL_CHECKS = 8
 # SCL: 0 bez dat, 1 saturace, 3 stín mraku, 8 a 9 mraky, 10 cirrus, 11 sníh.
 SCL_BAD = frozenset({0, 1, 3, 8, 9, 10, 11})
 MAX_BAD_SHARE = 0.02
-# Vegetační sezóna (měsíce) pro druhý snímek.
-LEAF_MONTHS = frozenset({5, 6, 7, 8, 9})
 # Výstupní krok: nativně 10 m, 5 m s kubickým převzorkováním je v Mapperu příjemnější
 # na oko a ZIP to zvětší jen o stovky kB.
 OUT_MPP = 5.0
 JPEG_QUALITY = 90
-# L2A od processing baseline 04.00: DN = odrazivost · 10 000 + 1 000 (offset -0,1 ve STAC).
-# Rozsahy odrazivosti pro falešné barvy (NIR, červená, zelená) – běžné natažení CIR.
-CIR_BANDS = (("nir", 0.0, 0.65), ("red", 0.0, 0.15), ("green", 0.0, 0.15))
 HTTP_TIMEOUT_S = 60
 # GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR ne: platí i pro místní výstup (ENVI pak gdalwarp
 # skončí chybou bez hlášky); vedlejší soubory u COG nehledá už povolená přípona.
@@ -67,10 +65,6 @@ class Scene:
     tile_cloud: float
     assets: dict[str, str]
     dn_offset: float  # DN odpovídající nulové odrazivosti (1000 od baseline 04.00, jinak 0)
-
-    @property
-    def leaf_on(self) -> bool:
-        return self.day.month in LEAF_MONTHS
 
 
 def _gdal_config_args() -> list[str]:
@@ -109,11 +103,12 @@ def search_scenes(
     bbox_wgs84: tuple[float, float, float, float],
     *,
     today: date | None = None,
+    days: int = SEARCH_DAYS,
     opener=urllib.request.urlopen,
 ) -> list[Scene]:
-    """Kandidáti od nejnovějšího (jen podle oblačnosti celé dlaždice)."""
+    """Kandidáti za ``days`` dní do ``today`` od nejnovějšího (jen podle oblačnosti dlaždice)."""
     end = (today or date.today()) + timedelta(days=1)
-    start = end - timedelta(days=SEARCH_DAYS)
+    start = end - timedelta(days=days)
     body = {
         "collections": [STAC_COLLECTION],
         "bbox": [float(v) for v in bbox_wgs84],
@@ -199,26 +194,23 @@ def scl_bad_share(scene: Scene, bounds_5514, tmp: Path, *, run_cmd, gdal_tool, l
     return bad_share(raw.read_bytes())
 
 
-def pick_scenes(scenes: list[Scene], is_clear) -> list[Scene]:
-    """Nejnovější jasný snímek + nejnovější jasný ve vegetační sezóně (když ten první není)."""
-    picked: list[Scene] = []
-    checked = 0
+def slot_ends(today: date) -> list[date]:
+    """Konce období výběru: dnes, před SLOT_DAYS, před 2 · SLOT_DAYS dny …"""
+    return [today - timedelta(days=k * SLOT_DAYS) for k in range(SLOT_COUNT)]
+
+
+def pick_newest_clear(scenes: list[Scene], is_clear) -> Scene | None:
+    """Nejnovější jasný snímek (nejvýš ``MAX_SCL_CHECKS`` ověření, jeden den jednou)."""
     seen_days: set[date] = set()
     for scene in scenes:
-        if picked and picked[0].leaf_on:
+        if scene.day in seen_days:
+            continue
+        if len(seen_days) >= MAX_SCL_CHECKS:
             break
-        if picked and not scene.leaf_on:
-            continue
-        if scene.day in seen_days or checked >= MAX_SCL_CHECKS:
-            continue
-        checked += 1
-        if not is_clear(scene):
-            continue
         seen_days.add(scene.day)
-        picked.append(scene)
-        if len(picked) == 2:
-            break
-    return picked
+        if is_clear(scene):
+            return scene
+    return None
 
 
 def _render(
@@ -232,7 +224,7 @@ def _render(
     write_world,
     log=None,
 ) -> list[tuple[str, Path]]:
-    """Pravé barvy (TCI) a falešné barvy CIR jako JPEG + .jgw. Vrací (klíč, cesta)."""
+    """Pravé barvy (TCI) jako JPEG + .jgw. Vrací (klíč, cesta)."""
     stamp = scene.day.isoformat()
     xmin, ymin, xmax, ymax = bounds_5514
     width = max(1, round((xmax - xmin) / OUT_MPP))
@@ -269,46 +261,25 @@ def _render(
     _to_jpeg(tci, rgb, ["-b", "1", "-b", "2", "-b", "3"])
     out.append((f"sentinel2_{stamp}", rgb))
 
-    scale_args: list[str] = []
-    band_tifs: list[Path] = []
-    for i, (key, lo, hi) in enumerate(CIR_BANDS, start=1):
-        band_tif = tmp / f"{key}_{stamp}.tif"
-        _warp([scene.assets[key]], bounds, band_tif, mpp=OUT_MPP, resampling="cubic",
-              out_format="GTiff", run_cmd=run_cmd, gdal_tool=gdal_tool, log=log)
-        band_tifs.append(band_tif)
-        scale_args += [
-            f"-scale_{i}",
-            f"{scene.dn_offset + lo * 10000:.0f}",
-            f"{scene.dn_offset + hi * 10000:.0f}",
-            "1",
-            "255",
-        ]
-    vrt = tmp / f"cir_{stamp}.vrt"
-    run_cmd([gdal_tool("gdalbuildvrt"), "-q", "-separate", str(vrt), *map(str, band_tifs)], log=log)
-    cir = out_dir / f"{FILE_PREFIX}{stamp}_nir.jpg"
-    _to_jpeg(vrt, cir, scale_args)
-    out.append((f"sentinel2_{stamp}_nir", cir))
     return out
 
 
 def info_text(scenes: list[Scene]) -> str:
     lines = [
-        "Sentinel-2 L2A – družicový snímek jako podklad pro mapaře (do kresby nevstupuje)",
+        "Sentinel-2 L2A – družicové snímky v pravých barvách (podklad pro mapaře, do kresby nevstupují)",
         "",
     ]
     for scene in scenes:
-        season = "vegetační sezóna" if scene.leaf_on else "mimo vegetační sezónu"
         lines += [
-            f"Datum snímku: {scene.day.isoformat()} ({season})",
-            f"  snímek: {scene.item_id}, oblačnost celé dlaždice {scene.tile_cloud:.1f} %",
-            f"  {FILE_PREFIX}{scene.day.isoformat()}.jpg – pravé barvy",
-            f"  {FILE_PREFIX}{scene.day.isoformat()}_nir.jpg – falešné barvy (NIR, červená, zelená):"
-            " živá vegetace červeně, holiny a paseky šedohnědě, voda tmavě",
+            f"- {FILE_PREFIX}{scene.day.isoformat()}.jpg – datum snímku {scene.day.isoformat()}"
+            f" ({scene.item_id}, oblačnost celé dlaždice {scene.tile_cloud:.1f} %)",
         ]
     lines += [
         "",
         f"Rozlišení 10 m/px (převzorkováno na {OUT_MPP:g} m/px), S-JTSK Křovák (EPSG:5514), world file .jgw.",
-        "Ve výřezu bez mraků podle masky SCL. Hodí se k posouzení novějších změn (paseky, polomy,",
+        f"Nejnovější snímek bez mraků ve výřezu (maska SCL) a starší po ~{SLOT_DAYS // 30} měsících"
+        f" za posledních {SLOT_COUNT * SLOT_DAYS // 30} měsíců, jsou-li jasné.",
+        "Hodí se k posouzení novějších změn (paseky, polomy,",
         "nové stavby, cesty) po datu ortofota a LiDARu; drobnosti pod ~20 m nerozliší.",
         "Zdroj: Copernicus Sentinel-2 L2A přes Element84 earth-search (AWS Open Data).",
         ATTRIBUTION.format(year=", ".join(sorted({str(s.day.year) for s in scenes}))),
@@ -332,11 +303,6 @@ def build_sentinel2_reference(
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob(f"{FILE_PREFIX}*"):
         old.unlink()
-    scenes = search_scenes(bbox_wgs84, today=today)
-    if log:
-        log(f"Sentinel-2: {len(scenes)} kandidátů za {SEARCH_DAYS} dní")
-    if not scenes:
-        return {}
     with tempfile.TemporaryDirectory(prefix="s2_", dir=out_dir.parent) as tmp_name:
         tmp = Path(tmp_name)
 
@@ -351,7 +317,14 @@ def build_sentinel2_reference(
                 log(f"Sentinel-2 {scene.day}: mraky / sníh / bez dat ve výřezu {share * 100:.1f} %")
             return share <= MAX_BAD_SHARE
 
-        picked = pick_scenes(scenes, _clear)
+        picked: list[Scene] = []
+        for end in slot_ends(today or date.today()):
+            scenes = search_scenes(bbox_wgs84, today=end, days=SLOT_DAYS)
+            if log:
+                log(f"Sentinel-2: {len(scenes)} kandidátů za {SLOT_DAYS} dní do {end}")
+            scene = pick_newest_clear(scenes, _clear)
+            if scene is not None:
+                picked.append(scene)
         if not picked:
             if log:
                 log("Sentinel-2: žádný jasný snímek výřezu – přeskočeno")

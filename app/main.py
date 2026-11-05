@@ -951,7 +951,12 @@ async def api_create_job(request: Request):
     # Georef GeoTIFF do ZIPu – default off (formulářové combo Formát už není).
     options["output_georef"] = _opt_bool("output_georef")
     options["output_references"] = _opt_bool("output_references")
-    options["output_sentinel"] = _opt_bool("output_sentinel")
+    # Sentinel-2 je součást referenčních podkladů (Petr 2026-11-05: „k ostatním, ne zvlášť“);
+    # starší klienti API mohou dál poslat output_sentinel zvlášť (0 / 1) a ten má přednost.
+    if _form_str(form, "output_sentinel").strip():
+        options["output_sentinel"] = _opt_bool("output_sentinel")
+    else:
+        options["output_sentinel"] = options["output_references"]
     options["force_refresh"] = _opt_bool("force_refresh")
     # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
     # API klient (platný X-Api-Key) má job vždy privátní, e-mail nepotřebuje –
@@ -1050,8 +1055,8 @@ async def api_create_job(request: Request):
     )
     log(
         f"  Výstup: {'ZIP' if options.get('output_zip', True) else 'jen PNG'} · "
-        f"referenční podklady {_yn('output_references', True)} · "
-        f"Sentinel-2 {_yn('output_sentinel')} · "
+        f"referenční podklady {_yn('output_references', True)} "
+        f"(Sentinel-2 {_yn('output_sentinel')}) · "
         f"georef GeoTIFF {_yn('output_georef')} · "
         f"vynucené obnovení {_yn('force_refresh')} · "
         f"privátní {_yn('private')}"
