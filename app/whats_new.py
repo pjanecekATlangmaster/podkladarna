@@ -232,7 +232,15 @@ def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
         ),
         "entries": entries_out,
         "entry_days": ENTRY_DAYS,
-        "entries_lead": _entries_lead_cs(entries_out, window_days=ENTRY_DAYS),
+        "entries_lead": (
+            _entries_lead_cs(entries_out, window_days=ENTRY_DAYS)
+            if entries_out or not milestones_out
+            else ""
+        ),
         "milestones": milestones_out,
-        "milestones_lead": "Dřívější milníky:" if milestones_out else "",
+        "milestones_lead": (
+            ("Dřívější milníky:" if entries_out else "Novinky:")
+            if milestones_out
+            else ""
+        ),
     }
