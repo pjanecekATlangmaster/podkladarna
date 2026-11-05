@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.12.12"
+APP_VERSION = "3.13.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -108,6 +108,12 @@ def _parse_ip_list(raw: str) -> frozenset[str]:
 
 
 RATE_LIMIT_EXEMPT_IPS = _parse_ip_list(os.environ.get("RATE_LIMIT_EXEMPT_IPS", ""))
+# API klient (Stavitel): sdílený klíč v hlavičce X-Api-Key → soukromý job bez e-mailu,
+# `download_token` v odpovědi. Prázdné = API klíč vypnutý (hlavička se odmítne 401).
+API_CLIENT_KEY = os.environ.get("API_CLIENT_KEY", "").strip()
+# Vlastní limit pro joby s klíčem (místo limitu podle IP).
+API_KEY_MAX_ACTIVE_JOBS = int(os.environ.get("API_KEY_MAX_ACTIVE_JOBS", "3"))
+API_KEY_MAX_JOBS_HOUR = int(os.environ.get("API_KEY_MAX_JOBS_HOUR", "20"))
 CLEANUP_INTERVAL_HOURS = int(os.environ.get("CLEANUP_INTERVAL_HOURS", "24"))
 LIDAR_CACHE_MAX_AGE_DAYS = int(os.environ.get("LIDAR_CACHE_MAX_AGE_DAYS", "180"))
 # Listy LiDARu (DMR 5G, DMP OK) se podle stáří znovu nestahují: jednou za tolik dní se u ČÚZK ověří

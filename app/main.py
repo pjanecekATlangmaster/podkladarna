@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import logging
 from html import escape as html_escape
 import mimetypes
@@ -26,7 +27,7 @@ from app.feedback import (
 from app.guide_text import WEB_ABOUT_HTML
 from app.job_template import job_form_template
 from app.mail import MailError
-from app.rate_limit import check_create_job
+from app.rate_limit import check_create_api_job, check_create_job
 from app.pipeline import build_stats
 from app.pipeline.fetch_openzu import (
     FetchError,
@@ -704,6 +705,26 @@ async def api_feedback(request: Request):
     return {"ok": True}
 
 
+API_KEY_HEADER = "x-api-key"
+
+
+def _api_client_authenticated(request: Request) -> bool:
+    """Hlavička X-Api-Key: chybí → False; platná → True; neplatná / klíč nenastaven → 401.
+
+    Klíč se porovnává v konstantním čase a nikdy se neloguje ani nevrací.
+    """
+    got = request.headers.get(API_KEY_HEADER)
+    if got is None:
+        return False
+    expected = app_settings.API_CLIENT_KEY
+    if not expected or not hmac.compare_digest(
+        got.strip().encode("utf-8"), expected.encode("utf-8")
+    ):
+        logger.warning("POST /api/jobs – neplatný API klíč z %s", client_ip(request))
+        raise HTTPException(401, "Neplatný API klíč.")
+    return True
+
+
 @app.post("/api/jobs")
 async def api_create_job(request: Request):
     logger.info("POST /api/jobs – cteni multipart form")
@@ -712,6 +733,8 @@ async def api_create_job(request: Request):
     except Exception as exc:
         logger.exception("Multipart form parse failed")
         raise HTTPException(400, f"Nepodarilo se precist upload: {exc}") from exc
+
+    api_client = _api_client_authenticated(request)
 
     name = _form_str(form, "name").strip()
     if not name:
@@ -755,7 +778,9 @@ async def api_create_job(request: Request):
             map_types = parse_map_types(map_types_raw)
             if not map_types:
                 raise HTTPException(
-                    400, "Vyberte alespoň jeden typ mapy (les nebo MTBO)."
+                    400,
+                    "Vyberte alespoň jeden typ mapy (les nebo MTBO); "
+                    "sprint se volí měřítkem 1:4000.",
                 )
 
     if (worker.is_busy() or worker.is_draining()) and not worker.can_accept_job():
@@ -822,7 +847,7 @@ async def api_create_job(request: Request):
         )
 
     remote_ip = client_ip(request)
-    limit_msg = check_create_job(remote_ip)
+    limit_msg = check_create_api_job() if api_client else check_create_job(remote_ip)
     if limit_msg:
         raise HTTPException(429, limit_msg)
 
@@ -914,7 +939,15 @@ async def api_create_job(request: Request):
     options["output_references"] = _opt_bool("output_references")
     options["force_refresh"] = _opt_bool("force_refresh")
     # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
-    if _opt_bool("private"):
+    # API klient (platný X-Api-Key) má job vždy privátní, e-mail nepotřebuje –
+    # `download_token` dostane v odpovědi.
+    if api_client:
+        options["private"] = True
+        options["api_client"] = True
+        notify_email = _form_str(form, "notify_email").strip()
+        if notify_email and "@" in notify_email and "." in notify_email.split("@")[-1]:
+            options["notify_email"] = notify_email
+    elif _opt_bool("private"):
         notify_email = _form_str(form, "notify_email").strip()
         if not notify_email or "@" not in notify_email or "." not in notify_email.split("@")[-1]:
             raise HTTPException(
@@ -946,6 +979,11 @@ async def api_create_job(request: Request):
         )
         db.append_log(dup["id"], msg)
         out = _public_job(dict(dup))
+        # Stejný job založený týmž API klíčem – klient potřebuje token ke stažení.
+        if api_client and (dup.get("options") or {}).get("api_client"):
+            token = db.get_download_token(dup["id"])
+            if token:
+                out["download_token"] = token
         out["duplicate_skipped"] = True
         out["duplicate_message"] = msg
         return out
@@ -1001,8 +1039,12 @@ async def api_create_job(request: Request):
         f"georef GeoTIFF {_yn('output_georef')} · "
         f"vynucené obnovení {_yn('force_refresh')} · "
         f"privátní {_yn('private')}"
+        + (" · API klient" if api_client else "")
     )
-    if options.get("private"):
+    if options.get("private") and not options.get("notify_email"):
+        hours = PRIVATE_JOB_RETENTION_HOURS if PRIVATE_JOB_RETENTION_HOURS > 0 else 48
+        log(f"Privátní job API klienta – odkaz s tokenem platí {hours} h.")
+    elif options.get("private"):
         hours = PRIVATE_JOB_RETENTION_HOURS if PRIVATE_JOB_RETENTION_HOURS > 0 else 48
         log(
             f"Privátní režim – po dokončení přijde e-mail na {options.get('notify_email')} "
@@ -1016,7 +1058,12 @@ async def api_create_job(request: Request):
             log(f"Job ve fronte – pozice {pos}.")
 
         logger.info("Job %s enqueued (queue_pos=%s)", job_id, pos)
-        return db.get_job(job_id)
+        out = db.get_job(job_id)
+        if api_client:
+            token = db.get_download_token(job_id)
+            if token:
+                out["download_token"] = token
+        return out
     except Exception as exc:
         tb = traceback.format_exc()
         log(f"CHYBA pri vytvareni jobu: {exc}")

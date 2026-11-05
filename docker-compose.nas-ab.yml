@@ -33,6 +33,10 @@ x-env: &env
   MAX_JOBS_PER_IP_HOUR: "10"
   TRUST_PROXY_HEADERS: "1"
   RATE_LIMIT_EXEMPT_IPS: ${RATE_LIMIT_EXEMPT_IPS:-78.80.94.188}
+  # API klient (Stavitel): klíč jen v host .env, prázdné = vypnuto (DEV.md „API pro externí klienty“).
+  API_CLIENT_KEY: ${API_CLIENT_KEY:-}
+  API_KEY_MAX_ACTIVE_JOBS: ${API_KEY_MAX_ACTIVE_JOBS:-3}
+  API_KEY_MAX_JOBS_HOUR: ${API_KEY_MAX_JOBS_HOUR:-20}
   # SMTP je pro obě instance stejné (hodnoty z .env vedle compose).
   SMTP_HOST: ${SMTP_HOST:-datais-cz.mail.protection.outlook.com}
   SMTP_PORT: ${SMTP_PORT:-25}
