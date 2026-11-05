@@ -944,7 +944,7 @@ legend {
   }
 }
 
-.site-.support-pay {
+.support-pay {
   display: flex;
   flex-wrap: wrap;
   gap: 1.25rem;
@@ -970,7 +970,7 @@ legend {
   opacity: 0.8;
 }
 
-footer {
+.site-footer {
   text-align: center;
   padding-top: 1.25rem;
   padding-bottom: 2rem;
