@@ -51,8 +51,21 @@ class _Node:
                     (x0, max(y0, my - OVERLAP_M), min(x1, mx + OVERLAP_M), y1),
                     (max(x0, mx - OVERLAP_M), max(y0, my - OVERLAP_M), x1, y1),
                 ]
-                self.children = [_Node(r, shapely.clip_by_rect(self.geom, *r), self.depth + 1) for r in rects]
+                self.children = [_Node(r, _clip(self.geom, r), self.depth + 1) for r in rects]
         return self.children
+
+
+def _clip(geom, rect):
+    """``clip_by_rect``; u „jehly“ (polygon nulové šířky ve validní zóně) GEOS při ořezu sestaví kruh o 3 bodech
+    a spadne (les 1:10 000 Barrandov, štěrbina ve zpevněné ploše, 2026-11-05) – pak obyčejný průnik s obdélníkem."""
+    import shapely
+
+    try:
+        return shapely.clip_by_rect(geom, *rect)
+    except shapely.errors.GEOSException:
+        from shapely.geometry import box
+
+        return geom.intersection(box(*rect))
 
 
 def _contains(rect, bounds) -> bool:
@@ -89,15 +102,13 @@ def local_zone(zone, geom, margin: float):
     bounds = (max(rx0, gx0 - margin), max(ry0, gy0 - margin), min(rx1, gx1 + margin), min(ry1, gy1 + margin))
     if bounds[0] >= bounds[2] or bounds[1] >= bounds[3]:
         return zone.__class__()  # čára daleko od zóny: prázdná zóna, ořez nechá čáru celou
-    import shapely
-
     node = root
     while True:
         child = next((c for c in node._split() if _contains(c.rect, bounds)), None)
         if child is None:
             break
         node = child
-    return shapely.clip_by_rect(node.geom, *bounds)
+    return _clip(node.geom, bounds)
 
 
 def clear() -> None:
