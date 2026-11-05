@@ -69,6 +69,18 @@ def test_whats_new_entries_lead_matches_listed_span(monkeypatch):
     assert payload["entries_lead"]
     assert payload.get("milestones_lead")
 
+    # Bez denních souhrnů jsou milníky hlavní seznam „Novinky“.
+    import app.whats_new as wn
+
+    monkeypatch.setattr(
+        wn,
+        "load_whats_new_file",
+        lambda: {"entries": [], "milestones": [{"date": "2026-10-01", "title": "x"}]},
+    )
+    payload = whats_new_payload(now=released + timedelta(hours=1))
+    assert payload["entries_lead"] == ""
+    assert payload["milestones_lead"] == "Novinky:"
+
 
 def test_whats_new_skips_version_bump_commits():
     from scripts.generate_whats_new import _SKIP_ANYWHERE, _SKIP_SUBJECT
