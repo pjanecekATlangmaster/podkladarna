@@ -38,8 +38,9 @@ USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladar
 # takže 25 km² podle polohy protne až ~18 listů; 20 = rezerva, ne hlavní limit.
 MAX_SHEETS = 20
 # Plocha výřezu (km²) – např. 5×5, 7×3,5; ne tvrdý strop na jednu stranu. 25 km² (3.2.2): les + MTBO
-# s DTM se do limitu jobu (JOB_TIMEOUT_MINUTES) vejde do ~25 km². Sprint má od 3.8.9 přísnější strop
-# settings.SPRINT_MAX_BBOX_AREA_KM2 (9 km², ``sprint_max_area_km2``).
+# s DTM se do limitu jobu (JOB_TIMEOUT_MINUTES) vejde do ~25 km². Od 3.15.0 je 25 km² jen pro job s MTBO;
+# sprint má settings.SPRINT_MAX_BBOX_AREA_KM2 (4 km², ``sprint_max_area_km2``) a les bez MTBO
+# settings.FOREST_MAX_BBOX_AREA_KM2 (15 km², ``forest_max_area_km2``).
 MAX_BBOX_AREA_KM2 = 25.0
 # Zpětná kompatibilita / odkaz v textech („cca 5 km“).
 MAX_BBOX_KM = 5.0
@@ -159,6 +160,11 @@ def sprint_max_area_km2() -> float:
     return min(float(settings.SPRINT_MAX_BBOX_AREA_KM2), MAX_BBOX_AREA_KM2)
 
 
+def forest_max_area_km2() -> float:
+    """Strop plochy výřezu pro les bez MTBO, nejvýš obecný limit."""
+    return min(float(settings.FOREST_MAX_BBOX_AREA_KM2), MAX_BBOX_AREA_KM2)
+
+
 def _fmt(x: float) -> str:
     return f"{x:.1f}".rstrip("0").rstrip(".").replace(".", ",")
 
@@ -172,6 +178,16 @@ def sprint_area_hint(area_km2: float, width_km: float, height_km: float) -> str:
         f"{_fmt(width_km)} × {_fmt(height_km)} km ({_fmt(area_km2)} km²), max {_fmt(lim)} km² "
         f"(např. {_fmt(side)} × {_fmt(side)} km). Sprint na větším území se nestaví a kresba "
         f"z DTM by trvala dlouho. Zmenšete výřez, nebo zvolte lesní měřítko."
+    )
+
+
+def forest_area_hint(area_km2: float, width_km: float, height_km: float) -> str:
+    """Hláška pro les (bez MTBO) nad limitem (GUI i API)."""
+    lim = forest_max_area_km2()
+    return (
+        f"Lesní mapa jde vygenerovat do {_fmt(lim)} km² (např. 4 × 3,75 km, A4 v 1:15 000): výřez má "
+        f"{_fmt(width_km)} × {_fmt(height_km)} km ({_fmt(area_km2)} km²). Zmenšete výřez; "
+        f"MTBO jde do {_fmt(MAX_BBOX_AREA_KM2)} km²."
     )
 
 

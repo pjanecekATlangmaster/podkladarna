@@ -2,6 +2,8 @@
 # Jen opravdové produktové zlomy — ne každý commit.
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
+  - date: "2026-11-05"
+    title: "Verze 3.15 – menší výřezy: sprint 1:4 000 nejvýš 4 km² (2 × 2 km), les nejvýš 15 km², MTBO dál 25 km²"
   - date: "2026-11-03"
     title: "Verze 3.12 – upozornění, když byl povrch korun (DMP OK) nalétán v bezlistém období: listnaté porosty pak v mapě chybí nebo vycházejí jako drsný terén 403"
   - date: "2026-11-02"

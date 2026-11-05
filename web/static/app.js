@@ -104,7 +104,9 @@ let bboxHandles = [];
 let bboxFirstCorner = null;
 let bboxMaxAreaKm2 = 25;
 // Sprint (1:4000) má přísnější strop plochy (server: SPRINT_MAX_BBOX_AREA_KM2, vrací /api/sheets).
-let sprintMaxAreaKm2 = 9;
+let sprintMaxAreaKm2 = 4;
+// Les bez MTBO má také menší strop (server: FOREST_MAX_BBOX_AREA_KM2); MTBO jde do bboxMaxAreaKm2.
+let forestMaxAreaKm2 = 15;
 let sheetsLookupSeq = 0;
 let bboxAllowed = false;
 let lastSheets = null;
@@ -217,7 +219,7 @@ function applyMapTypeDefaults(scale) {
   if (residualWrap) residualWrap.classList.toggle("hidden", Number(scale) !== 4000);
   updateOutputHints();
   updateSubmitButtonLabel();
-  // Sprint má menší strop plochy: ověřený výřez znovu posoudit podle měřítka.
+  // Sprint a les mají menší strop plochy: ověřený výřez znovu posoudit podle měřítka.
   applySheetsLimit();
 }
 
@@ -362,6 +364,9 @@ async function loadMapOptions() {
       el.addEventListener("change", () => {
         updateOutputHints();
         updateSubmitButtonLabel();
+        // Les bez MTBO má menší strop plochy: ověřený výřez znovu posoudit.
+        applySheetsLimit();
+        refreshBboxBadge();
       });
     }
   }
@@ -1734,7 +1739,8 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     showFormError(
       (lastSheets && lastSheets.hint) ||
         (lastSheets && isSprintSelected() && lastSheets.sprint_hint) ||
-        `Výřez je moc velký nebo ještě není ověřený. Les a MTBO max ${bboxMaxAreaKm2} km² (např. 5 × 5 km), sprint 1:4000 max ${sprintMaxAreaKm2} km² (např. 3 × 3 km).`
+        (lastSheets && isForestOnlySelected() && lastSheets.forest_hint) ||
+        `Výřez je moc velký nebo ještě není ověřený. MTBO max ${bboxMaxAreaKm2} km² (např. 5 × 5 km), les max ${forestMaxAreaKm2} km², sprint 1:4000 max ${sprintMaxAreaKm2} km² (např. 2 × 2 km).`
     );
     document.getElementById("bbox-map")?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
@@ -2118,8 +2124,15 @@ function isSprintSelected() {
   return Boolean(scale && scale.value && Number(scale.value) <= 5000);
 }
 
+/** Les bez MTBO (lesní měřítko, MTBO nezaškrtnuté) – menší strop plochy. */
+function isForestOnlySelected() {
+  return !isSprintSelected() && !selectedMapTypes().includes("mtbo");
+}
+
 function currentMaxAreaKm2() {
-  return isSprintSelected() ? Math.min(sprintMaxAreaKm2, bboxMaxAreaKm2) : bboxMaxAreaKm2;
+  if (isSprintSelected()) return Math.min(sprintMaxAreaKm2, bboxMaxAreaKm2);
+  if (isForestOnlySelected()) return Math.min(forestMaxAreaKm2, bboxMaxAreaKm2);
+  return bboxMaxAreaKm2;
 }
 
 function updateBboxDraft(b, skip) {
@@ -2352,7 +2365,11 @@ function refreshBboxBadge() {
     setBboxBadge("err", `✕ Příliš velký výřez pro sprint: ${area} (limit ${formatNumCz(sprintMaxAreaKm2)} km²)`);
     return;
   }
-  const limit = isSprintSelected() ? Math.min(sprintMaxAreaKm2, bboxMaxAreaKm2) : bboxMaxAreaKm2;
+  if (isForestOnlySelected() && data.forest_hint) {
+    setBboxBadge("err", `✕ Příliš velký výřez pro les: ${area} (limit ${formatNumCz(forestMaxAreaKm2)} km², MTBO ${formatNumCz(bboxMaxAreaKm2)} km²)`);
+    return;
+  }
+  const limit = currentMaxAreaKm2();
   const mins = selectedEstimateMinutes();
   setBboxBadge(
     "ok",
@@ -2553,10 +2570,11 @@ function updateSubmitButtonLabel() {
 function applySheetsLimit() {
   const data = lastSheets;
   if (!data || data.too_large || !data.count) return;
-  if (isSprintSelected() && data.sprint_hint) {
+  const hint = isSprintSelected() ? data.sprint_hint : isForestOnlySelected() ? data.forest_hint : null;
+  if (hint) {
     bboxAllowed = false;
     styleBboxRect(true);
-    setSheetInfo(data.sprint_hint, "warn");
+    setSheetInfo(hint, "warn");
   } else {
     bboxAllowed = true;
     styleBboxRect(false);
@@ -2584,11 +2602,12 @@ async function lookupSheets() {
     lastSheets = data;
     if (data.max_area_km2) bboxMaxAreaKm2 = data.max_area_km2;
     if (data.sprint_max_area_km2) sprintMaxAreaKm2 = data.sprint_max_area_km2;
+    if (data.forest_max_area_km2) forestMaxAreaKm2 = data.forest_max_area_km2;
     if (data.too_large) {
       styleBboxRect(true);
       setSheetInfo(
         data.hint ||
-          `Výřez je moc velký (max ${data.max_area_km2 || 25} km², např. 5 × 5 km; sprint 1:4000 max ${data.sprint_max_area_km2 || 9} km²). Zmenšete ho.`,
+          `Výřez je moc velký (MTBO max ${data.max_area_km2 || 25} km², např. 5 × 5 km; les max ${data.forest_max_area_km2 || 15} km²; sprint 1:4000 max ${data.sprint_max_area_km2 || 4} km²). Zmenšete ho.`,
         "warn"
       );
       updateSubmitButtonLabel();
