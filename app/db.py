@@ -10,6 +10,7 @@ import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -700,6 +701,25 @@ def _job_source_meta(job_dir: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+@lru_cache(maxsize=1024)
+def _bbox_area_km2_cached(bbox: tuple[float, float, float, float]) -> float:
+    from app.pipeline.fetch_openzu import bbox_area_km2
+
+    return bbox_area_km2(*bbox)
+
+
+def job_area_km2(options: dict[str, Any] | None) -> float | None:
+    """Plocha mapy jobu v km² (výřez ``bbox_wgs84`` v S-JTSK, jako odhad v GUI)."""
+    bbox = (options or {}).get("bbox_wgs84") or []
+    if len(bbox) != 4:
+        return None
+    try:
+        area = _bbox_area_km2_cached(tuple(float(x) for x in bbox))
+    except Exception:  # noqa: BLE001 – plocha je jen informace, job kvůli ní nespadne
+        return None
+    return round(area, 2) if area > 0 else None
+
+
 def _row_to_job(
     row: sqlite3.Row,
     *,
@@ -739,6 +759,7 @@ def _row_to_job(
         "updated_at": row["updated_at"],
         "started_at": started_at,
         "duration_s": _job_duration_s(row),
+        "area_km2": job_area_km2(options),
         "has_output": has_out,
         "has_oom": has_out,
         "has_preview": has_prev,

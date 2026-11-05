@@ -249,6 +249,33 @@ def test_build_private_ready_email_includes_duration():
     assert "Doba běhu: 12 min 34 s." in body
 
 
+@pytest.mark.parametrize(
+    "area, expected",
+    [(2.4321, "Plocha mapy: 2,4 km²."), (0.847, "Plocha mapy: 0,85 km²."), (None, None)],
+)
+def test_build_private_ready_email_includes_area(area, expected):
+    _, body = build_private_ready_email(
+        job_name="Mapa",
+        download_url="https://example/d/abc",
+        retention_hours=48,
+        area_km2=area,
+    )
+    if expected:
+        assert expected in body
+    else:
+        assert "Plocha mapy" not in body
+
+
+def test_job_area_km2_from_bbox():
+    from app.db import job_area_km2
+
+    # cca 1 × 1 km u Prahy (0,0135° délky ≈ 1 km na 50° s. š.)
+    area = job_area_km2({"bbox_wgs84": [14.40, 50.00, 14.414, 50.009]})
+    assert area is not None and 0.8 < area < 1.2
+    assert job_area_km2({}) is None
+    assert job_area_km2({"bbox_wgs84": [1, 2]}) is None
+
+
 def test_build_private_ready_email_optional_artifact_links():
     subject, body = build_private_ready_email(
         job_name="Geo mapa",

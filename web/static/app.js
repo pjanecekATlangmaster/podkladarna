@@ -736,6 +736,8 @@ function jobItemHeadHtml(job) {
   if (jobIsFinished(job.status)) {
     const dur = formatDuration(job.duration_s);
     if (dur) timing = ` · ${dur}`;
+    const area = formatAreaKm2(job.area_km2);
+    if (area) timing += ` · ${area}`;
   }
   const privateLabel = jobIsPrivate(job)
     ? jobIsFinished(job.status)
@@ -1116,11 +1118,21 @@ function formatWhen(iso) {
   return d.toLocaleString("cs-CZ", { dateStyle: "short", timeStyle: "medium" });
 }
 
+/** Plocha mapy jako v e-mailu: „2,4 km²“, pod 1 km² „0,85 km²“. */
+function formatAreaKm2(km2) {
+  const v = Number(km2);
+  if (km2 == null || !Number.isFinite(v) || v <= 0) return "";
+  return `${v.toFixed(v < 1 ? 2 : 1).replace(".", ",")} km²`;
+}
+
 function jobTimingText(job) {
   const start = formatWhen(job.started_at || job.created_at);
   const dur = formatDuration(job.duration_s);
   if (jobIsFinished(job.status)) {
-    return [start ? `Start ${start}` : "", dur ? `trvání ${dur}` : ""].filter(Boolean).join(" · ");
+    const area = formatAreaKm2(job.area_km2);
+    return [start ? `Start ${start}` : "", dur ? `trvání ${dur}` : "", area ? `plocha ${area}` : ""]
+      .filter(Boolean)
+      .join(" · ");
   }
   if (job.status === "running" && dur) {
     return `${start ? `Od ${start} · ` : ""}běží ${dur}`;
