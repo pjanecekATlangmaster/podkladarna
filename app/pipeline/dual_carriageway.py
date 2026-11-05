@@ -532,6 +532,9 @@ def _chain_arms(arms: list, close) -> list:
 # která spojuje dvě silnice kříženec od křížení vzdálený nejvýš ``SLIP_NODE_MAX_M`` m a míjí ho aspoň o ``SLIP_MIN_OFFSET_M``,
 # je v lese a MTBO jen trojúhelník vedle křižovatky – nekreslí se, křižovatku nese hlavní čára.
 SLIP_MAX_M = 80.0
+# Mazání ramp vypnuté (Petr 2026-11-05: „když budou navazovat, trojúhelníky nevadí“ – pravidlo záviselo na tom, na kolik
+# OSM ways je rampa rozdělená, a křižovatky vycházely nesouměrně). Rampy napojí dotažení konců a vějíř v ``road_ends``.
+SLIP_DROP = False
 SLIP_NODE_MAX_M = 50.0
 SLIP_MIN_OFFSET_M = 5.0
 # Pás kolem ostatních silnic (m), který zóna rampy neořízne.
@@ -540,8 +543,8 @@ _SLIP_CACHE: dict[tuple, object] = {}
 
 
 def slip_lane_zone(work_dir: Path, preset_id: str, scale: int):
-    """Zóna (shapely) odbočovacích ramp, ve které se silnice nekreslí, nebo None; sprint None."""
-    if preset_id.startswith("sprint"):
+    """Zóna (shapely) odbočovacích ramp, ve které se silnice nekreslí, nebo None; sprint a ``SLIP_DROP = False`` None."""
+    if preset_id.startswith("sprint") or not SLIP_DROP:
         return None
     from app.pipeline.osm_paths import ONEWAY_ROADS_NAME
 
