@@ -266,9 +266,11 @@ def _parallel_piece(piece, line, wide_r: float, scale: int) -> bool:
 # Krátký souběh okraje s čárou (``_parallel_piece``): od této délky na mapě (mm) a do tohoto úhlu tětivy k čáře (°).
 EDGE_PARALLEL_MIN_MM = 0.6
 EDGE_PARALLEL_MAX_DEG = 30.0
+# Směr úseků souběhu se měří na obrysu zjednodušeném o tolik mm mapy (zaoblené rohy ploch).
+EDGE_PARALLEL_SIMPLIFY_MM = 0.15
 
 
-def _parallel_part(piece, line):
+def _parallel_part(piece, line, simplify_m: float = 0.0):
     """Úseky souběhu ``piece`` (LineString) odchýlené od ``line`` nejvýš o ``EDGE_PARALLEL_MAX_DEG``, nebo None. Kolmý
     příjezd okraje k silnici (roh plochy u ulice) v pásu zůstává a okraj se kreslí až k ústí – dřív se vynechal se
     souběhem celý a okraj končil o mezeru čitelnosti (0,35 mm) před silnicí (test B Barrandov 2026-11-04)."""
@@ -277,8 +279,9 @@ def _parallel_part(piece, line):
     from shapely.geometry import LineString
     from shapely.ops import linemerge, unary_union
 
-    coords = list(piece.coords)
-    keep = []
+    # směr úseků z obrysu bez zaoblení rohů (oblouk po generalizaci by dal kusy pod každým úhlem)
+    coords = list(piece.simplify(simplify_m).coords) if simplify_m > 0 else list(piece.coords)
+    simple = []  # (úsek zjednodušeného kusu, je souběžný)
     for a, b in zip(coords, coords[1:]):
         seg = LineString([a, b])
         if seg.length <= 0:
@@ -290,7 +293,18 @@ def _parallel_part(piece, line):
         if dx == 0 and dy == 0:
             continue
         ang = abs(math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]) - math.atan2(dy, dx))) % 180.0
-        if min(ang, 180.0 - ang) <= EDGE_PARALLEL_MAX_DEG:
+        simple.append((seg, min(ang, 180.0 - ang) <= EDGE_PARALLEL_MAX_DEG))
+    if not any(par for _s, par in simple):
+        return None
+    keep = []
+    orig = list(piece.coords) if simplify_m > 0 else coords
+    for a, b in zip(orig, orig[1:]):
+        if a == b:
+            continue
+        seg = LineString([a, b])
+        mid = seg.interpolate(0.5, normalized=True)
+        # úsek původního obrysu patří k nejbližšímu úseku zjednodušeného kusu
+        if min(simple, key=lambda t: t[0].distance(mid))[1]:
             keep.append(seg)
     if not keep:
         return None
@@ -341,7 +355,8 @@ def edge_omit_zone(network, road_bands, preset_id: str, scale: int):
             cut = _merged_pieces(ring.intersection(wide))
             for piece in [cut] if cut.geom_type == "LineString" else getattr(cut, "geoms", []):
                 if piece.geom_type == "LineString" and _parallel_piece(piece, line, wide_r, scale):
-                    run = _parallel_part(piece, line)  # souběh: okraj vedle čáry by byl dvojitá linie
+                    # souběh: okraj vedle čáry by byl dvojitá linie
+                    run = _parallel_part(piece, line, mm_to_ground_m(EDGE_PARALLEL_SIMPLIFY_MM, scale))
                     if run is not None:
                         zones.append(run.buffer(0.1))
     return unary_union(zones) if zones else None
