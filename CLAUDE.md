@@ -334,6 +334,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   s ulicí a nekreslí – pohltí ho čára (`merge_parking_into_road`). Slití po kusech stání pod 502.1 rozsekalo ulici na plochy
   s příčnými okraji. Mezery mezi slitými úseky do 2 mm zacelí `_bridge_parking_gaps` (3.9.1). Další krok (úseky ulice mezi
   křižovatkami) a srovnání návrhů: `/mnt/project-files/ulice-jako-celek/`.
+- **Měření napojení silnic** (3.13.2, revize skládání silnic Petr 2026-11-05, `app/pipeline/road_graph.py`): les a MTBO
+  zapíšou do logu jobu řádek „Silnice: napojení v křižovatkách …“ – graf OSM silnic z neoříznutého `paths_osm` (uzel = sdílený
+  bod, i „T“ na průběžné čáře), díry (kreslené rameno bez napojení, mimo plochu) a ústí proti pravidlu (výplň do výplně, černá
+  na okraj, na černou k ose). Kresbu nemění. Úpravy napojení silnic ověřuj těmito čísly před / po
+  (`build_osm_path_parts(..., road_report={})` + `connection_report`). Revize a návrh: Claude Doc „Revize skládání silnic v lese
+  a MTBO“, data `/mnt/project-files/silnice-skladani/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

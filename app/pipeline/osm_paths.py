@@ -7016,7 +7016,10 @@ def build_osm_path_parts(
     grivation_deg: float,
     clip_bounds: Bounds | None = None,
     path_source: str = PATH_SOURCE_MIXED,
+    road_report: dict | None = None,
 ) -> list[OomObjectPart]:
+    """OSM cesty jako objekty OOM. ``road_report`` (les / MTBO): naplní se kreslenými silnicemi v metrech před a po
+    ``road_ends`` (klíče ``before``, ``after``, ``fixed``) pro měření napojení (``road_graph``); kresbu nemění."""
     if path_source == PATH_SOURCE_ZABAGED:
         filename = "paths_bridges.geojson"
     elif path_source == PATH_SOURCE_OSM:
@@ -7763,6 +7766,16 @@ def build_osm_path_parts(
                 stub_by_code=others_by_code or None,
                 bounds=tuple(clip_bounds) if clip_bounds else None,
             )
+            if road_report is not None:
+                road_report["before"] = {c: [list(p) for p in ps] for c, ps in by_code.items()}
+                road_report["after"] = {c: [list(p) for p in ps] for c, ps in tidy.items() if c in by_code}
+                road_report["fixed"] = {c: [list(p) for p in ps] for c, ps in fixed_by_code.items()}
+                _areas = [
+                    g
+                    for g in (paved_network, sidewalk_cover, mtbo_sidewalk_zone, corridor_zone, _dtm_parking_zone)
+                    if g is not None and not g.is_empty
+                ]
+                road_report["areas"] = _uu_blk(_areas) if _areas else None  # plochy, na kterých silnice smí končit
             for code, pieces in tidy.items():
                 joined[symbol_cache[code]] = pieces
     for piece_idx, group in joined.items():

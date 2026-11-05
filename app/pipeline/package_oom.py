@@ -1076,6 +1076,7 @@ def _prepare_oom_map(
         )
     )
     # OSM cesty / u režimu jen-ZABAGED aspoň krátké lávky (ČÚZK je často nemá).
+    _road_report: dict = {}
     osm_parts = build_osm_path_parts(
         kp_cwd,
         preset_id=preset_id,
@@ -1085,7 +1086,19 @@ def _prepare_oom_map(
         grivation_deg=grivation,
         clip_bounds=vector_clip_bounds,
         path_source=path_source,
+        road_report=_road_report,
     )
+    if _road_report.get("after") is not None and log:
+        # Les / MTBO: kolik OSM napojení silnic kresba zachovala (``road_graph``; jen měření, kresbu nemění).
+        try:
+            from app.pipeline.road_graph import connection_report, drawn_road_lines, load_osm_road_graph, summary_line
+
+            _graph = load_osm_road_graph(kp_cwd)
+            if _graph is not None:
+                _drawn = drawn_road_lines(_road_report["after"], preset_id, scale, _road_report.get("fixed"))
+                log(summary_line(connection_report(_graph, _drawn, areas=_road_report.get("areas"))))
+        except Exception as exc:  # noqa: BLE001 – měření nesmí shodit sestavení mapy
+            log(f"Silnice: měření napojení selhalo ({exc})")
     if osm_parts:
         object_parts.extend(osm_parts)
     if osm_feat_rest:
