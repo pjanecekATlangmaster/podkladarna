@@ -4688,6 +4688,37 @@ def osm_parking_geometry(work_dir: Path):
     return osm_paved_beside_geometry(work_dir, kinds=frozenset({"parking"}))
 
 
+def drawn_osm_parking_geometry(work_dir: Path, preset_id: str):
+    """OSM parkoviště, která se v presetu opravdu kreslí (bez těch, která kreslí DTM), jako shapely plocha nebo None.
+
+    Spojka silnice → parkoviště se nekreslí čárou, jen pruhem plochy (``extend_parking_by_links``); u parkoviště, které
+    nahradilo parkoviště z DTM, by spojka zmizela úplně (Barrandov, revize skládání silnic 2026-11-05, chyba B).
+    """
+    from app.pipeline.dtm_import import dtm_area_preset, drop_osm_parking_covered_by_dtm
+
+    if not dtm_area_preset(preset_id):
+        return osm_parking_geometry(work_dir)
+    try:
+        from shapely.geometry import shape
+        from shapely.ops import unary_union
+
+        feats = json.loads((work_dir / "osm_paths" / "features.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (ImportError, OSError, ValueError):
+        return None
+    feats = [f for f in feats if (f.get("properties") or {}).get("kind") == "parking"]
+    polys = []
+    for feat in drop_osm_parking_covered_by_dtm(work_dir, feats) if feats else []:
+        geom = feat.get("geometry") or {}
+        if geom.get("type") not in ("Polygon", "MultiPolygon"):
+            continue
+        try:
+            g = shape(geom)
+            polys.append(g if g.is_valid else g.buffer(0))
+        except (ValueError, TypeError):
+            continue
+    return unary_union(polys) if polys else None
+
+
 def osm_paved_beside_geometry(work_dir: Path, kinds: frozenset[str] | None = None):
     """OSM zpevněné plochy (parkoviště, pěší zóna, nástupiště) jako shapely plocha nebo None.
 
@@ -6328,6 +6359,76 @@ def major_road_band(
     return unary_union(parts) if parts else None
 
 
+# Souběh kopie silnice s kreslenou černou silnicí delší než tohle se do pásu silnic s výplní nebere (křížení je kratší).
+OWN_BLACK_RUN_M = 15.0
+OWN_BLACK_TOL_M = 1.0
+
+
+def drop_own_black_runs(
+    band_feats: list[dict], drawn_feats: list[dict], *, preset_id: str, scale: int, road_widths=None, service_links=frozenset()
+) -> list[dict]:
+    """Prvky pro ``major_road_band`` bez úseků, kde kopie silnice (``paths_osm``) leží na kreslené černé silnici.
+
+    Pás silnic s výplní se staví z jiné kopie silnic než kresba; pravidlo tahu na ní může dát jiný symbol
+    (``stroke_code``). Úsek kreslený černě by pak ořízl pás jeho vlastní kopie a silnice by zmizela (Barrandov,
+    revize skládání silnic 2026-11-05, chyba A). Vyřadí se jen souběhy delší než ``OWN_BLACK_RUN_M``; křížení
+    s černou silnicí v pásu zůstane, aby černá končila na okraji.
+    """
+    try:
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+    except ImportError:
+        return band_feats
+    from app.pipeline.dtm_sidewalks import clip_outside
+
+    black = []
+    for i, f in enumerate(drawn_feats):
+        g = f.get("geometry") or {}
+        c = g.get("coordinates") or []
+        hw = str((f.get("properties") or {}).get("highway") or "")
+        if g.get("type") != "LineString" or len(c) < 2 or not path_draw_highway(hw).startswith("road_"):
+            continue
+        if is_bridge_highway(hw) or is_tunnel_highway(hw) or (f.get("properties") or {}).get("source") == "zabaged":
+            continue
+        code = _osm_line_code(i, f, preset_id, road_widths=road_widths, service_links=service_links)
+        if code is None or is_major_road_code(code, preset_id, scale):
+            continue
+        black.append(LineString([(float(p[0]), float(p[1])) for p in c]))
+    if not black:
+        return band_feats
+    zone = unary_union(black).buffer(OWN_BLACK_TOL_M)
+    from shapely.prepared import prep
+
+    zp = prep(zone)
+    out = []
+    for f in band_feats:
+        g = f.get("geometry") or {}
+        c = g.get("coordinates") or []
+        if g.get("type") != "LineString" or len(c) < 2:
+            out.append(f)
+            continue
+        ln = LineString([(float(p[0]), float(p[1])) for p in c])
+        if not zp.intersects(ln):
+            out.append(f)
+            continue
+        hit = ln.intersection(zone)
+        runs = [h for h in getattr(hit, "geoms", [hit]) if h.geom_type == "LineString" and h.length >= OWN_BLACK_RUN_M]
+        if not runs:
+            out.append(f)
+            continue
+        cut = unary_union(runs).buffer(0.05, cap_style=2)
+        for seg in clip_outside([(float(p[0]), float(p[1])) for p in c], cut):
+            if len(seg) >= 2:
+                out.append(
+                    {
+                        "type": "Feature",
+                        "properties": dict(f.get("properties") or {}),
+                        "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in seg]},
+                    }
+                )
+    return out
+
+
 def _road_feature_key(f: dict) -> tuple:
     return tuple(tuple(round(float(v), 2) for v in c[:2]) for c in ((f.get("geometry") or {}).get("coordinates") or []))
 
@@ -7289,7 +7390,7 @@ def build_osm_path_parts(
         if preset_id.startswith("sprint") or not service_links
         else service_link_indexes(
             data.get("features") or [],
-            osm_parking_geometry(work_dir),
+            drawn_osm_parking_geometry(work_dir, preset_id),
             osm_paved_beside_geometry(work_dir, kinds=_OSM_BUILDING_KINDS),
             preset_id=preset_id,
             scale=scale,
@@ -7416,6 +7517,15 @@ def build_osm_path_parts(
             }
             for c in _dual_axes
         ] + [f for f in data.get("features") or [] if (f.get("properties") or {}).get("fork_link")]
+    if not preset_id.startswith("sprint"):
+        _major_feats = drop_own_black_runs(
+            _major_feats,
+            data.get("features") or [],
+            preset_id=preset_id,
+            scale=scale,
+            road_widths=road_widths,
+            service_links=service_links,
+        )
     major_band = (
         None
         if preset_id.startswith("sprint")
