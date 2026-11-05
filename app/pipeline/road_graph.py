@@ -297,13 +297,12 @@ def drawn_road_lines(pieces_by_code: dict, preset_id: str, scale: int, fixed_by_
     (``road_report``); ``fixed_by_code`` (mosty, tunely, schody) jako čáry bez šířky."""
     from app.pipeline.oom_symbol_map import symbol_fill_width_mm
     from app.pipeline.osm_paths import is_major_road_code, mm_to_ground_m
-    from app.pipeline.road_ends import _half_width_m, _is_road
+    from app.pipeline.road_ends import _half_width_m
 
     cache: dict = {}
     out = []
     for code, lines in (pieces_by_code or {}).items():
-        if not _is_road(code, preset_id, scale):
-            continue
+        # všechny kódy z ``road_report`` jsou silnice (i 504 / 831, které pravidlo tahu dá úzké silnici)
         half = _half_width_m(code, preset_id, scale, cache)
         fill_mm = symbol_fill_width_mm(preset_id, scale, code)
         fill = mm_to_ground_m(fill_mm, scale) / 2.0 if fill_mm else half
