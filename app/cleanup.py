@@ -63,6 +63,9 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
                 logger.info("Purged old job %s (%s)", job["id"], status)
 
     _purge_orphan_job_dirs()
+    n_origin = db.purge_job_origin(now=now)
+    if n_origin:
+        logger.info("Purged %s job origin record(s) past retention", n_origin)
     return removed
 
 

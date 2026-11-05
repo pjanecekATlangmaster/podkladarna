@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import ipaddress
 import json
 import re
 import secrets
@@ -24,6 +27,7 @@ from app.settings import (
     DOWNLOADS_DIR,
     JOBS_DIR,
     LIDAR_CACHE_MAX_AGE_DAYS,
+    ORIGIN_RETENTION_DAYS,
     PRIVATE_JOB_RETENTION_HOURS,
 )
 
@@ -77,6 +81,41 @@ def init_db() -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_download_token "
             "ON jobs(download_token) WHERE download_token IS NOT NULL"
         )
+        # Interní statistika původu jobů: přežije smazání jobu, maže se až po
+        # ORIGIN_RETENTION_DAYS. API ani web ji nečtou (jen app.origin_stats na NAS).
+        # IP a e-mail jen jako neprůhledné značky (HMAC s tajnou solí instance):
+        # stejný zdroj = stejná značka, zpět je přečíst nejde.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_origin (
+                job_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                ip_tag TEXT,
+                ip_net_tag TEXT,
+                api_client INTEGER NOT NULL DEFAULT 0,
+                private INTEGER NOT NULL DEFAULT 0,
+                email_tag TEXT,
+                preset_id TEXT,
+                map_types TEXT,
+                bbox_json TEXT,
+                status TEXT
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_job_origin_created ON job_origin(created_at)"
+        )
+        # Joby založené před zavedením statistiky (dosud nesmazané) doplnit jednou.
+        missing = conn.execute(
+            "SELECT id, preset_id, options_json, created_at FROM jobs "
+            "WHERE id NOT IN (SELECT job_id FROM job_origin)"
+        ).fetchall()
+        for job_id, preset_id, options_json, created_at in missing:
+            try:
+                opts = json.loads(options_json or "{}")
+            except ValueError:
+                opts = {}
+            _record_origin(conn, job_id, created_at, preset_id, opts)
         conn.commit()
 
 
@@ -118,8 +157,89 @@ def create_job(name: str, preset_id: str, options: dict[str, Any]) -> dict[str, 
             """,
             (job_id, name, preset_id, json.dumps(opts), now, now, token),
         )
+        _record_origin(conn, job_id, now, preset_id, opts)
         conn.commit()
     return get_job(job_id)
+
+
+def _origin_salt() -> bytes:
+    """Tajná sůl značek původu; vznikne při prvním použití vedle databáze."""
+    path = DB_PATH.parent / "origin_salt"
+    try:
+        salt = path.read_bytes()
+    except FileNotFoundError:
+        salt = b""
+    if len(salt) < 32:
+        salt = secrets.token_bytes(32)
+        path.write_bytes(salt)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    return salt
+
+
+def _origin_tag(kind: str, value: str) -> str | None:
+    """Krátká neprůhledná značka (HMAC-SHA256, 12 hex); prázdná hodnota → None."""
+    value = (value or "").strip().casefold()
+    if not value or value == "unknown":
+        return None
+    digest = hmac.new(_origin_salt(), f"{kind}:{value}".encode(), hashlib.sha256)
+    return digest.hexdigest()[:12]
+
+
+def _ip_network(ip: str) -> str:
+    """Síť klienta (IPv4 /24, IPv6 /48) – jen jako vstup značky, neukládá se."""
+    try:
+        addr = ipaddress.ip_address((ip or "").strip())
+    except ValueError:
+        return ""
+    prefix = 24 if addr.version == 4 else 48
+    return str(ipaddress.ip_network(f"{addr}/{prefix}", strict=False))
+
+
+def _record_origin(
+    conn: sqlite3.Connection, job_id: str, now: str, preset_id: str, opts: dict[str, Any]
+) -> None:
+    """Zapíše původ jobu do interní statistiky (IP a e-mail jen jako značky)."""
+    private = bool(opts.get("private"))
+    ip = str(opts.get("client_ip") or "")
+    map_types = opts.get("map_types")
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO job_origin (
+            job_id, created_at, ip_tag, ip_net_tag, api_client, private, email_tag,
+            preset_id, map_types, bbox_json, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        """,
+        (
+            job_id,
+            now,
+            _origin_tag("ip", ip),
+            _origin_tag("net", _ip_network(ip)),
+            1 if opts.get("api_client") else 0,
+            1 if private else 0,
+            _origin_tag("email", str(opts.get("notify_email") or "")) if private else None,
+            preset_id,
+            ",".join(map_types) if isinstance(map_types, (list, tuple)) else None,
+            json.dumps(opts["bbox_wgs84"]) if opts.get("bbox_wgs84") else None,
+        ),
+    )
+
+
+def purge_job_origin(*, now: datetime | None = None, days: int | None = None) -> int:
+    """Smaže záznamy původu starší než ``days`` (výchozí ORIGIN_RETENTION_DAYS)."""
+    days = ORIGIN_RETENTION_DAYS if days is None else days
+    if days <= 0:
+        return 0
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(days=days)
+    with connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM job_origin WHERE created_at < ?", (cutoff.isoformat(),)
+        )
+        conn.commit()
+        return cur.rowcount
 
 
 def get_job(job_id: str, *, reveal_artifacts: bool = False) -> dict[str, Any]:
@@ -319,6 +439,11 @@ def delete_job(job_id: str) -> bool:
             return False
         if row["status"] in ("running", "queued"):
             return False
+        # Konečný stav si statistika původu ponechá (job sám zmizí).
+        conn.execute(
+            "UPDATE job_origin SET status = ? WHERE job_id = ?",
+            (row["status"], job_id),
+        )
         conn.execute("DELETE FROM job_logs WHERE job_id = ?", (job_id,))
         conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         conn.commit()
