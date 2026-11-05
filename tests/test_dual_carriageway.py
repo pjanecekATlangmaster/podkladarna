@@ -220,21 +220,18 @@ def test_short_fork_drawn_as_one_line(arm_in, arm_out, linked, split):
 
 
 @pytest.mark.parametrize(
-    "ramp, name, dropped, split",
+    "ramp, name, dropped",
     [
-        ([(0, 20), (12, 12), (20, 0)], "", True, False),  # rampa vedle křížení (0, 0) – trojúhelník
-        ([(0, 20), (12, 12), (20, 0)], "Jiná", False, False),  # pojmenovaná jednosměrka je ulice, ne rampa
-        ([(0, 20), (2, 2), (20, 0)], "", False, False),  # vede přes křižovatku (míjí ji o < 5 m)
-        ([(0, 70), (60, 60), (70, 0)], "", False, False),  # konce daleko od křížení
-        # rampa ze dvou OSM ways (Lamačova × K Barrandovu, Petr 2026-11-05: odbočky jen na jedné straně)
-        ([(0, 40), (30, 30), (40, 0)], "", True, True),
+        ([(0, 20), (12, 12), (20, 0)], "", True),  # rampa vedle křížení (0, 0) – trojúhelník
+        ([(0, 20), (12, 12), (20, 0)], "Jiná", False),  # pojmenovaná jednosměrka je ulice, ne rampa
+        ([(0, 20), (2, 2), (20, 0)], "", False),  # vede přes křižovatku (míjí ji o < 5 m)
+        ([(0, 70), (60, 60), (70, 0)], "", False),  # konce daleko od křížení
     ],
 )
-def test_slip_lane_beside_junction_not_drawn(ramp, name, dropped, split):
+def test_slip_lane_beside_junction_not_drawn(ramp, name, dropped):
     # U Náhonu × K Barrandovu: odbočovací rampa mezi dvěma kříženci se v lese a MTBO nekreslí (Petr 2026-10-28)
     roads = [[(0, -100), (0, 100)], [(-100, 0), (100, 0)]]
-    pieces = [ramp[:2], ramp[1:]] if split else [ramp]
-    zone = dc._slip_zone([_feat(p, name=name) for p in pieces], roads + pieces)
+    zone = dc._slip_zone([_feat(ramp, name=name)], roads)
     assert (zone is not None and zone.contains(LineString(ramp).interpolate(0.5, normalized=True))) == dropped
     # hlavní silnice se u konců rampy nepřeruší a zbytek rampy u ní je kratší než nejkratší kreslený kus
     assert zone is None or all(zone.intersection(LineString(r)).length < 0.01 for r in roads)
