@@ -870,15 +870,18 @@ def test_copy_reusable_lidar_pair_skips_kp_merged(data_dir):
 
 
 @pytest.mark.parametrize(
-    "scale, contour, bbox, ok",
+    "scale, contour, types, bbox, err",
     [
-        ("4000", "2.5", "14.40,50.08,14.43,50.10", True),  # sprint ~4,8 km² pod limitem
-        ("4000", "2.5", "14.40,50.08,14.456,50.116", False),  # sprint ~16 km² nad limitem 9 km²
-        ("10000", "5", "14.40,50.08,14.456,50.116", True),  # les ~16 km²: limit beze změny
+        ("4000", "2.5", None, "14.40,50.08,14.42,50.095", None),  # sprint ~2,4 km² pod limitem 4 km²
+        ("4000", "2.5", None, "14.40,50.08,14.43,50.10", "max 4 km² (např. 2 × 2 km)"),  # sprint ~4,8 km²
+        ("10000", "5", "les", "14.40,50.08,14.45,50.11", None),  # les ~11,9 km² pod limitem 15 km²
+        ("10000", "5", "les", "14.40,50.08,14.456,50.116", "do 15 km²"),  # les ~16 km² nad limitem
+        ("10000", "5", "les,mtbo", "14.40,50.08,14.456,50.116", None),  # s MTBO dál do 25 km²
+        ("15000", "5", "mtbo", "14.40,50.08,14.456,50.116", None),
     ],
 )
-def test_create_job_sprint_area_limit(client, monkeypatch, scale, contour, bbox, ok):
-    """Sprint (1:4000) jen do SPRINT_MAX_BBOX_AREA_KM2; les a MTBO dál do MAX_BBOX_AREA_KM2."""
+def test_create_job_area_limit_by_type(client, monkeypatch, scale, contour, types, bbox, err):
+    """Sprint do SPRINT_MAX_BBOX_AREA_KM2, les bez MTBO do FOREST_MAX_BBOX_AREA_KM2, MTBO do MAX_BBOX_AREA_KM2."""
     from app import main
 
     monkeypatch.setattr(main, "query_sm5_sheets", lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}])
@@ -886,13 +889,14 @@ def test_create_job_sprint_area_limit(client, monkeypatch, scale, contour, bbox,
     monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
     monkeypatch.setattr(main.worker, "queue_position", lambda *_a, **_k: 0)
     data = {"name": f"limit-{scale}-{bbox}", "map_scale": scale, "contour_interval": contour, "bbox": bbox}
+    if types:
+        data["map_types"] = types
     r = client.post("/api/jobs", data=data)
-    if ok:
+    if err is None:
         assert r.status_code == 200, r.text
     else:
         assert r.status_code == 400
-        detail = r.json()["detail"]
-        assert "Sprint" in detail and "max 9 km²" in detail and "3 × 3 km" in detail
+        assert err in r.json()["detail"]
 
 
 def test_mtbo_scale_7500_in_web():

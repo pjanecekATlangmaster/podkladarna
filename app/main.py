@@ -42,6 +42,8 @@ from app.pipeline.fetch_openzu import (
     estimate_map_minutes,
     estimate_note,
     estimate_minutes,
+    forest_area_hint,
+    forest_max_area_km2,
     parse_bbox,
     query_sm5_sheets,
     sprint_area_hint,
@@ -303,6 +305,7 @@ def api_sheets(bbox: str):
             "max_km": MAX_BBOX_KM,
             "max_area_km2": MAX_BBOX_AREA_KM2,
             "sprint_max_area_km2": sprint_max_area_km2(),
+            "forest_max_area_km2": forest_max_area_km2(),
             "too_large": True,
             "too_large_reason": "size",
             "estimate_minutes": None,
@@ -310,8 +313,9 @@ def api_sheets(bbox: str):
             "label": f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.1f} km²)",
             "hint": (
                 f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.1f} km²) je moc velký "
-                f"(max {MAX_BBOX_AREA_KM2:.0f} km², např. {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} "
-                f"nebo 7 × 3,5 km; sprint 1:4000 max {sprint_max_area_km2():.0f} km²). Zmenšete ho."
+                f"(MTBO max {MAX_BBOX_AREA_KM2:.0f} km², např. {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} "
+                f"nebo 7 × 3,5 km; les max {forest_max_area_km2():.0f} km²; "
+                f"sprint 1:4000 max {sprint_max_area_km2():.0f} km²). Zmenšete ho."
             ),
         }
     try:
@@ -371,6 +375,11 @@ def api_sheets(bbox: str):
         "sprint_max_area_km2": sprint_max_area_km2(),
         "sprint_hint": sprint_area_hint(area_km2, width_km, height_km)
         if area_km2 > sprint_max_area_km2() + 1e-6
+        else None,
+        # Les bez MTBO má strop FOREST_MAX_BBOX_AREA_KM2; GUI hlášku použije, když není zaškrtnuté MTBO.
+        "forest_max_area_km2": forest_max_area_km2(),
+        "forest_hint": forest_area_hint(area_km2, width_km, height_km)
+        if area_km2 > forest_max_area_km2() + 1e-6
         else None,
         "ref_png_estimate_minutes": REF_PNG_ESTIMATE_MINUTES,
         "too_large": sheets_too_big,
@@ -811,6 +820,11 @@ async def api_create_job(request: Request):
         area = bbox_area_km2(*bbox)
         if area > sprint_max_area_km2() + 1e-6:
             raise HTTPException(400, sprint_area_hint(area, width_km, height_km))
+    elif "mtbo" not in (map_types or []) and not str(preset_id).startswith("mtbo"):
+        # Les bez MTBO: menší strop (MTBO dál do MAX_BBOX_AREA_KM2).
+        area = bbox_area_km2(*bbox)
+        if area > forest_max_area_km2() + 1e-6:
+            raise HTTPException(400, forest_area_hint(area, width_km, height_km))
     # Listy SM5: preferuj výsledek z /api/sheets (UI už ověřilo) – ušetří další ArcGIS call.
     sheets: list[dict] = []
     sheets_raw = _form_str(form, "sm5_sheets").strip()
