@@ -154,14 +154,12 @@ def test_acute_side_road_meets_main_square(case, end, squared):
 
 
 def test_narrow_road_continues_into_wider_end():
-    # Lamačova (Petr 2026-11-05): užší silnice navazující na konec širší se protáhne po ose širší dovnitř její kresby;
-    # rozvětvení do více užších (rampy) zůstává beze změny – protažené kusy by se překryly
+    # Lamačova (Petr 2026-11-05): osa rozdělené vozovky 502.0 končí v uzlu, odkud pokračují užší 502.1 – užší se
+    # protáhne po ose širší dovnitř její kresby, roh konce širší netrčí
     wide = [(0.0, 0.0), (100.0, 0.0)]
     a = [(100.0, 0.0), (160.0, 30.0)]
     b = [(100.0, 0.0), (160.0, -30.0)]
-    out = tidy_road_ends({"502.0": [wide], "502.1": [a]}, [wide, a], preset_id="mtbo_10000", scale=7500)
-    (ln,) = out["502.1"]
-    assert ln[0][1] == pytest.approx(0.0, abs=0.01) and ln[0][0] < 99.0 and ln[1] == (100.0, 0.0)
-    assert out["502.0"] == [wide]
     out = tidy_road_ends({"502.0": [wide], "502.1": [a, b]}, [wide, a, b], preset_id="mtbo_10000", scale=7500)
-    assert sorted(out["502.1"]) == sorted([a, b])
+    for ln in out["502.1"]:
+        assert ln[0][1] == pytest.approx(0.0, abs=0.01) and ln[0][0] < 99.0 and ln[1] == (100.0, 0.0)
+    assert out["502.0"] == [wide]
