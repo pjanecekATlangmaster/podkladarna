@@ -2821,11 +2821,13 @@ async function loadWhatsNew() {
         "Jde o nový build s opravami a úpravami. Může se stát, že se při tom něco jiného rozbilo.";
     }
     if (lead) {
+      const hasEntries = (data.entries || []).length > 0;
+      const hasMilestones = (data.milestones || []).length > 0;
       lead.textContent =
         data.entries_lead ||
-        ((data.entries || []).length
-          ? "Nedávné změny:"
-          : "V přehledu nejsou žádné větší změny.");
+        (hasEntries ? "Nedávné změny:" : "V přehledu nejsou žádné větší změny.");
+      // Bez denních souhrnů je hlavním seznamem „Novinky“ (milníky).
+      lead.hidden = !hasEntries && hasMilestones;
     }
     const fillList = (ul, entries) => {
       if (!ul) return;

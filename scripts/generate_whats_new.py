@@ -33,6 +33,9 @@ MAX_RECENT_DAYS = 5
 MAX_TITLES_PER_DAY = 2
 # Recent jen z posledních N kalendářních dní (ne „5 dní s commity“ z měsíce).
 RECENT_SPAN_DAYS = 10
+# Denní souhrny z git logu na web nepouštět: byly v nich drobné opravy a
+# interní změny. Box ukazuje jen ruční milníky (Petr 2026-11-05).
+AUTO_RECENT = False
 
 # Commit subjecty / těla, které do boxu nepatří (dev, CI, verze, copy-nits).
 _SKIP_SUBJECT = re.compile(
@@ -730,8 +733,10 @@ def main(argv: list[str] | None = None) -> int:
     if not released:
         released = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     milestones = load_milestones()
-    raw = drop_milestone_duplicates(collect_raw_entries(), milestones)
-    recent = summarize_by_day(raw)
+    recent: list[dict[str, str]] = []
+    if AUTO_RECENT:
+        raw = drop_milestone_duplicates(collect_raw_entries(), milestones)
+        recent = summarize_by_day(raw)
     text = render_yaml(released, recent, milestones)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(text, encoding="utf-8")

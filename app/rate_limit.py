@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 from app import db
 from app.settings import (
+    API_KEY_MAX_ACTIVE_JOBS,
+    API_KEY_MAX_JOBS_HOUR,
     MAX_ACTIVE_JOBS_PER_IP,
     MAX_JOBS_PER_IP_HOUR,
     RATE_LIMIT_EXEMPT_IPS,
@@ -31,6 +33,24 @@ def check_create_job(client_ip: str) -> str | None:
     if hourly >= MAX_JOBS_PER_IP_HOUR:
         return (
             f"Limit {MAX_JOBS_PER_IP_HOUR} nových jobů za hodinu z jedné sítě je vyčerpán. "
+            "Zkuste to později."
+        )
+    return None
+
+
+def check_create_api_job() -> str | None:
+    """Limit jobů s API klíčem (Stavitel) – místo limitu podle IP, společný pro klíč."""
+    active = db.count_active_api_jobs()
+    if active >= API_KEY_MAX_ACTIVE_JOBS:
+        return (
+            f"Pro API klíč už běží nebo čeká {active} jobů "
+            f"(limit {API_KEY_MAX_ACTIVE_JOBS}). Počkejte na dokončení."
+        )
+    since = datetime.now(timezone.utc) - timedelta(hours=1)
+    hourly = db.count_api_jobs_since(since)
+    if hourly >= API_KEY_MAX_JOBS_HOUR:
+        return (
+            f"Limit {API_KEY_MAX_JOBS_HOUR} nových jobů za hodinu pro API klíč je vyčerpán. "
             "Zkuste to později."
         )
     return None

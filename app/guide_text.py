@@ -191,6 +191,12 @@ Napište mi nebo zavolejte:
 Technické hlášení chyb můžete také založit na GitHubu:
 https://github.com/pjanecekATlangmaster/podkladarna/issues
 
+Podpora vývoje
+--------------
+Podkladárna je zdarma. Pokud vám pomohla a chcete podpořit další vývoj
+(hlavně placené AI nástroje), ocením dobrovolný příspěvek v jakékoli výši:
+https://podkladarna.kibos.link/podpora
+
 Právní
 ------
 Kód Podkladárny: MIT. Výstup jobu (PNG, .omap, …): CC BY 4.0 –
