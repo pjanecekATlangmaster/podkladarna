@@ -110,6 +110,7 @@ def _notify_private_job(job_id: str) -> None:
         georef_url=georef_url,
         preview_attached=preview_attached,
         duration_s=job.get("duration_s"),
+        area_km2=job.get("area_km2"),
         issues_summary=(
             job.get("error") if job.get("status") == db.STATUS_DONE_WITH_ERRORS else None
         ),
