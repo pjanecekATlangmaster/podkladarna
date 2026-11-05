@@ -579,15 +579,7 @@ def _slip_zone(feats: list[dict], roads: list[list[tuple[float, float]]]):
     from shapely.ops import linemerge
 
     _m = linemerge(unary_union(pieces)) if len(pieces) > 1 else pieces[0]
-    # kusy i spojené řetězce: dvě rampy navazující v uzlu u křižovatky (Lamačova západ) se poznají každá zvlášť
-    ramps = list(pieces) + [
-        g
-        for g in getattr(_m, "geoms", [_m])
-        if g.geom_type == "LineString" and g.length <= SLIP_CHAIN_MAX_M and tuple(g.coords[0]) + tuple(g.coords[-1]) not in ramp_set
-    ]
-    # silnice v ``roads`` může být rampa už spojená z ways (paths_osm) – ani ta není kříženec
-    ramp_set |= {tuple(r.coords[0]) + tuple(r.coords[-1]) for r in ramps}
-    ramp_set |= {tuple(r.coords[-1]) + tuple(r.coords[0]) for r in ramps}
+    ramps = [g for g in getattr(_m, "geoms", [_m]) if g.geom_type == "LineString" and g.length <= SLIP_CHAIN_MAX_M]
     others = [LineString(c) for c in roads if tuple(c[0]) + tuple(c[-1]) not in ramp_set]
     others += [LineString(c) for c in (f["geometry"]["coordinates"] for f in feats if str((f.get("properties") or {}).get("name") or ""))]
     if not others:
