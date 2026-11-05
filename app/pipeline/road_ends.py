@@ -41,6 +41,10 @@ RAY_MIN_ANGLE_DEG = 30.0
 # a do ``JOIN_PARALLEL_RUN_MM`` do ní vstoupí (rampa splývající s pruhem), se napojí kolmo k ose cíle.
 JOIN_PARALLEL_GAP_MM = 0.5
 JOIN_PARALLEL_RUN_MM = 10.0
+# Silnice s výplní ústící do jiné pod úhlem od SQUARE_MIN_DEG do SQUARE_MAX_DEG stupňů dostane před ústím bod a kolmý
+# konec (``_square_end``); ostřejší úhel je rozvětvení, ne ústí.
+SQUARE_MIN_DEG = 20.0
+SQUARE_MAX_DEG = 60.0
 # Blokující plochy se pro test průchodu zmenší o tolik m (dotyk hrany nevadí).
 BLOCKER_SHRINK_M = 0.3
 
@@ -310,6 +314,70 @@ def tidy_road_ends(
             return None
         return [(float(x), float(y)) for x, y in ext.coords]
 
+    def _square_end(i: int, at_start: bool) -> list[tuple[float, float]] | None:
+        """Konec silnice s výplní na ose jiné silnice s výplní, kterou křižuje pod úhlem do ``SQUARE_MAX_DEG``: nový
+        tvar s bodem ve vzdálenosti okraje cíle (+ půlka vlastní kresby) a kolmým koncem na ose cíle, nebo None.
+        Šikmé ústí jinak trčí rohem z kresby cíle (Lamačova × K Barrandovu, Petr 2026-11-05: „bod před napojením
+        navíc a kresbu protáhnout přes větší silnici“)."""
+        c = items[i][1]
+        if len(c) < 2 or c[0] == c[-1]:
+            return None
+        ln = geoms[i]
+        p = Point(c[0] if at_start else c[-1])
+        hs = _half_width_m(items[i][0], preset_id, scale, halves)
+        best = None
+        for j in tree.query(p.buffer(END_TOUCH_M)):
+            j = int(j)
+            if j == i or not items[j][2] or not is_major_road_code(items[j][0], preset_id, scale):
+                continue
+            tg = geoms[j]
+            if tg.distance(p) > END_TOUCH_M:
+                continue
+            ht = _half_width_m(items[j][0], preset_id, scale, halves)
+            s = tg.project(p)
+            if s < ht + hs or s > tg.length - ht - hs:
+                continue  # cíl tu končí – navazující kus, ne ústí do průběžné silnice
+            if best is None or ht > best[1]:
+                best = (j, ht, s)
+        if best is None:
+            return None
+        j, ht, s = best
+        tg = geoms[j]
+        a, b = tg.interpolate(max(0.0, s - 2.0)), tg.interpolate(min(tg.length, s + 2.0))
+        reach = ht + hs
+        if ln.length <= reach * 1.5:
+            return None
+        d0 = 0.0 if at_start else ln.length
+        sign = 1.0 if at_start else -1.0
+        q = None
+        step = 0.5
+        k = step
+        while k < ln.length / 2:
+            pt = ln.interpolate(d0 + sign * k)
+            if tg.distance(pt) >= reach:
+                q = pt
+                break
+            k += step
+        if q is None:
+            return None
+        tx, ty = b.x - a.x, b.y - a.y
+        dx, dy = p.x - q.x, p.y - q.y
+        tl, dl = math.hypot(tx, ty), math.hypot(dx, dy)
+        if tl == 0 or dl == 0:
+            return None
+        ang = math.degrees(math.acos(min(1.0, abs(tx * dx + ty * dy) / (tl * dl))))
+        if ang >= SQUARE_MAX_DEG or ang < SQUARE_MIN_DEG:
+            return None
+        f = tg.interpolate(tg.project(q))
+        new_tail = LineString([(q.x, q.y), (f.x, f.y)])
+        if _blocked(new_tail):
+            return None
+        if at_start:
+            rest = substring(ln, k, ln.length)
+            return [(f.x, f.y), *[(float(x), float(y)) for x, y in rest.coords]]
+        rest = substring(ln, 0.0, ln.length - k)
+        return [*[(float(x), float(y)) for x, y in rest.coords], (f.x, f.y)]
+
     # 1. Dotažení volných konců (konce se posuzují proti původní kresbě).
     new_coords: dict[int, list[tuple[float, float]]] = {}
     for i, it in enumerate(items):
@@ -344,6 +412,15 @@ def tidy_road_ends(
             if blockers_prep is not None and blockers_prep.contains(p):
                 continue  # vede k ploše / budově
             drop.add(i)
+    # 3. Napojení pod ostrým úhlem: bod před ústím a kolmo k ose větší silnice.
+    for i, it in enumerate(items):
+        if i in drop or not it[2] or it[3] or not is_major_road_code(it[0], preset_id, scale):
+            continue
+        for at_start in (True, False):
+            sq = _square_end(i, at_start)
+            if sq is not None:
+                it[1] = sq
+                geoms[i] = LineString(sq)
     out: dict[str, list[list[tuple[float, float]]]] = {code: [] for code in (*pieces_by_code, *(stub_by_code or {}))}
     for i, it in enumerate(items):
         if i not in drop and not it[3]:

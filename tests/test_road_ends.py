@@ -130,3 +130,24 @@ def test_free_end_extended_into_band_without_axis_hit(case, preset, main_code, r
         assert abs(side[1][1]) <= 11.1 + 1.0, case  # předtím vstup do kresby po OSM čáře
     else:
         assert side[0][1] == pytest.approx(end_y, abs=1.0), case  # na okraji kresby
+
+
+@pytest.mark.parametrize(
+    "case, end, squared",
+    [
+        ("ústí pod 45° – bod před ústím a kolmý konec", (60.0, 60.0), True),
+        ("kolmé ústí beze změny", (100.0, 80.0), False),
+        ("rozvětvení pod 10° beze změny", (180.0, 15.0), False),
+    ],
+)
+def test_acute_side_road_meets_main_square(case, end, squared):
+    # Lamačova × K Barrandovu (Petr 2026-11-05): šikmé ústí trčelo rohem z kresby hlavní silnice
+    side = [(100.0, 0.0), end]
+    out = tidy_road_ends({"502": [MAIN, side]}, [MAIN, side], preset_id="forest_10000", scale=10000)
+    got = next(ln for ln in out["502"] if ln[-1] == end)
+    if squared:
+        (x0, y0), (x1, y1) = got[0], got[1]
+        assert y0 == pytest.approx(0.0, abs=0.01) and x1 == pytest.approx(x0, abs=0.01), case  # kolmo na osu
+        assert y1 >= 8.7 - 0.6, case  # bod před ústím za okrajem hlavní silnice (půlky kreseb 4,35 + 4,35 m)
+    else:
+        assert got == side, case
