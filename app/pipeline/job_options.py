@@ -101,12 +101,12 @@ def resolve_osm_objects(options: dict | None) -> bool:
 
 
 def resolve_use_dtm(options: dict | None, preset_id: str) -> bool:
-    """Kreslit preset z DTM? Sprint: `dtm_sprint` (výchozí ano); les a MTBO: `dtm_forest` (výchozí ne od 2.43.0,
-    Petr 2026-10-27; GUI má jednu volbu `dtm`, která nastaví obě)."""
+    """Kreslit preset z DTM? Sprint: `dtm_sprint` (výchozí ano); les a MTBO: `dtm_forest` (výchozí ano od 3.18.0,
+    Petr 2026-11-06; 2.43.0–3.17.x ne; GUI má jednu volbu `dtm`, která nastaví obě)."""
     opts = options or {}
     if str(preset_id).startswith("sprint"):
         return _as_bool(opts.get("dtm_sprint"), True)
-    return _as_bool(opts.get("dtm_forest"), False)
+    return _as_bool(opts.get("dtm_forest"), True)
 
 
 def load_presets() -> dict:

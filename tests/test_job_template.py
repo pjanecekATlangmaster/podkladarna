@@ -36,7 +36,7 @@ BBOX = [14.4, 50.08, 14.42, 50.09]
             {
                 "map_scale": "4000", "map_types": [], "kp_cliff_symbol": "auto",
                 "kp_osm_objects": True, "veg_smooth": "1", "contour_smooth": "1",
-                "kp_vege_height": "2", "dtm": "auto", "output_references": True,
+                "kp_vege_height": "2", "dtm": "1", "output_references": True,
             },
         ),
         # Les bez uložených typů map: výchozí podle měřítka; DTM vypnuté u obou.

@@ -2426,7 +2426,7 @@ function refreshSubmitChecklist() {
 const SETTINGS_VALUE_NAMES = {
   veg_smooth: { 0: "kostičky", 1: "hladké", 2: "zjednodušené do 6 m", 3: "zjednodušené do 12 m" },
   kp_cliff_symbol: { auto: "automaticky", earth_bank: "zemní sráz", symbol_206: "skála", off: "vypnuto" },
-  dtm: { auto: "podle presetu", 1: "všude", 0: "vypnuto" },
+  dtm: { 1: "všude", auto: "jen sprint", 0: "vypnuto" },
 };
 
 const SETTINGS_CHIPS = [
@@ -2509,7 +2509,7 @@ function selectedEstimateMinutes() {
   const maps = lastSheets.estimate_map_minutes;
   if (base && maps && scale && maps[scale.value]) {
     const dtmSel = document.getElementById("dtm");
-    const dtm = dtmSel ? dtmSel.value : "auto";
+    const dtm = dtmSel ? dtmSel.value : "1";
     const sprint = Number(scale.value) <= 5000;
     const useDtm = dtm === "1" || (dtm === "auto" && sprint);
     // Serverový odhad počítá u lesních měřítek obě mapy; platí lineárně v počtu map.

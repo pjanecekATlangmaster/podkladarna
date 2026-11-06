@@ -52,9 +52,9 @@ def _bbox(raw: Any) -> list[float] | None:
 
 
 def _dtm_choice(opts: dict) -> str:
-    """Jedna volba GUI `dtm` ze dvou uložených (`dtm_sprint` výchozí ano, `dtm_forest` výchozí ne)."""
+    """Jedna volba GUI `dtm` ze dvou uložených (`dtm_sprint` i `dtm_forest` výchozí ano od 3.18.0)."""
     sprint = _bool(opts.get("dtm_sprint"), True)
-    forest = _bool(opts.get("dtm_forest"), False)
+    forest = _bool(opts.get("dtm_forest"), True)
     if sprint and forest:
         return "1"
     if not sprint and not forest:
