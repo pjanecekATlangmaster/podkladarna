@@ -28,6 +28,7 @@ def _disc(arr, cx, cy, r, value, res):
         ("yard", 0),  # strom ve dvoře mezi budovami – okolí jsou střechy
         ("roof", 0),  # vysoký nezelený objekt (střecha, věž)
         ("existing", 0),  # strom už je z OSM / AOPK
+        ("facade", 2),  # dva stromy spojené nezeleným přesahem patra u fasády – každý samostatně (Tilleho nám.)
     ],
 )
 def test_detect_paved_trees(scene, want):
@@ -42,11 +43,16 @@ def test_detect_paved_trees(scene, want):
     if scene == "grove":
         for cx, cy in ((51, 40), (29, 40), (40, 51)):  # sousední koruny 3 m od okraje
             _disc(chm, cx, cy, 4, 8.0, 1.0)
+            _disc(green, cx, cy, 4, True, 0.5)
+    if scene == "facade":
+        _disc(chm, 40, 62, 4, 9.0, 1.0)
+        _disc(green, 40, 62, 4, True, 0.5)
+        chm[SIZE - 62 : SIZE - 40, 44:47] = 8.8  # pás 3 m bez zeleně
     if scene == "yard":
         buildings = box(20, 20, 60, 33).union(box(20, 47, 60, 60)).union(box(20, 20, 33, 60)).union(box(47, 20, 60, 60))
     existing = [(41.0, 40.0)] if scene == "existing" else None
     pts = detect_paved_trees(chm, CHM_GT, green, ORTHO_GT, buildings=buildings, existing=existing)
     assert len(pts) == want
     if want:
-        x, y = pts[0]
+        x, y = min(pts, key=lambda p: p[1])
         assert abs(x - 40) < 1.5 and abs(y - 40) < 1.5

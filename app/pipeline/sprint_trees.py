@@ -28,7 +28,9 @@ BUILDING_BUFFER_M = 1.5
 CROWN_GREEN_MIN = 0.30  # podíl zelených pixelů ortofota v koruně (střecha, věž, socha ne)
 GROUND_GREEN_MAX = 0.25  # podíl zelených pixelů v okolí koruny: méně = zpevněná plocha
 EXISTING_TREE_NEAR_M = 8.0  # strom už nakreslený z OSM / AOPK / ZABAGED
-OPEN_AROUND_MIN = 0.6  # aspoň tolik okolí koruny mimo budovy (strom na volné ploše, ne ve dvoře)
+OPEN_AROUND_MIN = 0.5  # aspoň tolik okolí koruny mimo budovy (strom na volné ploše, ne ve dvoře; Tilleho nám. 0,57)
+GREEN_REACH_M = 2.0  # výška je vegetace jen do této vzdálenosti od zeleně v ortofotu (posun ortofota proti LiDARu)
+NONGREEN_MASS_M = 2.0  # nezelená výška širší než 2× tolik (nezmapovaná budova) vadí v izolaci; užší pás u fasády ne
 
 
 def _rasterize(geom, shape: tuple[int, int], x0: float, y1: float, px: float, py: float):
@@ -49,6 +51,26 @@ def _rasterize(geom, shape: tuple[int, int], x0: float, y1: float, px: float, py
         for hole in g.interiors:
             draw.polygon([((x - x0) / px, (y1 - y) / py) for x, y in hole.coords], fill=0)
     return np.asarray(im, dtype=bool)
+
+
+def _green_on_grid(ortho_green, ortho_gt: tuple, shape: tuple[int, int], x0: float, y1: float, px: float, py: float):
+    """bool maska buněk rastru výšky do ``GREEN_REACH_M`` od zelené v ortofotu; mimo ortofoto True (beze změny)."""
+    import numpy as np
+    from scipy import ndimage
+
+    og = np.asarray(ortho_green, dtype=bool)
+    oh, ow = og.shape
+    ox0, opx, _, oy1, _, opy = ortho_gt
+    opy = abs(opy)
+    reach = max(1, int(round(GREEN_REACH_M / opx)))
+    yy, xx = np.mgrid[-reach : reach + 1, -reach : reach + 1]
+    near = ndimage.binary_dilation(og, structure=(xx**2 + yy**2) <= reach**2)
+    h, w = shape
+    cols = np.floor((x0 + (np.arange(w) + 0.5) * px - ox0) / opx).astype(int)
+    rows = np.floor((oy1 - (y1 - (np.arange(h) + 0.5) * py)) / opy).astype(int)
+    inside = (rows[:, None] >= 0) & (rows[:, None] < oh) & (cols[None, :] >= 0) & (cols[None, :] < ow)
+    out = near[np.clip(rows, 0, oh - 1)[:, None], np.clip(cols, 0, ow - 1)[None, :]]
+    return np.where(inside, out, True)
 
 
 def detect_paved_trees(
@@ -75,8 +97,17 @@ def detect_paved_trees(
     cell = px * py
     bmask = _rasterize(buildings.buffer(BUILDING_BUFFER_M) if buildings is not None else None, (h, w), x0, y1, px, py)
     wmask = _rasterize(water, (h, w), x0, y1, px, py)
-    veg = (arr > TREE_MIN_CHM_M) & ~bmask
-    other = (arr > OTHER_VEG_M) & ~bmask
+    # Výška bez zeleně v ortofotu (přesah patra, podloubí, markýza u fasády) není koruna: jinak spojí samostatné
+    # stromy do jedné skvrny a vadí v izolaci (Tilleho nám., Petr 2026-11-06).
+    # Nezelená výška široká jako budova (nezmapovaná střecha, stavba) ale v izolaci vadí dál, jinak by se zelené
+    # drobky na střeše nebo vedle ní tvářily jako samostatný strom.
+    greenish = _green_on_grid(ortho_green, ortho_gt, (h, w), x0, y1, px, py)
+    veg = (arr > TREE_MIN_CHM_M) & ~bmask & greenish
+    tall_grey = (arr > OTHER_VEG_M) & ~bmask & ~greenish
+    mr = max(1, int(round(NONGREEN_MASS_M / px)))
+    my, mx = np.mgrid[-mr : mr + 1, -mr : mr + 1]
+    mass = ndimage.binary_opening(tall_grey, structure=(mx**2 + my**2) <= mr**2)
+    other = (arr > OTHER_VEG_M) & ~bmask & (greenish | mass)
     lab, _n = ndimage.label(veg)
     ring_px = max(1, int(round(ISOLATION_M / px)))
     og = np.asarray(ortho_green, dtype=bool)
