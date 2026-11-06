@@ -25,11 +25,10 @@ def _disc(arr, cx, cy, r, value, res):
         ("paved", 1),  # strom na dlažbě → bod ve středu koruny
         ("grass", 0),  # strom v trávě – kreslí ho vegetace / nic
         ("grove", 0),  # skupina stromů (porost) – ne solitér
-        ("yard", 0),  # strom ve dvoře mezi budovami – okolí jsou střechy
+        ("yard", 1),  # strom ve dvoře: detekce ho najde, zahodí ho až budova / zalitý dvůr v hotové mapě
         ("roof", 0),  # vysoký nezelený objekt (střecha, věž)
         ("existing", 0),  # strom už je z OSM / AOPK
-        ("corner", 0),  # budovy ze dvou stran – volné okolí pod 0,5
-        ("corner_square", 1),  # totéž na OSM náměstí / pěší zóně – stačí 0,4 (Tilleho nám.)
+        ("corner", 1),  # budovy ze dvou stran (Tilleho nám.) – podíl budov v okolí nerozhoduje
         ("facade", 2),  # dva stromy spojené nezeleným přesahem patra u fasády – každý samostatně (Tilleho nám.)
     ],
 )
@@ -52,14 +51,42 @@ def test_detect_paved_trees(scene, want):
         chm[SIZE - 62 : SIZE - 40, 44:47] = 8.8  # pás 3 m bez zeleně
     if scene == "yard":
         buildings = box(20, 20, 60, 33).union(box(20, 47, 60, 60)).union(box(20, 20, 33, 60)).union(box(47, 20, 60, 60))
-    paved = None
-    if scene.startswith("corner"):
+    if scene == "corner":
         buildings = box(48, 0, SIZE, SIZE).union(box(0, 48, SIZE, SIZE))
-        if scene == "corner_square":
-            paved = box(0, 0, 48, 48)
     existing = [(41.0, 40.0)] if scene == "existing" else None
-    pts = detect_paved_trees(chm, CHM_GT, green, ORTHO_GT, buildings=buildings, existing=existing, paved=paved)
+    pts = detect_paved_trees(chm, CHM_GT, green, ORTHO_GT, buildings=buildings, existing=existing)
     assert len(pts) == want
     if want:
         x, y = min(pts, key=lambda p: p[1])
         assert abs(x - 40) < 1.5 and abs(y - 40) < 1.5
+
+
+@pytest.mark.parametrize(
+    ("block", "want"),
+    [
+        (None, 2),  # bez budovy a olivy oba stromy zůstanou
+        ("521", 1),  # strom na budově (i v zalitém dvoře) pryč
+        ("520", 1),  # strom v olivě (zahrada) pryč
+    ],
+)
+def test_drop_trees_in_buildings_and_olive(block, want):
+    from app.pipeline.oom_import import OomObjectPart, _point_object
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+    from app.pipeline.sprint_trees import TREE_PART_NAME, drop_trees_in_buildings_and_olive
+
+    preset = "sprint_2m"
+    tree = symbol_index_for_code(preset, 4000, "417")
+    parts = [
+        OomObjectPart(
+            name=TREE_PART_NAME,
+            objects_xml="\n".join([_point_object(tree, 500, 500), _point_object(tree, 5000, 5000)]),
+            count=2,
+        )
+    ]
+    if block:
+        sym = symbol_index_for_code(preset, 4000, block)
+        area = f'<object type="1" symbol="{sym}"><coords count="5">0 0;1000 0;1000 1000;0 1000;0 0;</coords></object>'
+        parts.insert(0, OomObjectPart(name="plocha", objects_xml=area, count=1))
+    out = drop_trees_in_buildings_and_olive(parts, preset_id=preset, scale=4000)
+    trees = [p for p in out if p.name == TREE_PART_NAME]
+    assert sum(p.count for p in trees) == want
