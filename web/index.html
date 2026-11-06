@@ -247,12 +247,12 @@
             <label>
               DTM
               <select name="dtm" id="dtm">
-                <option value="auto" selected>Podle presetu – sprint z DTM, les a MTBO z OSM + ZABAGED (výchozí)</option>
-                <option value="1">Kresba z DTM, kde je DTM k dispozici (sprint, les i MTBO)</option>
+                <option value="1" selected>Kresba z DTM, kde je DTM k dispozici – sprint, les i MTBO (výchozí)</option>
+                <option value="auto">Jen sprint z DTM, les a MTBO z OSM + ZABAGED</option>
                 <option value="0">Jen OSM + ZABAGED (bez DTM)</option>
               </select>
             </label>
-            <div class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou.<details class="hint-more"><summary>Více</summary> Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba „Podle presetu“ kreslí sprint z DTM, les a MTBO z OSM + ZABAGED.</details></div>
+            <div class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou.<details class="hint-more"><summary>Více</summary> Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba kreslí z DTM sprint, les i MTBO.</details></div>
 
             <label class="checkbox-row">
               <input type="checkbox" name="kp_osm_objects" id="kp_osm_objects" value="1" />

@@ -245,7 +245,7 @@ def test_create_job_dtm_source_options(client, monkeypatch):
 
     opts = post("dtm-default")
     assert opts["dtm_sprint"] is True
-    assert opts["dtm_forest"] is False  # les a MTBO výchozí bez DTM (2.43.0)
+    assert opts["dtm_forest"] is True  # les a MTBO výchozí z DTM (3.18.0)
     opts = post("dtm-explicit", dtm_sprint="0", dtm_forest="1")
     assert opts["dtm_sprint"] is False
     assert opts["dtm_forest"] is True
@@ -615,7 +615,7 @@ def test_index_html(client):
     assert 'id="preset-bez-kp"' not in r.text
     assert "volitelný hybrid" not in r.text
     assert "volně inspirováno" in r.text
-    assert 'value="auto" selected' in r.text
+    assert '<option value="1" selected>' in r.text  # DTM výchozí pro všechny mapy (3.18.0)
     assert 'id="include_knolls"' not in r.text  # pevný default podle presetu, bez volby ve formuláři
     assert "Knolly z DMR" not in r.text
     assert 'id="knoll-hint"' not in r.text
