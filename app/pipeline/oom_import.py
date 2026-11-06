@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import struct
 import zipfile
 from dataclasses import dataclass
@@ -304,7 +305,8 @@ def _wkb_parts(buf: bytes, offset: int = 0) -> tuple[list[_WkbPart], int]:
             # Vnitřní prstence jdou hned za obrysem – ZABAGED tak vyřezává
             # třeba les z louky a bez díry by plocha les přikryla.
             parts.append(("line", pts, True) if ri == 0 else ("hole", pts))
-    elif base_type == 5:
+    elif base_type in (4, 5):
+        # MultiPoint (ZABAGED kříže, pomníky, stromy, balvany) / MultiLineString: po jednotlivých částech.
         ng, = struct.unpack_from(fmt + "I", buf, offset)
         offset += 4
         for _ in range(ng):
@@ -459,6 +461,80 @@ class OomObjectPart:
     name: str
     objects_xml: str
     count: int
+
+
+ZABAGED_ROAD_PARTS = frozenset({"ZABAGED – Ulice", "ZABAGED – SilniceDalnice"})
+_LINE_OBJECT_RE = re.compile(r'<object type="1" symbol="(-?\d+)"[^>]*>.*?</object>', re.S)
+_LINE_COORDS_RE = re.compile(r"<coords[^>]*>(.*?)</coords>", re.S)
+
+
+def _object_line_m(obj_xml: str, um_to_m: float) -> list[tuple[float, float]]:
+    m = _LINE_COORDS_RE.search(obj_xml)
+    pts: list[tuple[float, float]] = []
+    for tok in (m.group(1) if m else "").split(";"):
+        xy = tok.split()
+        if len(xy) >= 2:
+            pts.append((int(xy[0]) * um_to_m, int(xy[1]) * um_to_m))
+    return pts
+
+
+def zabaged_roads_off_osm_lines(parts: list[OomObjectPart], *, preset_id: str, scale: int) -> list[OomObjectPart]:
+    """Les / MTBO: úseky ulic ZABAGED ležící přímo na kreslené OSM čáře se nekreslí – táž ulice, kterou OSM vede
+    jako chodník, pěší ulici nebo polní cestu (OSM je základ). Proti OSM silnicím se ZABAGED dedupuje už při importu;
+    tady jen proti tomu, co z OSM cest opravdu zůstalo v mapě (nekreslený chodník u silnice ulici nesmaže). Chodník
+    vedle ulice leží dál než ``ZABAGED_ROAD_ON_OSM_LINE_M`` (půlka vozovky), ulici tedy nenahradí.
+    """
+    if preset_id.startswith("sprint"):
+        return parts
+    from app.pipeline.osm_paths import (
+        COVER_DROP,
+        ZABAGED_REMNANT_MIN_M,
+        ZABAGED_ROAD_ON_OSM_LINE_M,
+        centerline_cover_fraction,
+        centerline_index,
+        clip_parallel_to_centerlines,
+        polyline_length,
+    )
+
+    um_to_m = scale / 1_000_000.0
+    osm_lines = [
+        pts
+        for p in parts
+        if p.name == "OSM cesty"
+        for m in _LINE_OBJECT_RE.finditer(p.objects_xml)
+        if len(pts := _object_line_m(m.group(0), um_to_m)) >= 2
+    ]
+    if not osm_lines or not any(p.name in ZABAGED_ROAD_PARTS for p in parts):
+        return parts
+    index = centerline_index(osm_lines)
+    match_m = ZABAGED_ROAD_ON_OSM_LINE_M
+    out: list[OomObjectPart] = []
+    for p in parts:
+        if p.name not in ZABAGED_ROAD_PARTS:
+            out.append(p)
+            continue
+        objects: list[str] = []
+        for m in _LINE_OBJECT_RE.finditer(p.objects_xml):
+            pts = _object_line_m(m.group(0), um_to_m)
+            if len(pts) < 2:
+                objects.append(m.group(0))
+                continue
+            if centerline_cover_fraction(pts, index, match_m=match_m) >= COVER_DROP:
+                continue
+            pieces = clip_parallel_to_centerlines(pts, index, match_m=match_m, sample_m=1.0)
+            if len(pieces) == 1 and pieces[0] is pts:
+                objects.append(m.group(0))
+                continue
+            for piece in pieces:
+                cut_end = piece[0] != pts[0] or piece[-1] != pts[-1]
+                if cut_end and polyline_length(piece) < ZABAGED_REMNANT_MIN_M:
+                    continue
+                objects.append(
+                    _object_xml(int(m.group(1)), [_fmt(round(x / um_to_m), round(y / um_to_m)) for x, y in piece])
+                )
+        if objects:
+            out.append(OomObjectPart(name=p.name, objects_xml="\n".join(objects), count=len(objects)))
+    return out
 
 
 # Les / MTBO: zbytek ZABAGED silnice po ořezu plochami z DTM a kresbou OSM kratší než tolik mm mapy, s koncem
@@ -812,6 +888,12 @@ def _geom_objects(
 
     if gtype in (ogr_mod.wkbPoint, ogr_mod.wkbPoint25D):
         parts.append(("point", geom.GetX(), geom.GetY()))
+    elif gtype in (ogr_mod.wkbMultiPoint, ogr_mod.wkbMultiPoint25D):
+        # ZABAGED bodové vrstvy (kříže, pomníky, stromy, balvany) jsou MultiPoint – dřív se nekreslily vůbec.
+        for i in range(geom.GetGeometryCount()):
+            sub = geom.GetGeometryRef(i)
+            if sub:
+                parts.append(("point", sub.GetX(), sub.GetY()))
     elif gtype in (ogr_mod.wkbLineString, ogr_mod.wkbLineString25D):
         parts.append(("line", ring_pts(geom), False))
     elif gtype in (ogr_mod.wkbMultiLineString, ogr_mod.wkbMultiLineString25D):
@@ -1017,8 +1099,10 @@ def _build_zabaged_object_parts(
     paved_clip=None,
     cliff_work_dir: Path | None = None,
     road_join_band=None,
+    prefer_osm_wall_lines: list[list[tuple[float, float]]] | None = None,
 ) -> list[OomObjectPart]:
-    """``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
+    """``prefer_osm_wall_lines``: OSM zdi; ZABAGED Zed na téže čáře (do ``ZABAGED_WALL_MATCH_M``) se nekreslí.
+    ``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
     ``road_join_band`` (les / MTBO mixed): pás kresby OSM silnic; ulice s výplní, která na něm končí, se dotáhne do
     výplně OSM silnice (``_join_into_road_band``).
     ``stub_cover``: les / MTBO plochy z DTM (koridor, parkoviště, chodníky); pahýl ZABAGED silnice u nich se nekreslí
@@ -1084,6 +1168,8 @@ def _build_zabaged_object_parts(
         ZABAGED_CORRIDOR_MATCH_M,
         ZABAGED_PARALLEL_MATCH_M,
         ZABAGED_REMNANT_MIN_M,
+        ZABAGED_WALL_MATCH_M,
+        ZABAGED_WALL_REMNANT_MM,
         centerline_index,
         clip_parallel_to_centerlines,
         filter_lines_against_centerlines,
@@ -1282,11 +1368,31 @@ def _build_zabaged_object_parts(
             line_parts = [seg for pts in line_parts for seg in clip_outside(pts, network, MIN_LENGTH_M)]
         return [seg for pts in line_parts for seg in end_at_edge(pts, zone) if len(seg) >= 2]
 
+    wall_index = centerline_index(prefer_osm_wall_lines) if prefer_osm_wall_lines else None
+
+    def _clip_on_lines(line_parts, index, match_m: float, remnant_min_m: float):
+        """Kusy ZABAGED čar mimo souběh s čarami indexu (do ``match_m``); krátký zbytek po ořezu se zahodí."""
+        out: list[list[tuple[float, float]]] = []
+        for pts in line_parts:
+            if centerline_cover_fraction(pts, index, match_m=match_m) >= COVER_DROP:
+                continue
+            for piece in clip_parallel_to_centerlines(pts, index, match_m=match_m, sample_m=1.0):
+                cut_end = piece[0] != pts[0] or piece[-1] != pts[-1]
+                if cut_end and polyline_length(piece) < remnant_min_m:
+                    continue
+                out.append(piece)
+        return out
+
     def _filter_vs_osm(
         line_parts: list[list[tuple[float, float]]],
         layer_name: str,
     ) -> list[list[tuple[float, float]]]:
         nonlocal osm_index, road_index, ground_index
+        if layer_name == "Zed":
+            if wall_index is None:
+                return line_parts
+            # Zeď ZABAGED na čáře OSM zdi je táž zeď (OSM je základ); souběh dál než pár metrů zůstává.
+            return _clip_on_lines(line_parts, wall_index, ZABAGED_WALL_MATCH_M, ZABAGED_WALL_REMNANT_MM * scale / 1000.0)
         if dtm_cover is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
             from app.pipeline.dtm_sidewalks import clip_outside
 
@@ -1452,6 +1558,9 @@ def _build_zabaged_object_parts(
                     if not line_parts:
                         continue
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif layer_name == "Zed" and wall_index is not None:
+                    if line_parts:
+                        objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif (
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
@@ -1593,6 +1702,9 @@ def _build_zabaged_object_parts(
                     if not line_parts:
                         continue
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif layer_name == "Zed" and wall_index is not None:
+                    if line_parts:
+                        objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif (
                     osm_first
                     and layer_name in ZABAGED_PATH_LAYERS_OSM_FIRST
