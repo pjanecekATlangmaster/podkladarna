@@ -299,7 +299,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `sidewalks.json` podél OSM čáry (medián). Silnice ≥ 9 m → 502.1, ≥ 5 m → 502 (užší podle tagů), zpevněná pěšina ≥ 2,5 m → 505; pěší plochy
   z DTM širší než 0,5 mm mapy se kreslí jako zpevněná plocha a napojí do sítě. MTBO jen se zapnutým `MTBO_USE_DTM`, sprint beze změny.
 - **Tunely v lese a MTBO:** OSM cesta v tunelu / s `layer < 0` delší než 40 m (`TUNNEL_MAX_DRAW_M`) se nekreslí, krátký podchod ano.
-  Železnice a tramvaj ze ZABAGED se nekreslí v okolí 4 m od OSM kolejí v tunelu (`rail_tunnels.geojson` z přípravy OSM, `ZABAGED_RAIL_LAYERS`).
+  Železnice a tramvaj ze ZABAGED se nekreslí v okolí 4 m od OSM kolejí v tunelu (`rail_tunnels.geojson` z přípravy OSM, `ZABAGED_RAIL_LAYERS`);
+  od 3.22.1 i ve sprintu (Petr 2026-11-06, Barrandov) a jen kolejí téhož druhu (`RAIL_TUNNEL_KINDS_BY_LAYER`: tramvaj tramvají, trať tratí,
+  metro nic – Vinohradská má metro pod tramvají na povrchu); starší joby bez druhu v `rail_tunnels.geojson` skryjí vše jako dřív.
 - **Malé zalomené schody v lese a MTBO** (OSM, `small_complex_steps`): navazující čáry schodů tvaru „L“ / „C“ s rozsahem do 15 m (kratší strana
   otočeného obdélníku ≥ 2 m) se nekreslí. Složitá schodiště z DTM les nekreslí už dřív (`is_complex_stairs`, sprint je kreslí plochou).
 - **Plochy pod olivou v lese a MTBO** (Petr 2026-10-25, `paved_fill_outside_olive`): výplň 501.1 se o kreslenou olivu do 5 000 m² ořízne (`PAVED_FILL_OLIVE_MAX_M2`; velké areály jako ateliéry Barrandov ne), plocha
