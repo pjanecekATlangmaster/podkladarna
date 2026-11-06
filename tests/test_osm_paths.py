@@ -204,6 +204,50 @@ def test_classify_osm_well_and_playground():
         "memorial",
         "526",
     )
+
+@pytest.mark.parametrize(
+    ("tags", "geom", "want"),
+    [
+        ({"historic": "wayside_cross"}, "node", ("memorial", "526")),
+        ({"historic": "wayside_shrine"}, "node", ("memorial", "526")),
+        ({"historic": "wayside_shrine", "building": "yes"}, "way", ("building", "521")),  # kaplička = budova
+        ({"tourism": "artwork", "artwork_type": "statue"}, "node", ("memorial", "526")),
+        ({"tourism": "artwork", "artwork_type": "mural"}, "node", None),
+        ({"historic": "memorial", "memorial": "plaque"}, "node", None),  # deska na zdi
+        ({"historic": "memorial", "memorial": "stolperstein"}, "node", None),
+        ({"tourism": "information", "information": "guidepost"}, "node", ("guidepost", "531")),
+        ({"tourism": "information", "information": "board"}, "node", ("info_board", "531")),
+    ],
+)
+def test_classify_sprint_objects(tags, geom, want):
+    """Pomníky, kříže, sochy a rozcestníky z OSM (3.19.0); desky na zdech a malby ne."""
+    assert classify_osm_feature(tags, geom=geom) == want
+
+
+def test_thin_object_points():
+    """Body téže značky blíž než 2,5 mm mapy se nelepí (zůstane vyšší priorita), bod uvnitř budovy se nekreslí."""
+    import app.pipeline.osm_paths as op
+
+    def pt(kind, code, x, y):
+        return {"type": "Feature", "properties": {"kind": kind, "oom_code": code}, "geometry": {"type": "Point", "coordinates": [x, y]}}
+
+    building = {
+        "type": "Feature",
+        "properties": {"kind": "building", "oom_code": "521"},
+        "geometry": {"type": "Polygon", "coordinates": [[[100, 0], [120, 0], [120, 20], [100, 20], [100, 0]]]},
+    }
+    feats = [
+        pt("bench", "531", 0, 0),
+        pt("guidepost", "531", 5, 0),  # 5 m < 10 m (2,5 mm v 1:4000) – vyhraje rozcestník
+        pt("bench", "531", 30, 0),  # dost daleko
+        pt("memorial", "526", 1, 0),  # jiná značka – zůstane
+        pt("bench", "531", 110, 10),  # v budově
+        building,
+    ]
+    out = op.thin_object_points(feats, 4000)
+    got = sorted((f["properties"]["kind"], f["geometry"]["coordinates"][0]) for f in out if f["geometry"]["type"] == "Point")
+    assert got == [("bench", 30), ("guidepost", 5), ("memorial", 1)]
+
     assert classify_osm_feature({"amenity": "shelter"}) == ("shelter", "522")
     # way/1157170467: building=roof je zastřešení, ne budova
     assert classify_osm_feature({"building": "roof", "layer": "1", "material": "glass"}) == ("shelter", "522")
@@ -2732,7 +2776,7 @@ def test_sprint_skips_gates_and_bollards_but_keeps_stiles(tmp_path):
             {
                 "type": "Feature",
                 "properties": {"kind": "barrier_point", "oom_code": "531", "barrier": b},
-                "geometry": {"type": "Point", "coordinates": [float(i), 0.0]},
+                "geometry": {"type": "Point", "coordinates": [30.0 * i, 0.0]},
             }
             for i, b in enumerate(("gate", "bollard", "lift_gate", "stile", "cycle_barrier"))
         ],
@@ -2867,13 +2911,20 @@ def test_fences_kept_without_osm_objects(tmp_path, monkeypatch):
         },
         {"type": "node", "id": 3, "lat": 50.0003, "lon": 14.4005, "tags": {"historic": "memorial"}},
         {"type": "node", "id": 4, "lat": 50.0004, "lon": 14.4006, "tags": {"amenity": "bench"}},
+        {"type": "node", "id": 5, "lat": 50.0006, "lon": 14.4007, "tags": {"highway": "street_lamp"}},
+        {"type": "node", "id": 6, "lat": 50.0007, "lon": 14.4008, "tags": {"tourism": "information", "information": "board"}},
     ]
     monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: elements)
-    for objects, want in ((False, {"fence", "wall"}), (True, {"fence", "wall", "memorial", "bench"})):
+    # (všechny objekty, jen základní sada sprintu, očekávané druhy)
+    for objects, basic, want in (
+        (False, False, {"fence", "wall"}),
+        (False, True, {"fence", "wall", "memorial", "bench"}),  # sprint výchozí (3.19.0): bez lamp a tabulí
+        (True, False, {"fence", "wall", "memorial", "bench", "lamp", "info_board"}),
+    ):
         op.prepare_osm_paths(
             tmp_path, (14.39, 49.99, 14.41, 50.01), None, preset_id="sprint_4000",
-            include_benches=objects, include_lamps=objects, include_playground_equipment=objects,
-            osm_priority=objects, log=lambda m: None,
+            include_benches=objects or basic, include_lamps=objects, include_playground_equipment=objects,
+            osm_priority=objects or basic, objects_basic_only=basic and not objects, log=lambda m: None,
         )
         feats = json.loads((tmp_path / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))["features"]
         assert {f["properties"].get("kind") for f in feats} == want

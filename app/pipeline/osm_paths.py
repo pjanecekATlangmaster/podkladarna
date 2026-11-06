@@ -545,9 +545,11 @@ def _overpass_ql(
             [
                 f'node["barrier"~"^(gate|bollard|stile|cycle_barrier|block|lift_gate)$"]({bbox});',
                 f'way["barrier"~"^(gate|bollard|stile|cycle_barrier|block|lift_gate)$"]({bbox});',
-                f'node["historic"~"^(memorial|monument)$"]({bbox});',
-                f'way["historic"~"^(memorial|monument)$"]({bbox});',
+                f'node["historic"~"^(memorial|monument|wayside_cross|wayside_shrine)$"]({bbox});',
+                f'way["historic"~"^(memorial|monument|wayside_cross|wayside_shrine)$"]({bbox});',
                 f'node["man_made"="cross"]({bbox});',
+                # Socha / plastika jako bod (ne malba, instalace ani plastika na fasádě s building=*).
+                f'node["tourism"="artwork"]["artwork_type"~"^({"|".join(sorted(_ARTWORK_MEMORIAL_TYPES))})$"]({bbox});',
                 f'node["amenity"="shelter"]({bbox});',
                 f'way["amenity"="shelter"]({bbox});',
                 f'node["man_made"="canopy"]({bbox});',
@@ -567,6 +569,10 @@ def _overpass_ql(
 
 
 _INFO_BOARD_VALUES = frozenset({"board", "map", "trail_board"})
+# Pamětní deska na zdi, kámen v dlažbě (stolperstein) – nejsou to samostatné objekty v terénu, 526 se nekreslí.
+_MEMORIAL_SKIP_TYPES = frozenset({"plaque", "blue_plaque", "stolperstein"})
+# tourism=artwork, které je v terénu výrazný objekt jako pomník (526).
+_ARTWORK_MEMORIAL_TYPES = frozenset({"statue", "sculpture", "bust", "stone"})
 # Povrch / výplň uvnitř leisure=playground – ne samostatný křížek.
 _PLAYGROUND_SURFACE = frozenset({"sandpit", "no"})
 _BARRIER_LINES = frozenset({"fence", "wall", "hedge", "retaining_wall"})
@@ -585,7 +591,11 @@ def sprint_skips_barrier_point(preset_id: str, kind: str, props: dict) -> bool:
         and str(props.get("barrier") or "").lower() in _SPRINT_SKIP_BARRIERS
     )
 # Volitelné skupiny (rozšířená nastavení).
-_BENCH_KINDS = frozenset({"bench", "info_board", "picnic_table", "firepit"})
+_BENCH_KINDS = frozenset({"bench", "info_board", "guidepost", "picnic_table", "firepit"})
+# Základní sada objektů OSM, ve sprintu výchozí (``objects_basic_only``; Petr 2026-11-06): lavičky, stoly, rozcestníky,
+# pomníky / kříže / sochy a památné stromy. Ostatní (lampy, tabule, herní prvky, brány, přístřešky, fitness,
+# ohniště) jen s volbou „vše“.
+OSM_BASIC_OBJECT_KINDS = frozenset({"bench", "picnic_table", "guidepost", "memorial", "landmark_tree"})
 _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
 # Plochy z OSM_PAVED_AREA_LEISURE / pěší zóna / parkoviště / nástupiště → kind … (501).
@@ -941,6 +951,80 @@ def small_buildings_as_points(feats: list[dict], preset_id: str, scale: int) -> 
                 continue
         out.append(f)
     return out
+# Drobné objekty OSM (lavičky, rozcestníky, pomníky…; 3.19.0, Petr 2026-11-06): body téže značky blíž než
+# ``OBJECT_MIN_GAP_MM`` mapy se nelepí – zůstane ten s vyšší prioritou (pomník, strom, rozcestník, stůl, lavička).
+# Bod uvnitř budovy (dál než ``OBJECT_IN_BUILDING_M`` od obrysu: socha na nádvoří pod střechou, lavička v obchodním
+# centru) se nekreslí. Krumlov centrum 2 km²: 359 laviček → ~215 (1:4000), Barrandov 135 → ~100.
+OBJECT_MIN_GAP_MM = 2.5
+OBJECT_IN_BUILDING_M = 0.5
+_OBJECT_PRIORITY = ("memorial", "landmark_tree", "guidepost", "picnic_table", "bench")
+
+
+def thin_object_points(feats: list[dict], scale: int, preset_id: str = "") -> list[dict]:
+    """Volitelné bodové objekty OSM: bez bodů uvnitř budov a bez bodů téže značky blíž než ``OBJECT_MIN_GAP_MM``."""
+    from shapely.geometry import Point, shape
+    from shapely.strtree import STRtree
+
+    # Brány a sloupky, které sprint nekreslí, nesmí vytlačit sousední body.
+    feats = [
+        f
+        for f in feats
+        if not sprint_skips_barrier_point(preset_id, str((f.get("properties") or {}).get("kind") or ""), f.get("properties") or {})
+    ]
+    pts_idx = [
+        i
+        for i, f in enumerate(feats)
+        if (f.get("properties") or {}).get("kind") in _OPTIONAL_OBJECT_KINDS
+        and (f.get("properties") or {}).get("kind") != "shelter"
+        and (f.get("geometry") or {}).get("type") == "Point"
+    ]
+    if not pts_idx:
+        return feats
+    buildings = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        if (f.get("properties") or {}).get("kind") in _OSM_BUILDING_KINDS and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+            except (ValueError, TypeError):
+                continue
+            if not g.is_empty:
+                inner = g.buffer(-OBJECT_IN_BUILDING_M)
+                if not inner.is_empty:
+                    buildings.append(inner)
+    tree = STRtree(buildings) if buildings else None
+    gap = OBJECT_MIN_GAP_MM * max(int(scale), 1) / 1000.0
+    rank = {k: i for i, k in enumerate(_OBJECT_PRIORITY)}
+    order = sorted(
+        pts_idx,
+        key=lambda i: (rank.get(str(feats[i]["properties"].get("kind")), len(rank)), i),
+    )
+    drop: set[int] = set()
+    kept: dict[tuple, list[tuple[float, float]]] = defaultdict(list)  # (značka, buňka) → body
+    for i in order:
+        props = feats[i]["properties"]
+        x, y = (float(c) for c in feats[i]["geometry"]["coordinates"][:2])
+        if tree is not None:
+            p = Point(x, y)
+            if any(buildings[j].contains(p) for j in tree.query(p)):
+                drop.add(i)
+                continue
+        code = str(props.get("oom_code") or props.get("kind"))
+        cx, cy = int(math.floor(x / gap)), int(math.floor(y / gap))
+        near = any(
+            math.hypot(x - qx, y - qy) < gap
+            for dx in (-1, 0, 1)
+            for dy in (-1, 0, 1)
+            for qx, qy in kept.get((code, cx + dx, cy + dy), ())
+        )
+        if near:
+            drop.add(i)
+            continue
+        kept[(code, cx, cy)].append((x, y))
+    return [f for i, f in enumerate(feats) if i not in drop]
+
+
 # OSM skály / srázy: jen užitečný podklad (osm/*.shp), ne do auto .omap.
 # Ve výstupu zůstávají jen LiDAR/DEM skály (206) z cliffs_rock.dxf.
 # way/553090030 bare_rock; way/373494169 cliff; way/746567272 bare_rock.
@@ -971,10 +1055,13 @@ _PRIORITY_KINDS = frozenset(
         "landmark_tree",
     }
 )
+# Všechny volitelné objekty OSM (mimo ně se kreslí vždy).
+_OPTIONAL_OBJECT_KINDS = _BENCH_KINDS | _LAMP_KINDS | _PLAYGROUND_EQUIPMENT_KINDS | _PRIORITY_KINDS
 _POINT_FEATURE_KINDS = frozenset(
     {
         "bench",
         "info_board",
+        "guidepost",
         "cave_entrance",
         "water_well",
         "spring",
@@ -1474,6 +1561,17 @@ def classify_osm_feature(
     if landuse in _FENCED_COMPOUND_LANDUSE and not is_node:
         return "fence", "518"
     if historic in {"memorial", "monument"} or man_made == "cross":
+        if historic == "memorial" and (tags.get("memorial") or "").lower() in _MEMORIAL_SKIP_TYPES:
+            return None
+        return "memorial", "526"
+    # Boží muka, kříž u cesty; kaplička s building=* je budova (kreslí se plochou).
+    if historic in {"wayside_cross", "wayside_shrine"} and (is_node or not _is_osm_building(tags)):
+        return "memorial", "526"
+    if (
+        tourism == "artwork"
+        and is_node
+        and (tags.get("artwork_type") or "").lower() in _ARTWORK_MEMORIAL_TYPES
+    ):
         return "memorial", "526"
     if amenity == "shelter" or man_made == "canopy":
         return "shelter", "522"
@@ -1482,6 +1580,8 @@ def classify_osm_feature(
         return "shelter", "522"
     if natural == "tree" and denotation in {"landmark", "natural_monument"}:
         return "landmark_tree", "417"
+    if information == "guidepost" and is_node:
+        return "guidepost", "531"
     if (
         tourism == "information" or information in _INFO_BOARD_VALUES
     ) and information not in {"office", "visitor_centre", "visitor_center"}:
@@ -1763,6 +1863,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind in {
         "bench",
         "info_board",
+        "guidepost",
         "lamp",
         "picnic_table",
         "firepit",
@@ -1777,6 +1878,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     defaults = {
         "bench": "531",
         "info_board": "531",
+        "guidepost": "531",
         "lamp": "530",
         "picnic_table": "531",
         "firepit": "531",
@@ -3630,6 +3732,7 @@ def prepare_osm_paths(
     include_lamps: bool = False,
     include_playground_equipment: bool = False,
     osm_priority: bool = False,
+    objects_basic_only: bool = False,
     all_footways_as_sidewalk: bool = False,
     preset_id: str = "",
     force_refresh: bool = False,
@@ -3739,6 +3842,13 @@ def prepare_osm_paths(
                 continue
             if kind in _PRIORITY_KINDS and not osm_priority:
                 skipped += 1
+                continue
+            if (
+                objects_basic_only
+                and kind in _OPTIONAL_OBJECT_KINDS
+                and kind not in OSM_BASIC_OBJECT_KINDS
+            ):
+                skipped += 1  # sprint ve výchozím režimu: jen základní sada objektů
                 continue
             if kind in _LINE_FEATURE_KINDS and el.get("type") == "relation":
                 # Multipolygon areál → plot/zeď jen po outer (ne díry).
@@ -4201,6 +4311,7 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "water_tower": ("OSM_veze", "vodojemy / vysoké věže", "524"),
     "hunting_stand": ("OSM_posedy", "posedy", "531"),
     "info_board": ("OSM_tabule", "informační tabule", "531"),
+    "guidepost": ("OSM_rozcestniky", "rozcestníky", "531"),
     "bench": ("OSM_lavicky", "lavičky", "531"),
     "lamp": ("OSM_lampy", "lampy", "530"),
     "picnic_table": ("OSM_stoly", "stoly", "531"),
@@ -4539,6 +4650,14 @@ OSM_PRIORITY_AREA_LAYERS: dict[str, str] = {
     "VodniPlocha": "water_body",
     "ParkovisteOdpocivka": "parking",
 }
+# Bodové ZABAGED objekty se stejným OSM objektem do ``OSM_PRIORITY_POINT_NEAR_M`` se nekreslí (OSM je základ;
+# kříž / pomník / strom by jinak byl dvakrát vedle sebe). Maska = okolí OSM bodů téhož druhu.
+OSM_PRIORITY_POINT_LAYERS: dict[str, str] = {
+    "KrizSloupKulturnihoVyznamu": "memorial",
+    "MohylaPomnikNahrobek": "memorial",
+    "VyznamnyStromLesik": "landmark_tree",
+}
+OSM_PRIORITY_POINT_NEAR_M = 10.0
 
 
 def rail_tunnel_geometry(work_dir: Path):
@@ -4562,9 +4681,9 @@ def rail_tunnel_geometry(work_dir: Path):
 
 
 def osm_priority_area_geometries(work_dir: Path) -> dict:
-    """{ZABAGED vrstva: Shapely sjednocení OSM ploch téhož druhu} (jen neprázdné)."""
+    """{ZABAGED vrstva: Shapely sjednocení OSM ploch téhož druhu, u bodových vrstev okolí OSM bodů} (jen neprázdné)."""
     try:
-        from shapely.geometry import Polygon
+        from shapely.geometry import Point, Polygon
         from shapely.ops import unary_union
     except ImportError:
         return {}
@@ -4576,9 +4695,14 @@ def osm_priority_area_geometries(work_dir: Path) -> dict:
     except (OSError, json.JSONDecodeError):
         return {}
     by_kind: dict[str, list] = defaultdict(list)
+    near_pts: dict[str, list] = defaultdict(list)
     for feat in data.get("features") or []:
         kind = str((feat.get("properties") or {}).get("kind") or "")
         geom = feat.get("geometry") or {}
+        if geom.get("type") == "Point" and kind in OSM_PRIORITY_POINT_LAYERS.values():
+            x, y = (float(c) for c in (geom.get("coordinates") or [0, 0])[:2])
+            near_pts[kind].append(Point(x, y).buffer(OSM_PRIORITY_POINT_NEAR_M, 8))
+            continue
         rings = geom.get("coordinates") or []
         if geom.get("type") != "Polygon" or not rings or len(rings[0]) < 4:
             continue
@@ -4586,11 +4710,15 @@ def osm_priority_area_geometries(work_dir: Path) -> dict:
             continue
         poly = Polygon(rings[0], rings[1:])
         by_kind[kind].append(poly if poly.is_valid else poly.buffer(0))
-    return {
+    out = {
         layer: unary_union(by_kind[kind])
         for layer, kind in OSM_PRIORITY_AREA_LAYERS.items()
         if by_kind.get(kind)
     }
+    out.update(
+        {layer: unary_union(near_pts[kind]) for layer, kind in OSM_PRIORITY_POINT_LAYERS.items() if near_pts.get(kind)}
+    )
+    return out
 
 
 def cut_water_features_by_decks(feats: list[dict], deck) -> list[dict]:
@@ -8079,6 +8207,7 @@ def build_osm_feature_parts(
         from app.pipeline.dtm_import import join_and_orient_osm_fences
 
         feats = join_and_orient_osm_fences(work_dir, feats, preset_id=preset_id, scale=scale, path_source=path_source)
+    feats = thin_object_points(feats, scale, preset_id)  # lavičky, pomníky…: ne v budově, ne nalepené na sebe
     feats = [
         f
         for f in feats
@@ -8111,6 +8240,7 @@ def build_osm_feature_parts(
         "spring": "OSM prameny",
         "bench": "OSM lavičky",
         "info_board": "OSM informační tabule",
+        "guidepost": "OSM rozcestníky",
         "lamp": "OSM lampy",
         "picnic_table": "OSM stoly",
         "firepit": "OSM ohniště",
@@ -8168,6 +8298,7 @@ def build_osm_feature_parts(
         "water_tower",
         "hunting_stand",
         "info_board",
+        "guidepost",
         "bench",
         "lamp",
         "picnic_table",

@@ -15,7 +15,7 @@ from app.pipeline.job_options import (
     resolve_contour_smooth,
     resolve_formline_mode,
     resolve_map_types,
-    resolve_osm_objects,
+    resolve_osm_objects_mode,
     resolve_vege_height,
     resolve_veg_smooth,
 )
@@ -118,7 +118,7 @@ def job_form_template(job: dict[str, Any], presets: dict | None = None) -> dict[
         "kp_vege_height": str(int(vege)) if float(vege).is_integer() else str(vege),
         "kp_cliff_symbol": cliff,
         "kp_cliff_sensitivity": resolve_cliff_sensitivity(opts),
-        "kp_osm_objects": resolve_osm_objects(opts),
+        "kp_osm_objects": resolve_osm_objects_mode(opts),
         "dtm": _dtm_choice(opts),
         "sprint_residual_paved": _bool(opts.get("sprint_residual_paved"), False),
         "sprint_residual_size": residual_size,

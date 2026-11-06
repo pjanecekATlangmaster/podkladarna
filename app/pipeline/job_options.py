@@ -89,15 +89,42 @@ OSM_OBJECTS_LEGACY_KEYS = (
 )
 
 
+# Režim objektů OSM (3.19.0, Petr 2026-11-06): „auto“ = výchozí základní sada ve sprintu (lavičky, stoly,
+# rozcestníky, pomníky, kříže, sochy, památné stromy; les a MTBO nic), „1“ = vše (navíc lampy, tabule, herní
+# prvky, brány, přístřešky, fitness, ohniště), „none“ = žádné. Starší joby / API s `False` / „0“ = auto (byl to výchozí stav).
+OSM_OBJECTS_AUTO = "auto"
+OSM_OBJECTS_ALL = "1"
+OSM_OBJECTS_NONE = "none"
+
+
+def resolve_osm_objects_mode(options: dict | None) -> str:
+    """`auto` | `1` | `none` podle `kp_osm_objects`; starší joby / API: kterákoli z dřívějších dílčích voleb = vše."""
+    opts = options or {}
+    raw = opts.get("kp_osm_objects")
+    if raw is None:
+        return OSM_OBJECTS_ALL if any(_as_bool(opts.get(k), False) for k in OSM_OBJECTS_LEGACY_KEYS) else OSM_OBJECTS_AUTO
+    text = str(raw).strip().lower()
+    if text in {"none", "off_all", "zadne"}:
+        return OSM_OBJECTS_NONE
+    if text in {"auto", "basic", ""}:
+        return OSM_OBJECTS_AUTO
+    return OSM_OBJECTS_ALL if _as_bool(raw, False) else OSM_OBJECTS_AUTO
+
+
 def resolve_osm_objects(options: dict | None) -> bool:
-    """Kreslit další objekty OSM? `kp_osm_objects`; starší joby / API: kterákoli z dřívějších dílčích voleb.
+    """Kreslit všechny další objekty OSM (lampy, tabule, herní prvky, brány…)? `kp_osm_objects` = „1“.
 
     Starý `kp_osm_priority` se ignoruje (byl ve výchozím stavu zapnutý a nesl hlavně ploty, které jsou teď vždy).
     """
-    opts = options or {}
-    if opts.get("kp_osm_objects") is not None:
-        return _as_bool(opts.get("kp_osm_objects"), False)
-    return any(_as_bool(opts.get(k), False) for k in OSM_OBJECTS_LEGACY_KEYS)
+    return resolve_osm_objects_mode(options) == OSM_OBJECTS_ALL
+
+
+def resolve_osm_basic_objects(options: dict | None, preset_id: str) -> bool:
+    """Základní sada objektů OSM (lavičky, rozcestníky, pomníky, památné stromy…): ve sprintu výchozí, jinde jen s „vše“."""
+    mode = resolve_osm_objects_mode(options)
+    if mode == OSM_OBJECTS_NONE:
+        return False
+    return mode == OSM_OBJECTS_ALL or str(preset_id).startswith("sprint")
 
 
 def resolve_use_dtm(options: dict | None, preset_id: str) -> bool:

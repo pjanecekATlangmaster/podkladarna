@@ -25,7 +25,7 @@ BBOX = [14.4, 50.08, 14.42, 50.09]
                 "map_scale": "10000", "contour_interval": "5", "map_types": ["mtbo"],
                 "contour_formlines": "sparse", "contour_smooth": "0", "veg_smooth": "2",
                 "kp_vege_height": "2.5", "kp_cliff_symbol": "earth_bank",
-                "kp_cliff_sensitivity": "high", "kp_osm_objects": True, "dtm": "1",
+                "kp_cliff_sensitivity": "high", "kp_osm_objects": "1", "dtm": "1",
                 "output_georef": True, "output_references": False,
             },
         ),
@@ -35,7 +35,7 @@ BBOX = [14.4, 50.08, 14.42, 50.09]
             {"kp_cliff_symbol": "rock_face", "kp_osm_benches": True, "veg_smooth": "round"},
             {
                 "map_scale": "4000", "map_types": [], "kp_cliff_symbol": "auto",
-                "kp_osm_objects": True, "veg_smooth": "1", "contour_smooth": "1",
+                "kp_osm_objects": "1", "veg_smooth": "1", "contour_smooth": "1",
                 "kp_vege_height": "2", "dtm": "1", "output_references": True,
             },
         ),
@@ -43,7 +43,7 @@ BBOX = [14.4, 50.08, 14.42, 50.09]
         (
             "forest_10000",
             {"map_scale": 10000, "dtm_sprint": False, "dtm_forest": False},
-            {"map_scale": "10000", "map_types": ["les", "mtbo"], "dtm": "0"},
+            {"map_scale": "10000", "map_types": ["les", "mtbo"], "dtm": "0", "kp_osm_objects": "auto"},
         ),
     ],
 )

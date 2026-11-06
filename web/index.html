@@ -254,11 +254,15 @@
             </label>
             <div class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou.<details class="hint-more"><summary>Více</summary> Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba kreslí z DTM sprint, les i MTBO.</details></div>
 
-            <label class="checkbox-row">
-              <input type="checkbox" name="kp_osm_objects" id="kp_osm_objects" value="1" />
-              Další objekty OSM – lavičky, lampy, pomníky, brány, přístřešky…
+            <label>
+              Objekty OSM
+              <select name="kp_osm_objects" id="kp_osm_objects">
+                <option value="auto" selected>Základní – ve sprintu lavičky, rozcestníky, pomníky, kříže, sochy, památné stromy (výchozí)</option>
+                <option value="1">Vše – navíc lampy, tabule, herní prvky, brány, přístřešky, fitness (sprint, les i MTBO)</option>
+                <option value="none">Žádné drobné objekty</option>
+              </select>
             </label>
-            <div class="hint" id="osm-objects-hint">Drobné objekty z OSM: lavičky, lampy, tabule, pomníky, brány, přístřešky. Výchozí: vypnuto; spíš ve sprintu.<details class="hint-more"><summary>Více</summary> Dále stoly, ohniště, herní prvky na hřišti, sloupky, kříže, fitness prvky a památné stromy. Ploty, zdi a živé ploty z OSM se kreslí vždy. Hřiště a pěší zóny jako zpevněná 501, voda 301, orná 412, studny, prameny a mokřady také vždy.</details></div>
+            <div class="hint" id="osm-objects-hint">Drobné objekty z OpenStreetMap. Ve výchozím stavu je sprint má, les a MTBO ne.<details class="hint-more"><summary>Více</summary> Základní sada: lavičky a stoly (531 ×), rozcestníky (531 ×), pomníky, boží muka, kříže a sochy (526), památné stromy (417). Pamětní desky na zdech se nekreslí, body uvnitř budov také ne a stejné značky blíž než 2,5 mm se nelepí na sebe. Kříže, pomníky a stromy ze ZABAGED se vedle stejného objektu z OSM nekreslí. Ploty, zdi a živé ploty z OSM se kreslí vždy, stejně jako hřiště a pěší zóny (501), voda (301), orná (412), studny, prameny a mokřady.</details></div>
 
             <div id="residual-paved-wrap">
               <label class="checkbox-row">

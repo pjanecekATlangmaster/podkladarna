@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.18.0"
+APP_VERSION = "3.19.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -201,10 +201,11 @@ DEFAULT_OPTIONS = {
     "kp_vege_height": 2.0,
     # Citlivost detekce srázů: low | normal | high | very_high (výchozí low = méně srázů).
     "kp_cliff_sensitivity": "low",
-    # Další objekty OSM (lavičky, lampy, herní prvky, brány, pomníky, přístřešky…) – default vypnuto.
+    # Objekty OSM: auto = ve sprintu základní sada (lavičky, stoly, rozcestníky, pomníky, kříže, sochy, památné
+    # stromy), True = vše (navíc lampy, tabule, herní prvky, brány, přístřešky…), "none" = žádné (3.19.0).
     # Ploty a zdi z OSM vždy (bez volby). Dřívější kp_osm_benches / _lamps / _playground_equipment
-    # čte resolve_osm_objects u starších jobů a API; kp_osm_priority se ignoruje.
-    "kp_osm_objects": False,
+    # čte resolve_osm_objects_mode u starších jobů a API; kp_osm_priority se ignoruje.
+    "kp_osm_objects": "auto",
     # Všechny highway=footway jako zpevněný chodník (sprint 501.10).
     # Les/MTBO: chodník = linie 506/834 (ne zpevněná plocha 501.1/529).
     # Statický default = off; při vytváření jobu doplní default_footway_as_sidewalk
