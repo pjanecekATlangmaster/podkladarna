@@ -864,12 +864,10 @@ def _prepare_oom_map(
 
                 dtm_cover = _dtm_areas if dtm_cover is None else unary_union([dtm_cover, _dtm_areas])
                 stub_cover = _dtm_areas
-        # Les a MTBO: železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy.
-        rail_tunnel_zone = None
-        if not preset_id.startswith("sprint"):
-            from app.pipeline.osm_paths import rail_tunnel_geometry
+        # Železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy (les, MTBO i sprint).
+        from app.pipeline.osm_paths import rail_tunnel_zones
 
-            rail_tunnel_zone = rail_tunnel_geometry(kp_cwd)
+        rail_tunnel_zone = rail_tunnel_zones(kp_cwd) or None
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,
@@ -1155,6 +1153,21 @@ def _prepare_oom_map(
         object_parts.extend(
             build_aopk_tree_parts(
                 aopk_trees,
+                preset_id=preset_id,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                grivation_deg=grivation,
+                clip_bounds=vector_clip_bounds,
+            )
+        )
+    if preset_id.startswith("sprint"):
+        # Samostatný strom na zpevněné ploše (náměstí, parkoviště) = bod 417 ve středu koruny (CHM + ortofoto).
+        from app.pipeline.sprint_trees import build_sprint_tree_parts, sprint_paved_tree_points
+
+        object_parts.extend(
+            build_sprint_tree_parts(
+                sprint_paved_tree_points(kp_cwd, bbox_wgs84, existing=aopk_pts, log=log),
                 preset_id=preset_id,
                 scale=scale,
                 ref_x=ref_x,

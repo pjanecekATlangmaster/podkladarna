@@ -299,7 +299,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `sidewalks.json` podél OSM čáry (medián). Silnice ≥ 9 m → 502.1, ≥ 5 m → 502 (užší podle tagů), zpevněná pěšina ≥ 2,5 m → 505; pěší plochy
   z DTM širší než 0,5 mm mapy se kreslí jako zpevněná plocha a napojí do sítě. MTBO jen se zapnutým `MTBO_USE_DTM`, sprint beze změny.
 - **Tunely v lese a MTBO:** OSM cesta v tunelu / s `layer < 0` delší než 40 m (`TUNNEL_MAX_DRAW_M`) se nekreslí, krátký podchod ano.
-  Železnice a tramvaj ze ZABAGED se nekreslí v okolí 4 m od OSM kolejí v tunelu (`rail_tunnels.geojson` z přípravy OSM, `ZABAGED_RAIL_LAYERS`).
+  Železnice a tramvaj ze ZABAGED se nekreslí v okolí 4 m od OSM kolejí v tunelu (`rail_tunnels.geojson` z přípravy OSM, `ZABAGED_RAIL_LAYERS`);
+  od 3.22.1 i ve sprintu (Petr 2026-11-06, Barrandov) a jen kolejí téhož druhu (`RAIL_TUNNEL_KINDS_BY_LAYER`: tramvaj tramvají, trať tratí,
+  metro nic – Vinohradská má metro pod tramvají na povrchu); starší joby bez druhu v `rail_tunnels.geojson` skryjí vše jako dřív.
 - **Malé zalomené schody v lese a MTBO** (OSM, `small_complex_steps`): navazující čáry schodů tvaru „L“ / „C“ s rozsahem do 15 m (kratší strana
   otočeného obdélníku ≥ 2 m) se nekreslí. Složitá schodiště z DTM les nekreslí už dřív (`is_complex_stairs`, sprint je kreslí plochou).
 - **Plochy pod olivou v lese a MTBO** (Petr 2026-10-25, `paved_fill_outside_olive`): výplň 501.1 se o kreslenou olivu do 5 000 m² ořízne (`PAVED_FILL_OLIVE_MAX_M2`; velké areály jako ateliéry Barrandov ne), plocha
@@ -377,6 +379,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Starší joby bez klíče `playground_equipment` ve `features.geojson` (nebo bez těchto props) beze změny. Měření a výřezy
   `/mnt/project-files/herni-prvky-ortofoto/` (Barrandov: přesnost detekce 0,73, Krumlov 0,5, krok 9–30 s).
   Zálohy `DETECT = False` (jen OSM), `SHADOWS = False` (bez stínů).
+- **Stromy na zpevněné ploše ve sprintu** (3.21.0, Petr 2026-11-06, `app/pipeline/sprint_trees.py`, `SPRINT_PAVED_TREES`): bod 417 ve
+  středu koruny z `chm.tif` jobu: koruna > 3 m, vrchol ≥ 5 m, 12–250 m², kompaktní, do 10 m bez další vegetace, mimo budovy (OSM + DTM, +1,5 m);
+  ortofoto: koruna ≥ 30 % zelená, okolí koruny (1,6–3 poloměry) ≥ 60 % mimo budovy a vodu a pod 25 % zelené = dlažba. Strom do 8 m
+  od OSM / AOPK / ZABAGED stromu se nepřidá. Krumlov centrum 0,6 km² 6 stromů, Barrandov 7 (i stromy v zeleném pásu u velké silnice). Bez ortofota nic.
+  Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
