@@ -3,6 +3,8 @@
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
   - date: "2026-11-06"
+    title: "Verze 3.21 – sprint: samostatný strom na náměstí, pěší zóně nebo parkovišti se kreslí bodem 417 ve středu koruny (z výšky porostu DMP OK, potvrzené ortofotem)"
+  - date: "2026-11-06"
     title: "Verze 3.19 – sprint má ve výchozím stavu drobné objekty z OSM: lavičky a stoly, rozcestníky, pomníky, boží muka, kříže, sochy a památné stromy; stejné značky se nelepí na sebe, pamětní desky na zdech se nekreslí"
   - date: "2026-11-06"
     title: "Verze 3.18 – kresba z DTM je výchozí pro všechny mapy (sprint, les i MTBO); kde DTM není, kreslí se z OSM a ZABAGED"

@@ -362,6 +362,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   dvojitých zdí). Les / MTBO: úsek ulice ZABAGED ležící do 2,5 m na kreslené OSM čáře (chodník, pěší ulice, polní cesta) se nekreslí
   (`zabaged_roads_off_osm_lines` nad hotovou částí „OSM cesty“, chodník vedle ulice ji nesmaže). Měřicí skripty a výřezy
   `/mnt/project-files/dedup-zdroje/`.
+- **Stromy na zpevněné ploše ve sprintu** (3.21.0, Petr 2026-11-06, `app/pipeline/sprint_trees.py`, `SPRINT_PAVED_TREES`): bod 417 ve
+  středu koruny z `chm.tif` jobu: koruna > 3 m, vrchol ≥ 5 m, 12–250 m², kompaktní, do 10 m bez další vegetace, mimo budovy (OSM + DTM, +1,5 m);
+  ortofoto: koruna ≥ 30 % zelená, okolí koruny (1,6–3 poloměry) ≥ 60 % mimo budovy a vodu a pod 25 % zelené = dlažba. Strom do 8 m
+  od OSM / AOPK / ZABAGED stromu se nepřidá. Krumlov centrum 0,6 km² 6 stromů, Barrandov 7 (i stromy v zeleném pásu u velké silnice). Bez ortofota nic.
+  Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
