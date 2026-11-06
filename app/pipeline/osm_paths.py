@@ -510,6 +510,8 @@ def _overpass_ql(
                 f'node["leisure"="playground"]({bbox});',
                 f'node["playground"]({bbox});',
                 f'way["playground"]({bbox});',
+                # bazén u hřiště = soukromá zahrada (herní prvky se tam nehledají)
+                f'way["leisure"="swimming_pool"]({bbox});',
             ]
         )
     if include_benches:
@@ -602,7 +604,7 @@ _BENCH_KINDS = frozenset({"bench", "info_board", "guidepost", "picnic_table", "f
 # Základní sada objektů OSM, ve sprintu výchozí (``objects_basic_only``; Petr 2026-11-06): lavičky, stoly, rozcestníky,
 # pomníky / kříže / sochy a památné stromy. Ostatní (lampy, tabule, herní prvky, brány, přístřešky, fitness,
 # ohniště) jen s volbou „vše“.
-# Od 3.21.0 i herní prvky na hřištích (generalizované, doplněné z výšky a ortofota, ``playground_equipment.py``).
+# Od 3.23.0 i herní prvky na hřištích (generalizované, doplněné z výšky a ortofota, ``playground_equipment.py``).
 OSM_BASIC_OBJECT_KINDS = frozenset(
     {"bench", "picnic_table", "guidepost", "memorial", "landmark_tree", "playground_equipment"}
 )
@@ -3808,6 +3810,9 @@ def prepare_osm_paths(
         ]
         if len(ring) >= 4 and ring[0] == ring[-1]:
             bridge_decks.append(ring)
+    # Soukromé zahrady a bazény: hřiště v nich je soukromé (herní prvky se nehledají).
+    private_gardens: list = []
+    private_pools: list = []
     # Chodník / zpevněný footway bereme ve všech disciplínách (symbolika se liší).
     allow_sidewalk = True
     for el in elements:
@@ -3835,6 +3840,14 @@ def prepare_osm_paths(
         if el.get("type") == "relation":
             el_geom = "way"
         classified = classify_osm_feature(tags, geom=el_geom)
+        if el.get("type") != "node":
+            from app.pipeline.playground_equipment import is_private_garden_tags
+
+            leisure_tag = (tags.get("leisure") or "").lower()
+            if leisure_tag == "swimming_pool":
+                private_pools.extend(osm_area_polygons_5514(el))
+            elif is_private_garden_tags(tags):
+                private_gardens.extend(osm_area_polygons_5514(el))
         if el.get("type") != "node" and is_natural_cover(tags):
             natural_cover.extend(osm_area_polygons_5514(el))
             if not classified and not tags.get("highway"):
@@ -3898,6 +3911,8 @@ def prepare_osm_paths(
                 props_area: dict = {"source": "osm", "kind": kind, "oom_code": code}
                 if kind == "playground" and tags.get("name"):
                     props_area["name"] = tags.get("name")  # dopravní hřiště nemá herní prvky
+                if kind == "playground" and tags.get("access"):
+                    props_area["access"] = str(tags.get("access")).lower()  # soukromé hřiště bez herních prvků
                 structure = paved_area_structure(tags) if kind in _PAVED_AREA_KINDS else None
                 if structure:
                     props_area["structure"] = structure  # most / tunel se s okolními plochami neslučuje
@@ -3937,8 +3952,11 @@ def prepare_osm_paths(
                 props["barrier"] = (tags.get("barrier") or "").lower()  # sprint brány a sloupky nekreslí
             if kind == "playground_equipment":
                 props["playground"] = (tags.get("playground") or "").lower()  # výběr při generalizaci
-            elif kind == "playground" and tags.get("name"):
-                props["name"] = tags.get("name")
+            elif kind == "playground":
+                if tags.get("name"):
+                    props["name"] = tags.get("name")
+                if tags.get("access"):
+                    props["access"] = str(tags.get("access")).lower()
             if kind in {"power_line", "power_line_major"} and len(pts) >= 2:
                 dash = _dash_indices_near_supports(pts, power_supports)
                 if dash:
@@ -4288,6 +4306,10 @@ def prepare_osm_paths(
         json.dumps({"type": "FeatureCollection", "features": path_surfaces}),
         encoding="utf-8",
     )
+    if include_playground_equipment:
+        from app.pipeline.playground_equipment import mark_private_playgrounds
+
+        mark_private_playgrounds(features, private_gardens, private_pools)
     feat_out = dest_dir / "features.geojson"
     feat_out.write_text(
         # ``playground_equipment``: herní prvky byly v dotazu (sprint je doplní detekcí; starší joby bez klíče ne).
@@ -8138,11 +8160,29 @@ def build_osm_path_parts(
 
 
 def _sprint_playground_points(work_dir: Path, feats: list[dict], scale: int, bbox_wgs84, log=None) -> list[dict]:
-    """Sprint: herní prvky v hřištích = OSM + detekce z CHM a ortofota, generalizované (``playground_equipment``)."""
+    """Sprint: herní prvky v hřištích = OSM + detekce z výšky (DMP OK v obrysech hřišť, záloha CHM) a ortofota
+    (0,125 m v obrysech hřišť, záloha ortofoto jobu), generalizované (``playground_equipment``)."""
     from app.pipeline import playground_equipment as pe
 
     if not any((f.get("properties") or {}).get("kind") == "playground" for f in feats):
         return feats
+
+    def _height(grounds):
+        return pe.dmpok_height(work_dir, grounds, log=log)
+
+    def _fine_ortho(geom):
+        from app.pipeline.orthophoto import fetch_orthophoto
+        from app.pipeline.residual_verify import Raster
+
+        x0, y0, x1, y1 = (round(v, 1) for v in geom.buffer(pe.FINE_PAD_M).bounds)
+        got = fetch_orthophoto(
+            work_dir, (x0, y0, x1, y1), pe.FINE_MPP, subdir=f"orthophoto_playgrounds/{int(x0)}_{int(y0)}"
+        )
+        if got is None:
+            return None
+        rgb, gt = got
+        return Raster(rgb, gt[0], gt[3], gt[1], -gt[5])
+
     ortho = chm = None
     if pe.DETECT or pe.FALLBACK:
         try:
@@ -8154,7 +8194,7 @@ def _sprint_playground_points(work_dir: Path, feats: list[dict], scale: int, bbo
             if log:
                 log(f"Herní prvky: ortofoto / CHM nedostupné ({exc})")
     try:
-        return pe.playground_points(feats, ortho, chm, scale, log=log)
+        return pe.playground_points(feats, ortho, chm, scale, log=log, height=_height, fine_ortho=_fine_ortho)
     except Exception as exc:
         if log:
             log(f"Herní prvky: detekce přeskočena ({exc})")

@@ -362,13 +362,21 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   dvojitých zdí). Les / MTBO: úsek ulice ZABAGED ležící do 2,5 m na kreslené OSM čáře (chodník, pěší ulice, polní cesta) se nekreslí
   (`zabaged_roads_off_osm_lines` nad hotovou částí „OSM cesty“, chodník vedle ulice ji nesmaže). Měřicí skripty a výřezy
   `/mnt/project-files/dedup-zdroje/`.
-- **Herní prvky na hřištích ve sprintu** (3.21.0, Petr 2026-11-06, `app/pipeline/playground_equipment.py`, výchozí i v `kp_osm_objects=auto`):
-  v obrysu `leisure=playground` OSM body (vysoké konstrukce přednost, ploché jen jako záloha) + detekce z `chm.tif` (vrchol 1,5–8 m,
-  1–30 m², ne zelené, ne okraj koruny ± 2 m, ne plná střecha ≥ 8 m²) a ortofota 0,5 m (písková dopadová plocha v trávě s předmětem,
-  ne pravoúhlé pískoviště). Hřiště do 500 m² 1 křížek 531, větší odstup 4 mm a nejvýš 1 na 300 m²; bez nálezu záložní křížek ve
-  středu otevřené nezelené části (`FALLBACK`), dopravní hřiště (`name`) nic. Starší joby bez klíče `playground_equipment`
-  ve `features.geojson` beze změny. Měření a výřezy `/mnt/project-files/herni-prvky-ortofoto/` (přesnost detekce ~0,85,
-  záloha trefí prvek u ~¼ hřišť). Záloha `DETECT = False`.
+- **Herní prvky na hřištích ve sprintu** (3.23.0, Petr 2026-11-06, `app/pipeline/playground_equipment.py`, výchozí i v `kp_osm_objects=auto`):
+  v obrysu `leisure=playground` OSM body (vysoké konstrukce přednost, ploché jen jako záloha) + detekce: výška z bodů DMP OK
+  0,5 m jen v obrysech hřišť (`dmpok_height`: laspy po blocích s maskou obrysů minus `dem_filled`, bez laspy PDAL, bez LAZ `chm.tif`;
+  shluk 1–3,5 m o ploše 0,5–40 m², strom = zelený pixel, ne dotyk s korunou / střechou ≥ 15 m² kromě sytě barevného plastu, ne plná
+  střecha ≥ 8 m²) a **vržený stín** na ortofotu 0,125 m stahovaném jen v obrysech hřišť (`work/orthophoto_playgrounds/`, Petr
+  2026-11-06): tenký tmavý nezelený útvar (šedé uzavření jasu 1 m, pokles ≥ 18 %) na světlé ploše mimo korunu, protáhlý, rám nebo
+  kompaktní 0,8–4 m²; směr stínu z korun ve výřezu (`sun_shadow_dir`, jinak k severu), křížek na konci stínu u slunce; dvě rovnoběžky
+  1,2–6 m od sebe a pravoúhlý rám = pískoviště, ne. Dopadová plocha z ortofota jako dřív. Hřiště do 500 m² 1 křížek 531 na
+  nejjistějším nálezu, větší doplní další nálezy s odstupem 4 mm a nejvýš 1 na 300 m²; bez nálezu záložní křížek ve středu otevřené
+  nezelené části (`FALLBACK`), dopravní hřiště (`name`) nic. Soukromá hřiště se vynechávají úplně (bez detekce i zálohy, OSM body
+  beze změny): `access` private / no / customers, nebo z ≥ 80 % v soukromé zahradě (OSM `leisure=garden` s `access=private` /
+  `garden:type=residential`) či s bazénem do 10 m (`mark_private_playgrounds` v přípravě OSM, props `access`, `private_garden`).
+  Starší joby bez klíče `playground_equipment` ve `features.geojson` (nebo bez těchto props) beze změny. Měření a výřezy
+  `/mnt/project-files/herni-prvky-ortofoto/` (Barrandov: přesnost detekce 0,73, Krumlov 0,5, krok 9–30 s).
+  Zálohy `DETECT = False` (jen OSM), `SHADOWS = False` (bez stínů).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
