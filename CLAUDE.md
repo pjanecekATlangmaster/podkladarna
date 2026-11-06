@@ -389,7 +389,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   okolí ≥ 0,5. Barrandov 57 → 77, Krumlov 63 → 88 (část nových jsou stromy v zahradách ve stínu budov).
   Od 3.24.2 (Petr 2026-11-06) nerozhoduje podíl budov v okolí koruny (Tilleho nám. s budovami z DTM 0,46 a 0,49), podklad se
   posuzuje mimo budovy a vodu; strom na kreslené budově (i v zalitém dvoře) nebo v olivě 520 zahodí nad hotovou mapou
-  `drop_trees_in_buildings_and_olive` (po `sprint_merge_buildings`).
+  `drop_trees_in_buildings_and_olive` (po `sprint_merge_buildings`); oliva jen souvislá do 5 000 m² (`OLIVE_MAX_M2`, areál sídliště
+  přes ulice ne) a strom aspoň 1,5 m od jejího kraje (`OLIVE_INSIDE_M`, aleje).
   Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,

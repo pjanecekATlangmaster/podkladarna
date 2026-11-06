@@ -67,6 +67,7 @@ def test_detect_paved_trees(scene, want):
         (None, 2),  # bez budovy a olivy oba stromy zůstanou
         ("521", 1),  # strom na budově (i v zalitém dvoře) pryč
         ("520", 1),  # strom v olivě (zahrada) pryč
+        ("520_big", 2),  # oliva přes celý areál (nad 5 000 m²) strom nezahodí
     ],
 )
 def test_drop_trees_in_buildings_and_olive(block, want):
@@ -84,8 +85,9 @@ def test_drop_trees_in_buildings_and_olive(block, want):
         )
     ]
     if block:
-        sym = symbol_index_for_code(preset, 4000, block)
-        area = f'<object type="1" symbol="{sym}"><coords count="5">0 0;1000 0;1000 1000;0 1000;0 0;</coords></object>'
+        sym = symbol_index_for_code(preset, 4000, block.split("_")[0])
+        e = 100000 if block.endswith("big") else 1000  # µm mapy 1:4000: 400 m / 4 m
+        area = f'<object type="1" symbol="{sym}"><coords count="5">0 0;{e} 0;{e} {e};0 {e};0 0;</coords></object>'
         parts.insert(0, OomObjectPart(name="plocha", objects_xml=area, count=1))
     out = drop_trees_in_buildings_and_olive(parts, preset_id=preset, scale=4000)
     trees = [p for p in out if p.name == TREE_PART_NAME]

@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 SPRINT_PAVED_TREES = True
 TREE_PART_NAME = "Stromy na zpevněné ploše (DMP OK)"
+OLIVE_MAX_M2 = 5000.0  # souvislá oliva větší = areál (sídliště přes ulice a parkoviště), strom v ní zůstane
+OLIVE_INSIDE_M = 1.5  # strom u kraje olivy (alej, oliva přesahuje do chodníku) zůstane
 TREE_MIN_CHM_M = 3.0  # koruna = výška nad terénem
 TREE_MIN_HEIGHT_M = 5.0  # nejvyšší bod koruny
 CROWN_MIN_M2 = 12.0
@@ -344,7 +346,8 @@ def build_sprint_tree_parts(
 
 
 def drop_trees_in_buildings_and_olive(parts, *, preset_id: str, scale: int):
-    """Sprint: strom z DMP OK ležící v kreslené budově 521 (včetně zalitého dvora) nebo v olivě 520 se nekreslí.
+    """Sprint: strom z DMP OK ležící v kreslené budově 521 (včetně zalitého dvora) nebo v olivě 520 (souvislé do
+    ``OLIVE_MAX_M2``, aspoň ``OLIVE_INSIDE_M`` od kraje) se nekreslí.
 
     Volat nad hotovou mapou (po ``sprint_merge_buildings``). Petr 2026-11-06: místo podílu budov v okolí koruny."""
     if not str(preset_id).startswith("sprint") or not parts:
@@ -373,22 +376,33 @@ def drop_trees_in_buildings_and_olive(parts, *, preset_id: str, scale: int):
         set_path = symbol_set_path(preset_id, scale)
         info = _symbol_info(set_path)
         codes = _symbol_codes(set_path)
-        block_ids = {i for i, c in codes.items() if c == BUILDING_CODE}
-        block_ids |= {i for i, (major, kind) in info.items() if major == OLIVE_MAJOR and kind == "area"}
-        polys = []
+        building_ids = {i for i, c in codes.items() if c == BUILDING_CODE}
+        olive_ids = {i for i, (major, kind) in info.items() if major == OLIVE_MAJOR and kind == "area"}
+        buildings, olives = [], []
         for part in parts:
             if part.name == TREE_PART_NAME:
                 continue
             for m in _OBJECT_RE.finditer(part.objects_xml):
-                if m.group(2) != "1" or int(m.group(3)) not in block_ids:
+                sym = int(m.group(3))
+                if m.group(2) != "1" or (sym not in building_ids and sym not in olive_ids):
                     continue
                 cm = _COORDS_RE.search(m.group(4))
                 poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
                 if poly is not None and not poly.is_empty:
-                    polys.append(poly if poly.is_valid else poly.buffer(0))
-        if not polys:
+                    (buildings if sym in building_ids else olives).append(poly if poly.is_valid else poly.buffer(0))
+        # Oliva jen menší souvislá (zahrada, dvorek) a strom aspoň OLIVE_INSIDE_M od jejího kraje: velký areál
+        # sídliště kreslený olivou přes ulice a parkoviště ani alej u kraje olivy stromy nezahodí.
+        um = 1e6 / scale  # µm mapy na 1 m v terénu
+        blocks = list(buildings)
+        if olives:
+            for g in getattr(unary_union(olives), "geoms", None) or [unary_union(olives)]:
+                if g.area <= OLIVE_MAX_M2 * um * um:
+                    inner = g.buffer(-OLIVE_INSIDE_M * um)
+                    if not inner.is_empty:
+                        blocks.append(inner)
+        if not blocks:
             return parts
-        blocked = prep(unary_union(polys))
+        blocked = prep(unary_union(blocks))
     except Exception as exc:  # mapa se kreslí i bez filtru
         logger.warning("sprint_trees: filtr budov a olivy přeskočen (%s)", exc)
         return parts
