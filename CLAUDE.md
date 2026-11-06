@@ -356,10 +356,16 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (priorita pomník > strom > rozcestník > stůl > lavička). ZABAGED kříž / pomník / strom do 10 m od OSM bodu téhož druhu se nekreslí
   (`OSM_PRIORITY_POINT_LAYERS`). DTM má jen `DrobnaSakralniStavba*` / `DrobnaKulturniStavba*` a studny (málo, zatím nepoužito).
   Průzkum: Krumlov centrum 2 km² 359 laviček → 220 po ředění, Barrandov 5,5 km² 135 → 95.
-- **Stromy na zpevněné ploše ve sprintu** (3.20.0, Petr 2026-11-06, `app/pipeline/sprint_trees.py`, `SPRINT_PAVED_TREES`): bod 417 ve
+- **Dedup stejné věci z více zdrojů** (3.20.0, Petr 2026-11-06): bodové vrstvy ZABAGED (kříže, pomníky, stromy, balvany) jsou
+  MultiPoint a do 3.19 se nekreslily vůbec; teď se kreslí, u OSM bodu téhož druhu (`OSM_PRIORITY_POINT_LAYERS`) nebo památného stromu
+  AOPK do 10 m ne (`with_aopk_tree_priority`). Zeď ZABAGED do 2,5 m od OSM zdi se nekreslí (`ZABAGED_WALL_MATCH_M`, Krumlov −3,1 km
+  dvojitých zdí). Les / MTBO: úsek ulice ZABAGED ležící do 2,5 m na kreslené OSM čáře (chodník, pěší ulice, polní cesta) se nekreslí
+  (`zabaged_roads_off_osm_lines` nad hotovou částí „OSM cesty“, chodník vedle ulice ji nesmaže). Měřicí skripty a výřezy
+  `/mnt/project-files/dedup-zdroje/`.
+- **Stromy na zpevněné ploše ve sprintu** (3.21.0, Petr 2026-11-06, `app/pipeline/sprint_trees.py`, `SPRINT_PAVED_TREES`): bod 417 ve
   středu koruny z `chm.tif` jobu: koruna > 3 m, vrchol ≥ 5 m, 12–250 m², kompaktní, do 10 m bez další vegetace, mimo budovy (OSM + DTM, +1,5 m);
   ortofoto: koruna ≥ 30 % zelená, okolí koruny (1,6–3 poloměry) ≥ 60 % mimo budovy a vodu a pod 25 % zelené = dlažba. Strom do 8 m
-  od OSM / AOPK stromu se nepřidá. Krumlov centrum 0,6 km² 6 stromů, Barrandov 7 (i stromy v zeleném pásu u velké silnice). Bez ortofota nic.
+  od OSM / AOPK / ZABAGED stromu se nepřidá. Krumlov centrum 0,6 km² 6 stromů, Barrandov 7 (i stromy v zeleném pásu u velké silnice). Bez ortofota nic.
   Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,

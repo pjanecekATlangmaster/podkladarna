@@ -27,8 +27,8 @@ OTHER_VEG_M = 2.0
 BUILDING_BUFFER_M = 1.5
 CROWN_GREEN_MIN = 0.30  # podíl zelených pixelů ortofota v koruně (střecha, věž, socha ne)
 GROUND_GREEN_MAX = 0.25  # podíl zelených pixelů v okolí koruny: méně = zpevněná plocha
-EXISTING_TREE_NEAR_M = 8.0
-OPEN_AROUND_MIN = 0.6  # aspoň tolik okolí koruny mimo budovy (strom na volné ploše, ne ve dvoře)  # strom už nakreslený z OSM / AOPK
+EXISTING_TREE_NEAR_M = 8.0  # strom už nakreslený z OSM / AOPK / ZABAGED
+OPEN_AROUND_MIN = 0.6  # aspoň tolik okolí koruny mimo budovy (strom na volné ploše, ne ve dvoře)
 
 
 def _rasterize(geom, shape: tuple[int, int], x0: float, y1: float, px: float, py: float):
@@ -200,6 +200,35 @@ def _osm_tree_points(work_dir: Path) -> list[tuple[float, float]]:
     return out
 
 
+def _zabaged_tree_points(work_dir: Path) -> list[tuple[float, float]]:
+    """Body ZABAGED ``VyznamnyStromLesik`` (od 3.20 se kreslí 417) z ``zabaged_clean.zip``; bez archivu prázdný seznam."""
+    import io
+    import zipfile
+
+    archive = Path(work_dir) / "zabaged_clean.zip"
+    stem = "VyznamnyStromLesik"
+    if not archive.is_file():
+        return []
+    try:
+        import shapefile
+
+        out: list[tuple[float, float]] = []
+        with zipfile.ZipFile(archive) as zf:
+            if not {f"{stem}.shp", f"{stem}.shx", f"{stem}.dbf"} <= set(zf.namelist()):
+                return []
+            reader = shapefile.Reader(
+                shp=io.BytesIO(zf.read(f"{stem}.shp")),
+                shx=io.BytesIO(zf.read(f"{stem}.shx")),
+                dbf=io.BytesIO(zf.read(f"{stem}.dbf")),
+            )
+            for sh in reader.iterShapes():
+                out.extend((float(p[0]), float(p[1])) for p in (sh.points or []))
+        return out
+    except Exception as exc:  # bez ZABAGED stromů jen dedup proti OSM / AOPK
+        logger.warning("sprint_trees: stromy ZABAGED nedostupné (%s)", exc)
+        return []
+
+
 def sprint_paved_tree_points(
     work_dir: Path,
     bbox_wgs84,
@@ -236,7 +265,7 @@ def sprint_paved_tree_points(
             green_mask(rgb),
             ogt,
             buildings=_building_union(work_dir),
-            existing=list(existing or []) + _osm_tree_points(work_dir),
+            existing=list(existing or []) + _osm_tree_points(work_dir) + _zabaged_tree_points(work_dir),
             water=_water_union(work_dir),
         )
     except Exception as exc:  # mapa se kreslí i bez stromů

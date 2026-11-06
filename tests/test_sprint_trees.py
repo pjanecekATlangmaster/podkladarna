@@ -1,4 +1,4 @@
-"""Sprint: samostatný strom na zpevněné ploše jako bod 417 (CHM + ortofoto, 3.20.0)."""
+"""Sprint: samostatný strom na zpevněné ploše jako bod 417 (CHM + ortofoto, 3.21.0)."""
 
 from __future__ import annotations
 
