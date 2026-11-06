@@ -356,7 +356,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (priorita pomník > strom > rozcestník > stůl > lavička). ZABAGED kříž / pomník / strom do 10 m od OSM bodu téhož druhu se nekreslí
   (`OSM_PRIORITY_POINT_LAYERS`). DTM má jen `DrobnaSakralniStavba*` / `DrobnaKulturniStavba*` a studny (málo, zatím nepoužito).
   Průzkum: Krumlov centrum 2 km² 359 laviček → 220 po ředění, Barrandov 5,5 km² 135 → 95.
-- **Herní prvky na hřištích ve sprintu** (3.20.0, Petr 2026-11-06, `app/pipeline/playground_equipment.py`, výchozí i v `kp_osm_objects=auto`):
+- **Dedup stejné věci z více zdrojů** (3.20.0, Petr 2026-11-06): bodové vrstvy ZABAGED (kříže, pomníky, stromy, balvany) jsou
+  MultiPoint a do 3.19 se nekreslily vůbec; teď se kreslí, u OSM bodu téhož druhu (`OSM_PRIORITY_POINT_LAYERS`) nebo památného stromu
+  AOPK do 10 m ne (`with_aopk_tree_priority`). Zeď ZABAGED do 2,5 m od OSM zdi se nekreslí (`ZABAGED_WALL_MATCH_M`, Krumlov −3,1 km
+  dvojitých zdí). Les / MTBO: úsek ulice ZABAGED ležící do 2,5 m na kreslené OSM čáře (chodník, pěší ulice, polní cesta) se nekreslí
+  (`zabaged_roads_off_osm_lines` nad hotovou částí „OSM cesty“, chodník vedle ulice ji nesmaže). Měřicí skripty a výřezy
+  `/mnt/project-files/dedup-zdroje/`.
+- **Herní prvky na hřištích ve sprintu** (3.21.0, Petr 2026-11-06, `app/pipeline/playground_equipment.py`, výchozí i v `kp_osm_objects=auto`):
   v obrysu `leisure=playground` OSM body (vysoké konstrukce přednost, ploché jen jako záloha) + detekce z `chm.tif` (vrchol 1,5–8 m,
   1–30 m², ne zelené, ne okraj koruny ± 2 m, ne plná střecha ≥ 8 m²) a ortofota 0,5 m (písková dopadová plocha v trávě s předmětem,
   ne pravoúhlé pískoviště). Hřiště do 500 m² 1 křížek 531, větší odstup 4 mm a nejvýš 1 na 300 m²; bez nálezu záložní křížek ve

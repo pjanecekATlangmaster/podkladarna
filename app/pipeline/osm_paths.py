@@ -273,6 +273,13 @@ ZABAGED_PARALLEL_MATCH_M = 10.0
 # Les / MTBO: souběh v širším pásu (2,5 mm mapy 1:10 000) – ZABAGED čára z ≥ COVER_DROP délky souběžná s OSM se zahodí
 # celá (stejná cesta / ulice s jiným tvarem; reference E1–E3 mají kresbu hlavně na místě OSM, Ochoza ulice ~15 m vedle).
 ZABAGED_CORRIDOR_MATCH_M = 25.0
+# Zeď ZABAGED do této vzdálenosti od OSM zdi je táž zeď (Barrandov: polovina délky zdí ZABAGED do 2 m od OSM, mezi
+# 2 a 10 m skoro nic); kus zbylý po ořezu kratší než ``ZABAGED_WALL_REMNANT_MM`` mapy se zahodí.
+ZABAGED_WALL_MATCH_M = 2.5
+ZABAGED_WALL_REMNANT_MM = 0.5
+# Les / MTBO: ulice ZABAGED do této vzdálenosti od kreslené OSM čáry (i chodníku, polní cesty) je táž věc. Chodník
+# vedle ulice leží dál (půlka vozovky), proto ulici nenahradí.
+ZABAGED_ROAD_ON_OSM_LINE_M = 2.5
 # Krátká linie (schody, spojka) leží vždy blízko delší cesty; za duplicitu se bere jen při těsné shodě.
 SHORT_LINE_M = 12.0
 SHORT_LINE_MATCH_M = 1.5
@@ -595,7 +602,7 @@ _BENCH_KINDS = frozenset({"bench", "info_board", "guidepost", "picnic_table", "f
 # Základní sada objektů OSM, ve sprintu výchozí (``objects_basic_only``; Petr 2026-11-06): lavičky, stoly, rozcestníky,
 # pomníky / kříže / sochy a památné stromy. Ostatní (lampy, tabule, herní prvky, brány, přístřešky, fitness,
 # ohniště) jen s volbou „vše“.
-# Od 3.20.0 i herní prvky na hřištích (generalizované, doplněné z výšky a ortofota, ``playground_equipment.py``).
+# Od 3.21.0 i herní prvky na hřištích (generalizované, doplněné z výšky a ortofota, ``playground_equipment.py``).
 OSM_BASIC_OBJECT_KINDS = frozenset(
     {"bench", "picnic_table", "guidepost", "memorial", "landmark_tree", "playground_equipment"}
 )
@@ -4672,6 +4679,21 @@ OSM_PRIORITY_POINT_LAYERS: dict[str, str] = {
 OSM_PRIORITY_POINT_NEAR_M = 10.0
 
 
+def with_aopk_tree_priority(areas: dict, aopk_points: list[tuple[float, float]]) -> dict:
+    """K masce ZABAGED stromů (``VyznamnyStromLesik``) přidá okolí památných stromů AOPK (``OSM_PRIORITY_POINT_NEAR_M``)."""
+    if not aopk_points:
+        return areas
+    try:
+        from shapely.geometry import Point
+        from shapely.ops import unary_union
+    except ImportError:
+        return areas
+    layer = "VyznamnyStromLesik"
+    zone = unary_union([Point(x, y).buffer(OSM_PRIORITY_POINT_NEAR_M, 8) for x, y in aopk_points])
+    prev = (areas or {}).get(layer)
+    return {**(areas or {}), layer: zone if prev is None else unary_union([prev, zone])}
+
+
 def rail_tunnel_geometry(work_dir: Path):
     """Okolí (``RAIL_TUNNEL_NEAR_M``) OSM kolejí v tunelu jobu (shapely) nebo None (starší joby soubor nemají)."""
     path = work_dir / "osm_paths" / RAIL_TUNNELS_NAME
@@ -6746,6 +6768,22 @@ def mixed_osm_roads_missing(work_dir: Path) -> list[dict]:
     a ZABAGED Ulice / SilniceDalnice se vynechají tam, kde je OSM má. Příprava OSM (sdílená se sprintem) zůstává.
     """
     return mixed_osm_road_fix(work_dir)[0]
+
+
+def load_osm_wall_lines(work_dir: Path) -> list[list[tuple[float, float]]]:
+    """OSM zdi (``kind == "wall"`` v ``features.geojson``) jako čáry v S-JTSK; ZABAGED Zed na nich ustoupí."""
+    try:
+        feats = json.loads((work_dir / "osm_paths" / "features.geojson").read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return []
+    out: list[list[tuple[float, float]]] = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if (f.get("properties") or {}).get("kind") != "wall" or geom.get("type") != "LineString" or len(coords) < 2:
+            continue
+        out.append([(float(x), float(y)) for x, y, *_ in coords])
+    return out
 
 
 def load_osm_road_lines(work_dir: Path) -> list[list[tuple[float, float]]]:

@@ -149,17 +149,21 @@ def test_osm_ma_prednost_a_plochy_prvek_jen_jako_zaloha():
 
 
 @pytest.mark.parametrize(
-    "case, name, expected",
+    "case, name, double, expected",
     [
-        ("hřiště bez nálezu = záložní křížek v otevřené části", "", ["fallback"]),
-        ("dopravní hřiště se přeskakuje", "Dětské dopravní hřiště", []),
+        ("hřiště bez nálezu = záložní křížek v otevřené části", "", False, ["fallback"]),
+        ("dvojitý obrys v OSM = jedno hřiště, jeden křížek", "", True, ["fallback"]),
+        ("dopravní hřiště se přeskakuje", "Dětské dopravní hřiště", False, []),
     ],
 )
-def test_zaloha_a_dopravni_hriste(case, name, expected):
+def test_zaloha_a_dopravni_hriste(case, name, double, expected):
     rgb, chm = _scene()
     _paint(rgb, 20, 20, 40, 40, GREY)  # zpevněná plocha bez prvků
     ortho, ch = _rasters(rgb, chm)
-    out = pe.playground_points(_feats(box(20, 20, 40, 40), name=name), ortho, ch, 4000)
+    feats = _feats(box(20, 20, 40, 40), name=name)
+    if double:
+        feats += _feats(box(21, 21, 39, 39))
+    out = pe.playground_points(feats, ortho, ch, 4000)
     srcs = [src for _p, src in _crosses(out)]
     assert srcs == expected, case
     if expected:
@@ -172,3 +176,27 @@ def test_osm_bod_mimo_hriste_zustava():
     ortho, ch = _rasters(rgb, chm)
     out = pe.playground_points(_feats(box(20, 20, 40, 40), _osm_point(5, 5, "swing")), ortho, ch, 4000)
     assert ([5, 5], "osm") in [(f["geometry"]["coordinates"], f["properties"]["source"]) for f in out if f["properties"]["kind"] == pe.KIND]
+
+
+@pytest.mark.parametrize(
+    "case, preset, flag, called",
+    [
+        ("sprint s klíčem", "sprint_4000", True, True),
+        ("starší job bez klíče beze změny", "sprint_4000", None, False),
+        ("les nedetekuje", "forest_10000", True, False),
+    ],
+)
+def test_jen_sprint_s_klicem(tmp_path, monkeypatch, case, preset, flag, called):
+    import json
+
+    from app.pipeline import osm_paths as op
+
+    data = {"type": "FeatureCollection", "features": _feats(box(20, 20, 40, 40))}
+    if flag is not None:
+        data["playground_equipment"] = flag
+    (tmp_path / "osm_paths").mkdir()
+    (tmp_path / "osm_paths" / "features.geojson").write_text(json.dumps(data), encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(op, "_sprint_playground_points", lambda wd, feats, *a, **k: calls.append(1) or feats)
+    op.build_osm_feature_parts(tmp_path, preset_id=preset, scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    assert bool(calls) is called, case

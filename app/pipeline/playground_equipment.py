@@ -73,7 +73,7 @@ def _exg_bri(rgb):
 
 
 def _grid(ortho, geom, pad_m: float = 3.0):
-    """Výřez ortofota kolem ``geom``: (rgb, x0, y_top, mpp) nebo None."""
+    """Výřez ortofota kolem ``geom``: (rgb, x0, y_top) nebo None."""
     h, w = ortho.data.shape[:2]
     bx0, by0, bx1, by1 = geom.buffer(pad_m).bounds
     c0, c1 = max(0, int((bx0 - ortho.x0) / ortho.mpp_x)), min(w, int(math.ceil((bx1 - ortho.x0) / ortho.mpp_x)))
@@ -118,7 +118,10 @@ def _poly_mask(geom, x0: float, y_top: float, mpp: float, shape):
 
 
 def detect_candidates(geom, ortho, chm, blockers=None) -> list[tuple[float, float, float, str]]:
-    """Kandidáti (x, y, skóre, zdroj ``A`` výška / ``AB`` výška na dopadové ploše / ``B`` dopadová plocha) v hřišti."""
+    """Kandidáti (x, y, skóre, zdroj ``A`` výška / ``AB`` výška na dopadové ploše / ``B`` dopadová plocha) v hřišti.
+
+    ``blockers``: připravená geometrie (``shapely.prepared``) budov a parkovišť kolem hřiště, už rozšířená o 0,5 m.
+    """
     import numpy as np
     from scipy import ndimage as ndi
     from shapely.geometry import MultiPoint, Point
@@ -140,8 +143,8 @@ def detect_candidates(geom, ortho, chm, blockers=None) -> list[tuple[float, floa
         cy, cx = ndi.center_of_mass(cm)
         return Point(x0 + (cx + 0.5) * mpp, y_top - (cy + 0.5) * mpp)
 
-    def _blocked(p, buf=0.5):
-        return blockers is not None and blockers.buffer(buf).contains(p)
+    def _blocked(p):
+        return blockers is not None and blockers.contains(p)
 
     cand: list[tuple[float, float, float, str]] = []
     inner = geom.buffer(-EDGE_INSET_M)
@@ -253,6 +256,7 @@ def playground_points(feats: list[dict], ortho, chm, scale: int, log=None) -> li
     """``feats`` (features.geojson) s herními prvky v hřištích nahrazenými generalizovanou sadou (OSM + detekce)."""
     from shapely.geometry import Point, shape
     from shapely.ops import unary_union
+    from shapely.prepared import prep
     from shapely.strtree import STRtree
 
     def _props(f):
@@ -280,11 +284,14 @@ def playground_points(feats: list[dict], ortho, chm, scale: int, log=None) -> li
             blockers.append(geom)
     if not grounds:
         return feats
+    # překrývající se obrysy téhož hřiště (OSM bývá zdvojené) jako jedno hřiště, ať nevzniknou dva křížky
+    merged = unary_union(grounds)
+    grounds = [g for g in getattr(merged, "geoms", [merged]) if g.geom_type == "Polygon" and not g.is_empty]
     eq_idx = [
         i for i, f in enumerate(feats)
         if _props(f).get("kind") == KIND and (f.get("geometry") or {}).get("type") == "Point"
     ]
-    blk = unary_union(blockers) if blockers else None
+    blk_tree = STRtree(blockers) if blockers else None
     tree = STRtree(grounds)
     per_ground: dict[int, list] = {k: [] for k in range(len(grounds))}
     drop: set[int] = set()
@@ -299,6 +306,9 @@ def playground_points(feats: list[dict], ortho, chm, scale: int, log=None) -> li
     out = [f for i, f in enumerate(feats) if i not in drop]
     n_det = n_fb = n_osm = 0
     for k, geom in enumerate(grounds):
+        near = [blockers[int(j)] for j in blk_tree.query(geom.buffer(1.0))] if blk_tree is not None else []
+        local = unary_union(near) if near else None
+        blk = prep(local.buffer(0.5)) if local is not None else None
         cand = detect_candidates(geom, ortho, chm, blk) if DETECT else []
         chosen = generalize(geom.area, per_ground[k], cand, scale)
         if not chosen:
@@ -306,7 +316,8 @@ def playground_points(feats: list[dict], ortho, chm, scale: int, log=None) -> li
             if flat:
                 chosen = flat[:1]
             elif FALLBACK:
-                fx, fy = fallback_point(geom, ortho, chm)
+                open_geom = geom.difference(local) if local is not None else geom
+                fx, fy = fallback_point(open_geom if open_geom.area > 0.25 * geom.area else geom, ortho, chm)
                 chosen = [(fx, fy, 0.0, "fallback")]
         for x, y, _s, src in chosen:
             src = "osm" if src == "osm" else ("fallback" if src == "fallback" else "detect")
