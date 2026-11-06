@@ -334,6 +334,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   s ulicí a nekreslí – pohltí ho čára (`merge_parking_into_road`). Slití po kusech stání pod 502.1 rozsekalo ulici na plochy
   s příčnými okraji. Mezery mezi slitými úseky do 2 mm zacelí `_bridge_parking_gaps` (3.9.1). Další krok (úseky ulice mezi
   křižovatkami) a srovnání návrhů: `/mnt/project-files/ulice-jako-celek/`.
+- **Ulice se stáním jako celek** (3.17.0, Petr 2026-11-06 varianta A, `app/pipeline/street_profile.py`, `STREET_PROFILE`): v lese a MTBO
+  o ploše ulice nerozhoduje každý kus stání (`merge_parking_into_road` po kusech je záloha `STREET_PROFILE = False`), ale profil podél osy:
+  kolmé řezy po 1 m, přesah stání (OSM pruhy + parkoviště z DTM; plocha silnic z DTM jen do 20 m od potvrzeného stání) za kresbu čáry.
+  Plocha jen kde přesah ≥ 0,3 mm souvisle ≥ 5 mm (mezery do 4 mm zacelit, hystereze 0,6), pruh konstantní šířky (medián), kolmé konce;
+  jinak stání pohltí čára. Dřív se s DTM stání vedené jako malé parkoviště ztratilo úplně. Měření a výřezy `/mnt/project-files/ulice-stani/`.
 - **Měření napojení silnic** (3.13.2, revize skládání silnic Petr 2026-11-05, `app/pipeline/road_graph.py`): les a MTBO
   zapíšou do logu jobu řádek „Silnice: napojení v křižovatkách …“ – graf OSM silnic z neoříznutého `paths_osm` (uzel = sdílený
   bod, i „T“ na průběžné čáře), díry (kreslené rameno bez napojení, mimo plochu) a ústí proti pravidlu (výplň do výplně, černá
