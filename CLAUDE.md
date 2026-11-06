@@ -384,6 +384,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   středu koruny z `chm.tif` jobu: koruna > 3 m, vrchol ≥ 5 m, 12–250 m², kompaktní, do 10 m bez další vegetace, mimo budovy (OSM + DTM, +1,5 m);
   ortofoto: koruna ≥ 30 % zelená, okolí koruny (1,6–3 poloměry) ≥ 60 % mimo budovy a vodu a pod 25 % zelené = dlažba. Strom do 8 m
   od OSM / AOPK / ZABAGED stromu se nepřidá. Krumlov centrum 0,6 km² 6 stromů, Barrandov 7 (i stromy v zeleném pásu u velké silnice). Bez ortofota nic.
+  Od 3.24.1 (Petr 2026-11-06, Tilleho nám.) je výška vegetací jen do 2 m od zeleně v ortofotu (`GREEN_REACH_M`): nezelený přesah
+  patra u fasády nespojí dva stromy do „skupiny“; nezelená výška širší než 4 m (nezmapovaná budova) dál vadí v izolaci, volné
+  okolí ≥ 0,5. Barrandov 57 → 77, Krumlov 63 → 88 (část nových jsou stromy v zahradách ve stínu budov).
   Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
