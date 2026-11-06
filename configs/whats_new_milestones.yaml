@@ -2,6 +2,8 @@
 # Jen opravdové produktové zlomy — ne každý commit.
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
+  - date: "2026-11-06"
+    title: "Verze 3.17 – les a MTBO: ulice se stáním jako jedna plocha jen tam, kde stání ulici v měřítku opravdu rozšiřuje (aspoň 0,3 mm na 5 mm délky); s DTM se nově kreslí i stání, které DTM vede jako parkoviště"
   - date: "2026-11-05"
     title: "Verze 3.16 – mezi referenčními šablonami (v ZIPu i v Mapperu) bezoblačné družicové snímky Sentinel-2 s datem snímku (nejnovější a po 3 měsících za poslední půlrok), ukážou změny po ortofotu: paseky, polomy, nové stavby"
   - date: "2026-11-05"

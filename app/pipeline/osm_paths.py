@@ -5410,9 +5410,14 @@ def merge_parking_into_road(
     (way/1452628250 leží vedle kresby), se sloučí s úsekem silnice podél
     něj v šířce její kresby. Silnice se pak přes plochu nekreslí (``clip_road_in_paved``) a plocha s okrajem 501.2
     vypadá v mapě stejně jako čára 502 (Hilmarova way/28405724 + way/1452628243 / way/1452628250).
+
+    Od 3.17.0 (``street_profile.STREET_PROFILE``) o ploše ulice nerozhoduje každý kus stání zvlášť, ale profil
+    přesahu stání (OSM + parkoviště z DTM, plocha silnic z DTM jen u potvrzeného stání) za kresbu čáry podél osy.
     """
-    if preset_id.startswith("sprint") or not any(
-        (f.get("properties") or {}).get("kind") == "parking" for f in feats
+    from app.pipeline import street_profile
+
+    if preset_id.startswith("sprint") or not (
+        any((f.get("properties") or {}).get("kind") == "parking" for f in feats) or street_profile.enabled(preset_id)
     ):
         return feats
     try:
@@ -5465,6 +5470,12 @@ def merge_parking_into_road(
             continue
         if g.area > 0 and g.length > 0 and band_p.intersects(g) and _parking_merges_with_road(g, band):
             cands[k] = g
+    if street_profile.enabled(preset_id):
+        # Ulice se stáním jako celek (Petr 2026-11-06): stání ke slití nahradí plochy ulic z profilu přesahu
+        # (``street_profile``) – rozšíření jen tam, kde je v měřítku vidět, jinak stání pohltí čára.
+        return [f for k, f in enumerate(feats) if k not in cands] + street_profile.street_areas(
+            work_dir, roads, list(cands.values()), scale
+        )
     absorbed = {
         k for k, g in cands.items() if _parking_overhang_m(g, roads) < mm_to_ground_m(PARKING_ABSORB_MM, scale)
     }
