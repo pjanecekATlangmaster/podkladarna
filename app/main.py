@@ -61,7 +61,10 @@ from app.pipeline.job_options import (
     resolve_cliff_sensitivity,
     resolve_formline_mode,
     resolve_vege_height,
-    resolve_osm_objects,
+    OSM_OBJECTS_ALL,
+    OSM_OBJECTS_AUTO,
+    OSM_OBJECTS_NONE,
+    resolve_osm_objects_mode,
     resolve_use_dtm,
     OSM_OBJECTS_LEGACY_KEYS,
     resolve_contour_smooth,
@@ -126,6 +129,7 @@ def _form_list(form, key: str) -> list[str]:
 
 
 _FORMLINE_LABEL = {"off": "ne", "sparse": "střídmě", "more": "víc", "all": "všude"}
+_OSM_OBJECTS_LABEL = {"auto": "základní ve sprintu", "1": "vše", "none": "žádné"}
 
 app = FastAPI(title="Podkladarna", version=APP_VERSION)
 
@@ -900,15 +904,16 @@ async def api_create_job(request: Request):
     def _opt_bool(key: str) -> bool:
         return _form_str(form, key).strip().lower() in {"1", "true", "yes", "on"}
 
-    # Jedna volba „Další objekty OSM“; starší klienti API mohou poslat dílčí volby
-    # (lavičky / lampy / herní prvky / kp_osm_furniture) – kterákoli zapne celou skupinu.
-    # kp_osm_priority („OSM detaily“) se ignoruje: ploty a zdi se načítají vždy.
-    options["kp_osm_objects"] = resolve_osm_objects(
+    # Volba „Objekty OSM“ (3.19.0): auto = ve sprintu základní sada (lavičky, rozcestníky, pomníky, stromy), 1 = vše,
+    # none = žádné. Starší klienti API mohou poslat dílčí volby (lavičky / lampy / herní prvky / kp_osm_furniture) –
+    # kterákoli zapne vše. kp_osm_priority („OSM detaily“) se ignoruje: ploty a zdi se načítají vždy.
+    _osm_mode = resolve_osm_objects_mode(
         {
             key: _form_str(form, key).strip() or None
             for key in ("kp_osm_objects", *OSM_OBJECTS_LEGACY_KEYS)
         }
     )
+    options["kp_osm_objects"] = {OSM_OBJECTS_ALL: True, OSM_OBJECTS_NONE: OSM_OBJECTS_NONE}.get(_osm_mode, OSM_OBJECTS_AUTO)
     # Pevný default (bez volby ve formuláři): footway jako zpevněný chodník jen ve sprintu.
     options["kp_osm_footway_as_sidewalk"] = default_footway_as_sidewalk(
         options.get("map_scale"),
@@ -1046,7 +1051,7 @@ async def api_create_job(request: Request):
         f"pomocné vrstevnice {_FORMLINE_LABEL[resolve_formline_mode(options)]}"
     )
     log(
-        f"  OSM: další objekty {'ano' if resolve_osm_objects(options) else 'ne'} · ploty a zdi vždy · "
+        f"  OSM: objekty {_OSM_OBJECTS_LABEL[resolve_osm_objects_mode(options)]} · ploty a zdi vždy · "
         f"footway jako chodník {_yn('kp_osm_footway_as_sidewalk')}"
     )
     log(

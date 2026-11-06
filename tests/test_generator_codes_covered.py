@@ -46,7 +46,7 @@ _CLIFF_MODES = (
 _KIND_GEOM = {
     **{k: "point" for k in (
         "bench", "picnic_table", "lamp", "firepit", "playground_equipment", "fitness",
-        "barrier_point", "memorial", "landmark_tree", "info_board", "hunting_stand",
+        "barrier_point", "memorial", "landmark_tree", "info_board", "guidepost", "hunting_stand",
         "water_tower", "cave_entrance", "spring", "water_well",
     )},
     **{k: "line" for k in (

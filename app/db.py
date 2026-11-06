@@ -19,7 +19,7 @@ from app.pipeline.job_options import (
     resolve_contour_smooth,
     resolve_map_types,
     resolve_formline_mode,
-    resolve_osm_objects,
+    resolve_osm_objects_mode,
     resolve_use_dtm,
     resolve_veg_smooth,
 )
@@ -612,7 +612,7 @@ def find_duplicate_active_job(
             str(opts.get("kp_cliff_symbol") or "auto"),
             str(opts.get("kp_cliff_sensitivity") or "low"),
             str(opts.get("kp_vege_height") or ""),
-            resolve_osm_objects(opts),
+            resolve_osm_objects_mode(opts),
             bool(opts.get("kp_osm_footway_as_sidewalk")),
             str(opts.get("ostatni_plocha") or "small"),
             bool(opts.get("ostatni_plocha_as_403")),

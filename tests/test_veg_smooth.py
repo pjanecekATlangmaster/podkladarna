@@ -162,17 +162,21 @@ def test_shaped_parts_memo_shared_by_maps(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("opts", "want"),
+    ("opts", "want", "basic_sprint", "basic_forest"),
     [
-        ({}, False),
-        ({"kp_osm_objects": True}, True),
-        ({"kp_osm_objects": "0", "kp_osm_benches": True}, False),
-        ({"kp_osm_lamps": True}, True),  # starší job / API
-        ({"kp_osm_furniture": "1"}, True),
-        ({"kp_osm_priority": True}, False),  # „OSM detaily“ zrušeny, ploty a zdi vždy
+        ({}, False, True, False),  # 3.19.0: základní sada ve sprintu výchozí
+        ({"kp_osm_objects": True}, True, True, True),
+        ({"kp_osm_objects": "none"}, False, False, False),
+        ({"kp_osm_objects": "auto"}, False, True, False),
+        ({"kp_osm_objects": "0", "kp_osm_benches": True}, False, True, False),
+        ({"kp_osm_lamps": True}, True, True, True),  # starší job / API
+        ({"kp_osm_furniture": "1"}, True, True, True),
+        ({"kp_osm_priority": True}, False, True, False),  # „OSM detaily“ zrušeny, ploty a zdi vždy
     ],
 )
-def test_resolve_osm_objects(opts, want):
-    from app.pipeline.job_options import resolve_osm_objects
+def test_resolve_osm_objects(opts, want, basic_sprint, basic_forest):
+    from app.pipeline.job_options import resolve_osm_basic_objects, resolve_osm_objects
 
     assert resolve_osm_objects(opts) is want
+    assert resolve_osm_basic_objects(opts, "sprint_4000") is basic_sprint
+    assert resolve_osm_basic_objects(opts, "forest_10000") is basic_forest

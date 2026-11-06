@@ -2427,6 +2427,7 @@ const SETTINGS_VALUE_NAMES = {
   veg_smooth: { 0: "kostičky", 1: "hladké", 2: "zjednodušené do 6 m", 3: "zjednodušené do 12 m" },
   kp_cliff_symbol: { auto: "automaticky", earth_bank: "zemní sráz", symbol_206: "skála", off: "vypnuto" },
   dtm: { 1: "všude", auto: "jen sprint", 0: "vypnuto" },
+  kp_osm_objects: { auto: "základní", 1: "vše", none: "žádné" },
 };
 
 const SETTINGS_CHIPS = [
@@ -2437,7 +2438,7 @@ const SETTINGS_CHIPS = [
   { id: "kp_cliff_symbol", label: "Srázy (symbol)" },
   { id: "kp_cliff_sensitivity", label: "Citlivost srázů", skipWhen: () => (document.getElementById("kp_cliff_symbol") || {}).value === "off" },
   { id: "dtm", label: "DTM" },
-  { id: "kp_osm_objects", label: "Objekty OSM", bool: true },
+  { id: "kp_osm_objects", label: "Objekty OSM" },
   { id: "output_georef", label: "GeoTIFF", bool: true },
   {
     id: "sprint_residual_paved",

@@ -349,6 +349,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   preset, typy map, bbox, konečný stav; IP, síť /24 a e-mail privátních jen jako HMAC značky se solí `origin_salt` vedle DB) přežije úklid jobů, maže se po `ORIGIN_RETENTION_DAYS` (365).
   API ani web ji nečtou; přehled na NAS `sudo docker exec podkladarna python -m app.origin_stats [od] [do]` (test B `podkladarna-test`).
   Informace o ukládání je v patičce webu.
+- **Drobné objekty OSM ve sprintu** (3.19.0, Petr 2026-11-06): volba `kp_osm_objects` je `auto` (výchozí, i API) / `1` vše / `none`.
+  `auto` = sprint kreslí základní sadu `OSM_BASIC_OBJECT_KINDS` (lavičky a stoly 531, rozcestníky `guidepost` 531, pomníky / boží muka /
+  kříže / sochy 526, památné stromy 417), les a MTBO nic; `1` přidá lampy, tabule, herní prvky, brány, přístřešky, fitness, ohniště.
+  Pamětní desky a stolpersteiny se nekreslí. `thin_object_points`: bod uvnitř budovy pryč, body téže značky do 2,5 mm mapy jen jednou
+  (priorita pomník > strom > rozcestník > stůl > lavička). ZABAGED kříž / pomník / strom do 10 m od OSM bodu téhož druhu se nekreslí
+  (`OSM_PRIORITY_POINT_LAYERS`). DTM má jen `DrobnaSakralniStavba*` / `DrobnaKulturniStavba*` a studny (málo, zatím nepoužito).
+  Průzkum: Krumlov centrum 2 km² 359 laviček → 220 po ředění, Barrandov 5,5 km² 135 → 95.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

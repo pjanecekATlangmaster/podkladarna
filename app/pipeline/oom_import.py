@@ -1159,7 +1159,7 @@ def _build_zabaged_object_parts(
         return out
 
     def _covered_by_osm_area(layer: str, wkb_bytes: bytes) -> bool:
-        """Priorita OSM: ZABAGED plocha pod / menší než OSM plocha se vynechá."""
+        """Priorita OSM: ZABAGED plocha pod / menší než OSM plocha se vynechá, bod u stejného OSM bodu také."""
         mask = (osm_priority_areas or {}).get(layer)
         if mask is None:
             return False
@@ -1167,6 +1167,8 @@ def _build_zabaged_object_parts(
             from shapely import wkb as _shp_wkb
 
             g = _shp_wkb.loads(wkb_bytes)
+            if not g.is_empty and g.geom_type in ("Point", "MultiPoint"):
+                return mask.covers(g)  # bodový objekt (kříž, pomník, strom) se stejným OSM bodem vedle
             if g.is_empty or g.area <= 0:
                 return False
             if not g.is_valid:
