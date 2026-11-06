@@ -25,7 +25,9 @@ MAX_PIXELS = 150_000_000
 _FETCH_LOCK = threading.Lock()
 
 
-def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need_bounds=None, wait_s=None):
+def fetch_orthophoto(
+    work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need_bounds=None, wait_s=None, subdir: str | None = None
+):
     """``(rgb uint8 HxWx3, geotransform GDAL)`` pro obálku S-JTSK, nebo ``None`` (síť, příliš velký výřez).
 
     Ortofoto referenčního podkladu (``work/references``) se převezme, pokrývá-li ``need_bounds`` (výřez mapy;
@@ -34,13 +36,15 @@ def fetch_orthophoto(work_dir: Path, bbox_5514, mpp: float = 0.5, log=None, need
     z ``prefetch_orthophoto``).
 
     ``wait_s``: jak dlouho nejvýš čekat na souběžné stahování (předstažení na pozadí). Když se nedočká
-    (zaseknutá WMS), stáhne si ortofoto samo do ``OWN_SUBDIR`` mimo sdílenou cache."""
+    (zaseknutá WMS), stáhne si ortofoto samo do ``OWN_SUBDIR`` mimo sdílenou cache.
+
+    ``subdir``: vlastní cache malého výřezu (herní prvky 0,125 m), sdílenou ``CACHE_SUBDIR`` nepřepíše."""
     if not _FETCH_LOCK.acquire(timeout=-1 if wait_s is None else wait_s):
         if log:
             log(f"Ortofoto: předstažení běží déle než {wait_s:.0f} s – stahuji zvlášť")
-        return _fetch_orthophoto(work_dir, bbox_5514, mpp, log=log, need_bounds=need_bounds, subdir=OWN_SUBDIR)
+        return _fetch_orthophoto(work_dir, bbox_5514, mpp, log=log, need_bounds=need_bounds, subdir=subdir or OWN_SUBDIR)
     try:
-        return _fetch_orthophoto(work_dir, bbox_5514, mpp, log=log, need_bounds=need_bounds)
+        return _fetch_orthophoto(work_dir, bbox_5514, mpp, log=log, need_bounds=need_bounds, subdir=subdir or CACHE_SUBDIR)
     finally:
         _FETCH_LOCK.release()
 

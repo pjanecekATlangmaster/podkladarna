@@ -365,6 +365,21 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   dvojitých zdí). Les / MTBO: úsek ulice ZABAGED ležící do 2,5 m na kreslené OSM čáře (chodník, pěší ulice, polní cesta) se nekreslí
   (`zabaged_roads_off_osm_lines` nad hotovou částí „OSM cesty“, chodník vedle ulice ji nesmaže). Měřicí skripty a výřezy
   `/mnt/project-files/dedup-zdroje/`.
+- **Herní prvky na hřištích ve sprintu** (3.24.0, Petr 2026-11-06, `app/pipeline/playground_equipment.py`, výchozí i v `kp_osm_objects=auto`):
+  v obrysu `leisure=playground` OSM body (vysoké konstrukce přednost, ploché jen jako záloha) + detekce: výška z bodů DMP OK
+  0,5 m jen v obrysech hřišť (`dmpok_height`: laspy po blocích s maskou obrysů minus `dem_filled`, bez laspy PDAL, bez LAZ `chm.tif`;
+  shluk 1–3,5 m o ploše 0,5–40 m², strom = zelený pixel, ne dotyk s korunou / střechou ≥ 15 m² kromě sytě barevného plastu, ne plná
+  střecha ≥ 8 m²) a **vržený stín** na ortofotu 0,125 m stahovaném jen v obrysech hřišť (`work/orthophoto_playgrounds/`, Petr
+  2026-11-06): tenký tmavý nezelený útvar (šedé uzavření jasu 1 m, pokles ≥ 18 %) na světlé ploše mimo korunu, protáhlý, rám nebo
+  kompaktní 0,8–4 m²; směr stínu z korun ve výřezu (`sun_shadow_dir`, jinak k severu), křížek na konci stínu u slunce; dvě rovnoběžky
+  1,2–6 m od sebe a pravoúhlý rám = pískoviště, ne. Dopadová plocha z ortofota jako dřív. Hřiště do 500 m² 1 křížek 531 na
+  nejjistějším nálezu, větší doplní další nálezy s odstupem 4 mm a nejvýš 1 na 300 m²; bez nálezu záložní křížek ve středu otevřené
+  nezelené části (`FALLBACK`), dopravní hřiště (`name`) nic. Soukromá hřiště se vynechávají úplně (bez detekce i zálohy, OSM body
+  beze změny): `access` private / no / customers, nebo z ≥ 80 % v soukromé zahradě (OSM `leisure=garden` s `access=private` /
+  `garden:type=residential`) či s bazénem do 10 m (`mark_private_playgrounds` v přípravě OSM, props `access`, `private_garden`).
+  Starší joby bez klíče `playground_equipment` ve `features.geojson` (nebo bez těchto props) beze změny. Měření a výřezy
+  `/mnt/project-files/herni-prvky-ortofoto/` (Barrandov: přesnost detekce 0,73, Krumlov 0,5, krok 9–30 s).
+  Zálohy `DETECT = False` (jen OSM), `SHADOWS = False` (bez stínů).
 - **Stromy na zpevněné ploše ve sprintu** (3.21.0, Petr 2026-11-06, `app/pipeline/sprint_trees.py`, `SPRINT_PAVED_TREES`): bod 417 ve
   středu koruny z `chm.tif` jobu: koruna > 3 m, vrchol ≥ 5 m, 12–250 m², kompaktní, do 10 m bez další vegetace, mimo budovy (OSM + DTM, +1,5 m);
   ortofoto: koruna ≥ 30 % zelená, okolí koruny (1,6–3 poloměry) ≥ 60 % mimo budovy a vodu a pod 25 % zelené = dlažba. Strom do 8 m
