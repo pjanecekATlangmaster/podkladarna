@@ -1234,6 +1234,10 @@ def _prepare_oom_map(
         clip_bounds=vector_clip_bounds,
         log=log,
     )
+    # Sprint: strom z DMP OK na kreslené budově (i v zalitém dvoře) nebo v olivě se nekreslí.
+    from app.pipeline.sprint_trees import drop_trees_in_buildings_and_olive
+
+    object_parts = drop_trees_in_buildings_and_olive(object_parts, preset_id=preset_id, scale=scale)
     # Les a MTBO: výplň zpevněné plochy se pod olivou nekreslí, oliva zůstává celá (plocha jen okrajem).
     from app.pipeline.path_clearance import paved_fill_outside_olive
 
