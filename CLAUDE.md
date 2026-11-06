@@ -356,6 +356,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (priorita pomník > strom > rozcestník > stůl > lavička). ZABAGED kříž / pomník / strom do 10 m od OSM bodu téhož druhu se nekreslí
   (`OSM_PRIORITY_POINT_LAYERS`). DTM má jen `DrobnaSakralniStavba*` / `DrobnaKulturniStavba*` a studny (málo, zatím nepoužito).
   Průzkum: Krumlov centrum 2 km² 359 laviček → 220 po ředění, Barrandov 5,5 km² 135 → 95.
+- **Herní prvky na hřištích ve sprintu** (3.20.0, Petr 2026-11-06, `app/pipeline/playground_equipment.py`, výchozí i v `kp_osm_objects=auto`):
+  v obrysu `leisure=playground` OSM body (vysoké konstrukce přednost, ploché jen jako záloha) + detekce z `chm.tif` (vrchol 1,5–8 m,
+  1–30 m², ne zelené, ne okraj koruny ± 2 m, ne plná střecha ≥ 8 m²) a ortofota 0,5 m (písková dopadová plocha v trávě s předmětem,
+  ne pravoúhlé pískoviště). Hřiště do 500 m² 1 křížek 531, větší odstup 4 mm a nejvýš 1 na 300 m²; bez nálezu záložní křížek ve
+  středu otevřené nezelené části (`FALLBACK`), dopravní hřiště (`name`) nic. Starší joby bez klíče `playground_equipment`
+  ve `features.geojson` beze změny. Měření a výřezy `/mnt/project-files/herni-prvky-ortofoto/` (přesnost detekce ~0,85,
+  záloha trefí prvek u ~¼ hřišť). Záloha `DETECT = False`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

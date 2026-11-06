@@ -933,6 +933,8 @@ def _prepare_oom_map(
         clip_bounds=vector_clip_bounds,
         aopk_tree_points=aopk_pts or None,
         path_source=path_source,
+        bbox_wgs84=bbox_wgs84,
+        log=log,
     )
     osm_under: list[OomObjectPart] = []
     osm_feat_rest: list[OomObjectPart] = []

@@ -3,6 +3,8 @@
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
   - date: "2026-11-06"
+    title: "Verze 3.20 – sprint kreslí herní prvky na dětských hřištích (531 ×): z OSM a kde OSM nic nemá, z výšky nad terénem (DMP OK) a ortofota; malé hřiště jeden křížek, větší křížky aspoň 4 mm od sebe"
+  - date: "2026-11-06"
     title: "Verze 3.19 – sprint má ve výchozím stavu drobné objekty z OSM: lavičky a stoly, rozcestníky, pomníky, boží muka, kříže, sochy a památné stromy; stejné značky se nelepí na sebe, pamětní desky na zdech se nekreslí"
   - date: "2026-11-06"
     title: "Verze 3.18 – kresba z DTM je výchozí pro všechny mapy (sprint, les i MTBO); kde DTM není, kreslí se z OSM a ZABAGED"

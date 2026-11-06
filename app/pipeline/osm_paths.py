@@ -595,7 +595,10 @@ _BENCH_KINDS = frozenset({"bench", "info_board", "guidepost", "picnic_table", "f
 # Základní sada objektů OSM, ve sprintu výchozí (``objects_basic_only``; Petr 2026-11-06): lavičky, stoly, rozcestníky,
 # pomníky / kříže / sochy a památné stromy. Ostatní (lampy, tabule, herní prvky, brány, přístřešky, fitness,
 # ohniště) jen s volbou „vše“.
-OSM_BASIC_OBJECT_KINDS = frozenset({"bench", "picnic_table", "guidepost", "memorial", "landmark_tree"})
+# Od 3.20.0 i herní prvky na hřištích (generalizované, doplněné z výšky a ortofota, ``playground_equipment.py``).
+OSM_BASIC_OBJECT_KINDS = frozenset(
+    {"bench", "picnic_table", "guidepost", "memorial", "landmark_tree", "playground_equipment"}
+)
 _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})
 # Plochy z OSM_PAVED_AREA_LEISURE / pěší zóna / parkoviště / nástupiště → kind … (501).
@@ -3886,6 +3889,8 @@ def prepare_osm_paths(
                 # Dedup proti souběžné linii: clip/potlačení chodníku u plochy
                 # (``path_cut_zone`` / ``osm_paved_beside_geometry``), ne převod na střednici.
                 props_area: dict = {"source": "osm", "kind": kind, "oom_code": code}
+                if kind == "playground" and tags.get("name"):
+                    props_area["name"] = tags.get("name")  # dopravní hřiště nemá herní prvky
                 structure = paved_area_structure(tags) if kind in _PAVED_AREA_KINDS else None
                 if structure:
                     props_area["structure"] = structure  # most / tunel se s okolními plochami neslučuje
@@ -3923,6 +3928,10 @@ def prepare_osm_paths(
             }
             if kind == "barrier_point":
                 props["barrier"] = (tags.get("barrier") or "").lower()  # sprint brány a sloupky nekreslí
+            if kind == "playground_equipment":
+                props["playground"] = (tags.get("playground") or "").lower()  # výběr při generalizaci
+            elif kind == "playground" and tags.get("name"):
+                props["name"] = tags.get("name")
             if kind in {"power_line", "power_line_major"} and len(pts) >= 2:
                 dash = _dash_indices_near_supports(pts, power_supports)
                 if dash:
@@ -4274,7 +4283,10 @@ def prepare_osm_paths(
     )
     feat_out = dest_dir / "features.geojson"
     feat_out.write_text(
-        json.dumps({"type": "FeatureCollection", "features": features}),
+        # ``playground_equipment``: herní prvky byly v dotazu (sprint je doplní detekcí; starší joby bez klíče ne).
+        json.dumps(
+            {"type": "FeatureCollection", "playground_equipment": bool(include_playground_equipment), "features": features}
+        ),
         encoding="utf-8",
     )
 
@@ -8087,6 +8099,30 @@ def build_osm_path_parts(
     ]
 
 
+def _sprint_playground_points(work_dir: Path, feats: list[dict], scale: int, bbox_wgs84, log=None) -> list[dict]:
+    """Sprint: herní prvky v hřištích = OSM + detekce z CHM a ortofota, generalizované (``playground_equipment``)."""
+    from app.pipeline import playground_equipment as pe
+
+    if not any((f.get("properties") or {}).get("kind") == "playground" for f in feats):
+        return feats
+    ortho = chm = None
+    if pe.DETECT or pe.FALLBACK:
+        try:
+            from app.pipeline.residual_verify import load_evidence
+
+            ev = load_evidence(work_dir, bbox_wgs84, [], log=None)
+            ortho, chm = ev.ortho, ev.chm
+        except Exception as exc:  # bez podkladů jen OSM a záložní křížek
+            if log:
+                log(f"Herní prvky: ortofoto / CHM nedostupné ({exc})")
+    try:
+        return pe.playground_points(feats, ortho, chm, scale, log=log)
+    except Exception as exc:
+        if log:
+            log(f"Herní prvky: detekce přeskočena ({exc})")
+        return feats
+
+
 def build_osm_feature_parts(
     work_dir: Path,
     *,
@@ -8098,12 +8134,16 @@ def build_osm_feature_parts(
     clip_bounds: Bounds | None = None,
     aopk_tree_points: list[tuple[float, float]] | None = None,
     path_source: str = "mixed",
+    bbox_wgs84: tuple[float, float, float, float] | None = None,
+    log=None,
 ) -> list[OomObjectPart]:
     gj_path = work_dir / "osm_paths" / "features.geojson"
     if not gj_path.is_file():
         return []
     data = json.loads(gj_path.read_text(encoding="utf-8"))
     feats = list(data.get("features") or [])
+    if preset_id.startswith("sprint") and data.get("playground_equipment"):
+        feats = _sprint_playground_points(work_dir, feats, scale, bbox_wgs84, log=log)
     dtm_buildings = False
     if aopk_tree_points:
         from app.pipeline.aopk_trees import filter_osm_landmark_trees_near_aopk

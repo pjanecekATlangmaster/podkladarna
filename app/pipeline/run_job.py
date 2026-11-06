@@ -541,7 +541,7 @@ def run_job_pipeline(
                 tuple(bbox),
                 include_benches=osm_objects or osm_basic,
                 include_lamps=osm_objects,
-                include_playground_equipment=osm_objects,
+                include_playground_equipment=osm_objects or osm_basic,  # sprint: herní prvky i ve výchozí sadě
                 osm_priority=osm_objects or osm_basic,
                 force_refresh=force_refresh,
                 log=background_log(raw_log, OSM_LOG_LABEL),
@@ -930,7 +930,7 @@ def run_job_pipeline(
                 zabaged_clean,
                 include_benches=osm_objects or osm_basic,
                 include_lamps=osm_objects,
-                include_playground_equipment=osm_objects,
+                include_playground_equipment=osm_objects or osm_basic,  # sprint: herní prvky i ve výchozí sadě
                 osm_priority=osm_objects or osm_basic,
                 objects_basic_only=osm_basic and not osm_objects,
                 all_footways_as_sidewalk=bool(
