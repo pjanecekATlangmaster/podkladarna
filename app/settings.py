@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.23.0"
+APP_VERSION = "3.23.1"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -202,7 +202,8 @@ DEFAULT_OPTIONS = {
     # Citlivost detekce srázů: low | normal | high | very_high (výchozí low = méně srázů).
     "kp_cliff_sensitivity": "low",
     # Objekty OSM: auto = ve sprintu základní sada (lavičky, stoly, rozcestníky, pomníky, kříže, sochy, památné
-    # stromy), True = vše (navíc lampy, tabule, herní prvky, brány, přístřešky…), "none" = žádné (3.19.0).
+    # stromy, od 3.23.0 i herní prvky, přístřešky, fitness, ohniště, zábrany), True = vše (navíc lampy a tabule),
+    # "none" = žádné (3.19.0).
     # Ploty a zdi z OSM vždy (bez volby). Dřívější kp_osm_benches / _lamps / _playground_equipment
     # čte resolve_osm_objects_mode u starších jobů a API; kp_osm_priority se ignoruje.
     "kp_osm_objects": "auto",
