@@ -2913,17 +2913,21 @@ def test_fences_kept_without_osm_objects(tmp_path, monkeypatch):
         {"type": "node", "id": 4, "lat": 50.0004, "lon": 14.4006, "tags": {"amenity": "bench"}},
         {"type": "node", "id": 5, "lat": 50.0006, "lon": 14.4007, "tags": {"highway": "street_lamp"}},
         {"type": "node", "id": 6, "lat": 50.0007, "lon": 14.4008, "tags": {"tourism": "information", "information": "board"}},
+        {"type": "node", "id": 7, "lat": 50.0002, "lon": 14.4002, "tags": {"playground": "swing"}},
+        {"type": "node", "id": 8, "lat": 50.0008, "lon": 14.4002, "tags": {"leisure": "fitness_station"}},
+        {"type": "node", "id": 9, "lat": 50.0002, "lon": 14.4009, "tags": {"amenity": "shelter"}},
     ]
     monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: elements)
     # (všechny objekty, jen základní sada sprintu, očekávané druhy)
     for objects, basic, want in (
         (False, False, {"fence", "wall"}),
-        (False, True, {"fence", "wall", "memorial", "bench"}),  # sprint výchozí (3.19.0): bez lamp a tabulí
-        (True, False, {"fence", "wall", "memorial", "bench", "lamp", "info_board"}),
+        # sprint výchozí (3.23.0): herní prvky, fitness a přístřešky ano, bez lamp a tabulí
+        (False, True, {"fence", "wall", "memorial", "bench", "playground_equipment", "fitness", "shelter"}),
+        (True, False, {"fence", "wall", "memorial", "bench", "playground_equipment", "fitness", "shelter", "lamp", "info_board"}),
     ):
         op.prepare_osm_paths(
             tmp_path, (14.39, 49.99, 14.41, 50.01), None, preset_id="sprint_4000",
-            include_benches=objects or basic, include_lamps=objects, include_playground_equipment=objects,
+            include_benches=objects or basic, include_lamps=objects, include_playground_equipment=objects or basic,
             osm_priority=objects or basic, objects_basic_only=basic and not objects, log=lambda m: None,
         )
         feats = json.loads((tmp_path / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))["features"]

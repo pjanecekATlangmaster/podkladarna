@@ -90,8 +90,8 @@ OSM_OBJECTS_LEGACY_KEYS = (
 
 
 # Režim objektů OSM (3.19.0, Petr 2026-11-06): „auto“ = výchozí základní sada ve sprintu (lavičky, stoly,
-# rozcestníky, pomníky, kříže, sochy, památné stromy; les a MTBO nic), „1“ = vše (navíc lampy, tabule, herní
-# prvky, brány, přístřešky, fitness, ohniště), „none“ = žádné. Starší joby / API s `False` / „0“ = auto (byl to výchozí stav).
+# rozcestníky, pomníky, kříže, sochy, památné stromy, od 3.23.0 i herní prvky, přístřešky, fitness, ohniště a zábrany;
+# les a MTBO nic), „1“ = vše (navíc lampy a informační tabule), „none“ = žádné. Starší joby / API s `False` / „0“ = auto (byl to výchozí stav).
 OSM_OBJECTS_AUTO = "auto"
 OSM_OBJECTS_ALL = "1"
 OSM_OBJECTS_NONE = "none"
