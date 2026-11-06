@@ -1137,3 +1137,63 @@ def test_zabaged_point_layers_drawn_once(tmp_path, layer, priority_point, drawn)
         osm_priority_areas=priority,
     )
     assert sum(p.count for p in parts if layer in p.name) == drawn
+
+
+@pytest.mark.parametrize("preset,scale", [("sprint_4000", 4000), ("forest_10000", 10000), ("mtbo_10000", 10000)])
+def test_zabaged_tram_in_osm_tunnel_not_drawn(tmp_path, preset, scale):
+    """Tramvaj ZABAGED v okolí OSM kolejí v tunelu se nekreslí ve všech presetech, vjezd zůstane."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+    import zipfile
+
+    import numpy as np
+    import pyogrio.raw as pr
+    from shapely.geometry import LineString
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    tram = LineString([(x0, y0), (x0 + 400, y0)])
+    pr.write(
+        str(tmp_path / "TramvajovaDraha.shp"),
+        geometry=np.array([tram.wkb], dtype=object),
+        field_data=[],
+        fields=[],
+        geometry_type="LineString",
+        crs="EPSG:5514",
+        driver="ESRI Shapefile",
+    )
+    z = tmp_path / "z.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in tmp_path.iterdir():
+            if f.suffix in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                zf.write(f, f.name)
+
+    import re
+
+    def drawn_max_x(zone):
+        parts = build_zabaged_object_parts(
+            z,
+            vectorconf_name="zabaged.txt",
+            preset_id=preset,
+            scale=scale,
+            ref_x=x0,
+            ref_y=y0,
+            grivation_deg=0.0,
+            work_dir=Path(tempfile.mkdtemp()),
+            rail_tunnel_zone=zone,
+        )
+        xml = "\n".join(p.objects_xml for p in parts if "TramvajovaDraha" in p.name)
+        xs = [
+            int(pt.split()[0])
+            for body in re.findall(r"<coords[^>]*>(.*?)</coords>", xml, re.S)
+            for pt in body.split(";")
+            if pt.strip()
+        ]
+        return max(xs) * scale / 1_000_000 if xs else None  # metry od ref_x
+
+    # OSM kolej v tunelu vede pod druhou polovinou trati (x 200–450 m) → kreslí se jen povrchová část
+    assert drawn_max_x(None) > 390
+    surface = drawn_max_x(LineString([(x0 + 200, y0), (x0 + 450, y0)]).buffer(4.0))
+    assert surface is not None and surface < 200

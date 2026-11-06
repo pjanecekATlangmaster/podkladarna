@@ -864,12 +864,10 @@ def _prepare_oom_map(
 
                 dtm_cover = _dtm_areas if dtm_cover is None else unary_union([dtm_cover, _dtm_areas])
                 stub_cover = _dtm_areas
-        # Les a MTBO: železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy.
-        rail_tunnel_zone = None
-        if not preset_id.startswith("sprint"):
-            from app.pipeline.osm_paths import rail_tunnel_geometry
+        # Železnice / tramvaj v tunelu (OSM) se nekreslí, jen vjezdy (les, MTBO i sprint).
+        from app.pipeline.osm_paths import rail_tunnel_zones
 
-            rail_tunnel_zone = rail_tunnel_geometry(kp_cwd)
+        rail_tunnel_zone = rail_tunnel_zones(kp_cwd) or None
         for part in build_zabaged_object_parts(
             zabaged_clean,
             vectorconf_name=vectorconf_name,

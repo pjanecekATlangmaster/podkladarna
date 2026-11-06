@@ -414,6 +414,14 @@ def is_covered_passage(tags: dict) -> bool:
     return (tags.get("covered") or "").lower() == "yes" or (tags.get("tunnel") or "").lower() == "building_passage"
 # Trať ZABAGED do tolika m od osy OSM tratě v tunelu se nekreslí.
 RAIL_TUNNEL_NEAR_M = 4.0
+# Druhy OSM kolejí v tunelu, které skryjí čáru vrstvy ZABAGED (``rail_tunnel_geometry``). Metro (subway)
+# neskryje nic: vede pod ulicí s tramvají / pod tratí na povrchu (Vinohradská). Joby bez druhu berou všechny.
+RAIL_TUNNEL_KINDS_BY_LAYER = {
+    "TramvajovaDraha": frozenset({"tram", "light_rail"}),
+    "ZeleznicniTrat": frozenset({"rail", "narrow_gauge", "light_rail"}),
+    "ZeleznicniVlecka": frozenset({"rail", "narrow_gauge", "light_rail"}),
+    "Tunel:silnice": frozenset({"tram", "light_rail", "rail", "narrow_gauge"}),
+}
 
 
 def _overpass_ql(
@@ -3768,7 +3776,7 @@ def prepare_osm_paths(
     osm_items: list[tuple[list[tuple[float, float]], str]] = []
     # Chodníky / pěšiny, po kterých smějí jezdit cyklisté (sdílený provoz) – pro MTBO koridor silnice.
     bike_lines: list[list[tuple[float, float]]] = []
-    rail_tunnels: list[list[tuple[float, float]]] = []
+    rail_tunnels: list[tuple[list[tuple[float, float]], str]] = []
     walk_tunnels: list[list[tuple[float, float]]] = []
     covered_passages: list[list[tuple[float, float]]] = []
     natural_cover: list[list[list[tuple[float, float]]]] = []
@@ -3818,7 +3826,7 @@ def prepare_osm_paths(
             if _is_osm_tunnel(tags):
                 rail_pts = _nodes_geometry_to_5514(el.get("geometry"))
                 if len(rail_pts) >= 2:
-                    rail_tunnels.append(rail_pts)
+                    rail_tunnels.append((rail_pts, (tags.get("railway") or "").lower()))
             continue
         # Metro do podkladu nepatří (ani jako cesta, ani jako objekt).
         railway = (tags.get("railway") or "").lower()
@@ -4228,9 +4236,9 @@ def prepare_osm_paths(
             {
                 "type": "FeatureCollection",
                 "features": [
-                    {"type": "Feature", "properties": {"source": "osm", "railway_tunnel": True},
+                    {"type": "Feature", "properties": {"source": "osm", "railway_tunnel": True, "railway": kind},
                      "geometry": {"type": "LineString", "coordinates": [[x, y] for x, y in pts]}}
-                    for pts in rail_tunnels
+                    for pts, kind in rail_tunnels
                 ],
             }
         ),
@@ -4682,8 +4690,11 @@ def with_aopk_tree_priority(areas: dict, aopk_points: list[tuple[float, float]])
     return {**(areas or {}), layer: zone if prev is None else unary_union([prev, zone])}
 
 
-def rail_tunnel_geometry(work_dir: Path):
-    """Okolí (``RAIL_TUNNEL_NEAR_M``) OSM kolejí v tunelu jobu (shapely) nebo None (starší joby soubor nemají)."""
+def rail_tunnel_geometry(work_dir: Path, layer: str | None = None):
+    """Okolí (``RAIL_TUNNEL_NEAR_M``) OSM kolejí v tunelu jobu (shapely) nebo None (starší joby soubor nemají).
+
+    S ``layer`` (vrstva ZABAGED) jen koleje druhu z ``RAIL_TUNNEL_KINDS_BY_LAYER``; kolej bez druhu (starší joby) vždy.
+    """
     path = work_dir / "osm_paths" / RAIL_TUNNELS_NAME
     if not path.is_file():
         return None
@@ -4698,8 +4709,19 @@ def rail_tunnel_geometry(work_dir: Path):
         LineString(f["geometry"]["coordinates"])
         for f in feats
         if (f.get("geometry") or {}).get("type") == "LineString" and len(f["geometry"].get("coordinates") or []) >= 2
+        and (
+            layer is None
+            or not (f.get("properties") or {}).get("railway")
+            or f["properties"]["railway"] in RAIL_TUNNEL_KINDS_BY_LAYER.get(layer, ())
+        )
     ]
     return unary_union(lines).buffer(RAIL_TUNNEL_NEAR_M) if lines else None
+
+
+def rail_tunnel_zones(work_dir: Path) -> dict:
+    """{vrstva ZABAGED: okolí OSM kolejí v tunelu, které ji skryjí} (jen neprázdné) pro ``build_zabaged_object_parts``."""
+    zones = {layer: rail_tunnel_geometry(work_dir, layer) for layer in RAIL_TUNNEL_KINDS_BY_LAYER}
+    return {k: v for k, v in zones.items() if v is not None and not v.is_empty}
 
 
 def osm_priority_area_geometries(work_dir: Path) -> dict:

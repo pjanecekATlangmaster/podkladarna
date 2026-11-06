@@ -504,12 +504,17 @@ def test_prepare_stores_rail_tunnels_only(tmp_path, monkeypatch):
 
     tram_tunnel = way(1177591713, {"railway": "tram", "layer": "-1", "tunnel": "yes"}, 14.372)
     tram_street = way(2, {"railway": "tram", "highway": "residential", "surface": "asphalt"}, 14.380)
-    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [tram_tunnel, tram_street])
+    metro = way(3, {"railway": "subway", "layer": "-3", "tunnel": "yes"}, 14.385)
+    monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [tram_tunnel, tram_street, metro])
     op.prepare_osm_paths(tmp_path, (14.37, 50.03, 14.39, 50.04), None, preset_id="forest_10000", log=lambda m: None)
     rails = json.loads((tmp_path / "osm_paths" / op.RAIL_TUNNELS_NAME).read_text(encoding="utf-8"))["features"]
-    assert len(rails) == 1
+    assert sorted(f["properties"]["railway"] for f in rails) == ["subway", "tram"]
     zone = op.rail_tunnel_geometry(tmp_path)
     assert zone is not None and zone.area > 0
+    # Tramvaj ZABAGED skryje jen tramvaj v tunelu, metro pod ulicí ne; trať ZABAGED ani jedno.
+    zones = op.rail_tunnel_zones(tmp_path)
+    assert set(zones) == {"TramvajovaDraha", "Tunel:silnice"}
+    assert zones["TramvajovaDraha"].area < zone.area
     # Tramvaj v ose silnice (jedna way s highway) zůstává silnicí.
     paths = json.loads((tmp_path / "osm_paths" / "paths_osm.geojson").read_text(encoding="utf-8"))["features"]
     assert any(str(f["properties"]["highway"]).startswith("road_") for f in paths)
