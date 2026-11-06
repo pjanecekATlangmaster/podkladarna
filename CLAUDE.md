@@ -387,6 +387,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Od 3.24.1 (Petr 2026-11-06, Tilleho nám.) je výška vegetací jen do 2 m od zeleně v ortofotu (`GREEN_REACH_M`): nezelený přesah
   patra u fasády nespojí dva stromy do „skupiny“; nezelená výška širší než 4 m (nezmapovaná budova) dál vadí v izolaci, volné
   okolí ≥ 0,5. Barrandov 57 → 77, Krumlov 63 → 88 (část nových jsou stromy v zahradách ve stínu budov).
+  Od 3.24.2 stačí volné okolí 0,4, leží-li střed koruny na OSM pěší zóně / náměstí / parkovišti (`OPEN_AROUND_MIN_PAVED`; Tilleho nám.
+  s budovami z DTM 0,46 a 0,49). Obecné snížení prahu přidávalo hlavně stromy v zahradách.
   Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,

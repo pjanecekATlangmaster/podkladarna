@@ -29,6 +29,8 @@ CROWN_GREEN_MIN = 0.30  # podíl zelených pixelů ortofota v koruně (střecha,
 GROUND_GREEN_MAX = 0.25  # podíl zelených pixelů v okolí koruny: méně = zpevněná plocha
 EXISTING_TREE_NEAR_M = 8.0  # strom už nakreslený z OSM / AOPK / ZABAGED
 OPEN_AROUND_MIN = 0.5  # aspoň tolik okolí koruny mimo budovy (strom na volné ploše, ne ve dvoře; Tilleho nám. 0,57)
+PAVED_KINDS = frozenset({"pedestrian_area", "parking", "platform"})
+OPEN_AROUND_MIN_PAVED = 0.4  # střed koruny na OSM pěší zóně / náměstí / parkovišti (Tilleho nám.: okolí 0,46–0,49 kvůli fasádám)
 GREEN_REACH_M = 2.0  # výška je vegetace jen do této vzdálenosti od zeleně v ortofotu (posun ortofota proti LiDARu)
 NONGREEN_MASS_M = 2.0  # nezelená výška širší než 2× tolik (nezmapovaná budova) vadí v izolaci; užší pás u fasády ne
 
@@ -81,11 +83,13 @@ def detect_paved_trees(
     buildings=None,
     existing: list[tuple[float, float]] | None = None,
     water=None,
+    paved=None,
 ) -> list[tuple[float, float]]:
     """Středy korun samostatných stromů na zpevněné ploše (S-JTSK).
 
     ``chm`` – výška nad terénem (NaN = nic), ``chm_gt`` / ``ortho_gt`` – GDAL geotransform (sever nahoře),
-    ``ortho_green`` – bool maska zelených pixelů ortofota, ``buildings`` / ``water`` – shapely (Multi)Polygon budov / vody.
+    ``ortho_green`` – bool maska zelených pixelů ortofota, ``buildings`` / ``water`` – shapely (Multi)Polygon budov / vody,
+    ``paved`` – OSM pěší zóny / náměstí / parkoviště: strom na nich smí mít volné okolí jen ``OPEN_AROUND_MIN_PAVED``.
     """
     import numpy as np
     from scipy import ndimage
@@ -115,6 +119,11 @@ def detect_paved_trees(
     ox0, opx, _, oy1, _, opy = ortho_gt
     opy = abs(opy)
     near2 = EXISTING_TREE_NEAR_M**2
+    paved_prep = None
+    if paved is not None and not paved.is_empty:
+        from shapely.prepared import prep
+
+        paved_prep = prep(paved)
     out: list[tuple[float, float]] = []
     for i, sl in enumerate(ndimage.find_objects(lab), 1):
         if sl is None:
@@ -157,7 +166,13 @@ def detect_paved_trees(
         bx = np.clip(((ox0 + (xx + 0.5) * opx - x0) / px).astype(int), 0, w - 1)
         by = np.clip(((y1 - (oy1 - (yy + 0.5) * opy)) / py).astype(int), 0, h - 1)
         around = ring_all & ~bmask[by, bx] & ~wmask[by, bx]
-        if not crown.any() or around.sum() < OPEN_AROUND_MIN * max(int(ring_all.sum()), 1):
+        open_min = OPEN_AROUND_MIN
+        if paved_prep is not None:
+            from shapely.geometry import Point
+
+            if paved_prep.contains(Point(x, y)):
+                open_min = OPEN_AROUND_MIN_PAVED
+        if not crown.any() or around.sum() < open_min * max(int(ring_all.sum()), 1):
             continue
         if win[crown].mean() < CROWN_GREEN_MIN or win[around].mean() >= GROUND_GREEN_MAX:
             continue
@@ -209,6 +224,28 @@ def _water_union(work_dir: Path):
     for f in feats:
         geom = f.get("geometry") or {}
         if (f.get("properties") or {}).get("kind") in {"water_body", "fountain"} and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                g = shape(geom)
+                polys.append(g if g.is_valid else g.buffer(0))
+            except (ValueError, TypeError):
+                continue
+    return unary_union(polys) if polys else None
+
+
+def _paved_union(work_dir: Path):
+    """OSM pěší zóny, náměstí, parkoviště a nástupiště (kind ve ``features.geojson``)."""
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+
+    gj = Path(work_dir) / "osm_paths" / "features.geojson"
+    try:
+        feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, json.JSONDecodeError):
+        return None
+    polys = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        if (f.get("properties") or {}).get("kind") in PAVED_KINDS and geom.get("type") in ("Polygon", "MultiPolygon"):
             try:
                 g = shape(geom)
                 polys.append(g if g.is_valid else g.buffer(0))
@@ -298,6 +335,7 @@ def sprint_paved_tree_points(
             buildings=_building_union(work_dir),
             existing=list(existing or []) + _osm_tree_points(work_dir) + _zabaged_tree_points(work_dir),
             water=_water_union(work_dir),
+            paved=_paved_union(work_dir),
         )
     except Exception as exc:  # mapa se kreslí i bez stromů
         logger.warning("sprint_trees: přeskočeno (%s)", exc)
