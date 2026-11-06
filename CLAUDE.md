@@ -356,6 +356,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (priorita pomník > strom > rozcestník > stůl > lavička). ZABAGED kříž / pomník / strom do 10 m od OSM bodu téhož druhu se nekreslí
   (`OSM_PRIORITY_POINT_LAYERS`). DTM má jen `DrobnaSakralniStavba*` / `DrobnaKulturniStavba*` a studny (málo, zatím nepoužito).
   Průzkum: Krumlov centrum 2 km² 359 laviček → 220 po ředění, Barrandov 5,5 km² 135 → 95.
+- **Dedup stejné věci z více zdrojů** (3.20.0, Petr 2026-11-06): bodové vrstvy ZABAGED (kříže, pomníky, stromy, balvany) jsou
+  MultiPoint a do 3.19 se nekreslily vůbec; teď se kreslí, u OSM bodu téhož druhu (`OSM_PRIORITY_POINT_LAYERS`) nebo památného stromu
+  AOPK do 10 m ne (`with_aopk_tree_priority`). Zeď ZABAGED do 2,5 m od OSM zdi se nekreslí (`ZABAGED_WALL_MATCH_M`, Krumlov −3,1 km
+  dvojitých zdí). Les / MTBO: úsek ulice ZABAGED ležící do 2,5 m na kreslené OSM čáře (chodník, pěší ulice, polní cesta) se nekreslí
+  (`zabaged_roads_off_osm_lines` nad hotovou částí „OSM cesty“, chodník vedle ulice ji nesmaže). Měřicí skripty a výřezy
+  `/mnt/project-files/dedup-zdroje/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

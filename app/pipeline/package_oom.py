@@ -22,6 +22,7 @@ from app.pipeline.osm_paths import (
     build_osm_feature_parts,
     build_osm_path_parts,
     load_osm_path_lines,
+    load_osm_wall_lines,
     osm_features_have_power_lines,
     resolve_path_source,
 )
@@ -822,6 +823,10 @@ def _prepare_oom_map(
         from app.pipeline.osm_paths import osm_priority_area_geometries
 
         osm_priority_areas = osm_priority_area_geometries(kp_cwd)
+        # Památný strom z AOPK je tentýž strom jako ZABAGED VyznamnyStromLesik vedle (Říčany 1,8 m): kreslí se jednou.
+        from app.pipeline.osm_paths import with_aopk_tree_priority
+
+        osm_priority_areas = with_aopk_tree_priority(osm_priority_areas, load_aopk_tree_points(aopk_trees))
         # Sprint: tok 306 pod vodní plochou 301.x se nekreslí (les / MTBO beze změny).
         osm_water_area = None
         if preset_id.startswith("sprint"):
@@ -894,6 +899,7 @@ def _prepare_oom_map(
             rail_tunnel_zone=rail_tunnel_zone,
             paved_clip=paved_clip,
             road_join_band=None if preset_id.startswith("sprint") else road_join_band,
+            prefer_osm_wall_lines=load_osm_wall_lines(kp_cwd) or None,
         ):
             if _COURTYARD_MARK in part.name:
                 courtyard_parts.append(part)
@@ -1161,6 +1167,10 @@ def _prepare_oom_map(
     # podle šířky symbolů – až nad hotovou mapou, kdy jsou ploty spojené a deduplikované.
     from app.pipeline.path_clearance import displace_objects_from_paths
 
+    # Les / MTBO: ulice ZABAGED na kreslené OSM čáře (chodník, polní cesta) je táž věc – kreslí se jednou (OSM).
+    from app.pipeline.oom_import import zabaged_roads_off_osm_lines
+
+    object_parts = zabaged_roads_off_osm_lines(object_parts, preset_id=preset_id, scale=scale)
     object_parts = displace_objects_from_paths(
         object_parts,
         kp_cwd,
