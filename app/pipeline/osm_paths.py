@@ -610,11 +610,22 @@ def sprint_skips_barrier_point(preset_id: str, kind: str, props: dict) -> bool:
 # Volitelné skupiny (rozšířená nastavení).
 _BENCH_KINDS = frozenset({"bench", "info_board", "guidepost", "picnic_table", "firepit"})
 # Základní sada objektů OSM, ve sprintu výchozí (``objects_basic_only``; Petr 2026-11-06): lavičky, stoly, rozcestníky,
-# pomníky / kříže / sochy a památné stromy. Ostatní (lampy, tabule, herní prvky, brány, přístřešky, fitness,
-# ohniště) jen s volbou „vše“.
-# Od 3.23.0 i herní prvky na hřištích (generalizované, doplněné z výšky a ortofota, ``playground_equipment.py``).
+# pomníky / kříže / sochy, památné stromy, od 3.23.0 i herní prvky, přístřešky a střechy (522), fitness, ohniště
+# a zábrany (sprint z ``barrier_point`` kreslí jen bloky, přelezy a zábrany pro kola). Jen s volbou „vše“ zůstávají
+# lampy a informační tabule – lamp je v ulicích stovky (Barrandov 53 / km²), tabule bývají drobné a na plotech.
 OSM_BASIC_OBJECT_KINDS = frozenset(
-    {"bench", "picnic_table", "guidepost", "memorial", "landmark_tree", "playground_equipment"}
+    {
+        "bench",
+        "picnic_table",
+        "guidepost",
+        "memorial",
+        "landmark_tree",
+        "playground_equipment",
+        "shelter",
+        "fitness",
+        "firepit",
+        "barrier_point",
+    }
 )
 _LAMP_KINDS = frozenset({"lamp"})
 _PLAYGROUND_EQUIPMENT_KINDS = frozenset({"playground_equipment"})

@@ -353,7 +353,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Informace o ukládání je v patičce webu.
 - **Drobné objekty OSM ve sprintu** (3.19.0, Petr 2026-11-06): volba `kp_osm_objects` je `auto` (výchozí, i API) / `1` vše / `none`.
   `auto` = sprint kreslí základní sadu `OSM_BASIC_OBJECT_KINDS` (lavičky a stoly 531, rozcestníky `guidepost` 531, pomníky / boží muka /
-  kříže / sochy 526, památné stromy 417), les a MTBO nic; `1` přidá lampy, tabule, herní prvky, brány, přístřešky, fitness, ohniště.
+  kříže / sochy 526, památné stromy 417; od 3.23.0 i herní prvky, fitness, ohniště a zábrany 531, přístřešky a `building=roof` 522),
+  les a MTBO nic; `1` přidá lampy a informační tabule (Barrandov 53 lamp / km², tabule 5–23 / km², drobné a na plotech).
   Pamětní desky a stolpersteiny se nekreslí. `thin_object_points`: bod uvnitř budovy pryč, body téže značky do 2,5 mm mapy jen jednou
   (priorita pomník > strom > rozcestník > stůl > lavička). ZABAGED kříž / pomník / strom do 10 m od OSM bodu téhož druhu se nekreslí
   (`OSM_PRIORITY_POINT_LAYERS`). DTM má jen `DrobnaSakralniStavba*` / `DrobnaKulturniStavba*` a studny (málo, zatím nepoužito).
@@ -364,7 +365,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   dvojitých zdí). Les / MTBO: úsek ulice ZABAGED ležící do 2,5 m na kreslené OSM čáře (chodník, pěší ulice, polní cesta) se nekreslí
   (`zabaged_roads_off_osm_lines` nad hotovou částí „OSM cesty“, chodník vedle ulice ji nesmaže). Měřicí skripty a výřezy
   `/mnt/project-files/dedup-zdroje/`.
-- **Herní prvky na hřištích ve sprintu** (3.23.0, Petr 2026-11-06, `app/pipeline/playground_equipment.py`, výchozí i v `kp_osm_objects=auto`):
+- **Herní prvky na hřištích ve sprintu** (3.24.0, Petr 2026-11-06, `app/pipeline/playground_equipment.py`, výchozí i v `kp_osm_objects=auto`):
   v obrysu `leisure=playground` OSM body (vysoké konstrukce přednost, ploché jen jako záloha) + detekce: výška z bodů DMP OK
   0,5 m jen v obrysech hřišť (`dmpok_height`: laspy po blocích s maskou obrysů minus `dem_filled`, bez laspy PDAL, bez LAZ `chm.tif`;
   shluk 1–3,5 m o ploše 0,5–40 m², strom = zelený pixel, ne dotyk s korunou / střechou ≥ 15 m² kromě sytě barevného plastu, ne plná
