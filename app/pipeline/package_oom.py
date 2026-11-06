@@ -1155,6 +1155,21 @@ def _prepare_oom_map(
                 clip_bounds=vector_clip_bounds,
             )
         )
+    if preset_id.startswith("sprint"):
+        # Samostatný strom na zpevněné ploše (náměstí, parkoviště) = bod 417 ve středu koruny (CHM + ortofoto).
+        from app.pipeline.sprint_trees import build_sprint_tree_parts, sprint_paved_tree_points
+
+        object_parts.extend(
+            build_sprint_tree_parts(
+                sprint_paved_tree_points(kp_cwd, bbox_wgs84, existing=aopk_pts, log=log),
+                preset_id=preset_id,
+                scale=scale,
+                ref_x=ref_x,
+                ref_y=ref_y,
+                grivation_deg=grivation,
+                clip_bounds=vector_clip_bounds,
+            )
+        )
     # Výplň dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
     object_parts.extend(courtyard_parts)
     # Les a MTBO: objekty u cest (budovy, oliva, zdi, ploty, body) se odsunou od kreslených cest
