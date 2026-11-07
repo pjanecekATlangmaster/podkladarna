@@ -350,7 +350,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 - **Statistika původu jobů** (3.14.0, Petr 2026-11-05): tabulka `job_origin` v `podkladarna.db` (čas, API / privátní,
   preset, typy map, bbox, konečný stav; IP, síť /24 a e-mail privátních jen jako HMAC značky se solí `origin_salt` vedle DB) přežije úklid jobů, maže se po `ORIGIN_RETENTION_DAYS` (365).
   API ani web ji nečtou; přehled ostré A na pve1 `docker exec podkladarna python -m app.origin_stats [od] [do]` (test B na NAS `sudo docker exec podkladarna-test …`).
-  Informace o ukládání je v patičce webu.
+  Na webu se o ní nepíše (Petr 2026-11-07: logy serveru jsou běžné).
 - **Statistika použití v patičce** (3.25.0, Petr 2026-11-07): tabulka `usage_totals` v `podkladarna.db` (součty, nikdy se nemaže)
   a sloupce `usage_counted`, `build_seconds`, `output_bytes`, `source_bytes`, `downloads` v `job_origin`. Job se započítá jednou
   na konci běhu (`db.record_job_usage` z `build_stats.json`), joby dokončené starší image dopočítá start (`init_db`); stažení ZIPu
