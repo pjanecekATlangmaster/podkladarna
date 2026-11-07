@@ -351,6 +351,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   preset, typy map, bbox, konečný stav; IP, síť /24 a e-mail privátních jen jako HMAC značky se solí `origin_salt` vedle DB) přežije úklid jobů, maže se po `ORIGIN_RETENTION_DAYS` (365).
   API ani web ji nečtou; přehled ostré A na pve1 `docker exec podkladarna python -m app.origin_stats [od] [do]` (test B na NAS `sudo docker exec podkladarna-test …`).
   Informace o ukládání je v patičce webu.
+- **Statistika použití v patičce** (3.25.0, Petr 2026-11-07): tabulka `usage_totals` v `podkladarna.db` (součty, nikdy se nemaže)
+  a sloupce `usage_counted`, `build_seconds`, `output_bytes`, `source_bytes`, `downloads` v `job_origin`. Job se započítá jednou
+  na konci běhu (`db.record_job_usage` z `build_stats.json`), joby dokončené starší image dopočítá start (`init_db`); stažení ZIPu
+  `db.record_download`. Patička: mapy (podle `build_stats` maps, jinak `map_types`), zadání, hodiny výpočtu, zpracované podklady,
+  stažení. `SHOW_USAGE_STATS` = `auto` (jen stabilní A, test B ne) / `1` / `0`; výpis i v `python -m app.origin_stats`.
 - **Drobné objekty OSM ve sprintu** (3.19.0, Petr 2026-11-06): volba `kp_osm_objects` je `auto` (výchozí, i API) / `1` vše / `none`.
   `auto` = sprint kreslí základní sadu `OSM_BASIC_OBJECT_KINDS` (lavičky a stoly 531, rozcestníky `guidepost` 531, pomníky / boží muka /
   kříže / sochy 526, památné stromy 417; od 3.23.0 i herní prvky, fitness, ohniště a zábrany 531, přístřešky a `building=roof` 522),

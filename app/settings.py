@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.24.2"
+APP_VERSION = "3.25.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -77,6 +77,11 @@ SHARED_SLOTS_DIR = Path(_shared_slots) if _shared_slots else None
 INSTANCE_NAME = os.environ.get("PODKLADARNA_INSTANCE", "").strip()
 # stable = veřejná stabilní verze (A); test = testovací verze (B): banner, noindex.
 INSTANCE_CHANNEL = os.environ.get("PODKLADARNA_CHANNEL", "stable").strip().lower() or "stable"
+# Souhrnná statistika použití v patičce webu: auto = jen stabilní verze (A), 1 = vždy, 0 = nikdy.
+_show_usage = os.environ.get("SHOW_USAGE_STATS", "auto").strip().lower()
+SHOW_USAGE_STATS = (
+    INSTANCE_CHANNEL != "test" if _show_usage in ("", "auto") else _show_usage not in ("0", "false", "no", "off")
+)
 STABLE_URL = os.environ.get("PODKLADARNA_STABLE_URL", "https://podkladarna.kibos.link").rstrip("/")
 MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "10"))
 JOB_RETENTION_HOURS = int(os.environ.get("JOB_RETENTION_HOURS", "48"))

@@ -7,6 +7,7 @@ import mimetypes
 import re
 import traceback
 import urllib.parse
+from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -224,6 +225,83 @@ async def _noindex_test_channel(request: Request, call_next):
     return response
 
 
+def _note_download(job_id: str, zip_path: Path) -> None:
+    """Statistika použití: stažení výstupního ZIPu (chyba stažení nezastaví)."""
+    try:
+        db.record_download(job_id, zip_path.stat().st_size)
+    except Exception:
+        logger.exception("Statistika stažení jobu %s selhala", job_id)
+
+
+_CS_MONTHS = (
+    "ledna", "února", "března", "dubna", "května", "června",
+    "července", "srpna", "září", "října", "listopadu", "prosince",
+)
+
+
+def _cs_int(n: float) -> str:
+    return f"{int(round(n)):,}".replace(",", "\u00a0")
+
+
+def _cs_bytes(n: float) -> str:
+    gb = n / 1e9
+    if gb >= 1000:
+        return f"{gb / 1000:.1f}".replace(".", ",") + "\u00a0TB"
+    if gb >= 10:
+        return f"{_cs_int(gb)}\u00a0GB"
+    if gb >= 1:
+        return f"{gb:.1f}".replace(".", ",") + "\u00a0GB"
+    return f"{_cs_int(n / 1e6)}\u00a0MB"
+
+
+def _cs_since(iso: str | None) -> str:
+    try:
+        d = datetime.fromisoformat(str(iso))
+    except (TypeError, ValueError):
+        return ""
+    return f"{d.day}. {_CS_MONTHS[d.month - 1]} {d.year}"
+
+
+def usage_footer_html() -> str:
+    """Řádek patičky se souhrnnou statistikou použití (jen čísla, bez osobních údajů)."""
+    if not app_settings.SHOW_USAGE_STATS:
+        return ""
+    try:
+        totals = db.usage_totals()
+    except Exception:
+        logger.exception("Statistika použití nejde načíst")
+        return ""
+    maps = totals.get("maps_done")
+    if not maps or maps["value"] <= 0:
+        return ""
+
+    def val(key: str) -> float:
+        return float((totals.get(key) or {}).get("value") or 0)
+
+    n_maps = int(round(maps["value"]))
+    word = "mapa" if n_maps == 1 else ("mapy" if 2 <= n_maps <= 4 else "map")
+    parts = [f"vygenerováno {_cs_int(n_maps)} {word} ({_cs_int(val('jobs_done'))} zadání)"]
+    hours = val("build_seconds") / 3600
+    if hours >= 1:
+        parts.append(f"{_cs_int(hours)} h výpočtu")
+    if val("source_bytes") > 0:
+        parts.append(f"zpracováno {_cs_bytes(val('source_bytes'))} podkladů")
+    if val("download_count") > 0:
+        parts.append(
+            f"{_cs_int(val('download_count'))}× staženo ({_cs_bytes(val('download_bytes'))})"
+        )
+    since = _cs_since(maps.get("since"))
+    lead = f"Od {since}: " if since else "Celkem: "
+    # Čas a data se měří až od 3.25.0 – od kdy, napoví title.
+    detail = "; ".join(
+        f"{label} od {_cs_since(totals[key]['since'])}"
+        for key, label in (("build_seconds", "čas výpočtu"), ("download_count", "stažení"))
+        if key in totals and _cs_since(totals[key]["since"]) != since
+    )
+    title = f' title="{html_escape(detail, quote=True)}"' if detail else ""
+    return f'<p class="footer-usage"{title}>{html_escape(lead + " · ".join(parts))}</p>'
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     try:
@@ -235,6 +313,7 @@ def index() -> HTMLResponse:
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("<!-- PODKLADARNA_ABOUT -->", WEB_ABOUT_HTML)
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
+    html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html())
     # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
@@ -544,6 +623,7 @@ def api_download(job_id: str, token: str | None = None):
     if not zip_path:
         raise HTTPException(404, "Vystup jeste neni pripraven")
     filename = db.zip_download_filename(job_id, job["name"])
+    _note_download(job_id, zip_path)
     return FileResponse(zip_path, filename=filename)
 
 
@@ -597,6 +677,7 @@ def download_by_token(token: str):
     if not zip_path:
         raise HTTPException(404, "Vystup jeste neni pripraven")
     filename = db.zip_download_filename(job["id"], job["name"])
+    _note_download(job["id"], zip_path)
     return FileResponse(zip_path, filename=filename)
 
 

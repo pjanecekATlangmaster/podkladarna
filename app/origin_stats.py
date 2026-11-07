@@ -1,4 +1,4 @@
-"""Interní statistika původu jobů (tabulka job_origin) – jen pro čtení, nic nevystavuje.
+"""Interní statistika původu jobů (tabulka job_origin) a souhrn použití (usage_totals) – jen pro čtení.
 
 Na NAS (ostrá A; test B = kontejner podkladarna-test):
     sudo docker exec podkladarna python -m app.origin_stats
@@ -38,6 +38,16 @@ def _report(d_from: str | None = None, d_to: str | None = None) -> None:
         """,
         (d_from, d_to),
     ).fetchall()
+
+    totals = {
+        r["key"]: r for r in con.execute("SELECT key, value, since FROM usage_totals")
+    } if con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'usage_totals'"
+    ).fetchone() else {}
+    if totals:
+        print("Celkem (patička webu): " + ", ".join(
+            f"{k} {totals[k]['value']:.0f} (od {totals[k]['since'][:10]})" for k in sorted(totals)
+        ))
 
     print(f"Joby {d_from} – {d_to} (UTC): {len(rows)}")
     kinds = collections.Counter(
