@@ -44,3 +44,22 @@ def test_jobs_api_exposes_shared_busy_only_as_flag(client):
     data = client.get("/api/jobs").json()
     assert data["shared_busy"] is False  # bez PODKLADARNA_SHARED_SLOTS vždy False
     assert "current" in data and "private_live" in data
+
+
+def test_usage_footer_only_on_stable_and_without_personal_data(client, monkeypatch):
+    from app import db
+
+    job = db.create_job("j", "forest_10000", {"client_ip": "1.2.3.4", "map_types": ["les"]})
+    db.update_job(job["id"], status="done")
+    db.record_job_usage(job["id"], "done", {"total_seconds": 7200, "downloaded_bytes": 2.5e9})
+    db.record_download(job["id"], 12_000_000)
+
+    monkeypatch.setattr(main.app_settings, "SHOW_USAGE_STATS", True)
+    text = client.get("/").text
+    assert 'class="footer-usage"' in text
+    assert "vygenerováno 1 mapa (1 zadání)" in text and "2 h výpočtu" in text
+    assert "zpracováno 2,5 GB podkladů" in text and "1× staženo (12 MB)" in text
+    assert "1.2.3.4" not in text
+
+    monkeypatch.setattr(main.app_settings, "SHOW_USAGE_STATS", False)
+    assert "footer-usage" not in client.get("/").text

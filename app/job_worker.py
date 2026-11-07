@@ -195,6 +195,14 @@ def retry_missed_private_mails(*, limit: int = 50) -> list[str]:
     return resent
 
 
+def _record_usage(job_id: str, status: str) -> None:
+    """Souhrnná statistika použití (patička webu); chyba job neshodí."""
+    try:
+        db.record_job_usage(job_id, status)
+    except Exception:
+        logger.exception("Statistika použití jobu %s selhala", job_id)
+
+
 def run_job(job_id: str) -> int:
     job_dir = JOBS_DIR / job_id
     ensure_proj_data()
@@ -229,6 +237,7 @@ def run_job(job_id: str) -> int:
         else:
             db.update_job(job_id, status="done", phase="done")
             log("Status: done")
+        _record_usage(job_id, db.STATUS_DONE_WITH_ERRORS if issues else "done")
         # Teprve po zápisu done – při pádu/redeploy během SMTP pomůže
         # retry_missed_private_mails() na startupu.
         if db.job_is_private(job):
@@ -242,6 +251,7 @@ def run_job(job_id: str) -> int:
         db.update_job(
             job_id, status="failed", phase="error", error=failure_summary(str(exc))
         )
+        _record_usage(job_id, "failed")
         notify_private_failure(job_id)
         return 1
 

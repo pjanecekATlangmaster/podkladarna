@@ -106,6 +106,28 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_job_origin_created ON job_origin(created_at)"
         )
+        # Souhrnná statistika použití (3.25.0): údaje dokončeného jobu v job_origin
+        # (přidané sloupce, NULL / 0 u starších řádků) a nikdy nemazané součty
+        # v usage_totals. Jen čísla, žádné osobní údaje; starší image nové sloupce ignoruje.
+        origin_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_origin)").fetchall()}
+        for col, decl in (
+            ("usage_counted", "INTEGER NOT NULL DEFAULT 0"),
+            ("build_seconds", "REAL"),
+            ("output_bytes", "INTEGER"),
+            ("source_bytes", "INTEGER"),
+            ("downloads", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if col not in origin_cols:
+                conn.execute(f"ALTER TABLE job_origin ADD COLUMN {col} {decl}")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_totals (
+                key TEXT PRIMARY KEY,
+                value REAL NOT NULL DEFAULT 0,
+                since TEXT NOT NULL
+            )
+            """
+        )
         # Joby založené před zavedením statistiky (dosud nesmazané) doplnit jednou.
         missing = conn.execute(
             "SELECT id, preset_id, options_json, created_at FROM jobs "
@@ -117,6 +139,16 @@ def init_db() -> None:
             except ValueError:
                 opts = {}
             _record_origin(conn, job_id, created_at, preset_id, opts)
+        conn.commit()
+        # Dokončené joby, které se do součtů ještě nezapočítaly (nasazení statistiky,
+        # návrat ze starší image): započítat jednou, údaje z build_stats.json, je-li job na disku.
+        pending = conn.execute(
+            "SELECT o.job_id, COALESCE(j.status, o.status) AS status FROM job_origin o "
+            "LEFT JOIN jobs j ON j.id = o.job_id WHERE o.usage_counted = 0"
+        ).fetchall()
+        for job_id, status in pending:
+            if status in JOB_FINISHED_STATUSES:
+                _count_job_usage(conn, job_id, status, _read_build_stats(JOBS_DIR / job_id))
         conn.commit()
 
 
@@ -227,6 +259,116 @@ def _record_origin(
             json.dumps(opts["bbox_wgs84"]) if opts.get("bbox_wgs84") else None,
         ),
     )
+
+
+USAGE_KEYS = (
+    "jobs_done",  # dokončená zadání (done / done_with_errors)
+    "maps_done",  # mapy disciplín v nich (les, MTBO, sprint)
+    "jobs_failed",
+    "build_seconds",  # čas běhu všech dokončených i spadlých jobů
+    "output_bytes",  # velikost výstupních ZIPů dokončených jobů
+    "source_bytes",  # zpracované podklady (stažené + z cache)
+    "download_count",  # stažení výstupního ZIPu
+    "download_bytes",
+)
+
+
+def _read_build_stats(job_dir: Path) -> dict[str, Any] | None:
+    path = job_dir / "work" / "build_stats.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _add_usage(conn: sqlite3.Connection, key: str, amount: float, since: str | None = None) -> None:
+    conn.execute(
+        "INSERT INTO usage_totals (key, value, since) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = value + excluded.value, "
+        "since = MIN(since, excluded.since)",
+        (key, float(amount), since or _utcnow()),
+    )
+
+
+def _num(value: Any) -> float | None:
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 0 else None
+
+
+def _count_job_usage(
+    conn: sqlite3.Connection, job_id: str, status: str, stats: dict[str, Any] | None
+) -> bool:
+    """Započítá dokončený job do součtů právě jednou (``usage_counted``); vrací True, když započítal."""
+    row = conn.execute(
+        "SELECT created_at, map_types FROM job_origin WHERE job_id = ? AND usage_counted = 0",
+        (job_id,),
+    ).fetchone()
+    if not row:
+        return False
+    created_at, map_types = row[0], row[1]
+    stats = stats or {}
+    seconds = _num(stats.get("total_seconds"))
+    out_bytes = _num(stats.get("output_zip_bytes"))
+    src = _num(stats.get("downloaded_bytes"))
+    cached = _num(stats.get("cached_bytes"))
+    src_bytes = None if src is None and cached is None else (src or 0) + (cached or 0)
+    cur = conn.execute(
+        "UPDATE job_origin SET usage_counted = 1, status = ?, build_seconds = ?, "
+        "output_bytes = ?, source_bytes = ? WHERE job_id = ? AND usage_counted = 0",
+        (status, seconds, out_bytes, src_bytes, job_id),
+    )
+    if cur.rowcount != 1:
+        return False
+    if status in JOB_DONE_STATUSES:
+        maps = stats.get("maps")
+        if isinstance(maps, list) and maps:
+            n_maps = len(maps)
+        else:
+            n_maps = len([t for t in (map_types or "").split(",") if t]) or 1
+        _add_usage(conn, "jobs_done", 1, created_at)
+        _add_usage(conn, "maps_done", n_maps, created_at)
+        if out_bytes is not None:
+            _add_usage(conn, "output_bytes", out_bytes)
+    else:
+        _add_usage(conn, "jobs_failed", 1, created_at)
+    if seconds is not None:
+        _add_usage(conn, "build_seconds", seconds)
+    if src_bytes is not None:
+        _add_usage(conn, "source_bytes", src_bytes)
+    return True
+
+
+def record_job_usage(job_id: str, status: str, stats: dict[str, Any] | None = None) -> bool:
+    """Konec jobu: započítá ho do souhrnné statistiky použití (opakované volání nic nepřičte)."""
+    if stats is None:
+        stats = _read_build_stats(JOBS_DIR / job_id)
+    with connect() as conn:
+        counted = _count_job_usage(conn, job_id, status, stats)
+        conn.commit()
+    return counted
+
+
+def record_download(job_id: str, nbytes: int | None) -> None:
+    """Stažení výstupního ZIPu (počet a velikost; bez údajů o stahujícím)."""
+    with connect() as conn:
+        _add_usage(conn, "download_count", 1)
+        if nbytes:
+            _add_usage(conn, "download_bytes", max(0, int(nbytes)))
+        conn.execute(
+            "UPDATE job_origin SET downloads = downloads + 1 WHERE job_id = ?", (job_id,)
+        )
+        conn.commit()
+
+
+def usage_totals() -> dict[str, dict[str, Any]]:
+    """Součty použití: ``{klíč: {"value": číslo, "since": ISO čas}}`` (chybějící klíč = zatím nic)."""
+    with connect() as conn:
+        rows = conn.execute("SELECT key, value, since FROM usage_totals").fetchall()
+    return {r["key"]: {"value": r["value"], "since": r["since"]} for r in rows}
 
 
 def purge_job_origin(*, now: datetime | None = None, days: int | None = None) -> int:

@@ -83,3 +83,40 @@ def test_job_origin_survives_job_purge_and_expires(tmp_path, monkeypatch):
 
     later = datetime.now(timezone.utc) + timedelta(days=366)
     assert db.purge_job_origin(now=later, days=365) == 3
+
+
+def test_usage_totals_count_once_survive_purge_and_catch_up(tmp_path, monkeypatch):
+    """Souhrn použití: job se započítá jednou (i po restartu), stažení, přežije úklid jobu i původu."""
+    import json
+
+    jobs = tmp_path / "jobs"
+    monkeypatch.setattr("app.cleanup.JOBS_DIR", jobs)
+    monkeypatch.setattr("app.db.JOBS_DIR", jobs)
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    jobs.mkdir()
+    db.init_db()
+
+    a = db.create_job("a", "forest_10000", {"map_types": ["les", "mtbo"]})
+    stats = {"total_seconds": 600, "output_zip_bytes": 5_000_000, "downloaded_bytes": 1e9,
+             "cached_bytes": 2e9, "maps": [{"name": "les"}, {"name": "mtbo"}]}
+    db.update_job(a["id"], status="done")
+    assert db.record_job_usage(a["id"], "done", stats)
+    assert not db.record_job_usage(a["id"], "done", stats)  # podruhé nic
+    db.record_download(a["id"], 5_000_000)
+
+    # Job dokončený bez zápisu (starší image): započítá se při startu z build_stats.json.
+    b = db.create_job("b", "sprint_4000", {"map_types": ["sprint"]})
+    db.update_job(b["id"], status="failed")
+    (jobs / b["id"] / "work").mkdir(parents=True, exist_ok=True)
+    (jobs / b["id"] / "work" / "build_stats.json").write_text(json.dumps({"total_seconds": 60}))
+    running = db.create_job("c", "sprint_4000", {})
+    db.update_job(running["id"], status="running")
+    db.init_db()
+    db.init_db()
+
+    assert db.delete_job(a["id"]) and db.delete_job(b["id"])
+    later = datetime.now(timezone.utc) + timedelta(days=400)
+    assert db.purge_job_origin(now=later, days=365) == 3
+    t = {k: v["value"] for k, v in db.usage_totals().items()}
+    assert t == {"jobs_done": 1, "maps_done": 2, "jobs_failed": 1, "build_seconds": 660,
+                 "output_bytes": 5e6, "source_bytes": 3e9, "download_count": 1, "download_bytes": 5e6}
