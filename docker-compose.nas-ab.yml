@@ -16,7 +16,7 @@ x-app: &app
   stop_grace_period: 20s
   # Synology: compose bridge (podkladarna_default) často bez NAT/DNS.
   network_mode: bridge
-  mem_limit: 12g  # strop; těžký job běží globálně jen jeden, takže se nesčítají
+  mem_limit: ${MEM_LIMIT_A:-12g}  # strop; těžký job běží globálně jen jeden, takže se nesčítají
   healthcheck:
     test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8672/"]
     interval: 15s
