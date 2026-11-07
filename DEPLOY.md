@@ -1,11 +1,57 @@
-# Deploy Podkladárna na Synology NAS
+# Deploy Podkladárna (ostrá A na Proxmoxu, test B na Synology NAS)
 
-Cíl: **https://podkladarna.kibos.link** → NAS → Docker → port **8672**
+**Od 2026-11-07 běží ostrá A (`podkladarna.kibos.link`, port 8672, image `:stable`) na VM v Proxmoxu `pve1`**
+(sekce 0). Test B (`pt.kibos.link`, port 8673, image `:latest`) zůstává na Synology NAS (sekce 9).
+Sekce 1–8 popisují původní provoz na NAS (reverse proxy DSM, DNS, GHCR); pro B platí dál, pro A jen jako záloha.
 
-Veškeré směrování (router, reverse proxy) míří na **Synology NAS**, ne na PC.
+---
 
-**Aktuální provoz je A/B (sekce 9):** ostrá A (`podkladarna.kibos.link`, port 8672) běží z image `:stable`,
-test B (`pt.kibos.link`, port 8673) z `:latest`. Sekce 1–8 popisují společné části (proxy, DNS, GHCR).
+## 0. Ostrá A na Proxmoxu (pve1)
+
+| Vrstva | Nastavení |
+|--------|-----------|
+| **Cloudflare** | `podkladarna.kibos.link` oranžově (proxy); Origin Rule přepíše cílový port na **8672**; Configuration Rule SSL = **Flexible** jen pro tento hostname; nastavení zóny z sekce 4 (Rocket Loader atd. vypnuto) platí |
+| **Router (MikroTik)** | dst-nat WAN **8672** → `192.168.1.13:8672` jen ze zdrojů v address-listu `cloudflare` (denně se aktualizuje z `cloudflare.com/ips-v4`), jinak drop |
+| **Proxmox pve1** | Proxmox VE 9 na ZFS RAID1 (`rpool`, 2× SSD), 4 TB RAID jako LVM-thin `hdd`; firewall Datacentra zapnutý, IPSet `management` (LAN `192.168.1.0/24`, VPN `192.168.78.0/24`) pro GUI 8006 a SSH |
+| **VM** | Debian 13, Docker z repozitáře docker.com, IP `192.168.1.13`; firewall VM: 22 a 8672–8673 z `+management`, 8672 z `+cloudflare` (IPSet statický – při změně rozsahů Cloudflare aktualizovat ručně) |
+| **Disky VM** | systém 40 GB a data 130 GB na `local-zfs` (`/opt/podkladarna`), cache 300 GB na `hdd` (`/opt/podkladarna/data/cache`, v Proxmoxu Backup vypnutý, strop `LIDAR_CACHE_MAX_GB` 250) |
+| **Aplikace** | `/opt/podkladarna/` – `docker-compose.nas-ab.yml`, `update-nas-ab.sh`, `nas-lib.sh`, `.env` (chmod 600) beze změn proti NAS; spouští se jen služba `podkladarna` |
+
+**GHCR:** balíček image je soukromý. VM potřebuje přihlášení (`docker login ghcr.io` jako root, nebo
+`GHCR_USER` + `GHCR_TOKEN` v `.env`, classic PAT jen `read:packages`). Po expiraci tokenu přestane cron stahovat.
+
+**Aktualizace A:** po akci „Promote to stable“ si VM nový image vezme sama (root crontab):
+
+```cron
+*/5 * * * * flock -n /tmp/update-ab.lock /opt/podkladarna/update-nas-ab.sh stable --if-idle >> /var/log/podkladarna-update.log 2>&1
+```
+
+Skript běžící job nepřeruší (`.deploy-drain`, čeká na `busy: false`); `synowebapi` na VM není, kontejner se
+zastaví přes docker. Ručně: `cd /opt/podkladarna && ./update-nas-ab.sh stable`.
+
+**Ověření po nasazení:**
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8672/       # 200
+curl -s http://127.0.0.1:8672/ | grep -o 'Podkladárna v[0-9.]*'       # verze
+curl -s http://127.0.0.1:8672/api/health                              # pipeline_ready, mail_configured
+docker logs --tail 50 podkladarna
+```
+
+**SMTP:** relay Microsoft 365 povoluje odesílatele podle IP – veřejná IP lokality pve1 musí být v konektoru.
+
+**Upload LAZ** jde přes Cloudflare, limit těla požadavku 100 MB (Free/Pro).
+
+**Zálohy:** Proxmox vzdump VM denně (mode Snapshot, cache disk vynechán) a denní kopie
+`podkladarna.db` (`sqlite3 … ".backup …"`), `origin_salt` a `.env` mimo lokalitu. `origin_salt` nikdy nemazat
+ani negenerovat znovu (HMAC statistiky původu jobů). Před větší změnou snapshot na pve1:
+`qm snapshot <VMID> pred-stable-$(date +%Y%m%d)`.
+
+**Rollback A:** `IMAGE_TAG_A=<sha tag nebo digest>` v `/opt/podkladarna/.env` + `./update-nas-ab.sh stable`
+(cron pak drží tento tag, po opravě řádek smazat). Nouzově zpět na NAS: na NAS spustit zastavený kontejner
+`podkladarna` (data na NAS jsou ze dne přechodu) a v Cloudflare vrátit Origin Rule / DNS na NAS.
+
+**Test B na NAS** dál podle sekce 9 (cron `update-nas-ab.sh test --if-idle`); cache a zámek slotu už A s B nesdílí.
 
 ---
 
