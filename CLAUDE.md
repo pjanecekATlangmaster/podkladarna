@@ -31,7 +31,7 @@ Podkladárna je webová služba pro generování orientačních podkladů z ČÚ
 
 ### Jen se souhlasem Petra
 
-- Spouštět `./update-nas-ab.sh` na ostré NAS, spouštět GitHub akci „Promote to stable“; do produkce na NAS nesahat vůbec.
+- Spouštět `./update-nas-ab.sh` na ostré A (VM na Proxmoxu pve1) nebo na NAS, spouštět GitHub akci „Promote to stable“; do produkce (pve1, NAS) nesahat vůbec.
 - Mazat data, joby, cache nebo Docker image.
 - Měnit DNS, router, Synology reverse proxy, certifikáty nebo firewall.
 - Měnit produkční `.env`, SMTP údaje nebo secrets (ani `.env` lokálně nepřepisovat).
@@ -177,17 +177,17 @@ docker compose -f docker-compose.nas-ab.yml logs --tail=100 podkladarna
 ## Ostré prostředí
 
 - Veřejná adresa: `https://podkladarna.kibos.link`
-- Hosting: Synology NAS
-- Provoz: Internet/Cloudflare → router → Synology DSM reverse proxy → `127.0.0.1:8672` → Docker kontejner
+- Hosting ostré A (od 2026-11-07): VM na Proxmoxu `pve1` (jiná lokalita než NAS), Debian 13 + Docker, IP `192.168.1.13`, složka `/opt/podkladarna/` (stejné `docker-compose.nas-ab.yml`, `update-nas-ab.sh`, `nas-lib.sh`, `.env`), data `./data` (cache `./data/cache` na vlastním disku, bez zálohy)
+- Provoz A: Internet → Cloudflare (Origin Rule přepíše port na 8672, SSL Flexible pro hostname) → MikroTik dst-nat WAN 8672 jen z rozsahů Cloudflare → VM `:8672` → Docker kontejner `podkladarna`
+- Firewall: Proxmox (Datacenter + VM, IPSet `management` = LAN 192.168.1.0/24 + VPN 192.168.78.0/24, IPSet `cloudflare` pro 8672 – statický, aktualizovat ručně); MikroTik address-list `cloudflare` se aktualizuje sám denně
 - Interní port kontejneru: `8672`
-- Test B: `https://pt.kibos.link` → `127.0.0.1:8673` (kontejner `podkladarna-test`, data `./data-test`), image `:latest`
-- Docker image: `ghcr.io/pjanecekatlangmaster/podkladarna` — ostrá A `:stable`, test B `:latest`
-- NAS složka: `/volume1/docker/podkladarna/`
-- Perzistentní data: `./data` na NAS, uvnitř kontejneru `/data`
+- Test B zůstává na Synology NAS: `https://pt.kibos.link` → `127.0.0.1:8673` (kontejner `podkladarna-test`, data `./data-test`), image `:latest`; NAS složka `/volume1/docker/podkladarna/`, kontejner ostré A na NAS zůstává zastavený jako záloha pro rollback
+- Docker image: `ghcr.io/pjanecekatlangmaster/podkladarna` (soukromý balíček – pull potřebuje přihlášení ke GHCR) — ostrá A `:stable`, test B `:latest`
+- Perzistentní data: `./data` vedle compose, uvnitř kontejneru `/data` (`podkladarna.db`, `origin_salt` – nemazat, `jobs/`)
 
 ## Release proces
 
-Agent dělá kroky 1–7, ověření na B a nasazení na NAS (od kroku 8) dělá Petr.
+Agent dělá kroky 1–7, ověření na B a Promote (od kroku 8) dělá Petr.
 
 1. Vytvoř feature větev z aktuálního `master`.
 2. Proveď změny, zvyš `APP_VERSION` (kromě čistě dokumentačních změn) a lokálně spusť `python -m pytest tests/ -v`.
@@ -197,24 +197,24 @@ Agent dělá kroky 1–7, ověření na B a nasazení na NAS (od kroku 8) dělá
 6. Po merge do `master` workflow `docker.yml` sestaví a publikuje `ghcr.io/pjanecekatlangmaster/podkladarna:latest`; test B (`pt.kibos.link`) si ho bere cronem (`update-nas-ab.sh test --if-idle`, jen když neběží job).
 7. Zkontroluj, že Actions workflow je zelené.
 8. (Petr) Ověř změnu na testu B (`https://pt.kibos.link`).
-9. (Petr) Spusť GitHub akci „Promote to stable“ (`.github/workflows/promote-stable.yml`, přetaguje `:latest` → `:stable`) a na NAS aktualizuj ostrou A:
+9. (Petr) Spusť GitHub akci „Promote to stable“ (`.github/workflows/promote-stable.yml`, přetaguje `:latest` → `:stable`). Ostrá A na pve1 si nový `:stable` vezme sama cronem do 5 minut (`update-nas-ab.sh stable --if-idle`, počká na doběhnutí jobu). Ručně hned:
 
 ```bash
-cd /volume1/docker/podkladarna
-sudo ./update-nas-ab.sh stable
+cd /opt/podkladarna
+./update-nas-ab.sh stable
 ```
 
-10. (Petr) Ověř funkčnost ostré A, očekávaný výsledek je `200`, a verzi v patičce webu:
+10. (Petr) Ověř funkčnost ostré A na pve1, očekávaný výsledek je `200`, a verzi v patičce webu:
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8672/
 ```
 
-## Kde se co spouští (Docker a NAS)
+## Kde se co spouští (Docker, pve1 a NAS)
 
 - **Vývojový stroj (Windows):** tady je repozitář. `dev.ps1 up` / `dev.ps1 e2e` staví image z lokálního pracovního stromu (`docker-compose.dev.yml`) a zkouší tedy kód z aktuální větve. Je to volitelná kontrola před mergem; nutná je jen u změn pipeline, Dockerfile nebo závislostí (viz „Release proces").
-- **NAS:** repozitář se tam nestahuje. Běží jen hotový image `ghcr.io/pjanecekatlangmaster/podkladarna` sestavený workflow `docker.yml` po mergu do `master` (kopíruje se `configs/`, `app/`, `web/`): test B z `:latest`, ostrá A z `:stable` (po akci „Promote to stable“). Na NAS se proto nikdy nezkouší kód z větve ani se tam nespouští `dev.ps1`; po `update-nas-ab.sh` se jen ověřuje nasazený image (health `200`, testovací job, log jobu, stažený ZIP).
-- Agent proto při předávání pokynů „co pustit" vždy rozlišuje: před mergem = vývojový stroj, po mergu = test B (automaticky) a po Promote ostrá A (`sudo ./update-nas-ab.sh stable` + ruční ověření podle `DEPLOY.md`).
+- **pve1 (ostrá A) a NAS (test B):** repozitář se tam nestahuje. Běží jen hotový image `ghcr.io/pjanecekatlangmaster/podkladarna` sestavený workflow `docker.yml` po mergu do `master` (kopíruje se `configs/`, `app/`, `web/`): test B z `:latest`, ostrá A z `:stable` (po akci „Promote to stable“). Na pve1 ani na NAS se proto nikdy nezkouší kód z větve ani se tam nespouští `dev.ps1`; po `update-nas-ab.sh` se jen ověřuje nasazený image (health `200`, testovací job, log jobu, stažený ZIP).
+- Agent proto při předávání pokynů „co pustit" vždy rozlišuje: před mergem = vývojový stroj, po mergu = test B (automaticky) a po Promote ostrá A na pve1 (cron do 5 min nebo `./update-nas-ab.sh stable` + ruční ověření podle `DEPLOY.md`).
 
 ## Ověření novinky: lokální otočka, nebo až po nasazení
 
@@ -225,9 +225,9 @@ U změn, jejichž výsledek se pozná jen na mapě (pipeline, symboly, geometrie
 
 Neptej se u drobností, dokumentace a změn bez vizuálního dopadu. Lokální otočka je výchozí doporučení u větších změn výstupu; spouštěj ji až po souhlasu, protože pipeline může trvat dlouho (e2e a Docker viz „Vývoj a testy").
 
-## Nasazení na NAS (dělá Petr)
+## Nasazení A (pve1) a B (NAS) (dělá Petr)
 
-Provoz je A/B (`docker-compose.nas-ab.yml`, podrobně `DEPLOY.md` §9). `update-nas-ab.sh`:
+Stejné `docker-compose.nas-ab.yml` a `update-nas-ab.sh` běží na dvou strojích: ostrá A na pve1 v `/opt/podkladarna` (cron `update-nas-ab.sh stable --if-idle` každých 5 min, `synowebapi` tam není a stop jde přes docker), test B na NAS (cron `update-nas-ab.sh test --if-idle`). Podrobně `DEPLOY.md` §0 a §9. `update-nas-ab.sh` na NAS:
 
 ```bash
 cd /volume1/docker/podkladarna
@@ -242,8 +242,8 @@ sudo ./update-nas-ab.sh test --if-idle  # pro cron (čekání na doběhnutí job
 - čeká na odpověď `200` na příslušném portu,
 - nepřepisuje host `.env`.
 
-Tok: merge do `master` → `:latest` → B (cron) → ověření → „Promote to stable“ → `sudo ./update-nas-ab.sh stable`.
-Rollback A: v `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh stable`.
+Tok: merge do `master` → `:latest` → B na NAS (cron) → ověření → „Promote to stable“ → A na pve1 (cron, nebo ručně `./update-nas-ab.sh stable`).
+Rollback A: na pve1 v `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh stable` (pozor, cron pak drží tento tag); před větší změnou snapshot VM `qm snapshot <VMID> pred-stable-<datum>` na pve1. Nouzově lze A spustit i na NAS (zastavený kontejner `podkladarna`) a vrátit Origin Rule / DNS v Cloudflare.
 
 Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažení ZIP a otevření v OpenOrienteering Mapperu, u SMTP e-mail s odkazem) je popsán v `DEPLOY.md`.
 
@@ -349,7 +349,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   a MTBO“, data `/mnt/project-files/silnice-skladani/`.
 - **Statistika původu jobů** (3.14.0, Petr 2026-11-05): tabulka `job_origin` v `podkladarna.db` (čas, API / privátní,
   preset, typy map, bbox, konečný stav; IP, síť /24 a e-mail privátních jen jako HMAC značky se solí `origin_salt` vedle DB) přežije úklid jobů, maže se po `ORIGIN_RETENTION_DAYS` (365).
-  API ani web ji nečtou; přehled na NAS `sudo docker exec podkladarna python -m app.origin_stats [od] [do]` (test B `podkladarna-test`).
+  API ani web ji nečtou; přehled ostré A na pve1 `docker exec podkladarna python -m app.origin_stats [od] [do]` (test B na NAS `sudo docker exec podkladarna-test …`).
   Informace o ukládání je v patičce webu.
 - **Drobné objekty OSM ve sprintu** (3.19.0, Petr 2026-11-06): volba `kp_osm_objects` je `auto` (výchozí, i API) / `1` vše / `none`.
   `auto` = sprint kreslí základní sadu `OSM_BASIC_OBJECT_KINDS` (lavičky a stoly 531, rozcestníky `guidepost` 531, pomníky / boží muka /
@@ -469,7 +469,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 ## Konfigurace a tajemství
 
 - Lokálně vycházej z `.env.example`; skutečný `.env` necommituj.
-- Na NAS je `.env` vedle `docker-compose.nas-ab.yml`.
+- Na pve1 (`/opt/podkladarna`) i na NAS je `.env` vedle `docker-compose.nas-ab.yml`.
 - `GHCR_OWNER=pjanecekatlangmaster` musí být lowercase.
 - SMTP je nutné pro privátní joby a zpětnou vazbu.
 - Důležité proměnné: `SMTP_HOST`, `SMTP_PORT`, `SMTP_ENCRYPTION`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `PUBLIC_BASE_URL`, `FEEDBACK_TO`, `PRIVATE_JOB_RETENTION_HOURS`.
