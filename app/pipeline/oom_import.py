@@ -1105,8 +1105,11 @@ def _build_zabaged_object_parts(
     road_join_band=None,
     prefer_osm_wall_lines: list[list[tuple[float, float]]] | None = None,
     log=None,
+    ortho_bounds: Bounds | None = None,
 ) -> list[OomObjectPart]:
     """``log``: zápis do logu jobu (souhrn potvrzení ZABAGED Silnice neevidovaná).
+    ``ortho_bounds``: obálka, pro kterou se načte ortofoto k potvrzení Silnice neevidovaná (výřez mapy s malým
+    okrajem); bez ní ``clip_bounds`` (vektorový výřez bývá o 1 km větší).
     ``prefer_osm_wall_lines``: OSM zdi; ZABAGED Zed na téže čáře (do ``ZABAGED_WALL_MATCH_M``) se nekreslí.
     ``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
     ``road_join_band`` (les / MTBO mixed): pás kresby OSM silnic; ulice s výplní, která na něm končí, se dotáhne do
@@ -1386,7 +1389,9 @@ def _build_zabaged_object_parts(
         if not unreg_confirmer:
             from app.pipeline.zabaged_unregistered_roads import UnregisteredRoadConfirmer
 
-            unreg_confirmer.append(UnregisteredRoadConfirmer(cliff_work_dir or work_dir, log=log, bounds=clip_bounds))
+            unreg_confirmer.append(UnregisteredRoadConfirmer(
+                    cliff_work_dir or work_dir, log=log, bounds=ortho_bounds or clip_bounds
+                ))
         return unreg_confirmer[0].confirm(line_parts)
 
     def _clip_on_lines(line_parts, index, match_m: float, remnant_min_m: float):
