@@ -111,7 +111,6 @@ _ROCK_OCCUPANCY_LINE_LAYERS = frozenset(
     {
         "VodniTok",
         "SilniceDalnice",
-        "SilniceNeevidovana",
         "Cesta",
         "Most",
         "Ulice",
@@ -1346,8 +1345,10 @@ def _build_zabaged_object_parts(
         return out
 
     # Les / MTBO (mixed = OSM + detaily ze ZABAGED): i ulice ustoupí OSM; sprint beze změny.
-    osm_first_layers = ZABAGED_PATH_LAYERS_OSM_FIRST | (
-        frozenset() if preset_id.startswith("sprint") else frozenset({"Ulice", "SilniceDalnice", "SilniceNeevidovana", _ROAD_BRIDGE_LAYER})
+    # SilniceNeevidovana ustoupí OSM i ve sprintu: není v ``ZABAGED_PATH_LAYERS_PRIORITY`` (nepotvrzená čára nesmí
+    # ořezat OSM), takže OSM track vedle ní by jinak zůstal a kreslila by se dvakrát.
+    osm_first_layers = ZABAGED_PATH_LAYERS_OSM_FIRST | frozenset({"SilniceNeevidovana"}) | (
+        frozenset() if preset_id.startswith("sprint") else frozenset({"Ulice", "SilniceDalnice", _ROAD_BRIDGE_LAYER})
     )
 
     road_layers = frozenset({"Ulice", "SilniceDalnice", "SilniceNeevidovana", _ROAD_BRIDGE_LAYER})
@@ -1385,7 +1386,7 @@ def _build_zabaged_object_parts(
         if not unreg_confirmer:
             from app.pipeline.zabaged_unregistered_roads import UnregisteredRoadConfirmer
 
-            unreg_confirmer.append(UnregisteredRoadConfirmer(cliff_work_dir or work_dir, log=log))
+            unreg_confirmer.append(UnregisteredRoadConfirmer(cliff_work_dir or work_dir, log=log, bounds=clip_bounds))
         return unreg_confirmer[0].confirm(line_parts)
 
     def _clip_on_lines(line_parts, index, match_m: float, remnant_min_m: float):

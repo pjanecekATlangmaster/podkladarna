@@ -26,7 +26,7 @@ AXES_NAME = "road_axes.json"
 
 SAMPLE_M = 2.0  # krok vzorkování osy
 CONFIRM_M = 6.0  # vzdálenost od plochy / osy DTM, do které je úsek potvrzený
-MIN_RUN_M = 20.0  # nejkratší nakreslený souvislý úsek
+MIN_RUN_M = 20.0  # nejkratší nakreslený souvislý úsek (počet vzorků: ceil)
 GAP_M = 15.0  # kratší mezery mezi potvrzenými úseky se zacelí
 ORTHO_STRIP_M = 1.5  # ortofoto: pás ±tolik m od osy
 ORTHO_STEP_M = 0.5  # krok napříč pásem
@@ -112,7 +112,7 @@ def confirm_line(
         return [], stats
     xy = np.array([line.interpolate(float(d)).coords[0][:2] for d in dists], dtype=float)
     max_gap = int(GAP_M // SAMPLE_M)
-    min_run = max(1, int(round(MIN_RUN_M / SAMPLE_M)))
+    min_run = max(1, int(np.ceil(MIN_RUN_M / SAMPLE_M)) + 1)
 
     dtm = np.zeros(len(dists), dtype=bool)
     if in_dtm is not None:
@@ -204,12 +204,15 @@ def load_dtm_zone_predicate(work_dir: Path) -> Predicate | None:
 class UnregisteredRoadConfirmer:
     """Potvrzení čar vrstvy ``SilniceNeevidovana`` pro job: DTM zóna se načte jednou, ortofoto líně a jen při potřebě."""
 
-    def __init__(self, work_dir: Path, log=None) -> None:
+    def __init__(self, work_dir: Path, log=None, bounds=None) -> None:
         self.work_dir = Path(work_dir)
         self.log = log
+        # Výřez mapy (S-JTSK); ortofoto se načte jednou pro celý výřez, ne po čarách.
+        self.bounds = tuple(float(v) for v in bounds) if bounds is not None else None
         self._in_dtm: Predicate | None = None
         self._dtm_loaded = False
         self._ortho: tuple[tuple[float, float, float, float], OrthoFn] | None = None  # (obálka, funkce)
+        self._ortho_tried = False
         self.totals = {"dtm": 0.0, "ortho": 0.0, "dropped": 0.0}
 
     def _dtm(self) -> Predicate | None:
@@ -218,20 +221,54 @@ class UnregisteredRoadConfirmer:
             self._dtm_loaded = True
         return self._in_dtm
 
+    def _shared_cache_bounds(self) -> tuple[float, float, float, float] | None:
+        """Obálka předstaženého ortofota jobu (``work/orthophoto``), nebo None."""
+        from app.pipeline.orthophoto import CACHE_SUBDIR, ORTHO_META_NAME
+
+        try:
+            meta = json.loads((self.work_dir / CACHE_SUBDIR / ORTHO_META_NAME).read_text(encoding="utf-8"))
+            b = [float(v) for v in meta["bounds"]]
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        return (b[0], b[1], b[2], b[3]) if len(b) == 4 else None
+
     def _ortho_fn(self, pts: list[Point]) -> OrthoFn | None:
-        xs = [p[0] for p in pts]
-        ys = [p[1] for p in pts]
-        need = (min(xs), min(ys), max(xs), max(ys))
+        """Ortofoto jednou pro celý výřez mapy (bez výřezu: obálka první čáry + ``ORTHO_BUFFER_M``).
+
+        Z předstaženého ortofota jobu se jen vyřízne; jinak se stáhne do vlastní složky (pid procesu),
+        sdílenou cache nepřepíše a souběžné skládání les / MTBO si nečte rozepsaný soubor."""
         if self._ortho is not None:
             env = self._ortho[0]
-            if env[0] <= need[0] and env[1] <= need[1] and env[2] >= need[2] and env[3] >= need[3]:
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            if env[0] <= min(xs) and env[1] <= min(ys) and env[2] >= max(xs) and env[3] >= max(ys):
                 return self._ortho[1]
+            if self.bounds is not None:
+                return self._ortho[1]  # čára přesahuje výřez mapy: mimo něj vzorky nepotvrdí (``inside``)
+        if self._ortho_tried and self.bounds is not None:
+            return None
+        self._ortho_tried = True
         try:
+            import os
+
             from app.pipeline.orthophoto import fetch_orthophoto
             from app.pipeline.street_parcels import ORTHO_MPP
 
-            bounds = (need[0] - ORTHO_BUFFER_M, need[1] - ORTHO_BUFFER_M, need[2] + ORTHO_BUFFER_M, need[3] + ORTHO_BUFFER_M)
-            got = fetch_orthophoto(self.work_dir, bounds, ORTHO_MPP, log=self.log)
+            if self.bounds is not None:
+                need = self.bounds
+            else:
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                need = (min(xs) - ORTHO_BUFFER_M, min(ys) - ORTHO_BUFFER_M, max(xs) + ORTHO_BUFFER_M, max(ys) + ORTHO_BUFFER_M)
+            shared = self._shared_cache_bounds()
+            subdir = f"orthophoto_unreg_{os.getpid()}"
+            if shared is not None:
+                # Les / MTBO: předstažené ortofoto výřezu jobu; vektorový výřez mapy bývá větší (okraj kolem
+                # mapy), mimo předstažení se ortofotem nepotvrzuje a nic se nestahuje ani nepřepisuje.
+                cut = (max(need[0], shared[0]), max(need[1], shared[1]), min(need[2], shared[2]), min(need[3], shared[3]))
+                if cut[0] < cut[2] and cut[1] < cut[3]:
+                    need, subdir = cut, None
+            got = fetch_orthophoto(self.work_dir, need, ORTHO_MPP, log=self.log, need_bounds=need, subdir=subdir)
             if got is None:
                 return None
             rgb, gt = got
