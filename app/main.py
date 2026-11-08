@@ -1038,7 +1038,7 @@ async def api_create_job(request: Request):
         options["output_zip"] = _opt_bool("output_zip")
     # Georef GeoTIFF do ZIPu – default off (formulářové combo Formát už není).
     options["output_georef"] = _opt_bool("output_georef")
-    # Podklady: 1 = stáhnout obrázky, jinak (výchozí, i API bez volby) online šablony GDAL WMS (Petr 2026-11-08).
+    # Podklady: 1 = stáhnout šablony předem, jinak (výchozí, i API bez volby) online šablony GDAL WMS (Petr 2026-11-08).
     options["output_references"] = _opt_bool("output_references")
     # Sentinel-2 jde vždy (online šablonu neumí – vybírá snímek bez mraků podle data);
     # starší klienti API mohou poslat output_sentinel=0.

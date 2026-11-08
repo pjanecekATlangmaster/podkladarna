@@ -2499,8 +2499,8 @@ function setSheetInfo(text, cls) {
 function selectedEstimateMinutes() {
   if (!lastSheets || lastSheets.estimate_minutes == null) return null;
   const refs = document.getElementById("output_references");
-  // Stahování obrázků prodlužuje job; online odkazy (výchozí) ne.
-  const wantRefs = Boolean(refs) && refs.value === "1";
+  // Stažení šablon předem prodlužuje job; online odkazy (výchozí) ne.
+  const wantRefs = Boolean(refs) && refs.checked;
   let mins =
     wantRefs && lastSheets.estimate_minutes_with_refs != null
       ? lastSheets.estimate_minutes_with_refs

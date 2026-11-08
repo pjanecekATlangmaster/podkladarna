@@ -3,7 +3,7 @@
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 milestones:
   - date: "2026-11-08"
-    title: "Verze 3.27 – podklady k mapě (ortofoto, ZTM, katastr, stínování, DMP, DTM, OSM) jsou ve výchozím stavu online šablony: v Mapperu se stáhnou až po zapnutí a ZIP zůstane malý; volba „Stáhnout obrázky“ přibalí rastry jako dřív včetně ortofota 12,5 cm/px (offline, OCAD)"
+    title: "Verze 3.27 – referenční šablony (ortofoto, ZTM, katastr, stínování, DMP, DTM, OSM) jsou ve výchozím stavu online odkazy ve středním a maximálním zoomu: v Mapperu se stáhnou až po zapnutí a ZIP zůstane malý; volba „Stáhnout referenční šablony předem“ přibalí obrázky jako dřív včetně ortofota 12,5 cm/px (offline, OCAD)"
   - date: "2026-11-06"
     title: "Verze 3.24 – sprint kreslí herní prvky na dětských hřištích (531 ×): z OSM a kde OSM nic nemá, z výšky nad terénem (body DMP OK 0,5 m) a vrženého stínu na ortofotu 0,125 m; malé hřiště jeden křížek, větší křížky aspoň 4 mm od sebe; soukromá hřiště (zahrady, access=private) se vynechávají"
   - date: "2026-11-06"

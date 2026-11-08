@@ -656,7 +656,7 @@ def test_index_html(client):
     assert "Formát" not in html
     assert "Georeferencovaný GeoTIFF do ZIPu" in html
     assert 'name="output_references"' in html
-    assert '<option value="0" selected>Online odkazy (WMS)' in html
+    assert 'id="output_references" value="1" aria-describedby' in html and "Stáhnout referenční šablony předem" in html
     assert 'name="sprint_courtyard_fill"' not in html
     assert "DTM kraje" in html
     assert "ZABAGED → OSM → DTM kraje" in html

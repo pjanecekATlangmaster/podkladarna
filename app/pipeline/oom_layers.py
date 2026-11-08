@@ -136,7 +136,7 @@ def collect_oom_templates(
                         f"references/{opath.name}",
                         visible=False,
                         opacity=1.0,
-                        group=GROUP_OSM if okey == "online_osm" else GROUP_REFERENCE,
+                        group=GROUP_OSM if okey.startswith("online_osm") else GROUP_REFERENCE,
                     )
                 )
         key, label, relpath, opacity, visible = OOM_OSM_REF_SPEC

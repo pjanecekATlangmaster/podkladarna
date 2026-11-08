@@ -557,8 +557,10 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
 
         refs_intro = (
             "Podklady jsou online šablony (soubory .xml / .vrt ve složce references/, GDAL WMS): ortofoto ČÚZK,\n"
-            "ZTM, katastr, DTM kraje, náhled DMP OK, stínovaný reliéf DMR 5G (základní, Z10, Z20) a OpenStreetMap.\n"
-            "V OOM jsou v seznamu šablon nenačtené; po zapnutí se stáhnou z internetu (první načtení chvíli trvá).\n"
+            "ZTM, katastr, DTM kraje, náhled DMP OK, stínovaný reliéf DMR 5G (základní, Z10, Z20) a OpenStreetMap,\n"
+            "každý v maximálním a středním zoomu (_stredni, 4× hrubší). V OOM jsou v seznamu šablon vypnuté;\n"
+            "po zapnutí se stáhnou z internetu (maximální zoom chvíli trvá). Offline podklady: při generování\n"
+            "zaškrtněte „Stáhnout referenční šablony předem“.\n"
             "OCAD soubory .xml neotevře – připojte si podklady jako WMS (Podklad → Online mapa):\n"
             + "\n".join(wms_readme_lines())
             + "\n"

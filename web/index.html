@@ -149,26 +149,26 @@
 
         <div class="form-section references-section">
           <h3 class="form-section-title">Podklady k mapě</h3>
-          <label>
-            Referenční šablony (ortofoto, OSM, ZTM, katastr, hillshade, DMP, DTM)
-            <select name="output_references" id="output_references" aria-describedby="references-hint">
-              <option value="0" selected>Online odkazy (WMS) – výchozí</option>
-              <option value="1">Stáhnout obrázky</option>
-            </select>
-          </label>
-          <div class="hint" id="references-hint">
-            Online odkazy: v Mapperu jsou šablony, které si podklad stáhnou z ČÚZK / OSM až po zapnutí. ZIP zůstane malý.
-            Stažené obrázky fungují i offline a v OCADu, prodlouží generování<span id="references-estimate"></span> a zvětší ZIP.
+          <div class="hint" id="references-online-hint">
+            Referenční šablony (ortofoto, OSM, ZTM, katastr, hillshade, DMP, DTM kraje) jsou v mapě vždy jako online odkazy:
+            v Mapperu jsou v seznamu šablon vypnuté a stáhnou se z ČÚZK / OSM až po zapnutí (potřeba internet). ZIP zůstane malý.
             <details class="hint-more"><summary>Více</summary>
-              Podklady: ortofoto ČÚZK (online 25 cm/px, stažené 12,5 cm/px), OSM, ZTM (Základní mapa ČR), katastr,
-              stínovaný reliéf (hillshade), výšky povrchu DMP a DTM kraje, georeferencované jako mapa.
-              Online šablony jsou soubory GDAL WMS (.xml), které otevře OpenOrienteering Mapper, OCAD ne –
+              Každý podklad je ve dvou variantách: maximální zoom (ortofoto až 12,5 cm/px, u velkého výřezu hrubší) a střední zoom
+              (4× hrubší, načte se rychle). Mapper šablonu nezoomuje – načte ji jednou jako obrázek v pevném rozlišení.
+              Online šablony jsou soubory GDAL WMS (.xml / .vrt), které otevře OpenOrienteering Mapper, OCAD ne –
               v OCADu připojte podklady jako WMS podle README_OOM.txt.
               Vždy se přibalí vektorový katastr a družicové snímky Copernicus Sentinel-2 (10 m/px, pravé barvy) s datem
               snímku v názvu souboru: nejnovější bezoblačný a starší zhruba po 3 měsících za poslední půlrok, jsou-li bez mraků.
-              Ukážou změny po ortofotu a LiDARu (paseky, polomy, nové stavby); v Mapperu jsou jako skryté šablony,
-              do kresby mapy nevstupují.
+              Ukážou změny po ortofotu a LiDARu (paseky, polomy, nové stavby); do kresby mapy nevstupují.
             </details>
+          </div>
+          <label class="checkbox-row">
+            <input type="checkbox" name="output_references" id="output_references" value="1" aria-describedby="references-hint" />
+            Stáhnout referenční šablony předem
+          </label>
+          <div class="hint" id="references-hint">
+            Podklady se přibalí do ZIPu jako obrázky v maximálním rozlišení místo online odkazů: fungují offline v terénu
+            a v OCADu, ale prodlouží generování<span id="references-estimate"></span> a výrazně zvětší ZIP (ortofoto desítky až stovky MB).
           </div>
         </div>
 

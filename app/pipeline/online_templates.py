@@ -38,10 +38,17 @@ BLOCK_PX = 500
 OSM_TILE_URL = "https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png"
 OSM_MAX_ZOOM = 18
 OSM_MPP = 0.5
+# Dvě varianty každé vrstvy (Petr 2026-11-08): maximální zoom (nejjemnější rozlišení do ``MAX_PX``) a střední
+# (4× hrubší, načte se rychle). Mapper šablonu nezoomuje – načte jeden obrázek v pevném rozlišení.
+# (přípona klíče a souboru, násobek m/px, přípona popisku)
+ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
+    ("", 1.0, ""),
+    ("_stredni", 4.0, " (střední zoom)"),
+)
 
 # (klíč, soubor, popis pro README, WMS, vrstva, formát, průhledná, m/px)
 ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
-    ("orthophoto", "ortofoto_cuzk.xml", "Ortofoto ČÚZK", ORTOFOTO_WMS, "0", "image/jpeg", False, 0.25),
+    ("orthophoto", "ortofoto_cuzk.xml", "Ortofoto ČÚZK", ORTOFOTO_WMS, "0", "image/jpeg", False, 0.125),
     ("ztm", "mapa_ztm.xml", "Základní mapa ČÚZK (ZTM)", ZTM_WMS, "0", "image/png", False, 1.0),
     ("katastr", "katastr.xml", "Katastrální mapa", KM_WMS, KM_LAYER, "image/png", True, 0.25),
     (
@@ -140,10 +147,12 @@ def osm_tms_xml(zoom: int) -> str:
     )
 
 
-def osm_sjtsk_vrt(tms: Path, vrt: Path, bounds_5514: tuple[float, float, float, float]) -> bool:
+def osm_sjtsk_vrt(
+    tms: Path, vrt: Path, bounds_5514: tuple[float, float, float, float], mpp: float = OSM_MPP
+) -> bool:
     """gdalwarp ``-of VRT``: okno výřezu v S-JTSK nad TMS (nic nestahuje, zdroj relativně k VRT)."""
     xmin, ymin, xmax, ymax = bounds_5514
-    sx, sy = _size(xmax - xmin, ymax - ymin, OSM_MPP)
+    sx, sy = _size(xmax - xmin, ymax - ymin, mpp)
     try:
         gdalwarp = find_tool("gdalwarp")
     except RuntimeError:
@@ -165,28 +174,33 @@ def write_online_templates(
     out_dir.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
     for key, filename, _label, url, layer, fmt, transparent, mpp in ONLINE_WMS_LAYERS:
-        path = out_dir / filename
-        path.write_text(
-            wms_xml(url, layer, bounds_5514, image_format=fmt, transparent=transparent, mpp=mpp),
-            encoding="utf-8",
-        )
-        written[f"online_{key}"] = path
+        for suffix, factor, _lsuffix in ZOOM_VARIANTS:
+            path = out_dir / f"{Path(filename).stem}{suffix}.xml"
+            path.write_text(
+                wms_xml(url, layer, bounds_5514, image_format=fmt, transparent=transparent, mpp=mpp * factor),
+                encoding="utf-8",
+            )
+            written[f"online_{key}{suffix}"] = path
     key, filename, _label = ONLINE_OSM
     tms = out_dir / "osm_dlazdice.xml"
     tms.write_text(osm_tms_xml(OSM_MAX_ZOOM), encoding="utf-8")
-    vrt = out_dir / filename
-    if osm_sjtsk_vrt(tms, vrt, bounds_5514):
-        written[f"online_{key}"] = vrt
-    else:  # bez gdalwarp OSM online nebude (šablona v EPSG:3857 v Mapperu nefunguje)
-        tms.unlink(missing_ok=True)
+    for suffix, factor, _lsuffix in ZOOM_VARIANTS:
+        vrt = out_dir / f"{Path(filename).stem}{suffix}.vrt"
+        if osm_sjtsk_vrt(tms, vrt, bounds_5514, OSM_MPP * factor):
+            written[f"online_{key}{suffix}"] = vrt
+    if not any(k.startswith(f"online_{key}") for k in written):
+        tms.unlink(missing_ok=True)  # bez gdalwarp OSM online nebude (okno v EPSG:3857 Mapper nenačte)
     return written
 
 
 def online_labels() -> dict[str, str]:
     """Klíč ``online_<vrstva>`` → popisek šablony."""
-    labels = {f"online_{k}": label for k, _f, label, *_rest in ONLINE_WMS_LAYERS}
-    labels[f"online_{ONLINE_OSM[0]}"] = ONLINE_OSM[2]
-    return labels
+    layers = [(k, label) for k, _f, label, *_rest in ONLINE_WMS_LAYERS] + [(ONLINE_OSM[0], ONLINE_OSM[2])]
+    return {
+        f"online_{k}{suffix}": f"{label}{lsuffix}"
+        for k, label in layers
+        for suffix, _factor, lsuffix in ZOOM_VARIANTS
+    }
 
 
 def wms_readme_lines() -> list[str]:

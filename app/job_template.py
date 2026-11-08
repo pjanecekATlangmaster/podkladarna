@@ -123,8 +123,8 @@ def job_form_template(job: dict[str, Any], presets: dict | None = None) -> dict[
         "sprint_residual_paved": _bool(opts.get("sprint_residual_paved"), False),
         "sprint_residual_size": residual_size,
         "output_georef": _bool(opts.get("output_georef"), False),
-        # Výběr ve formuláři: "1" stáhnout obrázky, "0" online šablony.
-        "output_references": "1" if _bool(opts.get("output_references"), False) else "0",
+        # Zaškrtnuto = stáhnout šablony předem, jinak online šablony.
+        "output_references": _bool(opts.get("output_references"), False),
     }
 
     bbox = _bbox(opts.get("bbox_wgs84"))
