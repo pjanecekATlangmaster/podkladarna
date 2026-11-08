@@ -2350,8 +2350,10 @@ def _reset_mirror_health():
     import app.pipeline.osm_paths as op
 
     op._MIRROR_FAILED_AT.clear()
+    op._MIRROR_STALE_AT.clear()
     yield
     op._MIRROR_FAILED_AT.clear()
+    op._MIRROR_STALE_AT.clear()
 
 
 def test_overpass_mirrors_demotes_failed_and_honors_env(monkeypatch):
@@ -2376,6 +2378,19 @@ def test_overpass_mirrors_demotes_failed_and_honors_env(monkeypatch):
     [
         {"elements": [], "remark": "runtime error: Query timed out"},
         None,  # přetížené zrcadlo: HTTP 200 s tělem null (ostrý job b366b9482e12)
+        # Zastaralé zrcadlo (overpass.openstreetmap.fr 2026-11-08: data z 2026-08-21).
+        {
+            "osm3s": {"timestamp_osm_base": "2020-01-01T00:00:00Z"},
+            "elements": [
+                {
+                    "type": "way",
+                    "geometry": [{"lat": 50.0, "lon": 14.4}, {"lat": 50.001, "lon": 14.4}],
+                    "tags": {"highway": "path"},
+                }
+            ],
+        },
+        # Rozbitá replikace: cesta bez geometrie (K Lahovské, way/133144771).
+        {"elements": [{"type": "way", "id": 133144771, "tags": {"highway": "residential"}}]},
     ],
 )
 def test_fetch_overpass_rejects_invalid_response(bad):
@@ -2409,6 +2424,39 @@ def test_fetch_overpass_rejects_invalid_response(bad):
         els, err = op._fetch_overpass(14.4, 50.0, 14.41, 50.01)
     assert err is None and len(els) == 1
     assert len(calls) == 2
+
+
+def test_fetch_overpass_stale_mirror_is_last_resort():
+    """Když žádné zrcadlo nemá čerstvá data, vezme se nejčerstvější a necachuje se."""
+    import app.pipeline.osm_paths as op
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    way = {
+        "type": "way",
+        "geometry": [{"lat": 50.0, "lon": 14.4}, {"lat": 50.001, "lon": 14.4}],
+        "tags": {"highway": "path"},
+    }
+    calls: list[str] = []
+
+    def fake_urlopen(req, timeout=0):
+        calls.append(req.full_url)
+        base = "2020-01-01T00:00:00Z" if len(calls) == 1 else "2024-01-01T00:00:00Z"
+        data = {"osm3s": {"timestamp_osm_base": base}, "elements": [way] * len(calls)}
+        return _Resp(json.dumps(data).encode("utf-8"))
+
+    status: dict = {}
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        els, err = op._fetch_overpass(14.4, 50.0, 14.41, 50.01, status=status)
+    assert err is None and len(calls) == len(OVERPASS_URLS)
+    assert len(els) == 2  # druhé zrcadlo (2024) je čerstvější než první (2020)
+    assert status.get("fallback") is True
+    assert op.overpass_mirrors()[-1] in calls
 
 
 def test_api_fallback_result_is_not_cached():

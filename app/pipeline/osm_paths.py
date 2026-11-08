@@ -68,6 +68,14 @@ OVERPASS_QL_TIMEOUT_S = 80
 # Zrcadlo, které selhalo, se po tuto dobu zkouší až nakonec (sdíleno napříč
 # dlaždicemi a joby v jednom procesu).
 MIRROR_COOLDOWN_S = 300
+# Zrcadlo se zastaralými daty (``osm3s.timestamp_osm_base`` starší než limit) nebo
+# s cestami bez geometrie (rozbitá replikace) se bere jen jako záloha, když žádné
+# jiné neodpoví. overpass.openstreetmap.fr 2026-11-08 vracelo stav z 2026-08-21
+# a K Lahovské (way/133144771) bez geometrie – nová ulice v mapě chyběla.
+OVERPASS_MAX_AGE_HOURS = 48.0
+# Zastaralé zrcadlo se zkouší až nakonec delší dobu než jen selhané (replikace
+# se obvykle nespraví za minuty).
+MIRROR_STALE_COOLDOWN_S = 6 * 3600
 OSM_API_TIMEOUT_S = 45
 # Kola opakování, když selžou všechny zdroje (Overpass zrcadla i API map);
 # prodlevy před 2. a 3. kolem (s). Chyby bývají přechodné (přetížení, 504).
@@ -2003,6 +2011,7 @@ def parse_osm_api_map_xml(
     return elements
 
 _MIRROR_FAILED_AT: dict[str, float] = {}
+_MIRROR_STALE_AT: dict[str, float] = {}
 
 
 def overpass_mirrors() -> list[str]:
@@ -2019,9 +2028,39 @@ def overpass_mirrors() -> list[str]:
     urls = custom + [u for u in OVERPASS_URLS if u not in custom]
     now = time.monotonic()
     healthy = [
-        u for u in urls if now - _MIRROR_FAILED_AT.get(u, -MIRROR_COOLDOWN_S) >= MIRROR_COOLDOWN_S
+        u
+        for u in urls
+        if now - _MIRROR_FAILED_AT.get(u, -MIRROR_COOLDOWN_S) >= MIRROR_COOLDOWN_S
+        and now - _MIRROR_STALE_AT.get(u, -MIRROR_STALE_COOLDOWN_S)
+        >= MIRROR_STALE_COOLDOWN_S
     ]
     return healthy + [u for u in urls if u not in healthy]
+
+
+def _overpass_data_age_hours(data: dict) -> float | None:
+    """Stáří dat zrcadla podle ``osm3s.timestamp_osm_base`` (h); None = neznámé."""
+    from datetime import datetime, timezone
+
+    meta = data.get("osm3s")
+    raw = str(meta.get("timestamp_osm_base") or "") if isinstance(meta, dict) else ""
+    if not raw:
+        return None
+    try:
+        base = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - base).total_seconds() / 3600.0
+
+
+def _ways_without_geometry(data: dict) -> int:
+    """Počet cest v odpovědi ``out geom`` bez souřadnic (zrcadlu chybí uzly)."""
+    return sum(
+        1
+        for e in (data.get("elements") or [])
+        if isinstance(e, dict) and e.get("type") == "way" and not e.get("geometry")
+    )
 
 
 def _mirror_result(url: str, ok: bool) -> None:
@@ -2045,6 +2084,7 @@ def _fetch_overpass(
     osm_priority: bool = False,
     path_source: str = PATH_SOURCE_MIXED,
     log=None,
+    status: dict | None = None,
 ) -> tuple[list[dict] | None, Exception | None]:
     ql = _overpass_ql(
         south,
@@ -2059,6 +2099,8 @@ def _fetch_overpass(
     )
     body = urllib.parse.urlencode({"data": ql}).encode("utf-8")
     last_err: Exception | None = None
+    # Záloha ze zastaralého / neúplného zrcadla: (bez geometrie, stáří h, prvky, host).
+    fallback: tuple[int, float, list[dict], str] | None = None
     for url in overpass_mirrors():
         req = urllib.request.Request(
             url,
@@ -2098,9 +2140,28 @@ def _fetch_overpass(
                     is not None
                 )
             ]
+            host = url.split("/")[2]
+            age_h = _overpass_data_age_hours(data)
+            broken = _ways_without_geometry(data)
+            stale = age_h is not None and age_h > OVERPASS_MAX_AGE_HOURS
+            if stale or broken:
+                import time
+
+                _MIRROR_STALE_AT[url] = time.monotonic()
+                why = []
+                if stale:
+                    why.append(f"data stará {age_h / 24:.0f} dní")
+                if broken:
+                    why.append(f"{broken} cest bez geometrie")
+                if log:
+                    log(f"OSM Overpass ({host}): {', '.join(why)} – zkouším další zrcadlo")
+                cand = (broken, age_h if age_h is not None else 0.0, elements, host)
+                if fallback is None or cand[:2] < fallback[:2]:
+                    fallback = cand
+                continue
             if log:
-                host = url.split("/")[2]
                 log(f"OSM Overpass ({host}): {len(elements)} prvků")
+            _MIRROR_STALE_AT.pop(url, None)
             _mirror_result(url, True)
             return elements, None
         except (
@@ -2114,6 +2175,18 @@ def _fetch_overpass(
             _mirror_result(url, False)
             if log:
                 log(f"OSM Overpass {url}: {exc}")
+    if fallback is not None:
+        broken, age_h, elements, host = fallback
+        if log:
+            log(
+                f"!!! OSM: žádné zrcadlo nemá aktuální úplná data – použito {host} "
+                f"({len(elements)} prvků, stáří {age_h / 24:.0f} dní, bez geometrie {broken}); "
+                "nové nebo upravené cesty mohou chybět."
+            )
+        if status is not None:
+            # Stejně jako záloha API map: necachovat, příští job zkusí zrcadla znovu.
+            status["fallback"] = True
+        return elements, None
     return None, last_err
 
 
@@ -2377,6 +2450,7 @@ def _fetch_osm_tile(
             osm_priority=osm_priority,
             path_source=path_source,
             log=log,
+            status=status,
         )
         if elements is not None:
             return elements
