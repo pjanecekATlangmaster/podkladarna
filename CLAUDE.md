@@ -404,6 +404,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ani DTM `garden_cover.json` (Zahrada, zemědělská 2 / 4) (`zabaged_other_cover_geometries`, maska v `osm_priority_areas`; ploty u olivy
   ji také neberou). Areály a hřbitovy ne (oplocený areál zůstává i s lesem uvnitř). Starší joby bez `cover` / DTM souborů beze změny.
   Měření: Lochkov −3 z 30 sadů, Krumlov −3 ze 123, Barrandov a Harrachov 0.
+- **Aleje jako body 418** (3.29.0, Petr 2026-11-08, Lochkov, `app/pipeline/tree_rows.py`): ZABAGED `LiniovaVegetace` ani OSM
+  `natural=tree_row` se čárou 416 nekreslí. Nad hotovou mapou: je-li pod linií z ≥ 75 % zelená (406–410) nebo bílá (`SUPPORT_SHARE`,
+  vzorky v pásu kreslené cesty se nepočítají), nekreslí se nic; jinak body 418 ve vrcholech korun z CHM do 8 m od linie, prořídlé na
+  1 mm mapy i proti kresleným 417 / 418; CHM bez stromů = nic, bez CHM záloha po 8 m. Les a MTBO body odsouvají od cest
+  (`MOVED_PART_NAMES`). Pokus a výřezy `/mnt/project-files/aleje-418/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
