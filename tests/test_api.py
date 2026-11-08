@@ -179,12 +179,13 @@ def test_create_job_skips_reference_pngs(client, monkeypatch):
             "preset_id": "sprint_2m",
             "bbox": "14.40,50.08,14.42,50.09",
             "output_mode": "png_zip",
-            # checkbox vypnutý = pole chybí
+            # bez volby = online šablony podkladů
         },
     )
     assert r.status_code == 200
     assert r.json()["options"]["output_references"] is False
-    assert r.json()["options"]["output_sentinel"] is False
+    # Sentinel-2 jde i s online šablonami (online ho nahradit nejde).
+    assert r.json()["options"]["output_sentinel"] is True
 
     r2 = client.post(
         "/api/jobs",
@@ -198,7 +199,7 @@ def test_create_job_skips_reference_pngs(client, monkeypatch):
     )
     assert r2.status_code == 200
     assert r2.json()["options"]["output_references"] is True
-    # Sentinel-2 jde s referenčními podklady; starší klient ho může vypnout zvlášť.
+    # Starší klient může Sentinel-2 vypnout zvlášť.
     assert r2.json()["options"]["output_sentinel"] is True
     r3 = client.post(
         "/api/jobs",
@@ -655,7 +656,7 @@ def test_index_html(client):
     assert "Formát" not in html
     assert "Georeferencovaný GeoTIFF do ZIPu" in html
     assert 'name="output_references"' in html
-    assert 'id="output_references" value="1" checked' in html
+    assert '<option value="0" selected>Online odkazy (WMS)' in html
     assert 'name="sprint_courtyard_fill"' not in html
     assert "DTM kraje" in html
     assert "ZABAGED → OSM → DTM kraje" in html

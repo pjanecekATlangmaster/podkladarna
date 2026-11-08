@@ -26,7 +26,7 @@ BBOX = [14.4, 50.08, 14.42, 50.09]
                 "contour_formlines": "sparse", "contour_smooth": "0", "veg_smooth": "2",
                 "kp_vege_height": "2.5", "kp_cliff_symbol": "earth_bank",
                 "kp_cliff_sensitivity": "high", "kp_osm_objects": "1", "dtm": "1",
-                "output_georef": True, "output_references": False,
+                "output_georef": True, "output_references": "0",
             },
         ),
         # Starší job jen s preset_id: měřítko z presetu, chybějící volby výchozí.
@@ -36,7 +36,7 @@ BBOX = [14.4, 50.08, 14.42, 50.09]
             {
                 "map_scale": "4000", "map_types": [], "kp_cliff_symbol": "auto",
                 "kp_osm_objects": "1", "veg_smooth": "1", "contour_smooth": "1",
-                "kp_vege_height": "2", "dtm": "1", "output_references": True,
+                "kp_vege_height": "2", "dtm": "1", "output_references": "0",
             },
         ),
         # Les bez uložených typů map: výchozí podle měřítka; DTM vypnuté u obou.

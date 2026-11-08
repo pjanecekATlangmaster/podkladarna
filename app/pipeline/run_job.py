@@ -386,6 +386,23 @@ def start_reference_download(
     return handle
 
 
+def _with_online_templates(
+    built_refs: dict[str, Path], bbox, reference_dir: Path, log: callable
+) -> dict[str, Path]:
+    """Online šablony podkladů (GDAL WMS ``.xml``) místo stažených rastrů (Petr 2026-11-08, výchozí)."""
+    if not bbox:
+        return built_refs
+    from app.pipeline.online_templates import write_online_templates
+
+    try:
+        online = write_online_templates(crop_bounds_5514(*bbox), tuple(bbox), reference_dir)
+    except Exception as exc:
+        log_issue(log, f"Online šablony podkladů: přeskočeno ({exc})")
+        return built_refs
+    log(f"Online šablony podkladů: {len(online)} (stáhnou se až v Mapperu)")
+    return {**built_refs, **online}
+
+
 def join_reference_download(
     ref_download: ReferenceDownload | None,
     *,
@@ -410,12 +427,13 @@ def join_reference_download(
     reference_dir = work_dir / "references"
     if not want_refs and ref_download is None:
         if progress is not None:
-            progress.skip("referenční podklady", reason="vypnuto ve formuláři")
+            progress.skip("referenční podklady", reason="online šablony")
         else:
-            log("Referenční podklady: vypnuto ve formuláři")
-        return built_refs, []
+            log("Referenční podklady: online šablony")
+        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log)
+        return built_refs, sorted(p.name for p in built_refs.values())
     if not want_refs:
-        log("Referenční podklady: vypnuto ve formuláři – bez PNG podkladů, přibalím jen vektorový katastr")
+        log("Referenční podklady: online šablony (GDAL WMS), stažený jen vektorový katastr")
     if not bbox:
         return built_refs, []
 
@@ -467,6 +485,8 @@ def join_reference_download(
             log_issue(log, f"Referenční podklady: stahování na pozadí selhalo ({exc})")
             built_refs = {}
 
+    if not want_refs:
+        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log)
     ref_layers: list[str] = []
     if built_refs:
         ref_layers = sorted(p.name for p in built_refs.values())
@@ -1367,7 +1387,9 @@ def _package_output(
                         ".jgw",
                         ".gpkg",
                         ".dxf",
-                    }:
+                        ".xml",
+                        ".vrt",
+                    } and not path.name.lower().endswith(".aux.xml"):
                         shutil.copy2(path, refs_dst / path.name)
         # Vegetace / srázy / skály (použité vs vyhozené) – stejné jako v ZIPu.
         try:

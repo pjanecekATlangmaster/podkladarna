@@ -48,8 +48,10 @@ def _template_xml(tmpl: OomTemplate) -> str:
             f' georef="true"{group_attr}/>'
         )
     crs = html.escape(CRS_PROJ4)
+    # Online šablona (GDAL WMS .xml / .vrt): Mapper ji otevře jen jako GdalTemplate (Petr 2026-11-08).
+    ttype = "GdalTemplate" if tmpl.kind == "gdal" else "TemplateImage"
     return (
-        f'            <template type="TemplateImage" open="{open_attr}"'
+        f'            <template type="{ttype}" open="{open_attr}"'
         f' name="{fname}" path="{relpath}" relpath="{relpath}"'
         f' georef="true"{group_attr}>\n'
         f"                <crs_spec>{crs}</crs_spec>\n"

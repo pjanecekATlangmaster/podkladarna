@@ -1038,13 +1038,14 @@ async def api_create_job(request: Request):
         options["output_zip"] = _opt_bool("output_zip")
     # Georef GeoTIFF do ZIPu – default off (formulářové combo Formát už není).
     options["output_georef"] = _opt_bool("output_georef")
+    # Podklady: 1 = stáhnout obrázky, jinak (výchozí, i API bez volby) online šablony GDAL WMS (Petr 2026-11-08).
     options["output_references"] = _opt_bool("output_references")
-    # Sentinel-2 je součást referenčních podkladů (Petr 2026-11-05: „k ostatním, ne zvlášť“);
-    # starší klienti API mohou dál poslat output_sentinel zvlášť (0 / 1) a ten má přednost.
+    # Sentinel-2 jde vždy (online šablonu neumí – vybírá snímek bez mraků podle data);
+    # starší klienti API mohou poslat output_sentinel=0.
     if _form_str(form, "output_sentinel").strip():
         options["output_sentinel"] = _opt_bool("output_sentinel")
     else:
-        options["output_sentinel"] = options["output_references"]
+        options["output_sentinel"] = True
     options["force_refresh"] = _opt_bool("force_refresh")
     # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
     # API klient (platný X-Api-Key) má job vždy privátní, e-mail nepotřebuje –
@@ -1143,7 +1144,7 @@ async def api_create_job(request: Request):
     )
     log(
         f"  Výstup: {'ZIP' if options.get('output_zip', True) else 'jen PNG'} · "
-        f"referenční podklady {_yn('output_references', True)} "
+        f"podklady {'stažené' if options.get('output_references') else 'online'} "
         f"(Sentinel-2 {_yn('output_sentinel')}) · "
         f"georef GeoTIFF {_yn('output_georef')} · "
         f"vynucené obnovení {_yn('force_refresh')} · "
