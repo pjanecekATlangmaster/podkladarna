@@ -298,6 +298,9 @@ def add_tree_row_parts(
     log=None,
 ):
     """Hotová mapa + body 418 aleje (OSM ``tree_row`` a ZABAGED ``LiniovaVegetace``); bez linií nebo při chybě beze změny."""
+    import time
+
+    t0 = time.monotonic()
     try:
         lines_all = _osm_row_lines(work_dir) + _zabaged_row_lines(work_dir)  # OSM je základ, jde první
         if not lines_all:
@@ -354,7 +357,7 @@ def add_tree_row_parts(
         log(
             f"Aleje (418): {stats['rows']} linií, nekreslených kvůli zeleni / bílé {stats['support']}, "
             f"bez stromů {stats['empty']}, kreslených {stats['drawn']}, bodů {len(points)} "
-            f"({'CHM' if chm else 'záloha bez CHM'})"
+            f"({'CHM' if chm else 'záloha bez CHM'}, {time.monotonic() - t0:.1f} s)"
         )
     objects = [
         _point_object(symbol_index, *projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg))
