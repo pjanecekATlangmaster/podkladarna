@@ -331,7 +331,18 @@ def add_tree_row_parts(
         bands = drawn_path_bands(
             parts, preset_id=preset_id, scale=scale, ref_x=ref_x, ref_y=ref_y, grivation_deg=grivation_deg, majors=PATH_MAJORS
         )
-        band = unary_union([LineString(ax).buffer(half) for ax, half, _fill in bands if len(ax) >= 2]) if bands else None
+        # Jen pásy cest u alejí (sjednocení pásů celé mapy roste rychleji než plocha).
+        from shapely.strtree import STRtree
+
+        row_tree = STRtree([LineString(ln).buffer(ROW_BAND_M) for ln in lines])
+        near_bands = []
+        for ax, half, _fill in bands:
+            if len(ax) < 2:
+                continue
+            axis = LineString(ax)
+            if len(row_tree.query(axis, predicate="intersects")):
+                near_bands.append(axis.buffer(half))
+        band = unary_union(near_bands) if near_bands else None
         chm = _load_chm(work_dir)
         min_center_m = MIN_CENTER_MM * scale / 1000.0
         stats = {"rows": len(lines), "support": 0, "empty": 0, "drawn": 0}
