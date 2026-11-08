@@ -42,6 +42,7 @@ RUIAN_LAYER_VUSC = 17
 
 SET_OPL = "ZPS_OPL"
 SET_KR = "ZPS_KR"
+SET_DI = "DI"  # dopravní infrastruktura (osy pozemních komunikací)
 DEFAULT_SETS = (SET_OPL, SET_KR)
 
 _NAME_RX = re.compile(

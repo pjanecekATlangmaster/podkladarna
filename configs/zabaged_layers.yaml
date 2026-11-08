@@ -11,6 +11,7 @@ layers:
   - VodniPlocha
   - VodniTok
   - SilniceDalnice
+  - SilniceNeevidovana
   - Cesta
   - Most
   - Ulice

@@ -934,6 +934,7 @@ def _prepare_oom_map(
             paved_clip=paved_clip,
             road_join_band=None if preset_id.startswith("sprint") else road_join_band,
             prefer_osm_wall_lines=load_osm_wall_lines(kp_cwd) or None,
+            log=log,
         ):
             if _COURTYARD_MARK in part.name:
                 courtyard_parts.append(part)

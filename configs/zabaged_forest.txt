@@ -68,6 +68,7 @@ building|526|vrstva=Hrad
 building|526|vrstva=Zamek
 blackline|417|vrstva=VyznamnyStromLesik
 road-path|503|vrstva=SilniceDalnice
+road-path|503|vrstva=SilniceNeevidovana
 road-path|503|vrstva=Ulice
 road-path|505|vrstva=Cesta
 road-path|507|vrstva=Pesina
