@@ -173,7 +173,9 @@ def test_oom_metadata_lidar_sources_and_no_kp_citation():
     readme = oom_readme(meta)
     assert INDICATIVE_LABEL_CS in readme
     assert "Karttapullautin" not in readme
-    assert "Ortofoto se nepřibaluje" in readme
+    assert "ortofoto ČÚZK" in readme and "offline" in readme
+    online = oom_readme({**meta, "reference_layers": ["ortofoto_cuzk.xml", "osm.vrt"]})
+    assert "online šablony" in online and "ORTOFOTO/MapServer/WMSServer" in online
     assert "vlastní DEM" in readme
     assert "hustoty LiDAR" in readme
     assert "ne ze ZABAGED" in readme

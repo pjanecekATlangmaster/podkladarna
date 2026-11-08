@@ -163,7 +163,7 @@ Co je uvnitř
 - osm/                 … OSM shapefile vrstvy pro ruční skládání (cesty, posedy, studny, budovy, skály podklad, …)
 - zabaged/             … polohopis ZABAGED (shapefile včetně budov + RUIAN_budovy.shp; výchozí budovy v .omap jsou z OSM)
                        … Ostatní plocha v sídlech jako OstatniPlochaVSidlech_mensi / _stredni / _velke (podle velikosti; prázdné pásmo chybí)
-- references/          … ortofoto ČÚZK, OSM, ZTM, katastr, DTM kraje (zaměřená situace), náhled DMP OK, hillshade (jen pro kreslení, ne do tisku)
+- references/          … ortofoto ČÚZK, OSM, ZTM, katastr, DTM kraje (zaměřená situace), náhled DMP OK, hillshade – výchozí online šablony (.xml), nebo stažené rastry (jen pro kreslení, ne do tisku)
 - README_OOM.txt       … podrobný postup v OOM
 - metadata.json        … měřítko, preset, CRS, epochy LiDAR / režim DMP
 

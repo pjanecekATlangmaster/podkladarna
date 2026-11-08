@@ -551,8 +551,28 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         )
         if sentinel_info:
             ref_block += "\n" + sentinel_info.strip() + "\n"
+    online = any(str(name).endswith((".xml", ".vrt")) for name in refs)
+    if online:
+        from app.pipeline.online_templates import wms_readme_lines
+
+        refs_intro = (
+            "Podklady jsou online šablony (soubory .xml / .vrt ve složce references/, GDAL WMS): ortofoto ČÚZK,\n"
+            "ZTM, katastr, DTM kraje, náhled DMP OK, stínovaný reliéf DMR 5G (základní, Z10, Z20) a OpenStreetMap,\n"
+            "každý v maximálním a středním zoomu (_stredni, 4× hrubší). V OOM jsou v seznamu šablon vypnuté;\n"
+            "po zapnutí se stáhnou z internetu (maximální zoom chvíli trvá). Offline podklady: při generování\n"
+            "zaškrtněte „Stáhnout referenční šablony předem“.\n"
+            "OCAD soubory .xml neotevře – připojte si podklady jako WMS (Podklad → Online mapa):\n"
+            + "\n".join(wms_readme_lines())
+            + "\n"
+        )
+    else:
+        refs_intro = (
+            "Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
+            "Mapové podklady: ortofoto ČÚZK, OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa\n"
+            "a náhled DMP OK (stažené rastry, fungují i offline a v OCADu).\n"
+        )
     kp_steps = (
-        "2. PNG podklady (OSM, hillshade, …) zapněte dle potřeby\n"
+        "2. Podklady (ortofoto, OSM, hillshade, …) zapněte dle potřeby\n"
         "   v Šablony → Nastavení šablon (Template Setup).\n"
         "3. Budovy v .omap jsou z DTM kraje (kde je) doplněné OSM. Podklady: osm/OSM_budovy.shp, Budova* a\n"
         "   RUIAN_budovy.shp ve zabaged/. Cesty ZABAGED jsou ve zabaged/ pro ruční import.\n"
@@ -581,9 +601,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         f"Ekvidistance: {interval_txt}\n"
         "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n"
         f"{epochs_block}\n"
-        f"Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/.\n"
-        "Mapové podklady: OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa a náhled DMP OK.\n"
-        "Ortofoto se nepřibaluje (velikost ZIPu); v OOM ho lze připojit jako WMS ČÚZK.\n"
+        f"{refs_intro}"
         f"{ref_block}\n"
         "Doporučený postup v OOM\n"
         "-----------------------\n"
@@ -606,6 +624,15 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         f"{relief_line}"
         "Podkladárna je experiment, proto ocením zpětnou vazbu a připomínky:\n"
         "https://github.com/pjanecekATlangmaster/podkladarna/issues\n"
+    )
+
+
+def online_template_files(reference_dir: Path) -> list[Path]:
+    """Online šablony v ``references`` (``.xml`` / ``.vrt``) bez pomocných ``*.aux.xml`` od GDAL."""
+    return sorted(
+        p
+        for p in reference_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in {".xml", ".vrt"} and not p.name.lower().endswith(".aux.xml")
     )
 
 
@@ -1365,6 +1392,9 @@ def build_oom_zip(
             # Vektorový katastr: GeoPackage (podklad OOM) + DXF (OCAD).
             for name in ("katastr.gpkg", "katastr.dxf"):
                 _write_if_exists(zf, reference_dir / name, f"references/{name}")
+            # Online šablony podkladů (GDAL WMS .xml, OSM .vrt) – ne pomocné *.aux.xml od GDAL.
+            for path in online_template_files(reference_dir):
+                zf.write(path, f"references/{path.name}")
         temp = kp_cwd / "temp"
         if include_dxf and temp.is_dir():
             for zip_name, src in sorted(

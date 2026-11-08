@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.pipeline.online_templates import online_labels
 from app.pipeline.reference_layers import HILLSHADE_VARIANTS, orthophoto_items
 
 # Skupiny v okně šablon OOM (atribut group=).
@@ -12,7 +13,7 @@ GROUP_OSM = 2
 
 @dataclass(frozen=True)
 class OomTemplate:
-    kind: str  # image | ogr
+    kind: str  # image | ogr | gdal (online šablona GDAL WMS)
     label: str
     relpath: str
     visible: bool = True
@@ -123,6 +124,21 @@ def collect_oom_templates(
                     group=GROUP_REFERENCE,
                 )
             )
+        # Online šablony (GDAL WMS): v seznamu šablon, ale skryté – Mapper načítá jen zobrazené šablony,
+        # podklad se tak stáhne až po zapnutí (Petr 2026-11-08).
+        for okey, olabel in online_labels().items():
+            opath = built_refs.get(okey)
+            if opath and opath.is_file():
+                templates.append(
+                    OomTemplate(
+                        "gdal",
+                        olabel,
+                        f"references/{opath.name}",
+                        visible=False,
+                        opacity=1.0,
+                        group=GROUP_OSM if okey.startswith("online_osm") else GROUP_REFERENCE,
+                    )
+                )
         key, label, relpath, opacity, visible = OOM_OSM_REF_SPEC
         path = built_refs.get(key)
         if path and path.is_file():

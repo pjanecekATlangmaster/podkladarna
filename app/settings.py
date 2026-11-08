@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.26.0"
+APP_VERSION = "3.27.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -190,9 +190,10 @@ DEFAULT_OPTIONS = {
     "output_zip": True,
     # Georef GeoTIFF (300 DPI, dlaždice + náhledy) do výstupního ZIPu – GUI checkbox, default off.
     "output_georef": False,
-    # OSM / ZTM / katastr / hillshade / DMP / Sentinel-2 – stahovat a dát do ZIPu (ortofoto jen se ZIP_ORTHOPHOTO).
-    "output_references": True,
-    # Sentinel-2 jde s referenčními podklady (main.py: bez výslovné volby = output_references).
+    # Podklady (ortofoto, OSM, ZTM, katastr, hillshade, DMP, DTM): True = stáhnout obrázky do ZIPu,
+    # False = online šablony GDAL WMS (výchozí formuláře i API, Petr 2026-11-08).
+    "output_references": False,
+    # Sentinel-2 jde vždy (main.py: bez výslovné volby True).
     "output_sentinel": True,
     "output_dxf": True,
     "output_zabaged_clean": False,
