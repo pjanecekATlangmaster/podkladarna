@@ -1996,3 +1996,27 @@ def test_end_at_edge_extends_straight_to_edge_within_reach():
     # dál než dosah: beze změny
     (line,) = ds.end_at_edge([(0.0, 2.0), (3.0, 2.0)], area, extend_m=5.0)
     assert line[-1] == (3.0, 2.0)
+
+
+@pytest.mark.parametrize(
+    "loader, rec_type, farm_code, kept",
+    [
+        (ds.load_other_cover_polygons, "ZemedelskaPlochaPlocha", "1", True),
+        (ds.load_other_cover_polygons, "ZemedelskaPlochaPlocha", "5", True),
+        (ds.load_other_cover_polygons, "ZemedelskaPlochaPlocha", "2", False),
+        (ds.load_other_cover_polygons, "LesPlocha", "", True),
+        (ds.load_garden_cover_polygons, "ZemedelskaPlochaPlocha", "4", True),
+        (ds.load_garden_cover_polygons, "ZemedelskaPlochaPlocha", "1", False),
+        (ds.load_garden_cover_polygons, "ZahradaPlocha", "", True),
+    ],
+)
+def test_cover_loaders_filter_farm_type_codes(tmp_path, monkeypatch, loader, rec_type, farm_code, kept):
+    """Zemědělská plocha se do jiného krytu / zahrad řadí podle ``TypZemedelskePlochy``, ostatní typy vždy."""
+    from app.pipeline.jvf_reader import JvfRecord
+
+    ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)]
+    rec = JvfRecord(type_name=rec_type, attrs={"TypZemedelskePlochy": farm_code}, geom_type="Polygon", coords=[ring])
+    monkeypatch.setattr(ds, "iter_records", lambda zip_path, types: [rec] if rec_type in types else [])
+    zp = tmp_path / "a.zip"
+    zp.write_bytes(b"")
+    assert bool(loader(zp, use_cache=False)) is kept

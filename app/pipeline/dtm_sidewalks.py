@@ -28,6 +28,15 @@ BUILDING_TYPES = ("BudovaPlocha",)
 # Udržovaná zeleň: z OSM zpevněných ploch (parkoviště, hřiště …) se vystřihne (DTM má přednost).
 GREEN_TYPES = ("UdrzovanaPlochaZelenePlocha",)
 GREEN_CACHE_SUFFIX = ".green1.json"
+# Jiný kryt než zahrada / sad (les, nevyužívaná plocha, orná půda, chmelnice, TTP): ZABAGED sad pod ním se nekreslí.
+# ``TypZemedelskePlochy`` (JVF DTM): 1 orná půda, 2 vinice, 3 chmelnice, 4 ovocný sad, 5 TTP, 98 jiný, 99 nezjištěno.
+OTHER_COVER_TYPES = ("LesPlocha", "HospodarskyNevyuzivanaPlochaPlocha", "ZemedelskaPlochaPlocha")
+OTHER_COVER_FARM_CODES = frozenset({"1", "3", "5"})
+OTHER_COVER_CACHE_SUFFIX = ".othercover1.json"
+# Zahrady a sady (potvrzují ZABAGED ``OvocnySadZahrada``): ZahradaPlocha a zemědělská plocha vinice / ovocný sad.
+GARDEN_COVER_TYPES = ("ZahradaPlocha", "ZemedelskaPlochaPlocha")
+GARDEN_FARM_CODES = frozenset({"2", "4"})
+GARDEN_COVER_CACHE_SUFFIX = ".gardencover1.json"
 PARKING_TYPES = ("ParkovisteOdstavnaPlochaPlocha",)
 PARKING_CACHE_SUFFIX = ".park1.json"
 # Škvíry užší než tato hodnota (m) mezi chodníkem a silnicí se zacelí (hranice je jedna čára).
@@ -152,6 +161,33 @@ def load_building_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> li
 def load_green_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
     """Udržovaná zeleň na povrchu (úroveň 0) z balíku ZPS_OPL."""
     return load_polygons(opl_zip, GREEN_TYPES, GREEN_CACHE_SUFFIX, use_cache=use_cache)
+
+
+def _farm_code_filter(codes: frozenset):
+    """Filtr záznamů: ``ZemedelskaPlochaPlocha`` jen s ``TypZemedelskePlochy`` v ``codes``, ostatní typy vždy."""
+
+    def keep(rec) -> bool:
+        if rec.type_name != "ZemedelskaPlochaPlocha":
+            return True
+        return str(rec.attrs.get("TypZemedelskePlochy", "")).strip() in codes
+
+    return keep
+
+
+def load_other_cover_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Jiný kryt než zahrada / sad (les, nevyužívaná plocha, orná půda, chmelnice, TTP) z balíku ZPS_OPL."""
+    return load_polygons(
+        opl_zip, OTHER_COVER_TYPES, OTHER_COVER_CACHE_SUFFIX, use_cache=use_cache,
+        keep=_farm_code_filter(OTHER_COVER_FARM_CODES),
+    )
+
+
+def load_garden_cover_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
+    """Zahrady a sady (ZahradaPlocha, vinice, ovocný sad) z balíku ZPS_OPL."""
+    return load_polygons(
+        opl_zip, GARDEN_COVER_TYPES, GARDEN_COVER_CACHE_SUFFIX, use_cache=use_cache,
+        keep=_farm_code_filter(GARDEN_FARM_CODES),
+    )
 
 
 def load_parking_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> list[list[list[tuple[float, float]]]]:
@@ -781,7 +817,7 @@ def stairs_axis(poly: list[list[tuple[float, float]]], ref_lines: list | None = 
 
 
 def load_polygons(
-    opl_zip: str | Path, types: tuple[str, ...], cache_suffix: str, *, use_cache: bool = True
+    opl_zip: str | Path, types: tuple[str, ...], cache_suffix: str, *, use_cache: bool = True, keep=None
 ) -> list[list[list[tuple[float, float]]]]:
     opl_zip = Path(opl_zip)
     cache = opl_zip.with_name(opl_zip.name + cache_suffix)
@@ -794,6 +830,8 @@ def load_polygons(
     out: list[list[list[tuple[float, float]]]] = []
     for rec in iter_records(opl_zip, set(types)):
         if rec.geom_type != "Polygon" or not rec.coords or rec.level != 0:
+            continue
+        if keep is not None and not keep(rec):
             continue
         poly = [[(float(c[0]), float(c[1])) for c in ring] for ring in rec.coords if len(ring) >= 4]
         if poly:

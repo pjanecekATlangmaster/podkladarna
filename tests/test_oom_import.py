@@ -597,6 +597,108 @@ def test_zabaged_area_under_osm_area_is_omitted(tmp_path):
     assert count({"VodniPlocha": osm_water}) == 2
 
 
+def test_zabaged_orchard_under_other_cover_mask_is_omitted(tmp_path):
+    """ZABAGED OvocnySadZahrada pokrytý z ≥ 70 % maskou jiného krytu se nekreslí (oliva 520)."""
+    pytest.importorskip("pyogrio")
+    pytest.importorskip("shapely")
+    import tempfile
+    import zipfile
+
+    import numpy as np
+    import pyogrio.raw as pr
+    from shapely.geometry import box
+
+    from app.pipeline.oom_import import build_zabaged_object_parts
+
+    x0, y0 = -744000.0, -1047000.0
+    zabaged = [box(x0 + 10, y0 + 10, x0 + 30, y0 + 30), box(x0 + 500, y0 + 10, x0 + 520, y0 + 30)]
+    pr.write(
+        str(tmp_path / "OvocnySadZahrada.shp"),
+        geometry=np.array([g.wkb for g in zabaged], dtype=object),
+        field_data=[],
+        fields=[],
+        geometry_type="Polygon",
+        crs="EPSG:5514",
+        driver="ESRI Shapefile",
+    )
+    z = tmp_path / "z.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        for f in tmp_path.iterdir():
+            if f.suffix in {".shp", ".shx", ".dbf", ".prj", ".cpg"}:
+                zf.write(f, f.name)
+
+    def count(priority):
+        parts = build_zabaged_object_parts(
+            z, vectorconf_name="zabaged.txt", preset_id="sprint_4000", scale=4000,
+            ref_x=x0, ref_y=y0, grivation_deg=0.0, work_dir=Path(tempfile.mkdtemp()),
+            osm_priority_areas=priority,
+        )
+        idx = symbol_index_for_code("sprint_4000", 4000, "520")
+        xml = "\n".join(p.objects_xml for p in parts if "OvocnySadZahrada" in p.name)
+        return xml.count(f'symbol="{idx}"')
+
+    assert count(None) == 2
+    assert count({"OvocnySadZahrada": box(x0, y0, x0 + 100, y0 + 50)}) == 1
+
+
+_SQ = [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]
+
+
+def _osm_cover(tmp_path, covers):
+    d = tmp_path / "osm_paths"
+    d.mkdir(exist_ok=True)
+    feats = [
+        {"type": "Feature", "properties": ({"cover": c} if c else {}), "geometry": {"type": "Polygon", "coordinates": _SQ}}
+        for c in covers
+    ]
+    (d / "natural_cover.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8")
+
+
+def _osm_garden(tmp_path):
+    d = tmp_path / "osm_paths"
+    d.mkdir(exist_ok=True)
+    feat = {"type": "Feature", "properties": {"kind": "garden"}, "geometry": {"type": "Polygon", "coordinates": _SQ}}
+    (d / "features.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [feat]}), encoding="utf-8")
+
+
+def _dtm_file(tmp_path, name):
+    d = tmp_path / "dtm"
+    d.mkdir(exist_ok=True)
+    (d / name).write_text(json.dumps({"polygons": [_SQ]}), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "case, expected_area",
+    [
+        ("osm_scrub", 100.0),
+        ("osm_scrub_garden", None),
+        ("dtm_other", 100.0),
+        ("dtm_other_garden", None),
+        ("no_cover_prop", None),
+    ],
+)
+def test_zabaged_other_cover_geometries(tmp_path, case, expected_area):
+    pytest.importorskip("shapely")
+    import app.pipeline.osm_paths as op
+
+    if case.startswith("osm_scrub"):
+        _osm_cover(tmp_path, ["scrub"])
+    if case == "osm_scrub_garden":
+        _osm_garden(tmp_path)
+    if case.startswith("dtm_other"):
+        _dtm_file(tmp_path, "other_cover.json")
+    if case == "dtm_other_garden":
+        _dtm_file(tmp_path, "garden_cover.json")
+    if case == "no_cover_prop":
+        _osm_cover(tmp_path, [None])
+    got = op.zabaged_other_cover_geometries(tmp_path)
+    if expected_area is None:
+        assert got == {}
+    else:
+        assert set(got) == {"OvocnySadZahrada"}
+        assert abs(got["OvocnySadZahrada"].area - expected_area) < 1e-9
+
+
 def test_osm_priority_area_geometries_by_kind(tmp_path):
     import app.pipeline.osm_paths as op
 
