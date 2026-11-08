@@ -14,7 +14,7 @@ ORTHO_NAME = "ortofoto.png"
 ORTHO_META_NAME = "ortofoto.json"
 # Ortofoto referenčního podkladu (``work/references/orthophoto*.jpg`` + ``.jgw``, 0,125–0,25 m/px).
 REFERENCE_SUBDIR = "references"
-# Tytéž dlaždice mimo podklady (sprint bez ``reference_layers.ZIP_ORTHOPHOTO``, ne do ZIPu); čtou se přednostně.
+# Tytéž dlaždice mimo podklady (sprint bez ``reference_layers.zip_ortho (referenční podklady)``, ne do ZIPu); čtou se přednostně.
 REFERENCE_SUBDIRS = ("ortho_ref", REFERENCE_SUBDIR)
 # Podklad je ořezaný na mřížku mapy (výřez + ~1 m), parcely se stahují s přesahem 80 m: pokrytí se měří na výřezu
 # mapy; když ho dlaždice nepokryjí, stahuje se zvlášť (jinak by uvnitř mapy chyběla zeleň).
