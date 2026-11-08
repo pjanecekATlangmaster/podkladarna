@@ -241,7 +241,6 @@ def test_join_want_refs_false_skips_build(tmp_path: Path):
         mocked.assert_not_called()
     # Bez stahování: online šablony GDAL WMS (ortofoto, OSM, …) do references/.
     assert built["online_orthophoto"] == tmp_path / "references" / "ortofoto_cuzk.xml"
-    assert built["online_osm"].is_file() and (tmp_path / "references" / "osm_dlazdice.xml").is_file()
     assert "ortofoto_cuzk.xml" in layers
     assert any("online šablony" in ln.lower() for ln in lines)
 

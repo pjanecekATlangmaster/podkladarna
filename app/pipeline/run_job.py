@@ -395,7 +395,7 @@ def _with_online_templates(
     from app.pipeline.online_templates import write_online_templates
 
     try:
-        online = write_online_templates(crop_bounds_5514(*bbox), tuple(bbox), reference_dir)
+        online = write_online_templates(crop_bounds_5514(*bbox), reference_dir)
     except Exception as exc:
         log_issue(log, f"Online šablony podkladů: přeskočeno ({exc})")
         return built_refs

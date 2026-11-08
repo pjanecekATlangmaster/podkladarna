@@ -2,17 +2,19 @@
 
 Mapper (``GdalTemplate``) si podklad stáhne až při zapnutí šablony, ZIP zůstává malý. Každý soubor pokrývá
 výřez mapy v pevném rozlišení (nejvýš ``MAX_PX`` px na delší straně – Mapper načte celý rastr do paměti).
-OSM je dlaždicová služba v EPSG:3857: ``.vrt`` s oknem výřezu nad celosvětovou TMS ``.xml``.
+OSM je dlaždicová služba v EPSG:3857: celosvětová TMS ``.xml`` a ``.vrt`` převedený gdalwarp do S-JTSK
+(Mapper okno v EPSG:3857 nenačte, Petr 2026-11-08); GDAL si z TMS vezme úroveň podle rozlišení.
 OCAD ``.xml`` neotevře – adresy WMS jsou v README_OOM.
 """
 
 from __future__ import annotations
 
 import html
-import math
 from pathlib import Path
 
+from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT
+from app.pipeline.prepare_lidar import find_tool, run_cmd
 from app.pipeline.reference_layers import (
     DMPOK_PREVIEW_LAYER,
     DMPOK_WMS,
@@ -35,6 +37,7 @@ MAX_PX = 8000
 BLOCK_PX = 500
 OSM_TILE_URL = "https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png"
 OSM_MAX_ZOOM = 18
+OSM_MPP = 0.5
 
 # (klíč, soubor, popis pro README, WMS, vrstva, formát, průhledná, m/px)
 ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
@@ -137,59 +140,25 @@ def osm_tms_xml(zoom: int) -> str:
     )
 
 
-def _mercator(lon: float, lat: float) -> tuple[float, float]:
-    x = math.radians(lon) * 6378137.0
-    y = math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) * 6378137.0
-    return x, y
-
-
-def osm_window(
-    bbox_wgs84: tuple[float, float, float, float],
-) -> tuple[int, int, int, int, int]:
-    """(zoom, x0, y0, šířka, výška) v pixelech celosvětové mřížky OSM, okno do ``MAX_PX``."""
-    west, south, east, north = bbox_wgs84
-    x0m, y0m = _mercator(west, north)
-    x1m, y1m = _mercator(east, south)
-    for zoom in range(OSM_MAX_ZOOM, 0, -1):
-        pixel = 2 * WEB_MERCATOR_HALF / (256 << zoom)
-        px0 = math.floor((x0m + WEB_MERCATOR_HALF) / pixel)
-        py0 = math.floor((WEB_MERCATOR_HALF - y0m) / pixel)
-        px1 = math.ceil((x1m + WEB_MERCATOR_HALF) / pixel)
-        py1 = math.ceil((WEB_MERCATOR_HALF - y1m) / pixel)
-        if max(px1 - px0, py1 - py0) <= MAX_PX:
-            return zoom, px0, py0, max(1, px1 - px0), max(1, py1 - py0)
-    raise AssertionError("unreachable")
-
-
-def osm_vrt(tms_name: str, zoom: int, px0: int, py0: int, width: int, height: int) -> str:
-    """Okno výřezu (EPSG:3857) nad dlaždicovou ``tms_name`` vedle souboru."""
-    pixel = 2 * WEB_MERCATOR_HALF / (256 << zoom)
-    ulx = -WEB_MERCATOR_HALF + px0 * pixel
-    uly = WEB_MERCATOR_HALF - py0 * pixel
-    lines = [
-        f'<VRTDataset rasterXSize="{width}" rasterYSize="{height}">',
-        "  <SRS>EPSG:3857</SRS>",
-        f"  <GeoTransform>{ulx:.6f}, {pixel:.12f}, 0, {uly:.6f}, 0, {-pixel:.12f}</GeoTransform>",
+def osm_sjtsk_vrt(tms: Path, vrt: Path, bounds_5514: tuple[float, float, float, float]) -> bool:
+    """gdalwarp ``-of VRT``: okno výřezu v S-JTSK nad TMS (nic nestahuje, zdroj relativně k VRT)."""
+    xmin, ymin, xmax, ymax = bounds_5514
+    sx, sy = _size(xmax - xmin, ymax - ymin, OSM_MPP)
+    try:
+        gdalwarp = find_tool("gdalwarp")
+    except RuntimeError:
+        return False
+    cmd = [
+        gdalwarp, "-q", "-overwrite", "-of", "VRT", "-t_srs", CRS_PROJ4,
+        "-te", f"{xmin:.2f}", f"{ymin:.2f}", f"{xmax:.2f}", f"{ymax:.2f}",
+        "-ts", str(sx), str(sy), "-r", "bilinear", tms.name, vrt.name,
     ]
-    for band, color in ((1, "Red"), (2, "Green"), (3, "Blue")):
-        lines += [
-            f'  <VRTRasterBand dataType="Byte" band="{band}">',
-            f"    <ColorInterp>{color}</ColorInterp>",
-            "    <SimpleSource>",
-            f'      <SourceFilename relativeToVRT="1">{html.escape(tms_name)}</SourceFilename>',
-            f"      <SourceBand>{band}</SourceBand>",
-            f'      <SrcRect xOff="{px0}" yOff="{py0}" xSize="{width}" ySize="{height}"/>',
-            f'      <DstRect xOff="0" yOff="0" xSize="{width}" ySize="{height}"/>',
-            "    </SimpleSource>",
-            "  </VRTRasterBand>",
-        ]
-    lines.append("</VRTDataset>")
-    return "\n".join(lines) + "\n"
+    result = run_cmd(cmd, cwd=vrt.parent)
+    return result.returncode == 0 and vrt.is_file()
 
 
 def write_online_templates(
     bounds_5514: tuple[float, float, float, float],
-    bbox_wgs84: tuple[float, float, float, float],
     out_dir: Path,
 ) -> dict[str, Path]:
     """Zapíše online šablony do ``out_dir`` (``references``); klíč ``online_<vrstva>`` → soubor."""
@@ -203,12 +172,13 @@ def write_online_templates(
         )
         written[f"online_{key}"] = path
     key, filename, _label = ONLINE_OSM
-    zoom, px0, py0, width, height = osm_window(bbox_wgs84)
     tms = out_dir / "osm_dlazdice.xml"
-    tms.write_text(osm_tms_xml(zoom), encoding="utf-8")
+    tms.write_text(osm_tms_xml(OSM_MAX_ZOOM), encoding="utf-8")
     vrt = out_dir / filename
-    vrt.write_text(osm_vrt(tms.name, zoom, px0, py0, width, height), encoding="utf-8")
-    written[f"online_{key}"] = vrt
+    if osm_sjtsk_vrt(tms, vrt, bounds_5514):
+        written[f"online_{key}"] = vrt
+    else:  # bez gdalwarp OSM online nebude (šablona v EPSG:3857 v Mapperu nefunguje)
+        tms.unlink(missing_ok=True)
     return written
 
 

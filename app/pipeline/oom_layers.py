@@ -124,7 +124,8 @@ def collect_oom_templates(
                     group=GROUP_REFERENCE,
                 )
             )
-        # Online šablony (GDAL WMS): nenačtené a skryté – načtou se (stáhnou) až po zapnutí v Mapperu.
+        # Online šablony (GDAL WMS): v seznamu šablon, ale skryté – Mapper načítá jen zobrazené šablony,
+        # podklad se tak stáhne až po zapnutí (Petr 2026-11-08).
         for okey, olabel in online_labels().items():
             opath = built_refs.get(okey)
             if opath and opath.is_file():
@@ -136,7 +137,6 @@ def collect_oom_templates(
                         visible=False,
                         opacity=1.0,
                         group=GROUP_OSM if okey == "online_osm" else GROUP_REFERENCE,
-                        loaded=False,
                     )
                 )
         key, label, relpath, opacity, visible = OOM_OSM_REF_SPEC
