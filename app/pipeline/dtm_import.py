@@ -40,6 +40,8 @@ SMALL_PAVED_NAME = "small_paved.json"
 STAIRS_NAME = "stairs.json"
 PARKING_NAME = "parking.json"
 GREEN_NAME = "green.json"
+OTHER_COVER_NAME = "other_cover.json"
+GARDEN_COVER_NAME = "garden_cover.json"
 DECKS_NAME = "decks.json"
 # OSM budova, jejíž aspoň tento podíl plochy kryjí budovy z DTM, je duplicita (DTM má přednost).
 BUILDING_TWIN_SHARE = 0.5
@@ -486,6 +488,14 @@ def green_path(work_dir: Path) -> Path:
     return dtm_dir(work_dir) / GREEN_NAME
 
 
+def other_cover_path(work_dir: Path) -> Path:
+    return dtm_dir(work_dir) / OTHER_COVER_NAME
+
+
+def garden_cover_path(work_dir: Path) -> Path:
+    return dtm_dir(work_dir) / GARDEN_COVER_NAME
+
+
 def dtm_owns_stairs(work_dir: Path) -> bool:
     """Má výřez schodiště z DTM? Pak se OSM čáry schodů ořežou na ně (DTM má přednost)."""
     return stairs_path(work_dir).is_file()
@@ -672,6 +682,8 @@ def _write_sidewalks(work_dir: Path, opl_files: list, bounds: Bounds, log=None) 
         (stairs_path(work_dir), dtm_sidewalks.load_stairs_polygons, "schodiště"),
         (parking_path(work_dir), dtm_sidewalks.load_parking_polygons, "parkoviště"),
         (green_path(work_dir), dtm_sidewalks.load_green_polygons, "udržovaná zeleň"),
+        (other_cover_path(work_dir), dtm_sidewalks.load_other_cover_polygons, "jiný kryt (les, pole, louka)"),
+        (garden_cover_path(work_dir), dtm_sidewalks.load_garden_cover_polygons, "zahrady a sady"),
     ):
         xmin, ymin, xmax, ymax = bounds
         polys = []
@@ -2933,6 +2945,14 @@ def _olive_geometry(work_dir: Path, fill_rings: list[list[tuple[float, float]]])
 ZABAGED_OLIVE_LAYERS = ("ArealUceloveZastavby", "OvocnySadZahrada", "Hrbitov")
 
 
+@_job_memo
+def zabaged_yield_masks(work_dir: Path) -> dict:
+    """``osm_paths.zabaged_other_cover_geometries`` v rámci jobu jednou (maska krytu přes celou mapu)."""
+    from app.pipeline import osm_paths
+
+    return osm_paths.zabaged_other_cover_geometries(work_dir)
+
+
 def _zabaged_olive_polygons(work_dir: Path) -> list:
     """Polygony olivových vrstev ZABAGED z ``zabaged_clean.zip`` (shapely); bez archivu nebo pyshp prázdný seznam."""
     import io
@@ -2943,6 +2963,10 @@ def _zabaged_olive_polygons(work_dir: Path) -> list:
     archive = work_dir / "zabaged_clean.zip"
     if not archive.is_file():
         return []
+    # Sad pokrytý jiným krytem z OSM / DTM se nekreslí (``osm_priority_areas``), plot k němu proto nepatří.
+    from app.pipeline import oom_import
+
+    yield_masks = zabaged_yield_masks(work_dir)
     try:
         import shapefile
 
@@ -2965,7 +2989,11 @@ def _zabaged_olive_polygons(work_dir: Path) -> list:
                     except (ValueError, TypeError, AttributeError):
                         continue
                     if g.geom_type in ("Polygon", "MultiPolygon"):
-                        out.append(g if g.is_valid else g.buffer(0))
+                        g = g if g.is_valid else g.buffer(0)
+                        mask = yield_masks.get(stem)
+                        if mask is not None and g.area > 0 and mask.intersection(g).area >= oom_import.OSM_COVER_MIN * g.area:
+                            continue
+                        out.append(g)
         return out
     except Exception:  # olivy ze ZABAGED jsou doplněk podmínky, bez nich se spojuje podle ostatních zdrojů
         return []

@@ -3869,7 +3869,7 @@ def prepare_osm_paths(
     rail_tunnels: list[tuple[list[tuple[float, float]], str]] = []
     walk_tunnels: list[list[tuple[float, float]]] = []
     covered_passages: list[list[tuple[float, float]]] = []
-    natural_cover: list[list[list[tuple[float, float]]]] = []
+    natural_cover: list[tuple[list[list[tuple[float, float]]], str]] = []
     path_surfaces: list[dict] = []
     # Cesty se zpevněným povrchem (surface=asphalt, paving_stones …) – jen z nich vzniká koridor pěší zóny.
     paved_walk_lines: list[list[tuple[float, float]]] = []
@@ -3942,7 +3942,10 @@ def prepare_osm_paths(
             elif is_private_garden_tags(tags):
                 private_gardens.extend(osm_area_polygons_5514(el))
         if el.get("type") != "node" and is_natural_cover(tags):
-            natural_cover.extend(osm_area_polygons_5514(el))
+            cover_kind = (tags.get("landuse") or "").lower()
+            if cover_kind not in NATURAL_COVER_LANDUSE:
+                cover_kind = (tags.get("natural") or "").lower()
+            natural_cover.extend((rings, cover_kind) for rings in osm_area_polygons_5514(el))
             if not classified and not tags.get("highway"):
                 continue
         if classified:
@@ -4387,9 +4390,9 @@ def prepare_osm_paths(
             {
                 "type": "FeatureCollection",
                 "features": [
-                    {"type": "Feature", "properties": {"source": "osm", "natural_cover": True},
+                    {"type": "Feature", "properties": {"source": "osm", "natural_cover": True, "cover": cover},
                      "geometry": {"type": "Polygon", "coordinates": [[[x, y] for x, y in ring] for ring in rings]}}
-                    for rings in natural_cover
+                    for rings, cover in natural_cover
                 ],
             }
         ),
@@ -4792,6 +4795,10 @@ OSM_PRIORITY_POINT_LAYERS: dict[str, str] = {
     "VyznamnyStromLesik": "landmark_tree",
 }
 OSM_PRIORITY_POINT_NEAR_M = 10.0
+# ZABAGED plocha, která ustoupí jinému krytu z OSM / DTM (les, křoviny, louka, pole), když ji nepotvrzuje zahrada / sad.
+ZABAGED_COVER_YIELD_LAYERS = ("OvocnySadZahrada",)
+OSM_OTHER_COVER = frozenset({"forest", "wood", "scrub", "heath", "wetland", "meadow", "grassland", "farmland"})
+OSM_GARDEN_COVER = frozenset({"orchard", "vineyard"})
 
 
 def with_aopk_tree_priority(areas: dict, aopk_points: list[tuple[float, float]]) -> dict:
@@ -4882,6 +4889,65 @@ def osm_priority_area_geometries(work_dir: Path) -> dict:
         {layer: unary_union(near_pts[kind]) for layer, kind in OSM_PRIORITY_POINT_LAYERS.items() if near_pts.get(kind)}
     )
     return out
+
+
+def zabaged_other_cover_geometries(work_dir: Path) -> dict:
+    """{vrstva z ``ZABAGED_COVER_YIELD_LAYERS``: maska jiného krytu (OSM + DTM) mínus zahrady a sady} (jen neprázdné).
+
+    Jiný kryt = OSM ``natural_cover.geojson`` s ``cover`` v ``OSM_OTHER_COVER`` (starší joby bez ``cover`` se ignorují)
+    a DTM ``other_cover.json``; potvrzení = OSM sad / vinice / zahrada a DTM ``garden_cover.json``.
+    """
+    try:
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+
+        from . import dtm_import
+    except ImportError:
+        return {}
+
+    def _polys(rings_list) -> list:
+        out = []
+        for rings in rings_list:
+            if not rings or len(rings[0]) < 4:
+                continue
+            poly = Polygon(rings[0], rings[1:])
+            out.append(poly if poly.is_valid else poly.buffer(0))
+        return out
+
+    def _geojson(path: Path) -> list[dict]:
+        try:
+            return json.loads(path.read_text(encoding="utf-8")).get("features") or []
+        except (OSError, ValueError):
+            return []
+
+    other: list = []
+    confirm: list = []
+    for feat in _geojson(work_dir / "osm_paths" / NATURAL_COVER_NAME):
+        cover = (feat.get("properties") or {}).get("cover")
+        geom = feat.get("geometry") or {}
+        if geom.get("type") != "Polygon" or not cover:
+            continue
+        if cover in OSM_OTHER_COVER:
+            other += _polys([geom.get("coordinates")])
+        elif cover in OSM_GARDEN_COVER:
+            confirm += _polys([geom.get("coordinates")])
+    for feat in _geojson(work_dir / "osm_paths" / "features.geojson"):
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") == "garden" and geom.get("type") == "Polygon":
+            confirm += _polys([geom.get("coordinates")])
+    try:
+        other += _polys(dtm_import._load_polygons_file(dtm_import.other_cover_path(work_dir)) or [])
+        confirm += _polys(dtm_import._load_polygons_file(dtm_import.garden_cover_path(work_dir)) or [])
+    except (OSError, ValueError):
+        pass
+    if not other:
+        return {}
+    mask = unary_union(other)
+    if confirm:
+        mask = mask.difference(unary_union(confirm))
+    if mask.is_empty:
+        return {}
+    return {layer: mask for layer in ZABAGED_COVER_YIELD_LAYERS}
 
 
 def cut_water_features_by_decks(feats: list[dict], deck) -> list[dict]:

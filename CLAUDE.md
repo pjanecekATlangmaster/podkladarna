@@ -397,6 +397,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `drop_trees_in_buildings_and_olive` (po `sprint_merge_buildings`); oliva jen souvislá do 5 000 m² (`OLIVE_MAX_M2`, areál sídliště
   přes ulice ne) a strom aspoň 1,5 m od jejího kraje (`OLIVE_INSIDE_M`, aleje).
   Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
+- **ZABAGED sad / zahrada ustoupí jinému krytu** (3.28.0, Petr 2026-11-08, Lochkov ZABAGED 155439 „ostatní trvalá kultura“, OSM křoviny,
+  DTM orná půda): `OvocnySadZahrada` (oliva 520 / MTBO 527) se nekreslí, když ji z ≥ 70 % (`OSM_COVER_MIN`) kryje jiný kryt –
+  OSM `natural_cover.geojson` s `cover` v `OSM_OTHER_COVER` (les, křoviny, louka, pole, mokřad) nebo DTM `other_cover.json` (Les,
+  HospodarskyNevyuzivanaPlocha, ZemedelskaPlocha s `TypZemedelskePlochy` 1 / 3 / 5) – a nepotvrzuje ji OSM sad / vinice / zahrada
+  ani DTM `garden_cover.json` (Zahrada, zemědělská 2 / 4) (`zabaged_other_cover_geometries`, maska v `osm_priority_areas`; ploty u olivy
+  ji také neberou). Areály a hřbitovy ne (oplocený areál zůstává i s lesem uvnitř). Starší joby bez `cover` / DTM souborů beze změny.
+  Měření: Lochkov −3 z 30 sadů, Krumlov −3 ze 123, Barrandov a Harrachov 0.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

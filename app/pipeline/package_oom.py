@@ -854,6 +854,15 @@ def _prepare_oom_map(
         from app.pipeline.osm_paths import with_aopk_tree_priority
 
         osm_priority_areas = with_aopk_tree_priority(osm_priority_areas, load_aopk_tree_points(aopk_trees))
+        # ZABAGED sad / zahrada pokrytý jiným krytem z OSM nebo DTM (les, křoviny, pole) bez potvrzení zahradou se nekreslí.
+        from app.pipeline.dtm_import import zabaged_yield_masks
+
+        for _layer, _mask in zabaged_yield_masks(kp_cwd).items():
+            _prev = osm_priority_areas.get(_layer)
+            osm_priority_areas = {
+                **osm_priority_areas,
+                _layer: _mask if _prev is None else _prev.union(_mask),
+            }
         # Sprint: tok 306 pod vodní plochou 301.x se nekreslí (les / MTBO beze změny).
         osm_water_area = None
         if preset_id.startswith("sprint"):
