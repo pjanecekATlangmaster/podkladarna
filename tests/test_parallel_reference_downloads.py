@@ -78,6 +78,7 @@ def test_start_creates_future_with_force_refresh(tmp_path: Path):
         force_refresh=False,
         only=None,
         sprint_ortho=False,
+        zip_ortho=False,
     ):
         seen["force_refresh"] = force_refresh
         seen["only"] = only
@@ -243,27 +244,28 @@ def test_join_want_refs_false_skips_build(tmp_path: Path):
     assert any("vypnuto ve formuláři" in ln for ln in lines)
 
 
-def test_want_refs_false_still_bundles_ortho_and_katastr(tmp_path: Path):
-    """Vypnuté podklady: na pozadí jen ALWAYS_REFERENCE_KEYS a join je vrátí do ZIPu."""
+def test_want_refs_false_only_always_keys_without_zip_ortho(tmp_path: Path):
+    """Vypnuté podklady: na pozadí jen ALWAYS_REFERENCE_KEYS bez ortofota v ZIPu a join je vrátí."""
     write_job_grid(tmp_path, (-700005.0, -1050005.0, -700000.0, -1050000.0), resolution_m=1.0)
     seen: dict = {}
 
-    def fake_build(*_a, only=None, **_k):
+    def fake_build(*_a, only=None, zip_ortho=None, **_k):
         seen["only"] = only
-        return {"orthophoto": tmp_path / "references" / "orthophoto.jpg"}
+        seen["zip_ortho"] = zip_ortho
+        return {"katastr_vector": tmp_path / "references" / "katastr.gpkg"}
 
     lines: list[str] = []
     with patch("app.pipeline.run_job.build_reference_layers", side_effect=fake_build):
         handle = start_reference_download(
             tmp_path, tmp_path, (14.0, 50.0, 14.01, 50.01),
-            force_refresh=False, log=lines.append, with_references=False,
+            force_refresh=False, log=lines.append, with_references=False, zip_ortho=False,
         )
         built, layers = join_reference_download(
             handle, log=lines.append, want_refs=False, bbox=(14.0, 50.0, 14.01, 50.01),
             work_dir=tmp_path, job_dir=tmp_path, force_refresh=False,
         )
-    assert seen["only"] == ALWAYS_REFERENCE_KEYS
-    assert "orthophoto" in built and layers == ["orthophoto.jpg"]
+    assert seen["only"] == ALWAYS_REFERENCE_KEYS and seen["zip_ortho"] is False
+    assert "katastr_vector" in built and "orthophoto" not in built
 
 
 def test_ref_log_prefix_and_lock(tmp_path: Path):

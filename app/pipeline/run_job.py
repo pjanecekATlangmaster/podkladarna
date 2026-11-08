@@ -293,6 +293,7 @@ def start_reference_download(
     ortho_prefetch_bounds: tuple[float, float, float, float] | None = None,
     sprint_ortho: bool = False,
     sentinel: bool = False,
+    zip_ortho: bool = False,
 ) -> ReferenceDownload | None:
     """Spustí sériové ``build_reference_layers`` na pozadí (po ``write_job_grid``).
 
@@ -300,11 +301,12 @@ def start_reference_download(
     ČÚZK/vrstvy uvnitř zůstávají sériové — paralelní je jen overlap s hlavním buildem.
     Když je zadané ``shade_bounds``, stáhne se v témže vlákně nejdřív hillshade
     jobu (``work/shade``) a referenční hillshade z něj vznikne bez dalšího stahování.
-    ``with_references=False`` (podklady vypnuté ve formuláři): jen hillshade a
-    ``ALWAYS_REFERENCE_KEYS`` (katastr) – ty jdou do ZIPu vždy.
+    ``with_references=False`` (podklady vypnuté ve formuláři): jen hillshade jobu a
+    ``ALWAYS_REFERENCE_KEYS`` (vektorový katastr, ortofoto sprintu mimo podklady) – žádný PNG podklad.
     ``ortho_prefetch_bounds`` (les a MTBO): po stínování ortofoto 0,5 m pro louku / 403
     (``ortho_rough``), ať ho vegetace nestahuje souběžně s podkladem.
     ``sentinel``: po podkladech snímky Sentinel-2 do ``references`` (i s vypnutými podklady).
+    ``zip_ortho``: ortofoto 0,125 m do podkladů a ZIPu (zapnuté referenční podklady).
     """
     georef = ensure_georef_template(work_dir, prefer_preview=False)
     if georef is None:
@@ -314,13 +316,13 @@ def start_reference_download(
     ref_log = background_log(log, REF_LOG_LABEL)
     if with_references:
         ref_log(
-            "Start stahování na pozadí (stínování, OSM, ZTM, katastr); "
+            "Start stahování na pozadí (stínování, ortofoto, OSM, ZTM, katastr); "
             "výsledek se převezme v kroku „referenční podklady“."
         )
     else:
         ref_log(
-            "Start stahování na pozadí (stínování, katastr; ostatní "
-            "referenční podklady vypnuté)."
+            "Start stahování na pozadí (stínování, vektorový katastr; "
+            "referenční PNG podklady vypnuté)."
         )
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ref-dl")
     shade_done = threading.Event() if shade_bounds is not None else None
@@ -369,6 +371,7 @@ def start_reference_download(
                 force_refresh=force_refresh,
                 only=None if with_references else ALWAYS_REFERENCE_KEYS,
                 sprint_ortho=sprint_ortho,
+                zip_ortho=zip_ortho,
                 **extra,
             )
         except Exception as exc:
@@ -395,6 +398,7 @@ def join_reference_download(
     progress: JobProgress | None = None,
     sprint_ortho: bool = False,
     sentinel: bool = False,
+    zip_ortho: bool = False,
 ) -> tuple[dict[str, Path], list[str]]:
     """Tvrdý join před prepare_oom_map. Nespuští download dvakrát, když future běží.
 
@@ -411,7 +415,7 @@ def join_reference_download(
             log("Referenční podklady: vypnuto ve formuláři")
         return built_refs, []
     if not want_refs:
-        log("Referenční podklady: vypnuto ve formuláři – přibalím jen katastr")
+        log("Referenční podklady: vypnuto ve formuláři – bez PNG podkladů, přibalím jen vektorový katastr")
     if not bbox:
         return built_refs, []
 
@@ -439,6 +443,7 @@ def join_reference_download(
                 log=log,
                 force_refresh=force_refresh,
                 sprint_ortho=sprint_ortho,
+                zip_ortho=zip_ortho,
             )
         except Exception as exc:
             log_issue(log, f"Referenční podklady: přeskočeno ({exc})")
@@ -521,7 +526,7 @@ def run_job_pipeline(
             bbox=bbox,
             reused_from=reused_from,
             want_zip=want_zip,
-            want_refs=True,  # ortofoto a katastr jdou do ZIPu vždy
+            want_refs=True,  # krok podkladů běží vždy (vektorový katastr, ortofoto sprintu)
         ),
     )
     progress.announce_plan()
@@ -703,6 +708,7 @@ def run_job_pipeline(
                 ortho_prefetch_bounds=ortho_prefetch_bounds(grid_bounds, preset_id, options),
                 sprint_ortho=job_has_sprint(preset_id, options),
                 sentinel=bool(options.get("output_sentinel")),
+                zip_ortho=want_refs,
             )
 
     if reused_from and merged_existing:
@@ -1066,6 +1072,7 @@ def _package_output(
                     progress=join_progress,
                     sprint_ortho=job_has_sprint(preset_id, options),
                     sentinel=bool(options.get("output_sentinel")),
+                    zip_ortho=want_refs,
                 )
             return refs_joined["refs"][0]
 
@@ -1321,7 +1328,8 @@ def _package_output(
             include_zabaged_archive=bool(
                 options.get("output_zabaged_clean", False) and zabaged
             ),
-            include_png=bool(options.get("output_png", True)),
+            # Stínování v preview/ je PNG podklad – jen se zapnutými referenčními podklady.
+            include_png=bool(options.get("output_png", True)) and want_refs,
             ruian_buildings=ruian_path,
             include_dxf=bool(options.get("output_dxf", True)),
             include_cliffs=cliff_symbol != "off",

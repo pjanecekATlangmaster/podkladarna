@@ -151,19 +151,20 @@
           <h3 class="form-section-title">Podklady k mapě</h3>
           <label class="checkbox-row">
             <input type="checkbox" name="output_references" id="output_references" value="1" checked aria-describedby="references-hint" />
-            Referenční šablony (OSM, ZTM, katastr, hillshade, DMP, Sentinel-2)
+            Referenční šablony (ortofoto, OSM, ZTM, katastr, hillshade, DMP, Sentinel-2)
           </label>
           <div class="hint" id="references-hint">
             Doporučeno: rastrové podklady pro kontrolu a dokreslení mapy, v Mapperu se otevřou jako šablony.
             Prodlouží generování<span id="references-estimate"></span> a zvětší ZIP.
             <details class="hint-more"><summary>Více</summary>
-              Přibalí se OSM, ZTM (Základní mapa ČR), katastr, stínovaný reliéf (hillshade) a výšky povrchu DMP,
+              Přibalí se ortofoto ČÚZK v plném rozlišení (12,5 cm/px), OSM, ZTM (Základní mapa ČR), katastr,
+              stínovaný reliéf (hillshade) a výšky povrchu DMP,
               georeferencované jako mapa, a družicové snímky Copernicus Sentinel-2 (10 m/px, pravé barvy) s datem snímku v názvu souboru:
               nejnovější bezoblačný a starší zhruba po 3 měsících za poslední půlrok, jsou-li bez mraků.
               Ukážou změny po ortofotu a LiDARu (paseky, polomy, nové stavby); v Mapperu jsou jako skryté šablony,
               do kresby mapy nevstupují.
-              Katastr a stínování se přibalí vždy. Ortofoto se do ZIPu nepřibaluje
-              (velikost), v Mapperu ho lze připojit jako WMS ČÚZK. Vypnout se vyplatí při opakovaném ladění
+              Ortofoto ZIP výrazně zvětší (desítky až stovky MB). Bez šablon se nepřibalí žádný rastrový
+              podklad, jen vektorový katastr. Vypnout se vyplatí při opakovaném ladění
               téhož výřezu, kdy podklady už máte.
             </details>
           </div>
