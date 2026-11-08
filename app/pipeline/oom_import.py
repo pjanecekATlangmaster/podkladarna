@@ -66,6 +66,10 @@ _DTM_CLIPPED_UNDER_LAYERS = frozenset({"Tunel:silnice", "Podjezd:silnice"})
 _FOREST_ZABAGED_DROP_WITHOUT_OSM = frozenset({"Pesina"})
 
 
+# ZABAGED aleje se čárou 416 nekreslí nikdy (Petr 2026-11-08): kreslí je ``tree_rows`` jako body 418; vrstva se dál stahuje.
+ZABAGED_TREE_ROW_LAYERS = frozenset({"LiniovaVegetace"})
+
+
 def forest_drops_zabaged_without_osm(layer_name: str, preset_id: str, has_osm: bool) -> bool:
     """True, když se ZABAGED vrstva bez OSM protějšku v lese / MTBO vůbec nekreslí."""
     return has_osm and not preset_id.startswith("sprint") and layer_name in _FOREST_ZABAGED_DROP_WITHOUT_OSM
@@ -1486,7 +1490,7 @@ def _build_zabaged_object_parts(
         # Metro (ZABAGED an012) a stanice metra do orienťáckého podkladu nepatří.
         if layer_name in {"Metro", "StaniceMetra"}:
             continue
-        if layer_name in skip_layers:
+        if layer_name in skip_layers or layer_name in ZABAGED_TREE_ROW_LAYERS:
             continue
         if omit_path_layers and layer_name in ZABAGED_OMIT_PATH_LAYERS:
             continue

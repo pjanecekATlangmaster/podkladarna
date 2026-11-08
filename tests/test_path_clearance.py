@@ -428,3 +428,16 @@ def test_cross_on_road_axis_moves_perpendicular(tmp_path, roads_y, y, expect):
     assert abs(x - px) < 5  # posun jen kolmo k ose
     assert Point(x, yy).distance(LineString([(-1e5, 0), (1e5, 0)])) >= half + 300 + 200 - 5  # pás + kolečko + mezera
     assert math.hypot(x - px, yy - py) <= 1500 + 5
+
+
+@pytest.mark.parametrize(
+    ("part_name", "moves"),
+    [("Aleje (stromořadí, 418)", True), ("jiný strom", False)],  # jen body 418 aleje se odsouvají, ostatní 417 / 418 ne
+)
+def test_tree_row_point_moves_off_road_other_tree_points_stay(tmp_path, part_name, moves):
+    work = _work(tmp_path)
+    px, py = _to_map([(0, 1)])[0]
+    point = _point_object(symbol_index_for_code(PRESET, SCALE, "418"), px, py)
+    parts = [OomObjectPart(name=part_name, objects_xml=point, count=1)]
+    out = _objects(displace_objects_from_paths(parts, work, **KW))
+    assert (out[0] != point.strip()) == moves

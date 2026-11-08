@@ -1222,6 +1222,21 @@ def _prepare_oom_map(
     from app.pipeline.oom_import import zabaged_roads_off_osm_lines
 
     object_parts = zabaged_roads_off_osm_lines(object_parts, preset_id=preset_id, scale=scale)
+    # Aleje (ZABAGED LiniovaVegetace, OSM tree_row): ne čárou 416, ale body 418 ve středech stromů (Petr 2026-11-08);
+    # nad hotovou mapou, aby šlo poznat zelenou / bílou pod alejí; odsun od cest je hned potom.
+    from app.pipeline.tree_rows import add_tree_row_parts
+
+    object_parts = add_tree_row_parts(
+        object_parts,
+        kp_cwd,
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+        clip_bounds=vector_clip_bounds,
+        log=log,
+    )
     object_parts = displace_objects_from_paths(
         object_parts,
         kp_cwd,
