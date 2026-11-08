@@ -37,7 +37,8 @@ MAX_PX = 8000
 BLOCK_PX = 500
 OSM_TILE_URL = "https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png"
 OSM_MAX_ZOOM = 18
-OSM_MPP = 0.5
+# OSM maximální zoom 1 m/px (dlaždice z17): 0,5 m (z18, ~400 dlaždic) Mapper u Petra nenačetl (2026-11-08).
+OSM_MPP = 1.0
 # Dvě varianty každé vrstvy (Petr 2026-11-08): maximální zoom (nejjemnější rozlišení do ``MAX_PX``) a střední
 # (4× hrubší, načte se rychle). Mapper šablonu nezoomuje – načte jeden obrázek v pevném rozlišení.
 # (přípona klíče a souboru, násobek m/px, přípona popisku)
@@ -140,7 +141,8 @@ def osm_tms_xml(zoom: int) -> str:
         "  <BlockSizeX>256</BlockSizeX>\n"
         "  <BlockSizeY>256</BlockSizeY>\n"
         "  <BandsCount>3</BandsCount>\n"
-        "  <MaxConnections>2</MaxConnections>\n"
+        "  <MaxConnections>4</MaxConnections>\n"
+        "  <Timeout>60</Timeout>\n"
         f"  <UserAgent>{html.escape(USER_AGENT)}</UserAgent>\n"
         "  <ZeroBlockHttpCodes>204,404</ZeroBlockHttpCodes>\n"
         "</GDAL_WMS>\n"
