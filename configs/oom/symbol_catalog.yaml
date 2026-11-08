@@ -571,7 +571,7 @@ isom:
     review: false
   - ocad_code: "418.0"
     cz_name: "Výrazný keř nebo strom"
-    generator_codes: []
+    generator_codes: ["418"]
     geom: point
     review: false
   - ocad_code: "419.0"
@@ -1487,7 +1487,7 @@ sprint:
     review: false
   - ocad_code: "418.0"
     cz_name: "Výrazný keř nebo malý strom"
-    generator_codes: []
+    generator_codes: ["418"]
     geom: point
     review: false
   - ocad_code: "419.0"

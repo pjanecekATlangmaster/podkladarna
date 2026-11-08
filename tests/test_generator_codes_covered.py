@@ -52,6 +52,7 @@ _KIND_GEOM = {
     **{k: "line" for k in (
         "fence", "wall", "hedge", "power_line", "power_line_major", "cliff",
     )},
+    "tree_row": "point",  # alej se kreslí body 418 (``tree_rows``)
     **{k: "area" for k in (
         "wetland", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "pitch_open", "parking",
         "pedestrian_area", "platform", "water_well_building", "building", "bare_rock",

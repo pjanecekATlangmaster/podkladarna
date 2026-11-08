@@ -29,10 +29,13 @@ from pathlib import Path
 
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import MAP_COORD_CLOSE_POINT, MAP_COORD_CURVE_START, MAP_COORD_HOLE_POINT, OomObjectPart, _fmt
+from app.pipeline.tree_rows import TREE_ROW_PART_NAME
 
 # Odsouvané symboly (hlavní číslo kódu v sadě; ISOM 2017 i ISMTBOM 2022 číslují umělé objekty stejně).
 MOVED_MAJORS = frozenset({513, 514, 515, 516, 517, 518, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530, 531})
 OLIVE_MAJOR = 520
+# Části mapy, jejichž body se odsouvají od cest bez ohledu na hlavní číslo symbolu (body 418 aleje, ``tree_rows``).
+MOVED_PART_NAMES = frozenset({TREE_ROW_PART_NAME})
 # Symboly cest, od kterých se odsouvá (silnice, cesty, pěšiny, schody; MTBO navíc 8xx).
 PATH_MAJORS = frozenset({502, 503, 504, 505, 506, 507, 508, 532})
 # Srázy (ISOM 104 hliněný sráz, 201 nepřekonatelný, 202 překonatelný; ISMTBOM stejně): kvůli čárkám symbolu se nesmí
@@ -754,13 +757,13 @@ def displace_objects_from_paths(
     except Exception:
         paved_union = None
 
-    def move_object(match: re.Match) -> str:
+    def move_object(match: re.Match, by_part: bool = False) -> str:
         from shapely.geometry import Point
         from shapely.geometry import box as shp_box
 
         head, otype, sym, body, tail = match.groups()
         major, kind = info.get(int(sym), (0, "other"))
-        if major not in MOVED_MAJORS and major not in CLIFF_MAJORS:
+        if major not in MOVED_MAJORS and major not in CLIFF_MAJORS and not by_part:
             return match.group(0)
         cm = _COORDS_RE.search(body)
         if not cm:
@@ -843,7 +846,8 @@ def displace_objects_from_paths(
 
     out = []
     for part in parts:
-        xml = _OBJECT_RE.sub(move_object, part.objects_xml)
+        by_part = part.name in MOVED_PART_NAMES
+        xml = _OBJECT_RE.sub(lambda m, _bp=by_part: move_object(m, _bp), part.objects_xml)
         if xml == part.objects_xml:
             out.append(part)
         else:

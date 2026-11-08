@@ -559,6 +559,8 @@ def _overpass_ql(
     parts.extend(
         [
             f'way["barrier"~"^(fence|wall|hedge|retaining_wall)$"]({bbox});',
+            # Aleje (stromořadí) – kreslí je až ``tree_rows`` (body 418 podle CHM), Petr 2026-11-08.
+            f'way["natural"="tree_row"]({bbox});',
             # Areály (recreation_ground…) – plot po vnějším obrysu, ne výplň.
             f'way["landuse"~"^({"|".join(sorted(_FENCED_COMPOUND_LANDUSE))})$"]({bbox});',
             f'relation["type"="multipolygon"]["landuse"~"^({"|".join(sorted(_FENCED_COMPOUND_LANDUSE))})$"]({bbox});',
@@ -1118,7 +1120,7 @@ _POINT_FEATURE_KINDS = frozenset(
     }
 )
 _LINE_FEATURE_KINDS = frozenset(
-    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff"}
+    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "tree_row"}
 )
 # Sloupy/stožáry OSM → DashPoint na vedení (MapCoord flag 32).
 POWER_SUPPORT_MATCH_M = 1.5
@@ -1619,6 +1621,8 @@ def classify_osm_feature(
         return "shelter", "522"
     if natural == "tree" and denotation in {"landmark", "natural_monument"}:
         return "landmark_tree", "417"
+    if natural == "tree_row" and not is_node:
+        return "tree_row", "418"  # alej: čárou se nekreslí, body 418 dělá ``tree_rows``
     if information == "guidepost" and is_node:
         return "guidepost", "531"
     if (
@@ -4445,6 +4449,7 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "shelter": ("OSM_pristresky", "přístřešky", "522"),
     "memorial": ("OSM_pomniky", "pomníky", "526"),
     "landmark_tree": ("OSM_stromy", "významné stromy", "417"),
+    "tree_row": ("OSM_aleje", "aleje (stromořadí)", "418"),
     "water_tower": ("OSM_veze", "vodojemy / vysoké věže", "524"),
     "hunting_stand": ("OSM_posedy", "posedy", "531"),
     "info_board": ("OSM_tabule", "informační tabule", "531"),
@@ -8629,6 +8634,8 @@ def build_osm_feature_parts(
             continue
         if sprint_skips_barrier_point(preset_id, kind, props):
             continue
+        if kind == "tree_row":
+            continue  # alej kreslí až ``tree_rows.add_tree_row_parts`` (body 418 podle CHM)
         code = feature_oom_code(kind, preset_id, str(props.get("oom_code") or ""))
         if not code:
             continue
