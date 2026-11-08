@@ -55,7 +55,7 @@ _CLIFF_DXF_NAMES = frozenset(
 )
 _TAG_SIDE_OFFSET_M = 2.0
 # Čáry těchto vrstev ZABAGED se ořežou o plochy chodníků a silnic z DTM (nekreslí se podruhé).
-_DTM_CLIPPED_PATH_LAYERS = frozenset({"Ulice", "SilniceDalnice", "Cesta", "Pesina"})
+_DTM_CLIPPED_PATH_LAYERS = frozenset({"Ulice", "SilniceDalnice", "SilniceNeevidovana", "Cesta", "Pesina"})
 # Les / MTBO: silniční most ze ZABAGED (vrstva Most, road-path) se dedupuje proti OSM silnicím včetně mostů
 # (way/4878104: ZABAGED Most 252 m nakreslený souběžně s OSM mostem). Železniční mosty ne.
 _ROAD_BRIDGE_LAYER = "Most:silnice"
@@ -467,7 +467,7 @@ class OomObjectPart:
     count: int
 
 
-ZABAGED_ROAD_PARTS = frozenset({"ZABAGED – Ulice", "ZABAGED – SilniceDalnice"})
+ZABAGED_ROAD_PARTS = frozenset({"ZABAGED – Ulice", "ZABAGED – SilniceDalnice", "ZABAGED – SilniceNeevidovana"})
 _LINE_OBJECT_RE = re.compile(r'<object type="1" symbol="(-?\d+)"[^>]*>.*?</object>', re.S)
 _LINE_COORDS_RE = re.compile(r"<coords[^>]*>(.*?)</coords>", re.S)
 
@@ -1104,8 +1104,13 @@ def _build_zabaged_object_parts(
     cliff_work_dir: Path | None = None,
     road_join_band=None,
     prefer_osm_wall_lines: list[list[tuple[float, float]]] | None = None,
+    log=None,
+    ortho_bounds: Bounds | None = None,
 ) -> list[OomObjectPart]:
-    """``prefer_osm_wall_lines``: OSM zdi; ZABAGED Zed na téže čáře (do ``ZABAGED_WALL_MATCH_M``) se nekreslí.
+    """``log``: zápis do logu jobu (souhrn potvrzení ZABAGED Silnice neevidovaná).
+    ``ortho_bounds``: obálka, pro kterou se načte ortofoto k potvrzení Silnice neevidovaná (výřez mapy s malým
+    okrajem); bez ní ``clip_bounds`` (vektorový výřez bývá o 1 km větší).
+    ``prefer_osm_wall_lines``: OSM zdi; ZABAGED Zed na téže čáře (do ``ZABAGED_WALL_MATCH_M``) se nekreslí.
     ``dtm_cover``: plochy chodníků a silnic z DTM (shapely); čáry cest ZABAGED se o ně ořežou.
     ``road_join_band`` (les / MTBO mixed): pás kresby OSM silnic; ulice s výplní, která na něm končí, se dotáhne do
     výplně OSM silnice (``_join_into_road_band``).
@@ -1343,11 +1348,13 @@ def _build_zabaged_object_parts(
         return out
 
     # Les / MTBO (mixed = OSM + detaily ze ZABAGED): i ulice ustoupí OSM; sprint beze změny.
-    osm_first_layers = ZABAGED_PATH_LAYERS_OSM_FIRST | (
+    # SilniceNeevidovana ustoupí OSM i ve sprintu: není v ``ZABAGED_PATH_LAYERS_PRIORITY`` (nepotvrzená čára nesmí
+    # ořezat OSM), takže OSM track vedle ní by jinak zůstal a kreslila by se dvakrát.
+    osm_first_layers = ZABAGED_PATH_LAYERS_OSM_FIRST | frozenset({"SilniceNeevidovana"}) | (
         frozenset() if preset_id.startswith("sprint") else frozenset({"Ulice", "SilniceDalnice", _ROAD_BRIDGE_LAYER})
     )
 
-    road_layers = frozenset({"Ulice", "SilniceDalnice", _ROAD_BRIDGE_LAYER})
+    road_layers = frozenset({"Ulice", "SilniceDalnice", "SilniceNeevidovana", _ROAD_BRIDGE_LAYER})
 
     def _major_road(code: str | None) -> bool:
         from app.pipeline.osm_paths import is_major_road_code
@@ -1375,6 +1382,17 @@ def _build_zabaged_object_parts(
         return [seg for pts in line_parts for seg in end_at_edge(pts, zone) if len(seg) >= 2]
 
     wall_index = centerline_index(prefer_osm_wall_lines) if prefer_osm_wall_lines else None
+    unreg_confirmer: list = []
+
+    def _confirm_unregistered(line_parts: list[list[tuple[float, float]]]) -> list[list[tuple[float, float]]]:
+        """ZABAGED Silnice neevidovaná jen tam, kde ji potvrdí DTM (plocha / osa DI) nebo ortofoto."""
+        if not unreg_confirmer:
+            from app.pipeline.zabaged_unregistered_roads import UnregisteredRoadConfirmer
+
+            unreg_confirmer.append(UnregisteredRoadConfirmer(
+                    cliff_work_dir or work_dir, log=log, bounds=ortho_bounds or clip_bounds
+                ))
+        return unreg_confirmer[0].confirm(line_parts)
 
     def _clip_on_lines(line_parts, index, match_m: float, remnant_min_m: float):
         """Kusy ZABAGED čar mimo souběh s čarami indexu (do ``match_m``); krátký zbytek po ořezu se zahodí."""
@@ -1405,6 +1423,8 @@ def _build_zabaged_object_parts(
                 return line_parts
             # Zeď ZABAGED na čáře OSM zdi je táž zeď (OSM je základ); souběh dál než pár metrů zůstává.
             return _clip_on_lines(line_parts, wall_index, ZABAGED_WALL_MATCH_M, ZABAGED_WALL_REMNANT_MM * scale / 1000.0)
+        if layer_name == "SilniceNeevidovana":
+            line_parts = _confirm_unregistered(line_parts)
         if dtm_cover is not None and layer_name in _DTM_CLIPPED_PATH_LAYERS:
             from app.pipeline.dtm_sidewalks import clip_outside
 
@@ -1617,6 +1637,9 @@ def _build_zabaged_object_parts(
                 elif preset_id.startswith("sprint") and flt_layer == _ROAD_BRIDGE_LAYER and osm_ground_lines:
                     # Sprint: silniční most bez protějšku v OSM (``_filter_vs_osm``)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif layer_name == "SilniceNeevidovana":
+                    # Sprint bez ploch z DTM: jen potvrzené úseky (``_filter_vs_osm``), ne původní geometrie.
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif layer_name in ZABAGED_RAIL_LAYERS and _rail_zone(layer_name) is not None:
                     # Trať v tunelu (OSM tunnel / layer < 0) se nekreslí, jen vjezd (les, MTBO i sprint).
                     from app.pipeline.dtm_sidewalks import clip_outside
@@ -1761,6 +1784,9 @@ def _build_zabaged_object_parts(
                 elif preset_id.startswith("sprint") and flt_layer == _ROAD_BRIDGE_LAYER and osm_ground_lines:
                     # Sprint: silniční most bez protějšku v OSM (``_filter_vs_osm``)
                     objects.extend(_emit_line_objects(line_parts, symbol_index))
+                elif layer_name == "SilniceNeevidovana":
+                    # Sprint bez ploch z DTM: jen potvrzené úseky (``_filter_vs_osm``), ne původní geometrie.
+                    objects.extend(_emit_line_objects(line_parts, symbol_index))
                 elif layer_name in ZABAGED_RAIL_LAYERS and _rail_zone(layer_name) is not None:
                     # Trať v tunelu (OSM tunnel / layer < 0) se nekreslí, jen vjezd (les, MTBO i sprint).
                     from app.pipeline.dtm_sidewalks import clip_outside
@@ -1814,6 +1840,8 @@ def _build_zabaged_object_parts(
                     count=len(objects),
                 )
             )
+    if unreg_confirmer and log:
+        log(unreg_confirmer[0].summary())
     if courtyard_objects:
         parts.append(
             OomObjectPart(

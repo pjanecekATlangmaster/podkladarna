@@ -43,6 +43,7 @@ GREEN_NAME = "green.json"
 OTHER_COVER_NAME = "other_cover.json"
 GARDEN_COVER_NAME = "garden_cover.json"
 DECKS_NAME = "decks.json"
+ROAD_AXES_NAME = "road_axes.json"
 # OSM budova, jejíž aspoň tento podíl plochy kryjí budovy z DTM, je duplicita (DTM má přednost).
 BUILDING_TWIN_SHARE = 0.5
 # Budovy z DTM, jejichž hrany jsou blíž než 2 × tato hodnota (m), se sloučí do jednoho objektu.
@@ -250,8 +251,11 @@ def prepare_dtm_fences(
     west, south, east, north = bbox_wgs84
     units: list = []
     packages = dtm_sources.find_packages_for_bbox(
-        bbox_wgs84, sets=(dtm_sources.SET_KR, dtm_sources.SET_OPL), force=force, log=log, units_out=units
+        bbox_wgs84, sets=(dtm_sources.SET_KR, dtm_sources.SET_OPL, dtm_sources.SET_DI), force=force, log=log, units_out=units
     )
+    # Sada DI (osy komunikací) je jen doplněk pro potvrzení ZABAGED Silnice neevidovaná; mimo hlavní seznam balíků.
+    di_packages = [p for p in packages if p.set_name == dtm_sources.SET_DI]
+    packages = [p for p in packages if p.set_name != dtm_sources.SET_DI]
     if not packages:
         if log:
             log("DTM: pro výřez nejsou datové sady (ploty zůstanou z OSM)")
@@ -343,6 +347,11 @@ def prepare_dtm_fences(
         if log:
             log(f"DTM: mosty přeskočeny ({type(exc).__name__}: {exc})")
     try:
+        _write_road_axes(work_dir, di_packages, bounds, log)
+    except Exception as exc:  # osy komunikací jsou doplněk, job nesmí spadnout
+        if log:
+            log(f"DTM: osy komunikací (DI) přeskočeny ({type(exc).__name__}: {exc})")
+    try:
         _write_sidewalks(work_dir, area_opl_files, bounds, log)
     except Exception as exc:  # chodníky z DTM jsou doplněk, kreslí se i z OSM
         if log:
@@ -389,6 +398,60 @@ def sidewalks_path(work_dir: Path) -> Path:
 
 def roads_path(work_dir: Path) -> Path:
     return dtm_dir(work_dir) / ROADS_NAME
+
+
+def road_axes_path(work_dir: Path) -> Path:
+    return dtm_dir(work_dir) / ROAD_AXES_NAME
+
+
+def load_road_axes(di_zip) -> list[dict]:
+    """Osy pozemních komunikací (``OsaPozemniKomunikace``) z balíku DI: ``[{"id", "oznaceni", "kategorie", "coords"}, …]``."""
+    from app.pipeline.jvf_reader import iter_records
+
+    out = []
+    for rec in iter_records(di_zip, {"OsaPozemniKomunikace"}):
+        if rec.geom_type != "LineString" or len(rec.coords) < 2:
+            continue
+        out.append(
+            {
+                "id": rec.attrs.get("ID", ""),
+                "oznaceni": rec.attrs.get("OznaceniKomunikace", ""),
+                "kategorie": rec.attrs.get("KategoriePozemniKomunikace", ""),
+                "coords": [(float(c[0]), float(c[1])) for c in rec.coords],
+            }
+        )
+    return out
+
+
+def _write_road_axes(work_dir: Path, di_packages: list, bounds: Bounds, log=None) -> None:
+    """Osy pozemních komunikací z DI zasahující do výřezu → ``dtm/road_axes.json``; selhání stažení jen do logu."""
+    dest = road_axes_path(work_dir)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.unlink(missing_ok=True)
+    if not di_packages:
+        return
+    try:
+        files = dtm_sources.download_packages(di_packages, log=log)
+    except Exception as exc:  # DI je doplněk; ZABAGED Silnice neevidovaná se pak potvrdí plochou / ortofotem
+        if log:
+            log(f"DTM: balík DI (osy komunikací) se nepodařilo stáhnout ({type(exc).__name__}: {exc})")
+        return
+    xmin, ymin, xmax, ymax = bounds
+    lines: list[list[tuple[float, float]]] = []
+    ids: list[str] = []
+    for pkg in di_packages:
+        for ax in load_road_axes(files[pkg.filename]):
+            xs = [p[0] for p in ax["coords"]]
+            ys = [p[1] for p in ax["coords"]]
+            if max(xs) < xmin or min(xs) > xmax or max(ys) < ymin or min(ys) > ymax:
+                continue
+            lines.append(ax["coords"])
+            ids.append(ax["id"])
+    if not lines:
+        return
+    dest.write_text(json.dumps({"lines": [[list(p) for p in line] for line in lines], "ids": ids}), encoding="utf-8")
+    if log:
+        log(f"DTM osy komunikací (DI): {len(lines)} os")
 
 
 def decks_path(work_dir: Path) -> Path:

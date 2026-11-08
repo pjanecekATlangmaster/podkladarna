@@ -249,6 +249,7 @@ ZABAGED_PATH_LAYERS = frozenset(
         "Pesina",
         "Ulice",
         "SilniceDalnice",
+        "SilniceNeevidovana",
         "Lavka",
         "Most",
         "Podjezd",
@@ -6191,7 +6192,7 @@ DTM_ONLY_ROAD_MIN_LEN_M = 15.0
 # Silnice jen v DTM se bere jen tam, kde ji opravdu kreslí ZABAGED (osa Ulice / SilniceDalnice do tolika m od plochy);
 # jinak by se zahodil chodník podél silnice, kterou mapa vůbec nekreslí (D23: pěšina 216 m u 50.024969, 14.380944).
 DTM_ONLY_ROAD_ZABAGED_M = 6.0
-_ZABAGED_ROAD_LAYERS = ("Ulice", "SilniceDalnice")
+_ZABAGED_ROAD_LAYERS = ("Ulice", "SilniceDalnice", "SilniceNeevidovana")
 
 
 def _zabaged_road_lines(archive: Path):

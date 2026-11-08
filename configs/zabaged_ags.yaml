@@ -16,6 +16,7 @@ layers:
   VodniPlocha: 132
   VodniTok: 93
   SilniceDalnice: 79
+  SilniceNeevidovana: 80
   Cesta: 83
   Most: 73
   Ulice: 84
