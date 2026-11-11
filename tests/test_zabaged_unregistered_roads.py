@@ -49,6 +49,14 @@ def test_confirm_line_sources(in_dtm, ortho, kept_m, dtm_m, ortho_m):
     assert st["dropped"] == pytest.approx(100 - kept_m, abs=3)
 
 
+@pytest.mark.parametrize("length_m", [2.0, 9.0, 16.0])
+def test_confirm_line_shorter_than_ortho_window(length_m):
+    """Čára kratší než okno ortofota nespadne (dřív ValueError broadcast, job Zvoles) a pod 20 m se nekreslí."""
+    pieces, st = zur.confirm_line([(0.0, 0.0), (length_m, 0.0)], None, _ortho(-1, 101))
+    assert pieces == []
+    assert st["dropped"] == pytest.approx(length_m, abs=zur.SAMPLE_M)
+
+
 def test_confirm_line_closes_short_gap_and_keeps_one_piece():
     # DTM pokrývá 0–40 a 52–100 (mezera 12 m < 15 m) → jeden souvislý kus
     both = lambda xs, ys: _band(-1, 40.5)(xs, ys) | _band(52, 101)(xs, ys)  # noqa: E731

@@ -109,10 +109,11 @@ DMVS_ZPS_PLOCHY_WMS = "https://dmvs.cuzk.gov.cz/api/wms/dtm_zps_plochy_bar"
 DMVS_ZPS_PLOCHY_LAYER = "dtm_zps_plochy_bar"
 DMVS_ZPS_LINIE_WMS = "https://dmvs.cuzk.gov.cz/api/wms/dtm_zps_linie_body"
 DMVS_ZPS_LINIE_LAYER = "dtm_zps_linie_body"
+# ČÚZK 2026-11 přejmenovala službu dmp_obrazova_korelace na dmp (stará adresa vrací 404).
 DMPOK_WMS = (
-    "https://ags.cuzk.gov.cz/arcgis2/services/dmp_obrazova_korelace/ImageServer/WMSServer"
+    "https://ags.cuzk.gov.cz/arcgis2/services/dmp/ImageServer/WMSServer"
 )
-DMPOK_PREVIEW_LAYER = "dmp_obrazova_korelace:TintedHillshadeContinuous"
+DMPOK_PREVIEW_LAYER = "dmp:TintedHillshadeContinuous"
 # (klíč v built_refs, WMS layer, výstupní soubor, popisek OOM, průhlednost, viditelná v OOM)
 HILLSHADE_VARIANTS: tuple[tuple[str, str, str, str, float, bool], ...] = (
     (
