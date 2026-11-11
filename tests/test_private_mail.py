@@ -755,8 +755,9 @@ def test_api_private_live_in_jobs_list(client, monkeypatch, data_dir):
     assert listed["private_live"]["started_at"]
 
 
-def test_notify_private_failure_mails_once_with_bcc(tmp_path, monkeypatch):
-    """Privátní job ve stavu failed: e-mail s důvodem, skrytá kopie provozovateli, jen jednou."""
+def test_notify_private_failure_mails_once_with_operator_copy(tmp_path, monkeypatch):
+    """Privátní job ve stavu failed: e-mail s důvodem a odkazem na job, kopie provozovateli
+    s koncem logu (zadavatel ho nedostane), jen jednou."""
     import app.job_worker as job_worker
 
     monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
@@ -765,6 +766,7 @@ def test_notify_private_failure_mails_once_with_bcc(tmp_path, monkeypatch):
     (tmp_path / "jobs").mkdir()
     db.init_db()
     monkeypatch.setattr(job_worker.app_settings, "FEEDBACK_TO", "petr@example.com")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://pk.example")
     sent = []
     monkeypatch.setattr(
         job_worker, "send_mail", lambda to, subj, body, **kw: sent.append((to, subj, body, kw))
@@ -776,13 +778,21 @@ def test_notify_private_failure_mails_once_with_bcc(tmp_path, monkeypatch):
     for job in (priv, pub):
         db.update_job(job["id"], status="failed", phase="error", error="Job trval příliš dlouho.")
     db.update_job(running["id"], status="running")
+    db.append_log(priv["id"], "CHYBA: ReadTimeout zdroje")
+    db.append_log(priv["id"], "Traceback (most recent call last): ...")
 
     for job in (priv, priv, pub, running):
         job_worker.notify_private_failure(job["id"])
 
-    assert len(sent) == 1
+    assert [s[0] for s in sent] == ["u@example.com", "petr@example.com"]
     to, subject, body, kw = sent[0]
-    assert to == "u@example.com"
-    assert kw["bcc"] == "petr@example.com"
+    assert not kw.get("bcc")
     assert "Most" in subject and "nepodařilo" in subject
     assert "Důvod: Job trval příliš dlouho." in body
+    job_url = f"https://pk.example/?job={priv['id']}"
+    assert job_url in body
+    assert "Pro provozovatele" not in body and "ReadTimeout" not in body
+    _, op_subject, op_body, _ = sent[1]
+    assert op_subject.startswith("[kopie]")
+    assert job_url in op_body
+    assert "CHYBA: ReadTimeout zdroje" in op_body and "Traceback" in op_body
