@@ -99,6 +99,8 @@ if ($NoPush) {
     $url = if ($env:TEST_B_URL) { $env:TEST_B_URL } else { "https://pt.kibos.link" }
     $waitMin = if ($env:TEST_B_WAIT_MINUTES) { [int]$env:TEST_B_WAIT_MINUTES } else { 150 }
     $version = ([regex]::Match((Get-Content app/settings.py -Raw), 'APP_VERSION = "([^"]+)"')).Groups[1].Value
+    # Windows PowerShell 5.1 nemusí mít TLS 1.2 zapnuté.
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     Write-Host "Čekám, až $url hlásí verzi $version (max $waitMin min)..."
     $deadline = (Get-Date).AddMinutes($waitMin)
     while ($true) {

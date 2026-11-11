@@ -88,7 +88,7 @@ deadline=$(( $(date +%s) + TEST_B_WAIT_MINUTES * 60 ))
 while :; do
   health="$(curl -fsS --max-time 15 "${TEST_B_URL}/api/health" 2>/dev/null || true)"
   if printf '%s' "$health" | "$PY" -c 'import json,sys; h=json.load(sys.stdin); sys.exit(0 if h.get("version")==sys.argv[1] else 1)' "$version" 2>/dev/null; then
-    code="$(curl -s -o /dev/null --max-time 15 -w '%{http_code}' "${TEST_B_URL}/")"
+    code="$(curl -s -o /dev/null --max-time 15 -w '%{http_code}' "${TEST_B_URL}/" || true)"
     echo "OK: test B běží ${version}, ${TEST_B_URL}/ → ${code}."
     [ "$code" = "200" ] || exit 1
     exit 0
