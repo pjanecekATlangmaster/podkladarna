@@ -123,6 +123,18 @@ Bez Docker Desktop stejně z WSL (Ubuntu s Docker Engine, jednorázově
 ./scripts/promote-stable.sh [tag]
 ```
 
+Release + nasazení na test B jedním příkazem (jen `release.sh`): `./scripts/release.sh --test-b` po pushi
+čeká, až `https://pt.kibos.link/api/health` hlásí novou `APP_VERSION` (cron na NAS do 5 min, běžící job nechá
+doběhnout), a ověří `200`. S `--nas=<uživatel>@192.168.10.11` spustí `update-nas-ab.sh test` hned přes ssh pod zámkem
+cronu (`flock -n /tmp/update-ab.lock`); když zámek drží cron, jen čeká. Na NAS k tomu jednou klíč z WSL
+v `~/.ssh/authorized_keys` uživatele a sudo bez hesla jen pro tento příkaz (`sudo visudo -f /etc/sudoers.d/podkladarna`):
+
+```
+<uživatel> ALL=(root) NOPASSWD: /usr/bin/flock -n /tmp/update-ab.lock /volume1/docker/podkladarna/update-nas-ab.sh test
+```
+
+Ostrá A (pve1) se tímto nikdy nenasazuje, jen přes `promote-stable` a její cron.
+
 Ve WSL pracuj s klonem na linuxovém disku (`~/podkladarna`), ne v `/mnt/c/...` – tam `git status`
 kvůli filemode / CRLF hlásí změny a skript odmítne běžet; dockerd musí běžet (`sudo service docker start`).
 
