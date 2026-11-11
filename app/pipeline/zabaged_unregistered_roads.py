@@ -126,11 +126,14 @@ def confirm_line(
         norm[norm == 0] = 1.0
         looks = np.asarray(ortho_paved(xy, tang / norm[:, None]), dtype=float)
         win = max(1, int(round(ORTHO_WINDOW_M / SAMPLE_M)) + 1)
-        kernel = np.ones(win) / win
-        share = np.convolve(looks, kernel, mode="same")
-        # okraje okna mají méně vzorků: dělit skutečným počtem
-        counts = np.convolve(np.ones(len(looks)), kernel, mode="same")
-        ortho = (share / np.maximum(counts, 1e-9)) >= ORTHO_SHARE
+        # Podíl v okně kolem vzorku; u okrajů a čar kratších než okno jen ze skutečných vzorků
+        # (np.convolve „same“ vrací u čáry kratší než okno delší pole – pád jobu Zvoles 3.30.0).
+        n = len(looks)
+        idx = np.arange(n)
+        lo = np.clip(idx - win // 2, 0, n)
+        hi = np.clip(idx + (win - 1) // 2 + 1, 0, n)
+        csum = np.concatenate([[0.0], np.cumsum(looks)])
+        ortho = (csum[hi] - csum[lo]) / np.maximum(hi - lo, 1) >= ORTHO_SHARE
 
     confirmed = _close_gaps(dtm | ortho, max_gap)
     keep = np.zeros(len(dists), dtype=bool)
@@ -287,7 +290,11 @@ class UnregisteredRoadConfirmer:
         for pts in line_parts:
             if len(pts) < 2:
                 continue
-            pieces, st = confirm_line(pts, in_dtm, self._lazy_ortho(pts, in_dtm))
+            try:
+                pieces, st = confirm_line(pts, in_dtm, self._lazy_ortho(pts, in_dtm))
+            except Exception as exc:  # nepotvrzená čára se nekreslí, mapa kvůli ní nespadne
+                logger.warning("SilniceNeevidovana: čáru nelze ověřit, vynechána (%s)", exc)
+                continue
             out.extend(pieces)
             for k, v in st.items():
                 self.totals[k] += v
