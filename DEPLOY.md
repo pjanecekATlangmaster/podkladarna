@@ -102,6 +102,38 @@ se znovu nestahuje — jen menší vrstvy (app, configs). **Mapper CLI**
 (stage `mapper-builder`, pin PR #2523) se cacheuje zvlášť; při nezměněném
 pinu SHA se nepřestaví.
 
+### Bez GitHub Actions (lokální build na vývojovém PC)
+
+Když Actions neběží (vyčerpaný kredit), stejné tagy vzniknou z vývojového PC
+(Windows + Docker Desktop). Jednorázově `docker login ghcr.io -u <login>` s osobním
+tokenem (scope `write:packages`).
+
+```powershell
+.\scripts\release.ps1              # z čistého master: pytest, whats_new, build, push :latest + :<sha>
+.\scripts\release.ps1 -NoPush      # jen testy a build
+.\scripts\promote-stable.ps1       # po ověření na testu B: :latest -> :stable (stejný digest)
+.\scripts\promote-stable.ps1 1a2b3c4
+```
+
+Bez Docker Desktop stejně z WSL (Ubuntu s Docker Engine, jednorázově
+`sudo apt install -y docker.io docker-buildx python3-venv` a `sudo usermod -aG docker $USER`):
+
+```bash
+./scripts/release.sh               # stejné kroky jako release.ps1 (PYTHON=<venv>/bin/python pro pytest)
+./scripts/promote-stable.sh [tag]
+```
+
+Ve WSL pracuj s klonem na linuxovém disku (`~/podkladarna`), ne v `/mnt/c/...` – tam `git status`
+kvůli filemode / CRLF hlásí změny a skript odmítne běžet; dockerd musí běžet (`sudo service docker start`).
+
+Přihlášení ke GHCR z Windows přes gh: `gh auth refresh -s write:packages`, pak
+`gh auth token | wsl docker login ghcr.io -u pjanecekatlangmaster --password-stdin`.
+
+`release.ps1` / `release.sh` bere cache z `:buildcache` v GHCR, takže Mapper se znovu nekompiluje.
+Crony na NAS (test B) a pve1 (ostrá A) se nemění, berou image z GHCR jako dřív.
+Bez CI musí testy před mergem projít lokálně (nebo v cloudovém vlákně) na head SHA PR
+a výsledek musí být v PR doložený; review agent je spustí znovu sám.
+
 ### Mapper CLI v image (georef PNG)
 
 Image obsahuje headless OpenOrienteering Mapper (`/opt/mapper/bin/Mapper`)
