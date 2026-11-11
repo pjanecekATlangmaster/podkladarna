@@ -123,6 +123,12 @@ Bez Docker Desktop stejně z WSL (Ubuntu s Docker Engine, jednorázově
 ./scripts/promote-stable.sh [tag]
 ```
 
+Release + nasazení na test B je jeden příkaz: `release.ps1` / `release.sh` po pushi (bez `-NoWait` / `--no-wait`)
+čeká, až `https://pt.kibos.link/api/health` hlásí novou `APP_VERSION` (cron na NAS do 5 min, běžící job nechá
+doběhnout), a ověří `200`. Ssh na NAS není potřeba. Stav se pozná jen podle verze: release bez nové `APP_VERSION` ohlásí
+OK hned, i když nový image ještě nasazený není.
+Ostrá A (pve1) se tímto nikdy nenasazuje, jen přes `promote-stable` a její cron.
+
 Ve WSL pracuj s klonem na linuxovém disku (`~/podkladarna`), ne v `/mnt/c/...` – tam `git status`
 kvůli filemode / CRLF hlásí změny a skript odmítne běžet; dockerd musí běžet (`sudo service docker start`).
 

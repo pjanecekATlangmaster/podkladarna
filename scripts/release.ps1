@@ -4,7 +4,8 @@
   a pushne ho do GHCR jako :latest a :<krátký sha>. Test B si :latest vezme cronem.
 
 .EXAMPLE
-  .\scripts\release.ps1              # testy + build + push
+  .\scripts\release.ps1              # testy + build + push + čekání na nasazení testu B
+  .\scripts\release.ps1 -NoWait      # nečekat na test B
   .\scripts\release.ps1 -NoPush      # jen testy a build (lokální kontrola)
   .\scripts\release.ps1 -SkipTests   # jen když testy na stejném SHA už prošly a je to doložené
 
@@ -14,6 +15,7 @@ s osobním tokenem (scope write:packages), závislosti pro pytest (jednou: pytho
 param(
     [switch]$NoPush,
     [switch]$SkipTests,
+    [switch]$NoWait,
     [string]$Branch = "master"
 )
 
@@ -91,5 +93,25 @@ if ($NoPush) {
     Write-Host "Hotovo bez pushe: ${image}:latest a ${image}:$sha jsou jen lokálně." -ForegroundColor Green
 } else {
     Run docker @("buildx", "imagetools", "inspect", "${image}:latest")
-    Write-Host "Hotovo: ${image}:latest = :$sha. Test B (pt.kibos.link) si ho vezme cronem, až neběží job." -ForegroundColor Green
+    Write-Host "Pushnuto: ${image}:latest = :$sha." -ForegroundColor Green
+    if ($NoWait) { exit 0 }
+    # Nasazení dělá cron na NAS (každých 5 min, běžící job nechá doběhnout); jen čekáme na novou verzi.
+    $url = if ($env:TEST_B_URL) { $env:TEST_B_URL } else { "https://pt.kibos.link" }
+    $waitMin = if ($env:TEST_B_WAIT_MINUTES) { [int]$env:TEST_B_WAIT_MINUTES } else { 150 }
+    $version = ([regex]::Match((Get-Content app/settings.py -Raw), 'APP_VERSION = "([^"]+)"')).Groups[1].Value
+    # Windows PowerShell 5.1 nemusí mít TLS 1.2 zapnuté.
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    Write-Host "Čekám, až $url hlásí verzi $version (max $waitMin min)..."
+    $deadline = (Get-Date).AddMinutes($waitMin)
+    while ($true) {
+        try { $health = Invoke-RestMethod -Uri "$url/api/health" -TimeoutSec 15 } catch { $health = $null }
+        if ($health -and $health.version -eq $version) {
+            $code = try { (Invoke-WebRequest -Uri "$url/" -UseBasicParsing -TimeoutSec 15).StatusCode } catch { 0 }
+            Write-Host "OK: test B běží $version, $url/ -> $code." -ForegroundColor Green
+            if ($code -ne 200) { exit 1 }
+            exit 0
+        }
+        if ((Get-Date) -ge $deadline) { Fail "test B ani po $waitMin min nehlásí $version (běží dlouhý job? log cronu na NAS)." }
+        Start-Sleep -Seconds 30
+    }
 }

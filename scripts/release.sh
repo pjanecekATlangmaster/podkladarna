@@ -3,9 +3,10 @@
 # z čistého master spustí testy, sestaví image a pushne ho do GHCR jako :latest a :<krátký sha>.
 # Test B si :latest vezme cronem.
 #
-#   ./scripts/release.sh               # testy + build + push
+#   ./scripts/release.sh               # testy + build + push + čekání na nasazení testu B
 #   ./scripts/release.sh --no-push     # jen testy a build (lokální kontrola)
 #   ./scripts/release.sh --skip-tests  # jen když testy na stejném SHA už prošly a je to doložené
+#   ./scripts/release.sh --no-wait     # nečekat, až test B běží s novou verzí (výchozí čeká: cron na NAS do 5 min + drain)
 #
 # Jednorázově: docker login ghcr.io -u <login> s tokenem write:packages
 # (z Windows: gh auth refresh -s write:packages; gh auth token | wsl docker login ghcr.io -u <login> --password-stdin).
@@ -16,12 +17,16 @@ set -euo pipefail
 PUSH=true
 TESTS=true
 BRANCH=master
+TEST_B=true
+TEST_B_URL="${TEST_B_URL:-https://pt.kibos.link}"
+TEST_B_WAIT_MINUTES="${TEST_B_WAIT_MINUTES:-150}"
 for arg in "$@"; do
   case "$arg" in
     --no-push) PUSH=false ;;
     --skip-tests) TESTS=false ;;
     --branch=*) BRANCH="${arg#--branch=}" ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    --no-wait) TEST_B=false ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "Neznámý argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -68,9 +73,29 @@ else
 fi
 docker "${args[@]}" .
 
-if $PUSH; then
-  docker buildx imagetools inspect "${image}:latest"
-  echo "Hotovo: ${image}:latest = :${sha}. Test B (pt.kibos.link) si ho vezme cronem, až neběží job."
-else
+if ! $PUSH; then
   echo "Hotovo bez pushe: ${image}:latest a ${image}:${sha} jsou jen lokálně."
+  exit 0
 fi
+docker buildx imagetools inspect "${image}:latest"
+echo "Pushnuto: ${image}:latest = :${sha}."
+$TEST_B || { echo "Test B (pt.kibos.link) si ho vezme cronem, až neběží job."; exit 0; }
+
+# Nasazení na test B dělá cron na NAS (každých 5 min, běžící job nechá doběhnout); jen čekáme na novou verzi.
+version="$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' app/settings.py)"
+echo "Čekám, až ${TEST_B_URL} hlásí verzi ${version} (max ${TEST_B_WAIT_MINUTES} min)..."
+deadline=$(( $(date +%s) + TEST_B_WAIT_MINUTES * 60 ))
+while :; do
+  health="$(curl -fsS --max-time 15 "${TEST_B_URL}/api/health" 2>/dev/null || true)"
+  if printf '%s' "$health" | "$PY" -c 'import json,sys; h=json.load(sys.stdin); sys.exit(0 if h.get("version")==sys.argv[1] else 1)' "$version" 2>/dev/null; then
+    code="$(curl -s -o /dev/null --max-time 15 -w '%{http_code}' "${TEST_B_URL}/" || true)"
+    echo "OK: test B běží ${version}, ${TEST_B_URL}/ → ${code}."
+    [ "$code" = "200" ] || exit 1
+    exit 0
+  fi
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    echo "Chyba: test B ani po ${TEST_B_WAIT_MINUTES} min nehlásí ${version} (běží dlouhý job? log cronu na NAS)." >&2
+    exit 1
+  fi
+  sleep 30
+done
