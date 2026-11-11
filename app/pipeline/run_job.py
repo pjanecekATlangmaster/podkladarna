@@ -1034,6 +1034,21 @@ def run_job_pipeline(
     return list(issues.items)
 
 
+def _fix_ocd_templates(omap_paths: list[Path], reference_dirs: list[Path | None], *, log) -> None:
+    """Best-effort oprava šablon v sourozencích ``.ocd`` (``ocd_templates``); chyba nesmí shodit job."""
+    from app.pipeline.ocd_templates import fix_ocd_templates
+
+    dirs = [d for d in reference_dirs if d is not None and Path(d).is_dir()]
+    for omap_p in omap_paths:
+        ocd_p = Path(omap_p).with_suffix(".ocd")
+        if not ocd_p.is_file():
+            continue
+        try:
+            fix_ocd_templates(ocd_p, omap_p, reference_dirs=dirs, log=log)
+        except Exception as exc:
+            log_issue(log, f"OOM OCD: šablony neopraveny ({ocd_p.name}): {exc}")
+
+
 def resolve_want_zip(options: dict) -> tuple[bool, str | None]:
     """Primární výstup je .omap/ZIP. Jen-PNG bez OOM by nemělo na co ukázat."""
     want = bool(options.get("output_zip", True))
@@ -1299,6 +1314,12 @@ def _package_output(
             if defer_refs:
                 built_refs = _join_refs()  # i když žádná mapa nevznikla: podklady jdou do ZIPu
                 meta = _metadata()
+            # Mapper CLI convert zapsal šablony bez pohledu a bez načtených podkladů → opravit v .ocd.
+            _fix_ocd_templates(
+                [*omap_paths, *certain_paths],
+                [reference_dir, kp_cwd / "references"],
+                log=log,
+            )
             t_prev = time.monotonic()
             try:
                 # Web/georef náhled: vnitřní timeout + catch; selhání nesmí
