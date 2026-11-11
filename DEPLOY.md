@@ -123,6 +123,9 @@ Bez Docker Desktop stejně z WSL (Ubuntu s Docker Engine, jednorázově
 ./scripts/promote-stable.sh [tag]
 ```
 
+Ve WSL pracuj s klonem na linuxovém disku (`~/podkladarna`), ne v `/mnt/c/...` – tam `git status`
+kvůli filemode / CRLF hlásí změny a skript odmítne běžet; dockerd musí běžet (`sudo service docker start`).
+
 Přihlášení ke GHCR z Windows přes gh: `gh auth refresh -s write:packages`, pak
 `gh auth token | wsl docker login ghcr.io -u pjanecekatlangmaster --password-stdin`.
 
