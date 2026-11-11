@@ -56,8 +56,15 @@ try {
     Run python @("scripts/generate_whats_new.py", "--released-at", $builtAt)
 
     # 4. Build (linux/amd64) s cache z GHCR, aby se Mapper nekompiloval znovu.
+    # Výchozí driver „docker“ neumí export cache do registry → vlastní builder docker-container.
+    $builder = "podkladarna"
+    & docker buildx inspect $builder *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Run docker @("buildx", "create", "--name", $builder, "--driver", "docker-container")
+    }
     $buildArgs = @(
         "buildx", "build",
+        "--builder", $builder,
         "--platform", "linux/amd64",
         "--build-arg", "BUILD_DATE=$builtAt",
         "--label", "org.opencontainers.image.revision=$(git rev-parse HEAD)",
