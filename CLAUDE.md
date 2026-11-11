@@ -196,6 +196,7 @@ Agent dělá kroky 1–7, ověření na B a Promote (od kroku 8) dělá Petr.
 5. Vytvoř Pull Request do `master`.
 6. Po merge do `master` workflow `docker.yml` sestaví a publikuje `ghcr.io/pjanecekatlangmaster/podkladarna:latest`; test B (`pt.kibos.link`) si ho bere cronem (`update-nas-ab.sh test --if-idle`, jen když neběží job).
 7. Zkontroluj, že Actions workflow je zelené.
+   Bez Actions (vyčerpaný kredit): testy před mergem na head SHA PR v cloudu nebo lokálně, výsledek (počet prošlých, SHA) do PR, review agent je spustí znovu; po mergi `.\scripts\release.ps1` na vývojovém PC (push `:latest` + `:<sha>`), Promote `.\scripts\promote-stable.ps1` (viz `DEPLOY.md` §2).
 8. (Petr) Ověř změnu na testu B (`https://pt.kibos.link`).
 9. (Petr) Spusť GitHub akci „Promote to stable“ (`.github/workflows/promote-stable.yml`, přetaguje `:latest` → `:stable`). Ostrá A na pve1 si nový `:stable` vezme sama cronem do 5 minut (`update-nas-ab.sh stable --if-idle`, počká na doběhnutí jobu). Ručně hned:
 
