@@ -237,8 +237,15 @@ def build_private_failed_email(
     job_name: str,
     error: str | None,
     duration_s: int | float | None = None,
+    job_url: str | None = None,
+    operator_details: str | None = None,
 ) -> tuple[str, str]:
-    """Vrací (předmět, tělo) pro privátní job, který skončil chybou – česky."""
+    """Vrací (předmět, tělo) pro privátní job, který skončil chybou – česky.
+
+    ``job_url`` vede na stránku jobu s logem (stejný odkaz dostane zadavatel
+    i provozovatel; stažení ZIPu dál chrání token). ``operator_details`` jen
+    v kopii provozovateli: technická chyba a konec logu pro rychlou diagnózu.
+    """
     subject = f"Podkladárna: mapu „{job_name}“ se nepodařilo vytvořit"
     parts = [
         "Dobrý den,\n",
@@ -250,6 +257,8 @@ def build_private_failed_email(
         parts.append(f"Doba běhu: {duration_label}.\n")
     if error:
         parts.append(f"\nDůvod: {error}\n")
+    if job_url:
+        parts.append(f"\nDetail jobu s logem (a „Napsat zpětnou vazbu“):\n{job_url}\n")
     parts.extend(
         [
             "\n",
@@ -261,4 +270,13 @@ def build_private_failed_email(
             f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n",
         ]
     )
+    if operator_details:
+        parts.extend(
+            [
+                "\n",
+                "==== Pro provozovatele (zadavatel tuto část nedostal) ====\n",
+                "\n",
+                operator_details.rstrip("\n") + "\n",
+            ]
+        )
     return subject, "".join(parts)

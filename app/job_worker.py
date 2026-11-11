@@ -127,11 +127,38 @@ def _notify_private_job(job_id: str) -> None:
         db.append_log(job_id, f"CHYBA odeslání e-mailu: {exc}")
 
 
+# Kopie provozovateli: kolik posledních záznamů logu a znaků přiložit.
+_OPERATOR_LOG_ENTRIES = 25
+_OPERATOR_LOG_MAX_CHARS = 8000
+
+
+def job_page_url(job_id: str) -> str | None:
+    """Odkaz na stránku jobu (detail + log), bez tokenu ke stažení. None bez PUBLIC_BASE_URL."""
+    base = _public_base_url()
+    return f"{base}/?job={job_id}" if base else None
+
+
+def _operator_failure_details(job_id: str) -> str:
+    """Technická část kopie provozovateli: ID jobu, řádky CHYBA a konec logu."""
+    entries = [str(e.get("line") or "") for e in db.get_logs(job_id)]
+    errors = [ln for ln in entries if ln.startswith("CHYBA")][-5:]
+    tail = "\n".join(entries[-_OPERATOR_LOG_ENTRIES:])
+    if len(tail) > _OPERATOR_LOG_MAX_CHARS:
+        tail = "…\n" + tail[-_OPERATOR_LOG_MAX_CHARS:]
+    parts = [f"Job: {job_id}"]
+    if errors:
+        parts.append("Chyba:\n" + "\n".join(errors))
+    parts.append(f"Konec logu ({min(len(entries), _OPERATOR_LOG_ENTRIES)} záznamů):\n{tail}")
+    return "\n\n".join(parts)
+
+
 def notify_private_failure(job_id: str) -> None:
-    """Privátní job skončil chybou: e-mail zadavateli, skrytá kopie FEEDBACK_TO.
+    """Privátní job skončil chybou: e-mail zadavateli, kopie FEEDBACK_TO s koncem logu.
 
     Best-effort, nikdy nevyhazuje. Volá se z job_worker (výjimka v pipeline),
     worker.py (timeout, pád subprocesu) i po restartu serveru.
+    Oba e-maily mají odkaz na stránku jobu s logem; provozovatel navíc dostane
+    technickou chybu a konec logu (zadavatel je nevidí).
     """
     try:
         job = db.get_job(job_id)
@@ -142,16 +169,27 @@ def notify_private_failure(job_id: str) -> None:
             return
         if _mail_already_sent(job_id, _FAIL_MAIL_SENT_PREFIX):
             return
-        subject, body = build_private_failed_email(
+        common = dict(
             job_name=job.get("name") or job_id,
             error=job.get("error"),
             duration_s=job.get("duration_s"),
+            job_url=job_page_url(job_id),
         )
+        operator = (app_settings.FEEDBACK_TO or "").strip()
+        subject, body = build_private_failed_email(**common)
         try:
-            send_mail(email, subject, body, bcc=app_settings.FEEDBACK_TO or None)
+            send_mail(email, subject, body)
             db.append_log(job_id, f"{_FAIL_MAIL_SENT_PREFIX} na {email}.")
         except MailError as exc:
             db.append_log(job_id, f"CHYBA odeslání e-mailu o chybě: {exc}")
+        if operator and operator.lower() != email.lower():
+            try:
+                subject_op, body_op = build_private_failed_email(
+                    **common, operator_details=_operator_failure_details(job_id)
+                )
+                send_mail(operator, f"[kopie] {subject_op}", body_op)
+            except MailError as exc:
+                db.append_log(job_id, f"CHYBA odeslání kopie e-mailu o chybě: {exc}")
     except Exception:
         logger.exception("E-mail o chybě privátního jobu %s selhal", job_id)
 

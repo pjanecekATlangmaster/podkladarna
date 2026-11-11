@@ -2910,7 +2910,40 @@ async function loadWhatsNew() {
 loadWhatsNew();
 initJobsTabs();
 initMobileJobBar();
-loadMapOptions().then(initLastOptions).then(loadJobs).then(startPolling);
+/**
+ * Odkaz z e-mailu `/?job=<id>`: otevře detail jobu s logem. Privátní job přidá do
+ * „Moje mapy“ (jinak by v seznamu nebyl). Parametr z adresy zmizí, ať reload neotevírá znovu.
+ */
+async function openJobFromUrl() {
+  let id = "";
+  try {
+    const url = new URL(window.location.href);
+    id = (url.searchParams.get("job") || "").trim();
+    if (!id) return;
+    url.searchParams.delete("job");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  } catch (_) {
+    return;
+  }
+  if (!/^[0-9a-f]{6,32}$/i.test(id)) return;
+  try {
+    const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`);
+    if (!res.ok) {
+      showFormNotice(res.status === 410 ? "Job z odkazu už vypršel a byl smazán." : "Job z odkazu už neexistuje.");
+      return;
+    }
+    const job = await res.json();
+    if (jobIsPrivate(job) && !isMyJob(id)) {
+      addMyJob(job);
+      syncJobsTabs();
+    }
+    await selectJob(id);
+  } catch (_) {
+    /* síť: zůstane úvodní stránka */
+  }
+}
+
+loadMapOptions().then(initLastOptions).then(loadJobs).then(openJobFromUrl).then(startPolling);
 initJobsPager();
 initBboxMap();
 (() => {
