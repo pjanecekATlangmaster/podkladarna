@@ -2973,8 +2973,90 @@ async function loadUsageBox() {
   }
 }
 
+let sourceStatus = null;
+const SOURCE_STATUS_REFRESH_MS = 5 * 60 * 1000;
+
+function csTime(iso) {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }) : "";
+}
+
+/** Zdroj, který vybrané volby nepoužijí (DTM vypnuté), nevaruje. */
+function sourceRelevant(svc) {
+  if (svc.needs === "dtm") {
+    const sel = document.getElementById("dtm");
+    return !sel || sel.value !== "0";
+  }
+  return true;
+}
+
+/** Stav zdrojů dat před tlačítkem Spustit; při výpadku varování, že mapa nebude úplná. */
+function renderSourceStatus() {
+  const box = document.getElementById("source-status");
+  const data = sourceStatus;
+  if (!box) return;
+  if (!data || !data.enabled || !Array.isArray(data.services) || !data.services.length) {
+    box.hidden = true;
+    return;
+  }
+  const down = data.services.filter((s) => !s.ok && sourceRelevant(s));
+  const list = document.getElementById("source-status-list");
+  list.replaceChildren(
+    ...data.services.map((s) => {
+      const li = document.createElement("li");
+      const relevant = sourceRelevant(s);
+      li.className = s.ok ? "ok" : relevant ? "down" : "ok";
+      if (s.ok) {
+        li.textContent = `${s.label}: běží`;
+      } else {
+        const since = csTime(s.down_since);
+        li.textContent = `${s.label}: neodpovídá (${s.detail || "chyba"}${since ? `, od ${since}` : ""})` +
+          (relevant ? "" : " – s vypnutým DTM nevadí");
+        if (relevant) {
+          const imp = document.createElement("span");
+          imp.className = "impact";
+          imp.textContent = s.impact || "";
+          li.append(imp);
+        }
+      }
+      return li;
+    }),
+  );
+  const summary = document.getElementById("source-status-summary");
+  const wasDown = box.classList.contains("is-down");
+  box.classList.toggle("is-down", down.length > 0);
+  if (down.length) {
+    const fatal = down.some((s) => s.fatal);
+    summary.textContent = fatal
+      ? `⚠ Nedostupný zdroj dat (${down.map((s) => s.label.replace(/\s*\(.*\)$/, "")).join(", ")}) – generování nejspíš selže.`
+      : `⚠ Nedostupný zdroj dat (${down.map((s) => s.label.replace(/\s*\(.*\)$/, "")).join(", ")}) – mapa nebude úplná.`;
+    if (!wasDown) box.open = true;
+  } else {
+    summary.textContent = "Stav zdrojů dat: vše běží";
+    if (wasDown) box.open = false;
+  }
+  const checked = csTime(data.checked_at);
+  const every = data.interval_min ? ` Kontrola každých ${Math.round(data.interval_min)} min.` : "";
+  document.getElementById("source-status-note").textContent =
+    (checked ? `Ověřeno v ${checked}.` : "") + every +
+    (down.length ? " Generovat lze i tak, chybějící část se vynechá; nebo to zkuste později." : "");
+  box.hidden = false;
+}
+
+async function loadSourceStatus() {
+  try {
+    sourceStatus = await api("/api/source_status");
+  } catch (_) {
+    sourceStatus = null;
+  }
+  renderSourceStatus();
+}
+
 loadWhatsNew();
 loadUsageBox();
+loadSourceStatus();
+setInterval(loadSourceStatus, SOURCE_STATUS_REFRESH_MS);
+document.getElementById("dtm")?.addEventListener("change", renderSourceStatus);
 initJobsTabs();
 initMobileJobBar();
 /**

@@ -1208,6 +1208,30 @@ footer a { color: var(--green); }
 .estimate-warning::before { content: "⚠ "; content: "⚠ " / ""; }
 .estimate-warning[hidden] { display: none; }
 
+/* Stav zdrojů dat (GET /api/source_status) před tlačítkem Spustit. */
+.source-status {
+  margin: 0.2rem 0 0.6rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.source-status[hidden] { display: none; }
+.source-status summary { cursor: pointer; }
+.source-status.is-down {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--orange);
+  border-radius: 6px;
+  background: #fff4ec;
+  color: var(--text);
+}
+.source-status.is-down summary { font-weight: 600; color: var(--orange-text); }
+.source-status-list { margin: 0.4rem 0 0; padding-left: 0; list-style: none; }
+.source-status-list li { margin: 0.15rem 0; }
+.source-status-list .ok::before { content: "● "; content: "● " / ""; color: var(--green); }
+.source-status-list .down::before { content: "✕ "; content: "✕ " / ""; color: var(--orange-text); font-weight: 700; }
+.source-status-list .down { color: var(--text); }
+.source-status-list .impact { display: block; margin-left: 1.1em; color: var(--muted); }
+.source-status-note { margin: 0.3rem 0 0; color: var(--muted); }
+
 @media (max-width: 700px) {
   .submit-bar {
     position: sticky;
