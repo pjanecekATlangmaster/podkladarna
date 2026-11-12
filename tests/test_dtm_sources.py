@@ -315,6 +315,20 @@ def test_dmvs_transient_errors_retry_then_fall_back_to_cache(downloads, monkeypa
     assert len(calls) == 1
     # balík: 503, pak platný ZIP
     pkg = ds.parse_url_list(SAMPLE)[1]
+    monkeypatch.setattr(ds, "_host_failed_at", {})
     calls.clear()
     responses[:] = [http(503), buf.getvalue()]
     assert ds.download_package(pkg).read_bytes() == buf.getvalue() and len(calls) == 2
+    # server kraje visí: 3 pokusy, další balík ze stejného serveru jen jednou
+    for p in (pkg, ds.parse_url_list(SAMPLE)[0]):
+        ds.package_path(p).unlink(missing_ok=True)
+    calls.clear()
+    responses[:] = [TimeoutError("visí")] * 3
+    with pytest.raises(TimeoutError):
+        ds.download_package(pkg)
+    assert len(calls) == 3
+    calls.clear()
+    responses[:] = [TimeoutError("visí")]
+    with pytest.raises(TimeoutError):
+        ds.download_package(ds.parse_url_list(SAMPLE)[0])
+    assert len(calls) == 1
