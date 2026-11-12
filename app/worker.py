@@ -188,6 +188,14 @@ def _start_next() -> None:
         threading.Thread(target=_run, args=(next_id,), daemon=True).start()
 
 
+def _record_failed_usage(job_id: str) -> None:
+    """Job zabitý timeoutem / pádem procesu: započítat do statistiky hned (celá doba běhu)."""
+    try:
+        db.record_job_usage(job_id, "failed")
+    except Exception:
+        pass
+
+
 def _return_to_queue(job_id: str) -> None:
     """Job ještě nezačal počítat a čeká se na nasazení: zpět na začátek fronty."""
     global _running
@@ -307,6 +315,7 @@ def _run(job_id: str) -> None:
                 db.update_job(
                     job_id, status="failed", phase="error", error=failure_summary(msg)
                 )
+                _record_failed_usage(job_id)
             return
 
         if proc.returncode != 0:
@@ -317,6 +326,7 @@ def _run(job_id: str) -> None:
                 db.update_job(
                     job_id, status="failed", phase="error", error=failure_summary(msg)
                 )
+                _record_failed_usage(job_id)
     except Exception as exc:
         db.append_log(job_id, f"CHYBA worker: {exc}")
         job = db.get_job(job_id)

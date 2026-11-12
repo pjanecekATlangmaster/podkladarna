@@ -151,6 +151,7 @@ def init_db() -> None:
         for job_id, status in pending:
             if status in JOB_FINISHED_STATUSES:
                 _count_job_usage(conn, job_id, status, _read_build_stats(JOBS_DIR / job_id))
+        _backfill_build_seconds(conn)
         conn.commit()
 
 
@@ -267,7 +268,7 @@ USAGE_KEYS = (
     "jobs_done",  # dokončená zadání (done / done_with_errors)
     "maps_done",  # mapy disciplín v nich (les, MTBO, sprint)
     "jobs_failed",
-    "build_seconds",  # čas běhu všech dokončených i spadlých jobů
+    "build_seconds",  # celá doba běhu (start → konec) dokončených i spadlých jobů
     "output_bytes",  # velikost výstupních ZIPů dokončených jobů
     "source_bytes",  # zpracované podklady (stažené + z cache)
     "download_count",  # stažení výstupního ZIPu
@@ -316,6 +317,9 @@ def _count_job_usage(
     created_at, map_types, bbox_json = row[0], row[1], row[2]
     stats = stats or {}
     seconds = _num(stats.get("total_seconds"))
+    if seconds is None:
+        # Bez build_stats.json (timeout, restart, starší image): celá doba běhu z jobs.
+        seconds = _job_run_seconds(conn, job_id)
     out_bytes = _num(stats.get("output_zip_bytes"))
     src = _num(stats.get("downloaded_bytes"))
     cached = _num(stats.get("cached_bytes"))
@@ -343,10 +347,75 @@ def _count_job_usage(
     else:
         _add_usage(conn, "jobs_failed", 1, created_at)
     if seconds is not None:
-        _add_usage(conn, "build_seconds", seconds)
+        _add_usage(conn, "build_seconds", seconds, created_at)
     if src_bytes is not None:
         _add_usage(conn, "source_bytes", src_bytes)
     return True
+
+
+def _job_run_seconds(conn: sqlite3.Connection, job_id: str) -> float | None:
+    """Celá doba běhu jobu (start → poslední změna stavu) z tabulky jobs, je-li job ještě v DB."""
+    row = conn.execute(
+        "SELECT started_at, updated_at FROM jobs WHERE id = ?", (job_id,)
+    ).fetchone()
+    if not row:
+        return None
+    started, ended = _parse_iso(row[0]), _parse_iso(row[1])
+    if not started or not ended or ended < started:
+        return None
+    return round((ended - started).total_seconds(), 1)
+
+
+def _backfill_build_seconds(conn: sqlite3.Connection) -> None:
+    """Jednou (3.32.2): doplnit dobu zpracování jobů započítaných bez času.
+
+    Do 3.32.1 se čas bral jen z build_stats.json; joby smazané před nasazením
+    statistiky (3.25.0), zabité timeoutem nebo restartem se započítaly s nulou.
+    Kde je job ještě v DB, vezme se celá doba běhu, jinak odhad = medián
+    změřených jobů téhož presetu (jinak všech). Do job_origin se odhad nepíše,
+    průměr za rok zůstává jen ze změřených jobů.
+    """
+    if conn.execute(
+        "SELECT 1 FROM usage_totals WHERE key = 'build_seconds_backfilled'"
+    ).fetchone():
+        return
+    measured = conn.execute(
+        "SELECT preset_id, build_seconds FROM job_origin "
+        "WHERE usage_counted = 1 AND build_seconds IS NOT NULL"
+    ).fetchall()
+    by_preset: dict[str, list[float]] = {}
+    for preset_id, secs in measured:
+        by_preset.setdefault(preset_id or "", []).append(float(secs))
+    everything = sorted(v for vals in by_preset.values() for v in vals)
+
+    def median(vals: list[float]) -> float | None:
+        vals = sorted(vals)
+        if not vals:
+            return None
+        mid = len(vals) // 2
+        return vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
+
+    missing = conn.execute(
+        "SELECT job_id, created_at, preset_id FROM job_origin "
+        "WHERE usage_counted = 1 AND build_seconds IS NULL"
+    ).fetchall()
+    total, estimated, since = 0.0, 0, None
+    for job_id, created_at, preset_id in missing:
+        secs = _job_run_seconds(conn, job_id)
+        if secs is not None:
+            conn.execute(
+                "UPDATE job_origin SET build_seconds = ? WHERE job_id = ?", (secs, job_id)
+            )
+        else:
+            secs = median(by_preset.get(preset_id or "", [])) or median(everything)
+            if secs is None:
+                continue
+            estimated += 1
+        total += secs
+        since = created_at if since is None else min(since, created_at)
+    if total > 0:
+        _add_usage(conn, "build_seconds", total, since)
+    _add_usage(conn, "build_seconds_backfilled", estimated)
 
 
 def _bbox_json_area_km2(bbox_json: str | None) -> float | None:

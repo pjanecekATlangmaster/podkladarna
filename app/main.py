@@ -283,7 +283,7 @@ def usage_footer_html() -> str:
     parts = [f"vygenerováno {_cs_int(n_maps)} {word} ({_cs_int(val('jobs_done'))} zadání)"]
     hours = val("build_seconds") / 3600
     if hours >= 1:
-        parts.append(f"{_cs_int(hours)} h výpočtu")
+        parts.append(f"{_cs_int(hours)} h zpracování")
     if val("source_bytes") > 0:
         parts.append(f"zpracováno {_cs_bytes(val('source_bytes'))} podkladů")
     if val("download_count") > 0:
@@ -294,10 +294,10 @@ def usage_footer_html() -> str:
     lead = f"Od {since}: " if since else "Celkem: "
     if app_settings.INSTANCE_CHANNEL == "test":
         lead = "Testovací verze – " + lead[0].lower() + lead[1:]
-    # Čas a data se měří až od 3.25.0 – od kdy, napoví title.
+    # Stažení se měří až od 3.25.0 – od kdy, napoví title.
     detail = "; ".join(
         f"{label} od {_cs_since(totals[key]['since'])}"
-        for key, label in (("build_seconds", "čas výpočtu"), ("download_count", "stažení"))
+        for key, label in (("build_seconds", "čas zpracování"), ("download_count", "stažení"))
         if key in totals and _cs_since(totals[key]["since"]) != since
     )
     title = f' title="{html_escape(detail, quote=True)}"' if detail else ""

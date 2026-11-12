@@ -119,4 +119,42 @@ def test_usage_totals_count_once_survive_purge_and_catch_up(tmp_path, monkeypatc
     assert db.purge_job_origin(now=later, days=365) == 3
     t = {k: v["value"] for k, v in db.usage_totals().items()}
     assert t == {"jobs_done": 1, "maps_done": 2, "jobs_failed": 1, "build_seconds": 660,
-                 "output_bytes": 5e6, "source_bytes": 3e9, "download_count": 1, "download_bytes": 5e6}
+                 "output_bytes": 5e6, "source_bytes": 3e9, "download_count": 1, "download_bytes": 5e6,
+                 "build_seconds_backfilled": 0}
+
+
+def test_usage_build_seconds_whole_run_and_backfill(tmp_path, monkeypatch):
+    """Doba zpracování: bez build_stats.json celá doba běhu z jobs; dřív započítané bez času jednou doplnit."""
+    jobs = tmp_path / "jobs"
+    monkeypatch.setattr("app.db.JOBS_DIR", jobs)
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    jobs.mkdir()
+    db.init_db()
+    t0 = datetime(2026, 11, 10, 8, 0, tzinfo=timezone.utc)
+
+    timed = db.create_job("a", "sprint_4000", {"map_types": ["sprint"]})
+    db.update_job(timed["id"], status="done")
+    assert db.record_job_usage(timed["id"], "done", {"total_seconds": 1200})
+    # Timeout: build_stats.json chybí, čas z jobs (start → konec).
+    killed = db.create_job("b", "sprint_4000", {"map_types": ["sprint"]})
+    db.update_job(killed["id"], status="failed")
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET started_at = ?, updated_at = ? WHERE id = ?",
+                     (t0.isoformat(), (t0 + timedelta(minutes=90)).isoformat(), killed["id"]))
+        conn.commit()
+    assert db.record_job_usage(killed["id"], "failed", None)
+    # Starý job započítaný s nulou a už smazaný: odhad = medián presetu.
+    old = db.create_job("c", "sprint_4000", {"map_types": ["sprint"]})
+    db.update_job(old["id"], status="done")
+    with db.connect() as conn:
+        conn.execute("UPDATE job_origin SET usage_counted = 1, status = 'done' WHERE job_id = ?",
+                     (old["id"],))
+        conn.execute("DELETE FROM usage_totals WHERE key = 'build_seconds_backfilled'")
+        conn.commit()
+    assert db.delete_job(old["id"])
+    db.init_db()
+    db.init_db()  # podruhé nic
+
+    t = {k: v["value"] for k, v in db.usage_totals().items()}
+    assert t["build_seconds"] == 1200 + 5400 + (1200 + 5400) / 2
+    assert t["build_seconds_backfilled"] == 1
