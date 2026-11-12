@@ -35,6 +35,7 @@ OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
     ("dtm_plochy", "DTM kraje – plochy (ZPS)", "references/dtm_plochy.png", 0.8, False),
     ("dtm_linie", "DTM kraje – linie a body (ZPS)", "references/dtm_linie.png", 1.0, False),
     ("dmpok", "Náhled DMP OK", "references/dmpok_nahled.png", 0.65, False),
+    ("vyska_vegetace", "Výška vegetace (DMP OK − DMR 5G)", "references/vyska_vegetace.png", 0.7, False),
     *(
         (key, label, f"references/{filename}", opacity, False)
         for key, _layer, filename, label, opacity, _visible in HILLSHADE_VARIANTS

@@ -21,6 +21,13 @@ from app.pipeline.run_job import (
 )
 
 
+def _downloaded(refs):
+    """Bez online šablon (archivní ortofoto .xml přibude vždy vedle stažených rastrů)."""
+    if isinstance(refs, dict):
+        return {k: v for k, v in refs.items() if not k.startswith("online_")}
+    return [name for name in refs if not name.endswith(".xml")]
+
+
 def test_start_gate_georef_after_job_grid(tmp_path: Path):
     write_job_grid(
         tmp_path,
@@ -119,7 +126,7 @@ def test_start_creates_future_with_force_refresh(tmp_path: Path):
     assert "[podklady] orto ok" in lines
     assert "[podklady] Hotovo (1 vrstev)" in lines
     assert any("Staženo na pozadí: orthophoto" in ln for ln in lines)
-    assert layers == ["orthophoto.png"]
+    assert _downloaded(layers) == ["orthophoto.png"]
 
 
 def test_join_uses_future_no_double_fetch(tmp_path: Path):
@@ -185,8 +192,8 @@ def test_join_exception_logs_and_skips(tmp_path: Path):
         force_refresh=False,
         progress=progress,
     )
-    assert built == {}
-    assert layers == []
+    assert _downloaded(built) == {}
+    assert _downloaded(layers) == []
     assert any("na pozadí selhalo" in ln and "WMS down" in ln for ln in lines)
     assert any("referenční podklady" in ln.lower() for ln in progress_lines)
 
@@ -223,7 +230,7 @@ def test_join_serial_fallback_when_no_future(tmp_path: Path):
         )
     assert called["ok"] is True
     assert "ztm" in built
-    assert layers == ["ztm.png"]
+    assert _downloaded(layers) == ["ztm.png"]
 
 
 def test_join_want_refs_false_skips_build(tmp_path: Path):
@@ -309,7 +316,7 @@ def test_ref_log_prefix_and_lock(tmp_path: Path):
             job_dir=tmp_path,
             force_refresh=False,
         )
-    assert built == {}
+    assert _downloaded(built) == {}
     ref_lines = [ln for ln in lines if ln.startswith("[podklady] ")]
     assert "[podklady] detail A" in ref_lines
     assert "[podklady] detail B" in ref_lines

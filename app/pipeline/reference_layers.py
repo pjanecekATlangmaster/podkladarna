@@ -145,6 +145,15 @@ HILLSHADE_VARIANTS: tuple[tuple[str, str, str, str, float, bool], ...] = (
         0.45,
         False,
     ),
+    # Sklon terénu (Petr 2026-11-12, „online i png“): hotová barevná vrstva ČÚZK, šedá rovina → žlutá → hnědý svah.
+    (
+        "sklon",
+        "dmr5g:SlopeRGBMap",
+        "sklon_dmr5g.png",
+        "Sklon terénu DMR 5G",
+        0.6,
+        False,
+    ),
 )
 
 

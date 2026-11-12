@@ -52,6 +52,9 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
 # DMVS WMS styl „default“ odmítá (500) – stejně jako ``_wms_getmap_url``; archiv ortofota (geoportal) chce prázdný styl.
 NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz")
 
+# Vrstvy jen online (bez staženého rastru): přidají se i se zapnutým „Stáhnout referenční šablony předem“.
+ONLINE_ONLY_KEYS = frozenset({"orthophoto_archiv"})
+
 # (klíč, soubor, popis pro README, WMS, vrstva, formát, průhledná, m/px)
 ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("orthophoto", "ortofoto_cuzk.xml", "Ortofoto ČÚZK", ORTOFOTO_WMS, "0", "image/jpeg", False, 0.125),
@@ -179,11 +182,18 @@ def osm_sjtsk_vrt(
 def write_online_templates(
     bounds_5514: tuple[float, float, float, float],
     out_dir: Path,
+    *,
+    only: frozenset[str] | None = None,
 ) -> dict[str, Path]:
-    """Zapíše online šablony do ``out_dir`` (``references``); klíč ``online_<vrstva>`` → soubor."""
+    """Zapíše online šablony do ``out_dir`` (``references``); klíč ``online_<vrstva>`` → soubor.
+
+    ``only``: jen vybrané vrstvy (např. ``ONLINE_ONLY_KEYS`` vedle stažených rastrů), OSM jen je-li v něm.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
     for key, filename, _label, url, layer, fmt, transparent, mpp in ONLINE_WMS_LAYERS:
+        if only is not None and key not in only:
+            continue
         for suffix, factor, _lsuffix in ZOOM_VARIANTS:
             path = out_dir / f"{Path(filename).stem}{suffix}.xml"
             path.write_text(
@@ -192,6 +202,8 @@ def write_online_templates(
             )
             written[f"online_{key}{suffix}"] = path
     key, filename, _label = ONLINE_OSM
+    if only is not None and key not in only:
+        return written
     tms = out_dir / "osm_dlazdice.xml"
     tms.write_text(osm_tms_xml(OSM_MAX_ZOOM), encoding="utf-8")
     for suffix, factor, _lsuffix in ZOOM_VARIANTS:

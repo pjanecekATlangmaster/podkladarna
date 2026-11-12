@@ -387,20 +387,43 @@ def start_reference_download(
 
 
 def _with_online_templates(
-    built_refs: dict[str, Path], bbox, reference_dir: Path, log: callable
+    built_refs: dict[str, Path], bbox, reference_dir: Path, log: callable, *, only_online: bool = False
 ) -> dict[str, Path]:
-    """Online šablony podkladů (GDAL WMS ``.xml``) místo stažených rastrů (Petr 2026-11-08, výchozí)."""
+    """Online šablony podkladů (GDAL WMS ``.xml``) místo stažených rastrů (Petr 2026-11-08, výchozí).
+
+    ``only_online``: se staženými rastry jen vrstvy bez staženého protějšku (archivní ortofoto).
+    """
     if not bbox:
         return built_refs
-    from app.pipeline.online_templates import write_online_templates
+    from app.pipeline.online_templates import ONLINE_ONLY_KEYS, write_online_templates
 
     try:
-        online = write_online_templates(crop_bounds_5514(*bbox), reference_dir)
+        online = write_online_templates(
+            crop_bounds_5514(*bbox), reference_dir, only=ONLINE_ONLY_KEYS if only_online else None
+        )
     except Exception as exc:
         log_issue(log, f"Online šablony podkladů: přeskočeno ({exc})")
         return built_refs
     log(f"Online šablony podkladů: {len(online)} (stáhnou se až v Mapperu)")
     return {**built_refs, **online}
+
+
+def _with_vegetation_height(
+    built_refs: dict[str, Path], work_dir: Path, reference_dir: Path, log: callable
+) -> dict[str, Path]:
+    """Obarvená výška vegetace z ``chm.tif`` jobu (jen se staženými podklady, Petr 2026-11-12)."""
+    from app.pipeline.vegetation_chm import chm_path
+    from app.pipeline.vegetation_height_png import REF_KEY, write_vegetation_height_png
+
+    chm = chm_path(work_dir)
+    if chm is None:
+        return built_refs
+    try:
+        png = write_vegetation_height_png(chm, reference_dir, log=log)
+    except Exception as exc:
+        log_issue(log, f"Výška vegetace: přeskočeno ({exc})")
+        return built_refs
+    return {**built_refs, REF_KEY: png} if png else built_refs
 
 
 def join_reference_download(
@@ -487,6 +510,9 @@ def join_reference_download(
 
     if not want_refs:
         built_refs = _with_online_templates(built_refs, bbox, reference_dir, log)
+    else:
+        built_refs = _with_vegetation_height(built_refs, work_dir, reference_dir, log)
+        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log, only_online=True)
     ref_layers: list[str] = []
     if built_refs:
         ref_layers = sorted(p.name for p in built_refs.values())
