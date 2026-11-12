@@ -87,6 +87,11 @@ WEB_MERCATOR_HALF = 20037508.342789244
 ORTOFOTO_WMS = (
     "https://ags.cuzk.gov.cz/arcgis1/services/ORTOFOTO/MapServer/WMSServer"
 )
+# Archivní ortofoto ČÚZK (Petr 2026-11-12, námět z omapa.cz): každý rok je jedna vrstva; 2003–2005 se snímkovala
+# vždy třetina ČR, tři roky dohromady pokryjí celé území. Jen online šablona (stáří porostu, zarostlé cesty).
+ORTOFOTO_ARCHIV_WMS = "https://geoportal.cuzk.gov.cz/WMS_ORTOFOTO_ARCHIV/WMService.aspx"
+# Pořadí kreslení WMS: první dole – rok uvedený poslední (2004) je při překryvu navrchu.
+ORTOFOTO_ARCHIV_LAYERS = "2005,2003,2004"
 # Veřejný OSM WMS (poslední fallback – méně detailní než XYZ dlaždice).
 OSM_WMS = "https://ows.terrestris.de/osm/service"
 # Preferované XYZ zdroje pro barevný Mapnik styl (GDAL WMS driver).
