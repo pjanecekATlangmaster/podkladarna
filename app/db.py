@@ -140,6 +140,8 @@ def init_db() -> None:
                 opts = {}
             _record_origin(conn, job_id, created_at, preset_id, opts)
         conn.commit()
+        # Plocha map (3.32.0) dřív započítaných jobů – před započítáním dalších, ať se nevynechají.
+        _backfill_area_usage(conn)
         # Dokončené joby, které se do součtů ještě nezapočítaly (nasazení statistiky,
         # návrat ze starší image): započítat jednou, údaje z build_stats.json, je-li job na disku.
         pending = conn.execute(
@@ -270,6 +272,7 @@ USAGE_KEYS = (
     "source_bytes",  # zpracované podklady (stažené + z cache)
     "download_count",  # stažení výstupního ZIPu
     "download_bytes",
+    "area_km2",  # plocha map dokončených jobů (výřez bbox_wgs84)
 )
 
 
@@ -304,12 +307,13 @@ def _count_job_usage(
 ) -> bool:
     """Započítá dokončený job do součtů právě jednou (``usage_counted``); vrací True, když započítal."""
     row = conn.execute(
-        "SELECT created_at, map_types FROM job_origin WHERE job_id = ? AND usage_counted = 0",
+        "SELECT created_at, map_types, bbox_json FROM job_origin "
+        "WHERE job_id = ? AND usage_counted = 0",
         (job_id,),
     ).fetchone()
     if not row:
         return False
-    created_at, map_types = row[0], row[1]
+    created_at, map_types, bbox_json = row[0], row[1], row[2]
     stats = stats or {}
     seconds = _num(stats.get("total_seconds"))
     out_bytes = _num(stats.get("output_zip_bytes"))
@@ -333,6 +337,9 @@ def _count_job_usage(
         _add_usage(conn, "maps_done", n_maps, created_at)
         if out_bytes is not None:
             _add_usage(conn, "output_bytes", out_bytes)
+        area = _bbox_json_area_km2(bbox_json)
+        if area is not None:
+            _add_usage(conn, "area_km2", area, created_at)
     else:
         _add_usage(conn, "jobs_failed", 1, created_at)
     if seconds is not None:
@@ -340,6 +347,34 @@ def _count_job_usage(
     if src_bytes is not None:
         _add_usage(conn, "source_bytes", src_bytes)
     return True
+
+
+def _bbox_json_area_km2(bbox_json: str | None) -> float | None:
+    try:
+        bbox = json.loads(bbox_json) if bbox_json else None
+    except ValueError:
+        return None
+    return job_area_km2({"bbox_wgs84": bbox}) if isinstance(bbox, list) else None
+
+
+def _backfill_area_usage(conn: sqlite3.Connection) -> None:
+    """Plocha map se sčítá od 3.32.0: jednou dopočítat z dosud uložených řádků job_origin."""
+    if conn.execute("SELECT 1 FROM usage_totals WHERE key = 'area_km2'").fetchone():
+        return
+    rows = conn.execute(
+        "SELECT created_at, bbox_json FROM job_origin WHERE usage_counted = 1 AND status IN ("
+        + ",".join("?" * len(JOB_DONE_STATUSES))
+        + ")",
+        tuple(JOB_DONE_STATUSES),
+    ).fetchall()
+    total, since = 0.0, None
+    for created_at, bbox_json in rows:
+        area = _bbox_json_area_km2(bbox_json)
+        if area is not None:
+            total += area
+            since = created_at if since is None else min(since, created_at)
+    if since is not None:
+        _add_usage(conn, "area_km2", total, since)
 
 
 def record_job_usage(job_id: str, status: str, stats: dict[str, Any] | None = None) -> bool:
@@ -369,6 +404,30 @@ def usage_totals() -> dict[str, dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute("SELECT key, value, since FROM usage_totals").fetchall()
     return {r["key"]: {"value": r["value"], "since": r["since"]} for r in rows}
+
+
+def recent_usage(days: int, *, now: datetime | None = None) -> dict[str, Any]:
+    """Souhrn za posledních ``days`` dní z job_origin (veřejné i privátní joby; jen počty).
+
+    ``users`` je odhad počtu uživatelů = různé osolené značky IP (``ip_tag``) mezi všemi
+    zadáními; nepřesný (sdílená IP, změna IP), ale bez osobních údajů.
+    """
+    cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=days)).isoformat()
+    marks = ",".join("?" * len(JOB_DONE_STATUSES))
+    with connect() as conn:
+        row = conn.execute(
+            f"SELECT SUM(CASE WHEN usage_counted = 1 AND status IN ({marks}) THEN 1 ELSE 0 END), "
+            f"AVG(CASE WHEN usage_counted = 1 AND status IN ({marks}) THEN build_seconds END), "
+            "COUNT(DISTINCT ip_tag), MIN(created_at) FROM job_origin WHERE created_at >= ?",
+            (*JOB_DONE_STATUSES, *JOB_DONE_STATUSES, cutoff),
+        ).fetchone()
+    return {
+        "days": days,
+        "jobs": int(row[0] or 0),
+        "avg_build_seconds": row[1],
+        "users": int(row[2] or 0),
+        "since": row[3],  # nejstarší zadání v okně (statistika původu je od 3.14.0)
+    }
 
 
 def purge_job_origin(*, now: datetime | None = None, days: int | None = None) -> int:

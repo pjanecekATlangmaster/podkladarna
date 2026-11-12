@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import app.main as main
 
 
@@ -63,3 +65,37 @@ def test_usage_footer_only_on_stable_and_without_personal_data(client, monkeypat
 
     monkeypatch.setattr(main.app_settings, "SHOW_USAGE_STATS", False)
     assert "footer-usage" not in client.get("/").text
+
+
+def test_usage_stats_api_counts_private_jobs_users_and_area(client, monkeypatch):
+    """Box „v číslech“: agregace i se soukromými joby, odhad uživatelů z osolené IP, plocha map."""
+    from app import db
+
+    bbox = [14.40, 50.03, 14.42, 50.04]
+    jobs = [
+        db.create_job("a", "forest_10000", {"client_ip": "1.2.3.4", "map_types": ["les"], "bbox_wgs84": bbox}),
+        db.create_job("b", "forest_10000", {"client_ip": "1.2.3.4", "map_types": ["les"]}),
+        db.create_job(
+            "c", "sprint_4000",
+            {"client_ip": "5.6.7.8", "private": True, "notify_email": "x@example.com",
+             "map_types": ["sprint"], "bbox_wgs84": bbox},
+        ),
+    ]
+    for job in jobs:
+        db.update_job(job["id"], status="done")
+        db.record_job_usage(job["id"], "done", {"total_seconds": 600})
+
+    monkeypatch.setattr(main.app_settings, "SHOW_USAGE_STATS", True)
+    res = client.get("/api/usage_stats")
+    data = res.json()
+    assert data["enabled"] is True and data["donations"] is None
+    assert data["totals"]["jobs_done"]["value"] == 3  # soukromý job se počítá
+    assert data["last_30_days"]["jobs"] == 3 and data["last_30_days"]["avg_build_seconds"] == 600
+    assert data["last_year"]["users"] == 2
+    area = data["totals"]["area_km2"]["value"]
+    assert area == pytest.approx(2 * db.job_area_km2({"bbox_wgs84": bbox}))
+    assert "1.2.3.4" not in res.text and "example.com" not in res.text
+    assert 'id="usage-box"' in client.get("/").text
+
+    monkeypatch.setattr(main.app_settings, "SHOW_USAGE_STATS", False)
+    assert client.get("/api/usage_stats").json() == {"enabled": False}
