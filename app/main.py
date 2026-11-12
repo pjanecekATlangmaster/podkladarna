@@ -292,6 +292,8 @@ def usage_footer_html() -> str:
         )
     since = _cs_since(maps.get("since"))
     lead = f"Od {since}: " if since else "Celkem: "
+    if app_settings.INSTANCE_CHANNEL == "test":
+        lead = "Testovací verze – " + lead[0].lower() + lead[1:]
     # Čas a data se měří až od 3.25.0 – od kdy, napoví title.
     detail = "; ".join(
         f"{label} od {_cs_since(totals[key]['since'])}"
@@ -315,6 +317,7 @@ def usage_stats_payload() -> dict:
     year = db.recent_usage(app_settings.ORIGIN_RETENTION_DAYS)
     return {
         "enabled": True,
+        "channel": app_settings.INSTANCE_CHANNEL,
         "totals": {
             key: total(key)
             for key in (
