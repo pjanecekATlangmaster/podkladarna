@@ -69,6 +69,52 @@ body {
   font-size: 0.95rem;
 }
 
+/* Box se statistikou použití: jen na počítači (široké okno), na mobilu ho nahrazuje patička. */
+.usage-box,
+.usage-box[hidden] { display: none; }
+
+@media (min-width: 1101px) {
+  .usage-box:not([hidden]) {
+    display: block;
+    margin-left: auto;
+    padding: 0.45rem 0.85rem 0.4rem;
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+}
+
+.usage-box-title {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+  color: var(--green);
+}
+
+.usage-box-grid {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 0.1rem 1.1rem;
+  margin: 0;
+}
+
+.usage-box-grid div { display: flex; flex-direction: column; }
+.usage-box-grid dt { order: 2; font-size: 0.72rem; }
+.usage-box-grid dd {
+  order: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-box-donations[hidden] { display: none; }
+.usage-box-donations,
+.usage-box-note { margin: 0.25rem 0 0; font-size: 0.72rem; }
+
 main.page-wrap {
   padding-top: 1.25rem;
   padding-bottom: 2rem;

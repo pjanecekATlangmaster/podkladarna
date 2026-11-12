@@ -2907,7 +2907,73 @@ async function loadWhatsNew() {
   }
 }
 
+const CS_NUM = new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 });
+
+function csBytes(n) {
+  const gb = n / 1e9;
+  if (gb >= 1000) return `${(gb / 1000).toFixed(1).replace(".", ",")}\u00a0TB`;
+  if (gb >= 10) return `${CS_NUM.format(gb)}\u00a0GB`;
+  if (gb >= 1) return `${gb.toFixed(1).replace(".", ",")}\u00a0GB`;
+  return `${CS_NUM.format(n / 1e6)}\u00a0MB`;
+}
+
+function csDate(iso) {
+  const d = iso ? new Date(iso) : null;
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("cs-CZ") : "";
+}
+
+/** Box „Podkladárna v číslech“ nahoře (jen široké okno, viz CSS); data z /api/usage_stats. */
+async function loadUsageBox() {
+  const box = document.getElementById("usage-box");
+  if (!box || !window.matchMedia("(min-width: 1101px)").matches) return;
+  try {
+    const data = await api("/api/usage_stats");
+    const t = (data && data.enabled && data.totals) || null;
+    const maps = t && t.maps_done;
+    if (!maps || !(maps.value > 0)) return;
+    const val = (key) => (t[key] && t[key].value) || 0;
+    const year = data.last_year || {};
+    const month = data.last_30_days || {};
+    const items = [
+      ["map", CS_NUM.format(maps.value)],
+      ["zadání", CS_NUM.format(val("jobs_done"))],
+      ["uživatelů (odhad)", year.users ? CS_NUM.format(year.users) : ""],
+      ["zadání za 30 dní", CS_NUM.format(month.jobs || 0)],
+      ["hodin výpočtu", val("build_seconds") >= 3600 ? CS_NUM.format(val("build_seconds") / 3600) : ""],
+      ["průměrný výpočet", year.avg_build_seconds ? `${CS_NUM.format(year.avg_build_seconds / 60)}\u00a0min` : ""],
+      ["km² území", val("area_km2") > 0 ? CS_NUM.format(val("area_km2")) : ""],
+      ["zpracováno dat", val("source_bytes") > 0 ? csBytes(val("source_bytes")) : ""],
+    ].filter(([, v]) => v);
+    const grid = document.getElementById("usage-box-grid");
+    grid.replaceChildren(
+      ...items.map(([label, value]) => {
+        const div = document.createElement("div");
+        const dt = document.createElement("dt");
+        const dd = document.createElement("dd");
+        dt.textContent = label;
+        dd.textContent = value;
+        div.append(dt, dd);
+        return div;
+      }),
+    );
+    const since = csDate(maps.since);
+    const note = document.getElementById("usage-box-note");
+    note.textContent = `${since ? `Od ${since}` : "Celkem"} · veřejné i soukromé mapy`;
+    note.title = "Uživatelé: odhad podle zadání za poslední rok (různé adresy, bez ukládání IP).";
+    // Příspěvky: místo připravené, zobrazí se, až API začne posílat částku.
+    const don = document.getElementById("usage-box-donations");
+    if (data.donations && data.donations.amount > 0) {
+      don.textContent = `Přispěli jste ${CS_NUM.format(data.donations.amount)}\u00a0${data.donations.currency || "Kč"}. Děkujeme!`;
+      don.hidden = false;
+    }
+    box.hidden = false;
+  } catch (_) {
+    box.hidden = true;
+  }
+}
+
 loadWhatsNew();
+loadUsageBox();
 initJobsTabs();
 initMobileJobBar();
 /**

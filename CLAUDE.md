@@ -357,6 +357,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   na konci běhu (`db.record_job_usage` z `build_stats.json`), joby dokončené starší image dopočítá start (`init_db`); stažení ZIPu
   `db.record_download`. Patička: mapy (podle `build_stats` maps, jinak `map_types`), zadání, hodiny výpočtu, zpracované podklady,
   stažení. `SHOW_USAGE_STATS` = `auto` (jen stabilní A, test B ne) / `1` / `0`; výpis i v `python -m app.origin_stats`.
+  Od 3.32.0 (Petr 2026-11-12) box „Podkladárna v číslech“ v hlavičce jen na počítači (≥ 1101 px, `loadUsageBox` z `GET /api/usage_stats`):
+  součty z `usage_totals` (i soukromé joby; nově `area_km2` z bbox, jednou dopočítaná z `job_origin`), za 30 dní a rok `db.recent_usage`
+  (zadání, průměrný čas, odhad uživatelů = různé `ip_tag`). Pole `donations` je zatím `null` – box ho ukáže, až bude `{amount, currency}`.
 - **Drobné objekty OSM ve sprintu** (3.19.0, Petr 2026-11-06): volba `kp_osm_objects` je `auto` (výchozí, i API) / `1` vše / `none`.
   `auto` = sprint kreslí základní sadu `OSM_BASIC_OBJECT_KINDS` (lavičky a stoly 531, rozcestníky `guidepost` 531, pomníky / boží muka /
   kříže / sochy 526, památné stromy 417; od 3.23.0 i herní prvky, fitness, ohniště a zábrany 531, přístřešky a `building=roof` 522),

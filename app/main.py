@@ -302,6 +302,40 @@ def usage_footer_html() -> str:
     return f'<p class="footer-usage"{title}>{html_escape(lead + " · ".join(parts))}</p>'
 
 
+def usage_stats_payload() -> dict:
+    """Agregovaná statistika pro box na webu (veřejné i privátní joby, bez osobních údajů)."""
+    if not app_settings.SHOW_USAGE_STATS:
+        return {"enabled": False}
+    totals = db.usage_totals()
+
+    def total(key: str) -> dict | None:
+        t = totals.get(key)
+        return {"value": t["value"], "since": t["since"]} if t else None
+
+    year = db.recent_usage(app_settings.ORIGIN_RETENTION_DAYS)
+    return {
+        "enabled": True,
+        "totals": {
+            key: total(key)
+            for key in (
+                "jobs_done",
+                "maps_done",
+                "jobs_failed",
+                "build_seconds",
+                "area_km2",
+                "source_bytes",
+                "output_bytes",
+                "download_count",
+                "download_bytes",
+            )
+        },
+        "last_30_days": db.recent_usage(30),
+        "last_year": year,
+        # Místo pro budoucí součet příspěvků (zatím se nezobrazuje).
+        "donations": None,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> HTMLResponse:
     try:
@@ -337,6 +371,15 @@ def support_page() -> HTMLResponse:
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
     return HTMLResponse(html)
+
+
+@app.get("/api/usage_stats")
+def api_usage_stats():
+    try:
+        return usage_stats_payload()
+    except Exception:
+        logger.exception("Statistika použití nejde načíst")
+        return {"enabled": False}
 
 
 @app.get("/api/presets")
