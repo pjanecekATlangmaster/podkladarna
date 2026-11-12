@@ -20,8 +20,8 @@ def test_online_templates_files_and_omap_entries(tmp_path, monkeypatch):
     monkeypatch.setattr(ot, "run_cmd", fake_run)
     bbox = (14.305, 48.80, 14.33, 48.82)
     built = write_online_templates(crop_bounds_5514(*bbox), tmp_path)
-    # 11 vrstev × maximální a střední zoom
-    assert len(built) == 22 and all(p.parent == tmp_path for p in built.values())
+    # 12 vrstev × maximální a střední zoom
+    assert len(built) == 24 and all(p.parent == tmp_path for p in built.values())
     assert built["online_orthophoto_stredni"].name == "ortofoto_cuzk_stredni.xml"
     # OSM: TMS vedle VRT, okno výřezu v S-JTSK do MAX_PX; zdroj relativně (gdalwarp v references/)
     sizes = []
@@ -48,7 +48,7 @@ def test_online_templates_files_and_omap_entries(tmp_path, monkeypatch):
     assert int(full.findtext("DataWindow/SizeX")) > int(mid.findtext("DataWindow/SizeX"))
 
     templates = [t for t in collect_oom_templates(tmp_path, built_refs=built) if t.kind == "gdal"]
-    assert len(templates) == 22 and all(t.loaded and not t.visible for t in templates)
+    assert len(templates) == 24 and all(t.loaded and not t.visible for t in templates)
     xml = _template_xml(next(t for t in templates if t.relpath == "references/ortofoto_cuzk.xml"))
     assert 'type="GdalTemplate" open="true"' in xml and 'path="references/ortofoto_cuzk.xml"' in xml
 
@@ -57,5 +57,16 @@ def test_online_templates_without_gdalwarp_skip_osm(tmp_path, monkeypatch):
     """Bez gdalwarp se OSM online nezapíše (okno v EPSG:3857 Mapper nenačte), ostatní ano."""
     monkeypatch.setattr(ot, "find_tool", lambda name: (_ for _ in ()).throw(RuntimeError(name)))
     built = write_online_templates((-770000.0, -1183000.0, -769000.0, -1182000.0), tmp_path)
-    assert len(built) == 20 and not any(k.startswith("online_osm") for k in built)
+    assert len(built) == 22 and not any(k.startswith("online_osm") for k in built)
     assert not (tmp_path / "osm_dlazdice.xml").exists()
+
+
+def test_online_templates_only_online_layers(tmp_path, monkeypatch):
+    """Se staženými rastry jen vrstvy bez staženého protějšku (archivní ortofoto), bez OSM; sklon je jako stínování."""
+    monkeypatch.setattr(ot, "find_tool", lambda name: (_ for _ in ()).throw(RuntimeError(name)))
+    built = write_online_templates(
+        (-770000.0, -1183000.0, -769000.0, -1182000.0), tmp_path, only=ot.ONLINE_ONLY_KEYS
+    )
+    assert sorted(built) == ["online_orthophoto_archiv", "online_orthophoto_archiv_stredni"]
+    full = write_online_templates((-770000.0, -1183000.0, -769000.0, -1182000.0), tmp_path)
+    assert ET.parse(full["online_sklon"]).getroot().findtext("Service/Layers") == "dmr5g:SlopeRGBMap"
