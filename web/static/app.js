@@ -2958,7 +2958,8 @@ async function loadUsageBox() {
     );
     const since = csDate(maps.since);
     const note = document.getElementById("usage-box-note");
-    note.textContent = `${since ? `Od ${since}` : "Celkem"} · veřejné i soukromé mapy`;
+    const testPrefix = data.channel === "test" ? "Testovací verze · " : "";
+    note.textContent = `${testPrefix}${since ? `Od ${since}` : "Celkem"} · veřejné i soukromé mapy`;
     note.title = "Uživatelé: odhad podle zadání za poslední rok (různé adresy, bez ukládání IP).";
     // Příspěvky: místo připravené, zobrazí se, až API začne posílat částku.
     const don = document.getElementById("usage-box-donations");

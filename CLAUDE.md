@@ -356,7 +356,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   a sloupce `usage_counted`, `build_seconds`, `output_bytes`, `source_bytes`, `downloads` v `job_origin`. Job se započítá jednou
   na konci běhu (`db.record_job_usage` z `build_stats.json`), joby dokončené starší image dopočítá start (`init_db`); stažení ZIPu
   `db.record_download`. Patička: mapy (podle `build_stats` maps, jinak `map_types`), zadání, hodiny výpočtu, zpracované podklady,
-  stažení. `SHOW_USAGE_STATS` = `auto` (jen stabilní A, test B ne) / `1` / `0`; výpis i v `python -m app.origin_stats`.
+  stažení. `SHOW_USAGE_STATS` = `auto` / `1` zobrazit (od 3.32.1 i na testu B, s vlastními čísly a označením „Testovací verze“) / `0` nikdy; výpis i v `python -m app.origin_stats`.
   Od 3.32.0 (Petr 2026-11-12) box „Podkladárna v číslech“ v hlavičce jen na počítači (≥ 1101 px, `loadUsageBox` z `GET /api/usage_stats`):
   součty z `usage_totals` (i soukromé joby; nově `area_km2` z bbox, jednou dopočítaná z `job_origin`), za 30 dní a rok `db.recent_usage`
   (zadání, průměrný čas, odhad uživatelů = různé `ip_tag`). Pole `donations` je zatím `null` – box ho ukáže, až bude `{amount, currency}`.

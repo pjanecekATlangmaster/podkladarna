@@ -48,7 +48,7 @@ def test_jobs_api_exposes_shared_busy_only_as_flag(client):
     assert "current" in data and "private_live" in data
 
 
-def test_usage_footer_only_on_stable_and_without_personal_data(client, monkeypatch):
+def test_usage_footer_marks_test_channel_and_has_no_personal_data(client, monkeypatch):
     from app import db
 
     job = db.create_job("j", "forest_10000", {"client_ip": "1.2.3.4", "map_types": ["les"]})
@@ -61,7 +61,11 @@ def test_usage_footer_only_on_stable_and_without_personal_data(client, monkeypat
     assert 'class="footer-usage"' in text
     assert "vygenerováno 1 mapa (1 zadání)" in text and "2 h výpočtu" in text
     assert "zpracováno 2,5 GB podkladů" in text and "1× staženo (12 MB)" in text
-    assert "1.2.3.4" not in text
+    assert "1.2.3.4" not in text and "Testovací verze" not in text
+
+    monkeypatch.setattr(main.app_settings, "INSTANCE_CHANNEL", "test")
+    assert "Testovací verze – od " in client.get("/").text
+    assert client.get("/api/usage_stats").json()["channel"] == "test"
 
     monkeypatch.setattr(main.app_settings, "SHOW_USAGE_STATS", False)
     assert "footer-usage" not in client.get("/").text
