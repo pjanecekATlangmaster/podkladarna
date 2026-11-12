@@ -2939,8 +2939,8 @@ async function loadUsageBox() {
       ["zadání", CS_NUM.format(val("jobs_done"))],
       ["uživatelů (odhad)", year.users ? CS_NUM.format(year.users) : ""],
       ["zadání za 30 dní", CS_NUM.format(month.jobs || 0)],
-      ["hodin výpočtu", val("build_seconds") >= 3600 ? CS_NUM.format(val("build_seconds") / 3600) : ""],
-      ["průměrný výpočet", year.avg_build_seconds ? `${CS_NUM.format(year.avg_build_seconds / 60)}\u00a0min` : ""],
+      ["hodin zpracování", val("build_seconds") >= 3600 ? CS_NUM.format(val("build_seconds") / 3600) : ""],
+      ["průměrné zpracování", year.avg_build_seconds ? `${CS_NUM.format(year.avg_build_seconds / 60)}\u00a0min` : ""],
       ["km² území", val("area_km2") > 0 ? CS_NUM.format(val("area_km2")) : ""],
       ["zpracováno dat", val("source_bytes") > 0 ? csBytes(val("source_bytes")) : ""],
     ].filter(([, v]) => v);
