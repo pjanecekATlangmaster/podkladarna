@@ -20,8 +20,8 @@ def test_online_templates_files_and_omap_entries(tmp_path, monkeypatch):
     monkeypatch.setattr(ot, "run_cmd", fake_run)
     bbox = (14.305, 48.80, 14.33, 48.82)
     built = write_online_templates(crop_bounds_5514(*bbox), tmp_path)
-    # 10 vrstev × maximální a střední zoom
-    assert len(built) == 20 and all(p.parent == tmp_path for p in built.values())
+    # 11 vrstev × maximální a střední zoom
+    assert len(built) == 22 and all(p.parent == tmp_path for p in built.values())
     assert built["online_orthophoto_stredni"].name == "ortofoto_cuzk_stredni.xml"
     # OSM: TMS vedle VRT, okno výřezu v S-JTSK do MAX_PX; zdroj relativně (gdalwarp v references/)
     sizes = []
@@ -37,15 +37,18 @@ def test_online_templates_files_and_omap_entries(tmp_path, monkeypatch):
         size = (int(root.findtext("DataWindow/SizeX")), int(root.findtext("DataWindow/SizeY")))
         assert max(size) <= MAX_PX and root.findtext("Projection") == "EPSG:5514"
         styles = root.findtext("Service/Styles") or ""
-        assert styles == ("" if "dmvs.cuzk.gov.cz" in root.findtext("Service/ServerUrl") else "default")
+        server = root.findtext("Service/ServerUrl")
+        assert styles == ("" if any(h in server for h in ot.NO_DEFAULT_STYLE_HOSTS) else "default")
         base = key.removesuffix("_stredni")
-        assert root.findtext("BandsCount") == ("4" if base in {"online_katastr", "online_dtm_plochy", "online_dtm_linie"} else "3")
+        assert root.findtext("BandsCount") == ("4" if base in {"online_katastr", "online_dtm_plochy", "online_dtm_linie", "online_orthophoto_archiv"} else "3")
+    archiv = ET.parse(built["online_orthophoto_archiv"]).getroot()
+    assert archiv.findtext("Service/Layers") == "2005,2003,2004" and archiv.findtext("Service/ImageFormat") == "image/png"
     full = ET.parse(built["online_orthophoto"]).getroot()
     mid = ET.parse(built["online_orthophoto_stredni"]).getroot()
     assert int(full.findtext("DataWindow/SizeX")) > int(mid.findtext("DataWindow/SizeX"))
 
     templates = [t for t in collect_oom_templates(tmp_path, built_refs=built) if t.kind == "gdal"]
-    assert len(templates) == 20 and all(t.loaded and not t.visible for t in templates)
+    assert len(templates) == 22 and all(t.loaded and not t.visible for t in templates)
     xml = _template_xml(next(t for t in templates if t.relpath == "references/ortofoto_cuzk.xml"))
     assert 'type="GdalTemplate" open="true"' in xml and 'path="references/ortofoto_cuzk.xml"' in xml
 
@@ -54,5 +57,5 @@ def test_online_templates_without_gdalwarp_skip_osm(tmp_path, monkeypatch):
     """Bez gdalwarp se OSM online nezapíše (okno v EPSG:3857 Mapper nenačte), ostatní ano."""
     monkeypatch.setattr(ot, "find_tool", lambda name: (_ for _ in ()).throw(RuntimeError(name)))
     built = write_online_templates((-770000.0, -1183000.0, -769000.0, -1182000.0), tmp_path)
-    assert len(built) == 18 and not any(k.startswith("online_osm") for k in built)
+    assert len(built) == 20 and not any(k.startswith("online_osm") for k in built)
     assert not (tmp_path / "osm_dlazdice.xml").exists()

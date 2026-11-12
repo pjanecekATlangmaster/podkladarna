@@ -26,6 +26,8 @@ from app.pipeline.reference_layers import (
     HILLSHADE_WMS,
     KM_LAYER,
     KM_WMS,
+    ORTOFOTO_ARCHIV_LAYERS,
+    ORTOFOTO_ARCHIV_WMS,
     ORTOFOTO_WMS,
     WEB_MERCATOR_HALF,
     ZTM_WMS,
@@ -47,9 +49,16 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
     ("_stredni", 4.0, " (střední zoom)"),
 )
 
+# DMVS WMS styl „default“ odmítá (500) – stejně jako ``_wms_getmap_url``; archiv ortofota (geoportal) chce prázdný styl.
+NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz")
+
 # (klíč, soubor, popis pro README, WMS, vrstva, formát, průhledná, m/px)
 ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("orthophoto", "ortofoto_cuzk.xml", "Ortofoto ČÚZK", ORTOFOTO_WMS, "0", "image/jpeg", False, 0.125),
+    (
+        "orthophoto_archiv", "ortofoto_archiv.xml", "Archivní ortofoto ČÚZK 2003–2005",
+        ORTOFOTO_ARCHIV_WMS, ORTOFOTO_ARCHIV_LAYERS, "image/png", True, 0.5,
+    ),
     ("ztm", "mapa_ztm.xml", "Základní mapa ČÚZK (ZTM)", ZTM_WMS, "0", "image/png", False, 1.0),
     ("katastr", "katastr.xml", "Katastrální mapa", KM_WMS, KM_LAYER, "image/png", True, 0.25),
     (
@@ -86,8 +95,7 @@ def wms_xml(
     """GDAL WMS popis jedné vrstvy ČÚZK ve výřezu (S-JTSK, WMS 1.3.0)."""
     xmin, ymin, xmax, ymax = bounds_5514
     sx, sy = _size(xmax - xmin, ymax - ymin, mpp)
-    # DMVS WMS styl „default“ odmítá (500) – stejně jako ``_wms_getmap_url``.
-    styles = "" if "dmvs.cuzk.gov.cz" in url else "default"
+    styles = "" if any(host in url for host in NO_DEFAULT_STYLE_HOSTS) else "default"
     sep = "&" if "?" in url else "?"
     return (
         "<GDAL_WMS>\n"
