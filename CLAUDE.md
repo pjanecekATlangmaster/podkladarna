@@ -360,6 +360,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Od 3.32.0 (Petr 2026-11-12) box „Podkladárna v číslech“ v hlavičce jen na počítači (≥ 1101 px, `loadUsageBox` z `GET /api/usage_stats`):
   součty z `usage_totals` (i soukromé joby; nově `area_km2` z bbox, jednou dopočítaná z `job_origin`), za 30 dní a rok `db.recent_usage`
   (zadání, průměrný čas, odhad uživatelů = různé `ip_tag`). Pole `donations` je zatím `null` – box ho ukáže, až bude `{amount, currency}`.
+- **Stav zdrojů dat** (3.33.0, Petr 2026-11-12, výpadek DMVS 503): `app/source_status.py` každých `SOURCE_CHECK_INTERVAL_MIN`
+  (10, `0` vypne; testy vypínají v `conftest.py`) pošle na 8 zdrojů (LiDAR OpenZU HEAD listu PRAH77, DMVS `is-dtmk/info`, Overpass,
+  ZABAGED, RÚIAN, ortofoto, katastr, Sentinel STAC) jeden lehký dotaz; mimo provoz = timeout / 5xx (po chybě jeden opakovaný pokus).
+  `GET /api/source_status`, web ukáže stav před tlačítkem Spustit a při výpadku varuje (DTM jen se zapnutým DTM); job zapíše
+  nedostupné zdroje do logu jako ⚠. `dtm_sources`: přechodné chyby (5xx, 429, síť) se opakují (`HTTP_RETRY_WAIT_S`,
+  `DOWNLOAD_RETRY_WAIT_S`), po vyčerpání další dotazy na DMVS 10 min jen jednou; seznam krajů se ukládá (`dtm/regions.json`)
+  a při výpadku se vezme z cache, takže výřez s balíky v cache se nakreslí s DTM i bez portálu.
 - **Drobné objekty OSM ve sprintu** (3.19.0, Petr 2026-11-06): volba `kp_osm_objects` je `auto` (výchozí, i API) / `1` vše / `none`.
   `auto` = sprint kreslí základní sadu `OSM_BASIC_OBJECT_KINDS` (lavičky a stoly 531, rozcestníky `guidepost` 531, pomníky / boží muka /
   kříže / sochy 526, památné stromy 417; od 3.23.0 i herní prvky, fitness, ohniště a zábrany 531, přístřešky a `building=roof` 522),

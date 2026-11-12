@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import db, settings as app_settings, worker
+from app import db, settings as app_settings, source_status, worker
 from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -161,6 +161,7 @@ def startup() -> None:
     if removed:
         logger.info("Startup cleanup: removed %s old job(s)", removed)
     start_cleanup_scheduler(CLEANUP_INTERVAL_HOURS)
+    source_status.start_scheduler(app_settings.SOURCE_CHECK_INTERVAL_MIN)
     tools = tool_status()
     missing = [name for name, path in tools.items() if not path]
     logger.info("Nástroje: %s", tools)
@@ -383,6 +384,13 @@ def api_usage_stats():
     except Exception:
         logger.exception("Statistika použití nejde načíst")
         return {"enabled": False}
+
+
+@app.get("/api/source_status")
+def api_source_status():
+    """Dostupnost zdrojů dat podle poslední kontroly (web podle ní varuje před spuštěním)."""
+    interval = app_settings.SOURCE_CHECK_INTERVAL_MIN
+    return {"enabled": interval > 0, "interval_min": interval, **source_status.snapshot()}
 
 
 @app.get("/api/presets")

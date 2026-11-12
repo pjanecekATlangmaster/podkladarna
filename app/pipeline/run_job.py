@@ -580,6 +580,14 @@ def run_job_pipeline(
     build_stats.set_info(app_version=app_settings.APP_VERSION, preset_id=preset_id, force_refresh=force_refresh)
     if force_refresh:
         raw_log("Vynucené obnovení: cache (LiDAR, ZABAGED, podklady) se nepoužije.")
+    try:  # stav zdrojů z poslední kontroly webu (app.source_status); job běží dál beze změny
+        from app import source_status
+
+        use_dtm_any = resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest")
+        for svc in source_status.down_services(use_dtm=use_dtm_any):
+            log_issue(log, f"Zdroj {svc['label']} při poslední kontrole neodpovídal ({svc['detail']}): {svc['impact']}")
+    except Exception:
+        pass
 
     # OSM (Overpass) trvá desítky sekund a při výpadku zrcadel minuty – stahuje
     # se na pozadí hned, souběžně s LiDAR/ZABAGED, a krok OSM jen převezme výsledek.

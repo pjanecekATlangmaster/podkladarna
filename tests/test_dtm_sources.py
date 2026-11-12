@@ -260,3 +260,61 @@ def test_download_packages_runs_in_parallel_and_returns_paths(downloads, monkeyp
     assert set(got) == {p.filename for p in pkgs}
     assert all(name.startswith("dtm-get") for name in seen)
     assert ds.download_packages([]) == {}
+
+
+def test_dmvs_transient_errors_retry_then_fall_back_to_cache(downloads, monkeypatch):
+    """503 z DMVS (2026-11-12): pokus znovu po pauze; při trvalém výpadku kraje z cache a další dotazy bez pauz."""
+    import io
+    import zipfile
+
+    monkeypatch.setattr(ds, "HTTP_RETRY_WAIT_S", (0, 0))
+    monkeypatch.setattr(ds, "DOWNLOAD_RETRY_WAIT_S", (0, 0))
+    monkeypatch.setattr(ds, "_dmvs_failed_at", 0.0)
+    regions = [{"kod": "CZ010", "nazev": "HLAVNÍ MĚSTO PRAHA"}]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("x.jvf.xml", "<a/>")
+    responses: list = []
+    calls: list[str] = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=0):
+        calls.append(req.full_url)
+        item = responses.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return Resp(item)
+
+    def http(code):
+        return urllib.error.HTTPError("u", code, "x", {}, None)
+
+    monkeypatch.setattr(ds.urllib.request, "urlopen", fake_urlopen)
+    # 503 → OK: seznam krajů se vrátí a uloží
+    responses[:] = [http(503), json.dumps({"items": regions}).encode()]
+    assert ds.fetch_regions() == regions and len(calls) == 2
+    # trvalý výpadek: 3 pokusy, pak uložený seznam
+    calls.clear()
+    responses[:] = [http(503)] * 3
+    assert ds.fetch_regions() == regions and len(calls) == 3
+    # hned další dotaz: jen jeden pokus (bez sčítání pauz)
+    calls.clear()
+    responses[:] = [http(503)]
+    assert ds.fetch_regions() == regions and len(calls) == 1
+    # 404 se neopakuje
+    monkeypatch.setattr(ds, "_dmvs_failed_at", 0.0)
+    calls.clear()
+    responses[:] = [http(404)]
+    with pytest.raises(urllib.error.HTTPError):
+        ds._request("https://dmvs.example/x")
+    assert len(calls) == 1
+    # balík: 503, pak platný ZIP
+    pkg = ds.parse_url_list(SAMPLE)[1]
+    calls.clear()
+    responses[:] = [http(503), buf.getvalue()]
+    assert ds.download_package(pkg).read_bytes() == buf.getvalue() and len(calls) == 2

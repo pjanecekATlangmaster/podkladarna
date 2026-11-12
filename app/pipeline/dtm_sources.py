@@ -101,19 +101,86 @@ def parse_url_list(text: str) -> list[DtmPackage]:
     return out
 
 
+# DMVS občas krátce vrací 503 (2026-11-12): přechodnou chybu (5xx, 429, síť) zkusit znovu po pauze (s).
+HTTP_RETRY_WAIT_S = (5, 15)
+DOWNLOAD_RETRY_WAIT_S = (10, 30)
+# Po vyčerpaných pokusech se další dotazy na DMVS v tomto okně (s) zkusí jen jednou,
+# ať se při delším výpadku pauzy nesčítají (každý krok pak sáhne po cache).
+DMVS_FAIL_FAST_S = 600
+_dmvs_failed_at = 0.0
+
+
+def is_transient_error(exc: BaseException) -> bool:
+    """Chyba, u které má smysl to zkusit znovu (výpadek služby, síť), ne 404 / vadná data."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or 500 <= exc.code < 600
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError))
+
+
+def with_retry(fn, waits: tuple[float, ...], *, label: str = "", log=None):
+    """Zavolá ``fn()``; při přechodné chybě po pauzách z ``waits`` znovu, pak chybu vyhodí."""
+    for attempt in range(len(waits) + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if attempt >= len(waits) or not is_transient_error(exc):
+                raise
+            wait = waits[attempt]
+            if log and label:
+                log(f"DTM: {label} selhalo ({exc}), pokus {attempt + 2}/{len(waits) + 1} za {wait:g} s …")
+            time.sleep(wait)
+    raise AssertionError("nedosažitelné")
+
+
 def _request(url: str, *, data: bytes | None = None, accept: str = "*/*") -> bytes:
+    global _dmvs_failed_at
     headers = {"User-Agent": USER_AGENT, "Accept": accept}
     if data is not None:
         headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")
-    with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-        return resp.read()
+
+    def _once() -> bytes:
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
+            return resp.read()
+
+    recently_failed = time.monotonic() - _dmvs_failed_at < DMVS_FAIL_FAST_S if _dmvs_failed_at else False
+    try:
+        body = with_retry(_once, () if recently_failed else HTTP_RETRY_WAIT_S)
+    except Exception as exc:
+        if is_transient_error(exc):
+            _dmvs_failed_at = time.monotonic()
+        raise
+    _dmvs_failed_at = 0.0
+    return body
+
+
+def _regions_cache_path() -> Path:
+    return settings.DOWNLOADS_DIR / "dtm" / "regions.json"
 
 
 def fetch_regions() -> list[dict]:
-    """Kraje, pro které jsou sady připravené: ``[{"kod": "CZ010", "nazev": …, "stav": …}]``."""
-    body = _request(f"{DMVS_API}/is-dtmk/info", accept="application/json")
-    return list(json.loads(body.decode("utf-8")).get("items") or [])
+    """Kraje, pro které jsou sady připravené: ``[{"kod": "CZ010", "nazev": …, "stav": …}]``.
+
+    Při výpadku DMVS se vezme poslední uložený seznam (kraje se nemění), ať se výřez
+    s balíky v cache nakreslí s DTM i bez portálu."""
+    cache = _regions_cache_path()
+    try:
+        body = _request(f"{DMVS_API}/is-dtmk/info", accept="application/json")
+        items = list(json.loads(body.decode("utf-8")).get("items") or [])
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        if cache.is_file():
+            try:
+                return list(json.loads(cache.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                pass
+        raise
+    if items:
+        try:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+    return items
 
 
 def _normalize(name: str) -> str:
@@ -215,25 +282,30 @@ def download_package(pkg: DtmPackage, *, force: bool = False, log=None) -> Path:
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
-    req = urllib.request.Request(pkg.url, headers={"User-Agent": USER_AGENT})
-    total = 0
     t0 = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT_S) as resp, open(tmp, "wb") as fh:
-            while True:
-                chunk = resp.read(1 << 16)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > DOWNLOAD_MAX_BYTES:
-                    raise ValueError(f"balík {pkg.filename} je větší než {DOWNLOAD_MAX_BYTES >> 20} MB")
-                fh.write(chunk)
-        if not zipfile.is_zipfile(tmp):
-            raise ValueError(f"{pkg.filename}: stažený soubor není ZIP")
-        tmp.replace(dest)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+
+    def _once() -> int:
+        req = urllib.request.Request(pkg.url, headers={"User-Agent": USER_AGENT})
+        total = 0
+        try:
+            with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT_S) as resp, open(tmp, "wb") as fh:
+                while True:
+                    chunk = resp.read(1 << 16)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > DOWNLOAD_MAX_BYTES:
+                        raise ValueError(f"balík {pkg.filename} je větší než {DOWNLOAD_MAX_BYTES >> 20} MB")
+                    fh.write(chunk)
+            if not zipfile.is_zipfile(tmp):
+                raise ValueError(f"{pkg.filename}: stažený soubor není ZIP")
+            tmp.replace(dest)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        return total
+
+    total = with_retry(_once, DOWNLOAD_RETRY_WAIT_S, label=f"stažení {pkg.filename}", log=log)
     if log:
         log(f"DTM: staženo {pkg.filename} ({total / 1e6:.1f} MB, {time.time() - t0:.0f} s)")
     prune_older_packages(pkg)
