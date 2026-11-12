@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.33.0"
+APP_VERSION = "3.33.1"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -122,8 +122,9 @@ API_CLIENT_KEY = os.environ.get("API_CLIENT_KEY", "").strip()
 API_KEY_MAX_ACTIVE_JOBS = int(os.environ.get("API_KEY_MAX_ACTIVE_JOBS", "3"))
 API_KEY_MAX_JOBS_HOUR = int(os.environ.get("API_KEY_MAX_JOBS_HOUR", "20"))
 CLEANUP_INTERVAL_HOURS = int(os.environ.get("CLEANUP_INTERVAL_HOURS", "24"))
-# Kontrola dostupnosti zdrojů dat (ČÚZK, DTM, OSM …) lehkým dotazem; 0 = vypnuto.
-SOURCE_CHECK_INTERVAL_MIN = float(os.environ.get("SOURCE_CHECK_INTERVAL_MIN", "10") or 0)
+# Kontrola dostupnosti zdrojů dat (ČÚZK, DTM, OSM …) při otevření stránky / startu jobu;
+# výsledek platí tolik minut (víc návštěvníků = jedna kontrola). 0 = vypnuto.
+SOURCE_CHECK_TTL_MIN = float(os.environ.get("SOURCE_CHECK_TTL_MIN", "3") or 0)
 LIDAR_CACHE_MAX_AGE_DAYS = int(os.environ.get("LIDAR_CACHE_MAX_AGE_DAYS", "180"))
 # Listy LiDARu (DMR 5G, DMP OK) se podle stáří znovu nestahují: jednou za tolik dní se u ČÚZK ověří
 # (HEAD: Last-Modified + velikost), jestli nevyšla novější verze; jinak se list bere z cache.

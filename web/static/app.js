@@ -2995,8 +2995,17 @@ function renderSourceStatus() {
   const box = document.getElementById("source-status");
   const data = sourceStatus;
   if (!box) return;
-  if (!data || !data.enabled || !Array.isArray(data.services) || !data.services.length) {
+  if (!data || !data.enabled) {
     box.hidden = true;
+    return;
+  }
+  if (!Array.isArray(data.services) || !data.services.length) {
+    // První kontrola po startu serveru ještě běží.
+    box.hidden = !data.checking;
+    box.classList.remove("is-down");
+    document.getElementById("source-status-summary").textContent = "Stav zdrojů dat: ověřuji…";
+    document.getElementById("source-status-list").replaceChildren();
+    document.getElementById("source-status-note").textContent = "";
     return;
   }
   const down = data.services.filter((s) => !s.ok && sourceRelevant(s));
@@ -3036,26 +3045,32 @@ function renderSourceStatus() {
     if (wasDown) box.open = false;
   }
   const checked = csTime(data.checked_at);
-  const every = data.interval_min ? ` Kontrola každých ${Math.round(data.interval_min)} min.` : "";
   document.getElementById("source-status-note").textContent =
-    (checked ? `Ověřeno v ${checked}.` : "") + every +
+    (checked ? `Ověřeno v ${checked}.` : "") + (data.checking ? " Ověřuji znovu…" : "") +
     (down.length ? " Generovat lze i tak, chybějící část se vynechá; nebo to zkuste později." : "");
   box.hidden = false;
 }
 
-async function loadSourceStatus() {
+let sourceStatusPolls = 0;
+
+/** Stav se ověří při otevření stránky; běžící kontrolu (``checking``) dočte po pár sekundách. */
+async function loadSourceStatus(poll = false) {
+  sourceStatusPolls = poll ? sourceStatusPolls + 1 : 0;
   try {
     sourceStatus = await api("/api/source_status");
   } catch (_) {
     sourceStatus = null;
   }
   renderSourceStatus();
+  if (sourceStatus && sourceStatus.checking && sourceStatusPolls < 15) {
+    setTimeout(() => loadSourceStatus(true), 3000);
+  }
 }
 
 loadWhatsNew();
 loadUsageBox();
 loadSourceStatus();
-setInterval(loadSourceStatus, SOURCE_STATUS_REFRESH_MS);
+setInterval(() => loadSourceStatus(), SOURCE_STATUS_REFRESH_MS);
 document.getElementById("dtm")?.addEventListener("change", renderSourceStatus);
 initJobsTabs();
 initMobileJobBar();

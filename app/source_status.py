@@ -1,9 +1,10 @@
 """Kontrola dostupnosti zdrojů dat (ČÚZK, DTM, OSM, Sentinel-2) pro web.
 
-Jednou za ``SOURCE_CHECK_INTERVAL_MIN`` (výchozí 10 min) se na každý zdroj pošle
-jeden lehký dotaz (HEAD na soubor, popis služby ``?f=json``, malý JSON) – žádné
-stahování dat, služby se nezatěžují. Výsledek drží proces v paměti; web ho čte
-z ``GET /api/source_status`` a před spuštěním jobu varuje, že mapa nebude úplná.
+Kontrola běží líně (Petr 2026-11-12): až když někdo otevře stránku (``GET /api/source_status``)
+nebo začne job, a jen když je poslední výsledek starší než ``SOURCE_CHECK_TTL_MIN`` (výchozí 3 min).
+Na každý zdroj jde jeden lehký dotaz (HEAD na soubor, popis služby ``?f=json``, malý JSON) –
+žádné stahování dat; víc návštěvníků naráz spustí nejvýš jednu kontrolu. Výsledek se ukládá
+do ``DATA_ROOT/source_status.json``, takže ho vidí i proces jobu.
 
 Zdroj je „mimo provoz“, když neodpoví (timeout, síť) nebo vrátí HTTP 5xx; po
 chybě se dotaz jednou zopakuje, ať krátký výpadek nevyvolá planý poplach.
@@ -11,7 +12,9 @@ chybě se dotaz jednou zopakuje, ať krátký výpadek nevyvolá planý poplach.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
 import urllib.error
@@ -19,6 +22,9 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+
+from app import settings
 
 from app.pipeline.dtm_sources import DMVS_API
 from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
@@ -109,15 +115,49 @@ PROBES: tuple[Probe, ...] = (
     ),
 )
 
-_lock = threading.Lock()
-_state: dict = {"checked_at": None, "services": {}}
-_started = False
+_STATUS_FILE = "source_status.json"
+_refresh_lock = threading.Lock()  # jedna kontrola naráz v procesu webu
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _status_path() -> Path:
+    return settings.DATA_ROOT / _STATUS_FILE
+
+
+def _load() -> dict:
+    try:
+        data = json.loads(_status_path().read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("services"), dict):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {"checked_at": None, "services": {}}
+
+
+def _save(state: dict) -> None:
+    path = _status_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        logger.warning("Stav zdrojů dat nejde uložit do %s", path, exc_info=True)
+
+
+def _age_s(state: dict) -> float | None:
+    try:
+        checked = datetime.fromisoformat(state["checked_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (datetime.now(timezone.utc) - checked).total_seconds()
+
+
+def ttl_s() -> float:
+    return max(0.0, float(settings.SOURCE_CHECK_TTL_MIN)) * 60
 def _probe_url(url: str, method: str) -> tuple[int | None, str | None]:
     """HTTP kód (nebo None) a krátký popis chyby sítě."""
     req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})
@@ -176,18 +216,16 @@ def check_all() -> dict:
     with ThreadPoolExecutor(max_workers=len(PROBES), thread_name_prefix="src-check") as pool:
         results = list(pool.map(check_probe, PROBES))
     now = _now_iso()
-    with _lock:
-        prev = _state["services"]
-        services = {}
-        for r in results:
-            old = prev.get(r["key"]) or {}
-            if r["ok"]:
-                r["down_since"] = None
-            else:
-                r["down_since"] = old.get("down_since") if not old.get("ok", True) else now
-            services[r["key"]] = r
-        _state["services"] = services
-        _state["checked_at"] = now
+    prev = _load()["services"]
+    services = {}
+    for r in results:
+        old = prev.get(r["key"]) or {}
+        if r["ok"]:
+            r["down_since"] = None
+        else:
+            r["down_since"] = (old.get("down_since") if not old.get("ok", True) else None) or now
+        services[r["key"]] = r
+    _save({"checked_at": now, "services": services})
     down = [r["label"] for r in results if not r["ok"]]
     if down:
         logger.warning("Zdroje dat mimo provoz: %s", ", ".join(down))
@@ -195,35 +233,53 @@ def check_all() -> dict:
 
 
 def snapshot() -> dict:
-    """Poslední známý stav pro API (``services`` v pořadí ``PROBES``)."""
-    with _lock:
-        services = [dict(_state["services"][p.key]) for p in PROBES if p.key in _state["services"]]
-        return {"checked_at": _state["checked_at"], "services": services}
+    """Poslední uložený stav pro API (``services`` v pořadí ``PROBES``)."""
+    state = _load()
+    services = [dict(state["services"][p.key]) for p in PROBES if p.key in state["services"]]
+    return {"checked_at": state.get("checked_at"), "services": services}
+
+
+def is_stale() -> bool:
+    age = _age_s(_load())
+    return age is None or age >= ttl_s()
+
+
+def refresh_if_stale() -> bool:
+    """Web: je-li výsledek starší než TTL, spustí kontrolu na pozadí (nejvýš jednu naráz).
+
+    Vrací True, když kontrola právě běží (web se za chvíli zeptá znovu)."""
+    if ttl_s() <= 0:
+        return False
+    if not _refresh_lock.acquire(blocking=False):
+        return True
+    if not is_stale():
+        _refresh_lock.release()
+        return False
+
+    def _run() -> None:
+        try:
+            check_all()
+        except Exception:
+            logger.exception("Kontrola zdrojů dat selhala")
+        finally:
+            _refresh_lock.release()
+
+    try:
+        threading.Thread(target=_run, name="source-status", daemon=True).start()
+    except Exception:
+        _refresh_lock.release()
+        raise
+    return True
 
 
 def down_services(*, use_dtm: bool = True) -> list[dict]:
-    """Zdroje mimo provoz podle posledního měření (pro log jobu)."""
+    """Job: zdroje mimo provoz; starý výsledek nejdřív ověří znovu (pár sekund)."""
+    if ttl_s() <= 0:
+        return []
+    if is_stale():
+        check_all()
     return [
         s
         for s in snapshot()["services"]
         if not s["ok"] and (use_dtm or s.get("needs") != "dtm")
     ]
-
-
-def start_scheduler(interval_min: float) -> None:
-    """Vlákno na pozadí: první kontrola hned po startu, pak jednou za ``interval_min``."""
-    global _started
-    if _started or interval_min <= 0:
-        return
-    _started = True
-    wait_s = max(interval_min, 1.0) * 60
-
-    def _loop() -> None:
-        while True:
-            try:
-                check_all()
-            except Exception:
-                logger.exception("Kontrola zdrojů dat selhala")
-            time.sleep(wait_s)
-
-    threading.Thread(target=_loop, name="source-status", daemon=True).start()

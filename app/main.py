@@ -161,7 +161,6 @@ def startup() -> None:
     if removed:
         logger.info("Startup cleanup: removed %s old job(s)", removed)
     start_cleanup_scheduler(CLEANUP_INTERVAL_HOURS)
-    source_status.start_scheduler(app_settings.SOURCE_CHECK_INTERVAL_MIN)
     tools = tool_status()
     missing = [name for name, path in tools.items() if not path]
     logger.info("Nástroje: %s", tools)
@@ -388,9 +387,12 @@ def api_usage_stats():
 
 @app.get("/api/source_status")
 def api_source_status():
-    """Dostupnost zdrojů dat podle poslední kontroly (web podle ní varuje před spuštěním)."""
-    interval = app_settings.SOURCE_CHECK_INTERVAL_MIN
-    return {"enabled": interval > 0, "interval_min": interval, **source_status.snapshot()}
+    """Dostupnost zdrojů dat (web podle ní varuje před spuštěním).
+
+    Starší výsledek než ``SOURCE_CHECK_TTL_MIN`` spustí kontrolu na pozadí (``checking``)."""
+    ttl = app_settings.SOURCE_CHECK_TTL_MIN
+    checking = source_status.refresh_if_stale()
+    return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, **source_status.snapshot()}
 
 
 @app.get("/api/presets")

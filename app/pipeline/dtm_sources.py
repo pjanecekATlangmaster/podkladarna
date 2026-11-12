@@ -20,6 +20,7 @@ import re
 import time
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -108,6 +109,8 @@ DOWNLOAD_RETRY_WAIT_S = (10, 30)
 # ať se při delším výpadku pauzy nesčítají (každý krok pak sáhne po cache).
 DMVS_FAIL_FAST_S = 600
 _dmvs_failed_at = 0.0
+# Totéž pro stahování balíků po serverech krajů (host → čas posledního vyčerpaného pokusu).
+_host_failed_at: dict[str, float] = {}
 
 
 def is_transient_error(exc: BaseException) -> bool:
@@ -305,7 +308,18 @@ def download_package(pkg: DtmPackage, *, force: bool = False, log=None) -> Path:
             raise
         return total
 
-    total = with_retry(_once, DOWNLOAD_RETRY_WAIT_S, label=f"stažení {pkg.filename}", log=log)
+    host = urllib.parse.urlsplit(pkg.url).netloc
+    failed_at = _host_failed_at.get(host, 0.0)
+    recently_failed = bool(failed_at) and time.monotonic() - failed_at < DMVS_FAIL_FAST_S
+    try:
+        total = with_retry(
+            _once, () if recently_failed else DOWNLOAD_RETRY_WAIT_S, label=f"stažení {pkg.filename}", log=log
+        )
+    except Exception as exc:
+        if is_transient_error(exc):
+            _host_failed_at[host] = time.monotonic()
+        raise
+    _host_failed_at.pop(host, None)
     if log:
         log(f"DTM: staženo {pkg.filename} ({total / 1e6:.1f} MB, {time.time() - t0:.0f} s)")
     prune_older_packages(pkg)

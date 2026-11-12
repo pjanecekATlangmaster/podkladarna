@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 # Testy nesmí volat skutečné služby (kontrola zdrojů dat při startu aplikace).
-os.environ["SOURCE_CHECK_INTERVAL_MIN"] = "0"
+os.environ["SOURCE_CHECK_TTL_MIN"] = "0"
 
 
 @pytest.fixture()
