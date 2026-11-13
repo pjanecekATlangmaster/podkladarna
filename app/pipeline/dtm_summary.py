@@ -4,6 +4,9 @@
 Soubor ``work/dtm_summary.json``: ``state`` (off | pending | used | weak | unavailable | failed),
 ``level`` (ok | warn | info), ``lines`` (hotové české věty), ``warn_lines`` (jen věty o skutečném problému –
 log, README i web zvýrazní varováním jen je, ostatní věty jsou neutrální informace) a podpůrné údaje.
+
+Chybějící nebo nedostupné DTM je problém jen u sprintu kresleného z DTM (``dtm_required``); les a MTBO se bez DTM
+kreslí plnohodnotně z OSM a ZABAGED, proto je tam věta jen neutrální poznámka (Petr 2026-11-13).
 """
 
 from __future__ import annotations
@@ -90,6 +93,11 @@ def _read_json(path: Path) -> Any:
         return None
 
 
+def dtm_required(maps: dict[str, bool]) -> bool:
+    """DTM je pro kresbu podstatné jen u sprintu kresleného z DTM; les a MTBO se bez něj kreslí z OSM a ZABAGED."""
+    return bool((maps or {}).get("sprint"))
+
+
 def finalize_summary(summary: dict[str, Any], work_dir: Path, *, failed: bool) -> dict[str, Any]:
     """Doplní stav a věty podle toho, co příprava DTM skutečně zapsala do ``work/dtm``."""
     out = dict(summary)
@@ -98,15 +106,25 @@ def finalize_summary(summary: dict[str, Any], work_dir: Path, *, failed: bool) -
     selection = _selection_lines(maps, True, bool(out.get("auto", True))) if used else list(out.get("lines") or [])
     if not used:
         return out
+    required = dtm_required(maps)
     if failed:
-        line = "Příprava DTM selhala, mapa se kreslila bez DTM."
-        out.update(state="failed", level="warn", lines=[line], warn_lines=[line])
+        if required:
+            line = "Příprava DTM selhala, mapa se kreslila bez DTM."
+            out.update(state="failed", level="warn", lines=[line], warn_lines=[line])
+        else:
+            line = "Data DTM se nepodařilo připravit, mapa se kreslí z OSM a ZABAGED."
+            out.update(state="failed", level="info", lines=[line], warn_lines=[])
         return out
     dtm = work_dir / "dtm"
     fences = _read_json(dtm / FENCES_NAME)
     if not isinstance(fences, dict):
         line = "DTM pro toto území není k dispozici, mapa se kreslí z OSM a ZABAGED."
-        out.update(state="unavailable", level="warn", lines=[line], warn_lines=[line])
+        out.update(
+            state="unavailable",
+            level="warn" if required else "info",
+            lines=[line],
+            warn_lines=[line] if required else [],
+        )
         return out
 
     units = [u for u in fences.get("units") or [] if isinstance(u, dict)]
@@ -147,9 +165,9 @@ def finalize_summary(summary: dict[str, Any], work_dir: Path, *, failed: bool) -
     weak = bool(problems)
     out.update(
         state="weak" if weak else "used",
-        level="warn" if weak else "ok",
+        level=("warn" if required else "info") if weak else "ok",
         lines=[head, *problems, *selection],
-        warn_lines=problems,
+        warn_lines=problems if required else [],
         packages=packages,
         units_total=len(units),
         units_with_data=len(units) - len(missing),

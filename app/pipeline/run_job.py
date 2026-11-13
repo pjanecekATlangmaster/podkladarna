@@ -248,6 +248,22 @@ def vegetation_density_params(preset_id: str, options: dict):
     )
 
 
+def down_source_lines(services: list[dict], *, dtm_needed: bool) -> list[tuple[bool, str]]:
+    """Řádky logu o zdrojích mimo provoz na startu jobu: ``(chyba jobu?, text)``.
+
+    Výpadek DTM je chyba jobu (⚠, „hotovo s upozorněním“) jen u sprintu kresleného z DTM; les a MTBO se bez DTM
+    kreslí plnohodnotně z OSM a ZABAGED, tam je to jen neutrální řádek (Petr 2026-11-13).
+    """
+    out: list[tuple[bool, str]] = []
+    for svc in services:
+        state = "má plánovanou odstávku" if svc.get("planned") else "při poslední kontrole neodpovídal"
+        if svc.get("needs") == "dtm" and not dtm_needed:
+            out.append((False, f"Zdroj {svc['label']} {state} ({svc['detail']}); mapa se kreslí z OSM a ZABAGED."))
+        else:
+            out.append((True, f"Zdroj {svc['label']} {state} ({svc['detail']}): {svc['impact']}"))
+    return out
+
+
 def background_log(log: callable, label: str) -> callable:
     """Log vlákna na pozadí: ``[label] …`` od kraje řádku, jen souhrnné hlášky.
 
@@ -588,15 +604,24 @@ def run_job_pipeline(
     build_stats.set_info(app_version=app_settings.APP_VERSION, preset_id=preset_id, force_refresh=force_refresh)
     if force_refresh:
         raw_log("Vynucené obnovení: cache (LiDAR, ZABAGED, podklady) se nepoužije.")
+    # Bez DTM se les a MTBO kreslí plnohodnotně z OSM a ZABAGED: chybějící DTM je chyba jobu jen u sprintu z DTM.
+    try:
+        dtm_needed = bool(
+            options.get("dtm_fences", True) is not False
+            and resolve_use_dtm(options, "sprint")
+            and job_has_sprint(preset_id, options)
+        )
+    except Exception:
+        dtm_needed = True
     try:  # stav zdrojů z poslední kontroly webu (app.source_status); job běží dál beze změny
         from app import source_status
 
         use_dtm_any = resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest")
-        for svc in source_status.down_services(use_dtm=use_dtm_any):
-            if svc.get("planned"):
-                log_issue(log, f"Zdroj {svc['label']} má plánovanou odstávku ({svc['detail']}): {svc['impact']}")
+        for is_issue, text in down_source_lines(source_status.down_services(use_dtm=use_dtm_any), dtm_needed=dtm_needed):
+            if is_issue:
+                log_issue(log, text)
             else:
-                log_issue(log, f"Zdroj {svc['label']} při poslední kontrole neodpovídal ({svc['detail']}): {svc['impact']}")
+                raw_log(text)
     except Exception:
         pass
 
@@ -671,7 +696,10 @@ def run_job_pipeline(
                     force=force_refresh,
                 )
         except Exception as exc:
-            log_issue(log, f"DTM: příprava na pozadí se nespustila ({exc})")
+            if dtm_needed:
+                log_issue(log, f"DTM: příprava na pozadí se nespustila ({exc})")
+            else:
+                raw_log(f"DTM: příprava na pozadí se nespustila ({exc}); mapa se kreslí z OSM a ZABAGED.")
         # ZABAGED (souběžně s LiDARem), RÚIAN, AOPK a u sprintu katastr + ortofoto na pozadí.
         try:
             vector_prefetch = start_vector_prefetch(
