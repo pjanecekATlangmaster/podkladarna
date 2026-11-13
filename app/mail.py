@@ -177,8 +177,11 @@ def build_private_ready_email(
     duration_s: int | float | None = None,
     issues_summary: str | None = None,
     area_km2: float | None = None,
+    notices: list[str] | None = None,
 ) -> tuple[str, str]:
     """Vrací (předmět, tělo) pro hotový privátní job – česky.
+
+    ``notices`` = informativní upozornění pro příjemce mapy (např. nedostupná DTM), ne chyba jobu.
 
     Odkazy (ZIP omap, volitelně PNG náhled / georef ZIP) jdou jen e-mailem;
     na webové stránce privátního jobu se nezobrazují. Náhled PNG preferujeme
@@ -198,6 +201,8 @@ def build_private_ready_email(
         parts.append(f"Plocha mapy: {area_label}.\n")
     if issues_summary:
         parts.append(f"\nUpozornění: {issues_summary}\n")
+    for notice in notices or []:
+        parts.append(f"\n{notice}\n")
     parts.extend(
         [
             "\n",

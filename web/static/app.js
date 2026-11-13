@@ -1191,7 +1191,8 @@ function jobSourcesInfo(job) {
   const dtm = job.dtm_summary;
   if (!dtm || !Array.isArray(dtm.lines) || !dtm.lines.length) return lidar;
   const warnSet = new Set(Array.isArray(dtm.warn_lines) ? dtm.warn_lines : []);
-  const dtmLines = dtm.lines.map((text) => ({ text, warn: warnSet.has(text) }));
+  const noticeSet = new Set(Array.isArray(dtm.notice_lines) ? dtm.notice_lines : []);
+  const dtmLines = dtm.lines.map((text) => ({ text, warn: warnSet.has(text), notice: noticeSet.has(text) }));
   const dtmDetail = `DTM: ${dtm.state || "?"}`;
   const all = lidar ? [...lidar.lines, ...dtmLines] : dtmLines;
   return {
@@ -1296,10 +1297,13 @@ function renderJobSources(el, job) {
     return;
   }
   // ⚠ a zvýraznění jen u vět o skutečném problému; běžné informace o zdrojích zůstávají neutrální.
+  // Upozornění pro příjemce mapy (DTM se pro mapu používá, ale bylo nedostupné) je informativní, ne chyba.
   const warnings = info.lines.filter((l) => l.warn);
-  const notes = info.lines.filter((l) => !l.warn);
+  const notices = info.lines.filter((l) => !l.warn && l.notice);
+  const notes = info.lines.filter((l) => !l.warn && !l.notice);
   el.innerHTML =
     warnings.map((l) => `<div class="sources-warn">⚠ ${escapeHtml(l.text)}</div>`).join("") +
+    notices.map((l) => `<div class="sources-notice">ℹ ${escapeHtml(l.text)}</div>`).join("") +
     (notes.length ? `<div>${notes.map((l) => escapeHtml(l.text)).join(" ")}</div>` : "") +
     `<details class="sources-detail"><summary>Technické podrobnosti</summary>` +
     `<code>${escapeHtml(info.detail)}</code></details>`;

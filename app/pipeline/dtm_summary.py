@@ -3,7 +3,13 @@
 Čisté funkce bez sítě. Texty vět se skládají tady, log, README a web je jen vypisují.
 Soubor ``work/dtm_summary.json``: ``state`` (off | pending | used | weak | unavailable | failed),
 ``level`` (ok | warn | info), ``lines`` (hotové české věty), ``warn_lines`` (jen věty o skutečném problému –
-log, README i web zvýrazní varováním jen je, ostatní věty jsou neutrální informace) a podpůrné údaje.
+log, README i web zvýrazní varováním jen je, ostatní věty jsou neutrální informace), ``notice_lines`` (upozornění
+pro příjemce mapy: DTM se pro mapu používá, ale při zpracování bylo nedostupné – log a README s prefixem
+„UPOZORNĚNÍ: “, web nenápadnou poznámkou, privátní job v e-mailu; stav jobu ani statistiku chyb nemění) a podpůrné údaje.
+
+Tři stavy (Petr 2026-11-13): DTM se použilo (``used`` / ``weak``), území bez dat DTM nebo DTM vypnuté
+(``unavailable`` / ``off`` – jen neutrální věta, ne výpadek) a DTM se mělo použít, ale příprava skončila výjimkou
+(výpadek DMVS nebo serveru kraje, plánovaná odstávka – ``failed``, jediný stav s upozorněním příjemci).
 
 Chybějící nebo nedostupné DTM je problém jen u sprintu kresleného z DTM (``dtm_required``); les a MTBO se bez DTM
 kreslí plnohodnotně z OSM a ZABAGED, proto je tam věta jen neutrální poznámka (Petr 2026-11-13).
@@ -24,6 +30,12 @@ from app.pipeline.dtm_import import (
 )
 
 SUMMARY_NAME = "dtm_summary.json"
+NOTICE_PREFIX = "UPOZORNĚNÍ: "
+OUTAGE_NOTICE = (
+    "Digitální technická mapa (DTM) ČÚZK byla při zpracování nedostupná (výpadek nebo odstávka zdroje). "
+    "Mapa je kreslená z OSM a ZABAGED, jen budovy, ploty, chodníky a plochy silnic nemají přesnější tvar z DTM; "
+    "zadání můžete později spustit znovu."
+)
 README_TITLE = "Digitální technická mapa (DTM)"
 
 _MAP_LABELS = {"sprint": "sprint", "les": "les", "mtbo": "MTBO"}
@@ -112,8 +124,7 @@ def finalize_summary(summary: dict[str, Any], work_dir: Path, *, failed: bool) -
             line = "Příprava DTM selhala, mapa se kreslila bez DTM."
             out.update(state="failed", level="warn", lines=[line], warn_lines=[line])
         else:
-            line = "Data DTM se nepodařilo připravit, mapa se kreslí z OSM a ZABAGED."
-            out.update(state="failed", level="info", lines=[line], warn_lines=[])
+            out.update(state="failed", level="info", lines=[OUTAGE_NOTICE], warn_lines=[], notice_lines=[OUTAGE_NOTICE])
         return out
     dtm = work_dir / "dtm"
     fences = _read_json(dtm / FENCES_NAME)
@@ -207,10 +218,27 @@ def warning_lines(summary: dict[str, Any]) -> set[str]:
     }
 
 
+def notice_lines(summary: dict[str, Any] | None) -> list[str]:
+    """Upozornění pro příjemce mapy (DTM se používá, ale bylo nedostupné); prázdné u jiných stavů a starších souhrnů."""
+    if not summary:
+        return []
+    return [str(line) for line in summary.get("notice_lines") or [] if line]
+
+
 def log_lines(summary: dict[str, Any]) -> list[str]:
-    """Věty pro log a README; prefix „VAROVÁNÍ: “ jen u vět o skutečném problému."""
+    """Věty pro log a README; prefix „VAROVÁNÍ: “ jen u vět o skutečném problému, „UPOZORNĚNÍ: “ u upozornění
+    pro příjemce mapy."""
     warn = warning_lines(summary)
-    return [f"VAROVÁNÍ: {line}" if line in warn else line for line in summary.get("lines") or []]
+    notice = set(notice_lines(summary))
+    out = []
+    for line in summary.get("lines") or []:
+        if line in warn:
+            out.append(f"VAROVÁNÍ: {line}")
+        elif line in notice:
+            out.append(f"{NOTICE_PREFIX}{line}")
+        else:
+            out.append(line)
+    return out
 
 
 def readme_block(summary: dict[str, Any] | None) -> str:

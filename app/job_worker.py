@@ -26,7 +26,7 @@ from app.mail import (
     build_private_ready_email,
     send_mail,
 )
-from app.pipeline import build_stats
+from app.pipeline import build_stats, dtm_summary
 from app.pipeline.issue_explain import failure_summary, user_summary
 from app.pipeline.preview import resolve_preview_png
 from app.pipeline.run_job import run_job_pipeline
@@ -116,6 +116,7 @@ def _notify_private_job(job_id: str) -> None:
         issues_summary=(
             job.get("error") if job.get("status") == db.STATUS_DONE_WITH_ERRORS else None
         ),
+        notices=dtm_summary.notice_lines(job.get("dtm_summary")),
     )
     try:
         send_mail(
