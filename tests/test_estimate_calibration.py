@@ -43,20 +43,33 @@ def _insert(conn, i, *, ratio=0.4, est_prep=10.0, est_maps=4.0, created="2999-12
     )
 
 
-def test_create_job_stores_estimate_and_usage_stores_maps_seconds(data_dir):
+@pytest.mark.parametrize(
+    "steps, expected",
+    [
+        ([{"label": "sestavení mapy a ZIP", "seconds": 120}], 120),  # starší joby: jeden krok
+        (
+            [
+                {"label": "RÚIAN a AOPK", "seconds": 5},
+                {"label": "DTM kraje", "seconds": 10},
+                {"label": "silnice a cesty", "seconds": 50},
+                {"label": "balení ZIP", "seconds": 20},
+            ],
+            80,
+        ),
+    ],
+)
+def test_create_job_stores_estimate_and_usage_stores_maps_seconds(data_dir, steps, expected):
     import app.db as db
 
     opts = {"bbox_wgs84": BBOX, "map_types": ["les"], "client_ip": "1.2.3.4"}
     job = db.create_job("a", "forest_10000", opts)
     reused = db.create_job("b", "forest_10000", {**opts, "reused_from": job["id"]})
     nobbox = db.create_job("c", "forest_10000", {"map_types": ["les"]})
-    db.record_job_usage(
-        job["id"], "done", {"total_seconds": 600, "steps": [{"label": "sestavení mapy a ZIP", "seconds": 120}]}
-    )
+    db.record_job_usage(job["id"], "done", {"total_seconds": 600, "steps": steps})
     with db.connect() as conn:
         row = conn.execute("SELECT * FROM job_origin WHERE job_id = ?", (job["id"],)).fetchone()
         assert row["est_prep_min"] > 0 and row["est_maps_min"] > 0
-        assert row["maps_seconds"] == 120
+        assert row["maps_seconds"] == expected
         for other in (reused, nobbox):
             r = conn.execute("SELECT * FROM job_origin WHERE job_id = ?", (other["id"],)).fetchone()
             assert r["est_prep_min"] is None and r["est_maps_min"] is None

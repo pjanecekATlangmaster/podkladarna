@@ -3819,17 +3819,22 @@ def start_osm_prefetch(
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="osm-dl")
     if log:
         log("Start stahování OSM na pozadí; výsledek se převezme v kroku OSM.")
-    future = executor.submit(
-        fetch_osm_path_elements,
-        fetch_bbox,
-        include_benches=include_benches,
-        include_lamps=include_lamps,
-        include_playground_equipment=include_playground_equipment,
-        osm_priority=osm_priority,
-        path_source=PATH_SOURCE_OSM,
-        force_refresh=force_refresh,
-        log=log,
-    )
+    def _fetch():
+        from app.pipeline.job_progress import background_task
+
+        with background_task(log, "Data OpenStreetMap"):
+            return fetch_osm_path_elements(
+                fetch_bbox,
+                include_benches=include_benches,
+                include_lamps=include_lamps,
+                include_playground_equipment=include_playground_equipment,
+                osm_priority=osm_priority,
+                path_source=PATH_SOURCE_OSM,
+                force_refresh=force_refresh,
+                log=log,
+            )
+
+    future = executor.submit(_fetch)
     return OsmPrefetch(future, executor)
 
 

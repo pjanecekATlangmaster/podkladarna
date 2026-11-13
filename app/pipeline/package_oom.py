@@ -27,6 +27,7 @@ from app.pipeline.osm_paths import (
     resolve_path_source,
 )
 from app.pipeline.build_oom_map import write_oom_map
+from app.pipeline.job_progress import map_phase
 from app.pipeline.crs_5514 import projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.geom_clip import expand
@@ -804,6 +805,7 @@ def _prepare_oom_map(
 ) -> Path | None:
     """``certain_only``: jen čistá data – bez vegetace, OSM polí a LiDAR/DEM výstupů."""
     del formline
+    map_phase("polohopis a vegetace")
     drain_unmapped_codes()  # počítadlo chybějících symbolů jen pro tento job
     path_source = resolve_path_source(path_source)
     west, south, east, north = bbox_wgs84
@@ -1042,6 +1044,7 @@ def _prepare_oom_map(
         if dxf_part:
             object_parts.append(dxf_part)
     object_parts.extend(zabaged_rest)
+    map_phase("silnice a cesty")
     # Chodníky z DTM kraje sjednocené s OSM / ZABAGED (jen sprint; bez DTM prázdné, chodníky pak kreslí OSM cesty).
     from app.pipeline.dtm_import import (
         build_dtm_bridge_parts,
@@ -1177,6 +1180,7 @@ def _prepare_oom_map(
     object_parts[corridor_at:corridor_at] = build_mtbo_corridor_parts(
         kp_cwd, path_source=path_source, road_bands=_bands, **_area_kw
     ) + build_paved_edge_parts(kp_cwd, road_bands=_bands, **_area_kw)
+    map_phase("ploty, budovy a oliva")
     # Zaměřené ploty z DTM kraje (sprint a les, MTBO jen se zapnutým DTM; chybějící DTM = prázdný seznam).
     from app.pipeline.dtm_import import build_dtm_fence_parts
 
@@ -1221,6 +1225,7 @@ def _prepare_oom_map(
         )
     # Výplň dvorů až nakonec – překryje vegetaci/OSM detaily uvnitř budov.
     object_parts.extend(courtyard_parts)
+    map_phase("slučování zdrojů a odsun od cest")
     # Les a MTBO: objekty u cest (budovy, oliva, zdi, ploty, body) se odsunou od kreslených cest
     # podle šířky symbolů – až nad hotovou mapou, kdy jsou ploty spojené a deduplikované.
     from app.pipeline.path_clearance import displace_objects_from_paths
@@ -1310,6 +1315,7 @@ def _prepare_oom_map(
     )
     if aoi_part:
         object_parts.append(aoi_part)
+    map_phase("zjednodušení a zápis mapy")
     # Zjednodušení tvaru jako Ctrl+M v Mapperu (0,1 mm mapy), až nad hotovými objekty.
     from app.pipeline.oom_simplify import SIMPLIFY_TOLERANCE_MM, simplify_object_parts
 

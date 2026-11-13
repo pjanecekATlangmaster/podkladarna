@@ -21,13 +21,22 @@ from pathlib import Path
 
 from app.fsutil import atomic_write_text
 from app.pipeline import build_stats
-from app.pipeline.job_progress import ISSUE_LOG_PREFIX, format_elapsed, log_issue
+from app.pipeline.job_progress import (
+    ISSUE_LOG_PREFIX,
+    MapPhaseTracker,
+    format_elapsed,
+    log_issue,
+    map_phase,
+    set_map_phase_hook,
+)
 from app.pipeline.package_oom import prepare_oom_map
 
 REFS_BUILT_NAME = "_refs_built.json"
 # Pod touto volnou pamětí (MB) se mapy staví sériově (špička jedné mapy je ~1–2,5 GB, plus Mapper při OCD).
 MIN_FREE_MEMORY_MB = 6 * 1024
 _REFS_WAIT_MAX_S = 6 * 3600
+# Fáze mapy z potomka souběhu jde frontou logu jako řádek s touto značkou (rodič ho nezapíše, předá trackeru).
+PHASE_MARK = "\x00phase\x00"
 
 
 @dataclass
@@ -88,6 +97,7 @@ def build_discipline_maps_serial(
         if omap_p:
             log(f"OOM: {call.variant_name} hotovo za {format_elapsed(time.monotonic() - t_map)}")
             t_ocd = time.monotonic()
+            map_phase("převod do OCAD")
             try:
                 from app.pipeline.oom_preview import convert_omap_to_ocd
 
@@ -153,8 +163,16 @@ def _discipline_child(kp_cwd: Path, task: DisciplineTask, built_refs) -> tuple[l
         if q is not None:
             q.put(_tag_line(task.tag, str(msg)))
 
+    def phase(label: str) -> None:
+        if q is not None:
+            q.put(f"{PHASE_MARK}{task.tag}\t{label}")
+
+    prev = set_map_phase_hook(phase)
     t0 = time.monotonic()
-    paths = build_discipline_maps_serial(kp_cwd, task, built_refs, log)
+    try:
+        paths = build_discipline_maps_serial(kp_cwd, task, built_refs, log)
+    finally:
+        set_map_phase_hook(prev)
     return [str(p) if p else None for p in paths], time.monotonic() - t0, _peak_rss_kb()
 
 
@@ -202,23 +220,41 @@ def build_discipline_maps(
     prepare: Callable | None = None,
     executor_factory: Callable[[object], Executor] | None = None,
     queue_factory: Callable[[], object] | None = None,
+    progress=None,
 ) -> list[list[Path | None]]:
     """Mapy všech disciplín v pořadí ``tasks``. ``parallel`` + ≥ 2 disciplíny + dost paměti = jeden proces na disciplínu.
 
     ``built_refs``: dict, nebo callable (odložený join) pro sériovou cestu; ``join_refs``: odložený join
-    (jen když je ``built_refs`` callable), v souběhu ho spouští rodič a potomci čekají na ``_refs_built.json``."""
+    (jen když je ``built_refs`` callable), v souběhu ho spouští rodič a potomci čekají na ``_refs_built.json``.
+    ``progress`` (``JobProgress``): fáze map jako kroky jobu (``MapPhaseTracker``, první fáze se otevře hned)."""
+    tracker = MapPhaseTracker(progress, [t.tag for t in tasks]) if progress is not None else None
+    if tracker is not None:
+        tracker.start()
     if parallel and len(tasks) >= 2:
         free = available_memory_mb()
         if free is not None and free < MIN_FREE_MEMORY_MB:
             log(f"OOM: volná paměť {free:.0f} MB < {MIN_FREE_MEMORY_MB} MB, mapy disciplín se staví sériově.")
         else:
             return _build_parallel(
-                kp_cwd, tasks, built_refs, join_refs, log, prepare, executor_factory, queue_factory
+                kp_cwd, tasks, built_refs, join_refs, log, prepare, executor_factory, queue_factory, tracker
             )
-    return [build_discipline_maps_serial(kp_cwd, t, built_refs, log, prepare) for t in tasks]
+    return [_serial_with_phases(kp_cwd, t, built_refs, log, prepare, tracker) for t in tasks]
 
 
-def _build_parallel(kp_cwd, tasks, built_refs, join_refs, log, prepare, executor_factory, queue_factory):
+def _serial_with_phases(kp_cwd, task, built_refs, log, prepare, tracker) -> list[Path | None]:
+    """Sériová mapa disciplíny; fáze z ``map_phase`` jdou do trackeru pod jejím štítkem."""
+    if tracker is None:
+        return build_discipline_maps_serial(kp_cwd, task, built_refs, log, prepare)
+    prev = set_map_phase_hook(lambda label: tracker.report(task.tag, label))
+    try:
+        return build_discipline_maps_serial(kp_cwd, task, built_refs, log, prepare)
+    finally:
+        set_map_phase_hook(prev)
+
+
+def _build_parallel(
+    kp_cwd, tasks, built_refs, join_refs, log, prepare, executor_factory, queue_factory, tracker=None
+):
     log(f"OOM: mapy disciplín ({', '.join(t.tag for t in tasks)}) se staví souběžně v samostatných procesech.")
     refs_file = kp_cwd / REFS_BUILT_NAME
     refs_file.unlink(missing_ok=True)
@@ -229,7 +265,16 @@ def _build_parallel(kp_cwd, tasks, built_refs, join_refs, log, prepare, executor
     def pump() -> None:
         while True:
             try:
-                log(log_queue.get(timeout=0.5))
+                msg = log_queue.get(timeout=0.5)
+                if isinstance(msg, str) and msg.startswith(PHASE_MARK):
+                    tag, _, label = msg[len(PHASE_MARK):].partition("\t")
+                    if tracker is not None:
+                        try:
+                            tracker.report(tag, label)
+                        except Exception:  # průběh nesmí zastavit čtení logu potomků
+                            pass
+                    continue
+                log(msg)
             except queue.Empty:
                 if stop.is_set():
                     return
@@ -280,5 +325,5 @@ def _build_parallel(kp_cwd, tasks, built_refs, join_refs, log, prepare, executor
     if broken:
         log_issue(log, "OOM: proces mapy spadl, chybějící mapy se dostaví sériově.")
         for i in broken:
-            results[i] = build_discipline_maps_serial(kp_cwd, tasks[i], built_refs, log, prepare)
+            results[i] = _serial_with_phases(kp_cwd, tasks[i], built_refs, log, prepare, tracker)
     return [r or [] for r in results]

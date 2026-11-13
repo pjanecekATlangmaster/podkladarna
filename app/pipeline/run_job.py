@@ -82,6 +82,10 @@ from app.pipeline.reference_layers import (
 from app.pipeline.shade import build_job_shade
 from app.pipeline.job_progress import (
     IssueCollector,
+    DTM_STEP,
+    PREVIEW_STEP,
+    background_task,
+    ZIP_STEP,
     JobProgress,
     format_elapsed,
     indented_log,
@@ -337,14 +341,17 @@ def start_reference_download(
         extra: dict = {}
         if shade_bounds is not None:
             try:
-                shade_png = build_job_shade(
-                    work_dir,
-                    bounds_5514=shade_bounds,
-                    prefer_local=False,
-                    force=force_refresh,
-                    cache_dir=shade_cache_dir,
-                    log=ref_log,
-                )
+                with background_task(ref_log, "Stínování reliéfu (DMR 5G)") as task:
+                    shade_png = build_job_shade(
+                        work_dir,
+                        bounds_5514=shade_bounds,
+                        prefer_local=False,
+                        force=force_refresh,
+                        cache_dir=shade_cache_dir,
+                        log=ref_log,
+                    )
+                    if shade_png is None:
+                        task.state = "nedostupné"
                 if shade_png is not None:
                     handle.shade_ok = True
                     extra["job_shade"] = shade_png
@@ -357,7 +364,8 @@ def start_reference_download(
                 from app.pipeline.ortho_rough import ORTHO_MPP
                 from app.pipeline.orthophoto import prefetch_orthophoto
 
-                prefetch_orthophoto(work_dir, ortho_prefetch_bounds, ORTHO_MPP, log=ref_log)
+                with background_task(ref_log, "Ortofoto pro vegetaci"):
+                    prefetch_orthophoto(work_dir, ortho_prefetch_bounds, ORTHO_MPP, log=ref_log)
             except Exception as exc:  # vegetace si ho případně stáhne sama
                 ref_log(f"Ortofoto pro vegetaci: přeskočeno ({exc})")
         try:
@@ -648,7 +656,7 @@ def run_job_pipeline(
             dtm_summary.write_summary(work_dir, dtm_summary_data)
             options = {**options, "_dtm_summary": dtm_summary_data}
             build_stats.set_info(dtm=dtm_on)
-            # DTM nemá vlastní krok v plánu (běží souběžně na pozadí), proto ho log zmíní hned pod plánem.
+            # DTM běží souběžně na pozadí; krok „DTM kraje“ v plánu je až čekání na něj před sestavením map.
             raw_log(
                 "Kresba z DTM: ano – data DTM (ploty, budovy, chodníky, silnice) se připravují na pozadí, "
                 "do mapy jdou při sestavení."
@@ -1203,8 +1211,6 @@ def _package_output(
             if progress is not None:
                 progress.done()
 
-            if progress is not None:
-                progress.begin("sestavení mapy a ZIP")
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))
             if indexcontours_m is None and meta.get("contour_interval_m") is not None:
                 indexcontours_m = 5 * float(meta["contour_interval_m"])
@@ -1248,7 +1254,11 @@ def _package_output(
                     f"(auto .omap {size_note}; SHP všechna pásma + řídké)"
                 )
 
+            if progress is not None and dtm_prefetch is None:
+                progress.skip(DTM_STEP, reason="kresba bez DTM")
             if dtm_prefetch is not None:
+                if progress is not None:
+                    progress.begin(DTM_STEP)
                 t_dtm_wait = time.monotonic()
                 if not dtm_prefetch.future.done():
                     log("Čekám na přípravu DTM (ploty) z pozadí…")
@@ -1341,6 +1351,7 @@ def _package_output(
                 log=log,
                 parallel=app_settings.PARALLEL_DISCIPLINE_MAPS and not job_has_sprint(preset_id, options),
                 prepare=prepare_oom_map,
+                progress=progress,
             )
             for task, paths in zip(tasks, results):
                 for call, omap_p in zip(task.calls, paths):
@@ -1348,6 +1359,8 @@ def _package_output(
                         # Náhled jen z plné mapy; „čistá“ jde do ZIPu a OCD navíc.
                         (certain_paths if call.certain else omap_paths).append(omap_p)
 
+            if progress is not None:
+                progress.begin(PREVIEW_STEP)
             if defer_refs:
                 built_refs = _join_refs()  # i když žádná mapa nevznikla: podklady jdou do ZIPu
                 meta = _metadata()
@@ -1378,8 +1391,8 @@ def _package_output(
                 except Exception as exc:
                     log_issue(log, f"OOM georef ZIP: přeskočeno ({exc})")
 
-        if progress is not None and not bbox:
-            progress.begin("sestavení mapy a ZIP")
+        if progress is not None:
+            progress.begin(ZIP_STEP)
         cliff_symbol = str(options.get("kp_cliff_symbol") or "auto")
         log_step(
             log,

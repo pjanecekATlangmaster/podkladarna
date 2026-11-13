@@ -356,13 +356,17 @@ def _count_job_usage(
     src = _num(stats.get("downloaded_bytes"))
     cached = _num(stats.get("cached_bytes"))
     src_bytes = None if src is None and cached is None else (src or 0) + (cached or 0)
+    # Skládání map = součet kroků od DTM po ZIP (starší joby: jeden krok „sestavení mapy a ZIP“).
+    from app.pipeline.job_progress import MAP_ASSEMBLY_STEPS
+
     maps_seconds = None
     steps = stats.get("steps")
     if isinstance(steps, list):
         for step in steps:
-            if isinstance(step, dict) and step.get("label") == "sestavení mapy a ZIP":
-                maps_seconds = _num(step.get("seconds"))
-                break
+            if isinstance(step, dict) and step.get("label") in MAP_ASSEMBLY_STEPS:
+                sec = _num(step.get("seconds"))
+                if sec is not None:
+                    maps_seconds = (maps_seconds or 0) + sec
     cur = conn.execute(
         "UPDATE job_origin SET usage_counted = 1, status = ?, build_seconds = ?, "
         "output_bytes = ?, source_bytes = ?, maps_seconds = ? "

@@ -26,6 +26,7 @@ from contextvars import ContextVar
 from pathlib import Path
 
 from app.pipeline import build_stats, dtm_fences, dtm_sidewalks, dtm_sources, zone_index
+from app.pipeline.job_progress import background_task
 from app.pipeline.fetch_openzu import VECTOR_FETCH_BUFFER_M, crop_bounds_5514
 from app.pipeline.geom_clip import Bounds, clip_polyline
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -2557,7 +2558,11 @@ def start_dtm_prefetch(
     def _run() -> Path | None:
         t0 = time.monotonic()
         try:
-            return prepare_dtm_fences(work_dir, bbox_wgs84, log=log, force=force)
+            with background_task(log, "Data DTM kraje") as task:
+                out = prepare_dtm_fences(work_dir, bbox_wgs84, log=log, force=force)
+                if out is None:
+                    task.state = "nedostupné"
+                return out
         except Exception as exc:  # výpadek DMVS / poškozený balík nesmí shodit job
             if log:
                 log(f"DTM: ploty přeskočeny ({type(exc).__name__}: {exc})")

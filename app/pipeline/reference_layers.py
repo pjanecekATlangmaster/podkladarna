@@ -25,7 +25,7 @@ from app.download_cache import (
 from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
-from app.pipeline.job_progress import log_issue
+from app.pipeline.job_progress import background_task, log_issue
 from app.pipeline.prepare_lidar import find_tool, run_cmd
 from app.settings import REF_CACHE_MAX_AGE_DAYS
 from app.tiles import fetch_tile
@@ -1472,6 +1472,8 @@ def build_reference_layers(
             log=log,
         )
         if cached is not None:
+            with background_task(log, "Podklady ortofoto, mapy a stínování") as task:
+                task.state = "z mezipaměti"
             return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
 
     built: dict[str, Path] = {}
@@ -1480,9 +1482,10 @@ def build_reference_layers(
     def _orthophoto() -> dict[str, Path]:
         try:
             if fetch_ortho and want("orthophoto"):
-                if ortho_dir is None:
-                    return fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
-                ortho_side.update(fetch_orthophoto_wms(bounds, template_png, template_pgw, ortho_dir, log=log))
+                with background_task(log, "Ortofoto" if ortho_dir is None else "Ortofoto pro ulice sprintu"):
+                    if ortho_dir is None:
+                        return fetch_orthophoto_wms(bounds, template_png, template_pgw, out_dir, log=log)
+                    ortho_side.update(fetch_orthophoto_wms(bounds, template_png, template_pgw, ortho_dir, log=log))
         except Exception as exc:
             if log:
                 log_issue(log, f"Ortofoto: přeskočeno ({exc})")
@@ -1493,18 +1496,22 @@ def build_reference_layers(
         km_png = out_dir / "katastr.png"
         if want("katastr"):
             try:
-                if fetch_cuzk_wms_png(
-                    KM_WMS,
-                    KM_LAYER,
-                    bounds,
-                    template_png,
-                    template_pgw,
-                    km_png,
-                    km_png.with_suffix(".pgw"),
-                    label="Katastrální mapa",
-                    transparent=True,
-                    log=log,
-                ):
+                with background_task(log, "Katastrální mapa") as task:
+                    ok = fetch_cuzk_wms_png(
+                        KM_WMS,
+                        KM_LAYER,
+                        bounds,
+                        template_png,
+                        template_pgw,
+                        km_png,
+                        km_png.with_suffix(".pgw"),
+                        label="Katastrální mapa",
+                        transparent=True,
+                        log=log,
+                    )
+                    if not ok:
+                        task.state = "nedostupné"
+                if ok:
                     built["katastr"] = km_png
             except Exception as exc:
                 if log:
@@ -1561,8 +1568,8 @@ def add_sentinel2_reference(
 
     west, south, east, north = bbox_wgs84
     try:
-        built.update(
-            build_sentinel2_reference(
+        with background_task(log, "Snímky Sentinel-2") as task:
+            got = build_sentinel2_reference(
                 tuple(bbox_wgs84),
                 crop_bounds_5514(west, south, east, north),
                 out_dir,
@@ -1571,7 +1578,9 @@ def add_sentinel2_reference(
                 write_world=_write_pgw_for_extent,
                 log=log,
             )
-        )
+            if not got:
+                task.state = "nedostupné"
+        built.update(got or {})
     except Exception as exc:
         if log:
             log_issue(log, f"Sentinel-2: přeskočeno ({exc})")
@@ -1593,9 +1602,11 @@ def _fetch_other_layers(
     osm_png = out_dir / "osm.png"
     osm_pgw = osm_png.with_suffix(".pgw")
     try:
-        if build_osm_reference(
-            bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log
-        ):
+        with background_task(log, "Podklad OpenStreetMap") as task:
+            ok = build_osm_reference(bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log)
+            if not ok:
+                task.state = "nedostupné"
+        if ok:
             built["osm"] = osm_png
         else:
             log_issue(log, "OpenStreetMap: podklad se nepodařilo stáhnout z žádného zdroje")
@@ -1603,113 +1614,69 @@ def _fetch_other_layers(
         if log:
             log_issue(log, f"OpenStreetMap: přeskočeno ({exc})")
 
-    ztm_png = out_dir / "mapa_ztm.png"
-    ztm_pgw = ztm_png.with_suffix(".pgw")
-    try:
-        if fetch_cuzk_wms_png(
-            ZTM_WMS,
-            "0",
-            bounds,
-            template_png,
-            template_pgw,
-            ztm_png,
-            ztm_pgw,
-            label="Základní topografická mapa ČR (ZTM)",
-            log=log,
-        ):
-            built["ztm"] = ztm_png
-    except Exception as exc:
-        if log:
-            log_issue(log, f"Mapa ZTM: přeskočeno ({exc})")
+    def _wms(key: str, wms: str, layer: str, png: Path, label: str, task_name: str, *, transparent: bool = False,
+             need_content: bool = False) -> None:
+        pgw = png.with_suffix(".pgw")
+        try:
+            with background_task(log, task_name) as task:
+                ok = fetch_cuzk_wms_png(
+                    wms, layer, bounds, template_png, template_pgw, png, pgw,
+                    label=label, transparent=transparent, log=log,
+                )
+                if ok and need_content and not png_has_content(png):
+                    # oblast bez DTM kraje – prázdnou vrstvu nenabízet
+                    png.unlink(missing_ok=True)
+                    pgw.unlink(missing_ok=True)
+                    ok = False
+                    if log:
+                        log(f"{label}: v oblasti nejsou data DTM")
+                if not ok:
+                    task.state = "nedostupné"
+            if ok:
+                built[key] = png
+        except Exception as exc:
+            if log:
+                log_issue(log, f"{label}: přeskočeno ({exc})")
 
-    km_png = out_dir / "katastr.png"
-    km_pgw = km_png.with_suffix(".pgw")
-    try:
-        if fetch_cuzk_wms_png(
-            KM_WMS,
-            KM_LAYER,
-            bounds,
-            template_png,
-            template_pgw,
-            km_png,
-            km_pgw,
-            label="Katastrální mapa",
-            transparent=True,
-            log=log,
-        ):
-            built["katastr"] = km_png
-    except Exception as exc:
-        if log:
-            log_issue(log, f"Katastrální mapa: přeskočeno ({exc})")
-
+    _wms("ztm", ZTM_WMS, "0", out_dir / "mapa_ztm.png", "Základní topografická mapa ČR (ZTM)", "Mapa ZTM")
+    _wms("katastr", KM_WMS, KM_LAYER, out_dir / "katastr.png", "Katastrální mapa", "Katastrální mapa", transparent=True)
     # DTM kraje (zaměřená situace): plochy + linie jako průhledné PNG pro dokreslení detailů.
     for key, wms, layer, fname, label in (
         ("dtm_plochy", DMVS_ZPS_PLOCHY_WMS, DMVS_ZPS_PLOCHY_LAYER, "dtm_plochy.png", "DTM kraje – plochy (ZPS)"),
         ("dtm_linie", DMVS_ZPS_LINIE_WMS, DMVS_ZPS_LINIE_LAYER, "dtm_linie.png", "DTM kraje – linie a body (ZPS)"),
     ):
-        dtm_png = out_dir / fname
-        dtm_pgw = dtm_png.with_suffix(".pgw")
-        try:
-            if fetch_cuzk_wms_png(
-                wms, layer, bounds, template_png, template_pgw, dtm_png, dtm_pgw,
-                label=label, transparent=True, log=log,
-            ):
-                if png_has_content(dtm_png):
-                    built[key] = dtm_png
-                else:  # oblast bez DTM kraje – prázdnou vrstvu nenabízet
-                    dtm_png.unlink(missing_ok=True)
-                    dtm_pgw.unlink(missing_ok=True)
-                    if log:
-                        log(f"{label}: v oblasti nejsou data DTM")
-        except Exception as exc:
-            if log:
-                log_issue(log, f"{label}: přeskočeno ({exc})")
-
-    dmpok_png = out_dir / "dmpok_nahled.png"
-    dmpok_pgw = dmpok_png.with_suffix(".pgw")
-    try:
-        if fetch_cuzk_wms_png(
-            DMPOK_WMS,
-            DMPOK_PREVIEW_LAYER,
-            bounds,
-            template_png,
-            template_pgw,
-            dmpok_png,
-            dmpok_pgw,
-            label="Náhled DMP OK",
-            log=log,
-        ):
-            built["dmpok"] = dmpok_png
-    except Exception as exc:
-        if log:
-            log_issue(log, f"Náhled DMP OK: přeskočeno ({exc})")
+        _wms(key, wms, layer, out_dir / fname, label, f"Podklad {label}", transparent=True, need_content=True)
+    _wms("dmpok", DMPOK_WMS, DMPOK_PREVIEW_LAYER, out_dir / "dmpok_nahled.png", "Náhled DMP OK", "Náhled DMP OK")
 
     hill_ok = False
-    for key, wms_layer, filename, label, _opacity, _visible in HILLSHADE_VARIANTS:
-        dest_png = out_dir / filename
-        dest_pgw = dest_png.with_suffix(".pgw")
-        if key == "hillshade" and _derive_hillshade_from_job_shade(
-            job_shade, template_png, template_pgw, dest_png, dest_pgw, ref_wh, log=log
-        ):
-            built[key] = dest_png
-            hill_ok = True
-            continue
-        try:
-            if fetch_hillshade_wms(
-                bounds,
-                template_png,
-                template_pgw,
-                dest_png,
-                dest_pgw,
-                layer=wms_layer,
-                label=label,
-                log=log,
+    with background_task(log, "Stínování reliéfu (podklady)") as hill_task:
+        for key, wms_layer, filename, label, _opacity, _visible in HILLSHADE_VARIANTS:
+            dest_png = out_dir / filename
+            dest_pgw = dest_png.with_suffix(".pgw")
+            if key == "hillshade" and _derive_hillshade_from_job_shade(
+                job_shade, template_png, template_pgw, dest_png, dest_pgw, ref_wh, log=log
             ):
                 built[key] = dest_png
                 hill_ok = True
-        except Exception as exc:
-            if log:
-                log_issue(log, f"{label}: přeskočeno ({exc})")
+                continue
+            try:
+                if fetch_hillshade_wms(
+                    bounds,
+                    template_png,
+                    template_pgw,
+                    dest_png,
+                    dest_pgw,
+                    layer=wms_layer,
+                    label=label,
+                    log=log,
+                ):
+                    built[key] = dest_png
+                    hill_ok = True
+            except Exception as exc:
+                if log:
+                    log_issue(log, f"{label}: přeskočeno ({exc})")
+        if not hill_ok:
+            hill_task.state = "nedostupné"
     if log and not hill_ok:
         log_issue(log, "Stínování: WMS ČÚZK nevrátil žádnou vrstvu")
 
@@ -1771,7 +1738,8 @@ def _with_katastr_vectors(
     from app.pipeline.fetch_katastr import build_katastr_vectors
 
     try:
-        built.update(build_katastr_vectors(bbox_wgs84, out_dir, log=log))
+        with background_task(log, "Katastr vektorově"):
+            built.update(build_katastr_vectors(bbox_wgs84, out_dir, log=log))
     except Exception as exc:
         if log:
             log_issue(log, f"Katastr (vektor): přeskočeno ({exc})")

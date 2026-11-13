@@ -598,7 +598,7 @@ function friendlyJobError(errorText, { short = false } = {}) {
 }
 
 // --- Průběh mapy po krocích (z hlaviček v logu, viz app/pipeline/job_progress.py) ---
-const PROGRESS_LINE_RE = /^\s*(Plán \(|\[\d+\/\d+\]|Hotovo za )/;
+const PROGRESS_LINE_RE = /^\s*(Plán \(|\[\d+\/\d+\]|Hotovo za )|Na pozadí: .+ · /;
 
 function capitalizeCs(text) {
   const t = String(text || "").trim();
@@ -622,11 +622,33 @@ function parseJobProgress(lines) {
   let finished = false;
   let elapsed = null;
   let currentIdx = -1;
+  const background = [];
   const ensure = (total) => {
     while (steps.length < total) steps.push({ label: "", state: "todo", note: "" });
   };
   for (const raw of lines) {
     const line = String(raw || "").trim();
+    const bg = line.match(/Na pozadí: (.+?) · (.+)$/);
+    if (bg) {
+      const name = bg[1].trim();
+      const status = bg[2].trim();
+      let state = "now";
+      let note = "";
+      const t = status.match(/^hotovo za (\d+(?::\d{2}){1,2})/);
+      if (t) {
+        state = "done";
+        const sec = clockToSeconds(t[1]);
+        note = sec != null && typeof formatDuration === "function" ? formatDuration(sec) : t[1];
+      } else if (status.startsWith("z mezipaměti")) state = "cached";
+      else if (status.startsWith("nedostupné")) state = "unavailable";
+      else if (status.startsWith("selhalo")) state = "failed";
+      const item = background.find((b) => b.name === name);
+      if (item) {
+        item.state = state;
+        item.note = note;
+      } else background.push({ name, state, note });
+      continue;
+    }
     let m = line.match(/^Plán \((\d+) krok[^)]*\):\s*(.+)$/);
     if (m) {
       const labels = m[2].split(" · ").map(capitalizeCs);
@@ -667,6 +689,7 @@ function parseJobProgress(lines) {
   const doneCount = steps.filter((st) => st.state === "done" || st.state === "skipped").length;
   return {
     steps,
+    background,
     current: finished ? steps.length : nowIdx >= 0 ? nowIdx + 1 : Math.max(currentIdx + 1, doneCount),
     total: steps.length,
     elapsed,
@@ -1295,6 +1318,15 @@ const BUILD_STEP_LABELS = {
   "stínování reliéfu": "Stínování reliéfu",
   "referenční podklady": "Ortofoto a katastr jako podklad",
   "RÚIAN a AOPK": "Budovy RÚIAN a památné stromy",
+  "DTM kraje": "Digitální technická mapa (DTM) kraje",
+  "polohopis a vegetace": "Mapa: polohopis a vegetace",
+  "silnice a cesty": "Mapa: silnice a cesty",
+  "ploty, budovy a oliva": "Mapa: ploty, budovy a oliva",
+  "slučování zdrojů a odsun od cest": "Mapa: slučování zdrojů a odsun od cest",
+  "zjednodušení a zápis mapy": "Mapa: zjednodušení a zápis .omap",
+  "převod do OCAD": "Převod do OCAD (.ocd)",
+  "náhled mapy": "Náhled mapy",
+  "balení ZIP": "Zabalení ZIPu",
   "sestavení mapy a ZIP": "Sestavení map a zabalení ZIPu",
   "balení výstupu": "Zabalení výstupu",
 };
@@ -1322,7 +1354,7 @@ const NUTS_KRAJ = {
   CZ072: "Zlínský kraj", CZ080: "Moravskoslezský kraj",
 };
 
-/** Řádek o přípravě DTM na pozadí (nemá vlastní krok v plánu). */
+/** Řádek o přípravě DTM na pozadí (DTM se připravuje souběžně; v plánu je krok „DTM kraje“ = čekání na ni před sestavením map). */
 function dtmBackgroundText(bg) {
   if (!bg) return "";
   if (bg.failed) return "Příprava DTM na pozadí selhala, mapa se kreslila bez DTM.";
@@ -1630,6 +1662,15 @@ function renderJobProgress(job) {
     const pos = job.queue_position;
     text.textContent = `Ve frontě${pos ? `, pořadí #${pos}` : ""} – začne, až doběhnou předchozí.`;
     list.innerHTML = "";
+    list._html = "";
+    const bgTitleQ = document.getElementById("detail-bg-title");
+    const bgListQ = document.getElementById("detail-bg");
+    if (bgTitleQ) bgTitleQ.classList.add("hidden");
+    if (bgListQ) {
+      bgListQ.innerHTML = "";
+      bgListQ._html = "";
+      bgListQ.classList.add("hidden");
+    }
     meter.hidden = true;
     return;
   }
@@ -1664,6 +1705,26 @@ function renderJobProgress(job) {
   if (list._html !== html) {
     list.innerHTML = html;
     list._html = html;
+  }
+  const bgTitle = document.getElementById("detail-bg-title");
+  const bgList = document.getElementById("detail-bg");
+  if (bgTitle && bgList) {
+    const bg = prog && prog.background ? prog.background : [];
+    const bgHtml = bg
+      .map((b) => {
+        const mark = b.state === "now" ? "●" : b.state === "unavailable" ? "–" : b.state === "failed" ? "✗" : "✓";
+        const cls = b.state === "now" ? "step-now" : b.state === "unavailable" ? "step-skipped" : b.state === "failed" ? "step-failed" : "step-done";
+        const noteText = b.state === "cached" ? "z mezipaměti" : b.state === "unavailable" ? "nedostupné" : b.state === "failed" ? "selhalo" : b.state === "done" ? b.note : "";
+        const note = noteText ? ` <span class="step-note">${escapeHtml(noteText)}</span>` : "";
+        return `<li class="${cls}"><span class="step-mark" aria-hidden="true">${mark}</span> ${escapeHtml(b.name)}${note}</li>`;
+      })
+      .join("");
+    bgTitle.classList.toggle("hidden", !bg.length);
+    bgList.classList.toggle("hidden", !bg.length);
+    if (bgList._html !== bgHtml) {
+      bgList.innerHTML = bgHtml;
+      bgList._html = bgHtml;
+    }
   }
 }
 
