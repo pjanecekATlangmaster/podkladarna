@@ -585,7 +585,10 @@ def run_job_pipeline(
 
         use_dtm_any = resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest")
         for svc in source_status.down_services(use_dtm=use_dtm_any):
-            log_issue(log, f"Zdroj {svc['label']} při poslední kontrole neodpovídal ({svc['detail']}): {svc['impact']}")
+            if svc.get("planned"):
+                log_issue(log, f"Zdroj {svc['label']} má plánovanou odstávku ({svc['detail']}): {svc['impact']}")
+            else:
+                log_issue(log, f"Zdroj {svc['label']} při poslední kontrole neodpovídal ({svc['detail']}): {svc['impact']}")
     except Exception:
         pass
 

@@ -369,6 +369,10 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   nedostupné zdroje do logu jako ⚠. `dtm_sources`: přechodné chyby (5xx, 429, síť) se opakují (`HTTP_RETRY_WAIT_S`,
   `DOWNLOAD_RETRY_WAIT_S`), po vyčerpání další dotazy na DMVS i na týž server kraje 10 min jen jednou; seznam krajů se ukládá
   (`dtm/regions.json`) a při výpadku se vezme z cache, takže výřez s balíky v cache se nakreslí s DTM i bez portálu.
+  Od 3.33.2 (Petr 2026-11-13, odstávka DMVS kvůli JVF DTM 1.5): odpověď 5xx s textem „odstávka“ je plánovaná odstávka
+  (`planned`, web i log jobu to tak napíšou). Výpadek trvající nepřetržitě `SOURCE_ALERT_AFTER_MIN` (30, test B výchozí 0) od
+  `down_since` pošle na `FEEDBACK_TO` jeden e-mail a po obnovení druhý; měří se líně při kontrolách, dvojímu mailu z webu a jobu
+  brání značky `DATA_ROOT/source_alerts/` (`O_EXCL`).
 - **Drobné objekty OSM ve sprintu** (3.19.0, Petr 2026-11-06): volba `kp_osm_objects` je `auto` (výchozí, i API) / `1` vše / `none`.
   `auto` = sprint kreslí základní sadu `OSM_BASIC_OBJECT_KINDS` (lavičky a stoly 531, rozcestníky `guidepost` 531, pomníky / boží muka /
   kříže / sochy 526, památné stromy 417; od 3.23.0 i herní prvky, fitness, ohniště a zábrany 531, přístřešky a `building=roof` 522),

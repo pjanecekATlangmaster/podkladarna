@@ -13,31 +13,35 @@ import app.source_status as ss
 def fresh_state(data_dir, monkeypatch):
     monkeypatch.setattr(ss.settings, "SOURCE_CHECK_TTL_MIN", 3.0)
     monkeypatch.setattr(ss, "PROBE_RETRY_WAIT_S", 0)
+    monkeypatch.setattr(ss.settings, "SOURCE_ALERT_AFTER_MIN", 0.0)
     return data_dir
 
 
 @pytest.mark.parametrize(
-    "codes, any_4xx_ok, ok, detail",
+    "codes, any_4xx_ok, ok, detail, planned",
     [
-        ([200], False, True, None),
-        ([503, 200], False, True, None),  # krátký výpadek: opakovaný pokus projde
-        ([503, 503], False, False, "HTTP 503"),
-        ([None, None], False, False, "URLError: timeout"),
-        ([400], True, True, None),  # Overpass bez dotazu
-        ([404, 404], False, False, "HTTP 404"),
+        ([200], False, True, None, False),
+        ([503, 200], False, True, None, False),  # krátký výpadek: opakovaný pokus projde
+        ([503, 503], False, False, "HTTP 503", False),
+        ([None, None], False, False, "URLError: timeout", False),
+        ([400], True, True, None, False),  # Overpass bez dotazu
+        ([404, 404], False, False, "HTTP 404", False),
+        # DMVS 2026-11: 503 s textem „Plánovaná odstávka“
+        ([(503, "Plánovaná odstávka")] * 2, False, False, "plánovaná odstávka, HTTP 503", True),
+        ([(404, "odstávka")] * 2, False, False, "HTTP 404", False),  # jen 5xx
     ],
 )
-def test_check_probe(fresh_state, monkeypatch, codes, any_4xx_ok, ok, detail):
+def test_check_probe(fresh_state, monkeypatch, codes, any_4xx_ok, ok, detail, planned):
     seq = list(codes)
 
     def fake(url, method):
-        code = seq.pop(0)
-        return code, (None if code else "URLError: timeout")
+        code, text = item if isinstance(item := seq.pop(0), tuple) else (item, "")
+        return code, (None if code else "URLError: timeout"), text
 
     monkeypatch.setattr(ss, "_probe_url", fake)
     probe = ss.Probe("x", "X", ("https://x.example/",), "dopad", any_4xx_ok=any_4xx_ok)
     r = ss.check_probe(probe)
-    assert (r["ok"], r["detail"]) == (ok, detail)
+    assert (r["ok"], r["detail"], r["planned"]) == (ok, detail, planned)
 
 
 def test_check_all_tracks_down_since_file_and_api(fresh_state, monkeypatch, client):
@@ -46,7 +50,7 @@ def test_check_all_tracks_down_since_file_and_api(fresh_state, monkeypatch, clie
 
     def fake(url, method):
         probes.append(url)
-        return (200, None) if state["dtm"] or "dmvs" not in url else (503, None)
+        return (200, None, "") if state["dtm"] or "dmvs" not in url else (503, None, "")
 
     monkeypatch.setattr(ss, "_probe_url", fake)
     first = ss.check_all()
@@ -97,3 +101,66 @@ def test_refresh_if_stale_runs_one_background_check(fresh_state, monkeypatch):
     assert calls == [1]
     monkeypatch.setattr(ss.settings, "SOURCE_CHECK_TTL_MIN", 0.0)
     assert ss.refresh_if_stale() is False and ss.down_services() == []
+
+
+def test_outage_alert_once_after_threshold_and_once_on_recovery(fresh_state, monkeypatch):
+    """Výpadek ≥ SOURCE_ALERT_AFTER_MIN: jeden mail; další kontroly nic; po obnovení jeden mail."""
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    import app.mail
+
+    monkeypatch.setattr(ss.settings, "SOURCE_ALERT_AFTER_MIN", 30.0)
+    monkeypatch.setattr(ss.settings, "FEEDBACK_TO", "provoz@example.cz")
+    sent: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(app.mail, "send_mail", lambda to, subj, body, **kw: sent.append((to, subj, body)))
+    state = {"dtm": False}
+
+    def fake(url, method):
+        if state["dtm"] or "dmvs" not in url:
+            return 200, None, ""
+        return 503, None, "Plánovaná odstávka"
+
+    monkeypatch.setattr(ss, "_probe_url", fake)
+    ss.check_all()
+    assert sent == []  # výpadek právě začal
+
+    path = fresh_state / "source_status.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    old = (datetime.now(timezone.utc) - timedelta(minutes=45)).replace(microsecond=0).isoformat()
+    data["services"]["dtm"]["down_since"] = old
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    ss.check_all()
+    ss.check_all()
+    assert len(sent) == 1
+    to, subject, body = sent[0]
+    assert to == "provoz@example.cz" and "plánovanou odstávku" in subject and "45 min" in body
+
+    # jiný proces se starým stavem (alerted chybí) mail nezopakuje – značka v DATA_ROOT
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["services"]["dtm"]["alerted"] = False
+    path.write_text(json.dumps(data), encoding="utf-8")
+    ss.check_all()
+    assert len(sent) == 1
+
+    state["dtm"] = True
+    ss.check_all()
+    ss.check_all()
+    assert len(sent) == 2 and "znovu běží" in sent[1][1]
+
+
+def test_short_outage_sends_nothing(fresh_state, monkeypatch):
+    import app.mail
+
+    monkeypatch.setattr(ss.settings, "SOURCE_ALERT_AFTER_MIN", 30.0)
+    sent: list[str] = []
+    monkeypatch.setattr(app.mail, "send_mail", lambda to, subj, body, **kw: sent.append(subj))
+    state = {"down": True}
+    monkeypatch.setattr(
+        ss, "_probe_url", lambda url, method: (503, None, "") if state["down"] and "dmvs" in url else (200, None, "")
+    )
+    ss.check_all()
+    state["down"] = False
+    ss.check_all()
+    assert sent == []
