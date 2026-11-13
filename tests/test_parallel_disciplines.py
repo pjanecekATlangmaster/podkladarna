@@ -15,6 +15,17 @@ from app.pipeline import discipline_maps as dm
 from app.pipeline.discipline_maps import DisciplineTask, MapCall, _RefsFile
 
 
+
+@pytest.fixture(autouse=True)
+def _reset_map_phase_hook():
+    """Vláknový „pool“ v testech sdílí globální hook fází (ve spawnu má každý potomek vlastní); vynulovat."""
+    from app.pipeline import job_progress as jp
+
+    jp.set_map_phase_hook(None)
+    yield
+    jp.set_map_phase_hook(None)
+
+
 def _tasks(tmp_path: Path) -> list[DisciplineTask]:
     return [
         DisciplineTask(
@@ -106,6 +117,57 @@ def test_failed_map_is_issue_and_other_discipline_survives(tmp_path, fake_env):
                                    executor_factory=_thread_factory, queue_factory=queue.Queue)  # fmt: skip
     assert res[0][1] is None and res[1][0] is not None
     assert any(ln.startswith("⚠ [les] OOM: les-1.omap nevytvořeno") for ln in log)
+
+
+class _FakeProgress:
+    def __init__(self):
+        self.begins: list[str] = []
+
+    def begin(self, label):
+        self.begins.append(label)
+
+
+def test_parallel_phase_lines_go_to_tracker_not_log(tmp_path, monkeypatch):
+    from app.pipeline import job_progress as jp
+
+    def fake_prepare(_cwd, dest, *, log=None, **kw):
+        tag = dest.name.split("-")[0]
+        dm._CHILD_LOG_QUEUE.put(f"{dm.PHASE_MARK}{tag}\t{jp.MAP_PHASES[1]}")
+        if tag == "les":
+            time.sleep(0.2)  # mtbo nahlásí fázi dřív; krok se otevře až s lesem
+        dest.write_text("x")
+        return dest
+
+    monkeypatch.setattr(dm, "prepare_oom_map", fake_prepare)
+    monkeypatch.setattr("app.pipeline.oom_preview.convert_omap_to_ocd", lambda *a, **k: None)
+    monkeypatch.setattr(dm, "available_memory_mb", lambda: 20000.0)
+    lines: list[str] = []
+    progress = _FakeProgress()
+    prev = jp.set_map_phase_hook(None)
+    try:
+        dm.build_discipline_maps(tmp_path, _tasks(tmp_path), built_refs={}, join_refs=None, log=lines.append,
+                                 parallel=True, executor_factory=_thread_factory, queue_factory=queue.Queue,
+                                 progress=progress)  # fmt: skip
+    finally:
+        jp.set_map_phase_hook(prev)
+    assert not any(dm.PHASE_MARK in ln or jp.MAP_PHASES[1] in ln for ln in lines)
+    assert progress.begins[:2] == [jp.MAP_PHASES[0], jp.MAP_PHASES[1]]
+
+
+def test_serial_map_phase_reaches_progress(tmp_path, monkeypatch):
+    from app.pipeline import job_progress as jp
+
+    def fake_prepare(_cwd, dest, *, log=None, **kw):
+        jp.map_phase(jp.MAP_PHASES[1])
+        dest.write_text("x")
+        return dest
+
+    monkeypatch.setattr("app.pipeline.oom_preview.convert_omap_to_ocd", lambda *a, **k: None)
+    progress = _FakeProgress()
+    dm.build_discipline_maps(tmp_path, _tasks(tmp_path)[:1], built_refs={}, join_refs=None, log=lambda _m: None,
+                             parallel=False, prepare=fake_prepare, progress=progress)  # fmt: skip
+    assert progress.begins == [jp.MAP_PHASES[0], jp.MAP_PHASES[1], jp.MAP_PHASES[5]]
+    assert jp.set_map_phase_hook(None) is None  # hook se po sestavení obnovil
 
 
 @pytest.mark.parametrize(("preset", "expected"), [("forest_10000", True), ("sprint_2_5m", False)])

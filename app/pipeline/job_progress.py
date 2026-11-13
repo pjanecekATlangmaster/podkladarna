@@ -74,6 +74,112 @@ def indented_log(log: LogFn) -> LogFn:
     return _log
 
 
+# Kroky sestavení mapy (Petr 2026-11-13: dřív jeden krok „sestavení mapy a ZIP“). Fáze mapy hlásí
+# ``map_phase`` z ``package_oom`` / ``discipline_maps``; při souběhu les ‖ MTBO se krok posune, až fázi
+# dosáhnou všechny mapy (``MapPhaseTracker``).
+DTM_STEP = "DTM kraje"
+MAP_PHASES: tuple[str, ...] = (
+    "polohopis a vegetace",
+    "silnice a cesty",
+    "ploty, budovy a oliva",
+    "slučování zdrojů a odsun od cest",
+    "zjednodušení a zápis mapy",
+    "převod do OCAD",
+)
+PREVIEW_STEP = "náhled mapy"
+ZIP_STEP = "balení ZIP"
+LEGACY_MAPS_STEP = "sestavení mapy a ZIP"
+# Součet těchto kroků = skládání map pro kalibraci odhadu (``db.record_job_usage``); starší joby měly jeden krok.
+MAP_ASSEMBLY_STEPS: frozenset[str] = frozenset(
+    (DTM_STEP, *MAP_PHASES, PREVIEW_STEP, ZIP_STEP, LEGACY_MAPS_STEP)
+)
+
+_map_phase_hook: Callable[[str], None] | None = None
+
+# Úlohy na pozadí (stahování podkladů, DTM, OSM) mimo pořadí kroků: řádek ``Na pozadí: <název> · <stav>``
+# (stav ``běží`` / ``hotovo za m:ss`` / ``z mezipaměti`` / ``nedostupné`` / ``selhalo``), web je ukáže zvlášť.
+BACKGROUND_PREFIX = "Na pozadí: "
+
+
+class background_task:
+    """``with background_task(log, "Ortofoto") as t:`` – zapíše začátek a konec úlohy; ``t.state`` přepíše výsledek."""
+
+    def __init__(self, log: LogFn | None, name: str) -> None:
+        self._log = log
+        self.name = " ".join(str(name).replace("·", "-").split())
+        self.state: str | None = None
+        self._t0 = time.monotonic()
+
+    def _emit(self, state: str) -> None:
+        if self._log is not None and self.name:
+            try:
+                self._log(f"{BACKGROUND_PREFIX}{self.name} · {state}")
+            except Exception:
+                pass
+
+    def __enter__(self) -> "background_task":
+        self._t0 = time.monotonic()
+        self._emit("běží")
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc_type is not None:
+            self._emit("selhalo")
+        else:
+            self._emit(self.state or f"hotovo za {format_elapsed(time.monotonic() - self._t0)}")
+        return False
+
+
+def set_map_phase_hook(hook: Callable[[str], None] | None) -> Callable[[str], None] | None:
+    """Nastaví příjemce fází mapy (v procesu jobu tracker, v potomkovi souběhu fronta logu); vrátí předchozí."""
+    global _map_phase_hook
+    prev = _map_phase_hook
+    _map_phase_hook = hook
+    return prev
+
+
+def map_phase(label: str) -> None:
+    """Fáze sestavení mapy (jeden z ``MAP_PHASES``); bez příjemce nic. Chyba hlášení nesmí shodit mapu."""
+    hook = _map_phase_hook
+    if hook is None:
+        return
+    try:
+        hook(label)
+    except Exception:
+        pass
+
+
+class MapPhaseTracker:
+    """Fáze map disciplín → kroky ``JobProgress``: krok se otevře, až ho dosáhnou všechny mapy (minimum)."""
+
+    def __init__(self, progress: "JobProgress | None", tags: list[str]) -> None:
+        self._progress = progress
+        self._reached = {str(t): 0 for t in tags}
+        self._current = 0
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        """Otevře první fázi (volá proces jobu těsně před sestavením map)."""
+        if self._progress is not None and MAP_PHASES:
+            self._progress.begin(MAP_PHASES[0])
+
+    def report(self, tag: str, label: str) -> None:
+        if label not in MAP_PHASES:
+            return
+        idx = MAP_PHASES.index(label)
+        tag = str(tag)
+        with self._lock:
+            if tag not in self._reached or idx <= self._reached[tag]:
+                return
+            self._reached[tag] = idx
+            low = min(self._reached.values())
+            if low <= self._current:
+                return
+            self._current = low
+            if self._progress is not None:
+                self._progress.begin(MAP_PHASES[low])
+
+
 def _label(text: str) -> str:
     return text[:1].upper() + text[1:]
 
@@ -236,7 +342,10 @@ def plan_pipeline_steps(
             steps.append("referenční podklady")
         if bbox:
             steps.append("RÚIAN a AOPK")
-        steps.append("sestavení mapy a ZIP")
+            steps.append(DTM_STEP)
+            steps.extend(MAP_PHASES)
+            steps.append(PREVIEW_STEP)
+        steps.append(ZIP_STEP)
     else:
         steps.append("balení výstupu")
     return steps

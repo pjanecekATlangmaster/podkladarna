@@ -638,7 +638,7 @@ legend {
 .checkbox-inline {
   display: flex;
   flex-wrap: wrap;
-  column-gap: 1.5rem;
+  column-gap: 1.25rem;
   row-gap: 0;
 }
 
@@ -1368,15 +1368,21 @@ select:focus-visible {
   padding: 0;
   font-size: 0.9rem;
   line-height: 1.35;
+  columns: 12.5rem auto;
+  column-gap: 1.25rem;
 }
 
-.job-steps li { padding: 0.12rem 0; color: var(--muted); }
+.job-steps li { padding: 0.12rem 0 0.12rem 1.3em; text-indent: -1.3em; color: var(--muted); break-inside: avoid; }
+.job-steps .step-mark { text-indent: 0; }
 .job-steps .step-mark { display: inline-block; width: 1.2em; text-align: center; }
 .job-steps .step-done { color: var(--green); }
 .job-steps .step-now { color: var(--text); font-weight: 700; }
 .job-steps .step-now .step-mark { color: var(--orange-text); }
 .job-steps .step-skipped { color: #767676; }
 .job-steps .step-note { font-size: 0.82rem; }
+.job-steps .step-failed { color: #b3261e; }
+.job-bg-title { margin: 0.8rem 0 0; font-size: 0.82rem; font-weight: 600; color: var(--muted); }
+.job-bg { margin-top: 0.25rem; }
 
 /* Statistiky zpracování hotového jobu (sbalitelné, styl jako zpětná vazba). */
 .build-stats h4 { margin: 0.7rem 0 0.3rem; font-size: 0.92rem; }

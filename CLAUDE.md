@@ -362,10 +362,16 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (zadání, průměrný čas, odhad uživatelů = různé `ip_tag`). Pole `donations` je zatím `null` – box ho ukáže, až bude `{amount, currency}`.
 - **Odhad času buildu se kalibruje z vlastních jobů instance** (3.34.0, Petr 2026-11-13; pevný vzorec v `fetch_openzu.py` byl nakalibrovaný na NAS
   a na pve1 přestřeloval 2–5×; změřeno MTBO 21 km² 26 min proti odhadu 72, sprint 1,2 km² 2,2 proti 11): `job_origin` má sloupce `est_prep_min`,
-  `est_maps_min` (odhad vzorce při založení jobu, `estimate_job_parts`) a `maps_seconds` (krok „sestavení mapy a ZIP“ z `build_stats`). `db.estimate_calibration`
+  `est_maps_min` (odhad vzorce při založení jobu, `estimate_job_parts`) a `maps_seconds` (součet kroků od „DTM kraje“ po „balení ZIP“ z `build_stats`, `MAP_ASSEMBLY_STEPS`; starší joby jeden krok „sestavení mapy a ZIP“). `db.estimate_calibration`
   = koeficient zvlášť pro přípravu a skládání map = p90 poměrů skutečnost / vzorec (raději nadhodnotit) z posledních 40 dokončených jobů za 90 dní, aspoň 5 poměrů (jinak 1,0),
   × 1,15, v mezích 0,25–1,5; `GET /api/sheets` jím násobí složky odhadu, přidá k přípravě +1 min, poznámku „Odhad podle posledních N jobů“ a pole
   `estimate_calibration`; cache 10 min v procesu. Joby s `reused_from` jsou ze statistiky vyloučené (NULL). Vypínač `ESTIMATE_CALIBRATION=0`.
+- **Kroky průběhu jobu** (3.35.0, Petr 2026-11-13): dřívější krok „sestavení mapy a ZIP“ je rozdělený na „DTM kraje“ (čekání na
+  přípravu DTM z pozadí, bez DTM přeskočeno), fáze mapy `MAP_PHASES` (`map_phase(...)` v `package_oom._prepare_oom_map` a před OCD),
+  „náhled mapy“ a „balení ZIP“ (`app/pipeline/job_progress.py`). Při souběhu les ‖ MTBO posílá potomek fázi frontou logu (`PHASE_MARK`)
+  a krok se posune, až fázi dosáhnou obě mapy (`MapPhaseTracker`). Úlohy na pozadí (jednotlivé referenční podklady, data DTM, OSM)
+  píšou `with background_task(log, "<název>")` řádky „Na pozadí: <název> · běží / hotovo za m:ss / z mezipaměti / nedostupné / selhalo“
+  a web je ukáže pod kroky v sekci „Souběžně na pozadí“. Web láme seznamy do sloupců podle šířky panelu (CSS columns).
 - **Stav zdrojů dat** (3.33.0, Petr 2026-11-12, výpadek DMVS 503; od 3.33.1 líně při otevření stránky): `app/source_status.py`
   pošle na 8 zdrojů (LiDAR OpenZU HEAD listu PRAH77, DMVS `is-dtmk/info`, Overpass, ZABAGED, RÚIAN, ortofoto, katastr, Sentinel STAC)
   jeden lehký dotaz, jen když je uložený výsledek starší než `SOURCE_CHECK_TTL_MIN` (3, `0` vypne; testy vypínají v `conftest.py`):
