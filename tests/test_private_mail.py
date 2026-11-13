@@ -792,7 +792,47 @@ def test_notify_private_failure_mails_once_with_operator_copy(tmp_path, monkeypa
     job_url = f"https://pk.example/?job={priv['id']}"
     assert job_url in body
     assert "Pro provozovatele" not in body and "ReadTimeout" not in body
-    _, op_subject, op_body, _ = sent[1]
+    assert not kw.get("attachments")
+    _, op_subject, op_body, op_kw = sent[1]
     assert op_subject.startswith("[kopie]")
     assert job_url in op_body
     assert "CHYBA: ReadTimeout zdroje" in op_body and "Traceback" in op_body
+    assert [p.name for p in op_kw["attachments"]] == [f"podkladarna-log-{priv['id']}.txt"]
+
+
+def test_notify_private_failure_own_job_and_log_attachment(tmp_path, monkeypatch):
+    """Job zadaný provozovatelem: jeden e-mail s technickou částí a celým logem v příloze;
+    dlouhý log se v příloze ořízne zepředu."""
+    import app.job_worker as job_worker
+
+    monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr("app.db.DOWNLOADS_DIR", tmp_path / "dl")
+    (tmp_path / "jobs").mkdir()
+    db.init_db()
+    monkeypatch.setattr(job_worker.app_settings, "FEEDBACK_TO", "Petr@example.com")
+    monkeypatch.setattr(job_worker, "_OPERATOR_LOG_ATTACH_MAX_BYTES", 2000)
+    sent = []
+
+    def fake_send(to, subj, body, **kw):
+        files = kw.get("attachments") or []
+        sent.append((to, body, [(p.name, p.read_text(encoding="utf-8")) for p in files]))
+
+    monkeypatch.setattr(job_worker, "send_mail", fake_send)
+    job = db.create_job("Les", "sprint_2m", {"private": True, "notify_email": "petr@example.com"})
+    db.update_job(job["id"], status="failed", phase="error", error="Chyba Podkladárny.")
+    db.append_log(job["id"], "Start jobu – první řádek")
+    for i in range(200):
+        db.append_log(job["id"], f"krok {i}")
+    db.append_log(job["id"], "CHYBA: ValueError")
+
+    job_worker.notify_private_failure(job["id"])
+
+    assert len(sent) == 1
+    to, body, files = sent[0]
+    assert to == "petr@example.com"
+    assert "Pro provozovatele" in body and "CHYBA: ValueError" in body
+    (name, text), = files
+    assert name == f"podkladarna-log-{job['id']}.txt"
+    assert text.startswith("… (začátek logu vynechán)")
+    assert "první řádek" not in text and text.rstrip().endswith("CHYBA: ValueError")

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import tempfile
+from pathlib import Path
 import traceback
 
 # numpy načíst v hlavním vlákně dřív, než run_job_pipeline spustí vlákna na pozadí
@@ -152,13 +154,46 @@ def _operator_failure_details(job_id: str) -> str:
     return "\n\n".join(parts)
 
 
+# Příloha kopie provozovateli: celý technický log, nejvýš tolik bajtů (konec logu).
+_OPERATOR_LOG_ATTACH_MAX_BYTES = 512_000
+
+
+def _operator_log_attachment(job_id: str, folder: Path) -> Path | None:
+    """Celý technický log jobu jako textová příloha kopie provozovateli (None bez logu).
+
+    Stejný obsah jako „Technický log“ na stránce jobu; delší log se ořízne zepředu.
+    """
+    entries = db.get_logs(job_id)
+    if not entries:
+        return None
+    text = "\n".join(f"{e.get('at') or ''}  {e.get('line') or ''}" for e in entries) + "\n"
+    data = text.encode("utf-8")
+    if len(data) > _OPERATOR_LOG_ATTACH_MAX_BYTES:
+        cut = data[-_OPERATOR_LOG_ATTACH_MAX_BYTES:].decode("utf-8", errors="ignore")
+        data = ("… (začátek logu vynechán)\n" + cut).encode("utf-8")
+    path = folder / f"podkladarna-log-{job_id}.txt"
+    path.write_bytes(data)
+    return path
+
+
+def _operator_log_files(job_id: str, folder: Path) -> list[Path]:
+    """Přílohy technické části (celý log); chyba zápisu e-mail neshodí."""
+    try:
+        path = _operator_log_attachment(job_id, folder)
+    except OSError:
+        logger.exception("Příloha logu jobu %s se nepodařila", job_id)
+        return []
+    return [path] if path else []
+
+
 def notify_private_failure(job_id: str) -> None:
     """Privátní job skončil chybou: e-mail zadavateli, kopie FEEDBACK_TO s koncem logu.
 
     Best-effort, nikdy nevyhazuje. Volá se z job_worker (výjimka v pipeline),
     worker.py (timeout, pád subprocesu) i po restartu serveru.
     Oba e-maily mají odkaz na stránku jobu s logem; provozovatel navíc dostane
-    technickou chybu a konec logu (zadavatel je nevidí).
+    technickou chybu, konec logu a celý log v příloze (zadavatel je nevidí).
+    Zadal-li job provozovatel sám, technická část je v jeho jediném e-mailu.
     """
     try:
         job = db.get_job(job_id)
@@ -176,20 +211,27 @@ def notify_private_failure(job_id: str) -> None:
             job_url=job_page_url(job_id),
         )
         operator = (app_settings.FEEDBACK_TO or "").strip()
-        subject, body = build_private_failed_email(**common)
-        try:
-            send_mail(email, subject, body)
-            db.append_log(job_id, f"{_FAIL_MAIL_SENT_PREFIX} na {email}.")
-        except MailError as exc:
-            db.append_log(job_id, f"CHYBA odeslání e-mailu o chybě: {exc}")
-        if operator and operator.lower() != email.lower():
+        # Zadal-li job sám provozovatel, dostane jeden e-mail rovnou s technickou částí.
+        own_job = bool(operator) and operator.lower() == email.lower()
+        with tempfile.TemporaryDirectory(prefix="podkladarna-mail-") as tmp:
+            log_files = _operator_log_files(job_id, Path(tmp)) if operator else []
+            details = _operator_failure_details(job_id) if own_job else None
+            subject, body = build_private_failed_email(**common, operator_details=details)
             try:
-                subject_op, body_op = build_private_failed_email(
-                    **common, operator_details=_operator_failure_details(job_id)
-                )
-                send_mail(operator, f"[kopie] {subject_op}", body_op)
+                send_mail(email, subject, body, attachments=log_files if own_job else None)
+                db.append_log(job_id, f"{_FAIL_MAIL_SENT_PREFIX} na {email}.")
             except MailError as exc:
-                db.append_log(job_id, f"CHYBA odeslání kopie e-mailu o chybě: {exc}")
+                db.append_log(job_id, f"CHYBA odeslání e-mailu o chybě: {exc}")
+            if operator and not own_job:
+                try:
+                    subject_op, body_op = build_private_failed_email(
+                        **common, operator_details=_operator_failure_details(job_id)
+                    )
+                    send_mail(
+                        operator, f"[kopie] {subject_op}", body_op, attachments=log_files
+                    )
+                except MailError as exc:
+                    db.append_log(job_id, f"CHYBA odeslání kopie e-mailu o chybě: {exc}")
     except Exception:
         logger.exception("E-mail o chybě privátního jobu %s selhal", job_id)
 

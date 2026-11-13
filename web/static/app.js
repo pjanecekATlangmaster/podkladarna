@@ -372,11 +372,11 @@ async function loadMapOptions() {
   }
 }
 
-/** Log úspěšně dokončeného jobu (i s opakovanými pokusy o stažení) se neukazuje; u chyby a běhu ano. */
+/** Technický log je u každého jobu (i hotového, zabalený); u chyby se sám rozbalí. */
 function syncDetailLogVisibility(job) {
   const box = document.getElementById("detail-log-box");
   if (!box) return;
-  box.classList.toggle("hidden", job.status === "done");
+  box.classList.remove("hidden");
   // U neúspěšného jobu je technický log hned vidět.
   if (job.status === "failed" && box.dataset.autoOpened !== job.id) {
     box.open = true;
