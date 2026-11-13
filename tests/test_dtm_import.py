@@ -75,6 +75,10 @@ def test_prefetch_swallows_errors_and_returns_none(tmp_path, monkeypatch):
     pre = di.start_dtm_prefetch(tmp_path, BBOX, log=logs.append)
     assert pre.result() is None  # job pokračuje bez DTM
     assert any("přeskočeny" in m and "DMVS nedostupné" in m for m in logs)
+    assert pre.failed
+    # Na pozadí „nedostupné“, ne „selhalo“ (les a MTBO se bez DTM kreslí z OSM a ZABAGED).
+    assert any(m.endswith("Data DTM kraje · nedostupné") for m in logs)
+    assert not any("selhalo" in m for m in logs)
 
 
 def _write_fences(work_dir, lines):

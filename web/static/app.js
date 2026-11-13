@@ -587,8 +587,12 @@ function setDetailStatus(text) {
   if (el && el.textContent !== text) el.textContent = text;
 }
 
-function friendlyJobError(errorText, { short = false } = {}) {
+function friendlyJobError(errorText, { short = false, status = "failed" } = {}) {
   const text = String(errorText || "");
+  // Hotovo s upozorněním: mapa vznikla, ``error`` je už lidský souhrn (issue_explain.user_summary).
+  if (status === "done_with_errors") {
+    return short ? "Mapa je hotová, s upozorněním." : "Mapa je hotová a ke stažení, jen s upozorněním níže.";
+  }
   if (/ČÚZK|ATOM|[Tt]ime ?out|Overpass|HTTP (?:Error )?(?:429|5\d\d)|Connection(?:Error| reset| refused)/.test(text)) {
     return "Stahování dat ze serveru se nepovedlo (výpadek nebo pomalá odpověď). Zkuste to prosím za chvíli znovu.";
   }
@@ -785,7 +789,7 @@ function jobItemHeadHtml(job) {
     <strong>${escapeHtml(job.name)}</strong>${mineTag} <span class="status-tag status-tag-${escapeHtml(job.status || "")}">${escapeHtml(jobStatusTag(job.status))}</span>
     <div class="status status-${job.status}">${escapeHtml(statusLineText(job, queueLabel + timing + privateLabel))}</div>
     <div class="status">${escapeHtml(jobScaleLabel(job))} · ${escapeHtml(formatWhen(job.created_at))}</div>
-    ${job.error ? `<div class="status error">${escapeHtml(friendlyJobError(job.error, { short: true }))}</div>` : ""}
+    ${job.error ? `<div class="status error">${escapeHtml(friendlyJobError(job.error, { short: true, status: job.status }))}</div>` : ""}
   `;
 }
 
@@ -1357,7 +1361,7 @@ const NUTS_KRAJ = {
 /** Řádek o přípravě DTM na pozadí (DTM se připravuje souběžně; v plánu je krok „DTM kraje“ = čekání na ni před sestavením map). */
 function dtmBackgroundText(bg) {
   if (!bg) return "";
-  if (bg.failed) return "Příprava DTM na pozadí selhala, mapa se kreslila bez DTM.";
+  if (bg.failed) return "Data DTM se nepodařilo připravit, mapa se kreslila z OSM a ZABAGED.";
   if (!bg.packages) return "DTM pro toto území není k dispozici, mapa se kreslila z OSM a ZABAGED.";
   const where = (bg.regions || []).map((k) => NUTS_KRAJ[k] || k).join(", ");
   const d = String(bg.date || "");
@@ -1632,7 +1636,7 @@ function renderJobDetailExtras(job) {
   if (errBox) {
     errBox.classList.toggle("hidden", !hasErr);
     if (hasErr) {
-      document.getElementById("detail-error-human").textContent = friendlyJobError(job.error);
+      document.getElementById("detail-error-human").textContent = friendlyJobError(job.error, { status: job.status });
       document.getElementById("detail-error-text").textContent = job.error;
     }
   }
@@ -3042,13 +3046,25 @@ function csTime(iso) {
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }) : "";
 }
 
-/** Zdroj, který vybrané volby nepoužijí (DTM vypnuté), nevaruje. */
+/**
+ * Zdroj, jehož výpadek vybrané mapě vadí. DTM jen u sprintu kresleného z DTM; les a MTBO se bez DTM
+ * kreslí plnohodnotně z OSM a ZABAGED (výpadek je tam jen neutrální poznámka).
+ */
 function sourceRelevant(svc) {
   if (svc.needs === "dtm") {
     const sel = document.getElementById("dtm");
-    return !sel || sel.value !== "0";
+    if (sel && sel.value === "0") return false;
+    const scale = document.getElementById("map_scale");
+    return !scale || mapKindFor(scale.value, selectedMapTypes()) === "sprint";
   }
   return true;
+}
+
+/** Poznámka k nedostupnému zdroji, který vybrané mapě nevadí. */
+function sourceIrrelevantNote(svc) {
+  const sel = document.getElementById("dtm");
+  if (svc.needs === "dtm" && !(sel && sel.value === "0")) return " – les a MTBO se nakreslí z OSM a ZABAGED";
+  return " – s vypnutým DTM nevadí";
 }
 
 /** Stav zdrojů dat před tlačítkem Spustit; při výpadku varování, že mapa nebude úplná. */
@@ -3081,7 +3097,7 @@ function renderSourceStatus() {
       } else {
         const since = csTime(s.down_since);
         li.textContent = `${s.label}: ${s.planned ? "plánovaná odstávka" : "neodpovídá"} (${s.detail || "chyba"}${since ? `, od ${since}` : ""})` +
-          (relevant ? "" : " – s vypnutým DTM nevadí");
+          (relevant ? "" : sourceIrrelevantNote(s));
         if (relevant) {
           const imp = document.createElement("span");
           imp.className = "impact";
@@ -3135,7 +3151,8 @@ loadWhatsNew();
 loadUsageBox();
 loadSourceStatus();
 setInterval(() => loadSourceStatus(), SOURCE_STATUS_REFRESH_MS);
-document.getElementById("dtm")?.addEventListener("change", renderSourceStatus);
+// DTM vadí jen sprintu z DTM: varování přepočítat při změně volby DTM i typu mapy / měřítka (událost z karet doputuje k formuláři).
+document.getElementById("job-form")?.addEventListener("change", renderSourceStatus);
 initJobsTabs();
 initMobileJobBar();
 /**

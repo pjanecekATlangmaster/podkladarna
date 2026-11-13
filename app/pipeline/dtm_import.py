@@ -19,6 +19,7 @@ import functools
 import hashlib
 import json
 import os
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
@@ -232,7 +233,11 @@ class DtmPrefetch:
     def __init__(self, future: Future, executor: ThreadPoolExecutor) -> None:
         self.future = future
         self._executor = executor
-        self.failed = False  # příprava skončila výjimkou (nastaví ``start_dtm_prefetch``)
+        self._failed = threading.Event()  # příprava skončila výjimkou (nastaví ``start_dtm_prefetch``)
+
+    @property
+    def failed(self) -> bool:
+        return self._failed.is_set()
 
     def result(self) -> Path | None:
         try:
@@ -2552,30 +2557,34 @@ def start_dtm_prefetch(
     force: bool = False,
 ) -> DtmPrefetch:
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dtm-dl")
-
-    prefetch: DtmPrefetch | None = None
+    # Příznak přes Event: vlákno může skončit dřív, než se vytvoří DtmPrefetch (dřív se pak ``failed`` ztratil).
+    failed = threading.Event()
 
     def _run() -> Path | None:
         t0 = time.monotonic()
         try:
             with background_task(log, "Data DTM kraje") as task:
-                out = prepare_dtm_fences(work_dir, bbox_wgs84, log=log, force=force)
+                try:
+                    out = prepare_dtm_fences(work_dir, bbox_wgs84, log=log, force=force)
+                except Exception as exc:  # výpadek DMVS / poškozený balík nesmí shodit job
+                    # Na pozadí „nedostupné“, ne „selhalo“: bez DTM se kreslí z OSM a ZABAGED (problém hlásí
+                    # jen souhrn DTM u sprintu, dtm_summary.finalize_summary).
+                    task.state = "nedostupné"
+                    if log:
+                        log(f"DTM: ploty přeskočeny ({type(exc).__name__}: {exc})")
+                    build_stats.note_background("dtm", failed=True)
+                    failed.set()
+                    return None
                 if out is None:
                     task.state = "nedostupné"
                 return out
-        except Exception as exc:  # výpadek DMVS / poškozený balík nesmí shodit job
-            if log:
-                log(f"DTM: ploty přeskočeny ({type(exc).__name__}: {exc})")
-            build_stats.note_background("dtm", failed=True)
-            if prefetch is not None:
-                prefetch.failed = True
-            return None
         finally:
             build_stats.note_background("dtm", seconds=time.monotonic() - t0)
 
     if log:
         log("Start přípravy DTM (ploty) na pozadí.")
     prefetch = DtmPrefetch(executor.submit(_run), executor)
+    prefetch._failed = failed
     return prefetch
 
 

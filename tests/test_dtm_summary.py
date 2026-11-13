@@ -9,6 +9,7 @@ from app.pipeline import dtm_summary
 SPRINT_ONLY = {"sprint": True, "les": False, "mtbo": False}
 ALL_OFF = {"sprint": False, "les": False}
 FOREST_OFF = {"les": False, "mtbo": False}
+FOREST_ON = {"les": True, "mtbo": True}
 
 
 def _write(work, *, units=None, incomplete=(), fences=3, buildings=2):
@@ -50,6 +51,14 @@ def _unit(code, name, has_data=True, kind="OBEC"):
         (SPRINT_ONLY, True, {"units": [_unit(1, "Praha")], "fences": 0, "buildings": 0}, False, "weak", "warn", ["neobsahuje"]),
         (SPRINT_ONLY, True, "bez souboru", False, "unavailable", "warn", ["není k dispozici"]),
         (SPRINT_ONLY, True, None, True, "failed", "warn", ["selhala"]),
+        # Les a MTBO se bez DTM kreslí z OSM a ZABAGED: chybějící DTM je jen neutrální poznámka.
+        (FOREST_ON, True, "bez souboru", False, "unavailable", "info", ["není k dispozici", "OSM"]),
+        (FOREST_ON, True, None, True, "failed", "info", ["nepodařilo", "OSM"]),
+        (
+            FOREST_ON, True,
+            {"units": [_unit(1, "Praha"), _unit(2, "Lety", False)]},
+            False, "weak", "info", ["1 z 2", "chybí: Lety"],
+        ),
     ],
 )
 def test_summary_states(tmp_path, maps, dtm_on, setup, failed, state, level, words):
@@ -71,6 +80,8 @@ def test_summary_states(tmp_path, maps, dtm_on, setup, failed, state, level, wor
     text = " ".join(result["lines"])
     for word in words:
         assert word in text
+    if level != "warn":
+        assert not dtm_summary.warning_lines(result)
 
 
 def test_readme_block_and_roundtrip(tmp_path):

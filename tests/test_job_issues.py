@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app import db
 from app.pipeline.job_progress import (
     IssueCollector,
@@ -115,3 +117,21 @@ def test_cleanup_purges_old_done_with_errors(tmp_path, monkeypatch):
         conn.commit()
 
     assert purge_old_jobs(retention_hours=48) == 1
+
+
+@pytest.mark.parametrize(
+    "svc, dtm_needed, is_issue",
+    [
+        ({"key": "dtm", "needs": "dtm", "planned": True}, False, False),  # les / MTBO: jen poznámka
+        ({"key": "dtm", "needs": "dtm", "planned": False}, False, False),
+        ({"key": "dtm", "needs": "dtm", "planned": True}, True, True),  # sprint z DTM: upozornění
+        ({"key": "osm", "needs": None, "planned": False}, False, True),  # ostatní zdroje beze změny
+    ],
+)
+def test_down_source_lines_dtm_only_matters_for_sprint(svc, dtm_needed, is_issue):
+    from app.pipeline.run_job import down_source_lines
+
+    svc = {"label": "Zdroj X", "detail": "HTTP 503", "impact": "dopad", **svc}
+    [(issue, text)] = down_source_lines([svc], dtm_needed=dtm_needed)
+    assert issue is is_issue
+    assert ("OSM a ZABAGED" in text) is (not is_issue)
