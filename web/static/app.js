@@ -3019,7 +3019,7 @@ function renderSourceStatus() {
         li.textContent = `${s.label}: běží`;
       } else {
         const since = csTime(s.down_since);
-        li.textContent = `${s.label}: neodpovídá (${s.detail || "chyba"}${since ? `, od ${since}` : ""})` +
+        li.textContent = `${s.label}: ${s.planned ? "plánovaná odstávka" : "neodpovídá"} (${s.detail || "chyba"}${since ? `, od ${since}` : ""})` +
           (relevant ? "" : " – s vypnutým DTM nevadí");
         if (relevant) {
           const imp = document.createElement("span");
@@ -3036,9 +3036,12 @@ function renderSourceStatus() {
   box.classList.toggle("is-down", down.length > 0);
   if (down.length) {
     const fatal = down.some((s) => s.fatal);
+    const names = down.map((s) => s.label.replace(/\s*\(.*\)$/, "")).join(", ");
+    const what = down.every((s) => s.planned) ? "Plánovaná odstávka zdroje dat" : "Nedostupný zdroj dat";
+    const dtmOnly = down.every((s) => s.needs === "dtm");
     summary.textContent = fatal
-      ? `⚠ Nedostupný zdroj dat (${down.map((s) => s.label.replace(/\s*\(.*\)$/, "")).join(", ")}) – generování nejspíš selže.`
-      : `⚠ Nedostupný zdroj dat (${down.map((s) => s.label.replace(/\s*\(.*\)$/, "")).join(", ")}) – mapa nebude úplná.`;
+      ? `⚠ ${what} (${names}) – generování nejspíš selže.`
+      : `⚠ ${what} (${names}) – ${dtmOnly ? "mapa bude nejspíš bez DTM" : "mapa nebude úplná"}.`;
     if (!wasDown) box.open = true;
   } else {
     summary.textContent = "Stav zdrojů dat: vše běží";

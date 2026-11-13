@@ -7,7 +7,13 @@ Na každý zdroj jde jeden lehký dotaz (HEAD na soubor, popis služby ``?f=json
 do ``DATA_ROOT/source_status.json``, takže ho vidí i proces jobu.
 
 Zdroj je „mimo provoz“, když neodpoví (timeout, síť) nebo vrátí HTTP 5xx; po
-chybě se dotaz jednou zopakuje, ať krátký výpadek nevyvolá planý poplach.
+chybě se dotaz jednou zopakuje, ať krátký výpadek nevyvolá planý poplach. Odpověď 5xx s textem
+„odstávka“ (DMVS 2026-11: „Plánovaná odstávka“) je plánovaná odstávka (``planned``).
+
+Trvá-li výpadek nepřetržitě aspoň ``SOURCE_ALERT_AFTER_MIN`` (od prvního zjištěného selhání
+``down_since``), pošle se provozovateli (``FEEDBACK_TO``) jeden e-mail a po obnovení druhý.
+Měří se líně při kontrolách (žádný běh na pozadí); proti dvojímu mailu z webu a jobu
+chrání značka v ``DATA_ROOT/source_alerts/`` založená výhradně (``O_EXCL``).
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from app import settings
@@ -39,6 +46,10 @@ PROBE_RETRY_WAIT_S = 3.0
 OSM_PROBE_MIRRORS = 3
 # List SM5 v Praze, který na OpenZU určitě je (HEAD bez stahování).
 LIDAR_PROBE_SHEET = "PRAH77"
+# Text odpovědi 5xx, podle kterého se výpadek pozná jako plánovaná odstávka.
+PLANNED_OUTAGE_MARKERS = ("odstávk",)
+_ALERT_DIR = "source_alerts"
+_ALERT_KEEP_DAYS = 60
 
 
 @dataclass(frozen=True)
@@ -158,19 +169,31 @@ def _age_s(state: dict) -> float | None:
 
 def ttl_s() -> float:
     return max(0.0, float(settings.SOURCE_CHECK_TTL_MIN)) * 60
-def _probe_url(url: str, method: str) -> tuple[int | None, str | None]:
-    """HTTP kód (nebo None) a krátký popis chyby sítě."""
+
+
+def _probe_url(url: str, method: str) -> tuple[int | None, str | None, str]:
+    """HTTP kód (nebo None), krátký popis chyby sítě a začátek textu chybové odpovědi."""
     req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT_S) as resp:
             if method != "HEAD":
                 resp.read(64 * 1024)
-            return resp.status, None
+            return resp.status, None, ""
     except urllib.error.HTTPError as exc:
-        return exc.code, None
+        text = ""
+        try:
+            text = exc.read(2048).decode("utf-8", "replace")
+        except Exception:
+            pass
+        return exc.code, None, text
     except Exception as exc:  # timeout, DNS, TLS, odmítnuté spojení
         reason = getattr(exc, "reason", None) or exc
-        return None, f"{type(exc).__name__}: {reason}"[:200]
+        return None, f"{type(exc).__name__}: {reason}"[:200], ""
+
+
+def _is_planned(code: int | None, text: str) -> bool:
+    low = (text or "").lower()
+    return code is not None and code >= 500 and any(m in low for m in PLANNED_OUTAGE_MARKERS)
 
 
 def _is_up(code: int | None, probe: Probe) -> bool:
@@ -187,22 +210,28 @@ def check_probe(probe: Probe) -> dict:
     code: int | None = None
     error: str | None = None
     ok = False
+    planned = False
     for attempt in range(2):
+        planned = False
         for url in probe.urls:
-            code, error = _probe_url(url, probe.method)
+            code, error, text = _probe_url(url, probe.method)
             if _is_up(code, probe):
                 ok = True
                 break
+            planned = planned or _is_planned(code, text)
         if ok or attempt:
             break
         time.sleep(PROBE_RETRY_WAIT_S)
     detail = None
     if not ok:
         detail = f"HTTP {code}" if code is not None else (error or "neodpovídá")
+        if planned:
+            detail = f"plánovaná odstávka, {detail}"
     return {
         "key": probe.key,
         "label": probe.label,
         "ok": ok,
+        "planned": planned and not ok,
         "detail": detail,
         "impact": probe.impact,
         "fatal": probe.fatal,
@@ -222,14 +251,145 @@ def check_all() -> dict:
         old = prev.get(r["key"]) or {}
         if r["ok"]:
             r["down_since"] = None
+            r["alerted"] = False
         else:
             r["down_since"] = (old.get("down_since") if not old.get("ok", True) else None) or now
+            r["alerted"] = bool(old.get("alerted")) and r["down_since"] == old.get("down_since")
         services[r["key"]] = r
+    alerts = _due_alerts(prev, services)
     _save({"checked_at": now, "services": services})
     down = [r["label"] for r in results if not r["ok"]]
     if down:
         logger.warning("Zdroje dat mimo provoz: %s", ", ".join(down))
+    if alerts:
+        _send_alerts(alerts)
     return snapshot()
+
+
+def alert_after_s() -> float:
+    return max(0.0, float(settings.SOURCE_ALERT_AFTER_MIN)) * 60
+
+
+def _since_s(iso: str | None) -> float | None:
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
+def _claim(name: str) -> bool:
+    """Značka odeslání (jednou napříč procesy webu a jobů); False = už ji má někdo jiný."""
+    folder = settings.DATA_ROOT / _ALERT_DIR
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        fd = os.open(folder / name, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+    except OSError:
+        logger.warning("Značku upozornění na výpadek nejde založit", exc_info=True)
+        return False
+
+
+def _prune_claims() -> None:
+    folder = settings.DATA_ROOT / _ALERT_DIR
+    limit = time.time() - _ALERT_KEEP_DAYS * 86400
+    try:
+        for f in folder.iterdir():
+            if f.stat().st_mtime < limit:
+                f.unlink()
+    except OSError:
+        pass
+
+
+def _claim_name(key: str, down_since: str, kind: str) -> str:
+    stamp = "".join(ch for ch in down_since if ch.isalnum())
+    return f"{key}-{stamp}.{kind}"
+
+
+def _due_alerts(prev: dict, services: dict) -> list[tuple[str, dict]]:
+    """Upozornění k odeslání: ("down", služba) po prahu výpadku, ("up", služba) po obnovení.
+
+    Mail o obnovení jen tehdy, když odešel mail o výpadku (krátké výpadky ticho)."""
+    after = alert_after_s()
+    if after <= 0:
+        return []
+    out: list[tuple[str, dict]] = []
+    for key, r in services.items():
+        old = prev.get(key) or {}
+        if not r["ok"] and not r["alerted"]:
+            age = _since_s(r["down_since"])
+            if age is not None and age >= after:
+                r["alerted"] = True  # i když značku má jiný proces: mail už odešel
+                if _claim(_claim_name(key, r["down_since"], "down")):
+                    out.append(("down", r))
+        elif r["ok"] and old.get("alerted") and old.get("down_since"):
+            if _claim(_claim_name(key, old["down_since"], "up")):
+                out.append(("up", {**r, "down_since": old["down_since"]}))
+    return out
+
+
+def _cs_time(iso: str | None) -> str:
+    try:
+        dt = datetime.fromisoformat(iso).astimezone(ZoneInfo("Europe/Prague"))
+    except Exception:
+        return str(iso or "?")
+    return f"{dt.day}. {dt.month}. {dt.year} {dt:%H:%M}"
+
+
+def _duration(iso: str | None) -> str:
+    sec = _since_s(iso)
+    if sec is None:
+        return "?"
+    minutes = int(sec // 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} h {minutes} min" if hours else f"{minutes} min"
+
+
+def build_alert_email(kind: str, svc: dict) -> tuple[str, str]:
+    """Předmět a text e-mailu provozovateli o výpadku / obnovení zdroje."""
+    label = svc.get("label") or svc.get("key")
+    since = _cs_time(svc.get("down_since"))
+    base = (settings.PUBLIC_BASE_URL or "").strip()
+    note = (
+        "Kontrola běží jen při otevření webu nebo startu jobu, čas je první zjištěné selhání.\n"
+        + (f"Stav zdrojů: {base.rstrip('/')}/\n" if base else "")
+    )
+    if kind == "down":
+        what = "má plánovanou odstávku" if svc.get("planned") else "je mimo provoz"
+        subject = f"Podkladárna: zdroj {label} {what}"
+        body = (
+            f"Zdroj dat {label} {what} nepřetržitě od {since} ({_duration(svc.get('down_since'))}).\n"
+            f"Odpověď: {svc.get('detail') or '?'}\n"
+            f"Dopad na mapy: {svc.get('impact') or '?'}\n\n"
+            "Až zdroj znovu odpoví, přijde jeden e-mail o obnovení.\n" + note
+        )
+    else:
+        subject = f"Podkladárna: zdroj {label} znovu běží"
+        body = (
+            f"Zdroj dat {label} znovu odpovídá (výpadek od {since}, celkem {_duration(svc.get('down_since'))}).\n\n"
+            + note
+        )
+    return subject, body
+
+
+def _send_alerts(alerts: list[tuple[str, dict]]) -> None:
+    to = (settings.FEEDBACK_TO or "").strip()
+    if not to:
+        return
+    from app.mail import send_mail  # líně: modul čte SMTP nastavení
+
+    prefix = "[test] " if settings.INSTANCE_CHANNEL == "test" else ""
+    for kind, svc in alerts:
+        subject, body = build_alert_email(kind, svc)
+        subject = prefix + subject
+        try:
+            send_mail(to, subject, body)
+            logger.info("Upozornění na zdroj %s (%s) odesláno", svc.get("key"), kind)
+        except Exception:
+            logger.warning("Upozornění na zdroj %s (%s) nejde odeslat", svc.get("key"), kind, exc_info=True)
+    _prune_claims()
 
 
 def snapshot() -> dict:
