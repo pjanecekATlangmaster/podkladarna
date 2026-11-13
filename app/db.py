@@ -8,6 +8,7 @@ import re
 import secrets
 import shutil
 import sqlite3
+import time
 import uuid
 from contextlib import contextmanager
 from functools import lru_cache
@@ -28,6 +29,14 @@ from app.settings import (
     DOWNLOADS_DIR,
     JOBS_DIR,
     LIDAR_CACHE_MAX_AGE_DAYS,
+    ESTIMATE_CALIB_DAYS,
+    ESTIMATE_CALIB_JOBS,
+    ESTIMATE_CALIB_MAX,
+    ESTIMATE_CALIB_MIN,
+    ESTIMATE_CALIB_MIN_JOBS,
+    ESTIMATE_CALIB_QUANTILE,
+    ESTIMATE_CALIB_RESERVE,
+    ESTIMATE_CALIBRATION,
     ORIGIN_RETENTION_DAYS,
     PRIVATE_JOB_RETENTION_HOURS,
 )
@@ -119,6 +128,11 @@ def init_db() -> None:
         ):
             if col not in origin_cols:
                 conn.execute(f"ALTER TABLE job_origin ADD COLUMN {col} {decl}")
+        # Samokalibrace odhadu (3.34.0): odhad vzorce při založení jobu a skutečná doba skládání map
+        # (NULL u starších řádků a u jobů s převzatým LiDARem); starší image sloupce ignoruje.
+        for col in ("est_prep_min", "est_maps_min", "maps_seconds"):
+            if col not in origin_cols:
+                conn.execute(f"ALTER TABLE job_origin ADD COLUMN {col} REAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS usage_totals (
@@ -138,7 +152,7 @@ def init_db() -> None:
                 opts = json.loads(options_json or "{}")
             except ValueError:
                 opts = {}
-            _record_origin(conn, job_id, created_at, preset_id, opts)
+            _record_origin(conn, job_id, created_at, preset_id, opts, with_estimate=False)
         conn.commit()
         # Plocha map (3.32.0) dřív započítaných jobů – před započítáním dalších, ať se nevynechají.
         _backfill_area_usage(conn)
@@ -235,19 +249,35 @@ def _ip_network(ip: str) -> str:
 
 
 def _record_origin(
-    conn: sqlite3.Connection, job_id: str, now: str, preset_id: str, opts: dict[str, Any]
+    conn: sqlite3.Connection,
+    job_id: str,
+    now: str,
+    preset_id: str,
+    opts: dict[str, Any],
+    *,
+    with_estimate: bool = True,
 ) -> None:
     """Zapíše původ jobu do interní statistiky (IP a e-mail jen jako značky)."""
     private = bool(opts.get("private"))
     ip = str(opts.get("client_ip") or "")
     map_types = opts.get("map_types")
+    est_prep = est_maps = None
+    if with_estimate and not opts.get("reused_from"):
+        try:
+            from app.pipeline.fetch_openzu import estimate_job_parts
+
+            area = job_area_km2(opts)
+            if area is not None:
+                est_prep, est_maps = estimate_job_parts(opts, area)
+        except Exception:  # noqa: BLE001 – odhad je jen pro kalibraci, job kvůli němu nespadne
+            est_prep = est_maps = None
     conn.execute(
         """
         INSERT OR REPLACE INTO job_origin (
             job_id, created_at, ip_tag, ip_net_tag, api_client, private, email_tag,
-            preset_id, map_types, bbox_json, status
+            preset_id, map_types, bbox_json, status, est_prep_min, est_maps_min
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
         """,
         (
             job_id,
@@ -260,6 +290,8 @@ def _record_origin(
             preset_id,
             ",".join(map_types) if isinstance(map_types, (list, tuple)) else None,
             json.dumps(opts["bbox_wgs84"]) if opts.get("bbox_wgs84") else None,
+            est_prep,
+            est_maps,
         ),
     )
 
@@ -324,10 +356,18 @@ def _count_job_usage(
     src = _num(stats.get("downloaded_bytes"))
     cached = _num(stats.get("cached_bytes"))
     src_bytes = None if src is None and cached is None else (src or 0) + (cached or 0)
+    maps_seconds = None
+    steps = stats.get("steps")
+    if isinstance(steps, list):
+        for step in steps:
+            if isinstance(step, dict) and step.get("label") == "sestavení mapy a ZIP":
+                maps_seconds = _num(step.get("seconds"))
+                break
     cur = conn.execute(
         "UPDATE job_origin SET usage_counted = 1, status = ?, build_seconds = ?, "
-        "output_bytes = ?, source_bytes = ? WHERE job_id = ? AND usage_counted = 0",
-        (status, seconds, out_bytes, src_bytes, job_id),
+        "output_bytes = ?, source_bytes = ?, maps_seconds = ? "
+        "WHERE job_id = ? AND usage_counted = 0",
+        (status, seconds, out_bytes, src_bytes, maps_seconds, job_id),
     )
     if cur.rowcount != 1:
         return False
@@ -454,6 +494,67 @@ def record_job_usage(job_id: str, status: str, stats: dict[str, Any] | None = No
         counted = _count_job_usage(conn, job_id, status, stats)
         conn.commit()
     return counted
+
+
+_CALIB_TTL_S = 600
+_calib_cache: tuple[float, dict[str, Any]] | None = None
+
+
+def reset_estimate_calibration_cache() -> None:
+    global _calib_cache
+    _calib_cache = None
+
+
+def _quantile(values: list[float], q: float) -> float:
+    xs = sorted(values)
+    pos = q * (len(xs) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(xs) - 1)
+    return xs[lo] + (xs[hi] - xs[lo]) * (pos - lo)
+
+
+def _calib_factor(ratios: list[float]) -> float:
+    if len(ratios) < ESTIMATE_CALIB_MIN_JOBS:
+        return 1.0
+    return min(
+        ESTIMATE_CALIB_MAX,
+        max(ESTIMATE_CALIB_MIN, _quantile(ratios, ESTIMATE_CALIB_QUANTILE)) * ESTIMATE_CALIB_RESERVE,
+    )
+
+
+def estimate_calibration(*, now: datetime | None = None) -> dict[str, Any]:
+    """Koeficienty odhadu doby jobu z vlastních dokončených jobů instance: ``{"prep", "maps", "jobs"}``.
+
+    Výsledek se 10 min drží v paměti procesu; s ``now`` (testy) se cache obchází.
+    """
+    global _calib_cache
+    if not ESTIMATE_CALIBRATION:
+        return {"prep": 1.0, "maps": 1.0, "jobs": 0}
+    mono = time.monotonic()
+    if now is None and _calib_cache and mono - _calib_cache[0] < _CALIB_TTL_S:
+        return dict(_calib_cache[1])
+    cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=ESTIMATE_CALIB_DAYS)).isoformat()
+    marks = ",".join("?" * len(JOB_DONE_STATUSES))
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT build_seconds, maps_seconds, est_prep_min, est_maps_min FROM job_origin "
+            f"WHERE status IN ({marks}) AND usage_counted = 1 AND build_seconds IS NOT NULL "
+            "AND maps_seconds IS NOT NULL AND est_prep_min IS NOT NULL AND est_maps_min IS NOT NULL "
+            "AND created_at >= ? ORDER BY created_at DESC LIMIT ?",
+            (*JOB_DONE_STATUSES, cutoff, ESTIMATE_CALIB_JOBS),
+        ).fetchall()
+    prep_ratios = [
+        max(0.0, b - m) / 60 / ep for b, m, ep, _em in rows if ep >= 0.5
+    ]
+    maps_ratios = [m / 60 / em for _b, m, _ep, em in rows if em >= 0.5]
+    result = {
+        "prep": _calib_factor(prep_ratios),
+        "maps": _calib_factor(maps_ratios),
+        "jobs": len(rows),
+    }
+    if now is None:
+        _calib_cache = (mono, result)
+    return dict(result)
 
 
 def record_download(job_id: str, nbytes: int | None) -> None:

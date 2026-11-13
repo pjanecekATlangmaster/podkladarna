@@ -360,6 +360,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Od 3.32.0 (Petr 2026-11-12) box „Podkladárna v číslech“ v hlavičce jen na počítači (≥ 1101 px, `loadUsageBox` z `GET /api/usage_stats`):
   součty z `usage_totals` (i soukromé joby; nově `area_km2` z bbox, jednou dopočítaná z `job_origin`), za 30 dní a rok `db.recent_usage`
   (zadání, průměrný čas, odhad uživatelů = různé `ip_tag`). Pole `donations` je zatím `null` – box ho ukáže, až bude `{amount, currency}`.
+- **Odhad času buildu se kalibruje z vlastních jobů instance** (3.34.0, Petr 2026-11-13; pevný vzorec v `fetch_openzu.py` byl nakalibrovaný na NAS
+  a na pve1 přestřeloval 2–5×; změřeno MTBO 21 km² 26 min proti odhadu 72, sprint 1,2 km² 2,2 proti 11): `job_origin` má sloupce `est_prep_min`,
+  `est_maps_min` (odhad vzorce při založení jobu, `estimate_job_parts`) a `maps_seconds` (krok „sestavení mapy a ZIP“ z `build_stats`). `db.estimate_calibration`
+  = koeficient zvlášť pro přípravu a skládání map = p90 poměrů skutečnost / vzorec (raději nadhodnotit) z posledních 40 dokončených jobů za 90 dní, aspoň 5 poměrů (jinak 1,0),
+  × 1,15, v mezích 0,25–1,5; `GET /api/sheets` jím násobí složky odhadu, přidá k přípravě +1 min, poznámku „Odhad podle posledních N jobů“ a pole
+  `estimate_calibration`; cache 10 min v procesu. Joby s `reused_from` jsou ze statistiky vyloučené (NULL). Vypínač `ESTIMATE_CALIBRATION=0`.
 - **Stav zdrojů dat** (3.33.0, Petr 2026-11-12, výpadek DMVS 503; od 3.33.1 líně při otevření stránky): `app/source_status.py`
   pošle na 8 zdrojů (LiDAR OpenZU HEAD listu PRAH77, DMVS `is-dtmk/info`, Overpass, ZABAGED, RÚIAN, ortofoto, katastr, Sentinel STAC)
   jeden lehký dotaz, jen když je uložený výsledek starší než `SOURCE_CHECK_TTL_MIN` (3, `0` vypne; testy vypínají v `conftest.py`):

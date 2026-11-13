@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.33.2"
+APP_VERSION = "3.34.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -98,6 +98,20 @@ FOREST_MAX_BBOX_AREA_KM2 = float(os.environ.get("FOREST_MAX_BBOX_AREA_KM2", "15"
 SHARED_SLOT_WAIT_MINUTES = int(os.environ.get("SHARED_SLOT_WAIT_MINUTES", str(JOB_TIMEOUT_MINUTES + 15)))
 # Od kdy formulář varuje, že odhad doby běhu jobu se blíží limitu (5/6 limitu, pro 90 min → 75 min).
 ESTIMATE_WARN_MINUTES = JOB_TIMEOUT_MINUTES * 5 // 6
+# Samokalibrace odhadu doby jobu (3.34.0): koeficient zvlášť pro přípravu a skládání map = kvantil ESTIMATE_CALIB_QUANTILE poměru
+# skutečné doby k vzorci z posledních ESTIMATE_CALIB_JOBS dokončených jobů za ESTIMATE_CALIB_DAYS dní
+# (aspoň ESTIMATE_CALIB_MIN_JOBS poměrů), × rezerva, v mezích MIN–MAX. ESTIMATE_CALIBRATION=0 vypne.
+ESTIMATE_CALIBRATION = os.environ.get("ESTIMATE_CALIBRATION", "1").strip().lower() not in (
+    "0", "false", "no", "off"
+)
+ESTIMATE_CALIB_JOBS = 40
+ESTIMATE_CALIB_DAYS = 90
+ESTIMATE_CALIB_MIN_JOBS = 5
+# p90: raději nadhodnotit (doba skládání závisí na hustotě zástavby, kterou vzorec nezná; na datech ostré p80 u lesa 12 km² podstřelil).
+ESTIMATE_CALIB_QUANTILE = 0.9
+ESTIMATE_CALIB_MIN = 0.25
+ESTIMATE_CALIB_MAX = 1.5
+ESTIMATE_CALIB_RESERVE = 1.15
 if os.environ.get("JOB_TIMEOUT_SECONDS"):
     JOB_TIMEOUT_SECONDS = max(1, int(os.environ["JOB_TIMEOUT_SECONDS"]))
 else:
