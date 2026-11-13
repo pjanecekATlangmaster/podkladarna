@@ -1232,6 +1232,15 @@ footer a { color: var(--green); }
 .source-status-list .down { color: var(--text); }
 .source-status-list .impact { display: block; margin-left: 1.1em; color: var(--muted); }
 .source-status-note { margin: 0.3rem 0 0; color: var(--muted); }
+.dtm-forest-note {
+  margin: 0.2rem 0 0.6rem;
+  padding: 0.45rem 0.7rem;
+  border-left: 3px solid var(--muted);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.dtm-forest-note[hidden] { display: none; }
+.dtm-forest-note::before { content: "ℹ "; content: "ℹ " / ""; }
 
 @media (max-width: 700px) {
   .submit-bar {
