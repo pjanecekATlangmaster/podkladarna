@@ -3135,6 +3135,32 @@ function renderSourceStatus() {
   box.hidden = false;
 }
 
+/** Les nebo MTBO, který kreslí z DTM (volba „DTM všude“; „auto“ kreslí les a MTBO z OSM a ZABAGED). */
+function forestUsesDtm() {
+  const sel = document.getElementById("dtm");
+  if (sel && sel.value !== "1") return false;
+  const scale = document.getElementById("map_scale");
+  return !scale || mapKindFor(scale.value, selectedMapTypes()) !== "sprint";
+}
+
+/**
+ * Les a MTBO: při výpadku nebo odstávce DMVS informativní upozornění nad Spustit, že mapa bude
+ * nejspíš bez DTM (výřez s balíky v cache ho dostane i tak). Sprint varuje stavem zdrojů výše.
+ */
+function renderDtmForestNote() {
+  const el = document.getElementById("dtm-forest-note");
+  if (!el) return;
+  const svc = sourceStatus && sourceStatus.enabled && Array.isArray(sourceStatus.services)
+    ? sourceStatus.services.find((s) => s.needs === "dtm" && !s.ok)
+    : null;
+  const text = svc && forestUsesDtm()
+    ? `Mapa bude nejspíš bez DTM: portál DTM (DMVS ČÚZK) ${svc.planned ? "má plánovanou odstávku" : "teď neodpovídá"}. ` +
+      "Les i MTBO se nakreslí z OSM a ZABAGED (DTM se použije, jen pokud je výřez už v mezipaměti); s DTM to můžete zkusit později."
+    : "";
+  el.textContent = text;
+  el.hidden = !text;
+}
+
 let sourceStatusPolls = 0;
 
 /** Stav se ověří při otevření stránky; běžící kontrolu (``checking``) dočte po pár sekundách. */
@@ -3146,6 +3172,7 @@ async function loadSourceStatus(poll = false) {
     sourceStatus = null;
   }
   renderSourceStatus();
+  renderDtmForestNote();
   if (sourceStatus && sourceStatus.checking && sourceStatusPolls < 15) {
     setTimeout(() => loadSourceStatus(true), 3000);
   }
@@ -3156,7 +3183,10 @@ loadUsageBox();
 loadSourceStatus();
 setInterval(() => loadSourceStatus(), SOURCE_STATUS_REFRESH_MS);
 // DTM vadí jen sprintu z DTM: varování přepočítat při změně volby DTM i typu mapy / měřítka (událost z karet doputuje k formuláři).
-document.getElementById("job-form")?.addEventListener("change", renderSourceStatus);
+document.getElementById("job-form")?.addEventListener("change", () => {
+  renderSourceStatus();
+  renderDtmForestNote();
+});
 initJobsTabs();
 initMobileJobBar();
 /**
