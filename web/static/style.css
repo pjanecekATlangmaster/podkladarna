@@ -1230,17 +1230,45 @@ footer a { color: var(--green); }
 .source-status-list .ok::before { content: "● "; content: "● " / ""; color: var(--green); }
 .source-status-list .down::before { content: "✕ "; content: "✕ " / ""; color: var(--orange-text); font-weight: 700; }
 .source-status-list .down { color: var(--text); }
+.source-status-list .minor::before { font-weight: 400; }
+.source-status-list li,
+.source-status-note,
+.dtm-forest-note { overflow-wrap: anywhere; }
 .source-status-list .impact { display: block; margin-left: 1.1em; color: var(--muted); }
 .source-status-note { margin: 0.3rem 0 0; color: var(--muted); }
+/* Informativní (ne chybové) upozornění: modrý rámeček s ikonou, text čitelný i bez barvy. */
 .dtm-forest-note {
-  margin: 0.2rem 0 0.6rem;
-  padding: 0.45rem 0.7rem;
-  border-left: 3px solid var(--muted);
-  font-size: 0.85rem;
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  margin: 0.3rem 0 0.8rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--blue);
+  border-left-width: 5px;
+  border-radius: 6px;
+  background: #eef5fc;
+  font-size: 0.95rem;
+  line-height: 1.45;
   color: var(--text);
 }
 .dtm-forest-note[hidden] { display: none; }
-.dtm-forest-note::before { content: "ℹ "; content: "ℹ " / ""; }
+.dtm-forest-note::before {
+  content: "i";
+  content: "i" / "";
+  flex: 0 0 auto;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin-top: 0.05rem;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+  line-height: 1.35rem;
+  text-align: center;
+}
+.dtm-forest-note strong { font-weight: 700; }
 
 @media (max-width: 700px) {
   .submit-bar {

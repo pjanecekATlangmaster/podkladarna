@@ -3095,12 +3095,14 @@ function renderSourceStatus() {
     ...data.services.map((s) => {
       const li = document.createElement("li");
       const relevant = sourceRelevant(s);
-      li.className = s.ok ? "ok" : relevant ? "down" : "ok";
+      // Nefunkční zdroj má křížek vždy (i když vybrané mapě nevadí), jen bez tučného zvýraznění.
+      li.className = s.ok ? "ok" : relevant ? "down" : "down minor";
       if (s.ok) {
         li.textContent = `${s.label}: běží`;
       } else {
         const since = csTime(s.down_since);
-        li.textContent = `${s.label}: ${s.planned ? "plánovaná odstávka" : "neodpovídá"} (${s.detail || "chyba"}${since ? `, od ${since}` : ""})` +
+        const detail = (s.detail || "chyba").replace(/^plánovaná odstávka,\s*/, "");
+        li.textContent = `${s.label}: ${s.planned ? "plánovaná odstávka" : "neodpovídá"} (${detail}${since ? `, od ${since}` : ""})` +
           (relevant ? "" : sourceIrrelevantNote(s));
         if (relevant) {
           const imp = document.createElement("span");
@@ -3125,7 +3127,13 @@ function renderSourceStatus() {
       : `⚠ ${what} (${names}) – ${dtmOnly ? "mapa bude nejspíš bez DTM" : "mapa nebude úplná"}.`;
     if (!wasDown) box.open = true;
   } else {
-    summary.textContent = "Stav zdrojů dat: vše běží";
+    // Výpadek zdroje, který vybrané mapě nevadí: souhrn nesmí tvrdit „vše běží“.
+    const other = data.services.filter((s) => !s.ok);
+    const otherNames = other.map((s) => s.label.replace(/\s*\(.*\)$/, "")).join(", ");
+    const otherWhat = other.every((s) => s.planned) ? "plánovaná odstávka" : "mimo provoz";
+    summary.textContent = other.length
+      ? `Stav zdrojů dat: ${otherNames} – ${otherWhat}, ostatní běží`
+      : "Stav zdrojů dat: vše běží";
     if (wasDown) box.open = false;
   }
   const checked = csTime(data.checked_at);
@@ -3153,12 +3161,21 @@ function renderDtmForestNote() {
   const svc = sourceStatus && sourceStatus.enabled && Array.isArray(sourceStatus.services)
     ? sourceStatus.services.find((s) => s.needs === "dtm" && !s.ok)
     : null;
-  const text = svc && forestUsesDtm()
-    ? `Mapa bude nejspíš bez DTM: portál DTM (DMVS ČÚZK) ${svc.planned ? "má plánovanou odstávku" : "teď neodpovídá"}. ` +
-      "Les i MTBO se nakreslí z OSM a ZABAGED (DTM se použije, jen pokud je výřez už v mezipaměti); s DTM to můžete zkusit později."
-    : "";
-  el.textContent = text;
-  el.hidden = !text;
+  const show = Boolean(svc && forestUsesDtm());
+  if (show) {
+    const lead = document.createElement("strong");
+    lead.textContent = "Mapa bude nejspíš bez DTM.";
+    const body = document.createElement("span");
+    body.append(
+      lead,
+      ` Portál DTM (DMVS ČÚZK) ${svc.planned ? "má plánovanou odstávku" : "teď neodpovídá"}. ` +
+        "Les i MTBO se nakreslí z OSM a ZABAGED (DTM se použije, jen pokud je výřez už v mezipaměti); s DTM to můžete zkusit později.",
+    );
+    el.replaceChildren(body);
+  } else {
+    el.replaceChildren();
+  }
+  el.hidden = !show;
 }
 
 let sourceStatusPolls = 0;
