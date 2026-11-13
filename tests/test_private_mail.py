@@ -236,6 +236,13 @@ def test_build_private_ready_email_mentions_expiry():
         issues_summary="Chybí vrstevnice.",
     )
     assert "Upozornění: Chybí vrstevnice." in body
+    _, body = build_private_ready_email(
+        job_name="Test mapa",
+        download_url="https://example/d/abc",
+        retention_hours=48,
+        notices=["DTM byla nedostupná."],
+    )
+    assert "\nDTM byla nedostupná.\n" in body
 
 
 def test_build_private_ready_email_includes_duration():

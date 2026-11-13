@@ -53,7 +53,7 @@ def _unit(code, name, has_data=True, kind="OBEC"):
         (SPRINT_ONLY, True, None, True, "failed", "warn", ["selhala"]),
         # Les a MTBO se bez DTM kreslí z OSM a ZABAGED: chybějící DTM je jen neutrální poznámka.
         (FOREST_ON, True, "bez souboru", False, "unavailable", "info", ["není k dispozici", "OSM"]),
-        (FOREST_ON, True, None, True, "failed", "info", ["nepodařilo", "OSM"]),
+        (FOREST_ON, True, None, True, "failed", "info", ["nedostupná", "OSM"]),
         (
             FOREST_ON, True,
             {"units": [_unit(1, "Praha"), _unit(2, "Lety", False)]},
@@ -82,6 +82,8 @@ def test_summary_states(tmp_path, maps, dtm_on, setup, failed, state, level, wor
         assert word in text
     if level != "warn":
         assert not dtm_summary.warning_lines(result)
+    # Upozornění příjemci jen když se DTM pro mapu používá a bylo nedostupné; území bez dat ne (sprint má ⚠).
+    assert bool(dtm_summary.notice_lines(result)) == (state == "failed" and level == "info")
 
 
 def test_readme_block_and_roundtrip(tmp_path):
@@ -119,3 +121,15 @@ def test_warning_only_on_problem_lines(tmp_path, setup, failed, warned, legacy):
     assert len(warn) == len(warned)
     logged = dtm_summary.log_lines(result)
     assert [line.startswith("VAROVÁNÍ: ") for line in logged] == [line in warn for line in result["lines"]]
+
+
+def test_outage_notice_in_log_and_readme(tmp_path):
+    """Nedostupná DTM u lesa: v logu a README „UPOZORNĚNÍ: “, ne VAROVÁNÍ; README ji má i v hlavičce ZIPu."""
+    from app.pipeline.package_oom import oom_readme
+
+    result = dtm_summary.finalize_summary(dtm_summary.initial_summary(FOREST_ON, True), tmp_path, failed=True)
+    assert dtm_summary.log_lines(result) == [dtm_summary.NOTICE_PREFIX + dtm_summary.OUTAGE_NOTICE]
+    readme = oom_readme({"dtm": result})
+    head = readme.split("Typ mapy:")[0]
+    assert dtm_summary.NOTICE_PREFIX + dtm_summary.OUTAGE_NOTICE in head
+    assert "VAROVÁNÍ" not in readme
