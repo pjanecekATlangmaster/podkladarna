@@ -191,12 +191,46 @@ def forest_area_hint(area_km2: float, width_km: float, height_km: float) -> str:
     )
 
 
+def _prep_minutes(
+    n_sheets: int, missing: int, area_km2: float, include_references: bool = False
+) -> float:
+    """Příprava (vše kromě skládání map), nezaokrouhleno, bez kalibrace."""
+    minutes = (
+        _EST_FIXED_MIN
+        + missing * _EST_DOWNLOAD_MIN_PER_SHEET
+        + n_sheets * _EST_CROP_MIN_PER_SHEET
+        + max(0.0, float(area_km2)) * _EST_MIN_PER_KM2
+    )
+    if include_references:
+        minutes += REF_PNG_ESTIMATE_MINUTES
+    return minutes
+
+
+def estimate_job_parts(options: dict, area_km2: float) -> tuple[float, float]:
+    """(příprava, skládání map) v minutách pro skutečné volby jobu; nezaokrouhleno, bez kalibrace."""
+    sheets = list(options.get("sm5_sheets") or [])
+    n = max(len(sheets), 1)
+    missing = n - len(dmpok_cached_mapnoms(sheets))
+    prep = _prep_minutes(n, missing, area_km2, bool(options.get("output_references")))
+    scale = int(options.get("map_scale") or 10000)
+    sprint = scale <= 5000
+    use_dtm = bool(options.get("dtm_sprint" if sprint else "dtm_forest", True))
+    share = 1.0 if sprint else max(len(options.get("map_types") or ["les", "mtbo"]), 1) / 2
+    maps = _map_minutes(area_km2, scale, use_dtm) * share
+    if options.get("output_georef"):
+        maps += estimate_georef_minutes(area_km2, scale) * share
+    return prep, maps
+
+
 def estimate_minutes(
     sheet_names: list[str],
     *,
     area_km2: float = 0.0,
     include_references: bool = False,
     include_maps: bool = True,
+    prep_factor: float = 1.0,
+    maps_factor: float = 1.0,
+    prep_extra: float = 0.0,
 ) -> int:
     """Odhad délky jobu v minutách (bez georef náhledů – viz ``estimate_georef_minutes``).
 
@@ -209,15 +243,11 @@ def estimate_minutes(
     n = max(len(sheet_names), 1)
     missing = n - len(dmpok_cached_mapnoms(sheet_names))
     minutes = (
-        _EST_FIXED_MIN
-        + missing * _EST_DOWNLOAD_MIN_PER_SHEET
-        + n * _EST_CROP_MIN_PER_SHEET
-        + max(0.0, float(area_km2)) * _EST_MIN_PER_KM2
-        + (_map_minutes(area_km2, *DEFAULT_ESTIMATE_MAP) if include_maps else 0.0)
+        _prep_minutes(n, missing, area_km2, include_references) * prep_factor
+        + prep_extra
+        + (_map_minutes(area_km2, *DEFAULT_ESTIMATE_MAP) * maps_factor if include_maps else 0.0)
     )
-    if include_references:
-        minutes += REF_PNG_ESTIMATE_MINUTES
-    return math.ceil(minutes)
+    return math.ceil(round(minutes, 9))
 
 
 # Odhad bez zvoleného měřítka: les + MTBO z OSM + ZABAGED (výchozí volba DTM „podle presetu“).
@@ -230,18 +260,22 @@ def _map_minutes(area_km2: float, scale: int, use_dtm: bool) -> float:
     return maps * (_EST_MAP_FIXED_MIN + max(0.0, float(area_km2)) * _EST_MAP_MIN_PER_KM2[(kind, bool(use_dtm))])
 
 
-def estimate_map_minutes(area_km2: float, scale: int, use_dtm: bool) -> float:
+def estimate_map_minutes(area_km2: float, scale: int, use_dtm: bool, factor: float = 1.0) -> float:
     """Skládání .omap (všechny mapy presetu) v minutách – nezaokrouhleno, sčítá se k ``estimate_minutes(include_maps=False)``."""
-    return round(_map_minutes(area_km2, scale, use_dtm), 2)
+    return round(_map_minutes(area_km2, scale, use_dtm) * factor, 2)
 
 
-def estimate_georef_minutes(area_km2: float, scale: int) -> int:
+def estimate_georef_minutes(area_km2: float, scale: int, factor: float = 1.0) -> int:
     """Příplatek za georef GeoTIFF @ 300 DPI (roste s plochou papíru)."""
     paper_m2 = max(0.0, float(area_km2)) * 1_000_000.0 / float(scale) ** 2
     variants = 1 if int(scale) <= 5000 else 2  # sprint / les + MTBO
     return math.ceil(
-        variants
-        * (_EST_GEOREF_MIN_PER_VARIANT + paper_m2 * _EST_GEOREF_MIN_PER_PAPER_M2)
+        round(
+            variants
+            * (_EST_GEOREF_MIN_PER_VARIANT + paper_m2 * _EST_GEOREF_MIN_PER_PAPER_M2)
+            * factor,
+            9,
+        )
     )
 
 

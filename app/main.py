@@ -81,6 +81,7 @@ from app.settings import (
     CLEANUP_INTERVAL_HOURS,
     DEFAULT_OPTIONS,
     DOWNLOADS_DIR,
+    ESTIMATE_CALIB_MIN_JOBS,
     ESTIMATE_WARN_MINUTES,
     JOB_TIMEOUT_MINUTES,
     JOBS_DIR,
@@ -469,17 +470,35 @@ def api_sheets(bbox: str):
         else None
     )
     can_estimate = bool(sheets) and not sheets_too_big
-    est = estimate_minutes(names, area_km2=area_km2) if can_estimate else None
+    # Samokalibrace z vlastních dokončených jobů (3.34.0): zvlášť příprava a skládání map.
+    try:
+        cal = db.estimate_calibration()
+    except Exception:  # noqa: BLE001 – odhad musí jít i bez kalibrace
+        cal = {"prep": 1.0, "maps": 1.0, "jobs": 0}
+    pf, mf = float(cal["prep"]), float(cal["maps"])
+    calibrated = int(cal.get("jobs") or 0) >= ESTIMATE_CALIB_MIN_JOBS and (pf != 1.0 or mf != 1.0)
+    extra = 1.0 if calibrated else 0.0
+    kw = {"prep_factor": pf, "maps_factor": mf, "prep_extra": extra}
+    est = estimate_minutes(names, area_km2=area_km2, **kw) if can_estimate else None
     est_refs = (
-        estimate_minutes(names, area_km2=area_km2, include_references=True)
+        estimate_minutes(names, area_km2=area_km2, include_references=True, **kw)
         if can_estimate
         else None
     )
     # Bez skládání .omap: tlačítko si přičte mapy podle měřítka a volby DTM (sprint 1 mapa, les + MTBO 2).
     est_base = (
         {
-            "plain": estimate_minutes(names, area_km2=area_km2, include_maps=False),
-            "refs": estimate_minutes(names, area_km2=area_km2, include_maps=False, include_references=True),
+            "plain": estimate_minutes(
+                names, area_km2=area_km2, include_maps=False, prep_factor=pf, prep_extra=extra
+            ),
+            "refs": estimate_minutes(
+                names,
+                area_km2=area_km2,
+                include_maps=False,
+                include_references=True,
+                prep_factor=pf,
+                prep_extra=extra,
+            ),
         }
         if can_estimate
         else None
@@ -487,8 +506,8 @@ def api_sheets(bbox: str):
     est_maps = (
         {
             str(s): {
-                "dtm": estimate_map_minutes(area_km2, s, True),
-                "nodtm": estimate_map_minutes(area_km2, s, False),
+                "dtm": estimate_map_minutes(area_km2, s, True, mf),
+                "nodtm": estimate_map_minutes(area_km2, s, False, mf),
             }
             for s in MAP_SCALES
         }
@@ -497,10 +516,14 @@ def api_sheets(bbox: str):
     )
     # Georef GeoTIFF závisí na měřítku – tlačítko si přičte podle formuláře.
     est_georef = (
-        {str(s): estimate_georef_minutes(area_km2, s) for s in MAP_SCALES}
+        {str(s): estimate_georef_minutes(area_km2, s, mf) for s in MAP_SCALES}
         if can_estimate
         else None
     )
+    note = estimate_note(names) if can_estimate else None
+    if can_estimate and calibrated:
+        calib_note = f"Odhad podle posledních {int(cal['jobs'])} jobů na tomto serveru."
+        note = f"{note} {calib_note}" if note else calib_note
     return {
         "sheets": sheets,
         "count": len(sheets),
@@ -530,7 +553,8 @@ def api_sheets(bbox: str):
         "job_timeout_minutes": JOB_TIMEOUT_MINUTES,
         "estimate_warn_minutes": ESTIMATE_WARN_MINUTES,
         "estimate_map_minutes": est_maps,
-        "estimate_note": estimate_note(names) if can_estimate else None,
+        "estimate_note": note,
+        "estimate_calibration": cal,
         "label": (
             f"Protíná listy: {', '.join(names)} ({len(sheets)})"
             if sheets
