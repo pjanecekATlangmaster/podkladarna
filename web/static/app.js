@@ -1907,7 +1907,10 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   }
 });
 
-const CZ = { south: 48.35, west: 11.85, north: 51.25, east: 19.1 };
+// Obálka povoleného území + okraj (výřez smí přesahovat hranici). Výchozí = Česko, zpřesní `/api/coverage`.
+let CZ = { south: 48.35, west: 11.85, north: 51.25, east: 19.1 };
+const COVERAGE_MARGIN = { lat: 0.2, lng: 0.3 };
+let coverageCountries = [];
 
 function czBounds() {
   return L.latLngBounds([CZ.south, CZ.west], [CZ.north, CZ.east]);
@@ -2020,6 +2023,7 @@ function initBboxMap() {
   }
   restoreBboxMapHeight();
   const bounds = czBounds();
+  loadCoverage();
   bboxMap = L.map(el, {
     scrollWheelZoom: true,
     maxBounds: bounds,
@@ -2030,7 +2034,6 @@ function initBboxMap() {
   const tileOpts = {
     maxZoom: 18,
     noWrap: true,
-    bounds,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   };
   // Přes Cloudflare OSM často padá (Referer / Rocket Loader).
@@ -2050,6 +2053,62 @@ function initBboxMap() {
   // Po obnovení výšky z localStorage ještě jednou po layoutu.
   requestAnimationFrame(() => {
     if (bboxMap) bboxMap.invalidateSize({ animate: false });
+  });
+}
+
+/** Povolené země domény (obrys, obálka) – posun mapy po celém území a šedá maska mimo něj. */
+async function loadCoverage() {
+  let data;
+  try {
+    data = await api("/api/coverage");
+  } catch (_) {
+    return; // zůstane výchozí obálka Česka
+  }
+  const items = (data && Array.isArray(data.countries) ? data.countries : []).filter(
+    (c) => Array.isArray(c.bounds) && c.bounds.length === 4
+  );
+  if (!items.length) return;
+  coverageCountries = items;
+  CZ = {
+    south: Math.min(...items.map((c) => c.bounds[0])) - COVERAGE_MARGIN.lat,
+    west: Math.min(...items.map((c) => c.bounds[1])) - COVERAGE_MARGIN.lng,
+    north: Math.max(...items.map((c) => c.bounds[2])) + COVERAGE_MARGIN.lat,
+    east: Math.max(...items.map((c) => c.bounds[3])) + COVERAGE_MARGIN.lng,
+  };
+  if (!bboxMap) return;
+  bboxMap.setMaxBounds(czBounds());
+  const holes = [];
+  for (const c of items) {
+    const g = c.geometry || {};
+    const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+    for (const poly of polys) {
+      if (poly && poly[0]) holes.push(poly[0].map(([lng, lat]) => [lat, lng]));
+    }
+  }
+  if (!holes.length) return;
+  const world = [[-89, -179], [-89, 179], [89, 179], [89, -179]];
+  L.polygon([world, ...holes], {
+    stroke: true,
+    color: "#666",
+    weight: 1,
+    fillColor: "#000",
+    fillOpacity: 0.18,
+    interactive: false,
+  }).addTo(bboxMap);
+}
+
+function countryName(code) {
+  const c = coverageCountries.find((x) => x.code === code);
+  return (c && c.name) || code || "";
+}
+
+/** Věta o přesahu výřezu za hranici (kreslí se tam jen OSM); prázdná, když výřez leží v zemi. */
+function outsideNoteText(data) {
+  const share = Number(data && data.outside_share) || 0;
+  if (share <= 0) return "";
+  return t("web.js.bbox.outside_note", {
+    pct: Math.max(1, Math.round(share * 100)),
+    country: countryName(data.country),
   });
 }
 
@@ -2682,7 +2741,8 @@ function applySheetsLimit() {
   } else {
     bboxAllowed = true;
     styleBboxRect(false);
-    setSheetInfo(sheetNamesText(data), "");
+    const outside = outsideNoteText(data);
+    setSheetInfo([sheetNamesText(data), outside].filter(Boolean).join(" · "), outside ? "warn" : "");
   }
   updateSubmitButtonLabel();
 }

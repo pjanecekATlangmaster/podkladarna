@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import db, i18n, settings as app_settings, source_status, worker
+from app import countries, db, i18n, settings as app_settings, source_status, worker
 from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -505,21 +505,40 @@ def api_whats_new(request: Request):
     return whats_new_payload(lang=i18n.resolve_lang(request)[0])
 
 
+def _check_country(
+    bbox: tuple[float, float, float, float], request: Request, country: str | None = None
+) -> tuple[countries.Country, float]:
+    """Výřez proti povolenému území domény (polygon země, aspoň polovina výřezu v ní) – vždy na serveru."""
+    try:
+        return countries.check_bbox(bbox, i18n.site_for_request(request), country or None)
+    except countries.CountryError as exc:
+        raise HTTPException(400, exc.args[0]) from exc
+
+
+@app.get("/api/coverage")
+def api_coverage(request: Request):
+    """Povolené země domény s obrysem hranice (mapa v GUI: pohyb, maska mimo území)."""
+    return countries.coverage_payload(i18n.site_for_request(request), i18n.resolve_lang(request)[0])
+
+
 @app.get("/api/sheets")
-def api_sheets(bbox: str, request: Request):
-    return i18n.localize(_sheets_payload(bbox), i18n.resolve_lang(request)[0])
+def api_sheets(bbox: str, request: Request, country: str = ""):
+    return i18n.localize(_sheets_payload(bbox, request, country), i18n.resolve_lang(request)[0])
 
 
-def _sheets_payload(bbox: str) -> dict:
+def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
     """bbox=west,south,east,north (WGS84) → listy SM5 + odhad času."""
     try:
         west, south, east, north = parse_bbox(bbox)
     except FetchError as exc:
         raise HTTPException(400, str(exc)) from exc
+    job_country, share = _check_country((west, south, east, north), request, country)
+    country_info = {"country": job_country.code, "outside_share": countries.outside_share(share)}
     width_km, height_km = bbox_size_km(west, south, east, north)
     area_km2 = bbox_area_km2(west, south, east, north)
     if bbox_exceeds_limit(west, south, east, north):
         return {
+            **country_info,
             "sheets": [],
             "count": 0,
             "max_sheets": MAX_SHEETS,
@@ -618,6 +637,7 @@ def _sheets_payload(bbox: str) -> dict:
         calib_note = i18n.Msg("api.sheets.calibrated", jobs=int(cal["jobs"]))
         note = i18n.Msg("api.sheets.note_join", note=note, extra=calib_note) if note else calib_note
     return {
+        **country_info,
         "sheets": sheets,
         "count": len(sheets),
         "max_sheets": MAX_SHEETS,
@@ -1061,6 +1081,7 @@ async def api_create_job(request: Request):
         bbox = parse_bbox(bbox_raw)
     except FetchError as exc:
         raise HTTPException(400, str(exc)) from exc
+    job_country, country_share = _check_country(bbox, request, _form_str(form, "country").strip())
     width_km, height_km = bbox_size_km(*bbox)
     if bbox_exceeds_limit(*bbox):
         area = bbox_area_km2(*bbox)
@@ -1228,6 +1249,10 @@ async def api_create_job(request: Request):
     _site = i18n.site_for_request(request)
     if _site is not None:
         options["site"] = _site.host
+    # Země výřezu (jeden CRS a sada zdrojů); přesah za hranici se kreslí jen z OSM.
+    options["country"] = job_country.code
+    if countries.outside_share(country_share) > 0:
+        options["outside_share"] = countries.outside_share(country_share)
     # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
     # API klient (platný X-Api-Key) má job vždy privátní, e-mail nepotřebuje –
     # `download_token` dostane v odpovědi.
@@ -1332,6 +1357,9 @@ async def api_create_job(request: Request):
         f"privátní {_yn('private')}"
         + (" · API klient" if api_client else "")
     )
+    outside = countries.outside_note(job_country, country_share)
+    if outside:
+        log(f"⚠ {outside}")
     if options.get("private") and not options.get("notify_email"):
         hours = PRIVATE_JOB_RETENTION_HOURS if PRIVATE_JOB_RETENTION_HOURS > 0 else 48
         log(f"Privátní job API klienta – odkaz s tokenem platí {hours} h.")

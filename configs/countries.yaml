@@ -1,0 +1,11 @@
+# Podporované země (návrh /mnt/project-files/evropa-data/pohranicni-mapa-navrh.md).
+# status: live (lze vybrat) | beta (jen se zapnutým příznakem, zatím nepoužito) | off.
+# Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
+# boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
+# view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
+CZ:
+  name: {cs: Česko, en: Czechia}
+  status: live
+  crs: EPSG:5514
+  boundary: countries/cz.geojson
+  view: [48.55, 12.09, 51.06, 18.86]

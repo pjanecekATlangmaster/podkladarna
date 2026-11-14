@@ -102,13 +102,9 @@ def parse_bbox(raw: str) -> tuple[float, float, float, float]:
         raise FetchError("Bbox obsahuje nečíselnou hodnotu") from exc
     if west >= east or south >= north:
         raise FetchError("Bbox je invertedý – west < east a south < north")
-    if (
-        west < CZ_WEST
-        or east > CZ_EAST
-        or south < CZ_SOUTH
-        or north > CZ_NORTH
-    ):
-        raise FetchError("Bbox je mimo Česko")
+    if west < -180 or east > 180 or south < -90 or north > 90:
+        raise FetchError("Bbox je mimo rozsah WGS84")
+    # Povolené území (polygon země, podíl výřezu v ní) kontroluje app.countries.check_bbox.
     return west, south, east, north
 
 
