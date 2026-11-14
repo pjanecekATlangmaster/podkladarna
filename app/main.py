@@ -25,7 +25,7 @@ from app.feedback import (
     check_feedback_rate,
     send_feedback,
 )
-from app.guide_text import WEB_ABOUT_HTML
+from app.guide_text import web_about_html
 from app.job_template import job_form_template
 from app.mail import MailError
 from app.rate_limit import check_create_api_job, check_create_job
@@ -208,8 +208,8 @@ def apply_channel(html: str) -> str:
     stable = html_escape(app_settings.STABLE_URL, quote=True)
     banner = (
         '<div class="channel-banner" role="note">'
-        f"Testovací verze{name} – může obsahovat chyby. "
-        f'<a href="{stable}">Přejít na stabilní verzi</a>'
+        f"{{{{t:web.channel.test}}}}{html_escape(name)} – {{{{t:web.channel.may_have_bugs}}}} "
+        f'<a href="{stable}">{{{{t:web.channel.go_stable}}}}</a>'
         "</div>"
     )
     # Na testu úvodní text „O co jde“ nepotřebujeme – formulář je hned nahoře.
@@ -263,7 +263,52 @@ def _cs_since(iso: str | None) -> str:
     return f"{d.day}. {_CS_MONTHS[d.month - 1]} {d.year}"
 
 
-def usage_footer_html() -> str:
+def _en_int(n: float) -> str:
+    return f"{int(round(n)):,}"
+
+
+def _en_bytes(n: float) -> str:
+    gb = n / 1e9
+    if gb >= 1000:
+        return f"{gb / 1000:.1f}\u00a0TB"
+    if gb >= 10:
+        return f"{_en_int(gb)}\u00a0GB"
+    if gb >= 1:
+        return f"{gb:.1f}\u00a0GB"
+    return f"{_en_int(n / 1e6)}\u00a0MB"
+
+
+def _en_since(iso: str | None) -> str:
+    try:
+        d = datetime.fromisoformat(str(iso))
+    except (TypeError, ValueError):
+        return ""
+    return f"{d.day} {_EN_MONTHS[d.month - 1]} {d.year}"
+
+
+_EN_MONTHS = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _usage_footer_en(totals: dict, val, n_maps: int, since_iso: str | None) -> str:
+    parts = [f"{_en_int(n_maps)} map{'s' if n_maps != 1 else ''} generated ({_en_int(val('jobs_done'))} jobs)"]
+    hours = val("build_seconds") / 3600
+    if hours >= 1:
+        parts.append(f"{_en_int(hours)} h of processing")
+    if val("source_bytes") > 0:
+        parts.append(f"{_en_bytes(val('source_bytes'))} of source data processed")
+    if val("download_count") > 0:
+        parts.append(f"{_en_int(val('download_count'))}× downloaded ({_en_bytes(val('download_bytes'))})")
+    since = _en_since(since_iso)
+    lead = f"Since {since}: " if since else "Total: "
+    if app_settings.INSTANCE_CHANNEL == "test":
+        lead = "Test version – " + lead[0].lower() + lead[1:]
+    return f'<p class="footer-usage">{html_escape(lead + " · ".join(parts))}</p>'
+
+
+def usage_footer_html(lang: str = "cs") -> str:
     """Řádek patičky se souhrnnou statistikou použití (jen čísla, bez osobních údajů)."""
     if not app_settings.SHOW_USAGE_STATS:
         return ""
@@ -280,6 +325,8 @@ def usage_footer_html() -> str:
         return float((totals.get(key) or {}).get("value") or 0)
 
     n_maps = int(round(maps["value"]))
+    if lang != "cs":
+        return _usage_footer_en(totals, val, n_maps, maps.get("since"))
     word = "mapa" if n_maps == 1 else ("mapy" if 2 <= n_maps <= 4 else "map")
     parts = [f"vygenerováno {_cs_int(n_maps)} {word} ({_cs_int(val('jobs_done'))} zadání)"]
     hours = val("build_seconds") / 3600
@@ -352,6 +399,17 @@ def _localized_html(request: Request, html: str, *, web_catalog: bool = False) -
     return response
 
 
+def _page_source(name: str, request: Request) -> str:
+    """Celá stránka v jazyce (``web/<jazyk>/<name>``); bez překladu anglicky, pak česky ``web/<name>``."""
+    lang = i18n.resolve_lang(request)[0]
+    if lang != i18n.SOURCE_LANG:
+        for code in (lang, i18n.BASE_LANG):
+            path = WEB_DIR / code / name
+            if path.is_file():
+                return path.read_text(encoding="utf-8")
+    return (WEB_DIR / name).read_text(encoding="utf-8")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     try:
@@ -361,9 +419,10 @@ def index(request: Request) -> HTMLResponse:
     except Exception:
         logger.exception("Pageview cleanup failed")
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    html = html.replace("<!-- PODKLADARNA_ABOUT -->", WEB_ABOUT_HTML)
+    lang = i18n.resolve_lang(request)[0]
+    html = html.replace("<!-- PODKLADARNA_ABOUT -->", web_about_html(lang))
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
-    html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html())
+    html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
     # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
@@ -373,7 +432,7 @@ def index(request: Request) -> HTMLResponse:
 
 @app.get("/licence", response_class=HTMLResponse)
 def licence_page(request: Request) -> HTMLResponse:
-    html = (WEB_DIR / "licence.html").read_text(encoding="utf-8")
+    html = _page_source("licence.html", request)
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
@@ -382,7 +441,7 @@ def licence_page(request: Request) -> HTMLResponse:
 
 @app.get("/podpora", response_class=HTMLResponse)
 def support_page(request: Request) -> HTMLResponse:
-    html = (WEB_DIR / "podpora.html").read_text(encoding="utf-8")
+    html = _page_source("podpora.html", request)
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')

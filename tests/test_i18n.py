@@ -195,3 +195,20 @@ def test_created_job_remembers_lang_and_site(client, monkeypatch):
         }
     assert origin[r.json()["id"]] == ("example.eu", "en")
     assert origin[r2.json()["id"]] == (None, "cs")
+
+
+@pytest.mark.parametrize(
+    "path, english, czech",
+    [
+        ("/", "How Podkladárna evolved", "Jak se Podkladárna vyvíjela"),
+        ("/licence", "Licence and sources", "Licence a zdroje"),
+        ("/podpora", "Support development", "Číslo účtu"),
+    ],
+)
+def test_pages_in_english(client, monkeypatch, path, english, czech):
+    monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,example.eu=en:paid:*")
+    en = client.get(path, headers={"host": "example.eu"}).text
+    assert english in en and czech not in en and '<html lang="en"' in en
+    assert "{{" not in en
+    cs = client.get(path + "?lang=en", headers={"host": "podkladarna.kibos.link"}).text
+    assert czech in cs and '<html lang="cs"' in cs
