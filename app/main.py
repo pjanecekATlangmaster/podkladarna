@@ -537,6 +537,8 @@ def api_dtm_coverage(bbox: str, request: Request, country: str = ""):
     job_country, _share = _check_country(box, request, country)
     if job_country.code != "CZ":
         return {"available": False, "reason": "country", "units": []}
+    if bbox_exceeds_limit(*box):  # bez limitu by šly stránkované dotazy RÚIAN třeba pro celou ČR
+        return {"available": False, "reason": "too_large", "units": []}
     return dtm_coverage.coverage_cached(box)
 
 
