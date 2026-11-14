@@ -103,7 +103,7 @@ def local_provider(spec: str) -> Provider:
 AHN_WCS = NL_AHN_WCS
 AHN_CRS = "EPSG:28992"
 AHN_BUFFER_M = 20.0
-AHN_MAX_SIDE_M = 6000.0  # jeden GetCoverage do ~6 km (0,5 m → 12 000 px); větší výřez po dlaždicích
+AHN_MAX_SIDE_M = 1950.0  # PDOK WCS MAXSIZE=4000 px (0,5 m → do 2 km); větší výřez po dlaždicích
 
 
 def _bounds_in(bounds, crs_from_wkt: str, crs_to: str) -> tuple[float, float, float, float]:
