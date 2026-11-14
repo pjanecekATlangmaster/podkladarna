@@ -432,9 +432,9 @@ def api_map_options():
 
 
 @app.get("/api/whats_new")
-def api_whats_new():
-    """Stáří posledního buildu + větší změny (box nad formulářem)."""
-    return whats_new_payload()
+def api_whats_new(request: Request):
+    """Stáří posledního buildu + větší změny (box nad formulářem), v jazyce stránky."""
+    return whats_new_payload(lang=i18n.resolve_lang(request)[0])
 
 
 @app.get("/api/sheets")

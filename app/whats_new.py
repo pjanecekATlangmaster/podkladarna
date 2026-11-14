@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from app.i18n import t
 from app.settings import APP_ROOT, APP_VERSION, CONFIG_DIR
 
 WHATS_NEW_PATH = CONFIG_DIR / "whats_new.yaml"
@@ -88,24 +89,24 @@ def _tone_for_age(age: timedelta) -> dict[str, Any]:
         return {
             "tone": "hot",
             "open": True,
-            "label": "Právě nasazeno",
+            "label_key": "news.label.hot",
         }
     if hours < WARM_HOURS:
         return {
             "tone": "warm",
             "open": True,
-            "label": "Nedávná aktualizace",
+            "label_key": "news.label.warm",
         }
     if hours < MILD_HOURS:
         return {
             "tone": "mild",
             "open": False,
-            "label": "Aktualizace tento týden",
+            "label_key": "news.label.mild",
         }
     return {
         "tone": "calm",
         "open": False,
-        "label": "Stabilní verze",
+        "label_key": "news.label.calm",
     }
 
 
@@ -128,6 +129,44 @@ def _format_age_cs(age: timedelta) -> str:
     if days < 45:
         return f"před {weeks} týdny"
     return f"před {days} dny"
+
+
+def _format_age_en(age: timedelta) -> str:
+    seconds = max(0, int(age.total_seconds()))
+    if seconds < 3600:
+        return f"{max(1, seconds // 60)} min ago"
+    hours = seconds // 3600
+    if hours < 48:
+        return f"{hours} h ago"
+    days = seconds // 86400
+    if days < 14:
+        return f"{days} days ago"
+    return f"{days // 7} weeks ago" if days < 45 else f"{days} days ago"
+
+
+def _load_milestones_file() -> dict[str, Any]:
+    ms_path = CONFIG_DIR / "whats_new_milestones.yaml"
+    if not ms_path.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(ms_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _translated_milestones(lang: str) -> list[dict[str, str]]:
+    """Milníky s nadpisem v jazyce (``title_<lang>`` v ručním souboru); bez překladu se vynechají."""
+    out: list[dict[str, str]] = []
+    for item in _load_milestones_file().get("milestones") or []:
+        if not isinstance(item, dict):
+            continue
+        d = _parse_dt(item.get("date"))
+        title = str(item.get(f"title_{lang}") or "").strip()
+        if d is None or not title:
+            continue
+        out.append({"date": d.date().isoformat(), "title": title, "body": ""})
+    return out
 
 
 def _translate_entry_title(title: str) -> str:
@@ -189,11 +228,29 @@ def _normalize_items(raw_items: object) -> list[dict[str, str]]:
     return out
 
 
-def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
+def whats_new_payload(now: datetime | None = None, lang: str = "cs") -> dict[str, Any]:
     now_utc = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     released = resolve_released_at(now_utc)
     age = now_utc - released
     tone = _tone_for_age(age)
+    if lang != "cs":
+        # Denní souhrny jsou z českého git logu – v jiném jazyce jen přeložené milníky.
+        milestones = _translated_milestones(lang)
+        return {
+            "version": APP_VERSION,
+            "released_at": released.isoformat(),
+            "age_hours": round(age.total_seconds() / 3600.0, 2),
+            "age_label": _format_age_en(age),
+            "tone": tone["tone"],
+            "open": tone["open"],
+            "label": t(tone["label_key"], lang),
+            "disclaimer": t("news.disclaimer", lang),
+            "entries": [],
+            "entry_days": ENTRY_DAYS,
+            "entries_lead": "" if milestones else t("news.none", lang),
+            "milestones": milestones,
+            "milestones_lead": t("news.milestones_lead", lang) if milestones else "",
+        }
 
     data = load_whats_new_file()
     cutoff = (now_utc - timedelta(days=ENTRY_DAYS)).date()
@@ -224,12 +281,8 @@ def whats_new_payload(now: datetime | None = None) -> dict[str, Any]:
         "age_label": _format_age_cs(age),
         "tone": tone["tone"],
         "open": tone["open"],
-        "label": tone["label"],
-        "disclaimer": (
-            "Jde o nový build s opravami a úpravami. "
-            "Může se stát, že se při tom něco jiného rozbilo — "
-            "když narazíte na problém, napište prosím do Issues."
-        ),
+        "label": t(tone["label_key"], "cs"),
+        "disclaimer": t("news.disclaimer", "cs"),
         "entries": entries_out,
         "entry_days": ENTRY_DAYS,
         "entries_lead": (
