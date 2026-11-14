@@ -176,6 +176,20 @@ def resolve_provider(source: str) -> Provider:
     raise ElevationUnavailable(f"zdroj výšek „{source}“ není k dispozici")
 
 
+def _is_krovak(src: Path) -> bool:
+    from osgeo import gdal, osr
+
+    gdal.UseExceptions()
+    ds = gdal.Open(str(src))
+    wkt = ds.GetProjection() if ds is not None else ""
+    ds = None
+    if not wkt:
+        return False
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(wkt)
+    return "krovak" in (srs.GetAttrValue("PROJECTION") or "").lower() or "+proj=krovak" in srs.ExportToProj4()
+
+
 def _warp_to_grid(
     src: Path,
     dest: Path,
@@ -189,10 +203,14 @@ def _warp_to_grid(
     dest.parent.mkdir(parents=True, exist_ok=True)
     srs_file = dest.parent / "job_crs.wkt"
     srs_file.write_text(CRS_WKT + "\n", encoding="utf-8")
+    # S-JTSK zdroje (SK: JTSK i JTSK03) mají stejné souřadnice jako mapa; bez -s_srs by GDAL převáděl
+    # datum (oficiální S-JTSK → WGS84 → náš TOWGS84) a rastr posunul o metry až desítky metrů.
+    same = ["-s_srs", str(srs_file)] if _is_krovak(src) and "Krovak" in CRS_WKT else []
     run_cmd(
         [
             _gdal_tool("gdalwarp"),
             "-overwrite",
+            *same,
             "-t_srs",
             str(srs_file),
             "-te",

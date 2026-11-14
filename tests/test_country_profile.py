@@ -133,3 +133,32 @@ def test_ahn_coverage_urls_tiling():
     assert "COVERAGEID=dtm_05m" in small[0] and "SUBSET=x(116980,118020)" in small[0]
     big = ahn_coverage_urls("dsm_05m", (100000.0, 400000.0, 100000.0 + 2.5 * AHN_MAX_SIDE_M, 401000.0))
     assert len(big) == 3
+
+
+def test_krovak_source_not_shifted(tmp_path, monkeypatch):
+    """Rastr v oficiálním S-JTSK (bez TOWGS84, SK data) se na mřížku mapy nepřevádí přes datum."""
+    pytest.importorskip("osgeo.gdal_array")
+    from osgeo import osr
+
+    from app.pipeline import elevation_raster
+
+    try:
+        elevation_raster._gdal_tool("gdalwarp")
+    except RuntimeError:
+        pytest.skip("gdalwarp není k dispozici")
+    import numpy as np
+
+    srs = osr.SpatialReference()
+    srs.ImportFromProj4(
+        "+proj=krovak +lat_0=49.5 +lon_0=24.83333333333333 +alpha=30.28813972222222 +k=0.9999 +x_0=0 +y_0=0 "
+        "+ellps=bessel +units=m +no_defs"
+    )
+    monkeypatch.setattr(elevation_raster.settings, "DATA_ROOT", tmp_path)
+    x0, y0 = -600000.0, -1160000.0
+    dtm = np.tile(np.arange(40, dtype="float32"), (40, 1))  # výška = sloupec → posun je vidět
+    _write_tif(tmp_path / "elev" / "dtm" / "a.tif", dtm, (x0, y0 + 40), epsg_wkt=srs.ExportToWkt())
+    res = elevation_raster.prepare_raster_surfaces(
+        tmp_path / "work", (x0 + 10, y0 + 10, x0 + 30, y0 + 30), source="local:elev"
+    )
+    filled = elevation_raster._read(res.dem_filled)
+    assert filled[5, 0] == pytest.approx(10.0, abs=0.6)
