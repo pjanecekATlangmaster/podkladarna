@@ -415,8 +415,8 @@ def order_sample_path(job: dict[str, Any]) -> Path | None:
     )
     if src is None:
         return None
-    seed = order_sample.sample_seed(job.get("options") or {}, str(job.get("preset_id") or ""))
-    return order_sample.build_sample_zip(src, dst, seed)
+    kind = order_sample.sample_kind(str(job.get("preset_id") or ""), job.get("options") or {})
+    return order_sample.build_sample_zip(src, dst, kind)
 
 
 @router.get("/order/{token}", response_class=HTMLResponse)

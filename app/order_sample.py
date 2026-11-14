@@ -5,17 +5,25 @@ Z ``.omap`` v hotovém ZIPu se vyřízne čtverec 40 × 40 mm mapy (les 1:10 000
 se před ořezem převedou na lomené čáry). Šablony (referenční PNG) se zahodí, symboly a georeference
 zůstanou, takže výřez sedí na místě a jde otevřít v OpenOrienteering Mapperu.
 
-Místo je náhodné, ale pro stejné území vždy stejné (seed z výřezu a presetu), a z hustší části mapy:
-z několika náhodných kandidátů vyhraje ten s nejvíc vrcholy kresby.
+Místo (návrh ``platby-navrh.md`` kap. 6.2) je ukotvené v absolutních souřadnicích: čtverce mřížky
+S-JTSK zarovnané na násobky strany ukázky. Z buněk celých uvnitř kresby a aspoň tak hustých jako
+medián vyhraje ta s nejnižším HMAC(tajná sůl, druh mapy + buňka). Sůl je mimo repozitář
+(``ORDER_SAMPLE_SECRET``, jinak soubor ``sample_salt`` vedle databáze), takže místo nejde dopředu
+spočítat a drobný posun výřezu vybere stejnou buňku (z posunutých objednávek nejde mapu složit).
+
+Malé území: ukázka smí mít nejvýš třetinu rozsahu kresby na každé ose (≈ 11 % plochy); když se
+40 mm nevejde, strana se půlí, a pod 10 mm se ukázka nevydá vůbec.
 """
 
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import logging
-import random
+import os
 import re
+import secrets
 import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -25,7 +33,8 @@ logger = logging.getLogger("podkladarna.order_sample")
 
 OMAP_NS = "http://openorienteering.org/apps/mapper/xml/v2"
 SAMPLE_SIDE_UM = 40_000  # 40 mm papíru v jednotkách OOM (µm)
-CANDIDATES = 24
+MIN_SIDE_UM = 10_000  # menší ukázka nemá smysl – nevydat
+MAX_AXIS_SHARE = 1 / 3  # strana ukázky nejvýš třetina rozsahu kresby na každé ose
 SAMPLE_ZIP_NAME = "sample-4x4cm.zip"
 
 _FLAG_CURVE = 1
@@ -42,13 +51,32 @@ def _q(tag: str) -> str:
     return f"{{{OMAP_NS}}}{tag}"
 
 
-def sample_seed(options: dict[str, Any], preset_id: str = "") -> str:
-    """Stejné území a preset → stejné místo ukázky."""
-    bbox = options.get("bbox_wgs84") or []
-    key = "|".join(
-        [",".join(f"{float(v):.5f}" for v in bbox), str(preset_id), str(options.get("map_scale") or "")]
-    )
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+def sample_kind(preset_id: str, options: dict[str, Any] | None = None) -> str:
+    """Druh mapy pro HMAC místa ukázky (preset + měřítko); výřez do něj nepatří."""
+    return f"{preset_id}|{(options or {}).get('map_scale') or ''}"
+
+
+def sample_salt() -> bytes:
+    """Tajná sůl místa ukázky: ``ORDER_SAMPLE_SECRET``, jinak ``sample_salt`` vedle databáze."""
+    env = os.environ.get("ORDER_SAMPLE_SECRET", "").strip()
+    if env:
+        return env.encode("utf-8")
+    from app.settings import DB_PATH
+
+    path = DB_PATH.parent / "sample_salt"
+    try:
+        salt = path.read_bytes()
+    except FileNotFoundError:
+        salt = b""
+    if len(salt) < 32:
+        salt = secrets.token_bytes(32)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(salt)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    return salt
 
 
 # --- Souřadnice OOM ------------------------------------------------------------------------------
@@ -127,34 +155,84 @@ def _object_vertices(objects_el: ET.Element) -> list[tuple[int, int]]:
     return pts
 
 
-def choose_square(
-    vertices: list[tuple[int, int]], seed: str, side: int = SAMPLE_SIDE_UM
-) -> tuple[int, int, int, int] | None:
-    """(minx, miny, maxx, maxy) čtverce ukázky v jednotkách mapy; None = prázdná mapa."""
-    if not vertices:
-        return None
+class _Georef:
+    """Map ↔ S-JTSK jako ``oom_coords`` (posun k ref. bodu, rotace grivací, měřítko), vektorově."""
+
+    def __init__(self, root: ET.Element) -> None:
+        from app.pipeline.oom_preview import parse_omap_georef
+
+        g = parse_omap_georef(root)
+        import math
+
+        self.scale = int(g.scale) or 10000
+        self.fac = 1000.0 / (g.combined_scale_factor * self.scale / 1000.0)  # µm mapy na metr
+        self.ref = (g.ref_x, g.ref_y)
+        self.map_ref = (g.map_ref_x, g.map_ref_y)
+        rad = math.radians(g.grivation_deg)
+        self.cos, self.sin = math.cos(rad), math.sin(rad)
+
+    def to_projected(self, pts):
+        import numpy as np
+
+        arr = np.asarray(pts, dtype=np.float64)
+        rx = (arr[:, 0] - self.map_ref[0]) / self.fac
+        ry = -(arr[:, 1] - self.map_ref[1]) / self.fac
+        dx = rx * self.cos + ry * self.sin
+        dy = -rx * self.sin + ry * self.cos
+        return np.column_stack((dx + self.ref[0], dy + self.ref[1]))
+
+    def to_map(self, x: float, y: float) -> tuple[float, float]:
+        dx, dy = x - self.ref[0], y - self.ref[1]
+        rx = dx * self.cos - dy * self.sin
+        ry = dx * self.sin + dy * self.cos
+        return rx * self.fac + self.map_ref[0], -ry * self.fac + self.map_ref[1]
+
+
+def choose_cell(
+    projected, side_m: float, kind: str, salt: bytes, *, min_side_m: float = 0.0
+) -> tuple[float, float, float, float] | None:
+    """Buňka mřížky S-JTSK (minx, miny, maxx, maxy) v metrech; None = mapa příliš malá / prázdná.
+
+    ``projected``: vrcholy kresby v metrech. Strana se půlí, dokud nepřesahuje třetinu rozsahu.
+    """
     import numpy as np
 
-    arr = np.asarray(vertices, dtype=np.float64)
+    arr = np.asarray(projected, dtype=np.float64)
+    if arr.size == 0:
+        return None
     lo = np.percentile(arr, 1, axis=0)
     hi = np.percentile(arr, 99, axis=0)
-    half = side / 2
-    rng = random.Random(seed)
-
-    def axis_centers(a: float, b: float) -> tuple[float, float]:
-        return (a + half, b - half) if b - a > side else ((a + b) / 2, (a + b) / 2)
-
-    (x0, x1), (y0, y1) = axis_centers(lo[0], hi[0]), axis_centers(lo[1], hi[1])
-    best: tuple[int, float, float] | None = None
-    for _ in range(CANDIDATES):
-        cx, cy = rng.uniform(x0, x1), rng.uniform(y0, y1)
-        inside = (np.abs(arr[:, 0] - cx) <= half) & (np.abs(arr[:, 1] - cy) <= half)
-        score = int(inside.sum())
-        if best is None or score > best[0]:
-            best = (score, cx, cy)
-    assert best is not None
-    _score, cx, cy = best
-    return (int(cx - half), int(cy - half), int(cx + half), int(cy + half))
+    span = float(min(hi - lo))
+    side = float(side_m)
+    while side > span * MAX_AXIS_SHARE:
+        side /= 2
+    if side <= 0 or side < min_side_m:
+        return None
+    ix0, iy0 = int(np.ceil(lo[0] / side)), int(np.ceil(lo[1] / side))
+    ix1, iy1 = int(np.floor(hi[0] / side)), int(np.floor(hi[1] / side))  # buňky [i, i+1) celé uvnitř
+    if ix1 <= ix0 or iy1 <= iy0:
+        return None
+    cells = np.floor(arr / side).astype(np.int64)
+    inside = (cells[:, 0] >= ix0) & (cells[:, 0] < ix1) & (cells[:, 1] >= iy0) & (cells[:, 1] < iy1)
+    keys, counts = np.unique(cells[inside], axis=0, return_counts=True)
+    n_cells = (ix1 - ix0) * (iy1 - iy0)
+    if not len(keys):
+        return None
+    # Medián přes všechny celé buňky (i prázdné), ať ukázka nepadne do prázdného pole.
+    scores = np.zeros(n_cells)
+    scores[: len(counts)] = counts
+    threshold = max(1.0, float(np.median(scores)))
+    best: tuple[str, int, int] | None = None
+    for (ix, iy), count in zip(keys.tolist(), counts.tolist()):
+        if count < threshold:
+            continue
+        rank = hmac.new(salt, f"{kind}|{side:.3f}|{ix}|{iy}".encode(), hashlib.sha256).hexdigest()
+        if best is None or rank < best[0]:
+            best = (rank, ix, iy)
+    if best is None:
+        return None
+    _rank, ix, iy = best
+    return (ix * side, iy * side, (ix + 1) * side, (iy + 1) * side)
 
 
 # --- Ořez ----------------------------------------------------------------------------------------
@@ -206,9 +284,12 @@ def _clip_path(coords_el: ET.Element, box, as_area: bool) -> list[list[str]]:
     return out
 
 
-def crop_omap(xml_bytes: bytes, seed: str, *, side: int = SAMPLE_SIDE_UM) -> bytes | None:
-    """Vyřízne ukázkový čtverec z celé mapy; None = mapa bez objektů."""
-    from shapely.geometry import box as shapely_box
+def crop_omap(
+    xml_bytes: bytes, kind: str, *, salt: bytes | None = None, side: int = SAMPLE_SIDE_UM
+) -> bytes | None:
+    """Vyřízne ukázkový čtverec z celé mapy; None = mapa bez objektů nebo příliš malá."""
+    from shapely import intersects_xy, prepare
+    from shapely.geometry import Polygon
 
     ET.register_namespace("", OMAP_NS)
     root = ET.fromstring(xml_bytes)
@@ -218,15 +299,27 @@ def crop_omap(xml_bytes: bytes, seed: str, *, side: int = SAMPLE_SIDE_UM) -> byt
     vertices: list[tuple[int, int]] = []
     for objects_el in parts_el.iter(_q("objects")):
         vertices.extend(_object_vertices(objects_el))
-    square = choose_square(vertices, seed, side)
-    if square is None:
+    if not vertices:
         return None
-    minx, miny, maxx, maxy = square
-    box = shapely_box(minx, miny, maxx, maxy)
+    georef = _Georef(root)
+    metres_per_um = 1.0 / georef.fac
+    cell = choose_cell(
+        georef.to_projected(vertices),
+        side * metres_per_um,
+        kind,
+        salt if salt is not None else sample_salt(),
+        min_side_m=MIN_SIDE_UM * metres_per_um,
+    )
+    if cell is None:
+        return None
+    x0, y0, x1, y1 = cell
+    box = Polygon([georef.to_map(x, y) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))])
+    prepare(box)
+    bx0, by0, bx1, by1 = box.bounds
     types = _symbol_types(root)
 
     def inside(x: int, y: int) -> bool:
-        return minx <= x <= maxx and miny <= y <= maxy
+        return bx0 <= x <= bx1 and by0 <= y <= by1 and bool(intersects_xy(box, x, y))
 
     for objects_el in parts_el.iter(_q("objects")):
         kept: list[ET.Element] = []
@@ -308,7 +401,7 @@ def _pick_omap_name(names: list[str]) -> str | None:
     return (sprint or omaps)[0]
 
 
-def build_sample_zip(output_zip: Path, dest: Path, seed: str) -> Path | None:
+def build_sample_zip(output_zip: Path, dest: Path, kind: str, *, salt: bytes | None = None) -> Path | None:
     """Z hotového ZIPu jobu udělá malý ZIP s ukázkou (``sample-<mapa>.omap``)."""
     try:
         with zipfile.ZipFile(output_zip) as zf:
@@ -316,7 +409,7 @@ def build_sample_zip(output_zip: Path, dest: Path, seed: str) -> Path | None:
             if name is None:
                 return None
             xml = _read_omap_bytes(zf.read(name))
-        cropped = crop_omap(xml, seed)
+        cropped = crop_omap(xml, kind, salt=salt)
         if cropped is None:
             return None
         stem = re.sub(r"[^\w.-]+", "-", Path(name).stem, flags=re.UNICODE).strip("-") or "mapa"
