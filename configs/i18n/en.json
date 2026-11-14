@@ -538,5 +538,8 @@
   "news.label.calm": "Stable version",
   "news.disclaimer": "This is a new build with fixes and changes. Something else may have broken in the process — if you run into a problem, please report it in Issues.",
   "news.none": "No major changes recently.",
-  "news.milestones_lead": "What's new:"
+  "news.milestones_lead": "What's new:",
+  "web.channel.test": "Test version",
+  "web.channel.may_have_bugs": "may contain bugs.",
+  "web.channel.go_stable": "Go to the stable version"
 }

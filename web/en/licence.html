@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Licence – Podkladárna</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="page-wrap header-inner">
+      <a href="/"><img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" /></a>
+      <div>
+        <h1>Licence and sources</h1>
+        <p class="tagline"><a href="/">← back to Podkladárna</a></p>
+      </div>
+    </div>
+  </header>
+
+  <main class="licence-page">
+    <h2>Podkladárna software</h2>
+    <p>
+      The website, API and pipeline are free software under the
+      <a href="https://opensource.org/license/mit" target="_blank" rel="noopener">MIT</a> licence,
+      © 2026 Petr Janeček.
+      MIT applies to the <em>code</em> (you may use and modify it freely;
+      keep the copyright notice when distributing the code).
+      <strong>MIT does not require attribution on maps</strong> you create with Podkladárna.
+      Source code:
+      <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">GitHub</a>.
+    </p>
+
+    <h2>Generated map (job output)</h2>
+    <p>
+      The PNG, <code>.omap</code>, DXF and shapefiles from a job are licensed under
+      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>:
+      for further use (printing, events, publications, sharing) <strong>you must credit the source</strong>.
+    </p>
+    <p>Minimum credit on the map / in the legend:</p>
+    <p><strong>Base map: Podkladárna · ČÚZK · OSM, [year]</strong></p>
+    <p>
+      <code>[year]</code> is the year the <em>data used are current to</em> (DMR / regional DTM / ZABAGED / OSM),
+      not necessarily the year you printed the map. If you do not know the exact date of a layer,
+      the year you ran the job in Podkladárna is enough (typically this year).
+      The output is a <strong>working base map for drawing, not a precise survey</strong>.
+      More detailed credits for the sources below are welcome (e.g. “ZABAGED® © ČÚZK”).
+    </p>
+
+    <h2>ČÚZK data</h2>
+    <p>
+      The digital terrain model <strong>DMR 5G</strong>, the surface model <strong>DMP OK</strong>
+      and the topographic database <strong>ZABAGED®</strong> are provided by the Land Survey Office / ČÚZK
+      (Czech Office for Surveying, Mapping and Cadastre) as open data under
+      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.
+    </p>
+    <ul>
+      <li><a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">ČÚZK Geoportal</a></li>
+      <li><a href="https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/" target="_blank" rel="noopener">openzu – DMR 5G</a></li>
+      <li><a href="https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/" target="_blank" rel="noopener">openzu – DMP OK</a></li>
+      <li>
+        <a href="https://www.cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/Podminky-poskytovani-prostorovych-dat-CUZK.aspx" target="_blank" rel="noopener">ČÚZK terms for providing spatial data (in Czech)</a>
+      </li>
+    </ul>
+    <p>On printed output: <strong>ČÚZK, [year]</strong> (year by how current the data are).</p>
+
+    <h2>Regional DTM (DMVS)</h2>
+    <p>
+      Surveyed features (sidewalks, roads, buildings, stairs, fences, bridges…) come from the
+      <strong>regional digital technical map</strong>, maintained by the regions and published by ČÚZK
+      in the DMVS information system (public <code>ZPS</code> datasets). The public data are
+      available free of charge and without registration (“without any conditions”); the DMVS
+      information system was built with
+      <abbr title="Integrated Regional Operational Programme">IROP</abbr> funding
+      (co-financed by the European Union).
+    </p>
+    <p>
+      No explicit licence (such as CC BY) is stated for these datasets, and the ČÚZK terms
+      (CC BY 4.0, “ČÚZK, [year]”) do not explicitly cover the regional DTM.
+      Use of the data in Podkladárna outputs has, however, been confirmed. We credit the source
+      in the spirit of those terms: <strong>Regional DTM · ČÚZK / DMVS, [year]</strong>.
+    </p>
+    <ul>
+      <li><a href="https://cuzk.gov.cz/DMVS/Poskytovani-dat.aspx" target="_blank" rel="noopener">DMVS – data provision (in Czech)</a></li>
+      <li><a href="https://cuzk.gov.cz/O-resortu/Strukturalni-fondy/Projekty-CUZK-z-IROP/Projekt-Vybudovani-IS-DMVS-CR.aspx" target="_blank" rel="noopener">DMVS information system project (IROP, in Czech)</a></li>
+    </ul>
+
+    <h2>Sentinel-2 satellite images</h2>
+    <p>
+      The optional template <code>references/sentinel2_*.jpg</code> comes from the Copernicus programme (ESA / EU);
+      Sentinel-2 L2A data are free to use with attribution and are downloaded from AWS Open Data
+      (Element84 earth-search). They are not used to draw the map. Credit:
+      <strong>Contains modified Copernicus Sentinel data [year]</strong>.
+    </p>
+    <ul>
+      <li><a href="https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice" target="_blank" rel="noopener">Sentinel Data Legal Notice</a></li>
+      <li><a href="https://registry.opendata.aws/sentinel-2-l2a-cogs/" target="_blank" rel="noopener">Sentinel-2 L2A COGs on AWS Open Data</a></li>
+    </ul>
+
+    <h2>Inspiration</h2>
+    <p>
+      Podkladárna was <strong>loosely inspired</strong>
+      by the
+      <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
+      project and then went its own way: vegetation from LiDAR return density, cliffs and rocks from the DMR,
+      GDAL contours.
+    </p>
+
+    <h2>Symbol sets</h2>
+    <p>
+      The ISOM 2017-2 (Revision 6) and ISSprOM 2019-2 (Revision 6) sets are based on the official
+      OCAD symbol sets; the basic symbol names follow the official Czech translations of the
+      specifications (ČSOS), sub-symbol names are derived. Likewise, the ISMTBOM 2022 set for MTBO is based on the official OCAD set; names of symbols without an official Czech translation are derived.
+    </p>
+
+    <h2>Area selection map</h2>
+    <ul>
+      <li>Tiles: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors (ODbL)</li>
+      <li>Library: <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a> (BSD-2-Clause)</li>
+    </ul>
+
+    <h2>Other tools</h2>
+    <ul>
+      <li><a href="https://pdal.io/" target="_blank" rel="noopener">PDAL</a> (BSD) – LiDAR processing</li>
+      <li><a href="https://gdal.org/" target="_blank" rel="noopener">GDAL</a> (MIT/X) – ZABAGED vectors</li>
+      <li>
+        Target editor (not part of the service):
+        <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a> (GPL-3.0)
+      </li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <p><a href="/">Podkladárna</a> v{{APP_VERSION}} · code MIT · output CC BY 4.0</p>
+  </footer>
+</body>
+</html>

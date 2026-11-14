@@ -537,5 +537,8 @@
   "news.label.calm": "Stabilní verze",
   "news.disclaimer": "Jde o nový build s opravami a úpravami. Může se stát, že se při tom něco jiného rozbilo — když narazíte na problém, napište prosím do Issues.",
   "news.none": "Za poslední dny nejsou v přehledu žádné větší změny.",
-  "news.milestones_lead": "Novinky:"
+  "news.milestones_lead": "Novinky:",
+  "web.channel.test": "Testovací verze",
+  "web.channel.may_have_bugs": "může obsahovat chyby.",
+  "web.channel.go_stable": "Přejít na stabilní verzi"
 }

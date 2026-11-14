@@ -117,6 +117,131 @@ WEB_ABOUT_HTML = """
 </p>
 """
 
+# Anglický úvod pro web (stejné bloky a třídy jako WEB_ABOUT_HTML).
+WEB_ABOUT_HTML_EN = """
+<p>
+  I wanted to find out whether base maps for orienteering can already be put together
+  automatically. The inspiration was
+  <a href="https://mapant.net/" target="_blank" rel="noopener">mapant.net</a>
+  and the
+  <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
+  project. Podkladárna then went its own way (its own vegetation, cliffs and DEM)
+  towards editable base maps directly in
+  <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a>.
+  The program was written with the help of AI, but the generation itself runs the old way,
+  with clearly defined algorithms.
+</p>
+<p>
+  For the area you select, Podkladárna downloads LiDAR (DMR&nbsp;5G + DMP&nbsp;OK),
+  surveyed features from the <strong>regional digital technical map (DTM)</strong> where available,
+  additions from OSM (paths, areas, buildings…), ZABAGED and other sources.
+  Relief and vegetation are built from the terrain and surface models (return density, DEM cliffs,
+  GDAL contours); the main output is vectors for OOM (and an <code>.ocd</code> OCD12 file
+  of the same name for OCAD), depending on the scale.
+  The data are not perfect and the automation only combines them:
+  something is missing, something overlaps and not everything fits the first time.
+  Treat the result as a <em>working base map</em>, not a precise survey
+  or a finished map. You will still have work to do in OOM and in the terrain.
+</p>
+<p>
+  The website shows a PNG preview of the map.
+  The primary output is always a ZIP with editable vectors (contours, vegetation, ZABAGED, OSM,
+  RÚIAN layers, AOPK, cliff DXF, reference orthophoto…).
+  A georeferenced GeoTIFF in the ZIP is optional (off by default).
+</p>
+<p>
+  <strong>The map is georeferenced in S-JTSK (EPSG:5514)</strong>, including
+  magnetic declination and grid convergence for the centre of the area.
+  Templates (cadastre, hillshade…) and vectors therefore line up in OOM / OCAD
+  without manual alignment and can go straight under your own template.
+</p>
+<p>
+  <strong>Vegetation shows the height and density of growth from LiDAR (DMP&nbsp;OK), not runnability.</strong>
+  Green and open areas show where the forest is tall, low or absent; how fast you can run
+  through it (undergrowth, visibility) cannot be read from the data. Use it as an overview;
+  the vegetation is finished in the terrain.
+</p>
+<p>
+  The data sources currently cover the Czech Republic.
+</p>
+<details class="about-zip">
+  <summary><strong>The ZIP contains, among other things</strong></summary>
+<ul>
+  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> (forest) / <code>*-mtbo.omap</code> (+ <code>.ocd</code> of the same name), named after the project and scale; paths from OSM; <code>.omap</code> for OOM, <code>.ocd</code> for OCAD (templates OSM, ZTM, cadastre, regional DTM, DMP OK, hillshade, relief)</li>
+  <li>cliff DXF, GDAL contours (<code>contours_gdal.*</code>), vegetation / cliffs / knolls in <code>base/</code>, ZABAGED, OSM buildings in the .omap, RÚIAN/ZABAGED buildings in <code>zabaged/</code>, OSM shapefiles in <code>osm/</code>, AOPK memorial trees, guide <code>README_OOM.txt</code> (in Czech)</li>
+</ul>
+</details>
+<details class="about-evolution">
+  <summary><strong>How Podkladárna evolved (ZABAGED → OSM → regional DTM)</strong></summary>
+  <ol>
+    <li>
+      <strong>ZABAGED.</strong> I started with the national topographic database of ČÚZK. It is complete
+      and consistent, but too coarse for an orienteering map and slow to update.
+    </li>
+    <li>
+      <strong>OSM.</strong> It is more up to date and has the details an orienteering map needs
+      (steps, fences, footbridges, sidewalks), but its quality varies from place to place. OSM took the lead
+      and ZABAGED remained as a supplement.
+    </li>
+    <li>
+      <strong>Regional DTM.</strong> The surveyed digital technical map (DMVS, ČÚZK) gives the
+      precise <em>shape</em> of areas: sidewalks, roads, car parks, buildings, stairs, fences
+      and multi-level bridges. The shape therefore comes from the DTM and <em>currency</em> from OSM:
+      what the DTM is still missing (new buildings, recent changes) is added from OSM. Bridges are drawn with
+      crossing levels, and places where you can pass underneath are marked with a triangle. DTM coverage
+      keeps growing; where it is missing, OSM and ZABAGED remain.
+    </li>
+    <li>
+      <strong>Karttapullautin → own vectors.</strong> Relief and vegetation were originally based
+      on Karttapullautin (KP) outputs. Today we compute vegetation, cliffs and the DEM ourselves and
+      draw them directly as editable vectors. This part is younger and we will keep working on it.
+    </li>
+  </ol>
+  <p>
+    Sprint (1:4000) benefits most from the DTM. In forest and MTBO maps the DTM is used for buildings,
+    fences, stairs and the road corridor (MTBO). Paved areas (roads, car parks, pedestrian zones) in forest
+    and MTBO maps are drawn from OSM, ZABAGED and the DTM as one network.
+  </p>
+</details>
+<h2>How to use it</h2>
+<p class="about-note">
+  <strong>A request first:</strong> Podkladárna runs on a single shared server, so every
+  large job delays everyone else for a while. Please generate only what you will really use,
+  whether as a try-out or for work on a map. A smaller area and one scale are enough for a first try;
+  the whole area and other variants are worth running once the result looks right. Thank you.
+</p>
+<p>
+  Draw a rectangle (MTBO up to 25&nbsp;km², e.g. 5&nbsp;×&nbsp;5 or 7&nbsp;×&nbsp;3.5&nbsp;km; forest up to 15&nbsp;km²;
+  sprint 1:4000 up to 4&nbsp;km², e.g. 2&nbsp;×&nbsp;2&nbsp;km), choose the
+  <strong>scale</strong> (it decides between sprint, or forest and MTBO), set other
+  options if you like and start generating. The button shows a rough estimate of the time needed.
+  You can close the page in the meantime.
+  When it is done, download the ZIP, open the chosen
+  <code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> in OOM
+  (or the <code>.ocd</code> of the same name in OCAD) and start mapping.
+</p>
+<p>
+  Only one job runs at a time. From one network, at most <strong>2 jobs</strong> can run
+  or wait at once, and <strong>10</strong> per hour. Whoever has both slots full gives way
+  in the queue to someone who has not started anything yet. Going by IP address is not perfect
+  (VPN, shared Wi‑Fi). Finished jobs are kept for <strong>48 hours</strong>, so save the ZIP.
+  If you do not want anyone else to see the map, choose private mode and you will receive
+  a download link when it is done.
+</p>
+<p>
+  Podkladárna is an experiment, so feedback is welcome next to a finished map
+  or on
+  <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">GitHub Issues</a>.
+</p>
+"""
+
+WEB_ABOUT_HTML_BY_LANG = {"cs": WEB_ABOUT_HTML, "en": WEB_ABOUT_HTML_EN}
+
+
+def web_about_html(lang: str) -> str:
+    """Úvod v jazyce stránky; bez překladu anglicky (pak česky)."""
+    return WEB_ABOUT_HTML_BY_LANG.get(lang) or WEB_ABOUT_HTML_BY_LANG.get("en") or WEB_ABOUT_HTML
+
 ZIP_ABOUT_TXT = f"""Podkladárna – co je v tomto balíčku
 ==================================
 
