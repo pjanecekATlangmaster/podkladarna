@@ -505,6 +505,12 @@ def api_whats_new(request: Request):
     return whats_new_payload(lang=i18n.resolve_lang(request)[0])
 
 
+def _exc_detail(exc: BaseException):
+    """Hláška výjimky pro HTTPException: ``i18n.Msg`` beze změny (přeloží se), jinak text."""
+    arg = exc.args[0] if exc.args else None
+    return arg if isinstance(arg, i18n.Msg) else str(exc)
+
+
 def _check_country(
     bbox: tuple[float, float, float, float], request: Request, country: str | None = None
 ) -> tuple[countries.Country, float]:
@@ -531,7 +537,7 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
     try:
         west, south, east, north = parse_bbox(bbox)
     except FetchError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(400, _exc_detail(exc)) from exc
     job_country, share = _check_country((west, south, east, north), request, country)
     country_info = {"country": job_country.code, "outside_share": countries.outside_share(share)}
     width_km, height_km = bbox_size_km(west, south, east, north)
@@ -573,7 +579,7 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
     try:
         sheets = query_sm5_sheets(west, south, east, north)
     except FetchError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(400, _exc_detail(exc)) from exc
     names = [s["mapnom"] for s in sheets]
     sheets_too_big = len(sheets) > MAX_SHEETS
     hint = (
@@ -836,7 +842,7 @@ def api_download_georef_previews(job_id: str, token: str | None = None):
         # Lazy: sestav z preview/, pokud job doběhl před zavedením malého ZIPu.
         built = build_georef_previews_zip(out)
         if built is None or not built.is_file():
-            raise HTTPException(404, "Georeferencovane nahledy nejsou k dispozici")
+            raise HTTPException(404, i18n.Msg("api.georef_previews_missing"))
         zip_path = built
     stem = db.safe_zip_stem(job["name"])
     filename = f"podkladarna-{stem}-georef-nahledy.zip"
@@ -851,7 +857,7 @@ def api_preview(job_id: str, token: str | None = None):
     job_dir = JOBS_DIR / job_id
     png = resolve_preview_png(job_dir / "output", job_dir / "work")
     if png is None:
-        raise HTTPException(404, "Nahled neni k dispozici")
+        raise HTTPException(404, i18n.Msg("api.preview_missing"))
     return FileResponse(png)
 
 
@@ -1018,13 +1024,13 @@ async def api_create_job(request: Request):
         form = await request.form()
     except Exception as exc:
         logger.exception("Multipart form parse failed")
-        raise HTTPException(400, f"Nepodarilo se precist upload: {exc}") from exc
+        raise HTTPException(400, i18n.Msg("api.form_unreadable", error=str(exc))) from exc
 
     api_client = _api_client_authenticated(request)
 
     name = _form_str(form, "name").strip()
     if not name:
-        raise HTTPException(400, "Chybi nazev jobu")
+        raise HTTPException(400, i18n.Msg("api.job.name_missing"))
 
     presets = load_presets()
     map_scale_raw = _form_str(form, "map_scale").strip()
@@ -1048,10 +1054,10 @@ async def api_create_job(request: Request):
         else:
             raise HTTPException(400, i18n.Msg("api.job.scale_missing"))
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(400, _exc_detail(exc)) from exc
     preset_id = resolved["preset_id"]
     if preset_id not in presets:
-        raise HTTPException(400, f"Neznamy preset: {preset_id}")
+        raise HTTPException(400, i18n.Msg("api.job.preset_unknown", preset=preset_id))
 
     # Typy map (les / MTBO) jen u lesních měřítek; bez pole výchozí podle měřítka (API klienti).
     # GUI posílá skryté `map_types_form`, protože nezaškrtnutý checkbox se neodešle vůbec.
@@ -1080,7 +1086,7 @@ async def api_create_job(request: Request):
     try:
         bbox = parse_bbox(bbox_raw)
     except FetchError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(400, _exc_detail(exc)) from exc
     job_country, country_share = _check_country(bbox, request, _form_str(form, "country").strip())
     width_km, height_km = bbox_size_km(*bbox)
     if bbox_exceeds_limit(*bbox):
@@ -1123,7 +1129,7 @@ async def api_create_job(request: Request):
         try:
             sheets = query_sm5_sheets(*bbox)
         except FetchError as exc:
-            raise HTTPException(400, str(exc)) from exc
+            raise HTTPException(400, _exc_detail(exc)) from exc
     if not sheets:
         raise HTTPException(400, i18n.Msg("api.job.no_sheet"))
     if len(sheets) > MAX_SHEETS:
@@ -1389,7 +1395,7 @@ async def api_create_job(request: Request):
         log(tb)
         db.update_job(job_id, status="failed", phase="upload", error=str(exc))
         logger.exception("Job %s upload failed", job_id)
-        raise HTTPException(500, f"Nahrani selhalo: {exc}") from exc
+        raise HTTPException(500, i18n.Msg("api.job.create_failed", error=str(exc))) from exc
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -1400,7 +1406,7 @@ def favicon():
     svg = STATIC_DIR / "logo.svg"
     if svg.is_file():
         return FileResponse(svg, media_type="image/svg+xml")
-    raise HTTPException(404, "Logo nenalezeno")
+    raise HTTPException(404, i18n.Msg("api.logo_missing"))
 
 
 @app.get("/tiles/{z}/{x}/{y}.png", include_in_schema=False)

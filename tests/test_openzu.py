@@ -27,8 +27,14 @@ def test_parse_bbox_rejects_out_of_range():
         parse_bbox("179,0,181,1")
 
 
+@pytest.mark.parametrize("raw", ["nan,50.0,14.5,50.1", "14.4,50.0,inf,50.1", "14.4,-inf,14.5,50.1"])
+def test_parse_bbox_rejects_non_finite(raw):
+    with pytest.raises(FetchError, match="nečíselnou"):
+        parse_bbox(raw)
+
+
 def test_parse_bbox_rejects_inverted():
-    with pytest.raises(FetchError, match="inverted"):
+    with pytest.raises(FetchError, match="obrácený"):
         parse_bbox("14.5,50.1,14.4,50.0")
 
 
