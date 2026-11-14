@@ -212,3 +212,22 @@ def test_pages_in_english(client, monkeypatch, path, english, czech):
     assert "{{" not in en
     cs = client.get(path + "?lang=en", headers={"host": "podkladarna.kibos.link"}).text
     assert czech in cs and '<html lang="cs"' in cs
+
+
+def test_api_errors_follow_page_language(client, monkeypatch):
+    monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,example.eu=en:paid:*")
+    en = client.get("/api/jobs/neexistuje", headers={"host": "example.eu"})
+    assert en.status_code == 404
+    assert en.json() == {"detail": "Job not found", "code": "api.job_not_found"}
+    cs = client.get("/api/jobs/neexistuje", headers={"host": "podkladarna.kibos.link"})
+    assert cs.json()["detail"] == "Job nenalezen"
+    form = {"name": "x", "preset_id": "sprint_2m", "bbox": "14.40,50.08,14.44,50.10"}
+    big = client.post("/api/jobs", data=form, headers={"host": "example.eu"}).json()
+    assert big["code"] == "api.hint.sprint_area" and "can only be generated" in big["detail"]
+
+
+def test_msg_formats_numbers_by_language():
+    msg = i18n.Msg("api.job.bbox_too_big", width=5.25, height=4.0, area=21.0, max=25.0)
+    assert str(msg) == "Výřez je moc velký (5,2 × 4 km, 21 km²; max 25 km²)."
+    assert msg.render("en") == "The area is too large (5.2 × 4 km, 21 km²; max 25 km²)."
+    assert i18n.localize({"a": [msg]}, "en") == {"a": [msg.render("en")]}
