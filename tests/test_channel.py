@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 import app.main as main
@@ -58,6 +60,8 @@ def test_usage_footer_marks_test_channel_and_has_no_personal_data(client, monkey
 
     monkeypatch.setattr(main.app_settings, "SHOW_USAGE_STATS", True)
     text = client.get("/").text
+    # Katalog textů pro app.js (window.I18N) obsahuje i hlášky testovací verze; zkoumá se jen vykreslená stránka.
+    text = re.sub(r"<script data-cfasync=\"false\">window\.I18N = .*?;</script>", "", text, flags=re.S)
     assert 'class="footer-usage"' in text
     assert "vygenerováno 1 mapa (1 zadání)" in text and "2 h zpracování" in text
     assert "zpracováno 2,5 GB podkladů" in text and "1× staženo (12 MB)" in text
