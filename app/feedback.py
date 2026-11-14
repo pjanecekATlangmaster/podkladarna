@@ -8,6 +8,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 
 from app import settings
+from app.i18n import Msg
 from app.mail import MailError, send_mail
 from app.pipeline.preview import resolve_preview_png
 from app.rate_limit import is_exempt
@@ -40,10 +41,7 @@ def check_feedback_rate(client_ip: str) -> str | None:
         while q and now - q[0] > window:
             q.popleft()
         if len(q) >= limit:
-            return (
-                f"Z této sítě už bylo odesláno {limit} zpráv za hodinu. "
-                "Zkuste to později, nebo napište na GitHub Issues."
-            )
+            return Msg("api.feedback.rate", limit=limit)
         q.append(now)
     return None
 

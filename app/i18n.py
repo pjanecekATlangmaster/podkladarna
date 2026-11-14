@@ -277,6 +277,61 @@ def localize_page(html: str, request: Any, lang: str, *, web_catalog: bool = Fal
     return render_placeholders(html, lang)
 
 
+# Jazyky s desetinnou čárkou (formát čísel v hláškách API).
+_DECIMAL_COMMA = {"cs", "de", "pl", "fr", "sk"}
+
+
+def fmt_num(value: float, lang: str, decimals: int = 1) -> str:
+    """Číslo pro text: nejvýš ``decimals`` míst bez koncových nul, oddělovač podle jazyka."""
+    text = f"{value:.{decimals}f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text.replace(".", ",") if lang in _DECIMAL_COMMA else text
+
+
+class Msg(str):
+    """Hláška pro uživatele s klíčem katalogu; jako ``str`` je česky (logy, testy, starší volání).
+
+    API ji přeloží do jazyka požadavku (``render`` / ``localize``). Desetinná čísla
+    v parametrech se formátují podle jazyka (``fmt_num``).
+    """
+
+    key: str
+    params: dict[str, Any]
+
+    def __new__(cls, key: str, **params: Any) -> "Msg":
+        obj = super().__new__(cls, _render_msg(key, params, SOURCE_LANG))
+        obj.key = key
+        obj.params = params
+        return obj
+
+    def render(self, lang: str) -> str:
+        return _render_msg(self.key, self.params, lang)
+
+
+def _render_msg(key: str, params: Mapping[str, Any], lang: str) -> str:
+    shown = {
+        name: (
+            fmt_num(value, lang)
+            if isinstance(value, float)
+            else value.render(lang) if isinstance(value, Msg) else value
+        )
+        for name, value in params.items()
+    }
+    return t(key, lang, **shown)
+
+
+def localize(value: Any, lang: str) -> Any:
+    """``Msg`` v odpovědi API (i vnořené v dict / list) → text v jazyce."""
+    if isinstance(value, Msg):
+        return value.render(lang)
+    if isinstance(value, dict):
+        return {k: localize(v, lang) for k, v in value.items()}
+    if isinstance(value, list):
+        return [localize(v, lang) for v in value]
+    return value
+
+
 def placeholders_in(text: str) -> set[str]:
     return set(re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", text))
 

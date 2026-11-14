@@ -180,8 +180,13 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 
 
 @app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(_request: Request, exc: StarletteHTTPException):
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    detail = exc.detail
+    if isinstance(detail, i18n.Msg):
+        # Hláška v jazyce stránky + stabilní kód pro klienty API (text se může měnit).
+        content = {"detail": detail.render(i18n.resolve_lang(request)[0]), "code": detail.key}
+        return JSONResponse(status_code=exc.status_code, content=content)
+    return JSONResponse(status_code=exc.status_code, content={"detail": detail})
 
 
 @app.exception_handler(Exception)
@@ -293,7 +298,11 @@ _EN_MONTHS = (
 
 
 def _usage_footer_en(totals: dict, val, n_maps: int, since_iso: str | None) -> str:
-    parts = [f"{_en_int(n_maps)} map{'s' if n_maps != 1 else ''} generated ({_en_int(val('jobs_done'))} jobs)"]
+    n_jobs = int(round(val("jobs_done")))
+    parts = [
+        f"{_en_int(n_maps)} map{'s' if n_maps != 1 else ''} generated "
+        f"({_en_int(n_jobs)} job{'s' if n_jobs != 1 else ''})"
+    ]
     hours = val("build_seconds") / 3600
     if hours >= 1:
         parts.append(f"{_en_int(hours)} h of processing")
@@ -497,7 +506,11 @@ def api_whats_new(request: Request):
 
 
 @app.get("/api/sheets")
-def api_sheets(bbox: str):
+def api_sheets(bbox: str, request: Request):
+    return i18n.localize(_sheets_payload(bbox), i18n.resolve_lang(request)[0])
+
+
+def _sheets_payload(bbox: str) -> dict:
     """bbox=west,south,east,north (WGS84) → listy SM5 + odhad času."""
     try:
         west, south, east, north = parse_bbox(bbox)
@@ -521,12 +534,21 @@ def api_sheets(bbox: str):
             "too_large_reason": "size",
             "estimate_minutes": None,
             "estimate_minutes_with_refs": None,
-            "label": f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.1f} km²)",
-            "hint": (
-                f"Výřez {width_km:.1f} × {height_km:.1f} km ({area_km2:.1f} km²) je moc velký "
-                f"(MTBO max {MAX_BBOX_AREA_KM2:.0f} km², např. {MAX_BBOX_KM:.0f} × {MAX_BBOX_KM:.0f} "
-                f"nebo 7 × 3,5 km; les max {forest_max_area_km2():.0f} km²; "
-                f"sprint 1:4000 max {sprint_max_area_km2():.0f} km²). Zmenšete ho."
+            "label": i18n.Msg(
+                "api.sheets.label_area",
+                width=float(width_km),
+                height=float(height_km),
+                area=float(area_km2),
+            ),
+            "hint": i18n.Msg(
+                "api.sheets.too_big",
+                width=float(width_km),
+                height=float(height_km),
+                area=float(area_km2),
+                max=float(MAX_BBOX_AREA_KM2),
+                side=float(MAX_BBOX_KM),
+                forest_max=float(forest_max_area_km2()),
+                sprint_max=float(sprint_max_area_km2()),
             ),
         }
     try:
@@ -536,7 +558,7 @@ def api_sheets(bbox: str):
     names = [s["mapnom"] for s in sheets]
     sheets_too_big = len(sheets) > MAX_SHEETS
     hint = (
-        f"{', '.join(names)} ({len(sheets)}). Zmenšete výřez (max {MAX_SHEETS} listů SM5)."
+        i18n.Msg("api.sheets.too_many", names=", ".join(names), count=len(sheets), max=MAX_SHEETS)
         if sheets_too_big
         else None
     )
@@ -593,8 +615,8 @@ def api_sheets(bbox: str):
     )
     note = estimate_note(names) if can_estimate else None
     if can_estimate and calibrated:
-        calib_note = f"Odhad podle posledních {int(cal['jobs'])} jobů na tomto serveru."
-        note = f"{note} {calib_note}" if note else calib_note
+        calib_note = i18n.Msg("api.sheets.calibrated", jobs=int(cal["jobs"]))
+        note = i18n.Msg("api.sheets.note_join", note=note, extra=calib_note) if note else calib_note
     return {
         "sheets": sheets,
         "count": len(sheets),
@@ -627,9 +649,9 @@ def api_sheets(bbox: str):
         "estimate_note": note,
         "estimate_calibration": cal,
         "label": (
-            f"Protíná listy: {', '.join(names)} ({len(sheets)})"
+            i18n.Msg("api.sheets.label", names=", ".join(names), count=len(sheets))
             if sheets
-            else "Výřez neprotíná žádný list SM5"
+            else i18n.Msg("api.sheets.none")
         ),
         "hint": hint,
     }
@@ -680,10 +702,10 @@ def api_get_job(job_id: str):
     try:
         job = db.get_job(job_id)
     except KeyError:
-        raise HTTPException(404, "Job nenalezen")
+        raise HTTPException(404, i18n.Msg("api.job_not_found"))
     if db.job_is_expired(job):
         db.delete_job(job_id)
-        raise HTTPException(410, "Privátní job vypršel a byl smazán.")
+        raise HTTPException(410, i18n.Msg("api.private_expired"))
     # Statistiky buildu (data, časy kroků) jen v detailu – seznam jobů zůstane lehký.
     stats = build_stats.read(JOBS_DIR / job_id)
     if stats:
@@ -702,10 +724,10 @@ def api_job_template(job_id: str):
     try:
         job = db.get_job(job_id)
     except KeyError:
-        raise HTTPException(404, "Job nenalezen")
+        raise HTTPException(404, i18n.Msg("api.job_not_found"))
     if db.job_is_expired(job):
         db.delete_job(job_id)
-        raise HTTPException(410, "Privátní job vypršel a byl smazán.")
+        raise HTTPException(410, i18n.Msg("api.private_expired"))
     return job_form_template(job, presets=load_presets())
 
 
@@ -714,10 +736,10 @@ def api_job_log(job_id: str, after: int = 0):
     try:
         job = db.get_job(job_id)
     except KeyError:
-        raise HTTPException(404, "Job nenalezen")
+        raise HTTPException(404, i18n.Msg("api.job_not_found"))
     if db.job_is_expired(job):
         db.delete_job(job_id)
-        raise HTTPException(410, "Privátní job vypršel a byl smazán.")
+        raise HTTPException(410, i18n.Msg("api.private_expired"))
     return {"lines": db.get_logs(job_id, after)}
 
 
@@ -741,7 +763,7 @@ def _load_job_for_artifact(job_id: str, token: str | None) -> dict:
     try:
         job = db.get_job(job_id, reveal_artifacts=True)
     except KeyError:
-        raise HTTPException(404, "Job nenalezen") from None
+        raise HTTPException(404, i18n.Msg("api.job_not_found")) from None
     if db.job_is_private(job):
         raw_token = None
         with db.connect() as conn:
@@ -754,16 +776,16 @@ def _load_job_for_artifact(job_id: str, token: str | None) -> dict:
         job["download_token"] = raw_token
         if db.job_is_expired(job):
             db.delete_job(job_id)
-            raise HTTPException(410, "Privátní odkaz vypršel – job byl smazán.")
+            raise HTTPException(410, i18n.Msg("api.private_link_expired"))
         if not db.token_matches(job, token):
-            raise HTTPException(404, "Job nenalezen")
+            raise HTTPException(404, i18n.Msg("api.job_not_found"))
     return job
 
 
 def _require_finished(job: dict) -> None:
     """ZIP ke stažení až po doběhnutí jobu (dřív šel stáhnout rozpracovaný)."""
     if job.get("status") not in db.JOB_FINISHED_STATUSES:
-        raise HTTPException(409, "Job ještě běží – ZIP se teprve balí.")
+        raise HTTPException(409, i18n.Msg("api.zip_packing"))
 
 
 @app.get("/api/jobs/{job_id}/download")
@@ -772,7 +794,7 @@ def api_download(job_id: str, token: str | None = None):
     _require_finished(job)
     zip_path = _output_zip_path(job_id)
     if not zip_path:
-        raise HTTPException(404, "Vystup jeste neni pripraven")
+        raise HTTPException(404, i18n.Msg("api.output_not_ready"))
     filename = db.zip_download_filename(job_id, job["name"])
     _note_download(job_id, zip_path)
     return FileResponse(zip_path, filename=filename)
@@ -819,14 +841,14 @@ def download_by_token(token: str):
     try:
         job = db.get_job_by_download_token(token)
     except KeyError:
-        raise HTTPException(404, "Odkaz neplatí nebo job neexistuje.") from None
+        raise HTTPException(404, i18n.Msg("api.link_invalid")) from None
     if db.job_is_expired(job):
         db.delete_job(job["id"])
-        raise HTTPException(410, "Privátní odkaz vypršel – job byl smazán.")
+        raise HTTPException(410, i18n.Msg("api.private_link_expired"))
     _require_finished(job)
     zip_path = _output_zip_path(job["id"])
     if not zip_path:
-        raise HTTPException(404, "Vystup jeste neni pripraven")
+        raise HTTPException(404, i18n.Msg("api.output_not_ready"))
     filename = db.zip_download_filename(job["id"], job["name"])
     _note_download(job["id"], zip_path)
     return FileResponse(zip_path, filename=filename)
@@ -871,9 +893,9 @@ async def api_feedback(request: Request):
         try:
             payload = await request.json()
         except Exception as exc:
-            raise HTTPException(400, "Neplatný JSON.") from exc
+            raise HTTPException(400, i18n.Msg("api.invalid_json")) from exc
         if not isinstance(payload, dict):
-            raise HTTPException(400, "Neplatný JSON.")
+            raise HTTPException(400, i18n.Msg("api.invalid_json"))
         contact = str(payload.get("contact") or "").strip()
         comment = str(payload.get("comment") or "").strip()
         job_id = str(payload.get("job_id") or "").strip()
@@ -884,7 +906,7 @@ async def api_feedback(request: Request):
         try:
             form = await request.form()
         except Exception as exc:
-            raise HTTPException(400, f"Nepodařilo se přečíst formulář: {exc}") from exc
+            raise HTTPException(400, i18n.Msg("api.form_unreadable", error=str(exc))) from exc
         contact = _form_str(form, "contact").strip()
         comment = _form_str(form, "comment").strip()
         job_id = _form_str(form, "job_id").strip()
@@ -899,19 +921,19 @@ async def api_feedback(request: Request):
         return {"ok": True}
 
     if not contact:
-        raise HTTPException(400, "Vyplňte kontakt (e-mail nebo telefon).")
+        raise HTTPException(400, i18n.Msg("api.feedback.contact_missing"))
     if not comment:
-        raise HTTPException(400, "Napište komentář.")
+        raise HTTPException(400, i18n.Msg("api.feedback.comment_missing"))
     if not job_id:
-        raise HTTPException(400, "Chybí job_id – zpětná vazba patří ke konkrétnímu jobu.")
+        raise HTTPException(400, i18n.Msg("api.feedback.job_missing"))
     if len(contact) > MAX_CONTACT_LEN:
-        raise HTTPException(400, f"Kontakt je moc dlouhý (max {MAX_CONTACT_LEN} znaků).")
+        raise HTTPException(400, i18n.Msg("api.feedback.contact_long", max=MAX_CONTACT_LEN))
     if len(comment) > MAX_COMMENT_LEN:
-        raise HTTPException(400, f"Komentář je moc dlouhý (max {MAX_COMMENT_LEN} znaků).")
+        raise HTTPException(400, i18n.Msg("api.feedback.comment_long", max=MAX_COMMENT_LEN))
     if len(job_id) > MAX_JOB_ID_LEN:
-        raise HTTPException(400, "Neplatné job_id.")
+        raise HTTPException(400, i18n.Msg("api.feedback.job_invalid"))
     if not all(c.isalnum() or c in "-_" for c in job_id):
-        raise HTTPException(400, "Neplatné job_id.")
+        raise HTTPException(400, i18n.Msg("api.feedback.job_invalid"))
 
     # Job může běžet, čekat i být hotový — odeslat jde vždy (Petr 2026-10-05).
     job_name: str | None = None
@@ -921,7 +943,7 @@ async def api_feedback(request: Request):
         job_name = str(job.get("name") or "").strip() or None
         job_status = str(job.get("status") or "").strip() or None
     except KeyError:
-        raise HTTPException(404, "Job nenalezen.") from None
+        raise HTTPException(404, i18n.Msg("api.job_not_found_dot")) from None
 
     ip = client_ip(request)
     limit_msg = check_feedback_rate(ip)
@@ -943,8 +965,7 @@ async def api_feedback(request: Request):
         # Detail obsahuje MailError (např. chybějící SMTP_HOST) – FE ukáže detail.
         raise HTTPException(
             502,
-            f"Zpětnou vazbu teď nešlo odeslat (e-mail): {exc}. "
-            "Zkuste to později, nebo napište na GitHub Issues.",
+            i18n.Msg("api.feedback.mail_failed", error=str(exc)),
         ) from exc
 
     return {"ok": True}
@@ -966,7 +987,7 @@ def _api_client_authenticated(request: Request) -> bool:
         got.strip().encode("utf-8"), expected.encode("utf-8")
     ):
         logger.warning("POST /api/jobs – neplatný API klíč z %s", client_ip(request))
-        raise HTTPException(401, "Neplatný API klíč.")
+        raise HTTPException(401, i18n.Msg("api.key_invalid"))
     return True
 
 
@@ -1005,7 +1026,7 @@ async def api_create_job(request: Request):
                 preset_id_fallback=preset_id,
             )
         else:
-            raise HTTPException(400, "Chybí měřítko mapy.")
+            raise HTTPException(400, i18n.Msg("api.job.scale_missing"))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     preset_id = resolved["preset_id"]
@@ -1024,20 +1045,18 @@ async def api_create_job(request: Request):
             if not map_types:
                 raise HTTPException(
                     400,
-                    "Vyberte alespoň jeden typ mapy (les nebo MTBO); "
-                    "sprint se volí měřítkem 1:4000.",
+                    i18n.Msg("api.job.map_type_missing"),
                 )
 
     if (worker.is_busy() or worker.is_draining()) and not worker.can_accept_job():
         raise HTTPException(
             503,
-            f"Fronta je plná (max {MAX_QUEUE_SIZE} čekajících jobů). "
-            "Počkejte na dokončení běžících generování.",
+            i18n.Msg("api.job.queue_full_wait", max=MAX_QUEUE_SIZE),
         )
 
     bbox_raw = _form_str(form, "bbox").strip()
     if not bbox_raw:
-        raise HTTPException(400, "Chybí výřez na mapě (bbox).")
+        raise HTTPException(400, i18n.Msg("api.job.bbox_missing"))
     try:
         bbox = parse_bbox(bbox_raw)
     except FetchError as exc:
@@ -1047,8 +1066,13 @@ async def api_create_job(request: Request):
         area = bbox_area_km2(*bbox)
         raise HTTPException(
             400,
-            f"Výřez je moc velký ({width_km:.1f} × {height_km:.1f} km, "
-            f"{area:.1f} km²; max {MAX_BBOX_AREA_KM2:.0f} km²).",
+            i18n.Msg(
+                "api.job.bbox_too_big",
+                width=float(width_km),
+                height=float(height_km),
+                area=float(area),
+                max=float(MAX_BBOX_AREA_KM2),
+            ),
         )
     # Sprint (1:4000) jen pro menší území – kontrola na serveru, GUI jde obejít.
     is_sprint = int(resolved["map_scale"]) <= 5000 or str(preset_id).startswith("sprint")
@@ -1080,12 +1104,12 @@ async def api_create_job(request: Request):
         except FetchError as exc:
             raise HTTPException(400, str(exc)) from exc
     if not sheets:
-        raise HTTPException(400, "Výřez neprotíná žádný list SM5.")
+        raise HTTPException(400, i18n.Msg("api.job.no_sheet"))
     if len(sheets) > MAX_SHEETS:
         names = ", ".join(s["mapnom"] for s in sheets)
         raise HTTPException(
             400,
-            f"Výřez je moc velký ({len(sheets)} listů SM5, max {MAX_SHEETS}): {names}",
+            i18n.Msg("api.job.too_many_sheets", count=len(sheets), max=MAX_SHEETS, names=names),
         )
 
     dmr_uploads = _upload_files(form, "dmr_files")
@@ -1093,7 +1117,7 @@ async def api_create_job(request: Request):
     if dmr_uploads or dmp_uploads or _upload_files(form, "zabaged_file"):
         raise HTTPException(
             400,
-            "Ruční upload podkladů není podporován – použijte výřez na mapě (ČÚZK open data).",
+            i18n.Msg("api.job.upload_unsupported"),
         )
 
     remote_ip = client_ip(request)
@@ -1218,7 +1242,7 @@ async def api_create_job(request: Request):
         if not notify_email or "@" not in notify_email or "." not in notify_email.split("@")[-1]:
             raise HTTPException(
                 400,
-                "Privátní režim vyžaduje platný e-mail pro odkaz ke stažení.",
+                i18n.Msg("api.job.private_email"),
             )
         options["private"] = True
         options["notify_email"] = notify_email
@@ -1373,11 +1397,11 @@ def api_start_job(job_id: str):
     try:
         job = db.get_job(job_id)
     except KeyError:
-        raise HTTPException(404, "Job nenalezen")
+        raise HTTPException(404, i18n.Msg("api.job_not_found"))
     if job["status"] == "running":
         return _public_job(job)
     if (worker.is_busy() or worker.is_draining()) and not worker.can_accept_job():
-        raise HTTPException(503, f"Fronta je plná (max {MAX_QUEUE_SIZE}).")
+        raise HTTPException(503, i18n.Msg("api.job.queue_full", max=MAX_QUEUE_SIZE))
     worker.enqueue(job_id)
     return _public_job(db.get_job(job_id))
 

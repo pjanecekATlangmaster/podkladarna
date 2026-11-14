@@ -15,6 +15,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from app import settings
+from app.i18n import Msg
 from app.pipeline import build_stats
 from app.download_cache import (
     age_days,
@@ -165,29 +166,28 @@ def forest_max_area_km2() -> float:
     return min(float(settings.FOREST_MAX_BBOX_AREA_KM2), MAX_BBOX_AREA_KM2)
 
 
-def _fmt(x: float) -> str:
-    return f"{x:.1f}".rstrip("0").rstrip(".").replace(".", ",")
-
-
-def sprint_area_hint(area_km2: float, width_km: float, height_km: float) -> str:
-    """Hláška pro sprint nad limitem (GUI i API)."""
-    lim = sprint_max_area_km2()
-    side = math.sqrt(lim)
-    return (
-        f"Sprint (1:4000) jde vygenerovat jen pro menší území: výřez má "
-        f"{_fmt(width_km)} × {_fmt(height_km)} km ({_fmt(area_km2)} km²), max {_fmt(lim)} km² "
-        f"(např. {_fmt(side)} × {_fmt(side)} km). Sprint na větším území se nestaví a kresba "
-        f"z DTM by trvala dlouho. Zmenšete výřez, nebo zvolte lesní měřítko."
+def sprint_area_hint(area_km2: float, width_km: float, height_km: float) -> Msg:
+    """Hláška pro sprint nad limitem (GUI i API; jako str česky)."""
+    lim = float(sprint_max_area_km2())
+    return Msg(
+        "api.hint.sprint_area",
+        width=float(width_km),
+        height=float(height_km),
+        area=float(area_km2),
+        max=lim,
+        side=math.sqrt(lim),
     )
 
 
-def forest_area_hint(area_km2: float, width_km: float, height_km: float) -> str:
-    """Hláška pro les (bez MTBO) nad limitem (GUI i API)."""
-    lim = forest_max_area_km2()
-    return (
-        f"Lesní mapa jde vygenerovat do {_fmt(lim)} km² (např. 4 × 3,75 km, A4 v 1:15 000): výřez má "
-        f"{_fmt(width_km)} × {_fmt(height_km)} km ({_fmt(area_km2)} km²). Zmenšete výřez; "
-        f"MTBO jde do {_fmt(MAX_BBOX_AREA_KM2)} km²."
+def forest_area_hint(area_km2: float, width_km: float, height_km: float) -> Msg:
+    """Hláška pro les (bez MTBO) nad limitem (GUI i API; jako str česky)."""
+    return Msg(
+        "api.hint.forest_area",
+        max=float(forest_max_area_km2()),
+        width=float(width_km),
+        height=float(height_km),
+        area=float(area_km2),
+        mtbo_max=float(MAX_BBOX_AREA_KM2),
     )
 
 
@@ -289,17 +289,17 @@ def dmpok_cached_mapnoms(mapnoms: list[str]) -> set[str]:
     return cached
 
 
-def estimate_note(sheet_names: list[str]) -> str | None:
+def estimate_note(sheet_names: list[str]) -> Msg | None:
     """Krátká poznámka k odhadu (cache DMP OK / první stažení)."""
     if not sheet_names:
         return None
     cached = dmpok_cached_mapnoms(sheet_names)
     missing = len(sheet_names) - len(cached)
     if missing <= 0:
-        return "DMP OK v cache."
+        return Msg("api.estimate.cached")
     if missing == len(sheet_names):
-        return f"První běh: stahuje se DMP OK ({missing} listů, ~350 MB/list)."
-    return f"Stahuje se DMP OK pro {missing} list(ů) (~350 MB/list), ostatní z cache."
+        return Msg("api.estimate.first_run", missing=missing)
+    return Msg("api.estimate.partial", missing=missing)
 
 
 def query_sm5_sheets(west: float, south: float, east: float, north: float) -> list[dict]:

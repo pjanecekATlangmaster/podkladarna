@@ -67,7 +67,7 @@ def test_usage_footer_marks_test_channel_and_has_no_personal_data(client, monkey
     assert "zpracováno 2,5 GB podkladů" in text and "1× staženo (12 MB)" in text
     assert "1.2.3.4" not in text and "Testovací verze" not in text
     en = client.get("/?lang=en").text
-    assert "1 map generated (1 jobs)" in en and "2.5\u00a0GB of source data processed" in en
+    assert "1 map generated (1 job)" in en and "2.5\u00a0GB of source data processed" in en
 
     monkeypatch.setattr(main.app_settings, "INSTANCE_CHANNEL", "test")
     assert "Testovací verze – od " in client.get("/?lang=cs").text
