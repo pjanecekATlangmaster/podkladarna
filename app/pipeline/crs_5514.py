@@ -8,6 +8,7 @@ importu. Bez proměnné (web, Česko, starší joby) je to S-JTSK s vlastním TO
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
 JOB_CRS_ENV = "PODKLADARNA_JOB_CRS"
@@ -77,25 +78,30 @@ def write_prj(shp: Path) -> Path:
     return prj
 
 
-def wgs84_to_projected(lat: float, lon: float) -> tuple[float, float]:
-    from pyproj import Transformer
+_local = threading.local()
 
-    transformer = Transformer.from_crs(
-        GEOGRAPHIC_CRS_PROJ4,
-        CRS_PROJ4,
-        always_xy=True,
-    )
-    x, y = transformer.transform(lon, lat)
+
+def _transformer(src: str, dst: str):
+    """Transformer pro dvojici CRS, jeden na vlákno (pyproj Transformer není sdílitelný mezi vlákny).
+
+    Vytvořit ho pro každý bod stálo u OSM minuty (u EPSG země navíc dotaz do proj.db na každý bod)."""
+    cache = getattr(_local, "cache", None)
+    if cache is None:
+        cache = _local.cache = {}
+    key = (src, dst)
+    if key not in cache:
+        from pyproj import Transformer
+
+        cache[key] = Transformer.from_crs(src, dst, always_xy=True)
+    return cache[key]
+
+
+def wgs84_to_projected(lat: float, lon: float) -> tuple[float, float]:
+    x, y = _transformer(GEOGRAPHIC_CRS_PROJ4, CRS_PROJ4).transform(lon, lat)
     return float(x), float(y)
 
 
 def projected_to_wgs84(x: float, y: float) -> tuple[float, float]:
-    from pyproj import Transformer
-
-    transformer = Transformer.from_crs(
-        CRS_PROJ4,
-        GEOGRAPHIC_CRS_PROJ4,
-        always_xy=True,
-    )
+    transformer = _transformer(CRS_PROJ4, GEOGRAPHIC_CRS_PROJ4)
     lon, lat = transformer.transform(x, y)
     return float(lat), float(lon)
