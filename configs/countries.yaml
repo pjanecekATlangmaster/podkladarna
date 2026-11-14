@@ -14,13 +14,14 @@ CZ:
   cz_sources: true          # ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK ortofoto a stínování
 # Zahraniční build (vlákno „Připravit zahraniční build SK a NL“, 2026-11-14). beta = jen s COUNTRIES_BETA
 # (na testu B výchozí `*`), jinde se nenabízí. Kresba z OSM, české zdroje vypnuté.
+# Zemi zařadit jen s volně stažitelným modelem povrchu (DMP / DSM) – výška porostu vždy z DMP (Petr 2026-11-14).
 SK:
   name: {cs: Slovensko, en: Slovakia, sk: Slovensko}
-  status: beta
+  status: off               # ÚGKK dává DMP 1.0 jen exportem na e-mail; bez povrchu zemi nezařazujeme
   crs: EPSG:5514            # S-JTSK jako Česko (data ÚGKK v S-JTSK [JTSK03])
   boundary: countries/sk.geojson
   view: [47.73, 16.83, 49.62, 22.57]
-  elevation: sk_ugkk        # DMR 5.0 1 m z INSPIRE WCS ÚGKK (bez povrchu DMP); záloha local:<složka v DATA_ROOT>
+  elevation: sk_ugkk        # DMR 5.0 1 m z INSPIRE WCS ÚGKK (povrch chybí); záloha local:<složka v DATA_ROOT>
   cz_sources: false
 NL:
   name: {cs: Nizozemsko, en: Netherlands, nl: Nederland}

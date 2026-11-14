@@ -1040,10 +1040,7 @@ def run_job_pipeline(
             )
         except Exception as exc:
             log(f"CHM vegetace: přeskočeno ({exc})")
-        if vege_shp is None and raster_elevation and not (work_dir / "dem" / "chm.tif").is_file():
-            # Zdroj země nemá povrch (SK DMR 5.0 z WCS): bez výšky porostu, ne chyba jobu.
-            log("Vegetace z výšky porostu: zdroj výšek země nemá povrch (DSM), zeleň je jen z OSM.")
-        elif vege_shp is None:
+        if vege_shp is None:
             log_issue(log, "Vegetace: nevznikla (hustota bodů ani CHM)")
     progress.done()
 
@@ -1093,14 +1090,6 @@ def run_job_pipeline(
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
             log_issue(log, f"OSM: přeskočeno ({exc})")
-        if raster_elevation and not (work_dir / "vegetation" / "vegetation.shp").is_file():
-            # Zdroj výšek bez povrchu (SK): louky a pole z OSM jako 401, les bílý (Petr 2026-11-14).
-            try:
-                from app.pipeline.vegetation_osm import write_vegetation_from_osm
-
-                write_vegetation_from_osm(work_dir, log=log)
-            except Exception as exc:
-                log_issue(log, f"Vegetace z OSM: přeskočeno ({exc})")
         progress.done()
 
     # Shade vždy (OOM/ZIP + ČÚZK reference). Náhled PNG z .omap po sestavení.

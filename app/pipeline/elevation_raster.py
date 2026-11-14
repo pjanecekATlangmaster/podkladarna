@@ -418,6 +418,9 @@ def prepare_raster_surfaces(
     log_step(log, f"Stahuji výšková data ({source}): terén a povrch jako rastr")
     src = provider(tuple(bounds), src_dir, log)
     dtm_src, dsm_src = src.dtm, src.dsm
+    if dsm_src is None:
+        # Výška porostu vždy z modelu povrchu (Petr 2026-11-14): bez DSM by vegetace chyběla a mapa byla bílá.
+        raise ElevationUnavailable(f"zdroj výšek {source!r} nemá model povrchu (DSM / DMP)")
 
     dem_raw = _warp_to_grid(dtm_src, dem_dir / "dem_raw.tif", bounds, resolution_m, resampling="bilinear", log=log)
     if src.vertical_offset is not None:
@@ -431,16 +434,12 @@ def prepare_raster_surfaces(
         log(f"Terén z rastru: {share:.0%} buněk s daty, rozlišení {resolution_m:g} m")
     dem_filled = _fill(dem_raw, dem_dir / "dem_filled.tif", log=log)
 
-    dsm_raw = dsm_filled = chm = None
-    if dsm_src is not None:
-        # Povrch: maximum v buňce (koruny, ne průměr s mezerami).
-        dsm_raw = _warp_to_grid(dsm_src, dem_dir / "dsm_raw.tif", bounds, resolution_m, resampling="max", log=log)
-        if src.vertical_offset is not None:
-            _subtract_vertical_offset(dsm_raw, bounds, src.vertical_offset)
-        dsm_filled = _fill(dsm_raw, dem_dir / "dsm_filled.tif", log=log)
-        chm = chm_from_rasters(dem_raw, dem_filled, dsm_raw, dem_dir / "chm.tif")
-    elif log:
-        log("Povrch (DSM) zdroj nemá: výška porostu (CHM) a vegetace z ní nebudou.")
+    # Povrch: maximum v buňce (koruny, ne průměr s mezerami).
+    dsm_raw = _warp_to_grid(dsm_src, dem_dir / "dsm_raw.tif", bounds, resolution_m, resampling="max", log=log)
+    if src.vertical_offset is not None:
+        _subtract_vertical_offset(dsm_raw, bounds, src.vertical_offset)
+    dsm_filled = _fill(dsm_raw, dem_dir / "dsm_filled.tif", log=log)
+    chm = chm_from_rasters(dem_raw, dem_filled, dsm_raw, dem_dir / "chm.tif")
 
     result = DemPrepResult(
         dem_raw=dem_raw,

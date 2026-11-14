@@ -10,6 +10,17 @@ from app import countries
 from app.pipeline import country_profile
 
 
+@pytest.fixture
+def sk_beta(monkeypatch):
+    """SK jako beta země: v configs je vypnuté (bez volně stažitelného DMP), mechanismus beta se zkouší na něm."""
+    import dataclasses
+
+    patched = dict(countries.load_countries())
+    patched["SK"] = dataclasses.replace(patched["SK"], status="beta")
+    monkeypatch.setattr(countries, "load_countries", lambda: patched)
+    monkeypatch.setattr(country_profile, "load_countries", lambda: patched)
+
+
 @pytest.mark.parametrize(
     "beta, bbox, code",
     [
@@ -18,13 +29,13 @@ from app.pipeline import country_profile
         ("", (14.40, 50.08, 14.42, 50.09), "CZ"),  # Praha beze změny
     ],
 )
-def test_beta_country_allowed_with_flag(monkeypatch, beta, bbox, code):
+def test_beta_country_allowed_with_flag(monkeypatch, sk_beta, beta, bbox, code):
     monkeypatch.setenv("COUNTRIES_BETA", beta)
     country, share = countries.check_bbox(bbox)
     assert country.code == code and share > 0.99
 
 
-def test_beta_country_hidden_without_flag(monkeypatch):
+def test_beta_country_hidden_without_flag(monkeypatch, sk_beta):
     monkeypatch.setenv("COUNTRIES_BETA", "")
     assert [c.code for c in countries.allowed_countries(None)] == ["CZ"]
     with pytest.raises(countries.CountryError):
@@ -32,6 +43,13 @@ def test_beta_country_hidden_without_flag(monkeypatch):
     # NL je připravené, ale vypnuté (čeká na souřadnice jobu podle země).
     monkeypatch.setenv("COUNTRIES_BETA", "*")
     assert "NL" not in [c.code for c in countries.allowed_countries(None)]
+
+
+def test_country_without_surface_is_off(monkeypatch):
+    """Zemi bez volně stažitelného DMP nezařazujeme ani do bety (Petr 2026-11-14)."""
+    monkeypatch.setenv("COUNTRIES_BETA", "*")
+    assert countries.load_countries()["SK"].status == "off"
+    assert "SK" not in [c.code for c in countries.allowed_countries(None)]
 
 
 @pytest.mark.parametrize(
@@ -105,7 +123,18 @@ def test_raster_surfaces_unknown_source(tmp_path):
         elevation_raster.prepare_raster_surfaces(tmp_path, (0, 0, 10, 10), source="none")
 
 
-def test_api_beta_country_without_sheets(client, monkeypatch):
+def test_raster_surfaces_require_dsm(tmp_path, monkeypatch):
+    """Bez modelu povrchu by vegetace chyběla: zdroj jen s terénem je chyba, ne bílá mapa."""
+    from app.pipeline import elevation_raster
+
+    monkeypatch.setitem(
+        elevation_raster.PROVIDERS, "test_dtm_only", lambda b, d, log=None: elevation_raster.SourceRasters(tmp_path / "dtm.tif")
+    )
+    with pytest.raises(elevation_raster.ElevationUnavailable, match="povrchu"):
+        elevation_raster.prepare_raster_surfaces(tmp_path, (0, 0, 10, 10), source="test_dtm_only")
+
+
+def test_api_beta_country_without_sheets(client, monkeypatch, sk_beta):
     import app.main as main
 
     def _no_sheets(*_a, **_k):
@@ -157,7 +186,8 @@ def test_krovak_source_not_shifted(tmp_path, monkeypatch):
     monkeypatch.setattr(elevation_raster.settings, "DATA_ROOT", tmp_path)
     x0, y0 = -600000.0, -1160000.0
     dtm = np.tile(np.arange(40, dtype="float32"), (40, 1))  # výška = sloupec → posun je vidět
-    _write_tif(tmp_path / "elev" / "dtm" / "a.tif", dtm, (x0, y0 + 40), epsg_wkt=srs.ExportToWkt())
+    for kind in ("dtm", "dsm"):
+        _write_tif(tmp_path / "elev" / kind / "a.tif", dtm, (x0, y0 + 40), epsg_wkt=srs.ExportToWkt())
     res = elevation_raster.prepare_raster_surfaces(
         tmp_path / "work", (x0 + 10, y0 + 10, x0 + 30, y0 + 30), source="local:elev"
     )
@@ -238,38 +268,3 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         assert orthophoto.fetch_orthophoto(tmp_path, (0, 0, 10, 10)) is None
     finally:
         os.environ.pop(country_profile.JOB_COUNTRY_ENV, None)  # monkeypatch.delenv by „SK“ po testu vrátil
-
-
-def test_vegetation_from_osm_open_land(tmp_path):
-    import json
-
-    import shapefile
-
-    from app.pipeline.vegetation_osm import write_vegetation_from_osm
-
-    def poly(x0, y0, x1, y1, cover):
-        ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
-        return {"type": "Feature", "properties": {"cover": cover}, "geometry": {"type": "Polygon", "coordinates": [ring]}}
-
-    (tmp_path / "osm_paths").mkdir()
-    (tmp_path / "osm_paths" / "natural_cover.geojson").write_text(
-        json.dumps(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    poly(0, 0, 100, 100, "meadow"),
-                    poly(40, 40, 60, 60, "forest"),  # les v louce má přednost
-                    poly(200, 0, 300, 100, "forest"),
-                    poly(400, 0, 405, 5, "farmland"),  # drobek pod 100 m²
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    dest = write_vegetation_from_osm(tmp_path)
-    reader = shapefile.Reader(str(dest))
-    recs = reader.records()
-    assert [(r["cls"], r["code"]) for r in recs] == [(1, "401")]
-    from shapely.geometry import shape
-
-    assert shape(reader.shape(0).__geo_interface__).area == pytest.approx(10000 - 400)
