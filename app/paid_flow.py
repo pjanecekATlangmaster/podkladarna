@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import html
 import logging
+import threading
+import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +37,45 @@ router = APIRouter()
 ORDER_PREVIEW_NAME = "order_preview.png"
 ORDER_PREVIEW_MAX_SIDE = 1000
 ORDER_MAIL_SENT_PREFIX = "E-mail s náhledem objednávky odeslán"
+
+_mail_lock = threading.Lock()
+_mail_hits: dict[str, deque[float]] = {}
+_MAIL_WINDOW_S = 3600.0
+_ALL = "*"
+
+
+def reset_order_mail_limits() -> None:
+    """Jen pro testy – vyprázdní limity potvrzovacích e-mailů."""
+    with _mail_lock:
+        _mail_hits.clear()
+
+
+def _check_order_mail_rate(client_ip: str) -> bool:
+    """Smí se poslat další potvrzovací e-mail? (limit na IP a celkový, okno 1 h, v paměti procesu)."""
+    from app.rate_limit import is_exempt
+
+    if is_exempt(client_ip):
+        return True
+    now = time.monotonic()
+    limits = (
+        ((client_ip or "unknown").strip() or "unknown", app_settings.ORDER_MAILS_PER_IP_HOUR),
+        (_ALL, app_settings.ORDER_MAILS_PER_HOUR),
+    )
+    with _mail_lock:
+        for key, limit in limits:
+            q = _mail_hits.setdefault(key, deque())
+            while q and now - q[0] > _MAIL_WINDOW_S:
+                q.popleft()
+            if limit > 0 and len(q) >= limit:
+                return False
+        for key, _limit in limits:
+            _mail_hits[key].append(now)
+    return True
+
+
+def _one_line(text: str) -> str:
+    """Název mapy do předmětu e-mailu a stránek: bez odřádkování a řídicích znaků."""
+    return " ".join("".join(ch if ch.isprintable() else " " for ch in str(text or "")).split())
 
 
 # --- Kdy tok platí ---------------------------------------------------------------------------
@@ -125,10 +167,14 @@ def start_order(
     """Místo jobu založí objednávku a pošle e-mail s odkazem na potvrzení."""
     lang = _lang(options.get("lang"))
     email = (email or "").strip()
+    name = _one_line(name) or "mapa"
     if not valid_email(email):
         raise HTTPException(400, i18n.Msg("api.order.email_required"))
+    if not _check_order_mail_rate(str(options.get("client_ip") or "")):
+        raise HTTPException(429, i18n.Msg("api.order.rate"))
     site = paid_site(request)
-    job_options = {**options, "private": True, "notify_email": email}
+    # Placená mapa je vždy ZIP (volba „jen PNG“ by po zaplacení neměla co doručit).
+    job_options = {**options, "private": True, "notify_email": email, "output_zip": True}
     request_data = {"name": name, "preset_id": preset_id, "options": job_options}
     try:
         order, token = orders.create_order(
@@ -154,7 +200,7 @@ def start_order(
     )
     try:
         send_mail(email, subject, body)
-    except MailError as exc:
+    except (MailError, ValueError) as exc:  # ValueError: neplatná hlavička (adresa)
         orders.cancel_unconfirmed(order["id"])
         logger.warning("Order confirmation mail failed: %s", exc)
         raise HTTPException(502, i18n.Msg("api.order.mail_failed")) from exc
@@ -354,6 +400,25 @@ def order_preview_path(job_id: str, site_host: str | None) -> Path | None:
     return watermarked_preview(src, dst, label)
 
 
+def order_sample_path(job: dict[str, Any]) -> Path | None:
+    """Ukázka 4 × 4 cm papíru (``.omap``) z hotového ZIPu; vzniká jednou a leží vedle výstupů."""
+    from app import order_sample
+    from app.settings import JOBS_DIR
+
+    out = JOBS_DIR / str(job["id"]) / "output"
+    dst = out / order_sample.SAMPLE_ZIP_NAME
+    if dst.is_file():
+        return dst
+    src = next(
+        (out / n for n in ("podkladarna_output.zip", "podkladarna_oom.zip") if (out / n).is_file()),
+        None,
+    )
+    if src is None:
+        return None
+    seed = order_sample.sample_seed(job.get("options") or {}, str(job.get("preset_id") or ""))
+    return order_sample.build_sample_zip(src, dst, seed)
+
+
 @router.get("/order/{token}", response_class=HTMLResponse)
 def order_page(token: str, request: Request) -> HTMLResponse:
     lang = _request_lang(request)
@@ -373,6 +438,10 @@ def order_page(token: str, request: Request) -> HTMLResponse:
             f'<p><img src="/order/{esc(token)}/preview.png" alt="{esc(i18n.t("order.page.preview_alt", lang))}" '
             'style="max-width:100%;height:auto;border:1px solid #ccc"></p>'
         )
+    if order_sample_path(job) is not None:
+        parts.append(
+            f'<p><a href="/order/{esc(token)}/sample.zip">{esc(i18n.t("order.page.sample_link", lang))}</a></p>'
+        )
     if order["status"] == orders.STATUS_PREVIEW:
         parts.append(_p(i18n.t("order.page.buy_text", lang, price=price_label(lang))))
         parts.append(
@@ -384,6 +453,23 @@ def order_page(token: str, request: Request) -> HTMLResponse:
     elif order["status"] == orders.STATUS_PAID:
         parts.append(_p(i18n.t("order.page.paid_text", lang)))
     return _page(lang, i18n.t("order.page.preview_title", lang), "".join(parts))
+
+
+@router.get("/order/{token}/sample.zip")
+def order_sample_download(token: str):
+    order = orders.get_order_by_token("preview", token)
+    if order is None or not order.get("job_id"):
+        raise HTTPException(404, i18n.Msg("api.order.not_found"))
+    try:
+        job = db.get_job(str(order["job_id"]))
+    except KeyError:
+        raise HTTPException(404, i18n.Msg("api.order.not_found")) from None
+    path = order_sample_path(job)
+    if path is None:
+        raise HTTPException(404, i18n.Msg("api.order.not_found"))
+    response = FileResponse(path, media_type="application/zip", filename=path.name)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @router.get("/order/{token}/preview.png")
@@ -556,6 +642,8 @@ def notify_order_job(job: dict[str, Any]) -> None:
     base = _base_url(order.get("site"))
     hours = app_settings.UNPAID_ORDER_RETENTION_HOURS if app_settings.UNPAID_ORDER_RETENTION_HOURS > 0 else 168
     preview = order_preview_path(job_id, order.get("site"))
+    sample = order_sample_path(job)
+    attachments = [p for p in (preview, sample) if p is not None]
     body = i18n.t(
         "order.mail.ready.body",
         lang,
@@ -564,12 +652,14 @@ def notify_order_job(job: dict[str, Any]) -> None:
         price=price_label(lang),
         days=max(1, hours // 24),
     )
+    if sample is not None:
+        body += "\n\n" + i18n.t("order.mail.ready.sample", lang)
     try:
         send_mail(
             email,
             i18n.t("order.mail.ready.subject", lang, name=name),
             body,
-            attachments=[preview] if preview is not None else None,
+            attachments=attachments or None,
         )
         db.append_log(job_id, f"{ORDER_MAIL_SENT_PREFIX}.")
     except MailError as exc:

@@ -73,12 +73,15 @@ def test_confirm_link_expires(orders):
 
 
 def test_one_open_unpaid_order_per_email(orders):
-    orders.create_order(email="d@example.org", job_request=REQUEST, now=T0)
+    first, confirm = orders.create_order(email="d@example.org", job_request=REQUEST, now=T0)
+    # Nepotvrzené zadání nahradí nové (cizí adresu nejde zablokovat), starý odkaz neplatí.
+    _second, confirm2 = orders.create_order(email=" d@example.org ", job_request=REQUEST, now=T0)
+    assert orders.get_order(first["id"])["status"] == orders.STATUS_EXPIRED
+    assert orders.claim_confirmation(confirm, now=T0) is None
+    assert orders.claim_confirmation(confirm2, now=T0) is not None  # potvrzená už limit drží
     with pytest.raises(orders.OrderLimitError):
-        orders.create_order(email=" d@example.org ", job_request=REQUEST, now=T0)
+        orders.create_order(email="d@example.org", job_request=REQUEST, now=T0)
     orders.create_order(email="e@example.org", job_request=REQUEST, now=T0)  # jiný e-mail
-    # Propadlé potvrzení limit neblokuje.
-    orders.create_order(email="d@example.org", job_request=REQUEST, now=T0 + timedelta(hours=25))
 
 
 def test_paid_order_does_not_block_next(orders):

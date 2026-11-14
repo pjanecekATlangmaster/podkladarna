@@ -212,6 +212,18 @@ def create_order(
     email = normalize_email(email)
     if not email or "@" not in email:
         raise OrderError("chybí e-mail")
+    # Nové zadání nahradí dosud nepotvrzené na týž e-mail (starý odkaz přestane platit): cizí
+    # adresa se tak nedá zablokovat odesláním formuláře a překlep / ztracený e-mail jde opravit.
+    with db.connect() as conn:
+        conn.execute(
+            """
+            UPDATE orders SET status = ?, updated_at = ?, email = NULL, job_request_json = NULL,
+                confirm_hash = NULL
+            WHERE email_tag = ? AND status = ?
+            """,
+            (STATUS_EXPIRED, _iso(_now(now)), email_tag(email), STATUS_AWAITING),
+        )
+        conn.commit()
     limit = app_settings.MAX_UNPAID_ORDERS_PER_EMAIL
     if limit > 0 and count_open_unpaid(email, now=now) >= limit:
         raise OrderLimitError("e-mail už má rozpracovanou nezaplacenou objednávku")
