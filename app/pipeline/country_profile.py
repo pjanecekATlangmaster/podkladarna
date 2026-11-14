@@ -7,6 +7,8 @@ nestahují a mapa se kreslí z OSM; výšková data dodá zdroj země (``elevati
 
 from __future__ import annotations
 
+import os
+
 from app.countries import DEFAULT_COUNTRY, Country, load_countries
 
 ELEVATION_CZ = "cz_openzu"
@@ -36,3 +38,18 @@ def elevation_source(options: dict | None) -> str:
     if country is None:
         return ELEVATION_CZ if job_country_code(options) == DEFAULT_COUNTRY else ELEVATION_NONE
     return country.elevation or ELEVATION_NONE
+
+
+# Země běžícího jobu pro kód bez ``options`` (ortofoto ČÚZK, filtry kresby); proces jobu je vyhrazený a potomci
+# (souběžné mapy) proměnnou dědí. Nastavuje ``run_job_pipeline``.
+JOB_COUNTRY_ENV = "PODKLADARNA_JOB_COUNTRY"
+
+
+def set_process_country(options: dict | None) -> str:
+    code = job_country_code(options)
+    os.environ[JOB_COUNTRY_ENV] = code
+    return code
+
+
+def process_uses_cz_sources() -> bool:
+    return uses_cz_sources({"country": os.environ.get(JOB_COUNTRY_ENV) or DEFAULT_COUNTRY})

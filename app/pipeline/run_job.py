@@ -21,7 +21,13 @@ from app.download_cache import (
     try_restore_lidar_crop,
 )
 from app.pipeline.contours_gdal import generate_job_contours, qa_contours_vs_shared_dem
-from app.pipeline.country_profile import ELEVATION_CZ, elevation_source, job_country_code, uses_cz_sources
+from app.pipeline.country_profile import (
+    ELEVATION_CZ,
+    elevation_source,
+    job_country_code,
+    set_process_country,
+    uses_cz_sources,
+)
 from app.pipeline.dem_prep import SurfacesPrep, start_job_surfaces
 from app.pipeline.fetch_aopk import fetch_aopk_trees_for_bbox
 from app.pipeline.fetch_openzu import (
@@ -590,6 +596,7 @@ def run_job_pipeline(
     # Země jobu (zahraniční build): mimo Česko bez českých zdrojů, výšky ze zdroje země.
     cz_sources = uses_cz_sources(options)
     elevation = elevation_source(options)
+    set_process_country(options)
 
     want_zip, _ = resolve_want_zip(options)
     want_refs = bool(options.get("output_references", True))
@@ -1033,7 +1040,10 @@ def run_job_pipeline(
             )
         except Exception as exc:
             log(f"CHM vegetace: přeskočeno ({exc})")
-        if vege_shp is None:
+        if vege_shp is None and raster_elevation and not (work_dir / "dem" / "chm.tif").is_file():
+            # Zdroj země nemá povrch (SK DMR 5.0 z WCS): bez výšky porostu, ne chyba jobu.
+            log("Vegetace z výšky porostu: zdroj výšek země nemá povrch (DSM), zeleň je jen z OSM.")
+        elif vege_shp is None:
             log_issue(log, "Vegetace: nevznikla (hustota bodů ani CHM)")
     progress.done()
 

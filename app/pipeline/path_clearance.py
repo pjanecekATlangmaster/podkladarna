@@ -1213,8 +1213,10 @@ def sprint_knolls_outside_town(parts: list[OomObjectPart], *, preset_id: str, sc
     """Sprint: kupky, prohlubně a jámy (109, 111, 112) uvnitř nebo do 5 m od budovy 521 / zastřešení 522, nebo uvnitř
     zpevněné plochy (501) či olivy (520, 527) se nekreslí. DMR 5G je terén bez budov; v zástavbě a úzkých ulicích je
     dopočítaný z mála bodů, takže u obrysů domů vznikají falešné kupky a prohlubně. V lese a na loukách zůstávají.
-    Les a MTBO beze změny."""
-    if not preset_id.startswith("sprint") or not parts:
+    Les a MTBO beze změny; mimo Česko (rastrový DMR bez tříd bodů, SK DMR 5.0) platí i pro les a MTBO."""
+    from app.pipeline.country_profile import process_uses_cz_sources
+
+    if not (preset_id.startswith("sprint") or not process_uses_cz_sources()) or not parts:
         return parts
     from shapely.geometry import Point
     from shapely.ops import unary_union

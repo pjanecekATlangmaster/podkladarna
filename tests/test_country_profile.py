@@ -222,3 +222,19 @@ def test_raster_surfaces_without_osgeo_and_vertical_offset(tmp_path, monkeypatch
     chm = elevation_raster._read(res.chm)
     assert filled.mean() == pytest.approx(200.0, abs=0.01)
     assert chm.max() == pytest.approx(15.0, abs=0.01)
+
+
+def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
+    from app.pipeline import orthophoto
+
+    import os
+
+    os.environ.pop(country_profile.JOB_COUNTRY_ENV, None)
+    assert country_profile.process_uses_cz_sources()
+    country_profile.set_process_country({"country": "SK"})
+    try:
+        assert not country_profile.process_uses_cz_sources()
+        monkeypatch.setattr(orthophoto, "_fetch_orthophoto", lambda *a, **k: pytest.fail("ČÚZK mimo Česko"))
+        assert orthophoto.fetch_orthophoto(tmp_path, (0, 0, 10, 10)) is None
+    finally:
+        os.environ.pop(country_profile.JOB_COUNTRY_ENV, None)  # monkeypatch.delenv by „SK“ po testu vrátil
