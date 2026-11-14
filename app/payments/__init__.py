@@ -88,7 +88,12 @@ def get_provider(name: str | None = None) -> PaymentProvider | None:
     if not name:
         return None
     if name == "fake":
+        from app import settings as app_settings
         from app.payments.fake import FakeProvider
+
+        if not app_settings.PAYMENTS_FAKE_ALLOWED:
+            # Falešná platba = mapa zdarma; bez výslovného povolení (vývoj, test B) se nezapne.
+            raise PaymentError("Testovací poskytovatel „fake“ vyžaduje PAYMENTS_FAKE_ALLOWED=1.")
 
         return FakeProvider()
     raise PaymentError(f"Neznámý poskytovatel plateb: {name!r}")

@@ -134,10 +134,15 @@ def test_late_payment_within_grace_is_delivered(orders):
     assert paid["status"] == orders.STATUS_PAID and token
 
 
-def test_fake_provider_signature():
-    from app.payments import WebhookError, get_provider
+def test_fake_provider_signature(monkeypatch):
+    import app.settings as settings
+    from app.payments import PaymentError, WebhookError, get_provider
     from app.payments import fake
 
+    monkeypatch.setattr(settings, "PAYMENTS_FAKE_ALLOWED", False)
+    with pytest.raises(PaymentError):  # pojistka: platba zdarma jen s výslovným povolením
+        get_provider("fake")
+    monkeypatch.setattr(settings, "PAYMENTS_FAKE_ALLOWED", True)
     provider = get_provider("fake")
     session = provider.create_checkout(
         order_id="o1",
@@ -163,3 +168,67 @@ def test_payments_off_by_default(data_dir):
 
     assert get_provider("") is None
     assert payments_enabled() is False
+
+
+@pytest.mark.parametrize(
+    "case, refund_kind",
+    [
+        ("amount", "paid:refund_amount_mismatch"),
+        ("currency", "paid:refund_amount_mismatch"),
+        ("expired", "paid:refund_order_expired"),
+        ("duplicate", "paid:refund_duplicate"),
+    ],
+)
+def test_undeliverable_payment_recorded_for_refund(orders, case, refund_kind):
+    from app.payments import PaymentEvent
+    from app.settings import DB_PATH
+
+    order, _c, _p = _to_preview(orders, email=f"{case}@example.org")
+    orders.set_checkout(order["id"], "fake", "cs_1", now=T0)
+    when, amount, currency = T0, 1000, "EUR"
+    if case == "amount":
+        amount = 1
+    elif case == "currency":
+        currency = "CZK"
+    elif case == "expired":
+        when = T0 + timedelta(days=9)
+        orders.purge_orders(now=when)
+    elif case == "duplicate":
+        orders.apply_payment_event(_paid_event(order["id"]), "fake", now=T0)
+    event = PaymentEvent(
+        event_id="evt_late", kind="paid", order_id=order["id"], provider_ref="cs_1",
+        amount_cents=amount, currency=currency,
+    )
+    got, token = orders.apply_payment_event(event, "fake", now=when)
+    assert token is None
+    assert got["status"] == {"duplicate": orders.STATUS_PAID, "expired": orders.STATUS_EXPIRED}.get(
+        case, orders.STATUS_PREVIEW
+    )
+    with sqlite3.connect(DB_PATH) as conn:
+        kind = conn.execute("SELECT kind FROM payment_events WHERE event_id = 'fake:evt_late'").fetchone()[0]
+    assert kind == refund_kind
+
+
+def test_purge_releases_stuck_orders(orders):
+    order, confirm = orders.create_order(email="m@example.org", job_request=REQUEST, now=T0)
+    assert orders.claim_confirmation(confirm, now=T0)  # pád před založením jobu
+    later = T0 + timedelta(minutes=orders.CONFIRMING_STALE_MINUTES + 1)
+    assert orders.purge_orders(now=later)["released"] == 1
+    assert orders.claim_confirmation(confirm, now=later) is not None  # odkaz jde použít znovu
+    orders.attach_job(order["id"], "zmizely_job", now=later)  # job v tabulce jobs není
+    assert orders.purge_orders(now=later + timedelta(minutes=20))["orphaned"] == 1
+    assert orders.get_order(order["id"])["status"] == orders.STATUS_FAILED
+    orders.create_order(email="m@example.org", job_request=REQUEST, now=later)  # limit už neblokuje
+
+
+def test_cancel_unconfirmed_and_job_expiry(orders):
+    order, _confirm = orders.create_order(email="n@example.org", job_request=REQUEST, now=T0)
+    orders.cancel_unconfirmed(order["id"], now=T0)
+    gone = orders.get_order(order["id"])
+    assert gone["status"] == orders.STATUS_EXPIRED and gone["email"] is None
+    orders.create_order(email="n@example.org", job_request=REQUEST, now=T0)
+    preview, _c, _p = _to_preview(orders, email="o@example.org")
+    expiry = orders.job_expiry(orders.get_order(preview["id"]))
+    assert expiry == T0 + timedelta(hours=168 + orders.PAYMENT_GRACE_HOURS)
+    paid, _t = orders.apply_payment_event(_paid_event(preview["id"]), "fake", now=T0)
+    assert orders.job_expiry(paid) == T0 + timedelta(days=30)

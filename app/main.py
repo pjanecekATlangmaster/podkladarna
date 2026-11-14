@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import countries, db, dtm_coverage, i18n, settings as app_settings, source_status, worker
+from app import countries, db, dtm_coverage, i18n, paid_flow, settings as app_settings, source_status, worker
 from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -432,6 +432,7 @@ def index(request: Request) -> HTMLResponse:
     html = html.replace("<!-- PODKLADARNA_ABOUT -->", web_about_html(lang))
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
+    html = html.replace("<!-- PODKLADARNA_PAID -->", paid_flow.form_note_html(request, lang))
     # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
@@ -820,6 +821,8 @@ def _load_job_for_artifact(job_id: str, token: str | None) -> dict:
             raise HTTPException(410, i18n.Msg("api.private_link_expired"))
         if not db.token_matches(job, token):
             raise HTTPException(404, i18n.Msg("api.job_not_found"))
+        if paid_flow.job_locked(job):  # objednávka: výstupy až po zaplacení (odkaz z e-mailu)
+            raise HTTPException(404, i18n.Msg("api.job_not_found"))
     return job
 
 
@@ -886,6 +889,8 @@ def download_by_token(token: str):
     if db.job_is_expired(job):
         db.delete_job(job["id"])
         raise HTTPException(410, i18n.Msg("api.private_link_expired"))
+    if paid_flow.job_locked(job):
+        raise HTTPException(404, i18n.Msg("api.link_invalid"))
     _require_finished(job)
     zip_path = _output_zip_path(job["id"])
     if not zip_path:
@@ -1301,6 +1306,15 @@ async def api_create_job(request: Request):
         prev_bbox = (prev or {}).get("options", {}).get("bbox_wgs84")
         if prev and prev.get("has_reusable_lidar") and db.bbox_close(prev_bbox or [], bbox):
             options["reused_from"] = reuse_id
+    # Placená doména se zapnutým prodejem: job vznikne až po potvrzení e-mailu (app.paid_flow).
+    if not api_client and paid_flow.active_for(request):
+        return paid_flow.start_order(
+            request,
+            name=name,
+            preset_id=preset_id,
+            options=options,
+            email=_form_str(form, "notify_email"),
+        )
     dup = db.find_duplicate_active_job(options)
     if dup:
         logger.info(
@@ -1455,4 +1469,5 @@ def api_start_job(job_id: str):
     return _public_job(db.get_job(job_id))
 
 
+app.include_router(paid_flow.router)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

@@ -76,6 +76,12 @@ def _notify_private_job(job_id: str) -> None:
     job = db.get_job(job_id, reveal_artifacts=True)
     if not db.job_is_private(job):
         return
+    if (job.get("options") or {}).get("order_id"):
+        # Objednávka placené domény: místo odkazu ke stažení náhled a odkaz na nákup.
+        from app import paid_flow
+
+        paid_flow.notify_order_job(job)
+        return
     email = str((job.get("options") or {}).get("notify_email") or "").strip()
     if not email:
         if not (job.get("options") or {}).get("api_client"):
@@ -209,6 +215,11 @@ def notify_private_failure(job_id: str) -> None:
         job = db.get_job(job_id)
         if not db.job_is_private(job) or job.get("status") != "failed":
             return
+        order_id = (job.get("options") or {}).get("order_id")
+        if order_id:
+            from app import orders
+
+            orders.mark_failed(str(order_id))  # neblokuje další objednávku na týž e-mail
         email = str((job.get("options") or {}).get("notify_email") or "").strip()
         if not email:
             return
