@@ -530,5 +530,12 @@
   "mail.failed.reason": "Důvod: {value}",
   "mail.failed.job_link": "Detail jobu s logem (a „Napsat zpětnou vazbu“):\n{url}",
   "mail.failed.retry": "Zkuste job spustit znovu, případně s menším výřezem. Pokud chyba trvá, odpovězte nám přes formulář zpětné vazby na webu.",
-  "mail.failed.operator_knows": "O chybě víme, provozovatel dostal kopii této zprávy."
+  "mail.failed.operator_knows": "O chybě víme, provozovatel dostal kopii této zprávy.",
+  "news.label.hot": "Právě nasazeno",
+  "news.label.warm": "Nedávná aktualizace",
+  "news.label.mild": "Aktualizace tento týden",
+  "news.label.calm": "Stabilní verze",
+  "news.disclaimer": "Jde o nový build s opravami a úpravami. Může se stát, že se při tom něco jiného rozbilo — když narazíte na problém, napište prosím do Issues.",
+  "news.none": "Za poslední dny nejsou v přehledu žádné větší změny.",
+  "news.milestones_lead": "Novinky:"
 }

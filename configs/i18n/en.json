@@ -531,5 +531,12 @@
   "mail.failed.reason": "Reason: {value}",
   "mail.failed.job_link": "Job details with the log (and “Send feedback”):\n{url}",
   "mail.failed.retry": "Try running the job again, perhaps with a smaller area. If the error persists, contact us through the feedback form on the website.",
-  "mail.failed.operator_knows": "We know about the error, the operator received a copy of this message."
+  "mail.failed.operator_knows": "We know about the error, the operator received a copy of this message.",
+  "news.label.hot": "Just deployed",
+  "news.label.warm": "Recent update",
+  "news.label.mild": "Updated this week",
+  "news.label.calm": "Stable version",
+  "news.disclaimer": "This is a new build with fixes and changes. Something else may have broken in the process — if you run into a problem, please report it in Issues.",
+  "news.none": "No major changes recently.",
+  "news.milestones_lead": "What's new:"
 }

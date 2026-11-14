@@ -125,3 +125,24 @@ def test_index_has_whats_new_box(client):
     assert "whats-new-milestones" in html
     assert "whats-new-disclaimer" in html
     assert "whats-new-scroll" in html
+
+
+def test_whats_new_english_payload(monkeypatch):
+    released = datetime(2026, 9, 16, 16, 0, tzinfo=timezone.utc)
+    monkeypatch.setenv("PODKLADARNA_BUILT_AT", released.isoformat())
+    payload = whats_new_payload(now=released + timedelta(hours=1), lang="en")
+    assert payload["label"] == "Just deployed" and payload["age_label"] == "1 h ago"
+    assert "rozbilo" not in payload["disclaimer"]
+    # Denní souhrny jsou z českého git logu → v angličtině jen přeložené milníky.
+    assert payload["entries"] == [] and payload["milestones"]
+    assert payload["milestones_lead"] == "What's new:"
+    assert all(m["title"] and m["date"] for m in payload["milestones"])
+    assert not any(ch in m["title"] for m in payload["milestones"] for ch in "ěščřžýáíéůú")
+
+
+def test_api_whats_new_follows_page_language(client, monkeypatch):
+    monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,example.eu=en:paid:*")
+    paid = client.get("/api/whats_new", headers={"host": "example.eu"}).json()
+    assert paid["entries"] == [] and "rozbilo" not in paid["disclaimer"]
+    free = client.get("/api/whats_new?lang=en", headers={"host": "podkladarna.kibos.link"}).json()
+    assert "rozbilo" in free["disclaimer"]
