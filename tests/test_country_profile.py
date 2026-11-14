@@ -187,3 +187,38 @@ def test_sk_wcs_urls_and_geoid(tmp_path):
     ds = None
     assert er.geoid_offsets(grid, [(17.0, 48.5)])[0] == pytest.approx(40.5)  # mezi středy pixelů
     assert er.geoid_offsets(grid, [(17.5, 49.0)])[0] == pytest.approx(41.0)
+
+
+def test_raster_surfaces_without_osgeo_and_vertical_offset(tmp_path, monkeypatch):
+    """Lokální Windows Python bez ``osgeo``: vše přes GDAL CLI; elipsoidické výšky se srovnají kvazigeoidem."""
+    pytest.importorskip("osgeo.gdal_array")
+    import sys
+
+    import numpy as np
+
+    from app.pipeline import elevation_raster
+
+    try:
+        elevation_raster._gdal_tool("gdalwarp")
+    except RuntimeError:
+        pytest.skip("gdalwarp není k dispozici")
+    x0, y0 = -600000.0, -1160000.0
+    dtm = np.full((40, 40), 244.0)
+    dsm = dtm.copy()
+    dsm[20:30, 20:30] = 259.0
+    _write_tif(tmp_path / "dtm.tif", dtm, (x0, y0 + 40))
+    _write_tif(tmp_path / "dsm.tif", dsm, (x0, y0 + 40))
+    monkeypatch.setitem(
+        elevation_raster.PROVIDERS,
+        "test_ell",
+        lambda b, d, log=None: elevation_raster.SourceRasters(tmp_path / "dtm.tif", tmp_path / "dsm.tif", lambda lon, lat: 44.0),
+    )
+    monkeypatch.setitem(sys.modules, "osgeo", None)  # import osgeo → ImportError
+    res = elevation_raster.prepare_raster_surfaces(
+        tmp_path / "work", (x0 + 5, y0 + 5, x0 + 35, y0 + 35), source="test_ell", resolution_m=1.0
+    )
+    monkeypatch.delitem(sys.modules, "osgeo")
+    filled = elevation_raster._read(res.dem_filled)
+    chm = elevation_raster._read(res.chm)
+    assert filled.mean() == pytest.approx(200.0, abs=0.01)
+    assert chm.max() == pytest.approx(15.0, abs=0.01)

@@ -157,6 +157,85 @@ def write_uint8_geotiff(
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def write_float32_geotiff(
+    path: Path,
+    arr: np.ndarray,
+    gt: tuple[float, float, float, float, float, float],
+    *,
+    srs_wkt: str,
+    nodata: float = -9999.0,
+    log=None,
+) -> Path:
+    """Zapíše Float32 GeoTIFF s CRS (osgeo, jinak ENVI → gdal_translate)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = np.asarray(arr, dtype=np.float32)
+    if data.ndim != 2:
+        raise ValueError("write_float32_geotiff očekává 2D pole")
+    height, width = data.shape
+    try:
+        from osgeo import gdal
+
+        gdal.UseExceptions()
+        ds = gdal.GetDriverByName("GTiff").Create(
+            str(path), width, height, 1, gdal.GDT_Float32, ["COMPRESS=DEFLATE", "TILED=YES"]
+        )
+        ds.SetGeoTransform(gt)
+        ds.SetProjection(srs_wkt)
+        band = ds.GetRasterBand(1)
+        band.SetNoDataValue(float(nodata))
+        band.WriteArray(data)
+        band.FlushCache()
+        ds = None
+        return path
+    except ImportError:
+        pass
+
+    tmp = Path(tempfile.mkdtemp(prefix="podkladarna_f32_"))
+    try:
+        bil = tmp / "band.bil"
+        data.astype("<f4").tofile(bil)
+        (tmp / "band.hdr").write_text(
+            (
+                "ENVI\n"
+                f"samples = {width}\n"
+                f"lines = {height}\n"
+                "bands = 1\n"
+                "header offset = 0\n"
+                "file type = ENVI Standard\n"
+                "data type = 4\n"
+                "interleave = bsq\n"
+                "byte order = 0\n"
+                f"map info = {{Arbitrary, 1.0000, 1.0000, {gt[0]}, {gt[3]}, "
+                f"{abs(float(gt[1])) or 1.0}, {abs(float(gt[5])) or 1.0}, 0, N}}\n"
+            ),
+            encoding="ascii",
+        )
+        srs_file = tmp / "srs.wkt"
+        srs_file.write_text(srs_wkt + "\n", encoding="utf-8")
+        run_cmd(
+            [
+                find_tool("gdal_translate"),
+                "-of",
+                "GTiff",
+                "-a_srs",
+                str(srs_file),
+                "-a_nodata",
+                f"{float(nodata):g}",
+                "-co",
+                "COMPRESS=DEFLATE",
+                str(bil),
+                str(path),
+            ],
+            log=log,
+        )
+        if not path.is_file() or path.stat().st_size < 64:
+            raise RuntimeError(f"Zápis GeoTIFF selhal: {path.name}")
+        return path
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def polygonize_byte_raster(
     raster: Path,
     dest_shp: Path,

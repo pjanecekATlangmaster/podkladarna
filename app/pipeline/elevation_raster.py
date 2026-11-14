@@ -20,8 +20,11 @@ Kde DTM z měření chybí (AHN: budovy a voda), je CHM 0.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+import numpy as np
 
 from app import settings
 from app.pipeline.crs_5514 import CRS_WKT
@@ -32,9 +35,23 @@ from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 FILL_MAX_DISTANCE_PX = 250
 NODATA = -9999.0
 
-# Zdroj: funkce (bounds v CRS mapy, cílová složka, log) → (dtm, dsm | None) jako cesty k rastrům
-# (GeoTIFF / VRT v libovolném CRS, s nastaveným NoData).
-Provider = Callable[[tuple[float, float, float, float], Path, Callable | None], tuple[Path, Path | None]]
+
+
+@dataclass
+class SourceRasters:
+    """Výsledek zdroje: rastry terénu a povrchu (GeoTIFF / VRT v libovolném CRS, s NoData).
+
+    ``vertical_offset(lon, lat)`` (ETRS89): výška, o kterou jsou hodnoty nad národním výškovým systémem
+    (elipsoidické výšky → odečte se kvazigeoid), jinak None.
+    """
+
+    dtm: Path
+    dsm: Path | None = None
+    vertical_offset: Callable[[float, float], float] | None = None
+
+
+# Zdroj: funkce (bounds v CRS mapy, cílová složka, log) → SourceRasters.
+Provider = Callable[[tuple[float, float, float, float], Path, Callable | None], SourceRasters]
 PROVIDERS: dict[str, Provider] = {}
 
 
@@ -71,12 +88,11 @@ def _tiles_vrt(tiles_dir: Path, dest: Path, *, log=None) -> Path | None:
 def local_provider(spec: str) -> Provider:
     base = _local_dir(spec)
 
-    def _fetch(bounds, out_dir: Path, log=None) -> tuple[Path, Path | None]:
+    def _fetch(bounds, out_dir: Path, log=None) -> SourceRasters:
         dtm = _tiles_vrt(base / "dtm", out_dir / "src_dtm.vrt", log=log)
         if dtm is None:
             raise ElevationUnavailable(f"chybí dlaždice terénu v {base / 'dtm'}")
-        dsm = _tiles_vrt(base / "dsm", out_dir / "src_dsm.vrt", log=log)
-        return dtm, dsm
+        return SourceRasters(dtm, _tiles_vrt(base / "dsm", out_dir / "src_dsm.vrt", log=log))
 
     return _fetch
 
@@ -159,7 +175,7 @@ def ahn_coverage_urls(coverage: str, bounds_rd: tuple[float, float, float, float
     ]
 
 
-def nl_ahn_provider(bounds, out_dir: Path, log=None) -> tuple[Path, Path | None]:
+def nl_ahn_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     """AHN (Actueel Hoogtebestand Nederland) DTM a DSM 0,5 m z PDOK WCS, CC0 / CC BY 4.0, bez klíče."""
     bounds_rd = _bounds_in(bounds, CRS_WKT, AHN_CRS)
     out = []
@@ -171,7 +187,7 @@ def nl_ahn_provider(bounds, out_dir: Path, log=None) -> tuple[Path, Path | None]
         vrt = out_dir / f"ahn_{coverage}.vrt"
         run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", AHN_CRS, str(vrt), *map(str, tiles)], log=log)
         out.append(vrt)
-    return out[0], out[1]
+    return SourceRasters(out[0], out[1])
 
 
 PROVIDERS["nl_ahn"] = nl_ahn_provider
@@ -213,14 +229,11 @@ def _sk_geoid_grid(log=None) -> Path | None:
 
 
 def geoid_offsets(grid: Path, points_lonlat: list[tuple[float, float]]) -> list[float]:
-    """Výška kvazigeoidu (m) v bodech; bilineárně z mřížky PROJ-data."""
-    from osgeo import gdal
+    """Výška kvazigeoidu (m) v bodech; bilineárně mezi středy pixelů mřížky PROJ-data."""
+    from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
-    gdal.UseExceptions()
-    ds = gdal.Open(str(grid))
-    gt = ds.GetGeoTransform()
-    arr = ds.GetRasterBand(1).ReadAsArray().astype("float64")
-    ds = None
+    arr, gt, _nd = read_float32_geotiff(grid)
+    arr = arr.astype("float64")
     out = []
     for lon, lat in points_lonlat:
         fx = (lon - gt[0]) / gt[1] - 0.5
@@ -238,46 +251,20 @@ def geoid_offsets(grid: Path, points_lonlat: list[tuple[float, float]]) -> list[
     return out
 
 
-def _subtract_geoid(tile: Path, grid: Path) -> None:
-    """Odečte kvazigeoid (rovina z rohů dlaždice; na pár km se mění o centimetry)."""
-    import numpy as np
-    from osgeo import gdal
-    from pyproj import Transformer
-
-    gdal.UseExceptions()
-    ds = gdal.Open(str(tile), gdal.GA_Update)
-    gt = ds.GetGeoTransform()
-    w, h = ds.RasterXSize, ds.RasterYSize
-    to_ll = Transformer.from_crs(SK_CRS, "EPSG:4258", always_xy=True)
-    corners = [(gt[0] + cx * w * gt[1], gt[3] + cy * h * gt[5]) for cx, cy in ((0, 0), (1, 0), (0, 1), (1, 1))]
-    n00, n10, n01, n11 = geoid_offsets(grid, [to_ll.transform(x, y) for x, y in corners])
-    fx = (np.arange(w) + 0.5)[None, :] / w
-    fy = (np.arange(h) + 0.5)[:, None] / h
-    offset = n00 * (1 - fx) * (1 - fy) + n10 * fx * (1 - fy) + n01 * (1 - fx) * fy + n11 * fx * fy
-    band = ds.GetRasterBand(1)
-    nd = band.GetNoDataValue()
-    arr = band.ReadAsArray().astype("float64")
-    valid = np.isfinite(arr) & (arr > -1000) & (arr < 10000) if nd is None else (arr != nd) & (arr > -1000)
-    band.WriteArray(np.where(valid, arr - offset, arr).astype("float32"))
-    band.FlushCache()
-    ds = None
-
-
-def sk_ugkk_provider(bounds, out_dir: Path, log=None) -> tuple[Path, Path | None]:
-    """DMR 5.0 Slovenska z INSPIRE WCS ÚGKK, výšky převedené na Bpv; povrch (DSM) není."""
+def sk_ugkk_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """DMR 5.0 Slovenska z INSPIRE WCS ÚGKK (výšky elipsoidické, kvazigeoid odečte ``prepare_raster_surfaces``)."""
     bounds_utm = _bounds_in(bounds, CRS_WKT, SK_CRS)
-    grid = _sk_geoid_grid(log=log)
-    tiles = []
-    for k, url in enumerate(sk_wcs_urls(bounds_utm)):
-        tile = _download(url, out_dir / f"sk_dmr5_{k}.tif", log=log)
-        if grid is not None:
-            _subtract_geoid(tile, grid)
-        tiles.append(tile)
+    tiles = [_download(url, out_dir / f"sk_dmr5_{k}.tif", log=log) for k, url in enumerate(sk_wcs_urls(bounds_utm))]
     vrt = out_dir / "sk_dmr5.vrt"
     run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", SK_CRS, str(vrt), *map(str, tiles)], log=log)
-    if log and grid is not None:
-        log("Výšky SK: elipsoidické ETRS89-h převedeny na Bpv (kvazigeoid ÚGKK).")
-    return vrt, None
+    grid = _sk_geoid_grid(log=log)
+    offset = None
+    if grid is not None:
+
+        def offset(lon: float, lat: float) -> float:
+            return geoid_offsets(grid, [(lon, lat)])[0]
+
+    return SourceRasters(vrt, None, offset)
 
 
 PROVIDERS["sk_ugkk"] = sk_ugkk_provider
@@ -292,17 +279,10 @@ def resolve_provider(source: str) -> Provider:
 
 
 def _is_krovak(src: Path) -> bool:
-    from osgeo import gdal, osr
+    from app.pipeline.gdal_cli_raster import _gdalinfo_json
 
-    gdal.UseExceptions()
-    ds = gdal.Open(str(src))
-    wkt = ds.GetProjection() if ds is not None else ""
-    ds = None
-    if not wkt:
-        return False
-    srs = osr.SpatialReference()
-    srs.ImportFromWkt(wkt)
-    return "krovak" in (srs.GetAttrValue("PROJECTION") or "").lower() or "+proj=krovak" in srs.ExportToProj4()
+    wkt = (_gdalinfo_json(src).get("coordinateSystem") or {}).get("wkt") or ""
+    return "krovak" in wkt.lower()
 
 
 def _warp_to_grid(
@@ -363,14 +343,23 @@ def _fill(src: Path, dest: Path, *, log=None) -> Path:
     return dest
 
 
-def _read(path: Path):
-    from osgeo import gdal
+def _read(path: Path) -> np.ndarray:
+    """Pole Float32 s NoData převedeným na ``NODATA`` (osgeo, jinak GDAL CLI)."""
+    from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
-    gdal.UseExceptions()
-    ds = gdal.Open(str(path))  # dataset držet, jinak GDAL uvolní pásmo před čtením
-    arr = ds.GetRasterBand(1).ReadAsArray().astype("float32")
-    ds = None
-    return arr
+    arr, _gt, nd = read_float32_geotiff(path)
+    arr = np.asarray(arr, dtype="float32")
+    bad = ~np.isfinite(arr)
+    if nd is not None:
+        bad |= arr == np.float32(nd)
+    return np.where(bad, np.float32(NODATA), arr)
+
+
+def _write_like(template: Path, arr: np.ndarray, dest: Path) -> Path:
+    from app.pipeline.gdal_cli_raster import read_float32_geotiff, write_float32_geotiff
+
+    _a, gt, _nd = read_float32_geotiff(template)
+    return write_float32_geotiff(dest, arr, gt, srs_wkt=CRS_WKT, nodata=NODATA)
 
 
 def _valid_share(path: Path) -> float:
@@ -378,31 +367,37 @@ def _valid_share(path: Path) -> float:
     return float((arr > NODATA / 2).mean()) if arr.size else 0.0
 
 
+def _subtract_vertical_offset(path: Path, bounds, offset: Callable[[float, float], float]) -> tuple[float, float]:
+    """Odečte posun výšek (kvazigeoid) jako bilineární plochu z rohů výřezu; vrátí rozsah posunu."""
+    from pyproj import Transformer
+
+    from app.pipeline.crs_5514 import CRS_PROJ4
+
+    xmin, ymin, xmax, ymax = bounds
+    to_ll = Transformer.from_crs(CRS_PROJ4, "EPSG:4258", always_xy=True)
+    n00, n10, n01, n11 = (offset(*to_ll.transform(x, y)) for x, y in ((xmin, ymax), (xmax, ymax), (xmin, ymin), (xmax, ymin)))
+    arr = _read(path)
+    h, w = arr.shape
+    fx = (np.arange(w) + 0.5)[None, :] / w
+    fy = (np.arange(h) + 0.5)[:, None] / h  # řádek 0 = sever
+    plane = n00 * (1 - fx) * (1 - fy) + n10 * fx * (1 - fy) + n01 * (1 - fx) * fy + n11 * fx * fy
+    valid = arr > NODATA / 2
+    tmp = path.with_name(path.stem + "_vert.tif")
+    _write_like(path, np.where(valid, arr - plane, NODATA).astype("float32"), tmp)
+    tmp.replace(path)
+    return min(n00, n10, n01, n11), max(n00, n10, n01, n11)
+
+
 def chm_from_rasters(dem_raw: Path, dem_filled: Path, dsm: Path, dest: Path) -> Path:
     """CHM = max(DSM − DTM, 0). Kde chybí DTM z měření (budovy a voda v AHN), je CHM 0 (ne porost),
     kde chybí DSM, také 0; mimo platný DTM vůbec NoData."""
-    import numpy as np
-    from osgeo import gdal
-
-    gdal.UseExceptions()
     raw = _read(dem_raw)
-    filled_ds = gdal.Open(str(dem_filled))
-    filled = filled_ds.GetRasterBand(1).ReadAsArray().astype("float32")
+    filled = _read(dem_filled)
     surf = _read(dsm)
     valid = filled > NODATA / 2
     chm = np.where(valid, np.maximum(surf - filled, 0.0), NODATA)
     chm = np.where(valid & ((surf <= NODATA / 2) | (raw <= NODATA / 2)), 0.0, chm).astype("float32")
-    out = gdal.GetDriverByName("GTiff").Create(
-        str(dest), filled_ds.RasterXSize, filled_ds.RasterYSize, 1, gdal.GDT_Float32, ["COMPRESS=DEFLATE"]
-    )
-    out.SetGeoTransform(filled_ds.GetGeoTransform())
-    out.SetProjection(filled_ds.GetProjection())
-    band = out.GetRasterBand(1)
-    band.SetNoDataValue(NODATA)
-    band.WriteArray(chm)
-    band.FlushCache()
-    out = None
-    return dest
+    return _write_like(dem_filled, chm, dest)
 
 
 def prepare_raster_surfaces(
@@ -421,9 +416,14 @@ def prepare_raster_surfaces(
     src_dir = dem_dir / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
     log_step(log, f"Stahuji výšková data ({source}): terén a povrch jako rastr")
-    dtm_src, dsm_src = provider(tuple(bounds), src_dir, log)
+    src = provider(tuple(bounds), src_dir, log)
+    dtm_src, dsm_src = src.dtm, src.dsm
 
     dem_raw = _warp_to_grid(dtm_src, dem_dir / "dem_raw.tif", bounds, resolution_m, resampling="bilinear", log=log)
+    if src.vertical_offset is not None:
+        lo, hi = _subtract_vertical_offset(dem_raw, bounds, src.vertical_offset)
+        if log:
+            log(f"Výšky převedeny z elipsoidických na národní systém (kvazigeoid {lo:.2f}–{hi:.2f} m).")
     share = _valid_share(dem_raw)
     if share < 0.05:
         raise ElevationUnavailable(f"výřez je mimo pokrytí zdroje výšek (platných buněk {share:.0%})")
@@ -435,6 +435,8 @@ def prepare_raster_surfaces(
     if dsm_src is not None:
         # Povrch: maximum v buňce (koruny, ne průměr s mezerami).
         dsm_raw = _warp_to_grid(dsm_src, dem_dir / "dsm_raw.tif", bounds, resolution_m, resampling="max", log=log)
+        if src.vertical_offset is not None:
+            _subtract_vertical_offset(dsm_raw, bounds, src.vertical_offset)
         dsm_filled = _fill(dsm_raw, dem_dir / "dsm_filled.tif", log=log)
         chm = chm_from_rasters(dem_raw, dem_filled, dsm_raw, dem_dir / "chm.tif")
     elif log:
