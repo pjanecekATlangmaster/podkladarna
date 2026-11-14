@@ -1028,6 +1028,9 @@ legend {
 
 .footer-sources { font-size: 0.78rem; }
 
+.lang-switch { margin: 0.3rem 0; }
+.lang-switch strong { font-weight: 600; }
+
 .licence-page {
   max-width: 760px;
   margin: 0 auto;

@@ -20,7 +20,7 @@
       <img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" />
       <div>
         <h1>Podkladárna</h1>
-        <p class="tagline">Z LiDARu, DTM kraje, OSM a ZABAGEDu podklad pro OpenOrienteering Mapper</p>
+        <p class="tagline">{{t:web.tagline}}</p>
       </div>
       <aside class="usage-box" id="usage-box" aria-label="Podkladárna v číslech" hidden>
         <p class="usage-box-title">Podkladárna v číslech</p>
@@ -497,25 +497,26 @@
   <footer class="site-footer page-wrap">
     <p>
       Podkladárna v{{APP_VERSION}} ·
-      <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">zdrojový kód</a>
-      · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">připomínky (Issues)</a>
-      · <a href="/licence">licence (kód MIT · výstup CC BY 4.0)</a>
-      · <a href="/podpora">podpořit vývoj</a>
+      <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">{{t:web.footer.source_code}}</a>
+      · <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">{{t:web.footer.issues}}</a>
+      · <a href="/licence">{{t:web.footer.licence}}</a>
+      · <a href="/podpora">{{t:web.footer.support}}</a>
     </p>
     <!-- PODKLADARNA_USAGE -->
+    <!-- PODKLADARNA_LANG_SWITCH -->
     <p class="footer-family">
-      Z jedné rodiny: <strong>Podkladárna</strong> (mapa)
-      → <a href="https://stavitel.kibos.link" target="_blank" rel="noopener">Stavitel</a> (tratě)
-      → <a href="https://o-hra.kibos.link" target="_blank" rel="noopener">O-hra</a> (proběhnout si je)
+      {{t:web.footer.family}} <strong>Podkladárna</strong> {{t:web.footer.family_map}}
+      → <a href="https://stavitel.kibos.link" target="_blank" rel="noopener">Stavitel</a> {{t:web.footer.family_courses}}
+      → <a href="https://o-hra.kibos.link" target="_blank" rel="noopener">O-hra</a> {{t:web.footer.family_play}}
     </p>
     <p class="footer-sources">
-      Data: <a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">ČÚZK</a>
+      {{t:web.footer.data}} <a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">ČÚZK</a>
       (DMR 5G, DMP OK, ZABAGED®,
-      <a href="https://creativecommons.org/licenses/by/4.0/deed.cs" target="_blank" rel="noopener">CC BY 4.0</a>)
-      · volně inspirováno <a href="/licence">Karttapullautinem</a>
-      · mapa © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
+      <a href="{{t:web.footer.cc_by_url}}" target="_blank" rel="noopener">CC BY 4.0</a>)
+      · {{t:web.footer.inspired}} <a href="/licence">{{t:web.footer.inspired_link}}</a>
+      · {{t:web.footer.map}} © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
       · <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>
-      · pracovní podklad, není zaměření
+      · {{t:web.footer.not_survey}}
     </p>
   </footer>
   <script data-cfasync="false" src="/static/leaflet/leaflet.js"></script>

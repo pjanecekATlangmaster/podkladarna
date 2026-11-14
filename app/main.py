@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import db, settings as app_settings, source_status, worker
+from app import db, i18n, settings as app_settings, source_status, worker
 from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -340,8 +340,20 @@ def usage_stats_payload() -> dict:
     }
 
 
+def _localized_html(request: Request, html: str, *, web_catalog: bool = False) -> HTMLResponse:
+    """Stránka v jazyce požadavku (i18n.resolve_lang); HTML se necachuje (jazyk z cookie / domény)."""
+    lang, set_cookie = i18n.resolve_lang(request)
+    response = HTMLResponse(i18n.localize_page(html, request, lang, web_catalog=web_catalog))
+    response.headers["Cache-Control"] = "private, no-store"
+    if set_cookie:
+        forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+        secure = request.url.scheme == "https" or forwarded == "https"
+        i18n.set_lang_cookie(response, lang, secure=secure)
+    return response
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
+def index(request: Request) -> HTMLResponse:
     try:
         removed = maybe_purge_old_jobs()
         if removed:
@@ -356,25 +368,25 @@ def index() -> HTMLResponse:
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
     html = html.replace('src="/static/app.js"', f'src="/static/app.js?v={v}"')
-    return HTMLResponse(apply_channel(html))
+    return _localized_html(request, apply_channel(html), web_catalog=True)
 
 
 @app.get("/licence", response_class=HTMLResponse)
-def licence_page() -> HTMLResponse:
+def licence_page(request: Request) -> HTMLResponse:
     html = (WEB_DIR / "licence.html").read_text(encoding="utf-8")
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
-    return HTMLResponse(html)
+    return _localized_html(request, html)
 
 
 @app.get("/podpora", response_class=HTMLResponse)
-def support_page() -> HTMLResponse:
+def support_page(request: Request) -> HTMLResponse:
     html = (WEB_DIR / "podpora.html").read_text(encoding="utf-8")
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
-    return HTMLResponse(html)
+    return _localized_html(request, html)
 
 
 @app.get("/api/usage_stats")
