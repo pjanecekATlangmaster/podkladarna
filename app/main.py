@@ -1139,6 +1139,12 @@ async def api_create_job(request: Request):
     else:
         options["output_sentinel"] = True
     options["force_refresh"] = _opt_bool("force_refresh")
+    # Jazyk a doména zadání: e-maily jobu (jiný proces) píšou v tomto jazyce a s odkazy na tuto doménu
+    # (jen ze seznamu SITES, nikdy přímo z hlavičky Host).
+    options["lang"] = i18n.resolve_lang(request)[0]
+    _site = i18n.site_for_request(request)
+    if _site is not None:
+        options["site"] = _site.host
     # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.
     # API klient (platný X-Api-Key) má job vždy privátní, e-mail nepotřebuje –
     # `download_token` dostane v odpovědi.

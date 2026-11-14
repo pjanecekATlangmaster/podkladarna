@@ -18,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover - numpy je v image vždy (GDAL)
     pass
 
-from app import db
+from app import db, i18n
 from app import settings as app_settings
 from app.mail import (
     MailError,
@@ -51,11 +51,19 @@ def _job_token(job_id: str) -> str | None:
     return str(val) if val else None
 
 
-def _public_base_url() -> str:
-    """Čte PUBLIC_BASE_URL živě (env / settings), ať tip redeploy s .env stačí."""
+def _public_base_url(options: dict | None = None) -> str:
+    """Základ odkazů: doména zadání jobu ze seznamu SITES, jinak PUBLIC_BASE_URL (čte se živě, env / settings)."""
+    site_url = i18n.site_base_url((options or {}).get("site"))
+    if site_url:
+        return site_url
     return (
         os.environ.get("PUBLIC_BASE_URL") or getattr(app_settings, "PUBLIC_BASE_URL", "") or ""
     ).rstrip("/")
+
+
+def _job_lang(options: dict | None) -> str:
+    lang = str((options or {}).get("lang") or "").strip().lower()
+    return lang if lang in i18n.available_langs() else i18n.SOURCE_LANG
 
 
 def _mail_already_sent(job_id: str, prefix: str = _MAIL_SENT_PREFIX) -> bool:
@@ -78,7 +86,7 @@ def _notify_private_job(job_id: str) -> None:
         db.append_log(job_id, "CHYBA: privátní job bez download tokenu.")
         logger.error("Privátní job %s nemá download_token.", job_id)
         return
-    base = _public_base_url()
+    base = _public_base_url(job.get("options"))
     if not base:
         msg = (
             "PUBLIC_BASE_URL není nastavené – nelze sestavit odkaz v e-mailu. "
@@ -117,6 +125,7 @@ def _notify_private_job(job_id: str) -> None:
             job.get("error") if job.get("status") == db.STATUS_DONE_WITH_ERRORS else None
         ),
         notices=dtm_summary.notice_lines(job.get("dtm_summary")),
+        lang=_job_lang(job.get("options")),
     )
     try:
         send_mail(
@@ -135,9 +144,9 @@ _OPERATOR_LOG_ENTRIES = 25
 _OPERATOR_LOG_MAX_CHARS = 8000
 
 
-def job_page_url(job_id: str) -> str | None:
-    """Odkaz na stránku jobu (detail + log), bez tokenu ke stažení. None bez PUBLIC_BASE_URL."""
-    base = _public_base_url()
+def job_page_url(job_id: str, options: dict | None = None) -> str | None:
+    """Odkaz na stránku jobu (detail + log), bez tokenu ke stažení. None bez PUBLIC_BASE_URL a SITES."""
+    base = _public_base_url(options)
     return f"{base}/?job={job_id}" if base else None
 
 
@@ -209,7 +218,7 @@ def notify_private_failure(job_id: str) -> None:
             job_name=job.get("name") or job_id,
             error=job.get("error"),
             duration_s=job.get("duration_s"),
-            job_url=job_page_url(job_id),
+            job_url=job_page_url(job_id, job.get("options")),
         )
         operator = (app_settings.FEEDBACK_TO or "").strip()
         # Zadal-li job sám provozovatel, dostane jeden e-mail rovnou s technickou částí.
@@ -217,7 +226,9 @@ def notify_private_failure(job_id: str) -> None:
         with tempfile.TemporaryDirectory(prefix="podkladarna-mail-") as tmp:
             log_files = _operator_log_files(job_id, Path(tmp)) if operator else []
             details = _operator_failure_details(job_id) if own_job else None
-            subject, body = build_private_failed_email(**common, operator_details=details)
+            # Zadavateli v jeho jazyce; kopie provozovateli (i vlastní job provozovatele) česky.
+            user_lang = i18n.SOURCE_LANG if own_job else _job_lang(job.get("options"))
+            subject, body = build_private_failed_email(**common, operator_details=details, lang=user_lang)
             try:
                 send_mail(email, subject, body, attachments=log_files if own_job else None)
                 db.append_log(job_id, f"{_FAIL_MAIL_SENT_PREFIX} na {email}.")

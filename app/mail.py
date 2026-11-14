@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Sequence
 
 from app import settings
+from app.i18n import t
 
 logger = logging.getLogger("podkladarna.mail")
 
@@ -140,6 +141,11 @@ def send_mail(
 
 def format_duration_cs(seconds: int | float | None) -> str | None:
     """České trvání jako ve web UI (např. „12 min 34 s“, „1 h 5 min“)."""
+    return format_duration(seconds, "cs")
+
+
+def format_duration(seconds: int | float | None, lang: str = "cs") -> str | None:
+    """Trvání jako ve web UI (h / min / s jsou v cs i en stejné)."""
     if seconds is None:
         return None
     try:
@@ -160,10 +166,21 @@ def format_duration_cs(seconds: int | float | None) -> str | None:
 
 def format_area_km2_cs(area_km2: float | None) -> str | None:
     """Plocha v km² s desetinnou čárkou jako ve web UI („2,4 km²“, pod 1 km² „0,85 km²“)."""
+    return format_area_km2(area_km2, "cs")
+
+
+def format_area_km2(area_km2: float | None, lang: str = "cs") -> str | None:
+    """Plocha v km²; desetinná čárka v češtině (a dalších jazycích s čárkou), tečka v angličtině."""
     if area_km2 is None or area_km2 <= 0:
         return None
     text = f"{area_km2:.2f}" if area_km2 < 1 else f"{area_km2:.1f}"
-    return text.replace(".", ",") + " km²"
+    if lang != "en":
+        text = text.replace(".", ",")
+    return text + " km²"
+
+
+def _signature() -> str:
+    return f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n"
 
 
 def build_private_ready_email(
@@ -178,8 +195,9 @@ def build_private_ready_email(
     issues_summary: str | None = None,
     area_km2: float | None = None,
     notices: list[str] | None = None,
+    lang: str = "cs",
 ) -> tuple[str, str]:
-    """Vrací (předmět, tělo) pro hotový privátní job – česky.
+    """Vrací (předmět, tělo) pro hotový privátní job v jazyce zadání (katalog ``mail.*``).
 
     ``notices`` = informativní upozornění pro příjemce mapy (např. nedostupná DTM), ne chyba jobu.
 
@@ -187,51 +205,42 @@ def build_private_ready_email(
     na webové stránce privátního jobu se nezobrazují. Náhled PNG preferujeme
     jako MIME přílohu (preview_attached); odkaz zůstává jako záloha.
     """
-    subject = f"Podkladárna: mapa „{job_name}“ je připravená ke stažení"
-    parts = [
-        "Dobrý den,\n",
-        "\n",
-        f"vaše mapa „{job_name}“ je hotová.\n",
-    ]
-    duration_label = format_duration_cs(duration_s)
+
+    def tr(key: str, **params: object) -> str:
+        return t(f"mail.ready.{key}", lang, **params)
+
+    subject = tr("subject", name=job_name)
+    parts = [tr("greeting") + "\n", "\n", tr("intro", name=job_name) + "\n"]
+    duration_label = format_duration(duration_s, lang)
     if duration_label:
-        parts.append(f"Doba běhu: {duration_label}.\n")
-    area_label = format_area_km2_cs(area_km2)
+        parts.append(tr("duration", value=duration_label) + "\n")
+    area_label = format_area_km2(area_km2, lang)
     if area_label:
-        parts.append(f"Plocha mapy: {area_label}.\n")
+        parts.append(tr("area", value=area_label) + "\n")
     if issues_summary:
-        parts.append(f"\nUpozornění: {issues_summary}\n")
+        parts.append("\n" + tr("issues", value=issues_summary) + "\n")
     for notice in notices or []:
         parts.append(f"\n{notice}\n")
-    parts.extend(
-        [
-            "\n",
-            "Stažení (privátní odkazy):\n",
-            "\n",
-            f"• ZIP s mapou (.omap / .ocd):\n{download_url}\n",
-        ]
-    )
+    parts.extend(["\n", tr("links") + "\n", "\n", tr("zip", url=download_url) + "\n"])
     if preview_attached:
         parts.append("\n")
-        parts.append("• Náhled PNG: v příloze tohoto e-mailu.\n")
+        parts.append(tr("preview_attached") + "\n")
         if preview_url:
-            parts.append(f"  (záloha odkazem:\n{preview_url})\n")
+            parts.append(tr("preview_backup", url=preview_url) + "\n")
     elif preview_url:
         parts.append("\n")
-        parts.append(f"• Náhled PNG:\n{preview_url}\n")
+        parts.append(tr("preview", url=preview_url) + "\n")
     if georef_url:
         parts.append("\n")
-        parts.append(f"• ZIP georeferencovaných náhledů:\n{georef_url}\n")
+        parts.append(tr("georef", url=georef_url) + "\n")
     parts.extend(
         [
             "\n",
-            f"Odkazy platí {retention_hours} hodin od založení jobu; "
-            "poté se job i soubory smažou.\n",
+            tr("expiry", hours=retention_hours) + "\n",
             "\n",
-            "Mapa není veřejně viditelná v seznamu jobů "
-            "a na stránce jobu se náhled/ZIP nezobrazují.\n",
+            tr("private_note") + "\n",
             "\n",
-            f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n",
+            _signature(),
         ]
     )
     return subject, "".join(parts)
@@ -244,35 +253,36 @@ def build_private_failed_email(
     duration_s: int | float | None = None,
     job_url: str | None = None,
     operator_details: str | None = None,
+    lang: str = "cs",
 ) -> tuple[str, str]:
-    """Vrací (předmět, tělo) pro privátní job, který skončil chybou – česky.
+    """Vrací (předmět, tělo) pro privátní job, který skončil chybou, v jazyce zadání.
 
     ``job_url`` vede na stránku jobu s logem (stejný odkaz dostane zadavatel
     i provozovatel; stažení ZIPu dál chrání token). ``operator_details`` jen
-    v kopii provozovateli: technická chyba a konec logu pro rychlou diagnózu.
+    v kopii provozovateli: technická chyba a konec logu pro rychlou diagnózu
+    (část pro provozovatele je vždy česky).
     """
-    subject = f"Podkladárna: mapu „{job_name}“ se nepodařilo vytvořit"
-    parts = [
-        "Dobrý den,\n",
-        "\n",
-        f"vaši mapu „{job_name}“ se bohužel nepodařilo vytvořit.\n",
-    ]
-    duration_label = format_duration_cs(duration_s)
+
+    def tr(key: str, **params: object) -> str:
+        return t(f"mail.failed.{key}", lang, **params)
+
+    subject = tr("subject", name=job_name)
+    parts = [tr("greeting") + "\n", "\n", tr("intro", name=job_name) + "\n"]
+    duration_label = format_duration(duration_s, lang)
     if duration_label:
-        parts.append(f"Doba běhu: {duration_label}.\n")
+        parts.append(tr("duration", value=duration_label) + "\n")
     if error:
-        parts.append(f"\nDůvod: {error}\n")
+        parts.append("\n" + tr("reason", value=error) + "\n")
     if job_url:
-        parts.append(f"\nDetail jobu s logem (a „Napsat zpětnou vazbu“):\n{job_url}\n")
+        parts.append("\n" + tr("job_link", url=job_url) + "\n")
     parts.extend(
         [
             "\n",
-            "Zkuste job spustit znovu, případně s menším výřezem. "
-            "Pokud chyba trvá, odpovězte nám přes formulář zpětné vazby na webu.\n",
+            tr("retry") + "\n",
             "\n",
-            "O chybě víme, provozovatel dostal kopii této zprávy.\n",
+            tr("operator_knows") + "\n",
             "\n",
-            f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n",
+            _signature(),
         ]
     )
     if operator_details:
