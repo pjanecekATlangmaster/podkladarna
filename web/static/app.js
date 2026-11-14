@@ -1862,7 +1862,11 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     const fd = new FormData(form);
     fd.set("private", privateEl && privateEl.checked ? "1" : "0");
     const job = await api("/api/jobs", { method: "POST", body: fd });
-    if (job && job.duplicate_skipped) {
+    if (job && job.order_pending) {
+      // Placená doména: job vznikne až po potvrzení odkazu z e-mailu.
+      showFormNotice(job.message || "");
+      return;
+    } else if (job && job.duplicate_skipped) {
       const msg =
         job.duplicate_message ||
         t("web.js.form.duplicate");
@@ -3438,6 +3442,12 @@ initBboxMap();
   const wrap = document.getElementById("private-email-wrap");
   const emailEl = document.getElementById("notify_email");
   if (!privateEl || !wrap) return;
+  if (document.getElementById("paid-note")) {
+    // Placená doména: objednávka je vždy soukromá s povinným e-mailem (app/paid_flow.py).
+    privateEl.checked = true;
+    const row = privateEl.closest("label");
+    if (row) row.hidden = true;
+  }
   const sync = () => {
     const on = privateEl.checked;
     wrap.classList.toggle("hidden", !on);

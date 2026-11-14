@@ -658,9 +658,23 @@ def job_is_private(job: dict[str, Any]) -> bool:
 
 
 def job_expires_at(job: dict[str, Any]) -> datetime | None:
-    """Konec platnosti privátního jobu (created_at + PRIVATE_JOB_RETENTION_HOURS)."""
+    """Konec platnosti privátního jobu (created_at + PRIVATE_JOB_RETENTION_HOURS).
+
+    Job objednávky placené domény (``options.order_id``) drží objednávka: náhled do konce lhůty
+    na zaplacení, zaplacená mapa po dobu odkazu ke stažení (``orders.job_expiry``).
+    """
     if not job_is_private(job):
         return None
+    order_id = (job.get("options") or {}).get("order_id")
+    if order_id:
+        from app import orders
+
+        try:
+            expires = orders.job_expiry(orders.get_order(str(order_id)))
+        except KeyError:
+            expires = None
+        if expires is not None:
+            return expires
     created = _parse_iso(job.get("created_at"))
     if created is None:
         return None

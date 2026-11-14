@@ -25,8 +25,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import logging
+
 from app import db
 from app import settings as app_settings
+
+logger = logging.getLogger("podkladarna.orders")
 
 STATUS_AWAITING = "awaiting_confirmation"
 STATUS_CONFIRMING = "confirming"  # krátký mezistav při potvrzení (brání dvojímu založení jobu)
@@ -43,6 +47,15 @@ OPEN_UNPAID = (STATUS_AWAITING, STATUS_CONFIRMING, STATUS_CONFIRMED, STATUS_PREV
 TOKEN_KINDS = ("confirm", "preview", "download")
 # Zpožděná platba k objednávce s rozběhnutým checkoutem se ještě přijme (hodiny po konci náhledu).
 PAYMENT_GRACE_HOURS = 24
+# Mezistav „potvrzuje se“ trvá jen po dobu založení jobu; starší = pád procesu → vrátit k potvrzení.
+CONFIRMING_STALE_MINUTES = 15
+# Platba, kterou nejde doručit (jiná částka, propadlá objednávka, druhá platba): zůstane jen záznam
+# v payment_events s tímto druhem a varování v logu – peníze vrátit ručně u poskytovatele.
+REFUND_KINDS = {
+    "amount": "paid:refund_amount_mismatch",
+    "expired": "paid:refund_order_expired",
+    "duplicate": "paid:refund_duplicate",
+}
 
 
 class OrderError(Exception):
@@ -306,6 +319,20 @@ def release_confirmation(order_id: str, *, now: datetime | None = None) -> None:
         conn.commit()
 
 
+def cancel_unconfirmed(order_id: str, *, now: datetime | None = None) -> None:
+    """Potvrzovací e-mail nešel odeslat – objednávku zrušit, ať neblokuje limit na e-mail."""
+    with db.connect() as conn:
+        conn.execute(
+            """
+            UPDATE orders SET status = ?, updated_at = ?, email = NULL, job_request_json = NULL,
+                confirm_hash = NULL
+            WHERE id = ? AND status = ?
+            """,
+            (STATUS_EXPIRED, _iso(_now(now)), order_id, STATUS_AWAITING),
+        )
+        conn.commit()
+
+
 def issue_preview_token(order_id: str, *, now: datetime | None = None) -> str | None:
     """Job doběhl: vydá náhledový token (náhled, ukázka, nákup); None = objednávka v jiném stavu."""
     current = _now(now)
@@ -381,8 +408,25 @@ def apply_payment_event(
         if row is None or (row["provider"] and row["provider"] != provider):
             conn.commit()
             return None, None
+        refund: str | None = None
         if event.kind == "paid":
-            if row["status"] in (STATUS_PREVIEW, STATUS_EXPIRED):
+            amount = getattr(event, "amount_cents", None)
+            currency = str(getattr(event, "currency", None) or "").upper()
+            if (amount is not None and int(amount) != int(row["price_cents"])) or (
+                currency and currency != str(row["currency"] or "").upper()
+            ):
+                refund = "amount"
+            elif row["status"] == STATUS_EXPIRED:
+                # Po lhůtě (i s rozběhnutou platbou) už e-mail ani job nemusí existovat.
+                refund = "expired"
+            elif row["status"] in (STATUS_PAID, STATUS_REFUNDED):
+                refund = "duplicate"
+            if refund:
+                conn.execute(
+                    "UPDATE payment_events SET kind = ? WHERE event_id = ?",
+                    (REFUND_KINDS[refund], f"{provider}:{event.event_id}"),
+                )
+            elif row["status"] == STATUS_PREVIEW:
                 token = _new_token()
                 conn.execute(
                     """
@@ -410,6 +454,19 @@ def apply_payment_event(
             )
         conn.commit()
         row = conn.execute("SELECT * FROM orders WHERE id = ?", (event.order_id,)).fetchone()
+    if refund:
+        logger.warning(
+            "Payment %s:%s for order %s needs a manual refund (%s)",
+            provider,
+            event.event_id,
+            event.order_id,
+            REFUND_KINDS[refund],
+        )
+        if row is not None and row["job_id"]:
+            db.append_log(
+                str(row["job_id"]),
+                f"⚠ Platba {event.event_id} ({REFUND_KINDS[refund]}) – nedoručuje se, vrátit ručně u poskytovatele.",
+            )
     return _row(row), token
 
 
@@ -418,6 +475,29 @@ def is_paid(order: dict[str, Any] | None, *, now: datetime | None = None) -> boo
         return False
     expires = _parse(order.get("download_expires_at"))
     return expires is None or _now(now) < expires
+
+
+def job_expiry(order: dict[str, Any] | None) -> datetime | None:
+    """Do kdy držet job objednávky (náhled do konce lhůty + rezerva na platbu, plná mapa po dobu odkazu)."""
+    if not order:
+        return None
+    status = order.get("status")
+    if status == STATUS_PAID:
+        return _parse(order.get("download_expires_at"))
+    if status == STATUS_PREVIEW:
+        expires = _parse(order.get("preview_expires_at"))
+        return expires + timedelta(hours=PAYMENT_GRACE_HOURS) if expires else None
+    updated = _parse(order.get("updated_at")) or _parse(order.get("created_at"))
+    if updated is None:
+        return None
+    if status in (STATUS_CONFIRMED, STATUS_CONFIRMING):
+        # Job se počítá; pojistka pro uvízlý job (úklid jobu jinak neproběhne nikdy).
+        hours = app_settings.UNPAID_ORDER_RETENTION_HOURS if app_settings.UNPAID_ORDER_RETENTION_HOURS > 0 else 168
+        return updated + timedelta(hours=hours)
+    if status == STATUS_FAILED:
+        hours = app_settings.PRIVATE_JOB_RETENTION_HOURS if app_settings.PRIVATE_JOB_RETENTION_HOURS > 0 else 48
+        return updated + timedelta(hours=hours)
+    return updated  # expired, refunded: hned
 
 
 def purge_orders(*, now: datetime | None = None) -> dict[str, int]:
@@ -429,7 +509,22 @@ def purge_orders(*, now: datetime | None = None) -> dict[str, int]:
     # Rozběhnutá platba (checkout založený před koncem platnosti) může dorazit se zpožděním:
     # takovou objednávku nechat ještě PAYMENT_GRACE_HOURS, ať jde plnou mapu doručit.
     grace = _iso(_now(now) - timedelta(hours=PAYMENT_GRACE_HOURS))
+    stale = _iso(_now(now) - timedelta(minutes=CONFIRMING_STALE_MINUTES))
     with db.connect() as conn:
+        # Pád mezi potvrzením a založením jobu: odkaz z e-mailu jde použít znovu (blokoval by limit).
+        released = conn.execute(
+            "UPDATE orders SET status = ?, updated_at = ? WHERE status = ? AND updated_at <= ?",
+            (STATUS_AWAITING, current, STATUS_CONFIRMING, stale),
+        ).rowcount
+        # Potvrzená objednávka, jejíž job zmizel (ruční smazání, úklid) – už se nedokončí.
+        orphaned = conn.execute(
+            """
+            UPDATE orders SET status = ?, updated_at = ?
+            WHERE status = ? AND (job_id IS NULL OR job_id NOT IN (SELECT id FROM jobs))
+              AND updated_at <= ?
+            """,
+            (STATUS_FAILED, current, STATUS_CONFIRMED, stale),
+        ).rowcount
         expired = conn.execute(
             """
             UPDATE orders SET status = ?, updated_at = ?, email = NULL, job_request_json = NULL,
@@ -451,4 +546,9 @@ def purge_orders(*, now: datetime | None = None) -> dict[str, int]:
             (current, STATUS_PAID, current, STATUS_FAILED, STATUS_REFUNDED),
         ).rowcount
         conn.commit()
-    return {"expired": int(expired), "scrubbed": int(scrubbed)}
+    return {
+        "expired": int(expired),
+        "scrubbed": int(scrubbed),
+        "released": int(released),
+        "orphaned": int(orphaned),
+    }

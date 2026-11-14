@@ -37,6 +37,13 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
 
     # Privátní: po splatnosti (created_at + PRIVATE_JOB_RETENTION_HOURS),
     # i když ještě nejsou „done“ (pending/failed) – odkaz už neplatí.
+    try:
+        from app import orders
+
+        orders.purge_orders()
+    except Exception:  # noqa: BLE001 – úklid objednávek nesmí zastavit úklid jobů
+        logger.exception("Purge of orders failed")
+
     for job in db.list_expired_private_jobs(now=now):
         if db.delete_job(job["id"]):
             removed += 1
@@ -50,6 +57,8 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
                 continue
             if status not in db.JOB_FINISHED_STATUSES:
                 continue
+            if (job.get("options") or {}).get("order_id"):
+                continue  # job objednávky: platnost řídí objednávka (výše, job_expires_at)
             try:
                 updated = datetime.fromisoformat(job["updated_at"])
             except ValueError:
