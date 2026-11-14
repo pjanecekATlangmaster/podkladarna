@@ -54,6 +54,11 @@ def _report(d_from: str | None = None, d_to: str | None = None) -> None:
         "API" if r["api_client"] else ("privátní" if r["private"] else "veřejný") for r in rows
     )
     print("Podle druhu: " + ", ".join(f"{k} {v}" for k, v in kinds.most_common()))
+    if rows and "site" in rows[0].keys():
+        sites = collections.Counter(
+            f"{r['site'] or 'původní doména'} ({r['lang'] or 'cs'})" for r in rows
+        )
+        print("Podle domény: " + ", ".join(f"{k} {v}" for k, v in sites.most_common()))
     print(f"Různých IP: {len({r['ip_tag'] for r in rows})}, "
           f"sítí (/24): {len({r['ip_net_tag'] for r in rows})}, "
           f"e-mailů (privátní): {len({r['email_tag'] for r in rows if r['email_tag']})}")

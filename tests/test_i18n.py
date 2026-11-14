@@ -188,3 +188,10 @@ def test_created_job_remembers_lang_and_site(client, monkeypatch):
     assert r2.status_code == 200 and r2.json()["id"] != r.json()["id"]
     opts2 = db.get_job(r2.json()["id"])["options"]
     assert opts2["lang"] == "cs" and "site" not in opts2
+    with db.connect() as conn:
+        origin = {
+            row["job_id"]: (row["site"], row["lang"])
+            for row in conn.execute("SELECT job_id, site, lang FROM job_origin")
+        }
+    assert origin[r.json()["id"]] == ("example.eu", "en")
+    assert origin[r2.json()["id"]] == (None, "cs")
