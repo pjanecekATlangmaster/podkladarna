@@ -135,7 +135,8 @@ def init_db() -> None:
                 conn.execute(f"ALTER TABLE job_origin ADD COLUMN {col} REAL")
         # Doména a jazyk zadání (3.35.9, dvě domény: zdarma / placená). NULL u starších řádků
         # = původní doména; starší image sloupce ignoruje.
-        for col in ("site", "lang"):
+        # Země výřezu (3.36.2, ISO kód z app.countries). NULL u starších řádků = Česko.
+        for col in ("site", "lang", "country"):
             if col not in origin_cols:
                 conn.execute(f"ALTER TABLE job_origin ADD COLUMN {col} TEXT")
         conn.execute(
@@ -280,9 +281,9 @@ def _record_origin(
         """
         INSERT OR REPLACE INTO job_origin (
             job_id, created_at, ip_tag, ip_net_tag, api_client, private, email_tag,
-            preset_id, map_types, bbox_json, status, est_prep_min, est_maps_min, site, lang
+            preset_id, map_types, bbox_json, status, est_prep_min, est_maps_min, site, lang, country
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
         """,
         (
             job_id,
@@ -299,6 +300,7 @@ def _record_origin(
             est_maps,
             str(opts.get("site") or "")[:253] or None,
             str(opts.get("lang") or "")[:8] or None,
+            str(opts.get("country") or "")[:8].upper() or None,
         ),
     )
 

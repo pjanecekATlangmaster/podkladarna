@@ -59,6 +59,9 @@ def _report(d_from: str | None = None, d_to: str | None = None) -> None:
             f"{r['site'] or 'původní doména'} ({r['lang'] or 'cs'})" for r in rows
         )
         print("Podle domény: " + ", ".join(f"{k} {v}" for k, v in sites.most_common()))
+    if rows and "country" in rows[0].keys():
+        by_country = collections.Counter((r["country"] or "CZ") for r in rows)
+        print("Podle země: " + ", ".join(f"{k} {v}" for k, v in by_country.most_common()))
     print(f"Různých IP: {len({r['ip_tag'] for r in rows})}, "
           f"sítí (/24): {len({r['ip_net_tag'] for r in rows})}, "
           f"e-mailů (privátní): {len({r['email_tag'] for r in rows if r['email_tag']})}")
