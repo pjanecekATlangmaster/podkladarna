@@ -626,8 +626,11 @@ def run_job_pipeline(
     try:  # stav zdrojů z poslední kontroly webu (app.source_status); job běží dál beze změny
         from app import source_status
 
-        use_dtm_any = resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest")
-        for is_issue, text in down_source_lines(source_status.down_services(use_dtm=use_dtm_any), dtm_needed=dtm_needed):
+        use_dtm_any = cz_sources and (resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest"))
+        services = source_status.down_services(use_dtm=use_dtm_any)
+        if not cz_sources:  # mimo Česko se české zdroje nepoužijí, jen OSM a Sentinel
+            services = [s for s in services if s.get("key") in ("osm", "sentinel")]
+        for is_issue, text in down_source_lines(services, dtm_needed=dtm_needed):
             if is_issue:
                 log_issue(log, text)
             else:
@@ -886,7 +889,8 @@ def run_job_pipeline(
                 log=log,
             )
         except Exception as exc:
-            log_issue(log, f"Výškové modely ({elevation}): přeskočeno ({exc})")
+            # Bez terénu nejsou vrstevnice ani srázy: job skončí srozumitelnou chybou, ne pádem PDAL ve vrstevnicích.
+            raise RuntimeError(f"Výšková data ({elevation}) nejsou k dispozici: {exc}") from exc
         progress.done()
     elif grid_bounds is not None:
         progress.begin("výškové modely")

@@ -130,7 +130,8 @@ def test_ahn_coverage_urls_tiling():
 
     small = ahn_coverage_urls("dtm_05m", (117000.2, 480000.0, 118000.0, 481000.7))
     assert len(small) == 1
-    assert "COVERAGEID=dtm_05m" in small[0] and "SUBSET=x(116980,118020)" in small[0]
+    assert "COVERAGEID=dtm_05m" in small[0] and "SUBSET=x(116980.0,118020.0)" in small[0]
+    assert "SUBSET=y(479980.0,481021.0)" in small[0]
     big = ahn_coverage_urls("dsm_05m", (100000.0, 400000.0, 100000.0 + 2.5 * AHN_MAX_SIDE_M, 401000.0))
     assert len(big) == 3
 
@@ -173,6 +174,7 @@ def test_sk_wcs_urls_and_geoid(tmp_path):
 
     urls = er.sk_wcs_urls((208000.3, 5341500.0, 210000.0, 5343500.0))
     assert len(urls) == 1 and "subset=E(207980,210020)" in urls[0] and "el__EL.GridCoverage" in urls[0]
+    assert "subset=N(5341480,5343520)" in urls[0] and "e+" not in urls[0]  # ne vědecký zápis (GeoServer 400)
     assert len(er.sk_wcs_urls((200000.0, 5300000.0, 209000.0, 5301000.0))) == 3
     # Mřížka kvazigeoidu: lineární v délce → bilineární interpolace přesná.
     grid = tmp_path / "geoid.tif"

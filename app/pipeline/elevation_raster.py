@@ -154,7 +154,7 @@ def ahn_coverage_urls(coverage: str, bounds_rd: tuple[float, float, float, float
     """GetCoverage URL po dlaždicích nejvýš ``AHN_MAX_SIDE_M`` (souřadnice RD New, zarovnané na 0,5 m)."""
     return [
         f"{AHN_WCS}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID={coverage}"
-        f"&FORMAT=image/tiff&SUBSET=x({x0:g},{x1:g})&SUBSET=y({y0:g},{y1:g})"
+        f"&FORMAT=image/tiff&SUBSET=x({x0:.1f},{x1:.1f})&SUBSET=y({y0:.1f},{y1:.1f})"
         for x0, y0, x1, y1 in tile_boxes(bounds_rd, max_side=AHN_MAX_SIDE_M, buffer=AHN_BUFFER_M, step=0.5)
     ]
 
@@ -194,7 +194,7 @@ SK_GEOID_URL = "https://cdn.proj.org/sk_gku_Slovakia_ETRS89h_to_Baltic1957.tif"
 def sk_wcs_urls(bounds_utm: tuple[float, float, float, float]) -> list[str]:
     return [
         f"{SK_WCS}?service=WCS&version=2.0.1&request=GetCoverage&coverageId={SK_COVERAGE}"
-        f"&format=image/tiff&subset=E({x0:g},{x1:g})&subset=N({y0:g},{y1:g})&geotiff:compression=Deflate"
+        f"&format=image/tiff&subset=E({x0:.0f},{x1:.0f})&subset=N({y0:.0f},{y1:.0f})&geotiff:compression=Deflate"
         for x0, y0, x1, y1 in tile_boxes(bounds_utm, max_side=SK_MAX_SIDE_M, buffer=SK_BUFFER_M, step=1.0)
     ]
 
