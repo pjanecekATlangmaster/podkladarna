@@ -238,3 +238,38 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         assert orthophoto.fetch_orthophoto(tmp_path, (0, 0, 10, 10)) is None
     finally:
         os.environ.pop(country_profile.JOB_COUNTRY_ENV, None)  # monkeypatch.delenv by „SK“ po testu vrátil
+
+
+def test_vegetation_from_osm_open_land(tmp_path):
+    import json
+
+    import shapefile
+
+    from app.pipeline.vegetation_osm import write_vegetation_from_osm
+
+    def poly(x0, y0, x1, y1, cover):
+        ring = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        return {"type": "Feature", "properties": {"cover": cover}, "geometry": {"type": "Polygon", "coordinates": [ring]}}
+
+    (tmp_path / "osm_paths").mkdir()
+    (tmp_path / "osm_paths" / "natural_cover.geojson").write_text(
+        json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    poly(0, 0, 100, 100, "meadow"),
+                    poly(40, 40, 60, 60, "forest"),  # les v louce má přednost
+                    poly(200, 0, 300, 100, "forest"),
+                    poly(400, 0, 405, 5, "farmland"),  # drobek pod 100 m²
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    dest = write_vegetation_from_osm(tmp_path)
+    reader = shapefile.Reader(str(dest))
+    recs = reader.records()
+    assert [(r["cls"], r["code"]) for r in recs] == [(1, "401")]
+    from shapely.geometry import shape
+
+    assert shape(reader.shape(0).__geo_interface__).area == pytest.approx(10000 - 400)

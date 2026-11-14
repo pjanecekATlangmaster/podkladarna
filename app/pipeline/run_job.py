@@ -1093,6 +1093,14 @@ def run_job_pipeline(
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
             log_issue(log, f"OSM: přeskočeno ({exc})")
+        if raster_elevation and not (work_dir / "vegetation" / "vegetation.shp").is_file():
+            # Zdroj výšek bez povrchu (SK): louky a pole z OSM jako 401, les bílý (Petr 2026-11-14).
+            try:
+                from app.pipeline.vegetation_osm import write_vegetation_from_osm
+
+                write_vegetation_from_osm(work_dir, log=log)
+            except Exception as exc:
+                log_issue(log, f"Vegetace z OSM: přeskočeno ({exc})")
         progress.done()
 
     # Shade vždy (OOM/ZIP + ČÚZK reference). Náhled PNG z .omap po sestavení.
