@@ -190,10 +190,16 @@ def _curve_area_gain(poly) -> float:
 def _touches(part, poly) -> bool:
     """Kus po vyhlazení sousedí s původní plochou; neplatný kus (GEOS „side location conflict“,
     les Posbank NL z AHN) se nejdřív opraví nulovým bufferem."""
+    from shapely import make_valid
+
     try:
         return part.intersects(poly)
     except Exception:
-        return part.buffer(0).intersects(poly.buffer(0))
+        pass
+    try:
+        return make_valid(part).intersects(make_valid(poly))
+    except Exception:
+        return True  # nejde rozhodnout: kus ponechat (zahazují se jen ostrůvky za překážkou)
 
 
 def smooth_area(
