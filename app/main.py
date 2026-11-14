@@ -468,13 +468,16 @@ def api_usage_stats():
 
 
 @app.get("/api/source_status")
-def api_source_status():
-    """Dostupnost zdrojů dat (web podle ní varuje před spuštěním).
+def api_source_status(country: str | None = None):
+    """Dostupnost zdrojů dat (web podle ní varuje před spuštěním); ``country`` = země výřezu (místní servery).
 
     Starší výsledek než ``SOURCE_CHECK_TTL_MIN`` spustí kontrolu na pozadí (``checking``)."""
     ttl = app_settings.SOURCE_CHECK_TTL_MIN
+    code = str(country or "").strip().upper()
+    if code not in countries.offered_codes():
+        code = countries.DEFAULT_COUNTRY
     checking = source_status.refresh_if_stale()
-    return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, **source_status.snapshot()}
+    return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, "country": code, **source_status.snapshot(code)}
 
 
 @app.get("/api/presets")
@@ -592,8 +595,9 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
                 sprint_max=float(sprint_max_area_km2()),
             ),
         }
+    lidar_sheets = job_country.elevation == "cz_openzu"  # listy SM5 jen u LiDARu ČÚZK
     try:
-        sheets = query_sm5_sheets(west, south, east, north)
+        sheets = query_sm5_sheets(west, south, east, north) if lidar_sheets else []
     except FetchError as exc:
         raise HTTPException(400, _exc_detail(exc)) from exc
     names = [s["mapnom"] for s in sheets]
@@ -603,7 +607,7 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
         if sheets_too_big
         else None
     )
-    can_estimate = bool(sheets) and not sheets_too_big
+    can_estimate = (bool(sheets) or not lidar_sheets) and not sheets_too_big
     # Samokalibrace z vlastních dokončených jobů (3.34.0): zvlášť příprava a skládání map.
     try:
         cal = db.estimate_calibration()
@@ -1145,12 +1149,15 @@ async def api_create_job(request: Request):
                 continue
             seen_noms.add(mapnom)
             sheets.append({"mapnom": mapnom, "name": mapnom})
-    if not sheets:
+    lidar_sheets = job_country.elevation == "cz_openzu"  # mimo Česko výšky bez listů SM5
+    if not lidar_sheets:
+        sheets = []
+    if not sheets and lidar_sheets:
         try:
             sheets = query_sm5_sheets(*bbox)
         except FetchError as exc:
             raise HTTPException(400, _exc_detail(exc)) from exc
-    if not sheets:
+    if not sheets and lidar_sheets:
         raise HTTPException(400, i18n.Msg("api.job.no_sheet"))
     if len(sheets) > MAX_SHEETS:
         names = ", ".join(s["mapnom"] for s in sheets)

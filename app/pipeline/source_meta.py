@@ -27,8 +27,14 @@ _GPS_SAMPLE_POINTS = 50_000
 CITATION_SHORT = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
 
 
-def citation_line() -> str:
-    return f"{CITATION_SHORT} – {INDICATIVE_LABEL_CS}"
+def citation_line(options: dict | None = None) -> str:
+    """Citace pro šíření výstupu; ``options`` jobu vyberou zdroje podle země výřezu (bez nich Česko)."""
+    short = CITATION_SHORT
+    if options is not None:
+        from app.pipeline.country_profile import citation
+
+        short = citation(options)
+    return f"{short} – {INDICATIVE_LABEL_CS}"
 
 
 def _sheet_product_meta(folder: Path, laz_name: str, default_kind: str) -> dict:

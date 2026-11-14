@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from app.pipeline.crs_5514 import (
+    CRS_EPSG,
     CRS_LABEL,
     CRS_PROJ4,
     GEOGRAPHIC_CRS_PROJ4,
@@ -31,6 +32,13 @@ __all__ = [
     "projected_to_wgs84",
     "write_oom_map",
 ]
+
+
+def _citation_note() -> str:
+    """Citace zdrojů podle země běžícího jobu (licence místních dat vyžadují uvedení zdroje)."""
+    from app.pipeline.country_profile import citation
+
+    return f"Při šíření uveďte: {citation()}"
 
 
 def _template_xml(tmpl: OomTemplate) -> str:
@@ -200,11 +208,12 @@ def build_oom_map_xml(
 <map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
     <notes>Podkladárna – {safe_name}
 Výchozí pohled: jen vektorová mapa. Vrstevnice {display_code(preset_id, scale, "101")}/{display_code(preset_id, scale, "102")} jsou zamčené.
-PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.</notes>
+PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.
+{html.escape(_citation_note())}</notes>
     <georeferencing scale="{scale}" auxiliary_scale_factor="1" declination="{declination:.2f}" grivation="{grivation:.2f}">
         <projected_crs id="EPSG">
             <spec language="PROJ.4">{crs}</spec>
-            <parameter>5514</parameter>
+            <parameter>{CRS_EPSG}</parameter>
             <ref_point x="{ref_x:.6f}" y="{ref_y:.6f}"/>
         </projected_crs>
         <geographic_crs id="Geographic coordinates">

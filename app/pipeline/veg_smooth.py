@@ -187,6 +187,21 @@ def _curve_area_gain(poly) -> float:
         return 0.0
 
 
+def _touches(part, poly) -> bool:
+    """Kus po vyhlazení sousedí s původní plochou; neplatný kus (GEOS „side location conflict“,
+    les Posbank NL z AHN) se nejdřív opraví nulovým bufferem."""
+    from shapely import make_valid
+
+    try:
+        return part.intersects(poly)
+    except Exception:
+        pass
+    try:
+        return make_valid(part).intersects(make_valid(poly))
+    except Exception:
+        return True  # nejde rozhodnout: kus ponechat (zahazují se jen ostrůvky za překážkou)
+
+
 def smooth_area(
     ring: Ring,
     holes: list[Ring],
@@ -266,7 +281,7 @@ def smooth_area(
     out: AreaParts = []
     for p in polygons_of(simp):
         # Ostrůvek za překážkou, který s původní plochou nesousedí, zahodit.
-        if not p.intersects(poly):
+        if not _touches(p, poly):
             continue
         if len(p.exterior.coords) < 4:
             continue
@@ -329,7 +344,7 @@ def smooth_area_legacy(
     out: AreaParts = []
     for p in polygons_of(simp):
         # Ostrůvek za překážkou, který s původní plochou nesousedí, zahodit.
-        if not p.intersects(poly):
+        if not _touches(p, poly):
             continue
         if len(p.exterior.coords) < 4:
             continue

@@ -12,7 +12,7 @@ from pathlib import Path
 from app.pipeline.dxf_products import (
     collect_dxf_for_zip,
 )
-from app.guide_text import ZIP_ABOUT_TXT
+from app.guide_text import zip_about_txt
 from app.pipeline.aopk_trees import build_aopk_tree_parts, load_aopk_tree_points
 from app.pipeline.contours_gdal import build_gdal_contour_parts
 from app.pipeline.osm_paths import (
@@ -28,7 +28,7 @@ from app.pipeline.osm_paths import (
 )
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.job_progress import map_phase
-from app.pipeline.crs_5514 import projected_to_wgs84
+from app.pipeline.crs_5514 import CRS_LABEL, projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.geom_clip import expand
 from app.pipeline.oom_georef import oom_north_angles
@@ -483,7 +483,7 @@ def oom_metadata(
         "app_version": APP_VERSION,
         "preset_id": preset_id,
         "label": preset.get("label", preset_id),
-        "crs": "EPSG:5514",
+        "crs": CRS_LABEL,
         "scale": map_scale_from_scalefactor(sf),
         "scalefactor": sf,
         "contour_interval_m": options.get(
@@ -491,9 +491,14 @@ def oom_metadata(
         ),
         "formline": options.get("formline", preset.get("formline")),
         "indicative_label": INDICATIVE_LABEL_CS,
-        "citation": citation_line(),
+        "citation": citation_line(options),
         **reference_metadata(),
     }
+    from app.pipeline.country_profile import attribution_lines, citation, job_country_code
+
+    meta["country"] = job_country_code(options)
+    meta["citation_short"] = citation(options)
+    meta["data_sources"] = list(attribution_lines(options))
     if reference_layers:
         meta["reference_layers"] = reference_layers
     meta["path_source"] = oom_path_source(options, preset_id)
@@ -503,6 +508,34 @@ def oom_metadata(
         meta["dmp_degraded"] = bool(lidar_sources.get("dmp_degraded"))
         meta["dmp_leafless"] = bool(lidar_sources.get("dmp_leafless"))
     return meta
+
+
+def _country_citation(meta: dict | None) -> dict:
+    """Citace pro CO_JE_PODKLADARNA.txt z metadat jobu (starší metadata bez země = Česko)."""
+    meta = meta or {}
+    out: dict = {}
+    if meta.get("citation_short"):
+        out["citation"] = meta["citation_short"]
+    if meta.get("data_sources"):
+        out["attribution"] = tuple(meta["data_sources"])
+    return out
+
+
+def _data_sources_line(meta: dict) -> str:
+    """Zdroje dat s licencí v README (jak je vyžadují místní servery); bez země české znění."""
+    lines = meta.get("data_sources") or []
+    if not lines or (meta.get("country") or "CZ") == "CZ":
+        return (
+            "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
+            "AOPK památné stromy (CC BY 4.0). "
+            "OSM © přispěvatelé (ODbL)."
+        )
+    return "Data:\n" + "\n".join(f"- {line}" for line in lines) + "\n"
+
+
+def _crs_readme(meta: dict) -> str:
+    crs = meta.get("crs") or "EPSG:5514"
+    return "EPSG:5514 (S-JTSK / Křovák)" if crs == "EPSG:5514" else crs
 
 
 def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
@@ -526,7 +559,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
     if include_georef:
         georef_note = (
             "   Georef náhledy mapy jsou ve složce preview/ "
-            "(GeoTIFF v EPSG:5514, 300 DPI, s přehledkami; Mapper, jinak Pillow).\n"
+            f"(GeoTIFF v {meta.get('crs') or 'EPSG:5514'}, 300 DPI, s přehledkami; Mapper, jinak Pillow).\n"
         )
     else:
         georef_note = (
@@ -540,9 +573,10 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
     epochs_block = format_source_epochs_readme(meta.get("lidar_sources"))
     if epochs_block:
         epochs_block = "\n" + epochs_block + "\n"
-    dtm_block = dtm_summary.readme_block(meta.get("dtm"))
+    cz = (meta.get("country") or "CZ") == "CZ"
+    dtm_block = dtm_summary.readme_block(meta.get("dtm")) if cz else ""
     notice_block = "".join(
-        f"{dtm_summary.NOTICE_PREFIX}{line}\n\n" for line in dtm_summary.notice_lines(meta.get("dtm"))
+        f"{dtm_summary.NOTICE_PREFIX}{line}\n\n" for line in (dtm_summary.notice_lines(meta.get("dtm")) if cz else [])
     )
     if dtm_block:
         epochs_block += "\n" + dtm_block + "\n"
@@ -556,7 +590,19 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         if sentinel_info:
             ref_block += "\n" + sentinel_info.strip() + "\n"
     online = any(str(name).endswith((".xml", ".vrt")) for name in refs)
-    if online:
+    country = meta.get("country") or "CZ"
+    if online and country != "CZ":
+        from app.pipeline.online_templates import wms_readme_lines
+
+        refs_intro = (
+            "Podklady jsou online šablony (soubory .xml / .vrt ve složce references/, GDAL WMS) místních služeb\n"
+            "země výřezu a OpenStreetMap, každý v maximálním a středním zoomu (_stredni, 4× hrubší). V OOM jsou\n"
+            "v seznamu šablon vypnuté; po zapnutí se stáhnou z internetu. Výška vegetace (vyska_vegetace.png)\n"
+            "je z vlastního modelu povrchu. OCAD soubory .xml neotevře – připojte si podklady jako WMS:\n"
+            + "\n".join(wms_readme_lines(country))
+            + "\n"
+        )
+    elif online:
         from app.pipeline.online_templates import wms_readme_lines
 
         refs_intro = (
@@ -599,6 +645,11 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         "Porosty z hustoty LiDAR odrazů (záloha: výška CHM), ne ze ZABAGED luk. "
         "Srázy: skála vs. zem podle sklonu schodu.\n\n"
     )
+    if (meta.get("country") or "CZ") != "CZ":
+        relief_line = (
+            "Reliéf a vegetace: model terénu a povrchu země výřezu (viz Data) – vlastní DEM. "
+            "Porosty z výšky povrchu nad terénem (CHM). Srázy: skála vs. zem podle sklonu schodu.\n\n"
+        )
     return (
         "Podkladárna – balíček pro OpenOrienteering Mapper\n"
         "=================================================\n\n"
@@ -608,7 +659,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         f"Typ mapy: {label}\n"
         f"Měřítko: 1:{scale}\n"
         f"Ekvidistance: {interval_txt}\n"
-        "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n"
+        f"Souřadnicový systém: {_crs_readme(meta)}\n"
         f"{epochs_block}\n"
         f"{refs_intro}"
         f"{ref_block}\n"
@@ -626,9 +677,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         "   (ISOM / ISSprOM / ISMTBOM) – lze ji v OCADu použít k nahrazení symbolů\n"
         "   (kódy symbolů se shodují).\n"
         "Soubor .omap OCAD nativně neotevře – zůstal pro OOM; případně DXF/SHP/PNG+PGW.\n\n"
-        "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
-        "AOPK památné stromy (CC BY 4.0). "
-        "OSM © přispěvatelé (ODbL). Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
+        f"{_data_sources_line(meta)} Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
         f"{citation}\n"
         f"{relief_line}"
         "Podkladárna je experiment, proto ocením zpětnou vazbu a připomínky:\n"
@@ -1381,7 +1430,10 @@ def build_oom_zip(
     part_zip.unlink(missing_ok=True)
 
     with zipfile.ZipFile(part_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("CO_JE_PODKLADARNA.txt", ZIP_ABOUT_TXT)
+        zf.writestr(
+            "CO_JE_PODKLADARNA.txt",
+            zip_about_txt(**_country_citation(metadata)),
+        )
         if omap_paths:
             for omap_path in omap_paths:
                 if omap_path.is_file():

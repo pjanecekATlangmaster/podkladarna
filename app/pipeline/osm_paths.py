@@ -21,7 +21,7 @@ from pathlib import Path
 from zipfile import ZipFile
 
 from app.pipeline import zone_index
-from app.pipeline.crs_5514 import wgs84_to_projected, write_prj
+from app.pipeline.crs_5514 import CRS_LABEL, wgs84_to_projected, write_prj
 from app.pipeline.fetch_openzu import USER_AGENT, VECTOR_FETCH_BUFFER_M, expand_bbox_wgs84
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -4541,9 +4541,9 @@ def _geojson_to_shapefile(
             "ESRI Shapefile",
             "-overwrite",
             "-s_srs",
-            "EPSG:5514",
+            CRS_LABEL,
             "-t_srs",
-            "EPSG:5514",
+            CRS_LABEL,
             "-lco",
             "ENCODING=UTF-8",
             "-mapFieldType",
@@ -4693,7 +4693,7 @@ def write_osm_manual_shapefiles(
         )
         lines.append(f"{stem:<18} {geom:<10} {describe_code(code)}  ({desc})")
     lines.append("")
-    lines.append("Souřadnice: EPSG:5514 (S-JTSK).")
+    lines.append(f"Souřadnice: {CRS_LABEL}.")
     lines.append("")
     readme.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

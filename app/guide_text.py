@@ -242,7 +242,7 @@ def web_about_html(lang: str) -> str:
     """Úvod v jazyce stránky; bez překladu anglicky (pak česky)."""
     return WEB_ABOUT_HTML_BY_LANG.get(lang) or WEB_ABOUT_HTML_BY_LANG.get("en") or WEB_ABOUT_HTML
 
-ZIP_ABOUT_TXT = f"""Podkladárna – co je v tomto balíčku
+_ZIP_ABOUT_TEMPLATE = f"""Podkladárna – co je v tomto balíčku
 ==================================
 
 Tento ZIP vygenerovala služba Podkladárna (LiDAR + ZABAGED + OSM → podklad pro OOM).
@@ -325,9 +325,23 @@ https://podkladarna.kibos.link/podpora
 Právní
 ------
 Kód Podkladárny: MIT. Výstup jobu (PNG, .omap, …): CC BY 4.0 –
-při šíření uveďte: „Podklad: Podkladárna · ČÚZK · OSM, [rok]“.
-Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto) – CC BY 4.0.
-AOPK památné stromy (CC BY 4.0). OSM © přispěvatelé (ODbL).
+při šíření uveďte: „{{citation}}“.
+{{attribution}}
 Volně inspirováno Karttapullautinem.
 
 """
+
+CZ_CITATION = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
+CZ_ATTRIBUTION = (
+    "Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto) – CC BY 4.0.",
+    "AOPK památné stromy (CC BY 4.0). OSM © přispěvatelé (ODbL).",
+)
+
+
+def zip_about_txt(citation: str = CZ_CITATION, attribution: tuple[str, ...] = CZ_ATTRIBUTION) -> str:
+    """CO_JE_PODKLADARNA.txt s citací zdrojů podle země výřezu (licence místních dat)."""
+    return _ZIP_ABOUT_TEMPLATE.format(citation=citation, attribution="\n".join(attribution or CZ_ATTRIBUTION))
+
+
+ZIP_ABOUT_TXT = zip_about_txt()
+

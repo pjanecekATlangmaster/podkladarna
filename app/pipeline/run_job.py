@@ -21,6 +21,14 @@ from app.download_cache import (
     try_restore_lidar_crop,
 )
 from app.pipeline.contours_gdal import generate_job_contours, qa_contours_vs_shared_dem
+from app.pipeline.country_profile import (
+    ELEVATION_CZ,
+    elevation_source,
+    job_country_code,
+    process_uses_cz_sources,
+    set_process_country,
+    uses_cz_sources,
+)
 from app.pipeline.dem_prep import SurfacesPrep, start_job_surfaces
 from app.pipeline.fetch_aopk import fetch_aopk_trees_for_bbox
 from app.pipeline.fetch_openzu import (
@@ -419,11 +427,16 @@ def _with_online_templates(
     """
     if not bbox:
         return built_refs
+    from app.pipeline.country_profile import process_country
     from app.pipeline.online_templates import ONLINE_ONLY_KEYS, write_online_templates
 
+    country = process_country()
     try:
         online = write_online_templates(
-            crop_bounds_5514(*bbox), reference_dir, only=ONLINE_ONLY_KEYS if only_online else None
+            crop_bounds_5514(*bbox),
+            reference_dir,
+            only=ONLINE_ONLY_KEYS if only_online else None,
+            country=country.code if country else "CZ",
         )
     except Exception as exc:
         log_issue(log, f"Online šablony podkladů: přeskočeno ({exc})")
@@ -472,6 +485,17 @@ def join_reference_download(
     """
     built_refs: dict[str, Path] = {}
     reference_dir = work_dir / "references"
+    if bbox and not process_uses_cz_sources():
+        # Mimo Česko: online šablony místních služeb a OSM, výška vegetace z vlastního CHM, Sentinel-2.
+        if progress is not None:
+            progress.begin("referenční podklady")
+        built_refs = _with_vegetation_height(built_refs, work_dir, reference_dir, log)
+        if sentinel:
+            add_sentinel2_reference(built_refs, tuple(bbox), reference_dir, log=log)
+        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log)
+        if progress is not None:
+            progress.done()
+        return built_refs, sorted(p.name for p in built_refs.values())
     if not want_refs and ref_download is None:
         if progress is not None:
             progress.skip("referenční podklady", reason="online šablony")
@@ -586,6 +610,10 @@ def run_job_pipeline(
     # Základní sada (lavičky, rozcestníky, pomníky, památné stromy…) – ve sprintu výchozí.
     osm_basic = resolve_osm_basic_objects(options, preset_id)
     force_refresh = force_refresh_enabled(options)
+    # Země jobu (zahraniční build): mimo Česko bez českých zdrojů, výšky ze zdroje země.
+    cz_sources = uses_cz_sources(options)
+    elevation = elevation_source(options)
+    set_process_country(options)
 
     want_zip, _ = resolve_want_zip(options)
     want_refs = bool(options.get("output_references", True))
@@ -604,10 +632,16 @@ def run_job_pipeline(
     build_stats.set_info(app_version=app_settings.APP_VERSION, preset_id=preset_id, force_refresh=force_refresh)
     if force_refresh:
         raw_log("Vynucené obnovení: cache (LiDAR, ZABAGED, podklady) se nepoužije.")
+    if not cz_sources:
+        raw_log(
+            f"Země výřezu: {job_country_code(options)} – mapa se kreslí z OSM, české zdroje "
+            "(ZABAGED, DTM, RÚIAN, katastr, ortofoto ČÚZK) se nestahují."
+        )
     # Bez DTM se les a MTBO kreslí plnohodnotně z OSM a ZABAGED: chybějící DTM je chyba jobu jen u sprintu z DTM.
     try:
         dtm_needed = bool(
-            options.get("dtm_fences", True) is not False
+            cz_sources
+            and options.get("dtm_fences", True) is not False
             and resolve_use_dtm(options, "sprint")
             and job_has_sprint(preset_id, options)
         )
@@ -616,8 +650,10 @@ def run_job_pipeline(
     try:  # stav zdrojů z poslední kontroly webu (app.source_status); job běží dál beze změny
         from app import source_status
 
-        use_dtm_any = resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest")
-        for is_issue, text in down_source_lines(source_status.down_services(use_dtm=use_dtm_any), dtm_needed=dtm_needed):
+        use_dtm_any = cz_sources and (resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest"))
+        # Zdroje země výřezu (mimo Česko místní servery, OSM a Sentinel; české se nepoužijí).
+        services = source_status.down_services(use_dtm=use_dtm_any, country=job_country_code(options))
+        for is_issue, text in down_source_lines(services, dtm_needed=dtm_needed):
             if is_issue:
                 log_issue(log, text)
             else:
@@ -661,7 +697,7 @@ def run_job_pipeline(
         # výsledek se vezme při sestavení mapy (každý preset si z něj bere, co dává smysl).
         try:
             dtm_maps = {
-                tag: bool(resolve_use_dtm(options, disc_preset) and options.get("dtm_fences", True))
+                tag: bool(cz_sources and resolve_use_dtm(options, disc_preset) and options.get("dtm_fences", True))
                 for tag, disc_preset, _scale in resolve_discipline_presets(
                     preset_id,
                     load_presets(),
@@ -687,6 +723,8 @@ def run_job_pipeline(
                 "do mapy jdou při sestavení."
                 if dtm_on
                 else "Kresba z DTM: ne – mapa se kreslí z OSM a ZABAGED."
+                if cz_sources
+                else "Kresba z DTM: ne – mimo Česko."
             )
             if dtm_on:
                 dtm_prefetch = start_dtm_prefetch(
@@ -702,7 +740,7 @@ def run_job_pipeline(
                 raw_log(f"DTM: příprava na pozadí se nespustila ({exc}); mapa se kreslí z OSM a ZABAGED.")
         # ZABAGED (souběžně s LiDARem), RÚIAN, AOPK a u sprintu katastr + ortofoto na pozadí.
         try:
-            vector_prefetch = start_vector_prefetch(
+            vector_prefetch = None if not cz_sources else start_vector_prefetch(
                 work_dir,
                 tuple(bbox),
                 force_refresh=force_refresh,
@@ -729,7 +767,12 @@ def run_job_pipeline(
         if pair is not None:
             merged_existing = pair[0]
 
-    if bbox:
+    raster_elevation = bool(bbox) and elevation != ELEVATION_CZ
+    if bbox and raster_elevation:
+        # Mimo Česko: výšky jako rastry terénu a povrchu (``elevation_raster``) až na mřížce mapy, bez LAZ.
+        progress.skip("stažení LiDAR", reason=f"výšky ze zdroje země ({elevation})")
+        progress.skip("stažení ZABAGED", reason="mimo Česko")
+    elif bbox:
         west, south, east, north = bbox
         progress.begin("stažení LiDAR")
         # Listy se stahují na pozadí; ořez listu (příprava LiDAR) začne hned po stažení jeho souboru.
@@ -761,7 +804,7 @@ def run_job_pipeline(
     bbox_tuple = tuple(bbox) if bbox else None
     surfaces_cache: Path | None = None
     crop_cache: Path | None = None
-    if bbox_tuple is not None:
+    if bbox_tuple is not None and not raster_elevation:
         surfaces_cache = surfaces_cache_dir(
             bbox_tuple,
             resolution_m=DEFAULT_RESOLUTION_M,
@@ -787,8 +830,8 @@ def run_job_pipeline(
         )
         progress.done()
         # Referenční PNG na pozadí (sériově ČÚZK) × overlap s těžkým buildem;
-        # bez podkladů se na pozadí stahuje aspoň stínování.
-        if bbox:
+        # bez podkladů se na pozadí stahuje aspoň stínování. Mimo Česko nic (stínování z vlastního DEM).
+        if bbox and cz_sources:
             ref_download = start_reference_download(
                 job_dir,
                 work_dir,
@@ -807,6 +850,9 @@ def run_job_pipeline(
     if reused_from and merged_existing:
         merged = merged_existing
         progress.skip("příprava LiDAR")
+    elif raster_elevation:
+        merged = lidar_work / "ground_merged.laz"  # neexistuje; vrstevnice berou dem_filled z rastru
+        progress.skip("příprava LiDAR", reason="výšky z rastru")
     else:
         cached_merged = None
         progress.begin("příprava LiDAR")
@@ -840,7 +886,7 @@ def run_job_pipeline(
                     log=log,
                 )
             progress.done()
-    if bbox:
+    if bbox and not raster_elevation:
         # Strop cache LiDARu (``LIDAR_CACHE_MAX_GB``): smaže nejdéle nepoužité listy, ne listy tohoto jobu.
         try:
             prune_lidar_cache(
@@ -852,7 +898,24 @@ def run_job_pipeline(
             log(f"Úklid cache LiDARu selhal: {exc}")
 
     surfaces: SurfacesPrep | None = None
-    if grid_bounds is not None:
+    if grid_bounds is not None and raster_elevation:
+        progress.begin("výškové modely")
+        try:
+            from app.pipeline.elevation_raster import prepare_raster_surfaces
+
+            prepare_raster_surfaces(
+                work_dir,
+                grid_bounds,
+                source=elevation,
+                resolution_m=DEFAULT_RESOLUTION_M,
+                force_refresh=force_refresh,
+                log=log,
+            )
+        except Exception as exc:
+            # Bez terénu nejsou vrstevnice ani srázy: job skončí srozumitelnou chybou, ne pádem PDAL ve vrstevnicích.
+            raise RuntimeError(f"Výšková data ({elevation}) nejsou k dispozici: {exc}") from exc
+        progress.done()
+    elif grid_bounds is not None:
         progress.begin("výškové modely")
         try:
             # DEM hned; DSM/CHM z DMP na pozadí (překryv s vrstevnicemi a
@@ -921,7 +984,7 @@ def run_job_pipeline(
         clean_zabaged(zabaged_src, zabaged_clean, log=log)
         progress.done()
     elif bbox:
-        progress.skip("příprava ZABAGED", reason="chybí zdroj")
+        progress.skip("příprava ZABAGED", reason="chybí zdroj" if cz_sources else "mimo Česko")
 
     work_cwd = work_dir
     temp_dir = work_cwd / "temp"
@@ -965,7 +1028,7 @@ def run_job_pipeline(
         log(f"Filtr velikosti/tvaru: {veg_size_profile}")
     vege_shp = None
     veg_buildings: Path | None = None
-    if bbox:
+    if bbox and cz_sources:
         # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
         try:
             veg_buildings = (
@@ -1015,7 +1078,7 @@ def run_job_pipeline(
         log_issue(log, f"Balvany: přeskočeno ({exc})")
     progress.done()
 
-    if not has_zabaged or not zabaged_clean.is_file():
+    if cz_sources and (not has_zabaged or not zabaged_clean.is_file()):
         raise RuntimeError(
             "ZABAGED (polohopis) není k dispozici – bez něj nelze dokončit mapu."
         )
@@ -1026,7 +1089,7 @@ def run_job_pipeline(
             prepare_osm_paths(
                 work_dir,
                 tuple(bbox),
-                zabaged_clean,
+                zabaged_clean if has_zabaged else None,
                 include_benches=osm_objects or osm_basic,
                 include_lamps=osm_objects,
                 include_playground_equipment=osm_objects or osm_basic,
@@ -1059,7 +1122,7 @@ def run_job_pipeline(
         build_job_shade(
             work_dir,
             bounds_5514=grid_bounds,
-            prefer_local=False,
+            prefer_local=not cz_sources,  # mimo Česko jen z vlastního DEM (WMS ČÚZK tam nic nemá)
             force=shade_force,
             cache_dir=surfaces_cache,
             log=log,
@@ -1219,24 +1282,32 @@ def _package_output(
         certain_paths: list[Path] = []
         ruian_path: Path | None = None
         aopk_path: Path | None = None
+        if bbox and not uses_cz_sources(options) and progress is not None:
+            progress.skip("RÚIAN a AOPK", reason="mimo Česko")
         if bbox:
-            if progress is not None:
+            if progress is not None and uses_cz_sources(options):
                 progress.begin("RÚIAN a AOPK")
             try:
                 ruian_path = (
-                    vector_prefetch.ruian(log) if vector_prefetch is not None else None
-                ) or fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
+                    (vector_prefetch.ruian(log) if vector_prefetch is not None else None)
+                    or fetch_ruian_buildings_for_bbox(tuple(bbox), log=log)
+                    if uses_cz_sources(options)
+                    else None
+                )
             except Exception as exc:
                 log_issue(log, f"RÚIAN budovy: přeskočeno ({exc})")
                 ruian_path = None
             try:
                 aopk_path = (
-                    vector_prefetch.aopk(log) if vector_prefetch is not None else None
-                ) or fetch_aopk_trees_for_bbox(tuple(bbox), log=log)
+                    (vector_prefetch.aopk(log) if vector_prefetch is not None else None)
+                    or fetch_aopk_trees_for_bbox(tuple(bbox), log=log)
+                    if uses_cz_sources(options)
+                    else None
+                )
             except Exception as exc:
                 log_issue(log, f"AOPK stromy: přeskočeno ({exc})")
                 aopk_path = None
-            if progress is not None:
+            if progress is not None and uses_cz_sources(options):
                 progress.done()
 
             indexcontours_m = options.get("indexcontours", preset.get("indexcontours"))

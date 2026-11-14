@@ -24,7 +24,7 @@ def grid_convergence_deg(ref_x: float, ref_y: float, crs_proj4: str = CRS_PROJ4)
     """Úhel mezi severem sítě a geografickým severem v ref. bodě (algoritmus OOM)."""
     from pyproj import CRS, Transformer
 
-    crs = CRS.from_proj4(crs_proj4)
+    crs = CRS.from_user_input(crs_proj4)  # PROJ řetězec (S-JTSK) nebo EPSG:<kód>
     wgs84 = CRS.from_epsg(4326)
     to_geo = Transformer.from_crs(crs, wgs84, always_xy=True)
     lon0, lat0 = to_geo.transform(ref_x, ref_y)

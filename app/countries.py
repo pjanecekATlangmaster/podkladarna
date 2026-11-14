@@ -2,6 +2,8 @@
 
 Konfigurace ``configs/countries.yaml`` + polygony hranic ``configs/countries/<kód>.geojson``.
 Povolené území požadavku = země domény (``SITES``, ``*`` = všechny) ∩ země se ``status: live``; bez ``SITES`` jen CZ.
+Země se ``status: beta`` (zahraniční build) přidá ``COUNTRIES_BETA`` (seznam kódů nebo ``*``; na testu B výchozí ``*``)
+bez ohledu na doménu; na ostré se bez proměnné nenabízí.
 
 Výřez patří zemi, ve které leží aspoň ``MIN_SHARE`` jeho plochy (Petr 2026-11-14, karta „většina v zemi, zbytek
 z OSM“). Přesah za hranici projde, ale kreslí se jen z OSM (LiDAR, ZABAGED ani DTM tam nejsou) a web i log
@@ -11,7 +13,8 @@ na to upozorní. Podíl se počítá v rovině lon × cos(φ) × lat – na vý�
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -55,6 +58,11 @@ class Country:
     crs: str
     rings: tuple[tuple[tuple[float, float], ...], ...]  # vnější obrysy (lon, lat), bez děr
     view: tuple[float, float, float, float]  # jih, západ, sever, východ
+    elevation: str = "cz_openzu"  # zdroj výšek (``app.pipeline.country_profile``)
+    cz_sources: bool = True  # ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK ortofoto a stínování
+    # Citace zdrojů, které vyžadují licence místních dat (README, CO_JE_PODKLADARNA, poznámka .omap).
+    attribution: tuple[str, ...] = ()
+    citation: str = ""
 
     def name(self, lang: str = "cs") -> str:
         return self.names.get(lang) or self.names.get("en") or self.code
@@ -110,23 +118,53 @@ def load_countries() -> dict[str, Country]:
             crs=str(spec.get("crs") or ""),
             rings=rings,
             view=view if len(view) == 4 else (0.0, 0.0, 0.0, 0.0),
+            elevation=str(spec.get("elevation") or ("cz_openzu" if code == DEFAULT_COUNTRY else "none")),
+            cz_sources=bool(spec.get("cz_sources", code == DEFAULT_COUNTRY)),
+            attribution=tuple(str(line) for line in (spec.get("attribution") or [])),
+            citation=str(spec.get("citation") or ""),
         )
         if len(view) != 4:
             w, s, e, n = country.envelope
-            country = Country(country.code, country.names, country.status, country.crs, rings, (s, w, n, e))
+            country = replace(country, view=(s, w, n, e))
         out[code] = country
     return out
 
 
+def beta_codes() -> frozenset[str]:
+    """Kódy zemí ``status: beta`` povolené proměnnou ``COUNTRIES_BETA`` (``*`` = všechny beta)."""
+    raw = os.environ.get("COUNTRIES_BETA")
+    if raw is None:
+        from app import settings
+
+        raw = "*" if settings.INSTANCE_CHANNEL == "test" else ""
+    return frozenset(c.strip().upper() for c in raw.replace(";", ",").split(",") if c.strip())
+
+
+def offered_codes() -> frozenset[str]:
+    """Země, které instance nějaké doméně nabízí (``live`` a povolené ``beta``); podle nich stav zdrojů."""
+    beta = beta_codes()
+    return frozenset(
+        c.code
+        for c in load_countries().values()
+        if c.status == "live" or (c.status == "beta" and ("*" in beta or c.code in beta))
+    )
+
+
 def allowed_countries(site: Any = None) -> list[Country]:
-    """Země, které smí požadavek použít: země domény (``Site.countries``) ∩ ``status: live``."""
+    """Země, které smí požadavek použít: země domény (``Site.countries``) ∩ ``status: live``, plus beta země
+    z ``COUNTRIES_BETA``."""
     countries = load_countries()
     codes = tuple(getattr(site, "countries", None) or (DEFAULT_COUNTRY,))
     live = [c for c in countries.values() if c.status == "live"]
     if "*" in codes:
-        return live
-    wanted = {c.upper() for c in codes}
-    return [c for c in live if c.code in wanted]
+        out = live
+    else:
+        wanted = {c.upper() for c in codes}
+        out = [c for c in live if c.code in wanted]
+    beta = beta_codes()
+    if beta:
+        out = out + [c for c in countries.values() if c.status == "beta" and ("*" in beta or c.code in beta)]
+    return out
 
 
 # --------------------------------------------------------------------------- geometrie (bez shapely)

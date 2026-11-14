@@ -8,6 +8,9 @@ import pytest
 
 # Testy nesmí volat skutečné služby (kontrola zdrojů dat při startu aplikace).
 os.environ["SOURCE_CHECK_TTL_MIN"] = "0"
+# Beta země (zahraniční build) jen tam, kde je test výslovně zapne.
+os.environ["COUNTRIES_BETA"] = ""
+os.environ.pop("PODKLADARNA_JOB_COUNTRY", None)
 
 
 @pytest.fixture()

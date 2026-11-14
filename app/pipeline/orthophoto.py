@@ -39,6 +39,10 @@ def fetch_orthophoto(
     (zaseknutá WMS), stáhne si ortofoto samo do ``OWN_SUBDIR`` mimo sdílenou cache.
 
     ``subdir``: vlastní cache malého výřezu (herní prvky 0,125 m), sdílenou ``CACHE_SUBDIR`` nepřepíše."""
+    from app.pipeline.country_profile import process_uses_cz_sources
+
+    if not process_uses_cz_sources():  # ortofoto ČÚZK mimo Česko nic nemá (bílé dlaždice by mátly detekce)
+        return None
     if not _FETCH_LOCK.acquire(timeout=-1 if wait_s is None else wait_s):
         if log:
             log(f"Ortofoto: předstažení běží déle než {wait_s:.0f} s – stahuji zvlášť")

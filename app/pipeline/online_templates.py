@@ -12,9 +12,21 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
-from app.pipeline.crs_5514 import CRS_PROJ4
+from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT
 from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.reference_nl import (
+    NL_AHN_WMS,
+    NL_BGT_TILE_URL,
+    NL_KADASTER_LAYER,
+    NL_KADASTER_WMS,
+    NL_LUCHTFOTO_LAYER,
+    NL_LUCHTFOTO_WMS,
+    NL_TOP10NL_LAYER,
+    NL_TOP10NL_WMS,
+    RD_TILE_ORIGIN,
+    RD_TILE_RES0,
+)
 from app.pipeline.reference_layers import (
     DMPOK_PREVIEW_LAYER,
     DMPOK_WMS,
@@ -80,6 +92,27 @@ ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] 
 )
 ONLINE_OSM = ("osm", "osm.vrt", "OpenStreetMap")
 
+# Nizozemsko (PDOK, citace v ``configs/countries.yaml``): ortofoto, TOP10NL, katastr a barevný výškopis AHN.
+NL_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("nl_luchtfoto", "luchtfoto_pdok.xml", "Luchtfoto PDOK (ortofoto)", NL_LUCHTFOTO_WMS, NL_LUCHTFOTO_LAYER,
+     "image/jpeg", False, 0.08),
+    ("nl_top10nl", "top10nl.xml", "BRT TOP10NL (topografická mapa)", NL_TOP10NL_WMS, NL_TOP10NL_LAYER,
+     "image/png", False, 1.0),
+    ("nl_kadaster", "kadastrale_kaart.xml", "Kadastrale kaart (katastr)", NL_KADASTER_WMS, NL_KADASTER_LAYER,
+     "image/png", True, 0.25),
+    ("nl_ahn", "ahn_dtm.xml", "AHN – výškový model terénu (barevně)", NL_AHN_WMS,
+     "dtm_05m", "image/png", False, 0.5),
+)
+# BGT je veřejně jen WMTS v mřížce RD (EPSG:28992): dlaždice přes GDAL TMS + okno výřezu jako VRT.
+NL_ONLINE_BGT = ("nl_bgt", "bgt.vrt", "BGT (velkoměřítková mapa)")
+NL_BGT_LEVEL = 15  # 0,105 m/px
+NL_BGT_MPP = 0.25
+
+
+def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bool, float], ...]:
+    """Online WMS vrstvy země výřezu (Česko ČÚZK, Nizozemsko PDOK, jinde jen OSM)."""
+    return {"CZ": ONLINE_WMS_LAYERS, "NL": NL_ONLINE_WMS_LAYERS}.get(country, ())
+
 
 def _size(width_m: float, height_m: float, mpp: float) -> tuple[int, int]:
     mpp = max(mpp, max(width_m, height_m) / MAX_PX)
@@ -95,7 +128,7 @@ def wms_xml(
     transparent: bool,
     mpp: float,
 ) -> str:
-    """GDAL WMS popis jedné vrstvy ČÚZK ve výřezu (S-JTSK, WMS 1.3.0)."""
+    """GDAL WMS popis jedné vrstvy ve výřezu (souřadnice jobu, WMS 1.3.0)."""
     xmin, ymin, xmax, ymax = bounds_5514
     sx, sy = _size(xmax - xmin, ymax - ymin, mpp)
     styles = "" if any(host in url for host in NO_DEFAULT_STYLE_HOSTS) else "default"
@@ -105,7 +138,7 @@ def wms_xml(
         '  <Service name="WMS">\n'
         "    <Version>1.3.0</Version>\n"
         f"    <ServerUrl>{html.escape(url + sep)}</ServerUrl>\n"
-        "    <CRS>EPSG:5514</CRS>\n"
+        f"    <CRS>{CRS_LABEL}</CRS>\n"
         f"    <ImageFormat>{image_format}</ImageFormat>\n"
         f"    <Transparent>{'TRUE' if transparent else 'FALSE'}</Transparent>\n"
         f"    <Layers>{html.escape(layer)}</Layers>\n"
@@ -119,7 +152,7 @@ def wms_xml(
         f"    <SizeX>{sx}</SizeX>\n"
         f"    <SizeY>{sy}</SizeY>\n"
         "  </DataWindow>\n"
-        "  <Projection>EPSG:5514</Projection>\n"
+        f"  <Projection>{CRS_LABEL}</Projection>\n"
         f"  <BandsCount>{4 if transparent else 3}</BandsCount>\n"
         f"  <BlockSizeX>{BLOCK_PX}</BlockSizeX>\n"
         f"  <BlockSizeY>{BLOCK_PX}</BlockSizeY>\n"
@@ -160,6 +193,37 @@ def osm_tms_xml(zoom: int) -> str:
     )
 
 
+def rd_tms_xml(url: str, level: int) -> str:
+    """Dlaždice WMTS v nizozemské mřížce RD (EPSG:28992, 256 px, počátek vlevo nahoře) jako GDAL TMS."""
+    x0, y0 = RD_TILE_ORIGIN
+    span = RD_TILE_RES0 * 256
+    return (
+        "<GDAL_WMS>\n"
+        '  <Service name="TMS">\n'
+        f"    <ServerUrl>{html.escape(url)}</ServerUrl>\n"
+        "  </Service>\n"
+        "  <DataWindow>\n"
+        f"    <UpperLeftX>{x0}</UpperLeftX>\n"
+        f"    <UpperLeftY>{y0}</UpperLeftY>\n"
+        f"    <LowerRightX>{x0 + span}</LowerRightX>\n"
+        f"    <LowerRightY>{y0 - span}</LowerRightY>\n"
+        f"    <TileLevel>{level}</TileLevel>\n"
+        "    <TileCountX>1</TileCountX>\n"
+        "    <TileCountY>1</TileCountY>\n"
+        "    <YOrigin>top</YOrigin>\n"
+        "  </DataWindow>\n"
+        "  <Projection>EPSG:28992</Projection>\n"
+        "  <BlockSizeX>256</BlockSizeX>\n"
+        "  <BlockSizeY>256</BlockSizeY>\n"
+        "  <BandsCount>4</BandsCount>\n"
+        "  <MaxConnections>4</MaxConnections>\n"
+        "  <Timeout>60</Timeout>\n"
+        f"  <UserAgent>{html.escape(USER_AGENT)}</UserAgent>\n"
+        "  <ZeroBlockHttpCodes>204,404</ZeroBlockHttpCodes>\n"
+        "</GDAL_WMS>\n"
+    )
+
+
 def osm_sjtsk_vrt(
     tms: Path, vrt: Path, bounds_5514: tuple[float, float, float, float], mpp: float = OSM_MPP
 ) -> bool:
@@ -184,14 +248,24 @@ def write_online_templates(
     out_dir: Path,
     *,
     only: frozenset[str] | None = None,
+    country: str = "CZ",
 ) -> dict[str, Path]:
     """Zapíše online šablony do ``out_dir`` (``references``); klíč ``online_<vrstva>`` → soubor.
 
     ``only``: jen vybrané vrstvy (např. ``ONLINE_ONLY_KEYS`` vedle stažených rastrů), OSM jen je-li v něm.
+    ``country``: země výřezu – místní služby (Česko ČÚZK, Nizozemsko PDOK); OSM všude.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
-    for key, filename, _label, url, layer, fmt, transparent, mpp in ONLINE_WMS_LAYERS:
+    if country == "NL" and (only is None or NL_ONLINE_BGT[0] in only):
+        key, filename, _label = NL_ONLINE_BGT
+        tms = out_dir / "bgt_dlazdice.xml"
+        tms.write_text(rd_tms_xml(NL_BGT_TILE_URL, NL_BGT_LEVEL), encoding="utf-8")
+        for suffix, factor, _lsuffix in ZOOM_VARIANTS:
+            vrt = out_dir / f"{Path(filename).stem}{suffix}.vrt"
+            if osm_sjtsk_vrt(tms, vrt, bounds_5514, NL_BGT_MPP * factor):
+                written[f"online_{key}{suffix}"] = vrt
+    for key, filename, _label, url, layer, fmt, transparent, mpp in wms_layers_for(country):
         if only is not None and key not in only:
             continue
         for suffix, factor, _lsuffix in ZOOM_VARIANTS:
@@ -217,7 +291,9 @@ def write_online_templates(
 
 def online_labels() -> dict[str, str]:
     """Klíč ``online_<vrstva>`` → popisek šablony."""
-    layers = [(k, label) for k, _f, label, *_rest in ONLINE_WMS_LAYERS] + [(ONLINE_OSM[0], ONLINE_OSM[2])]
+    layers = [
+        (k, label) for k, _f, label, *_rest in (*ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS)
+    ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     return {
         f"online_{k}{suffix}": f"{label}{lsuffix}"
         for k, label in layers
@@ -225,9 +301,12 @@ def online_labels() -> dict[str, str]:
     }
 
 
-def wms_readme_lines() -> list[str]:
+def wms_readme_lines(country: str = "CZ") -> list[str]:
     """Adresy WMS pro ruční připojení (OCAD, QGIS): popis – URL – vrstva."""
+    crs = "S-JTSK EPSG:5514" if country == "CZ" else CRS_LABEL
     seen: list[str] = []
-    for _key, _f, label, url, layer, *_rest in ONLINE_WMS_LAYERS:
-        seen.append(f"- {label}: {url} (vrstva {layer}, S-JTSK EPSG:5514)")
+    for _key, _f, label, url, layer, *_rest in wms_layers_for(country):
+        seen.append(f"- {label}: {url} (vrstva {layer}, {crs})")
+    if country == "NL":
+        seen.append(f"- {NL_ONLINE_BGT[2]}: WMTS {NL_BGT_TILE_URL.split('/standaard')[0]} (standaardvisualisatie, EPSG:28992)")
     return seen

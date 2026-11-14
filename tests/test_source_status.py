@@ -68,7 +68,7 @@ def test_check_all_tracks_down_since_file_and_api(fresh_state, monkeypatch, clie
     assert ss.refresh_if_stale() is False and probes == []
     body = client.get("/api/source_status").json()
     assert body["enabled"] is True and body["checking"] is False
-    assert [s["key"] for s in body["services"]] == [p.key for p in ss.PROBES]
+    assert [s["key"] for s in body["services"]] == [p.key for p in ss.probes_for("CZ")]
 
     # po TTL: job ověří znovu sám (synchronně)
     state["dtm"] = True
@@ -164,3 +164,26 @@ def test_short_outage_sends_nothing(fresh_state, monkeypatch):
     state["down"] = False
     ss.check_all()
     assert sent == []
+
+
+def test_local_sources_by_country(fresh_state, monkeypatch, client):
+    """Web ukáže místní servery země výřezu; vypnutá země se nekontroluje."""
+    urls: list[str] = []
+
+    def fake(url, method):
+        urls.append(url)
+        return (503, None, "") if "luchtfoto" in url else (200, None, "")
+
+    monkeypatch.setattr(ss, "_probe_url", fake)
+    ss.check_all()
+    assert not any("pdok.nl" in u for u in urls)  # NL je beta, bez COUNTRIES_BETA se nenabízí
+    monkeypatch.setenv("COUNTRIES_BETA", "NL")
+    assert ss.is_stale()  # nově nabízená země ještě nemá výsledek
+    ss.check_all()
+    nl = client.get("/api/source_status", params={"country": "nl"}).json()
+    keys = [s["key"] for s in nl["services"]]
+    assert nl["country"] == "NL" and "osm" in keys and "nl_ahn" in keys and "lidar" not in keys
+    assert [s["key"] for s in ss.down_services(country="NL")] == ["nl_luchtfoto"]
+    assert ss.down_services() == []  # české zdroje běží
+    cz = client.get("/api/source_status", params={"country": "XX"}).json()
+    assert cz["country"] == "CZ" and "nl_ahn" not in [s["key"] for s in cz["services"]]
