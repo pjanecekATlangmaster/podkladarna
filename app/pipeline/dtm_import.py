@@ -3216,12 +3216,15 @@ def cut_fences_by_buildings(
 
     if zone is None or zone.is_empty:
         return lines
+    import shapely
+
+    shapely.prepare(zone)  # připravená zóna jako první argument: test každého plotu bez průchodu celou zónou
     out = []
     for code, ln in lines:
         if len(ln) < 2:
             continue
         line = LineString(ln)
-        if not line.intersects(zone):
+        if not zone.intersects(line):
             out.append((code, ln))
             continue
         rest = line.difference(zone_index.local_zone(zone, line, 1.0))
