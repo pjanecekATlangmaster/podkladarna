@@ -592,8 +592,9 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
                 sprint_max=float(sprint_max_area_km2()),
             ),
         }
+    lidar_sheets = job_country.elevation == "cz_openzu"  # listy SM5 jen u LiDARu ČÚZK
     try:
-        sheets = query_sm5_sheets(west, south, east, north)
+        sheets = query_sm5_sheets(west, south, east, north) if lidar_sheets else []
     except FetchError as exc:
         raise HTTPException(400, _exc_detail(exc)) from exc
     names = [s["mapnom"] for s in sheets]
@@ -603,7 +604,7 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
         if sheets_too_big
         else None
     )
-    can_estimate = bool(sheets) and not sheets_too_big
+    can_estimate = (bool(sheets) or not lidar_sheets) and not sheets_too_big
     # Samokalibrace z vlastních dokončených jobů (3.34.0): zvlášť příprava a skládání map.
     try:
         cal = db.estimate_calibration()
@@ -1145,12 +1146,15 @@ async def api_create_job(request: Request):
                 continue
             seen_noms.add(mapnom)
             sheets.append({"mapnom": mapnom, "name": mapnom})
-    if not sheets:
+    lidar_sheets = job_country.elevation == "cz_openzu"  # mimo Česko výšky bez listů SM5
+    if not lidar_sheets:
+        sheets = []
+    if not sheets and lidar_sheets:
         try:
             sheets = query_sm5_sheets(*bbox)
         except FetchError as exc:
             raise HTTPException(400, _exc_detail(exc)) from exc
-    if not sheets:
+    if not sheets and lidar_sheets:
         raise HTTPException(400, i18n.Msg("api.job.no_sheet"))
     if len(sheets) > MAX_SHEETS:
         names = ", ".join(s["mapnom"] for s in sheets)

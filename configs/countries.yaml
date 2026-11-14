@@ -1,5 +1,6 @@
 # Podporované země (návrh /mnt/project-files/evropa-data/pohranicni-mapa-navrh.md).
-# status: live (lze vybrat) | beta (jen se zapnutým příznakem, zatím nepoužito) | off.
+# status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`) | off.
+# elevation: zdroj výšek (cz_openzu | local:<složka v DATA_ROOT> | nl_ahn | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
 # view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
@@ -9,3 +10,23 @@ CZ:
   crs: EPSG:5514
   boundary: countries/cz.geojson
   view: [48.55, 12.09, 51.06, 18.86]
+  elevation: cz_openzu      # výšková data: LiDAR DMR 5G + DMP OK z OpenZU (listy SM5)
+  cz_sources: true          # ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK ortofoto a stínování
+# Zahraniční build (vlákno „Připravit zahraniční build SK a NL“, 2026-11-14). beta = jen s COUNTRIES_BETA
+# (na testu B výchozí `*`), jinde se nenabízí. Kresba z OSM, české zdroje vypnuté.
+SK:
+  name: {cs: Slovensko, en: Slovakia, sk: Slovensko}
+  status: beta
+  crs: EPSG:5514            # S-JTSK jako Česko (data ÚGKK v S-JTSK [JTSK03])
+  boundary: countries/sk.geojson
+  view: [47.73, 16.83, 49.62, 22.57]
+  elevation: local:elevation/sk  # pilot: exporty DMR/DMP z mapového klienta ZBGIS v DATA_ROOT/elevation/sk/{dtm,dsm}
+  cz_sources: false
+NL:
+  name: {cs: Nizozemsko, en: Netherlands, nl: Nederland}
+  status: off               # čeká na souřadnice jobu podle země (EPSG:28992)
+  crs: EPSG:28992
+  boundary: countries/nl.geojson
+  view: [50.74, 3.34, 53.56, 7.21]
+  elevation: nl_ahn         # AHN DTM/DSM 0,5 m (PDOK WCS, CC0)
+  cz_sources: false

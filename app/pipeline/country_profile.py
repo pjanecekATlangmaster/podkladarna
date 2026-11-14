@@ -1,0 +1,38 @@
+"""Profil zdrojů jobu podle země výřezu (zahraniční build).
+
+Země jobu je ``options["country"]`` (nastaví ``app.main`` z ``app.countries.check_bbox``); starší joby bez pole
+jsou Česko. Mimo Česko se české zdroje (ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK ortofoto a podklady)
+nestahují a mapa se kreslí z OSM; výšková data dodá zdroj země (``elevation`` v ``configs/countries.yaml``).
+"""
+
+from __future__ import annotations
+
+from app.countries import DEFAULT_COUNTRY, Country, load_countries
+
+ELEVATION_CZ = "cz_openzu"
+ELEVATION_NONE = "none"
+
+
+def job_country_code(options: dict | None) -> str:
+    code = str((options or {}).get("country") or DEFAULT_COUNTRY).strip().upper()
+    return code or DEFAULT_COUNTRY
+
+
+def job_country(options: dict | None) -> Country | None:
+    return load_countries().get(job_country_code(options))
+
+
+def uses_cz_sources(options: dict | None) -> bool:
+    """Stahovat české vektory a podklady (ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK)?"""
+    country = job_country(options)
+    if country is None:
+        return job_country_code(options) == DEFAULT_COUNTRY
+    return country.cz_sources
+
+
+def elevation_source(options: dict | None) -> str:
+    """Zdroj výšek jobu: ``cz_openzu`` (LiDAR ČÚZK, listy SM5), ``none`` (bez terénu) nebo zdroj země."""
+    country = job_country(options)
+    if country is None:
+        return ELEVATION_CZ if job_country_code(options) == DEFAULT_COUNTRY else ELEVATION_NONE
+    return country.elevation or ELEVATION_NONE
