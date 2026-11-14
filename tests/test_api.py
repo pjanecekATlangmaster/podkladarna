@@ -924,5 +924,7 @@ def test_create_job_area_limit_by_type(client, monkeypatch, scale, contour, type
 def test_mtbo_scale_7500_in_web():
     root = Path(__file__).resolve().parent.parent / "web"
     assert "mtbo: [7500, 10000, 15000]" in (root / "static" / "app.js").read_text(encoding="utf-8")
-    html = (root / "index.html").read_text(encoding="utf-8")
+    from app.i18n import render_placeholders
+
+    html = render_placeholders((root / "index.html").read_text(encoding="utf-8"), "cs")
     assert any("MTBO" in ln and "1:7500" in ln for ln in html.splitlines() if "map-kind-card" in ln)

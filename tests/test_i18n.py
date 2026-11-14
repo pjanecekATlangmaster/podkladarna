@@ -15,13 +15,16 @@ def test_catalogs_complete_and_placeholders_match():
     assert i18n.missing_keys(cs, en) == []
     for key, text in cs.items():
         assert i18n.placeholders_in(text) == i18n.placeholders_in(en[key]), key
+        # HTML ve stránkových textech: stejné značky a id (app.js na ně sahá).
+        markup = lambda x: sorted(re.findall(r'id="[^"]+"|</?[a-z]+', x))
+        assert markup(text) == markup(en[key]), key
 
 
 def test_html_placeholders_exist_in_source_catalog():
     cs = i18n.catalog("cs")
     for name in ("index.html", "licence.html", "podpora.html"):
         html = (i18n.CATALOG_DIR.parent.parent / "web" / name).read_text(encoding="utf-8")
-        for key in re.findall(r"\{\{t:([a-zA-Z0-9_.\-]+)\}\}", html):
+        for key in re.findall(r"\{\{[th]:([a-zA-Z0-9_.\-]+)\}\}", html):
             assert key in cs, f"{name}: {key}"
 
 
@@ -101,3 +104,14 @@ def test_site_default_and_hreflang(client, monkeypatch):
     assert '<html lang="en"' in res.text
     assert 'hreflang="cs" href="https://podkladarna.kibos.link/"' in res.text
     assert '<link rel="canonical" href="https://example.eu/"' in res.text
+
+
+def test_page_texts_rendered_server_side_only(client, monkeypatch):
+    monkeypatch.setenv("LANGS", "cs,en")
+    res = client.get("/?lang=en")
+    assert "{{h:" not in res.text and "{{t:" not in res.text
+    assert "Start generating" in res.text and "Spustit generování" not in res.text
+    payload = json.loads(re.search(r"window\.I18N = (\{.*?\});</script>", res.text).group(1))
+    assert not any(k.startswith("web.page.") for k in payload["messages"])
+    cs = client.get("/?lang=cs")
+    assert "Spustit generování" in cs.text
