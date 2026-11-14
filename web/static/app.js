@@ -2427,6 +2427,8 @@ function clearBbox(opts = {}) {
   bboxRect = null;
   bboxFirstCorner = null;
   sheetsLookupSeq++;
+  dtmCoverage = null;
+  renderDtmCoverage();
   bboxAllowed = false;
   lastSheets = null;
   bboxDraft = null;
@@ -2643,6 +2645,41 @@ function refreshSettingsSummary() {
   if (mark) mark.textContent = changed ? t("web.js.settings.changed", { n: changed }) : "";
 }
 
+// --- Kvalita DTM výřezu (odhad z velikosti balíků obcí, bez stahování) ---
+let dtmCoverage = null;
+
+async function loadDtmCoverage(bbox, seq) {
+  dtmCoverage = null;
+  renderDtmCoverage();
+  try {
+    const data = await api(`/api/dtm_coverage?bbox=${encodeURIComponent(bbox)}`);
+    if (seq !== sheetsLookupSeq) return;
+    dtmCoverage = data && data.available ? data : null;
+  } catch (_) {
+    dtmCoverage = null; // odhad je jen doplněk, chyba nic neukáže
+  }
+  renderDtmCoverage();
+}
+
+function renderDtmCoverage() {
+  const el = document.getElementById("dtm-coverage-note");
+  if (!el) return;
+  const sel = document.getElementById("dtm");
+  const level = dtmCoverage && dtmCoverage.level;
+  if (!level || level === "unknown" || (sel && sel.value === "0")) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const units = dtmCoverage.units || [];
+  const weak = units.filter((u) => u.quality === "sparse" || u.quality === "none").map((u) => u.name);
+  el.textContent = t(`web.js.dtm_cov.${level}`, { n: units.length, names: weak.join(", ") });
+  // Varování jen tam, kde DTM chybí sprintu kreslenému z DTM; les a MTBO kreslí plnohodnotně z OSM a ZABAGED.
+  const sprintFromDtm = isSprintSelected() && !(sel && sel.value === "0");
+  el.className = "sheet-info" + (level !== "good" && sprintFromDtm ? " warn" : "");
+  el.hidden = false;
+}
+
 function setSheetInfo(text, cls) {
   const el = document.getElementById("sheet-info");
   if (!el) return;
@@ -2791,6 +2828,7 @@ async function lookupSheets() {
       sheetsInput.value = data.sheets.map((s) => s.mapnom).filter(Boolean).join(",");
     }
     applySheetsLimit();
+    loadDtmCoverage(bbox, seq);
   } catch (err) {
     if (seq !== sheetsLookupSeq) return;
     styleBboxRect(true);
@@ -3305,6 +3343,7 @@ loadSourceStatus();
 setInterval(() => loadSourceStatus(), SOURCE_STATUS_REFRESH_MS);
 // DTM vadí jen sprintu z DTM: varování přepočítat při změně volby DTM i typu mapy / měřítka (událost z karet doputuje k formuláři).
 document.getElementById("job-form")?.addEventListener("change", () => {
+  renderDtmCoverage();
   renderSourceStatus();
   renderDtmForestNote();
 });

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import countries, db, i18n, settings as app_settings, source_status, worker
+from app import countries, db, dtm_coverage, i18n, settings as app_settings, source_status, worker
 from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -525,6 +525,19 @@ def _check_country(
 def api_coverage(request: Request):
     """Povolené země domény s obrysem hranice (mapa v GUI: pohyb, maska mimo území)."""
     return countries.coverage_payload(i18n.site_for_request(request), i18n.resolve_lang(request)[0])
+
+
+@app.get("/api/dtm_coverage")
+def api_dtm_coverage(bbox: str, request: Request, country: str = ""):
+    """Odhad kvality DTM obcí ve výřezu (velikost balíků z HEAD, bez stahování) – jen doplněk pro GUI."""
+    try:
+        box = parse_bbox(bbox)
+    except FetchError as exc:
+        raise HTTPException(400, _exc_detail(exc)) from exc
+    job_country, _share = _check_country(box, request, country)
+    if job_country.code != "CZ":
+        return {"available": False, "reason": "country", "units": []}
+    return dtm_coverage.coverage_cached(box)
 
 
 @app.get("/api/sheets")

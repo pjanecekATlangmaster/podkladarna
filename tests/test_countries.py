@@ -80,6 +80,11 @@ def test_create_job_country_and_border(client, monkeypatch):
     assert opts["country"] == "CZ" and 0 < opts["outside_share"] < 0.5
     log = client.get(f"/api/jobs/{r.json()['id']}/log").json()["lines"]
     assert any("jen z OSM" in line["line"] for line in log)
+    import app.db as db
+
+    with db.connect() as conn:
+        row = conn.execute("SELECT country FROM job_origin WHERE job_id = ?", (r.json()["id"],)).fetchone()
+    assert row["country"] == "CZ"
 
 
 def test_api_bbox_errors_in_english(client, monkeypatch):
