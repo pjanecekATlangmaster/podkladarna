@@ -640,5 +640,8 @@
   "api.order.mail_failed": "E-mail s potvrzením nešel odeslat, zkuste to prosím znovu.",
   "api.order.check_email": "Na {email} jsme poslali odkaz na potvrzení. Výpočet se spustí po kliknutí (odkaz platí {hours} h).",
   "api.order.job_failed": "Výpočet se nepodařilo založit, zkuste odkaz otevřít znovu.",
-  "api.order.checkout_failed": "Platbu se nepodařilo založit, zkuste to prosím znovu."
+  "api.order.checkout_failed": "Platbu se nepodařilo založit, zkuste to prosím znovu.",
+  "order.page.sample_link": "Stáhnout ukázku 4 × 4 cm papíru (.omap pro OpenOrienteering Mapper)",
+  "order.mail.ready.sample": "V příloze je ukázka hotové mapy, výřez 4 × 4 cm papíru (.omap pro OpenOrienteering Mapper).",
+  "api.order.rate": "Z této adresy bylo odesláno příliš mnoho objednávek, zkuste to prosím za hodinu."
 }

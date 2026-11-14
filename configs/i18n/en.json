@@ -641,5 +641,8 @@
   "api.order.mail_failed": "The confirmation email could not be sent, please try again.",
   "api.order.check_email": "We sent a confirmation link to {email}. The computation starts once you click it (the link is valid for {hours} h).",
   "api.order.job_failed": "The computation could not be started, please open the link again.",
-  "api.order.checkout_failed": "The payment could not be started, please try again."
+  "api.order.checkout_failed": "The payment could not be started, please try again.",
+  "order.page.sample_link": "Download a 4 × 4 cm sample of the map (.omap for OpenOrienteering Mapper)",
+  "order.mail.ready.sample": "Attached is a sample of the finished map, a 4 × 4 cm cut-out (.omap for OpenOrienteering Mapper).",
+  "api.order.rate": "Too many orders were sent from this address, please try again in an hour."
 }

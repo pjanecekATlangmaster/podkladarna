@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import re
+import zipfile
+from pathlib import Path
 
 import pytest
+
+OMAP = Path(__file__).resolve().parents[1] / "configs" / "oom" / "ISSprOM_2019_4000_cz.omap"
 
 PAID_HOST = "map.example"
 FORM = {
@@ -27,6 +31,8 @@ def shop(client, monkeypatch):
     monkeypatch.setenv("SITES", f"{PAID_HOST}=en:paid:*")
     monkeypatch.setattr(settings, "PAYMENTS_PROVIDER", "fake")
     monkeypatch.setattr(settings, "PAYMENTS_FAKE_ALLOWED", True)
+    monkeypatch.setattr(settings, "ORDER_MAILS_PER_IP_HOUR", 50)
+    paid_flow.reset_order_mail_limits()
     monkeypatch.setattr(main, "query_sm5_sheets", lambda *a, **k: [{"mapnom": "PRAH77", "name": "Praha 7-7"}])
     monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
     monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)
@@ -56,7 +62,8 @@ def _finish_job(job_id: str) -> None:
 
     out = JOBS_DIR / job_id / "output"
     out.mkdir(parents=True, exist_ok=True)
-    (out / "podkladarna_output.zip").write_bytes(b"PK\x05\x06" + b"\0" * 18)
+    with zipfile.ZipFile(out / "podkladarna_output.zip", "w") as zf:
+        zf.write(OMAP, "order-test_sprint.omap")
     Image.new("RGB", (200, 120), (240, 240, 240)).save(out / "preview.png")
     db.update_job(job_id, status="done", phase="done")
 
@@ -70,11 +77,14 @@ def test_paid_order_flow(client, shop):
     page = client.get("/", headers=host)
     assert 'id="paid-note"' in page.text and "10.00 EUR" in page.text
 
-    r = client.post("/api/jobs", data=FORM, headers=host)
+    r = client.post("/api/jobs", data={**FORM, "output_mode": "png"}, headers=host)
     assert r.status_code == 200 and r.json()["order_pending"] is True
     assert db.list_jobs(include_private=True) == []  # job až po potvrzení e-mailu
-    assert client.post("/api/jobs", data=FORM, headers=host).status_code == 429  # 1 nezaplacená na e-mail
-    confirm = _link(shop[0], r"https://map\.example/order/confirm/\S+").removeprefix("https://map.example")
+    stale = _link(shop[0], r"https://map\.example/order/confirm/\S+").removeprefix("https://map.example")
+    # Nové zadání na týž e-mail nahradí nepotvrzené (starý odkaz neplatí).
+    r = client.post("/api/jobs", data={**FORM, "output_mode": "png"}, headers=host)
+    assert r.status_code == 200 and client.post(stale, follow_redirects=False).status_code == 404
+    confirm = _link(shop[1], r"https://map\.example/order/confirm/\S+").removeprefix("https://map.example")
 
     assert "<form" in client.get(confirm).text  # GET nic nemění (skenery odkazů)
     assert db.list_jobs(include_private=True) == []
@@ -83,7 +93,9 @@ def test_paid_order_flow(client, shop):
     job_id = r.headers["location"].split("job=")[1]
     job = db.get_job(job_id)
     assert job["options"]["order_id"] and job["options"]["private"]
+    assert job["options"]["output_zip"] is True  # „jen PNG“ by po zaplacení nemělo co doručit
     assert client.post(confirm, follow_redirects=False).status_code == 404  # jednorázové
+    assert client.post("/api/jobs", data=FORM, headers=host).status_code == 429  # 1 nezaplacená na e-mail
 
     _finish_job(job_id)
     token = db.get_download_token(job_id)
@@ -91,12 +103,16 @@ def test_paid_order_flow(client, shop):
     assert client.get(f"/d/{token}").status_code == 404
     job_worker._notify_private_job(job_id)
     job_worker._notify_private_job(job_id)  # opakování (retry po restartu) nic nepošle
-    assert len(shop) == 2 and shop[1]["attachments"]
-    order_url = _link(shop[1], r"https://map\.example/order/\S+").removeprefix("https://map.example")
+    assert len(shop) == 3
+    assert sorted(p.name for p in shop[2]["attachments"]) == ["order_preview.png", "sample-4x4cm.zip"]
+    order_url = _link(shop[2], r"https://map\.example/order/\S+").removeprefix("https://map.example")
 
     order_page = client.get(order_url)
     assert order_page.status_code == 200 and "/checkout" in order_page.text
+    assert "/sample.zip" in order_page.text
     assert client.get(f"{order_url}/preview.png").headers["content-type"] == "image/png"
+    sample = client.get(f"{order_url}/sample.zip")
+    assert sample.status_code == 200 and sample.content.startswith(b"PK")
 
     r = client.post(f"{order_url}/checkout", follow_redirects=False)
     assert r.status_code == 303 and "/api/payments/fake/checkout/" in r.headers["location"]
@@ -104,8 +120,8 @@ def test_paid_order_flow(client, shop):
     paid = client.post(r.headers["location"], follow_redirects=False)
     assert paid.status_code == 303 and paid.headers["location"] == "/order/thanks"
     assert client.get("/order/thanks").status_code == 200
-    assert len(shop) == 3
-    download = _link(shop[2], r"https://map\.example/order/download/\S+").removeprefix("https://map.example")
+    assert len(shop) == 4
+    download = _link(shop[3], r"https://map\.example/order/download/\S+").removeprefix("https://map.example")
     got = client.get(download)
     assert got.status_code == 200 and got.content.startswith(b"PK")
     assert orders.order_for_job(job_id)["status"] == orders.STATUS_PAID
@@ -130,3 +146,16 @@ def test_free_domain_and_disabled_shop_unchanged(client, shop, monkeypatch):
 def test_webhook_rejects_bad_signature(client, shop):
     r = client.post("/api/payments/webhook/fake", content=b'{"x":1}', headers={"x-fake-signature": "0" * 64})
     assert r.status_code == 400
+
+
+def test_order_mail_rate_limit_and_one_line_name(client, shop, monkeypatch):
+    import app.settings as settings
+
+    monkeypatch.setattr(settings, "ORDER_MAILS_PER_IP_HOUR", 2)
+    host = {"host": PAID_HOST}
+    for i in range(2):
+        data = {**FORM, "notify_email": f"x{i}@example.org", "name": "Mapa\r\nBcc: x@example.org"}
+        assert client.post("/api/jobs", data=data, headers=host).status_code == 200
+    assert shop[0]["subject"].count("\n") == 0 and "Mapa Bcc" in shop[0]["subject"]
+    r = client.post("/api/jobs", data={**FORM, "notify_email": "x9@example.org"}, headers=host)
+    assert r.status_code == 429 and len(shop) == 2

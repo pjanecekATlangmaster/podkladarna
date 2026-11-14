@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.38.0"
+APP_VERSION = "3.39.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -212,6 +212,10 @@ UNPAID_ORDER_RETENTION_HOURS = int(os.environ.get("UNPAID_ORDER_RETENTION_HOURS"
 PAID_DOWNLOAD_DAYS = int(os.environ.get("PAID_DOWNLOAD_DAYS", "30"))
 # Nejvýš tolik rozpracovaných nezaplacených objednávek (čeká na potvrzení / počítá se / náhled) na e-mail.
 MAX_UNPAID_ORDERS_PER_EMAIL = int(os.environ.get("MAX_UNPAID_ORDERS_PER_EMAIL", "1"))
+# Potvrzovací e-maily objednávek (chrání SMTP a cizí schránky): nejvýš N za hodinu z jedné IP
+# a celkem za hodinu na instanci (výjimky RATE_LIMIT_EXEMPT_IPS platí i tady).
+ORDER_MAILS_PER_IP_HOUR = int(os.environ.get("ORDER_MAILS_PER_IP_HOUR", "3"))
+ORDER_MAILS_PER_HOUR = int(os.environ.get("ORDER_MAILS_PER_HOUR", "60"))
 # Zpětná vazba z webu → e-mail vlastníkovi (fallback = kontakt z README/ZIP).
 FEEDBACK_TO = (
     os.environ.get("FEEDBACK_TO")
