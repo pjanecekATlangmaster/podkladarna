@@ -50,7 +50,7 @@ milestones:
     title_en: "Version 3.12 – forest and MTBO: cleaner connection of roads to paved areas and car parks; buildings, olive green and fences no longer overlap roads; street parking is covered by the road line"
   - date: "2026-11-02"
     title: "Verze 3.8 – srozumitelné chybové hlášky; soukromý job pošle e-mail i když skončí chybou"
-    title_en: "Version 3.8 – contours with adaptive smoothing by default: smoother on gentle terrain and in built-up areas, small landforms stay"
+    title_en: "Version 3.8 – clearer error messages; a private job sends an e-mail even when it fails"
   - date: "2026-10-31"
     title: "Verze 3.4 – ortofoto se do ZIPu nepřibaluje (velikost), v Mapperu ho připojte jako WMS ČÚZK"
     title_en: "Version 3.4 – the orthophoto is no longer packed into the ZIP (size); add it in Mapper as the ČÚZK WMS"
