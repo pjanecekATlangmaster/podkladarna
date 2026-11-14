@@ -148,6 +148,10 @@ def init_db() -> None:
             )
             """
         )
+        # Objednávky placené domény (3.37.2, app.orders): nové tabulky, starší image je ignoruje.
+        from app import orders as _orders
+
+        _orders.init_tables(conn)
         # Joby založené před zavedením statistiky (dosud nesmazané) doplnit jednou.
         missing = conn.execute(
             "SELECT id, preset_id, options_json, created_at FROM jobs "

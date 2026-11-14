@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.37.1"
+APP_VERSION = "3.37.2"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -195,6 +195,21 @@ PRIVATE_JOB_RETENTION_HOURS = int(
 )
 # Interní statistika původu jobů (tabulka job_origin, nikde nevystavená): retence ve dnech.
 ORIGIN_RETENTION_DAYS = int(os.environ.get("ORIGIN_RETENTION_DAYS", "365"))
+# Prodej map na doméně v režimu paid (app.orders, app.payments; návrh platby-navrh.md).
+# Prázdné = vypnuto (výchozí): placená doména se chová jako dosud. „fake“ = testovací poskytovatel
+# bez skutečné platby (jen vývoj a test B); skuteční poskytovatelé přibudou po rozhodnutí Petra.
+PAYMENTS_PROVIDER = os.environ.get("PAYMENTS_PROVIDER", "").strip().lower()
+# Cena jedné objednávky v nejmenších jednotkách měny (1000 = 10,00 €), včetně DPH.
+PAID_PRICE_CENTS = int(os.environ.get("PAID_PRICE_CENTS", "1000"))
+PAID_CURRENCY = os.environ.get("PAID_CURRENCY", "EUR").strip().upper() or "EUR"
+# Platnost odkazu „potvrdit e-mail a spustit výpočet“ (hodiny).
+ORDER_CONFIRM_HOURS = int(os.environ.get("ORDER_CONFIRM_HOURS", "24"))
+# Nezaplacená objednávka: náhled, ukázka a odkaz na nákup platí N hodin od potvrzení, pak se smaže.
+UNPAID_ORDER_RETENTION_HOURS = int(os.environ.get("UNPAID_ORDER_RETENTION_HOURS", "168"))
+# Zaplacená objednávka: odkaz ke stažení plné mapy platí N dní od zaplacení.
+PAID_DOWNLOAD_DAYS = int(os.environ.get("PAID_DOWNLOAD_DAYS", "30"))
+# Nejvýš tolik rozpracovaných nezaplacených objednávek (čeká na potvrzení / počítá se / náhled) na e-mail.
+MAX_UNPAID_ORDERS_PER_EMAIL = int(os.environ.get("MAX_UNPAID_ORDERS_PER_EMAIL", "1"))
 # Zpětná vazba z webu → e-mail vlastníkovi (fallback = kontakt z README/ZIP).
 FEEDBACK_TO = (
     os.environ.get("FEEDBACK_TO")
