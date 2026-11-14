@@ -685,28 +685,31 @@ def test_ui_private_session_log_hooks():
     root = Path(__file__).resolve().parents[1]
     app_js = (root / "web" / "static" / "app.js").read_text(encoding="utf-8")
     css = (root / "web" / "static" / "style.css").read_text(encoding="utf-8")
-    from app.i18n import render_placeholders
+    from app.i18n import catalog, render_placeholders
+
+    # Uživatelské texty jsou v katalogu (app.js je bere přes t("web.js…")).
+    app_js_ui = app_js + "\n" + "\n".join(catalog("cs").values())
 
     html = render_placeholders((root / "web" / "index.html").read_text(encoding="utf-8"), "cs")
 
     assert "setJobsView" in app_js
     assert "jobIsPrivate" in app_js
     assert "showFormNotice" in app_js
-    assert "privátní session" in app_js
+    assert "privátní session" in app_js_ui
     assert "syncPrivateLivePlaceholder" in app_js
     assert "loadMyPrivateJobs" in app_js
-    assert "Běží privátní job" in app_js
+    assert "Běží privátní job" in app_js_ui
     assert "private_live" in app_js
     assert "!jobIsPrivate(selected) && selected.has_preview" in app_js
     assert "!jobIsPrivate(job) && job.has_preview" in app_js
-    assert "ZIP/náhled nepřijdou" in app_js or "ZIP e-mailem" in app_js
+    assert "ZIP/náhled nepřijdou" in app_js_ui or "ZIP e-mailem" in app_js_ui
     assert ".jobs-view" in css
     assert "private-live-placeholder" in css
     assert "form-notice" in css
     assert 'id="form-notice"' in html
     assert "pipeline log" in html.lower() or "pipeline log" in app_js.lower()
     # Na webu privátní job nemá PNG/ZIP odkazy — jen mail.
-    assert "Privátní: ZIP/PNG jen e-mailem" in app_js or "jen e-mailem" in app_js
+    assert "Privátní: ZIP/PNG jen e-mailem" in app_js_ui or "jen e-mailem" in app_js_ui
 
 
 def test_api_private_live_in_jobs_list(client, monkeypatch, data_dir):

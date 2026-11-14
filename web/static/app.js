@@ -10,6 +10,16 @@ function t(key, vars, fallback) {
   return text;
 }
 
+/** Tvar podle čísla (one / few / many / other); chybí-li kategorie, zkusí .many a .other. */
+function tn(key, n, vars) {
+  const cat = new Intl.PluralRules(LOCALE).select(Number(n));
+  const msgs = I18N.messages || {};
+  for (const k of [`${key}.${cat}`, `${key}.many`, `${key}.other`]) {
+    if (Object.prototype.hasOwnProperty.call(msgs, k)) return t(k, { n, ...(vars || {}) });
+  }
+  return t(`${key}.${cat}`, { n, ...(vars || {}) });
+}
+
 function parseApiError(res, text) {
   let detail = null;
   try {
@@ -24,31 +34,25 @@ function parseApiError(res, text) {
   }
 
   if (res.status === 413) {
-    return (
-      "Soubor je příliš velký pro reverse proxy (HTTP 413). " +
-      "Na Synology zvyšte client_max_body_size v nginx (viz DEPLOY.md), " +
-      "nebo nahrajte soubory přes http://IP_NAS:8672 bez HTTPS proxy."
-    );
+    return t("web.js.errors.too_large", { doc: "DEPLOY.md" });
   }
   // 503 u create-job = fronta; u feedback/SMTP tohle nesmí přepsat detail.
   if (res.status === 503) {
     return (
       detail ||
-      "Server je zaneprázdněn – fronta generování je plná. " +
-        "Počkejte na dokončení běžících jobů a zkuste to znovu."
+      t("web.js.errors.queue_full")
     );
   }
   if (res.status === 429) {
     return (
       detail ||
-      "Limit jobů z vaší sítě – počkejte na dokončení běžících generování."
+      t("web.js.errors.rate_limit")
     );
   }
   if (res.status === 502 || res.status === 504) {
     return (
       detail ||
-      `Proxy timeout (HTTP ${res.status}). LAZ soubory jsou velké – ` +
-        "prodlužte timeout reverse proxy nebo uploadujte přímo na port 8672."
+      t("web.js.errors.proxy_timeout", { status: res.status })
     );
   }
   if (detail) return detail;
@@ -145,7 +149,7 @@ let mapOptions = {
 function formatContourLabel(meters) {
   const n = Number(meters);
   if (Number.isInteger(n)) return `${n} m`;
-  return `${String(n).replace(".", ",")} m`;
+  return `${n.toLocaleString(LOCALE)} m`;
 }
 
 /** Zaškrtnuté typy map (les / mtbo) v pořadí les, mtbo. */
@@ -240,19 +244,19 @@ function disciplinesForScale(scale) {
   if (s === 4000) {
     return {
       count: 1,
-      text: "1× .omap: jen sprint (ISSprOM)",
+      text: t("web.js.map.omap_sprint"),
     };
   }
   if (s === 7500 || s === 10000 || s === 15000) {
     const types = selectedMapTypes();
     if (!types.length) {
-      return { count: 0, text: "Vyberte alespoň jeden typ mapy (les nebo MTBO)." };
+      return { count: 0, text: t("web.js.map.pick_type") };
     }
-    const names = types.map((t) => (t === "mtbo" ? "MTBO" : "les")).join(" + ");
-    const tail = s === 7500 && types.length === 2 ? " (oba 1:7500) — bez sprintu" : ` (1:${s})`;
-    return { count: types.length, text: `${types.length}× .omap: ${names}${tail}` };
+    const names = types.map((ty) => (ty === "mtbo" ? t("web.js.map.type_mtbo") : t("web.js.map.type_forest"))).join(" + ");
+    const tail = s === 7500 && types.length === 2 ? t("web.js.map.tail_both_7500") : ` (1:${s})`;
+    return { count: types.length, text: t("web.js.map.omap_count", { n: types.length, names, tail }) };
   }
-  return { count: 0, text: "Vyberte měřítko — ukáže se, kolik omapů vznikne." };
+  return { count: 0, text: t("web.js.map.pick_scale") };
 }
 
 function jobScaleLabel(job) {
@@ -270,7 +274,7 @@ function jobScaleLabel(job) {
       ? String(contour)
       : String(contour).replace(".", ",");
     const mt = Array.isArray(opts.map_types) && scale > 5000
-      ? ` · ${opts.map_types.map((t) => (t === "mtbo" ? "MTBO" : "les")).join(" + ")}`
+      ? ` · ${opts.map_types.map((ty) => (ty === "mtbo" ? t("web.js.map.type_mtbo") : t("web.js.map.type_forest"))).join(" + ")}`
       : "";
     return `1:${scale} · ${cTxt} m${mt}`;
   }
@@ -294,7 +298,7 @@ function rebuildContourOptions(preferred) {
     opt.value = "";
     opt.disabled = true;
     opt.selected = true;
-    opt.textContent = "Nejdřív vyberte měřítko";
+    opt.textContent = t("web.js.map.pick_scale_first");
     contourSel.appendChild(opt);
     contourSel.disabled = true;
   } else {
@@ -304,7 +308,7 @@ function rebuildContourOptions(preferred) {
       opt.value = String(c);
       let label = formatContourLabel(c);
       if (Math.abs(c - fallback) < 1e-6) {
-        label += " – výchozí";
+        label += t("web.js.map.contour_default");
       }
       opt.textContent = label;
       contourSel.appendChild(opt);
@@ -326,15 +330,13 @@ function updateOutputHints() {
   if (discHint) discHint.textContent = info.text;
   if (contourHint) {
     if (scale === 4000) {
-      contourHint.textContent =
-        "U 1:4000: 2 m / 2,5 m / 5 m. Platí pro omapy i kontury.";
+      contourHint.textContent = t("web.js.map.contour_hint_4000");
     } else if (scale === 7500) {
-      contourHint.textContent =
-        "U 1:7500: 2 / 2,5 / 5 m. Platí pro všechny generované omapy.";
+      contourHint.textContent = t("web.js.map.contour_hint_7500");
     } else if (scale === 10000 || scale === 15000) {
-      contourHint.textContent = "U tohoto měřítka jen 5 m.";
+      contourHint.textContent = t("web.js.map.contour_hint_5");
     } else {
-      contourHint.textContent = "Nabídka závisí na měřítku.";
+      contourHint.textContent = t("web.js.map.contour_hint_any");
     }
   }
 }
@@ -478,7 +480,7 @@ function initJobsTab() {
 function syncJobsTabs() {
   const mine = document.getElementById("jobs-tab-mine");
   const all = document.getElementById("jobs-tab-all");
-  if (mine) mine.textContent = `Moje mapy (${myJobs.length})`;
+  if (mine) mine.textContent = t("web.js.list.my_maps", { n: myJobs.length });
   for (const tab of [mine, all]) {
     if (!tab) continue;
     const on = tab.dataset.tab === jobsTab;
@@ -521,7 +523,7 @@ function initJobsTabs() {
 function savedRecordAsJob(rec) {
   return {
     id: rec.id,
-    name: rec.name || "Mapa",
+    name: rec.name || t("web.js.job.default_name"),
     created_at: rec.created_at,
     status: "saved",
     _saved: true,
@@ -603,14 +605,14 @@ function friendlyJobError(errorText, { short = false, status = "failed" } = {}) 
   const text = String(errorText || "");
   // Hotovo s upozorněním: mapa vznikla, ``error`` je už lidský souhrn (issue_explain.user_summary).
   if (status === "done_with_errors") {
-    return short ? "Mapa je hotová, s upozorněním." : "Mapa je hotová a ke stažení, jen s upozorněním níže.";
+    return short ? t("web.js.job.done_warn_short") : t("web.js.job.done_warn");
   }
   if (/ČÚZK|ATOM|[Tt]ime ?out|Overpass|HTTP (?:Error )?(?:429|5\d\d)|Connection(?:Error| reset| refused)/.test(text)) {
-    return "Stahování dat ze serveru se nepovedlo (výpadek nebo pomalá odpověď). Zkuste to prosím za chvíli znovu.";
+    return t("web.js.job.download_failed");
   }
   return short
-    ? "Generování se nepovedlo."
-    : "Generování se nepovedlo. Technický popis je níže; můžete to zkusit znovu nebo nám napsat.";
+    ? t("web.js.job.failed_short")
+    : t("web.js.job.failed");
 }
 
 // --- Průběh mapy po krocích (z hlaviček v logu, viz app/pipeline/job_progress.py) ---
@@ -717,9 +719,9 @@ function parseJobProgress(lines) {
 function remainingText(estimateMinutes, elapsedSec) {
   if (!Number.isFinite(estimateMinutes) || estimateMinutes <= 0 || elapsedSec == null) return "";
   const left = estimateMinutes * 60 - elapsedSec;
-  if (left <= 0) return "déle než odhad";
-  if (left < 60) return "zbývá méně než minuta";
-  return `zbývá asi ${Math.ceil(left / 60)} min`;
+  if (left <= 0) return t("web.js.estimate.over");
+  if (left < 60) return t("web.js.estimate.under_minute");
+  return t("web.js.estimate.left_min", { n: Math.ceil(left / 60) });
 }
 
 function jobIsLive(status) {
@@ -728,23 +730,23 @@ function jobIsLive(status) {
 
 /** Stav jobu česky pro uživatele (technický kód zůstává v třídě CSS). */
 const JOB_STATUS_LABELS = {
-  pending: "čeká",
-  queued: "ve frontě",
-  running: "běží",
-  done: "hotovo",
-  done_with_errors: "hotovo s upozorněním",
-  failed: "nepodařilo se",
+  pending: t("web.js.status.label_pending"),
+  queued: t("web.js.status.label_queued"),
+  running: t("web.js.status.label_running"),
+  done: t("web.js.status.label_done"),
+  done_with_errors: t("web.js.status.label_done_with_errors"),
+  failed: t("web.js.status.label_failed"),
 };
 
 /** Krátký štítek stavu v seznamu map (kromě barvy i slovo). */
 const JOB_STATUS_TAGS = {
-  pending: "ve frontě",
-  queued: "ve frontě",
-  running: "běží",
-  done: "hotovo",
-  done_with_errors: "hotovo s chybami",
-  failed: "chyba",
-  saved: "soukromá",
+  pending: t("web.js.status.tag_queued"),
+  queued: t("web.js.status.tag_queued"),
+  running: t("web.js.status.tag_running"),
+  done: t("web.js.status.tag_done"),
+  done_with_errors: t("web.js.status.tag_done_with_errors"),
+  failed: t("web.js.status.tag_failed"),
+  saved: t("web.js.status.tag_saved"),
 };
 
 function jobStatusTag(status) {
@@ -770,11 +772,11 @@ function statusLineText(job, tail) {
 function jobItemHeadHtml(job) {
   let queueLabel = "";
   if (job.phase === "waiting_server") {
-    queueLabel = " · čeká na uvolnění serveru";
+    queueLabel = t("web.js.list.waiting_server");
   } else if (job.queue_position === 0) {
-    queueLabel = " · právě běží";
+    queueLabel = t("web.js.list.running_now");
   } else if (job.queue_position) {
-    queueLabel = ` · fronta #${job.queue_position}`;
+    queueLabel = t("web.js.list.queue_pos", { n: job.queue_position });
   }
   let timing = "";
   if (jobIsFinished(job.status)) {
@@ -785,18 +787,18 @@ function jobItemHeadHtml(job) {
   }
   const privateLabel = jobIsPrivate(job)
     ? jobIsFinished(job.status)
-      ? " · privátní, ZIP přijde e-mailem"
-      : " · privátní session"
+      ? t("web.js.list.private_done")
+      : t("web.js.list.private_session")
     : "";
   if (job._saved) {
     return `
-    <strong>${escapeHtml(job.name)}</strong> <span class="status-tag status-tag-saved">${job._private ? "soukromá" : "uložená"}</span>
-    <div class="status">${job._private ? "soukromá – odkaz přijde e-mailem" : "mapa už není ve veřejném seznamu"}</div>
+    <strong>${escapeHtml(job.name)}</strong> <span class="status-tag status-tag-saved">${job._private ? t("web.js.list.tag_private") : t("web.js.list.tag_saved")}</span>
+    <div class="status">${job._private ? t("web.js.list.saved_private_note") : t("web.js.list.saved_note")}</div>
     <div class="status">${escapeHtml(formatWhen(job.created_at))}</div>
   `;
   }
   const mineTag =
-    jobsTab === "all" && isMyJob(job.id) ? ' <span class="mine-tag">moje</span>' : "";
+    jobsTab === "all" && isMyJob(job.id) ? ' <span class="mine-tag">' + t("web.js.list.mine_tag") + "</span>" : "";
   return `
     <strong>${escapeHtml(job.name)}</strong>${mineTag} <span class="status-tag status-tag-${escapeHtml(job.status || "")}">${escapeHtml(jobStatusTag(job.status))}</span>
     <div class="status status-${job.status}">${escapeHtml(statusLineText(job, queueLabel + timing + privateLabel))}</div>
@@ -831,10 +833,10 @@ function jobItemEl(jobId) {
 /** Tlačítko „Načíst zadání“ u položky v „Moje mapy“ (název mapy pro čtečky v aria-label). */
 function jobItemActionsHtml(job) {
   if (jobsTab !== "mine") return "";
-  const label = `Načíst zadání mapy „${job.name || "Mapa"}“ do nové mapy`;
+  const label = t("web.js.list.load_template_aria", { name: job.name || t("web.js.job.default_name") });
   return `
     <div class="job-item-actions">
-      <button type="button" class="btn btn-small job-load-template" data-job-id="${escapeHtml(job.id)}" aria-label="${escapeHtml(label)}">Načíst zadání</button>
+      <button type="button" class="btn btn-small job-load-template" data-job-id="${escapeHtml(job.id)}" aria-label="${escapeHtml(label)}">${escapeHtml(t("web.js.list.load_template"))}</button>
     </div>
   `;
 }
@@ -916,7 +918,7 @@ function updateFinishedMore(total) {
   const more = document.getElementById("jobs-more");
   if (!label || !more) return;
   const shown = Math.min(total, finishedShown);
-  label.textContent = total > shown ? `Hotové (${shown} z ${total})` : "Hotové";
+  label.textContent = total > shown ? t("web.js.list.finished_of", { shown, total }) : t("web.js.list.finished");
   more.classList.toggle("hidden", total <= shown);
 }
 
@@ -964,8 +966,8 @@ async function loadJobs() {
   if (doneEmptyEl) {
     doneEmptyEl.textContent =
       jobsTab === "mine"
-        ? "V tomto prohlížeči zatím nemáte žádné mapy – objeví se tu po spuštění generování."
-        : "Zatím žádné hotové mapy.";
+        ? t("web.js.list.empty_mine")
+        : t("web.js.list.empty_all");
   }
   // Privátní joby do veřejného panelu neinjektovat (bez jména/logů).
   // Místo toho anonymní placeholder „Běží privátní job“ + stopky.
@@ -1016,12 +1018,12 @@ async function loadJobs() {
   if (liveJob || logSettledForJob !== selected.id) {
     const privateNote = jobIsPrivate(selected)
       ? liveJob
-        ? " · privátní (log v této session; ZIP e-mailem)"
-        : " · privátní (ZIP přijde e-mailem)"
+        ? t("web.js.job.private_live_note")
+        : t("web.js.job.private_done_note")
       : "";
     document.getElementById("detail-title").textContent = selected.name;
     setDetailStatus(
-      `Stav: ${jobStatusLabel(selected.status)} · ${jobScaleLabel(selected)}` + privateNote
+      t("web.js.job.state_line", { state: jobStatusLabel(selected.status), scale: jobScaleLabel(selected) }) + privateNote
     );
     const timingEl = document.getElementById("detail-timing");
     if (timingEl) {
@@ -1054,15 +1056,15 @@ function updateWorkerStatus(data) {
     const q = data.queue_size || 0;
     const maxQ = data.max_queue_size || "?";
     el.textContent =
-      `Generování běží` +
-      (q ? ` · ${q} ${q === 1 ? "mapa" : q < 5 ? "mapy" : "map"} ve frontě (max ${maxQ})` : "");
+      t("web.js.status.generating") +
+      (q ? tn("web.js.status.queued_maps", q, { max: maxQ }) : "");
     el.classList.add("busy");
   } else if (data.shared_busy) {
     // Těžký job právě počítá jiná instance serveru – detail se nezveřejňuje.
-    el.textContent = "Server je právě vytížený – nová mapa chvíli počká na uvolnění";
+    el.textContent = t("web.js.status.server_busy");
     el.classList.add("busy");
   } else {
-    el.textContent = "Server volný – lze spustit nové generování";
+    el.textContent = t("web.js.status.server_free");
     el.classList.remove("busy");
   }
 }
@@ -1099,7 +1101,7 @@ function privateLivePlaceholderHtml(startedAt) {
   const elapsed = formatDuration(elapsedSinceIso(startedAt));
   const clock = elapsed || "…";
   return `
-    <strong>Běží privátní job</strong>
+    <strong>${escapeHtml(t("web.js.list.private_running"))}</strong>
     <div class="status status-running">${escapeHtml(clock)}</div>
   `;
 }
@@ -1166,7 +1168,8 @@ function formatWhen(iso) {
 function formatAreaKm2(km2) {
   const v = Number(km2);
   if (km2 == null || !Number.isFinite(v) || v <= 0) return "";
-  return `${v.toFixed(v < 1 ? 2 : 1).replace(".", ",")} km²`;
+  const digits = v < 1 ? 2 : 1;
+  return `${v.toLocaleString(LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits })} km²`;
 }
 
 function jobTimingText(job) {
@@ -1174,22 +1177,26 @@ function jobTimingText(job) {
   const dur = formatDuration(job.duration_s);
   if (jobIsFinished(job.status)) {
     const area = formatAreaKm2(job.area_km2);
-    return [start ? `Start ${start}` : "", dur ? `trvání ${dur}` : "", area ? `plocha ${area}` : ""]
+    return [
+      start ? t("web.js.job.timing_start", { v: start }) : "",
+      dur ? t("web.js.job.timing_duration", { v: dur }) : "",
+      area ? t("web.js.job.timing_area", { v: area }) : "",
+    ]
       .filter(Boolean)
       .join(" · ");
   }
   if (job.status === "running" && dur) {
-    return `${start ? `Od ${start} · ` : ""}běží ${dur}`;
+    return `${start ? t("web.js.job.timing_since", { v: start }) : ""}${t("web.js.job.timing_running", { v: dur })}`;
   }
-  return start ? `Zařazeno ${start}` : "";
+  return start ? t("web.js.job.timing_queued", { v: start }) : "";
 }
 
 /** „před 61 dny“ – stáří stažení podkladů v době zpracování jobu. */
 function daysAgoText(days) {
   const d = Math.round(days);
-  if (d <= 0) return "v den zpracování";
-  if (d === 1) return "den před zpracováním";
-  return `${d} dní před zpracováním`;
+  if (d <= 0) return t("web.js.sources.days_zero");
+  if (d === 1) return t("web.js.sources.days_one");
+  return t("web.js.sources.days_many", { n: d });
 }
 
 /**
@@ -1236,15 +1243,11 @@ function lidarSourcesInfo(job) {
 
   let level = "ok";
   const info = (text) => ({ text, warn: false });
-  const lines = [info("Výška terénu, stromů a budov je z leteckého laserového skenování ČÚZK.")];
+  const lines = [info(t("web.js.sources.lidar_info"))];
   if (degraded || mode === "1g" || mode === "mixed") {
     level = "warn";
     lines.unshift({
-      text:
-        (mode === "mixed" ? "Pro část území" : "Pro toto území") +
-        " nebyla při zpracování dostupná přesná data o výšce stromů a budov," +
-        " použila se starší hrubší náhrada. Porosty a průchodnost mohou být méně přesné." +
-        " Doporučení: vygenerujte mapu znovu za pár dní.",
+      text: t(mode === "mixed" ? "web.js.sources.degraded_part" : "web.js.sources.degraded_all"),
       warn: true,
     });
   }
@@ -1256,46 +1259,43 @@ function lidarSourcesInfo(job) {
     for (const sh of flown) {
       const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(sh.acquired_on || "");
       if (!m) continue;
-      const txt = `${Number(m[3])}. ${Number(m[2])}. ${m[1]}`;
+      const txt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString(LOCALE);
       if (!flownDates.includes(txt)) flownDates.push(txt);
     }
     const partial = flown.length > 0 && flown.length < sheets.length;
     lines.unshift({
-      text:
-        `Výška stromů je pro ${partial ? "část území" : "toto území"} ze snímkování` +
-        " na jaře bez listí" +
-        (flownDates.length ? ` (${flownDates.join(", ")})` : "") +
-        ". V listnatém lese proto mohou být chybně louky a paseky;" +
-        " porosty tam ověřte v terénu nebo na ortofotu.",
+      text: t("web.js.sources.leafless", {
+        where: t(partial ? "web.js.sources.part_of_area" : "web.js.sources.this_area"),
+        dates: flownDates.length ? ` (${flownDates.join(", ")})` : "",
+      }),
       warn: true,
     });
   }
   if (maxAge != null && (level === "warn" || maxAge > limit)) {
     lines.push(
       info(
-        `Data byla stažena ${daysAgoText(maxAge)}.` +
-          (maxAge > limit ? " Příští mapa tohoto území si je stáhne znovu automaticky." : "")
+        t("web.js.sources.downloaded", { when: daysAgoText(maxAge) }) +
+          (maxAge > limit ? t("web.js.sources.redownload") : "")
       )
     );
   } else if (maxAge != null) {
     lines.push(
       info(
-        `Data jsou aktuální (stažena ${daysAgoText(maxAge)}; ČÚZK území` +
-          " přeskenovává jen jednou za několik let). Nic není potřeba dělat."
+        t("web.js.sources.current", { when: daysAgoText(maxAge) })
       )
     );
   } else if (level === "ok") {
-    lines.push(info("Data jsou v pořádku, nic není potřeba dělat."));
+    lines.push(info(t("web.js.sources.ok")));
   }
 
   const detail = [dmpLabel];
-  if (degraded) detail.push("degradace 1G viditelná");
-  if (flownDates.length) detail.push(`nálet DMP OK: ${flownDates.join(", ")}`);
-  if (maxAge != null) detail.push(`cache ~${Math.round(maxAge)} d (obnova po ${limit} d)`);
+  if (degraded) detail.push(t("web.js.sources.d_degraded"));
+  if (flownDates.length) detail.push(t("web.js.sources.d_flown", { v: flownDates.join(", ") }));
+  if (maxAge != null) detail.push(t("web.js.sources.d_cache", { n: Math.round(maxAge), limit }));
   if (sheets.length) {
-    detail.push(`listy SM5: ${sheets.map((s) => s.mapnom).filter(Boolean).join(", ")}`);
+    detail.push(t("web.js.sources.d_sheets", { v: sheets.map((s) => s.mapnom).filter(Boolean).join(", ") }));
   }
-  detail.push("stáří = stažení do cache, ne datum pořízení ČÚZK");
+  detail.push(t("web.js.sources.d_age"));
   return { level, lines, detail: detail.join(" · ") };
 }
 
@@ -1317,77 +1317,77 @@ function renderJobSources(el, job) {
     warnings.map((l) => `<div class="sources-warn">⚠ ${escapeHtml(l.text)}</div>`).join("") +
     notices.map((l) => `<div class="sources-notice">ℹ ${escapeHtml(l.text)}</div>`).join("") +
     (notes.length ? `<div>${notes.map((l) => escapeHtml(l.text)).join(" ")}</div>` : "") +
-    `<details class="sources-detail"><summary>Technické podrobnosti</summary>` +
+    `<details class="sources-detail"><summary>${escapeHtml(t("web.js.sources.technical"))}</summary>` +
     `<code>${escapeHtml(info.detail)}</code></details>`;
 }
 
 /** Lidské názvy kroků jobu (štítky z app/pipeline/job_progress.py). */
 const BUILD_STEP_LABELS = {
-  "kopie LAZ z předchozího jobu": "Převzetí laserových dat z předchozí mapy",
-  "stažení LiDAR": "Zahájení stahování laserových dat",
-  "stažení ZABAGED": "Stažení polohopisu ZABAGED",
-  "mřížka mapy": "Rozvržení území mapy",
-  "příprava LiDAR": "Stažení a zpracování laserových dat (LiDAR)",
-  "výškové modely": "Výškový model terénu a povrchu",
-  "příprava ZABAGED": "Úprava polohopisu ZABAGED",
-  "vrstevnice": "Vrstevnice",
-  "vegetace": "Vegetace a průchodnost lesa",
-  "srázy": "Srázy a skály",
-  "kupky a ďolíky": "Kupky, prohlubně a balvany",
-  "OSM pěšiny a objekty": "Cesty a objekty z OpenStreetMap",
-  "stínování reliéfu": "Stínování reliéfu",
-  "referenční podklady": "Ortofoto a katastr jako podklad",
-  "RÚIAN a AOPK": "Budovy RÚIAN a památné stromy",
-  "DTM kraje": "Digitální technická mapa (DTM) kraje",
-  "polohopis a vegetace": "Mapa: polohopis a vegetace",
-  "silnice a cesty": "Mapa: silnice a cesty",
-  "ploty, budovy a oliva": "Mapa: ploty, budovy a oliva",
-  "slučování zdrojů a odsun od cest": "Mapa: slučování zdrojů a odsun od cest",
-  "zjednodušení a zápis mapy": "Mapa: zjednodušení a zápis .omap",
-  "převod do OCAD": "Převod do OCAD (.ocd)",
-  "náhled mapy": "Náhled mapy",
-  "balení ZIP": "Zabalení ZIPu",
-  "sestavení mapy a ZIP": "Sestavení map a zabalení ZIPu",
-  "balení výstupu": "Zabalení výstupu",
+  "kopie LAZ z předchozího jobu": t("web.js.step.laz_copy"),
+  "stažení LiDAR": t("web.js.step.lidar_download"),
+  "stažení ZABAGED": t("web.js.step.zabaged_download"),
+  "mřížka mapy": t("web.js.step.grid"),
+  "příprava LiDAR": t("web.js.step.lidar_prep"),
+  "výškové modely": t("web.js.step.dem"),
+  "příprava ZABAGED": t("web.js.step.zabaged_prep"),
+  "vrstevnice": t("web.js.step.contours"),
+  "vegetace": t("web.js.step.vegetation"),
+  "srázy": t("web.js.step.cliffs"),
+  "kupky a ďolíky": t("web.js.step.knolls"),
+  "OSM pěšiny a objekty": t("web.js.step.osm"),
+  "stínování reliéfu": t("web.js.step.hillshade"),
+  "referenční podklady": t("web.js.step.reference"),
+  "RÚIAN a AOPK": t("web.js.step.ruian"),
+  "DTM kraje": t("web.js.step.dtm"),
+  "polohopis a vegetace": t("web.js.step.map_planimetry"),
+  "silnice a cesty": t("web.js.step.map_roads"),
+  "ploty, budovy a oliva": t("web.js.step.map_fences"),
+  "slučování zdrojů a odsun od cest": t("web.js.step.map_merge"),
+  "zjednodušení a zápis mapy": t("web.js.step.map_write"),
+  "převod do OCAD": t("web.js.step.ocad"),
+  "náhled mapy": t("web.js.step.preview"),
+  "balení ZIP": t("web.js.step.zip"),
+  "sestavení mapy a ZIP": t("web.js.step.assemble"),
+  "balení výstupu": t("web.js.step.pack"),
 };
 
 /** Zdroje dat (klíče z app/pipeline/build_stats.py). */
 const BUILD_SOURCE_LABELS = {
-  lidar_dmr: "Laserové skenování – terén (DMR 5G)",
-  lidar_dmp: "Laserové skenování – stromy a budovy (DMP)",
-  zabaged: "Polohopis ZABAGED",
-  osm: "OpenStreetMap",
-  dtm: "Digitální technická mapa (DTM)",
-  ruian: "Budovy RÚIAN",
-  aopk: "Památné stromy AOPK",
-  katastr: "Katastrální mapa",
-  reference: "Ortofoto a rastrové podklady",
+  lidar_dmr: t("web.js.source.lidar_dmr"),
+  lidar_dmp: t("web.js.source.lidar_dmp"),
+  zabaged: t("web.js.source.zabaged"),
+  osm: t("web.js.source.osm"),
+  dtm: t("web.js.source.dtm"),
+  ruian: t("web.js.source.ruian"),
+  aopk: t("web.js.source.aopk"),
+  katastr: t("web.js.source.katastr"),
+  reference: t("web.js.source.reference"),
 };
 
-const BUILD_MAP_LABELS = { les: "les", mtbo: "MTBO", sprint: "sprint" };
+const BUILD_MAP_LABELS = { les: t("web.js.map.type_forest"), mtbo: t("web.js.map.type_mtbo"), sprint: t("web.js.map.type_sprint") };
 
 /** Kraje podle NUTS kódu (balíky DTM ČÚZK). */
 const NUTS_KRAJ = {
-  CZ010: "Praha", CZ020: "Středočeský kraj", CZ031: "Jihočeský kraj", CZ032: "Plzeňský kraj",
-  CZ041: "Karlovarský kraj", CZ042: "Ústecký kraj", CZ051: "Liberecký kraj", CZ052: "Královéhradecký kraj",
-  CZ053: "Pardubický kraj", CZ063: "Kraj Vysočina", CZ064: "Jihomoravský kraj", CZ071: "Olomoucký kraj",
-  CZ072: "Zlínský kraj", CZ080: "Moravskoslezský kraj",
+  CZ010: t("web.js.region.cz010"), CZ020: t("web.js.region.cz020"), CZ031: t("web.js.region.cz031"), CZ032: t("web.js.region.cz032"),
+  CZ041: t("web.js.region.cz041"), CZ042: t("web.js.region.cz042"), CZ051: t("web.js.region.cz051"), CZ052: t("web.js.region.cz052"),
+  CZ053: t("web.js.region.cz053"), CZ063: t("web.js.region.cz063"), CZ064: t("web.js.region.cz064"), CZ071: t("web.js.region.cz071"),
+  CZ072: t("web.js.region.cz072"), CZ080: t("web.js.region.cz080"),
 };
 
 /** Řádek o přípravě DTM na pozadí (DTM se připravuje souběžně; v plánu je krok „DTM kraje“ = čekání na ni před sestavením map). */
 function dtmBackgroundText(bg) {
   if (!bg) return "";
-  if (bg.failed) return "Data DTM se nepodařilo připravit, mapa se kreslila z OSM a ZABAGED.";
-  if (!bg.packages) return "DTM pro toto území není k dispozici, mapa se kreslila z OSM a ZABAGED.";
+  if (bg.failed) return t("web.js.dtm.failed");
+  if (!bg.packages) return t("web.js.dtm.none");
   const where = (bg.regions || []).map((k) => NUTS_KRAJ[k] || k).join(", ");
   const d = String(bg.date || "");
-  const date = /^\d{8}$/.test(d) ? `${Number(d.slice(6))}. ${Number(d.slice(4, 6))}. ${d.slice(0, 4)}` : "";
-  const src = [where, date ? `export k ${date}` : "", `${bg.packages} balíků obcí`].filter(Boolean).join(", ");
-  let text = `Digitální technická mapa ČÚZK (${src}): příprava na pozadí ${formatDuration(bg.seconds) || "0 s"}`;
+  const date = /^\d{8}$/.test(d) ? new Date(Number(d.slice(0, 4)), Number(d.slice(4, 6)) - 1, Number(d.slice(6))).toLocaleDateString(LOCALE) : "";
+  const src = [where, date ? t("web.js.dtm.export_at", { v: date }) : "", t("web.js.dtm.packages", { n: bg.packages })].filter(Boolean).join(", ");
+  let text = t("web.js.dtm.text", { src, dur: formatDuration(bg.seconds) || "0 s" });
   if (bg.wait_seconds != null) {
     text += bg.wait_seconds >= 1
-      ? `, sestavení mapy na ni čekalo ${formatDuration(bg.wait_seconds)}.`
-      : ", byla hotová dřív, než ji sestavení mapy potřebovalo.";
+      ? t("web.js.dtm.waited", { dur: formatDuration(bg.wait_seconds) })
+      : t("web.js.dtm.ready_early");
   } else {
     text += ".";
   }
@@ -1436,40 +1436,45 @@ function renderJobStats(job) {
 
   const total = Number(stats.total_seconds) || steps.reduce((a, st) => a + st.seconds, 0);
   const dataTotal = (Number(stats.downloaded_bytes) || 0) + (Number(stats.cached_bytes) || 0);
-  const summaryParts = ["Statistiky zpracování"];
+  const summaryParts = [t("web.js.stats.summary")];
   if (total) summaryParts.push(formatDuration(total));
-  if (dataTotal) summaryParts.push(`${formatBytes(dataTotal)} dat`);
+  if (dataTotal) summaryParts.push(t("web.js.stats.data_of", { v: formatBytes(dataTotal) }));
   document.getElementById("detail-stats-summary").textContent = summaryParts.join(" · ");
 
   const facts = [];
-  if (total) facts.push(["Celkový čas", formatDuration(total)]);
+  if (total) facts.push([t("web.js.stats.total_time"), formatDuration(total)]);
   if (dataTotal) {
     const parts = [];
-    if (stats.downloaded_bytes) parts.push(`nově staženo ${formatBytes(stats.downloaded_bytes)}`);
-    if (stats.cached_bytes) parts.push(`z mezipaměti ${formatBytes(stats.cached_bytes)}`);
-    facts.push(["Data podkladů", `${formatBytes(dataTotal)} (${parts.join(", ")})`]);
+    if (stats.downloaded_bytes) parts.push(t("web.js.stats.newly_downloaded", { v: formatBytes(stats.downloaded_bytes) }));
+    if (stats.cached_bytes) parts.push(t("web.js.stats.from_cache", { v: formatBytes(stats.cached_bytes) }));
+    facts.push([t("web.js.stats.source_data"), `${formatBytes(dataTotal)} (${parts.join(", ")})`]);
   }
-  if (stats.area_km2) facts.push(["Území", `${Number(stats.area_km2).toLocaleString(LOCALE, { maximumFractionDigits: 2 })} km²`]);
-  if (stats.lidar_sheets) facts.push(["Listy laserového skenování", String(stats.lidar_sheets)]);
+  if (stats.area_km2) facts.push([t("web.js.stats.area"), `${Number(stats.area_km2).toLocaleString(LOCALE, { maximumFractionDigits: 2 })} km²`]);
+  if (stats.lidar_sheets) facts.push([t("web.js.stats.lidar_sheets"), String(stats.lidar_sheets)]);
   if (stats.dtm != null) {
     const dtmMaps = job.dtm_summary && job.dtm_summary.maps
       ? Object.keys(job.dtm_summary.maps).filter((t) => job.dtm_summary.maps[t])
       : [];
-    const dtmNames = { sprint: "sprint", les: "les", mtbo: "MTBO" };
+    const dtmNames = BUILD_MAP_LABELS;
     facts.push([
-      "Kresba z DTM",
-      stats.dtm ? `ano${dtmMaps.length ? ` (${dtmMaps.map((t) => dtmNames[t] || t).join(", ")})` : ""}` : "ne",
+      t("web.js.stats.dtm_drawing"),
+      stats.dtm
+        ? dtmMaps.length
+          ? t("web.js.stats.yes_maps", { v: dtmMaps.map((ty) => dtmNames[ty] || ty).join(", ") })
+          : t("web.js.stats.yes")
+        : t("web.js.stats.no"),
     ]);
   }
-  if (stats.output_zip_bytes) facts.push(["Velikost ZIPu", formatBytes(stats.output_zip_bytes)]);
-  if (stats.app_version) facts.push(["Verze Podkladárny", stats.app_version]);
+  if (stats.output_zip_bytes) facts.push([t("web.js.stats.zip_size"), formatBytes(stats.output_zip_bytes)]);
+  if (stats.app_version) facts.push([t("web.js.stats.app_version"), stats.app_version]);
 
   const maps = (stats.maps || []).filter((m) => m && m.name);
   const parallel = maps.length > 1 && maps.every((m) => m.parallel);
   const mapsNote = maps.length
-    ? "Z toho mapy: " +
-      maps.map((m) => `${BUILD_MAP_LABELS[m.name] || m.name} ${formatDuration(m.seconds)}`).join(", ") +
-      (parallel ? " (souběžně)" : "")
+    ? t("web.js.stats.maps_note", {
+        list: maps.map((m) => `${BUILD_MAP_LABELS[m.name] || m.name} ${formatDuration(m.seconds)}`).join(", "),
+        par: parallel ? t("web.js.stats.parallel") : "",
+      })
     : "";
 
   const shown = steps.filter((st) => !st.skipped);
@@ -1478,7 +1483,7 @@ function renderJobStats(job) {
     .map((st) => {
       const name = BUILD_STEP_LABELS[st.label] || st.label;
       const pct = total > 0 ? Math.round((st.seconds / total) * 100) : 0;
-      const pctText = pct < 1 ? "pod 1 %" : `${pct} %`;
+      const pctText = pct < 1 ? t("web.js.stats.under_pct") : `${pct} %`;
       const sub = st.label === "sestavení mapy a ZIP" && mapsNote
         ? `<span class="stats-sub">${escapeHtml(mapsNote)}</span>`
         : "";
@@ -1492,9 +1497,11 @@ function renderJobStats(job) {
     })
     .join("");
   const skippedNote = skipped.length
-    ? `<p class="stats-note">Přeskočeno: ${skipped
-        .map((st) => escapeHtml((BUILD_STEP_LABELS[st.label] || st.label) + (st.reason ? ` (${st.reason})` : "")))
-        .join(", ")}.</p>`
+    ? `<p class="stats-note">${t("web.js.stats.skipped", {
+        list: skipped
+          .map((st) => escapeHtml((BUILD_STEP_LABELS[st.label] || st.label) + (st.reason ? ` (${st.reason})` : "")))
+          .join(", "),
+      })}</p>`
     : "";
 
   const dtmBg = (stats.background || []).find((b) => b && b.name === "dtm");
@@ -1512,26 +1519,26 @@ function renderJobStats(job) {
     })
     .join("");
   const table = srcKeys.length
-    ? `<h4>Data podkladů</h4><table class="stats-table">` +
-      `<caption>Mezipaměť = data stažená dřív pro jinou mapu; počítají se stejně, jen se nestahovala znovu.</caption>` +
-      `<thead><tr><th scope="col">Zdroj</th><th scope="col">Nově staženo</th><th scope="col">Z mezipaměti</th></tr></thead>` +
+    ? `<h4>${escapeHtml(t("web.js.stats.source_data"))}</h4><table class="stats-table">` +
+      `<caption>${escapeHtml(t("web.js.stats.cache_caption"))}</caption>` +
+      `<thead><tr><th scope="col">${escapeHtml(t("web.js.stats.col_source"))}</th><th scope="col">${escapeHtml(t("web.js.stats.col_new"))}</th><th scope="col">${escapeHtml(t("web.js.stats.col_cache"))}</th></tr></thead>` +
       `<tbody>${rows}</tbody>` +
-      `<tfoot><tr><td>Celkem</td><td>${formatBytes(stats.downloaded_bytes)}</td><td>${formatBytes(stats.cached_bytes)}</td></tr></tfoot>` +
+      `<tfoot><tr><td>${escapeHtml(t("web.js.stats.total"))}</td><td>${formatBytes(stats.downloaded_bytes)}</td><td>${formatBytes(stats.cached_bytes)}</td></tr></tfoot>` +
       `</table>`
     : "";
 
   document.getElementById("detail-stats-body").innerHTML =
     (facts.length
-      ? `<h4>Souhrn</h4><dl class="stats-facts">${facts
+      ? `<h4>${escapeHtml(t("web.js.stats.h_summary"))}</h4><dl class="stats-facts">${facts
           .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
           .join("")}</dl>`
       : "") +
     (stepItems
-      ? `<h4>Jak dlouho trvaly kroky</h4><ol class="stats-steps">${stepItems}</ol>` +
-        `<p class="stats-note">Část stahování a příprav běží souběžně na pozadí; čas se počítá u kroku, který na ně čekal.</p>`
+      ? `<h4>${escapeHtml(t("web.js.stats.h_steps"))}</h4><ol class="stats-steps">${stepItems}</ol>` +
+        `<p class="stats-note">${escapeHtml(t("web.js.stats.steps_note"))}</p>`
       : "") +
     skippedNote +
-    (dtmNote ? `<h4>Souběžně na pozadí</h4><p class="stats-bg">${escapeHtml(dtmNote)}</p>` : "") +
+    (dtmNote ? `<h4>${escapeHtml(t("web.js.stats.h_background"))}</h4><p class="stats-bg">${escapeHtml(dtmNote)}</p>` : "") +
     table;
 }
 
@@ -1588,11 +1595,11 @@ async function fillJobDetail(id) {
   syncDetailLogVisibility(job);
   const privateNote = jobIsPrivate(job)
     ? jobIsLive(job.status)
-      ? " · privátní (log v této session; ZIP e-mailem)"
-      : " · privátní (ZIP přijde e-mailem)"
+      ? t("web.js.job.private_live_note")
+      : t("web.js.job.private_done_note")
     : "";
   document.getElementById("detail-title").textContent = job.name;
-  setDetailStatus(`Stav: ${jobStatusLabel(job.status)} · ${jobScaleLabel(job)}` + privateNote);
+  setDetailStatus(t("web.js.job.state_line", { state: jobStatusLabel(job.status), scale: jobScaleLabel(job) }) + privateNote);
   const timingEl = document.getElementById("detail-timing");
   if (timingEl) {
     timingEl.textContent = jobTimingText(job);
@@ -1680,7 +1687,7 @@ function renderJobProgress(job) {
   const list = document.getElementById("detail-steps");
   if (job.status !== "running") {
     const pos = job.queue_position;
-    text.textContent = `Ve frontě${pos ? `, pořadí #${pos}` : ""} – začne, až doběhnou předchozí.`;
+    text.textContent = t("web.js.progress.queued", { pos: pos ? t("web.js.progress.queue_pos", { n: pos }) : "" });
     list.innerHTML = "";
     list._html = "";
     const bgTitleQ = document.getElementById("detail-bg-title");
@@ -1701,9 +1708,9 @@ function renderJobProgress(job) {
   const elapsed = startedElapsed != null ? startedElapsed : prog ? prog.elapsed : null;
   const est = (myJobRecord(job.id) || {}).estimate_minutes;
   const parts = [];
-  if (prog && prog.total) parts.push(`Krok ${Math.max(1, prog.current)} z ${prog.total}`);
-  else parts.push("Připravuji kroky…");
-  if (elapsed != null) parts.push(`běží ${formatDuration(elapsed)}`);
+  if (prog && prog.total) parts.push(t("web.js.progress.step", { n: Math.max(1, prog.current), total: prog.total }));
+  else parts.push(t("web.js.progress.preparing"));
+  if (elapsed != null) parts.push(t("web.js.progress.running", { v: formatDuration(elapsed) }));
   const left = remainingText(Number(est), elapsed);
   if (left) parts.push(left);
   text.textContent = parts.join(" · ");
@@ -1717,7 +1724,7 @@ function renderJobProgress(job) {
   const html = steps
     .map((st) => {
       const mark = st.state === "done" ? "✓" : st.state === "now" ? "●" : st.state === "skipped" ? "–" : "○";
-      const note = st.state === "skipped" ? ` <span class="step-note">přeskočeno${st.note ? ` (${escapeHtml(st.note)})` : ""}</span>` : "";
+      const note = st.state === "skipped" ? ` <span class="step-note">${escapeHtml(t("web.js.progress.skipped"))}${st.note ? ` (${escapeHtml(st.note)})` : ""}</span>` : "";
       const cur = st.state === "now" ? ' aria-current="step"' : "";
       return `<li class="step-${st.state}"${cur}><span class="step-mark" aria-hidden="true">${mark}</span> ${escapeHtml(st.label || "…")}${note}</li>`;
     })
@@ -1734,7 +1741,7 @@ function renderJobProgress(job) {
       .map((b) => {
         const mark = b.state === "now" ? "●" : b.state === "unavailable" ? "–" : b.state === "failed" ? "✗" : "✓";
         const cls = b.state === "now" ? "step-now" : b.state === "unavailable" ? "step-skipped" : b.state === "failed" ? "step-failed" : "step-done";
-        const noteText = b.state === "cached" ? "z mezipaměti" : b.state === "unavailable" ? "nedostupné" : b.state === "failed" ? "selhalo" : b.state === "done" ? b.note : "";
+        const noteText = b.state === "cached" ? t("web.js.progress.bg_cached") : b.state === "unavailable" ? t("web.js.progress.bg_unavailable") : b.state === "failed" ? t("web.js.progress.bg_failed") : b.state === "done" ? b.note : "";
         const note = noteText ? ` <span class="step-note">${escapeHtml(noteText)}</span>` : "";
         return `<li class="${cls}"><span class="step-mark" aria-hidden="true">${mark}</span> ${escapeHtml(b.name)}${note}</li>`;
       })
@@ -1792,7 +1799,7 @@ function markGenerateStarted(jobId) {
   if (!btn) return;
   btn.disabled = true;
   btn.classList.add("generate-started");
-  btn.textContent = "Generování spuštěno";
+  btn.textContent = t("web.js.form.generation_started");
 }
 
 document.getElementById("job-form").addEventListener("submit", async (e) => {
@@ -1802,27 +1809,27 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   const btn = document.getElementById("submit-btn");
   clearFormError();
   if (form.name && !form.name.value.trim()) {
-    showFormError("Zadejte název mapy.");
+    showFormError(t("web.js.form.err_name"));
     form.name.focus();
     return;
   }
   if (!form.map_scale || !form.map_scale.value) {
-    showFormError("Vyberte měřítko.");
+    showFormError(t("web.js.form.err_scale"));
     if (form.map_scale) form.map_scale.focus();
     return;
   }
   if (Number(form.map_scale.value) > 5000 && !selectedMapTypes().length) {
-    showFormError("Vyberte alespoň jeden typ mapy (les nebo MTBO).");
+    showFormError(t("web.js.map.pick_type"));
     document.getElementById("map_type_les")?.focus();
     return;
   }
   if (!form.contour_interval || !form.contour_interval.value) {
-    showFormError("Vyberte ekvidistanci.");
+    showFormError(t("web.js.form.err_contour"));
     if (form.contour_interval) form.contour_interval.focus();
     return;
   }
   if (!document.getElementById("bbox-input").value) {
-    showFormError("Nakreslete výřez na mapě (dva protilehlé rohy).");
+    showFormError(t("web.js.form.err_bbox"));
     document.getElementById("bbox-map")?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
@@ -1831,7 +1838,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
       (lastSheets && lastSheets.hint) ||
         (lastSheets && isSprintSelected() && lastSheets.sprint_hint) ||
         (lastSheets && isForestOnlySelected() && lastSheets.forest_hint) ||
-        `Výřez je moc velký nebo ještě není ověřený. MTBO max ${bboxMaxAreaKm2} km² (např. 5 × 5 km), les max ${forestMaxAreaKm2} km², sprint 1:4000 max ${sprintMaxAreaKm2} km² (např. 2 × 2 km).`
+        t("web.js.form.err_bbox_big", { mtbo: bboxMaxAreaKm2, forest: forestMaxAreaKm2, sprint: sprintMaxAreaKm2 })
     );
     document.getElementById("bbox-map")?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
@@ -1841,7 +1848,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     const emailEl = document.getElementById("notify_email");
     const email = (emailEl && emailEl.value || "").trim();
     if (!email || !email.includes("@") || !email.split("@").pop().includes(".")) {
-      showFormError("Privátní režim vyžaduje platný e-mail pro odkaz ke stažení.");
+      showFormError(t("web.js.form.err_private_email"));
       if (emailEl) emailEl.focus();
       return;
     }
@@ -1849,7 +1856,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   const estimateAtSubmit = selectedEstimateMinutes();
   jobSubmitInFlight = true;
   btn.disabled = true;
-  btn.textContent = "Zakládám…";
+  btn.textContent = t("web.js.form.creating");
   let startedId = null;
   try {
     const fd = new FormData(form);
@@ -1858,7 +1865,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     if (job && job.duplicate_skipped) {
       const msg =
         job.duplicate_message ||
-        "Nová mapa se nezaložila – stejný výřez už běží nebo čeká.";
+        t("web.js.form.duplicate");
       showFormError(msg);
     } else if (job && jobIsPrivate(job)) {
       const mail =
@@ -1866,8 +1873,7 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
         (document.getElementById("notify_email") || {}).value ||
         "";
       showFormNotice(
-        `Privátní mapa se generuje – průběh uvidíte níže v detailu. ` +
-          `ZIP/náhled nepřijdou do veřejného seznamu; odkazy přijdou na ${mail || "váš e-mail"} (platí 48 hodin).`
+        t("web.js.form.private_started", { mail: mail || t("web.js.form.your_email") })
       );
       if (job.id) startedId = job.id;
     } else if (job && job.id) {
@@ -2009,7 +2015,7 @@ function initBboxMap() {
   const el = document.getElementById("bbox-map");
   if (!el) return;
   if (typeof L === "undefined") {
-    setSheetInfo("Mapová knihovna se nenačetla (Leaflet).", "err");
+    setSheetInfo(t("web.js.bbox.leaflet_failed"), "err");
     return;
   }
   restoreBboxMapHeight();
@@ -2049,7 +2055,7 @@ function initBboxMap() {
 
 function onMapClick(e) {
   if (!inCzechia(e.latlng)) {
-    setSheetInfo("Výřez jen na území Česka.", "err");
+    setSheetInfo(t("web.js.bbox.cz_only"), "err");
     return;
   }
   if (bboxCorners.length >= 2) {
@@ -2120,7 +2126,7 @@ function addBboxHandles() {
       draggable: true,
       autoPan: true,
       keyboard: false,
-      title: "Táhnutím změníte velikost výřezu",
+      title: t("web.js.bbox.handle_resize"),
       icon: L.divIcon({
         className: `bbox-handle bbox-handle-corner bbox-handle-${BBOX_CORNER_NAMES[i]}`,
         iconSize: null,
@@ -2142,7 +2148,7 @@ function addBboxHandles() {
     draggable: true,
     autoPan: true,
     keyboard: false,
-    title: "Táhnutím posunete výřez",
+    title: t("web.js.bbox.handle_move"),
     icon: L.divIcon({
       className: "bbox-handle bbox-handle-move",
       html: BBOX_MOVE_ICON,
@@ -2235,8 +2241,8 @@ function updateBboxDraft(b, skip) {
   styleBboxRect(tooLarge);
   setSheetInfo("", "");
   bboxDraft = tooLarge
-    ? { cls: "err", text: `✕ Příliš velký výřez: cca ${formatAreaKm2(area)} (limit ${formatNumCz(limit)} km²)` }
-    : { cls: "", text: `cca ${formatSizeKm(w, h)} (${formatAreaKm2(area)}) – po puštění ověřím` };
+    ? { cls: "err", text: t("web.js.bbox.draft_too_large", { area: formatAreaKm2(area), limit: formatNumCz(limit) }) }
+    : { cls: "", text: t("web.js.bbox.draft_ok", { size: formatSizeKm(w, h), area: formatAreaKm2(area) }) };
   refreshBboxBadge();
 }
 
@@ -2285,14 +2291,13 @@ function updateCliffControls() {
     const txt = document.getElementById("cliff-sensitivity-text");
     if (txt) {
       txt.textContent = off
-        ? "Citlivost se při „Nevykreslovat“ nepoužije – srázy se nepočítají."
-        : "Méně citlivé = jen výrazné srázy, méně falešných.";
+        ? t("web.js.form.cliff_sens_off")
+        : t("web.js.form.cliff_sens_hint");
     }
   }
   const symbolTxt = document.getElementById("cliff-symbol-text");
   if (symbolTxt) {
-    symbolTxt.textContent =
-      "Strmý schod = skalní plocha (206), mírnější = zem (104).";
+    symbolTxt.textContent = t("web.js.form.cliff_symbol_hint");
   }
 }
 
@@ -2305,7 +2310,7 @@ async function loadJobTemplate(jobId, { trigger = null } = {}) {
   try {
     tpl = await api(`/api/jobs/${encodeURIComponent(jobId)}/template`);
   } catch (err) {
-    showFormError(`Zadání mapy se nepodařilo načíst: ${err.message || err}`);
+    showFormError(t("web.js.form.template_failed", { err: err.message || err }));
     return;
   } finally {
     if (trigger) trigger.disabled = false;
@@ -2329,10 +2334,9 @@ async function loadJobTemplate(jobId, { trigger = null } = {}) {
   refreshSettingsSummary();
   refreshSubmitChecklist();
   const parts = [
-    `Formulář je vyplněný podle mapy „${tpl.name || "bez názvu"}“ (název, výřez a nastavení). ` +
-      "Upravte, co potřebujete – třeba posuňte výřez nebo změňte název – a spusťte.",
+    t("web.js.form.template_loaded", { name: tpl.name || t("web.js.form.untitled") }),
   ];
-  if (tpl.source_private) parts.push("Mapa byla soukromá: doplňte e-mail pro odkaz ke stažení.");
+  if (tpl.source_private) parts.push(t("web.js.form.template_private"));
   for (const note of tpl.notes || []) parts.push(note);
   showFormNotice(parts.join(" "));
   const formCard = document.querySelector(".job-form-card");
@@ -2410,7 +2414,7 @@ function formatAreaKm2(km2) {
 
 function sheetNamesText(data) {
   const names = (data.sheets || []).map((x) => x.mapnom).filter(Boolean);
-  return names.length ? `Listy SM5: ${names.join(", ")}` : "";
+  return names.length ? t("web.js.bbox.sheets", { v: names.join(", ") }) : "";
 }
 
 function setBboxBadge(cls, text) {
@@ -2423,7 +2427,7 @@ function refreshBboxBadge() {
   if (!bboxBadgeEl) return;
   const hasBbox = Boolean((document.getElementById("bbox-input") || {}).value);
   if (!hasBbox) {
-    setBboxBadge("", bboxCorners.length === 1 ? "Klikněte na druhý roh výřezu" : "Klikněte na dva protilehlé rohy výřezu");
+    setBboxBadge("", bboxCorners.length === 1 ? t("web.js.bbox.click_second") : t("web.js.bbox.click_two"));
     return;
   }
   if (bboxDraft && !lastSheets) {
@@ -2436,36 +2440,36 @@ function refreshBboxBadge() {
   }
   const data = lastSheets;
   if (!data) {
-    setBboxBadge("", "Ověřuji výřez…");
+    setBboxBadge("", t("web.js.bbox.checking"));
     return;
   }
   const area = data.area_km2 != null ? formatAreaKm2(data.area_km2) : "";
   if (data.too_large) {
     if (data.too_large_reason === "sheets") {
-      setBboxBadge("err", `✕ Příliš velký výřez: ${data.count} listů SM5 (max ${data.max_sheets})`);
+      setBboxBadge("err", t("web.js.bbox.too_many_sheets", { count: data.count, max: data.max_sheets }));
     } else {
-      setBboxBadge("err", `✕ Příliš velký výřez: ${area} (limit ${formatNumCz(data.max_area_km2 || bboxMaxAreaKm2)} km²)`);
+      setBboxBadge("err", t("web.js.bbox.draft_too_large", { area, limit: formatNumCz(data.max_area_km2 || bboxMaxAreaKm2) }));
     }
     return;
   }
   if (!data.count) {
-    setBboxBadge("err", "✕ Výřez je mimo data (jen Česko)");
+    setBboxBadge("err", t("web.js.bbox.out_of_data"));
     return;
   }
   if (isSprintSelected() && data.sprint_hint) {
-    setBboxBadge("err", `✕ Příliš velký výřez pro sprint: ${area} (limit ${formatNumCz(sprintMaxAreaKm2)} km²)`);
+    setBboxBadge("err", t("web.js.bbox.too_large_sprint", { area, limit: formatNumCz(sprintMaxAreaKm2) }));
     return;
   }
   if (isForestOnlySelected() && data.forest_hint) {
-    setBboxBadge("err", `✕ Příliš velký výřez pro les: ${area} (limit ${formatNumCz(forestMaxAreaKm2)} km², MTBO ${formatNumCz(bboxMaxAreaKm2)} km²)`);
+    setBboxBadge("err", t("web.js.bbox.too_large_forest", { area, limit: formatNumCz(forestMaxAreaKm2), mtbo: formatNumCz(bboxMaxAreaKm2) }));
     return;
   }
   const limit = currentMaxAreaKm2();
   const mins = selectedEstimateMinutes();
   setBboxBadge(
     "ok",
-    `✓ ${formatSizeKm(data.width_km, data.height_km)} (${area}) · limit ${formatNumCz(limit)} km²` +
-      (mins != null ? ` · odhad ~${mins} min` : "")
+    t("web.js.bbox.ok", { size: formatSizeKm(data.width_km, data.height_km), area, limit: formatNumCz(limit) }) +
+      (mins != null ? t("web.js.bbox.ok_estimate", { n: mins }) : "")
   );
 }
 
@@ -2489,14 +2493,14 @@ function refreshSubmitChecklist() {
   if (!el || !form) return;
   const scale = form.map_scale ? Number(form.map_scale.value) : NaN;
   const items = [
-    ["Název", Boolean(form.name && form.name.value.trim())],
-    ["Typ mapy a měřítko", Number.isFinite(scale) && scale > 0],
+    [t("web.js.form.check_name"), Boolean(form.name && form.name.value.trim())],
+    [t("web.js.form.check_type_scale"), Number.isFinite(scale) && scale > 0],
   ];
-  items.push(["Výřez", Boolean(document.getElementById("bbox-input").value) && bboxAllowed]);
+  items.push([t("web.js.form.check_area"), Boolean(document.getElementById("bbox-input").value) && bboxAllowed]);
   const privateEl = document.getElementById("private");
   if (privateEl && privateEl.checked) {
     const email = ((document.getElementById("notify_email") || {}).value || "").trim();
-    items.push(["E-mail", email.includes("@") && email.split("@").pop().includes(".")]);
+    items.push([t("web.js.form.check_email"), email.includes("@") && email.split("@").pop().includes(".")]);
   }
   el.innerHTML = items
     .map(([label, ok]) => `<span class="${ok ? "done" : "todo"}">${ok ? "✓" : "○"} ${label}</span>`)
@@ -2505,25 +2509,35 @@ function refreshSubmitChecklist() {
 
 // --- Souhrn pokročilého nastavení (chips) ---
 const SETTINGS_VALUE_NAMES = {
-  veg_smooth: { 0: "kostičky", 1: "hladké", 2: "zjednodušené do 6 m", 3: "zjednodušené do 12 m" },
-  kp_cliff_symbol: { auto: "automaticky", earth_bank: "zemní sráz", symbol_206: "skála", off: "vypnuto" },
-  dtm: { 1: "všude", auto: "jen sprint", 0: "vypnuto" },
-  kp_osm_objects: { auto: "základní", 1: "vše", none: "žádné" },
+  veg_smooth: {
+    0: t("web.js.settings.veg_pixels"),
+    1: t("web.js.settings.veg_smooth"),
+    2: t("web.js.settings.veg_simpl6"),
+    3: t("web.js.settings.veg_simpl12"),
+  },
+  kp_cliff_symbol: {
+    auto: t("web.js.settings.auto"),
+    earth_bank: t("web.js.settings.cliff_earth"),
+    symbol_206: t("web.js.settings.cliff_rock"),
+    off: t("web.js.settings.off"),
+  },
+  dtm: { 1: t("web.js.settings.dtm_all"), auto: t("web.js.settings.dtm_sprint"), 0: t("web.js.settings.off") },
+  kp_osm_objects: { auto: t("web.js.settings.osm_basic"), 1: t("web.js.settings.osm_all"), none: t("web.js.settings.osm_none") },
 };
 
 const SETTINGS_CHIPS = [
-  { id: "contour_formlines", label: "Pomocné vrstevnice" },
-  { id: "contour_smooth", label: "Vyhlazení vrstevnic" },
-  { id: "kp_vege_height", label: "Výška vegetace" },
-  { id: "veg_smooth", label: "Tvar porostů" },
-  { id: "kp_cliff_symbol", label: "Srázy (symbol)" },
-  { id: "kp_cliff_sensitivity", label: "Citlivost srázů", skipWhen: () => (document.getElementById("kp_cliff_symbol") || {}).value === "off" },
+  { id: "contour_formlines", label: t("web.js.settings.chip_formlines") },
+  { id: "contour_smooth", label: t("web.js.settings.chip_contour_smooth") },
+  { id: "kp_vege_height", label: t("web.js.settings.chip_veg_height") },
+  { id: "veg_smooth", label: t("web.js.settings.chip_veg_shape") },
+  { id: "kp_cliff_symbol", label: t("web.js.settings.chip_cliff_symbol") },
+  { id: "kp_cliff_sensitivity", label: t("web.js.settings.chip_cliff_sens"), skipWhen: () => (document.getElementById("kp_cliff_symbol") || {}).value === "off" },
   { id: "dtm", label: "DTM" },
-  { id: "kp_osm_objects", label: "Objekty OSM" },
+  { id: "kp_osm_objects", label: t("web.js.settings.chip_osm") },
   { id: "output_georef", label: "GeoTIFF", bool: true },
   {
     id: "sprint_residual_paved",
-    label: "Zpevněné mezery",
+    label: t("web.js.settings.chip_paved_gaps"),
     bool: true,
     skipWhen: () => {
       const wrap = document.getElementById("residual-paved-wrap");
@@ -2534,7 +2548,7 @@ const SETTINGS_CHIPS = [
 
 /** Krátká hodnota pole: vlastní název, nebo text option před „–“ / „(“. */
 function settingsChipValue(chip, el) {
-  if (chip.bool) return el.checked ? "ano" : "ne";
+  if (chip.bool) return el.checked ? t("web.js.stats.yes") : t("web.js.stats.no");
   const names = SETTINGS_VALUE_NAMES[chip.id];
   if (names && names[el.value] != null) return names[el.value];
   const opt = el.options[el.selectedIndex];
@@ -2567,7 +2581,7 @@ function refreshSettingsSummary() {
   }
   box.innerHTML = parts.join("");
   const mark = document.getElementById("advanced-changed");
-  if (mark) mark.textContent = changed ? ` (změněno: ${changed})` : "";
+  if (mark) mark.textContent = changed ? t("web.js.settings.changed", { n: changed }) : "";
 }
 
 function setSheetInfo(text, cls) {
@@ -2616,7 +2630,7 @@ function refreshReferencesEstimate() {
   if (!el) return;
   const base = lastSheets && lastSheets.estimate_base_minutes;
   const extra = base && base.refs != null && base.plain != null ? Math.ceil(base.refs - base.plain) : null;
-  el.textContent = extra != null && extra > 0 ? ` (u zvoleného výřezu odhadem o ~${extra} min)` : "";
+  el.textContent = extra != null && extra > 0 ? t("web.js.estimate.refs_extra", { n: extra }) : "";
 }
 
 /** Varování, když odhad doby běhu dosáhne limitu jobu nebo se k němu blíží. */
@@ -2632,12 +2646,9 @@ function refreshEstimateWarning(mins) {
   }
   const head =
     mins < limit
-      ? `Odhad ~${mins} min se blíží limitu ${limit} min.`
-      : `Odhad ~${mins} min přesahuje limit ${limit} min.`;
-  const text =
-    `${head} Job nemusí včas doběhnout a po ${limit} minutách se ukončí nedokončený. ` +
-    "Skutečná doba záleží na rychlosti stahování dat (LiDAR, DTM, ortofoto) a na tom, " +
-    "co už je v cache z minulých běhů ve stejném místě. Zvažte menší výřez nebo méně výstupů.";
+      ? t("web.js.estimate.near_limit", { mins, limit })
+      : t("web.js.estimate.over_limit", { mins, limit });
+  const text = t("web.js.estimate.warning", { head, limit });
   // role="status" by čtečce hlásil totéž při každém přepočtu formuláře.
   if (el.textContent !== text) el.textContent = text;
   el.hidden = false;
@@ -2653,9 +2664,9 @@ function updateSubmitButtonLabel() {
   const btn = document.getElementById("submit-btn");
   if (!btn || jobSubmitInFlight || generateStartedJobId) return;
   if (mins != null && bboxAllowed) {
-    btn.textContent = `Spustit generování (~${mins} min)`;
+    btn.textContent = t("web.js.form.submit_est", { n: mins });
   } else {
-    btn.textContent = "Spustit generování";
+    btn.textContent = t("web.js.form.submit");
   }
 }
 
@@ -2686,7 +2697,7 @@ async function lookupSheets() {
   updateSubmitButtonLabel();
   const sheetsInput = document.getElementById("sm5-sheets-input");
   if (sheetsInput) sheetsInput.value = "";
-  setSheetInfo("Zjišťuji mapové listy SM5…", "");
+  setSheetInfo(t("web.js.bbox.lookup_sheets"), "");
   // Po tažení úchytu může dorazit starší odpověď až po novější – tu zahodit.
   const seq = ++sheetsLookupSeq;
   try {
@@ -2700,7 +2711,11 @@ async function lookupSheets() {
       styleBboxRect(true);
       setSheetInfo(
         data.hint ||
-          `Výřez je moc velký (MTBO max ${data.max_area_km2 || 25} km², např. 5 × 5 km; les max ${data.forest_max_area_km2 || 15} km²; sprint 1:4000 max ${data.sprint_max_area_km2 || 4} km²). Zmenšete ho.`,
+          t("web.js.bbox.too_large_hint", {
+            mtbo: data.max_area_km2 || 25,
+            forest: data.forest_max_area_km2 || 15,
+            sprint: data.sprint_max_area_km2 || 4,
+          }),
         "warn"
       );
       updateSubmitButtonLabel();
@@ -2775,25 +2790,25 @@ async function updateMobileJobBar(data, selected) {
     const parts = [`⏳ ${job.name}`];
     if (job.status === "running") {
       const prog = await barProgressFor(job.id);
-      if (prog && prog.total) parts.push(`krok ${Math.max(1, prog.current)}/${prog.total}`);
-      else parts.push("běží");
+      if (prog && prog.total) parts.push(t("web.js.mobile.step", { n: Math.max(1, prog.current), total: prog.total }));
+      else parts.push(t("web.js.status.tag_running"));
       const est = Number((myJobRecord(job.id) || {}).estimate_minutes);
       const el = elapsedSinceIso(job.started_at);
       if (est > 0 && el != null) {
         const left = Math.ceil((est * 60 - el) / 60);
-        parts.push(left > 0 ? `~${left} min` : "déle než odhad");
+        parts.push(left > 0 ? t("web.js.mobile.left_min", { n: left }) : t("web.js.estimate.over"));
       }
     } else {
-      parts.push(job.queue_position ? `ve frontě #${job.queue_position}` : "ve frontě");
+      parts.push(job.queue_position ? t("web.js.mobile.queued_pos", { n: job.queue_position }) : t("web.js.status.tag_queued"));
     }
     text.textContent = parts.join(" · ");
     close.hidden = true;
   } else if (job.status === "failed") {
-    text.textContent = `✗ ${job.name} se nepovedla`;
+    text.textContent = t("web.js.mobile.failed", { name: job.name });
     close.hidden = false;
   } else {
     canDownload = Boolean(job.has_output) && !jobIsPrivate(job);
-    text.textContent = `✓ ${job.name} je hotová${canDownload ? " –" : ""}`;
+    text.textContent = t("web.js.mobile.done", { name: job.name, dash: canDownload ? " –" : "" });
     close.hidden = false;
   }
   dl.hidden = !canDownload;
@@ -2895,7 +2910,7 @@ function initLastOptions() {
   document.getElementById("reset-options")?.addEventListener("click", () => {
     storageRemove(LAST_OPTIONS_KEY);
     applyFormOptions(factoryOptions);
-    showFormNotice("Nastavení je vrácené na výchozí hodnoty.");
+    showFormNotice(t("web.js.form.options_reset"));
   });
 }
 
@@ -2926,30 +2941,30 @@ async function loadWhatsNew() {
     if (warning) {
       const fresh = tone === "hot" || tone === "warm";
       warning.textContent = fresh
-        ? data.disclaimer || "Nový build – něco nemusí fungovat."
+        ? data.disclaimer || t("web.js.news.fresh_warning")
         : "";
       warning.hidden = !fresh;
     }
-    if (badge) badge.textContent = data.label || "Novinky";
+    if (badge) badge.textContent = data.label || t("web.js.news.badge");
     if (title) {
-      title.textContent = `v${data.version || "?"} · Co je nového`;
+      title.textContent = t("web.js.news.title", { v: data.version || "?" });
     }
     if (meta) {
       meta.textContent = data.age_label
-        ? `nasazeno ${data.age_label}`
+        ? t("web.js.news.deployed", { v: data.age_label })
         : "";
     }
     if (disclaimer) {
       disclaimer.textContent =
         data.disclaimer ||
-        "Jde o nový build s opravami a úpravami. Může se stát, že se při tom něco jiného rozbilo.";
+        t("web.js.news.disclaimer");
     }
     if (lead) {
       const hasEntries = (data.entries || []).length > 0;
       const hasMilestones = (data.milestones || []).length > 0;
       lead.textContent =
         data.entries_lead ||
-        (hasEntries ? "Nedávné změny:" : "V přehledu nejsou žádné větší změny.");
+        (hasEntries ? t("web.js.news.recent") : t("web.js.news.none"));
       // Bez denních souhrnů je hlavním seznamem „Novinky“ (milníky).
       lead.hidden = !hasEntries && hasMilestones;
     }
@@ -2975,7 +2990,7 @@ async function loadWhatsNew() {
     if (msLead) {
       if (milestones.length) {
         msLead.hidden = false;
-        msLead.textContent = data.milestones_lead || "Dřívější milníky:";
+        msLead.textContent = data.milestones_lead || t("web.js.news.milestones");
       } else {
         msLead.hidden = true;
         msLead.textContent = "";
@@ -2992,9 +3007,10 @@ const CS_NUM = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 
 function csBytes(n) {
   const gb = n / 1e9;
-  if (gb >= 1000) return `${(gb / 1000).toFixed(1).replace(".", ",")}\u00a0TB`;
+  const dec1 = (x) => x.toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  if (gb >= 1000) return `${dec1(gb / 1000)}\u00a0TB`;
   if (gb >= 10) return `${CS_NUM.format(gb)}\u00a0GB`;
-  if (gb >= 1) return `${gb.toFixed(1).replace(".", ",")}\u00a0GB`;
+  if (gb >= 1) return `${dec1(gb)}\u00a0GB`;
   return `${CS_NUM.format(n / 1e6)}\u00a0MB`;
 }
 
@@ -3009,21 +3025,21 @@ async function loadUsageBox() {
   if (!box || !window.matchMedia("(min-width: 1101px)").matches) return;
   try {
     const data = await api("/api/usage_stats");
-    const t = (data && data.enabled && data.totals) || null;
-    const maps = t && t.maps_done;
+    const tot = (data && data.enabled && data.totals) || null;
+    const maps = tot && tot.maps_done;
     if (!maps || !(maps.value > 0)) return;
-    const val = (key) => (t[key] && t[key].value) || 0;
+    const val = (key) => (tot[key] && tot[key].value) || 0;
     const year = data.last_year || {};
     const month = data.last_30_days || {};
     const items = [
-      ["map", CS_NUM.format(maps.value)],
-      ["zadání", CS_NUM.format(val("jobs_done"))],
-      ["uživatelů (odhad)", year.users ? CS_NUM.format(year.users) : ""],
-      ["zadání za 30 dní", CS_NUM.format(month.jobs || 0)],
-      ["hodin zpracování", val("build_seconds") >= 3600 ? CS_NUM.format(val("build_seconds") / 3600) : ""],
-      ["průměrné zpracování", year.avg_build_seconds ? `${CS_NUM.format(year.avg_build_seconds / 60)}\u00a0min` : ""],
-      ["km² území", val("area_km2") > 0 ? CS_NUM.format(val("area_km2")) : ""],
-      ["zpracováno dat", val("source_bytes") > 0 ? csBytes(val("source_bytes")) : ""],
+      [t("web.js.usage.maps"), CS_NUM.format(maps.value)],
+      [t("web.js.usage.jobs"), CS_NUM.format(val("jobs_done"))],
+      [t("web.js.usage.users"), year.users ? CS_NUM.format(year.users) : ""],
+      [t("web.js.usage.jobs_30d"), CS_NUM.format(month.jobs || 0)],
+      [t("web.js.usage.hours"), val("build_seconds") >= 3600 ? CS_NUM.format(val("build_seconds") / 3600) : ""],
+      [t("web.js.usage.avg_time"), year.avg_build_seconds ? `${CS_NUM.format(year.avg_build_seconds / 60)}\u00a0min` : ""],
+      [t("web.js.usage.area"), val("area_km2") > 0 ? CS_NUM.format(val("area_km2")) : ""],
+      [t("web.js.usage.data"), val("source_bytes") > 0 ? csBytes(val("source_bytes")) : ""],
     ].filter(([, v]) => v);
     const grid = document.getElementById("usage-box-grid");
     grid.replaceChildren(
@@ -3039,13 +3055,19 @@ async function loadUsageBox() {
     );
     const since = csDate(maps.since);
     const note = document.getElementById("usage-box-note");
-    const testPrefix = data.channel === "test" ? "Testovací verze · " : "";
-    note.textContent = `${testPrefix}${since ? `Od ${since}` : "Celkem"} · veřejné i soukromé mapy`;
-    note.title = "Uživatelé: odhad podle zadání za poslední rok (různé adresy, bez ukládání IP).";
+    const testPrefix = data.channel === "test" ? t("web.js.usage.test_prefix") : "";
+    note.textContent = t("web.js.usage.note", {
+      prefix: testPrefix,
+      when: since ? t("web.js.usage.since", { v: since }) : t("web.js.usage.total"),
+    });
+    note.title = t("web.js.usage.note_title");
     // Příspěvky: místo připravené, zobrazí se, až API začne posílat částku.
     const don = document.getElementById("usage-box-donations");
     if (data.donations && data.donations.amount > 0) {
-      don.textContent = `Přispěli jste ${CS_NUM.format(data.donations.amount)}\u00a0${data.donations.currency || "Kč"}. Děkujeme!`;
+      don.textContent = t("web.js.usage.donated", {
+        amount: CS_NUM.format(data.donations.amount),
+        currency: data.donations.currency || t("web.js.usage.currency_default"),
+      });
       don.hidden = false;
     }
     box.hidden = false;
@@ -3079,8 +3101,8 @@ function sourceRelevant(svc) {
 /** Poznámka k nedostupnému zdroji, který vybrané mapě nevadí. */
 function sourceIrrelevantNote(svc) {
   const sel = document.getElementById("dtm");
-  if (svc.needs === "dtm" && !(sel && sel.value === "0")) return " – les a MTBO se nakreslí z OSM a ZABAGED";
-  return " – s vypnutým DTM nevadí";
+  if (svc.needs === "dtm" && !(sel && sel.value === "0")) return t("web.js.sources.minor_forest");
+  return t("web.js.sources.minor_dtm_off");
 }
 
 /** Stav zdrojů dat před tlačítkem Spustit; při výpadku varování, že mapa nebude úplná. */
@@ -3096,7 +3118,7 @@ function renderSourceStatus() {
     // První kontrola po startu serveru ještě běží.
     box.hidden = !data.checking;
     box.classList.remove("is-down");
-    document.getElementById("source-status-summary").textContent = "Stav zdrojů dat: ověřuji…";
+    document.getElementById("source-status-summary").textContent = t("web.js.sources.checking");
     document.getElementById("source-status-list").replaceChildren();
     document.getElementById("source-status-note").textContent = "";
     return;
@@ -3110,11 +3132,15 @@ function renderSourceStatus() {
       // Nefunkční zdroj má křížek vždy (i když vybrané mapě nevadí), jen bez tučného zvýraznění.
       li.className = s.ok ? "ok" : relevant ? "down" : "down minor";
       if (s.ok) {
-        li.textContent = `${s.label}: běží`;
+        li.textContent = t("web.js.sources.svc_ok", { label: s.label });
       } else {
         const since = csTime(s.down_since);
-        const detail = (s.detail || "chyba").replace(/^plánovaná odstávka,\s*/, "");
-        li.textContent = `${s.label}: ${s.planned ? "plánovaná odstávka" : "neodpovídá"} (${detail}${since ? `, od ${since}` : ""})` +
+        const detail = (s.detail || t("web.js.sources.svc_error")).replace(/^plánovaná odstávka,\s*/, "");
+        li.textContent = t("web.js.sources.svc_down", {
+          label: s.label,
+          state: s.planned ? t("web.js.sources.planned") : t("web.js.sources.not_responding"),
+          detail: detail + (since ? t("web.js.sources.since", { v: since }) : ""),
+        }) +
           (relevant ? "" : sourceIrrelevantNote(s));
         if (relevant) {
           const imp = document.createElement("span");
@@ -3132,26 +3158,31 @@ function renderSourceStatus() {
   if (down.length) {
     const fatal = down.some((s) => s.fatal);
     const names = down.map((s) => s.label.replace(/\s*\(.*\)$/, "")).join(", ");
-    const what = down.every((s) => s.planned) ? "Plánovaná odstávka zdroje dat" : "Nedostupný zdroj dat";
+    const what = down.every((s) => s.planned) ? t("web.js.sources.what_planned") : t("web.js.sources.what_down");
     const dtmOnly = down.every((s) => s.needs === "dtm");
     summary.textContent = fatal
-      ? `⚠ ${what} (${names}) – generování nejspíš selže.`
-      : `⚠ ${what} (${names}) – ${dtmOnly ? "mapa bude nejspíš bez DTM" : "mapa nebude úplná"}.`;
+      ? t("web.js.sources.sum_fatal", { what, names })
+      : t("web.js.sources.sum_partial", {
+        what,
+        names,
+        tail: dtmOnly ? t("web.js.sources.tail_no_dtm") : t("web.js.sources.tail_incomplete"),
+      });
     if (!wasDown) box.open = true;
   } else {
     // Výpadek zdroje, který vybrané mapě nevadí: souhrn nesmí tvrdit „vše běží“.
     const other = data.services.filter((s) => !s.ok);
     const otherNames = other.map((s) => s.label.replace(/\s*\(.*\)$/, "")).join(", ");
-    const otherWhat = other.every((s) => s.planned) ? "plánovaná odstávka" : "mimo provoz";
+    const otherWhat = other.every((s) => s.planned) ? t("web.js.sources.planned") : t("web.js.sources.out_of_service");
     summary.textContent = other.length
-      ? `Stav zdrojů dat: ${otherNames} – ${otherWhat}, ostatní běží`
-      : "Stav zdrojů dat: vše běží";
+      ? t("web.js.sources.sum_other", { names: otherNames, what: otherWhat })
+      : t("web.js.sources.sum_ok");
     if (wasDown) box.open = false;
   }
   const checked = csTime(data.checked_at);
   document.getElementById("source-status-note").textContent =
-    (checked ? `Ověřeno v ${checked}.` : "") + (data.checking ? " Ověřuji znovu…" : "") +
-    (down.length ? " Generovat lze i tak, chybějící část se vynechá; nebo to zkuste později." : "");
+    (checked ? t("web.js.sources.checked_at", { v: checked }) : "") +
+    (data.checking ? t("web.js.sources.rechecking") : "") +
+    (down.length ? t("web.js.sources.can_generate") : "");
   box.hidden = false;
 }
 
@@ -3176,12 +3207,13 @@ function renderDtmForestNote() {
   const show = Boolean(svc && forestUsesDtm());
   if (show) {
     const lead = document.createElement("strong");
-    lead.textContent = "Mapa bude nejspíš bez DTM.";
+    lead.textContent = t("web.js.sources.note_lead");
     const body = document.createElement("span");
     body.append(
       lead,
-      ` Portál DTM (DMVS ČÚZK) ${svc.planned ? "má plánovanou odstávku" : "teď neodpovídá"}. ` +
-        "Les i MTBO se nakreslí z OSM a ZABAGED (DTM se použije, jen pokud je výřez už v mezipaměti); s DTM to můžete zkusit později.",
+      t("web.js.sources.note_body", {
+        state: svc.planned ? t("web.js.sources.note_planned") : t("web.js.sources.note_down"),
+      }),
     );
     el.replaceChildren(body);
   } else {
@@ -3237,7 +3269,7 @@ async function openJobFromUrl() {
   try {
     const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`);
     if (!res.ok) {
-      showFormNotice(res.status === 410 ? "Job z odkazu už vypršel a byl smazán." : "Job z odkazu už neexistuje.");
+      showFormNotice(res.status === 410 ? t("web.js.form.link_expired") : t("web.js.form.link_missing"));
       return;
     }
     const job = await res.json();
@@ -3333,19 +3365,19 @@ initBboxMap();
     const jobId = (document.getElementById("feedback-job-id")?.value || "").trim();
     const website = (document.getElementById("feedback-website")?.value || "").trim();
     if (!contact) {
-      setStatus("Vyplňte kontakt (e-mail nebo telefon).", "err");
+      setStatus(t("web.js.feedback.need_contact"), "err");
       return;
     }
     if (!comment) {
-      setStatus("Napište komentář.", "err");
+      setStatus(t("web.js.feedback.need_comment"), "err");
       return;
     }
     if (!jobId) {
-      setStatus("Vyberte mapu v seznamu — zpětná vazba patří ke konkrétní mapě.", "err");
+      setStatus(t("web.js.feedback.need_map"), "err");
       return;
     }
     if (submitBtn) submitBtn.disabled = true;
-    setStatus("Odesílám…", "");
+    setStatus(t("web.js.feedback.sending"), "");
     try {
       const res = await fetch("/api/feedback", {
         method: "POST",
@@ -3362,12 +3394,12 @@ initBboxMap();
         setStatus(parseApiError(res, text), "err");
         return;
       }
-      setStatus("Díky — zpráva je u Petra.", "ok");
+      setStatus(t("web.js.feedback.sent"), "ok");
       form.reset();
       const jobField = document.getElementById("feedback-job-id");
       if (jobField && selectedJobId) jobField.value = selectedJobId;
     } catch (err) {
-      setStatus(err.message || "Odeslání selhalo.", "err");
+      setStatus(err.message || t("web.js.feedback.failed"), "err");
     } finally {
       if (submitBtn) submitBtn.disabled = false;
     }
