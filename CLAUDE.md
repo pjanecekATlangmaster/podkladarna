@@ -28,6 +28,7 @@ Podkladárna je webová služba pro generování orientačních podkladů z ČÚ
 - Nikdy necommituj tajemství, přihlašovací údaje ani lokální data.
 - Před commitem spusť relevantní testy (viz „Vývoj a testy"); celou sadu před PR.
 - Při změnách kódu a opravách chyb zvyš `APP_VERSION` v `app/settings.py` jednou za dokončenou logickou změnu (viz „Verze a Novinky"); u dokumentace ne.
+- Lokalizace (`app/i18n.py`, katalogy `configs/i18n/*.json`): nový text pro uživatele webu = klíč v `cs.json` i `en.json` se stejnými `{proměnnými}` (HTML `{{t:klic}}`, `app.js` `t("klic")`). Log jobu zůstává česky (web z něj parsuje průběh). Návrh: `/mnt/project-files/evropa-data/lokalizace-navrh.md`.
 
 ### Jen se souhlasem Petra
 

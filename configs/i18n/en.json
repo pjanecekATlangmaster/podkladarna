@@ -1,0 +1,20 @@
+{
+  "_comment": "English base catalogue for all non-Czech languages. Keep keys and {placeholders} identical to cs.json.",
+  "web.lang.name": "English",
+  "web.lang.switch": "Language",
+  "web.tagline": "Base maps for OpenOrienteering Mapper from LiDAR, regional DTM, OSM and ZABAGED",
+  "web.footer.source_code": "source code",
+  "web.footer.issues": "feedback (Issues)",
+  "web.footer.licence": "licence (code MIT · output CC BY 4.0)",
+  "web.footer.support": "support development",
+  "web.footer.family": "One family:",
+  "web.footer.family_map": "(map)",
+  "web.footer.family_courses": "(courses)",
+  "web.footer.family_play": "(run them)",
+  "web.footer.data": "Data:",
+  "web.footer.cc_by_url": "https://creativecommons.org/licenses/by/4.0/",
+  "web.footer.inspired": "loosely inspired by",
+  "web.footer.inspired_link": "Karttapullautin",
+  "web.footer.map": "map",
+  "web.footer.not_survey": "working base map, not a survey"
+}

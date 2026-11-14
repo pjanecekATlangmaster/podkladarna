@@ -1,3 +1,15 @@
+/* Lokalizace: katalog vkládá server do stránky (window.I18N, app/i18n.py). Bez něj čeština. */
+const I18N = (typeof window !== "undefined" && window.I18N) || { lang: "cs", locale: "cs-CZ", messages: {} };
+const LANG = I18N.lang || "cs";
+const LOCALE = I18N.locale || "cs-CZ";
+
+/** Text pro klíč katalogu; {name} nahradí z vars. Chybí-li klíč, vrátí fallback (nebo klíč). */
+function t(key, vars, fallback) {
+  let text = Object.prototype.hasOwnProperty.call(I18N.messages || {}, key) ? I18N.messages[key] : fallback ?? key;
+  if (vars) text = String(text).replace(/\{(\w+)\}/g, (m, name) => (name in vars ? String(vars[name]) : m));
+  return text;
+}
+
 function parseApiError(res, text) {
   let detail = null;
   try {
@@ -1147,7 +1159,7 @@ function formatWhen(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso).slice(0, 19).replace("T", " ");
-  return d.toLocaleString("cs-CZ", { dateStyle: "short", timeStyle: "medium" });
+  return d.toLocaleString(LOCALE, { dateStyle: "short", timeStyle: "medium" });
 }
 
 /** Plocha mapy jako v e-mailu: „2,4 km²“, pod 1 km² „0,85 km²“. */
@@ -1384,7 +1396,7 @@ function dtmBackgroundText(bg) {
 
 function formatBytes(n) {
   const v = Number(n) || 0;
-  const fmt = (x, d) => x.toLocaleString("cs-CZ", { maximumFractionDigits: d, minimumFractionDigits: d });
+  const fmt = (x, d) => x.toLocaleString(LOCALE, { maximumFractionDigits: d, minimumFractionDigits: d });
   if (v >= 1e9) return `${fmt(v / 1e9, 1)} GB`;
   if (v >= 1e6) return `${fmt(v / 1e6, v >= 1e8 ? 0 : 1)} MB`;
   if (v >= 1e3) return `${fmt(v / 1e3, 0)} kB`;
@@ -1437,7 +1449,7 @@ function renderJobStats(job) {
     if (stats.cached_bytes) parts.push(`z mezipaměti ${formatBytes(stats.cached_bytes)}`);
     facts.push(["Data podkladů", `${formatBytes(dataTotal)} (${parts.join(", ")})`]);
   }
-  if (stats.area_km2) facts.push(["Území", `${Number(stats.area_km2).toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} km²`]);
+  if (stats.area_km2) facts.push(["Území", `${Number(stats.area_km2).toLocaleString(LOCALE, { maximumFractionDigits: 2 })} km²`]);
   if (stats.lidar_sheets) facts.push(["Listy laserového skenování", String(stats.lidar_sheets)]);
   if (stats.dtm != null) {
     const dtmMaps = job.dtm_summary && job.dtm_summary.maps
@@ -2373,7 +2385,7 @@ function clearBbox(opts = {}) {
 
 // --- Česky formátovaná čísla a odznak stavu výřezu přímo na mapě ---
 function formatNumCz(x, digits = 1) {
-  return Number(x).toLocaleString("cs-CZ", { minimumFractionDigits: 0, maximumFractionDigits: digits });
+  return Number(x).toLocaleString(LOCALE, { minimumFractionDigits: 0, maximumFractionDigits: digits });
 }
 
 /** Rozměr: pod 1 km v metrech (na 10 m), jinak km na 1 desetinné místo. */
@@ -2976,7 +2988,7 @@ async function loadWhatsNew() {
   }
 }
 
-const CS_NUM = new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 0 });
+const CS_NUM = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 
 function csBytes(n) {
   const gb = n / 1e9;
@@ -2988,7 +3000,7 @@ function csBytes(n) {
 
 function csDate(iso) {
   const d = iso ? new Date(iso) : null;
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString("cs-CZ") : "";
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString(LOCALE) : "";
 }
 
 /** Box „Podkladárna v číslech“ nahoře (jen široké okno, viz CSS); data z /api/usage_stats. */
@@ -3047,7 +3059,7 @@ const SOURCE_STATUS_REFRESH_MS = 5 * 60 * 1000;
 
 function csTime(iso) {
   const d = iso ? new Date(iso) : null;
-  return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }) : "";
+  return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" }) : "";
 }
 
 /**

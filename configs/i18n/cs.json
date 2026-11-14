@@ -1,0 +1,20 @@
+{
+  "_comment": "Zdrojový katalog (čeština). Nový text = klíč v cs.json i en.json se stejnými {proměnnými}. HTML stránek: {{t:klic}}, app.js: t('klic').",
+  "web.lang.name": "Česky",
+  "web.lang.switch": "Jazyk",
+  "web.tagline": "Z LiDARu, DTM kraje, OSM a ZABAGEDu podklad pro OpenOrienteering Mapper",
+  "web.footer.source_code": "zdrojový kód",
+  "web.footer.issues": "připomínky (Issues)",
+  "web.footer.licence": "licence (kód MIT · výstup CC BY 4.0)",
+  "web.footer.support": "podpořit vývoj",
+  "web.footer.family": "Z jedné rodiny:",
+  "web.footer.family_map": "(mapa)",
+  "web.footer.family_courses": "(tratě)",
+  "web.footer.family_play": "(proběhnout si je)",
+  "web.footer.data": "Data:",
+  "web.footer.cc_by_url": "https://creativecommons.org/licenses/by/4.0/deed.cs",
+  "web.footer.inspired": "volně inspirováno",
+  "web.footer.inspired_link": "Karttapullautinem",
+  "web.footer.map": "mapa",
+  "web.footer.not_survey": "pracovní podklad, není zaměření"
+}
