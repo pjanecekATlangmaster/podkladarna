@@ -81,6 +81,93 @@ def local_provider(spec: str) -> Provider:
     return _fetch
 
 
+# --------------------------------------------------------------------------- NL: AHN přes PDOK WCS
+
+AHN_WCS = "https://service.pdok.nl/rws/ahn/wcs/v1_0"
+AHN_CRS = "EPSG:28992"
+AHN_BUFFER_M = 20.0
+AHN_MAX_SIDE_M = 6000.0  # jeden GetCoverage do ~6 km (0,5 m → 12 000 px); větší výřez po dlaždicích
+
+
+def _bounds_in(bounds, crs_from_wkt: str, crs_to: str) -> tuple[float, float, float, float]:
+    from pyproj import Transformer
+
+    xmin, ymin, xmax, ymax = bounds
+    t = Transformer.from_crs(crs_from_wkt, crs_to, always_xy=True)
+    xs, ys = [], []
+    for i in range(11):  # hrany, ne jen rohy (pootočení mezi souřadnicovými systémy)
+        f = i / 10
+        for x, y in ((xmin + f * (xmax - xmin), ymin), (xmin + f * (xmax - xmin), ymax),
+                     (xmin, ymin + f * (ymax - ymin)), (xmax, ymin + f * (ymax - ymin))):
+            px, py = t.transform(x, y)
+            xs.append(px)
+            ys.append(py)
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _download(url: str, dest: Path, *, log=None) -> Path:
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    with urllib.request.urlopen(req, timeout=300) as resp, tmp.open("wb") as fh:
+        ctype = resp.headers.get("Content-Type", "")
+        while chunk := resp.read(1 << 20):
+            fh.write(chunk)
+    if "tiff" not in ctype.lower() or tmp.stat().st_size < 500:
+        detail = tmp.read_bytes()[:300].decode("utf-8", "replace")
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(f"WCS nevrátil GeoTIFF ({ctype}): {detail}")
+    tmp.replace(dest)
+    if log:
+        log(f"  {dest.name}: {dest.stat().st_size / 1e6:.1f} MB")
+    return dest
+
+
+def ahn_coverage_urls(coverage: str, bounds_rd: tuple[float, float, float, float]) -> list[str]:
+    """GetCoverage URL po dlaždicích nejvýš ``AHN_MAX_SIDE_M`` (souřadnice RD New, zarovnané na 0,5 m)."""
+    import math
+
+    xmin, ymin, xmax, ymax = bounds_rd
+    xmin, ymin = math.floor(xmin - AHN_BUFFER_M), math.floor(ymin - AHN_BUFFER_M)
+    xmax, ymax = math.ceil(xmax + AHN_BUFFER_M), math.ceil(ymax + AHN_BUFFER_M)
+    nx = max(1, math.ceil((xmax - xmin) / AHN_MAX_SIDE_M))
+    ny = max(1, math.ceil((ymax - ymin) / AHN_MAX_SIDE_M))
+    urls = []
+    for i in range(nx):
+        for j in range(ny):
+            x0 = xmin + i * (xmax - xmin) / nx
+            x1 = xmin + (i + 1) * (xmax - xmin) / nx
+            y0 = ymin + j * (ymax - ymin) / ny
+            y1 = ymin + (j + 1) * (ymax - ymin) / ny
+            x0, x1, y0, y1 = (round(v * 2) / 2 for v in (x0, x1, y0, y1))
+            urls.append(
+                f"{AHN_WCS}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID={coverage}"
+                f"&FORMAT=image/tiff&SUBSET=x({x0:g},{x1:g})&SUBSET=y({y0:g},{y1:g})"
+            )
+    return urls
+
+
+def nl_ahn_provider(bounds, out_dir: Path, log=None) -> tuple[Path, Path | None]:
+    """AHN (Actueel Hoogtebestand Nederland) DTM a DSM 0,5 m z PDOK WCS, CC0 / CC BY 4.0, bez klíče."""
+    bounds_rd = _bounds_in(bounds, CRS_WKT, AHN_CRS)
+    out = []
+    for coverage in ("dtm_05m", "dsm_05m"):
+        tiles = [
+            _download(url, out_dir / f"ahn_{coverage}_{k}.tif", log=log)
+            for k, url in enumerate(ahn_coverage_urls(coverage, bounds_rd))
+        ]
+        vrt = out_dir / f"ahn_{coverage}.vrt"
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", AHN_CRS, str(vrt), *map(str, tiles)], log=log)
+        out.append(vrt)
+    return out[0], out[1]
+
+
+PROVIDERS["nl_ahn"] = nl_ahn_provider
+
+
 def resolve_provider(source: str) -> Provider:
     if source.startswith("local:"):
         return local_provider(source)
@@ -146,6 +233,7 @@ def _fill(src: Path, dest: Path, *, log=None) -> Path:
 def _read(path: Path):
     from osgeo import gdal
 
+    gdal.UseExceptions()
     ds = gdal.Open(str(path))  # dataset držet, jinak GDAL uvolní pásmo před čtením
     arr = ds.GetRasterBand(1).ReadAsArray().astype("float32")
     ds = None

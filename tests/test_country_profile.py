@@ -123,3 +123,13 @@ def test_api_beta_country_without_sheets(client, monkeypatch):
     assert r.status_code == 200, r.text
     opts = r.json()["options"]
     assert opts["country"] == "SK" and opts["sm5_sheets"] == []
+
+
+def test_ahn_coverage_urls_tiling():
+    from app.pipeline.elevation_raster import AHN_MAX_SIDE_M, ahn_coverage_urls
+
+    small = ahn_coverage_urls("dtm_05m", (117000.2, 480000.0, 118000.0, 481000.7))
+    assert len(small) == 1
+    assert "COVERAGEID=dtm_05m" in small[0] and "SUBSET=x(116980,118020)" in small[0]
+    big = ahn_coverage_urls("dsm_05m", (100000.0, 400000.0, 100000.0 + 2.5 * AHN_MAX_SIDE_M, 401000.0))
+    assert len(big) == 3
