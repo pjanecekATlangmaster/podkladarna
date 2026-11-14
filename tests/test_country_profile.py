@@ -149,6 +149,7 @@ def test_api_beta_country_without_sheets(client, monkeypatch, sk_beta):
     bbox = "17.085,48.165,17.100,48.175"
     body = client.get("/api/sheets", params={"bbox": bbox}).json()
     assert body["country"] == "SK" and body["count"] == 0 and body["estimate_minutes"]
+    assert body["needs_sheets"] is False and "SM5" not in body["label"]  # GUI nehlásí „mimo data“
     r = client.post("/api/jobs", data={"preset_id": "sprint_2m", "output_mode": "png_zip", "name": "ba", "bbox": bbox})
     assert r.status_code == 200, r.text
     opts = r.json()["options"]
