@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from app.pipeline.crs_5514 import (
+    CRS_EPSG,
     CRS_LABEL,
     CRS_PROJ4,
     GEOGRAPHIC_CRS_PROJ4,
@@ -212,7 +213,7 @@ PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.
     <georeferencing scale="{scale}" auxiliary_scale_factor="1" declination="{declination:.2f}" grivation="{grivation:.2f}">
         <projected_crs id="EPSG">
             <spec language="PROJ.4">{crs}</spec>
-            <parameter>5514</parameter>
+            <parameter>{CRS_EPSG}</parameter>
             <ref_point x="{ref_x:.6f}" y="{ref_y:.6f}"/>
         </projected_crs>
         <geographic_crs id="Geographic coordinates">

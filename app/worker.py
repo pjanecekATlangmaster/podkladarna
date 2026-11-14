@@ -226,10 +226,28 @@ def _job_worker_cmd(job_id: str) -> list[str]:
     return [sys.executable, "-m", "app.job_worker", job_id]
 
 
+def _job_env(job_id: str) -> dict:
+    """Prostředí procesu jobu: souřadnice země výřezu (``crs_5514.JOB_CRS_ENV``, zahraniční build)."""
+    from app.pipeline.crs_5514 import JOB_CRS_ENV, KROVAK_LABEL
+
+    env = os.environ.copy()
+    env.pop(JOB_CRS_ENV, None)
+    try:
+        from app.pipeline.country_profile import job_country
+
+        country = job_country(db.get_job(job_id).get("options") or {})
+        crs = (country.crs if country else "") or KROVAK_LABEL
+    except Exception:  # noqa: BLE001 – job bez záznamu / starý formát: S-JTSK jako dosud
+        crs = KROVAK_LABEL
+    if crs != KROVAK_LABEL:
+        env[JOB_CRS_ENV] = crs
+    return env
+
+
 def _popen_job(job_id: str) -> subprocess.Popen:
     kwargs: dict = {
         "cwd": str(APP_ROOT),
-        "env": os.environ.copy(),
+        "env": _job_env(job_id),
     }
     if os.name == "nt":
         if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):

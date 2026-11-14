@@ -25,6 +25,7 @@ from app.pipeline.country_profile import (
     ELEVATION_CZ,
     elevation_source,
     job_country_code,
+    process_uses_cz_sources,
     set_process_country,
     uses_cz_sources,
 )
@@ -426,11 +427,16 @@ def _with_online_templates(
     """
     if not bbox:
         return built_refs
+    from app.pipeline.country_profile import process_country
     from app.pipeline.online_templates import ONLINE_ONLY_KEYS, write_online_templates
 
+    country = process_country()
     try:
         online = write_online_templates(
-            crop_bounds_5514(*bbox), reference_dir, only=ONLINE_ONLY_KEYS if only_online else None
+            crop_bounds_5514(*bbox),
+            reference_dir,
+            only=ONLINE_ONLY_KEYS if only_online else None,
+            country=country.code if country else "CZ",
         )
     except Exception as exc:
         log_issue(log, f"Online šablony podkladů: přeskočeno ({exc})")
@@ -479,6 +485,17 @@ def join_reference_download(
     """
     built_refs: dict[str, Path] = {}
     reference_dir = work_dir / "references"
+    if bbox and not process_uses_cz_sources():
+        # Mimo Česko: online šablony místních služeb a OSM, výška vegetace z vlastního CHM, Sentinel-2.
+        if progress is not None:
+            progress.begin("referenční podklady")
+        built_refs = _with_vegetation_height(built_refs, work_dir, reference_dir, log)
+        if sentinel:
+            add_sentinel2_reference(built_refs, tuple(bbox), reference_dir, log=log)
+        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log)
+        if progress is not None:
+            progress.done()
+        return built_refs, sorted(p.name for p in built_refs.values())
     if not want_refs and ref_download is None:
         if progress is not None:
             progress.skip("referenční podklady", reason="online šablony")

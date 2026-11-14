@@ -40,9 +40,10 @@ def test_beta_country_hidden_without_flag(monkeypatch, sk_beta):
     assert [c.code for c in countries.allowed_countries(None)] == ["CZ"]
     with pytest.raises(countries.CountryError):
         countries.check_bbox((17.09, 48.165, 17.10, 48.175))
-    # NL je připravené, ale vypnuté (čeká na souřadnice jobu podle země).
+    # NL je beta: jen s COUNTRIES_BETA (test B), na ostré se nenabízí.
+    assert "NL" not in countries.offered_codes()
     monkeypatch.setenv("COUNTRIES_BETA", "*")
-    assert "NL" not in [c.code for c in countries.allowed_countries(None)]
+    assert "NL" in [c.code for c in countries.allowed_countries(None)]
 
 
 def test_country_without_surface_is_off(monkeypatch):
@@ -291,3 +292,40 @@ def test_citation_by_country(country, must, must_not):
     for text in must_not:
         assert text not in data_part and text not in about[about.index("Právní"):]
     assert meta["citation_short"] in about
+
+
+def test_job_crs_from_env_and_worker(monkeypatch):
+    """Proces jobu v NL počítá v EPSG:28992 (proměnnou nastaví worker), web a Česko zůstávají v S-JTSK."""
+    import subprocess
+    import sys
+
+    from app import worker
+    from app.pipeline import crs_5514
+
+    code = (
+        "from app.pipeline import crs_5514 as c; from app.pipeline.fetch_openzu import crop_bounds_5514 as b;"
+        "x0, y0, x1, y1 = b(4.88, 52.36, 4.90, 52.37, buffer_m=0);"
+        "print(c.CRS_LABEL, c.CRS_EPSG, round(x0), round(y1))"
+    )
+    env = {**__import__("os").environ, crs_5514.JOB_CRS_ENV: "EPSG:28992"}
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True).stdout.split()
+    assert out[:2] == ["EPSG:28992", "28992"]
+    assert 120000 < int(out[2]) < 122000 and 486000 < int(out[3]) < 488000  # Amsterdam v RD
+    assert crs_5514.CRS_LABEL == "EPSG:5514"
+
+    jobs = {"nl": {"options": {"country": "NL"}}, "cz": {"options": {}}}
+    monkeypatch.setattr(worker.db, "get_job", lambda job_id: jobs[job_id])
+    monkeypatch.setenv(crs_5514.JOB_CRS_ENV, "EPSG:28992")  # zbytek z jiného jobu se nedědí
+    assert worker._job_env("nl")[crs_5514.JOB_CRS_ENV] == "EPSG:28992"
+    assert crs_5514.JOB_CRS_ENV not in worker._job_env("cz")
+
+
+def test_nl_online_templates(tmp_path):
+    from app.pipeline.online_templates import online_labels, write_online_templates
+
+    written = write_online_templates((120000.0, 486000.0, 121000.0, 487000.0), tmp_path, country="NL")
+    assert {"online_nl_luchtfoto", "online_nl_kadaster", "online_nl_top10nl"} <= set(written)
+    assert not any(k.startswith("online_orthophoto") for k in written)  # ČÚZK mimo Česko ne
+    xml = written["online_nl_luchtfoto"].read_text(encoding="utf-8")
+    assert "service.pdok.nl" in xml and "Actueel_orthoHR" in xml
+    assert set(written) <= set(online_labels())

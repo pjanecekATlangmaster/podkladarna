@@ -28,7 +28,7 @@ from app.pipeline.osm_paths import (
 )
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.job_progress import map_phase
-from app.pipeline.crs_5514 import projected_to_wgs84
+from app.pipeline.crs_5514 import CRS_LABEL, projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.geom_clip import expand
 from app.pipeline.oom_georef import oom_north_angles
@@ -483,7 +483,7 @@ def oom_metadata(
         "app_version": APP_VERSION,
         "preset_id": preset_id,
         "label": preset.get("label", preset_id),
-        "crs": "EPSG:5514",
+        "crs": CRS_LABEL,
         "scale": map_scale_from_scalefactor(sf),
         "scalefactor": sf,
         "contour_interval_m": options.get(
@@ -533,6 +533,11 @@ def _data_sources_line(meta: dict) -> str:
     return "Data:\n" + "\n".join(f"- {line}" for line in lines) + "\n"
 
 
+def _crs_readme(meta: dict) -> str:
+    crs = meta.get("crs") or "EPSG:5514"
+    return "EPSG:5514 (S-JTSK / Křovák)" if crs == "EPSG:5514" else crs
+
+
 def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
     """``sentinel_info``: popis snímků Sentinel-2 (datum, soubory, citace) do části o podkladech."""
     def _c(code: str) -> str:
@@ -554,7 +559,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
     if include_georef:
         georef_note = (
             "   Georef náhledy mapy jsou ve složce preview/ "
-            "(GeoTIFF v EPSG:5514, 300 DPI, s přehledkami; Mapper, jinak Pillow).\n"
+            f"(GeoTIFF v {meta.get('crs') or 'EPSG:5514'}, 300 DPI, s přehledkami; Mapper, jinak Pillow).\n"
         )
     else:
         georef_note = (
@@ -584,7 +589,19 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         if sentinel_info:
             ref_block += "\n" + sentinel_info.strip() + "\n"
     online = any(str(name).endswith((".xml", ".vrt")) for name in refs)
-    if online:
+    country = meta.get("country") or "CZ"
+    if online and country != "CZ":
+        from app.pipeline.online_templates import wms_readme_lines
+
+        refs_intro = (
+            "Podklady jsou online šablony (soubory .xml / .vrt ve složce references/, GDAL WMS) místních služeb\n"
+            "země výřezu a OpenStreetMap, každý v maximálním a středním zoomu (_stredni, 4× hrubší). V OOM jsou\n"
+            "v seznamu šablon vypnuté; po zapnutí se stáhnou z internetu. Výška vegetace (vyska_vegetace.png)\n"
+            "je z vlastního modelu povrchu. OCAD soubory .xml neotevře – připojte si podklady jako WMS:\n"
+            + "\n".join(wms_readme_lines(country))
+            + "\n"
+        )
+    elif online:
         from app.pipeline.online_templates import wms_readme_lines
 
         refs_intro = (
@@ -641,7 +658,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         f"Typ mapy: {label}\n"
         f"Měřítko: 1:{scale}\n"
         f"Ekvidistance: {interval_txt}\n"
-        "Souřadnicový systém: EPSG:5514 (S-JTSK / Křovák)\n"
+        f"Souřadnicový systém: {_crs_readme(meta)}\n"
         f"{epochs_block}\n"
         f"{refs_intro}"
         f"{ref_block}\n"

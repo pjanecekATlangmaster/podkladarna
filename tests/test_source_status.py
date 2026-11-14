@@ -168,10 +168,6 @@ def test_short_outage_sends_nothing(fresh_state, monkeypatch):
 
 def test_local_sources_by_country(fresh_state, monkeypatch, client):
     """Web ukáže místní servery země výřezu; vypnutá země se nekontroluje."""
-    import dataclasses
-
-    from app import countries
-
     urls: list[str] = []
 
     def fake(url, method):
@@ -180,10 +176,7 @@ def test_local_sources_by_country(fresh_state, monkeypatch, client):
 
     monkeypatch.setattr(ss, "_probe_url", fake)
     ss.check_all()
-    assert not any("pdok.nl" in u for u in urls)  # NL je vypnuté
-    patched = dict(countries.load_countries())
-    patched["NL"] = dataclasses.replace(patched["NL"], status="beta")
-    monkeypatch.setattr(countries, "load_countries", lambda: patched)
+    assert not any("pdok.nl" in u for u in urls)  # NL je beta, bez COUNTRIES_BETA se nenabízí
     monkeypatch.setenv("COUNTRIES_BETA", "NL")
     assert ss.is_stale()  # nově nabízená země ještě nemá výsledek
     ss.check_all()

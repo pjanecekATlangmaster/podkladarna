@@ -111,16 +111,24 @@ def parse_bbox(raw: str) -> tuple[float, float, float, float]:
     return west, south, east, north
 
 
+# Křovák zkresluje délky a plochy jen v okolí Česka a Slovenska; dál (zahraniční build) se plocha
+# a rozměry výřezu měří v lokální stejnoploché projekci se středem ve výřezu.
+KROVAK_LON_RANGE = (11.5, 23.0)
+
+
 def _bbox_corners_5514(
     west: float, south: float, east: float, north: float
 ) -> list[tuple[float, float]]:
-    """Čtyři rohy WGS bboxu v S-JTSK (SW, SE, NE, NW)."""
-    return [
-        wgs84_to_5514(west, south),
-        wgs84_to_5514(east, south),
-        wgs84_to_5514(east, north),
-        wgs84_to_5514(west, north),
-    ]
+    """Čtyři rohy WGS bboxu v S-JTSK (SW, SE, NE, NW); mimo dosah Křováka v lokální LAEA (metry)."""
+    corners = ((west, south), (east, south), (east, north), (west, north))
+    mid_lon = (west + east) / 2
+    if KROVAK_LON_RANGE[0] <= mid_lon <= KROVAK_LON_RANGE[1]:
+        return [wgs84_to_5514(lon, lat) for lon, lat in corners]
+    from pyproj import Transformer
+
+    local = f"+proj=laea +lat_0={(south + north) / 2:.6f} +lon_0={mid_lon:.6f} +ellps=WGS84 +units=m +no_defs"
+    t = Transformer.from_crs("EPSG:4326", local, always_xy=True)
+    return [tuple(float(v) for v in t.transform(lon, lat)) for lon, lat in corners]
 
 
 def bbox_area_km2(
@@ -331,7 +339,10 @@ def query_sm5_sheets(west: float, south: float, east: float, north: float) -> li
 def wgs84_to_5514(lon: float, lat: float) -> tuple[float, float]:
     from pyproj import Transformer
 
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:5514", always_xy=True)
+    from app.pipeline.crs_5514 import CRS_LABEL
+
+    # Souřadnice jobu (S-JTSK, v zahraničním buildu EPSG země z ``PODKLADARNA_JOB_CRS``).
+    transformer = Transformer.from_crs("EPSG:4326", CRS_LABEL, always_xy=True)
     x, y = transformer.transform(lon, lat)
     return float(x), float(y)
 
@@ -368,7 +379,9 @@ def expand_bbox_wgs84(
     )
     from pyproj import Transformer
 
-    to_wgs = Transformer.from_crs("EPSG:5514", "EPSG:4326", always_xy=True)
+    from app.pipeline.crs_5514 import CRS_LABEL
+
+    to_wgs = Transformer.from_crs(CRS_LABEL, "EPSG:4326", always_xy=True)
     lons: list[float] = []
     lats: list[float] = []
     for x, y in (

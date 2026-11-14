@@ -34,7 +34,7 @@ SK:
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."
 NL:
   name: {cs: Nizozemsko, en: Netherlands, nl: Nederland}
-  status: off               # čeká na souřadnice jobu podle země (EPSG:28992)
+  status: beta              # souřadnice jobu EPSG:28992 (PODKLADARNA_JOB_CRS); na ostré se nenabízí
   crs: EPSG:28992
   boundary: countries/nl.geojson
   view: [50.74, 3.34, 53.56, 7.21]

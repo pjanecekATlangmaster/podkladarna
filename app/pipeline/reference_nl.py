@@ -8,6 +8,7 @@ Stav služeb hlídá ``app.source_status`` (HEAD na GetCapabilities), šablony p
 from __future__ import annotations
 
 NL_AHN_WCS = "https://service.pdok.nl/rws/ahn/wcs/v1_0"
+NL_AHN_WMS = "https://service.pdok.nl/rws/ahn/wms/v1_0"  # vrstva dtm_05m (barevný výškopis)
 NL_LUCHTFOTO_WMS = "https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0"
 NL_LUCHTFOTO_LAYER = "Actueel_orthoHR"  # nejnovější snímkování 7,5–8 cm
 NL_KADASTER_WMS = "https://service.pdok.nl/kadaster/kadastralekaart/wms/v5_0"
