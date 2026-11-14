@@ -21,13 +21,10 @@ def test_parse_bbox_ok():
     assert parse_bbox("14.4,50.0,14.5,50.1") == (14.4, 50.0, 14.5, 50.1)
 
 
-def test_parse_bbox_rejects_outside_cz():
-    with pytest.raises(FetchError, match="mimo Česko"):
-        parse_bbox("0,0,1,1")
-    with pytest.raises(FetchError, match="mimo Česko"):
-        parse_bbox("16.35,48.18,16.40,48.22")
-    with pytest.raises(FetchError, match="mimo Česko"):
-        parse_bbox("19.5,50.0,19.6,50.1")
+def test_parse_bbox_rejects_out_of_range():
+    # Povolené území (polygon země) kontroluje app.countries, parse_bbox jen rozsah WGS84.
+    with pytest.raises(FetchError, match="WGS84"):
+        parse_bbox("179,0,181,1")
 
 
 def test_parse_bbox_rejects_inverted():
