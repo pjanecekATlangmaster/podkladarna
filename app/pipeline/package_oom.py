@@ -573,9 +573,10 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
     epochs_block = format_source_epochs_readme(meta.get("lidar_sources"))
     if epochs_block:
         epochs_block = "\n" + epochs_block + "\n"
-    dtm_block = dtm_summary.readme_block(meta.get("dtm"))
+    cz = (meta.get("country") or "CZ") == "CZ"
+    dtm_block = dtm_summary.readme_block(meta.get("dtm")) if cz else ""
     notice_block = "".join(
-        f"{dtm_summary.NOTICE_PREFIX}{line}\n\n" for line in dtm_summary.notice_lines(meta.get("dtm"))
+        f"{dtm_summary.NOTICE_PREFIX}{line}\n\n" for line in (dtm_summary.notice_lines(meta.get("dtm")) if cz else [])
     )
     if dtm_block:
         epochs_block += "\n" + dtm_block + "\n"
