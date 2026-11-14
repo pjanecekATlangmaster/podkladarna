@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Podkladárna</title>
+  <title>{{h:web.page.podkladarna}}</title>
   <link rel="icon" href="/static/logo.png" type="image/png" />
   <link rel="stylesheet" href="/static/style.css" />
   <link rel="stylesheet" href="/static/leaflet/leaflet.css" />
@@ -11,19 +11,19 @@
 <body>
   <div id="mobile-job-bar" class="mobile-job-bar" role="status" aria-live="polite" hidden>
     <span id="mobile-job-text" class="mobile-job-text"></span>
-    <a id="mobile-job-download" class="mobile-job-link" href="#" hidden>Stáhnout</a>
-    <a id="mobile-job-detail" class="mobile-job-link" href="#">Detail ›</a>
-    <button type="button" id="mobile-job-close" class="mobile-job-close" aria-label="Skrýt lištu" hidden>×</button>
+    <a id="mobile-job-download" class="mobile-job-link" href="#" hidden>{{h:web.page.stahnout}}</a>
+    <a id="mobile-job-detail" class="mobile-job-link" href="#">{{h:web.page.detail}}</a>
+    <button type="button" id="mobile-job-close" class="mobile-job-close" aria-label="{{h:web.page.skryt_listu}}" hidden>×</button>
   </div>
   <header class="header">
     <div class="page-wrap header-inner">
-      <img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" />
+      <img src="/static/logo.png" alt="{{h:web.page.podkladarna}}" class="logo" width="48" height="48" />
       <div>
-        <h1>Podkladárna</h1>
+        <h1>{{h:web.page.podkladarna}}</h1>
         <p class="tagline">{{t:web.tagline}}</p>
       </div>
-      <aside class="usage-box" id="usage-box" aria-label="Podkladárna v číslech" hidden>
-        <p class="usage-box-title">Podkladárna v číslech</p>
+      <aside class="usage-box" id="usage-box" aria-label="{{h:web.page.podkladarna_v_cislech}}" hidden>
+        <p class="usage-box-title">{{h:web.page.podkladarna_v_cislech}}</p>
         <dl class="usage-box-grid" id="usage-box-grid"></dl>
         <p class="usage-box-donations" id="usage-box-donations" hidden></p>
         <p class="usage-box-note" id="usage-box-note"></p>
@@ -34,10 +34,7 @@
   <main class="page-wrap">
     <details class="whats-new" id="whats-new" hidden>
       <summary class="whats-new-summary">
-        <span class="whats-new-badge" id="whats-new-badge">Novinky</span>
-        <span class="whats-new-title" id="whats-new-title">Co je nového</span>
-        <span class="whats-new-meta" id="whats-new-meta"></span>
-        <span class="whats-new-warning" id="whats-new-warning" hidden></span>
+        {{h:web.page.novinky_co_je_noveho}}
       </summary>
       <div class="whats-new-body">
         <p class="whats-new-disclaimer" id="whats-new-disclaimer"></p>
@@ -46,33 +43,29 @@
           <ul class="whats-new-list" id="whats-new-list"></ul>
           <p class="whats-new-lead whats-new-milestones-lead" id="whats-new-milestones-lead" hidden></p>
           <ul class="whats-new-list whats-new-milestones" id="whats-new-milestones"></ul>
-          <p class="whats-new-lead whats-new-milestones-lead">Plánujeme (záměr, bez termínu):</p>
+          <p class="whats-new-lead whats-new-milestones-lead">{{h:web.page.planujeme_zamer_bez_terminu}}</p>
           <ul class="whats-new-list whats-new-roadmap">
-            <li><strong>Přesnější rozpoznání porostů z LiDARu a ortofota (klasifikace, drsný terén 403, paseky), aby hranice šly použít s menším překreslováním</strong></li>
-            <li><strong>Další ladění kresby silnic, křižovatek a zpevněných ploch v lese a MTBO podle zpětné vazby</strong></li>
+            <li>{{h:web.page.presnejsi_rozpoznani_porostu_z_lidaru_a}}</li>
+            <li>{{h:web.page.dalsi_ladeni_kresby_silnic_krizovatek_a}}</li>
           </ul>
         </div>
       </div>
     </details>
     <section class="card about-card">
-      <h2>O co jde</h2>
+      <h2>{{h:web.page.o_co_jde}}</h2>
       <div class="about-body">
-        <p class="about-lead">Vyberte území a typ mapy – za pár minut stáhnete ZIP s mapou pro OpenOrienteering Mapper.</p>
+        <p class="about-lead">{{h:web.page.vyberte_uzemi_a_typ_mapy_za}}</p>
         <p>
-          Podkladárna sama skládá podklady pro orientační mapy z dat <strong>LiDAR ČÚZK</strong> (DMR&nbsp;5G, DMP&nbsp;OK),
-          <strong>DTM kraje</strong>, <strong>OSM</strong> a <strong>ZABAGED</strong>. Výstupem je ZIP s <code>.omap</code>
-          (OpenOrienteering Mapper) a <code>.ocd</code> (OCAD), georeferencovanými v S-JTSK.
-          Je to <em>pracovní podklad</em>, ne hotová mapa – v Mapperu a v terénu ještě budete upravovat.
-          Podkladárna je experiment, proto ocením zpětnou vazbu.
+          {{h:web.page.podkladarna_sama_sklada_podklady_pro_orientacni}}
         </p>
-        <ol class="about-steps" aria-label="Postup">
-          <li><span class="step-no">1</span> Typ mapy a měřítko</li>
-          <li><span class="step-no">2</span> Výřez</li>
-          <li><span class="step-no">3</span> Spustit</li>
-          <li><span class="step-no">4</span> Stáhnout ZIP</li>
+        <ol class="about-steps" aria-label="{{h:web.page.postup}}">
+          <li>{{h:web.page.1_typ_mapy_a_meritko}}</li>
+          <li>{{h:web.page.2_vyrez}}</li>
+          <li>{{h:web.page.3_spustit}}</li>
+          <li>{{h:web.page.4_stahnout_zip}}</li>
         </ol>
         <details class="about-more">
-          <summary>Jak Podkladárna funguje, limity a pravidla</summary>
+          <summary>{{h:web.page.jak_podkladarna_funguje_limity_a_pravidla}}</summary>
           <!-- PODKLADARNA_ABOUT -->
         </details>
       </div>
@@ -80,30 +73,30 @@
 
     <div class="layout">
     <section class="card job-form-card">
-      <h2>Nová mapa</h2>
+      <h2>{{h:web.page.nova_mapa}}</h2>
       <form id="job-form">
         <div class="form-section">
-          <h3 class="form-section-title">Mapa</h3>
+          <h3 class="form-section-title">{{h:web.page.mapa}}</h3>
           <label>
-            Název
-            <input type="text" name="name" required placeholder="např. Šance sprint" />
+            {{h:web.page.nazev}}
+            <input type="text" name="name" required placeholder="{{h:web.page.napr_sance_sprint}}" />
           </label>
 
-          <div class="field-label" id="map-kind-label">Typ mapy</div>
+          <div class="field-label" id="map-kind-label">{{h:web.page.typ_mapy}}</div>
           <div class="map-kind" role="radiogroup" aria-labelledby="map-kind-label">
-            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="sprint" /> <b>Sprint</b><span>město a park, 1:4000</span></label>
-            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="les" checked /> <b>Les</b><span>klasická OB, 1:7500–1:15 000</span></label>
-            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="mtbo" /> <b>MTBO</b><span>mapa pro kolo, 1:7500–1:15 000</span></label>
+            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="sprint" /> <b>Sprint</b><span>{{h:web.page.mesto_a_park_1_4000}}</span></label>
+            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="les" checked /> <b>{{h:web.page.les}}</b><span>{{h:web.page.klasicka_ob_1_75001_15_000}}</span></label>
+            <label class="map-kind-card"><input type="radio" name="map_kind_ui" value="mtbo" /> <b>MTBO</b><span>{{h:web.page.mapa_pro_kolo_1_75001_15}}</span></label>
           </div>
 
           <label>
-            Měřítko
+            {{h:web.page.meritko}}
             <select name="map_scale" id="map_scale" required>
-              <option value="" selected disabled>Vyberte měřítko</option>
-              <option value="4000">1:4000 (sprint)</option>
-              <option value="7500">1:7500 (les / MTBO)</option>
-              <option value="10000">1:10000 (les / MTBO)</option>
-              <option value="15000">1:15000 (les / MTBO)</option>
+              <option value="" selected disabled>{{h:web.page.vyberte_meritko}}</option>
+              <option value="4000">{{h:web.page.1_4000_sprint}}</option>
+              <option value="7500">{{h:web.page.1_7500_les_mtbo}}</option>
+              <option value="10000">{{h:web.page.1_10000_les_mtbo}}</option>
+              <option value="15000">{{h:web.page.1_15000_les_mtbo}}</option>
             </select>
           </label>
 
@@ -112,233 +105,215 @@
             <div class="checkbox-inline">
               <label class="checkbox-row" id="map_type_les_row">
                 <input type="checkbox" name="map_types" id="map_type_les" value="les" />
-                <span id="map_type_les_text">Navíc i lesní mapa</span>
+                <span id="map_type_les_text">{{h:web.page.navic_i_lesni_mapa}}</span>
               </label>
               <label class="checkbox-row" id="map_type_mtbo_row">
                 <input type="checkbox" name="map_types" id="map_type_mtbo" value="mtbo" />
-                <span id="map_type_mtbo_text">Navíc i MTBO mapa (stejný výřez, ~+50 % času)</span>
+                <span id="map_type_mtbo_text">{{h:web.page.navic_i_mtbo_mapa_stejny_vyrez}}</span>
               </label>
             </div>
-            <p class="hint" id="map-types-hint">Každá mapa se skládá zvlášť (~polovina času); obě vzniknou ze stejného výřezu.</p>
+            <p class="hint" id="map-types-hint">{{h:web.page.kazda_mapa_se_sklada_zvlast_polovina}}</p>
           </div>
 
           <label>
-            Ekvidistance
+            {{h:web.page.ekvidistance}}
             <select name="contour_interval" id="contour_interval" required>
-              <option value="" selected disabled>Nejdřív vyberte měřítko</option>
+              <option value="" selected disabled>{{h:web.page.nejdriv_vyberte_meritko}}</option>
             </select>
           </label>
-          <p class="hint" id="contour-hint">Nabídka závisí na měřítku.</p>
+          <p class="hint" id="contour-hint">{{h:web.page.nabidka_zavisi_na_meritku}}</p>
         </div>
 
         <div class="form-section" id="map-mode">
-          <h3 class="form-section-title">Výřez</h3>
-          <p class="hint">Dva protilehlé rohy, nebo v detailu hotové mapy zvolte Použít nastavení a výřez. Hotový výřez doladíte tažením za rohy, křížkem uprostřed ho posunete. LiDAR i ZABAGED jdou do cache; sloučený LAZ z předchozí mapy se při iteraci znovu použije. Jen Česko. MTBO max 25&nbsp;km² (např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km), les max 15&nbsp;km² (např. 4&nbsp;×&nbsp;3,75&nbsp;km), sprint 1:4000 max 4&nbsp;km² (např. 2&nbsp;×&nbsp;2&nbsp;km).</p>
-          <div id="bbox-map" aria-label="Mapa výřezu"></div>
+          <h3 class="form-section-title">{{h:web.page.vyrez}}</h3>
+          <p class="hint">{{h:web.page.dva_protilehle_rohy_nebo_v_detailu}}</p>
+          <div id="bbox-map" aria-label="{{h:web.page.mapa_vyrezu}}"></div>
           <div
             id="bbox-map-resize"
             class="map-resize-handle"
             role="separator"
             aria-orientation="horizontal"
             aria-controls="bbox-map"
-            aria-label="Změnit výšku mapy"
-            title="Přetáhněte pro změnu výšky mapy"
+            aria-label="{{h:web.page.zmenit_vysku_mapy}}"
+            title="{{h:web.page.pretahnete_pro_zmenu_vysky_mapy}}"
           >
             <span class="map-resize-grip" aria-hidden="true"></span>
           </div>
-          <p id="sheet-info" class="sheet-info">Nakreslete obdélník dvěma kliknutími.</p>
+          <p id="sheet-info" class="sheet-info">{{h:web.page.nakreslete_obdelnik_dvema_kliknutimi}}</p>
           <input type="hidden" name="bbox" id="bbox-input" value="" />
           <input type="hidden" name="reuse_job_id" id="reuse-job-id" value="" />
           <input type="hidden" name="sm5_sheets" id="sm5-sheets-input" value="" />
-          <button type="button" class="btn" id="bbox-clear">Vymazat výběr</button>
+          <button type="button" class="btn" id="bbox-clear">{{h:web.page.vymazat_vyber}}</button>
         </div>
 
         <div class="form-section references-section">
-          <h3 class="form-section-title">Podklady k mapě</h3>
+          <h3 class="form-section-title">{{h:web.page.podklady_k_mape}}</h3>
           <div class="hint" id="references-online-hint">
-            Referenční šablony (ortofoto, OSM, ZTM, katastr, hillshade, DMP, DTM kraje) jsou v mapě vždy jako online odkazy:
-            v Mapperu jsou v seznamu šablon vypnuté a stáhnou se z ČÚZK / OSM až po zapnutí (potřeba internet). ZIP zůstane malý.
-            <details class="hint-more"><summary>Více</summary>
-              Každý podklad je ve dvou variantách: maximální zoom (ortofoto až 12,5 cm/px, u velkého výřezu hrubší) a střední zoom
-              (4× hrubší, načte se rychle). Mapper šablonu nezoomuje – načte ji jednou jako obrázek v pevném rozlišení.
-              Online šablony jsou soubory GDAL WMS (.xml / .vrt), které otevře OpenOrienteering Mapper, OCAD ne –
-              v OCADu připojte podklady jako WMS podle README_OOM.txt.
-              Vždy se přibalí vektorový katastr a družicové snímky Copernicus Sentinel-2 (10 m/px, pravé barvy) s datem
-              snímku v názvu souboru: nejnovější bezoblačný a starší zhruba po 3 měsících za poslední půlrok, jsou-li bez mraků.
-              Ukážou změny po ortofotu a LiDARu (paseky, polomy, nové stavby); do kresby mapy nevstupují.
+            {{h:web.page.referencni_sablony_ortofoto_osm_ztm_katastr}}
+            <details class="hint-more"><summary>{{h:web.page.vice}}</summary>
+              {{h:web.page.kazdy_podklad_je_ve_dvou_variantach}}
             </details>
           </div>
           <label class="checkbox-row">
             <input type="checkbox" name="output_references" id="output_references" value="1" aria-describedby="references-hint" />
-            Stáhnout referenční šablony předem
+            {{h:web.page.stahnout_referencni_sablony_predem}}
           </label>
           <div class="hint" id="references-hint">
-            Podklady se přibalí do ZIPu jako obrázky v maximálním rozlišení místo online odkazů: fungují offline v terénu
-            a v OCADu, ale prodlouží generování<span id="references-estimate"></span> a výrazně zvětší ZIP (ortofoto desítky až stovky MB).
+            {{h:web.page.podklady_se_pribali_do_zipu_jako}}
           </div>
         </div>
 
         <details class="advanced-settings" id="advanced-settings">
-          <summary>Upravit nastavení <span class="hint">– výchozí hodnoty jsou doporučené</span><span id="advanced-changed" class="advanced-changed"></span></summary>
-          <p class="advanced-reset"><button type="button" class="link-btn" id="reset-options">Obnovit výchozí nastavení</button></p>
+          <summary>{{h:web.page.upravit_nastaveni_vychozi_hodnoty_jsou_doporucene}}</summary>
+          <p class="advanced-reset"><button type="button" class="link-btn" id="reset-options">{{h:web.page.obnovit_vychozi_nastaveni}}</button></p>
           <div class="form-section">
-            <h3 class="form-section-title">Vrstevnice</h3>
+            <h3 class="form-section-title">{{h:web.page.vrstevnice}}</h3>
             <label>
-              Pomocné vrstevnice (103)
+              {{h:web.page.pomocne_vrstevnice_103}}
               <select name="contour_formlines" id="contour_formlines">
-                <option value="off" selected>Ne – výchozí</option>
-                <option value="sparse">Střídmě</option>
-                <option value="more">Víc</option>
-                <option value="all">Všude (vodítko jako OCAD)</option>
+                <option value="off" selected>{{h:web.page.ne_vychozi}}</option>
+                <option value="sparse">{{h:web.page.stridme}}</option>
+                <option value="more">{{h:web.page.vic}}</option>
+                <option value="all">{{h:web.page.vsude_voditko_jako_ocad}}</option>
               </select>
             </label>
-            <div class="hint" id="formlines-hint">V polovině ekvidistance, jen kde ukážou tvar, který vrstevnice minou.<details class="hint-more"><summary>Více</summary> „Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.</details></div>
+            <div class="hint" id="formlines-hint">{{h:web.page.v_polovine_ekvidistance_jen_kde_ukazou}}<details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.stridme_vic_jen_kde_ukazou_tvar}}</details></div>
 
             <label>
-              Vyhlazení vrstevnic
+              {{h:web.page.vyhlazeni_vrstevnic}}
               <select name="contour_smooth" id="contour_smooth">
-                <option value="1" selected>Adaptivní – výchozí</option>
-                <option value="0">Méně vyhlazení (původní)</option>
+                <option value="1" selected>{{h:web.page.adaptivni_vychozi}}</option>
+                <option value="0">{{h:web.page.mene_vyhlazeni_puvodni}}</option>
               </select>
             </label>
-            <div class="hint" id="contour-smooth-hint"><b>Adaptivní</b> (doporučeno) zklidní zubaté vrstevnice v rovině a v zástavbě; ve svazích zůstanou jako dřív.<details class="hint-more"><summary>Více</summary> Skutečné kupky, žlaby, náspy a valy se nemažou. <b>Méně vyhlazení</b> je původní kresba: vrstevnice věrněji kopírují každý drobný hrbol z laserového skenování, v rovině a mezi domy proto bývají zubaté a neklidné. Zvol ji, když chceš vidět i drobné nerovnosti (např. pro kontrolu v terénu nebo srovnání se starší mapou).</details></div>
+            <div class="hint" id="contour-smooth-hint"><b>{{h:web.page.adaptivni}}</b> {{h:web.page.doporuceno_zklidni_zubate_vrstevnice_v_rovine}}<details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.skutecne_kupky_zlaby_naspy_a_valy}} <b>{{h:web.page.mene_vyhlazeni}}</b> {{h:web.page.je_puvodni_kresba_vrstevnice_verneji_kopiruji}}</details></div>
           </div>
 
           <div class="form-section">
-            <h3 class="form-section-title">Vegetace a reliéf</h3>
+            <h3 class="form-section-title">{{h:web.page.vegetace_a_relief}}</h3>
             <label>
-              Výška vegetace (LiDAR)
+              {{h:web.page.vyska_vegetace_lidar}}
               <select name="kp_vege_height" id="kp_vege_height">
-                <option value="1.5">1,5 m – nízká</option>
-                <option value="2" selected>2 m – výchozí</option>
+                <option value="1.5">{{h:web.page.1_5_m_nizka}}</option>
+                <option value="2" selected>{{h:web.page.2_m_vychozi}}</option>
                 <option value="2.5">2,5 m</option>
-                <option value="3">3 m – vysoká</option>
+                <option value="3">{{h:web.page.3_m_vysoka}}</option>
               </select>
             </label>
-            <div class="hint">Od jaké výšky brát porost jako zeleň. Nižší = víc zelené.<details class="hint-more"><summary>Více</summary> Technicky LiDAR zeleň (<code>greenhigh</code>).</details></div>
+            <div class="hint">{{h:web.page.od_jake_vysky_brat_porost_jako}}<details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.technicky_lidar_zelen}}<code>greenhigh</code>).</details></div>
 
             <label>
-              Tvar hranic porostů (401–410)
+              {{h:web.page.tvar_hranic_porostu_401410}}
               <select name="veg_smooth" id="veg_smooth">
-                <option value="0">0 – kostičky 1:1 z rastru (bez úprav)</option>
-                <option value="1" selected>1 – hladké bez posunu hranice – výchozí</option>
-                <option value="2">2 – + zjednodušit drobné výběžky a zátoky (do 6&nbsp;m)</option>
-                <option value="3">3 – + zjednodušit větší drobnosti (do 12&nbsp;m)</option>
+                <option value="0">{{h:web.page.0_kosticky_1_1_z_rastru}}</option>
+                <option value="1" selected>{{h:web.page.1_hladke_bez_posunu_hranice_vychozi}}</option>
+                <option value="2">{{h:web.page.2_zjednodusit_drobne_vybezky_a_zatoky}}</option>
+                <option value="3">{{h:web.page.3_zjednodusit_vetsi_drobnosti_do_12}}</option>
               </select>
             </label>
-            <div class="hint" id="veg-smooth-hint">Vyhladí schodky po pixelech (1&nbsp;m), stupeň 1 nechá hranici na místě.<details class="hint-more"><summary>Více</summary> Stupeň 1: posun nejvýš 1,5&nbsp;m, v průměru 0,4&nbsp;m, plocha se nemění. Stupně 2 a 3 navíc zalijí úzké zátoky a ustřihnou úzké výběžky (obrysy korun jednotlivých stromů). Plocha se nepřeleje přes cesty, budovy ani vodu z OSM. Sprint kreslí porosty beze změny.</details></div>
+            <div class="hint" id="veg-smooth-hint">{{h:web.page.vyhladi_schodky_po_pixelech_1_m}}<details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.stupen_1_posun_nejvys_1_5}}</details></div>
 
             <label>
-              Strmé změny reliéfu – symbol
+              {{h:web.page.strme_zmeny_reliefu_symbol}}
               <select name="kp_cliff_symbol" id="kp_cliff_symbol">
-                <option value="auto" selected>Automaticky: skála (206) vs. zem (104)</option>
-                <option value="earth_bank">Vše jako zemní sráz (104)</option>
-                <option value="symbol_206">Vše jako skála (206, plocha)</option>
-                <option value="off">Nevykreslovat (ani nepočítat)</option>
+                <option value="auto" selected>{{h:web.page.automaticky_skala_206_vs_zem_104}}</option>
+                <option value="earth_bank">{{h:web.page.vse_jako_zemni_sraz_104}}</option>
+                <option value="symbol_206">{{h:web.page.vse_jako_skala_206_plocha}}</option>
+                <option value="off">{{h:web.page.nevykreslovat_ani_nepocitat}}</option>
               </select>
             </label>
-            <div class="hint" id="cliff-symbol-hint"><span id="cliff-symbol-text">Strmý schod = skalní plocha (206), mírnější = zem (104).</span><details class="hint-more"><summary>Více</summary> Detektor rozliší strmý schod (skalní plochy 206) a mírnější sráz (zem 104). Volba „vše jako…“ to přebije. Kupky a ďolíky z DEM se kreslí jen v lese (ne ve sprintu a MTBO). Samostatné linie 201 se zahazují. Zemní srázy (104) zůstávají liniemi; krátké / zamotané nálezy se filtrují.</details></div>
+            <div class="hint" id="cliff-symbol-hint"><span id="cliff-symbol-text">{{h:web.page.strmy_schod_skalni_plocha_206_mirnejsi}}</span><details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.detektor_rozlisi_strmy_schod_skalni_plochy}}</details></div>
 
             <label id="cliff-sensitivity-label">
-              Citlivost srázů / skal
+              {{h:web.page.citlivost_srazu_skal}}
               <select name="kp_cliff_sensitivity" id="kp_cliff_sensitivity">
-                <option value="low" selected>Méně citlivé (méně srázů)</option>
-                <option value="normal">Střední (1,8 / 3,4 m)</option>
-                <option value="high">Citlivější (1,4 / 2,8 m)</option>
-                <option value="very_high">Velmi citlivé (více drobných srázů)</option>
+                <option value="low" selected>{{h:web.page.mene_citlive_mene_srazu}}</option>
+                <option value="normal">{{h:web.page.stredni_1_8_3_4_m}}</option>
+                <option value="high">{{h:web.page.citlivejsi_1_4_2_8_m}}</option>
+                <option value="very_high">{{h:web.page.velmi_citlive_vice_drobnych_srazu}}</option>
               </select>
             </label>
-            <div class="hint" id="cliff-sensitivity-hint"><span id="cliff-sensitivity-text">Méně citlivé = jen výrazné srázy, méně falešných.</span><details class="hint-more"><summary>Více</summary> Výchozí „méně citlivé“ (cliff1=2,2 m). Vyšší práh = méně falešných zemních srázů. Skalní plochy (206) mají ještě přísnější drop (+0,7 m) a menší footprint (shrink); zamotané 104 a krátké pahýly se filtrují při sestavení OOM.</details></div>
+            <div class="hint" id="cliff-sensitivity-hint"><span id="cliff-sensitivity-text">{{h:web.page.mene_citlive_jen_vyrazne_srazy_mene}}</span><details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.vychozi_mene_citlive_cliff1_2_2}}</details></div>
           </div>
 
           <div class="form-section">
-            <h3 class="form-section-title">Zdroje kresby</h3>
+            <h3 class="form-section-title">{{h:web.page.zdroje_kresby}}</h3>
             <label>
               DTM
               <select name="dtm" id="dtm">
-                <option value="1" selected>Kresba z DTM, kde je DTM k dispozici – sprint, les i MTBO (výchozí)</option>
-                <option value="auto">Jen sprint z DTM, les a MTBO z OSM + ZABAGED</option>
-                <option value="0">Jen OSM + ZABAGED (bez DTM)</option>
+                <option value="1" selected>{{h:web.page.kresba_z_dtm_kde_je_dtm}}</option>
+                <option value="auto">{{h:web.page.jen_sprint_z_dtm_les_a}}</option>
+                <option value="0">{{h:web.page.jen_osm_zabaged_bez_dtm}}</option>
               </select>
             </label>
-            <div class="hint" id="dtm-source-hint">DTM (Digitální technická mapa) je nejpřesnější zdroj: silnice podle skutečné šířky, složité křižovatky a parkoviště plochou.<details class="hint-more"><summary>Více</summary> Kde DTM pro území není, kreslí se vždy z OSM + ZABAGED; stejnou kresbu dostanete volbou „Jen OSM + ZABAGED“. Výchozí volba kreslí z DTM sprint, les i MTBO.</details></div>
+            <div class="hint" id="dtm-source-hint">{{h:web.page.dtm_digitalni_technicka_mapa_je_nejpresnejsi}}<details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.kde_dtm_pro_uzemi_neni_kresli}}</details></div>
 
             <label>
-              Objekty OSM
+              {{h:web.page.objekty_osm}}
               <select name="kp_osm_objects" id="kp_osm_objects">
-                <option value="auto" selected>Základní – ve sprintu lavičky, stoly, rozcestníky, pomníky, kříže, sochy, památné stromy, herní prvky, přístřešky, fitness, ohniště, zábrany (výchozí)</option>
-                <option value="1">Vše – navíc lampy a informační tabule (sprint, les i MTBO)</option>
-                <option value="none">Žádné drobné objekty</option>
+                <option value="auto" selected>{{h:web.page.zakladni_ve_sprintu_lavicky_stoly_rozcestniky}}</option>
+                <option value="1">{{h:web.page.vse_navic_lampy_a_informacni_tabule}}</option>
+                <option value="none">{{h:web.page.zadne_drobne_objekty}}</option>
               </select>
             </label>
-            <div class="hint" id="osm-objects-hint">Drobné objekty z OpenStreetMap. Ve výchozím stavu je sprint má, les a MTBO ne.<details class="hint-more"><summary>Více</summary> Základní sada: lavičky a stoly (531 ×), rozcestníky (531 ×), herní prvky, fitness prvky, ohniště a zábrany (531 ×), přístřešky a zastřešení (522), pomníky, boží muka, kříže a sochy (526), památné stromy (417). Herní prvky na dětských hřištích jsou z OSM a tam, kde OSM nic nemá, z výšky nad terénem (DMP OK) a vrženého stínu na ortofotu; malé hřiště do 500 m² má jeden křížek, větší křížky aspoň 4 mm od sebe, hřiště bez nálezu jeden křížek v otevřené části, soukromá hřiště nic. Volba Vše přidá lampy a informační tabule (v ulicích jich bývají desítky až stovky na km²). Pamětní desky na zdech se nekreslí, body uvnitř budov také ne a stejné značky blíž než 2,5 mm se nelepí na sebe. Kříže, pomníky a stromy ze ZABAGED se vedle stejného objektu z OSM nekreslí. Ploty, zdi a živé ploty z OSM se kreslí vždy, stejně jako hřiště a pěší zóny (501), voda (301), orná (412), studny, prameny a mokřady.</details></div>
+            <div class="hint" id="osm-objects-hint">{{h:web.page.drobne_objekty_z_openstreetmap_ve_vychozim}}<details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.zakladni_sada_lavicky_a_stoly_531}}</details></div>
 
             <div id="residual-paved-wrap">
               <label class="checkbox-row">
                 <input type="checkbox" name="sprint_residual_paved" id="sprint_residual_paved" value="1" />
-                Doplnit zpevněné plochy v zástavbě (odhad, hlavně sprint)
+                {{h:web.page.doplnit_zpevnene_plochy_v_zastavbe_odhad}}
               </label>
               <div id="residual-paved-options" class="hidden">
                 <label>
-                  Největší doplněná plocha v mapě
+                  {{h:web.page.nejvetsi_doplnena_plocha_v_mape}}
                   <select name="sprint_residual_size" id="sprint_residual_size">
-                    <option value="small" selected>Jen menší (≤ 500 m²) – výchozí</option>
-                    <option value="medium">Včetně středních (≤ 2000 m²)</option>
-                    <option value="large">I velké (všechny hustě zmapované)</option>
+                    <option value="small" selected>{{h:web.page.jen_mensi_500_m2_vychozi}}</option>
+                    <option value="medium">{{h:web.page.vcetne_strednich_2000_m2}}</option>
+                    <option value="large">{{h:web.page.i_velke_vsechny_huste_zmapovane}}</option>
                   </select>
                 </label>
-                <p class="hint">Omezí jen auto&nbsp;<code>.omap</code>. Ostatní velikosti (a řídké) jsou v&nbsp;ZIPu v&nbsp;<code>osm/</code> k ručnímu importu.</p>
-                <div class="hint" id="residual-paved-hint">Doplní hnědou 501 tam, kde v OSM <code>landuse=residential</code> zbývají mezery.<details class="hint-more"><summary>Více</summary> Počítá se jako residential&nbsp;−&nbsp;<em>všechny</em> OSM objekty ve výřezu
-                  (budovy, amenity, leisure, cesty s bufferem včetně černého obrysu… – i ty,
-                  které jinak nekreslíme). Výsledek jde pod silnice.
-                  Každý kus se ověří ortofotem (zeleň) a výškou z DMP OK (stromy, nezmapované budovy);
-                  kde má residential úplné plochy z DTM, mezery se nekreslí (zpevněné kreslí DTM).
-                  Bez ortofota i výšek platí dřívější pravidlo: residential, kde po odečtu zbývá
-                  víc než 25&nbsp;%, se nebere. Zahodí se i kusy nad zvolenou max. velikostí.
-                  Do ZIPu (<code>osm/</code>) vždy přibudou SHP
+                <p class="hint">{{h:web.page.omezi_jen_auto_omap_ostatni_velikosti}}</p>
+                <div class="hint" id="residual-paved-hint">{{h:web.page.doplni_hnedou_501_tam_kde_v}} <code>landuse=residential</code> {{h:web.page.zbyvaji_mezery}}<details class="hint-more"><summary>{{h:web.page.vice}}</summary> {{h:web.page.pocita_se_jako_residential}}<em>{{h:web.page.vsechny}}</em> {{h:web.page.osm_objekty_ve_vyrezu_budovy_amenity}}<code>osm/</code>{{h:web.page.vzdy_pribudou_shp}}
                   <code>OSM_residential_zbytek_mensi</code> /
                   <code>_stredni</code> /
                   <code>_velke</code>
-                  a <code>_ridke</code> (zeleň, stromy a jinak neověřené) – i nepoužité pásmo – pro ruční import v&nbsp;OOM
-                  (symbol 501). Heuristika; v OOM jde smazat. Výchozí: vypnuto.</details></div>
+                  a <code>_ridke</code> {{h:web.page.zelen_stromy_a_jinak_neoverene_i}}</details></div>
               </div>
             </div>
 
           </div>
 
           <div class="form-section">
-            <h3 class="form-section-title">Výstup</h3>
+            <h3 class="form-section-title">{{h:web.page.vystup}}</h3>
             <div class="hint" id="output-omap-hint">
-              Hlavní výstup je <code>.omap</code> (+ <code>.ocd</code> pro OCAD) v ZIPu, georeferencovaný v S-JTSK včetně deklinace a grivace.
-              <details class="hint-more"><summary>Více</summary>
-                Vegetace z hustoty LiDAR odrazů (výška porostu, ne průběžnost), srázy z DMR, vrstevnice GDAL.
+              {{h:web.page.hlavni_vystup_je}} <code>.omap</code> (+ <code>.ocd</code> {{h:web.page.pro_ocad_v_zipu_georeferencovany_v}}
+              <details class="hint-more"><summary>{{h:web.page.vice}}</summary>
+                {{h:web.page.vegetace_z_hustoty_lidar_odrazu_vyska}}
               </details>
             </div>
-            <p class="hint" id="output-disciplines-hint">Vyberte měřítko — ukáže se, kolik omapů vznikne.</p>
+            <p class="hint" id="output-disciplines-hint">{{h:web.page.vyberte_meritko_ukaze_se_kolik_omapu}}</p>
 
             <label class="checkbox-row">
               <input type="checkbox" name="output_georef" id="output_georef" value="1" />
-              Georeferencovaný GeoTIFF do ZIPu
+              {{h:web.page.georeferencovany_geotiff_do_zipu}}
             </label>
             <div class="hint">
-              Rastr mapy s georeferencí. Vypnuto šetří čas a velikost ZIPu.
-              <details class="hint-more"><summary>Více</summary>
-                Raster mapy s PGW (± GeoTIFF) přes Mapper CLI @ 300 DPI (web náhled 150 DPI), jinak Pillow fallback.
+              {{h:web.page.rastr_mapy_s_georeferenci_vypnuto_setri}}
+              <details class="hint-more"><summary>{{h:web.page.vice}}</summary>
+                {{h:web.page.raster_mapy_s_pgw_geotiff_pres}}
               </details>
             </div>
 
             <details class="advanced-options" id="output-advanced">
-              <summary>Pokročilé (mezipaměť podkladů)</summary>
+              <summary>{{h:web.page.pokrocile_mezipamet_podkladu}}</summary>
               <label class="checkbox-row">
                 <input type="checkbox" name="force_refresh" id="force_refresh" value="1" />
-                Znovu stáhnout a spočítat podklady
+                {{h:web.page.znovu_stahnout_a_spocitat_podklady}}
               </label>
               <div class="hint" id="force-refresh-hint">
-                Při stejném výřezu se obvykle znovu použijí už uložená data. Zapněte jen když výsledek vypadá jako ze starých nebo poškozených dat.
-                <details class="hint-more"><summary>Více</summary>
-                  Uložená jsou např. LiDAR, výškový model, stínování. Chcete-li vše stáhnout znovu
-                  od ČÚZK, generování bude výrazně pomalejší. Běžné změny nastavení
-                  (ekvidistance, lavičky…) tuto mezipaměť samy o sobě nezneplatní.
+                {{h:web.page.pri_stejnem_vyrezu_se_obvykle_znovu}}
+                <details class="hint-more"><summary>{{h:web.page.vice}}</summary>
+                  {{h:web.page.ulozena_jsou_napr_lidar_vyskovy_model}}
                 </details>
               </div>
             </details>
@@ -348,30 +323,27 @@
 
         <label class="checkbox-row">
           <input type="checkbox" name="private" id="private" value="1" />
-          Soukromě – mapu uvidíte jen vy, odkaz přijde e-mailem
+          {{h:web.page.soukrome_mapu_uvidite_jen_vy_odkaz}}
         </label>
         <div id="private-email-wrap" class="private-email-wrap hidden">
           <label>
-            E-mail pro odkaz ke stažení
-            <input type="email" name="notify_email" id="notify_email" autocomplete="email" placeholder="vas@email.cz" />
+            {{h:web.page.e_mail_pro_odkaz_ke_stazeni}}
+            <input type="email" name="notify_email" id="notify_email" autocomplete="email" placeholder="{{h:web.page.vas_email_cz}}" />
           </label>
           <p class="hint">
-            Po dokončení přijde odkaz e-mailem — zkontrolujte i spam složku.
-            Mapa se neobjeví ve veřejném seznamu a náhled/ZIP tu neuvidíte.
-            Během běhu uvidíte pipeline log stejně jako u veřejných jobů.
-            Odkaz platí 48 hodin. I nejdelší mapy jsou obvykle hotové do hodiny.
+            {{h:web.page.po_dokonceni_prijde_odkaz_e_mailem}}
           </p>
         </div>
 
-        <p class="hint submit-ask">Server je sdílený: na první pokus stačí menší výřez a jedno měřítko.</p>
+        <p class="hint submit-ask">{{h:web.page.server_je_sdileny_na_prvni_pokus}}</p>
         <details class="source-status" id="source-status" hidden>
-          <summary id="source-status-summary">Stav zdrojů dat</summary>
+          <summary id="source-status-summary">{{h:web.page.stav_zdroju_dat}}</summary>
           <ul class="source-status-list" id="source-status-list"></ul>
           <p class="source-status-note" id="source-status-note"></p>
         </details>
         <p class="dtm-forest-note" id="dtm-forest-note" role="status" hidden></p>
         <div class="submit-bar">
-          <button type="submit" class="btn primary" id="submit-btn">Spustit generování</button>
+          <button type="submit" class="btn primary" id="submit-btn">{{h:web.page.spustit_generovani}}</button>
           <p id="submit-checklist" class="submit-checklist" aria-live="polite"></p>
         </div>
         <p id="estimate-warning" class="estimate-warning" role="status" hidden></p>
@@ -381,79 +353,77 @@
     </section>
 
     <section class="card jobs-card">
-      <h2>Mapy</h2>
-      <p id="worker-status" class="worker-status">Načítám stav serveru…</p>
+      <h2>{{h:web.page.mapy}}</h2>
+      <p id="worker-status" class="worker-status">{{h:web.page.nacitam_stav_serveru}}</p>
 
       <div id="jobs-view-list" class="jobs-view">
-        <div class="jobs-tabs" role="tablist" aria-label="Které mapy zobrazit">
-          <button type="button" role="tab" class="jobs-tab" id="jobs-tab-mine" data-tab="mine" aria-selected="false" tabindex="-1">Moje mapy (0)</button>
-          <button type="button" role="tab" class="jobs-tab" id="jobs-tab-all" data-tab="all" aria-selected="false" tabindex="-1">Všechny veřejné</button>
+        <div class="jobs-tabs" role="tablist" aria-label="{{h:web.page.ktere_mapy_zobrazit}}">
+          <button type="button" role="tab" class="jobs-tab" id="jobs-tab-mine" data-tab="mine" aria-selected="false" tabindex="-1">{{h:web.page.moje_mapy_0}}</button>
+          <button type="button" role="tab" class="jobs-tab" id="jobs-tab-all" data-tab="all" aria-selected="false" tabindex="-1">{{h:web.page.vsechny_verejne}}</button>
         </div>
-        <h3 class="jobs-section-title">Právě se generují</h3>
-        <p id="jobs-live-empty" class="jobs-empty hint">Teď nic neběží.</p>
+        <h3 class="jobs-section-title">{{h:web.page.prave_se_generuji}}</h3>
+        <p id="jobs-live-empty" class="jobs-empty hint">{{h:web.page.ted_nic_nebezi}}</p>
         <div id="jobs-live" class="jobs-list"></div>
 
-        <h3 class="jobs-section-title" id="jobs-finished-label">Hotové</h3>
-        <p id="jobs-finished-empty" class="jobs-empty hint hidden">Zatím žádné hotové mapy.</p>
+        <h3 class="jobs-section-title" id="jobs-finished-label">{{h:web.page.hotove}}</h3>
+        <p id="jobs-finished-empty" class="jobs-empty hint hidden">{{h:web.page.zatim_zadne_hotove_mapy}}</p>
         <div id="jobs-list" class="jobs-list"></div>
-        <button type="button" class="btn jobs-more hidden" id="jobs-more">Zobrazit starší</button>
+        <button type="button" class="btn jobs-more hidden" id="jobs-more">{{h:web.page.zobrazit_starsi}}</button>
       </div>
 
       <div id="jobs-view-detail" class="jobs-view hidden">
-        <button type="button" class="btn jobs-back" id="jobs-back">← Všechny mapy</button>
+        <button type="button" class="btn jobs-back" id="jobs-back">{{h:web.page.vsechny_mapy}}</button>
         <div id="job-detail" class="job-detail">
           <h3 id="detail-title"></h3>
           <p id="detail-status" aria-live="polite"></p>
           <div id="detail-error" class="detail-error hidden">
             <p id="detail-error-human" class="detail-error-human"></p>
-            <details id="detail-error-tech"><summary>Technický popis</summary><pre id="detail-error-text" class="log"></pre></details>
+            <details id="detail-error-tech"><summary>{{h:web.page.technicky_popis}}</summary><pre id="detail-error-text" class="log"></pre></details>
           </div>
           <p id="detail-timing" class="hint"></p>
           <div id="detail-sources" class="hint detail-sources hidden"></div>
           <div class="actions">
-            <a id="detail-download" class="btn primary" href="#" download>Stáhnout ZIP</a>
-            <a id="detail-download-georef" class="btn" href="#" download>Stáhnout georef náhledy</a>
-            <a id="detail-preview" class="btn" href="#" target="_blank">Otevřít PNG</a>
-            <button type="button" class="btn primary hidden" id="detail-retry">Zkusit znovu</button>
-            <button type="button" class="btn" id="detail-use-template" title="Vyplní formulář nové mapy názvem, výřezem a nastavením této mapy">Načíst zadání do nové mapy</button>
+            <a id="detail-download" class="btn primary" href="#" download>{{h:web.page.stahnout_zip}}</a>
+            <a id="detail-download-georef" class="btn" href="#" download>{{h:web.page.stahnout_georef_nahledy}}</a>
+            <a id="detail-preview" class="btn" href="#" target="_blank">{{h:web.page.otevrit_png}}</a>
+            <button type="button" class="btn primary hidden" id="detail-retry">{{h:web.page.zkusit_znovu}}</button>
+            <button type="button" class="btn" id="detail-use-template" title="{{h:web.page.vyplni_formular_nove_mapy_nazvem_vyrezem}}">{{h:web.page.nacist_zadani_do_nove_mapy}}</button>
           </div>
           <div id="detail-next" class="next-steps hidden">
-            <strong>Co dál</strong>
+            <strong>{{h:web.page.co_dal}}</strong>
             <ol>
-              <li>Rozbalte ZIP.</li>
-              <li>V OpenOrienteering Mapperu otevřete <code>*-les.omap</code> / <code>*-sprint.omap</code> / <code>*-mtbo.omap</code> (v OCADu stejnojmenný <code>.ocd</code>).</li>
-              <li>Mapa je georeferencovaná, podklady najdete jako šablony.</li>
+              <li>{{h:web.page.rozbalte_zip}}</li>
+              <li>{{h:web.page.v_openorienteering_mapperu_otevrete_les_omap}}</li>
+              <li>{{h:web.page.mapa_je_georeferencovana_podklady_najdete_jako}}</li>
             </ol>
-            <p class="support-note">Přišel podklad vhod? Podkladárna je zdarma. Pokud chcete podpořit další vývoj,
-              <a href="/podpora">příspěvek v jakékoli výši</a> pomůže.</p>
+            <p class="support-note">{{h:web.page.prisel_podklad_vhod_podkladarna_je_zdarma}}</p>
           </div>
           <details id="detail-stats" class="feedback-box build-stats hidden">
-            <summary id="detail-stats-summary">Statistiky zpracování</summary>
+            <summary id="detail-stats-summary">{{h:web.page.statistiky_zpracovani}}</summary>
             <div id="detail-stats-body"></div>
           </details>
           <div id="detail-progress" class="job-progress hidden">
             <p id="detail-progress-text" class="job-progress-text"></p>
-            <div id="detail-meter" class="meter" role="progressbar" aria-label="Průběh generování" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div>
+            <div id="detail-meter" class="meter" role="progressbar" aria-label="{{h:web.page.prubeh_generovani}}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i style="width:0%"></i></div>
             <ol id="detail-steps" class="job-steps"></ol>
-            <p id="detail-bg-title" class="job-bg-title hidden">Souběžně na pozadí</p>
+            <p id="detail-bg-title" class="job-bg-title hidden">{{h:web.page.soubezne_na_pozadi}}</p>
             <ul id="detail-bg" class="job-steps job-bg hidden"></ul>
           </div>
-          <p id="detail-close-hint" class="hint hidden">Stránku můžete zavřít – mapu najdete v seznamu „Moje mapy“ v tomto prohlížeči.</p>
-          <img id="detail-img" alt="Náhled mapy" class="preview-img hidden" />
+          <p id="detail-close-hint" class="hint hidden">{{h:web.page.stranku_muzete_zavrit_mapu_najdete_v}}</p>
+          <img id="detail-img" alt="{{h:web.page.nahled_mapy}}" class="preview-img hidden" />
           <details class="tech-log" id="detail-log-box">
-            <summary>Technický log</summary>
+            <summary>{{h:web.page.technicky_log}}</summary>
             <pre id="detail-log" class="log"></pre>
           </details>
           <details class="feedback-box" id="job-feedback">
-            <summary>Napsat zpětnou vazbu</summary>
+            <summary>{{h:web.page.napsat_zpetnou_vazbu}}</summary>
             <form id="feedback-form" class="feedback-form" novalidate>
               <p class="hint">
-                Podkladárna je experiment, proto ocením krátký komentář
-                (i během generování — e-mailem Petrovi, ne veřejně).
+                {{h:web.page.podkladarna_je_experiment_proto_ocenim_kratky}}
               </p>
               <input type="hidden" name="job_id" id="feedback-job-id" value="" />
               <label class="feedback-hp" aria-hidden="true">
-                Webová stránka
+                {{h:web.page.webova_stranka}}
                 <input
                   type="text"
                   name="website"
@@ -463,28 +433,28 @@
                 />
               </label>
               <label>
-                Kontakt (e-mail nebo telefon)
+                {{h:web.page.kontakt_e_mail_nebo_telefon}}
                 <input
                   type="text"
                   name="contact"
                   id="feedback-contact"
                   autocomplete="email"
                   maxlength="200"
-                  placeholder="vas@email.cz"
+                  placeholder="{{h:web.page.vas_email_cz}}"
                 />
               </label>
               <label>
-                Komentář
+                {{h:web.page.komentar}}
                 <textarea
                   name="comment"
                   id="feedback-comment"
                   rows="3"
                   maxlength="4000"
                   required
-                  placeholder="Co sedí, co ne, nápad na zlepšení…"
+                  placeholder="{{h:web.page.co_sedi_co_ne_napad_na}}"
                 ></textarea>
               </label>
-              <button type="submit" class="btn" id="feedback-submit">Odeslat Petrovi</button>
+              <button type="submit" class="btn" id="feedback-submit">{{h:web.page.odeslat_petrovi}}</button>
               <p id="feedback-status" class="hint feedback-status" role="status"></p>
             </form>
           </details>
@@ -505,12 +475,12 @@
     <!-- PODKLADARNA_USAGE -->
     <!-- PODKLADARNA_LANG_SWITCH -->
     <p class="footer-family">
-      {{t:web.footer.family}} <strong>Podkladárna</strong> {{t:web.footer.family_map}}
+      {{t:web.footer.family}} <strong>{{h:web.page.podkladarna}}</strong> {{t:web.footer.family_map}}
       → <a href="https://stavitel.kibos.link" target="_blank" rel="noopener">Stavitel</a> {{t:web.footer.family_courses}}
       → <a href="https://o-hra.kibos.link" target="_blank" rel="noopener">O-hra</a> {{t:web.footer.family_play}}
     </p>
     <p class="footer-sources">
-      {{t:web.footer.data}} <a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">ČÚZK</a>
+      {{t:web.footer.data}} <a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">{{h:web.page.cuzk}}</a>
       (DMR 5G, DMP OK, ZABAGED®,
       <a href="{{t:web.footer.cc_by_url}}" target="_blank" rel="noopener">CC BY 4.0</a>)
       · {{t:web.footer.inspired}} <a href="/licence">{{t:web.footer.inspired_link}}</a>

@@ -26,9 +26,11 @@ LANG_COOKIE = "lang"
 LANG_COOKIE_MAX_AGE = 365 * 24 * 3600
 # Prefixy klíčů, které server vloží do stránky pro app.js.
 WEB_PREFIXES = ("web.", "step.", "status.")
+# Texty stránky vykreslené serverem (``{{h:…}}``) do app.js nejdou.
+SERVER_ONLY_PREFIXES = ("web.page.",)
 
 _LANG_RE = re.compile(r"^[a-z]{2}$")
-_PLACEHOLDER_RE = re.compile(r"\{\{t:([a-zA-Z0-9_.\-]+)\}\}")
+_PLACEHOLDER_RE = re.compile(r"\{\{(t|h):([a-zA-Z0-9_.\-]+)\}\}")
 _LOCALES = {"cs": "cs-CZ", "en": "en-GB", "de": "de-DE", "pl": "pl-PL", "fr": "fr-FR", "sk": "sk-SK"}
 
 
@@ -123,7 +125,13 @@ def merged_catalog(lang: str, prefixes: tuple[str, ...] = WEB_PREFIXES) -> dict[
     """Klíče s prefixem v jazyce s doplněním z en a cs (pro app.js)."""
     out: dict[str, str] = {}
     for code in reversed(_chain(lang)):
-        out.update({k: v for k, v in catalog(code).items() if k.startswith(prefixes)})
+        out.update(
+            {
+                k: v
+                for k, v in catalog(code).items()
+                if k.startswith(prefixes) and not k.startswith(SERVER_ONLY_PREFIXES)
+            }
+        )
     return out
 
 
@@ -181,8 +189,16 @@ def set_lang_cookie(response: Any, lang: str, *, secure: bool) -> None:
 
 
 def render_placeholders(html: str, lang: str) -> str:
-    """``{{t:klic}}`` v HTML → escapovaný text."""
-    return _PLACEHOLDER_RE.sub(lambda m: html_escape(t(m.group(1), lang), quote=True), html)
+    """``{{t:klic}}`` v HTML → escapovaný text, ``{{h:klic}}`` → HTML z katalogu beze změny.
+
+    ``h`` jen pro texty stránek (katalog je obsah repozitáře, ne vstup uživatele).
+    """
+
+    def repl(m: re.Match[str]) -> str:
+        text = t(m.group(2), lang)
+        return text if m.group(1) == "h" else html_escape(text, quote=True)
+
+    return _PLACEHOLDER_RE.sub(repl, html)
 
 
 def lang_switcher_html(lang: str) -> str:

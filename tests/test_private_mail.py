@@ -685,7 +685,9 @@ def test_ui_private_session_log_hooks():
     root = Path(__file__).resolve().parents[1]
     app_js = (root / "web" / "static" / "app.js").read_text(encoding="utf-8")
     css = (root / "web" / "static" / "style.css").read_text(encoding="utf-8")
-    html = (root / "web" / "index.html").read_text(encoding="utf-8")
+    from app.i18n import render_placeholders
+
+    html = render_placeholders((root / "web" / "index.html").read_text(encoding="utf-8"), "cs")
 
     assert "setJobsView" in app_js
     assert "jobIsPrivate" in app_js
