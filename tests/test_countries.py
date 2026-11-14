@@ -80,3 +80,12 @@ def test_create_job_country_and_border(client, monkeypatch):
     assert opts["country"] == "CZ" and 0 < opts["outside_share"] < 0.5
     log = client.get(f"/api/jobs/{r.json()['id']}/log").json()["lines"]
     assert any("jen z OSM" in line["line"] for line in log)
+
+
+def test_api_bbox_errors_in_english(client, monkeypatch):
+    monkeypatch.setenv("LANGS", "cs,en")
+    r = client.get("/api/sheets", params={"bbox": "nan,50.0,14.5,50.1", "lang": "en"})
+    assert r.status_code == 400
+    assert "non-numeric" in r.json()["detail"]
+    r = client.get("/api/sheets", params={"bbox": "nan,50.0,14.5,50.1"})
+    assert "nečíselnou" in r.json()["detail"]

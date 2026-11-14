@@ -95,15 +95,18 @@ def parse_bbox(raw: str) -> tuple[float, float, float, float]:
     """Očekává west,south,east,north (WGS84)."""
     parts = [p.strip() for p in (raw or "").split(",")]
     if len(parts) != 4:
-        raise FetchError("Bbox musí mít 4 čísla: west,south,east,north")
+        raise FetchError(Msg("api.bbox.parts"))
     try:
         west, south, east, north = (float(p) for p in parts)
     except ValueError as exc:
-        raise FetchError("Bbox obsahuje nečíselnou hodnotu") from exc
+        raise FetchError(Msg("api.bbox.not_number")) from exc
+    # float() přijme i „nan“ / „inf“ – porovnání s NaN jsou vždy nepravdivá a kontroly by prošly.
+    if not all(math.isfinite(v) for v in (west, south, east, north)):
+        raise FetchError(Msg("api.bbox.not_number"))
     if west >= east or south >= north:
-        raise FetchError("Bbox je invertedý – west < east a south < north")
+        raise FetchError(Msg("api.bbox.inverted"))
     if west < -180 or east > 180 or south < -90 or north > 90:
-        raise FetchError("Bbox je mimo rozsah WGS84")
+        raise FetchError(Msg("api.bbox.range"))
     # Povolené území (polygon země, podíl výřezu v ní) kontroluje app.countries.check_bbox.
     return west, south, east, north
 
