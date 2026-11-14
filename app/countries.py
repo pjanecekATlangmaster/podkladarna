@@ -60,6 +60,9 @@ class Country:
     view: tuple[float, float, float, float]  # jih, západ, sever, východ
     elevation: str = "cz_openzu"  # zdroj výšek (``app.pipeline.country_profile``)
     cz_sources: bool = True  # ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK ortofoto a stínování
+    # Citace zdrojů, které vyžadují licence místních dat (README, CO_JE_PODKLADARNA, poznámka .omap).
+    attribution: tuple[str, ...] = ()
+    citation: str = ""
 
     def name(self, lang: str = "cs") -> str:
         return self.names.get(lang) or self.names.get("en") or self.code
@@ -117,6 +120,8 @@ def load_countries() -> dict[str, Country]:
             view=view if len(view) == 4 else (0.0, 0.0, 0.0, 0.0),
             elevation=str(spec.get("elevation") or ("cz_openzu" if code == DEFAULT_COUNTRY else "none")),
             cz_sources=bool(spec.get("cz_sources", code == DEFAULT_COUNTRY)),
+            attribution=tuple(str(line) for line in (spec.get("attribution") or [])),
+            citation=str(spec.get("citation") or ""),
         )
         if len(view) != 4:
             w, s, e, n = country.envelope
@@ -133,6 +138,16 @@ def beta_codes() -> frozenset[str]:
 
         raw = "*" if settings.INSTANCE_CHANNEL == "test" else ""
     return frozenset(c.strip().upper() for c in raw.replace(";", ",").split(",") if c.strip())
+
+
+def offered_codes() -> frozenset[str]:
+    """Země, které instance nějaké doméně nabízí (``live`` a povolené ``beta``); podle nich stav zdrojů."""
+    beta = beta_codes()
+    return frozenset(
+        c.code
+        for c in load_countries().values()
+        if c.status == "live" or (c.status == "beta" and ("*" in beta or c.code in beta))
+    )
 
 
 def allowed_countries(site: Any = None) -> list[Country]:

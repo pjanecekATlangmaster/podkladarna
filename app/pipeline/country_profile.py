@@ -53,3 +53,19 @@ def set_process_country(options: dict | None) -> str:
 
 def process_uses_cz_sources() -> bool:
     return uses_cz_sources({"country": os.environ.get(JOB_COUNTRY_ENV) or DEFAULT_COUNTRY})
+
+
+def citation(options: dict | None = None) -> str:
+    """Krátká citace zdrojů pro šíření výstupu (licence místních dat), např. „Podklad: Podkladárna · ČÚZK · OSM, [rok]“."""
+    country = job_country(options) if options is not None else process_country()
+    return (country.citation if country else "") or "Podklad: Podkladárna · OSM, [rok]"
+
+
+def attribution_lines(options: dict | None = None) -> tuple[str, ...]:
+    """Zdroje dat s licencí, jak je vyžadují místní servery (prázdné = české znění)."""
+    country = job_country(options) if options is not None else process_country()
+    return country.attribution if country else ()
+
+
+def process_country() -> Country | None:
+    return job_country({"country": os.environ.get(JOB_COUNTRY_ENV) or DEFAULT_COUNTRY})

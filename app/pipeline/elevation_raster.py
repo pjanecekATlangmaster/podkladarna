@@ -30,6 +30,7 @@ from app import settings
 from app.pipeline.crs_5514 import CRS_WKT
 from app.pipeline.dem_prep import DemPrepResult, dem_work_dir
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
+from app.pipeline.reference_nl import NL_AHN_WCS
 
 # Díry DTM (budovy, voda) jsou u rastrů větší než u DMR 5G z LAZ (-md 24 v ``_fill_dem_nodata``).
 FILL_MAX_DISTANCE_PX = 250
@@ -99,7 +100,7 @@ def local_provider(spec: str) -> Provider:
 
 # --------------------------------------------------------------------------- NL: AHN přes PDOK WCS
 
-AHN_WCS = "https://service.pdok.nl/rws/ahn/wcs/v1_0"
+AHN_WCS = NL_AHN_WCS
 AHN_CRS = "EPSG:28992"
 AHN_BUFFER_M = 20.0
 AHN_MAX_SIDE_M = 6000.0  # jeden GetCoverage do ~6 km (0,5 m → 12 000 px); větší výřez po dlaždicích

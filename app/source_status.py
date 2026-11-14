@@ -31,11 +31,12 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
-from app import settings
+from app import countries, settings
 
 from app.pipeline.dtm_sources import DMVS_API
 from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
 from app.pipeline.osm_paths import OVERPASS_URLS
+from app.pipeline.reference_nl import NL_AHN_WCS, NL_BGT_WMTS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,8 @@ class Probe:
     needs: str | None = None
     # Vedle 2xx/3xx bere jako „běží“ i 4xx (Overpass bez dotazu vrací 400).
     any_4xx_ok: bool = False
+    # Země výřezu, pro které se zdroj používá (``*`` = všude); web ukáže jen zdroje vybrané země.
+    countries: tuple[str, ...] = ("CZ",)
 
 
 PROBES: tuple[Probe, ...] = (
@@ -91,6 +94,7 @@ PROBES: tuple[Probe, ...] = (
         "Bez OSM se nestáhne základ kresby (cesty, budovy, objekty); job nejspíš selže.",
         fatal=True,
         any_4xx_ok=True,
+        countries=("*",),
     ),
     Probe(
         "zabaged",
@@ -123,8 +127,57 @@ PROBES: tuple[Probe, ...] = (
         "Sentinel-2 (AWS)",
         (STAC_SEARCH_URL.rsplit("/", 1)[0] + "/",),
         "Šablona se snímky Sentinel-2 bude chybět.",
+        countries=("*",),
+    ),
+    # Nizozemsko (PDOK): HEAD na popis služby, nic se nestahuje.
+    Probe(
+        "nl_ahn",
+        "AHN – výšky terénu a povrchu (PDOK)",
+        (f"{NL_AHN_WCS}?service=WCS&request=GetCapabilities",),
+        "Bez AHN se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("NL",),
+    ),
+    Probe(
+        "nl_luchtfoto",
+        "Luchtfoto – ortofoto (PDOK)",
+        (f"{NL_LUCHTFOTO_WMS}?service=WMS&request=GetCapabilities",),
+        "Šablona ortofota bude chybět.",
+        method="HEAD",
+        countries=("NL",),
+    ),
+    Probe(
+        "nl_bgt",
+        "BGT – velkoměřítková mapa (PDOK)",
+        (f"{NL_BGT_WMTS}?service=WMTS&request=GetCapabilities",),
+        "Šablona BGT bude chybět.",
+        method="HEAD",
+        countries=("NL",),
+    ),
+    Probe(
+        "nl_kadaster",
+        "Kadastrale kaart (PDOK)",
+        (f"{NL_KADASTER_WMS}?service=WMS&request=GetCapabilities",),
+        "Šablona katastrální mapy bude chybět.",
+        method="HEAD",
+        countries=("NL",),
     ),
 )
+
+
+
+def probes_for(country: str | None = None) -> list[Probe]:
+    """Zdroje, které používá job v zemi ``country`` (výchozí Česko)."""
+    code = (country or countries.DEFAULT_COUNTRY).strip().upper()
+    return [p for p in PROBES if "*" in p.countries or code in p.countries]
+
+
+def active_probes() -> list[Probe]:
+    """Zdroje zemí, které instance nabízí (vypnuté země se nekontrolují)."""
+    offered = countries.offered_codes() | {countries.DEFAULT_COUNTRY}
+    return [p for p in PROBES if "*" in p.countries or offered & set(p.countries)]
+
 
 _STATUS_FILE = "source_status.json"
 _refresh_lock = threading.Lock()  # jedna kontrola naráz v procesu webu
@@ -242,8 +295,9 @@ def check_probe(probe: Probe) -> dict:
 
 def check_all() -> dict:
     """Zkontroluje všechny zdroje souběžně a uloží výsledek; vrací snímek stavu."""
-    with ThreadPoolExecutor(max_workers=len(PROBES), thread_name_prefix="src-check") as pool:
-        results = list(pool.map(check_probe, PROBES))
+    probes = active_probes()
+    with ThreadPoolExecutor(max_workers=len(probes), thread_name_prefix="src-check") as pool:
+        results = list(pool.map(check_probe, probes))
     now = _now_iso()
     prev = _load()["services"]
     services = {}
@@ -392,16 +446,20 @@ def _send_alerts(alerts: list[tuple[str, dict]]) -> None:
     _prune_claims()
 
 
-def snapshot() -> dict:
-    """Poslední uložený stav pro API (``services`` v pořadí ``PROBES``)."""
+def snapshot(country: str | None = None) -> dict:
+    """Poslední uložený stav pro API (``services`` země ``country`` v pořadí ``PROBES``)."""
     state = _load()
-    services = [dict(state["services"][p.key]) for p in PROBES if p.key in state["services"]]
+    services = [dict(state["services"][p.key]) for p in probes_for(country) if p.key in state["services"]]
     return {"checked_at": state.get("checked_at"), "services": services}
 
 
 def is_stale() -> bool:
-    age = _age_s(_load())
-    return age is None or age >= ttl_s()
+    state = _load()
+    age = _age_s(state)
+    if age is None or age >= ttl_s():
+        return True
+    # Nově nabízená země (beta zapnutá za běhu) ještě nemá výsledek.
+    return any(p.key not in state["services"] for p in active_probes())
 
 
 def refresh_if_stale() -> bool:
@@ -432,7 +490,7 @@ def refresh_if_stale() -> bool:
     return True
 
 
-def down_services(*, use_dtm: bool = True) -> list[dict]:
+def down_services(*, use_dtm: bool = True, country: str | None = None) -> list[dict]:
     """Job: zdroje mimo provoz; starý výsledek nejdřív ověří znovu (pár sekund)."""
     if ttl_s() <= 0:
         return []
@@ -440,6 +498,6 @@ def down_services(*, use_dtm: bool = True) -> list[dict]:
         check_all()
     return [
         s
-        for s in snapshot()["services"]
+        for s in snapshot(country)["services"]
         if not s["ok"] and (use_dtm or s.get("needs") != "dtm")
     ]

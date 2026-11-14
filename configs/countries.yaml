@@ -1,5 +1,6 @@
 # Podporované země (návrh /mnt/project-files/evropa-data/pohranicni-mapa-navrh.md).
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`) | off.
+# citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
@@ -12,6 +13,10 @@ CZ:
   view: [48.55, 12.09, 51.06, 18.86]
   elevation: cz_openzu      # výšková data: LiDAR DMR 5G + DMP OK z OpenZU (listy SM5)
   cz_sources: true          # ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK ortofoto a stínování
+  citation: "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
+  attribution:
+    - "Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto) – CC BY 4.0."
+    - "AOPK památné stromy (CC BY 4.0). OSM © přispěvatelé (ODbL)."
 # Zahraniční build (vlákno „Připravit zahraniční build SK a NL“, 2026-11-14). beta = jen s COUNTRIES_BETA
 # (na testu B výchozí `*`), jinde se nenabízí. Kresba z OSM, české zdroje vypnuté.
 # Zemi zařadit jen s volně stažitelným modelem povrchu (DMP / DSM) – výška porostu vždy z DMP (Petr 2026-11-14).
@@ -23,6 +28,10 @@ SK:
   view: [47.73, 16.83, 49.62, 22.57]
   elevation: sk_ugkk        # DMR 5.0 1 m z INSPIRE WCS ÚGKK (povrch chybí); záloha local:<složka v DATA_ROOT>
   cz_sources: false
+  citation: "Podklad: Podkladárna · ÚGKK SR · OSM, [rok]"
+  attribution:
+    - "DMR 5.0 © ÚGKK SR – CC BY 4.0."
+    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
 NL:
   name: {cs: Nizozemsko, en: Netherlands, nl: Nederland}
   status: off               # čeká na souřadnice jobu podle země (EPSG:28992)
@@ -31,3 +40,11 @@ NL:
   view: [50.74, 3.34, 53.56, 7.21]
   elevation: nl_ahn         # AHN DTM/DSM 0,5 m (PDOK WCS, CC0)
   cz_sources: false
+  # Licence: AHN CC0 (AHN5+ CC BY 4.0), luchtfoto Beeldmateriaal CC BY 4.0, Kadaster CC BY 4.0, BGT CC0.
+  citation: "Podklad: Podkladárna · AHN · Kadaster · Beeldmateriaal.nl · OSM, [rok]"
+  attribution:
+    - "Výšky: AHN (Actueel Hoogtebestand Nederland) – CC0 1.0, novější snímkování CC BY 4.0. Bron: AHN."
+    - "Ortofoto: Luchtfoto PDOK – CC BY 4.0. Bron: Beeldmateriaal.nl."
+    - "BGT (Basisregistratie Grootschalige Topografie) – CC0 1.0."
+    - "Kadastrale kaart a BRT TOP10NL – CC BY 4.0. Bron: Kadaster."
+    - "OSM © přispěvatelé OpenStreetMap (ODbL)."

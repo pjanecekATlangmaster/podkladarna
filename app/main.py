@@ -468,13 +468,16 @@ def api_usage_stats():
 
 
 @app.get("/api/source_status")
-def api_source_status():
-    """Dostupnost zdrojů dat (web podle ní varuje před spuštěním).
+def api_source_status(country: str | None = None):
+    """Dostupnost zdrojů dat (web podle ní varuje před spuštěním); ``country`` = země výřezu (místní servery).
 
     Starší výsledek než ``SOURCE_CHECK_TTL_MIN`` spustí kontrolu na pozadí (``checking``)."""
     ttl = app_settings.SOURCE_CHECK_TTL_MIN
+    code = str(country or "").strip().upper()
+    if code not in countries.offered_codes():
+        code = countries.DEFAULT_COUNTRY
     checking = source_status.refresh_if_stale()
-    return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, **source_status.snapshot()}
+    return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, "country": code, **source_status.snapshot(code)}
 
 
 @app.get("/api/presets")

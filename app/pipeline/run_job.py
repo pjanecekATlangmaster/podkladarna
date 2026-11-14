@@ -634,9 +634,8 @@ def run_job_pipeline(
         from app import source_status
 
         use_dtm_any = cz_sources and (resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest"))
-        services = source_status.down_services(use_dtm=use_dtm_any)
-        if not cz_sources:  # mimo Česko se české zdroje nepoužijí, jen OSM a Sentinel
-            services = [s for s in services if s.get("key") in ("osm", "sentinel")]
+        # Zdroje země výřezu (mimo Česko místní servery, OSM a Sentinel; české se nepoužijí).
+        services = source_status.down_services(use_dtm=use_dtm_any, country=job_country_code(options))
         for is_issue, text in down_source_lines(services, dtm_needed=dtm_needed):
             if is_issue:
                 log_issue(log, text)

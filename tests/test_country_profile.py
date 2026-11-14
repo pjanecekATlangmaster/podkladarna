@@ -268,3 +268,26 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         assert orthophoto.fetch_orthophoto(tmp_path, (0, 0, 10, 10)) is None
     finally:
         os.environ.pop(country_profile.JOB_COUNTRY_ENV, None)  # monkeypatch.delenv by „SK“ po testu vrátil
+
+
+@pytest.mark.parametrize(
+    "country, must, must_not",
+    [
+        ("CZ", ("Data: ČÚZK (DMR 5G", "Podkladárna · ČÚZK · OSM"), ("AHN",)),
+        ("NL", ("Bron: AHN", "Bron: Kadaster", "Beeldmateriaal.nl", "OpenStreetMap (ODbL)"), ("ČÚZK",)),
+    ],
+)
+def test_citation_by_country(country, must, must_not):
+    """Citace zdrojů podle země výřezu, jak ji vyžadují licence místních dat (README a CO_JE_PODKLADARNA)."""
+    from app.guide_text import zip_about_txt
+    from app.pipeline.package_oom import _country_citation, oom_metadata, oom_readme
+
+    meta = oom_metadata("sprint_2m", {"label": "Sprint", "scalefactor": 0.4}, {"country": country})
+    readme = oom_readme(meta)
+    about = zip_about_txt(**_country_citation(meta))
+    data_part = readme[readme.index("Data"):]
+    for text in must:
+        assert text in data_part
+    for text in must_not:
+        assert text not in data_part and text not in about[about.index("Právní"):]
+    assert meta["citation_short"] in about

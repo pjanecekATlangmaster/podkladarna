@@ -33,6 +33,13 @@ __all__ = [
 ]
 
 
+def _citation_note() -> str:
+    """Citace zdrojů podle země běžícího jobu (licence místních dat vyžadují uvedení zdroje)."""
+    from app.pipeline.country_profile import citation
+
+    return f"Při šíření uveďte: {citation()}"
+
+
 def _template_xml(tmpl: OomTemplate) -> str:
     # open = načtená v panelu podkladů; visible v <view> řídí kreslení.
     open_attr = "true" if tmpl.loaded else "false"
@@ -200,7 +207,8 @@ def build_oom_map_xml(
 <map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
     <notes>Podkladárna – {safe_name}
 Výchozí pohled: jen vektorová mapa. Vrstevnice {display_code(preset_id, scale, "101")}/{display_code(preset_id, scale, "102")} jsou zamčené.
-PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.</notes>
+PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.
+{html.escape(_citation_note())}</notes>
     <georeferencing scale="{scale}" auxiliary_scale_factor="1" declination="{declination:.2f}" grivation="{grivation:.2f}">
         <projected_crs id="EPSG">
             <spec language="PROJ.4">{crs}</spec>

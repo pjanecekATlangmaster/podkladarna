@@ -2805,6 +2805,11 @@ async function lookupSheets() {
     const data = await api(`/api/sheets?bbox=${encodeURIComponent(bbox)}`);
     if (seq !== sheetsLookupSeq) return;
     lastSheets = data;
+    // Země výřezu: stav místních serverů (ČÚZK v Česku, PDOK v Nizozemsku …).
+    if ((data.country || "CZ") !== sourceStatusCountry) {
+      sourceStatusCountry = data.country || "CZ";
+      loadSourceStatus();
+    }
     if (data.max_area_km2) bboxMaxAreaKm2 = data.max_area_km2;
     if (data.sprint_max_area_km2) sprintMaxAreaKm2 = data.sprint_max_area_km2;
     if (data.forest_max_area_km2) forestMaxAreaKm2 = data.forest_max_area_km2;
@@ -3179,6 +3184,7 @@ async function loadUsageBox() {
 }
 
 let sourceStatus = null;
+let sourceStatusCountry = "CZ";
 const SOURCE_STATUS_REFRESH_MS = 5 * 60 * 1000;
 
 function csTime(iso) {
@@ -3330,7 +3336,7 @@ let sourceStatusPolls = 0;
 async function loadSourceStatus(poll = false) {
   sourceStatusPolls = poll ? sourceStatusPolls + 1 : 0;
   try {
-    sourceStatus = await api("/api/source_status");
+    sourceStatus = await api(`/api/source_status?country=${encodeURIComponent(sourceStatusCountry)}`);
   } catch (_) {
     sourceStatus = null;
   }
