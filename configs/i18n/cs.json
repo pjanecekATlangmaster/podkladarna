@@ -600,6 +600,7 @@
   "api.sheets.too_many": "{names} ({count}). Zmenšete výřez (max {max} listů SM5).",
   "api.sheets.label": "Protíná listy: {names} ({count})",
   "api.sheets.none": "Výřez neprotíná žádný list SM5",
+  "api.sheets.raster": "Výšky z národních dat země: {country}",
   "api.sheets.calibrated": "Odhad podle posledních {jobs} jobů na tomto serveru.",
   "api.sheets.note_join": "{note} {extra}",
   "api.estimate.cached": "DMP OK v cache.",

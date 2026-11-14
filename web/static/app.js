@@ -2517,7 +2517,7 @@ function refreshBboxBadge() {
     }
     return;
   }
-  if (!data.count) {
+  if (!data.count && data.needs_sheets !== false) {
     setBboxBadge("err", t("web.js.bbox.out_of_data"));
     return;
   }
@@ -2773,7 +2773,7 @@ function updateSubmitButtonLabel() {
 /** Ověřený výřez (listy OK) proti limitu zvoleného měřítka; volá se i při změně měřítka. */
 function applySheetsLimit() {
   const data = lastSheets;
-  if (!data || data.too_large || !data.count) return;
+  if (!data || data.too_large || (!data.count && data.needs_sheets !== false)) return;
   const hint = isSprintSelected() ? data.sprint_hint : isForestOnlySelected() ? data.forest_hint : null;
   if (hint) {
     bboxAllowed = false;
@@ -2783,7 +2783,8 @@ function applySheetsLimit() {
     bboxAllowed = true;
     styleBboxRect(false);
     const outside = outsideNoteText(data);
-    setSheetInfo([sheetNamesText(data), outside].filter(Boolean).join(" · "), outside ? "warn" : "");
+    const names = data.needs_sheets === false ? data.label : sheetNamesText(data);
+    setSheetInfo([names, outside].filter(Boolean).join(" · "), outside ? "warn" : "");
   }
   updateSubmitButtonLabel();
 }
@@ -2827,7 +2828,7 @@ async function lookupSheets() {
       updateSubmitButtonLabel();
       return;
     }
-    if (!data.count) {
+    if (!data.count && data.needs_sheets !== false) {
       styleBboxRect(false);
       setSheetInfo(data.label, "err");
       updateSubmitButtonLabel();

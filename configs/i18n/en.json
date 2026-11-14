@@ -601,6 +601,7 @@
   "api.sheets.too_many": "{names} ({count}). Make the area smaller (max {max} SM5 sheets).",
   "api.sheets.label": "Intersects sheets: {names} ({count})",
   "api.sheets.none": "The area does not intersect any SM5 map sheet",
+  "api.sheets.raster": "Elevation from national data: {country}",
   "api.sheets.calibrated": "Estimate based on the last {jobs} jobs on this server.",
   "api.sheets.note_join": "{note} {extra}",
   "api.estimate.cached": "DMP OK in cache.",

@@ -698,7 +698,11 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
             i18n.Msg("api.sheets.label", names=", ".join(names), count=len(sheets))
             if sheets
             else i18n.Msg("api.sheets.none")
+            if lidar_sheets
+            else i18n.Msg("api.sheets.raster", country=job_country.msg_name())
         ),
+        # Mimo Česko výšky z rastru země bez listů SM5: GUI pak nežádá aspoň jeden list.
+        "needs_sheets": lidar_sheets,
         "hint": hint,
     }
 
