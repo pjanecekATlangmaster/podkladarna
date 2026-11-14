@@ -78,6 +78,12 @@ def indented_log(log: LogFn) -> LogFn:
 # ``map_phase`` z ``package_oom`` / ``discipline_maps``; při souběhu les ‖ MTBO se krok posune, až fázi
 # dosáhnou všechny mapy (``MapPhaseTracker``).
 DTM_STEP = "DTM kraje"
+# Mimo Česko místo DTM obdoba země (Nizozemsko: BGT z PDOK, ``bgt_nl``).
+BGT_STEP = "data BGT"
+TECHNICAL_MAP_STEPS = {"cz_dtm": DTM_STEP, "nl_bgt": BGT_STEP}
+# Kroky jen s českými zdroji (ZABAGED, RÚIAN, AOPK) a s LiDARem ČÚZK; mimo Česko se do plánu nedávají.
+CZ_SOURCE_STEPS: tuple[str, ...] = ("stažení ZABAGED", "příprava ZABAGED", "RÚIAN a AOPK")
+LIDAR_STEPS: tuple[str, ...] = ("stažení LiDAR", "příprava LiDAR")
 MAP_PHASES: tuple[str, ...] = (
     "polohopis a vegetace",
     "silnice a cesty",
@@ -91,7 +97,7 @@ ZIP_STEP = "balení ZIP"
 LEGACY_MAPS_STEP = "sestavení mapy a ZIP"
 # Součet těchto kroků = skládání map pro kalibraci odhadu (``db.record_job_usage``); starší joby měly jeden krok.
 MAP_ASSEMBLY_STEPS: frozenset[str] = frozenset(
-    (DTM_STEP, *MAP_PHASES, PREVIEW_STEP, ZIP_STEP, LEGACY_MAPS_STEP)
+    (DTM_STEP, BGT_STEP, *MAP_PHASES, PREVIEW_STEP, ZIP_STEP, LEGACY_MAPS_STEP)
 )
 
 _map_phase_hook: Callable[[str], None] | None = None
@@ -193,9 +199,12 @@ class JobProgress:
         steps: list[str],
         *,
         clock: Callable[[], float] = time.monotonic,
+        omitted: tuple[str, ...] | frozenset[str] = (),
     ) -> None:
         self._log = log
         self.steps = [str(s).strip() for s in steps if str(s).strip()]
+        # Kroky záměrně mimo plán (mimo Česko ZABAGED, RÚIAN …): ``begin`` / ``skip`` je tiše vynechá.
+        self._omitted = frozenset(str(s).strip() for s in omitted) - set(self.steps)
         self._index = 0
         self._open_label: str | None = None
         self._clock = clock
@@ -232,7 +241,7 @@ class JobProgress:
     def begin(self, label: str) -> None:
         """Zahájí krok ``label``; předchozí otevřený krok nejdřív ukončí."""
         text = str(label).strip()
-        if not text:
+        if not text or text in self._omitted:
             return
         if self._open_label is not None:
             self.done()
@@ -257,7 +266,7 @@ class JobProgress:
     def skip(self, label: str, *, reason: str | None = None) -> None:
         """Označí krok jako přeskočený (cache / není potřeba)."""
         text = str(label).strip()
-        if not text:
+        if not text or text in self._omitted:
             return
         if self._open_label is not None:
             self.done()
@@ -312,8 +321,48 @@ def plan_pipeline_steps(
     reused_from: object | None,
     want_zip: bool,
     want_refs: bool,
+    cz_sources: bool = True,
+    raster_elevation: bool = False,
+    technical_map: str = "cz_dtm",
 ) -> list[str]:
-    """Sestaví očekávané kroky běhu (přehled „co ještě následuje“)."""
+    """Sestaví očekávané kroky běhu (přehled „co ještě následuje“).
+
+    Mimo Česko (``cz_sources`` False) bez kroků českých zdrojů, s výškami z rastru země (``raster_elevation``)
+    bez kroků LiDARu a místo „DTM kraje“ krok obdoby země (``technical_map``, Nizozemsko „data BGT“).
+    """
+    steps = _plan_steps(bbox=bbox, reused_from=reused_from, want_zip=want_zip, want_refs=want_refs)
+    omit = set(omitted_steps(cz_sources=cz_sources, raster_elevation=raster_elevation, technical_map=technical_map))
+    dtm_step = TECHNICAL_MAP_STEPS.get(technical_map)
+    out = []
+    for step in steps:
+        if step == DTM_STEP and dtm_step:
+            step = dtm_step
+        if step not in omit:
+            out.append(step)
+    return out
+
+
+def omitted_steps(
+    *, cz_sources: bool = True, raster_elevation: bool = False, technical_map: str = "cz_dtm"
+) -> tuple[str, ...]:
+    """Kroky, které se pro zemi výřezu do plánu nedávají (``JobProgress(omitted=…)``)."""
+    out: list[str] = []
+    if technical_map not in TECHNICAL_MAP_STEPS:
+        out.append(DTM_STEP)
+    if not cz_sources:
+        out.extend(CZ_SOURCE_STEPS)
+    if raster_elevation:
+        out.extend(LIDAR_STEPS)
+    return tuple(out)
+
+
+def _plan_steps(
+    *,
+    bbox: object | None,
+    reused_from: object | None,
+    want_zip: bool,
+    want_refs: bool,
+) -> list[str]:
     steps: list[str] = []
     if reused_from:
         steps.append("kopie LAZ z předchozího jobu")

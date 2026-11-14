@@ -1362,10 +1362,19 @@ async def api_create_job(request: Request):
     def _yn(key: str, default: bool = False) -> str:
         return "ano" if options.get(key, default) else "ne"
 
+    from app.pipeline.country_profile import job_country, technical_map_source
+
+    _country = job_country(options)
+    _tech = technical_map_source(options)
+    _tech_on, _tech_off = {"cz_dtm": ("DTM", "OSM+ZABAGED"), "nl_bgt": ("BGT", "OSM")}.get(_tech, ("OSM", "OSM"))
     log(
         f"Přijato: preset {preset_id} · 1:{resolved['map_scale']} · "
         f"ekvidistance {resolved['contour_interval']} m · "
-        f"listy SM5 {', '.join(options['sm5_sheets'])}"
+        + (
+            f"listy SM5 {', '.join(options['sm5_sheets'])}"
+            if options.get("sm5_sheets")
+            else f"země {_country.name('cs') if _country else options.get('country') or '?'}"
+        )
         + (
             " · mapy les + MTBO"
             if map_types and len(map_types) > 1
@@ -1378,8 +1387,8 @@ async def api_create_job(request: Request):
         f"  Terén: vegetace {options.get('kp_vege_height', 2.0)} m · "
         f"tvar vegetace {resolve_veg_smooth(options)} · "
         f"vrstevnice {'adaptivní' if resolve_contour_smooth(options) else 'méně vyhlazení'} · "
-        f"kresba sprint {'DTM' if resolve_use_dtm(options, 'sprint') else 'OSM+ZABAGED'}/"
-        f"les+MTBO {'DTM' if resolve_use_dtm(options, 'forest') else 'OSM+ZABAGED'} · "
+        f"kresba sprint {_tech_on if resolve_use_dtm(options, 'sprint') else _tech_off}/"
+        f"les+MTBO {_tech_on if resolve_use_dtm(options, 'forest') else _tech_off} · "
         f"srázy {options.get('kp_cliff_sensitivity', 'low')}/"
         f"{options.get('kp_cliff_symbol', 'auto')} · "
         f"pomocné vrstevnice {_FORMLINE_LABEL[resolve_formline_mode(options)]}"

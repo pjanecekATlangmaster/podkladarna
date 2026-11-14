@@ -2555,17 +2555,25 @@ def start_dtm_prefetch(
     *,
     log=None,
     force: bool = False,
+    source: str = "cz_dtm",
 ) -> DtmPrefetch:
+    """Příprava dat technické mapy na pozadí: ``cz_dtm`` (DMVS ČÚZK) nebo ``nl_bgt`` (``bgt_nl.prepare_bgt``)."""
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dtm-dl")
     # Příznak přes Event: vlákno může skončit dřív, než se vytvoří DtmPrefetch (dřív se pak ``failed`` ztratil).
     failed = threading.Event()
+    if source == "nl_bgt":
+        from app.pipeline import bgt_nl
+
+        prepare, task_name = bgt_nl.prepare_bgt, bgt_nl.BACKGROUND_NAME
+    else:
+        prepare, task_name = prepare_dtm_fences, "Data DTM kraje"
 
     def _run() -> Path | None:
         t0 = time.monotonic()
         try:
-            with background_task(log, "Data DTM kraje") as task:
+            with background_task(log, task_name) as task:
                 try:
-                    out = prepare_dtm_fences(work_dir, bbox_wgs84, log=log, force=force)
+                    out = prepare(work_dir, bbox_wgs84, log=log, force=force)
                 except Exception as exc:  # výpadek DMVS / poškozený balík nesmí shodit job
                     # Na pozadí „nedostupné“, ne „selhalo“: bez DTM se kreslí z OSM a ZABAGED (problém hlásí
                     # jen souhrn DTM u sprintu, dtm_summary.finalize_summary).
@@ -2582,7 +2590,7 @@ def start_dtm_prefetch(
             build_stats.note_background("dtm", seconds=time.monotonic() - t0)
 
     if log:
-        log("Start přípravy DTM (ploty) na pozadí.")
+        log("Start přípravy BGT na pozadí." if source == "nl_bgt" else "Start přípravy DTM (ploty) na pozadí.")
     prefetch = DtmPrefetch(executor.submit(_run), executor)
     prefetch._failed = failed
     return prefetch
@@ -2940,6 +2948,11 @@ def _load_opl_areas(work_dir: Path) -> dict[str, list]:
         data = json.loads(fences_path(work_dir).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return areas
+    for key in areas:  # BGT (``bgt_nl``) nese plochy přímo v souboru, DTM je čte z balíků OPL
+        for poly in (data.get("areas") or {}).get(key) or []:
+            rings = [[(float(x), float(y)) for x, y in ring] for ring in poly]
+            if rings and len(rings[0]) >= 4:
+                areas[key].append(rings)
     for name in data.get("opl_files") or []:
         try:
             part = dtm_fences.load_orientation_areas(name)
@@ -2987,9 +3000,38 @@ def _buildings_zone(work_dir: Path, tol_m: float = FENCE_BUILDING_TOL_M, min_are
     return unary_union(polys).buffer(tol_m) if polys else None
 
 
+def load_yard_polygons(work_dir: Path) -> list[list[list[tuple[float, float]]]]:
+    """Soukromé pozemky kreslené olivou 520 (BGT ``erf``, ``fences.json`` → ``yards``); DTM je nemá."""
+    try:
+        data = json.loads(fences_path(work_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for poly in data.get("yards") or []:
+        rings = [[(float(x), float(y)) for x, y in ring] for ring in poly if len(ring) >= 4]
+        if rings:
+            out.append(rings)
+    return out
+
+
+def _yard_geometry(work_dir: Path):
+    """Sjednocení soukromých pozemků (BGT ``erf``) nebo None."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    polys = []
+    for rings in load_yard_polygons(work_dir):
+        try:
+            g = Polygon(rings[0], rings[1:])
+            polys.append(g if g.is_valid else g.buffer(0))
+        except ValueError:
+            continue
+    return unary_union(polys) if polys else None
+
+
 def _olive_geometry(work_dir: Path, fill_rings: list[list[tuple[float, float]]]):
-    """Kreslené olivy (shapely, i prázdná): zahrady z OSM (``kind == "garden"``), oplocení vyplněná olivou z DTM
-    a olivové vrstvy ZABAGED (``ZABAGED_OLIVE_LAYERS``)."""
+    """Kreslené olivy (shapely, i prázdná): zahrady z OSM (``kind == "garden"``), oplocení vyplněná olivou z DTM,
+    soukromé pozemky BGT (``yards``) a olivové vrstvy ZABAGED (``ZABAGED_OLIVE_LAYERS``)."""
     from shapely.geometry import Polygon, shape
     from shapely.ops import unary_union
 
@@ -3014,6 +3056,9 @@ def _olive_geometry(work_dir: Path, fill_rings: list[list[tuple[float, float]]])
                 polys.append(g if g.is_valid else g.buffer(0))
             except ValueError:
                 continue
+    yards = _yard_geometry(work_dir)
+    if yards is not None and not yards.is_empty:
+        polys.append(yards)
     polys.extend(_zabaged_olive_polygons(work_dir))
     return unary_union(polys) if polys else Polygon()
 
@@ -3243,7 +3288,7 @@ def build_dtm_fence_parts(
         except Exception:  # sjednocení je doplněk, ploty se kreslí i bez něj
             lines = dtm_lines + osm_lines
             osm_keys = {_line_key(ln) for _c, ln in osm_lines}
-    if not lines and not _load_dubious_fences(work_dir):
+    if not lines and not _load_dubious_fences(work_dir) and not load_yard_polygons(work_dir):
         return []
     if fill_olive and osm_lines and (areas["olive"] or areas["building"]):
         try:
@@ -3349,6 +3394,9 @@ def build_dtm_fence_parts(
             obj = _area_object_with_holes(olive_idx, mapped)
             if obj:
                 area_objects.append(obj)
+        area_objects.extend(
+            _yard_objects(work_dir, olive_idx, sidewalk_area if sprint else None, clip_bounds, ref_x, ref_y, scale, grivation_deg)
+        )
     for code, line in lines:
         if code not in symbol_cache:
             symbol_cache[code] = symbol_index_for_code(preset_id, scale, code)
@@ -3375,6 +3423,42 @@ def build_dtm_fence_parts(
     if objects:
         parts.append(OomObjectPart(name="Ploty (DTM + OSM)", objects_xml="\n".join(objects), count=len(objects)))
     return parts
+
+
+# Soukromý pozemek BGT menší než tolik m² se olivou nekreslí (zbytky mezi budovami a chodníky).
+YARD_MIN_AREA_M2 = 4.0
+
+
+def _yard_objects(work_dir: Path, olive_idx: int, sidewalks, clip_bounds, ref_x, ref_y, scale, grivation_deg) -> list[str]:
+    """Soukromé pozemky BGT (``erf``) jako plochy oliva 520 s dírami; ve sprintu bez ploch chodníků."""
+    from shapely.geometry import box
+
+    from app.pipeline import dtm_sidewalks
+    from app.pipeline.oom_import import _area_object_with_holes
+
+    geom = _yard_geometry(work_dir)
+    if geom is None or geom.is_empty:
+        return []
+    try:
+        if sidewalks is not None and not sidewalks.is_empty:
+            geom = geom.difference(sidewalks)
+        if clip_bounds is not None:
+            geom = geom.intersection(box(*clip_bounds))
+    except Exception:  # ořez je doplněk, pozemky se kreslí celé
+        pass
+    out = []
+    for poly in getattr(geom, "geoms", [geom]):
+        if poly.geom_type != "Polygon" or poly.area < YARD_MIN_AREA_M2:
+            continue
+        for rings in dtm_sidewalks.polygon_rings(poly):
+            mapped = [
+                [projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg) for x, y in ring]
+                for ring in rings
+            ]
+            obj = _area_object_with_holes(olive_idx, mapped)
+            if obj:
+                out.append(obj)
+    return out
 
 
 # Nové oplocení se k výplni přidá, jen když je z menší části než tolik pokryté už vyplněnými.

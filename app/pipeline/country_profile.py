@@ -40,6 +40,18 @@ def elevation_source(options: dict | None) -> str:
     return country.elevation or ELEVATION_NONE
 
 
+TECHNICAL_MAP_CZ = "cz_dtm"
+TECHNICAL_MAP_NONE = "none"
+
+
+def technical_map_source(options: dict | None) -> str:
+    """Obdoba české DTM pro kresbu: ``cz_dtm`` (DMVS ČÚZK), ``nl_bgt`` (BGT, PDOK) nebo ``none`` (jen OSM)."""
+    country = job_country(options)
+    if country is None:
+        return TECHNICAL_MAP_CZ if job_country_code(options) == DEFAULT_COUNTRY else TECHNICAL_MAP_NONE
+    return country.technical_map or TECHNICAL_MAP_NONE
+
+
 # Země běžícího jobu pro kód bez ``options`` (ortofoto ČÚZK, filtry kresby); proces jobu je vyhrazený a potomci
 # (souběžné mapy) proměnnou dědí. Nastavuje ``run_job_pipeline``.
 JOB_COUNTRY_ENV = "PODKLADARNA_JOB_COUNTRY"

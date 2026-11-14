@@ -416,7 +416,8 @@ def prepare_raster_surfaces(
     dem_dir = dem_work_dir(Path(work_dir))
     src_dir = dem_dir / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
-    log_step(log, f"Stahuji výšková data ({source}): terén a povrch jako rastr")
+    label = {"nl_ahn": "AHN, PDOK", "sk_ugkk": "DMR 5.0, ÚGKK SR"}.get(source, source)
+    log_step(log, f"Stahuji výšková data ({label}): terén a povrch jako rastr")
     src = provider(tuple(bounds), src_dir, log)
     dtm_src, dsm_src = src.dtm, src.dsm
     if dsm_src is None:
