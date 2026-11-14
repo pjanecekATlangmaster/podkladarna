@@ -126,28 +126,37 @@ def _download(url: str, dest: Path, *, log=None) -> Path:
     return dest
 
 
-def ahn_coverage_urls(coverage: str, bounds_rd: tuple[float, float, float, float]) -> list[str]:
-    """GetCoverage URL po dlaždicích nejvýš ``AHN_MAX_SIDE_M`` (souřadnice RD New, zarovnané na 0,5 m)."""
+def tile_boxes(
+    bounds: tuple[float, float, float, float], *, max_side: float, buffer: float, step: float
+) -> list[tuple[float, float, float, float]]:
+    """Výřez (+ ``buffer``) rozdělený na dlaždice nejvýš ``max_side``, hrany zarovnané na ``step``."""
     import math
 
-    xmin, ymin, xmax, ymax = bounds_rd
-    xmin, ymin = math.floor(xmin - AHN_BUFFER_M), math.floor(ymin - AHN_BUFFER_M)
-    xmax, ymax = math.ceil(xmax + AHN_BUFFER_M), math.ceil(ymax + AHN_BUFFER_M)
-    nx = max(1, math.ceil((xmax - xmin) / AHN_MAX_SIDE_M))
-    ny = max(1, math.ceil((ymax - ymin) / AHN_MAX_SIDE_M))
-    urls = []
+    xmin, ymin, xmax, ymax = bounds
+    xmin, ymin = math.floor(xmin - buffer), math.floor(ymin - buffer)
+    xmax, ymax = math.ceil(xmax + buffer), math.ceil(ymax + buffer)
+    nx = max(1, math.ceil((xmax - xmin) / max_side))
+    ny = max(1, math.ceil((ymax - ymin) / max_side))
+    out = []
     for i in range(nx):
         for j in range(ny):
-            x0 = xmin + i * (xmax - xmin) / nx
-            x1 = xmin + (i + 1) * (xmax - xmin) / nx
-            y0 = ymin + j * (ymax - ymin) / ny
-            y1 = ymin + (j + 1) * (ymax - ymin) / ny
-            x0, x1, y0, y1 = (round(v * 2) / 2 for v in (x0, x1, y0, y1))
-            urls.append(
-                f"{AHN_WCS}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID={coverage}"
-                f"&FORMAT=image/tiff&SUBSET=x({x0:g},{x1:g})&SUBSET=y({y0:g},{y1:g})"
+            box = (
+                xmin + i * (xmax - xmin) / nx,
+                ymin + j * (ymax - ymin) / ny,
+                xmin + (i + 1) * (xmax - xmin) / nx,
+                ymin + (j + 1) * (ymax - ymin) / ny,
             )
-    return urls
+            out.append(tuple(round(v / step) * step for v in box))
+    return out
+
+
+def ahn_coverage_urls(coverage: str, bounds_rd: tuple[float, float, float, float]) -> list[str]:
+    """GetCoverage URL po dlaždicích nejvýš ``AHN_MAX_SIDE_M`` (souřadnice RD New, zarovnané na 0,5 m)."""
+    return [
+        f"{AHN_WCS}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID={coverage}"
+        f"&FORMAT=image/tiff&SUBSET=x({x0:g},{x1:g})&SUBSET=y({y0:g},{y1:g})"
+        for x0, y0, x1, y1 in tile_boxes(bounds_rd, max_side=AHN_MAX_SIDE_M, buffer=AHN_BUFFER_M, step=0.5)
+    ]
 
 
 def nl_ahn_provider(bounds, out_dir: Path, log=None) -> tuple[Path, Path | None]:
@@ -166,6 +175,112 @@ def nl_ahn_provider(bounds, out_dir: Path, log=None) -> tuple[Path, Path | None]
 
 
 PROVIDERS["nl_ahn"] = nl_ahn_provider
+
+
+# --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
+
+# Stahovací služba INSPIRE (Elevation): DMR 5.0 (1. cyklus LLS) 1 m, EPSG:3046 (ETRS89 / UTM 34N), výšky
+# elipsoidické ETRS89-h; CC BY 4.0, atribuce „ÚGKK SR“. Povrch (DMP) ani mračno služba nemá (jen export
+# mapového klienta ZBGIS s odkazem e-mailem). Z cloudu (USA) nedostupné, z Česka ano.
+SK_WCS = "https://inspirews.skgeodesy.sk/geoserver/el/ows"
+SK_COVERAGE = "el__EL.GridCoverage"
+SK_CRS = "EPSG:3046"
+SK_MAX_SIDE_M = 4000.0  # 2 × 2 km ≈ 12 MB za 30 s
+SK_BUFFER_M = 20.0
+# Kvazigeoid ETRS89-h → Bpv (Baltic 1957) z PROJ-data (ÚGKK SR, CC BY 4.0), ~0,5 MB, stáhne se jednou do cache.
+SK_GEOID_URL = "https://cdn.proj.org/sk_gku_Slovakia_ETRS89h_to_Baltic1957.tif"
+
+
+def sk_wcs_urls(bounds_utm: tuple[float, float, float, float]) -> list[str]:
+    return [
+        f"{SK_WCS}?service=WCS&version=2.0.1&request=GetCoverage&coverageId={SK_COVERAGE}"
+        f"&format=image/tiff&subset=E({x0:g},{x1:g})&subset=N({y0:g},{y1:g})&geotiff:compression=Deflate"
+        for x0, y0, x1, y1 in tile_boxes(bounds_utm, max_side=SK_MAX_SIDE_M, buffer=SK_BUFFER_M, step=1.0)
+    ]
+
+
+def _sk_geoid_grid(log=None) -> Path | None:
+    dest = settings.CACHE_DIR / "geoid" / "sk_gku_Slovakia_ETRS89h_to_Baltic1957.tif"
+    if dest.is_file() and dest.stat().st_size > 100_000:
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        return _download(SK_GEOID_URL, dest, log=log)
+    except Exception as exc:  # bez mřížky zůstanou výšky elipsoidické (vrstevnice posunuté ~40 m)
+        if log:
+            log(f"⚠ Kvazigeoid SK se nestáhl ({exc}): výšky zůstanou elipsoidické (o ~40–46 m vyšší).")
+        return None
+
+
+def geoid_offsets(grid: Path, points_lonlat: list[tuple[float, float]]) -> list[float]:
+    """Výška kvazigeoidu (m) v bodech; bilineárně z mřížky PROJ-data."""
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+    ds = gdal.Open(str(grid))
+    gt = ds.GetGeoTransform()
+    arr = ds.GetRasterBand(1).ReadAsArray().astype("float64")
+    ds = None
+    out = []
+    for lon, lat in points_lonlat:
+        fx = (lon - gt[0]) / gt[1] - 0.5
+        fy = (lat - gt[3]) / gt[5] - 0.5
+        ix = min(max(int(fx), 0), arr.shape[1] - 2)
+        iy = min(max(int(fy), 0), arr.shape[0] - 2)
+        dx, dy = min(max(fx - ix, 0.0), 1.0), min(max(fy - iy, 0.0), 1.0)
+        v = (
+            arr[iy, ix] * (1 - dx) * (1 - dy)
+            + arr[iy, ix + 1] * dx * (1 - dy)
+            + arr[iy + 1, ix] * (1 - dx) * dy
+            + arr[iy + 1, ix + 1] * dx * dy
+        )
+        out.append(float(v))
+    return out
+
+
+def _subtract_geoid(tile: Path, grid: Path) -> None:
+    """Odečte kvazigeoid (rovina z rohů dlaždice; na pár km se mění o centimetry)."""
+    import numpy as np
+    from osgeo import gdal
+    from pyproj import Transformer
+
+    gdal.UseExceptions()
+    ds = gdal.Open(str(tile), gdal.GA_Update)
+    gt = ds.GetGeoTransform()
+    w, h = ds.RasterXSize, ds.RasterYSize
+    to_ll = Transformer.from_crs(SK_CRS, "EPSG:4258", always_xy=True)
+    corners = [(gt[0] + cx * w * gt[1], gt[3] + cy * h * gt[5]) for cx, cy in ((0, 0), (1, 0), (0, 1), (1, 1))]
+    n00, n10, n01, n11 = geoid_offsets(grid, [to_ll.transform(x, y) for x, y in corners])
+    fx = (np.arange(w) + 0.5)[None, :] / w
+    fy = (np.arange(h) + 0.5)[:, None] / h
+    offset = n00 * (1 - fx) * (1 - fy) + n10 * fx * (1 - fy) + n01 * (1 - fx) * fy + n11 * fx * fy
+    band = ds.GetRasterBand(1)
+    nd = band.GetNoDataValue()
+    arr = band.ReadAsArray().astype("float64")
+    valid = np.isfinite(arr) & (arr > -1000) & (arr < 10000) if nd is None else (arr != nd) & (arr > -1000)
+    band.WriteArray(np.where(valid, arr - offset, arr).astype("float32"))
+    band.FlushCache()
+    ds = None
+
+
+def sk_ugkk_provider(bounds, out_dir: Path, log=None) -> tuple[Path, Path | None]:
+    """DMR 5.0 Slovenska z INSPIRE WCS ÚGKK, výšky převedené na Bpv; povrch (DSM) není."""
+    bounds_utm = _bounds_in(bounds, CRS_WKT, SK_CRS)
+    grid = _sk_geoid_grid(log=log)
+    tiles = []
+    for k, url in enumerate(sk_wcs_urls(bounds_utm)):
+        tile = _download(url, out_dir / f"sk_dmr5_{k}.tif", log=log)
+        if grid is not None:
+            _subtract_geoid(tile, grid)
+        tiles.append(tile)
+    vrt = out_dir / "sk_dmr5.vrt"
+    run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", SK_CRS, str(vrt), *map(str, tiles)], log=log)
+    if log and grid is not None:
+        log("Výšky SK: elipsoidické ETRS89-h převedeny na Bpv (kvazigeoid ÚGKK).")
+    return vrt, None
+
+
+PROVIDERS["sk_ugkk"] = sk_ugkk_provider
 
 
 def resolve_provider(source: str) -> Provider:

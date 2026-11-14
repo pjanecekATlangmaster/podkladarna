@@ -162,3 +162,26 @@ def test_krovak_source_not_shifted(tmp_path, monkeypatch):
     )
     filled = elevation_raster._read(res.dem_filled)
     assert filled[5, 0] == pytest.approx(10.0, abs=0.6)
+
+
+def test_sk_wcs_urls_and_geoid(tmp_path):
+    pytest.importorskip("osgeo.gdal_array")
+    import numpy as np
+    from osgeo import gdal, osr
+
+    from app.pipeline import elevation_raster as er
+
+    urls = er.sk_wcs_urls((208000.3, 5341500.0, 210000.0, 5343500.0))
+    assert len(urls) == 1 and "subset=E(207980,210020)" in urls[0] and "el__EL.GridCoverage" in urls[0]
+    assert len(er.sk_wcs_urls((200000.0, 5300000.0, 209000.0, 5301000.0))) == 3
+    # Mřížka kvazigeoidu: lineární v délce → bilineární interpolace přesná.
+    grid = tmp_path / "geoid.tif"
+    ds = gdal.GetDriverByName("GTiff").Create(str(grid), 4, 3, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform((16.0, 1.0, 0, 50.0, 0, -1.0))
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4258)
+    ds.SetProjection(srs.ExportToWkt())
+    ds.GetRasterBand(1).WriteArray(np.tile(np.array([40.0, 41.0, 42.0, 43.0], dtype="float32"), (3, 1)))
+    ds = None
+    assert er.geoid_offsets(grid, [(17.0, 48.5)])[0] == pytest.approx(40.5)  # mezi středy pixelů
+    assert er.geoid_offsets(grid, [(17.5, 49.0)])[0] == pytest.approx(41.0)
