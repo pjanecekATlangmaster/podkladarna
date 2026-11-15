@@ -43,6 +43,10 @@ def test_crop_keeps_only_square_and_drops_templates():
     for obj in objects:
         coords = obj.find(Q("coords"))
         assert int(coords.get("count")) == len(sample._parse_coords(coords.text))
+    # Poznámka ukázky: česky beze změny, anglická objednávka se značkou webu.
+    assert root.find(Q("notes")).text == "Podkladárna – ukázka 4 × 4 cm / sample 4 × 4 cm"
+    en = ET.fromstring(sample.crop_omap(xml, "sprint|4000", salt=SALT, lang="en"))
+    assert en.find(Q("notes")).text == "Omapic – sample 4 × 4 cm"
 
 
 @pytest.mark.parametrize(

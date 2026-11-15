@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Sequence
 
 from app import settings
-from app.i18n import t
+from app.i18n import SOURCE_LANG, brand, t
 
 logger = logging.getLogger("podkladarna.mail")
 
@@ -179,8 +179,17 @@ def format_area_km2(area_km2: float | None, lang: str = "cs") -> str | None:
     return text + " km²"
 
 
-def _signature() -> str:
+def _signature(lang: str = SOURCE_LANG) -> str:
+    """Podpis mailu: česky jméno odesílatele (``SMTP_FROM_NAME``), jinak značka webu v jazyce (Omapic)."""
+    if lang != SOURCE_LANG:
+        return f"— {brand(lang)}\n"
     return f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n"
+
+
+def sender_name(lang: str = SOURCE_LANG) -> str | None:
+    """Zobrazované jméno odesílatele pro ``send_mail(from_name=…)``: česky ``None`` (= ``SMTP_FROM_NAME``
+    beze změny), jinak značka webu v jazyce (mezinárodní verze nepíše jako „OB podklady“)."""
+    return None if lang == SOURCE_LANG else brand(lang)
 
 
 def build_private_ready_email(
@@ -240,7 +249,7 @@ def build_private_ready_email(
             "\n",
             tr("private_note") + "\n",
             "\n",
-            _signature(),
+            _signature(lang),
         ]
     )
     return subject, "".join(parts)
@@ -282,7 +291,7 @@ def build_private_failed_email(
             "\n",
             tr("operator_knows") + "\n",
             "\n",
-            _signature(),
+            _signature(lang),
         ]
     )
     if operator_details:

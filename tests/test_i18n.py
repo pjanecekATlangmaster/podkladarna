@@ -166,7 +166,8 @@ def test_page_texts_rendered_server_side_only(client, monkeypatch):
 
 
 def test_mail_english_and_czech_unchanged():
-    from app.mail import build_private_failed_email, build_private_ready_email
+    from app import settings
+    from app.mail import build_private_failed_email, build_private_ready_email, sender_name
 
     subject, body = build_private_ready_email(
         job_name="Les", download_url="https://x/d/t", retention_hours=48, area_km2=2.43, lang="en"
@@ -179,6 +180,9 @@ def test_mail_english_and_czech_unchanged():
     )
     assert subject_cs == "Podkladárna: mapa „Les“ je připravená ke stažení"
     assert "Plocha mapy: 2,4 km²." in body_cs
+    # Podpis a odesílatel: anglicky značka webu, česky beze změny (SMTP_FROM_NAME).
+    assert body.endswith("— Omapic\n") and sender_name("en") == "Omapic"
+    assert body_cs.endswith(f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n") and sender_name("cs") is None
     _, failed = build_private_failed_email(
         job_name="Les", error="boom", operator_details="log", lang="en"
     )
@@ -240,11 +244,37 @@ def test_pages_in_english(client, monkeypatch, path, english, czech):
     assert czech in cs and '<html lang="cs"' in cs
 
 
+def test_licence_lists_sources_of_offered_countries(client, monkeypatch):
+    """Anglická licence: citace a zdroje zemí, které doména nabízí; česká stránka beze změny."""
+    monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,example.eu=en:paid:*")
+    monkeypatch.setenv("COUNTRIES_BETA", "CH")
+    en = client.get("/licence", headers={"host": "example.eu"}).text
+    assert "<h3>Switzerland</h3>" in en and "© swisstopo · AV cantons (geodienste.ch)" in en
+    assert "PODKLADARNA_COUNTRY_SOURCES" not in en and "<h3>Austria</h3>" not in en  # AT bez bety ne
+    cs = client.get("/licence", headers={"host": "podkladarna.kibos.link"}).text
+    assert "swisstopo" not in cs and "PODKLADARNA_COUNTRY_SOURCES" not in cs
+
+
 def test_api_errors_follow_page_language(client, monkeypatch):
     monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,example.eu=en:paid:*")
     en = client.get("/api/jobs/neexistuje", headers={"host": "example.eu"})
     assert en.status_code == 404
     assert en.json() == {"detail": "Job not found", "code": "api.job_not_found"}
+    # Neošetřená výjimka: anglicky obecná hláška, česky text výjimky beze změny.
+    import asyncio
+    import json as _json
+
+    from starlette.requests import Request
+
+    import app.main as main
+
+    def _500(host: str) -> dict:
+        req = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"",
+                       "headers": [(b"host", host.encode())]})
+        return _json.loads(asyncio.run(main.unhandled_exception_handler(req, RuntimeError("Chyba při čtení"))).body)
+
+    assert _500("example.eu")["code"] == "api.internal_error"
+    assert _500("podkladarna.kibos.link") == {"detail": "Chyba při čtení"}
     cs = client.get("/api/jobs/neexistuje", headers={"host": "podkladarna.kibos.link"})
     assert cs.json()["detail"] == "Job nenalezen"
     form = {"name": "x", "preset_id": "sprint_2m", "bbox": "14.40,50.08,14.44,50.10"}

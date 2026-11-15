@@ -284,8 +284,17 @@ def _clip_path(coords_el: ET.Element, box, as_area: bool) -> list[list[str]]:
     return out
 
 
+def _sample_note(lang: str) -> str:
+    """Poznámka ukázky v .omap: česky beze změny, jinak značka webu v jazyce (Omapic)."""
+    from app import i18n
+
+    if lang == i18n.SOURCE_LANG:
+        return "Podkladárna – ukázka 4 × 4 cm / sample 4 × 4 cm"
+    return f"{i18n.brand(lang)} – sample 4 × 4 cm"
+
+
 def crop_omap(
-    xml_bytes: bytes, kind: str, *, salt: bytes | None = None, side: int = SAMPLE_SIDE_UM
+    xml_bytes: bytes, kind: str, *, salt: bytes | None = None, side: int = SAMPLE_SIDE_UM, lang: str = "cs"
 ) -> bytes | None:
     """Vyřízne ukázkový čtverec z celé mapy; None = mapa bez objektů nebo příliš malá."""
     from shapely import intersects_xy, prepare
@@ -367,7 +376,7 @@ def crop_omap(
             templates.set("first_front_template", "0")
     notes = root.find(_q("notes"))
     if notes is not None:
-        notes.text = "Podkladárna – ukázka 4 × 4 cm / sample 4 × 4 cm"
+        notes.text = _sample_note(lang)
     buf = io.BytesIO()
     ET.ElementTree(root).write(buf, encoding="UTF-8", xml_declaration=True)
     return buf.getvalue()
@@ -401,18 +410,22 @@ def _pick_omap_name(names: list[str]) -> str | None:
     return (sprint or omaps)[0]
 
 
-def build_sample_zip(output_zip: Path, dest: Path, kind: str, *, salt: bytes | None = None) -> Path | None:
-    """Z hotového ZIPu jobu udělá malý ZIP s ukázkou (``sample-<mapa>.omap``)."""
+def build_sample_zip(
+    output_zip: Path, dest: Path, kind: str, *, salt: bytes | None = None, lang: str = "cs"
+) -> Path | None:
+    """Z hotového ZIPu jobu udělá malý ZIP s ukázkou (``sample-<mapa>.omap``); ``lang`` = jazyk objednávky."""
     try:
         with zipfile.ZipFile(output_zip) as zf:
             name = _pick_omap_name(zf.namelist())
             if name is None:
                 return None
             xml = _read_omap_bytes(zf.read(name))
-        cropped = crop_omap(xml, kind, salt=salt)
+        cropped = crop_omap(xml, kind, salt=salt, lang=lang)
         if cropped is None:
             return None
-        stem = re.sub(r"[^\w.-]+", "-", Path(name).stem, flags=re.UNICODE).strip("-") or "mapa"
+        stem = re.sub(r"[^\w.-]+", "-", Path(name).stem, flags=re.UNICODE).strip("-") or (
+            "mapa" if lang == "cs" else "map"
+        )
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(".tmp")
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as out:

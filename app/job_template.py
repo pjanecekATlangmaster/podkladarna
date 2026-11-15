@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from app import i18n
 from app.pipeline.job_options import (
     resolve_cliff_sensitivity,
     resolve_contour_smooth,
@@ -87,10 +88,10 @@ def job_form_template(job: dict[str, Any], presets: dict | None = None) -> dict[
             )
             map_scale = int(resolved["map_scale"])
             contour = resolved["contour_interval"]
-            notes.append("Ekvidistance původní mapy už není k dispozici, je nastavená výchozí.")
+            notes.append(i18n.Msg("api.template.contour_default"))
         except ValueError:
             map_scale, contour = 10000, None
-            notes.append("Měřítko původní mapy se nepodařilo načíst, je nastavené 1:10 000.")
+            notes.append(i18n.Msg("api.template.scale_default"))
 
     if map_scale == 4000:
         map_types: list[str] = []
@@ -129,7 +130,7 @@ def job_form_template(job: dict[str, Any], presets: dict | None = None) -> dict[
 
     bbox = _bbox(opts.get("bbox_wgs84"))
     if bbox is None:
-        notes.append("Původní mapa nemá uložený výřez – vyznačte ho na mapě.")
+        notes.append(i18n.Msg("api.template.no_bbox"))
 
     name = str(job.get("name") or "").strip()[:NAME_MAX_LEN]
     reuse = (

@@ -270,7 +270,7 @@ function jobScaleLabel(job) {
     if (!Number.isFinite(contour)) {
       contour = Number(mapOptions.default_contour_by_scale[scale]);
     }
-    const cTxt = Number.isInteger(contour)
+    const cTxt = Number.isInteger(contour) || LANG !== "cs"
       ? String(contour)
       : String(contour).replace(".", ",");
     const mt = Array.isArray(opts.map_types) && scale > 5000
@@ -607,7 +607,11 @@ function friendlyJobError(errorText, { short = false, status = "failed" } = {}) 
   if (status === "done_with_errors") {
     return short ? t("web.js.job.done_warn_short") : t("web.js.job.done_warn");
   }
-  if (/ČÚZK|ATOM|[Tt]ime ?out|Overpass|HTTP (?:Error )?(?:429|5\d\d)|Connection(?:Error| reset| refused)/.test(text)) {
+  // Mimo češtinu i anglické shrnutí ``issue.failure.download`` („could not be downloaded“); čeština beze změny.
+  if (
+    /ČÚZK|ATOM|[Tt]ime ?out|Overpass|HTTP (?:Error )?(?:429|5\d\d)|Connection(?:Error| reset| refused)/.test(text) ||
+    (LANG !== "cs" && /could not be downloaded/.test(text))
+  ) {
     return t("web.js.job.download_failed");
   }
   return short
@@ -669,7 +673,7 @@ function parseJobProgress(lines) {
     }
     let m = line.match(/^Plán \((\d+) krok[^)]*\):\s*(.+)$/);
     if (m) {
-      const labels = m[2].split(" · ").map(capitalizeCs);
+      const labels = m[2].split(" · ").map(stepLabel);
       steps = labels.map((label) => ({ label, state: "todo", note: "" }));
       ensure(Number(m[1]));
       continue;
@@ -686,7 +690,7 @@ function parseJobProgress(lines) {
       }
       const skip = body.match(/^(.+?)\s+–\s+přeskočeno(?:\s*\((.+)\))?\s*$/);
       if (skip) {
-        steps[n - 1] = { label: capitalizeCs(skip[1]), state: "skipped", note: skip[2] || "" };
+        steps[n - 1] = { label: stepLabel(skip[1]), state: "skipped", note: skipReason(skip[2] || "") };
         continue;
       }
       const timed = body.match(/^(.+?)\s+·\s+(\d+(?::\d{2}){1,2})\s*$/);
@@ -694,7 +698,7 @@ function parseJobProgress(lines) {
         body = timed[1];
         elapsed = clockToSeconds(timed[2]);
       }
-      steps[n - 1] = { label: capitalizeCs(body), state: "now", note: "" };
+      steps[n - 1] = { label: stepLabel(body), state: "now", note: "" };
       currentIdx = n - 1;
       continue;
     }
@@ -1359,6 +1363,70 @@ const BUILD_STEP_LABELS = {
   "balení výstupu": t("web.js.step.pack"),
 };
 
+/**
+ * Štítek kroku z logu (česky, viz job_progress.py) pro panel průběhu. Čeština beze změny (log zůstává česky),
+ * ostatní jazyky přes BUILD_STEP_LABELS; hlavička kroku v logu má velké první písmeno, plán ne.
+ */
+function stepLabel(raw) {
+  const text = String(raw || "").trim();
+  if (LANG === "cs") return capitalizeCs(text);
+  const key = text.charAt(0).toLowerCase() + text.slice(1);
+  return BUILD_STEP_LABELS[text] || BUILD_STEP_LABELS[key] || capitalizeCs(text);
+}
+
+/** Úlohy na pozadí (``background_task`` v pipeline, česky v logu) → klíč katalogu. */
+const BACKGROUND_KEYS = {
+  "Podklady ortofoto, mapy a stínování": "refs_bundle",
+  "Ortofoto": "ortho",
+  "Ortofoto pro ulice sprintu": "ortho_sprint",
+  "Ortofoto pro vegetaci": "ortho_veg",
+  "Katastrální mapa": "cadastre",
+  "Katastr vektorově": "cadastre_vector",
+  "Snímky Sentinel-2": "sentinel",
+  "Podklad OpenStreetMap": "osm_base",
+  "Mapa ZTM": "ztm",
+  "Podklad DTM kraje – plochy (ZPS)": "dtm_areas",
+  "Podklad DTM kraje – linie a body (ZPS)": "dtm_lines",
+  "Náhled DMP OK": "dmpok",
+  "Stínování reliéfu (podklady)": "hillshade_refs",
+  "Stínování reliéfu (DMR 5G)": "hillshade_dmr",
+  "Data OpenStreetMap": "osm_data",
+  "Data DTM kraje": "dtm_data",
+  "Data BGT (PDOK)": "nl_bgt",
+  "Data AV (geodienste.ch)": "ch_av",
+  "Data FMZK (Stadt Wien)": "at_fmzk",
+  "Straßenbefahrung a ALKIS (GDI Berlin)": "de_sb",
+  "Plan de voirie (Ville de Paris)": "fr_pdv",
+  "Data ETAK (Maa- ja Ruumiamet)": "ee_etak",
+  "Data GRB (Digitaal Vlaanderen)": "be_grb",
+  "Data YLRE (Helsingin kaupunki)": "fi_hel",
+};
+
+function backgroundLabel(name) {
+  const key = LANG === "cs" ? null : BACKGROUND_KEYS[name];
+  return key ? t(`web.js.bg.${key}`) : name;
+}
+
+/** Důvody přeskočení kroku (``progress.skip(..., reason=…)`` v run_job.py) → klíč katalogu. */
+const SKIP_REASON_KEYS = {
+  "online šablony": "online_templates",
+  "chybí georef šablona": "no_georef_template",
+  "mimo Česko": "outside_cz",
+  "výšky z rastru": "raster_elevation",
+  "chybí zdroj": "no_source",
+  "kresba bez DTM": "no_dtm",
+  vypnuto: "off",
+};
+
+function skipReason(reason) {
+  const text = String(reason || "");
+  if (LANG === "cs" || !text) return text;
+  const key = SKIP_REASON_KEYS[text];
+  if (key) return t(`web.js.skip.${key}`);
+  const src = text.match(/^výšky ze zdroje země \((.+)\)$/);
+  return src ? t("web.js.skip.country_elevation", { src: src[1] }) : text;
+}
+
 /** Zdroje dat (klíče z app/pipeline/build_stats.py). */
 const BUILD_SOURCE_LABELS = {
   lidar_dmr: t("web.js.source.lidar_dmr"),
@@ -1520,7 +1588,7 @@ function renderJobStats(job) {
   const skippedNote = skipped.length
     ? `<p class="stats-note">${t("web.js.stats.skipped", {
         list: skipped
-          .map((st) => escapeHtml((BUILD_STEP_LABELS[st.label] || st.label) + (st.reason ? ` (${st.reason})` : "")))
+          .map((st) => escapeHtml((BUILD_STEP_LABELS[st.label] || st.label) + (st.reason ? ` (${skipReason(st.reason)})` : "")))
           .join(", "),
       })}</p>`
     : "";
@@ -1764,7 +1832,7 @@ function renderJobProgress(job) {
         const cls = b.state === "now" ? "step-now" : b.state === "unavailable" ? "step-skipped" : b.state === "failed" ? "step-failed" : "step-done";
         const noteText = b.state === "cached" ? t("web.js.progress.bg_cached") : b.state === "unavailable" ? t("web.js.progress.bg_unavailable") : b.state === "failed" ? t("web.js.progress.bg_failed") : b.state === "done" ? b.note : "";
         const note = noteText ? ` <span class="step-note">${escapeHtml(noteText)}</span>` : "";
-        return `<li class="${cls}"><span class="step-mark" aria-hidden="true">${mark}</span> ${escapeHtml(b.name)}${note}</li>`;
+        return `<li class="${cls}"><span class="step-mark" aria-hidden="true">${mark}</span> ${escapeHtml(backgroundLabel(b.name))}${note}</li>`;
       })
       .join("");
     bgTitle.classList.toggle("hidden", !bg.length);

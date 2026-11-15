@@ -91,4 +91,6 @@ def test_job_template_without_bbox(client):
     job = db.create_job("Bez výřezu", "forest_10000", {})
     data = client.get(f"/api/jobs/{job['id']}/template").json()
     assert data["bbox_wgs84"] is None
-    assert data["notes"]
+    assert data["notes"] == ["Původní mapa nemá uložený výřez – vyznačte ho na mapě."]
+    en = client.get(f"/api/jobs/{job['id']}/template?lang=en").json()
+    assert en["notes"] == ["The original map has no saved area – mark it on the map."]

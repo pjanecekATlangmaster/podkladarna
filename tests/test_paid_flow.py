@@ -41,8 +41,8 @@ def shop(client, monkeypatch):
     monkeypatch.setattr(
         paid_flow,
         "send_mail",
-        lambda to, subject, body, attachments=None: mails.append(
-            {"to": to, "subject": subject, "body": body, "attachments": attachments}
+        lambda to, subject, body, attachments=None, from_name=None: mails.append(
+            {"to": to, "subject": subject, "body": body, "attachments": attachments, "from_name": from_name}
         ),
     )
     return mails
@@ -121,6 +121,7 @@ def test_paid_order_flow(client, shop):
     assert paid.status_code == 303 and paid.headers["location"] == "/order/thanks"
     assert client.get("/order/thanks").status_code == 200
     assert len(shop) == 4
+    assert {m["from_name"] for m in shop} == {"Omapic"}  # odesílatel značkou webu, ne české SMTP_FROM_NAME
     download = _link(shop[3], r"https://map\.example/order/download/\S+").removeprefix("https://map.example")
     got = client.get(download)
     assert got.status_code == 200 and got.content.startswith(b"PK")

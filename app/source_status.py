@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
-from app import countries, settings
+from app import countries, i18n, settings
 
 from app.pipeline.dtm_sources import DMVS_API
 from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
@@ -58,6 +58,7 @@ OSM_PROBE_MIRRORS = 3
 LIDAR_PROBE_SHEET = "PRAH77"
 # Text odpovědi 5xx, podle kterého se výpadek pozná jako plánovaná odstávka.
 PLANNED_OUTAGE_MARKERS = ("odstávk",)
+NO_RESPONSE = "neodpovídá"
 _ALERT_DIR = "source_alerts"
 _ALERT_KEEP_DAYS = 60
 
@@ -489,7 +490,7 @@ def check_probe(probe: Probe) -> dict:
         time.sleep(PROBE_RETRY_WAIT_S)
     detail = None
     if not ok:
-        detail = f"HTTP {code}" if code is not None else (error or "neodpovídá")
+        detail = f"HTTP {code}" if code is not None else (error or NO_RESPONSE)
         if planned:
             detail = f"plánovaná odstávka, {detail}"
     return {
@@ -663,6 +664,26 @@ def snapshot(country: str | None = None) -> dict:
     state = _load()
     services = [dict(state["services"][p.key]) for p in probes_for(country) if p.key in state["services"]]
     return {"checked_at": state.get("checked_at"), "services": services}
+
+
+def localized(snap: dict, lang: str) -> dict:
+    """Snímek pro web v jazyce stránky: názvy a dopady zdrojů z ``api.source.<klíč>.label|impact``.
+
+    Čeština beze změny (texty ``Probe``, stejně jako log jobu a upozornění e-mailem)."""
+    if lang == i18n.SOURCE_LANG:
+        return snap
+    texts = i18n.catalog(lang)
+    services = []
+    for svc in snap.get("services") or []:
+        svc = dict(svc)
+        for field in ("label", "impact"):
+            text = texts.get(f"api.source.{svc.get('key')}.{field}")
+            if text:
+                svc[field] = text
+        if svc.get("detail") == NO_RESPONSE:
+            svc["detail"] = i18n.t("api.source.no_response", lang)
+        services.append(svc)
+    return {**snap, "services": services}
 
 
 def is_stale() -> bool:

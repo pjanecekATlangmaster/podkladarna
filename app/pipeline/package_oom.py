@@ -597,7 +597,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
             code=_c,
             crs_text=_crs_readme(meta),
             data_sources=_data_sources_line_en(meta),
-            wms_lines=wms_readme_lines,
+            wms_lines=lambda country: wms_readme_lines(country, "en"),
         )
     scale = meta.get("scale") or "?"
     label = meta.get("label") or meta.get("preset_id") or ""

@@ -25,6 +25,7 @@ from app.mail import (
     build_private_failed_email,
     build_private_ready_email,
     send_mail,
+    sender_name,
 )
 from app.pipeline import build_stats, dtm_summary
 from app.pipeline.issue_explain import failure_summary, user_summary
@@ -140,6 +141,7 @@ def _notify_private_job(job_id: str) -> None:
             subject,
             body,
             attachments=[preview_path] if preview_attached else None,
+            from_name=sender_name(_job_lang(job.get("options"))),
         )
         db.append_log(job_id, f"{_MAIL_SENT_PREFIX} na {email}.")
     except MailError as exc:
@@ -242,7 +244,9 @@ def notify_private_failure(job_id: str) -> None:
             user_lang = i18n.SOURCE_LANG if own_job else _job_lang(job.get("options"))
             subject, body = build_private_failed_email(**common, operator_details=details, lang=user_lang)
             try:
-                send_mail(email, subject, body, attachments=log_files if own_job else None)
+                send_mail(
+                    email, subject, body, attachments=log_files if own_job else None, from_name=sender_name(user_lang)
+                )
                 db.append_log(job_id, f"{_FAIL_MAIL_SENT_PREFIX} na {email}.")
             except MailError as exc:
                 db.append_log(job_id, f"CHYBA odeslání e-mailu o chybě: {exc}")

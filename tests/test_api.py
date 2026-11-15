@@ -364,7 +364,9 @@ def test_create_job_duplicate_active_warns(client, monkeypatch):
     body = second.json()
     assert body["id"] == first_id
     assert body["duplicate_skipped"] is True
-    assert "nezaložil" in body["duplicate_message"]
+    assert body["duplicate_message"] == (
+        f"Nový job se nezaložil – stejný výřez a volby už čekají (job {first_id[:8]}…, „Svedske sance MB“)."
+    )
 
     # Stejný výřez z anglické stránky = jiný výstup (anglický ZIP) → vlastní job.
     english = client.post("/api/jobs?lang=en", data=payload)
@@ -372,6 +374,8 @@ def test_create_job_duplicate_active_warns(client, monkeypatch):
     assert english.json().get("duplicate_skipped") is not True
     assert english.json()["id"] != first_id
     assert english.json()["options"]["lang"] == "en"
+    again = client.post("/api/jobs?lang=en", data=payload).json()
+    assert again["duplicate_message"].startswith("No new job was created – the same area and options are already")
 
 
 def test_map_options(client):
