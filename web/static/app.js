@@ -3730,3 +3730,62 @@ initBboxMap();
     }
   });
 })();
+(() => {
+  // Návrh zdroje dat: jen e-mail Petrovi, server adresu nevolá.
+  const form = document.getElementById("source-suggest-form");
+  if (!form) return;
+  const statusEl = document.getElementById("source-suggest-status");
+  const submitBtn = document.getElementById("source-suggest-submit");
+  const val = (id) => (document.getElementById(id)?.value || "").trim();
+  const setStatus = (msg, kind) => {
+    if (!statusEl) return;
+    statusEl.textContent = msg || "";
+    statusEl.classList.toggle("ok", kind === "ok");
+    statusEl.classList.toggle("err", kind === "err");
+  };
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const url = val("source-suggest-url");
+    const area = val("source-suggest-area");
+    const contact = val("source-suggest-contact");
+    if (!/^https?:\/\/\S+$/i.test(url)) {
+      setStatus(t("web.js.source_suggest.need_url"), "err");
+      return;
+    }
+    if (!area) {
+      setStatus(t("web.js.source_suggest.need_area"), "err");
+      return;
+    }
+    if (!contact) {
+      setStatus(t("web.js.source_suggest.need_contact"), "err");
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    setStatus(t("web.js.feedback.sending"), "");
+    try {
+      const res = await fetch("/api/source_suggestion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          url,
+          area,
+          license: val("source-suggest-license"),
+          contact,
+          comment: val("source-suggest-comment"),
+          website: val("source-suggest-website"),
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        setStatus(parseApiError(res, text), "err");
+        return;
+      }
+      setStatus(t("web.js.source_suggest.sent"), "ok");
+      form.reset();
+    } catch (err) {
+      setStatus(err.message || t("web.js.feedback.failed"), "err");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+})();
