@@ -208,6 +208,7 @@ ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "ch
     "at_bev": "BEV ALS (1 m)",
     "de_berlin": "DGM1 a DOM1 Berlín (1 m)",
     "fr_lidarhd": "LiDAR HD MNT a MNS (IGN, 0,5 m)",
+    "ee_maaamet": "DTM a DSM Maa- ja Ruumiamet (1 m)",
 }
 
 

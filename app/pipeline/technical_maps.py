@@ -67,6 +67,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="vozovky, chodníky, smíšené plochy, schodiště, ostrůvky, zeleň",
         module="app.pipeline.pdv_paris",
     ),
+    "ee_etak": TechnicalMap(
+        key="ee_etak",
+        short="ETAK",
+        step="data ETAK",
+        background="Data ETAK (Maa- ja Ruumiamet)",
+        content="budovy, uliční prostor, pěší plochy, parkoviště, zeleň, dvory a zahrady, ploty",
+        module="app.pipeline.etak_ee",
+    ),
 }
 
 

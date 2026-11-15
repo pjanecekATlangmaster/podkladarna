@@ -40,6 +40,7 @@ from app.pipeline.bgt_nl import BGT_API
 from app.pipeline.reference_at import AT_BEV_PROBE, AT_FMZK_PROBE, AT_LB_PROBE
 from app.pipeline.reference_de import DE_BE_DGM_PROBE, DE_BE_DOP_PROBE, DE_BE_SB_PROBE
 from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PROBE
+from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
@@ -265,6 +266,31 @@ PROBES: tuple[Probe, ...] = (
         (FR_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("FR",),
+    ),
+    # Estonsko: hlavička listu DSM, 1 objekt ETAK, malý výřez ortofota.
+    Probe(
+        "ee_elevation",
+        "Výšky Maa- ja Ruumiamet – DTM a DSM",
+        (EE_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("EE",),
+    ),
+    Probe(
+        "ee_etak",
+        "ETAK (Maa- ja Ruumiamet)",
+        (EE_ETAK_PROBE,),
+        "Budovy, ulice, pěší plochy, parkoviště, zeleň, dvory a ploty se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("EE",),
+    ),
+    Probe(
+        "ee_ortho",
+        "Ortofoto Maa- ja Ruumiamet",
+        (EE_ORTHO_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("EE",),
     ),
 )
 
