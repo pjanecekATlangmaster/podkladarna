@@ -209,6 +209,7 @@ ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "ch
     "de_berlin": "DGM1 a DOM1 Berlín (1 m)",
     "fr_lidarhd": "LiDAR HD MNT a MNS (IGN, 0,5 m)",
     "ee_maaamet": "DTM a DSM Maa- ja Ruumiamet (1 m)",
+    "it_trentino": "LiDAR DTM a DSM Provincia di Trento (0,5 m, 2014)",
 }
 
 

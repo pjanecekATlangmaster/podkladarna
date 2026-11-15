@@ -131,3 +131,16 @@ EE:
   attribution:
     - "Výšky (DTM a DSM 2021–2024), ETAK, ortofoto, základní mapa a katastr: Maa- ja Ruumiamet (otevřená licence, data [rok])."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+IT:
+  name: {cs: "Itálie (Trentino)", en: "Italy (Trentino)", it: "Italia (Trentino)"}
+  status: beta              # jen autonomní provincie Trento (Petr 2026-11-15): jediný region s volným DTM i DSM; kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (souřadnice dat PAT)
+  boundary: countries/it.geojson  # provincie Trento z WFS PAT (stem:confini_provincia), +300 m
+  view: [45.67, 10.44, 46.54, 11.97]
+  elevation: it_trentino    # LiDAR PAT 2014: DTM + DSM first 0,5 m, dlaždice 500 m ze služby merge, výšky nadmořské
+  cz_sources: false
+  # Licence: CC BY 4.0 (uvést Provincia autonoma di Trento).
+  citation: "Podklad: Podkladárna · Provincia autonoma di Trento · OSM, [rok]"
+  attribution:
+    - "Výšky (LiDAR 2014), ortofoto a Carta Tecnica Provinciale: © Provincia autonoma di Trento (CC BY 4.0)."
+    - "OSM © přispěvatelé OpenStreetMap (ODbL)."

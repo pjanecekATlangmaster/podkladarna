@@ -459,7 +459,7 @@ def _unit_bytes(folders: list[Path], seen: set[tuple[int, int]]) -> int:
 
 
 def lidar_cache_units() -> list[tuple[str, list[Path]]]:
-    """Položky cache LiDARu k mazání jako celek: list SM5 (stažené LAZ + jeho ořezy), AOI ořez, dlaždice Berlína."""
+    """Položky cache LiDARu k mazání jako celek: list SM5 (stažené LAZ + jeho ořezy), AOI ořez, dlaždice Berlína a Trentina."""
     root = settings.DOWNLOADS_DIR
     sheets: dict[str, list[Path]] = {}
     for base in (root / "lidar" / "sm5", root / "sm5", root / "lidar_sheet_crop"):
@@ -469,9 +469,11 @@ def lidar_cache_units() -> list[tuple[str, list[Path]]]:
             if child.is_dir():
                 sheets.setdefault(child.name.upper(), []).append(child)
     units = [(f"sheet:{name}", dirs) for name, dirs in sorted(sheets.items())]
-    berlin = root / "de_berlin"  # dlaždice výšek Berlína (``elevation_raster.berlin_tile_dir``)
-    if berlin.is_dir():
-        units.extend((f"de_berlin:{child.name}", [child]) for child in sorted(berlin.iterdir()) if child.is_dir())
+    # dlaždice výšek Berlína a Trentina (``elevation_raster.berlin_tile_dir``, ``tn_tile_dir``)
+    for name in ("de_berlin", "it_trentino"):
+        tiles = root / name
+        if tiles.is_dir():
+            units.extend((f"{name}:{child.name}", [child]) for child in sorted(tiles.iterdir()) if child.is_dir())
     aoi_root = root / "lidar_crop"
     if aoi_root.is_dir():
         units.extend(
