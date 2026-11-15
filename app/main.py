@@ -1362,10 +1362,10 @@ async def api_create_job(request: Request):
     def _yn(key: str, default: bool = False) -> str:
         return "ano" if options.get(key, default) else "ne"
 
-    from app.pipeline.country_profile import job_country, technical_map_source
+    from app.pipeline import country_profile as _profile
 
-    _country = job_country(options)
-    _tech = technical_map_source(options)
+    _country = _profile.job_country(options)
+    _tech = _profile.technical_map_source(options)
     _tech_on, _tech_off = {"cz_dtm": ("DTM", "OSM+ZABAGED"), "nl_bgt": ("BGT", "OSM")}.get(_tech, ("OSM", "OSM"))
     log(
         f"Přijato: preset {preset_id} · 1:{resolved['map_scale']} · "
