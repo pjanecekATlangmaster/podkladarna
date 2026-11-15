@@ -37,6 +37,7 @@ from app.pipeline.dtm_sources import DMVS_API
 from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
 from app.pipeline.osm_paths import OVERPASS_URLS
 from app.pipeline.bgt_nl import BGT_API
+from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
 
@@ -163,6 +164,30 @@ PROBES: tuple[Probe, ...] = (
         "Šablona katastrální mapy bude chybět.",
         method="HEAD",
         countries=("NL",),
+    ),
+    # Švýcarsko (swisstopo, geodienste.ch): malé GET dotazy (STAC sady, 1 objekt AV, 1 px ortofota).
+    Probe(
+        "ch_swisstopo",
+        "swissALTI3D a swissSURFACE3D – výšky terénu a povrchu (swisstopo)",
+        (CH_STAC_ALTI,),
+        "Bez výšek swisstopo se mapa nevytvoří (terén ani výška porostu).",
+        fatal=True,
+        countries=("CH",),
+    ),
+    Probe(
+        "ch_av",
+        "AV – úřední vyměřování kantonů (geodienste.ch)",
+        (CH_AV_PROBE,),
+        "Budovy, silnice, chodníky, schody a zahrady se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("CH",),
+    ),
+    Probe(
+        "ch_wms",
+        "SWISSIMAGE, národní mapa a AV jako šablony (swisstopo WMS)",
+        (CH_WMS_PROBE,),
+        "Šablony ortofota, mapy a katastru budou chybět.",
+        countries=("CH",),
     ),
 )
 

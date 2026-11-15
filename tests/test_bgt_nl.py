@@ -96,3 +96,28 @@ def test_node_coverage_shares_edges_exactly():
     assert road.intersection(park).area < 1e-9  # žádný překryv
     assert abs(road.area + park.area - 200.0) < 0.01  # ani mezera
     assert park.difference(road).area > 99  # rozdíl projde bez chyby GEOS
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "href, expected",
+    [
+        ("https://api.pdok.nl/lv/bgt/ogc/v1/collections/pand/items?cursor=2", True),
+        ("https://evil.example/items?cursor=2", False),  # odkaz z odpovědi mimo PDOK se nenásleduje
+        ("http://api.pdok.nl/lv/bgt/ogc/v1/collections/pand/items?cursor=2", False),
+        (None, False),  # poslední stránka
+    ],
+)
+def test_next_page_same_host_only(href, expected):
+    current = bgt_nl.items_url("pand", (0, 0, 500, 500))
+    data = {"links": [{"rel": "next", "href": href}] if href else []}
+    assert bgt_nl.next_page_url(data, current) == (href if expected else None)
+
+
+def test_fetch_tile_page_cap(monkeypatch):
+    nxt = {"features": [], "links": [{"rel": "next", "href": bgt_nl.items_url("pand", (0, 0, 1, 1))}]}
+    monkeypatch.setattr(bgt_nl, "_get_json", lambda url: (nxt, 1))
+    with pytest.raises(RuntimeError, match="stránek"):
+        bgt_nl.fetch_tile("pand", (0, 0, 500, 500))

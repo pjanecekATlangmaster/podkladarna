@@ -15,6 +15,13 @@ from pathlib import Path
 from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT
 from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.reference_ch import (
+    CH_CADASTRAL_LAYER,
+    CH_PIXELKARTE_LAYER,
+    CH_RELIEF_LAYER,
+    CH_SWISSIMAGE_LAYER,
+    CH_WMS,
+)
 from app.pipeline.reference_nl import (
     NL_AHN_WMS,
     NL_BGT_TILE_URL,
@@ -103,6 +110,17 @@ NL_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("nl_ahn", "ahn_dtm.xml", "AHN – výškový model terénu (barevně)", NL_AHN_WMS,
      "dtm_05m", "image/png", False, 0.5),
 )
+# Švýcarsko (swisstopo WMS v EPSG:2056, citace v ``configs/countries.yaml``): ortofoto, národní mapa, AV, stínování.
+CH_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("ch_swissimage", "swissimage.xml", "SWISSIMAGE (ortofoto swisstopo)", CH_WMS, CH_SWISSIMAGE_LAYER,
+     "image/jpeg", False, 0.1),
+    ("ch_landeskarte", "landeskarte.xml", "Národní mapa swisstopo (Landeskarte)", CH_WMS, CH_PIXELKARTE_LAYER,
+     "image/png", False, 1.0),
+    ("ch_av", "av_katastr.xml", "AV – úřední vyměřování (Cadastral Web Map)", CH_WMS, CH_CADASTRAL_LAYER,
+     "image/png", True, 0.25),
+    ("ch_relief", "swissalti3d_relief.xml", "Stínování swissALTI3D", CH_WMS, CH_RELIEF_LAYER,
+     "image/png", False, 0.5),
+)
 # BGT je veřejně jen WMTS v mřížce RD (EPSG:28992): dlaždice přes GDAL TMS + okno výřezu jako VRT.
 NL_ONLINE_BGT = ("nl_bgt", "bgt.vrt", "BGT (velkoměřítková mapa)")
 NL_BGT_LEVEL = 15  # 0,105 m/px
@@ -111,7 +129,7 @@ NL_BGT_MPP = 0.25
 
 def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bool, float], ...]:
     """Online WMS vrstvy země výřezu (Česko ČÚZK, Nizozemsko PDOK, jinde jen OSM)."""
-    return {"CZ": ONLINE_WMS_LAYERS, "NL": NL_ONLINE_WMS_LAYERS}.get(country, ())
+    return {"CZ": ONLINE_WMS_LAYERS, "NL": NL_ONLINE_WMS_LAYERS, "CH": CH_ONLINE_WMS_LAYERS}.get(country, ())
 
 
 def _size(width_m: float, height_m: float, mpp: float) -> tuple[int, int]:
@@ -292,7 +310,7 @@ def write_online_templates(
 def online_labels() -> dict[str, str]:
     """Klíč ``online_<vrstva>`` → popisek šablony."""
     layers = [
-        (k, label) for k, _f, label, *_rest in (*ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS)
+        (k, label) for k, _f, label, *_rest in (*ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS)
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     return {
         f"online_{k}{suffix}": f"{label}{lsuffix}"

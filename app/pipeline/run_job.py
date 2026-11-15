@@ -54,6 +54,7 @@ from app.pipeline.job_options import (
 from app.pipeline.job_grid import DEFAULT_RESOLUTION_M, write_job_grid
 from app.pipeline import dtm_summary
 from app.pipeline.dtm_import import clear_job_memo, start_dtm_prefetch
+from app.pipeline.technical_maps import foreign as foreign_technical_map
 from app.pipeline.residual_paved import start_residual_osm_prefetch
 from app.pipeline.osm_paths import (
     prepare_osm_paths,
@@ -185,12 +186,12 @@ class VectorPrefetch:
 
 def technical_map_line(tech_map: str, dtm_on: bool) -> str:
     """Řádek logu o kresbě z technické mapy země (DTM ČÚZK, BGT …)."""
-    if tech_map == "nl_bgt":
+    spec = foreign_technical_map(tech_map)
+    if spec is not None:
         return (
-            "Kresba z BGT: ano – BGT (budovy, silnice, chodníky, parkoviště, ploty, soukromé pozemky) se stahuje "
-            "na pozadí, do mapy jde při sestavení."
+            f"Kresba z {spec.short}: ano – {spec.short} ({spec.content}) se stahuje na pozadí, do mapy jde při sestavení."
             if dtm_on
-            else "Kresba z BGT: ne – mapa se kreslí z OSM."
+            else f"Kresba z {spec.short}: ne – mapa se kreslí z OSM."
         )
     if tech_map == "cz_dtm":
         return (
@@ -203,7 +204,7 @@ def technical_map_line(tech_map: str, dtm_on: bool) -> str:
 
 
 # Popis výškových zdrojů země do logu (``elevation`` v ``configs/countries.yaml``).
-ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)"}
+ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "ch_swisstopo": "swissALTI3D a swissSURFACE3D (swisstopo)"}
 
 
 def country_sources_line(options: dict) -> str:
@@ -211,7 +212,8 @@ def country_sources_line(options: dict) -> str:
     country = job_country(options)
     name = country.name("cs") if country else job_country_code(options)
     tech = technical_map_source(options)
-    drawing = "OSM a BGT" if tech == "nl_bgt" else "OSM"
+    spec = foreign_technical_map(tech)
+    drawing = f"OSM a {spec.short}" if spec is not None else "OSM"
     elevation = elevation_source(options)
     heights = ELEVATION_LABELS.get(elevation, elevation)
     return f"Země výřezu: {name} – kresba z {drawing}, výšky z {heights}."
@@ -739,7 +741,7 @@ def run_job_pipeline(
         # DTM kraje (zaměřené ploty, budovy, chodníky, silnice …; sprint, les i MTBO): příprava na pozadí,
         # výsledek se vezme při sestavení mapy (každý preset si z něj bere, co dává smysl).
         try:
-            # Technická mapa země: v Česku DTM, v Nizozemsku BGT (``bgt_nl``); jinde jen OSM.
+            # Technická mapa země: v Česku DTM, jinde obdoba z ``technical_maps`` (BGT, AV); bez ní jen OSM.
             dtm_maps = {
                 tag: bool(
                     tech_map in TECHNICAL_MAP_STEPS
@@ -772,7 +774,7 @@ def run_job_pipeline(
                 dtm_prefetch = start_dtm_prefetch(
                     work_dir,
                     tuple(bbox),
-                    log=background_log(raw_log, "BGT" if tech_map == "nl_bgt" else DTM_LOG_LABEL),
+                    log=background_log(raw_log, getattr(foreign_technical_map(tech_map), "short", DTM_LOG_LABEL)),
                     force=force_refresh,
                     source=tech_map,
                 )

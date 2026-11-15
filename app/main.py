@@ -1366,7 +1366,10 @@ async def api_create_job(request: Request):
 
     _country = _profile.job_country(options)
     _tech = _profile.technical_map_source(options)
-    _tech_on, _tech_off = {"cz_dtm": ("DTM", "OSM+ZABAGED"), "nl_bgt": ("BGT", "OSM")}.get(_tech, ("OSM", "OSM"))
+    from app.pipeline.technical_maps import foreign as _foreign_tech
+
+    _spec = _foreign_tech(_tech)
+    _tech_on, _tech_off = ("DTM", "OSM+ZABAGED") if _tech == "cz_dtm" else ((_spec.short, "OSM") if _spec else ("OSM", "OSM"))
     log(
         f"Přijato: preset {preset_id} · 1:{resolved['map_scale']} · "
         f"ekvidistance {resolved['contour_interval']} m · "

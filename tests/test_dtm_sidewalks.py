@@ -218,6 +218,12 @@ def test_merge_sidewalk_with_road_unions_near_keeps_far_and_interface():
     # bez přilehlého chodníku se nesloučí
     far_only = ds.dtm_union([_rect(0, 20, 40, 22)])
     assert ds.merge_sidewalk_with_road(roads, far_only) == (None, None, far_only)
+    # silnice jako kolekce s čárou (po přichycení na mřížku, sprint Curych): bere se jen plošná část
+    from shapely.geometry import GeometryCollection, LineString
+
+    mixed = GeometryCollection([roads, LineString([(0, 30), (5, 30)])])
+    merged2, interface2, _rest2 = ds.merge_sidewalk_with_road(mixed, sidewalks)
+    assert interface2 is not None and abs(merged2.area - merged.area) < 1e-6
 
 
 def test_sprint_merges_adjacent_sidewalk_into_501_1_with_interface(tmp_path):
