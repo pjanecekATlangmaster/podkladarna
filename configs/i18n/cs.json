@@ -418,6 +418,7 @@
   "web.js.form.duplicate": "Nová mapa se nezaložila – stejný výřez už běží nebo čeká.",
   "web.js.form.private_started": "Privátní mapa se generuje – průběh uvidíte níže v detailu. ZIP/náhled nepřijdou do veřejného seznamu; odkazy přijdou na {mail} (platí 48 hodin).",
   "web.js.form.your_email": "váš e-mail",
+  "web.js.map.show_all": "Zobrazit všechna dostupná území",
   "web.js.legend.title": "Dostupná data",
   "web.js.legend.full": "Výšky + technická mapa (budovy, chodníky, ploty)",
   "web.js.legend.osm_only": "Výšky, kresba jen z OSM",

@@ -418,6 +418,7 @@
   "web.js.form.duplicate": "The new map was not created – the same area is already running or waiting.",
   "web.js.form.private_started": "The private map is being generated – you can follow the progress in the detail below. The ZIP and preview will not appear in the public list; the links will be sent to {mail} (valid for 48 hours).",
   "web.js.form.your_email": "your e-mail",
+  "web.js.map.show_all": "Show all available areas",
   "web.js.legend.title": "Available data",
   "web.js.legend.full": "Elevation + large-scale base map (buildings, pavements, fences)",
   "web.js.legend.osm_only": "Elevation, drawing from OSM only",

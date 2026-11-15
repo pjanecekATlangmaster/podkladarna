@@ -1624,3 +1624,8 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+.map-show-all a {
+  font-size: 18px;
+  font-weight: bold;
+}

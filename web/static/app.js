@@ -1948,6 +1948,9 @@ function inCzechia(latlng) {
   );
 }
 
+const BBOX_INITIAL_VIEW = { center: [49.8, 15.5], zoom: 7 };
+let bboxViewTouched = false;
+
 const BBOX_MAP_HEIGHT_KEY = "podkladarna-bbox-map-height";
 const BBOX_MAP_HEIGHT_MIN = 200;
 const BBOX_MAP_HEIGHT_MAX = 1200;
@@ -2053,7 +2056,11 @@ function initBboxMap() {
     maxBoundsViscosity: 1.0,
     minZoom: 6,
     worldCopyJump: false,
-  }).setView([49.8, 15.5], 7);
+  }).setView(BBOX_INITIAL_VIEW.center, BBOX_INITIAL_VIEW.zoom);
+  // Uživatel s mapou pohnul dřív, než přišlo /api/coverage → úvodní pohled už neměnit.
+  bboxMap.once("dragstart zoomstart", () => {
+    bboxViewTouched = true;
+  });
   const tileOpts = {
     maxZoom: 18,
     noWrap: true,
@@ -2100,6 +2107,10 @@ async function loadCoverage() {
   };
   if (!bboxMap) return;
   bboxMap.setMaxBounds(czBounds());
+  updateBboxMinZoom();
+  bboxMap.on("resize", updateBboxMinZoom);
+  addShowAllControl();
+  applyInitialCoverageView();
   const holes = [];
   for (const c of items) {
     const g = c.geometry || {};
@@ -2119,6 +2130,80 @@ async function loadCoverage() {
     interactive: false,
   }).addTo(bboxMap);
   addDataAvailabilityLayers(items);
+}
+
+// Země podle časového pásma prohlížeče (jen v prohlížeči, bez IP a bez dalšího dotazu; VPN ho nemění).
+const TIMEZONE_COUNTRY = {
+  "Europe/Prague": "CZ",
+  "Europe/Bratislava": "SK",
+  "Europe/Amsterdam": "NL",
+  "Europe/Zurich": "CH",
+  "Europe/Vienna": "AT",
+  "Europe/Berlin": "DE",
+  "Europe/Busingen": "DE",
+  "Europe/Paris": "FR",
+  "Europe/Tallinn": "EE",
+  "Europe/Rome": "IT",
+  "Europe/Brussels": "BE",
+  "Europe/Helsinki": "FI",
+};
+
+function browserCountry() {
+  try {
+    return TIMEZONE_COUNTRY[Intl.DateTimeFormat().resolvedOptions().timeZone] || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function countryBounds(c) {
+  const [s, w, n, e] = c.bounds;
+  return L.latLngBounds([s, w], [n, e]);
+}
+
+function allCoverageBounds() {
+  if (!coverageCountries.length) return czBounds();
+  const b = countryBounds(coverageCountries[0]);
+  for (const c of coverageCountries.slice(1)) b.extend(countryBounds(c));
+  return b;
+}
+
+/** Odzoomovat jde tak, aby byla vidět všechna dostupná území najednou (i na úzkém mobilu). */
+function updateBboxMinZoom() {
+  if (!bboxMap) return;
+  bboxMap.setMinZoom(2); // getBoundsZoom ořízne výsledek na aktuální minZoom
+  const fit = bboxMap.getBoundsZoom(czBounds(), false);
+  bboxMap.setMinZoom(Math.max(2, Math.min(6, fit)));
+}
+
+function addShowAllControl() {
+  const ctl = L.control({ position: "topleft" });
+  ctl.onAdd = () => {
+    const bar = L.DomUtil.create("div", "leaflet-bar map-show-all");
+    const a = L.DomUtil.create("a", "", bar);
+    a.href = "#";
+    a.setAttribute("role", "button");
+    a.title = t("web.js.map.show_all");
+    a.setAttribute("aria-label", t("web.js.map.show_all"));
+    a.textContent = "⤢";
+    L.DomEvent.disableClickPropagation(bar);
+    L.DomEvent.on(a, "click", (e) => {
+      L.DomEvent.preventDefault(e);
+      bboxMap.fitBounds(allCoverageBounds(), { padding: [12, 12] });
+    });
+    return bar;
+  };
+  ctl.addTo(bboxMap);
+}
+
+/**
+ * Úvodní pohled při více zemích: země podle časového pásma prohlížeče, jinak všechna území.
+ * Jen když uživatel s mapou ještě nehnul a nemá výřez (např. načtený z odkazu).
+ */
+function applyInitialCoverageView() {
+  if (!bboxMap || coverageCountries.length < 2 || bboxCorners.length || bboxViewTouched) return;
+  const guess = coverageCountries.find((x) => x.code === browserCountry());
+  bboxMap.fitBounds(guess ? countryBounds(guess) : allCoverageBounds(), { padding: [12, 12], animate: false });
 }
 
 // Barvy zvýraznění dostupných dat (legenda v mapě výběru).
