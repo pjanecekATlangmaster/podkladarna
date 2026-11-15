@@ -67,6 +67,9 @@ def test_coverage_technical_map_gaps(monkeypatch):
     assert any(_in_ring(lausanne, poly[0]) for poly in gaps["coordinates"])
     assert not any(_in_ring((8.54, 47.37), poly[0]) for poly in gaps["coordinates"])  # Curych má AV
     assert items["FR"]["technical_map"] is True and items["FR"]["technical_map_gaps"] is None
+    paris = items["FR"]["technical_map_area"]  # Plan de voirie jen v Paříži, zbytek Francie oranžově
+    assert _in_ring((2.35, 48.857), paris["coordinates"][0]) and not _in_ring((4.83, 45.76), paris["coordinates"][0])
+    assert any(_in_ring((4.83, 45.76), poly[0]) for poly in items["FR"]["geometry"]["coordinates"])  # Lyon je ve Francii
 
 
 def test_api_coverage_and_sheets_outside(client):

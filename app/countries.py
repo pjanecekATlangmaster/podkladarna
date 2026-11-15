@@ -67,6 +67,8 @@ class Country:
     citation: str = ""
     # Části země bez technické mapy (např. kantony CH bez volné AV): kreslí se tam jen z OSM; mapa v GUI je odliší.
     technical_map_gaps: tuple[tuple[tuple[float, float], ...], ...] = ()
+    # Naopak jediné území s technickou mapou (FR: Plan de voirie jen v Paříži); prázdné = celá země mimo ``gaps``.
+    technical_map_area: tuple[tuple[tuple[float, float], ...], ...] = ()
 
     def name(self, lang: str = "cs") -> str:
         return self.names.get(lang) or self.names.get("en") or self.code
@@ -87,6 +89,12 @@ class Country:
     @property
     def has_technical_map(self) -> bool:
         return self.technical_map not in ("", "none")
+
+    def technical_map_covers(self, bbox) -> bool:
+        """Zasahuje výřez do území technické mapy? Bez ``technical_map_area`` (celá země) vždy ano."""
+        if not self.technical_map_area or not bbox:
+            return True
+        return rings_share(tuple(float(v) for v in bbox), self.technical_map_area) > 0.0
 
 
 def _rings_geojson(rings) -> dict[str, Any]:
@@ -137,6 +145,9 @@ def load_countries() -> dict[str, Country]:
             citation=str(spec.get("citation") or ""),
             technical_map_gaps=(
                 _rings_from_geojson(CONFIG_DIR / spec["technical_map_gaps"]) if spec.get("technical_map_gaps") else ()
+            ),
+            technical_map_area=(
+                _rings_from_geojson(CONFIG_DIR / spec["technical_map_area"]) if spec.get("technical_map_area") else ()
             ),
         )
         if len(view) != 4:
@@ -233,14 +244,20 @@ def _area(points) -> float:
 def bbox_share(bbox: tuple[float, float, float, float], country: Country) -> float:
     """Podíl plochy výřezu (west, south, east, north) uvnitř obrysu země, 0–1."""
     west, south, east, north = bbox
-    total = (east - west) * (north - south)
-    if total <= 0:
-        return 0.0
     cw, cs, ce, cn = country.envelope
     if east <= cw or west >= ce or north <= cs or south >= cn:
         return 0.0
+    return rings_share(bbox, country.rings)
+
+
+def rings_share(bbox: tuple[float, float, float, float], rings) -> float:
+    """Podíl plochy výřezu uvnitř obrysů ``rings`` (lon, lat), 0–1."""
+    west, south, east, north = bbox
+    total = (east - west) * (north - south)
+    if total <= 0:
+        return 0.0
     # Obdélník je v lon/lat; cos(φ) je pro výřez konstanta, podíl ploch na ní nezávisí.
-    inside = sum(_area(_clip_polygon(r, west, south, east, north)) for r in country.rings)
+    inside = sum(_area(_clip_polygon(r, west, south, east, north)) for r in rings)
     return max(0.0, min(1.0, inside / total))
 
 
@@ -314,6 +331,7 @@ def coverage_payload(site: Any = None, lang: str = "cs") -> dict[str, Any]:
                 # Zvýraznění v mapě výběru: kde je výška + technická mapa (obdoba DTM), kde jen výška + OSM.
                 "technical_map": c.has_technical_map,
                 "technical_map_gaps": _rings_geojson(c.technical_map_gaps) if c.technical_map_gaps else None,
+                "technical_map_area": _rings_geojson(c.technical_map_area) if c.technical_map_area else None,
             }
         )
     return {"countries": items, "min_share": MIN_SHARE}

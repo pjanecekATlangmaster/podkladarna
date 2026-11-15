@@ -200,7 +200,7 @@ def technical_map_line(tech_map: str, dtm_on: bool) -> str:
             if dtm_on
             else "Kresba z DTM: ne – mapa se kreslí z OSM a ZABAGED."
         )
-    return "Kresba: z OSM (technická mapa země zatím není zapojená)."
+    return "Kresba: z OSM (technická mapa pro toto území není)."
 
 
 # Popis výškových zdrojů země do logu (``elevation`` v ``configs/countries.yaml``).

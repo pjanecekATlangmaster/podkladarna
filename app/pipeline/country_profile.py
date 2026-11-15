@@ -49,6 +49,8 @@ def technical_map_source(options: dict | None) -> str:
     country = job_country(options)
     if country is None:
         return TECHNICAL_MAP_CZ if job_country_code(options) == DEFAULT_COUNTRY else TECHNICAL_MAP_NONE
+    if not country.technical_map_covers((options or {}).get("bbox_wgs84")):
+        return TECHNICAL_MAP_NONE  # technická mapa jen pro část země (Plan de voirie = Paříž), výřez mimo
     return country.technical_map or TECHNICAL_MAP_NONE
 
 

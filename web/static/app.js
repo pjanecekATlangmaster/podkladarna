@@ -2132,7 +2132,9 @@ function addDataAvailabilityLayers(items) {
   for (const c of items) {
     const rings = geometryRings(c.geometry);
     if (!rings.length) continue;
-    const full = c.technical_map !== false;
+    // Technická mapa jen v části země (FR: Plan de voirie v Paříži) – země oranžově, to území zeleně.
+    const area = geometryRings(c.technical_map_area);
+    const full = c.technical_map !== false && !area.length;
     if (!full) hasOsmOnly = true;
     const color = full ? DATA_COLORS.full : DATA_COLORS.osm;
     L.polygon(rings, { color, weight: 1.5, fillColor: color, fillOpacity: 0.1, interactive: false }).addTo(bboxMap);
@@ -2147,14 +2149,26 @@ function addDataAvailabilityLayers(items) {
         interactive: false,
       }).addTo(bboxMap);
     }
+    if (area.length) {
+      L.polygon(area, {
+        color: DATA_COLORS.full,
+        weight: 1.5,
+        fillColor: DATA_COLORS.full,
+        fillOpacity: 0.22,
+        interactive: false,
+      }).addTo(bboxMap);
+    }
     // Město (Vídeň, Berlín, Paříž) je v přehledu státu jen pár pixelů – značka, dokud se nepřiblíží.
-    const [s, w, n, e] = c.bounds;
+    const lats = (area.length ? area : rings).flat().map((p) => p[0]);
+    const lngs = (area.length ? area : rings).flat().map((p) => p[1]);
+    const [s, w, n, e] = [Math.min(...lats), Math.min(...lngs), Math.max(...lats), Math.max(...lngs)];
+    const dot = area.length ? DATA_COLORS.full : color;
     if (n - s < 1 && e - w < 1) {
       L.circleMarker([(s + n) / 2, (w + e) / 2], {
         radius: 7,
-        color,
+        color: dot,
         weight: 2,
-        fillColor: color,
+        fillColor: dot,
         fillOpacity: 0.45,
         interactive: false,
       }).addTo(smallAreas);
@@ -2602,6 +2616,8 @@ function refreshBboxBadge() {
   if (data.too_large) {
     if (data.too_large_reason === "sheets") {
       setBboxBadge("err", t("web.js.bbox.too_many_sheets", { count: data.count, max: data.max_sheets }));
+    } else if (data.too_large_reason === "elevation") {
+      setBboxBadge("err", t("web.js.bbox.no_elevation"));
     } else {
       setBboxBadge("err", t("web.js.bbox.draft_too_large", { area, limit: formatNumCz(data.max_area_km2 || bboxMaxAreaKm2) }));
     }

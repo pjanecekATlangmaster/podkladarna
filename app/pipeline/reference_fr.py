@@ -18,4 +18,9 @@ FR_LIDAR_PROBE = (
     f"&STYLES={_PROBE_BBOX}&FORMAT=image/geotiff"
 )
 FR_ORTHO_PROBE = f"{FR_WMS_R}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS={FR_ORTHO_LAYER}&STYLES={_PROBE_BBOX}&FORMAT=image/jpeg"
+# Tabulka dlaždic LiDAR HD (1 × 1 km, s odkazy na MNT a MNS jen tam, kde jsou vydané): pokrytí výřezu.
+FR_LIDAR_TILES_WFS = (
+    "https://data.geopf.fr/wfs/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature"
+    "&TYPENAMES=IGNF_LIDAR-HD_METADONNEE:metadata&OUTPUTFORMAT=application/json&SRSNAME=EPSG:4326"
+)
 FR_PDV_PROBE = "https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/plan-de-voirie-chaussees/records?limit=1"
