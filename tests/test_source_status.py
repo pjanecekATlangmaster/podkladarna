@@ -178,6 +178,7 @@ def test_local_sources_by_country(fresh_state, monkeypatch, client):
     ss.check_all()
     assert not any("pdok.nl" in u for u in urls)  # NL je beta, bez COUNTRIES_BETA se nenabízí
     monkeypatch.setenv("COUNTRIES_BETA", "NL")
+    monkeypatch.setenv("SITES", "testserver=cs:free:*")  # beta jen na mezinárodní doméně
     assert ss.is_stale()  # nově nabízená země ještě nemá výsledek
     ss.check_all()
     nl = client.get("/api/source_status", params={"country": "nl"}).json()

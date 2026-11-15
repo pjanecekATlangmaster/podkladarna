@@ -2,8 +2,10 @@
 
 Konfigurace ``configs/countries.yaml`` + polygony hranic ``configs/countries/<kód>.geojson``.
 Povolené území požadavku = země domény (``SITES``, ``*`` = všechny) ∩ země se ``status: live``; bez ``SITES`` jen CZ.
-Země se ``status: beta`` (zahraniční build) přidá ``COUNTRIES_BETA`` (seznam kódů nebo ``*``; na testu B výchozí ``*``)
-bez ohledu na doménu; na ostré se bez proměnné nenabízí.
+Země se ``status: beta`` (zahraniční build) přidá ``COUNTRIES_BETA`` (seznam kódů nebo ``*``; na testu B výchozí ``*``),
+ale jen doméně, která tu zemi nabízí (``*`` nebo kód v ``SITES``): česká doména (``…:free:CZ``) ani požadavek
+bez domény ze ``SITES`` zahraničí nikdy nedostane (Petr 2026-11-15: zahraniční mapy jen na mezinárodní doméně).
+Na ostré se beta bez proměnné nenabízí.
 
 Výřez patří zemi, ve které leží aspoň ``MIN_SHARE`` jeho plochy (Petr 2026-11-14, karta „většina v zemi, zbytek
 z OSM“). Přesah za hranici projde, ale kreslí se jen z OSM (LiDAR, ZABAGED ani DTM tam nejsou) a web i log
@@ -167,30 +169,38 @@ def beta_codes() -> frozenset[str]:
     return frozenset(c.strip().upper() for c in raw.replace(";", ",").split(",") if c.strip())
 
 
+def _site_codes(site: Any) -> frozenset[str]:
+    """Země domény (``Site.countries``); bez domény ze ``SITES`` jen CZ."""
+    return frozenset(c.upper() for c in (getattr(site, "countries", None) or (DEFAULT_COUNTRY,)))
+
+
+def _beta_for_site(code: str, site_codes: frozenset[str], beta: frozenset[str]) -> bool:
+    """Beta země jen s ``COUNTRIES_BETA`` a jen doméně, která ji nabízí (``*`` nebo její kód)."""
+    return ("*" in beta or code in beta) and ("*" in site_codes or code in site_codes)
+
+
 def offered_codes() -> frozenset[str]:
     """Země, které instance nějaké doméně nabízí (``live`` a povolené ``beta``); podle nich stav zdrojů."""
     beta = beta_codes()
+    site_sets = [_site_codes(s) for s in i18n.sites().values()] or [_site_codes(None)]
     return frozenset(
         c.code
         for c in load_countries().values()
-        if c.status == "live" or (c.status == "beta" and ("*" in beta or c.code in beta))
+        if c.status == "live"
+        or (c.status == "beta" and any(_beta_for_site(c.code, codes, beta) for codes in site_sets))
     )
 
 
 def allowed_countries(site: Any = None) -> list[Country]:
     """Země, které smí požadavek použít: země domény (``Site.countries``) ∩ ``status: live``, plus beta země
-    z ``COUNTRIES_BETA``."""
+    z ``COUNTRIES_BETA``, které doména nabízí (česká doména ``:CZ`` zahraničí nedostane)."""
     countries = load_countries()
-    codes = tuple(getattr(site, "countries", None) or (DEFAULT_COUNTRY,))
+    codes = _site_codes(site)
     live = [c for c in countries.values() if c.status == "live"]
-    if "*" in codes:
-        out = live
-    else:
-        wanted = {c.upper() for c in codes}
-        out = [c for c in live if c.code in wanted]
+    out = live if "*" in codes else [c for c in live if c.code in codes]
     beta = beta_codes()
     if beta:
-        out = out + [c for c in countries.values() if c.status == "beta" and ("*" in beta or c.code in beta)]
+        out = out + [c for c in countries.values() if c.status == "beta" and _beta_for_site(c.code, codes, beta)]
     return out
 
 
