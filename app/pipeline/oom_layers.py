@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.pipeline.country_profile import process_uses_cz_sources
 from app.pipeline.online_templates import online_labels
 from app.pipeline.reference_layers import HILLSHADE_VARIANTS, orthophoto_items
+from app.pipeline.terrain_shade_png import TERRAIN_SHADES
 
 # Skupiny v okně šablon OOM (atribut group=).
 GROUP_REFERENCE = 1
@@ -40,7 +42,14 @@ OOM_REFERENCE_SPECS: tuple[tuple[str, str, str, float, bool], ...] = (
         (key, label, f"references/{filename}", opacity, False)
         for key, _layer, filename, label, opacity, _visible in HILLSHADE_VARIANTS
     ),
+    # Mimo Česko: stínování z výšek jobu (terén, povrch) místo hillshade DMR 5G a náhledu DMP OK.
+    *(
+        (key, label, f"references/{filename}", opacity, False)
+        for key, _src, filename, label, opacity in TERRAIN_SHADES
+    ),
 )
+
+FOREIGN_VEGETATION_LABEL = "Výška vegetace (DSM − DTM)"
 
 OOM_OSM_REF_SPEC = (
     "osm",
@@ -86,6 +95,8 @@ def collect_oom_templates(
                 continue
             path = built_refs.get(key)
             if path and path.is_file():
+                if key == "vyska_vegetace" and not process_uses_cz_sources():
+                    label = FOREIGN_VEGETATION_LABEL  # mimo Česko nejde o DMP OK a DMR 5G
                 templates.append(
                     OomTemplate(
                         "image",

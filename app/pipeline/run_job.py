@@ -524,6 +524,16 @@ def _with_vegetation_height(
     return {**built_refs, REF_KEY: png} if png else built_refs
 
 
+def _with_terrain_shades(
+    built_refs: dict[str, Path], work_dir: Path, reference_dir: Path, log: callable
+) -> dict[str, Path]:
+    """Mimo Česko: stínování terénu (DTM) a povrchu (DSM) z výšek jobu místo hillshade DMR 5G a náhledu DMP OK."""
+    from app.pipeline.terrain_shade_png import write_terrain_shades
+    from app.pipeline.vegetation_chm import DEM_DIR_NAME
+
+    return {**built_refs, **write_terrain_shades(work_dir / DEM_DIR_NAME, reference_dir, log=log)}
+
+
 def join_reference_download(
     ref_download: ReferenceDownload | None,
     *,
@@ -551,6 +561,7 @@ def join_reference_download(
         if progress is not None:
             progress.begin("referenční podklady")
         built_refs = _with_vegetation_height(built_refs, work_dir, reference_dir, log)
+        built_refs = _with_terrain_shades(built_refs, work_dir, reference_dir, log)
         if sentinel:
             add_sentinel2_reference(built_refs, tuple(bbox), reference_dir, log=log)
         built_refs = _with_online_templates(built_refs, bbox, reference_dir, log, download=want_refs)
