@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.56.1"
+APP_VERSION = "3.56.2"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -63,6 +63,8 @@ else:
 # Docker/NAS: host .env u compose se do image nedostane; volitelně SMTP v /data/.env.
 _load_dotenv(DATA_ROOT / ".env")
 JOBS_DIR = DATA_ROOT / "jobs"
+# Ukázkové ZIPy na webu (sprint.zip, les.zip, mtbo.zip; anglické *-en.zip) – nahrávají se ručně, ne do image.
+SAMPLES_DIR = DATA_ROOT / "samples"
 CACHE_DIR = DATA_ROOT / "cache"
 DOWNLOADS_DIR = CACHE_DIR
 DB_PATH = DATA_ROOT / "podkladarna.db"
