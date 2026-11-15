@@ -339,7 +339,7 @@ def order_download(token: str, request: Request):
         db.record_download(job_id, zip_path.stat().st_size)
     except Exception:  # noqa: BLE001
         logger.exception("Statistika stažení objednávky %s selhala", order["id"])
-    return FileResponse(zip_path, filename=db.zip_download_filename(job_id, job["name"]))
+    return FileResponse(zip_path, filename=db.zip_download_filename(job_id, job["name"], _download_prefix(job)))
 
 
 def _preview_png(job_id: str) -> Path | None:
@@ -664,3 +664,10 @@ def notify_order_job(job: dict[str, Any]) -> None:
         db.append_log(job_id, f"{ORDER_MAIL_SENT_PREFIX}.")
     except MailError as exc:
         db.append_log(job_id, f"CHYBA odeslání e-mailu s náhledem: {exc}")
+
+
+def _download_prefix(job: dict) -> str:
+    """Předpona stahovaného ZIPu podle jazyka zadání (mezinárodní verze = omapic)."""
+    from app.pipeline.zip_texts_en import zip_lang
+
+    return "podkladarna" if zip_lang(job.get("options")) == "cs" else "omapic"

@@ -868,6 +868,13 @@ def _output_zip_path(job_id: str) -> Path | None:
     return None
 
 
+def download_prefix(job: dict) -> str:
+    """Předpona stahovaného souboru podle jazyka zadání (mezinárodní verze = omapic)."""
+    from app.pipeline.zip_texts_en import zip_lang
+
+    return "podkladarna" if zip_lang(job.get("options")) == "cs" else "omapic"
+
+
 def _load_job_for_artifact(job_id: str, token: str | None) -> dict:
     """Načte job; u privátních vyžaduje platný token a kontroluje expiraci."""
     try:
@@ -907,7 +914,7 @@ def api_download(job_id: str, token: str | None = None):
     zip_path = _output_zip_path(job_id)
     if not zip_path:
         raise HTTPException(404, i18n.Msg("api.output_not_ready"))
-    filename = db.zip_download_filename(job_id, job["name"])
+    filename = db.zip_download_filename(job_id, job["name"], download_prefix(job))
     _note_download(job_id, zip_path)
     return FileResponse(zip_path, filename=filename)
 
@@ -926,12 +933,18 @@ def api_download_georef_previews(job_id: str, token: str | None = None):
     zip_path = out / GEOREF_PREVIEWS_ZIP_NAME
     if not zip_path.is_file():
         # Lazy: sestav z preview/, pokud job doběhl před zavedením malého ZIPu.
-        built = build_georef_previews_zip(out)
+        from app.pipeline.zip_texts_en import zip_lang
+
+        built = build_georef_previews_zip(out, lang=zip_lang(job.get("options")))
         if built is None or not built.is_file():
             raise HTTPException(404, i18n.Msg("api.georef_previews_missing"))
         zip_path = built
     stem = db.safe_zip_stem(job["name"])
-    filename = f"podkladarna-{stem}-georef-nahledy.zip"
+    filename = (
+        f"podkladarna-{stem}-georef-nahledy.zip"
+        if download_prefix(job) == "podkladarna"
+        else f"omapic-{stem}-georef-previews.zip"
+    )
     return FileResponse(zip_path, filename=filename)
 
 
@@ -963,7 +976,7 @@ def download_by_token(token: str):
     zip_path = _output_zip_path(job["id"])
     if not zip_path:
         raise HTTPException(404, i18n.Msg("api.output_not_ready"))
-    filename = db.zip_download_filename(job["id"], job["name"])
+    filename = db.zip_download_filename(job["id"], job["name"], download_prefix(job))
     _note_download(job["id"], zip_path)
     return FileResponse(zip_path, filename=filename)
 

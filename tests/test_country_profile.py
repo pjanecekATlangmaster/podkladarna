@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -283,14 +284,14 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
     "country, must, must_not",
     [
         ("CZ", ("Data: ČÚZK (DMR 5G", "Podkladárna · ČÚZK · OSM"), ("AHN",)),
-        ("NL", ("Bron: AHN", "Bron: Kadaster", "Beeldmateriaal.nl", "OpenStreetMap (ODbL)"), ("ČÚZK",)),
-        ("CH", ("© swisstopo", "geodienste.ch", "OpenStreetMap (ODbL)"), ("ČÚZK", "AHN")),
-        ("AT", ("Datenquelle: BEV", "basemap.at", "Stadt Wien – data.wien.gv.at", "OpenStreetMap (ODbL)"), ("ČÚZK", "swisstopo")),
-        ("DE", ("Geoportal Berlin", "Datenlizenz Deutschland – Zero 2.0", "OpenStreetMap (ODbL)"), ("ČÚZK", "BEV")),
-        ("FR", ("© IGN", "Ville de Paris", "Etalab 2.0", "OpenStreetMap (ODbL)"), ("ČÚZK", "Berlin")),
-        ("EE", ("Maa- ja Ruumiamet", "OpenStreetMap (ODbL)"), ("ČÚZK", "IGN")),
-        ("IT", ("Provincia autonoma di Trento", "CC BY 4.0", "OpenStreetMap (ODbL)"), ("ČÚZK", "ETAK")),
-        ("BE", ("Digitaal Vlaanderen", "Modellicentie Gratis Hergebruik", "OpenStreetMap (ODbL)"), ("ČÚZK", "Trento")),
+        ("NL", ("Bron: AHN", "Bron: Kadaster", "Beeldmateriaal.nl", "OpenStreetMap contributors (ODbL)"), ("ČÚZK",)),
+        ("CH", ("© swisstopo", "geodienste.ch", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "AHN")),
+        ("AT", ("Datenquelle: BEV", "basemap.at", "Stadt Wien – data.wien.gv.at", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "swisstopo")),
+        ("DE", ("Geoportal Berlin", "Datenlizenz Deutschland – Zero 2.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "BEV")),
+        ("FR", ("© IGN", "Ville de Paris", "Etalab 2.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Berlin")),
+        ("EE", ("Maa- ja Ruumiamet", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "IGN")),
+        ("IT", ("Provincia autonoma di Trento", "CC BY 4.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "ETAK")),
+        ("BE", ("Digitaal Vlaanderen", "Modellicentie Gratis Hergebruik", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Trento")),
     ],
 )
 def test_citation_by_country(country, must, must_not):
@@ -379,3 +380,34 @@ def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, 
     xml = path.read_text(encoding="utf-8")
     assert host in xml and layer in xml
     assert set(written) <= set(online_labels())
+
+
+@pytest.mark.parametrize("country", ["CZ", "AT"])
+def test_zip_texts_follow_job_language(country):
+    """Zadání z anglické stránky (Omapic) má texty ZIPu anglicky, české zadání a starší joby česky."""
+    from datetime import date
+
+    from app.pipeline import sentinel2
+    from app.pipeline.package_oom import oom_metadata, oom_readme, zip_about
+    from app.pipeline.zip_texts_en import sentinel_info_en
+
+    preset = {"label": "Lesní 1:10000 · 5 m", "scalefactor": 1}
+    en = oom_metadata("les_10000", preset, {"country": country, "lang": "en"})
+    name, about = zip_about(en)
+    readme = oom_readme(en, sentinel_info="")
+    assert name == "ABOUT_OMAPIC.txt" and en["lang"] == "en"
+    czech = re.compile(r"[ěščřžůĚŠČŘŽŮ]|Podkladárn|Nejprve|Měřítko|Doporučený")
+    allowed = ("ČÚZK", "Křovák", "Janeček", "Ruumiamet", "Straßen", "vyska_vegetace", "husté_vrstevnice")
+    for text in (about, readme):
+        scrub = text
+        for word in allowed:
+            scrub = scrub.replace(word, "")
+        assert not czech.search(scrub), czech.search(scrub)
+        assert "github.com" not in text
+    assert "Forest 1:10000" in readme and "Base map: Omapic" in readme and "Base map: Omapic" in about
+    cs = oom_metadata("les_10000", preset, {"country": country})
+    assert zip_about(cs)[0] == "CO_JE_PODKLADARNA.txt" and "Doporučený postup" in oom_readme(cs)
+    scene = sentinel2.Scene("S2B_X", date(2026, 9, 1), 3.5, {}, 0.0)
+    info = sentinel_info_en(sentinel2.info_text([scene]))
+    assert "image date 2026-09-01" in info and "cloud cover of the whole tile 3.5 %" in info and "2026" in info
+

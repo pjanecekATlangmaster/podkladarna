@@ -229,8 +229,8 @@ def finalize_uzitecne_vectors(kp_cwd: Path, *, log=None) -> Path:
     return root
 
 
-def add_uzitecne_to_zip(zf, kp_cwd: Path) -> int:
-    """Zapíše ``uzitecne/`` do ZIPu (rekurzivně). Vrací počet souborů."""
+def add_uzitecne_to_zip(zf, kp_cwd: Path, *, english: bool = False) -> int:
+    """Zapíše ``uzitecne/`` do ZIPu (rekurzivně). Vrací počet souborů. ``english``: README anglicky."""
     src = uzitecne_root(kp_cwd)
     if not src.is_dir():
         return 0
@@ -239,7 +239,12 @@ def add_uzitecne_to_zip(zf, kp_cwd: Path) -> int:
         if not path.is_file():
             continue
         rel = path.relative_to(src).as_posix()
-        zf.write(path, f"{UZITECNE_DIR_NAME}/{rel}")
+        if english and rel == "README.txt":
+            from app.pipeline.zip_texts_en import UZITECNE_README_EN
+
+            zf.writestr(f"{UZITECNE_DIR_NAME}/{rel}", UZITECNE_README_EN)
+        else:
+            zf.write(path, f"{UZITECNE_DIR_NAME}/{rel}")
         n += 1
     return n
 

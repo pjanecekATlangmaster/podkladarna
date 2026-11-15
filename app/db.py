@@ -809,8 +809,8 @@ def safe_zip_stem(name: str) -> str:
     return s[:120]
 
 
-def zip_download_filename(job_id: str, job_name: str) -> str:
-    """Soubor ke stažení: podkladarna-<projekt>.zip; při shodě …-2, …-3."""
+def zip_download_filename(job_id: str, job_name: str, prefix: str = "podkladarna") -> str:
+    """Soubor ke stažení: <prefix>-<projekt>.zip (podkladarna, mezinárodní verze omapic); při shodě …-2, …-3."""
     stem = safe_zip_stem(job_name)
     with connect() as conn:
         rows = conn.execute(
@@ -824,10 +824,10 @@ def zip_download_filename(job_id: str, job_name: str) -> str:
         n = same.index(job_id) + 1
     except ValueError:
         n = 1
-    if stem == "podkladarna":
-        base = "podkladarna"
+    if stem in ("podkladarna", prefix):
+        base = prefix
     else:
-        base = f"podkladarna-{stem}"
+        base = f"{prefix}-{stem}"
     if n <= 1:
         return f"{base}.zip"
     return f"{base}-{n}.zip"

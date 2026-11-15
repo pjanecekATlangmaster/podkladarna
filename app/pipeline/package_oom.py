@@ -65,6 +65,7 @@ from app.pipeline.source_meta import (
     format_source_epochs_readme,
 )
 from app.pipeline.vegetation_gdal import build_vegetation_parts
+from app.pipeline import zip_texts_en
 from app.settings import APP_VERSION
 
 
@@ -499,6 +500,11 @@ def oom_metadata(
     meta["country"] = job_country_code(options)
     meta["citation_short"] = citation(options)
     meta["data_sources"] = list(attribution_lines(options))
+    # Jazyk textů ZIPu = jazyk stránky zadání (mezinárodní verze anglicky).
+    meta["lang"] = zip_texts_en.zip_lang(options)
+    if meta["lang"] == "en":
+        meta["indicative_label"] = zip_texts_en.INDICATIVE_LABEL_EN
+        meta["citation"] = zip_texts_en.citation_line_en(meta["citation_short"])
     if reference_layers:
         meta["reference_layers"] = reference_layers
     meta["path_source"] = oom_path_source(options, preset_id)
@@ -525,6 +531,31 @@ def _country_citation(meta: dict | None) -> dict:
         out["attribution"] = tuple(meta["data_sources"])
     out["github"] = _is_cz(meta)
     return out
+
+
+CZ_DATA_SOURCES_EN = (
+    "ČÚZK data (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, orthophoto) – CC BY 4.0.",
+    "AOPK memorial trees (CC BY 4.0). OSM © OpenStreetMap contributors (ODbL).",
+)
+
+
+def zip_about(meta: dict | None) -> tuple[str, str]:
+    """Název a text úvodního souboru ZIPu podle jazyka zadání (CO_JE_PODKLADARNA.txt / ABOUT_OMAPIC.txt)."""
+    meta = meta or {}
+    kw = _country_citation(meta)
+    if zip_texts_en.zip_lang(meta) == "en":
+        attribution = kw.get("attribution") if not _is_cz(meta) else CZ_DATA_SOURCES_EN
+        return zip_texts_en.ABOUT_NAME_EN, zip_texts_en.about_txt_en(
+            kw.get("citation") or meta.get("citation_short") or "", tuple(attribution or CZ_DATA_SOURCES_EN), cz=_is_cz(meta)
+        )
+    return "CO_JE_PODKLADARNA.txt", zip_about_txt(**kw)
+
+
+def _data_sources_line_en(meta: dict) -> str:
+    lines = meta.get("data_sources") or []
+    if not lines or _is_cz(meta):
+        return "Data: " + " ".join(CZ_DATA_SOURCES_EN)
+    return "Data:\n" + "\n".join(f"- {line}" for line in lines) + "\n"
 
 
 def _data_sources_line(meta: dict) -> str:
@@ -557,6 +588,17 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         except FileNotFoundError:
             return code
 
+    if zip_texts_en.zip_lang(meta) == "en":
+        from app.pipeline.online_templates import wms_readme_lines
+
+        return zip_texts_en.oom_readme_en(
+            meta,
+            sentinel_info=sentinel_info,
+            code=_c,
+            crs_text=_crs_readme(meta),
+            data_sources=_data_sources_line_en(meta),
+            wms_lines=wms_readme_lines,
+        )
     scale = meta.get("scale") or "?"
     label = meta.get("label") or meta.get("preset_id") or ""
     interval = meta.get("contour_interval_m")
@@ -689,6 +731,10 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         "Podkladárna je experiment, proto ocením zpětnou vazbu a připomínky"
         + (":\nhttps://github.com/pjanecekATlangmaster/podkladarna/issues\n" if _is_cz(meta) else ".\n")
     )
+
+
+def _osm_readme_en(meta: dict) -> str:
+    return zip_texts_en.osm_folder_readme_en(describe_code, _crs_readme(meta))
 
 
 def online_template_files(reference_dir: Path) -> list[Path]:
@@ -1436,10 +1482,8 @@ def build_oom_zip(
     part_zip.unlink(missing_ok=True)
 
     with zipfile.ZipFile(part_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(
-            "CO_JE_PODKLADARNA.txt",
-            zip_about_txt(**_country_citation(metadata)),
-        )
+        zf.writestr(*zip_about(metadata))
+        english = zip_texts_en.zip_lang(metadata) == "en"
         if omap_paths:
             for omap_path in omap_paths:
                 if omap_path.is_file():
@@ -1540,7 +1584,10 @@ def build_oom_zip(
         if manual_dir.is_dir():
             for path in sorted(manual_dir.iterdir()):
                 if path.name == "README.txt":
-                    zf.write(path, "osm/README.txt")
+                    if english:
+                        zf.writestr("osm/README.txt", _osm_readme_en(metadata))
+                    else:
+                        zf.write(path, "osm/README.txt")
                     continue
                 if path.is_file() and path.suffix.lower() in {
                     ".shp",
@@ -1551,7 +1598,7 @@ def build_oom_zip(
                 }:
                     zf.write(path, f"osm/{path.name}")
         else:
-            zf.writestr("osm/README.txt", OSM_FOLDER_README)
+            zf.writestr("osm/README.txt", _osm_readme_en(metadata) if english else OSM_FOLDER_README)
         # Budovy: OSM_budovy.shp z osm_paths/budovy/ → přímo do osm/ (ne podsložka).
         budovy_shp = osm_dir / "budovy"
         if budovy_shp.is_dir():
@@ -1620,7 +1667,7 @@ def build_oom_zip(
         )
 
         finalize_uzitecne_vectors(kp_cwd)
-        add_uzitecne_to_zip(zf, kp_cwd)
+        add_uzitecne_to_zip(zf, kp_cwd, english=english)
 
     os.replace(part_zip, dest_zip)
     return dest_zip
