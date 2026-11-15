@@ -20,6 +20,7 @@ Kde DTM z měření chybí (AHN: budovy a voda), je CHM 0.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -420,6 +421,7 @@ DE_BE_TILE_M = 2000
 DE_BE_BUFFER_M = 20.0
 DE_BE_KINDS = {"dtm": "dgm1/atom/DGM1_{e}_{n}.zip", "dsm": "dom/atom/DOM1_{e}_{n}.zip"}
 DE_BE_CACHE = {"dtm": "dgm1", "dsm": "dom1"}
+DE_BE_MAX_ZIP_BYTES = 200_000_000  # dlaždice má ~20 MB; víc je chyba služby
 
 
 def berlin_tiles(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
@@ -437,35 +439,55 @@ def berlin_tile_url(kind: str, east_km: int, north_km: int) -> str:
     return f"{DE_BE_BASE}/{DE_BE_KINDS[kind].format(e=east_km, n=north_km)}"
 
 
+def berlin_tile_dir(east_km: int, north_km: int) -> Path:
+    """Složka dlaždice v cache (terén i povrch); úklid cache (``download_cache.prune_lidar_cache``) ji maže celou."""
+    return settings.CACHE_DIR / "de_berlin" / f"{east_km}_{north_km}"
+
+
 def _berlin_tile(kind: str, east_km: int, north_km: int, *, log=None) -> Path | None:
     """GeoTIFF dlaždice z cache, jinak stáhne ZIP s XYZ a převede; None mimo Berlín (404)."""
+    import tempfile
     import urllib.error
     import urllib.request
     import zipfile
 
+    from app.download_cache import touch_last_used
     from app.pipeline.fetch_openzu import USER_AGENT
 
-    dest = settings.CACHE_DIR / "de_berlin" / DE_BE_CACHE[kind] / f"{east_km}_{north_km}.tif"
+    folder = berlin_tile_dir(east_km, north_km)
+    dest = folder / f"{DE_BE_CACHE[kind]}.tif"
     if dest.is_file():
+        touch_last_used(folder)
         return dest
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    zpath = dest.with_suffix(".part.zip")  # /vsizip pozná archiv podle přípony
+    folder.mkdir(parents=True, exist_ok=True)
+    # Jedinečné dočasné soubory (souběžné joby nad stejnou dlaždicí), na konci přejmenování; /vsizip chce příponu .zip.
+    fd, zname = tempfile.mkstemp(prefix=f".{DE_BE_CACHE[kind]}-", suffix=".zip", dir=folder)
+    os.close(fd)
+    zpath = Path(zname)
+    tmp: Path | None = None
     req = urllib.request.Request(berlin_tile_url(kind, east_km, north_km), headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=300) as resp, zpath.open("wb") as fh:
-            while chunk := resp.read(1 << 20):
-                fh.write(chunk)
-    except urllib.error.HTTPError as exc:
-        zpath.unlink(missing_ok=True)
-        if exc.code == 404:
-            return None
-        raise
-    try:
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp, zpath.open("wb") as fh:
+                size = 0
+                while chunk := resp.read(1 << 20):
+                    size += len(chunk)
+                    if size > DE_BE_MAX_ZIP_BYTES:
+                        raise RuntimeError(
+                            f"Berlín {kind} {east_km}_{north_km}: ZIP větší než {DE_BE_MAX_ZIP_BYTES // 1_000_000} MB"
+                        )
+                    fh.write(chunk)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise
         with zipfile.ZipFile(zpath) as zf:
             names = [n for n in zf.namelist() if n.lower().endswith((".xyz", ".txt"))]
         if not names:
             raise RuntimeError(f"Berlín {kind} {east_km}_{north_km}: ZIP bez XYZ")
-        tmp = dest.with_suffix(".part.tif")
+        fd, tname = tempfile.mkstemp(prefix=f".{DE_BE_CACHE[kind]}-", suffix=".tif", dir=folder)
+        os.close(fd)
+        tmp = Path(tname)
         # gdalwarp (ne translate): DGM1 má řádky od jihu, výstup sever nahoře (gdalbuildvrt jinak odmítne)
         run_cmd(
             [_gdal_tool("gdalwarp"), "-q", "-overwrite", "-s_srs", DE_BE_CRS, "-t_srs", DE_BE_CRS, "-ot", "Float32",
@@ -473,11 +495,15 @@ def _berlin_tile(kind: str, east_km: int, north_km: int, *, log=None) -> Path | 
              f"/vsizip/{zpath}/{names[0]}", str(tmp)],
             log=log,
         )
-        if not tmp.is_file():
+        if not tmp.is_file() or tmp.stat().st_size == 0:
             raise RuntimeError(f"Berlín {kind} {east_km}_{north_km}: převod XYZ selhal")
         tmp.replace(dest)
+        tmp = None
     finally:
         zpath.unlink(missing_ok=True)
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+    touch_last_used(folder)
     if log:
         log(f"  Berlín {kind} {east_km}_{north_km}: {dest.stat().st_size / 1e6:.1f} MB")
     return dest

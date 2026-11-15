@@ -183,8 +183,15 @@ def test_prune_lidar_cache_drops_least_recently_used(tmp_path: Path, monkeypatch
         t = 1_000_000 - age
         os.utime(folder / ".last_used", (t, t))
 
+    berlin = tmp_path / "de_berlin" / "390_5818"  # dlaždice výšek Berlína je položka cache jako list
+    berlin.mkdir(parents=True)
+    (berlin / "dgm1.tif").write_bytes(b"b" * 700)
+    touch_last_used(berlin)
+    os.utime(berlin / ".last_used", (1_000_000 - 500, 1_000_000 - 500))
+
     freed = prune_lidar_cache(max_bytes=3200, keep_sheets={"job"})
-    assert freed == 3000  # OLD + MID (každý 1 500 B), JOB zůstává
+    assert freed == 3700  # Berlín (700 B) + OLD + MID (každý 1 500 B), JOB zůstává
+    assert not berlin.exists()
     assert not units["OLD"].exists() and not units["MID"].exists()
     assert not (tmp_path / "lidar_sheet_crop" / "OLD").exists()
     assert units["NEW"].exists() and units["JOB"].exists()
