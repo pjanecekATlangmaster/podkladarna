@@ -3042,3 +3042,27 @@ def test_fences_kept_without_osm_objects(tmp_path, monkeypatch):
         )
         feats = json.loads((tmp_path / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))["features"]
         assert {f["properties"].get("kind") for f in feats} == want
+
+
+@pytest.mark.parametrize(
+    "ways, sea_m2",
+    [
+        ([[(-10, 50), (110, 50)]], 5000),  # pevnina vlevo od směru (sever), moře vpravo (jih)
+        ([[(110, 50), (-10, 50)]], 5000),  # opačný směr: moře na severu, plocha stejná
+        ([[(-10, 50), (110, 50)], [(40, 10), (60, 10), (60, 30), (40, 30), (40, 10)]], 4600),  # ostrov v moři
+        ([[(-10, 150), (110, 150)]], 0),  # pobřeží mimo výřez → nic
+    ],
+)
+def test_sea_from_coastline(monkeypatch, ways, sea_m2):
+    """Moře mimo Česko: OSM ho vede jen pobřežní čárou (pevnina vlevo), výřez se jí rozdělí na moře 301 a pevninu."""
+    from shapely.geometry import shape
+
+    from app.pipeline import osm_paths
+
+    monkeypatch.setattr(osm_paths, "wgs84_to_projected", lambda lat, lon: (lon, lat))
+    elements = [{"type": "way", "tags": {"natural": "coastline"}, "geometry": [{"lat": y, "lon": x} for x, y in w]}
+                for w in ways]
+    feats = osm_paths.sea_features(elements, (0.0, 0.0, 100.0, 100.0))
+    assert sum(shape(f["geometry"]).area for f in feats) == pytest.approx(sea_m2)
+    assert all(f["properties"]["kind"] == "water_body" and f["properties"]["oom_code"] == "301" for f in feats)
+    assert osm_paths.classify_osm_feature({"natural": "coastline"}) is None  # čára pobřeží se nekreslí

@@ -22,7 +22,7 @@ from zipfile import ZipFile
 
 from app.pipeline import zone_index
 from app.pipeline.crs_5514 import CRS_LABEL, wgs84_to_projected, write_prj
-from app.pipeline.fetch_openzu import USER_AGENT, VECTOR_FETCH_BUFFER_M, expand_bbox_wgs84
+from app.pipeline.fetch_openzu import USER_AGENT, VECTOR_FETCH_BUFFER_M, crop_bounds_5514, expand_bbox_wgs84
 from app.pipeline.geom_clip import Bounds, clip_polyline, clip_ring, point_inside
 from app.pipeline.oom_coords import projected_to_map_coord
 from app.pipeline.oom_import import (
@@ -503,6 +503,8 @@ def _overpass_ql(
         f'way["landuse"~"^(reservoir|basin)$"]({bbox});',
         # Vodní toky (potok, řeka, kanál, příkop) → 306 jako ZABAGED VodniTok; v Česku je kreslí ZABAGED.
         *([] if _cz_process() else [f'way["waterway"~"^({"|".join(sorted(OSM_WATERWAY_LINES))})$"]({bbox});']),
+        # Moře: OSM ho nemá jako plochu, jen pobřežní čáru (pevnina vlevo) → plocha 301 (``sea_features``). Česko moře nemá.
+        *([] if _cz_process() else [f'way["natural"="coastline"]({bbox});']),
         # Obdělávaná půda → ISOM 412 (zdroj OSM, ne ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
         # Rezidenční plocha – subject pro inverzní 501 (ne kreslí se samostatně).
@@ -4493,6 +4495,7 @@ def prepare_osm_paths(
         from app.pipeline.playground_equipment import mark_private_playgrounds
 
         mark_private_playgrounds(features, private_gardens, private_pools)
+    features.extend(sea_features(elements, crop_bounds_5514(*fetch_bbox)))
     features = clip_waterways_by_water(features)
     feat_out = dest_dir / "features.geojson"
     feat_out.write_text(
@@ -5038,6 +5041,68 @@ def zabaged_other_cover_geometries(work_dir: Path) -> dict:
     if mask.is_empty:
         return {}
     return {layer: mask for layer in ZABAGED_COVER_YIELD_LAYERS}
+
+
+SEA_SIDE_PROBE_M = 0.5  # vzorek kousek vpravo / vlevo od pobřežní čáry
+
+
+def sea_features(elements: list[dict], bounds: tuple[float, float, float, float]) -> list[dict]:
+    """Moře ve výřezu jako plochy 301 z OSM ``natural=coastline`` (pevnina vlevo od směru čáry, moře vpravo).
+
+    Obdélník výřezu se pobřežními čarami rozdělí na stěny; o každé rozhodne většina vzorků vpravo (moře) a vlevo
+    (pevnina) od úseků pobřeží, které ji ohraničují. Bez pobřeží ve výřezu nic (celý výřez na moři se nekreslí).
+    """
+    try:
+        from shapely.geometry import LineString, Point, box, mapping
+        from shapely.ops import polygonize, unary_union
+        from shapely.strtree import STRtree
+    except ImportError:
+        return []
+    area = box(*bounds)
+    lines = []
+    for el in elements:
+        if el.get("type") != "way" or ((el.get("tags") or {}).get("natural") or "").lower() != "coastline":
+            continue
+        pts = [
+            wgs84_to_projected(float(g["lat"]), float(g["lon"]))
+            for g in (el.get("geometry") or [])
+            if isinstance(g, dict) and g.get("lat") is not None and g.get("lon") is not None
+        ]
+        if len(pts) >= 2:
+            lines.append(LineString(pts))
+    coast = [ln for ln in lines if ln.intersects(area)]
+    if not coast:
+        return []
+    faces = list(polygonize(unary_union([area.boundary, *[ln.intersection(area) for ln in coast]])))
+    if len(faces) < 2:
+        return []
+    tree = STRtree(faces)
+    votes = [0] * len(faces)
+    for ln in coast:
+        cs = list(ln.coords)
+        for (x0, y0), (x1, y1) in zip(cs, cs[1:]):
+            dx, dy = x1 - x0, y1 - y0
+            length = (dx * dx + dy * dy) ** 0.5
+            if length < 2 * SEA_SIDE_PROBE_M:
+                continue
+            mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+            if not area.contains(Point(mx, my)):
+                continue
+            nx, ny = dy / length * SEA_SIDE_PROBE_M, -dx / length * SEA_SIDE_PROBE_M  # vpravo od směru
+            for px, py, vote in ((mx + nx, my + ny, 1), (mx - nx, my - ny, -1)):
+                pt = Point(px, py)
+                for i in tree.query(pt):
+                    if faces[i].contains(pt):
+                        votes[i] += vote
+                        break
+    out = []
+    for face, vote in zip(faces, votes):
+        if vote <= 0:
+            continue
+        geom = mapping(face)
+        out.append({"type": "Feature", "properties": {"source": "osm", "kind": "water_body", "oom_code": "301",
+                                                      "sea": True}, "geometry": geom})
+    return out
 
 
 def clip_waterways_by_water(feats: list[dict]) -> list[dict]:
