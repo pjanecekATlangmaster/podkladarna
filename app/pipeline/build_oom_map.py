@@ -18,6 +18,7 @@ from app.pipeline.oom_symbol_map import display_code
 from app.pipeline.symbol_catalog import uses_catalog
 from app.pipeline.oom_symbols import (
     colors_and_symbols_xml,
+    english_symbol_names,
     drop_symbols_by_id,
     symbol_set_path,
     unhide_symbols_by_id,
@@ -34,11 +35,32 @@ __all__ = [
 ]
 
 
-def _citation_note() -> str:
+def _citation_note(lang: str = "cs") -> str:
     """Citace zdrojů podle země běžícího jobu (licence místních dat vyžadují uvedení zdroje)."""
     from app.pipeline.country_profile import citation
 
+    if lang == "en":
+        from app.pipeline.zip_texts_en import citation_en
+
+        return f"When sharing, credit: {citation_en(citation())}"
     return f"Při šíření uveďte: {citation()}"
+
+
+def _notes(lang: str, safe_name: str, c101: str, c102: str) -> str:
+    """Poznámka mapy (Mapa → Poznámky) v jazyce výstupu."""
+    if lang == "en":
+        return (
+            f"Omapic – {safe_name}\n"
+            f"Default view: vector map only. Contours {c101}/{c102} are locked.\n"
+            "Switch on base maps (OSM, orthophoto, …) in Templates → Template setup.\n"
+            f"{html.escape(_citation_note(lang))}"
+        )
+    return (
+        f"Podkladárna – {safe_name}\n"
+        f"Výchozí pohled: jen vektorová mapa. Vrstevnice {c101}/{c102} jsou zamčené.\n"
+        "PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.\n"
+        f"{html.escape(_citation_note())}"
+    )
 
 
 def _template_xml(tmpl: OomTemplate) -> str:
@@ -71,6 +93,7 @@ def _parts_xml(
     parts: list[OomObjectPart],
     *,
     hidden_parts: list[OomObjectPart] | None = None,
+    main_name: str = "Mapa",
 ) -> tuple[str, int]:
     """Hlavní část current=0; skryté části až za ní (např. pomocné importy)."""
     nonempty = [p for p in parts if p.objects_xml and p.count]
@@ -78,7 +101,7 @@ def _parts_xml(
     if not nonempty and not hidden:
         return (
             '        <parts count="1" current="0">\n'
-            '            <part name="Mapa">\n'
+            f'            <part name="{main_name}">\n'
             '                <objects count="0"/>\n'
             "            </part>\n"
             "        </parts>",
@@ -92,7 +115,7 @@ def _parts_xml(
         total += n
         objects_xml = "\n".join(p.objects_xml for p in nonempty)
         blocks.append(
-            '            <part name="Mapa">\n'
+            f'            <part name="{main_name}">\n'
             f'                <objects count="{n}">\n'
             f"{objects_xml}\n"
             "                </objects>\n"
@@ -100,7 +123,7 @@ def _parts_xml(
         )
     else:
         blocks.append(
-            '            <part name="Mapa">\n'
+            f'            <part name="{main_name}">\n'
             '                <objects count="0"/>\n'
             "            </part>"
         )
@@ -174,8 +197,14 @@ def build_oom_map_xml(
     preset_id: str,
 ) -> str:
     """.omap s kontrolním PNG a editovatelnými objekty mapy."""
+    from app.pipeline.country_profile import process_lang
+
+    lang = process_lang()
     set_path = symbol_set_path(preset_id, scale)
     colors_xml, symbols_xml = colors_and_symbols_xml(set_path)
+    if lang == "en":
+        # Mezinárodní verze: názvy symbolů anglicky (OCAD sady), kódy a vzhled beze změny.
+        symbols_xml = english_symbol_names(symbols_xml)
     templates_xml = "\n".join(_template_xml(t) for t in templates)
     template_refs = "\n".join(
         f'                    <ref template="{i}" visible="{"true" if t.visible else "false"}"'
@@ -187,6 +216,7 @@ def build_oom_map_xml(
     parts_xml, _ = _parts_xml(
         object_parts or [],
         hidden_parts=hidden_object_parts,
+        main_name="Map" if lang == "en" else "Mapa",
     )
     used = set(re.findall(r'<object\b[^>]*\bsymbol="(\d+)"', parts_xml))
     if set_path.name.startswith("ISMTBOM"):
@@ -206,10 +236,7 @@ def build_oom_map_xml(
     crs = html.escape(CRS_PROJ4)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
-    <notes>Podkladárna – {safe_name}
-Výchozí pohled: jen vektorová mapa. Vrstevnice {display_code(preset_id, scale, "101")}/{display_code(preset_id, scale, "102")} jsou zamčené.
-PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.
-{html.escape(_citation_note())}</notes>
+    <notes>{_notes(lang, safe_name, display_code(preset_id, scale, "101"), display_code(preset_id, scale, "102"))}</notes>
     <georeferencing scale="{scale}" auxiliary_scale_factor="1" declination="{declination:.2f}" grivation="{grivation:.2f}">
         <projected_crs id="EPSG">
             <spec language="PROJ.4">{crs}</spec>

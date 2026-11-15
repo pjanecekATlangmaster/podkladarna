@@ -230,39 +230,63 @@ def _join_en(items: list[str]) -> str:
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1] if items else ""
 
 
-def dtm_readme_en(summary: dict[str, Any] | None) -> str:
-    """Krátký anglický blok o DTM z údajů souhrnu (české věty souhrnu se nepřekládají slovo od slova)."""
+def dtm_lines_en(summary: dict[str, Any] | None) -> dict[str, list[str]]:
+    """Anglické věty o DTM z údajů souhrnu (``lines``, ``warn_lines``, ``notice_lines`` jako v souhrnu, bez prefixů).
+
+    České věty souhrnu se nepřekládají slovo od slova; skládají se znovu z počtů a stavů."""
+    out: dict[str, list[str]] = {"lines": [], "warn_lines": [], "notice_lines": []}
     if not summary or not summary.get("lines"):
-        return ""
-    title = "Digital Technical Map (DTM)"
+        return out
     state = summary.get("state")
     maps = summary.get("maps") or {}
     used = [_DTM_MAPS_EN.get(k, k) for k, v in maps.items() if v] if isinstance(maps, dict) else []
-    lines: list[str] = []
+    required = bool(summary.get("warn_lines"))
     if state in {"used", "weak"}:
         counts = summary.get("counts") or {}
         names = {"ploty": "fences", "budovy": "buildings", "chodníky": "sidewalks", "silnice": "roads", "parkoviště": "parking"}
         detail = ", ".join(f"{names.get(k, k)} {n}" for k, n in counts.items() if n)
         head = "ČÚZK Digital Technical Map (DTM): used" + (f" for {_join_en(used)}" if used else "")
-        lines.append(head + (f" ({detail})." if detail else "."))
+        out["lines"].append(head + (f" ({detail})." if detail else "."))
+        problems: list[str] = []
         missing = summary.get("missing") or []
         total = summary.get("units_total") or 0
         if missing and total:
-            lines.append(
-                f"{WARNING_PREFIX_EN}DTM covers only {total - len(missing)} of {total} municipalities of the area "
+            problems.append(
+                f"DTM covers only {total - len(missing)} of {total} municipalities of the area "
                 f"(missing: {', '.join(missing)}); elsewhere the map is drawn from OSM and ZABAGED."
             )
         incomplete = summary.get("incomplete") or []
         if incomplete:
-            lines.append(
+            problems.append(
                 f"DTM areas are incomplete in {', '.join(incomplete)}; buildings and sidewalks there come from OSM."
             )
+        out["lines"] += problems
+        if required:
+            out["warn_lines"] += problems
     elif state == "failed":
-        lines.append(NOTICE_PREFIX_EN + DTM_OUTAGE_NOTICE_EN)
+        out["lines"].append(DTM_OUTAGE_NOTICE_EN)
+        if summary.get("notice_lines"):
+            out["notice_lines"].append(DTM_OUTAGE_NOTICE_EN)
+        elif required:
+            out["warn_lines"].append(DTM_OUTAGE_NOTICE_EN)
     elif state == "pending":
-        lines.append("DTM data were still being prepared; the map is drawn from OSM and ZABAGED.")
+        out["lines"].append("DTM data were still being prepared; the map is drawn from OSM and ZABAGED.")
     else:
-        lines.append("DTM was not used for this map (switched off or no DTM data in the area).")
+        out["lines"].append("DTM was not used for this map (switched off or no DTM data in the area).")
+    return out
+
+
+def dtm_readme_en(summary: dict[str, Any] | None) -> str:
+    """Anglický blok o DTM do README_OOM.txt."""
+    parts = dtm_lines_en(summary)
+    if not parts["lines"]:
+        return ""
+    warn, notice = set(parts["warn_lines"]), set(parts["notice_lines"])
+    lines = [
+        (WARNING_PREFIX_EN if line in warn else NOTICE_PREFIX_EN if line in notice else "") + line
+        for line in parts["lines"]
+    ]
+    title = "Digital Technical Map (DTM)"
     return "\n".join([title, "-" * len(title), *lines])
 
 

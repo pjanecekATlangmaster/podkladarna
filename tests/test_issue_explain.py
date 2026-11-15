@@ -77,3 +77,17 @@ def test_failure_summary(technical, expected):
     text = ie.failure_summary(technical)
     assert text.startswith("Mapu se nepodařilo vytvořit.")
     assert expected in text
+
+
+def test_summaries_in_job_language():
+    """Zadání z mezinárodní verze: karta jobu anglicky (stejná pravidla, texty z katalogu)."""
+    import re
+
+    text = ie.user_summary(["Ortofoto: přeskočeno (503)", "OSM: přeskočeno (x)", "Srázy: přeskočeno (E)"], "en")
+    assert text.startswith("The map is finished but incomplete – missing: paths and objects from OpenStreetMap, cliffs.")
+    assert "orthophoto" in text and "author" in text and "Petr" not in text
+    failed = ie.failure_summary("Pipeline skončila s kódem -9", "en")
+    assert failed.startswith("The map could not be created.") and "memory" in failed
+    for msg in (text, failed, ie.failure_summary("KeyError", "en")):
+        assert not re.search(r"[ěščřžůĚŠČŘŽŮ]", msg) and "Podkladárn" not in msg
+    assert ie.failure_summary("KeyError").startswith("Mapu se nepodařilo vytvořit.")

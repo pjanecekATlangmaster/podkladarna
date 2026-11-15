@@ -1182,6 +1182,11 @@ def _row_to_job(
         # Web zvýrazní jen věty o skutečném problému (i u starších jobů bez ``warn_lines``).
         warn = warning_lines(dtm_summary)
         dtm_summary["warn_lines"] = [line for line in dtm_summary.get("lines") or [] if line in warn]
+        from app.pipeline.zip_texts_en import dtm_lines_en, zip_lang
+
+        if zip_lang(job.get("options")) == "en":
+            # Mezinárodní verze: věty o DTM anglicky (web i e-mail berou souhrn odsud).
+            dtm_summary.update(dtm_lines_en(dtm_summary))
         job["dtm_summary"] = dtm_summary
     if source_meta:
         job["source_meta"] = source_meta
