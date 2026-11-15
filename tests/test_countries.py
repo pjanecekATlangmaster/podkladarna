@@ -47,10 +47,34 @@ def test_allowed_countries_by_site():
         countries.check_bbox((14.40, 50.08, 14.42, 50.09), None, "AT")
 
 
+def _in_ring(pt, ring):
+    x, y = pt
+    inside = False
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            inside = not inside
+    return inside
+
+
+def test_coverage_technical_map_gaps(monkeypatch):
+    """Zvýraznění v mapě výběru: CH má technickou mapu s mezerami (kantony bez AV), město je celé."""
+    monkeypatch.setenv("COUNTRIES_BETA", "*")
+    items = {c["code"]: c for c in countries.coverage_payload(None)["countries"]}
+    assert items["CH"]["technical_map"] is True
+    gaps = items["CH"]["technical_map_gaps"]
+    assert gaps["type"] == "MultiPolygon" and len(gaps["coordinates"]) == 2
+    lausanne = (6.63, 46.52)  # VD bez volné AV
+    assert any(_in_ring(lausanne, poly[0]) for poly in gaps["coordinates"])
+    assert not any(_in_ring((8.54, 47.37), poly[0]) for poly in gaps["coordinates"])  # Curych má AV
+    assert items["FR"]["technical_map"] is True and items["FR"]["technical_map_gaps"] is None
+
+
 def test_api_coverage_and_sheets_outside(client):
     body = client.get("/api/coverage").json()
     assert [c["code"] for c in body["countries"]] == ["CZ"]
     assert body["countries"][0]["geometry"]["type"] == "Polygon"
+    assert body["countries"][0]["technical_map"] is True
+    assert body["countries"][0]["technical_map_gaps"] is None
     r = client.get("/api/sheets", params={"bbox": "16.35,48.18,16.40,48.22"})
     assert r.status_code == 400
     assert "mimo podporované území (Česko)" in r.json()["detail"]

@@ -449,6 +449,32 @@ legend {
   margin: 0.5rem 0 0;
 }
 
+.map-legend {
+  background: rgba(255, 255, 255, 0.92);
+  color: #222;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  max-width: 230px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+.map-legend-title { font-weight: 600; margin-bottom: 3px; }
+.map-legend-row { display: flex; align-items: center; gap: 6px; }
+.map-legend-swatch {
+  flex: none;
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1.5px solid;
+}
+.map-legend-full { background: rgba(31, 157, 85, 0.25); border-color: #1f9d55; }
+.map-legend-osm { background: rgba(217, 154, 0, 0.35); border-color: #d99a00; }
+.map-legend-outside { background: rgba(0, 0, 0, 0.18); border-color: #666; }
+@media (max-width: 600px) {
+  .map-legend { font-size: 11px; max-width: 170px; padding: 4px 6px; }
+}
+
 #bbox-map .leaflet-container {
   width: 100% !important;
   max-width: 100%;

@@ -4,6 +4,7 @@
 # elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | fr_lidarhd | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
+# technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
 # view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
 CZ:
@@ -59,6 +60,7 @@ CH:
   view: [45.82, 5.95, 47.81, 10.49]
   elevation: ch_swisstopo   # swissALTI3D (terén) + swissSURFACE3D Raster (povrch) 0,5 m, STAC swisstopo, výšky LN02
   technical_map: ch_av      # AV kantonů z WFS geodienste.ch (bez JU, LU, NE, NW, OW, VD – tam jen OSM)
+  technical_map_gaps: countries/ch_no_av.geojson  # kantony bez volné AV (swissBOUNDARIES3D, zjednodušeno)
   cz_sources: false
   # Licence: swisstopo OGD (volné použití, uvést zdroj), AV kantonů „Freie Nutzung, Quellenangabe ist Pflicht“.
   citation: "Podklad: Podkladárna · © swisstopo · AV kantonů (geodienste.ch) · OSM, [rok]"

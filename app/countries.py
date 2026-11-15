@@ -65,6 +65,8 @@ class Country:
     # Citace zdrojů, které vyžadují licence místních dat (README, CO_JE_PODKLADARNA, poznámka .omap).
     attribution: tuple[str, ...] = ()
     citation: str = ""
+    # Části země bez technické mapy (např. kantony CH bez volné AV): kreslí se tam jen z OSM; mapa v GUI je odliší.
+    technical_map_gaps: tuple[tuple[tuple[float, float], ...], ...] = ()
 
     def name(self, lang: str = "cs") -> str:
         return self.names.get(lang) or self.names.get("en") or self.code
@@ -80,10 +82,18 @@ class Country:
         return min(xs), min(ys), max(xs), max(ys)
 
     def geojson(self) -> dict[str, Any]:
-        polys = [[[list(p) for p in ring]] for ring in self.rings]
-        if len(polys) == 1:
-            return {"type": "Polygon", "coordinates": polys[0]}
-        return {"type": "MultiPolygon", "coordinates": polys}
+        return _rings_geojson(self.rings)
+
+    @property
+    def has_technical_map(self) -> bool:
+        return self.technical_map not in ("", "none")
+
+
+def _rings_geojson(rings) -> dict[str, Any]:
+    polys = [[[list(p) for p in ring]] for ring in rings]
+    if len(polys) == 1:
+        return {"type": "Polygon", "coordinates": polys[0]}
+    return {"type": "MultiPolygon", "coordinates": polys}
 
 
 def _rings_from_geojson(path: Path) -> tuple[tuple[tuple[float, float], ...], ...]:
@@ -125,6 +135,9 @@ def load_countries() -> dict[str, Country]:
             technical_map=str(spec.get("technical_map") or ("cz_dtm" if code == DEFAULT_COUNTRY else "none")),
             attribution=tuple(str(line) for line in (spec.get("attribution") or [])),
             citation=str(spec.get("citation") or ""),
+            technical_map_gaps=(
+                _rings_from_geojson(CONFIG_DIR / spec["technical_map_gaps"]) if spec.get("technical_map_gaps") else ()
+            ),
         )
         if len(view) != 4:
             w, s, e, n = country.envelope
@@ -298,6 +311,9 @@ def coverage_payload(site: Any = None, lang: str = "cs") -> dict[str, Any]:
                 "bounds": [round(s, 4), round(w, 4), round(n, 4), round(e, 4)],
                 "view": list(c.view),
                 "geometry": c.geojson(),
+                # Zvýraznění v mapě výběru: kde je výška + technická mapa (obdoba DTM), kde jen výška + OSM.
+                "technical_map": c.has_technical_map,
+                "technical_map_gaps": _rings_geojson(c.technical_map_gaps) if c.technical_map_gaps else None,
             }
         )
     return {"countries": items, "min_share": MIN_SHARE}

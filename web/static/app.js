@@ -2114,6 +2114,79 @@ async function loadCoverage() {
     fillOpacity: 0.18,
     interactive: false,
   }).addTo(bboxMap);
+  addDataAvailabilityLayers(items);
+}
+
+// Barvy zvýraznění dostupných dat (legenda v mapě výběru).
+const DATA_COLORS = { full: "#1f9d55", osm: "#d99a00" };
+
+function geometryRings(g) {
+  const polys = !g ? [] : g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+  return polys.filter((p) => p && p[0]).map((p) => p[0].map(([lng, lat]) => [lat, lng]));
+}
+
+/** Zvýraznění území: zeleně výšky + technická mapa (obdoba DTM), oranžově jen výšky + OSM; legenda barev. */
+function addDataAvailabilityLayers(items) {
+  const smallAreas = L.layerGroup();
+  let hasOsmOnly = false;
+  for (const c of items) {
+    const rings = geometryRings(c.geometry);
+    if (!rings.length) continue;
+    const full = c.technical_map !== false;
+    if (!full) hasOsmOnly = true;
+    const color = full ? DATA_COLORS.full : DATA_COLORS.osm;
+    L.polygon(rings, { color, weight: 1.5, fillColor: color, fillOpacity: 0.1, interactive: false }).addTo(bboxMap);
+    const gaps = full ? geometryRings(c.technical_map_gaps) : [];
+    if (gaps.length) {
+      hasOsmOnly = true;
+      L.polygon(gaps, {
+        color: DATA_COLORS.osm,
+        weight: 1,
+        fillColor: DATA_COLORS.osm,
+        fillOpacity: 0.22,
+        interactive: false,
+      }).addTo(bboxMap);
+    }
+    // Město (Vídeň, Berlín, Paříž) je v přehledu státu jen pár pixelů – značka, dokud se nepřiblíží.
+    const [s, w, n, e] = c.bounds;
+    if (n - s < 1 && e - w < 1) {
+      L.circleMarker([(s + n) / 2, (w + e) / 2], {
+        radius: 7,
+        color,
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.45,
+        interactive: false,
+      }).addTo(smallAreas);
+    }
+  }
+  const SMALL_AREA_MAX_ZOOM = 8;
+  const toggleSmall = () => {
+    if (bboxMap.getZoom() <= SMALL_AREA_MAX_ZOOM) smallAreas.addTo(bboxMap);
+    else bboxMap.removeLayer(smallAreas);
+  };
+  bboxMap.on("zoomend", toggleSmall);
+  toggleSmall();
+
+  const legend = L.control({ position: "topright" });
+  legend.onAdd = () => {
+    const box = L.DomUtil.create("div", "map-legend");
+    const title = L.DomUtil.create("div", "map-legend-title", box);
+    title.textContent = t("web.js.legend.title");
+    const rows = [["full", t("web.js.legend.full")]];
+    if (hasOsmOnly) rows.push(["osm", t("web.js.legend.osm_only")]);
+    rows.push(["outside", t("web.js.legend.outside")]);
+    for (const [kind, label] of rows) {
+      const row = L.DomUtil.create("div", "map-legend-row", box);
+      const sw = L.DomUtil.create("span", `map-legend-swatch map-legend-${kind}`, row);
+      sw.setAttribute("aria-hidden", "true");
+      const txt = L.DomUtil.create("span", "", row);
+      txt.textContent = label;
+    }
+    L.DomEvent.disableClickPropagation(box);
+    return box;
+  };
+  legend.addTo(bboxMap);
 }
 
 function countryName(code) {
@@ -2557,7 +2630,7 @@ function refreshBboxBadge() {
 
 function initBboxBadge() {
   if (!bboxMap || typeof L === "undefined") return;
-  const ctl = L.control({ position: "bottomleft" });
+  const ctl = L.control({ position: "topright" });
   ctl.onAdd = () => {
     const div = L.DomUtil.create("div", "bbox-badge");
     L.DomEvent.disableClickPropagation(div);
