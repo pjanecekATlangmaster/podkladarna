@@ -63,6 +63,7 @@ def test_country_without_surface_is_off(monkeypatch):
         ({"country": "CH"}, False, "ch_swisstopo"),
         ({"country": "AT"}, False, "at_bev"),
         ({"country": "DE"}, False, "de_berlin"),
+        ({"country": "FR"}, False, "fr_lidarhd"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -283,6 +284,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("CH", ("© swisstopo", "geodienste.ch", "OpenStreetMap (ODbL)"), ("ČÚZK", "AHN")),
         ("AT", ("Datenquelle: BEV", "Stadt Wien – data.wien.gv.at", "OpenStreetMap (ODbL)"), ("ČÚZK", "swisstopo")),
         ("DE", ("Geoportal Berlin", "Datenlizenz Deutschland – Zero 2.0", "OpenStreetMap (ODbL)"), ("ČÚZK", "BEV")),
+        ("FR", ("© IGN", "Ville de Paris", "Etalab 2.0", "OpenStreetMap (ODbL)"), ("ČÚZK", "Berlin")),
     ],
 )
 def test_citation_by_country(country, must, must_not):
@@ -339,6 +341,8 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "data.wien.gv.at", "FMZKVERKEHR2OGD"),
         ("DE", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_truedop", "online_de_k5", "online_de_alkis"},
          "online_de_truedop", "gdi.berlin.de", "truedop_2024"),
+        ("FR", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_fr_ortho", "online_fr_plan", "online_fr_cadastre"},
+         "online_fr_ortho", "data.geopf.fr", "ORTHOIMAGERY.ORTHOPHOTOS"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):

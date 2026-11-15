@@ -24,6 +24,7 @@ from app.pipeline.reference_de import (
     DE_BE_TRUEDOP_LAYER,
     DE_BE_TRUEDOP_WMS,
 )
+from app.pipeline.reference_fr import FR_CADASTRE_LAYER, FR_ORTHO_LAYER, FR_PLAN_LAYER, FR_WMS_R
 from app.pipeline.reference_ch import (
     CH_CADASTRAL_LAYER,
     CH_PIXELKARTE_LAYER,
@@ -78,7 +79,8 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
 )
 
 # DMVS WMS styl „default“ odmítá (500) – stejně jako ``_wms_getmap_url``; archiv ortofota (geoportal) chce prázdný styl.
-NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz", "data.wien.gv.at", "gdi.berlin.de")
+NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz", "data.wien.gv.at", "gdi.berlin.de",
+                          "data.geopf.fr")
 
 # Vrstvy jen online (bez staženého rastru): přidají se i se zapnutým „Stáhnout referenční šablony předem“.
 ONLINE_ONLY_KEYS = frozenset({"orthophoto_archiv"})
@@ -144,6 +146,13 @@ DE_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("de_k5", "k5_berlin.xml", "Karte von Berlin 1 : 5 000 (K5)", DE_BE_K5_WMS, DE_BE_K5_LAYER, "image/png", False, 0.25),
     ("de_alkis", "alkis_berlin.xml", "ALKIS Berlín – parcely", DE_BE_ALKIS_WMS, DE_BE_ALKIS_LAYER, "image/png", True, 0.25),
 )
+# Francie (Paříž, IGN Géoplateforme WMS-R, Etalab 2.0): ortofoto, Plan IGN v2 a katastr (PCI), CRS jobu Lambert-93.
+FR_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("fr_ortho", "ortho_ign.xml", "Ortofoto IGN (BD ORTHO)", FR_WMS_R, FR_ORTHO_LAYER, "image/jpeg", False, 0.2),
+    ("fr_plan", "plan_ign.xml", "Plan IGN v2", FR_WMS_R, FR_PLAN_LAYER, "image/png", False, 0.5),
+    ("fr_cadastre", "cadastre_ign.xml", "Parcellaire Express (katastr)", FR_WMS_R, FR_CADASTRE_LAYER, "image/png", True,
+     0.25),
+)
 AT_ONLINE_LB = ("at_luftbild", "luftbild_wien.vrt", "Luftbild Wien (ortofoto Stadt Wien)")
 AT_LB_MPP = 0.15
 # BGT je veřejně jen WMTS v mřížce RD (EPSG:28992): dlaždice přes GDAL TMS + okno výřezu jako VRT.
@@ -160,6 +169,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "CH": CH_ONLINE_WMS_LAYERS,
         "AT": AT_ONLINE_WMS_LAYERS,
         "DE": DE_ONLINE_WMS_LAYERS,
+        "FR": FR_ONLINE_WMS_LAYERS,
     }.get(country, ())
 
 
@@ -375,7 +385,7 @@ def online_labels() -> dict[str, str]:
         (k, label)
         for k, _f, label, *_rest in (
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
-            *DE_ONLINE_WMS_LAYERS,
+            *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS,
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (AT_ONLINE_LB[0], AT_ONLINE_LB[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     return {

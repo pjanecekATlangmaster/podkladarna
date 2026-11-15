@@ -529,6 +529,77 @@ def de_berlin_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["de_berlin"] = de_berlin_provider
 
 
+# --------------------------------------------------------------------------- FR: LiDAR HD MNT + MNS (WMS-R IGN)
+
+# IGN LiDAR HD (Licence Ouverte Etalab 2.0, bez klíče): MNT (terén) a MNS (povrch) 0,5 m, Lambert-93 (EPSG:2154),
+# výšky NGF-IGN69 (nadmořské, nic se nepřevádí). Hotové rastry vydává služba WMS-R data.geopf.fr jako Float32
+# GeoTIFF (NoData −9999, nejvýš 5010 px na stranu); dlaždice 2 × 2 km = 4000 px ≈ 64 MB, ~20 s. Mimo pokrytí
+# vrátí samé NoData a výřez skončí na kontrole platných buněk v ``prepare_raster_surfaces``.
+
+FR_WMS = "https://data.geopf.fr/wms-r/wms"
+FR_CRS = "EPSG:2154"
+FR_LAYERS = {
+    "dtm": "IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93",
+    "dsm": "IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93",
+}
+FR_GSD = 0.5
+FR_MAX_SIDE_M = 2000.0
+FR_BUFFER_M = 20.0
+FR_RETRIES = 3  # WMS-R občas vrátí 502 / přeruší spojení; další pokus obvykle projde
+
+
+def _download_retry(url: str, dest: Path, *, retries: int = FR_RETRIES, log=None, wait_s: float = 3.0) -> Path:
+    """``_download`` s opakováním po přechodné chybě (5xx, 429, síť); 4xx a odpověď bez GeoTIFFu hned dál."""
+    import time
+    import urllib.error
+
+    for attempt in range(retries + 1):
+        try:
+            return _download(url, dest, log=log)
+        except urllib.error.HTTPError as exc:
+            if attempt >= retries or not (exc.code >= 500 or exc.code == 429):
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt >= retries:
+                raise
+        if log:
+            log(f"  {dest.name}: přechodná chyba služby, pokus {attempt + 2}/{retries + 1}")
+        time.sleep(wait_s * (attempt + 1))
+    raise AssertionError("nedosažitelné")
+
+
+def fr_lidarhd_urls(kind: str, bounds_l93: tuple[float, float, float, float]) -> list[str]:
+    """GetMap URL po dlaždicích nejvýš ``FR_MAX_SIDE_M`` (Lambert-93, hrany na 0,5 m, pixel přesně 0,5 m)."""
+    out = []
+    for x0, y0, x1, y1 in tile_boxes(bounds_l93, max_side=FR_MAX_SIDE_M, buffer=FR_BUFFER_M, step=FR_GSD):
+        w, h = round((x1 - x0) / FR_GSD), round((y1 - y0) / FR_GSD)
+        out.append(
+            f"{FR_WMS}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS={FR_LAYERS[kind]}&STYLES="
+            f"&CRS={FR_CRS}&BBOX={x0:.1f},{y0:.1f},{x1:.1f},{y1:.1f}&WIDTH={w}&HEIGHT={h}&FORMAT=image/geotiff"
+        )
+    return out
+
+
+def fr_lidarhd_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """IGN LiDAR HD: MNT (terén) a MNS (povrch) 0,5 m z WMS-R data.geopf.fr po dlaždicích 2 km."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    bounds_l93 = _bounds_in(bounds, CRS_WKT, FR_CRS)
+    jobs = [(kind, k, url) for kind in FR_LAYERS for k, url in enumerate(fr_lidarhd_urls(kind, bounds_l93))]
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="fr-lidarhd") as ex:
+        tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"fr_{j[0]}_{j[1]}.tif", log=log), jobs))
+    out = {}
+    for kind in FR_LAYERS:
+        vrt = out_dir / f"fr_lidarhd_{kind}.vrt"
+        mine = [str(t) for (k, _i, _u), t in zip(jobs, tiles) if k == kind]
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", FR_CRS, str(vrt), *mine], log=log)
+        out[kind] = vrt
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["fr_lidarhd"] = fr_lidarhd_provider
+
+
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
 
 # Stahovací služba INSPIRE (Elevation): DMR 5.0 (1. cyklus LLS) 1 m, EPSG:3046 (ETRS89 / UTM 34N), výšky
@@ -612,6 +683,7 @@ SOURCE_LABELS = {
     "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo",
     "at_bev": "BEV ALS DTM a DSM",
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
+    "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
 }
 
 
