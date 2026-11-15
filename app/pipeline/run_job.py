@@ -961,6 +961,10 @@ def run_job_pipeline(
         except Exception as exc:
             # Bez terénu nejsou vrstevnice ani srázy: job skončí srozumitelnou chybou, ne pádem PDAL ve vrstevnicích.
             raise RuntimeError(f"Výšková data ({elevation}) nejsou k dispozici: {exc}") from exc
+        try:  # rastry jsou už v work/dem; cache dlaždic (Berlín) pod stropem ``LIDAR_CACHE_MAX_GB``
+            prune_lidar_cache(log=log)
+        except Exception as exc:  # úklid cache nesmí shodit job
+            log(f"Úklid cache výšek selhal: {exc}")
         progress.done()
     elif grid_bounds is not None:
         progress.begin("výškové modely")
