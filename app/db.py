@@ -24,6 +24,7 @@ from app.pipeline.job_options import (
     resolve_use_dtm,
     resolve_veg_smooth,
 )
+from app.pipeline.zip_texts_en import zip_lang
 from app.settings import (
     DB_PATH,
     DOWNLOADS_DIR,
@@ -1024,6 +1025,10 @@ def find_duplicate_active_job(
             resolve_contour_smooth(opts),
             tuple(resolve_map_types(opts) or ()),
             bool(opts.get("output_sentinel")),
+            # Jazyk výstupu (ZIP, .omap, e-maily) a doména odkazů: anglické zadání se nesmí
+            # připojit k běžícímu českému jobu. Starší joby bez jazyka = cs (jako zip_lang).
+            zip_lang(opts),
+            str(opts.get("site") or ""),
         )
 
     want = _fp(options)
