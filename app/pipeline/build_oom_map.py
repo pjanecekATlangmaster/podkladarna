@@ -204,7 +204,7 @@ def build_oom_map_xml(
     colors_xml, symbols_xml = colors_and_symbols_xml(set_path)
     if lang == "en":
         # Mezinárodní verze: názvy symbolů anglicky (OCAD sady), kódy a vzhled beze změny.
-        symbols_xml = english_symbol_names(symbols_xml)
+        symbols_xml = english_symbol_names(symbols_xml, set_path)
     templates_xml = "\n".join(_template_xml(t) for t in templates)
     template_refs = "\n".join(
         f'                    <ref template="{i}" visible="{"true" if t.visible else "false"}"'

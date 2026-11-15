@@ -71,8 +71,16 @@ def test_build_oom_map_xml_symbol_ids_are_sequential():
         assert all(int(p) < len(ids) for p in prefs), preset
 
 
-@pytest.mark.parametrize("preset, scale", [("sprint_2m", 4000), ("forest_10000", 10000), ("mtbo_15000", 15000)])
-def test_build_oom_map_xml_english_for_international_jobs(monkeypatch, preset, scale):
+@pytest.mark.parametrize(
+    "preset, scale, own_name",
+    [
+        # Názvosloví podle normy dané sady (ISSprOM / ISOM / ISMTBOM), ne jen podle českého názvu.
+        ("sprint_2m", 4000, "Uncrossable cliff"),
+        ("forest_10000", 10000, "Impassable Cliff"),
+        ("mtbo_15000", 15000, "Special vegetation feature"),
+    ],
+)
+def test_build_oom_map_xml_english_for_international_jobs(monkeypatch, preset, scale, own_name):
     """Zadání z mezinárodní (anglické) verze: názvy symbolů, poznámka a část mapy anglicky, id a kódy stejné."""
     from app.pipeline.country_profile import JOB_LANG_ENV
 
@@ -88,8 +96,8 @@ def test_build_oom_map_xml_english_for_international_jobs(monkeypatch, preset, s
     monkeypatch.setenv(JOB_LANG_ENV, "en")
     en = build()
     names = re.findall(r'<symbol\b[^>]*?\sname="([^"]*)"', en)
-    czech = [n for n in names if re.search(r"[ěščřžůĚŠČŘŽŮýáíé]", n)]
+    czech = [n for n in names if re.search(r"[ěščřžůĚŠČŘŽŮýáíé]|hlavni|dvojit", n)]
     assert not czech, czech[:5]
-    assert "Contour" in names and '<part name="Map">' in en and "Omapic – t" in en and "Při šíření" not in en
+    assert own_name in names and "Contour" in names and '<part name="Map">' in en and "Omapic – t" in en and "Při šíření" not in en
     assert re.findall(r'\scode="([^"]*)"', cs) == re.findall(r'\scode="([^"]*)"', en)
     assert '<part name="Mapa">' in cs and "Základní vrstevnice" in cs

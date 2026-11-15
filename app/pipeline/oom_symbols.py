@@ -563,9 +563,21 @@ def _names_by_code(path: Path) -> dict[str, list[str]]:
     return out
 
 
+@lru_cache(maxsize=8)
+def _src_names_for(cz_set_name: str) -> dict[str, list[str]]:
+    """Anglické názvy podle kódu z OCAD sady spárované s českou sadou (jinak prázdné)."""
+    for cz_name, src_name in _EN_SET_PAIRS:
+        src_path = OOM_DIR / "ocad_src" / src_name
+        if cz_name == cz_set_name and src_path.is_file():
+            return _names_by_code(src_path)
+    return {}
+
+
 @lru_cache(maxsize=1)
 def english_name_map() -> dict[str, str]:
-    """Český název symbolu (i vnořené části) → anglický název z OCAD sady; chybějící sady se přeskočí."""
+    """Český název symbolu (i vnořené části) → anglický název z OCAD sady; chybějící sady se přeskočí.
+
+    Záloha pro sady bez páru (a kódy, které v páru nesedí): bere první shodu, tj. názvosloví ISOM."""
     out: dict[str, str] = {}
     for cz_name, src_name in _EN_SET_PAIRS:
         cz_path, src_path = OOM_DIR / cz_name, OOM_DIR / "ocad_src" / src_name
@@ -580,19 +592,41 @@ def english_name_map() -> dict[str, str]:
     return out
 
 
-def english_symbol_names(symbols_xml: str) -> str:
-    """Názvy symbolů v XML sady anglicky (neznámý název zůstane); kódy, id a vzhled beze změny."""
+def _clean_en(name: str) -> str:
+    for cz, en in _OOM_PART_NAMES_EN:
+        name = name.replace(cz, en)
+    return name
+
+
+def english_symbol_names(symbols_xml: str, symbol_set: Path | None = None) -> str:
+    """Názvy symbolů v XML sady anglicky (neznámý název zůstane); kódy, id a vzhled beze změny.
+
+    Se známou sadou se názvy berou podle kódu z její OCAD předlohy (ISSprOM / ISMTBOM mají vlastní
+    názvosloví, např. 201 „Uncrossable cliff“), jinak podle českého názvu."""
     names = english_name_map()
-    if not names:
+    by_code = _src_names_for(symbol_set.name) if symbol_set is not None else {}
+    if not names and not by_code:
         return symbols_xml
 
-    def repl(m: re.Match[str]) -> str:
-        name = names.get(m.group(2), m.group(2))
-        for cz, en in _OOM_PART_NAMES_EN:
-            name = name.replace(cz, en)
-        return m.group(1) + name + m.group(3)
+    def by_name(m: re.Match[str]) -> str:
+        return m.group(1) + _clean_en(names.get(m.group(2), m.group(2))) + m.group(3)
 
-    return _SYMBOL_NAME.sub(repl, symbols_xml)
+    out: list[str] = []
+    pos = 0
+    for start, end, attrs in _top_level_symbols(symbols_xml):
+        out.append(symbols_xml[pos:start])
+        block = symbols_xml[start:end]
+        code = _SYMBOL_CODE.search(attrs)
+        en = by_code.get(code.group(1)) if code else None
+        if en and len(en) == len(_SYMBOL_NAME.findall(block)):
+            it = iter(en)
+            block = _SYMBOL_NAME.sub(lambda m: m.group(1) + _clean_en(next(it)) + m.group(3), block)
+        else:
+            block = _SYMBOL_NAME.sub(by_name, block)
+        out.append(block)
+        pos = end
+    out.append(symbols_xml[pos:])
+    return "".join(out)
 
 
 # Názvy vnořených částí, které Mapper při uložení v češtině pojmenoval sám (i v OCAD sadách ``ocad_src``).
@@ -602,4 +636,7 @@ _OOM_PART_NAMES_EN = (
     ("Koncový symbol", "End symbol"),
     ("Středový symbol", "Mid symbol"),
     (" - orámování", " - border"),
+    # Názvy vnořených částí z OCAD sad ``ocad_src`` uložených v české verzi Mapperu.
+    (" - dvojitá linie", " - double line"),
+    (" - hlavni linie", " - main line"),
 )
