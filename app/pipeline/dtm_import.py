@@ -2557,14 +2557,15 @@ def start_dtm_prefetch(
     force: bool = False,
     source: str = "cz_dtm",
 ) -> DtmPrefetch:
-    """Příprava dat technické mapy na pozadí: ``cz_dtm`` (DMVS ČÚZK) nebo ``nl_bgt`` (``bgt_nl.prepare_bgt``)."""
+    """Příprava dat technické mapy na pozadí: ``cz_dtm`` (DMVS ČÚZK) nebo obdoba z ``technical_maps`` (BGT, AV)."""
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dtm-dl")
     # Příznak přes Event: vlákno může skončit dřív, než se vytvoří DtmPrefetch (dřív se pak ``failed`` ztratil).
     failed = threading.Event()
-    if source == "nl_bgt":
-        from app.pipeline import bgt_nl
+    from app.pipeline.technical_maps import foreign
 
-        prepare, task_name = bgt_nl.prepare_bgt, bgt_nl.BACKGROUND_NAME
+    spec = foreign(source)
+    if spec is not None:
+        prepare, task_name = spec.prepare_fn(), spec.background
     else:
         prepare, task_name = prepare_dtm_fences, "Data DTM kraje"
 
@@ -2590,7 +2591,7 @@ def start_dtm_prefetch(
             build_stats.note_background("dtm", seconds=time.monotonic() - t0)
 
     if log:
-        log("Start přípravy BGT na pozadí." if source == "nl_bgt" else "Start přípravy DTM (ploty) na pozadí.")
+        log(f"Start přípravy {spec.short} na pozadí." if spec is not None else "Start přípravy DTM (ploty) na pozadí.")
     prefetch = DtmPrefetch(executor.submit(_run), executor)
     prefetch._failed = failed
     return prefetch

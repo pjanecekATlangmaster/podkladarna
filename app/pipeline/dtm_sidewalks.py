@@ -214,6 +214,17 @@ def _touching_both(pieces: list, a, b) -> list:
 ROBUST_GRID_M = 0.01
 
 
+def _polygonal(geom):
+    """Jen plošná část geometrie: kolekce po přichycení na mřížku (``_retry_snapped``) nebo sjednocení může nést
+    i čáry a body, a ``boundary`` kolekce je v shapely None (sprint Curych, AV)."""
+    import shapely
+
+    if geom is None or geom.geom_type in ("Polygon", "MultiPolygon"):
+        return geom
+    parts = [p for p in shapely.get_parts(geom) if p.geom_type in ("Polygon", "MultiPolygon")]
+    return shapely.union_all(parts) if parts else shapely.Polygon()
+
+
 def _retry_snapped(fn):
     """Při chybě GEOS zopakuje ``fn`` se vstupními plochami přichycenými na mřížku ``ROBUST_GRID_M``."""
     import functools
@@ -281,6 +292,7 @@ def merge_sidewalk_with_road(
     """
     from shapely.ops import unary_union
 
+    roads, sidewalks = _polygonal(roads), _polygonal(sidewalks)
     if roads is None or roads.is_empty or sidewalks is None or sidewalks.is_empty:
         return None, None, sidewalks
     near_zone = roads.buffer(near_m)

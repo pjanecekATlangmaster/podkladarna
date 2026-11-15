@@ -26,12 +26,12 @@ from app.pipeline import build_stats, dtm_fences
 
 BGT_API = "https://api.pdok.nl/lv/bgt/ogc/v1"
 RD_CRS_URI = "http://www.opengis.net/def/crs/EPSG/0/28992"
-SOURCE_LABEL = "BGT (PDOK)"
-STEP_LABEL = "data BGT"  # krok průběhu jobu místo „DTM kraje“
-BACKGROUND_NAME = "Data BGT (PDOK)"
+SOURCE_LABEL = "BGT (PDOK)"  # krok průběhu a úloha na pozadí: ``technical_maps.FOREIGN["nl_bgt"]``
 TILE_M = 500.0  # dlaždice stahování (≈ 1–3 s na dotaz i v centru Delftu)
 WORKERS = 6
 PAGE_LIMIT = 1000
+# Strop stránek na dlaždici 500 m (centrum Delftu: wegdeel ~3 stránky); víc znamená chybu serveru nebo smyčku.
+MAX_PAGES = 50
 HTTP_TIMEOUT_S = 90
 HTTP_RETRIES = 2
 CURRENT_FILTER = "eind_registratie IS NULL"
@@ -150,16 +150,31 @@ def _get_json(url: str) -> tuple[dict, int]:
     raise last
 
 
+def next_page_url(data: dict, current: str) -> str | None:
+    """Odkaz „next“ z odpovědi, jen když vede na stejný server přes HTTPS (odkaz je z odpovědi, ne z kódu)."""
+    href = next((ln.get("href") for ln in data.get("links") or [] if ln.get("rel") == "next"), None)
+    if not href:
+        return None
+    nxt, cur = urllib.parse.urlsplit(str(href)), urllib.parse.urlsplit(current)
+    if nxt.scheme != "https" or nxt.netloc != cur.netloc:
+        return None
+    return str(href)
+
+
 def fetch_tile(collection: str, bounds: tuple[float, float, float, float]) -> tuple[list[dict], int]:
-    """Všechny aktuální objekty kolekce v dlaždici (se stránkováním) a stažené bajty."""
+    """Všechny aktuální objekty kolekce v dlaždici (se stránkováním, nejvýš ``MAX_PAGES``) a stažené bajty."""
     url: str | None = items_url(collection, bounds)
     feats: list[dict] = []
     nbytes = 0
+    pages = 0
     while url:
+        if pages >= MAX_PAGES:
+            raise RuntimeError(f"BGT {collection}: dlaždice má víc než {MAX_PAGES} stránek")
         data, n = _get_json(url)
+        pages += 1
         nbytes += n
         feats.extend(data.get("features") or [])
-        url = next((ln.get("href") for ln in data.get("links") or [] if ln.get("rel") == "next"), None)
+        url = next_page_url(data, url)
     return feats, nbytes
 
 
@@ -461,9 +476,19 @@ def _write_polygons(dest: Path, polys: list[Polygon]) -> None:
 
 
 def write_dtm_files(
-    work_dir: Path, sorted_data: dict[str, list], bounds: tuple[float, float, float, float], *, log: LogFn | None = None
+    work_dir: Path,
+    sorted_data: dict[str, list],
+    bounds: tuple[float, float, float, float],
+    *,
+    log: LogFn | None = None,
+    source: str = "nl_bgt",
+    label: str = "BGT",
+    labels: dict[str, str] | None = None,
+    yard_label: str = "soukromé pozemky (erf)",
 ) -> Path:
-    """Zapíše roztříděné BGT do ``work_dir/dtm`` ve tvaru přípravy DTM; vrátí cestu k ``fences.json``."""
+    """Zapíše roztříděnou technickou mapu (BGT, AV …) do ``work_dir/dtm`` ve tvaru přípravy DTM.
+
+    ``labels`` přepíše popisy souborů v logu (``POLYGON_FILES``); vrátí cestu k ``fences.json``."""
     from app.pipeline import dtm_import
 
     paths = {
@@ -477,11 +502,11 @@ def write_dtm_files(
         "other_cover": dtm_import.other_cover_path,
         "garden_cover": dtm_import.garden_cover_path,
     }
-    for key, label in POLYGON_FILES:
+    for key, what in POLYGON_FILES:
         polys = [p for p in sorted_data.get(key) or [] if _in_bounds(p, bounds)]
         _write_polygons(paths[key](work_dir), polys)
         if log and polys:
-            log(f"BGT {label}: {len(polys)} ploch")
+            log(f"{label} {(labels or {}).get(key, what)}: {len(polys)} ploch")
     decks = [d for d in sorted_data.get("decks") or [] if _in_bounds(d["p"], bounds)]
     deck_path = dtm_import.decks_path(work_dir)
     if decks:
@@ -490,7 +515,7 @@ def write_dtm_files(
             encoding="utf-8",
         )
         if log:
-            log(f"BGT mosty: {len(decks)} ploch")
+            log(f"{label} mosty: {len(decks)} ploch")
     else:
         deck_path.unlink(missing_ok=True)
 
@@ -508,20 +533,20 @@ def write_dtm_files(
         merged, inner_dropped = dtm_fences.drop_fences_inside_enclosures(merged)
     except Exception as exc:  # filtr je doplněk
         if log:
-            log(f"BGT: filtr plotů uvnitř oplocení přeskočen ({type(exc).__name__}: {exc})")
+            log(f"{label}: filtr plotů uvnitř oplocení přeskočen ({type(exc).__name__}: {exc})")
     fill_rings: list = []
     try:
         fill_rings = dtm_fences.private_enclosure_rings(merged, areas)
     except Exception as exc:  # výplň olivou je doplněk
         if log:
-            log(f"BGT: výplň oplocení přeskočena ({type(exc).__name__}: {exc})")
+            log(f"{label}: výplň oplocení přeskočena ({type(exc).__name__}: {exc})")
     oriented = False
     try:
         merged = dtm_fences.orient_fences(merged, areas, bounds=bounds, setback_m=dtm_fences.FENCE_SETBACK_M)
         oriented = bool(areas["olive"] or areas["public"])
     except Exception as exc:  # orientace je kosmetika
         if log:
-            log(f"BGT: orientace plotů přeskočena ({type(exc).__name__}: {exc})")
+            log(f"{label}: orientace plotů přeskočena ({type(exc).__name__}: {exc})")
 
     def _poly_json(polys: list[Polygon]) -> list:
         return [[[list(p) for p in ring] for ring in poly] for poly in polys]
@@ -531,8 +556,8 @@ def write_dtm_files(
     dest.write_text(
         json.dumps(
             {
-                "source": "nl_bgt",
-                "packages": ["BGT"],
+                "source": source,
+                "packages": [label],
                 "source_pieces": len(fences),
                 "oriented": oriented,
                 "dubious_removed": 0,
@@ -551,8 +576,8 @@ def write_dtm_files(
     )
     if log:
         log(
-            f"BGT ploty: {len(fences)} úseků → {len(merged)} napojených čar, {len(fill_rings)} oplocení k vyplnění; "
-            f"soukromé pozemky (erf) jako oliva: {len(yards)}"
+            f"{label} ploty: {len(fences)} úseků → {len(merged)} napojených čar, {len(fill_rings)} oplocení k vyplnění; "
+            f"{yard_label} jako oliva: {len(yards)}"
         )
     return dest
 
@@ -589,3 +614,6 @@ def prepare_bgt(
         if log:
             log(f"BGT: uzlování ploch přeskočeno ({type(exc).__name__}: {exc})")
     return write_dtm_files(work_dir, sorted_data, bounds, log=log)
+
+
+prepare = prepare_bgt  # rozhraní ``technical_maps``

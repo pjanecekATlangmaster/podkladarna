@@ -60,6 +60,7 @@ def test_country_without_surface_is_off(monkeypatch):
         ({"country": "CZ"}, True, "cz_openzu"),
         ({"country": "sk"}, False, countries.load_countries()["SK"].elevation),
         ({"country": "NL"}, False, "nl_ahn"),
+        ({"country": "CH"}, False, "ch_swisstopo"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -277,6 +278,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
     [
         ("CZ", ("Data: ČÚZK (DMR 5G", "Podkladárna · ČÚZK · OSM"), ("AHN",)),
         ("NL", ("Bron: AHN", "Bron: Kadaster", "Beeldmateriaal.nl", "OpenStreetMap (ODbL)"), ("ČÚZK",)),
+        ("CH", ("© swisstopo", "geodienste.ch", "OpenStreetMap (ODbL)"), ("ČÚZK", "AHN")),
     ],
 )
 def test_citation_by_country(country, must, must_not):
@@ -321,12 +323,21 @@ def test_job_crs_from_env_and_worker(monkeypatch):
     assert crs_5514.JOB_CRS_ENV not in worker._job_env("cz")
 
 
-def test_nl_online_templates(tmp_path):
+@pytest.mark.parametrize(
+    "country, bounds, keys, ortho, host, layer",
+    [
+        ("NL", (120000.0, 486000.0, 121000.0, 487000.0), {"online_nl_luchtfoto", "online_nl_kadaster", "online_nl_top10nl"},
+         "online_nl_luchtfoto", "service.pdok.nl", "Actueel_orthoHR"),
+        ("CH", (2600000.0, 1199000.0, 2601000.0, 1200000.0), {"online_ch_swissimage", "online_ch_av", "online_ch_landeskarte"},
+         "online_ch_swissimage", "wms.geo.admin.ch", "ch.swisstopo.swissimage"),
+    ],
+)
+def test_foreign_online_templates(tmp_path, country, bounds, keys, ortho, host, layer):
     from app.pipeline.online_templates import online_labels, write_online_templates
 
-    written = write_online_templates((120000.0, 486000.0, 121000.0, 487000.0), tmp_path, country="NL")
-    assert {"online_nl_luchtfoto", "online_nl_kadaster", "online_nl_top10nl"} <= set(written)
+    written = write_online_templates(bounds, tmp_path, country=country)
+    assert keys <= set(written)
     assert not any(k.startswith("online_orthophoto") for k in written)  # ČÚZK mimo Česko ne
-    xml = written["online_nl_luchtfoto"].read_text(encoding="utf-8")
-    assert "service.pdok.nl" in xml and "Actueel_orthoHR" in xml
+    xml = written[ortho].read_text(encoding="utf-8")
+    assert host in xml and layer in xml
     assert set(written) <= set(online_labels())

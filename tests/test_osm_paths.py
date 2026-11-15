@@ -324,6 +324,32 @@ def test_skip_subway():
     ) is None
 
 
+@pytest.mark.parametrize("cz, expected", [(False, 1), (True, 2)])
+def test_river_relation_from_open_ways(monkeypatch, cz, expected):
+    """Řeka jako multipolygon z otevřených cest (Aare v Bernu): mimo Česko se obrys složí do jedné plochy s dírou."""
+    from app.pipeline import osm_paths
+
+    monkeypatch.setattr(osm_paths, "_cz_process", lambda: cz)
+
+    def way(role, pts):
+        return {"type": "way", "role": role, "geometry": [{"lat": la, "lon": lo} for la, lo in pts]}
+
+    el = {
+        "type": "relation",
+        "tags": {"natural": "water", "water": "river", "type": "multipolygon"},
+        "members": [
+            way("outer", [(50.0, 14.40), (50.0, 14.42), (50.002, 14.42)]),  # jižní břeh a ústí
+            way("outer", [(50.002, 14.42), (50.002, 14.40), (50.0, 14.40)]),  # severní břeh zpět
+            way("inner", [(50.0008, 14.405), (50.0008, 14.407), (50.0012, 14.407), (50.0012, 14.405), (50.0008, 14.405)]),
+        ],
+    }
+    polys = osm_paths.osm_area_polygons_5514(el)
+    if not cz:
+        assert len(polys) == expected and len(polys[0]) == 2  # jedna plocha s ostrovem
+    else:
+        assert len(polys) == expected  # v Česku beze změny: každá cesta zvlášť (vodu kreslí ZABAGED)
+
+
 def test_garden_multipolygon_keeps_inner_hole():
     from app.pipeline.osm_paths import osm_area_polygons_5514
 

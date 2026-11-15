@@ -20,6 +20,7 @@ Kde DTM z měření chybí (AHN: budovy a voda), je CHM 0.
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -192,6 +193,115 @@ def nl_ahn_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
 
 PROVIDERS["nl_ahn"] = nl_ahn_provider
+
+
+# --------------------------------------------------------------------------- CH: swissALTI3D + swissSURFACE3D (STAC)
+
+# swisstopo (OGD, volné použití s uvedením zdroje): dlaždice 1 × 1 km jako COG GeoTIFF 0,5 m v EPSG:2056, výšky LN02
+# (EPSG:5728, ortometrické – nic se nepřevádí). STAC vrací pro dlaždici všechny ročníky, bere se nejnovější.
+# Z dlaždic se přes /vsicurl čte jen okno výřezu (celá dlaždice ~15 MB, sprint by stahoval 4–9 dlaždic dvakrát).
+CH_STAC = "https://data.geo.admin.ch/api/stac/v0.9"
+CH_CRS = "EPSG:2056"
+CH_COLLECTIONS = (("dtm", "ch.swisstopo.swissalti3d"), ("dsm", "ch.swisstopo.swisssurface3d-raster"))
+CH_GSD = 0.5
+CH_BUFFER_M = 20.0
+
+
+def stac_latest_assets(items: list[dict], gsd: float = CH_GSD) -> list[str]:
+    """URL GeoTIFFu s rozlišením ``gsd`` z nejnovějšího ročníku každé dlaždice (id ``<sada>_<rok>_<E>-<N>``)."""
+    best: dict[str, tuple[str, str]] = {}
+    for item in items:
+        tile = str(item.get("id") or "").rsplit("_", 1)[-1]
+        when = str((item.get("properties") or {}).get("datetime") or "")
+        href = next(
+            (
+                a.get("href")
+                for a in (item.get("assets") or {}).values()
+                if str(a.get("href") or "").endswith(".tif") and abs(float(a.get("eo:gsd") or 0) - gsd) < 1e-6
+            ),
+            None,
+        )
+        if href and (tile not in best or when > best[tile][0]):
+            best[tile] = (when, href)
+    return [href for _tile, (_when, href) in sorted(best.items())]
+
+
+def _stac_items(collection: str, bbox_wgs84: tuple[float, float, float, float]) -> list[dict]:
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    url: str | None = (
+        f"{CH_STAC}/collections/{collection}/items?bbox=" + ",".join(f"{v:.6f}" for v in bbox_wgs84) + "&limit=100"
+    )
+    from app.pipeline.bgt_nl import next_page_url
+
+    items: list[dict] = []
+    pages = 0
+    while url and pages < 20:  # výřez do 25 km² = desítky dlaždic, 100 na stránku
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+        pages += 1
+        items.extend(data.get("features") or [])
+        url = next_page_url(data, url)
+    return items
+
+
+def ch_swisstopo_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """swissALTI3D (terén) a swissSURFACE3D Raster (povrch) 0,5 m ze STAC swisstopo, bez klíče."""
+    bounds_ch = _bounds_in(bounds, CRS_WKT, CH_CRS)
+    xmin, ymin, xmax, ymax = (
+        bounds_ch[0] - CH_BUFFER_M, bounds_ch[1] - CH_BUFFER_M, bounds_ch[2] + CH_BUFFER_M, bounds_ch[3] + CH_BUFFER_M
+    )
+    bbox_wgs = _bounds_in((xmin, ymin, xmax, ymax), CH_CRS, "EPSG:4326")
+    out: dict[str, Path | None] = {}
+    for kind, collection in CH_COLLECTIONS:
+        urls = stac_latest_assets(_stac_items(collection, bbox_wgs))
+        if not urls:
+            if kind == "dtm":
+                raise ElevationUnavailable("výřez je mimo pokrytí swissALTI3D")
+            out[kind] = None
+            continue
+        tiles = []
+        for k, url in enumerate(urls):
+            dest = out_dir / f"ch_{kind}_{k}.tif"
+            # Okno výřezu (s přesahem) z COG; dlaždice, která do okna nezasahuje, gdal_translate odmítne.
+            try:
+                run_cmd(
+                    [
+                        _gdal_tool("gdal_translate"),
+                        "--config", "GDAL_HTTP_MAX_RETRY", "3",
+                        "--config", "GDAL_HTTP_RETRY_DELAY", "2",
+                        "--config", "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR",
+                        "-projwin", f"{xmin:.1f}", f"{ymax:.1f}", f"{xmax:.1f}", f"{ymin:.1f}",
+                        "-projwin_srs", CH_CRS,
+                        "-co", "COMPRESS=DEFLATE",
+                        f"/vsicurl/{url}",
+                        str(dest),
+                    ],
+                    log=log,
+                )
+            except subprocess.CalledProcessError as exc:
+                if log:
+                    log(f"  {url.rsplit('/', 1)[-1]}: přeskočeno ({(exc.stderr or '').strip()[-200:]})")
+                continue
+            if dest.is_file():
+                tiles.append(dest)
+        if not tiles:
+            if kind == "dtm":
+                raise ElevationUnavailable("swissALTI3D: žádná dlaždice výřezu se nestáhla")
+            out[kind] = None
+            continue
+        vrt = out_dir / f"ch_{kind}.vrt"
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", CH_CRS, str(vrt), *map(str, tiles)], log=log)
+        if log:
+            log(f"  {collection}: {len(tiles)} dlaždic (okno výřezu)")
+        out[kind] = vrt
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["ch_swisstopo"] = ch_swisstopo_provider
 
 
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
@@ -416,7 +526,9 @@ def prepare_raster_surfaces(
     dem_dir = dem_work_dir(Path(work_dir))
     src_dir = dem_dir / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
-    label = {"nl_ahn": "AHN, PDOK", "sk_ugkk": "DMR 5.0, ÚGKK SR"}.get(source, source)
+    label = {"nl_ahn": "AHN, PDOK", "sk_ugkk": "DMR 5.0, ÚGKK SR", "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo"}.get(
+        source, source
+    )
     log_step(log, f"Stahuji výšková data ({label}): terén a povrch jako rastr")
     src = provider(tuple(bounds), src_dir, log)
     dtm_src, dsm_src = src.dtm, src.dsm

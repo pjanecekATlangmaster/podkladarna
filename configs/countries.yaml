@@ -1,8 +1,8 @@
 # Podporované země (návrh /mnt/project-files/evropa-data/pohranicni-mapa-navrh.md).
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
-# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | none) – budovy, silnice, chodníky, parkoviště, ploty.
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
 # view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
@@ -50,4 +50,20 @@ NL:
     - "Ortofoto: Luchtfoto PDOK – CC BY 4.0. Bron: Beeldmateriaal.nl."
     - "BGT (Basisregistratie Grootschalige Topografie) – CC0 1.0."
     - "Kadastrale kaart a BRT TOP10NL – CC BY 4.0. Bron: Kadaster."
+    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+CH:
+  name: {cs: Švýcarsko, en: Switzerland, de: Schweiz, fr: Suisse, it: Svizzera}
+  status: beta              # souřadnice jobu EPSG:2056 (CH1903+ / LV95); na ostré se nenabízí
+  crs: EPSG:2056
+  boundary: countries/ch.geojson
+  view: [45.82, 5.95, 47.81, 10.49]
+  elevation: ch_swisstopo   # swissALTI3D (terén) + swissSURFACE3D Raster (povrch) 0,5 m, STAC swisstopo, výšky LN02
+  technical_map: ch_av      # AV kantonů z WFS geodienste.ch (bez JU, LU, NE, NW, OW, VD – tam jen OSM)
+  cz_sources: false
+  # Licence: swisstopo OGD (volné použití, uvést zdroj), AV kantonů „Freie Nutzung, Quellenangabe ist Pflicht“.
+  citation: "Podklad: Podkladárna · © swisstopo · AV kantonů (geodienste.ch) · OSM, [rok]"
+  attribution:
+    - "Výšky: swissALTI3D a swissSURFACE3D Raster © swisstopo (Open Government Data)."
+    - "Ortofoto SWISSIMAGE, národní mapa a stínování © swisstopo."
+    - "Úřední vyměřování (AV, amtliche Vermessung): Quelle Kantone, geodienste.ch."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."

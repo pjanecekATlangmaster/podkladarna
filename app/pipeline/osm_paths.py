@@ -498,6 +498,8 @@ def _overpass_ql(
         f'way["railway"~"^({rails})$"]["layer"~"^-"]({bbox});',
         # Vodní plochy → OOM 301 (nepřekonatelné). ČÚZK často nemá celou nádrž.
         f'way["natural"="water"]({bbox});',
+        # Velké řeky a jezera jsou multipolygony; v Česku kreslí vodu ZABAGED (dotaz beze změny kvůli cache).
+        *([] if _cz_process() else [f'relation["type"="multipolygon"]["natural"="water"]({bbox});']),
         f'way["landuse"~"^(reservoir|basin)$"]({bbox});',
         # Obdělávaná půda → ISOM 412 (zdroj OSM, ne ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
@@ -3662,6 +3664,8 @@ def osm_area_polygons_5514(
         return [[ring]] if ring else []
     if el_type != "relation":
         return []
+    if not _cz_process():
+        return _relation_polygons_assembled(element)
     outers: list[list[tuple[float, float]]] = []
     inners: list[list[tuple[float, float]]] = []
     for mem in element.get("members") or []:
@@ -3681,6 +3685,56 @@ def osm_area_polygons_5514(
         return [[outers[0]] + inners]
     # Více outerů: díry nepřiřazujeme (vzácné) – každý outer zvlášť.
     return [[outer] for outer in outers]
+
+
+def _cz_process() -> bool:
+    from app.pipeline.country_profile import process_uses_cz_sources
+
+    return process_uses_cz_sources()
+
+
+def _relation_polygons_assembled(element: dict) -> list[list[list[tuple[float, float]]]]:
+    """Multipolygon relation → [[outer, *holes], …] i z obrysu složeného z více otevřených cest.
+
+    Velké řeky a jezera (Aare v Bernu, IJ v Amsterdamu) mají obrys z desítek cest; skládání po jednotlivých
+    uzavřených cestách je vynechalo. V Česku kreslí vodu ZABAGED, proto jen mimo Česko (``_cz_process``).
+    """
+    import shapely
+    from shapely.geometry import LineString
+
+    by_role: dict[str, list] = {"outer": [], "inner": []}
+    for mem in element.get("members") or []:
+        if mem.get("type") != "way":
+            continue
+        pts = _nodes_geometry_to_5514(mem.get("geometry"))
+        if len(pts) >= 2:
+            role = "inner" if (mem.get("role") or "outer").lower() == "inner" else "outer"
+            by_role[role].append(LineString(pts))
+
+    def faces(lines: list):
+        if not lines:
+            return None
+        merged = shapely.line_merge(shapely.union_all(lines))
+        polys = shapely.polygonize(list(shapely.get_parts(merged)))
+        return shapely.union_all(list(shapely.get_parts(polys))) if not polys.is_empty else None
+
+    try:
+        outer = faces(by_role["outer"])
+        if outer is None or outer.is_empty:
+            return []
+        inner = faces(by_role["inner"])
+        if inner is not None and not inner.is_empty:
+            outer = shapely.difference(outer, inner)
+    except Exception:  # poškozená relace se vynechá
+        return []
+    out: list[list[list[tuple[float, float]]]] = []
+    for part in shapely.get_parts(outer):
+        if part.geom_type == "Polygon" and not part.is_empty:
+            out.append(
+                [[(float(x), float(y)) for x, y in part.exterior.coords]]
+                + [[(float(x), float(y)) for x, y in r.coords] for r in part.interiors]
+            )
+    return out
 
 
 def osm_perimeter_lines_5514(element: dict) -> list[list[tuple[float, float]]]:

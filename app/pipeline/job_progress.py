@@ -6,6 +6,8 @@ import threading
 import time
 from typing import Callable
 
+from app.pipeline.technical_maps import FOREIGN as FOREIGN_TECHNICAL_MAPS
+
 
 LogFn = Callable[[str], None]
 
@@ -78,9 +80,9 @@ def indented_log(log: LogFn) -> LogFn:
 # ``map_phase`` z ``package_oom`` / ``discipline_maps``; při souběhu les ‖ MTBO se krok posune, až fázi
 # dosáhnou všechny mapy (``MapPhaseTracker``).
 DTM_STEP = "DTM kraje"
-# Mimo Česko místo DTM obdoba země (Nizozemsko: BGT z PDOK, ``bgt_nl``).
-BGT_STEP = "data BGT"
-TECHNICAL_MAP_STEPS = {"cz_dtm": DTM_STEP, "nl_bgt": BGT_STEP}
+# Mimo Česko místo DTM obdoba země (Nizozemsko: BGT z PDOK, Švýcarsko: AV; ``technical_maps``).
+BGT_STEP = FOREIGN_TECHNICAL_MAPS["nl_bgt"].step
+TECHNICAL_MAP_STEPS = {"cz_dtm": DTM_STEP, **{k: v.step for k, v in FOREIGN_TECHNICAL_MAPS.items()}}
 # Kroky jen s českými zdroji (ZABAGED, RÚIAN, AOPK) a s LiDARem ČÚZK; mimo Česko se do plánu nedávají.
 CZ_SOURCE_STEPS: tuple[str, ...] = ("stažení ZABAGED", "příprava ZABAGED", "RÚIAN a AOPK")
 LIDAR_STEPS: tuple[str, ...] = ("stažení LiDAR", "příprava LiDAR")
@@ -97,7 +99,7 @@ ZIP_STEP = "balení ZIP"
 LEGACY_MAPS_STEP = "sestavení mapy a ZIP"
 # Součet těchto kroků = skládání map pro kalibraci odhadu (``db.record_job_usage``); starší joby měly jeden krok.
 MAP_ASSEMBLY_STEPS: frozenset[str] = frozenset(
-    (DTM_STEP, BGT_STEP, *MAP_PHASES, PREVIEW_STEP, ZIP_STEP, LEGACY_MAPS_STEP)
+    (*TECHNICAL_MAP_STEPS.values(), *MAP_PHASES, PREVIEW_STEP, ZIP_STEP, LEGACY_MAPS_STEP)
 )
 
 _map_phase_hook: Callable[[str], None] | None = None

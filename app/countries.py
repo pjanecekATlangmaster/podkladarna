@@ -60,7 +60,7 @@ class Country:
     view: tuple[float, float, float, float]  # jih, západ, sever, východ
     elevation: str = "cz_openzu"  # zdroj výšek (``app.pipeline.country_profile``)
     cz_sources: bool = True  # ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK ortofoto a stínování
-    # Obdoba české DTM (velkoměřítková technická mapa) pro kresbu: ``cz_dtm`` | ``nl_bgt`` | ``none``.
+    # Obdoba české DTM (velkoměřítková technická mapa) pro kresbu: ``cz_dtm`` | ``nl_bgt`` | ``ch_av`` | ``none``.
     technical_map: str = "cz_dtm"
     # Citace zdrojů, které vyžadují licence místních dat (README, CO_JE_PODKLADARNA, poznámka .omap).
     attribution: tuple[str, ...] = ()
