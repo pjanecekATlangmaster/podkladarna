@@ -98,6 +98,7 @@ def test_ee_windows_mark_padding_as_nodata(monkeypatch, tmp_path):
             open(cmd[-1], "wb").close()
 
     monkeypatch.setattr(elevation_raster, "run_cmd", fake_run)
+    monkeypatch.setattr(elevation_raster, "_gdal_tool", lambda name: name)  # bez GDAL v prostředí testů
     monkeypatch.setattr(elevation_raster, "_buffered", lambda *a: (541406.4, 6587767.8, 542509.9, 6588660.3))
     elevation_raster.ee_maaamet_provider((0.0, 0.0, 1.0, 1.0), tmp_path)
     translates = [c for c in cmds if "gdal_translate" in c[0]]
