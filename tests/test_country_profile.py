@@ -68,6 +68,7 @@ def test_country_without_surface_is_off(monkeypatch):
         ({"country": "EE"}, False, "ee_maaamet"),
         ({"country": "IT"}, False, "it_trentino"),
         ({"country": "BE"}, False, "be_dhmv"),
+        ({"country": "FI"}, False, "fi_mml"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -292,6 +293,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("EE", ("Maa- ja Ruumiamet", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "IGN")),
         ("IT", ("Provincia autonoma di Trento", "CC BY 4.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "ETAK")),
         ("BE", ("Digitaal Vlaanderen", "Modellicentie Gratis Hergebruik", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Trento")),
+        ("FI", ("Maanmittauslaitos", "Suomen metsäkeskus", "Helsingin kaupunki", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GRB")),
     ],
 )
 def test_citation_by_country(country, must, must_not):
@@ -359,6 +361,9 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_it_ortho", "siat.provincia.tn.it", "ecw-rgb-2015"),
         ("BE", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_be_ortho", "online_be_grb", "online_be_cadastre"},
          "online_be_ortho", "geo.api.vlaanderen.be", "OMWRGB25VL"),
+        ("FI", (-625000.0, -1200000.0, -624000.0, -1199000.0),
+         {"online_fi_ortho", "online_fi_basemap", "online_fi_hel_ortho", "online_fi_hel_basemap"},
+         "online_fi_ortho", "tiles.kartat.kapsi.fi", "ortokuva"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):

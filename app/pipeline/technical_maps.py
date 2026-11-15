@@ -83,6 +83,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, uliční prostor, vozovky a chodníky",
         module="app.pipeline.grb_be",
     ),
+    "fi_hel": TechnicalMap(
+        key="fi_hel",
+        short="YLRE",
+        step="data YLRE",
+        background="Data YLRE (Helsingin kaupunki)",
+        content="budovy, uliční prostor, vozovky, chodníky, parkoviště, schody, trávníky",
+        module="app.pipeline.ylre_fi",
+    ),
 }
 
 

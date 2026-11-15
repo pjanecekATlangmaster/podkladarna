@@ -43,6 +43,7 @@ from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PRO
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE
+from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
@@ -340,6 +341,39 @@ PROBES: tuple[Probe, ...] = (
         (BE_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("BE",),
+    ),
+    # Finsko: hlavička jednoho listu výšek (zrcadlo Funet) a porostu (Metsäkeskus), 1 budova Helsinek, malý výřez ortofota.
+    Probe(
+        "fi_elevation",
+        "Výškový model 2 m MML (zrcadlo Funet)",
+        (FI_DTM_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("FI",),
+    ),
+    Probe(
+        "fi_chm",
+        "Výška porostu (latvusmalli) Metsäkeskus",
+        (FI_CHM_PROBE,),
+        "Bez výšky porostu se nerozliší les a vegetace (mapa jen s terénem).",
+        method="HEAD",
+        countries=("FI",),
+    ),
+    Probe(
+        "fi_ylre",
+        "YLRE a budovy Helsinek (kartta.hel.fi)",
+        (FI_HEL_WFS_PROBE,),
+        "Budovy, vozovky a chodníky v Helsinkách se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("FI",),
+    ),
+    Probe(
+        "fi_ortho",
+        "Ortofoto MML (kartat.kapsi.fi)",
+        (FI_ORTHO_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("FI",),
     ),
 )
 

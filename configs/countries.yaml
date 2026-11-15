@@ -162,3 +162,20 @@ BE:
   attribution:
     - "Elevation DHMV II, GRB, orthophoto and cadastre: © Digitaal Vlaanderen (Modellicentie Gratis Hergebruik)."
     - "OSM © OpenStreetMap contributors (ODbL)."
+FI:
+  name: {cs: Finsko, en: Finland, fi: Suomi}
+  status: beta              # celé Finsko (Petr 2026-11-15: další země z přehledu, Helsinky bez klíče); souřadnice ETRS-TM35FIN
+  crs: EPSG:3067            # ETRS89 / TM35FIN (souřadnice MML a Metsäkeskus)
+  boundary: countries/fi.geojson  # GISCO 1 : 1 M (+550 m, zjednodušeno 250 m, ostrovy od 2 km²)
+  view: [59.7, 19.3, 70.1, 31.6]
+  elevation: fi_mml         # korkeusmalli 2 m MML (zrcadlo Funet, listy 6 km) + DSM = DTM + latvusmalli 1 m Metsäkeskus; výšky N2000
+  technical_map: fi_hel     # Helsinky YLRE: budovy, uliční prostor (sprint v celé šířce), vozovky, chodníky, parkoviště, schody, trávníky
+  technical_map_area: countries/fi_helsinki.geojson  # YLRE vede jen město Helsinky; jinde kresba z OSM
+  cz_sources: false
+  # Licence: CC BY 4.0 (MML, Suomen metsäkeskus, Helsingin kaupunki – uvést zdroj).
+  citation: "Base map: Omapic · MML · Metsäkeskus · Helsingin kaupunki · OSM, [year]"
+  attribution:
+    - "Elevation model 2 m, orthophoto and peruskartta: © Maanmittauslaitos (CC BY 4.0), via the Funet (CSC) and kartat.kapsi.fi mirrors."
+    - "Canopy height (latvusmalli): © Suomen metsäkeskus (CC BY 4.0)."
+    - "YLRE, buildings, orthophoto and kantakartta (Helsinki only): © Helsingin kaupunki (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
