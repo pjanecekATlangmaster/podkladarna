@@ -168,6 +168,47 @@ def _simplified_geom_parts(geom_parts: list, scale: int) -> list:
     return out
 
 
+def _raster_bridge_mask(work_dir: Path, shp: Path):
+    """Plocha mostů, na kterých se porost z rastru CHM nekreslí (None = nic neořezávat).
+
+    DSM − DTM: DTM pod mostem dopočítá terén / hladinu, mostovka pak vychází jako porost 4–6 m (Gent,
+    Sint-Michielsbrug: 410 přes celý most). Jen u porostu z rastru (značka ``CHM_SOURCE_MARK``); porost
+    z hustoty klasifikovaných bodů (Česko) mosty nemá a zůstává beze změny.
+    """
+    from app.pipeline.vegetation_chm import CHM_SOURCE_MARK
+
+    if not (shp.parent / CHM_SOURCE_MARK).is_file():
+        return None
+    from app.pipeline.osm_paths import bridge_deck_geometry
+
+    try:
+        deck = bridge_deck_geometry(Path(work_dir))
+    except Exception:
+        return None
+    if deck is None or deck.is_empty:
+        return None
+    from shapely.prepared import prep
+
+    return deck, prep(deck)
+
+
+def _clip_wkb(wkb: bytes, mask) -> bytes | None:
+    """Porost bez plochy mostů; None = nic nezbylo."""
+    from shapely import from_wkb, to_wkb
+
+    deck, prepared = mask
+    try:
+        geom = from_wkb(bytes(wkb))
+        if not prepared.intersects(geom):
+            return wkb
+        rest = geom.difference(deck)
+    except Exception:
+        return wkb
+    if rest.is_empty or rest.area < 1.0:
+        return None
+    return bytes(to_wkb(rest))
+
+
 def _file_stamp(path: Path) -> tuple:
     try:
         st = path.stat()
@@ -177,12 +218,17 @@ def _file_stamp(path: Path) -> tuple:
 
 
 def _shaped_memo(work_dir: Path, shp: Path, smooth_level: int, sprint: bool) -> dict[int, tuple[list, bool]]:
+    from app.pipeline.vegetation_chm import CHM_SOURCE_MARK
+
     osm_dir = Path(work_dir) / "osm_paths"
     key = (
         _file_stamp(shp),
         _file_stamp(shp.with_suffix(".dbf")),
         _file_stamp(osm_dir / "paths_mixed.geojson"),
         _file_stamp(osm_dir / "features.geojson"),
+        _file_stamp(osm_dir / "paths_osm.geojson"),
+        _file_stamp(osm_dir / "bridge_decks.geojson"),
+        _file_stamp(shp.parent / CHM_SOURCE_MARK),
         smooth_level,
         sprint,
         VEG_AS_CURVES,
@@ -216,6 +262,7 @@ def build_vegetation_parts(
         smooth_level = _SPRINT_LEVEL.get(smooth_level, 2)
     shaped_rows = _shaped_memo(work_dir, shp, smooth_level, sprint)
     barriers = None  # načtou se až u prvního řádku, který memo ještě nemá
+    bridge_mask: object = False  # False = ještě nenačteno; None = bez ořezu
 
     grouped: dict[str, list[str]] = {code: [] for code in _CLASS_TO_CODE.values()}
     for row, (props, wkb) in enumerate(_iter_vege_rows(shp)):
@@ -238,7 +285,13 @@ def build_vegetation_parts(
                 from app.pipeline.veg_smooth import load_smooth_barriers
 
                 barriers = load_smooth_barriers(work_dir)
-            hit = shaped_rows[row] = _shaped_parts(wkb, code, smooth_level, barriers, sprint)
+            if bridge_mask is False:
+                bridge_mask = _raster_bridge_mask(work_dir, shp)
+            if bridge_mask is not None:
+                wkb = _clip_wkb(wkb, bridge_mask)
+            hit = shaped_rows[row] = (
+                ([], False) if wkb is None else _shaped_parts(wkb, code, smooth_level, barriers, sprint)
+            )
         geom_parts, curves = hit
         if VEG_SIMPLIFY and curves and not sprint:
             # Až po memo (les a MTBO mají jiné měřítko, memo drží neupravený tvar).

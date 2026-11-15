@@ -417,6 +417,10 @@ def _simplify_vegetation_shp(
     return len(kept)
 
 
+# Značka vedle ``vegetation.shp``: porost je z rastru CHM (DSM − DTM), ne z hustoty klasifikovaných bodů.
+CHM_SOURCE_MARK = "chm_source.txt"
+
+
 def generate_vegetation_from_chm(
     chm_tif: Path,
     dest_shp: Path,
@@ -449,13 +453,18 @@ def generate_vegetation_from_chm(
         f"CHM open<{thresholds.open_max_m:g} m, "
         f"white>={thresholds.green_dense_max_m:g} m"
     )
-    return polygonize_vegetation_classes(
+    out = polygonize_vegetation_classes(
         classified,
         gt,
         dest_shp,
         log=log,
         label=label,
     )
+    if out is not None:
+        # Porost z rastru výšek (DSM − DTM): mostovka nad dopočteným terénem vypadá jako porost,
+        # sestavení mapy ho proto na mostech nekreslí (``vegetation_gdal``). Hustota bodů značku nemá.
+        (dest_shp.parent / CHM_SOURCE_MARK).write_text("chm\n", encoding="utf-8")
+    return out
 
 
 def polygonize_vegetation_classes(
@@ -485,6 +494,7 @@ def polygonize_vegetation_classes(
     dest_shp.parent.mkdir(parents=True, exist_ok=True)
     for suffix in (".shp", ".shx", ".dbf", ".prj", ".cpg"):
         dest_shp.with_suffix(suffix).unlink(missing_ok=True)
+    (dest_shp.parent / CHM_SOURCE_MARK).unlink(missing_ok=True)
 
     # Rychlá cesta: osgeo polygonize v paměti (Docker / QGIS python).
     try:

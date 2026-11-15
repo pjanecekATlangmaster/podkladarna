@@ -180,3 +180,38 @@ def test_resolve_osm_objects(opts, want, basic_sprint, basic_forest):
     assert resolve_osm_objects(opts) is want
     assert resolve_osm_basic_objects(opts, "sprint_4000") is basic_sprint
     assert resolve_osm_basic_objects(opts, "forest_10000") is basic_forest
+
+
+@pytest.mark.parametrize(("chm_source", "want_area"), [(True, 600.0), (False, 900.0)])
+def test_chm_vegetation_not_on_bridge(tmp_path, monkeypatch, chm_source, want_area):
+    """Porost z rastru CHM (DSM − DTM) se na obrysu mostu z OSM nekreslí (Gent, Sint-Michielsbrug: mostovka
+    nad dopočteným terénem jako 410); porost z hustoty bodů (bez značky, Česko) zůstává celý."""
+    import json
+
+    from shapely import from_wkb
+
+    import app.pipeline.vegetation_gdal as vg
+    from app.pipeline.vegetation_chm import CHM_SOURCE_MARK
+
+    vg._SHAPED_MEMO.clear()
+    rows = [({"cls": 4, "code": "410"}, Polygon([(0, 0), (30, 0), (30, 30), (0, 30)]).wkb)]
+    monkeypatch.setattr(vg, "_iter_vege_rows", lambda _shp: rows)
+    seen = []
+    real = vg._shaped_parts
+    monkeypatch.setattr(vg, "_shaped_parts", lambda wkb, *a: seen.append(wkb) or real(wkb, *a))
+    (tmp_path / "vegetation").mkdir()
+    (tmp_path / "vegetation" / "vegetation.shp").write_bytes(b"placeholder")
+    if chm_source:
+        (tmp_path / "vegetation" / CHM_SOURCE_MARK).write_text("chm\n", encoding="utf-8")
+    (tmp_path / "osm_paths").mkdir()
+    deck = [[[-10, 10.5], [40, 10.5], [40, 19.5], [-10, 19.5], [-10, 10.5]]]  # + 0,5 m rezerva = pás 10 m
+    (tmp_path / "osm_paths" / "bridge_decks.geojson").write_text(json.dumps({
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "properties": {"man_made": "bridge"},
+                      "geometry": {"type": "Polygon", "coordinates": deck}}],
+    }), encoding="utf-8")
+    parts = vg.build_vegetation_parts(tmp_path, preset_id="sprint_2m", scale=4000, ref_x=0.0, ref_y=0.0,
+                                      grivation_deg=0.0, smooth_level=0)
+    assert parts and len(seen) == 1
+    assert from_wkb(seen[0]).area == pytest.approx(want_area, abs=1.0)
+    vg._SHAPED_MEMO.clear()

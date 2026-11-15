@@ -51,6 +51,7 @@ _KIND_GEOM = {
     )},
     **{k: "line" for k in (
         "fence", "wall", "hedge", "power_line", "power_line_major", "cliff",
+        "rail_line", "tram_line",  # koleje OSM mimo Česko
     )},
     "tree_row": "point",  # alej se kreslí body 418 (``tree_rows``)
     **{k: "area" for k in (
