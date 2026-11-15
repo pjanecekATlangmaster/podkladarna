@@ -538,3 +538,68 @@ def colors_and_symbols_xml(symbol_set: Path) -> tuple[str, str]:
             c for c in (catalog_translate(symbol_set, g) for g in protected) if c
         )
     return colors, protect_symbol_codes(symbols, protected)
+
+
+# Anglické názvy symbolů pro mezinárodní verzi: české sady ``*_cz.omap`` vznikly z OCAD sad ``ocad_src/``
+# se stejnými kódy a pořadím vnořených částí, takže český název → anglický se dá spárovat podle kódu.
+_EN_SET_PAIRS = (
+    ("ISOM_2017_10000_cz.omap", "ISOM_2017_10000.omap"),
+    ("ISOM_2017_15000_cz.omap", "ISOM_2017_15000.omap"),
+    ("ISSprOM_2019_4000_cz.omap", "ISSprOM_2019_4000.omap"),
+    ("ISMTBOM_2022_10000_cz.omap", "ISMTBOM_2022_10000.omap"),
+    ("ISMTBOM_2022_15000_cz.omap", "ISMTBOM_2022_15000.omap"),
+)
+_SYMBOL_NAME = re.compile(r'(<symbol\b[^>]*?\sname=")([^"]*)(")')
+_SYMBOL_CODE = re.compile(r'\scode="([^"]*)"')
+
+
+def _names_by_code(path: Path) -> dict[str, list[str]]:
+    text = path.read_text(encoding="utf-8")
+    out: dict[str, list[str]] = {}
+    for start, end, attrs in _top_level_symbols(text):
+        m = _SYMBOL_CODE.search(attrs)
+        if m:
+            out[m.group(1)] = [g[1] for g in _SYMBOL_NAME.findall(text[start:end])]
+    return out
+
+
+@lru_cache(maxsize=1)
+def english_name_map() -> dict[str, str]:
+    """Český název symbolu (i vnořené části) → anglický název z OCAD sady; chybějící sady se přeskočí."""
+    out: dict[str, str] = {}
+    for cz_name, src_name in _EN_SET_PAIRS:
+        cz_path, src_path = OOM_DIR / cz_name, OOM_DIR / "ocad_src" / src_name
+        if not cz_path.is_file() or not src_path.is_file():
+            continue
+        src = _names_by_code(src_path)
+        for code, names in _names_by_code(cz_path).items():
+            en = src.get(code)
+            if en and len(en) == len(names):
+                for cz, eng in zip(names, en):
+                    out.setdefault(cz, eng)
+    return out
+
+
+def english_symbol_names(symbols_xml: str) -> str:
+    """Názvy symbolů v XML sady anglicky (neznámý název zůstane); kódy, id a vzhled beze změny."""
+    names = english_name_map()
+    if not names:
+        return symbols_xml
+
+    def repl(m: re.Match[str]) -> str:
+        name = names.get(m.group(2), m.group(2))
+        for cz, en in _OOM_PART_NAMES_EN:
+            name = name.replace(cz, en)
+        return m.group(1) + name + m.group(3)
+
+    return _SYMBOL_NAME.sub(repl, symbols_xml)
+
+
+# Názvy vnořených částí, které Mapper při uložení v češtině pojmenoval sám (i v OCAD sadách ``ocad_src``).
+_OOM_PART_NAMES_EN = (
+    ("Symbol pro čárku", "Dash symbol"),
+    ("Počáteční symbol", "Start symbol"),
+    ("Koncový symbol", "End symbol"),
+    ("Středový symbol", "Mid symbol"),
+    (" - orámování", " - border"),
+)

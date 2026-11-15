@@ -28,6 +28,7 @@ from app.mail import (
 )
 from app.pipeline import build_stats, dtm_summary
 from app.pipeline.issue_explain import failure_summary, user_summary
+from app.pipeline.zip_texts_en import zip_lang
 from app.pipeline.preview import resolve_preview_png
 from app.pipeline.run_job import run_job_pipeline
 from app.proj_env import ensure_proj_data
@@ -313,8 +314,10 @@ def run_job(job_id: str) -> int:
     def log(msg: str) -> None:
         db.append_log(job_id, msg)
 
+    job_lang = "cs"
     try:
         job = db.get_job(job_id)
+        job_lang = zip_lang(job.get("options"))
         db.update_job(job_id, status="running", phase="prepare", error=None)
         log("")
         log(f"Start jobu {job_id} · preset {job['preset_id']}")
@@ -328,7 +331,7 @@ def run_job(job_id: str) -> int:
         )
         build_stats.write(job_dir, status="done_with_errors" if issues else "done")
         if issues:
-            summary = user_summary(issues)
+            summary = user_summary(issues, job_lang)
             log(f"Shrnutí pro uživatele: {summary}")
             db.update_job(
                 job_id,
@@ -352,7 +355,7 @@ def run_job(job_id: str) -> int:
         log(f"CHYBA: {exc}")
         log(tb)
         db.update_job(
-            job_id, status="failed", phase="error", error=failure_summary(str(exc))
+            job_id, status="failed", phase="error", error=failure_summary(str(exc), job_lang)
         )
         _record_usage(job_id, "failed")
         notify_private_failure(job_id)

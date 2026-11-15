@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from app.pipeline.build_oom_map import _normalize_symbol_ids, build_oom_map_xml
 from app.pipeline.oom_import import OomObjectPart
 
@@ -67,3 +69,27 @@ def test_build_oom_map_xml_symbol_ids_are_sequential():
         assert ids == list(range(len(ids))), preset
         prefs = re.findall(r'part symbol="(\d+)"', xml)
         assert all(int(p) < len(ids) for p in prefs), preset
+
+
+@pytest.mark.parametrize("preset, scale", [("sprint_2m", 4000), ("forest_10000", 10000), ("mtbo_15000", 15000)])
+def test_build_oom_map_xml_english_for_international_jobs(monkeypatch, preset, scale):
+    """Zadání z mezinárodní (anglické) verze: názvy symbolů, poznámka a část mapy anglicky, id a kódy stejné."""
+    from app.pipeline.country_profile import JOB_LANG_ENV
+
+    def build():
+        return build_oom_map_xml(
+            map_name="t", scale=scale, ref_x=0, ref_y=0, ref_lat=50, ref_lon=14, declination=0, grivation=0,
+            templates=[], preset_id=preset,
+            object_parts=[OomObjectPart(name="x", objects_xml='<object type="1" symbol="0"/>', count=1)],
+        )
+
+    monkeypatch.delenv(JOB_LANG_ENV, raising=False)
+    cs = build()
+    monkeypatch.setenv(JOB_LANG_ENV, "en")
+    en = build()
+    names = re.findall(r'<symbol\b[^>]*?\sname="([^"]*)"', en)
+    czech = [n for n in names if re.search(r"[ěščřžůĚŠČŘŽŮýáíé]", n)]
+    assert not czech, czech[:5]
+    assert "Contour" in names and '<part name="Map">' in en and "Omapic – t" in en and "Při šíření" not in en
+    assert re.findall(r'\scode="([^"]*)"', cs) == re.findall(r'\scode="([^"]*)"', en)
+    assert '<part name="Mapa">' in cs and "Základní vrstevnice" in cs

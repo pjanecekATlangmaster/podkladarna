@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
@@ -9,6 +10,7 @@ import time
 
 from app import db, settings
 from app.pipeline.issue_explain import failure_summary
+from app.pipeline.zip_texts_en import zip_lang
 from app.rate_limit import queue_priority_key
 from app.settings import (
     APP_ROOT,
@@ -19,6 +21,8 @@ from app.settings import (
     MAX_QUEUE_SIZE,
 )
 from app.slot_lock import SharedSlot, shared_slot_from_env
+
+logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _running: str | None = None
@@ -134,6 +138,14 @@ def recover_after_restart() -> list[str]:
     ids = db.mark_interrupted_running_jobs(
         reason, user_message=failure_summary(reason)
     )
+    # Karta jobu v jazyce zadání (mezinárodní verze anglicky).
+    for job_id in ids:
+        try:
+            lang = zip_lang(db.get_job(job_id).get("options"))
+            if lang != "cs":
+                db.update_job(job_id, error=failure_summary(reason, lang))
+        except Exception:
+            logger.exception("Překlad hlášky přerušeného jobu %s", job_id)
     _notify_failure_async(ids)
     return ids
 
@@ -331,7 +343,7 @@ def _run(job_id: str) -> None:
             job = db.get_job(job_id)
             if job["status"] == "running":
                 db.update_job(
-                    job_id, status="failed", phase="error", error=failure_summary(msg)
+                    job_id, status="failed", phase="error", error=failure_summary(msg, zip_lang(job.get("options")))
                 )
                 _record_failed_usage(job_id)
             return
@@ -342,7 +354,7 @@ def _run(job_id: str) -> None:
                 msg = f"Pipeline skončila s kódem {proc.returncode}"
                 db.append_log(job_id, f"CHYBA: {msg}")
                 db.update_job(
-                    job_id, status="failed", phase="error", error=failure_summary(msg)
+                    job_id, status="failed", phase="error", error=failure_summary(msg, zip_lang(job.get("options")))
                 )
                 _record_failed_usage(job_id)
     except Exception as exc:
@@ -350,7 +362,7 @@ def _run(job_id: str) -> None:
         job = db.get_job(job_id)
         if job["status"] == "running":
             db.update_job(
-                job_id, status="failed", phase="error", error=failure_summary(str(exc))
+                job_id, status="failed", phase="error", error=failure_summary(str(exc), zip_lang(job.get("options")))
             )
         if proc is not None and proc.poll() is None:
             _terminate_process_tree(proc)
