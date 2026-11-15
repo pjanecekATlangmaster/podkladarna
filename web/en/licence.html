@@ -3,32 +3,30 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Licence – Podkladárna</title>
+  <title>Licence – {{t:web.brand}}</title>
   <link rel="icon" href="/static/logo.png" type="image/png" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <header class="header">
     <div class="page-wrap header-inner">
-      <a href="/"><img src="/static/logo.png" alt="Podkladárna" class="logo" width="48" height="48" /></a>
+      <a href="/"><img src="/static/logo.png" alt="{{t:web.brand}}" class="logo" width="48" height="48" /></a>
       <div>
         <h1>Licence and sources</h1>
-        <p class="tagline"><a href="/">← back to Podkladárna</a></p>
+        <p class="tagline"><a href="/">← back to {{t:web.brand}}</a></p>
       </div>
     </div>
   </header>
 
   <main class="licence-page">
-    <h2>Podkladárna software</h2>
+    <h2>{{t:web.brand}} software</h2>
     <p>
       The website, API and pipeline are free software under the
       <a href="https://opensource.org/license/mit" target="_blank" rel="noopener">MIT</a> licence,
       © 2026 Petr Janeček.
       MIT applies to the <em>code</em> (you may use and modify it freely;
       keep the copyright notice when distributing the code).
-      <strong>MIT does not require attribution on maps</strong> you create with Podkladárna.
-      Source code:
-      <a href="https://github.com/pjanecekATlangmaster/podkladarna" target="_blank" rel="noopener">GitHub</a>.
+      <strong>MIT does not require attribution on maps</strong> you create with {{t:web.brand}}.
     </p>
 
     <h2>Generated map (job output)</h2>
@@ -38,11 +36,11 @@
       for further use (printing, events, publications, sharing) <strong>you must credit the source</strong>.
     </p>
     <p>Minimum credit on the map / in the legend:</p>
-    <p><strong>Base map: Podkladárna · ČÚZK · OSM, [year]</strong></p>
+    <p><strong>Base map: {{t:web.brand}} · ČÚZK · OSM, [year]</strong></p>
     <p>
       <code>[year]</code> is the year the <em>data used are current to</em> (DMR / regional DTM / ZABAGED / OSM),
       not necessarily the year you printed the map. If you do not know the exact date of a layer,
-      the year you ran the job in Podkladárna is enough (typically this year).
+      the year you ran the job in {{t:web.brand}} is enough (typically this year).
       The output is a <strong>working base map for drawing, not a precise survey</strong>.
       More detailed credits for the sources below are welcome (e.g. “ZABAGED® © ČÚZK”).
     </p>
@@ -77,7 +75,7 @@
     <p>
       No explicit licence (such as CC BY) is stated for these datasets, and the ČÚZK terms
       (CC BY 4.0, “ČÚZK, [year]”) do not explicitly cover the regional DTM.
-      Use of the data in Podkladárna outputs has, however, been confirmed. We credit the source
+      Use of the data in {{t:web.brand}} outputs has, however, been confirmed. We credit the source
       in the spirit of those terms: <strong>Regional DTM · ČÚZK / DMVS, [year]</strong>.
     </p>
     <ul>
@@ -99,7 +97,7 @@
 
     <h2>Inspiration</h2>
     <p>
-      Podkladárna was <strong>loosely inspired</strong>
+      {{t:web.brand}} was <strong>loosely inspired</strong>
       by the
       <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
       project and then went its own way: vegetation from LiDAR return density, cliffs and rocks from the DMR,
@@ -131,7 +129,7 @@
   </main>
 
   <footer class="site-footer">
-    <p><a href="/">Podkladárna</a> v{{APP_VERSION}} · code MIT · output CC BY 4.0</p>
+    <p><a href="/">{{t:web.brand}}</a> v{{APP_VERSION}} · code MIT · output CC BY 4.0</p>
   </footer>
 </body>
 </html>

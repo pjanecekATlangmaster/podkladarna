@@ -125,14 +125,14 @@ WEB_ABOUT_HTML_EN = """
   <a href="https://mapant.net/" target="_blank" rel="noopener">mapant.net</a>
   and the
   <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>
-  project. Podkladárna then went its own way (its own vegetation, cliffs and DEM)
+  project. {{t:web.brand}} then went its own way (its own vegetation, cliffs and DEM)
   towards editable base maps directly in
   <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a>.
   The program was written with the help of AI, but the generation itself runs the old way,
   with clearly defined algorithms.
 </p>
 <p>
-  For the area you select, Podkladárna downloads LiDAR (DMR&nbsp;5G + DMP&nbsp;OK),
+  For the area you select, {{t:web.brand}} downloads LiDAR (DMR&nbsp;5G + DMP&nbsp;OK),
   surveyed features from the <strong>regional digital technical map (DTM)</strong> where available,
   additions from OSM (paths, areas, buildings…), ZABAGED and other sources.
   Relief and vegetation are built from the terrain and surface models (return density, DEM cliffs,
@@ -172,7 +172,7 @@ WEB_ABOUT_HTML_EN = """
 </ul>
 </details>
 <details class="about-evolution">
-  <summary><strong>How Podkladárna evolved (ZABAGED → OSM → regional DTM)</strong></summary>
+  <summary><strong>How {{t:web.brand}} evolved (ZABAGED → OSM → regional DTM)</strong></summary>
   <ol>
     <li>
       <strong>ZABAGED.</strong> I started with the national topographic database of ČÚZK. It is complete
@@ -205,7 +205,7 @@ WEB_ABOUT_HTML_EN = """
 </details>
 <h2>How to use it</h2>
 <p class="about-note">
-  <strong>A request first:</strong> Podkladárna runs on a single shared server, so every
+  <strong>A request first:</strong> {{t:web.brand}} runs on a single shared server, so every
   large job delays everyone else for a while. Please generate only what you will really use,
   whether as a try-out or for work on a map. A smaller area and one scale are enough for a first try;
   the whole area and other variants are worth running once the result looks right. Thank you.
@@ -229,9 +229,7 @@ WEB_ABOUT_HTML_EN = """
   a download link when it is done.
 </p>
 <p>
-  Podkladárna is an experiment, so feedback is welcome next to a finished map
-  or on
-  <a href="https://github.com/pjanecekATlangmaster/podkladarna/issues" target="_blank" rel="noopener">GitHub Issues</a>.
+  {{t:web.brand}} is an experiment, so feedback is welcome next to a finished map.
 </p>
 """
 
@@ -313,10 +311,7 @@ Napište mi nebo zavolejte:
   e-mail:   janecek@datais.cz
   telefon:  733 575 541
 
-Technické hlášení chyb můžete také založit na GitHubu:
-https://github.com/pjanecekATlangmaster/podkladarna/issues
-
-Podpora vývoje
+{{github_block}}Podpora vývoje
 --------------
 Podkladárna je zdarma. Pokud vám pomohla a chcete podpořit další vývoj
 (hlavně placené AI nástroje), ocením dobrovolný příspěvek v jakékoli výši:
@@ -338,9 +333,23 @@ CZ_ATTRIBUTION = (
 )
 
 
-def zip_about_txt(citation: str = CZ_CITATION, attribution: tuple[str, ...] = CZ_ATTRIBUTION) -> str:
-    """CO_JE_PODKLADARNA.txt s citací zdrojů podle země výřezu (licence místních dat)."""
-    return _ZIP_ABOUT_TEMPLATE.format(citation=citation, attribution="\n".join(attribution or CZ_ATTRIBUTION))
+_ZIP_GITHUB_BLOCK = """Technické hlášení chyb můžete také založit na GitHubu:
+https://github.com/pjanecekATlangmaster/podkladarna/issues
+
+"""
+
+
+def zip_about_txt(
+    citation: str = CZ_CITATION, attribution: tuple[str, ...] = CZ_ATTRIBUTION, github: bool = True
+) -> str:
+    """CO_JE_PODKLADARNA.txt s citací zdrojů podle země výřezu (licence místních dat).
+
+    ``github``: odkaz na GitHub Issues jen u jobů v Česku (mezinárodní verze ho neukazuje)."""
+    return _ZIP_ABOUT_TEMPLATE.format(
+        citation=citation,
+        attribution="\n".join(attribution or CZ_ATTRIBUTION),
+        github_block=_ZIP_GITHUB_BLOCK if github else "",
+    )
 
 
 ZIP_ABOUT_TXT = zip_about_txt()

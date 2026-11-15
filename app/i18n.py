@@ -28,6 +28,10 @@ LANG_COOKIE_MAX_AGE = 365 * 24 * 3600
 WEB_PREFIXES = ("web.", "step.", "status.")
 # Texty stránky vykreslené serverem (``{{h:…}}``) do app.js nejdou.
 SERVER_ONLY_PREFIXES = ("web.page.",)
+# Název služby v jazyce (mezinárodní verze může mít jiný než Podkladárna): texty ho mají jako ``{brand}``,
+# ``t()`` a katalog pro app.js ho doplní sami; v katalogu jiného jazyka nemusí být (není to parametr volání).
+BRAND_KEY = "web.brand"
+GLOBAL_PARAMS = frozenset({"brand"})
 
 _LANG_RE = re.compile(r"^[a-z]{2}$")
 _PLACEHOLDER_RE = re.compile(r"\{\{(t|h):([a-zA-Z0-9_.\-]+)\}\}")
@@ -134,13 +138,31 @@ def _chain(lang: str) -> list[str]:
     return list(dict.fromkeys([lang, BASE_LANG, SOURCE_LANG]))
 
 
-def t(key: str, lang: str | None = None, **params: Any) -> str:
-    """Text pro klíč v jazyce; chybí-li, en, pak cs, nakonec klíč."""
-    for code in _chain(lang or default_lang()):
+def _raw(key: str, lang: str) -> str | None:
+    for code in _chain(lang):
         text = catalog(code).get(key)
         if text is not None:
-            return text.format_map(_SafeDict(params)) if params else text
-    return key
+            return text
+    return None
+
+
+def brand(lang: str | None = None) -> str:
+    """Název služby v jazyce (``web.brand``), výchozí Podkladárna."""
+    return _raw(BRAND_KEY, lang or default_lang()) or "Podkladárna"
+
+
+def _with_brand(text: str, lang: str) -> str:
+    return text.replace("{brand}", brand(lang)) if "{brand}" in text else text
+
+
+def t(key: str, lang: str | None = None, **params: Any) -> str:
+    """Text pro klíč v jazyce; chybí-li, en, pak cs, nakonec klíč. ``{brand}`` = název služby."""
+    lang = lang or default_lang()
+    text = _raw(key, lang)
+    if text is None:
+        return key
+    text = _with_brand(text, lang)
+    return text.format_map(_SafeDict(params)) if params else text
 
 
 class _SafeDict(dict):
@@ -159,7 +181,7 @@ def merged_catalog(lang: str, prefixes: tuple[str, ...] = WEB_PREFIXES) -> dict[
                 if k.startswith(prefixes) and not k.startswith(SERVER_ONLY_PREFIXES)
             }
         )
-    return out
+    return {k: _with_brand(v, lang) for k, v in out.items()}
 
 
 def locale_for(lang: str) -> str:
@@ -333,7 +355,8 @@ def localize(value: Any, lang: str) -> Any:
 
 
 def placeholders_in(text: str) -> set[str]:
-    return set(re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", text))
+    """Parametry volání v textu (bez globálních jako ``{brand}``, které doplní ``t()``)."""
+    return set(re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", text)) - GLOBAL_PARAMS
 
 
 def missing_keys(reference: Mapping[str, str], other: Mapping[str, str]) -> list[str]:
