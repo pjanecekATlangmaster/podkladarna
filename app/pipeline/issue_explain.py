@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.i18n import t
+
 # Kategorie (od nejzávažnější).
 SEVERE = "severe"  # mapa je neúplná nebo chybná
 MISSING = "missing"  # chybí podkladová vrstva / doplněk, mapa je v pořádku
@@ -25,29 +27,18 @@ NONE = "none"
 _ADVICE_ORDER = (CONTACT, REFRESH, RETRY, REPORT, NONE)
 _CATEGORY_ORDER = (SEVERE, MISSING, OTHER)
 
-FEEDBACK_HINT = "přes „Napsat zpětnou vazbu“ u tohoto jobu"
+# Texty pro uživatele jsou v katalogu ``configs/i18n`` (``issue.*``); souhrn se píše v jazyce zadání jobu.
+_ADVICE_KEYS = {CONTACT: "issue.advice.contact", REFRESH: "issue.advice.refresh", RETRY: "issue.advice.retry",
+                REPORT: "issue.advice.report", NONE: "issue.advice.none"}
 
-ADVICE_TEXT = {
-    CONTACT: (
-        "Nejspíš jde o chybu Podkladárny, nový build sám nepomůže. "
-        f"Napište prosím Petrovi {FEEDBACK_HINT}."
-    ),
-    REFRESH: (
-        "Spusťte job znovu se zaškrtnutou volbou „Znovu stáhnout a spočítat "
-        f"podklady“. Pokud se chyba opakuje, napište Petrovi {FEEDBACK_HINT}."
-    ),
-    RETRY: (
-        "Nejspíš jde o dočasný výpadek služby, ze které se data stahují. "
-        "Spusťte stejný job znovu za pár hodin."
-    ),
-    REPORT: (
-        "Mapu můžete normálně použít. Pokud se to opakuje, dejte Petrovi "
-        f"vědět {FEEDBACK_HINT}."
-    ),
-    NONE: "Není potřeba nic dělat.",
-}
 
-DETAILS_HINT = "Technické podrobnosti jsou v logu jobu."
+def advice_text(advice: str, lang: str = "cs") -> str:
+    return t(_ADVICE_KEYS[advice], lang)
+
+
+# Česká znění (zpětná kompatibilita, testy).
+ADVICE_TEXT = {k: t(v, "cs") for k, v in _ADVICE_KEYS.items()}
+DETAILS_HINT = t("issue.details", "cs")
 
 # Délka lidského souhrnu ve sloupci ``jobs.error``.
 SUMMARY_MAX_CHARS = 700
@@ -64,47 +55,45 @@ class Explained:
 # (vzor na začátku hlášky, kategorie, co chybí – lidsky, postup).
 # Pořadí rozhoduje: první shoda vyhrává.
 _RULES: tuple[tuple[str, str, str, str], ...] = (
-    # --- mapa je neúplná ---
-    (r"OSM 501\b", SEVERE, "zpevněné plochy z OpenStreetMap", RETRY),
-    (r"OSM:.*dlaždic", SEVERE, "část cest a objektů z OpenStreetMap", RETRY),
-    (r"OSM:", SEVERE, "cesty a objekty z OpenStreetMap", RETRY),
-    (r"DTM: ", SEVERE, "kresba z Digitální technické mapy (budovy, ploty, šířky cest)", RETRY),
-    (r"Vektory:", SEVERE, "data stahovaná předem (ZABAGED, RÚIAN, AOPK)", RETRY),
-    (r"RÚIAN budovy", SEVERE, "budovy z RÚIAN (část budov může chybět)", RETRY),
-    (r"AOPK stromy", SEVERE, "významné stromy z AOPK", RETRY),
-    (r"[^:]*: chybí DEM", SEVERE, "{label_lc} (chybí výškový model)", REFRESH),
-    (r"Výškové modely", SEVERE, "výškové modely (vrstevnice, srázy a porosty mohou chybět)", REFRESH),
-    (r"DSM/CHM", SEVERE, "model výšky porostu (porosty jsou méně přesné)", REFRESH),
-    (r"Vegetace", SEVERE, "porosty (vegetace)", REFRESH),
-    (r"Srázy", SEVERE, "srázy", CONTACT),
-    (r"Kupky a ďolíky", SEVERE, "kupky a ďolíky", CONTACT),
-    (r"Balvany", SEVERE, "balvany", CONTACT),
-    (r"Výstup:", SEVERE, "výsledný soubor s mapou", CONTACT),
-    (r"OOM: proces mapy spadl", OTHER, "souběžný výpočet map (mapy se dopočítaly postupně)", NONE),
-    (r"OOM: podklady pro šablony", MISSING, "podkladové vrstvy (šablony) v souboru mapy", CONTACT),
-    (r"OOM: (?P<variant>.+?) nevytvořeno", SEVERE, "mapa {variant}", CONTACT),
-    # --- chybí jen podklad / doplněk ---
-    (r"OOM OCD", MISSING, "kopie mapy ve formátu OCAD (.ocd)", REPORT),
-    (r"OOM georef", MISSING, "georeferencované náhledy mapy", REPORT),
-    (r"OOM náhled|Náhled compose", MISSING, "náhledový obrázek mapy", REPORT),
-    (r"uzitecne/", MISSING, "složka „uzitecne“ s doplňkovými soubory", REPORT),
-    (r"Ortofoto", MISSING, "ortofoto", RETRY),
-    (r"Katastr", MISSING, "katastrální mapa", RETRY),
-    (r"OpenStreetMap:", MISSING, "podkladová vrstva OpenStreetMap", RETRY),
-    (r"Mapa ZTM", MISSING, "Základní topografická mapa (ZTM)", RETRY),
-    (r"(?P<label>DTM kraje[^:]*)", MISSING, "{label}", RETRY),
-    (r"Náhled DMP OK", MISSING, "náhled povrchu (DMP OK)", RETRY),
-    (r"Stínování reliéfu|Stínování: žádný zdroj", MISSING, "stínování reliéfu", RETRY),
-    (r"Stínování|Hillshade", MISSING, "stínování reliéfu z ČÚZK", RETRY),
-    (r"Referenční podklady", MISSING, "podkladové vrstvy (ortofoto, katastr, stínování…)", RETRY),
+    (r"OSM 501\b", SEVERE, "osm_paved", RETRY),
+    (r"OSM:.*dlaždic", SEVERE, "osm_tiles", RETRY),
+    (r"OSM:", SEVERE, "osm", RETRY),
+    (r"DTM: ", SEVERE, "dtm", RETRY),
+    (r"Vektory:", SEVERE, "vectors", RETRY),
+    (r"RÚIAN budovy", SEVERE, "ruian", RETRY),
+    (r"AOPK stromy", SEVERE, "aopk", RETRY),
+    (r"[^:]*: chybí DEM", SEVERE, "no_dem", REFRESH),
+    (r"Výškové modely", SEVERE, "elevation", REFRESH),
+    (r"DSM/CHM", SEVERE, "chm", REFRESH),
+    (r"Vegetace", SEVERE, "vegetation", REFRESH),
+    (r"Srázy", SEVERE, "cliffs", CONTACT),
+    (r"Kupky a ďolíky", SEVERE, "knolls", CONTACT),
+    (r"Balvany", SEVERE, "boulders", CONTACT),
+    (r"Výstup:", SEVERE, "output", CONTACT),
+    (r"OOM: proces mapy spadl", OTHER, "map_process", NONE),
+    (r"OOM: podklady pro šablony", MISSING, "templates", CONTACT),
+    (r"OOM: (?P<variant>.+?) nevytvořeno", SEVERE, "map_variant", CONTACT),
+    (r"OOM OCD", MISSING, "ocd", REPORT),
+    (r"OOM georef", MISSING, "georef", REPORT),
+    (r"OOM náhled|Náhled compose", MISSING, "preview", REPORT),
+    (r"uzitecne/", MISSING, "uzitecne", REPORT),
+    (r"Ortofoto", MISSING, "orthophoto", RETRY),
+    (r"Katastr", MISSING, "cadastre", RETRY),
+    (r"OpenStreetMap:", MISSING, "osm_layer", RETRY),
+    (r"Mapa ZTM", MISSING, "ztm", RETRY),
+    (r"(?P<label>DTM kraje[^:]*)", MISSING, "dtm_region", RETRY),
+    (r"Náhled DMP OK", MISSING, "dmpok", RETRY),
+    (r"Stínování reliéfu|Stínování: žádný zdroj", MISSING, "hillshade", RETRY),
+    (r"Stínování|Hillshade", MISSING, "hillshade_cuzk", RETRY),
+    (r"Referenční podklady", MISSING, "references", RETRY),
 )
 
 _COMPILED = tuple((re.compile(p), c, w, a) for p, c, w, a in _RULES)
 _CONTEXT_PREFIX = re.compile(r"^\[[^\]]*\]\s*")
 
 
-def explain_issue(text: str) -> Explained:
-    """Zařadí jednu technickou hlášku (bez značky ``⚠``)."""
+def explain_issue(text: str, lang: str = "cs") -> Explained:
+    """Zařadí jednu technickou hlášku (bez značky ``⚠``); ``what`` v jazyce ``lang``."""
     technical = " ".join(str(text or "").split())
     core = _CONTEXT_PREFIX.sub("", technical)
     for rx, category, what, advice in _COMPILED:
@@ -115,7 +104,7 @@ def explain_issue(text: str) -> Explained:
         groups = {k: (v or "").strip() for k, v in m.groupdict().items()}
         groups.setdefault("label", label)
         groups["label_lc"] = groups["label"][:1].lower() + groups["label"][1:]
-        return Explained(category, what.format(**groups), advice, technical)
+        return Explained(category, t(f"issue.what.{what}", lang, **groups), advice, technical)
     return Explained(OTHER, "", REPORT, technical)
 
 
@@ -127,88 +116,59 @@ def _unique(seq):
     return out
 
 
-def user_summary(issues: list[str]) -> str:
-    """Lidský souhrn chyb jobu pro kartu jobu (``jobs.error``)."""
-    items = [explain_issue(t) for t in issues if str(t or "").strip()]
+def user_summary(issues: list[str], lang: str = "cs") -> str:
+    """Lidský souhrn chyb jobu pro kartu jobu (``jobs.error``) v jazyce zadání."""
+    items = [explain_issue(text, lang) for text in issues if str(text or "").strip()]
     if not items:
         return ""
     severe = _unique(e.what for e in items if e.category == SEVERE)
     missing = _unique(e.what for e in items if e.category == MISSING)
     parts: list[str] = []
     if severe:
-        parts.append("Mapa je hotová, ale je neúplná – chybí: " + ", ".join(severe) + ".")
+        parts.append(t("issue.summary.severe", lang, items=", ".join(severe)))
         if missing:
-            parts.append("Chybí také podkladové vrstvy: " + ", ".join(missing) + ".")
+            parts.append(t("issue.summary.severe_missing", lang, items=", ".join(missing)))
     elif missing:
-        parts.append(
-            "Mapa je v pořádku, chybí jen některé podkladové vrstvy: "
-            + ", ".join(missing)
-            + "."
-        )
+        parts.append(t("issue.summary.missing", lang, items=", ".join(missing)))
     else:
-        parts.append("Mapa je hotová, při zpracování nastaly drobné potíže bez vlivu na mapu.")
+        parts.append(t("issue.summary.minor", lang))
     advice = min((e.advice for e in items), key=_ADVICE_ORDER.index)
     if advice == REPORT and severe:
         advice = CONTACT
     if advice != NONE:
-        parts.append(ADVICE_TEXT[advice])
-    parts.append(DETAILS_HINT)
+        parts.append(advice_text(advice, lang))
+    parts.append(t("issue.details", lang))
     return _clip(" ".join(parts))
 
 
 # --- job úplně selhal ---------------------------------------------------
 
 _FAILURE_RULES: tuple[tuple[str, str], ...] = (
-    (
-        r"časový limit",
-        "Výpočet trval příliš dlouho a byl ukončen. Zkuste menší území, nebo job "
-        f"spusťte znovu později. Pokud se to opakuje, napište Petrovi {FEEDBACK_HINT}.",
-    ),
-    (
-        r"restartem serveru",
-        "Výpočet přerušil restart serveru (například nasazení nové verze). "
-        "Spusťte stejný job znovu.",
-    ),
-    (
-        r"Server byl obsazený",
-        "Server byl dlouho obsazený jinými výpočty. Spusťte job znovu později.",
-    ),
-    (
-        r"nezůstaly žádné DMR|nezůstaly žádné DMP|žádné LiDAR|mimo listy",
-        "Pro zvolené území se nepodařilo získat data leteckého skenování (LiDAR). "
-        "Zkontrolujte, že výřez leží v Česku, a spusťte job znovu se zaškrtnutou "
-        "volbou „Znovu stáhnout a spočítat podklady“. Pokud to nepomůže, napište "
-        f"Petrovi {FEEDBACK_HINT}.",
-    ),
+    (r"časový limit", "timeout"),
+    (r"restartem serveru", "restart"),
+    (r"Server byl obsazený", "busy"),
+    (r"nezůstaly žádné DMR|nezůstaly žádné DMP|žádné LiDAR|mimo listy", "lidar"),
     (
         r"ZABAGED|HTTP ?5\d\d|\b50[234]\b|timed? ?out|Timeout|Connection|"
         r"Max retries|Temporary failure|Service Unavailable|Bad Gateway",
-        "Nepodařilo se stáhnout podklady od ČÚZK nebo jiné služby – nejspíš jde "
-        "o dočasný výpadek. Spusťte stejný job znovu za pár hodin.",
+        "download",
     ),
-    (
-        r"kódem -9|kódem 137|MemoryError|Cannot allocate",
-        "Výpočtu došla paměť serveru. Zkuste menší území nebo to zkuste později, "
-        f"až server nebude vytížený. Pokud se to opakuje, napište Petrovi {FEEDBACK_HINT}.",
-    ),
+    (r"kódem -9|kódem 137|MemoryError|Cannot allocate", "memory"),
 )
-_FAILURE_COMPILED = tuple((re.compile(p), t) for p, t in _FAILURE_RULES)
+_FAILURE_COMPILED = tuple((re.compile(p), key) for p, key in _FAILURE_RULES)
 
-FAILURE_DEFAULT = (
-    "Při výpočtu nastala chyba Podkladárny, nový build sám nejspíš nepomůže. "
-    f"Napište prosím Petrovi {FEEDBACK_HINT}."
-)
+FAILURE_DEFAULT = t("issue.failure.default", "cs")
 
 
-def failure_summary(technical: str) -> str:
-    """Lidská zpráva pro job, který skončil ``failed`` (technika zůstává v logu)."""
+def failure_summary(technical: str, lang: str = "cs") -> str:
+    """Lidská zpráva pro job, který skončil ``failed`` (technika zůstává v logu), v jazyce zadání."""
     text = " ".join(str(technical or "").split())
-    advice = FAILURE_DEFAULT
-    for rx, msg in _FAILURE_COMPILED:
+    key = "default"
+    for rx, name in _FAILURE_COMPILED:
         if rx.search(text):
-            advice = msg
+            key = name
             break
-    return _clip(f"Mapu se nepodařilo vytvořit. {advice} {DETAILS_HINT}")
+    return _clip(f"{t('issue.failure.prefix', lang)} {t(f'issue.failure.{key}', lang)} {t('issue.details', lang)}")
 
 
 def _clip(text: str) -> str:

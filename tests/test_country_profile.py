@@ -411,3 +411,18 @@ def test_zip_texts_follow_job_language(country):
     info = sentinel_info_en(sentinel2.info_text([scene]))
     assert "image date 2026-09-01" in info and "cloud cover of the whole tile 3.5 %" in info and "2026" in info
 
+
+
+def test_dtm_summary_lines_in_english():
+    from app.pipeline.zip_texts_en import dtm_lines_en, dtm_readme_en
+
+    summary = {
+        "state": "weak", "lines": ["Digitální technická mapa …", "DTM pokrývá jen …"], "warn_lines": ["DTM pokrývá jen …"],
+        "maps": {"sprint": True, "les": False}, "counts": {"ploty": 3, "budovy": 5}, "missing": ["Lochkov"], "units_total": 2,
+    }
+    parts = dtm_lines_en(summary)
+    assert parts["lines"][0] == "ČÚZK Digital Technical Map (DTM): used for sprint (fences 3, buildings 5)."
+    assert parts["warn_lines"] == [parts["lines"][1]] and "1 of 2 municipalities" in parts["lines"][1]
+    assert "WARNING: DTM covers only" in dtm_readme_en(summary)
+    failed = dtm_lines_en({"state": "failed", "lines": ["x"], "notice_lines": ["x"]})
+    assert failed["notice_lines"] == failed["lines"] and "unavailable" in failed["lines"][0]
