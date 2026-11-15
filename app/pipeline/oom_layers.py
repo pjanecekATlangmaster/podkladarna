@@ -132,7 +132,8 @@ def collect_oom_templates(
             if opath and opath.is_file():
                 templates.append(
                     OomTemplate(
-                        "gdal",
+                        # stažený rastr (zahraničí se „Stáhnout předem“) je obyčejný obrázek s world file
+                        "image" if opath.suffix.lower() in {".jpg", ".png"} else "gdal",
                         olabel,
                         f"references/{opath.name}",
                         visible=False,

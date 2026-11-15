@@ -379,6 +379,90 @@ def write_online_templates(
     return written
 
 
+# Fotografické podklady do JPEG (menší ZIP), mapy a průhledné vrstvy do PNG.
+PHOTO_TMS_KEYS = frozenset({AT_ONLINE_LB[0]})
+DOWNLOAD_WORKERS = 3
+
+
+def _download_format(key: str, country: str) -> str:
+    """``JPEG`` u ortofota (WMS ``image/jpeg`` nebo dlaždice snímků), jinak ``PNG``."""
+    base = key[len("online_"):]
+    if base in PHOTO_TMS_KEYS:
+        return "JPEG"
+    for k, _f, _label, _url, _layer, fmt, transparent, _mpp in wms_layers_for(country):
+        if k == base:
+            return "JPEG" if fmt == "image/jpeg" and not transparent else "PNG"
+    return "PNG"
+
+
+def _translate_template(src: Path, fmt: str, log=None) -> Path | None:
+    """Online šablona (GDAL WMS ``.xml`` / ``.vrt``) → stažený rastr + world file vedle ní; None při chybě."""
+    import subprocess
+
+    ext, wext = (".jpg", ".jgw") if fmt == "JPEG" else (".png", ".pgw")
+    dest = src.with_name(f"{src.stem}_stazeno{ext}")
+    try:
+        gdal_translate = find_tool("gdal_translate")
+    except RuntimeError:
+        return None
+    cmd = [gdal_translate, "-q", "-of", fmt, "-co", "WORLDFILE=YES"]
+    if fmt == "JPEG":
+        cmd += ["-b", "1", "-b", "2", "-b", "3", "-co", "QUALITY=90"]
+    cmd += [src.name, dest.name]
+    try:
+        result = subprocess.run(cmd, cwd=src.parent, capture_output=True, text=True, timeout=900, check=False)
+    except subprocess.TimeoutExpired:
+        result = None
+    wld = dest.with_suffix(".wld")
+    if result is None or result.returncode != 0 or not dest.is_file() or not wld.is_file():
+        for leftover in (dest, wld, dest.with_name(dest.name + ".aux.xml")):
+            leftover.unlink(missing_ok=True)
+        if log and result is not None:
+            log(f"  {src.name}: stažení selhalo ({(result.stderr or '').strip()[:200]})")
+        return None
+    wld.replace(dest.with_suffix(wext))
+    dest.with_name(dest.name + ".aux.xml").unlink(missing_ok=True)
+    final = src.with_name(f"{src.stem}{ext}")
+    dest.replace(final)
+    dest.with_suffix(wext).replace(final.with_suffix(wext))
+    return final
+
+
+def download_online_templates(written: dict[str, Path], country: str, *, log=None) -> dict[str, Path]:
+    """Se zapnutým „Stáhnout referenční šablony předem“: online šablony mimo Česko stáhne jako rastry.
+
+    Stahuje se varianta s nejjemnějším rozlišením (nejvýš ``MAX_PX``); povedený rastr nahradí obě varianty
+    vrstvy (soubory ``.xml`` / ``.vrt`` se smažou), při chybě zůstanou online šablony.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    main = {k: p for k, p in written.items() if not any(k.endswith(sfx) for sfx, _f, _l in ZOOM_VARIANTS if sfx)}
+    jobs = [(k, p, _download_format(k, country)) for k, p in sorted(main.items())]
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS, thread_name_prefix="ref-online") as ex:
+        rasters = list(ex.map(lambda j: _translate_template(j[1], j[2], log=log), jobs))
+    out = dict(written)
+    for (key, _src, _fmt), raster in zip(jobs, rasters):
+        if raster is None:
+            continue
+        for sfx, _f, _l in ZOOM_VARIANTS:
+            old = out.pop(f"{key}{sfx}", None)
+            if old is not None and old != raster:
+                old.unlink(missing_ok=True)
+                old.with_name(f"{old.stem}_zdroj.xml").unlink(missing_ok=True)
+        out[key] = raster
+    used = {p.name for p in out.values()}
+    for tms in ("bgt_dlazdice.xml", "luftbild_wien_dlazdice.xml", "osm_dlazdice.xml"):
+        folder = next(iter(written.values())).parent if written else None
+        if folder is None:
+            break
+        # dlaždicová šablona zůstává, jen dokud ji používá některý .vrt
+        if not any(n.endswith(".vrt") for n in used) or not any(
+            tms in (folder / n).read_text(encoding="utf-8", errors="ignore") for n in used if n.endswith(".vrt")
+        ):
+            (folder / tms).unlink(missing_ok=True)
+    return out
+
+
 def online_labels() -> dict[str, str]:
     """Klíč ``online_<vrstva>`` → popisek šablony."""
     layers = [

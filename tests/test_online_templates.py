@@ -70,3 +70,36 @@ def test_online_templates_only_online_layers(tmp_path, monkeypatch):
     assert sorted(built) == ["online_orthophoto_archiv", "online_orthophoto_archiv_stredni"]
     full = write_online_templates((-770000.0, -1183000.0, -769000.0, -1182000.0), tmp_path)
     assert ET.parse(full["online_sklon"]).getroot().findtext("Service/Layers") == "dmr5g:SlopeRGBMap"
+
+
+def test_foreign_templates_downloaded_when_requested(tmp_path, monkeypatch):
+    """Zahraničí se „Stáhnout předem“: každá vrstva jako rastr + world file (ortofoto JPEG, katastr PNG), varianty pryč;
+    vrstva, jejíž stažení selže, zůstane online. V .omap stažený rastr jako obyčejná šablona obrázku."""
+    import subprocess
+
+    calls = []
+
+    def fake_translate(cmd, *, cwd=None, **_k):
+        calls.append(cmd)
+        src, dest = cmd[-2], cmd[-1]
+        if src.startswith("plan_ign"):
+            return subprocess.CompletedProcess(cmd, 1, "", "HTTP error 502")
+        (cwd / dest).write_bytes(b"raster")
+        (cwd / dest).with_suffix(".wld").write_text("0.2\n0\n0\n-0.2\n0\n0\n", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(ot, "find_tool", lambda name: (_ for _ in ()).throw(RuntimeError(name)) if name == "gdalwarp" else name)
+    monkeypatch.setattr(subprocess, "run", fake_translate)
+    written = write_online_templates((-625000.0, -1200000.0, -624000.0, -1199000.0), tmp_path, country="FR")
+    assert sorted(written) == sorted(f"online_fr_{k}{s}" for k in ("ortho", "plan", "cadastre") for s in ("", "_stredni"))
+    out = ot.download_online_templates(written, "FR")
+    assert len(calls) == 3 and all("_stredni" not in c[-2] for c in calls)  # jen nejjemnější varianta
+    assert out["online_fr_ortho"].name == "ortho_ign.jpg" and (tmp_path / "ortho_ign.jgw").is_file()
+    assert out["online_fr_cadastre"].name == "cadastre_ign.png" and (tmp_path / "cadastre_ign.pgw").is_file()
+    assert "online_fr_ortho_stredni" not in out and not (tmp_path / "ortho_ign.xml").exists()
+    assert out["online_fr_plan"].suffix == ".xml" and "online_fr_plan_stredni" in out  # selhalo → online zůstává
+    ortho_cmd = next(c for c in calls if c[-2] == "ortho_ign.xml")
+    assert ortho_cmd[ortho_cmd.index("-of") + 1] == "JPEG" and "-b" in ortho_cmd
+
+    kinds = {t.relpath: t.kind for t in collect_oom_templates(tmp_path, built_refs=out)}
+    assert kinds["references/ortho_ign.jpg"] == "image" and kinds["references/plan_ign.xml"] == "gdal"
