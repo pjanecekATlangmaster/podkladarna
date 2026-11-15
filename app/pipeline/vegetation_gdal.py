@@ -190,22 +190,26 @@ def _raster_veto_mask(work_dir: Path, shp: Path, sprint: bool):
 
     if process_uses_cz_sources() or not (shp.parent / CHM_SOURCE_MARK).is_file():
         return None
-    from shapely.ops import unary_union
-    from shapely.prepared import prep
+    import shapely
 
-    parts = [g for g in _veto_parts(Path(work_dir), roads=sprint) if g is not None and not g.is_empty]
+    # Díly bez globálního sjednocení ve STRtree: řádek porostu odečte jen díly, které protíná (čas na řádek
+    # nezávisí na ploše výřezu; rozdíl proti celé masce rostl kvadraticky).
+    parts = []
+    for layer in _veto_parts(Path(work_dir), roads=sprint):
+        if layer is None or layer.is_empty:
+            continue
+        parts.extend(g for g in getattr(layer, "geoms", [layer]) if not g.is_empty)
     if not parts:
         return None
-    deck = unary_union(parts)
-    return deck, prep(deck)
+    return parts, shapely.STRtree(parts)
 
 
 def _veto_parts(work_dir: Path, *, roads: bool = True) -> list:
-    """Jednotlivé vrstvy veta; vrstva, která se nenačte, se vynechá (zbytek platí)."""
+    """Vrstvy veta jako syrové díly (bez sjednocení, to by z uliční sítě udělalo jeden obří polygon a ořez by
+    rostl kvadraticky); vrstva, která se nenačte, se vynechá (zbytek platí)."""
     import json
 
-    from shapely.geometry import LineString, Polygon
-    from shapely.ops import unary_union
+    from shapely.geometry import LineString, Polygon, shape
 
     from app.pipeline import dtm_import, osm_paths
 
@@ -213,61 +217,78 @@ def _veto_parts(work_dir: Path, *, roads: bool = True) -> list:
 
     def add(fn):
         try:
-            out.append(fn())
+            got = fn()
         except Exception:
-            pass
+            return
+        if got is not None:
+            out.extend(got if isinstance(got, list) else [got])
 
-    add(lambda: osm_paths.bridge_deck_geometry(work_dir))
-    add(lambda: dtm_import._buildings_zone(work_dir, tol_m=0.0, min_area_m2=BUILDING_VETO_MIN_M2))  # OSM + technická mapa
-    add(lambda: osm_paths.osm_water_area_geometry(work_dir))
-
-    def road_area():
-        polys = []
-        for rings in dtm_import._load_road_polygons(work_dir):  # vozovky technické mapy (GRB, BGT, …)
+    def polys_from_rings(rings_list) -> list:
+        res = []
+        for rings in rings_list:
             if rings and len(rings[0]) >= 4:
                 poly = Polygon(rings[0], rings[1:])
-                polys.append(poly if poly.is_valid else poly.buffer(0))
-        gj = work_dir / "osm_paths" / "paths_osm.geojson"
-        feats = json.loads(gj.read_text(encoding="utf-8")).get("features") or [] if gj.is_file() else []
-        surface = [
-            f for f in feats
-            if not osm_paths.is_tunnel_highway(str((f.get("properties") or {}).get("highway") or ""))
-        ]  # nad tunelem porost být může
-        osm_roads = osm_paths.road_carriageway_geometry(surface)
-        if osm_roads is not None:
-            polys.append(osm_roads)
-        return unary_union(polys) if polys else None
+                res.append(poly if poly.is_valid else poly.buffer(0))
+        return res
 
-    if roads:
-        add(road_area)
+    def read_feats(name: str) -> list:
+        gj = work_dir / "osm_paths" / name
+        return json.loads(gj.read_text(encoding="utf-8")).get("features") or [] if gj.is_file() else []
 
-    def rails():
-        gj = work_dir / "osm_paths" / "features.geojson"
-        if not gj.is_file():
-            return None
-        lines = []
-        for f in json.loads(gj.read_text(encoding="utf-8")).get("features") or []:
+    add(lambda: osm_paths.bridge_deck_geometry(work_dir))  # mostů je málo
+
+    def osm_areas():
+        res = []
+        for f in read_feats("features.geojson"):
+            kind = (f.get("properties") or {}).get("kind")
             geom = f.get("geometry") or {}
-            if (f.get("properties") or {}).get("kind") in {"rail_line", "tram_line"} and geom.get("type") == "LineString":
+            if kind in {"building", "water_body"} and geom.get("type") in ("Polygon", "MultiPolygon"):
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+                if kind == "water_body" or g.area >= BUILDING_VETO_MIN_M2:
+                    res.append(g)
+            elif kind in {"rail_line", "tram_line"} and geom.get("type") == "LineString":
                 coords = geom.get("coordinates") or []
                 if len(coords) >= 2:
-                    lines.append(LineString(coords).buffer(RAIL_VETO_HALF_M, cap_style="flat"))
-        return unary_union(lines) if lines else None
+                    res.append(LineString(coords).buffer(RAIL_VETO_HALF_M, cap_style="flat"))
+        return res
 
-    add(rails)
+    add(osm_areas)
+    # Budovy technické mapy (DTM, GRB, BGT, …); překryv s OSM nevadí, sjednocují se jen díly u řádku.
+    add(lambda: [g for g in polys_from_rings(dtm_import._load_polygons_file(dtm_import.buildings_path(work_dir)))
+                 if g.area >= BUILDING_VETO_MIN_M2])
+
+    if roads:
+        add(lambda: polys_from_rings(dtm_import._load_road_polygons(work_dir)))  # vozovky technické mapy
+
+        def osm_roads():
+            res = []
+            for f in read_feats("paths_osm.geojson"):
+                hw = str((f.get("properties") or {}).get("highway") or "")
+                coords = (f.get("geometry") or {}).get("coordinates") or []
+                # nad tunelem porost být může
+                if osm_paths.is_tunnel_highway(hw) or not osm_paths.path_draw_highway(hw).startswith("road_"):
+                    continue
+                if (f.get("geometry") or {}).get("type") == "LineString" and len(coords) >= 2:
+                    half = max(1.0, osm_paths.drawn_width_m(hw) / 2.0)  # jako ``road_carriageway_geometry``
+                    res.append(LineString(coords).buffer(half, cap_style=2, join_style=2))
+            return res
+
+        add(osm_roads)
     return out
 
 
 def _clip_wkb(wkb: bytes, mask) -> bytes | None:
     """Porost bez ploch veta (``_raster_veto_mask``); None = nic nezbylo."""
-    from shapely import from_wkb, to_wkb
+    from shapely import from_wkb, to_wkb, union_all
 
-    deck, prepared = mask
+    parts, tree = mask
     try:
         geom = from_wkb(bytes(wkb))
-        if not prepared.intersects(geom):
+        idx = tree.query(geom, predicate="intersects")
+        if len(idx) == 0:
             return wkb
-        rest = geom.difference(deck)
+        rest = geom.difference(union_all([parts[i] for i in idx]))
     except Exception:
         return wkb
     if rest.is_empty or rest.area < 1.0:
