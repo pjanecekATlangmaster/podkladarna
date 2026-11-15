@@ -353,6 +353,38 @@
         <p id="form-notice" class="form-notice hidden" role="status"></p>
         <p id="form-error" class="form-error hidden" role="alert"></p>
       </form>
+        <details class="feedback-box" id="source-suggest">
+          <summary>{{h:web.page.navrhnout_zdroj}}</summary>
+          <form id="source-suggest-form" class="feedback-form" novalidate>
+            <p class="hint">{{h:web.page.navrhnout_zdroj_hint}}</p>
+            <label class="feedback-hp" aria-hidden="true">
+              {{h:web.page.webova_stranka}}
+              <input type="text" name="website" id="source-suggest-website" tabindex="-1" autocomplete="off" />
+            </label>
+            <label>
+              {{h:web.page.zdroj_adresa}}
+              <input type="text" name="url" id="source-suggest-url" inputmode="url" autocomplete="off" maxlength="500" placeholder="https://" required />
+            </label>
+            <label>
+              {{h:web.page.zdroj_oblast}}
+              <input type="text" name="area" id="source-suggest-area" maxlength="200" placeholder="{{h:web.page.zdroj_oblast_placeholder}}" required />
+            </label>
+            <label>
+              {{h:web.page.zdroj_licence}}
+              <input type="text" name="license" id="source-suggest-license" maxlength="500" />
+            </label>
+            <label>
+              {{h:web.page.zdroj_kontakt}}
+              <input type="text" name="contact" id="source-suggest-contact" autocomplete="email" maxlength="200" placeholder="{{h:web.page.vas_email_cz}}" required />
+            </label>
+            <label>
+              {{h:web.page.zdroj_poznamka}}
+              <textarea name="comment" id="source-suggest-comment" rows="2" maxlength="4000" placeholder="{{h:web.page.zdroj_poznamka_placeholder}}"></textarea>
+            </label>
+            <button type="submit" class="btn" id="source-suggest-submit">{{h:web.page.zdroj_odeslat}}</button>
+            <p id="source-suggest-status" class="hint feedback-status" role="status"></p>
+          </form>
+        </details>
     </section>
 
     <section class="card jobs-card">

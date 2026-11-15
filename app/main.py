@@ -23,8 +23,12 @@ from app.feedback import (
     MAX_COMMENT_LEN,
     MAX_CONTACT_LEN,
     MAX_JOB_ID_LEN,
+    MAX_SOURCE_AREA_LEN,
+    MAX_SOURCE_LICENSE_LEN,
     check_feedback_rate,
+    is_valid_source_url,
     send_feedback,
+    send_source_suggestion,
 )
 from app.guide_text import web_about_html
 from app.job_template import job_form_template
@@ -1073,6 +1077,67 @@ async def api_feedback(request: Request):
         # 502, ne 503 — 503 si FE/klienti spojují s plnou frontou generování.
         logger.warning("Feedback mail failed: %s", exc)
         # Detail obsahuje MailError (např. chybějící SMTP_HOST) – FE ukáže detail.
+        raise HTTPException(
+            502,
+            i18n.Msg("api.feedback.mail_failed", error=str(exc)),
+        ) from exc
+
+    return {"ok": True}
+
+
+@app.post("/api/source_suggestion")
+async def api_source_suggestion(request: Request):
+    """Návrh nového zdroje dat (WMS apod.) → e-mail Petrovi k ručnímu posouzení.
+
+    Navrženou adresu server nikdy nevolá (SSRF); kontroluje jen její tvar.
+    Sdílí hodinový limit se zpětnou vazbou.
+    """
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        raise HTTPException(400, i18n.Msg("api.invalid_json")) from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(400, i18n.Msg("api.invalid_json"))
+    url = str(payload.get("url") or "").strip()
+    area = str(payload.get("area") or "").strip()
+    license_text = str(payload.get("license") or "").strip()
+    contact = str(payload.get("contact") or "").strip()
+    comment = str(payload.get("comment") or "").strip()
+    honeypot = str(payload.get("website") or "").strip()
+
+    if honeypot:
+        logger.info("Source suggestion honeypot hit from %s", client_ip(request))
+        return {"ok": True}
+
+    if not is_valid_source_url(url):
+        raise HTTPException(400, i18n.Msg("api.source_suggestion.url_invalid"))
+    if not area:
+        raise HTTPException(400, i18n.Msg("api.source_suggestion.area_missing"))
+    if not contact:
+        raise HTTPException(400, i18n.Msg("api.feedback.contact_missing"))
+    if len(contact) > MAX_CONTACT_LEN:
+        raise HTTPException(400, i18n.Msg("api.feedback.contact_long", max=MAX_CONTACT_LEN))
+    if len(area) > MAX_SOURCE_AREA_LEN or len(license_text) > MAX_SOURCE_LICENSE_LEN:
+        raise HTTPException(400, i18n.Msg("api.source_suggestion.too_long"))
+    if len(comment) > MAX_COMMENT_LEN:
+        raise HTTPException(400, i18n.Msg("api.feedback.comment_long", max=MAX_COMMENT_LEN))
+
+    ip = client_ip(request)
+    limit_msg = check_feedback_rate(ip)
+    if limit_msg:
+        raise HTTPException(429, limit_msg)
+
+    try:
+        send_source_suggestion(
+            url=url,
+            area=area,
+            license_text=license_text,
+            contact=contact,
+            comment=comment,
+            client_ip=ip,
+        )
+    except MailError as exc:
+        logger.warning("Source suggestion mail failed: %s", exc)
         raise HTTPException(
             502,
             i18n.Msg("api.feedback.mail_failed", error=str(exc)),

@@ -1,9 +1,14 @@
-"""Zpětná vazba z webu (kontakt + komentář) → e-mail vlastníkovi."""
+"""Zpětná vazba z webu (kontakt + komentář) → e-mail vlastníkovi.
+
+Patří sem i návrh nového zdroje dat (WMS apod.): jen e-mail k ručnímu
+posouzení, server navrženou adresu nikdy nevolá (žádné riziko SSRF).
+"""
 
 from __future__ import annotations
 
 import threading
 import time
+import urllib.parse
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -17,6 +22,9 @@ from app.settings import JOBS_DIR
 MAX_CONTACT_LEN = 200
 MAX_COMMENT_LEN = 4000
 MAX_JOB_ID_LEN = 64
+MAX_SOURCE_URL_LEN = 500
+MAX_SOURCE_AREA_LEN = 200
+MAX_SOURCE_LICENSE_LEN = 500
 
 _lock = threading.Lock()
 _hits: dict[str, deque[float]] = defaultdict(deque)
@@ -136,3 +144,67 @@ def send_feedback(
         body,
         attachments=[preview] if preview is not None else None,
     )
+
+
+def is_valid_source_url(url: str) -> bool:
+    """Jen tvar adresy (http/https, host, bez mezer). Adresa se nikdy nevolá."""
+    url = (url or "").strip()
+    if not url or len(url) > MAX_SOURCE_URL_LEN or any(c.isspace() for c in url):
+        return False
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    return parts.scheme.lower() in ("http", "https") and bool(parts.hostname)
+
+
+def build_source_suggestion_email(
+    *,
+    url: str,
+    area: str,
+    license_text: str,
+    contact: str,
+    comment: str,
+    client_ip: str | None = None,
+) -> tuple[str, str]:
+    """Vrací (předmět, tělo) pro návrh zdroje dat – česky."""
+    host = urllib.parse.urlsplit(url).hostname or "?"
+    subject = f"Podkladárna: návrh zdroje dat ({host})"
+    lines = [
+        "Nový návrh zdroje dat z webu Podkladárny.",
+        "Adresa nebyla automaticky ověřena ani volána – před zařazením",
+        "zkontroluj funkčnost, licenci (tvorba a šíření map) a citaci.",
+        "",
+        f"Adresa: {url}",
+        f"Země / oblast: {area}",
+        f"Licence / podmínky: {license_text or '(neuvedeno)'}",
+        f"Kontakt: {contact}",
+    ]
+    if client_ip:
+        lines.append(f"IP: {client_ip}")
+    lines.extend(["", "Poznámka:", comment.strip() or "(bez poznámky)", ""])
+    return subject, "\n".join(lines)
+
+
+def send_source_suggestion(
+    *,
+    url: str,
+    area: str,
+    license_text: str,
+    contact: str,
+    comment: str,
+    client_ip: str | None = None,
+) -> None:
+    """Pošle návrh zdroje na FEEDBACK_TO. Při chybě MailError."""
+    to = (settings.FEEDBACK_TO or "").strip()
+    if not to:
+        raise MailError("Chybí adresa pro zpětnou vazbu (FEEDBACK_TO).")
+    subject, body = build_source_suggestion_email(
+        url=url,
+        area=area,
+        license_text=license_text,
+        contact=contact,
+        comment=comment,
+        client_ip=client_ip,
+    )
+    send_mail(to, subject, body)

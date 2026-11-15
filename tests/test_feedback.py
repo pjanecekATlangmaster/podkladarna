@@ -345,3 +345,59 @@ def test_check_feedback_rate_exempt(monkeypatch):
     monkeypatch.setattr("app.rate_limit.RATE_LIMIT_EXEMPT_IPS", frozenset({"9.9.9.9"}))
     assert check_feedback_rate("9.9.9.9") is None
     assert check_feedback_rate("9.9.9.9") is None
+
+
+@pytest.mark.parametrize(
+    "url, ok",
+    [
+        ("https://geo.example.at/wms?service=WMS", True),
+        ("http://example.org/ows", True),
+        ("ftp://example.org/data", False),
+        ("javascript:alert(1)", False),
+        ("https://", False),
+        ("https://a b.cz/wms", False),
+        ("", False),
+        ("https://x.cz/" + "a" * 600, False),
+    ],
+)
+def test_is_valid_source_url(url, ok):
+    from app.feedback import is_valid_source_url
+
+    assert is_valid_source_url(url) is ok
+
+
+def test_source_suggestion_api_sends_mail_without_fetching(client, monkeypatch):
+    """Návrh zdroje jde jen e-mailem; adresa se nevolá, limit sdílí se zpětnou vazbou."""
+    import app.main as main
+    from app.feedback import build_source_suggestion_email
+
+    sent = {}
+    monkeypatch.setattr(main, "send_source_suggestion", lambda **kw: sent.update(kw))
+    payload = {
+        "url": "https://geo.example.at/wms",
+        "area": "Wien",
+        "license": "CC BY 4.0",
+        "contact": "mapar@example.com",
+        "comment": "Ortofoto 5 cm",
+    }
+    r = client.post("/api/source_suggestion", json=payload)
+    assert r.status_code == 200
+    assert sent["url"] == payload["url"]
+    assert sent["license_text"] == "CC BY 4.0"
+    assert sent["client_ip"]
+
+    subject, body = build_source_suggestion_email(
+        url=payload["url"], area="Wien", license_text="", contact="a@b.cz", comment=""
+    )
+    assert "geo.example.at" in subject
+    assert "nebyla automaticky ověřena" in body
+    assert "(neuvedeno)" in body
+
+    for bad, field in (({"url": "ftp://x"}, "url"), ({"area": ""}, "area"), ({"contact": ""}, "contact")):
+        r = client.post("/api/source_suggestion", json={**payload, **bad})
+        assert r.status_code == 400, field
+
+    sent.clear()
+    r = client.post("/api/source_suggestion", json={**payload, "website": "spam"})
+    assert r.status_code == 200
+    assert not sent
