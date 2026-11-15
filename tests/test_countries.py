@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app import countries
+from app import countries, i18n
 
 
 @pytest.mark.parametrize(
@@ -59,7 +59,8 @@ def _in_ring(pt, ring):
 def test_coverage_technical_map_gaps(monkeypatch):
     """Zvýraznění v mapě výběru: CH má technickou mapu s mezerami (kantony bez AV), město je celé."""
     monkeypatch.setenv("COUNTRIES_BETA", "*")
-    items = {c["code"]: c for c in countries.coverage_payload(None)["countries"]}
+    monkeypatch.setenv("SITES", "intl.example=en:paid:*")
+    items = {c["code"]: c for c in countries.coverage_payload(i18n.sites()["intl.example"])["countries"]}
     assert items["CH"]["technical_map"] is True
     gaps = items["CH"]["technical_map_gaps"]
     assert gaps["type"] == "MultiPolygon" and len(gaps["coordinates"]) == 2

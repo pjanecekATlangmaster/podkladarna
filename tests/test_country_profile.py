@@ -7,8 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from app import countries
+from app import countries, i18n
 from app.pipeline import country_profile
+
+
+def _intl_site(monkeypatch):
+    """Mezinárodní doména (všechny země): jen ta smí dostat beta zemi."""
+    monkeypatch.setenv("SITES", "intl.example=en:paid:*")
+    return i18n.sites()["intl.example"]
 
 
 @pytest.fixture
@@ -32,7 +38,7 @@ def sk_beta(monkeypatch):
 )
 def test_beta_country_allowed_with_flag(monkeypatch, sk_beta, beta, bbox, code):
     monkeypatch.setenv("COUNTRIES_BETA", beta)
-    country, share = countries.check_bbox(bbox)
+    country, share = countries.check_bbox(bbox, _intl_site(monkeypatch))
     assert country.code == code and share > 0.99
 
 
@@ -44,7 +50,34 @@ def test_beta_country_hidden_without_flag(monkeypatch, sk_beta):
     # NL je beta: jen s COUNTRIES_BETA (test B), na ostré se nenabízí.
     assert "NL" not in countries.offered_codes()
     monkeypatch.setenv("COUNTRIES_BETA", "*")
-    assert "NL" in [c.code for c in countries.allowed_countries(None)]
+    assert "NL" in [c.code for c in countries.allowed_countries(_intl_site(monkeypatch))]
+
+
+@pytest.mark.parametrize(
+    "sites, host",
+    [
+        ("", None),  # test B bez SITES (pt.kibos.link)
+        ("podkladarna.kibos.link=cs:free:CZ,map.ulvi.app=en:paid:*", "podkladarna.kibos.link"),
+        ("podkladarna.kibos.link=cs:free:CZ,map.ulvi.app=en:paid:*", "neznama.domena"),  # Host mimo SITES
+    ],
+)
+def test_beta_never_on_czech_site(monkeypatch, sk_beta, sites, host):
+    """Zahraniční mapy jen na mezinárodní doméně, nikdy na české Podkladárně (Petr 2026-11-15)."""
+    monkeypatch.setenv("COUNTRIES_BETA", "*")
+    monkeypatch.setenv("SITES", sites)
+    site = i18n.sites().get(host or "")
+    assert [c.code for c in countries.allowed_countries(site)] == ["CZ"]
+    assert countries.coverage_payload(site)["countries"][0]["code"] == "CZ"
+    assert len(countries.coverage_payload(site)["countries"]) == 1
+    with pytest.raises(countries.CountryError):
+        countries.check_bbox((17.09, 48.165, 17.10, 48.175), site)  # Bratislava
+    with pytest.raises(countries.CountryError):
+        countries.check_bbox((17.09, 48.165, 17.10, 48.175), site, "SK")
+    if sites:
+        assert "NL" in countries.offered_codes()  # mezinárodní doména ji nabízí
+        assert "NL" in [c.code for c in countries.allowed_countries(i18n.sites()["map.ulvi.app"])]
+    else:
+        assert "NL" not in countries.offered_codes()
 
 
 def test_country_without_surface_is_off(monkeypatch):
@@ -151,6 +184,7 @@ def test_api_beta_country_without_sheets(client, monkeypatch, sk_beta):
         raise AssertionError("mimo Česko se listy SM5 nedotazují")
 
     monkeypatch.setenv("COUNTRIES_BETA", "SK")
+    monkeypatch.setenv("SITES", "testserver=cs:free:*")  # beta jen na mezinárodní doméně
     monkeypatch.setattr(main, "query_sm5_sheets", _no_sheets)
     monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
     monkeypatch.setattr(main.worker, "enqueue", lambda *_a, **_k: None)

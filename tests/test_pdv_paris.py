@@ -132,6 +132,7 @@ def test_api_rejects_area_without_lidarhd(client, monkeypatch):
     import app.main as main
 
     monkeypatch.setenv("COUNTRIES_BETA", "FR")
+    monkeypatch.setenv("SITES", "testserver=cs:free:*")  # beta jen na mezinárodní doméně
     monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
     monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", lambda _bbox: 0.1)
     monkeypatch.setattr(elevation_raster, "_COVERAGE_CACHE", {})
