@@ -85,6 +85,30 @@ def total_bytes(path: Path | None = None) -> int | None:
         return None
 
 
+def cache_root() -> Path:
+    return Path(settings.DOWNLOADS_DIR)
+
+
+def _device(path: Path) -> int | None:
+    probe = Path(path)
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    try:
+        return probe.stat().st_dev
+    except OSError:
+        return None
+
+
+def same_disk(a: Path, b: Path) -> bool:
+    """Obě cesty leží na stejném souborovém systému (neznámé = ano, jako dosud).
+
+    Ostrá A na pve1 má cache (``/data/cache``) na vlastním 2TB disku a joby s DB na 130GB disku:
+    mazání cache tam místo pro joby neuvolní.
+    """
+    da, db_ = _device(a), _device(b)
+    return da is None or db_ is None or da == db_
+
+
 # --- Rezerva pro zápis stavu jobu ---------------------------------------------------------------
 
 
@@ -255,27 +279,31 @@ def prune_all_caches(*, log=None) -> int:
     return freed
 
 
-def free_space_for(need_bytes: int, *, keep_sheets=frozenset(), log=None) -> int:
-    """Uvolní místo do ``need_bytes`` volného: nejdřív nejdéle nepoužitá cache podle výřezu, pak listy LiDARu."""
+def free_space_for(need_bytes: int, *, path: Path | None = None, keep_sheets=frozenset(), log=None) -> int:
+    """Uvolní na disku s ``path`` (výchozí ``DATA_ROOT``) místo do ``need_bytes`` volného: nejdřív nejdéle
+    nepoužitá cache podle výřezu, pak listy LiDARu. Je-li cache na jiném disku, nemaže nic (nepomohlo by)."""
     from app.download_cache import lidar_cache_units, prune_lidar_cache, _unit_bytes
 
-    free = free_bytes()
+    target_path = Path(path) if path is not None else data_root()
+    free = free_bytes(target_path)
     if free is None or free >= need_bytes:
         return 0
+    if not same_disk(target_path, cache_root()):
+        return 0
     freed = prune_expired_aoi_cache(log=log)
-    free = free_bytes() or 0
+    free = free_bytes(target_path) or 0
     if free >= need_bytes:
         return freed
     removed = 0
-    for path, _days, _mtime in sorted(aoi_cache_entries(), key=lambda e: e[2]):
-        if (free_bytes() or 0) >= need_bytes:
+    for entry, _days, _mtime in sorted(aoi_cache_entries(), key=lambda e: e[2]):
+        if (free_bytes(target_path) or 0) >= need_bytes:
             break
-        freed += _entry_bytes(path)
-        _remove(path)
+        freed += _entry_bytes(entry)
+        _remove(entry)
         removed += 1
     if removed and log:
         log(f"Málo místa na disku: smazáno {removed} nejdéle nepoužitých položek cache podle výřezu")
-    free = free_bytes() or 0
+    free = free_bytes(target_path) or 0
     if free >= need_bytes:
         return freed
     seen: set[tuple[int, int]] = set()
@@ -294,20 +322,30 @@ def job_need_bytes(area_km2: float | None) -> int:
     return int(max(0.0, gb) * 1e9)
 
 
-def ensure_job_space(area_km2: float | None, *, log=None) -> None:
-    """Před jobem: dost místa, jinak úklid cache; když ani pak nestačí, ``DiskFullError``."""
-    need = job_need_bytes(area_km2)
-    if need <= 0:
-        return
-    free = free_bytes()
+def _ensure_space_on(path: Path, need: int, label: str, *, log=None) -> None:
+    free = free_bytes(path)
     if free is None or free >= need:
         return
     if log:
-        log(f"Málo místa na disku: volno {free / 1e9:.1f} GB, job potřebuje asi {need / 1e9:.1f} GB – uklízím cache…")
+        log(f"Málo místa na disku {label}: volno {free / 1e9:.1f} GB, job potřebuje asi {need / 1e9:.1f} GB – uklízím cache…")
     try:
-        free_space_for(need, log=log)
+        free_space_for(need, path=path, log=log)
     except Exception:  # noqa: BLE001 – úklid nesmí shodit job, rozhodne kontrola níže
         logger.exception("Úklid cache při nedostatku místa selhal")
-    free = free_bytes()
+    free = free_bytes(path)
     if free is not None and free < need:
-        raise DiskFullError(f"volno {free / 1e9:.1f} GB, job potřebuje asi {need / 1e9:.1f} GB")
+        raise DiskFullError(f"{label}: volno {free / 1e9:.1f} GB, job potřebuje asi {need / 1e9:.1f} GB")
+
+
+def ensure_job_space(area_km2: float | None, *, log=None) -> None:
+    """Před jobem: dost místa, jinak úklid cache; když ani pak nestačí, ``DiskFullError``.
+
+    Disk s joby (``DATA_ROOT``) a disk s cache (``DOWNLOADS_DIR``) se kontrolují zvlášť, leží-li jinde
+    (ostrá A na pve1); odhad místa je pro oba stejný (stažené listy jdou do cache, rastry a ZIP k jobu).
+    """
+    need = job_need_bytes(area_km2)
+    if need <= 0:
+        return
+    _ensure_space_on(data_root(), need, "s daty", log=log)
+    if not same_disk(data_root(), cache_root()):
+        _ensure_space_on(cache_root(), need, "s cache", log=log)
