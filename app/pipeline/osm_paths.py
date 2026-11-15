@@ -501,6 +501,8 @@ def _overpass_ql(
         # Velké řeky a jezera jsou multipolygony; v Česku kreslí vodu ZABAGED (dotaz beze změny kvůli cache).
         *([] if _cz_process() else [f'relation["type"="multipolygon"]["natural"="water"]({bbox});']),
         f'way["landuse"~"^(reservoir|basin)$"]({bbox});',
+        # Vodní toky (potok, řeka, kanál, příkop) → 306 jako ZABAGED VodniTok; v Česku je kreslí ZABAGED.
+        *([] if _cz_process() else [f'way["waterway"~"^({"|".join(sorted(OSM_WATERWAY_LINES))})$"]({bbox});']),
         # Obdělávaná půda → ISOM 412 (zdroj OSM, ne ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
         # Rezidenční plocha – subject pro inverzní 501 (ne kreslí se samostatně).
@@ -1123,8 +1125,12 @@ _POINT_FEATURE_KINDS = frozenset(
     }
 )
 _LINE_FEATURE_KINDS = frozenset(
-    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "tree_row"}
+    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "tree_row", "waterway"}
 )
+# Vodní toky OSM (jen mimo Česko, tam kreslí toky ZABAGED): kreslí se 306 jako ZABAGED VodniTok, úsek v propustku /
+# tunelu ne, a uvnitř vodní plochy (řeka s obrysem) se tok ořízne (``clip_waterways_by_water``).
+OSM_WATERWAY_LINES = frozenset({"river", "stream", "canal", "ditch", "drain"})
+OSM_WATERWAY_CODE = "306"
 # Sloupy/stožáry OSM → DashPoint na vedení (MapCoord flag 32).
 POWER_SUPPORT_MATCH_M = 1.5
 # ISOM 511 = velké stožárové vedení; 110 kV distribuční (ČEZ) = 510.
@@ -1649,6 +1655,10 @@ def classify_osm_feature(
         return "bare_rock", "201.2"
     if natural == "scree" and not is_node:
         return "scree", "201.2"
+    if (tags.get("waterway") or "").lower() in OSM_WATERWAY_LINES and not is_node:
+        if (tags.get("tunnel") or "no").lower() != "no" or (tags.get("location") or "").lower() == "underground":
+            return None  # propustek / zatrubněný tok se nekreslí
+        return "waterway", OSM_WATERWAY_CODE
     # Vodní plocha / nádrž / basin → nepřekonatelné vodní těleso (301).
     # Stačí natural=water (v ČR často bez water=reservoir); ořez proti VodniPlocha.
     if (
@@ -1939,6 +1949,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         "landmark_tree": "417",
         "wetland": "308",
         "water_body": "301",
+        "waterway": OSM_WATERWAY_CODE,
         "fountain": "301.1",
         "farmland": "412",
         "garden": "520",
@@ -4470,6 +4481,7 @@ def prepare_osm_paths(
         from app.pipeline.playground_equipment import mark_private_playgrounds
 
         mark_private_playgrounds(features, private_gardens, private_pools)
+    features = clip_waterways_by_water(features)
     feat_out = dest_dir / "features.geojson"
     feat_out.write_text(
         # ``playground_equipment``: herní prvky byly v dotazu (sprint je doplní detekcí; starší joby bez klíče ne).
@@ -4485,6 +4497,7 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "water_well": ("OSM_studny", "studny / kašny", "311"),
     "spring": ("OSM_prameny", "prameny", "312"),
     "water_body": ("OSM_voda", "vodní plochy", "301"),
+    "waterway": ("OSM_vodni_toky", "vodní toky", OSM_WATERWAY_CODE),
     "fountain": ("OSM_kasny", "kašny (301.1)", "301.1"),
     "farmland": ("OSM_orna", "obdělávaná půda", "412"),
     "garden": ("OSM_zahrady", "zahrady (oliva)", "520"),
@@ -5013,6 +5026,42 @@ def zabaged_other_cover_geometries(work_dir: Path) -> dict:
     if mask.is_empty:
         return {}
     return {layer: mask for layer in ZABAGED_COVER_YIELD_LAYERS}
+
+
+def clip_waterways_by_water(feats: list[dict]) -> list[dict]:
+    """Vodní toky (``waterway``) bez úseků uvnitř vodních ploch (``water_body``): řeka s obrysem je plocha 301."""
+    try:
+        from shapely.geometry import LineString, Polygon, mapping
+        from shapely.ops import unary_union
+    except ImportError:
+        return feats
+    polys = []
+    for feat in feats:
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") == "water_body" and geom.get("type") == "Polygon":
+            rings = geom.get("coordinates") or []
+            if rings and len(rings[0]) >= 4:
+                poly = Polygon(rings[0], rings[1:])
+                polys.append(poly if poly.is_valid else poly.buffer(0))
+    if not polys:
+        return feats
+    water = unary_union(polys)
+    out: list[dict] = []
+    for feat in feats:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        if props.get("kind") != "waterway" or geom.get("type") != "LineString":
+            out.append(feat)
+            continue
+        line = LineString(geom.get("coordinates") or [])
+        if not line.intersects(water):
+            out.append(feat)
+            continue
+        rest = line.difference(water)
+        for piece in getattr(rest, "geoms", [rest]):
+            if piece.geom_type == "LineString" and piece.length >= 1.0:
+                out.append({**feat, "properties": dict(props), "geometry": mapping(piece)})
+    return out
 
 
 def cut_water_features_by_decks(feats: list[dict], deck) -> list[dict]:
@@ -8589,6 +8638,7 @@ def build_osm_feature_parts(
         "paved_dtm": "DTM – silnice, parkoviště a chodníky (501 zpevněná)",
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
+        "waterway": "OSM vodní toky (306)",
         "fountain": "OSM kašny (301.1)",
         "farmland": "OSM obdělávaná půda (412)",
         "garden": "OSM zahrady (520 oliva)",
@@ -8627,6 +8677,7 @@ def build_osm_feature_parts(
         "water_well",
         "spring",
         "water_body",
+        "waterway",
         "fountain",
         "farmland",
         "pitch_open",

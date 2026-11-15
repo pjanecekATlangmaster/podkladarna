@@ -350,6 +350,34 @@ def test_river_relation_from_open_ways(monkeypatch, cz, expected):
         assert len(polys) == expected  # v Česku beze změny: každá cesta zvlášť (vodu kreslí ZABAGED)
 
 
+@pytest.mark.parametrize(
+    "tags, want",
+    [
+        ({"waterway": "stream"}, ("waterway", "306")),
+        ({"waterway": "ditch", "intermittent": "yes"}, ("waterway", "306")),
+        ({"waterway": "river"}, ("waterway", "306")),
+        ({"waterway": "stream", "tunnel": "culvert"}, None),  # propustek pod cestou
+        ({"waterway": "weir"}, None),
+    ],
+)
+def test_osm_waterways_abroad(monkeypatch, tags, want):
+    """Vodní toky z OSM mimo Česko jako 306 (v Česku je kreslí ZABAGED); uvnitř vodní plochy se tok ořízne."""
+    from app.pipeline import osm_paths
+
+    assert osm_paths.classify_osm_feature(tags) == want
+    for cz in (False, True):
+        monkeypatch.setattr(osm_paths, "_cz_process", lambda cz=cz: cz)
+        assert ('way["waterway"' in osm_paths._overpass_ql(50.0, 14.0, 50.1, 14.1)) is not cz
+    water = {"type": "Feature", "properties": {"kind": "water_body"},
+             "geometry": {"type": "Polygon", "coordinates": [[[10, -5], [20, -5], [20, 5], [10, 5], [10, -5]]]}}
+    river = {"type": "Feature", "properties": {"kind": "waterway", "oom_code": "306"},
+             "geometry": {"type": "LineString", "coordinates": [[0, 0], [30, 0]]}}
+    out = osm_paths.clip_waterways_by_water([water, river])
+    lines = [f for f in out if f["properties"]["kind"] == "waterway"]
+    assert len(lines) == 2 and sum(abs(f["geometry"]["coordinates"][-1][0] - f["geometry"]["coordinates"][0][0])
+                                   for f in lines) == pytest.approx(20.0)
+
+
 def test_garden_multipolygon_keeps_inner_hole():
     from app.pipeline.osm_paths import osm_area_polygons_5514
 
