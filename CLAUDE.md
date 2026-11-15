@@ -182,6 +182,7 @@ docker compose -f docker-compose.nas-ab.yml logs --tail=100 podkladarna
 - Provoz A: Internet → Cloudflare (Origin Rule přepíše port na 8672, SSL Flexible pro hostname) → MikroTik dst-nat WAN 8672 jen z rozsahů Cloudflare → VM `:8672` → Docker kontejner `podkladarna`
 - Firewall: Proxmox (Datacenter + VM, IPSet `management` = LAN 192.168.1.0/24 + VPN 192.168.78.0/24, IPSet `cloudflare` pro 8672 – statický, aktualizovat ručně); MikroTik address-list `cloudflare` se aktualizuje sám denně
 - Interní port kontejneru: `8672`
+- Návody pro Petra na ostrou A (Petr 2026-11-15): ve VM není `sudo` → začít `su -` a příkazy psát bez `sudo`; vždy uvést, zda jde o hostitele pve1 (`qm`, `zfs`, `lvs`) nebo o VM (`/opt/podkladarna`); krátké bloky s komentářem, co má vyjít (diagnostika → oprava → ověření `curl … :8672/` = 200), u nevratných kroků varování a záloha.
 - Test B zůstává na Synology NAS: `https://pt.kibos.link` → `127.0.0.1:8673` (kontejner `podkladarna-test`, data `./data-test`), image `:latest`; NAS složka `/volume1/docker/podkladarna/`, kontejner ostré A na NAS zůstává zastavený jako záloha pro rollback
 - Docker image: `ghcr.io/pjanecekatlangmaster/podkladarna` (soukromý balíček – pull potřebuje přihlášení ke GHCR) — ostrá A `:stable`, test B `:latest`
 - Perzistentní data: `./data` vedle compose, uvnitř kontejneru `/data` (`podkladarna.db`, `origin_salt` – nemazat, `jobs/`)
