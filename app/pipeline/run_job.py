@@ -486,6 +486,7 @@ def _with_online_templates(
             reference_dir,
             only=ONLINE_ONLY_KEYS if only_online else None,
             country=country.code if country else "CZ",
+            technical_area=country.technical_map_covers(bbox) if country else True,
         )
     except Exception as exc:
         log_issue(log, f"Online šablony podkladů: přeskočeno ({exc})")

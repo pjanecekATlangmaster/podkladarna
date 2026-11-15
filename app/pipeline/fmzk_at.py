@@ -1,10 +1,10 @@
 """FMZK (Flächen-Mehrzweckkarte, Vídeň) jako obdoba české DTM pro kresbu.
 
 Rakousko má celostátně jen výšky (BEV ALS DTM / DSM 1 m); velkoměřítkovou mapu s vozovkami a chodníky má otevřeně
-jen Vídeň (Petr 2026-11-14: Rakousko jen Vídeň). FMZK je z WFS Stadt Wien (``FMZK_WFS``, Open Government Data,
-CC BY 4.0 „Datenquelle: Stadt Wien – data.wien.gv.at“, bez klíče): vozovky (Fahrbahn), chodníky (Gehsteig),
-pěší zóny, parkování (Ruhender Verkehr), schody (Stiege), vnitroblokové dvory (Innenhof), zeleň, les, budovy.
-Ploty FMZK vede jen jako plochy zdí (Mauer, Sockelzaun) – kreslí je OSM.
+jen Vídeň (od 3.52.0 je Rakousko celé, FMZK jen uvnitř ``technical_map_area``). FMZK je z WFS Stadt Wien
+(``FMZK_WFS``, Open Government Data, CC BY 4.0 „Datenquelle: Stadt Wien – data.wien.gv.at“, bez klíče): vozovky
+(Fahrbahn), chodníky (Gehsteig), pěší zóny, parkování (Ruhender Verkehr), schody (Stiege), vnitroblokové dvory
+(Innenhof), zeleň, les, budovy. Ploty FMZK vede jen jako plochy zdí (Mauer, Sockelzaun) – kreslí je OSM.
 
 Výsledek se zapíše do ``work_dir/dtm`` stejně jako BGT a AV (``bgt_nl.node_coverage``, ``bgt_nl.write_dtm_files``).
 
