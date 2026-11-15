@@ -171,7 +171,7 @@ def test_mail_english_and_czech_unchanged():
     subject, body = build_private_ready_email(
         job_name="Les", download_url="https://x/d/t", retention_hours=48, area_km2=2.43, lang="en"
     )
-    assert subject == "Podkladárna: map “Les” is ready to download"
+    assert subject == "Omapic: map “Les” is ready to download"
     assert "Map area: 2.4 km²." in body and "valid for 48 hours" in body
     assert "Dobrý den" not in body
     subject_cs, body_cs = build_private_ready_email(
@@ -226,7 +226,7 @@ def test_created_job_remembers_lang_and_site(client, monkeypatch):
 @pytest.mark.parametrize(
     "path, english, czech",
     [
-        ("/", "How Podkladárna evolved", "Jak se Podkladárna vyvíjela"),
+        ("/", "How Omapic evolved", "Jak se Podkladárna vyvíjela"),
         ("/licence", "Licence and sources", "Licence a zdroje"),
         ("/podpora", "Support development", "Číslo účtu"),
     ],
