@@ -2088,8 +2088,9 @@ def _load_rock_occupancy_blockers(
                         "water_well_building",
                     }
                 )
+                # waterway = OSM vodní toky (jen mimo Česko, v Česku je blokuje ZABAGED VodniTok)
                 line_kinds = frozenset(
-                    {"fence", "wall", "power_line", "power_line_major"}
+                    {"fence", "wall", "power_line", "power_line_major", "waterway"}
                 )
                 # hedge = vegetace → výjimka (neblokuje)
                 for feat in data.get("features") or []:
@@ -2112,6 +2113,28 @@ def _load_rock_occupancy_blockers(
                     elif kind in line_kinds and gtype == "LineString" and len(coords) >= 2:
                         lines.append([(float(x), float(y)) for x, y in coords])
     return polys, lines
+
+
+def _osm_boulder_points(work_dir: Path | None) -> list[tuple[float, float]]:
+    """Balvany z OSM (``kind == "boulder"``, jen mimo Česko): balvan z DEM u nich se nekreslí podruhé."""
+    if work_dir is None:
+        return []
+    path = work_dir / "osm_paths" / "features.geojson"
+    if not path.is_file():
+        return []
+    try:
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out: list[tuple[float, float]] = []
+    for feat in data.get("features") or []:
+        geom = feat.get("geometry") or {}
+        if (feat.get("properties") or {}).get("kind") == "boulder" and geom.get("type") == "Point":
+            x, y = geom.get("coordinates")[:2]
+            out.append((float(x), float(y)))
+    return out
 
 
 def build_dxf_object_part(
@@ -2418,7 +2441,7 @@ def build_dxf_object_part(
             rock_rings=pending_rocks,
             blocker_rings=list(blocker_polys) + list(bldg or []),
             blocker_lines=blocker_lines,
-            knolls=parse_point_dxf(knoll_path) if knoll_path else None,
+            knolls=(parse_point_dxf(knoll_path) if knoll_path else []) + _osm_boulder_points(kp_cwd),
         )
         boulders_n = len(boulder_pts)
         objects.extend(

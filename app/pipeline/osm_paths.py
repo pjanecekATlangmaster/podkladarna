@@ -507,6 +507,8 @@ def _overpass_ql(
         *([] if _cz_process() else [f'way["natural"="coastline"]({bbox});']),
         # Železnice a tramvaje → 509 / 515 jako ZABAGED ZeleznicniTrat / TramvajovaDraha; v Česku je kreslí ZABAGED.
         *([] if _cz_process() else [f'way["railway"~"^({"|".join(sorted(OSM_RAIL_LINE_KINDS))})$"]({bbox});']),
+        # Náhrady vrstev ZABAGED mimo Česko (hřbitovy, kolonie, věže, lanovky, hradby, balvany, pomníky, stromy).
+        *([] if _cz_process() else _abroad_zabaged_substitute_ql(bbox)),
         # Obdělávaná půda → ISOM 412 (zdroj OSM, ne ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
         # Rezidenční plocha – subject pro inverzní 501 (ne kreslí se samostatně).
@@ -602,6 +604,63 @@ def _overpass_ql(
         + ");"
         "out geom;"
     )
+
+
+def _abroad_zabaged_substitute_ql(bbox: str) -> list[str]:
+    """Části dotazu Overpass s OSM náhradami za vrstvy ZABAGED (jen mimo Česko)."""
+    olive = "|".join(sorted(OSM_OLIVE_LANDUSE_ABROAD))
+    towers = "|".join(sorted(OSM_TOWERS_ABROAD))
+    lifts = "|".join(sorted(OSM_AERIALWAYS_ABROAD))
+    return [
+        f'way["landuse"~"^({olive})$"]({bbox});',
+        f'relation["type"="multipolygon"]["landuse"~"^({olive})$"]({bbox});',
+        f'way["amenity"="grave_yard"]({bbox});',
+        f'relation["type"="multipolygon"]["amenity"="grave_yard"]({bbox});',
+        f'node["man_made"~"^({towers})$"]({bbox});',
+        f'way["man_made"~"^({towers})$"]({bbox});',
+        f'way["aerialway"~"^({lifts})$"]({bbox});',
+        f'way["barrier"="city_wall"]({bbox});',
+        f'node["natural"="stone"]({bbox});',
+        f'way["natural"="stone"]({bbox});',
+        f'node["historic"~"^(memorial|monument|wayside_cross|wayside_shrine)$"]({bbox});',
+        f'way["historic"~"^(memorial|monument|wayside_cross|wayside_shrine)$"]({bbox});',
+        f'node["man_made"="cross"]({bbox});',
+        f'node["natural"="tree"]["denotation"~"^(landmark|natural_monument)$"]({bbox});',
+    ]
+
+
+def _abroad_substitute_kind(tags: dict, *, is_node: bool) -> tuple[str, str] | None:
+    """OSM náhrada za vrstvu ZABAGED mimo Česko (hřbitov, kolonie, věž, lanovka, hradba, balvan), jinak None."""
+    landuse = (tags.get("landuse") or "").lower()
+    man_made = (tags.get("man_made") or "").lower()
+    building = _is_osm_building(tags)
+    if (landuse in OSM_OLIVE_LANDUSE_ABROAD or (tags.get("amenity") or "").lower() == "grave_yard") and not is_node:
+        return None if building else ("garden", "520")
+    if man_made in OSM_TOWERS_ABROAD and not (building and not is_node):
+        if (tags.get("tower:type") or "").lower() in _TOWER_SKIP_TYPES:
+            return None
+        if (tags.get("location") or "").lower() in {"roof", "rooftop", "indoor"}:
+            return None
+        height = _height_m(tags.get("height"))
+        if height is not None and height < TOWER_MIN_HEIGHT_M:
+            return None
+        return "water_tower", "524"
+    if (tags.get("aerialway") or "").lower() in OSM_AERIALWAYS_ABROAD and not is_node:
+        return "aerialway", "510"
+    if (tags.get("barrier") or "").lower() == "city_wall" and not is_node:
+        return "wall", "513.2"
+    if (tags.get("natural") or "").lower() == "stone":
+        return "boulder", "204"
+    return None
+
+
+def _height_m(raw) -> float | None:
+    """Výška z tagu ``height`` v metrech (``12``, ``12 m``, ``12.5``), jinak None."""
+    text = str(raw or "").strip().lower().removesuffix("m").strip().replace(",", ".")
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 _INFO_BOARD_VALUES = frozenset({"board", "map", "trail_board"})
@@ -1126,11 +1185,12 @@ _POINT_FEATURE_KINDS = frozenset(
         "landmark_tree",
         "hunting_stand",
         "water_tower",
+        "boulder",
     }
 )
 _LINE_FEATURE_KINDS = frozenset(
     {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "tree_row", "waterway", "rail_line",
-     "tram_line"}
+     "tram_line", "aerialway"}
 )
 # Vodní toky OSM (jen mimo Česko, tam kreslí toky ZABAGED): kreslí se 306 jako ZABAGED VodniTok, úsek v propustku /
 # tunelu ne, a uvnitř vodní plochy (řeka s obrysem) se tok ořízne (``clip_waterways_by_water``).
@@ -1151,6 +1211,19 @@ _WATERWAY_EXCLUDE_KEYS = frozenset({
     "amenity", "area:highway", "barrier", "building", "highway", "historic", "information", "landuse", "leisure",
     "man_made", "natural", "playground", "power", "public_transport", "railway", "tourism", "type", "water",
 })
+# Mimo Česko OSM náhrady za vrstvy ZABAGED (audit zdrojů 2026-11-15); v Česku je kreslí ZABAGED a dotaz zůstává beze změny.
+# Hřbitov (ZABAGED Hrbitov) a zahrádkářská kolonie (OvocnySadZahrada) → oliva jako zahrada.
+OSM_OLIVE_LANDUSE_ABROAD = frozenset({"cemetery", "allotments"})
+# Věž, stožár, komín (ZABAGED VezovitaStavba) → bod 524 / MTBO 535 jako vodojem; ne zvonice ani osvětlovací stožár.
+OSM_TOWERS_ABROAD = frozenset({"tower", "mast", "chimney", "communications_tower"})
+_TOWER_SKIP_TYPES = frozenset({"bell_tower", "minaret", "lighting", "siren", "clock"})
+TOWER_MIN_HEIGHT_M = 10.0  # s udanou výškou pod 10 m není nápadná
+# Lanovka, sedačka, vlek (ZABAGED LanovaDrahaLyzarskyVlek) → čára 510 / MTBO 516 jako ZABAGED.
+OSM_AERIALWAYS_ABROAD = frozenset(
+    {"cable_car", "gondola", "mixed_lift", "chair_lift", "drag_lift", "t-bar", "j-bar", "platter", "rope_tow"}
+)
+# Kříže, pomníky a památné stromy kreslí ZABAGED v Česku v každém presetu; mimo Česko je OSM kreslí vždy (i les a MTBO).
+OSM_ZABAGED_POINT_KINDS_ABROAD = frozenset({"memorial", "landmark_tree"})
 # Sloupy/stožáry OSM → DashPoint na vedení (MapCoord flag 32).
 POWER_SUPPORT_MATCH_M = 1.5
 # ISOM 511 = velké stožárové vedení; 110 kV distribuční (ČEZ) = 510.
@@ -1601,6 +1674,11 @@ def classify_osm_feature(
     water = (tags.get("water") or "").lower()
     is_node = geom == "node"
 
+    if not _cz_process():
+        abroad = _abroad_substitute_kind(tags, is_node=is_node)
+        if abroad is not None:
+            return abroad
+
     if amenity == "bench":
         return "bench", "531"
     if leisure == "picnic_table":
@@ -1958,6 +2036,12 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind == "water_tower":
         # ISOM/ISSprOM 524 High tower; ISMTBOM 524 = High fence → 535.
         return "535" if mtbo else "524"
+    if kind == "aerialway":
+        # Jako ZABAGED LanovaDrahaLyzarskyVlek (power line): ISOM/ISSprOM 510, ISMTBOM 516.
+        return "516" if mtbo else "510"
+    if kind == "boulder":
+        # Jako ZABAGED OsamelyBalvanSkalaSkalniSuk: 204 ve všech sadách.
+        return "204"
     if kind in {
         "bench",
         "info_board",
@@ -4079,7 +4163,9 @@ def prepare_osm_paths(
             if kind in _PLAYGROUND_EQUIPMENT_KINDS and not include_playground_equipment:
                 skipped += 1
                 continue
-            if kind in _PRIORITY_KINDS and not osm_priority:
+            if kind in _PRIORITY_KINDS and not osm_priority and not (
+                kind in OSM_ZABAGED_POINT_KINDS_ABROAD and not _cz_process()
+            ):
                 skipped += 1
                 continue
             if (
@@ -4166,6 +4252,8 @@ def prepare_osm_paths(
             }
             if kind == "barrier_point":
                 props["barrier"] = (tags.get("barrier") or "").lower()  # sprint brány a sloupky nekreslí
+            if kind == "water_tower" and (tags.get("man_made") or "").lower() in OSM_TOWERS_ABROAD:
+                props["tower"] = (tags.get("man_made") or "").lower()  # věž mimo Česko: v budově se nekreslí
             if kind == "playground_equipment":
                 props["playground"] = (tags.get("playground") or "").lower()  # výběr při generalizaci
             elif kind == "playground":
@@ -4528,6 +4616,7 @@ def prepare_osm_paths(
         mark_private_playgrounds(features, private_gardens, private_pools)
     features.extend(sea_features(elements, crop_bounds_5514(*fetch_bbox)))
     features = clip_waterways_by_water(features)
+    features = drop_towers_in_buildings(features)
     feat_out = dest_dir / "features.geojson"
     feat_out.write_text(
         # ``playground_equipment``: herní prvky byly v dotazu (sprint je doplní detekcí; starší joby bez klíče ne).
@@ -4572,6 +4661,8 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "landmark_tree": ("OSM_stromy", "významné stromy", "417"),
     "tree_row": ("OSM_aleje", "aleje (stromořadí)", "418"),
     "water_tower": ("OSM_veze", "vodojemy / vysoké věže", "524"),
+    "aerialway": ("OSM_lanovky", "lanovky a vleky", "510"),
+    "boulder": ("OSM_balvany", "balvany", "204"),
     "hunting_stand": ("OSM_posedy", "posedy", "531"),
     "info_board": ("OSM_tabule", "informační tabule", "531"),
     "guidepost": ("OSM_rozcestniky", "rozcestníky", "531"),
@@ -5136,6 +5227,39 @@ def sea_features(elements: list[dict], bounds: tuple[float, float, float, float]
         out.append({"type": "Feature", "properties": {"source": "osm", "kind": "water_body", "oom_code": "301",
                                                       "sea": True}, "geometry": geom})
     return out
+
+
+TOWER_IN_BUILDING_M = 0.5
+
+
+def drop_towers_in_buildings(feats: list[dict]) -> list[dict]:
+    """Věž / stožár / komín z OSM (``props.tower``, jen mimo Česko) uvnitř budovy pryč – anténa na střeše, zvonice.
+
+    Samostatná věž s vlastním obrysem budovy zůstává budovou (``_abroad_substitute_kind``).
+    """
+    towers = [i for i, f in enumerate(feats) if (f.get("properties") or {}).get("tower")]
+    if not towers:
+        return feats
+    from shapely import STRtree
+    from shapely.geometry import Point, shape
+
+    bldgs = []
+    for f in feats:
+        geom = f.get("geometry") or {}
+        if (f.get("properties") or {}).get("kind") in _OSM_BUILDING_KINDS and geom.get("type") in ("Polygon", "MultiPolygon"):
+            try:
+                bldgs.append(shape(geom).buffer(TOWER_IN_BUILDING_M))
+            except (ValueError, TypeError):
+                continue
+    if not bldgs:
+        return feats
+    tree = STRtree(bldgs)
+    drop = set()
+    for i in towers:
+        pt = Point(feats[i]["geometry"]["coordinates"][:2])
+        if any(bldgs[j].contains(pt) for j in tree.query(pt)):
+            drop.add(i)
+    return [f for i, f in enumerate(feats) if i not in drop]
 
 
 def clip_waterways_by_water(feats: list[dict]) -> list[dict]:
@@ -8779,6 +8903,8 @@ def build_osm_feature_parts(
         "landmark_tree": "OSM významné stromy",
         "hunting_stand": "OSM posedy (531 ×)",
         "water_tower": "OSM vodojemy / vysoké věže (524)",
+        "aerialway": "OSM lanovky a vleky",
+        "boulder": "OSM balvany (204)",
     }
     if dtm_buildings:
         names["building"] = "Budovy (DTM + OSM)"
@@ -8817,6 +8943,8 @@ def build_osm_feature_parts(
         "memorial",
         "landmark_tree",
         "water_tower",
+        "aerialway",
+        "boulder",
         "hunting_stand",
         "info_board",
         "guidepost",
