@@ -2088,9 +2088,10 @@ def _load_rock_occupancy_blockers(
                         "water_well_building",
                     }
                 )
-                # waterway = OSM vodní toky (jen mimo Česko, v Česku je blokuje ZABAGED VodniTok)
+                # waterway = OSM vodní toky, rail_line / tram_line = OSM koleje (jen mimo Česko, v Česku je blokuje
+                # ZABAGED VodniTok / ZeleznicniTrat / TramvajovaDraha)
                 line_kinds = frozenset(
-                    {"fence", "wall", "power_line", "power_line_major", "waterway"}
+                    {"fence", "wall", "power_line", "power_line_major", "waterway", "rail_line", "tram_line"}
                 )
                 # hedge = vegetace → výjimka (neblokuje)
                 for feat in data.get("features") or []:

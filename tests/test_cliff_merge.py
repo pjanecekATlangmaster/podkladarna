@@ -540,6 +540,34 @@ def test_rock_blocker_overlap_suppresses_rock():
     assert kept == [far]
 
 
+# (druh OSM čáry ve features.geojson, blokuje skálu z DEM) – koleje a vodní toky z OSM mimo Česko jako ZABAGED.
+@pytest.mark.parametrize(
+    "kind, blocks",
+    [
+        ("fence", True),
+        ("hedge", False),  # vegetace skálu nepřebíjí
+        ("rail_line", True),
+        ("tram_line", True),
+        ("waterway", True),
+    ],
+)
+def test_osm_line_kinds_block_rocks(tmp_path, kind, blocks):
+    import json
+
+    from app.pipeline.oom_import import _load_rock_occupancy_blockers
+
+    feat = {
+        "type": "Feature",
+        "properties": {"source": "osm", "kind": kind},
+        "geometry": {"type": "LineString", "coordinates": [[0.0, 0.0], [50.0, 0.0]]},
+    }
+    out = tmp_path / "osm_paths"
+    out.mkdir()
+    (out / "features.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [feat]}), encoding="utf-8")
+    _polys, lines = _load_rock_occupancy_blockers(zabaged_clean=None, work_dir=tmp_path)
+    assert ([[(0.0, 0.0), (50.0, 0.0)]] == lines) is blocks
+
+
 def test_dense_contours_suppress_rock_and_scarp():
     """Strmý svah (husté 5m vrstevnice) → skála i 104 pryč."""
     from app.pipeline.cliff_merge import filter_by_dense_contours
