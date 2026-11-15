@@ -11,6 +11,10 @@ os.environ["SOURCE_CHECK_TTL_MIN"] = "0"
 # Beta země (zahraniční build) jen tam, kde je test výslovně zapne.
 os.environ["COUNTRIES_BETA"] = ""
 os.environ.pop("PODKLADARNA_JOB_COUNTRY", None)
+# Kontrola místa na disku a rezerva (app.disk_space) jen v testech, které je zapnou.
+os.environ["DISK_RESERVE_MB"] = "0"
+os.environ["DISK_JOB_BASE_GB"] = "0"
+os.environ["DISK_JOB_GB_PER_KM2"] = "0"
 
 
 @pytest.fixture()

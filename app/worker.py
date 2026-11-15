@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 
-from app import db, settings
+from app import db, disk_space, settings
 from app.pipeline.issue_explain import failure_summary
 from app.pipeline.zip_texts_en import zip_lang
 from app.rate_limit import queue_priority_key
@@ -208,6 +208,39 @@ def _record_failed_usage(job_id: str) -> None:
         pass
 
 
+# Pod tolik volného místa se pád jobu bere jako plný disk (hláška „Na serveru došlo místo na disku“).
+_DISK_FULL_FREE_BYTES = 64 * 1024 * 1024
+
+
+def _fail_running_job(job_id: str, msg: str) -> None:
+    """Job, který je v DB pořád „running“, označí jako selhaný; stav se zapisuje dřív než log.
+
+    Na plném disku (ostrá A 2026-11-15) selhával už zápis logu a stav zůstal „běží“.
+    """
+    try:
+        job = db.get_job(job_id)
+    except Exception:
+        logger.exception("Načtení jobu %s selhalo", job_id)
+        return
+    if job.get("status") != "running":
+        return
+    free = disk_space.free_bytes()
+    if free is not None and free < _DISK_FULL_FREE_BYTES:
+        msg = f"{disk_space.DISK_FULL_MESSAGE} ({msg})"
+    try:
+        disk_space.write_with_reserve(
+            db.update_job,
+            job_id,
+            status="failed",
+            phase="error",
+            error=failure_summary(msg, zip_lang(job.get("options"))),
+        )
+    except Exception:
+        logger.exception("Zápis stavu failed jobu %s selhal", job_id)
+    db.append_log(job_id, f"CHYBA: {msg}")
+    _record_failed_usage(job_id)
+
+
 def _return_to_queue(job_id: str) -> None:
     """Job ještě nezačal počítat a čeká se na nasazení: zpět na začátek fronty."""
     global _running
@@ -339,31 +372,14 @@ def _run(job_id: str) -> None:
                 f"Job překročil časový limit {JOB_TIMEOUT_MINUTES} min – "
                 "ukončeno, fronta pokračuje."
             )
-            db.append_log(job_id, f"CHYBA: {msg}")
-            job = db.get_job(job_id)
-            if job["status"] == "running":
-                db.update_job(
-                    job_id, status="failed", phase="error", error=failure_summary(msg, zip_lang(job.get("options")))
-                )
-                _record_failed_usage(job_id)
+            _fail_running_job(job_id, msg)
             return
 
         if proc.returncode != 0:
-            job = db.get_job(job_id)
-            if job["status"] == "running":
-                msg = f"Pipeline skončila s kódem {proc.returncode}"
-                db.append_log(job_id, f"CHYBA: {msg}")
-                db.update_job(
-                    job_id, status="failed", phase="error", error=failure_summary(msg, zip_lang(job.get("options")))
-                )
-                _record_failed_usage(job_id)
+            _fail_running_job(job_id, f"Pipeline skončila s kódem {proc.returncode}")
     except Exception as exc:
         db.append_log(job_id, f"CHYBA worker: {exc}")
-        job = db.get_job(job_id)
-        if job["status"] == "running":
-            db.update_job(
-                job_id, status="failed", phase="error", error=failure_summary(str(exc), zip_lang(job.get("options")))
-            )
+        _fail_running_job(job_id, str(exc))
         if proc is not None and proc.poll() is None:
             _terminate_process_tree(proc)
     finally:

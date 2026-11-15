@@ -144,6 +144,7 @@ def user_summary(issues: list[str], lang: str = "cs") -> str:
 # --- job úplně selhal ---------------------------------------------------
 
 _FAILURE_RULES: tuple[tuple[str, str], ...] = (
+    (r"došlo místo na disku|No space left on device|Errno 28|disk is full|disk full", "disk"),
     (r"časový limit", "timeout"),
     (r"restartem serveru", "restart"),
     (r"Server byl obsazený", "busy"),

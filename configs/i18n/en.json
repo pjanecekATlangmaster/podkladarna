@@ -725,6 +725,7 @@
   "issue.failure.lidar": "Airborne laser scanning (LiDAR) data could not be obtained for the selected area. Check that the area lies in a supported country and run the job again with “Download and compute base data again” ticked. If that does not help, write to the author using “Send feedback” next to this job.",
   "issue.failure.download": "Base data could not be downloaded from the data provider – most likely a temporary outage. Run the same job again in a few hours.",
   "issue.failure.memory": "The computation ran out of server memory. Try a smaller area or try later when the server is less busy. If it keeps happening, write to the author using “Send feedback” next to this job.",
+  "issue.failure.disk": "The server ran out of disk space. Run the same job again later, once the operator frees up space. If it keeps happening, write to the author using “Send feedback” next to this job.",
   "issue.failure.default": "An error in {brand} occurred during the computation; a new build will most likely not help by itself. Please write to the author using “Send feedback” next to this job.",
   "issue.what.osm_paved": "paved areas from OpenStreetMap",
   "issue.what.osm_tiles": "some paths and objects from OpenStreetMap",

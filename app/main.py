@@ -5,6 +5,7 @@ import logging
 from html import escape as html_escape
 import mimetypes
 import re
+import threading
 import traceback
 import urllib.parse
 from datetime import datetime
@@ -17,7 +18,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import area_probe, countries, db, i18n, paid_flow, settings as app_settings, source_status, worker
-from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
+from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
     MAX_COMMENT_LEN,
@@ -166,6 +167,8 @@ def startup() -> None:
     removed = purge_old_jobs()
     if removed:
         logger.info("Startup cleanup: removed %s old job(s)", removed)
+    # Úklid cache na pozadí (průchod cache LiDARu trvá, start webu nesmí čekat) a rezerva místa na disku.
+    threading.Thread(target=prune_caches, name="cache-cleanup", daemon=True).start()
     start_cleanup_scheduler(CLEANUP_INTERVAL_HOURS)
     tools = tool_status()
     missing = [name for name, path in tools.items() if not path]

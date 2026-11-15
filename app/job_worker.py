@@ -18,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover - numpy je v image vždy (GDAL)
     pass
 
-from app import db, i18n
+from app import db, disk_space, i18n
 from app import settings as app_settings
 from app.mail import (
     MailError,
@@ -315,6 +315,7 @@ def run_job(job_id: str) -> int:
         db.append_log(job_id, msg)
 
     job_lang = "cs"
+    disk_space.ensure_reserve()
     try:
         job = db.get_job(job_id)
         job_lang = zip_lang(job.get("options"))
@@ -351,12 +352,28 @@ def run_job(job_id: str) -> int:
         return 0
     except Exception as exc:
         tb = traceback.format_exc()
+        disk_full = disk_space.is_disk_full(exc)
+        technical = disk_space.DISK_FULL_MESSAGE if disk_full else str(exc)
+        # Stav jako první: na plném disku selže kdejaký zápis (log.txt, build_stats) a job by
+        # na webu zůstal „běží“ (ostrá A 2026-11-15). Při plném disku pomůže smazání rezervy.
+        try:
+            disk_space.write_with_reserve(
+                db.update_job,
+                job_id,
+                status="failed",
+                phase="error",
+                error=failure_summary(technical, job_lang),
+            )
+        except Exception:
+            logger.exception("Zápis stavu failed jobu %s selhal", job_id)
         build_stats.write(job_dir, status="failed")
-        log(f"CHYBA: {exc}")
-        log(tb)
-        db.update_job(
-            job_id, status="failed", phase="error", error=failure_summary(str(exc), job_lang)
-        )
+        try:
+            log(f"CHYBA: {exc}")
+            if disk_full:
+                log(f"CHYBA: {disk_space.DISK_FULL_MESSAGE} – uvolněte místo v /data (cache, staré joby).")
+            log(tb)
+        except Exception:
+            logger.exception("Zápis chyby do logu jobu %s selhal", job_id)
         _record_usage(job_id, "failed")
         notify_private_failure(job_id)
         return 1

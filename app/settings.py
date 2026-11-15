@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.56.0"
+APP_VERSION = "3.56.1"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -149,8 +149,17 @@ LIDAR_CACHE_MAX_AGE_DAYS = int(os.environ.get("LIDAR_CACHE_MAX_AGE_DAYS", "180")
 # (HEAD: Last-Modified + velikost), jestli nevyšla novější verze; jinak se list bere z cache.
 LIDAR_VERSION_CHECK_DAYS = int(os.environ.get("LIDAR_VERSION_CHECK_DAYS", "30"))
 # Strop velikosti cache LiDARu (listy SM5, jejich ořezy, AOI ořezy) v GB; nad ním se mažou nejdéle
-# nepoužité listy / výřezy (Petr 2026-11-02: 200–300 GB). 0 = bez limitu.
+# nepoužité listy / výřezy (Petr 2026-11-02: 200–300 GB). 0 = jen podíl disku (LIDAR_CACHE_MAX_DISK_SHARE).
 LIDAR_CACHE_MAX_GB = float(os.environ.get("LIDAR_CACHE_MAX_GB", "250"))
+# Strop cache LiDARu nejvýš tento podíl velikosti disku s cache (ostrá A 2026-11-15: 250 GB bylo víc než disk).
+# Platí menší z obou; 0 = jen ``LIDAR_CACHE_MAX_GB``.
+LIDAR_CACHE_MAX_DISK_SHARE = float(os.environ.get("LIDAR_CACHE_MAX_DISK_SHARE", "0.5") or 0)
+# Volné místo před jobem: základ + GB na km² výřezu (listy DMP OK ~350 MB, ořezy, rastry, ortofoto, ZIP).
+# Když chybí, smaže se nejdéle nepoužitá cache, jinak job skončí hláškou o plném disku. 0 a 0 = bez kontroly.
+DISK_JOB_BASE_GB = float(os.environ.get("DISK_JOB_BASE_GB", "3") or 0)
+DISK_JOB_GB_PER_KM2 = float(os.environ.get("DISK_JOB_GB_PER_KM2", "0.5") or 0)
+# Rezerva ``DATA_ROOT/.disk_reserve`` (MB): při plném disku se smaže, aby šel zapsat stav jobu „selhalo“.
+DISK_RESERVE_MB = float(os.environ.get("DISK_RESERVE_MB", "64") or 0)
 # Souběžná stahování listů LiDARu z ČÚZK (OpenZU). Jedno spojení dává ~2 MB/s, list DMP OK má ~340 MB
 # (Most 12 listů 2026-11-02: ~35 min jen čekání na stažení); 3 spojení = mírná zátěž ČÚZK.
 LIDAR_DOWNLOAD_WORKERS = max(1, int(os.environ.get("LIDAR_DOWNLOAD_WORKERS", "3")))

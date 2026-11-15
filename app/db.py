@@ -1047,9 +1047,13 @@ def find_duplicate_active_job(
 
 def append_log(job_id: str, line: str) -> None:
     log_file = JOBS_DIR / job_id / "log.txt"
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    with log_file.open("a", encoding="utf-8") as f:
-        f.write(line.rstrip() + "\n")
+    try:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as f:
+            f.write(line.rstrip() + "\n")
+    except OSError:
+        # Plný disk (ostrá A 2026-11-15): selhání log.txt nesmí zabránit zápisu stavu jobu „selhalo“.
+        pass
     try:
         with connect() as conn:
             conn.execute(

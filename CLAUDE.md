@@ -445,6 +445,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   vzorky v pásu kreslené cesty se nepočítají), nekreslí se nic; jinak body 418 ve vrcholech korun z CHM do 8 m od linie, prořídlé na
   1 mm mapy i proti kresleným 417 / 418; CHM bez stromů = nic, bez CHM záloha po 8 m. Les a MTBO body odsouvají od cest
   (`MOVED_PART_NAMES`). Pokus a výřezy `/mnt/project-files/aleje-418/`.
+- **Plný disk s daty** (3.56.1, ostrá A 2026-11-15, job e38f9268e26f „běží“ navždy): `app/disk_space.py`. Stav jobu se při chybě
+  zapisuje dřív než log (`job_worker.run_job`, `worker._fail_running_job`), `db.append_log` selhání `log.txt` spolkne a při plném disku
+  se smaže rezerva `DATA_ROOT/.disk_reserve` (`DISK_RESERVE_MB` 64) a zápis stavu se zopakuje; hláška `issue.failure.disk`. Před jobem
+  `ensure_job_space`: volno aspoň `DISK_JOB_BASE_GB` (3) + `DISK_JOB_GB_PER_KM2` (0,5) × km², jinak smaže nejdéle nepoužitou cache podle
+  výřezu (references, surfaces, zabaged, ruian, aopk) a pak listy LiDARu, jinak job skončí. Strop cache LiDARu je menší z `LIDAR_CACHE_MAX_GB`
+  a `LIDAR_CACHE_MAX_DISK_SHARE` (0,5) disku; prošlá cache podle výřezu se maže při startu a v denním úklidu. Neúplně zapsaný LAZ
+  (`laz_looks_truncated`: hlavička / VLR / tabulka chunků nesedí na velikost) se v cache nepoužije a smaže; PDAL výstup se kontroluje.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
