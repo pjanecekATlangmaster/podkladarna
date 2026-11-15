@@ -358,6 +358,8 @@ def test_river_relation_from_open_ways(monkeypatch, cz, expected):
         ({"waterway": "river"}, ("waterway", "306")),
         ({"waterway": "stream", "tunnel": "culvert"}, None),  # propustek pod cestou
         ({"waterway": "weir"}, None),
+        ({"natural": "water", "waterway": "canal"}, ("water_body", "301")),  # plocha kanálu zůstává plochou
+        ({"landuse": "reservoir", "waterway": "river"}, ("water_body", "301")),
     ],
 )
 def test_osm_waterways_abroad(monkeypatch, tags, want):

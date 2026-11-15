@@ -1655,10 +1655,6 @@ def classify_osm_feature(
         return "bare_rock", "201.2"
     if natural == "scree" and not is_node:
         return "scree", "201.2"
-    if (tags.get("waterway") or "").lower() in OSM_WATERWAY_LINES and not is_node:
-        if (tags.get("tunnel") or "no").lower() != "no" or (tags.get("location") or "").lower() == "underground":
-            return None  # propustek / zatrubněný tok se nekreslí
-        return "waterway", OSM_WATERWAY_CODE
     # Vodní plocha / nádrž / basin → nepřekonatelné vodní těleso (301).
     # Stačí natural=water (v ČR často bez water=reservoir); ořez proti VodniPlocha.
     if (
@@ -1747,6 +1743,11 @@ def classify_osm_feature(
     # OSM budova (kavárna/kiosk/building=yes) → 521; ZABAGED má přednost v dedupu.
     if not is_node and _is_osm_building(tags):
         return "building", "521"
+    # Vodní tok jen jako poslední možnost: plocha s tagem waterway (natural=water + waterway=canal) zůstává plochou 301.
+    if (tags.get("waterway") or "").lower() in OSM_WATERWAY_LINES and not is_node:
+        if (tags.get("tunnel") or "no").lower() != "no" or (tags.get("location") or "").lower() == "underground":
+            return None  # propustek / zatrubněný tok se nekreslí
+        return "waterway", OSM_WATERWAY_CODE
     return None
 
 
