@@ -1,6 +1,7 @@
 # Podporované země (návrh /mnt/project-files/evropa-data/pohranicni-mapa-navrh.md).
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
+# Zahraniční mapy dělá mezinárodní verze Omapic: citace anglicky „Base map: Omapic · …, [year]“ (jako anglická licence).
 # elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | fr_lidarhd | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
@@ -32,7 +33,7 @@ SK:
   view: [47.73, 16.83, 49.62, 22.57]
   elevation: sk_ugkk        # DMR 5.0 1 m z INSPIRE WCS ÚGKK (povrch chybí); záloha local:<složka v DATA_ROOT>
   cz_sources: false
-  citation: "Podklad: Podkladárna · ÚGKK SR · OSM, [rok]"
+  citation: "Base map: Omapic · ÚGKK SR · OSM, [year]"
   attribution:
     - "DMR 5.0 © ÚGKK SR – CC BY 4.0."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."
@@ -46,7 +47,7 @@ NL:
   technical_map: nl_bgt     # BGT z PDOK OGC API Features (budovy, wegdeel, erf jako oliva, ploty)
   cz_sources: false
   # Licence: AHN CC0 (AHN5+ CC BY 4.0), luchtfoto Beeldmateriaal CC BY 4.0, Kadaster CC BY 4.0, BGT CC0.
-  citation: "Podklad: Podkladárna · AHN · Kadaster · Beeldmateriaal.nl · OSM, [rok]"
+  citation: "Base map: Omapic · AHN · Kadaster · Beeldmateriaal.nl · OSM, [year]"
   attribution:
     - "Výšky: AHN (Actueel Hoogtebestand Nederland) – CC0 1.0, novější snímkování CC BY 4.0. Bron: AHN."
     - "Ortofoto: Luchtfoto PDOK – CC BY 4.0. Bron: Beeldmateriaal.nl."
@@ -64,7 +65,7 @@ CH:
   technical_map_gaps: countries/ch_no_av.geojson  # kantony bez volné AV (swissBOUNDARIES3D, zjednodušeno)
   cz_sources: false
   # Licence: swisstopo OGD (volné použití, uvést zdroj), AV kantonů „Freie Nutzung, Quellenangabe ist Pflicht“.
-  citation: "Podklad: Podkladárna · © swisstopo · AV kantonů (geodienste.ch) · OSM, [rok]"
+  citation: "Base map: Omapic · © swisstopo · AV kantonů (geodienste.ch) · OSM, [year]"
   attribution:
     - "Výšky: swissALTI3D a swissSURFACE3D Raster © swisstopo (Open Government Data)."
     - "Ortofoto SWISSIMAGE, národní mapa a stínování © swisstopo."
@@ -81,7 +82,7 @@ AT:
   technical_map_area: countries/at_wien.geojson  # mimo Vídeň kresba z OSM
   cz_sources: false
   # Licence: BEV ALS CC BY 4.0, basemap.at CC BY 4.0, Stadt Wien OGD CC BY 4.0.
-  citation: "Podklad: Podkladárna · BEV · basemap.at · Stadt Wien – data.wien.gv.at · OSM, [rok]"
+  citation: "Base map: Omapic · BEV · basemap.at · Stadt Wien – data.wien.gv.at · OSM, [year]"
   attribution:
     - "Výšky: ALS DTM a DSM, Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen (CC BY 4.0)."
     - "Ortofoto, mapa a stínování: Datenquelle: basemap.at (CC BY 4.0)."
@@ -97,7 +98,7 @@ DE:
   technical_map: de_sb      # Straßenbefahrung 2014 + budovy ALKIS z WFS gdi.berlin.de
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Zero 2.0 (bez povinné citace, uvádíme zdroj).
-  citation: "Podklad: Podkladárna · Geoportal Berlin · OSM, [rok]"
+  citation: "Base map: Omapic · Geoportal Berlin · OSM, [year]"
   attribution:
     - "Výšky: ATKIS DGM1 a DOM1, Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
     - "Straßenbefahrung 2014, ALKIS a TrueDOP: Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
@@ -113,7 +114,7 @@ FR:
   technical_map_area: countries/fr_paris.geojson  # kde technická mapa je (obec Paříž); mimo ni job kreslí z OSM a GUI to odliší
   cz_sources: false
   # Licence: Etalab 2.0 (IGN, uvést zdroj), ODbL (Plan de voirie, uvést zdroj a sdílet úpravy dat pod ODbL).
-  citation: "Podklad: Podkladárna · IGN LiDAR HD · Ville de Paris · OSM, [rok]"
+  citation: "Base map: Omapic · IGN LiDAR HD · Ville de Paris · OSM, [year]"
   attribution:
     - "Výšky: LiDAR HD MNT a MNS, © IGN (Licence Ouverte Etalab 2.0)."
     - "Plan de voirie (jen Paříž): © Ville de Paris – opendata.paris.fr (ODbL)."
@@ -129,7 +130,7 @@ EE:
   technical_map: ee_etak    # ETAK celostátně: budovy, uliční prostor (sprint 501 v celé šířce), pěší plochy, parkoviště, zeleň, dvory, ploty
   cz_sources: false
   # Licence: otevřená licence Maa- ja Ruumiamet (uvést zdroj a datum dat).
-  citation: "Podklad: Podkladárna · Maa- ja Ruumiamet · OSM, [rok]"
+  citation: "Base map: Omapic · Maa- ja Ruumiamet · OSM, [year]"
   attribution:
     - "Výšky (DTM a DSM 2021–2024), ETAK, ortofoto, základní mapa a katastr: Maa- ja Ruumiamet (otevřená licence, data [rok])."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."
@@ -142,7 +143,7 @@ IT:
   elevation: it_trentino    # LiDAR PAT 2014: DTM + DSM first 0,5 m, dlaždice 500 m ze služby merge, výšky nadmořské
   cz_sources: false
   # Licence: CC BY 4.0 (uvést Provincia autonoma di Trento).
-  citation: "Podklad: Podkladárna · Provincia autonoma di Trento · OSM, [rok]"
+  citation: "Base map: Omapic · Provincia autonoma di Trento · OSM, [year]"
   attribution:
     - "Výšky (LiDAR 2014), ortofoto a Carta Tecnica Provinciale: © Provincia autonoma di Trento (CC BY 4.0)."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."
@@ -157,7 +158,7 @@ BE:
   technical_map_gaps: countries/be_no_grb.geojson  # Brusel: GRB tu není, kresba z OSM
   cz_sources: false
   # Licence: Modellicentie Gratis Hergebruik (Digitaal Vlaanderen, uvést zdroj).
-  citation: "Podklad: Podkladárna · Digitaal Vlaanderen · OSM, [rok]"
+  citation: "Base map: Omapic · Digitaal Vlaanderen · OSM, [year]"
   attribution:
     - "Výšky DHMV II, GRB, ortofoto a katastr: © Digitaal Vlaanderen (Modellicentie Gratis Hergebruik)."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."

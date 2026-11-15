@@ -72,7 +72,7 @@ def process_uses_cz_sources() -> bool:
 def citation(options: dict | None = None) -> str:
     """Krátká citace zdrojů pro šíření výstupu (licence místních dat), např. „Podklad: Podkladárna · ČÚZK · OSM, [rok]“."""
     country = job_country(options) if options is not None else process_country()
-    return (country.citation if country else "") or "Podklad: Podkladárna · OSM, [rok]"
+    return (country.citation if country else "") or "Base map: Omapic · OSM, [year]"
 
 
 def attribution_lines(options: dict | None = None) -> tuple[str, ...]:
