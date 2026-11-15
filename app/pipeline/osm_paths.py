@@ -1131,6 +1131,11 @@ _LINE_FEATURE_KINDS = frozenset(
 # tunelu ne, a uvnitř vodní plochy (řeka s obrysem) se tok ořízne (``clip_waterways_by_water``).
 OSM_WATERWAY_LINES = frozenset({"river", "stream", "canal", "ditch", "drain"})
 OSM_WATERWAY_CODE = "306"
+# Klíče, se kterými prvek není čistý vodní tok (klíče dotazu Overpass v Česku + plocha vody a relace).
+_WATERWAY_EXCLUDE_KEYS = frozenset({
+    "amenity", "area:highway", "barrier", "building", "highway", "historic", "information", "landuse", "leisure",
+    "man_made", "natural", "playground", "power", "public_transport", "railway", "tourism", "type", "water",
+})
 # Sloupy/stožáry OSM → DashPoint na vedení (MapCoord flag 32).
 POWER_SUPPORT_MATCH_M = 1.5
 # ISOM 511 = velké stožárové vedení; 110 kV distribuční (ČEZ) = 510.
@@ -1743,8 +1748,14 @@ def classify_osm_feature(
     # OSM budova (kavárna/kiosk/building=yes) → 521; ZABAGED má přednost v dedupu.
     if not is_node and _is_osm_building(tags):
         return "building", "521"
-    # Vodní tok jen jako poslední možnost: plocha s tagem waterway (natural=water + waterway=canal) zůstává plochou 301.
-    if (tags.get("waterway") or "").lower() in OSM_WATERWAY_LINES and not is_node:
+    # Vodní tok jen jako čistá linie: prvek s jiným klíčem (plocha vody, les, most, cesta …) ani relace (``type``)
+    # se tokem nestane – v Česku se takové prvky stahují kvůli jinému klíči a na kresbě musí zůstat beze změny.
+    if (
+        (tags.get("waterway") or "").lower() in OSM_WATERWAY_LINES
+        and not is_node
+        and not any(k in tags for k in _WATERWAY_EXCLUDE_KEYS)
+        and (tags.get("area") or "no").lower() != "yes"
+    ):
         if (tags.get("tunnel") or "no").lower() != "no" or (tags.get("location") or "").lower() == "underground":
             return None  # propustek / zatrubněný tok se nekreslí
         return "waterway", OSM_WATERWAY_CODE

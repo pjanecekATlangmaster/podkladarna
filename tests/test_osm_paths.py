@@ -360,6 +360,12 @@ def test_river_relation_from_open_ways(monkeypatch, cz, expected):
         ({"waterway": "weir"}, None),
         ({"natural": "water", "waterway": "canal"}, ("water_body", "301")),  # plocha kanálu zůstává plochou
         ({"landuse": "reservoir", "waterway": "river"}, ("water_body", "301")),
+        ({"landuse": "forest", "waterway": "stream"}, None),  # jiný klíč: tok z toho není
+        ({"natural": "wood", "waterway": "ditch"}, None),
+        ({"man_made": "bridge", "waterway": "canal"}, None),
+        ({"highway": "path", "waterway": "stream"}, None),  # cesta jde jinou větví, tok z ní není
+        ({"type": "waterway", "waterway": "river"}, None),  # relace toku
+        ({"waterway": "ditch", "area": "yes"}, None),
     ],
 )
 def test_osm_waterways_abroad(monkeypatch, tags, want):
