@@ -510,6 +510,11 @@ def oom_metadata(
     return meta
 
 
+def _is_cz(meta: dict | None) -> bool:
+    """Job v Česku (starší metadata bez země také); mezinárodní výstup neodkazuje na GitHub."""
+    return ((meta or {}).get("country") or "CZ") == "CZ"
+
+
 def _country_citation(meta: dict | None) -> dict:
     """Citace pro CO_JE_PODKLADARNA.txt z metadat jobu (starší metadata bez země = Česko)."""
     meta = meta or {}
@@ -518,6 +523,7 @@ def _country_citation(meta: dict | None) -> dict:
         out["citation"] = meta["citation_short"]
     if meta.get("data_sources"):
         out["attribution"] = tuple(meta["data_sources"])
+    out["github"] = _is_cz(meta)
     return out
 
 
@@ -680,8 +686,8 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         f"{_data_sources_line(meta)} Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
         f"{citation}\n"
         f"{relief_line}"
-        "Podkladárna je experiment, proto ocením zpětnou vazbu a připomínky:\n"
-        "https://github.com/pjanecekATlangmaster/podkladarna/issues\n"
+        "Podkladárna je experiment, proto ocením zpětnou vazbu a připomínky"
+        + (":\nhttps://github.com/pjanecekATlangmaster/podkladarna/issues\n" if _is_cz(meta) else ".\n")
     )
 
 

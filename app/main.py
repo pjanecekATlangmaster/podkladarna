@@ -420,6 +420,20 @@ def _page_source(name: str, request: Request) -> str:
     return (WEB_DIR / name).read_text(encoding="utf-8")
 
 
+GITHUB_REPO_URL = "https://github.com/pjanecekATlangmaster/podkladarna"
+
+
+def source_links_html(lang: str) -> str:
+    """Odkazy na zdrojový kód a Issues v patičce jen v české verzi (mezinárodní verze GitHub neukazuje)."""
+    if lang != i18n.SOURCE_LANG:
+        return ""
+    return (
+        f'<a href="{GITHUB_REPO_URL}" target="_blank" rel="noopener">{{{{t:web.footer.source_code}}}}</a>\n'
+        f'      · <a href="{GITHUB_REPO_URL}/issues" target="_blank" rel="noopener">{{{{t:web.footer.issues}}}}</a>\n'
+        "      · "
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     try:
@@ -431,6 +445,7 @@ def index(request: Request) -> HTMLResponse:
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
     lang = i18n.resolve_lang(request)[0]
     html = html.replace("<!-- PODKLADARNA_ABOUT -->", web_about_html(lang))
+    html = html.replace("<!-- PODKLADARNA_SOURCE_LINKS -->", source_links_html(lang))
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
     html = html.replace("<!-- PODKLADARNA_PAID -->", paid_flow.form_note_html(request, lang))

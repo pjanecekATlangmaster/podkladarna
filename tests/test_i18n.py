@@ -110,6 +110,32 @@ def test_index_english_via_query_sets_cookie(client, monkeypatch):
     assert '<html lang="en"' in again.text
 
 
+def test_github_links_only_in_czech_and_brand_configurable(client, monkeypatch):
+    """Mezinárodní (anglická) verze neukazuje GitHub; název služby je jedna hodnota ``web.brand``."""
+    monkeypatch.setenv("LANGS", "cs,en")
+    cs = client.get("/?lang=cs")
+    assert "github.com/pjanecekATlangmaster" in cs.text
+    for path in ("/?lang=en", "/licence", "/podpora"):
+        res = client.get(path)
+        assert '<html lang="en"' in res.text
+        assert "github.com/pjanecekATlangmaster" not in res.text, path
+        assert "{brand}" not in res.text and "{{t:" not in res.text, path
+    real = i18n.catalog
+
+    def branded(lang):
+        data = dict(real(lang))
+        if lang == "en":
+            data["web.brand"] = "Mapname"
+        return data
+
+    monkeypatch.setattr(i18n, "catalog", branded)
+    assert i18n.t("mail.ready.subject", "en", name="X").startswith("Mapname: ")
+    assert i18n.merged_catalog("en")["web.js.stats.app_version"] == "Mapname version"
+    res = client.get("/?lang=en")
+    assert "<title>Mapname</title>" in res.text and "Podkladárna" not in res.text
+    assert "Podkladárna" in client.get("/?lang=cs").text
+
+
 def test_free_site_has_no_switcher(client, monkeypatch):
     monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,example.eu=en:paid:*")
     monkeypatch.setenv("LANGS", "cs,en")
@@ -145,7 +171,7 @@ def test_mail_english_and_czech_unchanged():
     subject, body = build_private_ready_email(
         job_name="Les", download_url="https://x/d/t", retention_hours=48, area_km2=2.43, lang="en"
     )
-    assert subject == "Podkladárna: map “Les” is ready to download"
+    assert subject == "Omapic: map “Les” is ready to download"
     assert "Map area: 2.4 km²." in body and "valid for 48 hours" in body
     assert "Dobrý den" not in body
     subject_cs, body_cs = build_private_ready_email(
@@ -200,7 +226,7 @@ def test_created_job_remembers_lang_and_site(client, monkeypatch):
 @pytest.mark.parametrize(
     "path, english, czech",
     [
-        ("/", "How Podkladárna evolved", "Jak se Podkladárna vyvíjela"),
+        ("/", "How Omapic evolved", "Jak se Podkladárna vyvíjela"),
         ("/licence", "Licence and sources", "Licence a zdroje"),
         ("/podpora", "Support development", "Číslo účtu"),
     ],

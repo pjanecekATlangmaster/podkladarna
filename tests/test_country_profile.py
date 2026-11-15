@@ -307,6 +307,9 @@ def test_citation_by_country(country, must, must_not):
     for text in must_not:
         assert text not in data_part and text not in about[about.index("Právní"):]
     assert meta["citation_short"] in about
+    # Mezinárodní výstup neodkazuje na náš GitHub, český ano.
+    has_github = "github.com/pjanecek" in about
+    assert has_github == (country == "CZ") and ("github.com/pjanecek" in readme) == (country == "CZ")
 
 
 def test_job_crs_from_env_and_worker(monkeypatch):
