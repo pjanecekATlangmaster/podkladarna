@@ -47,10 +47,10 @@ _KIND_GEOM = {
     **{k: "point" for k in (
         "bench", "picnic_table", "lamp", "firepit", "playground_equipment", "fitness",
         "barrier_point", "memorial", "landmark_tree", "info_board", "guidepost", "hunting_stand",
-        "water_tower", "cave_entrance", "spring", "water_well",
+        "water_tower", "cave_entrance", "spring", "water_well", "boulder",
     )},
     **{k: "line" for k in (
-        "fence", "wall", "hedge", "power_line", "power_line_major", "cliff",
+        "fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "aerialway",
         "rail_line", "tram_line",  # koleje OSM mimo Česko
     )},
     "tree_row": "point",  # alej se kreslí body 418 (``tree_rows``)
