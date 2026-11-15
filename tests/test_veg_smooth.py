@@ -182,19 +182,29 @@ def test_resolve_osm_objects(opts, want, basic_sprint, basic_forest):
     assert resolve_osm_basic_objects(opts, "forest_10000") is basic_forest
 
 
-@pytest.mark.parametrize(("chm_source", "want_area"), [(True, 600.0), (False, 900.0)])
-def test_chm_vegetation_not_on_bridge(tmp_path, monkeypatch, chm_source, want_area):
-    """Porost z rastru CHM (DSM − DTM) se na obrysu mostu z OSM nekreslí (Gent, Sint-Michielsbrug: mostovka
-    nad dopočteným terénem jako 410); porost z hustoty bodů (bez značky, Česko) zůstává celý."""
+@pytest.mark.parametrize(
+    ("chm_source", "cz", "code", "want_area"),
+    [
+        (True, False, "410", 510.0),  # zahraničí, porost z CHM: bez mostu (300 m²) a koleje (90 m²)
+        (True, False, "401", 900.0),  # otevřený terén veto nemá (není to falešný strom)
+        (True, True, "410", 900.0),  # Česko: záložní CHM beze změny
+        (False, False, "410", 900.0),  # porost z hustoty bodů beze změny
+    ],
+)
+def test_chm_vegetation_veto_abroad(tmp_path, monkeypatch, chm_source, cz, code, want_area):
+    """Mimo Česko má u porostu z rastru CHM (DSM − DTM) přednost OSM a technická mapa: na mostě (Gent,
+    Sint-Michielsbrug: mostovka nad dopočteným terénem jako 410), koleji, budově, vodě a vozovce se nekreslí."""
     import json
 
     from shapely import from_wkb
 
     import app.pipeline.vegetation_gdal as vg
+    from app.pipeline import country_profile
     from app.pipeline.vegetation_chm import CHM_SOURCE_MARK
 
+    monkeypatch.setattr(country_profile, "process_uses_cz_sources", lambda: cz)
     vg._SHAPED_MEMO.clear()
-    rows = [({"cls": 4, "code": "410"}, Polygon([(0, 0), (30, 0), (30, 30), (0, 30)]).wkb)]
+    rows = [({"code": code}, Polygon([(0, 0), (30, 0), (30, 30), (0, 30)]).wkb)]
     monkeypatch.setattr(vg, "_iter_vege_rows", lambda _shp: rows)
     seen = []
     real = vg._shaped_parts
@@ -209,6 +219,11 @@ def test_chm_vegetation_not_on_bridge(tmp_path, monkeypatch, chm_source, want_ar
         "type": "FeatureCollection",
         "features": [{"type": "Feature", "properties": {"man_made": "bridge"},
                       "geometry": {"type": "Polygon", "coordinates": deck}}],
+    }), encoding="utf-8")
+    (tmp_path / "osm_paths" / "features.geojson").write_text(json.dumps({
+        "type": "FeatureCollection",
+        "features": [{"type": "Feature", "properties": {"kind": "tram_line", "oom_code": "509"},
+                      "geometry": {"type": "LineString", "coordinates": [[-10, 25], [40, 25]]}}],
     }), encoding="utf-8")
     parts = vg.build_vegetation_parts(tmp_path, preset_id="sprint_2m", scale=4000, ref_x=0.0, ref_y=0.0,
                                       grivation_deg=0.0, smooth_level=0)

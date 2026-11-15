@@ -168,40 +168,127 @@ def _simplified_geom_parts(geom_parts: list, scale: int) -> list:
     return out
 
 
-def _raster_bridge_mask(work_dir: Path, shp: Path):
-    """Plocha mostů, na kterých se porost z rastru CHM nekreslí (None = nic neořezávat).
+# Kolej OSM (mimo Česko) jako veto porostu z CHM: půlka šířky pásu v metrech (trolej, vlak, štěrkové lože).
+RAIL_VETO_HALF_M = 1.5
+# Veto platí jen pro zeleň (falešný strom); otevřený terén 401 z nízkého CHM nevadí a pod čarou zmizí.
+VETO_CODES = frozenset({"406", "408", "410"})
+# Menší budova (kůlna v lese, les a MTBO ji kreslí bodem) porost nevyřízne – nevznikne díra v zeleni.
+BUILDING_VETO_MIN_M2 = 25.0
 
-    DSM − DTM: DTM pod mostem dopočítá terén / hladinu, mostovka pak vychází jako porost 4–6 m (Gent,
-    Sint-Michielsbrug: 410 přes celý most). Jen u porostu z rastru (značka ``CHM_SOURCE_MARK``); porost
-    z hustoty klasifikovaných bodů (Česko) mosty nemá a zůstává beze změny.
+
+def _raster_veto_mask(work_dir: Path, shp: Path, sprint: bool):
+    """Plochy, na kterých se porost z rastru CHM nekreslí (None = nic neořezávat).
+
+    DSM − DTM bez klasifikovaných bodů: mostovka nad dopočteným terénem, střecha, vlak nebo trolej vychází
+    jako porost (Gent, Sint-Michielsbrug: 410 přes celý most). Mimo Česko proto mají přednost OSM a technická
+    mapa (Petr 2026-11-15): mosty, budovy, vodní plochy, koleje a ve sprintu i vozovky (v lese a MTBO by pás
+    vozovky širší než čára silnice nechal bílý lem v lese). Jen zeleň (``VETO_CODES``), jen u porostu z rastru
+    (značka ``CHM_SOURCE_MARK``) a jen mimo Česko – český build (hustota bodů i záložní CHM) zůstává beze změny.
     """
+    from app.pipeline.country_profile import process_uses_cz_sources
     from app.pipeline.vegetation_chm import CHM_SOURCE_MARK
 
-    if not (shp.parent / CHM_SOURCE_MARK).is_file():
+    if process_uses_cz_sources() or not (shp.parent / CHM_SOURCE_MARK).is_file():
         return None
-    from app.pipeline.osm_paths import bridge_deck_geometry
+    import shapely
 
-    try:
-        deck = bridge_deck_geometry(Path(work_dir))
-    except Exception:
+    # Díly bez globálního sjednocení ve STRtree: řádek porostu odečte jen díly, které protíná (čas na řádek
+    # nezávisí na ploše výřezu; rozdíl proti celé masce rostl kvadraticky).
+    parts = []
+    for layer in _veto_parts(Path(work_dir), roads=sprint):
+        if layer is None or layer.is_empty:
+            continue
+        parts.extend(g for g in getattr(layer, "geoms", [layer]) if not g.is_empty)
+    if not parts:
         return None
-    if deck is None or deck.is_empty:
-        return None
-    from shapely.prepared import prep
+    return parts, shapely.STRtree(parts)
 
-    return deck, prep(deck)
+
+def _veto_parts(work_dir: Path, *, roads: bool = True) -> list:
+    """Vrstvy veta jako syrové díly (bez sjednocení, to by z uliční sítě udělalo jeden obří polygon a ořez by
+    rostl kvadraticky); vrstva, která se nenačte, se vynechá (zbytek platí)."""
+    import json
+
+    from shapely.geometry import LineString, Polygon, shape
+
+    from app.pipeline import dtm_import, osm_paths
+
+    out: list = []
+
+    def add(fn):
+        try:
+            got = fn()
+        except Exception:
+            return
+        if got is not None:
+            out.extend(got if isinstance(got, list) else [got])
+
+    def polys_from_rings(rings_list) -> list:
+        res = []
+        for rings in rings_list:
+            if rings and len(rings[0]) >= 4:
+                poly = Polygon(rings[0], rings[1:])
+                res.append(poly if poly.is_valid else poly.buffer(0))
+        return res
+
+    def read_feats(name: str) -> list:
+        gj = work_dir / "osm_paths" / name
+        return json.loads(gj.read_text(encoding="utf-8")).get("features") or [] if gj.is_file() else []
+
+    add(lambda: osm_paths.bridge_deck_geometry(work_dir))  # mostů je málo
+
+    def osm_areas():
+        res = []
+        for f in read_feats("features.geojson"):
+            kind = (f.get("properties") or {}).get("kind")
+            geom = f.get("geometry") or {}
+            if kind in {"building", "water_body"} and geom.get("type") in ("Polygon", "MultiPolygon"):
+                g = shape(geom)
+                g = g if g.is_valid else g.buffer(0)
+                if kind == "water_body" or g.area >= BUILDING_VETO_MIN_M2:
+                    res.append(g)
+            elif kind in {"rail_line", "tram_line"} and geom.get("type") == "LineString":
+                coords = geom.get("coordinates") or []
+                if len(coords) >= 2:
+                    res.append(LineString(coords).buffer(RAIL_VETO_HALF_M, cap_style="flat"))
+        return res
+
+    add(osm_areas)
+    # Budovy technické mapy (DTM, GRB, BGT, …); překryv s OSM nevadí, sjednocují se jen díly u řádku.
+    add(lambda: [g for g in polys_from_rings(dtm_import._load_polygons_file(dtm_import.buildings_path(work_dir)))
+                 if g.area >= BUILDING_VETO_MIN_M2])
+
+    if roads:
+        add(lambda: polys_from_rings(dtm_import._load_road_polygons(work_dir)))  # vozovky technické mapy
+
+        def osm_roads():
+            res = []
+            for f in read_feats("paths_osm.geojson"):
+                hw = str((f.get("properties") or {}).get("highway") or "")
+                coords = (f.get("geometry") or {}).get("coordinates") or []
+                # nad tunelem porost být může
+                if osm_paths.is_tunnel_highway(hw) or not osm_paths.path_draw_highway(hw).startswith("road_"):
+                    continue
+                if (f.get("geometry") or {}).get("type") == "LineString" and len(coords) >= 2:
+                    half = max(1.0, osm_paths.drawn_width_m(hw) / 2.0)  # jako ``road_carriageway_geometry``
+                    res.append(LineString(coords).buffer(half, cap_style=2, join_style=2))
+            return res
+
+        add(osm_roads)
+    return out
 
 
 def _clip_wkb(wkb: bytes, mask) -> bytes | None:
-    """Porost bez plochy mostů; None = nic nezbylo."""
-    from shapely import from_wkb, to_wkb
+    """Porost bez ploch veta (``_raster_veto_mask``); None = nic nezbylo."""
+    from shapely import from_wkb, to_wkb, union_all
 
-    deck, prepared = mask
+    parts, tree = mask
     try:
         geom = from_wkb(bytes(wkb))
-        if not prepared.intersects(geom):
+        idx = tree.query(geom, predicate="intersects")
+        if len(idx) == 0:
             return wkb
-        rest = geom.difference(deck)
+        rest = geom.difference(union_all([parts[i] for i in idx]))
     except Exception:
         return wkb
     if rest.is_empty or rest.area < 1.0:
@@ -228,6 +315,8 @@ def _shaped_memo(work_dir: Path, shp: Path, smooth_level: int, sprint: bool) -> 
         _file_stamp(osm_dir / "features.geojson"),
         _file_stamp(osm_dir / "paths_osm.geojson"),
         _file_stamp(osm_dir / "bridge_decks.geojson"),
+        _file_stamp(Path(work_dir) / "dtm" / "roads.json"),
+        _file_stamp(Path(work_dir) / "dtm" / "buildings.json"),
         _file_stamp(shp.parent / CHM_SOURCE_MARK),
         smooth_level,
         sprint,
@@ -262,7 +351,7 @@ def build_vegetation_parts(
         smooth_level = _SPRINT_LEVEL.get(smooth_level, 2)
     shaped_rows = _shaped_memo(work_dir, shp, smooth_level, sprint)
     barriers = None  # načtou se až u prvního řádku, který memo ještě nemá
-    bridge_mask: object = False  # False = ještě nenačteno; None = bez ořezu
+    veto_mask: object = False  # False = ještě nenačteno; None = bez ořezu
 
     grouped: dict[str, list[str]] = {code: [] for code in _CLASS_TO_CODE.values()}
     for row, (props, wkb) in enumerate(_iter_vege_rows(shp)):
@@ -285,10 +374,10 @@ def build_vegetation_parts(
                 from app.pipeline.veg_smooth import load_smooth_barriers
 
                 barriers = load_smooth_barriers(work_dir)
-            if bridge_mask is False:
-                bridge_mask = _raster_bridge_mask(work_dir, shp)
-            if bridge_mask is not None:
-                wkb = _clip_wkb(wkb, bridge_mask)
+            if veto_mask is False:
+                veto_mask = _raster_veto_mask(work_dir, shp, sprint)
+            if veto_mask is not None and code in VETO_CODES:
+                wkb = _clip_wkb(wkb, veto_mask)
             hit = shaped_rows[row] = (
                 ([], False) if wkb is None else _shaped_parts(wkb, code, smooth_level, barriers, sprint)
             )
