@@ -317,8 +317,11 @@ def outside_note(country: Country, share: float) -> str | None:
             f"{pct} % výřezu leží mimo {country.name()}: tam se kreslí jen z OSM "
             "(bez terénu z LiDARu, ZABAGED a DTM)."
         )
-    # Mimo Česko jmenovat jen místní zdroje (výšky mohou pokrývat víc než polygon země, AT: BEV celé Rakousko).
-    return f"{pct} % výřezu leží mimo {country.name()}: tam se kreslí jen z OSM, bez místní velkoměřítkové mapy."
+    # Mimo Česko: národní výšky končí na hranici (polygon země je s malou rezervou), za ní nemusí být terén ani porost.
+    return (
+        f"{pct} % výřezu leží mimo {country.name()}: tam se kreslí jen z OSM, bez místní velkoměřítkové mapy; "
+        "terén a porost tam nemusí být (národní výšková data končí na hranici)."
+    )
 
 
 def outside_share(share: float) -> float:

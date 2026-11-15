@@ -32,6 +32,7 @@ import numpy as np
 from app import settings
 from app.pipeline.crs_5514 import CRS_WKT
 from app.pipeline.dem_prep import DemPrepResult, dem_work_dir
+from app.pipeline.job_progress import log_issue
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
 from app.pipeline.reference_nl import NL_AHN_WCS
 
@@ -265,6 +266,10 @@ def _stac_items(collection: str, bbox_wgs84: tuple[float, float, float, float]) 
     return items
 
 
+# Odmítnutí okna, které nejde o výpadek: list do okna nezasahuje, nebo neexistuje (moře, okraj mřížky listů).
+_COG_SKIP_OK = re.compile(r"outside raster extent|HTTP response code: 404|does not exist in the file system", re.I)
+
+
 def cog_windows(
     urls: list[str],
     window: tuple[float, float, float, float],
@@ -302,8 +307,14 @@ def cog_windows(
                 log=log,
             )
         except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or "").strip()
             if log:
-                log(f"  {url.rsplit('/', 1)[-1]}: přeskočeno ({(exc.stderr or '').strip()[-200:]})")
+                log(f"  {url.rsplit('/', 1)[-1]}: přeskočeno ({err[-200:]})")
+            if not _COG_SKIP_OK.search(err):
+                # Síťová chyba / 5xx (ne „list do okna nezasahuje“ nebo neexistuje): kus výřezu bude bez terénu
+                # nebo porostu a díru zalije fillnodata – do souhrnu jobu, ne jen do logu.
+                log_issue(log, f"Výškové modely: list {url.rsplit('/', 1)[-1]} se nestáhl, část výřezu může být bez "
+                               f"terénu nebo porostu ({err[-120:]})")
             continue
         if dest.is_file():
             tiles.append(dest)

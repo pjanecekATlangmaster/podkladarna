@@ -130,6 +130,12 @@ def probe(
     if "elevation" in futures:
         elev_share = _result("elevation")
         elev_status = "unknown" if elev_share is None else "checked"
+    elif country.code != countries.DEFAULT_COUNTRY:
+        # Celoplošný národní zdroj (NL, CH, AT…) končí na hranici země: přesah výřezu za ni je bez terénu
+        # a porostu. Česko beze změny (mimo polygon tam varuje kontrola listů LiDARu).
+        inside = countries.bbox_share(box, country)
+        if inside < PARTIAL_SHARE:
+            elev_share, elev_status = inside, "checked"
     # Popisek zdroje v jazyce stránky (vnořená ``Msg``); česky = ``SOURCE_LABELS`` (log jobu beze změny).
     elev_label = (
         i18n.Msg(f"api.elevation_source.{country.elevation}")
