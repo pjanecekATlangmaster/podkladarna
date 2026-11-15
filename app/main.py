@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import countries, db, dtm_coverage, i18n, paid_flow, settings as app_settings, source_status, worker
+from app import area_probe, countries, db, i18n, paid_flow, settings as app_settings, source_status, worker
 from app.cleanup import maybe_purge_old_jobs, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -515,15 +515,15 @@ def _exc_detail(exc: BaseException):
     return arg if isinstance(arg, i18n.Msg) else str(exc)
 
 
-def _elevation_missing(job_country: countries.Country, bbox) -> tuple[float, i18n.Msg] | None:
-    """Zdroj výšek, který není celoplošný (FR LiDAR HD): výřez z většiny bez dat → (podíl, hláška), jinak None."""
-    from app.pipeline import elevation_raster
-
-    share = elevation_raster.elevation_coverage(job_country.elevation, tuple(bbox))
-    if share is None or share >= elevation_raster.COVERAGE_MIN_SHARE:
-        return None
-    label = elevation_raster.SOURCE_LABELS.get(job_country.elevation, job_country.elevation)
-    return round(share, 2), i18n.Msg("api.sheets.no_elevation", source=label, share=int(round(share * 100)))
+def _area_probe(
+    job_country: countries.Country, bbox, deadline_s: float = area_probe.DEADLINE_S, *, include_dtm: bool = True
+) -> dict:
+    """Sonda zdrojů výřezu (výšky, technická mapa, DTM obcí) s limitem; chyba sondy job nebrzdí."""
+    try:
+        return area_probe.probe(job_country, tuple(bbox), deadline_s=deadline_s, include_dtm=include_dtm)
+    except Exception:  # noqa: BLE001 – sonda je jen pojistka
+        logger.warning("Sonda zdrojů výřezu selhala", exc_info=True)
+        return {"verdict": "unknown", "warnings": [], "block": None}
 
 
 def _check_country(
@@ -554,7 +554,7 @@ def api_dtm_coverage(bbox: str, request: Request, country: str = ""):
         return {"available": False, "reason": "country", "units": []}
     if bbox_exceeds_limit(*box):  # bez limitu by šly stránkované dotazy RÚIAN třeba pro celou ČR
         return {"available": False, "reason": "too_large", "units": []}
-    return dtm_coverage.coverage_cached(box)
+    return area_probe.dtm_coverage(box, timeout=area_probe.DEADLINE_S)
 
 
 @app.get("/api/sheets")
@@ -606,8 +606,8 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
                 sprint_max=float(sprint_max_area_km2()),
             ),
         }
-    missing = _elevation_missing(job_country, (west, south, east, north))
-    if missing is not None:
+    probe = _area_probe(job_country, (west, south, east, north), include_dtm=False)
+    if probe.get("block") is not None:
         return {
             **country_info,
             "sheets": [],
@@ -622,11 +622,11 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
             "forest_max_area_km2": forest_max_area_km2(),
             "too_large": True,
             "too_large_reason": "elevation",
-            "elevation_share": missing[0],
+            "elevation_share": (probe.get("elevation") or {}).get("share"),
             "estimate_minutes": None,
             "estimate_minutes_with_refs": None,
             "label": i18n.Msg("api.sheets.label_area", width=float(width_km), height=float(height_km), area=float(area_km2)),
-            "hint": missing[1],
+            "hint": probe["block"],
         }
     lidar_sheets = job_country.elevation == "cz_openzu"  # listy SM5 jen u LiDARu ČÚZK
     try:
@@ -737,6 +737,13 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
         # Mimo Česko výšky z rastru země bez listů SM5: GUI pak nežádá aspoň jeden list.
         "needs_sheets": lidar_sheets,
         "hint": hint,
+        # Sonda zdrojů výřezu: varování, kde výšky nebo technická mapa výřez nepokrývají (kreslí se z OSM).
+        "probe": {
+            "verdict": probe.get("verdict"),
+            "elevation": probe.get("elevation"),
+            "technical_map": probe.get("technical_map"),
+            "warnings": probe.get("warnings") or [],
+        },
     }
 
 
@@ -1149,9 +1156,10 @@ async def api_create_job(request: Request):
     except FetchError as exc:
         raise HTTPException(400, _exc_detail(exc)) from exc
     job_country, country_share = _check_country(bbox, request, _form_str(form, "country").strip())
-    missing = _elevation_missing(job_country, bbox)
-    if missing is not None:
-        raise HTTPException(400, missing[1])
+    # DTM obcí jen u výřezu v limitu (stránkované dotazy RÚIAN by šly pro libovolně velké území).
+    probe = _area_probe(job_country, bbox, area_probe.JOB_DEADLINE_S, include_dtm=not bbox_exceeds_limit(*bbox))
+    if probe.get("block") is not None:
+        raise HTTPException(400, probe["block"])
     width_km, height_km = bbox_size_km(*bbox)
     if bbox_exceeds_limit(*bbox):
         area = bbox_area_km2(*bbox)
@@ -1324,6 +1332,8 @@ async def api_create_job(request: Request):
         options["site"] = _site.host
     # Země výřezu (jeden CRS a sada zdrojů); přesah za hranici se kreslí jen z OSM.
     options["country"] = job_country.code
+    if probe.get("verdict") in ("ok", "warn"):
+        options["area_probe"] = area_probe.job_summary(probe)
     if countries.outside_share(country_share) > 0:
         options["outside_share"] = countries.outside_share(country_share)
     # Privátní režim: mimo veřejný seznam + e-mail s tokenizovaným odkazem.

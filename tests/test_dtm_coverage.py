@@ -82,9 +82,9 @@ def test_coverage_skipped_when_dmvs_down(monkeypatch):
 
 
 def test_api_dtm_coverage(client, monkeypatch):
-    import app.main as main
+    from app import dtm_coverage
 
-    monkeypatch.setattr(main.dtm_coverage, "coverage_cached", lambda bbox: {"available": True, "units": [], "level": "none"})
+    monkeypatch.setattr(dtm_coverage, "coverage_cached", lambda bbox: {"available": True, "units": [], "level": "none"})
     assert client.get("/api/dtm_coverage", params={"bbox": "14.40,50.08,14.42,50.09"}).json()["level"] == "none"
     assert client.get("/api/dtm_coverage", params={"bbox": "16.35,48.18,16.40,48.22"}).status_code == 400
     big = client.get("/api/dtm_coverage", params={"bbox": "14.0,49.8,14.8,50.3"}).json()

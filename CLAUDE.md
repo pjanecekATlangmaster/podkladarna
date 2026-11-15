@@ -386,6 +386,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (`planned`, web i log jobu to tak napíšou). Výpadek trvající nepřetržitě `SOURCE_ALERT_AFTER_MIN` (30, test B výchozí 0) od
   `down_since` pošle na `FEEDBACK_TO` jeden e-mail a po obnovení druhý; měří se líně při kontrolách, dvojímu mailu z webu a jobu
   brání značky `DATA_ROOT/source_alerts/` (`O_EXCL`).
+- **Sonda zdrojů výřezu** (3.48.0, Petr 2026-11-15, `app/area_probe.py`): před jobem jedna sjednocená sonda pro konkrétní výřez –
+  pokrytí výškami u neceloplošných zdrojů (`elevation_raster.COVERAGE`, FR LiDAR HD), podíl výřezu s technickou mapou
+  (`technical_map_area` / `technical_map_gaps`) a v Česku kvalita DTM obcí (`dtm_coverage`, jen v POST /api/jobs, web ji má z `/api/dtm_coverage`).
+  Dotazy omezené na výřez, souběžně s limitem (`DEADLINE_S` 8 s web, `JOB_DEADLINE_S` 3 s job); nestihnuté = neznámé, nic neblokuje,
+  doběhnou na pozadí do cache. Výšky pod 50 % výřez odmítnou, jinak jen varování (`/api/sheets` pole `probe`, GUI `probe-note`, log jobu
+  „Sonda výřezu: …“ z `options.area_probe`). Kresbu nemění. LLM za běhu ne (Petr); platí se až po ukázce, takže kontrola hotové mapy není.
 - **Drobné objekty OSM ve sprintu** (3.19.0, Petr 2026-11-06): volba `kp_osm_objects` je `auto` (výchozí, i API) / `1` vše / `none`.
   `auto` = sprint kreslí základní sadu `OSM_BASIC_OBJECT_KINDS` (lavičky a stoly 531, rozcestníky `guidepost` 531, pomníky / boží muka /
   kříže / sochy 526, památné stromy 417; od 3.23.0 i herní prvky, fitness, ohniště a zábrany 531, přístřešky a `building=roof` 522),

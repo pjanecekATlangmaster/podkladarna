@@ -720,6 +720,11 @@ def run_job_pipeline(
                 raw_log(text)
     except Exception:
         pass
+    # Sonda zdrojů výřezu z webu (app.area_probe při založení jobu): kde výšky nebo technická mapa výřez nepokrývají.
+    from app.area_probe import log_lines as probe_log_lines
+
+    for text in probe_log_lines(options.get("area_probe")):
+        raw_log(text)
 
     # OSM (Overpass) trvá desítky sekund a při výpadku zrcadel minuty – stahuje
     # se na pozadí hned, souběžně s LiDAR/ZABAGED, a krok OSM jen převezme výsledek.

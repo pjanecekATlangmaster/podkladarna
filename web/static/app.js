@@ -2377,6 +2377,7 @@ function onBboxEditStart() {
   sheetsLookupSeq++;
   bboxAllowed = false;
   lastSheets = null;
+  renderProbeNote();
   sheetsError = null;
   const sheetsInput = document.getElementById("sm5-sheets-input");
   if (sheetsInput) sheetsInput.value = "";
@@ -2539,6 +2540,7 @@ function clearBbox(opts = {}) {
   renderDtmCoverage();
   bboxAllowed = false;
   lastSheets = null;
+  renderProbeNote();
   bboxDraft = null;
   sheetsError = null;
   document.getElementById("bbox-input").value = "";
@@ -2771,7 +2773,17 @@ async function loadDtmCoverage(bbox, seq) {
   renderDtmCoverage();
 }
 
+// --- Sonda zdrojů výřezu (/api/sheets `probe`): kde výšky nebo technická mapa výřez nepokrývají ---
+function renderProbeNote() {
+  const el = document.getElementById("probe-note");
+  if (!el) return;
+  const warnings = (lastSheets && !lastSheets.too_large && lastSheets.probe && lastSheets.probe.warnings) || [];
+  el.textContent = warnings.join(" ");
+  el.hidden = !warnings.length;
+}
+
 function renderDtmCoverage() {
+  renderProbeNote();
   const el = document.getElementById("dtm-coverage-note");
   if (!el) return;
   const sel = document.getElementById("dtm");
@@ -2900,6 +2912,7 @@ async function lookupSheets() {
   if (!bbox) return;
   bboxAllowed = false;
   lastSheets = null;
+  renderProbeNote();
   bboxDraft = null;
   sheetsError = null;
   updateSubmitButtonLabel();
@@ -2912,6 +2925,7 @@ async function lookupSheets() {
     const data = await api(`/api/sheets?bbox=${encodeURIComponent(bbox)}`);
     if (seq !== sheetsLookupSeq) return;
     lastSheets = data;
+    renderProbeNote();
     // Země výřezu: stav místních serverů (ČÚZK v Česku, PDOK v Nizozemsku …).
     if ((data.country || "CZ") !== sourceStatusCountry) {
       sourceStatusCountry = data.country || "CZ";
