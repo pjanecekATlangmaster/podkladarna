@@ -25,6 +25,14 @@ from app.pipeline.reference_de import (
     DE_BE_TRUEDOP_WMS,
 )
 from app.pipeline.reference_fr import FR_CADASTRE_LAYER, FR_ORTHO_LAYER, FR_PLAN_LAYER, FR_WMS_R
+from app.pipeline.reference_ee import (
+    EE_ALUS_WMS,
+    EE_BASEMAP_LAYER,
+    EE_CADASTRE_LAYER,
+    EE_CADASTRE_WMS,
+    EE_FOTO_WMS,
+    EE_ORTHO_LAYER,
+)
 from app.pipeline.reference_ch import (
     CH_CADASTRAL_LAYER,
     CH_PIXELKARTE_LAYER,
@@ -80,7 +88,7 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
 
 # DMVS WMS styl „default“ odmítá (500) – stejně jako ``_wms_getmap_url``; archiv ortofota (geoportal) chce prázdný styl.
 NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz", "data.wien.gv.at", "gdi.berlin.de",
-                          "data.geopf.fr")
+                          "data.geopf.fr", "gsavalik.envir.ee")
 
 # Vrstvy jen online (bez staženého rastru): přidají se i se zapnutým „Stáhnout referenční šablony předem“.
 ONLINE_ONLY_KEYS = frozenset({"orthophoto_archiv"})
@@ -153,6 +161,13 @@ FR_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("fr_cadastre", "cadastre_ign.xml", "Parcellaire Express (katastr)", FR_WMS_R, FR_CADASTRE_LAYER, "image/png", True,
      0.25),
 )
+# Estonsko (Maa- ja Ruumiamet, otevřená licence): ortofoto, základní mapa 1 : 10 000 a katastr, CRS jobu L-EST97.
+EE_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("ee_ortho", "ortho_maaamet.xml", "Ortofoto Maa- ja Ruumiamet", EE_FOTO_WMS, EE_ORTHO_LAYER, "image/jpeg", False, 0.25),
+    ("ee_basemap", "pohikaart.xml", "Eesti põhikaart 1 : 10 000", EE_ALUS_WMS, EE_BASEMAP_LAYER, "image/png", False, 1.0),
+    ("ee_cadastre", "kataster_ee.xml", "Katastr (katastriüksused)", EE_CADASTRE_WMS, EE_CADASTRE_LAYER, "image/png", True,
+     0.25),
+)
 AT_ONLINE_LB = ("at_luftbild", "luftbild_wien.vrt", "Luftbild Wien (ortofoto Stadt Wien)")
 AT_LB_MPP = 0.15
 # BGT je veřejně jen WMTS v mřížce RD (EPSG:28992): dlaždice přes GDAL TMS + okno výřezu jako VRT.
@@ -170,6 +185,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "AT": AT_ONLINE_WMS_LAYERS,
         "DE": DE_ONLINE_WMS_LAYERS,
         "FR": FR_ONLINE_WMS_LAYERS,
+        "EE": EE_ONLINE_WMS_LAYERS,
     }.get(country, ())
 
 
@@ -469,7 +485,7 @@ def online_labels() -> dict[str, str]:
         (k, label)
         for k, _f, label, *_rest in (
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
-            *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS,
+            *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS,
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (AT_ONLINE_LB[0], AT_ONLINE_LB[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     return {

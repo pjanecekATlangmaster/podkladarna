@@ -85,11 +85,11 @@ def fetch_street_parcels(work_dir: Path, bbox_wgs84, log=None) -> Path | None:
     """Parcely komunikací (RÚIAN vrstva Parcela) v obálce výřezu → ``work_dir/ruian_parcels/komunikace.geojson``."""
     from app.pipeline.country_profile import process_uses_cz_sources
 
-    if not process_uses_cz_sources():  # katastr ČÚZK jen v Česku
-        return None
     dest = Path(work_dir) / CACHE_SUBDIR / PARCELS_NAME
     if dest.is_file() and dest.stat().st_size > 20:
-        return dest
+        return dest  # v cizině ho zapíše technická mapa země (ETAK: uliční prostor)
+    if not process_uses_cz_sources():  # katastr ČÚZK jen v Česku
+        return None
     try:
         xmin, ymin, xmax, ymax = crop_bounds_5514(*expand_bbox_wgs84(tuple(bbox_wgs84), VECTOR_FETCH_BUFFER_M), buffer_m=0.0)
         features: list[dict] = []

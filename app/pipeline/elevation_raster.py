@@ -265,13 +265,22 @@ def _stac_items(collection: str, bbox_wgs84: tuple[float, float, float, float]) 
 
 
 def cog_windows(
-    urls: list[str], window: tuple[float, float, float, float], crs: str, out_dir: Path, prefix: str, *, log=None
+    urls: list[str],
+    window: tuple[float, float, float, float],
+    crs: str,
+    out_dir: Path,
+    prefix: str,
+    *,
+    log=None,
+    nodata: float | None = None,
 ) -> Path | None:
     """Okno ``window`` (v ``crs``) z každého vzdáleného COG přes /vsicurl → VRT; None, když žádné okno nevyšlo.
 
     Čte se jen část dlaždice v okně (COG: swisstopo 1 km ~15 MB, BEV 50 km ~10 GB). Dlaždice, která do okna
-    nezasahuje, gdal_translate odmítne – přeskočí se."""
+    nezasahuje, gdal_translate odmítne – přeskočí se. ``nodata`` pro zdroje bez NoData: okno přesahující list se jinak
+    doplní nulou a ta ve VRT přepíše sousední list (Estonsko DSM)."""
     xmin, ymin, xmax, ymax = window
+    nodata_args = ["-a_nodata", f"{nodata:g}"] if nodata is not None else []
     tiles = []
     for k, url in enumerate(urls):
         dest = out_dir / f"{prefix}_{k}.tif"
@@ -284,6 +293,7 @@ def cog_windows(
                     "--config", "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR",
                     "-projwin", f"{xmin:.1f}", f"{ymax:.1f}", f"{xmax:.1f}", f"{ymin:.1f}",
                     "-projwin_srs", crs,
+                    *nodata_args,
                     "-co", "COMPRESS=DEFLATE",
                     f"/vsicurl/{url}",
                     str(dest),
@@ -638,6 +648,73 @@ def _get_json_url(url: str, timeout: float = 20.0) -> dict:
         return json.loads(resp.read(50_000_000))
 
 
+# --------------------------------------------------------------------------- EE: Maa- ja Ruumiamet DTM + DSM 1 m
+
+# Maa- ja Ruumiamet (otevřená licence, uvést zdroj a datum): GeoTIFF 1 m po mapových listech, EPSG:3301 (L-EST97),
+# výšky EH2000 (nadmořské, nic se nepřevádí), data LLS 2021–2024. DTM po listech 1 : 10 000 (5 × 5 km, ~75 MB,
+# DEFLATE dlaždice 512 px) – čte se jen okno přes /vsicurl; DSM po listech 1 : 2 000 (1 × 1 km, ~4 MB).
+# Adresa listu je stahovací odkaz geoportálu (``kaardiruut`` = číslo listu, ``f`` = jméno souboru).
+EE_GEOPORTAL = "https://geoportaal.maaruum.ee/index.php"
+EE_CRS = "EPSG:3301"
+EE_BUFFER_M = 20.0
+EE_NODATA = -9999.0
+
+
+def ee_sheet_url(kind: str, sheet: str) -> str:
+    """Stahovací odkaz listu: ``dtm`` = list 1 : 10 000 (5 km), ``dsm`` = list 1 : 2 000 (1 km)."""
+    andmetyyp, name = ("dem_1m_geotiff", f"{sheet}_dtm_1m.tif") if kind == "dtm" else ("ndsm_abs_1m_geotiff", f"{sheet}_dsm_1m.tif")
+    return f"{EE_GEOPORTAL}?lang_id=2&plugin_act=otsing&kaardiruut={sheet}&andmetyyp={andmetyyp}&dl=1&f={name}&page_id=664"
+
+
+def ee_sheet_10k(e_m: float, n_m: float) -> str:
+    """Číslo listu 1 : 10 000 s bodem (L-EST97, m): list 1 : 20 000 (10 km) + čtvrtina 1 JZ, 2 JV, 3 SZ, 4 SV.
+
+    List 1 : 20 000 ``ABCD`` má JZ roh N = 6000 + (A − 1)·100 + C·10 km, E = (B + 2)·100 + D·10 km
+    (ověřeno na listech 44744, 54752, 63843, 74331)."""
+    e_km, n_km = int(e_m // 5000) * 5, int(n_m // 5000) * 5
+    n0, e0 = n_km - n_km % 10, e_km - e_km % 10
+    a, c = (n0 - 6000) // 100 + 1, ((n0 - 6000) % 100) // 10
+    b, d = e0 // 100 - 2, (e0 % 100) // 10
+    q = 1 + (e_km % 10 == 5) + 2 * (n_km % 10 == 5)
+    return f"{a}{b}{c}{d}{q}"
+
+
+def ee_sheet_2k(e_m: float, n_m: float) -> str:
+    """Číslo listu 1 : 2 000 (1 × 1 km): severní km − 6000 a východní km JZ rohu (např. 589542)."""
+    return f"{int(n_m // 1000) - 6000:03d}{int(e_m // 1000):03d}"
+
+
+def ee_sheets(kind: str, window: tuple[float, float, float, float]) -> list[str]:
+    import math
+
+    step = 5000 if kind == "dtm" else 1000
+    fn = ee_sheet_10k if kind == "dtm" else ee_sheet_2k
+    xmin, ymin, xmax, ymax = window
+    out = []
+    for i in range(math.floor(xmin / step), math.floor(xmax / step) + 1):
+        for j in range(math.floor(ymin / step), math.floor(ymax / step) + 1):
+            out.append(fn(i * step + 1, j * step + 1))
+    return out
+
+
+def ee_maaamet_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Maa- ja Ruumiamet: DTM (okno z listů 5 km) a DSM (listy 1 km) 1 m přes /vsicurl, bez klíče."""
+    window = _buffered(bounds, EE_CRS, EE_BUFFER_M)
+    out = {
+        kind: cog_windows(
+            [ee_sheet_url(kind, s) for s in ee_sheets(kind, window)], window, EE_CRS, out_dir, f"ee_{kind}",
+            log=log, nodata=EE_NODATA,  # listy DSM NoData nemají
+        )
+        for kind in ("dtm", "dsm")
+    }
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí výšek Maa- ja Ruumiamet")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["ee_maaamet"] = ee_maaamet_provider
+
+
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
 
 # Stahovací služba INSPIRE (Elevation): DMR 5.0 (1. cyklus LLS) 1 m, EPSG:3046 (ETRS89 / UTM 34N), výšky
@@ -722,6 +799,7 @@ SOURCE_LABELS = {
     "at_bev": "BEV ALS DTM a DSM",
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
+    "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
 }
 
 

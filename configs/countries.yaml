@@ -117,3 +117,17 @@ FR:
     - "Plan de voirie (jen Paříž): © Ville de Paris – opendata.paris.fr (ODbL)."
     - "Ortofoto, Plan IGN a Parcellaire Express: © IGN – Géoplateforme (Licence Ouverte Etalab 2.0)."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+EE:
+  name: {cs: Estonsko, en: Estonia, et: Eesti}
+  status: beta              # celé Estonsko (Petr 2026-11-15: další země s obdobou DTM); souřadnice L-EST97
+  crs: EPSG:3301            # Estonian Coordinate System of 1997
+  boundary: countries/ee.geojson  # OSM relace 79510 včetně pobřežních vod (+300 m)
+  view: [57.5, 21.7, 59.7, 28.2]
+  elevation: ee_maaamet     # Maa- ja Ruumiamet DTM (listy 5 km, okno přes /vsicurl) + DSM (listy 1 km) 1 m, výšky EH2000
+  technical_map: ee_etak    # ETAK celostátně: budovy, uliční prostor (sprint 501 v celé šířce), pěší plochy, parkoviště, zeleň, dvory, ploty
+  cz_sources: false
+  # Licence: otevřená licence Maa- ja Ruumiamet (uvést zdroj a datum dat).
+  citation: "Podklad: Podkladárna · Maa- ja Ruumiamet · OSM, [rok]"
+  attribution:
+    - "Výšky (DTM a DSM 2021–2024), ETAK, ortofoto, základní mapa a katastr: Maa- ja Ruumiamet (otevřená licence, data [rok])."
+    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
