@@ -343,7 +343,8 @@ def oom_readme_en(
             "Base maps are online templates (.xml / .vrt files in the references/ folder, GDAL WMS) of the local\n"
             "services of the area's country and OpenStreetMap, each at maximum and medium zoom (_stredni, 4× coarser).\n"
             "They are switched off in the OOM template list; once switched on they download from the internet.\n"
-            "Vegetation height (vyska_vegetace.png) is from our own surface model. OCAD does not open .xml files –\n"
+            "Vegetation height (vyska_vegetace.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
+            "hillshade_dsm.png) are from the job's own elevation models. OCAD does not open .xml files –\n"
             "connect the base maps as WMS:\n" + "\n".join(wms_lines(country)) + "\n"
         )
     elif online:
@@ -370,7 +371,8 @@ def oom_readme_en(
     else:
         refs_intro = (
             "Base maps are downloaded rasters in the references/ folder (they work offline and in OCAD).\n"
-            "Vegetation height (vyska_vegetace.png) is from our own surface model.\n"
+            "Vegetation height (vyska_vegetace.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
+            "hillshade_dsm.png) are from the job's own elevation models.\n"
         )
     buildings = (
         "3. Buildings in the .omap come from the regional DTM (where available), completed by OSM. Sources:\n"
