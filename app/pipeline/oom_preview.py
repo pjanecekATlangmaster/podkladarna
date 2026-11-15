@@ -2487,8 +2487,9 @@ def build_georef_previews_zip(
     dest_zip: Path | None = None,
     *,
     log=None,
+    lang: str = "cs",
 ) -> Path | None:
-    """Malý ZIP jen s georeferencovanými náhledy (GeoTIFF; nouzově PNG+PGW)."""
+    """Malý ZIP jen s georeferencovanými náhledy (GeoTIFF; nouzově PNG+PGW); ``lang`` = jazyk README."""
     import zipfile
 
     from app.pipeline.prepare_lidar import log_step
@@ -2505,24 +2506,24 @@ def build_georef_previews_zip(
     part.unlink(missing_ok=True)
     log_step(log, "Balím ZIP jen s georeferencovanými náhledy")
     with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(
-            "README.txt",
-            (
-                "Podkladárna – georeferencované náhledy mapy\n"
-                "==========================================\n\n"
-                "Každá varianta (les / mtbo / sprint dle měřítka) je jeden soubor:\n"
-                "  *.tif  – GeoTIFF v S-JTSK (EPSG:5514), s grivací / magnetickým\n"
-                "           natočením (Mapper CLI @ 300 DPI; bez CLI Pillow @ 300 DPI-eq).\n"
-                "           Dlaždicový, bezztrátově komprimovaný (DEFLATE) a s interními\n"
-                "           přehledkami – QGIS i OCAD ho otevřou hned při libovolném zoomu.\n\n"
-                "Otevři *.tif v QGIS nebo ho vlož jako podkladovou mapu v OOM / OCAD.\n"
-                "Není to tisková mapa – jen georef náhled.\n"
-                "Pokud se GeoTIFF nepodařilo vyrobit (chybí GDAL), je místo něj\n"
-                "*.png + *.pgw (+ *.prj): otevři PNG v QGIS (zadej EPSG:5514, pokud se neptá).\n"
-                "Webový náhled „Otevřít PNG“ je zvlášť (Pillow, bez deklinace)\n"
-                "a do materiálového OOM ZIPu se PNG náhledy nedávají.\n"
-            ),
+        from app.pipeline.zip_texts_en import GEOREF_PREVIEWS_README_EN
+
+        readme_cs = (
+            "Podkladárna – georeferencované náhledy mapy\n"
+            "==========================================\n\n"
+            "Každá varianta (les / mtbo / sprint dle měřítka) je jeden soubor:\n"
+            "  *.tif  – GeoTIFF v S-JTSK (EPSG:5514), s grivací / magnetickým\n"
+            "           natočením (Mapper CLI @ 300 DPI; bez CLI Pillow @ 300 DPI-eq).\n"
+            "           Dlaždicový, bezztrátově komprimovaný (DEFLATE) a s interními\n"
+            "           přehledkami – QGIS i OCAD ho otevřou hned při libovolném zoomu.\n\n"
+            "Otevři *.tif v QGIS nebo ho vlož jako podkladovou mapu v OOM / OCAD.\n"
+            "Není to tisková mapa – jen georef náhled.\n"
+            "Pokud se GeoTIFF nepodařilo vyrobit (chybí GDAL), je místo něj\n"
+            "*.png + *.pgw (+ *.prj): otevři PNG v QGIS (zadej EPSG:5514, pokud se neptá).\n"
+            "Webový náhled „Otevřít PNG“ je zvlášť (Pillow, bez deklinace)\n"
+            "a do materiálového OOM ZIPu se PNG náhledy nedávají.\n"
         )
+        zf.writestr("README.txt", readme_cs if lang == "cs" else GEOREF_PREVIEWS_README_EN)
         for path in files:
             # GeoTIFF je už DEFLATE – druhá komprese jen zdržuje.
             zf.write(

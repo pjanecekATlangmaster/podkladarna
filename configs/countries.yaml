@@ -1,7 +1,7 @@
 # Podporované země (návrh /mnt/project-files/evropa-data/pohranicni-mapa-navrh.md).
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
-# Zahraniční mapy dělá mezinárodní verze Omapic: citace anglicky „Base map: Omapic · …, [year]“ (jako anglická licence).
+# Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
 # elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | fr_lidarhd | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
@@ -36,7 +36,7 @@ SK:
   citation: "Base map: Omapic · ÚGKK SR · OSM, [year]"
   attribution:
     - "DMR 5.0 © ÚGKK SR – CC BY 4.0."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 NL:
   name: {cs: Nizozemsko, en: Netherlands, nl: Nederland}
   status: beta              # souřadnice jobu EPSG:28992 (PODKLADARNA_JOB_CRS); na ostré se nenabízí
@@ -49,11 +49,11 @@ NL:
   # Licence: AHN CC0 (AHN5+ CC BY 4.0), luchtfoto Beeldmateriaal CC BY 4.0, Kadaster CC BY 4.0, BGT CC0.
   citation: "Base map: Omapic · AHN · Kadaster · Beeldmateriaal.nl · OSM, [year]"
   attribution:
-    - "Výšky: AHN (Actueel Hoogtebestand Nederland) – CC0 1.0, novější snímkování CC BY 4.0. Bron: AHN."
-    - "Ortofoto: Luchtfoto PDOK – CC BY 4.0. Bron: Beeldmateriaal.nl."
+    - "Elevation: AHN (Actueel Hoogtebestand Nederland) – CC0 1.0, newer surveys CC BY 4.0. Bron: AHN."
+    - "Orthophoto: Luchtfoto PDOK – CC BY 4.0. Bron: Beeldmateriaal.nl."
     - "BGT (Basisregistratie Grootschalige Topografie) – CC0 1.0."
-    - "Kadastrale kaart a BRT TOP10NL – CC BY 4.0. Bron: Kadaster."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "Kadastrale kaart and BRT TOP10NL – CC BY 4.0. Bron: Kadaster."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 CH:
   name: {cs: Švýcarsko, en: Switzerland, de: Schweiz, fr: Suisse, it: Svizzera}
   status: beta              # souřadnice jobu EPSG:2056 (CH1903+ / LV95); na ostré se nenabízí
@@ -67,10 +67,10 @@ CH:
   # Licence: swisstopo OGD (volné použití, uvést zdroj), AV kantonů „Freie Nutzung, Quellenangabe ist Pflicht“.
   citation: "Base map: Omapic · © swisstopo · AV kantonů (geodienste.ch) · OSM, [year]"
   attribution:
-    - "Výšky: swissALTI3D a swissSURFACE3D Raster © swisstopo (Open Government Data)."
-    - "Ortofoto SWISSIMAGE, národní mapa a stínování © swisstopo."
-    - "Úřední vyměřování (AV, amtliche Vermessung): Quelle Kantone, geodienste.ch."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "Elevation: swissALTI3D and swissSURFACE3D Raster © swisstopo (Open Government Data)."
+    - "Orthophoto SWISSIMAGE, national map and hillshade © swisstopo."
+    - "Cadastral survey (AV, amtliche Vermessung): Quelle Kantone, geodienste.ch."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 AT:
   name: {cs: Rakousko, en: Austria, de: Österreich}
   status: beta              # celé Rakousko (Petr 2026-11-15); FMZK jen ve Vídni; souřadnice EPSG:25833
@@ -84,10 +84,10 @@ AT:
   # Licence: BEV ALS CC BY 4.0, basemap.at CC BY 4.0, Stadt Wien OGD CC BY 4.0.
   citation: "Base map: Omapic · BEV · basemap.at · Stadt Wien – data.wien.gv.at · OSM, [year]"
   attribution:
-    - "Výšky: ALS DTM a DSM, Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen (CC BY 4.0)."
-    - "Ortofoto, mapa a stínování: Datenquelle: basemap.at (CC BY 4.0)."
-    - "FMZK a ortofoto Vídně (Luftbild): Datenquelle: Stadt Wien – data.wien.gv.at (CC BY 4.0)."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "Elevation: ALS DTM and DSM, Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen (CC BY 4.0)."
+    - "Orthophoto, map and hillshade: Datenquelle: basemap.at (CC BY 4.0)."
+    - "FMZK and Vienna orthophoto (Luftbild): Datenquelle: Stadt Wien – data.wien.gv.at (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 DE:
   name: {cs: Německo – Berlín, en: Germany – Berlin, de: Deutschland – Berlin}
   status: beta              # zatím jen Berlín (velkoměřítková mapa s chodníky jen tam, 2026-11-15); souřadnice EPSG:25833
@@ -100,9 +100,9 @@ DE:
   # Licence: Datenlizenz Deutschland – Zero 2.0 (bez povinné citace, uvádíme zdroj).
   citation: "Base map: Omapic · Geoportal Berlin · OSM, [year]"
   attribution:
-    - "Výšky: ATKIS DGM1 a DOM1, Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
-    - "Straßenbefahrung 2014, ALKIS a TrueDOP: Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "Elevation: ATKIS DGM1 and DOM1, Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
+    - "Straßenbefahrung 2014, ALKIS and TrueDOP: Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 FR:
   name: {cs: Francie, en: France, fr: France}
   status: beta              # celá Francie (Petr 2026-11-15); obdoba DTM jen Paříž, jinde OSM + LiDAR HD; souřadnice Lambert-93
@@ -116,10 +116,10 @@ FR:
   # Licence: Etalab 2.0 (IGN, uvést zdroj), ODbL (Plan de voirie, uvést zdroj a sdílet úpravy dat pod ODbL).
   citation: "Base map: Omapic · IGN LiDAR HD · Ville de Paris · OSM, [year]"
   attribution:
-    - "Výšky: LiDAR HD MNT a MNS, © IGN (Licence Ouverte Etalab 2.0)."
-    - "Plan de voirie (jen Paříž): © Ville de Paris – opendata.paris.fr (ODbL)."
-    - "Ortofoto, Plan IGN a Parcellaire Express: © IGN – Géoplateforme (Licence Ouverte Etalab 2.0)."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "Elevation: LiDAR HD MNT and MNS, © IGN (Licence Ouverte Etalab 2.0)."
+    - "Plan de voirie (Paris only): © Ville de Paris – opendata.paris.fr (ODbL)."
+    - "Orthophoto, Plan IGN and Parcellaire Express: © IGN – Géoplateforme (Licence Ouverte Etalab 2.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 EE:
   name: {cs: Estonsko, en: Estonia, et: Eesti}
   status: beta              # celé Estonsko (Petr 2026-11-15: další země s obdobou DTM); souřadnice L-EST97
@@ -132,8 +132,8 @@ EE:
   # Licence: otevřená licence Maa- ja Ruumiamet (uvést zdroj a datum dat).
   citation: "Base map: Omapic · Maa- ja Ruumiamet · OSM, [year]"
   attribution:
-    - "Výšky (DTM a DSM 2021–2024), ETAK, ortofoto, základní mapa a katastr: Maa- ja Ruumiamet (otevřená licence, data [rok])."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "Elevation (DTM and DSM 2021–2024), ETAK, orthophoto, base map and cadastre: Maa- ja Ruumiamet (open licence, data [year])."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 IT:
   name: {cs: "Itálie (Trentino)", en: "Italy (Trentino)", it: "Italia (Trentino)"}
   status: beta              # jen autonomní provincie Trento (Petr 2026-11-15): jediný region s volným DTM i DSM; kresba z OSM
@@ -145,8 +145,8 @@ IT:
   # Licence: CC BY 4.0 (uvést Provincia autonoma di Trento).
   citation: "Base map: Omapic · Provincia autonoma di Trento · OSM, [year]"
   attribution:
-    - "Výšky (LiDAR 2014), ortofoto a Carta Tecnica Provinciale: © Provincia autonoma di Trento (CC BY 4.0)."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "Elevation (LiDAR 2014), orthophoto and Carta Tecnica Provinciale: © Provincia autonoma di Trento (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 BE:
   name: {cs: "Belgie (Flandry)", en: "Belgium (Flanders)", nl: "België (Vlaanderen)"}
   status: beta              # Flandry + Brusel (výšky DHMV kryjí obojí; Petr 2026-11-15: další země s obdobou DTM)
@@ -160,5 +160,5 @@ BE:
   # Licence: Modellicentie Gratis Hergebruik (Digitaal Vlaanderen, uvést zdroj).
   citation: "Base map: Omapic · Digitaal Vlaanderen · OSM, [year]"
   attribution:
-    - "Výšky DHMV II, GRB, ortofoto a katastr: © Digitaal Vlaanderen (Modellicentie Gratis Hergebruik)."
-    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+    - "Elevation DHMV II, GRB, orthophoto and cadastre: © Digitaal Vlaanderen (Modellicentie Gratis Hergebruik)."
+    - "OSM © OpenStreetMap contributors (ODbL)."

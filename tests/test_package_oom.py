@@ -588,7 +588,7 @@ def test_build_oom_zip_appears_only_when_complete(tmp_path: Path, monkeypatch):
     dest = tmp_path / "out" / "podkladarna_output.zip"
     seen: list[bool] = []
 
-    def spy(zf, work_dir):
+    def spy(zf, work_dir, **_kw):
         seen.append(dest.exists())
 
     monkeypatch.setattr(uv, "add_uzitecne_to_zip", spy)

@@ -837,6 +837,11 @@ def test_zip_download_filename_uses_project_name(tmp_path, monkeypatch):
     assert db.safe_zip_stem("a/b:c*?.zip") == "abc.zip"
     assert db.safe_zip_stem("") == "podkladarna"
     assert db.zip_download_filename("x", "") == "podkladarna.zip"
+    # Mezinárodní verze (zadání z anglické stránky) stahuje omapic-<projekt>.zip.
+    assert db.zip_download_filename(a["id"], a["name"], "omapic") == "omapic-nusle.zip"
+    from app.main import download_prefix
+
+    assert download_prefix({"options": {"lang": "en"}}) == "omapic" and download_prefix({"options": {}}) == "podkladarna"
 
 
 def test_logo_png(client):
