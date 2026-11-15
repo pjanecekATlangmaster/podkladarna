@@ -1,8 +1,8 @@
 # Podporované země (návrh /mnt/project-files/evropa-data/pohranicni-mapa-navrh.md).
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
-# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | none) – budovy, silnice, chodníky, parkoviště, ploty.
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | fr_lidarhd | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
 # view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
@@ -96,4 +96,20 @@ DE:
   attribution:
     - "Výšky: ATKIS DGM1 a DOM1, Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
     - "Straßenbefahrung 2014, ALKIS a TrueDOP: Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
+    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+FR:
+  name: {cs: Francie – Paříž, en: France – Paris, fr: France – Paris}
+  status: beta              # zatím jen Paříž (plochy chodníků vede jen Plan de voirie, 2026-11-15); souřadnice Lambert-93
+  crs: EPSG:2154            # RGF93 v1 / Lambert-93
+  boundary: countries/fr.geojson
+  view: [48.81, 2.22, 48.91, 2.47]
+  elevation: fr_lidarhd     # IGN LiDAR HD MNT + MNS 0,5 m z WMS-R, výšky NGF-IGN69
+  technical_map: fr_pdv     # Plan de voirie Ville de Paris (Open Data Paris, ODbL)
+  cz_sources: false
+  # Licence: Etalab 2.0 (IGN, uvést zdroj), ODbL (Plan de voirie, uvést zdroj a sdílet úpravy dat pod ODbL).
+  citation: "Podklad: Podkladárna · IGN LiDAR HD · Ville de Paris · OSM, [rok]"
+  attribution:
+    - "Výšky: LiDAR HD MNT a MNS, © IGN (Licence Ouverte Etalab 2.0)."
+    - "Plan de voirie: © Ville de Paris – opendata.paris.fr (ODbL)."
+    - "Ortofoto, Plan IGN a Parcellaire Express: © IGN – Géoplateforme (Licence Ouverte Etalab 2.0)."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."

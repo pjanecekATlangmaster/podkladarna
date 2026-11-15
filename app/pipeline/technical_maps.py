@@ -59,6 +59,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, vozovky, chodníky, náměstí, parkování, schody, cyklostezky",
         module="app.pipeline.sb_berlin",
     ),
+    "fr_pdv": TechnicalMap(
+        key="fr_pdv",
+        short="PDV",
+        step="data Plan de voirie",
+        background="Plan de voirie (Ville de Paris)",
+        content="vozovky, chodníky, smíšené plochy, schodiště, ostrůvky, zeleň",
+        module="app.pipeline.pdv_paris",
+    ),
 }
 
 

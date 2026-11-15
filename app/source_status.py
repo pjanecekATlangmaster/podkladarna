@@ -39,6 +39,7 @@ from app.pipeline.osm_paths import OVERPASS_URLS
 from app.pipeline.bgt_nl import BGT_API
 from app.pipeline.reference_at import AT_BEV_PROBE, AT_FMZK_PROBE, AT_LB_PROBE
 from app.pipeline.reference_de import DE_BE_DGM_PROBE, DE_BE_DOP_PROBE, DE_BE_SB_PROBE
+from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
@@ -240,6 +241,30 @@ PROBES: tuple[Probe, ...] = (
         (DE_BE_DOP_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("DE",),
+    ),
+    # Francie (Paříž): malý výřez MNT LiDAR HD, 1 záznam Plan de voirie, malý výřez ortofota.
+    Probe(
+        "fr_lidarhd",
+        "LiDAR HD (IGN) – výšky terénu a povrchu",
+        (FR_LIDAR_PROBE,),
+        "Bez výšek LiDAR HD se mapa nevytvoří (terén ani výška porostu).",
+        fatal=True,
+        countries=("FR",),
+    ),
+    Probe(
+        "fr_pdv",
+        "Plan de voirie (Ville de Paris)",
+        (FR_PDV_PROBE,),
+        "Vozovky, chodníky a schodiště se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("FR",),
+    ),
+    Probe(
+        "fr_ortho",
+        "Ortofoto IGN (Géoplateforme)",
+        (FR_ORTHO_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("FR",),
     ),
 )
 
