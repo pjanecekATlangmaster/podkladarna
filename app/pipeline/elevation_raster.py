@@ -407,6 +407,102 @@ def at_bev_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["at_bev"] = at_bev_provider
 
 
+# --------------------------------------------------------------------------- DE: Berlín DGM1 + DOM1 (XYZ 2 × 2 km)
+
+# GDI Berlin (Datenlizenz Deutschland – Zero 2.0, bez klíče): ATKIS DGM1 (terén) a DOM1 (povrch z ALS 2021), obojí
+# 1 m, EPSG:25833, výšky DHHN2016 (normální výšky, nic se nepřevádí). Jen ZIP s XYZ textem po dlaždicích 2 × 2 km
+# (levý dolní roh v km, sudé); mračno ALS jen v ZIPech desítek GB → nepoužitelné. Novější bDOM (z leteckých snímků
+# 2026) je bez listí: v Grunewaldu má nad 5 m jen 29 % plochy proti 72 % v DOM1, porost by vyšel jako louka.
+# Dlaždice se jednou převede na GeoTIFF (sever nahoře) a drží v cache.
+DE_BE_BASE = "https://gdi.berlin.de/data"
+DE_BE_CRS = "EPSG:25833"
+DE_BE_TILE_M = 2000
+DE_BE_BUFFER_M = 20.0
+DE_BE_KINDS = {"dtm": "dgm1/atom/DGM1_{e}_{n}.zip", "dsm": "dom/atom/DOM1_{e}_{n}.zip"}
+DE_BE_CACHE = {"dtm": "dgm1", "dsm": "dom1"}
+
+
+def berlin_tiles(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
+    """Dlaždice (E, N levého dolního rohu v km) mřížky 2 km, které zasahují do okna."""
+    import math
+
+    xmin, ymin, xmax, ymax = window
+    step = DE_BE_TILE_M
+    xs = range(math.floor(xmin / step) * step, math.ceil(xmax / step) * step, step)
+    ys = range(math.floor(ymin / step) * step, math.ceil(ymax / step) * step, step)
+    return [(x // 1000, y // 1000) for x in xs for y in ys]
+
+
+def berlin_tile_url(kind: str, east_km: int, north_km: int) -> str:
+    return f"{DE_BE_BASE}/{DE_BE_KINDS[kind].format(e=east_km, n=north_km)}"
+
+
+def _berlin_tile(kind: str, east_km: int, north_km: int, *, log=None) -> Path | None:
+    """GeoTIFF dlaždice z cache, jinak stáhne ZIP s XYZ a převede; None mimo Berlín (404)."""
+    import urllib.error
+    import urllib.request
+    import zipfile
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    dest = settings.CACHE_DIR / "de_berlin" / DE_BE_CACHE[kind] / f"{east_km}_{north_km}.tif"
+    if dest.is_file():
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    zpath = dest.with_suffix(".part.zip")  # /vsizip pozná archiv podle přípony
+    req = urllib.request.Request(berlin_tile_url(kind, east_km, north_km), headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp, zpath.open("wb") as fh:
+            while chunk := resp.read(1 << 20):
+                fh.write(chunk)
+    except urllib.error.HTTPError as exc:
+        zpath.unlink(missing_ok=True)
+        if exc.code == 404:
+            return None
+        raise
+    try:
+        with zipfile.ZipFile(zpath) as zf:
+            names = [n for n in zf.namelist() if n.lower().endswith((".xyz", ".txt"))]
+        if not names:
+            raise RuntimeError(f"Berlín {kind} {east_km}_{north_km}: ZIP bez XYZ")
+        tmp = dest.with_suffix(".part.tif")
+        # gdalwarp (ne translate): DGM1 má řádky od jihu, výstup sever nahoře (gdalbuildvrt jinak odmítne)
+        run_cmd(
+            [_gdal_tool("gdalwarp"), "-q", "-overwrite", "-s_srs", DE_BE_CRS, "-t_srs", DE_BE_CRS, "-ot", "Float32",
+             "-dstnodata", str(NODATA), "-co", "COMPRESS=DEFLATE", "-co", "TILED=YES",
+             f"/vsizip/{zpath}/{names[0]}", str(tmp)],
+            log=log,
+        )
+        if not tmp.is_file():
+            raise RuntimeError(f"Berlín {kind} {east_km}_{north_km}: převod XYZ selhal")
+        tmp.replace(dest)
+    finally:
+        zpath.unlink(missing_ok=True)
+    if log:
+        log(f"  Berlín {kind} {east_km}_{north_km}: {dest.stat().st_size / 1e6:.1f} MB")
+    return dest
+
+
+def de_berlin_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Berlín: ATKIS DGM1 (terén) a DOM1 (povrch z ALS) 1 m z GDI Berlin, dlaždice 2 km v cache."""
+    window = _buffered(bounds, DE_BE_CRS, DE_BE_BUFFER_M)
+    out: dict[str, Path | None] = {}
+    for kind in DE_BE_KINDS:
+        tiles = [t for e, n in berlin_tiles(window) if (t := _berlin_tile(kind, e, n, log=log)) is not None]
+        if tiles:
+            vrt = out_dir / f"de_berlin_{kind}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", DE_BE_CRS, str(vrt), *map(str, tiles)], log=log)
+            out[kind] = vrt if vrt.is_file() else None
+        else:
+            out[kind] = None
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí DGM1 Berlín")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["de_berlin"] = de_berlin_provider
+
+
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
 
 # Stahovací služba INSPIRE (Elevation): DMR 5.0 (1. cyklus LLS) 1 m, EPSG:3046 (ETRS89 / UTM 34N), výšky
@@ -489,6 +585,7 @@ SOURCE_LABELS = {
     "sk_ugkk": "DMR 5.0, ÚGKK SR",
     "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo",
     "at_bev": "BEV ALS DTM a DSM",
+    "de_berlin": "DGM1 a DOM1, GDI Berlin",
 }
 
 
