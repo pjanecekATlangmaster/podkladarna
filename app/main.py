@@ -515,6 +515,17 @@ def _exc_detail(exc: BaseException):
     return arg if isinstance(arg, i18n.Msg) else str(exc)
 
 
+def _elevation_missing(job_country: countries.Country, bbox) -> tuple[float, i18n.Msg] | None:
+    """Zdroj výšek, který není celoplošný (FR LiDAR HD): výřez z většiny bez dat → (podíl, hláška), jinak None."""
+    from app.pipeline import elevation_raster
+
+    share = elevation_raster.elevation_coverage(job_country.elevation, tuple(bbox))
+    if share is None or share >= elevation_raster.COVERAGE_MIN_SHARE:
+        return None
+    label = elevation_raster.SOURCE_LABELS.get(job_country.elevation, job_country.elevation)
+    return round(share, 2), i18n.Msg("api.sheets.no_elevation", source=label, share=int(round(share * 100)))
+
+
 def _check_country(
     bbox: tuple[float, float, float, float], request: Request, country: str | None = None
 ) -> tuple[countries.Country, float]:
@@ -594,6 +605,28 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
                 forest_max=float(forest_max_area_km2()),
                 sprint_max=float(sprint_max_area_km2()),
             ),
+        }
+    missing = _elevation_missing(job_country, (west, south, east, north))
+    if missing is not None:
+        return {
+            **country_info,
+            "sheets": [],
+            "count": 0,
+            "max_sheets": MAX_SHEETS,
+            "width_km": round(width_km, 2),
+            "height_km": round(height_km, 2),
+            "area_km2": round(area_km2, 1),
+            "max_km": MAX_BBOX_KM,
+            "max_area_km2": MAX_BBOX_AREA_KM2,
+            "sprint_max_area_km2": sprint_max_area_km2(),
+            "forest_max_area_km2": forest_max_area_km2(),
+            "too_large": True,
+            "too_large_reason": "elevation",
+            "elevation_share": missing[0],
+            "estimate_minutes": None,
+            "estimate_minutes_with_refs": None,
+            "label": i18n.Msg("api.sheets.label_area", width=float(width_km), height=float(height_km), area=float(area_km2)),
+            "hint": missing[1],
         }
     lidar_sheets = job_country.elevation == "cz_openzu"  # listy SM5 jen u LiDARu ČÚZK
     try:
@@ -1116,6 +1149,9 @@ async def api_create_job(request: Request):
     except FetchError as exc:
         raise HTTPException(400, _exc_detail(exc)) from exc
     job_country, country_share = _check_country(bbox, request, _form_str(form, "country").strip())
+    missing = _elevation_missing(job_country, bbox)
+    if missing is not None:
+        raise HTTPException(400, missing[1])
     width_km, height_km = bbox_size_km(*bbox)
     if bbox_exceeds_limit(*bbox):
         area = bbox_area_km2(*bbox)

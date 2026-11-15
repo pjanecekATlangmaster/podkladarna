@@ -599,6 +599,44 @@ def fr_lidarhd_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
 PROVIDERS["fr_lidarhd"] = fr_lidarhd_provider
 
+FR_TILES_MAX = 2000  # MTBO 25 km² ≈ 40 dlaždic 1 km; víc je chyba dotazu
+
+
+def fr_lidarhd_coverage(bbox_wgs84: tuple[float, float, float, float], *, fetch=None) -> float:
+    """Podíl výřezu s vydaným MNT i MNS LiDAR HD (tabulka dlaždic IGN); LiDAR HD vychází postupně, např. Lille chybí."""
+    import urllib.parse
+
+    from shapely.geometry import box, shape
+    from shapely.ops import unary_union
+
+    from app.pipeline.reference_fr import FR_LIDAR_TILES_WFS
+
+    west, south, east, north = bbox_wgs84
+    url = (
+        f"{FR_LIDAR_TILES_WFS}&COUNT={FR_TILES_MAX}&BBOX="
+        + urllib.parse.quote(f"{south:.6f},{west:.6f},{north:.6f},{east:.6f},urn:ogc:def:crs:EPSG::4326")
+    )
+    data = (fetch or _get_json_url)(url)
+    tiles = [
+        shape(f["geometry"])
+        for f in data.get("features") or []
+        if f.get("geometry") and (f.get("properties") or {}).get("url_mnt") and (f.get("properties") or {}).get("url_mns")
+    ]
+    window = box(west, south, east, north)
+    if not tiles or window.area <= 0:
+        return 0.0
+    return float(unary_union(tiles).intersection(window).area / window.area)
+
+
+def _get_json_url(url: str, timeout: float = 20.0) -> dict:
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read(50_000_000))
+
 
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
 
@@ -685,6 +723,34 @@ SOURCE_LABELS = {
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
 }
+
+
+# Pokrytí výřezu výškami ještě před jobem (zdroje, které nejsou celoplošné): podíl 0–1.
+COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {"fr_lidarhd": fr_lidarhd_coverage}
+COVERAGE_MIN_SHARE = 0.5  # pod polovinou výřezu s výškami job nespouštět (terén by chyběl)
+_COVERAGE_CACHE: dict[tuple, tuple[float, float | None]] = {}
+_COVERAGE_TTL_S = 600.0
+
+
+def elevation_coverage(source: str, bbox_wgs84: tuple[float, float, float, float]) -> float | None:
+    """Podíl výřezu s výškami zdroje; None = zdroj je celoplošný nebo služba neodpověděla (job nebrzdit)."""
+    import time
+
+    check = COVERAGE.get(source)
+    if check is None:
+        return None
+    key = (source, *(round(v, 5) for v in bbox_wgs84))
+    hit = _COVERAGE_CACHE.get(key)
+    if hit and time.monotonic() - hit[0] < _COVERAGE_TTL_S:
+        return hit[1]
+    try:
+        share = check(tuple(bbox_wgs84))
+    except Exception:  # noqa: BLE001 – kontrola je jen pojistka, výpadek služby job nezastaví
+        return None
+    if len(_COVERAGE_CACHE) > 500:
+        _COVERAGE_CACHE.clear()
+    _COVERAGE_CACHE[key] = (time.monotonic(), share)
+    return share
 
 
 def resolve_provider(source: str) -> Provider:

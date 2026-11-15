@@ -76,3 +76,68 @@ def test_lidarhd_download_retries_transient_errors(monkeypatch, tmp_path):
     with pytest.raises(urllib.error.HTTPError):
         elevation_raster._download_retry("u", tmp_path / "t.tif", wait_s=0)
     assert len(calls) == 1  # chyba požadavku se neopakuje
+
+
+def _tile(x0: float, y0: float, mnt: bool = True, mns: bool = True) -> dict:
+    feat = _feat(x0, y0, 1.0)
+    feat["properties"] = {"url_mnt": "a" if mnt else None, "url_mns": "b" if mns else None}
+    return feat
+
+
+@pytest.mark.parametrize(
+    "tiles, share",
+    [
+        ([_tile(0, 0), _tile(1, 0)], 1.0),  # celý výřez pokrytý
+        ([_tile(0, 0)], 0.5),  # polovina (díra jako Lille)
+        ([_tile(0, 0), _tile(1, 0, mns=False)], 0.5),  # dlaždice bez MNS se nepočítá
+        ([], 0.0),
+    ],
+)
+def test_lidarhd_coverage_share(tiles, share):
+    urls = []
+
+    def fake(url):
+        urls.append(url)
+        return {"features": tiles}
+
+    assert elevation_raster.fr_lidarhd_coverage((0.0, 0.0, 2.0, 1.0), fetch=fake) == pytest.approx(share)
+    bbox = urllib.parse.parse_qs(urllib.parse.urlsplit(urls[0]).query)["BBOX"][0]
+    assert bbox.startswith("0.000000,0.000000,1.000000,2.000000,")  # jih, západ, sever, východ (EPSG::4326)
+
+
+def test_elevation_coverage_never_blocks_on_error(monkeypatch):
+    def broken(_bbox):
+        raise OSError("WFS nedostupná")
+
+    monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", broken)
+    monkeypatch.setattr(elevation_raster, "_COVERAGE_CACHE", {})
+    assert elevation_raster.elevation_coverage("fr_lidarhd", (3.0, 50.6, 3.1, 50.65)) is None
+    assert elevation_raster.elevation_coverage("nl_ahn", (5.0, 52.0, 5.1, 52.1)) is None  # celoplošný zdroj
+
+
+@pytest.mark.parametrize(
+    "bbox, source",
+    [
+        ((2.350, 48.855, 2.362, 48.861), "fr_pdv"),  # Marais
+        ((4.825, 45.754, 4.840, 45.762), "none"),  # Lyon: Plan de voirie jen Paříž
+    ],
+)
+def test_pdv_only_in_paris(bbox, source):
+    from app.pipeline import country_profile
+
+    assert country_profile.technical_map_source({"country": "FR", "bbox_wgs84": list(bbox)}) == source
+
+
+def test_api_rejects_area_without_lidarhd(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setenv("COUNTRIES_BETA", "FR")
+    monkeypatch.setattr(main, "check_create_job", lambda *_a, **_k: None)
+    monkeypatch.setitem(elevation_raster.COVERAGE, "fr_lidarhd", lambda _bbox: 0.1)
+    monkeypatch.setattr(elevation_raster, "_COVERAGE_CACHE", {})
+    bbox = "3.050,50.625,3.070,50.640"  # Lille
+    body = client.get("/api/sheets", params={"bbox": bbox}).json()
+    assert body["country"] == "FR" and body["too_large"] and body["too_large_reason"] == "elevation"
+    assert body["elevation_share"] == 0.1 and "10 %" in body["hint"]
+    r = client.post("/api/jobs", data={"preset_id": "sprint_2m", "output_mode": "png_zip", "name": "lille", "bbox": bbox})
+    assert r.status_code == 400 and "LiDAR HD" in r.text
