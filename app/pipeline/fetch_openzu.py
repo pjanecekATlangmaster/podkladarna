@@ -20,6 +20,7 @@ from app.pipeline import build_stats
 from app.download_cache import (
     age_days,
     is_fresh,
+    laz_looks_truncated,
     lidar_sheet_dir,
     read_meta,
     touch_last_used,
@@ -573,6 +574,11 @@ def _cached_laz(
     folder.mkdir(parents=True, exist_ok=True)
     laz = folder / f"{kind}.laz"
     stats_source = "lidar_dmr" if kind.upper().startswith("DMR") else "lidar_dmp"
+    if laz.is_file() and laz_looks_truncated(laz):
+        # Neúplně rozbalený list (plný disk, ostrá A 2026-11-15) – stáhnout znovu.
+        if log:
+            log(f"{kind} {mapnom}: list v cache je poškozený – stahuji znovu")
+        laz.unlink(missing_ok=True)
     if not force_refresh and _sheet_laz_current(folder, laz, kind, url, mapnom, log):
         build_stats.note_file(stats_source, laz, cached=True)
         return laz
@@ -581,6 +587,9 @@ def _cached_laz(
     if log:
         log(f"Stahuji {kind} {mapnom} …")
     remote = _download_and_extract(url, zpath, laz, f"{kind} {mapnom}", log)
+    if laz_looks_truncated(laz):
+        laz.unlink(missing_ok=True)
+        raise OSError(f"{kind} {mapnom}: stažený LAZ je neúplný (plný disk nebo přerušené stažení)")
     build_stats.note_file(stats_source, laz, cached=False)
     # Rozbalený LAZ zůstává v cache, ZIP je jen jeho kopie (~350 MB u DMP OK).
     zpath.unlink(missing_ok=True)

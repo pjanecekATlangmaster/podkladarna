@@ -109,6 +109,19 @@ def _purge_orphan_job_dirs() -> None:
             logger.info("Removed orphan job dir %s", path.name)
 
 
+def prune_caches() -> int:
+    """Úklid cache (prošlá cache podle výřezu, strop LiDARu podle disku) a obnova rezervy; vrací uvolněné bajty."""
+    from app import disk_space
+
+    freed = 0
+    try:
+        freed = disk_space.prune_all_caches(log=logger.info)
+    except Exception:  # noqa: BLE001 – úklid cache nesmí shodit server
+        logger.exception("Cache cleanup failed")
+    disk_space.ensure_reserve()
+    return freed
+
+
 def start_cleanup_scheduler(interval_hours: int = 24) -> None:
     global _cleanup_started
     if _cleanup_started or interval_hours <= 0:
@@ -124,5 +137,6 @@ def start_cleanup_scheduler(interval_hours: int = 24) -> None:
                     logger.info("Scheduled cleanup removed %s job(s)", n)
             except Exception:
                 logger.exception("Scheduled cleanup failed")
+            prune_caches()
 
     threading.Thread(target=_loop, name="job-cleanup", daemon=True).start()

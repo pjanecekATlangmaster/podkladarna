@@ -12,6 +12,7 @@ from app import db
 from app import settings as app_settings
 from app.pipeline import build_stats
 from app.pipeline.zip_texts_en import zip_lang
+from app.disk_space import ensure_job_space
 from app.download_cache import (
     force_refresh_enabled,
     lidar_pair_paths,
@@ -672,6 +673,8 @@ def run_job_pipeline(
         crop = crop_bounds_5514(west, south, east, north)
         bx0, by0, bx1, by1 = crop_bounds_5514(west, south, east, north, buffer_m=0.0)
         build_stats.set_info(area_km2=round((bx1 - bx0) * (by1 - by0) / 1e6, 2))
+        # Před prvním stahováním: dost místa na disku (jinak úklid cache, jinak jasná chyba).
+        ensure_job_space((bx1 - bx0) * (by1 - by0) / 1e6, log=log)
 
     dmr_files: list[Path | Future] = []
     dmp_files: list[Path | Future] = []

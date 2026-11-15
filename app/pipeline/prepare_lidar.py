@@ -13,13 +13,32 @@ from app.download_cache import (
     SHEET_CROP_VEG,
     _laz_usable,
     full_sheet_crop_dir,
+    laz_looks_truncated,
     link_or_copy,
     lookup_full_sheet_crop,
     persist_full_sheet_crop,
     persist_sheet_crop,
     try_lookup_sheet_crop,
 )
+from app.disk_space import DiskFullError, free_bytes
 from app.tool_env import gis_subprocess_env, which_tool
+
+# Pod tolik volného místa je neúplný LAZ důsledek plného disku (hláška o disku, ne o datech).
+_LOW_DISK_BYTES = 256 * 1024 * 1024
+
+
+def _check_written_laz(path: Path, what: str) -> None:
+    """PDAL zapsal neúplný LAZ (na plném disku skončí bez chyby, ostrá A 2026-11-15) → smazat a chyba.
+
+    Bez kontroly se poškozený list uložil do cache a další výřezy ho tiše vynechaly („skip mimo ořez“).
+    """
+    if not laz_looks_truncated(path):
+        return
+    path.unlink(missing_ok=True)
+    free = free_bytes(path.parent)
+    if free is not None and free < _LOW_DISK_BYTES:
+        raise DiskFullError(f"neúplně zapsaný LAZ {what}")
+    raise RuntimeError(f"PDAL zapsal neúplný LAZ {what} – soubor smazán, spusťte job znovu")
 
 
 def kp_grid_scale_m(scalefactor: float) -> float:
@@ -217,9 +236,13 @@ def _translate_sheet(
     # crop+range/assign jsou streamovatelné; u DMPOK (~360 MB) ~3× rychlejší než nostream.
     if crop is not None:
         cmd.append("--stream")
+    if laz_looks_truncated(read_src):
+        _check_written_laz(read_src, f"{src.parent.name}/{read_src.name}")
     try:
         run_cmd(cmd, log=log)
     except subprocess.CalledProcessError:
+        if dest.exists():
+            _check_written_laz(dest, f"{src.parent.name}/{dest.name}")
         if crop is not None and not _laz_usable(dest):
             if dest.exists():
                 dest.unlink(missing_ok=True)
@@ -227,6 +250,8 @@ def _translate_sheet(
                 log(f"  skip (mimo ořez / prázdný): {src.name}")
             return None
         raise
+    if dest.exists():
+        _check_written_laz(dest, f"{src.parent.name}/{dest.name}")
     if not _laz_usable(dest):
         if dest.exists():
             dest.unlink(missing_ok=True)
@@ -268,10 +293,14 @@ def _build_full_sheet(
     try:
         run_cmd(cmd, log=log)
     except subprocess.CalledProcessError:
+        if tmp.exists():
+            _check_written_laz(tmp, f"{src.parent.name}/{src.name} ({recipe})")
         if not _laz_usable(tmp):
             tmp.unlink(missing_ok=True)
             return None
         raise
+    if tmp.exists():
+        _check_written_laz(tmp, f"{src.parent.name}/{src.name} ({recipe})")
     if not _laz_usable(tmp):
         tmp.unlink(missing_ok=True)
         return None

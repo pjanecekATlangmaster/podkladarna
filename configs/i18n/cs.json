@@ -724,6 +724,7 @@
   "issue.failure.lidar": "Pro zvolené území se nepodařilo získat data leteckého skenování (LiDAR). Zkontrolujte, že výřez leží v Česku, a spusťte job znovu se zaškrtnutou volbou „Znovu stáhnout a spočítat podklady“. Pokud to nepomůže, napište Petrovi přes „Napsat zpětnou vazbu“ u tohoto jobu.",
   "issue.failure.download": "Nepodařilo se stáhnout podklady od ČÚZK nebo jiné služby – nejspíš jde o dočasný výpadek. Spusťte stejný job znovu za pár hodin.",
   "issue.failure.memory": "Výpočtu došla paměť serveru. Zkuste menší území nebo to zkuste později, až server nebude vytížený. Pokud se to opakuje, napište Petrovi přes „Napsat zpětnou vazbu“ u tohoto jobu.",
+  "issue.failure.disk": "Na serveru došlo místo na disku. Spusťte stejný job znovu později, až správce místo uvolní. Pokud se to opakuje, napište Petrovi přes „Napsat zpětnou vazbu“ u tohoto jobu.",
   "issue.failure.default": "Při výpočtu nastala chyba Podkladárny, nový build sám nejspíš nepomůže. Napište prosím Petrovi přes „Napsat zpětnou vazbu“ u tohoto jobu.",
   "issue.what.osm_paved": "zpevněné plochy z OpenStreetMap",
   "issue.what.osm_tiles": "část cest a objektů z OpenStreetMap",

@@ -182,6 +182,7 @@ docker compose -f docker-compose.nas-ab.yml logs --tail=100 podkladarna
 - Provoz A: Internet → Cloudflare (Origin Rule přepíše port na 8672, SSL Flexible pro hostname) → MikroTik dst-nat WAN 8672 jen z rozsahů Cloudflare → VM `:8672` → Docker kontejner `podkladarna`
 - Firewall: Proxmox (Datacenter + VM, IPSet `management` = LAN 192.168.1.0/24 + VPN 192.168.78.0/24, IPSet `cloudflare` pro 8672 – statický, aktualizovat ručně); MikroTik address-list `cloudflare` se aktualizuje sám denně
 - Interní port kontejneru: `8672`
+- Návody pro Petra na ostrou A (Petr 2026-11-15): ve VM není `sudo` → začít `su -` a příkazy psát bez `sudo`; vždy uvést, zda jde o hostitele pve1 (`qm`, `zfs`, `lvs`) nebo o VM (`/opt/podkladarna`); krátké bloky s komentářem, co má vyjít (diagnostika → oprava → ověření `curl … :8672/` = 200), u nevratných kroků varování a záloha.
 - Test B zůstává na Synology NAS: `https://pt.kibos.link` → `127.0.0.1:8673` (kontejner `podkladarna-test`, data `./data-test`), image `:latest`; NAS složka `/volume1/docker/podkladarna/`, kontejner ostré A na NAS zůstává zastavený jako záloha pro rollback
 - Docker image: `ghcr.io/pjanecekatlangmaster/podkladarna` (soukromý balíček – pull potřebuje přihlášení ke GHCR) — ostrá A `:stable`, test B `:latest`
 - Perzistentní data: `./data` vedle compose, uvnitř kontejneru `/data` (`podkladarna.db`, `origin_salt` – nemazat, `jobs/`)
@@ -445,6 +446,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   vzorky v pásu kreslené cesty se nepočítají), nekreslí se nic; jinak body 418 ve vrcholech korun z CHM do 8 m od linie, prořídlé na
   1 mm mapy i proti kresleným 417 / 418; CHM bez stromů = nic, bez CHM záloha po 8 m. Les a MTBO body odsouvají od cest
   (`MOVED_PART_NAMES`). Pokus a výřezy `/mnt/project-files/aleje-418/`.
+- **Plný disk s daty** (3.56.1, ostrá A 2026-11-15, job e38f9268e26f „běží“ navždy): `app/disk_space.py`. Stav jobu se při chybě
+  zapisuje dřív než log (`job_worker.run_job`, `worker._fail_running_job`), `db.append_log` selhání `log.txt` spolkne a při plném disku
+  se smaže rezerva `DATA_ROOT/.disk_reserve` (`DISK_RESERVE_MB` 64) a zápis stavu se zopakuje; hláška `issue.failure.disk`. Před jobem
+  `ensure_job_space`: volno aspoň `DISK_JOB_BASE_GB` (3) + `DISK_JOB_GB_PER_KM2` (0,5) × km², jinak smaže nejdéle nepoužitou cache podle
+  výřezu (references, surfaces, zabaged, ruian, aopk) a pak listy LiDARu, jinak job skončí. Strop cache LiDARu je menší z `LIDAR_CACHE_MAX_GB`
+  a `LIDAR_CACHE_MAX_DISK_SHARE` (0,5) disku; prošlá cache podle výřezu se maže při startu a v denním úklidu. Neúplně zapsaný LAZ
+  (`laz_looks_truncated`: hlavička / VLR / tabulka chunků nesedí na velikost) se v cache nepoužije a smaže; PDAL výstup se kontroluje.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

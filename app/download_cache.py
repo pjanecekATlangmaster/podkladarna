@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -278,7 +279,9 @@ def try_lookup_sheet_crop(
     exact_laz = exact_dir / SHEET_CROP_ARTIFACT
     if is_fresh(exact_dir, exact_laz, age_limit, min_size=MIN_LAZ_BYTES_SHEET):
         meta = read_meta(exact_dir) or {}
-        if fingerprints_equal(meta.get("src_fp"), src_fp):
+        if drop_truncated_crop(exact_dir):
+            pass
+        elif fingerprints_equal(meta.get("src_fp"), src_fp):
             return "exact", exact_laz, bounds
 
     # Nejmenší nadmnožina (méně bodů k dořezání); celý list (``full_*``) až nakonec.
@@ -287,6 +290,8 @@ def try_lookup_sheet_crop(
         if not child.is_dir():
             continue
         laz = child / SHEET_CROP_ARTIFACT
+        if drop_truncated_crop(child):
+            continue
         meta = read_meta(child) or {}
         if meta.get("full_sheet"):
             # Celý vyfiltrovaný list platí, dokud se nezmění zdrojový list (ne podle stáří).
@@ -316,6 +321,22 @@ def try_lookup_sheet_crop(
 
 
 _SHEET_CROP_LOCK = threading.Lock()
+
+
+def drop_truncated_crop(folder: Path, *, log=None) -> bool:
+    """Ořez listu v cache zapsaný neúplně (plný disk) smaže celý; vrací True, když ho smazal."""
+    laz = Path(folder) / SHEET_CROP_ARTIFACT
+    if not laz_looks_truncated(laz):
+        return False
+    # Jen artefakt a meta, ne celou složku: v ní může jiné vlákno právě stavět ``building_*.laz``.
+    for path in (laz, Path(folder) / META_FILENAME):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    if log:
+        log(f"Cache ořezu listu {Path(folder).parent.parent.name}/{Path(folder).name} byla poškozená – smazána, spočítá se znovu")
+    return True
 
 
 def persist_sheet_crop(
@@ -368,6 +389,8 @@ def full_sheet_crop_dir(src: Path, recipe: str) -> Path:
 def lookup_full_sheet_crop(src: Path, recipe: str) -> Path | None:
     folder = full_sheet_crop_dir(src, recipe)
     laz = folder / SHEET_CROP_ARTIFACT
+    if drop_truncated_crop(folder):
+        return None
     meta = read_meta(folder) or {}
     if meta.get("full_sheet") and _laz_usable(laz) and fingerprints_equal(
         meta.get("src_fp"), file_fingerprint(src)
@@ -489,11 +512,13 @@ def prune_lidar_cache(
     keep_dirs: tuple[Path, ...] = (),
     log=None,
 ) -> int:
-    """Nad stropem ``LIDAR_CACHE_MAX_GB`` smaže nejdéle nepoužité listy / AOI ořezy; vrací uvolněné bajty.
+    """Nad stropem ``LIDAR_CACHE_MAX_GB`` (nejvýš ``LIDAR_CACHE_MAX_DISK_SHARE`` disku) smaže nejdéle nepoužité listy / AOI ořezy; vrací uvolněné bajty.
 
     Listy a AOI právě běžícího jobu (``keep_sheets``, ``keep_dirs``) se nemažou."""
     if max_bytes is None:
-        max_bytes = int(float(settings.LIDAR_CACHE_MAX_GB) * 1e9)
+        from app.disk_space import lidar_cache_max_bytes
+
+        max_bytes = lidar_cache_max_bytes()
     if max_bytes <= 0:
         return 0
     keep_sheets = {s.upper() for s in keep_sheets}
@@ -553,10 +578,62 @@ def _copy_named_artifacts(
     return copied
 
 
-def _laz_usable(path: Path) -> bool:
-    """Prázdný ořez (< 1 KB) není použitelný LAZ."""
+def laz_looks_truncated(path: Path) -> bool:
+    """LAS/LAZ s hlavičkou ``LASF``, jehož struktura nesedí na velikost souboru (zapsaný neúplně).
+
+    Ostrá A 2026-11-15: PDAL na plném disku skončil bez chyby a do cache uložil list, jehož hlavička
+    nesouhlasí s obsahem („VLR 1 size too large -- flows into point data“, laspy „read length must be
+    non-negative“). Kontrola čte jen hlavičku, VLR a ukazatel na tabulku chunků. Soubor bez ``LASF``
+    nehodnotí (False) – posuzuje jen prokazatelně poškozený LAS.
+    """
     try:
-        return path.is_file() and path.stat().st_size >= LIDAR_MIN_BYTES
+        size = path.stat().st_size
+        with path.open("rb") as f:
+            head = f.read(375)
+            if len(head) < 4 or head[:4] != b"LASF":
+                return False
+            if len(head) < 227:
+                return True
+            header_size = struct.unpack_from("<H", head, 94)[0]
+            offset = struct.unpack_from("<I", head, 96)[0]
+            n_vlr = struct.unpack_from("<I", head, 100)[0]
+            fmt = head[104]
+            rec_len = struct.unpack_from("<H", head, 105)[0]
+            count = struct.unpack_from("<I", head, 107)[0]
+            if head[25] >= 4 and len(head) >= 255:
+                count = max(count, struct.unpack_from("<Q", head, 247)[0])
+            if header_size < 227 or offset < header_size or offset > size:
+                return True
+            pos = header_size
+            for _ in range(n_vlr):
+                if pos + 54 > offset:
+                    return True
+                f.seek(pos + 52)
+                raw = f.read(2)
+                if len(raw) < 2:
+                    return True
+                pos += 54 + struct.unpack("<H", raw)[0]
+            if pos > offset:
+                return True
+            if fmt & 0xC0:  # LAZ: na začátku bodů ukazatel na tabulku chunků (−1 = neuložen)
+                f.seek(offset)
+                raw = f.read(8)
+                if len(raw) < 8:
+                    return count > 0
+                table = struct.unpack("<q", raw)[0]
+                if table != -1 and not (offset + 8 <= table <= size - 8):
+                    return True
+            elif offset + count * rec_len > size:
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _laz_usable(path: Path) -> bool:
+    """Prázdný ořez (< 1 KB) ani neúplně zapsaný LAZ (``laz_looks_truncated``) není použitelný."""
+    try:
+        return path.is_file() and path.stat().st_size >= LIDAR_MIN_BYTES and not laz_looks_truncated(path)
     except OSError:
         return False
 

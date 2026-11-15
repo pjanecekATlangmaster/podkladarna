@@ -1,0 +1,313 @@
+"""Místo na disku s daty (``DATA_ROOT``): rozpoznání plného disku, rezerva, kontrola před jobem, úklid cache.
+
+Ostrá A 2026-11-15 (job e38f9268e26f, 3.37.1): plný ``/data`` shodil job a stav „selhalo“ se nezapsal
+(zápis logu selhal dřív než zápis stavu), web ukazoval „běží“. Proto:
+
+* ``is_disk_full`` pozná ENOSPC (OSError, SQLite „database or disk is full“, text výjimky),
+* malá rezerva ``.disk_reserve`` se při plném disku smaže, aby šel zapsat stav jobu do DB,
+* před jobem se ověří volné místo podle plochy výřezu; když chybí, smaže se nejdřív nejstarší cache,
+  teprve pak job skončí s hláškou „Na serveru došlo místo na disku“,
+* strop cache LiDARu se omezí i podílem velikosti disku (``LIDAR_CACHE_MAX_DISK_SHARE``),
+* cache podle výřezu (podklady, DEM, ZABAGED, RÚIAN, AOPK) starší než jejich platnost se maže –
+  po ní by se stejně znovu stahovala, výsledek mapy se tím nemění.
+"""
+
+from __future__ import annotations
+
+import errno
+import logging
+import os
+import shutil
+import sqlite3
+import time
+from pathlib import Path
+
+from app import settings
+
+logger = logging.getLogger("podkladarna.disk_space")
+
+# Technická zpráva (log jobu, výjimka); ``failure_summary`` z ní udělá hlášku pro uživatele.
+DISK_FULL_MESSAGE = "Na serveru došlo místo na disku"
+RESERVE_NAME = ".disk_reserve"
+
+_DISK_FULL_TEXTS = ("no space left on device", "disk is full", "disk full", "errno 28", "out of disk space")
+
+
+class DiskFullError(OSError):
+    """Na disku s daty není dost místa pro job (ani po úklidu cache)."""
+
+    def __init__(self, detail: str = ""):
+        msg = DISK_FULL_MESSAGE + (f" ({detail})" if detail else "")
+        super().__init__(errno.ENOSPC, msg)
+
+    def __str__(self) -> str:  # bez „[Errno 28]“ – text jde do logu i do hlášky
+        return self.strerror or DISK_FULL_MESSAGE
+
+
+def is_disk_full(exc: BaseException | None) -> bool:
+    """Výjimka (nebo některá z jejích příčin) je plný disk."""
+    seen = 0
+    while exc is not None and seen < 5:
+        if isinstance(exc, OSError) and exc.errno in (errno.ENOSPC, getattr(errno, "EDQUOT", -1)):
+            return True
+        if isinstance(exc, sqlite3.OperationalError) and "full" in str(exc).lower():
+            return True
+        text = str(exc).lower()
+        if any(t in text for t in _DISK_FULL_TEXTS):
+            return True
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return False
+
+
+def data_root() -> Path:
+    return Path(settings.DATA_ROOT)
+
+
+def _usage(path: Path):
+    probe = Path(path)
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    return shutil.disk_usage(probe)
+
+
+def free_bytes(path: Path | None = None) -> int | None:
+    try:
+        return int(_usage(path or data_root()).free)
+    except OSError:
+        return None
+
+
+def total_bytes(path: Path | None = None) -> int | None:
+    try:
+        return int(_usage(path or data_root()).total)
+    except OSError:
+        return None
+
+
+# --- Rezerva pro zápis stavu jobu ---------------------------------------------------------------
+
+
+def reserve_path() -> Path:
+    return data_root() / RESERVE_NAME
+
+
+def ensure_reserve() -> bool:
+    """Vytvoří rezervu (``DISK_RESERVE_MB``), je-li místo; vrací, zda rezerva existuje."""
+    size = int(max(0.0, float(settings.DISK_RESERVE_MB)) * 1024 * 1024)
+    path = reserve_path()
+    if size <= 0:
+        return False
+    try:
+        if path.is_file() and path.stat().st_size >= size:
+            return True
+        free = free_bytes(path.parent)
+        # Rezervu nebrat z posledního místa (job by kvůli ní spadl dřív).
+        if free is None or free < size * 4:
+            return False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        chunk = b"\0" * (1024 * 1024)
+        with tmp.open("wb") as f:
+            for _ in range(size // len(chunk)):
+                f.write(chunk)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        try:
+            path.with_name(path.name + ".tmp").unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
+
+
+def release_reserve() -> bool:
+    """Smaže rezervu (plný disk: uvolní místo pro zápis stavu jobu); vrací, zda něco uvolnila."""
+    try:
+        path = reserve_path()
+        if path.is_file():
+            path.unlink()
+            logger.warning("Plný disk: uvolněna rezerva %s", path)
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def write_with_reserve(fn, *args, **kwargs):
+    """Zavolá ``fn``; selže-li na plném disku, smaže rezervu a zkusí to ještě jednou."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 – opakujeme jen při plném disku
+        if not is_disk_full(exc) or not release_reserve():
+            raise
+    return fn(*args, **kwargs)
+
+
+# --- Cache ---------------------------------------------------------------------------------------
+
+
+def lidar_cache_max_bytes() -> int:
+    """Strop cache LiDARu: ``LIDAR_CACHE_MAX_GB``, nejvýš ``LIDAR_CACHE_MAX_DISK_SHARE`` velikosti disku. 0 = bez limitu."""
+    cap = int(float(settings.LIDAR_CACHE_MAX_GB) * 1e9)
+    share = float(settings.LIDAR_CACHE_MAX_DISK_SHARE)
+    total = total_bytes(Path(settings.DOWNLOADS_DIR)) if share > 0 else None
+    if total and share > 0:
+        by_disk = int(total * share)
+        cap = by_disk if cap <= 0 else min(cap, by_disk)
+    return max(0, cap)
+
+
+def aoi_cache_roots() -> list[tuple[Path, int]]:
+    """Cache podle výřezu (položka = přímý potomek složky) a její platnost ve dnech."""
+    root = Path(settings.DOWNLOADS_DIR)
+    return [
+        (root / "references", settings.REF_CACHE_MAX_AGE_DAYS),
+        (root / "surfaces", settings.SURFACES_CACHE_MAX_AGE_DAYS),
+        (root / "zabaged", settings.ZABAGED_CACHE_MAX_AGE_DAYS),
+        (root / "ruian", settings.RUIAN_CACHE_MAX_AGE_DAYS),
+        (root / "aopk", settings.AOPK_CACHE_MAX_AGE_DAYS),
+    ]
+
+
+def _entry_mtime(path: Path) -> float:
+    """Poslední zápis / použití položky (nejnovější z ní a jejích přímých souborů)."""
+    try:
+        best = path.stat().st_mtime
+    except OSError:
+        return 0.0
+    if path.is_dir():
+        try:
+            for child in path.iterdir():
+                try:
+                    best = max(best, child.stat().st_mtime)
+                except OSError:
+                    continue
+        except OSError:
+            pass
+    return best
+
+
+def _entry_bytes(path: Path) -> int:
+    if path.is_file():
+        try:
+            return path.stat().st_size
+        except OSError:
+            return 0
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += (Path(root) / name).stat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def _remove(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def aoi_cache_entries() -> list[tuple[Path, int, float]]:
+    """(položka, platnost dní, čas posledního použití) pro všechny cache podle výřezu."""
+    out: list[tuple[Path, int, float]] = []
+    for root, days in aoi_cache_roots():
+        if not root.is_dir():
+            continue
+        try:
+            children = list(root.iterdir())
+        except OSError:
+            continue
+        out.extend((child, days, _entry_mtime(child)) for child in children)
+    return out
+
+
+def prune_expired_aoi_cache(*, now: float | None = None, log=None) -> int:
+    """Smaže položky cache podle výřezu starší než jejich platnost; vrací uvolněné bajty."""
+    now = time.time() if now is None else now
+    freed = 0
+    removed = 0
+    for path, days, mtime in aoi_cache_entries():
+        if days <= 0 or now - mtime <= days * 86400:
+            continue
+        freed += _entry_bytes(path)
+        _remove(path)
+        removed += 1
+    if removed and log:
+        log(f"Cache podle výřezu: smazáno {removed} prošlých položek ({freed / 1e9:.1f} GB)")
+    return freed
+
+
+def prune_all_caches(*, log=None) -> int:
+    """Pravidelný úklid: prošlá cache podle výřezu + strop cache LiDARu; vrací uvolněné bajty."""
+    from app.download_cache import prune_lidar_cache
+
+    freed = prune_expired_aoi_cache(log=log)
+    freed += prune_lidar_cache(log=log)
+    return freed
+
+
+def free_space_for(need_bytes: int, *, keep_sheets=frozenset(), log=None) -> int:
+    """Uvolní místo do ``need_bytes`` volného: nejdřív nejdéle nepoužitá cache podle výřezu, pak listy LiDARu."""
+    from app.download_cache import lidar_cache_units, prune_lidar_cache, _unit_bytes
+
+    free = free_bytes()
+    if free is None or free >= need_bytes:
+        return 0
+    freed = prune_expired_aoi_cache(log=log)
+    free = free_bytes() or 0
+    if free >= need_bytes:
+        return freed
+    removed = 0
+    for path, _days, _mtime in sorted(aoi_cache_entries(), key=lambda e: e[2]):
+        if (free_bytes() or 0) >= need_bytes:
+            break
+        freed += _entry_bytes(path)
+        _remove(path)
+        removed += 1
+    if removed and log:
+        log(f"Málo místa na disku: smazáno {removed} nejdéle nepoužitých položek cache podle výřezu")
+    free = free_bytes() or 0
+    if free >= need_bytes:
+        return freed
+    seen: set[tuple[int, int]] = set()
+    lidar_total = sum(_unit_bytes(dirs, seen) for _n, dirs in lidar_cache_units())
+    target = max(0, lidar_total - (need_bytes - free))
+    if lidar_total > 0:
+        # 0 by znamenalo „bez limitu“; aspoň 1 bajt = smazat vše kromě listů jobu.
+        freed += prune_lidar_cache(max_bytes=max(1, target), keep_sheets=keep_sheets, log=log)
+    return freed
+
+
+def job_need_bytes(area_km2: float | None) -> int:
+    """Odhad místa, které job potřebuje (stažené listy, ořezy, rastry, podklady, výstup)."""
+    area = max(0.0, float(area_km2 or 0.0))
+    gb = float(settings.DISK_JOB_BASE_GB) + float(settings.DISK_JOB_GB_PER_KM2) * area
+    return int(max(0.0, gb) * 1e9)
+
+
+def ensure_job_space(area_km2: float | None, *, log=None) -> None:
+    """Před jobem: dost místa, jinak úklid cache; když ani pak nestačí, ``DiskFullError``."""
+    need = job_need_bytes(area_km2)
+    if need <= 0:
+        return
+    free = free_bytes()
+    if free is None or free >= need:
+        return
+    if log:
+        log(f"Málo místa na disku: volno {free / 1e9:.1f} GB, job potřebuje asi {need / 1e9:.1f} GB – uklízím cache…")
+    try:
+        free_space_for(need, log=log)
+    except Exception:  # noqa: BLE001 – úklid nesmí shodit job, rozhodne kontrola níže
+        logger.exception("Úklid cache při nedostatku místa selhal")
+    free = free_bytes()
+    if free is not None and free < need:
+        raise DiskFullError(f"volno {free / 1e9:.1f} GB, job potřebuje asi {need / 1e9:.1f} GB")
