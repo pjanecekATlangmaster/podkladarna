@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -715,6 +716,169 @@ def ee_maaamet_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["ee_maaamet"] = ee_maaamet_provider
 
 
+# --------------------------------------------------------------------------- IT: Trentino DTM + DSM 0,5 m (PAT)
+
+# Provincia autonoma di Trento (CC BY 4.0, bez klíče): LiDAR 2014 – DTM a DSM first 0,5 m, dlaždice 500 m (ESRI ASCII
+# v ZIPu, ~2 MB), EPSG:25832, výšky nadmořské (nic se nepřevádí). Index dlaždic je WFS (``n_tavola``, ``location``);
+# soubory vydává asynchronní služba „merge“ geoportálu (POST seznamu → id + token → stav → ZIP se ZIPy dlaždic).
+# Dlaždice se ukládají do cache jako GeoTIFF (``tn_tile_dir``), úklid je maže jako listy LiDARu.
+TN_WFS = "https://siat.provincia.tn.it/geoserver/wfs"
+TN_SERVICES = "https://siat.provincia.tn.it/stem/services"
+TN_CRS = "EPSG:25832"
+TN_LAYERS = {"dtm": "stem:inqlid2014_dtm_asc", "dsm": "stem:inqlid2014_dsmf_asc"}
+TN_TILE_M = 500
+TN_BUFFER_M = 20.0
+TN_BATCH = 40  # souborů na jednu žádost (služba má strop 500 MB, dlaždice ~2 MB)
+TN_WAIT_S = 900.0
+TN_POLL_S = 3.0
+TN_MAX_ZIP_BYTES = 400_000_000
+_TN_INNER = re.compile(r"^(5h\d{9})_(DTM|DSMFirst)\.asc\.zip$")
+
+
+def _tn_request(url: str, data: bytes | None = None, *, timeout: float = 60.0) -> bytes:
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    headers = {"User-Agent": USER_AGENT}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read(TN_MAX_ZIP_BYTES + 1)
+
+
+def tn_tiles(kind: str, window: tuple[float, float, float, float]) -> dict[str, str]:
+    """Dlaždice zasahující do okna (EPSG:25832): číslo dlaždice → cesta souboru pro službu merge."""
+    xmin, ymin, xmax, ymax = window
+    url = (
+        f"{TN_WFS}?service=WFS&version=2.0.0&request=GetFeature&typeNames={TN_LAYERS[kind]}&count=5000"
+        f"&outputFormat=application/json&srsName={TN_CRS}&bbox={xmin:.1f},{ymin:.1f},{xmax:.1f},{ymax:.1f},{TN_CRS}"
+    )
+    out = {}
+    for feat in json.loads(_tn_request(url)).get("features") or []:
+        p = feat.get("properties") or {}
+        x0, y0 = float(p.get("x_min", 0)), float(p.get("y_min", 0))
+        # WFS vrací i dlaždice, které se oknu jen dotýkají hranou
+        if p.get("n_tavola") and p.get("location") and x0 < xmax and x0 + TN_TILE_M > xmin and y0 < ymax and y0 + TN_TILE_M > ymin:
+            out[str(p["n_tavola"])] = str(p["location"])
+    return out
+
+
+def tn_tile_dir(tile: str) -> Path:
+    """Složka dlaždice v cache (terén i povrch); úklid cache (``download_cache.prune_lidar_cache``) ji maže celou."""
+    return settings.CACHE_DIR / "it_trentino" / tile
+
+
+def _tn_merge(locations: list[str], dest: Path, *, log=None) -> Path:
+    """Jedna žádost služby merge: počká na sloučení a stáhne ZIP se ZIPy dlaždic do ``dest``."""
+    import time
+
+    resp = json.loads(_tn_request(f"{TN_SERVICES}/merge", json.dumps({"files": locations}).encode()))
+    query = f"id={resp['id']}&token={resp['token']}"
+    deadline = time.monotonic() + TN_WAIT_S
+    while True:
+        info = json.loads(_tn_request(f"{TN_SERVICES}/file/info?{query}", timeout=30.0))
+        if info.get("state") == 1:
+            break
+        if info.get("state") not in (0, None) or time.monotonic() > deadline:
+            raise RuntimeError(f"Trentino: služba merge nevydala soubory (stav {info.get('state')})")
+        time.sleep(TN_POLL_S)
+    data = _tn_request(f"{TN_SERVICES}/file?{query}", timeout=600.0)
+    if len(data) > TN_MAX_ZIP_BYTES:
+        raise RuntimeError(f"Trentino: ZIP větší než {TN_MAX_ZIP_BYTES // 1_000_000} MB")
+    dest.write_bytes(data)
+    if log:
+        log(f"  Trentino: {len(locations)} dlaždic, {len(data) / 1e6:.1f} MB")
+    return dest
+
+
+def _tn_store(outer: Path, *, log=None) -> None:
+    """Dlaždice z výsledku merge (ZIP se ZIPy ASCII gridů) převede na GeoTIFF do cache."""
+    import tempfile
+    import zipfile
+
+    from app.download_cache import touch_last_used
+
+    with tempfile.TemporaryDirectory(prefix="tn-", dir=outer.parent) as tmp_dir, zipfile.ZipFile(outer) as zf:
+        for name in zf.namelist():
+            m = _TN_INNER.match(Path(name).name)
+            if not m:
+                continue
+            tile, kind = m.group(1), "dtm" if m.group(2) == "DTM" else "dsm"
+            inner = Path(tmp_dir) / f"{tile}_{kind}.zip"
+            with zf.open(name) as src, inner.open("wb") as fh:
+                while chunk := src.read(1 << 20):
+                    fh.write(chunk)
+            folder = tn_tile_dir(tile)
+            folder.mkdir(parents=True, exist_ok=True)
+            fd, tname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".tif", dir=folder)
+            os.close(fd)
+            tmp = Path(tname)
+            try:
+                run_cmd(
+                    [_gdal_tool("gdal_translate"), "-q", "-a_srs", TN_CRS, "-a_nodata", f"{NODATA:g}", "-ot", "Float32",
+                     "-co", "COMPRESS=DEFLATE", "-co", "TILED=YES", f"/vsizip/{inner}/{m.group(0)[:-4]}", str(tmp)],
+                )  # bez logu příkazu: MTBO má stovky dlaždic, chyba se vyhodí i tak
+                if not tmp.is_file() or tmp.stat().st_size == 0:
+                    raise RuntimeError(f"Trentino {kind} {tile}: převod ASCII gridu selhal")
+                tmp.replace(folder / f"{kind}.tif")
+                tmp = None
+            finally:
+                if tmp is not None:
+                    tmp.unlink(missing_ok=True)
+            touch_last_used(folder)
+
+
+def it_trentino_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Trentino: DTM a DSM first 0,5 m (LiDAR PAT 2014), dlaždice 500 m ze služby merge, cache po dlaždicích."""
+    window = _buffered(bounds, TN_CRS, TN_BUFFER_M)
+    wanted = {kind: tn_tiles(kind, window) for kind in TN_LAYERS}
+    missing = [loc for kind, tiles in wanted.items() for tile, loc in sorted(tiles.items())
+               if not (tn_tile_dir(tile) / f"{kind}.tif").is_file()]
+    if log:
+        cached = sum(map(len, wanted.values())) - len(missing)
+        log(f"  Trentino: {sum(map(len, wanted.values()))} dlaždic (z mezipaměti {cached})")
+    for k in range(0, len(missing), TN_BATCH):
+        outer = _tn_merge(missing[k:k + TN_BATCH], out_dir / f"tn_merge_{k // TN_BATCH}.zip", log=log)
+        try:
+            _tn_store(outer, log=log)
+        finally:
+            outer.unlink(missing_ok=True)
+    out: dict[str, Path | None] = {}
+    for kind, tiles in wanted.items():
+        files = [str(f) for t in sorted(tiles) if (f := tn_tile_dir(t) / f"{kind}.tif").is_file()]
+        out[kind] = None
+        if files:
+            vrt = out_dir / f"it_trentino_{kind}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", TN_CRS, str(vrt), *files], log=log)
+            out[kind] = vrt if vrt.is_file() else None
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí LiDARu Trentina")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["it_trentino"] = it_trentino_provider
+
+
+def it_trentino_coverage(bbox_wgs84: tuple[float, float, float, float]) -> float:
+    """Podíl výřezu s dlaždicemi DTM i DSM Trentina (výřez přes hranici provincie)."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    window = _bounds_in(bbox_wgs84, "EPSG:4326", TN_CRS)
+    common = set(tn_tiles("dtm", window)) & set(tn_tiles("dsm", window))
+    boxes = [box(x, y, x + TN_TILE_M, y + TN_TILE_M) for x, y in map(tn_tile_origin, common)]
+    area = box(*window).area
+    return float(unary_union(boxes).intersection(box(*window)).area / area) if boxes and area > 0 else 0.0
+
+
+def tn_tile_origin(tile: str) -> tuple[float, float]:
+    """JZ roh dlaždice z čísla: ``5h`` + východ / 100 (4 číslice) + sever / 100 (5 číslic), např. 5h663050995."""
+    digits = tile[2:]
+    return float(digits[:4]) * 100, float(digits[4:]) * 100
+
+
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
 
 # Stahovací služba INSPIRE (Elevation): DMR 5.0 (1. cyklus LLS) 1 m, EPSG:3046 (ETRS89 / UTM 34N), výšky
@@ -800,11 +964,15 @@ SOURCE_LABELS = {
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
+    "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",
 }
 
 
 # Pokrytí výřezu výškami ještě před jobem (zdroje, které nejsou celoplošné): podíl 0–1.
-COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {"fr_lidarhd": fr_lidarhd_coverage}
+COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {
+    "fr_lidarhd": fr_lidarhd_coverage,
+    "it_trentino": it_trentino_coverage,
+}
 COVERAGE_MIN_SHARE = 0.5  # pod polovinou výřezu s výškami job nespouštět (terén by chyběl)
 _COVERAGE_CACHE: dict[tuple, tuple[float, float | None]] = {}
 _COVERAGE_TTL_S = 600.0
