@@ -1342,6 +1342,7 @@ const BUILD_STEP_LABELS = {
   "data BGT": t("web.js.step.bgt"),
   "data AV": t("web.js.step.av"),
   "data FMZK": t("web.js.step.fmzk"),
+  "data Straßenbefahrung": t("web.js.step.sb"),
   "polohopis a vegetace": t("web.js.step.map_planimetry"),
   "silnice a cesty": t("web.js.step.map_roads"),
   "ploty, budovy a oliva": t("web.js.step.map_fences"),
@@ -1364,6 +1365,7 @@ const BUILD_SOURCE_LABELS = {
   nl_bgt: t("web.js.source.nl_bgt"),
   ch_av: t("web.js.source.ch_av"),
   at_fmzk: t("web.js.source.at_fmzk"),
+  de_sb: t("web.js.source.de_sb"),
   ruian: t("web.js.source.ruian"),
   aopk: t("web.js.source.aopk"),
   katastr: t("web.js.source.katastr"),
@@ -1383,7 +1385,7 @@ const NUTS_KRAJ = {
 /** Řádek o přípravě DTM na pozadí (DTM se připravuje souběžně; v plánu je krok „DTM kraje“ = čekání na ni před sestavením map). */
 function dtmBackgroundText(bg) {
   if (!bg) return "";
-  const foreign = { nl_bgt: "bgt", ch_av: "av", at_fmzk: "fmzk" }[bg.source];  // obdoba DTM v cizině (app/pipeline/technical_maps.py)
+  const foreign = { nl_bgt: "bgt", ch_av: "av", at_fmzk: "fmzk", de_sb: "sb" }[bg.source];  // obdoba DTM v cizině (app/pipeline/technical_maps.py)
   if (foreign) {
     if (bg.failed) return t(`web.js.${foreign}.failed`);
     return t(`web.js.${foreign}.text`, { n: bg.objects || 0, dur: formatDuration(bg.seconds) || "0 s" });

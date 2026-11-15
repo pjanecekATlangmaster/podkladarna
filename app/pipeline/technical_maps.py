@@ -51,6 +51,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, vozovky, chodníky, parkování, schody, dvory a zahrady",
         module="app.pipeline.fmzk_at",
     ),
+    "de_sb": TechnicalMap(
+        key="de_sb",
+        short="SB",
+        step="data Straßenbefahrung",
+        background="Straßenbefahrung a ALKIS (GDI Berlin)",
+        content="budovy, vozovky, chodníky, náměstí, parkování, schody, cyklostezky",
+        module="app.pipeline.sb_berlin",
+    ),
 }
 
 

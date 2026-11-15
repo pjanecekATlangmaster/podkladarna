@@ -1,8 +1,8 @@
 # Podporované země (návrh /mnt/project-files/evropa-data/pohranicni-mapa-navrh.md).
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
-# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | none) – budovy, silnice, chodníky, parkoviště, ploty.
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
 # view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
@@ -81,4 +81,19 @@ AT:
   attribution:
     - "Výšky: ALS DTM a DSM, Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen (CC BY 4.0)."
     - "FMZK a ortofoto (Luftbild): Datenquelle: Stadt Wien – data.wien.gv.at (CC BY 4.0)."
+    - "OSM © přispěvatelé OpenStreetMap (ODbL)."
+DE:
+  name: {cs: Německo – Berlín, en: Germany – Berlin, de: Deutschland – Berlin}
+  status: beta              # zatím jen Berlín (velkoměřítková mapa s chodníky jen tam, 2026-11-15); souřadnice EPSG:25833
+  crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém GDI Berlin)
+  boundary: countries/de.geojson
+  view: [52.34, 13.08, 52.68, 13.77]
+  elevation: de_berlin      # ATKIS DGM1 + DOM1 (ALS 2021), 1 m, XYZ po 2 km, výšky DHHN2016 (bDOM ze snímků je bez listí)
+  technical_map: de_sb      # Straßenbefahrung 2014 + budovy ALKIS z WFS gdi.berlin.de
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Zero 2.0 (bez povinné citace, uvádíme zdroj).
+  citation: "Podklad: Podkladárna · Geoportal Berlin · OSM, [rok]"
+  attribution:
+    - "Výšky: ATKIS DGM1 a DOM1, Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
+    - "Straßenbefahrung 2014, ALKIS a TrueDOP: Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."

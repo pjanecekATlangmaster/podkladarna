@@ -62,6 +62,7 @@ def test_country_without_surface_is_off(monkeypatch):
         ({"country": "NL"}, False, "nl_ahn"),
         ({"country": "CH"}, False, "ch_swisstopo"),
         ({"country": "AT"}, False, "at_bev"),
+        ({"country": "DE"}, False, "de_berlin"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -281,6 +282,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("NL", ("Bron: AHN", "Bron: Kadaster", "Beeldmateriaal.nl", "OpenStreetMap (ODbL)"), ("ČÚZK",)),
         ("CH", ("© swisstopo", "geodienste.ch", "OpenStreetMap (ODbL)"), ("ČÚZK", "AHN")),
         ("AT", ("Datenquelle: BEV", "Stadt Wien – data.wien.gv.at", "OpenStreetMap (ODbL)"), ("ČÚZK", "swisstopo")),
+        ("DE", ("Geoportal Berlin", "Datenlizenz Deutschland – Zero 2.0", "OpenStreetMap (ODbL)"), ("ČÚZK", "BEV")),
     ],
 )
 def test_citation_by_country(country, must, must_not):
@@ -335,6 +337,8 @@ def test_job_crs_from_env_and_worker(monkeypatch):
         # Vídeň: WMS v nativním MGI (server převádí bez posunu data), okno výřezu jako VRT; výřez v souřadnicích testu (S-JTSK)
         ("AT", (-628500.0, -1268000.0, -627500.0, -1267000.0), {"online_at_fmzk"}, "online_at_fmzk",
          "data.wien.gv.at", "FMZKVERKEHR2OGD"),
+        ("DE", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_truedop", "online_de_k5", "online_de_alkis"},
+         "online_de_truedop", "gdi.berlin.de", "truedop_2024"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):

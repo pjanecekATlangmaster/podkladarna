@@ -38,6 +38,7 @@ from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
 from app.pipeline.osm_paths import OVERPASS_URLS
 from app.pipeline.bgt_nl import BGT_API
 from app.pipeline.reference_at import AT_BEV_PROBE, AT_FMZK_PROBE, AT_LB_PROBE
+from app.pipeline.reference_de import DE_BE_DGM_PROBE, DE_BE_DOP_PROBE, DE_BE_SB_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
@@ -214,6 +215,31 @@ PROBES: tuple[Probe, ...] = (
         (AT_LB_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("AT",),
+    ),
+    # Německo (Berlín): hlavička dlaždice DGM1, 1 objekt Straßenbefahrung, malý výřez ortofota.
+    Probe(
+        "de_berlin",
+        "DGM1 a DOM1 Berlín – výšky terénu a povrchu",
+        (DE_BE_DGM_PROBE,),
+        "Bez výšek z GDI Berlin se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("DE",),
+    ),
+    Probe(
+        "de_sb",
+        "Straßenbefahrung a ALKIS (GDI Berlin)",
+        (DE_BE_SB_PROBE,),
+        "Budovy, vozovky, chodníky, parkování a schody se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("DE",),
+    ),
+    Probe(
+        "de_truedop",
+        "TrueDOP Berlín – ortofoto (GDI Berlin)",
+        (DE_BE_DOP_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("DE",),
     ),
 )
 

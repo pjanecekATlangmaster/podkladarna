@@ -33,6 +33,7 @@ TILE_M = 1000.0
 WORKERS = 4
 HTTP_TIMEOUT_S = 120
 HTTP_RETRIES = 2
+MAX_RESPONSE_BYTES = 300_000_000  # dlaždice 1 km² má jednotky až desítky MB; víc je chyba služby
 
 # F_KLASSE → soubor DTM (CZ obdoba).
 ROAD_CLASSES = frozenset({21})  # Fahrbahn
@@ -76,7 +77,9 @@ def _get_json(url: str) -> tuple[dict, int]:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-                raw = resp.read()
+                raw = resp.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise RuntimeError(f"FMZK: odpověď větší než {MAX_RESPONSE_BYTES // 1_000_000} MB")
             return json.loads(raw), len(raw)
         except Exception as exc:  # síť / 5xx: krátce počkat a zkusit znovu
             last = exc
