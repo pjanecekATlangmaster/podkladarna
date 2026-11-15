@@ -76,7 +76,7 @@ def test_online_templates_only_online_layers(tmp_path, monkeypatch):
 
 def test_foreign_templates_downloaded_when_requested(tmp_path, monkeypatch):
     """Zahraničí se „Stáhnout předem“: každá vrstva jako rastr + world file (ortofoto JPEG, katastr PNG), varianty pryč;
-    vrstva, jejíž stažení selže, zůstane online. V .omap stažený rastr jako obyčejná šablona obrázku."""
+    vrstva, jejíž stažení selže i podruhé, zůstane online. V .omap stažený rastr jako obyčejná šablona obrázku."""
     import subprocess
 
     calls = []
@@ -92,10 +92,12 @@ def test_foreign_templates_downloaded_when_requested(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ot, "find_tool", lambda name: (_ for _ in ()).throw(RuntimeError(name)) if name == "gdalwarp" else name)
     monkeypatch.setattr(subprocess, "run", fake_translate)
+    monkeypatch.setattr(ot, "TEMPLATE_RETRY_WAIT_S", 0.0)
     written = write_online_templates((-625000.0, -1200000.0, -624000.0, -1199000.0), tmp_path, country="FR")
     assert sorted(written) == sorted(f"online_fr_{k}{s}" for k in ("ortho", "plan", "cadastre") for s in ("", "_stredni"))
     out = ot.download_online_templates(written, "FR")
-    assert len(calls) == 3 and all("_stredni" not in c[-2] for c in calls)  # jen nejjemnější varianta
+    assert len(calls) == 4 and all("_stredni" not in c[-2] for c in calls)  # jen nejjemnější varianta
+    assert sum(c[-2].startswith("plan_ign") for c in calls) == 2  # chyba serveru → ještě jeden pokus
     assert out["online_fr_ortho"].name == "ortho_ign.jpg" and (tmp_path / "ortho_ign.jgw").is_file()
     assert out["online_fr_cadastre"].name == "cadastre_ign.png" and (tmp_path / "cadastre_ign.pgw").is_file()
     assert "online_fr_ortho_stredni" not in out and not (tmp_path / "ortho_ign.xml").exists()

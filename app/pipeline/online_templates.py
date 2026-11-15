@@ -10,6 +10,7 @@ OCAD ``.xml`` neotevře – adresy WMS jsou v README_OOM.
 from __future__ import annotations
 
 import html
+import time
 from pathlib import Path
 
 from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4
@@ -42,6 +43,15 @@ from app.pipeline.reference_ee import (
     EE_ORTHO_LAYER,
 )
 from app.pipeline.reference_be import BE_ADP_LAYER, BE_ADP_WMS, BE_GRB_LAYER, BE_GRB_WMS, BE_OMW_WMS, BE_ORTHO_LAYER
+from app.pipeline.reference_fi import (
+    FI_HEL_BASEMAP_LAYER,
+    FI_HEL_ORTHO_LAYER,
+    FI_HEL_WMS,
+    FI_KAPSI_BASEMAP_LAYER,
+    FI_KAPSI_BASEMAP_WMS,
+    FI_KAPSI_ORTHO_LAYER,
+    FI_KAPSI_ORTHO_WMS,
+)
 from app.pipeline.reference_it import TN_CTP_LAYER, TN_HILLSHADE_LAYER, TN_ORTHO_LAYER, TN_WMS
 from app.pipeline.reference_ch import (
     CH_CADASTRAL_LAYER,
@@ -99,7 +109,7 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
 # DMVS WMS styl „default“ odmítá (500) – stejně jako ``_wms_getmap_url``; archiv ortofota (geoportal) chce prázdný styl.
 NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz", "data.wien.gv.at", "gdi.berlin.de",
                           "data.geopf.fr", "gsavalik.envir.ee", "siat.provincia.tn.it",
-                          "geo.api.vlaanderen.be")
+                          "geo.api.vlaanderen.be", "kartta.hel.fi", "tiles.kartat.kapsi.fi")
 
 # Vrstvy jen online (bez staženého rastru): přidají se i se zapnutým „Stáhnout referenční šablony předem“.
 ONLINE_ONLY_KEYS = frozenset({"orthophoto_archiv"})
@@ -196,6 +206,18 @@ BE_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("be_cadastre", "kadaster_vl.xml", "Katastr (administratieve percelen)", BE_ADP_WMS, BE_ADP_LAYER, "image/png", True,
      0.25),
 )
+# Finsko (CC BY 4.0): ortofoto a základní mapa MML ze zrcadla kartat.kapsi.fi (celá země, EPSG:3067), v Helsinkách
+# navíc ortofoto 5 cm a kantakartta města (kartta.hel.fi) – jen na území YLRE (``TECHNICAL_AREA_KEYS``).
+FI_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("fi_ortho", "ortokuva_mml.xml", "Ortokuva MML (kartat.kapsi.fi)", FI_KAPSI_ORTHO_WMS, FI_KAPSI_ORTHO_LAYER, "image/jpeg",
+     False, 0.5),
+    ("fi_basemap", "peruskartta_mml.xml", "Peruskartta MML 1 : 20 000 (kartat.kapsi.fi)", FI_KAPSI_BASEMAP_WMS,
+     FI_KAPSI_BASEMAP_LAYER, "image/png", False, 1.0),
+    ("fi_hel_ortho", "ortoilmakuva_helsinki.xml", "Ortoilmakuva Helsinki (5 cm)", FI_HEL_WMS, FI_HEL_ORTHO_LAYER,
+     "image/jpeg", False, 0.25),
+    ("fi_hel_basemap", "kantakartta_helsinki.xml", "Kantakartta Helsinki", FI_HEL_WMS, FI_HEL_BASEMAP_LAYER,
+     "image/jpeg", False, 0.5),  # barevná mapa s vyhlazením: PNG mělo 19 MB na 2 km² (0,25 m) a 22 MB na 8 km² (0,5 m)
+)
 # Dlaždicové služby v EPSG:3857 (GDAL TMS + okno výřezu jako VRT): klíč, soubor, popisek, URL, úroveň, m/px, snímek (JPEG).
 AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
     ("at_ortho", "orthofoto_at.vrt", "basemap.at Orthofoto (Rakousko)", AT_BASEMAP_ORTHO_URL, 19, 0.25, True),
@@ -205,8 +227,8 @@ AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
      True),
 )
 ONLINE_TMS_LAYERS = {"AT": AT_ONLINE_TMS}
-# Vrstvy jen pro území technické mapy (``technical_map_area``, Vídeň): mimo něj jsou prázdné.
-TECHNICAL_AREA_KEYS = frozenset({"at_fmzk", "at_luftbild"})
+# Vrstvy jen pro území technické mapy (``technical_map_area``: Vídeň, Helsinky): mimo něj jsou prázdné.
+TECHNICAL_AREA_KEYS = frozenset({"at_fmzk", "at_luftbild", "fi_hel_ortho", "fi_hel_basemap"})
 # BGT je veřejně jen WMTS v mřížce RD (EPSG:28992): dlaždice přes GDAL TMS + okno výřezu jako VRT.
 NL_ONLINE_BGT = ("nl_bgt", "bgt.vrt", "BGT (velkoměřítková mapa)")
 NL_BGT_LEVEL = 15  # 0,105 m/px
@@ -225,6 +247,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "EE": EE_ONLINE_WMS_LAYERS,
         "IT": IT_ONLINE_WMS_LAYERS,
         "BE": BE_ONLINE_WMS_LAYERS,
+        "FI": FI_ONLINE_WMS_LAYERS,
     }.get(country, ())
 
 
@@ -461,6 +484,10 @@ def _download_format(key: str, country: str) -> str:
     return "PNG"
 
 
+TEMPLATE_DOWNLOAD_ATTEMPTS = 2
+TEMPLATE_RETRY_WAIT_S = 5.0
+
+
 def _translate_template(src: Path, fmt: str, log=None) -> Path | None:
     """Online šablona (GDAL WMS ``.xml`` / ``.vrt``) → stažený rastr + world file vedle ní; None při chybě."""
     import subprocess
@@ -475,11 +502,18 @@ def _translate_template(src: Path, fmt: str, log=None) -> Path | None:
     if fmt == "JPEG":
         cmd += ["-b", "1", "-b", "2", "-b", "3", "-co", "QUALITY=90"]
     cmd += [src.name, dest.name]
-    try:
-        result = subprocess.run(cmd, cwd=src.parent, capture_output=True, text=True, timeout=900, check=False)
-    except subprocess.TimeoutExpired:
-        result = None
     wld = dest.with_suffix(".wld")
+    result = None
+    for attempt in range(TEMPLATE_DOWNLOAD_ATTEMPTS):  # servery občas vrátí chybu dlaždice a podruhé projdou
+        if attempt:
+            time.sleep(TEMPLATE_RETRY_WAIT_S)
+        try:
+            result = subprocess.run(cmd, cwd=src.parent, capture_output=True, text=True, timeout=900, check=False)
+        except subprocess.TimeoutExpired:
+            result = None
+            break  # 15 minut na šablonu stačí, znovu se nezkouší
+        if result.returncode == 0 and dest.is_file() and wld.is_file():
+            break
     if result is None or result.returncode != 0 or not dest.is_file() or not wld.is_file():
         for leftover in (dest, wld, dest.with_name(dest.name + ".aux.xml")):
             leftover.unlink(missing_ok=True)
@@ -537,7 +571,7 @@ def online_labels() -> dict[str, str]:
         for k, _f, label, *_rest in (
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
-            *BE_ONLINE_WMS_LAYERS,
+            *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS,
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     layers += [(k, label) for tms in ONLINE_TMS_LAYERS.values() for k, _f, label, *_r in tms]

@@ -922,6 +922,133 @@ def be_dhmv_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["be_dhmv"] = be_dhmv_provider
 
 
+# --------------------------------------------------------------------------- FI: MML DTM 2 m + CHM Metsäkeskus 1 m
+
+# Terén: Korkeusmalli 2 m (Maanmittauslaitos, CC BY 4.0) ze zrcadla Funet (bez klíče; přímo u MML je potřeba API
+# klíč). Povrch otevřeně není (mračno 5 b/m² je placené), proto DSM = DTM + výška porostu: Latvusmalli (CHM) 1 m
+# Metsäkeskus (CC BY 4.0, nejnovější ročník listu ``uusin``). Obojí po listech TM35 1 : 10 000 (6 × 6 km, GeoTIFF
+# po blocích 256 px) – čte se jen okno výřezu přes /vsicurl. Výšky N2000, nic se nepřevádí.
+FI_CRS = "EPSG:3067"
+FI_DTM_URL = "https://mirrors.nic.funet.fi/index/geodata/mml/dem2m/2008_latest/{a}/{b}/{sheet}.tif"
+FI_CHM_URL = "https://avoin.metsakeskus.fi/aineistot/Latvusmalli/Karttalehti/uusin/CHM_{sheet}_uusin.tif"
+FI_BUFFER_M = 20.0
+FI_SHEET_M = 6000
+FI_GRID_E0 = -76000  # západní okraj mřížky listů TM35 (sloupec 2 začíná na E = -76 000 + 192 000)
+_FI_ROWS = "KLMNPQRSTUVWX"  # řady listů 1 : 200 000 po 96 km od N 6 570 000 (bez O)
+
+
+def fi_sheet(east: float, north: float) -> str:
+    """List TM35 1 : 10 000 (např. ``L4133B``): 1 : 200 000 (192 × 96 km) → 3× čtvrtiny (1 vlevo dole, 2 vlevo
+    nahoře, 3 vpravo dole, 4 vpravo nahoře) → 1 : 25 000 (24 × 12 km) rozdělený na 4 × 2 listy A–H po 6 km."""
+    import math
+
+    row = math.floor((north - 6570000) / 96000)
+    col = math.floor((east - FI_GRID_E0) / 192000)
+    name = f"{_FI_ROWS[row]}{col + 2}"
+    x0, y0, w, h = FI_GRID_E0 + col * 192000, 6570000 + row * 96000, 192000.0, 96000.0
+    for _ in range(3):
+        w, h = w / 2, h / 2
+        c, r = int((east - x0) // w), int((north - y0) // h)
+        name += str(1 + 2 * c + r)
+        x0, y0 = x0 + c * w, y0 + r * h
+    c, r = int((east - x0) // FI_SHEET_M), int((north - y0) // FI_SHEET_M)
+    return name + "ABCDEFGH"[c * 2 + r]
+
+
+def fi_sheets(window: tuple[float, float, float, float]) -> list[str]:
+    """Listy 6 × 6 km, které zasahují do okna (EPSG:3067)."""
+    import math
+
+    xmin, ymin, xmax, ymax = window
+    step = FI_SHEET_M
+    e0 = FI_GRID_E0 % step  # mřížka listů začíná na E = -76 000 (posun 2 km proti násobkům 6 km), N na násobcích 6 km
+    out: list[str] = []
+    for e in range(math.floor((xmin - e0) / step) * step + e0, math.floor((xmax - e0) / step) * step + e0 + 1, step):
+        for n in range(math.floor(ymin / step) * step, math.floor(ymax / step) * step + 1, step):
+            sheet = fi_sheet(e + step / 2, n + step / 2)
+            if sheet not in out:
+                out.append(sheet)
+    return out
+
+
+def fi_sheet_url(kind: str, sheet: str) -> str:
+    if kind == "dtm":
+        return FI_DTM_URL.format(a=sheet[:2], b=sheet[:3], sheet=sheet)
+    return FI_CHM_URL.format(sheet=sheet)
+
+
+# DSM = DTM + výška porostu; buňka bez CHM (NoData) = holý terén, bez DTM NoData.
+_FI_DSM_CALC = "where(A<-9000,-9999,A+where(B>0,B,0))"
+
+
+def _fi_surface_numpy(dtm1: Path, chm1: Path, dest: Path) -> None:
+    """Totéž co ``_FI_DSM_CALC`` přes osgeo + numpy (prostředí bez gdal_calc)."""
+    import numpy as np
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+    dtm_ds, chm_ds = gdal.Open(str(dtm1)), gdal.Open(str(chm1))
+    a = dtm_ds.GetRasterBand(1).ReadAsArray().astype("float32")
+    b = chm_ds.GetRasterBand(1).ReadAsArray().astype("float32")
+    out = np.where(a < -9000, NODATA, a + np.where(b > 0, b, 0)).astype("float32")
+    ds = gdal.GetDriverByName("GTiff").Create(str(dest), dtm_ds.RasterXSize, dtm_ds.RasterYSize, 1, gdal.GDT_Float32,
+                                              ["COMPRESS=DEFLATE"])
+    ds.SetGeoTransform(dtm_ds.GetGeoTransform())
+    ds.SetProjection(dtm_ds.GetProjection())
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(NODATA)
+    band.WriteArray(out)
+    band.FlushCache()
+    ds = dtm_ds = chm_ds = None
+
+
+def _fi_surface(dtm: Path, chm: Path, window, out_dir: Path, *, log=None) -> Path:
+    """DSM na mřížce 1 m okna: DTM (2 m, bilineárně) + CHM."""
+    xmin, ymin, xmax, ymax = window
+    grid = ["-te", f"{xmin:.1f}", f"{ymin:.1f}", f"{xmax:.1f}", f"{ymax:.1f}", "-tr", "1", "1", "-t_srs", FI_CRS]
+    dtm1 = out_dir / "fi_dtm_1m.tif"
+    chm1 = out_dir / "fi_chm_1m.tif"
+    run_cmd([_gdal_tool("gdalwarp"), "-q", "-overwrite", *grid, "-r", "bilinear", "-dstnodata", f"{NODATA:g}",
+             "-ot", "Float32", "-co", "COMPRESS=DEFLATE", str(dtm), str(dtm1)])
+    run_cmd([_gdal_tool("gdalwarp"), "-q", "-overwrite", *grid, "-r", "near", "-dstnodata", f"{NODATA:g}",
+             "-ot", "Float32", "-co", "COMPRESS=DEFLATE", str(chm), str(chm1)])
+    dest = out_dir / "fi_dsm.tif"
+    for name in ("gdal_calc", "gdal_calc.py"):  # jako CHM v ``dem_prep``: gdal_calc, jinak osgeo + numpy
+        try:
+            tool = find_tool(name)
+        except RuntimeError:
+            continue
+        run_cmd([tool, "-A", str(dtm1), "-B", str(chm1), "--outfile", str(dest), "--calc", _FI_DSM_CALC,
+                 "--hideNoData", "--type", "Float32", "--NoDataValue", f"{NODATA:g}", "--co", "COMPRESS=DEFLATE",
+                 "--overwrite"])
+        break
+    else:
+        _fi_surface_numpy(dtm1, chm1, dest)
+    if log:
+        log("  DSM = terén MML + výška porostu Metsäkeskus (1 m)")
+    return dest
+
+
+def fi_mml_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Terén MML 2 m a povrch složený z terénu a výšky porostu Metsäkeskus 1 m, bez klíče."""
+    window = _buffered(bounds, FI_CRS, FI_BUFFER_M)
+    sheets = fi_sheets(window)
+    dtm = cog_windows([fi_sheet_url("dtm", s) for s in sheets], window, FI_CRS, out_dir, "fi_dtm", log=log,
+                      nodata=NODATA)
+    if dtm is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí výškového modelu MML")
+    chm = cog_windows([fi_sheet_url("chm", s) for s in sheets], window, FI_CRS, out_dir, "fi_chm", log=log,
+                      nodata=NODATA)
+    if chm is None:
+        if log:
+            log("  ⚠ Výška porostu Metsäkeskus pro výřez chybí – vegetace bez výšky porostu.")
+        return SourceRasters(dtm, None)
+    return SourceRasters(dtm, _fi_surface(dtm, chm, window, out_dir, log=log))
+
+
+PROVIDERS["fi_mml"] = fi_mml_provider
+
+
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
 
 # Stahovací služba INSPIRE (Elevation): DMR 5.0 (1. cyklus LLS) 1 m, EPSG:3046 (ETRS89 / UTM 34N), výšky
@@ -1009,6 +1136,7 @@ SOURCE_LABELS = {
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",
     "be_dhmv": "DHMV II DTM a DSM, Digitaal Vlaanderen",
+    "fi_mml": "Korkeusmalli 2 m MML a latvusmalli Metsäkeskus",
 }
 
 
