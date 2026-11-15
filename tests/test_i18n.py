@@ -257,3 +257,24 @@ def test_msg_formats_numbers_by_language():
     assert str(msg) == "Výřez je moc velký (5,2 × 4 km, 21 km²; max 25 km²)."
     assert msg.render("en") == "The area is too large (5.2 × 4 km, 21 km²; max 25 km²)."
     assert i18n.localize({"a": [msg]}, "en") == {"a": [msg.render("en")]}
+
+
+def test_sample_zips_listed_only_when_present(client, monkeypatch, tmp_path):
+    """Ukázkové ZIPy: odkaz jen u souboru, který na serveru je, v jazyce stránky; jiná jména 404."""
+    from app import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "SAMPLES_DIR", tmp_path)
+    monkeypatch.setenv("LANGS", "cs,en")
+    assert "about-samples" not in client.get("/?lang=cs").text
+    (tmp_path / "sprint.zip").write_bytes(b"PK" + b"0" * 1_500_000)
+    (tmp_path / "les-en.zip").write_bytes(b"PK")
+    cs = client.get("/?lang=cs").text
+    assert 'href="/samples/sprint.zip"' in cs and "sprint (Barrandov)" in cs and "1,5 MB" in cs
+    assert "les-en.zip" not in cs
+    en = client.get("/?lang=en").text
+    assert 'href="/samples/les-en.zip"' in en and "sprint.zip" not in en
+    res = client.get("/samples/sprint.zip")
+    assert res.status_code == 200 and "podkladarna-ukazka-sprint.zip" in res.headers["content-disposition"]
+    assert "omapic-sample-les.zip" in client.get("/samples/les-en.zip").headers["content-disposition"]
+    for bad in ("/samples/mtbo.zip", "/samples/..%2Fpodkladarna.db", "/samples/x.zip"):
+        assert client.get(bad).status_code == 404

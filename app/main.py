@@ -441,6 +441,43 @@ def source_links_html(lang: str) -> str:
     )
 
 
+SAMPLE_KINDS = ("sprint", "les", "mtbo")
+_SAMPLE_NAME_RE = re.compile(r"^(sprint|les|mtbo)(-en)?\.zip$")
+
+
+def _sample_file(kind: str, lang: str) -> Path:
+    """Ukázkový ZIP v ``SAMPLES_DIR``: česky ``<druh>.zip``, jinak anglický ``<druh>-en.zip``."""
+    suffix = "" if lang == i18n.SOURCE_LANG else "-en"
+    return Path(app_settings.SAMPLES_DIR) / f"{kind}{suffix}.zip"
+
+
+def samples_html(lang: str) -> str:
+    """Odkazy na ukázkové ZIPy, které na serveru jsou (bez souborů nic)."""
+    links = []
+    for kind in SAMPLE_KINDS:
+        path = _sample_file(kind, lang)
+        if not path.is_file():
+            continue
+        size = i18n.fmt_num(path.stat().st_size / 1_000_000, lang)
+        links.append(
+            f'<a href="/samples/{path.name}" download>{{{{t:web.page.sample_{kind}}}}}</a> ({size} MB)'
+        )
+    if not links:
+        return ""
+    return '<p class="about-samples">{{t:web.page.samples}} ' + " · ".join(links) + "</p>"
+
+
+@app.get("/samples/{name}")
+def download_sample(name: str):
+    """Ukázkový ZIP (jen pevná jména ze seznamu, žádné cesty)."""
+    m = _SAMPLE_NAME_RE.match(name)
+    path = Path(app_settings.SAMPLES_DIR) / name
+    if not m or not path.is_file():
+        raise HTTPException(404, i18n.Msg("api.output_not_ready"))
+    prefix = "omapic-sample" if m.group(2) else "podkladarna-ukazka"
+    return FileResponse(path, filename=f"{prefix}-{m.group(1)}.zip", media_type="application/zip")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     try:
@@ -453,6 +490,7 @@ def index(request: Request) -> HTMLResponse:
     lang = i18n.resolve_lang(request)[0]
     html = html.replace("<!-- PODKLADARNA_ABOUT -->", web_about_html(lang))
     html = html.replace("<!-- PODKLADARNA_SOURCE_LINKS -->", source_links_html(lang))
+    html = html.replace("<!-- PODKLADARNA_SAMPLES -->", samples_html(lang))
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
     html = html.replace("<!-- PODKLADARNA_PAID -->", paid_flow.form_note_html(request, lang))

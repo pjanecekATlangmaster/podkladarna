@@ -1118,6 +1118,11 @@ footer a { color: var(--green); }
   padding: 0;
 }
 
+.about-samples {
+  margin: 0 0 0.8rem;
+  font-size: 0.9rem;
+}
+
 .about-steps li {
   margin: 0;
   padding: 0.25rem 0.75rem 0.25rem 0.3rem;

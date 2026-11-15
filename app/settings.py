@@ -63,6 +63,8 @@ else:
 # Docker/NAS: host .env u compose se do image nedostane; volitelně SMTP v /data/.env.
 _load_dotenv(DATA_ROOT / ".env")
 JOBS_DIR = DATA_ROOT / "jobs"
+# Ukázkové ZIPy na webu (sprint.zip, les.zip, mtbo.zip; anglické *-en.zip) – nahrávají se ručně, ne do image.
+SAMPLES_DIR = DATA_ROOT / "samples"
 CACHE_DIR = DATA_ROOT / "cache"
 DOWNLOADS_DIR = CACHE_DIR
 DB_PATH = DATA_ROOT / "podkladarna.db"
