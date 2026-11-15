@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import area_probe, countries, db, i18n, paid_flow, settings as app_settings, source_status, worker
@@ -1157,7 +1158,10 @@ async def api_create_job(request: Request):
         raise HTTPException(400, _exc_detail(exc)) from exc
     job_country, country_share = _check_country(bbox, request, _form_str(form, "country").strip())
     # DTM obcí jen u výřezu v limitu (stránkované dotazy RÚIAN by šly pro libovolně velké území).
-    probe = _area_probe(job_country, bbox, area_probe.JOB_DEADLINE_S, include_dtm=not bbox_exceeds_limit(*bbox))
+    # Sonda čeká až JOB_DEADLINE_S – mimo event loop, ať async handler nezdrží ostatní požadavky.
+    probe = await run_in_threadpool(
+        _area_probe, job_country, bbox, area_probe.JOB_DEADLINE_S, include_dtm=not bbox_exceeds_limit(*bbox)
+    )
     if probe.get("block") is not None:
         raise HTTPException(400, probe["block"])
     width_km, height_km = bbox_size_km(*bbox)
