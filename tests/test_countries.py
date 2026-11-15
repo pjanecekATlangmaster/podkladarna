@@ -33,7 +33,10 @@ def test_check_bbox_majority_rule():
     cz, share = countries.check_bbox((12.09, 50.24, 12.17, 50.28))
     assert 0.5 <= share < 0.99
     assert countries.outside_share(share) > 0
-    assert "jen z OSM" in countries.outside_note(cz, share)
+    assert "LiDARu" in countries.outside_note(cz, share)
+    ch = countries.load_countries()["CH"]  # mimo Česko bez českých zdrojů v textu
+    note = countries.outside_note(ch, 0.8)
+    assert "jen z OSM" in note and "LiDAR" not in note and "ZABAGED" not in note
 
 
 def test_allowed_countries_by_site():

@@ -849,6 +849,25 @@ def dtm_owns_buildings(work_dir: Path) -> bool:
 _FUSED_BUILDINGS: dict[str, tuple[tuple, object]] = {}
 
 
+def _robust_union(geoms):
+    """Sjednocení polygonů; při GEOS „non-noded intersection“ (FMZK Vídeň: body budov o zlomky mm vedle sebe) na mřížce 1 cm."""
+    import shapely
+    from shapely.ops import unary_union
+
+    try:
+        return unary_union(geoms)
+    except shapely.errors.GEOSException:
+        valid = [g if g.is_valid else shapely.make_valid(g) for g in geoms]
+        return shapely.union_all(valid, grid_size=0.01)
+
+
+def _polygon_parts(geom) -> list:
+    """Polygony z geometrie (i z kolekce po ``make_valid``)."""
+    if geom.geom_type == "Polygon":
+        return [geom]
+    return [p for g in getattr(geom, "geoms", []) for p in _polygon_parts(g)]
+
+
 def _fused_dtm_buildings(path: Path):
     """``(budovy po sloučení, jejich sjednocení)`` z DTM, nebo None bez budov."""
     from shapely.geometry import Polygon
@@ -875,9 +894,14 @@ def _fused_dtm_buildings(path: Path):
             if not g.is_empty:
                 dtm_geoms.append(g)
         # Těsně navazující části jedné budovy (společná stěna, škvíra pár cm) se kreslí jako jeden objekt.
-        fused = unary_union(dtm_geoms).buffer(BUILDING_FUSE_M, join_style=2).buffer(-BUILDING_FUSE_M, join_style=2)
-        dtm_geoms = [g for g in ([fused] if fused.geom_type == "Polygon" else list(getattr(fused, "geoms", []))) if g.geom_type == "Polygon" and not g.is_empty]
-        result = (dtm_geoms, unary_union(dtm_geoms))
+        union = _robust_union(dtm_geoms)
+        fused = union.buffer(BUILDING_FUSE_M, join_style=2).buffer(-BUILDING_FUSE_M, join_style=2)
+        if not fused.is_valid:  # buffer nad téměř dotýkajícími se stěnami (FMZK Vídeň)
+            import shapely
+
+            fused = shapely.make_valid(fused)
+        dtm_geoms = [g for g in _polygon_parts(fused) if not g.is_empty]
+        result = (dtm_geoms, _robust_union(dtm_geoms))
     if stamp is not None:
         _FUSED_BUILDINGS.clear()  # jen poslední výřez
         _FUSED_BUILDINGS[str(path)] = (stamp, result)

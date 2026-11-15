@@ -263,60 +263,148 @@ def _stac_items(collection: str, bbox_wgs84: tuple[float, float, float, float]) 
     return items
 
 
+def cog_windows(
+    urls: list[str], window: tuple[float, float, float, float], crs: str, out_dir: Path, prefix: str, *, log=None
+) -> Path | None:
+    """Okno ``window`` (v ``crs``) z každého vzdáleného COG přes /vsicurl → VRT; None, když žádné okno nevyšlo.
+
+    Čte se jen část dlaždice v okně (COG: swisstopo 1 km ~15 MB, BEV 50 km ~10 GB). Dlaždice, která do okna
+    nezasahuje, gdal_translate odmítne – přeskočí se."""
+    xmin, ymin, xmax, ymax = window
+    tiles = []
+    for k, url in enumerate(urls):
+        dest = out_dir / f"{prefix}_{k}.tif"
+        try:
+            run_cmd(
+                [
+                    _gdal_tool("gdal_translate"),
+                    "--config", "GDAL_HTTP_MAX_RETRY", "3",
+                    "--config", "GDAL_HTTP_RETRY_DELAY", "2",
+                    "--config", "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR",
+                    "-projwin", f"{xmin:.1f}", f"{ymax:.1f}", f"{xmax:.1f}", f"{ymin:.1f}",
+                    "-projwin_srs", crs,
+                    "-co", "COMPRESS=DEFLATE",
+                    f"/vsicurl/{url}",
+                    str(dest),
+                ],
+                log=log,
+            )
+        except subprocess.CalledProcessError as exc:
+            if log:
+                log(f"  {url.rsplit('/', 1)[-1]}: přeskočeno ({(exc.stderr or '').strip()[-200:]})")
+            continue
+        if dest.is_file():
+            tiles.append(dest)
+    if not tiles:
+        return None
+    vrt = out_dir / f"{prefix}.vrt"
+    run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", crs, str(vrt), *map(str, tiles)], log=log)
+    if log:
+        log(f"  {prefix}: {len(tiles)} dlaždic (okno výřezu)")
+    return vrt
+
+
+def _buffered(bounds, crs_to: str, buffer_m: float) -> tuple[float, float, float, float]:
+    b = _bounds_in(bounds, CRS_WKT, crs_to)
+    return b[0] - buffer_m, b[1] - buffer_m, b[2] + buffer_m, b[3] + buffer_m
+
+
 def ch_swisstopo_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     """swissALTI3D (terén) a swissSURFACE3D Raster (povrch) 0,5 m ze STAC swisstopo, bez klíče."""
-    bounds_ch = _bounds_in(bounds, CRS_WKT, CH_CRS)
-    xmin, ymin, xmax, ymax = (
-        bounds_ch[0] - CH_BUFFER_M, bounds_ch[1] - CH_BUFFER_M, bounds_ch[2] + CH_BUFFER_M, bounds_ch[3] + CH_BUFFER_M
-    )
-    bbox_wgs = _bounds_in((xmin, ymin, xmax, ymax), CH_CRS, "EPSG:4326")
+    window = _buffered(bounds, CH_CRS, CH_BUFFER_M)
+    bbox_wgs = _bounds_in(window, CH_CRS, "EPSG:4326")
     out: dict[str, Path | None] = {}
     for kind, collection in CH_COLLECTIONS:
         urls = stac_latest_assets(_stac_items(collection, bbox_wgs))
-        if not urls:
-            if kind == "dtm":
-                raise ElevationUnavailable("výřez je mimo pokrytí swissALTI3D")
-            out[kind] = None
-            continue
-        tiles = []
-        for k, url in enumerate(urls):
-            dest = out_dir / f"ch_{kind}_{k}.tif"
-            # Okno výřezu (s přesahem) z COG; dlaždice, která do okna nezasahuje, gdal_translate odmítne.
-            try:
-                run_cmd(
-                    [
-                        _gdal_tool("gdal_translate"),
-                        "--config", "GDAL_HTTP_MAX_RETRY", "3",
-                        "--config", "GDAL_HTTP_RETRY_DELAY", "2",
-                        "--config", "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR",
-                        "-projwin", f"{xmin:.1f}", f"{ymax:.1f}", f"{xmax:.1f}", f"{ymin:.1f}",
-                        "-projwin_srs", CH_CRS,
-                        "-co", "COMPRESS=DEFLATE",
-                        f"/vsicurl/{url}",
-                        str(dest),
-                    ],
-                    log=log,
-                )
-            except subprocess.CalledProcessError as exc:
-                if log:
-                    log(f"  {url.rsplit('/', 1)[-1]}: přeskočeno ({(exc.stderr or '').strip()[-200:]})")
-                continue
-            if dest.is_file():
-                tiles.append(dest)
-        if not tiles:
-            if kind == "dtm":
-                raise ElevationUnavailable("swissALTI3D: žádná dlaždice výřezu se nestáhla")
-            out[kind] = None
-            continue
-        vrt = out_dir / f"ch_{kind}.vrt"
-        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", CH_CRS, str(vrt), *map(str, tiles)], log=log)
-        if log:
-            log(f"  {collection}: {len(tiles)} dlaždic (okno výřezu)")
-        out[kind] = vrt
+        out[kind] = cog_windows(urls, window, CH_CRS, out_dir, f"ch_{kind}", log=log) if urls else None
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí swissALTI3D")
     return SourceRasters(out["dtm"], out["dsm"])
 
 
 PROVIDERS["ch_swisstopo"] = ch_swisstopo_provider
+
+
+# --------------------------------------------------------------------------- AT: BEV ALS DTM + DSM 1 m (COG)
+
+# BEV (CC BY 4.0, „Datenquelle: BEV“): roční mozaika celého Rakouska k 15. 9., COG 50 × 50 km v EPSG:3035, 1 m,
+# výšky nad Jadranem (ortometrické, nic se nepřevádí). Výpis adresáře je zakázaný (403), jména dlaždic jsou podle
+# mřížky: ``ALS_<DTM|DSM>_CRS3035RES50000mN<N>E<E>.tif``. Nejnovější ročník se najde HEAD dotazem.
+AT_BEV_BASE = "https://data.bev.gv.at/download/ALS"
+AT_BEV_CRS = "EPSG:3035"
+AT_BEV_TILE_M = 50000
+AT_BEV_BUFFER_M = 20.0
+AT_BEV_FIRST_YEAR = 2023
+_bev_dates: dict[tuple[int, int], str] = {}
+
+
+def bev_tile_url(kind: str, date: str, east: int, north: int) -> str:
+    return f"{AT_BEV_BASE}/{kind}/{date}/ALS_{kind}_CRS3035RES50000mN{north}E{east}.tif"
+
+
+def bev_tiles(window_3035: tuple[float, float, float, float]) -> list[tuple[int, int]]:
+    """Dlaždice (E, N levého dolního rohu) mřížky 50 km, které zasahují do okna."""
+    import math
+
+    xmin, ymin, xmax, ymax = window_3035
+    t = AT_BEV_TILE_M
+    return [
+        (e * t, n * t)
+        for e in range(math.floor(xmin / t), math.floor(xmax / t) + 1)
+        for n in range(math.floor(ymin / t), math.floor(ymax / t) + 1)
+    ]
+
+
+def _head_ok(url: str) -> bool:
+    import urllib.request
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return 200 <= resp.status < 300
+    except Exception:
+        return False
+
+
+def bev_latest_date(east: int, north: int, *, head=_head_ok, today=None) -> str | None:
+    """Nejnovější ročník mozaiky (``RRRR0915``), který pro dlaždici existuje (DTM i DSM)."""
+    import datetime as _dt
+
+    key = (east, north)
+    if key in _bev_dates:
+        return _bev_dates[key]
+    year = (today or _dt.date.today()).year
+    for y in range(year, AT_BEV_FIRST_YEAR - 1, -1):
+        date = f"{y}0915"
+        if head(bev_tile_url("DTM", date, east, north)) and head(bev_tile_url("DSM", date, east, north)):
+            _bev_dates[key] = date
+            return date
+    return None
+
+
+def at_bev_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """BEV ALS DTM a DSM 1 m (COG, bez klíče) – okno výřezu z dlaždic 50 km."""
+    window = _buffered(bounds, AT_BEV_CRS, AT_BEV_BUFFER_M)
+    found = [(e, n, bev_latest_date(e, n)) for e, n in bev_tiles(window)]
+    found = [(e, n, d) for e, n, d in found if d]
+    if not found:
+        raise ElevationUnavailable("výřez je mimo pokrytí BEV ALS")
+    if log:
+        log(f"  BEV ALS: mozaika k {', '.join(sorted({d for *_r, d in found}))}")
+    out = {
+        kind: cog_windows(
+            [bev_tile_url(kind.upper(), d, e, n) for e, n, d in found], window, AT_BEV_CRS, out_dir, f"at_{kind}", log=log
+        )
+        for kind in ("dtm", "dsm")
+    }
+    if out["dtm"] is None:
+        raise ElevationUnavailable("BEV ALS: žádné okno výřezu se nestáhlo")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["at_bev"] = at_bev_provider
 
 
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
@@ -394,6 +482,14 @@ def sk_ugkk_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
 
 PROVIDERS["sk_ugkk"] = sk_ugkk_provider
+
+
+SOURCE_LABELS = {
+    "nl_ahn": "AHN, PDOK",
+    "sk_ugkk": "DMR 5.0, ÚGKK SR",
+    "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo",
+    "at_bev": "BEV ALS DTM a DSM",
+}
 
 
 def resolve_provider(source: str) -> Provider:
@@ -541,9 +637,7 @@ def prepare_raster_surfaces(
     dem_dir = dem_work_dir(Path(work_dir))
     src_dir = dem_dir / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
-    label = {"nl_ahn": "AHN, PDOK", "sk_ugkk": "DMR 5.0, ÚGKK SR", "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo"}.get(
-        source, source
-    )
+    label = SOURCE_LABELS.get(source, source)
     log_step(log, f"Stahuji výšková data ({label}): terén a povrch jako rastr")
     src = provider(tuple(bounds), src_dir, log)
     dtm_src, dsm_src = src.dtm, src.dsm

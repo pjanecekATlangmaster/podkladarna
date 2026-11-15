@@ -1341,6 +1341,7 @@ const BUILD_STEP_LABELS = {
   "DTM kraje": t("web.js.step.dtm"),
   "data BGT": t("web.js.step.bgt"),
   "data AV": t("web.js.step.av"),
+  "data FMZK": t("web.js.step.fmzk"),
   "polohopis a vegetace": t("web.js.step.map_planimetry"),
   "silnice a cesty": t("web.js.step.map_roads"),
   "ploty, budovy a oliva": t("web.js.step.map_fences"),
@@ -1362,6 +1363,7 @@ const BUILD_SOURCE_LABELS = {
   dtm: t("web.js.source.dtm"),
   nl_bgt: t("web.js.source.nl_bgt"),
   ch_av: t("web.js.source.ch_av"),
+  at_fmzk: t("web.js.source.at_fmzk"),
   ruian: t("web.js.source.ruian"),
   aopk: t("web.js.source.aopk"),
   katastr: t("web.js.source.katastr"),
@@ -1381,7 +1383,7 @@ const NUTS_KRAJ = {
 /** Řádek o přípravě DTM na pozadí (DTM se připravuje souběžně; v plánu je krok „DTM kraje“ = čekání na ni před sestavením map). */
 function dtmBackgroundText(bg) {
   if (!bg) return "";
-  const foreign = { nl_bgt: "bgt", ch_av: "av" }[bg.source];  // obdoba DTM v cizině (app/pipeline/technical_maps.py)
+  const foreign = { nl_bgt: "bgt", ch_av: "av", at_fmzk: "fmzk" }[bg.source];  // obdoba DTM v cizině (app/pipeline/technical_maps.py)
   if (foreign) {
     if (bg.failed) return t(`web.js.${foreign}.failed`);
     return t(`web.js.${foreign}.text`, { n: bg.objects || 0, dur: formatDuration(bg.seconds) || "0 s" });
@@ -2119,7 +2121,9 @@ function countryName(code) {
 function outsideNoteText(data) {
   const share = Number(data && data.outside_share) || 0;
   if (share <= 0) return "";
-  return t("web.js.bbox.outside_note", {
+  // Mimo Česko není LiDAR ani DTM ČÚZK; chybí jen místní velkoměřítková mapa (výšky mohou pokrývat víc).
+  const key = data.country && data.country !== "CZ" ? "web.js.bbox.outside_note_foreign" : "web.js.bbox.outside_note";
+  return t(key, {
     pct: Math.max(1, Math.round(share * 100)),
     country: countryName(data.country),
   });
