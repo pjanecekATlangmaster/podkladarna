@@ -42,6 +42,7 @@ from app.pipeline.reference_de import DE_BE_DGM_PROBE, DE_BE_DOP_PROBE, DE_BE_SB
 from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PROBE
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
+from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
@@ -308,6 +309,30 @@ PROBES: tuple[Probe, ...] = (
         (TN_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("IT",),
+    ),
+    # Flandry: malé okno DTM z WCS, 1 budova GRB, malý výřez ortofota.
+    Probe(
+        "be_elevation",
+        "Výšky DHMV II (Digitaal Vlaanderen) – DTM a DSM",
+        (BE_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        fatal=True,
+        countries=("BE",),
+    ),
+    Probe(
+        "be_grb",
+        "GRB (Digitaal Vlaanderen)",
+        (BE_GRB_PROBE,),
+        "Budovy, vozovky a chodníky se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("BE",),
+    ),
+    Probe(
+        "be_ortho",
+        "Ortofoto Digitaal Vlaanderen",
+        (BE_ORTHO_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("BE",),
     ),
 )
 

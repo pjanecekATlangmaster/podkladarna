@@ -879,6 +879,49 @@ def tn_tile_origin(tile: str) -> tuple[float, float]:
     return float(digits[:4]) * 100, float(digits[4:]) * 100
 
 
+# --------------------------------------------------------------------------- BE: DHMV II DTM + DSM 1 m (Flandry)
+
+# Digitaal Hoogtemodel Vlaanderen II (LiDAR 2013–2015, Modellicentie Gratis Hergebruik, bez klíče): DTM a DSM 1 m
+# z WCS Digitaal Vlaanderen, nativně EPSG:31370 (Belgian Lambert 72), výšky TAW (nadmořské, nic se nepřevádí).
+# WCS 1.0.0 vrací čistý GeoTIFF (2.0.1 multipart); dlaždice 2 × 2 km ≈ 16 MB. Pokrývá Flandry i Brusel.
+BE_WCS = "https://geo.api.vlaanderen.be/DHMV/wcs"
+BE_CRS = "EPSG:31370"
+BE_COVERAGES = {"dtm": "DHMVII_DTM_1m", "dsm": "DHMVII_DSM_1m"}
+BE_MAX_SIDE_M = 2000.0
+BE_BUFFER_M = 20.0
+
+
+def be_dhmv_urls(kind: str, bounds_lb72: tuple[float, float, float, float]) -> list[str]:
+    """GetCoverage URL po dlaždicích nejvýš ``BE_MAX_SIDE_M`` (Lambert 72, hrany na celé metry, pixel 1 m)."""
+    out = []
+    for x0, y0, x1, y1 in tile_boxes(bounds_lb72, max_side=BE_MAX_SIDE_M, buffer=BE_BUFFER_M, step=1.0):
+        out.append(
+            f"{BE_WCS}?SERVICE=WCS&VERSION=1.0.0&REQUEST=GetCoverage&COVERAGE={BE_COVERAGES[kind]}&CRS={BE_CRS}"
+            f"&BBOX={x0:.0f},{y0:.0f},{x1:.0f},{y1:.0f}&WIDTH={round(x1 - x0)}&HEIGHT={round(y1 - y0)}&FORMAT=GeoTIFF"
+        )
+    return out
+
+
+def be_dhmv_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """DHMV II: DTM (terén) a DSM (povrch) 1 m z WCS Digitaal Vlaanderen po dlaždicích 2 km."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    bounds_lb72 = _bounds_in(bounds, CRS_WKT, BE_CRS)
+    jobs = [(kind, k, url) for kind in BE_COVERAGES for k, url in enumerate(be_dhmv_urls(kind, bounds_lb72))]
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="be-dhmv") as ex:
+        tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"be_{j[0]}_{j[1]}.tif", log=log), jobs))
+    out = {}
+    for kind in BE_COVERAGES:
+        vrt = out_dir / f"be_dhmv_{kind}.vrt"
+        mine = [str(t) for (k, _i, _u), t in zip(jobs, tiles) if k == kind]
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", BE_CRS, str(vrt), *mine], log=log)
+        out[kind] = vrt
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["be_dhmv"] = be_dhmv_provider
+
+
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
 
 # Stahovací služba INSPIRE (Elevation): DMR 5.0 (1. cyklus LLS) 1 m, EPSG:3046 (ETRS89 / UTM 34N), výšky
@@ -965,6 +1008,7 @@ SOURCE_LABELS = {
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",
+    "be_dhmv": "DHMV II DTM a DSM, Digitaal Vlaanderen",
 }
 
 

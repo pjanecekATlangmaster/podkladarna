@@ -33,6 +33,7 @@ from app.pipeline.reference_ee import (
     EE_FOTO_WMS,
     EE_ORTHO_LAYER,
 )
+from app.pipeline.reference_be import BE_ADP_LAYER, BE_ADP_WMS, BE_GRB_LAYER, BE_GRB_WMS, BE_OMW_WMS, BE_ORTHO_LAYER
 from app.pipeline.reference_it import TN_CTP_LAYER, TN_HILLSHADE_LAYER, TN_ORTHO_LAYER, TN_WMS
 from app.pipeline.reference_ch import (
     CH_CADASTRAL_LAYER,
@@ -89,7 +90,8 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
 
 # DMVS WMS styl „default“ odmítá (500) – stejně jako ``_wms_getmap_url``; archiv ortofota (geoportal) chce prázdný styl.
 NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz", "data.wien.gv.at", "gdi.berlin.de",
-                          "data.geopf.fr", "gsavalik.envir.ee", "siat.provincia.tn.it")
+                          "data.geopf.fr", "gsavalik.envir.ee", "siat.provincia.tn.it",
+                          "geo.api.vlaanderen.be")
 
 # Vrstvy jen online (bez staženého rastru): přidají se i se zapnutým „Stáhnout referenční šablony předem“.
 ONLINE_ONLY_KEYS = frozenset({"orthophoto_archiv"})
@@ -179,6 +181,13 @@ IT_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("it_hillshade", "rilievo_trento.xml", "Stínování LiDAR (Provincia di Trento)", TN_WMS, TN_HILLSHADE_LAYER, "image/png",
      False, 1.0),
 )
+BE_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("be_ortho", "orthofoto_vl.xml", "Orthofoto Vlaanderen (zima 2025)", BE_OMW_WMS, BE_ORTHO_LAYER, "image/jpeg", False,
+     0.25),
+    ("be_grb", "grb_basiskaart.xml", "GRB-basiskaart", BE_GRB_WMS, BE_GRB_LAYER, "image/png", False, 0.25),
+    ("be_cadastre", "kadaster_vl.xml", "Katastr (administratieve percelen)", BE_ADP_WMS, BE_ADP_LAYER, "image/png", True,
+     0.25),
+)
 AT_ONLINE_LB = ("at_luftbild", "luftbild_wien.vrt", "Luftbild Wien (ortofoto Stadt Wien)")
 AT_LB_MPP = 0.15
 # BGT je veřejně jen WMTS v mřížce RD (EPSG:28992): dlaždice přes GDAL TMS + okno výřezu jako VRT.
@@ -198,6 +207,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "FR": FR_ONLINE_WMS_LAYERS,
         "EE": EE_ONLINE_WMS_LAYERS,
         "IT": IT_ONLINE_WMS_LAYERS,
+        "BE": BE_ONLINE_WMS_LAYERS,
     }.get(country, ())
 
 
@@ -499,6 +509,7 @@ def online_labels() -> dict[str, str]:
         for k, _f, label, *_rest in (
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
+            *BE_ONLINE_WMS_LAYERS,
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (AT_ONLINE_LB[0], AT_ONLINE_LB[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     return {
