@@ -207,8 +207,21 @@ CH_GSD = 0.5
 CH_BUFFER_M = 20.0
 
 
-def stac_latest_assets(items: list[dict], gsd: float = CH_GSD) -> list[str]:
-    """URL GeoTIFFu s rozlišením ``gsd`` z nejnovějšího ročníku každé dlaždice (id ``<sada>_<rok>_<E>-<N>``)."""
+def _asset_url_ok(href: str, host: str) -> bool:
+    """Odkaz na asset je z odpovědi STAC: jen HTTPS na serveru swisstopo (jde do /vsicurl gdal_translate)."""
+    import urllib.parse
+
+    parts = urllib.parse.urlsplit(href)
+    return parts.scheme == "https" and parts.netloc == host
+
+
+def stac_latest_assets(items: list[dict], gsd: float = CH_GSD, host: str | None = None) -> list[str]:
+    """URL GeoTIFFu s rozlišením ``gsd`` z nejnovějšího ročníku každé dlaždice (id ``<sada>_<rok>_<E>-<N>``).
+
+    Odkazy mimo ``host`` (výchozí server ``CH_STAC``) nebo bez HTTPS se zahodí."""
+    import urllib.parse
+
+    host = host or urllib.parse.urlsplit(CH_STAC).netloc
     best: dict[str, tuple[str, str]] = {}
     for item in items:
         tile = str(item.get("id") or "").rsplit("_", 1)[-1]
@@ -217,7 +230,9 @@ def stac_latest_assets(items: list[dict], gsd: float = CH_GSD) -> list[str]:
             (
                 a.get("href")
                 for a in (item.get("assets") or {}).values()
-                if str(a.get("href") or "").endswith(".tif") and abs(float(a.get("eo:gsd") or 0) - gsd) < 1e-6
+                if str(a.get("href") or "").endswith(".tif")
+                and abs(float(a.get("eo:gsd") or 0) - gsd) < 1e-6
+                and _asset_url_ok(str(a.get("href")), host)
             ),
             None,
         )

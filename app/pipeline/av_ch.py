@@ -42,6 +42,7 @@ TILE_M = 1000.0  # 1 km² ≈ 2–4 MB GeoJSON v centru Curychu, ~1 s
 WORKERS = 4
 HTTP_TIMEOUT_S = 120
 HTTP_RETRIES = 2
+MAX_RESPONSE_BYTES = 300_000_000  # dlaždice 1 km² má jednotky MB; víc je chyba služby
 
 # Bodenbedeckung (LCSF.Art) → soubor DTM (CZ obdoba).
 BUILDING_ART = frozenset({"Gebaeude"})
@@ -101,7 +102,9 @@ def _get_json(url: str) -> tuple[dict, int]:
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-                raw = resp.read()
+                raw = resp.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise RuntimeError(f"AV: odpověď větší než {MAX_RESPONSE_BYTES // 1_000_000} MB")
             return json.loads(raw), len(raw)
         except Exception as exc:  # síť / 5xx: krátce počkat a zkusit znovu
             last = exc

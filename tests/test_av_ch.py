@@ -97,11 +97,13 @@ def test_fetch_layers_tiles_and_dedup():
 def test_stac_latest_assets():
     from app.pipeline.elevation_raster import stac_latest_assets
 
+    base = "https://data.geo.admin.ch/ch.swisstopo.swissalti3d/"
+
     def item(year, tile, gsd_hrefs):
         return {
             "id": f"swissalti3d_{year}_{tile}",
             "properties": {"datetime": f"{year}-01-01T00:00:00Z"},
-            "assets": {h: {"href": h, "eo:gsd": g} for g, h in gsd_hrefs},
+            "assets": {h: {"href": h if "://" in h else base + h, "eo:gsd": g} for g, h in gsd_hrefs},
         }
 
     items = [
@@ -109,4 +111,20 @@ def test_stac_latest_assets():
         item(2025, "2600-1199", [(0.5, "a25_05.tif"), (0.5, "a25_05.xyz.zip")]),
         item(2019, "2601-1199", [(0.5, "b19_05.tif")]),
     ]
-    assert stac_latest_assets(items) == ["a25_05.tif", "b19_05.tif"]
+    assert stac_latest_assets(items) == [base + "a25_05.tif", base + "b19_05.tif"]
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        "https://evil.example/ch.swisstopo.swissalti3d/x.tif",  # cizí server
+        "http://data.geo.admin.ch/ch.swisstopo.swissalti3d/x.tif",  # bez HTTPS
+        "file:///etc/passwd.tif",
+    ],
+)
+def test_stac_assets_only_swisstopo_https(href):
+    from app.pipeline.elevation_raster import stac_latest_assets
+
+    item = {"id": "swissalti3d_2025_2600-1199", "properties": {"datetime": "2025-01-01T00:00:00Z"},
+            "assets": {"a": {"href": href, "eo:gsd": 0.5}}}
+    assert stac_latest_assets([item]) == []
