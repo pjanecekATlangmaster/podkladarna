@@ -34,7 +34,8 @@ KLAD_QUERY_URL = (
 OPENZU_DMR = "https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/{mapnom}.zip"
 OPENZU_DMPOK = "https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/{mapnom}.zip"
 OPENZU_DMP1G = "https://openzu.cuzk.gov.cz/opendata/DMP1G/epsg-5514/{mapnom}.zip"
-USER_AGENT = "Podkladarna/1.2 (https://github.com/pjanecekATlangmaster/podkladarna)"
+# Identifikace klienta vůči mapovým serverům (jde i do XML online šablon v ZIPu): web služby, ne repozitář.
+USER_AGENT = "Podkladarna/1.2 (+https://podkladarna.kibos.link)"
 # WGS obálka je vůči mřížce SM5 (2,5 × 2 km v S-JTSK) pootočená o ~7–10°,
 # takže 25 km² podle polohy protne až ~18 listů; 20 = rezerva, ne hlavní limit.
 MAX_SHEETS = 20
