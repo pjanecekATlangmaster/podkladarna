@@ -418,9 +418,20 @@ def path_surface_class(tags: dict) -> str:
     return "unknown"
 
 
+# Podloubí a kolonády (``covered=arcade``, Bern „Lauben“, italské portici; nestandardně i ``tunnel=arcade``): mimo Česko
+# krytý průchod jako ``covered=yes``. Dřív šly jako footway s ``layer=-1`` do kresby podchodem přes blok domů
+# (Bern 35 úseků). V Česku beze změny (český build se nemění, Petr 2026-11-15).
+_ARCADE_VALUES = frozenset({"arcade", "colonnade"})
+
+
 def is_covered_passage(tags: dict) -> bool:
-    """Cesta pod střechou (průchod domem, podloubí): ``covered=yes`` nebo ``tunnel=building_passage``."""
-    return (tags.get("covered") or "").lower() == "yes" or (tags.get("tunnel") or "").lower() == "building_passage"
+    """Cesta pod střechou (průchod domem, podloubí): ``covered=yes`` nebo ``tunnel=building_passage``;
+    mimo Česko i ``covered`` / ``tunnel`` = ``arcade`` / ``colonnade``."""
+    covered = (tags.get("covered") or "").lower()
+    tunnel = (tags.get("tunnel") or "").lower()
+    if covered == "yes" or tunnel == "building_passage":
+        return True
+    return (covered in _ARCADE_VALUES or tunnel in _ARCADE_VALUES) and not _cz_process()
 # Trať ZABAGED do tolika m od osy OSM tratě v tunelu se nekreslí.
 RAIL_TUNNEL_NEAR_M = 4.0
 # Druhy OSM kolejí v tunelu, které skryjí čáru vrstvy ZABAGED (``rail_tunnel_geometry``). Metro (subway)
