@@ -147,6 +147,8 @@ AT_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
      "image/png", True, 0.25),
 )
 WMS_NATIVE_CRS = {"at_fmzk": "EPSG:31256"}
+# CRS, jejichž osy jsou v EPSG sever–východ: WMS 1.3.0 chce BBOX v tomto pořadí (jinak prázdný obrázek), GDAL ho samo neotočí.
+NORTHING_FIRST_CRS = frozenset({"EPSG:3301"})
 # Německo (Berlín, GDI Berlin, dl-de/zero): TrueDOP 2024, mapa 1 : 5 000 (K5) a parcely ALKIS, vše EPSG:25833.
 DE_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("de_truedop", "truedop_berlin.xml", "TrueDOP Berlín 2024 (ortofoto)", DE_BE_TRUEDOP_WMS, DE_BE_TRUEDOP_LAYER,
@@ -219,7 +221,8 @@ def wms_xml(
         f"    <Transparent>{'TRUE' if transparent else 'FALSE'}</Transparent>\n"
         f"    <Layers>{html.escape(layer)}</Layers>\n"
         f"    <Styles>{styles}</Styles>\n"
-        "  </Service>\n"
+        + ("    <BBoxOrder>yxYX</BBoxOrder>\n" if crs in NORTHING_FIRST_CRS else "")
+        + "  </Service>\n"
         "  <DataWindow>\n"
         f"    <UpperLeftX>{xmin:.2f}</UpperLeftX>\n"
         f"    <UpperLeftY>{ymax:.2f}</UpperLeftY>\n"

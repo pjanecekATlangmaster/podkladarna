@@ -1,5 +1,7 @@
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from app.pipeline.build_oom_map import _template_xml
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.oom_layers import collect_oom_templates
@@ -103,3 +105,11 @@ def test_foreign_templates_downloaded_when_requested(tmp_path, monkeypatch):
 
     kinds = {t.relpath: t.kind for t in collect_oom_templates(tmp_path, built_refs=out)}
     assert kinds["references/ortho_ign.jpg"] == "image" and kinds["references/plan_ign.xml"] == "gdal"
+
+
+@pytest.mark.parametrize("crs, order", [("EPSG:3301", "yxYX"), ("EPSG:2154", None), ("EPSG:5514", None)])
+def test_wms_bbox_order_follows_crs_axes(crs, order):
+    """WMS 1.3.0: L-EST97 má osy sever–východ, bez BBoxOrder vrací služba prázdný obrázek (Estonsko 3.49.0)."""
+    xml = ot.wms_xml("https://example.org/wms", "L", (0.0, 0.0, 100.0, 100.0), image_format="image/png",
+                     transparent=False, mpp=1.0, crs=crs)
+    assert ET.fromstring(xml).findtext("Service/BBoxOrder") == order
