@@ -83,3 +83,26 @@ def test_bev_tiles_and_latest_date(monkeypatch):
     assert er.bev_latest_date(4750000, 2800000, head=head, today=dt.date(2026, 11, 15)) == "20250915"
     assert seen[0].endswith("/DTM/20260915/ALS_DTM_CRS3035RES50000mN2800000E4750000.tif")
     assert er.bev_latest_date(4750000, 2800000, head=lambda u: pytest.fail("cache")) == "20250915"
+
+
+@pytest.mark.parametrize(
+    "bbox, source, vienna_keys",
+    [
+        ((16.365, 48.205, 16.375, 48.212), "at_fmzk", True),  # Innere Stadt
+        ((11.39, 47.26, 11.40, 47.27), "none", False),  # Innsbruck: FMZK a Luftbild jen ve Vídni
+    ],
+)
+def test_fmzk_and_vienna_templates_only_in_vienna(tmp_path, monkeypatch, bbox, source, vienna_keys):
+    from app import countries
+    from app.pipeline import country_profile, online_templates
+
+    assert country_profile.technical_map_source({"country": "AT", "bbox_wgs84": list(bbox)}) == source
+    monkeypatch.setattr(online_templates, "osm_sjtsk_vrt", lambda src, vrt, b, mpp: vrt.write_text(src.name) or True)
+    covers = countries.load_countries()["AT"].technical_map_covers(bbox)
+    written = online_templates.write_online_templates(
+        (0.0, 0.0, 1000.0, 1000.0), tmp_path, country="AT", technical_area=covers
+    )
+    assert {"online_at_ortho", "online_at_basemap", "online_at_relief"} <= set(written)  # basemap.at celé Rakousko
+    assert ("online_at_luftbild" in written) is vienna_keys and ("online_at_fmzk" in written) is vienna_keys
+    assert "mapsneu.wien.gv.at/basemap/bmaporthofoto30cm" in (tmp_path / "orthofoto_at_dlazdice.xml").read_text()
+    assert set(written) <= set(online_templates.online_labels())

@@ -285,7 +285,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("CZ", ("Data: ČÚZK (DMR 5G", "Podkladárna · ČÚZK · OSM"), ("AHN",)),
         ("NL", ("Bron: AHN", "Bron: Kadaster", "Beeldmateriaal.nl", "OpenStreetMap (ODbL)"), ("ČÚZK",)),
         ("CH", ("© swisstopo", "geodienste.ch", "OpenStreetMap (ODbL)"), ("ČÚZK", "AHN")),
-        ("AT", ("Datenquelle: BEV", "Stadt Wien – data.wien.gv.at", "OpenStreetMap (ODbL)"), ("ČÚZK", "swisstopo")),
+        ("AT", ("Datenquelle: BEV", "basemap.at", "Stadt Wien – data.wien.gv.at", "OpenStreetMap (ODbL)"), ("ČÚZK", "swisstopo")),
         ("DE", ("Geoportal Berlin", "Datenlizenz Deutschland – Zero 2.0", "OpenStreetMap (ODbL)"), ("ČÚZK", "BEV")),
         ("FR", ("© IGN", "Ville de Paris", "Etalab 2.0", "OpenStreetMap (ODbL)"), ("ČÚZK", "Berlin")),
         ("EE", ("Maa- ja Ruumiamet", "OpenStreetMap (ODbL)"), ("ČÚZK", "IGN")),

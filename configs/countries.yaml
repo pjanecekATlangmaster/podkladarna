@@ -71,19 +71,21 @@ CH:
     - "Úřední vyměřování (AV, amtliche Vermessung): Quelle Kantone, geodienste.ch."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."
 AT:
-  name: {cs: Rakousko – Vídeň, en: Austria – Vienna, de: Österreich – Wien}
-  status: beta              # zatím jen Vídeň (obdoba DTM FMZK jen tam, Petr 2026-11-14); souřadnice EPSG:25833
+  name: {cs: Rakousko, en: Austria, de: Österreich}
+  status: beta              # celé Rakousko (Petr 2026-11-15); FMZK jen ve Vídni; souřadnice EPSG:25833
   crs: EPSG:25833           # ETRS89 / UTM 33N (bez převodu data MGI)
-  boundary: countries/at.geojson
-  view: [48.11, 16.17, 48.33, 16.59]
-  elevation: at_bev         # BEV ALS DTM + DSM 1 m, roční mozaika (COG 50 km, EPSG:3035), výšky nad Jadranem
-  technical_map: at_fmzk    # FMZK Stadt Wien z WFS data.wien.gv.at
+  boundary: countries/at.geojson  # GISCO 1 : 1 M (© EuroGeographics), +300 m
+  view: [46.37, 9.53, 49.02, 17.16]
+  elevation: at_bev         # BEV ALS DTM + DSM 1 m, roční mozaika celého Rakouska (COG 50 km, EPSG:3035), výšky nad Jadranem
+  technical_map: at_fmzk    # FMZK Stadt Wien z WFS data.wien.gv.at, jen ve Vídni
+  technical_map_area: countries/at_wien.geojson  # mimo Vídeň kresba z OSM
   cz_sources: false
-  # Licence: BEV ALS CC BY 4.0, Stadt Wien OGD CC BY 4.0.
-  citation: "Podklad: Podkladárna · BEV · Stadt Wien – data.wien.gv.at · OSM, [rok]"
+  # Licence: BEV ALS CC BY 4.0, basemap.at CC BY 4.0, Stadt Wien OGD CC BY 4.0.
+  citation: "Podklad: Podkladárna · BEV · basemap.at · Stadt Wien – data.wien.gv.at · OSM, [rok]"
   attribution:
     - "Výšky: ALS DTM a DSM, Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen (CC BY 4.0)."
-    - "FMZK a ortofoto (Luftbild): Datenquelle: Stadt Wien – data.wien.gv.at (CC BY 4.0)."
+    - "Ortofoto, mapa a stínování: Datenquelle: basemap.at (CC BY 4.0)."
+    - "FMZK a ortofoto Vídně (Luftbild): Datenquelle: Stadt Wien – data.wien.gv.at (CC BY 4.0)."
     - "OSM © přispěvatelé OpenStreetMap (ODbL)."
 DE:
   name: {cs: Německo – Berlín, en: Germany – Berlin, de: Deutschland – Berlin}

@@ -37,7 +37,7 @@ from app.pipeline.dtm_sources import DMVS_API
 from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
 from app.pipeline.osm_paths import OVERPASS_URLS
 from app.pipeline.bgt_nl import BGT_API
-from app.pipeline.reference_at import AT_BEV_PROBE, AT_FMZK_PROBE, AT_LB_PROBE
+from app.pipeline.reference_at import AT_BASEMAP_PROBE, AT_BEV_PROBE, AT_FMZK_PROBE, AT_LB_PROBE
 from app.pipeline.reference_de import DE_BE_DGM_PROBE, DE_BE_DOP_PROBE, DE_BE_SB_PROBE
 from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PROBE
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
@@ -195,7 +195,7 @@ PROBES: tuple[Probe, ...] = (
         "Šablony ortofota, mapy a katastru budou chybět.",
         countries=("CH",),
     ),
-    # Rakousko (Vídeň): hlavička dlaždice BEV (COG má 10 GB), 1 objekt FMZK, 1 dlaždice ortofota.
+    # Rakousko: hlavička dlaždice BEV (COG má 10 GB), 1 objekt FMZK (Vídeň), dlaždice basemap.at a ortofota Vídně.
     Probe(
         "at_bev",
         "BEV ALS – výšky terénu a povrchu",
@@ -211,6 +211,13 @@ PROBES: tuple[Probe, ...] = (
         (AT_FMZK_PROBE,),
         "Budovy, vozovky, chodníky, parkování a schody se nakreslí jen z OSM.",
         needs="dtm",
+        countries=("AT",),
+    ),
+    Probe(
+        "at_basemap",
+        "basemap.at – ortofoto a mapa",
+        (AT_BASEMAP_PROBE,),
+        "Šablony ortofota, mapy a stínování budou chybět.",
         countries=("AT",),
     ),
     Probe(

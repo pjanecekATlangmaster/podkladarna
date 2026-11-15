@@ -15,7 +15,15 @@ from pathlib import Path
 from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT
 from app.pipeline.prepare_lidar import find_tool, run_cmd
-from app.pipeline.reference_at import AT_FMZK_WMS_LAYERS, AT_WIEN_LB_TILE_URL, AT_WIEN_LB_ZOOM, AT_WIEN_WMS
+from app.pipeline.reference_at import (
+    AT_BASEMAP_GRAU_URL,
+    AT_BASEMAP_ORTHO_URL,
+    AT_BASEMAP_RELIEF_URL,
+    AT_FMZK_WMS_LAYERS,
+    AT_WIEN_LB_TILE_URL,
+    AT_WIEN_LB_ZOOM,
+    AT_WIEN_WMS,
+)
 from app.pipeline.reference_de import (
     DE_BE_ALKIS_LAYER,
     DE_BE_ALKIS_WMS,
@@ -143,7 +151,7 @@ CH_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("ch_relief", "swissalti3d_relief.xml", "Stínování swissALTI3D", CH_WMS, CH_RELIEF_LAYER,
      "image/png", False, 0.5),
 )
-# Rakousko (Vídeň, Stadt Wien OGD): FMZK jako WMS; ortofoto jen WMTS 3857 (``AT_ONLINE_LB``).
+# Rakousko: FMZK Vídně (Stadt Wien OGD) jako WMS; ortofoto a mapy jen WMTS 3857 (``ONLINE_TMS_LAYERS``).
 # Server převádí do jiných systémů bez posunu data MGI (~290 m vedle): WMS v nativním systému + okno výřezu jako VRT.
 AT_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("at_fmzk", "fmzk_wien.xml", "FMZK Wien (Flächen-Mehrzweckkarte)", AT_WIEN_WMS, AT_FMZK_WMS_LAYERS,
@@ -188,8 +196,17 @@ BE_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("be_cadastre", "kadaster_vl.xml", "Katastr (administratieve percelen)", BE_ADP_WMS, BE_ADP_LAYER, "image/png", True,
      0.25),
 )
-AT_ONLINE_LB = ("at_luftbild", "luftbild_wien.vrt", "Luftbild Wien (ortofoto Stadt Wien)")
-AT_LB_MPP = 0.15
+# Dlaždicové služby v EPSG:3857 (GDAL TMS + okno výřezu jako VRT): klíč, soubor, popisek, URL, úroveň, m/px, snímek (JPEG).
+AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
+    ("at_ortho", "orthofoto_at.vrt", "basemap.at Orthofoto (Rakousko)", AT_BASEMAP_ORTHO_URL, 19, 0.25, True),
+    ("at_basemap", "basemap_at.vrt", "basemap.at (šedá mapa)", AT_BASEMAP_GRAU_URL, 18, 0.5, False),
+    ("at_relief", "gelaende_at.vrt", "basemap.at Gelände (stínování terénu)", AT_BASEMAP_RELIEF_URL, 17, 1.0, True),
+    ("at_luftbild", "luftbild_wien.vrt", "Luftbild Wien (ortofoto Stadt Wien)", AT_WIEN_LB_TILE_URL, AT_WIEN_LB_ZOOM, 0.15,
+     True),
+)
+ONLINE_TMS_LAYERS = {"AT": AT_ONLINE_TMS}
+# Vrstvy jen pro území technické mapy (``technical_map_area``, Vídeň): mimo něj jsou prázdné.
+TECHNICAL_AREA_KEYS = frozenset({"at_fmzk", "at_luftbild"})
 # BGT je veřejně jen WMTS v mřížce RD (EPSG:28992): dlaždice přes GDAL TMS + okno výřezu jako VRT.
 NL_ONLINE_BGT = ("nl_bgt", "bgt.vrt", "BGT (velkoměřítková mapa)")
 NL_BGT_LEVEL = 15  # 0,105 m/px
@@ -356,11 +373,13 @@ def write_online_templates(
     *,
     only: frozenset[str] | None = None,
     country: str = "CZ",
+    technical_area: bool = True,
 ) -> dict[str, Path]:
     """Zapíše online šablony do ``out_dir`` (``references``); klíč ``online_<vrstva>`` → soubor.
 
     ``only``: jen vybrané vrstvy (např. ``ONLINE_ONLY_KEYS`` vedle stažených rastrů), OSM jen je-li v něm.
     ``country``: země výřezu – místní služby (Česko ČÚZK, Nizozemsko PDOK); OSM všude.
+    ``technical_area``: výřez zasahuje do území technické mapy; jinak bez vrstev ``TECHNICAL_AREA_KEYS``.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
@@ -372,16 +391,19 @@ def write_online_templates(
             vrt = out_dir / f"{Path(filename).stem}{suffix}.vrt"
             if osm_sjtsk_vrt(tms, vrt, bounds_5514, NL_BGT_MPP * factor):
                 written[f"online_{key}{suffix}"] = vrt
-    if country == "AT" and (only is None or AT_ONLINE_LB[0] in only):
-        key, filename, _label = AT_ONLINE_LB
-        tms = out_dir / "luftbild_wien_dlazdice.xml"
-        tms.write_text(osm_tms_xml(AT_WIEN_LB_ZOOM, AT_WIEN_LB_TILE_URL), encoding="utf-8")
+    for key, filename, _label, url, zoom, mpp, _photo in ONLINE_TMS_LAYERS.get(country, ()):
+        if (only is not None and key not in only) or (not technical_area and key in TECHNICAL_AREA_KEYS):
+            continue
+        tms = out_dir / _tms_name(filename)
+        tms.write_text(osm_tms_xml(zoom, url), encoding="utf-8")
         for suffix, factor, _lsuffix in ZOOM_VARIANTS:
             vrt = out_dir / f"{Path(filename).stem}{suffix}.vrt"
-            if osm_sjtsk_vrt(tms, vrt, bounds_5514, AT_LB_MPP * factor):
+            if osm_sjtsk_vrt(tms, vrt, bounds_5514, mpp * factor):
                 written[f"online_{key}{suffix}"] = vrt
+        if not any(k.startswith(f"online_{key}") for k in written):
+            tms.unlink(missing_ok=True)
     for key, filename, _label, url, layer, fmt, transparent, mpp in wms_layers_for(country):
-        if only is not None and key not in only:
+        if (only is not None and key not in only) or (not technical_area and key in TECHNICAL_AREA_KEYS):
             continue
         native = WMS_NATIVE_CRS.get(key)
         for suffix, factor, _lsuffix in ZOOM_VARIANTS:
@@ -418,8 +440,13 @@ def write_online_templates(
     return written
 
 
+def _tms_name(filename: str) -> str:
+    """Dlaždicová šablona vedle okna výřezu (``luftbild_wien.vrt`` → ``luftbild_wien_dlazdice.xml``)."""
+    return f"{Path(filename).stem}_dlazdice.xml"
+
+
 # Fotografické podklady do JPEG (menší ZIP), mapy a průhledné vrstvy do PNG.
-PHOTO_TMS_KEYS = frozenset({AT_ONLINE_LB[0]})
+PHOTO_TMS_KEYS = frozenset(k for layers in ONLINE_TMS_LAYERS.values() for k, *_r, photo in layers if photo)
 DOWNLOAD_WORKERS = 3
 
 
@@ -490,7 +517,8 @@ def download_online_templates(written: dict[str, Path], country: str, *, log=Non
                 old.with_name(f"{old.stem}_zdroj.xml").unlink(missing_ok=True)
         out[key] = raster
     used = {p.name for p in out.values()}
-    for tms in ("bgt_dlazdice.xml", "luftbild_wien_dlazdice.xml", "osm_dlazdice.xml"):
+    tms_names = [_tms_name(f) for layers in ONLINE_TMS_LAYERS.values() for _k, f, *_r in layers]
+    for tms in ("bgt_dlazdice.xml", *tms_names, "osm_dlazdice.xml"):
         folder = next(iter(written.values())).parent if written else None
         if folder is None:
             break
@@ -511,7 +539,8 @@ def online_labels() -> dict[str, str]:
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
             *BE_ONLINE_WMS_LAYERS,
         )
-    ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (AT_ONLINE_LB[0], AT_ONLINE_LB[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
+    ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
+    layers += [(k, label) for tms in ONLINE_TMS_LAYERS.values() for k, _f, label, *_r in tms]
     return {
         f"online_{k}{suffix}": f"{label}{lsuffix}"
         for k, label in layers
@@ -528,6 +557,6 @@ def wms_readme_lines(country: str = "CZ") -> list[str]:
         seen.append(f"- {label}: {url} (vrstva {layer}, {f'{native}, jiný systém server posune' if native else crs})")
     if country == "NL":
         seen.append(f"- {NL_ONLINE_BGT[2]}: WMTS {NL_BGT_TILE_URL.split('/standaard')[0]} (standaardvisualisatie, EPSG:28992)")
-    if country == "AT":
-        seen.append(f"- {AT_ONLINE_LB[2]}: WMTS {AT_WIEN_LB_TILE_URL.split('/farbe')[0]} (styl farbe, EPSG:3857)")
+    for _k, _f, label, url, *_r in ONLINE_TMS_LAYERS.get(country, ()):
+        seen.append(f"- {label}: WMTS {url.split('/google3857')[0]} (EPSG:3857)")
     return seen
