@@ -505,6 +505,8 @@ def _overpass_ql(
         *([] if _cz_process() else [f'way["waterway"~"^({"|".join(sorted(OSM_WATERWAY_LINES))})$"]({bbox});']),
         # Moře: OSM ho nemá jako plochu, jen pobřežní čáru (pevnina vlevo) → plocha 301 (``sea_features``). Česko moře nemá.
         *([] if _cz_process() else [f'way["natural"="coastline"]({bbox});']),
+        # Železnice a tramvaje → 509 / 515 jako ZABAGED ZeleznicniTrat / TramvajovaDraha; v Česku je kreslí ZABAGED.
+        *([] if _cz_process() else [f'way["railway"~"^({"|".join(sorted(OSM_RAIL_LINE_KINDS))})$"]({bbox});']),
         # Obdělávaná půda → ISOM 412 (zdroj OSM, ne ZABAGED).
         f'way["landuse"="farmland"]({bbox});',
         # Rezidenční plocha – subject pro inverzní 501 (ne kreslí se samostatně).
@@ -1127,12 +1129,21 @@ _POINT_FEATURE_KINDS = frozenset(
     }
 )
 _LINE_FEATURE_KINDS = frozenset(
-    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "tree_row", "waterway"}
+    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "tree_row", "waterway", "rail_line",
+     "tram_line"}
 )
 # Vodní toky OSM (jen mimo Česko, tam kreslí toky ZABAGED): kreslí se 306 jako ZABAGED VodniTok, úsek v propustku /
 # tunelu ne, a uvnitř vodní plochy (řeka s obrysem) se tok ořízne (``clip_waterways_by_water``).
 OSM_WATERWAY_LINES = frozenset({"river", "stream", "canal", "ditch", "drain"})
 OSM_WATERWAY_CODE = "306"
+# Koleje OSM (jen mimo Česko, tam kreslí železnici a tramvaj ZABAGED): druh → kind; symbol jako ZABAGED
+# (``feature_oom_code``: sprint 509.1 / 509.2, les 509, MTBO 515). Úsek v tunelu, metro, zrušené a rozestavěné ne.
+OSM_RAIL_LINE_KINDS: dict[str, str] = {
+    "rail": "rail_line",
+    "narrow_gauge": "rail_line",
+    "tram": "tram_line",
+    "light_rail": "tram_line",
+}
 # Klíče, se kterými prvek není čistý vodní tok (klíče dotazu Overpass v Česku + plocha vody a relace).
 _WATERWAY_EXCLUDE_KEYS = frozenset({
     "amenity", "area:highway", "barrier", "building", "highway", "historic", "information", "landuse", "leisure",
@@ -1761,6 +1772,15 @@ def classify_osm_feature(
         if (tags.get("tunnel") or "no").lower() != "no" or (tags.get("location") or "").lower() == "underground":
             return None  # propustek / zatrubněný tok se nekreslí
         return "waterway", OSM_WATERWAY_CODE
+    rail_kind = OSM_RAIL_LINE_KINDS.get((tags.get("railway") or "").lower())
+    if (
+        rail_kind
+        and not is_node
+        and not tags.get("highway")  # tramvaj v ose silnice (jedna way) zůstává silnicí
+        and not _is_osm_tunnel(tags)
+        and (tags.get("area") or "no").lower() != "yes"
+    ):
+        return rail_kind, feature_oom_code(rail_kind, "")
     return None
 
 
@@ -1883,6 +1903,11 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
     if kind == "power_line":
         # ISOM/ISSprOM 510; ISMTBOM 516 Power line.
         return "516" if mtbo else "510"
+    if kind in {"rail_line", "tram_line"}:
+        # Jako ZABAGED railway / tramway (``oom_symbol_map``): sprint 509.1 / 509.2, les 509, MTBO 515.
+        if sprint:
+            return "509.1" if kind == "rail_line" else "509.2"
+        return "515" if mtbo else "509"
     if kind == "parking":
         # Stejně jako ZABAGED Ostatní plocha – CRT pod silnicemi (ne 529/501.1).
         if sprint:
@@ -4009,7 +4034,10 @@ def prepare_osm_paths(
                 rail_pts = _nodes_geometry_to_5514(el.get("geometry"))
                 if len(rail_pts) >= 2:
                     rail_tunnels.append((rail_pts, (tags.get("railway") or "").lower()))
-            continue
+                continue
+            # V Česku kreslí koleje ZABAGED; mimo Česko jde kolej na povrchu do kresby (``OSM_RAIL_LINE_KINDS``).
+            if _cz_process() or (tags.get("railway") or "").lower() not in OSM_RAIL_LINE_KINDS:
+                continue
         # Metro do podkladu nepatří (ani jako cesta, ani jako objekt).
         railway = (tags.get("railway") or "").lower()
         if railway in {"subway", "subway_entrance"}:
@@ -4513,6 +4541,8 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "spring": ("OSM_prameny", "prameny", "312"),
     "water_body": ("OSM_voda", "vodní plochy", "301"),
     "waterway": ("OSM_vodni_toky", "vodní toky", OSM_WATERWAY_CODE),
+    "rail_line": ("OSM_zeleznice", "železnice", "509"),
+    "tram_line": ("OSM_tramvaje", "tramvaje", "509"),
     "fountain": ("OSM_kasny", "kašny (301.1)", "301.1"),
     "farmland": ("OSM_orna", "obdělávaná půda", "412"),
     "garden": ("OSM_zahrady", "zahrady (oliva)", "520"),
@@ -8716,6 +8746,8 @@ def build_osm_feature_parts(
         "playground_equipment": "OSM herní prvky (531 ×)",
         "water_body": "OSM vodní nádrž (301)",
         "waterway": "OSM vodní toky (306)",
+        "rail_line": "OSM železnice",
+        "tram_line": "OSM tramvaje",
         "fountain": "OSM kašny (301.1)",
         "farmland": "OSM obdělávaná půda (412)",
         "garden": "OSM zahrady (520 oliva)",
@@ -8755,6 +8787,8 @@ def build_osm_feature_parts(
         "spring",
         "water_body",
         "waterway",
+        "rail_line",
+        "tram_line",
         "fountain",
         "farmland",
         "pitch_open",

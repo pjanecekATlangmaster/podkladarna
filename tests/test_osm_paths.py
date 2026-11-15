@@ -3066,3 +3066,42 @@ def test_sea_from_coastline(monkeypatch, ways, sea_m2):
     assert sum(shape(f["geometry"]).area for f in feats) == pytest.approx(sea_m2)
     assert all(f["properties"]["kind"] == "water_body" and f["properties"]["oom_code"] == "301" for f in feats)
     assert osm_paths.classify_osm_feature({"natural": "coastline"}) is None  # čára pobřeží se nekreslí
+
+
+@pytest.mark.parametrize(
+    "tags, want",
+    [
+        ({"railway": "tram"}, ("tram_line", "509")),
+        ({"railway": "light_rail"}, ("tram_line", "509")),
+        ({"railway": "rail", "bridge": "yes", "layer": "1"}, ("rail_line", "509")),
+        ({"railway": "narrow_gauge"}, ("rail_line", "509")),
+        ({"railway": "tram", "tunnel": "yes"}, None),  # v tunelu se nekreslí
+        ({"railway": "tram", "highway": "primary"}, None),  # tramvaj v ose silnice zůstává silnicí
+        ({"railway": "disused"}, None),
+        ({"railway": "construction"}, None),
+        ({"railway": "subway"}, None),
+    ],
+)
+def test_osm_rails_abroad(tmp_path, monkeypatch, tags, want):
+    """Železnice a tramvaje z OSM mimo Česko jako ZABAGED (sprint 509.1 / 509.2, les 509, MTBO 515);
+    v Česku je kreslí ZABAGED – dotaz ani features.geojson se nemění."""
+    import app.pipeline.osm_paths as op
+
+    assert op.classify_osm_feature(tags) == want
+    if want:
+        kind = want[0]
+        assert op.feature_oom_code(kind, "sprint_2m") == ("509.1" if kind == "rail_line" else "509.2")
+        assert op.feature_oom_code(kind, "forest_10000") == "509"
+        assert op.feature_oom_code(kind, "mtbo_10000") == "515"
+    for cz in (False, True):
+        monkeypatch.setattr(op, "_cz_process", lambda cz=cz: cz)
+        ql = op._overpass_ql(50.0, 14.0, 50.1, 14.1)
+        assert ('way["railway"~"^(light_rail|narrow_gauge|rail|tram)$"]' in ql) is not cz
+        el = {"type": "way", "id": 1, "tags": tags,
+              "geometry": [{"lat": 50.0, "lon": 14.4000}, {"lat": 50.0, "lon": 14.4020}]}
+        monkeypatch.setattr(op, "fetch_osm_path_elements", lambda *a, **k: [el])
+        work = tmp_path / ("cz" if cz else "abroad")
+        op.prepare_osm_paths(work, (14.39, 49.99, 14.41, 50.01), None, preset_id="sprint_2m", log=lambda m: None)
+        gj = json.loads((work / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))
+        kinds = [f["properties"]["kind"] for f in gj["features"]]
+        assert kinds == ([want[0]] if want and not cz else [])
