@@ -1144,6 +1144,8 @@ OSM_RAIL_LINE_KINDS: dict[str, str] = {
     "tram": "tram_line",
     "light_rail": "tram_line",
 }
+# Kolejiště nádraží a vlečky (desítky souběžných kolejí, nečitelné 509): kreslí se jen průběžné tratě.
+OSM_RAIL_SKIP_SERVICE = frozenset({"yard", "siding"})
 # Klíče, se kterými prvek není čistý vodní tok (klíče dotazu Overpass v Česku + plocha vody a relace).
 _WATERWAY_EXCLUDE_KEYS = frozenset({
     "amenity", "area:highway", "barrier", "building", "highway", "historic", "information", "landuse", "leisure",
@@ -1779,6 +1781,7 @@ def classify_osm_feature(
         and not tags.get("highway")  # tramvaj v ose silnice (jedna way) zůstává silnicí
         and not _is_osm_tunnel(tags)
         and (tags.get("area") or "no").lower() != "yes"
+        and (tags.get("service") or "").lower() not in OSM_RAIL_SKIP_SERVICE
     ):
         return rail_kind, feature_oom_code(rail_kind, "")
     return None

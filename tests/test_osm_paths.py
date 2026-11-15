@@ -3080,6 +3080,9 @@ def test_sea_from_coastline(monkeypatch, ways, sea_m2):
         ({"railway": "disused"}, None),
         ({"railway": "construction"}, None),
         ({"railway": "subway"}, None),
+        ({"railway": "rail", "service": "yard"}, None),  # kolejiště nádraží
+        ({"railway": "rail", "service": "siding"}, None),
+        ({"railway": "rail", "service": "spur"}, ("rail_line", "509")),  # vlečka do závodu zůstává
     ],
 )
 def test_osm_rails_abroad(tmp_path, monkeypatch, tags, want):
