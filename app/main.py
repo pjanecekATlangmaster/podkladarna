@@ -499,6 +499,11 @@ def index(request: Request) -> HTMLResponse:
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
     html = html.replace("<!-- PODKLADARNA_PAID -->", paid_flow.form_note_html(request, lang))
+    if paid_flow.active_for(request):
+        # Placená služba: věta „… je zdarma, příspěvek pomůže“ po doběhnutí mapy neplatí.
+        html = html.replace(
+            '<p class="support-note">{{h:web.page.prisel_podklad_vhod_podkladarna_je_zdarma}}</p>', ""
+        )
     # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
