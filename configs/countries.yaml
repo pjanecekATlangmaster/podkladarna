@@ -65,7 +65,7 @@ CH:
   technical_map_gaps: countries/ch_no_av.geojson  # kantony bez volné AV (swissBOUNDARIES3D, zjednodušeno)
   cz_sources: false
   # Licence: swisstopo OGD (volné použití, uvést zdroj), AV kantonů „Freie Nutzung, Quellenangabe ist Pflicht“.
-  citation: "Base map: Omapic · © swisstopo · AV kantonů (geodienste.ch) · OSM, [year]"
+  citation: "Base map: Omapic · © swisstopo · AV cantons (geodienste.ch) · OSM, [year]"
   attribution:
     - "Elevation: swissALTI3D and swissSURFACE3D Raster © swisstopo (Open Government Data)."
     - "Orthophoto SWISSIMAGE, national map and hillshade © swisstopo."

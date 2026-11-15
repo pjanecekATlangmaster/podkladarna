@@ -344,6 +344,11 @@ def test_citation_by_country(country, must, must_not):
     for text in must_not:
         assert text not in data_part and text not in about[about.index("Právní"):]
     assert meta["citation_short"] in about
+    if country != "CZ":  # zahraniční citace jsou anglicky (Omapic), bez českých slov (dřív „AV kantonů“)
+        from app.pipeline.country_profile import attribution_lines, citation
+
+        texts = citation({"country": country}) + " ".join(attribution_lines({"country": country}))
+        assert not set("ěřůĚŘŮ") & set(texts), texts
     # Mezinárodní výstup neodkazuje na náš GitHub, český ano.
     has_github = "github.com/pjanecek" in about
     assert has_github == (country == "CZ") and ("github.com/pjanecek" in readme) == (country == "CZ")
