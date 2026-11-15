@@ -463,11 +463,13 @@ def start_reference_download(
 
 
 def _with_online_templates(
-    built_refs: dict[str, Path], bbox, reference_dir: Path, log: callable, *, only_online: bool = False
+    built_refs: dict[str, Path], bbox, reference_dir: Path, log: callable, *, only_online: bool = False,
+    download: bool = False,
 ) -> dict[str, Path]:
     """Online šablony podkladů (GDAL WMS ``.xml``) místo stažených rastrů (Petr 2026-11-08, výchozí).
 
     ``only_online``: se staženými rastry jen vrstvy bez staženého protějšku (archivní ortofoto).
+    ``download``: mimo Česko se zapnutými staženými podklady šablony rovnou stáhnout jako rastry.
     """
     if not bbox:
         return built_refs
@@ -485,6 +487,15 @@ def _with_online_templates(
     except Exception as exc:
         log_issue(log, f"Online šablony podkladů: přeskočeno ({exc})")
         return built_refs
+    if download and online:
+        from app.pipeline.online_templates import download_online_templates
+
+        before = len(online)
+        log("Stahuji podklady místních služeb (zapnuté „Stáhnout referenční šablony předem“)…")
+        online = download_online_templates(online, country.code if country else "CZ", log=log)
+        rasters = sum(1 for p in online.values() if p.suffix.lower() in {".jpg", ".png"})
+        log(f"Podklady staženy předem: {rasters} rastrů, online zůstalo {len(online) - rasters} šablon (z {before})")
+        return {**built_refs, **online}
     log(f"Online šablony podkladů: {len(online)} (stáhnou se až v Mapperu)")
     return {**built_refs, **online}
 
@@ -536,7 +547,7 @@ def join_reference_download(
         built_refs = _with_vegetation_height(built_refs, work_dir, reference_dir, log)
         if sentinel:
             add_sentinel2_reference(built_refs, tuple(bbox), reference_dir, log=log)
-        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log)
+        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log, download=want_refs)
         if progress is not None:
             progress.done()
         return built_refs, sorted(p.name for p in built_refs.values())
