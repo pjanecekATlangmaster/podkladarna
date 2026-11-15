@@ -43,6 +43,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, silnice, chodníky, schody, mosty, zahrady",
         module="app.pipeline.av_ch",
     ),
+    "at_fmzk": TechnicalMap(
+        key="at_fmzk",
+        short="FMZK",
+        step="data FMZK",
+        background="Data FMZK (Stadt Wien)",
+        content="budovy, vozovky, chodníky, parkování, schody, dvory a zahrady",
+        module="app.pipeline.fmzk_at",
+    ),
 }
 
 

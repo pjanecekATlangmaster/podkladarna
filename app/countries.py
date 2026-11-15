@@ -60,7 +60,7 @@ class Country:
     view: tuple[float, float, float, float]  # jih, západ, sever, východ
     elevation: str = "cz_openzu"  # zdroj výšek (``app.pipeline.country_profile``)
     cz_sources: bool = True  # ZABAGED, RÚIAN, DTM, katastr, AOPK, ČÚZK ortofoto a stínování
-    # Obdoba české DTM (velkoměřítková technická mapa) pro kresbu: ``cz_dtm`` | ``nl_bgt`` | ``ch_av`` | ``none``.
+    # Obdoba české DTM (velkoměřítková technická mapa) pro kresbu: ``cz_dtm`` | ``nl_bgt`` | ``ch_av`` | ``at_fmzk`` | ``none``.
     technical_map: str = "cz_dtm"
     # Citace zdrojů, které vyžadují licence místních dat (README, CO_JE_PODKLADARNA, poznámka .omap).
     attribution: tuple[str, ...] = ()
@@ -272,10 +272,13 @@ def outside_note(country: Country, share: float) -> str | None:
     if share >= FULL_SHARE:
         return None
     pct = max(1, round((1.0 - share) * 100))
-    return (
-        f"{pct} % výřezu leží mimo {country.name()}: tam se kreslí jen z OSM "
-        "(bez terénu z LiDARu, ZABAGED a DTM)."
-    )
+    if country.cz_sources:
+        return (
+            f"{pct} % výřezu leží mimo {country.name()}: tam se kreslí jen z OSM "
+            "(bez terénu z LiDARu, ZABAGED a DTM)."
+        )
+    # Mimo Česko jmenovat jen místní zdroje (výšky mohou pokrývat víc než polygon země, AT: BEV celé Rakousko).
+    return f"{pct} % výřezu leží mimo {country.name()}: tam se kreslí jen z OSM, bez místní velkoměřítkové mapy."
 
 
 def outside_share(share: float) -> float:

@@ -37,6 +37,7 @@ from app.pipeline.dtm_sources import DMVS_API
 from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
 from app.pipeline.osm_paths import OVERPASS_URLS
 from app.pipeline.bgt_nl import BGT_API
+from app.pipeline.reference_at import AT_BEV_PROBE, AT_FMZK_PROBE, AT_LB_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
@@ -188,6 +189,31 @@ PROBES: tuple[Probe, ...] = (
         (CH_WMS_PROBE,),
         "Šablony ortofota, mapy a katastru budou chybět.",
         countries=("CH",),
+    ),
+    # Rakousko (Vídeň): hlavička dlaždice BEV (COG má 10 GB), 1 objekt FMZK, 1 dlaždice ortofota.
+    Probe(
+        "at_bev",
+        "BEV ALS – výšky terénu a povrchu",
+        (AT_BEV_PROBE,),
+        "Bez výšek BEV se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("AT",),
+    ),
+    Probe(
+        "at_fmzk",
+        "FMZK – Flächen-Mehrzweckkarte (Stadt Wien)",
+        (AT_FMZK_PROBE,),
+        "Budovy, vozovky, chodníky, parkování a schody se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("AT",),
+    ),
+    Probe(
+        "at_luftbild",
+        "Luftbild Wien – ortofoto (Stadt Wien)",
+        (AT_LB_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("AT",),
     ),
 )
 

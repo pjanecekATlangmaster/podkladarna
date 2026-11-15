@@ -61,6 +61,7 @@ def test_country_without_surface_is_off(monkeypatch):
         ({"country": "sk"}, False, countries.load_countries()["SK"].elevation),
         ({"country": "NL"}, False, "nl_ahn"),
         ({"country": "CH"}, False, "ch_swisstopo"),
+        ({"country": "AT"}, False, "at_bev"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -279,6 +280,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("CZ", ("Data: ČÚZK (DMR 5G", "Podkladárna · ČÚZK · OSM"), ("AHN",)),
         ("NL", ("Bron: AHN", "Bron: Kadaster", "Beeldmateriaal.nl", "OpenStreetMap (ODbL)"), ("ČÚZK",)),
         ("CH", ("© swisstopo", "geodienste.ch", "OpenStreetMap (ODbL)"), ("ČÚZK", "AHN")),
+        ("AT", ("Datenquelle: BEV", "Stadt Wien – data.wien.gv.at", "OpenStreetMap (ODbL)"), ("ČÚZK", "swisstopo")),
     ],
 )
 def test_citation_by_country(country, must, must_not):
@@ -330,14 +332,27 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_nl_luchtfoto", "service.pdok.nl", "Actueel_orthoHR"),
         ("CH", (2600000.0, 1199000.0, 2601000.0, 1200000.0), {"online_ch_swissimage", "online_ch_av", "online_ch_landeskarte"},
          "online_ch_swissimage", "wms.geo.admin.ch", "ch.swisstopo.swissimage"),
+        # Vídeň: WMS v nativním MGI (server převádí bez posunu data), okno výřezu jako VRT; výřez v souřadnicích testu (S-JTSK)
+        ("AT", (-628500.0, -1268000.0, -627500.0, -1267000.0), {"online_at_fmzk"}, "online_at_fmzk",
+         "data.wien.gv.at", "FMZKVERKEHR2OGD"),
     ],
 )
-def test_foreign_online_templates(tmp_path, country, bounds, keys, ortho, host, layer):
+def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):
+    from app.pipeline import online_templates
     from app.pipeline.online_templates import online_labels, write_online_templates
 
+    def fake_warp(src, vrt, bounds, mpp):  # bez GDAL v CI: VRT jen odkazuje na zdroj
+        vrt.write_text(src.name, encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(online_templates, "osm_sjtsk_vrt", fake_warp)
     written = write_online_templates(bounds, tmp_path, country=country)
     assert keys <= set(written)
     assert not any(k.startswith("online_orthophoto") for k in written)  # ČÚZK mimo Česko ne
-    xml = written[ortho].read_text(encoding="utf-8")
+    path = written[ortho]
+    if path.suffix == ".vrt":
+        path = tmp_path / path.read_text(encoding="utf-8")
+        assert f"<CRS>{online_templates.WMS_NATIVE_CRS[ortho[len('online_'):]]}</CRS>" in path.read_text(encoding="utf-8")
+    xml = path.read_text(encoding="utf-8")
     assert host in xml and layer in xml
     assert set(written) <= set(online_labels())
