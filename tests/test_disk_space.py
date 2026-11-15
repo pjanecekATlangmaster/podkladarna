@@ -211,6 +211,7 @@ def test_ensure_job_space_prunes_oldest_then_fails(tmp_path, monkeypatch):
         return state["free"] + gone * int(0.3e9)
 
     monkeypatch.setattr(disk_space, "free_bytes", fake_free)
+    monkeypatch.setattr(disk_space, "same_disk", lambda _a, _b: True)
     with pytest.raises(disk_space.DiskFullError):
         disk_space.ensure_job_space(5.0)
     assert not older.exists() and not newer.exists()
@@ -220,6 +221,45 @@ def test_ensure_job_space_prunes_oldest_then_fails(tmp_path, monkeypatch):
     newer = _aoi_entry(tmp_path / "references", "newer", 10, 1)
     disk_space.ensure_job_space(5.0)
     assert not older.exists() and newer.exists()
+
+
+@pytest.mark.parametrize(
+    "data_free_gb, cache_free_gb, fails, cache_pruned",
+    [
+        (0.3, 100.0, True, False),  # málo místa pro joby: cache na jiném disku nemazat, rovnou chyba
+        (100.0, 0.3, False, True),  # málo místa v cache: smazat starou cache na jejím disku, job projde
+        (100.0, 100.0, False, False),
+    ],
+)
+def test_ensure_job_space_cache_on_other_disk(tmp_path, monkeypatch, data_free_gb, cache_free_gb, fails, cache_pruned):
+    import app.settings as settings
+
+    data = tmp_path / "data"
+    cache = tmp_path / "cache"
+    data.mkdir()
+    monkeypatch.setattr(settings, "DATA_ROOT", data)
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", cache)
+    monkeypatch.setattr(settings, "DISK_JOB_BASE_GB", 1.0)
+    monkeypatch.setattr(settings, "DISK_JOB_GB_PER_KM2", 0.0)
+    entry = _aoi_entry(cache / "references", "old", 10, 3)
+    monkeypatch.setattr(disk_space, "same_disk", lambda a, b: Path(a) == Path(b))
+
+    def fake_free(p=None):
+        if Path(p or data) == cache:
+            return int(cache_free_gb * 1e9) + (0 if entry.exists() else int(1e9))
+        return int(data_free_gb * 1e9)
+
+    monkeypatch.setattr(disk_space, "free_bytes", fake_free)
+    if fails:
+        with pytest.raises(disk_space.DiskFullError):
+            disk_space.ensure_job_space(1.0)
+    else:
+        disk_space.ensure_job_space(1.0)
+    assert entry.exists() is not cache_pruned
+
+
+def test_same_disk(tmp_path):
+    assert disk_space.same_disk(tmp_path, tmp_path / "neexistuje" / "cache")
 
 
 def test_lidar_cache_cap_limited_by_disk_share(tmp_path, monkeypatch):
