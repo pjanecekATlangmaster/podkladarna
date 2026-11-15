@@ -65,6 +65,10 @@ services:
       PODKLADARNA_INSTANCE: A
       PODKLADARNA_CHANNEL: stable
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://podkladarna.kibos.link}
+      # Domény a jazyky (app/i18n.py): prázdné = jen čeština a jen Česko (stav do 3.56).
+      # Zahraniční bety dostane jen doména se zemí `*` v SITES, nikdy česká `:CZ` (Petr 2026-11-15).
+      SITES: ${SITES_A:-}
+      LANGS: ${LANGS_A:-}
 
   podkladarna-test:
     <<: *app
@@ -83,3 +87,7 @@ services:
       PODKLADARNA_CHANNEL: test
       PODKLADARNA_STABLE_URL: ${STABLE_URL:-https://podkladarna.kibos.link}
       PUBLIC_BASE_URL: ${TEST_PUBLIC_BASE_URL:-https://pt.kibos.link}
+      # pt.kibos.link = česká verze jen Česko, ulvi.kibos.link = test mezinárodní verze se všemi zeměmi
+      # (Petr 2026-11-15). Bez PAYMENTS_PROVIDER se na doméně `paid` neplatí.
+      SITES: ${SITES_B:-pt.kibos.link=cs:free:CZ,ulvi.kibos.link=en:paid:*}
+      LANGS: ${LANGS_B:-cs,en}
