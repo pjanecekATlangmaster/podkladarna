@@ -2901,13 +2901,27 @@ def test_sprint_skips_gates_and_bollards_but_keeps_stiles(tmp_path):
     assert count("forest_10000") == 5
 
 
-def test_is_covered_passage_tags():
+# (tagy, země jobu, krytý průchod) – podloubí covered=arcade jen mimo Česko (Bern), Česko beze změny.
+@pytest.mark.parametrize(
+    "tags, country, expected",
+    [
+        ({"highway": "footway", "covered": "yes"}, "CZ", True),
+        ({"highway": "footway", "tunnel": "building_passage"}, "CZ", True),
+        ({"highway": "footway", "covered": "no"}, "CZ", False),
+        ({"highway": "footway"}, "CZ", False),
+        ({"highway": "footway", "covered": "arcade", "layer": "-1"}, "CZ", False),
+        ({"highway": "footway", "covered": "arcade", "layer": "-1"}, "CH", True),
+        ({"highway": "footway", "tunnel": "arcade"}, "CH", True),
+        ({"highway": "footway", "covered": "colonnade"}, "IT", True),
+        ({"highway": "footway", "covered": "no"}, "CH", False),
+    ],
+)
+def test_is_covered_passage_tags(tags, country, expected, monkeypatch):
+    from app.pipeline.country_profile import JOB_COUNTRY_ENV
     from app.pipeline.osm_paths import is_covered_passage
 
-    assert is_covered_passage({"highway": "footway", "covered": "yes"})
-    assert is_covered_passage({"highway": "footway", "tunnel": "building_passage"})
-    assert not is_covered_passage({"highway": "footway", "covered": "no"})
-    assert not is_covered_passage({"highway": "footway"})
+    monkeypatch.setenv(JOB_COUNTRY_ENV, country)
+    assert is_covered_passage(tags) is expected
 
 
 def test_prepare_writes_barrier_value_and_covered_passages_file(tmp_path, monkeypatch):
