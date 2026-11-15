@@ -163,7 +163,15 @@ def _minus_mouths(zone, rest, axes):
             mouths.append(MultiPoint(pts).convex_hull.intersection(band).difference(drawn))
     if not mouths:
         return zone
-    return zone.difference(unary_union(mouths))
+    try:
+        return zone.difference(unary_union(mouths))
+    except Exception:  # GEOS „non-noded intersection“ u téměř shodných hran (BGT): znovu na centimetrové mřížce
+        import shapely
+
+        try:
+            return shapely.difference(zone, shapely.union_all(mouths, grid_size=0.01), grid_size=0.01)
+        except Exception:  # ústí se nevyříznou, pás zůstane celý
+            return zone
 
 
 def minus_zone(geom, zone):

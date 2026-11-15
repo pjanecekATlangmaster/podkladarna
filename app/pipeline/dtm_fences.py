@@ -780,11 +780,15 @@ def fence_gap_connectors(
             candidates.append((gap, a, b))
     used: set[int] = set()
     out = []
+    if forbidden is not None:
+        import shapely
+
+        shapely.prepare(forbidden)  # připravená zóna jako první argument (výsledek stejný, rychleji)
     for gap, a, b in sorted(candidates):
         if a in used or b in used:
             continue
         link = LineString([ends[a][1], ends[b][1]])
-        if forbidden is not None and link.intersects(forbidden):
+        if forbidden is not None and forbidden.intersects(link):
             continue
         if near is not None and link.distance(near) > near_m:
             continue

@@ -36,7 +36,8 @@ from app import countries, settings
 from app.pipeline.dtm_sources import DMVS_API
 from app.pipeline.fetch_openzu import OPENZU_DMPOK, OPENZU_DMR, USER_AGENT
 from app.pipeline.osm_paths import OVERPASS_URLS
-from app.pipeline.reference_nl import NL_AHN_WCS, NL_BGT_WMTS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
+from app.pipeline.bgt_nl import BGT_API
+from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
 from app.pipeline.sentinel2 import STAC_SEARCH_URL
 
 logger = logging.getLogger(__name__)
@@ -150,9 +151,9 @@ PROBES: tuple[Probe, ...] = (
     Probe(
         "nl_bgt",
         "BGT – velkoměřítková mapa (PDOK)",
-        (f"{NL_BGT_WMTS}?service=WMTS&request=GetCapabilities",),
-        "Šablona BGT bude chybět.",
-        method="HEAD",
+        (f"{BGT_API}/collections/pand?f=json",),  # OGC API Features (kresba); HEAD API neumí (404)
+        "Budovy, silnice, chodníky, ploty a soukromé pozemky se nakreslí jen z OSM.",
+        needs="dtm",
         countries=("NL",),
     ),
     Probe(

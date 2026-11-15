@@ -83,6 +83,10 @@ def is_paved_street_highway(highway: str) -> bool:
 
 def fetch_street_parcels(work_dir: Path, bbox_wgs84, log=None) -> Path | None:
     """Parcely komunikací (RÚIAN vrstva Parcela) v obálce výřezu → ``work_dir/ruian_parcels/komunikace.geojson``."""
+    from app.pipeline.country_profile import process_uses_cz_sources
+
+    if not process_uses_cz_sources():  # katastr ČÚZK jen v Česku
+        return None
     dest = Path(work_dir) / CACHE_SUBDIR / PARCELS_NAME
     if dest.is_file() and dest.stat().st_size > 20:
         return dest

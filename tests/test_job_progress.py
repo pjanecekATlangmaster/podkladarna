@@ -2,6 +2,7 @@ import pytest
 
 from app.pipeline import job_progress as jp
 from app.pipeline.job_progress import (
+    BGT_STEP,
     DTM_STEP,
     MAP_PHASES,
     PREVIEW_STEP,
@@ -10,6 +11,7 @@ from app.pipeline.job_progress import (
     MapPhaseTracker,
     format_elapsed,
     indented_log,
+    omitted_steps,
     plan_pipeline_steps,
 )
 
@@ -153,6 +155,25 @@ def test_plan_pipeline_steps_reuse_includes_copy_and_prepare():
     assert steps[0] == "kopie LAZ z předchozího jobu"
     assert "příprava LiDAR" in steps
     assert "referenční podklady" not in steps
+
+
+@pytest.mark.parametrize(
+    ("tech", "expected_step", "absent"),
+    [("nl_bgt", BGT_STEP, DTM_STEP), ("none", None, DTM_STEP)],
+)
+def test_plan_steps_abroad_without_czech_sources(tech, expected_step, absent):
+    """Mimo Česko plán bez ZABAGED, RÚIAN a LiDARu; místo „DTM kraje“ obdoba země (BGT) nebo nic."""
+    kw = {"cz_sources": False, "raster_elevation": True, "technical_map": tech}
+    steps = plan_pipeline_steps(bbox=(1, 2, 3, 4), reused_from=None, want_zip=True, want_refs=True, **kw)
+    for step in ("stažení ZABAGED", "příprava ZABAGED", "RÚIAN a AOPK", "stažení LiDAR", "příprava LiDAR", absent):
+        assert step not in steps
+    if expected_step:
+        assert steps[steps.index(expected_step) + 1] == MAP_PHASES[0]
+    lines: list[str] = []
+    progress = JobProgress(lines.append, steps, clock=lambda: 0.0, omitted=omitted_steps(**kw))
+    progress.skip("stažení ZABAGED", reason="mimo Česko")  # vynechaný krok neposune číslování ani nic nevypíše
+    progress.begin("mřížka mapy")
+    assert lines == [f"[1/{len(steps)}] Mřížka mapy · 0:00"]
 
 
 @pytest.mark.parametrize(

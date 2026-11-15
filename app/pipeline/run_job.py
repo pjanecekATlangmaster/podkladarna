@@ -24,9 +24,11 @@ from app.pipeline.contours_gdal import generate_job_contours, qa_contours_vs_sha
 from app.pipeline.country_profile import (
     ELEVATION_CZ,
     elevation_source,
+    job_country,
     job_country_code,
     process_uses_cz_sources,
     set_process_country,
+    technical_map_source,
     uses_cz_sources,
 )
 from app.pipeline.dem_prep import SurfacesPrep, start_job_surfaces
@@ -91,6 +93,8 @@ from app.pipeline.shade import build_job_shade
 from app.pipeline.job_progress import (
     IssueCollector,
     DTM_STEP,
+    TECHNICAL_MAP_STEPS,
+    omitted_steps,
     PREVIEW_STEP,
     background_task,
     ZIP_STEP,
@@ -177,6 +181,40 @@ class VectorPrefetch:
     def streets(self, log: callable | None = None) -> None:
         self._wait("streets", log, "parcely ulic z katastru")
 
+
+
+def technical_map_line(tech_map: str, dtm_on: bool) -> str:
+    """Řádek logu o kresbě z technické mapy země (DTM ČÚZK, BGT …)."""
+    if tech_map == "nl_bgt":
+        return (
+            "Kresba z BGT: ano – BGT (budovy, silnice, chodníky, parkoviště, ploty, soukromé pozemky) se stahuje "
+            "na pozadí, do mapy jde při sestavení."
+            if dtm_on
+            else "Kresba z BGT: ne – mapa se kreslí z OSM."
+        )
+    if tech_map == "cz_dtm":
+        return (
+            "Kresba z DTM: ano – data DTM (ploty, budovy, chodníky, silnice) se připravují na pozadí, "
+            "do mapy jdou při sestavení."
+            if dtm_on
+            else "Kresba z DTM: ne – mapa se kreslí z OSM a ZABAGED."
+        )
+    return "Kresba: z OSM (technická mapa země zatím není zapojená)."
+
+
+# Popis výškových zdrojů země do logu (``elevation`` v ``configs/countries.yaml``).
+ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)"}
+
+
+def country_sources_line(options: dict) -> str:
+    """Řádek logu se zdroji země výřezu mimo Česko (bez výčtu nepoužitých českých zdrojů)."""
+    country = job_country(options)
+    name = country.name("cs") if country else job_country_code(options)
+    tech = technical_map_source(options)
+    drawing = "OSM a BGT" if tech == "nl_bgt" else "OSM"
+    elevation = elevation_source(options)
+    heights = ELEVATION_LABELS.get(elevation, elevation)
+    return f"Země výřezu: {name} – kresba z {drawing}, výšky z {heights}."
 
 def start_vector_prefetch(
     work_dir: Path,
@@ -613,7 +651,9 @@ def run_job_pipeline(
     # Země jobu (zahraniční build): mimo Česko bez českých zdrojů, výšky ze zdroje země.
     cz_sources = uses_cz_sources(options)
     elevation = elevation_source(options)
+    tech_map = technical_map_source(options)
     set_process_country(options)
+    raster_elevation = bool(bbox) and elevation != ELEVATION_CZ
 
     want_zip, _ = resolve_want_zip(options)
     want_refs = bool(options.get("output_references", True))
@@ -625,7 +665,11 @@ def run_job_pipeline(
             reused_from=reused_from,
             want_zip=want_zip,
             want_refs=True,  # krok podkladů běží vždy (vektorový katastr, ortofoto sprintu)
+            cz_sources=cz_sources,
+            raster_elevation=raster_elevation,
+            technical_map=tech_map,
         ),
+        omitted=omitted_steps(cz_sources=cz_sources, raster_elevation=raster_elevation, technical_map=tech_map),
     )
     progress.announce_plan()
     build_stats.attach_progress(progress)
@@ -633,10 +677,7 @@ def run_job_pipeline(
     if force_refresh:
         raw_log("Vynucené obnovení: cache (LiDAR, ZABAGED, podklady) se nepoužije.")
     if not cz_sources:
-        raw_log(
-            f"Země výřezu: {job_country_code(options)} – mapa se kreslí z OSM, české zdroje "
-            "(ZABAGED, DTM, RÚIAN, katastr, ortofoto ČÚZK) se nestahují."
-        )
+        raw_log(country_sources_line(options))
     # Bez DTM se les a MTBO kreslí plnohodnotně z OSM a ZABAGED: chybějící DTM je chyba jobu jen u sprintu z DTM.
     try:
         dtm_needed = bool(
@@ -650,7 +691,9 @@ def run_job_pipeline(
     try:  # stav zdrojů z poslední kontroly webu (app.source_status); job běží dál beze změny
         from app import source_status
 
-        use_dtm_any = cz_sources and (resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest"))
+        use_dtm_any = tech_map in TECHNICAL_MAP_STEPS and (
+            resolve_use_dtm(options, "sprint") or resolve_use_dtm(options, "forest")
+        )
         # Zdroje země výřezu (mimo Česko místní servery, OSM a Sentinel; české se nepoužijí).
         services = source_status.down_services(use_dtm=use_dtm_any, country=job_country_code(options))
         for is_issue, text in down_source_lines(services, dtm_needed=dtm_needed):
@@ -696,8 +739,13 @@ def run_job_pipeline(
         # DTM kraje (zaměřené ploty, budovy, chodníky, silnice …; sprint, les i MTBO): příprava na pozadí,
         # výsledek se vezme při sestavení mapy (každý preset si z něj bere, co dává smysl).
         try:
+            # Technická mapa země: v Česku DTM, v Nizozemsku BGT (``bgt_nl``); jinde jen OSM.
             dtm_maps = {
-                tag: bool(cz_sources and resolve_use_dtm(options, disc_preset) and options.get("dtm_fences", True))
+                tag: bool(
+                    tech_map in TECHNICAL_MAP_STEPS
+                    and resolve_use_dtm(options, disc_preset)
+                    and options.get("dtm_fences", True)
+                )
                 for tag, disc_preset, _scale in resolve_discipline_presets(
                     preset_id,
                     load_presets(),
@@ -708,30 +756,25 @@ def run_job_pipeline(
             }
             dtm_used = any(dtm_maps.values())
             dtm_on = bool(options.get("dtm_fences", True) and dtm_used)
-            dtm_summary_data = dtm_summary.initial_summary(
-                dtm_maps,
-                dtm_on,
-                # „automaticky“ = les/MTBO bez výslovné volby (GUI auto nic neposílá) a DTM nevypnuté
-                auto=options.get("dtm_forest") is None and options.get("dtm_fences", True) is not False,
-            )
-            dtm_summary.write_summary(work_dir, dtm_summary_data)
-            options = {**options, "_dtm_summary": dtm_summary_data}
+            if tech_map == "cz_dtm":  # souhrn DTM (obce, kraje, úplnost ploch) je jen pro Česko
+                dtm_summary_data = dtm_summary.initial_summary(
+                    dtm_maps,
+                    dtm_on,
+                    # „automaticky“ = les/MTBO bez výslovné volby (GUI auto nic neposílá) a DTM nevypnuté
+                    auto=options.get("dtm_forest") is None and options.get("dtm_fences", True) is not False,
+                )
+                dtm_summary.write_summary(work_dir, dtm_summary_data)
+                options = {**options, "_dtm_summary": dtm_summary_data}
             build_stats.set_info(dtm=dtm_on)
             # DTM běží souběžně na pozadí; krok „DTM kraje“ v plánu je až čekání na něj před sestavením map.
-            raw_log(
-                "Kresba z DTM: ano – data DTM (ploty, budovy, chodníky, silnice) se připravují na pozadí, "
-                "do mapy jdou při sestavení."
-                if dtm_on
-                else "Kresba z DTM: ne – mapa se kreslí z OSM a ZABAGED."
-                if cz_sources
-                else "Kresba z DTM: ne – mimo Česko."
-            )
+            raw_log(technical_map_line(tech_map, dtm_on))
             if dtm_on:
                 dtm_prefetch = start_dtm_prefetch(
                     work_dir,
                     tuple(bbox),
-                    log=background_log(raw_log, DTM_LOG_LABEL),
+                    log=background_log(raw_log, "BGT" if tech_map == "nl_bgt" else DTM_LOG_LABEL),
                     force=force_refresh,
+                    source=tech_map,
                 )
         except Exception as exc:
             if dtm_needed:
@@ -767,7 +810,6 @@ def run_job_pipeline(
         if pair is not None:
             merged_existing = pair[0]
 
-    raster_elevation = bool(bbox) and elevation != ELEVATION_CZ
     if bbox and raster_elevation:
         # Mimo Česko: výšky jako rastry terénu a povrchu (``elevation_raster``) až na mřížce mapy, bez LAZ.
         progress.skip("stažení LiDAR", reason=f"výšky ze zdroje země ({elevation})")
@@ -1331,7 +1373,8 @@ def _package_output(
             residual_paved = bool(options.get("sprint_residual_paved"))
             residual_size = resolve_residual_size(options)
             max_residual_m2 = residual_max_m2(residual_size)
-            log(
+            log_ostatni = log if uses_cz_sources(options) else (lambda _msg: None)  # ZABAGED jen v Česku
+            log_ostatni(
                 f"Ostatní plocha v sídlech (auto .omap): {ostatni_choice}"
                 + (
                     " (negenerovat)"
@@ -1353,14 +1396,19 @@ def _package_output(
                     f"(auto .omap {size_note}; SHP všechna pásma + řídké)"
                 )
 
+            dtm_step = TECHNICAL_MAP_STEPS.get(technical_map_source(options), DTM_STEP)
             if progress is not None and dtm_prefetch is None:
-                progress.skip(DTM_STEP, reason="kresba bez DTM")
+                progress.skip(dtm_step, reason="kresba bez DTM" if dtm_step == DTM_STEP else "vypnuto")
             if dtm_prefetch is not None:
                 if progress is not None:
-                    progress.begin(DTM_STEP)
+                    progress.begin(dtm_step)
                 t_dtm_wait = time.monotonic()
                 if not dtm_prefetch.future.done():
-                    log("Čekám na přípravu DTM (ploty) z pozadí…")
+                    log(
+                        "Čekám na přípravu DTM (ploty) z pozadí…"
+                        if dtm_step == DTM_STEP
+                        else f"Čekám na {dtm_step} z pozadí…"
+                    )
                 dtm_prefetch.result()  # chyby řeší vlákno samo (job pokračuje bez DTM)
                 if options.get("_dtm_summary"):
                     dtm_final = dtm_summary.finalize_summary(

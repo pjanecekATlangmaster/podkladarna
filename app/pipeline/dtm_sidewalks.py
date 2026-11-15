@@ -195,6 +195,46 @@ def load_parking_polygons(opl_zip: str | Path, *, use_cache: bool = True) -> lis
     return load_polygons(opl_zip, PARKING_TYPES, PARKING_CACHE_SUFFIX, use_cache=use_cache)
 
 
+def _touching_both(pieces: list, a, b) -> list:
+    """Polygony z ``pieces``, které protínají ``a`` i ``b`` (v pořadí). Velké ``a`` a ``b`` se připraví a testují
+    jako první argument – po kusech proti celé ploše to bylo kvadratické (BGT Delft: 1 800 kusů, 2 min)."""
+    import shapely
+
+    polys = [p for p in pieces if p.geom_type == "Polygon"]
+    if not polys:
+        return []
+    for g in (a, b):
+        shapely.prepare(g)
+    hit = shapely.intersects(a, polys) & shapely.intersects(b, polys)
+    return [p for p, h in zip(polys, hit.tolist()) if h]
+
+
+# Mřížka (m) pro opakování rozdílů a sjednocení po chybě GEOS „non-noded intersection“: plochy BGT mají po
+# zjednodušení hrany sousedních ploch téměř, ale ne přesně shodné (sprint Delft).
+ROBUST_GRID_M = 0.01
+
+
+def _retry_snapped(fn):
+    """Při chybě GEOS zopakuje ``fn`` se vstupními plochami přichycenými na mřížku ``ROBUST_GRID_M``."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        import shapely
+        from shapely.errors import GEOSException
+
+        try:
+            return fn(*args, **kwargs)
+        except GEOSException:
+            def snap(v):
+                return shapely.set_precision(v, ROBUST_GRID_M) if isinstance(v, shapely.Geometry) else v
+
+            return fn(*[snap(a) for a in args], **{k: snap(v) for k, v in kwargs.items()})
+
+    return wrapper
+
+
+@_retry_snapped
 def separate_from_roads(geom, roads, gap_m: float = ROAD_EDGE_GAP_M):
     """Plocha ``geom`` (chodník) po ořezu o silnice ``roads`` a zacelení škvír užších než ``gap_m``.
 
@@ -211,7 +251,7 @@ def separate_from_roads(geom, roads, gap_m: float = ROAD_EDGE_GAP_M):
     fill = both.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2).difference(both)
     pieces = [fill] if fill.geom_type == "Polygon" else list(getattr(fill, "geoms", []))
     near_geom, near_roads = geom.buffer(0.02), roads.buffer(0.02)
-    gaps = [p for p in pieces if p.geom_type == "Polygon" and p.intersects(near_geom) and p.intersects(near_roads)]
+    gaps = _touching_both(pieces, near_geom, near_roads)
     return unary_union([geom, *gaps]).difference(roads)
 
 
@@ -223,6 +263,7 @@ MERGE_GAP_M = CORRIDOR_GAP_M
 MERGE_INTERFACE_TOL_M = 0.15
 
 
+@_retry_snapped
 def merge_sidewalk_with_road(
     roads,
     sidewalks,
@@ -251,7 +292,7 @@ def merge_sidewalk_with_road(
     fill = both.buffer(gap_m / 2, join_style=2).buffer(-gap_m / 2, join_style=2).difference(both)
     pieces = [fill] if fill.geom_type == "Polygon" else list(getattr(fill, "geoms", []))
     near_g, near_r = near.buffer(0.02), roads.buffer(0.02)
-    gaps = [p for p in pieces if p.geom_type == "Polygon" and p.intersects(near_g) and p.intersects(near_r)]
+    gaps = _touching_both(pieces, near_g, near_r)
     near_closed = unary_union([near, *gaps])
     near_adj = near_closed.difference(roads)
     merged = unary_union([roads, near_adj]) if not near_adj.is_empty else roads
