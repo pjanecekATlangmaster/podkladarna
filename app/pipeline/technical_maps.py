@@ -75,6 +75,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, uliční prostor, pěší plochy, parkoviště, zeleň, dvory a zahrady, ploty",
         module="app.pipeline.etak_ee",
     ),
+    "be_grb": TechnicalMap(
+        key="be_grb",
+        short="GRB",
+        step="data GRB",
+        background="Data GRB (Digitaal Vlaanderen)",
+        content="budovy, uliční prostor, vozovky a chodníky",
+        module="app.pipeline.grb_be",
+    ),
 }
 
 
