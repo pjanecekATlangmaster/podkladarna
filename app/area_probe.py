@@ -142,7 +142,15 @@ def probe(
         if country.elevation in elevation_raster.SOURCE_LABELS
         else country.elevation
     )
-    if elev_share is not None and elev_status == "checked":
+    limit = elevation_raster.TILE_LIMITS.get(country.elevation)
+    if limit is not None:
+        try:
+            n_tiles, max_tiles = limit(box)
+        except Exception:  # noqa: BLE001 – sonda je jen pojistka
+            n_tiles, max_tiles = 0, 1
+        if n_tiles > max_tiles:
+            block = i18n.Msg("api.sheets.too_many_tiles", source=elev_label, tiles=n_tiles, max=max_tiles)
+    if block is None and elev_share is not None and elev_status == "checked":
         pct = int(round(elev_share * 100))
         if elev_share < elevation_raster.COVERAGE_MIN_SHARE:
             block = i18n.Msg("api.sheets.no_elevation", source=elev_label, share=pct)

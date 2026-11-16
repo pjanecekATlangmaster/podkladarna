@@ -690,6 +690,7 @@
   "api.country.outside_many": "The area is outside the supported territory ({countries}).",
   "api.country.minority": "Only {pct} % of the area lies in {country}; at least half of the area must be in the supported territory. Move the area further into the country.",
   "api.sheets.no_elevation": "Most of the area has no elevation data yet ({source}, data for only {share} % of it). The source is still being extended; try another area.",
+  "api.sheets.too_many_tiles": "The area touches {tiles} height tiles ({source}) of 5 × 5 km; at most {max} can be downloaded. Make the area smaller or move it so it lies in fewer tiles.",
   "api.probe.elevation_partial": "Elevation data ({source}) covers only {share} % of the area; the rest of the map will have no terrain.",
   "api.probe.techmap_partial": "The large-scale base map ({source}) covers only {share} % of the area; the rest is drawn from OSM.",
   "api.probe.techmap_none": "The area has no large-scale base map ({source}); buildings, roads and areas are drawn from OSM.",

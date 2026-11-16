@@ -689,6 +689,7 @@
   "api.country.outside_many": "Výřez je mimo podporované území ({countries}).",
   "api.country.minority": "Výřez leží jen z {pct} % v zemi {country}; aspoň polovina výřezu musí být v podporovaném území. Posuňte výřez víc do země.",
   "api.sheets.no_elevation": "Pro většinu výřezu zatím nejsou výšky ({source}, data jen pro {share} % plochy). Zdroj se postupně doplňuje, zkuste jiné místo.",
+  "api.sheets.too_many_tiles": "Výřez zasahuje do {tiles} dlaždic výšek ({source}) po 5 × 5 km, stáhnout lze nejvýš {max}. Zmenšete nebo posuňte výřez, aby ležel v méně dlaždicích.",
   "api.probe.elevation_partial": "Výšky ({source}) pokrývají jen {share} % výřezu, zbytek mapy bude bez terénu.",
   "api.probe.techmap_partial": "Technická mapa ({source}) pokrývá jen {share} % výřezu, zbytek se kreslí z OSM.",
   "api.probe.techmap_none": "Ve výřezu není technická mapa ({source}), budovy, silnice a plochy se kreslí z OSM.",

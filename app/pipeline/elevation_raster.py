@@ -829,6 +829,11 @@ GB_EA_CRS = "EPSG:27700"
 GB_EA_TILE_M = 5000
 GB_EA_BUFFER_M = 20.0
 GB_EA_MAX_ZIP_BYTES = 200_000_000  # dlaždice má ~75 MB; víc je chyba služby
+# Strop počtu dlaždic na výřez (terén + povrch ~155 MB na dlaždici): víc /api/sheets i job odmítnou. Volba
+# ``GB_EA_MAX_TILES`` v prostředí; výchozí 3 (~460 MB včetně povrchu, z toho terén ~230 MB).
+GB_EA_MAX_TILES = int(os.environ.get("GB_EA_MAX_TILES", "3"))
+GB_EA_TILE_DEADLINE_S = 600.0  # celkový strop jedné dlaždice včetně opakování (běžně 5–15 s)
+GB_EA_NONE_MARK = "{kind}.none"  # značka „dlaždice mimo pokrytí“ (server vrací prázdný ZIP 22 B), aby se nestahovala znovu
 _OS_LETTERS = "ABCDEFGHJKLMNOPQRSTUVWXYZ"  # bez I
 
 
@@ -865,7 +870,11 @@ def gb_ea_tile_dir(tile: str) -> Path:
 
 
 def _gb_ea_tile(kind: str, tile: str, *, log=None) -> Path | None:
-    """GeoTIFF dlaždice z cache, jinak stáhne ZIP a vybalí z něj TIF; None mimo pokrytí (404)."""
+    """GeoTIFF dlaždice z cache, jinak stáhne ZIP a vybalí z něj TIF.
+
+    None mimo pokrytí: moře, Wales a Skotsko vrací server jako 200 s prázdným ZIPem (22 B), neznámý produkt jako 404
+    s JSON. Výsledek „mimo“ se uloží značkou vedle dlaždic. HTML odpověď (např. „Cannot GET“ při přetížení) je
+    přechodná chyba, ne mimo pokrytí."""
     import shutil
     import tempfile
     import time
@@ -878,9 +887,12 @@ def _gb_ea_tile(kind: str, tile: str, *, log=None) -> Path | None:
 
     folder = gb_ea_tile_dir(tile)
     dest = folder / f"{kind}.tif"
+    none_mark = folder / GB_EA_NONE_MARK.format(kind=kind)
     if dest.is_file():
         touch_last_used(folder)
         return dest
+    if none_mark.is_file():
+        return None
     folder.mkdir(parents=True, exist_ok=True)
     fd, zname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".zip", dir=folder)
     os.close(fd)
@@ -888,32 +900,49 @@ def _gb_ea_tile(kind: str, tile: str, *, log=None) -> Path | None:
     tmp: Path | None = None
     started = time.monotonic()
     try:
+        deadline = started + GB_EA_TILE_DEADLINE_S
         for attempt in range(FR_RETRIES + 1):
             req = urllib.request.Request(gb_ea_tile_url(kind, tile), headers={"User-Agent": USER_AGENT})
             try:
-                with urllib.request.urlopen(req, timeout=300) as resp, zpath.open("wb") as fh:
+                timeout = max(10.0, min(300.0, deadline - time.monotonic()))
+                with urllib.request.urlopen(req, timeout=timeout) as resp, zpath.open("wb") as fh:
+                    ctype = (resp.headers.get("Content-Type") or "").lower()
+                    if "html" in ctype:
+                        raise ConnectionError(f"Anglie {kind} {tile}: služba vrátila HTML místo ZIPu")
                     size = 0
                     while chunk := resp.read(1 << 20):
                         size += len(chunk)
                         if size > GB_EA_MAX_ZIP_BYTES:
                             raise RuntimeError(f"Anglie {kind} {tile}: ZIP větší než {GB_EA_MAX_ZIP_BYTES // 1_000_000} MB")
+                        if time.monotonic() > deadline:
+                            raise TimeoutError(f"Anglie {kind} {tile}: dlaždice nestihla {GB_EA_TILE_DEADLINE_S:.0f} s")
                         fh.write(chunk)
                 break
             except urllib.error.HTTPError as exc:
-                if exc.code == 404:
+                body = exc.read(2000).decode("utf-8", "replace") if exc.fp else ""
+                if exc.code == 404 and "html" not in (exc.headers.get("Content-Type") or "").lower() \
+                        and "Cannot GET" not in body:
+                    none_mark.touch()
                     return None
-                if attempt >= FR_RETRIES or not (exc.code >= 500 or exc.code == 429):
+                transient = exc.code >= 500 or exc.code == 429 or exc.code == 404
+                if attempt >= FR_RETRIES or not transient:
                     raise
             except (urllib.error.URLError, TimeoutError, ConnectionError):
-                if attempt >= FR_RETRIES:
+                if attempt >= FR_RETRIES or time.monotonic() > deadline:
                     raise
+            if time.monotonic() + 5.0 * (attempt + 1) > deadline:
+                raise TimeoutError(f"Anglie {kind} {tile}: dlaždice nestihla {GB_EA_TILE_DEADLINE_S:.0f} s")
             if log:
                 log(f"    {tile} {kind}: přechodná chyba služby, pokus {attempt + 2}/{FR_RETRIES + 1}")
             time.sleep(5.0 * (attempt + 1))
         with zipfile.ZipFile(zpath) as zf:
             names = [n for n in zf.namelist() if n.lower().endswith(".tif")]
             if not names:
-                raise RuntimeError(f"Anglie {kind} {tile}: ZIP bez GeoTIFFu")
+                # prázdný ZIP (22 B) = dlaždice mimo pokrytí (moře, Wales, Skotsko)
+                none_mark.touch()
+                if log:
+                    log(f"    {tile} {kind}: mimo pokrytí (prázdný ZIP)")
+                return None
             fd, tname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".tif", dir=folder)
             os.close(fd)
             tmp = Path(tname)
@@ -937,6 +966,10 @@ def gb_ea_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
     window = _buffered(bounds, GB_EA_CRS, GB_EA_BUFFER_M)
     tiles = gb_ea_tiles(window)
+    if len(tiles) > GB_EA_MAX_TILES + 1:  # bránu dělá /api/sheets (``TILE_LIMITS``); +1 na zaokrouhlení mřížky jobu
+        raise ElevationUnavailable(
+            f"výřez zasahuje do {len(tiles)} dlaždic 5 km Environment Agency (strop {GB_EA_MAX_TILES}); zmenšete nebo posuňte výřez"
+        )
     out: dict[str, Path | None] = {}
     with ThreadPoolExecutor(max_workers=2) as ex:
         found = {kind: ex.map(lambda t, k=kind: _gb_ea_tile(k, t, log=log), tiles) for kind in GB_EA_PRODUCTS}
@@ -956,6 +989,13 @@ def gb_ea_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
 
 PROVIDERS["gb_ea"] = gb_ea_provider
+
+
+def gb_ea_tile_count(bbox_wgs84: tuple[float, float, float, float]) -> int:
+    """Počet dlaždic 5 km, které job pro výřez stáhne (bez sítě; pro odmítnutí v /api/sheets)."""
+    xmin, ymin, xmax, ymax = _bounds_in(bbox_wgs84, "EPSG:4326", GB_EA_CRS)
+    b = GB_EA_BUFFER_M
+    return len(gb_ea_tiles((xmin - b, ymin - b, xmax + b, ymax + b)))
 
 
 # --------------------------------------------------------------------------- FR: LiDAR HD MNT + MNS (WMS-R IGN)
@@ -1635,6 +1675,10 @@ SOURCE_LABELS = {
 COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {
     "fr_lidarhd": fr_lidarhd_coverage,
     "it_trentino": it_trentino_coverage,
+}
+# Strop počtu stahovaných dlaždic výšek na výřez (zdroje po celých velkých dlaždicích): zdroj → (počet, strop).
+TILE_LIMITS: dict[str, Callable[[tuple[float, float, float, float]], tuple[int, int]]] = {
+    "gb_ea": lambda bbox: (gb_ea_tile_count(bbox), GB_EA_MAX_TILES),
 }
 COVERAGE_MIN_SHARE = 0.5  # pod polovinou výřezu s výškami job nespouštět (terén by chyběl)
 _COVERAGE_CACHE: dict[tuple, tuple[float, float | None]] = {}
