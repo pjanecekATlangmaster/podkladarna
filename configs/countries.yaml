@@ -28,7 +28,7 @@ CZ:
 # Zemi zařadit jen s volně stažitelným modelem povrchu (DMP / DSM) – výška porostu vždy z DMP (Petr 2026-11-14).
 SK:
   name: {cs: Slovensko, en: Slovakia, sk: Slovensko}
-  status: off               # ÚGKK dává DMP 1.0 jen exportem na e-mail; bez povrchu zemi nezařazujeme
+  status: off               # DMP bez e-mailu, ale jen jako celostátní ZIP 155 GB (jeden TIFF, bez čtení výřezu); čeká na rozhodnutí o disku
   crs: EPSG:5514            # S-JTSK jako Česko (data ÚGKK v S-JTSK [JTSK03])
   boundary: countries/sk.geojson
   view: [47.73, 16.83, 49.62, 22.57]
