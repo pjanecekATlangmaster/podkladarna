@@ -51,3 +51,41 @@ def test_surface_takes_lower_of_winter_als_and_summer_ndom(tmp_path, ndom, dsm, 
     out = er._de_nw_surface(dtm, tif("ndom.tif", ndom), tif("dsm.tif", dsm), tmp_path / "s.tif")
     got = gdal.Open(str(out)).ReadAsArray()[0].tolist()
     assert got == [er.NODATA if v is None else v for v in expected]
+
+
+def test_surface_skips_source_on_other_grid(tmp_path):
+    """Povrch v jiné mřížce než DGM se vynechá a vezme se druhý (review PR 350)."""
+    gdal = pytest.importorskip("osgeo.gdal")
+
+    def tif(name, arr, width=3):
+        ds = gdal.GetDriverByName("GTiff").Create(str(tmp_path / name), width, 1, 1, gdal.GDT_Float32)
+        ds.SetGeoTransform((500000, 1, 0, 5716001, 0, -1))
+        ds.GetRasterBand(1).WriteArray(np.array([arr], dtype="float32"))
+        ds = None
+        return tmp_path / name
+
+    issues = []
+    out = er._de_nw_surface(tif("dtm.tif", [300.0, 300.0, 300.0]), tif("ndom.tif", [5.0, 5.0], width=2),
+                            tif("dsm.tif", [310.0, 300.0, 320.0]), tmp_path / "s.tif", log=issues.append)
+    assert gdal.Open(str(out)).ReadAsArray()[0].tolist() == [310.0, 300.0, 320.0]
+    assert any("jinou mřížku" in str(m) for m in issues)
+
+
+def test_download_refuses_oversized_response(tmp_path, monkeypatch):
+    """Tvrdý strop odpovědi výškové služby (sdílený ``_download``)."""
+    import io
+    import urllib.request
+
+    class Resp(io.BytesIO):
+        headers = {"Content-Type": "image/tiff", "Content-Length": ""}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=0: Resp(b"x" * 5000))
+    with pytest.raises(RuntimeError, match="odmítnuta"):
+        er._download("https://example.org/wcs", tmp_path / "t.tif", max_bytes=1000)
+    assert not list(tmp_path.iterdir())

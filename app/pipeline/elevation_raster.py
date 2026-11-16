@@ -126,7 +126,12 @@ def _bounds_in(bounds, crs_from_wkt: str, crs_to: str) -> tuple[float, float, fl
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _download(url: str, dest: Path, *, log=None) -> Path:
+# Tvrdý strop jedné odpovědi výškové služby: dlaždice WCS mají 2–20 MB (2 × 2 km po 1 m ~16 MB), víc je chyba služby
+# nebo dotazu, ne stahování (review PR 350).
+DOWNLOAD_MAX_BYTES = 300_000_000
+
+
+def _download(url: str, dest: Path, *, log=None, max_bytes: int = DOWNLOAD_MAX_BYTES) -> Path:
     import urllib.request
 
     from app.pipeline.fetch_openzu import USER_AGENT
@@ -135,7 +140,19 @@ def _download(url: str, dest: Path, *, log=None) -> Path:
     tmp = dest.with_suffix(dest.suffix + ".part")
     with urllib.request.urlopen(req, timeout=300) as resp, tmp.open("wb") as fh:
         ctype = resp.headers.get("Content-Type", "")
+        length = resp.headers.get("Content-Length")
+        too_big = RuntimeError(f"odpověď výškové služby přes {max_bytes // 1_000_000} MB odmítnuta")
+        if length and length.isdigit() and int(length) > max_bytes:
+            fh.close()
+            tmp.unlink(missing_ok=True)
+            raise too_big
+        size = 0
         while chunk := resp.read(1 << 20):
+            size += len(chunk)
+            if size > max_bytes:
+                fh.close()
+                tmp.unlink(missing_ok=True)
+                raise too_big
             fh.write(chunk)
     if "tiff" not in ctype.lower() or tmp.stat().st_size < 500:
         detail = tmp.read_bytes()[:300].decode("utf-8", "replace")
@@ -569,7 +586,7 @@ def de_nw_tile_urls(kind: str, bounds_utm: tuple[float, float, float, float]) ->
     return [de_nw_coverage_url(kind, b) for b in boxes]
 
 
-def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path) -> Path:
+def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path, *, log=None) -> Path:
     """DGM + výška porostu = min(DOM − DGM, nDOM) (obojí aspoň 0) v mřížce dlaždice DGM; jen jeden zdroj = ten."""
     from osgeo import gdal
 
@@ -584,15 +601,21 @@ def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path) -
         if path is None:
             return None
         ds = gdal.Open(str(path))
-        if (ds.RasterXSize, ds.RasterYSize) != (t_ds.RasterXSize, t_ds.RasterYSize):
-            raise RuntimeError(f"{path.name} {ds.RasterXSize}×{ds.RasterYSize} nesedí na DGM "
-                               f"{t_ds.RasterXSize}×{t_ds.RasterYSize}")
+        if (ds.RasterXSize, ds.RasterYSize) != (t_ds.RasterXSize, t_ds.RasterYSize) or not np.allclose(
+            ds.GetGeoTransform(), t_ds.GetGeoTransform(), atol=1e-3
+        ):
+            # jiná mřížka než DGM: tento povrch vynechat, druhý stačí (review PR 350)
+            log_issue(log, f"Severní Porýní-Vestfálsko: {path.name} má jinou mřížku než DGM "
+                           f"({ds.RasterXSize}×{ds.RasterYSize} proti {t_ds.RasterXSize}×{t_ds.RasterYSize}), vynechán")
+            return None
         a = ds.GetRasterBand(1).ReadAsArray().astype("float32")
         ok = np.isfinite(a) & (a > NODATA + 1)
         h = a if relative else a - t
         return np.where(ok, np.clip(h, 0.0, None), np.nan)
 
     hs = [h for h in (height(ndom, relative=True), height(dsm, relative=False)) if h is not None]
+    if not hs:
+        raise RuntimeError("žádný povrch nemá mřížku DGM")
     h = np.fmin(hs[0], hs[1]) if len(hs) == 2 else hs[0]
     out = np.where(bad, NODATA, t + np.nan_to_num(h, nan=0.0)).astype("float32")
     ds = gdal.GetDriverByName("GTiff").Create(str(dest), t_ds.RasterXSize, t_ds.RasterYSize, 1, gdal.GDT_Float32,
@@ -638,14 +661,142 @@ def de_nrw_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     dsm = fetch_optional("dsm", "zimní DOM1 (pole s plodinami mohou vyjít jako porost)")
     if ndom is None and dsm is None:
         return SourceRasters(vrt("dtm", dtm_tiles), None)
-    surf = [_de_nw_surface(t, ndom[i] if ndom else None, dsm[i] if dsm else None, out_dir / f"nrw_surface_{i}.tif")
-            for i, t in enumerate(dtm_tiles)]
+    try:
+        surf = [_de_nw_surface(t, ndom[i] if ndom else None, dsm[i] if dsm else None,
+                               out_dir / f"nrw_surface_{i}.tif", log=log)
+                for i, t in enumerate(dtm_tiles)]
+    except RuntimeError as exc:
+        log_issue(log, f"Severní Porýní-Vestfálsko: povrch nejde složit ({str(exc)[:120]}), výška porostu chybí")
+        return SourceRasters(vrt("dtm", dtm_tiles), None)
     if log and ndom and dsm:
         log("  Povrch = DGM1 + menší z výšek zimního DOM1 (ALS) a letního nDOM50 (snímky)")
     return SourceRasters(vrt("dtm", dtm_tiles), vrt("dsm", surf))
 
 
 PROVIDERS["de_nrw"] = de_nrw_provider
+
+
+# --------------------------------------------------------------------------- PL: NMT + NMPT (GUGiK)
+
+# Polsko (GUGiK, bezplatně k libovolnému využití, uvést zdroj): NMT jako Float32 GeoTIFF po 2 km, NMPT jen jako ARC/INFO
+# ASCII po 1 km (GeoTIFF služba vrací obarvený obrázek), po jedné dlaždici – souběžné dotazy server zahazuje
+# (``reference_pl``). Obojí 1 m ve stejné mřížce (hrany na celé metry).
+PL_DTM_SIDE_M = 2000.0
+PL_DSM_SIDE_M = 1000.0
+PL_BUFFER_M = 20.0
+PL_DSM_MAX_BYTES = 40_000_000  # ASCII 1 km² po 1 m má ~20 MB
+PL_RETRIES = 3
+
+
+def pl_tile_boxes(bounds_pl: tuple[float, float, float, float], side: float) -> list[tuple[float, float, float, float]]:
+    return tile_boxes(bounds_pl, max_side=side, buffer=PL_BUFFER_M, step=1.0)
+
+
+def parse_wcs_aaigrid(raw: bytes) -> tuple[np.ndarray, tuple[float, float, float, float, float, float], float | None]:
+    """Z multipart odpovědi WCS (``image/x-aaigrid``) mřížka, geotransformace (horní levý roh) a NoData."""
+    text = raw.decode("ascii", "replace")
+    start = text.find("ncols")
+    if start < 0:
+        raise RuntimeError(f"WCS nevrátil ASCII mřížku: {text[:200]}")
+    end = text.find("\n--", start)
+    body = text[start:end if end > 0 else None]
+    lines = body.split("\n")
+    head: dict[str, float] = {}
+    i = 0
+    while i < len(lines) and lines[i].split() and lines[i].split()[0].lower() in (
+        "ncols", "nrows", "xllcorner", "yllcorner", "xllcenter", "yllcenter", "cellsize", "nodata_value"
+    ):
+        key, val = lines[i].split()[:2]
+        head[key.lower()] = float(val)
+        i += 1
+    ncols, nrows, cell = int(head["ncols"]), int(head["nrows"]), head["cellsize"]
+    data = np.array("\n".join(lines[i:]).split(), dtype="float32")
+    if data.size != ncols * nrows:
+        raise RuntimeError(f"ASCII mřížka má {data.size} hodnot místo {ncols * nrows}")
+    x0 = head.get("xllcorner", head.get("xllcenter", 0.0) - cell / 2)
+    y0 = head.get("yllcorner", head.get("yllcenter", 0.0) - cell / 2)
+    gt = (x0, cell, 0.0, y0 + nrows * cell, 0.0, -cell)
+    return data.reshape(nrows, ncols), gt, head.get("nodata_value")
+
+
+def _pl_dsm_tile(url: str, dest: Path, *, log=None) -> Path:
+    """Jedna dlaždice NMPT (ASCII z WCS) → Float32 GeoTIFF; prázdnou odpověď serveru zkusí znovu."""
+    import time
+    import urllib.error
+    import urllib.request
+
+    from osgeo import gdal, osr
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    raw = b""
+    for attempt in range(PL_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=300) as resp:  # noqa: S310 – pevná adresa GUGiK
+                raw = resp.read(PL_DSM_MAX_BYTES + 1)
+            break
+        except urllib.error.HTTPError as exc:
+            if attempt >= PL_RETRIES or not (exc.code >= 500 or exc.code == 429):
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
+            if attempt >= PL_RETRIES:
+                raise
+        if log:
+            log(f"  {dest.name}: server neodpověděl, pokus {attempt + 2}/{PL_RETRIES + 1}")
+        time.sleep(5.0 * (attempt + 1))
+    if len(raw) > PL_DSM_MAX_BYTES:
+        raise RuntimeError(f"NMPT: odpověď přes {PL_DSM_MAX_BYTES // 1_000_000} MB odmítnuta")
+    grid, gt, nodata = parse_wcs_aaigrid(raw)
+    if nodata is not None:
+        grid[grid == nodata] = NODATA
+    gdal.UseExceptions()
+    ds = gdal.GetDriverByName("GTiff").Create(str(dest), grid.shape[1], grid.shape[0], 1, gdal.GDT_Float32,
+                                              ["COMPRESS=DEFLATE"])
+    ds.SetGeoTransform(gt)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(2180)
+    ds.SetProjection(srs.ExportToWkt())
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(NODATA)
+    band.WriteArray(grid)
+    band.FlushCache()
+    ds = None
+    if log:
+        log(f"    {dest.name}: {len(raw) / 1e6:.1f} MB (ASCII)")
+    return dest
+
+
+def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """NMT 1 m (GeoTIFF) a NMPT 1 m (ASCII) z WCS GUGiK; bez NMPT jen terén (job upozorní)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_pl import PL_CRS, pl_dsm_url, pl_dtm_url
+
+    bounds_pl = _bounds_in(bounds, CRS_WKT, PL_CRS)
+
+    def vrt(name: str, tiles: list[Path]) -> Path:
+        path = out_dir / f"pl_{name}.vrt"
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", PL_CRS, str(path), *map(str, tiles)], log=log)
+        return path
+
+    dsm_boxes = pl_tile_boxes(bounds_pl, PL_DSM_SIDE_M)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="pl-nmpt") as ex:  # NMPT běží vedle NMT, sám po jedné
+        def all_dsm():
+            return [_pl_dsm_tile(pl_dsm_url(b), out_dir / f"pl_dsm_{k}.tif", log=log) for k, b in enumerate(dsm_boxes)]
+
+        dsm_future = ex.submit(all_dsm)
+        dtm = [_download_retry(pl_dtm_url(b), out_dir / f"pl_dtm_{k}.tif", log=log)
+               for k, b in enumerate(pl_tile_boxes(bounds_pl, PL_DTM_SIDE_M))]
+        try:
+            dsm = dsm_future.result()
+        except Exception as exc:  # noqa: BLE001 – bez povrchu terén zůstane, porost chybí
+            log_issue(log, f"Polsko: povrch NMPT se nestáhl ({str(exc)[:120]}), výška porostu chybí")
+            return SourceRasters(vrt("dtm", dtm), None)
+    return SourceRasters(vrt("dtm", dtm), vrt("dsm", dsm))
+
+
+PROVIDERS["pl_gugik"] = pl_gugik_provider
 
 
 # --------------------------------------------------------------------------- FR: LiDAR HD MNT + MNS (WMS-R IGN)
@@ -1309,7 +1460,8 @@ SOURCE_LABELS = {
     "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo",
     "at_bev": "BEV ALS DTM a DSM",
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
-    "de_nrw": "DGM1 a nDOM50, Geobasis NRW",
+    "de_nrw": "DGM1, DOM1 a nDOM50, Geobasis NRW",
+    "pl_gugik": "NMT a NMPT, GUGiK",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",

@@ -1444,43 +1444,62 @@ sources:
   issues:
     - "EPSG:2169 má v EPSG osy sever–východ: WMS 1.3.0 chce BBOX v pořadí N, E (ověřeno: 1.1.1 s E, N dává stejný obrázek), proto NORTHING_FIRST_CRS."
 
+# ----------------------------------------------------------------------------------------------- Polsko
+- id: pl_wms
+  countries: [PL]
+  kinds: [orthophoto, map]
+  name: "Ortofotomapa a topografická mapa (WMS GUGiK)"
+  provider: GUGiK
+  url: https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/StandardResolution
+  info: https://www.geoportal.gov.pl/
+  role: šablona, kresba
+  reference_keys: ["online_pl_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "Data GUGiK bezplatně k libovolnému využití s uvedením zdroje; WMS zakazuje jen hromadné stahování (harvesting)."
+  status: used
+  code: app/pipeline/reference_pl.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: pl_ortho
+  license:
+    class: public
+    name: bezplatné, libovolné využití (art. 40a ust. 2 P.g.k.), uvést zdroj
+    url: https://www.gov.pl/web/gugik/ponowne-wykorzystanie-informacji-sektora-publicznego
+    attribution: 'Źródło: Główny Urząd Geodezji i Kartografii'
+  access: free
+  checked: "Claude 2026-11-16 GetCapabilities ORTO/WMS/StandardResolution (Fees: Brak opłat; HighResolution 30–60 s na snímek a občas 400) a img/guest/TOPO (Fees: Brak opłat); vrstvy Raster v EPSG:2180"
+  issues:
+    - "EPSG:2180 má v EPSG osy sever–východ: WMS 1.3.0 chce BBOX N, E (NORTHING_FIRST_CRS)."
+
 # ----------------------------------------------------------------------------------------------- kandidáti bez napojení (evropa-data-prehled 2026-11-14)
 - id: pl_gugik
   countries:
   - PL
   kinds:
   - elevation
-  - point_cloud
-  - vectors
-  - orthophoto
-  name: NMT a NMPT (WCS), LAZ, BDOT10k, ortofoto
+  name: NMT 1 m (WCS GeoTIFF) a NMPT 1 m (WCS ASCII)
   provider: GUGiK
-  url: https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModel
+  url: https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModelFormatTIFF
   info: https://www.geoportal.gov.pl/en/data/lidar-measurements-lidar/
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (pl_gugik), app/pipeline/reference_pl.py
+  provider_key: pl_gugik
+  probe: pl_elevation
   license:
     class: public
-    name: zdarma k libovolnému účelu, při publikaci uvést zdroj
-    url: https://www.geoportal.gov.pl/en/data/lidar-measurements-lidar/
-    attribution: 'Źródło danych: GUGiK'
+    name: bezplatné, libovolné využití (art. 40a ust. 2 P.g.k.), uvést zdroj a zpracování
+    url: https://www.gov.pl/web/gugik/ponowne-wykorzystanie-informacji-sektora-publicznego
+    attribution: 'Źródło danych: Główny Urząd Geodezji i Kartografii – GUGiK, dane przetworzone'
   access: free
-  checked: 'Grok: 2026-11-16 anglická stránka LIDAR measurements a katalog WCS – Claude neověřil · opencode (pl_gugik): 2026-11-16
-    gov.pl podmínky (zdroj, čas vytvoření/pozyskaní, informace o zpracování, bezplatně), GetCapabilities NMT i NMPT WCS, https://www.geoportal.gov.pl/pl/dane/dane-pomiarowe-lidar-lidar/
-    – Claude neověřil'
+  checked: 'Claude 2026-11-16 GetCapabilities NMT i NMPT WCS (Fees none, AccessConstraints none), GetCoverage: NMT TIFF
+    coverage DTM_PL-KRON86-NH_TIFF Float32 1 m (2 × 2 km 16 MB za 31 s), NMPT image/tiff jen RGB 3 × Byte, image/x-aaigrid
+    Float 1 m (SCALEFACTOR=0.5) 1 km² 20 MB za 86–89 s, souběžný dotaz = prázdná odpověď; skorowidze NMPT (Varšava list
+    2025-04-27, 0,5 m) · Grok: 2026-11-16 anglická stránka LIDAR measurements a katalog WCS · opencode (pl_gugik): 2026-11-16
+    gov.pl podmínky (zdroj, čas vytvoření/pozyskaní, informace o zpracování, bezplatně) – Claude neověřil'
   issues:
-  - 'OPRAVA: stránka LiDARu říká, že LAS/LAZ jsou zdarma a k libovolnému účelu. Odkaz na soubor je atribut WMS GetFeatureInfo
-    (KRON86 a EVRF2007) nebo WFS index. Pojmenovaná CC licence to není.'
-  - Katalog WCS uvádí NMT (ASCII i GeoTIFF), NMPT (ASCII) a ortofoto. Konkrétní URL NMPT a ortofota jsou na stránce schované
-    za tlačítkem — neopsáno. Adresa v registru s příponou FormatTIFF se vedle kratší DigitalTerrainModel neověřovala.
-  - Hustota mračna mimo města se z této stránky nepotvrdila (v registru ~4 body/m²) — neověřeno.
-  - 'opencode navrhuje citaci: „Źródło danych: Główny Urząd Geodezji i Kartografii – GUGiK, [rok wytworzenia/pozyskania],
-    dane przetworzone“ – Claude neověřil.'
-  - 'opencode: „bezplatně k libovolnému využití (zákon 2020)“ a citace „GUGiK“ jsou nedostatečné – povinná je plná název úřadu
-    + čas + informace o přetvoření.'
-  - 'opencode: „LAZ jen ručně / bez API“ je vyvráceno – WFS skorowidze + GetFeatureInfo vrací „Link do pobrania“; „EGiB zakazuje
-    hromadné stahování“ je zastaralé (souhrnný WFS od 2025).'
-  - 'opencode: Nízká hustota mimo města (4 b/m²) potvrzena; třídy 0/2/3/4/5/6/7/8/12 (3/4/5 = vegetace).'
+  - 'Napojeno 2026-11-16 (beta PL): NMT po 2 km (GeoTIFF), NMPT po 1 km jako ASCII a po jedné dlaždici (server souběh zahazuje);
+    les 3 km² ~5 min stahování povrchu. Bez NMPT job kreslí jen terén a upozorní.'
+  - Mračno LAZ po listech 1 : 1250 má ~155 MB (Varšava 2023, 12 b/m²), LAZ 1.2 bez COPC → nepoužito.
+  - Katastr KIEG (integracja.gugik.gov.pl) je rozcestník na servery okresů, Varšava vrací reset spojení → šablona nepoužita.
 
 - id: uk_ea
   countries:
@@ -2280,7 +2299,8 @@ sources:
   url: https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMPT/GRID1/WCS/DigitalSurfaceModel
   info: https://www.geoportal.gov.pl/en/data/digital-surface-model-dsm/
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (pl_gugik), app/pipeline/reference_pl.py
   license:
     class: public
     name: bezplatné, libovolné využití (art. 40a ust. 2 P.g.k.; podmínky GUGiK dle ustawy 2021)
