@@ -80,7 +80,8 @@ def withheld_raster_names(country: str) -> frozenset[str]:
     names: set[str] = set()
     if is_withheld("osm"):
         names.add("osm.png")
-    layers = [(ONLINE_OSM[0], ONLINE_OSM[1])]
+    # osm.png je od 3.60.0 vlastní render (osm_render); online šablona OSM z dlaždic má jen .vrt
+    layers = [] if not is_withheld("osm") else [(ONLINE_OSM[0], ONLINE_OSM[1])]
     layers += [(k, f) for k, f, *_r in wms_layers_for(country)]
     layers += [(k, f) for k, f, *_r in ONLINE_TMS_LAYERS.get(country, ())]
     for key, filename in layers:
@@ -100,6 +101,8 @@ def withheld_sources(country: str) -> list[str]:
         s["id"]
         for s in _sources()
         if s.get("image_in_zip") == FORBIDDEN and s.get("status") == "used" and _applies(s, country)
+        # obrázek nahrazuje vlastní render (osm_tiles → osm_render), v ZIPu tedy nechybí
+        and not s.get("zip_replaced_by")
     ]
 
 
