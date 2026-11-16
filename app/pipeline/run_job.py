@@ -504,10 +504,13 @@ def _online_only_keys(built_refs: dict[str, Path] | None = None) -> frozenset[st
 def _with_osm_render(
     built_refs: dict[str, Path], bbox, work_dir: Path, reference_dir: Path, log: callable
 ) -> dict[str, Path]:
-    """Mimo Česko se staženými podklady: osm.png z dat OSM (osm_render) místo online šablony z dlaždic."""
+    """osm.png z dat OSM (osm_render) místo online šablony z dlaždic, pokud ho podklady ještě nemají
+    (mimo Česko vždy, v Česku bez šablony na pozadí); bez georef šablony nic."""
     from app.pipeline.reference_layers import _fetch_osm_png
     from app.pipeline.zip_images import is_withheld
 
+    if "osm" in built_refs:
+        return built_refs
     georef = ensure_georef_template(work_dir) if bbox else None
     if georef is None or is_withheld("osm"):
         return built_refs
@@ -636,8 +639,7 @@ def join_reference_download(
         built_refs = _with_terrain_shades(built_refs, work_dir, reference_dir, log)
         if sentinel:
             add_sentinel2_reference(built_refs, tuple(bbox), reference_dir, log=log)
-        if want_refs:
-            built_refs = _with_osm_render(built_refs, bbox, work_dir, reference_dir, log)
+        built_refs = _with_osm_render(built_refs, bbox, work_dir, reference_dir, log)
         built_refs = _with_online_templates(built_refs, bbox, reference_dir, log, download=want_refs)
         built_refs = _drop_online_osm(built_refs)
         built_refs = withhold_images(built_refs, log=log)
@@ -649,7 +651,8 @@ def join_reference_download(
             progress.skip("referenční podklady", reason="online šablony")
         else:
             log("Referenční podklady: online šablony")
-        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log)
+        built_refs = _with_osm_render(built_refs, bbox, work_dir, reference_dir, log)
+        built_refs = _drop_online_osm(_with_online_templates(built_refs, bbox, reference_dir, log))
         return built_refs, sorted(p.name for p in built_refs.values())
     if not want_refs:
         log("Referenční podklady: online šablony (GDAL WMS), stažený jen vektorový katastr")
@@ -705,7 +708,7 @@ def join_reference_download(
             built_refs = {}
 
     if not want_refs:
-        built_refs = _with_online_templates(built_refs, bbox, reference_dir, log)
+        built_refs = _drop_online_osm(_with_online_templates(built_refs, bbox, reference_dir, log))
     else:
         built_refs = _with_vegetation_height(built_refs, work_dir, reference_dir, log)
         built_refs = _with_online_templates(built_refs, bbox, reference_dir, log, only_online=True)

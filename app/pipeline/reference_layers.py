@@ -1172,7 +1172,8 @@ def _store_references_cache(
 
 # S vypnutými referenčními podklady (Petr 2026-11-08: žádný PNG podklad): jen vektorový katastr
 # a ortofoto pro masku zeleně sprintu mimo podklady (``sprint_ortho``, do výsledku nejde).
-ALWAYS_REFERENCE_KEYS = frozenset({"orthophoto", "katastr_vector"})
+# Od 3.60.0 i vlastní render OSM (osm.png, Petr 2026-11-16): nahradí online šablonu OSM z dlaždic i bez stažených podkladů.
+ALWAYS_REFERENCE_KEYS = frozenset({"orthophoto", "katastr_vector", "osm"})
 
 
 def build_reference_layers(
@@ -1282,6 +1283,9 @@ def build_reference_layers(
             except Exception as exc:
                 if log:
                     log_issue(log, f"Katastrální mapa: přeskočeno ({exc})")
+        if want("osm") and not is_withheld("osm"):
+            osm_png = out_dir / "osm.png"
+            _fetch_osm_png(built, bbox_wgs84, template_png, template_pgw, osm_png, osm_png.with_suffix(".pgw"), log)
         if want("katastr") or want("katastr_vector"):
             return _with_katastr_vectors(built, bbox_wgs84, out_dir, log=log)
         return built

@@ -865,7 +865,8 @@ def test_png_has_content_detects_empty_overlay(tmp_path):
 
 
 def test_build_reference_layers_off_only_vector_katastr(tmp_path, monkeypatch):
-    """Vypnuté podklady: žádný PNG podklad (ani ortofoto, katastr PNG), jen vektorový katastr; sdílená cache se nesahá."""
+    """Vypnuté podklady: žádný stažený PNG podklad (ani ortofoto, katastr PNG), jen vektorový katastr a vlastní
+    render OSM; sdílená cache se nesahá."""
     from app.pipeline import reference_layers as rl
 
     tpl = tmp_path / "job.png"
@@ -873,14 +874,14 @@ def test_build_reference_layers_off_only_vector_katastr(tmp_path, monkeypatch):
     tpl.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0.5\n9.5\n", encoding="utf-8")
     monkeypatch.setattr(rl, "fetch_orthophoto_wms", lambda *a, **k: pytest.fail("ortofoto"))
     monkeypatch.setattr(rl, "fetch_cuzk_wms_png", lambda *a, **k: pytest.fail("WMS PNG"))
-    monkeypatch.setattr(rl, "render_osm_png", lambda *a, **k: pytest.fail("OSM"))
+    monkeypatch.setattr(rl, "render_osm_png", lambda *_a, **_k: True)  # vlastní render OSM i bez podkladů
     monkeypatch.setattr(rl, "_try_load_references_cache", lambda *a, **k: pytest.fail("cache"))
     monkeypatch.setattr(rl, "_with_katastr_vectors", lambda built, *a, **k: {**built, "katastr_vector": tmp_path / "k.gpkg"})
     built = rl.build_reference_layers(
         tmp_path, (14.0, 50.0, 14.01, 50.01), tpl, tpl.with_suffix(".pgw"), tmp_path / "ref",
         only=rl.ALWAYS_REFERENCE_KEYS,
     )
-    assert set(built) == {"katastr_vector"}
+    assert set(built) == {"katastr_vector", "osm"}
 
 
 def test_build_reference_layers_sprint_ortho_outside_references(tmp_path, monkeypatch):

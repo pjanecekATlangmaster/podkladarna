@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     doxygen \
     git \
     ca-certificates \
+    fonts-dejavu-core \
     python3 \
     qtbase5-dev \
     qtbase5-dev-tools \
@@ -181,8 +182,9 @@ RUN test -x /opt/mapper/bin/Mapper \
 
 # Písmo DejaVu Sans pro vlastní render obrázku OSM (pycairo z conda-forge čte fontconfig z /opt/conda/fonts).
 RUN mkdir -p /opt/conda/fonts \
-    && (cp -a /opt/mapper/share/fonts/dejavu /opt/conda/fonts/ || true) \
-    && (fc-cache -f /opt/conda/fonts >/dev/null 2>&1 || true) \
+    && cp -a /opt/mapper/share/fonts/dejavu /opt/conda/fonts/ \
+    && fc-cache -f /opt/conda/fonts >/dev/null \
+    && fc-list | grep -q "DejaVu Sans" \
     && python -c "import cairo; print('pycairo', cairo.version)"
 
 WORKDIR /app

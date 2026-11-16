@@ -27,7 +27,11 @@ import numpy as np
 
 # Velké výřezy: odpověď Overpass ve městě ~2,5 MB / km²; nad strop se obrázek nekreslí (paměť, zátěž Overpass).
 MAX_AREA_KM2 = 40.0
-QUERY_TIMEOUT_S = 120
+QUERY_TIMEOUT_S = 90
+# Jedno zrcadlo nejvýš HTTP_TIMEOUT_S, všechna dohromady nejvýš FETCH_DEADLINE_S (review PR 348: při blokaci
+# by 6 zrcadel × 150 s drželo krok podkladů 15 min); obrázek je doplněk, job na něj dlouho nečeká.
+HTTP_TIMEOUT_S = 60
+FETCH_DEADLINE_S = 150
 STRIP_ROWS = 1024
 FONT = "DejaVu Sans"
 ATTRIBUTION = "© OpenStreetMap contributors"
@@ -116,13 +120,18 @@ def fetch_osm_elements(bbox_wgs84: tuple[float, float, float, float], *, log=Non
     west, south, east, north = bbox_wgs84
     body = urllib.parse.urlencode({"data": overpass_ql(south, west, north, east)}).encode("utf-8")
     last: Exception | None = None
+    deadline = time.monotonic() + FETCH_DEADLINE_S
     for url in overpass_mirrors():
+        left = deadline - time.monotonic()
+        if left < 10:
+            last = last or TimeoutError("vyčerpán časový limit")
+            break
         req = urllib.request.Request(
             url, data=body, method="POST",
             headers={"User-Agent": USER_AGENT, "Content-Type": "application/x-www-form-urlencoded"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=QUERY_TIMEOUT_S + 30) as resp:
+            with urllib.request.urlopen(req, timeout=min(HTTP_TIMEOUT_S, left)) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             if not isinstance(data, dict):
                 raise OSError("neplatná odpověď (není JSON objekt)")
