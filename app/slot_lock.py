@@ -11,6 +11,7 @@ každé instance zůstává vlastní, sdílí se jen „kdo teď smí počítat�
 
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
 import time
@@ -138,3 +139,41 @@ def shared_slot_from_env(directory: Path | None, owner: str = "") -> SharedSlot 
     if not directory:
         return None
     return SharedSlot(directory, owner=owner)
+
+
+# --- Zámek souboru v cache mezi procesy (předstažení dat ‖ běžící job) ---------------------------
+
+_held_local = threading.local()
+
+
+@contextlib.contextmanager
+def file_lock(path: Path, *, poll_s: float = 0.5):
+    """Exkluzivní zámek ``path`` napříč procesy (blokuje, dokud ho drží jiný proces / vlákno).
+
+    Ve stejném vlákně je vnořený (druhé ``with`` na stejnou cestu nečeká na sebe). Jádro zámek
+    uvolní i po pádu procesu, takže nemůže uvíznout."""
+    key = str(Path(path).resolve())
+    held: dict[str, int] = getattr(_held_local, "held", None) or {}
+    _held_local.held = held
+    if held.get(key):
+        held[key] += 1
+        try:
+            yield
+        finally:
+            held[key] -= 1
+        return
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o666)
+    try:
+        if os.fstat(fd).st_size == 0:
+            os.write(fd, b"\n")
+        while not _lock_fd(fd):
+            time.sleep(poll_s)
+        held[key] = 1
+        try:
+            yield
+        finally:
+            held.pop(key, None)
+            _unlock_fd(fd)
+    finally:
+        os.close(fd)

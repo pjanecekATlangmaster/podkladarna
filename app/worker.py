@@ -30,6 +30,11 @@ _queue: list[str] = []
 # Sdílený slot mezi instancemi A/B (None = vypnuto); drží ho právě běžící job.
 _slot: SharedSlot | None = None
 _slot_dir_cache: object = object()
+# Předstažení velkých dat mimo frontu výpočtů (app/prefetch.py): čekající, právě stahující (proces)
+# a hotové (ty už znovu neodbočí). Do fronty výpočtů se job zařadí až po stažení.
+_prefetch_queue: list[str] = []
+_prefetching: dict[str, subprocess.Popen | None] = {}
+_prefetch_done: set[str] = set()
 
 
 def _shared_slot() -> SharedSlot | None:
@@ -90,6 +95,8 @@ def queue_snapshot() -> dict:
             "current": _running,
             "queued": list(_queue),
             "queue_size": len(_queue),
+            "prefetching": list(_prefetching),
+            "prefetch_queued": list(_prefetch_queue),
             "max_concurrent": MAX_CONCURRENT_LIDAR,
             "max_queue_size": MAX_QUEUE_SIZE,
             "job_timeout_minutes": JOB_TIMEOUT_MINUTES,
@@ -106,9 +113,14 @@ def queue_position(job_id: str) -> int | None:
     return None
 
 
+def _waiting_count() -> int:
+    """Čekající joby (fronta výpočtů + předstažení); volat pod ``_lock``."""
+    return len(_queue) + len(_prefetch_queue) + len(_prefetching)
+
+
 def can_accept_job() -> bool:
     with _lock:
-        return len(_queue) < MAX_QUEUE_SIZE
+        return _waiting_count() < MAX_QUEUE_SIZE
 
 
 def _notify_failure_async(job_ids: list[str]) -> None:
@@ -161,14 +173,44 @@ def requeue_after_restart() -> list[str]:
     return ids
 
 
+def _needs_prefetch(job_id: str) -> bool:
+    """Job s velkým stahováním (listy LiDARu mimo cache), který ještě nestahoval předem."""
+    if job_id in _prefetch_done or not settings.PREFETCH_ENABLED:
+        return False
+    try:
+        from app import prefetch
+
+        return bool(prefetch.job_missing_sheets(db.get_job(job_id).get("options")))
+    except Exception:  # noqa: BLE001 – předstažení je jen optimalizace, job jde do fronty jako dřív
+        logger.exception("Posouzení předstažení jobu %s", job_id)
+        return False
+
+
 def enqueue(job_id: str, *, force: bool = False) -> None:
     global _running
+    prefetch = _needs_prefetch(job_id)
     with _lock:
-        if not force and len(_queue) >= MAX_QUEUE_SIZE and (_running is not None or is_draining()):
+        busy = _running is not None or bool(_queue) or is_draining()
+        if prefetch and busy and job_id not in _queue and job_id not in _prefetching:
+            # Server počítá jiný job: stahovat mimo frontu výpočtů, do ní až po stažení.
+            if job_id not in _prefetch_queue:
+                if not force and _waiting_count() >= MAX_QUEUE_SIZE:
+                    raise RuntimeError("Fronta je plná")
+                _prefetch_queue.append(job_id)
+            db.update_job(job_id, status="queued", phase="waiting_download")
+            diverted = True
+        else:
+            diverted = False
+    if diverted:
+        db.append_log(job_id, "Velké stahování: data se stáhnou s nižší prioritou mimo frontu výpočtů, pak se job zařadí.")
+        _start_prefetches()
+        return
+    with _lock:
+        if not force and _waiting_count() >= MAX_QUEUE_SIZE and (_running is not None or is_draining()):
             raise RuntimeError("Fronta je plná")
         if _running is not None or is_draining():
             if job_id not in _queue:
-                if not force and len(_queue) >= MAX_QUEUE_SIZE:
+                if not force and _waiting_count() >= MAX_QUEUE_SIZE:
                     raise RuntimeError("Fronta je plná")
                 _queue.append(job_id)
             db.update_job(job_id, status="queued", phase="waiting")
@@ -186,14 +228,27 @@ def _pop_next_queued() -> str | None:
     return best
 
 
+def _pop_prefetching_for_idle() -> str | None:
+    """Fronta výpočtů je prázdná a server volný: job ze stahování předem začne hned (build si zbytek
+    stáhne sám, zámek listu brání dvojímu stažení). Přednost má job, který už stahuje."""
+    for job_id in list(_prefetching):
+        _prefetch_done.add(job_id)
+        return job_id
+    if _prefetch_queue:
+        job_id = _prefetch_queue.pop(0)
+        _prefetch_done.add(job_id)
+        return job_id
+    return None
+
+
 def _start_next() -> None:
     global _running
     next_id: str | None = None
     if is_draining():
         return
     with _lock:
-        if _queue and _running is None:
-            next_id = _pop_next_queued()
+        if _running is None:
+            next_id = _pop_next_queued() if _queue else _pop_prefetching_for_idle()
             _running = next_id
     if next_id:
         db.update_job(next_id, status="running", phase="starting", started_at=db._utcnow())
@@ -252,12 +307,76 @@ def _return_to_queue(job_id: str) -> None:
     db.update_job(job_id, status="queued", phase="waiting")
 
 
+def _start_prefetches() -> None:
+    """Spustí předstažení čekajících jobů do limitu ``PREFETCH_CONCURRENCY`` (ne během nasazení)."""
+    if is_draining():
+        return
+    started: list[str] = []
+    with _lock:
+        while _prefetch_queue and len(_prefetching) < settings.PREFETCH_CONCURRENCY:
+            job_id = _prefetch_queue.pop(0)
+            _prefetching[job_id] = None
+            started.append(job_id)
+    for job_id in started:
+        db.update_job(job_id, status="queued", phase="downloading")
+        threading.Thread(target=_run_prefetch, args=(job_id,), daemon=True, name="prefetch").start()
+
+
+def _prefetch_cmd(job_id: str) -> list[str]:
+    return [sys.executable, "-m", "app.prefetch", job_id]
+
+
+def _run_prefetch(job_id: str) -> None:
+    """Proces předstažení jednoho jobu; po něm (i po chybě) job jde do fronty výpočtů."""
+    proc: subprocess.Popen | None = None
+    try:
+        kwargs: dict = {"cwd": str(APP_ROOT)}
+        if os.name != "nt":
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(_prefetch_cmd(job_id), **kwargs)
+        with _lock:
+            if job_id in _prefetching:
+                _prefetching[job_id] = proc
+        try:
+            proc.wait(timeout=settings.PREFETCH_TIMEOUT_MINUTES * 60)
+        except subprocess.TimeoutExpired:
+            _terminate_process_tree(proc)
+            db.append_log(
+                job_id,
+                f"Předstažení dat: ⚠ nedoběhlo do {settings.PREFETCH_TIMEOUT_MINUTES} min – zbytek stáhne výpočet",
+            )
+    except Exception as exc:  # noqa: BLE001 – selhání stahování job nezastaví
+        logger.exception("Předstažení jobu %s", job_id)
+        db.append_log(job_id, f"Předstažení dat: ⚠ selhalo ({exc}) – data stáhne výpočet")
+    finally:
+        if proc is not None and proc.poll() is None:
+            _terminate_process_tree(proc)
+        with _lock:
+            _prefetching.pop(job_id, None)
+            _prefetch_done.add(job_id)
+            waiting = job_id != _running and job_id not in _queue
+        if waiting:
+            try:
+                status = db.get_job(job_id).get("status")
+            except KeyError:
+                status = None
+            if status == "queued":
+                try:
+                    enqueue(job_id, force=True)
+                except Exception:  # noqa: BLE001
+                    logger.exception("Zařazení jobu %s po předstažení", job_id)
+        _start_prefetches()
+
+
 def _drain_watch() -> None:
     """Po skončení nasazení (soubor zmizel / přestal platit) spustí čekající joby."""
     while True:
         time.sleep(_DRAIN_POLL_S)
         try:
-            if _running is None and _queue and not is_draining():
+            if is_draining():
+                continue
+            _start_prefetches()
+            if _running is None and (_queue or _prefetch_queue or _prefetching):
                 _start_next()
         except Exception:  # noqa: BLE001 – hlídač nesmí spadnout
             pass
@@ -331,6 +450,8 @@ def _run(job_id: str) -> None:
     proc: subprocess.Popen | None = None
     slot = _shared_slot()
 
+    with _lock:
+        _prefetch_done.discard(job_id)
     try:
         if not (JOBS_DIR / job_id).is_dir():
             raise FileNotFoundError(f"Chybí složka jobu: {job_id}")

@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, i18n, paid_flow, settings as app_settings, source_status, worker
+from app import area_probe, countries, db, i18n, paid_flow, prefetch, settings as app_settings, source_status, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -836,6 +836,8 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
         "estimate_map_minutes": est_maps,
         "estimate_note": note,
         "estimate_calibration": cal,
+        # Velké stahování (listy LiDARu mimo cache): GUI hned varuje, že mapa bude hotová později (app/prefetch.py).
+        "big_download": prefetch.big_download_info(names, pf) if can_estimate and lidar_sheets else None,
         "label": (
             i18n.Msg("api.sheets.label", names=", ".join(names), count=len(sheets))
             if sheets

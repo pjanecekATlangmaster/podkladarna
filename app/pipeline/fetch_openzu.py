@@ -17,6 +17,7 @@ from pathlib import Path
 from app import settings
 from app.i18n import Msg
 from app.pipeline import build_stats
+from app.slot_lock import file_lock
 from app.download_cache import (
     age_days,
     is_fresh,
@@ -484,6 +485,11 @@ def fetch_lidar_for_bbox(
     return start_lidar_download(bbox, log, force_refresh=force_refresh).wait()
 
 
+def _sheet_lock(mapnom: str, name: str):
+    """Zámek listu v cache: předstažení (``app.prefetch``) a běžící job nestahují týž soubor naráz."""
+    return file_lock(lidar_sheet_dir(mapnom) / f".{name}.lock")
+
+
 def _cached_dmp_laz(
     mapnom: str,
     log: callable | None,
@@ -491,6 +497,16 @@ def _cached_dmp_laz(
     force_refresh: bool = False,
 ) -> Path:
     """Model povrchu: primárně DMP OK (obrazová korelace), záloha DMP 1G."""
+    with _sheet_lock(mapnom, "DMP"):
+        return _cached_dmp_laz_locked(mapnom, log, force_refresh=force_refresh)
+
+
+def _cached_dmp_laz_locked(
+    mapnom: str,
+    log: callable | None,
+    *,
+    force_refresh: bool = False,
+) -> Path:
     folder = lidar_sheet_dir(mapnom)
     dmpok = folder / "DMPOK.laz"
     if not force_refresh and _sheet_laz_current(
@@ -563,6 +579,18 @@ def _cached_dmp_laz(
 
 
 def _cached_laz(
+    mapnom: str,
+    kind: str,
+    url: str,
+    log: callable | None,
+    *,
+    force_refresh: bool = False,
+) -> Path:
+    with _sheet_lock(mapnom, kind):
+        return _cached_laz_locked(mapnom, kind, url, log, force_refresh=force_refresh)
+
+
+def _cached_laz_locked(
     mapnom: str,
     kind: str,
     url: str,
