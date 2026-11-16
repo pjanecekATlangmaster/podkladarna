@@ -232,7 +232,6 @@ def test_created_job_remembers_lang_and_site(client, monkeypatch):
     [
         ("/", "How Omapic evolved", "Jak se Podkladárna vyvíjela"),
         ("/licence", "Licence and sources", "Licence a zdroje"),
-        ("/podpora", "Support development", "Číslo účtu"),
     ],
 )
 def test_pages_in_english(client, monkeypatch, path, english, czech):
@@ -242,6 +241,22 @@ def test_pages_in_english(client, monkeypatch, path, english, czech):
     assert "{{" not in en
     cs = client.get(path + "?lang=en", headers={"host": "podkladarna.kibos.link"}).text
     assert czech in cs and '<html lang="cs"' in cs
+
+
+def test_paid_domain_without_donation_family_and_czech_data(client, monkeypatch):
+    """Placená doména (Petr 2026-11-16): dar jen na bezplatné doméně, bez „Z jedné rodiny“, zdroje dat jen na /licence."""
+    monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,example.eu=en:paid:*")
+    en = client.get("/", headers={"host": "example.eu"}).text
+    for gone in ("/podpora", "footer-family", "stavitel.kibos.link", "geoportal.cuzk.gov.cz", "support-note"):
+        assert gone not in en, gone
+    assert 'href="/licence"' in en and "Karttapullautin" in en and "openstreetmap.org/copyright" in en
+    assert "{{" not in en
+    redirect = client.get("/podpora", headers={"host": "example.eu"}, follow_redirects=False)
+    assert redirect.status_code == 302 and redirect.headers["location"] == "/"
+    cs = client.get("/", headers={"host": "podkladarna.kibos.link"}).text
+    for kept in ('href="/podpora"', "footer-family", "stavitel.kibos.link", "geoportal.cuzk.gov.cz", "support-note"):
+        assert kept in cs, kept
+    assert "Číslo účtu" in client.get("/podpora", headers={"host": "podkladarna.kibos.link"}).text
 
 
 def test_licence_lists_sources_of_offered_countries(client, monkeypatch):

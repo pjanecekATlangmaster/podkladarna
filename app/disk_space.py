@@ -193,7 +193,21 @@ def aoi_cache_roots() -> list[tuple[Path, int]]:
         (root / "zabaged", settings.ZABAGED_CACHE_MAX_AGE_DAYS),
         (root / "ruian", settings.RUIAN_CACHE_MAX_AGE_DAYS),
         (root / "aopk", settings.AOPK_CACHE_MAX_AGE_DAYS),
+        (root / "osm", osm_cache_max_age_days()),
     ]
+
+
+def osm_cache_max_age_days() -> int:
+    """Stáří odpovědi Overpass, po kterém se smaže: ``OSM_CACHE_MAX_AGE_DAYS``, nejméně platnost cache + 1 den
+    (starší soubor job nepoužije, výsledek mapy se smazáním nemění). 0 = nemazat."""
+    import math
+
+    from app.pipeline.osm_paths import osm_cache_max_age_hours
+
+    days = int(settings.OSM_CACHE_MAX_AGE_DAYS)
+    if days <= 0:
+        return 0
+    return max(days, math.ceil(osm_cache_max_age_hours() / 24) + 1)
 
 
 def _entry_mtime(path: Path) -> float:
@@ -271,11 +285,14 @@ def prune_expired_aoi_cache(*, now: float | None = None, log=None) -> int:
 
 
 def prune_all_caches(*, log=None) -> int:
-    """Pravidelný úklid: prošlá cache podle výřezu + strop cache LiDARu; vrací uvolněné bajty."""
+    """Pravidelný úklid: prošlá cache podle výřezu (i odpovědi Overpass) + strop cache LiDARu + cache dlaždic
+    webu; vrací uvolněné bajty."""
     from app.download_cache import prune_lidar_cache
+    from app.tiles import prune_tile_cache
 
     freed = prune_expired_aoi_cache(log=log)
     freed += prune_lidar_cache(log=log)
+    freed += prune_tile_cache(log=log)
     return freed
 
 

@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.56.13"
+APP_VERSION = "3.56.15"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -170,6 +170,17 @@ ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "3
 REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))
 RUIAN_CACHE_MAX_AGE_DAYS = int(os.environ.get("RUIAN_CACHE_MAX_AGE_DAYS", "30"))
 AOPK_CACHE_MAX_AGE_DAYS = int(os.environ.get("AOPK_CACHE_MAX_AGE_DAYS", "30"))
+# Odpovědi Overpass (cache/osm): job je bere jen do PODKLADARNA_OSM_CACHE_HOURS (24 h), starší soubory
+# se mažou po tolika dnech (revize 2026-11-16, dřív se nemazaly nikdy). Nejméně platnost cache + 1 den.
+OSM_CACHE_MAX_AGE_DAYS = int(os.environ.get("OSM_CACHE_MAX_AGE_DAYS", "2"))
+# Dlaždice podkladové mapy webu (cache/tiles): starší než tolik dní se mažou (stáhnou se znovu čerstvé),
+# nad stropem GB nejstarší. 0 = bez limitu.
+TILE_CACHE_MAX_AGE_DAYS = int(os.environ.get("TILE_CACHE_MAX_AGE_DAYS", "30"))
+TILE_CACHE_MAX_GB = float(os.environ.get("TILE_CACHE_MAX_GB", "2") or 0)
+# /tiles: kolik dlaždic mimo cache smí server stáhnout za minutu pro jednu IP a celkem (dlaždice z cache
+# bez limitu). Server nemá sloužit jako volný proxy dlaždic OSM. 0 = bez limitu.
+TILE_FETCH_PER_IP_MIN = int(os.environ.get("TILE_FETCH_PER_IP_MIN", "300"))
+TILE_FETCH_PER_MIN = int(os.environ.get("TILE_FETCH_PER_MIN", "1200"))
 # DEM/DSM/CHM + shade AOI cache (§10).
 SURFACES_CACHE_MAX_AGE_DAYS = int(
     os.environ.get("SURFACES_CACHE_MAX_AGE_DAYS", str(LIDAR_CACHE_MAX_AGE_DAYS))

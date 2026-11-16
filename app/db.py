@@ -515,12 +515,11 @@ def record_job_usage(job_id: str, status: str, stats: dict[str, Any] | None = No
 
 
 _CALIB_TTL_S = 600
-_calib_cache: tuple[float, dict[str, Any]] | None = None
+_calib_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 def reset_estimate_calibration_cache() -> None:
-    global _calib_cache
-    _calib_cache = None
+    _calib_cache.clear()
 
 
 def _quantile(values: list[float], q: float) -> float:
@@ -540,26 +539,30 @@ def _calib_factor(ratios: list[float]) -> float:
     )
 
 
-def estimate_calibration(*, now: datetime | None = None) -> dict[str, Any]:
+def estimate_calibration(*, country: str = "CZ", now: datetime | None = None) -> dict[str, Any]:
     """Koeficienty odhadu doby jobu z vlastních dokončených jobů instance: ``{"prep", "maps", "jobs"}``.
 
-    Výsledek se 10 min drží v paměti procesu; s ``now`` (testy) se cache obchází.
+    Jen z jobů téže země (Petr 2026-11-16): zdroje dat a jejich rychlost se liší, česká kalibrace se
+    nemá míchat se zahraničím. Řádek bez země je starší job = Česko. Výsledek se 10 min drží v paměti
+    procesu (zvlášť pro každou zemi); s ``now`` (testy) se cache obchází.
     """
-    global _calib_cache
     if not ESTIMATE_CALIBRATION:
         return {"prep": 1.0, "maps": 1.0, "jobs": 0}
+    code = (country or "CZ").upper()
     mono = time.monotonic()
-    if now is None and _calib_cache and mono - _calib_cache[0] < _CALIB_TTL_S:
-        return dict(_calib_cache[1])
+    cached = _calib_cache.get(code)
+    if now is None and cached and mono - cached[0] < _CALIB_TTL_S:
+        return dict(cached[1])
     cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=ESTIMATE_CALIB_DAYS)).isoformat()
     marks = ",".join("?" * len(JOB_DONE_STATUSES))
+    same_country = "(country IS NULL OR country = ?)" if code == "CZ" else "country = ?"
     with connect() as conn:
         rows = conn.execute(
             "SELECT build_seconds, maps_seconds, est_prep_min, est_maps_min FROM job_origin "
             f"WHERE status IN ({marks}) AND usage_counted = 1 AND build_seconds IS NOT NULL "
             "AND maps_seconds IS NOT NULL AND est_prep_min IS NOT NULL AND est_maps_min IS NOT NULL "
-            "AND created_at >= ? ORDER BY created_at DESC LIMIT ?",
-            (*JOB_DONE_STATUSES, cutoff, ESTIMATE_CALIB_JOBS),
+            f"AND {same_country} AND created_at >= ? ORDER BY created_at DESC LIMIT ?",
+            (*JOB_DONE_STATUSES, code, cutoff, ESTIMATE_CALIB_JOBS),
         ).fetchall()
     prep_ratios = [
         max(0.0, b - m) / 60 / ep for b, m, ep, _em in rows if ep >= 0.5
@@ -571,7 +574,7 @@ def estimate_calibration(*, now: datetime | None = None) -> dict[str, Any]:
         "jobs": len(rows),
     }
     if now is None:
-        _calib_cache = (mono, result)
+        _calib_cache[code] = (mono, result)
     return dict(result)
 
 
@@ -781,19 +784,42 @@ def list_jobs(
 def list_expired_private_jobs(
     *,
     now: datetime | None = None,
-    limit: int = 500,
 ) -> list[dict[str, Any]]:
-    """Privátní joby po splatnosti (včetně pending – odkaz už stejně neplatí)."""
+    """Privátní joby po splatnosti (včetně pending – odkaz už stejně neplatí).
+
+    Prochází všechny privátní řádky, ne jen nejnovější (revize 2026-11-16: s limitem 500 zůstaly
+    starší řádky v DB navždy). Privátních jobů je málo (48 h, objednávky do 30 dní).
+    """
     now = now or datetime.now(timezone.utc)
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE status NOT IN ('running', 'queued') "
+            "AND json_extract(options_json, '$.private') IS NOT NULL ORDER BY created_at"
+        ).fetchall()
     out: list[dict[str, Any]] = []
-    for job in list_jobs(limit=limit, include_private=True):
-        if not job_is_private(job):
-            continue
-        if job.get("status") in ("running", "queued"):
-            continue
-        if job_is_expired(job, now=now):
+    for row in rows:
+        job = _row_to_job(row)
+        if job_is_private(job) and job_is_expired(job, now=now):
             out.append(job)
     return out
+
+
+def list_finished_public_job_times() -> list[tuple[str, str]]:
+    """(id, updated_at) všech dokončených jobů mimo objednávky – kandidáti úklidu podle stáří (bez limitu)."""
+    marks = ",".join("?" * len(JOB_FINISHED_STATUSES))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, updated_at FROM jobs WHERE status IN ({marks}) "
+            "AND json_extract(options_json, '$.order_id') IS NULL",
+            tuple(JOB_FINISHED_STATUSES),
+        ).fetchall()
+    return [(str(r["id"]), str(r["updated_at"] or "")) for r in rows]
+
+
+def all_job_ids() -> set[str]:
+    """Id všech jobů v DB (úklid osiřelých složek nesmí smazat složku staršího jobu)."""
+    with connect() as conn:
+        return {str(r[0]) for r in conn.execute("SELECT id FROM jobs").fetchall()}
 
 
 _ZIP_FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
