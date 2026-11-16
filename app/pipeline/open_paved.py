@@ -13,7 +13,8 @@ chodníky, náměstí, nábřeží a dvory vycházejí jako žlutá louka (Berl�
 
 Kus se kreslí jako 501.1 (výplň bez obrysu) pod ostatní kresbou. Barva 501.1 je nad žlutou, 401 se proto nevyřezává
 a zůstává pod ní celá jako pod ulicemi z katastru v Česku (``street_parcels``): ořez by po vyhlazení porostu nechal
-bílé proužky a rozdrobil 401 na tisíce kousků. Les, MTBO a Česko beze změny. Bez ortofota země nebo bez jasného
+bílé proužky a rozdrobil 401 na tisíce kousků. Barva 501.1 je ale i nad olivou a zelenou, proto se od hotové části
+odečte, co už kreslí jiné části (``trim_to_drawn``: voda, les a zelené porosty, sady, oliva, jiná 501). Les, MTBO a Česko beze změny. Bez ortofota země nebo bez jasného
 letního snímku se nic nemění; vstupy se stahují na pozadí od začátku jobu (``prefetch``).
 """
 
@@ -418,7 +419,7 @@ def paved_mask(rgb, open401, ndvi, mpp: float):
 
 def prepare(work_dir: Path, bbox_wgs84, *, preset_id: str, log=None) -> list:
     """Zpevněné kusy 401 (shapely polygony v souřadnicích jobu) pro sprint mimo Česko; jinak []. Výsledek se uloží
-    do ``open_paved/zpevnene.geojson`` (čte ho i maska mezer ``residual_paved``)."""
+    do ``open_paved/zpevnene.geojson``."""
     if not applies(preset_id):
         return []
     from app.pipeline.vegetation_chm import CHM_SOURCE_MARK
@@ -432,7 +433,7 @@ def prepare(work_dir: Path, bbox_wgs84, *, preset_id: str, log=None) -> list:
     except Exception as exc:  # mapa se kreslí i bez toho
         if log:
             log(f"Zpevněné plochy z ortofota: přeskočeno ({type(exc).__name__}: {exc})")
-        try:  # starší výsledek by v ``residual_paved`` maskoval plochy, které se nenakreslí
+        try:  # starší výsledek nesmí zůstat (``load_polygons``)
             _write_result(_cache_dir(work_dir), [], None)
         except OSError:
             pass
@@ -444,6 +445,9 @@ def _prepare(work_dir: Path, shp: Path, bbox_wgs84, *, log=None) -> list:
     from osgeo import gdal
     from shapely.geometry import shape
 
+    from app.pipeline import dtm_import
+    from app.pipeline.osm_paths import NATURAL_COVER_NAME, SAND_AREAS_NAME
+
     out = _cache_dir(work_dir)
     inputs = _inputs(work_dir, bbox_wgs84, log=log)
     if inputs is None:
@@ -453,7 +457,8 @@ def _prepare(work_dir: Path, shp: Path, bbox_wgs84, *, log=None) -> list:
         return []
     ortho, ndvi_path, day = inputs
     stamp = [_stamp(shp), _stamp(shp.with_suffix(".dbf")), _stamp(ortho), _stamp(ndvi_path),
-             _stamp(work_dir / "osm_paths" / "features.geojson")]
+             _stamp(work_dir / "osm_paths" / "features.geojson"), _stamp(work_dir / "osm_paths" / SAND_AREAS_NAME),
+             _stamp(work_dir / "osm_paths" / NATURAL_COVER_NAME), _stamp(dtm_import.buildings_path(work_dir))]
     res, meta_path = out / RESULT_NAME, out / RESULT_META_NAME
     if res.is_file() and _meta_matches(meta_path, {"stamp": stamp}):
         data = json.loads(res.read_text(encoding="utf-8"))
@@ -469,11 +474,14 @@ def _prepare(work_dir: Path, shp: Path, bbox_wgs84, *, log=None) -> list:
     if float(valid.mean()) >= ORTHO_MIN_VALID_SHARE:
         open_wkbs = _open_rows_wkb(shp)
         open401 = _rasterize(open_wkbs, gt, width, height)
+        exclude = exclude_zone(work_dir)
+        if exclude is not None:
+            open401 &= ~_rasterize([exclude.wkb], gt, width, height)
         bounds = (gt[0], gt[3] + gt[5] * height, gt[0] + gt[1] * width, gt[3])
         ndvi = gdal.Warp("", str(ndvi_path), format="MEM", outputBounds=bounds, width=width, height=height,
                          resampleAlg="bilinear").ReadAsArray()
         mask = paved_mask(rgb, open401, ndvi, gt[1])
-        polys = fit_to_open(_mask_to_polygons(mask, gt), open_wkbs, rail_zone(work_dir))
+        polys = fit_to_open(_mask_to_polygons(mask, gt), open_wkbs, exclude)
     elif log:
         log(f"Zpevněné plochy z ortofota: ortofoto pokrývá jen {valid.mean() * 100:.0f} % výřezu – beze změny")
     _write_result(out, polys, {"stamp": stamp})
@@ -501,21 +509,35 @@ def _mask_to_polygons(mask, gt) -> list:
     return out
 
 
-def fit_to_open(polys: list, open_wkbs: list[bytes], rail=None) -> list:
+def fit_to_open(polys: list, open_wkbs: list[bytes], exclude=None) -> list:
     """Kusy z pixelové masky o ``CLIP_PAD_M`` rozšířené a oříznuté přesně obrysem 401 (mřížka CHM a ortofota se liší,
-    jinak by mezi nimi zůstaly žluté proužky); bez pásu tratí (štěrkové lože není dlažba)."""
+    jinak by mezi nimi zůstaly žluté proužky); bez ``exclude`` (tratě, voda, budovy, pláž – ``exclude_zone``)."""
     if not polys or not open_wkbs:
         return []
     import shapely
     from shapely.geometry import Polygon
 
     rows = [shapely.from_wkb(w) for w in open_wkbs]
-    open_area = shapely.union_all(rows)
+    row_tree = shapely.STRtree(rows)
+    ex_parts = [g for g in getattr(exclude, "geoms", [exclude]) if not g.is_empty] if exclude is not None else []
+    ex_tree = shapely.STRtree(ex_parts) if ex_parts else None
+
+    def _near(tree, parts, geom):  # sjednocení jen dílů u ``geom`` (celé sjednocení je u velkých map pomalé)
+        if tree is None:
+            return None
+        idx = tree.query(geom, predicate="intersects")
+        return shapely.union_all([parts[i] for i in idx]) if len(idx) else None
+
     out = []
     for poly in polys:
-        geom = poly.buffer(CLIP_PAD_M, join_style="mitre").intersection(open_area)
-        if rail is not None:
-            geom = geom.difference(rail)
+        padded = poly.buffer(CLIP_PAD_M, join_style="mitre")
+        near_open = _near(row_tree, rows, padded)
+        if near_open is None:
+            continue
+        geom = padded.intersection(near_open)
+        near_ex = _near(ex_tree, ex_parts, geom)
+        if near_ex is not None:
+            geom = geom.difference(near_ex)
         for g in getattr(geom, "geoms", [geom]):
             if isinstance(g, Polygon) and g.area >= MIN_AREA_M2:
                 out.append(g)
@@ -523,17 +545,18 @@ def fit_to_open(polys: list, open_wkbs: list[bytes], rail=None) -> list:
         return []
     # Zbytek řádku 401 menší než kus CHM (MIN_AREA_M2) je okraj pixelu, ne trávník: přidá se k ploše, jinak by zůstal
     # žlutý drobek (nebo po zahození bílá díra).
-    paved = shapely.union_all(out)
-    shapely.prepare(paved)
+    out_tree = shapely.STRtree(out)
     extra = []
     for row in rows:
-        if not paved.intersects(row):
+        near_paved = _near(out_tree, out, row)
+        if near_paved is None:
             continue
-        rest = row.difference(paved)
+        rest = row.difference(near_paved)
         for g in getattr(rest, "geoms", [rest]):
             if not isinstance(g, Polygon) or g.area >= MIN_AREA_M2:
                 continue
-            if rail is not None and g.intersection(rail).area > 0.5 * g.area:
+            near_ex = _near(ex_tree, ex_parts, g)
+            if near_ex is not None and g.intersection(near_ex).area > 0.5 * g.area:
                 continue
             extra.append(g)
     if not extra:
@@ -542,24 +565,51 @@ def fit_to_open(polys: list, open_wkbs: list[bytes], rail=None) -> list:
     return [g for g in getattr(merged, "geoms", [merged]) if isinstance(g, Polygon) and g.area >= MIN_AREA_M2]
 
 
-def rail_zone(work_dir: Path):
-    """Pás OSM tratí (``rail_line`` z přípravy OSM, bez tramvají – ty vedou v dlážděné ulici), nebo None."""
-    from shapely.geometry import LineString
+def exclude_zone(work_dir: Path):
+    """Kde zpevněná plocha z ortofota nebude, nebo None: pás OSM tratí (``rail_line``, bez tramvají – ty vedou
+    v dlážděné ulici; štěrkové lože vypadá jako dlažba), OSM vodní plochy, budovy (OSM i technická mapa; CHM je
+    pod nimi často 401 a šedá střecha vypadá jako dlažba), přírodní kryt OSM (``osm_paths.NATURAL_COVER_NAME``: les,
+    louka, křoviny, vřesoviště, mokřad …; suchá tráva dun vypadá jako dlažba) a mimo Česko pláž a písek
+    (``osm_paths.SAND_AREAS_NAME``, světlý písek vypadá jako beton – Scheveningen, Pirita)."""
+    from shapely.geometry import LineString, Polygon, shape
     from shapely.ops import unary_union
 
-    path = Path(work_dir) / "osm_paths" / "features.geojson"
-    try:
-        feats = json.loads(path.read_text(encoding="utf-8")).get("features") or []
-    except (OSError, ValueError):
-        return None
-    lines = []
-    for feat in feats:
+    from app.pipeline import dtm_import
+    from app.pipeline.osm_paths import NATURAL_COVER_NAME, SAND_AREAS_NAME
+
+    osm_dir = Path(work_dir) / "osm_paths"
+    zones = []
+
+    def _features(name: str) -> list:
+        try:
+            return json.loads((osm_dir / name).read_text(encoding="utf-8")).get("features") or []
+        except (OSError, ValueError):
+            return []
+
+    for feat in _features("features.geojson"):
         geom = feat.get("geometry") or {}
-        if (feat.get("properties") or {}).get("kind") == "rail_line" and geom.get("type") == "LineString":
-            coords = geom.get("coordinates") or []
-            if len(coords) >= 2:
-                lines.append(LineString(coords).buffer(RAIL_HALF_M, cap_style="flat"))
-    return unary_union(lines) if lines else None
+        kind = (feat.get("properties") or {}).get("kind")
+        try:
+            if kind == "rail_line" and geom.get("type") == "LineString" and len(geom.get("coordinates") or []) >= 2:
+                zones.append(LineString(geom["coordinates"]).buffer(RAIL_HALF_M, cap_style="flat"))
+            elif kind in ("water_body", "building") and geom.get("type") in ("Polygon", "MultiPolygon"):
+                zones.append(shape(geom).buffer(0))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    try:
+        building_rings = dtm_import._load_polygons_file(dtm_import.buildings_path(work_dir))
+    except Exception:  # budovy technické mapy jsou doplněk
+        building_rings = []
+    for rings in building_rings:
+        if rings and len(rings[0]) >= 4:
+            zones.append(Polygon(rings[0], rings[1:]).buffer(0))
+    for feat in [*_features(NATURAL_COVER_NAME), *_features(SAND_AREAS_NAME)]:
+        try:
+            zones.append(shape(feat.get("geometry") or {}).buffer(0))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    zones = [z for z in zones if not z.is_empty]
+    return unary_union(zones) if zones else None
 
 
 def _write_result(out: Path, polys: list, meta: dict | None) -> None:
@@ -598,11 +648,6 @@ def load_polygons(work_dir: Path) -> list:
     return out
 
 
-def paved_wkbs(work_dir: Path) -> list[bytes]:
-    """Kusy jako WKB (maska mezer ``residual_paved``: plochu kreslí tato vrstva, nesmí se zdvojit)."""
-    return [g.wkb for g in load_polygons(work_dir)] if OPEN_PAVED else []
-
-
 def build_open_paved_part(work_dir: Path, polygons: list, *, preset_id: str, scale: int, ref_x: float, ref_y: float,
                           grivation_deg: float):
     """Část mapy 501.1 (výplň bez obrysu) z kusů ``prepare``; None, když nic nebo chybí symbol."""
@@ -631,3 +676,98 @@ def build_open_paved_part(work_dir: Path, polygons: list, *, preset_id: str, sca
 
 
 PART_NAME = "Zpevněné plochy z ortofota (501)"
+
+
+# Plochy, které 501.1 nepřekryje (barva 501.1 je v sadě nad olivou i zelenou): voda, les a zelené porosty, sady,
+# vinice, oliva. Plochy 501 z jiných zdrojů (mezery ``residual_paved``, OSM, technická mapa) se odečtou také,
+# aby se plocha nekreslila dvakrát; 501 na mostě ne (pod mostem je zem).
+COVER_MAJORS = frozenset({301, 302, 405, 406, 407, 408, 409, 410, 411, 413, 414, 520})
+# Po ořezu pryč pruhy užší než 2 × TRIM_OPEN_M (zbytky podél ořezaných ploch).
+TRIM_OPEN_M = 0.5
+
+
+def trim_to_drawn(parts, *, preset_id: str, scale: int, log=None):
+    """``parts`` s částí ``PART_NAME`` bez ploch, které už kreslí jiné části (``COVER_MAJORS``, plochy 501 mimo mosty).
+
+    Zbytek se otevře o ``TRIM_OPEN_M`` a kusy pod ``MIN_AREA_M2`` se zahodí. Bez té části vrací ``parts`` beze změny,
+    při chybě také (kresba zůstane neořezaná)."""
+    at = next((i for i, p in enumerate(parts) if p.name == PART_NAME), None)
+    if at is None:
+        return parts
+    try:
+        objects = _trimmed_objects(parts, at, preset_id=preset_id, scale=scale)
+    except Exception as exc:  # kosmetika
+        if log:
+            log(f"⚠ Zpevněné plochy z ortofota: ořez o kresbu přeskočen ({type(exc).__name__}: {exc})")
+        return parts
+    if objects is None:
+        return parts
+    from dataclasses import replace
+
+    out = list(parts)
+    if objects:
+        out[at] = replace(parts[at], objects_xml="\n".join(objects), count=len(objects))
+    else:
+        del out[at]
+    if log:
+        log(f"Zpevněné plochy z ortofota (501): {len(objects)} ploch po ořezu o kresbu")
+    return out
+
+
+def _trimmed_objects(parts, at: int, *, preset_id: str, scale: int):
+    """Objekty části ``parts[at]`` po ořezu (seznam XML), nebo None, když se nic neořezalo."""
+    import shapely
+    from shapely.geometry import Polygon
+
+    from app.pipeline.oom_import import _area_object_with_holes
+    from app.pipeline.oom_symbols import symbol_set_path
+    from app.pipeline.path_clearance import _COORDS_RE, _OBJECT_RE, _parse_coords, _polygon, _rings, _rounded_pieces, _symbol_info
+    from app.pipeline.street_parcels import BRIDGE_PART_PREFIX
+
+    def area_poly(m):
+        cm = _COORDS_RE.search(m.group(4))
+        poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
+        if poly is None or poly.is_empty:
+            return None
+        return poly if poly.is_valid else poly.buffer(0)
+
+    info = _symbol_info(symbol_set_path(preset_id, scale))
+    cover = []
+    for i, part in enumerate(parts):
+        if i == at:
+            continue
+        on_bridge = str(part.name).startswith(BRIDGE_PART_PREFIX)
+        for m in _OBJECT_RE.finditer(part.objects_xml):
+            if m.group(2) != "1":
+                continue
+            major, kind = info.get(int(m.group(3)), (0, ""))
+            if kind != "area" or not (major in COVER_MAJORS or (major == 501 and not on_bridge)):
+                continue
+            poly = area_poly(m)
+            if poly is not None and not poly.is_empty:
+                cover.append(poly)
+    if not cover:
+        return None
+    tree = shapely.STRtree(cover)
+    um_per_m = 1e6 / scale
+    half = TRIM_OPEN_M * um_per_m
+    min_area = MIN_AREA_M2 * um_per_m * um_per_m
+    objects, changed = [], False
+    for m in _OBJECT_RE.finditer(parts[at].objects_xml):
+        poly = area_poly(m) if m.group(2) == "1" else None
+        hits = [cover[int(k)] for k in tree.query(poly, predicate="intersects")] if poly is not None else []
+        if not hits:
+            objects.append(m.group(0))
+            continue
+        changed = True
+        rest = poly.difference(shapely.union_all(hits).buffer(0))
+        rest = rest.buffer(-half, quad_segs=2, join_style="mitre").buffer(half, quad_segs=2, join_style="mitre")
+        sym = int(m.group(3))
+        for g in getattr(rest, "geoms", [rest]):
+            if not isinstance(g, Polygon) or g.area < min_area:
+                continue
+            for pts in _rounded_pieces(g):
+                obj = _area_object_with_holes(sym, [[(p[0], p[1]) for p in r] for r in _rings(pts)])
+                if obj:
+                    objects.append(obj)
+    return objects if changed else None

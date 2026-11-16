@@ -1075,20 +1075,6 @@ def _prepare_oom_map(
 
     # Nejspodnější podklad: zpevněné plochy ze ZABAGED (501), pak inverze residential…
     object_parts.extend(zabaged_base_paved)
-    # Sprint mimo Česko: zpevněná 401 z ortofota země a letního NDVI (501.1; z 401 ji vyřízne vegetace).
-    from app.pipeline import open_paved
-
-    open_paved_part = None if certain_only else open_paved.build_open_paved_part(
-        kp_cwd,
-        open_paved.prepare(kp_cwd, bbox_wgs84, preset_id=preset_id, log=log),
-        preset_id=preset_id,
-        scale=scale,
-        ref_x=ref_x,
-        ref_y=ref_y,
-        grivation_deg=grivation,
-    )
-    if open_paved_part is not None:
-        object_parts.append(open_paved_part)
     if residual_paved:
         residual_parts = build_residual_paved_parts(
             kp_cwd,
@@ -1429,6 +1415,24 @@ def _prepare_oom_map(
         clip_bounds=vector_clip_bounds,
         log=log,
     )
+    # Sprint mimo Česko: zpevněná 401 z ortofota země a letního NDVI (501.1 nad 401) až nad hotovou kresbou: ostatní
+    # kroky (ulice z katastru) se jí neřídí a ona nepřekryje vodu, olivu, zelené porosty ani jinou 501 (trim_to_drawn).
+    if not certain_only:
+        from app.pipeline import open_paved
+
+        open_paved_part = open_paved.build_open_paved_part(
+            kp_cwd,
+            open_paved.prepare(kp_cwd, bbox_wgs84, preset_id=preset_id, log=log),
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+        )
+        if open_paved_part is not None:
+            object_parts = open_paved.trim_to_drawn(
+                [*object_parts, open_paved_part], preset_id=preset_id, scale=scale, log=log
+            )
     # Sprint: strom z DMP OK na kreslené budově (i v zalitém dvoře) nebo v olivě se nekreslí.
     from app.pipeline.sprint_trees import drop_trees_in_buildings_and_olive
 

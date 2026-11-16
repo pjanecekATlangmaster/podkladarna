@@ -389,6 +389,10 @@ NATURAL_COVER_NAME = "natural_cover.geojson"
 NATURAL_COVER_LANDUSE = frozenset({"forest", "meadow", "orchard", "vineyard", "farmland"})
 NATURAL_COVER_NATURAL = frozenset({"wood", "grassland", "scrub", "heath", "wetland"})
 PATH_SURFACES_NAME = "path_surfaces.geojson"
+# Pláž a písek (natural=beach / sand) jen mimo Česko: zpevněné plochy z ortofota (``open_paved``) je nesmějí vzít
+# za dlažbu (Scheveningen). Vlastní seznam, ne ``natural_cover`` – Česko beze změny.
+SAND_AREAS_NAME = "sand_areas.geojson"
+SAND_NATURAL = frozenset({"beach", "sand"})
 # Nezpevněný povrch čáry (surface=*) pro ``path_surface_class``.
 _UNPAVED_LINE_SURFACES = frozenset(
     {
@@ -516,6 +520,9 @@ def _overpass_ql(
         *([] if _cz_process() else [f'way["waterway"~"^({"|".join(sorted(OSM_WATERWAY_LINES))})$"]({bbox});']),
         # Moře: OSM ho nemá jako plochu, jen pobřežní čáru (pevnina vlevo) → plocha 301 (``sea_features``). Česko moře nemá.
         *([] if _cz_process() else [f'way["natural"="coastline"]({bbox});']),
+        # Pláž a písek mimo Česko (``SAND_AREAS_NAME``), samy se nekreslí.
+        *([] if _cz_process() else [f'way["natural"~"^(beach|sand)$"]({bbox});',
+                                    f'relation["type"="multipolygon"]["natural"~"^(beach|sand)$"]({bbox});']),
         # Železnice a tramvaje → 509 / 515 jako ZABAGED ZeleznicniTrat / TramvajovaDraha; v Česku je kreslí ZABAGED.
         *([] if _cz_process() else [f'way["railway"~"^({"|".join(sorted(OSM_RAIL_LINE_KINDS))})$"]({bbox});']),
         # Náhrady vrstev ZABAGED mimo Česko (hřbitovy, kolonie, věže, lanovky, hradby, balvany, pomníky, stromy).
@@ -4102,6 +4109,7 @@ def prepare_osm_paths(
     walk_tunnels: list[list[tuple[float, float]]] = []
     covered_passages: list[list[tuple[float, float]]] = []
     natural_cover: list[tuple[list[list[tuple[float, float]]], str]] = []
+    sand_areas: list[list[list[tuple[float, float]]]] = []
     path_surfaces: list[dict] = []
     # Cesty se zpevněným povrchem (surface=asphalt, paving_stones …) – jen z nich vzniká koridor pěší zóny.
     paved_walk_lines: list[list[tuple[float, float]]] = []
@@ -4176,6 +4184,8 @@ def prepare_osm_paths(
                 private_pools.extend(osm_area_polygons_5514(el))
             elif is_private_garden_tags(tags):
                 private_gardens.extend(osm_area_polygons_5514(el))
+        if el.get("type") != "node" and (tags.get("natural") or "").lower() in SAND_NATURAL and not _cz_process():
+            sand_areas.extend(osm_area_polygons_5514(el))
         if el.get("type") != "node" and is_natural_cover(tags):
             cover_kind = (tags.get("landuse") or "").lower()
             if cover_kind not in NATURAL_COVER_LANDUSE:
@@ -4637,6 +4647,20 @@ def prepare_osm_paths(
         ),
         encoding="utf-8",
     )
+    if not _cz_process():
+        (dest_dir / SAND_AREAS_NAME).write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "features": [
+                        {"type": "Feature", "properties": {"source": "osm"},
+                         "geometry": {"type": "Polygon", "coordinates": [[[x, y] for x, y in ring] for ring in rings]}}
+                        for rings in sand_areas
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
     (dest_dir / PATH_SURFACES_NAME).write_text(
         json.dumps({"type": "FeatureCollection", "features": path_surfaces}),
         encoding="utf-8",
