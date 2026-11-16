@@ -500,6 +500,18 @@ def paid_site_footer(html: str) -> str:
     return html
 
 
+_INTL_PAGE_KEYS = (
+    "web.page.podkladarna_sama_sklada_podklady_pro_orientacni",
+    "web.page.pro_ocad_v_zipu_georeferencovany_v",
+)
+
+
+def intl_site(request: Request) -> bool:
+    """Doména nabízí i jiné země než Česko (``SITES``); bez ``SITES`` česká verze."""
+    site = i18n.site_for_request(request)
+    return site is not None and tuple(site.countries) != ("CZ",)
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     try:
@@ -510,7 +522,12 @@ def index(request: Request) -> HTMLResponse:
         logger.exception("Pageview cleanup failed")
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
     lang = i18n.resolve_lang(request)[0]
-    html = html.replace("<!-- PODKLADARNA_ABOUT -->", web_about_html(lang))
+    intl = intl_site(request)
+    html = html.replace("<!-- PODKLADARNA_ABOUT -->", web_about_html(lang, intl=intl))
+    if intl:
+        # Doména i pro jiné země: texty o souřadnicích bez S-JTSK (česká doména beze změny).
+        for key in _INTL_PAGE_KEYS:
+            html = html.replace(f"{{{{h:{key}}}}}", f"{{{{h:{key}_intl}}}}")
     html = html.replace("<!-- PODKLADARNA_SOURCE_LINKS -->", source_links_html(lang))
     html = html.replace("<!-- PODKLADARNA_SAMPLES -->", samples_html(lang))
     html = html.replace("{{APP_VERSION}}", APP_VERSION)

@@ -192,6 +192,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Grid OSTN15 (Ordnance Survey, otevřená licence) pro EPSG:27700: bez něj PROJ (PROJ_NETWORK=OFF)
+# převádí OSM do britské sítě Helmertem s chybou 0,8–2,5 m proti výškám EA. Ostatní systémy
+# (i S-JTSK s vlastním +towgs84) grid nepoužijí. Kontrola: Londýn musí vyjít o ~1,7 m jinak než bez gridu.
+RUN curl -fsSL -o /opt/conda/share/proj/uk_os_OSTN15_NTv2_OSGBtoETRS.tif \
+        https://cdn.proj.org/uk_os_OSTN15_NTv2_OSGBtoETRS.tif \
+    && echo "5d6ed64d2119952c4c559fa1fccbc594b6520fc3ec3ef2fc10be13202c4384fa  /opt/conda/share/proj/uk_os_OSTN15_NTv2_OSGBtoETRS.tif" | sha256sum -c - \
+    && PROJ_DATA=/opt/conda/share/proj python -c "from pyproj import Transformer; x, y = Transformer.from_crs('+proj=latlong +datum=WGS84', 'EPSG:27700', always_xy=True).transform(-0.12, 51.5); assert abs(x - 530589.43) < 0.05 and abs(y - 179570.88) < 0.05, (x, y)"
+
 COPY configs ./configs
 COPY app ./app
 COPY web ./web

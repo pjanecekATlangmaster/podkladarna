@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4, CRS_WKT
+from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4, CRS_WKT, crs_text_cs
 from app.pipeline.georef import PgwGeoref
 from app.pipeline.job_progress import log_issue
 from app.pipeline.oom_coords import map_to_projected
@@ -2512,14 +2512,14 @@ def build_georef_previews_zip(
             "Podkladárna – georeferencované náhledy mapy\n"
             "==========================================\n\n"
             "Každá varianta (les / mtbo / sprint dle měřítka) je jeden soubor:\n"
-            "  *.tif  – GeoTIFF v S-JTSK (EPSG:5514), s grivací / magnetickým\n"
+            f"  *.tif  – GeoTIFF v {crs_text_cs()}, s grivací / magnetickým\n"
             "           natočením (Mapper CLI @ 300 DPI; bez CLI Pillow @ 300 DPI-eq).\n"
             "           Dlaždicový, bezztrátově komprimovaný (DEFLATE) a s interními\n"
             "           přehledkami – QGIS i OCAD ho otevřou hned při libovolném zoomu.\n\n"
             "Otevři *.tif v QGIS nebo ho vlož jako podkladovou mapu v OOM / OCAD.\n"
             "Není to tisková mapa – jen georef náhled.\n"
             "Pokud se GeoTIFF nepodařilo vyrobit (chybí GDAL), je místo něj\n"
-            "*.png + *.pgw (+ *.prj): otevři PNG v QGIS (zadej EPSG:5514, pokud se neptá).\n"
+            f"*.png + *.pgw (+ *.prj): otevři PNG v QGIS (zadej {CRS_LABEL}, pokud se neptá).\n"
             "Webový náhled „Otevřít PNG“ je zvlášť (Pillow, bez deklinace)\n"
             "a do materiálového OOM ZIPu se PNG náhledy nedávají.\n"
         )

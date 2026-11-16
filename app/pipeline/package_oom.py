@@ -28,7 +28,7 @@ from app.pipeline.osm_paths import (
 )
 from app.pipeline.build_oom_map import write_oom_map
 from app.pipeline.job_progress import map_phase
-from app.pipeline.crs_5514 import CRS_LABEL, projected_to_wgs84
+from app.pipeline.crs_5514 import CRS_LABEL, IS_KROVAK, crs_text_cs, projected_to_wgs84
 from app.pipeline.fetch_openzu import crop_bounds_5514
 from app.pipeline.geom_clip import expand
 from app.pipeline.oom_georef import oom_north_angles
@@ -89,7 +89,7 @@ a _ridke (řídce zmapované – v auto .omap nejsou). Symbol {describe_code("50
 Doporučené symboly jsou v README.txt uvnitř jobu (osm_paths/manual/).
 Kódy symbolů jsou kódy OCAD sad ISOM / ISSprOM (MTBO má vlastní číslování).
 
-Souřadnice: EPSG:5514 (S-JTSK).
+Souřadnice: {"EPSG:5514 (S-JTSK)" if IS_KROVAK else CRS_LABEL}.
 """
 
 
@@ -550,7 +550,7 @@ def zip_about(meta: dict | None) -> tuple[str, str]:
         return zip_texts_en.ABOUT_NAME_EN, zip_texts_en.about_txt_en(
             kw.get("citation") or meta.get("citation_short") or "", tuple(attribution or CZ_DATA_SOURCES_EN), cz=_is_cz(meta)
         )
-    return "CO_JE_PODKLADARNA.txt", zip_about_txt(**kw)
+    return "CO_JE_PODKLADARNA.txt", zip_about_txt(**kw, crs=crs_text_cs(meta.get("crs") or "EPSG:5514"))
 
 
 def _data_sources_line_en(meta: dict) -> str:
