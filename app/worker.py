@@ -35,6 +35,8 @@ _slot_dir_cache: object = object()
 _prefetch_queue: list[str] = []
 _prefetching: dict[str, subprocess.Popen | None] = {}
 _prefetch_done: set[str] = set()
+# Joby, které si volný server vzal ze stahování předem (proces ještě běží): znovu se nevezmou.
+_prefetch_taken: set[str] = set()
 
 
 def _shared_slot() -> SharedSlot | None:
@@ -232,6 +234,9 @@ def _pop_prefetching_for_idle() -> str | None:
     """Fronta výpočtů je prázdná a server volný: job ze stahování předem začne hned (build si zbytek
     stáhne sám, zámek listu brání dvojímu stažení). Přednost má job, který už stahuje."""
     for job_id in list(_prefetching):
+        if job_id in _prefetch_taken:
+            continue  # už jednou převzatý (běží nebo doběhl / selhal) – ne znovu (review PR 354)
+        _prefetch_taken.add(job_id)
         _prefetch_done.add(job_id)
         return job_id
     if _prefetch_queue:
@@ -353,8 +358,13 @@ def _run_prefetch(job_id: str) -> None:
             _terminate_process_tree(proc)
         with _lock:
             _prefetching.pop(job_id, None)
-            _prefetch_done.add(job_id)
-            waiting = job_id != _running and job_id not in _queue
+            taken = job_id in _prefetch_taken
+            _prefetch_taken.discard(job_id)
+            if taken:
+                _prefetch_done.discard(job_id)  # job už běžel / běží sám, značka není potřeba
+            else:
+                _prefetch_done.add(job_id)
+            waiting = not taken and job_id != _running and job_id not in _queue
         if waiting:
             try:
                 status = db.get_job(job_id).get("status")
@@ -365,6 +375,9 @@ def _run_prefetch(job_id: str) -> None:
                     enqueue(job_id, force=True)
                 except Exception:  # noqa: BLE001
                     logger.exception("Zařazení jobu %s po předstažení", job_id)
+            else:
+                with _lock:
+                    _prefetch_done.discard(job_id)  # smazaný / zrušený job: značka by jen rostla
         _start_prefetches()
 
 

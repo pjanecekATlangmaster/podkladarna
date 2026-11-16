@@ -471,7 +471,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   nechal bílé proužky a rozdrobil 401 (Antverpy 661 → 8 597 objektů). Vstupy se stahují na pozadí od startu jobu (`start_open_paved_prefetch`, cache `work/open_paved/`); bez ortofota země nebo letního snímku beze
   změny. COG Element84 jsou bez posunu DN (`Scene.dn_offset` nepoužívat). Les, MTBO a Česko beze změny (samotné ortofoto v lese škodí:
   zimní vřesoviště 53 %). Měření a náhledy `/mnt/project-files/evropa-data/zahranicni-build/maska-zelene/`.
-- **Předstažení velkých dat mimo frontu** (3.65.0, Petr 2026-11-16, `app/prefetch.py`): job v Česku s aspoň `PREFETCH_MIN_SHEETS` (2)
+- **Předstažení velkých dat mimo frontu** (3.66.0, Petr 2026-11-16, `app/prefetch.py`): job v Česku s aspoň `PREFETCH_MIN_SHEETS` (2)
   listy LiDARu mimo cache při obsazeném serveru (běží job, fronta neprázdná nebo nasazení) nejde do fronty výpočtů, ale stahuje
   samostatným procesem `python -m app.prefetch <job>` s nižší prioritou (`nice`, ionice best-effort 7, `PREFETCH_CONCURRENCY` 1,
   `PREFETCH_DOWNLOAD_WORKERS` 2, limit `PREFETCH_TIMEOUT_MINUTES` 60), fáze `waiting_download` / `downloading`; po stažení (i po

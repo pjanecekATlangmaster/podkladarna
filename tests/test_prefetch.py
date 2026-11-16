@@ -108,11 +108,16 @@ def test_free_server_takes_job_from_download(worker, monkeypatch):
     worker._running = None
     worker._start_next()  # fronta výpočtů prázdná: nečekat na konec předstažení
     assert worker._running == big and ("_run", big) in worker.started
+    # Job selže dřív, než předstažení doběhne: volný server ho znovu nevezme (review PR 354).
+    db.update_job(big, status="failed")
+    worker._running = None
+    worker._start_next()
+    assert worker._running is None and worker.started.count(("_run", big)) == 1
+    assert db.get_job(big)["status"] == "failed"
     # Předstažení pak doběhne a job znovu nezařadí.
-    db.update_job(big, status="running")
     monkeypatch.setattr(worker.subprocess, "Popen", lambda *a, **k: type("P", (), {"wait": lambda s, timeout=None: 0, "poll": lambda s: 0})())
     worker._run_prefetch(big)
-    assert worker._queue == []
+    assert worker._queue == [] and not worker._prefetch_taken and big not in worker._prefetch_done
 
 
 def test_file_lock_reentrant_and_exclusive(tmp_path):

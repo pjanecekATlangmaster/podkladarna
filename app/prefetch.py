@@ -125,10 +125,12 @@ def run_prefetch(job_id: str) -> int:
         f"{len(missing)} listů LiDAR (~{len(missing) * SHEET_DOWNLOAD_MB / 1000:.1f} GB) "
         "s nižší prioritou mimo frontu výpočtů …"
     )
-    try:
-        disk_space.ensure_job_space(db.job_area_km2(options), log=log)
-    except Exception as exc:  # noqa: BLE001 – místo pohlídá i build; ten skončí jasnou chybou
-        log(f"⚠ nedost místa na disku ({exc}) – data stáhne až výpočet")
+    # Jen kontrola místa, nic se nemaže: úklid cache souběžně s běžícím buildem by mohl smazat jeho listy
+    # (review PR 354). Když místo nestačí, stáhne data až build se svým ``ensure_job_space``.
+    need = disk_space.job_need_bytes(db.job_area_km2(options)) + len(missing) * SHEET_DOWNLOAD_MB * 1_000_000
+    free = disk_space.free_bytes(disk_space.cache_root())
+    if need > 0 and free is not None and free < need:
+        log(f"⚠ málo místa na disku s cache ({free / 1e9:.1f} GB volno) – data stáhne až výpočet")
         return 1
 
     def one(mapnom: str) -> None:
