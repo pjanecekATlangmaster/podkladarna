@@ -637,14 +637,18 @@ def _abroad_zabaged_substitute_ql(bbox: str) -> list[str]:
         f'way["historic"~"^(memorial|monument|wayside_cross|wayside_shrine)$"]({bbox});',
         f'node["man_made"="cross"]({bbox});',
         f'node["natural"="tree"]["denotation"~"^(landmark|natural_monument)$"]({bbox});',
+        f'way["historic"="ruins"]({bbox});',
+        f'relation["type"="multipolygon"]["historic"="ruins"]({bbox});',
     ]
 
 
 def _abroad_substitute_kind(tags: dict, *, is_node: bool) -> tuple[str, str] | None:
-    """OSM náhrada za vrstvu ZABAGED mimo Česko (hřbitov, kolonie, věž, lanovka, hradba, balvan), jinak None."""
+    """OSM náhrada za vrstvu ZABAGED mimo Česko (hřbitov, kolonie, věž, lanovka, hradba, balvan, zřícenina), jinak None."""
     landuse = (tags.get("landuse") or "").lower()
     man_made = (tags.get("man_made") or "").lower()
     building = _is_osm_building(tags)
+    if not is_node and _is_osm_ruin(tags, building=building):
+        return "ruin", "523"  # RozvalinaZricenina: les 523, MTBO 530, sprint 521 (``feature_oom_code``)
     if (landuse in OSM_OLIVE_LANDUSE_ABROAD or (tags.get("amenity") or "").lower() == "grave_yard") and not is_node:
         return None if building else ("garden", "520")
     if man_made in OSM_TOWERS_ABROAD and not (building and not is_node):
@@ -663,6 +667,15 @@ def _abroad_substitute_kind(tags: dict, *, is_node: bool) -> tuple[str, str] | N
     if (tags.get("natural") or "").lower() == "stone":
         return "boulder", "204"
     return None
+
+
+def _is_osm_ruin(tags: dict, *, building: bool) -> bool:
+    """Zřícenina jako plocha: ``building=ruins``, budova s ``ruins=yes`` nebo ``historic=ruins``."""
+    if (tags.get("historic") or "").lower() == "ruins":
+        return True
+    if (tags.get("building") or "").lower() == "ruins":
+        return True
+    return building and (tags.get("ruins") or "").lower() in {"yes", "true", "1"}
 
 
 def _height_m(raw) -> float | None:
@@ -1160,6 +1173,7 @@ _CLOSED_AREA_KINDS = frozenset(
         "garden",
         "building",
         "water_well_building",
+        "ruin",
         "bare_rock",
         "rock_area",
         "scree",
@@ -2028,6 +2042,12 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "527" if mtbo else "520"
     if kind == "building" or kind == "water_well_building":
         return "526" if mtbo else "521"
+    if kind == "ruin":
+        # OSM zřícenina mimo Česko jako ZABAGED RozvalinaZricenina (``oom_symbol_map``): sprint budova,
+        # les 523 (obrys čárkovaně), MTBO 530 (katalog → 523.0 Zřícenina).
+        if sprint:
+            return "521"
+        return "530" if mtbo else "523"
     if kind == "water_well":
         return "312" if mtbo else "311"
     if kind == "spring":
@@ -8874,6 +8894,7 @@ def build_osm_feature_parts(
         "building": "OSM budovy",
         "building_small": "Budovy – minimální velikost (521.3)",
         "water_well_building": "OSM budovy (studny)",
+        "ruin": "OSM zříceniny",
         "playground": "OSM hřiště (501 zpevněná)",
         "pitch": "OSM sportoviště (501 zpevněná)",
         "pitch_open": "OSM sportoviště travnaté (401)",
@@ -8923,6 +8944,7 @@ def build_osm_feature_parts(
         "building",
         "building_small",
         "water_well_building",
+        "ruin",
         "water_well",
         "spring",
         "water_body",

@@ -54,6 +54,7 @@ _KIND_GEOM = {
         "rail_line", "tram_line",  # koleje OSM mimo Česko
     )},
     "tree_row": "point",  # alej se kreslí body 418 (``tree_rows``)
+    "ruin": {"line", "area"},  # zřícenina OSM mimo Česko jako ZABAGED RozvalinaZricenina (les obrys 523, sprint 521)
     **{k: "area" for k in (
         "wetland", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "pitch_open", "parking",
         "pedestrian_area", "platform", "water_well_building", "building", "bare_rock",

@@ -2086,6 +2086,7 @@ def _load_rock_occupancy_blockers(
                         "platform",
                         "building",
                         "water_well_building",
+                        "ruin",  # OSM zříceniny jen mimo Česko (jako ZABAGED RozvalinaZricenina)
                     }
                 )
                 # waterway = OSM vodní toky, rail_line / tram_line = OSM koleje (jen mimo Česko, v Česku je blokuje
