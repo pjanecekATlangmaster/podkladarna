@@ -582,15 +582,62 @@ def online_labels() -> dict[str, str]:
     }
 
 
-def wms_readme_lines(country: str = "CZ") -> list[str]:
-    """Adresy WMS pro ruční připojení (OCAD, QGIS): popis – URL – vrstva."""
+# Popisky šablon v anglickém README (job v en); česky zůstávají popisky v tabulkách výše (README a názvy pro cs).
+ONLINE_LABELS_EN = {
+    "orthophoto": "ČÚZK orthophoto",
+    "orthophoto_archiv": "ČÚZK archive orthophoto 2003–2005",
+    "ztm": "ČÚZK base map (ZTM)",
+    "katastr": "Cadastral map",
+    "dtm_plochy": "Regional DTM – areas (ZPS)",
+    "dtm_linie": "Regional DTM – lines and points (ZPS)",
+    "dmpok": "DMP OK preview",
+    "sklon": "Terrain slope DMR 5G",
+    "nl_luchtfoto": "Luchtfoto PDOK (orthophoto)",
+    "nl_top10nl": "BRT TOP10NL (topographic map)",
+    "nl_kadaster": "Kadastrale kaart (cadastre)",
+    "nl_ahn": "AHN – terrain model (coloured)",
+    "nl_bgt": "BGT (large-scale map)",
+    "ch_swissimage": "SWISSIMAGE (swisstopo orthophoto)",
+    "ch_landeskarte": "swisstopo national map (Landeskarte)",
+    "ch_av": "AV – official cadastral survey (Cadastral Web Map)",
+    "ch_relief": "swissALTI3D hillshade",
+    "at_ortho": "basemap.at Orthofoto (Austria)",
+    "at_basemap": "basemap.at (grey map)",
+    "at_relief": "basemap.at Gelände (hillshade)",
+    "at_luftbild": "Luftbild Wien (City of Vienna orthophoto)",
+    "de_truedop": "TrueDOP Berlin 2024 (orthophoto)",
+    "de_alkis": "ALKIS Berlin – parcels",
+    "fr_ortho": "IGN orthophoto (BD ORTHO)",
+    "fr_cadastre": "Parcellaire Express (cadastre)",
+    "ee_ortho": "Maa- ja Ruumiamet orthophoto",
+    "ee_cadastre": "Cadastre (katastriüksused)",
+    "it_hillshade": "LiDAR hillshade (Provincia di Trento)",
+    "be_ortho": "Orthofoto Vlaanderen (winter 2025)",
+    "be_cadastre": "Cadastre (administratieve percelen)",
+}
+
+
+def wms_readme_lines(country: str = "CZ", lang: str = "cs") -> list[str]:
+    """Adresy WMS pro ruční připojení (OCAD, QGIS): popis – URL – vrstva; ``lang`` = jazyk README (cs beze změny)."""
     crs = "S-JTSK EPSG:5514" if country == "CZ" else CRS_LABEL
+    en = lang == "en"
+
+    def _label(key: str, label: str) -> str:
+        return ONLINE_LABELS_EN.get(key, label) if en else label
+
     seen: list[str] = []
     for key, _f, label, url, layer, *_rest in wms_layers_for(country):
         native = WMS_NATIVE_CRS.get(key)
-        seen.append(f"- {label}: {url} (vrstva {layer}, {f'{native}, jiný systém server posune' if native else crs})")
+        if en:
+            where = f"{native}, the server reprojects other systems" if native else crs
+            seen.append(f"- {_label(key, label)}: {url} (layer {layer}, {where})")
+        else:
+            seen.append(f"- {label}: {url} (vrstva {layer}, {f'{native}, jiný systém server posune' if native else crs})")
     if country == "NL":
-        seen.append(f"- {NL_ONLINE_BGT[2]}: WMTS {NL_BGT_TILE_URL.split('/standaard')[0]} (standaardvisualisatie, EPSG:28992)")
-    for _k, _f, label, url, *_r in ONLINE_TMS_LAYERS.get(country, ()):
-        seen.append(f"- {label}: WMTS {url.split('/google3857')[0]} (EPSG:3857)")
+        seen.append(
+            f"- {_label(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2])}: WMTS {NL_BGT_TILE_URL.split('/standaard')[0]} "
+            "(standaardvisualisatie, EPSG:28992)"
+        )
+    for key, _f, label, url, *_r in ONLINE_TMS_LAYERS.get(country, ()):
+        seen.append(f"- {_label(key, label)}: WMTS {url.split('/google3857')[0]} (EPSG:3857)")
     return seen

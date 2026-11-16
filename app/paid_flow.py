@@ -28,7 +28,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 from app import db, i18n, orders, payments
 from app import settings as app_settings
-from app.mail import MailError, send_mail
+from app.mail import MailError, send_mail, sender_name
 
 logger = logging.getLogger("podkladarna.paid_flow")
 
@@ -167,7 +167,7 @@ def start_order(
     """Místo jobu založí objednávku a pošle e-mail s odkazem na potvrzení."""
     lang = _lang(options.get("lang"))
     email = (email or "").strip()
-    name = _one_line(name) or "mapa"
+    name = _one_line(name) or ("mapa" if lang == i18n.SOURCE_LANG else "map")
     if not valid_email(email):
         raise HTTPException(400, i18n.Msg("api.order.email_required"))
     if not _check_order_mail_rate(str(options.get("client_ip") or "")):
@@ -199,7 +199,7 @@ def start_order(
         price=price_label(lang),
     )
     try:
-        send_mail(email, subject, body)
+        send_mail(email, subject, body, from_name=sender_name(lang))
     except (MailError, ValueError) as exc:  # ValueError: neplatná hlavička (adresa)
         orders.cancel_unconfirmed(order["id"])
         logger.warning("Order confirmation mail failed: %s", exc)
@@ -416,7 +416,7 @@ def order_sample_path(job: dict[str, Any]) -> Path | None:
     if src is None:
         return None
     kind = order_sample.sample_kind(str(job.get("preset_id") or ""), job.get("options") or {})
-    return order_sample.build_sample_zip(src, dst, kind)
+    return order_sample.build_sample_zip(src, dst, kind, lang=_lang((job.get("options") or {}).get("lang")))
 
 
 @router.get("/order/{token}", response_class=HTMLResponse)
@@ -547,7 +547,9 @@ def handle_payment_event(provider: payments.PaymentProvider, event: payments.Pay
     if receipt:
         body += "\n\n" + i18n.t("order.mail.paid.receipt", lang, url=receipt)
     try:
-        send_mail(str(order["email"]), i18n.t("order.mail.paid.subject", lang, name=name), body)
+        send_mail(
+            str(order["email"]), i18n.t("order.mail.paid.subject", lang, name=name), body, from_name=sender_name(lang)
+        )
         if order.get("job_id"):
             db.append_log(str(order["job_id"]), "E-mail s odkazem na plnou mapu odeslán.")
     except MailError as exc:
@@ -660,6 +662,7 @@ def notify_order_job(job: dict[str, Any]) -> None:
             i18n.t("order.mail.ready.subject", lang, name=name),
             body,
             attachments=attachments or None,
+            from_name=sender_name(lang),
         )
         db.append_log(job_id, f"{ORDER_MAIL_SENT_PREFIX}.")
     except MailError as exc:

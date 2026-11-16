@@ -130,7 +130,12 @@ def probe(
     if "elevation" in futures:
         elev_share = _result("elevation")
         elev_status = "unknown" if elev_share is None else "checked"
-    elev_label = elevation_raster.SOURCE_LABELS.get(country.elevation, country.elevation)
+    # Popisek zdroje v jazyce stránky (vnořená ``Msg``); česky = ``SOURCE_LABELS`` (log jobu beze změny).
+    elev_label = (
+        i18n.Msg(f"api.elevation_source.{country.elevation}")
+        if country.elevation in elevation_raster.SOURCE_LABELS
+        else country.elevation
+    )
     if elev_share is not None and elev_status == "checked":
         pct = int(round(elev_share * 100))
         if elev_share < elevation_raster.COVERAGE_MIN_SHARE:

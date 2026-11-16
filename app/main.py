@@ -198,8 +198,13 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(_request: Request, exc: Exception):
+async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled error")
+    lang = i18n.resolve_lang(request)[0]
+    if lang != i18n.SOURCE_LANG:
+        # Mimo češtinu obecná hláška (text výjimky bývá česky a technický; je v logu serveru).
+        msg = i18n.Msg("api.internal_error")
+        return JSONResponse(status_code=500, content={"detail": msg.render(lang), "code": msg.key})
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
@@ -494,6 +499,11 @@ def index(request: Request) -> HTMLResponse:
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
     html = html.replace("<!-- PODKLADARNA_PAID -->", paid_flow.form_note_html(request, lang))
+    if paid_flow.active_for(request):
+        # Placená služba: věta „… je zdarma, příspěvek pomůže“ po doběhnutí mapy neplatí.
+        html = html.replace(
+            '<p class="support-note">{{h:web.page.prisel_podklad_vhod_podkladarna_je_zdarma}}</p>', ""
+        )
     # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
@@ -501,10 +511,29 @@ def index(request: Request) -> HTMLResponse:
     return _localized_html(request, apply_channel(html), web_catalog=True)
 
 
+def country_sources_html(request: Request, lang: str) -> str:
+    """Zdroje a citace zemí mimo Česko, které doména nabízí (``countries.yaml``), pro stránku licence
+    v jiném jazyce než češtině (``<!-- PODKLADARNA_COUNTRY_SOURCES -->``; česká stránka značku nemá)."""
+    items = []
+    for country in countries.allowed_countries(i18n.site_for_request(request)):
+        if country.code == countries.DEFAULT_COUNTRY or not (country.citation or country.attribution):
+            continue
+        lines = "".join(f"<li>{html_escape(line)}</li>" for line in country.attribution)
+        items.append(
+            f"<h3>{html_escape(country.name(lang))}</h3>\n"
+            f"<p><strong>{html_escape(country.citation)}</strong></p>\n"
+            + (f"<ul>{lines}</ul>\n" if lines else "")
+        )
+    return "".join(items)
+
+
 @app.get("/licence", response_class=HTMLResponse)
 def licence_page(request: Request) -> HTMLResponse:
     html = _page_source("licence.html", request)
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
+    if "<!-- PODKLADARNA_COUNTRY_SOURCES -->" in html:
+        sources = country_sources_html(request, i18n.resolve_lang(request)[0])
+        html = html.replace("<!-- PODKLADARNA_COUNTRY_SOURCES -->", sources)
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
     return _localized_html(request, html)
@@ -529,16 +558,18 @@ def api_usage_stats():
 
 
 @app.get("/api/source_status")
-def api_source_status(country: str | None = None):
+def api_source_status(request: Request, country: str | None = None):
     """Dostupnost zdrojů dat (web podle ní varuje před spuštěním); ``country`` = země výřezu (místní servery).
 
-    Starší výsledek než ``SOURCE_CHECK_TTL_MIN`` spustí kontrolu na pozadí (``checking``)."""
+    Starší výsledek než ``SOURCE_CHECK_TTL_MIN`` spustí kontrolu na pozadí (``checking``). Názvy a dopady
+    zdrojů v jazyce stránky (čeština beze změny)."""
     ttl = app_settings.SOURCE_CHECK_TTL_MIN
     code = str(country or "").strip().upper()
     if code not in countries.offered_codes():
         code = countries.DEFAULT_COUNTRY
     checking = source_status.refresh_if_stale()
-    return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, "country": code, **source_status.snapshot(code)}
+    snap = source_status.localized(source_status.snapshot(code), i18n.resolve_lang(request)[0])
+    return {"enabled": ttl > 0, "ttl_min": ttl, "checking": checking, "country": code, **snap}
 
 
 @app.get("/api/presets")
@@ -870,8 +901,8 @@ def api_get_job(job_id: str):
 
 
 @app.get("/api/jobs/{job_id}/template")
-def api_job_template(job_id: str):
-    """Zadání jobu pro formulář nové mapy (název, výřez, volby) – i u běžícího jobu."""
+def api_job_template(job_id: str, request: Request):
+    """Zadání jobu pro formulář nové mapy (název, výřez, volby) – i u běžícího jobu; poznámky v jazyce stránky."""
     try:
         job = db.get_job(job_id)
     except KeyError:
@@ -879,7 +910,7 @@ def api_job_template(job_id: str):
     if db.job_is_expired(job):
         db.delete_job(job_id)
         raise HTTPException(410, i18n.Msg("api.private_expired"))
-    return job_form_template(job, presets=load_presets())
+    return i18n.localize(job_form_template(job, presets=load_presets()), i18n.resolve_lang(request)[0])
 
 
 @app.get("/api/jobs/{job_id}/log")
@@ -1517,12 +1548,13 @@ async def api_create_job(request: Request):
             dup["id"],
             dup.get("status"),
         )
-        msg = (
-            "Nový job se nezaložil – stejný výřez a volby už "
-            f"{'běží' if dup.get('status') == 'running' else 'čekají'} "
-            f"(job {dup['id'][:8]}…, „{dup.get('name') or 'bez názvu'}“)."
+        msg = i18n.Msg(
+            "api.job.duplicate",
+            state=i18n.Msg("api.job.duplicate_running" if dup.get("status") == "running" else "api.job.duplicate_waiting"),
+            id=dup["id"][:8],
+            name=dup.get("name") or i18n.Msg("api.job.duplicate_unnamed"),
         )
-        db.append_log(dup["id"], msg)
+        db.append_log(dup["id"], str(msg))  # log jobu česky
         out = _public_job(dict(dup))
         # Stejný job založený týmž API klíčem – klient potřebuje token ke stažení.
         if api_client and (dup.get("options") or {}).get("api_client"):
@@ -1530,7 +1562,7 @@ async def api_create_job(request: Request):
             if token:
                 out["download_token"] = token
         out["duplicate_skipped"] = True
-        out["duplicate_message"] = msg
+        out["duplicate_message"] = msg.render(i18n.resolve_lang(request)[0])
         return out
     job = db.create_job(name, preset_id, options)
     job_id = job["id"]

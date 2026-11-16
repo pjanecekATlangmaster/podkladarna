@@ -426,8 +426,13 @@ def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, 
     assert set(written) <= set(online_labels())
 
 
-@pytest.mark.parametrize("country", ["CZ", "AT"])
-def test_zip_texts_follow_job_language(country):
+# (země, podklady) – výchozí online šablony (.xml) dávají do README adresy WMS, i ty musí být anglicky.
+@pytest.mark.parametrize(
+    "country, refs",
+    [("CZ", None), ("AT", None), ("CZ", ["online_orthophoto.xml"]), ("NL", ["online_nl_luchtfoto.xml"]),
+     ("AT", ["online_at_ortho.vrt"]), ("BE", ["online_be_ortho.xml"])],
+)
+def test_zip_texts_follow_job_language(country, refs):
     """Zadání z anglické stránky (Omapic) má texty ZIPu anglicky, české zadání a starší joby česky."""
     from datetime import date
 
@@ -436,7 +441,7 @@ def test_zip_texts_follow_job_language(country):
     from app.pipeline.zip_texts_en import sentinel_info_en
 
     preset = {"label": "Lesní 1:10000 · 5 m", "scalefactor": 1}
-    en = oom_metadata("les_10000", preset, {"country": country, "lang": "en"})
+    en = oom_metadata("les_10000", preset, {"country": country, "lang": "en"}, reference_layers=refs)
     name, about = zip_about(en)
     readme = oom_readme(en, sentinel_info="")
     assert name == "ABOUT_OMAPIC.txt" and en["lang"] == "en"
@@ -449,7 +454,8 @@ def test_zip_texts_follow_job_language(country):
         assert not czech.search(scrub), czech.search(scrub)
         assert "github.com" not in text
     assert "Forest 1:10000" in readme and "Base map: Omapic" in readme and "Base map: Omapic" in about
-    cs = oom_metadata("les_10000", preset, {"country": country})
+    assert ("(layer " in readme) is bool(refs)
+    cs = oom_metadata("les_10000", preset, {"country": country}, reference_layers=refs)
     assert zip_about(cs)[0] == "CO_JE_PODKLADARNA.txt" and "Doporučený postup" in oom_readme(cs)
     scene = sentinel2.Scene("S2B_X", date(2026, 9, 1), 3.5, {}, 0.0)
     info = sentinel_info_en(sentinel2.info_text([scene]))

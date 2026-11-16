@@ -83,8 +83,18 @@ def test_summaries_in_job_language():
     """Zadání z mezinárodní verze: karta jobu anglicky (stejná pravidla, texty z katalogu)."""
     import re
 
-    text = ie.user_summary(["Ortofoto: přeskočeno (503)", "OSM: přeskočeno (x)", "Srázy: přeskočeno (E)"], "en")
-    assert text.startswith("The map is finished but incomplete – missing: paths and objects from OpenStreetMap, cliffs.")
+    issues = [
+        "Ortofoto: přeskočeno (503)", "OSM: přeskočeno (x)", "Srázy: přeskočeno (E)",
+        "Kupky a ďolíky: chybí DEM (dem_filled.tif) – přeskočeno", "DTM kraje – plochy (ZPS): nedostupné",
+    ]
+    text = ie.user_summary(issues, "en")
+    assert text.startswith(
+        "The map is finished but incomplete – missing: paths and objects from OpenStreetMap, cliffs, "
+        "knolls and depressions (elevation model missing)."
+    )
+    assert "regional DTM – areas (ZPS)" in text
+    cs = ie.user_summary(issues)  # česky se dosazuje text hlášky beze změny
+    assert "kupky a ďolíky (chybí výškový model)" in cs and "DTM kraje – plochy (ZPS)" in cs
     assert "orthophoto" in text and "author" in text and "Petr" not in text
     failed = ie.failure_summary("Pipeline skončila s kódem -9", "en")
     assert failed.startswith("The map could not be created.") and "memory" in failed

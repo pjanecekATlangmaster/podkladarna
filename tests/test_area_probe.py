@@ -38,7 +38,9 @@ def test_elevation_share_verdict(fr, monkeypatch, share, verdict, warn):
     assert result["verdict"] == verdict
     assert result["elevation"]["share"] == share
     if warn:
-        assert any(warn in t and "LiDAR HD" in t for t in _texts(result))
+        assert any(warn in t and "LiDAR HD MNT a MNS" in t for t in _texts(result))  # česky = SOURCE_LABELS
+        assert any("LiDAR HD MNT and MNS" in i18n.localize(w, "en") for w in result["warnings"])
+        assert all(i18n.t(f"api.elevation_source.{k}", "cs") == v for k, v in elevation_raster.SOURCE_LABELS.items())
     if verdict == "block":
         assert "10 %" in i18n.localize(result["block"], "cs")
 

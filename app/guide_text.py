@@ -132,9 +132,11 @@ WEB_ABOUT_HTML_EN = """
   with clearly defined algorithms.
 </p>
 <p>
-  For the area you select, {{t:web.brand}} downloads LiDAR (DMR&nbsp;5G + DMP&nbsp;OK),
-  surveyed features from the <strong>regional digital technical map (DTM)</strong> where available,
-  additions from OSM (paths, areas, buildings…), ZABAGED and other sources.
+  For the area you select, {{t:web.brand}} downloads the national airborne LiDAR or elevation models
+  (terrain and surface), surveyed features from the country's <strong>large-scale technical map</strong>
+  where available (in Czechia the regional digital technical map DTM, elsewhere e.g. BGT in the Netherlands,
+  AV in Switzerland or FMZK in Vienna), additions from OSM (paths, areas, buildings…) and, in Czechia,
+  ZABAGED and other national sources.
   Relief and vegetation are built from the terrain and surface models (return density, DEM cliffs,
   GDAL contours); the main output is vectors for OOM (and an <code>.ocd</code> OCD12 file
   of the same name for OCAD), depending on the scale.
@@ -145,30 +147,32 @@ WEB_ABOUT_HTML_EN = """
 </p>
 <p>
   The website shows a PNG preview of the map.
-  The primary output is always a ZIP with editable vectors (contours, vegetation, ZABAGED, OSM,
-  RÚIAN layers, AOPK, cliff DXF, reference orthophoto…).
+  The primary output is always a ZIP with editable vectors (contours, vegetation, OSM, national
+  layers of the country – in Czechia ZABAGED, RÚIAN and AOPK –, cliff DXF, reference orthophoto…).
   A georeferenced GeoTIFF in the ZIP is optional (off by default).
 </p>
 <p>
-  <strong>The map is georeferenced in S-JTSK (EPSG:5514)</strong>, including
+  <strong>The map is georeferenced in the national coordinate system of the country</strong>
+  (S-JTSK in Czechia, RD New in the Netherlands, LV95 in Switzerland …), including
   magnetic declination and grid convergence for the centre of the area.
   Templates (cadastre, hillshade…) and vectors therefore line up in OOM / OCAD
   without manual alignment and can go straight under your own template.
 </p>
 <p>
-  <strong>Vegetation shows the height and density of growth from LiDAR (DMP&nbsp;OK), not runnability.</strong>
+  <strong>Vegetation shows the height and density of growth from LiDAR (surface model), not runnability.</strong>
   Green and open areas show where the forest is tall, low or absent; how fast you can run
   through it (undergrowth, visibility) cannot be read from the data. Use it as an overview;
   the vegetation is finished in the terrain.
 </p>
 <p>
-  The data sources currently cover the Czech Republic.
+  The data sources cover the countries shown on the map; each map is built from the data of the national
+  providers of its country, and the ZIP lists the credit to print (<code>ABOUT_OMAPIC.txt</code>).
 </p>
 <details class="about-zip">
   <summary><strong>The ZIP contains, among other things</strong></summary>
 <ul>
-  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> (forest) / <code>*-mtbo.omap</code> (+ <code>.ocd</code> of the same name), named after the project and scale; paths from OSM; <code>.omap</code> for OOM, <code>.ocd</code> for OCAD (templates OSM, ZTM, cadastre, regional DTM, DMP OK, hillshade, relief)</li>
-  <li>cliff DXF, GDAL contours (<code>contours_gdal.*</code>), vegetation / cliffs / knolls in <code>base/</code>, ZABAGED, OSM buildings in the .omap, RÚIAN/ZABAGED buildings in <code>zabaged/</code>, OSM shapefiles in <code>osm/</code>, AOPK memorial trees, guide <code>README_OOM.txt</code> (in Czech)</li>
+  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> (forest) / <code>*-mtbo.omap</code> (+ <code>.ocd</code> of the same name), named after the project and scale; paths from OSM; <code>.omap</code> for OOM, <code>.ocd</code> for OCAD (templates: orthophoto, base map, cadastre, hillshade … depending on the country, and OSM)</li>
+  <li>cliff DXF, GDAL contours (<code>contours_gdal.*</code>), vegetation / cliffs / knolls in <code>base/</code>, OSM buildings in the .omap, OSM shapefiles in <code>osm/</code>, in Czechia also ZABAGED, RÚIAN/ZABAGED buildings in <code>zabaged/</code> and AOPK memorial trees, guide <code>README_OOM.txt</code></li>
 </ul>
 </details>
 <details class="about-evolution">

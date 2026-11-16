@@ -41,8 +41,8 @@ def shop(client, monkeypatch):
     monkeypatch.setattr(
         paid_flow,
         "send_mail",
-        lambda to, subject, body, attachments=None: mails.append(
-            {"to": to, "subject": subject, "body": body, "attachments": attachments}
+        lambda to, subject, body, attachments=None, from_name=None: mails.append(
+            {"to": to, "subject": subject, "body": body, "attachments": attachments, "from_name": from_name}
         ),
     )
     return mails
@@ -76,6 +76,7 @@ def test_paid_order_flow(client, shop):
     host = {"host": PAID_HOST}
     page = client.get("/", headers=host)
     assert 'id="paid-note"' in page.text and "10.00 EUR" in page.text
+    assert "support-note" not in page.text  # „… is free, a contribution helps“ na placené doméně ne
 
     r = client.post("/api/jobs", data={**FORM, "output_mode": "png"}, headers=host)
     assert r.status_code == 200 and r.json()["order_pending"] is True
@@ -121,6 +122,7 @@ def test_paid_order_flow(client, shop):
     assert paid.status_code == 303 and paid.headers["location"] == "/order/thanks"
     assert client.get("/order/thanks").status_code == 200
     assert len(shop) == 4
+    assert {m["from_name"] for m in shop} == {"Omapic"}  # odesílatel značkou webu, ne české SMTP_FROM_NAME
     download = _link(shop[3], r"https://map\.example/order/download/\S+").removeprefix("https://map.example")
     got = client.get(download)
     assert got.status_code == 200 and got.content.startswith(b"PK")
@@ -139,6 +141,7 @@ def test_free_domain_and_disabled_shop_unchanged(client, shop, monkeypatch):
     r = client.post("/api/jobs", data={**FORM, "name": "other"}, headers={"host": PAID_HOST})
     assert r.status_code == 200 and "order_pending" not in r.json()
     assert 'id="paid-note"' not in client.get("/", headers={"host": PAID_HOST}).text
+    assert "support-note" in client.get("/", headers={"host": PAID_HOST}).text  # bez prodeje beze změny
     assert client.post("/api/payments/webhook/fake", content=b"{}").status_code == 404
     assert shop == []
 

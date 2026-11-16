@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from app.i18n import t
+from app.i18n import SOURCE_LANG, t
 
 # Kategorie (od nejzávažnější).
 SEVERE = "severe"  # mapa je neúplná nebo chybná
@@ -89,6 +89,15 @@ _RULES: tuple[tuple[str, str, str, str], ...] = (
 )
 
 _COMPILED = tuple((re.compile(p), c, w, a) for p, c, w, a in _RULES)
+# Části české technické hlášky dosazované do textu (``{label}``) → klíč katalogu; jen mimo češtinu,
+# česky se dosazuje text hlášky beze změny.
+_LABEL_KEYS = {
+    "Srázy": "issue.what.cliffs",
+    "Kupky a ďolíky": "issue.what.knolls",
+    "Balvany": "issue.what.boulders",
+    "DTM kraje – plochy (ZPS)": "issue.what.dtm_region_areas",
+    "DTM kraje – linie a body (ZPS)": "issue.what.dtm_region_lines",
+}
 _CONTEXT_PREFIX = re.compile(r"^\[[^\]]*\]\s*")
 
 
@@ -103,6 +112,8 @@ def explain_issue(text: str, lang: str = "cs") -> Explained:
         label = core.split(":", 1)[0].strip()
         groups = {k: (v or "").strip() for k, v in m.groupdict().items()}
         groups.setdefault("label", label)
+        if lang != SOURCE_LANG and groups["label"] in _LABEL_KEYS:
+            groups["label"] = t(_LABEL_KEYS[groups["label"]], lang)
         groups["label_lc"] = groups["label"][:1].lower() + groups["label"][1:]
         return Explained(category, t(f"issue.what.{what}", lang, **groups), advice, technical)
     return Explained(OTHER, "", REPORT, technical)

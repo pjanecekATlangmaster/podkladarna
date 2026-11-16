@@ -188,3 +188,21 @@ def test_local_sources_by_country(fresh_state, monkeypatch, client):
     assert ss.down_services() == []  # české zdroje běží
     cz = client.get("/api/source_status", params={"country": "XX"}).json()
     assert cz["country"] == "CZ" and "nl_ahn" not in [s["key"] for s in cz["services"]]
+
+
+# (SITES, jazyk stránky) – názvy a dopady zdrojů podle jazyka stránky, čeština jsou texty Probe beze změny.
+@pytest.mark.parametrize("sites, lang", [("testserver=cs:free:*", "cs"), ("testserver=en:paid:*", "en")])
+def test_source_texts_follow_page_language(fresh_state, monkeypatch, client, sites, lang):
+    monkeypatch.setattr(ss, "_probe_url", lambda url, method: (None, None, ""))  # nic neodpovídá
+    monkeypatch.setenv("COUNTRIES_BETA", "NL")
+    monkeypatch.setenv("SITES", sites)
+    ss.check_all()
+    svc = {s["key"]: s for s in client.get("/api/source_status", params={"country": "NL"}).json()["services"]}
+    probe = next(p for p in ss.PROBES if p.key == "nl_ahn")
+    if lang == "cs":
+        assert (svc["nl_ahn"]["label"], svc["nl_ahn"]["impact"]) == (probe.label, probe.impact)
+        assert svc["nl_ahn"]["detail"] == "neodpovídá"
+    else:
+        assert svc["nl_ahn"]["label"] == "AHN – terrain and surface heights (PDOK)"
+        assert svc["nl_ahn"]["detail"] == "no response"
+        assert not any(set("ěščřžýáíéůú") & set(s["label"] + s["impact"]) for s in svc.values())
