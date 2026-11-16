@@ -52,6 +52,7 @@ from app.pipeline.reference_fi import (
     FI_KAPSI_ORTHO_LAYER,
     FI_KAPSI_ORTHO_WMS,
 )
+from app.pipeline.reference_lu import LU_CADASTRE_LAYER, LU_ORTHO_LAYER, LU_TOPO_LAYER, LU_WMS
 from app.pipeline.reference_it import TN_CTP_LAYER, TN_HILLSHADE_LAYER, TN_ORTHO_LAYER, TN_WMS
 from app.pipeline.reference_ch import (
     CH_CADASTRAL_LAYER,
@@ -169,7 +170,7 @@ AT_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
 )
 WMS_NATIVE_CRS = {"at_fmzk": "EPSG:31256"}
 # CRS, jejichž osy jsou v EPSG sever–východ: WMS 1.3.0 chce BBOX v tomto pořadí (jinak prázdný obrázek), GDAL ho samo neotočí.
-NORTHING_FIRST_CRS = frozenset({"EPSG:3301"})
+NORTHING_FIRST_CRS = frozenset({"EPSG:3301", "EPSG:2169"})
 # Německo (Berlín, GDI Berlin, dl-de/zero): TrueDOP 2024, mapa 1 : 5 000 (K5) a parcely ALKIS, vše EPSG:25833.
 DE_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("de_truedop", "truedop_berlin.xml", "TrueDOP Berlín 2024 (ortofoto)", DE_BE_TRUEDOP_WMS, DE_BE_TRUEDOP_LAYER,
@@ -218,6 +219,12 @@ FI_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("fi_hel_basemap", "kantakartta_helsinki.xml", "Kantakartta Helsinki", FI_HEL_WMS, FI_HEL_BASEMAP_LAYER,
      "image/jpeg", False, 0.5),  # barevná mapa s vyhlazením: PNG mělo 19 MB na 2 km² (0,25 m) a 22 MB na 8 km² (0,5 m)
 )
+# Lucembursko (ACT, CC0): ortofoto, topografická mapa 1 : 5 000 a parcely PCN z WMS geoportail.lu (EPSG:2169).
+LU_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("lu_ortho", "ortho_act.xml", "Orthophoto ACT (geoportail.lu)", LU_WMS, LU_ORTHO_LAYER, "image/jpeg", False, 0.25),
+    ("lu_topo", "topo5k_act.xml", "Carte topographique 1 : 5 000 (ACT)", LU_WMS, LU_TOPO_LAYER, "image/jpeg", False, 0.5),
+    ("lu_cadastre", "parcelles_act.xml", "Katastr (parcelles PCN)", LU_WMS, LU_CADASTRE_LAYER, "image/png", True, 0.25),
+)
 # Dlaždicové služby v EPSG:3857 (GDAL TMS + okno výřezu jako VRT): klíč, soubor, popisek, URL, úroveň, m/px, snímek (JPEG).
 AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
     ("at_ortho", "orthofoto_at.vrt", "basemap.at Orthofoto (Rakousko)", AT_BASEMAP_ORTHO_URL, 19, 0.25, True),
@@ -248,6 +255,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "IT": IT_ONLINE_WMS_LAYERS,
         "BE": BE_ONLINE_WMS_LAYERS,
         "FI": FI_ONLINE_WMS_LAYERS,
+        "LU": LU_ONLINE_WMS_LAYERS,
     }.get(country, ())
 
 
@@ -578,7 +586,7 @@ def online_labels() -> dict[str, str]:
         for k, _f, label, *_rest in (
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
-            *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS,
+            *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS, *LU_ONLINE_WMS_LAYERS,
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     layers += [(k, label) for tms in ONLINE_TMS_LAYERS.values() for k, _f, label, *_r in tms]
