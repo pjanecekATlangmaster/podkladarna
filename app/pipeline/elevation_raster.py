@@ -34,6 +34,7 @@ from app.pipeline.crs_5514 import CRS_WKT
 from app.pipeline.dem_prep import DemPrepResult, dem_work_dir
 from app.pipeline.job_progress import log_issue
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
+from app.pipeline.reference_gb import GB_EA_PRODUCTS, GB_EA_TILES
 from app.pipeline.reference_nl import NL_AHN_WCS
 
 # Díry DTM (budovy, voda) jsou u rastrů větší než u DMR 5G z LAZ (-md 24 v ``_fill_dem_nodata``).
@@ -817,6 +818,146 @@ def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["pl_gugik"] = pl_gugik_provider
 
 
+# --------------------------------------------------------------------------- GB-ENG: Environment Agency LiDAR Composite
+
+# Environment Agency (Open Government Licence v3, bez klíče): LIDAR Composite DTM a First Return DSM 2022, 1 m,
+# EPSG:27700, výšky ODN (nic se nepřevádí). WCS služby na velký výřez nestíhá (504 i na 500 m), stahuje se proto
+# celý ZIP dlaždice 5 × 5 km mřížky OS (Float32 GeoTIFF LZW, ~70 MB terén a ~75 MB povrch, ~5 s). Dlaždice
+# se drží v cache (úklid ``download_cache.prune_lidar_cache``). Nálety jsou z větší části v zimě: listnáče mohou
+# vyjít nižší (jako zimní ALS v NRW).
+GB_EA_CRS = "EPSG:27700"
+GB_EA_TILE_M = 5000
+GB_EA_BUFFER_M = 20.0
+GB_EA_MAX_ZIP_BYTES = 200_000_000  # dlaždice má ~75 MB; víc je chyba služby
+_OS_LETTERS = "ABCDEFGHJKLMNOPQRSTUVWXYZ"  # bez I
+
+
+def os_grid_tile(east: float, north: float) -> str:
+    """Jméno dlaždice 5 km mřížky OS (např. ``SE2530``) pro bod v EPSG:27700 (levý dolní roh)."""
+    e100, n100 = int(east // 100_000), int(north // 100_000)
+    if not (0 <= e100 < 7 and 0 <= n100 < 13):
+        raise ValueError(f"bod {east:.0f}, {north:.0f} je mimo mřížku OS")
+    first = (19 - n100) - (19 - n100) % 5 + (e100 + 10) // 5
+    second = (19 - n100) * 5 % 25 + e100 % 5
+    e5 = int(east % 100_000) // GB_EA_TILE_M * 5
+    n5 = int(north % 100_000) // GB_EA_TILE_M * 5
+    return f"{_OS_LETTERS[first]}{_OS_LETTERS[second]}{e5:02d}{n5:02d}"
+
+
+def gb_ea_tiles(window: tuple[float, float, float, float]) -> list[str]:
+    """Dlaždice 5 km, které zasahují do okna (EPSG:27700)."""
+    import math
+
+    xmin, ymin, xmax, ymax = window
+    step = GB_EA_TILE_M
+    xs = range(math.floor(xmin / step) * step, math.ceil(xmax / step) * step, step)
+    ys = range(math.floor(ymin / step) * step, math.ceil(ymax / step) * step, step)
+    return [os_grid_tile(x, y) for x in xs for y in ys]
+
+
+def gb_ea_tile_url(kind: str, tile: str) -> str:
+    return f"{GB_EA_TILES}/{GB_EA_PRODUCTS[kind]}/{tile}"
+
+
+def gb_ea_tile_dir(tile: str) -> Path:
+    """Složka dlaždice v cache (terén i povrch); úklid cache ji maže celou."""
+    return settings.CACHE_DIR / "gb_ea" / tile
+
+
+def _gb_ea_tile(kind: str, tile: str, *, log=None) -> Path | None:
+    """GeoTIFF dlaždice z cache, jinak stáhne ZIP a vybalí z něj TIF; None mimo pokrytí (404)."""
+    import shutil
+    import tempfile
+    import time
+    import urllib.error
+    import urllib.request
+    import zipfile
+
+    from app.download_cache import touch_last_used
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    folder = gb_ea_tile_dir(tile)
+    dest = folder / f"{kind}.tif"
+    if dest.is_file():
+        touch_last_used(folder)
+        return dest
+    folder.mkdir(parents=True, exist_ok=True)
+    fd, zname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".zip", dir=folder)
+    os.close(fd)
+    zpath = Path(zname)
+    tmp: Path | None = None
+    started = time.monotonic()
+    try:
+        for attempt in range(FR_RETRIES + 1):
+            req = urllib.request.Request(gb_ea_tile_url(kind, tile), headers={"User-Agent": USER_AGENT})
+            try:
+                with urllib.request.urlopen(req, timeout=300) as resp, zpath.open("wb") as fh:
+                    size = 0
+                    while chunk := resp.read(1 << 20):
+                        size += len(chunk)
+                        if size > GB_EA_MAX_ZIP_BYTES:
+                            raise RuntimeError(f"Anglie {kind} {tile}: ZIP větší než {GB_EA_MAX_ZIP_BYTES // 1_000_000} MB")
+                        fh.write(chunk)
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    return None
+                if attempt >= FR_RETRIES or not (exc.code >= 500 or exc.code == 429):
+                    raise
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                if attempt >= FR_RETRIES:
+                    raise
+            if log:
+                log(f"    {tile} {kind}: přechodná chyba služby, pokus {attempt + 2}/{FR_RETRIES + 1}")
+            time.sleep(5.0 * (attempt + 1))
+        with zipfile.ZipFile(zpath) as zf:
+            names = [n for n in zf.namelist() if n.lower().endswith(".tif")]
+            if not names:
+                raise RuntimeError(f"Anglie {kind} {tile}: ZIP bez GeoTIFFu")
+            fd, tname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".tif", dir=folder)
+            os.close(fd)
+            tmp = Path(tname)
+            with zf.open(names[0]) as src, tmp.open("wb") as out:
+                shutil.copyfileobj(src, out, 1 << 20)
+        tmp.replace(dest)
+        tmp = None
+    finally:
+        zpath.unlink(missing_ok=True)
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+    touch_last_used(folder)
+    if log:
+        log(f"    {tile} {kind}: {dest.stat().st_size / 1e6:.1f} MB za {time.monotonic() - started:.0f} s")
+    return dest
+
+
+def gb_ea_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Anglie: LIDAR Composite DTM a First Return DSM 1 m (Environment Agency), dlaždice 5 km v cache."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    window = _buffered(bounds, GB_EA_CRS, GB_EA_BUFFER_M)
+    tiles = gb_ea_tiles(window)
+    out: dict[str, Path | None] = {}
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        found = {kind: ex.map(lambda t, k=kind: _gb_ea_tile(k, t, log=log), tiles) for kind in GB_EA_PRODUCTS}
+        found = {kind: [t for t in paths if t is not None] for kind, paths in found.items()}
+    for kind, paths in found.items():
+        if paths:
+            vrt = out_dir / f"gb_ea_{kind}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", GB_EA_CRS, str(vrt), *map(str, paths)], log=log)
+            out[kind] = vrt if vrt.is_file() else None
+        else:
+            out[kind] = None
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí LIDAR Composite DTM (Environment Agency)")
+    if out["dsm"] is None:
+        log_issue(log, "Anglie: povrch (First Return DSM) pro výřez chybí, výška porostu se nespočítá")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["gb_ea"] = gb_ea_provider
+
+
 # --------------------------------------------------------------------------- FR: LiDAR HD MNT + MNS (WMS-R IGN)
 
 # IGN LiDAR HD (Licence Ouverte Etalab 2.0, bez klíče): MNT (terén) a MNS (povrch) 0,5 m, Lambert-93 (EPSG:2154),
@@ -1480,6 +1621,7 @@ SOURCE_LABELS = {
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
     "de_nrw": "DGM1, DOM1 a nDOM50, Geobasis NRW",
     "pl_gugik": "NMT a NMPT, GUGiK",
+    "gb_ea": "LIDAR Composite DTM a DSM, Environment Agency",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",

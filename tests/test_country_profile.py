@@ -105,6 +105,7 @@ def test_country_without_surface_is_off(monkeypatch):
         ({"country": "LU"}, False, "lu_act"),
         ({"country": "DE-NW"}, False, "de_nrw"),
         ({"country": "PL"}, False, "pl_gugik"),
+        ({"country": "GB-ENG"}, False, "gb_ea"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -334,6 +335,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("LU", ("Administration du cadastre et de la topographie (ACT), CC0 1.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Metsäkeskus")),
         ("DE-NW", ("Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Berlin")),
         ("PL", ("Główny Urząd Geodezji i Kartografii (GUGiK), dane przetworzone", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "NRW")),
+        ("GB-ENG", ("© Environment Agency copyright and/or database right 2022", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GUGiK")),
     ],
 )
 def test_citation_by_country(country, must, must_not):

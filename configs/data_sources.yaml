@@ -1503,41 +1503,36 @@ sources:
 
 - id: uk_ea
   countries:
-  - UK
+  - GB-ENG
   kinds:
   - elevation
   - point_cloud
-  - vectors
-  name: EA LiDAR Composite DTM a DSM 1 m (WCS) a National LiDAR Programme
+  name: EA LIDAR Composite DTM a First Return DSM 2022, 1 m (dlaždice 5 km) a National LiDAR Programme
   provider: Environment Agency
-  url: https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs?request=GetCapabilities&service=WCS&version=2.0.1
-  info: https://environment.data.gov.uk/support/announcements/275811447/275811543
+  url: https://environment.data.gov.uk/tiles/collections/survey/lidar_composite_dtm/2022/1/SE2530
+  info: https://environment.data.gov.uk/survey
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (gb_ea)
+  provider_key: gb_ea
+  probe: gb_elevation
   license:
     class: public
     name: Open Government Licence v3
     url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
-    attribution: Contains Environment Agency information © Environment Agency
+    attribution: © Environment Agency copyright and/or database right 2022. All rights reserved.
   access: free
-  checked: 'Claude 2026-11-16 GetCapabilities nového WCS odpovídá 200; licence OGL neověřena znovu · kontrola Grok: 2026-11-16
-    oznámení Defra o nových WCS a karty datasetů DTM a DSM 1 m; text OGL na kartě datasetu v extraktu nebyl · opencode (uk_ea):
-    2026-11-16 WCS GetCapabilities (Fees/AccessConstraints NONE, coverage …DTM_1m), data.gov.uk záznam (Attribution statement),
-    OGL v3 – Claude neověřil'
+  checked: 'Claude 2026-11-16: WCS GetCapabilities 200, ale GetCoverage 2 km timeout 120 s a 500 m 504 po 180 s → nepoužitelné.
+    Vyhledávání dlaždic POST /backend/catalog/api/tiles/collections/survey/search (GeoJSON WGS84) a ZIP dlaždice 5 km
+    /tiles/collections/survey/<produkt>/<rok>/<rozlišení>/<OS dlaždice> bez klíče: DTM 2022 1 m 71 MB za 4,7 s, First
+    Return DSM 75 MB za 4,9 s, NLP VOM 2019 25 MB; GeoTIFF Float32 LZW 5000 × 5000 px, EPSG:27700; Range nepodporuje.
+    · kontrola Grok a opencode (uk_ea) 2026-11-16 – licence OGL v3, citace podle karty datasetu.'
   issues:
-  - 'OPRAVA: WCS už nemá v adrese rok. DTM 1 m a DSM last-return 1 m i first-return 1 m jsou na environment.data.gov.uk/spatialdata/…/wcs
-    (verze 2.0.1). Kompozit je verze 2022, asi 99 % Anglie, dlaždice 5 km.'
-  - Skotsko je samostatně (uk_scotland_lidar), ne tento WCS. Mračno National LiDAR Programme geomatics hub zmiňuje ke stažení,
-    konkrétní URL v extraktu nebylo.
-  - OS MasterMap dál není otevřená technická mapa.
-  - Původní url https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs neodpovídal (kontrola
-    Claude 2026-11-16), nahrazen podle opencode.
-  - 'opencode navrhuje citaci: „© Environment Agency copyright and/or database right 2022. All rights reserved. (nebo „Contains
-    public sector information licensed under the Open Government Licence v3.0.“)“ – Claude neověřil.'
-  - 'opencode: citace v registru chybí „and/or database right“ a „All rights reserved“; `url` byl jen portál.'
-  - 'opencode: Přímé LAZ v 5km ZIP: https://environment.data.gov.uk/DefraDataDownload/?Mode=survey ; katalogy https://environment.data.gov.uk/KB6uNVj5ZcJr7jUP/ArcGIS/rest/services/LIDAR_PointCloud_Catalogues/FeatureServer'
-  - 'opencode: Jen ~99 % Anglie (ne Skotsko/Wales – ty mají vlastní záznamy); URL s roční příponou se mění na First/Last Return:
-    https://environment.data.gov.uk/support/announcements/275811447/275811543'
+  - 'Napojeno 2026-11-16 (beta GB-ENG): celé dlaždice 5 km (terén + povrch ~145 MB na dlaždici, ~10 s) do cache; výřez přes
+    roh dlaždic stáhne až 4 páry (~580 MB). WCS na výřez služba nestíhá.'
+  - Nálety kompozitu jsou z větší části v zimě, listnáče v DSM mohou vyjít nižší.
+  - Skotsko a Wales mají vlastní data (uk_scotland_lidar), ne tento kompozit. OS MasterMap není otevřená technická mapa.
+  - Mračno National LiDAR Programme je v ZIPech LAZ po 5 km (stovky MB) → nepoužito; NLP VOM 2019 (výška objektů) jako záloha.
 
 - id: dk_dataforsyningen
   countries:
