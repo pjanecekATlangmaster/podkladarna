@@ -266,9 +266,13 @@ sources:
     url: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
     attribution: "Ortofoto © ČÚZK – CC BY 4.0"
   access: free
-  checked: "2026-11-16 stránka ČÚZK Otevřená data (archivní WMS licenci zvlášť neověřeno)"
+  checked: "2026-11-16 stránka ČÚZK Otevřená data (archivní WMS licenci zvlášť neověřeno) · Claude 2026-11-16 archiv na nové adrese
+    https://geoportal.cuzk.gov.cz/geoserver/wms_ortofoto_archiv/ows: GetCapabilities vrstvy 1998–2023, EPSG:5514, image/png;
+    GetMap 2005,2003,2004 shodný snímek i poloha jako stará WMService.aspx (Praha, Vysočina)"
   issues:
     - "Používá se i ke kresbě (stromy na dlažbě, herní prvky stínem, zeleň v ulicích), ne jen jako šablona."
+    - "Archiv 2003–2005 (jen online šablona): ČÚZK 3. 11. 2026 přesunul službu na GeoServer, stará adresa
+      WMS_ORTOFOTO_ARCHIV/WMService.aspx funguje jen do 30. 11. 2026; od 3.58.3 kód volá novou."
 
 - id: cz_cuzk_wms
   countries:
@@ -299,7 +303,9 @@ sources:
   issues:
   - ČÚZK 2026-11 přejmenovala službu dmp_obrazova_korelace na dmp (stará adresa 404) – adresy služeb se mění bez ohlášení.
   - 'Claude 2026-11-16: ČÚZK mění URL 8 WMS (Archivní ortofoto, Ortofoto CIR, GGS ×2, GN, TN, HY, LU), staré adresy jen do
-    30. 11. 2026 – týká se ORTOFOTO_ARCHIV_WMS v app/pipeline/reference_layers.py (https://geoportal.cuzk.gov.cz/(S(4fcnvdzaopmemyu2mnqpa1ze))/default.aspx?mode=News&newsID=3342&newsTyp=id).'
+    30. 11. 2026 (aktualita geoportálu 3341 z 3. 11. 2026). Z nich kód volá jen Archivní ortofoto (ORTOFOTO_ARCHIV_WMS,
+    od 3.58.3 na nové adrese, viz cz_ortofoto); ags.cuzk.gov.cz (ORTOFOTO, ZTM, dmr5g, dmp, RÚIAN, ZABAGED), DMVS,
+    services.cuzk.gov.cz a OpenZU se nemění.'
   - opencode uvádí url https://ags.cuzk.gov.cz/arcgis2/services/dmp/ImageServer/WMSServer (kód volá https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer).
   - 'opencode: opravit URL na novou službu `dmp` a citaci na „ČÚZK, [rok]“.'
   - 'opencode: 8 dalších WMS (archivní ortofoto, CIR, GGS, GN, TN, HY, LU) mění URL, staré jen do 30. 11. 2026 – https://geoportal.cuzk.gov.cz/(S(4fcnvdzaopmemyu2mnqpa1ze))/default.aspx?mode=News&newsID=3342&newsTyp=id'
