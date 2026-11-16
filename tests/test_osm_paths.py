@@ -3122,3 +3122,19 @@ def test_osm_rails_abroad(tmp_path, monkeypatch, tags, want):
         gj = json.loads((work / "osm_paths" / "features.geojson").read_text(encoding="utf-8"))
         kinds = [f["properties"]["kind"] for f in gj["features"]]
         assert kinds == ([want[0]] if want and not cz else [])
+
+
+@pytest.mark.parametrize(
+    "tags, cz, keep",
+    [
+        ({"type": "multipolygon", "landuse": "forest"}, False, True),  # Forêt de Soignes
+        ({"type": "multipolygon", "landuse": "forest"}, True, False),  # Česko beze změny
+        ({"type": "multipolygon", "natural": "wood"}, False, True),
+        ({"type": "multipolygon", "boundary": "administrative"}, False, False),
+    ],
+)
+def test_keep_relation_natural_cover_abroad(monkeypatch, tags, cz, keep):
+    from app.pipeline import osm_paths
+
+    monkeypatch.setattr(osm_paths, "_cz_process", lambda: cz)
+    assert osm_paths._keep_relation(tags) is keep

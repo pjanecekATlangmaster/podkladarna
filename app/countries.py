@@ -87,7 +87,8 @@ class Country:
     # Naopak jediné území s technickou mapou (FR: Plan de voirie jen v Paříži); prázdné = celá země mimo ``gaps``.
     technical_map_area: tuple[tuple[tuple[float, float], ...], ...] = ()
     # Zeleň v lese: ``points`` hustota bodů z mračna (Česko), ``laser`` zrnitost z laserového povrchu (hranice
-    # porostů jako z mračna, ``veg_texture``), ``photo`` povrch ze snímků – jen základní zeleň z výšky porostu.
+    # porostů jako z mračna, ``veg_texture``), ``photo`` povrch ze snímků – jen základní zeleň z výšky porostu,
+    # ``leafoff`` zimní laserový povrch bez listí (Belgie DHMV II): bez zrnitosti, nízký porost v lese z OSM = bílý les.
     green: str = "laser"
 
     def name(self, lang: str = "cs") -> str:

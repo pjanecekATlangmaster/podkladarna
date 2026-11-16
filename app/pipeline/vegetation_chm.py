@@ -449,8 +449,13 @@ def generate_vegetation_from_chm(
     tint_png: Path | None = None,
     log=None,
     texture: bool = False,
+    white_open=None,
 ) -> Path | None:
-    """Klasifikuje CHM → polygony vegetation.shp (cls, code); ``texture`` = zeleň ze zrnitosti (mimo Česko, les)."""
+    """Klasifikuje CHM → polygony vegetation.shp (cls, code); ``texture`` = zeleň ze zrnitosti (mimo Česko, les).
+
+    ``white_open`` = bool maska na mřížce CHM, kde se otevřená plocha (třída 1) kreslí jako bílý les
+    (zimní povrch bez listí, ``leafoff_forest_mask``).
+    """
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
     log_step(log, "Klasifikuji vegetaci z CHM (podle výšky porostu)")
@@ -464,6 +469,11 @@ def generate_vegetation_from_chm(
     classified = classify_chm_array(arr, nodata, thresholds)
     if texture:
         classified = _with_texture_green(classified, arr, nodata, gt, log=log)
+    if white_open is not None and white_open.shape == classified.shape:
+        hit = (classified == 1) & white_open
+        classified[hit] = 0
+        if log:
+            log(f"Vegetace: zimní výšky – v lese z OSM nízký porost jako bílý les ({100.0 * hit.mean():.1f} % výřezu)")
 
     if tint_png is not None:
         try:
@@ -604,6 +614,66 @@ def polygonize_vegetation_classes(
             f"(CLI polygonize; {label})"
         )
     return dest_shp if dest_shp.is_file() else None
+
+
+# Zimní laserový povrch bez listí (``countries.yaml`` ``green: leafoff``, Belgie DHMV II 2013–15): listnatý les
+# má nízký CHM a vychází jako louka. V lese z OSM (bez luk a mýtin uvnitř) se proto otevřená plocha kreslí bíle.
+LEAFOFF_FOREST_COVERS = frozenset({"forest", "wood"})
+LEAFOFF_OPEN_COVERS = frozenset({"meadow", "grassland", "heath", "farmland", "wetland"})
+
+
+def leafoff_forest_mask(work_dir: Path, gt, shape: tuple[int, int]):
+    """bool maska lesa OSM (``natural_cover.geojson``) minus otevřený kryt OSM; None bez lesa."""
+    import json
+
+    from app.pipeline.osm_paths import NATURAL_COVER_NAME
+    from app.pipeline.vegetation_merge import rasterize_buildings
+
+    path = Path(work_dir) / "osm_paths" / NATURAL_COVER_NAME
+    try:
+        feats = json.loads(path.read_text(encoding="utf-8")).get("features") or []
+    except (OSError, ValueError):
+        return None
+
+    def mask(covers):
+        sel = [f for f in feats if (f.get("properties") or {}).get("cover") in covers]
+        return rasterize_buildings({"type": "FeatureCollection", "features": sel}, gt, shape) if sel else None
+
+    forest = mask(LEAFOFF_FOREST_COVERS)
+    if forest is None or not forest.any():
+        return None
+    open_cover = mask(LEAFOFF_OPEN_COVERS)
+    return forest & ~open_cover if open_cover is not None else forest
+
+
+def regenerate_leafoff_vegetation(
+    work_dir: Path,
+    *,
+    thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
+    log=None,
+) -> Path | None:
+    """Po přípravě OSM znovu vegetation.shp z CHM s bílým lesem v lese OSM (jen porost z CHM, jinak nic)."""
+    from app.pipeline.gdal_cli_raster import read_float32_geotiff
+
+    work_dir = Path(work_dir)
+    dest = work_dir / "vegetation" / "vegetation.shp"
+    src = chm_path(work_dir)
+    if src is None or not (dest.parent / CHM_SOURCE_MARK).is_file():
+        return None
+    try:
+        arr, gt, _nodata = read_float32_geotiff(src, log=log)
+        forest = leafoff_forest_mask(work_dir, gt, arr.shape)
+    except Exception as exc:
+        if log:
+            log(f"Vegetace: les z OSM pro zimní výšky přeskočen ({exc})")
+        return None
+    if forest is None:
+        if log:
+            log("Vegetace: zimní výšky – ve výřezu není les z OSM, beze změny")
+        return None
+    return generate_vegetation_from_chm(
+        src, dest, thresholds=thresholds, tint_png=dest.parent / "chm_tint.png", log=log, white_open=forest
+    )
 
 
 def generate_job_vegetation_chm(

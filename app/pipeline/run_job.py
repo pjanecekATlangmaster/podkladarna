@@ -119,7 +119,7 @@ from app.pipeline.source_meta import collect_lidar_source_meta
 from app.pipeline.cliffs_dem import generate_job_cliffs_dem
 from app.pipeline.knolls_dem import generate_job_knolls
 from app.pipeline.boulders_dem import generate_job_boulders
-from app.pipeline.vegetation_chm import generate_job_vegetation_chm
+from app.pipeline.vegetation_chm import generate_job_vegetation_chm, regenerate_leafoff_vegetation
 from app.pipeline.vegetation_density import (
     DEFAULT_PARAMS as DEFAULT_DENSITY_PARAMS,
     generate_job_vegetation_density,
@@ -1205,6 +1205,11 @@ def run_job_pipeline(
     veg_buildings: Path | None = None
     # Zeleň ze zrnitosti porostu jen mimo Česko a jen bez sprintu (``veg_texture``); Česko beze změny.
     veg_texture = bool(bbox) and not cz_sources and not job_has_sprint(preset_id, options)
+    # Zimní výšky bez listí (``green: leafoff``): zrnitost by les zazelenala; nízký porost v lese až po OSM.
+    veg_country = job_country(options)
+    veg_leafoff = bool(bbox) and not cz_sources and veg_country is not None and veg_country.green == "leafoff"
+    if veg_leafoff:
+        veg_texture = False
     if bbox and cz_sources:
         # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
         try:
@@ -1284,6 +1289,11 @@ def run_job_pipeline(
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
             log_issue(log, f"OSM: přeskočeno ({exc})")
+        if veg_leafoff:
+            try:
+                regenerate_leafoff_vegetation(work_dir, log=log)
+            except Exception as exc:
+                log(f"Vegetace: les z OSM pro zimní výšky přeskočen ({exc})")
         progress.done()
 
     # Shade vždy (OOM/ZIP + ČÚZK reference). Náhled PNG z .omap po sestavení.
