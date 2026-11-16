@@ -34,6 +34,7 @@ from app.pipeline.crs_5514 import CRS_WKT
 from app.pipeline.dem_prep import DemPrepResult, dem_work_dir
 from app.pipeline.job_progress import log_issue
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
+from app.pipeline.reference_by import BY_CRS, BY_DGM1_URL, BY_DOM20_URL
 from app.pipeline.reference_gb import GB_EA_PRODUCTS, GB_EA_TILES
 from app.pipeline.reference_nl import NL_AHN_WCS
 
@@ -998,6 +999,101 @@ def gb_ea_tile_count(bbox_wgs84: tuple[float, float, float, float]) -> int:
     return len(gb_ea_tiles((xmin - b, ymin - b, xmax + b, ymax + b)))
 
 
+# --------------------------------------------------------------------------- DE-BY: Bavorsko DGM1 + DOM20 (LDBV OpenData)
+
+# LDBV OpenData (CC BY 4.0, bez klíče): DGM1 z ALS a DOM20 ze snímků (letní nálet), dlaždice 1 km v EPSG:25832
+# (``reference_by``). DOM20 má 20 cm (~45 MB na km²): čte se jen okno výřezu přes /vsicurl a gdalwarp ho rovnou
+# převzorkuje maximem na 1 m. Povrch ze snímků v létě: listnáče jsou, obilí a kukuřice vyjdou jako porost (jako nDOM NRW).
+BY_BUFFER_M = 20.0
+BY_TILE_M = 1000
+BY_DSM_WORKERS = 4
+
+
+def by_tiles(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
+    """Dlaždice 1 km (E, N levého dolního rohu v km), které zasahují do okna (EPSG:25832)."""
+    import math
+
+    xmin, ymin, xmax, ymax = window
+    return [(e, n) for e in range(math.floor(xmin / BY_TILE_M), math.ceil(xmax / BY_TILE_M))
+            for n in range(math.floor(ymin / BY_TILE_M), math.ceil(ymax / BY_TILE_M))]
+
+
+BY_RETRIES = 3  # bayernwolke při souběhu občas vrátí 403 / 5xx; GDAL 3.8 opakuje jen 429 a 5xx
+_BY_TRANSIENT = re.compile(r"HTTP response code: (403|429|5\d\d)|timed out|Couldn't connect|reset", re.I)
+
+
+def _by_tile_window(
+    url: str, tile: tuple[int, int], window: tuple[float, float, float, float], dest: Path, *, resample: str, log=None
+) -> Path | None:
+    """Okno jedné dlaždice 1 km přes /vsicurl → 1 m (``resample``: ``near`` terén, ``max`` povrch 20 cm).
+
+    None, když dlaždice není (404) nebo okno dlaždici jen lízne; přechodné chyby (403 při souběhu, 5xx) se opakují."""
+    import math
+    import time
+
+    e0, n0 = tile[0] * BY_TILE_M, tile[1] * BY_TILE_M
+    xmin, ymin = math.floor(max(window[0], e0)), math.floor(max(window[1], n0))
+    xmax, ymax = math.ceil(min(window[2], e0 + BY_TILE_M)), math.ceil(min(window[3], n0 + BY_TILE_M))
+    if xmax - xmin < 2 or ymax - ymin < 2:  # okno jen lízne dlaždici (pod 2 m) – nic nečíst
+        return None
+    cmd = [_gdal_tool("gdalwarp"), "-q", "-overwrite",
+           "--config", "GDAL_HTTP_MAX_RETRY", "3", "--config", "GDAL_HTTP_RETRY_DELAY", "2",
+           "--config", "GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR",
+           "-te", str(xmin), str(ymin), str(xmax), str(ymax), "-tr", "1", "1", "-r", resample,
+           "-dstnodata", str(NODATA), "-co", "COMPRESS=DEFLATE", f"/vsicurl/{url}", str(dest)]
+    err = ""
+    for attempt in range(BY_RETRIES + 1):
+        try:
+            run_cmd(cmd, log=log)
+            return dest if dest.is_file() else None
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or "").strip()
+            if "HTTP response code: 404" in err or "outside raster extent" in err:
+                return None
+            if attempt >= BY_RETRIES or not _BY_TRANSIENT.search(err):
+                break
+            if log:
+                log(f"    {url.rsplit('/', 1)[-1]}: přechodná chyba služby, pokus {attempt + 2}/{BY_RETRIES + 1}")
+            time.sleep(3.0 * (attempt + 1))
+    log_issue(log, f"Bavorsko: dlaždice {url.rsplit('/', 1)[-1]} se nestáhla, část výřezu může být bez terénu nebo "
+                   f"porostu ({err[-120:]})")
+    return None
+
+
+def de_by_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Bavorsko: DGM1 (terén, ALS) a DOM20 (povrch ze snímků) LDBV, okna dlaždic 1 km."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    window = _buffered(bounds, BY_CRS, BY_BUFFER_M)
+    tiles = by_tiles(window)
+
+    def fetch(kind: str, url_tpl: str, resample: str, workers: int) -> Path | None:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            parts = list(ex.map(
+                lambda j: _by_tile_window(url_tpl.format(e=j[1][0], n=j[1][1]), j[1], window,
+                                          out_dir / f"by_{kind}_{j[0]}.tif", resample=resample, log=log),
+                enumerate(tiles)))
+        parts = [p for p in parts if p is not None]
+        if not parts:
+            return None
+        vrt = out_dir / f"by_{kind}.vrt"
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", BY_CRS, str(vrt), *map(str, parts)], log=log)
+        if log:
+            log(f"  by_{kind}: {len(parts)} dlaždic (okno výřezu, 1 m)")
+        return vrt
+
+    dtm = fetch("dtm", BY_DGM1_URL, "near", 2)
+    if dtm is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí DGM1 Bavorsko")
+    dsm = fetch("dsm", BY_DOM20_URL, "max", BY_DSM_WORKERS)
+    if dsm is None:
+        log_issue(log, "Bavorsko: povrch DOM20 pro výřez chybí, výška porostu se nespočítá")
+    return SourceRasters(dtm, dsm)
+
+
+PROVIDERS["de_by"] = de_by_provider
+
+
 # --------------------------------------------------------------------------- FR: LiDAR HD MNT + MNS (WMS-R IGN)
 
 # IGN LiDAR HD (Licence Ouverte Etalab 2.0, bez klíče): MNT (terén) a MNS (povrch) 0,5 m, Lambert-93 (EPSG:2154),
@@ -1662,6 +1758,7 @@ SOURCE_LABELS = {
     "de_nrw": "DGM1, DOM1 a nDOM50, Geobasis NRW",
     "pl_gugik": "NMT a NMPT, GUGiK",
     "gb_ea": "LIDAR Composite DTM a DSM, Environment Agency",
+    "de_by": "DGM1 a DOM20, LDBV Bayern",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",

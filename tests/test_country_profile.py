@@ -106,6 +106,7 @@ def test_country_without_surface_is_off(monkeypatch):
         ({"country": "DE-NW"}, False, "de_nrw"),
         ({"country": "PL"}, False, "pl_gugik"),
         ({"country": "GB-ENG"}, False, "gb_ea"),
+        ({"country": "DE-BY"}, False, "de_by"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -335,6 +336,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("LU", ("Administration du cadastre et de la topographie (ACT), CC0 1.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Metsäkeskus")),
         ("DE-NW", ("Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Berlin")),
         ("PL", ("Główny Urząd Geodezji i Kartografii (GUGiK), dane przetworzone", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "NRW")),
+        ("DE-BY", ("Bayerische Vermessungsverwaltung – www.geodaten.bayern.de (CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "NRW")),
         ("GB-ENG", ("© Environment Agency copyright and/or database right 2022", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GUGiK")),
     ],
 )
@@ -417,6 +419,8 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_de_nw_dop", "www.wms.nrw.de", "nw_dop_rgb"),
         ("PL", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_pl_ortho", "online_pl_topo"},
          "online_pl_ortho", "mapy.geoportal.gov.pl", "Raster"),
+        ("DE-BY", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_by_dop", "online_de_by_dok", "online_de_by_alkis"},
+         "online_de_by_dop", "geoservices.bayern.de", "by_dop40c"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):

@@ -2028,25 +2028,57 @@ sources:
 
 - id: de_by_dgm1
   countries:
-  - DE
+  - DE-BY
   kinds:
   - elevation
-  name: DGM1 Bavorsko (GeoTIFF 1 km)
-  provider: Bayerische Vermessungsverwaltung
-  url: https://geodaten.bayern.de/opengeodata/OpenDataDetail.html?pn=dgm1
-  info: https://www.geodaten.bayern.de/odd/m/3/html/nutzungsbedingungen.html
+  name: DGM1 (ALS) a DOM20 (letní snímky) Bavorsko, GeoTIFF po 1 km
+  provider: Bayerische Vermessungsverwaltung (LDBV)
+  url: https://download1.bayernwolke.de/a/dgm/dgm1/691_5334.tif
+  info: https://geodaten.bayern.de/opengeodata/OpenDataDetail.html?pn=dgm1
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (de_by), app/pipeline/reference_by.py
+  provider_key: de_by
+  probe: de_by_elevation
   license:
     class: public
     name: CC BY 4.0
     url: https://www.geodaten.bayern.de/odd/m/3/html/nutzungsbedingungen.html
     attribution: Bayerische Vermessungsverwaltung – www.geodaten.bayern.de
   access: free
-  checked: 'Grok: 2026-11-16 podmínky OpenData (CC BY 4.0, i komerčně) a popis DGM1 – Claude neověřil'
+  checked: 'Claude 2026-11-16: opengeodata_produkte.json (DGM1, DOM20, Laserdaten – CC BY 4.0), dlaždice DGM1 {e}_{n}.tif 2–4 MB
+    (1000 × 1000 px Float32, NoData −9999), DOM20 32{e}_{n}_20_DOM.tif 41–47 MB (5000 × 5000 px, LZW, bloky 256 px, Range ano,
+    metadata BILDFLUG_DATUM 24. 8. 2024 Mnichov, 7. 9. 2025 Fürstenschlag); Laserdaten LAZ po 1 km 80–110 MB (až 1 GB)
+    · Grok: 2026-11-16 podmínky OpenData (CC BY 4.0, i komerčně)'
   issues:
-  - Jen terén 1 m, dlaždice 1 km, výška lepší než ±0,2 m, DHHN2016. Hromadné stažení je Metalink.
-  - Mračno a DOM se na otevřených stránkách DGM1 nepopisují.
+  - 'Napojeno 2026-11-16 (beta DE-BY): DGM1 okno přes /vsicurl, DOM20 okno přes /vsicurl převzorkované maximem na 1 m (čte se
+    ~45 MB na km² výřezu, souběžně 4 dlaždice).'
+  - DOM20 je ze snímků z letního náletu → obilí a kukuřice vyjdou jako porost (jako nDOM NRW); zimní ALS DSM jako rastr není,
+    mračno LAZ je na výřez příliš velké.
+
+- id: de_by_wms
+  countries: [DE-BY]
+  kinds: [orthophoto, map, cadastre]
+  name: "Ortofoto DOP40, Digitale Ortskarte 1 : 10 000 a ALKIS Parzellarkarte (WMS LDBV)"
+  provider: Bayerische Vermessungsverwaltung (LDBV)
+  url: https://geoservices.bayern.de/od/wms/dop/v1/dop40
+  info: https://geodaten.bayern.de/opengeodata/
+  role: šablona
+  reference_keys: ["online_de_by_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "CC BY 4.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_by.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_by_dop
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/deed.de
+    attribution: Bayerische Vermessungsverwaltung – www.geodaten.bayern.de
+  access: free
+  checked: "Claude 2026-11-16 GetCapabilities dop/v1/dop40, dtk/v1/dok a alkis/v1/parzellarkarte (Fees kostenfrei, AccessConstraints CC BY 4.0; vrstvy by_dop40c, by_dok, by_alkis_parzellarkarte_farbe v EPSG:25832), GetMap 1–1,5 s"
+  issues:
+    - "ALKIS WMS odmítá STYLES=default (StyleNotDefined), prázdný styl funguje u všech vrstev; ALKIS jen do 1 : 5 000."
 
 - id: de_bb_als
   countries:

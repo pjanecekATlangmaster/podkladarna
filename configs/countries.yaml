@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | fr_lidarhd | lu_act | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | fr_lidarhd | lu_act | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -117,6 +117,21 @@ DE-NW:
   attribution:
     - "Elevation: DGM1 and nDOM50, Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
     - "Orthophoto DOP, Amtliche Basiskarte (ABK) and ALKIS: Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-BY:
+  name: {cs: Německo – Bavorsko, en: Germany – Bavaria, de: Deutschland – Bayern}
+  status: beta              # celá spolková země (2026-11-16); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LDBV)
+  boundary: countries/de_by.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [47.27, 8.97, 50.56, 13.84]
+  elevation: de_by          # DGM1 (ALS) + DOM20 (letní snímky, okno přes /vsicurl převzorkované na 1 m), dlaždice 1 km
+  technical_map: none       # ALKIS a Hausumringe jsou, kresba zatím z OSM
+  cz_sources: false
+  # Licence: CC BY 4.0 (LDBV OpenData, ověřeno 2026-11-16 v GetCapabilities a opengeodata_produkte.json); uvést zdroj.
+  citation: "Base map: Omapic · Bayerische Vermessungsverwaltung · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM20, Bayerische Vermessungsverwaltung – www.geodaten.bayern.de (CC BY 4.0), processed."
+    - "Orthophoto DOP40, Digitale Ortskarte and ALKIS Parzellarkarte: Bayerische Vermessungsverwaltung – www.geodaten.bayern.de (CC BY 4.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 PL:
   name: {cs: Polsko, en: Poland, pl: Polska}
