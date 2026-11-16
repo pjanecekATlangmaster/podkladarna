@@ -27,6 +27,7 @@ from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.job_progress import background_task, log_issue
 from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.zip_images import is_withheld
 from app.settings import REF_CACHE_MAX_AGE_DAYS
 
 # Kartografický standard (GDAL výchozí): světlo ze severozápadu, 45° nad obzorem.
@@ -161,7 +162,7 @@ def reference_metadata() -> dict:
         "hillshade_source": "ČÚZK DMR 5G WMS",
         "hillshade_variants": [v[2] for v in HILLSHADE_VARIANTS],
         "hillshade_tool": "WMS ImageServer",
-        "map_layers": ["osm.png", "mapa_ztm.png", "katastr.png", "dtm_plochy.png", "dtm_linie.png"],
+        "map_layers": [*([] if is_withheld("osm") else ["osm.png"]), "mapa_ztm.png", "katastr.png", "dtm_plochy.png", "dtm_linie.png"],
         "orthophoto": f"JPEG {ORTHO_MPP_CANDIDATES[0]:.3f}–{ORTHO_MPP:.2f} m/px, dlaždice ≤ {ORTHO_MAX_TILE_PX} px (.jgw)",
         "dmpok_preview": "dmpok_nahled.png",
     }
@@ -1279,6 +1280,9 @@ def _try_load_references_cache(
         # (cache po lese / MTBO bez ortofota) – stáhnout znovu
         return None
     primary = ortho[0] if ortho else cache_dir / "osm.png"
+    if not primary.is_file():
+        # osm.png se od 3.58.0 nestahuje (licence, zip_images) – čerstvost podle jiného rastru z cache
+        primary = next(iter(list_reference_rasters(cache_dir)), primary)
     if ortho and ortho_mpp and _cached_ortho_mpp(ortho[0]) > ortho_mpp * 1.05:
         # Ortofoto z doby stropu 600 Mpx (0,2 / 0,25 m) – stáhnout znovu v kroku, který dnes vychází.
         return None
@@ -1289,7 +1293,8 @@ def _try_load_references_cache(
     built: dict[str, Path] = {}
     for src in list_reference_rasters(cache_dir):
         key = _ref_png_key(src.name)
-        if not key:
+        if not key or is_withheld(key):
+            # obrázek zdroje, který licence do ZIPu nepouští (starší cache s osm.png)
             continue
         is_ortho = bool(_ORTHO_KEY_RE.match(key))
         if is_ortho and (not need_ortho or ortho_dir is not None):
@@ -1553,6 +1558,16 @@ def _fetch_other_layers(
     """Podklady kromě ortofota (OSM, ZTM, katastr, DTM kraje, DMP OK, stínování) po řadě do ``built``."""
     osm_png = out_dir / "osm.png"
     osm_pgw = osm_png.with_suffix(".pgw")
+    if is_withheld("osm"):
+        # Licence dlaždic nedovoluje obrázek do ZIPu (zip_images) – v .omap zůstane online šablona OSM.
+        if log:
+            log("OpenStreetMap: obrázek se do ZIPu nepřidává (licence dlaždic), zůstává online šablona")
+    else:
+        _fetch_osm_png(built, bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log)
+    _fetch_wms_layers(built, bounds, template_png, template_pgw, out_dir, ref_wh, job_shade, log)
+
+
+def _fetch_osm_png(built, bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log) -> None:
     try:
         with background_task(log, "Podklad OpenStreetMap") as task:
             ok = build_osm_reference(bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log)
@@ -1566,6 +1581,8 @@ def _fetch_other_layers(
         if log:
             log_issue(log, f"OpenStreetMap: přeskočeno ({exc})")
 
+
+def _fetch_wms_layers(built, bounds, template_png, template_pgw, out_dir, ref_wh, job_shade, log) -> None:
     def _wms(key: str, wms: str, layer: str, png: Path, label: str, task_name: str, *, transparent: bool = False,
              need_content: bool = False) -> None:
         pgw = png.with_suffix(".pgw")

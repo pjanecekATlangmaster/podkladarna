@@ -1,5 +1,5 @@
 # Registr zdrojů dat po zemích (Petr 2026-11-16). Jediné místo pro přehled: země, druh dat, server, licence,
-# přístup a známé problémy. Aplikace ho za běhu nečte; adresy serverů dál žijí v kódu (moduly v `code`).
+# přístup a známé problémy. Aplikace z něj za běhu čte jen `reference_keys` a `image_in_zip`; adresy serverů dál žijí v kódu (moduly v `code`).
 # Dokument docs/zdroje-dat.md se generuje: `python scripts/data_sources_doc.py` (test hlídá, že sedí).
 # tests/test_data_sources.py hlídá i to, že každá země z countries.yaml, každý zdroj výšek / technické mapy
 # (`provider_key`) a každá sonda stavu zdrojů (`probe`, app/source_status.py) tu má záznam.
@@ -12,6 +12,13 @@
 #              | orthophoto | map (podkladová mapa) | cadastre | hillshade | imagery (družicové snímky)
 #   name, provider (poskytovatel), url (server / služba, kterou kód volá), info (stránka produktu nebo licence)
 #   role       kresba | výšky | šablona | sonda – k čemu ho Podkladárna používá
+#   reference_keys  klíče podkladů (built_refs, fnmatch; `online_*` = online šablona / stažený rastr), které ze zdroje
+#              vznikají – jen u zdrojů obrázků v references/ ZIPu
+#   image_in_zip  allowed | forbidden | unclear – smí obrázek zdroje do ZIPu (Petr 2026-11-16: povoleno všude, kde to
+#              licence výslovně nezakazuje; forbidden = obrázek se nepřibalí, ZIP dostane vysvětlení, online šablona
+#              zůstává; unclear = zatím přibalit a zeptat se Petra). Aplikace tato pole čte (app/pipeline/zip_images.py).
+#   image_in_zip_note  proč (interní poznámka)
+#   zip_notice  u forbidden: texty vysvětlení v ZIPu (cs / en: name, why, online = jak si podklad načíst sám)
 #   status     used (napojeno) | candidate (zjištěno, nenapojeno) | off (napojeno, vypnuto) | rejected (nevhodné)
 #   code       kde je v kódu (u used / off)
 #   provider_key klíč `elevation` / `technical_map` v countries.yaml (jen u zdrojů, které ho mají)
@@ -60,6 +67,18 @@ sources:
   url: https://a.tile.openstreetmap.fr/osmfr/
   info: https://www.openstreetmap.fr/usage/
   role: šablona
+  reference_keys: ["osm", "online_osm*"]
+  image_in_zip: forbidden
+  image_in_zip_note: "Obrázek do ZIPu ne (Petr 2026-11-16): OSM France povoluje dlaždice jen pro weby bez zisku, tile policy OSMF zakazuje offline archivy, terrestris WMS má od ~1:25 000 vodoznak a nemá závazné podmínky. Online šablona osm.vrt v .omap zůstává (načítá jen zobrazené dlaždice)."
+  zip_notice:
+    cs:
+      name: Obrázek OpenStreetMap (osm.png)
+      why: Provozovatelé dlaždic OSM to nedovolují – OSM France jen pro weby bez zisku, OpenStreetMap Foundation zakazuje offline archivy dlaždic, záložní WMS terrestris nemá podmínky pro další šíření.
+      online: V .omap je online šablona „OpenStreetMap“ (references/osm.vrt); mapu najdete i na https://www.openstreetmap.org. Data OSM jsou pod licencí ODbL a jsou v ZIPu ve složce osm/.
+    en:
+      name: OpenStreetMap image (osm.png)
+      why: The OSM tile providers do not allow it – OSM France only for non-profit websites, the OpenStreetMap Foundation forbids offline archives of its tiles, the terrestris WMS fallback has no terms for redistribution.
+      online: The .omap contains the online template “OpenStreetMap” (references/osm.vrt); the map is also at https://www.openstreetmap.org. The OSM data are licensed under the ODbL and included in the osm/ folder of the ZIP.
   status: used
   code: app/pipeline/reference_layers.py (OSM_XYZ_URLS, OSM_WMS), app/pipeline/online_templates.py, app/tiles.py
   license:
@@ -98,6 +117,8 @@ sources:
   url: https://earth-search.aws.element84.com/v1/search
   info: https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice
   role: šablona
+  reference_keys: ["sentinel2_*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/sentinel2.py
   probe: sentinel
@@ -157,6 +178,9 @@ sources:
   url: https://dmvs.cuzk.gov.cz/api/rest
   info: https://dmvs.cuzk.gov.cz/
   role: kresba
+  reference_keys: ["dtm_plochy", "dtm_linie", "online_dtm_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "Veřejné sady DMVS „bez podmínek“, zákaz nenalezen."
   status: used
   code: app/pipeline/dtm_sources.py, app/pipeline/dtm_import.py, app/pipeline/reference_layers.py (DMVS WMS)
   provider_key: cz_dtm
@@ -231,6 +255,8 @@ sources:
   url: https://ags.cuzk.gov.cz/arcgis1/services/ORTOFOTO/MapServer/WMSServer
   info: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
   role: kresba
+  reference_keys: ["orthophoto*", "online_orthophoto*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/orthophoto.py, app/pipeline/reference_layers.py
   probe: ortofoto
@@ -256,6 +282,8 @@ sources:
   url: https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer
   info: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
   role: šablona
+  reference_keys: ["ztm", "katastr*", "dmpok", "hillshade", "hillshade_z*", "sklon*", "online_ztm*", "online_katastr*", "online_dmpok*", "online_hillshade*", "online_sklon*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/reference_layers.py
   probe: katastr
@@ -350,6 +378,8 @@ sources:
   url: https://service.pdok.nl/rws/ahn/wcs/v1_0
   info: https://www.ahn.nl/dataroom
   role: výšky
+  reference_keys: ["online_nl_ahn*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/elevation_raster.py (nl_ahn), app/pipeline/reference_nl.py
   provider_key: nl_ahn
@@ -416,6 +446,8 @@ sources:
   url: https://api.pdok.nl/lv/bgt/ogc/v1
   info: https://www.pdok.nl/ogc-apis/-/article/basisregistratie-grootschalige-topografie-bgt-
   role: kresba
+  reference_keys: ["online_nl_bgt*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/bgt_nl.py, app/pipeline/reference_nl.py
   provider_key: nl_bgt
@@ -447,6 +479,8 @@ sources:
   url: https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0
   info: https://www.pdok.nl/-/luchtfoto-2025-nu-beschikbaar-bij-pdok
   role: šablona
+  reference_keys: ["online_nl_luchtfoto*", "online_nl_top10nl*", "online_nl_kadaster*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/reference_nl.py
   probe:
@@ -544,6 +578,9 @@ sources:
   url: https://geodienste.ch/db/av_0/deu
   info: https://geodienste.ch/services/av
   role: kresba
+  reference_keys: ["online_ch_av*"]
+  image_in_zip: unclear
+  image_in_zip_note: "Cadastral Web Map skládá AV kantonů; JU, LU, NE, NW, OW, VD jen se schválením – obrázek výřezu v ZIPu nejasný (doporučeno povolit, zákaz pro WMS nenalezen)."
   status: used
   code: app/pipeline/av_ch.py, app/pipeline/reference_ch.py
   provider_key: ch_av
@@ -577,6 +614,8 @@ sources:
   url: https://wms.geo.admin.ch/
   info: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
   role: šablona
+  reference_keys: ["online_ch_swissimage*", "online_ch_landeskarte*", "online_ch_relief*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/reference_ch.py
   probe: ch_wms
@@ -633,6 +672,8 @@ sources:
   url: https://data.wien.gv.at/daten/geo
   info: https://www.wien.gv.at/stadtentwicklung/stadtvermessung/geodaten/fmzk/
   role: kresba
+  reference_keys: ["online_at_fmzk*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/fmzk_at.py, app/pipeline/reference_at.py
   provider_key: at_fmzk
@@ -660,6 +701,8 @@ sources:
   url: https://mapsneu.wien.gv.at/basemap
   info: https://basemap.at/en
   role: šablona
+  reference_keys: ["online_at_ortho*", "online_at_basemap*", "online_at_relief*", "online_at_luftbild*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/reference_at.py
   probe:
@@ -729,6 +772,8 @@ sources:
   url: https://gdi.berlin.de/services/wfs/strassenbefahrung
   info: https://gdi.berlin.de/
   role: kresba
+  reference_keys: ["online_de_truedop*", "online_de_k5*", "online_de_alkis*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/sb_berlin.py, app/pipeline/reference_de.py
   provider_key: de_sb
@@ -887,6 +932,8 @@ sources:
   url: https://data.geopf.fr/wms-r/wms
   info: https://geoservices.ign.fr/
   role: šablona
+  reference_keys: ["online_fr_*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/reference_fr.py
   probe: fr_ortho
@@ -980,6 +1027,8 @@ sources:
   url: https://kaart.maaamet.ee/wms/fotokaart
   info: https://geoportaal.maaamet.ee/opendata-licence
   role: šablona
+  reference_keys: ["online_ee_*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/reference_ee.py
   probe: ee_ortho
@@ -1038,6 +1087,18 @@ sources:
   url: https://siat.provincia.tn.it/geoserver/stem/wms
   info: http://www.territorio.provincia.tn.it/portal/server.pt/community/interoperabilit%C3%A0_-_servizi_wms/821/limiti_di_utilizzo_-_servizi_wms/23016
   role: šablona
+  reference_keys: ["online_it_*"]
+  image_in_zip: forbidden
+  image_in_zip_note: "Podmínky WMS Trenta: originální data se nesmí upravovat a kopie kartografie složené z vrstev PAT se nesmí šířit (jen tisk s citací) → obrázek do ZIPu ne, online šablona zůstává."
+  zip_notice:
+    cs:
+      name: Ortofoto, Carta Tecnica Provinciale a stínování Provincia autonoma di Trento
+      why: Podmínky WMS provincie zakazují šířit kopie jejích mapových vrstev (dovolují jen tisk s citací „P.A.T. Sistema Informativo Ambiente e Territorio“).
+      online: V .omap jsou online šablony těchto vrstev (references/*_trento.xml), WMS https://siat.provincia.tn.it/geoserver/stem/wms.
+    en:
+      name: Orthophoto, Carta Tecnica Provinciale and hillshade of the Provincia autonoma di Trento
+      why: The terms of the province's WMS forbid distributing copies of its map layers (only prints with the attribution “P.A.T. Sistema Informativo Ambiente e Territorio” are allowed).
+      online: The .omap contains online templates of these layers (references/*_trento.xml), WMS https://siat.provincia.tn.it/geoserver/stem/wms.
   status: used
   code: app/pipeline/reference_it.py
   probe: it_ortho
@@ -1149,6 +1210,8 @@ sources:
   url: https://geo.api.vlaanderen.be/OMW/wms
   info: https://www.vlaanderen.be/digitaal-vlaanderen/onze-diensten-en-platformen/open-data/voorwaarden-voor-het-hergebruik-van-overheidsinformatie
   role: šablona
+  reference_keys: ["online_be_*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/reference_be.py
   probe: be_ortho
@@ -1239,6 +1302,8 @@ sources:
   url: https://kartta.hel.fi/ws/geoserver/avoindata/wfs
   info: https://hri.fi/data/en/dataset/helsingin-kantakartta
   role: kresba
+  reference_keys: ["online_fi_hel_*"]
+  image_in_zip: allowed
   status: used
   code: app/pipeline/ylre_fi.py, app/pipeline/reference_fi.py
   provider_key: fi_hel
@@ -1265,6 +1330,9 @@ sources:
   url: https://tiles.kartat.kapsi.fi/ortokuva
   info: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
   role: šablona
+  reference_keys: ["online_fi_ortho*", "online_fi_basemap*"]
+  image_in_zip: unclear
+  image_in_zip_note: "Data MML jsou CC BY 4.0 (dovoluje šíření), dlaždice ale servíruje neoficiální zrcadlo kartat.kapsi.fi bez vlastních podmínek – doporučeno povolit."
   status: used
   code: app/pipeline/reference_fi.py
   probe: fi_ortho
