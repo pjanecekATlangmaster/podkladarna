@@ -536,7 +536,14 @@ def download_online_templates(written: dict[str, Path], country: str, *, log=Non
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    main = {k: p for k, p in written.items() if not any(k.endswith(sfx) for sfx, _f, _l in ZOOM_VARIANTS if sfx)}
+    from app.pipeline.zip_images import is_withheld
+
+    # Zdroje, jejichž obrázek licence do ZIPu nepouští (zip_images), zůstanou online šablonou.
+    main = {
+        k: p
+        for k, p in written.items()
+        if not any(k.endswith(sfx) for sfx, _f, _l in ZOOM_VARIANTS if sfx) and not is_withheld(k)
+    }
     jobs = [(k, p, _download_format(k, country)) for k, p in sorted(main.items())]
     with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS, thread_name_prefix="ref-online") as ex:
         rasters = list(ex.map(lambda j: _translate_template(j[1], j[2], log=log), jobs))

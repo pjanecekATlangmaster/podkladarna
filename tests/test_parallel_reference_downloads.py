@@ -135,10 +135,10 @@ def test_join_uses_future_no_double_fetch(tmp_path: Path):
 
     def fake_build(*args, **kwargs):
         calls["n"] += 1
-        return {"osm": tmp_path / "references" / "osm.png"}
+        return {"ztm": tmp_path / "references" / "mapa_ztm.png"}
 
     executor = ThreadPoolExecutor(max_workers=1)
-    future: Future = executor.submit(lambda: {"osm": tmp_path / "x.png"})
+    future: Future = executor.submit(lambda: {"ztm": tmp_path / "x.png"})
     # Počkej, ať je future hotový před joinem.
     future.result()
     handle = ReferenceDownload(
@@ -162,7 +162,7 @@ def test_join_uses_future_no_double_fetch(tmp_path: Path):
         )
         mocked.assert_not_called()
     assert calls["n"] == 0
-    assert "osm" in built
+    assert "ztm" in built
     assert any("Staženo na pozadí" in ln for ln in lines)
 
 
