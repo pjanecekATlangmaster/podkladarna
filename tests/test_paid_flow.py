@@ -141,7 +141,7 @@ def test_free_domain_and_disabled_shop_unchanged(client, shop, monkeypatch):
     r = client.post("/api/jobs", data={**FORM, "name": "other"}, headers={"host": PAID_HOST})
     assert r.status_code == 200 and "order_pending" not in r.json()
     assert 'id="paid-note"' not in client.get("/", headers={"host": PAID_HOST}).text
-    assert "support-note" in client.get("/", headers={"host": PAID_HOST}).text  # bez prodeje beze změny
+    assert "support-note" not in client.get("/", headers={"host": PAID_HOST}).text  # dar jen na bezplatné doméně
     assert client.post("/api/payments/webhook/fake", content=b"{}").status_code == 404
     assert shop == []
 

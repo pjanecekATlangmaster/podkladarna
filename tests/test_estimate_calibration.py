@@ -34,12 +34,12 @@ def test_estimate_job_parts(options, scale, dtm, share, georef, refs):
     assert maps == pytest.approx(expected)
 
 
-def _insert(conn, i, *, ratio=0.4, est_prep=10.0, est_maps=4.0, created="2999-12-01T00:00:00+00:00"):
+def _insert(conn, i, *, ratio=0.4, est_prep=10.0, est_maps=4.0, created="2999-12-01T00:00:00+00:00", country=None):
     maps_s = est_maps * ratio * 60
     conn.execute(
         "INSERT INTO job_origin (job_id, created_at, status, usage_counted, build_seconds, "
-        "maps_seconds, est_prep_min, est_maps_min) VALUES (?, ?, 'done', 1, ?, ?, ?, ?)",
-        (f"j{i}", created, maps_s + est_prep * ratio * 60, maps_s, est_prep, est_maps),
+        "maps_seconds, est_prep_min, est_maps_min, country) VALUES (?, ?, 'done', 1, ?, ?, ?, ?, ?)",
+        (f"j{i}", created, maps_s + est_prep * ratio * 60, maps_s, est_prep, est_maps, country),
     )
 
 
@@ -97,6 +97,24 @@ def test_estimate_calibration(data_dir, n_jobs, ratio, expected):
     assert cal["maps"] == pytest.approx(expected)
 
 
+def test_estimate_calibration_per_country(data_dir):
+    """Česko jen z českých jobů (i starších bez země), zahraniční země jen ze svých jobů."""
+    import app.db as db
+
+    with db.connect() as conn:
+        for i in range(3):
+            _insert(conn, i, ratio=0.4)  # starší řádky bez země = Česko
+            _insert(conn, 10 + i, ratio=0.4, country="CZ")
+            _insert(conn, 20 + i, ratio=1.2, country="AT")
+        conn.commit()
+    now = db.datetime(3000, 1, 1, tzinfo=db.timezone.utc)
+    cz = db.estimate_calibration(now=now)
+    assert cz["jobs"] == 6 and cz["maps"] == pytest.approx(0.4 * 1.15)
+    at = db.estimate_calibration(country="AT", now=now)
+    assert at == {"prep": 1.0, "maps": 1.0, "jobs": 3}  # málo vlastních jobů: vzorec
+    assert db.estimate_calibration(country="CH", now=now)["jobs"] == 0
+
+
 def test_estimate_calibration_ignores_old_and_can_be_disabled(data_dir, monkeypatch):
     import app.db as db
 
@@ -126,7 +144,7 @@ def test_api_sheets_uses_calibration(client, monkeypatch):
     assert plain["estimate_calibration"] == {"prep": 1.0, "maps": 1.0, "jobs": 0}
     assert "posledních" not in (plain["estimate_note"] or "")
 
-    monkeypatch.setattr(main.db, "estimate_calibration", lambda: {"prep": 0.5, "maps": 0.5, "jobs": 12})
+    monkeypatch.setattr(main.db, "estimate_calibration", lambda **k: {"prep": 0.5, "maps": 0.5, "jobs": 12})
     body = client.get("/api/sheets", params=params).json()
     assert body["estimate_calibration"]["jobs"] == 12
     assert body["estimate_minutes"] < plain["estimate_minutes"]
