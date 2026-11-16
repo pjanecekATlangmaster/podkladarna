@@ -210,6 +210,7 @@ def technical_map_line(tech_map: str, dtm_on: bool) -> str:
 ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "ch_swisstopo": "swissALTI3D a swissSURFACE3D (swisstopo)",
     "at_bev": "BEV ALS (1 m)",
     "de_berlin": "DGM1 a DOM1 Berlín (1 m)",
+    "de_nrw": "DGM1 a nDOM50 Geobasis NRW (1 m, povrch z letních snímků)",
     "fr_lidarhd": "LiDAR HD MNT a MNS (IGN, 0,5 m)",
     "ee_maaamet": "DTM a DSM Maa- ja Ruumiamet (1 m)",
     "it_trentino": "LiDAR DTM a DSM Provincia di Trento (0,5 m, 2014)",

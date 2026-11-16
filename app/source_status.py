@@ -43,6 +43,7 @@ from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PRO
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE
+from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
 from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
 from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
@@ -393,6 +394,22 @@ PROBES: tuple[Probe, ...] = (
         (LU_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("LU",),
+    ),
+    # Severní Porýní-Vestfálsko: malý výřez DGM z WCS a malý výřez ortofota (kresba z OSM).
+    Probe(
+        "de_nw_elevation",
+        "Výšky Geobasis NRW – DGM1 a nDOM50",
+        (DE_NW_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        fatal=True,
+        countries=("DE-NW",),
+    ),
+    Probe(
+        "de_nw_dop",
+        "Ortofoto DOP (Geobasis NRW)",
+        (DE_NW_DOP_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("DE-NW",),
     ),
 )
 

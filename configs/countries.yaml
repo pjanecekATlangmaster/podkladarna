@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | fr_lidarhd | lu_act | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | fr_lidarhd | lu_act | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -102,6 +102,21 @@ DE:
   attribution:
     - "Elevation: ATKIS DGM1 and DOM1, Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
     - "Straßenbefahrung 2014, ALKIS and TrueDOP: Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-NW:
+  name: {cs: Německo – Severní Porýní-Vestfálsko, en: Germany – North Rhine-Westphalia, de: Deutschland – Nordrhein-Westfalen}
+  status: beta              # celá spolková země (2026-11-16); Berlín je zvlášť (DE, jiná služba i zóna UTM)
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém Geobasis NRW)
+  boundary: countries/de_nw.geojson  # DVG2 Land, Geobasis NRW, +300 m
+  view: [50.32, 5.86, 52.53, 9.47]
+  elevation: de_nrw         # DGM1 + nDOM50 (povrch z letních snímků, olistěný) z WCS po 2 km; zimní DOM1 z ALS jen záloha
+  technical_map: none       # ALKIS je, ale kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Zero 2.0 (WCS DGM, DOM, nDOM i WMS DOP, ABK, ALKIS; ověřeno 2026-11-16 v GetCapabilities).
+  citation: "Base map: Omapic · Geobasis NRW · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and nDOM50, Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
+    - "Orthophoto DOP, Amtliche Basiskarte (ABK) and ALKIS: Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:
   name: {cs: Francie, en: France, fr: France}

@@ -551,6 +551,103 @@ def de_berlin_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["de_berlin"] = de_berlin_provider
 
 
+# --------------------------------------------------------------------------- DE-NW: DGM1 + nDOM50 (Geobasis NRW)
+
+# Severní Porýní-Vestfálsko (dl-de/zero 2.0, bez klíče): terén DGM1, zimní DOM1 z ALS a výška objektů nDOM z letního
+# obrazového DOM (``reference_de_nw``) z WCS po dlaždicích 2 km, vše po 1 m ve stejné mřížce (hrany na celé metry).
+# Výška porostu = menší z obou: ALS je starší a zimní (vytěžené kůrovcové smrčiny v něm zůstávají lesem; Willebadessen
+# 2 × 2 km 7,5 % plochy), letní obrazový DOM vidí obilí a kukuřici jako porost a rozmazává okraje budov (Werther: pole
+# 406). Shodně vysoko vychází jen skutečný porost; listnáče v zimním ALS chybí jen na ~5 % plochy lesa.
+DE_NW_MAX_SIDE_M = 2000.0
+DE_NW_BUFFER_M = 20.0
+
+
+def de_nw_tile_urls(kind: str, bounds_utm: tuple[float, float, float, float]) -> list[str]:
+    from app.pipeline.reference_de_nw import de_nw_coverage_url
+
+    boxes = tile_boxes(bounds_utm, max_side=DE_NW_MAX_SIDE_M, buffer=DE_NW_BUFFER_M, step=1.0)
+    return [de_nw_coverage_url(kind, b) for b in boxes]
+
+
+def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path) -> Path:
+    """DGM + výška porostu = min(DOM − DGM, nDOM) (obojí aspoň 0) v mřížce dlaždice DGM; jen jeden zdroj = ten."""
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+    t_ds = gdal.Open(str(dtm))
+    band = t_ds.GetRasterBand(1)
+    nd = band.GetNoDataValue()
+    t = band.ReadAsArray().astype("float32")
+    bad = ~np.isfinite(t) | (t <= NODATA + 1) | ((t == nd) if nd is not None else False)
+
+    def height(path: Path | None, *, relative: bool) -> np.ndarray | None:
+        if path is None:
+            return None
+        ds = gdal.Open(str(path))
+        if (ds.RasterXSize, ds.RasterYSize) != (t_ds.RasterXSize, t_ds.RasterYSize):
+            raise RuntimeError(f"{path.name} {ds.RasterXSize}×{ds.RasterYSize} nesedí na DGM "
+                               f"{t_ds.RasterXSize}×{t_ds.RasterYSize}")
+        a = ds.GetRasterBand(1).ReadAsArray().astype("float32")
+        ok = np.isfinite(a) & (a > NODATA + 1)
+        h = a if relative else a - t
+        return np.where(ok, np.clip(h, 0.0, None), np.nan)
+
+    hs = [h for h in (height(ndom, relative=True), height(dsm, relative=False)) if h is not None]
+    h = np.fmin(hs[0], hs[1]) if len(hs) == 2 else hs[0]
+    out = np.where(bad, NODATA, t + np.nan_to_num(h, nan=0.0)).astype("float32")
+    ds = gdal.GetDriverByName("GTiff").Create(str(dest), t_ds.RasterXSize, t_ds.RasterYSize, 1, gdal.GDT_Float32,
+                                              ["COMPRESS=DEFLATE"])
+    ds.SetGeoTransform(t_ds.GetGeoTransform())
+    ds.SetProjection(t_ds.GetProjection())
+    ob = ds.GetRasterBand(1)
+    ob.SetNoDataValue(NODATA)
+    ob.WriteArray(out)
+    ob.FlushCache()
+    ds = t_ds = None
+    return dest
+
+
+def de_nrw_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """DGM1 a povrch DGM1 + min(zimní DOM1 z ALS − DGM, letní nDOM50) z WCS Geobasis NRW."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_de_nw import DE_NW_CRS
+
+    bounds_utm = _bounds_in(bounds, CRS_WKT, DE_NW_CRS)
+
+    def fetch(kind: str) -> list[Path]:
+        urls = de_nw_tile_urls(kind, bounds_utm)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix=f"nrw-{kind}") as ex:
+            return list(ex.map(lambda j: _download_retry(j[1], out_dir / f"nrw_{kind}_{j[0]}.tif", log=log),
+                               enumerate(urls)))
+
+    def fetch_optional(kind: str, label: str) -> list[Path] | None:
+        try:
+            return fetch(kind)
+        except Exception as exc:  # noqa: BLE001 – druhý zdroj povrchu stačí, job běží dál
+            log_issue(log, f"Severní Porýní-Vestfálsko: {label} se nestáhl ({str(exc)[:120]})")
+            return None
+
+    def vrt(name: str, tiles: list[Path]) -> Path:
+        path = out_dir / f"de_nrw_{name}.vrt"
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", DE_NW_CRS, str(path), *map(str, tiles)], log=log)
+        return path
+
+    dtm_tiles = fetch("dtm")
+    ndom = fetch_optional("ndom", "letní nDOM50 (pole a holiny mohou vyjít nepřesně)")
+    dsm = fetch_optional("dsm", "zimní DOM1 (pole s plodinami mohou vyjít jako porost)")
+    if ndom is None and dsm is None:
+        return SourceRasters(vrt("dtm", dtm_tiles), None)
+    surf = [_de_nw_surface(t, ndom[i] if ndom else None, dsm[i] if dsm else None, out_dir / f"nrw_surface_{i}.tif")
+            for i, t in enumerate(dtm_tiles)]
+    if log and ndom and dsm:
+        log("  Povrch = DGM1 + menší z výšek zimního DOM1 (ALS) a letního nDOM50 (snímky)")
+    return SourceRasters(vrt("dtm", dtm_tiles), vrt("dsm", surf))
+
+
+PROVIDERS["de_nrw"] = de_nrw_provider
+
+
 # --------------------------------------------------------------------------- FR: LiDAR HD MNT + MNS (WMS-R IGN)
 
 # IGN LiDAR HD (Licence Ouverte Etalab 2.0, bez klíče): MNT (terén) a MNS (povrch) 0,5 m, Lambert-93 (EPSG:2154),
@@ -1212,6 +1309,7 @@ SOURCE_LABELS = {
     "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo",
     "at_bev": "BEV ALS DTM a DSM",
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
+    "de_nrw": "DGM1 a nDOM50, Geobasis NRW",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",

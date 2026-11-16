@@ -61,6 +61,7 @@ ORTHO_KEYS = {
     "FR": "fr_ortho",
     "IT": "it_ortho",
     "LU": "lu_ortho",
+    "DE-NW": "de_nw_dop",
     "NL": "nl_luchtfoto",
 }
 
