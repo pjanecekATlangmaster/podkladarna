@@ -329,6 +329,9 @@ def oom_readme_en(
     if dtm_block:
         epochs += "\n" + dtm_block + "\n"
     notice_block = "".join(f"{NOTICE_PREFIX_EN}{line}\n\n" for line in (dtm_notice_en(meta.get("dtm")) if cz else []))
+    from app import data_notes
+
+    notice_block += "".join(f"{NOTICE_PREFIX_EN}{line}\n\n" for line in data_notes.meta_lines(meta, "en"))
     refs = meta.get("reference_layers") or []
     ref_block = ""
     if refs or sentinel_info:

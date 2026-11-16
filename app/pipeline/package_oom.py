@@ -628,6 +628,9 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
     notice_block = "".join(
         f"{dtm_summary.NOTICE_PREFIX}{line}\n\n" for line in (dtm_summary.notice_lines(meta.get("dtm")) if cz else [])
     )
+    from app import data_notes
+
+    notice_block += "".join(f"{dtm_summary.NOTICE_PREFIX}{line}\n\n" for line in data_notes.meta_lines(meta, "cs"))
     if dtm_block:
         epochs_block += "\n" + dtm_block + "\n"
     ref_block = ""
