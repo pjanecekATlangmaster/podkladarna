@@ -1203,6 +1203,8 @@ def run_job_pipeline(
         log(f"Filtr velikosti/tvaru: {veg_size_profile}")
     vege_shp = None
     veg_buildings: Path | None = None
+    # Zeleň ze zrnitosti porostu jen mimo Česko a jen bez sprintu (``veg_texture``); Česko beze změny.
+    veg_texture = bool(bbox) and not cz_sources and not job_has_sprint(preset_id, options)
     if bbox and cz_sources:
         # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
         try:
@@ -1219,6 +1221,7 @@ def run_job_pipeline(
             veg_size_profile=veg_size_profile,
             wait_chm=_wait_surfaces,
             buildings_geojson=veg_buildings,
+            texture=veg_texture,
         )
     except Exception as exc:
         log(f"Vegetace (hustota bodů): přeskočeno ({exc})")
@@ -1227,7 +1230,7 @@ def run_job_pipeline(
     if vege_shp is None:
         try:
             vege_shp = generate_job_vegetation_chm(
-                work_dir, log=log, veg_size_profile=veg_size_profile
+                work_dir, log=log, veg_size_profile=veg_size_profile, texture=veg_texture
             )
         except Exception as exc:
             log(f"CHM vegetace: přeskočeno ({exc})")

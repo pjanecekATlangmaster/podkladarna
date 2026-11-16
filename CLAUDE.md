@@ -471,6 +471,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   nechal bílé proužky a rozdrobil 401 (Antverpy 661 → 8 597 objektů). Vstupy se stahují na pozadí od startu jobu (`start_open_paved_prefetch`, cache `work/open_paved/`); bez ortofota země nebo letního snímku beze
   změny. COG Element84 jsou bez posunu DN (`Scene.dn_offset` nepoužívat). Les, MTBO a Česko beze změny (samotné ortofoto v lese škodí:
   zimní vřesoviště 53 %). Měření a náhledy `/mnt/project-files/evropa-data/zahranicni-build/maska-zelene/`.
+- **Zeleň ze zrnitosti porostu mimo Česko** (3.67.0, Petr 2026-11-16, Bambësch „chybí wow efekt“, `app/pipeline/veg_texture.py`): les a MTBO
+  mimo Česko bez mračna byly skoro bílé. Zrnitost = směrodatná odchylka CHM v okně 9 m nad 4,5 m při průměru nad 6 m v lesním okolí;
+  s dosavadní zelení a mladým porostem → 406, průnik → 408; maska uzavřená 3 m, většina 7 m, drobky a díry pod 400 m² (souvislé plochy, ne
+  „nudle“). F1 zelené Bambësch 0,04 → 0,48, Haltern 0,26 → 0,54, hranice do 2 / 5 m jako z mračna COPC úrovně 0–1 (pokus v
+  `lu/podrost/`, mračno kreslí víc zelené). `run_job`: `veg_texture` jen mimo `cz_sources` a mimo sprint. `countries.yaml` `green`
+  (`points` CZ, `laser` výchozí, `photo` PL a Bavorsko – povrch ze snímků, slabší) → `/api/coverage` pole `green`, mapa v GUI šrafuje
+  `photo` (legenda „Zeleň v lese“). Měření `/mnt/project-files/evropa-data/zahranicni-build/zelen/`.
 - **Předstažení velkých dat mimo frontu** (3.66.0, Petr 2026-11-16, `app/prefetch.py`): job v Česku s aspoň `PREFETCH_MIN_SHEETS` (2)
   listy LiDARu mimo cache při obsazeném serveru (běží job, fronta neprázdná nebo nasazení) nejde do fronty výpočtů, ale stahuje
   samostatným procesem `python -m app.prefetch <job>` s nižší prioritou (`nice`, ionice best-effort 7, `PREFETCH_CONCURRENCY` 1,

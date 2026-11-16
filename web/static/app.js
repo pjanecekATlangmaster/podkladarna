@@ -2292,12 +2292,34 @@ function geometryRings(g) {
 }
 
 /** Zvýraznění území: zeleně výšky + technická mapa (obdoba DTM), oranžově jen výšky + OSM; legenda barev. */
+/** Šrafa pro země, kde zeleň vychází jen základní (CSS `.green-basic` → `url(#green-basic-hatch)`). */
+function ensureGreenHatch() {
+  if (document.getElementById("green-basic-hatch")) return;
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("width", "0");
+  svg.setAttribute("height", "0");
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.position = "absolute";
+  svg.innerHTML =
+    '<defs><pattern id="green-basic-hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+    '<line x1="0" y1="0" x2="0" y2="8" stroke="#555" stroke-width="2" stroke-opacity="0.45"/></pattern></defs>';
+  document.body.appendChild(svg);
+}
+
 function addDataAvailabilityLayers(items) {
   const smallAreas = L.layerGroup();
   let hasOsmOnly = false;
+  let hasBasicGreen = false;
   for (const c of items) {
     const rings = geometryRings(c.geometry);
     if (!rings.length) continue;
+    // Zeleň jen z výšky porostu (povrch ze snímků, PL, Bavorsko) – šrafa přes barvu kresby.
+    if (c.green === "photo") {
+      hasBasicGreen = true;
+      ensureGreenHatch();
+      L.polygon(rings, { stroke: false, className: "green-basic", interactive: false }).addTo(bboxMap);
+    }
     // Technická mapa jen v části země (FR: Plan de voirie v Paříži) – země oranžově, to území zeleně.
     const area = geometryRings(c.technical_map_area);
     const full = c.technical_map !== false && !area.length;
@@ -2362,6 +2384,19 @@ function addDataAvailabilityLayers(items) {
       sw.setAttribute("aria-hidden", "true");
       const txt = L.DomUtil.create("span", "", row);
       txt.textContent = label;
+    }
+    if (hasBasicGreen) {
+      const gt = L.DomUtil.create("div", "map-legend-title map-legend-subtitle", box);
+      gt.textContent = t("web.js.legend.green_title");
+      for (const [kind, label] of [
+        ["green-good", t("web.js.legend.green_good")],
+        ["green-basic", t("web.js.legend.green_basic")],
+      ]) {
+        const row = L.DomUtil.create("div", "map-legend-row", box);
+        const sw = L.DomUtil.create("span", `map-legend-swatch map-legend-${kind}`, row);
+        sw.setAttribute("aria-hidden", "true");
+        L.DomUtil.create("span", "", row).textContent = label;
+      }
     }
     L.DomEvent.disableClickPropagation(box);
     return box;

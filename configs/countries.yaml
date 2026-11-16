@@ -8,6 +8,7 @@
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
 # technical_map_area: naopak polygon jediného území s technickou mapou (FR = Paříž); výřez mimo něj ji nestahuje.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
+# green: zeleň v lese (points = hustota bodů z mračna, CZ výchozí | laser = zrnitost z laserového povrchu, jinde výchozí | photo = povrch ze snímků, jen základní; mapa v GUI šrafuje).
 # view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
 CZ:
   name: {cs: Česko, en: Czechia}
@@ -124,6 +125,7 @@ DE-BY:
   crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LDBV)
   boundary: countries/de_by.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
   view: [47.27, 8.97, 50.56, 13.84]
+  green: photo              # DOM20 ze snímků: zrnitost porostu slabší (Fürstenschlag), zeleň jen základní
   elevation: de_by          # DGM1 (ALS) + DOM20 (letní snímky, okno přes /vsicurl převzorkované na 1 m), dlaždice 1 km
   technical_map: none       # ALKIS a Hausumringe jsou, kresba zatím z OSM
   cz_sources: false
@@ -139,6 +141,7 @@ PL:
   crs: EPSG:2180            # ETRF2000-PL / CS92 (PL-1992), osy sever–východ
   boundary: countries/pl.geojson  # PRG A00 Granice państwa, GUGiK, +300 m
   view: [49.0, 14.07, 54.84, 24.15]
+  green: photo              # NMPT ze snímků: zrnitost porostu slabší (Obręb F1 0,28), zeleň jen základní
   elevation: pl_gugik       # NMT 1 m (GeoTIFF) a NMPT 1 m (ASCII, ~90 s na km²) z WCS GUGiK
   technical_map: none
   cz_sources: false

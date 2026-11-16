@@ -71,6 +71,9 @@ class Country:
     technical_map_gaps: tuple[tuple[tuple[float, float], ...], ...] = ()
     # Naopak jediné území s technickou mapou (FR: Plan de voirie jen v Paříži); prázdné = celá země mimo ``gaps``.
     technical_map_area: tuple[tuple[tuple[float, float], ...], ...] = ()
+    # Zeleň v lese: ``points`` hustota bodů z mračna (Česko), ``laser`` zrnitost z laserového povrchu (hranice
+    # porostů jako z mračna, ``veg_texture``), ``photo`` povrch ze snímků – jen základní zeleň z výšky porostu.
+    green: str = "laser"
 
     def name(self, lang: str = "cs") -> str:
         return self.names.get(lang) or self.names.get("en") or self.code
@@ -151,6 +154,7 @@ def load_countries() -> dict[str, Country]:
             technical_map_area=(
                 _rings_from_geojson(CONFIG_DIR / spec["technical_map_area"]) if spec.get("technical_map_area") else ()
             ),
+            green=str(spec.get("green") or ("points" if code == DEFAULT_COUNTRY else "laser")),
         )
         if len(view) != 4:
             w, s, e, n = country.envelope
@@ -345,6 +349,8 @@ def coverage_payload(site: Any = None, lang: str = "cs") -> dict[str, Any]:
                 "technical_map": c.has_technical_map,
                 "technical_map_gaps": _rings_geojson(c.technical_map_gaps) if c.technical_map_gaps else None,
                 "technical_map_area": _rings_geojson(c.technical_map_area) if c.technical_map_area else None,
+                # Mapa v GUI šrafuje země, kde zeleň vychází jen základní (povrch ze snímků).
+                "green": c.green,
             }
         )
     return {"countries": items, "min_share": MIN_SHARE}
