@@ -18,7 +18,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from typing import Any, Callable
 
-from app import countries, i18n
+from app import countries, data_notes, i18n
 
 # Limit sondy pro web (/api/sheets); POST /api/jobs čeká kratší dobu (obvykle má výsledek z cache).
 DEADLINE_S = 8.0
@@ -189,6 +189,8 @@ def probe(
         "technical_map": tech,
         "warnings": warnings,
         "block": block,
+        # Stáří a druh dat země (statické z countries.yaml); verdikt nemění, GUI je ukáže nad Spustit.
+        "data_notes": data_notes.probe_notes(country),
         "seconds": round(time.monotonic() - t0, 1),
     }
 

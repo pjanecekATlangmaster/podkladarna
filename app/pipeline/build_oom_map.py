@@ -46,7 +46,16 @@ def _citation_note(lang: str = "cs") -> str:
     return f"Mapa z tohoto podkladu musí uvést: {citation()}"
 
 
-def _notes(lang: str, safe_name: str, c101: str, c102: str) -> str:
+def _data_notes(lang: str, sprint: bool) -> str:
+    """Důsledky stáří a druhu dat země (``app.data_notes``) na konec poznámky; Česko nic."""
+    from app import data_notes
+    from app.pipeline.country_profile import process_country
+
+    lines = data_notes.text_lines(process_country(), lang, sprint=sprint)
+    return "".join(f"\n{html.escape(line)}" for line in lines)
+
+
+def _notes(lang: str, safe_name: str, c101: str, c102: str, *, sprint: bool = False) -> str:
     """Poznámka mapy (Mapa → Poznámky) v jazyce výstupu."""
     if lang == "en":
         return (
@@ -54,12 +63,14 @@ def _notes(lang: str, safe_name: str, c101: str, c102: str) -> str:
             f"Default view: vector map only. Contours {c101}/{c102} are locked.\n"
             "Switch on base maps (OSM, orthophoto, …) in Templates → Template setup.\n"
             f"{html.escape(_citation_note(lang))}"
+            f"{_data_notes(lang, sprint)}"
         )
     return (
         f"Podkladárna – {safe_name}\n"
         f"Výchozí pohled: jen vektorová mapa. Vrstevnice {c101}/{c102} jsou zamčené.\n"
         "PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.\n"
         f"{html.escape(_citation_note())}"
+        f"{_data_notes(lang, sprint)}"
     )
 
 
@@ -236,7 +247,7 @@ def build_oom_map_xml(
     crs = html.escape(CRS_PROJ4)
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <map xmlns="http://openorienteering.org/apps/mapper/xml/v2" version="9">
-    <notes>{_notes(lang, safe_name, display_code(preset_id, scale, "101"), display_code(preset_id, scale, "102"))}</notes>
+    <notes>{_notes(lang, safe_name, display_code(preset_id, scale, "101"), display_code(preset_id, scale, "102"), sprint=str(preset_id).startswith("sprint"))}</notes>
     <georeferencing scale="{scale}" auxiliary_scale_factor="1" declination="{declination:.2f}" grivation="{grivation:.2f}">
         <projected_crs id="EPSG">
             <spec language="PROJ.4">{crs}</spec>

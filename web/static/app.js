@@ -2983,6 +2983,30 @@ function renderProbeNote() {
   if (big && big.message) warnings.push(big.message); // velké stahování: mapa bude hotová později
   el.textContent = warnings.join(" ");
   el.hidden = !warnings.length;
+  renderDataNote();
+}
+
+/**
+ * Stáří a druh dat země (/api/sheets `probe.data_notes`, jen mimo Česko a jen kde to mění kresbu) nad Spustit:
+ * uživatel se může rozhodnout mapu negenerovat. Lesní důsledky (zeleň) se u sprintu neukazují.
+ */
+function renderDataNote() {
+  const el = document.getElementById("data-note");
+  if (!el) return;
+  const info = lastSheets && !lastSheets.too_large && lastSheets.probe && lastSheets.probe.data_notes;
+  const sprint = isSprintSelected();
+  const notes = ((info && info.notes) || []).filter((n) => !(n.forest_only && sprint)).map((n) => n.text);
+  if (!notes.length) {
+    el.replaceChildren();
+    el.hidden = true;
+    return;
+  }
+  const lead = document.createElement("strong");
+  lead.textContent = t("web.js.data_note.lead");
+  const body = document.createElement("span");
+  body.append(lead, " " + [info.summary, ...notes, t("web.js.data_note.tail")].filter(Boolean).join(" "));
+  el.replaceChildren(body);
+  el.hidden = false;
 }
 
 function renderDtmCoverage() {

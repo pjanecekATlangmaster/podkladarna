@@ -854,6 +854,7 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
             "elevation": probe.get("elevation"),
             "technical_map": probe.get("technical_map"),
             "warnings": probe.get("warnings") or [],
+            "data_notes": probe.get("data_notes"),
         },
     }
 

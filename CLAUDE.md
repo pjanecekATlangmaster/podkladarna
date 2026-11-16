@@ -478,7 +478,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `lu/podrost/`, mračno kreslí víc zelené). `run_job`: `veg_texture` jen mimo `cz_sources` a mimo sprint. `countries.yaml` `green`
   (`points` CZ, `laser` výchozí, `photo` PL a Bavorsko – povrch ze snímků, slabší) → `/api/coverage` pole `green`, mapa v GUI šrafuje
   `photo` (legenda „Zeleň v lese“). Měření `/mnt/project-files/evropa-data/zahranicni-build/zelen/`.
-- **Zimní výšky bez listí v Belgii** (3.69.0, Petr 2026-11-16, Soignes „všechno zelené, hustý les jako louka“): `countries.yaml`
+- **Zimní výšky bez listí v Belgii** (3.70.0, Petr 2026-11-16, Soignes „všechno zelené, hustý les jako louka“): `countries.yaml`
   `green: leafoff` (DHMV II 2013–15, zima) vypne zrnitost (`veg_texture`) a po přípravě OSM přegeneruje `vegetation.shp` z CHM
   s nízkým porostem (třída 1) v lese OSM (`forest` / `wood` minus louky, vřesoviště, pole, mokřady a díry) jako bílý les
   (`vegetation_chm.regenerate_leafoff_vegetation`, jen porost z CHM). Mimo Česko se z Overpass nově drží i relace přírodního krytu
