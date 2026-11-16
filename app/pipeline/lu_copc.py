@@ -17,7 +17,9 @@ from __future__ import annotations
 import io
 import json
 import math
+import os
 import struct
+import threading
 import time
 import urllib.request
 import zipfile
@@ -41,6 +43,8 @@ INDEX_TTL_S = 7 * 24 * 3600
 CACHE_VERSION = 2
 HTTP_TIMEOUT_S = 60
 WORKERS = 4
+# Strop stažených bajtů na jednu dlaždici (hrubé uzly mají 3–6 MB, celá dlaždice ~200 MB): víc = chyba, ne download.
+MAX_TILE_BYTES = 40_000_000
 
 
 def tile_names(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
@@ -93,8 +97,9 @@ def zip_index(*, fetch=None) -> dict[str, str]:
 class _RangeFile(io.RawIOBase):
     """Úsek ``[offset, offset + size)`` vzdáleného souboru jako soubor (HTTP Range)."""
 
-    def __init__(self, url: str, offset: int, size: int):
+    def __init__(self, url: str, offset: int, size: int, max_bytes: int = MAX_TILE_BYTES):
         self.url, self.offset, self.size, self.pos, self.bytes_read = url, offset, size, 0, 0
+        self.max_bytes = max_bytes
 
     def readable(self):
         return True
@@ -113,9 +118,13 @@ class _RangeFile(io.RawIOBase):
         n = self.size - self.pos if n is None or n < 0 else min(n, self.size - self.pos)
         if n <= 0:
             return b""
+        if self.bytes_read + n > self.max_bytes:
+            raise RuntimeError(f"stahování přes {self.max_bytes / 1e6:.0f} MB odmítnuto")
         a = self.offset + self.pos
         with _get(self.url, headers={"Range": f"bytes={a}-{a + n - 1}"}) as r:
-            data = r.read()
+            data = r.read(n + 1)
+        if len(data) > n:  # server Range ignoroval (200 s celým souborem)
+            raise RuntimeError("server nevrátil požadovaný úsek (HTTP Range)")
         self.pos += len(data)
         self.bytes_read += len(data)
         return data
@@ -191,7 +200,7 @@ def vegetation_surface(window: tuple[float, float, float, float], out_dir: Path,
             grid, nbytes = _tile_grid(url, member, e, n)
         except Exception as exc:  # noqa: BLE001 – jedna dlaždice nesmí shodit job, porost zůstane z MNS
             return tile, None, 0, str(exc)[:160]
-        tmp = cached.with_suffix(".tmp.npy")
+        tmp = cached.with_name(f"{cached.stem}.{os.getpid()}.{threading.get_ident()}.tmp.npy")
         np.save(tmp, grid)
         tmp.replace(cached)
         return tile, grid, nbytes, None

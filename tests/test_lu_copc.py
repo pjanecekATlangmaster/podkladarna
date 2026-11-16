@@ -49,3 +49,11 @@ def test_vegetation_surface_mosaic_and_cache(tmp_path, monkeypatch):
     (tmp_path / "x").mkdir()
     lu_copc.vegetation_surface(window, tmp_path / "x")
     assert len(calls) == 2  # z cache
+
+
+def test_range_file_refuses_large_download(monkeypatch):
+    """Čtení přes strop bajtů na dlaždici (stovky MB = celá dlaždice) se odmítne dřív, než se stáhne."""
+    monkeypatch.setattr(lu_copc, "_get", lambda *a, **k: pytest.fail("nemá se stahovat"))
+    f = lu_copc._RangeFile("https://example.invalid/a.zip", 0, 500_000_000)
+    with pytest.raises(RuntimeError, match="odmítnuto"):
+        f.read(300_000_000)
