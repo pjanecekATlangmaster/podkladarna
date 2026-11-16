@@ -380,23 +380,21 @@ sources:
     url: https://www.gku.sk/files/geoportal/zbgis/licencie/licencne_podmienky_produkty_lls.pdf
     attribution: DMR 5.0 © ÚGKK SR – CC BY 4.0
   access: free
-  checked: 'neověřeno (portál ÚGKK z cloudu nedostupný, převzato z evropa-data-prehled) · opencode (sk_ugkk_dmr): 2026-11-16
-    WCS GetCapabilities (Fees „no conditions apply“, AccessConstraints CC BY 4.0), gku.sk poskytovanie, licenční PDF 200 –
-    Claude neověřil'
+  checked: 'Claude 2026-11-16 přímými dotazy z cloudu: opendata.skgeodesy.sk DMP1_0_sjtsk03_bpv.zip HEAD 200 (155,1 GB, Range
+    206, bez přihlášení), adresář ZIPu: jeden GeoTIFF dmp1_jtsk03.tif 121,7 GB (deflate v ZIPu) + .ovr; DMR5_0 ZIP 197,7 GB stejně;
+    2. cyklus LOT06 DMP2 5,5 GB jeden TIFF; gku.sk poskytovanie (CC BY 4.0, citace „ÚGKK SR“), licenční PDF 200. WCS
+    inspirews a MAPKA z cloudu i přes WebFetch nedostupné (reset / 503), z Česka dřívější pilot WCS fungoval.'
   issues:
-  - Model povrchu DMP 1.0 a mračno jen exportem z portálu (mračno do 2 km² na export, DMP na e-mail) → země vypnutá (bez povrchu
-    nezařazujeme).
-  - Servery geoportal.sk / zbgis z cloudu nedostupné (možná blokace podle země).
-  - Původní odkaz info https://www.geoportal.sk/sk/zbgis/lls-dmr/ neodpovídal (kontrola Claude 2026-11-16), nahrazen podle
-    opencode.
-  - Původní odkaz licence https://www.geoportal.sk/sk/zbgis/lls-dmr/ neodpovídal (kontrola Claude 2026-11-16), nahrazen podle
-    opencode.
-  - 'opencode navrhuje citaci: „ÚGKK SR“ – Claude neověřil.'
-  - 'opencode: info `https://www.geoportal.sk/sk/zbgis/lls-dmr/` je MRTVÉ (301→404); nový portál je gku.sk.'
-  - 'opencode: „DMP na e-mail“ už neplatí – DMP 1.0/2.0 jsou přímé ZIP, ale celá SR 144–175 GB, 2. cyklus 5–15 GB/lokalita:
-    https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip'
-  - 'opencode: „geoportal.sk/zbgis z cloudu nedostupné“ – WCS a MAPKA fungují, otevřená data obnovena 27. 8. 2025; LAZ stále
-    jen objednávka / MAPKA export (max. 4 km²) s e-mailem → `off` je oprávněné, ale zdůvodnění upravit.'
+  - 'E-mail ani registrace nejsou nutné (Claude 2026-11-16): DMP 1.0 (celá SR, 1 m) i DMP 2.0 / DMR 6.0 (2. cyklus, 0,5 m, po
+    lokalitách) jsou přímé ZIP na https://opendata.skgeodesy.sk/static/LLS/ (DMP1/DMP1_0_sjtsk03_bpv.zip, 2_cyklus/LOTxx/…).
+    E-mail / objednávka platí jen pro klasifikované mračno LAZ (formulář, odběrná místa; výřez do 4 km² přes MAPKA).'
+  - 'Překážka je objem, ne e-mail: každý ZIP je jeden obří GeoTIFF komprimovaný deflate uvnitř ZIPu → výřez nejde číst přes
+    HTTP Range (/vsizip/ musí dekomprimovat od začátku). Pro job je nutné jednorázově stáhnout celý soubor (DMP 1.0 155 GB,
+    DMR 5.0 198 GB) a převést na dlaždice pro `local:<složka>` (dtm/, dsm/). Proto `off`, dokud Petr nerozhodne o místě
+    na disku.'
+  - 'MAPKA export (DMR 6.0 / DMP 2.0 do 400 km²) neověřen – z cloudu nedostupný; opencode tvrdí odkaz e-mailem.'
+  - Servery inspirews / zbgis.skgeodesy.sk z cloudu (USA) nedostupné, opendata.skgeodesy.sk a gku.sk dostupné.
+  - 'Starý odkaz https://www.geoportal.sk/sk/zbgis/lls-dmr/ je mrtvý (301→404); nový portál gku.sk.'
 
 # ----------------------------------------------------------------------------------------------- Nizozemsko
 - id: nl_ahn
