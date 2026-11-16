@@ -76,7 +76,7 @@ def run(source: str, lon: float, lat: float, size_m: float, out=print) -> bool:
 
     from app.countries import local_elevation_dir
     from app.pipeline.crs_5514 import CRS_WKT
-    from app.pipeline.elevation_raster import prepare_raster_surfaces
+    from app.pipeline.elevation_raster import ElevationUnavailable, prepare_raster_surfaces
 
     ok = True
     base = local_elevation_dir(source)
@@ -115,7 +115,11 @@ def run(source: str, lon: float, lat: float, size_m: float, out=print) -> bool:
 
     t0 = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="elev_check_") as tmp:
-        res = prepare_raster_surfaces(Path(tmp), bounds, source=source, resolution_m=1.0, log=lambda _m: None)
+        try:
+            res = prepare_raster_surfaces(Path(tmp), bounds, source=source, resolution_m=1.0, log=lambda _m: None)
+        except ElevationUnavailable as exc:
+            out(f"✗ výřez {lon:.4f}, {lat:.4f} nejde připravit: {exc} (zkus --at uvnitř pokrytí)")
+            return False
         seconds = time.monotonic() - t0
         dem = _read(res.dem_raw)
         dsm = _read(res.dsm_raw)

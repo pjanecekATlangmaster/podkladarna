@@ -549,6 +549,11 @@ def test_sk_local_elevation_check(tmp_path, monkeypatch, dsm_shift, ok):
     assert local_elevation_check.run("sk_ugkk_local", lon, lat, 200.0, out=lines.append) is ok, lines
     assert any("bloky 128×128" in line for line in lines)
     if ok:
+        dsm_hole = np.full_like(dsm, -9999.0)  # povrch bez dat (okraj pokrytí): hláška, ne výjimka
+        _cli_tif(base / "dtm" / "dmr5_jtsk03.tif", dsm_hole, (x0, y0 + 400), tmp=tmp_path)
+        assert local_elevation_check.run("sk_ugkk_local", lon, lat, 200.0, out=lines.append) is False
+        assert "nejde připravit" in lines[-1]
+        _cli_tif(base / "dtm" / "dmr5_jtsk03.tif", dtm, (x0, y0 + 400), tmp=tmp_path)
         res = elevation_raster.prepare_raster_surfaces(
             tmp_path / "work", (x0 + 100, y0 + 100, x0 + 300, y0 + 300), source="sk_ugkk_local"
         )
