@@ -44,6 +44,7 @@ from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTH
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
+from app.pipeline.reference_gb import GB_EA_PROBE
 from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE
 from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
 from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
@@ -427,6 +428,17 @@ PROBES: tuple[Probe, ...] = (
         (PL_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("PL",),
+    ),
+    # Anglie: HEAD na dlaždici EA (server HEAD nepodporuje a vrátí 405 = běží; GET by stáhl 70 MB).
+    Probe(
+        "gb_elevation",
+        "Výšky Environment Agency – LIDAR Composite",
+        (GB_EA_PROBE,),
+        "Bez výšek se mapa nevytvoří (pomůže jen dlaždice, která už je v mezipaměti).",
+        method="HEAD",
+        fatal=True,
+        any_4xx_ok=True,
+        countries=("GB-ENG",),
     ),
 )
 

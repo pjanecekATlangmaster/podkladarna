@@ -34,6 +34,7 @@ from app.pipeline.crs_5514 import CRS_WKT
 from app.pipeline.dem_prep import DemPrepResult, dem_work_dir
 from app.pipeline.job_progress import log_issue
 from app.pipeline.prepare_lidar import find_tool, log_step, run_cmd
+from app.pipeline.reference_gb import GB_EA_PRODUCTS, GB_EA_TILES
 from app.pipeline.reference_nl import NL_AHN_WCS
 
 # Díry DTM (budovy, voda) jsou u rastrů větší než u DMR 5G z LAZ (-md 24 v ``_fill_dem_nodata``).
@@ -686,6 +687,7 @@ PL_DSM_SIDE_M = 1000.0
 PL_BUFFER_M = 20.0
 PL_DSM_MAX_BYTES = 40_000_000  # ASCII 1 km² po 1 m má ~20 MB
 PL_RETRIES = 3
+PL_DSM_TILE_DEADLINE_S = 600.0  # celkový strop jedné dlaždice včetně opakování (běžně ~40 s)
 
 
 def pl_tile_boxes(bounds_pl: tuple[float, float, float, float], side: float) -> list[tuple[float, float, float, float]]:
@@ -730,18 +732,35 @@ def _pl_dsm_tile(url: str, dest: Path, *, log=None) -> Path:
     from app.pipeline.fetch_openzu import USER_AGENT
 
     raw = b""
+    deadline = time.monotonic() + PL_DSM_TILE_DEADLINE_S
     for attempt in range(PL_RETRIES + 1):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=300) as resp:  # noqa: S310 – pevná adresa GUGiK
-                raw = resp.read(PL_DSM_MAX_BYTES + 1)
-            break
+            remaining = deadline - time.monotonic()
+            with urllib.request.urlopen(req, timeout=max(10.0, min(300.0, remaining))) as resp:  # noqa: S310 – pevná adresa GUGiK
+                chunks: list[bytes] = []
+                size = 0
+                while chunk := resp.read(1 << 20):
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size > PL_DSM_MAX_BYTES:
+                        break
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"NMPT: dlaždice nestihla {PL_DSM_TILE_DEADLINE_S:.0f} s")
+                raw = b"".join(chunks)
+            if raw.strip():
+                break
+            # prázdná odpověď 200 = server zahodil dotaz (souběh) → znovu jako chyba sítě
+            if attempt >= PL_RETRIES:
+                raise RuntimeError("NMPT: server vrátil prázdnou odpověď")
         except urllib.error.HTTPError as exc:
             if attempt >= PL_RETRIES or not (exc.code >= 500 or exc.code == 429):
                 raise
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
-            if attempt >= PL_RETRIES:
+            if attempt >= PL_RETRIES or time.monotonic() > deadline:
                 raise
+        if time.monotonic() + 5.0 * (attempt + 1) > deadline:
+            raise TimeoutError(f"NMPT: dlaždice nestihla {PL_DSM_TILE_DEADLINE_S:.0f} s")
         if log:
             log(f"  {dest.name}: server neodpověděl, pokus {attempt + 2}/{PL_RETRIES + 1}")
         time.sleep(5.0 * (attempt + 1))
@@ -797,6 +816,186 @@ def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
 
 PROVIDERS["pl_gugik"] = pl_gugik_provider
+
+
+# --------------------------------------------------------------------------- GB-ENG: Environment Agency LiDAR Composite
+
+# Environment Agency (Open Government Licence v3, bez klíče): LIDAR Composite DTM a First Return DSM 2022, 1 m,
+# EPSG:27700, výšky ODN (nic se nepřevádí). WCS služby na velký výřez nestíhá (504 i na 500 m), stahuje se proto
+# celý ZIP dlaždice 5 × 5 km mřížky OS (Float32 GeoTIFF LZW, ~70 MB terén a ~75 MB povrch, ~5 s). Dlaždice
+# se drží v cache (úklid ``download_cache.prune_lidar_cache``). Nálety jsou z větší části v zimě: listnáče mohou
+# vyjít nižší (jako zimní ALS v NRW).
+GB_EA_CRS = "EPSG:27700"
+GB_EA_TILE_M = 5000
+GB_EA_BUFFER_M = 20.0
+GB_EA_MAX_ZIP_BYTES = 200_000_000  # dlaždice má ~75 MB; víc je chyba služby
+# Strop počtu dlaždic na výřez (terén + povrch ~155 MB na dlaždici): víc /api/sheets i job odmítnou. Volba
+# ``GB_EA_MAX_TILES`` v prostředí; výchozí 3 (~460 MB včetně povrchu, z toho terén ~230 MB).
+GB_EA_MAX_TILES = int(os.environ.get("GB_EA_MAX_TILES", "3"))
+GB_EA_TILE_DEADLINE_S = 600.0  # celkový strop jedné dlaždice včetně opakování (běžně 5–15 s)
+GB_EA_NONE_MARK = "{kind}.none"  # značka „dlaždice mimo pokrytí“ (server vrací prázdný ZIP 22 B), aby se nestahovala znovu
+_OS_LETTERS = "ABCDEFGHJKLMNOPQRSTUVWXYZ"  # bez I
+
+
+def os_grid_tile(east: float, north: float) -> str:
+    """Jméno dlaždice 5 km mřížky OS (např. ``SE2530``) pro bod v EPSG:27700 (levý dolní roh)."""
+    e100, n100 = int(east // 100_000), int(north // 100_000)
+    if not (0 <= e100 < 7 and 0 <= n100 < 13):
+        raise ValueError(f"bod {east:.0f}, {north:.0f} je mimo mřížku OS")
+    first = (19 - n100) - (19 - n100) % 5 + (e100 + 10) // 5
+    second = (19 - n100) * 5 % 25 + e100 % 5
+    e5 = int(east % 100_000) // GB_EA_TILE_M * 5
+    n5 = int(north % 100_000) // GB_EA_TILE_M * 5
+    return f"{_OS_LETTERS[first]}{_OS_LETTERS[second]}{e5:02d}{n5:02d}"
+
+
+def gb_ea_tiles(window: tuple[float, float, float, float]) -> list[str]:
+    """Dlaždice 5 km, které zasahují do okna (EPSG:27700)."""
+    import math
+
+    xmin, ymin, xmax, ymax = window
+    step = GB_EA_TILE_M
+    xs = range(math.floor(xmin / step) * step, math.ceil(xmax / step) * step, step)
+    ys = range(math.floor(ymin / step) * step, math.ceil(ymax / step) * step, step)
+    return [os_grid_tile(x, y) for x in xs for y in ys]
+
+
+def gb_ea_tile_url(kind: str, tile: str) -> str:
+    return f"{GB_EA_TILES}/{GB_EA_PRODUCTS[kind]}/{tile}"
+
+
+def gb_ea_tile_dir(tile: str) -> Path:
+    """Složka dlaždice v cache (terén i povrch); úklid cache ji maže celou."""
+    return settings.CACHE_DIR / "gb_ea" / tile
+
+
+def _gb_ea_tile(kind: str, tile: str, *, log=None) -> Path | None:
+    """GeoTIFF dlaždice z cache, jinak stáhne ZIP a vybalí z něj TIF.
+
+    None mimo pokrytí: moře, Wales a Skotsko vrací server jako 200 s prázdným ZIPem (22 B), neznámý produkt jako 404
+    s JSON. Výsledek „mimo“ se uloží značkou vedle dlaždic. HTML odpověď (např. „Cannot GET“ při přetížení) je
+    přechodná chyba, ne mimo pokrytí."""
+    import shutil
+    import tempfile
+    import time
+    import urllib.error
+    import urllib.request
+    import zipfile
+
+    from app.download_cache import touch_last_used
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    folder = gb_ea_tile_dir(tile)
+    dest = folder / f"{kind}.tif"
+    none_mark = folder / GB_EA_NONE_MARK.format(kind=kind)
+    if dest.is_file():
+        touch_last_used(folder)
+        return dest
+    if none_mark.is_file():
+        return None
+    folder.mkdir(parents=True, exist_ok=True)
+    fd, zname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".zip", dir=folder)
+    os.close(fd)
+    zpath = Path(zname)
+    tmp: Path | None = None
+    started = time.monotonic()
+    try:
+        deadline = started + GB_EA_TILE_DEADLINE_S
+        for attempt in range(FR_RETRIES + 1):
+            req = urllib.request.Request(gb_ea_tile_url(kind, tile), headers={"User-Agent": USER_AGENT})
+            try:
+                timeout = max(10.0, min(300.0, deadline - time.monotonic()))
+                with urllib.request.urlopen(req, timeout=timeout) as resp, zpath.open("wb") as fh:
+                    ctype = (resp.headers.get("Content-Type") or "").lower()
+                    if "html" in ctype:
+                        raise ConnectionError(f"Anglie {kind} {tile}: služba vrátila HTML místo ZIPu")
+                    size = 0
+                    while chunk := resp.read(1 << 20):
+                        size += len(chunk)
+                        if size > GB_EA_MAX_ZIP_BYTES:
+                            raise RuntimeError(f"Anglie {kind} {tile}: ZIP větší než {GB_EA_MAX_ZIP_BYTES // 1_000_000} MB")
+                        if time.monotonic() > deadline:
+                            raise TimeoutError(f"Anglie {kind} {tile}: dlaždice nestihla {GB_EA_TILE_DEADLINE_S:.0f} s")
+                        fh.write(chunk)
+                break
+            except urllib.error.HTTPError as exc:
+                body = exc.read(2000).decode("utf-8", "replace") if exc.fp else ""
+                if exc.code == 404 and "html" not in (exc.headers.get("Content-Type") or "").lower() \
+                        and "Cannot GET" not in body:
+                    none_mark.touch()
+                    return None
+                transient = exc.code >= 500 or exc.code == 429 or exc.code == 404
+                if attempt >= FR_RETRIES or not transient:
+                    raise
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                if attempt >= FR_RETRIES or time.monotonic() > deadline:
+                    raise
+            if time.monotonic() + 5.0 * (attempt + 1) > deadline:
+                raise TimeoutError(f"Anglie {kind} {tile}: dlaždice nestihla {GB_EA_TILE_DEADLINE_S:.0f} s")
+            if log:
+                log(f"    {tile} {kind}: přechodná chyba služby, pokus {attempt + 2}/{FR_RETRIES + 1}")
+            time.sleep(5.0 * (attempt + 1))
+        with zipfile.ZipFile(zpath) as zf:
+            names = [n for n in zf.namelist() if n.lower().endswith(".tif")]
+            if not names:
+                # prázdný ZIP (22 B) = dlaždice mimo pokrytí (moře, Wales, Skotsko)
+                none_mark.touch()
+                if log:
+                    log(f"    {tile} {kind}: mimo pokrytí (prázdný ZIP)")
+                return None
+            fd, tname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".tif", dir=folder)
+            os.close(fd)
+            tmp = Path(tname)
+            with zf.open(names[0]) as src, tmp.open("wb") as out:
+                shutil.copyfileobj(src, out, 1 << 20)
+        tmp.replace(dest)
+        tmp = None
+    finally:
+        zpath.unlink(missing_ok=True)
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+    touch_last_used(folder)
+    if log:
+        log(f"    {tile} {kind}: {dest.stat().st_size / 1e6:.1f} MB za {time.monotonic() - started:.0f} s")
+    return dest
+
+
+def gb_ea_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Anglie: LIDAR Composite DTM a First Return DSM 1 m (Environment Agency), dlaždice 5 km v cache."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    window = _buffered(bounds, GB_EA_CRS, GB_EA_BUFFER_M)
+    tiles = gb_ea_tiles(window)
+    if len(tiles) > GB_EA_MAX_TILES + 1:  # bránu dělá /api/sheets (``TILE_LIMITS``); +1 na zaokrouhlení mřížky jobu
+        raise ElevationUnavailable(
+            f"výřez zasahuje do {len(tiles)} dlaždic 5 km Environment Agency (strop {GB_EA_MAX_TILES}); zmenšete nebo posuňte výřez"
+        )
+    out: dict[str, Path | None] = {}
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        found = {kind: ex.map(lambda t, k=kind: _gb_ea_tile(k, t, log=log), tiles) for kind in GB_EA_PRODUCTS}
+        found = {kind: [t for t in paths if t is not None] for kind, paths in found.items()}
+    for kind, paths in found.items():
+        if paths:
+            vrt = out_dir / f"gb_ea_{kind}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", GB_EA_CRS, str(vrt), *map(str, paths)], log=log)
+            out[kind] = vrt if vrt.is_file() else None
+        else:
+            out[kind] = None
+    if out["dtm"] is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí LIDAR Composite DTM (Environment Agency)")
+    if out["dsm"] is None:
+        log_issue(log, "Anglie: povrch (First Return DSM) pro výřez chybí, výška porostu se nespočítá")
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["gb_ea"] = gb_ea_provider
+
+
+def gb_ea_tile_count(bbox_wgs84: tuple[float, float, float, float]) -> int:
+    """Počet dlaždic 5 km, které job pro výřez stáhne (bez sítě; pro odmítnutí v /api/sheets)."""
+    xmin, ymin, xmax, ymax = _bounds_in(bbox_wgs84, "EPSG:4326", GB_EA_CRS)
+    b = GB_EA_BUFFER_M
+    return len(gb_ea_tiles((xmin - b, ymin - b, xmax + b, ymax + b)))
 
 
 # --------------------------------------------------------------------------- FR: LiDAR HD MNT + MNS (WMS-R IGN)
@@ -1462,6 +1661,7 @@ SOURCE_LABELS = {
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
     "de_nrw": "DGM1, DOM1 a nDOM50, Geobasis NRW",
     "pl_gugik": "NMT a NMPT, GUGiK",
+    "gb_ea": "LIDAR Composite DTM a DSM, Environment Agency",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",
@@ -1475,6 +1675,10 @@ SOURCE_LABELS = {
 COVERAGE: dict[str, Callable[[tuple[float, float, float, float]], float]] = {
     "fr_lidarhd": fr_lidarhd_coverage,
     "it_trentino": it_trentino_coverage,
+}
+# Strop počtu stahovaných dlaždic výšek na výřez (zdroje po celých velkých dlaždicích): zdroj → (počet, strop).
+TILE_LIMITS: dict[str, Callable[[tuple[float, float, float, float]], tuple[int, int]]] = {
+    "gb_ea": lambda bbox: (gb_ea_tile_count(bbox), GB_EA_MAX_TILES),
 }
 COVERAGE_MIN_SHARE = 0.5  # pod polovinou výřezu s výškami job nespouštět (terén by chyběl)
 _COVERAGE_CACHE: dict[tuple, tuple[float, float | None]] = {}

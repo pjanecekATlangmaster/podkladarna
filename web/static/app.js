@@ -2218,6 +2218,7 @@ const TIMEZONE_COUNTRY = {
   "Europe/Helsinki": "FI",
   "Europe/Luxembourg": "LU",
   "Europe/Warsaw": "PL",
+  "Europe/London": "GB-ENG",
 };
 
 function browserCountry() {
