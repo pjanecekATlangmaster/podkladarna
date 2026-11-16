@@ -140,9 +140,12 @@ def prefetch_street_inputs(work_dir: Path, bbox_wgs84, log=None) -> None:
 
 def _prepare_green_mask(work_dir: Path, bounds_5514, log=None, need_bounds=None) -> Path | None:
     """Maska zeleně z ortofota (``orthophoto.green_mask`` + morfologické otevření 1 px) → ``zelen.png`` + ``zelen.json``."""
+    from app.pipeline import street_bands
+
     out_dir = Path(work_dir) / CACHE_SUBDIR
     dest = out_dir / GREEN_PNG_NAME
-    if dest.is_file() and (out_dir / GREEN_META_NAME).is_file():
+    surface_png = out_dir / street_bands.SURFACE_PNG_NAME
+    if dest.is_file() and (out_dir / GREEN_META_NAME).is_file() and (not street_bands.STREET_BANDS or surface_png.is_file()):
         return dest
     try:
         import numpy as np
@@ -157,11 +160,16 @@ def _prepare_green_mask(work_dir: Path, bounds_5514, log=None, need_bounds=None)
         rgb, gt = got
         height, width = rgb.shape[:2]
         mask = np.zeros((height, width), dtype=bool)
+        surface = np.zeros((height, width), dtype=np.uint8) if street_bands.STREET_BANDS else None
         for y0 in range(0, height, STRIP_ROWS):
             mask[y0 : y0 + STRIP_ROWS] = green_mask(rgb[y0 : y0 + STRIP_ROWS], EXG_MIN, SAT_MIN)
+            if surface is not None:
+                surface[y0 : y0 + STRIP_ROWS] = street_bands.surface_classes(rgb[y0 : y0 + STRIP_ROWS], EXG_MIN, SAT_MIN)
         mask = ndimage.binary_opening(mask, structure=np.ones((3, 3), dtype=bool))
         out_dir.mkdir(parents=True, exist_ok=True)
         Image.fromarray((mask * 255).astype(np.uint8), "L").save(dest)
+        if surface is not None:
+            Image.fromarray(surface, "L").save(surface_png)
         xmin, ymax = gt[0], gt[3]
         (out_dir / GREEN_META_NAME).write_text(
             json.dumps({"bounds": [xmin, ymax + gt[5] * height, xmin + gt[1] * width, ymax], "width": width, "height": height}),
@@ -329,18 +337,24 @@ def street_paved_geometry(work_dir: Path, buildings, osm_lines, *, scale: int, g
     cand = unary_union(parcels)
     if buildings is not None and not buildings.is_empty:
         cand = cand.difference(buildings)
-    if green is None:
-        try:
-            green = _load_green(work_dir, cand.bounds, within=cand)
-        except Exception:  # bez zeleně se kreslí dál
-            green = None
-    green = reliable_green(green)
-    if green is not None and not green.is_empty:
-        cand = cand.difference(green)
+    lines = [LineString(c) for c, hw in osm_lines if is_paved_street_highway(hw) and len(c) >= 2]
+    # Pásy podél silnice a domu (``street_bands``) místo parcely minus zeleň po pixelech; zadaná zeleň (testy) a
+    # chybějící třídy ortofota = dosavadní cesta.
+    banded = _band_geometry(work_dir, cand, lines) if green is None else None
+    if banded is not None:
+        cand = banded
+    else:
+        if green is None:
+            try:
+                green = _load_green(work_dir, cand.bounds, within=cand)
+            except Exception:  # bez zeleně se kreslí dál
+                green = None
+        green = reliable_green(green)
+        if green is not None and not green.is_empty:
+            cand = cand.difference(green)
     mm = scale / 1000.0  # metrů v terénu na 1 mm mapy
     half = MIN_WIDTH_MM * mm / 2.0
     cand = cand.buffer(-half).buffer(half)
-    lines = [LineString(c) for c, hw in osm_lines if is_paved_street_highway(hw) and len(c) >= 2]
     pieces = [g for g in getattr(cand, "geoms", [cand]) if isinstance(g, Polygon) and g.area >= MIN_AREA_MM2 * mm * mm]
     if not pieces or not lines:
         return None
@@ -356,6 +370,27 @@ def street_paved_geometry(work_dir: Path, buildings, osm_lines, *, scale: int, g
                 keep.append(piece)
                 break
     return unary_union(keep) if keep else None
+
+
+def _band_geometry(work_dir: Path, cand, osm_lines):
+    """Plocha ulic po pásech (``street_bands``) nebo None (vypnuto, chybí třídy ortofota, chyba) – pak dnešní cesta."""
+    from app.pipeline import street_bands
+
+    if not street_bands.STREET_BANDS:
+        return None
+    try:
+        surface = street_bands.load_surface(work_dir, CACHE_SUBDIR, GREEN_META_NAME)
+        if surface is None:
+            return None
+        return street_bands.band_geometry(
+            cand,
+            list(osm_lines) + street_bands.zabaged_road_lines(work_dir),
+            surface,
+            chm=street_bands.load_chm(work_dir),
+            grass_prior=street_bands.zabaged_grass_prior(work_dir),
+        )
+    except Exception:  # kosmetika: bez pásů se kreslí jako dřív
+        return None
 
 
 def load_buildings_5514(work_dir: Path):
@@ -391,12 +426,17 @@ _GEOM_CACHE: tuple | None = None
 
 
 def _street_inputs_stamp(work_dir: Path) -> tuple:
-    """mtime vstupů plochy ulic (parcely, maska zeleně, OSM, budovy, DTM) – změna = nový výpočet."""
+    """mtime vstupů plochy ulic (parcely, maska zeleně, třídy ortofota, ZABAGED, CHM, OSM, budovy, DTM) – změna = nový výpočet."""
+    from app.pipeline import street_bands
+
     base = Path(work_dir)
     stamp = []
     for rel in (
         f"{CACHE_SUBDIR}/{PARCELS_NAME}",
         f"{CACHE_SUBDIR}/{GREEN_PNG_NAME}",
+        f"{CACHE_SUBDIR}/{street_bands.SURFACE_PNG_NAME}",
+        "zabaged_clean.zip",
+        "dem/chm.tif",
         "osm_paths/paths_osm.geojson",
         "osm_paths/paths.geojson",
         "osm_paths/buildings.geojson",

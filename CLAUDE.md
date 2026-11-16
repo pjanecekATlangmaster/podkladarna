@@ -516,7 +516,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   se o něj oříznou (`sprint_merge_buildings`; ISSprOM 521, Petr 2026-10-28 na podnět mapaře A. Hájka, 2.46.5). Díry v OSM budovách
   vyplňuje také vždy budova; volba jobu `sprint_courtyard_fill` (oliva / budova / ne) je od 2.46.6 zrušená. Ulice: parcely RÚIAN se způsobem využití komunikace (15–17) minus budovy minus zeleň z ortofota, jen kusy se
   zpevněnou OSM čárou ≥ 10 m, jako 501 pod ostatními objekty (`street_parcels.py`, `SPRINT_STREET_PARCELS`; ortofoto a maska zeleně jsou
-  společný modul `orthophoto.py` s vláknem ortofota: ExG > 0,02 a sytost > 0,12). `amenity=bus_station` je parkoviště 501; silnice se ve
+  společný modul `orthophoto.py` s vláknem ortofota: ExG > 0,02 a sytost > 0,12). Od 3.71.0 (Petr 2026-11-17, Most job 4c20a72105c9:
+  parcely 17 zahrnují trávníky mezi paneláky, suchou trávu maska po pixelech nevidí) se zeleň od parcel neodečítá, ale plocha ulice
+  roste v pásech (`street_bands.py`, vypínač `STREET_BANDS = False` = dosavadní parcela − zeleň): kolmé paprsky po 4 m z os zpevněných
+  OSM čar a ZABAGED Ulice / SilniceDalnice, buňky 1 m (tráva = podíl zelených pixelů `povrch.png` ≥ 0,25, v ZABAGED UdrzovanaZelen /
+  TrvalyTravniPorost ≥ 0,12; tma a zelená koruna s CHM ≥ 2 m = nevím), od osy i od domu / okraje parcely do 3 m trávy za sebou
+  (úzký proužek nezastaví), přes 6 m „nevím“ stop, medián 5 řezů. Barrandov proti DS26: kresba na trávě 7 143 → 6 972 m², záchyt
+  dlažby 93,6 → 88,3 % (mapař generalizuje travní pásy 3–5 m se stromy do ulice); podklady `/mnt/project-files/ulice-katastr-trava/`. `amenity=bus_station` je parkoviště 501; silnice se ve
   sprintu uvnitř OSM parkoviště nekreslí (`sprint_parking_zone`). Kupky / prohlubně / jámy ve sprintu jen mimo zástavbu (`sprint_knolls_outside_town`,
   artefakty DMR 5G u domů). Srázy ve sprintu jen se skutečným skokem (`SPRINT_STEP_SIDE_RATIO`: strany sondy nejvýš 0,5 × sklon schodu)
   a ZABAGED `StupenSraz` jen do 3 m od ticků z DEM (`dem_step_zone`; Petr: cizí data náš algoritmus jen potvrzují).
