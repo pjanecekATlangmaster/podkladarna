@@ -164,6 +164,7 @@ RUN mamba install -y -c conda-forge \
     proj \
     pyproj \
     pyyaml \
+    pycairo \
     curl \
     && mamba clean -afy \
     && command -v gdal_translate \
@@ -177,6 +178,12 @@ RUN mamba install -y -c conda-forge \
 COPY --from=mapper-builder /opt/mapper /opt/mapper
 RUN test -x /opt/mapper/bin/Mapper \
     && /opt/mapper/bin/Mapper --cli export --help >/dev/null
+
+# Písmo DejaVu Sans pro vlastní render obrázku OSM (pycairo z conda-forge čte fontconfig z /opt/conda/fonts).
+RUN mkdir -p /opt/conda/fonts \
+    && (cp -a /opt/mapper/share/fonts/dejavu /opt/conda/fonts/ || true) \
+    && (fc-cache -f /opt/conda/fonts >/dev/null 2>&1 || true) \
+    && python -c "import cairo; print('pycairo', cairo.version)"
 
 WORKDIR /app
 

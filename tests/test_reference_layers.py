@@ -21,7 +21,7 @@ def test_reference_metadata():
     assert meta["hillshade_source"] == "ČÚZK DMR 5G WMS"
     assert meta["hillshade_tool"] == "WMS ImageServer"
     assert len(meta["hillshade_variants"]) == len(HILLSHADE_VARIANTS)
-    assert "osm.png" not in meta["map_layers"]  # licence dlaždic (zip_images)
+    assert "osm.png" in meta["map_layers"]  # vlastní render (osm_render), smí do ZIPu
     assert "katastr.png" in meta["map_layers"]
     assert meta["dmpok_preview"] == "dmpok_nahled.png"
 
@@ -663,11 +663,15 @@ def test_references_cache_roundtrip_with_ortho_tiles(tmp_path, monkeypatch):
     assert (out / "orthophoto_r0c1.jgw").is_file()
     assert (out / "mapa_ztm.pgw").is_file()
     assert [k for k, _p in rl.orthophoto_items(got)] == ["orthophoto_r0c0", "orthophoto_r0c1"]
-    # starší cache s osm.png: obrázek OSM licence do ZIPu nepouští (zip_images) → nepřevezme se
+    # osm.png z cache: z dnešní cache (vlastní render) ano, ze starší (z dlaždic, bez značky) ne
     _fake_png(cache / "osm.png")
+    got_osm = rl._try_load_references_cache(cache, tmp_path / "job1a" / "references")
+    assert got_osm is not None and "osm" in got_osm
+    rl.write_meta(cache, osm_source=None)
     got_old = rl._try_load_references_cache(cache, tmp_path / "job1b" / "references")
     assert got_old is not None and "osm" not in got_old
     assert not (tmp_path / "job1b" / "references" / "osm.png").exists()
+    rl.write_meta(cache, osm_source=rl.OSM_SOURCE_RENDER)
     (cache / "osm.png").unlink()
     # ortofoto z doby stropu 600 Mpx (0,25 m) = miss, stáhne se znovu v dnešním kroku; stejný krok = hit
     (cache / "orthophoto_r0c0.jgw").write_text("0.25\n0\n0\n-0.25\n0\n0\n")
@@ -869,7 +873,7 @@ def test_build_reference_layers_off_only_vector_katastr(tmp_path, monkeypatch):
     tpl.with_suffix(".pgw").write_text("1\n0\n0\n-1\n0.5\n9.5\n", encoding="utf-8")
     monkeypatch.setattr(rl, "fetch_orthophoto_wms", lambda *a, **k: pytest.fail("ortofoto"))
     monkeypatch.setattr(rl, "fetch_cuzk_wms_png", lambda *a, **k: pytest.fail("WMS PNG"))
-    monkeypatch.setattr(rl, "build_osm_reference", lambda *a, **k: pytest.fail("OSM"))
+    monkeypatch.setattr(rl, "render_osm_png", lambda *a, **k: pytest.fail("OSM"))
     monkeypatch.setattr(rl, "_try_load_references_cache", lambda *a, **k: pytest.fail("cache"))
     monkeypatch.setattr(rl, "_with_katastr_vectors", lambda built, *a, **k: {**built, "katastr_vector": tmp_path / "k.gpkg"})
     built = rl.build_reference_layers(
@@ -896,7 +900,7 @@ def test_build_reference_layers_sprint_ortho_outside_references(tmp_path, monkey
     monkeypatch.setattr(rl, "fetch_orthophoto_wms", fake_ortho)
     monkeypatch.setattr(rl, "fetch_cuzk_wms_png", lambda *a, **k: True)
     monkeypatch.setattr(rl, "png_has_content", lambda *_a: True)
-    monkeypatch.setattr(rl, "build_osm_reference", lambda *a, **k: True)
+    monkeypatch.setattr(rl, "render_osm_png", lambda *a, **k: True)
     monkeypatch.setattr(rl, "fetch_hillshade_wms", lambda *a, **k: True)
     monkeypatch.setattr(rl, "_try_load_references_cache", lambda *a, **k: None)
     monkeypatch.setattr(rl, "_store_references_cache", lambda _d, _o, built, **k: stored.update(built))
@@ -941,7 +945,7 @@ def test_build_reference_layers_ortho_parallel_with_other_layers(tmp_path, monke
     monkeypatch.setattr(rl, "fetch_orthophoto_wms", fake_ortho)
     monkeypatch.setattr(rl, "fetch_cuzk_wms_png", fake_wms)
     monkeypatch.setattr(rl, "png_has_content", lambda *_a: True)
-    monkeypatch.setattr(rl, "build_osm_reference", lambda *a, **k: True)
+    monkeypatch.setattr(rl, "render_osm_png", lambda *a, **k: True)
     monkeypatch.setattr(rl, "fetch_hillshade_wms", lambda *a, **k: True)
     monkeypatch.setattr(rl, "_try_load_references_cache", lambda *a, **k: None)
     monkeypatch.setattr(rl, "_store_references_cache", lambda _d, _o, built, **k: stored.update(built))
@@ -952,7 +956,7 @@ def test_build_reference_layers_ortho_parallel_with_other_layers(tmp_path, monke
     keys = list(built)
     assert keys[0] == "orthophoto" and keys[-1] == "katastr_vector"
     assert {"ztm", "katastr", "dmpok"} <= set(keys)
-    assert "osm" not in keys  # obrázek OSM do ZIPu ne (licence, zip_images)
+    assert "osm" in keys  # vlastní render osm.png (osm_render)
     assert "katastr_vector" not in stored and list(stored) == keys[:-1]
 
 

@@ -369,7 +369,7 @@ def oom_readme_en(
             "DMR 5G hillshade (ČÚZK WMS): basic, Z10 and Z20 in the references/ folder, DMR 5G slope\n"
             "(sklon_dmr5g.png: grey flat, yellow to brown steep slope).\n"
             "Base maps: ČÚZK orthophoto, "
-            + ("" if withheld else "OpenStreetMap, ")
+            + ("OpenStreetMap (osm.png, own rendering of OSM data), " if "osm.png" in refs else "")
             + "ZTM topographic map, cadastral map and DMP OK preview\n"
             "(downloaded rasters, they work offline and in OCAD). Vegetation height (vyska_vegetace.png,\n"
             "DMP OK − DMR 5G: yellow bushes, orange thicket, green forest, below 0.5 m transparent). Online template\n"
@@ -380,6 +380,8 @@ def oom_readme_en(
             "Base maps are downloaded rasters in the references/ folder (they work offline and in OCAD).\n"
             "Vegetation height (vyska_vegetace.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
             "hillshade_dsm.png) are from the job's own elevation models.\n"
+            + ("The OpenStreetMap image (osm.png) is our own rendering of OSM data (© OpenStreetMap contributors).\n"
+               if "osm.png" in refs else "")
         )
     buildings = (
         "3. Buildings in the .omap come from the regional DTM (where available), completed by OSM. Sources:\n"

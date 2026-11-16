@@ -18,3 +18,7 @@ scipy>=1.11
 
 # Náhled .omap → PNG, když Mapper nemá headless export.
 pillow>=10.0.0
+
+# Vlastní render obrázku OpenStreetMap (osm.png, app/pipeline/osm_render.py). V Dockeru z conda-forge
+# (Dockerfile), na Linuxu přes pip potřebuje libcairo2-dev + pkg-config, na Windows je hotový wheel.
+pycairo>=1.20

@@ -491,13 +491,52 @@ def start_reference_download(
     return handle
 
 
-def _online_only_keys() -> frozenset[str]:
-    """Online šablony vedle stažených rastrů: vrstvy bez staženého protějšku a OSM, jehož obrázek licence
-    do ZIPu nepouští (zip_images)."""
+def _online_only_keys(built_refs: dict[str, Path] | None = None) -> frozenset[str]:
+    """Online šablony vedle stažených rastrů: vrstvy bez staženého protějšku a OSM, když osm.png (vlastní
+    render, osm_render) nevznikl nebo ho licence do ZIPu nepouští (zip_images)."""
     from app.pipeline.online_templates import ONLINE_ONLY_KEYS
     from app.pipeline.zip_images import is_withheld
 
-    return ONLINE_ONLY_KEYS | ({"osm"} if is_withheld("osm") else set())
+    has_osm = built_refs is not None and "osm" in built_refs
+    return ONLINE_ONLY_KEYS | ({"osm"} if is_withheld("osm") or not has_osm else set())
+
+
+def _with_osm_render(
+    built_refs: dict[str, Path], bbox, work_dir: Path, reference_dir: Path, log: callable
+) -> dict[str, Path]:
+    """Mimo Česko se staženými podklady: osm.png z dat OSM (osm_render) místo online šablony z dlaždic."""
+    from app.pipeline.reference_layers import _fetch_osm_png
+    from app.pipeline.zip_images import is_withheld
+
+    georef = ensure_georef_template(work_dir) if bbox else None
+    if georef is None or is_withheld("osm"):
+        return built_refs
+    template_png, template_pgw = georef
+    out = dict(built_refs)
+    osm_png = reference_dir / "osm.png"
+    reference_dir.mkdir(parents=True, exist_ok=True)
+    _fetch_osm_png(out, tuple(bbox), template_png, template_pgw, osm_png, osm_png.with_suffix(".pgw"), log)
+    return out
+
+
+def _drop_online_osm(built_refs: dict[str, Path]) -> dict[str, Path]:
+    """S vlastním osm.png online šablonu OSM z dlaždic do .omap nedávat (stejná vrstva dvakrát)."""
+    if "osm" not in built_refs:
+        return built_refs
+    out = {}
+    for key, path in built_refs.items():
+        if key.startswith("online_osm"):
+            Path(path).unlink(missing_ok=True)
+            continue
+        out[key] = path
+    folder = Path(built_refs["osm"]).parent
+    tms = folder / "osm_dlazdice.xml"
+    if tms.is_file() and not any(
+        p.suffix == ".vrt" and "osm_dlazdice.xml" in p.read_text(encoding="utf-8", errors="ignore")
+        for p in map(Path, out.values()) if p.is_file()
+    ):
+        tms.unlink(missing_ok=True)
+    return out
 
 
 def _with_online_templates(
@@ -519,7 +558,7 @@ def _with_online_templates(
         online = write_online_templates(
             crop_bounds_5514(*bbox),
             reference_dir,
-            only=_online_only_keys() if only_online else None,
+            only=_online_only_keys(built_refs) if only_online else None,
             country=country.code if country else "CZ",
             technical_area=country.technical_map_covers(bbox) if country else True,
         )
@@ -597,7 +636,10 @@ def join_reference_download(
         built_refs = _with_terrain_shades(built_refs, work_dir, reference_dir, log)
         if sentinel:
             add_sentinel2_reference(built_refs, tuple(bbox), reference_dir, log=log)
+        if want_refs:
+            built_refs = _with_osm_render(built_refs, bbox, work_dir, reference_dir, log)
         built_refs = _with_online_templates(built_refs, bbox, reference_dir, log, download=want_refs)
+        built_refs = _drop_online_osm(built_refs)
         built_refs = withhold_images(built_refs, log=log)
         if progress is not None:
             progress.done()
