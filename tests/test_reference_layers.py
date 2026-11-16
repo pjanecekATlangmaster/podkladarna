@@ -21,7 +21,7 @@ def test_reference_metadata():
     assert meta["hillshade_source"] == "ČÚZK DMR 5G WMS"
     assert meta["hillshade_tool"] == "WMS ImageServer"
     assert len(meta["hillshade_variants"]) == len(HILLSHADE_VARIANTS)
-    assert "osm.png" in meta["map_layers"]
+    assert "osm.png" not in meta["map_layers"]  # licence dlaždic (zip_images)
     assert "katastr.png" in meta["map_layers"]
     assert meta["dmpok_preview"] == "dmpok_nahled.png"
 
@@ -645,7 +645,7 @@ def test_references_cache_roundtrip_with_ortho_tiles(tmp_path, monkeypatch):
     built = {
         "orthophoto_r0c0": _fake_jpg(work / "orthophoto_r0c0.jpg"),
         "orthophoto_r0c1": _fake_jpg(work / "orthophoto_r0c1.jpg"),
-        "osm": _fake_png(work / "osm.png"),
+        "ztm": _fake_png(work / "mapa_ztm.png"),
         "katastr": _fake_png(work / "katastr.png"),
     }
     cache = tmp_path / "cache"
@@ -654,32 +654,38 @@ def test_references_cache_roundtrip_with_ortho_tiles(tmp_path, monkeypatch):
         ref_wh=(100, 100), osm_wh=(100, 100),
     )
     for name in ("orthophoto_r0c0.jpg", "orthophoto_r0c0.jgw", "orthophoto_r0c1.jpg",
-                 "orthophoto_r0c1.jgw", "osm.png", "osm.pgw", "katastr.png"):
+                 "orthophoto_r0c1.jgw", "mapa_ztm.png", "mapa_ztm.pgw", "katastr.png"):
         assert (cache / name).is_file(), name
     out = tmp_path / "job" / "references"
     got = rl._try_load_references_cache(cache, out)
     assert got is not None
-    assert sorted(got) == ["katastr", "orthophoto_r0c0", "orthophoto_r0c1", "osm"]
+    assert sorted(got) == ["katastr", "orthophoto_r0c0", "orthophoto_r0c1", "ztm"]
     assert (out / "orthophoto_r0c1.jgw").is_file()
-    assert (out / "osm.pgw").is_file()
+    assert (out / "mapa_ztm.pgw").is_file()
     assert [k for k, _p in rl.orthophoto_items(got)] == ["orthophoto_r0c0", "orthophoto_r0c1"]
+    # starší cache s osm.png: obrázek OSM licence do ZIPu nepouští (zip_images) → nepřevezme se
+    _fake_png(cache / "osm.png")
+    got_old = rl._try_load_references_cache(cache, tmp_path / "job1b" / "references")
+    assert got_old is not None and "osm" not in got_old
+    assert not (tmp_path / "job1b" / "references" / "osm.png").exists()
+    (cache / "osm.png").unlink()
     # ortofoto z doby stropu 600 Mpx (0,25 m) = miss, stáhne se znovu v dnešním kroku; stejný krok = hit
     (cache / "orthophoto_r0c0.jgw").write_text("0.25\n0\n0\n-0.25\n0\n0\n")
     assert rl._try_load_references_cache(cache, tmp_path / "job2" / "references", ortho_mpp=0.125) is None
     assert rl._try_load_references_cache(cache, tmp_path / "job3" / "references", ortho_mpp=0.25) is not None
     # les / MTBO bez ortofota v ZIPu: cache hit bez dlaždic, i s hrubým ortofotem v cache
     got = rl._try_load_references_cache(cache, tmp_path / "job4" / "references", need_ortho=False)
-    assert got is not None and sorted(got) == ["katastr", "osm"]
+    assert got is not None and sorted(got) == ["katastr", "ztm"]
     assert not list((tmp_path / "job4").rglob("orthophoto*"))
     # sprint: dlaždice do work/ortho_ref (maska zeleně), ne do podkladů / šablon / ZIPu
     side = tmp_path / "job5" / rl.ORTHO_SPRINT_SUBDIR
     got = rl._try_load_references_cache(cache, tmp_path / "job5" / "references", ortho_mpp=0.25, ortho_dir=side)
-    assert got is not None and sorted(got) == ["katastr", "osm"]
+    assert got is not None and sorted(got) == ["katastr", "ztm"]
     assert {p.name for p in side.iterdir()} >= {"orthophoto_r0c0.jpg", "orthophoto_r0c0.jgw", "orthophoto_r0c1.jpg"}
     assert not list((tmp_path / "job5" / "references").glob("orthophoto*"))
     # cache bez ortofota (z jobu lesa) je pro sprint miss; uložení bez ortofota dlaždice JPEG v cache nechá
     rl._store_references_cache(
-        cache, work, {"osm": built["osm"], "katastr": built["katastr"]},
+        cache, work, {"ztm": built["ztm"], "katastr": built["katastr"]},
         bbox_wgs84=(14.0, 50.0, 14.1, 50.1), ref_wh=(100, 100), osm_wh=(100, 100),
     )
     assert (cache / "orthophoto_r0c1.jpg").is_file()
@@ -710,16 +716,16 @@ def test_references_cache_store_drops_legacy_ortho_png(tmp_path, monkeypatch):
     _fake_jpg(cache / "orthophoto_r1c1.jpg")  # dlaždice z jiné mřížky
     work = tmp_path / "work"
     work.mkdir()
-    built = {"orthophoto": _fake_jpg(work / "orthophoto.jpg"), "osm": _fake_png(work / "osm.png")}
+    built = {"orthophoto": _fake_jpg(work / "orthophoto.jpg"), "ztm": _fake_png(work / "mapa_ztm.png")}
     rl._store_references_cache(
         cache, work, built, bbox_wgs84=(1, 2, 3, 4), ref_wh=(1, 1), osm_wh=(1, 1)
     )
     names = {p.name for p in cache.iterdir()}
     assert "orthophoto.png" not in names and "orthophoto.pgw" not in names
     assert "orthophoto_r1c1.jpg" not in names and "orthophoto_r1c1.jgw" not in names
-    assert {"orthophoto.jpg", "orthophoto.jgw", "osm.png"} <= names
+    assert {"orthophoto.jpg", "orthophoto.jgw", "mapa_ztm.png"} <= names
     got = rl._try_load_references_cache(cache, tmp_path / "out")
-    assert got is not None and sorted(got) == ["orthophoto", "osm"]
+    assert got is not None and sorted(got) == ["orthophoto", "ztm"]
 
 
 def test_world_file_for_and_list_reference_rasters(tmp_path):
@@ -945,7 +951,8 @@ def test_build_reference_layers_ortho_parallel_with_other_layers(tmp_path, monke
     )
     keys = list(built)
     assert keys[0] == "orthophoto" and keys[-1] == "katastr_vector"
-    assert {"osm", "ztm", "katastr", "dmpok"} <= set(keys)
+    assert {"ztm", "katastr", "dmpok"} <= set(keys)
+    assert "osm" not in keys  # obrázek OSM do ZIPu ne (licence, zip_images)
     assert "katastr_vector" not in stored and list(stored) == keys[:-1]
 
 

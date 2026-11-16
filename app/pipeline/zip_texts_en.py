@@ -337,6 +337,11 @@ def oom_readme_en(
         )
         if sentinel_info:
             ref_block += "\n" + sentinel_info_en(sentinel_info).strip() + "\n"
+    from app.pipeline.zip_images import notice_lines
+
+    withheld = notice_lines(meta.get("withheld_images") or [], "en")
+    if withheld:
+        ref_block += "\n" + "\n".join(withheld) + "\n"
     online = any(str(name).endswith((".xml", ".vrt")) for name in refs)
     if online and not cz:
         refs_intro = (
@@ -363,7 +368,9 @@ def oom_readme_en(
         refs_intro = (
             "DMR 5G hillshade (ČÚZK WMS): basic, Z10 and Z20 in the references/ folder, DMR 5G slope\n"
             "(sklon_dmr5g.png: grey flat, yellow to brown steep slope).\n"
-            "Base maps: ČÚZK orthophoto, OpenStreetMap, ZTM topographic map, cadastral map and DMP OK preview\n"
+            "Base maps: ČÚZK orthophoto, "
+            + ("" if withheld else "OpenStreetMap, ")
+            + "ZTM topographic map, cadastral map and DMP OK preview\n"
             "(downloaded rasters, they work offline and in OCAD). Vegetation height (vyska_vegetace.png,\n"
             "DMP OK − DMR 5G: yellow bushes, orange thicket, green forest, below 0.5 m transparent). Online template\n"
             "(.xml): archive orthophoto 2003–2005.\n"

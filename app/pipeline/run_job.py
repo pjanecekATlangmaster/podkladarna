@@ -93,6 +93,7 @@ from app.pipeline.reference_layers import (
     list_reference_rasters,
 )
 from app.pipeline.shade import build_job_shade
+from app.pipeline.zip_images import withheld_log_line, withheld_sources, withhold_images
 from app.pipeline.job_progress import (
     IssueCollector,
     DTM_STEP,
@@ -274,6 +275,28 @@ def start_vector_prefetch(
     serial.shutdown(wait=False)
     bg_log("Start stahování na pozadí (ZABAGED, RÚIAN, AOPK" + (", parcely ulic)" if with_streets else ")"))
     return VectorPrefetch(futures=futures)
+
+
+OPEN_PAVED_LOG_LABEL = "Zpevněné plochy"
+
+
+def start_open_paved_prefetch(work_dir: Path, bbox_wgs84, *, log: callable) -> threading.Thread | None:
+    """Vlákno na pozadí: vstupy ``open_paved`` do cache jobu (sestavení mapy na ně počká, chyba nic nezastaví)."""
+    from app.pipeline import open_paved
+
+    if not open_paved.OPEN_PAVED:
+        return None
+    bg_log = background_log(log, OPEN_PAVED_LOG_LABEL)
+
+    def _run() -> None:
+        try:
+            open_paved.prefetch(work_dir, bbox_wgs84, log=bg_log)
+        except Exception as exc:  # sestavení mapy si vstupy případně stáhne samo
+            bg_log(f"přeskočeno ({exc})")
+
+    thread = threading.Thread(target=_run, name="open-paved", daemon=True)
+    thread.start()
+    return thread
 
 
 def job_has_sprint(preset_id: str, options: dict) -> bool:
@@ -468,6 +491,15 @@ def start_reference_download(
     return handle
 
 
+def _online_only_keys() -> frozenset[str]:
+    """Online šablony vedle stažených rastrů: vrstvy bez staženého protějšku a OSM, jehož obrázek licence
+    do ZIPu nepouští (zip_images)."""
+    from app.pipeline.online_templates import ONLINE_ONLY_KEYS
+    from app.pipeline.zip_images import is_withheld
+
+    return ONLINE_ONLY_KEYS | ({"osm"} if is_withheld("osm") else set())
+
+
 def _with_online_templates(
     built_refs: dict[str, Path], bbox, reference_dir: Path, log: callable, *, only_online: bool = False,
     download: bool = False,
@@ -480,14 +512,14 @@ def _with_online_templates(
     if not bbox:
         return built_refs
     from app.pipeline.country_profile import process_country
-    from app.pipeline.online_templates import ONLINE_ONLY_KEYS, write_online_templates
+    from app.pipeline.online_templates import write_online_templates
 
     country = process_country()
     try:
         online = write_online_templates(
             crop_bounds_5514(*bbox),
             reference_dir,
-            only=ONLINE_ONLY_KEYS if only_online else None,
+            only=_online_only_keys() if only_online else None,
             country=country.code if country else "CZ",
             technical_area=country.technical_map_covers(bbox) if country else True,
         )
@@ -566,6 +598,7 @@ def join_reference_download(
         if sentinel:
             add_sentinel2_reference(built_refs, tuple(bbox), reference_dir, log=log)
         built_refs = _with_online_templates(built_refs, bbox, reference_dir, log, download=want_refs)
+        built_refs = withhold_images(built_refs, log=log)
         if progress is not None:
             progress.done()
         return built_refs, sorted(p.name for p in built_refs.values())
@@ -634,6 +667,7 @@ def join_reference_download(
     else:
         built_refs = _with_vegetation_height(built_refs, work_dir, reference_dir, log)
         built_refs = _with_online_templates(built_refs, bbox, reference_dir, log, only_online=True)
+    built_refs = withhold_images(built_refs, log=log)
     ref_layers: list[str] = []
     if built_refs:
         ref_layers = sorted(p.name for p in built_refs.values())
@@ -834,6 +868,9 @@ def run_job_pipeline(
             )
         except Exception as exc:
             log_issue(log, f"Vektory: stahování na pozadí se nespustilo ({exc})")
+        # Sprint mimo Česko: letní NDVI a ortofoto země pro zpevněnou 401 (``open_paved``) na pozadí.
+        if not cz_sources and job_has_sprint(preset_id, options):
+            start_open_paved_prefetch(work_dir, tuple(bbox), log=raw_log)
 
     lidar_work = work_dir / "lidar"
     if reused_from:
@@ -1346,6 +1383,9 @@ def _package_output(
                 lidar_sources=options.get("_lidar_sources"),
             )
             meta["output_georef"] = output_georef_enabled(options)
+            if want_refs and withheld_sources(meta.get("country") or "CZ"):
+                # obrázky zdrojů, které licence do ZIPu nepouští (vysvětlení v references/, zip_images)
+                meta["withheld_images"] = withheld_sources(meta.get("country") or "CZ")
             if options.get("_dtm_summary"):
                 meta["dtm"] = options["_dtm_summary"]
             return meta
@@ -1598,6 +1638,8 @@ def _package_output(
             else None
         )
         t_zip = time.monotonic()
+        if meta.get("withheld_images"):
+            log(f"Podklady: {withheld_log_line(meta['withheld_images'], zip_lang(options))}")
         build_oom_zip(
             kp_cwd,
             zip_path,

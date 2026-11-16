@@ -27,8 +27,8 @@ from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.job_progress import background_task, log_issue
 from app.pipeline.prepare_lidar import find_tool, run_cmd
+from app.pipeline.zip_images import is_withheld
 from app.settings import REF_CACHE_MAX_AGE_DAYS
-from app.tiles import fetch_tile
 
 # Kartografický standard (GDAL výchozí): světlo ze severozápadu, 45° nad obzorem.
 HILLSHADE_AZIMUTH = 315
@@ -94,12 +94,12 @@ ORTOFOTO_ARCHIV_WMS = "https://geoportal.cuzk.gov.cz/WMS_ORTOFOTO_ARCHIV/WMServi
 ORTOFOTO_ARCHIV_LAYERS = "2005,2003,2004"
 # Veřejný OSM WMS (poslední fallback – méně detailní než XYZ dlaždice).
 OSM_WMS = "https://ows.terrestris.de/osm/service"
-# Preferované XYZ zdroje pro barevný Mapnik styl (GDAL WMS driver).
-# openstreetmap.de občas vrací 404 na okrajové dlaždice → GDAL padá.
+# XYZ zdroje barevného OSM obrázku do ZIPu (GDAL WMS driver). Obrázek se stahuje předem pro celý výřez
+# a používá offline – tile policy OSMF to na tile.openstreetmap.org zakazuje a openstreetmap.de odkazuje
+# na tytéž podmínky, proto jen OSM France (volné použití s citací, mírný provoz); záloha terrestris WMS
+# (GetMap na výřez je běžné použití WMS). Webová mapa a online šablona .omap stahují jen to, co uživatel vidí.
 OSM_XYZ_URLS = (
     "https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png",
-    "https://tile.openstreetmap.org/${z}/${x}/${y}.png",
-    "https://tile.openstreetmap.de/${z}/${x}/${y}.png",
 )
 HILLSHADE_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer"
@@ -162,7 +162,7 @@ def reference_metadata() -> dict:
         "hillshade_source": "ČÚZK DMR 5G WMS",
         "hillshade_variants": [v[2] for v in HILLSHADE_VARIANTS],
         "hillshade_tool": "WMS ImageServer",
-        "map_layers": ["osm.png", "mapa_ztm.png", "katastr.png", "dtm_plochy.png", "dtm_linie.png"],
+        "map_layers": [*([] if is_withheld("osm") else ["osm.png"]), "mapa_ztm.png", "katastr.png", "dtm_plochy.png", "dtm_linie.png"],
         "orthophoto": f"JPEG {ORTHO_MPP_CANDIDATES[0]:.3f}–{ORTHO_MPP:.2f} m/px, dlaždice ≤ {ORTHO_MAX_TILE_PX} px (.jgw)",
         "dmpok_preview": "dmpok_nahled.png",
     }
@@ -1212,7 +1212,8 @@ def build_osm_reference(
     *,
     log: callable | None = None,
 ) -> bool:
-    # 1) GDAL XYZ (barevný Mapnik) – preferováno
+    # 1) GDAL XYZ (barevný Mapnik, OSM France) – preferováno; dlaždice webové cache (/tiles, i z
+    # tile.openstreetmap.org) se do ZIPu nepoužívají
     try:
         if _build_osm_from_xyz(
             bbox_wgs84, template_png, template_pgw, dest_png, dest_pgw, log=log
@@ -1221,54 +1222,6 @@ def build_osm_reference(
     except Exception as exc:
         if log:
             log(f"OSM XYZ selhal ({exc})")
-
-    west, south, east, north = bbox_wgs84
-    try:
-        z = _pick_osm_zoom(west, south, east, north)
-        x0, y1 = _lon_lat_to_tile(west, north, z)
-        x1, y0 = _lon_lat_to_tile(east, south, z)
-        tiles: list[tuple[Path, int, int]] = []
-        failed = 0
-        work = dest_png.parent / "_osm_tiles"
-        work.mkdir(parents=True, exist_ok=True)
-        for x in range(x0, x1 + 1):
-            for y in range(y0, y1 + 1):
-                try:
-                    src = fetch_tile(z, x, y)
-                except Exception:
-                    failed += 1
-                    continue
-                dest = work / f"{z}_{x}_{y}.png"
-                if not dest.exists():
-                    dest.write_bytes(src.read_bytes())
-                tiles.append((dest, x, y))
-        if log and failed:
-            log(f"OSM dlaždice: {failed} stažení selhalo (zoom {z})")
-        if tiles:
-            if log:
-                log(f"OSM dlaždice: zoom {z}, {len(tiles)} ks")
-            vrt = work / "mosaic.vrt"
-            _write_osm_vrt(tiles, z, x0, y0, vrt)
-            raw_tif = work / "mosaic_3857.tif"
-            gdaltranslate = _gdal_tool("gdal_translate")
-            run_cmd([gdaltranslate, str(vrt), str(raw_tif), "-of", "GTiff"], log=log)
-            _align_to_template(
-                raw_tif,
-                template_png,
-                template_pgw,
-                dest_png,
-                dest_pgw,
-                src_srs="EPSG:3857",
-                out_size=_osm_target_size(template_png, template_pgw)[:2],
-                log=log,
-            )
-            if dest_png.is_file() and dest_png.stat().st_size > 500:
-                if log:
-                    log(f"OSM podklad: {dest_png.name} (© OpenStreetMap)")
-                return True
-    except Exception as exc:
-        if log:
-            log(f"OSM dlaždice selhaly ({exc}), zkouším WMS…")
 
     if log:
         log("OSM: poslední fallback Terrestris WMS (méně detailní)")
@@ -1327,6 +1280,9 @@ def _try_load_references_cache(
         # (cache po lese / MTBO bez ortofota) – stáhnout znovu
         return None
     primary = ortho[0] if ortho else cache_dir / "osm.png"
+    if not primary.is_file():
+        # osm.png se od 3.58.0 nestahuje (licence, zip_images) – čerstvost podle jiného rastru z cache
+        primary = next(iter(list_reference_rasters(cache_dir)), primary)
     if ortho and ortho_mpp and _cached_ortho_mpp(ortho[0]) > ortho_mpp * 1.05:
         # Ortofoto z doby stropu 600 Mpx (0,2 / 0,25 m) – stáhnout znovu v kroku, který dnes vychází.
         return None
@@ -1337,7 +1293,8 @@ def _try_load_references_cache(
     built: dict[str, Path] = {}
     for src in list_reference_rasters(cache_dir):
         key = _ref_png_key(src.name)
-        if not key:
+        if not key or is_withheld(key):
+            # obrázek zdroje, který licence do ZIPu nepouští (starší cache s osm.png)
             continue
         is_ortho = bool(_ORTHO_KEY_RE.match(key))
         if is_ortho and (not need_ortho or ortho_dir is not None):
@@ -1601,6 +1558,16 @@ def _fetch_other_layers(
     """Podklady kromě ortofota (OSM, ZTM, katastr, DTM kraje, DMP OK, stínování) po řadě do ``built``."""
     osm_png = out_dir / "osm.png"
     osm_pgw = osm_png.with_suffix(".pgw")
+    if is_withheld("osm"):
+        # Licence dlaždic nedovoluje obrázek do ZIPu (zip_images) – v .omap zůstane online šablona OSM.
+        if log:
+            log("OpenStreetMap: obrázek se do ZIPu nepřidává (licence dlaždic), zůstává online šablona")
+    else:
+        _fetch_osm_png(built, bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log)
+    _fetch_wms_layers(built, bounds, template_png, template_pgw, out_dir, ref_wh, job_shade, log)
+
+
+def _fetch_osm_png(built, bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log) -> None:
     try:
         with background_task(log, "Podklad OpenStreetMap") as task:
             ok = build_osm_reference(bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log)
@@ -1614,6 +1581,8 @@ def _fetch_other_layers(
         if log:
             log_issue(log, f"OpenStreetMap: přeskočeno ({exc})")
 
+
+def _fetch_wms_layers(built, bounds, template_png, template_pgw, out_dir, ref_wh, job_shade, log) -> None:
     def _wms(key: str, wms: str, layer: str, png: Path, label: str, task_name: str, *, transparent: bool = False,
              need_content: bool = False) -> None:
         pgw = png.with_suffix(".pgw")

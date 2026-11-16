@@ -66,6 +66,8 @@ from app.pipeline.source_meta import (
 )
 from app.pipeline.vegetation_gdal import build_vegetation_parts
 from app.pipeline import zip_texts_en
+from app.pipeline import zip_images
+from app.pipeline.zip_images import withheld_raster_names
 from app.settings import APP_VERSION
 
 
@@ -637,6 +639,9 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         )
         if sentinel_info:
             ref_block += "\n" + sentinel_info.strip() + "\n"
+    withheld = zip_images.notice_lines(meta.get("withheld_images") or [], "cs")
+    if withheld:
+        ref_block += "\n" + "\n".join(withheld) + "\n"
     online = any(str(name).endswith((".xml", ".vrt")) for name in refs)
     country = meta.get("country") or "CZ"
     if online and country != "CZ":
@@ -674,7 +679,9 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         refs_intro = (
             "Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/, sklon terénu DMR 5G\n"
             "(sklon_dmr5g.png: šedá rovina, žlutá až hnědá strmý svah).\n"
-            "Mapové podklady: ortofoto ČÚZK, OpenStreetMap, Základní topografická mapa ČR (ZTM), katastrální mapa\n"
+            "Mapové podklady: ortofoto ČÚZK, "
+            + ("" if withheld else "OpenStreetMap, ")
+            + "Základní topografická mapa ČR (ZTM), katastrální mapa\n"
             "a náhled DMP OK (stažené rastry, fungují i offline a v OCADu). Výška vegetace (vyska_vegetace.png,\n"
             "DMP OK − DMR 5G: žlutá keře, oranžová mlazina, zelená les, pod 0,5 m průhledná). Online šablona\n"
             "(.xml): archivní ortofoto 2003–2005.\n"
@@ -1408,6 +1415,24 @@ def _prepare_oom_map(
         clip_bounds=vector_clip_bounds,
         log=log,
     )
+    # Sprint mimo Česko: zpevněná 401 z ortofota země a letního NDVI (501.1 nad 401) až nad hotovou kresbou: ostatní
+    # kroky (ulice z katastru) se jí neřídí a ona nepřekryje vodu, olivu, zelené porosty ani jinou 501 (trim_to_drawn).
+    if not certain_only:
+        from app.pipeline import open_paved
+
+        open_paved_part = open_paved.build_open_paved_part(
+            kp_cwd,
+            open_paved.prepare(kp_cwd, bbox_wgs84, preset_id=preset_id, log=log),
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+        )
+        if open_paved_part is not None:
+            object_parts = open_paved.trim_to_drawn(
+                [*object_parts, open_paved_part], preset_id=preset_id, scale=scale, log=log
+            )
     # Sprint: strom z DMP OK na kreslené budově (i v zalitém dvoře) nebo v olivě se nekreslí.
     from app.pipeline.sprint_trees import drop_trees_in_buildings_and_olive
 
@@ -1523,8 +1548,18 @@ def build_oom_zip(
             for name in ("hillshade.png", "hillshade.pgw"):
                 _write_if_exists(zf, shade_dir / name, f"preview/{name}")
         if reference_dir and reference_dir.is_dir():
-            # PNG (+ .pgw) a ortofoto JPEG dlaždice (+ .jgw).
+            # PNG (+ .pgw) a ortofoto JPEG dlaždice (+ .jgw); obrázky zdrojů, které licence do ZIPu nepouští,
+            # ne (zip_images – pojistka, stahování je přeskakuje) a místo nich vysvětlení.
+            withheld_names = withheld_raster_names(metadata.get("country") or "CZ")
+            if metadata.get("withheld_images"):
+                lang = zip_texts_en.zip_lang(metadata)
+                zf.writestr(
+                    f"references/{zip_images.notice_name(lang)}",
+                    zip_images.notice_text(metadata["withheld_images"], lang),
+                )
             for raster in list_reference_rasters(reference_dir):
+                if raster.name in withheld_names:
+                    continue
                 zf.write(
                     raster,
                     f"references/{raster.name}",

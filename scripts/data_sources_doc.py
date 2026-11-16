@@ -36,12 +36,13 @@ ACCESS = {
     "account": "⚠ účet",
     "contract": "⚠ smlouva / poplatek",
 }
+IMAGE_IN_ZIP = {"allowed": "✅ ano", "forbidden": "⛔ ne (licence)", "unclear": "❓ nejasné"}
 STATUS = {"used": "napojeno", "off": "vypnuto", "candidate": "kandidát", "rejected": "nevhodné"}
 # Názvy zemí mimo countries.yaml (kandidáti).
 EXTRA_NAMES = {
     "PL": "Polsko", "UK": "Spojené království", "DK": "Dánsko", "SE": "Švédsko", "NO": "Norsko",
     "ES": "Španělsko", "SI": "Slovinsko", "LV": "Lotyšsko", "LU": "Lucembursko", "PT": "Portugalsko",
-    "LT": "Litva",
+    "LT": "Litva", "IE": "Irsko", "MT": "Malta",
 }
 
 
@@ -70,6 +71,8 @@ def _row(s: dict) -> str:
     if s.get("info") and s["info"] != s["url"]:
         source += f" · [info]({s['info']})"
     status = STATUS[s["status"]] + f" ({s['role']})"
+    if s.get("image_in_zip"):
+        status += f"<br>obrázek v ZIPu: {IMAGE_IN_ZIP[s['image_in_zip']]}"
     if probes_of(s):
         status += "<br>sonda " + ", ".join(f"`{p}`" for p in probes_of(s))
     issues = "<br>".join(f"• {_cell(i)}" for i in s.get("issues") or []) or "–"
@@ -98,6 +101,8 @@ def render() -> str:
         "Licence: 🟢 public = otevřená licence včetně komerčního použití (může vyžadovat citaci) · "
         "🟠 omezený = podmínky, schválení, poplatek nebo nekomerční · ⚪ nejasná = licence neuvedena nebo nenalezena.",
         "Přístup: volný = bez registrace; ⚠ e-mail / API klíč / účet / smlouva = je potřeba něco navíc.",
+        "Obrázek v ZIPu: smí obrázek zdroje do references/ ZIPu (⛔ = nepřibalí se, ZIP dostane vysvětlení, online "
+        "šablona zůstává; ❓ = zatím přibalit, rozhodne Petr).",
         "Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z podkladů projektu, na stránce "
         "poskytovatele neověřeno.",
         "",
