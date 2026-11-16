@@ -222,6 +222,23 @@ def test_tiny_self_intersecting_olive_is_repaired_not_kept(tmp_path):
     assert out and all(_polygon_of(o).is_valid for o in out)
 
 
+def test_rounded_pieces_keep_area_invalid_after_rounding_and_repair():
+    """Plocha s dvory těsně u obrysu: po zaokrouhlení na µm nevalidní i po buffer(0) → nesmí zmizet (Hackesche Höfe)."""
+    from shapely.geometry import Polygon
+
+    from app.pipeline.path_clearance import _polygon, _rings, _rounded_pieces
+
+    g = Polygon(
+        [(0, 0), (20, 0), (20, 20), (0, 20)],
+        [[(4.468, 19.452), (10.83, 19.743), (11.654, 8.777)], [(10.912, 19.094), (12.607, 19.119), (14.871, 13.862)]],
+    )
+    pieces = _rounded_pieces(g)
+    assert g.is_valid and pieces
+    polys = [_polygon(_rings(p)) for p in pieces]
+    assert all(p.is_valid for p in polys)
+    assert abs(sum(p.area for p in polys) - g.area) < 0.05 * g.area
+
+
 def test_olive_lying_under_road_is_dropped(tmp_path):
     work = _work(tmp_path)
     strip = _area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "520"), [_to_map(_rect(-20, -1, 20, 1.5))])
