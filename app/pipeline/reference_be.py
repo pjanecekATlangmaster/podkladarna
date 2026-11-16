@@ -1,4 +1,4 @@
-"""Služby pro Flandry (zahraniční build): výšky DHMV II, GRB, ortofoto a katastr Digitaal Vlaanderen.
+"""Služby pro Flandry a Brusel (zahraniční build): výšky DHMV II, GRB, ortofoto a katastr Digitaal Vlaanderen, UrbIS (Brusel).
 
 Bez klíče; Modellicentie Gratis Hergebruik (uvést „Digitaal Vlaanderen“, citace v ``configs/countries.yaml``).
 Stav služeb hlídá ``app.source_status``.
@@ -20,6 +20,10 @@ BE_ELEVATION_PROBE = (
 BE_GRB_PROBE = (
     "https://geo.api.vlaanderen.be/GRB/wfs?service=WFS&version=2.0.0&request=GetFeature"
     "&typeNames=GRB:GBG&count=1&outputFormat=application/json"
+)
+BE_URBIS_PROBE = (
+    "https://geoservices-vector.irisnet.be/geoserver/urbisvector/wfs?service=WFS&version=2.0.0&request=GetFeature"
+    "&typeNames=urbisvector:Buildings&count=1&outputFormat=application/json"
 )
 BE_ORTHO_PROBE = (
     f"{BE_OMW_WMS}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS={BE_ORTHO_LAYER}&STYLES=&SRS=EPSG:31370"

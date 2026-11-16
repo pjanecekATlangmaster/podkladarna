@@ -307,6 +307,7 @@ def _edge_near(deck, boundary, q, low, half_m: float):
     area = low.buffer(EDGE_MATCH_M) if low is not None else Point(q.x, q.y).buffer(half_m)
     cut = boundary.intersection(area)
     pieces = [cut] if cut.geom_type == "LineString" else [g for g in getattr(cut, "geoms", []) if g.geom_type == "LineString"]
+    pieces = [g for g in pieces if not g.is_empty]  # prázdný průnik („LINESTRING EMPTY“) linemerge shodí
     if not pieces:
         return None
     merged = linemerge(pieces)

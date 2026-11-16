@@ -80,7 +80,7 @@ FOREIGN: dict[str, TechnicalMap] = {
         short="GRB",
         step="data GRB",
         background="Data GRB (Digitaal Vlaanderen)",
-        content="budovy, uliční prostor, vozovky a chodníky",
+        content="budovy, uliční prostor, vozovky a chodníky (Brusel z UrbIS, i parkování v ulici)",
         module="app.pipeline.grb_be",
     ),
     "fi_hel": TechnicalMap(

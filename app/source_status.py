@@ -42,7 +42,7 @@ from app.pipeline.reference_de import DE_BE_DGM_PROBE, DE_BE_DOP_PROBE, DE_BE_SB
 from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PROBE
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
-from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE
+from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
 from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
 from app.pipeline.reference_gb import GB_EA_PROBE
@@ -338,6 +338,14 @@ PROBES: tuple[Probe, ...] = (
         "GRB (Digitaal Vlaanderen)",
         (BE_GRB_PROBE,),
         "Budovy, vozovky a chodníky se nakreslí jen z OSM.",
+        needs="dtm",
+        countries=("BE",),
+    ),
+    Probe(
+        "be_urbis",
+        "UrbIS (Paradigm, Brusel)",
+        (BE_URBIS_PROBE,),
+        "Budovy, vozovky a chodníky v Bruselu se nakreslí jen z OSM.",
         needs="dtm",
         countries=("BE",),
     ),
