@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+import types
+from unittest.mock import MagicMock
+
 import pytest
 
 from app.pipeline import elevation_raster as er
@@ -53,16 +57,30 @@ class _Resp:
         return False
 
 
-def test_surface_tile_retries_empty_reply(monkeypatch, tmp_path):
+@pytest.fixture
+def fake_gdal(monkeypatch):
+    """Stub osgeo: CI ani cloud nemají GDAL pro Python, test ověřuje jen opakování dotazu."""
+    gdal = MagicMock()
+    osgeo = types.ModuleType("osgeo")
+    osgeo.gdal, osgeo.osr = gdal, MagicMock()
+    monkeypatch.setitem(sys.modules, "osgeo", osgeo)
+    monkeypatch.setitem(sys.modules, "osgeo.gdal", osgeo.gdal)
+    monkeypatch.setitem(sys.modules, "osgeo.osr", osgeo.osr)
+    return gdal
+
+
+def test_surface_tile_retries_empty_reply(monkeypatch, tmp_path, fake_gdal):
     """Prázdná odpověď 200 (server zahodil souběžný dotaz) se zkusí znovu (review PR 351)."""
     bodies = [b"", RAW]
     monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: _Resp(bodies.pop(0)))
     monkeypatch.setattr("time.sleep", lambda s: None)
-    dest = er._pl_dsm_tile("https://example.invalid/wcs", tmp_path / "t.tif")
-    assert dest.is_file() and not bodies
+    er._pl_dsm_tile("https://example.invalid/wcs", tmp_path / "t.tif")
+    assert not bodies
+    create = fake_gdal.GetDriverByName.return_value.Create
+    assert create.call_count == 1 and create.call_args.args[1:3] == (3, 2)
 
 
-def test_surface_tile_gives_up_after_deadline(monkeypatch, tmp_path):
+def test_surface_tile_gives_up_after_deadline(monkeypatch, tmp_path, fake_gdal):
     monkeypatch.setattr(er, "PL_DSM_TILE_DEADLINE_S", 0.0)
     monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: _Resp(b""))
     monkeypatch.setattr("time.sleep", lambda s: None)
