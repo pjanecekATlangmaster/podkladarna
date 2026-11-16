@@ -39,28 +39,49 @@ def _part(*objs):
 
 
 @pytest.mark.parametrize(
-    "rects, path, holes, expected_objects, expected_rings, olive",
+    "rects, path, holes, expected_objects, expected_rings, olive, access",
     [
-        ([_rect(0, 0, 10, 10), _rect(10, 0, 20, 10)], None, [], 1, 1, None),  # společná stěna
-        ([_rect(0, 0, 10, 10), _rect(11, 0, 21, 10)], None, [], 1, 1, None),  # mezera 1 m bez cesty
-        ([_rect(0, 0, 10, 10), _rect(11, 0, 21, 10)], [(10.5, -5), (10.5, 15)], [], 2, 1, None),  # v mezeře vede cesta
-        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 1, None),  # dvůr bez cesty se zaplní
-        ([_rect(0, 0, 30, 30)], [(8, 13), (18, 13)], [_rect(10, 10, 16, 16)], 1, 2, None),  # dvůr s cestou zůstane
-        ([_rect(0, 0, 30, 30)], [(8, 13), (18, 13)], [_rect(10, 10, 12, 12)], 1, 1, None),  # díra pod 1 mm² zmizí i s cestou
-        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 1, _rect(10, 10, 16, 16)),  # zahrada (oliva) v uzavřeném bloku = budova (ISSprOM 521)
+        ([_rect(0, 0, 10, 10), _rect(10, 0, 20, 10)], None, [], 1, 1, None, None),  # společná stěna
+        ([_rect(0, 0, 10, 10), _rect(11, 0, 21, 10)], None, [], 1, 1, None, None),  # mezera 1 m bez cesty
+        ([_rect(0, 0, 10, 10), _rect(11, 0, 21, 10)], [(10.5, -5), (10.5, 15)], [], 2, 1, None, None),  # v mezeře vede cesta
+        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 1, None, None),  # dvůr bez cesty se zaplní
+        ([_rect(0, 0, 30, 30)], [(8, 13), (18, 13)], [_rect(10, 10, 16, 16)], 1, 2, None, None),  # dvůr s cestou zůstane
+        ([_rect(0, 0, 30, 30)], [(8, 13), (18, 13)], [_rect(10, 10, 12, 12)], 1, 1, None, None),  # díra pod 1 mm² zmizí i s cestou
+        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 1, _rect(10, 10, 16, 16), None),  # zahrada (oliva) v uzavřeném bloku = budova (ISSprOM 521)
+        # dvůr s krytým průchodem / pod OSM pěší plochou zůstane otevřený i bez kreslené čáry (Hackesche Höfe)
+        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 2, None, "passage"),
+        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 2, None, "walk"),
+        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 2, None, "passage_prefilled"),  # dvůr předem zalitý importem
+        ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 1, None, "walk_outside"),  # pěší plocha jinde
+        ([_rect(0, 0, 30, 30), _rect(12, 12, 14, 14)], None, [_rect(10, 10, 16, 16)], 2, 2, None, "passage_island"),  # budova uvnitř dvora zůstane
     ],
 )
-def test_sprint_merge_buildings(tmp_path, rects, path, holes, expected_objects, expected_rings, olive):
+def test_sprint_merge_buildings(tmp_path, rects, path, holes, expected_objects, expected_rings, olive, access):
     sym = symbol_index_for_code(PRESET, SCALE, "521")
     objs = []
     for i, r in enumerate(rects):
         rings = [_to_map(r)] + ([_to_map(h) for h in holes] if i == 0 else [])
         objs.append(_area_object_with_holes(sym, rings))
+    prefilled = []
+    if access:
+        osm = tmp_path / "osm_paths"
+        osm.mkdir()
+        if access.startswith("passage"):
+            line = {"type": "LineString", "coordinates": [[-2, 13], [12, 13]]}  # z ulice skrz dům do dvora
+            (osm / "covered_passages.geojson").write_text(
+                json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {}, "geometry": line}]})
+            )
+        else:
+            ring = _rect(10, 10, 16, 16) if access == "walk" else _rect(40, 40, 46, 46)
+            feat = {"type": "Feature", "properties": {"kind": "pedestrian_area"}, "geometry": {"type": "Polygon", "coordinates": [ring]}}
+            (osm / "features.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [feat]}))
+        if access == "passage_prefilled":
+            prefilled = [OomObjectPart(name="OSM – dvory (budova)", objects_xml=_area_object_with_holes(sym, [_to_map(holes[0])]), count=1)]
     if path:
         objs.append(_path_object(symbol_index_for_code(PRESET, SCALE, "506"), _to_map(path)))
     if olive:
         objs.append(_area_object_with_holes(symbol_index_for_code(PRESET, SCALE, "520"), [_to_map(olive)]))
-    out = sprint_merge_buildings(_part(*objs), tmp_path, **KW)
+    out = sprint_merge_buildings(_part(*objs) + prefilled, tmp_path, **KW)
     buildings = _objects_of(out, "521")
     assert len(buildings) == expected_objects
     assert max(len(_rings(_parse_coords(_COORDS_RE.search(m.group(4)).group(1)))) for m in buildings) == expected_rings
