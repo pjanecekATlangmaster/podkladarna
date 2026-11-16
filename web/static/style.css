@@ -471,6 +471,13 @@ legend {
 .map-legend-full { background: rgba(31, 157, 85, 0.25); border-color: #1f9d55; }
 .map-legend-osm { background: rgba(217, 154, 0, 0.35); border-color: #d99a00; }
 .map-legend-outside { background: rgba(0, 0, 0, 0.18); border-color: #666; }
+.map-legend-subtitle { margin-top: 5px; }
+.map-legend-green-good { background: #fff; border-color: #888; }
+.map-legend-green-basic {
+  border-color: #888;
+  background: repeating-linear-gradient(45deg, rgba(85, 85, 85, 0.5) 0 2px, #fff 2px 5px);
+}
+#bbox-map path.green-basic { fill: url(#green-basic-hatch); fill-opacity: 1; }
 @media (max-width: 600px) {
   .map-legend { font-size: 11px; max-width: 170px; padding: 4px 6px; }
 }

@@ -421,6 +421,26 @@ def _simplify_vegetation_shp(
 CHM_SOURCE_MARK = "chm_source.txt"
 
 
+def _with_texture_green(classified, arr, nodata, gt, *, log=None):
+    """Zeleň ze zrnitosti porostu (``veg_texture``); při chybě beze změny."""
+    import numpy as np
+
+    from app.pipeline.veg_texture import add_texture_green
+
+    try:
+        chm = np.asarray(arr, dtype=np.float32)
+        if nodata is not None:
+            chm = np.where(chm == float(nodata), np.nan, chm)
+        out, shares = add_texture_green(classified, chm, abs(float(gt[1])))
+    except Exception as exc:  # noqa: BLE001 – zeleň navíc nesmí shodit vegetaci
+        if log:
+            log(f"Vegetace: zeleň ze zrnitosti přeskočena ({exc})")
+        return classified
+    if log and shares:
+        log("Vegetace: zeleň ze zrnitosti porostu – " + ", ".join(f"{k} {v:.1f} %" for k, v in shares.items()))
+    return out
+
+
 def generate_vegetation_from_chm(
     chm_tif: Path,
     dest_shp: Path,
@@ -428,8 +448,9 @@ def generate_vegetation_from_chm(
     thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
     tint_png: Path | None = None,
     log=None,
+    texture: bool = False,
 ) -> Path | None:
-    """Klasifikuje CHM → polygony vegetation.shp (cls, code)."""
+    """Klasifikuje CHM → polygony vegetation.shp (cls, code); ``texture`` = zeleň ze zrnitosti (mimo Česko, les)."""
     from app.pipeline.gdal_cli_raster import read_float32_geotiff
 
     log_step(log, "Klasifikuji vegetaci z CHM (podle výšky porostu)")
@@ -441,6 +462,8 @@ def generate_vegetation_from_chm(
         return None
 
     classified = classify_chm_array(arr, nodata, thresholds)
+    if texture:
+        classified = _with_texture_green(classified, arr, nodata, gt, log=log)
 
     if tint_png is not None:
         try:
@@ -589,6 +612,7 @@ def generate_job_vegetation_chm(
     thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
     log=None,
     veg_size_profile: str = "default",  # bez účinku; odstraní se po úpravě run_job
+    texture: bool = False,
 ) -> Path | None:
     """Job fáze: CHM → work/vegetation/vegetation.shp (+ volitelný tint)."""
     work_dir = Path(work_dir)
@@ -610,4 +634,5 @@ def generate_job_vegetation_chm(
         thresholds=thresholds,
         tint_png=tint,
         log=log,
+        **({"texture": True} if texture else {}),
     )
