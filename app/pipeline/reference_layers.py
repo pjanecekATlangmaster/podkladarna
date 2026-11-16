@@ -28,7 +28,6 @@ from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.job_progress import background_task, log_issue
 from app.pipeline.prepare_lidar import find_tool, run_cmd
 from app.settings import REF_CACHE_MAX_AGE_DAYS
-from app.tiles import fetch_tile
 
 # Kartografický standard (GDAL výchozí): světlo ze severozápadu, 45° nad obzorem.
 HILLSHADE_AZIMUTH = 315
@@ -94,12 +93,12 @@ ORTOFOTO_ARCHIV_WMS = "https://geoportal.cuzk.gov.cz/WMS_ORTOFOTO_ARCHIV/WMServi
 ORTOFOTO_ARCHIV_LAYERS = "2005,2003,2004"
 # Veřejný OSM WMS (poslední fallback – méně detailní než XYZ dlaždice).
 OSM_WMS = "https://ows.terrestris.de/osm/service"
-# Preferované XYZ zdroje pro barevný Mapnik styl (GDAL WMS driver).
-# openstreetmap.de občas vrací 404 na okrajové dlaždice → GDAL padá.
+# XYZ zdroje barevného OSM obrázku do ZIPu (GDAL WMS driver). Obrázek se stahuje předem pro celý výřez
+# a používá offline – tile policy OSMF to na tile.openstreetmap.org zakazuje a openstreetmap.de odkazuje
+# na tytéž podmínky, proto jen OSM France (volné použití s citací, mírný provoz); záloha terrestris WMS
+# (GetMap na výřez je běžné použití WMS). Webová mapa a online šablona .omap stahují jen to, co uživatel vidí.
 OSM_XYZ_URLS = (
     "https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png",
-    "https://tile.openstreetmap.org/${z}/${x}/${y}.png",
-    "https://tile.openstreetmap.de/${z}/${x}/${y}.png",
 )
 HILLSHADE_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer"
@@ -1212,7 +1211,8 @@ def build_osm_reference(
     *,
     log: callable | None = None,
 ) -> bool:
-    # 1) GDAL XYZ (barevný Mapnik) – preferováno
+    # 1) GDAL XYZ (barevný Mapnik, OSM France) – preferováno; dlaždice webové cache (/tiles, i z
+    # tile.openstreetmap.org) se do ZIPu nepoužívají
     try:
         if _build_osm_from_xyz(
             bbox_wgs84, template_png, template_pgw, dest_png, dest_pgw, log=log
@@ -1221,54 +1221,6 @@ def build_osm_reference(
     except Exception as exc:
         if log:
             log(f"OSM XYZ selhal ({exc})")
-
-    west, south, east, north = bbox_wgs84
-    try:
-        z = _pick_osm_zoom(west, south, east, north)
-        x0, y1 = _lon_lat_to_tile(west, north, z)
-        x1, y0 = _lon_lat_to_tile(east, south, z)
-        tiles: list[tuple[Path, int, int]] = []
-        failed = 0
-        work = dest_png.parent / "_osm_tiles"
-        work.mkdir(parents=True, exist_ok=True)
-        for x in range(x0, x1 + 1):
-            for y in range(y0, y1 + 1):
-                try:
-                    src = fetch_tile(z, x, y)
-                except Exception:
-                    failed += 1
-                    continue
-                dest = work / f"{z}_{x}_{y}.png"
-                if not dest.exists():
-                    dest.write_bytes(src.read_bytes())
-                tiles.append((dest, x, y))
-        if log and failed:
-            log(f"OSM dlaždice: {failed} stažení selhalo (zoom {z})")
-        if tiles:
-            if log:
-                log(f"OSM dlaždice: zoom {z}, {len(tiles)} ks")
-            vrt = work / "mosaic.vrt"
-            _write_osm_vrt(tiles, z, x0, y0, vrt)
-            raw_tif = work / "mosaic_3857.tif"
-            gdaltranslate = _gdal_tool("gdal_translate")
-            run_cmd([gdaltranslate, str(vrt), str(raw_tif), "-of", "GTiff"], log=log)
-            _align_to_template(
-                raw_tif,
-                template_png,
-                template_pgw,
-                dest_png,
-                dest_pgw,
-                src_srs="EPSG:3857",
-                out_size=_osm_target_size(template_png, template_pgw)[:2],
-                log=log,
-            )
-            if dest_png.is_file() and dest_png.stat().st_size > 500:
-                if log:
-                    log(f"OSM podklad: {dest_png.name} (© OpenStreetMap)")
-                return True
-    except Exception as exc:
-        if log:
-            log(f"OSM dlaždice selhaly ({exc}), zkouším WMS…")
 
     if log:
         log("OSM: poslední fallback Terrestris WMS (méně detailní)")

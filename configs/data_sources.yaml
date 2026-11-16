@@ -66,9 +66,10 @@ sources:
     url: https://operations.osmfoundation.org/policies/tiles/
     attribution: "© OpenStreetMap contributors (terrestris: © OpenStreetMap contributors, © Natural Earth Data, © GEBCO, © terrestris)"
   access: free
-  checked: "2026-11-16 tile policy OSMF; terrestris produktová stránka (závazné podmínky nenalezeny)"
+  checked: "2026-11-16 tile policy OSMF; podmínky OSM France (volně s citací, mírný provoz) a FAQ openstreetmap.de (odkaz na pravidla OSMF); terrestris produktová stránka (závazné podmínky nenalezeny)"
   issues:
-    - "Tile policy OSMF zakazuje na tile.openstreetmap.org předstahování a offline použití; obrázek OSM do ZIPu (reference_layers) je z pohledu této politiky problém – ověřit, zda se tile.openstreetmap.org reálně používá jen jako online šablona, případně ho z offline větve vyřadit."
+    - "Tile policy OSMF zakazuje na tile.openstreetmap.org předstahování a offline použití. Od 3.56.17 obrázek OSM do ZIPu (reference_layers) bere jen OSM France, záloha terrestris WMS; tile.openstreetmap.org, .de a webová cache /tiles se do ZIPu nepoužívají. Webová mapa (/tiles, prohlížeč) a online šablona .omap stahují jen zobrazené dlaždice – dovoleno."
+    - "OSM France výslovně neřeší offline použití, chce jen citaci a mírný provoz; čisté řešení do budoucna je vlastní render z dat OSM jobu."
     - "Vyžaduje vlastní User-Agent (generické knihovny blokuje)."
     - "openstreetmap.de občas vrací 404 na okrajové dlaždice (GDAL padá) – komentář v kódu."
 
@@ -530,9 +531,9 @@ sources:
     url: https://basemap.at/en
     attribution: "Datenquelle: basemap.at (s odkazem na www.basemap.at)"
   access: free
-  checked: "2026-11-16 stránka basemap.at"
+  checked: "2026-11-16 stránka basemap.at (OGD Austria, CC BY 4.0, „Data source: basemap.at“ s odkazem)"
   issues:
-    - "basemap.at chce v citaci odkaz na www.basemap.at – zkontrolovat, zda ho citace v ZIPu má."
+    - "Citace v ZIPu a .omap uvádí „www.basemap.at“ (citace i řádek zdrojů v countries.yaml, 2026-11-16)."
 
 # ----------------------------------------------------------------------------------------------- Německo (Berlín)
 - id: de_berlin
@@ -541,7 +542,7 @@ sources:
   name: ATKIS DGM1 a DOM1 Berlín (ALS 2021), 1 m, XYZ po 2 km
   provider: Senatsverwaltung Berlin, Geoportal Berlin (GDI Berlin)
   url: https://gdi.berlin.de/data/dgm1/atom/
-  info: https://gdi.berlin.de/geonetwork/srv/api/records/b0e8e83e-e61a-3a37-8515-f6205c2bfe92
+  info: https://gdi.berlin.de/geonetwork/srv/api/records/b0485f06-a39e-3cc2-b5e0-be7fcd425dab
   role: výšky
   status: used
   code: app/pipeline/elevation_raster.py (de_berlin), app/pipeline/reference_de.py
@@ -553,9 +554,9 @@ sources:
     url: https://www.govdata.de/dl-de/zero-2-0
     attribution: "nepovinná; uvádíme Geoportal Berlin"
   access: free
-  checked: "2026-11-16 katalog GDI Berlin (DOM a DGM WMS: Zero 2.0); jiný záznam DGM 1 m uvádí dl-de/by-2.0 – nejednotné"
+  checked: "2026-11-16 katalog GDI Berlin: ATKIS DGM (b0485f06…, publikováno 2026-01-29) i DOM (b0e8e83e…) uvádějí Zero 2.0"
   issues:
-    - "Katalogové záznamy si odporují (Zero 2.0 vs. Namensnennung 2.0) – citaci „Geoportal Berlin / název sady“ proto uvádět vždy."
+    - "Zrcadla katalogu (gdk.gdi-de.org, INSPIRE) mají u DGM ještě starší „Namensnennung 2.0“; platí záznam poskytovatele (Zero 2.0). Citaci „Geoportal Berlin“ uvádíme i tak – při případném návratu k BY 2.0 vyhovuje."
     - "Novější bDOM 2026 ze snímků je bez listí (les vycházel jako louka) → bere se DOM1 2021."
     - "Mračno jen v ZIPech po desítkách GB – nepoužitelné."
 
@@ -885,9 +886,9 @@ sources:
     url: https://assets.vlaanderen.be/image/upload/v1681976168/GRB_open_data_licentie_fwbc3o.pdf
     attribution: "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen"
   access: free
-  checked: "2026-11-16 licence GRB (PDF Digitaal Vlaanderen) přes vyhledávání"
+  checked: "2026-11-16 licence GRB (PDF Digitaal Vlaanderen, čl. 4: citace podle poskytovatele) a stránka GRB (předepsaná citace)"
   issues:
-    - "Licence GRB je „Gratis Open Data Licentie Vlaanderen“ s citací „Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen“; countries.yaml uvádí Modellicentie Gratis Hergebruik – sjednotit citaci."
+    - "Citace v countries.yaml má pro GRB vlastní řádek „Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen (Gratis Open Data Licentie Vlaanderen v1.02)“ (2026-11-16)."
     - "Brusel GRB nemá (technical_map_gaps, jen OSM); Valonsko jiné zdroje (PICC), nezapnuto."
 
 - id: be_wms
