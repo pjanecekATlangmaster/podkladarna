@@ -799,6 +799,10 @@ def run_job_pipeline(
         raw_log("Vynucené obnovení: cache (LiDAR, ZABAGED, podklady) se nepoužije.")
     if not cz_sources:
         raw_log(country_sources_line(options))
+        from app import data_notes
+
+        for line in data_notes.text_lines(job_country(options), "cs", sprint=job_has_sprint(preset_id, options)):
+            raw_log(f"Data výřezu: {line}")
     # Bez DTM se les a MTBO kreslí plnohodnotně z OSM a ZABAGED: chybějící DTM je chyba jobu jen u sprintu z DTM.
     try:
         dtm_needed = bool(

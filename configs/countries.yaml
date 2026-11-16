@@ -9,6 +9,9 @@
 # technical_map_area: naopak polygon jediného území s technickou mapou (FR = Paříž); výřez mimo něj ji nestahuje.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
 # green: zeleň v lese (points = hustota bodů z mračna, CZ výchozí | laser = zrnitost z laserového povrchu, jinde výchozí | photo = povrch ze snímků, jen základní; mapa v GUI šrafuje).
+# elevation_years: roky snímkování výšek (text do upozornění před buildem); data_notes: důsledky dat ukázané před buildem,
+#   v logu, README a poznámce .omap (old = data starší ~10 let, coarse = terén hrubší než 1 m; photo plyne z green) – app/data_notes.py.
+#   Uvádět jen tam, kde to opravdu mění kresbu; Česko žádné.
 # view: výchozí pohled mapy [jih, západ, sever, východ]; crs: CRS jobu (zatím jen informativní).
 CZ:
   name: {cs: Česko, en: Czechia}
@@ -202,6 +205,8 @@ IT:
   crs: EPSG:25832           # ETRS89 / UTM 32N (souřadnice dat PAT)
   boundary: countries/it.geojson  # provincie Trento z WFS PAT (stem:confini_provincia), +300 m
   view: [45.67, 10.44, 46.54, 11.97]
+  elevation_years: "2014"
+  data_notes: [old]
   elevation: it_trentino    # LiDAR PAT 2014: DTM + DSM first 0,5 m, dlaždice 500 m ze služby merge, výšky nadmořské
   cz_sources: false
   # Licence: CC BY 4.0 (uvést Provincia autonoma di Trento).
@@ -215,6 +220,8 @@ BE:
   crs: EPSG:31370           # Belgian Lambert 72 (souřadnice GRB a DHMV)
   boundary: countries/be.geojson  # Vlaamse Gewest z VRBG (Digitaal Vlaanderen), +300 m; Brusel uvnitř
   view: [50.68, 2.54, 51.51, 5.92]
+  elevation_years: "2013–2015"
+  data_notes: [old]
   elevation: be_dhmv        # DHMV II DTM + DSM 1 m z WCS Digitaal Vlaanderen (LiDAR 2013–2015), výšky TAW
   technical_map: be_grb     # GRB: budovy, uliční prostor (sprint v celé šířce), vozovky a chodníky z dělení WBN čarami WGO; Brusel (díra v GRB) UrbIS
   cz_sources: false
@@ -232,6 +239,7 @@ FI:
   crs: EPSG:3067            # ETRS89 / TM35FIN (souřadnice MML a Metsäkeskus)
   boundary: countries/fi.geojson  # GISCO 1 : 1 M (+550 m, zjednodušeno 250 m, ostrovy od 2 km²)
   view: [59.7, 19.3, 70.1, 31.6]
+  data_notes: [coarse]
   elevation: fi_mml         # korkeusmalli 2 m MML (zrcadlo Funet, listy 6 km) + DSM = DTM + latvusmalli 1 m Metsäkeskus; výšky N2000
   technical_map: fi_hel     # Helsinky YLRE: budovy, uliční prostor (sprint v celé šířce), vozovky, chodníky, parkoviště, schody, trávníky
   technical_map_area: countries/fi_helsinki.geojson  # YLRE vede jen město Helsinky; jinde kresba z OSM
