@@ -81,11 +81,11 @@ AT:
   technical_map: at_fmzk    # FMZK Stadt Wien z WFS data.wien.gv.at, jen ve Vídni
   technical_map_area: countries/at_wien.geojson  # mimo Vídeň kresba z OSM
   cz_sources: false
-  # Licence: BEV ALS CC BY 4.0, basemap.at CC BY 4.0, Stadt Wien OGD CC BY 4.0.
-  citation: "Base map: Omapic · BEV · basemap.at · Stadt Wien – data.wien.gv.at · OSM, [year]"
+  # Licence: BEV ALS CC BY 4.0, basemap.at CC BY 4.0 (citace s odkazem na www.basemap.at), Stadt Wien OGD CC BY 4.0.
+  citation: "Base map: Omapic · BEV · www.basemap.at · Stadt Wien – data.wien.gv.at · OSM, [year]"
   attribution:
     - "Elevation: ALS DTM and DSM, Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen (CC BY 4.0)."
-    - "Orthophoto, map and hillshade: Datenquelle: basemap.at (CC BY 4.0)."
+    - "Orthophoto, map and hillshade: Datenquelle: basemap.at – www.basemap.at (CC BY 4.0)."
     - "FMZK and Vienna orthophoto (Luftbild): Datenquelle: Stadt Wien – data.wien.gv.at (CC BY 4.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 DE:
@@ -97,7 +97,7 @@ DE:
   elevation: de_berlin      # ATKIS DGM1 + DOM1 (ALS 2021), 1 m, XYZ po 2 km, výšky DHHN2016 (bDOM ze snímků je bez listí)
   technical_map: de_sb      # Straßenbefahrung 2014 + budovy ALKIS z WFS gdi.berlin.de
   cz_sources: false
-  # Licence: Datenlizenz Deutschland – Zero 2.0 (bez povinné citace, uvádíme zdroj).
+  # Licence: Datenlizenz Deutschland – Zero 2.0 (bez povinné citace, uvádíme zdroj); ověřeno 2026-11-16 v katalogu GDI Berlin u ATKIS DGM i DOM.
   citation: "Base map: Omapic · Geoportal Berlin · OSM, [year]"
   attribution:
     - "Elevation: ATKIS DGM1 and DOM1, Geoportal Berlin (Datenlizenz Deutschland – Zero 2.0)."
@@ -157,10 +157,12 @@ BE:
   technical_map: be_grb     # GRB: budovy, uliční prostor (sprint v celé šířce), vozovky a chodníky z dělení WBN čarami WGO
   technical_map_gaps: countries/be_no_grb.geojson  # Brusel: GRB tu není, kresba z OSM
   cz_sources: false
-  # Licence: Modellicentie Gratis Hergebruik (Digitaal Vlaanderen, uvést zdroj).
+  # Licence: GRB Gratis Open Data Licentie Vlaanderen v1.02 s předepsanou citací „Bron: Grootschalig Referentie Bestand Vlaanderen,
+  # Digitaal Vlaanderen“; výšky, ortofoto a katastr Modellicentie Gratis Hergebruik (uvést Digitaal Vlaanderen).
   citation: "Base map: Omapic · Digitaal Vlaanderen · OSM, [year]"
   attribution:
-    - "Elevation DHMV II, GRB, orthophoto and cadastre: © Digitaal Vlaanderen (Modellicentie Gratis Hergebruik)."
+    - "GRB: Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen (Gratis Open Data Licentie Vlaanderen v1.02)."
+    - "Elevation DHMV II, orthophoto and cadastre: © Digitaal Vlaanderen (Modellicentie Gratis Hergebruik)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FI:
   name: {cs: Finsko, en: Finland, fi: Suomi}

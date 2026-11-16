@@ -1,7 +1,7 @@
 """Flandry: GRB (Grootschalig Referentiebestand, Digitaal Vlaanderen) jako obdoba české DTM pro kresbu.
 
 GRB je velkoměřítková mapa Flander (podrobnost ~1 : 500 – 1 : 1 000) z WFS geo.api.vlaanderen.be bez klíče,
-EPSG:31370 (Belgian Lambert 72), licence Modellicentie Gratis Hergebruik (uvést „Digitaal Vlaanderen“).
+EPSG:31370 (Belgian Lambert 72), licence Gratis Open Data Licentie Vlaanderen v1.02 (citace „Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen“).
 
 - budovy: ``GBG`` (hlavní budovy, přístavky, budovy s virtuální fasádou),
 - uliční prostor: ``WBN`` (wegbaan, od fasády k fasádě) – sprint ho kreslí jako ulici v celé šířce stejně jako české
