@@ -24,6 +24,7 @@ def test_window_clamped_to_tile_and_resampled(monkeypatch, tmp_path):
         open(cmd[-1], "wb").close()
 
     monkeypatch.setattr(er, "run_cmd", fake_run)
+    monkeypatch.setattr(er, "_gdal_tool", lambda name: name)  # bez GDAL v prostředí testů (CI)
     url = BY_DOM20_URL.format(e=671, n=5472)
     assert er._by_tile_window(url, (671, 5472), WINDOW, tmp_path / "d.tif", resample="max") is not None
     cmd = calls[0]
@@ -46,6 +47,7 @@ def test_transient_403_is_retried(monkeypatch, tmp_path):
         open(cmd[-1], "wb").close()
 
     monkeypatch.setattr(er, "run_cmd", fake_run)
+    monkeypatch.setattr(er, "_gdal_tool", lambda name: name)  # bez GDAL v prostředí testů (CI)
     monkeypatch.setattr("time.sleep", lambda s: None)
     dest = er._by_tile_window(BY_DGM1_URL.format(e=671, n=5472), (671, 5472), WINDOW, tmp_path / "t.tif", resample="near")
     assert dest is not None and not errors
