@@ -993,3 +993,49 @@ def test_jobs_list_only_own_site_jobs(client, monkeypatch, host, visible):
         assert data["current"] is None and data["queued"] == [ids["cz-site"]]
         assert data["private_live"]["status"] == "running"  # vytížení serveru bez jména a výřezu
         assert set(data["private_live"]) == {"status", "started_at"}
+
+
+@pytest.mark.parametrize("private_current", [True, False])
+def test_jobs_list_hides_private_job_ids(client, monkeypatch, private_current):
+    """ID privátního jobu téže domény není v seznamu ani ve snapshotu fronty; veřejné beze změny."""
+    import app.main as main
+    from app import db
+
+    pub = [db.create_job(f"pub{i}", "sprint_2m", {})["id"] for i in range(3)]
+    priv = [db.create_job(f"priv{i}", "sprint_2m", {"private": True})["id"] for i in range(3)]
+    current = priv[0] if private_current else pub[0]
+    db.update_job(current, status="running", started_at=db._utcnow())
+    snap = {
+        "busy": True, "current": current,
+        "queued": [priv[1], pub[1]], "queue_size": 2,
+        "prefetching": [pub[2], priv[2]], "prefetch_queued": [priv[1]],
+    }
+    monkeypatch.setattr(main.worker, "queue_snapshot", lambda: dict(snap))
+    data = client.get("/api/jobs").json()
+    assert not set(priv) & {j["id"] for j in data["jobs"]}
+    assert {j["name"] for j in data["jobs"]} == {"pub0", "pub1", "pub2"}
+    assert data["queued"] == [pub[1]] and data["queue_size"] == 2
+    assert data["prefetching"] == [pub[2]] and data["prefetch_queued"] == []
+    if private_current:
+        assert data["current"] is None
+        assert set(data["private_live"]) == {"status", "started_at"}
+    else:
+        assert data["current"] == pub[0] and data["private_live"] is None
+
+
+def test_jobs_list_public_only_unchanged(client, monkeypatch):
+    """Bez privátních a cizích jobů je snapshot fronty předán beze změny."""
+    import app.main as main
+    from app import db
+
+    ids = [db.create_job(f"pub{i}", "sprint_2m", {})["id"] for i in range(3)]
+    snap = {
+        "busy": True, "draining": False, "shared_busy": False, "current": ids[0],
+        "queued": [ids[1]], "queue_size": 1, "prefetching": [ids[2]], "prefetch_queued": [],
+        "max_concurrent": 1, "max_queue_size": 5, "job_timeout_minutes": 60,
+    }
+    monkeypatch.setattr(main.worker, "queue_snapshot", lambda: dict(snap))
+    data = client.get("/api/jobs").json()
+    assert {k: data[k] for k in snap} == snap
+    assert data["private_live"] is None
+    assert [j["id"] for j in data["jobs"]] == [j["id"] for j in db.list_jobs(include_private=False)]

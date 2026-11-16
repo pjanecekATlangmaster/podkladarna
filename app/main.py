@@ -919,13 +919,27 @@ def api_list_jobs(request: Request):
                 "started_at": current_job.get("started_at")
                 or current_job.get("created_at"),
             }
-    if foreign:
-        # ID jobů druhé domény ven nepouštět (detail podle ID by ukázal název a výřez); počty zůstávají.
-        if snap.get("current") in foreign:
-            snap["current"] = None
-        for key in ("queued", "prefetching", "prefetch_queued"):
-            if isinstance(snap.get(key), list):
-                snap[key] = [i for i in snap[key] if i not in foreign]
+    # ID privátních jobů a jobů druhé domény ven nepouštět: ID je klíč k detailu (název, výřez),
+    # privátní job ho drží jen v „Moje mapy“ zadavatele. Počty fronty (queue_size) zůstávají.
+    by_id = {j["id"]: j for j in all_jobs}
+
+    def _hidden(job_id: str) -> bool:
+        if job_id in foreign:
+            return True
+        job = by_id.get(job_id)
+        if job is None:
+            try:
+                job = db.get_job(job_id)
+            except KeyError:
+                return False
+            by_id[job_id] = job
+        return db.job_is_private(job) or _job_on_paid_site(job) != paid_request
+
+    if snap.get("current") and _hidden(snap["current"]):
+        snap["current"] = None
+    for key in ("queued", "prefetching", "prefetch_queued"):
+        if isinstance(snap.get(key), list):
+            snap[key] = [i for i in snap[key] if not _hidden(i)]
     return {"jobs": jobs, **snap, "private_live": private_live}
 
 
