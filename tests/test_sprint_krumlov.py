@@ -53,6 +53,7 @@ def _part(*objs):
         ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 2, None, "walk"),
         ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 2, None, "passage_prefilled"),  # dvůr předem zalitý importem
         ([_rect(0, 0, 30, 30)], None, [_rect(10, 10, 16, 16)], 1, 1, None, "walk_outside"),  # pěší plocha jinde
+        ([_rect(0, 0, 30, 30), _rect(12, 12, 14, 14)], None, [_rect(10, 10, 16, 16)], 2, 2, None, "passage_island"),  # budova uvnitř dvora zůstane
     ],
 )
 def test_sprint_merge_buildings(tmp_path, rects, path, holes, expected_objects, expected_rings, olive, access):

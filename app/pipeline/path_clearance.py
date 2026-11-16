@@ -1190,14 +1190,24 @@ def sprint_merge_buildings(
         passage_tree = STRtree(passages) if passages else None
         walk_tree = STRtree(walk_areas) if walk_areas else None
 
+        real_tree = STRtree(real) if real and (passages or walk_areas) else None
+
+        def yard_open_area(hp):
+            """Plocha dvora bez skutečných budov uvnitř (kiosek, dům ve vnitrobloku)."""
+            if real_tree is None:
+                return hp
+            inner = [real[i] for i in real_tree.query(hp, predicate="intersects")]
+            return hp.difference(unary_union(inner)) if inner else hp
+
         def accessible(hp) -> bool:
             """Dvůr, do kterého vede krytý průchod nebo který z velké části kryje OSM pěší plocha, je veřejný prostor."""
             if passage_tree is not None and len(passage_tree.query(hp, predicate="intersects")):
                 return True
             if walk_tree is None:
                 return False
-            hit = sum(walk_areas[i].intersection(hp).area for i in walk_tree.query(hp, predicate="intersects"))
-            return hit >= SPRINT_COURTYARD_WALK_SHARE * hp.area
+            yard = yard_open_area(hp)
+            hit = sum(walk_areas[i].intersection(yard).area for i in walk_tree.query(yard, predicate="intersects"))
+            return hit >= SPRINT_COURTYARD_WALK_SHARE * yard.area
 
         # Dvory skutečných budov (bez předem zalitých děr), do kterých vede průchod nebo pěší plocha, zůstanou otevřené
         # i tam, kde je import OSM / DTM budov už zalil.
@@ -1209,7 +1219,7 @@ def sprint_merge_buildings(
                     for hole in g.interiors:
                         hp = Polygon(hole)
                         if hp.area >= SPRINT_BUILDING_HOLE_MIN_UM2 and accessible(hp):
-                            open_yards.append(hp)
+                            open_yards.append(yard_open_area(hp))  # budova uvnitř dvora zůstane
         if open_yards:
             yard_zone = unary_union(open_yards)
             closed = closed.difference(yard_zone)
