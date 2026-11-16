@@ -27,7 +27,7 @@ from contextvars import ContextVar
 from pathlib import Path
 
 from app.pipeline import build_stats, dtm_fences, dtm_sidewalks, dtm_sources, zone_index
-from app.pipeline.job_progress import background_task
+from app.pipeline.job_progress import background_task, log_issue
 from app.pipeline.fetch_openzu import VECTOR_FETCH_BUFFER_M, crop_bounds_5514
 from app.pipeline.geom_clip import Bounds, clip_polyline
 from app.pipeline.oom_coords import projected_to_map_coord
@@ -2605,6 +2605,9 @@ def start_dtm_prefetch(
                     task.state = "nedostupné"
                     if log:
                         log(f"DTM: ploty přeskočeny ({type(exc).__name__}: {exc})")
+                    if spec is not None:
+                        # Mimo Česko: výpadek technické mapy země do souhrnu jobu (kresba jen z OSM), ne jen do logu.
+                        log_issue(log, f"Technická mapa {spec.short}: nedostupná, kreslí se z OSM ({type(exc).__name__})")
                     build_stats.note_background("dtm", failed=True)
                     failed.set()
                     return None

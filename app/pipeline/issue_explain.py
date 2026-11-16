@@ -59,6 +59,7 @@ _RULES: tuple[tuple[str, str, str, str], ...] = (
     (r"OSM:.*dlaždic", SEVERE, "osm_tiles", RETRY),
     (r"OSM:", SEVERE, "osm", RETRY),
     (r"DTM: ", SEVERE, "dtm", RETRY),
+    (r"Technická mapa (?P<label>[^:]+):", SEVERE, "technical_map", RETRY),
     (r"Vektory:", SEVERE, "vectors", RETRY),
     (r"RÚIAN budovy", SEVERE, "ruian", RETRY),
     (r"AOPK stromy", SEVERE, "aopk", RETRY),
@@ -166,6 +167,8 @@ _FAILURE_RULES: tuple[tuple[str, str], ...] = (
         "download",
     ),
     (r"kódem -9|kódem 137|MemoryError|Cannot allocate", "memory"),
+    # Mimo Česko (rastry výšek): ne výpadek (ten chytá „download“), ale výřez bez dat – moře, mimo pokrytí zdroje.
+    (r"Výšková data \(.+\) nejsou k dispozici", "elevation"),
 )
 _FAILURE_COMPILED = tuple((re.compile(p), key) for p, key in _FAILURE_RULES)
 

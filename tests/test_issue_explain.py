@@ -14,6 +14,7 @@ from app.pipeline import issue_explain as ie
         ("OSM: přeskočeno (timeout)", ie.SEVERE, ie.RETRY, "cesty a objekty z OpenStreetMap"),
         ("OSM 501: stahování na pozadí se nespustilo (x)", ie.SEVERE, ie.RETRY, "zpevněné plochy"),
         ("DTM: příprava na pozadí se nespustila (x)", ie.SEVERE, ie.RETRY, "Digitální technické mapy"),
+        ("Technická mapa BGT: nedostupná, kreslí se z OSM (HTTPError)", ie.SEVERE, ie.RETRY, "technické mapy země BGT"),
         ("RÚIAN budovy: přeskočeno (HTTP 500)", ie.SEVERE, ie.RETRY, "budovy z RÚIAN"),
         ("Srázy: chybí DEM (dem_filled.tif) – přeskočeno", ie.SEVERE, ie.REFRESH, "srázy (chybí výškový model)"),
         ("Vegetace: nevznikla (hustota bodů ani CHM)", ie.SEVERE, ie.REFRESH, "porosty"),
@@ -71,6 +72,9 @@ def test_summary_severe_picks_strongest_advice():
         ("Po ořezu nezůstaly žádné DMR (ground) body – výřez mimo listy?", "LiDAR"),
         ("Pipeline skončila s kódem -9", "paměť"),
         ("KeyError: 'geometry'", "chyba Podkladárny"),
+        # Mimo Česko: výřez bez výšek (moře, mimo pokrytí) vs. výpadek serveru výšek.
+        ("Výšková data (ee_maaamet) nejsou k dispozici: pod 5 % platných buněk", "na moři"),
+        ("Výšková data (ch_swisstopo) nejsou k dispozici: HTTP 503", "dočasný výpadek"),
     ],
 )
 def test_failure_summary(technical, expected):

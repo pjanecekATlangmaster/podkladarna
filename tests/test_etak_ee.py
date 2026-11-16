@@ -103,3 +103,34 @@ def test_ee_windows_mark_padding_as_nodata(monkeypatch, tmp_path):
     elevation_raster.ee_maaamet_provider((0.0, 0.0, 1.0, 1.0), tmp_path)
     translates = [c for c in cmds if "gdal_translate" in c[0]]
     assert len(translates) == 5 and all(c[c.index("-a_nodata") + 1] == "-9999" for c in translates)
+
+
+# (chyba gdal_translate u listu, jde do souhrnu jobu) – výpadek ano, list mimo okno nebo neexistující (moře) ne.
+@pytest.mark.parametrize(
+    "stderr, issue",
+    [
+        ("ERROR 1: HTTP response code: 503", True),
+        ("ERROR 4: Could not resolve host", True),
+        ("ERROR 1: Computed -srcwin falls completely outside raster extent", False),
+        ("ERROR 1: HTTP response code: 404", False),
+    ],
+)
+def test_cog_window_outage_is_job_issue(monkeypatch, tmp_path, stderr, issue):
+    import subprocess
+
+    from app.pipeline.job_progress import ISSUE_LOG_PREFIX
+
+    def fake_run(cmd, log=None):
+        if "gdal_translate" in cmd[0] and cmd[-2].endswith("b.tif"):
+            raise subprocess.CalledProcessError(1, cmd, stderr=stderr)
+        if "gdal_translate" in cmd[0]:
+            open(cmd[-1], "wb").close()
+
+    monkeypatch.setattr(elevation_raster, "run_cmd", fake_run)
+    monkeypatch.setattr(elevation_raster, "_gdal_tool", lambda name: name)
+    lines: list[str] = []
+    vrt = elevation_raster.cog_windows(
+        ["https://x/a.tif", "https://x/b.tif"], (0, 0, 10, 10), "EPSG:3301", tmp_path, "ee_dsm", log=lines.append
+    )
+    assert vrt is not None  # zbytek okna se použije
+    assert any(line.startswith(ISSUE_LOG_PREFIX + "Výškové modely") for line in lines) is issue

@@ -1251,6 +1251,16 @@ def _api_client_authenticated(request: Request) -> bool:
     return True
 
 
+def can_reuse_lidar(prev: dict | None, bbox: list[float], country: str) -> bool:
+    """Převzít sloučený LAZ předchozího jobu: stejný výřez a stejná země (souřadnice LAZ). U hranice může
+    tentýž výřez být na české doméně job CZ a na mezinárodní job AT – český LAZ v S-JTSK by se tam nehodil."""
+    if not prev or not prev.get("has_reusable_lidar"):
+        return False
+    opts = prev.get("options") or {}
+    prev_country = str(opts.get("country") or countries.DEFAULT_COUNTRY).upper()
+    return prev_country == country and db.bbox_close(opts.get("bbox_wgs84") or [], bbox)
+
+
 @app.post("/api/jobs")
 async def api_create_job(request: Request):
     logger.info("POST /api/jobs – cteni multipart form")
@@ -1529,8 +1539,7 @@ async def api_create_job(request: Request):
             prev = db.get_job(reuse_id)
         except KeyError:
             prev = None
-        prev_bbox = (prev or {}).get("options", {}).get("bbox_wgs84")
-        if prev and prev.get("has_reusable_lidar") and db.bbox_close(prev_bbox or [], bbox):
+        if can_reuse_lidar(prev, bbox, job_country.code):
             options["reused_from"] = reuse_id
     # Placená doména se zapnutým prodejem: job vznikne až po potvrzení e-mailu (app.paid_flow).
     if not api_client and paid_flow.active_for(request):

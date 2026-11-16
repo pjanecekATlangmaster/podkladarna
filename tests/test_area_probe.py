@@ -122,3 +122,19 @@ def test_api_sheets_and_job_store_probe(client, monkeypatch):
     assert r.status_code == 200
     stored = r.json()["options"]["area_probe"]
     assert stored["verdict"] == "warn" and stored["technical_map"]["share"] == 0.0
+
+
+# (země, podíl výřezu v zemi, verdikt) – celoplošné národní výšky končí na hranici: přesah za ni varuje;
+# Česko beze změny (podíl v polygonu sonda nebere).
+@pytest.mark.parametrize(
+    "code, inside, verdict",
+    [("NL", 1.0, "ok"), ("NL", 0.7, "warn"), ("CZ", 0.7, "ok")],
+)
+def test_national_elevation_ends_at_border(monkeypatch, code, inside, verdict):
+    monkeypatch.setattr(countries, "bbox_share", lambda _box, _c: inside)
+    country = countries.load_countries()[code]
+    result = area_probe.probe(country, (5.0, 52.0, 5.01, 52.01), include_dtm=False)
+    assert result["verdict"] == verdict
+    if verdict == "warn":
+        assert result["elevation"]["share"] == 0.7
+        assert "70 %" in i18n.localize(result["warnings"][0], "en")

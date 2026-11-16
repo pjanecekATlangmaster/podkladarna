@@ -944,3 +944,18 @@ def test_mtbo_scale_7500_in_web():
 
     html = render_placeholders((root / "index.html").read_text(encoding="utf-8"), "cs")
     assert any("MTBO" in ln and "1:7500" in ln for ln in html.splitlines() if "map-kind-card" in ln)
+
+
+# (země předchozího jobu, země nového, převzít LAZ) – u hranice (České Velenice / Gmünd) je tentýž výřez
+# na české doméně CZ a na mezinárodní AT; český LAZ v S-JTSK se do jiné země nepřebírá.
+@pytest.mark.parametrize(
+    "prev_country, country, reuse",
+    [(None, "CZ", True), ("CZ", "CZ", True), ("CZ", "AT", False), ("AT", "AT", True)],
+)
+def test_reuse_lidar_only_same_country(prev_country, country, reuse):
+    from app.main import can_reuse_lidar
+
+    bbox = [14.95, 48.76, 14.97, 48.77]
+    opts = {"bbox_wgs84": bbox, **({"country": prev_country} if prev_country else {})}
+    assert can_reuse_lidar({"has_reusable_lidar": True, "options": opts}, bbox, country) is reuse
+    assert can_reuse_lidar({"has_reusable_lidar": False, "options": opts}, bbox, country) is False
