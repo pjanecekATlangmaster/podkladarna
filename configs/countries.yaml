@@ -109,7 +109,7 @@ DE-NW:
   crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém Geobasis NRW)
   boundary: countries/de_nw.geojson  # DVG2 Land, Geobasis NRW, +300 m
   view: [50.32, 5.86, 52.53, 9.47]
-  elevation: de_nrw         # DGM1 + nDOM50 (povrch z letních snímků, olistěný) z WCS po 2 km; zimní DOM1 z ALS jen záloha
+  elevation: de_nrw         # DGM1 + menší z výšek zimního DOM1 (ALS) a letního nDOM50 (snímky), WCS po 2 km
   technical_map: none       # ALKIS je, ale kresba zatím z OSM
   cz_sources: false
   # Licence: Datenlizenz Deutschland – Zero 2.0 (WCS DGM, DOM, nDOM i WMS DOP, ABK, ALKIS; ověřeno 2026-11-16 v GetCapabilities).

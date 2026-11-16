@@ -762,7 +762,7 @@
   "api.elevation_source.be_dhmv": "DHMV II DTM a DSM, Digitaal Vlaanderen",
   "api.elevation_source.fi_mml": "Korkeusmalli 2 m MML a latvusmalli Metsäkeskus",
   "api.elevation_source.lu_act": "LiDAR 2024 MNT a MNS, ACT Luxembourg",
-  "api.elevation_source.de_nrw": "DGM1 a nDOM50, Geobasis NRW",
+  "api.elevation_source.de_nrw": "DGM1, DOM1 a nDOM50, Geobasis NRW",
   "api.source.lidar.label": "LiDAR ČÚZK (DMR 5G, DMP OK)",
   "api.source.lidar.impact": "Bez LiDARu se mapa nevytvoří (pomůže jen list, který už je v cache).",
   "api.source.dtm.label": "DTM krajů (DMVS ČÚZK)",

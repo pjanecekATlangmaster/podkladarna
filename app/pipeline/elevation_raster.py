@@ -126,7 +126,12 @@ def _bounds_in(bounds, crs_from_wkt: str, crs_to: str) -> tuple[float, float, fl
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def _download(url: str, dest: Path, *, log=None) -> Path:
+# Tvrdý strop jedné odpovědi výškové služby: dlaždice WCS mají 2–20 MB (2 × 2 km po 1 m ~16 MB), víc je chyba služby
+# nebo dotazu, ne stahování (review PR 350).
+DOWNLOAD_MAX_BYTES = 300_000_000
+
+
+def _download(url: str, dest: Path, *, log=None, max_bytes: int = DOWNLOAD_MAX_BYTES) -> Path:
     import urllib.request
 
     from app.pipeline.fetch_openzu import USER_AGENT
@@ -135,7 +140,19 @@ def _download(url: str, dest: Path, *, log=None) -> Path:
     tmp = dest.with_suffix(dest.suffix + ".part")
     with urllib.request.urlopen(req, timeout=300) as resp, tmp.open("wb") as fh:
         ctype = resp.headers.get("Content-Type", "")
+        length = resp.headers.get("Content-Length")
+        too_big = RuntimeError(f"odpověď výškové služby přes {max_bytes // 1_000_000} MB odmítnuta")
+        if length and length.isdigit() and int(length) > max_bytes:
+            fh.close()
+            tmp.unlink(missing_ok=True)
+            raise too_big
+        size = 0
         while chunk := resp.read(1 << 20):
+            size += len(chunk)
+            if size > max_bytes:
+                fh.close()
+                tmp.unlink(missing_ok=True)
+                raise too_big
             fh.write(chunk)
     if "tiff" not in ctype.lower() or tmp.stat().st_size < 500:
         detail = tmp.read_bytes()[:300].decode("utf-8", "replace")
@@ -569,7 +586,7 @@ def de_nw_tile_urls(kind: str, bounds_utm: tuple[float, float, float, float]) ->
     return [de_nw_coverage_url(kind, b) for b in boxes]
 
 
-def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path) -> Path:
+def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path, *, log=None) -> Path:
     """DGM + výška porostu = min(DOM − DGM, nDOM) (obojí aspoň 0) v mřížce dlaždice DGM; jen jeden zdroj = ten."""
     from osgeo import gdal
 
@@ -584,15 +601,21 @@ def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path) -
         if path is None:
             return None
         ds = gdal.Open(str(path))
-        if (ds.RasterXSize, ds.RasterYSize) != (t_ds.RasterXSize, t_ds.RasterYSize):
-            raise RuntimeError(f"{path.name} {ds.RasterXSize}×{ds.RasterYSize} nesedí na DGM "
-                               f"{t_ds.RasterXSize}×{t_ds.RasterYSize}")
+        if (ds.RasterXSize, ds.RasterYSize) != (t_ds.RasterXSize, t_ds.RasterYSize) or not np.allclose(
+            ds.GetGeoTransform(), t_ds.GetGeoTransform(), atol=1e-3
+        ):
+            # jiná mřížka než DGM: tento povrch vynechat, druhý stačí (review PR 350)
+            log_issue(log, f"Severní Porýní-Vestfálsko: {path.name} má jinou mřížku než DGM "
+                           f"({ds.RasterXSize}×{ds.RasterYSize} proti {t_ds.RasterXSize}×{t_ds.RasterYSize}), vynechán")
+            return None
         a = ds.GetRasterBand(1).ReadAsArray().astype("float32")
         ok = np.isfinite(a) & (a > NODATA + 1)
         h = a if relative else a - t
         return np.where(ok, np.clip(h, 0.0, None), np.nan)
 
     hs = [h for h in (height(ndom, relative=True), height(dsm, relative=False)) if h is not None]
+    if not hs:
+        raise RuntimeError("žádný povrch nemá mřížku DGM")
     h = np.fmin(hs[0], hs[1]) if len(hs) == 2 else hs[0]
     out = np.where(bad, NODATA, t + np.nan_to_num(h, nan=0.0)).astype("float32")
     ds = gdal.GetDriverByName("GTiff").Create(str(dest), t_ds.RasterXSize, t_ds.RasterYSize, 1, gdal.GDT_Float32,
@@ -638,8 +661,13 @@ def de_nrw_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
     dsm = fetch_optional("dsm", "zimní DOM1 (pole s plodinami mohou vyjít jako porost)")
     if ndom is None and dsm is None:
         return SourceRasters(vrt("dtm", dtm_tiles), None)
-    surf = [_de_nw_surface(t, ndom[i] if ndom else None, dsm[i] if dsm else None, out_dir / f"nrw_surface_{i}.tif")
-            for i, t in enumerate(dtm_tiles)]
+    try:
+        surf = [_de_nw_surface(t, ndom[i] if ndom else None, dsm[i] if dsm else None,
+                               out_dir / f"nrw_surface_{i}.tif", log=log)
+                for i, t in enumerate(dtm_tiles)]
+    except RuntimeError as exc:
+        log_issue(log, f"Severní Porýní-Vestfálsko: povrch nejde složit ({str(exc)[:120]}), výška porostu chybí")
+        return SourceRasters(vrt("dtm", dtm_tiles), None)
     if log and ndom and dsm:
         log("  Povrch = DGM1 + menší z výšek zimního DOM1 (ALS) a letního nDOM50 (snímky)")
     return SourceRasters(vrt("dtm", dtm_tiles), vrt("dsm", surf))
@@ -1309,7 +1337,7 @@ SOURCE_LABELS = {
     "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo",
     "at_bev": "BEV ALS DTM a DSM",
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
-    "de_nrw": "DGM1 a nDOM50, Geobasis NRW",
+    "de_nrw": "DGM1, DOM1 a nDOM50, Geobasis NRW",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",
