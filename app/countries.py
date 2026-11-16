@@ -184,6 +184,35 @@ def load_countries() -> dict[str, Country]:
     return out
 
 
+# Zdroje výšek z ručně stažených celostátních dat na disku (``DATA_ROOT/<složka>/dtm`` a ``…/dsm``, GeoTIFF).
+# Země s takovým zdrojem se nabízí, jen když data na instanci jsou (Slovensko: jen ostrá A, Petr 2026-11-16).
+LOCAL_ELEVATION_DIRS = {"sk_ugkk_local": "cache/static/sk_ugkk"}
+
+
+def local_elevation_dir(elevation: str) -> Path | None:
+    """Složka dat zdroje výšek z disku (``local:<složka>`` nebo klíč z ``LOCAL_ELEVATION_DIRS``), jinak None."""
+    from app import settings
+
+    raw = LOCAL_ELEVATION_DIRS.get(elevation)
+    if raw is None and elevation.startswith("local:"):
+        raw = elevation.split(":", 1)[1].strip()
+    if raw is None:
+        return None
+    path = Path(raw)
+    return path if path.is_absolute() else Path(settings.DATA_ROOT) / path
+
+
+def elevation_ready(country: Country) -> bool:
+    """Má instance výšky země? U zdroje z disku musí být GeoTIFF terénu (``dtm``) i povrchu (``dsm``)."""
+    base = local_elevation_dir(country.elevation)
+    if base is None:
+        return True
+    try:
+        return all(any((base / sub).glob("*.tif")) for sub in ("dtm", "dsm"))
+    except OSError:
+        return False
+
+
 def beta_codes() -> frozenset[str]:
     """Kódy zemí ``status: beta`` povolené proměnnou ``COUNTRIES_BETA`` (``*`` = všechny beta)."""
     raw = os.environ.get("COUNTRIES_BETA")
@@ -211,8 +240,9 @@ def offered_codes() -> frozenset[str]:
     return frozenset(
         c.code
         for c in load_countries().values()
-        if c.status == "live"
-        or (c.status == "beta" and any(_beta_for_site(c.code, codes, beta) for codes in site_sets))
+        if (c.status == "live"
+            or (c.status == "beta" and any(_beta_for_site(c.code, codes, beta) for codes in site_sets)))
+        and elevation_ready(c)
     )
 
 
@@ -226,7 +256,7 @@ def allowed_countries(site: Any = None) -> list[Country]:
     beta = beta_codes()
     if beta:
         out = out + [c for c in countries.values() if c.status == "beta" and _beta_for_site(c.code, codes, beta)]
-    return out
+    return [c for c in out if elevation_ready(c)]
 
 
 # --------------------------------------------------------------------------- geometrie (bez shapely)

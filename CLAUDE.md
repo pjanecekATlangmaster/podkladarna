@@ -485,6 +485,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   chybě) se zařadí. Volný server s prázdnou frontou si job ze stahování vezme hned. Listy jdou do téže cache, build je čte jako
   z cache → kresba beze změny; zámek listu (`slot_lock.file_lock`, `.DMR5G.lock` / `.DMP.lock`) brání dvojímu stažení.
   `/api/sheets` pole `big_download` (listy, MB, minuty, hláška) – GUI varuje hned u výřezu. Mimo Česko beze změny. Vypínač `PREFETCH_ENABLED=0`.
+- **Slovensko z dat na disku** (3.69.1, Petr 2026-11-16, verze 2): ÚGKK dává DMR 5.0 i DMP 1.0 bez e-mailu, ale jen jako celostátní
+  ZIP s jedním TIFFem (155 / 198 GB, výřez přes HTTP nejde). Na ostré A ručně stažené do `DATA_ROOT/cache/static/sk_ugkk/{dtm,dsm}`
+  (úklid cache tuto složku nemaže, nemazat ručně), zdroj `sk_ugkk_local` (terén i povrch JTSK03 + Bpv, bez kvazigeoidu). Země se zdrojem
+  z disku se nabízí jen tam, kde data jsou (`countries.elevation_ready`). Před zapnutím `docker exec podkladarna python -m app.local_elevation_check`
+  (soubory, Křovák, bloky, výřez jako job, DSM − DTM na holé zemi ±0,3 m). SK je zatím `off`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | fr_lidarhd | lu_act | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -31,15 +31,15 @@ CZ:
 # Zemi zařadit jen s volně stažitelným modelem povrchu (DMP / DSM) – výška porostu vždy z DMP (Petr 2026-11-14).
 SK:
   name: {cs: Slovensko, en: Slovakia, sk: Slovensko}
-  status: off               # DMP bez e-mailu, ale jen jako celostátní ZIP 155 GB (jeden TIFF, bez čtení výřezu); čeká na rozhodnutí o disku
+  status: off               # zapnout (beta) až po `python -m app.local_elevation_check` na ostré A; nabízí se jen kde jsou data
   crs: EPSG:5514            # S-JTSK jako Česko (data ÚGKK v S-JTSK [JTSK03])
   boundary: countries/sk.geojson
   view: [47.73, 16.83, 49.62, 22.57]
-  elevation: sk_ugkk        # DMR 5.0 1 m z INSPIRE WCS ÚGKK (povrch chybí); záloha local:<složka v DATA_ROOT>
+  elevation: sk_ugkk_local  # DMR 5.0 + DMP 1.0 1 m z ručně stažených ZIPů ÚGKK v DATA_ROOT/cache/static/sk_ugkk/{dtm,dsm} (Petr 2026-11-16)
   cz_sources: false
   citation: "Base map: Omapic · ÚGKK SR · OSM, [year]"
   attribution:
-    - "DMR 5.0 © ÚGKK SR – CC BY 4.0."
+    - "DMR 5.0 a DMP 1.0 © ÚGKK SR – CC BY 4.0."
     - "OSM © OpenStreetMap contributors (ODbL)."
 NL:
   name: {cs: Nizozemsko, en: Netherlands, nl: Nederland}
