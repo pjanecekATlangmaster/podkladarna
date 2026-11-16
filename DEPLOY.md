@@ -14,7 +14,7 @@ Sekce 1–8 popisují původní provoz na NAS (reverse proxy DSM, DNS, GHCR); pr
 | **Router** | port 8672 z WAN na VM jen ze zdrojových rozsahů Cloudflare, jinak drop |
 | **Proxmox pve1** | Proxmox VE 9 na ZFS RAID1, datový RAID jako LVM-thin `hdd`; firewall Datacentra zapnutý, správa (GUI 8006, SSH) jen z LAN a VPN |
 | **VM** | Debian 13, Docker z repozitáře docker.com; firewall VM: 22 a 8672–8673 jen ze správy, 8672 z rozsahů Cloudflare (při změně rozsahů aktualizovat) |
-| **Disky VM** | systém 40 GB a data 130 GB na `local-zfs` (`/opt/podkladarna`), cache 300 GB na `hdd` (`/opt/podkladarna/data/cache`, v Proxmoxu Backup vypnutý, strop `LIDAR_CACHE_MAX_GB` 250) |
+| **Disky VM** | systém 40 GB a data 130 GB na `local-zfs` (`/opt/podkladarna`), cache 2 TB na `hdd` (`/opt/podkladarna/data/cache`, `df` 2113 GB, v Proxmoxu Backup vypnutý); strop cache v `/opt/podkladarna/data/.env` (ne v hlavním `.env`, ten do kontejneru předává jen proměnné z compose): `LIDAR_CACHE_MAX_GB=1500`, platí menší z něj a `LIDAR_CACHE_MAX_DISK_SHARE` × disk (výchozí 0,5) |
 | **Síť** | adresy, rozsahy a pravidla routeru / firewallu jsou v soukromé provozní poznámce, ne v repozitáři |
 | **Aplikace** | `/opt/podkladarna/` – `docker-compose.nas-ab.yml`, `update-nas-ab.sh`, `nas-lib.sh`, `.env` (chmod 600) beze změn proti NAS; spouští se jen služba `podkladarna` |
 
@@ -48,7 +48,8 @@ docker logs --tail 50 podkladarna
 ani negenerovat znovu (HMAC statistiky původu jobů).
 
 **Trvalá velká data na cache disku:** `/opt/podkladarna/data/cache/static/` (v kontejneru `/data/cache/static/`) drží ručně
-stažené celostátní podklady, dnes `sk_ugkk/` (DMP 1.0 Slovenska, ZIP 155 GB + rozbalený TIFF). Automatický úklid cache ani
+stažené celostátní podklady, dnes `sk_ugkk/` (DMP 1.0 Slovenska, ZIP 155 GB + rozbalený TIFF; příprava – kód složku zatím
+nečte, Slovensko je vypnuté). Automatický úklid cache ani
 strop `LIDAR_CACHE_MAX_GB` na ni nesahá a ručně ji **nemazat** (stažení trvá hodiny). Do záloh nepatří: data jdou kdykoli
 stáhnout znovu z opendata.skgeodesy.sk (CC BY 4.0, bez přihlášení). Před větší změnou snapshot na pve1:
 `qm snapshot <VMID> pred-stable-$(date +%Y%m%d)`.
