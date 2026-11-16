@@ -37,3 +37,34 @@ def test_parse_multipart_aaigrid():
 def test_parse_rejects_non_grid():
     with pytest.raises(RuntimeError, match="ASCII"):
         er.parse_wcs_aaigrid(b"<ServiceException>busy</ServiceException>")
+
+
+class _Resp:
+    def __init__(self, body: bytes):
+        self._parts = [body] if body else []
+
+    def read(self, _n):
+        return self._parts.pop(0) if self._parts else b""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_surface_tile_retries_empty_reply(monkeypatch, tmp_path):
+    """Prázdná odpověď 200 (server zahodil souběžný dotaz) se zkusí znovu (review PR 351)."""
+    bodies = [b"", RAW]
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: _Resp(bodies.pop(0)))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    dest = er._pl_dsm_tile("https://example.invalid/wcs", tmp_path / "t.tif")
+    assert dest.is_file() and not bodies
+
+
+def test_surface_tile_gives_up_after_deadline(monkeypatch, tmp_path):
+    monkeypatch.setattr(er, "PL_DSM_TILE_DEADLINE_S", 0.0)
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout: _Resp(b""))
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    with pytest.raises((TimeoutError, RuntimeError)):
+        er._pl_dsm_tile("https://example.invalid/wcs", tmp_path / "t.tif")

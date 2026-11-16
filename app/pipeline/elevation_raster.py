@@ -686,6 +686,7 @@ PL_DSM_SIDE_M = 1000.0
 PL_BUFFER_M = 20.0
 PL_DSM_MAX_BYTES = 40_000_000  # ASCII 1 km² po 1 m má ~20 MB
 PL_RETRIES = 3
+PL_DSM_TILE_DEADLINE_S = 600.0  # celkový strop jedné dlaždice včetně opakování (běžně ~40 s)
 
 
 def pl_tile_boxes(bounds_pl: tuple[float, float, float, float], side: float) -> list[tuple[float, float, float, float]]:
@@ -730,18 +731,35 @@ def _pl_dsm_tile(url: str, dest: Path, *, log=None) -> Path:
     from app.pipeline.fetch_openzu import USER_AGENT
 
     raw = b""
+    deadline = time.monotonic() + PL_DSM_TILE_DEADLINE_S
     for attempt in range(PL_RETRIES + 1):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=300) as resp:  # noqa: S310 – pevná adresa GUGiK
-                raw = resp.read(PL_DSM_MAX_BYTES + 1)
-            break
+            remaining = deadline - time.monotonic()
+            with urllib.request.urlopen(req, timeout=max(10.0, min(300.0, remaining))) as resp:  # noqa: S310 – pevná adresa GUGiK
+                chunks: list[bytes] = []
+                size = 0
+                while chunk := resp.read(1 << 20):
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if size > PL_DSM_MAX_BYTES:
+                        break
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"NMPT: dlaždice nestihla {PL_DSM_TILE_DEADLINE_S:.0f} s")
+                raw = b"".join(chunks)
+            if raw.strip():
+                break
+            # prázdná odpověď 200 = server zahodil dotaz (souběh) → znovu jako chyba sítě
+            if attempt >= PL_RETRIES:
+                raise RuntimeError("NMPT: server vrátil prázdnou odpověď")
         except urllib.error.HTTPError as exc:
             if attempt >= PL_RETRIES or not (exc.code >= 500 or exc.code == 429):
                 raise
         except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
-            if attempt >= PL_RETRIES:
+            if attempt >= PL_RETRIES or time.monotonic() > deadline:
                 raise
+        if time.monotonic() + 5.0 * (attempt + 1) > deadline:
+            raise TimeoutError(f"NMPT: dlaždice nestihla {PL_DSM_TILE_DEADLINE_S:.0f} s")
         if log:
             log(f"  {dest.name}: server neodpověděl, pokus {attempt + 2}/{PL_RETRIES + 1}")
         time.sleep(5.0 * (attempt + 1))
