@@ -350,6 +350,39 @@ def test_sprint_covered_passage_becomes_roof_and_cuts_building(tmp_path):
     assert sum(_area(x) for x in b) + roof.area == pytest.approx(400 * 250.0**2, rel=0.01)
 
 
+# Podloubí (Petr 2026-11-16): krytá čára souběžně s obrysem do 5 m = osa podloubí, zastřešení od obrysu po čáru a stejně za ni;
+# dál od obrysu nebo napříč domem jen šířka průchodu (min. 2 m).
+@pytest.mark.parametrize(
+    "line, width_m",
+    [
+        ([(-5, 2), (25, 2)], 4.0),  # osa 2 m od líce: podloubí 4 m
+        ([(-5, 1.5), (25, 1.5)], 3.0),
+        ([(-5, 8), (25, 8)], 2.0),  # 8 m od líce: průchod domem
+        ([(10, -5), (10, 25)], 2.0),  # napříč domem
+    ],
+)
+def test_sprint_arcade_roof_width(tmp_path, line, width_m):
+    from shapely.geometry import LineString, Polygon
+
+    from app.pipeline.oom_import import _path_object
+    from app.pipeline.path_clearance import sprint_building_passages
+
+    def to_map(pts):
+        return [projected_to_map_coord(x, y, ref_x=0.0, ref_y=0.0, scale=4000, grivation_deg=0.0) for x, y in pts]
+
+    (tmp_path / "osm_paths").mkdir()
+    feat = {"type": "Feature", "properties": {"covered": True}, "geometry": {"type": "LineString", "coordinates": line}}
+    (tmp_path / "osm_paths" / "covered_passages.geojson").write_text(json.dumps({"type": "FeatureCollection", "features": [feat]}), encoding="utf-8")
+    building = _area_object_with_holes(symbol_index_for_code("sprint_2m", 4000, "521"), [to_map(_rect(0, 0, 20, 20))])
+    path = _path_object(symbol_index_for_code("sprint_2m", 4000, "506"), to_map(line))
+    out = sprint_building_passages([OomObjectPart(name="x", objects_xml="\n".join([building, path]), count=2)], tmp_path, **SPRINT_KW)
+    roof_sym = symbol_index_for_code("sprint_2m", 4000, "522")
+    roofs = [_polygon_of(m.group(0)) for p in out for m in _OBJECT_RE.finditer(p.objects_xml) if int(m.group(3)) == roof_sym]
+    assert len(roofs) == 1
+    inside_m = LineString(line).intersection(Polygon(_rect(0, 0, 20, 20))).length
+    assert roofs[0].area / 250.0**2 / inside_m == pytest.approx(width_m, abs=0.3)
+
+
 def test_sprint_without_covered_only_cuts_lines_and_non_sprint_unchanged(tmp_path):
     from app.pipeline.path_clearance import sprint_building_passages
 
