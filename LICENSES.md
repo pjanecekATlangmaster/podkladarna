@@ -3,16 +3,21 @@
 ## Software (MIT)
 
 Podkladárna (tento repozitář – web, API, pipeline) je uvolněná pod **MIT**.
-Viz [LICENSE](./LICENSE). MIT se vztahuje na kód; **nevyžaduje** uvedení
-zdroje na mapách, které službou vytvoříte.
+Viz [LICENSE](./LICENSE). MIT se vztahuje na kód. Mapy, které službou vytvoříte, se řídí licencí
+výstupu níže – **uvedení Podkladárny jako zdroje je povinné**.
 
 ## Výstup jobu (CC BY 4.0)
 
-PNG, `.omap`, DXF a shapefile z jobu jsou pod
+`.omap`, `.ocd`, PNG / GeoTIFF, DXF a shapefile z jobu jsou pod
 [Creative Commons Uveďte původ 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs).
-Při dalším použití mapy (tisk, závod, publikace) **uveďte zdroj**, např.:
+Při dalším použití mapy (tisk, závod, publikace, sdílení) **uveďte zdroj** – i u mapy,
+která z podkladu vznikla překreslením a doplněním v terénu. Z citace musí být jasné,
+že mapa využila Podkladárnu (v mezinárodní verzi Omapic):
 
-**Podklad: Podkladárna · ČÚZK · OSM, [rok]**
+- Česko: **Podklad: Podkladárna · ČÚZK · OSM, [rok]**
+- další země: **Base map: Omapic · <národní zdroje> · OSM, [year]** (přesný řádek je v `ABOUT_OMAPIC.txt` v ZIPu)
+
+Přesná citace výřezu je také v textovém souboru v ZIPu a v poznámce mapy (Mapa → Poznámky).
 
 Výstupy vznikají z cizích dat a nástrojů — ty mají vlastní podmínky níže.
 ČÚZK data jsou sama o sobě CC BY 4.0; citace ČÚZK je tedy povinná i bez

@@ -71,9 +71,8 @@ python scripts/smoke_e2e.py --wait-minutes 45   # testdata/ → celé kolečko
 
 ## 3. Skript `scripts/dev.ps1`
 
-**Checkouty:** Petr smokuje z `C:\Users\PetrJanecek\.cursor\projects\podkladarna`.
-Agenti editují jen worktree `C:\Users\PetrJanecek\.cursor\projects\podkladarna-agent`
-(stejný git, agent worktree) — neukládat do Petrova live stromu,
+**Checkouty:** smoke testy běží z hlavního checkoutu, agenti editují jen samostatný git worktree
+(např. `…\podkladarna-agent`) — neukládat do živého stromu, ze kterého běží server,
 jinak `--reload` / file-watch zabije běžící job.
 
 ```powershell
@@ -258,12 +257,12 @@ se silnicí** (≥ 70 % délky v pásu kolem silnice; pás se počítá ze skute
 ### Ladění na testovací verzi B a dohledání DTM objektu podle ID
 
 - **Testovací B verze:** `https://pt.kibos.link`, data jobů na NAS ve sdílené složce
-  `\\192.168.10.11\docker\podkladarna\data-test\jobs\<id>\` (ostrá je vedle: `...\data\jobs\`; jen čtení, do produkce nesahat).
+  `\\<NAS>\docker\podkladarna\data-test\jobs\<id>\` (ostrá je vedle: `...\data\jobs\`; jen čtení, do produkce nesahat).
   Job obsahuje `log.txt` (první řádek = preset a listy, dál „[DTM] …“), `output/` (`.omap` les / mtbo / sprint, `podkladarna_output.zip`)
   a `work/` (`dtm/*.json` = polygony použité v jobu, `osm_paths/`, `job_grid.json`). Iterace („Iterace z jobu …“) berou LAZ z původního jobu.
   Poslední MTBO / LES se dohledá podle `output/*-mtbo.omap` a řádku `OOM: …mtbo_10000`.
 - **Cache balíků DTM:** `data/cache/dtm/<kraj>/VS_<kraj>_<MOMC|OBEC>_<kód>_<YYYYMMDD>_<sada>.jvf.zip` (lokálně, gitignorované) a stejná struktura na NAS
-  `\\192.168.10.11\docker\podkladarna\data\cache\dtm\`. Seznam URL kraje je v `urls_<kraj>.txt`. Stažení: `app/pipeline/dtm_sources.py`
+  `\\<NAS>\docker\podkladarna\data\cache\dtm\`. Seznam URL kraje je v `urls_<kraj>.txt`. Stažení: `app/pipeline/dtm_sources.py`
   (`find_packages_for_bbox`, `download_package`; seznam URL přes DMVS API). Lokálně je stažená celá Praha (CZ010) pro sady OPL, KR a DI k 30. 9. 2026.
 - **ID objektu z portálu DTM** (pole „ID objektu v rámci DTM ČR“) je v JVF XML jako `<atr:ID>…</atr:ID>` (12–13 číslic). Hledání: projdi `*.zip` v cache
   `zipfile` a v bajtech hledej `>ID<`. Sady: **ZPS_OPL** (odvozené plochy – chodníky, silnice, budovy), **ZPS_KR** (kresba – ploty, obvody),
@@ -388,8 +387,7 @@ Env (doporučeno v `.env` vedle checkoutu / compose; necommitujte hesla).
 Na NAS `docker-compose.nas-ab.yml` předává `SMTP_*` /
 `PUBLIC_BASE_URL` / `FEEDBACK_TO` z host `.env` do kontejneru; alternativně
 stačí `/data/.env` uvnitř volume. Od **2.2.12** Docker image při prázdném
-injectu doplní NAS default (`datais-cz.mail.protection.outlook.com` +
-`https://podkladarna.kibos.link`) — tip/lokál bez `/.dockerenv` ne.
+injectu doplní výchozí SMTP relay a adresu ostré instance (`app/settings.py`) — tip/lokál bez `/.dockerenv` ne.
 Bez `SMTP_HOST` (a bez Docker defaultu) selže privátní mail i
 `POST /api/feedback` (502). Bez `PUBLIC_BASE_URL` job doběhne, ale e-mail
 s odkazem se neodešle. Health: `mail_configured` v `/api/health`.
@@ -398,24 +396,24 @@ zkusí znovu (`retry_missed_private_mails`).
 
 | Proměnná | Význam | Příklad |
 |----------|--------|---------|
-| `SMTP_HOST` | SMTP server | `datais-cz.mail.protection.outlook.com` |
-| `SMTP_PORT` | Port | `25` |
+| `SMTP_HOST` | SMTP server | `smtp.example.com` |
+| `SMTP_PORT` | Port | `587` |
 | `SMTP_ENCRYPTION` | `starttls` / `ssl` / `none` | `starttls` |
 | `SMTP_USER` / `SMTP_PASSWORD` | Auth (prázdné = IP relay) | |
-| `SMTP_FROM` | From adresa | `podkladarna@datais.cz` |
+| `SMTP_FROM` | From adresa | `podkladarna@example.com` |
 | `SMTP_FROM_NAME` | From jméno | `OB podklady` |
 | `PUBLIC_BASE_URL` | Absolutní URL instance (bez `/`) | `https://podkladarna.example` |
 | `PRIVATE_JOB_RETENTION_HOURS` | Platnost odkazu | `48` |
-| `FEEDBACK_TO` / `OWNER_EMAIL` | Příjemce zpětné vazby z webu | `janecek@datais.cz` |
+| `FEEDBACK_TO` / `OWNER_EMAIL` | Příjemce zpětné vazby z webu | `provozovatel@example.com` |
 | `MAX_FEEDBACK_PER_IP_HOUR` | Rate limit zpětné vazby / IP | `5` |
 
 Rychlý test SMTP (mockuje se v pytest; živý send):
 
 ```powershell
-$env:SMTP_HOST='datais-cz.mail.protection.outlook.com'
-$env:SMTP_PORT='25'
+$env:SMTP_HOST='smtp.example.com'
+$env:SMTP_PORT='587'
 $env:SMTP_ENCRYPTION='starttls'
-$env:SMTP_FROM='podkladarna@datais.cz'
+$env:SMTP_FROM='podkladarna@example.com'
 $env:SMTP_FROM_NAME='OB podklady'
 python -c "from app.mail import send_mail; send_mail('vas@email.cz', 'Podkladárna SMTP test', 'Funguje.')"
 ```

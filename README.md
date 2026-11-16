@@ -1,73 +1,99 @@
 # Podkladárna
 
-Webová služba pro generování orientačních podkladů z **ČÚZK LiDAR** (DMR 5G + DMP OK) a **ZABAGED**. Volně inspirováno [Karttapullautinem](https://github.com/karttapullautin/karttapullautin); pipeline jde vlastní cestou (vegetace / srázy / DEM).
+Webová služba, která z otevřených dat vygeneruje podklad pro kreslení orientační mapy (sprint, les, MTBO).
+Výstupem je jeden ZIP pro [OpenOrienteering Mapper](https://www.openorienteering.org/apps/mapper/):
+`.omap` s vrstevnicemi, vegetací, srázy, cestami, budovami a dalšími objekty, georeferencované náhledy
+a podkladové vrstvy (ortofoto, stínování, OSM …).
 
-Výstup je georeferencovaný v S-JTSK (EPSG:5514) včetně magnetické deklinace a grivace. Vegetace je výška a hustota porostu z LiDARu (DMP OK), ne průběžnost – kresbu vegetace doladí terén.
+Česká verze se jmenuje **Podkladárna**, mezinárodní verze pro další země **Omapic**; jde o tentýž kód,
+jazyk a nabízené země určuje konfigurace domény.
 
-Výstup: jeden ZIP pro OpenOrienteering Mapper (`podkladarna_output.zip`).
+> *English summary:* Podkladárna / Omapic generates orienteering base maps (sprint, forest, MTBO) for
+> OpenOrienteering Mapper from open LiDAR, OpenStreetMap and national topographic data. Maps you create
+> are licensed CC BY 4.0 – please credit the source printed in `ABOUT_OMAPIC.txt` of your ZIP.
 
-## Rychlý start (Synology / Docker)
+## Zdroje dat
 
-**Lokální vývoj a testy:** viz **[DEV.md](./DEV.md)** – pytest + docker compose dev, deploy na NAS až potom.
+- **OpenStreetMap** je základ kresby (cesty, budovy, vodstvo, plochy). Kreslí se plnohodnotně i bez dalších zdrojů.
+- **Výšková data (LiDAR)** dávají reliéf a výšku porostu: v Česku DMR 5G + DMP OK z ČÚZK, v dalších zemích
+  národní modely terénu a povrchu.
+- **Národní polohopis a technické mapy** kresbu z OSM doplňují: v Česku ZABAGED®, RÚIAN a DTM krajů (DMVS),
+  v dalších zemích obdobné velkoměřítkové mapy tam, kde jsou volně dostupné.
+- Přehled zdrojů, licencí a stavu po zemích: **[docs/zdroje-dat.md](./docs/zdroje-dat.md)**
+  (generováno z registru `configs/data_sources.yaml`), seznam zemí: `configs/countries.yaml`.
 
-```bash
-# GHCR_OWNER (lowercase) nastavte v .env (vzor: .env.example)
-docker compose up -d --build
-```
+Volně inspirováno [Karttapullautinem](https://github.com/karttapullautin/karttapullautin); pipeline jde vlastní
+cestou (vegetace z hustoty LiDAR odrazů, srázy a skály z DMR, vrstevnice GDAL). Vegetace je výška a hustota
+porostu, ne průběžnost – kresbu vegetace doladí mapař v terénu.
 
-Otevřete: http://localhost:8672 nebo https://podkladarna.kibos.link
+Výstup je georeferencovaný v souřadnicovém systému země (Česko S-JTSK, EPSG:5514) včetně magnetické deklinace
+a grivace.
 
-## Deploy na NAS (podkladarna.kibos.link)
+## Vstup a presety
 
-Kompletní návod: **[DEPLOY.md](./DEPLOY.md)**
-
-- Provoz A/B na jednom NAS (`docker-compose.nas-ab.yml`, `update-nas-ab.sh`):
-  - **A – ostrá** `podkladarna.kibos.link`, port **8672**, image `ghcr.io/pjanecekatlangmaster/podkladarna:stable` (lowercase)
-  - **B – test** `pt.kibos.link`, port **8673**, image `:latest` (po každém mergi do `master`)
-- Reverse proxy na NAS, port nemusí být otevřený na routeru; DNS/router: veškerý veřejný provoz → **Synology NAS**
-- Tok: merge do `master` → workflow `docker.yml` publikuje `:latest` → B se aktualizuje (cron `update-nas-ab.sh test --if-idle`)
-  → po ověření GitHub akce **Promote to stable** (`:latest` → `:stable`) → na NAS `cd /volume1/docker/podkladarna && sudo ./update-nas-ab.sh stable`.
-
-## Vstup
-
-Výřez na mapě (Česko; MTBO max 25 km², např. 5 × 5 nebo 7 × 3,5 km; les bez MTBO max 15 km²; sprint 1:4000 max 4 km², např. 2 × 2 km; limity jdou změnit proměnnými `SPRINT_MAX_BBOX_AREA_KM2` a `FOREST_MAX_BBOX_AREA_KM2`). LiDAR i ZABAGED se stahují do sdílené cache (`data/cache/`), ne do jednotlivých jobů.
-
-## Presety
+Výřez se vybírá na mapě. Výchozí stropy plochy: MTBO 25 km², les bez MTBO 15 km² (`FOREST_MAX_BBOX_AREA_KM2`),
+sprint 4 km² (`SPRINT_MAX_BBOX_AREA_KM2`).
 
 - Sprint 1:4000 · 2 m / 2,5 m
 - Lesní 1:7500 / 1:10 000 · 5 m
 - MTBO 1:10 000 / 1:15 000 · 5 m
 
+Stažená data (LiDAR, polohopis, OSM) se ukládají do sdílené cache v datové složce, ne do jednotlivých jobů.
+
 ## Sady symbolů
 
-Lesní a sprintové mapy používají sady **ISOM 2017-2 (Revize 6)** a **ISSprOM 2019-2
-(Revize 6)** vycházející z oficiálních OCAD sad, s českými názvy symbolů
-(`configs/oom/*_cz.omap`, generované skriptem `scripts/build_symbol_sets.py`
-z `configs/oom/ocad_src/`). MTBO používá stejným způsobem **ISMTBOM 2022** z OCADu.
-Postup přegenerování a katalog kódů: **[DEV.md](./DEV.md)**, původ a licence: **[LICENSES.md](./LICENSES.md)**.
+Lesní a sprintové mapy používají sady **ISOM 2017-2 (Revize 6)** a **ISSprOM 2019-2 (Revize 6)** vycházející
+z oficiálních OCAD sad, MTBO **ISMTBOM 2022**; české i anglické názvy symbolů
+(`configs/oom/`, generuje `scripts/build_symbol_sets.py`). Postup přegenerování: **[DEV.md](./DEV.md)**,
+původ a licence: **[LICENSES.md](./LICENSES.md)**.
 
-## Logo
+## Spuštění v Dockeru
 
-- `web/static/logo.svg` – vektorové logo (lampion, barvy O-mapy)
+Docker image obsahuje PDAL, GDAL a OpenOrienteering Mapper CLI.
 
-## Lokální vývoj (bez Docker)
+```bash
+cp .env.example .env      # upravte podle sebe (SMTP, PUBLIC_BASE_URL, …)
+docker compose up -d --build
+```
 
-Vyžaduje PDAL a GDAL v PATH.
+Otevřete http://localhost:8672. Data a cache jsou ve složce `./data` (v kontejneru `/data`).
+
+Důležité proměnné (vzor a popis v `.env.example`):
+
+- `PUBLIC_BASE_URL` – veřejná adresa instance (odkazy v e-mailech),
+- `SMTP_*`, `FEEDBACK_TO` – e-mail pro soukromé joby a zpětnou vazbu (bez SMTP běží jen veřejné joby),
+- `SITES`, `LANGS` – domény, jazyk a nabízené země (bez nastavení jen čeština a Česko),
+- `COUNTRIES_BETA` – zpřístupní země ve stavu beta,
+- `API_CLIENT_KEY` – klíč pro přístup přes API (hlavička `X-Api-Key`).
+
+Provoz se dvěma instancemi (ostrá a testovací) popisuje **[DEPLOY.md](./DEPLOY.md)**
+(`docker-compose.nas-ab.yml`, `update-nas-ab.sh`).
+
+## Lokální vývoj (bez Dockeru)
+
+Vyžaduje Python 3, PDAL a GDAL v `PATH` (na Windows proj.db z QGIS, viz DEV.md).
 
 ```bash
 export PODKLADARNA_DATA=./data
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 uvicorn app.main:app --reload --app-dir .
+python -m pytest tests/ -q
 ```
 
-## Licence
+Podrobný vývojový postup, testy a e2e: **[DEV.md](./DEV.md)**.
 
-**Kód** Podkladárny je pod **[MIT](./LICENSE)** (© 2026 Petr Janeček).
-MIT se týká softwaru – nevyžaduje uvedení zdroje na mapách z jobu.
+## Licence a uvedení zdroje
 
-**Výstup jobu** (PNG, `.omap`, DXF, SHP) je pod **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs)** –
-při tisku / šíření mapy uveďte zdroj, např.
-`Podklad: Podkladárna · ČÚZK · OSM, [rok]`.
+**Kód** je pod **[MIT](./LICENSE)** (© 2026 Petr Janeček).
 
-Data **ČÚZK** (DMR 5G, DMP OK, ZABAGED®) jsou také CC BY 4.0.
-Přehled: **[LICENSES.md](./LICENSES.md)** a stránka `/licence`.
+**Vygenerovaná mapa** (`.omap`, `.ocd`, PNG / GeoTIFF, DXF, SHP) je pod
+**[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.cs)**. Při tisku, závodě, publikaci
+nebo sdílení mapy **uveďte zdroj** – přesný řádek je v textovém souboru v ZIPu, v poznámce mapy
+(Mapa → Poznámky) i na stránce `/licence`:
+
+- Česko: `Podklad: Podkladárna · ČÚZK · OSM, [rok]`
+- další země (Omapic): `Base map: Omapic · <národní zdroje> · OSM, [year]`
+
+`[rok]` je rok aktuálnosti použitých dat; nevíte-li ho, stačí rok vytvoření mapy. Použitá data mají
+vlastní licence (ČÚZK CC BY 4.0, OpenStreetMap ODbL, národní poskytovatelé podle země), přehled je
+v **[LICENSES.md](./LICENSES.md)** a [docs/zdroje-dat.md](./docs/zdroje-dat.md).
