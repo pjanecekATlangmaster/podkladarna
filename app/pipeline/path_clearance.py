@@ -299,7 +299,10 @@ def _clip_line_by_roads(pts, paths: _Paths, extra, min_piece):
 
 
 def _rounded_pieces(g) -> list[list[list[int]]]:
-    """Plocha jako body na celých µm; nevalidní po zaokrouhlení se opraví (buffer(0)), nepovedené kusy pryč."""
+    """Plocha jako body na celých µm; nevalidní po zaokrouhlení se opraví (buffer(0)). Kus nevalidní i po opravě
+    (buffer(0) a nové zaokrouhlení, typicky blok budov s mnoha dvory) se přichytí na mřížku 1 µm (``set_precision``,
+    výsledek je validní už na celých číslech), ať velká plocha nezmizí celá (Berlín, Hackesche Höfe)."""
+    import shapely
     from shapely.geometry import Polygon
 
     if g.is_empty or not isinstance(g, Polygon):
@@ -315,6 +318,14 @@ def _rounded_pieces(g) -> list[list[list[int]]]:
         rr = [_ring_coords(ring.coords) for ring in [part.exterior, *part.interiors]]
         if Polygon([p[:2] for p in rr[0]], [[p[:2] for p in r] for r in rr[1:]]).is_valid:
             out.append([p for r in rr for p in r])
+            continue
+        snapped = shapely.set_precision(part, 1.0)
+        for sp in getattr(snapped, "geoms", [snapped]):
+            if not isinstance(sp, Polygon) or sp.is_empty:
+                continue
+            rr = [_ring_coords(ring.coords) for ring in [sp.exterior, *sp.interiors]]
+            if Polygon([p[:2] for p in rr[0]], [[p[:2] for p in r] for r in rr[1:]]).is_valid:
+                out.append([p for r in rr for p in r])
     return out
 
 

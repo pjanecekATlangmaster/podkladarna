@@ -271,12 +271,14 @@ sources:
 
 # ----------------------------------------------------------------------------------------------- Nizozemsko
 - id: nl_ahn
-  countries: [NL]
-  kinds: [elevation]
-  name: AHN DTM a DSM 0,5 m (PDOK WCS) + WMS stínování
+  countries:
+  - NL
+  kinds:
+  - elevation
+  name: AHN DTM a DSM 0,5 m (PDOK WCS je AHN4)
   provider: Rijkswaterstaat / Het Waterschapshuis (AHN), PDOK
   url: https://service.pdok.nl/rws/ahn/wcs/v1_0
-  info: https://www.ahn.nl/
+  info: https://www.ahn.nl/dataroom
   role: výšky
   status: used
   code: app/pipeline/elevation_raster.py (nl_ahn), app/pipeline/reference_nl.py
@@ -284,40 +286,50 @@ sources:
   probe: nl_ahn
   license:
     class: public
-    name: CC0 1.0 (AHN1–4), novější snímkování CC BY 4.0
-    url: https://data.overheid.nl/dataset/47567-actueel-hoogtebestand-nederland--ahn--dtm
-    attribution: "Bron: AHN"
+    name: CC0 1.0 u AHN1–4; CC BY 4.0 u AHN5 a AHN6
+    url: https://basisdata.nl/hwh-ahn/AUX/bladwijzer/index.html
+    attribution: 'Bron: AHN'
   access: free
-  checked: "2026-11-16 data.overheid.nl (AHN4 CC0); CC BY u AHN5+ jen ze sekundárního zdroje – neověřeno"
+  checked: 'Claude 2026-11-16 bladwijzer basisdata.nl (AHN1–4 CC0, AHN5/6 CC BY 4.0) · kontrola Grok: 2026-11-16 dataroom
+    ahn.nl a bladwijzer basisdata.nl (věta o licencích)'
   issues:
-    - "Vegetace jen z rastru DSM − DTM; v mračnu je vegetace ve třídě 1 (nezařazené), ne zvlášť."
+  - 'OPRAVA: PDOK WCS, které aplikace volá, je podle dataroomu AHN4 (DTM i DSM). AHN5 a AHN6 jsou na Ellipsis Drive, ne na
+    tomto WCS. Bladwijzer výslovně: AHN1–4 CC0 1.0, AHN5/6 CC BY 4.0.'
+  - Vegetace jen z rastru DSM − DTM.
 
 - id: nl_ahn_copc
-  countries: [NL]
-  kinds: [point_cloud]
-  name: AHN4–6 mračno bodů (COPC)
+  countries:
+  - NL
+  kinds:
+  - point_cloud
+  name: AHN mračno LAZ po mapových listech
   provider: Rijkswaterstaat / Het Waterschapshuis
-  url: https://www.ahn.nl/
-  info: https://www.ahn.nl/
+  url: https://www.ahn.nl/dataroom
+  info: https://basisdata.nl/hwh-ahn/AUX/bladwijzer/index.html
   role: výšky
   status: candidate
   license:
     class: public
-    name: CC0 1.0 / CC BY 4.0
-    url: https://www.ahn.nl/
-    attribution: "Bron: AHN"
+    name: CC0 1.0 (AHN4) / CC BY 4.0 (AHN5 a AHN6)
+    url: https://basisdata.nl/hwh-ahn/AUX/bladwijzer/index.html
+    attribution: 'Bron: AHN'
   access: free
-  checked: neověřeno
+  checked: 'Claude 2026-11-16 bladwijzer basisdata.nl (licence, listy 5 × 6,25 km a 1 × 1 km) · kontrola Grok: 2026-11-16
+    dataroom ahn.nl (LAZ, listy) a bladwijzer (licence)'
   issues:
-    - "Vegetace ve třídě 1 spolu s ostatním nezařazeným – porost z mračna jen s vlastní klasifikací."
+  - 'OPRAVA: dataroom popisuje LAZ po listech, ne COPC. AHN4/5 jsou listy 5 × 6,25 km, AHN6 listy 1 × 1 km. Odkazy na soubory
+    jsou v bladwijzeru (GeoPackage).'
+  - Od AHN4 jsou vedení vysokého napětí vlastní třídou. Vegetace jako samostatná třída se na dataroomu nejmenuje.
 
 - id: nl_bgt
-  countries: [NL]
-  kinds: [technical_map]
-  name: BGT – Basisregistratie Grootschalige Topografie (OGC API Features, WMTS)
+  countries:
+  - NL
+  kinds:
+  - technical_map
+  name: BGT – Basisregistratie Grootschalige Topografie (OGC API Features)
   provider: Kadaster, PDOK
   url: https://api.pdok.nl/lv/bgt/ogc/v1
-  info: https://www.pdok.nl/introductie/-/article/basisregistratie-grootschalige-topografie-bgt-
+  info: https://www.pdok.nl/ogc-apis/-/article/basisregistratie-grootschalige-topografie-bgt-
   role: kresba
   status: used
   code: app/pipeline/bgt_nl.py, app/pipeline/reference_nl.py
@@ -325,33 +337,47 @@ sources:
   probe: nl_bgt
   license:
     class: public
-    name: CC0 1.0
-    url: https://www.pdok.nl/introductie/-/article/basisregistratie-grootschalige-topografie-bgt-
-    attribution: "BGT – CC0 1.0"
+    name: CC0 1.0 na landingu API; katalog data.overheid.nl uvádí CC BY 4.0
+    url: https://api.pdok.nl/kadaster/bgt/ogc/v1
+    attribution: Kadaster / BGT
   access: free
-  checked: "neověřeno (převzato z countries.yaml a README NL)"
+  checked: 'Claude 2026-11-16 landing api.pdok.nl/kadaster/bgt (CC0) · kontrola Grok: 2026-11-16 landing kadaster/bgt i lv/bgt
+    (oba CC0) a stránka OGC API PDOK'
   issues:
-    - "HEAD na API vrací 404, sonda proto dělá GET na kolekci pand."
+  - 'OPRAVA: stránka PDOK teď jako Features uvádí https://api.pdok.nl/kadaster/bgt/ogc/v1/ . Stará https://api.pdok.nl/lv/bgt/ogc/v1
+    2026-11-16 pořád vrací OpenAPI a také CC0. Katalog https://data.overheid.nl/dataset/43122-basisregistratie--grootschalige-topografie--bgt---donl-
+    píše CC BY 4.0 — citaci „Bron: Kadaster“ proto nechávat.'
+  - Nejvýš 1 000 objektů na dotaz, historie v datech. HEAD na API dál nemusí být 200.
+  - V kódu se volá https://api.pdok.nl/lv/bgt/ogc/v1 (registr popisuje, co aplikace používá).
 
 - id: nl_pdok_wms
-  countries: [NL]
-  kinds: [orthophoto, cadastre, map]
-  name: Luchtfoto (Beeldmateriaal), Kadastrale kaart, BRT TOP10NL (PDOK WMS)
+  countries:
+  - NL
+  kinds:
+  - orthophoto
+  - cadastre
+  - map
+  name: Luchtfoto (Beeldmateriaal), kadastrální mapa, BRT (PDOK WMS)
   provider: Beeldmateriaal Nederland, Kadaster, PDOK
   url: https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0
-  info: https://www.beeldmateriaal.nl/
+  info: https://www.pdok.nl/-/luchtfoto-2025-nu-beschikbaar-bij-pdok
   role: šablona
   status: used
   code: app/pipeline/reference_nl.py
-  probe: [nl_luchtfoto, nl_kadaster]
+  probe:
+  - nl_luchtfoto
+  - nl_kadaster
   license:
     class: public
-    name: CC BY 4.0
-    url: https://www.beeldmateriaal.nl/
-    attribution: "Bron: Beeldmateriaal.nl; Bron: Kadaster"
+    name: CC BY (luchtfoto 2025; katastr a TOP10NL v tomto kole znovu neotevřeny)
+    url: https://www.pdok.nl/-/luchtfoto-2025-nu-beschikbaar-bij-pdok
+    attribution: 'Bron: Beeldmateriaal.nl; Bron: Kadaster'
   access: free
-  checked: "neověřeno (převzato z countries.yaml)"
-  issues: []
+  checked: 'Grok: 2026-11-16 zpráva PDOK Luchtfoto 2025 (CC BY, WMS shodné s registrem) – Claude neověřil'
+  issues:
+  - 'OPRAVA: luchtfoto 2025 je CC BY a zdarma. PDOK žádá pro veřejné použití WMTS; WMS při zátěži omezí. Jarní vysoké rozlišení
+    je 5–8 cm (bez listí), letní přehled 25 cm. Vrstva Actueel je celostátní 2025, která z těch dvou to je, zpráva neříká.'
+  - Licence katastru a TOP10NL se 2026-11-16 znovu neotevírala.
 
 # ----------------------------------------------------------------------------------------------- Švýcarsko
 - id: ch_swisstopo
@@ -557,9 +583,12 @@ sources:
     - "Straßenbefahrung je z roku 2014 – změny ulic po 2014 chybí."
 
 - id: de_laender_laz
-  countries: [DE]
-  kinds: [elevation, point_cloud]
-  name: DGM1 a LAZ dalších spolkových zemí (NRW WCS + index.json, BY metalink, HE, SN, TH, BB …)
+  countries:
+  - DE
+  kinds:
+  - elevation
+  - point_cloud
+  name: DGM a LAZ dalších spolkových zemí (mimo ověřené NRW, BY a BB)
   provider: zemské geodetické úřady
   url: https://www.opengeodata.nrw.de/produkte/geobasis/hm/
   info: https://www.govdata.de/
@@ -567,15 +596,15 @@ sources:
   status: candidate
   license:
     class: public
-    name: dl-de/by-2.0, dl-de/zero-2.0, CC BY 4.0 (podle země)
-    url: https://www.govdata.de/
-    attribution: "podle země"
+    name: podle země (ověřeno jen NRW zero, BY CC BY 4.0, BB dl-de/by-2.0)
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: podle země
   access: free
-  checked: "neověřeno (evropa-data-prehled 2026-11-14: NRW WCS a seznamy LAZ BY a NRW staženy)"
+  checked: 'Grok: 2026-11-16 jen NRW, Bavorsko a Braniborsko; ostatní země neověřeno – Claude neověřil'
   issues:
-    - "Každá spolková země jiné rozhraní → až 16 adaptérů."
-    - "LAZ ~70–110 MB/km² po celých 1km dlaždicích."
-    - "NI, MV, SH jen DSM (bez mračna)."
+  - 'OPRAVA: neslepovat do jednoho „public“. Ověřené kusy jsou záznamy de_nrw_dgm, de_by_dgm1 a de_bb_als. Zbytek zemí (HE,
+    SN, TH, NI, MV, SH a další) se 2026-11-16 neotevřel — věta o „jen DSM“ u NI, MV a SH zůstává neověřená.'
+  - NRW WCS je jen terén. Bavorská otevřená stránka DGM1 mračno nenabízí.
 
 # ----------------------------------------------------------------------------------------------- Francie
 - id: fr_lidarhd
@@ -813,12 +842,14 @@ sources:
 
 # ----------------------------------------------------------------------------------------------- Belgie (Flandry)
 - id: be_dhmv
-  countries: [BE]
-  kinds: [elevation]
-  name: DHMV II DTM a DSM 1 m (WCS, LiDAR 2013–2015)
+  countries:
+  - BE
+  kinds:
+  - elevation
+  name: DHMV II DTM a DSM 1 m (WCS)
   provider: Digitaal Vlaanderen
   url: https://geo.api.vlaanderen.be/DHMV/wcs
-  info: https://www.vlaanderen.be/datavindplaats/catalogus/wmts-digitaal-hoogtemodel-vlaanderen
+  info: https://metadata.vlaanderen.be/srv/api/records/0da2e5e4-6886-426b-bb82-c0ffe6faeff6
   role: výšky
   status: used
   code: app/pipeline/elevation_raster.py (be_dhmv), app/pipeline/reference_be.py
@@ -826,14 +857,16 @@ sources:
   probe: be_elevation
   license:
     class: public
-    name: Modellicentie Gratis Hergebruik (podle countries.yaml); WMTS DHMV vede „Gebruiksrecht geografische webdiensten“
+    name: Modellicentie voor gratis hergebruik (rastr); u WCS katalogu „Gebruiksrecht geografische webdiensten“
     url: https://www.vlaanderen.be/digitaal-vlaanderen/onze-diensten-en-platformen/open-data/voorwaarden-voor-het-hergebruik-van-overheidsinformatie/modellicentie-gratis-hergebruik
-    attribution: "© Digitaal Vlaanderen"
+    attribution: 'Bron: Digitaal Vlaanderen'
   access: free
-  checked: "neověřeno (licence přímo u sady DHMV II nenalezena)"
+  checked: 'Grok: 2026-11-16 metadata DSM 1 m (Modellicentie, komerční užití) a katalog WCS – Claude neověřil'
   issues:
-    - "LiDAR 2013–2015 bez listí (zima): porost listnáčů vychází nižší, mladé porosty po 2015 chybí."
-    - "Mračno nejspíš po mapových listech – automatický přístup bez účtu neověřen."
+  - 'OPRAVA: rastr DSM 1 m má v metadatech Modellicentie voor gratis hergebruik, která komerční užití dovoluje, citace „Bron:
+    Digitaal Vlaanderen“. Katalog WCS u služby píše jiný název „Gebruiksrecht geografische webdiensten“ a veřejný přístup
+    bez omezení.'
+  - Surové mračno je jiná, nekomerční licence — záznam be_dhmv_brondata. Nálet 2013–2015 bez listí zůstává.
 
 - id: be_grb
   countries: [BE]
@@ -881,9 +914,11 @@ sources:
 
 # ----------------------------------------------------------------------------------------------- Finsko
 - id: fi_mml
-  countries: [FI]
-  kinds: [elevation]
-  name: Korkeusmalli 2 m (zrcadlo Funet, listy 6 km)
+  countries:
+  - FI
+  kinds:
+  - elevation
+  name: Korkeusmalli 2 m (zrcadlo Funet)
   provider: Maanmittauslaitos (MML), zrcadlo Funet (CSC)
   url: https://mirrors.nic.funet.fi/index/geodata/mml/dem2m/
   info: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
@@ -894,14 +929,16 @@ sources:
   probe: fi_elevation
   license:
     class: public
-    name: CC BY 4.0 (NLS open data licence)
+    name: CC BY 4.0
     url: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
-    attribution: "© Maanmittauslaitos"
+    attribution: © Maanmittauslaitos
   access: free
-  checked: "2026-11-16 stránka produktu MML (licence CC 4.0) přes vyhledávání"
+  checked: 'Claude 2026-11-16 stránka julkaisuoikeudet MML (5 p nesmí publikovat) · kontrola Grok: 2026-11-16 stránka pořízení
+    laseru a publikačních práv; zrcadlo Funet se znovu nestahovalo'
   issues:
-    - "Přímá rozhraní MML bez klíče vrací 401 → bere se zrcadlo Funet, které není oficiální služba MML; při jeho výpadku je potřeba bezplatný API klíč MML."
-    - "Jen 2 m; husté mračno 5 b/m² je placené (min. 26,69 € za objednávku, silná autentizace), otevřené jen 0,5 b/m²."
+  - 'OPRAVA: otevřené mračno je 0,5 p (záznam fi_laser_05). Mračno 5 p se nesmí publikovat (fi_laser_5p), není to jen poplatek.
+    Částka 26,69 € z původního issues se 2026-11-16 na stránkách MML nenašla.'
+  - Rastr 2 m a závislost na Funetu, když rozhraní MML bez klíče vrací 401, se v tomto kole znovu neměřily.
 
 - id: fi_chm
   countries: [FI]
@@ -971,160 +1008,216 @@ sources:
 
 # ----------------------------------------------------------------------------------------------- kandidáti bez napojení (evropa-data-prehled 2026-11-14)
 - id: pl_gugik
-  countries: [PL]
-  kinds: [elevation, point_cloud, vectors, orthophoto]
-  name: NMT 1 m (WCS), LAZ ~4 b/m² (města ~20), BDOT10k, ortofoto
+  countries:
+  - PL
+  kinds:
+  - elevation
+  - point_cloud
+  - vectors
+  - orthophoto
+  name: NMT a NMPT (WCS), LAZ, BDOT10k, ortofoto
   provider: GUGiK
-  url: https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModelFormatTIFF
-  info: https://www.geoportal.gov.pl/
+  url: https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModel
+  info: https://www.geoportal.gov.pl/en/data/lidar-measurements-lidar/
   role: výšky
   status: candidate
   license:
     class: public
-    name: bezplatně k libovolnému využití (zákon 2020)
-    url: https://www.geoportal.gov.pl/
-    attribution: "GUGiK"
+    name: zdarma k libovolnému účelu, při publikaci uvést zdroj
+    url: https://www.geoportal.gov.pl/en/data/lidar-measurements-lidar/
+    attribution: 'Źródło danych: GUGiK'
   access: free
-  checked: "neověřeno (evropa-data-prehled 2026-11-14: WCS DTM 1 m stažen)"
+  checked: 'Grok: 2026-11-16 anglická stránka LIDAR measurements a katalog WCS – Claude neověřil'
   issues:
-    - "Ortofoto WMS jen v EPSG:2176–2180; EGiB (katastr) zakazuje hromadné stahování."
-    - "Nízká hustota mračna mimo města (~4 b/m²)."
+  - 'OPRAVA: stránka LiDARu říká, že LAS/LAZ jsou zdarma a k libovolnému účelu. Odkaz na soubor je atribut WMS GetFeatureInfo
+    (KRON86 a EVRF2007) nebo WFS index. Pojmenovaná CC licence to není.'
+  - Katalog WCS uvádí NMT (ASCII i GeoTIFF), NMPT (ASCII) a ortofoto. Konkrétní URL NMPT a ortofota jsou na stránce schované
+    za tlačítkem — neopsáno. Adresa v registru s příponou FormatTIFF se vedle kratší DigitalTerrainModel neověřovala.
+  - Hustota mračna mimo města se z této stránky nepotvrdila (v registru ~4 body/m²) — neověřeno.
 
 - id: uk_ea
-  countries: [UK]
-  kinds: [elevation, point_cloud, vectors]
-  name: EA LiDAR composite DTM/DSM 1 m (WCS) + National LiDAR Programme; OS OpenMap Local
-  provider: Environment Agency, Ordnance Survey
-  url: https://environment.data.gov.uk/
-  info: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
+  countries:
+  - UK
+  kinds:
+  - elevation
+  - point_cloud
+  - vectors
+  name: EA LiDAR Composite DTM a DSM 1 m (WCS) a National LiDAR Programme
+  provider: Environment Agency
+  url: https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs
+  info: https://environment.data.gov.uk/support/announcements/275811447/275811543
   role: výšky
   status: candidate
   license:
     class: public
     name: Open Government Licence v3
     url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
-    attribution: "Contains Environment Agency information © Environment Agency"
+    attribution: Contains Environment Agency information © Environment Agency
   access: free
-  checked: "neověřeno (evropa-data-prehled: WCS DTM 1 m stažen)"
+  checked: 'Claude 2026-11-16 GetCapabilities nového WCS odpovídá 200; licence OGL neověřena znovu · kontrola Grok: 2026-11-16
+    oznámení Defra o nových WCS a karty datasetů DTM a DSM 1 m; text OGL na kartě datasetu v extraktu nebyl'
   issues:
-    - "Otevřené ortofoto není (APGB jen veřejný sektor); jen Anglie, Skotsko a Wales částečně."
-    - "OS MasterMap (obdoba DTM) placená."
+  - 'OPRAVA: WCS už nemá v adrese rok. DTM 1 m a DSM last-return 1 m i first-return 1 m jsou na environment.data.gov.uk/spatialdata/…/wcs
+    (verze 2.0.1). Kompozit je verze 2022, asi 99 % Anglie, dlaždice 5 km.'
+  - Skotsko je samostatně (uk_scotland_lidar), ne tento WCS. Mračno National LiDAR Programme geomatics hub zmiňuje ke stažení,
+    konkrétní URL v extraktu nebylo.
+  - OS MasterMap dál není otevřená technická mapa.
 
 - id: dk_dataforsyningen
-  countries: [DK]
-  kinds: [elevation, point_cloud, orthophoto]
-  name: DHM 0,4 m DTM/DSM + mračno, ortofoto (Dataforsyningen)
+  countries:
+  - DK
+  kinds:
+  - elevation
+  - point_cloud
+  - orthophoto
+  name: DHM DTM/DSM a Punktsky, ortofoto (Dataforsyningen)
   provider: Klimadatastyrelsen
-  url: https://dataforsyningen.dk/
-  info: https://dataforsyningen.dk/
+  url: https://dataforsyningen.dk/data/3931
+  info: https://www.klimadatastyrelsen.dk/om-klimadatastyrelsen/vilkaar-og-priser
   role: výšky
   status: candidate
   license:
     class: public
-    name: frie geografiske data (komerčně ano, citace)
-    url: https://dataforsyningen.dk/
-    attribution: "Klimadatastyrelsen"
+    name: CC BY 4.0
+    url: https://www.klimadatastyrelsen.dk/om-klimadatastyrelsen/vilkaar-og-priser
+    attribution: Klimadatastyrelsen
   access: api_key
-  checked: "neověřeno (služba odpovídá, GetCoverage bez tokenu 403)"
+  checked: 'Grok: 2026-11-16 produkt Punktsky, podmínky CC BY 4.0 a zpráva o stěhování platformy 3. 11. 2026 – Claude neověřil'
   issues:
-    - "Vyžaduje bezplatný token (registrace účtu)."
+  - 'OPRAVA: od 16. 5. 2024 je volná geodata výslovně CC BY 4.0, i komerčně, s citací. Mračno má středně 4,5 bodu/m² a 13
+    tříd včetně vegetace a budov.'
+  - Token je dál nutný. 26. 11. 2026 16:00 až 30. 11. 2026 8:00 je Dataforsyningen vypnutá. Od 30. 11. 2026 chce každá služba
+    účet; účet zůstává zdarma. Část služeb se na novou platformu dostane až v 1. čtvrtletí 2027.
+  - Stejné mračno je i na Datafordeleru (API klíč nebo OAuth), listy 1 km v ZIPech 10 km.
 
 - id: se_lantmateriet
-  countries: [SE]
-  kinds: [elevation, point_cloud]
-  name: Markhöjdmodell 1 m COG, Laserdata skog COPC (STAC)
+  countries:
+  - SE
+  kinds:
+  - elevation
+  - point_cloud
+  name: Markhöjdmodell 1 m (COG) a Laserdata Nedladdning skog (COPC, STAC)
   provider: Lantmäteriet
   url: https://api.lantmateriet.se/stac-hojd/v1
-  info: https://www.lantmateriet.se/
+  info: https://www.lantmateriet.se/globalassets/geodata/geodataprodukter/anvandningsvillkor-for-laserdata-nedladdning-skog.pdf
   role: výšky
   status: candidate
   license:
     class: public
-    name: CC BY 4.0
-    url: https://www.lantmateriet.se/
-    attribution: "© Lantmäteriet"
+    name: CC BY 4.0 (mračno; u Markhöjdmodell jiný dokument podmínek)
+    url: https://www.lantmateriet.se/globalassets/geodata/geodataprodukter/anvandningsvillkor-for-laserdata-nedladdning-skog.pdf
+    attribution: © Lantmäteriet
   access: account
-  checked: "neověřeno (evropa-data-prehled: licence v STAC CC BY 4.0, data 401 bez účtu)"
+  checked: 'Grok: 2026-11-16 Geotorget (oba produkty, STAC) a PDF podmínek mračna z 20. 5. 2026 – Claude neověřil'
   issues:
-    - "Stahování jen s bezplatným účtem Geotorget (Basic auth)."
-    - "GDPR: příjemce mračna je správcem osobních údajů."
+  - 'OPRAVA: mračno je CC BY 4.0 i komerčně, ale příjemce je podle GDPR správce osobních údajů. Hustota 1–2 body/m². Od 1.
+    6. 2026 dlaždice 10 × 10 km a přístup jen po objednávce oprávnění na Geotorget (Basic auth).'
+  - Markhöjdmodell Geotorget váže na „Användningsvillkor för värdefulla datamängder“, ne na PDF mračna. Ten dokument se 2026-11-16
+    neotevřel — jestli je to taky CC BY 4.0, neověřeno.
 
 - id: no_geonorge
-  countries: ["NO"]           # v uvozovkách – YAML by NO četl jako false
-  kinds: [elevation]
-  name: DTM 1 m (Geonorge WCS), mračna na hoydedata.no
+  countries:
+  - 'NO'
+  kinds:
+  - elevation
+  name: DTM1 a DOM1 (Geonorge WCS) a mračna na hoydedata.no
   provider: Kartverket
-  url: https://hoydedata.no/
-  info: https://www.geonorge.no/
+  url: https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833
+  info: https://www.kartverket.no/api-og-data/terrengdata
   role: výšky
   status: candidate
   license:
     class: public
     name: CC BY 4.0
-    url: https://www.geonorge.no/
-    attribution: "© Kartverket"
+    url: https://kartkatalog.geonorge.no/metadata/hoeyde-dom1/35e66707-942c-4aa2-9945-d769c2aeba35
+    attribution: © Kartverket
   access: free
-  checked: "neověřeno"
+  checked: 'Claude 2026-11-16 GetCapabilities WCS DOM odpovídá 200; licence podle Groku · kontrola Grok: 2026-11-16 kartkatalog
+    DOM1 a DTM1 Atom (CC BY 4.0) a stránka terrengdata'
   issues:
-    - "Mračna jen ručně; ortofoto Norge i bilder není otevřené ke stažení."
+  - 'OPRAVA: rastr 1 m jde bez účtu přes WCS. DOM: https://wcs.geonorge.no/skwms1/wcs.hoyde-dom-nhm-25833 . DTM: https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833
+    . DTM Atom feed listů 15 km: https://nedlasting.geonorge.no/geonorge/ATOM/hoydedata/Hoydedata_ServiceFeed.atom'
+  - Mračno je dál na hoydedata.no. Stránka terrengdata zmiňuje REST pro strojové stažení, konkrétní endpoint v textu nebyl.
+  - hoydedata.no má i vrstvy jen pro partnery Norge digitalt (přihlášení). Ortofoto Norge i bilder se v tomto kole znovu neověřovalo.
 
 - id: es_cnig
-  countries: [ES]
-  kinds: [elevation, point_cloud]
-  name: PNOA LiDAR, MDT02/05 (IDEE WCS jen 5 m int16)
+  countries:
+  - ES
+  kinds:
+  - elevation
+  - point_cloud
+  name: PNOA LiDAR a MDT (WCS hrubý, MDT02 soubory 2 m)
   provider: IGN / CNIG
-  url: https://centrodedescargas.cnig.es/
-  info: https://www.ign.es/
+  url: https://centrodedescargas.cnig.es/CentroDescargas/home
+  info: https://centrodedescargas.cnig.es/CentroDescargas/servicios-web
   role: výšky
   status: candidate
   license:
     class: public
     name: CC BY 4.0
-    url: https://www.ign.es/
-    attribution: "© Instituto Geográfico Nacional"
+    url: https://centrodedescargas.cnig.es/CentroDescargas/home
+    attribution: © Instituto Geográfico Nacional
   access: free
-  checked: neověřeno
+  checked: 'Grok: 2026-11-16 úvod Centra de Descargas (CC BY 4.0) a stránka webových služeb – Claude neověřil'
   issues:
-    - "WCS jen 5 m v celých metrech (int16) – na vrstevnice nevhodné; LAZ jen z Centro de Descargas bez API (z cloudu nedostupné)."
-    - "Catastro zakazuje automatické / hromadné stahování."
+  - 'OPRAVA: Centrum de Descargas se 2026-11-16 otevřelo (věta registru „z cloudu nedostupné“ už neplatí pro samotnou stránku).
+    WCS terénu je pořád 1000/500/200/25/5 m: https://servicios.idee.es/wcs-inspire/mdt . WMS povrchu je 5 a 2,5 m. MDT02 je
+    2 m COG po listech MTN25, ne API.'
+  - Stránka služeb zmiňuje OGC API pokrytí, URL v textu nebylo. Jestli umí 1 m nebo LAZ, neověřeno. Na ≤ 1 m je v Katalánsku
+    a Baskicku regionální záznam, ne tento WCS.
+  - Katastr a zákaz hromadného stahování se v tomto kole znovu neověřovaly.
 
 - id: si_clss
-  countries: [SI]
-  kinds: [point_cloud, elevation, orthophoto]
-  name: CLSS 2023–2025 (mračno, DMR, DMP, ortofoto po 1 km)
-  provider: GURS
+  countries:
+  - SI
+  kinds:
+  - point_cloud
+  - elevation
+  - orthophoto
+  name: CLSS (mračno, DMR, DMP, ortofoto)
+  provider: Geodetska uprava Republike Slovenije (GURS)
   url: https://clss.si/
-  info: https://clss.si/
-  role: výšky
-  status: candidate
-  license:
-    class: unknown
-    name: neověřeno (≈ CC BY 4.0, stránka licenci neuvádí)
-    url: https://clss.si/
-    attribution: ""
-  access: free
-  checked: neověřeno
-  issues:
-    - "Max. 10 listů naráz, bez API; z cloudu nedostupné."
-
-- id: lv_lgia
-  countries: [LV]
-  kinds: [point_cloud, elevation]
-  name: Klasifikované mračno 1,5–4 b/m², DTM
-  provider: LĢIA
-  url: https://www.lgia.gov.lv/
-  info: https://www.lgia.gov.lv/
+  info: https://www.e-prostor.gov.si/dostopi/javni-dostop/
   role: výšky
   status: candidate
   license:
     class: public
     name: CC BY 4.0
-    url: https://www.lgia.gov.lv/
-    attribution: "© LĢIA"
+    url: https://creativecommons.org/licenses/by/4.0/deed.sl
+    attribution: Geodetska uprava Republike Slovenije, vrsta podatka in čas
   access: free
-  checked: neověřeno
+  checked: 'Grok: 2026-11-16 e-prostor Javni dostop a PDF obecných podmínek; clss.si vrátilo prázdnou stránku – Claude neověřil'
   issues:
-    - "Nízká hustota bodů (1,5–4 b/m²)."
+  - 'OPRAVA: obecná data GURS včetně dálkového průzkumu jsou CC BY 4.0, i komerčně. Licence už není unknown. Citace musí mít
+    druh dat a datum stavu.'
+  - clss.si se 2026-11-16 nepodařilo přečíst (prázdný obsah). Limit 10 listů a „bez API“ z registru se proto nepotvrdil ani
+    nevyvrátil.
+
+- id: lv_lgia
+  countries:
+  - LV
+  kinds:
+  - point_cloud
+  - elevation
+  name: Klasifikované mračno LĢIA (LAS po 1 km)
+  provider: Latvijas Ģeotelpiskās informācijas aģentūra (LĢIA)
+  url: https://s3.storage.pub.lvdc.gov.lv/lgia-opendata/las/LGIA_OpenData_las_saites.txt
+  info: https://www.lgia.gov.lv/lv/atvertie-dati
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.lgia.gov.lv/lv/atvertie-dati
+    attribution: © LĢIA
+  access: free
+  checked: 'Claude 2026-11-16 seznam URL LAS odpovídá 200; licence podle Groku · kontrola Grok: 2026-11-16 Atvērtie dati (CC
+    BY 4.0, hustota) a seznam URL LAS (soubor se stáhl)'
+  issues:
+  - 'OPRAVA: seznam listů je veřejný textový soubor na s3.storage.pub.lvdc.gov.lv, bez účtu. Celková hustota aspoň 4 body/m²,
+    terén středně aspoň 1,5. Třídy: terén, nízká, střední a vysoká vegetace, stavby. Ročníky 2013–2019.'
+  - Samostatný rastr DTM ≤ 1 m stránka nepopisuje (jen model s krokem 20 m, ten je na vrstevnice hrubý). Ortofoto je záznam
+    lv_lgia_orto.
 
 # ----------------------------------------------------------------------------------------------- nevhodné celoevropské zdroje
 - id: fabdem
@@ -1164,3 +1257,391 @@ sources:
   checked: neověřeno
   issues:
     - "30 m DSM (ne DTM) – na OB vrstevnice nepoužitelné."
+
+# ----------------------------------------------------------------------------------------------- doplněno z kontroly Grok 2026-11-16 (kandidáti)
+- id: lu_act_lidar
+  countries:
+  - LU
+  kinds:
+  - point_cloud
+  - elevation
+  name: BD-L-Lidar2024 — mračno, MNT a MNS 0,5 m
+  provider: Administration du cadastre et de la topographie (ACT)
+  url: https://data.public.lu/en/datasets/lidar-2024-releve-3d-du-territoire-luxembourgeois/
+  info: https://download.data.public.lu/resources/lidar-2024-releve-3d-du-territoire-luxembourgeois/20250214-121729/doc-lidar2024-v-1-1.pdf
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC0 1.0
+    url: https://creativecommons.org/publicdomain/zero/1.0/
+    attribution: ''
+  access: free
+  checked: 'Claude 2026-11-16 API data.public.lu (cc-zero, COG MNT/MNS, dlaždice ZIP) · kontrola Grok: 2026-11-16 data.public.lu
+    (dataset LiDAR 2024, CC0) a PDF popisu ACT v1.1'
+  issues:
+  - Mračno > 30 vyslaných bodů/m², třídy 3–5 vegetace, 6 budovy; dlaždice 500 m v ZIP/COPC, index GeoPackage. Celé mračno
+    přes 2 TB.
+  - MNT a MNS 0,5 m jsou jeden COG na celou zemi (MNT asi 37 GB) — číst okno, nestahovat soubor. EPSG:2169.
+  - Starší LiDAR 2019 je také CC0, ale hromadné stažení všech dlaždic v popisu vyžaduje API klíč portálu.
+
+- id: pt_dgt_lidar
+  countries:
+  - PT
+  kinds:
+  - point_cloud
+  - elevation
+  name: LiDAR pevninského Portugalska (LAZ, MDT a MDS 0,5 m)
+  provider: Direção-Geral do Território (DGT)
+  url: https://cdd.dgterritorio.gov.pt/
+  info: https://www.dgterritorio.gov.pt/dados-abertos
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.dgterritorio.gov.pt/dados-abertos
+    attribution: Direção-Geral do Território
+  access: account
+  checked: 'Grok: 2026-11-16 stránka Dados abertos (CC BY 4.0, centrum dat), ficha modelů reliéfu a článek o stažení z 23.
+    6. 2026 – Claude neověřil'
+  issues:
+  - Nálet duben 2024 – březen 2025, středně 10 bodů/m², listy 1 km, třídy 2 terén, 3–5 vegetace, 6 stavby. MDT a MDS 0,5 m,
+    2 m a 10 m.
+  - Ke stažení je asi 90 % pevniny; severozápad se ještě zpracovává (článek 23. 6. 2026).
+  - Jeden přístup stáhne nejvýš asi 200 km². API DGT slibuje později. OGC API https://ogcapi.dgterritorio.gov.pt/ LiDAR v
+    seznamu kolekcí nemá (jen CAOP, CRUS, katastr, COS, OrtoSat).
+  - Webinář 15. 7. 2025 popisuje registraci pro stažení a katalog ve tvaru STAC; článek z roku 2026 registraci už neopakuje.
+
+- id: es_icgc_lidar
+  countries:
+  - ES
+  kinds:
+  - point_cloud
+  - orthophoto
+  name: LiDAR territorial v3.1 Katalánska (2021–2023) a ortofoto 15 cm
+  provider: Institut Cartogràfic i Geològic de Catalunya (ICGC)
+  url: https://datacloud.icgc.cat/datacloud/lidar-territorial/
+  info: https://catalegs.ide.cat/geonetwork/geonetwork/api/records/lidar-territorial-v3r1-2021-2023
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://catalegs.ide.cat/geonetwork/geonetwork/api/records/lidar-territorial-v3r1-2021-2023
+    attribution: Institut Cartogràfic i Geològic de Catalunya (ICGC)
+  access: free
+  checked: 'Grok: 2026-11-16 metadata ICGC (CC BY 4.0, min. 8 bodů/m², LAZ) a výpis datacloud.icgc.cat – Claude neověřil'
+  issues:
+  - Jen Katalánsko. EPSG:25831. Ortofoto 15 cm je ze stejného náletu.
+  - Samostatný DTM 0,5 m jako jeden COG se v otevřených stránkách ICGC v tomto kole nepotvrdil — neověřeno.
+
+- id: es_euskadi_mdt
+  countries:
+  - ES
+  kinds:
+  - elevation
+  - point_cloud
+  name: MDT a MDS 1 m Baskicka (LiDAR) a adresář LAZ
+  provider: Gobierno Vasco / geoEuskadi
+  url: https://www.geo.euskadi.eus/lidar/DatosDescarga/
+  info: http://www.geo.euskadi.eus/geonetwork/srv/spa/metadata.show?uuid=md_IDEEu_MDT_LIDAR_2016_es
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 3.0 (metadata MDT 2016)
+    url: https://www.geo.euskadi.eus/geonetwork/srv/spa/metadata.show?uuid=md_IDEEu_MDT_LIDAR_2016_es
+    attribution: Eusko Jaurlaritza / Gobierno Vasco
+  access: free
+  checked: 'Grok: 2026-11-16 stránka stahování geoEuskadi a metadata MDT LiDAR 2016 (CC BY 3.0) – Claude neověřil'
+  issues:
+  - Metadata 2016 říkají CC BY 3.0 a zmiňují WCS. Stránka živého MDE 1 m licenci v extraktu neopakuje — u aktuální mozaiky
+    neověřeno, jestli pořád platí CC BY 3.0.
+  - Konkrétní adresa WCS se z otevřených stránek neopsala (byla jen v sekundárním přehledu) — nepoužívat, dokud se neověří
+    GetCapabilities.
+
+- id: es_pnoa_ortho
+  countries:
+  - ES
+  kinds:
+  - orthophoto
+  name: Ortofoto PNOA máxima actualidad (WMS a WMTS)
+  provider: IGN / CNIG
+  url: https://www.ign.es/wms-inspire/pnoa-ma
+  info: https://www.idee.es/csw-codsi-idee/srv/api/records/spaignPNOA2025
+  role: šablona
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.idee.es/csw-codsi-idee/srv/api/records/spaignPNOA2025
+    attribution: PNOA CC BY 4.0 scne.es
+  access: free
+  checked: 'Grok: 2026-11-16 záznam IDEE PNOA 2025 (CC BY 4.0, WMS a WMTS) – Claude neověřil'
+  issues:
+  - Vrstva míchá ortofoto PNOA a Sentinel-2. Soubory COG jsou v Centru de Descargas, ne z WMS.
+
+- id: be_wallonie_lidar
+  countries:
+  - BE
+  kinds:
+  - point_cloud
+  - elevation
+  name: LiDAR Wallonie 2021–2022 (mračno, MNT a MNS 0,5 m)
+  provider: Service public de Wallonie (SPW)
+  url: https://geoportail.wallonie.be/catalogue/ab14b035-c9b0-4c79-a2b6-36811fca96a1.html
+  info: https://geoportail.wallonie.be/lidar
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: Service public de Wallonie (SPW)
+  access: free
+  checked: 'Grok: 2026-11-16 katalog mračna, MNT a stránka LiDAR 2021–2022 – Claude neověřil'
+  issues:
+  - 'Nálet hlavně prosinec–březen (bez listí). Hustota mračna 6,8 bodů/m². Třídy nejsou ASPRS: 1 = nad terénem, 2 = terén,
+    4 = vysoká vegetace.'
+  - 'Přímé stažení je po provinciích: mračno 45–253 GB. Výřez na míru přijde e-mailem do 48 hodin. Mřížka 500 m je malý GeoPackage
+    s odkazy.'
+  - 'MNT 0,5 m: https://geoportail.wallonie.be/catalogue/a004e570-99d6-4fe5-b83d-49b774409278.html — také CC BY 4.0, také
+    po provinciích.'
+  - Veřejný PICC není totéž co PICC-vTOPO (ten chce úmluvu WALTOPO). Do technické mapy se v tomto kole nebral.
+
+- id: be_dhmv_brondata
+  countries:
+  - BE
+  kinds:
+  - point_cloud
+  name: DHMV II surové mračno (EODaS OpenLiDAR)
+  provider: Digitaal Vlaanderen
+  url: https://remotesensing.vlaanderen.be/apps/openlidar
+  info: https://metadata.vlaanderen.be/srv/api/records/242ddabc-3cbc-44f0-9623-bee874b29549
+  role: výšky
+  status: candidate
+  license:
+    class: restricted
+    name: licence DHMV II remote sensing brondata
+    url: https://metadata.vlaanderen.be/srv/api/records/242ddabc-3cbc-44f0-9623-bee874b29549
+    attribution: Digitaal Vlaanderen
+  access: account
+  checked: 'Claude 2026-11-16 metadata Vlaanderen (jen úkoly veřejného zájmu, po registraci BvK) · kontrola Grok: 2026-11-16
+    metadata Vlaanderen a stránka DHMV II brondata'
+  issues:
+  - 'NEKOMERČNÍ: metadata dovolují použití jen pro úkoly veřejného zájmu, služební potřebu nebo zákonnou informační povinnost,
+    a až po registraci na portálu BvK. https://metadata.vlaanderen.be/srv/api/records/242ddabc-3cbc-44f0-9623-bee874b29549'
+  - Nálet 2013–2015, zima, dlaždice 500 m, aspoň 8 bodů/m² na pás (s překryvem uvádějí 16). Rastr DTM/DSM 1 m je jiná, komerčně
+    použitelná sada (viz oprava be_dhmv).
+
+- id: de_nrw_dgm
+  countries:
+  - DE
+  kinds:
+  - elevation
+  name: DGM1 Severní Porýní-Vestfálsko (WCS)
+  provider: Geobasis NRW (Bezirksregierung Köln)
+  url: https://www.wcs.nrw.de/geobasis/wcs_nw_dgm
+  info: https://ckan.open.nrw/dataset/0c6796e5-9eca-4ae6-8b32-1fcc5ae5c481/resource/b923abbe-085f-47eb-b768-a326ef8d8754
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Zero 2.0
+    url: https://www.govdata.de/dl-de/zero-2-0
+    attribution: ''
+  access: free
+  checked: 'Grok: 2026-11-16 GetCapabilities WCS (Fees citují dl-de/zero-2.0) a záznam Open.NRW – Claude neověřil'
+  issues:
+  - Jen terén (coverage nw_dgm). Povrch ani mračno tato služba nemá — porost z ní nespočítáš.
+  - GetCoverage vrací GeoTIFF. Služba 2026-11-16 odpovídala.
+
+- id: de_by_dgm1
+  countries:
+  - DE
+  kinds:
+  - elevation
+  name: DGM1 Bavorsko (GeoTIFF 1 km)
+  provider: Bayerische Vermessungsverwaltung
+  url: https://geodaten.bayern.de/opengeodata/OpenDataDetail.html?pn=dgm1
+  info: https://www.geodaten.bayern.de/odd/m/3/html/nutzungsbedingungen.html
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.geodaten.bayern.de/odd/m/3/html/nutzungsbedingungen.html
+    attribution: Bayerische Vermessungsverwaltung – www.geodaten.bayern.de
+  access: free
+  checked: 'Grok: 2026-11-16 podmínky OpenData (CC BY 4.0, i komerčně) a popis DGM1 – Claude neověřil'
+  issues:
+  - Jen terén 1 m, dlaždice 1 km, výška lepší než ±0,2 m, DHHN2016. Hromadné stažení je Metalink.
+  - Mračno a DOM se na otevřených stránkách DGM1 nepopisují.
+
+- id: de_bb_als
+  countries:
+  - DE
+  kinds:
+  - point_cloud
+  name: Laserscandaten Brandenburg (LAZ po dlaždicích)
+  provider: LGB Brandenburg
+  url: https://data.geobasis-bb.de/geobasis/daten/als/laz/
+  info: https://geobroker.geobasis-bb.de/gbss.php?MODE=GetProductInformation&PRODUCTID=d9895ec2-7039-4c0d-914c-a68f227a7069
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: © GeoBasis-DE/LGB, dl-de/by-2-0
+  access: free
+  checked: 'Grok: 2026-11-16 výpis data.geobasis-bb.de a produktová metadata Geobroker – Claude neověřil'
+  issues:
+  - 'Metadata: asi 5 bodů/m², nálet v době chudé vegetace, úplnost 60 %, roční přírůstek asi 2 000 km². ZIP ve výpisu řádově
+    desítky až nízké stovky MB.'
+  - Nadpis adresáře říká „1 m mřížka“, produktová stránka mluví o nepravidelném mračnu. Před napojením ověřit, co v LAZ opravdu
+    je.
+  - Historie 2008–2012 je jiný produkt a není celoplošná ve stejné kvalitě.
+
+- id: uk_scotland_lidar
+  countries:
+  - UK
+  kinds:
+  - elevation
+  - point_cloud
+  name: Scottish Public Sector LiDAR (DTM, DSM, dlaždice)
+  provider: Scottish Government a JNCC
+  url: https://remotesensingdata.gov.scot/about
+  info: https://registry.opendata.aws/scottish-lidar/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: Open Government Licence v3.0
+    url: https://remotesensingdata.gov.scot/about
+    attribution: Crown copyright Scottish Government (podle fáze, viz metadata)
+  access: free
+  checked: 'Grok: 2026-11-16 About portálu (OGL, dlaždice 10 km, WMS) a záznam Open Data on AWS – Claude neověřil'
+  issues:
+  - Není celý Skotsko, jen plochy jednotlivých fází. WMS https://srsp-ows.jncc.gov.uk/ows je obrázek, ne výšky.
+  - Bucket s3://srsp-open-data se čte bez účtu AWS. Fáze 2 LAZ je výjimka a je nekomerční — samostatný záznam uk_scotland_ph2_laz.
+
+- id: uk_scotland_ph2_laz
+  countries:
+  - UK
+  kinds:
+  - point_cloud
+  name: Scottish LiDAR Phase 2 LAZ
+  provider: Scottish Government a JNCC
+  url: https://registry.opendata.aws/scottish-lidar/
+  info: https://remotesensingdata.gov.scot/about
+  role: výšky
+  status: candidate
+  license:
+    class: restricted
+    name: non-commercial government licence (jen fáze 2 LAZ)
+    url: https://registry.opendata.aws/scottish-lidar/
+    attribution: Copyright Scottish Government and SEPA (2014)
+  access: free
+  checked: 'Grok: 2026-11-16 záznam AWS (výjimka fáze 2 LAZ); znění nekomerční licence samotné se neotevřelo – Claude neověřil'
+  issues:
+  - 'NEKOMERČNÍ: registr Open Data on AWS píše, že jediná výjimka z OGL jsou soubory LAZ fáze 2, a ty jsou pod nekomerční
+    vládní licencí. https://registry.opendata.aws/scottish-lidar/'
+  - DTM a DSM téže fáze metadata vedou jako Open Government Licence. Ty ber ze záznamu uk_scotland_lidar, ne z těchto LAZ.
+
+- id: fi_laser_05
+  countries:
+  - FI
+  kinds:
+  - point_cloud
+  name: Laserkeilausaineisto 0,5 p (otevřené řídké mračno)
+  provider: Maanmittauslaitos (MML)
+  url: https://www.maanmittauslaitos.fi/kartat-ja-paikkatieto/aineistot-ja-rajapinnat/tuotekuvaukset/laserkeilausaineisto-05-p
+  info: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.maanmittauslaitos.fi/kartat-ja-paikkatieto/aineistot-ja-rajapinnat/tuotekuvaukset/laserkeilausaineisto-05-p
+    attribution: © Maanmittauslaitos
+  access: api_key
+  checked: 'Grok: 2026-11-16 produktová stránka 0,5 p (CC BY 4.0) a stránka jak data získat – Claude neověřil'
+  issues:
+  - 'Řídké: 0,5 bodu/m² (v omezených oblastech 0,3), rozestup asi 1,4 m. Na vrstevnice horší než rastr 2 m, který už registr
+    má. Není celé Finsko, program běží od roku 2020.'
+  - Samoobsluha v Karttapaice je bez poplatku. Strojově se uvádí OGC API Processes; klíč se u něj v tomto kole nezkoušel.
+    Adresářové rozhraní je placené.
+  - Starší 0,5 p z let 2008–2019 je také CC BY 4.0 a pokrývá zemi, ale už se neaktualizuje.
+
+- id: fi_laser_5p
+  countries:
+  - FI
+  kinds:
+  - point_cloud
+  name: Laserkeilausaineisto 5 p
+  provider: Maanmittauslaitos (MML)
+  url: https://www.maanmittauslaitos.fi/laserkeilausaineistot
+  info: https://www.maanmittauslaitos.fi/tietoa-maanmittauslaitoksesta/organisaatio/julkaisuoikeudet
+  role: výšky
+  status: candidate
+  license:
+    class: restricted
+    name: käyttölupa (nesmí se publikovat)
+    url: https://www.maanmittauslaitos.fi/tietoa-maanmittauslaitoksesta/organisaatio/julkaisuoikeudet
+    attribution: © Maanmittauslaitos
+  access: account
+  checked: 'Claude 2026-11-16 stránka julkaisuoikeudet MML (nesmí se publikovat ani předat) · kontrola Grok: 2026-11-16 stránka
+    pořízení laseru a stránka publikačních práv'
+  issues:
+  - 'NEKOMERČNÍ: husté mračno 5 bodů/m² smí organizace použít uvnitř, ale nesmí ho publikovat ani předat dál v téže podrobnosti.
+    Chce silné přihlášení a objednávku. https://www.maanmittauslaitos.fi/tietoa-maanmittauslaitoksesta/organisaatio/julkaisuoikeudet'
+  - Částka 26,69 € z registru (fi_mml) na stránkách otevřených 2026-11-16 nebyla. U nesamostatné dodávky 0,5 p ceník začíná
+    na 110,36 € bez DPH za první list.
+
+- id: lt_lidar_dr
+  countries:
+  - LT
+  kinds:
+  - point_cloud
+  name: Lidar_DR_LT (klasifikované LAZ po listech)
+  provider: Nacionalinė žemės tarnyba, portál geoportal.lt
+  url: https://data.gov.lt/datasets/5361/
+  info: https://www.geoportal.lt/geoportal/en/aktualijos
+  role: výšky
+  status: candidate
+  license:
+    class: unknown
+    name: na data.gov.lt nevyplněno (přístup „vieši“)
+    url: https://data.gov.lt/datasets/5361/
+    attribution: ''
+  access: account
+  checked: 'Grok: 2026-11-16 data.gov.lt dataset 5361 (licence prázdná) a novinka geoportal.lt – Claude neověřil'
+  issues:
+  - 'Ročník 2025/2026: aspoň 15 bodů/m², třídy 2 terén, 3–5 vegetace, 6 budovy. Automatická klasifikace se plete. Soubory
+    RIEGL mají dimenze Amplitude, Reflectance a Deviation.'
+  - Není API. Objednávka území na geoportálu vrátí odkazy na listy; celá sada (řádově TB) je e-mail a žádost. CC BY z oficiální
+    stránky nevyplývá — sekundární přehledy ho tvrdí, tady se nebere.
+
+- id: lv_lgia_orto
+  countries:
+  - LV
+  kinds:
+  - orthophoto
+  name: Ortofotokartes LĢIA (otevřená data)
+  provider: Latvijas Ģeotelpiskās informācijas aģentūra (LĢIA)
+  url: https://www.lgia.gov.lv/lv/atvertie-dati
+  info: https://www.lgia.gov.lv/lv/atvertie-dati
+  role: šablona
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.lgia.gov.lv/lv/atvertie-dati
+    attribution: © LĢIA
+  access: free
+  checked: 'Grok: 2026-11-16 stránka Atvērtie dati (CC BY 4.0 a popis ortofota) – Claude neověřil'
+  issues:
+  - Na stránce je nejnovější popsaný cyklus 2016–2018, 0,25 m, listy TIFF. Konkrétní index souborů v textu stránky nebyl (u
+    LAS ano).
