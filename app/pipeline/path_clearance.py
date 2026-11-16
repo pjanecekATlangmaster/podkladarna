@@ -880,6 +880,12 @@ SPRINT_BUILDING_INNER_M = 1.0
 SPRINT_PASSAGE_MIN_WIDTH_M = 2.0
 SPRINT_PASSAGE_MIN_LEN_M = 1.0
 SPRINT_PASSAGE_CUT_MARGIN_M = 0.5
+# Podloubí (Petr 2026-11-16): krytá čára uvnitř budovy souběžná s obrysem do tolika m (OSM chodník vede osou
+# podloubí, DTM budova končí na vnější líci) dostane zastřešení od obrysu po čáru a stejně daleko za ni.
+SPRINT_ARCADE_MAX_M = 5.0
+# Souběžná = aspoň takový podíl bodů čáry má nejbližší obrys kolmo (≥ 70°) a do ``SPRINT_ARCADE_MAX_M``.
+SPRINT_ARCADE_PARALLEL_SHARE = 0.7
+SPRINT_ARCADE_MIN_LEN_M = 4.0
 # Zbytek čáry cesty po ořezu kratší než tolik µm na mapě se zahodí.
 SPRINT_PATH_PIECE_MIN_UM = 100.0
 # Zbytek budovy po vyříznutí průchodu s menší výměrou (µm² na mapě, čtverec 0,3 mm) se zahodí.
@@ -901,8 +907,44 @@ def sprint_passage_geometry(buildings, covered_lines, half_widths, *, scale: int
         for piece in getattr(inside, "geoms", [inside]):
             if piece.geom_type != "LineString" or piece.length < SPRINT_PASSAGE_MIN_LEN_M * m:
                 continue
-            strips.append(piece.buffer(max(half, SPRINT_PASSAGE_MIN_WIDTH_M * m / 2.0), cap_style="flat").intersection(buildings))
+            reach = max(half, SPRINT_PASSAGE_MIN_WIDTH_M * m / 2.0, _arcade_half_width(piece, buildings, m))
+            strips.append(piece.buffer(reach, cap_style="flat").intersection(buildings))
     return unary_union(strips) if strips else None
+
+
+def _arcade_half_width(piece, buildings, m: float) -> float:
+    """Podloubí: vzdálenost čáry od obrysu budovy (µm), když čára vede souběžně s obrysem do ``SPRINT_ARCADE_MAX_M``;
+    jinak 0 (průchod napříč domem). Měří se v bodech po 1 m: směr k nejbližšímu bodu obrysu kolmo na čáru."""
+    import math
+
+    from shapely.geometry import Point
+    from shapely.ops import nearest_points
+
+    if piece.length < SPRINT_ARCADE_MIN_LEN_M * m:
+        return 0.0
+    boundary = buildings.boundary
+    n = max(2, int(piece.length / m))
+    cos_max = math.cos(math.radians(70.0))
+    hits = []
+    for i in range(n + 1):
+        d0 = piece.length * i / n
+        p = piece.interpolate(d0)
+        q = nearest_points(p, boundary)[1]
+        dist = p.distance(q)
+        if dist <= 0 or dist > SPRINT_ARCADE_MAX_M * m:
+            continue
+        a = piece.interpolate(max(0.0, d0 - 0.5 * m))
+        b = piece.interpolate(min(piece.length, d0 + 0.5 * m))
+        tx, ty = b.x - a.x, b.y - a.y
+        tl = math.hypot(tx, ty)
+        if tl <= 0:
+            continue
+        if abs((tx * (q.x - p.x) + ty * (q.y - p.y)) / (tl * dist)) <= cos_max:
+            hits.append(dist)
+    if len(hits) < SPRINT_ARCADE_PARALLEL_SHARE * (n + 1):
+        return 0.0
+    hits.sort()
+    return hits[len(hits) // 2]
 
 
 def sprint_path_cut_zone(buildings, strips, *, scale: int):
@@ -927,8 +969,8 @@ def sprint_building_passages(
     grivation_deg: float,
 ) -> list[OomObjectPart]:
     """Sprint: čáry cest uvnitř budov se nekreslí; kryté průchody (OSM ``covered=yes`` / ``tunnel=building_passage``,
-    ``covered_passages.geojson``) se v budově kreslí jako zastřešení 522 v šířce kresby cesty (min. 2 m) a o jejich pás
-    se ořízne budova 521. Les, MTBO a mapa bez budov beze změny."""
+    podloubí ``arcade`` / ``colonnade``, ``covered_passages.geojson``) se v budově kreslí jako zastřešení 522 v šířce
+    kresby cesty (min. 2 m; podloubí od obrysu po čáru a stejně za ni) a o jejich pás se ořízne budova 521. Les, MTBO a mapa bez budov beze změny."""
     if not preset_id.startswith("sprint") or not parts:
         return parts
     import json

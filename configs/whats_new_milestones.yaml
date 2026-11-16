@@ -3,6 +3,9 @@
 # Generátor (scripts/generate_whats_new.py) je sloučí do whats_new.yaml.
 # title_en: anglický nadpis pro anglický web (bez něj se milník v angličtině nezobrazí).
 milestones:
+  - date: "2026-11-16"
+    title: "Verze 3.60 – obrázek OpenStreetMap (osm.png) v ZIPu kreslíme sami z dat OSM (silnice, budovy, voda, les, názvy ulic) místo stažených dlaždic, jejichž podmínky přibalení do balíčku nedovolují; obrázek je v ZIPu vždy (i bez „Stáhnout referenční šablony předem“) a nahrazuje online šablonu OSM"
+    title_en: "Version 3.60 – the OpenStreetMap image (osm.png) in the ZIP is now our own rendering of OSM data (roads, buildings, water, forest, street names) instead of downloaded tiles, whose terms do not allow packing them; the image is always in the ZIP (also without “Download reference templates in advance”) and replaces the online OSM template"
   - date: "2026-11-08"
     title: "Verze 3.27 – referenční šablony (ortofoto, ZTM, katastr, stínování, DMP, DTM, OSM) jsou ve výchozím stavu online odkazy ve středním a maximálním zoomu: v Mapperu se stáhnou až po zapnutí a ZIP zůstane malý; volba „Stáhnout referenční šablony předem“ přibalí obrázky jako dřív včetně ortofota 12,5 cm/px (offline, OCAD)"
     title_en: "Version 3.27 – reference templates (orthophoto, base map, cadastre, hillshade, DSM, DTM, OSM) are online links in medium and maximum zoom by default: Mapper downloads them only when switched on and the ZIP stays small; “Download reference templates in advance” packs the images as before, including 12.5 cm/px orthophoto (offline, OCAD)"

@@ -26,6 +26,7 @@ from app.pipeline.crs_5514 import CRS_PROJ4
 from app.pipeline.fetch_openzu import USER_AGENT, crop_bounds_5514
 from app.pipeline.georef import PgwGeoref, read_pgw
 from app.pipeline.job_progress import background_task, log_issue
+from app.pipeline.osm_render import render_osm_png
 from app.pipeline.prepare_lidar import find_tool, run_cmd
 from app.pipeline.zip_images import is_withheld
 from app.settings import REF_CACHE_MAX_AGE_DAYS
@@ -94,15 +95,10 @@ ORTOFOTO_WMS = (
 ORTOFOTO_ARCHIV_WMS = "https://geoportal.cuzk.gov.cz/geoserver/wms_ortofoto_archiv/ows"
 # Pořadí kreslení WMS: první dole – rok uvedený poslední (2004) je při překryvu navrchu.
 ORTOFOTO_ARCHIV_LAYERS = "2005,2003,2004"
-# Veřejný OSM WMS (poslední fallback – méně detailní než XYZ dlaždice).
-OSM_WMS = "https://ows.terrestris.de/osm/service"
-# XYZ zdroje barevného OSM obrázku do ZIPu (GDAL WMS driver). Obrázek se stahuje předem pro celý výřez
-# a používá offline – tile policy OSMF to na tile.openstreetmap.org zakazuje a openstreetmap.de odkazuje
-# na tytéž podmínky, proto jen OSM France (volné použití s citací, mírný provoz); záloha terrestris WMS
-# (GetMap na výřez je běžné použití WMS). Webová mapa a online šablona .omap stahují jen to, co uživatel vidí.
-OSM_XYZ_URLS = (
-    "https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png",
-)
+# Značka v meta cache podkladů: osm.png je vlastní render (starší cache měla obrázek z dlaždic).
+OSM_SOURCE_RENDER = "render"
+# Obrázek OSM (osm.png) se od 3.60.0 kreslí z dat OSM (osm_render); dlaždice OSM France / OSMF / terrestris
+# se do ZIPu nesmí (tile policy, jen weby bez zisku, vodoznak) – webová mapa a online šablona načítají jen zobrazené.
 HILLSHADE_WMS = (
     "https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer"
 )
@@ -1028,210 +1024,6 @@ def _lonlat_to_mercator(lon: float, lat: float) -> tuple[float, float]:
     return x, y
 
 
-def _build_osm_from_wms(
-    bbox_wgs84: tuple[float, float, float, float],
-    template_png: Path,
-    template_pgw: Path,
-    dest_png: Path,
-    dest_pgw: Path,
-    *,
-    log: callable | None = None,
-) -> bool:
-    """OSM přes veřejný WMS (Terrestris) – robustnější než dlaždice v Dockeru."""
-    west, south, east, north = bbox_wgs84
-    xmin, ymax = _lonlat_to_mercator(west, north)
-    xmax, ymin = _lonlat_to_mercator(east, south)
-    if xmax <= xmin or ymax <= ymin:
-        return False
-    tw, th, mpp = _osm_target_size(template_png, template_pgw)
-    params = {
-        "SERVICE": "WMS",
-        "REQUEST": "GetMap",
-        "VERSION": "1.1.1",
-        "LAYERS": "OSM-WMS",
-        "STYLES": "",
-        "SRS": "EPSG:3857",
-        "BBOX": f"{xmin},{ymin},{xmax},{ymax}",
-        "WIDTH": str(tw),
-        "HEIGHT": str(th),
-        "FORMAT": "image/png",
-        "TRANSPARENT": "false",
-    }
-    url = OSM_WMS + "?" + urllib.parse.urlencode(params)
-    if log:
-        log(f"OSM WMS fallback ({tw}×{th} px, ~{mpp:.2f} m/px)…")
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        data = resp.read()
-    if len(data) < 500 or data[:8] != b"\x89PNG\r\n\x1a\n":
-        return False
-    work = dest_png.parent / "_osm_wms"
-    work.mkdir(parents=True, exist_ok=True)
-    raw_png = work / "osm_3857.png"
-    raw_png.write_bytes(data)
-    # World file pro Web Mercator (střed pixelu).
-    pixel_x = (xmax - xmin) / tw
-    pixel_y = (ymax - ymin) / th
-    (work / "osm_3857.pgw").write_text(
-        f"{pixel_x}\n0.0\n0.0\n{-pixel_y}\n{xmin + pixel_x / 2}\n{ymax - pixel_y / 2}\n",
-        encoding="ascii",
-    )
-    # GDAL potřebuje SRS – VRT s EPSG:3857.
-    vrt = work / "osm_3857.vrt"
-    band_blocks: list[str] = []
-    for band, color in ((1, "Red"), (2, "Green"), (3, "Blue")):
-        band_blocks.extend(
-            [
-                f'  <VRTRasterBand dataType="Byte" band="{band}">',
-                f"    <ColorInterp>{color}</ColorInterp>",
-                "    <SimpleSource>",
-                f'      <SourceFilename relativeToVRT="0">{raw_png.as_posix()}</SourceFilename>',
-                f"      <SourceBand>{band}</SourceBand>",
-                f'      <SrcRect xOff="0" yOff="0" xSize="{tw}" ySize="{th}"/>',
-                f'      <DstRect xOff="0" yOff="0" xSize="{tw}" ySize="{th}"/>',
-                "    </SimpleSource>",
-                "  </VRTRasterBand>",
-            ]
-        )
-    vrt.write_text(
-        "\n".join(
-            [
-                f'<VRTDataset rasterXSize="{tw}" rasterYSize="{th}">',
-                f"  <GeoTransform>{xmin}, {pixel_x}, 0, {ymax}, 0, {-pixel_y}</GeoTransform>",
-                "  <SRS>EPSG:3857</SRS>",
-                *band_blocks,
-                "</VRTDataset>",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    _align_to_template(
-        vrt,
-        template_png,
-        template_pgw,
-        dest_png,
-        dest_pgw,
-        src_srs="EPSG:3857",
-        out_size=(tw, th),
-        log=log,
-    )
-    if log:
-        log(f"OSM podklad: {dest_png.name} (WMS, © OpenStreetMap)")
-    return dest_png.is_file() and dest_png.stat().st_size > 500
-
-
-def _write_osm_xyz_wms_xml(path: Path, server_url: str) -> None:
-    """GDAL WMS/TMS XML – barevné OSM dlaždice (Mapnik), ne šedý Terrestris WMS."""
-    path.write_text(
-        "\n".join(
-            [
-                "<GDAL_WMS>",
-                '  <Service name="TMS">',
-                f"    <ServerUrl>{server_url}</ServerUrl>",
-                "  </Service>",
-                "  <DataWindow>",
-                "    <UpperLeftX>-20037508.342789244</UpperLeftX>",
-                "    <UpperLeftY>20037508.342789244</UpperLeftY>",
-                "    <LowerRightX>20037508.342789244</LowerRightX>",
-                "    <LowerRightY>-20037508.342789244</LowerRightY>",
-                "    <TileLevel>19</TileLevel>",
-                "    <TileCountX>1</TileCountX>",
-                "    <TileCountY>1</TileCountY>",
-                "    <YOrigin>top</YOrigin>",
-                "  </DataWindow>",
-                "  <Projection>EPSG:3857</Projection>",
-                "  <BlockSizeX>256</BlockSizeX>",
-                "  <BlockSizeY>256</BlockSizeY>",
-                "  <BandsCount>3</BandsCount>",
-                # Chybějící / rate-limit dlaždice → prázdný blok místo pádu gdalwarp.
-                "  <ZeroBlockHttpCodes>204,404,429,500,502,503,504</ZeroBlockHttpCodes>",
-                "  <ZeroBlockOnServerException>true</ZeroBlockOnServerException>",
-                f"  <UserAgent>{USER_AGENT}</UserAgent>",
-                "  <Cache/>",
-                "</GDAL_WMS>",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-
-def _build_osm_from_xyz(
-    bbox_wgs84: tuple[float, float, float, float],
-    template_png: Path,
-    template_pgw: Path,
-    dest_png: Path,
-    dest_pgw: Path,
-    *,
-    log: callable | None = None,
-) -> bool:
-    """Stáhne barevné OSM XYZ přes GDAL (spolehlivější než ruční urllib v Dockeru)."""
-    del bbox_wgs84  # extent bere _align_to_template z PNG šablony
-    tw, th, mpp = _osm_target_size(template_png, template_pgw)
-    work = dest_png.parent / "_osm_xyz"
-    work.mkdir(parents=True, exist_ok=True)
-    for url in OSM_XYZ_URLS:
-        xml = work / "osm_xyz.xml"
-        try:
-            _write_osm_xyz_wms_xml(xml, url)
-            if log:
-                host = url.split("/")[2]
-                log(
-                    f"OSM XYZ dlaždice ({host}) → {tw}×{th} px "
-                    f"(~{mpp:.2f} m/px)…"
-                )
-            _align_to_template(
-                xml,
-                template_png,
-                template_pgw,
-                dest_png,
-                dest_pgw,
-                src_srs="EPSG:3857",
-                resample="cubic",
-                out_size=(tw, th),
-                log=log,
-            )
-        except Exception as exc:
-            if log:
-                log(f"OSM XYZ {url.split('/')[2]}: {exc}")
-            continue
-        if dest_png.is_file() and dest_png.stat().st_size > 20_000:
-            # Jednopásmový / prázdný výstup odmítnout.
-            head = dest_png.read_bytes()[:32]
-            if head[:8] == b"\x89PNG\r\n\x1a\n" and head[25] in (2, 6, 3):
-                if log:
-                    log(f"OSM podklad: {dest_png.name} (XYZ, © OpenStreetMap)")
-                return True
-    return False
-
-
-def build_osm_reference(
-    bbox_wgs84: tuple[float, float, float, float],
-    template_png: Path,
-    template_pgw: Path,
-    dest_png: Path,
-    dest_pgw: Path,
-    *,
-    log: callable | None = None,
-) -> bool:
-    # 1) GDAL XYZ (barevný Mapnik, OSM France) – preferováno; dlaždice webové cache (/tiles, i z
-    # tile.openstreetmap.org) se do ZIPu nepoužívají
-    try:
-        if _build_osm_from_xyz(
-            bbox_wgs84, template_png, template_pgw, dest_png, dest_pgw, log=log
-        ):
-            return True
-    except Exception as exc:
-        if log:
-            log(f"OSM XYZ selhal ({exc})")
-
-    if log:
-        log("OSM: poslední fallback Terrestris WMS (méně detailní)")
-    return _build_osm_from_wms(
-        bbox_wgs84, template_png, template_pgw, dest_png, dest_pgw, log=log
-    )
-
-
 def _ref_png_key(filename: str) -> str | None:
     # Ortofoto je JPEG (orthophoto.jpg / orthophoto_rXcY.jpg); starý orthophoto.png
     # se nenačítá (cache s ním je stejně neplatná – viz REF_CACHE_FORMAT).
@@ -1296,7 +1088,9 @@ def _try_load_references_cache(
     for src in list_reference_rasters(cache_dir):
         key = _ref_png_key(src.name)
         if not key or is_withheld(key):
-            # obrázek zdroje, který licence do ZIPu nepouští (starší cache s osm.png)
+            continue
+        if key == "osm" and meta.get("osm_source") != OSM_SOURCE_RENDER:
+            # osm.png ze starší cache je z dlaždic (licence ho do ZIPu nepouští) – nakreslí se znovu
             continue
         is_ortho = bool(_ORTHO_KEY_RE.match(key))
         if is_ortho and (not need_ortho or ortho_dir is not None):
@@ -1370,6 +1164,7 @@ def _store_references_cache(
         osm_wh=list(osm_wh),
         layers=sorted(built.keys()),
         files=stored,
+        osm_source=OSM_SOURCE_RENDER,
     )
     if log:
         log(f"Referenční PNG: uloženo do cache ({stored} vrstev) → {cache_dir.name}")
@@ -1377,7 +1172,8 @@ def _store_references_cache(
 
 # S vypnutými referenčními podklady (Petr 2026-11-08: žádný PNG podklad): jen vektorový katastr
 # a ortofoto pro masku zeleně sprintu mimo podklady (``sprint_ortho``, do výsledku nejde).
-ALWAYS_REFERENCE_KEYS = frozenset({"orthophoto", "katastr_vector"})
+# Od 3.60.0 i vlastní render OSM (osm.png, Petr 2026-11-16): nahradí online šablonu OSM z dlaždic i bez stažených podkladů.
+ALWAYS_REFERENCE_KEYS = frozenset({"orthophoto", "katastr_vector", "osm"})
 
 
 def build_reference_layers(
@@ -1433,6 +1229,18 @@ def build_reference_layers(
         if cached is not None:
             with background_task(log, "Podklady ortofoto, mapy a stínování") as task:
                 task.state = "z mezipaměti"
+            if "osm" not in cached and not is_withheld("osm"):
+                # cache z doby obrázku z dlaždic: osm.png se nakreslí znovu (ostatní vrstvy z cache)
+                osm_png = out_dir / "osm.png"
+                _fetch_osm_png(cached, bbox_wgs84, template_png, template_pgw, osm_png, osm_png.with_suffix(".pgw"), log)
+                if "osm" in cached:
+                    try:
+                        for src in (osm_png, osm_png.with_suffix(".pgw")):
+                            shutil.copy2(src, cache_dir / src.name)
+                        write_meta(cache_dir, osm_source=OSM_SOURCE_RENDER)
+                    except OSError as exc:
+                        if log:
+                            log(f"Referenční PNG: cache OSM zápis selhal ({exc})")
             return _with_katastr_vectors(cached, bbox_wgs84, out_dir, log=log)
 
     built: dict[str, Path] = {}
@@ -1475,6 +1283,9 @@ def build_reference_layers(
             except Exception as exc:
                 if log:
                     log_issue(log, f"Katastrální mapa: přeskočeno ({exc})")
+        if want("osm") and not is_withheld("osm"):
+            osm_png = out_dir / "osm.png"
+            _fetch_osm_png(built, bbox_wgs84, template_png, template_pgw, osm_png, osm_png.with_suffix(".pgw"), log)
         if want("katastr") or want("katastr_vector"):
             return _with_katastr_vectors(built, bbox_wgs84, out_dir, log=log)
         return built
@@ -1560,11 +1371,7 @@ def _fetch_other_layers(
     """Podklady kromě ortofota (OSM, ZTM, katastr, DTM kraje, DMP OK, stínování) po řadě do ``built``."""
     osm_png = out_dir / "osm.png"
     osm_pgw = osm_png.with_suffix(".pgw")
-    if is_withheld("osm"):
-        # Licence dlaždic nedovoluje obrázek do ZIPu (zip_images) – v .omap zůstane online šablona OSM.
-        if log:
-            log("OpenStreetMap: obrázek se do ZIPu nepřidává (licence dlaždic), zůstává online šablona")
-    else:
+    if not is_withheld("osm"):
         _fetch_osm_png(built, bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log)
     _fetch_wms_layers(built, bounds, template_png, template_pgw, out_dir, ref_wh, job_shade, log)
 
@@ -1572,13 +1379,13 @@ def _fetch_other_layers(
 def _fetch_osm_png(built, bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log) -> None:
     try:
         with background_task(log, "Podklad OpenStreetMap") as task:
-            ok = build_osm_reference(bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log)
+            ok = render_osm_png(bbox_wgs84, template_png, template_pgw, osm_png, osm_pgw, log=log)
             if not ok:
                 task.state = "nedostupné"
         if ok:
             built["osm"] = osm_png
         else:
-            log_issue(log, "OpenStreetMap: podklad se nepodařilo stáhnout z žádného zdroje")
+            log_issue(log, "OpenStreetMap: obrázek se nepodařilo nakreslit (chybí data OSM)")
     except Exception as exc:
         if log:
             log_issue(log, f"OpenStreetMap: přeskočeno ({exc})")

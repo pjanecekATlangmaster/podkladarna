@@ -346,30 +346,34 @@ def oom_readme_en(
     if online and not cz:
         refs_intro = (
             "Base maps are online templates (.xml / .vrt files in the references/ folder, GDAL WMS) of the local\n"
-            "services of the area's country and OpenStreetMap, each at maximum and medium zoom (_stredni, 4× coarser).\n"
+            "services of the area's country (and OpenStreetMap when the image was not drawn), each at maximum and medium zoom (_stredni, 4× coarser).\n"
             "They are switched off in the OOM template list; once switched on they download from the internet.\n"
             "Vegetation height (vyska_vegetace.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
             "hillshade_dsm.png) are from the job's own elevation models. OCAD does not open .xml files –\n"
             "connect the base maps as WMS:\n" + "\n".join(wms_lines(country)) + "\n"
+            + ("The OpenStreetMap image (osm.png) is our own rendering of OSM data (© OpenStreetMap contributors).\n"
+               if "osm.png" in refs else "")
         )
     elif online:
         refs_intro = (
             "Base maps are online templates (.xml / .vrt files in the references/ folder, GDAL WMS): ČÚZK orthophoto,\n"
             "archive orthophoto 2003–2005, ZTM topographic map, cadastre, regional DTM, DMP OK preview, DMR 5G\n"
-            "hillshade and slope (basic, Z10, Z20 hillshade) and OpenStreetMap, each at maximum and medium zoom\n"
+            "hillshade and slope (basic, Z10, Z20 hillshade) and OpenStreetMap (without osm.png), each at maximum and medium zoom\n"
             "(_stredni, 4× coarser). They are switched off in the OOM template list; once switched on they download\n"
             "from the internet (maximum zoom takes a while). Offline base maps: tick “Download reference templates\n"
             "in advance” when generating.\n"
             "OCAD does not open .xml files – connect the base maps as WMS (Background map → Online map):\n"
             + "\n".join(wms_lines(country))
             + "\n"
+            + ("The OpenStreetMap image (osm.png) is our own rendering of OSM data (© OpenStreetMap contributors).\n"
+               if "osm.png" in refs else "")
         )
     elif cz:
         refs_intro = (
             "DMR 5G hillshade (ČÚZK WMS): basic, Z10 and Z20 in the references/ folder, DMR 5G slope\n"
             "(sklon_dmr5g.png: grey flat, yellow to brown steep slope).\n"
             "Base maps: ČÚZK orthophoto, "
-            + ("" if withheld else "OpenStreetMap, ")
+            + ("OpenStreetMap (osm.png, own rendering of OSM data), " if "osm.png" in refs else "")
             + "ZTM topographic map, cadastral map and DMP OK preview\n"
             "(downloaded rasters, they work offline and in OCAD). Vegetation height (vyska_vegetace.png,\n"
             "DMP OK − DMR 5G: yellow bushes, orange thicket, green forest, below 0.5 m transparent). Online template\n"
@@ -380,6 +384,8 @@ def oom_readme_en(
             "Base maps are downloaded rasters in the references/ folder (they work offline and in OCAD).\n"
             "Vegetation height (vyska_vegetace.png) and terrain and surface hillshade (hillshade_dtm.png,\n"
             "hillshade_dsm.png) are from the job's own elevation models.\n"
+            + ("The OpenStreetMap image (osm.png) is our own rendering of OSM data (© OpenStreetMap contributors).\n"
+               if "osm.png" in refs else "")
         )
     buildings = (
         "3. Buildings in the .omap come from the regional DTM (where available), completed by OSM. Sources:\n"

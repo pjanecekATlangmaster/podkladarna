@@ -649,11 +649,13 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
 
         refs_intro = (
             "Podklady jsou online šablony (soubory .xml / .vrt ve složce references/, GDAL WMS) místních služeb\n"
-            "země výřezu a OpenStreetMap, každý v maximálním a středním zoomu (_stredni, 4× hrubší). V OOM jsou\n"
+            "země výřezu (a OpenStreetMap, když se obrázek nenakreslil), každý v maximálním a středním zoomu (_stredni, 4× hrubší). V OOM jsou\n"
             "v seznamu šablon vypnuté; po zapnutí se stáhnou z internetu. Výška vegetace (vyska_vegetace.png)\n"
             "a stínování terénu a povrchu (hillshade_dtm.png, hillshade_dsm.png) jsou z vlastních výšek jobu. OCAD soubory .xml neotevře – připojte si podklady jako WMS:\n"
             + "\n".join(wms_readme_lines(country))
             + "\n"
+            + ("Obrázek OpenStreetMap (osm.png) je vlastní kresba z dat OSM (© OpenStreetMap contributors).\n"
+               if "osm.png" in refs else "")
         )
     elif online:
         from app.pipeline.online_templates import wms_readme_lines
@@ -661,26 +663,30 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         refs_intro = (
             "Podklady jsou online šablony (soubory .xml / .vrt ve složce references/, GDAL WMS): ortofoto ČÚZK,\n"
             "archivní ortofoto 2003–2005, ZTM, katastr, DTM kraje, náhled DMP OK, stínovaný reliéf a sklon terénu\n"
-            "DMR 5G (stínování základní, Z10, Z20) a OpenStreetMap,\n"
+            "DMR 5G (stínování základní, Z10, Z20) a OpenStreetMap (bez obrázku osm.png),\n"
             "každý v maximálním a středním zoomu (_stredni, 4× hrubší). V OOM jsou v seznamu šablon vypnuté;\n"
             "po zapnutí se stáhnou z internetu (maximální zoom chvíli trvá). Offline podklady: při generování\n"
             "zaškrtněte „Stáhnout referenční šablony předem“.\n"
             "OCAD soubory .xml neotevře – připojte si podklady jako WMS (Podklad → Online mapa):\n"
             + "\n".join(wms_readme_lines())
             + "\n"
+            + ("Obrázek OpenStreetMap (osm.png) je vlastní kresba z dat OSM (© OpenStreetMap contributors).\n"
+               if "osm.png" in refs else "")
         )
     elif country != "CZ":
         refs_intro = (
             "Podklady jsou stažené rastry ve složce references/ (fungují i offline a v OCADu). Výška vegetace\n"
             "(vyska_vegetace.png) a stínování terénu a povrchu (hillshade_dtm.png, hillshade_dsm.png) jsou z vlastních\n"
             "výšek jobu.\n"
+            + ("Obrázek OpenStreetMap (osm.png) je vlastní kresba z dat OSM (© OpenStreetMap contributors).\n"
+               if "osm.png" in refs else "")
         )
     else:
         refs_intro = (
             "Stínovaný reliéf DMR 5G (ČÚZK WMS): základní, Z10 a Z20 ve složce references/, sklon terénu DMR 5G\n"
             "(sklon_dmr5g.png: šedá rovina, žlutá až hnědá strmý svah).\n"
             "Mapové podklady: ortofoto ČÚZK, "
-            + ("" if withheld else "OpenStreetMap, ")
+            + ("OpenStreetMap (osm.png, vlastní kresba z dat OSM), " if "osm.png" in refs else "")
             + "Základní topografická mapa ČR (ZTM), katastrální mapa\n"
             "a náhled DMP OK (stažené rastry, fungují i offline a v OCADu). Výška vegetace (vyska_vegetace.png,\n"
             "DMP OK − DMR 5G: žlutá keře, oranžová mlazina, zelená les, pod 0,5 m průhledná). Online šablona\n"

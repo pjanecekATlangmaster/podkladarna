@@ -2901,7 +2901,7 @@ def test_sprint_skips_gates_and_bollards_but_keeps_stiles(tmp_path):
     assert count("forest_10000") == 5
 
 
-# (tagy, země jobu, krytý průchod) – podloubí covered=arcade jen mimo Česko (Bern), Česko beze změny.
+# (tagy, země jobu, krytý průchod) – podloubí covered=arcade / colonnade je krytý průchod všude (Bern, Petr 2026-11-16).
 @pytest.mark.parametrize(
     "tags, country, expected",
     [
@@ -2909,7 +2909,7 @@ def test_sprint_skips_gates_and_bollards_but_keeps_stiles(tmp_path):
         ({"highway": "footway", "tunnel": "building_passage"}, "CZ", True),
         ({"highway": "footway", "covered": "no"}, "CZ", False),
         ({"highway": "footway"}, "CZ", False),
-        ({"highway": "footway", "covered": "arcade", "layer": "-1"}, "CZ", False),
+        ({"highway": "footway", "covered": "arcade", "layer": "-1"}, "CZ", True),
         ({"highway": "footway", "covered": "arcade", "layer": "-1"}, "CH", True),
         ({"highway": "footway", "tunnel": "arcade"}, "CH", True),
         ({"highway": "footway", "covered": "colonnade"}, "IT", True),

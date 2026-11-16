@@ -67,9 +67,11 @@ sources:
   url: https://a.tile.openstreetmap.fr/osmfr/
   info: https://www.openstreetmap.fr/usage/
   role: šablona
-  reference_keys: ["osm", "online_osm*"]
+  reference_keys: ["online_osm*"]
   image_in_zip: forbidden
-  image_in_zip_note: "Obrázek do ZIPu ne (Petr 2026-11-16): OSM France povoluje dlaždice jen pro weby bez zisku, tile policy OSMF zakazuje offline archivy, terrestris WMS má od ~1:25 000 vodoznak a nemá závazné podmínky. Online šablona osm.vrt v .omap zůstává (načítá jen zobrazené dlaždice)."
+  image_in_zip_note: "Obrázek z dlaždic do ZIPu ne (Petr 2026-11-16): OSM France povoluje dlaždice jen pro weby bez zisku, tile policy OSMF zakazuje offline archivy, terrestris WMS má od ~1:25 000 vodoznak a nemá závazné podmínky. Od 3.60.0 je osm.png vlastní render z dat OSM (osm_render), dlaždice se do ZIPu nestahují; online šablona osm.vrt v .omap zůstává jen bez staženého osm.png (načítá zobrazené dlaždice)."
+  # Obrázek tohoto zdroje nahrazuje osm.png z osm_render – ZIP proto vysvětlení o chybějícím obrázku nedostává.
+  zip_replaced_by: osm_render
   zip_notice:
     cs:
       name: Obrázek OpenStreetMap (osm.png)
@@ -94,8 +96,8 @@ sources:
     od ~1:25 000) · opencode (osm_tiles): 2026-11-16 openstreetmap.fr/usage („site sans but lucratif“), operations.osmfoundation.org/policies/tiles
     (kap. 4 offline), terrestris.de/produkte/freier-osm-wms – Claude neověřil'
   issues:
-  - Tile policy OSMF zakazuje na tile.openstreetmap.org předstahování a offline použití. Od 3.56.17 obrázek OSM do ZIPu (reference_layers)
-    bere jen OSM France, záloha terrestris WMS; tile.openstreetmap.org, .de a webová cache /tiles se do ZIPu nepoužívají.
+  - Tile policy OSMF zakazuje na tile.openstreetmap.org předstahování a offline použití. Od 3.60.0 se dlaždice do ZIPu nestahují
+    vůbec (osm.png kreslí osm_render z dat OSM); tile.openstreetmap.org, .de a webová cache /tiles se do ZIPu nepoužívají.
     Webová mapa (/tiles, prohlížeč) a online šablona .omap stahují jen zobrazené dlaždice – dovoleno.
   - Vyžaduje vlastní User-Agent (generické knihovny blokuje).
   - openstreetmap.de občas vrací 404 na okrajové dlaždice (GDAL padá) – komentář v kódu.
@@ -109,6 +111,29 @@ sources:
     chyběla v registru závazná podmínka.'
   - 'opencode: OSMF vyžaduje platný User-Agent, Referer, cache ≥7 dní; komerčním službám může být přístup odebrán.'
 
+- id: osm_render
+  countries: ["*"]
+  kinds: [map]
+  name: Obrázek OpenStreetMap – vlastní render z dat OSM (osm.png)
+  provider: Podkladárna z dat OpenStreetMap contributors (Overpass)
+  url: https://overpass-api.de/api/interpreter
+  info: https://www.openstreetmap.org/copyright
+  role: šablona
+  reference_keys: ["osm"]
+  image_in_zip: allowed
+  image_in_zip_note: "Vlastní render (Petr 2026-11-16) – odvozené dílo z dat ODbL (Produced Work), smí do ZIPu i do prodávaného balíčku s citací „© OpenStreetMap contributors“ (je v rohu obrázku). Barvy podle stylu OSM Carto (CC0), písmo DejaVu Sans (volná licence)."
+  status: used
+  code: app/pipeline/osm_render.py (render_osm_png), app/pipeline/reference_layers.py (_fetch_osm_png)
+  license:
+    class: public
+    name: ODbL 1.0 (odvozené dílo)
+    url: https://opendatacommons.org/licenses/odbl/1-0/
+    attribution: "© OpenStreetMap contributors"
+  access: free
+  checked: "2026-11-16 ODbL 4.3 (Produced Work, citace); OSM Carto CC0; DejaVu fonts licence (volná, jako Bitstream Vera)"
+  issues:
+    - "Jeden dotaz Overpass navíc (budovy, využití území, silnice, voda); bez dat obrázek nevznikne a job pokračuje bez osm.png."
+    - "Proti dlaždicím chybí ikony POI, názvy ploch, čísla domů a šipky jednosměrek; výřez nad 40 km² se nekreslí."
 - id: sentinel2_aws
   countries: ["*"]
   kinds: [imagery]

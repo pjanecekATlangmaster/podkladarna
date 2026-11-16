@@ -40,7 +40,8 @@ def test_every_reference_key_has_one_source_and_status():
 
 @pytest.mark.parametrize(
     "country, expected",
-    [("CZ", ["osm_tiles"]), ("AT", ["osm_tiles"]), ("IT", ["osm_tiles", "it_wms"])],
+    # osm_tiles: obrázek nahrazuje vlastní render osm.png (osm_render), vysvětlení v ZIPu nepotřebuje
+    [("CZ", []), ("AT", []), ("IT", ["it_wms"])],
 )
 def test_withheld_sources_per_country(country, expected):
     assert zip_images.withheld_sources(country) == expected
@@ -56,30 +57,33 @@ def test_withhold_images_drops_forbidden_rasters_keeps_online(tmp_path: Path):
         built[key] = refs / name
     (refs / "osm.pgw").write_text("1", encoding="utf-8")
     out = zip_images.withhold_images(built)
-    assert set(out) == {"online_osm", "ztm"}
-    assert not (refs / "osm.png").exists() and not (refs / "osm.pgw").exists()
+    # osm.png je vlastní render (osm_render) a smí do ZIPu; zakázané ortofoto Trenta se smaže
+    assert set(out) == {"osm", "online_osm", "ztm"}
+    assert (refs / "osm.png").exists() and (refs / "osm.pgw").exists()
+    assert not (refs / "ortofoto_trento.jpg").exists()
     assert (refs / "osm.vrt").exists()
 
 
 @pytest.mark.parametrize("lang, notice", [("cs", "CHYBEJICI_PODKLADY.txt"), ("en", "MISSING_BASE_MAPS.txt")])
-def test_zip_leaves_out_osm_image_with_notice(tmp_path: Path, lang, notice):
+def test_zip_keeps_own_osm_render_withholds_forbidden_with_notice(tmp_path: Path, lang, notice):
+    """osm.png (vlastní render) do ZIPu jde, zakázaný obrázek (Trento) ne a ZIP dostane vysvětlení."""
     kp = tmp_path / "kp"
     kp.mkdir()
     refs = tmp_path / "references"
     refs.mkdir()
-    for name in ("osm.png", "mapa_ztm.png", "osm.vrt"):
+    for name in ("osm.png", "mapa_ztm.png", "ortofoto_trento.jpg", "ortofoto_trento.vrt"):
         (refs / name).write_bytes(b"x")
-    meta = {"label": "t", "scale": 10000, "lang": lang, "country": "CZ", "withheld_images": ["osm_tiles"],
-            "reference_layers": ["mapa_ztm.png", "osm.vrt"]}
+    meta = {"label": "t", "scale": 10000, "lang": lang, "country": "IT", "withheld_images": ["it_wms"],
+            "reference_layers": ["osm.png", "mapa_ztm.png", "ortofoto_trento.vrt"]}
     dest = tmp_path / "out.zip"
     build_oom_zip(kp, dest, zabaged_clean=None, metadata=meta, reference_dir=refs)
     with zipfile.ZipFile(dest) as zf:
         names = set(zf.namelist())
         text = zf.read(f"references/{notice}").decode("utf-8")
         readme = zf.read("README_OOM.txt").decode("utf-8")
-    assert "references/osm.png" not in names
-    assert {"references/mapa_ztm.png", "references/osm.vrt"} <= names
-    assert "openstreetmap.org" in text and "osm.vrt" in text
+    assert {"references/osm.png", "references/mapa_ztm.png"} <= names
+    assert "references/ortofoto_trento.jpg" not in names
+    assert "OpenStreetMap" not in text
     assert notice in readme
 
 
