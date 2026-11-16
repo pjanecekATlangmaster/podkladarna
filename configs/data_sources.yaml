@@ -66,9 +66,10 @@ sources:
     url: https://operations.osmfoundation.org/policies/tiles/
     attribution: "© OpenStreetMap contributors (terrestris: © OpenStreetMap contributors, © Natural Earth Data, © GEBCO, © terrestris)"
   access: free
-  checked: "2026-11-16 tile policy OSMF; terrestris produktová stránka (závazné podmínky nenalezeny)"
+  checked: "2026-11-16 tile policy OSMF; podmínky OSM France (volně s citací, mírný provoz) a FAQ openstreetmap.de (odkaz na pravidla OSMF); terrestris produktová stránka (závazné podmínky nenalezeny)"
   issues:
-    - "Tile policy OSMF zakazuje na tile.openstreetmap.org předstahování a offline použití; obrázek OSM do ZIPu (reference_layers) je z pohledu této politiky problém – ověřit, zda se tile.openstreetmap.org reálně používá jen jako online šablona, případně ho z offline větve vyřadit."
+    - "Tile policy OSMF zakazuje na tile.openstreetmap.org předstahování a offline použití. Od 3.56.17 obrázek OSM do ZIPu (reference_layers) bere jen OSM France, záloha terrestris WMS; tile.openstreetmap.org, .de a webová cache /tiles se do ZIPu nepoužívají. Webová mapa (/tiles, prohlížeč) a online šablona .omap stahují jen zobrazené dlaždice – dovoleno."
+    - "OSM France výslovně neřeší offline použití, chce jen citaci a mírný provoz; čisté řešení do budoucna je vlastní render z dat OSM jobu."
     - "Vyžaduje vlastní User-Agent (generické knihovny blokuje)."
     - "openstreetmap.de občas vrací 404 na okrajové dlaždice (GDAL padá) – komentář v kódu."
 
