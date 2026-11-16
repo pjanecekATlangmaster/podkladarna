@@ -872,9 +872,31 @@ def _public_job(job: dict) -> dict:
     return out
 
 
+def _job_on_paid_site(job: dict) -> bool:
+    """Job zadaný na mezinárodní (placené) doméně – Omapic.
+
+    Rozhoduje uložená doména jobu (``options.site``) podle ``SITES``; doména, která v ``SITES`` už
+    není, se pozná podle jazyka zadání. Joby bez domény (starší, bez ``SITES``) patří Podkladárně.
+    """
+    opts = job.get("options") if isinstance(job.get("options"), dict) else {}
+    host = str(opts.get("site") or "").strip().lower()
+    if not host:
+        return False
+    site = i18n.sites().get(host)
+    if site is not None:
+        return site.mode == "paid"
+    return str(opts.get("lang") or "cs") != "cs"
+
+
 @app.get("/api/jobs")
-def api_list_jobs():
-    jobs = [_public_job(j) for j in db.list_jobs(include_private=False)]
+def api_list_jobs(request: Request):
+    # Podkladárna a Omapic sdílí server, ale seznam ukazuje jen joby své domény (Petr 2026-11-16);
+    # job druhé domény je vidět jen anonymně jako běžící privátní (vytížení serveru).
+    site = i18n.site_for_request(request)
+    paid_request = site is not None and site.mode == "paid"
+    all_jobs = db.list_jobs(include_private=True)
+    foreign = {j["id"] for j in all_jobs if _job_on_paid_site(j) != paid_request}
+    jobs = [_public_job(j) for j in all_jobs if not db.job_is_private(j) and j["id"] not in foreign]
     for job in jobs:
         pos = worker.queue_position(job["id"])
         if pos is not None:
@@ -889,12 +911,21 @@ def api_list_jobs():
             current_job = db.get_job(current_id)
         except KeyError:
             current_job = None
-        if current_job and db.job_is_private(current_job):
+        if current_job and _job_on_paid_site(current_job) != paid_request:
+            foreign.add(current_id)
+        if current_job and (db.job_is_private(current_job) or current_id in foreign):
             private_live = {
                 "status": current_job.get("status") or "running",
                 "started_at": current_job.get("started_at")
                 or current_job.get("created_at"),
             }
+    if foreign:
+        # ID jobů druhé domény ven nepouštět (detail podle ID by ukázal název a výřez); počty zůstávají.
+        if snap.get("current") in foreign:
+            snap["current"] = None
+        for key in ("queued", "prefetching", "prefetch_queued"):
+            if isinstance(snap.get(key), list):
+                snap[key] = [i for i in snap[key] if i not in foreign]
     return {"jobs": jobs, **snap, "private_live": private_live}
 
 

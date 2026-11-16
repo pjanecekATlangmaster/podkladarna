@@ -959,3 +959,37 @@ def test_reuse_lidar_only_same_country(prev_country, country, reuse):
     opts = {"bbox_wgs84": bbox, **({"country": prev_country} if prev_country else {})}
     assert can_reuse_lidar({"has_reusable_lidar": True, "options": opts}, bbox, country) is reuse
     assert can_reuse_lidar({"has_reusable_lidar": False, "options": opts}, bbox, country) is False
+
+
+@pytest.mark.parametrize(
+    "host, visible",
+    [
+        ("podkladarna.example", {"cz-old", "cz-site"}),  # česká doména: jen české joby
+        ("omapic.example", {"intl"}),  # mezinárodní doména: jen své
+        ("jina.example", {"cz-old", "cz-site"}),  # Host mimo SITES = Podkladárna
+    ],
+)
+def test_jobs_list_only_own_site_jobs(client, monkeypatch, host, visible):
+    """Joby Omapic nejsou v seznamu Podkladárny (a naopak); běžící cizí job jen anonymně."""
+    import app.main as main
+    from app import db
+
+    monkeypatch.setenv("SITES", "podkladarna.example=cs:free:CZ,omapic.example=en:paid:*")
+    ids = {
+        "cz-old": db.create_job("cz-old", "sprint_2m", {})["id"],
+        "cz-site": db.create_job("cz-site", "sprint_2m", {"site": "podkladarna.example", "lang": "cs"})["id"],
+        "intl": db.create_job("intl", "sprint_2m", {"site": "omapic.example", "lang": "en"})["id"],
+    }
+    db.update_job(ids["intl"], status="running", started_at=db._utcnow())
+    monkeypatch.setattr(main.worker, "queue_snapshot", lambda: {
+        "busy": True, "current": ids["intl"], "queued": [ids["cz-site"]], "queue_size": 1,
+    })
+    data = client.get("/api/jobs", headers={"host": host}).json()
+    assert {j["name"] for j in data["jobs"]} == visible
+    if "intl" in visible:
+        assert data["current"] == ids["intl"] and data["private_live"] is None
+        assert data["queued"] == [] and data["queue_size"] == 1
+    else:
+        assert data["current"] is None and data["queued"] == [ids["cz-site"]]
+        assert data["private_live"]["status"] == "running"  # vytížení serveru bez jména a výřezu
+        assert set(data["private_live"]) == {"status", "started_at"}
