@@ -178,9 +178,9 @@ docker compose -f docker-compose.nas-ab.yml logs --tail=100 podkladarna
 ## Ostré prostředí
 
 - Veřejná adresa: `https://podkladarna.kibos.link`
-- Hosting ostré A (od 2026-11-07): VM na Proxmoxu `pve1` (jiná lokalita než NAS), Debian 13 + Docker, IP `192.168.1.13`, složka `/opt/podkladarna/` (stejné `docker-compose.nas-ab.yml`, `update-nas-ab.sh`, `nas-lib.sh`, `.env`), data `./data` (cache `./data/cache` na vlastním disku, bez zálohy)
-- Provoz A: Internet → Cloudflare (Origin Rule přepíše port na 8672, SSL Flexible pro hostname) → MikroTik dst-nat WAN 8672 jen z rozsahů Cloudflare → VM `:8672` → Docker kontejner `podkladarna`
-- Firewall: Proxmox (Datacenter + VM, IPSet `management` = LAN 192.168.1.0/24 + VPN 192.168.78.0/24, IPSet `cloudflare` pro 8672 – statický, aktualizovat ručně); MikroTik address-list `cloudflare` se aktualizuje sám denně
+- Hosting ostré A (od 2026-11-07): VM na Proxmoxu `pve1` (jiná lokalita než NAS), Debian 13 + Docker (IP a síť v soukromé poznámce `/mnt/project-files/provoz-soukrome/ostra-a-sit.md`), složka `/opt/podkladarna/` (stejné `docker-compose.nas-ab.yml`, `update-nas-ab.sh`, `nas-lib.sh`, `.env`), data `./data` (cache `./data/cache` na vlastním disku, bez zálohy)
+- Provoz A: Internet → Cloudflare (Origin Rule přepíše port na 8672, SSL Flexible pro hostname) → router (port 8672 jen z rozsahů Cloudflare) → VM `:8672` → Docker kontejner `podkladarna`
+- Firewall: Proxmox (Datacenter + VM: správa jen z LAN a VPN, 8672 z rozsahů Cloudflare – statický IPSet, aktualizovat ručně) a router; podrobnosti v soukromé poznámce
 - Interní port kontejneru: `8672`
 - Návody pro Petra na ostrou A (Petr 2026-11-15): ve VM není `sudo` → začít `su -` a příkazy psát bez `sudo`; vždy uvést, zda jde o hostitele pve1 (`qm`, `zfs`, `lvs`) nebo o VM (`/opt/podkladarna`); krátké bloky s komentářem, co má vyjít (diagnostika → oprava → ověření `curl … :8672/` = 200), u nevratných kroků varování a záloha.
 - Test B zůstává na Synology NAS: `https://pt.kibos.link` → `127.0.0.1:8673` (kontejner `podkladarna-test`, data `./data-test`), image `:latest`; NAS složka `/volume1/docker/podkladarna/`, kontejner ostré A na NAS zůstává zastavený jako záloha pro rollback
@@ -252,7 +252,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
 
 ## Důležité poznatky (DTM, MTBO, test B)
 
-- **Testovací B verze** (`https://pt.kibos.link`, data `\\192.168.10.11\docker\podkladarna\data-test\jobs\`) se aktualizuje z `master`
+- **Testovací B verze** (`https://pt.kibos.link`, data na NAS ve sdílené složce `docker\podkladarna\data-test\jobs\`) se aktualizuje z `master`
   (`:latest` → `update-nas-ab.sh test`, cron jen když neběží job). „Push do testu“ = commit + push do `master`. Jak dohledat job, bbox a DTM balíky: `DEV.md`.
 - **Zpevněný povrch v lese a MTBO je jedna plocha** (2.37.0, `app/pipeline/paved_surface.py`, `UNIFIED_PAVED`; návrh a diagnóza
   Barrandov 2026-10-26): koridor silnice, velká parkoviště a (MTBO) široké chodníky z DTM, OSM plochy a ZABAGED `OstatniPlochaVSidlech`

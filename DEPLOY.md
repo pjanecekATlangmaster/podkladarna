@@ -11,10 +11,11 @@ Sekce 1–8 popisují původní provoz na NAS (reverse proxy DSM, DNS, GHCR); pr
 | Vrstva | Nastavení |
 |--------|-----------|
 | **Cloudflare** | `podkladarna.kibos.link` oranžově (proxy); Origin Rule přepíše cílový port na **8672**; Configuration Rule SSL = **Flexible** jen pro tento hostname; nastavení zóny z sekce 4 (Rocket Loader atd. vypnuto) platí |
-| **Router (MikroTik)** | dst-nat WAN **8672** → `192.168.1.13:8672` jen ze zdrojů v address-listu `cloudflare` (denně se aktualizuje z `cloudflare.com/ips-v4`), jinak drop |
-| **Proxmox pve1** | Proxmox VE 9 na ZFS RAID1 (`rpool`, 2× SSD), 4 TB RAID jako LVM-thin `hdd`; firewall Datacentra zapnutý, IPSet `management` (LAN `192.168.1.0/24`, VPN `192.168.78.0/24`) pro GUI 8006 a SSH |
-| **VM** | Debian 13, Docker z repozitáře docker.com, IP `192.168.1.13`; firewall VM: 22 a 8672–8673 z `+management`, 8672 z `+cloudflare` (IPSet statický – při změně rozsahů Cloudflare aktualizovat ručně) |
+| **Router** | port 8672 z WAN na VM jen ze zdrojových rozsahů Cloudflare, jinak drop |
+| **Proxmox pve1** | Proxmox VE 9 na ZFS RAID1, datový RAID jako LVM-thin `hdd`; firewall Datacentra zapnutý, správa (GUI 8006, SSH) jen z LAN a VPN |
+| **VM** | Debian 13, Docker z repozitáře docker.com; firewall VM: 22 a 8672–8673 jen ze správy, 8672 z rozsahů Cloudflare (při změně rozsahů aktualizovat) |
 | **Disky VM** | systém 40 GB a data 130 GB na `local-zfs` (`/opt/podkladarna`), cache 300 GB na `hdd` (`/opt/podkladarna/data/cache`, v Proxmoxu Backup vypnutý, strop `LIDAR_CACHE_MAX_GB` 250) |
+| **Síť** | adresy, rozsahy a pravidla routeru / firewallu jsou v soukromé provozní poznámce, ne v repozitáři |
 | **Aplikace** | `/opt/podkladarna/` – `docker-compose.nas-ab.yml`, `update-nas-ab.sh`, `nas-lib.sh`, `.env` (chmod 600) beze změn proti NAS; spouští se jen služba `podkladarna` |
 
 **GHCR:** balíček image je soukromý. VM potřebuje přihlášení (`docker login ghcr.io` jako root, nebo
@@ -351,15 +352,15 @@ Rollback A: do `.env` `IMAGE_TAG_A=<sha tag nebo digest>` a `./update-nas-ab.sh 
 GHCR_OWNER=pjanecekatlangmaster
 
 # SMTP – nutné pro privátní joby i zpětnou vazbu (POST /api/feedback)
-SMTP_HOST=datais-cz.mail.protection.outlook.com
-SMTP_PORT=25
+SMTP_HOST=smtp.example.com          # např. <tenant>.mail.protection.outlook.com, port 25
+SMTP_PORT=587
 SMTP_ENCRYPTION=starttls
 SMTP_USER=
 SMTP_PASSWORD=
-SMTP_FROM=podkladarna@datais.cz
+SMTP_FROM=podkladarna@example.com
 SMTP_FROM_NAME=OB podklady
 # PUBLIC_BASE_URL=https://podkladarna.example
-# FEEDBACK_TO=janecek@datais.cz
+# FEEDBACK_TO=provozovatel@example.com
 ```
 
 `GHCR_OWNER` musí být **lowercase** – GHCR ukládá image jako `ghcr.io/pjanecekatlangmaster/podkladarna`.

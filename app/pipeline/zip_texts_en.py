@@ -103,8 +103,9 @@ are very welcome:
 
 Legal
 -----
-Omapic code: MIT. Job output (PNG, .omap, …): CC BY 4.0 –
-when sharing, credit: “{citation}”.
+Omapic code: MIT. Job output (.omap, .ocd, PNG, …): CC BY 4.0.
+A map made from this base (even redrawn and completed) must state on the map
+or in its legend that it used Omapic: “{citation}”.
 {attribution}
 Loosely inspired by Karttapullautin.
 
@@ -446,7 +447,7 @@ def oom_readme_en(
         "   (ISOM / ISSprOM / ISMTBOM) – you can use it in OCAD to replace symbols\n"
         "   (symbol codes match).\n"
         "OCAD does not open the .omap file natively – it stays for OOM; or use DXF/SHP/PNG+PGW.\n\n"
-        f"{data_sources} Job output: CC BY 4.0 – when sharing, credit the source:\n"
+        f"{data_sources} Job output: CC BY 4.0 – a map made from this base must credit Omapic:\n"
         f"{citation}\n"
         f"{relief}"
         "Omapic is an experiment, so feedback and comments are very welcome.\n"

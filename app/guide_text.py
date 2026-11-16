@@ -323,8 +323,9 @@ https://podkladarna.kibos.link/podpora
 
 Právní
 ------
-Kód Podkladárny: MIT. Výstup jobu (PNG, .omap, …): CC BY 4.0 –
-při šíření uveďte: „{{citation}}“.
+Kód Podkladárny: MIT. Výstup jobu (.omap, .ocd, PNG, …): CC BY 4.0.
+Mapa z tohoto podkladu (i překreslená a doplněná) musí na mapě nebo
+v legendě uvést, že využila Podkladárnu: „{{citation}}“.
 {{attribution}}
 Volně inspirováno Karttapullautinem.
 

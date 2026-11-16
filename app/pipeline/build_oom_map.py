@@ -42,8 +42,8 @@ def _citation_note(lang: str = "cs") -> str:
     if lang == "en":
         from app.pipeline.zip_texts_en import citation_en
 
-        return f"When sharing, credit: {citation_en(citation())}"
-    return f"Při šíření uveďte: {citation()}"
+        return f"Maps made from this base must credit: {citation_en(citation())}"
+    return f"Mapa z tohoto podkladu musí uvést: {citation()}"
 
 
 def _notes(lang: str, safe_name: str, c101: str, c102: str) -> str:

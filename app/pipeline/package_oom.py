@@ -744,7 +744,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         "   (ISOM / ISSprOM / ISMTBOM) – lze ji v OCADu použít k nahrazení symbolů\n"
         "   (kódy symbolů se shodují).\n"
         "Soubor .omap OCAD nativně neotevře – zůstal pro OOM; případně DXF/SHP/PNG+PGW.\n\n"
-        f"{_data_sources_line(meta)} Výstup jobu: CC BY 4.0 – při šíření uveďte zdroj:\n"
+        f"{_data_sources_line(meta)} Výstup jobu: CC BY 4.0 – mapa z podkladu musí uvést, že využila Podkladárnu:\n"
         f"{citation}\n"
         f"{relief_line}"
         "Podkladárna je experiment, proto ocením zpětnou vazbu a připomínky"
