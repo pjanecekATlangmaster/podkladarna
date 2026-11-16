@@ -2236,6 +2236,17 @@ def _overpass_data_age_hours(data: dict) -> float | None:
     return (datetime.now(timezone.utc) - base).total_seconds() / 3600.0
 
 
+def _keep_relation(tags: dict) -> bool:
+    """Relace z odpovědi Overpass: kreslený prvek, mimo Česko i přírodní kryt (``NATURAL_COVER_NAME``).
+
+    Velké lesy bývají multipolygony (Forêt de Soignes); bez nich chyběl les v ``natural_cover.geojson``.
+    V Česku beze změny (relace přírodního krytu se tam dál zahazují).
+    """
+    if classify_osm_feature(tags, geom="way") is not None:
+        return True
+    return not _cz_process() and is_natural_cover(tags)
+
+
 def _ways_without_geometry(data: dict) -> int:
     """Počet cest v odpovědi ``out geom`` bez souřadnic (zrcadlu chybí uzly)."""
     return sum(
@@ -2318,8 +2329,7 @@ def _fetch_overpass(
                 or (
                     e.get("type") == "relation"
                     and e.get("members")
-                    and classify_osm_feature(e.get("tags") or {}, geom="way")
-                    is not None
+                    and _keep_relation(e.get("tags") or {})
                 )
             ]
             host = url.split("/")[2]

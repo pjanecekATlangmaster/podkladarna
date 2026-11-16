@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 import numpy as np
 
 from app.pipeline.vegetation_chm import (
@@ -182,3 +184,51 @@ def test_generate_job_vegetation_chm_calls_generator(tmp_path: Path):
 
     assert out == dest_marker
     assert dest_marker.is_file()
+
+
+def _cover_feat(cover, ring, hole=None):
+    rings = [ring] + ([hole] if hole else [])
+    return {"type": "Feature", "properties": {"cover": cover}, "geometry": {"type": "Polygon", "coordinates": rings}}
+
+
+@pytest.mark.parametrize(
+    "feats, px, expected",
+    [
+        # les z OSM → maska, mimo les ne
+        ([_cover_feat("forest", [[0, 0], [10, 0], [10, 10], [0, 10]])], (5, -5), True),
+        ([_cover_feat("forest", [[0, 0], [10, 0], [10, 10], [0, 10]])], (15, -5), False),
+        # díra v lese (mýtina) a louka uvnitř lesa zůstávají otevřené
+        ([_cover_feat("wood", [[0, 0], [20, 0], [20, 20], [0, 20]], [[8, 8], [12, 8], [12, 12], [8, 12]])], (10, -10), False),
+        ([_cover_feat("wood", [[0, 0], [20, 0], [20, 20], [0, 20]]),
+          _cover_feat("meadow", [[8, 8], [12, 8], [12, 12], [8, 12]])], (10, -10), False),
+        # vřesoviště samo les není
+        ([_cover_feat("heath", [[0, 0], [10, 0], [10, 10], [0, 10]])], (5, -5), None),
+    ],
+)
+def test_leafoff_forest_mask(tmp_path: Path, feats, px, expected):
+    import json
+
+    from app.pipeline.vegetation_chm import leafoff_forest_mask
+
+    (tmp_path / "osm_paths").mkdir()
+    (tmp_path / "osm_paths" / "natural_cover.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": feats}), encoding="utf-8"
+    )
+    # mřížka 1 m, levý horní roh (0, 20) → řádek = 20 − y
+    mask = leafoff_forest_mask(tmp_path, (0.0, 1.0, 0.0, 20.0, 0.0, -1.0), (25, 25))
+    if expected is None:
+        assert mask is None
+    else:
+        x, y = px
+        assert bool(mask[20 + y, x]) is expected
+
+
+def test_regenerate_leafoff_only_for_chm_vegetation(tmp_path: Path):
+    from app.pipeline.vegetation_chm import regenerate_leafoff_vegetation
+
+    (tmp_path / "dem").mkdir()
+    (tmp_path / "dem" / "chm.tif").write_bytes(b"chm" * 200)
+    # vegetace z hustoty bodů (bez značky CHM) se nepřepisuje
+    with patch("app.pipeline.vegetation_chm.generate_vegetation_from_chm") as gen:
+        assert regenerate_leafoff_vegetation(tmp_path) is None
+    gen.assert_not_called()
