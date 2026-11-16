@@ -396,6 +396,34 @@ sources:
   - Servery inspirews / zbgis.skgeodesy.sk z cloudu (USA) nedostupné, opendata.skgeodesy.sk a gku.sk dostupné.
   - 'Starý odkaz https://www.geoportal.sk/sk/zbgis/lls-dmr/ je mrtvý (301→404); nový portál gku.sk.'
 
+- id: sk_ugkk_local
+  countries:
+  - SK
+  kinds:
+  - elevation
+  - canopy
+  name: DMR 5.0 a DMP 1.0 1 m (celostátní ZIP, ručně stažené)
+  provider: ÚGKK SR
+  url: https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip
+  info: https://www.gku.sk/geoportal/zbgis/lls/poskytovanie/
+  role: výšky (terén i povrch z disku)
+  status: 'off'
+  code: app/pipeline/elevation_raster.py (sk_ugkk_local), app/local_elevation_check.py
+  provider_key: sk_ugkk_local
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.gku.sk/files/geoportal/zbgis/licencie/licencne_podmienky_produkty_lls.pdf
+    attribution: DMR 5.0 a DMP 1.0 © ÚGKK SR – CC BY 4.0
+  access: free
+  checked: 'Claude 2026-11-16: vzorek LOT06 DMP 2.0 – GeoTIFF bloky 128×128, LZW, float32, přehledy .ovr, EPSG:8353 (JTSK03)
+    + Bpv; výřez 3 × 3 km 0,8 s, 550 MB RAM.'
+  issues:
+  - 'Bez e-mailu, ale jen celostátní ZIP s jedním TIFFem (DMP 155 GB, DMR 5.0 198 GB, https://opendata.skgeodesy.sk/static/LLS/DMR5/DMR5_0_sjtsk03_bpv.zip);
+    na ostré A ručně stažené do DATA_ROOT/cache/static/sk_ugkk/{dtm,dsm}, úklid tuto složku nemaže.'
+  - Terén i povrch ze stejné sady (JTSK03 + Bpv) – bez posunu proti sobě; JTSK03 se bere jako souřadnice mapy (S-JTSK).
+  - Země se nabízí jen na instanci, kde data jsou (`countries.elevation_ready`); test B je nemá.
+
 # ----------------------------------------------------------------------------------------------- Nizozemsko
 - id: nl_ahn
   countries:

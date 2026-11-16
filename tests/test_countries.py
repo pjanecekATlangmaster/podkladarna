@@ -140,3 +140,29 @@ def test_api_bbox_errors_in_english(client, monkeypatch):
     assert "non-numeric" in r.json()["detail"]
     r = client.get("/api/sheets", params={"bbox": "nan,50.0,14.5,50.1"})
     assert "nečíselnou" in r.json()["detail"]
+
+
+def test_local_elevation_country_offered_only_with_data(tmp_path, monkeypatch):
+    """Země s výškami z disku (Slovensko ``sk_ugkk_local``) se nabízí, jen když instance má terén i povrch."""
+    import dataclasses
+
+    from app import settings
+
+    monkeypatch.setattr(settings, "DATA_ROOT", tmp_path)
+    sk = dataclasses.replace(countries.load_countries()["SK"], status="beta", elevation="sk_ugkk_local")
+    real = dict(countries.load_countries())
+    monkeypatch.setattr(countries, "load_countries", lambda: {**real, "SK": sk})
+    monkeypatch.setenv("COUNTRIES_BETA", "*")
+    monkeypatch.setenv("SITES", "intl.example=en:paid:*")
+    site = SimpleNamespace(countries=("*",))
+    base = tmp_path / "cache" / "static" / "sk_ugkk"
+    assert countries.local_elevation_dir("sk_ugkk_local") == base
+    assert "SK" not in [c.code for c in countries.allowed_countries(site)]
+    for sub in ("dtm", "dsm"):
+        (base / sub).mkdir(parents=True)
+    (base / "dtm" / "dmr5.tif").write_bytes(b"")
+    assert not countries.elevation_ready(sk)  # chybí povrch
+    (base / "dsm" / "dmp1.tif").write_bytes(b"")
+    assert "SK" in [c.code for c in countries.allowed_countries(site)]
+    assert "SK" in countries.offered_codes()
+    assert countries.elevation_ready(countries.load_countries()["CZ"])  # ostatní zdroje beze změny

@@ -23,7 +23,7 @@ def sk_beta(monkeypatch):
     import dataclasses
 
     patched = dict(countries.load_countries())
-    patched["SK"] = dataclasses.replace(patched["SK"], status="beta")
+    patched["SK"] = dataclasses.replace(patched["SK"], status="beta", elevation="sk_ugkk")  # bez dat na disku
     monkeypatch.setattr(countries, "load_countries", lambda: patched)
     monkeypatch.setattr(country_profile, "load_countries", lambda: patched)
 
@@ -494,3 +494,64 @@ def test_dtm_summary_lines_in_english():
     assert "WARNING: DTM covers only" in dtm_readme_en(summary)
     failed = dtm_lines_en({"state": "failed", "lines": ["x"], "notice_lines": ["x"]})
     assert failed["notice_lines"] == failed["lines"] and "unavailable" in failed["lines"][0]
+
+
+def _cli_tif(path: Path, values, origin, *, tmp: Path) -> None:
+    """Dlaždicovaný LZW GeoTIFF v S-JTSK přes GDAL CLI (jako balíky ÚGKK: bloky 128, přehledy)."""
+    import subprocess
+
+    import numpy as np
+
+    from app.pipeline import elevation_raster
+    from app.pipeline.crs_5514 import CRS_WKT
+
+    arr = np.asarray(values, dtype="float32")
+    asc = tmp / (path.stem + ".asc")
+    header = (f"ncols {arr.shape[1]}\nnrows {arr.shape[0]}\nxllcorner {origin[0]}\n"
+              f"yllcorner {origin[1] - arr.shape[0]}\ncellsize 1\nNODATA_value -9999\n")
+    asc.write_text(header + "\n".join(" ".join(f"{v:.2f}" for v in row) for row in arr) + "\n", encoding="utf-8")
+    wkt = tmp / "crs.wkt"
+    wkt.write_text(CRS_WKT, encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run([elevation_raster._gdal_tool("gdal_translate"), "-q", "-ot", "Float32", "-a_srs", str(wkt),
+                    "-co", "TILED=YES", "-co", "BLOCKXSIZE=128", "-co", "BLOCKYSIZE=128", "-co", "COMPRESS=LZW",
+                    str(asc), str(path)], check=True)
+    subprocess.run([elevation_raster._gdal_tool("gdaladdo"), "-q", "-ro", str(path), "2", "4"], check=True)
+
+
+@pytest.mark.parametrize("dsm_shift, ok", [(0.0, True), (40.0, False)])  # 40 m ≈ elipsoidické výšky proti Bpv
+def test_sk_local_elevation_check(tmp_path, monkeypatch, dsm_shift, ok):
+    """``sk_ugkk_local`` čte terén i povrch z ``cache/static/sk_ugkk``; kontrola odhalí posun výšek."""
+    from app.pipeline import elevation_raster
+
+    try:
+        for tool in ("gdal_translate", "gdaladdo", "gdalwarp", "gdalbuildvrt", "gdalinfo"):
+            elevation_raster._gdal_tool(tool)
+    except RuntimeError:
+        pytest.skip("GDAL CLI není k dispozici")
+    import numpy as np
+    from pyproj import Transformer
+
+    from app import local_elevation_check, settings
+    from app.pipeline.crs_5514 import CRS_WKT
+
+    monkeypatch.setattr(settings, "DATA_ROOT", tmp_path)
+    x0, y0 = -420000.0, -1230000.0  # střed Slovenska v S-JTSK
+    yy, xx = np.mgrid[0:400, 0:400]
+    dtm = 400.0 + 0.05 * xx + 0.02 * yy
+    dsm = dtm.copy()
+    dsm[100:250, 150:300] += 18.0  # les
+    base = tmp_path / "cache" / "static" / "sk_ugkk"
+    _cli_tif(base / "dtm" / "dmr5_jtsk03.tif", dtm, (x0, y0 + 400), tmp=tmp_path)
+    _cli_tif(base / "dsm" / "dmp1_jtsk03.tif", dsm + dsm_shift, (x0, y0 + 400), tmp=tmp_path)
+    lon, lat = Transformer.from_crs(CRS_WKT, "EPSG:4326", always_xy=True).transform(x0 + 200, y0 + 200)
+    lines: list[str] = []
+    assert local_elevation_check.run("sk_ugkk_local", lon, lat, 200.0, out=lines.append) is ok, lines
+    assert any("bloky 128×128" in line for line in lines)
+    if ok:
+        res = elevation_raster.prepare_raster_surfaces(
+            tmp_path / "work", (x0 + 100, y0 + 100, x0 + 300, y0 + 300), source="sk_ugkk_local"
+        )
+        chm = elevation_raster._read(res.chm)
+        assert chm.max() == pytest.approx(18.0, abs=0.1)
+        assert 0.3 < float((chm > 3).mean()) < 0.7

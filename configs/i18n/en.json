@@ -769,6 +769,7 @@
   "api.internal_error": "An unexpected error occurred on the server. Please try again later.",
   "api.elevation_source.nl_ahn": "AHN, PDOK",
   "api.elevation_source.sk_ugkk": "DMR 5.0, ÚGKK SR",
+  "api.elevation_source.sk_ugkk_local": "DMR 5.0 and DMP 1.0, ÚGKK SR",
   "api.elevation_source.ch_swisstopo": "swissALTI3D and swissSURFACE3D, swisstopo",
   "api.elevation_source.at_bev": "BEV ALS DTM and DSM",
   "api.elevation_source.de_berlin": "DGM1 and DOM1, GDI Berlin",
