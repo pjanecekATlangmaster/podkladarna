@@ -1,0 +1,1165 @@
+# Registr zdrojů dat po zemích (Petr 2026-11-16). Jediné místo pro přehled: země, druh dat, server, licence,
+# přístup a známé problémy. Aplikace ho za běhu nečte; adresy serverů dál žijí v kódu (moduly v `code`).
+# Dokument docs/zdroje-dat.md se generuje: `python scripts/data_sources_doc.py` (test hlídá, že sedí).
+# tests/test_data_sources.py hlídá i to, že každá země z countries.yaml, každý zdroj výšek / technické mapy
+# (`provider_key`) a každá sonda stavu zdrojů (`probe`, app/source_status.py) tu má záznam.
+#
+# Pole záznamu:
+#   id         jednoznačný klíč (malá písmena)
+#   countries  kódy zemí z countries.yaml, `*` = všude
+#   kinds      elevation (DTM/DSM rastr) | point_cloud (LiDAR mračno) | canopy (výška porostu) | technical_map
+#              (obdoba české DTM: budovy, vozovky, chodníky, ploty) | vectors (topografické vektory) | buildings
+#              | orthophoto | map (podkladová mapa) | cadastre | hillshade | imagery (družicové snímky)
+#   name, provider (poskytovatel), url (server / služba, kterou kód volá), info (stránka produktu nebo licence)
+#   role       kresba | výšky | šablona | sonda – k čemu ho Podkladárna používá
+#   status     used (napojeno) | candidate (zjištěno, nenapojeno) | off (napojeno, vypnuto) | rejected (nevhodné)
+#   code       kde je v kódu (u used / off)
+#   provider_key klíč `elevation` / `technical_map` v countries.yaml (jen u zdrojů, které ho mají)
+#   probe      klíč nebo seznam klíčů sond v app/source_status.py (hlídání výpadků)
+#   license    class public (otevřená, i komerčně) | restricted (podmínky, poplatek, smlouva, NC) | unknown;
+#              name, url, attribution (požadovaná citace)
+#   access     free (bez registrace) | email (výdej na e-mail) | api_key | account | contract (smlouva / poplatek)
+#   checked    datum a jak byla licence ověřena; „neověřeno“ = převzato z podkladů, na stránce poskytovatele
+#              neověřeno
+#   issues     známé problémy (nestabilita, odstávky, hustota bodů, velké soubory, nejasná licence, chyby v datech)
+
+sources:
+# ----------------------------------------------------------------------------------------------- všude
+- id: osm_overpass
+  countries: ["*"]
+  kinds: [vectors, buildings]
+  name: OpenStreetMap přes Overpass API (6 zrcadel, záloha OSM API /map)
+  provider: OpenStreetMap contributors; zrcadla overpass-api.de, overpass.openstreetmap.fr, maps.mail.ru, private.coffee
+  url: https://overpass-api.de/api/interpreter
+  info: https://www.openstreetmap.org/copyright
+  role: kresba
+  status: used
+  code: app/pipeline/osm_paths.py (OVERPASS_URLS, OSM_API_MAP_URL)
+  probe: osm
+  license:
+    class: public
+    name: ODbL 1.0
+    url: https://opendatacommons.org/licenses/odbl/1-0/
+    attribution: "© OpenStreetMap contributors"
+  access: free
+  checked: "2026-11-16 overpass-api.de (limity); ODbL podle osm.org/copyright"
+  issues:
+    - "Veřejná instance overpass-api.de žádá nejvýš ~10 000 dotazů a ~1 GB za den; při růstu provozu vlastní instance nebo placené zrcadlo (PODKLADARNA_OVERPASS_URLS)."
+    - "Zrcadla jsou nestabilní: maps.mail.ru 38 s nebo 504, private.coffee a kumi.systems vracely 500 (komentář v osm_paths.py)."
+    - "Záloha OSM API /map (api.openstreetmap.org) je určená hlavně pro editory; podmínky API usage policy pro čtení dat ověřit."
+    - "ODbL: prodávaný .omap je odvozená databáze, kupující ji smí šířit dál (evropa-data-prehled kap. 5)."
+    - "Kvalita a úplnost OSM se liší po zemích i obcích (moře jen jako pobřežní čára, zahrady, hřiště bez surface)."
+
+- id: osm_tiles
+  countries: ["*"]
+  kinds: [map]
+  name: Dlaždice OSM (openstreetmap.fr, .org, .de) a OSM WMS terrestris
+  provider: OSM France, OSMF, FOSSGIS, terrestris
+  url: https://a.tile.openstreetmap.fr/osmfr/
+  info: https://operations.osmfoundation.org/policies/tiles/
+  role: šablona
+  status: used
+  code: app/pipeline/reference_layers.py (OSM_XYZ_URLS, OSM_WMS), app/pipeline/online_templates.py, app/tiles.py
+  license:
+    class: restricted
+    name: data ODbL, dlaždice podle podmínek provozovatele
+    url: https://operations.osmfoundation.org/policies/tiles/
+    attribution: "© OpenStreetMap contributors (terrestris: © OpenStreetMap contributors, © Natural Earth Data, © GEBCO, © terrestris)"
+  access: free
+  checked: "2026-11-16 tile policy OSMF; terrestris produktová stránka (závazné podmínky nenalezeny)"
+  issues:
+    - "Tile policy OSMF zakazuje na tile.openstreetmap.org předstahování a offline použití; obrázek OSM do ZIPu (reference_layers) je z pohledu této politiky problém – ověřit, zda se tile.openstreetmap.org reálně používá jen jako online šablona, případně ho z offline větve vyřadit."
+    - "Vyžaduje vlastní User-Agent (generické knihovny blokuje)."
+    - "openstreetmap.de občas vrací 404 na okrajové dlaždice (GDAL padá) – komentář v kódu."
+
+- id: sentinel2_aws
+  countries: ["*"]
+  kinds: [imagery]
+  name: Sentinel-2 L2A (Earth Search STAC na AWS)
+  provider: ESA / Copernicus, katalog Element 84
+  url: https://earth-search.aws.element84.com/v1/search
+  info: https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice
+  role: šablona
+  status: used
+  code: app/pipeline/sentinel2.py
+  probe: sentinel
+  license:
+    class: public
+    name: Copernicus Sentinel data legal notice (volné použití)
+    url: https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice
+    attribution: "Contains modified Copernicus Sentinel data [rok]"
+  access: free
+  checked: "2026-11-16 legal notice Copernicus (podmínky katalogu Element 84 neověřeny)"
+  issues:
+    - "Rozlišení 10 m, jen orientační šablona."
+
+# ----------------------------------------------------------------------------------------------- Česko
+- id: cz_openzu_lidar
+  countries: [CZ]
+  kinds: [point_cloud, elevation]
+  name: DMR 5G a DMP OK (LAZ po listech SM5)
+  provider: ČÚZK, OpenZU
+  url: https://openzu.cuzk.gov.cz/opendata/
+  info: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+  role: výšky
+  status: used
+  code: app/pipeline/fetch_openzu.py
+  provider_key: cz_openzu
+  probe: lidar
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+    attribution: "Data ČÚZK – CC BY 4.0 (u upraveného díla popis úpravy)"
+  access: free
+  checked: "2026-11-16 stránka ČÚZK Otevřená data"
+  issues:
+    - "DMR 5G má hustotu ~0,5 m mezi body: drobné balvany a skalky pod ~1 m nevyčteme."
+    - "Listy jsou velké, proto cache listů se stropem LIDAR_CACHE_MAX_GB a kontrolou neúplného LAZ (3.9.0, 3.56.1)."
+    - "DMP OK je z obrazové korelace (bez prostupnosti porostu jako u mračna z laseru)."
+
+- id: cz_dmvs_dtm
+  countries: [CZ]
+  kinds: [technical_map]
+  name: Digitální technická mapa krajů (JVF balíky ZPS) + WMS náhledy
+  provider: ČÚZK, IS DMVS, servery krajů
+  url: https://dmvs.cuzk.gov.cz/api/rest
+  info: https://dmvs.cuzk.gov.cz/
+  role: kresba
+  status: used
+  code: app/pipeline/dtm_sources.py, app/pipeline/dtm_import.py, app/pipeline/reference_layers.py (DMVS WMS)
+  provider_key: cz_dtm
+  probe: dtm
+  license:
+    class: unknown
+    name: veřejné sady „bez podmínek“, konkrétní licence neuvedena
+    url: https://dmvs.cuzk.gov.cz/
+    attribution: "ČÚZK / IS DMVS"
+  access: free
+  checked: "neověřeno (převzato z dtm-kraje/dtm-vysocina-a-kraje.md, 2026-10-26)"
+  issues:
+    - "Odstávky DMVS (výpadek 503 2026-11-12, plánovaná odstávka kvůli JVF DTM 1.5 2026-11-13); job pak bere balíky z cache."
+    - "Neúplné obce: např. Jihlava má v ZPS_OPL jen ~8 % budov (incomplete_opl_units)."
+    - "Ploty s neznámým původem (ZpusobPorizeniZPS = 99) – filtr filter_dubious_fences."
+    - "Balíky jsou měsíční export, čerstvý objekt z portálu v nich být nemusí."
+
+- id: cz_zabaged
+  countries: [CZ]
+  kinds: [vectors]
+  name: ZABAGED polohopis (ArcGIS REST)
+  provider: ČÚZK
+  url: https://ags.cuzk.gov.cz/arcgis/rest/services/ZABAGED_POLOHOPIS/MapServer
+  info: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+  role: kresba
+  status: used
+  code: app/pipeline (zabaged_*), configs/zabaged_ags.yaml, configs/zabaged_layers.yaml
+  probe: zabaged
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+    attribution: "ZABAGED® © ČÚZK – CC BY 4.0"
+  access: free
+  checked: "2026-11-16 stránka ČÚZK Otevřená data"
+  issues:
+    - "Projekt ZABAGED postupně opouští (OSM základ, DTM doplňuje); místy zastaralé (sady, areály)."
+
+- id: cz_ruian
+  countries: [CZ]
+  kinds: [cadastre]
+  name: RÚIAN (obce, parcely)
+  provider: ČÚZK
+  url: https://ags.cuzk.gov.cz/arcgis/rest/services/RUIAN/MapServer
+  info: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+  role: kresba
+  status: used
+  code: app/pipeline/street_parcels.py, app/pipeline/dtm_sources.py
+  probe: ruian
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+    attribution: "RÚIAN © ČÚZK – CC BY 4.0"
+  access: free
+  checked: "2026-11-16 stránka ČÚZK Otevřená data"
+  issues: []
+
+- id: cz_ortofoto
+  countries: [CZ]
+  kinds: [orthophoto]
+  name: Ortofoto ČR (aktuální WMS a archiv 2003–2005)
+  provider: ČÚZK
+  url: https://ags.cuzk.gov.cz/arcgis1/services/ORTOFOTO/MapServer/WMSServer
+  info: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+  role: kresba
+  status: used
+  code: app/pipeline/orthophoto.py, app/pipeline/reference_layers.py
+  probe: ortofoto
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+    attribution: "Ortofoto © ČÚZK – CC BY 4.0"
+  access: free
+  checked: "2026-11-16 stránka ČÚZK Otevřená data (archivní WMS licenci zvlášť neověřeno)"
+  issues:
+    - "Používá se i ke kresbě (stromy na dlažbě, herní prvky stínem, zeleň v ulicích), ne jen jako šablona."
+
+- id: cz_cuzk_wms
+  countries: [CZ]
+  kinds: [hillshade, map, cadastre]
+  name: Stínování DMR 5G a DMP, ZTM, katastrální mapa (WMS a DXF)
+  provider: ČÚZK
+  url: https://ags.cuzk.gov.cz/arcgis2/services/dmr5g/ImageServer/WMSServer
+  info: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+  role: šablona
+  status: used
+  code: app/pipeline/reference_layers.py
+  probe: katastr
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx
+    attribution: "© ČÚZK"
+  access: free
+  checked: "2026-11-16 stránka ČÚZK Otevřená data (katastrální mapa zvlášť neověřeno)"
+  issues:
+    - "ČÚZK 2026-11 přejmenovala službu dmp_obrazova_korelace na dmp (stará adresa 404) – adresy služeb se mění bez ohlášení."
+
+- id: cz_aopk_trees
+  countries: [CZ]
+  kinds: [vectors]
+  name: Památné stromy AOPK ČR
+  provider: AOPK ČR
+  url: https://gis.nature.cz/arcgis/rest/services
+  info: https://data.nature.cz/
+  role: kresba
+  status: used
+  code: app/pipeline (aopk)
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://data.nature.cz/
+    attribution: "© AOPK ČR (CC BY 4.0)"
+  access: free
+  checked: "neověřeno (CC BY 4.0 obecně pro data AOPK podle prezentace 2020; u sady stromů na portálu neověřeno)"
+  issues: []
+
+# ----------------------------------------------------------------------------------------------- Slovensko
+- id: sk_ugkk_dmr
+  countries: [SK]
+  kinds: [elevation]
+  name: DMR 5.0 1 m (INSPIRE WCS)
+  provider: ÚGKK SR
+  url: https://inspirews.skgeodesy.sk/geoserver/el/ows
+  info: https://www.geoportal.sk/sk/zbgis/lls-dmr/
+  role: výšky
+  status: "off"               # v uvozovkách – YAML by off četl jako false
+  code: app/pipeline/elevation_raster.py (sk_ugkk)
+  provider_key: sk_ugkk
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.geoportal.sk/sk/zbgis/lls-dmr/
+    attribution: "DMR 5.0 © ÚGKK SR – CC BY 4.0"
+  access: free
+  checked: "neověřeno (portál ÚGKK z cloudu nedostupný, převzato z evropa-data-prehled)"
+  issues:
+    - "Model povrchu DMP 1.0 a mračno jen exportem z portálu (mračno do 2 km² na export, DMP na e-mail) → země vypnutá (bez povrchu nezařazujeme)."
+    - "Servery geoportal.sk / zbgis z cloudu nedostupné (možná blokace podle země)."
+
+# ----------------------------------------------------------------------------------------------- Nizozemsko
+- id: nl_ahn
+  countries: [NL]
+  kinds: [elevation]
+  name: AHN DTM a DSM 0,5 m (PDOK WCS) + WMS stínování
+  provider: Rijkswaterstaat / Het Waterschapshuis (AHN), PDOK
+  url: https://service.pdok.nl/rws/ahn/wcs/v1_0
+  info: https://www.ahn.nl/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (nl_ahn), app/pipeline/reference_nl.py
+  provider_key: nl_ahn
+  probe: nl_ahn
+  license:
+    class: public
+    name: CC0 1.0 (AHN1–4), novější snímkování CC BY 4.0
+    url: https://data.overheid.nl/dataset/47567-actueel-hoogtebestand-nederland--ahn--dtm
+    attribution: "Bron: AHN"
+  access: free
+  checked: "2026-11-16 data.overheid.nl (AHN4 CC0); CC BY u AHN5+ jen ze sekundárního zdroje – neověřeno"
+  issues:
+    - "Vegetace jen z rastru DSM − DTM; v mračnu je vegetace ve třídě 1 (nezařazené), ne zvlášť."
+
+- id: nl_ahn_copc
+  countries: [NL]
+  kinds: [point_cloud]
+  name: AHN4–6 mračno bodů (COPC)
+  provider: Rijkswaterstaat / Het Waterschapshuis
+  url: https://www.ahn.nl/
+  info: https://www.ahn.nl/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC0 1.0 / CC BY 4.0
+    url: https://www.ahn.nl/
+    attribution: "Bron: AHN"
+  access: free
+  checked: neověřeno
+  issues:
+    - "Vegetace ve třídě 1 spolu s ostatním nezařazeným – porost z mračna jen s vlastní klasifikací."
+
+- id: nl_bgt
+  countries: [NL]
+  kinds: [technical_map]
+  name: BGT – Basisregistratie Grootschalige Topografie (OGC API Features, WMTS)
+  provider: Kadaster, PDOK
+  url: https://api.pdok.nl/lv/bgt/ogc/v1
+  info: https://www.pdok.nl/introductie/-/article/basisregistratie-grootschalige-topografie-bgt-
+  role: kresba
+  status: used
+  code: app/pipeline/bgt_nl.py, app/pipeline/reference_nl.py
+  provider_key: nl_bgt
+  probe: nl_bgt
+  license:
+    class: public
+    name: CC0 1.0
+    url: https://www.pdok.nl/introductie/-/article/basisregistratie-grootschalige-topografie-bgt-
+    attribution: "BGT – CC0 1.0"
+  access: free
+  checked: "neověřeno (převzato z countries.yaml a README NL)"
+  issues:
+    - "HEAD na API vrací 404, sonda proto dělá GET na kolekci pand."
+
+- id: nl_pdok_wms
+  countries: [NL]
+  kinds: [orthophoto, cadastre, map]
+  name: Luchtfoto (Beeldmateriaal), Kadastrale kaart, BRT TOP10NL (PDOK WMS)
+  provider: Beeldmateriaal Nederland, Kadaster, PDOK
+  url: https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0
+  info: https://www.beeldmateriaal.nl/
+  role: šablona
+  status: used
+  code: app/pipeline/reference_nl.py
+  probe: [nl_luchtfoto, nl_kadaster]
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.beeldmateriaal.nl/
+    attribution: "Bron: Beeldmateriaal.nl; Bron: Kadaster"
+  access: free
+  checked: "neověřeno (převzato z countries.yaml)"
+  issues: []
+
+# ----------------------------------------------------------------------------------------------- Švýcarsko
+- id: ch_swisstopo
+  countries: [CH]
+  kinds: [elevation]
+  name: swissALTI3D (terén) a swissSURFACE3D Raster (povrch) 0,5 m, STAC + COG
+  provider: swisstopo
+  url: https://data.geo.admin.ch/api/stac/v0.9
+  info: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (ch_swisstopo)
+  provider_key: ch_swisstopo
+  probe: ch_swisstopo
+  license:
+    class: public
+    name: swisstopo OGD (volné i komerční použití, povinná citace)
+    url: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
+    attribution: "© swisstopo"
+  access: free
+  checked: "2026-11-16 stránka swisstopo Terms of use"
+  issues:
+    - "swisstopo si vyhrazuje omezit přístup při nadměrném používání služeb (pak smlouva)."
+
+- id: ch_swisssurface3d_las
+  countries: [CH]
+  kinds: [point_cloud]
+  name: swissSURFACE3D mračno (LAS, ~12 b/m², třída 3 vegetace)
+  provider: swisstopo
+  url: https://data.geo.admin.ch/api/stac/v0.9
+  info: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: swisstopo OGD
+    url: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
+    attribution: "© swisstopo"
+  access: free
+  checked: "2026-11-16 stránka swisstopo Terms of use"
+  issues:
+    - "Velké soubory: 1 km² = ZIP 125 MB, rozbaleno 338 MB (nelze číst jen výřez)."
+
+- id: ch_av
+  countries: [CH]
+  kinds: [technical_map]
+  name: AV – amtliche Vermessung kantonů (WFS geodienste.ch)
+  provider: kantony, geodienste.ch
+  url: https://geodienste.ch/db/av_0/deu
+  info: https://geodienste.ch/services/av
+  role: kresba
+  status: used
+  code: app/pipeline/av_ch.py, app/pipeline/reference_ch.py
+  provider_key: ch_av
+  probe: ch_av
+  license:
+    class: restricted
+    name: 20 kantonů + FL volně („Freie Nutzung“, většinou povinná citace); JU, LU, NE, NW, OW, VD jen se schválením
+    url: https://geodienste.ch/services/av
+    attribution: "Quelle: Kantone, geodienste.ch"
+  access: free
+  checked: "2026-11-16 stránka geodienste.ch/services/av"
+  issues:
+    - "JU, LU, NE, NW, OW, VD vyžadují schválení (JU, LU, NE, NW i smlouvu, JU od 10 ha poplatek) → technical_map_gaps, tam jen OSM."
+    - "Podmínky se liší po kantonech; GR, SG a další odkazují na vlastní kantonální podmínky."
+    - "Plochy plotů AV nevede."
+
+- id: ch_wms
+  countries: [CH]
+  kinds: [orthophoto, map, cadastre, hillshade]
+  name: SWISSIMAGE, národní mapa, stínování a AV (WMS swisstopo)
+  provider: swisstopo
+  url: https://wms.geo.admin.ch/
+  info: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
+  role: šablona
+  status: used
+  code: app/pipeline/reference_ch.py
+  probe: ch_wms
+  license:
+    class: public
+    name: swisstopo OGD
+    url: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
+    attribution: "© swisstopo"
+  access: free
+  checked: "2026-11-16 stránka swisstopo Terms of use"
+  issues:
+    - "Dotaz 1 × 1 px vracel 500 (opravená sonda)."
+
+# ----------------------------------------------------------------------------------------------- Rakousko
+- id: at_bev
+  countries: [AT]
+  kinds: [elevation]
+  name: ALS DTM a DSM 1 m, roční mozaika (COG 50 km, EPSG:3035)
+  provider: BEV – Bundesamt für Eich- und Vermessungswesen
+  url: https://data.bev.gv.at/download/ALS/
+  info: https://data.bev.gv.at/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (at_bev), app/pipeline/reference_at.py
+  provider_key: at_bev
+  probe: at_bev
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://data.bev.gv.at/
+    attribution: "Datenquelle: BEV – Bundesamt für Eich- und Vermessungswesen"
+  access: free
+  checked: "2026-11-16 metadata BEV v INSPIRE Geoportal (CC BY 4.0, přístup bez omezení); stránka BEV přímo neověřena"
+  issues:
+    - "Mračno bodů otevřené není → porost jen z DSM − DTM (slabší beta, falešný porost na mostech a střechách řeší veto z OSM)."
+    - "DTM se obnovuje v intervalu až 10 let, Stichtag mozaiky není datum letu."
+    - "COG dlaždice má ~10 GB (čte se jen okno přes HTTP range); přesnost výšek ±0,5 m, ve velehorách hůř."
+
+- id: at_fmzk
+  countries: [AT]
+  kinds: [technical_map]
+  name: FMZK – Flächen-Mehrzweckkarte Stadt Wien (WFS)
+  provider: Stadt Wien (MA 41)
+  url: https://data.wien.gv.at/daten/geo
+  info: https://www.wien.gv.at/stadtentwicklung/stadtvermessung/geodaten/fmzk/
+  role: kresba
+  status: used
+  code: app/pipeline/fmzk_at.py, app/pipeline/reference_at.py
+  provider_key: at_fmzk
+  probe: at_fmzk
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.wien.gv.at/stadtentwicklung/stadtvermessung/geodaten/fmzk/
+    attribution: "Datenquelle: Stadt Wien – data.wien.gv.at"
+  access: free
+  checked: "2026-11-16 stránka FMZK wien.gv.at"
+  issues:
+    - "Jen Vídeň (technical_map_area)."
+    - "Server převádí do jiných EPSG bez posunu data MGI (~290 m vedle) → stahovat v nativním EPSG:31256 a převádět PROJ."
+
+- id: at_basemap
+  countries: [AT]
+  kinds: [orthophoto, map, hillshade]
+  name: basemap.at (ortofoto, mapa, stínování, TMS) a Luftbild Wien (WMTS)
+  provider: basemap.at (spolkové země), Stadt Wien
+  url: https://mapsneu.wien.gv.at/basemap
+  info: https://basemap.at/en
+  role: šablona
+  status: used
+  code: app/pipeline/reference_at.py
+  probe: [at_basemap, at_luftbild]
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://basemap.at/en
+    attribution: "Datenquelle: basemap.at (s odkazem na www.basemap.at)"
+  access: free
+  checked: "2026-11-16 stránka basemap.at"
+  issues:
+    - "basemap.at chce v citaci odkaz na www.basemap.at – zkontrolovat, zda ho citace v ZIPu má."
+
+# ----------------------------------------------------------------------------------------------- Německo (Berlín)
+- id: de_berlin
+  countries: [DE]
+  kinds: [elevation]
+  name: ATKIS DGM1 a DOM1 Berlín (ALS 2021), 1 m, XYZ po 2 km
+  provider: Senatsverwaltung Berlin, Geoportal Berlin (GDI Berlin)
+  url: https://gdi.berlin.de/data/dgm1/atom/
+  info: https://gdi.berlin.de/geonetwork/srv/api/records/b0e8e83e-e61a-3a37-8515-f6205c2bfe92
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_berlin), app/pipeline/reference_de.py
+  provider_key: de_berlin
+  probe: de_berlin
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Zero 2.0
+    url: https://www.govdata.de/dl-de/zero-2-0
+    attribution: "nepovinná; uvádíme Geoportal Berlin"
+  access: free
+  checked: "2026-11-16 katalog GDI Berlin (DOM a DGM WMS: Zero 2.0); jiný záznam DGM 1 m uvádí dl-de/by-2.0 – nejednotné"
+  issues:
+    - "Katalogové záznamy si odporují (Zero 2.0 vs. Namensnennung 2.0) – citaci „Geoportal Berlin / název sady“ proto uvádět vždy."
+    - "Novější bDOM 2026 ze snímků je bez listí (les vycházel jako louka) → bere se DOM1 2021."
+    - "Mračno jen v ZIPech po desítkách GB – nepoužitelné."
+
+- id: de_sb
+  countries: [DE]
+  kinds: [technical_map, buildings, orthophoto]
+  name: Straßenbefahrung 2014, budovy ALKIS a TrueDOP (WFS / WMS GDI Berlin)
+  provider: Geoportal Berlin
+  url: https://gdi.berlin.de/services/wfs/strassenbefahrung
+  info: https://gdi.berlin.de/
+  role: kresba
+  status: used
+  code: app/pipeline/sb_berlin.py, app/pipeline/reference_de.py
+  provider_key: de_sb
+  probe: [de_sb, de_truedop]
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Zero 2.0
+    url: https://www.govdata.de/dl-de/zero-2-0
+    attribution: "nepovinná; uvádíme Geoportal Berlin"
+  access: free
+  checked: "neověřeno (licence Straßenbefahrung v katalogu nenalezena; převzato z README DE)"
+  issues:
+    - "Straßenbefahrung je z roku 2014 – změny ulic po 2014 chybí."
+
+- id: de_laender_laz
+  countries: [DE]
+  kinds: [elevation, point_cloud]
+  name: DGM1 a LAZ dalších spolkových zemí (NRW WCS + index.json, BY metalink, HE, SN, TH, BB …)
+  provider: zemské geodetické úřady
+  url: https://www.opengeodata.nrw.de/produkte/geobasis/hm/
+  info: https://www.govdata.de/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: dl-de/by-2.0, dl-de/zero-2.0, CC BY 4.0 (podle země)
+    url: https://www.govdata.de/
+    attribution: "podle země"
+  access: free
+  checked: "neověřeno (evropa-data-prehled 2026-11-14: NRW WCS a seznamy LAZ BY a NRW staženy)"
+  issues:
+    - "Každá spolková země jiné rozhraní → až 16 adaptérů."
+    - "LAZ ~70–110 MB/km² po celých 1km dlaždicích."
+    - "NI, MV, SH jen DSM (bez mračna)."
+
+# ----------------------------------------------------------------------------------------------- Francie
+- id: fr_lidarhd
+  countries: [FR]
+  kinds: [elevation]
+  name: LiDAR HD MNT a MNS 0,5 m (WMS-R Géoplateforme)
+  provider: IGN
+  url: https://data.geopf.fr/wms-r/wms
+  info: https://geoservices.ign.fr/lidarhd
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (fr_lidarhd), app/pipeline/reference_fr.py
+  provider_key: fr_lidarhd
+  probe: fr_lidarhd
+  license:
+    class: public
+    name: Licence Ouverte Etalab 2.0
+    url: https://www.etalab.gouv.fr/licence-ouverte-open-licence/
+    attribution: "© IGN"
+  access: free
+  checked: "2026-11-16 dokumentace IGN k LiDAR HD (Etalab 2.0) přes vyhledávání; stránka geoservices.ign.fr přesměrovává na cartes.gouv.fr"
+  issues:
+    - "Vychází postupně, díry (Lille) → sonda pokrytí, pod 50 % výřez odmítnut; vojenské zóny ZICAD bez dat (nodata)."
+    - "WMS-R občas vrací 502 (až 4 pokusy); IGN zavedl limity počtu dotazů na WMS-R / WMS-V / WFS."
+    - "Dlaždice 2 × 2 km ~64 MB, ~20 s."
+
+- id: fr_lidarhd_copc
+  countries: [FR]
+  kinds: [point_cloud]
+  name: LiDAR HD mračno COPC (~10–30 b/m², třídy 1–5)
+  provider: IGN
+  url: https://data.geopf.fr/wfs/ows
+  info: https://geoservices.ign.fr/lidarhd
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: Licence Ouverte Etalab 2.0
+    url: https://www.etalab.gouv.fr/licence-ouverte-open-licence/
+    attribution: "© IGN"
+  access: free
+  checked: "2026-11-16 dokumentace IGN (Etalab 2.0)"
+  issues:
+    - "List COPC ~235 MB, ale jde číst jen výřez přes HTTP range (ověřeno 100 × 100 m)."
+
+- id: fr_pdv
+  countries: [FR]
+  kinds: [technical_map]
+  name: Plan de voirie (chaussées, trottoirs, escaliers) Ville de Paris
+  provider: Ville de Paris – opendata.paris.fr
+  url: https://opendata.paris.fr/api/explore/v2.1/catalog/datasets/
+  info: https://opendata.paris.fr/explore/dataset/plan-de-voirie-chaussees/information/
+  role: kresba
+  status: used
+  code: app/pipeline/pdv_paris.py, app/pipeline/reference_fr.py
+  provider_key: fr_pdv
+  probe: fr_pdv
+  license:
+    class: public
+    name: ODbL
+    url: https://opendata.paris.fr/explore/dataset/plan-de-voirie-chaussees/information/
+    attribution: "© Ville de Paris – opendata.paris.fr (ODbL)"
+  access: free
+  checked: "neověřeno (licence u sady Chaussées nenalezena; ODbL u příbuzných sad Plan de voirie)"
+  issues:
+    - "Jen obec Paříž (technical_map_area); ODbL – upravená data musí zůstat pod ODbL (Podkladárna je nešíří, jen podle nich kreslí)."
+
+- id: fr_geopf
+  countries: [FR]
+  kinds: [orthophoto, map, cadastre]
+  name: BD ORTHO, Plan IGN, Parcellaire Express (WMS Géoplateforme)
+  provider: IGN
+  url: https://data.geopf.fr/wms-r/wms
+  info: https://geoservices.ign.fr/
+  role: šablona
+  status: used
+  code: app/pipeline/reference_fr.py
+  probe: fr_ortho
+  license:
+    class: public
+    name: Licence Ouverte Etalab 2.0
+    url: https://www.etalab.gouv.fr/licence-ouverte-open-licence/
+    attribution: "© IGN – Géoplateforme"
+  access: free
+  checked: "neověřeno (převzato z countries.yaml)"
+  issues: []
+
+# ----------------------------------------------------------------------------------------------- Estonsko
+- id: ee_maaamet_elevation
+  countries: [EE]
+  kinds: [elevation]
+  name: DTM 1 m (listy 5 km) a DSM 1 m (listy 1 km), GeoTIFF
+  provider: Maa- ja Ruumiamet
+  url: https://geoportaal.maaruum.ee/index.php
+  info: https://geoportaal.maaamet.ee/opendata-licence
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (ee_maaamet), app/pipeline/reference_ee.py
+  provider_key: ee_maaamet
+  probe: ee_elevation
+  license:
+    class: public
+    name: otevřená licence Maa- ja Ruumiamet (i komerčně, citace se zdrojem a datem dat)
+    url: https://geoportaal.maaamet.ee/opendata-licence
+    attribution: "Maa- ja Ruumiamet [rok dat]"
+  access: free
+  checked: "2026-11-16 stránka licence Maa-amet (geoportaal.maaamet.ee) přes vyhledávání; aktuální verze textu bez data"
+  issues:
+    - "List DTM ~75 MB (čte se jen okno přes /vsicurl); MTBO 25 km² odhad ~240 MB výšek."
+
+- id: ee_lidar_laz
+  countries: [EE]
+  kinds: [point_cloud]
+  name: LAZ 1.4 mračna po 1 km (víc ročníků)
+  provider: Maa- ja Ruumiamet
+  url: https://geoportaal.maaamet.ee/eng/Download-3D-data-p837.html
+  info: https://geoportaal.maaamet.ee/opendata-licence
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: otevřená licence Maa- ja Ruumiamet
+    url: https://geoportaal.maaamet.ee/opendata-licence
+    attribution: "Maa- ja Ruumiamet [rok dat]"
+  access: free
+  checked: neověřeno
+  issues:
+    - "Celé listy 1 km, objem změřit před napojením."
+
+- id: ee_etak
+  countries: [EE]
+  kinds: [technical_map]
+  name: ETAK – Eesti topograafia andmekogu (WFS)
+  provider: Maa- ja Ruumiamet
+  url: https://gsavalik.envir.ee/geoserver/etak/ows
+  info: https://geoportaal.maaamet.ee/opendata-licence
+  role: kresba
+  status: used
+  code: app/pipeline/etak_ee.py, app/pipeline/reference_ee.py
+  provider_key: ee_etak
+  probe: ee_etak
+  license:
+    class: public
+    name: otevřená licence Maa- ja Ruumiamet
+    url: https://geoportaal.maaamet.ee/opendata-licence
+    attribution: "Maa- ja Ruumiamet [rok dat]"
+  access: free
+  checked: "2026-11-16 stránka licence Maa-amet přes vyhledávání"
+  issues:
+    - "EPSG:3301 má osy sever–východ: WMS 1.3.0 vracela prázdné šablony, dokud se nepřehodily osy (opraveno)."
+
+- id: ee_wms
+  countries: [EE]
+  kinds: [orthophoto, map, cadastre]
+  name: Ortofoto EESTIFOTO, põhikaart, katastr (WMS)
+  provider: Maa- ja Ruumiamet
+  url: https://kaart.maaamet.ee/wms/fotokaart
+  info: https://geoportaal.maaamet.ee/opendata-licence
+  role: šablona
+  status: used
+  code: app/pipeline/reference_ee.py
+  probe: ee_ortho
+  license:
+    class: public
+    name: otevřená licence Maa- ja Ruumiamet
+    url: https://geoportaal.maaamet.ee/opendata-licence
+    attribution: "Maa- ja Ruumiamet [rok dat]"
+  access: free
+  checked: "2026-11-16 stránka licence Maa-amet přes vyhledávání"
+  issues: []
+
+# ----------------------------------------------------------------------------------------------- Itálie (Trentino)
+- id: it_trentino
+  countries: [IT]
+  kinds: [elevation]
+  name: LiDAR PAT 2014/2018 – DTM a DSM first 0,5 m (dlaždice 500 m, služba merge STEM)
+  provider: Provincia autonoma di Trento (SIAT)
+  url: https://siat.provincia.tn.it/stem/services
+  info: https://www.provincia.tn.it/Argomenti/Ambiente/Geologia
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (it_trentino), app/pipeline/reference_it.py
+  provider_key: it_trentino
+  probe: it_elevation
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.provincia.tn.it/Argomenti/Ambiente/Geologia
+    attribution: "© Provincia autonoma di Trento"
+  access: free
+  checked: "neověřeno (u sady 2014/2018 licence v metadatech nenalezena; CC BY 4.0 uvádějí jiné LiDAR sady PAT)"
+  issues:
+    - "Díry ~320 km² (5 % provincie, největší Piné / Baselga ~100 km²)."
+    - "Největší objem z bet: ~15 MB/km² (les 3,1 km² = 40 dlaždic, 84 MB); asynchronní služba merge."
+    - "Data 2014 – novější změny porostu chybí."
+
+- id: it_wms
+  countries: [IT]
+  kinds: [orthophoto, map]
+  name: Ortofoto a Carta Tecnica Provinciale (WMS SIAT)
+  provider: Provincia autonoma di Trento
+  url: https://siat.provincia.tn.it/geoserver/stem/wms
+  info: https://siat.provincia.tn.it/
+  role: šablona
+  status: used
+  code: app/pipeline/reference_it.py
+  probe: it_ortho
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://siat.provincia.tn.it/
+    attribution: "© Provincia autonoma di Trento"
+  access: free
+  checked: "neověřeno (převzato z countries.yaml)"
+  issues: []
+
+- id: it_bolzano
+  countries: [IT]
+  kinds: [elevation]
+  name: Jižní Tyrolsko DTM a DSM 2,5 m (0,5 m jen sídla), WCS
+  provider: Provincia autonoma di Bolzano
+  url: https://geoservices9.civis.bz.it/geoserver/p_bz-Elevation/ows
+  info: https://geokatalog.buergernetz.bz.it/
+  role: výšky
+  status: candidate
+  license:
+    class: unknown
+    name: neověřeno
+    url: https://geokatalog.buergernetz.bz.it/
+    attribution: ""
+  access: free
+  checked: neověřeno
+  issues:
+    - "Les jen 2,5 m (porosty hrubě); mimo Trentino Petr celou Itálii zatím nechce (2026-11-15)."
+
+# ----------------------------------------------------------------------------------------------- Belgie (Flandry)
+- id: be_dhmv
+  countries: [BE]
+  kinds: [elevation]
+  name: DHMV II DTM a DSM 1 m (WCS, LiDAR 2013–2015)
+  provider: Digitaal Vlaanderen
+  url: https://geo.api.vlaanderen.be/DHMV/wcs
+  info: https://www.vlaanderen.be/datavindplaats/catalogus/wmts-digitaal-hoogtemodel-vlaanderen
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (be_dhmv), app/pipeline/reference_be.py
+  provider_key: be_dhmv
+  probe: be_elevation
+  license:
+    class: public
+    name: Modellicentie Gratis Hergebruik (podle countries.yaml); WMTS DHMV vede „Gebruiksrecht geografische webdiensten“
+    url: https://www.vlaanderen.be/digitaal-vlaanderen/onze-diensten-en-platformen/open-data/voorwaarden-voor-het-hergebruik-van-overheidsinformatie/modellicentie-gratis-hergebruik
+    attribution: "© Digitaal Vlaanderen"
+  access: free
+  checked: "neověřeno (licence přímo u sady DHMV II nenalezena)"
+  issues:
+    - "LiDAR 2013–2015 bez listí (zima): porost listnáčů vychází nižší, mladé porosty po 2015 chybí."
+    - "Mračno nejspíš po mapových listech – automatický přístup bez účtu neověřen."
+
+- id: be_grb
+  countries: [BE]
+  kinds: [technical_map]
+  name: GRB – Grootschalig Referentie Bestand (WFS)
+  provider: Digitaal Vlaanderen
+  url: https://geo.api.vlaanderen.be/GRB/wfs
+  info: https://www.vlaanderen.be/digitaal-vlaanderen/onze-diensten-en-platformen/basiskaart-vlaanderen-grb/grb-webdiensten
+  role: kresba
+  status: used
+  code: app/pipeline/grb_be.py, app/pipeline/reference_be.py
+  provider_key: be_grb
+  probe: be_grb
+  license:
+    class: public
+    name: Gratis Open Data Licentie Vlaanderen v1.02
+    url: https://assets.vlaanderen.be/image/upload/v1681976168/GRB_open_data_licentie_fwbc3o.pdf
+    attribution: "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen"
+  access: free
+  checked: "2026-11-16 licence GRB (PDF Digitaal Vlaanderen) přes vyhledávání"
+  issues:
+    - "Licence GRB je „Gratis Open Data Licentie Vlaanderen“ s citací „Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen“; countries.yaml uvádí Modellicentie Gratis Hergebruik – sjednotit citaci."
+    - "Brusel GRB nemá (technical_map_gaps, jen OSM); Valonsko jiné zdroje (PICC), nezapnuto."
+
+- id: be_wms
+  countries: [BE]
+  kinds: [orthophoto, map, cadastre]
+  name: Ortofoto OMW, GRB basiskaart, katastr Adpf (WMS)
+  provider: Digitaal Vlaanderen
+  url: https://geo.api.vlaanderen.be/OMW/wms
+  info: https://www.vlaanderen.be/digitaal-vlaanderen/onze-diensten-en-platformen/open-data/voorwaarden-voor-het-hergebruik-van-overheidsinformatie
+  role: šablona
+  status: used
+  code: app/pipeline/reference_be.py
+  probe: be_ortho
+  license:
+    class: public
+    name: Modellicentie Gratis Hergebruik
+    url: https://www.vlaanderen.be/digitaal-vlaanderen/onze-diensten-en-platformen/open-data/voorwaarden-voor-het-hergebruik-van-overheidsinformatie/modellicentie-gratis-hergebruik
+    attribution: "© Digitaal Vlaanderen"
+  access: free
+  checked: "neověřeno (převzato z countries.yaml)"
+  issues:
+    - "WMS vyžaduje prázdný parametr STYLES."
+
+# ----------------------------------------------------------------------------------------------- Finsko
+- id: fi_mml
+  countries: [FI]
+  kinds: [elevation]
+  name: Korkeusmalli 2 m (zrcadlo Funet, listy 6 km)
+  provider: Maanmittauslaitos (MML), zrcadlo Funet (CSC)
+  url: https://mirrors.nic.funet.fi/index/geodata/mml/dem2m/
+  info: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (fi_mml), app/pipeline/reference_fi.py
+  provider_key: fi_mml
+  probe: fi_elevation
+  license:
+    class: public
+    name: CC BY 4.0 (NLS open data licence)
+    url: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
+    attribution: "© Maanmittauslaitos"
+  access: free
+  checked: "2026-11-16 stránka produktu MML (licence CC 4.0) přes vyhledávání"
+  issues:
+    - "Přímá rozhraní MML bez klíče vrací 401 → bere se zrcadlo Funet, které není oficiální služba MML; při jeho výpadku je potřeba bezplatný API klíč MML."
+    - "Jen 2 m; husté mračno 5 b/m² je placené (min. 26,69 € za objednávku, silná autentizace), otevřené jen 0,5 b/m²."
+
+- id: fi_chm
+  countries: [FI]
+  kinds: [canopy]
+  name: Latvusmalli – výška porostu 1 m (listy)
+  provider: Suomen metsäkeskus
+  url: https://avoin.metsakeskus.fi/aineistot/Latvusmalli/
+  info: https://www.metsakeskus.fi/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (fi_mml)
+  probe: fi_chm
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.metsakeskus.fi/
+    attribution: "© Suomen metsäkeskus"
+  access: free
+  checked: "neověřeno (CC BY 4.0 obecně pro otevřená data Metsäkeskus; u latvusmalli zvlášť nenalezeno; distribuce se 2025–26 mění)"
+  issues:
+    - "Metsäkeskus mění distribuci otevřených dat (memo 2025-11) – adresa avoin.metsakeskus.fi se může změnit."
+    - "DSM se skládá jako DTM + latvusmalli (ne z mračna)."
+
+- id: fi_hel
+  countries: [FI]
+  kinds: [technical_map, orthophoto, map]
+  name: YLRE, budovy, ortofoto a kantakartta Helsinek (WFS / WMS kartta.hel.fi)
+  provider: Helsingin kaupunki
+  url: https://kartta.hel.fi/ws/geoserver/avoindata/wfs
+  info: https://hri.fi/data/en/dataset/helsingin-kantakartta
+  role: kresba
+  status: used
+  code: app/pipeline/ylre_fi.py, app/pipeline/reference_fi.py
+  provider_key: fi_hel
+  probe: fi_ylre
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://hri.fi/data/en/dataset/helsingin-kantakartta
+    attribution: "© Helsingin kaupunki"
+  access: free
+  checked: "2026-11-16 HRI (kantakartta a další sady CC BY 4.0); YLRE zvlášť neověřeno"
+  issues:
+    - "Jen Helsinky (technical_map_area)."
+    - "Ortofoto Helsinek se při stahování občas nestáhne („Requested rectangle bounds is not contained…“), ručně ano; od 3.55.0 jeden opakovaný pokus."
+
+- id: fi_kapsi
+  countries: [FI]
+  kinds: [orthophoto, map]
+  name: Ortokuva a peruskartta MML (TMS zrcadlo kartat.kapsi.fi)
+  provider: Maanmittauslaitos, zrcadlo Kapsi
+  url: https://tiles.kartat.kapsi.fi/ortokuva
+  info: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
+  role: šablona
+  status: used
+  code: app/pipeline/reference_fi.py
+  probe: fi_ortho
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
+    attribution: "© Maanmittauslaitos, via kartat.kapsi.fi"
+  access: free
+  checked: "neověřeno (licence MML; podmínky zrcadla Kapsi neověřeny)"
+  issues:
+    - "Neoficiální zrcadlo (spolek Kapsi), bez záruky dostupnosti."
+
+# ----------------------------------------------------------------------------------------------- kandidáti bez napojení (evropa-data-prehled 2026-11-14)
+- id: pl_gugik
+  countries: [PL]
+  kinds: [elevation, point_cloud, vectors, orthophoto]
+  name: NMT 1 m (WCS), LAZ ~4 b/m² (města ~20), BDOT10k, ortofoto
+  provider: GUGiK
+  url: https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModelFormatTIFF
+  info: https://www.geoportal.gov.pl/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: bezplatně k libovolnému využití (zákon 2020)
+    url: https://www.geoportal.gov.pl/
+    attribution: "GUGiK"
+  access: free
+  checked: "neověřeno (evropa-data-prehled 2026-11-14: WCS DTM 1 m stažen)"
+  issues:
+    - "Ortofoto WMS jen v EPSG:2176–2180; EGiB (katastr) zakazuje hromadné stahování."
+    - "Nízká hustota mračna mimo města (~4 b/m²)."
+
+- id: uk_ea
+  countries: [UK]
+  kinds: [elevation, point_cloud, vectors]
+  name: EA LiDAR composite DTM/DSM 1 m (WCS) + National LiDAR Programme; OS OpenMap Local
+  provider: Environment Agency, Ordnance Survey
+  url: https://environment.data.gov.uk/
+  info: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: Open Government Licence v3
+    url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
+    attribution: "Contains Environment Agency information © Environment Agency"
+  access: free
+  checked: "neověřeno (evropa-data-prehled: WCS DTM 1 m stažen)"
+  issues:
+    - "Otevřené ortofoto není (APGB jen veřejný sektor); jen Anglie, Skotsko a Wales částečně."
+    - "OS MasterMap (obdoba DTM) placená."
+
+- id: dk_dataforsyningen
+  countries: [DK]
+  kinds: [elevation, point_cloud, orthophoto]
+  name: DHM 0,4 m DTM/DSM + mračno, ortofoto (Dataforsyningen)
+  provider: Klimadatastyrelsen
+  url: https://dataforsyningen.dk/
+  info: https://dataforsyningen.dk/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: frie geografiske data (komerčně ano, citace)
+    url: https://dataforsyningen.dk/
+    attribution: "Klimadatastyrelsen"
+  access: api_key
+  checked: "neověřeno (služba odpovídá, GetCoverage bez tokenu 403)"
+  issues:
+    - "Vyžaduje bezplatný token (registrace účtu)."
+
+- id: se_lantmateriet
+  countries: [SE]
+  kinds: [elevation, point_cloud]
+  name: Markhöjdmodell 1 m COG, Laserdata skog COPC (STAC)
+  provider: Lantmäteriet
+  url: https://api.lantmateriet.se/stac-hojd/v1
+  info: https://www.lantmateriet.se/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.lantmateriet.se/
+    attribution: "© Lantmäteriet"
+  access: account
+  checked: "neověřeno (evropa-data-prehled: licence v STAC CC BY 4.0, data 401 bez účtu)"
+  issues:
+    - "Stahování jen s bezplatným účtem Geotorget (Basic auth)."
+    - "GDPR: příjemce mračna je správcem osobních údajů."
+
+- id: no_geonorge
+  countries: ["NO"]           # v uvozovkách – YAML by NO četl jako false
+  kinds: [elevation]
+  name: DTM 1 m (Geonorge WCS), mračna na hoydedata.no
+  provider: Kartverket
+  url: https://hoydedata.no/
+  info: https://www.geonorge.no/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.geonorge.no/
+    attribution: "© Kartverket"
+  access: free
+  checked: "neověřeno"
+  issues:
+    - "Mračna jen ručně; ortofoto Norge i bilder není otevřené ke stažení."
+
+- id: es_cnig
+  countries: [ES]
+  kinds: [elevation, point_cloud]
+  name: PNOA LiDAR, MDT02/05 (IDEE WCS jen 5 m int16)
+  provider: IGN / CNIG
+  url: https://centrodedescargas.cnig.es/
+  info: https://www.ign.es/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.ign.es/
+    attribution: "© Instituto Geográfico Nacional"
+  access: free
+  checked: neověřeno
+  issues:
+    - "WCS jen 5 m v celých metrech (int16) – na vrstevnice nevhodné; LAZ jen z Centro de Descargas bez API (z cloudu nedostupné)."
+    - "Catastro zakazuje automatické / hromadné stahování."
+
+- id: si_clss
+  countries: [SI]
+  kinds: [point_cloud, elevation, orthophoto]
+  name: CLSS 2023–2025 (mračno, DMR, DMP, ortofoto po 1 km)
+  provider: GURS
+  url: https://clss.si/
+  info: https://clss.si/
+  role: výšky
+  status: candidate
+  license:
+    class: unknown
+    name: neověřeno (≈ CC BY 4.0, stránka licenci neuvádí)
+    url: https://clss.si/
+    attribution: ""
+  access: free
+  checked: neověřeno
+  issues:
+    - "Max. 10 listů naráz, bez API; z cloudu nedostupné."
+
+- id: lv_lgia
+  countries: [LV]
+  kinds: [point_cloud, elevation]
+  name: Klasifikované mračno 1,5–4 b/m², DTM
+  provider: LĢIA
+  url: https://www.lgia.gov.lv/
+  info: https://www.lgia.gov.lv/
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.lgia.gov.lv/
+    attribution: "© LĢIA"
+  access: free
+  checked: neověřeno
+  issues:
+    - "Nízká hustota bodů (1,5–4 b/m²)."
+
+# ----------------------------------------------------------------------------------------------- nevhodné celoevropské zdroje
+- id: fabdem
+  countries: ["*"]
+  kinds: [elevation]
+  name: FABDEM / FathomDEM 30 m
+  provider: Fathom
+  url: https://www.fathom.global/
+  info: https://www.fathom.global/
+  role: výšky
+  status: rejected
+  license:
+    class: restricted
+    name: CC BY-NC-SA 4.0 (nekomerční)
+    url: https://creativecommons.org/licenses/by-nc-sa/4.0/
+    attribution: ""
+  access: free
+  checked: "neověřeno (evropa-data-prehled kap. 4)"
+  issues:
+    - "Nekomerční licence – při prodeji map nelze; 30 m na vrstevnice nestačí."
+
+- id: copernicus_glo30
+  countries: ["*"]
+  kinds: [elevation]
+  name: Copernicus DEM GLO-30 (COG na AWS)
+  provider: ESA / Copernicus
+  url: https://copernicus-dem-30m.s3.amazonaws.com/
+  info: https://spacedata.copernicus.eu/
+  role: výšky
+  status: rejected
+  license:
+    class: public
+    name: zdarma i komerčně, citace
+    url: https://spacedata.copernicus.eu/
+    attribution: "© DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018 provided under COPERNICUS by the European Union and ESA"
+  access: free
+  checked: neověřeno
+  issues:
+    - "30 m DSM (ne DTM) – na OB vrstevnice nepoužitelné."
