@@ -52,6 +52,21 @@ class CountryName(i18n.Msg):
         return self.names.get(lang) or self.names.get("en") or self.code
 
 
+class CountryNameList(i18n.Msg):
+    """Výčet názvů zemí jako parametr hlášky; každý název se přeloží do jazyka hlášky."""
+
+    def __new__(cls, names: list[CountryName], sep: str = ", ") -> "CountryNameList":
+        obj = str.__new__(cls, sep.join(str(n) for n in names))
+        obj.key = ""
+        obj.params = {}
+        obj.names = list(names)
+        obj.sep = sep
+        return obj
+
+    def render(self, lang: str) -> str:
+        return self.sep.join(n.render(lang) for n in self.names)
+
+
 @dataclass(frozen=True)
 class Country:
     code: str
@@ -305,7 +320,7 @@ def check_bbox(
             raise CountryError(
                 i18n.Msg("api.country.outside", country=names[0])
                 if len(names) == 1
-                else i18n.Msg("api.country.outside_many", countries=", ".join(names))
+                else i18n.Msg("api.country.outside_many", countries=CountryNameList(names))
             )
         raise CountryError(i18n.Msg("api.country.minority", pct=round(share * 100), country=best.msg_name()))
     return best, share
