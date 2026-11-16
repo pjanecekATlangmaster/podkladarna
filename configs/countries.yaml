@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | fr_lidarhd | lu_act | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | fr_lidarhd | lu_act | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -117,6 +117,21 @@ DE-NW:
   attribution:
     - "Elevation: DGM1 and nDOM50, Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
     - "Orthophoto DOP, Amtliche Basiskarte (ABK) and ALKIS: Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+PL:
+  name: {cs: Polsko, en: Poland, pl: Polska}
+  status: beta              # celé Polsko (2026-11-16); kresba z OSM
+  crs: EPSG:2180            # ETRF2000-PL / CS92 (PL-1992), osy sever–východ
+  boundary: countries/pl.geojson  # PRG A00 Granice państwa, GUGiK, +300 m
+  view: [49.0, 14.07, 54.84, 24.15]
+  elevation: pl_gugik       # NMT 1 m (GeoTIFF) a NMPT 1 m (ASCII, ~90 s na km²) z WCS GUGiK
+  technical_map: none
+  cz_sources: false
+  # Licence: dane GUGiK bezpłatnie, dowolne wykorzystanie (art. 40a ust. 2 P.g.k.); uvést zdroj a že jde o zpracovaná data.
+  citation: "Base map: Omapic · GUGiK · OSM, [year]"
+  attribution:
+    - "Elevation: NMT and NMPT, Źródło danych: Główny Urząd Geodezji i Kartografii (GUGiK), dane przetworzone."
+    - "Orthophoto and topographic map: Źródło: Główny Urząd Geodezji i Kartografii (GUGiK)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FR:
   name: {cs: Francie, en: France, fr: France}

@@ -676,6 +676,129 @@ def de_nrw_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["de_nrw"] = de_nrw_provider
 
 
+# --------------------------------------------------------------------------- PL: NMT + NMPT (GUGiK)
+
+# Polsko (GUGiK, bezplatně k libovolnému využití, uvést zdroj): NMT jako Float32 GeoTIFF po 2 km, NMPT jen jako ARC/INFO
+# ASCII po 1 km (GeoTIFF služba vrací obarvený obrázek), po jedné dlaždici – souběžné dotazy server zahazuje
+# (``reference_pl``). Obojí 1 m ve stejné mřížce (hrany na celé metry).
+PL_DTM_SIDE_M = 2000.0
+PL_DSM_SIDE_M = 1000.0
+PL_BUFFER_M = 20.0
+PL_DSM_MAX_BYTES = 40_000_000  # ASCII 1 km² po 1 m má ~20 MB
+PL_RETRIES = 3
+
+
+def pl_tile_boxes(bounds_pl: tuple[float, float, float, float], side: float) -> list[tuple[float, float, float, float]]:
+    return tile_boxes(bounds_pl, max_side=side, buffer=PL_BUFFER_M, step=1.0)
+
+
+def parse_wcs_aaigrid(raw: bytes) -> tuple[np.ndarray, tuple[float, float, float, float, float, float], float | None]:
+    """Z multipart odpovědi WCS (``image/x-aaigrid``) mřížka, geotransformace (horní levý roh) a NoData."""
+    text = raw.decode("ascii", "replace")
+    start = text.find("ncols")
+    if start < 0:
+        raise RuntimeError(f"WCS nevrátil ASCII mřížku: {text[:200]}")
+    end = text.find("\n--", start)
+    body = text[start:end if end > 0 else None]
+    lines = body.split("\n")
+    head: dict[str, float] = {}
+    i = 0
+    while i < len(lines) and lines[i].split() and lines[i].split()[0].lower() in (
+        "ncols", "nrows", "xllcorner", "yllcorner", "xllcenter", "yllcenter", "cellsize", "nodata_value"
+    ):
+        key, val = lines[i].split()[:2]
+        head[key.lower()] = float(val)
+        i += 1
+    ncols, nrows, cell = int(head["ncols"]), int(head["nrows"]), head["cellsize"]
+    data = np.array("\n".join(lines[i:]).split(), dtype="float32")
+    if data.size != ncols * nrows:
+        raise RuntimeError(f"ASCII mřížka má {data.size} hodnot místo {ncols * nrows}")
+    x0 = head.get("xllcorner", head.get("xllcenter", 0.0) - cell / 2)
+    y0 = head.get("yllcorner", head.get("yllcenter", 0.0) - cell / 2)
+    gt = (x0, cell, 0.0, y0 + nrows * cell, 0.0, -cell)
+    return data.reshape(nrows, ncols), gt, head.get("nodata_value")
+
+
+def _pl_dsm_tile(url: str, dest: Path, *, log=None) -> Path:
+    """Jedna dlaždice NMPT (ASCII z WCS) → Float32 GeoTIFF; prázdnou odpověď serveru zkusí znovu."""
+    import time
+    import urllib.error
+    import urllib.request
+
+    from osgeo import gdal, osr
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    raw = b""
+    for attempt in range(PL_RETRIES + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=300) as resp:  # noqa: S310 – pevná adresa GUGiK
+                raw = resp.read(PL_DSM_MAX_BYTES + 1)
+            break
+        except urllib.error.HTTPError as exc:
+            if attempt >= PL_RETRIES or not (exc.code >= 500 or exc.code == 429):
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
+            if attempt >= PL_RETRIES:
+                raise
+        if log:
+            log(f"  {dest.name}: server neodpověděl, pokus {attempt + 2}/{PL_RETRIES + 1}")
+        time.sleep(5.0 * (attempt + 1))
+    if len(raw) > PL_DSM_MAX_BYTES:
+        raise RuntimeError(f"NMPT: odpověď přes {PL_DSM_MAX_BYTES // 1_000_000} MB odmítnuta")
+    grid, gt, nodata = parse_wcs_aaigrid(raw)
+    if nodata is not None:
+        grid[grid == nodata] = NODATA
+    gdal.UseExceptions()
+    ds = gdal.GetDriverByName("GTiff").Create(str(dest), grid.shape[1], grid.shape[0], 1, gdal.GDT_Float32,
+                                              ["COMPRESS=DEFLATE"])
+    ds.SetGeoTransform(gt)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(2180)
+    ds.SetProjection(srs.ExportToWkt())
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(NODATA)
+    band.WriteArray(grid)
+    band.FlushCache()
+    ds = None
+    if log:
+        log(f"    {dest.name}: {len(raw) / 1e6:.1f} MB (ASCII)")
+    return dest
+
+
+def pl_gugik_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """NMT 1 m (GeoTIFF) a NMPT 1 m (ASCII) z WCS GUGiK; bez NMPT jen terén (job upozorní)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_pl import PL_CRS, pl_dsm_url, pl_dtm_url
+
+    bounds_pl = _bounds_in(bounds, CRS_WKT, PL_CRS)
+
+    def vrt(name: str, tiles: list[Path]) -> Path:
+        path = out_dir / f"pl_{name}.vrt"
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", PL_CRS, str(path), *map(str, tiles)], log=log)
+        return path
+
+    dsm_boxes = pl_tile_boxes(bounds_pl, PL_DSM_SIDE_M)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="pl-nmpt") as ex:  # NMPT běží vedle NMT, sám po jedné
+        def all_dsm():
+            return [_pl_dsm_tile(pl_dsm_url(b), out_dir / f"pl_dsm_{k}.tif", log=log) for k, b in enumerate(dsm_boxes)]
+
+        dsm_future = ex.submit(all_dsm)
+        dtm = [_download_retry(pl_dtm_url(b), out_dir / f"pl_dtm_{k}.tif", log=log)
+               for k, b in enumerate(pl_tile_boxes(bounds_pl, PL_DTM_SIDE_M))]
+        try:
+            dsm = dsm_future.result()
+        except Exception as exc:  # noqa: BLE001 – bez povrchu terén zůstane, porost chybí
+            log_issue(log, f"Polsko: povrch NMPT se nestáhl ({str(exc)[:120]}), výška porostu chybí")
+            return SourceRasters(vrt("dtm", dtm), None)
+    return SourceRasters(vrt("dtm", dtm), vrt("dsm", dsm))
+
+
+PROVIDERS["pl_gugik"] = pl_gugik_provider
+
+
 # --------------------------------------------------------------------------- FR: LiDAR HD MNT + MNS (WMS-R IGN)
 
 # IGN LiDAR HD (Licence Ouverte Etalab 2.0, bez klíče): MNT (terén) a MNS (povrch) 0,5 m, Lambert-93 (EPSG:2154),
@@ -1338,6 +1461,7 @@ SOURCE_LABELS = {
     "at_bev": "BEV ALS DTM a DSM",
     "de_berlin": "DGM1 a DOM1, GDI Berlin",
     "de_nrw": "DGM1, DOM1 a nDOM50, Geobasis NRW",
+    "pl_gugik": "NMT a NMPT, GUGiK",
     "fr_lidarhd": "LiDAR HD MNT a MNS, IGN",
     "ee_maaamet": "DTM a DSM, Maa- ja Ruumiamet",
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",

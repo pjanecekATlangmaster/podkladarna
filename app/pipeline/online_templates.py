@@ -60,6 +60,7 @@ from app.pipeline.reference_de_nw import (
     DE_NW_DOP_LAYER,
     DE_NW_DOP_WMS,
 )
+from app.pipeline.reference_pl import PL_ORTHO_LAYER, PL_ORTHO_WMS, PL_TOPO_LAYER, PL_TOPO_WMS
 from app.pipeline.reference_lu import LU_CADASTRE_LAYER, LU_ORTHO_LAYER, LU_TOPO_LAYER, LU_WMS
 from app.pipeline.reference_it import TN_CTP_LAYER, TN_HILLSHADE_LAYER, TN_ORTHO_LAYER, TN_WMS
 from app.pipeline.reference_ch import (
@@ -178,7 +179,7 @@ AT_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
 )
 WMS_NATIVE_CRS = {"at_fmzk": "EPSG:31256"}
 # CRS, jejichž osy jsou v EPSG sever–východ: WMS 1.3.0 chce BBOX v tomto pořadí (jinak prázdný obrázek), GDAL ho samo neotočí.
-NORTHING_FIRST_CRS = frozenset({"EPSG:3301", "EPSG:2169"})
+NORTHING_FIRST_CRS = frozenset({"EPSG:3301", "EPSG:2169", "EPSG:2180"})
 # Německo (Berlín, GDI Berlin, dl-de/zero): TrueDOP 2024, mapa 1 : 5 000 (K5) a parcely ALKIS, vše EPSG:25833.
 DE_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
     ("de_truedop", "truedop_berlin.xml", "TrueDOP Berlín 2024 (ortofoto)", DE_BE_TRUEDOP_WMS, DE_BE_TRUEDOP_LAYER,
@@ -240,6 +241,11 @@ DE_NW_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float],
      False, 0.25),
     ("de_nw_alkis", "alkis_nrw.xml", "ALKIS NRW – parcely", DE_NW_ALKIS_WMS, DE_NW_ALKIS_LAYER, "image/png", True, 0.25),
 )
+# Polsko (GUGiK, bezplatně, uvést zdroj): ortofoto a topografická mapa (EPSG:2180, osy sever–východ).
+PL_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("pl_ortho", "ortofoto_gugik.xml", "Ortofotomapa GUGiK", PL_ORTHO_WMS, PL_ORTHO_LAYER, "image/jpeg", False, 0.25),
+    ("pl_topo", "mapa_topo_gugik.xml", "Mapa topograficzna GUGiK", PL_TOPO_WMS, PL_TOPO_LAYER, "image/png", False, 1.0),
+)
 # Dlaždicové služby v EPSG:3857 (GDAL TMS + okno výřezu jako VRT): klíč, soubor, popisek, URL, úroveň, m/px, snímek (JPEG).
 AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
     ("at_ortho", "orthofoto_at.vrt", "basemap.at Orthofoto (Rakousko)", AT_BASEMAP_ORTHO_URL, 19, 0.25, True),
@@ -272,6 +278,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "FI": FI_ONLINE_WMS_LAYERS,
         "LU": LU_ONLINE_WMS_LAYERS,
         "DE-NW": DE_NW_ONLINE_WMS_LAYERS,
+        "PL": PL_ONLINE_WMS_LAYERS,
     }.get(country, ())
 
 
@@ -603,6 +610,7 @@ def online_labels() -> dict[str, str]:
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
             *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS, *LU_ONLINE_WMS_LAYERS, *DE_NW_ONLINE_WMS_LAYERS,
+            *PL_ONLINE_WMS_LAYERS,
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     layers += [(k, label) for tms in ONLINE_TMS_LAYERS.values() for k, _f, label, *_r in tms]
