@@ -478,6 +478,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `lu/podrost/`, mračno kreslí víc zelené). `run_job`: `veg_texture` jen mimo `cz_sources` a mimo sprint. `countries.yaml` `green`
   (`points` CZ, `laser` výchozí, `photo` PL a Bavorsko – povrch ze snímků, slabší) → `/api/coverage` pole `green`, mapa v GUI šrafuje
   `photo` (legenda „Zeleň v lese“). Měření `/mnt/project-files/evropa-data/zahranicni-build/zelen/`.
+- **Zimní výšky bez listí v Belgii** (3.70.0, Petr 2026-11-16, Soignes „všechno zelené, hustý les jako louka“): `countries.yaml`
+  `green: leafoff` (DHMV II 2013–15, zima) vypne zrnitost (`veg_texture`) a po přípravě OSM přegeneruje `vegetation.shp` z CHM
+  s nízkým porostem (třída 1) v lese OSM (`forest` / `wood` minus louky, vřesoviště, pole, mokřady a díry) jako bílý les
+  (`vegetation_chm.regenerate_leafoff_vegetation`, jen porost z CHM). Mimo Česko se z Overpass nově drží i relace přírodního krytu
+  (`osm_paths._keep_relation`; dřív se zahazovaly a velké lesy jako Forêt de Soignes v `natural_cover.geojson` chyběly, Česko beze změny).
+  Soignes bílá 0,02 → 0,75 (ref. 0,60), louka 0,25 → 0,03; mladé porosty po 2015 chybí (data). `/mnt/project-files/evropa-data/zahranicni-build/be/`.
 - **Předstažení velkých dat mimo frontu** (3.66.0, Petr 2026-11-16, `app/prefetch.py`): job v Česku s aspoň `PREFETCH_MIN_SHEETS` (2)
   listy LiDARu mimo cache při obsazeném serveru (běží job, fronta neprázdná nebo nasazení) nejde do fronty výpočtů, ale stahuje
   samostatným procesem `python -m app.prefetch <job>` s nižší prioritou (`nice`, ionice best-effort 7, `PREFETCH_CONCURRENCY` 1,
