@@ -579,8 +579,8 @@ sources:
   info: https://geodienste.ch/services/av
   role: kresba
   reference_keys: ["online_ch_av*"]
-  image_in_zip: unclear
-  image_in_zip_note: "Cadastral Web Map skládá AV kantonů; JU, LU, NE, NW, OW, VD jen se schválením – obrázek výřezu v ZIPu nejasný (doporučeno povolit, zákaz pro WMS nenalezen)."
+  image_in_zip: allowed
+  image_in_zip_note: "Petr 2026-11-16: přibalovat (zákaz nenalezen). Cadastral Web Map skládá AV kantonů; JU, LU, NE, NW, OW, VD jen se schválením – obrázek výřezu v ZIPu nejasný (doporučeno povolit, zákaz pro WMS nenalezen)."
   status: used
   code: app/pipeline/av_ch.py, app/pipeline/reference_ch.py
   provider_key: ch_av
@@ -1331,8 +1331,8 @@ sources:
   info: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
   role: šablona, kresba
   reference_keys: ["online_fi_ortho*", "online_fi_basemap*"]
-  image_in_zip: unclear
-  image_in_zip_note: "Data MML jsou CC BY 4.0 (dovoluje šíření), dlaždice ale servíruje neoficiální zrcadlo kartat.kapsi.fi bez vlastních podmínek – doporučeno povolit."
+  image_in_zip: allowed
+  image_in_zip_note: "Petr 2026-11-16: přibalovat (zákaz nenalezen). Data MML jsou CC BY 4.0 (dovoluje šíření), dlaždice ale servíruje neoficiální zrcadlo kartat.kapsi.fi bez vlastních podmínek – doporučeno povolit."
   status: used
   code: app/pipeline/reference_fi.py, app/pipeline/open_paved.py
   probe: fi_ortho
