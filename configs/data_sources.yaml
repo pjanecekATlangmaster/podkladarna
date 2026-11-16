@@ -1093,19 +1093,48 @@ sources:
     url: https://www.provincia.tn.it/Argomenti/Ambiente/Geologia
     attribution: © Provincia autonoma di Trento
   access: free
-  checked: 'neověřeno (u sady 2014/2018 licence v metadatech nenalezena; CC BY 4.0 uvádějí jiné LiDAR sady PAT) · opencode
-    (it_trentino): neověřeno (licence konkrétní sady 2014/2018 na stránce poskytovatele nenalezena; ověřeno: URL 404/200 a
-    licenční stránka staré sady) – Claude neověřil'
+  checked: 'Claude 2026-11-16 metadata GeoCatalogo PAT (p_TN:79c6cdf0… DTM a p_TN:9bb00ab2… DSM First PAT 2014/2018:
+    useLimitation CC BY 4.0, „no limitations to public access“) + přímý dotaz WFS a služba merge bez e-mailu a bez účtu
+    (POST {"files": […]} → id a token, file/info, file; 1 dlaždice 1,1 MB)'
   issues:
   - Díry ~320 km² (5 % provincie, největší Piné / Baselga ~100 km²).
   - 'Největší objem z bet: ~15 MB/km² (les 3,1 km² = 40 dlaždic, 84 MB); asynchronní služba merge.'
   - Data 2014 – novější změny porostu chybí.
+  - 'Claude 2026-11-16: e-mail ani registrace nejsou potřeba (webový klient STEM ani služba merge e-mail nežádají). Stejné
+    dlaždice jsou i volně v adresáři https://siatservices.provincia.tn.it/stemdata/2014_lidar_dtm_asc/ a …/2014_lidar_dsmfirst_asc/
+    (nezabalené ASC ~8 MB; merge dává ZIP ~1,1 MB, proto zůstává merge).'
   - 'opencode navrhuje citaci: „© Provincia autonoma di Trento (název sady + úpravy dle CC BY)“ – Claude neověřil.'
   - opencode uvádí url https://siat.provincia.tn.it/geoserver/stem/wms?service=WMS&version=1.3.0&request=GetCapabilities (kód
     volá https://siat.provincia.tn.it/stem/services).
   - 'opencode: `url https://siat.provincia.tn.it/stem/services` vrací 404 – funkční je geoserver/stem/wms; `info` tvar /Argomenti/Ambiente/Geologia
     nenalezen.'
   - 'opencode: Novější LiDAR než 2014/2018 se na stránkách PAT nepodařilo doložit – neověřeno.'
+
+- id: it_trentino_laz
+  countries:
+  - IT
+  kinds:
+  - point_cloud
+  name: LiDAR PAT 2014/2018 – klasifikované mračno LAZ (dlaždice 500 m)
+  provider: Provincia autonoma di Trento (Servizio Geologico, SIAT)
+  url: https://siatservices.provincia.tn.it/stemdata/2014_lidar_laz/
+  info: https://siat.provincia.tn.it/geonetwork/srv/eng/xml.metadata.get?uuid=p_TN:427eccce-b315-4316-adc6-c99ac2324c96
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://creativecommons.org/licenses/by/4.0/deed.it
+    attribution: © Provincia autonoma di Trento
+  access: free
+  checked: 'Claude 2026-11-16 metadata GeoCatalogo PAT „LiDAR dato grezzo – PAT 2014 / 2018“ (CC BY 4.0, no limitations to
+    public access) + stažení dvou dlaždic bez e-mailu a bez účtu (veřejný výpis adresáře, index i jako WFS stem:inqlid2014_laz)'
+  issues:
+  - 'Otevřené mračno pro Trentino (dosud vedeno jako „bez otevřeného mračna“): 25 201 dlaždic 500 m, celkem 448 GB, medián
+    16 MB / dlaždici (~65 MB/km², max 125 MB), LAS 1.2 formát bodu 1, bez COPC (celá dlaždice, ne výřez).'
+  - 'Vzorky: Trento město 11 b/m² (třídy 1, 2, 3, 6, 7, 9, 10); les Monte Bondone 25 b/m² (2 terén, 3 vegetace 71 %, 1 zbytek)
+    – vegetace je souhrnně ve třídě 3, třídy 4/5 chybí.'
+  - Data 2014 (část dlaždic aktualizována 2016–2020, lety 2018).
 
 - id: it_wms
   countries:
@@ -1170,9 +1199,12 @@ sources:
     attribution: ''
   access: free
   checked: 'neověřeno · opencode (it_bolzano): 2026-11-16 Geokatalog metadata (Limitazione d''uso = creativecommons.org/publicdomain/zero/1.0/deed.it,
-    0,5 m, WMS 1.3.0 + WCS 2.0.1) + WCS GetCapabilities (vrstvy …0.2m-2024) – Claude neověřil'
+    0,5 m, WMS 1.3.0 + WCS 2.0.1) + WCS GetCapabilities (vrstvy …0.2m-2024) – Claude neověřil · Claude 2026-11-16 WCS
+    GetCapabilities (Fees a AccessConstraints NONE) a GetCoverage DTM i DSM 0,5 a 2,5 m bez e-mailu a bez účtu'
   issues:
   - Les jen 2,5 m (porosty hrubě); mimo Trentino Petr celou Itálii zatím nechce (2026-11-15).
+  - 'Claude 2026-11-16: vrstvy 0,5 m mají rozsah celé provincie, ale data jen v sídlech (tři vzorky 200 × 200 m mimo sídla:
+    0 % a 1,4 % platných pixelů); e-mail je potřeba jen pro mračno (it_bolzano_laz), ne pro rastry.'
   - Původní odkaz info https://geokatalog.buergernetz.bz.it/ neodpovídal (kontrola Claude 2026-11-16), nahrazen podle opencode.
   - Původní odkaz licence https://geokatalog.buergernetz.bz.it/ neodpovídal (kontrola Claude 2026-11-16), nahrazen podle opencode.
   - opencode navrhuje licenci public – Claude neověřil.
@@ -2811,6 +2843,53 @@ sources:
   - 'BEZ API: GeoKatalog (MapView) nebo e-mailová žádost cartografia@provincia.bz.it / kartografie@provinz.bz.it; přímé URL
     LAS souborů neověřeno.'
   - Data stará (2004–2013); 7,5 mld. bodů, klasifikace costruzioni/suolo/vegetazione/outliers.
+
+- id: it_pst_mase
+  countries:
+  - IT
+  kinds:
+  - elevation
+  name: PST – DTM, DSM first a last 1–2 m (Download Banca Dati PST, MASE)
+  provider: Ministero dell'Ambiente e della Sicurezza Energetica (MASE)
+  url: https://sim.mase.gov.it/pst/
+  info: https://gn.mase.gov.it/portale/distribuzione-dati-pst
+  role: výšky
+  status: candidate
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://gn.mase.gov.it/portale/distribuzione-dati-pst
+    attribution: © MASE – Piano Straordinario di Telerilevamento
+  access: free
+  checked: 'Claude 2026-11-16 stránka Distribuzione dati PST (CC BY 4.0 s citací, bez autorizační procedury, žádost do 6 GB)
+    + aplikace sim.mase.gov.it/pst se načte anonymně (veřejné vrstvy Grigliato_lidar, PST_products)'
+  issues:
+  - 'Jen území PST (koridory řek, pobřeží, rizikové oblasti), ne celá Itálie; hustota od 1,5 b/m², rastry GeoTIFF.'
+  - 'Stahování jde přes GP službu KafkaProxy a x2030-gis-polygon-downloader.platform.sim.mase.gov.it, který z cloudu
+    nejde (connect_unreachable) – zda formulář chce e-mail, neověřeno; čisté API pro výřez není.'
+  - Dřívější „Procedura per la richiesta dei dati LiDAR“ (žádost e-mailem) aplikace PST nahradila.
+
+- id: it_tinitaly
+  countries:
+  - IT
+  kinds:
+  - elevation
+  name: TINITALY 1.1 – DEM 10 m celé Itálie (INGV)
+  provider: Istituto Nazionale di Geofisica e Vulcanologia (INGV)
+  url: https://tinitaly.pi.ingv.it/Download_Area1_1.html
+  info: https://doi.org/10.13127/tinitaly/1.1
+  role: výšky
+  status: rejected
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://tinitaly.pi.ingv.it/Download_Area1_1.html
+    attribution: Tarquini S. et al. (2023) TINITALY 1.1, INGV, https://doi.org/10.13127/tinitaly/1.1
+  access: free
+  checked: 'Claude 2026-11-16 stránka Download area 1.1 (CC BY 4.0, přímé ZIPy dlaždic bez formuláře; dřívější registrační
+    formulář s nekomerčním použitím platil pro verzi 1.0)'
+  issues:
+  - 10 m a jen terén bez povrchu – na vrstevnice a porost nepoužitelné.
 
 - id: si_gurs_ogc
   countries:
