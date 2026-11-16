@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -483,6 +483,23 @@ def download_sample(name: str):
     return FileResponse(path, filename=f"{prefix}-{m.group(1)}.zip", media_type="application/zip")
 
 
+# Patička mezinárodní placené domény (Petr 2026-11-16): bez daru (dar jen na bezplatné doméně), bez „Z jedné
+# rodiny“ (české projekty) a bez řádku „Data: ČÚZK …“ – zdroje všech zemí jsou na /licence.
+_FREE_ONLY_FOOTER = (
+    re.compile(r'\n\s*· <a href="/podpora">\{\{t:web\.footer\.support\}\}</a>'),
+    re.compile(r'\n\s*<p class="footer-family">.*?</p>', re.S),
+    re.compile(r'\{\{t:web\.footer\.data\}\}.*?CC BY 4\.0</a>\)\s*·\s*', re.S),
+    re.compile(r'<p class="support-note">\{\{h:web\.page\.prisel_podklad_vhod_podkladarna_je_zdarma\}\}</p>'),
+)
+
+
+def paid_site_footer(html: str) -> str:
+    """Odstraní z indexu dar, „Z jedné rodiny“ a české zdroje dat (jen pro placenou doménu)."""
+    for pattern in _FREE_ONLY_FOOTER:
+        html = pattern.sub("", html, count=1)
+    return html
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     try:
@@ -499,11 +516,9 @@ def index(request: Request) -> HTMLResponse:
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
     html = html.replace("<!-- PODKLADARNA_PAID -->", paid_flow.form_note_html(request, lang))
-    if paid_flow.active_for(request):
-        # Placená služba: věta „… je zdarma, příspěvek pomůže“ po doběhnutí mapy neplatí.
-        html = html.replace(
-            '<p class="support-note">{{h:web.page.prisel_podklad_vhod_podkladarna_je_zdarma}}</p>', ""
-        )
+    if paid_flow.paid_site(request) is not None:
+        # Placená služba: věta „… je zdarma, příspěvek pomůže“ ani dar v patičce neplatí.
+        html = paid_site_footer(html)
     # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
@@ -541,6 +556,8 @@ def licence_page(request: Request) -> HTMLResponse:
 
 @app.get("/podpora", response_class=HTMLResponse)
 def support_page(request: Request) -> HTMLResponse:
+    if paid_flow.paid_site(request) is not None:
+        return RedirectResponse("/", status_code=302)  # dar jen na bezplatné doméně (Petr 2026-11-16)
     html = _page_source("podpora.html", request)
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     v = urllib.parse.quote(APP_VERSION, safe="")
@@ -733,9 +750,9 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
         else None
     )
     can_estimate = (bool(sheets) or not lidar_sheets) and not sheets_too_big
-    # Samokalibrace z vlastních dokončených jobů (3.34.0): zvlášť příprava a skládání map.
+    # Samokalibrace z vlastních dokončených jobů (3.34.0): zvlášť příprava a skládání map, jen joby téže země.
     try:
-        cal = db.estimate_calibration()
+        cal = db.estimate_calibration(country=job_country.code)
     except Exception:  # noqa: BLE001 – odhad musí jít i bez kalibrace
         cal = {"prep": 1.0, "maps": 1.0, "jobs": 0}
     pf, mf = float(cal["prep"]), float(cal["maps"])
