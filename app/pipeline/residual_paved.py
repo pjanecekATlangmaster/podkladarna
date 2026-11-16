@@ -190,6 +190,10 @@ def build_residual_paved_parts(
 
     # Ulice z katastru (sprint, 501.1) kreslí svou plochu samy – mezera se s nimi nezdvojí.
     mask_wkbs = list(mask_wkbs) + rv.street_parcel_wkbs(work_dir)
+    # Totéž zpevněné plochy z ortofota mimo Česko (``open_paved``, 501.1).
+    from app.pipeline.open_paved import paved_wkbs
+
+    mask_wkbs = list(mask_wkbs) + paved_wkbs(work_dir)
     if not mask_wkbs:
         _emit("residual_paved: prázdná OSM maska – residential bez výřezu")
     # OCAD ISSprOM: zpevněná plocha light = 501.0 (OOM „501“ v merged sadě není).

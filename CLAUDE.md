@@ -457,6 +457,17 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `cache/tiles` po `TILE_CACHE_MAX_AGE_DAYS` (30) a nad `TILE_CACHE_MAX_GB` (2) nejstarší (`tiles.prune_tile_cache`); `/tiles` stáhne
   mimo cache nejvýš `TILE_FETCH_PER_IP_MIN` (300) / `TILE_FETCH_PER_MIN` (1200) dlaždic za minutu, jinak 429. Hotový job objednávky
   smaže z `work/` vše kromě náhledu a souhrnů (`paid_flow.trim_order_work`). Úklid jobů prochází všechny řádky DB (dřív 500 / 1000).
+- **Zpevněná 401 ve sprintu mimo Česko** (3.56.18, Petr 2026-11-16, revize zahraničí bod 1, `app/pipeline/open_paved.py`, `OPEN_PAVED`):
+  porost mimo Česko je z CHM a nízký CHM je 401; bez parcel RÚIAN vycházely chodníky, náměstí a nábřeží žlutě (Berlín, Antverpy,
+  Curych 24–30 % viditelné 401). Kus 401, který ortofoto země (online šablona podle `ORTHO_KEYS`, 0,5 m) vidí jako zpevněný (okno 5 m:
+  zeleň ≤ 15 %, šedá ≥ 50 %, kus ≥ 25 m²) a letní NDVI Sentinel-2 potvrdí (B04 / B08, SCL ≤ 1 %, medián ≤ 0,3, kus pod 200 m² ≤ 0,2),
+  se kreslí 501.1 pod ostatní kresbou (maska mezer `residual_paved`). Kus se o 0,5 m rozšíří a ořízne přesně obrysem 401
+  (`fit_to_open`, bez pásu OSM tratí 3 m), zbytek řádku 401 menší než kus CHM (25 m²) připadne k ploše. 401 se nevyřezává,
+  zůstává pod 501.1 (barva nad žlutou) jako pod ulicemi z katastru v Česku: ořez po vyhlazení porostu nechal bílé proužky
+  a rozdrobil 401 (Antverpy 661 → 8 597 objektů). Vstupy se
+  stahují na pozadí od startu jobu (`start_open_paved_prefetch`, cache `work/open_paved/`); bez ortofota země nebo letního snímku beze
+  změny. COG Element84 jsou bez posunu DN (`Scene.dn_offset` nepoužívat). Les, MTBO a Česko beze změny (samotné ortofoto v lese škodí:
+  zimní vřesoviště 53 %). Měření a náhledy `/mnt/project-files/evropa-data/zahranicni-build/maska-zelene/`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

@@ -1075,6 +1075,20 @@ def _prepare_oom_map(
 
     # Nejspodnější podklad: zpevněné plochy ze ZABAGED (501), pak inverze residential…
     object_parts.extend(zabaged_base_paved)
+    # Sprint mimo Česko: zpevněná 401 z ortofota země a letního NDVI (501.1; z 401 ji vyřízne vegetace).
+    from app.pipeline import open_paved
+
+    open_paved_part = None if certain_only else open_paved.build_open_paved_part(
+        kp_cwd,
+        open_paved.prepare(kp_cwd, bbox_wgs84, preset_id=preset_id, log=log),
+        preset_id=preset_id,
+        scale=scale,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        grivation_deg=grivation,
+    )
+    if open_paved_part is not None:
+        object_parts.append(open_paved_part)
     if residual_paved:
         residual_parts = build_residual_paved_parts(
             kp_cwd,

@@ -277,6 +277,28 @@ def start_vector_prefetch(
     return VectorPrefetch(futures=futures)
 
 
+OPEN_PAVED_LOG_LABEL = "Zpevněné plochy"
+
+
+def start_open_paved_prefetch(work_dir: Path, bbox_wgs84, *, log: callable) -> threading.Thread | None:
+    """Vlákno na pozadí: vstupy ``open_paved`` do cache jobu (sestavení mapy na ně počká, chyba nic nezastaví)."""
+    from app.pipeline import open_paved
+
+    if not open_paved.OPEN_PAVED:
+        return None
+    bg_log = background_log(log, OPEN_PAVED_LOG_LABEL)
+
+    def _run() -> None:
+        try:
+            open_paved.prefetch(work_dir, bbox_wgs84, log=bg_log)
+        except Exception as exc:  # sestavení mapy si vstupy případně stáhne samo
+            bg_log(f"přeskočeno ({exc})")
+
+    thread = threading.Thread(target=_run, name="open-paved", daemon=True)
+    thread.start()
+    return thread
+
+
 def job_has_sprint(preset_id: str, options: dict) -> bool:
     """Job kreslí sprint (podle disciplín z měřítka; sprint má vlastní job)."""
     return any(
@@ -846,6 +868,9 @@ def run_job_pipeline(
             )
         except Exception as exc:
             log_issue(log, f"Vektory: stahování na pozadí se nespustilo ({exc})")
+        # Sprint mimo Česko: letní NDVI a ortofoto země pro zpevněnou 401 (``open_paved``) na pozadí.
+        if not cz_sources and job_has_sprint(preset_id, options):
+            start_open_paved_prefetch(work_dir, tuple(bbox), log=raw_log)
 
     lidar_work = work_dir / "lidar"
     if reused_from:
