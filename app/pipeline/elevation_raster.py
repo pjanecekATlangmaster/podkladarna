@@ -1749,9 +1749,24 @@ def sk_ugkk_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["sk_ugkk"] = sk_ugkk_provider
 
 
+def sk_ugkk_local_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """DMR 5.0 a DMP 1.0 Slovenska z celostátních GeoTIFFů ÚGKK na disku (S-JTSK [JTSK03] + Bpv, 1 m).
+
+    Ručně stažené ZIPy z opendata.skgeodesy.sk rozbalené do ``DATA_ROOT/cache/static/sk_ugkk/{dtm,dsm}``
+    (úklid cache tuto složku nemaže). Terén i povrch jsou v témže systému a výškách Bpv, proto bez kvazigeoidu;
+    JTSK03 se bere jako souřadnice mapy (``_warp_to_job``)."""
+    from app.countries import LOCAL_ELEVATION_DIRS
+
+    return local_provider(f"local:{LOCAL_ELEVATION_DIRS['sk_ugkk_local']}")(bounds, out_dir, log=log)
+
+
+PROVIDERS["sk_ugkk_local"] = sk_ugkk_local_provider
+
+
 SOURCE_LABELS = {
     "nl_ahn": "AHN, PDOK",
     "sk_ugkk": "DMR 5.0, ÚGKK SR",
+    "sk_ugkk_local": "DMR 5.0 a DMP 1.0, ÚGKK SR",
     "ch_swisstopo": "swissALTI3D a swissSURFACE3D, swisstopo",
     "at_bev": "BEV ALS DTM a DSM",
     "de_berlin": "DGM1 a DOM1, GDI Berlin",

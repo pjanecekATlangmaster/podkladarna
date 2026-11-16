@@ -207,7 +207,7 @@ def technical_map_line(tech_map: str, dtm_on: bool) -> str:
 
 
 # Popis výškových zdrojů země do logu (``elevation`` v ``configs/countries.yaml``).
-ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "ch_swisstopo": "swissALTI3D a swissSURFACE3D (swisstopo)",
+ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "sk_ugkk_local": "DMR 5.0 a DMP 1.0 (ÚGKK SR)", "ch_swisstopo": "swissALTI3D a swissSURFACE3D (swisstopo)",
     "at_bev": "BEV ALS (1 m)",
     "de_berlin": "DGM1 a DOM1 Berlín (1 m)",
     "pl_gugik": "NMT a NMPT GUGiK (1 m)",
