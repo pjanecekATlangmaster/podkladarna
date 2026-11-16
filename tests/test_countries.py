@@ -93,6 +93,21 @@ def test_api_country_errors_in_english(client, monkeypatch):
     assert "Only 12 % of the area lies in Czechia" in r.json()["detail"]
 
 
+def test_outside_many_lists_names_in_page_language():
+    """Výčet zemí v hlášce je v jazyce hlášky; každá země má název cs i en."""
+    all_c = list(countries.load_countries().values())
+    assert all(c.names.get("cs") and c.names.get("en") for c in all_c)
+    msg = i18n.Msg("api.country.outside_many", countries=countries.CountryNameList([c.msg_name() for c in all_c]))
+    cs, en = msg.render("cs"), msg.render("en")
+    assert str(msg) == cs and "mimo podporované území" in cs
+    assert en.startswith("The area is outside the supported territory (")
+    for c in all_c:
+        assert c.names["cs"] in cs and c.names["en"] in en
+        if c.names["cs"] != c.names["en"]:
+            assert c.names["cs"] not in en
+    assert "Germany – North Rhine-Westphalia" in en and "Německo – Severní Porýní-Vestfálsko" in cs
+
+
 def test_create_job_country_and_border(client, monkeypatch):
     import app.main as main
 
