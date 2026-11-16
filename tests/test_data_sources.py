@@ -32,7 +32,7 @@ def test_registry_fields_and_enums():
         assert s["status"] in doc.STATUS, s["id"]
         assert s["access"] in doc.ACCESS, s["id"]
         assert s["license"]["class"] in doc.LICENSE_CLASS, s["id"]
-        assert s["license"]["url"].startswith("https://"), s["id"]
+        assert s["license"]["url"].startswith(("https://", "http://")), s["id"]  # některé úřady jen http
         assert s["url"].startswith("https://"), s["id"]
 
 
