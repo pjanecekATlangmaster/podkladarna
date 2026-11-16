@@ -116,11 +116,11 @@ sources:
   provider: ESA / Copernicus, katalog Element 84
   url: https://earth-search.aws.element84.com/v1/search
   info: https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["sentinel2_*"]
   image_in_zip: allowed
   status: used
-  code: app/pipeline/sentinel2.py
+  code: app/pipeline/sentinel2.py, app/pipeline/open_paved.py
   probe: sentinel
   license:
     class: public
@@ -130,7 +130,7 @@ sources:
   access: free
   checked: "2026-11-16 legal notice Copernicus (podmínky katalogu Element 84 neověřeny)"
   issues:
-    - "Rozlišení 10 m, jen orientační šablona."
+    - "Rozlišení 10 m: šablona, a ve sprintu mimo Česko letní NDVI (B04, B08) potvrzuje zpevněné plochy místo 401 (open_paved)."
 
 # ----------------------------------------------------------------------------------------------- Česko
 - id: cz_openzu_lidar
@@ -478,11 +478,11 @@ sources:
   provider: Beeldmateriaal Nederland, Kadaster, PDOK
   url: https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0
   info: https://www.pdok.nl/-/luchtfoto-2025-nu-beschikbaar-bij-pdok
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["online_nl_luchtfoto*", "online_nl_top10nl*", "online_nl_kadaster*"]
   image_in_zip: allowed
   status: used
-  code: app/pipeline/reference_nl.py
+  code: app/pipeline/reference_nl.py, app/pipeline/open_paved.py
   probe:
   - nl_luchtfoto
   - nl_kadaster
@@ -613,11 +613,11 @@ sources:
   provider: swisstopo
   url: https://wms.geo.admin.ch/
   info: https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["online_ch_swissimage*", "online_ch_landeskarte*", "online_ch_relief*"]
   image_in_zip: allowed
   status: used
-  code: app/pipeline/reference_ch.py
+  code: app/pipeline/reference_ch.py, app/pipeline/open_paved.py
   probe: ch_wms
   license:
     class: public
@@ -700,11 +700,11 @@ sources:
   provider: basemap.at (spolkové země), Stadt Wien
   url: https://mapsneu.wien.gv.at/basemap
   info: https://basemap.at/en
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["online_at_ortho*", "online_at_basemap*", "online_at_relief*", "online_at_luftbild*"]
   image_in_zip: allowed
   status: used
-  code: app/pipeline/reference_at.py
+  code: app/pipeline/reference_at.py, app/pipeline/open_paved.py
   probe:
   - at_basemap
   - at_luftbild
@@ -775,7 +775,7 @@ sources:
   reference_keys: ["online_de_truedop*", "online_de_k5*", "online_de_alkis*"]
   image_in_zip: allowed
   status: used
-  code: app/pipeline/sb_berlin.py, app/pipeline/reference_de.py
+  code: app/pipeline/sb_berlin.py, app/pipeline/reference_de.py, app/pipeline/open_paved.py
   provider_key: de_sb
   probe:
   - de_sb
@@ -931,11 +931,11 @@ sources:
   provider: IGN
   url: https://data.geopf.fr/wms-r/wms
   info: https://geoservices.ign.fr/
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["online_fr_*"]
   image_in_zip: allowed
   status: used
-  code: app/pipeline/reference_fr.py
+  code: app/pipeline/reference_fr.py, app/pipeline/open_paved.py
   probe: fr_ortho
   license:
     class: public
@@ -1026,11 +1026,11 @@ sources:
   provider: Maa- ja Ruumiamet
   url: https://kaart.maaamet.ee/wms/fotokaart
   info: https://geoportaal.maaamet.ee/opendata-licence
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["online_ee_*"]
   image_in_zip: allowed
   status: used
-  code: app/pipeline/reference_ee.py
+  code: app/pipeline/reference_ee.py, app/pipeline/open_paved.py
   probe: ee_ortho
   license:
     class: public
@@ -1086,7 +1086,7 @@ sources:
   provider: Provincia autonoma di Trento
   url: https://siat.provincia.tn.it/geoserver/stem/wms
   info: http://www.territorio.provincia.tn.it/portal/server.pt/community/interoperabilit%C3%A0_-_servizi_wms/821/limiti_di_utilizzo_-_servizi_wms/23016
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["online_it_*"]
   image_in_zip: forbidden
   image_in_zip_note: "Podmínky WMS Trenta: originální data se nesmí upravovat a kopie kartografie složené z vrstev PAT se nesmí šířit (jen tisk s citací) → obrázek do ZIPu ne, online šablona zůstává."
@@ -1100,7 +1100,7 @@ sources:
       why: The terms of the province's WMS forbid distributing copies of its map layers (only prints with the attribution “P.A.T. Sistema Informativo Ambiente e Territorio” are allowed).
       online: The .omap contains online templates of these layers (references/*_trento.xml), WMS https://siat.provincia.tn.it/geoserver/stem/wms.
   status: used
-  code: app/pipeline/reference_it.py
+  code: app/pipeline/reference_it.py, app/pipeline/open_paved.py
   probe: it_ortho
   license:
     class: restricted
@@ -1209,11 +1209,11 @@ sources:
   provider: Digitaal Vlaanderen
   url: https://geo.api.vlaanderen.be/OMW/wms
   info: https://www.vlaanderen.be/digitaal-vlaanderen/onze-diensten-en-platformen/open-data/voorwaarden-voor-het-hergebruik-van-overheidsinformatie
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["online_be_*"]
   image_in_zip: allowed
   status: used
-  code: app/pipeline/reference_be.py
+  code: app/pipeline/reference_be.py, app/pipeline/open_paved.py
   probe: be_ortho
   license:
     class: public
@@ -1329,12 +1329,12 @@ sources:
   provider: Maanmittauslaitos, zrcadlo Kapsi
   url: https://tiles.kartat.kapsi.fi/ortokuva
   info: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
-  role: šablona
+  role: šablona, kresba
   reference_keys: ["online_fi_ortho*", "online_fi_basemap*"]
   image_in_zip: unclear
   image_in_zip_note: "Data MML jsou CC BY 4.0 (dovoluje šíření), dlaždice ale servíruje neoficiální zrcadlo kartat.kapsi.fi bez vlastních podmínek – doporučeno povolit."
   status: used
-  code: app/pipeline/reference_fi.py
+  code: app/pipeline/reference_fi.py, app/pipeline/open_paved.py
   probe: fi_ortho
   license:
     class: public
