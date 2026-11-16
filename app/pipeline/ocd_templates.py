@@ -12,6 +12,10 @@ Tady se řetězce 8 přepíšou stejně, jak by je zapsal Mapper s načtenou ša
 file (.jgw / .pgw) a rozměru obrázku, georeference z ``.omap``, viditelnost a průhlednost z pohledu
 ``.omap``, cesta relativní ``references\\soubor``. Obrázek se nedekóduje (jen hlavička), takže
 ani velké dlaždice ortofota nezvednou paměť.
+
+Řetězec 1039 (georeference): souřadnicový systém, který Mapper do OCD neumí převést
+(``ocd_georef_fields.cpp``), zapíše jako papírový (``r0``, ``i1000``). Pro takové EPSG se doplní
+kód mřížky OCAD z ``OCD_GRID_FALLBACK`` (Belgian Lambert 72, zahraniční build).
 """
 
 from __future__ import annotations
@@ -32,6 +36,9 @@ _FIRST_STRING_BLOCK_OFFSET = 32
 _INDEX_ENTRIES = 256
 _INDEX_ENTRY = struct.Struct("<IIiI")  # pos, size, type, obj_index
 _INDEX_BLOCK_SIZE = 4 + _INDEX_ENTRIES * _INDEX_ENTRY.size
+# EPSG mapy, které Mapper do OCD nepřevede, → kód mřížky a zóny OCAD (``i``). EPSG:31370 je
+# v EPSG ekvivalent 31300 (Belge Lambert 72), který Mapper páruje s OCAD „Belgium Lambert 72“ (4001).
+OCD_GRID_FALLBACK = {31370: 4001}
 _WORLD_SUFFIX = {".jpg": ".jgw", ".jpeg": ".jgw", ".png": ".pgw", ".tif": ".tfw", ".tiff": ".tfw",
                  ".gif": ".gfw", ".bmp": ".bpw"}
 
@@ -252,6 +259,44 @@ def _area_offset(georef: _Georef, georef_string: str | None) -> tuple[float, flo
     return georef.to_map(ox, oy)
 
 
+def _omap_epsg(omap: Path) -> int | None:
+    root = ET.parse(omap).getroot()
+    param = root.find(f"{_NS}georeferencing/{_NS}projected_crs/{_NS}parameter")
+    try:
+        return int((param.text or "").strip()) if param is not None else None
+    except ValueError:
+        return None
+
+
+def ocd_georef_with_grid(georef_string: str, grid: int) -> str | None:
+    """Řetězec 1039 s kódem mřížky ``grid`` a ``r1``; None, když už systém má (``r1``) nebo chybí pole."""
+    parts = georef_string.split("\t")
+    keys = [p[:1] for p in parts[1:]]
+    if "i" not in keys or "r" not in keys or _params(georef_string).get("r") == "1":
+        return None
+    out = [parts[0]]
+    for part in parts[1:]:
+        if part.startswith("i"):
+            part = f"i{grid}"
+        elif part.startswith("r"):
+            part = "r1"
+        out.append(part)
+    return "\t".join(out)
+
+
+def _put_string(data: bytearray, at: int, pos: int, size: int, new: str) -> None:
+    raw = new.encode("utf-8") + b"\0"
+    if len(raw) <= size:
+        data[pos : pos + size] = raw + b"\0" * (size - len(raw))
+        new_pos, new_size = pos, size
+    else:
+        # Delší řetězec na konec souboru (zarovnání na 8 B jako Mapper), starý zůstane nepoužitý.
+        data.extend(b"\0" * ((-len(data)) % 8))
+        new_pos, new_size = len(data), len(raw)
+        data.extend(raw)
+    struct.pack_into("<II", data, at, new_pos, new_size)
+
+
 def _find_image(name: str, omap_dir: Path, relpath: str, search_dirs: list[Path]) -> Path | None:
     for cand in (*(d / name for d in search_dirs), omap_dir / relpath):
         if cand.is_file():
@@ -324,18 +369,19 @@ def fix_ocd_templates(
             scale_x=sx,
             scale_y=sy,
         )
-        raw = new.encode("utf-8") + b"\0"
-        if len(raw) <= size:
-            data[pos : pos + size] = raw + b"\0" * (size - len(raw))
-            new_pos, new_size = pos, size
-        else:
-            # Delší řetězec na konec souboru (zarovnání na 8 B jako Mapper), starý zůstane nepoužitý.
-            data.extend(b"\0" * ((-len(data)) % 8))
-            new_pos, new_size = len(data), len(raw)
-            data.extend(raw)
-        struct.pack_into("<II", data, at, new_pos, new_size)
+        _put_string(data, at, pos, size, new)
         fixed += 1
-    if fixed:
+    georef_fixed = False
+    grid = OCD_GRID_FALLBACK.get(_omap_epsg(omap) or 0)
+    if grid:
+        for at, pos, size, stype in entries:
+            if stype == _STRING_TYPE_GEOREF:
+                new_geo = ocd_georef_with_grid(_decode(data, pos, size), grid)
+                if new_geo:
+                    _put_string(data, at, pos, size, new_geo)
+                    georef_fixed = True
+                break
+    if fixed or georef_fixed:
         tmp = ocd.with_name(ocd.name + ".tmp")
         tmp.write_bytes(bytes(data))
         tmp.replace(ocd)
@@ -344,4 +390,6 @@ def fix_ocd_templates(
         if skipped:
             msg += f", beze změny: {', '.join(skipped[:5])}" + (" …" if len(skipped) > 5 else "")
         log(msg)
+    if log and georef_fixed:
+        log(f"OOM OCD: souřadnicový systém doplněn (mřížka OCAD {grid}, {ocd.name})")
     return OcdTemplateFix(fixed, tuple(skipped))

@@ -71,6 +71,12 @@ CRS_PROJ4, CRS_WKT = crs_definitions(CRS_LABEL)
 IS_KROVAK = CRS_LABEL == KROVAK_LABEL
 
 
+def crs_text_cs(label: str | None = None) -> str:
+    """Souřadnicový systém do českých textů: v Česku „S-JTSK (EPSG:5514)“ jako dosud, jinde ``EPSG:<kód>`` země."""
+    label = label or CRS_LABEL
+    return "S-JTSK (EPSG:5514)" if label == KROVAK_LABEL else label
+
+
 def write_prj(shp: Path) -> Path:
     """Přepíše .prj shapefilu na definici shodnou s .omap (souřadnice nemění)."""
     prj = shp.with_suffix(".prj")

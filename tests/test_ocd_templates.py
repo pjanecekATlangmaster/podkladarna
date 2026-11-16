@@ -117,3 +117,28 @@ def test_fix_ocd_templates_missing_image_left_untouched(tmp_path: Path) -> None:
     res = fix_ocd_templates(ocd, omap)
     assert res.fixed == 0 and res.skipped == ("osm.png",)
     assert read_ocd_strings(ocd, 8) == [old]
+
+
+@pytest.mark.parametrize(
+    ("epsg", "expected"),
+    [
+        (5514, "\tm4000.000000\tg30.0000\tr0\tx-745124\ty-1046790\ta3.00000000\td120.00\ti1000"),
+        (31370, "\tm4000.000000\tg30.0000\tr1\tx-745124\ty-1046790\ta3.00000000\td120.00\ti4001"),
+    ],
+)
+def test_fix_ocd_georef_grid_fallback(tmp_path: Path, epsg: int, expected: str) -> None:
+    """Systém, který Mapper do OCD nepřevede (Belgian Lambert 72), dostane kód mřížky OCAD; Česko beze změny."""
+    omap = write_oom_map(
+        tmp_path / "m.omap", map_name="t", scale=4000, ref_x=REF_X, ref_y=REF_Y,
+        ref_lat=50.0, ref_lon=14.4, templates=[], preset_id="sprint_4k", declination=4.0, grivation=3.0,
+    )
+    omap.write_text(omap.read_text(encoding="utf-8").replace(
+        "<parameter>5514</parameter>", f"<parameter>{epsg}</parameter>"), encoding="utf-8")
+    ocd = tmp_path / "m.ocd"
+    old = "\tm4000.000000\tg30.0000\tr0\tx-745124\ty-1046790\ta3.00000000\td120.00\ti1000"
+    _fake_ocd(ocd, [(1039, old)])
+    before = ocd.read_bytes()
+    fix_ocd_templates(ocd, omap)
+    assert read_ocd_strings(ocd, 1039) == [expected]
+    if epsg == 5514:
+        assert ocd.read_bytes() == before

@@ -240,9 +240,19 @@ WEB_ABOUT_HTML_EN = """
 WEB_ABOUT_HTML_BY_LANG = {"cs": WEB_ABOUT_HTML, "en": WEB_ABOUT_HTML_EN}
 
 
-def web_about_html(lang: str) -> str:
-    """Úvod v jazyce stránky; bez překladu anglicky (pak česky)."""
-    return WEB_ABOUT_HTML_BY_LANG.get(lang) or WEB_ABOUT_HTML_BY_LANG.get("en") or WEB_ABOUT_HTML
+_CS_CRS_HTML = "<strong>Mapa je rovnou georeferencovaná v S-JTSK (EPSG:5514)</strong>"
+_CS_CRS_HTML_INTL = (
+    "<strong>Mapa je rovnou georeferencovaná v souřadnicovém systému země</strong>\n"
+    "  (v Česku S-JTSK, v Nizozemsku RD New, ve Švýcarsku LV95 …)"
+)
+
+
+def web_about_html(lang: str, *, intl: bool = False) -> str:
+    """Úvod v jazyce stránky; bez překladu anglicky (pak česky).
+
+    ``intl``: doména i pro jiné země – česky souřadnicový systém země místo S-JTSK."""
+    html = WEB_ABOUT_HTML_BY_LANG.get(lang) or WEB_ABOUT_HTML_BY_LANG.get("en") or WEB_ABOUT_HTML
+    return html.replace(_CS_CRS_HTML, _CS_CRS_HTML_INTL) if intl else html
 
 _ZIP_ABOUT_TEMPLATE = f"""Podkladárna – co je v tomto balíčku
 ==================================
@@ -272,7 +282,7 @@ Kvalita podkladu
 ----------------
 Hlavní výstup jsou vektory pro OOM (.omap; cesty, plochy, budovy, vrstevnice…)
 a stejnojmenné .ocd (OCD12) pro OCAD.
-Mapa je georeferencovaná v S-JTSK (EPSG:5514) včetně magnetické deklinace
+Mapa je georeferencovaná v {{crs}} včetně magnetické deklinace
 a grivace pro střed výřezu – podklady i vektory sedí na sebe bez lícování.
 Vegetace je výška a hustota porostu z LiDARu (DMP OK), ne průběžnost – jak
 se lesem běží (podrost, viditelnost), z dat nepoznáme; kresbu vegetace doladí terén.
@@ -345,7 +355,10 @@ https://github.com/pjanecekATlangmaster/podkladarna/issues
 
 
 def zip_about_txt(
-    citation: str = CZ_CITATION, attribution: tuple[str, ...] = CZ_ATTRIBUTION, github: bool = True
+    citation: str = CZ_CITATION,
+    attribution: tuple[str, ...] = CZ_ATTRIBUTION,
+    github: bool = True,
+    crs: str = "S-JTSK (EPSG:5514)",
 ) -> str:
     """CO_JE_PODKLADARNA.txt s citací zdrojů podle země výřezu (licence místních dat).
 
@@ -354,6 +367,7 @@ def zip_about_txt(
         citation=citation,
         attribution="\n".join(attribution or CZ_ATTRIBUTION),
         github_block=_ZIP_GITHUB_BLOCK if github else "",
+        crs=crs,
     )
 
 

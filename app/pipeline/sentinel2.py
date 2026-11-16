@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from app.pipeline.crs_5514 import CRS_PROJ4
+from app.pipeline.crs_5514 import CRS_LABEL, CRS_PROJ4, IS_KROVAK
 from app.pipeline.fetch_openzu import USER_AGENT
 
 STAC_SEARCH_URL = "https://earth-search.aws.element84.com/v1/search"
@@ -276,7 +276,7 @@ def info_text(scenes: list[Scene]) -> str:
         ]
     lines += [
         "",
-        f"Rozlišení 10 m/px (převzorkováno na {OUT_MPP:g} m/px), S-JTSK Křovák (EPSG:5514), world file .jgw.",
+        f"Rozlišení 10 m/px (převzorkováno na {OUT_MPP:g} m/px), {'S-JTSK Křovák (EPSG:5514)' if IS_KROVAK else CRS_LABEL}, world file .jgw.",
         f"Nejnovější snímek bez mraků ve výřezu (maska SCL) a starší po ~{SLOT_DAYS // 30} měsících"
         f" za posledních {SLOT_COUNT * SLOT_DAYS // 30} měsíců, jsou-li jasné.",
         "Hodí se k posouzení novějších změn (paseky, polomy,",
