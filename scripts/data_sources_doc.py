@@ -41,7 +41,7 @@ STATUS = {"used": "napojeno", "off": "vypnuto", "candidate": "kandidát", "rejec
 EXTRA_NAMES = {
     "PL": "Polsko", "UK": "Spojené království", "DK": "Dánsko", "SE": "Švédsko", "NO": "Norsko",
     "ES": "Španělsko", "SI": "Slovinsko", "LV": "Lotyšsko", "LU": "Lucembursko", "PT": "Portugalsko",
-    "LT": "Litva",
+    "LT": "Litva", "IE": "Irsko", "MT": "Malta",
 }
 
 
