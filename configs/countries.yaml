@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | fr_lidarhd | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | fr_lidarhd | lu_act | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -180,4 +180,18 @@ FI:
     - "Elevation model 2 m, orthophoto and peruskartta: © Maanmittauslaitos (CC BY 4.0), via the Funet (CSC) and kartat.kapsi.fi mirrors."
     - "Canopy height (latvusmalli): © Suomen metsäkeskus (CC BY 4.0)."
     - "YLRE, buildings, orthophoto and kantakartta (Helsinki only): © Helsingin kaupunki (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+LU:
+  name: {cs: Lucembursko, en: Luxembourg, fr: Luxembourg, de: Luxemburg}
+  status: beta              # celé Lucembursko (Petr 2026-11-16: další země podle plánu); souřadnice LUREF
+  crs: EPSG:2169            # Luxembourg 1930 / Gauss (LUREF), osy v EPSG sever–východ
+  boundary: countries/lu.geojson  # ACT INSPIRE AU (CC0), +300 m, zjednodušeno 100 m
+  view: [49.44, 5.73, 50.19, 6.54]
+  elevation: lu_act         # LiDAR 2024 MNT + MNS 0,5 m (celostátní COG data.public.lu, okno přes /vsicurl)
+  technical_map: none       # obdoba DTM celostátně není (BD-L-GeoBase jen balík ~1 GB); budovy ACT jsou v OSM
+  cz_sources: false
+  # Licence: vše od ACT (výšky, ortofoto, topografická mapa, katastr) CC0 1.0 – citace není povinná, uvádí se zdvořile.
+  citation: "Base map: Omapic · ACT Luxembourg · OSM, [year]"
+  attribution:
+    - "Elevation LiDAR 2024 (MNT, MNS), orthophoto, topographic map and cadastre: Administration du cadastre et de la topographie (ACT), CC0 1.0."
     - "OSM © OpenStreetMap contributors (ODbL)."

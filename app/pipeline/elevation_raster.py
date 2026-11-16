@@ -1060,6 +1060,75 @@ def fi_mml_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["fi_mml"] = fi_mml_provider
 
 
+# --------------------------------------------------------------------------- LU: LiDAR 2024 MNT + MNS 0,5 m (ACT)
+
+# Relevé 3D du territoire luxembourgeois 2024 (ACT, CC0, bez klíče): MNT (terén) a MNS (povrch) 0,5 m, každý jeden COG
+# na celou zemi v EPSG:2169 (LUREF), výšky nadmořské (nic se nepřevádí). Čte se jen okno výřezu (~11 s na km²).
+LU_CRS = "EPSG:2169"
+LU_BUFFER_M = 20.0
+
+
+def lu_act_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """MNT a MNS 0,5 m z LiDARu 2024 – okno výřezu z celostátních COG data.public.lu."""
+    from app.pipeline.reference_lu import LU_DSM_URL, LU_DTM_URL
+
+    window = _buffered(bounds, LU_CRS, LU_BUFFER_M)
+    dtm = cog_windows([LU_DTM_URL], window, LU_CRS, out_dir, "lu_dtm", log=log, nodata=NODATA)
+    if dtm is None:
+        raise ElevationUnavailable("výřez je mimo pokrytí LiDARu 2024 (Lucembursko)")
+    dsm = cog_windows([LU_DSM_URL], window, LU_CRS, out_dir, "lu_dsm", log=log, nodata=NODATA)
+    if dsm is None:
+        return SourceRasters(dtm, None)
+    try:
+        from app.pipeline.lu_copc import vegetation_surface
+
+        veg = vegetation_surface(window, out_dir, log=log)
+    except Exception as exc:  # noqa: BLE001 – bez mračna zůstane MNS (listnatý les slabší), job běží dál
+        veg = None
+        if log:
+            log(f"  Mračno LiDAR 2024 nedostupné: {str(exc)[:160]}")
+    if veg is None:
+        log_issue(log, "Lucembursko: mračno LiDAR 2024 se nestáhlo, výška porostu jen ze zimního MNS "
+                       "(listnatý les může vyjít jako otevřený prostor)")
+        return SourceRasters(dtm, dsm)
+    return SourceRasters(dtm, _lu_surface(dsm, veg, window, out_dir, log=log))
+
+
+def _lu_surface(dsm: Path, veg: Path, window, out_dir: Path, *, log=None) -> Path:
+    """Povrch 1 m = maximum z MNS (budovy, jehličnany) a nejvyššího bodu vegetace z mračna (listnáče bez listí)."""
+    from osgeo import gdal
+
+    xmin, ymin, xmax, ymax = window
+    grid = ["-te", f"{xmin:.1f}", f"{ymin:.1f}", f"{xmax:.1f}", f"{ymax:.1f}", "-tr", "1", "1", "-t_srs", LU_CRS]
+    dsm1, veg1 = out_dir / "lu_dsm_1m.tif", out_dir / "lu_veg_1m.tif"
+    run_cmd([_gdal_tool("gdalwarp"), "-q", "-overwrite", *grid, "-r", "max", "-dstnodata", f"{NODATA:g}",
+             "-ot", "Float32", "-co", "COMPRESS=DEFLATE", str(dsm), str(dsm1)])
+    run_cmd([_gdal_tool("gdalwarp"), "-q", "-overwrite", *grid, "-r", "near", "-dstnodata", f"{NODATA:g}",
+             "-ot", "Float32", "-co", "COMPRESS=DEFLATE", str(veg), str(veg1)])
+    gdal.UseExceptions()
+    a_ds, b_ds = gdal.Open(str(dsm1)), gdal.Open(str(veg1))
+    a = a_ds.GetRasterBand(1).ReadAsArray().astype("float32")
+    b = b_ds.GetRasterBand(1).ReadAsArray().astype("float32")
+    out = np.where(a <= NODATA + 1, NODATA, np.where(b > NODATA + 1, np.maximum(a, b), a)).astype("float32")
+    dest = out_dir / "lu_dsm_veg.tif"
+    ds = gdal.GetDriverByName("GTiff").Create(str(dest), a_ds.RasterXSize, a_ds.RasterYSize, 1, gdal.GDT_Float32,
+                                              ["COMPRESS=DEFLATE"])
+    ds.SetGeoTransform(a_ds.GetGeoTransform())
+    ds.SetProjection(a_ds.GetProjection())
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(NODATA)
+    band.WriteArray(out)
+    band.FlushCache()
+    ds = a_ds = b_ds = None
+    if log:
+        raised = float(((b > a) & (a > NODATA + 1)).mean() * 100)
+        log(f"  Povrch = MNS + nejvyšší body vegetace z mračna ({raised:.0f} % buněk zvýšeno)")
+    return dest
+
+
+PROVIDERS["lu_act"] = lu_act_provider
+
+
 # --------------------------------------------------------------------------- SK: DMR 5.0 přes INSPIRE WCS ÚGKK
 
 # Stahovací služba INSPIRE (Elevation): DMR 5.0 (1. cyklus LLS) 1 m, EPSG:3046 (ETRS89 / UTM 34N), výšky
@@ -1148,6 +1217,7 @@ SOURCE_LABELS = {
     "it_trentino": "LiDAR DTM a DSM, Provincia autonoma di Trento",
     "be_dhmv": "DHMV II DTM a DSM, Digitaal Vlaanderen",
     "fi_mml": "Korkeusmalli 2 m MML a latvusmalli Metsäkeskus",
+    "lu_act": "LiDAR 2024 MNT a MNS, ACT Luxembourg",
 }
 
 

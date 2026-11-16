@@ -2216,6 +2216,7 @@ const TIMEZONE_COUNTRY = {
   "Europe/Rome": "IT",
   "Europe/Brussels": "BE",
   "Europe/Helsinki": "FI",
+  "Europe/Luxembourg": "LU",
 };
 
 function browserCountry() {

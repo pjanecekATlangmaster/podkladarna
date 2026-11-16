@@ -43,6 +43,7 @@ from app.pipeline.reference_fr import FR_LIDAR_PROBE, FR_ORTHO_PROBE, FR_PDV_PRO
 from app.pipeline.reference_ee import EE_ELEVATION_PROBE, EE_ETAK_PROBE, EE_ORTHO_PROBE
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE
+from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
 from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
@@ -375,6 +376,23 @@ PROBES: tuple[Probe, ...] = (
         (FI_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
         countries=("FI",),
+    ),
+    # Lucembursko: hlavička COG terénu (S3) a malý výřez ortofota (kresba z OSM).
+    Probe(
+        "lu_elevation",
+        "Výšky LiDAR 2024 (ACT) – MNT a MNS",
+        (LU_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        method="HEAD",
+        fatal=True,
+        countries=("LU",),
+    ),
+    Probe(
+        "lu_ortho",
+        "Ortofoto ACT (geoportail.lu)",
+        (LU_ORTHO_PROBE,),
+        "Šablona ortofota bude chybět.",
+        countries=("LU",),
     ),
 )
 
