@@ -212,6 +212,7 @@ ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "ch
     "de_berlin": "DGM1 a DOM1 Berlín (1 m)",
     "pl_gugik": "NMT a NMPT GUGiK (1 m)",
     "gb_ea": "LIDAR Composite DTM a DSM Environment Agency (1 m)",
+    "de_by": "DGM1 a DOM20 LDBV Bayern (1 m, povrch z letních snímků)",
     "de_nrw": "DGM1, DOM1 a nDOM50 Geobasis NRW (1 m, porost = menší ze zimního lidaru a letních snímků)",
     "fr_lidarhd": "LiDAR HD MNT a MNS (IGN, 0,5 m)",
     "ee_maaamet": "DTM a DSM Maa- ja Ruumiamet (1 m)",

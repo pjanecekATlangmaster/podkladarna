@@ -60,6 +60,14 @@ from app.pipeline.reference_de_nw import (
     DE_NW_DOP_LAYER,
     DE_NW_DOP_WMS,
 )
+from app.pipeline.reference_by import (
+    BY_ALKIS_LAYER,
+    BY_ALKIS_WMS,
+    BY_DOK_LAYER,
+    BY_DOK_WMS,
+    BY_DOP_LAYER,
+    BY_DOP_WMS,
+)
 from app.pipeline.reference_pl import PL_ORTHO_LAYER, PL_ORTHO_WMS, PL_TOPO_LAYER, PL_TOPO_WMS
 from app.pipeline.reference_lu import LU_CADASTRE_LAYER, LU_ORTHO_LAYER, LU_TOPO_LAYER, LU_WMS
 from app.pipeline.reference_it import TN_CTP_LAYER, TN_HILLSHADE_LAYER, TN_ORTHO_LAYER, TN_WMS
@@ -119,7 +127,8 @@ ZOOM_VARIANTS: tuple[tuple[str, float, str], ...] = (
 # DMVS WMS styl „default“ odmítá (500) – stejně jako ``_wms_getmap_url``; archiv ortofota (geoportal) chce prázdný styl.
 NO_DEFAULT_STYLE_HOSTS = ("dmvs.cuzk.gov.cz", "geoportal.cuzk.gov.cz", "data.wien.gv.at", "gdi.berlin.de",
                           "data.geopf.fr", "gsavalik.envir.ee", "siat.provincia.tn.it",
-                          "geo.api.vlaanderen.be", "kartta.hel.fi", "tiles.kartat.kapsi.fi", "www.wms.nrw.de")
+                          "geo.api.vlaanderen.be", "kartta.hel.fi", "tiles.kartat.kapsi.fi", "www.wms.nrw.de",
+                          "geoservices.bayern.de")
 
 # Vrstvy jen online (bez staženého rastru): přidají se i se zapnutým „Stáhnout referenční šablony předem“.
 ONLINE_ONLY_KEYS = frozenset({"orthophoto_archiv"})
@@ -246,6 +255,14 @@ PL_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ..
     ("pl_ortho", "ortofoto_gugik.xml", "Ortofotomapa GUGiK", PL_ORTHO_WMS, PL_ORTHO_LAYER, "image/jpeg", False, 0.25),
     ("pl_topo", "mapa_topo_gugik.xml", "Mapa topograficzna GUGiK", PL_TOPO_WMS, PL_TOPO_LAYER, "image/png", False, 1.0),
 )
+# Bavorsko (LDBV OpenData, CC BY 4.0): ortofoto DOP40, Digitale Ortskarte 1 : 10 000 a ALKIS Parzellarkarte (EPSG:25832).
+DE_BY_ONLINE_WMS_LAYERS: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = (
+    ("de_by_dop", "dop_bayern.xml", "DOP40 Bayern (ortofoto)", BY_DOP_WMS, BY_DOP_LAYER, "image/jpeg", False, 0.4),
+    ("de_by_dok", "dok_bayern.xml", "Digitale Ortskarte Bayern 1 : 10 000 (DOK)", BY_DOK_WMS, BY_DOK_LAYER, "image/png",
+     False, 0.5),
+    ("de_by_alkis", "alkis_bayern.xml", "ALKIS Parzellarkarte Bayern", BY_ALKIS_WMS, BY_ALKIS_LAYER, "image/png", True,
+     0.25),
+)
 # Dlaždicové služby v EPSG:3857 (GDAL TMS + okno výřezu jako VRT): klíč, soubor, popisek, URL, úroveň, m/px, snímek (JPEG).
 AT_ONLINE_TMS: tuple[tuple[str, str, str, str, int, float, bool], ...] = (
     ("at_ortho", "orthofoto_at.vrt", "basemap.at Orthofoto (Rakousko)", AT_BASEMAP_ORTHO_URL, 19, 0.25, True),
@@ -279,6 +296,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "LU": LU_ONLINE_WMS_LAYERS,
         "DE-NW": DE_NW_ONLINE_WMS_LAYERS,
         "PL": PL_ONLINE_WMS_LAYERS,
+        "DE-BY": DE_BY_ONLINE_WMS_LAYERS,
     }.get(country, ())
 
 
@@ -610,7 +628,7 @@ def online_labels() -> dict[str, str]:
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
             *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS, *LU_ONLINE_WMS_LAYERS, *DE_NW_ONLINE_WMS_LAYERS,
-            *PL_ONLINE_WMS_LAYERS,
+            *PL_ONLINE_WMS_LAYERS, *DE_BY_ONLINE_WMS_LAYERS,
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     layers += [(k, label) for tms in ONLINE_TMS_LAYERS.values() for k, _f, label, *_r in tms]
