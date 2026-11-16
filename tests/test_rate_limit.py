@@ -137,3 +137,29 @@ def test_api_rate_limit_429(client, monkeypatch):
         },
     )
     assert r.status_code == 429
+
+
+def test_tile_fetch_limit_per_ip_cached_tiles_free(client, monkeypatch, tmp_path):
+    """/tiles (revize 2026-11-16): dlaždice mimo cache nejvýš TILE_FETCH_PER_IP_MIN za minutu na IP, z cache bez limitu."""
+    import app.main as main
+    import app.settings as settings
+    import app.tiles as tiles
+
+    monkeypatch.setattr(tiles, "CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(settings, "TILE_FETCH_PER_IP_MIN", 2)
+    monkeypatch.setattr(settings, "TILE_FETCH_PER_MIN", 100)
+    tiles.reset_fetch_limits()
+    png = tmp_path / "t.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes(100))
+    monkeypatch.setattr(main, "fetch_tile", lambda z, x, y: png)  # stažení bez uložení do cache
+    ip = {"x": "10.0.0.1"}
+    monkeypatch.setattr(main, "client_ip", lambda _req: ip["x"])
+
+    assert [client.get(f"/tiles/10/{x}/300.png").status_code for x in range(3)] == [200, 200, 429]
+    cached = tiles.tile_cache_path(10, 9, 300)
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(png.read_bytes())
+    assert client.get("/tiles/10/9/300.png").status_code == 200  # z cache i po limitu
+    ip["x"] = "10.0.0.2"
+    assert client.get("/tiles/10/5/300.png").status_code == 200  # jiná IP má vlastní limit
+    assert client.get("/tiles/30/5/300.png").status_code == 400  # neplatná dlaždice jako dřív

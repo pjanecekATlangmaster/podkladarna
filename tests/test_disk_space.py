@@ -184,15 +184,44 @@ def _aoi_entry(root: Path, name: str, size: int, age_days: float) -> Path:
     return entry
 
 
-def test_prune_expired_aoi_cache_keeps_valid_entries(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("folder", "setting", "days", "osm_hours", "old_days", "fresh_days"),
+    [
+        ("references", "REF_CACHE_MAX_AGE_DAYS", 30, "24", 40, 5),
+        # Odpovědi Overpass (revize 2026-11-16): po 2 dnech, nejméně platnost cache + 1 den.
+        ("osm", "OSM_CACHE_MAX_AGE_DAYS", 2, "24", 3, 1),
+        ("osm", "OSM_CACHE_MAX_AGE_DAYS", 2, "72", 5, 3),
+    ],
+)
+def test_prune_expired_aoi_cache_keeps_valid_entries(
+    tmp_path, monkeypatch, folder, setting, days, osm_hours, old_days, fresh_days
+):
     import app.settings as settings
 
     monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
-    monkeypatch.setattr(settings, "REF_CACHE_MAX_AGE_DAYS", 30)
-    old = _aoi_entry(tmp_path / "references", "old", 100, 40)
-    fresh = _aoi_entry(tmp_path / "references", "fresh", 100, 5)
+    monkeypatch.setattr(settings, setting, days)
+    monkeypatch.setenv("PODKLADARNA_OSM_CACHE_HOURS", osm_hours)
+    old = _aoi_entry(tmp_path / folder, "old", 100, old_days)
+    fresh = _aoi_entry(tmp_path / folder, "fresh", 100, fresh_days)
     assert disk_space.prune_expired_aoi_cache() == 100
     assert not old.exists() and fresh.exists()
+
+
+def test_prune_tile_cache_age_cap_and_old_versions(tmp_path, monkeypatch):
+    """Cache dlaždic webu (revize 2026-11-16): stará verze pryč, starší než limit pryč, nad stropem nejstarší."""
+    import app.settings as settings
+    import app.tiles as tiles
+
+    monkeypatch.setattr(tiles, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(settings, "TILE_CACHE_MAX_AGE_DAYS", 30)
+    monkeypatch.setattr(settings, "TILE_CACHE_MAX_GB", 250e-9)  # 250 B
+    _aoi_entry(tmp_path / "tiles" / "v1" / "5", "17", 100, 1)
+    ages = {"old": 40, "mid": 10, "young": 5, "new": 1}
+    paths = {name: _aoi_entry(tmp_path / "tiles" / "v2" / "12", name, 100, age) for name, age in ages.items()}
+    assert tiles.prune_tile_cache(now=time.time() + 7200) == 300  # v1, old (stáří), mid (strop)
+    assert not (tmp_path / "tiles" / "v1").exists()
+    assert {n for n, p in paths.items() if (p / "a.png").exists()} == {"young", "new"}
+    assert not paths["old"].exists()  # prázdná složka x se smaže
 
 
 def test_ensure_job_space_prunes_oldest_then_fails(tmp_path, monkeypatch):

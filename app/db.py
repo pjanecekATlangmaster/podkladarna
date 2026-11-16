@@ -784,19 +784,42 @@ def list_jobs(
 def list_expired_private_jobs(
     *,
     now: datetime | None = None,
-    limit: int = 500,
 ) -> list[dict[str, Any]]:
-    """Privátní joby po splatnosti (včetně pending – odkaz už stejně neplatí)."""
+    """Privátní joby po splatnosti (včetně pending – odkaz už stejně neplatí).
+
+    Prochází všechny privátní řádky, ne jen nejnovější (revize 2026-11-16: s limitem 500 zůstaly
+    starší řádky v DB navždy). Privátních jobů je málo (48 h, objednávky do 30 dní).
+    """
     now = now or datetime.now(timezone.utc)
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE status NOT IN ('running', 'queued') "
+            "AND json_extract(options_json, '$.private') IS NOT NULL ORDER BY created_at"
+        ).fetchall()
     out: list[dict[str, Any]] = []
-    for job in list_jobs(limit=limit, include_private=True):
-        if not job_is_private(job):
-            continue
-        if job.get("status") in ("running", "queued"):
-            continue
-        if job_is_expired(job, now=now):
+    for row in rows:
+        job = _row_to_job(row)
+        if job_is_private(job) and job_is_expired(job, now=now):
             out.append(job)
     return out
+
+
+def list_finished_public_job_times() -> list[tuple[str, str]]:
+    """(id, updated_at) všech dokončených jobů mimo objednávky – kandidáti úklidu podle stáří (bez limitu)."""
+    marks = ",".join("?" * len(JOB_FINISHED_STATUSES))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, updated_at FROM jobs WHERE status IN ({marks}) "
+            "AND json_extract(options_json, '$.order_id') IS NULL",
+            tuple(JOB_FINISHED_STATUSES),
+        ).fetchall()
+    return [(str(r["id"]), str(r["updated_at"] or "")) for r in rows]
+
+
+def all_job_ids() -> set[str]:
+    """Id všech jobů v DB (úklid osiřelých složek nesmí smazat složku staršího jobu)."""
+    with connect() as conn:
+        return {str(r[0]) for r in conn.execute("SELECT id FROM jobs").fetchall()}
 
 
 _ZIP_FORBIDDEN = re.compile(r'[<>:"/\\|?*\x00-\x1f]')

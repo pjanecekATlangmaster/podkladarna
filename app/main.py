@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -98,7 +98,7 @@ from app.settings import (
     SMTP_HOST,
     default_footway_as_sidewalk,
 )
-from app.tiles import TileError, fetch_tile
+from app.tiles import TileError, allow_fetch, fetch_tile, is_cached, validate_tile
 from app.tool_env import log_ignored_gdal_plugins, tool_status
 from app.whats_new import whats_new_payload
 
@@ -1704,8 +1704,12 @@ def favicon():
 
 
 @app.get("/tiles/{z}/{x}/{y}.png", include_in_schema=False)
-def map_tile(z: int, x: int, y: int):
+def map_tile(z: int, x: int, y: int, request: Request):
     try:
+        validate_tile(z, x, y)
+        if not is_cached(z, x, y) and not allow_fetch(client_ip(request)):
+            # Dlaždici mimo cache server pro tuto IP teď nestáhne (limit za minutu, revize 2026-11-16).
+            return Response(status_code=429, headers={"Retry-After": "60"})
         path = fetch_tile(z, x, y)
     except TileError as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -311,6 +311,18 @@ def _record_usage(job_id: str, status: str) -> None:
         logger.exception("Statistika použití jobu %s selhala", job_id)
 
 
+def _trim_order_work(job_id: str) -> None:
+    """Hotový job objednávky: smaže mezivýsledky ve work/ (až po e-mailu s náhledem); chyba job neshodí."""
+    try:
+        from app import paid_flow
+
+        freed = paid_flow.trim_order_work(job_id)
+        if freed:
+            db.append_log(job_id, f"Mezivýsledky objednávky smazány ({freed / 1e6:.0f} MB).")
+    except Exception:
+        logger.exception("Úklid mezivýsledků objednávky %s selhal", job_id)
+
+
 def run_job(job_id: str) -> int:
     job_dir = JOBS_DIR / job_id
     ensure_proj_data()
@@ -353,6 +365,8 @@ def run_job(job_id: str) -> int:
         # retry_missed_private_mails() na startupu.
         if db.job_is_private(job):
             _notify_private_job(job_id)
+        if (job.get("options") or {}).get("order_id"):
+            _trim_order_work(job_id)
         return 0
     except Exception as exc:
         tb = traceback.format_exc()

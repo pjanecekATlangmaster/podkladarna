@@ -450,9 +450,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   zapisuje dřív než log (`job_worker.run_job`, `worker._fail_running_job`), `db.append_log` selhání `log.txt` spolkne a při plném disku
   se smaže rezerva `DATA_ROOT/.disk_reserve` (`DISK_RESERVE_MB` 64) a zápis stavu se zopakuje; hláška `issue.failure.disk`. Před jobem
   `ensure_job_space`: volno aspoň `DISK_JOB_BASE_GB` (3) + `DISK_JOB_GB_PER_KM2` (0,5) × km², jinak smaže nejdéle nepoužitou cache podle
-  výřezu (references, surfaces, zabaged, ruian, aopk) a pak listy LiDARu, jinak job skončí. Strop cache LiDARu je menší z `LIDAR_CACHE_MAX_GB`
+  výřezu (references, surfaces, zabaged, ruian, aopk, osm) a pak listy LiDARu, jinak job skončí. Strop cache LiDARu je menší z `LIDAR_CACHE_MAX_GB`
   a `LIDAR_CACHE_MAX_DISK_SHARE` (0,5) disku; prošlá cache podle výřezu se maže při startu a v denním úklidu. Neúplně zapsaný LAZ
   (`laz_looks_truncated`: hlavička / VLR / tabulka chunků nesedí na velikost) se v cache nepoužije a smaže; PDAL výstup se kontroluje.
+  Od 3.56.15 (revize zahraničí, Petr 2026-11-16): odpovědi Overpass `cache/osm` po `OSM_CACHE_MAX_AGE_DAYS` (2), dlaždice webu
+  `cache/tiles` po `TILE_CACHE_MAX_AGE_DAYS` (30) a nad `TILE_CACHE_MAX_GB` (2) nejstarší (`tiles.prune_tile_cache`); `/tiles` stáhne
+  mimo cache nejvýš `TILE_FETCH_PER_IP_MIN` (300) / `TILE_FETCH_PER_MIN` (1200) dlaždic za minutu, jinak 429. Hotový job objednávky
+  smaže z `work/` vše kromě náhledu a souhrnů (`paid_flow.trim_order_work`). Úklid jobů prochází všechny řádky DB (dřív 500 / 1000).
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch
