@@ -103,6 +103,7 @@ def test_country_without_surface_is_off(monkeypatch):
         ({"country": "BE"}, False, "be_dhmv"),
         ({"country": "FI"}, False, "fi_mml"),
         ({"country": "LU"}, False, "lu_act"),
+        ({"country": "DE-NW"}, False, "de_nrw"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -330,6 +331,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("BE", ("Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen", "Modellicentie Gratis Hergebruik", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Trento")),
         ("FI", ("Maanmittauslaitos", "Suomen metsäkeskus", "Helsingin kaupunki", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GRB")),
         ("LU", ("Administration du cadastre et de la topographie (ACT), CC0 1.0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Metsäkeskus")),
+        ("DE-NW", ("Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Berlin")),
     ],
 )
 def test_citation_by_country(country, must, must_not):
@@ -407,6 +409,8 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_fi_ortho", "tiles.kartat.kapsi.fi", "ortokuva"),
         ("LU", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_lu_ortho", "online_lu_topo", "online_lu_cadastre"},
          "online_lu_ortho", "wms.geoportail.lu", "ortho_latest"),
+        ("DE-NW", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_nw_dop", "online_de_nw_abk", "online_de_nw_alkis"},
+         "online_de_nw_dop", "www.wms.nrw.de", "nw_dop_rgb"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):

@@ -1958,32 +1958,59 @@ sources:
 
 - id: de_nrw_dgm
   countries:
-  - DE
+  - DE-NW
   kinds:
   - elevation
-  name: DGM1 Severní Porýní-Vestfálsko (WCS)
+  name: DGM1, nDOM50 a DOM1 Severní Porýní-Vestfálsko (WCS)
   provider: Geobasis NRW (Bezirksregierung Köln)
   url: https://www.wcs.nrw.de/geobasis/wcs_nw_dgm
   info: https://www.bezreg-koeln.nrw.de/geobasis-nrw/open-data
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (de_nrw), app/pipeline/reference_de_nw.py
+  provider_key: de_nrw
+  probe: de_nw_elevation
   license:
     class: public
     name: Datenlizenz Deutschland – Zero 2.0
     url: https://www.govdata.de/dl-de/zero-2-0
-    attribution: ''
+    attribution: nepovinná; uvádíme Geobasis NRW
   access: free
-  checked: 'Grok: 2026-11-16 GetCapabilities WCS (Fees citují dl-de/zero-2.0) a záznam Open.NRW – Claude neověřil · opencode
-    (de_nrw_wcs_laz): 2026-11-16 opengeodata.nrw.de/produkte/geobasis/hm/ (index.json v dgm1_tiff/, 3dm_l_las/3dm_l_las/),
-    open.nrw 3D-Messdaten + DOM1, bezreg-koeln.nrw.de – Claude neověřil'
+  checked: 'Claude 2026-11-16 GetCapabilities wcs_nw_dgm, wcs_nw_dom a wcs_nw_ndom (Fees = Datenlizenz Deutschland – Zero 2.0,
+    „Jede Nutzung ist ohne Einschränkungen oder Bedingungen zulässig“), metadata CSV opengeodata.nrw.de (data nálet DOM1
+    listopad–březen 2020–2025, bDOM květen–říjen 2021–2026) · Grok: 2026-11-16 GetCapabilities WCS a záznam Open.NRW · opencode
+    (de_nrw_wcs_laz): 2026-11-16 opengeodata.nrw.de/produkte/geobasis/hm/ – Claude neověřil'
   issues:
-  - Jen terén (coverage nw_dgm). Povrch ani mračno tato služba nemá — porost z ní nespočítáš.
-  - GetCoverage vrací GeoTIFF. Služba 2026-11-16 odpovídala.
-  - Původní odkaz info https://ckan.open.nrw/dataset/0c6796e5-9eca-4ae6-8b32-1fcc5ae5c481/resource/b923abbe-085f-47eb-b768-a326ef8d8754
-    neodpovídal (kontrola Claude 2026-11-16), nahrazen podle opencode.
-  - 'opencode navrhuje citaci: „nepovinná; doporučeno „Geobasis NRW““ – Claude neověřil.'
-  - 'opencode: DOM WCS https://wcs.nrw.de/geobasis/wcs_nw_dom ; LAZ ~70–100 MB / 1 km dlaždice, 4–10 b/m² (od 2027 min. 8),
-    EPSG:25832/7837.'
+  - 'Napojeno 2026-11-16 (beta DE-NW): DGM1, DOM1 a nDOM50 (SCALEFACTOR=0.5 → 1 m) z WCS po dlaždicích 2 km (strop služby
+    2000 × 2000 px), ~12 MB / km². Výška porostu = menší z DOM1 − DGM a nDOM.'
+  - 'DOM1 z ALS je ze zimních náletů a o 1–4 roky starší než bDOM (Willebadessen 2 × 2 km: 7,5 % plochy vytěžené kůrovcové
+    smrčiny vedené jako les); nDOM je z letních snímků a vidí obilí a kukuřici jako porost (Werther) → bere se menší z obou.'
+  - Mračno 3dm_l_las je LAZ 1.2 (ne COPC) po 1 km, 70–100 MB, třídy jen 1, 2, 9, 14, 17, 18, 20, 24, 26 (bez vegetace) → nepoužito.
+
+- id: de_nw_wms
+  countries: [DE-NW]
+  kinds: [orthophoto, map, cadastre]
+  name: "Ortofoto DOP, Amtliche Basiskarte 1 : 5 000 a parcely ALKIS (WMS Geobasis NRW)"
+  provider: Geobasis NRW (Bezirksregierung Köln)
+  url: https://www.wms.nrw.de/geobasis/wms_nw_dop
+  info: https://www.bezreg-koeln.nrw.de/geobasis-nrw/open-data
+  role: šablona, kresba
+  reference_keys: ["online_de_nw_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/zero 2.0 – přibalení obrázku nic nebrání."
+  status: used
+  code: app/pipeline/reference_de_nw.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_nw_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Zero 2.0
+    url: https://www.govdata.de/dl-de/zero-2-0
+    attribution: nepovinná; uvádíme Geobasis NRW
+  access: free
+  checked: "Claude 2026-11-16 GetCapabilities wms_nw_dop, wms_nw_abk a wms_nw_alkis (AccessConstraints NONE, dl-de/zero-2-0; vrstvy nw_dop_rgb, nw_abk_col, adv_alkis_flurstuecke v EPSG:25832)"
+  issues:
+    - "DTK (wms_nw_dtk) je dl-de/by-2.0 – nepoužito, ABK 1 : 5 000 je podrobnější a zero."
+    - "ALKIS WMS odmítá STYLES=default (vrací XML chybu), prázdný styl funguje."
 
 - id: de_by_dgm1
   countries:
