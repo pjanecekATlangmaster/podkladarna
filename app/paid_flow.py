@@ -126,10 +126,13 @@ def valid_email(email: str) -> bool:
 
 
 def form_note_html(request: Request, lang: str) -> str:
-    """Upozornění nad tlačítkem Spustit: placená služba, cena a postup (jen když prodej běží)."""
+    """Upozornění nad tlačítkem Spustit: postup objednávky (jen když prodej běží).
+
+    Bez ceny: placená verze nemá veřejnou nabídku (Petr 2026-11-16) – cenu a odkaz na nákup dostane
+    jen konkrétní zadavatel v e-mailu s ukázkou."""
     if not active_for(request):
         return ""
-    text = i18n.t("order.web.note", lang, price=price_label(lang))
+    text = i18n.t("order.web.note", lang)
     return f'<p class="hint paid-note" id="paid-note"><strong>{html.escape(text)}</strong></p>'
 
 
@@ -196,7 +199,6 @@ def start_order(
         name=name,
         url=url,
         hours=hours,
-        price=price_label(lang),
     )
     try:
         send_mail(email, subject, body, from_name=sender_name(lang))
@@ -259,7 +261,7 @@ def order_confirm_page(token: str, request: Request) -> HTMLResponse:
     lang = _lang(order.get("lang")) or lang
     name = str((order.get("job_request") or {}).get("name") or "")
     body = (
-        _p(i18n.t("order.page.confirm_text", lang, name=name, price=price_label(lang)))
+        _p(i18n.t("order.page.confirm_text", lang, name=name))
         + f'<form method="post" action="/order/confirm/{html.escape(token)}">'
         f'<button type="submit">{html.escape(i18n.t("order.page.confirm_button", lang))}</button></form>'
     )

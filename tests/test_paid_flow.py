@@ -75,7 +75,8 @@ def test_paid_order_flow(client, shop):
 
     host = {"host": PAID_HOST}
     page = client.get("/", headers=host)
-    assert 'id="paid-note"' in page.text and "10.00 EUR" in page.text
+    # Bez veřejné nabídky (Petr 2026-11-16): web ani potvrzovací e-mail cenu neukazují, jen e-mail s ukázkou.
+    assert 'id="paid-note"' in page.text and "10.00 EUR" not in page.text
     assert "support-note" not in page.text  # „… is free, a contribution helps“ na placené doméně ne
 
     r = client.post("/api/jobs", data={**FORM, "output_mode": "png"}, headers=host)
@@ -86,6 +87,7 @@ def test_paid_order_flow(client, shop):
     r = client.post("/api/jobs", data={**FORM, "output_mode": "png"}, headers=host)
     assert r.status_code == 200 and client.post(stale, follow_redirects=False).status_code == 404
     confirm = _link(shop[1], r"https://map\.example/order/confirm/\S+").removeprefix("https://map.example")
+    assert "EUR" not in shop[1]["body"]
 
     assert "<form" in client.get(confirm).text  # GET nic nemění (skenery odkazů)
     assert db.list_jobs(include_private=True) == []
@@ -106,6 +108,7 @@ def test_paid_order_flow(client, shop):
     job_worker._notify_private_job(job_id)  # opakování (retry po restartu) nic nepošle
     assert len(shop) == 3
     assert sorted(p.name for p in shop[2]["attachments"]) == ["order_preview.png", "sample-4x4cm.zip"]
+    assert "10.00 EUR" in shop[2]["body"]  # cena až v nabídce konkrétnímu zadavateli
     order_url = _link(shop[2], r"https://map\.example/order/\S+").removeprefix("https://map.example")
 
     order_page = client.get(order_url)

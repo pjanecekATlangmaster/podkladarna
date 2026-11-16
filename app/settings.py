@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.65.0"
+APP_VERSION = "3.66.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -165,6 +165,15 @@ DISK_RESERVE_MB = float(os.environ.get("DISK_RESERVE_MB", "64") or 0)
 # Souběžná stahování listů LiDARu z ČÚZK (OpenZU). Jedno spojení dává ~2 MB/s, list DMP OK má ~340 MB
 # (Most 12 listů 2026-11-02: ~35 min jen čekání na stažení); 3 spojení = mírná zátěž ČÚZK.
 LIDAR_DOWNLOAD_WORKERS = max(1, int(os.environ.get("LIDAR_DOWNLOAD_WORKERS", "3")))
+# Předstažení velkých dat mimo frontu výpočtů (app/prefetch.py, Petr 2026-11-16): job v Česku s aspoň
+# PREFETCH_MIN_SHEETS listy LiDARu mimo cache stahuje při obsazeném serveru samostatně s nižší prioritou
+# (nejvýš PREFETCH_CONCURRENCY naráz, PREFETCH_DOWNLOAD_WORKERS spojení) a do fronty výpočtů jde až potom.
+PREFETCH_ENABLED = os.environ.get("PREFETCH_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
+PREFETCH_MIN_SHEETS = max(1, int(os.environ.get("PREFETCH_MIN_SHEETS", "2")))
+PREFETCH_CONCURRENCY = max(1, int(os.environ.get("PREFETCH_CONCURRENCY", "1")))
+PREFETCH_DOWNLOAD_WORKERS = max(1, int(os.environ.get("PREFETCH_DOWNLOAD_WORKERS", "2")))
+PREFETCH_NICE = int(os.environ.get("PREFETCH_NICE", "10"))
+PREFETCH_TIMEOUT_MINUTES = max(1, int(os.environ.get("PREFETCH_TIMEOUT_MINUTES", "60")))
 ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "30"))
 # Ortofoto / OSM / ZTM / katastr / hillshade PNG pro OOM.
 REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))

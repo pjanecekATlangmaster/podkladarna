@@ -310,6 +310,16 @@ def _record_origin(
     )
 
 
+
+def update_origin_estimate(job_id: str, est_prep_min: float) -> None:
+    """Odhad přípravy po předstažení dat (``app.prefetch``): listy už jsou v cache, stahování se nepočítá."""
+    with connect() as conn:
+        conn.execute(
+            "UPDATE job_origin SET est_prep_min = ? WHERE job_id = ? AND est_prep_min IS NOT NULL",
+            (float(est_prep_min), job_id),
+        )
+        conn.commit()
+
 USAGE_KEYS = (
     "jobs_done",  # dokončená zadání (done / done_with_errors)
     "maps_done",  # mapy disciplín v nich (les, MTBO, sprint)

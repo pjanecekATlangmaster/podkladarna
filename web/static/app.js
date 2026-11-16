@@ -769,7 +769,9 @@ function jobIsFinished(status) {
 /** Stavový řádek bez úvodního slova stavu, které už ukazuje štítek (fáze, fronta, trvání, privátní zůstanou). */
 function statusLineText(job, tail) {
   const lead = jobStatusLabel(job.status) === jobStatusTag(job.status) ? "" : jobStatusLabel(job.status);
-  const phase = job.phase && !jobIsFinished(job.status) ? " · " + job.phase : "";
+  // Fáze s vlastním popiskem fronty (čekání na server, stahování dat předem) se neopakují surově.
+  const labeled = ["waiting_server", "downloading", "waiting_download"].includes(job.phase);
+  const phase = job.phase && !labeled && !jobIsFinished(job.status) ? " · " + job.phase : "";
   return (lead + phase + tail).replace(/^ · /, "");
 }
 
@@ -777,6 +779,8 @@ function jobItemHeadHtml(job) {
   let queueLabel = "";
   if (job.phase === "waiting_server") {
     queueLabel = t("web.js.list.waiting_server");
+  } else if (job.phase === "downloading" || job.phase === "waiting_download") {
+    queueLabel = t(`web.js.list.${job.phase}`);
   } else if (job.queue_position === 0) {
     queueLabel = t("web.js.list.running_now");
   } else if (job.queue_position) {
@@ -2939,7 +2943,9 @@ async function loadDtmCoverage(bbox, seq) {
 function renderProbeNote() {
   const el = document.getElementById("probe-note");
   if (!el) return;
-  const warnings = (lastSheets && !lastSheets.too_large && lastSheets.probe && lastSheets.probe.warnings) || [];
+  const warnings = [...((lastSheets && !lastSheets.too_large && lastSheets.probe && lastSheets.probe.warnings) || [])];
+  const big = lastSheets && !lastSheets.too_large && lastSheets.big_download;
+  if (big && big.message) warnings.push(big.message); // velké stahování: mapa bude hotová později
   el.textContent = warnings.join(" ");
   el.hidden = !warnings.length;
 }
