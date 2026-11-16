@@ -90,7 +90,9 @@ ORTOFOTO_WMS = (
 )
 # Archivní ortofoto ČÚZK (Petr 2026-11-12, námět z omapa.cz): každý rok je jedna vrstva; 2003–2005 se snímkovala
 # vždy třetina ČR, tři roky dohromady pokryjí celé území. Jen online šablona (stáří porostu, zarostlé cesty).
-ORTOFOTO_ARCHIV_WMS = "https://geoportal.cuzk.gov.cz/WMS_ORTOFOTO_ARCHIV/WMService.aspx"
+# ČÚZK službu přesunul na GeoServer (aktualita geoportálu 3341 z 3. 11. 2026, stará adresa
+# WMS_ORTOFOTO_ARCHIV/WMService.aspx jen do 30. 11. 2026): stejné vrstvy po letech, EPSG:5514, image/png.
+ORTOFOTO_ARCHIV_WMS = "https://geoportal.cuzk.gov.cz/geoserver/wms_ortofoto_archiv/ows"
 # Pořadí kreslení WMS: první dole – rok uvedený poslední (2004) je při překryvu navrchu.
 ORTOFOTO_ARCHIV_LAYERS = "2005,2003,2004"
 # Značka v meta cache podkladů: osm.png je vlastní render (starší cache měla obrázek z dlaždic).

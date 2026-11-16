@@ -1069,6 +1069,52 @@ SPRINT_BUILDING_HOLE_MIN_UM2 = 1000.0**2
 SPRINT_BUILDING_HOLE_FILL_MAJORS = frozenset({401, 402, 403, 404, 501, 520, 527})
 
 
+# Dvůr s krytým průchodem (OSM covered / tunnel=building_passage) nebo z ≥ 30 % pod OSM pěší plochou (pěší zóna,
+# area:highway, dvůr se jménem) je veřejný prostor, ne budova (Berlín Hackesche Höfe, Petr 2026-11-15).
+SPRINT_COURTYARD_WALK_SHARE = 0.3
+# Část s předem zalitými dvory budov (OSM / DTM import, ``… dvory (budova)``) – nejsou to skutečné budovy.
+_COURTYARD_PART_MARK = "dvory ("
+
+
+def _courtyard_access(work_dir: Path, *, ref_x: float, ref_y: float, scale: int, grivation_deg: float):
+    """Kryté průchody (čáry) a OSM pěší plochy (polygony, ne na mostě / v tunelu) v souřadnicích mapy (µm)."""
+    import json
+
+    from shapely.geometry import LineString, shape
+    from shapely.affinity import affine_transform
+
+    def to_map(x, y):
+        return projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+
+    passages = []
+    gj = work_dir / "osm_paths" / "covered_passages.geojson"
+    if gj.is_file():
+        for feat in json.loads(gj.read_text(encoding="utf-8")).get("features") or []:
+            coords = (feat.get("geometry") or {}).get("coordinates") or []
+            if len(coords) >= 2:
+                passages.append(LineString([to_map(x, y) for x, y, *_ in coords]))
+    areas = []
+    fj = work_dir / "osm_paths" / "features.geojson"
+    if fj.is_file():
+        # Afinní převod projekce → mapa ze tří bodů po 1 km od ref (projected_to_map_coord je lineární, vrací celé µm).
+        (x0, y0), (x1, y1), (x2, y2) = to_map(ref_x, ref_y), to_map(ref_x + 1000.0, ref_y), to_map(ref_x, ref_y + 1000.0)
+        a, b, d, e = (x1 - x0) / 1000.0, (x2 - x0) / 1000.0, (y1 - y0) / 1000.0, (y2 - y0) / 1000.0
+        matrix = [a, b, d, e, x0 - a * ref_x - b * ref_y, y0 - d * ref_x - e * ref_y]
+        for feat in json.loads(fj.read_text(encoding="utf-8")).get("features") or []:
+            props = feat.get("properties") or {}
+            if props.get("kind") != "pedestrian_area" or props.get("structure") in {"bridge", "tunnel"}:
+                continue
+            try:
+                g = shape(feat.get("geometry"))
+            except Exception:
+                continue
+            if g.is_empty or g.geom_type not in {"Polygon", "MultiPolygon"}:
+                continue
+            g = affine_transform(g if g.is_valid else g.buffer(0), matrix)
+            areas.extend(p for p in getattr(g, "geoms", [g]) if not p.is_empty)
+    return passages, areas
+
+
 def sprint_merge_buildings(
     parts: list[OomObjectPart],
     work_dir: Path,
@@ -1108,6 +1154,7 @@ def sprint_merge_buildings(
         return parts
     try:
         polys = []
+        real = []  # budovy bez předem zalitých dvorů (části „… dvory (budova)“)
         lines = []
         template = None  # první objekt budovy (hlavička, tělo, konec)
         for part in parts:
@@ -1122,6 +1169,8 @@ def sprint_merge_buildings(
                     poly = _polygon(_rings(_parse_coords(cm.group(1))))
                     if poly is not None and not poly.is_empty:
                         polys.append(poly)
+                        if _COURTYARD_PART_MARK not in part.name:
+                            real.append(poly)
                         if template is None:
                             template = m
                 elif sym in path_ids:
@@ -1137,6 +1186,43 @@ def sprint_merge_buildings(
             band = unary_union(lines).buffer(SPRINT_BUILDING_PATH_BAND_M * 1e6 / scale)
             closed = closed.difference(band).union(union)
         tree = STRtree(lines) if lines else None
+        passages, walk_areas = _courtyard_access(work_dir, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg)
+        passage_tree = STRtree(passages) if passages else None
+        walk_tree = STRtree(walk_areas) if walk_areas else None
+
+        real_tree = STRtree(real) if real and (passages or walk_areas) else None
+
+        def yard_open_area(hp):
+            """Plocha dvora bez skutečných budov uvnitř (kiosek, dům ve vnitrobloku)."""
+            if real_tree is None:
+                return hp
+            inner = [real[i] for i in real_tree.query(hp, predicate="intersects")]
+            return hp.difference(unary_union(inner)) if inner else hp
+
+        def accessible(hp) -> bool:
+            """Dvůr, do kterého vede krytý průchod nebo který z velké části kryje OSM pěší plocha, je veřejný prostor."""
+            if passage_tree is not None and len(passage_tree.query(hp, predicate="intersects")):
+                return True
+            if walk_tree is None:
+                return False
+            yard = yard_open_area(hp)
+            hit = sum(walk_areas[i].intersection(yard).area for i in walk_tree.query(yard, predicate="intersects"))
+            return hit >= SPRINT_COURTYARD_WALK_SHARE * yard.area
+
+        # Dvory skutečných budov (bez předem zalitých děr), do kterých vede průchod nebo pěší plocha, zůstanou otevřené
+        # i tam, kde je import OSM / DTM budov už zalil.
+        open_yards = []
+        if passages or walk_areas:
+            real_closed = unary_union(real).buffer(half_gap, join_style="mitre").buffer(-half_gap, join_style="mitre")
+            for g in getattr(real_closed, "geoms", [real_closed]):
+                if isinstance(g, Polygon):
+                    for hole in g.interiors:
+                        hp = Polygon(hole)
+                        if hp.area >= SPRINT_BUILDING_HOLE_MIN_UM2 and accessible(hp):
+                            open_yards.append(yard_open_area(hp))  # budova uvnitř dvora zůstane
+        if open_yards:
+            yard_zone = unary_union(open_yards)
+            closed = closed.difference(yard_zone)
         merged = []
         filled = []  # zalité dvory – kreslené plochy se o ně oříznou
         for g in getattr(closed, "geoms", [closed]):
@@ -1148,6 +1234,8 @@ def sprint_merge_buildings(
                 if hp.area < SPRINT_BUILDING_HOLE_MIN_UM2:
                     filled.append(hp)
                 elif tree is not None and len(tree.query(hp, predicate="intersects")):
+                    keep.append(hole)
+                elif accessible(hp):
                     keep.append(hole)
                 else:
                     filled.append(hp)
