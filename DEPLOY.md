@@ -45,7 +45,12 @@ docker logs --tail 50 podkladarna
 
 **Zálohy:** Proxmox vzdump VM denně (mode Snapshot, cache disk vynechán) a denní kopie
 `podkladarna.db` (`sqlite3 … ".backup …"`), `origin_salt` a `.env` mimo lokalitu. `origin_salt` nikdy nemazat
-ani negenerovat znovu (HMAC statistiky původu jobů). Před větší změnou snapshot na pve1:
+ani negenerovat znovu (HMAC statistiky původu jobů).
+
+**Trvalá velká data na cache disku:** `/opt/podkladarna/data/cache/static/` (v kontejneru `/data/cache/static/`) drží ručně
+stažené celostátní podklady, dnes `sk_ugkk/` (DMP 1.0 Slovenska, ZIP 155 GB + rozbalený TIFF). Automatický úklid cache ani
+strop `LIDAR_CACHE_MAX_GB` na ni nesahá a ručně ji **nemazat** (stažení trvá hodiny). Do záloh nepatří: data jdou kdykoli
+stáhnout znovu z opendata.skgeodesy.sk (CC BY 4.0, bez přihlášení). Před větší změnou snapshot na pve1:
 `qm snapshot <VMID> pred-stable-$(date +%Y%m%d)`.
 
 **Rollback A:** `IMAGE_TAG_A=<sha tag nebo digest>` v `/opt/podkladarna/.env` + `./update-nas-ab.sh stable`
