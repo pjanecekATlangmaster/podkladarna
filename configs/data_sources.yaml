@@ -1263,7 +1263,7 @@ sources:
   checked: "2026-11-16 licence GRB (PDF Digitaal Vlaanderen, čl. 4: citace podle poskytovatele) a stránka GRB (předepsaná citace)"
   issues:
     - "Citace v countries.yaml má pro GRB vlastní řádek „Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen (Gratis Open Data Licentie Vlaanderen v1.02)“ (2026-11-16)."
-    - "Brusel GRB nemá (technical_map_gaps, jen OSM); Valonsko jiné zdroje (PICC), nezapnuto."
+    - "Brusel GRB nemá; od 3.68.0 se tam bere UrbIS (záznam be_urbis) ve stejném kroku. Valonsko jiné zdroje (PICC), nezapnuto – chybí výšky po výřezu (be_wallonie_lidar)."
 
 - id: be_wms
   countries: [BE]
@@ -1976,6 +1976,11 @@ sources:
   - 'opencode: Klasifikace NENÍ ASPRS: vegetace jen jedna třída 4; zimní lety (bez listí).'
   - 'opencode: PLNÉ stažení 45,2–252,7 GB ZIP po provinciích; „Téléchargement personnalisé“ = soubory E-MAILEM do 48 h, nad
     ~20 GB fyzický disk → automatický výřez bez zásahu člověka prakticky nemožný.'
+  - 'Claude 2026-11-16 ověřil: WCS pro výšky není (GeoServer geoservices.wallonie.be WCS nabízí jen ortofota, inspire_el prázdný);
+    WMS inspire_el i ArcGIS MapServer RELIEF/WALLONIE_MNT|MNS_2021_2022 vrací jen obarvený RGB obrázek (image/geotiff 8 bit, SLD
+    ignoruje, GetFeatureInfo vypnuté); ZIPy provincií (spwdatadownload, FME) neposílají Content-Length ani nepodporují Range
+    (stream ~1,2 MB/s). Mřížka LIDAR_MAILLES (69 438 dlaždic 500 m, LAZ, ~4 MB) nemá odkaz na stažení jednotlivé dlaždice.
+    Valonsko se proto nezapíná; jediná cesta bez účtu je jednorázové zrcadlo celých provincií (MNT + MNS 1 m) na serveru.'
 
 - id: be_dhmv_brondata
   countries:
@@ -2653,17 +2658,22 @@ sources:
   url: https://datastore.brussels/web/data/dataset/f3ad5174-4a86-11ef-b009-010101010000
   info: https://be.brussels/en/about-region/publications-open-data-statistics/open-data/enhancing-regional-data
   role: kresba
-  status: candidate
+  status: used
+  code: app/pipeline/grb_be.py (UrbIS ve stejném kroku jako GRB), app/pipeline/reference_be.py
+  provider_key: be_grb
+  probe: be_urbis
   license:
     class: public
     name: CC0 1.0 („no conditions for reuse, the data is in the public domain“)
     url: https://datastore.brussels/web/data/dataset/f3ad5174-4a86-11ef-b009-010101010000
     attribution: ''
   access: free
-  checked: 'opencode: 2026-11-16 be.brussels („UrbIS is accessible to all … free to use … Open Data licence“, „without registration“)
-    + datastore.brussels UrbIS-Vector (CC-0, WFS, zipped) – Claude neověřil'
+  checked: 'Claude 2026-11-16: metadata StreetSurfaces (geobru CSW b718705d-…: „Creative Commons (CC-0) – no conditions for reuse“),
+    WFS geoservices-vector.irisnet.be/geoserver/urbisvector bez klíče (Buildings, StreetSurfaces, EPSG:31370), typy ploch podle
+    LandCover_TechSpec_FR20240401.pdf §4.1.3.2'
   issues:
-  - Řeší mezeru „Brusel GRB nemá“ v issues záznamu be_grb; WFS + zipped soubory, 6 témat.
+  - 'Od 3.68.0 kreslí Brusel (díra v GRB) – Buildings → budovy, StreetSurfaces S/SC/A/AC/B/C/I/IC/IL vozovka, SW/P chodník a náměstí,
+    K parkování v ulici, M (střední pás) jen uliční prostor, G/MS/MT/RS/RT nic. Brusel centrum 2,25 km² 6,3 MB za 3,5 s.'
   - UrbIS Administrative units má ODCHYLNÉ licence (SPF Finances / SPF Economy); UrbIS-Ortho a DSM 2021 licence u karet zvlášť
     neověřena.
 

@@ -10,6 +10,10 @@ EPSG:31370 (Belgian Lambert 72), licence Gratis Open Data Licentie Vlaanderen v1
   nezpevněné zóny). Stěna, kterou prochází osa silnice (``Wegsegment``), je vozovka; ostatní jsou chodníky, stěny
   ohraničené převážně hranicí nezpevněné zóny zeleň.
 
+Brusel je v GRB díra; tam se bere UrbIS (Paradigm, WFS ``geoservices-vector.irisnet.be`` bez klíče, CC0):
+budovy ``Buildings`` a ``StreetSurfaces`` s typem plochy (vozovka, chodník, náměstí, parkování v ulici).
+Dotaz na UrbIS jde jen u výřezu, který zasahuje do obálky Bruselu (``BRUSSELS_BBOX``).
+
 Plochy chodníků a vozovek pak jdou do ``work_dir/dtm`` stejně jako BGT, AV, FMZK, Berlín, Plan de voirie a ETAK.
 """
 
@@ -41,23 +45,36 @@ WGO_UNPAVED = 3  # grens onverharde zone
 AXIS_MIN_M = 2.0  # osa silnice ve stěně aspoň tak dlouhá → vozovka
 UNPAVED_SHARE = 0.5
 
+# Brusel: UrbIS (Paradigm, CC0), stejný systém EPSG:31370.
+URBIS_WFS = "https://geoservices-vector.irisnet.be/geoserver/urbisvector/wfs"
+URBIS_LAYERS = ("Buildings", "StreetSurfaces")
+BRUSSELS_BBOX = (4.23, 50.76, 4.49, 50.92)  # obálka Regionu Brusel-hlavní město ve WGS84 (+~1 km)
+# Typy StreetSurfaces (UrbIS – Occupation du sol, spécifications 2024-04-01, §4.1.3.2).
+URBIS_ROADS = {"S", "SC", "A", "AC", "B", "C", "I", "IC", "IL"}  # vozovky, rampy, mosty, křižovatky, BUS/tram
+URBIS_SIDEWALKS = {"SW", "P"}  # chodník, náměstí
+URBIS_PARKING = {"K"}  # parkování v ulici
+URBIS_NOT_STREET = {"G", "MS", "MT", "RS", "RT"}  # galerie (krytá), metro, nádraží, tunely – ne uliční prostor
+# M (terre-plein / berme / rond-point) zůstává jen v uličním prostoru: bývá zelený i dlážděný.
+
 LogFn = Callable[[str], None]
 
 
-def wfs_url(layer: str, bounds: tuple[float, float, float, float], start: int = 0) -> str:
+def wfs_url(
+    layer: str, bounds: tuple[float, float, float, float], start: int = 0, *, base: str = GRB_WFS, prefix: str = "GRB"
+) -> str:
     xmin, ymin, xmax, ymax = bounds
     query = {
         "service": "WFS",
         "version": "2.0.0",
         "request": "GetFeature",
-        "typeNames": f"GRB:{layer}",
+        "typeNames": f"{prefix}:{layer}",
         "outputFormat": "application/json",
         "srsName": SOURCE_CRS,
         "bbox": f"{xmin:.1f},{ymin:.1f},{xmax:.1f},{ymax:.1f},{SOURCE_CRS}",
         "count": str(PAGE_SIZE),
         "startIndex": str(start),
     }
-    return f"{GRB_WFS}?{urllib.parse.urlencode(query)}"
+    return f"{base}?{urllib.parse.urlencode(query)}"
 
 
 def _get_json(url: str) -> tuple[dict, int]:
@@ -80,11 +97,11 @@ def _get_json(url: str) -> tuple[dict, int]:
     raise last
 
 
-def _fetch_layer(layer: str, bounds, fetch) -> tuple[list[dict], int]:
+def _fetch_layer(layer: str, bounds, fetch, url=wfs_url) -> tuple[list[dict], int]:
     feats: list[dict] = []
     nbytes = 0
     for page in range(MAX_PAGES):
-        data, n = fetch(wfs_url(layer, bounds, page * PAGE_SIZE))
+        data, n = fetch(url(layer, bounds, page * PAGE_SIZE))
         nbytes += n
         feats.extend(f for f in (data.get("features") or []) if f.get("geometry"))
         if len(data.get("features") or []) < PAGE_SIZE:
@@ -98,12 +115,26 @@ def fetch_layers(
     *,
     workers: int = WORKERS,
     fetch: Callable[[str], tuple[dict, int]] = _get_json,
+    urbis_layers=(),
 ) -> tuple[dict[str, list[dict]], int]:
-    """``{vrstva: [objekt, …]}`` pro obálku výřezu v EPSG:31370 (vrstvy souběžně, stránkování po ``PAGE_SIZE``)."""
-    layers = tuple(layers)
+    """``{vrstva: [objekt, …]}`` pro obálku výřezu v EPSG:31370 (vrstvy souběžně, stránkování po ``PAGE_SIZE``).
+
+    Vrstvy UrbIS (Brusel) mají klíč ``urbis:<vrstva>``.
+    """
+
+    def urbis_url(layer, box, start):
+        return wfs_url(layer, box, start, base=URBIS_WFS, prefix="urbisvector")
+
+    tasks = [(layer, layer, wfs_url) for layer in layers] + [(f"urbis:{layer}", layer, urbis_url) for layer in urbis_layers]
     with ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix="grb-be") as ex:
-        results = list(ex.map(lambda layer: _fetch_layer(layer, bounds, fetch), layers))
-    return {layer: feats for layer, (feats, _n) in zip(layers, results)}, sum(n for _f, n in results)
+        results = list(ex.map(lambda t: _fetch_layer(t[1], bounds, fetch, t[2]), tasks))
+    return {key: feats for (key, _l, _u), (feats, _n) in zip(tasks, results)}, sum(n for _f, n in results)
+
+
+def touches_brussels(bbox_wgs84: tuple[float, float, float, float]) -> bool:
+    w, s, e, n = bbox_wgs84
+    bw, bs, be, bn = BRUSSELS_BBOX
+    return w < be and e > bw and s < bn and n > bs
 
 
 def _to_rings(geom) -> list:
@@ -171,7 +202,53 @@ def classify(data: dict[str, list[dict]]) -> dict[str, list]:
         out[key].extend(polys)
         if key != "green":
             out["public"].extend(polys)
+    _classify_urbis(data, out)
     return out
+
+
+def _classify_urbis(data: dict[str, list[dict]], out: dict[str, list]) -> None:
+    """Brusel (UrbIS): budovy a plochy ulic podle typu; co už leží v GRB (hranice regionu), se nebere dvakrát."""
+    import shapely
+    from shapely.geometry import Polygon as ShPolygon
+
+    buildings = data.get("urbis:Buildings") or []
+    surfaces = data.get("urbis:StreetSurfaces") or []
+    if not buildings and not surfaces:
+        return
+
+    def shp(poly):
+        g = ShPolygon(poly[0], poly[1:])
+        return g if g.is_valid else shapely.make_valid(g)
+
+    taken = [shp(p) for p in out["buildings"] + out["streets"]]
+    tree = shapely.STRtree(taken) if taken else None
+
+    def fresh(poly) -> bool:
+        if tree is None:
+            return True
+        pt = shp(poly).representative_point()
+        return not any(taken[i].contains(pt) for i in tree.query(pt))
+
+    for f in buildings:
+        out["buildings"].extend(p for p in clean_polygons(feature_polygons(f)) if fresh(p))
+    by_type: dict[str, list] = {"roads": [], "sidewalks": [], "parking": [], "streets": []}
+    for f in surfaces:
+        props = f.get("properties") or {}
+        kind = str(props.get("TYPE") or "").strip().upper()
+        if kind in URBIS_NOT_STREET or int(props.get("LVL") or 0) < 0:
+            continue
+        polys = [p for p in clean_polygons(feature_polygons(f)) if fresh(p)]
+        by_type["streets"].extend(polys)
+        if kind in URBIS_ROADS:
+            by_type["roads"].extend(polys)
+        elif kind in URBIS_SIDEWALKS:
+            by_type["sidewalks"].extend(polys)
+        elif kind in URBIS_PARKING:
+            by_type["parking"].extend(polys)
+    for key, polys in by_type.items():
+        out[key].extend(polys)
+        if key in ("roads", "sidewalks", "parking"):
+            out["public"].extend(polys)
 
 
 LOG_LABELS = {
@@ -179,6 +256,7 @@ LOG_LABELS = {
     "roads": "vozovky (wegbaan s osou silnice)",
     "sidewalks": "chodníky a pěší plochy (wegbaan bez osy)",
     "green": "nezpevněné pásy v ulici",
+    "parking": "parkování v ulici (UrbIS, Brusel)",
 }
 
 
@@ -200,16 +278,24 @@ def prepare(
     fetch_box = Transformer.from_crs(CRS_LABEL, SOURCE_CRS, always_xy=True).transform_bounds(*bounds, densify_pts=21)
     t0 = time.monotonic()
     build_stats.note_background("dtm", source="be_grb")
-    data, nbytes = fetch_layers(fetch_box)
+    urbis = URBIS_LAYERS if touches_brussels(bbox_wgs84) else ()
+    data, nbytes = fetch_layers(fetch_box, urbis_layers=urbis)
     reproject_features(data, SOURCE_CRS, CRS_LABEL)
     build_stats.note_bytes("be_grb", nbytes, cached=False, key="grb_be")
     count = sum(len(v) for v in data.values())
-    build_stats.note_background("dtm", packages=len(LAYERS), regions=["BE"], source="be_grb", objects=count)
+    n_urbis = sum(len(v) for k, v in data.items() if k.startswith("urbis:"))
+    build_stats.note_background(
+        "dtm", packages=len(LAYERS) + len(urbis), regions=["BE"], source="be_grb", objects=count
+    )
     if log:
-        log(f"GRB: {count} objektů z {len(LAYERS)} vrstev ({nbytes / 1e6:.1f} MB, {time.monotonic() - t0:.0f} s)")
-    if not data.get("GBG") and not data.get("WBN"):
+        extra = f", z toho UrbIS (Brusel) {n_urbis}" if urbis else ""
+        log(
+            f"GRB: {count} objektů z {len(LAYERS) + len(urbis)} vrstev{extra} "
+            f"({nbytes / 1e6:.1f} MB, {time.monotonic() - t0:.0f} s)"
+        )
+    if not data.get("GBG") and not data.get("WBN") and not n_urbis:
         if log:
-            log("GRB: ve výřezu nic (mimo Flandry), kresba z OSM.")
+            log("GRB: ve výřezu nic (mimo Flandry a Brusel), kresba z OSM.")
         return None
     sorted_data = classify(data)
     streets = sorted_data.pop("streets")
@@ -221,6 +307,6 @@ def prepare(
         if log:
             log(f"GRB: uzlování ploch přeskočeno ({type(exc).__name__}: {exc})")
     return write_dtm_files(
-        work_dir, sorted_data, bounds, log=log, source="be_grb", label="GRB", labels=LOG_LABELS,
+        work_dir, sorted_data, bounds, log=log, source="be_grb", label="GRB + UrbIS" if n_urbis else "GRB", labels=LOG_LABELS,
         yard_label="soukromé pozemky (GRB je nevede)",
     )

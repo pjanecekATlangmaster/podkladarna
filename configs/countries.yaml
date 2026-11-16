@@ -210,21 +210,21 @@ IT:
     - "Elevation (LiDAR 2014), orthophoto and Carta Tecnica Provinciale: © Provincia autonoma di Trento (CC BY 4.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 BE:
-  name: {cs: "Belgie (Flandry)", en: "Belgium (Flanders)", nl: "België (Vlaanderen)"}
-  status: beta              # Flandry + Brusel (výšky DHMV kryjí obojí; Petr 2026-11-15: další země s obdobou DTM)
+  name: {cs: "Belgie (Flandry a Brusel)", en: "Belgium (Flanders and Brussels)", nl: "België (Vlaanderen en Brussel)", fr: "Belgique (Flandre et Bruxelles)"}
+  status: beta              # Flandry + Brusel (výšky DHMV kryjí obojí; Petr 2026-11-15: další země s obdobou DTM). Valonsko ne: výšky SPW jen v ZIPech celých provincií (2026-11-16)
   crs: EPSG:31370           # Belgian Lambert 72 (souřadnice GRB a DHMV)
   boundary: countries/be.geojson  # Vlaamse Gewest z VRBG (Digitaal Vlaanderen), +300 m; Brusel uvnitř
   view: [50.68, 2.54, 51.51, 5.92]
   elevation: be_dhmv        # DHMV II DTM + DSM 1 m z WCS Digitaal Vlaanderen (LiDAR 2013–2015), výšky TAW
-  technical_map: be_grb     # GRB: budovy, uliční prostor (sprint v celé šířce), vozovky a chodníky z dělení WBN čarami WGO
-  technical_map_gaps: countries/be_no_grb.geojson  # Brusel: GRB tu není, kresba z OSM
+  technical_map: be_grb     # GRB: budovy, uliční prostor (sprint v celé šířce), vozovky a chodníky z dělení WBN čarami WGO; Brusel (díra v GRB) UrbIS
   cz_sources: false
   # Licence: GRB Gratis Open Data Licentie Vlaanderen v1.02 s předepsanou citací „Bron: Grootschalig Referentie Bestand Vlaanderen,
-  # Digitaal Vlaanderen“; výšky, ortofoto a katastr Modellicentie Gratis Hergebruik (uvést Digitaal Vlaanderen).
-  citation: "Base map: Omapic · Digitaal Vlaanderen · OSM, [year]"
+  # Digitaal Vlaanderen“; výšky, ortofoto a katastr Modellicentie Gratis Hergebruik (uvést Digitaal Vlaanderen). UrbIS (Brusel) CC0.
+  citation: "Base map: Omapic · Digitaal Vlaanderen · UrbIS · OSM, [year]"
   attribution:
     - "GRB: Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen (Gratis Open Data Licentie Vlaanderen v1.02)."
     - "Elevation DHMV II, orthophoto and cadastre: © Digitaal Vlaanderen (Modellicentie Gratis Hergebruik)."
+    - "Brussels buildings and street surfaces: UrbIS, Paradigm – Brussels-Capital Region (CC0 1.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 FI:
   name: {cs: Finsko, en: Finland, fi: Suomi}

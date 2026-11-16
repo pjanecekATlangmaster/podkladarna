@@ -1,4 +1,4 @@
-"""Flandry: GRB jako obdoba DTM (dělení uličního prostoru na vozovku a chodníky, stránkování WFS) a výšky DHMV II."""
+"""Flandry a Brusel: GRB a UrbIS jako obdoba DTM (vozovky a chodníky, stránkování WFS) a výšky DHMV II."""
 
 import urllib.parse
 
@@ -53,6 +53,42 @@ def test_fetch_pages_until_short_page(monkeypatch):
     data, nbytes = grb_be.fetch_layers((104000.0, 193000.0, 105000.0, 194000.0), layers=("GBG",), fetch=fake)
     assert len(data["GBG"]) == 3 and nbytes == 10 and len(calls) == 2
     assert calls[0]["typeNames"] == ["GRB:GBG"] and calls[0]["bbox"] == ["104000.0,193000.0,105000.0,194000.0,EPSG:31370"]
+
+
+@pytest.mark.parametrize(
+    "kind, key",
+    [("S", "roads"), ("SC", "roads"), ("I", "roads"), ("SW", "sidewalks"), ("P", "sidewalks"), ("K", "parking"),
+     ("M", None), ("RS", "skip"), ("MT", "skip")],
+)
+def test_urbis_street_surface_types(kind, key):
+    """Brusel (UrbIS): typ plochy ulice → vozovka / chodník / parkování; střední pás jen uliční prostor, metro a nádraží nic."""
+    out = grb_be.classify({"urbis:StreetSurfaces": [_poly(0, 0, 20, 10, TYPE=kind, LVL=0)]})
+    for k in ("roads", "sidewalks", "parking"):
+        assert len(out[k]) == (1 if k == key else 0)
+    assert len(out["streets"]) == (0 if key == "skip" else 1)
+    assert len(out["public"]) == (1 if key in ("roads", "sidewalks", "parking") else 0)
+
+
+def test_urbis_skips_what_grb_already_has():
+    """Na hranici regionu se budova z UrbIS, která už je v GRB, nebere dvakrát."""
+    out = grb_be.classify({
+        "GBG": [_poly(0, 0, 10, 10)],
+        "urbis:Buildings": [_poly(0.2, 0.1, 10.1, 9.9), _poly(30, 0, 40, 10)],
+    })
+    assert len(out["buildings"]) == 2
+
+
+def test_urbis_fetched_only_near_brussels(monkeypatch):
+    calls = []
+
+    def fake(url):
+        calls.append(urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["typeNames"][0])
+        return {"features": []}, 1
+
+    grb_be.fetch_layers((148800.0, 169800.0, 150300.0, 171300.0), layers=("GBG",), urbis_layers=grb_be.URBIS_LAYERS, fetch=fake)
+    assert sorted(calls) == ["GRB:GBG", "urbisvector:Buildings", "urbisvector:StreetSurfaces"]
+    assert grb_be.touches_brussels((4.345, 50.84, 4.362, 50.85))  # centrum Bruselu
+    assert not grb_be.touches_brussels((3.71, 51.04, 3.73, 51.06))  # Gent
 
 
 def test_dhmv_urls_tile_window_at_1m():
