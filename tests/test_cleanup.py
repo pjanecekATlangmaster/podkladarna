@@ -32,6 +32,44 @@ def test_purge_old_jobs_removes_expired(tmp_path, monkeypatch):
     assert old["id"] not in ids
 
 
+
+def test_purge_sees_all_rows_not_only_newest(tmp_path, monkeypatch):
+    """Úklid prochází všechny řádky (revize 2026-11-16): dřív jen nejnovějších 500 / 1000."""
+    monkeypatch.setattr("app.cleanup.JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr("app.db.JOBS_DIR", tmp_path / "jobs")
+    monkeypatch.setattr("app.db.DB_PATH", tmp_path / "t.db")
+    (tmp_path / "jobs").mkdir()
+    db.init_db()
+    now = datetime.now(timezone.utc)
+    old_ts = (now - timedelta(hours=72)).isoformat()
+    old = db.create_job("old", "forest_10000", {})
+    kept = db.create_job("kept", "forest_10000", {})
+    private_old = db.create_job("priv", "forest_10000", {"private": True, "email_tag": "x"})
+    db.update_job(old["id"], status="done")
+    db.update_job(kept["id"], status="done")
+    db.update_job(private_old["id"], status="done")
+    (tmp_path / "jobs" / kept["id"]).mkdir(exist_ok=True)
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET created_at = ?, updated_at = ? WHERE id = ?", (old_ts, old_ts, old["id"]))
+        conn.execute("UPDATE jobs SET created_at = ? WHERE id = ?", (old_ts, kept["id"]))
+        conn.execute(
+            "UPDATE jobs SET created_at = ?, updated_at = ? WHERE id = ?",
+            ((now - timedelta(days=30)).isoformat(), old_ts, private_old["id"]),
+        )
+        newer = (now - timedelta(hours=1)).isoformat()
+        conn.executemany(
+            "INSERT INTO jobs (id, name, preset_id, status, options_json, created_at, updated_at, download_token) "
+            "VALUES (?, 'n', 'forest_10000', 'done', '{}', ?, ?, ?)",
+            [(f"new{i:05d}", newer, newer, f"t{i}") for i in range(1100)],
+        )
+        conn.commit()
+
+    assert purge_old_jobs(retention_hours=48) == 2
+    ids = db.all_job_ids()
+    assert old["id"] not in ids and private_old["id"] not in ids
+    assert kept["id"] in ids and len(ids) == 1101
+    assert (tmp_path / "jobs" / kept["id"]).is_dir()  # starší než 1000 nejnovějších, složka zůstává
+
 def test_maybe_purge_throttles(monkeypatch):
     """Řídíme monotonic – na CI často začíná u 0 a 0.0 ≠ „dávno“."""
     calls = {"n": 0}

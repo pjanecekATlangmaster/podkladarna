@@ -162,3 +162,35 @@ def test_order_mail_rate_limit_and_one_line_name(client, shop, monkeypatch):
     assert shop[0]["subject"].count("\n") == 0 and "Mapa Bcc" in shop[0]["subject"]
     r = client.post("/api/jobs", data={**FORM, "notify_email": "x9@example.org"}, headers=host)
     assert r.status_code == 429 and len(shop) == 2
+
+
+@pytest.mark.parametrize(("options", "trimmed"), [({"private": True, "order_id": "o-1"}, True), ({}, False)])
+def test_order_job_work_trimmed_after_done(tmp_path, monkeypatch, options, trimmed):
+    """Hotový job objednávky si z work/ nechá jen náhled a souhrny (revize 2026-11-16); jiné joby beze změny."""
+    import app.db as db
+    import app.job_worker as job_worker
+    import app.settings as settings
+
+    jobs = tmp_path / "jobs"
+    for target in (db, job_worker, settings):
+        monkeypatch.setattr(target, "JOBS_DIR", jobs)
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr(job_worker, "ensure_proj_data", lambda: None)
+    jobs.mkdir()
+    db.init_db()
+    job = db.create_job("Order", "sprint_2m", options)
+    work = jobs / job["id"] / "work"
+
+    def pipeline(job_dir, *_a, **_k):
+        for rel in ("lidar/merged.laz", "dem.tif", "osm/raw.json", "source_meta.json", "dtm_summary.json",
+                    "preview.jpg", "preview/oom_preview.png"):
+            (work / rel).parent.mkdir(parents=True, exist_ok=True)
+            (work / rel).write_bytes(b"x" * 1000)
+        return []
+
+    monkeypatch.setattr(job_worker, "run_job_pipeline", pipeline)
+    assert job_worker.run_job(job["id"]) == 0
+    left = sorted(p.relative_to(work).as_posix() for p in work.rglob("*") if p.is_file())
+    kept = ["build_stats.json", "dtm_summary.json", "preview.jpg", "preview/oom_preview.png", "source_meta.json"]
+    assert left == (kept if trimmed else sorted(kept + ["dem.tif", "lidar/merged.laz", "osm/raw.json"]))
+    assert db.get_job(job["id"])["status"] == "done"

@@ -51,25 +51,21 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
 
     if hours > 0:
         cutoff = now - timedelta(hours=hours)
-        for job in db.list_jobs(limit=500, include_private=True):
-            status = job["status"]
-            if status in ("running", "queued", "pending"):
-                continue
-            if status not in db.JOB_FINISHED_STATUSES:
-                continue
-            if (job.get("options") or {}).get("order_id"):
-                continue  # job objednávky: platnost řídí objednávka (výše, job_expires_at)
+        # Všechny dokončené joby mimo objednávky, ne jen nejnovějších 500 (revize 2026-11-16):
+        # s limitem starší řádky nad limitem v DB zůstaly navždy. Job objednávky řídí objednávka
+        # (výše, job_expires_at).
+        for job_id, updated_at in db.list_finished_public_job_times():
             try:
-                updated = datetime.fromisoformat(job["updated_at"])
+                updated = datetime.fromisoformat(updated_at)
             except ValueError:
                 continue
             if updated.tzinfo is None:
                 updated = updated.replace(tzinfo=timezone.utc)
             if updated >= cutoff:
                 continue
-            if db.delete_job(job["id"]):
+            if db.delete_job(job_id):
                 removed += 1
-                logger.info("Purged old job %s (%s)", job["id"], status)
+                logger.info("Purged old job %s", job_id)
 
     _purge_orphan_job_dirs()
     n_origin = db.purge_job_origin(now=now)
@@ -100,7 +96,7 @@ def _purge_orphan_job_dirs() -> None:
     """Složky na disku bez záznamu v DB."""
     if not JOBS_DIR.is_dir():
         return
-    known = {j["id"] for j in db.list_jobs(limit=1000, include_private=True)}
+    known = db.all_job_ids()  # všechny řádky: s limitem 1000 by se smazala složka staršího jobu
     for path in JOBS_DIR.iterdir():
         if not path.is_dir():
             continue
