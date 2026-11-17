@@ -182,9 +182,32 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
                 holes.append(hole)
     if not holes:
         return parts
-    paved_u = unary_union(paved).buffer(EDGE_M * um)
-    open_u = unary_union(open_).buffer(EDGE_M * um) if open_ else None
-    path_u = unary_union(paths).buffer(PATH_NEAR_M * um) if paths else None
+    import numpy as np
+    import shapely
+    from shapely import STRtree
+
+    def _edge_tree(polys):
+        # hrany ploch jako krátké úsečky: dotaz kolem díry je lokální (ne průnik s celou plochou mapy)
+        if not polys:
+            return None
+        segs = []
+        for ln in shapely.get_parts(shapely.boundary(np.asarray(polys, dtype=object))):
+            for part in shapely.get_parts(ln):
+                c = shapely.get_coordinates(part)
+                if len(c) >= 2:
+                    segs.append(shapely.linestrings(np.stack([c[:-1], c[1:]], axis=1)))
+        return STRtree(np.concatenate(segs)) if segs else None
+
+    paved_t = _edge_tree(paved)
+    open_t = _edge_tree(open_)
+    path_tree = STRtree(paths) if paths else None
+    step = 0.5 * um
+
+    def _share(tree, pts):
+        if tree is None:
+            return 0.0
+        hit = np.unique(tree.query(pts, predicate="dwithin", distance=EDGE_M * um)[0])
+        return len(hit) / len(pts)
     chm = _load_chm(work_dir)
     axes_tree, roads = _road_axes(work_dir)
     r_tree = TREE_SYMBOL_R_MM * scale / 1000.0
@@ -197,9 +220,10 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
         perim = ring.length
         if perim <= 0:
             continue
-        s_paved = ring.intersection(paved_u).length / perim
-        s_open = ring.intersection(open_u).length / perim if open_u is not None else 0.0
-        near_path = path_u is not None and hole.intersects(path_u)
+        pts = shapely.line_interpolate_point(ring, np.arange(0.0, perim, min(step, perim / 8)))
+        s_paved = _share(paved_t, pts)
+        s_open = _share(open_t, pts)
+        near_path = path_tree is not None and len(path_tree.query(hole, predicate="dwithin", distance=PATH_NEAR_M * um)) > 0
         if (s_paved <= 0 and not near_path) or s_paved + s_open < NEIGHBOUR_SHARE:
             continue
         sym = idx_paved if s_paved >= s_open else idx_open
