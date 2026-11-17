@@ -80,6 +80,8 @@ def indented_log(log: LogFn) -> LogFn:
 # ``map_phase`` z ``package_oom`` / ``discipline_maps``; při souběhu les ‖ MTBO se krok posune, až fázi
 # dosáhnou všechny mapy (``MapPhaseTracker``).
 DTM_STEP = "DTM kraje"
+# Důvod v hlavičce / statistice kroku, jehož výsledek je převzatý z předchozího jobu (web ho překládá).
+REUSED_REASON = "z předchozího jobu"
 # Mimo Česko místo DTM obdoba země (Nizozemsko: BGT z PDOK, Švýcarsko: AV; ``technical_maps``).
 BGT_STEP = FOREIGN_TECHNICAL_MAPS["nl_bgt"].step
 TECHNICAL_MAP_STEPS = {"cz_dtm": DTM_STEP, **{k: v.step for k, v in FOREIGN_TECHNICAL_MAPS.items()}}
@@ -252,16 +254,26 @@ class JobProgress:
         self._open_label = text
         self._open_at = self._clock()
 
-    def done(self) -> None:
-        """Ukončí aktuální krok (posune pořadí)."""
+    def done(self, *, unavailable: str | None = None) -> None:
+        """Ukončí aktuální krok (posune pořadí).
+
+        ``unavailable`` = krok doběhl bez dat zdroje (např. výpadek DTM); do logu jde hlavička
+        „<krok> – nedostupné (<důvod>)“, aby se web netvářil, že krok proběhl s daty.
+        """
         if self._open_label is None:
             return
         label = self._open_label
         self._open_label = None
+        if unavailable is not None:
+            note = f" ({unavailable})" if unavailable else ""
+            self._header(f"{_label(label)} – nedostupné{note}")
         if self._open_at is not None:
-            self._timings.append(
-                {"label": label, "seconds": round(max(0.0, self._clock() - self._open_at), 1)}
-            )
+            timing = {"label": label, "seconds": round(max(0.0, self._clock() - self._open_at), 1)}
+            if unavailable is not None:
+                timing["unavailable"] = True
+                if unavailable:
+                    timing["reason"] = unavailable
+            self._timings.append(timing)
         self._open_at = None
         self._advance_past(label)
 
@@ -277,6 +289,20 @@ class JobProgress:
         self._header(f"{_label(text)} – přeskočeno{note}")
         self._timings.append(
             {"label": text, "seconds": 0.0, "skipped": True, **({"reason": reason} if reason else {})}
+        )
+        self._advance_past(text)
+
+    def reuse(self, label: str) -> None:
+        """Krok se nedělá, protože jeho výsledek je převzatý z předchozího jobu (ne „přeskočeno“)."""
+        text = str(label).strip()
+        if not text or text in self._omitted:
+            return
+        if self._open_label is not None:
+            self.done()
+        self._seek(text)
+        self._header(f"{_label(text)} – převzato z předchozího jobu")
+        self._timings.append(
+            {"label": text, "seconds": 0.0, "skipped": True, "reason": REUSED_REASON}
         )
         self._advance_past(text)
 
