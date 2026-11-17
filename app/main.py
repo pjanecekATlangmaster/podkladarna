@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 from html import escape as html_escape
 import mimetypes
@@ -447,7 +448,10 @@ def source_links_html(lang: str) -> str:
 
 
 SAMPLE_KINDS = ("sprint", "les", "mtbo")
-_SAMPLE_NAME_RE = re.compile(r"^(sprint|les|mtbo)(-en)?\.zip$")
+# Mezinárodní stránka (Petr 2026-11-17): ukázky z národních podkladů ciziny + česká mapa s DTM jako „reference: Česko“.
+SAMPLE_KINDS_EN = SAMPLE_KINDS + ("reference",)
+_SAMPLE_NAME_RE = re.compile(r"^(sprint|les|mtbo)\.zip$|^(sprint|les|mtbo|reference)-en\.zip$")
+SAMPLES_MANIFEST = "samples.json"
 
 
 def _sample_file(kind: str, lang: str) -> Path:
@@ -456,17 +460,36 @@ def _sample_file(kind: str, lang: str) -> Path:
     return Path(app_settings.SAMPLES_DIR) / f"{kind}{suffix}.zip"
 
 
+def _sample_labels() -> dict[str, str]:
+    """Volitelné popisky ukázek ``samples.json`` vedle ZIPů: ``{"sprint-en.zip": "sprint – Amsterdam (BGT, AHN)"}``.
+
+    Popisek má pravdivě říct území a data, ze kterých ukázka vznikla; bez souboru platí popisky z katalogu."""
+    try:
+        data = json.loads((Path(app_settings.SAMPLES_DIR) / SAMPLES_MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v) for k, v in data.items() if isinstance(v, str) and v.strip()}
+
+
 def samples_html(lang: str) -> str:
     """Odkazy na ukázkové ZIPy, které na serveru jsou (bez souborů nic)."""
+    labels = _sample_labels()
     links = []
-    for kind in SAMPLE_KINDS:
+    for kind in SAMPLE_KINDS if lang == i18n.SOURCE_LANG else SAMPLE_KINDS_EN:
         path = _sample_file(kind, lang)
         if not path.is_file():
             continue
         size = i18n.fmt_num(path.stat().st_size / 1_000_000, lang)
-        links.append(
-            f'<a href="/samples/{path.name}" download>{{{{t:web.page.sample_{kind}}}}}</a> ({size} MB)'
+        custom = labels.get(path.name)
+        # Vlastní popisek escapovaně a bez složených závorek (šablona je pak prochází jako {{t:…}}).
+        label = (
+            html_escape(custom.strip()).replace("{", "").replace("}", "")
+            if custom
+            else f"{{{{t:web.page.sample_{kind}}}}}"
         )
+        links.append(f'<a href="/samples/{path.name}" download>{label}</a> ({size} MB)')
     if not links:
         return ""
     return '<p class="about-samples">{{t:web.page.samples}} ' + " · ".join(links) + "</p>"
@@ -479,8 +502,8 @@ def download_sample(name: str):
     path = Path(app_settings.SAMPLES_DIR) / name
     if not m or not path.is_file():
         raise HTTPException(404, i18n.Msg("api.output_not_ready"))
-    prefix = "omapic-sample" if m.group(2) else "podkladarna-ukazka"
-    return FileResponse(path, filename=f"{prefix}-{m.group(1)}.zip", media_type="application/zip")
+    kind, prefix = (m.group(2), "omapic-sample") if m.group(2) else (m.group(1), "podkladarna-ukazka")
+    return FileResponse(path, filename=f"{prefix}-{kind}.zip", media_type="application/zip")
 
 
 # Patička mezinárodní placené domény (Petr 2026-11-16): bez daru (dar jen na bezplatné doméně), bez „Z jedné

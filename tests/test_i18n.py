@@ -321,5 +321,13 @@ def test_sample_zips_listed_only_when_present(client, monkeypatch, tmp_path):
     res = client.get("/samples/sprint.zip")
     assert res.status_code == 200 and "podkladarna-ukazka-sprint.zip" in res.headers["content-disposition"]
     assert "omapic-sample-les.zip" in client.get("/samples/les-en.zip").headers["content-disposition"]
-    for bad in ("/samples/mtbo.zip", "/samples/..%2Fpodkladarna.db", "/samples/x.zip"):
+    for bad in ("/samples/mtbo.zip", "/samples/..%2Fpodkladarna.db", "/samples/x.zip", "/samples/reference.zip"):
         assert client.get(bad).status_code == 404
+    # Mezinárodní stránka: česká reference jen v angličtině a pravdivé popisky ze samples.json.
+    (tmp_path / "reference-en.zip").write_bytes(b"PK")
+    (tmp_path / "reference.zip").write_bytes(b"PK")
+    (tmp_path / "samples.json").write_text('{"les-en.zip": "forest – Tallinn <EE> {{x}}"}', encoding="utf-8")
+    en = client.get("/?lang=en").text
+    assert "reference: Czech Republic" in en and "forest – Tallinn &lt;EE&gt; x" in en
+    assert "reference" not in client.get("/?lang=cs").text.split("about-samples")[1].split("</p>")[0]
+    assert "omapic-sample-reference.zip" in client.get("/samples/reference-en.zip").headers["content-disposition"]
