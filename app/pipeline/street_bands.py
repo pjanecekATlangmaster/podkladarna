@@ -366,7 +366,7 @@ def band_geometry(cand, lines, surface: Raster, *, chm: Raster | None = None, gr
                 extra = 0.0
                 if length > half + EXTRA_MIN_M:
                     ver = _cell_verdicts(p, u, n, length, surface, chm, prior)
-                    road_cells = int(math.ceil(half / CELL_M))
+                    road_cells = math.ceil(half / CELL_M)
                     ver = [False] * min(road_cells, len(ver)) + ver[road_cells:]  # vozovka je zpevněná vždy
                     extra = max(0.0, min(walk(ver, grass_run, unknown_run, length), length) - half)
                 rows.append((p, n, min(half, length), extra))
