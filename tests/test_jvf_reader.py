@@ -115,3 +115,78 @@ def test_reads_from_zip_and_xml_files(tmp_path):
     xpath = tmp_path / "VS_test.jvf.xml"
     xpath.write_text(XML, encoding="utf-8")
     assert len(list(iter_records(xpath, {"Plot", "BudovaPlocha"}))) == 3
+
+
+# JVF DTM 1.5.0.2 (ČÚZK od 18. 11. 2026): záznam ``ZaznamObjektuRefV``, společné atributy
+# ve jmenném prostoru objektu, geometrie zabalená v ``cmn:Linie3D`` / ``cmn:Plocha2D``
+# a u ploch navíc ``cmn:Obvod3D`` (obrys jako LineString) – podle ukázek ČÚZK.
+XML_15 = """<?xml version="1.0" encoding="utf-8"?>
+<objtyp:JVFDTM xmlns:objtyp="objtyp" xmlns:plotli="plotli" xmlns:budpol="budpol"
+    xmlns:cmn="cmn" xmlns:atr="atr" xmlns:gml="http://www.opengis.net/gml/3.2"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <objtyp:DataJVFDTM>
+    <cmn:VerzeJVFDTM>1.5.0.2</cmn:VerzeJVFDTM>
+    <objtyp:Data>
+      <objtyp:Plot>
+        <plotli:ObjektovyTypNazev code_base="0100000162" code_suffix="02">plot</plotli:ObjektovyTypNazev>
+        <plotli:ZaznamyObjektu>
+          <ZaznamObjektuRefV xmlns="plotli">
+            <AtributyObjektu>
+              <SpolecneAtributyVsechObjektu><atr:ID>7</atr:ID></SpolecneAtributyVsechObjektu>
+              <SpolecneAtributyObjektuZPS>
+                <atr:UrovenUmisteniObjektuZPS>1</atr:UrovenUmisteniObjektuZPS>
+              </SpolecneAtributyObjektuZPS>
+              <atr:ZpusobPorizeniZPS>99</atr:ZpusobPorizeniZPS>
+              <atr:DruhPlotu xsi:nil="true"/>
+              <atr:HraniceJinehoObjektu>true</atr:HraniceJinehoObjektu>
+            </AtributyObjektu>
+            <GeometrieObjektu>
+              <cmn:Linie3D>
+                <gml:LineString srsName="EPSG:5514" srsDimension="3" gml:id="l">
+                  <gml:posList>-1 -2 3 -4 -5 6</gml:posList>
+                </gml:LineString>
+              </cmn:Linie3D>
+            </GeometrieObjektu>
+          </ZaznamObjektuRefV>
+        </plotli:ZaznamyObjektu>
+      </objtyp:Plot>
+      <objtyp:BudovaPlocha>
+        <budpol:ZaznamyObjektu>
+          <ZaznamObjektuRefV xmlns="budpol">
+            <AtributyObjektu>
+              <SpolecneAtributyVsechObjektu><atr:ID>9</atr:ID></SpolecneAtributyVsechObjektu>
+            </AtributyObjektu>
+            <GeometrieObjektu>
+              <cmn:Plocha2D>
+                <Polygon xmlns="http://www.opengis.net/gml/3.2" srsDimension="2" srsName="EPSG:5514">
+                  <exterior><LinearRing>
+                    <posList>0 0 10 0 10 10 0 10 0 0</posList>
+                  </LinearRing></exterior>
+                </Polygon>
+              </cmn:Plocha2D>
+              <cmn:Obvod3D>
+                <gml:LineString srsDimension="3" srsName="EPSG:5514">
+                  <gml:posList>0 0 1 10 0 1 10 10 1 0 10 1 0 0 1</gml:posList>
+                </gml:LineString>
+              </cmn:Obvod3D>
+            </GeometrieObjektu>
+          </ZaznamObjektuRefV>
+        </budpol:ZaznamyObjektu>
+      </objtyp:BudovaPlocha>
+    </objtyp:Data>
+  </objtyp:DataJVFDTM>
+</objtyp:JVFDTM>
+"""
+
+
+def test_reads_jvf_15_public_records():
+    plot, budova = list(iter_records(io.BytesIO(XML_15.encode("utf-8")), {"Plot", "BudovaPlocha"}))
+    assert plot.type_name == "Plot" and plot.geom_type == "LineString"
+    assert plot.coords == [(-1.0, -2.0, 3.0), (-4.0, -5.0, 6.0)]
+    assert plot.attrs["ID"] == "7" and plot.level == 1
+    assert plot.attrs["ZpusobPorizeniZPS"] == "99"
+    assert plot.attrs["DruhPlotu"] == ""  # xsi:nil = neznámá hodnota
+    assert plot.attrs["HraniceJinehoObjektu"] == "true"
+    # plocha bere polygon (Plocha2D), ne obrys Obvod3D
+    assert budova.geom_type == "Polygon"
+    assert budova.coords == [[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)]]
