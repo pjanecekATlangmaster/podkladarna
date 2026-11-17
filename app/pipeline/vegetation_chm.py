@@ -417,12 +417,17 @@ def _simplify_vegetation_shp(
     return len(kept)
 
 
+def texture_mode(texture) -> str:
+    """``texture`` z run_job: True / „laser“ = zrnitost, „understory“ = podíl nízkého patra (``green: understory``)."""
+    return "understory" if texture == "understory" else "laser"
+
+
 # Značka vedle ``vegetation.shp``: porost je z rastru CHM (DSM − DTM), ne z hustoty klasifikovaných bodů.
 CHM_SOURCE_MARK = "chm_source.txt"
 
 
-def _with_texture_green(classified, arr, nodata, gt, *, log=None):
-    """Zeleň ze zrnitosti porostu (``veg_texture``); při chybě beze změny."""
+def _with_texture_green(classified, arr, nodata, gt, *, log=None, mode="laser"):
+    """Zeleň ze zrnitosti porostu (``veg_texture``, ``mode`` laser / understory); při chybě beze změny."""
     import numpy as np
 
     from app.pipeline.veg_texture import add_texture_green
@@ -431,13 +436,13 @@ def _with_texture_green(classified, arr, nodata, gt, *, log=None):
         chm = np.asarray(arr, dtype=np.float32)
         if nodata is not None:
             chm = np.where(chm == float(nodata), np.nan, chm)
-        out, shares = add_texture_green(classified, chm, abs(float(gt[1])))
+        out, shares = add_texture_green(classified, chm, abs(float(gt[1])), mode=texture_mode(mode))
     except Exception as exc:  # noqa: BLE001 – zeleň navíc nesmí shodit vegetaci
         if log:
             log(f"Vegetace: zeleň ze zrnitosti přeskočena ({exc})")
         return classified
     if log and shares:
-        log("Vegetace: zeleň ze zrnitosti porostu – " + ", ".join(f"{k} {v:.1f} %" for k, v in shares.items()))
+        log(("Vegetace: zeleň z podílu nízkého patra – " if texture_mode(mode) == "understory" else "Vegetace: zeleň ze zrnitosti porostu – ") + ", ".join(f"{k} {v:.1f} %" for k, v in shares.items()))
     return out
 
 
@@ -448,7 +453,7 @@ def generate_vegetation_from_chm(
     thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
     tint_png: Path | None = None,
     log=None,
-    texture: bool = False,
+    texture: bool | str = False,
     white_open=None,
 ) -> Path | None:
     """Klasifikuje CHM → polygony vegetation.shp (cls, code); ``texture`` = zeleň ze zrnitosti (mimo Česko, les).
@@ -468,7 +473,7 @@ def generate_vegetation_from_chm(
 
     classified = classify_chm_array(arr, nodata, thresholds)
     if texture:
-        classified = _with_texture_green(classified, arr, nodata, gt, log=log)
+        classified = _with_texture_green(classified, arr, nodata, gt, log=log, mode=texture)
     if white_open is not None and white_open.shape == classified.shape:
         hit = (classified == 1) & white_open
         classified[hit] = 0
@@ -682,7 +687,7 @@ def generate_job_vegetation_chm(
     thresholds: ChmVegeThresholds = DEFAULT_THRESHOLDS,
     log=None,
     veg_size_profile: str = "default",  # bez účinku; odstraní se po úpravě run_job
-    texture: bool = False,
+    texture: bool | str = False,
 ) -> Path | None:
     """Job fáze: CHM → work/vegetation/vegetation.shp (+ volitelný tint)."""
     work_dir = Path(work_dir)
@@ -704,5 +709,5 @@ def generate_job_vegetation_chm(
         thresholds=thresholds,
         tint_png=tint,
         log=log,
-        **({"texture": True} if texture else {}),
+        **({"texture": texture} if texture else {}),
     )

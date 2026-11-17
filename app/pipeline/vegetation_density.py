@@ -846,7 +846,7 @@ def generate_job_vegetation_density(
     veg_size_profile: str = "default",  # bez účinku; odstraní se po úpravě run_job
     wait_chm=None,
     buildings_geojson: Path | None = None,
-    texture: bool = False,
+    texture: bool | str = False,
 ) -> Path | None:
     """Job fáze: LAZ hustota + ``dem/dem_filled.tif`` → ``vegetation/vegetation.shp``.
 
@@ -983,7 +983,7 @@ def generate_job_vegetation_density(
         # Mimo Česko (les a MTBO): zeleň ze zrnitosti porostu, ``veg_texture``.
         from app.pipeline.vegetation_chm import _with_texture_green
 
-        classified = _with_texture_green(classified, veto_chm, None, gt, log=log)
+        classified = _with_texture_green(classified, veto_chm, None, gt, log=log, mode=texture)
     shares = np.bincount(classified.ravel(), minlength=6) / classified.size * 100
     if log:
         log(
