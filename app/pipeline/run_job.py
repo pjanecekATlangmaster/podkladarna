@@ -1214,6 +1214,8 @@ def run_job_pipeline(
     veg_leafoff = bool(bbox) and not cz_sources and veg_country is not None and veg_country.green == "leafoff"
     if veg_leafoff:
         veg_texture = False
+    elif veg_texture and veg_country is not None and veg_country.green == "understory":
+        veg_texture = "understory"  # horský les (Trentino): podíl nízkého patra místo zrnitosti
     if bbox and cz_sources:
         # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
         try:

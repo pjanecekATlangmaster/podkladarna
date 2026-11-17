@@ -16,6 +16,10 @@ def _scene(kind: str):
         chm[70:130, 70:130] = rough
     if kind == "rough_green":
         cl[70:130, 70:130] = T.MID
+    if kind in ("under", "tall_rough"):
+        # under: vzrostlý les s mlázím 2–6 m v pruzích (podíl ~0,4); tall_rough: drsná smrčina 14–26 m bez nízkého patra
+        lo, hi = (4.0, 22.0) if kind == "under" else (14.0, 26.0)
+        chm[70:130, 70:130] = np.where((yy % 5 < 2), lo, hi).astype(np.float32)
     if kind == "field_rough":
         chm[:] = 0.3
         cl[:] = 1  # 401
@@ -24,17 +28,21 @@ def _scene(kind: str):
 
 
 @pytest.mark.parametrize(
-    "kind, expect",
+    "kind, expect, mode",
     [
-        ("smooth", T.WHITE),  # vzrostlý stejnorodý les zůstává bílý
-        ("rough", T.LIGHT),  # mezerovitý porost v lese → 406
-        ("rough_green", T.MID),  # zeleň z výšky porostu + zrnitost → 408
-        ("field_rough", 1),  # solitéry v poli bez lesního okolí: 401 zůstává
+        ("smooth", T.WHITE, "laser"),  # vzrostlý stejnorodý les zůstává bílý
+        ("rough", T.LIGHT, "laser"),  # mezerovitý porost v lese → 406
+        ("rough_green", T.MID, "laser"),  # zeleň z výšky porostu + zrnitost → 408
+        ("field_rough", 1, "laser"),  # solitéry v poli bez lesního okolí: 401 zůstává
+        ("under", T.LIGHT, "understory"),  # Trentino: les s nízkým patrem → 406
+        ("tall_rough", T.WHITE, "understory"),  # Trentino: drsná vysoká smrčina bez nízkého patra zůstává bílá
+        ("smooth", T.WHITE, "understory"),
+        ("field_rough", 1, "understory"),
     ],
 )
-def test_texture_green(kind, expect):
+def test_texture_green(kind, expect, mode):
     chm, cl = _scene(kind)
-    out, shares = T.add_texture_green(cl, chm, 1.0)
+    out, shares = T.add_texture_green(cl, chm, 1.0, mode=mode)
     centre = out[85:115, 85:115]
     assert np.mean(centre == expect) > 0.9
     assert set(shares) == {"406", "408", "410"}
