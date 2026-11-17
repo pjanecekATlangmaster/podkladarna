@@ -92,3 +92,60 @@ def test_drop_trees_in_buildings_and_olive(block, want):
     out = drop_trees_in_buildings_and_olive(parts, preset_id=preset, scale=4000)
     trees = [p for p in out if p.name == TREE_PART_NAME]
     assert sum(p.count for p in trees) == want
+
+
+# Bílá díra po koruně u ulice (street_trees): silnice y 0–6 (osa y = 3, residential, půlka vozovky 3 m), trávník 401 nad ní
+# se zálivem 8 × 8 m (x 16–24, y 6–14) otevřeným k ulici = bílá díra. Vrchol koruny v CHM podle případu.
+@pytest.mark.parametrize(
+    ("case", "fill", "trees"),
+    [
+        ("crown", "401", 1),  # díra zalitá převládajícím sousedem (401) a bod 418 ve vrcholu
+        ("crown_on_road", "401", 0),  # značka by zasáhla vozovku: bod ne, díra se zalije
+        ("big_hole", None, 0),  # velká bílá plocha (park) zůstává
+        ("forest", None, 0),  # les a MTBO beze změny
+    ],
+)
+def test_street_crowns(tmp_path, monkeypatch, case, fill, trees):
+    import json
+
+    from app.pipeline import street_trees, tree_rows
+    from app.pipeline.oom_coords import projected_to_map_coord
+    from app.pipeline.oom_import import OomObjectPart, _area_object_with_holes
+    from app.pipeline.oom_symbol_map import symbol_index_for_code
+
+    preset = "forest_10000" if case == "forest" else "sprint_2m"
+    scale = 10000 if case == "forest" else 4000
+    kw = dict(preset_id=preset, scale=scale, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    hx0, hx1, hy1 = (16, 24, 14) if case != "big_hole" else (2, 38, 28)
+
+    def ring(pts):
+        return [tuple(int(round(v)) for v in projected_to_map_coord(x, y, ref_x=0.0, ref_y=0.0, scale=scale, grivation_deg=0.0)) for x, y in pts]
+
+    paved = symbol_index_for_code(preset, scale, "501.1") or symbol_index_for_code(preset, scale, "501")
+    open_ = symbol_index_for_code(preset, scale, "401")
+    road = ring([(0, 0), (40, 0), (40, 6), (0, 6), (0, 0)])
+    lawn = ring([(0, 6), (hx0, 6), (hx0, hy1), (hx1, hy1), (hx1, 6), (40, 6), (40, 30), (0, 30), (0, 6)])
+    parts = [
+        OomObjectPart(name="ulice", objects_xml=_area_object_with_holes(paved, [road]), count=1),
+        OomObjectPart(name="porost", objects_xml=_area_object_with_holes(open_, [lawn]), count=1),
+    ]
+    (tmp_path / "osm_paths").mkdir()
+    (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": [
+            {"type": "Feature", "properties": {"highway": "residential"}, "geometry": {"type": "LineString", "coordinates": [[-5, 3], [45, 3]]}}
+        ]}),
+        encoding="utf-8",
+    )
+    chm = np.zeros((40, 50), dtype=np.float32)  # 1 m, x −5…45, y 35…−5
+    ty = 6.5 if case == "crown_on_road" else 10.0
+    _disc(chm, 20 + 5, SIZE - 35 + ty, 2.5, 8.0, 1.0)  # _disc počítá y od SIZE
+    monkeypatch.setattr(tree_rows, "_load_chm", lambda _w: (chm, (-5.0, 1.0, 0.0, 35.0, 0.0, -1.0)))
+
+    out = street_trees.fill_street_crowns(parts, tmp_path, **kw)
+    fills = [p for p in out if p.name == street_trees.FILL_PART_NAME]
+    points = [p for p in out if p.name == street_trees.TREE_PART_NAME]
+    if fill is None:
+        assert not fills
+    else:
+        assert fills and f'symbol="{symbol_index_for_code(preset, scale, fill)}"' in fills[0].objects_xml
+    assert sum(p.count for p in points) == trees
