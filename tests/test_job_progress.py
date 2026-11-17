@@ -106,6 +106,21 @@ def test_job_progress_skip_advances():
     assert lines[-1].startswith("[2/3] B · ")
 
 
+def test_job_progress_unavailable_and_reused():
+    lines: list[str] = []
+    progress = JobProgress(lines.append, ["a", "b", "c"])
+    progress.reuse("a")
+    assert lines[-1] == "[1/3] A – převzato z předchozího jobu"
+    progress.begin("b")
+    progress.done(unavailable="kresba z OSM a ZABAGED")
+    assert lines[-1] == "[2/3] B – nedostupné (kresba z OSM a ZABAGED)"
+    progress.begin("c")
+    assert lines[-1].startswith("[3/3] C · ")
+    timings = progress.timings()
+    assert timings[0]["reason"] == "z předchozího jobu"
+    assert timings[1]["unavailable"] is True
+
+
 def test_job_progress_silent_without_logger():
     progress = JobProgress(None, ["x"])
     progress.announce_plan()

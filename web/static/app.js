@@ -634,9 +634,12 @@ function clockToSeconds(txt) {
   return parts.reduce((acc, n) => acc * 60 + n, 0);
 }
 
+/** Stavy kroku, které se počítají jako uzavřené (průběh, „Krok n z N“). */
+const STEP_FINISHED_STATES = new Set(["done", "skipped", "unavailable", "reused"]);
+
 /**
  * Z řádků logu poskládá stav kroků:
- * {steps:[{label, state:'done'|'now'|'skipped'|'todo', note}], current, total, elapsed, finished}.
+ * {steps:[{label, state:'done'|'now'|'skipped'|'unavailable'|'reused'|'todo', note}], current, total, elapsed, finished}.
  * Detailní (odsazené) řádky se ignorují, protože hlavičku nepřipomínají.
  */
 function parseJobProgress(lines) {
@@ -693,6 +696,18 @@ function parseJobProgress(lines) {
         steps[n - 1] = { label: stepLabel(skip[1]), state: "skipped", note: skipReason(skip[2] || "") };
         continue;
       }
+      // Krok doběhl bez dat zdroje (výpadek DTM) – ne „hotovo“.
+      const unavail = body.match(/^(.+?)\s+–\s+nedostupné(?:\s*\((.+)\))?\s*$/);
+      if (unavail) {
+        steps[n - 1] = { label: stepLabel(unavail[1]), state: "unavailable", note: skipReason(unavail[2] || "") };
+        continue;
+      }
+      // Výsledek kroku převzatý z předchozího jobu (dřív „přeskočeno“).
+      const reused = body.match(/^(.+?)\s+–\s+převzato z předchozího jobu\s*$/);
+      if (reused) {
+        steps[n - 1] = { label: stepLabel(reused[1]), state: "reused", note: "" };
+        continue;
+      }
       const timed = body.match(/^(.+?)\s+·\s+(\d+(?::\d{2}){1,2})\s*$/);
       if (timed) {
         body = timed[1];
@@ -708,7 +723,7 @@ function parseJobProgress(lines) {
     }
   }
   const nowIdx = steps.findIndex((st) => st.state === "now");
-  const doneCount = steps.filter((st) => st.state === "done" || st.state === "skipped").length;
+  const doneCount = steps.filter((st) => STEP_FINISHED_STATES.has(st.state)).length;
   return {
     steps,
     background,
@@ -1419,6 +1434,9 @@ const SKIP_REASON_KEYS = {
   "výšky z rastru": "raster_elevation",
   "chybí zdroj": "no_source",
   "kresba bez DTM": "no_dtm",
+  "kresba z OSM a ZABAGED": "drawn_osm_zabaged",
+  "kresba z OSM": "drawn_osm",
+  "z předchozího jobu": "previous_job",
   vypnuto: "off",
 };
 
@@ -1807,7 +1825,7 @@ function renderJobProgress(job) {
   const left = remainingText(Number(est), elapsed);
   if (left) parts.push(left);
   text.textContent = parts.join(" · ");
-  const doneCount = steps.filter((st) => st.state === "done" || st.state === "skipped").length;
+  const doneCount = steps.filter((st) => STEP_FINISHED_STATES.has(st.state)).length;
   const hasNow = steps.some((st) => st.state === "now");
   const pct = steps.length
     ? Math.min(100, Math.round(((doneCount + (hasNow ? 0.5 : 0)) / steps.length) * 100))
@@ -1816,8 +1834,9 @@ function renderJobProgress(job) {
   meter.querySelector("i").style.width = `${pct}%`;
   const html = steps
     .map((st) => {
-      const mark = st.state === "done" ? "✓" : st.state === "now" ? "●" : st.state === "skipped" ? "–" : "○";
-      const note = st.state === "skipped" ? ` <span class="step-note">${escapeHtml(t("web.js.progress.skipped"))}${st.note ? ` (${escapeHtml(st.note)})` : ""}</span>` : "";
+      const mark = { done: "✓", reused: "✓", now: "●", skipped: "–", unavailable: "⚠" }[st.state] || "○";
+      const noteKey = { skipped: "skipped", unavailable: "unavailable", reused: "reused" }[st.state];
+      const note = noteKey ? ` <span class="step-note">${escapeHtml(t(`web.js.progress.${noteKey}`))}${st.note ? ` (${escapeHtml(st.note)})` : ""}</span>` : "";
       const cur = st.state === "now" ? ' aria-current="step"' : "";
       return `<li class="step-${st.state}"${cur}><span class="step-mark" aria-hidden="true">${mark}</span> ${escapeHtml(st.label || "…")}${note}</li>`;
     })
@@ -1832,8 +1851,8 @@ function renderJobProgress(job) {
     const bg = prog && prog.background ? prog.background : [];
     const bgHtml = bg
       .map((b) => {
-        const mark = b.state === "now" ? "●" : b.state === "unavailable" ? "–" : b.state === "failed" ? "✗" : "✓";
-        const cls = b.state === "now" ? "step-now" : b.state === "unavailable" ? "step-skipped" : b.state === "failed" ? "step-failed" : "step-done";
+        const mark = b.state === "now" ? "●" : b.state === "unavailable" ? "⚠" : b.state === "failed" ? "✗" : "✓";
+        const cls = b.state === "now" ? "step-now" : b.state === "unavailable" ? "step-unavailable" : b.state === "failed" ? "step-failed" : "step-done";
         const noteText = b.state === "cached" ? t("web.js.progress.bg_cached") : b.state === "unavailable" ? t("web.js.progress.bg_unavailable") : b.state === "failed" ? t("web.js.progress.bg_failed") : b.state === "done" ? b.note : "";
         const note = noteText ? ` <span class="step-note">${escapeHtml(noteText)}</span>` : "";
         return `<li class="${cls}"><span class="step-mark" aria-hidden="true">${mark}</span> ${escapeHtml(backgroundLabel(b.name))}${note}</li>`;

@@ -1458,6 +1458,8 @@ select:focus-visible {
 .job-steps .step-now { color: var(--text); font-weight: 700; }
 .job-steps .step-now .step-mark { color: var(--orange-text); }
 .job-steps .step-skipped { color: #767676; }
+.job-steps .step-reused { color: var(--green); }
+.job-steps .step-unavailable { color: var(--orange-text); }
 .job-steps .step-note { font-size: 0.82rem; }
 .job-steps .step-failed { color: #b3261e; }
 .job-bg-title { margin: 0.8rem 0 0; font-size: 0.82rem; font-weight: 600; color: var(--muted); }

@@ -1024,7 +1024,7 @@ def run_job_pipeline(
 
     if reused_from and merged_existing:
         merged = merged_existing
-        progress.skip("příprava LiDAR")
+        progress.reuse("příprava LiDAR")
     elif raster_elevation:
         merged = lidar_work / "ground_merged.laz"  # neexistuje; vrstevnice berou dem_filled z rastru
         progress.skip("příprava LiDAR", reason="výšky z rastru")
@@ -1564,7 +1564,12 @@ def _package_output(
                         if dtm_step == DTM_STEP
                         else f"Čekám na {dtm_step} z pozadí…"
                     )
-                dtm_prefetch.result()  # chyby řeší vlákno samo (job pokračuje bez DTM)
+                dtm_out = dtm_prefetch.result()  # chyby řeší vlákno samo (job pokračuje bez DTM)
+                if progress is not None and (dtm_out is None or dtm_prefetch.failed):
+                    # Krok se nesmí tvářit jako hotový s daty: web ho ukáže jako nedostupný.
+                    progress.done(
+                        unavailable="kresba z OSM a ZABAGED" if uses_cz_sources(options) else "kresba z OSM"
+                    )
                 if options.get("_dtm_summary"):
                     dtm_final = dtm_summary.finalize_summary(
                         options["_dtm_summary"], kp_cwd, failed=dtm_prefetch.failed
