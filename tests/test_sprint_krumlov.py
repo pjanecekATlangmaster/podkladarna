@@ -398,7 +398,8 @@ def _band_rasters(crown):
     cls = np.zeros((h, w), dtype=np.uint8)
     bay = (X > 30) & (X < 60) & (Y < 8)
     tri = (X > 70) & (X < 90) & (Y < 3 + (X - 70) / 2)
-    grass = ((Y > 3) & (Y < 16) & ~bay & ~tri) | ((Y < -3) & (Y > -5)) | (Y < -8)
+    short = (X > 6) & (X < 14) & (Y < 8)  # krátký záliv 8 m: spíš louka vykousnutá z dlažby, nekreslí se
+    grass = ((Y > 3) & (Y < 16) & ~bay & ~tri & ~short) | ((Y < -3) & (Y > -5)) | (Y < -8)
     tall = np.zeros((h, w), dtype=np.float32)
     if crown:
         under = (Y < -3) & (Y > -8) & (X > 30) & (X < 70)  # koruny stromů nad chodníkem
@@ -411,8 +412,8 @@ def _band_rasters(crown):
 @pytest.mark.parametrize(
     "case, inside, outside",
     [
-        # vozovka, záliv a chodník za proužkem ano; trávník, nepravidelný tvar a dlažba dál než 10 m od vozovky ne
-        ("bands", [(20, 2), (45, 6), (50, -7)], [(20, 8), (85, 10), (45, 18), (50, -12)]),
+        # vozovka, záliv a chodník za proužkem ano; trávník, krátký záliv, nepravidelný tvar a dlažba dál než 10 m od vozovky ne
+        ("bands", [(20, 2), (45, 6), (50, -7)], [(20, 8), (10, 6), (85, 10), (45, 18), (50, -12)]),
         ("crown_chm", [(50, -7)], [(20, 8)]),  # koruna nad chodníkem (CHM ≥ 2 m) = nevím, chodník zůstane
         ("crown_no_chm", [(50, 2), (20, -7)], [(50, -7)]),  # bez výšky porostu je koruna tráva; vozovka vždy
         ("off", [(20, 2), (20, 8)], []),  # vypínač STREET_BANDS = False: dnešní parcela − maska zeleně

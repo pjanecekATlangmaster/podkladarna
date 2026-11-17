@@ -76,6 +76,74 @@ def _crown_tops(hole_proj, chm, gt) -> list[tuple[float, float, float]]:
     return out
 
 
+def _poly_rings(g) -> list[list[tuple[int, int]]]:
+    return [[(int(round(x)), int(round(y))) for x, y in r.coords] for r in [g.exterior, *g.interiors]]
+
+
+def _merge_into_open(parts, open_objs, fill_polys, idx_open: int, near: float):
+    """Výplně 401 sousedící s kreslenou loukou 401 sloučí s ní do jednoho objektu (Petr 2026-11-17).
+
+    Louky a výplně spojené dotykem se sjednotí do jednoho objektu (křivky louky se převedou na lomenou čáru), první
+    objekt skupiny se nahradí sjednocením, ostatní se z části odeberou. Vrací (části, výplně bez souseda, počet
+    sloučených výplní)."""
+    from shapely import STRtree
+    from shapely.ops import unary_union
+
+    from app.pipeline.oom_import import OomObjectPart, _area_object_with_holes
+
+    if not open_objs or not fill_polys:
+        return parts, fill_polys, 0
+    tree = STRtree([o[2] for o in open_objs])
+    n_open = len(open_objs)
+    parent = list(range(n_open + len(fill_polys)))  # union-find: louky 0…n_open−1, výplně za nimi
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    rest = []
+    for fi, g in enumerate(fill_polys):
+        hits = [int(k) for k in tree.query(g, predicate="dwithin", distance=near)]
+        if not hits:
+            rest.append(g)
+        for k in hits:
+            parent[find(n_open + fi)] = find(k)
+    groups: dict[int, tuple[list[int], list[int]]] = {}
+    for k in range(n_open):
+        groups.setdefault(find(k), ([], []))[0].append(k)
+    for fi in range(len(fill_polys)):
+        r = find(n_open + fi)
+        if r != n_open + fi and r in groups:
+            groups[r][1].append(fi)
+    edits: dict[int, list[tuple[int, int, str]]] = {}
+    merged = 0
+    for objs, fis in groups.values():
+        if not fis:
+            continue
+        geom = unary_union([open_objs[k][2] for k in objs] + [fill_polys[fi] for fi in fis])
+        geom = geom.buffer(near / 4, join_style="mitre").buffer(-near / 4, join_style="mitre")  # švy po sjednocení pryč
+        polys = [p for p in (getattr(geom, "geoms", None) or [geom]) if p.geom_type == "Polygon" and not p.is_empty]
+        if not polys:
+            rest.extend(fill_polys[fi] for fi in fis)
+            continue
+        merged += len(fis)
+        xml = "\n".join(_area_object_with_holes(idx_open, _poly_rings(p)) for p in polys)
+        for j, k in enumerate(sorted(objs, key=lambda k: (open_objs[k][0], open_objs[k][1][0]))):
+            pi, (a, b), _ = open_objs[k]
+            edits.setdefault(pi, []).append((a, b, xml if j == 0 else ""))
+    out = list(parts)
+    for pi, ed in edits.items():
+        txt = out[pi].objects_xml
+        count = out[pi].count
+        for a, b, new in sorted(ed, reverse=True):
+            txt = txt[:a] + new + txt[b:]
+            count += (new.count("<object ") if new else 0) - 1
+        out[pi] = OomObjectPart(name=out[pi].name, objects_xml=txt, count=count)
+    return out, rest, merged
+
+
 def _veg_area(hole_proj, chm, gt) -> float:
     """Plocha (m²) pixelů CHM ≥ ``VEG_MIN_H_M`` se středem v díře (S-JTSK)."""
     import numpy as np
@@ -180,7 +248,8 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
     building_ids = {i for i, c in _symbol_codes(set_path).items() if c == BUILDING_CODE}
     areas, paved, open_, paths, buildings = [], [], [], [], []
     existing: list[tuple[float, float]] = []
-    for part in parts:
+    open_objs = []  # (část, rozsah objektu v objects_xml, plocha) louky 401 pro sloučení s výplní
+    for pi, part in enumerate(parts):
         for m in _OBJECT_RE.finditer(part.objects_xml):
             sym = int(m.group(3))
             major, kind = info.get(sym, (0, "other"))
@@ -207,6 +276,8 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
                     paved.append(poly)
                 elif major == OPEN_MAJOR:
                     open_.append(poly)
+                    if sym == idx_open:
+                        open_objs.append((pi, m.span(), poly if poly.is_valid else poly.buffer(0)))
             elif kind == "line" and major in PATH_MAJORS:
                 flat = _flatten(pts)
                 if len(flat) >= 2:
@@ -293,7 +364,7 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
         sym = idx_paved if s_paved >= PAVED_FILL_SHARE else idx_open
         for g in getattr(free, "geoms", None) or [free]:
             if g.geom_type == "Polygon" and g.area >= HOLE_MIN_M2 * um * um:
-                fills[sym].append([[(int(round(x)), int(round(y))) for x, y in r.coords] for r in [g.exterior, *g.interiors]])
+                fills[sym].append(g)
         if idx_tree is None or chm is None:
             continue
         tops = []
@@ -311,11 +382,14 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
                     continue
             tops.append((x, y))
         points.extend(thin_points(tops, list(existing) + points, min_center_m))
-    objects = [_area_object_with_holes(sym, rings) for sym, polys in fills.items() for rings in polys]
-    n_fill = len(objects)
-    if not objects:
+    n_paved, n_open = len(fills[idx_paved]), len(fills[idx_open])
+    if not n_paved and not n_open:
         return parts
-    out = list(parts) + [OomObjectPart(name=FILL_PART_NAME, objects_xml="\n".join(objects), count=n_fill)]
+    # Louka v díře se slije se sousední loukou 401 do jednoho objektu (Petr 2026-11-17), zbytek zůstane samostatnou výplní.
+    out, fills[idx_open], merged = _merge_into_open(list(parts), open_objs, fills[idx_open], idx_open, EDGE_M * um)
+    objects = [_area_object_with_holes(sym, _poly_rings(g)) for sym, polys in fills.items() for g in polys]
+    if objects:
+        out.append(OomObjectPart(name=FILL_PART_NAME, objects_xml="\n".join(objects), count=len(objects)))
     if points:
         pts_xml = [
             _point_object(idx_tree, *projected_to_map_coord(x, y, ref_x=ref_x, ref_y=ref_y, scale=scale, grivation_deg=grivation_deg))
@@ -324,7 +398,7 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
         out.append(OomObjectPart(name=TREE_PART_NAME, objects_xml="\n".join(pts_xml), count=len(pts_xml)))
     if log:
         log(
-            f"Stromy u ulic: zalito {len(fills[idx_paved])} korun do 501.1 a {len(fills[idx_open])} do 401, "
+            f"Stromy u ulic: zalito {n_paved} korun do 501.1 a {n_open} do 401 (sloučeno s loukou {merged}), "
             f"bodů 418 {len(points)}, u vozovky vynecháno {blocked} ({'CHM' if chm else 'bez CHM'}, {time.monotonic() - t0:.1f} s)"
         )
     return out

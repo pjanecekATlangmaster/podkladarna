@@ -163,6 +163,14 @@ def test_street_crowns(tmp_path, monkeypatch, case, fill, trees):
     points = [p for p in out if p.name == street_trees.TREE_PART_NAME]
     if fill is None:
         assert not fills
+    elif fill == "401":  # louka v díře se slije se sousední loukou 401 do jednoho objektu (Petr 2026-11-17)
+        from app.pipeline.path_clearance import _COORDS_RE, _OBJECT_RE, _parse_coords, _polygon, _rings
+
+        lawn_part = next(p for p in out if p.name == "porost")
+        polys = [_polygon(_rings(_parse_coords(_COORDS_RE.search(m.group(4)).group(1)))) for m in _OBJECT_RE.finditer(lawn_part.objects_xml)]
+        hole_m2 = (hx1 - hx0) * (hy1 - 6) - (100 if case == "house_lawn" else 0)
+        assert not fills and lawn_part.count == len(polys) == 1
+        assert abs(polys[0].area / 62500 - (40 * 24 - (hx1 - hx0) * (hy1 - 6) + hole_m2)) < 5
     else:
         assert fills and f'symbol="{symbol_index_for_code(preset, scale, fill)}"' in fills[0].objects_xml
     assert sum(p.count for p in points) == trees
