@@ -471,6 +471,17 @@ def build_aoi_boundary_part(
     )
 
 
+# Klíče ``reference_metadata()`` platné jen pro podklady ČÚZK.
+CZ_REFERENCE_META_KEYS = (
+    "hillshade_source",
+    "hillshade_variants",
+    "hillshade_tool",
+    "map_layers",
+    "orthophoto",
+    "dmpok_preview",
+)
+
+
 def oom_metadata(
     preset_id: str,
     preset: dict,
@@ -504,7 +515,13 @@ def oom_metadata(
     meta["data_sources"] = list(attribution_lines(options))
     # Jazyk textů ZIPu = jazyk stránky zadání (mezinárodní verze anglicky).
     meta["lang"] = zip_texts_en.zip_lang(options)
+    if meta["country"] != "CZ":
+        # Podklady ČÚZK (stínování DMR 5G, ZTM, katastr, DTM, ortofoto ČÚZK) mimo Česko nejsou; skutečné vrstvy
+        # nese ``reference_layers``.
+        for key in CZ_REFERENCE_META_KEYS:
+            meta.pop(key, None)
     if meta["lang"] == "en":
+        meta["label"] = zip_texts_en.map_label_en(meta["label"])
         meta["indicative_label"] = zip_texts_en.INDICATIVE_LABEL_EN
         meta["citation"] = zip_texts_en.citation_line_en(meta["citation_short"])
     if reference_layers:

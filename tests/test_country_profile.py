@@ -473,6 +473,8 @@ def test_zip_texts_follow_job_language(country, refs):
         assert "github.com" not in text
     assert "Forest 1:10000" in readme and "Base map: Omapic" in readme and "Base map: Omapic" in about
     assert ("(layer " in readme) is bool(refs)
+    assert en["label"].startswith("Forest") and ("hillshade_source" in en) is (country == "CZ")
+    assert ("map_layers" in en) is (country == "CZ")
     cs = oom_metadata("les_10000", preset, {"country": country}, reference_layers=refs)
     assert zip_about(cs)[0] == "CO_JE_PODKLADARNA.txt" and "Doporučený postup" in oom_readme(cs)
     scene = sentinel2.Scene("S2B_X", date(2026, 9, 1), 3.5, {}, 0.0)
