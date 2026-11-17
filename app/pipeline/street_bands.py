@@ -1,16 +1,18 @@
-"""Sprint: plocha ulic z katastru po pásech podél silnice a domu (Petr 2026-11-17, Most job 4c20a72105c9).
+"""Sprint: plocha ulic z katastru po pásech podél silnice (Petr 2026-11-17, Most job 4c20a72105c9).
 
 Parcela „ostatní komunikace“ často obsahuje i trávníky mezi paneláky. Suchý, flekatý trávník na letním ortofotu
-po pixelech masku zeleně nesplní, takže se kreslil jako 501 s roztřepeným obrysem („cancoury“). Tady rozhoduje tvar:
-z os zpevněných čar (OSM i ZABAGED Ulice / Silnice) vedou po ``STEP_M`` kolmé paprsky až k okraji parcely nebo
-k budově, paprsek se dělí na buňky po ``CELL_M`` (šířka buňky = rozestup paprsků) a každá buňka dostane verdikt
-tráva / zpevněno / nevím z podílu zelených pixelů ortofota. Zpevněno je od osy ven, dokud nepřijde souvisle tráva
-(``GRASS_RUN_M``; užší trávník chůzi nezastaví – generalizace jako u mapaře), a totéž od domu / okraje parcely zpět
-(chodník u domu). Šířky se podél osy vyhladí mediánem a z nich vzniknou pásy kopírující silnici a dům.
+po pixelech masku zeleně nesplní, takže se kreslil jako 501 s roztřepeným obrysem. Tady rozhoduje tvar: z os silnic
+(OSM silnice s půlkou šířky vozovky podle symbolu, ZABAGED Ulice / Silnice; chodník ani pěší zóna osou nejsou) vedou
+po ``STEP_M`` kolmé paprsky do okraje parcely, nejdál ``EXTRA_MAX_M`` za okraj vozovky. Vozovka je zpevněná vždy.
+Za ní se paprsek dělí na buňky po ``CELL_M`` s verdiktem tráva / zpevněno / nevím z podílu zelených pixelů ortofota;
+zpevněno je od osy ven, dokud nepřijde souvisle tráva (``GRASS_RUN_M``; užší proužek chůzi nezastaví). Přesah za
+vozovku se kreslí jen jako pravidelný tvar: úsek aspoň ``RUN_MIN_M`` dlouhý s konstantní šířkou (medián, většina
+stanic do ``SHAPE_TOL_M`` od něj) – parkovací záliv, stání nebo chodník podél silnice. Jinak se nekreslí (Petr:
+raději nic než podivný tvar). Od domu se už nechodí.
 
 Koruna stromu (zelený pixel s výškou porostu ≥ ``TALL_M``) a stín nejsou tráva, ale „nevím“: silnice pod korunou
-se nevyřízne; souvisle víc než ``UNKNOWN_RUN_M`` „nevím“ chůzi zastaví (park pod korunami). V ZABAGED udržované
-zeleni a trvalém travním porostu stačí na trávu nižší podíl zeleně (``GREEN_SHARE_PRIOR``) – jen přednost, ne ořez.
+se nevyřízne; souvisle víc než ``UNKNOWN_RUN_M`` „nevím“ chůzi zastaví. V ZABAGED udržované zeleni a trvalém
+travním porostu stačí na trávu nižší podíl zeleně (``GREEN_SHARE_PRIOR``) – jen přednost, ne ořez.
 """
 
 from __future__ import annotations
@@ -25,10 +27,21 @@ from pathlib import Path
 STREET_BANDS = True
 
 SURFACE_PNG_NAME = "povrch.png"  # třídy pixelů ortofota: 0 jiné, 1 zeleň (bez morfologie), 2 tma (stín)
-STEP_M = 4.0
+STEP_M = 2.0
 CELL_M = 1.0
-RAY_MAX_M = 60.0
-AXIS_MAX_M = 20.0  # zpevněno z ortofota nejdál tolik od osy komunikace (Petr 2026-11-17, Most)
+# Za okrajem vozovky jen pravidelný pás (záliv, stání, chodník) nejdál EXTRA_MAX_M (Petr 2026-11-17, Most: „5 m → 10 m“).
+EXTRA_MAX_M = 10.0
+EXTRA_MIN_M = 1.0
+GAP_STATIONS = 1
+RUN_MIN_M = 6.0
+SHAPE_TOL_M = 1.0
+SHAPE_SHARE = 0.7
+# Osy pásů jen silnice (chodník / pěší zóna ne): půlka šířky vozovky podle symbolu přípravy OSM, ZABAGED jako výchozí.
+ROAD_HALF_M = {"road_1": 2.5, "road_2": 3.0, "road_3": 3.5, "road_4": 4.5}
+DEFAULT_HALF_M = 3.0
+RAW_ROAD_HIGHWAYS = frozenset(
+    {"living_street", "residential", "service", "unclassified", "tertiary", "secondary", "primary", "trunk"}
+)
 START_TOL_M = 1.5
 SAMPLE_M = 0.5
 GREEN_SHARE = 0.25
@@ -38,7 +51,6 @@ DARK_VALUE = 60
 TALL_M = 2.0
 GRASS_RUN_M = 3.0
 UNKNOWN_RUN_M = 6.0
-SMOOTH_STATIONS = 5
 MIN_BAND_M = 0.5
 TILE_M = 100.0
 ZABAGED_ROAD_LAYERS = ("Ulice", "SilniceDalnice")
@@ -197,14 +209,6 @@ def walk(verdicts: list, grass_run: int, unknown_run: int, length: float) -> flo
     return length
 
 
-def _median_smooth(values: list[float]) -> list[float]:
-    import numpy as np
-
-    a = np.asarray(values, dtype=float)
-    h = SMOOTH_STATIONS // 2
-    return [float(np.median(a[max(0, i - h) : i + h + 1])) for i in range(len(a))]
-
-
 def _cell_verdicts(p, u, n, length: float, surface: Raster, chm: Raster | None, prior) -> list:
     """Verdikty buněk paprsku (True tráva, False zpevněno, None nevím) z pixelů ortofota a výšky porostu."""
     import numpy as np
@@ -243,8 +247,77 @@ def _cell_verdicts(p, u, n, length: float, surface: Raster, chm: Raster | None, 
     return out
 
 
+def road_half_width(highway: str) -> float | None:
+    """Půlka šířky vozovky (m) pro osu pásů; None = není silnice (chodník, pěší zóna, cyklostezka se osami nestávají)."""
+    hw = (highway or "").lower()
+    if hw.startswith("road_"):
+        return ROAD_HALF_M.get(hw, DEFAULT_HALF_M)
+    if hw in RAW_ROAD_HIGHWAYS:
+        return DEFAULT_HALF_M
+    return None
+
+
+def _segments(vals: list[float]) -> list[tuple[int, int]]:
+    """Rozdělí úsek na kusy konstantní šířky: nový kus, když se dvě stanice po sobě odchýlí od mediánu o víc než tolerance."""
+    import numpy as np
+
+    out, start, dev = [], 0, 0
+    for k in range(1, len(vals)):
+        med = float(np.median(vals[start:k]))
+        if abs(vals[k] - med) > SHAPE_TOL_M:
+            dev += 1
+            if dev >= 2:
+                out.append((start, k - 2))
+                start, dev = k - 1, 0
+        else:
+            dev = 0
+    out.append((start, len(vals) - 1))
+    return out
+
+
+def _runs(extra: list[float]) -> list[tuple[int, int, float]]:
+    """Úseky stanic (od, do včetně, šířka) s pravidelným pásem za vozovkou: záliv / stání / chodník konstantní šířky.
+
+    Stanice s přesahem ≥ ``EXTRA_MIN_M``, mezery do ``GAP_STATIONS`` přemostěné; úsek se dělí na kusy konstantní šířky
+    (``_segments``). Kus se kreslí, je-li dlouhý aspoň ``RUN_MIN_M`` a aspoň ``SHAPE_SHARE`` stanic leží do
+    ``SHAPE_TOL_M`` od mediánu; šířka je medián. Šikmý nebo rozeklaný tvar se rozpadne na krátké kusy a nekreslí se.
+    """
+    import numpy as np
+
+    on = [e >= EXTRA_MIN_M for e in extra]
+    out = []
+    i, n = 0, len(on)
+    while i < n:
+        if not on[i]:
+            i += 1
+            continue
+        j, gap, k = i, 0, i + 1
+        while k < n:
+            if on[k]:
+                j, gap = k, 0
+            else:
+                gap += 1
+                if gap > GAP_STATIONS:
+                    break
+            k += 1
+        vals = [float(e) for e in extra[i : j + 1]]
+        for a, b in _segments(vals):
+            if (b - a) * STEP_M < RUN_MIN_M:
+                continue
+            seg = np.asarray(vals[a : b + 1])
+            med = float(np.median(seg))
+            if med >= EXTRA_MIN_M and float(np.mean(np.abs(seg - med) <= SHAPE_TOL_M)) >= SHAPE_SHARE:
+                out.append((i + a, i + b, med))
+        i = j + 1
+    return out
+
+
 def band_geometry(cand, lines, surface: Raster, *, chm: Raster | None = None, grass_prior=None):
-    """Zpevněné pásy (shapely, S-JTSK) uvnitř ``cand`` (parcely − budovy) podél os ``lines`` (shapely LineString)."""
+    """Plocha ulice (shapely, S-JTSK) uvnitř ``cand`` (parcely − budovy) podél os silnic.
+
+    ``lines`` = (LineString, půlka šířky vozovky) nebo LineString (``DEFAULT_HALF_M``). Vozovka se kreslí vždy, za ní
+    jen pravidelný pás (záliv, stání, chodník) do ``EXTRA_MAX_M`` od okraje vozovky (Petr 2026-11-17, Most).
+    """
     import shapely
     from shapely.geometry import LineString, Point, Polygon
     from shapely.ops import unary_union
@@ -259,7 +332,8 @@ def band_geometry(cand, lines, surface: Raster, *, chm: Raster | None = None, gr
     grass_run = max(1, int(round(GRASS_RUN_M / CELL_M)))
     unknown_run = max(1, int(round(UNKNOWN_RUN_M / CELL_M)))
     quads = []
-    for ln in lines:
+    for item in lines:
+        ln, half = item if isinstance(item, tuple) else (item, DEFAULT_HALF_M)
         if ln.length < STEP_M or not tree.query(ln, predicate="intersects").size:
             continue
         stations = []
@@ -272,12 +346,13 @@ def band_geometry(cand, lines, surface: Raster, *, chm: Raster | None = None, gr
             if h > 0:
                 stations.append((ln.interpolate(s), (dx / h, dy / h)))
             k += 1
+        reach = half + EXTRA_MAX_M
         for side in (1.0, -1.0):
             rows = []
             for pt, u in stations:
                 n = (-u[1] * side, u[0] * side)
                 p = (pt.x, pt.y)
-                ray = LineString([p, (p[0] + n[0] * RAY_MAX_M, p[1] + n[1] * RAY_MAX_M)])
+                ray = LineString([p, (p[0] + n[0] * reach, p[1] + n[1] * reach)])
                 local = [pieces[i] for i in tree.query(ray, predicate="intersects")]
                 length = 0.0
                 if local:
@@ -288,39 +363,32 @@ def band_geometry(cand, lines, surface: Raster, *, chm: Raster | None = None, gr
                     for g in getattr(seg, "geoms", [seg]):
                         if g.geom_type == "LineString" and not g.is_empty and start.distance(g) <= START_TOL_M:
                             length = max(length, max(start.distance(Point(c)) for c in g.coords))
-                if length <= 0:
-                    rows.append((p, u, n, 0.0, 0.0, 0.0))
-                    continue
-                if length > AXIS_MAX_M:
-                    # Petr: asfalt z ortofota jen do AXIS_MAX_M od osy; dál (velké plochy) jen od osy, bez chůze od domu
-                    length = AXIS_MAX_M
+                extra = 0.0
+                if length > half + EXTRA_MIN_M:
                     ver = _cell_verdicts(p, u, n, length, surface, chm, prior)
-                    wr, wb = walk(ver, grass_run, unknown_run, length), 0.0
-                else:
-                    ver = _cell_verdicts(p, u, n, length, surface, chm, prior)
-                    wr = walk(ver, grass_run, unknown_run, length)
-                    wb = walk(list(reversed(ver)), grass_run, unknown_run, length)
-                rows.append((p, u, n, min(wr, length), min(wb, length), length))
+                    road_cells = math.ceil(half / CELL_M)
+                    ver = [False] * min(road_cells, len(ver)) + ver[road_cells:]  # vozovka je zpevněná vždy
+                    extra = max(0.0, min(walk(ver, grass_run, unknown_run, length), length) - half)
+                rows.append((p, n, min(half, length), extra))
             if len(rows) < 2:
                 continue
-            wr = _median_smooth([r[3] for r in rows])
-            wb = _median_smooth([r[4] for r in rows])
             for i in range(len(rows) - 1):
-                (p, _u, n, _a, _b, l1), (p2, _u2, n2, _a2, _b2, l2) = rows[i], rows[i + 1]
-                if wr[i] > MIN_BAND_M and wr[i + 1] > MIN_BAND_M:
-                    a1, a2 = wr[i], wr[i + 1]
+                (p, n, r1, _), (p2, n2, r2, _) = rows[i], rows[i + 1]
+                if r1 > MIN_BAND_M and r2 > MIN_BAND_M:
                     quads.append(
-                        Polygon([p, p2, (p2[0] + n2[0] * a2, p2[1] + n2[1] * a2), (p[0] + n[0] * a1, p[1] + n[1] * a1)])
+                        Polygon([p, p2, (p2[0] + n2[0] * r2, p2[1] + n2[1] * r2), (p[0] + n[0] * r1, p[1] + n[1] * r1)])
                     )
-                if wb[i] > MIN_BAND_M and wb[i + 1] > MIN_BAND_M and min(l1, l2) > 0:
-                    b1, b2 = wb[i], wb[i + 1]
+            for i0, i1, w in _runs([r[3] for r in rows]):
+                a = half + w
+                for i in range(i0, i1):
+                    (p, n, _, _), (p2, n2, _, _) = rows[i], rows[i + 1]
                     quads.append(
                         Polygon(
                             [
-                                (p[0] + n[0] * (l1 - b1), p[1] + n[1] * (l1 - b1)),
-                                (p2[0] + n2[0] * (l2 - b2), p2[1] + n2[1] * (l2 - b2)),
-                                (p2[0] + n2[0] * l2, p2[1] + n2[1] * l2),
-                                (p[0] + n[0] * l1, p[1] + n[1] * l1),
+                                (p[0] + n[0] * (half - 0.5), p[1] + n[1] * (half - 0.5)),
+                                (p2[0] + n2[0] * (half - 0.5), p2[1] + n2[1] * (half - 0.5)),
+                                (p2[0] + n2[0] * a, p2[1] + n2[1] * a),
+                                (p[0] + n[0] * a, p[1] + n[1] * a),
                             ]
                         )
                     )
