@@ -382,10 +382,9 @@ def test_street_geometry_cache_key_follows_inputs(tmp_path):
     assert street_parcels._street_inputs_stamp(tmp_path) != before
 
 
-# Pásy ulic (street_bands): parcela 100 × 40 m, osa silnice y = 0, dům nad parcelou (y ≥ 20).
-# Sever: silnice do 4 m, trávník 4–16 m (v dnešní masce zeleně chybí – suchá tráva Most), dlažba u domu 16–20 m
-# napojená vjezdem x 38–62 (samostatný kus bez OSM čáry by odpadl).
-# Jih: silnice, úzký travní proužek 4–6 m, chodník 6–12 m, trávník 12–20 m.
+# Pásy ulic (street_bands): parcela 100 × 40 m, osa silnice y = 0 (residential, půlka vozovky 3 m), dům nad parcelou.
+# Sever: trávník (v dnešní masce zeleně chybí – suchá tráva Most), parkovací záliv x 30–60 do 8 m, nepravidelný
+# trojúhelník x 70–90 (přesah 0–10 m), dlažba u domu 16–20 m. Jih: úzký travní proužek 3–5 m, chodník 5–8 m, trávník.
 _BAND_PX = 0.25
 
 
@@ -397,12 +396,14 @@ def _band_rasters(crown):
     xs = x0 + (np.arange(w) + 0.5) * _BAND_PX
     Y, X = np.meshgrid(ys, xs, indexing="ij")
     cls = np.zeros((h, w), dtype=np.uint8)
-    grass = ((Y > 4) & (Y < 16) & ((X < 38) | (X > 62))) | ((Y < -4) & (Y > -6)) | (Y < -12)
+    bay = (X > 30) & (X < 60) & (Y < 8)
+    tri = (X > 70) & (X < 90) & (Y < 3 + (X - 70) / 2)
+    grass = ((Y > 3) & (Y < 16) & ~bay & ~tri) | ((Y < -3) & (Y > -5)) | (Y < -8)
     tall = np.zeros((h, w), dtype=np.float32)
     if crown:
-        on_road = (np.abs(Y) < 4) & (X > 30) & (X < 70)  # koruna stromu přes silnici
-        grass |= on_road
-        tall[on_road] = 8.0
+        under = (Y < -3) & (Y > -8) & (X > 30) & (X < 70)  # koruny stromů nad chodníkem
+        grass |= under
+        tall[under] = 8.0
     cls[grass] = 1
     return cls, tall, (x0, y_top - h * _BAND_PX, x0 + w * _BAND_PX, y_top)
 
@@ -410,10 +411,11 @@ def _band_rasters(crown):
 @pytest.mark.parametrize(
     "case, inside, outside",
     [
-        ("bands", [(50, 0), (50, 10), (80, 18), (50, -9)], [(20, 10), (50, -16)]),  # trávník ne; vjezd, dlažba u domu a chodník za proužkem ano
-        ("crown_chm", [(50, 0)], [(20, 10)]),  # koruna nad silnicí (CHM ≥ 2 m) = nevím, silnici nevyřízne
-        ("crown_no_chm", [(20, 0)], [(50, 0)]),  # bez výšky porostu je koruna tráva jako dosud
-        ("off", [(50, 0), (20, 10)], []),  # vypínač STREET_BANDS = False: dnešní parcela − maska zeleně
+        # vozovka, záliv a chodník za proužkem ano; trávník, nepravidelný tvar a dlažba dál než 10 m od vozovky ne
+        ("bands", [(20, 2), (45, 6), (50, -7)], [(20, 8), (85, 10), (45, 18), (50, -12)]),
+        ("crown_chm", [(50, -7)], [(20, 8)]),  # koruna nad chodníkem (CHM ≥ 2 m) = nevím, chodník zůstane
+        ("crown_no_chm", [(50, 2), (20, -7)], [(50, -7)]),  # bez výšky porostu je koruna tráva; vozovka vždy
+        ("off", [(20, 2), (20, 8)], []),  # vypínač STREET_BANDS = False: dnešní parcela − maska zeleně
     ],
 )
 def test_street_bands(tmp_path, monkeypatch, case, inside, outside):

@@ -340,7 +340,7 @@ def street_paved_geometry(work_dir: Path, buildings, osm_lines, *, scale: int, g
     lines = [LineString(c) for c, hw in osm_lines if is_paved_street_highway(hw) and len(c) >= 2]
     # Pásy podél silnice a domu (``street_bands``) místo parcely minus zeleň po pixelech; zadaná zeleň (testy) a
     # chybějící třídy ortofota = dosavadní cesta.
-    banded = _band_geometry(work_dir, cand, lines) if green is None else None
+    banded = _band_geometry(work_dir, cand, osm_lines) if green is None else None
     if banded is not None:
         cand = banded
     else:
@@ -373,7 +373,12 @@ def street_paved_geometry(work_dir: Path, buildings, osm_lines, *, scale: int, g
 
 
 def _band_geometry(work_dir: Path, cand, osm_lines):
-    """Plocha ulic po pásech (``street_bands``) nebo None (vypnuto, chybí třídy ortofota, chyba) – pak dnešní cesta."""
+    """Plocha ulic po pásech (``street_bands``) nebo None (vypnuto, chybí třídy ortofota, chyba) – pak dnešní cesta.
+
+    Osami jsou jen silnice (OSM s půlkou šířky vozovky podle symbolu, ZABAGED Ulice / Silnice výchozí šířkou).
+    """
+    from shapely.geometry import LineString
+
     from app.pipeline import street_bands
 
     if not street_bands.STREET_BANDS:
@@ -382,9 +387,14 @@ def _band_geometry(work_dir: Path, cand, osm_lines):
         surface = street_bands.load_surface(work_dir, CACHE_SUBDIR, GREEN_META_NAME)
         if surface is None:
             return None
+        roads = []
+        for coords, hw in osm_lines:
+            half = street_bands.road_half_width(hw)
+            if half is not None and len(coords) >= 2:
+                roads.append((LineString(coords), half))
         return street_bands.band_geometry(
             cand,
-            list(osm_lines) + street_bands.zabaged_road_lines(work_dir),
+            roads + street_bands.zabaged_road_lines(work_dir),
             surface,
             chm=street_bands.load_chm(work_dir),
             grass_prior=street_bands.zabaged_grass_prior(work_dir),
