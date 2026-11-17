@@ -434,6 +434,12 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   `drop_trees_in_buildings_and_olive` (po `sprint_merge_buildings`); oliva jen souvislá do 5 000 m² (`OLIVE_MAX_M2`, areál sídliště
   přes ulice ne) a strom aspoň 1,5 m od jejího kraje (`OLIVE_INSIDE_M`, aleje).
   Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
+- **Stromy u ulic místo bílého lesa ve sprintu v Česku** (3.73.0, Petr 2026-11-17, Most, `app/pipeline/street_trees.py`, `STREET_TREES`):
+  porost ve sprintu je z CHM a koruna stromu u ulice zůstávala bílou dírou v 501 / 401. Nad hotovou mapou (po `open_paved`, před
+  `drop_trees_in_buildings_and_olive`) se díra uvnitř kreslených ploch do `HOLE_MAX_M2` (250 m²), která sousedí s 501 nebo s čarou
+  505–508 (do 2 m) a jejíž obvod je z ≥ 60 % 501 + 401, zaleje převládajícím sousedem (501.1 / 401) a do koruny jde bod 418 ve vrcholu
+  CHM (≥ 3 m, ředění 1 mm i proti 417 / 418). Bod, jehož značka (0,4 mm) by zasáhla vozovku (osa OSM silnice + `ROAD_HALF_M`), se
+  nekreslí. Větší bílá (park) zůstává. Most (mapa z testu B): 360 korun, 170 bodů, 55 vynecháno u vozovky.
 - **ZABAGED sad / zahrada ustoupí jinému krytu** (3.28.0, Petr 2026-11-08, Lochkov ZABAGED 155439 „ostatní trvalá kultura“, OSM křoviny,
   DTM orná půda): `OvocnySadZahrada` (oliva 520 / MTBO 527) se nekreslí, když ji z ≥ 70 % (`OSM_COVER_MIN`) kryje jiný kryt –
   OSM `natural_cover.geojson` s `cover` v `OSM_OTHER_COVER` (les, křoviny, louka, pole, mokřad) nebo DTM `other_cover.json` (Les,

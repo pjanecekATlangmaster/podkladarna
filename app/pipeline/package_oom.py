@@ -1459,6 +1459,20 @@ def _prepare_oom_map(
             object_parts = open_paved.trim_to_drawn(
                 [*object_parts, open_paved_part], preset_id=preset_id, scale=scale, log=log
             )
+    # Sprint v Česku: malá bílá díra po koruně u ulice se zaleje sousedem (501.1 / 401) a strom je bod 418.
+    if not certain_only:
+        from app.pipeline.street_trees import fill_street_crowns
+
+        object_parts = fill_street_crowns(
+            object_parts,
+            kp_cwd,
+            preset_id=preset_id,
+            scale=scale,
+            ref_x=ref_x,
+            ref_y=ref_y,
+            grivation_deg=grivation,
+            log=log,
+        )
     # Sprint: strom z DMP OK na kreslené budově (i v zalitém dvoře) nebo v olivě se nekreslí.
     from app.pipeline.sprint_trees import drop_trees_in_buildings_and_olive
 
