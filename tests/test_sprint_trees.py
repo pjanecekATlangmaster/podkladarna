@@ -67,7 +67,9 @@ def test_detect_paved_trees(scene, want):
         (None, 2),  # bez budovy a olivy oba stromy zůstanou
         ("521", 1),  # strom na budově (i v zalitém dvoře) pryč
         ("520", 1),  # strom v olivě (zahrada) pryč
-        ("520_big", 2),  # oliva přes celý areál (nad 5 000 m²) strom nezahodí
+        ("520_big", 0),  # i v areálu (nad 5 000 m²) stromy v olivě pryč (Petr 2026-11-17)
+        ("520_edge", 1),  # značka zasahuje do olivy (bod 0,38 mm od ní) – pryč
+        ("520_far", 2),  # značka olivy nedosáhne (bod 0,6 mm od ní)
     ],
 )
 def test_drop_trees_in_buildings_and_olive(block, want):
@@ -86,8 +88,9 @@ def test_drop_trees_in_buildings_and_olive(block, want):
     ]
     if block:
         sym = symbol_index_for_code(preset, 4000, block.split("_")[0])
-        e = 100000 if block.endswith("big") else 1000  # µm mapy 1:4000: 400 m / 4 m
-        area = f'<object type="1" symbol="{sym}"><coords count="5">0 0;{e} 0;{e} {e};0 {e};0 0;</coords></object>'
+        # µm mapy 1:4000: čtverec 4 m pod stromem v (500, 500), areál 400 m, pás x < 120 / x < −100 vedle stromu
+        x0, x1, e = {"big": (0, 100000, 100000), "edge": (-1000, 120, 1000), "far": (-1000, -100, 1000)}.get(block.split("_")[-1], (0, 1000, 1000))
+        area = f'<object type="1" symbol="{sym}"><coords count="5">{x0} 0;{x1} 0;{x1} {e};{x0} {e};{x0} 0;</coords></object>'
         parts.insert(0, OomObjectPart(name="plocha", objects_xml=area, count=1))
     out = drop_trees_in_buildings_and_olive(parts, preset_id=preset, scale=4000)
     trees = [p for p in out if p.name == TREE_PART_NAME]
@@ -101,7 +104,8 @@ def test_drop_trees_in_buildings_and_olive(block, want):
     [
         ("crown", "401", 1),  # díra zalitá převládajícím sousedem (401) a bod 418 ve vrcholu
         ("crown_on_road", "401", 0),  # značka by zasáhla vozovku: bod ne, díra se zalije
-        ("big_hole", None, 0),  # velká bílá plocha (park) zůstává
+        ("big_hole", None, 0),  # velká bílá plocha s porostem (park) zůstává
+        ("house_lawn", "401", 1),  # díra 380 m² u domu: koruna + holá zem (trávník) → louka 401 a bod (Most 2026-11-17)
         ("forest", None, 0),  # les a MTBO beze změny
     ],
 )
@@ -116,7 +120,7 @@ def test_street_crowns(tmp_path, monkeypatch, case, fill, trees):
     preset = "forest_10000" if case == "forest" else "sprint_2m"
     scale = 10000 if case == "forest" else 4000
     kw = dict(preset_id=preset, scale=scale, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
-    hx0, hx1, hy1 = (16, 24, 14) if case != "big_hole" else (2, 38, 28)
+    hx0, hx1, hy1 = {"big_hole": (2, 38, 28), "house_lawn": (10, 34, 26)}.get(case, (16, 24, 14))
 
     def ring(pts):
         return [tuple(int(round(v)) for v in projected_to_map_coord(x, y, ref_x=0.0, ref_y=0.0, scale=scale, grivation_deg=0.0)) for x, y in pts]
@@ -129,6 +133,10 @@ def test_street_crowns(tmp_path, monkeypatch, case, fill, trees):
         OomObjectPart(name="ulice", objects_xml=_area_object_with_holes(paved, [road]), count=1),
         OomObjectPart(name="porost", objects_xml=_area_object_with_holes(open_, [lawn]), count=1),
     ]
+    if case == "house_lawn":  # dům v rohu díry: jeho hrany jsou část obvodu díry, plocha se do díry nepočítá
+        house = ring([(24, 16), (34, 16), (34, 26), (24, 26), (24, 16)])
+        b = symbol_index_for_code(preset, scale, "521")
+        parts.append(OomObjectPart(name="budovy", objects_xml=_area_object_with_holes(b, [house]), count=1))
     (tmp_path / "osm_paths").mkdir()
     (tmp_path / "osm_paths" / "paths_osm.geojson").write_text(
         json.dumps({"type": "FeatureCollection", "features": [
@@ -139,6 +147,8 @@ def test_street_crowns(tmp_path, monkeypatch, case, fill, trees):
     chm = np.zeros((40, 50), dtype=np.float32)  # 1 m, x −5…45, y 35…−5
     ty = 6.5 if case == "crown_on_road" else 10.0
     _disc(chm, 20 + 5, SIZE - 35 + ty, 2.5, 8.0, 1.0)  # _disc počítá y od SIZE
+    if case == "big_hole":
+        chm[35 - 28 : 35 - 6, 5 + 2 : 5 + 38] = np.maximum(chm[35 - 28 : 35 - 6, 5 + 2 : 5 + 38], 6.0)  # porost parku
     monkeypatch.setattr(tree_rows, "_load_chm", lambda _w: (chm, (-5.0, 1.0, 0.0, 35.0, 0.0, -1.0)))
 
     out = street_trees.fill_street_crowns(parts, tmp_path, **kw)

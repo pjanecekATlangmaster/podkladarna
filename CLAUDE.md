@@ -431,8 +431,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   okolí ≥ 0,5. Barrandov 57 → 77, Krumlov 63 → 88 (část nových jsou stromy v zahradách ve stínu budov).
   Od 3.24.2 (Petr 2026-11-06) nerozhoduje podíl budov v okolí koruny (Tilleho nám. s budovami z DTM 0,46 a 0,49), podklad se
   posuzuje mimo budovy a vodu; strom na kreslené budově (i v zalitém dvoře) nebo v olivě 520 zahodí nad hotovou mapou
-  `drop_trees_in_buildings_and_olive` (po `sprint_merge_buildings`); oliva jen souvislá do 5 000 m² (`OLIVE_MAX_M2`, areál sídliště
-  přes ulice ne) a strom aspoň 1,5 m od jejího kraje (`OLIVE_INSIDE_M`, aleje).
+  `drop_trees_in_buildings_and_olive` (po `sprint_merge_buildings`). Od 3.74.0 (Petr 2026-11-17) jsou body stromů z DMP OK
+  ve sprintu 418 (`TREE_CODE`, vejde se i tam, kam 417 ne) a filtr platí pro stromy na dlažbě, u ulic i aleje: strom, jehož značka
+  (`TREE_SYMBOL_R_MM` 0,4 mm) zasáhne do jakékoli olivy, se nekreslí (dřív jen oliva do 5 000 m² a 1,5 m od kraje).
   Průzkum a výřezy `/mnt/project-files/stromy-dmpok/`. Les a MTBO beze změny.
 - **Stromy u ulic místo bílého lesa ve sprintu v Česku** (3.73.0, Petr 2026-11-17, Most, `app/pipeline/street_trees.py`, `STREET_TREES`):
   porost ve sprintu je z CHM a koruna stromu u ulice zůstávala bílou dírou v 501 / 401. Nad hotovou mapou (po `open_paved`, před
@@ -440,6 +441,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   505–508 (do 2 m) a jejíž obvod je z ≥ 60 % 501 + 401, zaleje převládajícím sousedem (501.1 / 401) a do koruny jde bod 418 ve vrcholu
   CHM (≥ 3 m, ředění 1 mm i proti 417 / 418). Bod, jehož značka (0,4 mm) by zasáhla vozovku (osa OSM silnice + `ROAD_HALF_M`), se
   nekreslí. Větší bílá (park) zůstává. Most (mapa z testu B): 360 korun, 170 bodů, 55 vynecháno u vozovky.
+  Od 3.74.0 (Petr 2026-11-17, Most: koruna + trávník u domu, CHM holá zem) se budovy do plochy ani obvodu díry nepočítají,
+  s CHM rozhoduje plocha porostu v díře (CHM ≥ 1 m do 250 m²) a celá díra do `HOLE_TOTAL_MAX_M2` (1 500 m²); výplň je 401,
+  501.1 jen při obvodu z ≥ 80 % 501 (`PAVED_FILL_SHARE`). Chodník se nedetekuje. Most: 430 děr (136 501.1, 294 401), 192 bodů.
 - **ZABAGED sad / zahrada ustoupí jinému krytu** (3.28.0, Petr 2026-11-08, Lochkov ZABAGED 155439 „ostatní trvalá kultura“, OSM křoviny,
   DTM orná půda): `OvocnySadZahrada` (oliva 520 / MTBO 527) se nekreslí, když ji z ≥ 70 % (`OSM_COVER_MIN`) kryje jiný kryt –
   OSM `natural_cover.geojson` s `cover` v `OSM_OTHER_COVER` (les, křoviny, louka, pole, mokřad) nebo DTM `other_cover.json` (Les,

@@ -3,10 +3,14 @@
 Porost ve sprintu je z výšky porostu (CHM): nízký = 401, vysoký = bez plochy (bílá). Koruna jednoho stromu u silnice
 nebo chodníku tak v hotové mapě zůstala bílou dírou v ploše ulice 501 nebo v trávníku 401 – na mapě to vypadá jako
 kousek lesa na ulici. Nad hotovou mapou se proto malá bílá díra (do ``HOLE_MAX_M2``), která sousedí se zpevněnou
-plochou 501 nebo s čarou chodníku / cesty a jejíž obvod tvoří hlavně 501 a 401, zalije podle převládajícího souseda
-(501.1 / 401) a do koruny se dá bod 418 ve vrcholu z CHM (prořídlé na ``MIN_CENTER_MM`` mapy i proti kresleným
+plochou 501 nebo s čarou chodníku / cesty a jejíž obvod tvoří hlavně 501 a 401, zalije (401, 501.1 jen u díry skoro celé
+obklopené 501) a do koruny se dá bod 418 ve vrcholu z CHM (prořídlé na ``MIN_CENTER_MM`` mapy i proti kresleným
 417 / 418). Bod, jehož značka by zasáhla vozovku (osa OSM silnice + půlka šířky vozovky jako u pásů ulic), se
 nekreslí. Větší bílá plocha (park, remízek) zůstává.
+
+Petr 2026-11-17 (Most, koruna + trávník u domu): budova v díře ani na jejím okraji se do plochy a obvodu nepočítá
+a s CHM rozhoduje plocha porostu v díře (CHM ≥ ``VEG_MIN_H_M`` do ``HOLE_MAX_M2``), holá zem do ``HOLE_TOTAL_MAX_M2``
+se zaleje jako louka 401 (chodník se nedetekuje).
 """
 
 from __future__ import annotations
@@ -22,10 +26,13 @@ STREET_TREES = True
 
 FILL_PART_NAME = "Koruny u ulic (výplň pod stromem)"
 TREE_PART_NAME = "Stromy u ulic (418)"
-HOLE_MAX_M2 = 250.0  # koruna jednoho až několika stromů; větší bílá = park, remízek
+HOLE_MAX_M2 = 250.0  # vegetace (CHM ≥ VEG_MIN_H_M) v díře nejvýš tolik = koruna jednoho až několika stromů; víc = park, remízek
+HOLE_TOTAL_MAX_M2 = 1500.0  # celá díra (bez budov) nejvýš tolik; zbytek mimo korunu je holá zem (trávník u domu)
 HOLE_MIN_M2 = 1.0
+VEG_MIN_H_M = 1.0  # i keře se počítají do vegetace díry (holá zem pod 1 m = louka)
 EDGE_M = 0.3  # díra sousedí s plochou, je-li její obvod do tolika metrů od ní
-NEIGHBOUR_SHARE = 0.6  # obvod díry z 501 + 401 aspoň tolik (díra u budovy / vody ne)
+NEIGHBOUR_SHARE = 0.6  # obvod díry (bez hran budov) z 501 + 401 aspoň tolik (díra u vody / olivy ne)
+PAVED_FILL_SHARE = 0.8  # 501.1 jen u díry skoro celé obklopené 501; jinak 401 (louka, Petr 2026-11-17)
 PATH_NEAR_M = 2.0  # čára chodníku / cesty do tolika metrů = díra u chodníku
 PATH_MAJORS = frozenset({505, 506, 507, 508})
 PAVED_MAJOR = 501
@@ -67,6 +74,30 @@ def _crown_tops(hole_proj, chm, gt) -> list[tuple[float, float, float]]:
             out.append((x, y, float(sm[int(rr), int(cc)])))
     out.sort(key=lambda t: -t[2])
     return out
+
+
+def _veg_area(hole_proj, chm, gt) -> float:
+    """Plocha (m²) pixelů CHM ≥ ``VEG_MIN_H_M`` se středem v díře (S-JTSK)."""
+    import numpy as np
+    import shapely
+
+    x0, px, _, y1, _, py = gt
+    py = abs(py)
+    h, w = chm.shape
+    minx, miny, maxx, maxy = hole_proj.bounds
+    c0 = max(0, int(math.floor((minx - x0) / px)))
+    c1 = min(w, int(math.ceil((maxx - x0) / px)))
+    r0 = max(0, int(math.floor((y1 - maxy) / py)))
+    r1 = min(h, int(math.ceil((y1 - miny) / py)))
+    if c1 - c0 < 1 or r1 - r0 < 1:
+        return 0.0
+    win = np.nan_to_num(np.asarray(chm[r0:r1, c0:c1], dtype=np.float32), nan=0.0)
+    rr, cc = np.nonzero(win >= VEG_MIN_H_M)
+    if not len(rr):
+        return 0.0
+    xs = x0 + (c0 + cc + 0.5) * px
+    ys = y1 - (r0 + rr + 0.5) * py
+    return float(shapely.contains_xy(hole_proj, xs, ys).sum()) * px * py
 
 
 def _road_axes(work_dir: Path):
@@ -124,7 +155,17 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
     from app.pipeline.oom_import import OomObjectPart, _area_object_with_holes, _point_object
     from app.pipeline.oom_symbol_map import symbol_index_for_code
     from app.pipeline.oom_symbols import symbol_set_path
-    from app.pipeline.path_clearance import _COORDS_RE, _OBJECT_RE, _flatten, _parse_coords, _polygon, _rings, _symbol_info
+    from app.pipeline.path_clearance import (
+        _COORDS_RE,
+        _OBJECT_RE,
+        BUILDING_CODE,
+        _flatten,
+        _parse_coords,
+        _polygon,
+        _rings,
+        _symbol_codes,
+        _symbol_info,
+    )
     from app.pipeline.tree_rows import _load_chm, _poly_to_projected, thin_points
 
     t0 = time.monotonic()
@@ -134,8 +175,10 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
     if idx_paved is None or idx_open is None:
         return parts
     tree_idx = {i for i in (symbol_index_for_code(preset_id, scale, c) for c in TREE_CODES) if i is not None}
-    info = _symbol_info(symbol_set_path(preset_id, scale))
-    areas, paved, open_, paths = [], [], [], []
+    set_path = symbol_set_path(preset_id, scale)
+    info = _symbol_info(set_path)
+    building_ids = {i for i, c in _symbol_codes(set_path).items() if c == BUILDING_CODE}
+    areas, paved, open_, paths, buildings = [], [], [], [], []
     existing: list[tuple[float, float]] = []
     for part in parts:
         for m in _OBJECT_RE.finditer(part.objects_xml):
@@ -158,7 +201,9 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
                 if poly is None or poly.is_empty:
                     continue
                 areas.append(poly)
-                if major == PAVED_MAJOR:
+                if sym in building_ids:
+                    buildings.append(poly if poly.is_valid else poly.buffer(0))
+                elif major == PAVED_MAJOR:
                     paved.append(poly)
                 elif major == OPEN_MAJOR:
                     open_.append(poly)
@@ -178,13 +223,16 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
 
         for ring in g.interiors:
             hole = Polygon(ring)
-            if HOLE_MIN_M2 * um * um <= hole.area <= HOLE_MAX_M2 * um * um:
+            if HOLE_MIN_M2 * um * um <= hole.area:
                 holes.append(hole)
     if not holes:
         return parts
     import numpy as np
     import shapely
     from shapely import STRtree
+
+    b_tree = STRtree(buildings) if buildings else None
+    chm = _load_chm(work_dir)
 
     def _edge_tree(polys):
         # hrany ploch jako krátké úsečky: dotaz kolem díry je lokální (ne průnik s celou plochou mapy)
@@ -200,15 +248,17 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
 
     paved_t = _edge_tree(paved)
     open_t = _edge_tree(open_)
+    build_t = _edge_tree(buildings)
     path_tree = STRtree(paths) if paths else None
     step = 0.5 * um
 
-    def _share(tree, pts):
+    def _near(tree, pts):
         if tree is None:
-            return 0.0
-        hit = np.unique(tree.query(pts, predicate="dwithin", distance=EDGE_M * um)[0])
-        return len(hit) / len(pts)
-    chm = _load_chm(work_dir)
+            return np.zeros(len(pts), dtype=bool)
+        mask = np.zeros(len(pts), dtype=bool)
+        mask[np.unique(tree.query(pts, predicate="dwithin", distance=EDGE_M * um)[0])] = True
+        return mask
+
     axes_tree, roads = _road_axes(work_dir)
     r_tree = TREE_SYMBOL_R_MM * scale / 1000.0
     min_center_m = MIN_CENTER_MM * scale / 1000.0
@@ -216,21 +266,36 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
     points: list[tuple[float, float]] = []
     blocked = 0
     for hole in holes:
+        # Budova uvnitř díry (ostrov) nebo na jejím okraji do plochy díry ani obvodu nepatří (Petr 2026-11-17, Most:
+        # koruna + trávník u domu bílé, holá zem v CHM).
+        inside = [buildings[int(k)] for k in b_tree.query(hole)] if b_tree is not None else []
+        free = hole.difference(unary_union(inside)) if inside else hole
+        if free.is_empty or not HOLE_MIN_M2 * um * um <= free.area <= HOLE_TOTAL_MAX_M2 * um * um:
+            continue
         ring = hole.exterior
         perim = ring.length
         if perim <= 0:
             continue
         pts = shapely.line_interpolate_point(ring, np.arange(0.0, perim, min(step, perim / 8)))
-        s_paved = _share(paved_t, pts)
-        s_open = _share(open_t, pts)
+        keep = ~_near(build_t, pts)
+        if keep.sum() < 4:
+            continue
+        s_paved = float(_near(paved_t, pts)[keep].mean())
+        s_open = float(_near(open_t, pts)[keep].mean())
         near_path = path_tree is not None and len(path_tree.query(hole, predicate="dwithin", distance=PATH_NEAR_M * um)) > 0
         if (s_paved <= 0 and not near_path) or s_paved + s_open < NEIGHBOUR_SHARE:
             continue
-        sym = idx_paved if s_paved >= s_open else idx_open
-        fills[sym].append([(int(round(x)), int(round(y))) for x, y in ring.coords])
+        hole_proj = _poly_to_projected(free, ref_x, ref_y, scale, grivation_deg) if chm is not None else None
+        # Velikost se posuzuje podle vegetace: s CHM jen plocha s porostem (koruna), holá zem se zaleje; bez CHM celá díra.
+        veg = _veg_area(hole_proj, *chm) if chm is not None else free.area / (um * um)
+        if veg > HOLE_MAX_M2:
+            continue
+        sym = idx_paved if s_paved >= PAVED_FILL_SHARE else idx_open
+        for g in getattr(free, "geoms", None) or [free]:
+            if g.geom_type == "Polygon" and g.area >= HOLE_MIN_M2 * um * um:
+                fills[sym].append([[(int(round(x)), int(round(y))) for x, y in r.coords] for r in [g.exterior, *g.interiors]])
         if idx_tree is None or chm is None:
             continue
-        hole_proj = _poly_to_projected(hole, ref_x, ref_y, scale, grivation_deg)
         tops = []
         for x, y, _h in _crown_tops(hole_proj, *chm):
             if axes_tree is not None:
@@ -246,7 +311,7 @@ def _fill(parts, work_dir: Path, *, preset_id, scale, ref_x, ref_y, grivation_de
                     continue
             tops.append((x, y))
         points.extend(thin_points(tops, list(existing) + points, min_center_m))
-    objects = [_area_object_with_holes(sym, [ring]) for sym, rings in fills.items() for ring in rings]
+    objects = [_area_object_with_holes(sym, rings) for sym, polys in fills.items() for rings in polys]
     n_fill = len(objects)
     if not objects:
         return parts

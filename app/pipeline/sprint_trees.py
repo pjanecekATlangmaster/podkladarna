@@ -1,4 +1,5 @@
-"""Sprint: samostatný strom na zpevněné ploše (náměstí, pěší zóna, parkoviště) jako bod 417 ve středu koruny.
+"""Sprint: samostatný strom na zpevněné ploše (náměstí, pěší zóna, parkoviště) jako bod 418 ve středu koruny
+(do 3.73 bod 417; Petr 2026-11-17: v zástavbě přednostně 418).
 
 Petr 2026-11-06: strom na dlažbě je orientační bod pro kontrolu; kreslí se jen kmen (bod), ne koruna. Zdroj je CHM
 jobu (DMP OK − DMR 5G), potvrzení ortofotem (zelená koruna, nezelené okolí). Průzkum Krumlov centrum a Barrandov
@@ -17,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 SPRINT_PAVED_TREES = True
 TREE_PART_NAME = "Stromy na zpevněné ploše (DMP OK)"
-OLIVE_MAX_M2 = 5000.0  # souvislá oliva větší = areál (sídliště přes ulice a parkoviště), strom v ní zůstane
-OLIVE_INSIDE_M = 1.5  # strom u kraje olivy (alej, oliva přesahuje do chodníku) zůstane
+TREE_CODE = "418"  # v zástavbě přednostně 418 (Petr 2026-11-17)
+TREE_SYMBOL_R_MM = 0.4  # poloměr značky 417 / 418 s rezervou: zasáhne-li do olivy, strom se nekreslí
 TREE_MIN_CHM_M = 3.0  # koruna = výška nad terénem
 TREE_MIN_HEIGHT_M = 5.0  # nejvyšší bod koruny
 CROWN_MIN_M2 = 12.0
@@ -309,7 +310,7 @@ def sprint_paved_tree_points(
             log(f"Stromy na zpevněné ploše: přeskočeno ({exc})")
         return []
     if log:
-        log(f"Stromy na zpevněné ploše (417 z DMP OK + ortofota): {len(pts)}")
+        log(f"Stromy na zpevněné ploše (418 z DMP OK + ortofota): {len(pts)}")
     return pts
 
 
@@ -323,7 +324,7 @@ def build_sprint_tree_parts(
     grivation_deg: float,
     clip_bounds=None,
 ):
-    """Body 417 „Výrazný velký strom“ pro sprint."""
+    """Body 418 pro sprint (Petr 2026-11-17: v zástavbě přednostně 418, vejde se i tam, kam 417 ne)."""
     from app.pipeline.geom_clip import point_inside
     from app.pipeline.oom_coords import projected_to_map_coord
     from app.pipeline.oom_import import OomObjectPart, _point_object
@@ -331,7 +332,7 @@ def build_sprint_tree_parts(
 
     if not points or not str(preset_id).startswith("sprint"):
         return []
-    symbol_index = symbol_index_for_code(preset_id, scale, "417")
+    symbol_index = symbol_index_for_code(preset_id, scale, TREE_CODE)
     if symbol_index is None:
         return []
     objects = []
@@ -346,13 +347,18 @@ def build_sprint_tree_parts(
 
 
 def drop_trees_in_buildings_and_olive(parts, *, preset_id: str, scale: int):
-    """Sprint: strom z DMP OK ležící v kreslené budově 521 (včetně zalitého dvora) nebo v olivě 520 (souvislé do
-    ``OLIVE_MAX_M2``, aspoň ``OLIVE_INSIDE_M`` od kraje) se nekreslí.
+    """Sprint: strom z DMP OK (stromy na dlažbě, u ulic, aleje) ležící v kreslené budově 521 (včetně zalitého dvora)
+    se nekreslí; stejně tak strom, jehož značka (``TREE_SYMBOL_R_MM``) zasahuje do olivy 520.
 
-    Volat nad hotovou mapou (po ``sprint_merge_buildings``). Petr 2026-11-06: místo podílu budov v okolí koruny."""
+    Volat nad hotovou mapou (po ``sprint_merge_buildings``). Petr 2026-11-06: místo podílu budov v okolí koruny;
+    2026-11-17: značka vedoucí do olivy se nekreslí (dřív jen strom uvnitř menší olivy)."""
+    from app.pipeline.street_trees import TREE_PART_NAME as STREET_TREE_PART
+    from app.pipeline.tree_rows import TREE_ROW_PART_NAME
+
+    names = {TREE_PART_NAME, STREET_TREE_PART, TREE_ROW_PART_NAME}
     if not str(preset_id).startswith("sprint") or not parts:
         return parts
-    if not any(p.name == TREE_PART_NAME for p in parts):
+    if not any(p.name in names for p in parts):
         return parts
     from shapely.geometry import Point
     from shapely.ops import unary_union
@@ -380,7 +386,7 @@ def drop_trees_in_buildings_and_olive(parts, *, preset_id: str, scale: int):
         olive_ids = {i for i, (major, kind) in info.items() if major == OLIVE_MAJOR and kind == "area"}
         buildings, olives = [], []
         for part in parts:
-            if part.name == TREE_PART_NAME:
+            if part.name in names:
                 continue
             for m in _OBJECT_RE.finditer(part.objects_xml):
                 sym = int(m.group(3))
@@ -390,16 +396,9 @@ def drop_trees_in_buildings_and_olive(parts, *, preset_id: str, scale: int):
                 poly = _polygon(_rings(_parse_coords(cm.group(1)))) if cm else None
                 if poly is not None and not poly.is_empty:
                     (buildings if sym in building_ids else olives).append(poly if poly.is_valid else poly.buffer(0))
-        # Oliva jen menší souvislá (zahrada, dvorek) a strom aspoň OLIVE_INSIDE_M od jejího kraje: velký areál
-        # sídliště kreslený olivou přes ulice a parkoviště ani alej u kraje olivy stromy nezahodí.
-        um = 1e6 / scale  # µm mapy na 1 m v terénu
-        blocks = list(buildings)
-        if olives:
-            for g in getattr(unary_union(olives), "geoms", None) or [unary_union(olives)]:
-                if g.area <= OLIVE_MAX_M2 * um * um:
-                    inner = g.buffer(-OLIVE_INSIDE_M * um)
-                    if not inner.is_empty:
-                        blocks.append(inner)
+        # Značka stromu (poloměr v µm mapy) nesmí zasáhnout do olivy: bod do tolika od olivy je jako v olivě.
+        r = TREE_SYMBOL_R_MM * 1000.0
+        blocks = list(buildings) + [o.buffer(r) for o in olives]
         if not blocks:
             return parts
         blocked = prep(unary_union(blocks))
@@ -416,7 +415,7 @@ def drop_trees_in_buildings_and_olive(parts, *, preset_id: str, scale: int):
 
     out = []
     for part in parts:
-        if part.name != TREE_PART_NAME:
+        if part.name not in names:
             out.append(part)
             continue
         objs = [m.group(0) for m in _OBJECT_RE.finditer(part.objects_xml) if keep(m)]
