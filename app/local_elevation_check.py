@@ -150,7 +150,9 @@ def run(source: str, lon: float, lat: float, size_m: float, out=print) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     from app.countries import LOCAL_ELEVATION_DIRS
+    from app.proj_env import ensure_proj_data
 
+    ensure_proj_data()  # jako job (``job_worker``): conda share/proj v Dockeru bývá bez proj.db
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("source", nargs="?", default=next(iter(LOCAL_ELEVATION_DIRS)))
     ap.add_argument("--at", default="19.1500,48.7400", help="střed výřezu LON,LAT (výchozí Banská Bystrica)")
