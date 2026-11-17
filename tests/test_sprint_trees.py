@@ -62,21 +62,28 @@ def test_detect_paved_trees(scene, want):
 
 
 @pytest.mark.parametrize(
-    ("block", "want"),
+    ("block", "want", "row", "country"),
     [
-        (None, 2),  # bez budovy a olivy oba stromy zůstanou
-        ("521", 1),  # strom na budově (i v zalitém dvoře) pryč
-        ("520", 1),  # strom v olivě (zahrada) pryč
-        ("520_big", 0),  # i v areálu (nad 5 000 m²) stromy v olivě pryč (Petr 2026-11-17)
-        ("520_edge", 1),  # značka zasahuje do olivy (bod 0,38 mm od ní) – pryč
-        ("520_far", 2),  # značka olivy nedosáhne (bod 0,6 mm od ní)
+        (None, 2, False, "cz"),  # bez budovy a olivy oba stromy zůstanou
+        ("521", 1, False, "cz"),  # strom na budově (i v zalitém dvoře) pryč
+        ("520", 1, False, "cz"),  # strom v olivě (zahrada) pryč
+        ("520_big", 0, False, "cz"),  # i v areálu (nad 5 000 m²) stromy v olivě pryč (Petr 2026-11-17)
+        ("520_edge", 1, False, "cz"),  # značka zasahuje do olivy (bod 0,38 mm od ní) – pryč
+        ("520_far", 2, False, "cz"),  # značka olivy nedosáhne (bod 0,6 mm od ní)
+        ("520_big", 0, True, "cz"),  # alej v olivě v Česku pryč
+        ("520_big", 2, True, "at"),  # alej v zahraničním sprintu beze změny
     ],
 )
-def test_drop_trees_in_buildings_and_olive(block, want):
+def test_drop_trees_in_buildings_and_olive(monkeypatch, block, want, row, country):
+    from app.pipeline import country_profile
     from app.pipeline.oom_import import OomObjectPart, _point_object
     from app.pipeline.oom_symbol_map import symbol_index_for_code
-    from app.pipeline.sprint_trees import TREE_PART_NAME, drop_trees_in_buildings_and_olive
+    from app.pipeline.sprint_trees import TREE_PART_NAME as DMP_PART
+    from app.pipeline.sprint_trees import drop_trees_in_buildings_and_olive
+    from app.pipeline.tree_rows import TREE_ROW_PART_NAME
 
+    monkeypatch.setenv(country_profile.JOB_COUNTRY_ENV, country)
+    TREE_PART_NAME = TREE_ROW_PART_NAME if row else DMP_PART
     preset = "sprint_2m"
     tree = symbol_index_for_code(preset, 4000, "417")
     parts = [

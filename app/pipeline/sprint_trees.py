@@ -355,9 +355,12 @@ def drop_trees_in_buildings_and_olive(parts, *, preset_id: str, scale: int):
     from app.pipeline.street_trees import TREE_PART_NAME as STREET_TREE_PART
     from app.pipeline.tree_rows import TREE_ROW_PART_NAME
 
-    names = {TREE_PART_NAME, STREET_TREE_PART, TREE_ROW_PART_NAME}
     if not str(preset_id).startswith("sprint") or not parts:
         return parts
+    from app.pipeline.country_profile import process_uses_cz_sources
+
+    # Stromy u ulic a aleje jen v Česku: zahraniční sprint (aleje z OSM) zůstává beze změny.
+    names = {TREE_PART_NAME, STREET_TREE_PART, TREE_ROW_PART_NAME} if process_uses_cz_sources() else {TREE_PART_NAME}
     if not any(p.name in names for p in parts):
         return parts
     from shapely.geometry import Point
