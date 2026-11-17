@@ -33,7 +33,9 @@ CELL_M = 1.0
 EXTRA_MAX_M = 10.0
 EXTRA_MIN_M = 1.0
 GAP_STATIONS = 1
-RUN_MIN_M = 6.0
+RUN_MIN_M = 12.0  # kratší záliv bývá falešný (louka vykousnutá z dlažby, Petr 2026-11-17); dřív 6 m
+MERGE_TOL_M = 2.0  # sousední kusy s rozdílem šířky do tolika = jeden kus (méně schodů)
+CLOSE_M = 1.5  # zářezy v ploše ulice užší než 2× tolik se zacelí
 SHAPE_TOL_M = 1.0
 SHAPE_SHARE = 0.7
 # Osy pásů jen silnice (chodník / pěší zóna ne): půlka šířky vozovky podle symbolu přípravy OSM, ZABAGED jako výchozí.
@@ -301,12 +303,18 @@ def _runs(extra: list[float]) -> list[tuple[int, int, float]]:
                     break
             k += 1
         vals = [float(e) for e in extra[i : j + 1]]
+        segs = []
         for a, b in _segments(vals):
+            med = float(np.median(vals[a : b + 1]))
+            if segs and segs[-1][1] >= a - 1 and abs(segs[-1][2] - med) <= MERGE_TOL_M:
+                a = segs.pop()[0]  # navazující kus podobné šířky: jeden pás bez schodu
+                med = float(np.median(vals[a : b + 1]))
+            segs.append((a, b, med))
+        for a, b, med in segs:
             if (b - a) * STEP_M < RUN_MIN_M:
                 continue
             seg = np.asarray(vals[a : b + 1])
-            med = float(np.median(seg))
-            if med >= EXTRA_MIN_M and float(np.mean(np.abs(seg - med) <= SHAPE_TOL_M)) >= SHAPE_SHARE:
+            if med >= EXTRA_MIN_M and float(np.mean(np.abs(seg - med) <= max(SHAPE_TOL_M, MERGE_TOL_M / 2))) >= SHAPE_SHARE:
                 out.append((i + a, i + b, med))
         i = j + 1
     return out
@@ -396,4 +404,6 @@ def band_geometry(cand, lines, surface: Raster, *, chm: Raster | None = None, gr
     quads = [q for q in quads if not q.is_empty]
     if not quads:
         return Polygon()  # pásy proběhly a zpevněné nic: nekreslit (None by vrátil dnešní cestu)
-    return unary_union(quads).intersection(cand)
+    # Zjednodušení (Petr 2026-11-17): úzké zářezy mezi kusy pásu zacelit, hrany pravoúhle.
+    geom = unary_union(quads).buffer(CLOSE_M, join_style="mitre").buffer(-CLOSE_M, join_style="mitre")
+    return geom.intersection(cand)

@@ -444,6 +444,8 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   Od 3.74.0 (Petr 2026-11-17, Most: koruna + trávník u domu, CHM holá zem) se budovy do plochy ani obvodu díry nepočítají,
   s CHM rozhoduje plocha porostu v díře (CHM ≥ 1 m do 250 m²) a celá díra do `HOLE_TOTAL_MAX_M2` (1 500 m²); výplň je 401,
   501.1 jen při obvodu z ≥ 80 % 501 (`PAVED_FILL_SHARE`). Chodník se nedetekuje. Most: 430 děr (136 501.1, 294 401), 192 bodů.
+  Od 3.75.0 (Petr 2026-11-17) se louka v díře slije se sousední loukou 401 do jednoho objektu (`_merge_into_open`, křivky louky
+  se převedou na lomenou čáru; Most: 271 z 294 výplní, 38 objektů louky → 14).
 - **ZABAGED sad / zahrada ustoupí jinému krytu** (3.28.0, Petr 2026-11-08, Lochkov ZABAGED 155439 „ostatní trvalá kultura“, OSM křoviny,
   DTM orná půda): `OvocnySadZahrada` (oliva 520 / MTBO 527) se nekreslí, když ji z ≥ 70 % (`OSM_COVER_MIN`) kryje jiný kryt –
   OSM `natural_cover.geojson` s `cover` v `OSM_OTHER_COVER` (les, křoviny, louka, pole, mokřad) nebo DTM `other_cover.json` (Les,
@@ -534,7 +536,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   nejdál `EXTRA_MAX_M` (10 m) za okraj vozovky, buňky 1 m (tráva = podíl zelených pixelů `povrch.png` ≥ 0,25, v ZABAGED
   UdrzovanaZelen / TrvalyTravniPorost ≥ 0,12; tma a zelená koruna s CHM ≥ 2 m = nevím), od osy do 3 m trávy za sebou, přes 6 m
   „nevím“ stop. Přesah se kreslí jen jako pravidelný tvar (záliv, stání, chodník): kusy konstantní šířky (medián, nový kus při
-  odchylce > 1 m dvakrát po sobě) dlouhé ≥ 6 m, jinak nic (`_runs`). Barrandov proti DS26: kresba na trávě 6 434 → 5 227 m²,
+  odchylce > 1 m dvakrát po sobě) dlouhé ≥ 6 m, jinak nic (`_runs`). Od 3.75.0 (Petr 2026-11-17: krátké zálivy jsou spíš louka
+  vykousnutá z dlažby) aspoň `RUN_MIN_M` 12 m, navazující kusy s rozdílem šířky do `MERGE_TOL_M` 2 m jsou jeden kus a zářezy užší
+  než 3 m se zacelí (`CLOSE_M`); Barrandov tráva 5 227 → 4 997 m², záchyt 81,3 → 79,3 %, Most −3 % plochy. Barrandov proti DS26: kresba na trávě 6 434 → 5 227 m²,
   přesnost 0,899 → 0,911, záchyt dlažby 87,4 → 81,3 %; podklady `/mnt/project-files/ulice-katastr-trava/`. `amenity=bus_station` je parkoviště 501; silnice se ve
   sprintu uvnitř OSM parkoviště nekreslí (`sprint_parking_zone`). Kupky / prohlubně / jámy ve sprintu jen mimo zástavbu (`sprint_knolls_outside_town`,
   artefakty DMR 5G u domů). Srázy ve sprintu jen se skutečným skokem (`SPRINT_STEP_SIDE_RATIO`: strany sondy nejvýš 0,5 × sklon schodu)
