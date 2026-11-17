@@ -28,6 +28,7 @@ SURFACE_PNG_NAME = "povrch.png"  # třídy pixelů ortofota: 0 jiné, 1 zeleň (
 STEP_M = 4.0
 CELL_M = 1.0
 RAY_MAX_M = 60.0
+AXIS_MAX_M = 20.0  # zpevněno z ortofota nejdál tolik od osy komunikace (Petr 2026-11-17, Most)
 START_TOL_M = 1.5
 SAMPLE_M = 0.5
 GREEN_SHARE = 0.25
@@ -290,9 +291,15 @@ def band_geometry(cand, lines, surface: Raster, *, chm: Raster | None = None, gr
                 if length <= 0:
                     rows.append((p, u, n, 0.0, 0.0, 0.0))
                     continue
-                ver = _cell_verdicts(p, u, n, length, surface, chm, prior)
-                wr = walk(ver, grass_run, unknown_run, length)
-                wb = walk(list(reversed(ver)), grass_run, unknown_run, length)
+                if length > AXIS_MAX_M:
+                    # Petr: asfalt z ortofota jen do AXIS_MAX_M od osy; dál (velké plochy) jen od osy, bez chůze od domu
+                    length = AXIS_MAX_M
+                    ver = _cell_verdicts(p, u, n, length, surface, chm, prior)
+                    wr, wb = walk(ver, grass_run, unknown_run, length), 0.0
+                else:
+                    ver = _cell_verdicts(p, u, n, length, surface, chm, prior)
+                    wr = walk(ver, grass_run, unknown_run, length)
+                    wb = walk(list(reversed(ver)), grass_run, unknown_run, length)
                 rows.append((p, u, n, min(wr, length), min(wb, length), length))
             if len(rows) < 2:
                 continue

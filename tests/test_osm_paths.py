@@ -7,6 +7,8 @@ from unittest.mock import patch
 import urllib.error
 
 from app.pipeline.osm_paths import (
+    OSM_HIGHWAYS,
+    OSM_ROAD_HIGHWAYS,
     OVERPASS_URLS,
     _way_skip_reason,
     build_osm_feature_parts,
@@ -49,6 +51,10 @@ def test_skip_sidewalk_and_crossing():
     assert _way_skip_reason({"highway": "bridleway"}) is None
     assert _way_skip_reason({"highway": "cycleway"}) is None
     assert _way_skip_reason({"highway": "cycleway", "foot": "no"})
+    # cycleway=lane na pěší čáře pryč, na silnici (cyklopruh) silnice zůstává (way/284331788, režim OSM)
+    assert _way_skip_reason({"highway": "footway", "cycleway": "lane"})
+    roads = OSM_HIGHWAYS | OSM_ROAD_HIGHWAYS
+    assert _way_skip_reason({"highway": "tertiary", "cycleway": "lane"}, highways=roads) is None
 
 
 def test_footway_crossing_kept_as_path():

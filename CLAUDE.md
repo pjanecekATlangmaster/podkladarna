@@ -521,8 +521,9 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   roste v pásech (`street_bands.py`, vypínač `STREET_BANDS = False` = dosavadní parcela − zeleň): kolmé paprsky po 4 m z os zpevněných
   OSM čar a ZABAGED Ulice / SilniceDalnice, buňky 1 m (tráva = podíl zelených pixelů `povrch.png` ≥ 0,25, v ZABAGED UdrzovanaZelen /
   TrvalyTravniPorost ≥ 0,12; tma a zelená koruna s CHM ≥ 2 m = nevím), od osy i od domu / okraje parcely do 3 m trávy za sebou
-  (úzký proužek nezastaví), přes 6 m „nevím“ stop, medián 5 řezů. Barrandov proti DS26: kresba na trávě 7 143 → 6 972 m², záchyt
-  dlažby 93,6 → 88,3 % (mapař generalizuje travní pásy 3–5 m se stromy do ulice); podklady `/mnt/project-files/ulice-katastr-trava/`. `amenity=bus_station` je parkoviště 501; silnice se ve
+  (úzký proužek nezastaví), přes 6 m „nevím“ stop, medián 5 řezů; nejdál `AXIS_MAX_M` (20 m) od osy, při širší parcele jen od osy
+  (Petr: větší plochy bývají v OSM náměstí / pěší zóna). Barrandov proti DS26: kresba na trávě 7 143 → 6 434 m², záchyt
+  dlažby 93,6 → 87,4 % (mapař generalizuje travní pásy 3–5 m se stromy do ulice); podklady `/mnt/project-files/ulice-katastr-trava/`. `amenity=bus_station` je parkoviště 501; silnice se ve
   sprintu uvnitř OSM parkoviště nekreslí (`sprint_parking_zone`). Kupky / prohlubně / jámy ve sprintu jen mimo zástavbu (`sprint_knolls_outside_town`,
   artefakty DMR 5G u domů). Srázy ve sprintu jen se skutečným skokem (`SPRINT_STEP_SIDE_RATIO`: strany sondy nejvýš 0,5 × sklon schodu)
   a ZABAGED `StupenSraz` jen do 3 m od ticků z DEM (`dem_step_zone`; Petr: cizí data náš algoritmus jen potvrzují).
