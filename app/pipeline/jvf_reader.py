@@ -1,10 +1,11 @@
 """Proudová čtečka JVF DTM (``*.jvf.xml`` v ZIPu) – vybrané typy objektů.
 
-JVF je XML (JVFDTM 1.4.x, GML 3.2) s jmennými prostory typu ``objtyp``/``plotli``/``atr``
+JVF je XML (JVFDTM 1.4.3 a od 18. 11. 2026 1.5.0.2, GML 3.2) s jmennými prostory typu ``objtyp``/``plotli``/``atr``
 (URI = prefix). Soubory mají desítky až stovky MB, proto se čte ``iterparse``em
 a po zpracování každého záznamu se paměť uvolňuje.
 
-Jeden objekt = ``<objtyp:Plot>`` s mnoha ``<…:ZaznamObjektu>``; každý záznam nese
+Jeden objekt = ``<objtyp:Plot>`` s mnoha ``<…:ZaznamObjektu>`` (1.5: ``ZaznamObjektuRefV``,
+geometrie navíc v ``cmn:Plocha2D`` / ``cmn:Linie3D`` a obrys ``cmn:Obvod3D`` za plochou); každý záznam nese
 atributy (``atr:*``) a geometrii (``gml:LineString`` / ``gml:Polygon`` / ``gml:Point``,
 ``posList`` po trojicích x y z v EPSG:5514).
 """
@@ -19,6 +20,9 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 _OBJTYP = "objtyp"
+# Záznam objektu: JVF 1.4.3 ``ZaznamObjektu``, od 1.5 podle kontextu výdeje
+# ``ZaznamObjektuRefV`` (veřejný) / ``ZaznamObjektuRefN`` (neveřejný).
+_RECORD_TAGS = frozenset({"ZaznamObjektu", "ZaznamObjektuRefV", "ZaznamObjektuRefN"})
 
 
 @dataclass
@@ -119,7 +123,7 @@ def iter_records(
                 elif is_type and name in object_types:
                     current = name
                 continue
-            if name == "ZaznamObjektu":
+            if name in _RECORD_TAGS:
                 if current is not None:
                     gtype, coords = _geometry(el)
                     yield JvfRecord(current, _attributes(el), gtype, coords)

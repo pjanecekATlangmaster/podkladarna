@@ -132,9 +132,9 @@ def load_fences(package_zip: str | Path, *, use_cache: bool = True) -> list[Fenc
         fences.append(
             Fence(
                 tuple((float(c[0]), float(c[1])) for c in rec.coords),
-                rec.attrs.get("DruhPlotu", "99"),
+                rec.attrs.get("DruhPlotu") or "99",  # JVF 1.5: xsi:nil = prázdné = nezjištěno
                 rec.level,
-                rec.attrs.get("HraniceJinehoObjektu", "false").lower() == "true",
+                rec.attrs.get("HraniceJinehoObjektu", "false").lower() in ("true", "1"),
                 rec.attrs.get("ZpusobPorizeniZPS", ""),
                 rec.attrs.get("ID", ""),
             )
