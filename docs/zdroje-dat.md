@@ -14,7 +14,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | Země | Stav v Podkladárně | Výšky | Technická mapa | Zdrojů | S poznámkou / omezením |
 |---|---|---|---|---|---|
 | CZ Česko | live | `cz_openzu` | `cz_dtm` | 7 | 6 |
-| SK Slovensko | off | `sk_ugkk_local` | `–` | 2 | 2 |
+| SK Slovensko | beta | `sk_ugkk_local` | `–` | 2 | 2 |
 | NL Nizozemsko | beta | `nl_ahn` | `nl_bgt` | 4 | 4 |
 | CH Švýcarsko | beta | `ch_swisstopo` | `ch_av` | 5 | 5 |
 | AT Rakousko | beta | `at_bev` | `at_fmzk` | 4 | 4 |
@@ -68,7 +68,7 @@ Stav `live`, CRS `EPSG:5514`. Citace v mapě: „Podklad: Podkladárna · ČÚZK
 
 ## SK – Slovensko
 
-Stav `off`, CRS `EPSG:5514`. Citace v mapě: „Base map: Omapic · ÚGKK SR · OSM, [year]“.
+Stav `beta`, CRS `EPSG:5514`. Citace v mapě: „Base map: Omapic · ÚGKK SR · OSM, [year]“.
 
 | Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
 |---|---|---|---|---|---|---|
