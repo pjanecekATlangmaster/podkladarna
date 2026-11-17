@@ -380,3 +380,64 @@ def test_street_geometry_cache_key_follows_inputs(tmp_path):
     assert street_parcels._street_inputs_stamp(tmp_path) == before
     os.utime(parcels, ns=(1, 1))
     assert street_parcels._street_inputs_stamp(tmp_path) != before
+
+
+# Pásy ulic (street_bands): parcela 100 × 40 m, osa silnice y = 0, dům nad parcelou (y ≥ 20).
+# Sever: silnice do 4 m, trávník 4–16 m (v dnešní masce zeleně chybí – suchá tráva Most), dlažba u domu 16–20 m
+# napojená vjezdem x 38–62 (samostatný kus bez OSM čáry by odpadl).
+# Jih: silnice, úzký travní proužek 4–6 m, chodník 6–12 m, trávník 12–20 m.
+_BAND_PX = 0.25
+
+
+def _band_rasters(crown):
+    import numpy as np
+
+    x0, y_top, w, h = -10.0, 30.0, 480, 240
+    ys = y_top - (np.arange(h) + 0.5) * _BAND_PX
+    xs = x0 + (np.arange(w) + 0.5) * _BAND_PX
+    Y, X = np.meshgrid(ys, xs, indexing="ij")
+    cls = np.zeros((h, w), dtype=np.uint8)
+    grass = ((Y > 4) & (Y < 16) & ((X < 38) | (X > 62))) | ((Y < -4) & (Y > -6)) | (Y < -12)
+    tall = np.zeros((h, w), dtype=np.float32)
+    if crown:
+        on_road = (np.abs(Y) < 4) & (X > 30) & (X < 70)  # koruna stromu přes silnici
+        grass |= on_road
+        tall[on_road] = 8.0
+    cls[grass] = 1
+    return cls, tall, (x0, y_top - h * _BAND_PX, x0 + w * _BAND_PX, y_top)
+
+
+@pytest.mark.parametrize(
+    "case, inside, outside",
+    [
+        ("bands", [(50, 0), (50, 10), (80, 18), (50, -9)], [(20, 10), (50, -16)]),  # trávník ne; vjezd, dlažba u domu a chodník za proužkem ano
+        ("crown_chm", [(50, 0)], [(20, 10)]),  # koruna nad silnicí (CHM ≥ 2 m) = nevím, silnici nevyřízne
+        ("crown_no_chm", [(20, 0)], [(50, 0)]),  # bez výšky porostu je koruna tráva jako dosud
+        ("off", [(50, 0), (20, 10)], []),  # vypínač STREET_BANDS = False: dnešní parcela − maska zeleně
+    ],
+)
+def test_street_bands(tmp_path, monkeypatch, case, inside, outside):
+    import numpy as np
+    from PIL import Image
+    from shapely.geometry import Point, Polygon
+
+    from app.pipeline import street_bands, street_parcels
+
+    work = _street_dir(tmp_path, _rect(0, -20, 100, 20))
+    cls, tall, bounds = _band_rasters(crown=case.startswith("crown"))
+    d = work / "ruian_parcels"
+    Image.fromarray(cls, "L").save(d / street_bands.SURFACE_PNG_NAME)
+    Image.fromarray(np.zeros_like(cls), "L").save(d / street_parcels.GREEN_PNG_NAME)  # dnešní maska trávník nevidí
+    (d / street_parcels.GREEN_META_NAME).write_text(
+        json.dumps({"bounds": list(bounds), "width": cls.shape[1], "height": cls.shape[0]}), encoding="utf-8"
+    )
+    chm = street_bands.Raster(tall, bounds[0], bounds[3], _BAND_PX, _BAND_PX) if case == "crown_chm" else None
+    monkeypatch.setattr(street_bands, "load_chm", lambda _w: chm)
+    monkeypatch.setattr(street_bands, "STREET_BANDS", case != "off")
+    building = Polygon(_rect(0, 20, 100, 26))
+    out = street_parcels.street_paved_geometry(work, building, [([(-5.0, 0.0), (105.0, 0.0)], "residential")], scale=SCALE)
+    assert out is not None
+    for x, y in inside:
+        assert out.contains(Point(x, y)), (x, y)
+    for x, y in outside:
+        assert not out.contains(Point(x, y)), (x, y)
