@@ -507,7 +507,7 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   ZIP s jedním TIFFem (155 / 198 GB, výřez přes HTTP nejde). Na ostré A ručně stažené do `DATA_ROOT/cache/static/sk_ugkk/{dtm,dsm}`
   (úklid cache tuto složku nemaže, nemazat ručně), zdroj `sk_ugkk_local` (terén i povrch JTSK03 + Bpv, bez kvazigeoidu). Země se zdrojem
   z disku se nabízí jen tam, kde data jsou (`countries.elevation_ready`). Před zapnutím `docker exec podkladarna python -m app.local_elevation_check`
-  (soubory, Křovák, bloky, výřez jako job, DSM − DTM na holé zemi ±0,3 m). SK je zatím `off`.
+  (soubory, Křovák, bloky, výřez jako job, DSM − DTM na holé zemi ±0,3 m). Kontrola na ostré A prošla 2026-11-17 (výřez 2 km 3,5 s, 199 MB, 5. percentil 0,04 m), SK je od 3.75.3 `beta`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

@@ -80,11 +80,19 @@ def test_beta_never_on_czech_site(monkeypatch, sk_beta, sites, host):
         assert "NL" not in countries.offered_codes()
 
 
-def test_country_without_surface_is_off(monkeypatch):
-    """Zemi bez volně stažitelného DMP nezařazujeme ani do bety (Petr 2026-11-14)."""
+@pytest.mark.parametrize("with_data", [False, True])
+def test_sk_beta_only_with_local_data(tmp_path, monkeypatch, with_data):
+    """Slovensko (výšky z disku) se nabízí jen na instanci, kde jsou GeoTIFFy ``dtm`` i ``dsm`` (Petr 2026-11-17)."""
+    from app import settings
+
+    monkeypatch.setattr(settings, "DATA_ROOT", tmp_path)
     monkeypatch.setenv("COUNTRIES_BETA", "*")
-    assert countries.load_countries()["SK"].status == "off"
-    assert "SK" not in [c.code for c in countries.allowed_countries(None)]
+    if with_data:
+        for sub in ("dtm", "dsm"):
+            (tmp_path / "cache/static/sk_ugkk" / sub).mkdir(parents=True)
+            (tmp_path / "cache/static/sk_ugkk" / sub / "x.tif").write_bytes(b"")
+    assert countries.load_countries()["SK"].status == "beta"
+    assert ("SK" in [c.code for c in countries.allowed_countries(_intl_site(monkeypatch))]) is with_data
 
 
 @pytest.mark.parametrize(
