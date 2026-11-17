@@ -2695,13 +2695,15 @@ def _way_skip_reason(
         return "přejezd"
     if footway == "sidewalk" and not allow_sidewalk:
         return "chodník"
-    if (tags.get("cycleway") or "").lower() in SKIP_CYCLEWAY:
+    hw = (tags.get("highway") or "").lower()
+    # cycleway=lane / track na silnici popisuje cyklopruh vedle jízdního pásu, ne samostatnou čáru: silnice zůstává
+    # (Most, Slovenského národního povstání way/284331788 v režimu OSM chyběla celá).
+    if (tags.get("cycleway") or "").lower() in SKIP_CYCLEWAY and hw not in OSM_ROAD_HIGHWAYS:
         return "cyklo pruh/chodník"
     if (tags.get("area") or "").lower() == "yes":
         return "area"
     if (tags.get("indoor") or "").lower() == "yes":
         return "indoor"
-    hw = (tags.get("highway") or "").lower()
     if hw not in highways:
         return "highway"
     # Čistě silniční cycleway u silnice – ne pěšina v lese.
