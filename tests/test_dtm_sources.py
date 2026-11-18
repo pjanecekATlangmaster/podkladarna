@@ -50,6 +50,9 @@ def test_latest_packages_picks_newest_and_prefers_momc():
         (500143, "ZPS_OPL", "20260930"),
         (500143, "ZPS_KR", "20260930"),
     }
+    # starší vydání zůstane jako záloha pro 404 na serveru kraje
+    kr5 = next(p for p in got if (p.unit_code, p.set_name) == (500143, "ZPS_KR"))
+    assert [o.date for o in kr5.older] == ["20260831"]
 
 
 def test_latest_packages_obec_without_momc_and_sets_filter():
@@ -332,3 +335,54 @@ def test_dmvs_transient_errors_retry_then_fall_back_to_cache(downloads, monkeypa
     with pytest.raises(TimeoutError):
         ds.download_package(ds.parse_url_list(SAMPLE)[0])
     assert len(calls) == 1
+
+
+LBC = """\
+https://dtm.kraj-lbc.cz/x/a/VS_CZ051_OBEC_577081_20261031_ZPS_KR.jvf.zip
+https://dtm.kraj-lbc.cz/x/b/VS_CZ051_OBEC_577081_20260930_ZPS_KR.jvf.zip
+https://dtm.kraj-lbc.cz/x/c/VS_CZ051_OBEC_577081_20260831_ZPS_KR.jvf.zip
+"""
+
+
+@pytest.mark.parametrize(
+    "missing, code, expect",
+    [
+        ((), None, "20261031"),  # bez problému: nejnovější, žádné hlášení
+        (("20261031",), 404, "20260930"),  # Liberecký kraj 2026-11: nejnovější 404 → předchozí
+        (("20261031", "20260930"), 410, "20260831"),
+        (("20261031", "20260930", "20260831"), 404, None),  # nic není → původní chyba
+        (("20261031",), 503, None),  # jiná chyba se nezastírá
+    ],
+)
+def test_download_falls_back_to_older_release_on_404(downloads, monkeypatch, missing, code, expect):
+    import io
+
+    (pkg,) = ds.latest_packages(ds.parse_url_list(LBC), [ds.DtmUnit("OBEC", 577081, "Harrachov")], sets=("ZPS_KR",))
+    folder = ds.package_path(pkg).parent
+    folder.mkdir(parents=True)
+    newest_cache = folder / (pkg.filename + ".plot2.json")  # cache nejnovějšího vydání se nesmí smazat
+    newest_cache.write_text("{}")
+    tried: list[str] = []
+
+    def fake_download(p, **k):
+        tried.append(p.date)
+        if p.date in missing:
+            raise ds.urllib.error.HTTPError(p.url, code, "x", {}, io.BytesIO())
+        return ds.package_path(p)
+
+    monkeypatch.setattr(ds, "download_package", fake_download)
+    monkeypatch.setattr(ds, "DOWNLOAD_RETRY_WAIT_S", ())
+    logs: list[str] = []
+    if expect is None:
+        with pytest.raises(ds.urllib.error.HTTPError) as err:
+            ds.download_packages([pkg], log=logs.append)
+        assert err.value.code == code and "20261031" in err.value.url
+    else:
+        got = ds.download_packages([pkg], log=logs.append)
+        assert got == {pkg.filename: folder / f"VS_CZ051_OBEC_577081_{expect}_ZPS_KR.jvf.zip"}
+        assert tried == [*missing, expect]
+        if missing:
+            assert any("předchozí vydání" in m and pkg.filename in m for m in logs)
+        else:
+            assert logs == []
+    assert newest_cache.exists()
