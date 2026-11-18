@@ -116,6 +116,8 @@ def test_sk_beta_only_with_local_data(tmp_path, monkeypatch, with_data):
         ({"country": "GB-ENG"}, False, "gb_ea"),
         ({"country": "DE-BY"}, False, "de_by"),
         ({"country": "DE-ST"}, False, "de_st"),
+        ({"country": "DE-MV"}, False, "de_mv"),
+        ({"country": "DE-NI"}, False, "de_ni"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -347,6 +349,8 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("PL", ("Główny Urząd Geodezji i Kartografii (GUGiK), dane przetworzone", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "NRW")),
         ("DE-BY", ("Bayerische Vermessungsverwaltung – www.geodaten.bayern.de (CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "NRW")),
         ("DE-ST", ("© GeoBasis-DE / LVermGeo ST (Datenlizenz Deutschland – Namensnennung – Version 2.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Bayern")),
+        ("DE-MV", ("© GeoBasis-DE/M-V 20", "(CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "[data year]", "LVermGeo")),
+        ("DE-NI", ("LGLN (20", "(CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "[data year]", "M-V")),
         ("GB-ENG", ("© Environment Agency copyright and/or database right 2022", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GUGiK")),
     ],
 )
@@ -433,6 +437,10 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_de_by_dop", "geoservices.bayern.de", "by_dop40c"),
         ("DE-ST", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_st_dop", "online_de_st_dtk"},
          "online_de_st_dop", "www.geodatenportal.sachsen-anhalt.de", "lsa_lvermgeo_dop20_2"),
+        ("DE-MV", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_mv_dop", "online_de_mv_dtk"},
+         "online_de_mv_dop", "www.geodaten-mv.de", "mv_dop"),
+        ("DE-NI", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_ni_dop", "online_de_ni_dtk"},
+         "online_de_ni_dop", "opendata.lgln.niedersachsen.de", "ni_dop20"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):

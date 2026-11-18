@@ -1,4 +1,5 @@
-"""Německé spolkové země s výškami z WCS 2.0.1 (zahraniční build): Sasko-Anhaltsko a další se stejnou službou.
+"""Německé spolkové země s výškami z WCS 2.0.1 (zahraniční build): Sasko-Anhaltsko, Meklenbursko-Přední Pomořansko
+a Dolní Sasko.
 
 Jedna tabulka ``DE_WCS_STATES`` (klíč = ``elevation`` v ``configs/countries.yaml``): terén DGM1 a povrch DOM1 po 1 m
 z WCS zemského geodetického úřadu, bez klíče, v nativním UTM země; šablony WMS (ortofoto, topografická mapa).
@@ -31,6 +32,9 @@ ST_DOP_WMS = f"{ST_WSS}/ST_LVermGeo_DOP_WMS_OpenData/guest"
 ST_DOP_LAYER = "lsa_lvermgeo_dop20_2"
 ST_DTK_WMS = f"{ST_WSS}/ST_LVermGeo_DTK_WMS_OpenData/guest"
 ST_DTK_LAYER = "lsa_lvermgeo_dtk25_col_1"
+MV_DIENSTE = "https://www.geodaten-mv.de/dienste"
+NI_WCS = "https://opendata.geoservices.lgln.niedersachsen.de"
+NI_WMS = "https://opendata.lgln.niedersachsen.de/doorman/noauth"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -48,6 +52,38 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
              "image/jpeg", False, 0.2),
             ("de_st_dtk", "dtk25_sachsen_anhalt.xml", "DTK25 Sachsen-Anhalt (topografická mapa 1 : 25 000)", ST_DTK_WMS,
              ST_DTK_LAYER, "image/png", False, 1.0),
+        ),
+    ),
+    # Meklenbursko-Přední Pomořansko (LAiV M-V): CC BY 4.0 (metadata GeoMIS), citace „© GeoBasis-DE/M-V <rok>“
+    # (AccessConstraints služeb). WCS dgm_wcs / dom_wcs (mv_dgm, mv_dom1), EPSG:25833, čistý GeoTIFF.
+    "de_mv": DeWcsState(
+        code="DE-MV",
+        name="Meklenbursko-Přední Pomořansko",
+        crs="EPSG:25833",
+        dtm=(f"{MV_DIENSTE}/dgm_wcs", "mv_dgm"),
+        dsm=(f"{MV_DIENSTE}/dom_wcs", "mv_dom1"),
+        probe_box=(312000, 5998000, 312016, 5998016),  # Rostock
+        wms=(
+            ("de_mv_dop", "dop_mv.xml", "DOP Mecklenburg-Vorpommern (ortofoto)", f"{MV_DIENSTE}/adv_dop", "mv_dop",
+             "image/jpeg", False, 0.2),
+            ("de_mv_dtk", "dtk10_mv.xml", "DTK10 Mecklenburg-Vorpommern (topografická mapa 1 : 10 000)",
+             f"{MV_DIENSTE}/gdimv_dtk", "mv_dtk10", "image/png", False, 0.5),
+        ),
+    ),
+    # Dolní Sasko (LGLN): CC BY 4.0, citace „LGLN (<rok>)“ (AccessConstraints služeb). WCS dgm_wcs / dom_wcs
+    # (ni_dgm1, ni_dom1 z ALS od 2019), EPSG:25832, čistý GeoTIFF; DOP20 a DTK25 přes WMS „doorman/noauth“.
+    "de_ni": DeWcsState(
+        code="DE-NI",
+        name="Dolní Sasko",
+        crs="EPSG:25832",
+        dtm=(f"{NI_WCS}/dgm_wcs", "ni_dgm1"),
+        dsm=(f"{NI_WCS}/dom_wcs", "ni_dom1"),
+        probe_box=(600000, 5750000, 600016, 5750016),  # Goslar
+        wms=(
+            ("de_ni_dop", "dop_niedersachsen.xml", "DOP20 Niedersachsen (ortofoto)", f"{NI_WMS}/dop_wms", "ni_dop20",
+             "image/jpeg", False, 0.2),
+            ("de_ni_dtk", "dtk25_niedersachsen.xml", "DTK25 Niedersachsen (topografická mapa 1 : 25 000)",
+             f"{NI_WMS}/dtk25_wms", "ni_dtk25_farbe", "image/png", False, 1.0),
         ),
     ),
 }
