@@ -553,7 +553,7 @@ def _country_citation(meta: dict | None) -> dict:
 
 
 CZ_DATA_SOURCES_EN = (
-    "ČÚZK data (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, orthophoto) – CC BY 4.0.",
+    "ČÚZK data (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, DTM, orthophoto) – CC BY 4.0.",
     "AOPK memorial trees (CC BY 4.0). OSM © OpenStreetMap contributors (ODbL).",
 )
 
@@ -582,7 +582,7 @@ def _data_sources_line(meta: dict) -> str:
     lines = meta.get("data_sources") or []
     if not lines or (meta.get("country") or "CZ") == "CZ":
         return (
-            "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto), CC BY 4.0. "
+            "Data: ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, DTM, ortofoto), CC BY 4.0. "
             "AOPK památné stromy (CC BY 4.0). "
             "OSM © přispěvatelé (ODbL)."
         )

@@ -343,7 +343,7 @@ Volně inspirováno Karttapullautinem.
 
 CZ_CITATION = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
 CZ_ATTRIBUTION = (
-    "Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, ortofoto) – CC BY 4.0.",
+    "Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, DTM, ortofoto) – CC BY 4.0.",
     "AOPK památné stromy (CC BY 4.0). OSM © přispěvatelé (ODbL).",
 )
 
