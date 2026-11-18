@@ -65,7 +65,11 @@ def test_coverage_for_bbox_uses_head_sizes_and_caches(monkeypatch, tmp_path):
     monkeypatch.setattr(dtm_sources, "fetch_regions", lambda: [{"kod": "CZ020"}])
     monkeypatch.setattr(dtm_sources, "region_code_for_name", lambda name, regions: "CZ020")
     monkeypatch.setattr(dtm_sources, "fetch_url_list", lambda kraj: pkgs)
-    monkeypatch.setattr(dtm_coverage, "_head_size", lambda url: calls.append(url) or sizes[url])
+    # Sonda výřezu z dřívějších testů API může na pozadí doběhnout do téhož _head_size
+    # (CI se sítí: skutečné balíky Prahy), proto se počítají jen dotazy na balíky tohoto testu.
+    monkeypatch.setattr(
+        dtm_coverage, "_head_size", lambda url: (calls.append(url) or sizes[url]) if url in sizes else None
+    )
     out = dtm_coverage.coverage_for_bbox((14.2, 49.9, 14.3, 50.0))
     assert out["available"] and out["level"] == "partial"
     assert [(u["name"], u["quality"]) for u in out["units"]] == [("Chudá", "sparse"), ("Úplná", "good")]
