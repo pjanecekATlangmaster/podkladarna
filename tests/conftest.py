@@ -79,6 +79,18 @@ def seen_generator_codes(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_dmvs_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sonda DTM obcí (POST /api/jobs, /api/sheets) by v testech šla na živé DMVS.
+
+    Dokud DMVS ležel, vracela hned „nedostupné“; s běžícím DMVS vlákna sondy stahovala seznamy krajů, zabírala
+    pool ``area_probe`` a volala cizí podvržené ``_head_size`` (náhodné pády v test_dtm_coverage / test_area_probe).
+    """
+    from app import dtm_coverage
+
+    monkeypatch.setattr(dtm_coverage, "_dmvs_down", lambda: True)
+
+
+@pytest.fixture(autouse=True)
 def _no_osm_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """OSM cache (DOWNLOADS_DIR) by mezi testy vracela cizí odpovědi."""
     monkeypatch.setenv("PODKLADARNA_OSM_CACHE_HOURS", "0")
