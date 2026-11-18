@@ -51,6 +51,7 @@ def _pkg(kind, code, set_name):
 
 def test_coverage_for_bbox_uses_head_sizes_and_caches(monkeypatch, tmp_path):
     monkeypatch.setattr(dtm_coverage.settings, "DOWNLOADS_DIR", tmp_path)
+    monkeypatch.setattr(dtm_coverage, "_dmvs_down", lambda: False)
     units = [
         dtm_sources.DtmUnit("OBEC", 1, "Chudá", "Středočeský kraj"),
         dtm_sources.DtmUnit("OBEC", 2, "Úplná", "Středočeský kraj"),
