@@ -679,6 +679,7 @@ ONLINE_LABELS_EN = {
     "de_mv_dtk": "DTK10 Mecklenburg-Vorpommern (topographic map 1 : 10 000)",
     "de_ni_dop": "DOP20 Niedersachsen (orthophoto)",
     "de_ni_dtk": "DTK25 Niedersachsen (topographic map 1 : 25 000)",
+    "de_bb_dop": "DOP20 Brandenburg (orthophoto)",
 }
 
 

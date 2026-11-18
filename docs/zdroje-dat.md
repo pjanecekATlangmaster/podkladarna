@@ -24,6 +24,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-ST Německo – Sasko-Anhaltsko | beta | `de_st` | `none` | 2 | 2 |
 | DE-MV Německo – Meklenbursko-Přední Pomořansko | beta | `de_mv` | `none` | 2 | 2 |
 | DE-NI Německo – Dolní Sasko | beta | `de_ni` | `none` | 2 | 2 |
+| DE-BB Německo – Braniborsko | beta | `de_bb` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -168,6 +169,15 @@ Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · LGLN · OS
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM) | **DGM1 a DOM1 Dolní Sasko (ALS od 2019, 1 m), WCS 2.0.1**<br>Landesamt für Geoinformation und Landesvermessung Niedersachsen (LGLN)<br><https://opendata.geoservices.lgln.niedersachsen.de/dgm_wcs> · [info](https://dgm.stac.lgln.niedersachsen.de/) | 🟢 public – [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)<br>citace: „LGLN (<rok datového odběru>)“ | volný | napojeno (výšky)<br>sonda `de_ni_elevation` | • Brémy nejsou v pokrytí (vlastní země); STAC s COG po 1 km je záloha, nepoužito. | Claude 2026-11-18: GetCapabilities dgm_wcs a dom_wcs (AccessConstraints CC BY 4.0, Quellenvermerk „LGLN (Jahr) CC BY 4.0“; coverage ni_dgm1, ni_dom1, EPSG:25832), STAC katalog DOM1 (z ALS od 2019, ≥ 4 b/m², NoData −9999), zkušební dlaždice 2 × 2 km Goslar 10–12 MB za ~9 s |
 | ortofoto, mapa | **Ortofoto DOP20 a topografická mapa DTK25 (WMS LGLN OpenData)**<br>Landesamt für Geoinformation und Landesvermessung Niedersachsen (LGLN)<br><https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms> · [info](https://opendata.lgln.niedersachsen.de/) | 🟢 public – [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)<br>citace: „LGLN (<rok>)“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_ni_dop` | • Brémy jsou mimo pokrytí LGLN WMS i WCS. | Claude 2026-11-18: GetCapabilities dop_wms (ni_dop20) a dtk25_wms (ni_dtk25_farbe), AccessConstraints CC BY 4.0; GetMap EPSG:25832 OK |
+
+## DE-BB – Německo – Braniborsko
+
+Stav `beta`, CRS `EPSG:25833`. Citace v mapě: „Base map: Omapic · © GeoBasis-DE/LGB · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM) | **DGM1 a bDOM1 Braniborsko (1 m, povrch ze snímků), WCS 2.0.1**<br>Landesvermessung und Geobasisinformation Brandenburg (LGB)<br><https://isk.geobasis-bb.de/ows/dgm_wcs> · [info](https://www.govdata.de/dl-de/by-2-0) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)“ | volný | napojeno (výšky)<br>sonda `de_bb_elevation` | • Povrch bDOM je ze snímků (bildbasiert) → green: photo, pole s plodinami mohou vyjít jako porost. Laserový nDOM je jen v LAZ (data.geobasis-bb.de/geobasis/daten/ndom/), nenapojeno.<br>• Při použití dat Berlína (WCS pokrývá i Berlín) doplnit „© Geoportal Berlin, dl-de/by-2-0“; výřez v Berlíně ale vybere zemi DE. | Claude 2026-11-18: GetCapabilities dgm_wcs a bdom_wcs (Fees kostenfrei, AccessConstraints dl-de/by-2.0 s Namensnennung GeoBasis-DE/LGB; coverage bb_dgm, bb_bdom, EPSG:25833, 1 m, strop 20 000 px), zkušební dlaždice 2 × 2 km Potsdam 16 MB za 3–9 s, Float32 hodnoty (ne obarvená mapa, i když abstract DGM píše o barevných vrstvách) |
+| ortofoto | **Ortofoto DOP20 Berlín a Braniborsko (WMS LGB, mapproxy)**<br>Landesvermessung und Geobasisinformation Brandenburg (LGB)<br><https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms> · [info](https://www.govdata.de/dl-de/by-2-0) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis-DE/LGB, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_bb_dop` | • Topografická mapa DTK jako WMS na isk.geobasis-bb.de nenalezena (dtk25_wms, dtk_wms 404). | Claude 2026-11-18: GetCapabilities (vrstva bebb_dop20c, EPSG:25833, AccessConstraints dl-de/by-2.0), GetMap JPEG OK |
 
 ## PL – Polsko
 
