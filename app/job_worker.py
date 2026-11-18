@@ -18,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover - numpy je v image vždy (GDAL)
     pass
 
-from app import db, disk_space, i18n
+from app import db, disk_space, i18n, user_sources
 from app import settings as app_settings
 from app.mail import (
     MailError,
@@ -324,6 +324,18 @@ def _trim_order_work(job_id: str) -> None:
 
 
 def run_job(job_id: str) -> int:
+    """Běh jobu; vlastní data zadavatele (``app.user_sources``) se po něm vždy smažou."""
+    try:
+        return _run_job(job_id)
+    finally:
+        try:
+            if user_sources.cleanup_job(JOBS_DIR / job_id):
+                db.append_log(job_id, "Vlastní výšková data zadavatele smazána.")
+        except Exception:  # noqa: BLE001 – úklid nesmí změnit výsledek jobu; pojistka v denním úklidu
+            logger.exception("Smazání vlastních dat jobu %s selhalo", job_id)
+
+
+def _run_job(job_id: str) -> int:
     job_dir = JOBS_DIR / job_id
     ensure_proj_data()
 

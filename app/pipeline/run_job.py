@@ -207,7 +207,7 @@ def technical_map_line(tech_map: str, dtm_on: bool) -> str:
 
 
 # Popis výškových zdrojů země do logu (``elevation`` v ``configs/countries.yaml``).
-ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "sk_ugkk_local": "DMR 5.0 a DMP 1.0 (ÚGKK SR)", "ch_swisstopo": "swissALTI3D a swissSURFACE3D (swisstopo)",
+ELEVATION_LABELS = {"user_upload": "vlastních dat zadavatele", "nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "sk_ugkk_local": "DMR 5.0 a DMP 1.0 (ÚGKK SR)", "ch_swisstopo": "swissALTI3D a swissSURFACE3D (swisstopo)",
     "at_bev": "BEV ALS (1 m)",
     "de_berlin": "DGM1 a DOM1 Berlín (1 m)",
     "pl_gugik": "NMT a NMPT GUGiK (1 m)",
@@ -1211,10 +1211,12 @@ def run_job_pipeline(
     veg_texture = bool(bbox) and not cz_sources and not job_has_sprint(preset_id, options)
     # Zimní výšky bez listí (``green: leafoff``): zrnitost by les zazelenala; nízký porost v lese až po OSM.
     veg_country = job_country(options)
-    veg_leafoff = bool(bbox) and not cz_sources and veg_country is not None and veg_country.green == "leafoff"
+    # Vlastní data zadavatele nejsou národní zdroj země: zeleň jako u běžného laseru (bez leafoff / understory).
+    veg_green = "laser" if options.get("user_sources") else (veg_country.green if veg_country is not None else None)
+    veg_leafoff = bool(bbox) and not cz_sources and veg_green == "leafoff"
     if veg_leafoff:
         veg_texture = False
-    elif veg_texture and veg_country is not None and veg_country.green == "understory":
+    elif veg_texture and veg_green == "understory":
         veg_texture = "understory"  # horský les (Trentino): podíl nízkého patra místo zrnitosti
     if bbox and cz_sources:
         # RÚIAN budovy (cache; stejný dotaz později v „RÚIAN a AOPK“) – maska zástavby.
