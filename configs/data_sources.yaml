@@ -2143,6 +2143,53 @@ sources:
   issues:
     - "ALKIS WMS odmítá STYLES=default (StyleNotDefined), prázdný styl funguje u všech vrstev; ALKIS jen do 1 : 5 000."
 
+- id: de_st_dgm
+  countries: [DE-ST]
+  kinds: [elevation]
+  name: DGM1 a DOM1 Sasko-Anhaltsko (ALS, 1 m), WCS 2.0.1
+  provider: Landesamt für Vermessung und Geoinformation Sachsen-Anhalt (LVermGeo ST)
+  url: https://www.geodatenportal.sachsen-anhalt.de/ows_WCS_ST_DGM1
+  info: https://geodatenportal.sachsen-anhalt.de/gfds/datei/anzeigen/id/3567,501/nutzungsbedingungen_b.pdf
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_wcs_provider), app/pipeline/reference_de_states.py
+  provider_key: de_st
+  probe: de_st_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: © GeoBasis-DE / LVermGeo ST
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities ows_WCS_ST_DGM1 a ows_WCS_ST_DOM1 (Fees dl-de/by-2.0, AccessConstraints žádné; coverage Coverage1, EPSG:25832, 1 m, Float32), Nutzungsbedingungen v5.0 z 1. 3. 2024 bod 2 (offene Daten, dl-de/by-2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“), zkušební dlaždice 2 × 2 km Wernigerode 16 MB za 15 s"
+  issues:
+    - "WCS 2.0.1 vrací GeoTIFF jen jako multipart (GML + TIFF) a TIFF bez CRS: `_download` vyjme TIFF, VRT dostane -a_srs."
+    - "Stáří a druh náletu (ALS, olistění) podle WFS ows_lvermgeo_wfs_st_geobasis zatím neověřeny."
+
+- id: de_st_wms
+  countries: [DE-ST]
+  kinds: [orthophoto, map]
+  name: "Ortofoto DOP20 a topografická mapa DTK25 (WMS LVermGeo ST, OpenData)"
+  provider: Landesamt für Vermessung und Geoinformation Sachsen-Anhalt (LVermGeo ST)
+  url: https://www.geodatenportal.sachsen-anhalt.de/wss/service/ST_LVermGeo_DOP_WMS_OpenData/guest
+  info: https://geodatenportal.sachsen-anhalt.de/gfds/datei/anzeigen/id/3567,501/nutzungsbedingungen_b.pdf
+  role: šablona
+  reference_keys: ["online_de_st_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/by-2.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_st_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: © GeoBasis-DE / LVermGeo ST
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities ST_LVermGeo_DOP_WMS_OpenData (vrstva lsa_lvermgeo_dop20_2) a ST_LVermGeo_DTK_WMS_OpenData (lsa_lvermgeo_dtk25_col_1), EPSG:25832 i 25833, GetMap JPEG OK i se STYLES=default"
+  issues:
+    - "ALKIS WMS „OpenData“ vrací 403; ALKIS WFS OpenData odpovídá (napojení jako doplněk OSM zvlášť)."
+
 - id: de_bb_als
   countries:
   - DE
