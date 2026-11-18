@@ -22,7 +22,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -61,6 +61,9 @@ class DtmPackage:
     date: str  # YYYYMMDD (k poslednímu dni měsíce)
     set_name: str  # ZPS_OPL, ZPS_KR, ZPS_PB, ZPS_DOP, DI
     fmt: str  # jvf (shp/gpkg jen u vybraných regionálních portálů)
+    # Starší vydání téže jednotky a sady (nejnovější první) pro případ, že server kraje
+    # nejnovější balík ze seznamu nevydá (Liberecký kraj 2026-11: 31. 10. → 404).
+    older: tuple["DtmPackage", ...] = field(default=(), compare=False, repr=False)
 
     @property
     def filename(self) -> str:
@@ -340,17 +343,58 @@ def prune_older_packages(pkg: DtmPackage) -> int:
     return removed
 
 
+# Kódy, u kterých server balík ze seznamu DMVS nevydává → zkusit předchozí vydání.
+MISSING_PACKAGE_CODES = (404, 410)
+
+
+def _fmt_date(yyyymmdd: str) -> str:
+    return f"{int(yyyymmdd[6:8])}. {int(yyyymmdd[4:6])}. {yyyymmdd[:4]}"
+
+
+def download_package_or_older(pkg: DtmPackage, *, force: bool = False, log=None) -> Path:
+    """Jako ``download_package``; když server nejnovější vydání nevydá (404 / 410), vezme
+    předchozí vydání téže obce a sady (``pkg.older``) a zapíše to do logu.
+
+    Cache nejnovějšího vydání se nedotkne (při 404 žádný soubor nevznikne) a starší
+    vydání smaže až úspěšné stažení novějšího (``prune_older_packages``).
+    """
+    try:
+        return download_package(pkg, force=force, log=log)
+    except urllib.error.HTTPError as exc:
+        if exc.code not in MISSING_PACKAGE_CODES or not pkg.older:
+            raise
+        first_exc = exc
+    for older in pkg.older:
+        try:
+            path = download_package(older, force=force, log=log)
+        except urllib.error.HTTPError as exc:
+            if exc.code in MISSING_PACKAGE_CODES:
+                continue
+            raise
+        if log:
+            log(
+                f"DTM: ⚠ balík {pkg.filename} server nevydal (HTTP {first_exc.code}), "
+                f"beru předchozí vydání z {_fmt_date(older.date)} ({older.filename})"
+            )
+        return path
+    raise first_exc
+
+
 def download_packages(
     packages: list[DtmPackage], *, max_workers: int = 3, force: bool = False, log=None
 ) -> dict[str, Path]:
-    """Stáhne více balíků souběžně (I/O); ``{název souboru: cesta}``. Chyba jednoho balíku vyhodí výjimku."""
+    """Stáhne více balíků souběžně (I/O); ``{název souboru: cesta}``. Chyba jednoho balíku vyhodí výjimku.
+
+    Klíč je název požadovaného (nejnovějšího) balíku i tehdy, když se místo něj vzalo
+    předchozí vydání (``download_package_or_older``).
+    """
     from concurrent.futures import ThreadPoolExecutor
 
     if not packages:
         return {}
     workers = max(1, min(max_workers, len(packages)))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="dtm-get") as pool:
-        futures = {p.filename: pool.submit(download_package, p, force=force, log=log) for p in packages}
+        futures = {p.filename: pool.submit(download_package_or_older, p, force=force, log=log) for p in packages}
         return {name: fut.result() for name, fut in futures.items()}
 
 
@@ -396,16 +440,21 @@ def latest_packages(
 ) -> list[DtmPackage]:
     """Pro každou jednotku a sadu nejnovější balík. MOMC má přednost před OBEC.
 
+    Starší vydání ze seznamu nese balík v ``older`` (záloha při 404 na serveru kraje).
+
     Obec, jejíž městské části v seznamu jsou (Praha, Brno…), se přeskočí – data jsou
     jen po městských částech. Jednotka bez balíku se vynechá.
     """
-    by_key: dict[tuple[str, int, str], DtmPackage] = {}
+    releases: dict[tuple[str, int, str], dict[str, DtmPackage]] = {}
     for pkg in packages:
         if pkg.fmt != fmt or pkg.set_name not in sets:
             continue
         key = (pkg.unit_kind, pkg.unit_code, pkg.set_name)
-        if key not in by_key or pkg.date > by_key[key].date:
-            by_key[key] = pkg
+        releases.setdefault(key, {}).setdefault(pkg.date, pkg)
+    by_key: dict[tuple[str, int, str], DtmPackage] = {}
+    for key, by_date in releases.items():
+        ordered = [by_date[d] for d in sorted(by_date, reverse=True)]
+        by_key[key] = replace(ordered[0], older=tuple(ordered[1:]))
     have_momc = any(u.kind == "MOMC" and any(k[0] == "MOMC" and k[1] == u.code for k in by_key) for u in units)
     out: list[DtmPackage] = []
     for unit in units:
