@@ -748,11 +748,97 @@ def de_wcs_provider(key: str) -> Provider:
     return provider
 
 
+# Dlaždice 1 km podle indexu Metalink (Porýní-Falc): index (~12 MB) v cache, obnova po týdnu, při výpadku starý.
+DE_META4_MAX_AGE_S = 7 * 86400
+DE_META4_MAX_BYTES = 60_000_000
+DE_TILE_KM = 1000
+
+
+def _meta4_cache(url: str) -> Path:
+    return settings.CACHE_DIR / "de_meta4" / url.rsplit("/", 1)[-1]
+
+
+def parse_meta4_tiles(text: str, prefix: str) -> dict[tuple[int, int], str]:
+    """URL dlaždic z indexu Metalink: ``<prefix>_32_<E km>_<N km>_1_….tif`` → {(E, N): URL} (levý dolní roh v km)."""
+    pat = re.compile(rf"<url>(https://[^<]*/{re.escape(prefix)}_\d{{2}}_(\d+)_(\d+)_1_[^<]*\.tif)</url>")
+    return {(int(e), int(n)): url for url, e, n in pat.findall(text)}
+
+
+def de_meta4_index(url: str, prefix: str, *, log=None) -> dict[tuple[int, int], str]:
+    import time
+
+    path = _meta4_cache(url)
+    fresh = path.is_file() and time.time() - path.stat().st_mtime < DE_META4_MAX_AGE_S
+    if not fresh:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}")
+        try:
+            import urllib.request
+
+            from app.pipeline.fetch_openzu import USER_AGENT
+
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=120) as resp, tmp.open("wb") as fh:
+                size = 0
+                while chunk := resp.read(1 << 20):
+                    size += len(chunk)
+                    if size > DE_META4_MAX_BYTES:
+                        raise RuntimeError("index dlaždic je příliš velký")
+                    fh.write(chunk)
+            tmp.replace(path)
+        except Exception as exc:  # noqa: BLE001 – starý index stačí, bez něj výšky nejdou
+            tmp.unlink(missing_ok=True)
+            if not path.is_file():
+                raise ElevationUnavailable(f"index dlaždic {url.rsplit('/', 1)[-1]} nedostupný ({str(exc)[:80]})") from exc
+            log_issue(log, f"Index dlaždic {path.name} se neobnovil, beru starší ({str(exc)[:80]})")
+    return parse_meta4_tiles(path.read_text(encoding="utf-8", errors="replace"), prefix)
+
+
+def de_meta4_provider(key: str) -> Provider:
+    """Provider výšek země s dlaždicemi 1 km podle indexu Metalink (``tiles="meta4"`` v ``DE_WCS_STATES``)."""
+
+    def provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+        import math
+        from concurrent.futures import ThreadPoolExecutor
+
+        from app.pipeline.reference_de_states import DE_WCS_STATES
+
+        st = DE_WCS_STATES[key]
+        xmin, ymin, xmax, ymax = _buffered(bounds, st.crs, DE_WCS_BUFFER_M)
+        need = [(e, n) for e in range(math.floor(xmin / DE_TILE_KM), math.ceil(xmax / DE_TILE_KM))
+                for n in range(math.floor(ymin / DE_TILE_KM), math.ceil(ymax / DE_TILE_KM))]
+
+        def fetch(kind: str) -> Path | None:
+            index_url, prefix = st.dtm if kind == "dtm" else st.dsm
+            index = de_meta4_index(index_url, prefix, log=log)
+            urls = [index[t] for t in need if t in index]
+            if not urls:
+                return None
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix=f"{key}-{kind}") as ex:
+                tiles = list(ex.map(lambda j: _download_retry(j[1], out_dir / f"{key}_{kind}_{j[0]}.tif", log=log),
+                                    enumerate(urls)))
+            vrt = out_dir / f"{key}_{kind}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", st.crs, str(vrt), *map(str, tiles)], log=log)
+            return vrt
+
+        dtm = fetch("dtm")
+        if dtm is None:
+            raise ElevationUnavailable(f"výřez je mimo dlaždice DGM1 ({st.name})")
+        try:
+            dsm = fetch("dsm")
+        except Exception as exc:  # noqa: BLE001 – bez povrchu mapa vznikne, jen bez výšky porostu
+            log_issue(log, f"{st.name}: povrch DOM1 se nestáhl ({str(exc)[:120]}), výška porostu chybí")
+            dsm = None
+        return SourceRasters(dtm, dsm)
+
+    return provider
+
+
 def _register_de_wcs() -> None:
     from app.pipeline.reference_de_states import DE_WCS_STATES
 
-    for key in DE_WCS_STATES:
-        PROVIDERS[key] = de_wcs_provider(key)
+    for key, st in DE_WCS_STATES.items():
+        PROVIDERS[key] = de_meta4_provider(key) if st.tiles == "meta4" else de_wcs_provider(key)
 
 
 _register_de_wcs()
@@ -1864,6 +1950,7 @@ SOURCE_LABELS = {
     "de_mv": "DGM1 a DOM1, LAiV Mecklenburg-Vorpommern",
     "de_ni": "DGM1 a DOM1, LGLN Niedersachsen",
     "de_bb": "DGM1 a bDOM1, LGB Brandenburg",
+    "de_rp": "DGM1 a DOM1, LVermGeo Rheinland-Pfalz",
 }
 
 

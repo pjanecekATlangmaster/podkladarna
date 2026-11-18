@@ -2355,6 +2355,52 @@ sources:
   issues:
     - "Topografická mapa DTK jako WMS na isk.geobasis-bb.de nenalezena (dtk25_wms, dtk_wms 404)."
 
+- id: de_rp_dgm
+  countries: [DE-RP]
+  kinds: [elevation]
+  name: DGM1 a DOM1 Porýní-Falc (ALS, 1 m), GeoTIFF po 1 km podle indexu Metalink
+  provider: Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)
+  url: https://geobasis-rlp.de/data/dgm1/current/meta4/dgm1_tif_07.meta4
+  info: https://geoshop.rlp.de/dl-de_by-2-0.html
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_meta4_provider), app/pipeline/reference_de_states.py
+  provider_key: de_rp
+  probe: de_rp_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: ©GeoBasis-DE / LVermGeoRP (rok odběru), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]
+  access: free
+  checked: "Claude 2026-11-18: index Metalink dgm1 (12 MB) a dom1 (9 MB), 21 108 dlaždic po 1 km s rokem náletu 2023–2026 v názvu, GeoTIFF 1000 × 1000 Float32 EPSG:25832 + DHHN2016, NoData −9999, 1,5–1,8 MB; licence z Fees WMS rp_dop20 a odkazu Nutzungsbedingungen na geobasis-rlp.de/data"
+  issues:
+    - "WCS DGM (rp_dgm1.fcgi) vyžaduje přihlášení (401) – proto dlaždice. Názvy dlaždic nesou rok náletu a mění se, index se drží v cache a obnovuje po týdnu; sonda dělá HEAD na index."
+
+- id: de_rp_wms
+  countries: [DE-RP]
+  kinds: [orthophoto, map]
+  name: "Ortofoto DOP20 a topografická mapa DTK25 (WMS LVermGeo RP)"
+  provider: Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)
+  url: https://geo4.service24.rlp.de/wms/rp_dop20.fcgi
+  info: https://geoshop.rlp.de/dl-de_by-2-0.html
+  role: šablona
+  reference_keys: ["online_de_rp_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/by-2.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_rp_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: ©GeoBasis-DE / LVermGeoRP (rok), dl-de/by-2-0, http://www.lvermgeo.rlp.de
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities rp_dop20.fcgi (vrstva rp_dop20, Fees dl-de/by-2.0) a rp_dtk25.fcgi (rp_dtk25), GetMap EPSG:25832 OK"
+  issues:
+    - "DTK5 WMS vrací 403; použita DTK25."
+
 - id: de_bb_als
   countries:
   - DE
