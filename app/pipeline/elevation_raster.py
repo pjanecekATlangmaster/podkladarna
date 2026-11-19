@@ -156,6 +156,8 @@ def _download(url: str, dest: Path, *, log=None, max_bytes: int = DOWNLOAD_MAX_B
                 tmp.unlink(missing_ok=True)
                 raise too_big
             fh.write(chunk)
+    if ctype.lower().startswith("multipart/"):
+        ctype = _multipart_tiff(tmp) or ctype
     if "tiff" not in ctype.lower() or tmp.stat().st_size < 500:
         detail = tmp.read_bytes()[:300].decode("utf-8", "replace")
         tmp.unlink(missing_ok=True)
@@ -164,6 +166,24 @@ def _download(url: str, dest: Path, *, log=None, max_bytes: int = DOWNLOAD_MAX_B
     if log:
         log(f"  {dest.name}: {dest.stat().st_size / 1e6:.1f} MB")
     return dest
+
+
+def _multipart_tiff(path: Path) -> str | None:
+    """Z multipart odpovědi WCS 2.0.1 (GML + TIFF, MapServer) nechá v souboru jen TIFF; vrátí jeho Content-Type."""
+    raw = path.read_bytes()
+    if not raw.startswith(b"--"):
+        return None
+    boundary = raw[: raw.find(b"\n")].rstrip(b"\r")
+    head = raw.find(b"Content-Type: image/tiff")
+    if head < 0:
+        return None
+    m = re.compile(rb"\r?\n\r?\n").search(raw, head)
+    if m is None or raw[m.end():m.end() + 4] not in (b"II*\x00", b"MM\x00*"):
+        return None
+    end = raw.find(b"\n" + boundary, m.end())
+    end = len(raw) if end < 0 else end - (raw[end - 1:end] == b"\r")
+    path.write_bytes(raw[m.end():end])
+    return "image/tiff"
 
 
 def tile_boxes(
@@ -676,6 +696,66 @@ def de_nrw_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 
 
 PROVIDERS["de_nrw"] = de_nrw_provider
+
+
+# --------------------------------------------------------------------------- DE: země s DGM1 + DOM1 z WCS 2.0.1
+
+# Sasko-Anhaltsko a další země se stejným typem služby (tabulka ``reference_de_states.DE_WCS_STATES``): terén DGM1
+# a povrch DOM1 (ALS) po 1 m z WCS zemského úřadu po dlaždicích 2 km v nativním UTM. Povrch je nepovinný: bez něj
+# mapa vznikne bez výšky porostu (log ⚠).
+DE_WCS_MAX_SIDE_M = 2000.0
+DE_WCS_BUFFER_M = 20.0
+
+
+def de_wcs_tile_urls(key: str, kind: str, bounds_utm: tuple[float, float, float, float]) -> list[str]:
+    from app.pipeline.reference_de_states import DE_WCS_STATES, wcs_coverage_url
+
+    st = DE_WCS_STATES[key]
+    service = st.dtm if kind == "dtm" else st.dsm
+    boxes = tile_boxes(bounds_utm, max_side=DE_WCS_MAX_SIDE_M, buffer=DE_WCS_BUFFER_M, step=1.0)
+    return [wcs_coverage_url(service, b) for b in boxes]
+
+
+def de_wcs_provider(key: str) -> Provider:
+    """Provider výšek země z ``DE_WCS_STATES`` (DGM1 + DOM1 z WCS po dlaždicích 2 km)."""
+
+    def provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+        from concurrent.futures import ThreadPoolExecutor
+
+        from app.pipeline.reference_de_states import DE_WCS_STATES
+
+        st = DE_WCS_STATES[key]
+        bounds_utm = _bounds_in(bounds, CRS_WKT, st.crs)
+
+        def fetch(kind: str) -> Path:
+            urls = de_wcs_tile_urls(key, kind, bounds_utm)
+            with ThreadPoolExecutor(max_workers=2, thread_name_prefix=f"{key}-{kind}") as ex:
+                tiles = list(ex.map(lambda j: _download_retry(j[1], out_dir / f"{key}_{kind}_{j[0]}.tif", log=log),
+                                    enumerate(urls)))
+            vrt = out_dir / f"{key}_{kind}.vrt"
+            # -a_srs: MapServer Saska-Anhaltska vrací TIFF bez CRS
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", st.crs, str(vrt), *map(str, tiles)], log=log)
+            return vrt
+
+        dtm = fetch("dtm")
+        try:
+            dsm: Path | None = fetch("dsm")
+        except Exception as exc:  # noqa: BLE001 – bez povrchu mapa vznikne, jen bez výšky porostu
+            log_issue(log, f"{st.name}: povrch DOM1 se nestáhl ({str(exc)[:120]}), výška porostu chybí")
+            dsm = None
+        return SourceRasters(dtm, dsm)
+
+    return provider
+
+
+def _register_de_wcs() -> None:
+    from app.pipeline.reference_de_states import DE_WCS_STATES
+
+    for key in DE_WCS_STATES:
+        PROVIDERS[key] = de_wcs_provider(key)
+
+
+_register_de_wcs()
 
 
 # --------------------------------------------------------------------------- PL: NMT + NMPT (GUGiK)
@@ -1780,6 +1860,7 @@ SOURCE_LABELS = {
     "be_dhmv": "DHMV II DTM a DSM, Digitaal Vlaanderen",
     "fi_mml": "Korkeusmalli 2 m MML a latvusmalli Metsäkeskus",
     "lu_act": "LiDAR 2024 MNT a MNS, ACT Luxembourg",
+    "de_st": "DGM1 a DOM1, LVermGeo Sachsen-Anhalt",
 }
 
 

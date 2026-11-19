@@ -69,6 +69,7 @@ from app.pipeline.reference_by import (
     BY_DOP_WMS,
 )
 from app.pipeline.reference_pl import PL_ORTHO_LAYER, PL_ORTHO_WMS, PL_TOPO_LAYER, PL_TOPO_WMS
+from app.pipeline.reference_de_states import DE_WCS_STATES
 from app.pipeline.reference_lu import LU_CADASTRE_LAYER, LU_ORTHO_LAYER, LU_TOPO_LAYER, LU_WMS
 from app.pipeline.reference_it import TN_CTP_LAYER, TN_HILLSHADE_LAYER, TN_ORTHO_LAYER, TN_WMS
 from app.pipeline.reference_ch import (
@@ -297,6 +298,7 @@ def wms_layers_for(country: str) -> tuple[tuple[str, str, str, str, str, str, bo
         "DE-NW": DE_NW_ONLINE_WMS_LAYERS,
         "PL": PL_ONLINE_WMS_LAYERS,
         "DE-BY": DE_BY_ONLINE_WMS_LAYERS,
+        **{st.code: st.wms for st in DE_WCS_STATES.values()},
     }.get(country, ())
 
 
@@ -628,7 +630,7 @@ def online_labels() -> dict[str, str]:
             *ONLINE_WMS_LAYERS, *NL_ONLINE_WMS_LAYERS, *CH_ONLINE_WMS_LAYERS, *AT_ONLINE_WMS_LAYERS,
             *DE_ONLINE_WMS_LAYERS, *FR_ONLINE_WMS_LAYERS, *EE_ONLINE_WMS_LAYERS, *IT_ONLINE_WMS_LAYERS,
             *BE_ONLINE_WMS_LAYERS, *FI_ONLINE_WMS_LAYERS, *LU_ONLINE_WMS_LAYERS, *DE_NW_ONLINE_WMS_LAYERS,
-            *PL_ONLINE_WMS_LAYERS, *DE_BY_ONLINE_WMS_LAYERS,
+            *PL_ONLINE_WMS_LAYERS, *DE_BY_ONLINE_WMS_LAYERS, *(w for st in DE_WCS_STATES.values() for w in st.wms),
         )
     ] + [(NL_ONLINE_BGT[0], NL_ONLINE_BGT[2]), (ONLINE_OSM[0], ONLINE_OSM[2])]
     layers += [(k, label) for tms in ONLINE_TMS_LAYERS.values() for k, _f, label, *_r in tms]
@@ -671,6 +673,8 @@ ONLINE_LABELS_EN = {
     "it_hillshade": "LiDAR hillshade (Provincia di Trento)",
     "be_ortho": "Orthofoto Vlaanderen (winter 2025)",
     "be_cadastre": "Cadastre (administratieve percelen)",
+    "de_st_dop": "DOP20 Sachsen-Anhalt (orthophoto)",
+    "de_st_dtk": "DTK25 Sachsen-Anhalt (topographic map 1 : 25 000)",
 }
 
 

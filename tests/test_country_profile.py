@@ -115,6 +115,7 @@ def test_sk_beta_only_with_local_data(tmp_path, monkeypatch, with_data):
         ({"country": "PL"}, False, "pl_gugik"),
         ({"country": "GB-ENG"}, False, "gb_ea"),
         ({"country": "DE-BY"}, False, "de_by"),
+        ({"country": "DE-ST"}, False, "de_st"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -345,6 +346,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("DE-NW", ("Geobasis NRW (Datenlizenz Deutschland – Zero 2.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Berlin")),
         ("PL", ("Główny Urząd Geodezji i Kartografii (GUGiK), dane przetworzone", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "NRW")),
         ("DE-BY", ("Bayerische Vermessungsverwaltung – www.geodaten.bayern.de (CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "NRW")),
+        ("DE-ST", ("© GeoBasis-DE / LVermGeo ST (Datenlizenz Deutschland – Namensnennung – Version 2.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Bayern")),
         ("GB-ENG", ("© Environment Agency copyright and/or database right 2022", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GUGiK")),
     ],
 )
@@ -429,6 +431,8 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_pl_ortho", "mapy.geoportal.gov.pl", "Raster"),
         ("DE-BY", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_by_dop", "online_de_by_dok", "online_de_by_alkis"},
          "online_de_by_dop", "geoservices.bayern.de", "by_dop40c"),
+        ("DE-ST", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_st_dop", "online_de_st_dtk"},
+         "online_de_st_dop", "www.geodatenportal.sachsen-anhalt.de", "lsa_lvermgeo_dop20_2"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):
