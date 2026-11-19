@@ -29,6 +29,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-BW Německo – Bádensko-Württembersko | beta | `de_bw` | `none` | 2 | 2 |
 | DE-SN Německo – Sasko | beta | `de_sn` | `none` | 2 | 2 |
 | DE-HE Německo – Hesensko | beta | `de_he` | `none` | 2 | 1 |
+| DE-SL Německo – Sársko | beta | `de_sl` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -219,6 +220,15 @@ Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Geobasisda
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS) Hesensko, INSPIRE WCS 2.0.1**<br>Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)<br><https://inspire-hessen.de/raster/dgm1/ows> · [info](https://hvbg.hessen.de/geoinformation/geodateninfrastruktur/geoportal-hessen/inspire-standardisierte-geodatendienste) | 🟢 public – [Datenlizenz Deutschland – Zero 2.0](https://www.govdata.de/dl-de/zero-2-0)<br>citace: „Geobasisdaten © HVBG, dl-de/zero-2-0 (zdroj s upozorněním na změny, § 18 HVGG)“ | volný | napojeno (výšky)<br>sonda `de_he_elevation` | • Osy WCS se jmenují E / N (ne x / y), proto DeWcsState.axes. | Claude 2026-11-19: GetCapabilities a DescribeCoverage he_dgm1 / dom1 (EPSG:25832, osy E N, rozsah 411000 5471000 – 587000 5724000, Fees dl-de/zero-2.0), GetCoverage 2 × 2 km 200 image/tiff 16 MB za 2 s, 2000 × 2000 px Float32, hrany na celé metry; DOM1 z ALS (Produktblatt Oberflächenmodelle HVBG) |
 | ortofoto, mapa | **Ortofoto DOP20 a DTK25 (WMS HVBG ogc-free)**<br>Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)<br><https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows> · [info](https://www.gds.hessen.de/) | 🟢 public – [Nutzung ohne Einschränkung (§ 18 HVGG)](https://www.gds.hessen.de/)<br>citace: „© HVBG“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_he_dop` | – | Claude 2026-11-19: GetCapabilities ogc-free-images (he_dop20_rgb) a ogc-free-maps (he_dtk25), AccessConstraints „ohne Einschränkung oder Bedingung“, GetMap EPSG:25832 200 |
+
+## DE-SL – Německo – Sársko
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · © GeoBasis DE/LVGL-SL · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS 2025) Sársko, GeoTIFF po 1 km v ZIPech okresů**<br>Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)<br><https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/NK8ndP55qAqGEZD/OD_DGM1_2025_tif_LK/DGM1_tif_NK_EPSG-25832_Entstehung-2025.zip> · [info](https://www.shop.lvgl.saarland.de/cloud/freiegeobasisdaten?dir=/OD_DGM1_2025_tif_LK) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis DE/LVGL-SL (Jahr), dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_sl_elevation` | • Server občas přeruší spojení (connection reset); dotazy Range se opakují (ZIP_RANGE_RETRIES).<br>• Index dlaždic (centrální adresáře ZIPů) se drží 30 dní v cache de_sl_index; po vydání nových ZIPů se obnoví sám, adresy okresů jsou pevně v reference_de_states. | Claude 2026-11-19: metadata ATKIS DGM1 (2025) v geoportal.saarland.de (dl-de/by-2-0, Quellenvermerk © GeoBasis DE/LVGL-SL (Jahr)); sdílení Nextcloud: DGM1 a DOM1 po okresech (MZG, NK, SB, SLS, SPK, WND, 0,56–1,3 GB), uvnitř dgm1_32_<E>_<N>_1_SL_2025.tif (1000 × 1000 px, EPSG:25832, deflate ~1,8 MB); Range 206 – index 2 775 dlaždic za ~23 s, dlaždice DGM + DOM za ~3 s |
+| ortofoto | **Ortofoto DOP20 2025 (WMS LVGL freewms)**<br>Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)<br><https://geoportal.saarland.de/freewms/dop2025> · [info](https://geoportal.saarland.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis DE/LVGL-SL (Jahr), dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_sl_dop` | • Licence WMS převzatá z volných geobasisdat LVGL (GetCapabilities má Fees None). | Claude 2026-11-19: GetCapabilities (vrstva sl_dop20_rgb), GetMap EPSG:25832 200 image/jpeg |
 
 ## PL – Polsko
 

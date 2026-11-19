@@ -221,6 +221,7 @@ ELEVATION_LABELS = {"nl_ahn": "AHN (PDOK)", "sk_ugkk": "DMR 5.0 (ÚGKK SR)", "sk
     "de_bw": "DGM1 a nDOM1 LGL Baden-Württemberg (1 m, povrch ze snímků)",
     "de_sn": "DGM1 a DOM1 GeoSN Sachsen (1 m)",
     "de_he": "DGM1 a DOM1 HVBG Hessen (1 m)",
+    "de_sl": "DGM1 a DOM1 LVGL Saarland (1 m)",
     "de_nrw": "DGM1, DOM1 a nDOM50 Geobasis NRW (1 m, porost = menší ze zimního lidaru a letních snímků)",
     "fr_lidarhd": "LiDAR HD MNT a MNS (IGN, 0,5 m)",
     "ee_maaamet": "DTM a DSM Maa- ja Ruumiamet (1 m)",

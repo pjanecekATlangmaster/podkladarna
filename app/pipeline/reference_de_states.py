@@ -28,6 +28,7 @@ class DeWcsState:
     tiles: str = "wcs"           # wcs = GetCoverage po 2 km | meta4 = GeoTIFF po 1 km podle indexu Metalink
                                  # | bw_zip = ZIP po 2 km (``dtm`` XYZ, ``dsm`` = nDOM, výška nad terénem), cache
                                  # | sn_zip = ZIP po 2 km s jedním GeoTIFF (DGM1 i DOM1 absolutně), cache
+                                 # | zip_range = GeoTIFF po 1 km čtené rozsahy z velkých ZIPů (``ZIP_RANGE_PARTS``)
     axes: tuple[str, str] = ("x", "y")  # popisky os WCS v SUBSET (Hesensko „E N“)
 
 
@@ -49,6 +50,9 @@ SN_GEOCLOUD = "https://geocloud.landesvermessung.sachsen.de/public.php/dav/files
 SN_WMS = "https://geodienste.sachsen.de"
 HE_WCS = "https://inspire-hessen.de/raster"
 HE_WMS = "https://www.gds-srv.hessen.de/cgi-bin/lika-services"
+SL_DAV = "https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/NK8ndP55qAqGEZD"
+SL_WMS = "https://geoportal.saarland.de/freewms"
+SL_COUNTIES = ("MZG", "NK", "SB", "SLS", "SPK", "WND")  # okresy (Landkreise), jeden ZIP na okres
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -182,6 +186,22 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         ),
         axes=("E", "N"),
     ),
+    # Sársko (LVGL): dl-de/by-2.0, „© GeoBasis DE/LVGL-SL (Jahr)“ (metadata ATKIS DGM1 2025). Volná data jen jako ZIP
+    # na okres (0,6–1,3 GB, veřejné sdílení Nextcloud „freiegeobasisdaten“), uvnitř GeoTIFF po 1 km (~1,8 MB, deflate).
+    # Server podporuje Range → z ZIPu se čte jen adresář a potřebné dlaždice. DGM1 i DOM1 z ALS 2025.
+    "de_sl": DeWcsState(
+        code="DE-SL",
+        name="Sársko",
+        crs="EPSG:25832",
+        dtm=(f"{SL_DAV}/OD_DGM1_2025_tif_LK", "DGM1"),
+        dsm=(f"{SL_DAV}/OD_DOM1_2025_tif_LK", "DOM1"),
+        probe_box=(350000, 5475000, 350016, 5475016),  # Neunkirchen
+        wms=(
+            ("de_sl_dop", "dop_saarland.xml", "DOP20 Saarland (ortofoto)", f"{SL_WMS}/dop2025", "sl_dop20_rgb",
+             "image/jpeg", False, 0.2),
+        ),
+        tiles="zip_range",
+    ),
 }
 
 
@@ -215,6 +235,12 @@ def sn_zip_url(service: tuple[str, str], east_km: int, north_km: int) -> str:
     return f"{base}/{prefix}_33{east_km}_{north_km}_2_sn_tiff.zip"
 
 
+def zip_range_parts(service: tuple[str, str]) -> list[str]:
+    """ZIPy okresů Sárska jedné vrstvy (``DGM1`` / ``DOM1``)."""
+    folder, prefix = service
+    return [f"{folder}/{prefix}_tif_{lk}_EPSG-25832_Entstehung-2025.zip" for lk in SL_COUNTIES]
+
+
 def elevation_probe(key: str) -> str:
     """Sonda výšek: malý GetCoverage, u souborových zdrojů index nebo ZIP dlaždice (jen HEAD)."""
     st = DE_WCS_STATES[key]
@@ -222,6 +248,8 @@ def elevation_probe(key: str) -> str:
         return st.dtm[0]
     if st.tiles == "bw_zip":
         return bw_zip_url(st.dtm, int(st.probe_box[0] // 1000), int(st.probe_box[1] // 1000))
+    if st.tiles == "zip_range":
+        return zip_range_parts(st.dtm)[1]
     if st.tiles == "sn_zip":
         return sn_zip_url(st.dtm, int(st.probe_box[0] // 2000) * 2, int(st.probe_box[1] // 2000) * 2)
     return wcs_coverage_url(st.dtm, st.probe_box, st.axes)

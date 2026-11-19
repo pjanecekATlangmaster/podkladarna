@@ -183,18 +183,18 @@ def test_prune_lidar_cache_drops_least_recently_used(tmp_path: Path, monkeypatch
         t = 1_000_000 - age
         os.utime(folder / ".last_used", (t, t))
 
-    # dlaždice výšek Berlína, BW, Saska a Trentina jsou položky cache jako list
+    # dlaždice výšek Berlína, BW, Saska, Sárska a Trentina jsou položky cache jako list
     berlin, trento = tmp_path / "de_berlin" / "390_5818", tmp_path / "it_trentino" / "5h663050995"
-    bw, sn = tmp_path / "de_bw" / "488_5400", tmp_path / "de_sn" / "412_5656"
-    for folder, size, age in ((berlin, 200, 500), (bw, 300, 480), (sn, 200, 470), (trento, 300, 450)):
+    bw, sn, sl = tmp_path / "de_bw" / "488_5400", tmp_path / "de_sn" / "412_5656", tmp_path / "de_sl" / "350_5475"
+    for folder, size, age in ((berlin, 100, 500), (bw, 300, 480), (sn, 200, 470), (sl, 100, 460), (trento, 300, 450)):
         folder.mkdir(parents=True)
         (folder / "dtm.tif").write_bytes(b"b" * size)
         touch_last_used(folder)
         os.utime(folder / ".last_used", (1_000_000 - age, 1_000_000 - age))
 
     freed = prune_lidar_cache(max_bytes=3200, keep_sheets={"job"})
-    assert freed == 4000  # Berlín (200 B) + BW (300 B) + Sasko (200 B) + Trentino (300 B) + OLD + MID (každý 1 500 B)
-    assert not berlin.exists() and not bw.exists() and not sn.exists() and not trento.exists()
+    assert freed == 4000  # Berlín, BW, Sasko, Sársko, Trentino (1 000 B) + OLD + MID (každý 1 500 B)
+    assert not any(p.exists() for p in (berlin, bw, sn, sl, trento))
     assert not units["OLD"].exists() and not units["MID"].exists()
     assert not (tmp_path / "lidar_sheet_crop" / "OLD").exists()
     assert units["NEW"].exists() and units["JOB"].exists()

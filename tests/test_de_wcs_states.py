@@ -182,3 +182,29 @@ def test_sn_provider_uses_cached_tiles(tmp_path, monkeypatch):
 def test_wcs_axes_from_state():
     urls = er.de_wcs_tile_urls("de_he", "dtm", (480000.0, 5560000.0, 481000.0, 5561000.0))
     assert len(urls) == 1 and "SUBSET=E(479980,481020)" in urls[0] and "SUBSET=N(" in urls[0]
+
+
+def test_zip_range_index_and_member(tmp_path, monkeypatch):
+    import io
+    import re
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("DGM1_tif_NK/dgm1_32_350_5475_1_SL_2025.tif", b"II*\x00" + b"x" * 5000)
+        zf.writestr("DGM1_tif_NK/readme.txt", b"-")
+    raw = buf.getvalue()
+    monkeypatch.setattr(er, "_http_range", lambda url, start, end: raw[start:end + 1])
+    with zipfile.ZipFile(er._RangeFile("u", len(raw))) as zf:
+        index = er.parse_zip_tile_names(zf.infolist(), re.compile(r"dgm1_\d{2}_(\d+)_(\d+)_1_[^/]*\.tif$"))
+    assert list(index) == ["350_5475"]
+    assert er.zip_member_bytes("u", *index["350_5475"]) == b"II*\x00" + b"x" * 5000
+    monkeypatch.setattr(er, "ZIP_RANGE_MAX_MEMBER_BYTES", 1000)  # deflate rozbalený nad limit
+    with pytest.raises(RuntimeError, match="přes limit"):
+        er.zip_member_bytes("u", *index["350_5475"])
+
+
+def test_zip_range_tiles_and_probe():
+    assert er.zip_range_tiles((349990.0, 5474990.0, 351020.0, 5475020.0)) == [
+        (349, 5474), (349, 5475), (350, 5474), (350, 5475), (351, 5474), (351, 5475)]
+    assert elevation_probe("de_sl").endswith("/DGM1_tif_NK_EPSG-25832_Entstehung-2025.zip")
