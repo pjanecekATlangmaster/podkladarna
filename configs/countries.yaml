@@ -9,6 +9,8 @@
 # technical_map_area: naopak polygon jediného území s technickou mapou (FR = Paříž); výřez mimo něj ji nestahuje.
 # boundary: zjednodušený polygon hranice (WGS84, lehce rozšířený, aby výřez u hranice neodpadl na toleranci).
 # green: zeleň v lese (points = hustota bodů z mračna, CZ výchozí | laser = zrnitost z laserového povrchu, jinde výchozí | photo = povrch ze snímků, jen základní; mapa v GUI šrafuje | leafoff = zimní laser bez listí, bez zrnitosti, v lese z OSM bílý les | understory = horský les, zeleň z podílu nízkého patra místo zrnitosti).
+# contour_smooth: výchozí vyhlazení vrstevnic, když job nechá volbu „podle země“ (1 adaptivní – výchozí, 0 méně vyhlazení – sever).
+# terrain_vectors: terénní prvky z národní topografické databáze nad OSM (fi_mtk = Maastotietokanta).
 # elevation_years: roky snímkování výšek (text do upozornění před buildem); data_notes: důsledky dat ukázané před buildem,
 #   v logu, README a poznámce .omap (old = data starší ~10 let, coarse = terén hrubší než 1 m; photo plyne z green) – app/data_notes.py.
 #   Uvádět jen tam, kde to opravdu mění kresbu; Česko žádné.
@@ -422,6 +424,7 @@ FI:
   technical_map: fi_hel     # Helsinky YLRE: budovy, uliční prostor (sprint v celé šířce), vozovky, chodníky, parkoviště, schody, trávníky
   technical_map_area: countries/fi_helsinki.geojson  # YLRE vede jen město Helsinky; jinde kresba z OSM
   terrain_vectors: fi_mtk   # Maastotietokanta (zrcadlo Kapsi): bažiny, skalní stěny, otevřená skála, balvany, pole nad OSM
+  contour_smooth: 0         # méně vyhlazené vrstevnice (mikroreliéf jako na reálné mapě Nuuksio, Petr 2026-11-19)
   cz_sources: false
   # Licence: CC BY 4.0 (MML, Suomen metsäkeskus, Helsingin kaupunki – uvést zdroj).
   citation: "Base map: Omapic · MML · Metsäkeskus · Helsingin kaupunki · OSM, [year]"
@@ -470,6 +473,7 @@ DK:
   view: [57.97, 4.6, 71.19, 31.14]
   elevation: no_hoyde       # Nasjonal detaljert høydemodell DTM + DOM (lidar) z WCS Geonorge po 1 m, výšky NN2000
   technical_map: none       # FKB je „Norge digitalt begrenset“ (jen se smlouvou) – kresba z OSM
+  contour_smooth: 0         # méně vyhlazené vrstevnice (mikroreliéf jako na reálné mapě Sognsvann, Petr 2026-11-19)
   cz_sources: false
   # Licence: volné produkty Kartverket CC BY 4.0 i komerčně, uvést „©Kartverket“ a odkaz (ověřeno 2026-11-19, terms-of-use a metadata DOM1).
   citation: "Base map: Omapic · ©Kartverket · OSM, [year]"

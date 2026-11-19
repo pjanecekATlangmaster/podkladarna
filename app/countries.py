@@ -98,6 +98,9 @@ class Country:
     # Terénní prvky z národní topografické databáze nad OSM (bažiny, skály, balvany, pole): ``fi_mtk``
     # Maastotietokanta (``app.pipeline.mtk_fi``); prázdné = jen OSM.
     terrain_vectors: str = ""
+    # Výchozí vyhlazení vrstevnic (volba jobu ``contour_smooth`` = auto): 1 adaptivní, 0 méně vyhlazení.
+    # Sever 0 (Petr 2026-11-19: reálné mapy Nuuksio a Sognsvann mají mikroreliéf, který adaptivní vyhlazení maže).
+    contour_smooth: int = 1
 
     def name(self, lang: str = "cs") -> str:
         return self.names.get(lang) or self.names.get("en") or self.code
@@ -182,6 +185,7 @@ def load_countries() -> dict[str, Country]:
             elevation_years=str(spec.get("elevation_years") or ""),
             data_notes=tuple(str(k) for k in (spec.get("data_notes") or [])),
             terrain_vectors=str(spec.get("terrain_vectors") or ""),
+            contour_smooth=int(spec.get("contour_smooth", 1)),
         )
         if len(view) != 4:
             w, s, e, n = country.envelope

@@ -35,7 +35,7 @@ BBOX = [14.4, 50.08, 14.42, 50.09]
             {"kp_cliff_symbol": "rock_face", "kp_osm_benches": True, "veg_smooth": "round"},
             {
                 "map_scale": "4000", "map_types": [], "kp_cliff_symbol": "auto",
-                "kp_osm_objects": "1", "veg_smooth": "1", "contour_smooth": "1",
+                "kp_osm_objects": "1", "veg_smooth": "1", "contour_smooth": "auto",
                 "kp_vege_height": "2", "dtm": "1", "output_references": False,
             },
         ),

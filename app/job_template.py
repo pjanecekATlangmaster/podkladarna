@@ -13,7 +13,7 @@ from typing import Any
 from app import i18n
 from app.pipeline.job_options import (
     resolve_cliff_sensitivity,
-    resolve_contour_smooth,
+    contour_smooth_choice,
     resolve_formline_mode,
     resolve_map_types,
     resolve_osm_objects_mode,
@@ -114,7 +114,7 @@ def job_form_template(job: dict[str, Any], presets: dict | None = None) -> dict[
         ),
         "map_types": map_types,
         "contour_formlines": resolve_formline_mode(opts),
-        "contour_smooth": str(resolve_contour_smooth(opts)),
+        "contour_smooth": contour_smooth_choice(opts),
         "veg_smooth": str(resolve_veg_smooth(opts)),
         "kp_vege_height": str(int(vege)) if float(vege).is_integer() else str(vege),
         "kp_cliff_symbol": cliff,
