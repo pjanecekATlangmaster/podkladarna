@@ -1009,5 +1009,8 @@
   "issue.what.dmpok": "surface preview (DMP OK)",
   "issue.what.hillshade": "hillshade",
   "issue.what.hillshade_cuzk": "ČÚZK hillshade",
-  "issue.what.references": "base layers (orthophoto, cadastre, hillshade…)"
+  "issue.what.references": "base layers (orthophoto, cadastre, hillshade…)",
+  "web.page.zdroje_dat_a_licence": "Data sources and licences",
+  "web.page.zdroje_dat_a_licence_note": "You may use and share the map, as long as the sources are credited. The same details are in the ZIP (ABOUT_OMAPIC.txt) and on the <a href=\"/licence\" target=\"_blank\" rel=\"noopener\">Licence</a> page.",
+  "web.js.licenses.cite": "State on the map or in its legend: {citation}"
 }

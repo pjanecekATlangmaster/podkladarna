@@ -1008,5 +1008,8 @@
   "issue.what.dmpok": "náhled povrchu (DMP OK)",
   "issue.what.hillshade": "stínování reliéfu",
   "issue.what.hillshade_cuzk": "stínování reliéfu z ČÚZK",
-  "issue.what.references": "podkladové vrstvy (ortofoto, katastr, stínování…)"
+  "issue.what.references": "podkladové vrstvy (ortofoto, katastr, stínování…)",
+  "web.page.zdroje_dat_a_licence": "Zdroje dat a licence",
+  "web.page.zdroje_dat_a_licence_note": "Mapu smíte používat i dál šířit, jen s citací zdrojů. Stejné údaje jsou v ZIPu (CO_JE_PODKLADARNA.txt) a na stránce <a href=\"/licence\" target=\"_blank\" rel=\"noopener\">Licence</a>.",
+  "web.js.licenses.cite": "Na mapě nebo v legendě uveďte: {citation}"
 }

@@ -214,6 +214,8 @@ def test_api_beta_country_without_sheets(client, monkeypatch, sk_beta):
     body = client.get("/api/sheets", params={"bbox": bbox}).json()
     assert body["country"] == "SK" and body["count"] == 0 and body["estimate_minutes"]
     assert body["needs_sheets"] is False and "SM5" not in body["label"]  # GUI nehlásí „mimo data“
+    lic = body["licenses"]  # shrnutí zdrojů a licencí nad Spustit (stejné texty jako ZIP a /licence)
+    assert lic["url"] == "/licence" and lic["citation"] and lic["lines"]
     r = client.post("/api/jobs", data={"preset_id": "sprint_2m", "output_mode": "png_zip", "name": "ba", "bbox": bbox})
     assert r.status_code == 200, r.text
     opts = r.json()["options"]

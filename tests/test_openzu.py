@@ -160,6 +160,7 @@ def test_api_sheets(client, monkeypatch):
     body = r.json()
     assert body["count"] == 1
     assert body["sheets"][0]["mapnom"] == "PRAH77"
+    assert "licenses" not in body  # shrnutí licencí jen mimo Česko
     # 1 nestažený list, ~1,6 km²: 3,5 + 1 + 1,25 + 0,5·1,6 + les a MTBO 2·(0,5 + 0,4·1,6) → 9 (+1 reference)
     assert body["estimate_minutes"] == 9
     assert body["estimate_minutes_with_refs"] == 9 + 1
