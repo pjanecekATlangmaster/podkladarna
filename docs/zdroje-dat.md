@@ -26,6 +26,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-NI Německo – Dolní Sasko | beta | `de_ni` | `none` | 2 | 2 |
 | DE-BB Německo – Braniborsko | beta | `de_bb` | `none` | 2 | 2 |
 | DE-RP Německo – Porýní-Falc | beta | `de_rp` | `none` | 2 | 2 |
+| DE-BW Německo – Bádensko-Württembersko | beta | `de_bw` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -189,6 +190,15 @@ Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · ©GeoBasis
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM) | **DGM1 a DOM1 Porýní-Falc (ALS, 1 m), GeoTIFF po 1 km podle indexu Metalink**<br>Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)<br><https://geobasis-rlp.de/data/dgm1/current/meta4/dgm1_tif_07.meta4> · [info](https://geoshop.rlp.de/dl-de_by-2-0.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „©GeoBasis-DE / LVermGeoRP (rok odběru), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]“ | volný | napojeno (výšky)<br>sonda `de_rp_elevation` | • WCS DGM (rp_dgm1.fcgi) vyžaduje přihlášení (401) – proto dlaždice. Názvy dlaždic nesou rok náletu a mění se, index se drží v cache a obnovuje po týdnu; sonda dělá HEAD na index. | Claude 2026-11-18: index Metalink dgm1 (12 MB) a dom1 (9 MB), 21 108 dlaždic po 1 km s rokem náletu 2023–2026 v názvu, GeoTIFF 1000 × 1000 Float32 EPSG:25832 + DHHN2016, NoData −9999, 1,5–1,8 MB; licence z Fees WMS rp_dop20 a odkazu Nutzungsbedingungen na geobasis-rlp.de/data |
 | ortofoto, mapa | **Ortofoto DOP20 a topografická mapa DTK25 (WMS LVermGeo RP)**<br>Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)<br><https://geo4.service24.rlp.de/wms/rp_dop20.fcgi> · [info](https://geoshop.rlp.de/dl-de_by-2-0.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „©GeoBasis-DE / LVermGeoRP (rok), dl-de/by-2-0, http://www.lvermgeo.rlp.de“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_rp_dop` | • DTK5 WMS vrací 403; použita DTK25. | Claude 2026-11-18: GetCapabilities rp_dop20.fcgi (vrstva rp_dop20, Fees dl-de/by-2.0) a rp_dtk25.fcgi (rp_dtk25), GetMap EPSG:25832 OK |
+
+## DE-BW – Německo – Bádensko-Württembersko
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Datenquelle: LGL, www.lgl-bw.de · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 (ALS, XYZ) a nDOM1 (z obrazového bDOM20) Bádensko-Württembersko, ZIP po 2 km**<br>Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)<br><https://opengeodata.lgl-bw.de/data/dgm/dgm1_32_489_5402_2_bw.zip> · [info](https://opengeodata.lgl-bw.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_bw_elevation` | • nDOM je z letních snímků → pole s plodinami mohou vyjít jako porost (green: photo).<br>• INSPIRE WCS DGM1 (WCS_INSP_BW_Hoehe_Coverage_DGM1) existuje, ale GetCoverage s osami x/y vrací 404; ZIP drží terén i nDOM ve stejné mřížce 1 km.<br>• Převedené dlaždice (XYZ → GeoTIFF) se drží v cache de_bw/<E>_<N>; první job v oblasti stahuje ~22 MB na 4 km². | Claude 2026-11-19: ZIP dgm1_32_489_5402_2_bw (13 MB, 4 × XYZ 1 km, středy pixelů na .5, DHHN2016, nálet 2019) a ndom1_32_489_5402_2_bw (9 MB, 4 × GeoTIFF Float32 EPSG:25832, bDOM20 11. 8. 2025, RealityStudio), mřížka 2 km E liché / N sudé; licence PDF v ZIPu (dl-de/by-2.0, Namensnennung „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“) |
+| ortofoto | **Ortofoto DOP20 (WMS LGL BW)**<br>Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)<br><https://owsproxy.lgl-bw.de/owsproxy/ows/WMS_LGL-BW_ATKIS_DOP_20_C> · [info](https://opengeodata.lgl-bw.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_bw_dop` | • DTK25 WMS (WMS_LGL-BW_ATKIS_DTK_25) vrací 500; topografická mapa zatím chybí. | Claude 2026-11-19: GetCapabilities (vrstva IMAGES_DOP_20_RGB, AccessConstraints dl-de/by-2.0) |
 
 ## PL – Polsko
 

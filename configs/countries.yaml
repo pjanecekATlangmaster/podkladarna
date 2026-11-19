@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -216,6 +216,23 @@ DE-RP:
   attribution:
     - "Elevation: DGM1 and DOM1, ©GeoBasis-DE / LVermGeoRP ([data year]), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]."
     - "Orthophoto DOP20 and topographic map DTK25: ©GeoBasis-DE / LVermGeoRP ([data year]), dl-de/by-2-0, http://www.lvermgeo.rlp.de."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-BW:
+  name: {cs: Německo – Bádensko-Württembersko, en: Germany – Baden-Württemberg, de: Deutschland – Baden-Württemberg}
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LGL)
+  boundary: countries/de_bw.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [47.53, 7.51, 49.79, 10.5]
+  green: photo              # nDOM1 z obrazového bDOM20 (léto): zrnitost porostu slabší, zeleň jen základní
+  elevation: de_bw          # DGM1 (ALS, XYZ) + nDOM1 ze ZIPů LGL po 2 km, cache na serveru (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ (licence přibalená
+  # v ZIPech DGM1 a nDOM1, AccessConstraints WMS DOP, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · Datenquelle: LGL, www.lgl-bw.de · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and nDOM1, Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0 (Daten geändert)."
+    - "Orthophoto DOP20: Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0."
     - "OSM © OpenStreetMap contributors (ODbL)."
 PL:
   name: {cs: Polsko, en: Poland, pl: Polska}

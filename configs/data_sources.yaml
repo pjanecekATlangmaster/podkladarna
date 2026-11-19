@@ -2401,6 +2401,54 @@ sources:
   issues:
     - "DTK5 WMS vrací 403; použita DTK25."
 
+- id: de_bw_dgm
+  countries: [DE-BW]
+  kinds: [elevation, canopy]
+  name: DGM1 (ALS, XYZ) a nDOM1 (z obrazového bDOM20) Bádensko-Württembersko, ZIP po 2 km
+  provider: Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)
+  url: https://opengeodata.lgl-bw.de/data/dgm/dgm1_32_489_5402_2_bw.zip
+  info: https://opengeodata.lgl-bw.de/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_bw_provider, _bw_tile), app/pipeline/reference_de_states.py
+  provider_key: de_bw
+  probe: de_bw_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: ZIP dgm1_32_489_5402_2_bw (13 MB, 4 × XYZ 1 km, středy pixelů na .5, DHHN2016, nálet 2019) a ndom1_32_489_5402_2_bw (9 MB, 4 × GeoTIFF Float32 EPSG:25832, bDOM20 11. 8. 2025, RealityStudio), mřížka 2 km E liché / N sudé; licence PDF v ZIPu (dl-de/by-2.0, Namensnennung „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“)"
+  issues:
+    - "nDOM je z letních snímků → pole s plodinami mohou vyjít jako porost (green: photo)."
+    - "INSPIRE WCS DGM1 (WCS_INSP_BW_Hoehe_Coverage_DGM1) existuje, ale GetCoverage s osami x/y vrací 404; ZIP drží terén i nDOM ve stejné mřížce 1 km."
+    - "Převedené dlaždice (XYZ → GeoTIFF) se drží v cache de_bw/<E>_<N>; první job v oblasti stahuje ~22 MB na 4 km²."
+
+- id: de_bw_wms
+  countries: [DE-BW]
+  kinds: [orthophoto]
+  name: "Ortofoto DOP20 (WMS LGL BW)"
+  provider: Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)
+  url: https://owsproxy.lgl-bw.de/owsproxy/ows/WMS_LGL-BW_ATKIS_DOP_20_C
+  info: https://opengeodata.lgl-bw.de/
+  role: šablona
+  reference_keys: ["online_de_bw_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/by-2.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_bw_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities (vrstva IMAGES_DOP_20_RGB, AccessConstraints dl-de/by-2.0)"
+  issues:
+    - "DTK25 WMS (WMS_LGL-BW_ATKIS_DTK_25) vrací 500; topografická mapa zatím chybí."
+
 - id: de_bb_als
   countries:
   - DE

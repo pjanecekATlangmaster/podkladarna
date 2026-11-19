@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 
 from app.pipeline import elevation_raster as er
 from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, ortho_probe, wcs_coverage_url
@@ -87,3 +88,36 @@ def test_meta4_provider_downloads_only_tiles_in_window(tmp_path, monkeypatch):
     out = er.PROVIDERS["de_rp"](bounds, tmp_path, None)
     assert out.dtm.name == "de_rp_dtm.vrt" and out.dsm.name == "de_rp_dsm.vrt"
     assert sorted(set(got)) == ["https://x.example/a.tif", "https://x.example/b.tif"]
+
+
+def test_bw_tiles_on_odd_east_even_north_grid():
+    assert er.bw_tiles((489500, 5402500, 492100, 5403100)) == [(489, 5402), (491, 5402)]
+    assert er.bw_tiles((488100, 5401900, 488900, 5402100)) == [(487, 5400), (487, 5402)]
+
+
+def test_xyz_grid_rows_from_north():
+    text = b"10.5 21.5 1\r\n11.5 21.5 2\r\n10.5 20.5 3\r\n11.5 20.5 4\r\n"
+    grid, left, top = er.xyz_grid(text)
+    assert grid.tolist() == [[1.0, 2.0], [3.0, 4.0]] and (left, top) == (10.0, 22.0)
+    with pytest.raises(RuntimeError, match="úplná mřížka"):
+        er.xyz_grid(b"10.5 21.5 1\n11.5 21.5 2\n10.5 20.5 3\n")
+
+
+def test_bw_provider_uses_cached_tiles_in_window(tmp_path, monkeypatch):
+    folder = tmp_path / "489_5402"
+    folder.mkdir()
+    for e, n in ((489, 5402), (490, 5402), (489, 5403), (490, 5403)):
+        (folder / f"dtm_{e}_{n}.tif").touch()
+    (folder / "ndom_489_5402.tif").touch()
+    monkeypatch.setattr(er, "_bw_tile", lambda key, e, n, log=None: folder if (e, n) == (489, 5402) else None)
+    monkeypatch.setattr(er, "_de_nw_surface", lambda dtm, ndom, dsm, dest, log=None, label="": dest)
+    vrts = {}
+    monkeypatch.setattr(er, "run_cmd", lambda cmd, log=None: vrts.setdefault(cmd[3], cmd[4:]))
+    monkeypatch.setattr(er, "_gdal_tool", lambda name: name)
+    issues = []
+    bounds = er._bounds_in((489400, 5402400, 489600, 5402600), "EPSG:25832", er.CRS_WKT)
+    out = er.PROVIDERS["de_bw"](bounds, tmp_path, issues.append)
+    assert out.dtm.name == "de_bw_dtm.vrt" and out.dsm.name == "de_bw_dsm.vrt"
+    assert [Path(p).name for p in vrts[str(out.dtm)]] == ["dtm_489_5402.tif"]  # jen km² ve výřezu (+20 m)
+    assert [Path(p).name for p in vrts[str(out.dsm)]] == ["de_bw_surface_489_5402.tif"]
+    assert not issues
