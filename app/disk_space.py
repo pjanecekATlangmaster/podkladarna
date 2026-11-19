@@ -200,6 +200,7 @@ def aoi_cache_roots() -> list[tuple[Path, int]]:
         (root / "aopk", settings.AOPK_CACHE_MAX_AGE_DAYS),
         (root / "osm", osm_cache_max_age_days()),
         (root / "sk_zbgis", settings.SK_ZBGIS_CACHE_MAX_AGE_DAYS),  # celostátní sady, položka = sada (bu / tn)
+        (root / "fi_mtk", settings.FI_MTK_CACHE_MAX_AGE_DAYS),  # Maastotietokanta, položka = ZIP poloviny listu
         # indexy dlaždic německých zemí (položka = soubor indexu); obnovují se po 7 / 30 dnech, nepoužívané se smažou
         (root / "de_meta4", DE_INDEX_CACHE_MAX_AGE_DAYS),
         *((root / f"{key}_index", DE_INDEX_CACHE_MAX_AGE_DAYS) for key in _zip_range_keys()),

@@ -50,13 +50,13 @@ _KIND_GEOM = {
         "water_tower", "cave_entrance", "spring", "water_well", "boulder",
     )},
     **{k: "line" for k in (
-        "fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "aerialway",
+        "fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "cliff_mtk", "aerialway",
         "rail_line", "tram_line",  # koleje OSM mimo Česko
     )},
     "tree_row": "point",  # alej se kreslí body 418 (``tree_rows``)
     "ruin": {"line", "area"},  # zřícenina OSM mimo Česko jako ZABAGED RozvalinaZricenina (les obrys 523, sprint 521)
     **{k: "area" for k in (
-        "wetland", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "pitch_open", "parking",
+        "wetland", "wetland_indistinct", "water_body", "fountain", "farmland", "garden", "playground", "pitch", "pitch_open", "parking",
         "pedestrian_area", "platform", "water_well_building", "building", "bare_rock",
         "scree", "rock_area", "residential", "shelter",
         "paved_dtm",  # plocha z DTM (koridor, parkoviště, chodníky) ve sjednocené síti lesa a MTBO
