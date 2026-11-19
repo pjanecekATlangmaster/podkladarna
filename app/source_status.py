@@ -45,6 +45,7 @@ from app.pipeline.zbgis_sk import DATASETS as SK_ZBGIS_DATASETS
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
 from app.pipeline.geodanmark_dk import GEODK_PROBE
 from app.pipeline.reference_dk import DK_ELEVATION_PROBE, with_key as dk_with_key
+from app.pipeline.reference_no import NO_ELEVATION_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
 from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, elevation_probe_method, ortho_probe
@@ -364,6 +365,15 @@ PROBES: tuple[Probe, ...] = (
         (GEODK_PROBE,),
         "Budovy, vozovky, parkoviště a ploty se nakreslí jen z OSM.",
         countries=("DK",),
+    ),
+    # Norsko: okno 8 × 8 m terénu høydemodell z WCS Geonorge (bez klíče).
+    Probe(
+        "no_elevation",
+        "Výšky høydemodell (Kartverket) – terén a povrch",
+        (NO_ELEVATION_PROBE,),
+        "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+        fatal=True,
+        countries=("NO",),
     ),
     Probe(
         "be_grb",

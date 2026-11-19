@@ -1691,35 +1691,52 @@ sources:
   - 'NO'
   kinds:
   - elevation
-  name: DTM1 a DOM1 (Geonorge WCS) a mračna na hoydedata.no
+  name: Nasjonal detaljert høydemodell – DTM a DOM 1 m (Geonorge WCS)
   provider: Kartverket
-  url: https://ws.geonorge.no/hoydedata/v1/
+  url: https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833
   info: https://www.kartverket.no/api-og-data/terrengdata
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (no_hoyde), app/pipeline/reference_no.py
+  provider_key: no_hoyde
+  probe: no_elevation
   license:
     class: public
-    name: CC BY 4.0
-    url: https://kartkatalog.geonorge.no/metadata/hoeyde-dom1/35e66707-942c-4aa2-9945-d769c2aeba35
-    attribution: © Kartverket
+    name: CC BY 4.0 (volné produkty Kartverket, i komerčně)
+    url: https://www.kartverket.no/en/api-and-data/terms-of-use
+    attribution: ©Kartverket + odkaz na kartverket.no
   access: free
-  checked: 'Claude 2026-11-16 GetCapabilities WCS DOM odpovídá 200; licence podle Groku · kontrola Grok: 2026-11-16 kartkatalog
-    DOM1 a DTM1 Atom (CC BY 4.0) a stránka terrengdata · opencode (no_geonorge): 2026-11-16 kartverket.no/en/api-and-data/terrengdata
-    („gratis … for nedlasting og gjennom API“, WCS/WFS/WMS + REST, DTM/DOM GeoTIFF, LAZ/ZLAS) + terms-of-use – Claude neověřil'
+  checked: '2026-11-19 Claude: kartverket.no/en/api-and-data/terms-of-use („free products are licensed under CC BY 4.0“,
+    uvést ©Kartverket a odkaz), metadata DOM1 v kartkatalog („Åpne data“, CC BY 4.0); GetCapabilities obou WCS
+    (nhm_dtm_topo_25833, nhm_dom_topo_25833, EPSG:25833), GetCoverage 1.0.0 GeoTIFF Float32 bez klíče (2 × 2 km po 1 m ~8 s,
+    Nordmarka 500 × 500 m: výška porostu medián 12 m)'
   issues:
-  - 'OPRAVA: rastr 1 m jde bez účtu přes WCS. DOM: https://wcs.geonorge.no/skwms1/wcs.hoyde-dom-nhm-25833 . DTM: https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833
-    . DTM Atom feed listů 15 km: https://nedlasting.geonorge.no/geonorge/ATOM/hoydedata/Hoydedata_ServiceFeed.atom'
-  - Mračno je dál na hoydedata.no. Stránka terrengdata zmiňuje REST pro strojové stažení, konkrétní endpoint v textu nebyl.
-  - hoydedata.no má i vrstvy jen pro partnery Norge digitalt (přihlášení). Ortofoto Norge i bilder se v tomto kole znovu neověřovalo.
-  - Původní url https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833 neodpovídal (kontrola Claude 2026-11-16), nahrazen
-    podle opencode.
-  - 'opencode navrhuje citaci: „© Kartverket (CC BY 4.0) + odkaz na kartverket.no“ – Claude neověřil.'
-  - 'opencode: `license.url https://www.geonorge.no/` nahrazen závaznými podmínkami Kartverket; „Mračna jen ručně“ je CHYBA
-    – existují REST služby pro strojové stahování.'
-  - 'opencode: „ortofoto Norge i bilder není otevřené“ je ještě přísnější: otevřené služby se RUŠÍ, přístup jen pro Norge
-    digitalt / smlouvu, token z https://services.norgeibilder.no/token (GeoID, 1 h/1 den/1 týden) – https://www.geonorge.no/nib'
-  - 'opencode: Některé sady/WMS na hoydedata.no jen pro Norge digitalt (login) – které, neověřeno; WMS zoom 12–20 obsahuje
-    data Geovekst se zvláštním souhlasem.'
+  - WCS 2.0.1 GetCoverage se subsetem vrací chybu ArcGIS Serveru, funguje 1.0.0 s BBOX a WIDTH/HEIGHT.
+  - DOM je většinou z letního skenování (s listím); vegetace jen z rozdílu DOM − DTM, mračno (hoydedata.no) nenapojeno.
+  - Mračno je na hoydedata.no (REST, LAZ/ZLAS), část vrstev jen pro partnery Norge digitalt. Pro výřez zatím nepotřeba.
+  - 'Ortofoto Norge i bilder: otevřené služby se ruší, přístup jen se smlouvou / tokenem – nepoužívá se (opencode 2026-11-16).'
+
+- id: no_fkb
+  countries:
+  - 'NO'
+  kinds:
+  - technical_map
+  name: FKB (Felles kartdatabase) – budovy, silnice, chodníky
+  provider: Kartverket / Geovekst / obce
+  url: https://kartkatalog.geonorge.no/metadata/felles-kartdatabase-fkb
+  info: https://dokument.geonorge.no/produktark/fkb-høydekurve/2025-01-07/fkb-høydekurve.pdf
+  role: kresba
+  status: rejected
+  license:
+    class: restricted
+    name: Norge digitalt-lisens („Norge digitalt begrenset“), soukromí uživatelé kupují přes prodejce
+    url: https://www.geonorge.no/
+  access: contract
+  checked: '2026-11-19 Claude: produktový list FKB-Høydekurve (licence Norge digitalt, omezený přístup) a metadata FKB 2025
+    na data.norge.no („åpne data“ jen u části historických výtahů) – nejasné, bez smlouvy nepoužívat'
+  issues:
+  - MapAnt Norsko FKB používá díky spolupráci Norsk Orientering × Kartverket (licence mapy nekomerční). Kresba v Omapic z OSM.
+  - Které FKB sady jsou opravdu otevřené (data.norge.no u některých píše „åpne data“), ověřit u Kartverket.
 
 - id: es_cnig
   countries:
