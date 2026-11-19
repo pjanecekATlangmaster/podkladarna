@@ -105,6 +105,9 @@ def test_xyz_grid_rows_from_north():
     assert (left, top) == (10.5, 21.5) and grid[1, 1] == er.NODATA and grid[1, 0] == 3.0
     with pytest.raises(RuntimeError, match="mřížka 1 m"):
         er.xyz_grid(b"10.5 21.5 1\n12.5 21.5 2\n")
+    diagonal = b"".join(b"%d.5 %d.5 1\n" % (i, i) for i in range(er.XYZ_MAX_SIDE + 1))  # řídké body, obří pole
+    with pytest.raises(RuntimeError, match="větší než"):
+        er.xyz_grid(diagonal)
 
 
 def test_bw_tile_rejects_oversized_member(tmp_path, monkeypatch):

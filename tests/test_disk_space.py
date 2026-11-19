@@ -207,6 +207,27 @@ def test_prune_expired_aoi_cache_keeps_valid_entries(
     assert not old.exists() and fresh.exists()
 
 
+def test_prune_expired_de_tile_indexes(tmp_path, monkeypatch):
+    """Indexy dlaždic německých zemí (Metalink, adresáře ZIPů) jsou soubory; nepoužívané se po platnosti smažou."""
+    import app.settings as settings
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    days = disk_space.DE_INDEX_CACHE_MAX_AGE_DAYS
+    files = {
+        "old_meta4": (tmp_path / "de_meta4" / "dgm1_rp.meta4", days + 5),
+        "new_meta4": (tmp_path / "de_meta4" / "dom1_rp.meta4", 3),
+        "old_zip": (tmp_path / "de_sl_index" / "dtm.json", days + 5),
+        "new_zip": (tmp_path / "de_hb_index" / "dtm.json", 10),
+    }
+    for path, age in files.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * 100)
+        old = time.time() - age * 86400
+        os.utime(path, (old, old))
+    assert disk_space.prune_expired_aoi_cache() == 200
+    assert {name for name, (path, _age) in files.items() if path.exists()} == {"new_meta4", "new_zip"}
+
+
 def test_prune_tile_cache_age_cap_and_old_versions(tmp_path, monkeypatch):
     """Cache dlaždic webu (revize 2026-11-16): stará verze pryč, starší než limit pryč, nad stropem nejstarší."""
     import app.settings as settings
