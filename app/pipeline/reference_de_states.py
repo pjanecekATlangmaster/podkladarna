@@ -27,6 +27,7 @@ class DeWcsState:
     wms: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = ()  # šablony jako ``online_templates``
     tiles: str = "wcs"           # wcs = GetCoverage po 2 km | meta4 = GeoTIFF po 1 km podle indexu Metalink
                                  # | bw_zip = ZIP po 2 km (``dtm`` XYZ, ``dsm`` = nDOM, výška nad terénem), cache
+                                 # | sn_zip = ZIP po 2 km s jedním GeoTIFF (DGM1 i DOM1 absolutně), cache
 
 
 ST_WCS = "https://www.geodatenportal.sachsen-anhalt.de"
@@ -43,6 +44,8 @@ RP_DATA = "https://geobasis-rlp.de/data"
 RP_WMS = "https://geo4.service24.rlp.de/wms"
 BW_DATA = "https://opengeodata.lgl-bw.de/data"
 BW_OWS = "https://owsproxy.lgl-bw.de/owsproxy/ows"
+SN_GEOCLOUD = "https://geocloud.landesvermessung.sachsen.de/public.php/dav/files"
+SN_WMS = "https://geodienste.sachsen.de"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -142,6 +145,22 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         ),
         tiles="bw_zip",
     ),
+    # Sasko (GeoSN): dl-de/by-2.0, „Quelle: GeoSN, dl-de/by-2-0“ (Allgemeine Nutzungsbedingungen GeoSN). Dlaždice
+    # Batch-Download (veřejné sdílení GeoCloud, jen GET – HEAD vrací 401): ZIP po 2 × 2 km (E i N sudé, EPSG:25833)
+    # s jedním GeoTIFF 1 m (~14 MB), DGM1 i DOM1 z téhož ALS (Aktualität v CSV v ZIPu). DTK webové služby končí, jen DOP20.
+    "de_sn": DeWcsState(
+        code="DE-SN",
+        name="Sasko",
+        crs="EPSG:25833",
+        dtm=(f"{SN_GEOCLOUD}/JCcXyifaNdLDnxZ", "dgm1"),
+        dsm=(f"{SN_GEOCLOUD}/S6wwnFwX7882sZm", "dom1"),
+        probe_box=(410000, 5656000, 410016, 5656016),  # Dresden
+        wms=(
+            ("de_sn_dop", "dop_sachsen.xml", "DOP20 Sachsen (ortofoto)", f"{SN_WMS}/wms_geosn_dop-rgb/guest",
+             "sn_dop_020", "image/jpeg", False, 0.2),
+        ),
+        tiles="sn_zip",
+    ),
 }
 
 
@@ -168,6 +187,12 @@ def bw_zip_url(service: tuple[str, str], east_km: int, north_km: int) -> str:
     return f"{base}/{prefix}_32_{east_km}_{north_km}_2_bw.zip"
 
 
+def sn_zip_url(service: tuple[str, str], east_km: int, north_km: int) -> str:
+    """ZIP dlaždice 2 km GeoSN (levý dolní roh v km, obojí sudé)."""
+    base, prefix = service
+    return f"{base}/{prefix}_33{east_km}_{north_km}_2_sn_tiff.zip"
+
+
 def elevation_probe(key: str) -> str:
     """Sonda výšek: malý GetCoverage, u souborových zdrojů index nebo ZIP dlaždice (jen HEAD)."""
     st = DE_WCS_STATES[key]
@@ -175,11 +200,14 @@ def elevation_probe(key: str) -> str:
         return st.dtm[0]
     if st.tiles == "bw_zip":
         return bw_zip_url(st.dtm, int(st.probe_box[0] // 1000), int(st.probe_box[1] // 1000))
+    if st.tiles == "sn_zip":
+        return sn_zip_url(st.dtm, int(st.probe_box[0] // 2000) * 2, int(st.probe_box[1] // 2000) * 2)
     return wcs_coverage_url(st.dtm, st.probe_box)
 
 
 def elevation_probe_method(key: str) -> str:
-    return "GET" if DE_WCS_STATES[key].tiles == "wcs" else "HEAD"
+    # GeoCloud Saska na HEAD odpovídá 401, GET čte sonda jen prvních 64 kB
+    return "GET" if DE_WCS_STATES[key].tiles in ("wcs", "sn_zip") else "HEAD"
 
 
 def ortho_probe(key: str) -> str:

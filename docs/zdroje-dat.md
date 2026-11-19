@@ -27,6 +27,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-BB Německo – Braniborsko | beta | `de_bb` | `none` | 2 | 2 |
 | DE-RP Německo – Porýní-Falc | beta | `de_rp` | `none` | 2 | 2 |
 | DE-BW Německo – Bádensko-Württembersko | beta | `de_bw` | `none` | 2 | 2 |
+| DE-SN Německo – Sasko | beta | `de_sn` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -199,6 +200,15 @@ Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Datenquell
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM), výška porostu | **DGM1 (ALS, XYZ) a nDOM1 (z obrazového bDOM20) Bádensko-Württembersko, ZIP po 2 km**<br>Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)<br><https://opengeodata.lgl-bw.de/data/dgm/dgm1_32_489_5402_2_bw.zip> · [info](https://opengeodata.lgl-bw.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_bw_elevation` | • nDOM je z letních snímků → pole s plodinami mohou vyjít jako porost (green: photo).<br>• INSPIRE WCS DGM1 (WCS_INSP_BW_Hoehe_Coverage_DGM1) existuje, ale GetCoverage s osami x/y vrací 404; ZIP drží terén i nDOM ve stejné mřížce 1 km.<br>• Převedené dlaždice (XYZ → GeoTIFF) se drží v cache de_bw/<E>_<N>; první job v oblasti stahuje ~22 MB na 4 km². | Claude 2026-11-19: ZIP dgm1_32_489_5402_2_bw (13 MB, 4 × XYZ 1 km, středy pixelů na .5, DHHN2016, nálet 2019) a ndom1_32_489_5402_2_bw (9 MB, 4 × GeoTIFF Float32 EPSG:25832, bDOM20 11. 8. 2025, RealityStudio), mřížka 2 km E liché / N sudé; licence PDF v ZIPu (dl-de/by-2.0, Namensnennung „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“) |
 | ortofoto | **Ortofoto DOP20 (WMS LGL BW)**<br>Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)<br><https://owsproxy.lgl-bw.de/owsproxy/ows/WMS_LGL-BW_ATKIS_DOP_20_C> · [info](https://opengeodata.lgl-bw.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_bw_dop` | • DTK25 WMS (WMS_LGL-BW_ATKIS_DTK_25) vrací 500; topografická mapa zatím chybí. | Claude 2026-11-19: GetCapabilities (vrstva IMAGES_DOP_20_RGB, AccessConstraints dl-de/by-2.0) |
+
+## DE-SN – Německo – Sasko
+
+Stav `beta`, CRS `EPSG:25833`. Citace v mapě: „Base map: Omapic · Quelle: GeoSN · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS) Sasko, ZIP po 2 km s GeoTIFF**<br>Landesamt für Geobasisinformation Sachsen (GeoSN)<br><https://geocloud.landesvermessung.sachsen.de/public.php/dav/files/JCcXyifaNdLDnxZ/dgm1_33410_5656_2_sn_tiff.zip> · [info](https://www.geodaten.sachsen.de/batch-download-4719.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Quelle: GeoSN, dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_sn_elevation` | • GeoCloud na HEAD vrací 401, sonda proto čte GET (jen prvních 64 kB).<br>• Adresy dlaždic jsou veřejná sdílení GeoCloud z konfigurace stránky Batch-Download; při změně sdílení je potřeba je obnovit.<br>• Dlaždice se drží v cache de_sn/<E>_<N>; první job v oblasti stahuje ~28 MB na 4 km². | Claude 2026-11-19: Batch-Download GeoSN (sdílení GeoCloud DGM1_TIFF_2km / DOM1_TIFF_2km), ZIP dgm1_33410_5656_2_sn_tiff (13 MB) a dom1_… (15 MB), jeden GeoTIFF Float32 EPSG:25833 1 m, mřížka 2 km E i N sudé, Aktualität 2024-11-30; Allgemeine Nutzungsbedingungen GeoSN: dl-de/by-2.0, Quellenvermerk „GeoSN“ |
+| ortofoto | **Ortofoto DOP20 (WMS GeoSN)**<br>Landesamt für Geobasisinformation Sachsen (GeoSN)<br><https://geodienste.sachsen.de/wms_geosn_dop-rgb/guest> · [info](https://www.geodaten.sachsen.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Quelle: GeoSN, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_sn_dop` | • DTK webové služby GeoSN končí (nahrazuje je basemap), topografická šablona se proto nepřidává. | Claude 2026-11-19: GetCapabilities (vrstva sn_dop_020), GetMap EPSG:25833 200 image/jpeg |
 
 ## PL – Polsko
 

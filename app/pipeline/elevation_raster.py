@@ -991,10 +991,125 @@ def de_bw_provider(key: str) -> Provider:
     return provider
 
 
+# Sasko: ZIP po 2 km (E i N sudé) s jedním GeoTIFF 1 m (DGM1, DOM1 absolutní výšky) → cache ``de_sn/<E>_<N>``.
+SN_TILE_KM = 2
+SN_MAX_ZIP_BYTES = 100_000_000  # dlaždice má ~14 MB
+SN_MAX_MEMBER_BYTES = 400_000_000  # rozbalený GeoTIFF 2 km (float32 ~16 MB); větší = podezřelý ZIP
+
+
+def sn_tiles(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
+    """ZIP dlaždice 2 km GeoSN (levý dolní roh v km, obojí sudé), které zasahují do okna (EPSG:25833)."""
+    import math
+
+    e0 = math.floor(window[0] / 1000 / SN_TILE_KM) * SN_TILE_KM
+    n0 = math.floor(window[1] / 1000 / SN_TILE_KM) * SN_TILE_KM
+    return [(e, n) for e in range(e0, math.ceil(window[2] / 1000), SN_TILE_KM)
+            for n in range(n0, math.ceil(window[3] / 1000), SN_TILE_KM)]
+
+
+def sn_tile_dir(east_km: int, north_km: int) -> Path:
+    return settings.CACHE_DIR / "de_sn" / f"{east_km}_{north_km}"
+
+
+def _zip_tif(url: str, dest: Path, limit: int, label: str) -> bool:
+    """Stáhne ZIP a vyjme z něj jediný GeoTIFF do ``dest``; False při 404 (dlaždice neexistuje)."""
+    import tempfile
+    import urllib.error
+    import urllib.request
+    import zipfile
+
+    from app.pipeline.fetch_openzu import USER_AGENT
+
+    fd, zname = tempfile.mkstemp(prefix=f".{dest.stem}-", suffix=".zip", dir=dest.parent)
+    os.close(fd)
+    zpath = Path(zname)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp, zpath.open("wb") as fh:
+                size = 0
+                while chunk := resp.read(1 << 20):
+                    size += len(chunk)
+                    if size > limit:
+                        raise RuntimeError(f"{label}: ZIP přes limit")
+                    fh.write(chunk)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return False
+            raise
+        with zipfile.ZipFile(zpath) as zf:
+            names = [n for n in zf.namelist() if n.lower().endswith(".tif")]
+            if len(names) != 1:
+                raise RuntimeError(f"{label}: v ZIPu není právě jeden GeoTIFF ({len(names)})")
+            if zf.getinfo(names[0]).file_size > SN_MAX_MEMBER_BYTES:
+                raise RuntimeError(f"{label}: GeoTIFF v ZIPu přes limit")
+            tmp = dest.with_name(f".{dest.name}.{os.getpid()}")
+            with zf.open(names[0]) as src, tmp.open("wb") as out:
+                while chunk := src.read(1 << 20):
+                    out.write(chunk)
+            tmp.replace(dest)
+        return True
+    finally:
+        zpath.unlink(missing_ok=True)
+
+
+def _sn_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path | None:
+    """Složka s ``dtm.tif`` (a ``dsm.tif``) dlaždice 2 km z cache, jinak stáhne; None mimo zemi."""
+    from app.download_cache import touch_last_used
+    from app.pipeline.reference_de_states import DE_WCS_STATES, sn_zip_url
+
+    st = DE_WCS_STATES[key]
+    folder = sn_tile_dir(east_km, north_km)
+    done = folder / ".complete"
+    if done.is_file():
+        touch_last_used(folder)
+        return folder
+    folder.mkdir(parents=True, exist_ok=True)
+    label = f"{st.name} {east_km}_{north_km}"
+    if not _zip_tif(sn_zip_url(st.dtm, east_km, north_km), folder / "dtm.tif", SN_MAX_ZIP_BYTES, label):
+        return None
+    if not _zip_tif(sn_zip_url(st.dsm, east_km, north_km), folder / "dsm.tif", SN_MAX_ZIP_BYTES, label):
+        log_issue(log, f"{st.name}: DOM1 {east_km}_{north_km} chybí, výška porostu tam chybí")
+    done.touch()
+    touch_last_used(folder)
+    if log:
+        log(f"  {label}: dlaždice uloženy do cache")
+    return folder
+
+
+def de_sn_provider(key: str) -> Provider:
+    """Provider výšek z ZIP dlaždic GeoSN: DGM1 + DOM1 po 2 km (GeoTIFF s CRS, absolutní výšky)."""
+
+    def provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+        from concurrent.futures import ThreadPoolExecutor
+
+        from app.pipeline.reference_de_states import DE_WCS_STATES
+
+        st = DE_WCS_STATES[key]
+        window = _buffered(bounds, st.crs, DE_WCS_BUFFER_M)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix=key) as ex:
+            folders = [f for f in ex.map(lambda t: _sn_tile(key, t[0], t[1], log=log), sn_tiles(window)) if f]
+        if not folders:
+            raise ElevationUnavailable(f"výřez je mimo dlaždice DGM1 ({st.name})")
+        dtms = [f / "dtm.tif" for f in folders]
+        dsms = [f / "dsm.tif" for f in folders if (f / "dsm.tif").is_file()]
+
+        def vrt(name: str, tiles: list[Path]) -> Path:
+            path = out_dir / f"{key}_{name}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", st.crs, str(path), *map(str, tiles)], log=log)
+            return path
+
+        if len(dsms) < len(dtms):
+            log_issue(log, f"{st.name}: výška porostu chybí na {len(dtms) - len(dsms)} z {len(dtms)} dlaždic")
+        return SourceRasters(vrt("dtm", dtms), vrt("dsm", dsms) if dsms else None)
+
+    return provider
+
+
 def _register_de_wcs() -> None:
     from app.pipeline.reference_de_states import DE_WCS_STATES
 
-    kinds = {"meta4": de_meta4_provider, "bw_zip": de_bw_provider}
+    kinds = {"meta4": de_meta4_provider, "bw_zip": de_bw_provider, "sn_zip": de_sn_provider}
     for key, st in DE_WCS_STATES.items():
         PROVIDERS[key] = kinds.get(st.tiles, de_wcs_provider)(key)
 
@@ -2110,6 +2225,7 @@ SOURCE_LABELS = {
     "de_bb": "DGM1 a bDOM1, LGB Brandenburg",
     "de_rp": "DGM1 a DOM1, LVermGeo Rheinland-Pfalz",
     "de_bw": "DGM1 a nDOM1, LGL Baden-Württemberg",
+    "de_sn": "DGM1 a DOM1, GeoSN Sachsen",
 }
 
 
