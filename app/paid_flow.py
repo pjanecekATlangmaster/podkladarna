@@ -402,33 +402,18 @@ def order_preview_path(job_id: str, site_host: str | None) -> Path | None:
     return watermarked_preview(src, dst, label)
 
 
-# Z work/ hotového jobu objednávky zůstane jen to, co dál čte web a statistika (náhled, souhrny).
-ORDER_WORK_KEEP = frozenset(
-    {"build_stats.json", "source_meta.json", "dtm_summary.json", "preview.jpg", "preview.png", "preview"}
-)
-
-
 def trim_order_work(job_id: str) -> int:
-    """Smaže mezivýsledky hotového jobu objednávky (``work/`` kromě ``ORDER_WORK_KEEP``); vrací uvolněné bajty.
+    """Smaže mezivýsledky hotového jobu objednávky (``work/`` kromě ``disk_space.WORK_KEEP``); vrací uvolněné bajty.
 
     Revize 2026-11-16 (Petr): objednávka drží job až do konce lhůty na zaplacení a odkazu ke stažení,
     mezivýsledky (LAZ, rastry, dotazy) by tu dobu zabíraly místo. ZIP, náhled s vodoznakem a ukázka
     jsou v ``output/``. Další job téhož výřezu LAZ z tohoto jobu nepřevezme (bere ho z cache, nebo stáhne).
     Selhaný job si ``work/`` nechává (diagnóza).
     """
-    from app.disk_space import _entry_bytes, _remove
+    from app.disk_space import trim_job_work
     from app.settings import JOBS_DIR
 
-    work = JOBS_DIR / job_id / "work"
-    if not work.is_dir():
-        return 0
-    freed = 0
-    for entry in list(work.iterdir()):
-        if entry.name in ORDER_WORK_KEEP:
-            continue
-        freed += _entry_bytes(entry)
-        _remove(entry)
-    return freed
+    return trim_job_work(JOBS_DIR / job_id)
 
 
 def order_sample_path(job: dict[str, Any]) -> Path | None:

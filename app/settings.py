@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.75.5"
+APP_VERSION = "3.75.6"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -160,6 +160,9 @@ LIDAR_CACHE_MAX_DISK_SHARE = float(os.environ.get("LIDAR_CACHE_MAX_DISK_SHARE", 
 # Když chybí, smaže se nejdéle nepoužitá cache, jinak job skončí hláškou o plném disku. 0 a 0 = bez kontroly.
 DISK_JOB_BASE_GB = float(os.environ.get("DISK_JOB_BASE_GB", "3") or 0)
 DISK_JOB_GB_PER_KM2 = float(os.environ.get("DISK_JOB_GB_PER_KM2", "0.5") or 0)
+# Při nedostatku místa na disku s joby se smažou mezivýsledky nejstarších hotových jobů a pak celé nejstarší
+# hotové joby; job dokončený před méně než tolika hodinami se celý nemaže (uživatel si ZIP teprve stahuje).
+DISK_JOB_DELETE_MIN_AGE_HOURS = float(os.environ.get("DISK_JOB_DELETE_MIN_AGE_HOURS", "6") or 0)
 # Rezerva ``DATA_ROOT/.disk_reserve`` (MB): při plném disku se smaže, aby šel zapsat stav jobu „selhalo“.
 DISK_RESERVE_MB = float(os.environ.get("DISK_RESERVE_MB", "64") or 0)
 # Souběžná stahování listů LiDARu z ČÚZK (OpenZU). Jedno spojení dává ~2 MB/s, list DMP OK má ~340 MB
