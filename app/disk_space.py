@@ -199,6 +199,7 @@ def aoi_cache_roots() -> list[tuple[Path, int]]:
         (root / "ruian", settings.RUIAN_CACHE_MAX_AGE_DAYS),
         (root / "aopk", settings.AOPK_CACHE_MAX_AGE_DAYS),
         (root / "osm", osm_cache_max_age_days()),
+        (root / "sk_zbgis", settings.SK_ZBGIS_CACHE_MAX_AGE_DAYS),  # celostátní sady, položka = sada (bu / tn)
     ]
 
 

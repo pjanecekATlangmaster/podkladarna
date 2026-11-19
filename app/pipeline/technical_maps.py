@@ -83,6 +83,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, uliční prostor, vozovky a chodníky (Brusel z UrbIS, i parkování v ulici)",
         module="app.pipeline.grb_be",
     ),
+    "sk_zbgis": TechnicalMap(
+        key="sk_zbgis",
+        short="ZBGIS",
+        step="data ZBGIS",
+        background="Data ZBGIS (ÚGKK SR)",
+        content="budovy, vozovky podle šířky silnic",
+        module="app.pipeline.zbgis_sk",
+    ),
     "fi_hel": TechnicalMap(
         key="fi_hel",
         short="YLRE",

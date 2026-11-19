@@ -508,6 +508,11 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   (úklid cache tuto složku nemaže, nemazat ručně), zdroj `sk_ugkk_local` (terén i povrch JTSK03 + Bpv, bez kvazigeoidu). Země se zdrojem
   z disku se nabízí jen tam, kde data jsou (`countries.elevation_ready`). Před zapnutím `docker exec podkladarna python -m app.local_elevation_check`
   (soubory, Křovák, bloky, výřez jako job, DSM − DTM na holé zemi ±0,3 m). Kontrola na ostré A prošla 2026-11-17 (výřez 2 km 3,5 s, 199 MB, 5. percentil 0,04 m), SK je od 3.75.3 `beta`.
+  Budovy a šířky silnic (3.77.0, Petr 2026-11-19, `app/pipeline/zbgis_sk.py`, `technical_map: sk_zbgis`): plný ZBGIS je placený, zdarma
+  jsou celostátní INSPIRE GeoPackage budov a dopravy (opendata.skgeodesy.sk, CC BY 4.0, 2 × 0,6 GB). Stahují se při prvním slovenském
+  jobu do běžné cache `cache/sk_zbgis/{bu,tn}` (Petr: ne do `static`, data se mění), hlavička se ověří po 30 dnech, nepoužitá cache
+  se smaže po `SK_ZBGIS_CACHE_MAX_AGE_DAYS` (90) a patří do úklidu při plném disku. Výřez přes rtree GeoPackage: budovy (ne zbořené
+  a chátrající) a osy silnic se šířkou rozšířené na vozovku (`roads`, ne polní cesty); ploty, chodníky a zahrady kreslí OSM.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

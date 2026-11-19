@@ -407,7 +407,7 @@ sources:
   url: https://opendata.skgeodesy.sk/static/LLS/DMP1/DMP1_0_sjtsk03_bpv.zip
   info: https://www.gku.sk/geoportal/zbgis/lls/poskytovanie/
   role: výšky (terén i povrch z disku)
-  status: 'off'
+  status: used
   code: app/pipeline/elevation_raster.py (sk_ugkk_local), app/local_elevation_check.py
   provider_key: sk_ugkk_local
   license:
@@ -423,6 +423,32 @@ sources:
     na ostré A ručně stažené do DATA_ROOT/cache/static/sk_ugkk/{dtm,dsm}, úklid tuto složku nemaže.'
   - Terén i povrch ze stejné sady (JTSK03 + Bpv) – bez posunu proti sobě; JTSK03 se bere jako souřadnice mapy (S-JTSK).
   - Země se nabízí jen na instanci, kde data jsou (`countries.elevation_ready`); test B je nemá.
+
+- id: sk_zbgis
+  countries: [SK]
+  kinds: [technical_map, buildings]
+  name: INSPIRE Budovy a Dopravní sítě ze ZBGIS (celostátní GeoPackage)
+  provider: ÚGKK SR (GKÚ Bratislava)
+  url: https://opendata.skgeodesy.sk/static/INSPIRE/Buildings/inspire_bu_gpkg.zip
+  info: https://www.skgeodesy.sk/geoportal-en/inspire/download-services
+  role: kresba
+  status: used
+  code: app/pipeline/zbgis_sk.py
+  provider_key: sk_zbgis
+  probe: sk_zbgis
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.skgeodesy.sk/geoportal-en/inspire/download-services
+    attribution: "INSPIRE © ÚGKK SR – CC BY 4.0"
+  access: free
+  checked: "Claude 2026-11-18: ATOM feedy BU a TN (výpis z ostré A), oba ZIPy stažené z cloudu bez přihlášení (0,6 GB → GPKG 3,7 / 1,9 GB,
+    EPSG:4258, stav 10/2026); Banská Bystrica 2 × 2 km 2 647 budov, výřez z prostorového indexu pod 1 s."
+  issues:
+    - "Plný ZBGIS (vektor) je placený – objednávka formulářem, cena za list 1 : 5 000 (https://www.skgeodesy.sk/geoportal-en/zbgis/order); zdarma jen tyto INSPIRE sady."
+    - "Budovy 3,6 mil. obrysů ZBGIS 2017–2021; silnice jen osy (RoadLink) se šířkou u 450 tis. úseků a druhem (FormOfWay). Ploty, chodníky, pěšiny, zahrady ani plochy využití nejsou."
+    - "Celostátní ZIP, výřez přes službu nejde: stahuje se do běžné cache (cache/sk_zbgis), novější vydání se ověřuje hlavičkou po 30 dnech, nepoužitá cache se maže po SK_ZBGIS_CACHE_MAX_AGE_DAYS."
+    - "WFS / ATOM na inspirews.skgeodesy.sk je z cloudu nedostupný (reset), soubory na opendata.skgeodesy.sk dostupné."
 
 # ----------------------------------------------------------------------------------------------- Nizozemsko
 - id: nl_ahn
