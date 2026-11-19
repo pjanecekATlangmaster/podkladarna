@@ -2997,24 +2997,29 @@ sources:
   - DK
   kinds:
   - elevation
-  - point_cloud
-  name: DHM/Terræn (DTM 0,4 m) + DHM/Overflade (DSM) WCS a punktsky LAZ
+  name: DHM/Terræn (terén) + DHM/Overflade (povrch) 0,4 m – WCS dhm_wcs
   provider: Klimadatastyrelsen / Datafordeleren
   url: https://wcs.datafordeler.dk/DHMNedboer/dhm_wcs/1.0.0/WCS
   info: https://datafordeler.dk/dataoversigt/danmarks-hoejdemodel-dhm/dhm-wcs/
   role: výšky
-  status: candidate
+  status: used
+  code: app/pipeline/elevation_raster.py (dk_dhm), app/pipeline/reference_dk.py
+  provider_key: dk_dhm
+  probe: dk_elevation
   license:
     class: public
     name: CC BY 4.0 (KDS, od 16. 5. 2024)
     url: https://www.klimadatastyrelsen.dk/om-klimadatastyrelsen/vilkaar-og-priser
     attribution: Klimadatastyrelsen (CC BY 4.0)
   access: api_key
-  checked: 'opencode: 2026-11-16 dataoversigt DHM WCS (COVERAGE=dhm_overflade/dhm_terraen, FORMAT=GTiff, API-key~OAuth) +
-    https://datafordeler.dk/dataoversigt/danmarks-hoejdemodel-dhm/dhm-fildownload-punktsky/ – Claude neověřil'
+  checked: '2026-11-19 Claude: GetCapabilities (coverage dhm_terraen, dhm_overflade, EPSG:25832), GetCoverage 1.0.0 GTiff
+    Float32 s klíčem z cloudu (2 × 2 km po 1 m ~30 s), podmínky KDS (CC BY 4.0, komerčně, kreditace „Klimadatastyrelsen“)'
   issues:
-  - Povinný účet + token; punktsky = 1 km LAZ v ZIP po 10×10 km (~100 km²) – pro výřez 1–25 km² objemově nevhodné.
-  - 30. 11. 2026 změna API URL dle https://dataforsyningen.dk/news/5042
+  - API klíč IT systému v Datafordeler Administration (obnova po dvou letech), aplikace ho čte jen z DK_DATAFORDELER_API_KEY;
+    bez klíče se Dánsko nenabízí. Odpovědi (GetCapabilities) klíč ozvěnou vracejí – neukládat.
+  - Nový klíč prvních ~30 minut střídavě vrací 401 „Unrecognized Authentication key“ (DAF-AUTH-0005); kód 401/403 opakuje.
+  - Moře je 0 (ne NoData). Punktsky = 1 km LAZ v ZIP po 10 × 10 km – pro výřez objemově nevhodné, nenapojeno.
+  - 30. 11. 2026 změna API URL dle https://dataforsyningen.dk/news/5042 (Dataforsyningen; Datafordeler ověřit).
 
 - id: dk_geodanmark_fot
   countries:
