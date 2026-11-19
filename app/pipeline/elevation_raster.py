@@ -858,6 +858,9 @@ def bw_tile_dir(east_km: int, north_km: int) -> Path:
     return settings.CACHE_DIR / "de_bw" / f"{east_km}_{north_km}"
 
 
+XYZ_MAX_SIDE = 2000  # dlaždice XYZ má 1 000–1 001 bodů na stranu; víc = vadný soubor (pole by nemělo strop)
+
+
 def xyz_grid(text: bytes) -> tuple[np.ndarray, float, float]:
     """Mřížka 1 m z XYZ (body = středy pixelů, libovolné pořadí) → (pole, levý okraj, horní okraj); chybějící body NoData.
 
@@ -870,6 +873,8 @@ def xyz_grid(text: bytes) -> tuple[np.ndarray, float, float]:
     xs, ys = np.unique(vals[:, 0]), np.unique(vals[:, 1])
     if not len(vals) or not (np.allclose(np.diff(xs), 1.0) and np.allclose(np.diff(ys), 1.0)):
         raise RuntimeError("XYZ není mřížka 1 m")
+    if len(xs) > XYZ_MAX_SIDE or len(ys) > XYZ_MAX_SIDE:
+        raise RuntimeError(f"XYZ mřížka {len(xs)} × {len(ys)} je větší než {XYZ_MAX_SIDE} × {XYZ_MAX_SIDE}")
     grid = np.full((len(ys), len(xs)), NODATA, dtype="float32")
     col = np.rint(vals[:, 0] - xs[0]).astype(int)
     row = np.rint(ys[-1] - vals[:, 1]).astype(int)
