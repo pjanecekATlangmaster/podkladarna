@@ -97,4 +97,50 @@ def test_stripe_link_alone(monkeypatch, link, ok):
     monkeypatch.setenv("DONATE_STRIPE_LINK", link)
     url = donations.donate_url_for_job({"site": "example.eu", "country": "GB"}, "en")
     assert url == (link if ok else None)
-    assert ("Stripe" in donations.page_buttons_html("en")) == ok
+    assert ("Stripe" in donations.stripe_block_html("en")) == ok
+
+
+EXAMPLE_IBAN = "DE89370400440532013000"  # vzorový IBAN z normy, ne skutečný účet
+
+
+@pytest.fixture
+def sepa_env(monkeypatch):
+    monkeypatch.setenv("SITES", SITES)
+    monkeypatch.delenv("DONATE_PAYPAL_BUSINESS", raising=False)
+    monkeypatch.delenv("DONATE_STRIPE_LINK", raising=False)
+    monkeypatch.setenv("DONATE_SEPA_IBAN", "de89 3704 0044 0532 0130 00")
+    monkeypatch.setenv("DONATE_SEPA_NAME", "Jan  Novak")
+    monkeypatch.setenv("DONATE_SEPA_BIC", "COBADEFFXXX")
+
+
+@pytest.mark.parametrize(
+    "iban, ok",
+    [(EXAMPLE_IBAN, True), ("DE89370400440532013001", False), ("petr@example.com", False), ("", False)],
+)
+def test_sepa_iban_checksum(sepa_env, monkeypatch, iban, ok):
+    monkeypatch.setenv("DONATE_SEPA_IBAN", iban)
+    assert donations.sepa_enabled() == ok
+
+
+def test_epc_payload_and_page_block(sepa_env):
+    payload = donations.epc_payload("en").split("\n")
+    assert payload[:7] == ["BCD", "002", "1", "SCT", "COBADEFFXXX", "Jan Novak", EXAMPLE_IBAN]
+    assert payload[7] == ""  # částku zadá dárce
+    html = donations.sepa_block_html("en")
+    assert "<svg" in html and "DE89 3704 0044 0532 0130 00" in html and "Jan Novak" in html
+
+
+@pytest.mark.parametrize(
+    "stripe, expected",
+    [("", "https://example.eu/podpora"), ("https://buy.stripe.com/test_abc123", "https://example.eu/podpora")],
+)
+def test_mail_links_support_page_when_sepa(sepa_env, monkeypatch, stripe, expected):
+    monkeypatch.setenv("DONATE_STRIPE_LINK", stripe)
+    assert donations.donate_url_for_job({"site": "example.eu", "country": "NL"}, "en") == expected
+
+
+def test_support_page_shows_only_configured_methods(client, sepa_env, monkeypatch):
+    monkeypatch.setenv("DONATE_STRIPE_LINK", "https://buy.stripe.com/test_abc123")
+    html = client.get("/podpora", headers={"host": "example.eu"}).text
+    assert "buy.stripe.com/test_abc123" in html and "<svg" in html and EXAMPLE_IBAN[:4] in html
+    assert "paypal.com" not in html and "{{" not in html and "<script" not in html

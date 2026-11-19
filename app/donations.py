@@ -3,8 +3,9 @@
 Jen odkaz na stránku PayPal Donate (``paypal.com/donate``), žádný skript PayPalu na webu, žádné webhooky
 a nic se u nás neukládá. Měna se předvyplní podle země výřezu; částku zadá dárce sám (jako Purple Pen).
 
-Zapnutí: ``DONATE_PAYPAL_BUSINESS`` = PayPal Merchant ID (ID účtu, ne e-mail) v ``.env``; volitelně
-``DONATE_STRIPE_LINK`` = Stripe Payment Link s volitelnou částkou (další tlačítko, bez PayPalu i do e-mailu). Dar se ukáže jen na
+Zapnutí (jen ``.env``, nikdy v repozitáři), každá možnost zvlášť: ``DONATE_PAYPAL_BUSINESS`` = PayPal Merchant ID
+(ID účtu, ne e-mail); ``DONATE_STRIPE_LINK`` = Stripe Payment Link s volitelnou částkou; ``DONATE_SEPA_IBAN`` +
+``DONATE_SEPA_NAME`` (volitelně ``DONATE_SEPA_BIC``) = převod v EUR s EPC QR kódem (knihovna ``segno``). Dar se ukáže jen na
 doméně ze ``SITES`` s jinými zeměmi než Česko (česká Podkladárna má vlastní stránku s QR platbou beze změny)
 a jen tam, kde neběží prodej (``paid`` + ``PAYMENTS_PROVIDER``) – placená mapa výzvu k daru nedostane.
 """
@@ -52,6 +53,37 @@ def stripe_link() -> str:
     return value if _STRIPE_LINK_RE.match(value) else ""
 
 
+_IBAN_RE = re.compile(r"^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$")
+_BIC_RE = re.compile(r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$")
+
+
+def _iban_valid(iban: str) -> bool:
+    if not _IBAN_RE.match(iban):
+        return False
+    digits = "".join(str(int(c, 36)) for c in iban[4:] + iban[:4])
+    return int(digits) % 97 == 1
+
+
+def sepa_iban() -> str:
+    """IBAN pro převod v EUR z ``DONATE_SEPA_IBAN`` (jen .env, nikdy v repozitáři); neplatný = vypnuto."""
+    value = re.sub(r"\s+", "", os.environ.get("DONATE_SEPA_IBAN", "")).upper()
+    return value if _iban_valid(value) else ""
+
+
+def sepa_name() -> str:
+    """Jméno příjemce z ``DONATE_SEPA_NAME`` (EPC QR nejvýš 70 znaků, jeden řádek)."""
+    return " ".join(os.environ.get("DONATE_SEPA_NAME", "").split())[:70]
+
+
+def sepa_bic() -> str:
+    value = re.sub(r"\s+", "", os.environ.get("DONATE_SEPA_BIC", "")).upper()
+    return value if _BIC_RE.match(value) else ""
+
+
+def sepa_enabled() -> bool:
+    return bool(sepa_iban() and sepa_name())
+
+
 def currency_for_country(country: str | None) -> str:
     return CURRENCY_BY_COUNTRY.get((country or "").strip().upper(), DEFAULT_CURRENCY)
 
@@ -68,7 +100,7 @@ def enabled_for_site(site: i18n.Site | None) -> bool:
     """Dar jen na mezinárodní doméně ze ``SITES``, se zadaným Merchant ID a bez běžícího prodeje."""
     if site is None or tuple(site.countries) == ("CZ",):
         return False
-    if not (paypal_business() or stripe_link()):
+    if not (paypal_business() or stripe_link() or sepa_enabled()):
         return False
     return not _sale_active(site)
 
@@ -100,24 +132,86 @@ def donate_url(currency: str = DEFAULT_CURRENCY, lang: str = i18n.BASE_LANG) -> 
 
 
 def donate_url_for_job(options: dict | None, lang: str) -> str | None:
-    """Odkaz do e-mailu hotové mapy (měna podle země výřezu), nebo None mimo doménu s darem."""
+    """Odkaz do e-mailu hotové mapy, nebo None mimo doménu s darem.
+
+    Jediná možnost daru = přímý odkaz (PayPal s měnou podle země výřezu, nebo Stripe); víc možností nebo
+    SEPA = stránka /podpora na doméně zadání, kde dárce vybere (QR převodu v e-mailu nejde naskenovat)."""
     if not enabled_for_job(options):
         return None
-    return donate_url(currency_for_country((options or {}).get("country")), lang) or stripe_link() or None
+    options = options or {}
+    methods = [bool(paypal_business()), bool(stripe_link()), sepa_enabled()]
+    if sum(methods) == 1 and not sepa_enabled():
+        return donate_url(currency_for_country(options.get("country")), lang) or stripe_link() or None
+    base = i18n.site_base_url(options.get("site"))
+    return f"{base}/podpora" if base else None
 
 
-def page_buttons_html(lang: str) -> str:
-    """Tlačítka měn pro stránku /podpora (každé je obyčejný odkaz na PayPal)."""
-    items = []
-    for code in PAGE_CURRENCIES:
-        url = donate_url(code, lang)
-        if url:
-            href = url.replace("&", "&amp;")
-            items.append(
-                f'<a class="btn donate-btn" href="{href}" target="_blank" rel="noopener">{code}</a>'
-            )
+def _btn(href: str, label: str) -> str:
+    return f'<a class="btn donate-btn" href="{html_escape(href)}" target="_blank" rel="noopener">{html_escape(label)}</a>'
+
+
+def paypal_block_html(lang: str) -> str:
+    """Tlačítka měn PayPal pro stránku /podpora (každé je obyčejný odkaz); prázdné bez Merchant ID."""
+    if not paypal_business():
+        return ""
+    buttons = "\n      ".join(_btn(donate_url(code, lang), code) for code in PAGE_CURRENCIES)
+    return (
+        f'<h2>{html_escape(i18n.t("donate.page.paypal_title", lang))}</h2>\n'
+        f'    <p>{html_escape(i18n.t("donate.page.choose", lang))}</p>\n'
+        f'    <div class="donate-buttons">\n      {buttons}\n    </div>\n'
+        f'    <p class="support-hint">{html_escape(i18n.t("donate.page.paypal_note", lang))}</p>\n'
+    )
+
+
+def stripe_block_html(lang: str) -> str:
     link = stripe_link()
-    if link:
-        label = html_escape(i18n.t("donate.page.stripe_button", lang))
-        items.append(f'<a class="btn donate-btn" href="{link}" target="_blank" rel="noopener">{label}</a>')
-    return "\n        ".join(items)
+    if not link:
+        return ""
+    return (
+        f'<h2>{html_escape(i18n.t("donate.page.stripe_title", lang))}</h2>\n'
+        f'    <div class="donate-buttons">{_btn(link, i18n.t("donate.page.stripe_button", lang))}</div>\n'
+        f'    <p class="support-hint">{html_escape(i18n.t("donate.page.stripe_note", lang))}</p>\n'
+    )
+
+
+def epc_payload(lang: str) -> str:
+    """Obsah EPC QR (EPC069-12, verze 002, UTF-8, převod SCT v EUR bez částky – zadá ji dárce)."""
+    return "\n".join(
+        ["BCD", "002", "1", "SCT", sepa_bic(), sepa_name(), sepa_iban(), "", "", "",
+         i18n.t("donate.sepa_remittance", lang)[:140], ""]
+    )
+
+
+def _qr_svg(payload: str) -> str:
+    try:
+        import segno
+    except ImportError:  # bez knihovny jen údaje k převodu
+        return ""
+    return segno.make(payload, error="m", micro=False).svg_inline(scale=4, border=2, omitsize=False)
+
+
+def _iban_groups(iban: str) -> str:
+    return " ".join(iban[i : i + 4] for i in range(0, len(iban), 4))
+
+
+def sepa_block_html(lang: str) -> str:
+    """EPC QR a údaje k převodu v EUR pro stránku /podpora; prázdné bez ``DONATE_SEPA_IBAN`` / jména."""
+    if not sepa_enabled():
+        return ""
+    qr = _qr_svg(epc_payload(lang))
+    rows = [
+        ("donate.page.sepa_name", sepa_name()),
+        ("donate.page.sepa_iban", _iban_groups(sepa_iban())),
+    ]
+    if sepa_bic():
+        rows.append(("donate.page.sepa_bic", sepa_bic()))
+    rows.append(("donate.page.sepa_message", i18n.t("donate.sepa_remittance", lang)[:140]))
+    dl = "".join(
+        f"<dt>{html_escape(i18n.t(k, lang))}</dt><dd><strong>{html_escape(v)}</strong></dd>" for k, v in rows
+    )
+    qr_html = f'<div class="support-qr donate-qr">{qr}</div>' if qr else ""
+    return (
+        f'<h2>{html_escape(i18n.t("donate.page.sepa_title", lang))}</h2>\n'
+        f'    <div class="support-pay">{qr_html}<dl class="support-account">{dl}</dl></div>\n'
+        f'    <p class="support-hint">{html_escape(i18n.t("donate.page.sepa_hint", lang))}</p>\n'
+    )
