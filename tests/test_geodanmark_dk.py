@@ -22,6 +22,7 @@ def test_wfs_url_has_placeholder_not_key(monkeypatch):
     url = gd.wfs_url("bygning", (574000.0, 6223000.0, 575000.0, 6224000.0), start=10000)
     q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
     assert q["typeNames"] == ["geodkv_v001:bygning_current"] and q["startIndex"] == ["10000"]
+    assert q["sortBy"] == ["objectid"]  # stálé pořadí stránek
     assert q["outputFormat"] == ["application/json"] and KEY not in url and reference_dk.KEY_PLACEHOLDER in url
 
 

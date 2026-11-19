@@ -130,3 +130,15 @@ def test_direct_ortho_failure_logged_without_key(tmp_path, monkeypatch):
     )
     assert out is None and lines and KEY not in lines[0] and "***" in lines[0]
     assert not list(tmp_path.iterdir())  # žádný dočasný soubor ani metadata
+
+
+def test_fetch_ortho_rejects_other_job_crs(tmp_path):
+    pytest.importorskip("osgeo")
+    from osgeo import osr
+
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(3857)
+    called = []
+    with pytest.raises(RuntimeError, match="EPSG:25832"):
+        reference_dk.fetch_ortho(tmp_path / "o.tif", (0, 0, 10, 10), 10, 10, srs.ExportToWkt(), get=called.append)
+    assert not called and not list(tmp_path.iterdir())

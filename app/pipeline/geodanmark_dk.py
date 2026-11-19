@@ -69,6 +69,7 @@ def wfs_url(layer: str, bounds: tuple[float, float, float, float], start: int = 
         "outputFormat": "application/json",
         "srsName": SOURCE_CRS,
         "bbox": f"{xmin:.1f},{ymin:.1f},{xmax:.1f},{ymax:.1f},urn:ogc:def:crs:EPSG::25832",
+        "sortBy": "objectid",  # stálé pořadí stránek (bez řazení může stránkování objekty vynechat / zdvojit)
         "count": str(PAGE_SIZE),
         "startIndex": str(start),
     }

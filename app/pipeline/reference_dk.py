@@ -109,9 +109,16 @@ def _get_image(url: str) -> bytes:
 
 def fetch_ortho(dest: Path, grid: tuple[float, float, float, float], width: int, height: int, dst_wkt: str,
                 *, get=_get_image) -> Path:
-    """Ortofoto výřezu → GeoTIFF ``dest`` (Byte, RGB) v souřadnicích jobu; dočasné dlaždice se smažou."""
-    from osgeo import gdal
+    """Ortofoto výřezu → GeoTIFF ``dest`` (Byte, RGB) v souřadnicích jobu; dočasné dlaždice se smažou.
 
+    ``grid`` je obálka v souřadnicích jobu, dlaždice se ale ptají v EPSG:25832 – jiný CRS jobu se odmítne."""
+    from osgeo import gdal, osr
+
+    want, job = osr.SpatialReference(), osr.SpatialReference()
+    want.SetFromUserInput(DK_CRS)
+    job.SetFromUserInput(dst_wkt)
+    if not want.IsSame(job):
+        raise RuntimeError(f"ortofoto Datafordeler: CRS jobu není {DK_CRS}")
     tiles: list[Path] = []
     try:
         for k, (url, box, w, h) in enumerate(ortho_tile_urls(grid, width, height)):
@@ -120,13 +127,13 @@ def fetch_ortho(dest: Path, grid: tuple[float, float, float, float], width: int,
             mx, my = (box[2] - box[0]) / w, (box[3] - box[1]) / h
             jpg.with_suffix(".wld").write_text(f"{mx}\n0\n0\n{-my}\n{box[0] + mx / 2}\n{box[3] - my / 2}\n", encoding="ascii")
             tiles.append(jpg)
-        gdal.UseExceptions()
-        ds = gdal.Warp(
-            str(dest), [str(t) for t in tiles], format="GTiff", outputBounds=grid, width=width, height=height,
-            srcSRS=DK_CRS, dstSRS=dst_wkt, resampleAlg="bilinear", outputType=gdal.GDT_Byte,
-            creationOptions=["COMPRESS=DEFLATE", "TILED=YES"],
-        )
-        ds = None
+        with gdal.ExceptionMgr(useExceptions=True):  # bez změny globálního stavu GDAL v procesu
+            ds = gdal.Warp(
+                str(dest), [str(t) for t in tiles], format="GTiff", outputBounds=grid, width=width, height=height,
+                srcSRS=DK_CRS, dstSRS=dst_wkt, resampleAlg="bilinear", outputType=gdal.GDT_Byte,
+                creationOptions=["COMPRESS=DEFLATE", "TILED=YES"],
+            )
+            ds = None
     finally:
         for t in tiles:
             t.unlink(missing_ok=True)
