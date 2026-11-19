@@ -13,6 +13,7 @@ from app.countries import DEFAULT_COUNTRY, Country, load_countries
 
 ELEVATION_CZ = "cz_openzu"
 ELEVATION_NONE = "none"
+ELEVATION_USER = "user_upload"  # = elevation_raster.USER_UPLOAD
 
 
 def job_country_code(options: dict | None) -> str:
@@ -37,6 +38,8 @@ def elevation_source(options: dict | None) -> str:
     country = job_country(options)
     if country is None:
         return ELEVATION_CZ if job_country_code(options) == DEFAULT_COUNTRY else ELEVATION_NONE
+    if (options or {}).get("user_sources") and job_country_code(options) != DEFAULT_COUNTRY:
+        return ELEVATION_USER  # vlastní data zadavatele (app.user_sources), jen mimo Česko
     return country.elevation or ELEVATION_NONE
 
 

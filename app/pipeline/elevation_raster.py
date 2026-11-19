@@ -105,6 +105,25 @@ def local_provider(spec: str) -> Provider:
     return _fetch
 
 
+# --------------------------------------------------------------------------- vlastní data zadavatele
+
+USER_UPLOAD = "user_upload"
+
+
+def user_upload_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Výšky nahrané zadavatelem (``app.user_sources``): ``jobs/<id>/user_sources/{dtm,dsm}``, nikdy cache.
+
+    ``out_dir`` je ``jobs/<id>/work/dem/src`` (``prepare_raster_surfaces``).
+    """
+    from app.user_sources import job_sources_dir
+
+    base = job_sources_dir(Path(out_dir).parents[2])
+    return local_provider(f"local:{base.resolve()}")(bounds, out_dir, log=log)
+
+
+PROVIDERS[USER_UPLOAD] = user_upload_provider
+
+
 # --------------------------------------------------------------------------- NL: AHN přes PDOK WCS
 
 AHN_WCS = NL_AHN_WCS
@@ -2548,6 +2567,7 @@ SOURCE_LABELS = {
     "de_hh": "DGM1 a bDOM, LGV Hamburg",
     "de_hb": "DGM1 a DOM1, GeoInformation Bremen",
     "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
+    USER_UPLOAD: "vlastní data zadavatele",
 }
 
 
