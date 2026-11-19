@@ -332,7 +332,7 @@ zůstává pro OOM; DXF/SHP/PNG+PGW dál fungují.
 Autor a kontakt
 ---------------
 Autorem Podkladárny je Petr Janeček. Služba běží na
-https://podkladarna.kibos.link
+{{web_url}}
 
 Budu vděčný za jakékoli dotazy, připomínky i podněty k vylepšení.
 Napište mi nebo zavolejte:
@@ -343,7 +343,7 @@ Napište mi nebo zavolejte:
 --------------
 Podkladárna je zdarma. Pokud vám pomohla a chcete podpořit další vývoj
 (hlavně placené AI nástroje), ocením dobrovolný příspěvek v jakékoli výši:
-https://podkladarna.kibos.link/podpora
+{{web_url}}/podpora
 
 Právní
 ------
@@ -356,6 +356,7 @@ Volně inspirováno Karttapullautinem.
 """
 
 CZ_CITATION = "Podklad: Podkladárna · ČÚZK · OSM, [rok]"
+CZ_WEB_URL = "https://podkladarna.kibos.link"
 CZ_ATTRIBUTION = (
     "Data ČÚZK (DMR 5G, DMP OK, ZABAGED®, RÚIAN/INSPIRE, DTM, ortofoto) – CC BY 4.0.",
     "AOPK památné stromy (CC BY 4.0). OSM © přispěvatelé (ODbL).",
@@ -373,6 +374,7 @@ def zip_about_txt(
     attribution: tuple[str, ...] = CZ_ATTRIBUTION,
     github: bool = True,
     crs: str = "S-JTSK (EPSG:5514)",
+    web_url: str = CZ_WEB_URL,
 ) -> str:
     """CO_JE_PODKLADARNA.txt s citací zdrojů podle země výřezu (licence místních dat).
 
@@ -382,6 +384,7 @@ def zip_about_txt(
         attribution="\n".join(attribution or CZ_ATTRIBUTION),
         github_block=_ZIP_GITHUB_BLOCK if github else "",
         crs=crs,
+        web_url=(web_url or CZ_WEB_URL).rstrip("/"),
     )
 
 
