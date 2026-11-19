@@ -163,6 +163,9 @@ DISK_JOB_GB_PER_KM2 = float(os.environ.get("DISK_JOB_GB_PER_KM2", "0.5") or 0)
 # Při nedostatku místa na disku s joby se smažou mezivýsledky nejstarších hotových jobů a pak celé nejstarší
 # hotové joby; job dokončený před méně než tolika hodinami se celý nemaže (uživatel si ZIP teprve stahuje).
 DISK_JOB_DELETE_MIN_AGE_HOURS = float(os.environ.get("DISK_JOB_DELETE_MIN_AGE_HOURS", "6") or 0)
+# Rozbalené kopie podkladů vedle ZIPu v output/ (shade/, references/, uzitecne/; ~ velikost ZIPu): jen pro
+# otevření .omap přímo z output/ při vývoji. 0 = jen ZIP (ostrá A, šetří disk s joby).
+OUTPUT_UNPACKED_COPIES = os.environ.get("OUTPUT_UNPACKED_COPIES", "1").strip().lower() not in ("0", "false", "no", "off")
 # Rezerva ``DATA_ROOT/.disk_reserve`` (MB): při plném disku se smaže, aby šel zapsat stav jobu „selhalo“.
 DISK_RESERVE_MB = float(os.environ.get("DISK_RESERVE_MB", "64") or 0)
 # Souběžná stahování listů LiDARu z ČÚZK (OpenZU). Jedno spojení dává ~2 MB/s, list DMP OK má ~340 MB
