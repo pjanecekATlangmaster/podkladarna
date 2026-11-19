@@ -713,6 +713,11 @@ legend {
   margin-bottom: 0.35rem;
 }
 
+.user-sources[hidden] { display: none; }
+.user-sources label { display: block; margin: 0.35rem 0; }
+.user-sources input[type="file"] { display: block; max-width: 100%; margin-top: 0.2rem; }
+.user-sources-status.warn { color: #a33; }
+
 .advanced-options .checkbox-row {
   margin: 0.45rem 0 0.15rem;
   font-weight: 500;
