@@ -1977,6 +1977,13 @@ function syncUserSources() {
     privateEl.disabled = active;
     privateEl.title = active ? t("web.js.user_sources.private_forced") : "";
   }
+  const cmdWrap = document.getElementById("user-sources-cmd-wrap");
+  const cmd = document.getElementById("user-sources-cmd");
+  if (cmdWrap && cmd) {
+    const text = userSourcesCropCommand();
+    cmdWrap.hidden = !text;
+    cmd.textContent = text;
+  }
   const status = document.getElementById("user-sources-status");
   if (status) {
     const files = userSourceFiles();
@@ -1989,6 +1996,18 @@ function syncUserSources() {
       status.classList.toggle("warn", Boolean(problem));
     }
   }
+}
+
+/** Příkaz gdalwarp na ořez vlastních dat na výřez s okrajem ~200 m (server ořízne na výřez + 200 m). */
+function userSourcesCropCommand() {
+  const parts = ((document.getElementById("bbox-input") || {}).value || "").split(",").map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return "";
+  const [w, s, e, n] = parts;
+  const dLat = 0.002;
+  const dLon = dLat / Math.max(0.2, Math.cos((((s + n) / 2) * Math.PI) / 180));
+  const te = [w - dLon, s - dLat, e + dLon, n + dLat].map((x) => x.toFixed(5)).join(" ");
+  const base = `gdalwarp -te_srs EPSG:4326 -te ${te} -co COMPRESS=DEFLATE -co TILED=YES`;
+  return `${base} dtm_source.tif dtm.tif\n${base} dsm_source.tif dsm.tif`;
 }
 
 /** Hlavička TIFF (II*\0 / MM\0* a BigTIFF) – rychlá kontrola v prohlížeči, ať se nenahrává zbytečně. */

@@ -271,3 +271,7 @@ def test_index_upload_block_only_on_intl_site(client, monkeypatch, sites, on, sh
     assert ('name="user_dtm"' in html) is shown
     if shown:
         assert 'name="user_sources_consent"' in html and "{{" not in html.split('id="user-sources"')[1][:3000]
+    guide = client.get("/own-data")
+    assert guide.status_code == (200 if shown else 404)
+    if shown:
+        assert "gdalwarp" in guide.text and "{{" not in guide.text
