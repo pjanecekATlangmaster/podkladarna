@@ -930,7 +930,7 @@
   "api.source.de_ni_elevation.impact": "Without heights the map cannot be made (no terrain or vegetation height).",
   "api.source.de_ni_dop.label": "Orthophoto (Lower Saxony)",
   "api.source.de_ni_dop.impact": "The orthophoto template will be missing.",
-  "api.source.de_bb_elevation.label": "Brandenburg heights – DGM1 and DOM1",
+  "api.source.de_bb_elevation.label": "Brandenburg heights – DGM1 and bDOM1",
   "api.source.de_bb_elevation.impact": "Without heights the map cannot be made (no terrain or vegetation height).",
   "api.source.de_bb_dop.label": "Orthophoto (Brandenburg)",
   "api.source.de_bb_dop.impact": "The orthophoto template will be missing.",

@@ -929,7 +929,7 @@
   "api.source.de_ni_elevation.impact": "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
   "api.source.de_ni_dop.label": "Ortofoto (Dolní Sasko)",
   "api.source.de_ni_dop.impact": "Šablona ortofota bude chybět.",
-  "api.source.de_bb_elevation.label": "Výšky Braniborsko – DGM1 a DOM1",
+  "api.source.de_bb_elevation.label": "Výšky Braniborsko – DGM1 a bDOM1",
   "api.source.de_bb_elevation.impact": "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
   "api.source.de_bb_dop.label": "Ortofoto (Braniborsko)",
   "api.source.de_bb_dop.impact": "Šablona ortofota bude chybět.",
