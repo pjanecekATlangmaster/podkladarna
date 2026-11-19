@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | dk_dhm | no_hoyde | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -459,4 +459,18 @@ DK:
     - "Elevation: Danmarks Højdemodel (DHM/Terræn, DHM/Overflade), Klimadatastyrelsen via Datafordeleren (CC BY 4.0), processed."
     - "GeoDanmark buildings, road edges, parking and fences: GeoDanmark (CC BY 4.0), processed."
     - "Sprint paved areas partly derived from GeoDanmark orthophoto (spring), Klimadatastyrelsen / GeoDanmark (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+'NO':
+  name: {cs: Norsko, en: Norway, nb: Norge}
+  status: beta              # pevninské Norsko bez Svalbardu a Jan Mayenu (2026-11-19); výšky bez klíče, kresba z OSM
+  crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém celostátního výškového modelu Kartverket)
+  boundary: countries/no.geojson  # GISCO 1 : 1 M (© EuroGeographics), +550 m, zjednodušeno 250 m, ostrovy od 1,5 km²
+  view: [57.97, 4.6, 71.19, 31.14]
+  elevation: no_hoyde       # Nasjonal detaljert høydemodell DTM + DOM (lidar) z WCS Geonorge po 1 m, výšky NN2000
+  technical_map: none       # FKB je „Norge digitalt begrenset“ (jen se smlouvou) – kresba z OSM
+  cz_sources: false
+  # Licence: volné produkty Kartverket CC BY 4.0 i komerčně, uvést „©Kartverket“ a odkaz (ověřeno 2026-11-19, terms-of-use a metadata DOM1).
+  citation: "Base map: Omapic · ©Kartverket · OSM, [year]"
+  attribution:
+    - "Elevation: Nasjonal detaljert høydemodell (DTM, DOM), ©Kartverket (CC BY 4.0, https://www.kartverket.no), processed."
     - "OSM © OpenStreetMap contributors (ODbL)."
