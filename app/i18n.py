@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
 from html import escape as html_escape
@@ -32,6 +33,11 @@ SERVER_ONLY_PREFIXES = ("web.page.",)
 # ``t()`` a katalog pro app.js ho doplní sami; v katalogu jiného jazyka nemusí být (není to parametr volání).
 BRAND_KEY = "web.brand"
 GLOBAL_PARAMS = frozenset({"brand"})
+
+# Mezinárodní doména (Omapic, země mimo jen Česko) pro právě zpracovávaný požadavek: název služby podle domény,
+# ne podle jazyka (česky na Omapicu = Omapic), a texty ``<klíč>_intl`` místo zmínek o Podkladárně (Petr 2026-11-19).
+# Nastavuje middleware v ``app.main``; mimo požadavek (job, e-mail) a na české doméně je None = beze změny.
+_INTL_BRAND: ContextVar[str | None] = ContextVar("podkladarna_intl_brand", default=None)
 
 _LANG_RE = re.compile(r"^[a-z]{2}$")
 _PLACEHOLDER_RE = re.compile(r"\{\{(t|h):([a-zA-Z0-9_.\-]+)\}\}")
@@ -147,8 +153,30 @@ def _raw(key: str, lang: str) -> str | None:
 
 
 def brand(lang: str | None = None) -> str:
-    """Název služby v jazyce (``web.brand``), výchozí Podkladárna."""
-    return _raw(BRAND_KEY, lang or default_lang()) or "Podkladárna"
+    """Název služby v jazyce (``web.brand``), výchozí Podkladárna; na mezinárodní doméně název domény."""
+    return _INTL_BRAND.get() or _raw(BRAND_KEY, lang or default_lang()) or "Podkladárna"
+
+
+def is_intl_site(site: Site | None) -> bool:
+    """Doména nabízí i jiné země než Česko (``SITES``); bez ``SITES`` česká verze."""
+    return site is not None and tuple(site.countries) != ("CZ",)
+
+
+def set_request_site(site: Site | None) -> Any:
+    """Kontext požadavku (middleware): na mezinárodní doméně název služby v jazyce domény (en = Omapic)."""
+    value = (_raw(BRAND_KEY, site.lang) or None) if site is not None and is_intl_site(site) else None
+    return _INTL_BRAND.set(value)
+
+
+def reset_request_site(token: Any) -> None:
+    _INTL_BRAND.reset(token)
+
+
+def _intl_key(key: str, lang: str) -> str:
+    """Na mezinárodní doméně ``<klíč>_intl``, má-li ho katalog právě tohoto jazyka (jiný jazyk se nepůjčuje)."""
+    if _INTL_BRAND.get() and not key.endswith("_intl") and f"{key}_intl" in catalog(lang):
+        return f"{key}_intl"
+    return key
 
 
 def _with_brand(text: str, lang: str) -> str:
@@ -158,7 +186,9 @@ def _with_brand(text: str, lang: str) -> str:
 def t(key: str, lang: str | None = None, **params: Any) -> str:
     """Text pro klíč v jazyce; chybí-li, en, pak cs, nakonec klíč. ``{brand}`` = název služby."""
     lang = lang or default_lang()
-    text = _raw(key, lang)
+    if key == BRAND_KEY and _INTL_BRAND.get():
+        return brand(lang)
+    text = _raw(_intl_key(key, lang), lang)
     if text is None:
         return key
     text = _with_brand(text, lang)
@@ -178,9 +208,14 @@ def merged_catalog(lang: str, prefixes: tuple[str, ...] = WEB_PREFIXES) -> dict[
             {
                 k: v
                 for k, v in catalog(code).items()
-                if k.startswith(prefixes) and not k.startswith(SERVER_ONLY_PREFIXES)
+                if k.startswith(prefixes) and not k.startswith(SERVER_ONLY_PREFIXES) and not k.endswith("_intl")
             }
         )
+    if _INTL_BRAND.get():
+        own = catalog(lang)
+        out.update({k: own[f"{k}_intl"] for k in list(out) if f"{k}_intl" in own})
+        if BRAND_KEY in out:
+            out[BRAND_KEY] = brand(lang)
     return {k: _with_brand(v, lang) for k, v in out.items()}
 
 

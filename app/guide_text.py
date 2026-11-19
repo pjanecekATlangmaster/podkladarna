@@ -242,6 +242,127 @@ WEB_ABOUT_HTML_EN = """
 WEB_ABOUT_HTML_BY_LANG = {"cs": WEB_ABOUT_HTML, "en": WEB_ABOUT_HTML_EN}
 
 
+# Česky na mezinárodní doméně (Omapic, Petr 2026-11-19): obsah jako WEB_ABOUT_HTML_EN, bez Podkladárny a ČÚZK jako jediného zdroje.
+WEB_ABOUT_HTML_CS_INTL = """
+<p>
+  Chtěl jsem zjistit, jestli se už dají podklady pro orientační mapy skládat automaticky.
+  Inspirací byl
+  <a href="https://mapant.net/" target="_blank" rel="noopener">mapant.net</a>
+  a projekt
+  <a href="https://github.com/karttapullautin/karttapullautin" target="_blank" rel="noopener">Karttapullautin</a>.
+  {{t:web.brand}} pak šel vlastní cestou (vlastní vegetace, srázy a DEM)
+  k editovatelným podkladům přímo v
+  <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapperu</a>.
+  Program vznikl s pomocí AI, samotné generování ale běží postaru,
+  podle jasně daných algoritmů.
+</p>
+<p>
+  Pro zvolený výřez {{t:web.brand}} stáhne národní letecký LiDAR nebo výškové modely
+  (terénu a povrchu), zaměřené objekty z <strong>technické mapy velkého měřítka</strong> dané země,
+  kde je k dispozici (v Česku DTM kraje, jinde např. BGT v Nizozemsku,
+  AV ve Švýcarsku nebo FMZK ve Vídni), doplňky z OSM (cesty, plochy, budovy…) a v Česku
+  ZABAGED a další národní zdroje.
+  Reliéf a vegetace vznikají z modelů terénu a povrchu (hustota odrazů, srázy z DEM,
+  vrstevnice GDAL); hlavním výstupem jsou vektory pro OOM (a stejnojmenný soubor <code>.ocd</code>
+  OCD12 pro OCAD) podle měřítka.
+  Data nejsou dokonalá a automatika je jen skládá:
+  něco chybí, něco se překrývá a ne všechno sedne napoprvé.
+  Výsledek berte jako <em>pracovní podklad</em>, ne přesné zaměření
+  ani hotovou mapu. Práce v OOM a v terénu vás ještě čeká.
+</p>
+<p>
+  Web ukazuje náhled mapy v PNG.
+  Hlavním výstupem je vždy ZIP s editovatelnými vektory (vrstevnice, vegetace, OSM, národní
+  vrstvy země – v Česku ZABAGED, RÚIAN a AOPK –, DXF srázů, referenční ortofoto…).
+  Georeferencovaný GeoTIFF v ZIPu je volitelný (výchozí vypnutý).
+</p>
+<p>
+  <strong>Mapa je rovnou georeferencovaná v národním souřadnicovém systému země</strong>
+  (v Česku S-JTSK, v Nizozemsku RD New, ve Švýcarsku LV95 …) včetně
+  magnetické deklinace a grivace pro střed výřezu.
+  Šablony (katastr, stínování…) a vektory proto v OOM / OCADu sedí
+  bez ručního lícování a můžete je rovnou podložit vlastní šablonou.
+</p>
+<p>
+  <strong>Vegetace ukazuje výšku a hustotu porostu z LiDARu (model povrchu), ne průběžnost.</strong>
+  Zelená a otevřené plochy ukazují, kde je les vysoký, nízký nebo kde chybí; jak rychle se jím
+  dá běžet (podrost, viditelnost), z dat vyčíst nejde. Berte ji jako přehled,
+  vegetace se dokončuje v terénu.
+</p>
+<p>
+  Zdroje dat pokrývají země vyznačené na mapě; každá mapa vzniká z dat národních
+  poskytovatelů své země a ZIP uvádí citaci, kterou na mapu uvést (úvodní textový soubor).
+</p>
+<details class="about-zip">
+  <summary><strong>ZIP obsahuje mimo jiné</strong></summary>
+<ul>
+  <li><code>*-sprint.omap</code> / <code>*-les.omap</code> (les) / <code>*-mtbo.omap</code> (+ stejnojmenný <code>.ocd</code>), pojmenované podle projektu a měřítka; cesty z OSM; <code>.omap</code> pro OOM, <code>.ocd</code> pro OCAD (šablony: ortofoto, základní mapa, katastr, stínování … podle země, a OSM)</li>
+  <li>DXF srázů, vrstevnice GDAL (<code>contours_gdal.*</code>), vegetace / srázy / kupky v <code>base/</code>, budovy OSM v .omap, shapefily OSM v <code>osm/</code>, v Česku i ZABAGED, budovy RÚIAN/ZABAGED v <code>zabaged/</code> a památné stromy AOPK, návod <code>README_OOM.txt</code></li>
+</ul>
+</details>
+<details class="about-evolution">
+  <summary><strong>Jak se {{t:web.brand}} vyvíjel (ZABAGED → OSM → DTM kraje)</strong></summary>
+  <ol>
+    <li>
+      <strong>ZABAGED.</strong> Začínal jsem s národní topografickou databází ČÚZK. Je úplná
+      a jednotná, ale na orientační mapu příliš hrubá a pomalu se aktualizuje.
+    </li>
+    <li>
+      <strong>OSM.</strong> Je aktuálnější a má detaily, které orientační mapa potřebuje
+      (schody, ploty, lávky, chodníky), kvalita se ale místo od místa liší. OSM převzalo vedení
+      a ZABAGED zůstal jako doplněk.
+    </li>
+    <li>
+      <strong>DTM kraje.</strong> Zaměřená digitální technická mapa (DMVS, ČÚZK) dává
+      přesný <em>tvar</em> ploch: chodníků, silnic, parkovišť, budov, schodišť, plotů
+      a víceúrovňových mostů. Tvar proto přichází z DTM a <em>aktuálnost</em> z OSM:
+      co v DTM ještě chybí (nové budovy, čerstvé změny), doplní OSM. Mosty se kreslí
+      s úrovněmi křížení a místa, kudy se dá projít pod nimi, jsou označená trojúhelníkem. Pokrytí DTM
+      stále roste; kde chybí, zůstává OSM a ZABAGED.
+    </li>
+    <li>
+      <strong>Karttapullautin → vlastní vektory.</strong> Reliéf a vegetace původně vycházely
+      z výstupů Karttapullautinu (KP). Dnes vegetaci, srázy a DEM počítáme sami a
+      kreslíme je rovnou jako editovatelné vektory. Tahle část je mladší a dál na ní pracujeme.
+    </li>
+  </ol>
+  <p>
+    Nejvíc z DTM těží sprint (1:4000). V mapách pro les a MTBO se DTM používá pro budovy,
+    ploty, schodiště a koridor silnice (MTBO). Zpevněné plochy (silnice, parkoviště, pěší zóny) v lese
+    a MTBO se kreslí z OSM, ZABAGED a DTM jako jedna síť.
+  </p>
+</details>
+<h2>Jak na to</h2>
+<p class="about-note">
+  <strong>Nejdřív prosba:</strong> {{t:web.brand}} běží na jednom sdíleném serveru, takže každý
+  velký job na chvíli zdrží všechny ostatní. Generujte prosím jen to, co opravdu použijete,
+  ať na zkoušku, nebo pro práci na mapě. Na první pokus stačí menší výřez a jedno měřítko;
+  celé území a další varianty má smysl pouštět, až výsledek vypadá dobře. Děkuji.
+</p>
+<p>
+  Nakreslete obdélník (MTBO do 25&nbsp;km², např. 5&nbsp;×&nbsp;5 nebo 7&nbsp;×&nbsp;3,5&nbsp;km; les do 15&nbsp;km²;
+  sprint 1:4000 do 4&nbsp;km², např. 2&nbsp;×&nbsp;2&nbsp;km), zvolte
+  <strong>měřítko</strong> (rozhoduje mezi sprintem, nebo lesem a MTBO), případně nastavte další
+  volby a spusťte generování. Tlačítko ukazuje hrubý odhad potřebného času.
+  Stránku můžete mezitím zavřít.
+  Až bude hotovo, stáhněte ZIP, otevřete zvolený
+  <code>*-sprint.omap</code> / <code>*-les.omap</code> / <code>*-mtbo.omap</code> v OOM
+  (nebo stejnojmenný <code>.ocd</code> v OCADu) a začněte mapovat.
+</p>
+<p>
+  Najednou běží jen jeden job. Z jedné sítě mohou běžet nebo čekat nejvýš <strong>2 joby</strong>
+  naráz a <strong>10</strong> za hodinu. Kdo má obě místa obsazená, dá ve frontě přednost
+  tomu, kdo ještě nic nespustil. Rozlišení podle IP adresy není dokonalé
+  (VPN, sdílená Wi‑Fi). Hotové joby se uchovávají <strong>48 hodin</strong>, ZIP si proto uložte.
+  Pokud nechcete, aby mapu viděl někdo další, zvolte soukromý režim a odkaz ke stažení
+  dostanete, až bude hotovo.
+</p>
+<p>
+  {{t:web.brand}} je experiment, proto ocením zpětnou vazbu u hotové mapy.
+</p>
+"""
+
+
 _CS_CRS_HTML = "<strong>Mapa je rovnou georeferencovaná v S-JTSK (EPSG:5514)</strong>"
 _CS_CRS_HTML_INTL = (
     "<strong>Mapa je rovnou georeferencovaná v souřadnicovém systému země</strong>\n"
@@ -252,7 +373,10 @@ _CS_CRS_HTML_INTL = (
 def web_about_html(lang: str, *, intl: bool = False) -> str:
     """Úvod v jazyce stránky; bez překladu anglicky (pak česky).
 
-    ``intl``: doména i pro jiné země – česky souřadnicový systém země místo S-JTSK."""
+    ``intl``: doména i pro jiné země – česky obsah jako v angličtině (název domény, bez Podkladárny
+    a S-JTSK jako jediného systému), bez odkazů na GitHub."""
+    if intl and lang == "cs":
+        return strip_github_links(WEB_ABOUT_HTML_CS_INTL)
     html = WEB_ABOUT_HTML_BY_LANG.get(lang) or WEB_ABOUT_HTML_BY_LANG.get("en") or WEB_ABOUT_HTML
     return strip_github_links(html.replace(_CS_CRS_HTML, _CS_CRS_HTML_INTL)) if intl else html
 

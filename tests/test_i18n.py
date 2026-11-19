@@ -331,3 +331,30 @@ def test_sample_zips_listed_only_when_present(client, monkeypatch, tmp_path):
     assert "reference: Czech Republic" in en and "forest – Tallinn &lt;EE&gt; x" in en
     assert "reference" not in client.get("/?lang=cs").text.split("about-samples")[1].split("</p>")[0]
     assert "omapic-sample-reference.zip" in client.get("/samples/reference-en.zip").headers["content-disposition"]
+
+
+def test_intl_site_czech_uses_intl_brand_and_texts(client, monkeypatch):
+    """Česky na mezinárodní doméně (Omapic): název domény a texty jako v angličtině; česká doména beze změny
+    (Petr 2026-11-19)."""
+    monkeypatch.setenv("SITES", "pt.kibos.link=cs:free:CZ,example.eu=en:paid:*")
+    monkeypatch.setenv("LANGS", "cs,en")
+    for path in ("/?lang=cs", "/licence?lang=cs"):
+        client.cookies.clear()
+        res = client.get(path, headers={"host": "example.eu"})
+        assert '<html lang="cs"' in res.text, path
+        assert "Omapic" in res.text, path
+        assert not re.search(r"Podkladárn|Petr", res.text), path
+        assert "{brand}" not in res.text and "{{t:" not in res.text, path
+    payload = json.loads(re.search(r"window\.I18N = (\{.*?\});</script>", client.get(
+        "/?lang=cs", headers={"host": "example.eu"}).text).group(1))
+    assert payload["messages"]["web.brand"] == "Omapic"
+    assert payload["messages"]["web.js.feedback.sent"] == "Díky — zpráva je u autora."
+    assert not any(k.endswith("_intl") for k in payload["messages"])
+    client.cookies.clear()
+    free = client.get("/", headers={"host": "pt.kibos.link"})
+    assert "<title>Podkladárna</title>" in free.text and "Omapic" not in free.text
+    free_payload = json.loads(re.search(r"window\.I18N = (\{.*?\});</script>", free.text).group(1))
+    assert free_payload["messages"]["web.js.feedback.sent"] == "Díky — zpráva je u Petra."
+    assert not any(k.endswith("_intl") for k in free_payload["messages"])
+    # Mimo požadavek (job, e-mail) se nic nemění.
+    assert i18n.brand("cs") == "Podkladárna"
