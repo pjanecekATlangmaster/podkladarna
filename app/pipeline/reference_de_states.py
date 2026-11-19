@@ -1,5 +1,5 @@
-"""Německé spolkové země s výškami z WCS 2.0.1 (zahraniční build): Sasko-Anhaltsko, Meklenbursko-Přední Pomořansko
-a Dolní Sasko.
+"""Německé spolkové země s výškami z WCS 2.0.1 (zahraniční build): Sasko-Anhaltsko, Meklenbursko-Přední Pomořansko,
+Dolní Sasko a Braniborsko.
 
 Jedna tabulka ``DE_WCS_STATES`` (klíč = ``elevation`` v ``configs/countries.yaml``): terén DGM1 a povrch DOM1 po 1 m
 z WCS zemského geodetického úřadu, bez klíče, v nativním UTM země; šablony WMS (ortofoto, topografická mapa).
@@ -35,6 +35,7 @@ ST_DTK_LAYER = "lsa_lvermgeo_dtk25_col_1"
 MV_DIENSTE = "https://www.geodaten-mv.de/dienste"
 NI_WCS = "https://opendata.geoservices.lgln.niedersachsen.de"
 NI_WMS = "https://opendata.lgln.niedersachsen.de/doorman/noauth"
+BB_OWS = "https://isk.geobasis-bb.de"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -84,6 +85,20 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
              "image/jpeg", False, 0.2),
             ("de_ni_dtk", "dtk25_niedersachsen.xml", "DTK25 Niedersachsen (topografická mapa 1 : 25 000)",
              f"{NI_WMS}/dtk25_wms", "ni_dtk25_farbe", "image/png", False, 1.0),
+        ),
+    ),
+    # Braniborsko (LGB): dl-de/by-2.0, citace „© GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)“ (AccessConstraints).
+    # WCS dgm_wcs / bdom_wcs (bb_dgm, bb_bdom), EPSG:25833, čistý GeoTIFF; povrch je **obrazový** bDOM (green: photo).
+    "de_bb": DeWcsState(
+        code="DE-BB",
+        name="Braniborsko",
+        crs="EPSG:25833",
+        dtm=(f"{BB_OWS}/ows/dgm_wcs", "bb_dgm"),
+        dsm=(f"{BB_OWS}/ows/bdom_wcs", "bb_bdom"),
+        probe_box=(365000, 5805000, 365016, 5805016),  # Potsdam
+        wms=(
+            ("de_bb_dop", "dop_brandenburg.xml", "DOP20 Brandenburg (ortofoto)", f"{BB_OWS}/mapproxy/dop20c/service/wms",
+             "bebb_dop20c", "image/jpeg", False, 0.2),
         ),
     ),
 }

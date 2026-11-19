@@ -1863,6 +1863,7 @@ SOURCE_LABELS = {
     "de_st": "DGM1 a DOM1, LVermGeo Sachsen-Anhalt",
     "de_mv": "DGM1 a DOM1, LAiV Mecklenburg-Vorpommern",
     "de_ni": "DGM1 a DOM1, LGLN Niedersachsen",
+    "de_bb": "DGM1 a bDOM1, LGB Brandenburg",
 }
 
 

@@ -2308,6 +2308,53 @@ sources:
   issues:
     - "Brémy jsou mimo pokrytí LGLN WMS i WCS."
 
+- id: de_bb_dgm
+  countries: [DE-BB]
+  kinds: [elevation]
+  name: DGM1 a bDOM1 Braniborsko (1 m, povrch ze snímků), WCS 2.0.1
+  provider: Landesvermessung und Geobasisinformation Brandenburg (LGB)
+  url: https://isk.geobasis-bb.de/ows/dgm_wcs
+  info: https://www.govdata.de/dl-de/by-2-0
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_wcs_provider), app/pipeline/reference_de_states.py
+  provider_key: de_bb
+  probe: de_bb_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: © GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities dgm_wcs a bdom_wcs (Fees kostenfrei, AccessConstraints dl-de/by-2.0 s Namensnennung GeoBasis-DE/LGB; coverage bb_dgm, bb_bdom, EPSG:25833, 1 m, strop 20 000 px), zkušební dlaždice 2 × 2 km Potsdam 16 MB za 3–9 s, Float32 hodnoty (ne obarvená mapa, i když abstract DGM píše o barevných vrstvách)"
+  issues:
+    - "Povrch bDOM je ze snímků (bildbasiert) → green: photo, pole s plodinami mohou vyjít jako porost. Laserový nDOM je jen v LAZ (data.geobasis-bb.de/geobasis/daten/ndom/), nenapojeno."
+    - "Při použití dat Berlína (WCS pokrývá i Berlín) doplnit „© Geoportal Berlin, dl-de/by-2-0“; výřez v Berlíně ale vybere zemi DE."
+
+- id: de_bb_wms
+  countries: [DE-BB]
+  kinds: [orthophoto]
+  name: "Ortofoto DOP20 Berlín a Braniborsko (WMS LGB, mapproxy)"
+  provider: Landesvermessung und Geobasisinformation Brandenburg (LGB)
+  url: https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms
+  info: https://www.govdata.de/dl-de/by-2-0
+  role: šablona
+  reference_keys: ["online_de_bb_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/by-2.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_bb_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: © GeoBasis-DE/LGB, dl-de/by-2-0
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities (vrstva bebb_dop20c, EPSG:25833, AccessConstraints dl-de/by-2.0), GetMap JPEG OK"
+  issues:
+    - "Topografická mapa DTK jako WMS na isk.geobasis-bb.de nenalezena (dtk25_wms, dtk_wms 404)."
+
 - id: de_bb_als
   countries:
   - DE
