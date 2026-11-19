@@ -125,6 +125,8 @@ let sprintMaxAreaKm2 = 4;
 let forestMaxAreaKm2 = 15;
 let sheetsLookupSeq = 0;
 let bboxAllowed = false;
+const USER_SOURCE_KINDS = ["dtm", "dsm"];
+const userSourceBad = new Set(); // názvy souborů, které nezačínají hlavičkou TIFF
 let lastSheets = null;
 // Stav odznaku výřezu na mapě: rozpracovaný (tažení) a chyba dotazu na listy.
 let bboxDraft = null;
@@ -1917,6 +1919,103 @@ function markGenerateStarted(jobId) {
   btn.textContent = t("web.js.form.generation_started");
 }
 
+// --- Vlastní výšková data zadavatele (app/user_sources.py; blok jen na Omapic se zapnutým USER_SOURCES) ---
+
+/** Blok s nahráním je na stránce a výřez je mimo Česko (s českými daty se nepoužije). */
+function userSourcesAvailable() {
+  const box = document.getElementById("user-sources");
+  return Boolean(box && lastSheets && lastSheets.country && lastSheets.country !== "CZ");
+}
+
+function userSourceFiles() {
+  return USER_SOURCE_KINDS.map((kind) => {
+    const input = document.getElementById(`user_${kind}`);
+    return input && input.files && input.files[0] ? input.files[0] : null;
+  });
+}
+
+/** Zadavatel vybral aspoň jeden vlastní soubor (a blok platí pro výřez). */
+function userSourcesActive() {
+  return userSourcesAvailable() && userSourceFiles().some(Boolean);
+}
+
+function userSourcesMaxMb() {
+  const box = document.getElementById("user-sources");
+  return Number((box && box.dataset.maxMb) || 0) || 95;
+}
+
+/** Chyba vlastních dat před odesláním (null = v pořádku); hlavní kontrola je na serveru. */
+function userSourcesProblem() {
+  const files = userSourceFiles();
+  if (!files.every(Boolean)) return t("web.js.user_sources.both");
+  for (const f of files) {
+    if (!/\.tiff?$/i.test(f.name) || userSourceBad.has(f.name)) return t("web.js.user_sources.not_tiff", { name: f.name });
+  }
+  const size = files.reduce((sum, f) => sum + f.size, 0) / 1e6;
+  const max = userSourcesMaxMb();
+  if (size > max) return t("web.js.user_sources.too_big", { size: size.toFixed(1), max });
+  const consent = document.getElementById("user_sources_consent");
+  if (!consent || !consent.checked) return t("web.js.user_sources.consent");
+  return null;
+}
+
+/** Ukáže blok jen u výřezu mimo Česko; s vybranými soubory vynutí Soukromě. */
+function syncUserSources() {
+  const box = document.getElementById("user-sources");
+  if (!box) return;
+  box.hidden = !userSourcesAvailable();
+  const active = userSourcesActive();
+  const privateEl = document.getElementById("private");
+  if (privateEl && !document.getElementById("paid-note")) {
+    if (active && !privateEl.checked) {
+      privateEl.checked = true;
+      privateEl.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    privateEl.disabled = active;
+    privateEl.title = active ? t("web.js.user_sources.private_forced") : "";
+  }
+  const status = document.getElementById("user-sources-status");
+  if (status) {
+    const files = userSourceFiles();
+    if (!active) {
+      status.textContent = "";
+    } else {
+      const problem = userSourcesProblem();
+      const size = files.filter(Boolean).reduce((sum, f) => sum + f.size, 0) / 1e6;
+      status.textContent = problem || t("web.js.user_sources.ready", { size: size.toFixed(1) });
+      status.classList.toggle("warn", Boolean(problem));
+    }
+  }
+}
+
+/** Hlavička TIFF (II*\0 / MM\0* a BigTIFF) – rychlá kontrola v prohlížeči, ať se nenahrává zbytečně. */
+async function checkTiffHeader(file) {
+  try {
+    const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    const le = head[0] === 0x49 && head[1] === 0x49 && (head[2] === 42 || head[2] === 43) && head[3] === 0;
+    const be = head[0] === 0x4d && head[1] === 0x4d && head[2] === 0 && (head[3] === 42 || head[3] === 43);
+    return le || be;
+  } catch (_err) {
+    return true; // nečitelné v prohlížeči: rozhodne server
+  }
+}
+
+(() => {
+  if (!document.getElementById("user-sources")) return;
+  for (const kind of USER_SOURCE_KINDS) {
+    const input = document.getElementById(`user_${kind}`);
+    if (!input) continue;
+    input.addEventListener("change", async () => {
+      const f = input.files && input.files[0];
+      if (f && !(await checkTiffHeader(f))) userSourceBad.add(f.name);
+      else if (f) userSourceBad.delete(f.name);
+      syncUserSources();
+      refreshSubmitChecklist();
+    });
+  }
+  document.getElementById("user_sources_consent")?.addEventListener("change", syncUserSources);
+})();
+
 document.getElementById("job-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (jobSubmitInFlight || generateStartedJobId) return;
@@ -1948,7 +2047,8 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     document.getElementById("bbox-map")?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
-  if (!bboxAllowed) {
+  const ownElevation = userSourcesActive();
+  if (!bboxAllowed && !(ownElevation && lastSheets && lastSheets.too_large_reason === "elevation")) {
     showFormError(
       (lastSheets && lastSheets.hint) ||
         (lastSheets && isSprintSelected() && lastSheets.sprint_hint) ||
@@ -1957,6 +2057,14 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     );
     document.getElementById("bbox-map")?.scrollIntoView({ behavior: "smooth", block: "center" });
     return;
+  }
+  if (ownElevation) {
+    const problem = userSourcesProblem();
+    if (problem) {
+      showFormError(problem);
+      document.getElementById("user-sources")?.setAttribute("open", "");
+      return;
+    }
   }
   const privateEl = document.getElementById("private");
   if (privateEl && privateEl.checked) {
@@ -1976,6 +2084,11 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
   try {
     const fd = new FormData(form);
     fd.set("private", privateEl && privateEl.checked ? "1" : "0");
+    if (ownElevation) {
+      btn.textContent = t("web.js.user_sources.uploading");
+    } else {
+      for (const key of ["user_dtm", "user_dsm", "user_sources_consent"]) fd.delete(key);
+    }
     const job = await api("/api/jobs", { method: "POST", body: fd });
     if (job && job.order_pending) {
       // Placená doména: job vznikne až po potvrzení odkazu z e-mailu.
@@ -1992,7 +2105,9 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
         (document.getElementById("notify_email") || {}).value ||
         "";
       showFormNotice(
-        t("web.js.form.private_started", { mail: mail || t("web.js.form.your_email") })
+        t(ownElevation ? "web.js.user_sources.started" : "web.js.form.private_started", {
+          mail: mail || t("web.js.form.your_email"),
+        })
       );
       if (job.id) startedId = job.id;
     } else if (job && job.id) {
@@ -2892,7 +3007,12 @@ function refreshSubmitChecklist() {
     [t("web.js.form.check_name"), Boolean(form.name && form.name.value.trim())],
     [t("web.js.form.check_type_scale"), Number.isFinite(scale) && scale > 0],
   ];
-  items.push([t("web.js.form.check_area"), Boolean(document.getElementById("bbox-input").value) && bboxAllowed]);
+  const ownElevationOk =
+    userSourcesActive() && lastSheets && lastSheets.too_large_reason === "elevation" && !userSourcesProblem();
+  items.push([
+    t("web.js.form.check_area"),
+    Boolean(document.getElementById("bbox-input").value) && (bboxAllowed || Boolean(ownElevationOk)),
+  ]);
   const privateEl = document.getElementById("private");
   if (privateEl && privateEl.checked) {
     const email = ((document.getElementById("notify_email") || {}).value || "").trim();
@@ -3150,6 +3270,7 @@ function refreshEstimateWarning(mins) {
 }
 
 function updateSubmitButtonLabel() {
+  syncUserSources();
   refreshReferencesEstimate();
   refreshBboxBadge();
   refreshSubmitChecklist();

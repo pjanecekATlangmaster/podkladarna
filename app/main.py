@@ -541,6 +541,34 @@ def intl_site(request: Request) -> bool:
     return site is not None and tuple(site.countries) != ("CZ",)
 
 
+def user_sources_form_html(request: Request, lang: str) -> str:
+    """Nahrání vlastních výšek zadavatele (``app.user_sources``) nad volbou Soukromě: jen Omapic
+    (doména i pro jiné země), se zapnutým ``USER_SOURCES`` a mimo placenou objednávku. Česká doména beze změny;
+    web pole ukazuje jen u výřezu mimo Česko."""
+    if not user_sources.enabled() or not intl_site(request) or paid_flow.active_for(request):
+        return ""
+    mb = int(user_sources.MAX_TOTAL_MB)
+    limits = html_escape(i18n.t("web.page.user_sources.limits", lang, max=mb))
+    return f"""<details class="advanced-options user-sources" id="user-sources" data-max-mb="{mb}" hidden>
+          <summary>{{{{h:web.page.user_sources.title}}}}</summary>
+          <p class="hint">{{{{h:web.page.user_sources.intro}}}}</p>
+          <label>{{{{h:web.page.user_sources.dtm}}}}
+            <input type="file" name="user_dtm" id="user_dtm" accept=".tif,.tiff,image/tiff" />
+          </label>
+          <label>{{{{h:web.page.user_sources.dsm}}}}
+            <input type="file" name="user_dsm" id="user_dsm" accept=".tif,.tiff,image/tiff" />
+          </label>
+          <p class="hint">{limits}</p>
+          <label class="checkbox-row">
+            <input type="checkbox" name="user_sources_consent" id="user_sources_consent" value="1" />
+            {{{{h:web.page.user_sources.consent}}}}
+          </label>
+          <p class="hint">{{{{h:web.page.user_sources.privacy}}}}</p>
+          <div class="hint user-sources-status" id="user-sources-status" aria-live="polite"></div>
+        </details>
+"""
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     try:
@@ -561,6 +589,7 @@ def index(request: Request) -> HTMLResponse:
     html = html.replace("<!-- PODKLADARNA_SAMPLES -->", samples_html(lang))
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
+    html = html.replace("<!-- PODKLADARNA_USER_SOURCES -->", user_sources_form_html(request, lang))
     html = html.replace("<!-- PODKLADARNA_PAID -->", paid_flow.form_note_html(request, lang))
     if paid_flow.paid_site(request) is not None:
         # Placená služba: věta „… je zdarma, příspěvek pomůže“ ani dar v patičce neplatí.

@@ -1044,5 +1044,20 @@
   "issue.what.references": "base layers (orthophoto, cadastre, hillshade…)",
   "web.page.zdroje_dat_a_licence": "Data sources and licences",
   "web.page.zdroje_dat_a_licence_note": "You may use and share the map, as long as the sources are credited. The same details are in the ZIP (ABOUT_OMAPIC.txt) and on the <a href=\"/licence\" target=\"_blank\" rel=\"noopener\">Licence</a> page.",
-  "web.js.licenses.cite": "State on the map or in its legend: {citation}"
+  "web.js.licenses.cite": "State on the map or in its legend: {citation}",
+  "web.page.user_sources.title": "Your own elevation data (optional)",
+  "web.page.user_sources.intro": "Do you have elevation data you must download yourself (registration or a licence just for you)? Upload the terrain (DTM) and surface (DSM) cropped to the area and the map is computed from them instead of the country's public source.",
+  "web.page.user_sources.dtm": "Terrain (DTM, GeoTIFF)",
+  "web.page.user_sources.dsm": "Surface (DSM, GeoTIFF)",
+  "web.page.user_sources.limits": "One GeoTIFF with heights in metres for each file, a projection in metres, resolution 0.1–5 m, at least 90 % of the area, at most {max} MB together. Crop larger data to the area (in QGIS: Raster → Extraction → Clip Raster by Extent).",
+  "web.page.user_sources.consent": "I confirm I have the right to use this data and hand it over for processing for this map.",
+  "web.page.user_sources.privacy": "A map from your own data is always private. The data is used only for this map, shown to no one, never cached and deleted when the map is finished.",
+  "web.js.user_sources.both": "Choose both files: terrain (DTM) and surface (DSM).",
+  "web.js.user_sources.consent": "Confirm that you have the right to use your own data.",
+  "web.js.user_sources.too_big": "The chosen files have {size} MB together, the maximum is {max} MB. Crop them to the area.",
+  "web.js.user_sources.not_tiff": "File {name} is not a GeoTIFF (.tif).",
+  "web.js.user_sources.ready": "Ready: {size} MB. After you start, the data is uploaded and checked (CRS, resolution, area coverage); the check result is in the map log.",
+  "web.js.user_sources.private_forced": "With your own data the map is always private.",
+  "web.js.user_sources.uploading": "Uploading and checking the data…",
+  "web.js.user_sources.started": "Your data passed the check. The map is computed privately, the link will come to {mail}; the data is deleted when it is finished."
 }

@@ -29,6 +29,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
+try:  # jen POSIX; import v potomkovi po fork() (preexec_fn) může uváznout na zámku importu
+    import resource
+except ImportError:  # pragma: no cover – Windows
+    resource = None  # type: ignore[assignment]
+
 from app import settings
 
 logger = logging.getLogger("podkladarna")
@@ -140,9 +145,8 @@ def _gdal_env() -> dict[str, str]:
 
 def _limit_resources() -> None:  # pragma: no cover – běží v potomkovi
     try:
-        import resource
-
-        resource.setrlimit(resource.RLIMIT_AS, (CHECK_MEMORY_BYTES, CHECK_MEMORY_BYTES))
+        if resource is not None:
+            resource.setrlimit(resource.RLIMIT_AS, (CHECK_MEMORY_BYTES, CHECK_MEMORY_BYTES))
         os.nice(10)
     except Exception:
         pass

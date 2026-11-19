@@ -1043,5 +1043,20 @@
   "issue.what.references": "podkladové vrstvy (ortofoto, katastr, stínování…)",
   "web.page.zdroje_dat_a_licence": "Zdroje dat a licence",
   "web.page.zdroje_dat_a_licence_note": "Mapu smíte používat i dál šířit, jen s citací zdrojů. Stejné údaje jsou v ZIPu (CO_JE_PODKLADARNA.txt) a na stránce <a href=\"/licence\" target=\"_blank\" rel=\"noopener\">Licence</a>.",
-  "web.js.licenses.cite": "Na mapě nebo v legendě uveďte: {citation}"
+  "web.js.licenses.cite": "Na mapě nebo v legendě uveďte: {citation}",
+  "web.page.user_sources.title": "Vlastní výšková data (nepovinné)",
+  "web.page.user_sources.intro": "Máte výšky, které si musíte stáhnout sami (registrace nebo licence jen pro vás)? Nahrajte terén (DTM) a povrch (DSM) oříznuté na výřez a mapa se spočítá z nich místo z veřejného zdroje země.",
+  "web.page.user_sources.dtm": "Terén (DTM, GeoTIFF)",
+  "web.page.user_sources.dsm": "Povrch (DSM, GeoTIFF)",
+  "web.page.user_sources.limits": "Jeden GeoTIFF s výškami v metrech pro každý soubor, projekce v metrech, rozlišení 0,1–5 m, aspoň 90 % výřezu, dohromady nejvýš {max} MB. Větší data ořízněte na výřez (v QGIS: Rastr → Extrakce → Oříznout rastr podle rozsahu).",
+  "web.page.user_sources.consent": "Potvrzuji, že mám právo tato data použít a předat ke zpracování pro tuto mapu.",
+  "web.page.user_sources.privacy": "Mapa z vlastních dat je vždy soukromá. Data se použijí jen pro tuto mapu, nikomu se neukazují, neukládají se do mezipaměti a po doběhnutí mapy se smažou.",
+  "web.js.user_sources.both": "Vyberte oba soubory: terén (DTM) i povrch (DSM).",
+  "web.js.user_sources.consent": "Potvrďte, že máte právo vlastní data použít.",
+  "web.js.user_sources.too_big": "Vybrané soubory mají dohromady {size} MB, nejvýš je {max} MB. Ořízněte je na výřez.",
+  "web.js.user_sources.not_tiff": "Soubor {name} není GeoTIFF (.tif).",
+  "web.js.user_sources.ready": "Připraveno: {size} MB. Po spuštění se data nahrají a zkontrolují (CRS, rozlišení, pokrytí výřezu); výsledek kontroly je v logu mapy.",
+  "web.js.user_sources.private_forced": "S vlastními daty je mapa vždy soukromá.",
+  "web.js.user_sources.uploading": "Nahrávám a kontroluji data…",
+  "web.js.user_sources.started": "Vlastní data prošla kontrolou. Mapa se počítá soukromě, odkaz přijde na {mail}; data se po doběhnutí smažou."
 }
