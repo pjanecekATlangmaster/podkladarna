@@ -180,3 +180,24 @@ def test_international_index_without_github(client, monkeypatch):
         html = client.get(f"/?lang={lang}", headers={"host": "example.eu"}).text
         assert "github" not in html.lower(), lang
     assert "github.com" in client.get("/", headers={"host": "podkladarna.kibos.link"}).text
+
+
+def test_feedback_messages_without_github_on_international_site(client, monkeypatch):
+    """Hlášky zpětné vazby na mezinárodní doméně česky bez „GitHub Issues“, kód zůstává (Petr 2026-11-19)."""
+    from fastapi import HTTPException
+
+    from app import i18n
+    from app.main import app
+
+    def _rate():
+        raise HTTPException(429, i18n.Msg("api.feedback.rate", limit=3))
+
+    monkeypatch.setenv("SITES", SITES)
+    app.add_api_route("/__test_feedback_rate", _rate)
+    try:
+        intl = client.get("/__test_feedback_rate?lang=cs", headers={"host": "example.eu"}).json()
+        cz = client.get("/__test_feedback_rate", headers={"host": "podkladarna.kibos.link"}).json()
+    finally:
+        app.router.routes.pop()
+    assert intl["code"] == cz["code"] == "api.feedback.rate"
+    assert "GitHub" not in intl["detail"] and "GitHub" in cz["detail"]

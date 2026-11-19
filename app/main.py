@@ -193,7 +193,12 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     detail = exc.detail
     if isinstance(detail, i18n.Msg):
         # Hláška v jazyce stránky + stabilní kód pro klienty API (text se může měnit).
-        content = {"detail": detail.render(i18n.resolve_lang(request)[0]), "code": detail.key}
+        lang = i18n.resolve_lang(request)[0]
+        shown = detail
+        if intl_site(request) and f"{detail.key}_intl" in i18n.catalog(lang):
+            # Mezinárodní doména: znění bez odkazů, které tam nepatří (GitHub; Petr 2026-11-19); kód zůstává.
+            shown = i18n.Msg(f"{detail.key}_intl", **detail.params)
+        content = {"detail": shown.render(lang), "code": detail.key}
         return JSONResponse(status_code=exc.status_code, content=content)
     return JSONResponse(status_code=exc.status_code, content={"detail": detail})
 
