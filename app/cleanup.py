@@ -68,6 +68,14 @@ def purge_old_jobs(retention_hours: int | None = None) -> int:
                 logger.info("Purged old job %s", job_id)
 
     _purge_orphan_job_dirs()
+    try:
+        from app import user_sources
+
+        n_user = user_sources.prune_staging() + user_sources.prune_finished_jobs()
+        if n_user:
+            logger.info("Removed %s leftover user upload(s)", n_user)
+    except Exception:  # noqa: BLE001 – úklid nahrávek nesmí zastavit úklid jobů
+        logger.exception("Cleanup of user uploads failed")
     n_origin = db.purge_job_origin(now=now)
     if n_origin:
         logger.info("Purged %s job origin record(s) past retention", n_origin)

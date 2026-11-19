@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, settings as app_settings, source_status, worker
+from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, settings as app_settings, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -1423,9 +1423,47 @@ def can_reuse_lidar(prev: dict | None, bbox: list[float], country: str) -> bool:
     return prev_country == country and db.bbox_close(opts.get("bbox_wgs84") or [], bbox)
 
 
+def _stage_user_sources(uploads: dict[str, UploadFile], bbox) -> tuple[Path, dict]:
+    """Uloží a zkontroluje vlastní výšková data zadavatele (``app.user_sources``) do dočasné složky.
+
+    Vrací (složka, informace podle druhu). Při chybě složku smaže a vyhodí ``UserSourceError``.
+    """
+    staging = user_sources.new_staging_dir()
+    budget = user_sources.MAX_TOTAL_MB * 1_000_000
+    try:
+        for kind in user_sources.KINDS:
+            upload = uploads[kind]
+            try:
+                budget -= user_sources.save_upload(upload.file, staging / f"{kind}.upload", max_bytes=budget)
+            except user_sources.UserSourceError as exc:
+                exc.params.setdefault("kind", kind.upper())
+                raise
+            finally:
+                try:
+                    upload.file.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        return staging, user_sources.prepare(staging, bbox)
+    except BaseException:
+        user_sources.discard(staging)
+        raise
+
+
+def _user_source_error(exc: "user_sources.UserSourceError") -> HTTPException:
+    params = {"kind": "", "max": 0, "min": 0, "share": 0, **exc.params}
+    return HTTPException(400, i18n.Msg(exc.key, **params))
+
+
 @app.post("/api/jobs")
 async def api_create_job(request: Request):
     logger.info("POST /api/jobs – cteni multipart form")
+    # Tělo nad strop vlastních dat (+ rezerva na pole formuláře) se ani nečte (Cloudflare stejně pustí do 100 MB).
+    try:
+        content_length = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        content_length = 0
+    if content_length > (user_sources.MAX_TOTAL_MB + 5) * 1_000_000:
+        raise HTTPException(413, i18n.Msg("api.user_sources.too_big", kind="", max=user_sources.MAX_TOTAL_MB))
     try:
         form = await request.form()
     except Exception as exc:
@@ -1494,12 +1532,28 @@ async def api_create_job(request: Request):
     except FetchError as exc:
         raise HTTPException(400, _exc_detail(exc)) from exc
     job_country, country_share = _check_country(bbox, request, _form_str(form, "country").strip())
+    # Vlastní výšková data zadavatele (``app.user_sources``): jen Omapic mimo Česko, za vypínačem USER_SOURCES.
+    user_uploads = {kind: _upload_files(form, f"user_{kind}") for kind in user_sources.KINDS}
+    has_user_sources = any(user_uploads.values())
+    if has_user_sources:
+        if (
+            not user_sources.enabled()
+            or job_country.code == countries.DEFAULT_COUNTRY
+            or not intl_site(request)
+        ):
+            raise HTTPException(400, i18n.Msg("api.job.upload_unsupported"))
+        if not api_client and paid_flow.active_for(request):
+            raise HTTPException(400, i18n.Msg("api.user_sources.paid_unsupported"))
+        if any(len(user_uploads[kind]) != 1 for kind in user_sources.KINDS):
+            raise HTTPException(400, i18n.Msg("api.user_sources.both_required"))
+        if _form_str(form, "user_sources_consent").strip().lower() not in {"1", "true", "yes", "on"}:
+            raise HTTPException(400, i18n.Msg("api.user_sources.consent_required"))
     # DTM obcí jen u výřezu v limitu (stránkované dotazy RÚIAN by šly pro libovolně velké území).
     # Sonda čeká až JOB_DEADLINE_S – mimo event loop, ať async handler nezdrží ostatní požadavky.
     probe = await run_in_threadpool(
         _area_probe, job_country, bbox, area_probe.JOB_DEADLINE_S, include_dtm=not bbox_exceeds_limit(*bbox)
     )
-    if probe.get("block") is not None:
+    if probe.get("block") is not None and not has_user_sources:  # s vlastními daty pokrytí zdroje země nerozhoduje
         raise HTTPException(400, probe["block"])
     width_km, height_km = bbox_size_km(*bbox)
     if bbox_exceeds_limit(*bbox):
@@ -1673,7 +1727,7 @@ async def api_create_job(request: Request):
         options["site"] = _site.host
     # Země výřezu (jeden CRS a sada zdrojů); přesah za hranici se kreslí jen z OSM.
     options["country"] = job_country.code
-    if probe.get("verdict") in ("ok", "warn"):
+    if probe.get("verdict") in ("ok", "warn") and not has_user_sources:
         options["area_probe"] = area_probe.job_summary(probe)
     if countries.outside_share(country_share) > 0:
         options["outside_share"] = countries.outside_share(country_share)
@@ -1695,8 +1749,11 @@ async def api_create_job(request: Request):
             )
         options["private"] = True
         options["notify_email"] = notify_email
+    if has_user_sources and not options.get("private"):
+        # Vlastní data: výsledek jen zadavateli (soukromý job s odkazem e-mailem), nikdy ve veřejném seznamu.
+        raise HTTPException(400, i18n.Msg("api.user_sources.private_required"))
     reuse_id = _form_str(form, "reuse_job_id").strip()
-    if reuse_id:
+    if reuse_id and not has_user_sources:
         try:
             prev = db.get_job(reuse_id)
         except KeyError:
@@ -1712,7 +1769,18 @@ async def api_create_job(request: Request):
             options=options,
             email=_form_str(form, "notify_email"),
         )
-    dup = db.find_duplicate_active_job(options)
+    user_staging: Path | None = None
+    user_info: dict = {}
+    if has_user_sources:
+        try:
+            user_staging, user_info = await run_in_threadpool(
+                _stage_user_sources, {k: v[0] for k, v in user_uploads.items()}, tuple(bbox)
+            )
+        except user_sources.UserSourceError as exc:
+            raise _user_source_error(exc) from exc
+        options["user_sources"] = True
+    # Job s vlastními daty se s jiným nikdy neslučuje (stejný výřez neznamená stejná data).
+    dup = None if has_user_sources else db.find_duplicate_active_job(options)
     if dup:
         logger.info(
             "Duplicate job skipped – returning existing %s (status=%s)",
@@ -1735,11 +1803,27 @@ async def api_create_job(request: Request):
         out["duplicate_skipped"] = True
         out["duplicate_message"] = msg.render(i18n.resolve_lang(request)[0])
         return out
-    job = db.create_job(name, preset_id, options)
-    job_id = job["id"]
+    try:
+        job = db.create_job(name, preset_id, options)
+        job_id = job["id"]
+        if user_staging is not None:
+            user_sources.attach(user_staging, JOBS_DIR / job_id)
+    except BaseException:
+        user_sources.discard(user_staging)
+        raise
 
     def log(msg: str) -> None:
         db.append_log(job_id, msg)
+
+    if user_info:
+        # Jen technické údaje – žádné názvy souborů ani metadata z TIFF tagů.
+        log(
+            "Výšky: vlastní data zadavatele – terén "
+            + user_info["dtm"].log_text()
+            + "; povrch "
+            + user_info["dsm"].log_text()
+            + ". Použijí se jen pro tuto mapu a po jejím doběhnutí se smažou."
+        )
 
     # Kopie LAZ z předchozího jobu běží až ve workeru (run_job_pipeline),
     # ať odpověď „job založen“ nepřijde až po dlouhém copy.

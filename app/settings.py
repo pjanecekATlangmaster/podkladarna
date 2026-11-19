@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.87.1"
+APP_VERSION = "3.88.1"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -232,6 +232,10 @@ if not PUBLIC_BASE_URL and _running_in_docker():
 PRIVATE_JOB_RETENTION_HOURS = int(
     os.environ.get("PRIVATE_JOB_RETENTION_HOURS", "48")
 )
+# Vlastní výšková data zadavatele (Omapic mimo Česko, app/user_sources.py): vypnuto, dokud se nezapne `USER_SOURCES=1`.
+USER_SOURCES_ENABLED = os.environ.get("USER_SOURCES", "0").strip().lower() in ("1", "true", "yes", "on")
+# Strop obou nahraných GeoTIFFů dohromady v MB (Cloudflare zdarma propustí tělo požadavku do 100 MB).
+USER_SOURCE_MAX_MB = int(os.environ.get("USER_SOURCE_MAX_MB", "95"))
 # Interní statistika původu jobů (tabulka job_origin, nikde nevystavená): retence ve dnech.
 ORIGIN_RETENTION_DAYS = int(os.environ.get("ORIGIN_RETENTION_DAYS", "365"))
 # Prodej map na doméně v režimu paid (app.orders, app.payments; návrh platby-navrh.md).
