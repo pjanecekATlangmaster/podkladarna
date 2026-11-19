@@ -2178,6 +2178,79 @@ def be_dhmv_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["be_dhmv"] = be_dhmv_provider
 
 
+# --------------------------------------------------------------------------- DK: DHM terén + povrch (Datafordeler)
+
+# DHM/Terræn a DHM/Overflade (Klimadatastyrelsen, lidar, mřížka 0,4 m, CC BY 4.0) z WCS Datafordeleru v nativním
+# EPSG:25832, výšky DVR90 (nadmořské). Stahuje se po 1 m (dlaždice 2 × 2 km ≈ 16 MB, ~30 s). Služba chce API klíč
+# (``reference_dk``): v URL je jen zástupný text, klíč se dosadí až v ``_dk_download`` a chyby jdou ven bez URL.
+# Datafordeler občas (hlavně po založení klíče) vrátí 401 na platný klíč – 401/403 se proto několikrát zopakuje.
+DK_MAX_SIDE_M = 2000.0
+DK_BUFFER_M = 20.0
+DK_RETRIES = 4
+
+
+def dk_dhm_urls(kind: str, bounds_utm: tuple[float, float, float, float]) -> list[str]:
+    """GetCoverage URL (se zástupným klíčem) po dlaždicích nejvýš ``DK_MAX_SIDE_M``, hrany na celé metry, pixel 1 m."""
+    from app.pipeline.reference_dk import DK_COVERAGES, DK_CRS, DK_WCS, KEY_PLACEHOLDER
+
+    out = []
+    for x0, y0, x1, y1 in tile_boxes(bounds_utm, max_side=DK_MAX_SIDE_M, buffer=DK_BUFFER_M, step=1.0):
+        out.append(
+            f"{DK_WCS}?apikey={KEY_PLACEHOLDER}&SERVICE=WCS&VERSION=1.0.0&REQUEST=GetCoverage"
+            f"&COVERAGE={DK_COVERAGES[kind]}&CRS={DK_CRS}&RESPONSE_CRS={DK_CRS}"
+            f"&BBOX={x0:.0f},{y0:.0f},{x1:.0f},{y1:.0f}&WIDTH={round(x1 - x0)}&HEIGHT={round(y1 - y0)}&FORMAT=GTiff"
+        )
+    return out
+
+
+def _dk_download(url: str, dest: Path, *, log=None, wait_s: float = 3.0) -> Path:
+    """Dlaždice DHM: klíč až tady, opakování po 401/403, 5xx, 429 a chybě sítě; chyba ven bez URL a bez klíče."""
+    import time
+    import urllib.error
+
+    from app.pipeline.reference_dk import redact, with_key
+
+    for attempt in range(DK_RETRIES + 1):
+        try:
+            return _download(with_key(url), dest, log=log)
+        except urllib.error.HTTPError as exc:
+            # HTTPError nese URL s klíčem (exc.url) – dál jde jen kód
+            code = exc.code
+            if attempt >= DK_RETRIES or not (code in (401, 403, 429) or code >= 500):
+                raise RuntimeError(f"Datafordeler DHM: HTTP {code}") from None
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            if attempt >= DK_RETRIES:
+                raise RuntimeError(redact(f"Datafordeler DHM: {type(exc).__name__}: {getattr(exc, 'reason', exc)}")) from None
+        except RuntimeError as exc:
+            raise RuntimeError(redact(str(exc))) from None
+        if log:
+            log(f"  {dest.name}: přechodná chyba služby, pokus {attempt + 2}/{DK_RETRIES + 1}")
+        time.sleep(wait_s * (attempt + 1))
+    raise AssertionError("nedosažitelné")
+
+
+def dk_dhm_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """DHM: terén (dhm_terraen) a povrch (dhm_overflade) z WCS Datafordeleru po dlaždicích 2 km."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_dk import DK_COVERAGES, DK_CRS
+
+    bounds_utm = _bounds_in(bounds, CRS_WKT, DK_CRS)
+    jobs = [(kind, k, url) for kind in DK_COVERAGES for k, url in enumerate(dk_dhm_urls(kind, bounds_utm))]
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="dk-dhm") as ex:
+        tiles = list(ex.map(lambda j: _dk_download(j[2], out_dir / f"dk_{j[0]}_{j[1]}.tif", log=log), jobs))
+    out = {}
+    for kind in DK_COVERAGES:
+        vrt = out_dir / f"dk_dhm_{kind}.vrt"
+        mine = [str(t) for (k, _i, _u), t in zip(jobs, tiles) if k == kind]
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", DK_CRS, str(vrt), *mine], log=log)
+        out[kind] = vrt
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["dk_dhm"] = dk_dhm_provider
+
+
 # --------------------------------------------------------------------------- FI: MML DTM 2 m + CHM Metsäkeskus 1 m
 
 # Terén: Korkeusmalli 2 m (Maanmittauslaitos, CC BY 4.0) ze zrcadla Funet (bez klíče; přímo u MML je potřeba API
@@ -2493,6 +2566,7 @@ SOURCE_LABELS = {
     "de_sl": "DGM1 a DOM1, LVGL Saarland",
     "de_hh": "DGM1 a bDOM, LGV Hamburg",
     "de_hb": "DGM1 a DOM1, GeoInformation Bremen",
+    "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 
