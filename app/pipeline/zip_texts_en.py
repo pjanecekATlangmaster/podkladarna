@@ -38,6 +38,25 @@ def citation_en(short: str) -> str:
     return text.replace("[rok]", "[year]")
 
 
+def project_url(options: dict | None) -> str:
+    """Adresa webu, kde job vznikl (``options.site`` ze ``SITES``); bez ní první mezinárodní doména ze ``SITES``."""
+    from app import i18n
+
+    base = i18n.site_base_url(str((options or {}).get("site") or ""))
+    if not base:
+        base = next((s.base_url for s in i18n.sites().values() if tuple(s.countries) != ("CZ",)), "")
+    return (base or "").rstrip("/")
+
+
+def citation_with_url(citation: str, site_url: str) -> str:
+    """„Base map: Omapic · …“ → „Base map: Omapic (omapic.ulvi.app) · …“."""
+    host = re.sub(r"^https?://", "", site_url or "").rstrip("/")
+    head = "Base map: " + BRAND_EN
+    if host and citation.startswith(head) and not citation.startswith(head + " ("):
+        return f"{head} ({host}){citation[len(head):]}"
+    return citation
+
+
 def citation_line_en(short: str) -> str:
     return f"{citation_en(short)} – {INDICATIVE_LABEL_EN}"
 
@@ -54,7 +73,7 @@ def map_label_en(label: str) -> str:
 
 ABOUT_EN_TEMPLATE = """Omapic – what is in this package
 ================================
-
+{web_line}
 Omapic automatically builds base maps for orienteering from airborne laser
 scanning (LiDAR: terrain and surface models), the national technical map where
 one exists, and OpenStreetMap. The result is a .omap file for OpenOrienteering
@@ -97,8 +116,8 @@ it stays for OOM; DXF/SHP/PNG+PGW work as well.
 
 Author and contact
 ------------------
-Omapic is made by Petr Janeček. Questions, comments and ideas for improvement
-are very welcome:
+Omapic is made by Petr Janeček.{web_contact}
+Questions, comments and ideas for improvement are very welcome:
   e-mail:   janecek@datais.cz
 
 Legal
@@ -112,7 +131,7 @@ Loosely inspired by Karttapullautin.
 """
 
 
-def about_txt_en(citation: str, attribution: tuple[str, ...], *, cz: bool) -> str:
+def about_txt_en(citation: str, attribution: tuple[str, ...], *, cz: bool, site_url: str = "") -> str:
     """ABOUT_OMAPIC.txt (anglická obdoba CO_JE_PODKLADARNA.txt)."""
     zabaged_line = (
         "- zabaged/             … Czech topographic data ZABAGED (shapefiles incl. buildings + RUIAN_budovy.shp)\n"
@@ -120,7 +139,9 @@ def about_txt_en(citation: str, attribution: tuple[str, ...], *, cz: bool) -> st
         else ""
     )
     return ABOUT_EN_TEMPLATE.format(
-        citation=citation_en(citation),
+        web_line=f"Made with Omapic: {site_url}\n" if site_url else "",
+        web_contact=f" Web: {site_url}" if site_url else "",
+        citation=citation_with_url(citation_en(citation), site_url),
         attribution="\n".join(attribution or ()),
         zabaged_line=zabaged_line,
     )

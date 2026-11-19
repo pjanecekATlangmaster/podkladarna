@@ -171,3 +171,12 @@ def test_international_licence_without_github(client, monkeypatch):
     en = client.get("/licence?lang=en", headers={"host": "example.eu"}).text
     assert "Where the data come from" in en and 'href="https://example.eu">example.eu</a>' in en
     assert "github.com" in client.get("/licence", headers={"host": "podkladarna.kibos.link"}).text  # česká beze změny
+
+
+def test_international_index_without_github(client, monkeypatch):
+    """Hlavní stránka Omapicu nikde neodkazuje na GitHub, ani česky; česká Podkladárna beze změny (Petr 2026-11-19)."""
+    monkeypatch.setenv("SITES", SITES)
+    for lang in ("en", "cs"):
+        html = client.get(f"/?lang={lang}", headers={"host": "example.eu"}).text
+        assert "github" not in html.lower(), lang
+    assert "github.com" in client.get("/", headers={"host": "podkladarna.kibos.link"}).text

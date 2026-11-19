@@ -515,6 +515,9 @@ def oom_metadata(
     meta["data_sources"] = list(attribution_lines(options))
     # Jazyk textů ZIPu = jazyk stránky zadání (mezinárodní verze anglicky).
     meta["lang"] = zip_texts_en.zip_lang(options)
+    if meta["lang"] == "en":
+        # Adresa webu do ABOUT_OMAPIC.txt, ať se ví, odkud ZIP je (Petr 2026-11-19).
+        meta["site_url"] = zip_texts_en.project_url(options)
     if meta["country"] != "CZ":
         # Podklady ČÚZK (stínování DMR 5G, ZTM, katastr, DTM, ortofoto ČÚZK) mimo Česko nejsou; skutečné vrstvy
         # nese ``reference_layers``.
@@ -523,7 +526,9 @@ def oom_metadata(
     if meta["lang"] == "en":
         meta["label"] = zip_texts_en.map_label_en(meta["label"])
         meta["indicative_label"] = zip_texts_en.INDICATIVE_LABEL_EN
-        meta["citation"] = zip_texts_en.citation_line_en(meta["citation_short"])
+        meta["citation"] = zip_texts_en.citation_line_en(
+            zip_texts_en.citation_with_url(zip_texts_en.citation_en(meta["citation_short"]), meta["site_url"])
+        )
     if reference_layers:
         meta["reference_layers"] = reference_layers
     meta["path_source"] = oom_path_source(options, preset_id)
@@ -565,7 +570,10 @@ def zip_about(meta: dict | None) -> tuple[str, str]:
     if zip_texts_en.zip_lang(meta) == "en":
         attribution = kw.get("attribution") if not _is_cz(meta) else CZ_DATA_SOURCES_EN
         return zip_texts_en.ABOUT_NAME_EN, zip_texts_en.about_txt_en(
-            kw.get("citation") or meta.get("citation_short") or "", tuple(attribution or CZ_DATA_SOURCES_EN), cz=_is_cz(meta)
+            kw.get("citation") or meta.get("citation_short") or "",
+            tuple(attribution or CZ_DATA_SOURCES_EN),
+            cz=_is_cz(meta),
+            site_url=meta.get("site_url") or zip_texts_en.project_url(meta),
         )
     return "CO_JE_PODKLADARNA.txt", zip_about_txt(**kw, crs=crs_text_cs(meta.get("crs") or "EPSG:5514"))
 
