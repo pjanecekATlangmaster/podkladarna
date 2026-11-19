@@ -2178,6 +2178,50 @@ def be_dhmv_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
 PROVIDERS["be_dhmv"] = be_dhmv_provider
 
 
+# --------------------------------------------------------------------------- NO: høydemodell DTM + DOM 1 m (Kartverket)
+
+# Nasjonal detaljert høydemodell (Kartverket, lidar, CC BY 4.0, bez klíče): DTM (terén) a DOM (povrch) 1 m z WCS
+# Geonorge v nativním EPSG:25833, výšky NN2000 (nadmořské, nic se nepřevádí). WCS 1.0.0 vrací čistý GeoTIFF Float32
+# (2.0.1 subset odmítá); dlaždice 2 × 2 km ≈ 16 MB, ~8 s. DOM je většinou z letního skenování (s listím).
+NO_MAX_SIDE_M = 2000.0
+NO_BUFFER_M = 20.0
+
+
+def no_hoyde_urls(kind: str, bounds_utm: tuple[float, float, float, float]) -> list[str]:
+    """GetCoverage URL po dlaždicích nejvýš ``NO_MAX_SIDE_M`` (UTM 33N, hrany na celé metry, pixel 1 m)."""
+    from app.pipeline.reference_no import NO_COVERAGES, NO_CRS, NO_WCS
+
+    out = []
+    for x0, y0, x1, y1 in tile_boxes(bounds_utm, max_side=NO_MAX_SIDE_M, buffer=NO_BUFFER_M, step=1.0):
+        out.append(
+            f"{NO_WCS[kind]}?SERVICE=WCS&VERSION=1.0.0&REQUEST=GetCoverage&COVERAGE={NO_COVERAGES[kind]}&CRS={NO_CRS}"
+            f"&BBOX={x0:.0f},{y0:.0f},{x1:.0f},{y1:.0f}&WIDTH={round(x1 - x0)}&HEIGHT={round(y1 - y0)}&FORMAT=GeoTIFF"
+        )
+    return out
+
+
+def no_hoyde_provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+    """Høydemodell: DTM (terén) a DOM (povrch) 1 m z WCS Geonorge po dlaždicích 2 km."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.pipeline.reference_no import NO_COVERAGES, NO_CRS
+
+    bounds_utm = _bounds_in(bounds, CRS_WKT, NO_CRS)
+    jobs = [(kind, k, url) for kind in NO_COVERAGES for k, url in enumerate(no_hoyde_urls(kind, bounds_utm))]
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="no-hoyde") as ex:
+        tiles = list(ex.map(lambda j: _download_retry(j[2], out_dir / f"no_{j[0]}_{j[1]}.tif", log=log), jobs))
+    out = {}
+    for kind in NO_COVERAGES:
+        vrt = out_dir / f"no_hoyde_{kind}.vrt"
+        mine = [str(t) for (k, _i, _u), t in zip(jobs, tiles) if k == kind]
+        run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", NO_CRS, str(vrt), *mine], log=log)
+        out[kind] = vrt
+    return SourceRasters(out["dtm"], out["dsm"])
+
+
+PROVIDERS["no_hoyde"] = no_hoyde_provider
+
+
 # --------------------------------------------------------------------------- DK: DHM terén + povrch (Datafordeler)
 
 # DHM/Terræn a DHM/Overflade (Klimadatastyrelsen, lidar, mřížka 0,4 m, CC BY 4.0) z WCS Datafordeleru v nativním
@@ -2567,6 +2611,7 @@ SOURCE_LABELS = {
     "de_hh": "DGM1 a bDOM, LGV Hamburg",
     "de_hb": "DGM1 a DOM1, GeoInformation Bremen",
     "dk_dhm": "DHM terén a povrch, Klimadatastyrelsen",
+    "no_hoyde": "Høydemodell DTM a DOM, Kartverket",
     USER_UPLOAD: "vlastní data zadavatele",
 }
 
