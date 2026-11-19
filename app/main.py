@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import area_probe, countries, db, i18n, paid_flow, prefetch, settings as app_settings, source_status, user_sources, worker
+from app import area_probe, countries, db, donations, i18n, paid_flow, prefetch, settings as app_settings, source_status, user_sources, worker
 from app.cleanup import maybe_purge_old_jobs, prune_caches, purge_old_jobs, start_cleanup_scheduler
 from app.client_ip import client_ip
 from app.feedback import (
@@ -516,9 +516,14 @@ _FREE_ONLY_FOOTER = (
 )
 
 
-def paid_site_footer(html: str) -> str:
-    """Odstraní z indexu dar, „Z jedné rodiny“ a české zdroje dat (jen pro placenou doménu)."""
-    for pattern in _FREE_ONLY_FOOTER:
+def paid_site_footer(html: str, *, keep_donation: bool = False) -> str:
+    """Odstraní z indexu dar, „Z jedné rodiny“ a české zdroje dat (jen pro placenou doménu).
+
+    ``keep_donation``: doména s dobrovolným darem přes PayPal (``app.donations``, prodej neběží) si nechá
+    odkaz na podporu v patičce a větu pod hotovou mapou."""
+    for i, pattern in enumerate(_FREE_ONLY_FOOTER):
+        if keep_donation and i in (0, 3):
+            continue
         html = pattern.sub("", html, count=1)
     return html
 
@@ -558,7 +563,12 @@ def index(request: Request) -> HTMLResponse:
     html = html.replace("<!-- PODKLADARNA_PAID -->", paid_flow.form_note_html(request, lang))
     if paid_flow.paid_site(request) is not None:
         # Placená služba: věta „… je zdarma, příspěvek pomůže“ ani dar v patičce neplatí.
-        html = paid_site_footer(html)
+        keep_donation = donations.enabled_for_request(request)
+        html = paid_site_footer(html, keep_donation=keep_donation)
+        if keep_donation:
+            html = html.replace(
+                "{{h:web.page.prisel_podklad_vhod_podkladarna_je_zdarma}}", "{{h:web.page.donate_note_intl}}"
+            )
     # Cloudflare cachuje /static/* až 4 h – query podle verze vynutí nový JS/CSS po deployi.
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
@@ -569,11 +579,15 @@ def index(request: Request) -> HTMLResponse:
 def country_sources_html(request: Request, lang: str) -> str:
     """Zdroje a citace zemí mimo Česko, které doména nabízí (``countries.yaml``), pro stránku licence
     v jiném jazyce než češtině (``<!-- PODKLADARNA_COUNTRY_SOURCES -->``; česká stránka značku nemá)."""
+    from app.pipeline import country_profile as _country_profile
+
     items = []
     for country in countries.allowed_countries(i18n.site_for_request(request)):
         if country.code == countries.DEFAULT_COUNTRY or not (country.citation or country.attribution):
             continue
-        lines = "".join(f"<li>{html_escape(line)}</li>" for line in country.attribution)
+        lines = "".join(
+            f"<li>{html_escape(line)}</li>" for line in _country_profile.attribution_lines({"country": country.code})
+        )
         items.append(
             f"<h3>{html_escape(country.name(lang))}</h3>\n"
             f"<p><strong>{html_escape(country.citation)}</strong></p>\n"
@@ -596,9 +610,19 @@ def licence_page(request: Request) -> HTMLResponse:
 
 @app.get("/podpora", response_class=HTMLResponse)
 def support_page(request: Request) -> HTMLResponse:
-    if paid_flow.paid_site(request) is not None:
+    if donations.enabled_for_request(request):
+        # Mezinárodní doména s darem přes PayPal (Petr 2026-11-19); česká stránka s QR platbou beze změny.
+        lang = i18n.resolve_lang(request)[0]
+        html = (WEB_DIR / "donate.html").read_text(encoding="utf-8")
+        html = html.replace("{{LANG}}", lang)
+        html = html.replace("<!-- DONATE_CZ_QR -->", donations.czech_qr_block_html(lang))
+        html = html.replace("<!-- DONATE_STRIPE -->", donations.stripe_block_html(lang))
+        html = html.replace("<!-- DONATE_SEPA -->", donations.sepa_block_html(lang))
+        html = html.replace("<!-- DONATE_PAYPAL -->", donations.paypal_block_html(lang))
+    elif paid_flow.paid_site(request) is not None:
         return RedirectResponse("/", status_code=302)  # dar jen na bezplatné doméně (Petr 2026-11-16)
-    html = _page_source("podpora.html", request)
+    else:
+        html = _page_source("podpora.html", request)
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     v = urllib.parse.quote(APP_VERSION, safe="")
     html = html.replace('href="/static/style.css"', f'href="/static/style.css?v={v}"')
@@ -706,6 +730,22 @@ def api_dtm_coverage(bbox: str, request: Request, country: str = ""):
     return area_probe.dtm_coverage(box, timeout=area_probe.DEADLINE_S)
 
 
+def _country_licenses(country) -> dict | None:
+    """Shrnutí zdrojů a licencí výřezu mimo Česko pro GUI (Petr 2026-11-19, volba C: jen informace, bez souhlasu).
+
+    Stejné texty jako ZIP (ABOUT_OMAPIC.txt) a stránka /licence (``countries.yaml`` citation / attribution);
+    Česko klíč nedostane, odpověď pro český výřez zůstává beze změny."""
+    from app.pipeline import country_profile as _country_profile
+
+    if country.code == countries.DEFAULT_COUNTRY or not (country.citation or country.attribution):
+        return None
+    return {
+        "citation": country.citation or "",
+        "lines": list(_country_profile.attribution_lines({"country": country.code})),
+        "url": "/licence",
+    }
+
+
 @app.get("/api/sheets")
 def api_sheets(bbox: str, request: Request, country: str = ""):
     return i18n.localize(_sheets_payload(bbox, request, country), i18n.resolve_lang(request)[0])
@@ -719,6 +759,9 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
         raise HTTPException(400, _exc_detail(exc)) from exc
     job_country, share = _check_country((west, south, east, north), request, country)
     country_info = {"country": job_country.code, "outside_share": countries.outside_share(share)}
+    licenses = _country_licenses(job_country)
+    if licenses:
+        country_info["licenses"] = licenses
     width_km, height_km = bbox_size_km(west, south, east, north)
     area_km2 = bbox_area_km2(west, south, east, north)
     if bbox_exceeds_limit(west, south, east, north):

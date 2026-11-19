@@ -213,6 +213,17 @@ ELEVATION_LABELS = {"user_upload": "vlastních dat zadavatele", "nl_ahn": "AHN (
     "pl_gugik": "NMT a NMPT GUGiK (1 m)",
     "gb_ea": "LIDAR Composite DTM a DSM Environment Agency (1 m)",
     "de_by": "DGM1 a DOM20 LDBV Bayern (1 m, povrch z letních snímků)",
+    "de_st": "DGM1 a DOM1 LVermGeo Sachsen-Anhalt (1 m, ALS)",
+    "de_mv": "DGM1 a DOM1 LAiV Mecklenburg-Vorpommern (1 m)",
+    "de_ni": "DGM1 a DOM1 LGLN Niedersachsen (1 m, ALS)",
+    "de_bb": "DGM1 a bDOM1 LGB Brandenburg (1 m, povrch ze snímků)",
+    "de_rp": "DGM1 a DOM1 LVermGeo Rheinland-Pfalz (1 m, ALS)",
+    "de_bw": "DGM1 a nDOM1 LGL Baden-Württemberg (1 m, povrch ze snímků)",
+    "de_sn": "DGM1 a DOM1 GeoSN Sachsen (1 m)",
+    "de_he": "DGM1 a DOM1 HVBG Hessen (1 m)",
+    "de_sl": "DGM1 a DOM1 LVGL Saarland (1 m)",
+    "de_hh": "DGM1 a bDOM LGV Hamburg (1 m, povrch ze snímků)",
+    "de_hb": "DGM1 a DOM1 GeoInformation Bremen (1 m)",
     "de_nrw": "DGM1, DOM1 a nDOM50 Geobasis NRW (1 m, porost = menší ze zimního lidaru a letních snímků)",
     "fr_lidarhd": "LiDAR HD MNT a MNS (IGN, 0,5 m)",
     "ee_maaamet": "DTM a DSM Maa- ja Ruumiamet (1 m)",
@@ -1746,8 +1757,11 @@ def _package_output(
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)
+    # Rozbalené kopie podkladů vedle ZIPu (shade/, references/, uzitecne/) slouží jen k otevření .omap přímo
+    # z output/ při vývoji; web stahuje ZIP. Ostrá A je vypíná (OUTPUT_UNPACKED_COPIES=0, Petr 2026-11-19).
+    unpacked = bool(app_settings.OUTPUT_UNPACKED_COPIES)
     shade_src = kp_cwd / "shade"
-    if shade_src.is_dir():
+    if unpacked and shade_src.is_dir():
         shade_dst = output_dir / "shade"
         for name in ("hillshade.png", "hillshade.pgw"):
             src = shade_src / name
@@ -1755,7 +1769,7 @@ def _package_output(
                 shade_dst.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, shade_dst / name)
     # Stejná struktura jako v ZIPu, ať jde otevřít i output/*-{sprint,les,mtbo}.omap.
-    if want_zip and omap_paths:
+    if unpacked and want_zip and omap_paths:
         if bool(options.get("output_references", True)) or built_refs:
             refs_src = kp_cwd / "references"
             if refs_src.is_dir():

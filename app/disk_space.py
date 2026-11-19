@@ -10,6 +10,11 @@ Ostrá A 2026-11-15 (job e38f9268e26f, 3.37.1): plný ``/data`` shodil job a sta
 * strop cache LiDARu se omezí i podílem velikosti disku (``LIDAR_CACHE_MAX_DISK_SHARE``),
 * cache podle výřezu (podklady, DEM, ZABAGED, RÚIAN, AOPK) starší než jejich platnost se maže –
   po ní by se stejně znovu stahovala, výsledek mapy se tím nemění.
+
+Ostrá A 2026-11-19 (job bcc359d5458f): disk s joby (130 GB) zaplnilo 68 hotových jobů po 3–4 GB, cache leží
+na jiném disku, takže úklid cache nepomohl a job selhal. Při nedostatku místa na disku s joby se proto
+smažou nejdřív mezivýsledky (``work/``) nejstarších hotových jobů a pak celé nejstarší hotové joby
+(ne objednávky, ne joby dokončené před méně než ``DISK_JOB_DELETE_MIN_AGE_HOURS``).
 """
 
 from __future__ import annotations
@@ -194,7 +199,21 @@ def aoi_cache_roots() -> list[tuple[Path, int]]:
         (root / "ruian", settings.RUIAN_CACHE_MAX_AGE_DAYS),
         (root / "aopk", settings.AOPK_CACHE_MAX_AGE_DAYS),
         (root / "osm", osm_cache_max_age_days()),
+        (root / "sk_zbgis", settings.SK_ZBGIS_CACHE_MAX_AGE_DAYS),  # celostátní sady, položka = sada (bu / tn)
+        # indexy dlaždic německých zemí (položka = soubor indexu); obnovují se po 7 / 30 dnech, nepoužívané se smažou
+        (root / "de_meta4", DE_INDEX_CACHE_MAX_AGE_DAYS),
+        *((root / f"{key}_index", DE_INDEX_CACHE_MAX_AGE_DAYS) for key in _zip_range_keys()),
     ]
+
+
+DE_INDEX_CACHE_MAX_AGE_DAYS = 60  # nad obnovu indexu (Metalink 7 dní, adresáře ZIPů 30 dní)
+
+
+def _zip_range_keys() -> list[str]:
+    """Země, jejichž dlaždice se čtou z velkých ZIPů (index ``<klíč>_index`` v cache)."""
+    from app.pipeline.reference_de_states import DE_WCS_STATES
+
+    return sorted(key for key, st in DE_WCS_STATES.items() if st.tiles == "zip_range")
 
 
 def osm_cache_max_age_days() -> int:
@@ -332,6 +351,85 @@ def free_space_for(need_bytes: int, *, path: Path | None = None, keep_sheets=fro
     return freed
 
 
+# Z ``work/`` hotového jobu zůstane jen to, co dál čte web a statistika (náhled, souhrny).
+WORK_KEEP = frozenset(
+    {"build_stats.json", "source_meta.json", "dtm_summary.json", "preview.jpg", "preview.png", "preview"}
+)
+
+
+def trim_job_work(job_dir: Path) -> int:
+    """Smaže mezivýsledky jobu (``work/`` kromě ``WORK_KEEP``); vrací uvolněné bajty. ZIP a náhled jsou v ``output/``."""
+    work = Path(job_dir) / "work"
+    if not work.is_dir():
+        return 0
+    freed = 0
+    for entry in list(work.iterdir()):
+        if entry.name in WORK_KEEP:
+            continue
+        freed += _entry_bytes(entry)
+        _remove(entry)
+    return freed
+
+
+def _finished_jobs_oldest_first() -> list[tuple[str, float]]:
+    """(id, čas dokončení jako unix čas) hotových / selhaných jobů mimo objednávky, nejstarší první."""
+    from datetime import datetime, timezone
+
+    from app import db
+
+    out: list[tuple[str, float]] = []
+    for job_id, updated_at in db.list_finished_public_job_times():
+        try:
+            updated = datetime.fromisoformat(updated_at)
+        except ValueError:
+            updated = datetime.fromtimestamp(0, timezone.utc)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        out.append((job_id, updated.timestamp()))
+    out.sort(key=lambda e: e[1])
+    return out
+
+
+def free_job_space(need_bytes: int, *, path: Path | None = None, now: float | None = None, log=None) -> int:
+    """Uvolní na disku s joby místo do ``need_bytes`` volného: nejdřív ``work/`` nejstarších hotových jobů,
+    pak celé nejstarší hotové joby dokončené dřív než před ``DISK_JOB_DELETE_MIN_AGE_HOURS``; vrací uvolněné bajty."""
+    from app import db
+
+    target_path = Path(path) if path is not None else data_root()
+    if (free_bytes(target_path) or 0) >= need_bytes:
+        return 0
+    jobs_dir = Path(db.JOBS_DIR)
+    if not jobs_dir.is_dir() or not same_disk(target_path, jobs_dir):
+        return 0
+    jobs = _finished_jobs_oldest_first()
+    freed = 0
+    trimmed = 0
+    for job_id, _t in jobs:
+        if (free_bytes(target_path) or 0) >= need_bytes:
+            break
+        got = trim_job_work(jobs_dir / job_id)
+        if got:
+            freed += got
+            trimmed += 1
+    if trimmed and log:
+        log(f"Málo místa na disku s joby: smazány mezivýsledky {trimmed} nejstarších hotových jobů ({freed / 1e9:.1f} GB)")
+    now = time.time() if now is None else now
+    min_age = max(0.0, float(settings.DISK_JOB_DELETE_MIN_AGE_HOURS)) * 3600
+    deleted = 0
+    for job_id, finished in jobs:
+        if (free_bytes(target_path) or 0) >= need_bytes:
+            break
+        if now - finished < min_age:
+            break  # seřazeno od nejstarších: dál jsou jen čerstvější
+        size = _entry_bytes(jobs_dir / job_id)
+        if db.delete_job(job_id):
+            freed += size
+            deleted += 1
+    if deleted and log:
+        log(f"Málo místa na disku s joby: smazáno {deleted} nejstarších hotových jobů")
+    return freed
+
+
 def job_need_bytes(area_km2: float | None) -> int:
     """Odhad místa, které job potřebuje (stažené listy, ořezy, rastry, podklady, výstup)."""
     area = max(0.0, float(area_km2 or 0.0))
@@ -339,7 +437,7 @@ def job_need_bytes(area_km2: float | None) -> int:
     return int(max(0.0, gb) * 1e9)
 
 
-def _ensure_space_on(path: Path, need: int, label: str, *, log=None) -> None:
+def _ensure_space_on(path: Path, need: int, label: str, *, jobs: bool = False, log=None) -> None:
     free = free_bytes(path)
     if free is None or free >= need:
         return
@@ -349,6 +447,11 @@ def _ensure_space_on(path: Path, need: int, label: str, *, log=None) -> None:
         free_space_for(need, path=path, log=log)
     except Exception:  # noqa: BLE001 – úklid nesmí shodit job, rozhodne kontrola níže
         logger.exception("Úklid cache při nedostatku místa selhal")
+    if jobs:
+        try:
+            free_job_space(need, path=path, log=log)
+        except Exception:  # noqa: BLE001
+            logger.exception("Úklid starých jobů při nedostatku místa selhal")
     free = free_bytes(path)
     if free is not None and free < need:
         raise DiskFullError(f"{label}: volno {free / 1e9:.1f} GB, job potřebuje asi {need / 1e9:.1f} GB")
@@ -363,6 +466,6 @@ def ensure_job_space(area_km2: float | None, *, log=None) -> None:
     need = job_need_bytes(area_km2)
     if need <= 0:
         return
-    _ensure_space_on(data_root(), need, "s daty", log=log)
+    _ensure_space_on(data_root(), need, "s daty", jobs=True, log=log)
     if not same_disk(data_root(), cache_root()):
         _ensure_space_on(cache_root(), need, "s cache", log=log)

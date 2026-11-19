@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.76.0"
+APP_VERSION = "3.87.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -160,6 +160,12 @@ LIDAR_CACHE_MAX_DISK_SHARE = float(os.environ.get("LIDAR_CACHE_MAX_DISK_SHARE", 
 # Když chybí, smaže se nejdéle nepoužitá cache, jinak job skončí hláškou o plném disku. 0 a 0 = bez kontroly.
 DISK_JOB_BASE_GB = float(os.environ.get("DISK_JOB_BASE_GB", "3") or 0)
 DISK_JOB_GB_PER_KM2 = float(os.environ.get("DISK_JOB_GB_PER_KM2", "0.5") or 0)
+# Při nedostatku místa na disku s joby se smažou mezivýsledky nejstarších hotových jobů a pak celé nejstarší
+# hotové joby; job dokončený před méně než tolika hodinami se celý nemaže (uživatel si ZIP teprve stahuje).
+DISK_JOB_DELETE_MIN_AGE_HOURS = float(os.environ.get("DISK_JOB_DELETE_MIN_AGE_HOURS", "6") or 0)
+# Rozbalené kopie podkladů vedle ZIPu v output/ (shade/, references/, uzitecne/; ~ velikost ZIPu): jen pro
+# otevření .omap přímo z output/ při vývoji. 0 = jen ZIP (ostrá A, šetří disk s joby).
+OUTPUT_UNPACKED_COPIES = os.environ.get("OUTPUT_UNPACKED_COPIES", "1").strip().lower() not in ("0", "false", "no", "off")
 # Rezerva ``DATA_ROOT/.disk_reserve`` (MB): při plném disku se smaže, aby šel zapsat stav jobu „selhalo“.
 DISK_RESERVE_MB = float(os.environ.get("DISK_RESERVE_MB", "64") or 0)
 # Souběžná stahování listů LiDARu z ČÚZK (OpenZU). Jedno spojení dává ~2 MB/s, list DMP OK má ~340 MB
@@ -175,6 +181,8 @@ PREFETCH_DOWNLOAD_WORKERS = max(1, int(os.environ.get("PREFETCH_DOWNLOAD_WORKERS
 PREFETCH_NICE = int(os.environ.get("PREFETCH_NICE", "10"))
 PREFETCH_TIMEOUT_MINUTES = max(1, int(os.environ.get("PREFETCH_TIMEOUT_MINUTES", "60")))
 ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "30"))
+# Slovensko: celostátní budovy a silnice INSPIRE ZBGIS (cache/sk_zbgis, ~6 GB) se smažou po této době bez použití
+SK_ZBGIS_CACHE_MAX_AGE_DAYS = int(os.environ.get("SK_ZBGIS_CACHE_MAX_AGE_DAYS", "90"))
 # Ortofoto / OSM / ZTM / katastr / hillshade PNG pro OOM.
 REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))
 RUIAN_CACHE_MAX_AGE_DAYS = int(os.environ.get("RUIAN_CACHE_MAX_AGE_DAYS", "30"))

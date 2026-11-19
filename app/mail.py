@@ -204,6 +204,7 @@ def build_private_ready_email(
     issues_summary: str | None = None,
     area_km2: float | None = None,
     notices: list[str] | None = None,
+    donate_url: str | None = None,
     lang: str = "cs",
 ) -> tuple[str, str]:
     """Vrací (předmět, tělo) pro hotový privátní job v jazyce zadání (katalog ``mail.*``).
@@ -249,9 +250,12 @@ def build_private_ready_email(
             "\n",
             tr("private_note") + "\n",
             "\n",
-            _signature(lang),
         ]
     )
+    if donate_url:
+        # Dobrovolný dar přes PayPal jen na mezinárodní doméně (app.donations); česká verze beze změny.
+        parts.append(tr("donate", url=donate_url) + "\n\n")
+    parts.append(_signature(lang))
     return subject, "".join(parts)
 
 

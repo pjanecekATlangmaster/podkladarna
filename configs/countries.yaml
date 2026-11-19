@@ -2,7 +2,7 @@
 # status: live (lze vybrat) | beta (jen s COUNTRIES_BETA, na testu B výchozí `*`, a jen na doméně se zemí v SITES – nikdy na české `:CZ`) | off.
 # citation / attribution: citace zdrojů podle licencí místních dat (README, CO_JE_PODKLADARNA, .omap).
 # Zahraniční mapy dělá mezinárodní verze Omapic: citace a attribution anglicky; citace „Base map: Omapic · …, [year]“ (jako anglická licence).
-# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
+# elevation: zdroj výšek (cz_openzu | sk_ugkk | nl_ahn | ch_swisstopo | at_bev | de_berlin | de_nrw | pl_gugik | gb_ea | de_by | de_st | de_mv | de_ni | de_bb | de_rp | de_bw | fr_lidarhd | lu_act | sk_ugkk_local | local:<složka v DATA_ROOT> | none); cz_sources: české vektory a podklady (ZABAGED, RÚIAN, DTM …).
 # technical_map: obdoba české DTM pro kresbu (cz_dtm | nl_bgt | ch_av | at_fmzk | de_sb | fr_pdv | none) – budovy, silnice, chodníky, parkoviště, ploty.
 # Povolené území požadavku = země domény (SITES, `*` = všechny) ∩ země se status live; bez SITES jen CZ.
 # technical_map_gaps: polygon částí země bez technické mapy (kreslí se tam jen z OSM; mapa v GUI je odliší barvou).
@@ -36,6 +36,7 @@ SK:
   boundary: countries/sk.geojson
   view: [47.73, 16.83, 49.62, 22.57]
   elevation: sk_ugkk_local  # DMR 5.0 + DMP 1.0 1 m z ručně stažených ZIPů ÚGKK v DATA_ROOT/cache/static/sk_ugkk/{dtm,dsm} (Petr 2026-11-16)
+  technical_map: sk_zbgis   # budovy a šířky silnic z INSPIRE ZBGIS (celostátní GPKG v běžné cache cache/sk_zbgis, obnova po 30 dnech)
   cz_sources: false
   citation: "Base map: Omapic · ÚGKK SR · OSM, [year]"
   attribution:
@@ -137,6 +138,181 @@ DE-BY:
   attribution:
     - "Elevation: DGM1 and DOM20, Bayerische Vermessungsverwaltung – www.geodaten.bayern.de (CC BY 4.0), processed."
     - "Orthophoto DOP40, Digitale Ortskarte and ALKIS Parzellarkarte: Bayerische Vermessungsverwaltung – www.geodaten.bayern.de (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-ST:
+  name: {cs: Německo – Sasko-Anhaltsko, en: Germany – Saxony-Anhalt, de: Deutschland – Sachsen-Anhalt}
+  status: beta              # celá spolková země (2026-11-18); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LVermGeo ST)
+  boundary: countries/de_st.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [50.94, 10.56, 53.04, 13.19]
+  elevation: de_st          # DGM1 + DOM1 (ALS) 1 m z WCS LVermGeo po 2 km (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“ (Nutzungsbedingungen
+  # LVermGeo v5.0 z 1. 3. 2024, bod 2; WCS DGM1 / DOM1 a WMS DOP, DTK „OpenData“, ověřeno 2026-11-18).
+  citation: "Base map: Omapic · © GeoBasis-DE / LVermGeo ST · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, © GeoBasis-DE / LVermGeo ST (Datenlizenz Deutschland – Namensnennung – Version 2.0), processed."
+    - "Orthophoto DOP20 and topographic map DTK25: © GeoBasis-DE / LVermGeo ST (Datenlizenz Deutschland – Namensnennung – Version 2.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-MV:
+  name: {cs: Německo – Meklenbursko-Přední Pomořansko, en: Germany – Mecklenburg-Western Pomerania, de: Deutschland – Mecklenburg-Vorpommern}
+  status: beta              # celá spolková země (2026-11-18); kresba z OSM
+  crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém LAiV M-V)
+  boundary: countries/de_mv.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [53.11, 10.59, 54.69, 14.42]
+  elevation: de_mv          # DGM1 + DOM1 1 m z WCS LAiV po 2 km (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: CC BY 4.0 (metadata GeoMIS), Quellenvermerk „© GeoBasis-DE/M-V <rok>“ (AccessConstraints WCS i WMS, ověřeno 2026-11-18).
+  citation: "Base map: Omapic · © GeoBasis-DE/M-V · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, © GeoBasis-DE/M-V [data year] (CC BY 4.0), processed."
+    - "Orthophoto DOP and topographic map DTK10: © GeoBasis-DE/M-V [data year] (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-NI:
+  name: {cs: Německo – Dolní Sasko, en: Germany – Lower Saxony, de: Deutschland – Niedersachsen}
+  status: beta              # celá spolková země bez Brém (2026-11-18); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LGLN)
+  boundary: countries/de_ni.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [51.29, 6.63, 53.89, 11.6]
+  elevation: de_ni          # DGM1 + DOM1 (ALS od 2019) 1 m z WCS LGLN po 2 km (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: CC BY 4.0, Quellenvermerk „LGLN (<rok>)“ (AccessConstraints WCS a WMS LGLN, ověřeno 2026-11-18).
+  citation: "Base map: Omapic · LGLN · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, LGLN ([data year]) Creative Commons Namensnennung – 4.0 International (CC BY 4.0), processed."
+    - "Orthophoto DOP20 and topographic map DTK25: LGLN ([data year]) Creative Commons Namensnennung – 4.0 International (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-BB:
+  name: {cs: Německo – Braniborsko, en: Germany – Brandenburg, de: Deutschland – Brandenburg}
+  status: beta              # celá spolková země (2026-11-18); Berlín uvnitř zůstává DE (je v seznamu dřív); kresba z OSM
+  crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém LGB)
+  boundary: countries/de_bb.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [51.36, 11.26, 53.56, 14.77]
+  green: photo              # bDOM ze snímků: zrnitost porostu slabší, zeleň jen základní
+  elevation: de_bb          # DGM1 + bDOM1 1 m z WCS LGB po 2 km (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, „© GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)“ (AccessConstraints WCS a WMS, ověřeno 2026-11-18).
+  citation: "Base map: Omapic · © GeoBasis-DE/LGB · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and bDOM1, © GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)."
+    - "Orthophoto DOP20: © GeoBasis-DE/LGB, dl-de/by-2-0."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-RP:
+  name: {cs: Německo – Porýní-Falc, en: Germany – Rhineland-Palatinate, de: Deutschland – Rheinland-Pfalz}
+  status: beta              # celá spolková země (2026-11-18); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LVermGeo RP)
+  boundary: countries/de_rp.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [48.96, 6.11, 50.94, 8.51]
+  elevation: de_rp          # DGM1 + DOM1 (ALS) GeoTIFF po 1 km podle indexu Metalink (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, „©GeoBasis-DE / LVermGeoRP (Jahr des Datenbezugs), dl-de/by-2-0,
+  # http://www.lvermgeo.rlp.de [Daten bearbeitet]“ (Fees WMS rp_dop20, odkaz geoshop.rlp.de/dl-de_by-2-0 z geobasis-rlp.de/data, ověřeno 2026-11-18).
+  citation: "Base map: Omapic · ©GeoBasis-DE / LVermGeoRP · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, ©GeoBasis-DE / LVermGeoRP ([data year]), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]."
+    - "Orthophoto DOP20 and topographic map DTK25: ©GeoBasis-DE / LVermGeoRP ([data year]), dl-de/by-2-0, http://www.lvermgeo.rlp.de."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-BW:
+  name: {cs: Německo – Bádensko-Württembersko, en: Germany – Baden-Württemberg, de: Deutschland – Baden-Württemberg}
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LGL)
+  boundary: countries/de_bw.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [47.53, 7.51, 49.79, 10.5]
+  green: photo              # nDOM1 z obrazového bDOM20 (léto): zrnitost porostu slabší, zeleň jen základní
+  elevation: de_bw          # DGM1 (ALS, XYZ) + nDOM1 ze ZIPů LGL po 2 km, cache na serveru (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ (licence přibalená
+  # v ZIPech DGM1 a nDOM1, AccessConstraints WMS DOP, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · Datenquelle: LGL, www.lgl-bw.de · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and nDOM1, Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0 (Daten geändert)."
+    - "Orthophoto DOP20: Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-SN:
+  name: {cs: Německo – Sasko, en: Germany – Saxony, de: Deutschland – Sachsen}
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém GeoSN)
+  boundary: countries/de_sn.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [50.17, 11.87, 51.69, 15.05]
+  elevation: de_sn          # DGM1 + DOM1 (ALS) ze ZIPů GeoSN po 2 km, cache na serveru (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, Quellenvermerk „GeoSN“, vzor „Quelle: GeoSN, dl-de/by-2-0“
+  # (Allgemeine Nutzungsbedingungen GeoSN, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · Quelle: GeoSN · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, Quelle: GeoSN, dl-de/by-2-0 (Daten geändert)."
+    - "Orthophoto DOP20: Quelle: GeoSN, dl-de/by-2-0."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-HE:
+  name: {cs: Německo – Hesensko, en: Germany – Hesse, de: Deutschland – Hessen}
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém HVBG)
+  boundary: countries/de_he.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [49.39, 7.77, 51.66, 10.24]
+  elevation: de_he          # DGM1 + DOM1 (ALS) z INSPIRE WCS HVBG (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Zero 2.0 (WCS DGM1/DOM1), WMS „ohne Einschränkung oder Bedingung“; při uvedení
+  # zdroje upozornit na změny (§ 18 HVGG). Ověřeno 2026-11-19.
+  citation: "Base map: Omapic · Geobasisdaten © HVBG · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, Geobasisdaten © Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG), dl-de/zero-2-0 (Daten geändert)."
+    - "Orthophoto DOP20 and DTK25: © HVBG."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-SL:
+  name: {cs: Německo – Sársko, en: Germany – Saarland, de: Deutschland – Saarland}
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LVGL)
+  boundary: countries/de_sl.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [49.11, 6.35, 49.64, 7.41]
+  elevation: de_sl          # DGM1 + DOM1 (ALS 2025) po 1 km z ZIPů okresů čtených po rozsazích (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, Quellenvermerk „© GeoBasis DE/LVGL-SL (Jahr)“ (metadata ATKIS
+  # DGM1 2025, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · © GeoBasis DE/LVGL-SL · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, © GeoBasis DE/LVGL-SL ([data year]), dl-de/by-2-0 (Daten geändert)."
+    - "Orthophoto DOP20: © GeoBasis DE/LVGL-SL ([data year]), dl-de/by-2-0."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-HH:
+  name: {cs: Německo – Hamburk, en: Germany – Hamburg, de: Deutschland – Hamburg}
+  status: beta              # celé město (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LGV)
+  boundary: countries/de_hh.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [53.39, 8.42, 53.97, 10.33]
+  green: photo              # bDOM ze snímků: zrnitost porostu slabší, zeleň jen základní
+  elevation: de_hh          # DGM1 2022 + bDOM 2022 po 1 km z ZIPů celého města čtených po rozsazích (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, Quellenvermerk „Freie und Hansestadt Hamburg, Landesbetrieb
+  # Geoinformation und Vermessung (LGV)“ (Transparenzportal Hamburg, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · FHH, LGV · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and bDOM, Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV), dl-de/by-2-0 (Daten geändert)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-HB:
+  name: {cs: Německo – Brémy, en: Germany – Bremen, de: Deutschland – Bremen}
+  status: beta              # Brémy a Bremerhaven (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém GeoInformation Bremen)
+  boundary: countries/de_hb.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [53.01, 8.48, 53.61, 9.00]
+  elevation: de_hb          # DGM1 + DOM1 (Brémy 2017, Bremerhaven 2015) po 1 km z ZIPů XYZ čtených po rozsazích (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Creative Commons Namensnennung 4.0 International, Quellenvermerk „Landesamt GeoInformation Bremen“
+  # (metadata ATKIS DGM1 Land Bremen, Fees WMS DOP, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · Landesamt GeoInformation Bremen · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, © Landesamt GeoInformation Bremen (CC BY 4.0), processed."
+    - "Orthophoto DOP10: © Landesamt GeoInformation Bremen (CC BY 4.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
 PL:
   name: {cs: Polsko, en: Poland, pl: Polska}

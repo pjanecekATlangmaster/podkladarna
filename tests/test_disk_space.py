@@ -207,6 +207,27 @@ def test_prune_expired_aoi_cache_keeps_valid_entries(
     assert not old.exists() and fresh.exists()
 
 
+def test_prune_expired_de_tile_indexes(tmp_path, monkeypatch):
+    """Indexy dlaždic německých zemí (Metalink, adresáře ZIPů) jsou soubory; nepoužívané se po platnosti smažou."""
+    import app.settings as settings
+
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path)
+    days = disk_space.DE_INDEX_CACHE_MAX_AGE_DAYS
+    files = {
+        "old_meta4": (tmp_path / "de_meta4" / "dgm1_rp.meta4", days + 5),
+        "new_meta4": (tmp_path / "de_meta4" / "dom1_rp.meta4", 3),
+        "old_zip": (tmp_path / "de_sl_index" / "dtm.json", days + 5),
+        "new_zip": (tmp_path / "de_hb_index" / "dtm.json", 10),
+    }
+    for path, age in files.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"x" * 100)
+        old = time.time() - age * 86400
+        os.utime(path, (old, old))
+    assert disk_space.prune_expired_aoi_cache() == 200
+    assert {name for name, (path, _age) in files.items() if path.exists()} == {"new_meta4", "new_zip"}
+
+
 def test_prune_tile_cache_age_cap_and_old_versions(tmp_path, monkeypatch):
     """Cache dlaždic webu (revize 2026-11-16): stará verze pryč, starší než limit pryč, nad stropem nejstarší."""
     import app.settings as settings
@@ -303,3 +324,72 @@ def test_lidar_cache_cap_limited_by_disk_share(tmp_path, monkeypatch):
     assert disk_space.lidar_cache_max_bytes() == int(20e9)
     monkeypatch.setattr(settings, "LIDAR_CACHE_MAX_GB", 0.0)
     assert disk_space.lidar_cache_max_bytes() == int(50e9)
+
+
+@pytest.mark.parametrize(
+    "need_gb, expect",
+    [
+        # stačí mezivýsledky nejstaršího jobu: work/ pryč, souhrny, náhled i ZIP zůstanou
+        (10.5, {"older": "trimmed", "old": "full", "fresh": "full"}),
+        # nestačí ani work/ všech: celé staré joby pryč, čerstvý (pod 6 h) zůstane bez work/
+        (17.0, {"old": "deleted", "older": "deleted", "fresh": "trimmed"}),
+    ],
+)
+def test_ensure_job_space_frees_old_jobs_when_cache_on_other_disk(tmp_path, monkeypatch, need_gb, expect):
+    """Ostrá A 2026-11-19: disk s joby plný hotových jobů, cache na jiném disku – úklid sáhne na staré joby."""
+    from datetime import datetime, timedelta, timezone
+
+    import app.settings as settings
+
+    data = tmp_path / "data"
+    jobs = data / "jobs"
+    jobs.mkdir(parents=True)
+    monkeypatch.setattr(settings, "DATA_ROOT", data)
+    monkeypatch.setattr(settings, "DOWNLOADS_DIR", tmp_path / "cache")
+    monkeypatch.setattr(settings, "DISK_JOB_BASE_GB", need_gb)
+    monkeypatch.setattr(settings, "DISK_JOB_GB_PER_KM2", 0.0)
+    monkeypatch.setattr(settings, "DISK_JOB_DELETE_MIN_AGE_HOURS", 6.0)
+    monkeypatch.setattr("app.db.JOBS_DIR", jobs)
+    monkeypatch.setattr("app.db.DB_PATH", data / "t.db")
+    monkeypatch.setattr("app.db.DOWNLOADS_DIR", tmp_path / "cache")
+    db.init_db()
+    now = datetime.now(timezone.utc)
+    ids = {}
+    for name, hours in (("older", 30), ("old", 20), ("fresh", 1)):
+        job = db.create_job(name, "forest_10000", {})
+        ids[name] = job["id"]
+        d = jobs / job["id"]
+        (d / "work" / "lidar").mkdir(parents=True)
+        (d / "work" / "lidar" / "crop.laz").write_bytes(b"x")
+        (d / "work" / "build_stats.json").write_text("{}")
+        (d / "output" / "podkladarna_output.zip").write_bytes(b"z")
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE jobs SET status = 'done', updated_at = ? WHERE id = ?",
+                ((now - timedelta(hours=hours)).isoformat(), job["id"]),
+            )
+            conn.commit()
+    monkeypatch.setattr(disk_space, "same_disk", lambda a, b: Path(b) != tmp_path / "cache")
+
+    def fake_free(p=None):
+        # 9 GB volno, každý smazaný work/ +2 GB, každý smazaný job +1 GB navíc
+        free = 9.0
+        for job_id in ids.values():
+            d = jobs / job_id
+            if not (d / "work" / "lidar").exists():
+                free += 2.0
+            if not d.exists():
+                free += 1.0
+        return int(free * 1e9)
+
+    monkeypatch.setattr(disk_space, "free_bytes", fake_free)
+    disk_space.ensure_job_space(1.0)
+    for name, state in expect.items():
+        d = jobs / ids[name]
+        if state == "deleted":
+            assert not d.exists() and ids[name] not in db.all_job_ids()
+        elif state == "trimmed":
+            assert not (d / "work" / "lidar").exists()
+            assert (d / "work" / "build_stats.json").exists() and (d / "output" / "podkladarna_output.zip").exists()
+        else:
+            assert (d / "work" / "lidar" / "crop.laz").exists()

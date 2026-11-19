@@ -18,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover - numpy je v image vždy (GDAL)
     pass
 
-from app import db, disk_space, i18n, user_sources
+from app import db, disk_space, donations, i18n, user_sources
 from app import settings as app_settings
 from app.mail import (
     MailError,
@@ -133,6 +133,7 @@ def _notify_private_job(job_id: str) -> None:
             job.get("error") if job.get("status") == db.STATUS_DONE_WITH_ERRORS else None
         ),
         notices=dtm_summary.notice_lines(job.get("dtm_summary")),
+        donate_url=donations.donate_url_for_job(job.get("options"), _job_lang(job.get("options"))),
         lang=_job_lang(job.get("options")),
     )
     try:
