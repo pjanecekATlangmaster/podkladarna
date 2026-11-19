@@ -103,6 +103,22 @@ def test_xyz_grid_rows_from_north():
         er.xyz_grid(b"10.5 21.5 1\n11.5 21.5 2\n10.5 20.5 3\n")
 
 
+def test_bw_tile_rejects_oversized_member(tmp_path, monkeypatch):
+    import io
+    import urllib.request
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("dgm1_32_489_5402_1_bw_2023.xyz", b"0" * 5000)  # malý ZIP, velký rozbalený soubor
+    monkeypatch.setattr(er, "bw_tile_dir", lambda e, n: tmp_path / f"{e}_{n}")
+    monkeypatch.setattr(er, "BW_MAX_MEMBER_BYTES", 1000)
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: io.BytesIO(buf.getvalue()))
+    with pytest.raises(RuntimeError, match="přes limit"):
+        er._bw_tile("de_bw", 489, 5402)
+    assert not (tmp_path / "489_5402" / ".complete").exists()
+
+
 def test_bw_provider_uses_cached_tiles_in_window(tmp_path, monkeypatch):
     folder = tmp_path / "489_5402"
     folder.mkdir()

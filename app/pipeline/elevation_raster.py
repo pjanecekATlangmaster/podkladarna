@@ -840,6 +840,7 @@ def de_meta4_provider(key: str) -> Provider:
 # ``de_bw/<E>_<N>`` (jako dlaždice Berlína), povrch = DGM + nDOM se skládá v jobu (``_de_nw_surface``).
 BW_TILE_KM = 2
 BW_MAX_ZIP_BYTES = 100_000_000  # dlaždice má 9–14 MB
+BW_MAX_MEMBER_BYTES = 200_000_000  # rozbalený soubor (XYZ 1 km ~29 MB, TIF ~3 MB); větší = podezřelý ZIP
 
 
 def bw_tiles(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
@@ -929,6 +930,8 @@ def _bw_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path | None:
                     m = re.search(r"_32_(\d+)_(\d+)_1_bw[^/]*\.(xyz|tif)$", name)
                     if not m:
                         continue
+                    if zf.getinfo(name).file_size > BW_MAX_MEMBER_BYTES:
+                        raise RuntimeError(f"{st.name} {kind} {east_km}_{north_km}: soubor v ZIPu přes limit")
                     dest = folder / f"{kind}_{m.group(1)}_{m.group(2)}.tif"
                     tmp = dest.with_name(f".{dest.name}.{os.getpid()}")
                     if m.group(3) == "xyz":
