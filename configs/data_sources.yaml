@@ -2497,6 +2497,51 @@ sources:
   issues:
     - "DTK webové služby GeoSN končí (nahrazuje je basemap), topografická šablona se proto nepřidává."
 
+- id: de_he_dgm
+  countries: [DE-HE]
+  kinds: [elevation, canopy]
+  name: DGM1 a DOM1 (ALS) Hesensko, INSPIRE WCS 2.0.1
+  provider: Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)
+  url: https://inspire-hessen.de/raster/dgm1/ows
+  info: https://hvbg.hessen.de/geoinformation/geodateninfrastruktur/geoportal-hessen/inspire-standardisierte-geodatendienste
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_wcs_provider), app/pipeline/reference_de_states.py
+  provider_key: de_he
+  probe: de_he_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Zero 2.0
+    url: https://www.govdata.de/dl-de/zero-2-0
+    attribution: "Geobasisdaten © HVBG, dl-de/zero-2-0 (zdroj s upozorněním na změny, § 18 HVGG)"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities a DescribeCoverage he_dgm1 / dom1 (EPSG:25832, osy E N, rozsah 411000 5471000 – 587000 5724000, Fees dl-de/zero-2.0), GetCoverage 2 × 2 km 200 image/tiff 16 MB za 2 s, 2000 × 2000 px Float32, hrany na celé metry; DOM1 z ALS (Produktblatt Oberflächenmodelle HVBG)"
+  issues:
+    - "Osy WCS se jmenují E / N (ne x / y), proto DeWcsState.axes."
+
+- id: de_he_wms
+  countries: [DE-HE]
+  kinds: [orthophoto, map]
+  name: "Ortofoto DOP20 a DTK25 (WMS HVBG ogc-free)"
+  provider: Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)
+  url: https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows
+  info: https://www.gds.hessen.de/
+  role: šablona
+  reference_keys: ["online_de_he_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "Užití bez omezení (§ 18 HVGG); při uvedení zdroje upozornit na změny."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_he_dop
+  license:
+    class: public
+    name: "Nutzung ohne Einschränkung (§ 18 HVGG)"
+    url: https://www.gds.hessen.de/
+    attribution: "© HVBG"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities ogc-free-images (he_dop20_rgb) a ogc-free-maps (he_dtk25), AccessConstraints „ohne Einschränkung oder Bedingung“, GetMap EPSG:25832 200"
+  issues: []
+
 - id: de_bb_als
   countries:
   - DE

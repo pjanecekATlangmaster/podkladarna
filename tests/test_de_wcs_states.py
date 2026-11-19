@@ -177,3 +177,8 @@ def test_sn_provider_uses_cached_tiles(tmp_path, monkeypatch):
     out = er.PROVIDERS["de_sn"](bounds, tmp_path, issues.append)
     assert len(vrts[str(out.dtm)]) == 2 and vrts[str(out.dsm)] == [str(with_dsm / "dsm.tif")]
     assert issues and "1 z 2" in issues[0]
+
+
+def test_wcs_axes_from_state():
+    urls = er.de_wcs_tile_urls("de_he", "dtm", (480000.0, 5560000.0, 481000.0, 5561000.0))
+    assert len(urls) == 1 and "SUBSET=E(479980,481020)" in urls[0] and "SUBSET=N(" in urls[0]

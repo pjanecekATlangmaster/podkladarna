@@ -28,6 +28,7 @@ class DeWcsState:
     tiles: str = "wcs"           # wcs = GetCoverage po 2 km | meta4 = GeoTIFF po 1 km podle indexu Metalink
                                  # | bw_zip = ZIP po 2 km (``dtm`` XYZ, ``dsm`` = nDOM, výška nad terénem), cache
                                  # | sn_zip = ZIP po 2 km s jedním GeoTIFF (DGM1 i DOM1 absolutně), cache
+    axes: tuple[str, str] = ("x", "y")  # popisky os WCS v SUBSET (Hesensko „E N“)
 
 
 ST_WCS = "https://www.geodatenportal.sachsen-anhalt.de"
@@ -46,6 +47,8 @@ BW_DATA = "https://opengeodata.lgl-bw.de/data"
 BW_OWS = "https://owsproxy.lgl-bw.de/owsproxy/ows"
 SN_GEOCLOUD = "https://geocloud.landesvermessung.sachsen.de/public.php/dav/files"
 SN_WMS = "https://geodienste.sachsen.de"
+HE_WCS = "https://inspire-hessen.de/raster"
+HE_WMS = "https://www.gds-srv.hessen.de/cgi-bin/lika-services"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -161,6 +164,24 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         ),
         tiles="sn_zip",
     ),
+    # Hesensko (HVBG): Datenlizenz Deutschland – Zero 2.0 (Fees WCS), WMS „ohne Einschränkung“ (§ 18 HVGG: při uvedení
+    # zdroje upozornit na změny). INSPIRE WCS 2.0.1 ``he_dgm1`` / ``dom1`` (EPSG:25832, osy „E N“, 1 m, GeoTIFF s CRS,
+    # 2 × 2 km ~16 MB za ~2 s), DOM1 z ALS. DOP20 a DTK25 přes WMS „ogc-free“.
+    "de_he": DeWcsState(
+        code="DE-HE",
+        name="Hesensko",
+        crs="EPSG:25832",
+        dtm=(f"{HE_WCS}/dgm1/ows", "he_dgm1"),
+        dsm=(f"{HE_WCS}/dom1/ows", "dom1"),
+        probe_box=(480000, 5560000, 480016, 5560016),  # Taunus u Frankfurtu
+        wms=(
+            ("de_he_dop", "dop_hessen.xml", "DOP20 Hessen (ortofoto)", f"{HE_WMS}/ogc-free-images.ows", "he_dop20_rgb",
+             "image/jpeg", False, 0.2),
+            ("de_he_dtk", "dtk25_hessen.xml", "DTK25 Hessen (topografická mapa 1 : 25 000)",
+             f"{HE_WMS}/ogc-free-maps.ows", "he_dtk25", "image/png", False, 1.0),
+        ),
+        axes=("E", "N"),
+    ),
 }
 
 
@@ -171,13 +192,14 @@ def state_for_country(code: str) -> tuple[str, DeWcsState] | None:
     return None
 
 
-def wcs_coverage_url(service: tuple[str, str], box: tuple[float, float, float, float]) -> str:
+def wcs_coverage_url(service: tuple[str, str], box: tuple[float, float, float, float],
+                     axes: tuple[str, str] = ("x", "y")) -> str:
     """GetCoverage (WCS 2.0.1) jedné dlaždice v nativním CRS služby; pixel 1 m (hrany na celé metry)."""
     url, coverage = service
     x0, y0, x1, y1 = box
     return (
         f"{url}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID={coverage}&FORMAT=image/tiff"
-        f"&SUBSET=x({x0:.0f},{x1:.0f})&SUBSET=y({y0:.0f},{y1:.0f})"
+        f"&SUBSET={axes[0]}({x0:.0f},{x1:.0f})&SUBSET={axes[1]}({y0:.0f},{y1:.0f})"
     )
 
 
@@ -202,7 +224,7 @@ def elevation_probe(key: str) -> str:
         return bw_zip_url(st.dtm, int(st.probe_box[0] // 1000), int(st.probe_box[1] // 1000))
     if st.tiles == "sn_zip":
         return sn_zip_url(st.dtm, int(st.probe_box[0] // 2000) * 2, int(st.probe_box[1] // 2000) * 2)
-    return wcs_coverage_url(st.dtm, st.probe_box)
+    return wcs_coverage_url(st.dtm, st.probe_box, st.axes)
 
 
 def elevation_probe_method(key: str) -> str:
