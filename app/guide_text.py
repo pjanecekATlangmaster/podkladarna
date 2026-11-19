@@ -1,5 +1,7 @@
 """Srozumitelný popis služby pro web a ZIP."""
 
+import re
+
 from app.pipeline.source_meta import INDICATIVE_LABEL_CS
 
 WEB_ABOUT_HTML = """
@@ -252,7 +254,19 @@ def web_about_html(lang: str, *, intl: bool = False) -> str:
 
     ``intl``: doména i pro jiné země – česky souřadnicový systém země místo S-JTSK."""
     html = WEB_ABOUT_HTML_BY_LANG.get(lang) or WEB_ABOUT_HTML_BY_LANG.get("en") or WEB_ABOUT_HTML
-    return html.replace(_CS_CRS_HTML, _CS_CRS_HTML_INTL) if intl else html
+    return strip_github_links(html.replace(_CS_CRS_HTML, _CS_CRS_HTML_INTL)) if intl else html
+
+
+_GITHUB_ISSUES_RE = re.compile(r"\s*nebo na\s*<a [^>]*github\.com[^>]*>GitHub Issues</a>")
+_GITHUB_SOURCE_RE = re.compile(r"\s*Zdrojový kód:\s*<a [^>]*github\.com[^>]*>[^<]*</a>\.")
+_GITHUB_LINK_RE = re.compile(r'<a [^>]*href="https://[^"]*github\.(?:com|io)[^"]*"[^>]*>([^<]*)</a>')
+
+
+def strip_github_links(html: str) -> str:
+    """Mezinárodní verze nikde neodkazuje na GitHub (Petr 2026-11-19): bez věty o zdrojovém kódu a Issues,
+    ostatní odkazy na GitHub jen jako text."""
+    html = _GITHUB_SOURCE_RE.sub("", _GITHUB_ISSUES_RE.sub("", html))
+    return _GITHUB_LINK_RE.sub(r"\1", html)
 
 _ZIP_ABOUT_TEMPLATE = f"""Podkladárna – co je v tomto balíčku
 ==================================

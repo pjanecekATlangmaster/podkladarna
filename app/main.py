@@ -32,7 +32,7 @@ from app.feedback import (
     send_feedback,
     send_source_suggestion,
 )
-from app.guide_text import web_about_html
+from app.guide_text import strip_github_links, web_about_html
 from app.job_template import job_form_template
 from app.mail import MailError
 from app.rate_limit import check_create_api_job, check_create_job
@@ -436,9 +436,10 @@ def _page_source(name: str, request: Request) -> str:
 GITHUB_REPO_URL = "https://github.com/pjanecekATlangmaster/podkladarna"
 
 
-def source_links_html(lang: str) -> str:
-    """Odkazy na zdrojový kód a Issues v patičce jen v české verzi (mezinárodní verze GitHub neukazuje)."""
-    if lang != i18n.SOURCE_LANG:
+def source_links_html(lang: str, *, intl: bool = False) -> str:
+    """Odkazy na zdrojový kód a Issues v patičce jen v české verzi na české doméně (mezinárodní verze GitHub
+    neukazuje nikde, ani česky; Petr 2026-11-19)."""
+    if intl or lang != i18n.SOURCE_LANG:
         return ""
     return (
         f'<a href="{GITHUB_REPO_URL}" target="_blank" rel="noopener">{{{{t:web.footer.source_code}}}}</a>\n'
@@ -556,7 +557,7 @@ def index(request: Request) -> HTMLResponse:
         # Doména i pro jiné země: texty o souřadnicích bez S-JTSK (česká doména beze změny).
         for key in _INTL_PAGE_KEYS:
             html = html.replace(f"{{{{h:{key}}}}}", f"{{{{h:{key}_intl}}}}")
-    html = html.replace("<!-- PODKLADARNA_SOURCE_LINKS -->", source_links_html(lang))
+    html = html.replace("<!-- PODKLADARNA_SOURCE_LINKS -->", source_links_html(lang, intl=intl))
     html = html.replace("<!-- PODKLADARNA_SAMPLES -->", samples_html(lang))
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
@@ -600,6 +601,12 @@ def country_sources_html(request: Request, lang: str) -> str:
 def licence_page(request: Request) -> HTMLResponse:
     html = _page_source("licence.html", request)
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
+    site = i18n.site_for_request(request)
+    base = (site.base_url if site else app_settings.PUBLIC_BASE_URL or "").rstrip("/")
+    html = html.replace("{{SITE_URL}}", html_escape(base or "/"))
+    html = html.replace("{{SITE_HOST}}", html_escape(urllib.parse.urlsplit(base).netloc or i18n._request_host(request)))
+    if site is not None and tuple(site.countries) != ("CZ",):
+        html = strip_github_links(html)  # mezinárodní verze GitHub neukazuje nikde (Petr 2026-11-19)
     if "<!-- PODKLADARNA_COUNTRY_SOURCES -->" in html:
         sources = country_sources_html(request, i18n.resolve_lang(request)[0])
         html = html.replace("<!-- PODKLADARNA_COUNTRY_SOURCES -->", sources)
@@ -615,10 +622,12 @@ def support_page(request: Request) -> HTMLResponse:
         lang = i18n.resolve_lang(request)[0]
         html = (WEB_DIR / "donate.html").read_text(encoding="utf-8")
         html = html.replace("{{LANG}}", lang)
+        # Česky jen česká QR Platba, jinak Stripe, SEPA (EPC QR) a PayPal podle .env (Petr 2026-11-19).
+        czech = lang == i18n.SOURCE_LANG
         html = html.replace("<!-- DONATE_CZ_QR -->", donations.czech_qr_block_html(lang))
-        html = html.replace("<!-- DONATE_STRIPE -->", donations.stripe_block_html(lang))
-        html = html.replace("<!-- DONATE_SEPA -->", donations.sepa_block_html(lang))
-        html = html.replace("<!-- DONATE_PAYPAL -->", donations.paypal_block_html(lang))
+        html = html.replace("<!-- DONATE_STRIPE -->", "" if czech else donations.stripe_block_html(lang))
+        html = html.replace("<!-- DONATE_SEPA -->", "" if czech else donations.sepa_block_html(lang))
+        html = html.replace("<!-- DONATE_PAYPAL -->", "" if czech else donations.paypal_block_html(lang))
     elif paid_flow.paid_site(request) is not None:
         return RedirectResponse("/", status_code=302)  # dar jen na bezplatné doméně (Petr 2026-11-16)
     else:

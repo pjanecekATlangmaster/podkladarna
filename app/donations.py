@@ -134,16 +134,18 @@ def donate_url(currency: str = DEFAULT_CURRENCY, lang: str = i18n.BASE_LANG) -> 
 def donate_url_for_job(options: dict | None, lang: str) -> str | None:
     """Odkaz do e-mailu hotové mapy, nebo None mimo doménu s darem.
 
-    Jediná možnost daru = přímý odkaz (PayPal s měnou podle země výřezu, nebo Stripe); víc možností nebo
-    SEPA = stránka /podpora na doméně zadání, kde dárce vybere (QR převodu v e-mailu nejde naskenovat)."""
+    Jediná možnost daru = přímý odkaz (PayPal s měnou podle země výřezu, nebo Stripe); víc možností, SEPA
+    nebo čeština = stránka /podpora na doméně zadání (QR převodu v e-mailu nejde naskenovat)."""
     if not enabled_for_job(options):
         return None
     options = options or {}
     methods = [bool(paypal_business()), bool(stripe_link()), sepa_enabled()]
-    if sum(methods) == 1 and not sepa_enabled():
+    if lang != i18n.SOURCE_LANG and sum(methods) == 1 and not sepa_enabled():
         return donate_url(currency_for_country(options.get("country")), lang) or stripe_link() or None
+    # Česky jen česká QR Platba na stránce podpory (Petr 2026-11-19), jinak výběr možností; jazyk stránky
+    # podle jazyka zadání, ať dárce bez cookie nedostane výchozí jazyk domény.
     base = i18n.site_base_url(options.get("site"))
-    return f"{base}/podpora" if base else None
+    return f"{base}/podpora?lang={lang}" if base else None
 
 
 def _btn(href: str, label: str) -> str:
