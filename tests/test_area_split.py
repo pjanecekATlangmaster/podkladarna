@@ -169,3 +169,12 @@ def test_overlap_makes_pieces_overlap_inside_the_area():
     from app.pipeline import dtm_import, oom_simplify
 
     assert dtm_import.AREA_SPLIT_OVERLAP_MM > oom_simplify.SIMPLIFY_TOLERANCE_MM
+
+    # hřeben: rozšíření dílu sáhne i do sousedního zubu (mezera 3 cm), díl musí přesto přes řez přesáhnout
+    comb = [(0.0, 0.0), (400.0, 0.0)]
+    for k in range(39, -1, -1):
+        comb += [(10 * k + 9.985, 5.0), (10 * k + 9.985, 100.0), (10 * k + 0.015, 100.0), (10 * k + 0.015, 5.0)]
+    plain = [Polygon(o, hs) for o, hs in split_area(comb, [], 40)]
+    grown = [Polygon(o, hs) for o, hs in split_area(comb, [], 40, overlap_m=0.05)]
+    assert len(plain) > 2 and len(plain) == len(grown)
+    assert all(g.area > p.area + 1e-4 for p, g in zip(plain, grown))

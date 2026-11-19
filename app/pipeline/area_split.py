@@ -88,9 +88,15 @@ def split_area(
 
 
 def _overlapped(piece, whole, overlap_m: float):
-    """Díl rozšířený o ``overlap_m`` přes řezy, oříznutý původní plochou; při nejednoznačném výsledku díl beze změny."""
+    """Díl rozšířený o ``overlap_m`` přes řezy, oříznutý původní plochou.
+
+    Přesah do sousedního výběžku plochy (odděleného kusu) se zahodí, zůstane kus, který obsahuje díl.
+    """
     grown = polygons_of(piece.union(piece.buffer(overlap_m, join_style=2).intersection(whole)))
-    return grown[0] if len(grown) == 1 else piece
+    if not grown:
+        return piece
+    best = max(grown, key=lambda g: g.intersection(piece).area)
+    return best if best.intersection(piece).area >= piece.area * (1 - 1e-9) else piece
 
 
 def _ring_area(ring: Ring) -> float:
