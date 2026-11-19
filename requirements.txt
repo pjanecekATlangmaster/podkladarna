@@ -2,6 +2,8 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.12
 pyyaml>=6.0.2
+# EPC QR kód pro dobrovolný dar převodem v EUR (app/donations.py), čistý Python bez závislostí.
+segno>=1.6
 pyproj>=3.6.0
 almanac-compute>=0.1.0
 # Vegetace: hustota LiDAR odrazu (vegetation_density); bez laspy fallback CHM.
