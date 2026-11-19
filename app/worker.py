@@ -272,6 +272,14 @@ def _record_failed_usage(job_id: str) -> None:
 _DISK_FULL_FREE_BYTES = 64 * 1024 * 1024
 
 
+def _failure_summary_on_site(msg: str, options: dict | None) -> str:
+    """Souhrn chyby jako na doméně zadání (česky z Omapicu = Omapic); česká doména beze změny."""
+    from app import i18n
+
+    with i18n.site_context(i18n.site_of_options(options)):
+        return failure_summary(msg, zip_lang(options))
+
+
 def _fail_running_job(job_id: str, msg: str) -> None:
     """Job, který je v DB pořád „running“, označí jako selhaný; stav se zapisuje dřív než log.
 
@@ -293,7 +301,7 @@ def _fail_running_job(job_id: str, msg: str) -> None:
             job_id,
             status="failed",
             phase="error",
-            error=failure_summary(msg, zip_lang(job.get("options"))),
+            error=_failure_summary_on_site(msg, job.get("options")),
         )
     except Exception:
         logger.exception("Zápis stavu failed jobu %s selhal", job_id)

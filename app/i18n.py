@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
@@ -170,6 +171,26 @@ def set_request_site(site: Site | None) -> Any:
 
 def reset_request_site(token: Any) -> None:
     _INTL_BRAND.reset(token)
+
+
+def intl_brand_active() -> bool:
+    """Běží požadavek / úloha mezinárodní domény (název služby podle domény)."""
+    return bool(_INTL_BRAND.get())
+
+
+def site_of_options(options: dict | None) -> Site | None:
+    """Doména zadání jobu (``options.site``, jen ze seznamu ``SITES``)."""
+    return sites().get(str((options or {}).get("site") or "").strip().lower())
+
+
+@contextmanager
+def site_context(site: Site | None):
+    """Texty mimo požadavek (e-mail, souhrn chyby jobu) jako na doméně zadání; česká doména beze změny."""
+    token = set_request_site(site)
+    try:
+        yield
+    finally:
+        reset_request_site(token)
 
 
 def _intl_key(key: str, lang: str) -> str:

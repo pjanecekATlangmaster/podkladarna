@@ -165,7 +165,7 @@ def test_page_texts_rendered_server_side_only(client, monkeypatch):
     assert "Spustit generování" in cs.text
 
 
-def test_mail_english_and_czech_unchanged():
+def test_mail_english_and_czech_unchanged(monkeypatch):
     from app import settings
     from app.mail import build_private_failed_email, build_private_ready_email, sender_name
 
@@ -187,6 +187,18 @@ def test_mail_english_and_czech_unchanged():
         job_name="Les", error="boom", operator_details="log", lang="en"
     )
     assert "Reason: boom" in failed and "==== Pro provozovatele" in failed
+    # Česky zadaný job z mezinárodní domény: předmět, podpis i odesílatel Omapic (Petr 2026-11-19).
+    monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,example.eu=en:paid:*")
+    with i18n.site_context(i18n.site_of_options({"site": "example.eu"})):
+        subject_intl, body_intl = build_private_ready_email(job_name="Les", download_url="https://x/d/t", retention_hours=48)
+        _, failed_intl = build_private_failed_email(job_name="Les", error="boom")
+        assert subject_intl == "Omapic: mapa „Les“ je připravená ke stažení" and sender_name("cs") == "Omapic"
+    assert body_intl.endswith("— Omapic\n") and failed_intl.endswith("— Omapic\n")
+    assert "Podkladárn" not in body_intl + failed_intl
+    with i18n.site_context(i18n.site_of_options({"site": "podkladarna.kibos.link"})):
+        free_subject, free_body = build_private_ready_email(job_name="Les", download_url="https://x/d/t", retention_hours=48)
+        assert free_subject == "Podkladárna: mapa „Les“ je připravená ke stažení" and sender_name("cs") is None
+        assert free_body.endswith(f"— {settings.SMTP_FROM_NAME or 'Podkladárna'}\n")
 
 
 def test_job_links_use_site_of_job(monkeypatch):
