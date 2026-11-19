@@ -36,6 +36,7 @@ SK:
   boundary: countries/sk.geojson
   view: [47.73, 16.83, 49.62, 22.57]
   elevation: sk_ugkk_local  # DMR 5.0 + DMP 1.0 1 m z ručně stažených ZIPů ÚGKK v DATA_ROOT/cache/static/sk_ugkk/{dtm,dsm} (Petr 2026-11-16)
+  technical_map: sk_zbgis   # budovy a šířky silnic z INSPIRE ZBGIS (celostátní GPKG v běžné cache cache/sk_zbgis, obnova po 30 dnech)
   cz_sources: false
   citation: "Base map: Omapic · ÚGKK SR · OSM, [year]"
   attribution:

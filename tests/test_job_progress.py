@@ -175,7 +175,7 @@ def test_plan_pipeline_steps_reuse_includes_copy_and_prepare():
 @pytest.mark.parametrize(
     ("tech", "expected_step", "absent"),
     [("nl_bgt", BGT_STEP, DTM_STEP), ("ch_av", "data AV", DTM_STEP), ("at_fmzk", "data FMZK", DTM_STEP), ("de_sb", "data Straßenbefahrung", DTM_STEP),
-     ("fr_pdv", "data Plan de voirie", DTM_STEP), ("ee_etak", "data ETAK", DTM_STEP),
+     ("fr_pdv", "data Plan de voirie", DTM_STEP), ("ee_etak", "data ETAK", DTM_STEP), ("sk_zbgis", "data ZBGIS", DTM_STEP),
      ("be_grb", "data GRB", DTM_STEP), ("none", None, DTM_STEP)],
 )
 def test_plan_steps_abroad_without_czech_sources(tech, expected_step, absent):

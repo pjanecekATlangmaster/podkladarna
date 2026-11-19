@@ -1368,6 +1368,7 @@ const BUILD_STEP_LABELS = {
   "data Straßenbefahrung": t("web.js.step.sb"),
   "data Plan de voirie": t("web.js.step.pdv"),
   "data ETAK": t("web.js.step.etak"),
+  "data ZBGIS": t("web.js.step.zbgis"),
   "data GRB": t("web.js.step.grb"),
   "data YLRE": t("web.js.step.ylre"),
   "polohopis a vegetace": t("web.js.step.map_planimetry"),
@@ -1417,6 +1418,7 @@ const BACKGROUND_KEYS = {
   "Straßenbefahrung a ALKIS (GDI Berlin)": "de_sb",
   "Plan de voirie (Ville de Paris)": "fr_pdv",
   "Data ETAK (Maa- ja Ruumiamet)": "ee_etak",
+  "Data ZBGIS (ÚGKK SR)": "sk_zbgis",
   "Data GRB (Digitaal Vlaanderen)": "be_grb",
   "Data YLRE (Helsingin kaupunki)": "fi_hel",
 };
@@ -1462,6 +1464,7 @@ const BUILD_SOURCE_LABELS = {
   de_sb: t("web.js.source.de_sb"),
   fr_pdv: t("web.js.source.fr_pdv"),
   ee_etak: t("web.js.source.ee_etak"),
+  sk_zbgis: t("web.js.source.sk_zbgis"),
   be_grb: t("web.js.source.be_grb"),
   fi_hel: t("web.js.source.fi_hel"),
   ruian: t("web.js.source.ruian"),
@@ -1483,7 +1486,7 @@ const NUTS_KRAJ = {
 /** Řádek o přípravě DTM na pozadí (DTM se připravuje souběžně; v plánu je krok „DTM kraje“ = čekání na ni před sestavením map). */
 function dtmBackgroundText(bg) {
   if (!bg) return "";
-  const foreign = { nl_bgt: "bgt", ch_av: "av", at_fmzk: "fmzk", de_sb: "sb", fr_pdv: "pdv", ee_etak: "etak", be_grb: "grb", fi_hel: "ylre" }[bg.source];  // obdoba DTM v cizině (app/pipeline/technical_maps.py)
+  const foreign = { nl_bgt: "bgt", ch_av: "av", at_fmzk: "fmzk", de_sb: "sb", fr_pdv: "pdv", ee_etak: "etak", sk_zbgis: "zbgis", be_grb: "grb", fi_hel: "ylre" }[bg.source];  // obdoba DTM v cizině (app/pipeline/technical_maps.py)
   if (foreign) {
     if (bg.failed) return t(`web.js.${foreign}.failed`);
     return t(`web.js.${foreign}.text`, { n: bg.objects || 0, dur: formatDuration(bg.seconds) || "0 s" });
