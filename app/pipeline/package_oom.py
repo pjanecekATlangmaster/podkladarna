@@ -515,7 +515,15 @@ def oom_metadata(
     meta["data_sources"] = list(attribution_lines(options))
     # Jazyk textů ZIPu = jazyk stránky zadání (mezinárodní verze anglicky).
     meta["lang"] = zip_texts_en.zip_lang(options)
-    if meta["lang"] == "en":
+    # Zadání z mezinárodní domény (``SITES`` s jinými zeměmi než Česko): texty ZIPu bez GitHubu a s adresou
+    # webu, i česky (Petr 2026-11-19); česká doména a starší joby beze změny.
+    from app import i18n
+
+    site = i18n.sites().get(str(options.get("site") or "").strip().lower())
+    if site is not None and tuple(site.countries) != ("CZ",):
+        meta["intl_site"] = True
+        meta["site_url"] = site.base_url.rstrip("/")
+    if meta["lang"] == "en" and not meta.get("site_url"):
         # Adresa webu do ABOUT_OMAPIC.txt, ať se ví, odkud ZIP je (Petr 2026-11-19).
         meta["site_url"] = zip_texts_en.project_url(options)
     if meta["country"] != "CZ":
@@ -545,6 +553,11 @@ def _is_cz(meta: dict | None) -> bool:
     return ((meta or {}).get("country") or "CZ") == "CZ"
 
 
+def _github_ok(meta: dict | None) -> bool:
+    """Odkaz na GitHub Issues jen u české Podkladárny: job v Česku zadaný mimo mezinárodní doménu."""
+    return _is_cz(meta) and not (meta or {}).get("intl_site")
+
+
 def _country_citation(meta: dict | None) -> dict:
     """Citace pro CO_JE_PODKLADARNA.txt z metadat jobu (starší metadata bez země = Česko)."""
     meta = meta or {}
@@ -553,7 +566,9 @@ def _country_citation(meta: dict | None) -> dict:
         out["citation"] = meta["citation_short"]
     if meta.get("data_sources"):
         out["attribution"] = tuple(meta["data_sources"])
-    out["github"] = _is_cz(meta)
+    out["github"] = _github_ok(meta)
+    if meta.get("intl_site") and meta.get("site_url"):
+        out["web_url"] = meta["site_url"]
     return out
 
 
@@ -776,7 +791,7 @@ def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
         f"{citation}\n"
         f"{relief_line}"
         "Podkladárna je experiment, proto ocením zpětnou vazbu a připomínky"
-        + (":\nhttps://github.com/pjanecekATlangmaster/podkladarna/issues\n" if _is_cz(meta) else ".\n")
+        + (":\nhttps://github.com/pjanecekATlangmaster/podkladarna/issues\n" if _github_ok(meta) else ".\n")
     )
 
 
