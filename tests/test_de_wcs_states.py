@@ -182,3 +182,69 @@ def test_sn_provider_uses_cached_tiles(tmp_path, monkeypatch):
 def test_wcs_axes_from_state():
     urls = er.de_wcs_tile_urls("de_he", "dtm", (480000.0, 5560000.0, 481000.0, 5561000.0))
     assert len(urls) == 1 and "SUBSET=E(479980,481020)" in urls[0] and "SUBSET=N(" in urls[0]
+
+
+def test_zip_range_index_and_member(tmp_path, monkeypatch):
+    import io
+    import re
+    import zipfile
+
+    import random
+
+    tile = b"II*\x00" + random.Random(1).randbytes(3000) + b"x" * 2000  # málo stlačitelné → dlouhý člen
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("DGM1_tif_NK/dgm1_32_350_5475_1_SL_2025.tif", tile)
+        zf.writestr("DGM1_tif_NK/readme.txt", b"-")
+    raw = buf.getvalue()
+    monkeypatch.setattr(er, "_http_range", lambda url, start, end: raw[start:end + 1])
+    with zipfile.ZipFile(er._RangeFile("u", len(raw))) as zf:
+        index = er.parse_zip_tile_names(zf.infolist(), re.compile(r"dgm1_\d{2}_(\d+)_(\d+)_1_[^/]*\.tif$"))
+    assert list(index) == ["350_5475"]
+    assert er.zip_member_bytes("u", *index["350_5475"]) == tile
+    monkeypatch.setattr(er, "ZIP_RANGE_MAX_MEMBER_BYTES", 1000)  # deflate rozbalený nad limit
+    with pytest.raises(RuntimeError, match="přes limit"):
+        er.zip_member_bytes("u", *index["350_5475"])
+    monkeypatch.undo()
+    # zkrácená odpověď (spojení skončilo dřív) se nesmí uložit jako dlaždice
+    monkeypatch.setattr(er, "_http_range", lambda url, start, end: raw[start:min(end + 1, start + 75)])
+    with pytest.raises(RuntimeError, match="zkrácen|neúplný|CRC"):
+        er.zip_member_bytes("u", *index["350_5475"])
+    entry = list(index["350_5475"])
+    entry[3] ^= 1  # jiný CRC32
+    monkeypatch.setattr(er, "_http_range", lambda url, start, end: raw[start:end + 1])
+    with pytest.raises(RuntimeError, match="CRC"):
+        er.zip_member_bytes("u", *entry)
+
+
+@pytest.mark.parametrize("status, content_range, body, outcome", [
+    (206, "bytes 10-19/100", b"x" * 10, b"x" * 10),        # celý rozsah
+    (206, "bytes 10-14/15", b"x" * 5, b"x" * 5),           # za koncem souboru zkráceno podle Content-Range
+    (206, "bytes 10-19/100", b"x" * 4, OSError),           # spojení skončilo dřív → opakování, pak chyba
+    (200, None, b"x" * 100, RuntimeError),                 # server rozsahy neumí → bez opakování
+])
+def test_http_range_checks_length(monkeypatch, status, content_range, body, outcome):
+    import io
+    import urllib.request
+
+    calls = []
+
+    class Resp(io.BytesIO):
+        def __init__(self):
+            super().__init__(body)
+            self.status, self.headers = status, {"Content-Range": content_range} if content_range else {}
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: calls.append(1) or Resp())
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    if isinstance(outcome, bytes):
+        assert er._http_range("https://example.invalid/z.zip", 10, 19) == outcome
+    else:
+        with pytest.raises(outcome):
+            er._http_range("https://example.invalid/z.zip", 10, 19)
+        assert len(calls) == (er.ZIP_RANGE_RETRIES if outcome is OSError else 1)
+
+
+def test_zip_range_tiles_and_probe():
+    assert er.zip_range_tiles((349990.0, 5474990.0, 351020.0, 5475020.0)) == [
+        (349, 5474), (349, 5475), (350, 5474), (350, 5475), (351, 5474), (351, 5475)]
+    assert elevation_probe("de_sl").endswith("/DGM1_tif_NK_EPSG-25832_Entstehung-2025.zip")
