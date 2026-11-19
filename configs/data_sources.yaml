@@ -1488,8 +1488,8 @@ sources:
   checked: 'Claude 2026-11-19: licence MML CC BY 4.0 (stránka opendata-licence-cc40), MapAnt.fi kreslí z téže databáze; podmínky
     zrcadla Kapsi jako u fi_kapsi nedoloženy'
   issues:
-  - Neoficiální zrcadlo (spolek Kapsi), bez záruky dostupnosti; ZIP po polovinách listů 1 : 25 000 (~7–12 MB).
-  - Skalní plochy (kallioalue) jsou často pod lesem; kreslí se jen otevřené (podíl stromů z CHM do 30 %).
+  - 'Neoficiální zrcadlo (spolek Kapsi), bez záruky dostupnosti; ZIP po polovinách listů 1 : 25 000 (~7–12 MB).'
+  - Skalní plochy (kallioalue) jsou často pod lesem; kreslí se jen jejich část bez stromů (buňky s CHM pod 3 m).
 
 # ----------------------------------------------------------------------------------------------- Lucembursko
 - id: lu_act_lidar

@@ -61,8 +61,13 @@ def split_area(
     max_vertices: int,
     *,
     max_area: float | None = None,
+    overlap_m: float = 0.0,
 ) -> list[tuple[Ring, list[Ring]]]:
-    """Plochu nad limity rozdělí na díly (``[(obrys, [díry])]``); jinak vrátí beze změny."""
+    """Plochu nad limity rozdělí na díly (``[(obrys, [díry])]``); jinak vrátí beze změny.
+
+    ``overlap_m``: díly se přes řez o tolik překryjí (uvnitř původní plochy). Dva objekty stejné barvy, které se
+    jen dotýkají, Mapper kreslí se světlým švem; celek tak vypadá jako jedna plocha (Petr 2026-11-19, Chvaletice).
+    """
     n = len(ring) + sum(len(h) for h in holes)
     if n <= max_vertices and (max_area is None or _ring_area(ring) <= max_area):
         return [(ring, holes)]
@@ -75,9 +80,23 @@ def split_area(
     elif not _exceeds(poly, max_vertices, max_area):
         return [(ring, holes)]
     pieces = _split_all(poly, max_vertices, max_area)
+    if overlap_m > 0 and len(pieces) > 1:
+        pieces = [_overlapped(p, poly, overlap_m) for p in pieces]
     return [
         (list(p.exterior.coords), [list(i.coords) for i in p.interiors]) for p in pieces
     ]
+
+
+def _overlapped(piece, whole, overlap_m: float):
+    """Díl rozšířený o ``overlap_m`` přes řezy, oříznutý původní plochou.
+
+    Přesah do sousedního výběžku plochy (odděleného kusu) se zahodí, zůstane kus, který obsahuje díl.
+    """
+    grown = polygons_of(piece.union(piece.buffer(overlap_m, join_style=2).intersection(whole)))
+    if not grown:
+        return piece
+    best = max(grown, key=lambda g: g.intersection(piece).area)
+    return best if best.intersection(piece).area >= piece.area * (1 - 1e-9) else piece
 
 
 def _ring_area(ring: Ring) -> float:
