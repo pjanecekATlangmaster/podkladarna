@@ -1,5 +1,6 @@
 """Německé spolkové země s výškami z WCS 2.0.1 (zahraniční build): Sasko-Anhaltsko, Meklenbursko-Přední Pomořansko,
-Dolní Sasko, Braniborsko a Porýní-Falc (dlaždice 1 km podle indexu Metalink místo WCS).
+Dolní Sasko, Braniborsko, Porýní-Falc (dlaždice 1 km podle indexu Metalink místo WCS) a Bádensko-Württembersko
+(ZIP po 2 km: terén jako text XYZ, výška porostu nDOM jako GeoTIFF, převod a cache na serveru).
 
 Jedna tabulka ``DE_WCS_STATES`` (klíč = ``elevation`` v ``configs/countries.yaml``): terén DGM1 a povrch DOM1 po 1 m
 z WCS zemského geodetického úřadu, bez klíče, v nativním UTM země; šablony WMS (ortofoto, topografická mapa).
@@ -25,6 +26,7 @@ class DeWcsState:
     probe_box: tuple[float, float, float, float]  # malý výřez pro sondu stavu (16 × 16 m)
     wms: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = ()  # šablony jako ``online_templates``
     tiles: str = "wcs"           # wcs = GetCoverage po 2 km | meta4 = GeoTIFF po 1 km podle indexu Metalink
+                                 # | bw_zip = ZIP po 2 km (``dtm`` XYZ, ``dsm`` = nDOM, výška nad terénem), cache
 
 
 ST_WCS = "https://www.geodatenportal.sachsen-anhalt.de"
@@ -39,6 +41,8 @@ NI_WMS = "https://opendata.lgln.niedersachsen.de/doorman/noauth"
 BB_OWS = "https://isk.geobasis-bb.de"
 RP_DATA = "https://geobasis-rlp.de/data"
 RP_WMS = "https://geo4.service24.rlp.de/wms"
+BW_DATA = "https://opengeodata.lgl-bw.de/data"
+BW_OWS = "https://owsproxy.lgl-bw.de/owsproxy/ows"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -122,6 +126,22 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         ),
         tiles="meta4",
     ),
+    # Bádensko-Württembersko (LGL): dl-de/by-2.0, „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ (licence v ZIPu).
+    # ZIP po 2 × 2 km (E liché, N sudé, EPSG:25832): DGM1 (ALS) 4 × XYZ po 1 km (~13 MB), nDOM1 4 × GeoTIFF po 1 km
+    # z obrazového bDOM20 (léto, ~9 MB) → green: photo. Převedené dlaždice se drží v cache (``elevation_raster._bw_tile``).
+    "de_bw": DeWcsState(
+        code="DE-BW",
+        name="Bádensko-Württembersko",
+        crs="EPSG:25832",
+        dtm=(f"{BW_DATA}/dgm", "dgm1"),
+        dsm=(f"{BW_DATA}/ndom1", "ndom1"),
+        probe_box=(489000, 5402000, 489016, 5402016),  # Schwarzwald u Freiburgu
+        wms=(
+            ("de_bw_dop", "dop_bw.xml", "DOP20 Baden-Württemberg (ortofoto)", f"{BW_OWS}/WMS_LGL-BW_ATKIS_DOP_20_C",
+             "IMAGES_DOP_20_RGB", "image/jpeg", False, 0.2),
+        ),
+        tiles="bw_zip",
+    ),
 }
 
 
@@ -142,14 +162,24 @@ def wcs_coverage_url(service: tuple[str, str], box: tuple[float, float, float, f
     )
 
 
+def bw_zip_url(service: tuple[str, str], east_km: int, north_km: int) -> str:
+    """ZIP dlaždice 2 km LGL BW (levý dolní roh v km, E liché, N sudé)."""
+    base, prefix = service
+    return f"{base}/{prefix}_32_{east_km}_{north_km}_2_bw.zip"
+
+
 def elevation_probe(key: str) -> str:
-    """Sonda výšek: malý GetCoverage, u ``meta4`` index dlaždic (jen HEAD, ``elevation_probe_method``)."""
+    """Sonda výšek: malý GetCoverage, u souborových zdrojů index nebo ZIP dlaždice (jen HEAD)."""
     st = DE_WCS_STATES[key]
-    return st.dtm[0] if st.tiles == "meta4" else wcs_coverage_url(st.dtm, st.probe_box)
+    if st.tiles == "meta4":
+        return st.dtm[0]
+    if st.tiles == "bw_zip":
+        return bw_zip_url(st.dtm, int(st.probe_box[0] // 1000), int(st.probe_box[1] // 1000))
+    return wcs_coverage_url(st.dtm, st.probe_box)
 
 
 def elevation_probe_method(key: str) -> str:
-    return "HEAD" if DE_WCS_STATES[key].tiles == "meta4" else "GET"
+    return "GET" if DE_WCS_STATES[key].tiles == "wcs" else "HEAD"
 
 
 def ortho_probe(key: str) -> str:

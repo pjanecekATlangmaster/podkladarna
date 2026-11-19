@@ -682,6 +682,7 @@ ONLINE_LABELS_EN = {
     "de_bb_dop": "DOP20 Brandenburg (orthophoto)",
     "de_rp_dop": "DOP20 Rheinland-Pfalz (orthophoto)",
     "de_rp_dtk": "DTK25 Rheinland-Pfalz (topographic map 1 : 25 000)",
+    "de_bw_dop": "DOP20 Baden-Württemberg (orthophoto)",
 }
 
 

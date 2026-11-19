@@ -608,7 +608,8 @@ def de_nw_tile_urls(kind: str, bounds_utm: tuple[float, float, float, float]) ->
     return [de_nw_coverage_url(kind, b) for b in boxes]
 
 
-def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path, *, log=None) -> Path:
+def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path, *, log=None,
+                   label: str = "Severní Porýní-Vestfálsko") -> Path:
     """DGM + výška porostu = min(DOM − DGM, nDOM) (obojí aspoň 0) v mřížce dlaždice DGM; jen jeden zdroj = ten."""
     from osgeo import gdal
 
@@ -627,7 +628,7 @@ def _de_nw_surface(dtm: Path, ndom: Path | None, dsm: Path | None, dest: Path, *
             ds.GetGeoTransform(), t_ds.GetGeoTransform(), atol=1e-3
         ):
             # jiná mřížka než DGM: tento povrch vynechat, druhý stačí (review PR 350)
-            log_issue(log, f"Severní Porýní-Vestfálsko: {path.name} má jinou mřížku než DGM "
+            log_issue(log, f"{label}: {path.name} má jinou mřížku než DGM "
                            f"({ds.RasterXSize}×{ds.RasterYSize} proti {t_ds.RasterXSize}×{t_ds.RasterYSize}), vynechán")
             return None
         a = ds.GetRasterBand(1).ReadAsArray().astype("float32")
@@ -834,11 +835,168 @@ def de_meta4_provider(key: str) -> Provider:
     return provider
 
 
+# Bádensko-Württembersko: ZIP po 2 km (E liché, N sudé), uvnitř 4 dlaždice po 1 km. Terén je text XYZ (středy
+# pixelů na .5, řádky od severu, 29 MB na km²) → GeoTIFF; nDOM je GeoTIFF výšky nad terénem. Obojí v cache
+# ``de_bw/<E>_<N>`` (jako dlaždice Berlína), povrch = DGM + nDOM se skládá v jobu (``_de_nw_surface``).
+BW_TILE_KM = 2
+BW_MAX_ZIP_BYTES = 100_000_000  # dlaždice má 9–14 MB
+BW_MAX_MEMBER_BYTES = 200_000_000  # rozbalený soubor (XYZ 1 km ~29 MB, TIF ~3 MB); větší = podezřelý ZIP
+
+
+def bw_tiles(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
+    """ZIP dlaždice 2 km (E liché, N sudé; levý dolní roh v km), které zasahují do okna (EPSG:25832)."""
+    import math
+
+    e0 = math.floor((window[0] / 1000 - 1) / BW_TILE_KM) * BW_TILE_KM + 1
+    n0 = math.floor(window[1] / 1000 / BW_TILE_KM) * BW_TILE_KM
+    return [(e, n) for e in range(e0, math.ceil(window[2] / 1000), BW_TILE_KM)
+            for n in range(n0, math.ceil(window[3] / 1000), BW_TILE_KM)]
+
+
+def bw_tile_dir(east_km: int, north_km: int) -> Path:
+    return settings.CACHE_DIR / "de_bw" / f"{east_km}_{north_km}"
+
+
+def xyz_grid(text: bytes) -> tuple[np.ndarray, float, float]:
+    """Úplná mřížka 1 m z XYZ (středy pixelů, řádky od severu) → (pole, levý okraj, horní okraj)."""
+    vals = np.array(text.split(), dtype="float64").reshape(-1, 3)
+    xs, ys = np.unique(vals[:, 0]), np.unique(vals[:, 1])
+    if len(xs) * len(ys) != len(vals) or not (np.allclose(np.diff(xs), 1.0) and np.allclose(np.diff(ys), 1.0)):
+        raise RuntimeError("XYZ není úplná mřížka 1 m")
+    grid = np.full((len(ys), len(xs)), NODATA, dtype="float32")
+    col = np.rint(vals[:, 0] - xs[0]).astype(int)
+    row = np.rint(ys[-1] - vals[:, 1]).astype(int)
+    grid[row, col] = vals[:, 2]
+    return grid, float(xs[0] - 0.5), float(ys[-1] + 0.5)
+
+
+def _write_tif(dest: Path, grid: np.ndarray, left: float, top: float, crs: str) -> None:
+    from osgeo import gdal, osr
+
+    gdal.UseExceptions()
+    ds = gdal.GetDriverByName("GTiff").Create(str(dest), grid.shape[1], grid.shape[0], 1, gdal.GDT_Float32,
+                                              ["COMPRESS=DEFLATE", "TILED=YES"])
+    ds.SetGeoTransform((left, 1.0, 0.0, top, 0.0, -1.0))
+    srs = osr.SpatialReference()
+    srs.SetFromUserInput(crs)
+    ds.SetProjection(srs.ExportToWkt())
+    band = ds.GetRasterBand(1)
+    band.SetNoDataValue(NODATA)
+    band.WriteArray(grid)
+    ds = None
+
+
+def _bw_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path | None:
+    """Složka s ``dtm_<E>_<N>.tif`` a ``ndom_<E>_<N>.tif`` (po 1 km) z cache, jinak stáhne a převede; None mimo zemi."""
+    import tempfile
+    import urllib.error
+    import urllib.request
+    import zipfile
+
+    from app.download_cache import touch_last_used
+    from app.pipeline.fetch_openzu import USER_AGENT
+    from app.pipeline.reference_de_states import DE_WCS_STATES, bw_zip_url
+
+    st = DE_WCS_STATES[key]
+    folder = bw_tile_dir(east_km, north_km)
+    done = folder / ".complete"
+    if done.is_file():
+        touch_last_used(folder)
+        return folder
+    folder.mkdir(parents=True, exist_ok=True)
+    for kind, service in (("dtm", st.dtm), ("ndom", st.dsm)):
+        fd, zname = tempfile.mkstemp(prefix=f".{kind}-", suffix=".zip", dir=folder)
+        os.close(fd)
+        zpath = Path(zname)
+        try:
+            req = urllib.request.Request(bw_zip_url(service, east_km, north_km), headers={"User-Agent": USER_AGENT})
+            try:
+                with urllib.request.urlopen(req, timeout=300) as resp, zpath.open("wb") as fh:
+                    size = 0
+                    while chunk := resp.read(1 << 20):
+                        size += len(chunk)
+                        if size > BW_MAX_ZIP_BYTES:
+                            raise RuntimeError(f"{st.name} {kind} {east_km}_{north_km}: ZIP přes limit")
+                        fh.write(chunk)
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    if kind == "dtm":
+                        return None
+                    log_issue(log, f"{st.name}: nDOM {east_km}_{north_km} chybí, výška porostu tam chybí")
+                    continue
+                raise
+            with zipfile.ZipFile(zpath) as zf:
+                for name in zf.namelist():
+                    m = re.search(r"_32_(\d+)_(\d+)_1_bw[^/]*\.(xyz|tif)$", name)
+                    if not m:
+                        continue
+                    if zf.getinfo(name).file_size > BW_MAX_MEMBER_BYTES:
+                        raise RuntimeError(f"{st.name} {kind} {east_km}_{north_km}: soubor v ZIPu přes limit")
+                    dest = folder / f"{kind}_{m.group(1)}_{m.group(2)}.tif"
+                    tmp = dest.with_name(f".{dest.name}.{os.getpid()}")
+                    if m.group(3) == "xyz":
+                        grid, left, top = xyz_grid(zf.read(name))
+                        _write_tif(tmp, grid, left, top, st.crs)
+                    else:
+                        tmp.write_bytes(zf.read(name))
+                    tmp.replace(dest)
+        finally:
+            zpath.unlink(missing_ok=True)
+    done.touch()
+    touch_last_used(folder)
+    if log:
+        log(f"  {st.name} {east_km}_{north_km}: dlaždice převedeny do cache")
+    return folder
+
+
+def de_bw_provider(key: str) -> Provider:
+    """Provider výšek z ZIP dlaždic LGL BW: DGM1 (XYZ → GeoTIFF) + nDOM1, povrch = DGM + nDOM po 1 km."""
+
+    def provider(bounds, out_dir: Path, log=None) -> SourceRasters:
+        from concurrent.futures import ThreadPoolExecutor
+
+        from app.pipeline.reference_de_states import DE_WCS_STATES
+
+        st = DE_WCS_STATES[key]
+        window = _buffered(bounds, st.crs, DE_WCS_BUFFER_M)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix=key) as ex:
+            folders = [f for f in ex.map(lambda t: _bw_tile(key, t[0], t[1], log=log), bw_tiles(window)) if f]
+        dtms: list[Path] = []
+        surfs: list[Path] = []
+        for folder in folders:
+            for dtm in sorted(folder.glob("dtm_*.tif")):
+                e, n = (int(v) for v in dtm.stem.split("_")[1:3])
+                if e * 1000 >= window[2] or (e + 1) * 1000 <= window[0] or n * 1000 >= window[3] or (n + 1) * 1000 <= window[1]:
+                    continue
+                dtms.append(dtm)
+                ndom = folder / f"ndom_{e}_{n}.tif"
+                if ndom.is_file():
+                    try:
+                        surfs.append(_de_nw_surface(dtm, ndom, None, out_dir / f"{key}_surface_{e}_{n}.tif", log=log,
+                                                    label=st.name))
+                    except RuntimeError as exc:
+                        log_issue(log, f"{st.name}: povrch {e}_{n} nejde složit ({str(exc)[:80]})")
+        if not dtms:
+            raise ElevationUnavailable(f"výřez je mimo dlaždice DGM1 ({st.name})")
+
+        def vrt(name: str, tiles: list[Path]) -> Path:
+            path = out_dir / f"{key}_{name}.vrt"
+            run_cmd([_gdal_tool("gdalbuildvrt"), "-a_srs", st.crs, str(path), *map(str, tiles)], log=log)
+            return path
+
+        if len(surfs) < len(dtms):
+            log_issue(log, f"{st.name}: výška porostu chybí na {len(dtms) - len(surfs)} z {len(dtms)} km²")
+        return SourceRasters(vrt("dtm", dtms), vrt("dsm", surfs) if surfs else None)
+
+    return provider
+
+
 def _register_de_wcs() -> None:
     from app.pipeline.reference_de_states import DE_WCS_STATES
 
+    kinds = {"meta4": de_meta4_provider, "bw_zip": de_bw_provider}
     for key, st in DE_WCS_STATES.items():
-        PROVIDERS[key] = de_meta4_provider(key) if st.tiles == "meta4" else de_wcs_provider(key)
+        PROVIDERS[key] = kinds.get(st.tiles, de_wcs_provider)(key)
 
 
 _register_de_wcs()
@@ -1951,6 +2109,7 @@ SOURCE_LABELS = {
     "de_ni": "DGM1 a DOM1, LGLN Niedersachsen",
     "de_bb": "DGM1 a bDOM1, LGB Brandenburg",
     "de_rp": "DGM1 a DOM1, LVermGeo Rheinland-Pfalz",
+    "de_bw": "DGM1 a nDOM1, LGL Baden-Württemberg",
 }
 
 
