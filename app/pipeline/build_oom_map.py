@@ -65,11 +65,15 @@ def _notes(lang: str, safe_name: str, c101: str, c102: str, *, sprint: bool = Fa
             f"{html.escape(_citation_note(lang))}"
             f"{_data_notes(lang, sprint)}"
         )
+    from app.pipeline.country_profile import process_cs_intl_url
+    from app.pipeline.zip_texts_en import omapic_cs
+
+    cs_intl_url = process_cs_intl_url()  # česky na Omapicu pod značkou Omapic, jinak beze změny
     return (
-        f"Podkladárna – {safe_name}\n"
+        f"{omapic_cs('Podkladárna', cs_intl_url)} – {safe_name}\n"
         f"Výchozí pohled: jen vektorová mapa. Vrstevnice {c101}/{c102} jsou zamčené.\n"
         "PNG podklady (OSM, ortofoto, …) zapni v Šablony → Nastavení šablon.\n"
-        f"{html.escape(_citation_note())}"
+        f"{html.escape(omapic_cs(_citation_note(), cs_intl_url))}"
         f"{_data_notes(lang, sprint)}"
     )
 

@@ -81,11 +81,16 @@ def test_area_probe_carries_notes():
 
 def test_omap_notes(monkeypatch):
     from app.pipeline import build_oom_map
-    from app.pipeline.country_profile import JOB_COUNTRY_ENV
+    from app.pipeline.country_profile import JOB_COUNTRY_ENV, JOB_CS_INTL_ENV
 
     monkeypatch.setenv(JOB_COUNTRY_ENV, "CZ")
     cz = build_oom_map._notes("cs", "x", "101", "102")
     assert cz.endswith("[rok]") or "Mapa z tohoto podkladu musí uvést" in cz.splitlines()[-1]
+    assert cz.startswith("Podkladárna – x")
+    monkeypatch.setenv(JOB_CS_INTL_ENV, "https://omapic.example")  # česky na Omapicu (Petr 2026-11-19)
+    intl = build_oom_map._notes("cs", "x", "101", "102")
+    assert intl.startswith("Omapic – x") and "Podklad: Omapic (omapic.example)" in intl and "Podkladárn" not in intl
+    monkeypatch.delenv(JOB_CS_INTL_ENV)
     monkeypatch.setenv(JOB_COUNTRY_ENV, "FI")
     fi = build_oom_map._notes("en", "x", "101", "102", sprint=True)
     assert fi.splitlines()[-1].startswith("Terrain has only 2 m resolution")

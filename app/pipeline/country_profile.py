@@ -64,16 +64,24 @@ JOB_COUNTRY_ENV = "PODKLADARNA_JOB_COUNTRY"
 
 # Jazyk textů výstupu běžícího jobu (.omap, ZIP): cs, nebo en u zadání z jiné než české stránky.
 JOB_LANG_ENV = "PODKLADARNA_JOB_LANG"
+# Adresa Omapicu u česky zadaného jobu z mezinárodní domény (české texty .omap pod značkou Omapic), jinak prázdné.
+JOB_CS_INTL_ENV = "PODKLADARNA_JOB_CS_INTL_URL"
 
 
 def set_process_country(options: dict | None) -> str:
     """Země (a jazyk výstupu) běžícího jobu do proměnných procesu."""
-    from app.pipeline.zip_texts_en import zip_lang
+    from app.pipeline.zip_texts_en import cs_intl_site_url, zip_lang
 
     code = job_country_code(options)
     os.environ[JOB_COUNTRY_ENV] = code
     os.environ[JOB_LANG_ENV] = zip_lang(options)
+    os.environ[JOB_CS_INTL_ENV] = cs_intl_site_url(options)
     return code
+
+
+def process_cs_intl_url() -> str:
+    """Adresa Omapicu, je-li běžící job česky z mezinárodní domény (jinak prázdné)."""
+    return os.environ.get(JOB_CS_INTL_ENV, "") if process_lang() == "cs" else ""
 
 
 def process_lang() -> str:

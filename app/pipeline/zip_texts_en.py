@@ -30,6 +30,48 @@ def zip_lang(meta_or_options: dict | None) -> str:
     return "cs" if lang == "cs" else "en"
 
 
+# Česky zadaný job na mezinárodní doméně (Omapic, Petr 2026-11-19): české texty ZIPu pod značkou Omapic.
+ABOUT_NAME_CS_INTL = "CO_JE_OMAPIC.txt"
+_OMAPIC_CS = (
+    ("CO_JE_PODKLADARNA.txt", ABOUT_NAME_CS_INTL),
+    ("kdy je Podkladárna stáhla", "kdy je Omapic stáhl"),
+    ("Podkladárny", "Omapicu"),
+    ("Podkladárnu", "Omapic"),
+    ("Podkladárně", "Omapicu"),
+    ("Podkladárnou", "Omapicem"),
+    ("Podkladárna", "Omapic"),
+)
+
+
+def intl_site_url(meta_or_options: dict | None) -> str:
+    """Adresa mezinárodní domény zadání (``SITES`` s jinými zeměmi než Česko), jinak prázdné (česká doména, API)."""
+    from app import i18n
+
+    data = meta_or_options or {}
+    if data.get("intl_site") and data.get("site_url"):
+        return str(data["site_url"]).rstrip("/")
+    site = i18n.sites().get(str(data.get("site") or "").strip().lower())
+    return site.base_url.rstrip("/") if site is not None and i18n.is_intl_site(site) else ""
+
+
+def cs_intl_site_url(meta_or_options: dict | None) -> str:
+    """Adresa Omapicu u česky zadaného jobu z mezinárodní domény; jinak prázdné = české texty beze změny."""
+    return intl_site_url(meta_or_options) if zip_lang(meta_or_options) == "cs" else ""
+
+
+def omapic_cs(text: str, site_url: str = "") -> str:
+    """Český text ZIPu pod značkou Omapic (název, citace s adresou webu); s prázdnou adresou beze změny."""
+    if not site_url:
+        return text
+    for old, new in _OMAPIC_CS:
+        text = text.replace(old, new)
+    host = re.sub(r"^https?://", "", site_url).rstrip("/")
+    head = "Podklad: " + BRAND_EN
+    if host and head + " (" not in text:
+        text = text.replace(head + " ·", f"{head} ({host}) ·")
+    return text
+
+
 def citation_en(short: str) -> str:
     """Česká citace („Podklad: Podkladárna · …, [rok]“) v anglickém textu jako „Base map: Omapic · …, [year]“."""
     text = str(short or "")
@@ -129,6 +171,79 @@ or in its legend that it used Omapic: “{citation}”.
 Loosely inspired by Karttapullautin.
 
 """
+
+
+ABOUT_CS_INTL_TEMPLATE = """Omapic – co je v tomto balíčku
+==============================
+{web_line}
+Omapic automaticky skládá podklady pro orientační mapy z leteckého laserového
+skenování (LiDAR: modely terénu a povrchu), z národní technické mapy, kde
+existuje, a z OpenStreetMap. Výsledkem je soubor .omap pro OpenOrienteering
+Mapper (OOM) a stejnojmenný soubor .ocd (OCD12) pro OCAD.
+Mapa je georeferencovaná v národním souřadnicovém systému výřezu včetně
+magnetické deklinace a grivace pro střed výřezu – podklady i vektory sedí
+na sebe bez lícování.
+Vegetace je výška a hustota porostu z LiDARu, ne průběžnost – jak rychle se
+lesem běží (podrost, viditelnost), z dat vyčíst nejde; vegetace se dokončuje
+v terénu.
+PNG náhled mapy je hlavně orientační.
+Úřední data ani OSM nejsou dokonalá a automatika je jen skládá dohromady –
+něco chybí, něco se překrývá. Tento balíček je pracovní podklad, ne přesné
+zaměření ani hotová mapa; v OOM a v terénu s ním ještě budete pracovat.
+
+Co je uvnitř
+------------
+- *-sprint/les/mtbo.omap … podle názvu projektu a měřítka, otevřete v OpenOrienteering Mapper (OOM)
+- *-sprint/les/mtbo.ocd  … totéž pro OCAD (OCD12 přes Mapper convert; lossy OK; .omap zůstává)
+- base/                … vrstevnice GDAL (contours_gdal.*), vegetace / srázy / kupky
+- uzitecne/            … vegetace / srázy 104 / skály: pouzite/ (ponechané) vs vyhozene/ (vyřazené filtry)
+- osm/                 … vrstvy OSM jako shapefily pro ruční skládání (cesty, budovy, skály podklad, …)
+{zabaged_line}- references/          … podklady (ortofoto, OSM, …) jako online šablony (.xml) nebo stažené rastry
+                         (jen pro kreslení, ne do tisku)
+- README_OOM.txt       … podrobný postup v OOM
+- metadata.json        … měřítko, preset, CRS, epochy LiDARu
+
+Co s tím
+--------
+1. Nainstalujte OOM (openorienteering.org).
+2. Rozbalte ZIP. Dvojklik na vybraný *-sprint.omap / *-les.omap / *-mtbo.omap (OOM)
+   nebo stejnojmenný *.ocd (OCAD), případně File → Open.
+3. Importujte DXF a SHP podle README_OOM.txt a použijte symboly sady v mapě
+   (ISOM 2017-2 / ISSprOM 2019-2, MTBO: ISMTBOM).
+4. Kreslete mapu. Referenční vrstvy po dokončení vypněte nebo smažte.
+
+OCAD: použijte *.ocd ze ZIPu (OCD12). Soubor .omap OCAD nativně neotevře –
+zůstává pro OOM; DXF/SHP/PNG+PGW fungují také.
+
+Autor a kontakt
+---------------
+Omapic vytváří Petr Janeček.{web_contact}
+Dotazy, připomínky i nápady na vylepšení jsou vítané:
+  e-mail:   janecek@datais.cz
+
+Právní
+------
+Kód Omapicu: MIT. Výstup jobu (.omap, .ocd, PNG, …): CC BY 4.0.
+Mapa z tohoto podkladu (i překreslená a doplněná) musí na mapě nebo
+v legendě uvést, že využila Omapic: „{citation}“.
+{attribution}
+Volně inspirováno Karttapullautinem.
+
+"""
+
+
+def about_txt_cs_intl(citation: str, attribution: tuple[str, ...], *, cz: bool, site_url: str) -> str:
+    """CO_JE_OMAPIC.txt: česká obdoba ABOUT_OMAPIC.txt pro česky zadaný job na mezinárodní doméně."""
+    zabaged_line = (
+        "- zabaged/             … polohopis ZABAGED (shapefily včetně budov + RUIAN_budovy.shp)\n" if cz else ""
+    )
+    return ABOUT_CS_INTL_TEMPLATE.format(
+        web_line=f"Vytvořeno v Omapicu: {site_url}\n" if site_url else "",
+        web_contact=f" Web: {site_url}" if site_url else "",
+        citation=omapic_cs(citation, site_url),
+        attribution="\n".join(attribution or ()),
+        zabaged_line=zabaged_line,
+    )
 
 
 def about_txt_en(citation: str, attribution: tuple[str, ...], *, cz: bool, site_url: str = "") -> str:

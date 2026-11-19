@@ -2488,6 +2488,7 @@ def build_georef_previews_zip(
     *,
     log=None,
     lang: str = "cs",
+    cs_intl_url: str = "",
 ) -> Path | None:
     """Malý ZIP jen s georeferencovanými náhledy (GeoTIFF; nouzově PNG+PGW); ``lang`` = jazyk README."""
     import zipfile
@@ -2523,6 +2524,10 @@ def build_georef_previews_zip(
             "Webový náhled „Otevřít PNG“ je zvlášť (Pillow, bez deklinace)\n"
             "a do materiálového OOM ZIPu se PNG náhledy nedávají.\n"
         )
+        if lang == "cs" and cs_intl_url:
+            from app.pipeline.zip_texts_en import omapic_cs
+
+            readme_cs = omapic_cs(readme_cs, cs_intl_url)  # česky na Omapicu pod značkou Omapic
         zf.writestr("README.txt", readme_cs if lang == "cs" else GEOREF_PREVIEWS_README_EN)
         for path in files:
             # GeoTIFF je už DEFLATE – druhá komprese jen zdržuje.

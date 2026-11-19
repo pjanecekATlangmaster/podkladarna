@@ -12,7 +12,7 @@ from pathlib import Path
 from app.pipeline.dxf_products import (
     collect_dxf_for_zip,
 )
-from app.guide_text import zip_about_txt
+from app.guide_text import CZ_ATTRIBUTION, zip_about_txt
 from app.pipeline.aopk_trees import build_aopk_tree_parts, load_aopk_tree_points
 from app.pipeline.contours_gdal import build_gdal_contour_parts
 from app.pipeline.osm_paths import (
@@ -523,6 +523,11 @@ def oom_metadata(
     if site is not None and tuple(site.countries) != ("CZ",):
         meta["intl_site"] = True
         meta["site_url"] = site.base_url.rstrip("/")
+    cs_intl_url = zip_texts_en.cs_intl_site_url(meta)
+    if cs_intl_url:
+        # Česky na Omapicu: citace pod značkou Omapic s adresou webu (česká doména beze změny).
+        meta["citation"] = zip_texts_en.omapic_cs(meta["citation"], cs_intl_url)
+        meta["citation_short"] = zip_texts_en.omapic_cs(meta["citation_short"], cs_intl_url)
     if meta["lang"] == "en" and not meta.get("site_url"):
         # Adresa webu do ABOUT_OMAPIC.txt, ať se ví, odkud ZIP je (Petr 2026-11-19).
         meta["site_url"] = zip_texts_en.project_url(options)
@@ -590,6 +595,14 @@ def zip_about(meta: dict | None) -> tuple[str, str]:
             cz=_is_cz(meta),
             site_url=meta.get("site_url") or zip_texts_en.project_url(meta),
         )
+    cs_intl_url = zip_texts_en.cs_intl_site_url(meta)
+    if cs_intl_url:
+        return zip_texts_en.ABOUT_NAME_CS_INTL, zip_texts_en.about_txt_cs_intl(
+            kw.get("citation") or meta.get("citation_short") or "",
+            tuple(kw.get("attribution") or CZ_ATTRIBUTION),
+            cz=_is_cz(meta),
+            site_url=cs_intl_url,
+        )
     return "CO_JE_PODKLADARNA.txt", zip_about_txt(**kw, crs=crs_text_cs(meta.get("crs") or "EPSG:5514"))
 
 
@@ -618,6 +631,11 @@ def _crs_readme(meta: dict) -> str:
 
 
 def oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
+    """README_OOM.txt v jazyce zadání; česky na Omapicu pod značkou Omapic (``zip_texts_en.omapic_cs``)."""
+    return zip_texts_en.omapic_cs(_oom_readme(meta, sentinel_info=sentinel_info), zip_texts_en.cs_intl_site_url(meta))
+
+
+def _oom_readme(meta: dict, *, sentinel_info: str = "") -> str:
     """``sentinel_info``: popis snímků Sentinel-2 (datum, soubory, citace) do části o podkladech."""
     def _c(code: str) -> str:
         """Kód symbolu v sadě jobu (staré sady: beze změny)."""

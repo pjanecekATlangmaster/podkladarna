@@ -687,6 +687,7 @@ def notify_order_job(job: dict[str, Any]) -> None:
 
 def _download_prefix(job: dict) -> str:
     """Předpona stahovaného ZIPu podle jazyka zadání (mezinárodní verze = omapic)."""
-    from app.pipeline.zip_texts_en import zip_lang
+    from app.pipeline.zip_texts_en import cs_intl_site_url, zip_lang
 
-    return "podkladarna" if zip_lang(job.get("options")) == "cs" else "omapic"
+    opts = job.get("options")
+    return "podkladarna" if zip_lang(opts) == "cs" and not cs_intl_site_url(opts) else "omapic"
