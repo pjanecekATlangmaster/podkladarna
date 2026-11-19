@@ -1,0 +1,62 @@
+# Ukázkové ZIPy na webu (DATA_ROOT/samples, GET /samples/<file>), které server přegeneruje sám
+# (app/samples_refresh.py). Česká stránka nabízí sprint/les/mtbo.zip, anglická *-en.zip a reference-en.zip.
+#
+# file      jméno ZIPu (jen jména, která web zná: <druh>.zip a <druh>-en.zip)
+# lang      jazyk jobu a textů v ZIPu (cs / en); výsledek v jiném jazyce se nepoužije
+# bbox      west,south,east,north (WGS84)
+# map_scale měřítko (4000 sprint, 10000 les / MTBO)
+# map_types typy map u lesních měřítek (les / mtbo)
+# dtm       true = ukázka se vymění jen s daty DTM (výpadek DMVS nechá starou ukázku)
+# label     popisek na webu (samples.json); pravdivě území a data, ze kterých ukázka vznikla.
+#           Bez popisku platí text z katalogu (web.page.sample_<druh>).
+#
+# Území: sprint Barrandov a les / MTBO Harrachov (Petr 2026-11-15), zahraničí Delft NL a Otepää EE
+# z národních dat (Petr 2026-11-17: „nelžeme“, česká mapa jen jako reference).
+samples:
+  - file: sprint.zip
+    lang: cs
+    name: "Ukázka sprint – Barrandov"
+    bbox: [14.36827, 50.02615, 14.38295, 50.03653]
+    map_scale: 4000
+    dtm: true
+  - file: les.zip
+    lang: cs
+    name: "Ukázka les – Harrachov"
+    bbox: [15.39290, 50.76097, 15.41261, 50.77701]
+    map_scale: 10000
+    map_types: [les]
+    dtm: true
+  - file: mtbo.zip
+    lang: cs
+    name: "Ukázka MTBO – Harrachov"
+    bbox: [15.39290, 50.76097, 15.41261, 50.77701]
+    map_scale: 10000
+    map_types: [mtbo]
+    dtm: true
+  - file: reference-en.zip
+    lang: en
+    name: "Sample reference – Prague"
+    bbox: [14.36827, 50.02615, 14.38295, 50.03653]
+    map_scale: 4000
+    dtm: true
+    label: "reference: Prague, Czech Republic (ČÚZK DMR 5G, DMP OK, ZABAGED, DTM, OSM)"
+  - file: sprint-en.zip
+    lang: en
+    name: "Sample sprint – Delft"
+    bbox: [4.352, 52.006, 4.366, 52.014]
+    map_scale: 4000
+    label: "sprint – Delft, Netherlands (AHN, BGT, Kadaster, Beeldmateriaal.nl, OSM)"
+  - file: les-en.zip
+    lang: en
+    name: "Sample forest – Otepää"
+    bbox: [26.480, 58.045, 26.505, 58.060]
+    map_scale: 10000
+    map_types: [les]
+    label: "forest – Otepää, Estonia (Maa- ja Ruumiamet DTM/DSM and ETAK, OSM)"
+  - file: mtbo-en.zip
+    lang: en
+    name: "Sample MTBO – Otepää"
+    bbox: [26.480, 58.045, 26.505, 58.060]
+    map_scale: 10000
+    map_types: [mtbo]
+    label: "MTBO – Otepää, Estonia (Maa- ja Ruumiamet DTM/DSM and ETAK, OSM)"

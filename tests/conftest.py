@@ -15,6 +15,8 @@ os.environ.pop("PODKLADARNA_JOB_COUNTRY", None)
 os.environ["DISK_RESERVE_MB"] = "0"
 os.environ["DISK_JOB_BASE_GB"] = "0"
 os.environ["DISK_JOB_GB_PER_KM2"] = "0"
+# Přegenerování ukázek (app.samples_refresh) v testech nepouštět – vlákno by zakládalo joby.
+os.environ["SAMPLES_REFRESH"] = "0"
 
 
 @pytest.fixture()
