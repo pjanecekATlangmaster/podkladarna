@@ -1373,6 +1373,7 @@ const BUILD_STEP_LABELS = {
   "data ZBGIS": t("web.js.step.zbgis"),
   "data GRB": t("web.js.step.grb"),
   "data YLRE": t("web.js.step.ylre"),
+  "data GeoDanmark": t("web.js.step.geodanmark"),
   "polohopis a vegetace": t("web.js.step.map_planimetry"),
   "silnice a cesty": t("web.js.step.map_roads"),
   "ploty, budovy a oliva": t("web.js.step.map_fences"),
@@ -1423,6 +1424,7 @@ const BACKGROUND_KEYS = {
   "Data ZBGIS (ÚGKK SR)": "sk_zbgis",
   "Data GRB (Digitaal Vlaanderen)": "be_grb",
   "Data YLRE (Helsingin kaupunki)": "fi_hel",
+  "Data GeoDanmark (Datafordeler)": "dk_geodanmark",
 };
 
 function backgroundLabel(name) {
@@ -1469,6 +1471,7 @@ const BUILD_SOURCE_LABELS = {
   sk_zbgis: t("web.js.source.sk_zbgis"),
   be_grb: t("web.js.source.be_grb"),
   fi_hel: t("web.js.source.fi_hel"),
+  dk_geodanmark: t("web.js.source.dk_geodanmark"),
   ruian: t("web.js.source.ruian"),
   aopk: t("web.js.source.aopk"),
   katastr: t("web.js.source.katastr"),
@@ -2003,7 +2006,8 @@ function userSourcesCropCommand() {
   const dLat = 0.002;
   const dLon = dLat / Math.max(0.2, Math.cos((((s + n) / 2) * Math.PI) / 180));
   const te = [w - dLon, s - dLat, e + dLon, n + dLat].map((x) => x.toFixed(5)).join(" ");
-  return `gdalwarp -te_srs EPSG:4326 -te ${te} -co COMPRESS=DEFLATE -co TILED=YES dtm_source.tif dtm.tif`;
+  const base = `gdalwarp -te_srs EPSG:4326 -te ${te} -co COMPRESS=DEFLATE -co TILED=YES`;
+  return `${base} dtm_source.tif dtm.tif\n${base} dsm_source.tif dsm.tif`;
 }
 
 /** Hlavička TIFF (II*\0 / MM\0* a BigTIFF) – rychlá kontrola v prohlížeči, ať se nenahrává zbytečně. */

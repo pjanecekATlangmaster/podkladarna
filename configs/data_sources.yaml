@@ -3021,29 +3021,56 @@ sources:
   - Moře je 0 (ne NoData). Punktsky = 1 km LAZ v ZIP po 10 × 10 km – pro výřez objemově nevhodné, nenapojeno.
   - 30. 11. 2026 změna API URL dle https://dataforsyningen.dk/news/5042 (Dataforsyningen; Datafordeler ověřit).
 
+- id: dk_orto_foraar
+  countries:
+  - DK
+  kinds:
+  - orthophoto
+  name: GeoDanmark ortofoto jaro (orto_foraar) – WMS Datafordeleru
+  provider: Klimadatastyrelsen / GeoDanmark / Datafordeleren
+  url: https://wms.datafordeler.dk/GeoDanmarkOrto/orto_foraar/1.0.0/WMS
+  info: https://datafordeler.dk/dataoversigt/geodanmark-ortofoto/
+  role: kresba
+  status: used
+  code: app/pipeline/reference_dk.py (fetch_ortho), app/pipeline/open_paved.py (DIRECT_ORTHO)
+  license:
+    class: public
+    name: CC BY 4.0 (KDS / GeoDanmark, od 16. 5. 2024)
+    url: https://www.klimadatastyrelsen.dk/om-klimadatastyrelsen/vilkaar-og-priser
+    attribution: GeoDanmark / Klimadatastyrelsen (CC BY 4.0)
+  access: api_key
+  checked: '2026-11-19 Claude: GetCapabilities (vrstva orto_foraar, MaxWidth 10000, EPSG:25832), GetMap JPEG s klíčem z cloudu'
+  issues:
+  - Jen maska zpevněných ploch ve sprintu (stahuje server, 0,5 m); šablona do .omap ani obrázek do ZIPu ne – WMS chce klíč v URL.
+  - Jarní snímek (bez listí); zeleň potvrzuje letní NDVI Sentinel-2.
+
 - id: dk_geodanmark_fot
   countries:
   - DK
   kinds:
   - technical_map
   - buildings
-  name: GeoDanmark / FOT – Fælles Offentlig Topografisk (GeoDanmark Vektor WFS)
-  provider: GeoDanmark (obce + Klimadatastyrelsen)
-  url: https://wfs.datafordeler.dk/GEODKV/GEODKV_WFS/1.0.0/WFS?service=WFS&version=2.0.0&request=GetCapabilities
-  info: https://dataforsyningen.dk/data/3563
+  name: GeoDanmark (GeoDanmark Vektor WFS GEODKV)
+  provider: GeoDanmark (obce + Klimadatastyrelsen) / Datafordeleren
+  url: https://wfs.datafordeler.dk/GEODKV/GEODKV_WFS/1.0.0/WFS
+  info: https://www.geodanmark.dk/home/vejledninger/vilkaar-for-data-anvendelse/
   role: kresba
-  status: candidate
+  status: used
+  code: app/pipeline/geodanmark_dk.py
+  provider_key: dk_geodanmark
+  probe: dk_geodanmark
   license:
     class: public
     name: CC BY 4.0 (GeoDanmark)
     url: https://www.geodanmark.dk/home/vejledninger/vilkaar-for-data-anvendelse/
-    attribution: '@geodanmark (CC BY 4.0, odkaz na podmínky)'
+    attribution: GeoDanmark (CC BY 4.0)
   access: api_key
-  checked: 'opencode: 2026-11-16 WFS GetCapabilities URL + podmínky GeoDanmark + KDS „CC BY 4.0 gælder for GeoDanmark“ – Claude
-    neověřil'
+  checked: '2026-11-19 Claude: GetCapabilities a GetFeature s klíčem z cloudu (typeNames geodkv_v001:<vrstva>_current,
+    outputFormat=application/json funguje, EPSG:25832, CountDefault 10 000), podmínky KDS „CC BY 4.0 gælder for GeoDanmark“'
   issues:
-  - Bounding Box max. 10 km² na dotaz – výřez 25 km² rozdělit; jinak plně automatické.
-  - Některé FKB-like sady (Højdekurver Fildownload) mají 65–400 GB soubory.
+  - Silnice nejsou plochy, jen okraje (vejkant) a osy (vejmidte) – vozovka se skládá z kolmých řezů; chodníky zatím ne.
+  - hegn bez typu (hegnstype „Ikke tildelt“), v centru Aarhusu ~1 000 plotů na km².
+  - Klíč jen z DK_DATAFORDELER_API_KEY; GetCapabilities klíč ozvěnou vrací.
 
 - id: no_hoydedata_dtm
   countries:
