@@ -194,6 +194,26 @@ def _iban_groups(iban: str) -> str:
     return " ".join(iban[i : i + 4] for i in range(0, len(iban), 4))
 
 
+_CZ_PAY_RE = re.compile(r'<div class="support-pay">.*?</div>\s*<p class="support-hint">.*?</p>', re.S)
+
+
+def czech_qr_block_html(lang: str) -> str:
+    """V češtině klasická QR Platba na český účet – týž blok jako stránka podpory české Podkladárny
+    (``web/podpora.html``, Petr 2026-11-19); jiné jazyky nic."""
+    if lang != i18n.SOURCE_LANG:
+        return ""
+    from app.settings import APP_ROOT
+
+    try:
+        source = (APP_ROOT / "web" / "podpora.html").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    m = _CZ_PAY_RE.search(source)
+    if not m:
+        return ""
+    return f'<h2>{html_escape(i18n.t("donate.page.cz_qr_title", lang))}</h2>\n    {m.group(0)}\n'
+
+
 def sepa_block_html(lang: str) -> str:
     """EPC QR a údaje k převodu v EUR pro stránku /podpora; prázdné bez ``DONATE_SEPA_IBAN`` / jména."""
     if not sepa_enabled():

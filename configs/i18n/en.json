@@ -656,6 +656,7 @@
   "donate.page.sepa_title": "Bank transfer in euros (SEPA)",
   "donate.page.stripe_note": "You enter the amount on the Stripe page; card, Apple Pay, Google Pay and local methods such as iDEAL, Bancontact or BLIK work. {brand} stores nothing about the payment.",
   "donate.page.stripe_title": "Card or local payment (Stripe)",
+  "donate.page.cz_qr_title": "QR payment from a Czech bank (CZK)",
   "donate.page.thanks": "Thank you. Petr Janeček",
   "mail.failed.subject": "{brand}: map “{name}” could not be created",
   "mail.failed.greeting": "Hello,",
