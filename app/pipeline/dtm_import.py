@@ -1319,8 +1319,14 @@ def drop_osm_parking_covered_by_dtm(work_dir: Path, features: list[dict]) -> lis
 # jeden objekt s tisíci vrcholů, který OCAD / Mapper brzdí. Takový polygon se vyplní bezobrysovým
 # symbolem (501.1 / 501.21), rozřeže se (řezy nejsou vidět) a obrys se nakreslí zvlášť čárou 501.100.
 AREA_SPLIT_VERTICES = 1000
-# Díly rozřezané výplně se přes řez překryjí (m), jinak Mapper na styku kreslí světlý šev (Petr 2026-11-19).
-AREA_SPLIT_OVERLAP_M = 0.05
+# Díly rozřezané výplně se přes řez překryjí, jinak Mapper na styku kreslí světlý šev (Petr 2026-11-19). Přesah v mm mapy
+# musí být větší než tolerance zjednodušení (``oom_simplify.SIMPLIFY_TOLERANCE_MM``), jinak úzký pás zjednodušení vyhladí.
+AREA_SPLIT_OVERLAP_MM = 0.15
+
+
+def area_split_overlap_m(scale: int) -> float:
+    """Přesah dílů rozřezané výplně v metrech terénu pro měřítko ``scale``."""
+    return AREA_SPLIT_OVERLAP_MM * scale / 1000.0
 OUTLINE_CHUNK_VERTICES = 800
 FILL_ONLY_CODE = {"501.0": "501.1", ROAD_CODE: "501.21"}
 EDGE_CODE = "501.100"
@@ -1423,7 +1429,7 @@ def _geometry_part(
             and fill_idx is not None
             and edge_idx is not None
         ):
-            for ring, holes in ([] if edge_only else split_area(rings[0], rings[1:], AREA_SPLIT_VERTICES, overlap_m=AREA_SPLIT_OVERLAP_M)):
+            for ring, holes in ([] if edge_only else split_area(rings[0], rings[1:], AREA_SPLIT_VERTICES, overlap_m=area_split_overlap_m(scale))):
                 obj = _area_object_with_holes(fill_idx, [to_map(ring), *[to_map(h) for h in holes]])
                 if obj:
                     objects.append(obj)

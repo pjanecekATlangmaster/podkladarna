@@ -165,3 +165,7 @@ def test_overlap_makes_pieces_overlap_inside_the_area():
     assert sum(p.area for p in pieces) > whole.area  # přesah přes řezy
     assert unary_union(pieces).difference(whole.buffer(1e-6)).area < 1e-6
     assert unary_union(pieces).symmetric_difference(whole).area < 1e-3
+    # přesah v mapě musí přežít zjednodušení tvaru (jinak pás vyhladí a šev se vrátí, otočka Chvaletice)
+    from app.pipeline import dtm_import, oom_simplify
+
+    assert dtm_import.AREA_SPLIT_OVERLAP_MM > oom_simplify.SIMPLIFY_TOLERANCE_MM

@@ -76,6 +76,13 @@ SIDEWALK_CODE = "501.10"
 SIDEWALK_EDGE_SHARE = 0.7
 
 
+def _split_overlap_m(scale: int) -> float:
+    """Přesah dílů rozřezané plochy ulic (m) – stejný jako u ploch z DTM (``dtm_import.area_split_overlap_m``)."""
+    from app.pipeline.dtm_import import area_split_overlap_m
+
+    return area_split_overlap_m(scale)
+
+
 def is_paved_street_highway(highway: str) -> bool:
     hw = (highway or "").lower()
     return hw.startswith("road_") or hw in PAVED_HIGHWAYS
@@ -585,7 +592,7 @@ def sprint_street_parcel_part(
             k = 1e6 / scale
             m_ring = [(x / k, y / k) for x, y in g.exterior.coords]
             m_holes = [[(x / k, y / k) for x, y in h.coords] for h in g.interiors]
-            for ring, holes in split_area(m_ring, m_holes, PARCEL_SPLIT_VERTICES, overlap_m=0.05):
+            for ring, holes in split_area(m_ring, m_holes, PARCEL_SPLIT_VERTICES, overlap_m=_split_overlap_m(scale)):
                 piece = Polygon([(x * k, y * k) for x, y in ring], [[(x * k, y * k) for x, y in h] for h in holes])
                 for pts in _rounded_pieces(piece):
                     rings = [[(p[0], p[1]) for p in r] for r in _rings(pts)]
