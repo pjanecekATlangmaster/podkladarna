@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Licence – {{t:web.brand}}</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="page-wrap header-inner">
+      <a href="/"><img src="/static/logo.png" alt="{{t:web.brand}}" class="logo" width="48" height="48" /></a>
+      <div>
+        <h1>Licence a zdroje</h1>
+        <p class="tagline"><a href="/">← zpět na {{t:web.brand}}</a></p>
+      </div>
+    </div>
+  </header>
+
+  <main class="licence-page">
+    <h2>Odkud jsou data</h2>
+    <p>
+      {{t:web.brand}} nic nekreslí ručně a nic si nevymýšlí. Každá mapa vzniká z otevřených dat, která zveřejňují
+      veřejné instituce a komunita OpenStreetMap:
+    </p>
+    <ul>
+      <li><strong>Terén a vegetace</strong> – letecké laserové skenování (LiDAR) a výškové modely od národní
+        zeměměřické instituce dané země. Dávají tvar terénu, srázy a balvany a výšku porostu.</li>
+      <li><strong>Cesty, silnice, budovy, voda, ploty</strong> – OpenStreetMap, kde je to možné doplněné národními
+        topografickými a technickými mapami (v Česku ZABAGED® a digitální technická mapa kraje).</li>
+      <li><strong>Šablony</strong> – ortofoto, katastr nebo stínování od stejných poskytovatelů, volitelně družicové
+        snímky Sentinel-2. Slouží jen jako podklad pod mapu pro kreslení.</li>
+    </ul>
+    <p>
+      Každá země používá data svých poskytovatelů; úplný seznam a licence jsou v části
+      <a href="#countries">data podle zemí</a>.
+    </p>
+
+    <h2>Jak mapa vzniká</h2>
+    <p>
+      Data se stahují jen pro zvolený výřez. Server z výškových modelů spočítá vrstevnice, srázy, kupky a třídy
+      vegetace, spojí je s vektorovými vrstvami a vše převede na značky ISOM, ISSprOM nebo ISMTBOM. Výsledkem je ZIP
+      s editovatelnou mapou <code>.omap</code> / <code>.ocd</code> a zdrojovými vrstvami, georeferencovaný
+      v národním souřadnicovém systému země.
+    </p>
+    <p>
+      ZIP je k dispozici omezenou dobu a pak se smaže. Výstup je
+      <strong>pracovní podklad pro kreslení, ne přesné zaměření</strong>: vegetace ukazuje výšku a hustotu
+      porostu, ne průběžnost, a vše je určené ke kontrole a dokončení v terénu.
+    </p>
+
+    <h2 id="credit">Uveďte {{t:web.brand}}</h2>
+    <p>
+      Použití mapy je zdarma, ale <strong>uvedení {{t:web.brand}} s odkazem na
+      <a href="{{SITE_URL}}">{{SITE_HOST}}</a> je povinné</strong> – na vytištěné mapě nebo v její legendě
+      a u mapy všude, kde ji zveřejníte online. Pomůže to dalším mapařům nástroj najít a zároveň zůstanou
+      uvedeni i poskytovatelé dat.
+    </p>
+
+    <h2>Vygenerovaná mapa (výstup jobu)</h2>
+    <p>
+      PNG, <code>.omap</code>, DXF a shapefily z jobu jsou pod licencí
+      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>:
+      při dalším použití (tisk, závody, publikace, sdílení) <strong>musíte uvést zdroj</strong>.
+      Platí to i pro mapu, která z podkladu vznikla překreslením a doplněním v terénu:
+      z citace musí být jasné, že mapa využila {{t:web.brand}}.
+    </p>
+    <p>
+      Minimální citace na mapě / v legendě: řádek z úvodního textového souboru vašeho ZIPu,
+      spolu s adresou webu. Závisí na zemi výřezu (viz <a href="#countries">data podle zemí</a>); pro Česko:
+    </p>
+    <p><strong>Podklad: {{t:web.brand}} ({{SITE_HOST}}) · ČÚZK · OSM, [rok]</strong></p>
+    <p>
+      <code>[rok]</code> je rok, ke kterému jsou <em>použitá data aktuální</em> (výšky / technická mapa / OSM),
+      ne nutně rok tisku mapy. Pokud přesné datum vrstvy neznáte,
+      stačí rok, ve kterém jste job v {{t:web.brand}} spustili (typicky letošní).
+      Výstup je <strong>pracovní podklad pro kreslení, ne přesné zaměření</strong>.
+      Podrobnější citace zdrojů níže jsou vítané (např. „ZABAGED® © ČÚZK“).
+    </p>
+
+    <h2>Data ČÚZK</h2>
+    <p>
+      Digitální model reliéfu <strong>DMR 5G</strong>, model povrchu <strong>DMP OK</strong>
+      a topografickou databázi <strong>ZABAGED®</strong> poskytuje Zeměměřický úřad / ČÚZK
+      (Český úřad zeměměřický a katastrální) jako otevřená data pod licencí
+      <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.
+    </p>
+    <ul>
+      <li><a href="https://geoportal.cuzk.gov.cz/" target="_blank" rel="noopener">Geoportál ČÚZK</a></li>
+      <li><a href="https://openzu.cuzk.gov.cz/opendata/DMR5G/epsg-5514/" target="_blank" rel="noopener">openzu – DMR 5G</a></li>
+      <li><a href="https://openzu.cuzk.gov.cz/opendata/DMPOK-LAZ/epsg-5514/" target="_blank" rel="noopener">openzu – DMP OK</a></li>
+      <li>
+        <a href="https://www.cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/Podminky-poskytovani-prostorovych-dat-CUZK.aspx" target="_blank" rel="noopener">Podmínky poskytování prostorových dat ČÚZK</a>
+      </li>
+    </ul>
+    <p>Na tištěném výstupu: <strong>ČÚZK, [rok]</strong> (rok podle aktuálnosti dat).</p>
+
+    <h2>DTM kraje (DMVS)</h2>
+    <p>
+      Zaměřené objekty (chodníky, silnice, budovy, schodiště, ploty, mosty…) pocházejí
+      z <strong>digitální technické mapy kraje</strong>, kterou vedou kraje a ČÚZK ji zveřejňuje
+      v informačním systému DMVS (veřejné datové sady <code>ZPS</code>). Veřejná data jsou
+      dostupná zdarma a bez přihlášení („bez jakýchkoliv podmínek“); informační systém DMVS
+      vznikl s podporou
+      <abbr title="Integrovaný regionální operační program">IROP</abbr>
+      (spolufinancováno Evropskou unií).
+    </p>
+    <p>
+      Výslovná licence (např. CC BY) u těchto datových sad uvedená není a podmínky ČÚZK
+      (CC BY 4.0, „ČÚZK, [rok]“) DTM kraje výslovně neřeší.
+      Využití dat ve výstupech {{t:web.brand}} je ale potvrzeno. Zdroj uvádíme v duchu
+      těchto podmínek: <strong>DTM kraje · ČÚZK / DMVS, [rok]</strong>.
+    </p>
+    <ul>
+      <li><a href="https://cuzk.gov.cz/DMVS/Poskytovani-dat.aspx" target="_blank" rel="noopener">DMVS – poskytování dat</a></li>
+      <li><a href="https://cuzk.gov.cz/O-resortu/Strukturalni-fondy/Projekty-CUZK-z-IROP/Projekt-Vybudovani-IS-DMVS-CR.aspx" target="_blank" rel="noopener">Projekt informačního systému DMVS (IROP)</a></li>
+    </ul>
+
+    <h2 id="countries">Data podle zemí (mimo Česko)</h2>
+    <p>
+      Mapy jiných zemí vznikají z otevřených dat jejich národních poskytovatelů. Tučná citace je minimum
+      k vytištění; řádky pod ní uvádějí zdroje a licence.
+    </p>
+    <!-- PODKLADARNA_COUNTRY_SOURCES -->
+
+    <h2>Družicové snímky Sentinel-2</h2>
+    <p>
+      Volitelná šablona <code>references/sentinel2_*.jpg</code> pochází z programu Copernicus (ESA / EU);
+      data Sentinel-2 L2A lze volně používat s uvedením zdroje a stahují se z AWS Open Data
+      (Element84 earth-search). Ke kreslení mapy se nepoužívají. Citace:
+      <strong>Contains modified Copernicus Sentinel data [rok]</strong>.
+    </p>
+    <ul>
+      <li><a href="https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice" target="_blank" rel="noopener">Sentinel Data Legal Notice</a></li>
+      <li><a href="https://registry.opendata.aws/sentinel-2-l2a-cogs/" target="_blank" rel="noopener">Sentinel-2 L2A COGs na AWS Open Data</a></li>
+    </ul>
+
+    <h2>Inspirace</h2>
+    <p>
+      {{t:web.brand}} se <strong>volně inspiroval</strong>
+      projektem Karttapullautin
+      a pak šel vlastní cestou: vegetace z hustoty odrazů LiDARu, srázy a skály z DMR,
+      vrstevnice GDAL.
+    </p>
+
+    <h2>Sady značek</h2>
+    <p>
+      Sady ISOM 2017-2 (Revision 6) a ISSprOM 2019-2 (Revision 6) vycházejí z oficiálních
+      sad značek OCAD; názvy základních značek odpovídají oficiálním českým překladům
+      specifikací (ČSOS), názvy podznaček jsou odvozené. Stejně tak sada ISMTBOM 2022 pro MTBO vychází z oficiální sady OCAD; názvy značek bez oficiálního českého překladu jsou odvozené.
+    </p>
+
+    <h2>Mapa pro výběr území</h2>
+    <ul>
+      <li>Dlaždice: © přispěvatelé <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (ODbL)</li>
+      <li>Knihovna: <a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a> (BSD-2-Clause)</li>
+    </ul>
+
+    <h2>Další nástroje</h2>
+    <ul>
+      <li><a href="https://pdal.io/" target="_blank" rel="noopener">PDAL</a> (BSD) – zpracování LiDARu</li>
+      <li><a href="https://gdal.org/" target="_blank" rel="noopener">GDAL</a> (MIT/X) – vektory ZABAGED</li>
+      <li><a href="https://www.cairographics.org/" target="_blank" rel="noopener">cairo</a> a pycairo (LGPL-2.1 / MPL-1.1), písmo DejaVu Sans (volná licence), barvy podle stylu OpenStreetMap Carto (CC0) – vlastní obrázek OpenStreetMap (osm.png) v ZIPu, © přispěvatelé OpenStreetMap (ODbL)</li>
+      <li>
+        Cílový editor (není součástí služby):
+        <a href="https://www.openorienteering.org/" target="_blank" rel="noopener">OpenOrienteering Mapper</a> (GPL-3.0)
+      </li>
+    </ul>
+  </main>
+
+  <footer class="site-footer">
+    <p><a href="/">{{t:web.brand}}</a> v{{APP_VERSION}} · výstup CC BY 4.0</p>
+  </footer>
+</body>
+</html>

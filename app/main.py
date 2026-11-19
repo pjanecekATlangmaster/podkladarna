@@ -244,7 +244,12 @@ def apply_channel(html: str) -> str:
 
 @app.middleware("http")
 async def _noindex_test_channel(request: Request, call_next):
-    response = await call_next(request)
+    # Mezinárodní doména: název služby a texty ``_intl`` i v češtině (i18n.set_request_site); česká doména beze změny.
+    token = i18n.set_request_site(i18n.site_for_request(request))
+    try:
+        response = await call_next(request)
+    finally:
+        i18n.reset_request_site(token)
     if _is_test_channel():
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
     return response
@@ -430,6 +435,11 @@ def _localized_html(request: Request, html: str, *, web_catalog: bool = False) -
 def _page_source(name: str, request: Request) -> str:
     """Celá stránka v jazyce (``web/<jazyk>/<name>``); bez překladu anglicky, pak česky ``web/<name>``."""
     lang = i18n.resolve_lang(request)[0]
+    if intl_site(request):
+        # Mezinárodní doména: vlastní překlad stránky (``web/intl/<jazyk>/``, česky jako Omapic), jinak jako dřív.
+        path = WEB_DIR / "intl" / lang / name
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
     if lang != i18n.SOURCE_LANG:
         for code in (lang, i18n.BASE_LANG):
             path = WEB_DIR / code / name
@@ -542,8 +552,7 @@ _INTL_PAGE_KEYS = (
 
 def intl_site(request: Request) -> bool:
     """Doména nabízí i jiné země než Česko (``SITES``); bez ``SITES`` česká verze."""
-    site = i18n.site_for_request(request)
-    return site is not None and tuple(site.countries) != ("CZ",)
+    return i18n.is_intl_site(i18n.site_for_request(request))
 
 
 def user_sources_form_html(request: Request, lang: str) -> str:
