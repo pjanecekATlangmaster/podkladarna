@@ -6,7 +6,7 @@ import pytest
 from pathlib import Path
 
 from app.pipeline import elevation_raster as er
-from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, ortho_probe, wcs_coverage_url
+from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, ortho_probe, sn_zip_url, wcs_coverage_url
 
 
 def test_every_state_is_a_country_with_provider_and_probes():
@@ -137,3 +137,43 @@ def test_bw_provider_uses_cached_tiles_in_window(tmp_path, monkeypatch):
     assert [Path(p).name for p in vrts[str(out.dtm)]] == ["dtm_489_5402.tif"]  # jen km² ve výřezu (+20 m)
     assert [Path(p).name for p in vrts[str(out.dsm)]] == ["de_bw_surface_489_5402.tif"]
     assert not issues
+
+
+def test_sn_tiles_even_grid():
+    assert er.sn_tiles((409500, 5656500, 412500, 5657500)) == [(408, 5656), (410, 5656), (412, 5656)]
+    assert sn_zip_url(DE_WCS_STATES["de_sn"].dtm, 410, 5656).endswith(
+        "/dgm1_33410_5656_2_sn_tiff.zip")
+
+
+def test_zip_tif_extracts_single_geotiff_and_skips_missing(tmp_path, monkeypatch):
+    import zipfile
+
+    src = tmp_path / "t.zip"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr("dgm1_33410_5656_2_sn.tif", b"II*\x00data")
+        zf.writestr("dgm1_33410_5656_2_sn.tfw", b"1")
+    dest = tmp_path / "out" / "dtm.tif"
+    dest.parent.mkdir()
+    assert er._zip_tif(src.as_uri(), dest, 10_000, "test")
+    assert dest.read_bytes() == b"II*\x00data" and sorted(p.name for p in dest.parent.iterdir()) == ["dtm.tif"]
+    monkeypatch.setattr(er, "SN_MAX_MEMBER_BYTES", 4)
+    with pytest.raises(RuntimeError, match="přes limit"):
+        er._zip_tif(src.as_uri(), dest, 10_000, "test")
+
+
+def test_sn_provider_uses_cached_tiles(tmp_path, monkeypatch):
+    with_dsm, without = tmp_path / "410_5656", tmp_path / "412_5656"
+    for folder in (with_dsm, without):
+        folder.mkdir()
+        (folder / "dtm.tif").touch()
+    (with_dsm / "dsm.tif").touch()
+    tiles = {(410, 5656): with_dsm, (412, 5656): without}
+    monkeypatch.setattr(er, "_sn_tile", lambda key, e, n, log=None: tiles.get((e, n)))
+    vrts = {}
+    monkeypatch.setattr(er, "run_cmd", lambda cmd, log=None: vrts.setdefault(cmd[3], cmd[4:]))
+    monkeypatch.setattr(er, "_gdal_tool", lambda name: name)
+    issues = []
+    bounds = er._bounds_in((411500, 5656500, 412500, 5657500), "EPSG:25833", er.CRS_WKT)
+    out = er.PROVIDERS["de_sn"](bounds, tmp_path, issues.append)
+    assert len(vrts[str(out.dtm)]) == 2 and vrts[str(out.dsm)] == [str(with_dsm / "dsm.tif")]
+    assert issues and "1 z 2" in issues[0]

@@ -234,6 +234,22 @@ DE-BW:
     - "Elevation: DGM1 and nDOM1, Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0 (Daten geändert)."
     - "Orthophoto DOP20: Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0."
     - "OSM © OpenStreetMap contributors (ODbL)."
+DE-SN:
+  name: {cs: Německo – Sasko, en: Germany – Saxony, de: Deutschland – Sachsen}
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  crs: EPSG:25833           # ETRS89 / UTM 33N (nativní systém GeoSN)
+  boundary: countries/de_sn.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [50.17, 11.87, 51.69, 15.05]
+  elevation: de_sn          # DGM1 + DOM1 (ALS) ze ZIPů GeoSN po 2 km, cache na serveru (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, Quellenvermerk „GeoSN“, vzor „Quelle: GeoSN, dl-de/by-2-0“
+  # (Allgemeine Nutzungsbedingungen GeoSN, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · Quelle: GeoSN · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, Quelle: GeoSN, dl-de/by-2-0 (Daten geändert)."
+    - "Orthophoto DOP20: Quelle: GeoSN, dl-de/by-2-0."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 PL:
   name: {cs: Polsko, en: Poland, pl: Polska}
   status: beta              # celé Polsko (2026-11-16); kresba z OSM

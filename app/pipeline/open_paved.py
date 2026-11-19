@@ -68,6 +68,7 @@ ORTHO_KEYS = {
     "DE-BB": "de_bb_dop",
     "DE-RP": "de_rp_dop",
     "DE-BW": "de_bw_dop",
+    "DE-SN": "de_sn_dop",
     "DE-BY": "de_by_dop",
     "PL": "pl_ortho",
     "NL": "nl_luchtfoto",
