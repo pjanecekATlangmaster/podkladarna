@@ -253,3 +253,21 @@ def test_job_worker_always_cleans_up(data_dir, monkeypatch):
     monkeypatch.setattr(job_worker.db, "append_log", lambda *_a: None)
     assert job_worker.run_job("abc123") == 1
     assert not (job_dir / "user_sources").exists()
+
+
+@pytest.mark.parametrize(
+    ("sites", "on", "shown"),
+    [
+        ("testserver=cs:free:*", True, True),  # Omapic se zapnutým vypínačem
+        ("testserver=cs:free:*", False, False),  # vypnuto
+        ("testserver=cs:free:CZ", True, False),  # česká doména beze změny
+    ],
+)
+def test_index_upload_block_only_on_intl_site(client, monkeypatch, sites, on, shown):
+    monkeypatch.setenv("SITES", sites)
+    monkeypatch.setattr(user_sources, "enabled", lambda: on)
+    html = client.get("/").text
+    assert "PODKLADARNA_USER_SOURCES" not in html
+    assert ('name="user_dtm"' in html) is shown
+    if shown:
+        assert 'name="user_sources_consent"' in html and "{{" not in html.split('id="user-sources"')[1][:3000]
