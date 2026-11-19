@@ -1,5 +1,6 @@
 """Německé spolkové země s výškami z WCS 2.0.1 (zahraniční build): Sasko-Anhaltsko, Meklenbursko-Přední Pomořansko,
-Dolní Sasko a Braniborsko.
+Dolní Sasko, Braniborsko, Porýní-Falc (dlaždice 1 km podle indexu Metalink místo WCS) a Bádensko-Württembersko
+(ZIP po 2 km: terén jako text XYZ, výška porostu nDOM jako GeoTIFF, převod a cache na serveru).
 
 Jedna tabulka ``DE_WCS_STATES`` (klíč = ``elevation`` v ``configs/countries.yaml``): terén DGM1 a povrch DOM1 po 1 m
 z WCS zemského geodetického úřadu, bez klíče, v nativním UTM země; šablony WMS (ortofoto, topografická mapa).
@@ -20,10 +21,17 @@ class DeWcsState:
     code: str                    # kód v countries.yaml (DE-ST …)
     name: str                    # česky do logu
     crs: str                     # nativní CRS služby (osy východ–sever)
-    dtm: tuple[str, str]         # (URL WCS, COVERAGEID) terénu DGM1
-    dsm: tuple[str, str]         # (URL WCS, COVERAGEID) povrchu DOM1
+    dtm: tuple[str, str]         # (URL WCS, COVERAGEID) terénu DGM1; u ``meta4`` (URL indexu Metalink, předpona souboru)
+    dsm: tuple[str, str]         # totéž pro povrch DOM1
     probe_box: tuple[float, float, float, float]  # malý výřez pro sondu stavu (16 × 16 m)
     wms: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = ()  # šablony jako ``online_templates``
+    tiles: str = "wcs"           # wcs = GetCoverage po 2 km | meta4 = GeoTIFF po 1 km podle indexu Metalink
+                                 # | bw_zip = ZIP po 2 km (``dtm`` XYZ, ``dsm`` = nDOM, výška nad terénem), cache
+                                 # | sn_zip = ZIP po 2 km s jedním GeoTIFF (DGM1 i DOM1 absolutně), cache
+                                 # | zip_range = GeoTIFF po 1 km čtené rozsahy z velkých ZIPů (``dtm`` = (šablona
+                                 #   URL s ``{part}``, předpona souboru), díly v ``parts``)
+    parts: tuple[str, ...] = ("",)  # díly ZIPů u ``zip_range`` (okresy Sárska)
+    axes: tuple[str, str] = ("x", "y")  # popisky os WCS v SUBSET (Hesensko „E N“)
 
 
 ST_WCS = "https://www.geodatenportal.sachsen-anhalt.de"
@@ -36,6 +44,21 @@ MV_DIENSTE = "https://www.geodaten-mv.de/dienste"
 NI_WCS = "https://opendata.geoservices.lgln.niedersachsen.de"
 NI_WMS = "https://opendata.lgln.niedersachsen.de/doorman/noauth"
 BB_OWS = "https://isk.geobasis-bb.de"
+RP_DATA = "https://geobasis-rlp.de/data"
+RP_WMS = "https://geo4.service24.rlp.de/wms"
+BW_DATA = "https://opengeodata.lgl-bw.de/data"
+BW_OWS = "https://owsproxy.lgl-bw.de/owsproxy/ows"
+SN_GEOCLOUD = "https://geocloud.landesvermessung.sachsen.de/public.php/dav/files"
+SN_WMS = "https://geodienste.sachsen.de"
+HE_WCS = "https://inspire-hessen.de/raster"
+HE_WMS = "https://www.gds-srv.hessen.de/cgi-bin/lika-services"
+SL_DAV = "https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/NK8ndP55qAqGEZD"
+SL_WMS = "https://geoportal.saarland.de/freewms"
+SL_COUNTIES = ("MZG", "NK", "SB", "SLS", "SPK", "WND")  # okresy (Landkreise), jeden ZIP na okres
+HH_ARCHIVE = "https://archiv.transparenz.hamburg.de/hmbtgarchive/HMDK"
+HH_DATA = "https://www.daten-hamburg.de/opendata"
+HB_DATA = "https://gdi2.geo.bremen.de/inspire/download"
+HB_WMS = "https://geodienste.bremen.de/wms_dop_lb"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -101,6 +124,122 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
              "bebb_dop20c", "image/jpeg", False, 0.2),
         ),
     ),
+    # Porýní-Falc (LVermGeo RP): dl-de/by-2.0, citace „©GeoBasis-DE / LVermGeoRP (rok), dl-de/by-2-0“ (Fees WMS).
+    # WCS ne: DGM1 a DOM1 (ALS) jako GeoTIFF po 1 km (EPSG:25832, název s rokem náletu) – index Metalink
+    # ``…/current/meta4/*.meta4`` (~12 MB) se drží v cache a obnovuje po týdnu (``elevation_raster.rp_tile_index``).
+    "de_rp": DeWcsState(
+        code="DE-RP",
+        name="Porýní-Falc",
+        crs="EPSG:25832",
+        dtm=(f"{RP_DATA}/dgm1/current/meta4/dgm1_tif_07.meta4", "dgm1"),
+        dsm=(f"{RP_DATA}/dom1/current/meta4/dom1_tif_07.meta4", "dom1"),
+        probe_box=(417000, 5485000, 417016, 5485016),  # Pfälzerwald
+        wms=(
+            ("de_rp_dop", "dop_rlp.xml", "DOP20 Rheinland-Pfalz (ortofoto)", f"{RP_WMS}/rp_dop20.fcgi", "rp_dop20",
+             "image/jpeg", False, 0.2),
+            ("de_rp_dtk", "dtk25_rlp.xml", "DTK25 Rheinland-Pfalz (topografická mapa 1 : 25 000)",
+             f"{RP_WMS}/rp_dtk25.fcgi", "rp_dtk25", "image/png", False, 1.0),
+        ),
+        tiles="meta4",
+    ),
+    # Bádensko-Württembersko (LGL): dl-de/by-2.0, „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ (licence v ZIPu).
+    # ZIP po 2 × 2 km (E liché, N sudé, EPSG:25832): DGM1 (ALS) 4 × XYZ po 1 km (~13 MB), nDOM1 4 × GeoTIFF po 1 km
+    # z obrazového bDOM20 (léto, ~9 MB) → green: photo. Převedené dlaždice se drží v cache (``elevation_raster._bw_tile``).
+    "de_bw": DeWcsState(
+        code="DE-BW",
+        name="Bádensko-Württembersko",
+        crs="EPSG:25832",
+        dtm=(f"{BW_DATA}/dgm", "dgm1"),
+        dsm=(f"{BW_DATA}/ndom1", "ndom1"),
+        probe_box=(489000, 5402000, 489016, 5402016),  # Schwarzwald u Freiburgu
+        wms=(
+            ("de_bw_dop", "dop_bw.xml", "DOP20 Baden-Württemberg (ortofoto)", f"{BW_OWS}/WMS_LGL-BW_ATKIS_DOP_20_C",
+             "IMAGES_DOP_20_RGB", "image/jpeg", False, 0.2),
+        ),
+        tiles="bw_zip",
+    ),
+    # Sasko (GeoSN): dl-de/by-2.0, „Quelle: GeoSN, dl-de/by-2-0“ (Allgemeine Nutzungsbedingungen GeoSN). Dlaždice
+    # Batch-Download (veřejné sdílení GeoCloud, jen GET – HEAD vrací 401): ZIP po 2 × 2 km (E i N sudé, EPSG:25833)
+    # s jedním GeoTIFF 1 m (~14 MB), DGM1 i DOM1 z téhož ALS (Aktualität v CSV v ZIPu). DTK webové služby končí, jen DOP20.
+    "de_sn": DeWcsState(
+        code="DE-SN",
+        name="Sasko",
+        crs="EPSG:25833",
+        dtm=(f"{SN_GEOCLOUD}/JCcXyifaNdLDnxZ", "dgm1"),
+        dsm=(f"{SN_GEOCLOUD}/S6wwnFwX7882sZm", "dom1"),
+        probe_box=(410000, 5656000, 410016, 5656016),  # Dresden
+        wms=(
+            ("de_sn_dop", "dop_sachsen.xml", "DOP20 Sachsen (ortofoto)", f"{SN_WMS}/wms_geosn_dop-rgb/guest",
+             "sn_dop_020", "image/jpeg", False, 0.2),
+        ),
+        tiles="sn_zip",
+    ),
+    # Hesensko (HVBG): Datenlizenz Deutschland – Zero 2.0 (Fees WCS), WMS „ohne Einschränkung“ (§ 18 HVGG: při uvedení
+    # zdroje upozornit na změny). INSPIRE WCS 2.0.1 ``he_dgm1`` / ``dom1`` (EPSG:25832, osy „E N“, 1 m, GeoTIFF s CRS,
+    # 2 × 2 km ~16 MB za ~2 s), DOM1 z ALS. DOP20 a DTK25 přes WMS „ogc-free“.
+    "de_he": DeWcsState(
+        code="DE-HE",
+        name="Hesensko",
+        crs="EPSG:25832",
+        dtm=(f"{HE_WCS}/dgm1/ows", "he_dgm1"),
+        dsm=(f"{HE_WCS}/dom1/ows", "dom1"),
+        probe_box=(480000, 5560000, 480016, 5560016),  # Taunus u Frankfurtu
+        wms=(
+            ("de_he_dop", "dop_hessen.xml", "DOP20 Hessen (ortofoto)", f"{HE_WMS}/ogc-free-images.ows", "he_dop20_rgb",
+             "image/jpeg", False, 0.2),
+            ("de_he_dtk", "dtk25_hessen.xml", "DTK25 Hessen (topografická mapa 1 : 25 000)",
+             f"{HE_WMS}/ogc-free-maps.ows", "he_dtk25", "image/png", False, 1.0),
+        ),
+        axes=("E", "N"),
+    ),
+    # Sársko (LVGL): dl-de/by-2.0, „© GeoBasis DE/LVGL-SL (Jahr)“ (metadata ATKIS DGM1 2025). Volná data jen jako ZIP
+    # na okres (0,6–1,3 GB, veřejné sdílení Nextcloud „freiegeobasisdaten“), uvnitř GeoTIFF po 1 km (~1,8 MB, deflate).
+    # Server podporuje Range → z ZIPu se čte jen adresář a potřebné dlaždice. DGM1 i DOM1 z ALS 2025.
+    "de_sl": DeWcsState(
+        code="DE-SL",
+        name="Sársko",
+        crs="EPSG:25832",
+        dtm=(f"{SL_DAV}/OD_DGM1_2025_tif_LK/DGM1_tif_{{part}}_EPSG-25832_Entstehung-2025.zip", "dgm1"),
+        dsm=(f"{SL_DAV}/OD_DOM1_2025_tif_LK/DOM1_tif_{{part}}_EPSG-25832_Entstehung-2025.zip", "dom1"),
+        probe_box=(350000, 5475000, 350016, 5475016),  # Neunkirchen
+        wms=(
+            ("de_sl_dop", "dop_saarland.xml", "DOP20 Saarland (ortofoto)", f"{SL_WMS}/dop2025", "sl_dop20_rgb",
+             "image/jpeg", False, 0.2),
+        ),
+        tiles="zip_range",
+        parts=SL_COUNTIES,
+    ),
+    # Hamburk (LGV): dl-de/by-2.0, „Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)“
+    # (Transparenzportal). Celé město v jednom ZIPu (DGM1 2022 1,36 GB, bDOM 2022 1,34 GB), uvnitř GeoTIFF po 1 km →
+    # čte se rozsahy jako Sársko. DGM1 odkazuje Transparenzportal jen na archivní kopii (přímá adresa daten-hamburg.de
+    # vrací 404). Povrch je obrazový bDOM → green: photo. Volné ortofoto WMS bez cizí licence nenalezeno (časová řada
+    # obsahuje snímky Maxar s uzavřenou licencí) → bez šablony.
+    "de_hh": DeWcsState(
+        code="DE-HH",
+        name="Hamburk",
+        crs="EPSG:25832",
+        dtm=(f"{HH_ARCHIVE}/dgm1_hh_2022-04-30_258334_snap_1.zip", "dgm1"),
+        dsm=(f"{HH_DATA}/Digitales_Hoehenmodell_bDOM/dom1_hh_2022-11-21.zip", "dom1"),
+        probe_box=(565000, 5935000, 565016, 5935016),  # centrum
+        tiles="zip_range",
+    ),
+    # Brémy (Landesamt GeoInformation Bremen): CC BY 4.0, Quellenvermerk „Landesamt GeoInformation Bremen“ (metadata
+    # ATKIS DGM1 Land Bremen, Fees WMS). ZIP na město (Brémy 2017 1,1 / 1,2 GB, Bremerhaven 2015 0,6 / 0,3 GB), uvnitř XYZ
+    # po 1 km s hlavičkou „x y z“ (~3 MB) → čte se rozsahy, převádí na GeoTIFF. DOP10 2025 obou měst jednou vrstvou WMS.
+    "de_hb": DeWcsState(
+        code="DE-HB",
+        name="Brémy",
+        crs="EPSG:25832",
+        dtm=(f"{HB_DATA}/DGM/data/Gitternetz_DGM1_{{part}}_ASCII_XYZ.zip", "dgm1"),
+        dsm=(f"{HB_DATA}/DOM/data/Gitternetz_DOM1_{{part}}_ASCII_XYZ.zip", "dom1"),
+        probe_box=(487000, 5882000, 487016, 5882016),  # Brémy
+        wms=(
+            ("de_hb_dop", "dop_bremen.xml", "DOP10 Bremen (ortofoto)", HB_WMS, "dop10_2025_HB,dop10_2025_BHV",
+             "image/jpeg", False, 0.1),
+        ),
+        tiles="zip_range",
+        parts=("2017_HB", "2015_BHV"),
+    ),
 }
 
 
@@ -111,23 +250,58 @@ def state_for_country(code: str) -> tuple[str, DeWcsState] | None:
     return None
 
 
-def wcs_coverage_url(service: tuple[str, str], box: tuple[float, float, float, float]) -> str:
+def wcs_coverage_url(service: tuple[str, str], box: tuple[float, float, float, float],
+                     axes: tuple[str, str] = ("x", "y")) -> str:
     """GetCoverage (WCS 2.0.1) jedné dlaždice v nativním CRS služby; pixel 1 m (hrany na celé metry)."""
     url, coverage = service
     x0, y0, x1, y1 = box
     return (
         f"{url}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID={coverage}&FORMAT=image/tiff"
-        f"&SUBSET=x({x0:.0f},{x1:.0f})&SUBSET=y({y0:.0f},{y1:.0f})"
+        f"&SUBSET={axes[0]}({x0:.0f},{x1:.0f})&SUBSET={axes[1]}({y0:.0f},{y1:.0f})"
     )
 
 
+def bw_zip_url(service: tuple[str, str], east_km: int, north_km: int) -> str:
+    """ZIP dlaždice 2 km LGL BW (levý dolní roh v km, E liché, N sudé)."""
+    base, prefix = service
+    return f"{base}/{prefix}_32_{east_km}_{north_km}_2_bw.zip"
+
+
+def sn_zip_url(service: tuple[str, str], east_km: int, north_km: int) -> str:
+    """ZIP dlaždice 2 km GeoSN (levý dolní roh v km, obojí sudé)."""
+    base, prefix = service
+    return f"{base}/{prefix}_33{east_km}_{north_km}_2_sn_tiff.zip"
+
+
+def zip_range_parts(st: DeWcsState, kind: str) -> list[str]:
+    """ZIPy jedné vrstvy (``dtm`` / ``dsm``) u ``zip_range`` (Sársko po okresech, Hamburk jeden ZIP)."""
+    template = (st.dtm if kind == "dtm" else st.dsm)[0]
+    return [template.format(part=part) for part in st.parts]
+
+
 def elevation_probe(key: str) -> str:
+    """Sonda výšek: malý GetCoverage, u souborových zdrojů index nebo ZIP dlaždice (jen HEAD)."""
     st = DE_WCS_STATES[key]
-    return wcs_coverage_url(st.dtm, st.probe_box)
+    if st.tiles == "meta4":
+        return st.dtm[0]
+    if st.tiles == "bw_zip":
+        return bw_zip_url(st.dtm, int(st.probe_box[0] // 1000), int(st.probe_box[1] // 1000))
+    if st.tiles == "zip_range":
+        return zip_range_parts(st, "dtm")[-1]
+    if st.tiles == "sn_zip":
+        return sn_zip_url(st.dtm, int(st.probe_box[0] // 2000) * 2, int(st.probe_box[1] // 2000) * 2)
+    return wcs_coverage_url(st.dtm, st.probe_box, st.axes)
+
+
+def elevation_probe_method(key: str) -> str:
+    # GeoCloud Saska na HEAD odpovídá 401, GET čte sonda jen prvních 64 kB
+    return "GET" if DE_WCS_STATES[key].tiles in ("wcs", "sn_zip") else "HEAD"
 
 
 def ortho_probe(key: str) -> str:
     st = DE_WCS_STATES[key]
+    if not st.wms:
+        raise ValueError(f"{st.name}: bez ortofota")
     _k, _f, _label, url, layer, fmt, _transparent, _res = st.wms[0]
     x0, y0, x1, y1 = st.probe_box
     return (

@@ -25,6 +25,13 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-MV Německo – Meklenbursko-Přední Pomořansko | beta | `de_mv` | `none` | 2 | 2 |
 | DE-NI Německo – Dolní Sasko | beta | `de_ni` | `none` | 2 | 2 |
 | DE-BB Německo – Braniborsko | beta | `de_bb` | `none` | 2 | 2 |
+| DE-RP Německo – Porýní-Falc | beta | `de_rp` | `none` | 2 | 2 |
+| DE-BW Německo – Bádensko-Württembersko | beta | `de_bw` | `none` | 2 | 2 |
+| DE-SN Německo – Sasko | beta | `de_sn` | `none` | 2 | 2 |
+| DE-HE Německo – Hesensko | beta | `de_he` | `none` | 2 | 1 |
+| DE-SL Německo – Sársko | beta | `de_sl` | `none` | 2 | 2 |
+| DE-HH Německo – Hamburk | beta | `de_hh` | `none` | 1 | 1 |
+| DE-HB Německo – Brémy | beta | `de_hb` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -179,6 +186,68 @@ Stav `beta`, CRS `EPSG:25833`. Citace v mapě: „Base map: Omapic · © GeoBasi
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM) | **DGM1 a bDOM1 Braniborsko (1 m, povrch ze snímků), WCS 2.0.1**<br>Landesvermessung und Geobasisinformation Brandenburg (LGB)<br><https://isk.geobasis-bb.de/ows/dgm_wcs> · [info](https://www.govdata.de/dl-de/by-2-0) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)“ | volný | napojeno (výšky)<br>sonda `de_bb_elevation` | • Povrch bDOM je ze snímků (bildbasiert) → green: photo, pole s plodinami mohou vyjít jako porost. Laserový nDOM je jen v LAZ (data.geobasis-bb.de/geobasis/daten/ndom/), nenapojeno.<br>• Při použití dat Berlína (WCS pokrývá i Berlín) doplnit „© Geoportal Berlin, dl-de/by-2-0“; výřez v Berlíně ale vybere zemi DE. | Claude 2026-11-18: GetCapabilities dgm_wcs a bdom_wcs (Fees kostenfrei, AccessConstraints dl-de/by-2.0 s Namensnennung GeoBasis-DE/LGB; coverage bb_dgm, bb_bdom, EPSG:25833, 1 m, strop 20 000 px), zkušební dlaždice 2 × 2 km Potsdam 16 MB za 3–9 s, Float32 hodnoty (ne obarvená mapa, i když abstract DGM píše o barevných vrstvách) |
 | ortofoto | **Ortofoto DOP20 Berlín a Braniborsko (WMS LGB, mapproxy)**<br>Landesvermessung und Geobasisinformation Brandenburg (LGB)<br><https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms> · [info](https://www.govdata.de/dl-de/by-2-0) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis-DE/LGB, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_bb_dop` | • Topografická mapa DTK jako WMS na isk.geobasis-bb.de nenalezena (dtk25_wms, dtk_wms 404). | Claude 2026-11-18: GetCapabilities (vrstva bebb_dop20c, EPSG:25833, AccessConstraints dl-de/by-2.0), GetMap JPEG OK |
+
+## DE-RP – Německo – Porýní-Falc
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · ©GeoBasis-DE / LVermGeoRP · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM) | **DGM1 a DOM1 Porýní-Falc (ALS, 1 m), GeoTIFF po 1 km podle indexu Metalink**<br>Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)<br><https://geobasis-rlp.de/data/dgm1/current/meta4/dgm1_tif_07.meta4> · [info](https://geoshop.rlp.de/dl-de_by-2-0.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „©GeoBasis-DE / LVermGeoRP (rok odběru), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]“ | volný | napojeno (výšky)<br>sonda `de_rp_elevation` | • WCS DGM (rp_dgm1.fcgi) vyžaduje přihlášení (401) – proto dlaždice. Názvy dlaždic nesou rok náletu a mění se, index se drží v cache a obnovuje po týdnu; sonda dělá HEAD na index. | Claude 2026-11-18: index Metalink dgm1 (12 MB) a dom1 (9 MB), 21 108 dlaždic po 1 km s rokem náletu 2023–2026 v názvu, GeoTIFF 1000 × 1000 Float32 EPSG:25832 + DHHN2016, NoData −9999, 1,5–1,8 MB; licence z Fees WMS rp_dop20 a odkazu Nutzungsbedingungen na geobasis-rlp.de/data |
+| ortofoto, mapa | **Ortofoto DOP20 a topografická mapa DTK25 (WMS LVermGeo RP)**<br>Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)<br><https://geo4.service24.rlp.de/wms/rp_dop20.fcgi> · [info](https://geoshop.rlp.de/dl-de_by-2-0.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „©GeoBasis-DE / LVermGeoRP (rok), dl-de/by-2-0, http://www.lvermgeo.rlp.de“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_rp_dop` | • DTK5 WMS vrací 403; použita DTK25. | Claude 2026-11-18: GetCapabilities rp_dop20.fcgi (vrstva rp_dop20, Fees dl-de/by-2.0) a rp_dtk25.fcgi (rp_dtk25), GetMap EPSG:25832 OK |
+
+## DE-BW – Německo – Bádensko-Württembersko
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Datenquelle: LGL, www.lgl-bw.de · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 (ALS, XYZ) a nDOM1 (z obrazového bDOM20) Bádensko-Württembersko, ZIP po 2 km**<br>Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)<br><https://opengeodata.lgl-bw.de/data/dgm/dgm1_32_489_5402_2_bw.zip> · [info](https://opengeodata.lgl-bw.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_bw_elevation` | • nDOM je z letních snímků → pole s plodinami mohou vyjít jako porost (green: photo).<br>• INSPIRE WCS DGM1 (WCS_INSP_BW_Hoehe_Coverage_DGM1) existuje, ale GetCoverage s osami x/y vrací 404; ZIP drží terén i nDOM ve stejné mřížce 1 km.<br>• Převedené dlaždice (XYZ → GeoTIFF) se drží v cache de_bw/<E>_<N>; první job v oblasti stahuje ~22 MB na 4 km². | Claude 2026-11-19: ZIP dgm1_32_489_5402_2_bw (13 MB, 4 × XYZ 1 km, středy pixelů na .5, DHHN2016, nálet 2019) a ndom1_32_489_5402_2_bw (9 MB, 4 × GeoTIFF Float32 EPSG:25832, bDOM20 11. 8. 2025, RealityStudio), mřížka 2 km E liché / N sudé; licence PDF v ZIPu (dl-de/by-2.0, Namensnennung „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“) |
+| ortofoto | **Ortofoto DOP20 (WMS LGL BW)**<br>Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)<br><https://owsproxy.lgl-bw.de/owsproxy/ows/WMS_LGL-BW_ATKIS_DOP_20_C> · [info](https://opengeodata.lgl-bw.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_bw_dop` | • DTK25 WMS (WMS_LGL-BW_ATKIS_DTK_25) vrací 500; topografická mapa zatím chybí. | Claude 2026-11-19: GetCapabilities (vrstva IMAGES_DOP_20_RGB, AccessConstraints dl-de/by-2.0) |
+
+## DE-SN – Německo – Sasko
+
+Stav `beta`, CRS `EPSG:25833`. Citace v mapě: „Base map: Omapic · Quelle: GeoSN · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS) Sasko, ZIP po 2 km s GeoTIFF**<br>Landesamt für Geobasisinformation Sachsen (GeoSN)<br><https://geocloud.landesvermessung.sachsen.de/public.php/dav/files/JCcXyifaNdLDnxZ/dgm1_33410_5656_2_sn_tiff.zip> · [info](https://www.geodaten.sachsen.de/batch-download-4719.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Quelle: GeoSN, dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_sn_elevation` | • GeoCloud na HEAD vrací 401, sonda proto čte GET (jen prvních 64 kB).<br>• Adresy dlaždic jsou veřejná sdílení GeoCloud z konfigurace stránky Batch-Download; při změně sdílení je potřeba je obnovit.<br>• Dlaždice se drží v cache de_sn/<E>_<N>; první job v oblasti stahuje ~28 MB na 4 km². | Claude 2026-11-19: Batch-Download GeoSN (sdílení GeoCloud DGM1_TIFF_2km / DOM1_TIFF_2km), ZIP dgm1_33410_5656_2_sn_tiff (13 MB) a dom1_… (15 MB), jeden GeoTIFF Float32 EPSG:25833 1 m, mřížka 2 km E i N sudé, Aktualität 2024-11-30; Allgemeine Nutzungsbedingungen GeoSN: dl-de/by-2.0, Quellenvermerk „GeoSN“ |
+| ortofoto | **Ortofoto DOP20 (WMS GeoSN)**<br>Landesamt für Geobasisinformation Sachsen (GeoSN)<br><https://geodienste.sachsen.de/wms_geosn_dop-rgb/guest> · [info](https://www.geodaten.sachsen.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Quelle: GeoSN, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_sn_dop` | • DTK webové služby GeoSN končí (nahrazuje je basemap), topografická šablona se proto nepřidává. | Claude 2026-11-19: GetCapabilities (vrstva sn_dop_020), GetMap EPSG:25833 200 image/jpeg |
+
+## DE-HE – Německo – Hesensko
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Geobasisdaten © HVBG · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS) Hesensko, INSPIRE WCS 2.0.1**<br>Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)<br><https://inspire-hessen.de/raster/dgm1/ows> · [info](https://hvbg.hessen.de/geoinformation/geodateninfrastruktur/geoportal-hessen/inspire-standardisierte-geodatendienste) | 🟢 public – [Datenlizenz Deutschland – Zero 2.0](https://www.govdata.de/dl-de/zero-2-0)<br>citace: „Geobasisdaten © HVBG, dl-de/zero-2-0 (zdroj s upozorněním na změny, § 18 HVGG)“ | volný | napojeno (výšky)<br>sonda `de_he_elevation` | • Osy WCS se jmenují E / N (ne x / y), proto DeWcsState.axes. | Claude 2026-11-19: GetCapabilities a DescribeCoverage he_dgm1 / dom1 (EPSG:25832, osy E N, rozsah 411000 5471000 – 587000 5724000, Fees dl-de/zero-2.0), GetCoverage 2 × 2 km 200 image/tiff 16 MB za 2 s, 2000 × 2000 px Float32, hrany na celé metry; DOM1 z ALS (Produktblatt Oberflächenmodelle HVBG) |
+| ortofoto, mapa | **Ortofoto DOP20 a DTK25 (WMS HVBG ogc-free)**<br>Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)<br><https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows> · [info](https://www.gds.hessen.de/) | 🟢 public – [Nutzung ohne Einschränkung (§ 18 HVGG)](https://www.gds.hessen.de/)<br>citace: „© HVBG“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_he_dop` | – | Claude 2026-11-19: GetCapabilities ogc-free-images (he_dop20_rgb) a ogc-free-maps (he_dtk25), AccessConstraints „ohne Einschränkung oder Bedingung“, GetMap EPSG:25832 200 |
+
+## DE-SL – Německo – Sársko
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · © GeoBasis DE/LVGL-SL · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS 2025) Sársko, GeoTIFF po 1 km v ZIPech okresů**<br>Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)<br><https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/NK8ndP55qAqGEZD/OD_DGM1_2025_tif_LK/DGM1_tif_NK_EPSG-25832_Entstehung-2025.zip> · [info](https://www.shop.lvgl.saarland.de/cloud/freiegeobasisdaten?dir=/OD_DGM1_2025_tif_LK) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis DE/LVGL-SL (Jahr), dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_sl_elevation` | • Server občas přeruší spojení (connection reset); dotazy Range se opakují (ZIP_RANGE_RETRIES).<br>• Index dlaždic (centrální adresáře ZIPů) se drží 30 dní v cache de_sl_index; po vydání nových ZIPů se obnoví sám, adresy okresů jsou pevně v reference_de_states. | Claude 2026-11-19: metadata ATKIS DGM1 (2025) v geoportal.saarland.de (dl-de/by-2-0, Quellenvermerk © GeoBasis DE/LVGL-SL (Jahr)); sdílení Nextcloud: DGM1 a DOM1 po okresech (MZG, NK, SB, SLS, SPK, WND, 0,56–1,3 GB), uvnitř dgm1_32_<E>_<N>_1_SL_2025.tif (1000 × 1000 px, EPSG:25832, deflate ~1,8 MB); Range 206 – index 2 775 dlaždic za ~23 s, dlaždice DGM + DOM za ~3 s |
+| ortofoto | **Ortofoto DOP20 2025 (WMS LVGL freewms)**<br>Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)<br><https://geoportal.saarland.de/freewms/dop2025> · [info](https://geoportal.saarland.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis DE/LVGL-SL (Jahr), dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_sl_dop` | • Licence WMS převzatá z volných geobasisdat LVGL (GetCapabilities má Fees None). | Claude 2026-11-19: GetCapabilities (vrstva sl_dop20_rgb), GetMap EPSG:25832 200 image/jpeg |
+
+## DE-HH – Německo – Hamburk
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · FHH, LGV · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 2022 a bDOM 2022 Hamburk, GeoTIFF po 1 km v ZIPu celého města**<br>Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)<br><https://archiv.transparenz.hamburg.de/hmbtgarchive/HMDK/dgm1_hh_2022-04-30_258334_snap_1.zip> · [info](https://suche.transparenz.hamburg.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV), dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_hh_elevation` | • DGM1 je dostupné jen jako archivní kopie Transparenzportalu (adresa se snapshotem); přímá adresa daten-hamburg.de vrací 404. Při novém vydání je potřeba adresu obnovit.<br>• bDOM je ze snímků → green: photo.<br>• Volné ortofoto WMS jen jako časová řada se snímky Maxar (uzavřená licence) → šablona ortofota není. | Claude 2026-11-19: Transparenzportal (balík „Geländemodelle Hamburg - DGM“ 2026-10-28, dl-de-by-2.0) → DGM1 2022 ZIP 1,36 GB (926 členů dgm1_32_<E>_<N>_1_hh_2022.tif), bDOM dom1_hh_2022-11-21.zip 1,34 GB (884 členů); Range 206, index ~3 s, dlaždice DGM + bDOM za ~4 s, GeoTIFF Float32 EPSG:25832 1000 × 1000 |
+
+## DE-HB – Německo – Brémy
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Landesamt GeoInformation Bremen · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 Brémy (2017) a Bremerhaven (2015), XYZ po 1 km v ZIPech měst**<br>Landesamt GeoInformation Bremen<br><https://gdi2.geo.bremen.de/inspire/download/DGM/data/Gitternetz_DGM1_2017_HB_ASCII_XYZ.zip> · [info](https://geo.bremen.de/) | 🟢 public – [Creative Commons Namensnennung 4.0 International](https://creativecommons.org/licenses/by/4.0/)<br>citace: „Landesamt GeoInformation Bremen (CC BY 4.0)“ | volný | napojeno (výšky)<br>sonda `de_hb_elevation` | • Body XYZ leží na celých metrech, bere se jako středy pixelů (posun 0,5 m proti mřížce s hranami na celých metrech).<br>• Data jsou starší (Brémy 2017, Bremerhaven 2015). | Claude 2026-11-19: INSPIRE ATOM ZIPy Gitternetz_DGM1_2017_HB (1,09 GB, 395 dlaždic dgm1_32<E>_<N>_1_hb.xyz), DGM1_2015_BHV (0,61 GB), DOM1_2017_HB (1,24 GB), DOM1_2015_BHV (0,32 GB); Range 206; XYZ s hlavičkou „x y z“, body na celých metrech, řádky od severu, 1000 × 1000; licence CC BY 4.0 (Verfügung hvD 2024-05-22, metadata DGM1 Land Bremen) |
+| ortofoto | **Ortofoto DOP10 2025 (WMS GeoInformation Bremen)**<br>Landesamt GeoInformation Bremen<br><https://geodienste.bremen.de/wms_dop_lb> · [info](https://geo.bremen.de/) | 🟢 public – [Creative Commons Namensnennung 4.0 International](https://creativecommons.org/licenses/by/4.0/)<br>citace: „Landesamt GeoInformation Bremen (CC BY 4.0)“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_hb_dop` | • Vrstva je pojmenovaná rokem snímkování; po novém snímkování je potřeba ji přepsat. | Claude 2026-11-19: GetCapabilities (Fees CC-BY, Quellenvermerk Landesamt GeoInformation Bremen), GetMap dop10_2025_HB,dop10_2025_BHV EPSG:25832 200 image/jpeg |
 
 ## PL – Polsko
 

@@ -3006,6 +3006,34 @@ function renderProbeNote() {
   el.textContent = warnings.join(" ");
   el.hidden = !warnings.length;
   renderDataNote();
+  renderDataLicenses();
+}
+
+/**
+ * Zdroje dat a licence výřezu nad Spustit (/api/sheets `licenses`, jen mimo Česko; Petr 2026-11-19: jen informace,
+ * bez povinného souhlasu). Texty jsou z `countries.yaml` jako v ZIPu a na stránce /licence.
+ */
+function renderDataLicenses() {
+  const box = document.getElementById("data-licenses");
+  if (!box) return;
+  const lic = lastSheets && !lastSheets.too_large && lastSheets.licenses;
+  if (!lic) {
+    box.hidden = true;
+    return;
+  }
+  const cite = document.getElementById("data-licenses-cite");
+  if (cite) cite.textContent = lic.citation ? t("web.js.licenses.cite", { citation: lic.citation }) : "";
+  const list = document.getElementById("data-licenses-list");
+  if (list) {
+    list.replaceChildren(
+      ...(lic.lines || []).map((line) => {
+        const li = document.createElement("li");
+        li.textContent = line;
+        return li;
+      }),
+    );
+  }
+  box.hidden = false;
 }
 
 /**

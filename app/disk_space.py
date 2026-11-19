@@ -200,7 +200,20 @@ def aoi_cache_roots() -> list[tuple[Path, int]]:
         (root / "aopk", settings.AOPK_CACHE_MAX_AGE_DAYS),
         (root / "osm", osm_cache_max_age_days()),
         (root / "sk_zbgis", settings.SK_ZBGIS_CACHE_MAX_AGE_DAYS),  # celostátní sady, položka = sada (bu / tn)
+        # indexy dlaždic německých zemí (položka = soubor indexu); obnovují se po 7 / 30 dnech, nepoužívané se smažou
+        (root / "de_meta4", DE_INDEX_CACHE_MAX_AGE_DAYS),
+        *((root / f"{key}_index", DE_INDEX_CACHE_MAX_AGE_DAYS) for key in _zip_range_keys()),
     ]
+
+
+DE_INDEX_CACHE_MAX_AGE_DAYS = 60  # nad obnovu indexu (Metalink 7 dní, adresáře ZIPů 30 dní)
+
+
+def _zip_range_keys() -> list[str]:
+    """Země, jejichž dlaždice se čtou z velkých ZIPů (index ``<klíč>_index`` v cache)."""
+    from app.pipeline.reference_de_states import DE_WCS_STATES
+
+    return sorted(key for key, st in DE_WCS_STATES.items() if st.tiles == "zip_range")
 
 
 def osm_cache_max_age_days() -> int:

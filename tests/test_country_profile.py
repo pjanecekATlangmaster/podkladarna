@@ -119,6 +119,13 @@ def test_sk_beta_only_with_local_data(tmp_path, monkeypatch, with_data):
         ({"country": "DE-MV"}, False, "de_mv"),
         ({"country": "DE-NI"}, False, "de_ni"),
         ({"country": "DE-BB"}, False, "de_bb"),
+        ({"country": "DE-RP"}, False, "de_rp"),
+        ({"country": "DE-BW"}, False, "de_bw"),
+        ({"country": "DE-SN"}, False, "de_sn"),
+        ({"country": "DE-HE"}, False, "de_he"),
+        ({"country": "DE-SL"}, False, "de_sl"),
+        ({"country": "DE-HH"}, False, "de_hh"),
+        ({"country": "DE-HB"}, False, "de_hb"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -210,6 +217,8 @@ def test_api_beta_country_without_sheets(client, monkeypatch, sk_beta):
     body = client.get("/api/sheets", params={"bbox": bbox}).json()
     assert body["country"] == "SK" and body["count"] == 0 and body["estimate_minutes"]
     assert body["needs_sheets"] is False and "SM5" not in body["label"]  # GUI nehlásí „mimo data“
+    lic = body["licenses"]  # shrnutí zdrojů a licencí nad Spustit (stejné texty jako ZIP a /licence)
+    assert lic["url"] == "/licence" and lic["citation"] and lic["lines"]
     r = client.post("/api/jobs", data={"preset_id": "sprint_2m", "output_mode": "png_zip", "name": "ba", "bbox": bbox})
     assert r.status_code == 200, r.text
     opts = r.json()["options"]
@@ -353,6 +362,13 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("DE-MV", ("© GeoBasis-DE/M-V 20", "(CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "[data year]", "LVermGeo")),
         ("DE-NI", ("LGLN (20", "(CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "[data year]", "M-V")),
         ("DE-BB", ("© GeoBasis-DE/LGB, dl-de/by-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "LGLN")),
+        ("DE-RP", ("©GeoBasis-DE / LVermGeoRP (20", "dl-de/by-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "[data year]", "LGB")),
+        ("DE-BW", ("Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "LVermGeoRP")),
+        ("DE-SN", ("Quelle: GeoSN, dl-de/by-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "LGL")),
+        ("DE-HE", ("HVBG", "dl-de/zero-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GeoSN")),
+        ("DE-SL", ("© GeoBasis DE/LVGL-SL", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "[data year]")),
+        ("DE-HH", ("Landesbetrieb Geoinformation und Vermessung (LGV)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Orthophoto")),
+        ("DE-HB", ("Landesamt GeoInformation Bremen (CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "LGV")),
         ("GB-ENG", ("© Environment Agency copyright and/or database right 2022", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GUGiK")),
     ],
 )
@@ -445,6 +461,18 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_de_ni_dop", "opendata.lgln.niedersachsen.de", "ni_dop20"),
         ("DE-BB", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_bb_dop"},
          "online_de_bb_dop", "isk.geobasis-bb.de", "bebb_dop20c"),
+        ("DE-RP", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_rp_dop", "online_de_rp_dtk"},
+         "online_de_rp_dop", "geo4.service24.rlp.de", "rp_dop20"),
+        ("DE-BW", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_bw_dop"},
+         "online_de_bw_dop", "owsproxy.lgl-bw.de", "IMAGES_DOP_20_RGB"),
+        ("DE-SN", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_sn_dop"},
+         "online_de_sn_dop", "geodienste.sachsen.de", "sn_dop_020"),
+        ("DE-HE", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_he_dop", "online_de_he_dtk"},
+         "online_de_he_dop", "gds-srv.hessen.de", "he_dop20_rgb"),
+        ("DE-SL", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_sl_dop"},
+         "online_de_sl_dop", "geoportal.saarland.de", "sl_dop20_rgb"),
+        ("DE-HB", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_hb_dop"},
+         "online_de_hb_dop", "geodienste.bremen.de", "dop10_2025_HB,dop10_2025_BHV"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):

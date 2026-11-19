@@ -2355,6 +2355,311 @@ sources:
   issues:
     - "Topografická mapa DTK jako WMS na isk.geobasis-bb.de nenalezena (dtk25_wms, dtk_wms 404)."
 
+- id: de_rp_dgm
+  countries: [DE-RP]
+  kinds: [elevation]
+  name: DGM1 a DOM1 Porýní-Falc (ALS, 1 m), GeoTIFF po 1 km podle indexu Metalink
+  provider: Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)
+  url: https://geobasis-rlp.de/data/dgm1/current/meta4/dgm1_tif_07.meta4
+  info: https://geoshop.rlp.de/dl-de_by-2-0.html
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_meta4_provider), app/pipeline/reference_de_states.py
+  provider_key: de_rp
+  probe: de_rp_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: ©GeoBasis-DE / LVermGeoRP (rok odběru), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]
+  access: free
+  checked: "Claude 2026-11-18: index Metalink dgm1 (12 MB) a dom1 (9 MB), 21 108 dlaždic po 1 km s rokem náletu 2023–2026 v názvu, GeoTIFF 1000 × 1000 Float32 EPSG:25832 + DHHN2016, NoData −9999, 1,5–1,8 MB; licence z Fees WMS rp_dop20 a odkazu Nutzungsbedingungen na geobasis-rlp.de/data"
+  issues:
+    - "WCS DGM (rp_dgm1.fcgi) vyžaduje přihlášení (401) – proto dlaždice. Názvy dlaždic nesou rok náletu a mění se, index se drží v cache a obnovuje po týdnu; sonda dělá HEAD na index."
+
+- id: de_rp_wms
+  countries: [DE-RP]
+  kinds: [orthophoto, map]
+  name: "Ortofoto DOP20 a topografická mapa DTK25 (WMS LVermGeo RP)"
+  provider: Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)
+  url: https://geo4.service24.rlp.de/wms/rp_dop20.fcgi
+  info: https://geoshop.rlp.de/dl-de_by-2-0.html
+  role: šablona
+  reference_keys: ["online_de_rp_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/by-2.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_rp_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: ©GeoBasis-DE / LVermGeoRP (rok), dl-de/by-2-0, http://www.lvermgeo.rlp.de
+  access: free
+  checked: "Claude 2026-11-18: GetCapabilities rp_dop20.fcgi (vrstva rp_dop20, Fees dl-de/by-2.0) a rp_dtk25.fcgi (rp_dtk25), GetMap EPSG:25832 OK"
+  issues:
+    - "DTK5 WMS vrací 403; použita DTK25."
+
+- id: de_bw_dgm
+  countries: [DE-BW]
+  kinds: [elevation, canopy]
+  name: DGM1 (ALS, XYZ) a nDOM1 (z obrazového bDOM20) Bádensko-Württembersko, ZIP po 2 km
+  provider: Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)
+  url: https://opengeodata.lgl-bw.de/data/dgm/dgm1_32_489_5402_2_bw.zip
+  info: https://opengeodata.lgl-bw.de/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_bw_provider, _bw_tile), app/pipeline/reference_de_states.py
+  provider_key: de_bw
+  probe: de_bw_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: ZIP dgm1_32_489_5402_2_bw (13 MB, 4 × XYZ 1 km, středy pixelů na .5, DHHN2016, nálet 2019) a ndom1_32_489_5402_2_bw (9 MB, 4 × GeoTIFF Float32 EPSG:25832, bDOM20 11. 8. 2025, RealityStudio), mřížka 2 km E liché / N sudé; licence PDF v ZIPu (dl-de/by-2.0, Namensnennung „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“)"
+  issues:
+    - "nDOM je z letních snímků → pole s plodinami mohou vyjít jako porost (green: photo)."
+    - "INSPIRE WCS DGM1 (WCS_INSP_BW_Hoehe_Coverage_DGM1) existuje, ale GetCoverage s osami x/y vrací 404; ZIP drží terén i nDOM ve stejné mřížce 1 km."
+    - "Převedené dlaždice (XYZ → GeoTIFF) se drží v cache de_bw/<E>_<N>; první job v oblasti stahuje ~22 MB na 4 km²."
+
+- id: de_bw_wms
+  countries: [DE-BW]
+  kinds: [orthophoto]
+  name: "Ortofoto DOP20 (WMS LGL BW)"
+  provider: Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)
+  url: https://owsproxy.lgl-bw.de/owsproxy/ows/WMS_LGL-BW_ATKIS_DOP_20_C
+  info: https://opengeodata.lgl-bw.de/
+  role: šablona
+  reference_keys: ["online_de_bw_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/by-2.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_bw_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities (vrstva IMAGES_DOP_20_RGB, AccessConstraints dl-de/by-2.0)"
+  issues:
+    - "DTK25 WMS (WMS_LGL-BW_ATKIS_DTK_25) vrací 500; topografická mapa zatím chybí."
+
+- id: de_sn_dgm
+  countries: [DE-SN]
+  kinds: [elevation, canopy]
+  name: DGM1 a DOM1 (ALS) Sasko, ZIP po 2 km s GeoTIFF
+  provider: Landesamt für Geobasisinformation Sachsen (GeoSN)
+  url: https://geocloud.landesvermessung.sachsen.de/public.php/dav/files/JCcXyifaNdLDnxZ/dgm1_33410_5656_2_sn_tiff.zip
+  info: https://www.geodaten.sachsen.de/batch-download-4719.html
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_sn_provider, _sn_tile), app/pipeline/reference_de_states.py
+  provider_key: de_sn
+  probe: de_sn_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Quelle: GeoSN, dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: Batch-Download GeoSN (sdílení GeoCloud DGM1_TIFF_2km / DOM1_TIFF_2km), ZIP dgm1_33410_5656_2_sn_tiff (13 MB) a dom1_… (15 MB), jeden GeoTIFF Float32 EPSG:25833 1 m, mřížka 2 km E i N sudé, Aktualität 2024-11-30; Allgemeine Nutzungsbedingungen GeoSN: dl-de/by-2.0, Quellenvermerk „GeoSN“"
+  issues:
+    - "GeoCloud na HEAD vrací 401, sonda proto čte GET (jen prvních 64 kB)."
+    - "Adresy dlaždic jsou veřejná sdílení GeoCloud z konfigurace stránky Batch-Download; při změně sdílení je potřeba je obnovit."
+    - "Dlaždice se drží v cache de_sn/<E>_<N>; první job v oblasti stahuje ~28 MB na 4 km²."
+
+- id: de_sn_wms
+  countries: [DE-SN]
+  kinds: [orthophoto]
+  name: "Ortofoto DOP20 (WMS GeoSN)"
+  provider: Landesamt für Geobasisinformation Sachsen (GeoSN)
+  url: https://geodienste.sachsen.de/wms_geosn_dop-rgb/guest
+  info: https://www.geodaten.sachsen.de/
+  role: šablona
+  reference_keys: ["online_de_sn_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/by-2.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_sn_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Quelle: GeoSN, dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities (vrstva sn_dop_020), GetMap EPSG:25833 200 image/jpeg"
+  issues:
+    - "DTK webové služby GeoSN končí (nahrazuje je basemap), topografická šablona se proto nepřidává."
+
+- id: de_he_dgm
+  countries: [DE-HE]
+  kinds: [elevation, canopy]
+  name: DGM1 a DOM1 (ALS) Hesensko, INSPIRE WCS 2.0.1
+  provider: Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)
+  url: https://inspire-hessen.de/raster/dgm1/ows
+  info: https://hvbg.hessen.de/geoinformation/geodateninfrastruktur/geoportal-hessen/inspire-standardisierte-geodatendienste
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_wcs_provider), app/pipeline/reference_de_states.py
+  provider_key: de_he
+  probe: de_he_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Zero 2.0
+    url: https://www.govdata.de/dl-de/zero-2-0
+    attribution: "Geobasisdaten © HVBG, dl-de/zero-2-0 (zdroj s upozorněním na změny, § 18 HVGG)"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities a DescribeCoverage he_dgm1 / dom1 (EPSG:25832, osy E N, rozsah 411000 5471000 – 587000 5724000, Fees dl-de/zero-2.0), GetCoverage 2 × 2 km 200 image/tiff 16 MB za 2 s, 2000 × 2000 px Float32, hrany na celé metry; DOM1 z ALS (Produktblatt Oberflächenmodelle HVBG)"
+  issues:
+    - "Osy WCS se jmenují E / N (ne x / y), proto DeWcsState.axes."
+
+- id: de_he_wms
+  countries: [DE-HE]
+  kinds: [orthophoto, map]
+  name: "Ortofoto DOP20 a DTK25 (WMS HVBG ogc-free)"
+  provider: Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)
+  url: https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows
+  info: https://www.gds.hessen.de/
+  role: šablona
+  reference_keys: ["online_de_he_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "Užití bez omezení (§ 18 HVGG); při uvedení zdroje upozornit na změny."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_he_dop
+  license:
+    class: public
+    name: "Nutzung ohne Einschränkung (§ 18 HVGG)"
+    url: https://www.gds.hessen.de/
+    attribution: "© HVBG"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities ogc-free-images (he_dop20_rgb) a ogc-free-maps (he_dtk25), AccessConstraints „ohne Einschränkung oder Bedingung“, GetMap EPSG:25832 200"
+  issues: []
+
+- id: de_sl_dgm
+  countries: [DE-SL]
+  kinds: [elevation, canopy]
+  name: DGM1 a DOM1 (ALS 2025) Sársko, GeoTIFF po 1 km v ZIPech okresů
+  provider: Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)
+  url: https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/NK8ndP55qAqGEZD/OD_DGM1_2025_tif_LK/DGM1_tif_NK_EPSG-25832_Entstehung-2025.zip
+  info: https://www.shop.lvgl.saarland.de/cloud/freiegeobasisdaten?dir=/OD_DGM1_2025_tif_LK
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_zip_range_provider, zip_range_index, zip_member_bytes), app/pipeline/reference_de_states.py
+  provider_key: de_sl
+  probe: de_sl_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "© GeoBasis DE/LVGL-SL (Jahr), dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: metadata ATKIS DGM1 (2025) v geoportal.saarland.de (dl-de/by-2-0, Quellenvermerk © GeoBasis DE/LVGL-SL (Jahr)); sdílení Nextcloud: DGM1 a DOM1 po okresech (MZG, NK, SB, SLS, SPK, WND, 0,56–1,3 GB), uvnitř dgm1_32_<E>_<N>_1_SL_2025.tif (1000 × 1000 px, EPSG:25832, deflate ~1,8 MB); Range 206 – index 2 775 dlaždic za ~23 s, dlaždice DGM + DOM za ~3 s"
+  issues:
+    - "Server občas přeruší spojení (connection reset); dotazy Range se opakují (ZIP_RANGE_RETRIES)."
+    - "Index dlaždic (centrální adresáře ZIPů) se drží 30 dní v cache de_sl_index; po vydání nových ZIPů se obnoví sám, adresy okresů jsou pevně v reference_de_states."
+
+- id: de_sl_wms
+  countries: [DE-SL]
+  kinds: [orthophoto]
+  name: "Ortofoto DOP20 2025 (WMS LVGL freewms)"
+  provider: Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)
+  url: https://geoportal.saarland.de/freewms/dop2025
+  info: https://geoportal.saarland.de/
+  role: šablona
+  reference_keys: ["online_de_sl_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "dl-de/by-2.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_sl_dop
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "© GeoBasis DE/LVGL-SL (Jahr), dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities (vrstva sl_dop20_rgb), GetMap EPSG:25832 200 image/jpeg"
+  issues:
+    - "Licence WMS převzatá z volných geobasisdat LVGL (GetCapabilities má Fees None)."
+
+- id: de_hh_dgm
+  countries: [DE-HH]
+  kinds: [elevation, canopy]
+  name: DGM1 2022 a bDOM 2022 Hamburk, GeoTIFF po 1 km v ZIPu celého města
+  provider: Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)
+  url: https://archiv.transparenz.hamburg.de/hmbtgarchive/HMDK/dgm1_hh_2022-04-30_258334_snap_1.zip
+  info: https://suche.transparenz.hamburg.de/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_zip_range_provider), app/pipeline/reference_de_states.py
+  provider_key: de_hh
+  probe: de_hh_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV), dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: Transparenzportal (balík „Geländemodelle Hamburg - DGM“ 2026-10-28, dl-de-by-2.0) → DGM1 2022 ZIP 1,36 GB (926 členů dgm1_32_<E>_<N>_1_hh_2022.tif), bDOM dom1_hh_2022-11-21.zip 1,34 GB (884 členů); Range 206, index ~3 s, dlaždice DGM + bDOM za ~4 s, GeoTIFF Float32 EPSG:25832 1000 × 1000"
+  issues:
+    - "DGM1 je dostupné jen jako archivní kopie Transparenzportalu (adresa se snapshotem); přímá adresa daten-hamburg.de vrací 404. Při novém vydání je potřeba adresu obnovit."
+    - "bDOM je ze snímků → green: photo."
+    - "Volné ortofoto WMS jen jako časová řada se snímky Maxar (uzavřená licence) → šablona ortofota není."
+
+- id: de_hb_dgm
+  countries: [DE-HB]
+  kinds: [elevation, canopy]
+  name: DGM1 a DOM1 Brémy (2017) a Bremerhaven (2015), XYZ po 1 km v ZIPech měst
+  provider: Landesamt GeoInformation Bremen
+  url: https://gdi2.geo.bremen.de/inspire/download/DGM/data/Gitternetz_DGM1_2017_HB_ASCII_XYZ.zip
+  info: https://geo.bremen.de/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_zip_range_provider, xyz_grid), app/pipeline/reference_de_states.py
+  provider_key: de_hb
+  probe: de_hb_elevation
+  license:
+    class: public
+    name: Creative Commons Namensnennung 4.0 International
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: "Landesamt GeoInformation Bremen (CC BY 4.0)"
+  access: free
+  checked: "Claude 2026-11-19: INSPIRE ATOM ZIPy Gitternetz_DGM1_2017_HB (1,09 GB, 395 dlaždic dgm1_32<E>_<N>_1_hb.xyz), DGM1_2015_BHV (0,61 GB), DOM1_2017_HB (1,24 GB), DOM1_2015_BHV (0,32 GB); Range 206; XYZ s hlavičkou „x y z“, body na celých metrech, řádky od severu, 1000 × 1000; licence CC BY 4.0 (Verfügung hvD 2024-05-22, metadata DGM1 Land Bremen)"
+  issues:
+    - "Body XYZ leží na celých metrech, bere se jako středy pixelů (posun 0,5 m proti mřížce s hranami na celých metrech)."
+    - "Data jsou starší (Brémy 2017, Bremerhaven 2015)."
+
+- id: de_hb_wms
+  countries: [DE-HB]
+  kinds: [orthophoto]
+  name: "Ortofoto DOP10 2025 (WMS GeoInformation Bremen)"
+  provider: Landesamt GeoInformation Bremen
+  url: https://geodienste.bremen.de/wms_dop_lb
+  info: https://geo.bremen.de/
+  role: šablona
+  reference_keys: ["online_de_hb_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "CC BY 4.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_hb_dop
+  license:
+    class: public
+    name: Creative Commons Namensnennung 4.0 International
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: "Landesamt GeoInformation Bremen (CC BY 4.0)"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities (Fees CC-BY, Quellenvermerk Landesamt GeoInformation Bremen), GetMap dop10_2025_HB,dop10_2025_BHV EPSG:25832 200 image/jpeg"
+  issues:
+    - "Vrstva je pojmenovaná rokem snímkování; po novém snímkování je potřeba ji přepsat."
+
 - id: de_bb_als
   countries:
   - DE

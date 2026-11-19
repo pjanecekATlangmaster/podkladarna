@@ -615,10 +615,12 @@ def support_page(request: Request) -> HTMLResponse:
         lang = i18n.resolve_lang(request)[0]
         html = (WEB_DIR / "donate.html").read_text(encoding="utf-8")
         html = html.replace("{{LANG}}", lang)
+        # Česky jen česká QR Platba, jinak Stripe, SEPA (EPC QR) a PayPal podle .env (Petr 2026-11-19).
+        czech = lang == i18n.SOURCE_LANG
         html = html.replace("<!-- DONATE_CZ_QR -->", donations.czech_qr_block_html(lang))
-        html = html.replace("<!-- DONATE_STRIPE -->", donations.stripe_block_html(lang))
-        html = html.replace("<!-- DONATE_SEPA -->", donations.sepa_block_html(lang))
-        html = html.replace("<!-- DONATE_PAYPAL -->", donations.paypal_block_html(lang))
+        html = html.replace("<!-- DONATE_STRIPE -->", "" if czech else donations.stripe_block_html(lang))
+        html = html.replace("<!-- DONATE_SEPA -->", "" if czech else donations.sepa_block_html(lang))
+        html = html.replace("<!-- DONATE_PAYPAL -->", "" if czech else donations.paypal_block_html(lang))
     elif paid_flow.paid_site(request) is not None:
         return RedirectResponse("/", status_code=302)  # dar jen na bezplatné doméně (Petr 2026-11-16)
     else:
@@ -730,6 +732,22 @@ def api_dtm_coverage(bbox: str, request: Request, country: str = ""):
     return area_probe.dtm_coverage(box, timeout=area_probe.DEADLINE_S)
 
 
+def _country_licenses(country) -> dict | None:
+    """Shrnutí zdrojů a licencí výřezu mimo Česko pro GUI (Petr 2026-11-19, volba C: jen informace, bez souhlasu).
+
+    Stejné texty jako ZIP (ABOUT_OMAPIC.txt) a stránka /licence (``countries.yaml`` citation / attribution);
+    Česko klíč nedostane, odpověď pro český výřez zůstává beze změny."""
+    from app.pipeline import country_profile as _country_profile
+
+    if country.code == countries.DEFAULT_COUNTRY or not (country.citation or country.attribution):
+        return None
+    return {
+        "citation": country.citation or "",
+        "lines": list(_country_profile.attribution_lines({"country": country.code})),
+        "url": "/licence",
+    }
+
+
 @app.get("/api/sheets")
 def api_sheets(bbox: str, request: Request, country: str = ""):
     return i18n.localize(_sheets_payload(bbox, request, country), i18n.resolve_lang(request)[0])
@@ -743,6 +761,9 @@ def _sheets_payload(bbox: str, request: Request, country: str = "") -> dict:
         raise HTTPException(400, _exc_detail(exc)) from exc
     job_country, share = _check_country((west, south, east, north), request, country)
     country_info = {"country": job_country.code, "outside_share": countries.outside_share(share)}
+    licenses = _country_licenses(job_country)
+    if licenses:
+        country_info["licenses"] = licenses
     width_km, height_km = bbox_size_km(west, south, east, north)
     area_km2 = bbox_area_km2(west, south, east, north)
     if bbox_exceeds_limit(west, south, east, north):

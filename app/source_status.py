@@ -45,7 +45,7 @@ from app.pipeline.zbgis_sk import DATASETS as SK_ZBGIS_DATASETS
 from app.pipeline.reference_it import TN_ELEVATION_PROBE, TN_ORTHO_PROBE
 from app.pipeline.reference_be import BE_ELEVATION_PROBE, BE_GRB_PROBE, BE_ORTHO_PROBE, BE_URBIS_PROBE
 from app.pipeline.reference_de_nw import DE_NW_DOP_PROBE, DE_NW_ELEVATION_PROBE
-from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, ortho_probe
+from app.pipeline.reference_de_states import DE_WCS_STATES, elevation_probe, elevation_probe_method, ortho_probe
 from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
 from app.pipeline.reference_gb import GB_EA_PROBE
 from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE
@@ -490,16 +490,17 @@ PROBES: tuple[Probe, ...] = (
                 f"Výšky {st.name} – DGM1 a DOM1",
                 (elevation_probe(key),),
                 "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
+                method=elevation_probe_method(key),
                 fatal=True,
                 countries=(st.code,),
             ),
-            Probe(
+            *(() if not st.wms else (Probe(
                 f"{key}_dop",
                 f"Ortofoto ({st.name})",
                 (ortho_probe(key),),
                 "Šablona ortofota bude chybět.",
                 countries=(st.code,),
-            ),
+            ),)),
         )
     ),
 )
