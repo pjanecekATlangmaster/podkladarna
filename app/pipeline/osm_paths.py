@@ -1173,6 +1173,7 @@ _OSM_ROCK_UNDERLAY_KINDS = frozenset({"cliff", "bare_rock", "rock_area", "scree"
 _CLOSED_AREA_KINDS = frozenset(
     {
         "wetland",
+        "wetland_indistinct",  # zamokřená půda z Maastotietokanta (jen Finsko, ``mtk_fi``)
         "water_body",
         "fountain",
         "farmland",
@@ -1221,8 +1222,8 @@ _POINT_FEATURE_KINDS = frozenset(
     }
 )
 _LINE_FEATURE_KINDS = frozenset(
-    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "tree_row", "waterway", "rail_line",
-     "tram_line", "aerialway"}
+    {"fence", "wall", "hedge", "power_line", "power_line_major", "cliff", "cliff_mtk", "tree_row", "waterway",
+     "rail_line", "tram_line", "aerialway"}
 )
 # Vodní toky OSM (jen mimo Česko, tam kreslí toky ZABAGED): kreslí se 306 jako ZABAGED VodniTok, úsek v propustku /
 # tunelu ne, a uvnitř vodní plochy (řeka s obrysem) se tok ořízne (``clip_waterways_by_water``).
@@ -1986,7 +1987,7 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         if mtbo:
             return "205"
         return "203.2"
-    if kind == "cliff":
+    if kind in ("cliff", "cliff_mtk"):
         # ISOM/ISSprOM linie 201; MTBO taky 201 (impassable cliff).
         return "201"
     if kind == "bare_rock":
@@ -2061,6 +2062,9 @@ def feature_oom_code(kind: str, preset_id: str, stored_code: str = "") -> str:
         return "313" if mtbo else "312"
     if kind == "wetland":
         return "310" if mtbo else "308"
+    if kind == "wetland_indistinct":
+        # Zamokřená půda (MTK soistuma): ISOM/ISSprOM 310 Indistinct marsh; ISMTBOM má jen 310 Marsh.
+        return "310"
     if kind == "memorial":
         return "537" if mtbo else "526"
     if kind == "shelter":
@@ -4713,6 +4717,8 @@ OSM_MANUAL_LAYER_SPECS: dict[str, tuple[str, str, str]] = {
     "platform": ("OSM_nastupiste", "nástupiště (zpevněná)", "501"),
     "playground_equipment": ("OSM_herni_prvky", "herní prvky", "531"),
     "wetland": ("OSM_mokrad", "mokřad", "308"),
+    "wetland_indistinct": ("MTK_soistuma", "zamokřená půda (Maastotietokanta)", "310"),
+    "cliff_mtk": ("MTK_jyrkanne", "skalní stěny (Maastotietokanta)", "201"),
     "cave_entrance": ("OSM_jeskyne", "vstup do jeskyně", "203.2"),
     # Jen podklad (ne v auto .omap) – skály ve výstupu jsou LiDAR 206.
     "cliff": ("OSM_skaly_linie", "skála / sráz OSM (podklad)", "201"),
@@ -8955,6 +8961,8 @@ def build_osm_feature_parts(
         "picnic_table": "OSM stoly",
         "firepit": "OSM ohniště",
         "wetland": "OSM mokřad",
+        "wetland_indistinct": "Zamokřená půda (310)",
+        "cliff_mtk": "Skalní stěny Maastotietokanta (201)",
         "cave_entrance": "OSM vstup do jeskyně",
         "cliff": "OSM skála / sráz (201)",
         "bare_rock": "OSM holá skála (214)",
@@ -8999,8 +9007,10 @@ def build_osm_feature_parts(
         "paved_dtm",
         "playground_equipment",
         "wetland",
+        "wetland_indistinct",
         "cave_entrance",
         "cliff",
+        "cliff_mtk",
         "bare_rock",
         "scree",
         "fence",

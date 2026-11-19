@@ -1466,6 +1466,31 @@ sources:
   - 'opencode: `class: public` je u neoficiálního zrcadla bez doložených podmínek předčasné → restricted/unknown do ověření.'
   - 'opencode: citace MML vyžaduje název datasetu a datum dodání.'
 
+- id: fi_mtk
+  countries:
+  - FI
+  kinds:
+  - vectors
+  name: Maastotietokanta MML – bažiny, skalní stěny, skála, balvany, pole (SHP zrcadlo kartat.kapsi.fi)
+  provider: Maanmittauslaitos, zrcadlo Kapsi
+  url: https://kartat.kapsi.fi/files/maastotietokanta/kaikki/etrs89/shp/
+  info: https://www.maanmittauslaitos.fi/en/maps-and-spatial-data/datasets-and-interfaces/product-descriptions/topographic-database
+  role: kresba
+  status: used
+  code: app/pipeline/mtk_fi.py
+  probe: fi_mtk
+  license:
+    class: public
+    name: CC BY 4.0
+    url: https://www.maanmittauslaitos.fi/en/opendata-licence-cc40
+    attribution: Maastotietokanta © Maanmittauslaitos, via kartat.kapsi.fi
+  access: free
+  checked: 'Claude 2026-11-19: licence MML CC BY 4.0 (stránka opendata-licence-cc40), MapAnt.fi kreslí z téže databáze; podmínky
+    zrcadla Kapsi jako u fi_kapsi nedoloženy'
+  issues:
+  - Neoficiální zrcadlo (spolek Kapsi), bez záruky dostupnosti; ZIP po polovinách listů 1 : 25 000 (~7–12 MB).
+  - Skalní plochy (kallioalue) jsou často pod lesem; kreslí se jen otevřené (podíl stromů z CHM do 30 %).
+
 # ----------------------------------------------------------------------------------------------- Lucembursko
 - id: lu_act_lidar
   countries:

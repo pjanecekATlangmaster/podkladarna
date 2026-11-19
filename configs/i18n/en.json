@@ -951,6 +951,8 @@
   "api.source.fi_ylre.impact": "Buildings, roadways and sidewalks in Helsinki will be drawn from OSM only.",
   "api.source.fi_ortho.label": "MML orthophoto (kartat.kapsi.fi)",
   "api.source.fi_ortho.impact": "The orthophoto template will be missing.",
+  "api.source.fi_mtk.label": "MML Topographic Database (kartat.kapsi.fi)",
+  "api.source.fi_mtk.impact": "Marshes, rocks, boulders and fields will be drawn from OSM only.",
   "api.source.lu_elevation.label": "LiDAR 2024 heights (ACT) – MNT and MNS",
   "api.source.lu_elevation.impact": "Without heights the map cannot be made (no terrain or vegetation height).",
   "api.source.lu_ortho.label": "ACT orthophoto (geoportail.lu)",

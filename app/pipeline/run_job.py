@@ -1307,6 +1307,17 @@ def run_job_pipeline(
                 log=log,
                 prefetched=osm_prefetch,
             )
+        except Exception as exc:
+            log_issue(log, f"OSM: přeskočeno ({exc})")
+        # Terénní prvky z národní topografické databáze (Finsko Maastotietokanta) před SHP vrstvami.
+        if veg_country is not None and veg_country.terrain_vectors == "fi_mtk":
+            try:
+                from app.pipeline.mtk_fi import prepare as prepare_mtk
+
+                prepare_mtk(work_dir, tuple(bbox), log=log)
+            except Exception as exc:
+                log_issue(log, f"Maastotietokanta: přeskočeno ({exc})")
+        try:
             write_osm_manual_shapefiles(work_dir, log=log)
         except Exception as exc:
             log_issue(log, f"OSM: přeskočeno ({exc})")

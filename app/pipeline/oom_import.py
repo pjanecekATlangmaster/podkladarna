@@ -2079,6 +2079,7 @@ def _load_rock_occupancy_blockers(
                     {
                         "water_body",
                         "wetland",
+                        "wetland_indistinct",
                         "parking",
                         "playground",
                         "pitch",

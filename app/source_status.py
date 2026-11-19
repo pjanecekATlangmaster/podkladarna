@@ -53,6 +53,7 @@ from app.pipeline.reference_by import BY_ELEVATION_PROBE, BY_ORTHO_PROBE
 from app.pipeline.reference_gb import GB_EA_PROBE
 from app.pipeline.reference_pl import PL_ELEVATION_PROBE, PL_ORTHO_PROBE
 from app.pipeline.reference_lu import LU_ELEVATION_PROBE, LU_ORTHO_PROBE
+from app.pipeline.mtk_fi import FI_MTK_PROBE
 from app.pipeline.reference_fi import FI_CHM_PROBE, FI_DTM_PROBE, FI_HEL_WFS_PROBE, FI_ORTHO_PROBE
 from app.pipeline.reference_ch import CH_AV_PROBE, CH_STAC_ALTI, CH_WMS_PROBE
 from app.pipeline.reference_nl import NL_AHN_WCS, NL_KADASTER_WMS, NL_LUCHTFOTO_WMS
@@ -429,6 +430,14 @@ PROBES: tuple[Probe, ...] = (
         "Ortofoto MML (kartat.kapsi.fi)",
         (FI_ORTHO_PROBE,),
         "Šablona ortofota bude chybět.",
+        countries=("FI",),
+    ),
+    Probe(
+        "fi_mtk",
+        "Maastotietokanta MML (kartat.kapsi.fi)",
+        (FI_MTK_PROBE,),
+        "Bažiny, skály, balvany a pole se nakreslí jen z OSM.",
+        method="HEAD",
         countries=("FI",),
     ),
     # Lucembursko: hlavička COG terénu (S3) a malý výřez ortofota (kresba z OSM).

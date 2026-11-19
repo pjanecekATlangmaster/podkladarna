@@ -950,6 +950,8 @@
   "api.source.fi_ylre.impact": "Budovy, vozovky a chodníky v Helsinkách se nakreslí jen z OSM.",
   "api.source.fi_ortho.label": "Ortofoto MML (kartat.kapsi.fi)",
   "api.source.fi_ortho.impact": "Šablona ortofota bude chybět.",
+  "api.source.fi_mtk.label": "Maastotietokanta MML (kartat.kapsi.fi)",
+  "api.source.fi_mtk.impact": "Bažiny, skály, balvany a pole se nakreslí jen z OSM.",
   "api.source.lu_elevation.label": "Výšky LiDAR 2024 (ACT) – MNT a MNS",
   "api.source.lu_elevation.impact": "Bez výšek se mapa nevytvoří (terén ani výška porostu).",
   "api.source.lu_ortho.label": "Ortofoto ACT (geoportail.lu)",

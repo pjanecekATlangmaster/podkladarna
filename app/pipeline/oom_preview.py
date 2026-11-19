@@ -860,7 +860,7 @@ class _SymbolStyle:
     break_length: float = 0.0
     border_color: int = -1
     border_width: float = 0.0
-    mid_mode: str = ""  # "", "tick", "dot"
+    mid_mode: str = ""  # "", "tick", "dot"; plocha "hatch" = šrafa (width = čára, radius = rozestup)
     segment_length: float = 0.0
     tick_length: float = 0.0
 
@@ -1023,6 +1023,17 @@ def _style_from_area(target: ET.Element) -> _SymbolStyle | None:
     except ValueError:
         color = -1
     if color < 0:
+        # Bez výplně, ale se šrafou (ISOM 308 bažina, 310 …): vodorovné čáry pattern type 1.
+        for pat in target:
+            if _local(pat.tag) != "pattern" or pat.attrib.get("type") != "1":
+                continue
+            try:
+                pcolor = int(pat.attrib.get("color", "-1") or -1)
+            except ValueError:
+                continue
+            spacing = _attr_float(pat, "line_spacing", 0.0)
+            if pcolor >= 0 and spacing > 0:
+                return _SymbolStyle("area", pcolor, _attr_float(pat, "line_width", 0.0), spacing, mid_mode="hatch")
         return None
     return _SymbolStyle("area", color, 0.0, 0.0)
 
@@ -1899,6 +1910,19 @@ def render_omap_xml_png(
                     [(px - x0, py - y0) for px, py in pts],
                     fill=0 if ring_index else 255,
                 )
+            if op.mid_mode == "hatch":
+                # Šrafa v souřadnicích mapy (stejné čáry přes sousední plochy), jen uvnitř plochy.
+                from PIL import ImageChops
+
+                step = max(2.0, op.radius * scale)
+                stroke = max(1, int(round(max(op.width, 1.0) * scale)))
+                stripes = Image.new("L", mask.size, 0)
+                stripes_draw = ImageDraw.Draw(stripes)
+                yy = math.floor((y0 + origin_y * scale) / step) * step - origin_y * scale - y0
+                while yy < mask.size[1] + stroke:
+                    stripes_draw.line([(0, yy), (mask.size[0], yy)], fill=255, width=stroke)
+                    yy += step
+                mask = ImageChops.multiply(mask, stripes)
             image.paste(op.rgb, (x0, y0, x1, y1), mask)
         elif op.kind == "line":
             stroke = max(1, int(round(max(op.width, 1.0) * scale)))

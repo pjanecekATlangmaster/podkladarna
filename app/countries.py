@@ -95,6 +95,9 @@ class Country:
     # (text, např. „2013–2015“) a klíče důsledků ``old`` | ``coarse`` (``photo`` plyne z ``green``).
     elevation_years: str = ""
     data_notes: tuple[str, ...] = ()
+    # Terénní prvky z národní topografické databáze nad OSM (bažiny, skály, balvany, pole): ``fi_mtk``
+    # Maastotietokanta (``app.pipeline.mtk_fi``); prázdné = jen OSM.
+    terrain_vectors: str = ""
 
     def name(self, lang: str = "cs") -> str:
         return self.names.get(lang) or self.names.get("en") or self.code
@@ -178,6 +181,7 @@ def load_countries() -> dict[str, Country]:
             green=str(spec.get("green") or ("points" if code == DEFAULT_COUNTRY else "laser")),
             elevation_years=str(spec.get("elevation_years") or ""),
             data_notes=tuple(str(k) for k in (spec.get("data_notes") or [])),
+            terrain_vectors=str(spec.get("terrain_vectors") or ""),
         )
         if len(view) != 4:
             w, s, e, n = country.envelope
