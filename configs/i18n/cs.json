@@ -91,7 +91,7 @@
   "web.page.v_polovine_ekvidistance_jen_kde_ukazou": "V polovině ekvidistance, jen kde ukážou tvar, který vrstevnice minou.",
   "web.page.stridme_vic_jen_kde_ukazou_tvar": "„Střídmě“ / „Víc“ jen kde ukážou tvar, který vrstevnice minou (vrchol mezi úrovněmi, výběžek, žlábek, mírný svah). „Všude“ = celý poloviční interval jako vodítko, jak se chová svah – při kreslení se pak promaže.",
   "web.page.vyhlazeni_vrstevnic": "Vyhlazení vrstevnic",
-  "web.page.adaptivni_vychozi": "Adaptivní – výchozí",
+  "web.page.contour_smooth_auto": "Podle země – výchozí (adaptivní, na severu méně vyhlazení)",
   "web.page.mene_vyhlazeni_puvodni": "Méně vyhlazení (původní)",
   "web.page.adaptivni": "Adaptivní",
   "web.page.doporuceno_zklidni_zubate_vrstevnice_v_rovine": "(doporučeno) zklidní zubaté vrstevnice v rovině a v zástavbě; ve svazích zůstanou jako dřív.",

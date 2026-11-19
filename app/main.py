@@ -1738,6 +1738,8 @@ async def api_create_job(request: Request):
     contour_smooth_raw = _form_str(form, "contour_smooth").strip().lower()
     if contour_smooth_raw.isdigit() and int(contour_smooth_raw) in CONTOUR_SMOOTH_LEVELS:
         options["contour_smooth"] = contour_smooth_raw
+    elif contour_smooth_raw == "auto":
+        options["contour_smooth"] = "auto"
     veg_smooth_raw = _form_str(form, "veg_smooth").strip().lower()
     if veg_smooth_raw.isdigit() and int(veg_smooth_raw) in VEG_SMOOTH_LEVELS:
         options["veg_smooth"] = veg_smooth_raw

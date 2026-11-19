@@ -62,7 +62,10 @@ def test_resolve_veg_smooth_default_and_values():
     "opts, expected",
     [({}, 1), (None, 1), ({"contour_smooth": "1"}, 1), ({"contour_smooth": 1}, 1),
      ({"contour_smooth": "0"}, 0), ({"contour_smooth": 0}, 0), ({"contour_smooth": "2"}, 1),
-     ({"contour_smooth": "x"}, 1)],
+     ({"contour_smooth": "x"}, 1), ({"contour_smooth": "auto"}, 1),
+     # výchozí podle země: sever méně vyhlazení, ruční volba má přednost
+     ({"country": "FI"}, 0), ({"country": "NO", "contour_smooth": "auto"}, 0), ({"country": "FI", "contour_smooth": "1"}, 1),
+     ({"country": "CZ", "contour_smooth": "auto"}, 1), ({"country": "NL"}, 1)],
 )
 def test_resolve_contour_smooth(opts, expected):
     assert resolve_contour_smooth(opts) == expected

@@ -57,13 +57,24 @@ CONTOUR_SMOOTH_LEVELS = (0, 1)
 CONTOUR_SMOOTH_DEFAULT = 1
 
 
-def resolve_contour_smooth(options: dict | None) -> int:
-    """Stupeň vyhlazení vrstevnic; neplatná nebo chybějící hodnota = výchozí."""
+CONTOUR_SMOOTH_AUTO = "auto"  # podle země (``countries.yaml`` ``contour_smooth``), výchozí v GUI i API od 3.93.0
+
+
+def contour_smooth_choice(options: dict | None) -> str:
+    """Volba jobu jako ve formuláři: ``"0"`` / ``"1"`` zvolené ručně, jinak ``"auto"`` (i starší joby bez volby)."""
     raw = str((options or {}).get("contour_smooth", "")).strip().lower()
-    try:
-        level = int(raw)
-    except ValueError:
-        return CONTOUR_SMOOTH_DEFAULT
+    return raw if raw.isdigit() and int(raw) in CONTOUR_SMOOTH_LEVELS else CONTOUR_SMOOTH_AUTO
+
+
+def resolve_contour_smooth(options: dict | None) -> int:
+    """Stupeň vyhlazení vrstevnic: ruční volba 0 / 1, jinak výchozí země (sever méně vyhlazení, Česko adaptivní)."""
+    choice = contour_smooth_choice(options)
+    if choice != CONTOUR_SMOOTH_AUTO:
+        return int(choice)
+    from app.pipeline.country_profile import job_country
+
+    country = job_country(options)
+    level = country.contour_smooth if country is not None else CONTOUR_SMOOTH_DEFAULT
     return level if level in CONTOUR_SMOOTH_LEVELS else CONTOUR_SMOOTH_DEFAULT
 
 
