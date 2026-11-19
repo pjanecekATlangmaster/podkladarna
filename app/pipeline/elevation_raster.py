@@ -23,6 +23,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -1090,8 +1091,16 @@ ZIP_RANGE_MAX_BYTES = 30_000_000  # dlaždice 1 km má komprimovaně ~2 MB
 ZIP_RANGE_MAX_MEMBER_BYTES = 200_000_000  # rozbalená dlaždice 1 km (XYZ ~29 MB); víc = podezřelý ZIP
 
 
+class _RangeRefused(RuntimeError):
+    """Server neodpověděl 206 – opakování nepomůže."""
+
+
 def _http_range(url: str, start: int, end: int) -> bytes:
-    """Bajty ``start``–``end`` (včetně); server musí odpovědět 206. Spojení se občas přeruší → opakování."""
+    """Bajty ``start``–``end`` (včetně, za koncem souboru zkráceno podle Content-Range); server musí odpovědět 206.
+
+    Spojení se občas přeruší a ``read`` pak vrátí méně bajtů bez výjimky → délka se ověří proti Content-Range
+    a zkrácená odpověď se opakuje.
+    """
     import time
     import urllib.request
 
@@ -1102,9 +1111,18 @@ def _http_range(url: str, start: int, end: int) -> bytes:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Range": f"bytes={start}-{end}"})
             with urllib.request.urlopen(req, timeout=120) as resp:
                 if resp.status != 206:
-                    raise RuntimeError(f"server nevrátil rozsah ({resp.status})")
-                return resp.read(end - start + 1)
-        except (OSError, RuntimeError):
+                    raise _RangeRefused(f"server nevrátil rozsah ({resp.status})")
+                m = re.match(r"bytes (\d+)-(\d+)/", resp.headers.get("Content-Range") or "")
+                if not m or int(m.group(1)) != start or int(m.group(2)) > end:
+                    raise _RangeRefused(f"server vrátil jiný rozsah ({resp.headers.get('Content-Range')})")
+                want = int(m.group(2)) - start + 1
+                data = resp.read(want)
+            if len(data) != want:
+                raise OSError(f"rozsah zkrácen ({len(data)} z {want} B)")
+            return data
+        except _RangeRefused:
+            raise
+        except OSError:
             if attempt == ZIP_RANGE_RETRIES - 1:
                 raise
             time.sleep(2 * (attempt + 1))
@@ -1137,17 +1155,30 @@ class _RangeFile:
 
 
 def parse_zip_tile_names(entries, pattern: re.Pattern) -> dict[str, list]:
-    """{„E_N“: [offset lokální hlavičky, komprimovaná velikost, metoda]} pro členy ZIPu podle vzoru se skupinami E, N."""
+    """{„E_N“: [offset lokální hlavičky, komprimovaná velikost, metoda, CRC32, rozbalená velikost]} pro členy ZIPu
+    podle vzoru se skupinami E, N."""
     out: dict[str, list] = {}
     for info in entries:
         m = pattern.search(info.filename)
         if m:
-            out.setdefault(f"{m.group(1)}_{m.group(2)}", [info.header_offset, info.compress_size, info.compress_type])
+            out.setdefault(f"{m.group(1)}_{m.group(2)}",
+                           [info.header_offset, info.compress_size, info.compress_type, info.CRC, info.file_size])
     return out
 
 
+_ZIP_INDEX_LOCK = threading.Lock()
+
+
 def zip_range_index(key: str, kind: str) -> dict[str, list]:
-    """Index dlaždic 1 km ze všech ZIPů vrstvy: {„E_N“: [URL, offset, velikost, metoda]} (cache, 30 dní)."""
+    """Index dlaždic 1 km ze všech ZIPů vrstvy: {„E_N“: [URL, offset, velikost, metoda, CRC32, rozbaleno]} (cache, 30 dní).
+
+    Zámek: vlákna provideru by jinak při prvním běhu stahovala adresáře dvakrát.
+    """
+    with _ZIP_INDEX_LOCK:
+        return _zip_range_index(key, kind)
+
+
+def _zip_range_index(key: str, kind: str) -> dict[str, list]:
     import time
     import urllib.request
     import zipfile
@@ -1172,20 +1203,29 @@ def zip_range_index(key: str, kind: str) -> dict[str, list]:
     if not index:
         raise RuntimeError(f"{st.name}: v ZIPech nejsou dlaždice {service[1]}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}")
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}")
     tmp.write_text(json.dumps(index), encoding="utf-8")
     tmp.replace(path)
     return index
 
 
-def zip_member_bytes(url: str, offset: int, csize: int, method: int) -> bytes:
-    """Obsah jednoho členu ZIPu jedním dotazem Range (lokální hlavička + data, deflate nebo stored)."""
+def zip_member_bytes(url: str, offset: int, csize: int, method: int, crc: int | None = None,
+                     usize: int | None = None) -> bytes:
+    """Obsah jednoho členu ZIPu jedním dotazem Range (lokální hlavička + data, deflate nebo stored).
+
+    Ověří délku dat, konec proudu deflate a (u indexu s CRC) CRC32 a rozbalenou velikost – vadná dlaždice
+    by jinak zůstala v cache natrvalo.
+    """
     import struct
     import zlib
 
     if csize > ZIP_RANGE_MAX_BYTES:
         raise RuntimeError("člen ZIPu přes limit")
+    if usize is not None and usize > ZIP_RANGE_MAX_MEMBER_BYTES:
+        raise RuntimeError("rozbalený člen ZIPu přes limit")
     raw = _http_range(url, offset, offset + 30 + 1024 + csize - 1)
+    if len(raw) < 30:
+        raise RuntimeError("ZIP: zkrácená lokální hlavička")
     sig, name_len, extra_len = raw[:4], *struct.unpack("<HH", raw[26:30])
     if sig != b"PK\x03\x04":
         raise RuntimeError("ZIP: chybná lokální hlavička")
@@ -1193,15 +1233,24 @@ def zip_member_bytes(url: str, offset: int, csize: int, method: int) -> bytes:
     if len(raw) < start + csize:
         raw += _http_range(url, offset + len(raw), offset + start + csize - 1)
     data = raw[start:start + csize]
+    if len(data) != csize:
+        raise RuntimeError(f"ZIP: člen zkrácen ({len(data)} z {csize} B)")
     if method == 0:
-        return data
-    if method == 8:
+        out = data
+    elif method == 8:
         dec = zlib.decompressobj(-15)
         out = dec.decompress(data, ZIP_RANGE_MAX_MEMBER_BYTES)
         if dec.unconsumed_tail:
             raise RuntimeError("rozbalený člen ZIPu přes limit")
-        return out
-    raise RuntimeError(f"ZIP: nepodporovaná komprese {method}")
+        if not dec.eof:
+            raise RuntimeError("ZIP: neúplný proud deflate")
+    else:
+        raise RuntimeError(f"ZIP: nepodporovaná komprese {method}")
+    if usize is not None and len(out) != usize:
+        raise RuntimeError(f"ZIP: rozbaleno {len(out)} B místo {usize} B")
+    if crc is not None and zlib.crc32(out) != crc:
+        raise RuntimeError("ZIP: nesedí CRC32")
+    return out
 
 
 def zip_range_tiles(window: tuple[float, float, float, float]) -> list[tuple[int, int]]:
