@@ -615,6 +615,7 @@ def support_page(request: Request) -> HTMLResponse:
         lang = i18n.resolve_lang(request)[0]
         html = (WEB_DIR / "donate.html").read_text(encoding="utf-8")
         html = html.replace("{{LANG}}", lang)
+        html = html.replace("<!-- DONATE_CZ_QR -->", donations.czech_qr_block_html(lang))
         html = html.replace("<!-- DONATE_STRIPE -->", donations.stripe_block_html(lang))
         html = html.replace("<!-- DONATE_SEPA -->", donations.sepa_block_html(lang))
         html = html.replace("<!-- DONATE_PAYPAL -->", donations.paypal_block_html(lang))

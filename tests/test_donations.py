@@ -144,3 +144,10 @@ def test_support_page_shows_only_configured_methods(client, sepa_env, monkeypatc
     html = client.get("/podpora", headers={"host": "example.eu"}).text
     assert "buy.stripe.com/test_abc123" in html and "<svg" in html and EXAMPLE_IBAN[:4] in html
     assert "paypal.com" not in html and "{{" not in html and "<script" not in html
+
+
+def test_czech_page_language_adds_czech_qr_platba(client, sepa_env):
+    cs = client.get("/podpora?lang=cs", headers={"host": "example.eu"}).text
+    en = client.get("/podpora?lang=en", headers={"host": "example.eu"}).text
+    assert "/static/podpora-qr.svg" in cs and "<svg" in cs  # česká QR Platba i EPC QR
+    assert "/static/podpora-qr.svg" not in en and "<svg" in en

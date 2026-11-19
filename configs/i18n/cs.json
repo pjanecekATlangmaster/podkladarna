@@ -660,6 +660,7 @@
   "donate.page.sepa_title": "Převodem v eurech (SEPA)",
   "donate.page.stripe_note": "Částku zadáte na stránce Stripe; funguje karta, Apple Pay, Google Pay a místní metody jako iDEAL, Bancontact nebo BLIK. {brand} o platbě nic neukládá.",
   "donate.page.stripe_title": "Kartou nebo místní platbou (Stripe)",
+  "donate.page.cz_qr_title": "QR platba z české banky (Kč)",
   "donate.page.thanks": "Děkuji. Petr Janeček",
   "mail.failed.subject": "Podkladárna: mapu „{name}“ se nepodařilo vytvořit",
   "mail.failed.greeting": "Dobrý den,",
