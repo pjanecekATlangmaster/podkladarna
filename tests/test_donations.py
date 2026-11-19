@@ -62,7 +62,7 @@ def test_ready_mail_donation_line_only_with_url():
     _, plain = build_private_ready_email(**common)
     _, with_url = build_private_ready_email(**common, donate_url="https://www.paypal.com/donate/?business=X")
     assert "PayPal" not in plain
-    assert "voluntary contribution" in with_url and "https://www.paypal.com/donate/?business=X" in with_url
+    assert "voluntary tip" in with_url and "https://www.paypal.com/donate/?business=X" in with_url
     assert with_url.rstrip().endswith(plain.rstrip().splitlines()[-1])  # podpis zůstává na konci
 
 
@@ -132,7 +132,7 @@ def test_epc_payload_and_page_block(sepa_env):
 
 @pytest.mark.parametrize(
     "stripe, expected",
-    [("", "https://example.eu/podpora"), ("https://buy.stripe.com/test_abc123", "https://example.eu/podpora")],
+    [("", "https://example.eu/podpora?lang=en"), ("https://buy.stripe.com/test_abc123", "https://example.eu/podpora?lang=en")],
 )
 def test_mail_links_support_page_when_sepa(sepa_env, monkeypatch, stripe, expected):
     monkeypatch.setenv("DONATE_STRIPE_LINK", stripe)
@@ -146,8 +146,28 @@ def test_support_page_shows_only_configured_methods(client, sepa_env, monkeypatc
     assert "paypal.com" not in html and "{{" not in html and "<script" not in html
 
 
-def test_czech_page_language_adds_czech_qr_platba(client, sepa_env):
+def test_czech_page_only_czech_qr_platba(client, sepa_env, monkeypatch):
+    """Česky jen česká QR Platba, anglicky Stripe a EPC QR (Petr 2026-11-19)."""
+    monkeypatch.setenv("DONATE_STRIPE_LINK", "https://buy.stripe.com/test_abc123")
     cs = client.get("/podpora?lang=cs", headers={"host": "example.eu"}).text
     en = client.get("/podpora?lang=en", headers={"host": "example.eu"}).text
-    assert "/static/podpora-qr.svg" in cs and "<svg" in cs  # česká QR Platba i EPC QR
-    assert "/static/podpora-qr.svg" not in en and "<svg" in en
+    assert "/static/podpora-qr.svg" in cs and "<svg" not in cs and "stripe.com" not in cs
+    assert "/static/podpora-qr.svg" not in en and "<svg" in en and "stripe.com" in en
+
+
+def test_czech_mail_links_czech_support_page(donate_env, monkeypatch):
+    monkeypatch.delenv("DONATE_PAYPAL_BUSINESS", raising=False)
+    monkeypatch.setenv("DONATE_STRIPE_LINK", "https://buy.stripe.com/test_abc123")
+    url = donations.donate_url_for_job({"site": "example.eu", "country": "CZ"}, "cs")
+    assert url == "https://example.eu/podpora?lang=cs"
+
+
+def test_international_licence_without_github(client, monkeypatch):
+    """Licence na Omapicu: odkud data, jak se zpracují, citace s odkazem na web, nikde GitHub (Petr 2026-11-19)."""
+    monkeypatch.setenv("SITES", SITES)
+    for lang in ("en", "cs"):
+        html = client.get(f"/licence?lang={lang}", headers={"host": "example.eu"}).text
+        assert "github" not in html.lower() and "{{" not in html
+    en = client.get("/licence?lang=en", headers={"host": "example.eu"}).text
+    assert "Where the data come from" in en and 'href="https://example.eu">example.eu</a>' in en
+    assert "github.com" in client.get("/licence", headers={"host": "podkladarna.kibos.link"}).text  # česká beze změny
