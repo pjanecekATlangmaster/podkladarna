@@ -975,26 +975,30 @@ def test_driveways_sprint_only_paved_501_0_without_roads(tmp_path, monkeypatch, 
     assert len(di.dtm_mask_wkbs(work)) == 2  # silnice + nájezd: zbytková zpevněná plocha se pod nájezd nekreslí
 
 
-def test_sprint_sidewalk_rest_has_no_outline_along_merge_cut(tmp_path, monkeypatch):
-    """Chodník za pásem sloučeným se silnicí: podél řezu (8 m od silnice) obě plochy bez obrysu (Chvaletice, Petr 2026-11-19)."""
+@pytest.mark.parametrize("gap_m, absorbed", [(0.0, True), (1.0, False)])
+def test_sprint_sidewalk_rest_touching_merge_is_one_object(tmp_path, monkeypatch, gap_m, absorbed):
+    """Chodník za pásem sloučeným se silnicí (řez 8 m od silnice) je jedna plocha bez švu a čáry; kus bez dotyku zvlášť
+    (Chvaletice, Petr 2026-11-19)."""
     work = tmp_path
     (work / "dtm").mkdir()
     di.roads_path(work).write_text(json.dumps({"polygons": [_rect(0, 0, 40, 6)]}), encoding="utf-8")
-    sidewalk = ds.dtm_union([_rect(0, 6, 40, 9), _rect(30, 9, 33, 40)])  # podél silnice + kolmo od ní
+    near = 6 + ds.MERGE_SIDEWALK_NEAR_M
+    polys = [_rect(0, 6, 40, 9), _rect(30, 9, 33, 40)]  # podél silnice + kolmo od ní přes řez
+    if gap_m:
+        polys = [_rect(0, 6, 40, 9), _rect(30, near + gap_m, 33, 40)]  # kus za řezem bez dotyku
     di.sidewalks_path(work).write_text(
-        json.dumps({"polygons": [[list(sidewalk.exterior.coords)]]}), encoding="utf-8"
+        json.dumps({"polygons": [[list(ring) for ring in p] for p in polys]}), encoding="utf-8"
     )
     calls = []
-    monkeypatch.setattr(di, "_geometry_part", lambda geom, **kw: calls.append((geom, kw.get("edge_omit"))) or [])
+    monkeypatch.setattr(di, "_geometry_part", lambda geom, **kw: calls.append((kw["name"], geom)) or [])
     kw = dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
     di.build_dtm_road_parts(work, **kw)
     di.build_dtm_sidewalk_parts(work, **kw)
-    (fill, fill_omit), (rest, rest_omit) = calls
-    cut = 6 + ds.MERGE_SIDEWALK_NEAR_M
-    assert rest.bounds[1] == pytest.approx(cut, abs=0.01)
-    for geom, omit in ((fill, fill_omit), (rest, rest_omit)):
-        assert omit is not None
-        assert geom.boundary.intersection(omit).length == pytest.approx(3.0, abs=0.3)  # jen řez přes chodník
+    fill = dict(calls)["Silnice s chodníkem (DTM + OSM, 501.1)"]
+    assert fill.geom_type == "Polygon" and fill.bounds[3] == pytest.approx(40.0 if absorbed else 9.0)  # jeden objekt
+    assert len(fill.interiors) == 0  # bez škvír ve švu
+    rest = [g for name, g in calls if name == "Chodníky mimo silnici (DTM + OSM)"]
+    assert (not rest) is absorbed
 
 
 def test_steps_keep_only_osm_steps_outside_dtm_stairs_and_sidewalks():
