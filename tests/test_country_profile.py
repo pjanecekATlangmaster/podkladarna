@@ -124,6 +124,8 @@ def test_sk_beta_only_with_local_data(tmp_path, monkeypatch, with_data):
         ({"country": "DE-SN"}, False, "de_sn"),
         ({"country": "DE-HE"}, False, "de_he"),
         ({"country": "DE-SL"}, False, "de_sl"),
+        ({"country": "DE-HH"}, False, "de_hh"),
+        ({"country": "DE-HB"}, False, "de_hb"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -365,6 +367,8 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("DE-SN", ("Quelle: GeoSN, dl-de/by-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "LGL")),
         ("DE-HE", ("HVBG", "dl-de/zero-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GeoSN")),
         ("DE-SL", ("© GeoBasis DE/LVGL-SL", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "[data year]")),
+        ("DE-HH", ("Landesbetrieb Geoinformation und Vermessung (LGV)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "Orthophoto")),
+        ("DE-HB", ("Landesamt GeoInformation Bremen (CC BY 4.0)", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "LGV")),
         ("GB-ENG", ("© Environment Agency copyright and/or database right 2022", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GUGiK")),
     ],
 )
@@ -467,6 +471,8 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_de_he_dop", "gds-srv.hessen.de", "he_dop20_rgb"),
         ("DE-SL", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_sl_dop"},
          "online_de_sl_dop", "geoportal.saarland.de", "sl_dop20_rgb"),
+        ("DE-HB", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_hb_dop"},
+         "online_de_hb_dop", "geodienste.bremen.de", "dop10_2025_HB,dop10_2025_BHV"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):

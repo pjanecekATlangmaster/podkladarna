@@ -30,6 +30,8 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-SN Německo – Sasko | beta | `de_sn` | `none` | 2 | 2 |
 | DE-HE Německo – Hesensko | beta | `de_he` | `none` | 2 | 1 |
 | DE-SL Německo – Sársko | beta | `de_sl` | `none` | 2 | 2 |
+| DE-HH Německo – Hamburk | beta | `de_hh` | `none` | 1 | 1 |
+| DE-HB Německo – Brémy | beta | `de_hb` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -229,6 +231,23 @@ Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · © GeoBasi
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS 2025) Sársko, GeoTIFF po 1 km v ZIPech okresů**<br>Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)<br><https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/NK8ndP55qAqGEZD/OD_DGM1_2025_tif_LK/DGM1_tif_NK_EPSG-25832_Entstehung-2025.zip> · [info](https://www.shop.lvgl.saarland.de/cloud/freiegeobasisdaten?dir=/OD_DGM1_2025_tif_LK) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis DE/LVGL-SL (Jahr), dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_sl_elevation` | • Server občas přeruší spojení (connection reset); dotazy Range se opakují (ZIP_RANGE_RETRIES).<br>• Index dlaždic (centrální adresáře ZIPů) se drží 30 dní v cache de_sl_index; po vydání nových ZIPů se obnoví sám, adresy okresů jsou pevně v reference_de_states. | Claude 2026-11-19: metadata ATKIS DGM1 (2025) v geoportal.saarland.de (dl-de/by-2-0, Quellenvermerk © GeoBasis DE/LVGL-SL (Jahr)); sdílení Nextcloud: DGM1 a DOM1 po okresech (MZG, NK, SB, SLS, SPK, WND, 0,56–1,3 GB), uvnitř dgm1_32_<E>_<N>_1_SL_2025.tif (1000 × 1000 px, EPSG:25832, deflate ~1,8 MB); Range 206 – index 2 775 dlaždic za ~23 s, dlaždice DGM + DOM za ~3 s |
 | ortofoto | **Ortofoto DOP20 2025 (WMS LVGL freewms)**<br>Landesamt für Vermessung, Geoinformation und Landentwicklung Saarland (LVGL)<br><https://geoportal.saarland.de/freewms/dop2025> · [info](https://geoportal.saarland.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis DE/LVGL-SL (Jahr), dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_sl_dop` | • Licence WMS převzatá z volných geobasisdat LVGL (GetCapabilities má Fees None). | Claude 2026-11-19: GetCapabilities (vrstva sl_dop20_rgb), GetMap EPSG:25832 200 image/jpeg |
+
+## DE-HH – Německo – Hamburk
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · FHH, LGV · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 2022 a bDOM 2022 Hamburk, GeoTIFF po 1 km v ZIPu celého města**<br>Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)<br><https://archiv.transparenz.hamburg.de/hmbtgarchive/HMDK/dgm1_hh_2022-04-30_258334_snap_1.zip> · [info](https://suche.transparenz.hamburg.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV), dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_hh_elevation` | • DGM1 je dostupné jen jako archivní kopie Transparenzportalu (adresa se snapshotem); přímá adresa daten-hamburg.de vrací 404. Při novém vydání je potřeba adresu obnovit.<br>• bDOM je ze snímků → green: photo.<br>• Volné ortofoto WMS jen jako časová řada se snímky Maxar (uzavřená licence) → šablona ortofota není. | Claude 2026-11-19: Transparenzportal (balík „Geländemodelle Hamburg - DGM“ 2026-10-28, dl-de-by-2.0) → DGM1 2022 ZIP 1,36 GB (926 členů dgm1_32_<E>_<N>_1_hh_2022.tif), bDOM dom1_hh_2022-11-21.zip 1,34 GB (884 členů); Range 206, index ~3 s, dlaždice DGM + bDOM za ~4 s, GeoTIFF Float32 EPSG:25832 1000 × 1000 |
+
+## DE-HB – Německo – Brémy
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Landesamt GeoInformation Bremen · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 Brémy (2017) a Bremerhaven (2015), XYZ po 1 km v ZIPech měst**<br>Landesamt GeoInformation Bremen<br><https://gdi2.geo.bremen.de/inspire/download/DGM/data/Gitternetz_DGM1_2017_HB_ASCII_XYZ.zip> · [info](https://geo.bremen.de/) | 🟢 public – [Creative Commons Namensnennung 4.0 International](https://creativecommons.org/licenses/by/4.0/)<br>citace: „Landesamt GeoInformation Bremen (CC BY 4.0)“ | volný | napojeno (výšky)<br>sonda `de_hb_elevation` | • Body XYZ leží na celých metrech, bere se jako středy pixelů (posun 0,5 m proti mřížce s hranami na celých metrech).<br>• Data jsou starší (Brémy 2017, Bremerhaven 2015). | Claude 2026-11-19: INSPIRE ATOM ZIPy Gitternetz_DGM1_2017_HB (1,09 GB, 395 dlaždic dgm1_32<E>_<N>_1_hb.xyz), DGM1_2015_BHV (0,61 GB), DOM1_2017_HB (1,24 GB), DOM1_2015_BHV (0,32 GB); Range 206; XYZ s hlavičkou „x y z“, body na celých metrech, řádky od severu, 1000 × 1000; licence CC BY 4.0 (Verfügung hvD 2024-05-22, metadata DGM1 Land Bremen) |
+| ortofoto | **Ortofoto DOP10 2025 (WMS GeoInformation Bremen)**<br>Landesamt GeoInformation Bremen<br><https://geodienste.bremen.de/wms_dop_lb> · [info](https://geo.bremen.de/) | 🟢 public – [Creative Commons Namensnennung 4.0 International](https://creativecommons.org/licenses/by/4.0/)<br>citace: „Landesamt GeoInformation Bremen (CC BY 4.0)“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_hb_dop` | • Vrstva je pojmenovaná rokem snímkování; po novém snímkování je potřeba ji přepsat. | Claude 2026-11-19: GetCapabilities (Fees CC-BY, Quellenvermerk Landesamt GeoInformation Bremen), GetMap dop10_2025_HB,dop10_2025_BHV EPSG:25832 200 image/jpeg |
 
 ## PL – Polsko
 

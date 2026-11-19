@@ -282,6 +282,38 @@ DE-SL:
     - "Elevation: DGM1 and DOM1, © GeoBasis DE/LVGL-SL ([data year]), dl-de/by-2-0 (Daten geändert)."
     - "Orthophoto DOP20: © GeoBasis DE/LVGL-SL ([data year]), dl-de/by-2-0."
     - "OSM © OpenStreetMap contributors (ODbL)."
+DE-HH:
+  name: {cs: Německo – Hamburk, en: Germany – Hamburg, de: Deutschland – Hamburg}
+  status: beta              # celé město (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém LGV)
+  boundary: countries/de_hh.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [53.39, 8.42, 53.97, 10.33]
+  green: photo              # bDOM ze snímků: zrnitost porostu slabší, zeleň jen základní
+  elevation: de_hh          # DGM1 2022 + bDOM 2022 po 1 km z ZIPů celého města čtených po rozsazích (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Namensnennung 2.0, Quellenvermerk „Freie und Hansestadt Hamburg, Landesbetrieb
+  # Geoinformation und Vermessung (LGV)“ (Transparenzportal Hamburg, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · FHH, LGV · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and bDOM, Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV), dl-de/by-2-0 (Daten geändert)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
+DE-HB:
+  name: {cs: Německo – Brémy, en: Germany – Bremen, de: Deutschland – Bremen}
+  status: beta              # Brémy a Bremerhaven (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém GeoInformation Bremen)
+  boundary: countries/de_hb.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [53.01, 8.48, 53.61, 9.00]
+  elevation: de_hb          # DGM1 + DOM1 (Brémy 2017, Bremerhaven 2015) po 1 km z ZIPů XYZ čtených po rozsazích (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Creative Commons Namensnennung 4.0 International, Quellenvermerk „Landesamt GeoInformation Bremen“
+  # (metadata ATKIS DGM1 Land Bremen, Fees WMS DOP, ověřeno 2026-11-19).
+  citation: "Base map: Omapic · Landesamt GeoInformation Bremen · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, © Landesamt GeoInformation Bremen (CC BY 4.0), processed."
+    - "Orthophoto DOP10: © Landesamt GeoInformation Bremen (CC BY 4.0)."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 PL:
   name: {cs: Polsko, en: Poland, pl: Polska}
   status: beta              # celé Polsko (2026-11-16); kresba z OSM

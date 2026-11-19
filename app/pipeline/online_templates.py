@@ -687,6 +687,7 @@ ONLINE_LABELS_EN = {
     "de_he_dop": "DOP20 Hessen (orthophoto)",
     "de_he_dtk": "DTK25 Hessen (topographic map 1 : 25 000)",
     "de_sl_dop": "DOP20 Saarland (orthophoto)",
+    "de_hb_dop": "DOP10 Bremen (orthophoto)",
 }
 
 
