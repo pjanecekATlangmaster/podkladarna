@@ -3050,23 +3050,27 @@ sources:
   kinds:
   - technical_map
   - buildings
-  name: GeoDanmark / FOT – Fælles Offentlig Topografisk (GeoDanmark Vektor WFS)
-  provider: GeoDanmark (obce + Klimadatastyrelsen)
-  url: https://wfs.datafordeler.dk/GEODKV/GEODKV_WFS/1.0.0/WFS?service=WFS&version=2.0.0&request=GetCapabilities
-  info: https://dataforsyningen.dk/data/3563
+  name: GeoDanmark (GeoDanmark Vektor WFS GEODKV)
+  provider: GeoDanmark (obce + Klimadatastyrelsen) / Datafordeleren
+  url: https://wfs.datafordeler.dk/GEODKV/GEODKV_WFS/1.0.0/WFS
+  info: https://www.geodanmark.dk/home/vejledninger/vilkaar-for-data-anvendelse/
   role: kresba
-  status: candidate
+  status: used
+  code: app/pipeline/geodanmark_dk.py
+  provider_key: dk_geodanmark
+  probe: dk_geodanmark
   license:
     class: public
     name: CC BY 4.0 (GeoDanmark)
     url: https://www.geodanmark.dk/home/vejledninger/vilkaar-for-data-anvendelse/
-    attribution: '@geodanmark (CC BY 4.0, odkaz na podmínky)'
+    attribution: GeoDanmark (CC BY 4.0)
   access: api_key
-  checked: 'opencode: 2026-11-16 WFS GetCapabilities URL + podmínky GeoDanmark + KDS „CC BY 4.0 gælder for GeoDanmark“ – Claude
-    neověřil'
+  checked: '2026-11-19 Claude: GetCapabilities a GetFeature s klíčem z cloudu (typeNames geodkv_v001:<vrstva>_current,
+    outputFormat=application/json funguje, EPSG:25832, CountDefault 10 000), podmínky KDS „CC BY 4.0 gælder for GeoDanmark“'
   issues:
-  - Bounding Box max. 10 km² na dotaz – výřez 25 km² rozdělit; jinak plně automatické.
-  - Některé FKB-like sady (Højdekurver Fildownload) mají 65–400 GB soubory.
+  - Silnice nejsou plochy, jen okraje (vejkant) a osy (vejmidte) – vozovka se skládá z kolmých řezů; chodníky zatím ne.
+  - hegn bez typu (hegnstype „Ikke tildelt“), v centru Aarhusu ~1 000 plotů na km².
+  - Klíč jen z DK_DATAFORDELER_API_KEY; GetCapabilities klíč ozvěnou vrací.
 
 - id: no_hoydedata_dtm
   countries:

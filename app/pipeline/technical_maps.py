@@ -83,6 +83,14 @@ FOREIGN: dict[str, TechnicalMap] = {
         content="budovy, uliční prostor, vozovky a chodníky (Brusel z UrbIS, i parkování v ulici)",
         module="app.pipeline.grb_be",
     ),
+    "dk_geodanmark": TechnicalMap(
+        key="dk_geodanmark",
+        short="GeoDanmark",
+        step="data GeoDanmark",
+        background="Data GeoDanmark (Datafordeler)",
+        content="budovy, vozovky z okrajů silnic, parkoviště, ploty",
+        module="app.pipeline.geodanmark_dk",
+    ),
     "sk_zbgis": TechnicalMap(
         key="sk_zbgis",
         short="ZBGIS",

@@ -450,12 +450,13 @@ DK:
   boundary: countries/dk.geojson  # GISCO 1 : 1 M (© EuroGeographics), +550 m, zjednodušeno 250 m, ostrovy od 1,5 km²
   view: [54.55, 8.07, 57.76, 15.2]
   elevation: dk_dhm         # DHM/Terræn + DHM/Overflade (lidar, 0,4 m) z WCS Datafordeleru po 1 m, výšky DVR90; API klíč jen z prostředí
-  technical_map: none       # GeoDanmark (WFS Datafordeleru) zatím nenapojený, kresba z OSM
+  technical_map: dk_geodanmark  # GeoDanmark z WFS Datafordeleru: budovy, vozovky z okrajů silnic, parkoviště, ploty
   cz_sources: false
   green: leafoff            # DHM je jarní lidar bez listí: bukový les vycházel jako louka (Dyrehaven 2026-11-19), les z OSM bílý
   # Licence: volná geodata Klimadatastyrelsen CC BY 4.0 (od 16. 5. 2024 i komerčně), uvést „Klimadatastyrelsen“ (ověřeno 2026-11-19).
   citation: "Base map: Omapic · Klimadatastyrelsen · GeoDanmark · OSM, [year]"
   attribution:
     - "Elevation: Danmarks Højdemodel (DHM/Terræn, DHM/Overflade), Klimadatastyrelsen via Datafordeleren (CC BY 4.0), processed."
+    - "GeoDanmark buildings, road edges, parking and fences: GeoDanmark (CC BY 4.0), processed."
     - "Sprint paved areas partly derived from GeoDanmark orthophoto (spring), Klimadatastyrelsen / GeoDanmark (CC BY 4.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."
