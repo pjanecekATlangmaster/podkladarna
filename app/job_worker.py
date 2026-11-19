@@ -73,9 +73,14 @@ def _mail_already_sent(job_id: str, prefix: str = _MAIL_SENT_PREFIX) -> bool:
 
 
 def _notify_private_job(job_id: str) -> None:
-    """Po úspěchu pošle e-mail s privátním odkazem (best-effort)."""
+    """Po úspěchu pošle e-mail s privátním odkazem (best-effort); texty jako na doméně zadání (Omapic)."""
     # reveal_artifacts=True jen pro sestavení mailu (flags existence na disku).
     job = db.get_job(job_id, reveal_artifacts=True)
+    with i18n.site_context(i18n.site_of_options(job.get("options"))):
+        _send_private_ready_mail(job_id, job)
+
+
+def _send_private_ready_mail(job_id: str, job: dict) -> None:
     if not db.job_is_private(job):
         return
     if (job.get("options") or {}).get("order_id"):
@@ -86,7 +91,7 @@ def _notify_private_job(job_id: str) -> None:
         return
     email = str((job.get("options") or {}).get("notify_email") or "").strip()
     if not email:
-        if not (job.get("options") or {}).get("api_client"):
+        if not ((job.get("options") or {}).get("api_client") or (job.get("options") or {}).get("sample")):
             db.append_log(job_id, "Privátní job bez e-mailu – odkaz neodeslán.")
         return
     token = _job_token(job_id)
@@ -243,11 +248,12 @@ def notify_private_failure(job_id: str) -> None:
             details = _operator_failure_details(job_id) if own_job else None
             # Zadavateli v jeho jazyce; kopie provozovateli (i vlastní job provozovatele) česky.
             user_lang = i18n.SOURCE_LANG if own_job else _job_lang(job.get("options"))
-            subject, body = build_private_failed_email(**common, operator_details=details, lang=user_lang)
+            # Zadavateli jako na doméně zadání (česky z Omapicu = Omapic); kopie provozovateli beze změny.
+            with i18n.site_context(None if own_job else i18n.site_of_options(job.get("options"))):
+                subject, body = build_private_failed_email(**common, operator_details=details, lang=user_lang)
+                from_name = sender_name(user_lang)
             try:
-                send_mail(
-                    email, subject, body, attachments=log_files if own_job else None, from_name=sender_name(user_lang)
-                )
+                send_mail(email, subject, body, attachments=log_files if own_job else None, from_name=from_name)
                 db.append_log(job_id, f"{_FAIL_MAIL_SENT_PREFIX} na {email}.")
             except MailError as exc:
                 db.append_log(job_id, f"CHYBA odeslání e-mailu o chybě: {exc}")
@@ -324,6 +330,16 @@ def _trim_order_work(job_id: str) -> None:
         logger.exception("Úklid mezivýsledků objednávky %s selhal", job_id)
 
 
+def _failure_summary_for(job_id: str, technical: str, lang: str) -> str:
+    """Souhrn chyby pro web a e-mail jako na doméně zadání (česky z Omapicu bez „Petrovi“)."""
+    try:
+        options = db.get_job(job_id).get("options")
+    except Exception:  # noqa: BLE001 – souhrn chyby nesmí shodit zápis stavu
+        options = None
+    with i18n.site_context(i18n.site_of_options(options)):
+        return failure_summary(technical, lang)
+
+
 def run_job(job_id: str) -> int:
     """Běh jobu; vlastní data zadavatele (``app.user_sources``) se po něm vždy smažou."""
     try:
@@ -393,7 +409,7 @@ def _run_job(job_id: str) -> int:
                 job_id,
                 status="failed",
                 phase="error",
-                error=failure_summary(technical, job_lang),
+                error=_failure_summary_for(job_id, technical, job_lang),
             )
         except Exception:
             logger.exception("Zápis stavu failed jobu %s selhal", job_id)

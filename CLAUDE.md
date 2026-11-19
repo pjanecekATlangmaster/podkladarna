@@ -513,6 +513,13 @@ Ruční test po deployi (job s testovacími daty, preset např. Sprint, stažen�
   jobu do běžné cache `cache/sk_zbgis/{bu,tn}` (Petr: ne do `static`, data se mění), hlavička se ověří po 30 dnech, nepoužitá cache
   se smaže po `SK_ZBGIS_CACHE_MAX_AGE_DAYS` (90) a patří do úklidu při plném disku. Výřez přes rtree GeoPackage: budovy (ne zbořené
   a chátrající) a osy silnic se šířkou rozšířené na vozovku (`roads`, ne polní cesty); ploty, chodníky a zahrady kreslí OSM.
+- **Ukázkové ZIPy se přegenerují na serveru** (3.90.0, Petr 2026-11-19, `app/samples_refresh.py`, seznam `configs/samples.yaml`):
+  po změně minor verze, po `SAMPLES_REFRESH_MAX_AGE_DAYS` (30) nebo na žádost `docker exec podkladarna python -m app.samples_refresh`
+  (`--status` jen stav) server založí joby ukázek po jednom sám sobě přes `POST /api/jobs` (interní token `DATA_ROOT/.samples_token`,
+  jen z loopbacku; `options.sample`: soukromý, bez e-mailu, limitů, dedupu, statistik a kalibrace). Jen na volném serveru: v okně
+  `SAMPLES_REFRESH_HOURS` (1-5, Europe/Prague) hned, přes den po `SAMPLES_REFRESH_IDLE_MIN` (60) min bez nového jobu. ZIP a popisek
+  v `samples.json` se vymění atomicky jen po `done` ve správném jazyce a u `dtm: true` s balíky DTM; jinak zůstane stará ukázka,
+  další pokus za den, nejvýš 3 za kolo. Stav `DATA_ROOT/samples/.refresh_state.json`, vypínač `SAMPLES_REFRESH=0`.
 - **Dětská hřiště z OSM se z DTM zeleně nevystřihují** (`DTM_GREEN_KEEP_KINDS`); parkoviště a pěší zóny ano.
 - **Generalizace v lese a MTBO (2.46.3, Petr Retest 6 2026-10-28, kiosek u Lidlu):** budova pod 0,25 mm² mapy (`BUILDING_MIN_AREA_MM2`,
   25 m² v 1:10 000) je bod 521.3 „Budova (minimální velikost)“ (`small_buildings_as_points`); plochy sítě zpevněných ploch

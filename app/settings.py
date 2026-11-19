@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.89.6"
+APP_VERSION = "3.90.2"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -236,6 +236,17 @@ PRIVATE_JOB_RETENTION_HOURS = int(
 USER_SOURCES_ENABLED = os.environ.get("USER_SOURCES", "0").strip().lower() in ("1", "true", "yes", "on")
 # Strop obou nahraných GeoTIFFů dohromady v MB (Cloudflare zdarma propustí tělo požadavku do 100 MB).
 USER_SOURCE_MAX_MB = int(os.environ.get("USER_SOURCE_MAX_MB", "95"))
+# Ukázkové ZIPy (``SAMPLES_DIR``) se přegenerují na serveru samy (app.samples_refresh, Petr 2026-11-19):
+# po změně minor verze nebo po SAMPLES_REFRESH_MAX_AGE_DAYS, jen když server nepočítá. V nočním okně
+# SAMPLES_REFRESH_HOURS (místní čas, „od-do“) hned, přes den až po SAMPLES_REFRESH_IDLE_MIN minutách bez
+# nového jobu (0 = jen v noci). SAMPLES_REFRESH=0 vypne.
+SAMPLES_REFRESH = os.environ.get("SAMPLES_REFRESH", "1").strip().lower() not in {"0", "false", "off", "no"}
+SAMPLES_REFRESH_HOURS = os.environ.get("SAMPLES_REFRESH_HOURS", "1-5").strip()
+SAMPLES_REFRESH_IDLE_MIN = int(os.environ.get("SAMPLES_REFRESH_IDLE_MIN", "60"))
+SAMPLES_REFRESH_MAX_AGE_DAYS = int(os.environ.get("SAMPLES_REFRESH_MAX_AGE_DAYS", "30"))
+SAMPLES_REFRESH_TZ = os.environ.get("SAMPLES_REFRESH_TZ", "Europe/Prague").strip()
+# Joby ukázek zakládá server sám sobě přes POST /api/jobs (stejné volby jako z webu).
+SAMPLES_REFRESH_URL = os.environ.get("SAMPLES_REFRESH_URL", "http://127.0.0.1:8672").rstrip("/")
 # Interní statistika původu jobů (tabulka job_origin, nikde nevystavená): retence ve dnech.
 ORIGIN_RETENTION_DAYS = int(os.environ.get("ORIGIN_RETENTION_DAYS", "365"))
 # Prodej map na doméně v režimu paid (app.orders, app.payments; návrh platby-navrh.md).
