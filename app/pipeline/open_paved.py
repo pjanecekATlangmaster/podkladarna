@@ -51,6 +51,8 @@ ORTHO_RETRY_WAIT_S = 5.0
 # Platné ortofoto: černá (mimo snímek) a bílá (prázdná dlaždice) se nepočítají; pod tento podíl výřezu nic.
 ORTHO_MIN_VALID_SHARE = 0.5
 # Ortofoto klíč online šablony podle země (``online_templates``); Rakousko jen dlaždice basemap.at (TMS).
+# Ortofoto jen přes API klíč (není online šablona): země → modul s ``fetch_ortho`` a ``redact``.
+DIRECT_ORTHO = {"DK": "app.pipeline.reference_dk"}
 ORTHO_KEYS = {
     "AT": "at_ortho",
     "BE": "be_ortho",
@@ -186,6 +188,8 @@ def fetch_ortho(work_dir: Path, bounds, *, log=None, deadline_s: float = ORTHO_D
         if log:
             log(f"ortofoto přeskočeno: výřez je příliš velký ({width}×{height} px)")
         return None
+    if country in DIRECT_ORTHO:
+        return _fetch_direct_ortho(country, dest, meta_path, want, grid, width, height, log=log)
     xml = ortho_source_xml(country, grid)
     if xml is None:
         if log:
@@ -220,6 +224,31 @@ def fetch_ortho(work_dir: Path, bounds, *, log=None, deadline_s: float = ORTHO_D
             if log:
                 log("ortofoto přeskočeno: " + (f"stahování přes {deadline_s:.0f} s" if late else f"{exc}".strip()[:160]))
             return None
+    tmp.replace(dest)
+    meta_path.write_text(json.dumps(want), encoding="utf-8")
+    if log:
+        log(f"ortofoto země {width}×{height} px za {time.monotonic() - started:.0f} s")
+    return dest
+
+
+def _fetch_direct_ortho(country: str, dest: Path, meta_path: Path, want: dict, grid, width: int, height: int,
+                        *, log=None) -> Path | None:
+    """Ortofoto služby s API klíčem (``DIRECT_ORTHO``): stáhne ho modul země sám, bez XML zdroje GDAL ve work/."""
+    import importlib
+
+    from app.pipeline.crs_5514 import CRS_WKT
+
+    module = importlib.import_module(DIRECT_ORTHO[country])
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(f"_tmp_{os.getpid()}_{threading.get_ident()}_ortofoto.tif")
+    started = time.monotonic()
+    try:
+        module.fetch_ortho(tmp, grid, width, height, CRS_WKT)
+    except Exception as exc:  # noqa: BLE001 – bez ortofota sprint beze změny
+        tmp.unlink(missing_ok=True)
+        if log:
+            log("ortofoto přeskočeno: " + module.redact(f"{exc}".strip())[:160])
+        return None
     tmp.replace(dest)
     meta_path.write_text(json.dumps(want), encoding="utf-8")
     if log:

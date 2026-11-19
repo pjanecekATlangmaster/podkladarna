@@ -1373,6 +1373,7 @@ const BUILD_STEP_LABELS = {
   "data ZBGIS": t("web.js.step.zbgis"),
   "data GRB": t("web.js.step.grb"),
   "data YLRE": t("web.js.step.ylre"),
+  "data GeoDanmark": t("web.js.step.geodanmark"),
   "polohopis a vegetace": t("web.js.step.map_planimetry"),
   "silnice a cesty": t("web.js.step.map_roads"),
   "ploty, budovy a oliva": t("web.js.step.map_fences"),
@@ -1423,6 +1424,7 @@ const BACKGROUND_KEYS = {
   "Data ZBGIS (ÚGKK SR)": "sk_zbgis",
   "Data GRB (Digitaal Vlaanderen)": "be_grb",
   "Data YLRE (Helsingin kaupunki)": "fi_hel",
+  "Data GeoDanmark (Datafordeler)": "dk_geodanmark",
 };
 
 function backgroundLabel(name) {
@@ -1469,6 +1471,7 @@ const BUILD_SOURCE_LABELS = {
   sk_zbgis: t("web.js.source.sk_zbgis"),
   be_grb: t("web.js.source.be_grb"),
   fi_hel: t("web.js.source.fi_hel"),
+  dk_geodanmark: t("web.js.source.dk_geodanmark"),
   ruian: t("web.js.source.ruian"),
   aopk: t("web.js.source.aopk"),
   katastr: t("web.js.source.katastr"),
