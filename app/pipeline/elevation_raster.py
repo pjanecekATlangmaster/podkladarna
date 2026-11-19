@@ -714,7 +714,7 @@ def de_wcs_tile_urls(key: str, kind: str, bounds_utm: tuple[float, float, float,
     st = DE_WCS_STATES[key]
     service = st.dtm if kind == "dtm" else st.dsm
     boxes = tile_boxes(bounds_utm, max_side=DE_WCS_MAX_SIDE_M, buffer=DE_WCS_BUFFER_M, step=1.0)
-    return [wcs_coverage_url(service, b) for b in boxes]
+    return [wcs_coverage_url(service, b, st.axes) for b in boxes]
 
 
 def de_wcs_provider(key: str) -> Provider:
@@ -2226,6 +2226,7 @@ SOURCE_LABELS = {
     "de_rp": "DGM1 a DOM1, LVermGeo Rheinland-Pfalz",
     "de_bw": "DGM1 a nDOM1, LGL Baden-Württemberg",
     "de_sn": "DGM1 a DOM1, GeoSN Sachsen",
+    "de_he": "DGM1 a DOM1, HVBG Hessen",
 }
 
 

@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
         ("DE-BB", ["photo"]),
         ("DE-BW", ["photo"]),
         ("DE-SN", []),
+        ("DE-HE", []),
         ("LU", []),
         ("NL", []),
     ],

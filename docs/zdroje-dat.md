@@ -28,6 +28,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-RP Německo – Porýní-Falc | beta | `de_rp` | `none` | 2 | 2 |
 | DE-BW Německo – Bádensko-Württembersko | beta | `de_bw` | `none` | 2 | 2 |
 | DE-SN Německo – Sasko | beta | `de_sn` | `none` | 2 | 2 |
+| DE-HE Německo – Hesensko | beta | `de_he` | `none` | 2 | 1 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -209,6 +210,15 @@ Stav `beta`, CRS `EPSG:25833`. Citace v mapě: „Base map: Omapic · Quelle: Ge
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS) Sasko, ZIP po 2 km s GeoTIFF**<br>Landesamt für Geobasisinformation Sachsen (GeoSN)<br><https://geocloud.landesvermessung.sachsen.de/public.php/dav/files/JCcXyifaNdLDnxZ/dgm1_33410_5656_2_sn_tiff.zip> · [info](https://www.geodaten.sachsen.de/batch-download-4719.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Quelle: GeoSN, dl-de/by-2-0“ | volný | napojeno (výšky)<br>sonda `de_sn_elevation` | • GeoCloud na HEAD vrací 401, sonda proto čte GET (jen prvních 64 kB).<br>• Adresy dlaždic jsou veřejná sdílení GeoCloud z konfigurace stránky Batch-Download; při změně sdílení je potřeba je obnovit.<br>• Dlaždice se drží v cache de_sn/<E>_<N>; první job v oblasti stahuje ~28 MB na 4 km². | Claude 2026-11-19: Batch-Download GeoSN (sdílení GeoCloud DGM1_TIFF_2km / DOM1_TIFF_2km), ZIP dgm1_33410_5656_2_sn_tiff (13 MB) a dom1_… (15 MB), jeden GeoTIFF Float32 EPSG:25833 1 m, mřížka 2 km E i N sudé, Aktualität 2024-11-30; Allgemeine Nutzungsbedingungen GeoSN: dl-de/by-2.0, Quellenvermerk „GeoSN“ |
 | ortofoto | **Ortofoto DOP20 (WMS GeoSN)**<br>Landesamt für Geobasisinformation Sachsen (GeoSN)<br><https://geodienste.sachsen.de/wms_geosn_dop-rgb/guest> · [info](https://www.geodaten.sachsen.de/) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „Quelle: GeoSN, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_sn_dop` | • DTK webové služby GeoSN končí (nahrazuje je basemap), topografická šablona se proto nepřidává. | Claude 2026-11-19: GetCapabilities (vrstva sn_dop_020), GetMap EPSG:25833 200 image/jpeg |
+
+## DE-HE – Německo – Hesensko
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · Geobasisdaten © HVBG · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM), výška porostu | **DGM1 a DOM1 (ALS) Hesensko, INSPIRE WCS 2.0.1**<br>Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)<br><https://inspire-hessen.de/raster/dgm1/ows> · [info](https://hvbg.hessen.de/geoinformation/geodateninfrastruktur/geoportal-hessen/inspire-standardisierte-geodatendienste) | 🟢 public – [Datenlizenz Deutschland – Zero 2.0](https://www.govdata.de/dl-de/zero-2-0)<br>citace: „Geobasisdaten © HVBG, dl-de/zero-2-0 (zdroj s upozorněním na změny, § 18 HVGG)“ | volný | napojeno (výšky)<br>sonda `de_he_elevation` | • Osy WCS se jmenují E / N (ne x / y), proto DeWcsState.axes. | Claude 2026-11-19: GetCapabilities a DescribeCoverage he_dgm1 / dom1 (EPSG:25832, osy E N, rozsah 411000 5471000 – 587000 5724000, Fees dl-de/zero-2.0), GetCoverage 2 × 2 km 200 image/tiff 16 MB za 2 s, 2000 × 2000 px Float32, hrany na celé metry; DOM1 z ALS (Produktblatt Oberflächenmodelle HVBG) |
+| ortofoto, mapa | **Ortofoto DOP20 a DTK25 (WMS HVBG ogc-free)**<br>Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG)<br><https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows> · [info](https://www.gds.hessen.de/) | 🟢 public – [Nutzung ohne Einschränkung (§ 18 HVGG)](https://www.gds.hessen.de/)<br>citace: „© HVBG“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_he_dop` | – | Claude 2026-11-19: GetCapabilities ogc-free-images (he_dop20_rgb) a ogc-free-maps (he_dtk25), AccessConstraints „ohne Einschränkung oder Bedingung“, GetMap EPSG:25832 200 |
 
 ## PL – Polsko
 

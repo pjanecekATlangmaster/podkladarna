@@ -684,6 +684,8 @@ ONLINE_LABELS_EN = {
     "de_rp_dtk": "DTK25 Rheinland-Pfalz (topographic map 1 : 25 000)",
     "de_bw_dop": "DOP20 Baden-Württemberg (orthophoto)",
     "de_sn_dop": "DOP20 Sachsen (orthophoto)",
+    "de_he_dop": "DOP20 Hessen (orthophoto)",
+    "de_he_dtk": "DTK25 Hessen (topographic map 1 : 25 000)",
 }
 
 

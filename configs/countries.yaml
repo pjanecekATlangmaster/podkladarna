@@ -250,6 +250,22 @@ DE-SN:
     - "Elevation: DGM1 and DOM1, Quelle: GeoSN, dl-de/by-2-0 (Daten geändert)."
     - "Orthophoto DOP20: Quelle: GeoSN, dl-de/by-2-0."
     - "OSM © OpenStreetMap contributors (ODbL)."
+DE-HE:
+  name: {cs: Německo – Hesensko, en: Germany – Hesse, de: Deutschland – Hessen}
+  status: beta              # celá spolková země (2026-11-19); kresba z OSM
+  crs: EPSG:25832           # ETRS89 / UTM 32N (nativní systém HVBG)
+  boundary: countries/de_he.geojson  # BKG VG250 Länder (dl-de/by-2.0), +300 m
+  view: [49.39, 7.77, 51.66, 10.24]
+  elevation: de_he          # DGM1 + DOM1 (ALS) z INSPIRE WCS HVBG (app/pipeline/reference_de_states.py)
+  technical_map: none       # ALKIS je, kresba zatím z OSM
+  cz_sources: false
+  # Licence: Datenlizenz Deutschland – Zero 2.0 (WCS DGM1/DOM1), WMS „ohne Einschränkung oder Bedingung“; při uvedení
+  # zdroje upozornit na změny (§ 18 HVGG). Ověřeno 2026-11-19.
+  citation: "Base map: Omapic · Geobasisdaten © HVBG · OSM, [year]"
+  attribution:
+    - "Elevation: DGM1 and DOM1, Geobasisdaten © Hessische Verwaltung für Bodenmanagement und Geoinformation (HVBG), dl-de/zero-2-0 (Daten geändert)."
+    - "Orthophoto DOP20 and DTK25: © HVBG."
+    - "OSM © OpenStreetMap contributors (ODbL)."
 PL:
   name: {cs: Polsko, en: Poland, pl: Polska}
   status: beta              # celé Polsko (2026-11-16); kresba z OSM

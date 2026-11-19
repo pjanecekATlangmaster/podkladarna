@@ -122,6 +122,7 @@ def test_sk_beta_only_with_local_data(tmp_path, monkeypatch, with_data):
         ({"country": "DE-RP"}, False, "de_rp"),
         ({"country": "DE-BW"}, False, "de_bw"),
         ({"country": "DE-SN"}, False, "de_sn"),
+        ({"country": "DE-HE"}, False, "de_he"),
         ({"country": "XX"}, False, "none"),
     ],
 )
@@ -359,6 +360,7 @@ def test_process_country_gates_cuzk_orthophoto(tmp_path, monkeypatch):
         ("DE-RP", ("©GeoBasis-DE / LVermGeoRP (20", "dl-de/by-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "[data year]", "LGB")),
         ("DE-BW", ("Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "LVermGeoRP")),
         ("DE-SN", ("Quelle: GeoSN, dl-de/by-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "LGL")),
+        ("DE-HE", ("HVBG", "dl-de/zero-2-0", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GeoSN")),
         ("GB-ENG", ("© Environment Agency copyright and/or database right 2022", "OpenStreetMap contributors (ODbL)"), ("ČÚZK", "GUGiK")),
     ],
 )
@@ -457,6 +459,8 @@ def test_job_crs_from_env_and_worker(monkeypatch):
          "online_de_bw_dop", "owsproxy.lgl-bw.de", "IMAGES_DOP_20_RGB"),
         ("DE-SN", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_sn_dop"},
          "online_de_sn_dop", "geodienste.sachsen.de", "sn_dop_020"),
+        ("DE-HE", (-625000.0, -1200000.0, -624000.0, -1199000.0), {"online_de_he_dop", "online_de_he_dtk"},
+         "online_de_he_dop", "gds-srv.hessen.de", "he_dop20_rgb"),
     ],
 )
 def test_foreign_online_templates(tmp_path, monkeypatch, country, bounds, keys, ortho, host, layer):
