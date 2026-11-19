@@ -1,5 +1,5 @@
 """Německé spolkové země s výškami z WCS 2.0.1 (zahraniční build): Sasko-Anhaltsko, Meklenbursko-Přední Pomořansko,
-Dolní Sasko a Braniborsko.
+Dolní Sasko, Braniborsko a Porýní-Falc (dlaždice 1 km podle indexu Metalink místo WCS).
 
 Jedna tabulka ``DE_WCS_STATES`` (klíč = ``elevation`` v ``configs/countries.yaml``): terén DGM1 a povrch DOM1 po 1 m
 z WCS zemského geodetického úřadu, bez klíče, v nativním UTM země; šablony WMS (ortofoto, topografická mapa).
@@ -20,10 +20,11 @@ class DeWcsState:
     code: str                    # kód v countries.yaml (DE-ST …)
     name: str                    # česky do logu
     crs: str                     # nativní CRS služby (osy východ–sever)
-    dtm: tuple[str, str]         # (URL WCS, COVERAGEID) terénu DGM1
-    dsm: tuple[str, str]         # (URL WCS, COVERAGEID) povrchu DOM1
+    dtm: tuple[str, str]         # (URL WCS, COVERAGEID) terénu DGM1; u ``meta4`` (URL indexu Metalink, předpona souboru)
+    dsm: tuple[str, str]         # totéž pro povrch DOM1
     probe_box: tuple[float, float, float, float]  # malý výřez pro sondu stavu (16 × 16 m)
     wms: tuple[tuple[str, str, str, str, str, str, bool, float], ...] = ()  # šablony jako ``online_templates``
+    tiles: str = "wcs"           # wcs = GetCoverage po 2 km | meta4 = GeoTIFF po 1 km podle indexu Metalink
 
 
 ST_WCS = "https://www.geodatenportal.sachsen-anhalt.de"
@@ -36,6 +37,8 @@ MV_DIENSTE = "https://www.geodaten-mv.de/dienste"
 NI_WCS = "https://opendata.geoservices.lgln.niedersachsen.de"
 NI_WMS = "https://opendata.lgln.niedersachsen.de/doorman/noauth"
 BB_OWS = "https://isk.geobasis-bb.de"
+RP_DATA = "https://geobasis-rlp.de/data"
+RP_WMS = "https://geo4.service24.rlp.de/wms"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -101,6 +104,24 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
              "bebb_dop20c", "image/jpeg", False, 0.2),
         ),
     ),
+    # Porýní-Falc (LVermGeo RP): dl-de/by-2.0, citace „©GeoBasis-DE / LVermGeoRP (rok), dl-de/by-2-0“ (Fees WMS).
+    # WCS ne: DGM1 a DOM1 (ALS) jako GeoTIFF po 1 km (EPSG:25832, název s rokem náletu) – index Metalink
+    # ``…/current/meta4/*.meta4`` (~12 MB) se drží v cache a obnovuje po týdnu (``elevation_raster.rp_tile_index``).
+    "de_rp": DeWcsState(
+        code="DE-RP",
+        name="Porýní-Falc",
+        crs="EPSG:25832",
+        dtm=(f"{RP_DATA}/dgm1/current/meta4/dgm1_tif_07.meta4", "dgm1"),
+        dsm=(f"{RP_DATA}/dom1/current/meta4/dom1_tif_07.meta4", "dom1"),
+        probe_box=(417000, 5485000, 417016, 5485016),  # Pfälzerwald
+        wms=(
+            ("de_rp_dop", "dop_rlp.xml", "DOP20 Rheinland-Pfalz (ortofoto)", f"{RP_WMS}/rp_dop20.fcgi", "rp_dop20",
+             "image/jpeg", False, 0.2),
+            ("de_rp_dtk", "dtk25_rlp.xml", "DTK25 Rheinland-Pfalz (topografická mapa 1 : 25 000)",
+             f"{RP_WMS}/rp_dtk25.fcgi", "rp_dtk25", "image/png", False, 1.0),
+        ),
+        tiles="meta4",
+    ),
 }
 
 
@@ -122,8 +143,13 @@ def wcs_coverage_url(service: tuple[str, str], box: tuple[float, float, float, f
 
 
 def elevation_probe(key: str) -> str:
+    """Sonda výšek: malý GetCoverage, u ``meta4`` index dlaždic (jen HEAD, ``elevation_probe_method``)."""
     st = DE_WCS_STATES[key]
-    return wcs_coverage_url(st.dtm, st.probe_box)
+    return st.dtm[0] if st.tiles == "meta4" else wcs_coverage_url(st.dtm, st.probe_box)
+
+
+def elevation_probe_method(key: str) -> str:
+    return "HEAD" if DE_WCS_STATES[key].tiles == "meta4" else "GET"
 
 
 def ortho_probe(key: str) -> str:

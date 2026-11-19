@@ -25,6 +25,7 @@ Ověřeno: datum a způsob ověření licence; „neověřeno“ = převzato z p
 | DE-MV Německo – Meklenbursko-Přední Pomořansko | beta | `de_mv` | `none` | 2 | 2 |
 | DE-NI Německo – Dolní Sasko | beta | `de_ni` | `none` | 2 | 2 |
 | DE-BB Německo – Braniborsko | beta | `de_bb` | `none` | 2 | 2 |
+| DE-RP Německo – Porýní-Falc | beta | `de_rp` | `none` | 2 | 2 |
 | PL Polsko | beta | `pl_gugik` | `none` | 5 | 5 |
 | GB-ENG Spojené království – Anglie | beta | `gb_ea` | `none` | 1 | 1 |
 | FR Francie | beta | `fr_lidarhd` | `fr_pdv` | 6 | 5 |
@@ -179,6 +180,15 @@ Stav `beta`, CRS `EPSG:25833`. Citace v mapě: „Base map: Omapic · © GeoBasi
 |---|---|---|---|---|---|---|
 | výšky (DTM/DSM) | **DGM1 a bDOM1 Braniborsko (1 m, povrch ze snímků), WCS 2.0.1**<br>Landesvermessung und Geobasisinformation Brandenburg (LGB)<br><https://isk.geobasis-bb.de/ows/dgm_wcs> · [info](https://www.govdata.de/dl-de/by-2-0) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis-DE/LGB, dl-de/by-2-0 (Daten geändert)“ | volný | napojeno (výšky)<br>sonda `de_bb_elevation` | • Povrch bDOM je ze snímků (bildbasiert) → green: photo, pole s plodinami mohou vyjít jako porost. Laserový nDOM je jen v LAZ (data.geobasis-bb.de/geobasis/daten/ndom/), nenapojeno.<br>• Při použití dat Berlína (WCS pokrývá i Berlín) doplnit „© Geoportal Berlin, dl-de/by-2-0“; výřez v Berlíně ale vybere zemi DE. | Claude 2026-11-18: GetCapabilities dgm_wcs a bdom_wcs (Fees kostenfrei, AccessConstraints dl-de/by-2.0 s Namensnennung GeoBasis-DE/LGB; coverage bb_dgm, bb_bdom, EPSG:25833, 1 m, strop 20 000 px), zkušební dlaždice 2 × 2 km Potsdam 16 MB za 3–9 s, Float32 hodnoty (ne obarvená mapa, i když abstract DGM píše o barevných vrstvách) |
 | ortofoto | **Ortofoto DOP20 Berlín a Braniborsko (WMS LGB, mapproxy)**<br>Landesvermessung und Geobasisinformation Brandenburg (LGB)<br><https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms> · [info](https://www.govdata.de/dl-de/by-2-0) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „© GeoBasis-DE/LGB, dl-de/by-2-0“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_bb_dop` | • Topografická mapa DTK jako WMS na isk.geobasis-bb.de nenalezena (dtk25_wms, dtk_wms 404). | Claude 2026-11-18: GetCapabilities (vrstva bebb_dop20c, EPSG:25833, AccessConstraints dl-de/by-2.0), GetMap JPEG OK |
+
+## DE-RP – Německo – Porýní-Falc
+
+Stav `beta`, CRS `EPSG:25832`. Citace v mapě: „Base map: Omapic · ©GeoBasis-DE / LVermGeoRP · OSM, [year]“.
+
+| Druh dat | Zdroj a server | Licence | Přístup | Stav | Problémy a poznámky | Ověřeno |
+|---|---|---|---|---|---|---|
+| výšky (DTM/DSM) | **DGM1 a DOM1 Porýní-Falc (ALS, 1 m), GeoTIFF po 1 km podle indexu Metalink**<br>Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)<br><https://geobasis-rlp.de/data/dgm1/current/meta4/dgm1_tif_07.meta4> · [info](https://geoshop.rlp.de/dl-de_by-2-0.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „©GeoBasis-DE / LVermGeoRP (rok odběru), dl-de/by-2-0, http://www.lvermgeo.rlp.de [Daten bearbeitet]“ | volný | napojeno (výšky)<br>sonda `de_rp_elevation` | • WCS DGM (rp_dgm1.fcgi) vyžaduje přihlášení (401) – proto dlaždice. Názvy dlaždic nesou rok náletu a mění se, index se drží v cache a obnovuje po týdnu; sonda dělá HEAD na index. | Claude 2026-11-18: index Metalink dgm1 (12 MB) a dom1 (9 MB), 21 108 dlaždic po 1 km s rokem náletu 2023–2026 v názvu, GeoTIFF 1000 × 1000 Float32 EPSG:25832 + DHHN2016, NoData −9999, 1,5–1,8 MB; licence z Fees WMS rp_dop20 a odkazu Nutzungsbedingungen na geobasis-rlp.de/data |
+| ortofoto, mapa | **Ortofoto DOP20 a topografická mapa DTK25 (WMS LVermGeo RP)**<br>Landesamt für Vermessung und Geobasisinformation Rheinland-Pfalz (LVermGeo RP)<br><https://geo4.service24.rlp.de/wms/rp_dop20.fcgi> · [info](https://geoshop.rlp.de/dl-de_by-2-0.html) | 🟢 public – [Datenlizenz Deutschland – Namensnennung 2.0](https://www.govdata.de/dl-de/by-2-0)<br>citace: „©GeoBasis-DE / LVermGeoRP (rok), dl-de/by-2-0, http://www.lvermgeo.rlp.de“ | volný | napojeno (šablona)<br>obrázek v ZIPu: ✅ ano<br>sonda `de_rp_dop` | • DTK5 WMS vrací 403; použita DTK25. | Claude 2026-11-18: GetCapabilities rp_dop20.fcgi (vrstva rp_dop20, Fees dl-de/by-2.0) a rp_dtk25.fcgi (rp_dtk25), GetMap EPSG:25832 OK |
 
 ## PL – Polsko
 
