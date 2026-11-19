@@ -949,6 +949,54 @@ def test_small_paved_parts_are_separate_501_0_areas(tmp_path):
     assert di.build_dtm_small_paved_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
 
 
+@pytest.mark.parametrize("surface, kept", [("1", True), ("2", True), ("3", True), ("99", True), ("", True), ("6", False), ("7", False)])
+def test_driveways_sprint_only_paved_501_0_without_roads(tmp_path, monkeypatch, surface, kept):
+    """Nájezd z DTM (Chvaletice, Petr 2026-11-19): jen zpevněný povrch, ve sprintu 501.0 mimo plochu silnice, les a MTBO nic."""
+    from app.pipeline.jvf_reader import JvfRecord
+
+    rec = JvfRecord(
+        type_name="NajezdPlocha", attrs={"PrevazujiciPovrch": surface}, geom_type="Polygon", coords=[_rect(0, 0, 20, 8)[0]]
+    )
+    monkeypatch.setattr(ds, "iter_records", lambda zip_path, types: [rec] if "NajezdPlocha" in types else [])
+    zp = tmp_path / "a.zip"
+    zp.write_bytes(b"")
+    polys = ds.load_driveway_polygons(zp, use_cache=False)
+    assert bool(polys) is kept
+    if not kept:
+        return
+    work = tmp_path / "w"
+    (work / "dtm").mkdir(parents=True)
+    di.driveways_path(work).write_text(json.dumps({"polygons": polys}), encoding="utf-8")
+    di.roads_path(work).write_text(json.dumps({"polygons": [_rect(0, 0, 20, 4)]}), encoding="utf-8")
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    parts = di.build_dtm_driveway_parts(work, **kw)
+    assert [p.name for p in parts] == ["DTM – nájezdy (501.0)"] and parts[0].count == 1
+    assert di.build_dtm_driveway_parts(work, **{**kw, "preset_id": "forest_10000"}) == []
+    assert len(di.dtm_mask_wkbs(work)) == 2  # silnice + nájezd: zbytková zpevněná plocha se pod nájezd nekreslí
+
+
+def test_sprint_sidewalk_rest_has_no_outline_along_merge_cut(tmp_path, monkeypatch):
+    """Chodník za pásem sloučeným se silnicí: podél řezu (8 m od silnice) obě plochy bez obrysu (Chvaletice, Petr 2026-11-19)."""
+    work = tmp_path
+    (work / "dtm").mkdir()
+    di.roads_path(work).write_text(json.dumps({"polygons": [_rect(0, 0, 40, 6)]}), encoding="utf-8")
+    sidewalk = ds.dtm_union([_rect(0, 6, 40, 9), _rect(30, 9, 33, 40)])  # podél silnice + kolmo od ní
+    di.sidewalks_path(work).write_text(
+        json.dumps({"polygons": [[list(sidewalk.exterior.coords)]]}), encoding="utf-8"
+    )
+    calls = []
+    monkeypatch.setattr(di, "_geometry_part", lambda geom, **kw: calls.append((geom, kw.get("edge_omit"))) or [])
+    kw = dict(preset_id="sprint_4000", scale=4000, ref_x=0.0, ref_y=0.0, grivation_deg=0.0)
+    di.build_dtm_road_parts(work, **kw)
+    di.build_dtm_sidewalk_parts(work, **kw)
+    (fill, fill_omit), (rest, rest_omit) = calls
+    cut = 6 + ds.MERGE_SIDEWALK_NEAR_M
+    assert rest.bounds[1] == pytest.approx(cut, abs=0.01)
+    for geom, omit in ((fill, fill_omit), (rest, rest_omit)):
+        assert omit is not None
+        assert geom.boundary.intersection(omit).length == pytest.approx(3.0, abs=0.3)  # jen řez přes chodník
+
+
 def test_steps_keep_only_osm_steps_outside_dtm_stairs_and_sidewalks():
     stair_zone = ds.dtm_union([_rect(10, -1, 12, 1)]).buffer(ds.STAIRS_ZONE_M)
     cover = ds.dtm_union([_rect(0, -1, 40, 1)]).buffer(0.5)  # chodník z DTM
