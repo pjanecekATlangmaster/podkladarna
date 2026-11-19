@@ -454,7 +454,8 @@ DK:
   cz_sources: false
   green: leafoff            # DHM je jarní lidar bez listí: bukový les vycházel jako louka (Dyrehaven 2026-11-19), les z OSM bílý
   # Licence: volná geodata Klimadatastyrelsen CC BY 4.0 (od 16. 5. 2024 i komerčně), uvést „Klimadatastyrelsen“ (ověřeno 2026-11-19).
-  citation: "Base map: Omapic · Klimadatastyrelsen · OSM, [year]"
+  citation: "Base map: Omapic · Klimadatastyrelsen · GeoDanmark · OSM, [year]"
   attribution:
     - "Elevation: Danmarks Højdemodel (DHM/Terræn, DHM/Overflade), Klimadatastyrelsen via Datafordeleren (CC BY 4.0), processed."
+    - "Sprint paved areas partly derived from GeoDanmark orthophoto (spring), Klimadatastyrelsen / GeoDanmark (CC BY 4.0)."
     - "OSM © OpenStreetMap contributors (ODbL)."

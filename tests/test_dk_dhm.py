@@ -102,3 +102,31 @@ def test_probe_fills_key_only_for_request(monkeypatch):
     monkeypatch.delenv(reference_dk.DK_API_KEY_ENV)
     result = source_status.check_probe(probe)
     assert not result["ok"] and reference_dk.DK_API_KEY_ENV in result["detail"]
+
+
+def test_ortho_tiles_cover_grid_with_placeholder_key(monkeypatch):
+    monkeypatch.setenv(reference_dk.DK_API_KEY_ENV, KEY)
+    grid = (574000.0, 6223000.0, 577000.0, 6224000.0)
+    tiles = reference_dk.ortho_tile_urls(grid, 6000, 2000, tile_px=4000)
+    assert [(w, h) for _u, _b, w, h in tiles] == [(4000, 2000), (2000, 2000)]
+    assert tiles[0][1] == (574000.0, 6223000.0, 576000.0, 6224000.0) and tiles[1][1][2] == 577000.0
+    q = _query(tiles[0][0])
+    assert q["LAYERS"] == ["orto_foraar"] and q["CRS"] == ["EPSG:25832"] and q["WIDTH"] == ["4000"]
+    assert all(KEY not in u for u, *_r in tiles)
+
+
+def test_direct_ortho_failure_logged_without_key(tmp_path, monkeypatch):
+    from app.pipeline import open_paved
+
+    monkeypatch.setenv(reference_dk.DK_API_KEY_ENV, KEY)
+
+    def boom(dest, grid, width, height, wkt):
+        raise RuntimeError(f"GDAL: cannot open https://wms.datafordeler.dk/?apikey={KEY}")
+
+    monkeypatch.setattr(reference_dk, "fetch_ortho", boom)
+    lines = []
+    out = open_paved._fetch_direct_ortho(
+        "DK", tmp_path / "ortofoto.tif", tmp_path / "ortofoto.json", {}, (0, 0, 10, 10), 20, 20, log=lines.append
+    )
+    assert out is None and lines and KEY not in lines[0] and "***" in lines[0]
+    assert not list(tmp_path.iterdir())  # žádný dočasný soubor ani metadata

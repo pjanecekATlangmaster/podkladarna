@@ -3021,6 +3021,29 @@ sources:
   - Moře je 0 (ne NoData). Punktsky = 1 km LAZ v ZIP po 10 × 10 km – pro výřez objemově nevhodné, nenapojeno.
   - 30. 11. 2026 změna API URL dle https://dataforsyningen.dk/news/5042 (Dataforsyningen; Datafordeler ověřit).
 
+- id: dk_orto_foraar
+  countries:
+  - DK
+  kinds:
+  - orthophoto
+  name: GeoDanmark ortofoto jaro (orto_foraar) – WMS Datafordeleru
+  provider: Klimadatastyrelsen / GeoDanmark / Datafordeleren
+  url: https://wms.datafordeler.dk/GeoDanmarkOrto/orto_foraar/1.0.0/WMS
+  info: https://datafordeler.dk/dataoversigt/geodanmark-ortofoto/
+  role: kresba
+  status: used
+  code: app/pipeline/reference_dk.py (fetch_ortho), app/pipeline/open_paved.py (DIRECT_ORTHO)
+  license:
+    class: public
+    name: CC BY 4.0 (KDS / GeoDanmark, od 16. 5. 2024)
+    url: https://www.klimadatastyrelsen.dk/om-klimadatastyrelsen/vilkaar-og-priser
+    attribution: GeoDanmark / Klimadatastyrelsen (CC BY 4.0)
+  access: api_key
+  checked: '2026-11-19 Claude: GetCapabilities (vrstva orto_foraar, MaxWidth 10000, EPSG:25832), GetMap JPEG s klíčem z cloudu'
+  issues:
+  - Jen maska zpevněných ploch ve sprintu (stahuje server, 0,5 m); šablona do .omap ani obrázek do ZIPu ne – WMS chce klíč v URL.
+  - Jarní snímek (bez listí); zeleň potvrzuje letní NDVI Sentinel-2.
+
 - id: dk_geodanmark_fot
   countries:
   - DK
