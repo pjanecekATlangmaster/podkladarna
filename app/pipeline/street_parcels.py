@@ -585,7 +585,7 @@ def sprint_street_parcel_part(
             k = 1e6 / scale
             m_ring = [(x / k, y / k) for x, y in g.exterior.coords]
             m_holes = [[(x / k, y / k) for x, y in h.coords] for h in g.interiors]
-            for ring, holes in split_area(m_ring, m_holes, PARCEL_SPLIT_VERTICES):
+            for ring, holes in split_area(m_ring, m_holes, PARCEL_SPLIT_VERTICES, overlap_m=0.05):
                 piece = Polygon([(x * k, y * k) for x, y in ring], [[(x * k, y * k) for x, y in h] for h in holes])
                 for pts in _rounded_pieces(piece):
                     rings = [[(p[0], p[1]) for p in r] for r in _rings(pts)]
