@@ -7,7 +7,7 @@ from app.tool_env import apply_local_gis_env
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = APP_ROOT / "configs"
-APP_VERSION = "3.78.0"
+APP_VERSION = "3.80.0"
 
 # Product defaults for NAS Docker when compose injects empty SMTP_HOST= /
 # PUBLIC_BASE_URL= and host .env never got the SMTP lines. Not secrets.
@@ -181,6 +181,8 @@ PREFETCH_DOWNLOAD_WORKERS = max(1, int(os.environ.get("PREFETCH_DOWNLOAD_WORKERS
 PREFETCH_NICE = int(os.environ.get("PREFETCH_NICE", "10"))
 PREFETCH_TIMEOUT_MINUTES = max(1, int(os.environ.get("PREFETCH_TIMEOUT_MINUTES", "60")))
 ZABAGED_CACHE_MAX_AGE_DAYS = int(os.environ.get("ZABAGED_CACHE_MAX_AGE_DAYS", "30"))
+# Slovensko: celostátní budovy a silnice INSPIRE ZBGIS (cache/sk_zbgis, ~6 GB) se smažou po této době bez použití
+SK_ZBGIS_CACHE_MAX_AGE_DAYS = int(os.environ.get("SK_ZBGIS_CACHE_MAX_AGE_DAYS", "90"))
 # Ortofoto / OSM / ZTM / katastr / hillshade PNG pro OOM.
 REF_CACHE_MAX_AGE_DAYS = int(os.environ.get("REF_CACHE_MAX_AGE_DAYS", "30"))
 RUIAN_CACHE_MAX_AGE_DAYS = int(os.environ.get("RUIAN_CACHE_MAX_AGE_DAYS", "30"))
