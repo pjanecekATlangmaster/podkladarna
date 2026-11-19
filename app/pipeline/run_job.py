@@ -1744,8 +1744,11 @@ def _package_output(
         src = kp_cwd / name
         if src.exists():
             shutil.copy2(src, output_dir / name)
+    # Rozbalené kopie podkladů vedle ZIPu (shade/, references/, uzitecne/) slouží jen k otevření .omap přímo
+    # z output/ při vývoji; web stahuje ZIP. Ostrá A je vypíná (OUTPUT_UNPACKED_COPIES=0, Petr 2026-11-19).
+    unpacked = bool(app_settings.OUTPUT_UNPACKED_COPIES)
     shade_src = kp_cwd / "shade"
-    if shade_src.is_dir():
+    if unpacked and shade_src.is_dir():
         shade_dst = output_dir / "shade"
         for name in ("hillshade.png", "hillshade.pgw"):
             src = shade_src / name
@@ -1753,7 +1756,7 @@ def _package_output(
                 shade_dst.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, shade_dst / name)
     # Stejná struktura jako v ZIPu, ať jde otevřít i output/*-{sprint,les,mtbo}.omap.
-    if want_zip and omap_paths:
+    if unpacked and want_zip and omap_paths:
         if bool(options.get("output_references", True)) or built_refs:
             refs_src = kp_cwd / "references"
             if refs_src.is_dir():
