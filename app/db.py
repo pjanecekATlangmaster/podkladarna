@@ -268,7 +268,11 @@ def _record_origin(
     *,
     with_estimate: bool = True,
 ) -> None:
-    """Zapíše původ jobu do interní statistiky (IP a e-mail jen jako značky)."""
+    """Zapíše původ jobu do interní statistiky (IP a e-mail jen jako značky).
+
+    Joby ukázek (``app.samples_refresh``) se nezapisují: nepatří do statistik ani kalibrace odhadu."""
+    if opts.get("sample"):
+        return
     private = bool(opts.get("private"))
     ip = str(opts.get("client_ip") or "")
     map_types = opts.get("map_types")
