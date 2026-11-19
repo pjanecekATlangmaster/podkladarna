@@ -11,7 +11,7 @@ from pathlib import Path
 from app import db
 from app import settings as app_settings
 from app.pipeline import build_stats
-from app.pipeline.zip_texts_en import zip_lang
+from app.pipeline.zip_texts_en import cs_intl_site_url, zip_lang
 from app.disk_space import ensure_job_space
 from app.download_cache import (
     force_refresh_enabled,
@@ -1708,7 +1708,9 @@ def _package_output(
 
             if output_georef_enabled(options):
                 try:
-                    build_georef_previews_zip(output_dir, log=log, lang=zip_lang(options))
+                    build_georef_previews_zip(
+                        output_dir, log=log, lang=zip_lang(options), cs_intl_url=cs_intl_site_url(options)
+                    )
                 except Exception as exc:
                     log_issue(log, f"OOM georef ZIP: přeskočeno ({exc})")
 

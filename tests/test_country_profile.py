@@ -631,7 +631,8 @@ def test_about_en_has_project_url(monkeypatch):
 
 @pytest.mark.parametrize("site, github", [("omapic.example", False), ("podkladarna.kibos.link", True), ("", True)])
 def test_czech_zip_texts_follow_domain(monkeypatch, site, github):
-    """Česky zadaný výřez v Česku: na mezinárodní doméně ZIP bez GitHubu a s adresou webu, česká doména beze změny."""
+    """Česky zadaný výřez v Česku: na mezinárodní doméně ZIP pod značkou Omapic (bez GitHubu, s adresou webu,
+    Petr 2026-11-19), česká doména beze změny."""
     from app.pipeline.package_oom import oom_metadata, oom_readme, zip_about
 
     monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,omapic.example=en:paid:*")
@@ -639,7 +640,14 @@ def test_czech_zip_texts_follow_domain(monkeypatch, site, github):
     meta = oom_metadata("les_10000", preset, {"country": "CZ", "lang": "cs", "site": site})
     name, about = zip_about(meta)
     readme = oom_readme(meta)
-    assert name == "CO_JE_PODKLADARNA.txt"
     assert ("github.com" in about) is github and ("github.com" in readme) is github
-    web = "https://podkladarna.kibos.link" if github else "https://omapic.example"
-    assert f"{web}/podpora" in about and (("podkladarna.kibos.link" in about) is github)
+    if github:
+        assert name == "CO_JE_PODKLADARNA.txt"
+        assert "https://podkladarna.kibos.link/podpora" in about and "Podklad: Podkladárna · ČÚZK" in about
+        assert "Podkladárn" in readme and "Omapic" not in about + readme
+    else:
+        assert name == "CO_JE_OMAPIC.txt"
+        assert "Vytvořeno v Omapicu: https://omapic.example" in about
+        assert "Podklad: Omapic (omapic.example) · ČÚZK" in about and "Podklad: Omapic (omapic.example) · ČÚZK" in readme
+        assert "CO_JE_OMAPIC.txt" in readme
+        assert "Podkladárn" not in about + readme + meta["citation"] and "kibos" not in about + readme

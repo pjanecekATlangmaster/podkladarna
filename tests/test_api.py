@@ -853,6 +853,10 @@ def test_zip_download_filename_uses_project_name(tmp_path, monkeypatch):
     from app.main import download_prefix
 
     assert download_prefix({"options": {"lang": "en"}}) == "omapic" and download_prefix({"options": {}}) == "podkladarna"
+    # Česky zadaný job na mezinárodní doméně je také Omapic (Petr 2026-11-19).
+    monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,omapic.example=en:paid:*")
+    assert download_prefix({"options": {"lang": "cs", "site": "omapic.example"}}) == "omapic"
+    assert download_prefix({"options": {"lang": "cs", "site": "podkladarna.kibos.link"}}) == "podkladarna"
 
 
 def test_logo_png(client):

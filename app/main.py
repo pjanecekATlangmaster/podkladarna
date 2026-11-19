@@ -1156,9 +1156,10 @@ def _output_zip_path(job_id: str) -> Path | None:
 
 def download_prefix(job: dict) -> str:
     """Předpona stahovaného souboru podle jazyka zadání (mezinárodní verze = omapic)."""
-    from app.pipeline.zip_texts_en import zip_lang
+    from app.pipeline.zip_texts_en import cs_intl_site_url, zip_lang
 
-    return "podkladarna" if zip_lang(job.get("options")) == "cs" else "omapic"
+    opts = job.get("options")
+    return "podkladarna" if zip_lang(opts) == "cs" and not cs_intl_site_url(opts) else "omapic"
 
 
 def _load_job_for_artifact(job_id: str, token: str | None) -> dict:
@@ -1219,9 +1220,11 @@ def api_download_georef_previews(job_id: str, token: str | None = None):
     zip_path = out / GEOREF_PREVIEWS_ZIP_NAME
     if not zip_path.is_file():
         # Lazy: sestav z preview/, pokud job doběhl před zavedením malého ZIPu.
-        from app.pipeline.zip_texts_en import zip_lang
+        from app.pipeline.zip_texts_en import cs_intl_site_url, zip_lang
 
-        built = build_georef_previews_zip(out, lang=zip_lang(job.get("options")))
+        built = build_georef_previews_zip(
+            out, lang=zip_lang(job.get("options")), cs_intl_url=cs_intl_site_url(job.get("options"))
+        )
         if built is None or not built.is_file():
             raise HTTPException(404, i18n.Msg("api.georef_previews_missing"))
         zip_path = built
