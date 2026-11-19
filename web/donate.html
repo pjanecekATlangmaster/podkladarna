@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="{{LANG}}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{t:donate.page.title}} – {{t:web.brand}}</title>
+  <link rel="icon" href="/static/logo.png" type="image/png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="page-wrap header-inner">
+      <a href="/"><img src="/static/logo.png" alt="{{t:web.brand}}" class="logo" width="48" height="48" /></a>
+      <div>
+        <h1>{{t:donate.page.title}}</h1>
+        <p class="tagline"><a href="/">{{t:donate.page.back}}</a></p>
+      </div>
+    </div>
+  </header>
+
+  <main class="licence-page support-page">
+    <p>{{t:donate.page.intro}}</p>
+    <p>{{t:donate.page.voluntary}}</p>
+
+    <p><strong>{{t:donate.page.choose}}</strong></p>
+    <div class="donate-buttons">
+        <!-- DONATE_BUTTONS -->
+    </div>
+    <p class="support-hint">{{t:donate.page.paypal_note}}</p>
+    <p class="support-hint">{{t:donate.page.tax_note}}</p>
+
+    <p>{{t:donate.page.thanks}}</p>
+  </main>
+
+  <footer class="site-footer">
+    <p><a href="/">{{t:web.brand}}</a> v{{APP_VERSION}} · <a href="/licence">{{t:web.footer.licence}}</a></p>
+  </footer>
+</body>
+</html>
