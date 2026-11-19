@@ -17,9 +17,10 @@ def test_every_state_is_a_country_with_provider_and_probes():
     for key, st in DE_WCS_STATES.items():
         assert loaded[st.code].elevation == key and loaded[st.code].crs == st.crs
         assert key in er.PROVIDERS and key in er.SOURCE_LABELS
-        assert {f"{key}_elevation", f"{key}_dop"} <= keys
+        assert f"{key}_elevation" in keys and (f"{key}_dop" in keys) is bool(st.wms)
         assert ("REQUEST=GetCoverage" in elevation_probe(key)) is (st.tiles == "wcs")
-        assert f"CRS={st.crs}" in ortho_probe(key)
+        if st.wms:
+            assert f"CRS={st.crs}" in ortho_probe(key)
 
 
 def test_tiles_at_most_2km_on_whole_metres():
@@ -99,8 +100,11 @@ def test_xyz_grid_rows_from_north():
     text = b"10.5 21.5 1\r\n11.5 21.5 2\r\n10.5 20.5 3\r\n11.5 20.5 4\r\n"
     grid, left, top = er.xyz_grid(text)
     assert grid.tolist() == [[1.0, 2.0], [3.0, 4.0]] and (left, top) == (10.0, 22.0)
-    with pytest.raises(RuntimeError, match="úplná mřížka"):
-        er.xyz_grid(b"10.5 21.5 1\n11.5 21.5 2\n10.5 20.5 3\n")
+    assert er.xyz_grid(b"x y z\r\n11 21 1\r\n12 21 2\r\n11 20 3\r\n12 20 4\r\n")[1:] == (10.5, 21.5)  # hlavička Brém
+    grid, left, top = er.xyz_grid(b"x y z\n32000011 21 1\n32000011 20 3\n32000012 21 2\n")  # pás 32, chybí bod
+    assert (left, top) == (10.5, 21.5) and grid[1, 1] == er.NODATA and grid[1, 0] == 3.0
+    with pytest.raises(RuntimeError, match="mřížka 1 m"):
+        er.xyz_grid(b"10.5 21.5 1\n12.5 21.5 2\n")
 
 
 def test_bw_tile_rejects_oversized_member(tmp_path, monkeypatch):
@@ -201,16 +205,17 @@ def test_zip_range_index_and_member(tmp_path, monkeypatch):
     with zipfile.ZipFile(er._RangeFile("u", len(raw))) as zf:
         index = er.parse_zip_tile_names(zf.infolist(), re.compile(r"dgm1_\d{2}_(\d+)_(\d+)_1_[^/]*\.tif$"))
     assert list(index) == ["350_5475"]
-    assert er.zip_member_bytes("u", *index["350_5475"]) == tile
+    assert er.zip_member_bytes("u", *index["350_5475"][:5]) == tile
+    assert index["350_5475"][5] is False  # GeoTIFF, ne XYZ
     monkeypatch.setattr(er, "ZIP_RANGE_MAX_MEMBER_BYTES", 1000)  # deflate rozbalený nad limit
     with pytest.raises(RuntimeError, match="přes limit"):
-        er.zip_member_bytes("u", *index["350_5475"])
+        er.zip_member_bytes("u", *index["350_5475"][:5])
     monkeypatch.undo()
     # zkrácená odpověď (spojení skončilo dřív) se nesmí uložit jako dlaždice
     monkeypatch.setattr(er, "_http_range", lambda url, start, end: raw[start:min(end + 1, start + 75)])
     with pytest.raises(RuntimeError, match="zkrácen|neúplný|CRC"):
-        er.zip_member_bytes("u", *index["350_5475"])
-    entry = list(index["350_5475"])
+        er.zip_member_bytes("u", *index["350_5475"][:5])
+    entry = list(index["350_5475"][:5])
     entry[3] ^= 1  # jiný CRC32
     monkeypatch.setattr(er, "_http_range", lambda url, start, end: raw[start:end + 1])
     with pytest.raises(RuntimeError, match="CRC"):
@@ -244,7 +249,23 @@ def test_http_range_checks_length(monkeypatch, status, content_range, body, outc
         assert len(calls) == (er.ZIP_RANGE_RETRIES if outcome is OSError else 1)
 
 
+def test_zip_range_tile_passes_checks_and_converts_xyz(tmp_path, monkeypatch):
+    monkeypatch.setattr(er.settings, "CACHE_DIR", tmp_path)
+    index = {"dtm": {"487_5882": ["u1", 10, 20, 8, 123, 456, True]},  # XYZ Brém s CRC
+             "dsm": {"487_5882": ["u2", 30, 40, 8, 789, 999]}}         # starší index bez příznaku xyz
+    monkeypatch.setattr(er, "zip_range_index", lambda key, kind: index[kind])
+    calls = []
+    monkeypatch.setattr(er, "zip_member_bytes", lambda *a: calls.append(a) or b"data")
+    monkeypatch.setattr(er, "xyz_grid", lambda data: ("grid", 0.0, 0.0))
+    monkeypatch.setattr(er, "_write_tif", lambda path, *a: path.write_bytes(b"tif"))
+    folder = er._zip_range_tile("de_hb", 487, 5882)
+    assert calls == [("u1", 10, 20, 8, 123, 456), ("u2", 30, 40, 8, 789, 999)]
+    assert (folder / "dtm.tif").read_bytes() == b"tif" and (folder / "dsm.tif").read_bytes() == b"data"
+    assert (folder / ".complete").is_file()
+
+
 def test_zip_range_tiles_and_probe():
     assert er.zip_range_tiles((349990.0, 5474990.0, 351020.0, 5475020.0)) == [
         (349, 5474), (349, 5475), (350, 5474), (350, 5475), (351, 5474), (351, 5475)]
-    assert elevation_probe("de_sl").endswith("/DGM1_tif_NK_EPSG-25832_Entstehung-2025.zip")
+    assert elevation_probe("de_sl").endswith("/DGM1_tif_WND_EPSG-25832_Entstehung-2025.zip")
+    assert elevation_probe("de_hh").endswith("/dgm1_hh_2022-04-30_258334_snap_1.zip")

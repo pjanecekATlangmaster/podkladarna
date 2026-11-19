@@ -28,7 +28,9 @@ class DeWcsState:
     tiles: str = "wcs"           # wcs = GetCoverage po 2 km | meta4 = GeoTIFF po 1 km podle indexu Metalink
                                  # | bw_zip = ZIP po 2 km (``dtm`` XYZ, ``dsm`` = nDOM, výška nad terénem), cache
                                  # | sn_zip = ZIP po 2 km s jedním GeoTIFF (DGM1 i DOM1 absolutně), cache
-                                 # | zip_range = GeoTIFF po 1 km čtené rozsahy z velkých ZIPů (``ZIP_RANGE_PARTS``)
+                                 # | zip_range = GeoTIFF po 1 km čtené rozsahy z velkých ZIPů (``dtm`` = (šablona
+                                 #   URL s ``{part}``, předpona souboru), díly v ``parts``)
+    parts: tuple[str, ...] = ("",)  # díly ZIPů u ``zip_range`` (okresy Sárska)
     axes: tuple[str, str] = ("x", "y")  # popisky os WCS v SUBSET (Hesensko „E N“)
 
 
@@ -53,6 +55,10 @@ HE_WMS = "https://www.gds-srv.hessen.de/cgi-bin/lika-services"
 SL_DAV = "https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/NK8ndP55qAqGEZD"
 SL_WMS = "https://geoportal.saarland.de/freewms"
 SL_COUNTIES = ("MZG", "NK", "SB", "SLS", "SPK", "WND")  # okresy (Landkreise), jeden ZIP na okres
+HH_ARCHIVE = "https://archiv.transparenz.hamburg.de/hmbtgarchive/HMDK"
+HH_DATA = "https://www.daten-hamburg.de/opendata"
+HB_DATA = "https://gdi2.geo.bremen.de/inspire/download"
+HB_WMS = "https://geodienste.bremen.de/wms_dop_lb"
 
 # Sasko-Anhaltsko (LVermGeo ST): Datenlizenz Deutschland – Namensnennung 2.0, poskytovatel „© GeoBasis-DE / LVermGeo ST“
 # (Nutzungsbedingungen v5.0, 1. 3. 2024, bod 2). WCS ``ows_WCS_ST_DGM1`` / ``ows_WCS_ST_DOM1`` (coverage ``Coverage1``,
@@ -193,14 +199,46 @@ DE_WCS_STATES: dict[str, DeWcsState] = {
         code="DE-SL",
         name="Sársko",
         crs="EPSG:25832",
-        dtm=(f"{SL_DAV}/OD_DGM1_2025_tif_LK", "DGM1"),
-        dsm=(f"{SL_DAV}/OD_DOM1_2025_tif_LK", "DOM1"),
+        dtm=(f"{SL_DAV}/OD_DGM1_2025_tif_LK/DGM1_tif_{{part}}_EPSG-25832_Entstehung-2025.zip", "dgm1"),
+        dsm=(f"{SL_DAV}/OD_DOM1_2025_tif_LK/DOM1_tif_{{part}}_EPSG-25832_Entstehung-2025.zip", "dom1"),
         probe_box=(350000, 5475000, 350016, 5475016),  # Neunkirchen
         wms=(
             ("de_sl_dop", "dop_saarland.xml", "DOP20 Saarland (ortofoto)", f"{SL_WMS}/dop2025", "sl_dop20_rgb",
              "image/jpeg", False, 0.2),
         ),
         tiles="zip_range",
+        parts=SL_COUNTIES,
+    ),
+    # Hamburk (LGV): dl-de/by-2.0, „Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)“
+    # (Transparenzportal). Celé město v jednom ZIPu (DGM1 2022 1,36 GB, bDOM 2022 1,34 GB), uvnitř GeoTIFF po 1 km →
+    # čte se rozsahy jako Sársko. DGM1 odkazuje Transparenzportal jen na archivní kopii (přímá adresa daten-hamburg.de
+    # vrací 404). Povrch je obrazový bDOM → green: photo. Volné ortofoto WMS bez cizí licence nenalezeno (časová řada
+    # obsahuje snímky Maxar s uzavřenou licencí) → bez šablony.
+    "de_hh": DeWcsState(
+        code="DE-HH",
+        name="Hamburk",
+        crs="EPSG:25832",
+        dtm=(f"{HH_ARCHIVE}/dgm1_hh_2022-04-30_258334_snap_1.zip", "dgm1"),
+        dsm=(f"{HH_DATA}/Digitales_Hoehenmodell_bDOM/dom1_hh_2022-11-21.zip", "dom1"),
+        probe_box=(565000, 5935000, 565016, 5935016),  # centrum
+        tiles="zip_range",
+    ),
+    # Brémy (Landesamt GeoInformation Bremen): CC BY 4.0, Quellenvermerk „Landesamt GeoInformation Bremen“ (metadata
+    # ATKIS DGM1 Land Bremen, Fees WMS). ZIP na město (Brémy 2017 1,1 / 1,2 GB, Bremerhaven 2015 0,6 / 0,3 GB), uvnitř XYZ
+    # po 1 km s hlavičkou „x y z“ (~3 MB) → čte se rozsahy, převádí na GeoTIFF. DOP10 2025 obou měst jednou vrstvou WMS.
+    "de_hb": DeWcsState(
+        code="DE-HB",
+        name="Brémy",
+        crs="EPSG:25832",
+        dtm=(f"{HB_DATA}/DGM/data/Gitternetz_DGM1_{{part}}_ASCII_XYZ.zip", "dgm1"),
+        dsm=(f"{HB_DATA}/DOM/data/Gitternetz_DOM1_{{part}}_ASCII_XYZ.zip", "dom1"),
+        probe_box=(487000, 5882000, 487016, 5882016),  # Brémy
+        wms=(
+            ("de_hb_dop", "dop_bremen.xml", "DOP10 Bremen (ortofoto)", HB_WMS, "dop10_2025_HB,dop10_2025_BHV",
+             "image/jpeg", False, 0.1),
+        ),
+        tiles="zip_range",
+        parts=("2017_HB", "2015_BHV"),
     ),
 }
 
@@ -235,10 +273,10 @@ def sn_zip_url(service: tuple[str, str], east_km: int, north_km: int) -> str:
     return f"{base}/{prefix}_33{east_km}_{north_km}_2_sn_tiff.zip"
 
 
-def zip_range_parts(service: tuple[str, str]) -> list[str]:
-    """ZIPy okresů Sárska jedné vrstvy (``DGM1`` / ``DOM1``)."""
-    folder, prefix = service
-    return [f"{folder}/{prefix}_tif_{lk}_EPSG-25832_Entstehung-2025.zip" for lk in SL_COUNTIES]
+def zip_range_parts(st: DeWcsState, kind: str) -> list[str]:
+    """ZIPy jedné vrstvy (``dtm`` / ``dsm``) u ``zip_range`` (Sársko po okresech, Hamburk jeden ZIP)."""
+    template = (st.dtm if kind == "dtm" else st.dsm)[0]
+    return [template.format(part=part) for part in st.parts]
 
 
 def elevation_probe(key: str) -> str:
@@ -249,7 +287,7 @@ def elevation_probe(key: str) -> str:
     if st.tiles == "bw_zip":
         return bw_zip_url(st.dtm, int(st.probe_box[0] // 1000), int(st.probe_box[1] // 1000))
     if st.tiles == "zip_range":
-        return zip_range_parts(st.dtm)[1]
+        return zip_range_parts(st, "dtm")[-1]
     if st.tiles == "sn_zip":
         return sn_zip_url(st.dtm, int(st.probe_box[0] // 2000) * 2, int(st.probe_box[1] // 2000) * 2)
     return wcs_coverage_url(st.dtm, st.probe_box, st.axes)
@@ -262,6 +300,8 @@ def elevation_probe_method(key: str) -> str:
 
 def ortho_probe(key: str) -> str:
     st = DE_WCS_STATES[key]
+    if not st.wms:
+        raise ValueError(f"{st.name}: bez ortofota")
     _k, _f, _label, url, layer, fmt, _transparent, _res = st.wms[0]
     x0, y0, x1, y1 = st.probe_box
     return (

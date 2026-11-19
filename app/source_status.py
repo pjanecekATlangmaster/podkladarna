@@ -494,13 +494,13 @@ PROBES: tuple[Probe, ...] = (
                 fatal=True,
                 countries=(st.code,),
             ),
-            Probe(
+            *(() if not st.wms else (Probe(
                 f"{key}_dop",
                 f"Ortofoto ({st.name})",
                 (ortho_probe(key),),
                 "Šablona ortofota bude chybět.",
                 countries=(st.code,),
-            ),
+            ),)),
         )
     ),
 )

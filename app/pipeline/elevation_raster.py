@@ -859,11 +859,17 @@ def bw_tile_dir(east_km: int, north_km: int) -> Path:
 
 
 def xyz_grid(text: bytes) -> tuple[np.ndarray, float, float]:
-    """Úplná mřížka 1 m z XYZ (středy pixelů, řádky od severu) → (pole, levý okraj, horní okraj)."""
+    """Mřížka 1 m z XYZ (body = středy pixelů, libovolné pořadí) → (pole, levý okraj, horní okraj); chybějící body NoData.
+
+    Hlavička „x y z“ na prvním řádku a východní souřadnice s číslem pásu 32 (Brémy, Bremerhaven) se přijmou."""
+    if text[:1].isalpha():
+        text = text.split(b"\n", 1)[1] if b"\n" in text else b""
     vals = np.array(text.split(), dtype="float64").reshape(-1, 3)
+    if len(vals) and vals[0, 0] >= 32_000_000:
+        vals[:, 0] -= 32_000_000
     xs, ys = np.unique(vals[:, 0]), np.unique(vals[:, 1])
-    if len(xs) * len(ys) != len(vals) or not (np.allclose(np.diff(xs), 1.0) and np.allclose(np.diff(ys), 1.0)):
-        raise RuntimeError("XYZ není úplná mřížka 1 m")
+    if not len(vals) or not (np.allclose(np.diff(xs), 1.0) and np.allclose(np.diff(ys), 1.0)):
+        raise RuntimeError("XYZ není mřížka 1 m")
     grid = np.full((len(ys), len(xs)), NODATA, dtype="float32")
     col = np.rint(vals[:, 0] - xs[0]).astype(int)
     row = np.rint(ys[-1] - vals[:, 1]).astype(int)
@@ -1083,11 +1089,11 @@ def de_sn_provider(key: str) -> Provider:
     return _folder_tiles_provider(key, sn_tiles, lambda e, n, log: _sn_tile(key, e, n, log=log))
 
 
-# Sársko: ZIP na okres (0,6–1,3 GB) s GeoTIFF po 1 km. Z ZIPu se čte rozsahy HTTP jen centrální adresář (index se drží
+# Sársko, Hamburk a Brémy: ZIP na okres / město (0,6–1,4 GB) s GeoTIFF po 1 km. Z ZIPu se čte rozsahy HTTP jen centrální adresář (index se drží
 # ``ZIP_INDEX_MAX_AGE_S``) a potřebné dlaždice; cache ``de_sl/<E>_<N>`` jako u Saska.
 ZIP_INDEX_MAX_AGE_S = 30 * 86400
 ZIP_RANGE_RETRIES = 3
-ZIP_RANGE_MAX_BYTES = 30_000_000  # dlaždice 1 km má komprimovaně ~2 MB
+ZIP_RANGE_MAX_BYTES = 30_000_000  # dlaždice 1 km má komprimovaně ~2 MB (XYZ Brém ~3 MB)
 ZIP_RANGE_MAX_MEMBER_BYTES = 200_000_000  # rozbalená dlaždice 1 km (XYZ ~29 MB); víc = podezřelý ZIP
 
 
@@ -1155,14 +1161,15 @@ class _RangeFile:
 
 
 def parse_zip_tile_names(entries, pattern: re.Pattern) -> dict[str, list]:
-    """{„E_N“: [offset lokální hlavičky, komprimovaná velikost, metoda, CRC32, rozbalená velikost]} pro členy ZIPu
-    podle vzoru se skupinami E, N."""
+    """{„E_N“: [offset lokální hlavičky, komprimovaná velikost, metoda, CRC32, rozbalená velikost, xyz?]} pro členy
+    ZIPu podle vzoru se skupinami E, N."""
     out: dict[str, list] = {}
     for info in entries:
         m = pattern.search(info.filename)
         if m:
             out.setdefault(f"{m.group(1)}_{m.group(2)}",
-                           [info.header_offset, info.compress_size, info.compress_type, info.CRC, info.file_size])
+                           [info.header_offset, info.compress_size, info.compress_type, info.CRC, info.file_size,
+                            info.filename.lower().endswith(".xyz")])
     return out
 
 
@@ -1191,9 +1198,10 @@ def _zip_range_index(key: str, kind: str) -> dict[str, list]:
     path = settings.CACHE_DIR / f"{key}_index" / f"{kind}.json"
     if path.is_file() and time.time() - path.stat().st_mtime < ZIP_INDEX_MAX_AGE_S:
         return json.loads(path.read_text(encoding="utf-8"))
-    pattern = re.compile(rf"{service[1].lower()}_\d{{2}}_(\d+)_(\d+)_1_[^/]*\.tif$", re.IGNORECASE)
+    # „dgm1_32_466_5973_1_hh_2022.tif“ (SL, HH), „dgm1_32465_5896_1_hb.xyz“ i „dgm1_32466__5924_1_hb.xyz“ (Brémy)
+    pattern = re.compile(rf"{service[1]}_\d{{2}}_?(\d+)_+(\d+)_1_[^/]*\.(?:tif|xyz)$", re.IGNORECASE)
     index: dict[str, list] = {}
-    for url in zip_range_parts(service):
+    for url in zip_range_parts(st, kind):
         req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=60) as resp:
             size = int(resp.headers["Content-Length"])
@@ -1284,9 +1292,16 @@ def _zip_range_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path 
             if not entry:
                 log_issue(log, f"{st.name}: DOM1 {name} chybí, výška porostu tam chybí")
                 continue
+        url, offset, csize, method, *rest = entry  # rest: CRC32, rozbaleno, xyz? (starší index jen část)
+        crc, usize, is_xyz = (list(rest) + [None, None, False])[:3]
+        data = zip_member_bytes(url, offset, csize, method, crc, usize)
         dest = folder / f"{kind}.tif"
         tmp = dest.with_name(f".{dest.name}.{os.getpid()}")
-        tmp.write_bytes(zip_member_bytes(*entry))
+        if is_xyz:  # XYZ (Brémy) → GeoTIFF
+            grid, left, top = xyz_grid(data)
+            _write_tif(tmp, grid, left, top, st.crs)
+        else:
+            tmp.write_bytes(data)
         tmp.replace(dest)
     (folder / ".complete").touch()
     touch_last_used(folder)
@@ -1296,7 +1311,7 @@ def _zip_range_tile(key: str, east_km: int, north_km: int, *, log=None) -> Path 
 
 
 def de_zip_range_provider(key: str) -> Provider:
-    """Provider výšek z dlaždic 1 km čtených rozsahy z velkých ZIPů (Sársko)."""
+    """Provider výšek z dlaždic 1 km čtených rozsahy z velkých ZIPů (Sársko, Hamburk, Brémy)."""
     return _folder_tiles_provider(key, zip_range_tiles, lambda e, n, log: _zip_range_tile(key, e, n, log=log))
 
 
@@ -2452,6 +2467,8 @@ SOURCE_LABELS = {
     "de_sn": "DGM1 a DOM1, GeoSN Sachsen",
     "de_he": "DGM1 a DOM1, HVBG Hessen",
     "de_sl": "DGM1 a DOM1, LVGL Saarland",
+    "de_hh": "DGM1 a bDOM, LGV Hamburg",
+    "de_hb": "DGM1 a DOM1, GeoInformation Bremen",
 }
 
 

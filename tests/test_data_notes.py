@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
         ("DE-SN", []),
         ("DE-HE", []),
         ("DE-SL", []),
+        ("DE-HH", ["photo"]),
+        ("DE-HB", []),
         ("LU", []),
         ("NL", []),
     ],

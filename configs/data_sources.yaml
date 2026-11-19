@@ -2589,6 +2589,77 @@ sources:
   issues:
     - "Licence WMS převzatá z volných geobasisdat LVGL (GetCapabilities má Fees None)."
 
+- id: de_hh_dgm
+  countries: [DE-HH]
+  kinds: [elevation, canopy]
+  name: DGM1 2022 a bDOM 2022 Hamburk, GeoTIFF po 1 km v ZIPu celého města
+  provider: Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV)
+  url: https://archiv.transparenz.hamburg.de/hmbtgarchive/HMDK/dgm1_hh_2022-04-30_258334_snap_1.zip
+  info: https://suche.transparenz.hamburg.de/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_zip_range_provider), app/pipeline/reference_de_states.py
+  provider_key: de_hh
+  probe: de_hh_elevation
+  license:
+    class: public
+    name: Datenlizenz Deutschland – Namensnennung 2.0
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "Freie und Hansestadt Hamburg, Landesbetrieb Geoinformation und Vermessung (LGV), dl-de/by-2-0"
+  access: free
+  checked: "Claude 2026-11-19: Transparenzportal (balík „Geländemodelle Hamburg - DGM“ 2026-10-28, dl-de-by-2.0) → DGM1 2022 ZIP 1,36 GB (926 členů dgm1_32_<E>_<N>_1_hh_2022.tif), bDOM dom1_hh_2022-11-21.zip 1,34 GB (884 členů); Range 206, index ~3 s, dlaždice DGM + bDOM za ~4 s, GeoTIFF Float32 EPSG:25832 1000 × 1000"
+  issues:
+    - "DGM1 je dostupné jen jako archivní kopie Transparenzportalu (adresa se snapshotem); přímá adresa daten-hamburg.de vrací 404. Při novém vydání je potřeba adresu obnovit."
+    - "bDOM je ze snímků → green: photo."
+    - "Volné ortofoto WMS jen jako časová řada se snímky Maxar (uzavřená licence) → šablona ortofota není."
+
+- id: de_hb_dgm
+  countries: [DE-HB]
+  kinds: [elevation, canopy]
+  name: DGM1 a DOM1 Brémy (2017) a Bremerhaven (2015), XYZ po 1 km v ZIPech měst
+  provider: Landesamt GeoInformation Bremen
+  url: https://gdi2.geo.bremen.de/inspire/download/DGM/data/Gitternetz_DGM1_2017_HB_ASCII_XYZ.zip
+  info: https://geo.bremen.de/
+  role: výšky
+  status: used
+  code: app/pipeline/elevation_raster.py (de_zip_range_provider, xyz_grid), app/pipeline/reference_de_states.py
+  provider_key: de_hb
+  probe: de_hb_elevation
+  license:
+    class: public
+    name: Creative Commons Namensnennung 4.0 International
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: "Landesamt GeoInformation Bremen (CC BY 4.0)"
+  access: free
+  checked: "Claude 2026-11-19: INSPIRE ATOM ZIPy Gitternetz_DGM1_2017_HB (1,09 GB, 395 dlaždic dgm1_32<E>_<N>_1_hb.xyz), DGM1_2015_BHV (0,61 GB), DOM1_2017_HB (1,24 GB), DOM1_2015_BHV (0,32 GB); Range 206; XYZ s hlavičkou „x y z“, body na celých metrech, řádky od severu, 1000 × 1000; licence CC BY 4.0 (Verfügung hvD 2024-05-22, metadata DGM1 Land Bremen)"
+  issues:
+    - "Body XYZ leží na celých metrech, bere se jako středy pixelů (posun 0,5 m proti mřížce s hranami na celých metrech)."
+    - "Data jsou starší (Brémy 2017, Bremerhaven 2015)."
+
+- id: de_hb_wms
+  countries: [DE-HB]
+  kinds: [orthophoto]
+  name: "Ortofoto DOP10 2025 (WMS GeoInformation Bremen)"
+  provider: Landesamt GeoInformation Bremen
+  url: https://geodienste.bremen.de/wms_dop_lb
+  info: https://geo.bremen.de/
+  role: šablona
+  reference_keys: ["online_de_hb_*"]
+  image_in_zip: allowed
+  image_in_zip_note: "CC BY 4.0 – přibalit lze s uvedením zdroje (README a citace)."
+  status: used
+  code: app/pipeline/reference_de_states.py, app/pipeline/online_templates.py, app/pipeline/open_paved.py
+  probe: de_hb_dop
+  license:
+    class: public
+    name: Creative Commons Namensnennung 4.0 International
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: "Landesamt GeoInformation Bremen (CC BY 4.0)"
+  access: free
+  checked: "Claude 2026-11-19: GetCapabilities (Fees CC-BY, Quellenvermerk Landesamt GeoInformation Bremen), GetMap dop10_2025_HB,dop10_2025_BHV EPSG:25832 200 image/jpeg"
+  issues:
+    - "Vrstva je pojmenovaná rokem snímkování; po novém snímkování je potřeba ji přepsat."
+
 - id: de_bb_als
   countries:
   - DE
