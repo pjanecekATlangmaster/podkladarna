@@ -614,3 +614,14 @@ def test_sk_local_elevation_check(tmp_path, monkeypatch, dsm_shift, ok):
         chm = elevation_raster._read(res.chm)
         assert chm.max() == pytest.approx(18.0, abs=0.1)
         assert 0.3 < float((chm > 3).mean()) < 0.7
+
+
+def test_about_en_has_project_url(monkeypatch):
+    """ABOUT_OMAPIC.txt nese adresu webu, ať se ví, odkud ZIP je (Petr 2026-11-19)."""
+    from app.pipeline.package_oom import oom_metadata, zip_about
+    monkeypatch.setenv("SITES", "podkladarna.kibos.link=cs:free:CZ,omapic.example=en:paid:*")
+    meta = oom_metadata("les_10000", {"label": "Lesní 1:10000 · 5 m", "scalefactor": 1}, {"country": "NL", "lang": "en", "site": "omapic.example"})
+    _, about = zip_about(meta)
+    assert "Made with Omapic: https://omapic.example" in about and "Base map: Omapic (omapic.example)" in about
+    meta.pop("site_url")
+    assert "https://omapic.example" in zip_about(meta)[1]  # starší metadata: první mezinárodní doména

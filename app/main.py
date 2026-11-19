@@ -32,7 +32,7 @@ from app.feedback import (
     send_feedback,
     send_source_suggestion,
 )
-from app.guide_text import web_about_html
+from app.guide_text import strip_github_links, web_about_html
 from app.job_template import job_form_template
 from app.mail import MailError
 from app.rate_limit import check_create_api_job, check_create_job
@@ -436,9 +436,10 @@ def _page_source(name: str, request: Request) -> str:
 GITHUB_REPO_URL = "https://github.com/pjanecekATlangmaster/podkladarna"
 
 
-def source_links_html(lang: str) -> str:
-    """Odkazy na zdrojový kód a Issues v patičce jen v české verzi (mezinárodní verze GitHub neukazuje)."""
-    if lang != i18n.SOURCE_LANG:
+def source_links_html(lang: str, *, intl: bool = False) -> str:
+    """Odkazy na zdrojový kód a Issues v patičce jen v české verzi na české doméně (mezinárodní verze GitHub
+    neukazuje nikde, ani česky; Petr 2026-11-19)."""
+    if intl or lang != i18n.SOURCE_LANG:
         return ""
     return (
         f'<a href="{GITHUB_REPO_URL}" target="_blank" rel="noopener">{{{{t:web.footer.source_code}}}}</a>\n'
@@ -556,7 +557,7 @@ def index(request: Request) -> HTMLResponse:
         # Doména i pro jiné země: texty o souřadnicích bez S-JTSK (česká doména beze změny).
         for key in _INTL_PAGE_KEYS:
             html = html.replace(f"{{{{h:{key}}}}}", f"{{{{h:{key}_intl}}}}")
-    html = html.replace("<!-- PODKLADARNA_SOURCE_LINKS -->", source_links_html(lang))
+    html = html.replace("<!-- PODKLADARNA_SOURCE_LINKS -->", source_links_html(lang, intl=intl))
     html = html.replace("<!-- PODKLADARNA_SAMPLES -->", samples_html(lang))
     html = html.replace("{{APP_VERSION}}", APP_VERSION)
     html = html.replace("<!-- PODKLADARNA_USAGE -->", usage_footer_html(lang))
@@ -596,15 +597,6 @@ def country_sources_html(request: Request, lang: str) -> str:
     return "".join(items)
 
 
-_GITHUB_SOURCE_RE = re.compile(r"\s*Zdrojový kód:\s*<a [^>]*github\.com[^>]*>[^<]*</a>\.")
-_GITHUB_LINK_RE = re.compile(r'<a [^>]*href="https://[^"]*github\.(?:com|io)[^"]*"[^>]*>([^<]*)</a>')
-
-
-def _strip_github_links(html: str) -> str:
-    """Bez odkazu na zdrojový kód a bez odkazů na GitHub (text odkazu zůstane)."""
-    return _GITHUB_LINK_RE.sub(r"\1", _GITHUB_SOURCE_RE.sub("", html))
-
-
 @app.get("/licence", response_class=HTMLResponse)
 def licence_page(request: Request) -> HTMLResponse:
     html = _page_source("licence.html", request)
@@ -614,7 +606,7 @@ def licence_page(request: Request) -> HTMLResponse:
     html = html.replace("{{SITE_URL}}", html_escape(base or "/"))
     html = html.replace("{{SITE_HOST}}", html_escape(urllib.parse.urlsplit(base).netloc or i18n._request_host(request)))
     if site is not None and tuple(site.countries) != ("CZ",):
-        html = _strip_github_links(html)  # mezinárodní verze GitHub neukazuje nikde (Petr 2026-11-19)
+        html = strip_github_links(html)  # mezinárodní verze GitHub neukazuje nikde (Petr 2026-11-19)
     if "<!-- PODKLADARNA_COUNTRY_SOURCES -->" in html:
         sources = country_sources_html(request, i18n.resolve_lang(request)[0])
         html = html.replace("<!-- PODKLADARNA_COUNTRY_SOURCES -->", sources)
