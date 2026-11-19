@@ -1580,18 +1580,41 @@ def _sprint_merged_road_sidewalk(work_dir: Path, path_source: str = "mixed"):
     merged, interface, rest = dtm_sidewalks.merge_sidewalk_with_road(roads, sidewalks)
     if merged is None:
         return None
+    merged, rest = _absorb_touching(merged, rest)
     return merged, interface, rest
 
 
-# Pás (m) kolem sousední plochy, ve kterém se obrys nekreslí (společná hranice sloučené plochy a zbytku chodníku).
-SHARED_EDGE_TOL_M = 0.05
+# Kusy zbytku chodníku blíž než tohle (m) ke sloučené ploše silnice s chodníkem k ní patří.
+REST_TOUCH_M = 0.01
+# Mikroskopické škvíry po sjednocení (numerika řezu) se zacelí uzavřením o tolik (m).
+REST_SEAM_CLOSE_M = 0.005
 
 
-def _shared_edge_zone(other):
-    """Okolí plochy ``other`` (shapely), kde obrys sousední plochy splývá s řezem; None bez plochy."""
-    if other is None or other.is_empty:
-        return None
-    return other.buffer(SHARED_EDGE_TOL_M)
+def _absorb_touching(merged, rest):
+    """Kusy zbytku chodníku, které navazují na sloučenou plochu, se k ní přidají: ``(merged, zbytek)``.
+
+    Souvislý chodník řezaný v ``MERGE_SIDEWALK_NEAR_M`` od silnice byl dvěma objekty; Mapper na jejich styku kreslí
+    světlý šev a dřív i obrys přes chodník (Chvaletice, Petr 2026-11-19). Samostatně zůstanou jen kusy bez dotyku.
+    """
+    from shapely.ops import unary_union
+
+    from app.pipeline import dtm_sidewalks
+
+    if rest is None or rest.is_empty or merged is None or merged.is_empty:
+        return merged, rest
+    zone = merged.buffer(REST_TOUCH_M)
+    touching, alone = [], []
+    for rings in dtm_sidewalks.polygon_rings(rest):
+        from shapely.geometry import Polygon
+
+        piece = Polygon(rings[0], rings[1:])
+        (touching if piece.intersects(zone) else alone).append(piece)
+    if not touching:
+        return merged, rest
+    c = REST_SEAM_CLOSE_M
+    grown = unary_union([merged, *touching]).buffer(c, join_style=2).buffer(-c, join_style=2)
+    grown = grown.union(merged) if not grown.is_empty else merged  # uzavření nesmí nic ubrat
+    return grown, (unary_union(alone) if alone else None)
 
 
 def _path_object_mapped(symbol_index: int, mapped) -> str:
@@ -2290,19 +2313,17 @@ def build_dtm_sidewalk_parts(
     narrow = narrow_line_zone(work_dir, path_source, preset_id, scale)  # úzký pás kreslí čára OSM
     merged = _sprint_merged_road_sidewalk(work_dir, path_source)
     if merged is not None:
-        fill, _interface, rest = merged
+        _fill, _interface, rest = merged
         rest = minus_zone(rest, narrow)
         if rest is None or rest.is_empty:
             return []
-        # Zbytek chodníku navazuje na sloučenou plochu silnice s chodníkem (řez v ``MERGE_SIDEWALK_NEAR_M`` od silnice):
-        # obrys podél řezu se nekreslí, jinak souvislý chodník přeškrtne čára (Chvaletice, Petr 2026-11-19).
+        # Jen kusy bez dotyku se sloučenou plochou (navazující jsou v ní, ``_absorb_touching``); 501.1 + 501.100 jako ona.
         return _geometry_part(
             rest,
             edge_exclude=deck_footprint_geometry(work_dir),
             name="Chodníky mimo silnici (DTM + OSM)",
             code="501.0",
             outline_separate=True,
-            edge_omit=_shared_edge_zone(fill),
             **kw,
         )
     geom = sidewalk_geometry(
@@ -2590,7 +2611,7 @@ def build_dtm_road_parts(
     narrow = narrow_line_zone(work_dir, path_source, preset_id, scale)  # úzký pás kreslí čára OSM
     merged = _sprint_merged_road_sidewalk(work_dir, path_source)
     if merged is not None:
-        fill, interface, rest = merged
+        fill, interface, _rest = merged
         fill = minus_zone(fill, narrow)
         interface = minus_zone(interface, narrow)
         parts = _geometry_part(
@@ -2599,7 +2620,6 @@ def build_dtm_road_parts(
             name="Silnice s chodníkem (DTM + OSM, 501.1)",
             code="501.0",
             outline_separate=True,
-            edge_omit=_shared_edge_zone(rest),  # řez proti zbytku chodníku bez obrysu
             **kw,
         )
         if interface is not None and not interface.is_empty:
